@@ -10,7 +10,7 @@ patch-zoning optimizer was retired in favor of the continuous-field design.
 from __future__ import annotations
 from typing import List
 
-from sjtu_tpmshx.solvers.tpms_props import geometry as _geom
+from sjtu_tpmshx.models.tpms_props import geometry as _geom
 
 _SURROGATE_L_MM = (4.0, 5.0, 6.0, 7.0, 8.0)
 _SURROGATE_T_MM = (0.3, 0.4, 0.5, 0.6)
@@ -63,8 +63,8 @@ def check_surrogate_domain_at_point(tpms_type: str,
     if _os.environ.get('TPMSHX_ALLOW_EXTRAP', '').lower() in ('1', 'true', 'yes'):
         allow_extrap = True
 
-    from sjtu_tpmshx.solvers.fluid_props import get as _get_fluid
-    from sjtu_tpmshx.solvers.nu_correlations import (
+    from sjtu_tpmshx.models.fluid_props import get as _get_fluid
+    from sjtu_tpmshx.models.nu_correlations import (
         NU_RE_FIT_RANGE, SCO2_NU_RE_RANGE, WATER_NU_RE_RANGE,
     )
     model = _get_fluid(fluid)

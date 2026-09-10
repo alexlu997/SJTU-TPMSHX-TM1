@@ -52,3 +52,12 @@ Repair order follows the graph: G10 and baseline/CI gaps, model and module
 leaves, dimensional/application integration, formal file and independent
 process verification, application routing, then Z00. M-B retains its original
 required and staged capabilities; no requirement is removed to fit existing code.
+
+## Shared model extraction ownership
+
+The sole controller coordinates M00 with the I55 source reconnection in
+`codex/tm1/m00-repair`. This bounded integration moves the existing pure model
+implementations to `models` and reconnects their existing public module paths;
+there is no second formula implementation. Numerical kernels and thread
+initialization retain their existing behavior. This is partial M00/I55 work,
+not acceptance of either node or of dependent module integration.

@@ -132,3 +132,15 @@ P1.2 已验证为"上游已修+已锁定"收案（iter 7；HANDOFF §1 整节过
 （权威统一 + 契约测试，放弃"全路由"）。
 P1.5 按 §3 五缝定序。P1.6 新增缓存加固与 env 冻结修复（§5b/§5d）。P1.7 死路径清理维持。
 P1.8 打包（§4 的根治）。P1.9 新增分层违规裁决（§1），收尾把 `--fail-on-violations` 挂进 CI/check。
+
+### TM1 shared model extraction (2026-09-10)
+
+The shared model implementations now live in `models` below numerical solvers.
+Existing `solvers` model paths alias the same module objects, preserving state
+and monkeypatch identity for current consumers. `models -> df_surrogate` retains
+the existing physical closure dependency; DF model consumers now import the
+shared models directly. This replaces the model portion of the previously
+sanctioned solver/closure cycle without changing any physical formula. The
+import audit assigns models layer 0.5 and continues to reject model imports of
+numerical solvers. Clean-process model evaluation separately checks that no
+solver, pipeline, Numba or Qt module is loaded.

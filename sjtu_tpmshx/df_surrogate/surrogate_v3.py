@@ -68,7 +68,7 @@ _PROJECT = _PROJECT_ROOT.parent
 # below resolves regardless of how the app was launched (python main.py from
 # sjtu_tpmshx/, python -m sjtu_tpmshx.main from parent, or packaged entry).
 from scipy.interpolate import RBFInterpolator
-from sjtu_tpmshx.solvers.tpms_props import geometry as tpms_geometry, air_viscosity, P_atm
+from sjtu_tpmshx.models.tpms_props import geometry as tpms_geometry, air_viscosity, P_atm
 from sjtu_tpmshx.logutil import get_logger
 
 _log = get_logger(__name__)

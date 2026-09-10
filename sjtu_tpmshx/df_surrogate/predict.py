@@ -347,7 +347,7 @@ def predict_dP_compressible(tpms_type: str, L_mm: float, t_mm: float,
 
     # Apply residual learning correction (rbf baseline only)
     from .residual_correction import get_corrector
-    from sjtu_tpmshx.solvers.tpms_props import geometry as tpms_geometry
+    from sjtu_tpmshx.models.tpms_props import geometry as tpms_geometry
     geom = tpms_geometry(tpms_type, L_mm, t_mm, 16.0)
     D_h = float(geom["D_h"])
     rho_in = P_in / (R_AIR * T)
@@ -371,7 +371,7 @@ def smoke_test() -> None:
     model.summary()
 
     # Quick Shanghai check
-    from sjtu_tpmshx.solvers.tpms_props import geometry as tpms_geometry
+    from sjtu_tpmshx.models.tpms_props import geometry as tpms_geometry
     g = tpms_geometry("Gyroid", 7.0, 0.6, 16.0)
     K, cF = predict_K_cF("Gyroid", 7.0, 0.6, g["epsilon"] / 2)
     print(f"\nL=7 t=0.6: K={K:.4e}, c_F={cF:.2f}")
