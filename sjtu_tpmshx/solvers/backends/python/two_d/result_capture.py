@@ -1,5 +1,6 @@
 """Capture native 2D evidence, separate from engineering metric evaluation."""
 from uuid import uuid4
+import numpy as np
 
 from sjtu_tpmshx.domain.field_result import FieldResult
 
@@ -11,6 +12,8 @@ def capture_result(case, raw):
         'h_vA', 'h_vB', 'K_ss')}
     fields.update({key + '_display': raw[key] for key in ('Ta', 'Tb', 'Ts', 'P_fA', 'P_fB')})
     fields.update({key: raw[key] for key in ('ucA', 'vcA', 'ucB', 'vcB')})
+    for key in ('h_vA', 'h_vB', 'K_ss'):
+        fields[key] = np.broadcast_to(fields[key], np.shape(fields['Ta']))
     field_metadata = {}
     for key in fields:
         unit = ('K' if key.startswith(('Ta', 'Tb', 'Ts')) else

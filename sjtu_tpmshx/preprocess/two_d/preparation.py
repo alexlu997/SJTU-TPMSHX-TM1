@@ -302,6 +302,8 @@ def prepare_case(config: ComputeConfig, *, case_id: str):
     if config.is_3d:
         raise ValueError('2D preparation requires solver.Nz == 1')
     parsed = _parse_inputs_cfg(config)
+    from sjtu_tpmshx.domain.run_environment import capture_environment
+    parsed['_environment'] = capture_environment()
     physical_grid = _prepare_grid(parsed)
     dx, dy = physical_grid['energy_dx'], physical_grid['energy_dy']
     za = parsed.pop('za')

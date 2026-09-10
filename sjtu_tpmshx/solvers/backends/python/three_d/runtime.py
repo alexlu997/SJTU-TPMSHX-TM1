@@ -15,6 +15,7 @@ import time as _time
 from dataclasses import dataclass
 import numpy as np
 from sjtu_tpmshx.domain.cancellation import CancelledError
+from sjtu_tpmshx.domain.run_environment import run_environment
 from sjtu_tpmshx.domain.run_warnings import range_context
 from sjtu_tpmshx.models.nu_correlations import record_raw_nu_range, warn_sco2_nu_evidence
 from sjtu_tpmshx.models.tpms_props import record_temperature_ranges
@@ -78,7 +79,7 @@ def _seed_p_ref(P_out_sq, P_in, *, mode, warn_list, context):
 # R3 (2026-07-07): SolverConfig.tol_simple slots between env and the auto —
 # precedence env > config > 1e-5. cfg-less callers keep the old behaviour.
 def _simple_tol_default(cfg=None):
-    env = os.environ.get('TPMSHX_SIMPLE_TOL')
+    env = run_environment(cfg, 'TPMSHX_SIMPLE_TOL')
     if env is not None:
         return float(env)
     if cfg is not None and cfg.get('tol_simple') is not None:
@@ -157,7 +158,7 @@ def _apply_accel_flags(solver, cfg):
     # diverged between dims. TPMSHX_CONV_MODE is the operator's kill switch
     # (docstring'd as the override in compute_config.py); it must win in both.
     solver.convergence_mode = str(
-        os.getenv('TPMSHX_CONV_MODE')
+        run_environment(cfg, 'TPMSHX_CONV_MODE')
         or cfg.get('convergence_mode')
         or 'f2')
     solver.mom_tol = float(cfg.get('mom_tol', 1e-4))
@@ -2229,7 +2230,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
     # the inlet ~5% off spec on high-dP cases). cfg key wins over env;
     # default OFF until the pricing round flips it (§5 re-baseline flow).
     _p_shoot = bool(cfg.get('p_in_shooting',
-                            os.environ.get('TPMSHX_P_IN_SHOOT', '0') == '1'))
+                            run_environment(cfg, 'TPMSHX_P_IN_SHOOT', '0') == '1'))
     # Conditionally-bound cross-seam names (surgery tool definite-
     # assignment pass): None-init so the unconditional return below
     # cannot raise UnboundLocalError on guarded paths. Downstream
@@ -2258,7 +2259,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
     # inlet-P path. Env `TPMSHX_VAR_RHOCP=0/1` is an explicit override; otherwise
     # cfg/flags default True. Set cfg['variable_rho_cp']=False (or uncheck the
     # UI box) to restore the legacy inlet-pressure density.
-    _env_vrc = os.environ.get('TPMSHX_VAR_RHOCP')
+    _env_vrc = run_environment(cfg, 'TPMSHX_VAR_RHOCP')
     if _env_vrc in ('0', '1'):
         _var_rhocp = _env_vrc == '1'
     else:
@@ -2867,7 +2868,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
                 rho_new = P_abs / (R_AIR * Ta_sA)            # ideal gas
                 mu_new_A = air_viscosity(Ta_sA)
             elif (fluid_type_A == 'sco2'
-                  and os.environ.get('TPMSHX_SCO2_COMPRESSIBLE', '').lower()
+                  and run_environment(cfg, 'TPMSHX_SCO2_COMPRESSIBLE', '').lower()
                   in ('1', 'true', 'yes')):
                 # #4 Phase-B (opt-in, EXPERIMENTAL): sco2 ρ/μ at the LOCAL absolute-P
                 # field (ρ tracks local P, not frozen inlet P). ⚠ PROPERTY SIDE ONLY —
@@ -2948,7 +2949,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
             C_avg = mu_avg * G_A / max(K_pred, 1e-16) + cF_pred * G_A * G_A
             _sco2_compress = (
                 fluid_type_A == 'sco2'
-                and os.environ.get('TPMSHX_SCO2_COMPRESSIBLE', '').lower()
+                and run_environment(cfg, 'TPMSHX_SCO2_COMPRESSIBLE', '').lower()
                 in ('1', 'true', 'yes'))
             if _sco2_compress:
                 # #4 (2026-06-28): the opt-in compressible sCO2 path is now

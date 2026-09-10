@@ -293,6 +293,18 @@ def test_validated_pair_is_consumed_only_by_next_chunk(
                 expected_info['coupled_energy_balance'] = original_balance(
                     *expected_T, expected_s, np.ones(shape), np.ones(shape), np.zeros(shape),
                     np.array([1., 1.]), np.ones(1), np.ones(1), 0., 0.)
+            native = info.pop('_native_state')
+            assert set(native) == {'h_A', 'h_B', 'h_in_A', 'h_in_B',
+                                   'mass_flux_A', 'mass_flux_B'}
+            np.testing.assert_array_equal(native['h_A'], initial[0] + delta)
+            np.testing.assert_array_equal(native['h_B'], initial[1] - delta)
+            assert native['h_in_A'] == 350200.
+            assert native['h_in_B'] == 300200.
+            for side in ('A', 'B'):
+                for axis, face in enumerate(native[f'mass_flux_{side}']):
+                    face_shape = list(shape)
+                    face_shape[axis] += 1
+                    np.testing.assert_array_equal(face, np.zeros(face_shape))
             assert info == expected_info
         assert len(properties) == 2 * len(sweeps)
         for i, expected_T in enumerate(sweeps):

@@ -1,0 +1,37 @@
+name: three-module
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: three-module-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  minimal-postprocess:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      MPLCONFIGDIR: .cache/matplotlib
+      XDG_CACHE_HOME: .cache/xdg
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Create isolated minimal environment
+        run: |
+          python -m venv "$RUNNER_TEMP/tm1-postprocess"
+          echo "CI_PYTHON=$RUNNER_TEMP/tm1-postprocess/bin/python" >> "$GITHUB_ENV"
+      - name: Install exact minimal dependencies
+        run: '"$CI_PYTHON" -m pip install -r requirements-lock-postprocess.txt'
+      - name: Check minimal environment
+        run: |
+          "$CI_PYTHON" -m sjtu_tpmshx.runs.tools.check_locked_environment requirements-lock-postprocess.txt
+          "$CI_PYTHON" -m pip check
+          "$CI_PYTHON" -m sjtu_tpmshx.runs.tools.check_three_module_environment
+      - name: Run file and offline metric checks from source
+        run: '"$CI_PYTHON" -m pytest sjtu_tpmshx/tests/io_tm1 sjtu_tpmshx/tests/postprocess_tm1 -q'

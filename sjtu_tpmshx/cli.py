@@ -19,8 +19,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 
 def main(argv=None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] in ('prepare', 'solve', 'postprocess', 'run'):
+        from sjtu_tpmshx.workflows.cli import main as module_main
+        return module_main(argv)
     ap = argparse.ArgumentParser(
         prog='tpmshx-run',
         description='Headless SJTU-TPMSHX solve: ComputeConfig JSON in, '

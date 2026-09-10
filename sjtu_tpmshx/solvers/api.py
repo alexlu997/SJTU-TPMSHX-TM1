@@ -1,0 +1,23 @@
+"""Public prepared-case execution entry point."""
+from dataclasses import replace
+from sjtu_tpmshx.domain.module_ports import RunControl
+from sjtu_tpmshx.domain.run_warnings import warning_scope, warning_messages
+
+
+def run_case(case, control=RunControl()):
+    if control.backend != 'python':
+        raise ValueError(f'unsupported backend: {control.backend}')
+    dimension = case.grid.get('dimension')
+    if dimension == 2:
+        from .backends.python.two_d.execution import run_case as run
+    elif dimension == 3:
+        from .backends.python.three_d.execution import run_case as run
+    else:
+        raise ValueError(f'unsupported physical dimension: {dimension}')
+    with warning_scope({}) as records:
+        result = run(case, control)
+    diagnostics = dict(result.metadata.get('diagnostics', {}))
+    diagnostics['warnings_list'] = tuple(dict.fromkeys((
+        *case.metadata.get('warnings', ()), *diagnostics.get('warnings_list', ()),
+        *warning_messages(records))))
+    return replace(result, metadata={**result.metadata, 'diagnostics': diagnostics})

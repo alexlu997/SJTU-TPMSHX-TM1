@@ -28,8 +28,8 @@ REPO = PKG.parent
 LAYERS = {
     "logutil": 0, "configs": 0, "domain": 0,
     "models": 0.5, "result_math": 0.5, "solvers": 1, "preprocess": 2, "postprocess": 2,
-    "df_surrogate": 2, "design": 2,
-    "pipelines": 3, "core": 3, "optimization": 3,
+    "df_surrogate": 2, "design": 2, "io": 2,
+    "pipelines": 3, "core": 3, "optimization": 3, "workflows": 3,
     "controllers": 4,
     "ui": 5, "main": 5,
 }

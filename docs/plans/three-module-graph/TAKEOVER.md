@@ -92,3 +92,18 @@ existing paths re-export them. The Python backend receives the prepared grid,
 design and physical inputs, and its runtime construction cannot call the
 preprocessor. Existing scalar and unit-depth application conventions remain
 separate until their public application adapters are connected.
+
+## File and independent-process integration ownership
+
+The controller coordinates D10/D20/E00/Q10 and the necessary A10/I51/I56
+public entry points in `codex/tm1/io-repair`. The shared HDF5 data codec is
+used by both actual record types; normal files never contain Python objects.
+The workflow only dispatches public preparation, execution and evaluation.
+Real file and three-process acceptance is recorded under V20/V30; the separate
+minimal-install CI acceptance remains pending.
+
+The same file-boundary integration coordinates H20 export/report code and the
+shared run-environment snapshot required by D10/V20/V30. Environment overrides
+are recorded in prepared data and read per execution; no process-global
+mutation is used to replay a Case. The user explicitly authorized the new
+73-package local environment, which passed exact-lock and pip checks.

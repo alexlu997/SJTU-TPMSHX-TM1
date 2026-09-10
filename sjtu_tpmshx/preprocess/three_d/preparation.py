@@ -219,7 +219,13 @@ def prepare_case(config: ComputeConfig, *, case_id: str):
     config = ComputeConfig.from_dict(asdict(config))
     if not config.is_3d:
         raise ValueError('3D preparation requires solver.Nz >= 2')
-    prepared = _prepare_problem_data(_parse_inputs_3d_cfg(config))
+    from sjtu_tpmshx.domain.run_environment import capture_environment
+    cfg = _parse_inputs_3d_cfg(config)
+    cfg['_environment'] = capture_environment()
+    cfg.setdefault('use_adaptive_amg_tol', (cfg['_environment']['TPMSHX_PHASE_A'] or '1') != '0')
+    cfg.setdefault('use_anderson', (cfg['_environment']['TPMSHX_PHASE_B'] or '0') == '1')
+    cfg.setdefault('use_coarse_bootstrap', (cfg['_environment']['TPMSHX_PHASE_C'] or '0') == '1')
+    prepared = _prepare_problem_data(cfg)
     parameters = dict(prepared['cfg'])
     parameters.pop('compute_cfg')
     parameters['sco2_nu'] = asdict(parameters['sco2_nu'])

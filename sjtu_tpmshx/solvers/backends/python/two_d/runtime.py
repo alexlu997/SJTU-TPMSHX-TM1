@@ -1,7 +1,7 @@
 """Construct runtime SIMPLE instances on an already prepared physical grid."""
 from __future__ import annotations
 from typing import Any
-import os
+from sjtu_tpmshx.domain.run_environment import run_environment
 import numpy as np
 from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
 from sjtu_tpmshx.models.tpms_props import geometry as tpms_geometry
@@ -342,7 +342,7 @@ def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
         # deliberately a separate change).
         if (fluid_type == 'ideal_gas' and p_shoot_prev is not None
                 and cfg.get('p_in_shooting',
-                            os.environ.get('TPMSHX_P_IN_SHOOT', '0') == '1')):
+                            run_environment(cfg, 'TPMSHX_P_IN_SHOOT', '0') == '1')):
             _pref_prev, _dp_prev = float(p_shoot_prev[0]), float(p_shoot_prev[1])
             _P_out_sq_shoot = (float(P_in_abs) ** 2
                                - _dp_prev * (_dp_prev + 2.0 * _pref_prev))
@@ -361,7 +361,7 @@ def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
                 _tol = float(_sol_knobs.tol_simple)
             if _sol_knobs.max_iter_simple is not None:
                 _max_it = int(_sol_knobs.max_iter_simple)
-        _env_tol = os.environ.get('TPMSHX_SIMPLE_TOL')
+        _env_tol = run_environment(cfg, 'TPMSHX_SIMPLE_TOL')
         if _env_tol is not None:
             _tol = float(_env_tol)
         # Propagate Ta/Tb to SIMPLE.T_field if available (compressible coupling
@@ -403,8 +403,8 @@ def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
                 v = cfg.get(name)
             return default if v is None else v
 
-        s.convergence_mode = str(os.environ.get(
-            'TPMSHX_CONV_MODE', _f2_knob('convergence_mode', 'f2')))
+        s.convergence_mode = str(run_environment(
+            cfg, 'TPMSHX_CONV_MODE', _f2_knob('convergence_mode', 'f2')))
         s.mom_tol = float(_f2_knob('mom_tol', 1e-4))
         s.mass_local_tol = float(_f2_knob('mass_local_tol', 1e-6))
         s.mass_global_tol = float(_f2_knob('mass_global_tol', 1e-6))
@@ -463,4 +463,3 @@ def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
         'simple_warnings': simple_warnings,
     }
     return fields
-

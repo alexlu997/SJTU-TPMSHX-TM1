@@ -1,5 +1,5 @@
 # Windows Server optional BO environment. The shared solver, GUI, test, and
-# development environment is pinned once in requirements-lock.txt.
+# development environment, including TM1 YAML/HDF5, is pinned once in requirements-lock.txt.
 -r requirements-lock.txt
 
 --extra-index-url https://download.pytorch.org/whl/cpu

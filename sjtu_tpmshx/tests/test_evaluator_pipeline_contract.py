@@ -53,7 +53,7 @@ def test_objective_shaping_is_evaluator_only():
     are OPTIMIZER objective shaping. The physics pipeline must stay free of
     them (a validation number must never contain a penalty term)."""
     import sjtu_tpmshx.optimization.evaluator as ev2d
-    import sjtu_tpmshx.pipelines.stages_2d as st2d
+    import sjtu_tpmshx.solvers.backends.python.two_d.runtime as st2d
     src_ev = inspect.getsource(ev2d)
     src_pipe = inspect.getsource(st2d)
     for token in ('penalty_enabled', 'dp_cap_pa'):
@@ -82,7 +82,7 @@ def test_2d_choke_policy_evaluator_raises_pipeline_clips():
     The evaluator being stricter than its pipeline is accepted; the pipeline
     growing a gate is DECISIONS D2 territory."""
     import sjtu_tpmshx.optimization.evaluator as ev2d
-    import sjtu_tpmshx.pipelines.stages_2d as st2d
+    import sjtu_tpmshx.solvers.backends.python.two_d.runtime as st2d
     src_ev = inspect.getsource(ev2d)
     src_pipe = inspect.getsource(st2d)
     assert 'ChokedFlowError' in src_ev
@@ -116,7 +116,7 @@ def test_g_reference_density_convention_post_d3c():
     golden_3d + Shanghai re-validation question, consciously."""
     import sjtu_tpmshx.core.evaluators as ev3d
     import sjtu_tpmshx.optimization.evaluator as ev2d
-    import sjtu_tpmshx.pipelines.stages_2d as st2d
+    import sjtu_tpmshx.solvers.backends.python.two_d.runtime as st2d
     from sjtu_tpmshx.solvers.simple_solver_3d import SIMPLESolver3D
 
     assert 'rho_inlet_ref' in inspect.getsource(st2d), (

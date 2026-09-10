@@ -1,0 +1,10 @@
+# Minimal source-based offline I/O/postprocessing acceptance; no solver or Qt.
+colorama==0.4.6; sys_platform == "win32"
+h5py==3.15.1
+iniconfig==2.3.0
+numpy==2.4.4
+packaging==26.0
+pluggy==1.6.0
+Pygments==2.20.0
+PyYAML==6.0.3
+pytest==9.0.3
