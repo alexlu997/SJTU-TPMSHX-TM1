@@ -160,3 +160,11 @@ The current same-source numeric comparison supplements that failed historical
 gate; it does not relabel it green. The shared constructor still has legacy
 callers in the full-model runtime; their remaining runtime geometry/drag
 preparation must be addressed separately before overall M-A acceptance.
+
+### Full-mode preparation continuation: S20 / I20
+
+From f406357, the controller owns the full-preparation-repair worktree and the
+necessary G10 Case parameter changes. Full 2D fixed flow coefficients and actual
+SIMPLE grids now cross the prepared boundary. Thermal/asymmetric geometry in
+both dimensions remains under this continuation. Earlier evidence and B40
+failure provenance remain intact; no node is marked complete by this subset.

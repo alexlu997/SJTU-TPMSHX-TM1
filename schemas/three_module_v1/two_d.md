@@ -12,6 +12,14 @@ widths, domain extent and matching edges; it never calls preparation.
 geometry in metres and zones removed because prepared zone data owns that
 input. `static_properties` contains the evaluated inlet material properties
 and geometry so runtime does not re-read the solid homogenization environment.
+`flow_inputs.A/B` records the actual SIMPLE cross/stream widths in m,
+`K_m2/cF_per_m` row coefficients, scalar `seed_K_m2/seed_cF_per_m`, and D-F
+applicability metadata. The producer preserves the existing zone sampling and
+projection conventions, including reverse-flow ordering. The executor validates
+these grids against the physical grid and consumes these coefficients directly;
+receiver D-F environment settings cannot replace them. Temperature-dependent
+properties, graded pressure re-seeding and inlet shooting remain numerical
+execution steps.
 The separate `config_snapshot` is historical provenance; deleting it does not
 change execution. No callback or runtime model is stored in CaseData.
 

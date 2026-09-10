@@ -29,6 +29,24 @@ def build_execution_inputs(case: CaseData):
             raise ValueError(f'prepared {axis} grid does not cover the physical domain')
         if not np.array_equal(expected, case.grid[axis + '_edges']):
             raise ValueError(f'prepared {axis} widths and edges disagree')
+    if set(cfg['flow_inputs']) != {'A', 'B'}:
+        raise ValueError('prepared flow inputs require both physical sides')
+    for side, flow in cfg['flow_inputs'].items():
+        direction = cfg['cfg' + side]['dir']
+        cross, stream = (dy, dx) if direction in (0, 1) else (dx, dy)
+        if direction in (1, 3):
+            stream = stream[::-1]
+        if not np.array_equal(flow['dx'], cross) or not np.array_equal(flow['dy'], stream):
+            raise ValueError(f'prepared flow {side} grid disagrees with the thermal grid')
+        for key, positive in (('K_m2', True), ('cF_per_m', False)):
+            values = np.asarray(flow[key])
+            if (values.shape != stream.shape or not np.all(np.isfinite(values))
+                    or np.any(values <= 0 if positive else values < 0)):
+                raise ValueError(f'invalid prepared flow {side} {key}')
+        for key, positive in (('seed_K_m2', True), ('seed_cF_per_m', False)):
+            value = flow[key]
+            if not np.isscalar(value) or not np.isfinite(value) or (value <= 0 if positive else value < 0):
+                raise ValueError(f'invalid prepared flow {side} {key}')
     cfg['N_x'], cfg['N_y'] = len(dx), len(dy)
     cfg['Lcell'], cfg['t_wall'] = cfg.pop('L_cell_m') * 1e3, cfg.pop('t_wall_m') * 1e3
     run_settings = _legacy_zone_units(cfg.pop('run_settings'))

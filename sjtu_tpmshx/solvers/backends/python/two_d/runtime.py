@@ -4,8 +4,6 @@ from typing import Any
 from sjtu_tpmshx.domain.run_environment import run_environment
 import numpy as np
 from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
-from sjtu_tpmshx.models.tpms_props import geometry as tpms_geometry
-from sjtu_tpmshx.solvers.df_projection import override_simple_K_cF
 from sjtu_tpmshx.logutil import get_logger
 
 _log = get_logger(__name__)
@@ -28,53 +26,9 @@ def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
     L = cfg['L']; H = cfg['H']
     N_x = cfg['N_x']; N_y = cfg['N_y']
     tpms_type = cfg['tpms_type']
-    Lcell = cfg['Lcell']; t_wall = cfg['t_wall']; k_s = cfg['k_s']
+    Lcell = cfg['Lcell']; t_wall = cfg['t_wall']
     eps = cfg['eps']; r_h = cfg['r_h']
-    zone_config = cfg['zone_config']; za = cfg['za']
-
-    # ── Step 1: SIMPLE velocity fields on full L × H ──
-    def _build_zone_arrays_for_simple(za_dict, N_flow, N_perp, is_x_flow, mu_fluid):
-        """Build 1D per-row arrays for SIMPLE from 2D zone arrays.
-        SIMPLE's y-axis = flow direction. Need per-row porous params."""
-        from sjtu_tpmshx.models import tpms_calc as _tc
-        mu_eff = np.empty(N_flow, dtype=np.float64)
-        r_h_a  = np.empty(N_flow, dtype=np.float64)
-        ln_eps = np.empty(N_flow, dtype=np.float64)
-        ln_tL  = np.empty(N_flow, dtype=np.float64)
-        ln_XSa = np.empty(N_flow, dtype=np.float64)
-        for j in range(N_flow):
-            # Find matching grid cell for representative L/t
-            gc = za_dict.get('grid_cells', za_dict.get('zone_params', []))
-            if gc:
-                # Use the cell that covers this row's midpoint
-                frac = (j + 0.5) / N_flow
-                matched = None
-                for c in gc:
-                    if isinstance(c, dict):
-                        if is_x_flow:
-                            if c.get('x0', c.get('y_frac_start', 0)) <= frac < c.get('x1', c.get('y_frac_end', 1)):
-                                matched = c; break
-                        else:
-                            if c.get('y0', c.get('y_frac_start', 0)) <= frac < c.get('y1', c.get('y_frac_end', 1)):
-                                matched = c; break
-                if matched:
-                    L_mm = matched.get('L', matched.get('L_mm', Lcell))
-                    t_mm = matched.get('t', matched.get('t_mm', t_wall))
-                else:
-                    L_mm, t_mm = Lcell, t_wall
-            else:
-                L_mm, t_mm = Lcell, t_wall
-            g_loc = tpms_geometry(tpms_type, L_mm, t_mm, k_s)
-            e_loc = g_loc['epsilon']
-            rh_loc = g_loc['D_h'] / 2.0
-            mu_eff[j] = mu_fluid / e_loc
-            r_h_a[j] = rh_loc
-            ln_eps[j] = np.log(e_loc / 2.0)  # single-channel porosity for f-Re
-            ln_tL[j] = np.log(t_mm / L_mm)
-            X_mm = 2.0 * rh_loc * 1000.0 if tpms_type == 'Diamond' else L_mm
-            ln_XSa[j] = np.log(X_mm / (1000.0 * _tc.Sa_mm))
-        return {'mu_eff_arr': mu_eff, 'r_h_arr': r_h_a,
-                'ln_eps_arr': ln_eps, 'ln_tL_arr': ln_tL, 'ln_XSa_arr': ln_XSa}
+    za = cfg['za']
 
     energy_dx, energy_dy = prepared['energy_dx'], prepared['energy_dy']
     _x_breaks, _y_breaks = set(prepared['_x_breaks']), set(prepared['_y_breaks'])
@@ -112,17 +66,7 @@ def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
         out_lo = cfg_fluid.get('out_ctr', cfg_fluid['in_ctr']) - cfg_fluid.get('out_w', cfg_fluid['in_w']) / 2
         out_hi = cfg_fluid.get('out_ctr', cfg_fluid['in_ctr']) + cfg_fluid.get('out_w', cfg_fluid['in_w']) / 2
 
-        # Build zone arrays for SIMPLE if zones are active
-        z_arr = None
-        from sjtu_tpmshx.models.zone_config import ZoneConfig
-        if za is not None:
-            if is_x:
-                z_arr = _build_zone_arrays_for_simple(za, N_x, N_y, True, mu_f)
-            else:
-                z_arr = _build_zone_arrays_for_simple(za, N_y, N_x, False, mu_f)
-
-        zc_simple = zone_config if (not is_x and isinstance(zone_config, ZoneConfig)) else None
-
+        flow = cfg['flow_inputs'][label[-1]]
         # Transform rho_f / mu_f (either or both may be 2D) to SIMPLE coords.
         def _to_simple_coords(fld):
             if np.ndim(fld) != 2:
@@ -183,26 +127,9 @@ def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
         # the solver itself will build (`simple_solver.py:409-412`), so the seed
         # can never drift from the drag it is seeding for.
         L_stream = float(L if is_x else H)
-        _df_mode = getattr(cfg.get('compute_cfg'), 'df_mode', 'cfd_smooth')
-        _df_exp = None
-        if _df_mode == 'experimental':
-            from sjtu_tpmshx.df_surrogate.predict import predict_K_cF as _pred_KcF
-            from sjtu_tpmshx.df_surrogate.experimental_correction import apply_correction
-            _Kb, _cFb = _pred_KcF(
-                tpms_type, float(Lcell), float(t_wall), 0.5 * float(eps),
-                method=df_method)
-            _df_exp = apply_correction(
-                tpms_type, fluid_name, float(Lcell), float(t_wall), _Kb, _cFb,
-                u_mps=abs(float(u_f)))
         if fluid_type == 'ideal_gas':
-            from sjtu_tpmshx.df_surrogate.predict import predict_K_cF as _pred_KcF
             from sjtu_tpmshx.solvers.envelope import predict_outlet_p_sq
-            if _df_exp is None:
-                _K0, _cF0 = _pred_KcF(
-                    tpms_type, float(Lcell), float(t_wall),
-                    0.5 * float(eps), method=df_method)
-            else:
-                _K0, _cF0 = _df_exp[0], _df_exp[1]
+            _K0, _cF0 = flow['seed_K_m2'], flow['seed_cF_per_m']
             _rho_in = float(P_in_abs) / (287.05 * float(T_in_f))
             _G = _rho_in * abs(float(u_f))                   # mass flux ρ·u
             _mu_in = float(np.mean(mu_f)) if np.ndim(mu_f) else float(mu_f)
@@ -223,38 +150,15 @@ def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
             # every water/incompressible solve).
             P_ref_out = float(P_in_abs)
 
-        if is_x:
-            s = SIMPLESolver(H, L, N_y, N_x, tpms_type, Lcell, t_wall,
-                             eps, r_h, rho_simple, mu_simple, T_in_f,
-                             pipe_lo, pipe_hi, u_f,
-                             outlet_lo=out_lo, outlet_hi=out_hi,
-                             zone_arrays=z_arr,
-                             wall_refine=False,
-                             P_ref_abs=P_ref_out,
-                             rho_inlet_ref=rho_inlet_ref,
-                             fluid_type=fluid_type, df_method=df_method)
-            # Override grid to match energy solver (SIMPLE x = real y)
-            s.dx_arr = energy_dy.copy()
-            s.dy_arr = energy_dx.copy()
-        else:
-            s = SIMPLESolver(L, H, N_x, N_y, tpms_type, Lcell, t_wall,
-                             eps, r_h, rho_simple, mu_simple, T_in_f,
-                             pipe_lo, pipe_hi, u_f,
-                             outlet_lo=out_lo, outlet_hi=out_hi,
-                             zone_config=zc_simple,
-                             zone_arrays=z_arr if zc_simple is None else None,
-                             wall_refine=False,
-                             P_ref_abs=P_ref_out,
-                             rho_inlet_ref=rho_inlet_ref,
-                             fluid_type=fluid_type, df_method=df_method)
-            # Override grid to match energy solver (SIMPLE x = real x)
-            s.dx_arr = energy_dx.copy()
-            s.dy_arr = energy_dy.copy()
-        if d in (1, 3):
-            s.dy_arr = s.dy_arr[::-1].copy()
-        # Same-axis ports can change coordinates without changing cell count.
-        # Rebuild the tapered profiles and flux scale on the shared grid.
-        s._refresh_ports(pipe_lo, pipe_hi, out_lo, out_hi)
+        width, length, nx, ny = (H, L, N_y, N_x) if is_x else (L, H, N_x, N_y)
+        s = SIMPLESolver(width, length, nx, ny, tpms_type, Lcell, t_wall,
+                         eps, r_h, rho_simple, mu_simple, T_in_f,
+                         pipe_lo, pipe_hi, u_f,
+                         outlet_lo=out_lo, outlet_hi=out_hi,
+                         wall_refine=False, P_ref_abs=P_ref_out,
+                         rho_inlet_ref=rho_inlet_ref, fluid_type=fluid_type,
+                         dx_arr=flow['dx'], dy_arr=flow['dy'],
+                         K_arr=flow['K_m2'], cF_arr=flow['cF_per_m'])
         if 'boundary_openings' in cfg:
             openings = cfg['boundary_openings'][label[-1]]
             for key, actual in (('in_geom_frac', s.inlet_geom_frac),
@@ -280,32 +184,7 @@ def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
                 # Brinkman on the uniform ε while continuity runs the zoned ε.
                 s._mu_eff_field = np.ascontiguousarray(
                     s.mu_field / s.eps_field, dtype=np.float64)
-        # ── Design-specific K/c_F override (2026-04-17) ──
-        # zone_config path above already populates per-row K/c_F via
-        # predict_K_cF_vec inside SIMPLE.__init__. But zone_arrays path and
-        # sigmoid-continuous za don't — SIMPLE falls back to uniform (L0, t0).
-        # Here we project the actual design geometry onto SIMPLE's streamwise
-        # axis and overwrite _K_arr/_cF_arr so dP reflects the heterogeneous
-        # design. See vault/reports/2026-04-17-shanghai-dP-error-analysis-CN.md §11.
-        if za is not None and zc_simple is None:
-            Ny_sim = s._K_arr.shape[0]
-            fluid = 'A' if is_x else 'B'
-            if 'L_field' in za and 't_field' in za:
-                override_simple_K_cF(s, tpms_type, k_s, Ny_sim,
-                                     None, za['L_field'], za['t_field'], fluid)
-            elif za.get('grid_cells'):
-                override_simple_K_cF(s, tpms_type, k_s, Ny_sim,
-                                     za['grid_cells'], None, None, fluid)
-        # Apply the reviewed correction once, after the CFD base is assembled
-        # and before pressure re-seeding and SIMPLE.
-        if _df_exp is not None:
-            _K_applied, _cF_applied, _df_meta = _df_exp
-            s._K_arr[:] = _K_applied
-            s._cF_arr[:] = _cF_applied
-            s._df_metadata = _df_meta
-        else:
-            from sjtu_tpmshx.df_surrogate.experimental_correction import cfd_metadata
-            s._df_metadata = cfd_metadata(s._K_arr, s._cF_arr)
+        s._df_metadata = flow['metadata']
         # ── Re-seed P_ref_abs from the solver's ACTUAL drag (2026-07-13) ────
         # The seed above used the uniform-geometry (K0, cF0); the zone_config /
         # zone_arrays paths then swap in per-row graded K/cF (constructor or

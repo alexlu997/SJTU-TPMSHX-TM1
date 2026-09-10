@@ -287,8 +287,68 @@ def _prepare_grid(cfg):
 
     _resize_zone_arrays_to_effective_grid(za, (N_x, N_y))
 
+    cfg['flow_inputs'] = _prepare_flow_inputs(cfg, energy_dx, energy_dy)
     return {'energy_dx': energy_dx, 'energy_dy': energy_dy,
             '_x_breaks': tuple(sorted(_x_breaks)), '_y_breaks': tuple(sorted(_y_breaks))}
+
+
+
+def _prepare_flow_inputs(cfg, dx, dy):
+    """Resolve the existing full-mode row drag once on the physical grid."""
+    from sjtu_tpmshx.df_surrogate.predict import predict_K_cF, predict_K_cF_vec, SCO2_DF_METHOD
+    from sjtu_tpmshx.df_surrogate.experimental_correction import apply_correction, cfd_metadata
+    from sjtu_tpmshx.models.df_projection import (
+        project_cells_to_streamwise_K_cF, project_fields_to_streamwise_K_cF)
+    from sjtu_tpmshx.models.zone_config import ZoneConfig
+    tpms, cell, wall, eps = (cfg[k] for k in ('tpms_type', 'Lcell', 't_wall', 'eps'))
+    base_K, base_cF = predict_K_cF(tpms, cell, wall, .5 * eps, method=SCO2_DF_METHOD)
+    za, zone = cfg['za'], cfg['zone_config']
+    result = {}
+    for side in ('A', 'B'):
+        direction = cfg['cfg' + side]['dir']
+        is_x = direction in (0, 1)
+        cross, stream = (dy, dx) if is_x else (dx, dy)
+        stream = stream[::-1].copy() if direction in (1, 3) else stream.copy()
+        count = len(stream)
+        K, cF = np.full(count, base_K), np.full(count, base_cF)
+        zc = zone if not is_x and isinstance(zone, ZoneConfig) else None
+        if zc is not None:
+            rows = []
+            for j in range(count):
+                # Preserve the source constructor's uniform row sampling,
+                # including its order for reverse flow.
+                fraction = (j + .5) * (cfg['H'] / count) / cfg['H']
+                selected = zc.zones[-1]
+                for candidate in zc.zones:
+                    if candidate.y_frac_start <= fraction < candidate.y_frac_end:
+                        selected = candidate
+                        break
+                rows.append((selected.L_mm, selected.t_mm,
+                             .5 * (selected.props_A['epsilon'] if selected.props_A else eps)))
+            Lrow, trow, erow = np.asarray(rows).T
+            K, cF = predict_K_cF_vec(tpms, Lrow, trow, erow, method=SCO2_DF_METHOD)
+        elif za is not None:
+            fluid = 'A' if is_x else 'B'
+            if 'L_field' in za and 't_field' in za:
+                K, cF = project_fields_to_streamwise_K_cF(
+                    za['L_field'], za['t_field'], tpms, cfg['k_s'],
+                    *za['L_field'].shape, count, fluid, streamwise_dx=stream)
+            elif za.get('grid_cells'):
+                K, cF = project_cells_to_streamwise_K_cF(
+                    za['grid_cells'], tpms, cfg['k_s'], count, fluid, streamwise_dx=stream)
+        seed_K, seed_cF = base_K, base_cF
+        if cfg['compute_cfg'].df_mode == 'experimental':
+            from sjtu_tpmshx.domain.run_warnings import range_context
+            with range_context(side=side, stage='prepared-df', layout='solver-row'):
+                seed_K, seed_cF, metadata = apply_correction(
+                    tpms, cfg['fluid_' + side], cell, wall, base_K, base_cF,
+                    u_mps=abs(float(cfg['u_' + side])))
+            K[:], cF[:] = seed_K, seed_cF
+        else:
+            metadata = cfd_metadata(K, cF)
+        result[side] = dict(dx=cross.copy(), dy=stream, K_m2=K, cF_per_m=cF,
+                            seed_K_m2=seed_K, seed_cF_per_m=seed_cF, metadata=metadata)
+    return result
 
 
 def prepare_case(config: ComputeConfig, *, case_id: str):

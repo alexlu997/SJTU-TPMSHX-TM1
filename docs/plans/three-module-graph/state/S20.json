@@ -2,9 +2,9 @@
   "node_id": "S20",
   "status": "running",
   "worker": "takeover-controller",
-  "worktree": "/private/tmp/sjtu-tm1-s20-repair",
-  "branch": "codex/tm1/s20-repair",
-  "base_sha": "8d3a4d0",
+  "worktree": "/private/tmp/sjtu-tm1-full-preparation-repair",
+  "branch": "codex/tm1/full-preparation-repair",
+  "base_sha": "f4063579410806eb7143a9592dd66fdc4dfe6cf1",
   "head_sha": null,
   "pr_url": null,
   "merge_sha": null,
@@ -12,11 +12,12 @@
   "review": null,
   "ci_runs": [],
   "evidence": [
-    "evidence/S20/integration.md"
+    "evidence/S20/integration.md",
+    "evidence/S20/prepared-flow.md"
   ],
   "blocked_reason": null,
   "unblocks_when": null,
-  "next_action": "Complete dimensional/application routing, design-mode coverage, formal process/file integration and independent review/CI; do not infer full acceptance from these tests.",
+  "next_action": "Finish fixed thermal/asymmetric geometry preparation, design-mode coverage and final integration; independent review and remote CI remain pending.",
   "tested_candidate_sha": null,
   "tested_base_sha": null,
   "source_head_sha": null
