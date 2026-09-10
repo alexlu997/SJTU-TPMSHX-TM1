@@ -37,4 +37,3 @@ class ModelRef:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "parameters", freeze_mapping(self.parameters))
-

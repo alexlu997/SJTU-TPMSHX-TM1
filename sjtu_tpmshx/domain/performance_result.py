@@ -24,4 +24,3 @@ class PerformanceResult:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "metrics", freeze_mapping(self.metrics))
-
