@@ -17,3 +17,32 @@ All pipeline and evaluator members above are currently marked `slow`; they are
 outside E00's `not slow and not heavy` CI gate.  Matched-lock execution,
 captured values and comparison tolerance selection remain pending.  Unit-only
 port geometry checks are not a physical 3D-solve baseline.
+
+## First execution: standard air/air 3D orchestration
+
+At `5f1cafb`, the checked Python 3.13 environment passed the exact lock check
+(71 active packages) and `pip check`.  The selected existing smoke passed:
+
+```
+MPLCONFIGDIR=.cache/matplotlib XDG_CACHE_HOME=.cache/xdg \
+  /Users/luwenhuan/.venvs/sjtu-tpmshx-py313/bin/python -m pytest \
+  sjtu_tpmshx/tests/test_pipeline_3d_e2e.py::test_pipeline3d_run_end_to_end \
+  -q --timeout=600 --timeout-method=thread
+```
+
+Result: `1 passed in 89.23s`.  A second direct run of the same `8x6x4`
+configuration produced:
+
+| quantity | observed value |
+| --- | --- |
+| `Q_W` | `338.48590825124325` |
+| `dP_A_Pa` / `dP_B_Pa` | `1945.2469619113485` / `3044.9340885522665` |
+| `T_out_A_K` / `T_out_B_K` | `359.19558834036184` / `344.9435887813375` |
+| field shape | `(8, 6, 4)` |
+| `converged` | `True` |
+| `enthalpy_imbalance_rel` | `NaN` |
+
+The existing smoke does not assert that residual slot.  Its `NaN` is retained
+as an observed output and is not converted into a passing energy certificate.
+Mixed-fluid/local-port, water-side, optimizer, and envelope members remain
+separate evidence tasks.
