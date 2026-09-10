@@ -84,3 +84,20 @@ The GUI adapter owns its display buffer. These observations do not alter
 stopping criteria and are never persisted into CaseData or FieldResult.
 Formal codecs and per-mode capability/field tables remain required before
 G10 consumers and D/I/V nodes can be accepted.
+
+## Application payload (current v1 draft)
+
+Case metadata `model_metadata.sco2_nu` and `notices` carry the resolved model's
+presentation provenance and explanatory strings. Current 2D/3D producers emit
+these fields. This development draft has not been released as a stable archive
+format; earlier draft fixtures do not establish backward compatibility.
+FieldResult additionally records `design_mode`, those model fields, and
+`application`: `coeffs` (Kff in W/(m K), Kss in W/(m K), hv in W/(m3 K)), `props`
+(rho in kg/m3, mu in Pa s, cp in J/(kg K), inlet speed in m/s, inlet T in K), and
+2D `zones` (axis, original statistics and bounds with their existing explicit
+field spellings). Values come from the actual runtime state; absent historical
+3D audit coefficients stay null. Native coefficient fields remain separately
+available under `fields`. This payload only supports the legacy application
+view; numerical postprocessing does not use it. Native and display arrays retain
+separate field names and per-field metadata. `outer_iteration(current, budget)`
+is a nonpersistent RunControl callback preserving the native 3D UI counter.

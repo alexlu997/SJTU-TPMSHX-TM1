@@ -1,10 +1,10 @@
 """2D caller contexts at controlled SIMPLE/thermal boundaries, not PDE acceptance."""
 import inspect
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
 from sjtu_tpmshx.domain.run_warnings import warning_scope
 from sjtu_tpmshx.pipelines import solve_2d
 from sjtu_tpmshx.solvers import tpms_calc, tpms_props
@@ -46,9 +46,17 @@ def _prepare(monkeypatch, *, legacy=False, pair=('air', 'air'), temperatures=(40
         fluid.u_mps = .001
         if fluid.type == 'sco2':
             fluid.P_in_Pa = 9e6 if side == 'A' else 16e6
-    pipe = Pipeline2D(cfg)
+    from sjtu_tpmshx.preprocess.two_d.preparation import _parse_inputs_cfg, _prepare_grid
+    from sjtu_tpmshx.solvers.backends.python.two_d.runtime import build_runtime
+    from sjtu_tpmshx.pipelines.stages_2d import _run_solvers_cfg, _finalize_cfg
     with warning_scope({}):
-        fields = pipe.build_fields()
+        parsed = _parse_inputs_cfg(cfg)
+        fields = build_runtime(parsed, _prepare_grid(parsed))
+    # These controlled kernel tests intentionally mutate private runtime data;
+    # they are not portable-Case or application acceptance tests.
+    pipe = SimpleNamespace(cfg=cfg, _parsed=parsed,
+        run_solvers=lambda fields: _run_solvers_cfg(parsed, fields),
+        finalize=lambda raw, fields: _finalize_cfg(raw, parsed))
     if legacy:
         # Controlled asymmetric geometry activates the existing temperature path;
         # geometry accuracy itself is outside this caller test.

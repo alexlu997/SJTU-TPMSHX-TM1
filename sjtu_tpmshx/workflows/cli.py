@@ -47,7 +47,9 @@ def main(argv=None):
         save_case(case, args.output / 'case.yaml')
         save_result(result, args.output / 'results.h5')
         save_metrics(performance, args.output / 'metrics.json')
-        return 0 if result.run_status['converged'] else 2
+        required = ('Q', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B')
+        return 0 if result.run_status['converged'] and all(
+            performance.metrics[key].status == 'available' for key in required) else 2
     except CancelledError:
         return 130
 

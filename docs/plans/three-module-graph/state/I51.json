@@ -2,9 +2,9 @@
   "node_id": "I51",
   "status": "running",
   "worker": "takeover-controller",
-  "worktree": "/private/tmp/sjtu-tm1-io-repair",
-  "branch": "codex/tm1/io-repair",
-  "base_sha": "1139a0b",
+  "worktree": "/private/tmp/sjtu-tm1-apps-repair",
+  "branch": "codex/tm1/apps-repair",
+  "base_sha": "ebec9db8e144aa0e2774948ba8b9fbfed3a9c0a1",
   "head_sha": null,
   "pr_url": null,
   "merge_sha": null,
@@ -14,11 +14,12 @@
   "evidence": [
     "evidence/D10/environment-plan.md",
     "evidence/V20/files.md",
-    "evidence/H20/exports.md"
+    "evidence/H20/exports.md",
+    "evidence/A20/application-routing.md"
   ],
   "blocked_reason": null,
   "unblocks_when": null,
-  "next_action": "Complete current fast-suite findings, public application routing, independent review and required remote full/minimal CI; do not merge or mark done from local leaf evidence alone.",
+  "next_action": "Finish application regressions and review; preserve B40 failure; required remote CI and merge remain pending.",
   "tested_candidate_sha": null,
   "tested_base_sha": null,
   "source_head_sha": null

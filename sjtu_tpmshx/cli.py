@@ -54,9 +54,11 @@ def main(argv=None) -> int:
     diag = result.diagnostics or {}
     ok = result.converged and bool(diag.get('envelope_valid', True)) and bool(
         (diag.get('convergence_detail') or {}).get('outer_converged', True))
+    ok = ok and all(status == 'available' for status in result.metadata.get('metric_status', {}).values())
     warnings_list: list = list(getattr(result, 'warnings', []) or [])
     summary = {
         'Q_W': getattr(result, 'Q_W', None),
+        'Q_unit': result.metadata.get('units', {}).get('Q', 'W' if cc.is_3d else 'W/m'),
         'converged': result.converged,
         'dP_A_Pa': getattr(result, 'dP_A_Pa', None),
         'dP_B_Pa': getattr(result, 'dP_B_Pa', None),
@@ -70,7 +72,7 @@ def main(argv=None) -> int:
     if args.as_json:
         print(json.dumps(summary, ensure_ascii=False, default=str))
     else:
-        print(f"Q = {summary['Q_W']} W")
+        print(f"Q = {summary['Q_W']} {summary['Q_unit']}")
         print(f"dP_A = {summary['dP_A_Pa']} Pa   dP_B = {summary['dP_B_Pa']} Pa")
         print(f"converged = {summary['converged']}   "
               f"envelope_valid = {summary['envelope_valid']}   "

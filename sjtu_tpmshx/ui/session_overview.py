@@ -101,7 +101,7 @@ class OverviewDialog(QDialog):
             return txt or '—'
 
         kpi_row.addWidget(_kpi("HEAT TRANSFER  Q",
-                                 _g('_r_Q'), "W / m",
+                                 _g('_r_Q'), getattr(window, '_result_Q_unit', 'W/m'),
                                  t.get('accent_primary', '#3B82F6')))
         kpi_row.addWidget(_kpi("PRESSURE DROP  ΔP_A",
                                  _g('_r_dP_A'), "Pa",
@@ -127,6 +127,8 @@ class OverviewDialog(QDialog):
         tv.addWidget(trend_cap)
         spark = Sparkline(height=60)
         for e in reversed(list(getattr(window, '_recent_runs', []) or [])):
+            if e.get('Q_unit') != getattr(window, '_result_Q_unit', 'W/m'):
+                continue
             v = _float(e.get('Q'))
             if v is not None:
                 spark.push(v)
@@ -164,7 +166,7 @@ class OverviewDialog(QDialog):
             rc_row = QHBoxLayout(); rc_row.setSpacing(8)
             for e in recents:
                 btn = QPushButton(
-                    f"  {e.get('label', '?')}   Q={e.get('Q','?')}  ")
+                    f"  {e.get('label', '?')}   Q={e.get('Q','?')} {e.get('Q_unit', '?')}  ")
                 btn.setFixedHeight(32)
                 btn.setStyleSheet(_tm.style('BTN_TERTIARY'))
                 btn.clicked.connect(

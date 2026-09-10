@@ -453,7 +453,7 @@ def test_export_results_writes_2d_values(tmp_path, monkeypatch, win):
     win._export_results()
 
     text = out.read_text()
-    assert 'Q [W],123.5000' in text
+    assert 'Q [W/m],123.5000' in text
     assert 'Grid Nx,2' in text
     import csv
     with out.open(encoding='utf-8', newline='') as stream:
@@ -543,7 +543,8 @@ def test_result_status_survives_notification_and_mode_switch(
         assert not errors
         with out.open(encoding='utf-8', newline='') as stream:
             rows = dict(csv.reader(stream))
-        assert rows['Q [W]'] == f'{123 + index:.4f}'
+        q_unit = 'W' if mode == '3d' else 'W/m'
+        assert rows[f'Q [{q_unit}]'] == f'{123 + index:.4f}'
         for key, value in (('converged', converged), ('envelope_valid', envelope),
                            ('outer_converged', outer), ('warnings', expected_warnings),
                            ('extrap_reasons', reasons)):

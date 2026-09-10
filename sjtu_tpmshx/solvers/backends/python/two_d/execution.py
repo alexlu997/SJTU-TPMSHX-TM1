@@ -12,23 +12,7 @@ from .runtime import build_runtime
 from .coupling import _PipelineWindowShim, _run_solvers
 
 
-def _legacy_zone_units(value):
-    """Adapt prepared SI data to existing kernel/model parameter spellings."""
-    if isinstance(value, dict):
-        result = {}
-        for key, item in value.items():
-            if key in ('L_m', 't_m', 'L_cell_m', 't_wall_m', 'L_field_m', 't_field_m'):
-                result[key[:-2] + ('_mm' if '_field_' not in key else '')] = item * 1e3
-            elif key == 'grid_cells':
-                result[key] = [dict((('L' if k == 'L_m' else 't' if k == 't_m' else k),
-                                     v * 1e3 if k in ('L_m', 't_m') else v)
-                                    for k, v in cell.items()) for cell in item]
-            else:
-                result[key] = _legacy_zone_units(item)
-        return result
-    if isinstance(value, list):
-        return [_legacy_zone_units(item) for item in value]
-    return value
+from sjtu_tpmshx.models.zone_units import _legacy_zone_units
 
 
 def build_execution_inputs(case: CaseData):
@@ -107,6 +91,6 @@ def run_case(case: CaseData, control: RunControl = RunControl()):
                                 prepared_properties=cfg['static_properties'])
     raw = _run_solvers(state, cfg, runtime, cancel_check=control.cancel_check)
     control.check_cancelled()
-    result = capture_result(case, raw)
+    result = capture_result(case, raw, state)
     control.report_progress(100)
     return result

@@ -1,47 +1,4 @@
-"""Compute pipeline ABC — unifies 2D / 3D entrypoints behind one contract.
-
-Audit followup C4 (L-a-2, 2026-05-28).  Built on top of the
-:class:`domain.compute_config.ComputeConfig` introduced in C3
-(L-a-1; contracts moved to ``domain/`` in the 2026-07-02 contracts-layer
-split — ``ComputeResult`` now lives in ``domain.compute_result``).
-
-Design
-------
-
-``ComputePipeline`` is a 3-phase abstract base class:
-
-1. :meth:`build_fields` — build aligned grid arrays, zone property
-   arrays, partial-BC masks, and the SIMPLE helper closures.
-2. :meth:`run_solvers`  — run the SIMPLE + LTNE outer loop.
-3. :meth:`finalize`     — compute Q / dP / T_out + assemble a
-   :class:`ComputeResult`.
-
-The base :meth:`run` glues the three together, drives the
-``progress_cb`` callback at 20 / 90 / 100 %, and honours cooperative
-cancellation via ``cancel_token``.
-
-Implementations
-~~~~~~~~~~~~~~~
-
-- :class:`Pipeline2D` wires the legacy
-  ``pipelines.stages_2d._parse_inputs / _build_fields / _run_solvers /
-  _store_results`` business logic. The Qt-write side (``window.T_fA = …``,
-  ``window._compute_results = {…}``) is *not* in scope here; that lives
-  in ``Main_Menu.write_result(result)``.
-
-- :class:`Pipeline3D` mirrors the 3D path through
-  ``solvers.simple_solver_3d`` and ``solvers.ltne_energy_3d``.
-
-Both implementations are pure ``ComputeConfig`` → :class:`ComputeResult`
-adapters.  No ``window.le_*`` reads, no Qt writes.
-
-Test boundary
-~~~~~~~~~~~~~
-
-Pure-cfg construction lets tests / scripts call
-``Pipeline2D(cfg).run()`` with a small JSON file and assert on the
-returned :class:`ComputeResult`.  No Qt event loop needed.
-"""
+"""Historical Pipeline API, now a sequence of the three public modules."""
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -49,6 +6,8 @@ from typing import Any, Callable, Dict, Optional
 
 from sjtu_tpmshx.domain.compute_config import ComputeConfig
 from sjtu_tpmshx.domain.compute_result import ComputeResult
+from sjtu_tpmshx.domain.case_data import CaseData
+from sjtu_tpmshx.domain.field_result import FieldResult
 from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.domain.run_warnings import warning_scope, warning_messages
 
@@ -79,10 +38,9 @@ class ComputePipeline(ABC):
     Subclass contract
     -----------------
 
-    ``build_fields()`` returns an *intermediate dict* that
-    ``run_solvers(fields)`` consumes — the schema is implementation
-    specific (2D vs 3D differ).  ``finalize(raw, fields)`` returns the
-    finished :class:`ComputeResult`.
+    Concrete pipelines exchange CaseData and FieldResult through the public
+    module APIs. ``finalize(raw, fields)`` evaluates the native result and
+    maps it to the existing :class:`ComputeResult` display contract.
     """
 
     def __init__(self, cfg: ComputeConfig,
@@ -131,16 +89,16 @@ class ComputePipeline(ABC):
     # ── subclass hooks ──────────────────────────────────────────────
 
     @abstractmethod
-    def build_fields(self) -> Dict[str, Any]:
-        """Phase 1: grid arrays + zone arrays + helper closures."""
+    def build_fields(self) -> CaseData:
+        """Phase 1: prepared physical data."""
 
     @abstractmethod
-    def run_solvers(self, fields: Dict[str, Any]) -> Dict[str, Any]:
-        """Phase 2: SIMPLE + LTNE outer loop. Returns raw solver output."""
+    def run_solvers(self, fields: CaseData) -> FieldResult:
+        """Phase 2: execute prepared data and return native evidence."""
 
     @abstractmethod
-    def finalize(self, raw: Dict[str, Any],
-                 fields: Dict[str, Any]) -> ComputeResult:
+    def finalize(self, raw: FieldResult,
+                 fields: CaseData) -> ComputeResult:
         """Phase 3: assemble :class:`ComputeResult` from raw output."""
 
 
@@ -148,91 +106,42 @@ class ComputePipeline(ABC):
 
 
 class Pipeline2D(ComputePipeline):
-    """2D compute pipeline backed by ``pipelines.stages_2d`` helpers.
+    """Prepare CaseData, execute it, then map evaluated native results."""
 
-    The three phases delegate to the cfg-only refactor of the legacy
-    ``_parse_inputs / _build_fields / _run_solvers / _store_results``
-    business logic.  Keeping the helpers in ``pipelines.stages_2d``
-    (rather than copying them here) avoids a multi-thousand-line move
-    in this PR.  A future C5 phase will hoist them.
+    dimension = 2
 
-    The legacy helpers consume *two* dicts (``parsed`` from
-    ``_parse_inputs_cfg`` and ``fields`` from ``_build_fields_cfg``).
-    The ABC contract surfaces only one ``fields`` dict between phases,
-    so we cache ``parsed`` on the instance for ``run_solvers`` +
-    ``finalize`` to reach.
-    """
+    def build_fields(self) -> CaseData:
+        from uuid import uuid4
+        from sjtu_tpmshx.preprocess.api import prepare_case
+        if self.cfg.is_3d != (self.dimension == 3):
+            raise ValueError(f'{type(self).__name__} requires a {self.dimension}D config')
+        return prepare_case(self.cfg, case_id=str(uuid4()))
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._parsed: Optional[Dict[str, Any]] = None
+    def run_solvers(self, fields: CaseData) -> FieldResult:
+        from sjtu_tpmshx.domain.module_ports import RunControl
+        from sjtu_tpmshx.solvers.api import run_case
+        buffer = self.ui_hooks.get('live_residuals')
+        def residual(side, index, value):
+            if buffer is not None:
+                buffer.setdefault(side, []).append((index, value))
+        control = RunControl(
+            progress=lambda percent: self.progress_cb(20 + int(.7 * percent)),
+            cancel_check=(None if self.cancel is None else
+                          lambda: bool(getattr(self.cancel, 'cancelled', False))),
+            iteration=self.ui_hooks.get('iter_label_cb'),
+            outer_iteration=self.ui_hooks.get('iter_cb'), residual=residual)
+        return run_case(fields, control)
 
-    def build_fields(self) -> Dict[str, Any]:
-        # Lazy on purpose (NOT a cycle since the contracts-layer split):
-        # importing stages_2d pulls the numba solver chain + JIT warmup;
-        # keeping it method-local spares GUI cold-start when no compute runs.
-        from sjtu_tpmshx.pipelines.stages_2d import (
-            _parse_inputs_cfg, _build_fields_cfg,
-        )
-        self._parsed = _parse_inputs_cfg(self.cfg)
-        return _build_fields_cfg(
-            self._parsed,
-            live_residuals=self.ui_hooks.get('live_residuals'))
-
-    def run_solvers(self, fields: Dict[str, Any]) -> Dict[str, Any]:
-        from sjtu_tpmshx.pipelines.stages_2d import _run_solvers_cfg
-        assert self._parsed is not None, (
-            "Pipeline2D.run_solvers called before build_fields")
-        return _run_solvers_cfg(self._parsed, fields,
-                                progress_cb=self.progress_cb,
-                                cancel_token=self.cancel,
-                                ui_hooks=self.ui_hooks)
-
-    def finalize(self, raw: Dict[str, Any],
-                 fields: Dict[str, Any]) -> ComputeResult:
-        from sjtu_tpmshx.pipelines.stages_2d import _finalize_cfg
-        assert self._parsed is not None, (
-            "Pipeline2D.finalize called before build_fields")
-        return _finalize_cfg(raw, self._parsed)
+    def finalize(self, raw: FieldResult, fields: CaseData) -> ComputeResult:
+        from sjtu_tpmshx.postprocess.api import evaluate
+        from sjtu_tpmshx.controllers.module_adapter import to_compute_result
+        return to_compute_result(raw, evaluate(raw))
 
 
-class Pipeline3D(ComputePipeline):
-    """3D compute pipeline backed by ``pipelines.stages_3d`` helpers.
+class Pipeline3D(Pipeline2D):
+    """The same public workflow with explicit 3D input validation."""
 
-    The 3D path has no separate build phase — the cfg dict from
-    ``_parse_inputs_3d_cfg`` is consumed directly by ``_run_3d_stack``.
-    We keep the ABC's 3-phase contract by routing ``build_fields`` to a
-    passthrough and caching the parsed dict on ``self._parsed`` so
-    finalize can reach ``compute_cfg`` + ``extrap_reasons``.
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._parsed: Optional[Dict[str, Any]] = None
-
-    def build_fields(self) -> Dict[str, Any]:
-        # Lazy on purpose — see Pipeline2D.build_fields.
-        from sjtu_tpmshx.pipelines.stages_3d import (
-            _parse_inputs_3d_cfg, _build_fields_3d_cfg,
-        )
-        self._parsed = _parse_inputs_3d_cfg(self.cfg)
-        return _build_fields_3d_cfg(self._parsed)
-
-    def run_solvers(self, fields: Dict[str, Any]) -> Dict[str, Any]:
-        from sjtu_tpmshx.pipelines.stages_3d import _run_solvers_3d_cfg
-        assert self._parsed is not None, (
-            "Pipeline3D.run_solvers called before build_fields")
-        return _run_solvers_3d_cfg(self._parsed, fields,
-                                    progress_cb=self.progress_cb,
-                                    cancel_token=self.cancel,
-                                    iter_cb=self.ui_hooks.get('iter_cb'))
-
-    def finalize(self, raw: Dict[str, Any],
-                 fields: Dict[str, Any]) -> ComputeResult:
-        from sjtu_tpmshx.pipelines.stages_3d import _finalize_3d_cfg
-        assert self._parsed is not None, (
-            "Pipeline3D.finalize called before build_fields")
-        return _finalize_3d_cfg(raw, self._parsed)
+    dimension = 3
 
 
 def pipeline_for(cfg: ComputeConfig,

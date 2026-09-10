@@ -216,6 +216,7 @@ def prepare_case(config: ComputeConfig, *, case_id: str):
     from sjtu_tpmshx.domain.case_data import CaseData
     from sjtu_tpmshx.domain.model_refs import ModelRef
     from sjtu_tpmshx.models.catalog import MODEL_VERSIONS
+    from sjtu_tpmshx.models.nu_correlations import sco2_nu_metadata, sco2_nu_notices
     config = ComputeConfig.from_dict(asdict(config))
     if not config.is_3d:
         raise ValueError('3D preparation requires solver.Nz >= 2')
@@ -251,5 +252,7 @@ def prepare_case(config: ComputeConfig, *, case_id: str):
     return CaseData.from_compute_config(case_id, config, grid=grid,
         design_fields=prepared['design'], parameters=parameters, model_refs=refs,
         metadata={'preprocessor': 'three_d_v1', 'quantity_basis': 'total',
+                  'model_metadata': {'sco2_nu': sco2_nu_metadata(config.sco2_nu)},
+                  'notices': sco2_nu_notices(config),
                   'design_mode': 'xy_extruded' if cells else 'uniform',
                   'model_roles': {'fluid_A': 0, 'fluid_B': 1, 'geometry': 2, 'darcy_forchheimer': 3}})

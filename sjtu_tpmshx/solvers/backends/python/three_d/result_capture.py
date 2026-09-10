@@ -82,6 +82,13 @@ def capture_result(case, prob, outer, raw):
                         outer_index=native['outer_index']),
         metadata=dict(dimension=3, quantity_basis='total', thermal_mode=native['mode'],
             parameters=case.parameters, design_fields=case.design_fields,
+            design_mode=case.metadata['design_mode'],
+            model_metadata=case.metadata['model_metadata'], notices=case.metadata['notices'],
+            application=dict(
+                coeffs={key: raw.get('_audit_' + key) for key in ('K_ffA', 'K_ffB', 'K_ss')},
+                props={key: raw.get(source) for key, source in (
+                    ('rho_cp_A', '_audit_rho_cp_fA'), ('rho_cp_B', '_audit_rho_cp_fB'),
+                    ('u_A_in_mps', 'u_A'), ('T_in_A_K', 'T_in'))}),
             diagnostics=diagnostics, df_metadata=raw['df_metadata'],
             model_roles=case.metadata['model_roles'],
             reporting_reference={key: raw[key] for key in ('Q', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B')}))

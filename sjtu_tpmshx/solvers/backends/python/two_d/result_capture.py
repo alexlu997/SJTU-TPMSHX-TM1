@@ -5,7 +5,7 @@ import numpy as np
 from sjtu_tpmshx.domain.field_result import FieldResult
 
 
-def capture_result(case, raw):
+def capture_result(case, raw, runtime_state):
     native = raw['_native_evidence']
     fields = {key: native[key] for key in (
         'Ta', 'Tb', 'Ts', 'P_thermal_A', 'P_thermal_B', 'P_report_A', 'P_report_B',
@@ -28,11 +28,14 @@ def capture_result(case, raw):
                  'final flow/report' if key.startswith(('P_report', 'uc', 'vc')) else
                  'raw last main thermal return')
         field_metadata[key] = dict(unit=unit, axes=('x', 'y'), location='cell', state=state)
-    diagnostics = {key: raw[key] for key in (
-        'solver_converged', 'convergence_detail', 'energy_imbalance_rel', 'model_h_balance',
-        'true_h_balance', 'richardson_info', 'envelope_valid', 'envelope_reasons',
-        'mass_imbalance_rel_A', 'mass_imbalance_rel_B', 'residuals_A', 'residuals_B',
-        'warnings_list', 'p_clip_hits', 'sco2_nu_observations')}
+    diagnostics = {key: value for key, value in raw.items()
+                   if not isinstance(value, np.ndarray) and key != '_native_evidence'}
+    application = dict(
+        coeffs={name: getattr(runtime_state, '_' + name) for name in ('K_ffA', 'K_ffB', 'K_ss', 'h_vA', 'h_vB')},
+        props={name: getattr(runtime_state, '_' + name) for name in ('rho_A', 'rho_B', 'mu_A', 'mu_B')},
+        zones=({name: getattr(runtime_state, '_zone_' + name) for name in
+                ('axis_dir', 'stats', 'boundaries', 'boundaries_x', 'boundaries_y')}
+               if runtime_state._zone_axis_dir is not None or runtime_state._zone_stats is not None else None))
     return FieldResult(
         result_id=str(uuid4()), case_id=case.case_id,
         backend_id='python', backend_version='two_d_v1', grid=case.grid,
@@ -52,6 +55,8 @@ def capture_result(case, raw):
                       thermal_mode=native['mode'], split_A=native['split_A'],
                       rho_cp_A=native['rho_cp_A'], rho_cp_B=native['rho_cp_B'],
                       parameters=case.parameters, design_fields=case.design_fields,
+                      design_mode=case.metadata['design_mode'], application=application,
+                      model_metadata=case.metadata['model_metadata'], notices=case.metadata['notices'],
                       diagnostics=diagnostics, df_metadata=raw['df_metadata'],
                       model_roles=case.metadata['model_roles'],
                       reporting_reference={key: raw[key] for key in (

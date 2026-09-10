@@ -297,6 +297,7 @@ def prepare_case(config: ComputeConfig, *, case_id: str):
     from sjtu_tpmshx.domain.case_data import CaseData
     from sjtu_tpmshx.domain.model_refs import ModelRef
     from sjtu_tpmshx.models.catalog import MODEL_VERSIONS
+    from sjtu_tpmshx.models.nu_correlations import sco2_nu_metadata, sco2_nu_notices
 
     config = ComputeConfig.from_dict(asdict(config))
     if config.is_3d:
@@ -361,6 +362,8 @@ def prepare_case(config: ComputeConfig, *, case_id: str):
               'y_breaks': physical_grid['_y_breaks']},
         design_fields=design, parameters=parsed, model_refs=refs,
         metadata={'preprocessor': 'two_d_v1', 'quantity_basis': 'per_unit_depth',
+                  'model_metadata': {'sco2_nu': sco2_nu_metadata(config.sco2_nu)},
+                  'notices': sco2_nu_notices(config),
                   'design_mode': 'uniform' if za is None else za['axis'],
                   'model_roles': {'fluid_A': 0, 'fluid_B': 1, 'geometry': 2, 'darcy_forchheimer': 3}})
 

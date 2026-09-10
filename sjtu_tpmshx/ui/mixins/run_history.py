@@ -81,6 +81,7 @@ class RunHistoryMixin:
             "ts": now.isoformat(timespec="seconds"),
             "label": now.strftime("%H:%M:%S"),
             "Q": _txt("_r_Q"),
+            "Q_unit": getattr(self, '_result_Q_unit', '?'),
             "dP_A": _txt("_r_dP_A"),
             "dP_B": _txt("_r_dP_B"),
             "ToutA": _txt("_r_ToutA"),
@@ -147,7 +148,7 @@ class RunHistoryMixin:
         else:
             for i, e in enumerate(entries):
                 label = (f"   #{i + 1}  {e['label']}   "
-                         f"Q={e['Q']} · ΔP(A)={e['dP_A']}")
+                         f"Q={e['Q']} {e.get('Q_unit', '?')} · ΔP(A)={e['dP_A']}")
                 act = menu.addAction(label)
                 act.triggered.connect(
                     lambda _checked=False, entry=e: self._load_recent_run(entry))
@@ -232,12 +233,12 @@ class RunHistoryMixin:
         v = QVBoxLayout(dlg)
         table = QTableWidget(len(entries), 4)
         table.setHorizontalHeaderLabels(
-            ["Timestamp", "Q [W/m]", "ΔP_A [Pa]", "ΔP_B [Pa]"])
+            ["Timestamp", "Q", "ΔP_A [Pa]", "ΔP_B [Pa]"])
         table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch)
         for r, e in enumerate(reversed(entries)):
             table.setItem(r, 0, QTableWidgetItem(str(e.get("ts", "—"))))
-            table.setItem(r, 1, QTableWidgetItem(str(e.get("Q", "—"))))
+            table.setItem(r, 1, QTableWidgetItem(f"{e.get('Q', '—')} {e.get('Q_unit', '?')}"))
             table.setItem(r, 2, QTableWidgetItem(str(e.get("dP_A", "—"))))
             table.setItem(r, 3, QTableWidgetItem(str(e.get("dP_B", "—"))))
         v.addWidget(table)

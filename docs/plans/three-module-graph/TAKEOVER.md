@@ -110,9 +110,25 @@ mutation is used to replay a Case. The user explicitly authorized the new
 
 ## Application control integration ownership
 
-The controller coordinates G10/A20/I51/I52 control changes while the local
-commit awaits explicit authorization. RunControl gains non-persistent
+The controller coordinates G10/A20/I51/I52 control changes. The user explicitly
+authorized local commits for this class of repair; controls were committed as
+`ebec9db`. RunControl gains non-persistent
 iteration-label and residual callbacks required by the existing GUI. The
 Python backend emits the same existing iteration/residual observations;
 CaseData and FieldResult cannot contain those callbacks. GUI buffer ownership
 stays in the GUI adapter. No numerical stopping rule changes.
+
+## Public application adapter ownership
+
+`codex/tm1/apps-repair` coordinates A20/I51/I52/I56 with the required
+R20/R30 evidence fields. The application adapter consumes only FieldResult
+and PerformanceResult, maps existing display/diagnostic slots, and does not
+invoke legacy pipelines. Backend producers retain the coefficients and zone
+statistics needed by existing displays as data. Prepared model notices and
+metadata travel with each result. The existing SI-to-legacy zone spelling
+conversion moves once to shared models for the numerical and display callers.
+I52 also owns the necessary unit-label, history, overview, CSV and 3D
+temperature-label corrections in the existing GUI files. A completed 3D run
+must refresh the same Kelvin outlet cache as 2D; otherwise a subsequent unit
+toggle can resurrect the preceding 2D temperatures. Display changes do not
+recompute engineering metrics or alter current solver inputs.

@@ -20,6 +20,7 @@ class RunControl:
     progress: Callable[[int], None] | None = None
     cancel_check: Callable[[], bool] | None = None
     iteration: Callable[[str], None] | None = None
+    outer_iteration: Callable[[int, int], None] | None = None
     residual: Callable[[str, int, float], None] | None = None
 
     def check_cancelled(self) -> None:
