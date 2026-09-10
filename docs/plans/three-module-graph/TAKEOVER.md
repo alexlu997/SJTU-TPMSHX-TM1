@@ -70,3 +70,16 @@ grid construction from the old pipeline and reconnects the old stage entry
 points to these same functions. Numerical SIMPLE construction remains runtime
 work. Shared grid primitives and sigmoid model extraction retain existing
 formulas, grid rules and the existing default geometry-cache location.
+
+## Prepared-only 2D execution ownership
+
+The controller coordinates S20, R20 and I20 in `codex/tm1/s20-repair`.
+The old runtime closure and coupling implementation move to the Python backend;
+old pipeline imports delegate to it. Prepared execution receives physical grids
+explicitly and cannot call preprocessing. R20 captures raw thermal, mass-flux
+and pressure evidence at its producer, preserving display copies separately.
+
+The same coordinated integration also owns H10's first 2D implementation and
+the shared `result_math.py` extraction. Data-only outlet/duty/pressure helpers
+are moved once and re-exported to existing numerical callers. The true-h kernel
+adds its native h/face state to returned evidence, without changing its solve.

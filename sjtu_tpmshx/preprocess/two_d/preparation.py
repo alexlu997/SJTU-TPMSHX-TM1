@@ -311,9 +311,20 @@ def prepare_case(config: ComputeConfig, *, case_id: str):
     parsed['t_wall_m'] = parsed.pop('t_wall') * 1e-3
     # Runtime controls are input data. The solver never reparses config_snapshot.
     parsed['run_settings'] = _zone_data_si(asdict(config))
+    parsed['run_settings'].pop('zones')
+    from sjtu_tpmshx.models.tpms_calc import compute
+    parsed['static_properties'] = {side: compute(
+        config.geometry.tpms, config.geometry.L_cell_mm, config.geometry.t_wall_mm,
+        fluid.u_mps, fluid.T_in_K, fluid.P_in_Pa, config.geometry.k_s_W_mK,
+        fluid.type, sco2_nu=config.sco2_nu)
+        for side, fluid in (('A', config.fluid_A), ('B', config.fluid_B))}
+    parsed['static_properties']['geometry'] = tpms_geometry(
+        config.geometry.tpms, config.geometry.L_cell_mm, config.geometry.t_wall_mm,
+        config.geometry.k_s_W_mK)
     parsed['zone_config'] = _zone_data_si(asdict(zones)) if hasattr(zones, '__dataclass_fields__') else zones
     design = _zone_data_si(za) if za is not None else {
         'eps_arr': np.full((len(dx), len(dy)), parsed['eps']),
+        'K_ss_arr': np.full((len(dx), len(dy)), parsed['static_properties']['geometry']['K_ss']),
         'r_h_arr': np.full((len(dx), len(dy)), parsed['r_h']),
         'L_field_m': np.full((len(dx), len(dy)), parsed['L_cell_m']),
         't_field_m': np.full((len(dx), len(dy)), parsed['t_wall_m']),

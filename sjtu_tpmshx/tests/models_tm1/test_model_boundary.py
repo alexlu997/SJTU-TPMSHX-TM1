@@ -33,3 +33,19 @@ for name, module in zip(names, modules):
     result = subprocess.run([sys.executable, '-c', code], capture_output=True,
                             text=True, timeout=120)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_concurrent_existing_model_imports_in_fresh_process():
+    result = subprocess.run([sys.executable, '-c', '''
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+from sjtu_tpmshx.models.zone_config import ZoneConfig
+barrier = Barrier(2)
+def load(_):
+    barrier.wait()
+    from sjtu_tpmshx.solvers.zone_config import ZoneConfig as imported
+    return imported
+with ThreadPoolExecutor(max_workers=2) as pool:
+    assert all(cls is ZoneConfig for cls in pool.map(load, range(2)))
+'''], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
