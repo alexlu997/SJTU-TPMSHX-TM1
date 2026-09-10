@@ -54,3 +54,18 @@ emitted the expected choke warning; strict calls returned `NaN`, while legacy
 non-strict calls retained their documented `P_in` rescue.  This confirms the
 selected rejection boundary is executable; it does not certify a full pipeline
 response for a choked design.
+
+## First execution: mixed fluid local-port members
+
+`test_pipeline2d_mixed_sco2_custom_ports` passed `2/2` in `2.74 s` under the
+same lock.  A direct capture of its two exact inputs records:
+
+| fluid A / B | `Q_W` | `dP_A_Pa` / `dP_B_Pa` | `T_out_A_K` / `T_out_B_K` | `enthalpy_imbalance_rel` | `converged` |
+| --- | ---: | ---: | ---: | ---: | --- |
+| sCO2 / water | `45645.686638674175` | `26.36927668264315` / `183.4626467400482` | `357.2204363083436` / `304.97024060514633` | `0.00012325946850634285` | `False` |
+| air / sCO2 | `4419.163268961036` | `48.88978676671673` / `110.39379359592715` | `311.8620963814719` / `300.9021593815732` | `0.00017729394315985127` | `False` |
+
+The existing test does not assert `converged`; it only requires positive heat
+duty, the expected outlet-temperature direction, and enthalpy imbalance below
+5%.  These two `False` convergence states therefore remain explicit baseline
+facts, not passing physical qualifications.
