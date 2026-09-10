@@ -22,6 +22,11 @@ def run_case(case, control=RunControl()):
     if len(shape) != 3 or case.metadata['model'] != 'plug_ltne_analytic_dp_v1':
         raise ValueError('unsupported quick-design physical model')
     p = mutable_data(case.parameters)
+    fractions = p.get('inlet_pressure_fractions')
+    if (not isinstance(fractions, dict) or set(fractions) != {'A', 'B'}
+            or any(not np.isscalar(value) or not np.isfinite(value) or value < 0
+                   for value in fractions.values())):
+        raise ValueError('quick-design requires prepared nonnegative inlet pressure fractions')
     op = SimpleNamespace(**p['operating_point'])
     if len(case.model_refs) != 3 or case.model_refs[0].name != 'quick_design':
         raise ValueError('quick-design model resources are incomplete')
@@ -102,9 +107,7 @@ def run_case(case, control=RunControl()):
         evaluation = (0.5 * (op.T_in_h + float(np.asarray(ta)[-1, :, :].mean())),
                       0.5 * (op.T_in_c + _cold_outlet(tb, p['arrangement'])))
     control.check_cancelled()
-    dph, dpc = model._dp_fractions(op, p['topology'], p['L_cell_m'] * 1e3, p['t_wall_m'] * 1e3,
-                                  eps_a, p['s'], p['Lx'], p['arrangement'], p['height'],
-                                  df_options=p['df_options'])
+    dph, dpc = fractions['A'], fractions['B']
     fields = dict(Ta=ta, Tb=tb, Ts=ts, ucA=uc_a, vcA=zero, wcA=zero,
                   ucB=uc_b, vcB=vc_b, wcB=zero, K_ffA=k_a, K_ffB=k_b,
                   K_ss=fixed['K_ss'], h_vA=hv_a, h_vB=hv_b, eps=fixed['eps'])

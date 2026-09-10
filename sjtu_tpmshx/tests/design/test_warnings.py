@@ -105,12 +105,12 @@ def test_forward_labels_without_extra_property_or_thermal_calls(monkeypatch, mod
     c = replace(_case(), hot_fluid='water', cold_fluid='sco2')
     with warning_scope({}) as records:
         result = f.forward(c, 'Diamond', 7., .5, .1, .1, prop_model=model)
-    expected = [('water', 500., 2e5), ('water', 320., 2e5),
+    expected = [('water', 500., 2e5), ('sco2', 300., 2e5),
+                ('water', 500., 2e5), ('water', 320., 2e5),
                 ('sco2', 300., 2e5), ('sco2', 480., 9e6)]
     if passes == 2:
         expected += [('water', 450., 2e5), ('water', 320., 2e5),
                      ('sco2', 325., 2e5), ('sco2', 480., 9e6)]
-    expected += [('water', 500., 2e5), ('sco2', 300., 2e5)]
     assert calls == expected and len(solves) == passes
     assert result.Q_hot == 10000. and result.Q_cold == 5000.
     messages = '\n'.join(warning_messages(records))

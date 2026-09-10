@@ -12,8 +12,15 @@ from sjtu_tpmshx.postprocess.api import evaluate
 from sjtu_tpmshx.tests.design.test_forward import _case
 
 
-def test_quick_mode_controls_and_native_unconverged_status():
+def test_quick_mode_controls_and_native_unconverged_status(monkeypatch):
     case = prepare_quick_design(_case(), 'Diamond', 7., .5, .084, .05, case_id='controls')
+    from sjtu_tpmshx.models import quick_design
+    def forbidden(*args, **kwargs):
+        raise AssertionError('execution attempted to rebuild fixed inlet pressure')
+    monkeypatch.setattr(quick_design, '_dp_fractions', forbidden)
+    invalid = {**case.parameters, 'inlet_pressure_fractions': {'A': -1., 'B': 0.}}
+    with pytest.raises(ValueError, match='inlet pressure fractions'):
+        run_case(replace(case, parameters=invalid))
     with pytest.raises(CancelledError):
         run_case(case, RunControl(cancel_check=lambda: True))
     with pytest.raises(ValueError, match='unsupported solver mode'):

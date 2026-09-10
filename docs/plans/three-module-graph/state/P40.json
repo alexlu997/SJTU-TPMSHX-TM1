@@ -12,11 +12,12 @@
   "review": null,
   "ci_runs": [],
   "evidence": [
-    "evidence/P40/offline.md"
+    "evidence/P40/offline.md",
+    "evidence/P40/quick-pressure.md"
   ],
   "blocked_reason": null,
   "unblocks_when": null,
-  "next_action": "Complete remaining quick-mode fixed inlet-pressure preparation; independent review, CI and merge remain required. Real current water workbook unavailable.",
+  "next_action": "Offline and quick-pressure checks plus corrected full fast regression passed locally; independent review, actual CI and merge remain. Current water CFD workbook unavailable.",
   "tested_candidate_sha": null,
   "tested_base_sha": null,
   "source_head_sha": null

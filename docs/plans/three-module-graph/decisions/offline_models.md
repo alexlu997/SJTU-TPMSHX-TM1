@@ -40,11 +40,11 @@ Other validation/refit reports retain their existing entry points and output
 responsibility. No automatic refit occurs simply by importing offline modules.
 
 Ordinary full-mode preparation uses the versioned fixed CFD resource and is
-tested with workbook reading/calibration forbidden. Quick-design's remaining
-analytical inlet-pressure evaluation currently occurs after the thermal solve;
-its selected legacy RBF mode can initialize a calibration there. Moving that
-fixed inlet evaluation to preparation is a required continuation, not a claim
-that the complete architecture boundary is already closed.
+tested with workbook reading/calibration forbidden. Quick-design's analytical
+inlet-pressure evaluation also occurs in preparation. Even if a selected legacy
+research mode initializes calibration while preparing, the receiving solver
+only consumes the recorded pressure fractions. Ordinary defaults use the fixed
+CFD table; selecting a research mode does not promote its model to production.
 
 Data revision checked locally: ddf11acdf6c05340fb832e427d3861d0534bd934.
 The data repository's selected experiment and sCO2 files were clean. The

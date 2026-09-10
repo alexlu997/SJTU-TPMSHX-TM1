@@ -7,7 +7,7 @@ from sjtu_tpmshx.domain.case_data import CaseData
 from sjtu_tpmshx.domain.model_refs import ModelRef
 from sjtu_tpmshx.models.catalog import MODEL_VERSIONS
 from sjtu_tpmshx.models.fluid_props import check_finite_temperatures
-from sjtu_tpmshx.models.quick_design import K_STEEL, GEOM_N, NX, LTNE_TOL, _ARR
+from sjtu_tpmshx.models.quick_design import K_STEEL, GEOM_N, NX, LTNE_TOL, _ARR, _dp_fractions
 from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry
 from sjtu_tpmshx.df_surrogate.predict import (
     _resolve_method, _overrides_enabled, _residual_correction_enabled,
@@ -40,6 +40,10 @@ def prepare_quick_design(case, topo, l, t, s, Lx, arrangement='cross', *,
         grid[axis + '_edges'] = np.r_[0., np.cumsum(widths)]
     inputs = {name: getattr(case, name) for name in
               ('hot_fluid', 'cold_fluid', 'T_in_h', 'T_in_c', 'P_in_h', 'P_in_c', 'mdot_h', 'mdot_c')}
+    df_options = dict(method=_resolve_method(), overrides=_overrides_enabled(),
+                      residual_correction=_residual_correction_enabled())
+    fractions = _dp_fractions(case, topo, l, t, geo['epsilon_A'], s, Lx,
+                              arrangement, sz, df_options=df_options)
     return CaseData(
         case_id=case_id, config_snapshot=asdict(case), grid=grid,
         design_fields=dict(eps=np.full(shape, geo['epsilon']),
@@ -50,8 +54,8 @@ def prepare_quick_design(case, topo, l, t, s, Lx, arrangement='cross', *,
                         k_s=k_s, A_0=geo['A_0'], D_h=geo['D_h'],
                         arrangement=arrangement, prop_model=prop_model, tol=tol,
                         controls={key: value for key, value in arr.items() if key not in ('ny', 'nz')}, initial_fields=init,
-                        df_options=dict(method=_resolve_method(), overrides=_overrides_enabled(),
-                                        residual_correction=_residual_correction_enabled())),
+                        df_options=df_options,
+                        inlet_pressure_fractions=dict(zip(('A', 'B'), fractions))),
         model_refs=(ModelRef('quick_design', MODEL_VERSIONS['quick_design']),
                     ModelRef('fluid', MODEL_VERSIONS['fluid'], {'fluid': case.hot_fluid}),
                     ModelRef('fluid', MODEL_VERSIONS['fluid'], {'fluid': case.cold_fluid})),

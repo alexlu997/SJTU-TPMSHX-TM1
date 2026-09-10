@@ -202,3 +202,21 @@ is redirected to the already extracted shared geometry authority.
 The existing sCO2 log-space fit is moved unchanged from its validation report
 script to offline preparation; the report delegates to it and keeps all
 campaign splits, metrics and publication decisions.
+
+P40's continuation also coordinates G10/S40/A40/I54: quick-design analytical
+pressure fractions depend only on prepared geometry and inlet conditions.
+Their existing evaluation moves to preparation, keeping selected D-F options
+and warnings, so no legacy calibration can be started after a thermal solve.
+The solver consumes the two supplied fractions and retains pressure states;
+offline pressure reduction is unchanged.
+
+### Z00 documentation continuation
+
+The controller owns README, architecture and architecture acceptance mapping.
+The inherited README is retained verbatim as docs/history/v2-readme.md;
+current entry-point documentation does not present old headline accuracy as
+TM1 acceptance. This is documentation preparation while release gates remain
+open, not a done transition for Z00 or its predecessors.
+The same documentation pass maintains Z10's V0.1 capability tracking table;
+unimplemented M-B providers/backends and undefined engineering metrics remain
+explicit gaps. It does not activate or claim completion of those implementations.

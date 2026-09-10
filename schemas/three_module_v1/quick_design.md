@@ -33,6 +33,11 @@ and is not used by execution. The prepared data has:
   flag. Explicit options override receiving-process environment without any
   process-global environment replay. Existing standalone D-F calls still use
   their historical defaults when those optional arguments are omitted.
+- `inlet_pressure_fractions`: prepared A/B analytical dP/P_in, dimensionless,
+  finite and nonnegative. The producer evaluates the existing inlet-state D-F
+  calculation with `df_options`; execution cannot start calibration or reload
+  training data. These fixed values must be prepared again when changing inlet
+  conditions or geometry. Older intermediate Cases lacking them are rejected.
 - `prop_model`: const (one inlet-property pass) or mean (one additional pass
   evaluated at inlet/outlet mean temperatures). Runtime property evaluation is
   part of the model's execution. No geometry or grid is rebuilt at execution.

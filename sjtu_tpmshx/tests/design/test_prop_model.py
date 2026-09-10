@@ -111,4 +111,5 @@ def test_forward_rejects_nonfinite_thermal_return(monkeypatch, model, bad_pass, 
         forward(case, 'Diamond', 7., .5, .084, .084, prop_model=model)
     assert len(calls) == bad_pass
     assert outlets == list(range(1, bad_pass))
-    assert len(properties) == 2 * bad_pass
+    # Two fixed inlet-pressure states are prepared before thermal passes.
+    assert len(properties) == 2 + 2 * bad_pass
