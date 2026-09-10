@@ -8,7 +8,12 @@ def run_case(case, control=RunControl()):
     if control.backend != 'python':
         raise ValueError(f'unsupported backend: {control.backend}')
     dimension = case.grid.get('dimension')
-    if dimension == 2:
+    mode = case.metadata.get('mode', 'full')
+    if mode == 'quick_design':
+        from .backends.python.quick_design.execution import run_case as run
+    elif mode != 'full':
+        raise ValueError(f'unsupported solver mode: {mode}')
+    elif dimension == 2:
         from .backends.python.two_d.execution import run_case as run
     elif dimension == 3:
         from .backends.python.three_d.execution import run_case as run

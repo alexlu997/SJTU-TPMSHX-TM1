@@ -4,6 +4,7 @@ from sjtu_tpmshx.domain.model_refs import ModelRef
 
 # These versions identify the extracted V2 formulas, not experimental accuracy.
 MODEL_VERSIONS = {
+    'quick_design': 'v2-5f1cafb',
     'fluid': 'v2-5f1cafb',
     'geometry': 'v2-5f1cafb',
     'darcy_forchheimer': 'cfd_full_core_3cell_fixed_v2',
@@ -17,6 +18,11 @@ def resolve_model(ref: ModelRef):
     if ref.name not in MODEL_VERSIONS or ref.version != MODEL_VERSIONS[ref.name]:
         raise ValueError(f'unknown model resource: {ref.name}@{ref.version}')
     parameters = dict(ref.parameters)
+    if ref.name == 'quick_design':
+        if parameters:
+            raise ValueError('quick-design closure takes no fixed parameters')
+        from . import quick_design
+        return quick_design
     if ref.name == 'fluid':
         from .fluid_props import get
         if set(parameters) - {'fluid', 'sco2_nu'} or 'fluid' not in parameters:

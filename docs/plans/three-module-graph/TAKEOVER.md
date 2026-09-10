@@ -132,3 +132,16 @@ temperature-label corrections in the existing GUI files. A completed 3D run
 must refresh the same Kelvin outlet cache as 2D; otherwise a subsequent unit
 toggle can resurrect the preceding 2D temperatures. Display changes do not
 recompute engineering metrics or alter current solver inputs.
+
+## Quick-design mode integration ownership
+
+`codex/tm1/quick-design-repair` coordinates S40/A40/I54 with its required
+G10/M00/H10 public mode, shared closure and result-contract changes. Preparation
+owns the actual uniform grid, geometry, initial fields and resolved controls;
+the quick-design backend owns the existing plug-flow LTNE passes. Postprocessing
+owns the final temperature/duty and analytical pressure-state reductions.
+Design retains sizing, constraints, warm-start sequencing and output rules.
+The controller also owns the necessary shared D-F explicit-option parameters so
+prepared execution preserves the existing method/override/residual-correction
+choices without changing process environment. Shared source formulas are moved
+or reused once. Other application modes and frozen B40 pins remain unchanged.

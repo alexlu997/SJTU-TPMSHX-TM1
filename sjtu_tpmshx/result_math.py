@@ -150,3 +150,9 @@ def _boundary_enthalpy_duty(h, h_in, mass_flux):
         net_out += float(np.sum(np.where(outward > 0.0, outward * adjacent,
                                          outward * h_in)))
     return -net_out
+
+
+def _cold_outlet(Tb, arrangement):
+    Tb = np.asarray(Tb)
+    return float(Tb[:, -1, :].mean()) if arrangement == "cross" \
+        else float(Tb[0, :, :].mean())            # cross:+y 末 / counter:−x 末 (i=0)

@@ -26,8 +26,10 @@ def test_solve_Lx_hits_target():
 
 def _controlled_forward(monkeypatch, mode):
     """Real forward/brentq, with controlled thermal responses, not PDE solves."""
-    module = importlib.import_module('sjtu_tpmshx.design.forward')
-    monkeypatch.setattr(module, 'tpms_geometry', lambda *a, **k: {
+    module = importlib.import_module('sjtu_tpmshx.models.quick_design')
+    preparation = importlib.import_module('sjtu_tpmshx.preprocess.app_modes.quick_design')
+    execution = importlib.import_module('sjtu_tpmshx.solvers.backends.python.quick_design.execution')
+    monkeypatch.setattr(preparation, 'tpms_geometry', lambda *a, **k: {
         'epsilon': .6, 'epsilon_A': .3, 'A_0': 1000., 'D_h': .002})
     events = []
     property_error = ValueError('injected actual forward property failure')
@@ -50,16 +52,18 @@ def _controlled_forward(monkeypatch, mode):
         fields = tuple(np.full(shape, t) for t in (hot, 350., 450.))
         seed = tuple(kwargs[k] for k in ('Ta_init', 'Tb_init', 'Ts_init'))
         if events:
-            assert all(a is b for a, b in zip(seed, events[-1][2]))
+            for actual, previous in zip(seed, events[-1][2]):
+                np.testing.assert_array_equal(actual, previous)
+                assert not np.shares_memory(actual, previous)
         else:
             assert seed == (None, None, None)
         events.append((length, kwargs['tol'], fields))
         if mode == 'thermal' and len(events) == 3:
             fields[2][0, 0, 0] = np.nan
-        return fields
+        return (*fields, {'converged': True})
 
     monkeypatch.setattr(module, 'fluid_props', props)
-    monkeypatch.setattr(module, 'solve_full_domain_3d', thermal)
+    monkeypatch.setattr(execution, 'solve_full_domain_3d', thermal)
     case = DesignCase(1, 'air', 600., 4e5, .05, 'air', 300., 4e5, .05,
                       None, .08, .08, dT=100.)
     return case, events, property_error
@@ -96,4 +100,5 @@ def test_brentq_finite_response_preserves_seed_chain_and_fallback(monkeypatch, m
         assert events[4][0] == pytest.approx(.25)  # original brentq step
     assert all(e[1] == SIZING_TOL for e in events[:-1])
     assert events[-1][1] == LTNE_TOL
-    assert all(a is b for a, b in zip(result.fields, events[-1][2]))
+    for actual, last in zip(result.fields, events[-1][2]):
+        np.testing.assert_array_equal(actual, last)

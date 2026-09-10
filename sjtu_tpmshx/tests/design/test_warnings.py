@@ -82,6 +82,9 @@ def test_forward_labels_without_extra_property_or_thermal_calls(monkeypatch, mod
     import importlib
     import numpy as np
     f = importlib.import_module('sjtu_tpmshx.design.forward')
+    model_source = importlib.import_module('sjtu_tpmshx.models.quick_design')
+    preparation = importlib.import_module('sjtu_tpmshx.preprocess.app_modes.quick_design')
+    execution = importlib.import_module('sjtu_tpmshx.solvers.backends.python.quick_design.execution')
     from sjtu_tpmshx.design import fluids
     from sjtu_tpmshx.domain.run_warnings import record_range, warning_messages
     calls, solves = [], []
@@ -92,13 +95,13 @@ def test_forward_labels_without_extra_property_or_thermal_calls(monkeypatch, mod
     def thermal(*args, **kwargs):
         solves.append((args, kwargs))
         shape = (args[3], args[4], args[5])
-        return tuple(np.full(shape, t) for t in (400., 350., 375.))
-    monkeypatch.setattr(f, 'fluid_props', props)
+        return (*tuple(np.full(shape, t) for t in (400., 350., 375.)), {'converged': True})
+    monkeypatch.setattr(model_source, 'fluid_props', props)
     monkeypatch.setattr(fluids, 'fluid_props', props)
-    monkeypatch.setattr(f, 'tpms_geometry', lambda *a, **kw: dict(
+    monkeypatch.setattr(preparation, 'tpms_geometry', lambda *a, **kw: dict(
         epsilon=.5, epsilon_A=.25, A_0=100., D_h=.001))
-    monkeypatch.setattr(f, 'solve_full_domain_3d', thermal)
-    monkeypatch.setattr(f, '_dp_one', lambda *a: 100.)
+    monkeypatch.setattr(execution, 'solve_full_domain_3d', thermal)
+    monkeypatch.setattr(model_source, '_dp_one', lambda *a, **kw: 100.)
     c = replace(_case(), hot_fluid='water', cold_fluid='sco2')
     with warning_scope({}) as records:
         result = f.forward(c, 'Diamond', 7., .5, .1, .1, prop_model=model)

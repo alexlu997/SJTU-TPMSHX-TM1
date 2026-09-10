@@ -12,3 +12,11 @@ def prepare_case(config, *, case_id):
     with warning_scope({}) as records:
         case = prepare(config, case_id=case_id)
     return replace(case, metadata={**case.metadata, 'warnings': tuple(warning_messages(records))})
+
+
+def prepare_quick_design(*args, **kwargs):
+    """Explicit prescribed-velocity design mode; no SIMPLE substitution."""
+    from .app_modes.quick_design import prepare_quick_design as prepare
+    with warning_scope({}) as records:
+        case = prepare(*args, **kwargs)
+    return replace(case, metadata={**case.metadata, 'warnings': tuple(warning_messages(records))})
