@@ -38,7 +38,7 @@ convention on both sides, so downstream Q calculations are consistent.
 
 import functools
 import warnings
-import numpy as np
+import numpy as np  # noqa: F401 - preserve existing module surface
 from sjtu_tpmshx.domain.run_warnings import (
     cache_warning_records, current_warnings, merge_warnings,
 )
@@ -146,7 +146,7 @@ def validate_fluid_type(fluid_type: str, side: str) -> None:
 # audit Item 1 / H1). Detailed roughness rationale + known limitations
 # moved to that module's docstring.
 
-from .nu_correlations import (
+from .nu_correlations import (  # noqa: F401 - existing public re-exports
     nu_from_Re,
     nu_vec,
     nu_water_from_Re,

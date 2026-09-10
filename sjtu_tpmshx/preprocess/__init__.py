@@ -1,0 +1,1 @@
+"""Independent physical input preparation."""

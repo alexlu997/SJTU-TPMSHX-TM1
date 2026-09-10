@@ -27,7 +27,7 @@ REPO = PKG.parent
 # intended layering: unit -> layer index (lower = more fundamental)
 LAYERS = {
     "logutil": 0, "configs": 0, "domain": 0,
-    "models": 0.5, "solvers": 1,
+    "models": 0.5, "solvers": 1, "preprocess": 2,
     "df_surrogate": 2, "design": 2,
     "pipelines": 3, "core": 3, "optimization": 3,
     "controllers": 4,

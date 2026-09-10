@@ -61,3 +61,12 @@ implementations to `models` and reconnects their existing public module paths;
 there is no second formula implementation. Numerical kernels and thread
 initialization retain their existing behavior. This is partial M00/I55 work,
 not acceptance of either node or of dependent module integration.
+
+## 2D preparation extraction ownership
+
+The sole controller coordinates P20 with I20 and the remaining I55 pure helper
+moves in `codex/tm1/p20-repair`. The integration extracts input preparation and
+grid construction from the old pipeline and reconnects the old stage entry
+points to these same functions. Numerical SIMPLE construction remains runtime
+work. Shared grid primitives and sigmoid model extraction retain existing
+formulas, grid rules and the existing default geometry-cache location.

@@ -15,32 +15,10 @@ from typing import Any, List, Optional, Tuple
 import numpy as np
 from sjtu_tpmshx.df_surrogate.predict import predict_K_cF_vec
 from .tpms_calc import geometry as tpms_geometry
-from .simple_solver import build_wall_refined_1d
+from sjtu_tpmshx.models.grid import build_wall_refined_1d
 
 
-def build_master_refined_grid(L_dom: float, H_dom: float,
-                               Nx_user: int, Ny_user: int,
-                               n_refine: int = 8,
-                               first_cell: float = 0.02e-3,
-                               growth: float = 1.8
-                               ) -> Tuple[np.ndarray, np.ndarray, int, int]:
-    """构造"主加密网格"：真实坐标 x/y 两端都加密，四面墙 BL 都解析。
-
-    返回 (dx_arr, dy_arr, Nx_refined, Ny_refined)
-      dx_arr (m): 沿实际 x 方向，共 Nx_user + 2*n_refine 个单元，∑=L_dom
-      dy_arr (m): 沿实际 y 方向，共 Ny_user + 2*n_refine 个单元，∑=H_dom
-
-    映射到 SIMPLE 坐标：
-      Fluid A (+x 流向): SIMPLE internal dx_arr = dy_refined, dy_arr = dx_refined
-      Fluid B (-y 流向): SIMPLE internal dx_arr = dx_refined, dy_arr = dy_refined
-
-    za 数组和 solve_full_domain 都直接用 (Nx_refined, Ny_refined) 这个网格。
-    """
-    dx_refined = build_wall_refined_1d(L_dom, Nx_user, n_refine=n_refine,
-                                        first_cell=first_cell, growth=growth)
-    dy_refined = build_wall_refined_1d(H_dom, Ny_user, n_refine=n_refine,
-                                        first_cell=first_cell, growth=growth)
-    return dx_refined, dy_refined, len(dx_refined), len(dy_refined)
+from sjtu_tpmshx.models.grid import build_master_refined_grid  # noqa: F401
 
 
 def project_cells_to_streamwise_K_cF(grid_cells: List[dict],
