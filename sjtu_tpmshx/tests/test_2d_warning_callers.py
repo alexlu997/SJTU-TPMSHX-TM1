@@ -60,12 +60,11 @@ def _prepare(monkeypatch, *, legacy=False, pair=('air', 'air'), temperatures=(40
     if legacy:
         # Controlled asymmetric geometry activates the existing temperature path;
         # geometry accuracy itself is outside this caller test.
-        from sjtu_tpmshx.solvers import asym_split, asym_geometry, tpms_geometry
         cfg.geometry.delta_levelset = .1
-        monkeypatch.setattr(asym_split, '_asym_split_A', lambda *a: .6)
-        monkeypatch.setattr(tpms_geometry, '_phi_grid', lambda *a: np.zeros((2, 2, 2)))
-        monkeypatch.setattr(asym_geometry, 'a0_sides', lambda *a, **k: (100., 120.))
-        monkeypatch.setattr(asym_geometry, 'dh_sides', lambda *a, **k: (.002, .003))
+        parsed['thermal_geometry'] = {
+            **parsed['thermal_geometry'], 'split_A': .6,
+            'side_geometry': {'A': (100., .002, 100., .002),
+                              'B': (120., .003, 120., .003)}}
     def solved(solver, *args, **kwargs):
         # A completed fake flow needs outward mass for the result's Tout.
         solver.v[:, -1] = .001 * solver.outlet_geom_frac
@@ -105,6 +104,11 @@ def test_actual_workers_and_local_re_snapshots(monkeypatch, zoned):
         pipe._parsed['za'] = dict(L_mm_arr=np.full(shape, 7.), t_arr=np.full(shape, .6),
             K_ffA_arr=np.ones(shape), K_ffB_arr=np.ones(shape),
             K_ss_arr=np.ones(shape), eps_arr=np.full(shape, .7))
+        from sjtu_tpmshx.preprocess.thermal_geometry import prepare_thermal_geometry
+        parsed = pipe._parsed
+        parsed['thermal_geometry'] = prepare_thermal_geometry(
+            parsed['tpms_type'], parsed['Lcell'], parsed['t_wall'], parsed['k_s'],
+            L_field=parsed['za']['L_mm_arr'], t_field=parsed['za']['t_arr'])
     monkeypatch.setattr(solve_2d, 'solve_full_domain', _stop)
 
     def drive(*, step, **kwargs):

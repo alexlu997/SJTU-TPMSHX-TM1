@@ -20,6 +20,11 @@ these grids against the physical grid and consumes these coefficients directly;
 receiver D-F environment settings cannot replace them. Temperature-dependent
 properties, graded pressure re-seeding and inlet shooting remain numerical
 execution steps.
+`thermal_geometry` contains the fixed scalar or cell-wise A_0 (1/m), D_h
+(m), epsilon, the asymmetric side split and each side's area/diameter versus
+its symmetric reference. These are explicit prepared inputs; geometry changes
+require a coherent newly prepared Case. Runtime evaluates current-state Nu and
+transport against them, and consumes the saved inlet geometric opening.
 The separate `config_snapshot` is historical provenance; deleting it does not
 change execution. No callback or runtime model is stored in CaseData.
 

@@ -9,7 +9,6 @@ from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.solvers.coupling_skeleton import OuterConvergence, run_outer_coupling
 from sjtu_tpmshx.solvers.ltne_energy import solve_full_domain
 from sjtu_tpmshx.solvers.simple_solver import _prolong_mass_faces_2d
-from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry
 from sjtu_tpmshx.solvers.envelope import gate_solution, mach_field_max
 from sjtu_tpmshx.logutil import get_logger
 
@@ -824,7 +823,7 @@ def _run_solvers(window, cfg, fields, *, cancel_check=None):
         when present; default None falls back to air Nu (legacy)."""
         Nx_l, Ny_l = u_mag_field.shape
         if L_mm_field is None:
-            g_u = tpms_geometry(tpms_type, Lcell, t_wall, k_s)
+            g_u = cfg['thermal_geometry']['uniform']
             A0 = g_u['A_0']; D_h = g_u['D_h']; eps_g = g_u['epsilon']
             Re_loc = rho_scalar * (np.abs(u_mag_field) + 1e-12) * D_h / mu_scalar
             # perf-wave1 (2026-07-03): vectorized Nu over the whole grid —
@@ -856,8 +855,8 @@ def _run_solvers(window, cfg, fields, *, cancel_check=None):
         raw_Re = np.empty_like(out)
         for i in range(Nx_l):
             for j in range(Ny_l):
-                L_ij = float(L_mm_field[i, j]); t_ij = float(t_mm_field[i, j])
-                g = tpms_geometry(tpms_type, L_ij, t_ij, k_s)
+                L_ij = float(L_mm_field[i, j])
+                g = {key: value[i, j] for key, value in cfg['thermal_geometry']['fields'].items()}
                 D_h_l = g['D_h']
                 Re_l = rho_scalar * (abs(float(u_mag_field[i, j])) + 1e-12) * D_h_l / mu_scalar
                 raw_Re[i, j] = Re_l
@@ -876,7 +875,7 @@ def _run_solvers(window, cfg, fields, *, cancel_check=None):
         return out
 
     tpms_type = cfg['tpms_type']
-    Lcell = cfg['Lcell']; t_wall = cfg['t_wall']; k_s = cfg['k_s']
+    Lcell = cfg['Lcell']; t_wall = cfg['t_wall']
 
     mu_A, mu_B = window._mu_A, window._mu_B
     P_inA_val = cfg['compute_cfg'].fluid_A.P_in_Pa
@@ -895,13 +894,11 @@ def _run_solvers(window, cfg, fields, *, cancel_check=None):
     # and keeps diffusion / convection / duty per-side consistent. The kernel
     # itself receives the absolute eps_A = ε·s / eps_B = ε·(1−s) (Phase 1 hook).
     # See design add-2d-asym-porosity D2(b).
-    from sjtu_tpmshx.solvers.asym_split import _asym_split_A as _asym_split_A_2d
     _delta_2d = float(cfg['compute_cfg'].geometry.delta_levelset)
     _asym_2d = (_delta_2d != 0.0)
     _model_h_mode = (not _enthalpy_mode and zone_config is None and not _asym_2d
                      and _pA['name'] in ('air', 'water') and _pB['name'] in ('air', 'water'))
-    _split_A_2d = _asym_split_A_2d({'delta_levelset': _delta_2d},
-                                   tpms_type, Lcell, t_wall)
+    _split_A_2d = cfg['thermal_geometry']['split_A']
     _epsfac_A = 2.0 * _split_A_2d            # ε_A / (ε/2)
     _epsfac_B = 2.0 * (1.0 - _split_A_2d)    # ε_B / (ε/2)
 
@@ -917,19 +914,7 @@ def _run_solvers(window, cfg, fields, *, cancel_check=None):
     def _hv_side_geom_ratio_2d(side_props, u_side, T_side, P_side):
         if not _asym_2d:
             return 1.0
-        from sjtu_tpmshx.models.tpms_geometry import _phi_grid, _C_from_tL
-        from sjtu_tpmshx.solvers import asym_geometry as _ag
-        _N = 128
-        _phi = _phi_grid(tpms_type, _N)
-        _C = _C_from_tL(tpms_type, float(t_wall) / float(Lcell))
-        _Lm = float(Lcell) / 1000.0
-        A0A, A0B = _ag.a0_sides(_phi, _C, _delta_2d, _Lm, _N)
-        DhA, DhB = _ag.dh_sides(_phi, _C, _delta_2d, _Lm, _N, mc=True)
-        A0A0, A0B0 = _ag.a0_sides(_phi, _C, 0.0, _Lm, _N)
-        DhA0, DhB0 = _ag.dh_sides(_phi, _C, 0.0, _Lm, _N, mc=True)
-        _is_A = (side_props is _pA)
-        A0_s, Dh_s, A0_r, Dh_r = ((A0A, DhA, A0A0, DhA0) if _is_A
-                                  else (A0B, DhB, A0B0, DhB0))
+        A0_s, Dh_s, A0_r, Dh_r = cfg['thermal_geometry']['side_geometry']['A' if side_props is _pA else 'B']
         _rho = float(side_props['rho'](T_side, P_side))
         _mu = float(side_props['mu'](T_side, P_side))
 
@@ -1170,13 +1155,7 @@ def _run_solvers(window, cfg, fields, *, cancel_check=None):
                 vcB_disp = gaussian_filter(vcB, sigma=_sv)
 
         # Heat diffusion uses physical open area; SIMPLE's taper is velocity data.
-        from sjtu_tpmshx.solvers.simple_solver import _port_fractions_1d
-        _imA, _imB = [
-            _port_fractions_1d(
-                energy_dy if direction <= 1 else energy_dx,
-                port['in_ctr'] - port['in_w']/2,
-                port['in_ctr'] + port['in_w']/2)[0]
-            for port, direction in ((cfgA, dir_A), (cfgB, dir_B))]
+        _imA, _imB = (cfg['boundary_openings'][side]['in_geom_frac'] for side in ('A', 'B'))
 
         # Build local-Re per-cell h_v fields (#1 fix). Use cell-center magnitude.
         u_mag_A = np.sqrt(ucA**2 + vcA**2)
@@ -1188,7 +1167,7 @@ def _run_solvers(window, cfg, fields, *, cancel_check=None):
             t_field_2d = za.get('t_arr')
         if _enthalpy_mode:
             from sjtu_tpmshx.models.local_heat_transfer import _sco2_hv_local_field
-            _g_hv = tpms_geometry(tpms_type, Lcell, t_wall, k_s)
+            _g_hv = cfg['thermal_geometry']['uniform']
             _Ta_hv = (Ta if Ta is not None
                       else np.full_like(u_mag_A, T_inA))
             _Tb_hv = (Tb if Tb is not None

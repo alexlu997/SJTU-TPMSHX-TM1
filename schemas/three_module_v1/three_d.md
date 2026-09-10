@@ -45,3 +45,24 @@ outward energy arrays and retains the incomplete-boundary rejection.
 All dimensional duties here are W and mass flows kg/s. No division by depth
 occurs. Numerical convergence remains independent from metric availability.
 Solid mass requires an explicit density; conductivity cannot supply it.
+
+## Fixed thermal geometry and calibration
+
+`parameters.thermal_geometry` records uniform geometry and (for zoned cases)
+A_0 (1/m), D_h (m) and epsilon fields on physical x/y/z cells. It includes the
+asymmetric split and side/reference A_0/D_h values from the existing 128-point
+geometry calculation. Its `air_bulk_hv.A/B` fields preserve the original inlet
+air closure (W/(m3 K)); the solver does not invoke tpms_compute again. Current
+velocity/temperature-dependent Nu and property evaluations remain in execution.
+Missing prepared execution fields fail explicitly; old intermediate Case files
+must be prepared again rather than silently rebuilt inside the solver.
+
+`roughness_resolved` records the selected mode and roughness length `eps_m` in
+metres. Receiver environment settings cannot replace it. Experimental
+`df_application.A/B` records the resolved positive scalar correction factors
+and campaign/applicability metadata, or is null in CFD mode. Runtime applies
+those fixed factors to the supplied K/cF fields and reports the actual base and
+applied coefficients; it does not reselect or reevaluate calibration. Changing a
+valid K field remains an effective numerical input. The original A projection
+and scalar-mean B convention are preserved. All SIMPLE grids receive the actual
+prepared widths, including uniform grids.

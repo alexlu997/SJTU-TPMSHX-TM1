@@ -185,6 +185,18 @@ def _prepare_problem_data(cfg):
         lfield = np.full((nx, ny, nz), cfg['Lcell'])
         tfield = np.full((nx, ny, nz), cfg['t_wall'])
         eps = np.full((nx, ny, nz), cfg['eps'])
+    from sjtu_tpmshx.preprocess.thermal_geometry import prepare_thermal_geometry
+    cfg['thermal_geometry'] = prepare_thermal_geometry(
+        cfg['tpms_type'], cfg['Lcell'], cfg['t_wall'], cfg['k_s'],
+        L_field=lfield * 1e-3 * 1e3 if cells else None,
+        t_field=tfield * 1e-3 * 1e3 if cells else None,
+        delta=float(cfg.get('delta_levelset', 0.)))
+    from sjtu_tpmshx.models.roughness import resolve_mode_from_env
+    mode, eps_um = resolve_mode_from_env(default='norris_1a')
+    cfg['roughness_resolved'] = {'mode': mode, 'eps_m': eps_um * 1e-6}
+    cfg['thermal_geometry']['air_bulk_hv'] = _prepare_air_bulk_hv(
+        cfg, lfield * 1e-3 * 1e3 if cells else None,
+        tfield * 1e-3 * 1e3 if cells else None, (nx, ny, nz))
     permeability, forchheimer = predict_K_cF_vec(
         cfg['tpms_type'], lfield, tfield, eps / 2., method=SCO2_DF_METHOD)
     eps_A, eps_B = _eps_sides_for_run(cfg, cfg['tpms_type'], cfg['Lcell'], cfg['t_wall'], eps, eps / 2.)
@@ -202,6 +214,7 @@ def _prepare_problem_data(cfg):
         temperature, pressure = cfg['T_in' + side], cfg.get('P_in' + side, cfg['P_inA'])
         fluid_props.check_water_state(fluid, temperature, pressure, where=f'3D prepared inlet {side}')
         properties[side] = {key: float(getattr(model, key)(temperature, pressure)) for key in ('rho', 'mu', 'cp', 'k')}
+    cfg['df_application'] = _prepare_df_application(cfg, axes, permeability, forchheimer)
     return dict(cfg=cfg, dx=dx, dy=dy, dz=dz, Nx=nx, Ny=ny, Nz=nz,
                 max_outer=max_outer, ltne_max_iter=ltne_max_iter, compact=compact,
                 geometry=geometry, axes=axes, openings=openings, properties=properties,
@@ -209,6 +222,52 @@ def _prepare_problem_data(cfg):
                             eps_arr=eps, eps_A=eps_A, eps_B=eps_B,
                             K_m2=permeability, cF_per_m=forchheimer,
                             K_ss=chi_s_eff(cfg['tpms_type'], eps) * (1-eps) * cfg['k_s']))
+
+
+def _prepare_df_application(cfg, axes, permeability, forchheimer):
+    """Resolve experimental calibration once; runtime still consumes K/cF fields."""
+    if cfg.get('df_mode', 'cfd_smooth') != 'experimental':
+        return None
+    from sjtu_tpmshx.df_surrogate.experimental_correction import apply_correction
+    from sjtu_tpmshx.domain.run_warnings import range_context
+    result = {}
+    for side in axes:
+        with range_context(side=side, stage='prepared-df', layout='scalar'):
+            _, _, result[side] = apply_correction(
+                cfg['tpms_type'], cfg['fluid_type_' + side], cfg['Lcell'], cfg['t_wall'],
+                float(permeability.flat[0]), float(forchheimer.flat[0]),
+                u_mps=abs(float(cfg.get('u_' + side, cfg['u_A']))))
+    return result
+
+
+def _prepare_air_bulk_hv(cfg, lfield, tfield, shape):
+    """Keep the original tpms_compute bulk air convention, before execution."""
+    from sjtu_tpmshx.models.tpms_calc import compute
+    from sjtu_tpmshx.models.nu_correlations import record_raw_nu_range
+    from sjtu_tpmshx.domain.run_warnings import range_context
+    result = {}
+    for side in ('A', 'B'):
+        if cfg.get('fluid_type_' + side, 'air') != 'air':
+            continue
+        with range_context(side=side, stage='inlet', layout='scalar-hv-bulk'):
+            if lfield is None:
+                g = compute(cfg['tpms_type'], cfg['Lcell'], cfg['t_wall'],
+                            cfg.get('u_' + side, cfg['u_A']), cfg['T_in' + side],
+                            cfg.get('P_in' + side, cfg['P_inA']), cfg['k_s'])
+                result[side] = np.full(shape, g['A_0'] * g['H_sf'], dtype=np.float64)
+            else:
+                out, raw_Re = np.empty(shape), np.empty(shape)
+                for index in np.ndindex(shape):
+                    with range_context(layout='scalar-zoned-call'):
+                        g = compute(cfg['tpms_type'], float(lfield[index]), float(tfield[index]),
+                                    cfg.get('u_' + side, cfg['u_A']), cfg['T_in' + side],
+                                    cfg.get('P_in' + side, cfg['P_inA']), cfg['k_s'])
+                    raw_Re[index] = g['Re']
+                    out[index] = g['A_0'] * g['H_sf']
+                with range_context(layout='real-cell(x,y,z)-bulk-Re'):
+                    record_raw_nu_range('air', cfg['tpms_type'], raw_Re)
+                result[side] = out
+    return result
 
 
 def prepare_case(config: ComputeConfig, *, case_id: str):

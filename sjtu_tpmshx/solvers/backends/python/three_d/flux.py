@@ -222,14 +222,15 @@ def _apply_roughness_KcF(K_arr: np.ndarray, cF_arr: np.ndarray,
 
 def _apply_roughness_h_v(h_v_field: np.ndarray, fluid_type: str,
                          rho: float, mu: float, u: float,
-                         D_h_m: float) -> np.ndarray:
+                         D_h_m: float, *, resolved=None) -> np.ndarray:
     """Multiply h_v by nu_extra_factor; skip roughness-embedding fluids
     (registry flag, B1 1.1). Norris 1a returns 1.0 (Nu unchanged ×1.28),
     so this is a no-op for the default mode; only bhatti_shah_1b actually
     rescales Nu."""
     if fluid_props.get(fluid_type).embeds_roughness:
         return h_v_field
-    mode, eps_um = _resolve_ui_roughness()
+    mode, eps_um = (_resolve_ui_roughness() if resolved is None else
+                    (resolved['mode'], resolved['eps_m'] * 1e6))
     if mode == 'baseline':
         return h_v_field
     Re_loc = float(rho * abs(u) * D_h_m / max(mu, 1.0e-12))

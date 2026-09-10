@@ -24,12 +24,11 @@ from sjtu_tpmshx.solvers.coupling_skeleton import OuterConvergence, run_outer_co
 from sjtu_tpmshx.solvers.simple_solver_3d import SIMPLESolver3D
 from sjtu_tpmshx.solvers.ltne_energy_3d import solve_full_domain_3d, _inlet_transport_3d
 from sjtu_tpmshx.models.tpms_calc import (
-    geometry as tpms_geometry, air_density, air_viscosity,
+    air_density, air_viscosity,
     air_conductivity, air_cp,
 )
 from sjtu_tpmshx.models import fluid_props
 from sjtu_tpmshx.models import sco2_props
-from sjtu_tpmshx.models.asym_split import _per_side_eps_override
 from sjtu_tpmshx.solvers.envelope import (check_compressible_envelope, gate_solution,
                                mach_field_max, ChokedFlowError,
                                PRESSURE_FLOOR_PA)
@@ -50,6 +49,13 @@ from sjtu_tpmshx.models.field_coordinates_3d import (  # Phase 3: extracted pure
 from sjtu_tpmshx.logutil import get_logger
 
 _log = get_logger(__name__)
+
+
+def _prepared_eps_overrides(cfg, eps):
+    if float(cfg.get('delta_levelset', 0.)) == 0.:
+        return None, None
+    split = cfg['thermal_geometry']['split_A']
+    return float(eps) * split, float(eps) * (1. - split)
 
 
 def _pressure_real_3d(solver, axis_map, offset):
@@ -659,7 +665,6 @@ def build_problem(cfg, prepared):
     Lcell, t_wall, k_s = cfg['Lcell'], cfg['t_wall'], cfg['k_s']
     eps = cfg['eps']
     fA = cfg['fluid_A_cfg']
-    wall_refine = cfg.get('wall_refine_3d', False)
 
     # 2026-05-13 — derive D_h locally so roughness helpers can compute Re.
     _g_3d = prepared['geometry']
@@ -734,12 +739,11 @@ def build_problem(cfg, prepared):
         cF_A_arr = np.full((N_stream, N_cross2), cF_pred)
 
     from sjtu_tpmshx.df_surrogate.experimental_correction import (
-        apply_correction, cfd_metadata)
+        apply_prepared_correction, cfd_metadata)
     if _df_mode == 'experimental':
         with range_context(side='A', stage='df-application', layout='scalar'):
-            K_A_arr, cF_A_arr, _df_meta_A = apply_correction(
-                tpms_type, fluid_type_A, Lcell, t_wall, K_A_arr, cF_A_arr,
-                u_mps=abs(float(u_A)))
+            K_A_arr, cF_A_arr, _df_meta_A = apply_prepared_correction(
+                K_A_arr, cF_A_arr, cfg['df_application']['A'])
         K_pred = float(np.asarray(K_A_arr).mean())
         cF_pred = float(np.asarray(cF_A_arr).mean())
     else:
@@ -765,12 +769,8 @@ def build_problem(cfg, prepared):
     v_inlet_field = in_mask_2d * u_A
 
     # ── SIMPLE A (3D, compressible) — BUILD ONLY ──
-    # E1: under wall_refine, feed the refined non-uniform spacing (permuted to
-    # solver axes) so SIMPLE solves on the same grid the LTNE stage uses. For
-    # the uniform default these stay None → solver builds uniform (unchanged).
-    _sdxA = _sdyA = _sdzA = None
-    if wall_refine or prepared.get('custom_grid', False):
-        _sdxA, _sdyA, _sdzA = _solver_spacings(dx, dy, dz, solver_to_real_perm)
+    # Consume the physical Case grid in solver coordinates for every mode.
+    _sdxA, _sdyA, _sdzA = _solver_spacings(dx, dy, dz, solver_to_real_perm)
     with range_context(side='A', stage='inlet', layout='solver-initial'):
         sA = SIMPLESolver3D(
             **solver_init,
@@ -827,9 +827,8 @@ def build_problem(cfg, prepared):
         cF_B_arr = np.full((N_stream_B, N_cross2_B), cF_pred_B)
         if _df_mode == 'experimental':
             with range_context(side='B', stage='df-application', layout='scalar'):
-                K_B_arr, cF_B_arr, _df_meta_B = apply_correction(
-                    tpms_type, fluid_type_B, Lcell, t_wall, K_B_arr, cF_B_arr,
-                    u_mps=abs(float(u_B)))
+                K_B_arr, cF_B_arr, _df_meta_B = apply_prepared_correction(
+                    K_B_arr, cF_B_arr, cfg['df_application']['B'])
             K_pred_B = float(np.asarray(K_B_arr).mean())
             cF_pred_B = float(np.asarray(cF_B_arr).mean())
         else:
@@ -851,9 +850,7 @@ def build_problem(cfg, prepared):
         v_inlet_B = in_mask_B * u_B
         # Zoned ε for sB: same eps_field but transposed via B's perm (built
         # below after sB construction).
-        _sdxB = _sdyB = _sdzB = None
-        if wall_refine or prepared.get('custom_grid', False):
-            _sdxB, _sdyB, _sdzB = _solver_spacings(dx, dy, dz, perm_B)
+        _sdxB, _sdyB, _sdzB = _solver_spacings(dx, dy, dz, perm_B)
         with range_context(side='B', stage='inlet', layout='solver-initial'):
             sB = SIMPLESolver3D(
                 **axis_map_B['solver_init'],
@@ -958,11 +955,11 @@ def build_problem(cfg, prepared):
     disp_C_A = float(cfg.get('disp_C_A', 0.0))
     disp_C_B = float(cfg.get('disp_C_B', 0.0))
     if disp_C_A > 0.0:
-        D_h_A = tpms_geometry(tpms_type, Lcell, t_wall, k_s)['D_h']
+        D_h_A = _g_3d['D_h']
         K_disp_A = disp_C_A * rho_A * cp_A * abs(u_A) * D_h_A
         K_ffA = K_ffA + K_disp_A
     if disp_C_B > 0.0:
-        D_h_B = tpms_geometry(tpms_type, Lcell, t_wall, k_s)['D_h']
+        D_h_B = _g_3d['D_h']
         K_disp_B = disp_C_B * rho_B_ltne * cp_B * abs(cfg.get('u_B', u_A)) * D_h_B
         K_ffB = K_ffB + K_disp_B
     # K_ss = χ_s(type, ε) · (1 − eps_local) · k_s, tracks zoned porosity (#3).
@@ -1079,7 +1076,6 @@ def _build_hv_machinery(prob: _Problem3D):
     rho_B = prob.rho_B
     sB = prob.sB
     t_field_3d = prob.t_field_3d
-    t_wall = prob.t_wall
     tpms_type = prob.tpms_type
     u_A = prob.u_A
     cfg = prob.cfg
@@ -1088,11 +1084,8 @@ def _build_hv_machinery(prob: _Problem3D):
     # cannot raise UnboundLocalError on guarded paths. Downstream
     # reads keep their original guards.
     h_vB_field = None
-    k_s = prob.k_s
-    # h_v from Nu correlation. Per-cell when zoned (#4): tpms_compute uses
-    # local (Lcell_ij, t_wall_ij) so A_0, H_sf track the design field.
-    # Uniform case reduces to the old scalar path.
-    from sjtu_tpmshx.models.tpms_calc import compute as tpms_compute
+    # The producer records fixed geometry and the original air bulk closure.
+    # Local Nu and fluid properties still follow the current numerical state.
     from sjtu_tpmshx.models.nu_correlations import NU_LAM_FLOOR as _NU_LAM_FLOOR  # Hagen-Poiseuille single-tube limit
     cfg['sco2_nu_observations'] = {'A': {}, 'B': {}}
     u_B_val = cfg.get('u_B', u_A)
@@ -1121,13 +1114,12 @@ def _build_hv_machinery(prob: _Problem3D):
                       float(D_h_mm_val), Pr)
         return max(float(Nu_val), _NU_LAM_FLOOR)
 
-    def _build_hv_field_3d(L_fld, t_fld, u_side, T_side, P_side, fluid_type='air'):
+    def _build_hv_field_3d(L_fld, t_fld, u_side, T_side, P_side, fluid_type='air', *, side):
         """Bulk h_v = A_0(L,t) × H_sf(Re_bulk) on 3D mesh."""
+        if fluid_type == 'air':
+            return np.array(cfg['thermal_geometry']['air_bulk_hv'][side], copy=True)
         if L_fld is None:
-            if fluid_type == 'air':
-                g = tpms_compute(tpms_type, Lcell, t_wall, u_side, T_side, P_side, k_s)
-                return np.full((Nx, Ny, Nz), g['A_0'] * g['H_sf'], dtype=np.float64)
-            g = tpms_geometry(tpms_type, Lcell, t_wall, k_s)
+            g = cfg['thermal_geometry']['uniform']
             rho, mu, k_f, Pr_f = _fluid_transport_props(fluid_type, T_side, P_side)
             D_h_m = max(float(g['D_h']), 1e-12)
             Re_val = rho * max(abs(float(u_side)), 0.0) * D_h_m / max(mu, 1e-30)
@@ -1144,23 +1136,16 @@ def _build_hv_machinery(prob: _Problem3D):
             for j in range(Ny):
                 for k in range(Nz):
                     Li = float(L_fld[i, j, k])
-                    ti = float(t_fld[i, j, k])
-                    if fluid_type == 'air':
-                        with range_context(layout='scalar-zoned-call'):
-                            g = tpms_compute(tpms_type, Li, ti, u_side, T_side, P_side, k_s)
-                        raw_Re[i, j, k] = g['Re']
-                        out[i, j, k] = g['A_0'] * g['H_sf']
-                    else:
-                        g = tpms_geometry(tpms_type, Li, ti, k_s)
-                        D_h_m = max(float(g['D_h']), 1e-12)
-                        Re_val = rho * max(abs(float(u_side)), 0.0) * D_h_m / max(mu, 1e-30)
-                        raw_Re[i, j, k] = Re_val
-                        with range_context(layout='scalar-zoned-call'):
-                            Nu_val = _nu_for_fluid(
-                                fluid_type, Re_val, float(g['epsilon']) / 2.0,
-                                Li, D_h_m * 1000.0, Pr_f,
-                            )
-                        out[i, j, k] = g['A_0'] * Nu_val * k_f / D_h_m
+                    g = {key: value[i, j, k] for key, value in cfg['thermal_geometry']['fields'].items()}
+                    D_h_m = max(float(g['D_h']), 1e-12)
+                    Re_val = rho * max(abs(float(u_side)), 0.0) * D_h_m / max(mu, 1e-30)
+                    raw_Re[i, j, k] = Re_val
+                    with range_context(layout='scalar-zoned-call'):
+                        Nu_val = _nu_for_fluid(
+                            fluid_type, Re_val, float(g['epsilon']) / 2.0,
+                            Li, D_h_m * 1000.0, Pr_f,
+                        )
+                    out[i, j, k] = g['A_0'] * Nu_val * k_f / D_h_m
         with range_context(layout='real-cell(x,y,z)-bulk-Re'):
             record_raw_nu_range(fluid_type, tpms_type, raw_Re)
         return out
@@ -1185,13 +1170,13 @@ def _build_hv_machinery(prob: _Problem3D):
         # (Iter-0 Ta is None → caller passes scalar T_inA → scalar path, so the
         # first sweep is value-identical; local props kick in from iter 1.)
         if fluid_type == 'sco2' and L_fld is None and np.ndim(T_side) > 0:
-            g = tpms_geometry(tpms_type, Lcell, t_wall, k_s)
+            g = cfg['thermal_geometry']['uniform']
             return _sco2_hv_local_field(T_side, P_side, u_abs,
                                         g['A_0'], g['D_h'], tpms_type, Lcell,
                                         sco2_nu=cfg.get('sco2_nu'), observation=observation)
         rho, mu, k_f, Pr_f = _fluid_transport_props(fluid_type, T_side, P_side)
         if L_fld is None:
-            g = tpms_geometry(tpms_type, Lcell, t_wall, k_s)
+            g = cfg['thermal_geometry']['uniform']
             A_0 = g['A_0']; D_h_m = g['D_h']
             D_h_mm = D_h_m * 1000.0
             Re_loc = rho * u_abs * D_h_m / mu
@@ -1211,14 +1196,14 @@ def _build_hv_machinery(prob: _Problem3D):
                                 _NU_LAM_FLOOR)
             H_sf_loc = Nu_loc * k_f / D_h_m
             return A_0 * H_sf_loc
-        # Zoned (L,t) varying — recompute geom per cell
+        # Zoned (L,t): consume the prepared per-cell geometry.
         out = np.empty((Nx, Ny, Nz), dtype=np.float64)
         raw_Re = np.empty_like(out)
         for i in range(Nx):
             for j in range(Ny):
                 for k in range(Nz):
-                    L_ij = float(L_fld[i, j, k]); t_ij = float(t_fld[i, j, k])
-                    g = tpms_geometry(tpms_type, L_ij, t_ij, k_s)
+                    L_ij = float(L_fld[i, j, k])
+                    g = {key: value[i, j, k] for key, value in cfg['thermal_geometry']['fields'].items()}
                     D_h_m_l = g['D_h']
                     Re_l = rho * float(u_abs[i,j,k]) * D_h_m_l / mu
                     raw_Re[i, j, k] = Re_l
@@ -1244,19 +1229,7 @@ def _build_hv_machinery(prob: _Problem3D):
     def _hv_side_geom_ratio(fluid_type, u_side, T_side, P_side, side):
         if float(cfg.get('delta_levelset', 0.0)) == 0.0:
             return 1.0
-        from sjtu_tpmshx.models.tpms_geometry import _phi_grid, _C_from_tL
-        from sjtu_tpmshx.solvers import asym_geometry as _ag
-        _N = 128
-        _phi = _phi_grid(tpms_type, _N)
-        _C = _C_from_tL(tpms_type, float(t_wall) / float(Lcell))
-        _delta = float(cfg['delta_levelset'])
-        _Lm = float(Lcell) / 1000.0
-        A0A, A0B = _ag.a0_sides(_phi, _C, _delta, _Lm, _N)
-        DhA, DhB = _ag.dh_sides(_phi, _C, _delta, _Lm, _N, mc=True)
-        A0A0, A0B0 = _ag.a0_sides(_phi, _C, 0.0, _Lm, _N)
-        DhA0, DhB0 = _ag.dh_sides(_phi, _C, 0.0, _Lm, _N, mc=True)
-        A0_s, Dh_s, A0_r, Dh_r = ((A0A, DhA, A0A0, DhA0) if side == 'A'
-                                  else (A0B, DhB, A0B0, DhB0))
+        A0_s, Dh_s, A0_r, Dh_r = cfg['thermal_geometry']['side_geometry'][side]
         _rho, _mu, _kf, _Pr = _fluid_transport_props(fluid_type, T_side, P_side)
 
         def _hv(A0, Dh):
@@ -1280,16 +1253,16 @@ def _build_hv_machinery(prob: _Problem3D):
     # after first outer iter when ucA/B are available).
     with range_context(side='A', stage='inlet', layout='scalar-hv-bulk'):
         h_vA_field = _build_hv_field_3d(
-            L_mm_field, t_field_3d, u_A, T_inA, P_inA, fluid_type_A)
+            L_mm_field, t_field_3d, u_A, T_inA, P_inA, fluid_type_A, side='A')
     h_vA_field = _apply_roughness_h_v(
-        h_vA_field, fluid_type_A, rho_A, mu_A, u_A, D_h)
+        h_vA_field, fluid_type_A, rho_A, mu_A, u_A, D_h, resolved=cfg['roughness_resolved'])
     h_vA_field = h_vA_field * _hv_ratio_A
     if sB is not None:
         with range_context(side='B', stage='inlet', layout='scalar-hv-bulk'):
             h_vB_field = _build_hv_field_3d(
-                L_mm_field, t_field_3d, u_B_val, T_inB, P_inB, fluid_type_B)
+                L_mm_field, t_field_3d, u_B_val, T_inB, P_inB, fluid_type_B, side='B')
         h_vB_field = _apply_roughness_h_v(
-            h_vB_field, fluid_type_B, rho_B, mu_B, u_B_val, D_h)
+            h_vB_field, fluid_type_B, rho_B, mu_B, u_B_val, D_h, resolved=cfg['roughness_resolved'])
         h_vB_field = h_vB_field * _hv_ratio_B
     else:
         # No B fluid solver → "no B fluid" should mean ZERO B-side coupling,
@@ -1349,8 +1322,6 @@ def _extract_3d_metrics(prob: _Problem3D, hv: _HvMachinery, outer: _OuterState):
     sB_info = prob.sB_info
     solver_to_real_perm = prob.solver_to_real_perm
     stream_real_axis = prob.stream_real_axis
-    t_wall = prob.t_wall
-    tpms_type = prob.tpms_type
     ucB = prob.ucB
     vcB = prob.vcB
     wcB = prob.wcB
@@ -1404,8 +1375,7 @@ def _extract_3d_metrics(prob: _Problem3D, hv: _HvMachinery, outer: _OuterState):
     # None at δ=0 → symmetric 0.5·ε path (bit-identical). δ≠0 → per-side ε_side
     # so m_dot/Q weight by the actual channel void fraction, not 0.5·ε
     # (else ṁ_A/ṁ_B mis-scale by split/0.5 on the asymmetric geometry).
-    _eps_ov_A, _eps_ov_B = _per_side_eps_override(
-        cfg, tpms_type, Lcell, t_wall, eps)
+    _eps_ov_A, _eps_ov_B = _prepared_eps_overrides(cfg, eps)
 
     # Fluid A — unified face-flux weights for T_out and m_dot consistency
     m_dot_A_simple = _simple_mass_flow(sA, fA['dir'], eps_f_per_side=eps_f_per_side,
@@ -2408,7 +2378,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
                 t_mm=t_wall if L_mm_field is None else t_field_3d,
                 P_in=P_inA)
         h_vA_field = _apply_roughness_h_v(
-            h_vA_field, fluid_type_A, rho_A, mu_A, u_A, D_h)
+            h_vA_field, fluid_type_A, rho_A, mu_A, u_A, D_h, resolved=cfg['roughness_resolved'])
         h_vA_field = h_vA_field * _hv_ratio_A   # per-side asym geom (1.0 at δ=0)
         # Pre-compute LTNE inlet masks (needed by χ_B block and LTNE solve).
         # approach-(a): the kernel applies the inlet BC at its inlet face using
@@ -2433,7 +2403,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
                     t_mm=t_wall if L_mm_field is None else t_field_3d,
                     P_in=P_inB)
             h_vB_field = _apply_roughness_h_v(
-                h_vB_field, fluid_type_B, rho_B, mu_B, u_B_val, D_h)
+                h_vB_field, fluid_type_B, rho_B, mu_B, u_B_val, D_h, resolved=cfg['roughness_resolved'])
             h_vB_field = h_vB_field * _hv_ratio_B   # per-side asym geom (1.0 at δ=0)
             # ── partial-B closure dispatch ──
             # Three options selectable via cfg['partial_B_closure']:
@@ -2742,8 +2712,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
             # channel void (ε·split), matching the duty-extraction path and the
             # asymmetric eps_A/eps_B fields handed to the kernel. None at δ=0 →
             # symmetric 0.5·ε (every 703/production config; bit-identical).
-            _ov_A_e, _ov_B_e = _per_side_eps_override(
-                cfg, tpms_type, Lcell, t_wall, eps)
+            _ov_A_e, _ov_B_e = _prepared_eps_overrides(cfg, eps)
             _mdA = (1.0 if fA['dir'] % 2 == 0 else -1.0) * abs(
                 _simple_mass_flow(sA, fA['dir'], eps_f_per_side=_epsps,
                                   eps_side_override=_ov_A_e))

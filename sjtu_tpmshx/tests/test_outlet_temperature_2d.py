@@ -62,6 +62,11 @@ def test_pipeline_uses_last_main_raw_and_mass_then_transcribes_scalars(monkeypat
         pipe._parsed['za'] = dict(L_mm_arr=np.full(shape, 7.), t_arr=np.full(shape, .6),
             K_ffA_arr=np.ones(shape), K_ffB_arr=np.ones(shape),
             K_ss_arr=np.ones(shape), eps_arr=eps)
+        from sjtu_tpmshx.preprocess.thermal_geometry import prepare_thermal_geometry
+        parsed = pipe._parsed
+        parsed['thermal_geometry'] = prepare_thermal_geometry(
+            parsed['tpms_type'], parsed['Lcell'], parsed['t_wall'], parsed['k_s'],
+            L_field=parsed['za']['L_mm_arr'], t_field=parsed['za']['t_arr'])
         monkeypatch.setattr(solve_2d, '_apply_zone_stats_2d', lambda *a: None)
     else:
         eps = pipe._parsed['eps']

@@ -50,7 +50,7 @@ def test_real_application_mapping_and_offline_readback(monkeypatch, tmp_path, di
                           L=case.parameters['L'], H=case.parameters['H'],
                           dir_A=case.parameters['dir_A'], dir_B=case.parameters['dir_B'],
                           zone_config=None, za=None, extrap_reasons=case.parameters['extrap_reasons'])
-            expected.append(_finalize_cfg(legacy, parsed))
+            expected.append(lambda: _finalize_cfg(legacy, parsed))
             return result
     else:
         from sjtu_tpmshx.solvers.backends.python.three_d import result_capture
@@ -58,15 +58,24 @@ def test_real_application_mapping_and_offline_readback(monkeypatch, tmp_path, di
         capture = result_capture.capture_result
         def checked_capture(case, problem, outer, raw):
             result = capture(case, problem, outer, raw)
-            expected.append(_finalize_3d_cfg(dict(raw), dict(
+            expected.append(lambda: _finalize_3d_cfg(dict(raw), dict(
                 compute_cfg=config, extrap_reasons=case.parameters['extrap_reasons'])))
             return result
     monkeypatch.setattr(result_capture, 'capture_result', checked_capture)
     case = prepare_case(config, case_id=f'application-{dimension}d')
-    result = run_case(case, RunControl())
+    # The prepared boundary owns fixed geometry, including the air bulk
+    # closure. Temperature-dependent fluid/Nu evaluation remains permitted.
+    from sjtu_tpmshx.models import tpms_props, tpms_calc, tpms_geometry
+    def forbidden_geometry(*args, **kwargs):
+        raise AssertionError('execution rebuilt prepared thermal geometry')
+    with monkeypatch.context() as geometry_guard:
+        geometry_guard.setattr(tpms_props, 'geometry', forbidden_geometry)
+        geometry_guard.setattr(tpms_calc, 'geometry', forbidden_geometry)
+        geometry_guard.setattr(tpms_geometry, '_phi_grid', forbidden_geometry)
+        result = run_case(case, RunControl())
     performance = evaluate(result)
     actual = to_compute_result(result, performance)
-    reference = expected[0]
+    reference = expected[0]()
     for slot in ('fields', 'coeffs', 'props', 'residuals', 'diagnostics', 'metadata', 'extrap_reasons'):
         assert_slots(getattr(actual, slot), getattr(reference, slot))
     assert set(reference.warnings) <= set(actual.warnings)

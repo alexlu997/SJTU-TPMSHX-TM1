@@ -2,8 +2,8 @@
   "node_id": "I30",
   "status": "running",
   "worker": "takeover-controller",
-  "worktree": "/private/tmp/sjtu-tm1-s30-repair",
-  "branch": "codex/tm1/s30-repair",
+  "worktree": "/private/tmp/sjtu-tm1-full-preparation-repair",
+  "branch": "codex/tm1/full-preparation-repair",
   "base_sha": "2768a5c",
   "head_sha": null,
   "pr_url": null,
@@ -12,11 +12,12 @@
   "review": null,
   "ci_runs": [],
   "evidence": [
-    "evidence/S30/repair.md"
+    "evidence/S30/repair.md",
+    "evidence/S20/prepared-thermal.md"
   ],
   "blocked_reason": null,
   "unblocks_when": null,
-  "next_action": "Complete formal file/process integration, dimensional application routing, independent review and CI; retain historical nonconvergence and NaN evidence.",
+  "next_action": "Prepared thermal inputs and real integration/fast checks passed locally; independent review, exact-head CI and merge verification remain required.",
   "tested_candidate_sha": null,
   "tested_base_sha": null,
   "source_head_sha": null

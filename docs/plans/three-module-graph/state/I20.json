@@ -13,11 +13,12 @@
   "ci_runs": [],
   "evidence": [
     "evidence/S20/integration.md",
-    "evidence/S20/prepared-flow.md"
+    "evidence/S20/prepared-flow.md",
+    "evidence/S20/prepared-thermal.md"
   ],
   "blocked_reason": null,
   "unblocks_when": null,
-  "next_action": "Finish fixed thermal/asymmetric geometry preparation, design-mode coverage and final integration; independent review and remote CI remain pending.",
+  "next_action": "Prepared thermal inputs and real integration/fast checks passed locally; independent review, exact-head CI and merge verification remain required.",
   "tested_candidate_sha": null,
   "tested_base_sha": null,
   "source_head_sha": null

@@ -288,6 +288,13 @@ def _prepare_grid(cfg):
     _resize_zone_arrays_to_effective_grid(za, (N_x, N_y))
 
     cfg['flow_inputs'] = _prepare_flow_inputs(cfg, energy_dx, energy_dy)
+    from sjtu_tpmshx.preprocess.thermal_geometry import prepare_thermal_geometry
+    cfg['thermal_geometry'] = prepare_thermal_geometry(
+        cfg['tpms_type'], cfg['Lcell'], cfg['t_wall'], cfg['k_s'],
+        L_field=None if za is None else za.get('L_mm_arr'),
+        t_field=None if za is None else za.get('t_arr'),
+        delta=float(cfg['compute_cfg'].geometry.delta_levelset))
+    cfg['boundary_openings'] = _prepare_openings(cfg, energy_dx, energy_dy)
     return {'energy_dx': energy_dx, 'energy_dy': energy_dy,
             '_x_breaks': tuple(sorted(_x_breaks)), '_y_breaks': tuple(sorted(_y_breaks))}
 
@@ -351,6 +358,22 @@ def _prepare_flow_inputs(cfg, dx, dy):
     return result
 
 
+def _prepare_openings(cfg, dx, dy):
+    from sjtu_tpmshx.models.grid import _port_fractions_1d
+    boundaries = {}
+    for side in ('A', 'B'):
+        port = cfg['cfg' + side]
+        widths = dy if port['dir'] in (0, 1) else dx
+        openings = {}
+        for end in ('in', 'out'):
+            center, width = port[end + '_ctr'], port[end + '_w']
+            raw, profile = _port_fractions_1d(widths, center-width/2, center+width/2)
+            openings[end + '_geom_frac'] = raw
+            openings[end + '_profile_frac'] = profile
+        boundaries[side] = openings
+    return boundaries
+
+
 def prepare_case(config: ComputeConfig, *, case_id: str):
     """Freeze the effective 2D grid and physical design for another process."""
     from dataclasses import asdict
@@ -392,19 +415,6 @@ def prepare_case(config: ComputeConfig, *, case_id: str):
         'L_field_m': np.full((len(dx), len(dy)), parsed['L_cell_m']),
         't_field_m': np.full((len(dx), len(dy)), parsed['t_wall_m']),
     }
-    from sjtu_tpmshx.models.grid import _port_fractions_1d
-    boundaries = {}
-    for side in ('A', 'B'):
-        port = parsed['cfg' + side]
-        widths = dy if port['dir'] in (0, 1) else dx
-        openings = {}
-        for end in ('in', 'out'):
-            center, width = port[end + '_ctr'], port[end + '_w']
-            raw, profile = _port_fractions_1d(widths, center-width/2, center+width/2)
-            openings[end + '_geom_frac'] = raw
-            openings[end + '_profile_frac'] = profile
-        boundaries[side] = openings
-    parsed['boundary_openings'] = boundaries
     refs = tuple(ModelRef('fluid', MODEL_VERSIONS['fluid'],
                           {'fluid': fluid.type, 'sco2_nu': asdict(config.sco2_nu)},
                           applicability=f'side {side}')

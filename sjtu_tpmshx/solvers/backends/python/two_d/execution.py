@@ -20,6 +20,12 @@ def build_execution_inputs(case: CaseData):
     if case.grid.get('dimension') != 2 or case.grid.get('length_unit') != 'm':
         raise ValueError('2D execution requires a prepared SI grid')
     cfg = _mutable_data(case.parameters)
+    missing = set(('thermal_geometry', 'flow_inputs')) - cfg.keys()
+    if missing:
+        raise ValueError(f'incomplete prepared 2D execution data: {sorted(missing)}')
+    from sjtu_tpmshx.domain.persistence_validation import validate_thermal_geometry
+    validate_thermal_geometry(cfg['thermal_geometry'],
+                              tuple(len(case.grid['d' + axis]) for axis in 'xyz'[:case.grid['dimension']]))
     dx, dy = (np.asarray(case.grid[key], dtype=float).copy() for key in ('dx', 'dy'))
     for widths, axis, length in ((dx, 'x', cfg['L']), (dy, 'y', cfg['H'])):
         if widths.ndim != 1 or not len(widths) or not np.all(np.isfinite(widths) & (widths > 0)):

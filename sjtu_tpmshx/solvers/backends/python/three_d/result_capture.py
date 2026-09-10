@@ -6,8 +6,7 @@ import numpy as np
 from sjtu_tpmshx.domain.field_result import FieldResult
 from .flux import _face_flux_weights
 from sjtu_tpmshx.models.field_coordinates_3d import _real_outlet_slice
-from sjtu_tpmshx.models.asym_split import _per_side_eps_override
-from .runtime import _pressure_real_3d
+from .runtime import _pressure_real_3d, _prepared_eps_overrides
 
 
 def capture_result(case, prob, outer, raw):
@@ -25,7 +24,7 @@ def capture_result(case, prob, outer, raw):
             fields[name] = raw[source]
             display_units[name] = unit
     pressure, report = {}, {}
-    overrides = _per_side_eps_override(prob.cfg, prob.tpms_type, prob.Lcell, prob.t_wall, prob.eps)
+    overrides = _prepared_eps_overrides(prob.cfg, prob.eps)
     for side, solver, port, override in zip(('A', 'B'), (prob.sA, prob.sB), (prob.fA, prob.fB), overrides):
         if solver is None:
             continue

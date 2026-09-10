@@ -8,6 +8,7 @@ from sjtu_tpmshx.pipelines import run_stack_3d_stages as stages
 from sjtu_tpmshx.solvers import fluid_props, ltne_enthalpy_3d as ent
 from sjtu_tpmshx.tests.test_3d_model_enthalpy_transport import _pipeline_cfg
 from sjtu_tpmshx.domain.run_warnings import warning_scope, range_context
+from sjtu_tpmshx.preprocess.thermal_geometry import prepare_thermal_geometry
 
 
 @pytest.mark.parametrize('co2_side', ['A', 'B'])
@@ -117,6 +118,9 @@ def test_local_hv_records_full_raw_field_and_preserves_values(monkeypatch, fluid
     thickness = np.full(shape, prob.t_wall) if zoned else None
     if zoned:
         length[1:] += .1
+        prob.cfg['thermal_geometry'] = prepare_thermal_geometry(
+            prob.tpms_type, prob.Lcell, prob.t_wall, prob.k_s,
+            L_field=length, t_field=thickness)
     velocity = np.zeros(shape)
     velocity[-1] = .001
     args = (length, thickness, velocity, prob.T_inA, prob.P_inA, fluid)
@@ -297,7 +301,13 @@ def test_zoned_bulk_re_has_cell_denominator_and_scalar_source(monkeypatch, fluid
     prob.L_mm_field = np.full(shape, prob.Lcell)
     prob.L_mm_field[1:] += .1
     prob.t_field_3d = np.full(shape, prob.t_wall)
+    prob.cfg['thermal_geometry'] = prepare_thermal_geometry(
+        prob.tpms_type, prob.Lcell, prob.t_wall, prob.k_s,
+        L_field=prob.L_mm_field, t_field=prob.t_field_3d)
+    from sjtu_tpmshx.preprocess.three_d.preparation import _prepare_air_bulk_hv
     with warning_scope({}) as records:
+        prob.cfg['thermal_geometry']['air_bulk_hv'] = _prepare_air_bulk_hv(
+            prob.cfg, prob.L_mm_field, prob.t_field_3d, shape)
         stages._build_hv_machinery(prob)
     for side in ('A', 'B'):
         raw = records[('nu_raw', fluid, prob.tpms_type, shape,

@@ -168,3 +168,15 @@ necessary G10 Case parameter changes. Full 2D fixed flow coefficients and actual
 SIMPLE grids now cross the prepared boundary. Thermal/asymmetric geometry in
 both dimensions remains under this continuation. Earlier evidence and B40
 failure provenance remain intact; no node is marked complete by this subset.
+
+### Thermal preparation and frozen correction ownership
+
+The same controller continuation coordinates P20/P30/S20/S30/I20/I30,
+with the necessary G10/D10 validation and R30 result-capture consequences.
+It owns the shared prepared thermal geometry, two-dimensional boundary
+openings, three-dimensional initial air exchange, resolved roughness and
+experimental correction metadata. Solver-time fluid properties and local Nu
+remain numerical work. Supplied three-dimensional K fields remain operative;
+only the fixed experimental scale is resolved before execution. Existing
+warning tests now inject prepared geometry when constructing synthetic
+fixtures. No numerical tolerance or physical applicability is changed.

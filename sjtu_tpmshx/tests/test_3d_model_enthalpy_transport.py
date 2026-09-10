@@ -158,7 +158,7 @@ def test_actual_pipeline_gate_and_prebalance_mass(monkeypatch, pair, var, nz, ch
 
 
 def _pipeline_cfg(pair=('air', 'air'), nz=4):
-    from sjtu_tpmshx.pipelines import run_stack_3d_stages as stages
+    from sjtu_tpmshx.models.tpms_props import geometry
     def port(direction):
         return dict(dir=direction, in_ctr=.015, in_w=.03, out_ctr=.015, out_w=.03,
                     in_z_ctr=.015, in_z_w=.03, out_z_ctr=.015, out_z_w=.03)
@@ -166,7 +166,7 @@ def _pipeline_cfg(pair=('air', 'air'), nz=4):
                 u_A=.02, u_B=.02, T_inA=350., T_inB=300.,
                 P_inA=200000., P_inB=12000000. if pair[1]=='sco2' else 200000.,
                 T_s_init=325., tpms_type='Gyroid', Lcell=7., t_wall=.6, k_s=16.,
-                eps=stages.tpms_geometry('Gyroid', 7., .6, 16.)['epsilon'],
+                eps=geometry('Gyroid', 7., .6, 16.)['epsilon'],
                 fluid_type_A=pair[0], fluid_type_B=pair[1],
                 fluid_A_cfg=port(2), fluid_B_cfg=port(3),
                 wall_refine_3d=False, outer_anderson=False, p_in_shooting=False)
