@@ -46,3 +46,11 @@ The existing smoke does not assert that residual slot.  Its `NaN` is retained
 as an observed output and is not converted into a passing energy certificate.
 Mixed-fluid/local-port, water-side, optimizer, and envelope members remain
 separate evidence tasks.
+
+## First execution: optimizer conservative-kernel route
+
+`sjtu_tpmshx/tests/test_evaluator_3d_conservative.py` passed `1/1` in
+`5.93 s` under the same lock.  This verifies the selected 3D optimizer route
+returns finite, nontrivial per-depth heat duty, finite positive total pressure
+drop, and finite positive per-depth mass using the conservative kernel.  It is
+an application-path check, not a replacement for the pipeline result above.
