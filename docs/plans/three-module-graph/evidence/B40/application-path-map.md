@@ -67,3 +67,13 @@ E00 CI command (`not slow and not heavy`) does not cover it.  Its source
 history itself records that the pins became stale after later production
 closure changes; B40 leaves the mismatch open for provenance reconciliation
 rather than converting this historical pin into a passing threshold.
+
+The current baseline is not the pin-capture parent: the ancestry from
+`dafdc92` to `5f1cafb` contains `a9da65f` (physical 3D inlet capacity and
+synchronized air density), `ee14cbd` / `df40880` (conserved 3D enthalpy and
+reported heat duty), `81dbccd` (conservative 2D thermal transport),
+`136ff16` (nonuniform 3D face-pressure extrapolation), and `d61e341`
+(no-slip walls/scoped experimental D-F windows).  Those later physics and
+reporting changes are a concrete provenance gap for the material 3D drift;
+they do not establish an environment-only explanation, nor authorize a new
+frozen value.
