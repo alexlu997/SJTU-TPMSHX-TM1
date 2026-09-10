@@ -189,3 +189,16 @@ tests. A separate minimal environment in the same job then verifies their
 offline metrics, with no installed numerical runtime or Qt. Result files stay
 on the job-local filesystem; there is no artifact upload. This supplements
 artificial I/O tests. Workflow configuration alone is not minimal acceptance.
+
+### P40 explicit offline resources
+
+The controller coordinates P40 with M00's existing data loaders and surrogate
+implementation. Optional explicit input paths are added at those existing
+authorities; formulas, filters, default legacy source selection and production
+coefficients stay unchanged. The offline namespace exposes the existing
+cleaners and publishes calibrated points plus source/revision metadata only
+to a caller-selected local directory. Water cleaning's obsolete solver import
+is redirected to the already extracted shared geometry authority.
+The existing sCO2 log-space fit is moved unchanged from its validation report
+script to offline preparation; the report delegates to it and keeps all
+campaign splits, metrics and publication decisions.

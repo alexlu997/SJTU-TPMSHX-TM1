@@ -40,9 +40,8 @@ import pandas as pd
 
 _THIS = Path(__file__).resolve()
 _PROJECT_ROOT = _THIS.parent.parent  # .../sjtu_tpmshx
-sys.path.insert(0, str(_PROJECT_ROOT))
-from solvers.tpms_props import geometry as tpms_geometry  # noqa: E402
-from logutil import get_logger  # noqa: E402
+from sjtu_tpmshx.models.tpms_props import geometry as tpms_geometry  # noqa: E402
+from sjtu_tpmshx.logutil import get_logger  # noqa: E402
 
 _log = get_logger(__name__)
 
@@ -81,7 +80,7 @@ def _attach_geometry(df: pd.DataFrame, lattice: str) -> pd.DataFrame:
     return out
 
 
-def load_water(lattice: str = "Diamond") -> pd.DataFrame:
+def load_water(lattice: str = "Diamond", *, source=None) -> pd.DataFrame:
     """Per-case water CFD with repo-convention Re / Nu / Nu_dev / f.
 
     Adds (repo Dh throughout):
@@ -95,11 +94,12 @@ def load_water(lattice: str = "Diamond") -> pd.DataFrame:
     """
     if lattice not in LATTICES:
         raise ValueError(f"lattice must be one of {LATTICES}, got {lattice!r}")
-    xl = pd.read_excel(WATER_XLSX)
+    source = WATER_XLSX if source is None else Path(source)
+    xl = pd.read_excel(source)
     code = _CODE[lattice]
     df = xl[xl["geometry_id"].str.startswith(code)].copy()
     if df.empty:
-        raise ValueError(f"no {lattice} ({code}_*) rows in {WATER_XLSX.name}")
+        raise ValueError(f"no {lattice} ({code}_*) rows in {source.name}")
     df = _attach_geometry(df, lattice)
     df = df.rename(columns={"Re": "Re_nominal"})
     df["tpms"] = lattice

@@ -124,7 +124,14 @@ class SurrogateV3:
                  method: str = "rbf",
                  clip_margin: float = 0.1,
                  standardize: bool = False,
-                 features: tuple[str, ...] = _FEATURES_ALL):
+                 features: tuple[str, ...] = _FEATURES_ALL,
+                 training_workbook: Path | None = None,
+                 calibration_csv: Path | None = None):
+        if training_workbook is not None and calibration_csv is not None:
+            raise ValueError('choose training_workbook or calibration_csv, not both')
+        self._training_workbook = XLSX if training_workbook is None else Path(training_workbook)
+        if training_workbook is not None and not self._training_workbook.is_file():
+            raise FileNotFoundError(self._training_workbook)
         if method not in _METHODS:
             raise ValueError(f"unknown method {method!r}; valid: {_METHODS}")
         self.tpms = tpms
@@ -150,7 +157,11 @@ class SurrogateV3:
         # them as GBK bytes while pytest reads its capture stream as UTF-8 —
         # one such line poisons the capture and EVERY later test teardown
         # dies with UnicodeDecodeError (found the hard way, 2026-07-07).
-        if XLSX.exists():
+        if calibration_csv is not None:
+            self._source = 'prebuilt_csv'
+            _log.info('[SurrogateV3 %s/%s] using explicit calibrated CSV', self.tpms, self.method)
+            self._build_from_prebuilt(Path(calibration_csv))
+        elif self._training_workbook.exists():
             self._source = 'xlsx'
             _log.info("[SurrogateV3 %s/%s] calibrating from local experiment"
                       " Excel (data/raw_data)", self.tpms, self.method)
@@ -174,7 +185,7 @@ class SurrogateV3:
         """Load data, calibrate, build RBF interpolators."""
         # Load boundary effect coefficients
         alpha_df = pd.read_excel(
-            str(XLSX), engine="openpyxl",
+            str(self._training_workbook), engine="openpyxl",
             sheet_name="边界效应系数", header=None)
         alpha_map = {str(r.iloc[0]): float(r.iloc[1])
                      for _, r in alpha_df.iterrows()}
@@ -183,7 +194,7 @@ class SurrogateV3:
         prefix = self.tpms[0]  # 'G' for Gyroid, 'D' for Diamond
         sheet = f"{self.tpms}_汇总"
         raw = pd.read_excel(
-            str(XLSX), engine="openpyxl",
+            str(self._training_workbook), engine="openpyxl",
             sheet_name=sheet, header=None, skiprows=1)
 
         L_col = pd.to_numeric(raw.iloc[:, 1], errors="coerce")
@@ -381,7 +392,7 @@ class SurrogateV3:
                               kernel="cubic", smoothing=0.1)
         return lambda X: rbf((np.asarray(X, dtype=float)[:, idx] - mu) / sd)
 
-    def _build_from_prebuilt(self) -> None:
+    def _build_from_prebuilt(self, path: Path | None = None) -> None:
         """Build from the committed calibrated CSV (no raw Excel needed).
 
         Used when the gitignored training Excel is absent (CI, fresh clones).
@@ -389,7 +400,7 @@ class SurrogateV3:
         `rows_df` is left empty — the residual-correction path (opt-in,
         TPMSHX_DF_RESIDUAL_CORR) needs the raw Excel and is unavailable here.
         """
-        path = _prebuilt_csv(self.tpms)
+        path = _prebuilt_csv(self.tpms) if path is None else path
         if not path.exists():
             raise FileNotFoundError(
                 f"SurrogateV3: no training Excel ({XLSX}) and no pre-built "
