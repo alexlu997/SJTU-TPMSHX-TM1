@@ -1,0 +1,23 @@
+{
+  "node_id": "B30",
+  "status": "planned",
+  "worker": "takeover-controller",
+  "worktree": null,
+  "branch": "codex/tm1/b30",
+  "base_sha": "c7f013869e7127b35ac0c305376c13b3a834131b",
+  "head_sha": null,
+  "pr_url": null,
+  "merge_sha": null,
+  "contract_version": null,
+  "review": null,
+  "ci_runs": [],
+  "evidence": [
+    "evidence/B30/selection.md"
+  ],
+  "blocked_reason": null,
+  "unblocks_when": null,
+  "next_action": "Add explicit comparison method and coverage; preserve NaN and nonconvergence.",
+  "tested_candidate_sha": null,
+  "tested_base_sha": null,
+  "source_head_sha": null
+}

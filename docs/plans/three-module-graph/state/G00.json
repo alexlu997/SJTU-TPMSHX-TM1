@@ -1,0 +1,21 @@
+{
+  "node_id": "G00",
+  "status": "running",
+  "worker": "takeover-controller",
+  "worktree": null,
+  "branch": "codex/tm1/g00",
+  "base_sha": "c7f013869e7127b35ac0c305376c13b3a834131b",
+  "head_sha": null,
+  "pr_url": null,
+  "merge_sha": null,
+  "contract_version": null,
+  "review": null,
+  "ci_runs": [],
+  "evidence": [],
+  "blocked_reason": null,
+  "unblocks_when": null,
+  "next_action": "Complete takeover ownership and evidence registration.",
+  "tested_candidate_sha": null,
+  "tested_base_sha": null,
+  "source_head_sha": null
+}

@@ -10,25 +10,6 @@ from sjtu_tpmshx.domain.model_refs import ModelRef, freeze_mapping
 SCHEMA_VERSION = "three_module_v1"
 
 
-def _reject_runtime_values(value: Any) -> None:
-    """Keep closures and live runtime objects out of a persisted case."""
-    if value is None or isinstance(value, (bool, int, float, str, bytes)):
-        return
-    if callable(value):
-        raise TypeError("CaseData cannot contain callables or runtime objects")
-    if isinstance(value, Mapping):
-        for item in value.values():
-            _reject_runtime_values(item)
-        return
-    if isinstance(value, (list, tuple, set)):
-        for item in value:
-            _reject_runtime_values(item)
-        return
-    if hasattr(value, "setflags") and hasattr(value, "copy"):
-        return
-    raise TypeError("CaseData only accepts values that can cross a process boundary")
-
-
 @dataclass(frozen=True)
 class CaseData:
     """A prepared case; runtime state belongs to the solver, never here."""
@@ -40,15 +21,17 @@ class CaseData:
     design_fields: Mapping[str, Any] = field(default_factory=dict)
     model_refs: Sequence[ModelRef] = field(default_factory=tuple)
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    parameters: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.case_id:
             raise ValueError("CaseData.case_id is required")
         if self.schema_version != SCHEMA_VERSION:
             raise ValueError(f"unsupported CaseData schema_version: {self.schema_version}")
-        for name in ("config_snapshot", "grid", "design_fields", "metadata"):
-            _reject_runtime_values(getattr(self, name))
+        for name in ("config_snapshot", "grid", "design_fields", "metadata", "parameters"):
             object.__setattr__(self, name, freeze_mapping(getattr(self, name)))
+        if any(not isinstance(ref, ModelRef) for ref in self.model_refs):
+            raise TypeError("CaseData.model_refs must contain ModelRef values")
         object.__setattr__(self, "model_refs", tuple(self.model_refs))
 
     @classmethod

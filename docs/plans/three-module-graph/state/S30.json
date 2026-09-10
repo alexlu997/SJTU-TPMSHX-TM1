@@ -1,0 +1,21 @@
+{
+  "node_id": "S30",
+  "status": "planned",
+  "worker": null,
+  "worktree": null,
+  "branch": "codex/tm1/s30",
+  "base_sha": null,
+  "head_sha": null,
+  "pr_url": null,
+  "merge_sha": null,
+  "contract_version": null,
+  "review": null,
+  "ci_runs": [],
+  "evidence": [],
+  "blocked_reason": null,
+  "unblocks_when": null,
+  "next_action": null,
+  "tested_candidate_sha": null,
+  "tested_base_sha": null,
+  "source_head_sha": null
+}

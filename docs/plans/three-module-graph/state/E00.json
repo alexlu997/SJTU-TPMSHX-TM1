@@ -1,0 +1,21 @@
+{
+  "node_id": "E00",
+  "status": "planned",
+  "worker": "takeover-controller",
+  "worktree": null,
+  "branch": "codex/tm1/e00",
+  "base_sha": "c7f013869e7127b35ac0c305376c13b3a834131b",
+  "head_sha": null,
+  "pr_url": null,
+  "merge_sha": null,
+  "contract_version": null,
+  "review": null,
+  "ci_runs": [],
+  "evidence": [],
+  "blocked_reason": null,
+  "unblocks_when": null,
+  "next_action": "Retain CI; declare formal I/O and minimal installation requirements.",
+  "tested_candidate_sha": null,
+  "tested_base_sha": null,
+  "source_head_sha": null
+}

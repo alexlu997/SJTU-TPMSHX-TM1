@@ -1,0 +1,23 @@
+{
+  "node_id": "B40",
+  "status": "planned",
+  "worker": "takeover-controller",
+  "worktree": null,
+  "branch": "codex/tm1/b40",
+  "base_sha": "c7f013869e7127b35ac0c305376c13b3a834131b",
+  "head_sha": null,
+  "pr_url": null,
+  "merge_sha": null,
+  "contract_version": null,
+  "review": null,
+  "ci_runs": [],
+  "evidence": [
+    "evidence/B40/application-path-map.md"
+  ],
+  "blocked_reason": null,
+  "unblocks_when": null,
+  "next_action": "Resolve frozen-value provenance without changing pins or tolerances.",
+  "tested_candidate_sha": null,
+  "tested_base_sha": null,
+  "source_head_sha": null
+}
