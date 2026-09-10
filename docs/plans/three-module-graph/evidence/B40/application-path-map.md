@@ -38,3 +38,32 @@ the existing interfaces before later adapters route them through `CaseData` /
 
 Numerical execution and captured values remain pending B40's matched-lock run;
 this map must not be read as a solver or physical-accuracy baseline.
+
+## First matched-lock execution (not an acceptance pass)
+
+On baseline `5f1cafb`, CPython 3.13 from the checked `.venv-path` passed the
+exact lock check (71 active packages) and `pip check`.  The following command
+then completed in 92.34 s:
+
+```
+MPLCONFIGDIR=.cache/matplotlib XDG_CACHE_HOME=.cache/xdg \
+  /Users/luwenhuan/.venvs/sjtu-tpmshx-py313/bin/python -m pytest \
+  sjtu_tpmshx/tests/test_evaluator_frozen_values.py -q \
+  --timeout=600 --timeout-method=thread
+```
+
+It failed 4/4.  This is evidence, not permission to revise the pins or their
+tolerance:
+
+| case | observed `(Q_neg, dP, mass)` | pinned `(Q_neg, dP, mass)` |
+| --- | --- | --- |
+| 2D uniform | `(-8085.955349708075, 4675.147979229178, 3.446685791015626)` | `(-8085.955568764836, 4675.147100112292, 3.446685791015626)` |
+| 2D nonuniform | `(-7561.252334176324, 4052.0456347246245, 3.6729327392578126)` | `(-7561.25242589901, 4052.044538218606, 3.6729327392578126)` |
+| 3D uniform | `(-7209.103274428575, 7519.596015609637, 6.323593139648438)` | `(-9968.92699806532, 7546.892661221464, 6.323593139648438)` |
+| 3D nonuniform | `(-8672.919843820628, 2871.31457245229, 3.675970458984375)` | `(-10850.753888768157, 2879.2941880943804, 3.675970458984375)` |
+
+All geometry masses agree exactly.  The test is marked `slow`, so the current
+E00 CI command (`not slow and not heavy`) does not cover it.  Its source
+history itself records that the pins became stale after later production
+closure changes; B40 leaves the mismatch open for provenance reconciliation
+rather than converting this historical pin into a passing threshold.
