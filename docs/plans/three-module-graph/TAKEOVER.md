@@ -180,3 +180,12 @@ remain numerical work. Supplied three-dimensional K fields remain operative;
 only the fixed experimental scale is resolved before execution. Existing
 warning tests now inject prepared geometry when constructing synthetic
 fixtures. No numerical tolerance or physical applicability is changed.
+
+### V40 real minimal-environment handoff
+
+The controller owns V40's isolation tests and the necessary E00/I55 workflow
+extension. A full locked CI environment runs the existing real three-process
+tests. A separate minimal environment in the same job then verifies their
+offline metrics, with no installed numerical runtime or Qt. Result files stay
+on the job-local filesystem; there is no artifact upload. This supplements
+artificial I/O tests. Workflow configuration alone is not minimal acceptance.

@@ -13,15 +13,27 @@ concurrency:
 jobs:
   minimal-postprocess:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     env:
       MPLCONFIGDIR: .cache/matplotlib
       XDG_CACHE_HOME: .cache/xdg
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      NUMBA_NUM_THREADS: "1"
+      TM1_REAL_HANDOFF_DIR: .cache/real-file-handoff
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - name: Prepare locked producer environment
+        run: |
+          python -m venv "$RUNNER_TEMP/tm1-producer"
+          "$RUNNER_TEMP/tm1-producer/bin/python" -m pip install -r requirements-lock.txt
+          "$RUNNER_TEMP/tm1-producer/bin/python" -m sjtu_tpmshx.runs.tools.check_locked_environment
+          "$RUNNER_TEMP/tm1-producer/bin/python" -m pip check
+      - name: Generate real independent-process result files locally
+        run: '"$RUNNER_TEMP/tm1-producer/bin/python" -m pytest sjtu_tpmshx/tests/integration_tm1/test_three_process.py -q --basetemp=.cache/real-file-handoff --timeout=600 --timeout-method=thread'
       - name: Create isolated minimal environment
         run: |
           python -m venv "$RUNNER_TEMP/tm1-postprocess"
@@ -35,3 +47,5 @@ jobs:
           "$CI_PYTHON" -m sjtu_tpmshx.runs.tools.check_three_module_environment
       - name: Run file and offline metric checks from source
         run: '"$CI_PYTHON" -m pytest sjtu_tpmshx/tests/io_tm1 sjtu_tpmshx/tests/postprocess_tm1 -q'
+      - name: Evaluate real 2D and 3D files in the minimal environment
+        run: '"$CI_PYTHON" -m pytest sjtu_tpmshx/tests/integration_tm1/test_minimal_install.py -q'
