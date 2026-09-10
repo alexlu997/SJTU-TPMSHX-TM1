@@ -65,3 +65,11 @@ was `Q_W=380.9425177465455`, `dP_A_Pa=3063.3582674551412`,
 air/air member, its `enthalpy_imbalance_rel` slot was `NaN`; it remains an
 observed non-certificate rather than being masked by the test's finite-output
 assertions.
+
+## First execution: choked-input rejection
+
+`test_choked_case_raises_by_default` passed `1/1` in `0.90 s` under the same
+lock.  Its intentionally over-driven 3D air case raised `ChokedFlowError`
+before a doomed solve, preserving the selected default rejection contract.
+Warn-mode and B-side post-solve members remain unrun and are not implied by
+this single rejection result.
