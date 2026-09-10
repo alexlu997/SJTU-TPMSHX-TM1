@@ -54,3 +54,14 @@ separate evidence tasks.
 returns finite, nontrivial per-depth heat duty, finite positive total pressure
 drop, and finite positive per-depth mass using the conservative kernel.  It is
 an application-path check, not a replacement for the pipeline result above.
+
+## First execution: incompressible-side route
+
+`test_pipeline3d_water_a_runs_through_incompressible_path` passed `1/1` in
+`1.02 s` under the same lock.  Direct output for its `8x6x4` water/air member
+was `Q_W=380.9425177465455`, `dP_A_Pa=3063.3582674551412`,
+`dP_B_Pa=831.7037900623513`, `T_out_A_K=359.4307787916567`,
+`T_out_B_K=340.7120087942667`, and `converged=True`.  As with the standard
+air/air member, its `enthalpy_imbalance_rel` slot was `NaN`; it remains an
+observed non-certificate rather than being masked by the test's finite-output
+assertions.
