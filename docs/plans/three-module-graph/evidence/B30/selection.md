@@ -82,3 +82,17 @@ directions, partial/open/zero-overlap handling, fractional outlet continuity,
 once-only face area in true-h mass flux, nonuniform pressure reduction, and
 air/water/sCO2 opening mass targets.  This supports port-interface behavior;
 it does not replace a full local-port coupled solve.
+
+## First execution: mixed fluid local z/x ports
+
+`test_pipeline3d_mixed_sco2_z_and_x_ports` passed `2/2` in `7.04 s` under the
+matched lock.  Direct capture of its two `4x4x4` members is:
+
+| fluid A / B | `Q_W` | `dP_A_Pa` / `dP_B_Pa` | `T_out_A_K` / `T_out_B_K` | `enthalpy_imbalance_rel` | `converged` |
+| --- | ---: | ---: | ---: | ---: | --- |
+| sCO2 / water | `446.18297095154264` | `10.830560496870033` / `77.41486070349472` | `397.8906942537216` / `306.47625593626805` | `5.6379193468664066e-05` | `False` |
+| air / sCO2 | `55.016463347870655` | `21.036659508491287` / `39.14516252410696` | `344.11382065585707` / `301.4963718953477` | `0.0001137521764883666` | `False` |
+
+The existing test only asserts positive Q, outlet direction, and enthalpy
+imbalance below 5%; neither `False` convergence state is silently upgraded
+into a numerical qualification.
