@@ -73,3 +73,12 @@ lock.  Its intentionally over-driven 3D air case raised `ChokedFlowError`
 before a doomed solve, preserving the selected default rejection contract.
 Warn-mode and B-side post-solve members remain unrun and are not implied by
 this single rejection result.
+
+## First execution: 3D port geometry contract
+
+`sjtu_tpmshx/tests/test_port_face_area_3d.py` passed `20/20` in `0.93 s`
+under the matched lock.  It covers exact rectangular intersections in all six
+directions, partial/open/zero-overlap handling, fractional outlet continuity,
+once-only face area in true-h mass flux, nonuniform pressure reduction, and
+air/water/sCO2 opening mass targets.  This supports port-interface behavior;
+it does not replace a full local-port coupled solve.
