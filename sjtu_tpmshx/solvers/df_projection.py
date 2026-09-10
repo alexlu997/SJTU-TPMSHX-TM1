@@ -15,7 +15,7 @@ from typing import Any, List, Optional, Tuple
 import numpy as np
 from sjtu_tpmshx.df_surrogate.predict import predict_K_cF_vec
 from .tpms_calc import geometry as tpms_geometry
-from sjtu_tpmshx.models.grid import build_wall_refined_1d
+from sjtu_tpmshx.models.grid import build_wall_refined_1d  # noqa: F401 - existing public name
 
 
 from sjtu_tpmshx.models.grid import build_master_refined_grid  # noqa: F401
@@ -188,25 +188,7 @@ def override_simple_K_cF(sim: Any,
     sim._cF_arr[:] = cF_arr
 
 
-def build_master_refined_grid_3d(L_dom: float, H_dom: float, D_dom: float,
-                                   Nx_user: int, Ny_user: int, Nz_user: int,
-                                   n_refine: int = 8,
-                                   first_cell: float = 0.02e-3,
-                                   growth: float = 1.8
-                                   ) -> Tuple[np.ndarray, np.ndarray, np.ndarray,
-                                              int, int, int]:
-    """Six-wall tensor-product refined grid (3D).
-
-    Returns (dx_arr, dy_arr, dz_arr, Nx_refined, Ny_refined, Nz_refined).
-    Uses build_wall_refined_1d for each axis independently.
-    """
-    dx = build_wall_refined_1d(L_dom, Nx_user, n_refine=n_refine,
-                                first_cell=first_cell, growth=growth)
-    dy = build_wall_refined_1d(H_dom, Ny_user, n_refine=n_refine,
-                                first_cell=first_cell, growth=growth)
-    dz = build_wall_refined_1d(D_dom, Nz_user, n_refine=n_refine,
-                                first_cell=first_cell, growth=growth)
-    return dx, dy, dz, len(dx), len(dy), len(dz)
+from sjtu_tpmshx.models.grid import build_master_refined_grid_3d  # noqa: F401
 
 
 def project_fields_to_streamwise_K_cF_3d(L_field: np.ndarray,

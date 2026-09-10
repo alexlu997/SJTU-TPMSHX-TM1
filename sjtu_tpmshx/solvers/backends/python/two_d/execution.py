@@ -1,25 +1,15 @@
 """Run an already prepared 2D case; preprocessing is not an execution step."""
-from collections.abc import Mapping
 
 import numpy as np
 
 from sjtu_tpmshx.domain.case_data import CaseData
+from sjtu_tpmshx.domain.portable_data import mutable_data as _mutable_data
 from sjtu_tpmshx.domain.compute_config import ComputeConfig
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.models.catalog import resolve_model
 from sjtu_tpmshx.models.zone_config import Zone, ZoneConfig
 from .runtime import build_runtime
 from .coupling import _PipelineWindowShim, _run_solvers
-
-
-def _mutable_data(value):
-    if isinstance(value, Mapping):
-        return {key: _mutable_data(item) for key, item in value.items()}
-    if isinstance(value, tuple):
-        return [_mutable_data(item) for item in value]
-    if isinstance(value, np.ndarray):
-        return value.copy()
-    return value
 
 
 def _legacy_zone_units(value):

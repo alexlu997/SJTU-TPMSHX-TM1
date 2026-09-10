@@ -83,3 +83,12 @@ The same coordinated integration also owns H10's first 2D implementation and
 the shared `result_math.py` extraction. Data-only outlet/duty/pressure helpers
 are moved once and re-exported to existing numerical callers. The true-h kernel
 adds its native h/face state to returned evidence, without changing its solve.
+
+## 3D integration ownership
+
+The controller coordinates P30/S30/R30/I30 and the required I55 helper moves
+in `codex/tm1/s30-repair`. Pure grid/coordinate/geometry functions move once;
+existing paths re-export them. The Python backend receives the prepared grid,
+design and physical inputs, and its runtime construction cannot call the
+preprocessor. Existing scalar and unit-depth application conventions remain
+separate until their public application adapters are connected.

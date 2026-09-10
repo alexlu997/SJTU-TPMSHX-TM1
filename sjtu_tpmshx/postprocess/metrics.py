@@ -84,8 +84,11 @@ def _mass_flow(result, side):
 
 
 def _evaluate_metric(result, name):
+    if result.metadata['dimension'] == 3:
+        from .three_d import evaluate_metric
+        return evaluate_metric(result, name)
     if result.metadata['dimension'] != 2:
-        raise NotImplementedError('this metric implementation requires 2D evidence')
+        raise NotImplementedError('unsupported physical dimension')
     if name == 'Q':
         return _heat_duty(result)
     if name.startswith('dP_'):
@@ -125,6 +128,9 @@ def evaluate(result, metric_spec=None):
         'mass_imbalance_rel_B': ('mass_imbalance_rel', '1'),
         'energy_imbalance_rel': ('energy_imbalance_rel', '1'), 'mass': ('mass', 'kg/m'),
     }
+    if result.metadata['dimension'] == 3:
+        definitions.update(Q=('Q', 'W'), mass=('mass', 'kg'),
+                           mass_flow_A=('mass_flow', 'kg/s'), mass_flow_B=('mass_flow', 'kg/s'))
     metrics = {}
     for name, (kind, unit) in definitions.items():
         if metric_spec is not None and metric_spec.name not in (kind, name):
