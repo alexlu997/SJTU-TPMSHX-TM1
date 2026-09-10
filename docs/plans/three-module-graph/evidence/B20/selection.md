@@ -69,3 +69,12 @@ The existing test does not assert `converged`; it only requires positive heat
 duty, the expected outlet-temperature direction, and enthalpy imbalance below
 5%.  These two `False` convergence states therefore remain explicit baseline
 facts, not passing physical qualifications.
+
+## First execution: non-slow port-grid contract
+
+The non-slow part of `test_port_grid_alignment_2d.py` passed `23/23` with
+`3` numerical-regression members deselected in `1.12 s`.  It covers the
+selected physical-axis direction pairs, shared-coordinate mapping, full-face
+refinement preservation, partial-port taper, and the explicit too-few-cells
+rejection.  The deselected members remain separate numerical runs; they are
+not treated as passing here.
