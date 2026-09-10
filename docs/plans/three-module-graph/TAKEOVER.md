@@ -220,3 +220,6 @@ open, not a done transition for Z00 or its predecessors.
 The same documentation pass maintains Z10's V0.1 capability tracking table;
 unimplemented M-B providers/backends and undefined engineering metrics remain
 explicit gaps. It does not activate or claim completion of those implementations.
+H20/I20/I30's real application test also exports and reads every native scalar
+field through VTK in the independent postprocess process. The reader explicitly
+loads all scalars, rather than its default first scalar only.

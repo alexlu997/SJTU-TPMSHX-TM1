@@ -97,6 +97,21 @@ from sjtu_tpmshx.controllers.module_adapter import to_compute_result
 result = load_result(sys.argv[1])
 display = to_compute_result(result, evaluate(result))
 assert display.metadata['source_result_id'] == result.result_id
+from pathlib import Path
+import numpy as np
+from sjtu_tpmshx.postprocess.export import export_vtk
+from vtkmodules.vtkIOLegacy import vtkRectilinearGridReader
+from vtkmodules.util.numpy_support import vtk_to_numpy
+vtk_path = export_vtk(result, Path(sys.argv[1]).with_suffix('.vtk'))
+reader = vtkRectilinearGridReader()
+reader.SetFileName(str(vtk_path))
+reader.ReadAllScalarsOn()
+reader.Update()
+grid = reader.GetOutput()
+assert grid.GetNumberOfCells() == np.prod(result.fields['Ta'].shape)
+for name, values in result.fields.items():
+    np.testing.assert_array_equal(vtk_to_numpy(grid.GetCellData().GetArray(name)),
+                                  np.asarray(values).ravel(order='F'))
 for prefix in ('sjtu_tpmshx.solvers', 'sjtu_tpmshx.preprocess', 'sjtu_tpmshx.pipelines', 'numba', 'PySide6'):
     assert not any(name == prefix or name.startswith(prefix + '.') for name in sys.modules), prefix
 ''', str(path)], capture_output=True, text=True, timeout=30)

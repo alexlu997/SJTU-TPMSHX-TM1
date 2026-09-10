@@ -1,9 +1,9 @@
 {
   "node_id": "B30",
-  "status": "planned",
+  "status": "running",
   "worker": "takeover-controller",
-  "worktree": null,
-  "branch": "codex/tm1/b30",
+  "worktree": "/private/tmp/sjtu-tm1-p40-offline-repair",
+  "branch": "codex/tm1/p40-offline-repair",
   "base_sha": "c7f013869e7127b35ac0c305376c13b3a834131b",
   "head_sha": null,
   "pr_url": null,
@@ -12,11 +12,12 @@
   "review": null,
   "ci_runs": [],
   "evidence": [
-    "evidence/B30/selection.md"
+    "evidence/B30/selection.md",
+    "evidence/S30/repair.md"
   ],
   "blocked_reason": null,
   "unblocks_when": null,
-  "next_action": "Add explicit comparison method and coverage; preserve NaN and nonconvergence.",
+  "next_action": "Final independent review, current-head CI and merge verification remain outstanding; preserve all historical baseline failures and pending B40 decision.",
   "tested_candidate_sha": null,
   "tested_base_sha": null,
   "source_head_sha": null

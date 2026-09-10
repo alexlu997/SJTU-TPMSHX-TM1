@@ -1,9 +1,9 @@
 {
   "node_id": "Z00",
-  "status": "planned",
-  "worker": null,
-  "worktree": null,
-  "branch": "codex/tm1/z00",
+  "status": "running",
+  "worker": "takeover-controller",
+  "worktree": "/private/tmp/sjtu-tm1-p40-offline-repair",
+  "branch": "codex/tm1/p40-offline-repair",
   "base_sha": null,
   "head_sha": null,
   "pr_url": null,
@@ -11,10 +11,12 @@
   "contract_version": null,
   "review": null,
   "ci_runs": [],
-  "evidence": [],
+  "evidence": [
+    "acceptance_architecture.md"
+  ],
   "blocked_reason": null,
   "unblocks_when": null,
-  "next_action": null,
+  "next_action": "Final independent review, current-head CI and merge verification remain outstanding; preserve all historical baseline failures and pending B40 decision.",
   "tested_candidate_sha": null,
   "tested_base_sha": null,
   "source_head_sha": null
