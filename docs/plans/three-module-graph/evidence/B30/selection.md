@@ -74,6 +74,13 @@ before a doomed solve, preserving the selected default rejection contract.
 Warn-mode and B-side post-solve members remain unrun and are not implied by
 this single rejection result.
 
+All four `test_envelope_integration_3d.py` members subsequently passed in
+`9.22 s`: default choke raise, warned invalid return, B-side choke flagging,
+and an in-envelope valid/unclipped result.  Three correlation-domain warnings
+were emitted by the intentionally extreme cases (`Re` below 400 and up to
+247597 versus the `[400, 16000]` fit window); those warnings are retained as
+part of the test evidence, not suppressed or treated as valid-domain proof.
+
 ## First execution: 3D port geometry contract
 
 `sjtu_tpmshx/tests/test_port_face_area_3d.py` passed `20/20` in `0.93 s`
