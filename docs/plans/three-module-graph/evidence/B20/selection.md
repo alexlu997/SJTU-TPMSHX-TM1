@@ -45,3 +45,12 @@ pipeline produced the following current behavior record:
 This is a captured behavior point, not an experimental-accuracy claim.  The
 mixed-fluid/partial-port and rejected-input members remain pending and must not
 be inferred from this air/air run.
+
+## First execution: rejection contract
+
+`sjtu_tpmshx/tests/test_pressure_invalid_flag.py` passed `8/8` in `0.74 s`
+under the same matched lock.  Its intentional infeasible compressible member
+emitted the expected choke warning; strict calls returned `NaN`, while legacy
+non-strict calls retained their documented `P_in` rescue.  This confirms the
+selected rejection boundary is executable; it does not certify a full pipeline
+response for a choked design.
