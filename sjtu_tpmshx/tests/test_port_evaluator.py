@@ -23,11 +23,19 @@ import pytest
 from sjtu_tpmshx.optimization.evaluator import (
     DEFAULT_CONFIG,
     evaluate_design,
-    _build_simple_A,
-    _build_simple_B,
-    _percell_K_cF,
-    _resolve_grid,
 )
+from sjtu_tpmshx.preprocess.app_modes.screening_2d import _percell_K_cF, _resolve_grid, prepare_flow
+from sjtu_tpmshx.solvers.backends.python.screening.two_d import build_flow
+
+
+def _build_simple_A(cfg, fc, arrays, Nx, Ny):
+    return build_flow(prepare_flow(cfg, fc, arrays, Nx, Ny, 'A'))
+
+
+def _build_simple_B(cfg, fc, arrays, Nx, Ny):
+    return build_flow(prepare_flow(cfg, fc, arrays, Nx, Ny, 'B'))
+
+
 from sjtu_tpmshx.solvers.continuous_field import (
     encode_decision_vector,
     from_decision_vector,
@@ -81,7 +89,7 @@ def test_default_config_is_fullface_no_percell():
 
 
 def test_energy_inlet_uses_same_physical_face_as_pipeline(monkeypatch):
-    from sjtu_tpmshx.optimization import evaluator
+    from sjtu_tpmshx.solvers.backends.python.screening import two_d as evaluator
     from sjtu_tpmshx.solvers.tpms_calc import air_cp
     from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver, _port_fractions_1d
     cfg = {**_CFG_SMALL, 'ports_A': (.015, .045, 0., .03),
@@ -224,7 +232,8 @@ def test_cf_aniso_penalizes_turning_flow_only():
 
 def _temperature_boundary(monkeypatch, fields, *, stop_after_return=False):
     """Exercise evaluator orchestration without SIMPLE or thermal sweeps."""
-    from sjtu_tpmshx.optimization import evaluator
+    from sjtu_tpmshx.solvers.backends.python.screening import two_d as evaluator
+    from sjtu_tpmshx.postprocess import screening as post
     from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
 
     calls = []
@@ -241,12 +250,12 @@ def _temperature_boundary(monkeypatch, fields, *, stop_after_return=False):
         assert calls.count('thermal') == 1
         if stop_after_return:
             monkeypatch.setattr(evaluator, 'air_density', forbidden)
-            monkeypatch.setattr(evaluator, '_enthalpy_q', forbidden)
-        return fields
+            monkeypatch.setattr(post, 'evaluate_metric', forbidden)
+        return (*fields, {'converged': False})
 
     monkeypatch.setattr(SIMPLESolver, 'solve', unsolved)
     monkeypatch.setattr(evaluator, 'solve_full_domain', thermal)
-    monkeypatch.setattr(evaluator, 'extract_dP_from_simple', lambda s: 20.)
+    monkeypatch.setattr(post, 'pressure_drop', lambda evidence: 20.)
     return calls
 
 

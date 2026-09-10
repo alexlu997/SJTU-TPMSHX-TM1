@@ -225,6 +225,7 @@ class SIMPLESolver:
                  n_wall_refine=8,
                  wall_first_cell=0.02e-3,
                  df_method=None,
+                 dx_arr=None, dy_arr=None, K_arr=None, cF_arr=None,
                  **_legacy_kw):
         # Historical 'closure' kwarg is accepted but ignored; ConstDF-v1 D-F
         # is the only closure since 2026-04-19 f-Re cleanup.
@@ -247,6 +248,25 @@ class SIMPLESolver:
         # 2026-04-17. Adds 2*n_wall_refine cells on top of Nx (interpreted as
         # bulk cell count). Disabled if inlet/outlet are not full-width
         # (x_breaks present) or if the user passes wall_refine=False.
+        if (dx_arr is None) != (dy_arr is None):
+            raise ValueError('prepared SIMPLE grid requires both dx_arr and dy_arr')
+        if dx_arr is not None:
+            for widths, count, length in ((dx_arr, Nx, W), (dy_arr, Ny, H)):
+                values = np.asarray(widths, dtype=np.float64)
+                if (values.shape != (count,) or not np.all(np.isfinite(values))
+                        or np.any(values <= 0.0)
+                        or not np.isclose(values.sum(), length, rtol=1e-12, atol=1e-15)):
+                    raise ValueError('prepared SIMPLE grid does not match its domain')
+            wall_refine = False
+        if (K_arr is None) != (cF_arr is None):
+            raise ValueError('prepared SIMPLE drag requires both K_arr and cF_arr')
+        if K_arr is not None:
+            for values, positive in ((K_arr, True), (cF_arr, False)):
+                values = np.asarray(values, dtype=np.float64)
+                if (values.shape != (Ny,) or not np.all(np.isfinite(values))
+                        or np.any(values <= 0.0 if positive else values < 0.0)):
+                    raise ValueError('invalid prepared SIMPLE row drag coefficients')
+
         x_breaks = []
         if inlet_lo > W * 0.001:
             x_breaks.append(inlet_lo)
@@ -280,12 +300,15 @@ class SIMPLESolver:
         self.dx, self.dy = W / Nx, H / Ny  # scalar for backward compat
 
         # Aligned grid: cell edges at inlet/outlet-wall junctions
-        if self._wall_refined and dx_refined is not None:
+        if dx_arr is not None:
+            self.dx_arr = np.array(dx_arr, dtype=np.float64, copy=True)
+        elif self._wall_refined and dx_refined is not None:
             self.dx_arr = dx_refined
         else:
             self.dx_arr = _aligned_grid(Nx, W, x_breaks)
         # y-direction: aligned if y_breakpoints provided, else uniform
-        self.dy_arr = _aligned_grid(Ny, H, y_breakpoints or [])
+        self.dy_arr = (_aligned_grid(Ny, H, y_breakpoints or []) if dy_arr is None
+                       else np.array(dy_arr, dtype=np.float64, copy=True))
 
         # Porous medium (scalar, kept for temperature solver & backward compat)
         self.eps = eps
@@ -339,7 +362,10 @@ class SIMPLESolver:
         # graded designs. zone_arrays path doesn't carry L/t/eps metadata, so
         # it falls back to the uniform (scalar) prediction.
 
-        if zone_config is not None:
+        if K_arr is not None:
+            self._K_arr = np.array(K_arr, dtype=np.float64, copy=True)
+            self._cF_arr = np.array(cF_arr, dtype=np.float64, copy=True)
+        elif zone_config is not None:
             # Per-row (L, t, eps_f) → batched prediction
             L_row = np.empty(Ny, dtype=np.float64)
             t_row = np.empty(Ny, dtype=np.float64)

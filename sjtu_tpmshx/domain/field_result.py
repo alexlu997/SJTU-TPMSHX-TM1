@@ -10,7 +10,7 @@ from sjtu_tpmshx.domain.case_data import SCHEMA_VERSION
 
 @dataclass(frozen=True)
 class FieldResult:
-    """Native fields, boundary evidence and run verdict for one completed run."""
+    """Native fields, boundary evidence and run verdict for one completed or explicitly rejected run."""
 
     result_id: str
     case_id: str

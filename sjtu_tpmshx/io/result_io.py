@@ -1,4 +1,4 @@
-"""Read or archive complete native field results independently of solvers."""
+"""Archive completed or explicitly rejected native results independently of solvers."""
 from sjtu_tpmshx.domain.field_result import FieldResult
 from .hdf5_data import read_record, write_record
 from sjtu_tpmshx.domain.persistence_validation import validate_result

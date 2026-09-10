@@ -84,6 +84,9 @@ def _mass_flow(result, side):
 
 
 def _evaluate_metric(result, name):
+    if result.metadata.get('mode') in ('screening_2d', 'screening_3d'):
+        from .screening import evaluate_metric
+        return evaluate_metric(result, name)
     if result.metadata.get('mode') == 'quick_design':
         from .quick_design import evaluate_metric
         return evaluate_metric(result, name)

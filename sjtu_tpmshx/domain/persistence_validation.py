@@ -30,8 +30,13 @@ def validate_case(case):
 
 def validate_result(result):
     shape = validate_grid(result.grid)
-    if result.run_status.get('execution') != 'completed':
-        raise ValueError('not a completed result archive')
+    execution = result.run_status.get('execution')
+    if execution not in ('completed', 'rejected'):
+        raise ValueError('not a completed or explicitly rejected result archive')
+    if execution == 'rejected' and (result.run_status.get('converged') is not False
+                                    or not result.run_status.get('reason')
+                                    or result.run_status.get('rejection_stage') not in ('pre_solve', 'initial_flow', 'hot_reseed', 'post_solve_envelope')):
+        raise ValueError('rejected result requires a reason, stage and false convergence flag')
     if not isinstance(result.run_status.get('converged'), bool):
         raise ValueError('result requires an explicit numerical convergence flag')
     if set(result.fields) != set(result.field_metadata):

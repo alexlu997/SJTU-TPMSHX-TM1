@@ -33,9 +33,12 @@ def main(argv=None):
             from sjtu_tpmshx.io.result_io import load_result
             from sjtu_tpmshx.io.metrics_io import save_metrics
             from sjtu_tpmshx.postprocess.api import evaluate
-            performance = evaluate(load_result(args.input))
+            result = load_result(args.input)
+            performance = evaluate(result)
             save_metrics(performance, args.output)
-            required = ('Q', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B')
+            required = (('Q', 'dP_A', 'dP_B', 'mass')
+                        if result.metadata.get('mode') in ('screening_2d', 'screening_3d')
+                        else ('Q', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B'))
             return 0 if all(performance.metrics[key].status == 'available' for key in required) else 2
         from sjtu_tpmshx.io.yaml_config import load_config
         from sjtu_tpmshx.io.case_io import save_case

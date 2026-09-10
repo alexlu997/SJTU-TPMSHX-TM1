@@ -26,8 +26,9 @@ def test_seed_algebra_bitwise_matches_envelope():
 def test_evaluate_3d_has_no_local_seed_algebra():
     """All three historical hand-copy sites (cold A/B seeds + hot var-rho
     reseed) must call predict_outlet_p_sq; the inline algebra must be gone."""
-    import sjtu_tpmshx.core.evaluators as ev
-    src = inspect.getsource(ev)
+    from sjtu_tpmshx.preprocess.app_modes import screening_3d as prep
+    from sjtu_tpmshx.solvers.backends.python.screening import three_d as execution
+    src = inspect.getsource(prep) + inspect.getsource(execution)
     assert src.count('predict_outlet_p_sq(') >= 3, (
         "cold-A, cold-B and hot-reseed sites must all use the envelope "
         "authority")
@@ -64,7 +65,7 @@ class _FakeSolver3D:
 def _gate_with_fakes(speed_A=5.0, speed_B=5.0,
                      P_gauge_min_A=0.0, P_gauge_min_B=0.0):
     import numpy as np
-    from sjtu_tpmshx.core.evaluators import _post_solve_gate_3d
+    from sjtu_tpmshx.solvers.backends.python.screening.three_d import _post_solve_gate_3d
     # Real grid (Nx, Ny, Nz) = (3, 2, 2); solver-A frame = (Ny, Nx, Nz).
     sA = _FakeSolver3D((2, 3, 2), speed_A, P_gauge_min_A)
     sB = _FakeSolver3D((3, 2, 2), speed_B, P_gauge_min_B)
@@ -97,8 +98,8 @@ def test_post_solve_gate_flags_floor_clipped_pressure():
 
 def test_evaluate_3d_wires_post_solve_gate():
     """The gate must run in evaluate_3d before the result dict is built."""
-    import sjtu_tpmshx.core.evaluators as ev
-    src = inspect.getsource(ev.evaluate_3d)
+    from sjtu_tpmshx.solvers.backends.python.screening import three_d as execution
+    src = inspect.getsource(execution.run_case)
     assert '_post_solve_gate_3d(' in src, (
         "evaluate_3d lost its post-solve envelope gate (P1.3-B regression)")
 
@@ -128,6 +129,7 @@ def _core_temperature_case(monkeypatch, *, max_outer, bad_side=None, bad_value=N
                            bad_call=1):
     import numpy as np
     from sjtu_tpmshx.core import evaluators as ev
+    from sjtu_tpmshx.solvers.backends.python.screening import three_d as execution
     from sjtu_tpmshx.solvers.continuous_field import encode_decision_vector
 
     calls = []
@@ -148,13 +150,13 @@ def _core_temperature_case(monkeypatch, *, max_outer, bad_side=None, bad_value=N
         fields = [np.full((3, 2, 2), t) for t in (350., 300., 325.)]
         if bad_side is not None and calls.count('thermal') == bad_call:
             fields[bad_side][-1, -1, -1] = bad_value
-            monkeypatch.setattr(ev, 'air_viscosity', forbidden)
-            monkeypatch.setattr(ev, '_post_solve_gate_3d', forbidden)
+            monkeypatch.setattr(execution, 'air_viscosity', forbidden)
+            monkeypatch.setattr(execution, '_post_solve_gate_3d', forbidden)
             return *fields, UnreadInfo()
         return *fields, {'converged': False}
 
-    monkeypatch.setattr(ev.SIMPLESolver3D, 'solve', unsolved)
-    monkeypatch.setattr(ev, 'solve_full_domain_3d', thermal)
+    monkeypatch.setattr(execution.SIMPLESolver3D, 'solve', unsolved)
+    monkeypatch.setattr(execution, 'solve_full_domain_3d', thermal)
     cfg = dict(L_domain=.1, H_domain=.05, u_A=1., u_B=1.,
                T_inA=350., T_inB=300.)
     x = encode_decision_vector(np.full((4, 4), 6.), np.full((4, 4), .4), True)

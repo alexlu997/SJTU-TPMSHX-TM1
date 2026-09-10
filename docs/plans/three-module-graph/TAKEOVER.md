@@ -145,3 +145,18 @@ The controller also owns the necessary shared D-F explicit-option parameters so
 prepared execution preserves the existing method/override/residual-correction
 choices without changing process environment. Shared source formulas are moved
 or reused once. Other application modes and frozen B40 pins remain unchanged.
+
+### Coordinated screening extraction: S40 / A30 / I40 / I53
+
+The controller continues from 961fbb6 in the isolated optimization-repair branch.
+This joint batch owns the old evaluator delegation, pure model projections and
+roughness/envelope authorities, prepared SIMPLE inputs, native screening
+execution and offline metrics, plus the public parameter/effective-field
+examples. G10/D20's coordinated schema consequence is an explicit rejected
+result archive (false convergence, reason and known stage); cancellation and
+failures remain outside completed archives. The mode schema is documented in
+`schemas/three_module_v1/screening.md`. No old B40 pin or tolerance changes.
+The current same-source numeric comparison supplements that failed historical
+gate; it does not relabel it green. The shared constructor still has legacy
+callers in the full-model runtime; their remaining runtime geometry/drag
+preparation must be addressed separately before overall M-A acceptance.

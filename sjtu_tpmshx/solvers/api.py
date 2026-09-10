@@ -11,6 +11,10 @@ def run_case(case, control=RunControl()):
     mode = case.metadata.get('mode', 'full')
     if mode == 'quick_design':
         from .backends.python.quick_design.execution import run_case as run
+    elif mode == 'screening_2d':
+        from .backends.python.screening.two_d import run_case as run
+    elif mode == 'screening_3d':
+        from .backends.python.screening.three_d import run_case as run
     elif mode != 'full':
         raise ValueError(f'unsupported solver mode: {mode}')
     elif dimension == 2:

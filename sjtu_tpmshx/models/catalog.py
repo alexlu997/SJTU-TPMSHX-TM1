@@ -4,6 +4,7 @@ from sjtu_tpmshx.domain.model_refs import ModelRef
 
 # These versions identify the extracted V2 formulas, not experimental accuracy.
 MODEL_VERSIONS = {
+    'screening': 'v2-5f1cafb',
     'quick_design': 'v2-5f1cafb',
     'fluid': 'v2-5f1cafb',
     'geometry': 'v2-5f1cafb',
@@ -18,6 +19,11 @@ def resolve_model(ref: ModelRef):
     if ref.name not in MODEL_VERSIONS or ref.version != MODEL_VERSIONS[ref.name]:
         raise ValueError(f'unknown model resource: {ref.name}@{ref.version}')
     parameters = dict(ref.parameters)
+    if ref.name == 'screening':
+        if parameters:
+            raise ValueError('screening resource takes no fixed parameters')
+        from . import screening
+        return screening
     if ref.name == 'quick_design':
         if parameters:
             raise ValueError('quick-design closure takes no fixed parameters')

@@ -2,9 +2,9 @@
   "node_id": "S40",
   "status": "running",
   "worker": "takeover-controller",
-  "worktree": "/private/tmp/sjtu-tm1-quick-design-repair",
-  "branch": "codex/tm1/quick-design-repair",
-  "base_sha": "aea7234",
+  "worktree": "/private/tmp/sjtu-tm1-optimization-repair",
+  "branch": "codex/tm1/optimization-repair",
+  "base_sha": "961fbb6edc8ded29e13d80456fc20495c4bd5552",
   "head_sha": null,
   "pr_url": null,
   "merge_sha": null,
@@ -12,11 +12,12 @@
   "review": null,
   "ci_runs": [],
   "evidence": [
-    "evidence/I54/quick-design.md"
+    "evidence/I54/quick-design.md",
+    "evidence/S40/optimization-repair.md"
   ],
   "blocked_reason": null,
   "unblocks_when": null,
-  "next_action": "Finish quick-design checks/review; screening modes and B40 optimization reconciliation remain outstanding; remote CI and merge pending.",
+  "next_action": "Local screening extraction and regression evidence complete; full-mode preparation cleanup, independent review, remote CI and merge remain pending. Preserve B40 historical failures.",
   "tested_candidate_sha": null,
   "tested_base_sha": null,
   "source_head_sha": null
