@@ -14,6 +14,16 @@ def capture_result(case, prob, outer, raw):
     native = prob.cfg['_native_evidence']
     fields = {key: native[key] for key in ('Ta', 'Tb', 'Ts', 'h_vA', 'h_vB', 'K_ss',
                                           'P_thermal_A', 'P_thermal_B') if native[key] is not None}
+    display_units = {}
+    for name, source, unit in (
+        ('Ta_display', 'Ta', 'K'), ('Tb_display', 'Tb', 'K'), ('Ts_display', 'Ts', 'K'),
+        ('P_fA_display', 'P_Pa', 'Pa'), ('P_fB_display', 'P_Pa_B', 'Pa'),
+        ('ucA', 'uc_real', 'm/s'), ('vcA', 'vc_real', 'm/s'), ('wcA', 'wc_real', 'm/s'),
+        ('ucB', 'uc_real_B', 'm/s'), ('vcB', 'vc_real_B', 'm/s'), ('wcB', 'wc_real_B', 'm/s'),
+        ('vmag_A', 'vmag', 'm/s'), ('vmag_B', 'vmag_B', 'm/s'), ('chi_B', 'chi_B', '1')):
+        if raw[source] is not None:
+            fields[name] = raw[source]
+            display_units[name] = unit
     pressure, report = {}, {}
     overrides = _per_side_eps_override(prob.cfg, prob.tpms_type, prob.Lcell, prob.t_wall, prob.eps)
     for side, solver, port, override in zip(('A', 'B'), (prob.sA, prob.sB), (prob.fA, prob.fB), overrides):
@@ -54,6 +64,9 @@ def capture_result(case, prob, outer, raw):
                          axes=('x', 'y', 'z'), location='cell',
                          state='final SIMPLE flow' if key.startswith(('P_report', 'P_gauge')) else 'last thermal solve')
                 for key in fields}
+    for name, unit in display_units.items():
+        metadata[name] = dict(unit=unit, axes=('x', 'y', 'z'), location='cell',
+                              state='display' if name.endswith('_display') else 'final flow/report')
     diagnostics = {key: value for key, value in raw.items()
                    if not isinstance(value, np.ndarray) and key not in ('_native_evidence',)}
     return FieldResult(result_id=str(uuid4()), case_id=case.case_id,

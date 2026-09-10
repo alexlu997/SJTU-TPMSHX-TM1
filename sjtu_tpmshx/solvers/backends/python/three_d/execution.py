@@ -104,6 +104,8 @@ def run_case(case, control=RunControl()):
     cfg['_capture_native'] = True
     cfg['_cancel_check'] = control.cancel_check
     cfg['_progress_cb'] = control.report_progress
+    if control.iteration is not None:
+        cfg['_iter_cb'] = lambda current, total: control.iteration(f'outer {current}/{total}')
     prob = runtime.build_problem(cfg, prepared)
     hv = runtime._build_hv_machinery(prob)
     outer = runtime._run_outer_coupling_3d(prob, hv)

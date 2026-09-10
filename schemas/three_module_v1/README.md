@@ -78,5 +78,9 @@ FieldResult`, and `Postprocessor.evaluate(result, metric_spec) ->
 PerformanceResult` are independent ports. Runtime progress/cancellation
 callbacks are passed separately. Explicit cancellation raises the existing
 `CancelledError`; unrelated callback failures remain their original errors.
+`iteration(label: str)` carries the existing outer-iteration label;
+`residual(side: str, index: int, value: float)` carries 2D SIMPLE observations.
+The GUI adapter owns its display buffer. These observations do not alter
+stopping criteria and are never persisted into CaseData or FieldResult.
 Formal codecs and per-mode capability/field tables remain required before
 G10 consumers and D/I/V nodes can be accepted.

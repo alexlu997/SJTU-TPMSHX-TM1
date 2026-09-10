@@ -20,6 +20,12 @@ pressure is captured separately from final SIMPLE gauge and property/report
 pressure. Final gauge pressure is retained in solver coordinates together with
 widths, true opening fractions and the axis map for exact face extrapolation.
 
+Presentation temperatures (`Ta/Tb/Ts_display`) and `P_fA/P_fB_display` are
+copied from the existing display return, without substituting property-pressure
+fields. Cell velocities `uc/vc/wc` for each side and `vmag_A/B` use m/s in
+physical axes; `chi_B` is dimensionless. Each has explicit field metadata and
+survives the same result archive. These display fields never determine metrics.
+
 Thermal mass faces use physical axes, signed along positive x/y/z, kg/s, with
 full face area and per-side porosity already included. Model-h evidence stores
 six outward boundary energy arrays per side in W, captured from the existing

@@ -107,3 +107,12 @@ shared run-environment snapshot required by D10/V20/V30. Environment overrides
 are recorded in prepared data and read per execution; no process-global
 mutation is used to replay a Case. The user explicitly authorized the new
 73-package local environment, which passed exact-lock and pip checks.
+
+## Application control integration ownership
+
+The controller coordinates G10/A20/I51/I52 control changes while the local
+commit awaits explicit authorization. RunControl gains non-persistent
+iteration-label and residual callbacks required by the existing GUI. The
+Python backend emits the same existing iteration/residual observations;
+CaseData and FieldResult cannot contain those callbacks. GUI buffer ownership
+stays in the GUI adapter. No numerical stopping rule changes.

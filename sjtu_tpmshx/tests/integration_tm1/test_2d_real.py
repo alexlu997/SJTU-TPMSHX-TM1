@@ -31,8 +31,10 @@ def test_prepared_only_b20_air_baseline(monkeypatch):
         raise AssertionError('execution called preprocessing')
     monkeypatch.setattr(preparation, '_parse_inputs_cfg', forbidden)
     monkeypatch.setattr(preparation, '_prepare_grid', forbidden)
-    progress = []
-    result = run_case(replace(case, config_snapshot={}), RunControl(progress=progress.append))
+    progress, iterations, residuals = [], [], []
+    result = run_case(replace(case, config_snapshot={}), RunControl(
+        progress=progress.append, iteration=iterations.append,
+        residual=lambda side, index, value: residuals.append((side, index, value))))
     reference = result.metadata['reporting_reference']
     np.testing.assert_allclose(
         [reference[key] for key in ('Q_total', 'dP_A', 'dP_B', 'T_out_A_K', 'T_out_B_K')],
@@ -44,6 +46,9 @@ def test_prepared_only_b20_air_baseline(monkeypatch):
     assert result.boundary_fluxes['model_h']['A']['h_faces_W_per_m']
     assert result.pressure_evidence['A']['inlet_gauge_Pa'].shape == (56,)
     assert progress
+    assert iterations and all(isinstance(label, str) for label in iterations)
+    assert {side for side, _, _ in residuals} == {'A', 'B'}
+    assert all(isinstance(index, int) and np.isfinite(value) for _, index, value in residuals)
     _assert_postprocessing(result)
 
 

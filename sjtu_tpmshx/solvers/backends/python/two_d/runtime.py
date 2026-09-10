@@ -11,7 +11,7 @@ from sjtu_tpmshx.logutil import get_logger
 _log = get_logger(__name__)
 
 def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
-                      live_residuals: dict | None = None) -> dict[str, Any]:
+                      live_residuals: dict | None = None, residual_cb=None) -> dict[str, Any]:
     """Phase 2 (Qt-free): construct aligned grid arrays and SIMPLE
     helper closures.
 
@@ -378,9 +378,10 @@ def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
         _buf = live_residuals
         _side = 'A' if 'A' in label else 'B'
         def _progress_cb(it, res, _s=_side):
-            if _buf is None:
-                return
-            _buf.setdefault(_s, []).append((int(it), float(res)))
+            if _buf is not None:
+                _buf.setdefault(_s, []).append((int(it), float(res)))
+            if residual_cb is not None:
+                residual_cb(_s, int(it), float(res))
         # 2026-05-07: 2D SIMPLE max_iter 5000 → 10000. Crossflow with
         # partial-B inlet (e.g. user's pipeB w=0.068m of L=0.182) +
         # high-u Forchheimer-branch needs more iters to drive residual

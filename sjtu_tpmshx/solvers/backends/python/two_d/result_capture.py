@@ -12,6 +12,9 @@ def capture_result(case, raw):
         'h_vA', 'h_vB', 'K_ss')}
     fields.update({key + '_display': raw[key] for key in ('Ta', 'Tb', 'Ts', 'P_fA', 'P_fB')})
     fields.update({key: raw[key] for key in ('ucA', 'vcA', 'ucB', 'vcB')})
+    fields.update({key + '_display': raw[key + '_disp']
+                   for key in ('ucA', 'vcA', 'ucB', 'vcB')
+                   if raw.get(key + '_disp') is not None})
     for key in ('h_vA', 'h_vB', 'K_ss'):
         fields[key] = np.broadcast_to(fields[key], np.shape(fields['Ta']))
     field_metadata = {}

@@ -19,6 +19,8 @@ class RunControl:
     backend: str = "python"
     progress: Callable[[int], None] | None = None
     cancel_check: Callable[[], bool] | None = None
+    iteration: Callable[[str], None] | None = None
+    residual: Callable[[str, int, float], None] | None = None
 
     def check_cancelled(self) -> None:
         if self.cancel_check is not None and self.cancel_check():

@@ -101,8 +101,9 @@ def run_case(case: CaseData, control: RunControl = RunControl()):
         raise ValueError(f'unsupported backend: {control.backend}')
     control.check_cancelled()
     cfg, prepared = build_execution_inputs(case)
-    runtime = build_runtime(cfg, prepared)
+    runtime = build_runtime(cfg, prepared, residual_cb=control.residual)
     state = _PipelineWindowShim(cfg['compute_cfg'], progress_cb=control.report_progress,
+                                iter_label_cb=control.iteration,
                                 prepared_properties=cfg['static_properties'])
     raw = _run_solvers(state, cfg, runtime, cancel_check=control.cancel_check)
     control.check_cancelled()
