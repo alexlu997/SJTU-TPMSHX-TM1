@@ -1,4 +1,4 @@
-# port_retest_server.ps1 — Windows Server 2022 上并行跑端口维数复测四臂.
+﻿# port_retest_server.ps1 — Windows Server 2022 上并行跑端口维数复测四臂.
 #
 # 用法 (PowerShell, 任意目录):
 #   powershell -ExecutionPolicy Bypass -File port_retest_server.ps1          # clone/update + 四臂并行
