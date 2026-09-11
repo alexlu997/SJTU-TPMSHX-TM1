@@ -13,11 +13,17 @@
   "ci_runs": [],
   "evidence": [
     "evidence/B40/application-path-map.md",
-    "evidence/B40/failure-triage.md"
+    "evidence/B40/failure-triage.md",
+    "evidence/B40/end-cv-investigation.md",
+    "evidence/B40/wall-investigation.md",
+    "evidence/B40/current-engineering-budget.md",
+    "evidence/B40/2d-history-investigation.md",
+    "evidence/B40/current-solid-diagnostic.md",
+    "evidence/B40/method-verification.md"
   ],
   "blocked_reason": "Historical frozen evaluator pins failed 4/4 at the reference commit after documented intervening physics changes; pins and tolerances preserved.",
-  "unblocks_when": null,
-  "next_action": "User accepted same-source equivalence for M-A architecture evidence on 2026-09-11, but explicitly retained the overall B40 gate. Review the four-row failure triage and proposed separate tracking; root causes and individual exit conditions remain unresolved. No pin or tolerance change is authorized by this decision.",
+  "unblocks_when": "Each of the four failures has accepted cause, remedy or reference disposition and corresponding validation; any frozen-reference or threshold change requires explicit approval. Numerical convergence and discrete energy diagnostics do not replace physical acceptance.",
+  "next_action": "Controlled original-budget comparisons attribute both major 3D Q shifts to 5adb61d and remaining 3D plus both full 2D drifts to d61e341. Historical and current engineering-budget numerical results and full-domain temperature/solid diagnostics are recorded separately. Review numerical-method and applicable physical evidence, resolve each reference disposition with explicit user approval, and retain original 4/4 failures, NaN/native-exit provenance and unchanged thresholds. Same-source migration equivalence remains architectural evidence only.",
   "tested_candidate_sha": null,
   "tested_base_sha": null,
   "source_head_sha": null
