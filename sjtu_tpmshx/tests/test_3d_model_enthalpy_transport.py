@@ -1,4 +1,6 @@
 """Model-h face transport: independent balances and production ownership."""
+
+from sjtu_tpmshx.pipelines.run_stack_3d import _build_3d_problem
 import inspect
 
 import numpy as np
@@ -7,7 +9,7 @@ from numba import get_num_threads, set_num_threads
 
 from sjtu_tpmshx.solvers import _kernels_ltne_3d as kernels
 from sjtu_tpmshx.solvers import ltne_energy_3d as energy
-from sjtu_tpmshx.solvers.tpms_props import air_cp, model_h_coefficients
+from sjtu_tpmshx.models.tpms_props import air_cp, model_h_coefficients
 
 
 @pytest.mark.parametrize('direction', range(6))
@@ -115,12 +117,12 @@ def test_nonzero_mass_divergence_and_unknown_external_inflow():
     (('air', 'air'), True, 4, .1, False),
 ])
 def test_actual_pipeline_gate_and_prebalance_mass(monkeypatch, pair, var, nz, chi, enabled):
-    from sjtu_tpmshx.pipelines import run_stack_3d_stages as stages
+    from sjtu_tpmshx.solvers.backends.python.three_d import runtime as stages
     cfg = _pipeline_cfg(pair, nz)
     cfg.update(variable_rho_cp=var, chi_B_kernel_threshold=chi)
     monkeypatch.delenv('TPMSHX_VAR_RHOCP', raising=False)
     monkeypatch.setattr(stages.SIMPLESolver3D, 'solve', lambda *a, **k: (True, 0))
-    prob = stages._build_3d_problem(cfg)
+    prob = _build_3d_problem(cfg)
     hv = stages._build_hv_machinery(prob)
     for solver in (prob.sA, prob.sB):
         solver.v[:] = .02
@@ -175,7 +177,7 @@ def _pipeline_cfg(pair=('air', 'air'), nz=4):
 @pytest.mark.parametrize('cap', [False, True])
 @pytest.mark.parametrize('invalid', [None, ('A', 'unknown'), ('B', 'nan'), ('A', 'inf')])
 def test_model_h_ledger_reaches_result_before_final_post(monkeypatch, cap, invalid):
-    from sjtu_tpmshx.pipelines import run_stack_3d_stages as stages
+    from sjtu_tpmshx.solvers.backends.python.three_d import runtime as stages
     from sjtu_tpmshx.pipelines import stages_3d
     monkeypatch.setattr(stages.SIMPLESolver3D, 'solve', lambda *a, **k: (True, 0))
     signature = inspect.signature(energy.solve_full_domain_3d)
@@ -225,7 +227,8 @@ def test_model_h_ledger_reaches_result_before_final_post(monkeypatch, cap, inval
 
 
 def test_reported_model_h_two_unequal_outlets_excludes_diffusion(monkeypatch):
-    from sjtu_tpmshx.pipelines import run_stack_3d_stages as stages, stages_3d
+    from sjtu_tpmshx.solvers.backends.python.three_d import runtime as stages
+    from sjtu_tpmshx.pipelines import stages_3d
     # Two CVs with unequal outlet masses. Independent h=2*theta+.01*theta**2:
     # h(340)=96, h(310)=21, h(330)=69; 4*96-(1*21+3*69)=156 W.
     # cp(340)*4*(340-325)=168 and 4*(h(340)-h(325))=159 are both wrong.
@@ -259,7 +262,7 @@ def test_reported_model_h_two_unequal_outlets_excludes_diffusion(monkeypatch):
 
 
 def test_report_without_model_h_ledger_keeps_original_cp_temperature(monkeypatch):
-    from sjtu_tpmshx.pipelines import run_stack_3d_stages as stages
+    from sjtu_tpmshx.solvers.backends.python.three_d import runtime as stages
     monkeypatch.setattr(stages.SIMPLESolver3D, 'solve', lambda *a, **k: (True, 0))
     def thermal(*args, **kwargs):
         return (np.full((4, 4, 4), 325.), np.full((4, 4, 4), 325.),

@@ -11,15 +11,15 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 from sjtu_tpmshx.domain.compute_config import ComputeConfig, bc_to_dict
-from sjtu_tpmshx.solvers.tpms_calc import geometry as tpms_geometry
-from sjtu_tpmshx.solvers.asym_split import (
+from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry
+from sjtu_tpmshx.models.asym_split import (
     _asym_split_A, _per_side_eps_override, _eps_sides_for_run,
 )
 
 from sjtu_tpmshx.pipelines._stage_common import (
     validate_domain_dims, surrogate_extrap_reasons,
 )
-from sjtu_tpmshx.pipelines.stages_3d_helpers import (  # Phase 3: extracted pure helpers
+from sjtu_tpmshx.models.field_coordinates_3d import (  # Phase 3: extracted pure helpers
     _stream_axis, _dir_is_reverse, _inlet_index, _outlet_index,
     _face_slice, _real_outlet_slice, _dilate_one_step_3d, _box_smooth_3d,
     _build_partial_masks, _solver_velocity_to_real, _solver_staggered_to_real,
@@ -32,12 +32,12 @@ from sjtu_tpmshx.pipelines.stages_3d_helpers import (  # Phase 3: extracted pure
 # names from pipelines.stages_3d; keep every moved name reachable here.
 # The implementations moved VERBATIM to pipelines.flux_3d / pipelines.grid_3d
 # / pipelines.run_stack_3d — behavior bit-identical.
-from sjtu_tpmshx.pipelines.flux_3d import (  # noqa: F401
+from sjtu_tpmshx.solvers.backends.python.three_d.flux import (  # noqa: F401
     _UI_ROUGH_MODE_DEFAULT, _resolve_ui_roughness, _face_flux_weights,
     _mass_weighted_T_out, _mass_weighted_h_out, _sco2_hv_local_field,
     _simple_mass_flow, _apply_roughness_KcF, _apply_roughness_h_v,
 )
-from sjtu_tpmshx.pipelines.grid_3d import (  # noqa: F401
+from sjtu_tpmshx.models.grid_3d import (  # noqa: F401
     _resolve_axis_map, _build_zone_fields_3d, _build_grid_3d,
     _solver_spacings,
 )

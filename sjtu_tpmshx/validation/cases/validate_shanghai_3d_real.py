@@ -99,7 +99,7 @@ except Exception:
 for _cat in (DeprecationWarning, PendingDeprecationWarning, FutureWarning):
     warnings.filterwarnings('ignore', category=_cat)
 
-from sjtu_tpmshx.solvers.tpms_calc import (
+from sjtu_tpmshx.models.tpms_calc import (
     compute as tpms_compute,
     air_density, air_viscosity, air_conductivity, air_cp,
     water_density, water_viscosity, water_conductivity, water_cp,
@@ -178,7 +178,7 @@ def _compute_h_vA_field_3d(Ta_field, ucA_field, sA, *, spec):
     sA: SIMPLESolver3D for fluid A (internal dims (Ny, Nx, Nz))
     Returns h_vA shape (Nx, Ny, Nz).
     """
-    from sjtu_tpmshx.solvers.sigmoid_field import _nu_vec
+    from sjtu_tpmshx.models.sigmoid_field import _nu_vec
     d_h = spec.D_h
     P_abs_sf = (sA.P_ref_abs + sA.P).transpose(1, 0, 2)  # (Nx, Ny, Nz)
     rho_loc = P_abs_sf / (R_AIR * Ta_field)
@@ -305,7 +305,7 @@ def _run_one_case(ci, df, Nx_u, Ny_u, Nz_u, wall_refine=False, verbose=False,
     # B2 (2026-07-06): χ_s from the unit-cell homogenization fit — matches
     # the production K_ss path (run_stack_3d / tpms_calc). Was the inline
     # (1−ε)·k_s, which silently bypassed even the legacy CHI_S constant.
-    from sjtu_tpmshx.solvers.tpms_props import chi_s_eff as _chi_s_eff
+    from sjtu_tpmshx.models.tpms_props import chi_s_eff as _chi_s_eff
     K_ss = np.full((Nx, Ny, Nz), _chi_s_eff(TPMS, EPS) * (1.0 - EPS) * K_S)
 
     # D-F coeffs from surrogate (per-stream void fraction ε_A)

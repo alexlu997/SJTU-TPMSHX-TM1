@@ -2,8 +2,8 @@
 tpms_calc dispatch they replaced (DUP-D shim in run_calculation{,_3d}.py)."""
 import pytest
 
-from sjtu_tpmshx.solvers import fluid_props as fp
-from sjtu_tpmshx.solvers import tpms_calc as t
+from sjtu_tpmshx.models import fluid_props as fp
+from sjtu_tpmshx.models import tpms_calc as t
 
 
 @pytest.mark.parametrize("T,P", [(300.0, 101325.0), (350.0, 120000.0), (450.0, 90000.0)])

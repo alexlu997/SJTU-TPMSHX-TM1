@@ -48,7 +48,7 @@ import numpy as np
 
 from sjtu_tpmshx.optimization.evaluator import DEFAULT_CONFIG
 from sjtu_tpmshx.optimization.optimizer_qnehvi import run_qnehvi, _pareto_mask_max
-from sjtu_tpmshx.solvers.continuous_field import decision_dim
+from sjtu_tpmshx.models.continuous_field import decision_dim
 from sjtu_tpmshx.df_surrogate._domain import TRAIN_L, TRAIN_T
 from sjtu_tpmshx.runs.run_m1_uniform_vs_graded import (
     run_uniform_sweep, hv_2d_max, dominated_fraction, steepest_gradients,

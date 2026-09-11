@@ -46,7 +46,7 @@ from sjtu_tpmshx.df_surrogate.predict import predict_K_cF, predict_K_cF_vec
 from ._solve_common import (LowReExit, F2Monitor, f2_state_is_finite,
                             f2_nonfinite_exit, momentum_component_residuals,
                             global_mass_residual)
-from .tpms_calc import (air_density, air_viscosity, P_atm)
+from sjtu_tpmshx.models.tpms_calc import (air_density, air_viscosity, P_atm)
 from sjtu_tpmshx.logutil import get_logger
 
 _log = get_logger(__name__)
@@ -634,7 +634,7 @@ class SIMPLESolver:
     def _refresh_mu_from_T(self):
         """Recompute mu_field and mu_eff_field from self.T_field via Sutherland.
         Called after update_T_field (and once during __init__ for ideal gas)."""
-        from .tpms_calc import air_viscosity
+        from sjtu_tpmshx.models.tpms_calc import air_viscosity
         mu_new = air_viscosity(self.T_field).astype(np.float64)
         self.mu_field = np.ascontiguousarray(mu_new)
         # Per-cell μ/ε (zoned ε support); falls back to uniform self.eps.
@@ -1291,7 +1291,7 @@ class SIMPLESolver:
 if __name__ == '__main__':
     import time
     import warnings; warnings.filterwarnings('ignore')
-    from .tpms_calc import compute as tpms_compute
+    from sjtu_tpmshx.models.tpms_calc import compute as tpms_compute
 
     tpms = 'Diamond';  L_mm = 6.0;  t_mm = 0.4
     props = tpms_compute(tpms, L_mm, t_mm, 3.0, 300.0, 101325.0, 17.0)

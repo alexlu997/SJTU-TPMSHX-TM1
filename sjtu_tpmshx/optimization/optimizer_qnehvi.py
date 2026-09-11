@@ -43,7 +43,7 @@ from sjtu_tpmshx.optimization.evaluator import (
     DEFAULT_CONFIG as EVAL_DEFAULT_CONFIG,
     evaluate_design,
 )
-from sjtu_tpmshx.solvers.continuous_field import (
+from sjtu_tpmshx.models.continuous_field import (
     decision_dim,
     decision_bounds,
 )
@@ -142,7 +142,7 @@ def _reset_warn_registries() -> None:
     ComputePipeline.run (compute_pipeline.py:120-123), which resets per user
     action for the same reason.
     """
-    from sjtu_tpmshx.solvers.nu_correlations import reset_extrap_warn_registry
+    from sjtu_tpmshx.models.nu_correlations import reset_extrap_warn_registry
     from sjtu_tpmshx.df_surrogate.predict import reset_choke_warn_registry
     reset_extrap_warn_registry()
     reset_choke_warn_registry()

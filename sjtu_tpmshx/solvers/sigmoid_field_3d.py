@@ -22,8 +22,8 @@ Phase 1 additions:
 
 import numpy as np
 
-from sjtu_tpmshx.solvers.sigmoid_field import _sigmoid, _blend_1d, _nu_vec
-from sjtu_tpmshx.solvers.tpms_calc import (air_density, air_viscosity,
+from sjtu_tpmshx.models.sigmoid_field import _sigmoid, _blend_1d, _nu_vec
+from sjtu_tpmshx.models.tpms_calc import (air_density, air_viscosity,
                                 air_conductivity)
 
 from sjtu_tpmshx.logutil import get_logger
@@ -224,7 +224,7 @@ def build_continuous_arrays_3d(x, L0, t0,
     # chi_s_eff(type, ε)·(1−ε)·k_s) + tpms_calc.compute(). B2 (2026-07-06):
     # per-cell fitted χ_s from unit-cell homogenization; env TPMSHX_CHI_S
     # constant still overrides.
-    from sjtu_tpmshx.solvers.tpms_calc import chi_s_eff as _chi_s_eff
+    from sjtu_tpmshx.models.tpms_calc import chi_s_eff as _chi_s_eff
     K_ss_arr = _chi_s_eff(tpms_type, eps_arr) * (1.0 - eps_arr) * k_s
 
     return {
@@ -245,7 +245,7 @@ def build_continuous_arrays_3d(x, L0, t0,
 
 
 if __name__ == '__main__':
-    from sjtu_tpmshx.solvers.sigmoid_field import get_geometry_lut
+    from sjtu_tpmshx.models.sigmoid_field import get_geometry_lut
     print("=== sigmoid_field_3d smoke test ===")
     lut = get_geometry_lut('Diamond')
     x = np.array([6.0, 0.3] * 54)

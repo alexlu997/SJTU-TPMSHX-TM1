@@ -1,11 +1,14 @@
 """Actual 3D guard boundaries with numerical sweeps replaced, not full solves."""
+
+from sjtu_tpmshx.pipelines.run_stack_3d import _build_3d_problem
 import inspect
 
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.pipelines import run_stack_3d_stages as stages
-from sjtu_tpmshx.solvers import fluid_props, ltne_enthalpy_3d as ent
+from sjtu_tpmshx.solvers.backends.python.three_d import runtime as stages
+from sjtu_tpmshx.models import fluid_props
+from sjtu_tpmshx.solvers import ltne_enthalpy_3d as ent
 from sjtu_tpmshx.tests.test_3d_model_enthalpy_transport import _pipeline_cfg
 from sjtu_tpmshx.domain.run_warnings import warning_scope, range_context
 from sjtu_tpmshx.preprocess.thermal_geometry import prepare_thermal_geometry
@@ -25,7 +28,7 @@ def test_typed_co2_solid_seed_checked_before_thermal_calls(monkeypatch, co2_side
     cfg.validate()
     parsed = _parse_inputs_3d_cfg(cfg)
     monkeypatch.setattr(stages.SIMPLESolver3D, 'solve', lambda *a, **k: (True, 0))
-    prob = stages._build_3d_problem(parsed)
+    prob = _build_3d_problem(parsed)
     hv = stages._build_hv_machinery(prob)
     shape = (prob.Nx, prob.Ny, prob.Nz)
     returned = tuple(np.full(shape, t) for t in (400., 330., 350.))
@@ -105,7 +108,7 @@ def _problem(monkeypatch, pair):
         if fluid == 'sco2':
             cfg['P_in' + side] = 12e6
     monkeypatch.setattr(stages.SIMPLESolver3D, 'solve', lambda *a, **k: (True, 0))
-    prob = stages._build_3d_problem(cfg)
+    prob = _build_3d_problem(cfg)
     return prob, stages._build_hv_machinery(prob)
 
 
@@ -200,7 +203,7 @@ def test_zoned_sco2_notice_uses_successful_local_hv_fields(monkeypatch):
         dict(x0=0., x1=.5, y0=0., y1=1., L=5., t=.3),
         dict(x0=.5, x1=1., y0=0., y1=1., L=6., t=.4)])
     monkeypatch.setattr(stages.SIMPLESolver3D, 'solve', lambda *a, **k: (True, 0))
-    prob = stages._build_3d_problem(cfg)
+    prob = _build_3d_problem(cfg)
     hv = stages._build_hv_machinery(prob)
     assert 5. < prob.L_mm_field.min() < prob.L_mm_field.max() < 6.
     assert .3 < prob.t_field_3d.min() < prob.t_field_3d.max() < .4
@@ -246,7 +249,7 @@ def test_sco2_evidence_once_per_side_after_first_local_refresh_with_cached_prope
     cfg = _pipeline_cfg(('sco2', 'sco2'))
     cfg.update(P_inA=9e6, P_inB=16e6)
     monkeypatch.setattr(stages.SIMPLESolver3D, 'solve', lambda *a, **k: (True, 0))
-    prob = stages._build_3d_problem(cfg)
+    prob = _build_3d_problem(cfg)
     hv = stages._build_hv_machinery(prob)
     prob.cfg.pop('T_s_init')  # Actual first scalar and subsequent array h_v routes.
     shape = (prob.Nx, prob.Ny, prob.Nz)
@@ -254,7 +257,8 @@ def test_sco2_evidence_once_per_side_after_first_local_refresh_with_cached_prope
     info = dict(converged=True, iterations=1, residual=0., Q_A=1., Q_B=1.)
     monkeypatch.setattr(stages, 'solve_full_domain_3d', lambda *a, **k: (*fields, info))
     monkeypatch.setattr(ent, 'solve_ltne_enthalpy_3d_pipeline', lambda *a, **k: (*fields, info))
-    from sjtu_tpmshx.solvers import ltne_energy_3d, sco2_props
+    from sjtu_tpmshx.solvers import ltne_energy_3d
+    from sjtu_tpmshx.models import sco2_props
     monkeypatch.setattr(ltne_energy_3d, '_project_faces_div_free', lambda u, v, w, *a: (u, v, w))
     original_hv, original_notice = hv._build_hv_local_3d, stages.warn_sco2_nu_evidence
     events = []

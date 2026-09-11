@@ -109,7 +109,7 @@ def test_qnehvi_campaign_resets_warn_registries(monkeypatch):
     run_qnehvi calls it at campaign entry (per-campaign granularity — a
     500-eval campaign still dedups; mirrors ComputePipeline.run)."""
     import sjtu_tpmshx.optimization.optimizer_qnehvi as oq
-    import sjtu_tpmshx.solvers.nu_correlations as nc
+    import sjtu_tpmshx.models.nu_correlations as nc
     import sjtu_tpmshx.df_surrogate.predict as dp
 
     calls = []
@@ -130,7 +130,7 @@ def _core_temperature_case(monkeypatch, *, max_outer, bad_side=None, bad_value=N
     import numpy as np
     from sjtu_tpmshx.core import evaluators as ev
     from sjtu_tpmshx.solvers.backends.python.screening import three_d as execution
-    from sjtu_tpmshx.solvers.continuous_field import encode_decision_vector
+    from sjtu_tpmshx.models.continuous_field import encode_decision_vector
 
     calls = []
 

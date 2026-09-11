@@ -11,7 +11,7 @@ import os
 import numpy as np
 from sjtu_tpmshx.domain.compute_config import ComputeConfig, bc_to_dict
 from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
-from sjtu_tpmshx.solvers.tpms_calc import compute as tpms_compute, geometry as tpms_geometry
+from sjtu_tpmshx.models.tpms_calc import compute as tpms_compute, geometry as tpms_geometry
 from sjtu_tpmshx.solvers.df_projection import override_simple_K_cF, extract_dP_from_simple
 from sjtu_tpmshx.pipelines._stage_common import (
     validate_domain_dims, surrogate_extrap_reasons,
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 # Re-exports — external consumers (controllers/compute_pipeline, tests)
 # import these from pipelines.stages_2d; keep every moved name reachable.
-from sjtu_tpmshx.pipelines.solve_2d import (
+from sjtu_tpmshx.solvers.backends.python.two_d.coupling import (
     _enthalpy_balance_2d, _PipelineWindowShim, _compute_pressure_2d,
     _apply_zone_stats_2d, _compute_Q_richardson, _run_solvers,
 )

@@ -17,7 +17,7 @@ import warnings
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.solvers.tpms_calc import (
+from sjtu_tpmshx.models.tpms_calc import (
     air_density, air_viscosity, air_cp,
     water_density, water_viscosity, water_cp, water_conductivity,
     nu_water_gyroid_yan6,

@@ -11,7 +11,7 @@ from numba import njit
 from scipy import sparse
 from scipy.sparse.linalg import spsolve
 from sjtu_tpmshx.df_surrogate.predict import predict_K_cF, predict_K_cF_vec
-from .tpms_calc import (air_density, air_conductivity, P_atm,
+from sjtu_tpmshx.models.tpms_calc import (air_density, air_conductivity, P_atm,
                        nu_from_Re)
 from .unstructured_mesh import (BC_INTERIOR, BC_INLET_A, BC_OUTLET_A,
                                BC_INLET_B, BC_OUTLET_B)

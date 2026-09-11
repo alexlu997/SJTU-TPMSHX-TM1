@@ -1,12 +1,14 @@
 """Exact rectangular ports and once-only area in actual staggered fluxes."""
+
+from sjtu_tpmshx.pipelines.run_stack_3d import _build_3d_problem
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.pipelines.grid_3d import _resolve_axis_map
-from sjtu_tpmshx.pipelines.stages_3d_helpers import _build_partial_masks
-from sjtu_tpmshx.pipelines.flux_3d import _face_flux_weights
+from sjtu_tpmshx.models.grid_3d import _resolve_axis_map
+from sjtu_tpmshx.models.field_coordinates_3d import _build_partial_masks
+from sjtu_tpmshx.solvers.backends.python.three_d.flux import _face_flux_weights
 from sjtu_tpmshx.solvers.simple_solver_3d import (
     SIMPLESolver3D, _build_pp_sparsity_3d, _build_outlet_frac_taper,
     _sweep_v_jit_df_3d, _sweep_v_jit_df_3d_parallel, _correct_jit_3d,
@@ -126,7 +128,7 @@ def test_pressure_reductions_use_nonuniform_face_area():
 
 @pytest.mark.parametrize('fluid', ['air', 'water', 'sco2'])
 def test_pipeline_inlets_preserve_opening_velocity_and_mass_target(monkeypatch, fluid):
-    from sjtu_tpmshx.pipelines import run_stack_3d_stages as stages
+    from sjtu_tpmshx.solvers.backends.python.three_d import runtime as stages
     from sjtu_tpmshx.pipelines.stages_3d import _parse_inputs_3d_cfg
     from sjtu_tpmshx.tests.test_pipeline_3d_e2e import _small_air_cfg
 
@@ -138,7 +140,7 @@ def test_pipeline_inlets_preserve_opening_velocity_and_mass_target(monkeypatch, 
                         in_z_ctr=.014, in_z_w=.009, out_z_ctr=.015, out_z_w=.012)
     # Exercise real setup, without launching a coupled temperature solve.
     monkeypatch.setattr(stages, '_run_two_simple_parallel', lambda *a, **kw: None)
-    p = stages._build_3d_problem(cfg)
+    p = _build_3d_problem(cfg)
     for solver, u, rho in ((p.sA, .02, p.rho_A), (p.sB, .03, p.rho_B)):
         f = solver.inlet_frac
         assert np.any((f > 0.) & (f < 1.))

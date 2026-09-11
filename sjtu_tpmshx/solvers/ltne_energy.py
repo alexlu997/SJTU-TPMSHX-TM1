@@ -1000,7 +1000,7 @@ def solve_full_domain(L, H, Nx, Ny,
 
     model_args = ()
     if model_fluids is not None:
-        from .tpms_props import model_h_coefficients
+        from sjtu_tpmshx.models.tpms_props import model_h_coefficients
         if len(model_fluids) != 2 or freeze_Tb:
             raise ValueError('model h requires two solved air/water fluids')
         cp_A, cp_B = (model_h_coefficients(f) for f in model_fluids)

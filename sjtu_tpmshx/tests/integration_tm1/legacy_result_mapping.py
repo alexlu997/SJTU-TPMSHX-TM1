@@ -25,7 +25,7 @@ def safe_float(v: Any) -> float:
 def geometry_props(compute_cfg: ComputeConfig) -> tuple[float, float, float]:
     """(epsilon, D_h_m, A_0_m2) triple for the ComputeResult ``props`` slot,
     derived from cfg geometry via the closed-form tpms_calc.geometry."""
-    from sjtu_tpmshx.solvers.tpms_calc import geometry as _tpms_geom
+    from sjtu_tpmshx.models.tpms_calc import geometry as _tpms_geom
     g = _tpms_geom(compute_cfg.geometry.tpms,
                    compute_cfg.geometry.L_cell_mm,
                    compute_cfg.geometry.t_wall_mm,

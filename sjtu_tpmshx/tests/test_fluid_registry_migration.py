@@ -14,8 +14,8 @@ property ladders with registry dispatch. These tests pin:
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.solvers import fluid_props, tpms_calc
-from sjtu_tpmshx.solvers.nu_correlations import (WATER_NU_COEFFS, WATER_NU_RE_RANGE,
+from sjtu_tpmshx.models import fluid_props, tpms_calc
+from sjtu_tpmshx.models.nu_correlations import (WATER_NU_COEFFS, WATER_NU_RE_RANGE,
                                      nu_water_topo)
 
 _TEMPS = (300.0, 370.0, 422.0)
@@ -80,7 +80,7 @@ def test_nu_water_topo_matches_retired_formula(topo, Re):
 
 
 def test_design_fluids_adapter_equivalence():
-    from sjtu_tpmshx.design.fluids import fluid_props as design_props, fluid_nu, nu_re_window
+    from sjtu_tpmshx.models.design_fluids import fluid_props as design_props, fluid_nu, nu_re_window
     for f in ('air', 'water'):
         for T in _TEMPS:
             p = design_props(f, T, 192362.0)

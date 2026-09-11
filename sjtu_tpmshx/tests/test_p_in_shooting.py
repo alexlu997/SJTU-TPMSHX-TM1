@@ -81,7 +81,7 @@ def _res3d_pair():
     distinguish a dead shooting knob. Bias only the estimated seeds; leave
     the measured-drag shooting update and every acceptance threshold intact.
     """
-    from sjtu_tpmshx.pipelines import run_stack_3d_stages as stages
+    from sjtu_tpmshx.solvers.backends.python.three_d import runtime as stages
 
     original_seed = stages._seed_p_ref
 

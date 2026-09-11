@@ -17,7 +17,7 @@ See vault reports/engineering/audit/2026-06-28-* (D1/D2/D3 detail).
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.solvers import sco2_props, fluid_props
+from sjtu_tpmshx.models import sco2_props, fluid_props
 
 pytestmark = pytest.mark.skipif(
     not sco2_props._HAVE_COOLPROP, reason="CoolProp required for sCO2 tests")
@@ -121,7 +121,7 @@ def test_d3_sco2_hv_uses_local_temperature_props(monkeypatch):
     # (γ_Nu's own behaviour is covered by test_sco2_gamma_nu.py).
     monkeypatch.setenv('TPMSHX_SCO2_GAMMA_NU', '0')
     from sjtu_tpmshx.pipelines.stages_3d import _sco2_hv_local_field
-    from sjtu_tpmshx.solvers.tpms_calc import nu_sco2_topo
+    from sjtu_tpmshx.models.tpms_calc import nu_sco2_topo
 
     A_0, D_h_m = 500.0, 1.0e-3
     u_abs = np.full((2, 2, 2), 1.5)

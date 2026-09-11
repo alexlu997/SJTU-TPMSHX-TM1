@@ -5,11 +5,11 @@
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.solvers.asym_geometry import (
+from sjtu_tpmshx.models.asym_geometry import (
     eps_sides, a0_sides, a0_sides_mc, a0_sides_richardson, dh_sides,
     percolates_z, wall_thickness, find_delta_max,
 )
-from sjtu_tpmshx.solvers.tpms_geometry import _phi_grid, compute_geometry, _C_from_tL
+from sjtu_tpmshx.models.tpms_geometry import _phi_grid, compute_geometry, _C_from_tL
 
 N = 64  # 测试用小网格（快）
 

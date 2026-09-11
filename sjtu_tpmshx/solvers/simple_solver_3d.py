@@ -125,7 +125,7 @@ def _should_parallelize(Nx: int, Ny: int, Nz: int) -> bool:
 # (audit P4 / phase L-d Option B).
 _AMG_GATE = 2_000
 
-from .tpms_calc import P_atm
+from sjtu_tpmshx.models.tpms_calc import P_atm
 from .threads import warn_if_default_pool as _warn_if_default_pool
 from ._solve_common import (LowReExit, F2Monitor, f2_state_is_finite,
                             f2_nonfinite_exit, momentum_component_residuals,
@@ -797,7 +797,7 @@ class SIMPLESolver3D:
                     f"({self.Nx}, {self.Ny}, {self.Nz})")
             self.T_field = np.ascontiguousarray(arr)
         if self.fluid_type == 'ideal_gas':
-            from .tpms_calc import air_viscosity
+            from sjtu_tpmshx.models.tpms_calc import air_viscosity
             mu_new = air_viscosity(self.T_field).astype(np.float64)
             self.mu_field = np.ascontiguousarray(mu_new)
             # Use eps_field for per-cell μ/ε (zoned ε support); falls back to

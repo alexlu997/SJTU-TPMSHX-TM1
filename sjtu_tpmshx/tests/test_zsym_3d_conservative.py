@@ -14,7 +14,7 @@ conservative-scheme convergence defect is fixed.
 
 import numpy as np
 import pytest
-from sjtu_tpmshx.solvers.tpms_calc import geometry as tpms_geometry
+from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry
 from sjtu_tpmshx.pipelines.stages_3d import _run_3d_stack
 
 

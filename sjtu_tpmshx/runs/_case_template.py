@@ -16,7 +16,7 @@ atmospheric), full-face inlet/outlet on both sides, Shanghai domain
 """
 from __future__ import annotations
 
-from sjtu_tpmshx.solvers.tpms_calc import geometry as tpms_geometry
+from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry
 
 
 def build_cfg(*, tpms_type: str = 'Gyroid', Lcell: float = 7.0,

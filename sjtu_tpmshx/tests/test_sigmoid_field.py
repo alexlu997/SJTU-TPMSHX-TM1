@@ -7,7 +7,7 @@ warnings.filterwarnings('ignore')
 
 import numpy as np
 
-from sjtu_tpmshx.solvers.sigmoid_field import build_continuous_arrays, get_geometry_lut
+from sjtu_tpmshx.models.sigmoid_field import build_continuous_arrays, get_geometry_lut
 
 
 def _call(Nx=40, Ny=20, L=0.08, H=0.04, x=None, L0=6.0, t0=0.4,

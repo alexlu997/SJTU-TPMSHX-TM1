@@ -15,7 +15,7 @@ on a small z-symmetric cross-flow (by zeroing the gate) and assert it:
 import numpy as np
 import pytest
 import sjtu_tpmshx.solvers.ltne_energy_3d as le
-from sjtu_tpmshx.solvers.tpms_calc import geometry as tpms_geometry
+from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry
 from sjtu_tpmshx.pipelines.stages_3d import _run_3d_stack
 
 

@@ -2,8 +2,8 @@
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.pipelines.solve_2d import _enthalpy_balance_2d
-from sjtu_tpmshx.solvers import fluid_props
+from sjtu_tpmshx.solvers.backends.python.two_d.coupling import _enthalpy_balance_2d
+from sjtu_tpmshx.models import fluid_props
 
 
 @pytest.mark.parametrize('direction', [0, 1, 2, 3])

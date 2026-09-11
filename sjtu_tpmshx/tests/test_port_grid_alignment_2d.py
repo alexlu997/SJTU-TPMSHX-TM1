@@ -251,7 +251,7 @@ def test_refreshed_taper_sets_first_massflux_target():
 @pytest.mark.parametrize('direction', [1, 3])
 def test_negative_pressure_and_staggered_faces_return_to_physical_cells(direction):
     from types import SimpleNamespace
-    from sjtu_tpmshx.pipelines.solve_2d import (
+    from sjtu_tpmshx.solvers.backends.python.two_d.coupling import (
         _simple_scalar_to_real_2d, _simple_staggered_to_real_2d,
     )
 

@@ -22,7 +22,7 @@ from sjtu_tpmshx.validation.df_refit.gamma_hx_air import (
     A_FLOW, L_FLOW, P_ATM, R_AIR, _air_mu,
     _load_cases as _load_air_cases)
 from sjtu_tpmshx.validation.sco2_exp.load_sco2_exp import load_exp
-from sjtu_tpmshx.solvers.tpms_props import water_density, water_viscosity
+from sjtu_tpmshx.models.tpms_props import water_density, water_viscosity
 
 
 _REPO = Path(__file__).resolve().parents[3]
@@ -146,7 +146,7 @@ def fit_water_hx() -> tuple[pd.DataFrame, pd.DataFrame]:
         quality_valid = ~(raw.dp_nonphysical | raw.dup_row)
         T = (0.5 * (raw["水进口温度/℃"].to_numpy(float)
                     + raw["水出口温度/℃"].to_numpy(float)) + 273.15)
-        from sjtu_tpmshx.solvers.fluid_props import check_water_state
+        from sjtu_tpmshx.models.fluid_props import check_water_state
         check_water_state('water', T,
                           0.5 * (raw.water_P_in_abs_Pa + raw.water_P_out_abs_Pa),
                           where='water HX mean properties')

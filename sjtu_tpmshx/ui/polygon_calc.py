@@ -13,7 +13,7 @@ import matplotlib.tri as mtri
 from matplotlib.gridspec import GridSpec
 
 from PySide6.QtWidgets import QApplication, QMessageBox
-from sjtu_tpmshx.solvers.tpms_calc import geometry as tpms_geometry, air_cp
+from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry, air_cp
 from sjtu_tpmshx.solvers.polygon_fvm import solve_polygon_domain
 from sjtu_tpmshx.solvers.unstructured_mesh import BC_OUTLET_A, BC_OUTLET_B
 from sjtu_tpmshx.ui.theme import get_theme

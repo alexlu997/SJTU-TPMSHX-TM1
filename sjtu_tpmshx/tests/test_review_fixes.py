@@ -119,7 +119,7 @@ def test_nu_roughness_factor_locked_at_1p28():
     Locking the constant here prevents accidental drift back to 1.0
     (which would silently push every Shanghai bias by ~+10% relative).
     """
-    from sjtu_tpmshx.solvers import tpms_calc
+    from sjtu_tpmshx.models import tpms_calc
     assert abs(tpms_calc._NU_ROUGHNESS_FACTOR - 1.28) < 1e-9, (
         f"_NU_ROUGHNESS_FACTOR={tpms_calc._NU_ROUGHNESS_FACTOR} != 1.28. "
         "If you intentionally re-tuned it, update this test with the new "
@@ -140,7 +140,7 @@ def test_nu_roughness_factor_locked_at_1p28():
         f"vs expected {expected:.4f} (smooth-wall Nu={Nu_smooth:.4f}).")
 
     # sigmoid_field._nu_vec must use the same constant (single source of truth)
-    from sjtu_tpmshx.solvers.sigmoid_field import _nu_vec
+    from sjtu_tpmshx.models.sigmoid_field import _nu_vec
     Re_arr = np.array([[Re_test]])
     eps_arr = np.array([[eps_f * 2.0]])      # _nu_vec consumes ε_full
     L_arr = np.array([[L_mm]])

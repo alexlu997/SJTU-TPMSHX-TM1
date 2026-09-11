@@ -9,7 +9,7 @@ from scipy.optimize import brentq
 from sjtu_tpmshx.domain.run_warnings import warning_scope, warning_messages
 
 from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry
-from .fluids import fluid_props, nu_re_window
+from sjtu_tpmshx.models.design_fluids import fluid_props, nu_re_window
 from .forward import forward, dP_fracs, K_STEEL, GEOM_N, LTNE_TOL
 
 DP_DEGEN_FRAC = 0.30      # 单侧归一化压损 > 此 = 压降近进口压 → 退化 (超音速/迎风缩崩)

@@ -311,7 +311,7 @@ def test_2d_converged_resolve_supersedes_an_earlier_failure():
 def test_2d_verdict_ands_the_ltne_inner_pass():
     """`e_info['converged']` must reach the 2D verdict (it was write-only)."""
     import inspect
-    from sjtu_tpmshx.pipelines import solve_2d as _s2
+    from sjtu_tpmshx.solvers.backends.python.two_d import coupling as _s2
     src = inspect.getsource(_s2.solve_2d_cfg if hasattr(_s2, 'solve_2d_cfg')
                             else _s2)
     assert "e_info.get('converged'" in src, (

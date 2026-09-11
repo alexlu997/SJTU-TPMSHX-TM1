@@ -7,7 +7,7 @@ cannot silently go missing from the other.
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.solvers.grid_schema import GRID_ARRAY_KEYS, validate_grid_arrays
+from sjtu_tpmshx.models.grid_schema import GRID_ARRAY_KEYS, validate_grid_arrays
 
 
 def _valid_dict(Nx=4, Ny=3):
@@ -61,7 +61,7 @@ def test_zone_id_must_be_integer_grid():
 def test_continuous_field_builder_conforms():
     """Integration: the real optimizer-path builder passes the validator
     (it is wired through validate_grid_arrays at its return)."""
-    from sjtu_tpmshx.solvers.continuous_field import uniform_field
+    from sjtu_tpmshx.models.continuous_field import uniform_field
     fc = uniform_field(6.0, 0.4, 'Diamond', 15.0, 0.1, 0.1)
     arrays = fc.build_grid_arrays(8, 8, u_A=5.0, u_B=3.0,
                                   T_inA=400.0, T_inB=300.0)

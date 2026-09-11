@@ -12,8 +12,8 @@ Phase 0.5：指定配比 (A%, B%, solid%) 反解 (C, δ) + 出每侧 ε/A0/D_h +
 """
 import numpy as np
 
-from sjtu_tpmshx.solvers.tpms_geometry import _phi_grid
-from sjtu_tpmshx.solvers.asym_geometry import eps_sides, a0_sides_mc, dh_sides, percolates_z
+from sjtu_tpmshx.models.tpms_geometry import _phi_grid
+from sjtu_tpmshx.models.asym_geometry import eps_sides, a0_sides_mc, dh_sides, percolates_z
 
 N = 128
 TPMS = ["Diamond", "Gyroid"]

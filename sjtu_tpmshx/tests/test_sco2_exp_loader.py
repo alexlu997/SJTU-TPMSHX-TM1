@@ -24,7 +24,7 @@ def test_diamond_redo_cases_are_rejected():
 def test_gauge_conversion_endpoint_reference_and_cached_fields(
         monkeypatch, topology, reverse_hot):
     import pandas as pd
-    from sjtu_tpmshx.solvers.sco2_props import sco2_enthalpy
+    from sjtu_tpmshx.models.sco2_props import sco2_enthalpy
     from sjtu_tpmshx.validation.sco2_exp import load_sco2_exp as loader
 
     mapping = loader._MAPS[topology]

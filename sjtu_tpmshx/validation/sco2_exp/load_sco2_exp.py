@@ -38,7 +38,7 @@ import pandas as pd
 
 _THIS = Path(__file__).resolve()
 _PKG_ROOT = _THIS.parent.parent.parent          # .../sjtu_tpmshx
-from sjtu_tpmshx.solvers.tpms_props import (  # noqa: E402
+from sjtu_tpmshx.models.tpms_props import (  # noqa: E402
     P_atm, geometry as tpms_geometry)
 from sjtu_tpmshx.logutil import get_logger  # noqa: E402
 

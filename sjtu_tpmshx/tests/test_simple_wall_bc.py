@@ -7,7 +7,7 @@ warnings.filterwarnings('ignore')
 
 import numpy as np
 
-from sjtu_tpmshx.solvers.tpms_calc import geometry as tpms_geometry, P_atm
+from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry, P_atm
 from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
 
 

@@ -6,7 +6,7 @@ import pytest
 
 from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
 from sjtu_tpmshx.domain.compute_config import PartialBCConfig
-from sjtu_tpmshx.pipelines import solve_2d
+from sjtu_tpmshx.solvers.backends.python.two_d import coupling as solve_2d
 from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver, _port_fractions_1d
 from sjtu_tpmshx.tests.test_port_grid_alignment_2d import _case, _expected_profile, _backend_fields
 
@@ -65,7 +65,7 @@ def _finite_refined(args, kwargs, converged):
 @pytest.mark.parametrize('model', [False, True])
 @pytest.mark.parametrize('side,bad', [(0, np.inf), (1, -np.inf), (2, np.nan), ('water', np.nan)])
 def test_refined_nonfinite_return_precedes_duty_and_fallback(monkeypatch, model, side, bad):
-    from sjtu_tpmshx.solvers.fluid_props import WaterStateError
+    from sjtu_tpmshx.models.fluid_props import WaterStateError
     _, args = _arguments(monkeypatch, full=True)
     args['_pA'], args['_pB'] = dict(args['_pA']), dict(args['_pB'])
     if side == 'water':

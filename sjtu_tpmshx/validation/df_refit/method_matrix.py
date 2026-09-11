@@ -102,7 +102,7 @@ class _Ergun:
         self.tpms = tpms
 
     def _geom(self, L_mm, t_mm):
-        from sjtu_tpmshx.solvers.tpms_props import geometry
+        from sjtu_tpmshx.models.tpms_props import geometry
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             return geometry(self.tpms, float(L_mm), float(t_mm), 0.5)

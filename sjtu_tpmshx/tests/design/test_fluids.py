@@ -1,4 +1,4 @@
-from sjtu_tpmshx.design.fluids import fluid_props, fluid_nu
+from sjtu_tpmshx.models.design_fluids import fluid_props, fluid_nu
 
 def test_air_props_at_645K():
     p = fluid_props("air", 645.6, 1_088_700.0)

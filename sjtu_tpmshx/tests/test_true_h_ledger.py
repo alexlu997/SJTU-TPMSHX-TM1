@@ -8,7 +8,8 @@ from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D, Pipeline3D
 from sjtu_tpmshx.domain.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, SolverConfig, ExtrapPolicy,
 )
-from sjtu_tpmshx.pipelines import solve_2d, run_stack_3d_stages
+from sjtu_tpmshx.solvers.backends.python.two_d import coupling as solve_2d
+from sjtu_tpmshx.solvers.backends.python.three_d import runtime as run_stack_3d_stages
 from sjtu_tpmshx.solvers import ltne_enthalpy_3d
 
 

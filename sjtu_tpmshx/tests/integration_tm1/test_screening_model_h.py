@@ -8,7 +8,7 @@ from sjtu_tpmshx.io.result_io import load_result, save_result
 from sjtu_tpmshx.models.tpms_props import model_h_coefficients
 from sjtu_tpmshx.preprocess.api import prepare_screening_2d
 from sjtu_tpmshx.solvers.api import run_case
-from sjtu_tpmshx.solvers.continuous_field import uniform_field
+from sjtu_tpmshx.models.continuous_field import uniform_field
 from sjtu_tpmshx.tests.test_evaluator_frozen_values import _FAST_CFG, _X_NONUNIF
 
 

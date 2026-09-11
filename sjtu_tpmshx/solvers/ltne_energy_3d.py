@@ -27,7 +27,7 @@ import numpy as np
 from sjtu_tpmshx.domain.cancellation import CancelledError
 
 from sjtu_tpmshx.solvers.ltne_energy import solve_full_domain as _solve_full_2d
-from sjtu_tpmshx.solvers.tpms_props import model_h_coefficients
+from sjtu_tpmshx.models.tpms_props import model_h_coefficients
 
 
 # ---------------------------------------------------------------------------

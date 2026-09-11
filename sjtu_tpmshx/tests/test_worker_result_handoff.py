@@ -94,8 +94,8 @@ def test_2d_tout_displays_result_scalars_across_units_and_direction_drafts(win):
 @pytest.mark.parametrize('df_extrap', [False, True])
 def test_real_source_warnings_do_not_set_df_ui_flag(win, monkeypatch, mode, df_extrap):
     from sjtu_tpmshx.df_surrogate.surrogate_domain import check_surrogate_domain_at_point
-    from sjtu_tpmshx.solvers.nu_correlations import nu_water_topo
-    from sjtu_tpmshx.solvers.tpms_props import air_cp
+    from sjtu_tpmshx.models.nu_correlations import nu_water_topo
+    from sjtu_tpmshx.models.tpms_props import air_cp
     from sjtu_tpmshx.tests.test_compute_pipeline import _RecordingPipeline
 
     # Exercise the existing geometry reason carrier, not an out-of-domain solve.
@@ -129,7 +129,7 @@ def test_real_source_warnings_do_not_set_df_ui_flag(win, monkeypatch, mode, df_e
 
 def test_autofill_cache_and_draft_warnings_are_isolated_from_worker(win, monkeypatch):
     """Use real Auto-Fill/compute/Nu; stub only numerical phases of the worker."""
-    from sjtu_tpmshx.solvers.tpms_calc import compute
+    from sjtu_tpmshx.models.tpms_calc import compute
     from sjtu_tpmshx.domain.run_warnings import current_warnings
 
     _configure(win, monkeypatch, '2d')

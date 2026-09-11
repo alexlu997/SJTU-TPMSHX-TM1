@@ -28,8 +28,8 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side as XLSide
 from openpyxl.utils import get_column_letter
 
-from sjtu_tpmshx.solvers.tpms_geometry import _phi_grid, _C_from_tL
-from sjtu_tpmshx.solvers.asym_geometry import eps_sides, a0_sides_mc, dh_sides, percolates_z
+from sjtu_tpmshx.models.tpms_geometry import _phi_grid, _C_from_tL
+from sjtu_tpmshx.models.asym_geometry import eps_sides, a0_sides_mc, dh_sides, percolates_z
 
 # ── geometry design (locked) ─────────────────────────────────────
 N = 128

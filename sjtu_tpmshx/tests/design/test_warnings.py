@@ -85,7 +85,7 @@ def test_forward_labels_without_extra_property_or_thermal_calls(monkeypatch, mod
     model_source = importlib.import_module('sjtu_tpmshx.models.quick_design')
     preparation = importlib.import_module('sjtu_tpmshx.preprocess.app_modes.quick_design')
     execution = importlib.import_module('sjtu_tpmshx.solvers.backends.python.quick_design.execution')
-    from sjtu_tpmshx.design import fluids
+    from sjtu_tpmshx.models import design_fluids as fluids
     from sjtu_tpmshx.domain.run_warnings import record_range, warning_messages
     calls, solves = [], []
     def props(fluid, T, P):
@@ -126,8 +126,8 @@ def test_forward_labels_without_extra_property_or_thermal_calls(monkeypatch, mod
 
 def test_source_notices_survive_global_suppression_and_repeated_scopes():
     import warnings
-    from sjtu_tpmshx.solvers.tpms_props import air_cp
-    from sjtu_tpmshx.solvers.nu_correlations import nu_from_Re
+    from sjtu_tpmshx.models.tpms_props import air_cp
+    from sjtu_tpmshx.models.nu_correlations import nu_from_Re
     from sjtu_tpmshx.domain.run_warnings import warning_messages
     def sources():
         air_cp(2000.)

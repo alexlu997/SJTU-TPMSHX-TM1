@@ -18,7 +18,7 @@ import pytest
 from sjtu_tpmshx.solvers.df_projection import (_cell_centre_fracs, _nearest_src_idx,
                                    project_fields_to_streamwise_K_cF as p2d,
                                    project_fields_to_streamwise_K_cF_3d as p3d)
-from sjtu_tpmshx.solvers.tpms_calc import geometry as _geom
+from sjtu_tpmshx.models.tpms_calc import geometry as _geom
 
 _BASE = json.loads(
     (Path(__file__).parent / '_data_df_projection_baseline.json')

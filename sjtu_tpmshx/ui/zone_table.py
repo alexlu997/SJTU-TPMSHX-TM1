@@ -146,7 +146,7 @@ def build_zone_config(window):
     if not window.chk_zones.isChecked():
         window._zone_grid = None
         return None
-    from sjtu_tpmshx.solvers.zone_config import ZoneConfig, Zone
+    from sjtu_tpmshx.models.zone_config import ZoneConfig, Zone
     if window.zone_table.rowCount() == 0:
         raise ValueError('At least one zone is required')
     tpms_type = window.combo_tpms.currentText()

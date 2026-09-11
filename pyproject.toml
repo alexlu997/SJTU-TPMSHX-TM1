@@ -57,10 +57,6 @@ select = ["F", "E9"]
 "sjtu_tpmshx/pipelines/stages_2d.py" = ["F401"]
 "sjtu_tpmshx/pipelines/stages_3d.py" = ["F401"]
 "sjtu_tpmshx/**/__init__.py" = ["F401"]
-# tpms_calc 是文档化的便利门面（tpms_props.py 头注）：Nu 系列/系数表/物性
-# 经它再导出，下游 design/tests/ui 穿透引用——首轮 autofix 铲掉整块导致
-# tests/design 收集崩（iter 22 实测），F401 永久豁免
-"sjtu_tpmshx/solvers/tpms_calc.py" = ["F401"]
 
 [tool.mypy]
 # P2.2（2026-07-21）：宽松档，只锁"核心公共面"——envelope 权威、compute_pipeline

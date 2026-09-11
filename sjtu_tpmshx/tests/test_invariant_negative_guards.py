@@ -31,7 +31,7 @@ def test_stages_3d_passes_full_epsilon(monkeypatch):
     # P1.8b F3: patch the STAGES module — the five stage functions moved to
     # run_stack_3d_stages.py and read their globals THERE; patching the
     # orchestrator/re-export module would be a silent no-op.
-    import sjtu_tpmshx.pipelines.run_stack_3d_stages as R
+    import sjtu_tpmshx.solvers.backends.python.three_d.runtime as R
     import sjtu_tpmshx.pipelines.run_stack_3d as R_orch
 
     captured = {}
@@ -61,7 +61,7 @@ def test_stages_3d_passes_full_epsilon(monkeypatch):
 def test_solve_2d_passes_full_epsilon(monkeypatch):
     """The 2D pipeline loop must hand solve_full_domain the FULL ε with
     eps_A/eps_B None on the symmetric (δ=0) path."""
-    import sjtu_tpmshx.pipelines.solve_2d as S2
+    import sjtu_tpmshx.solvers.backends.python.two_d.coupling as S2
 
     captured = {}
 
@@ -91,7 +91,7 @@ def test_solve_2d_passes_full_epsilon(monkeypatch):
         pass   # sentinel (or downstream wreckage) — capture is what matters
 
     assert "eps" in captured, "energy kernel was never reached"
-    from sjtu_tpmshx.solvers.tpms_calc import compute as tpms_compute
+    from sjtu_tpmshx.models.tpms_calc import compute as tpms_compute
     eps_full = tpms_compute('Gyroid', 7.0, 0.6, 5.0, 400.0, 101325.0,
                             16.0)['epsilon']
     assert captured["eps"] == pytest.approx(eps_full, rel=1e-6), (

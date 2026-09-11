@@ -10,7 +10,7 @@ Four tests:
 
 import numpy as np
 
-from sjtu_tpmshx.solvers.sigmoid_field import get_geometry_lut, build_continuous_arrays
+from sjtu_tpmshx.models.sigmoid_field import get_geometry_lut, build_continuous_arrays
 from sjtu_tpmshx.solvers.sigmoid_field_3d import build_continuous_arrays_3d
 
 

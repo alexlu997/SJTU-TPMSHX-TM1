@@ -26,7 +26,9 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 - `io/` owns strict YAML/HDF5/JSON interchange. VTK export is a postprocessing
   view of recorded data, not a new numerical state.
 - `configs/` owns packaged case configuration.
-- `pipelines/` retains historical import compatibility through delegation.
+- `pipelines/` retains explicit scripted stage entry points. Callers import
+  shared models and numerical backends directly; there are no `sys.modules`
+  aliases or import-time function injection into the numerical backend.
 - `controllers/compute_pipeline.py` sequences the public modules; the module
   adapter maps their results to the historical GUI ComputeResult contract.
   It is the sole production result mapper. The old 2D/3D mappings remain only

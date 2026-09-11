@@ -225,7 +225,7 @@ def test_nu_run_snapshot_history_and_export(run_window, monkeypatch, tmp_path, d
     from dataclasses import asdict, replace
     from PySide6.QtWidgets import QFileDialog
     from sjtu_tpmshx.tests.test_sco2_nu_modes import SYNTHETIC
-    from sjtu_tpmshx.solvers.nu_correlations import sco2_nu_metadata
+    from sjtu_tpmshx.models.nu_correlations import sco2_nu_metadata
     win = run_window
     win._set_sco2_nu_parameters(asdict(SYNTHETIC))
     win.combo_sco2_nu_mode.setCurrentIndex(1)

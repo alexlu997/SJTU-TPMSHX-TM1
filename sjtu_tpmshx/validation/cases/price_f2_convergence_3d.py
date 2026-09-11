@@ -48,7 +48,7 @@ from sjtu_tpmshx.domain.compute_config import (ComputeConfig, FluidConfig,   # n
                                    GeometryConfig, SolverConfig,
                                    PartialBCConfig, ExtrapPolicy)
 from sjtu_tpmshx.controllers.compute_pipeline import Pipeline3D              # noqa: E402
-from sjtu_tpmshx.solvers.tpms_calc import (air_density, water_density,       # noqa: E402
+from sjtu_tpmshx.models.tpms_calc import (air_density, water_density,       # noqa: E402
                                P_atm)
 from sjtu_tpmshx.validation.harness._case_sets import shanghai_spec, SHANGHAI_XLSX  # noqa: E402
 from sjtu_tpmshx.validation.harness._harness import load_cases_df            # noqa: E402

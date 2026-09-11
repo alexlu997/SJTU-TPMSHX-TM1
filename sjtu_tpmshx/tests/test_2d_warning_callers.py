@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.domain.run_warnings import warning_scope
-from sjtu_tpmshx.pipelines import solve_2d
-from sjtu_tpmshx.solvers import tpms_calc, tpms_props
+from sjtu_tpmshx.solvers.backends.python.two_d import coupling as solve_2d
+from sjtu_tpmshx.models import tpms_calc, tpms_props
 from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
 from sjtu_tpmshx.tests.test_cooperative_cancel import _cfg
 
@@ -189,7 +189,7 @@ def test_main_warm_return_final_and_outlet_keep_actual_states(monkeypatch, nan, 
 @pytest.mark.parametrize('legacy', [False, True])
 @pytest.mark.parametrize('side,bad', [(0, np.inf), (1, -np.inf), (2, np.nan), ('water', np.nan)])
 def test_main_nonfinite_return_precedes_refresh_and_q(monkeypatch, legacy, side, bad):
-    from sjtu_tpmshx.solvers.fluid_props import WaterStateError
+    from sjtu_tpmshx.models.fluid_props import WaterStateError
     pair = ('air', 'water') if side == 'water' else ('air', 'air')
     pipe, fields = _prepare(monkeypatch, legacy=legacy, pair=pair)
     returned = []
@@ -352,7 +352,8 @@ def test_model_branch_does_not_evaluate_legacy_inlet_flux(monkeypatch, where):
 ])
 def test_sco2_notice_follows_first_successful_hv_without_extra_eos(monkeypatch, pair, failed_side):
     from sjtu_tpmshx.models import local_heat_transfer
-    from sjtu_tpmshx.solvers import ltne_enthalpy_2d, sco2_props, fluid_props
+    from sjtu_tpmshx.solvers import ltne_enthalpy_2d
+    from sjtu_tpmshx.models import sco2_props, fluid_props
     from sjtu_tpmshx.domain import run_warnings as rw
     pipe, fields = _prepare(monkeypatch, pair=pair)
     original_hv = local_heat_transfer._sco2_hv_local_field
@@ -476,7 +477,7 @@ def test_malformed_mass_keeps_original_error_with_invalid_flow(monkeypatch, side
 @pytest.mark.parametrize('water_side', ['A', 'B'])
 @pytest.mark.parametrize('boundary', ['SIMPLE', 'energy'])
 def test_water_return_precedes_invalid_air_classification(monkeypatch, water_side, boundary):
-    from sjtu_tpmshx.solvers.fluid_props import WaterStateError
+    from sjtu_tpmshx.models.fluid_props import WaterStateError
     pair = ('water', 'air') if water_side == 'A' else ('air', 'water')
     pipe, fields = _prepare(monkeypatch, pair=pair, temperatures=(300., 300.))
     _failure_flow(monkeypatch, fields, side='B' if water_side == 'A' else 'A', invalid=True)

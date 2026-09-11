@@ -5,7 +5,7 @@ import pytest
 
 from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D, Pipeline3D
 from sjtu_tpmshx.domain.compute_config import ComputeConfig, ExtrapPolicy, GeometryConfig, SolverConfig, ZoneInputConfig
-from sjtu_tpmshx.solvers.zone_config import Zone, ZoneConfig
+from sjtu_tpmshx.models.zone_config import Zone, ZoneConfig
 
 
 @pytest.mark.parametrize('axis', ['x', 'y'])
@@ -126,7 +126,7 @@ def test_supported_air_zones_build_fields(axis):
 
 def test_supported_3d_grid_is_consumed():
     from sjtu_tpmshx.pipelines.stages_3d import _parse_inputs_3d_cfg
-    from sjtu_tpmshx.pipelines.grid_3d import _build_zone_fields_3d
+    from sjtu_tpmshx.models.grid_3d import _build_zone_fields_3d
     cells = [dict(x0=0, x1=1, y0=0, y1=1, L=6, t=0.3)]
     cfg = ComputeConfig(geometry=GeometryConfig(Lz_m=0.042),
                         solver=SolverConfig(Nx=4, Ny=4, Nz=2),
