@@ -1136,7 +1136,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             f"PySide6 {_qt_ver} · NumPy {_np_v} · SciPy {_sp_v} · Matplotlib {_mpl_v}")
         lines.append("")
         lines.append("Author: alexlu997 &lt;alexlu997@hotmail.com&gt;")
-        lines.append("Repo: github.com/alexlu997/SJTU-TPMSHX")
+        lines.append("Repo: github.com/alexlu997/SJTU-TPMSHX-TM1")
         msg = QMessageBox(self)
         msg.setWindowTitle("About SJTU-TPMSHX")
         msg.setIcon(QMessageBox.Icon.Information)
