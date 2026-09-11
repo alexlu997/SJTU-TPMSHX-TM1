@@ -176,9 +176,11 @@ _X_NONUNIF = np.array([5.0, 6.0, 7.0, 8.0, 5.5, 6.5, 7.5, 6.0,
 # Historical tuples and 4/4 failures are preserved under
 # docs/plans/three-module-graph/evidence/B40/. This is numerical regression
 # evidence, not physical acceptance or closure of the overall B40 gate.
-_FROZEN_2D_UNIFORM = (-8085.955349708075, 4675.147979229178,
+# 2026-09-11: user-approved native air integral-enthalpy transport Q update.
+# Previous references and subsequent 2/4 failure remain in B40 evidence.
+_FROZEN_2D_UNIFORM = (-8019.434130581629, 4675.147979229178,
                       3.446685791015626)
-_FROZEN_2D_NONUNIF = (-7561.252334176324, 4052.0456347246245,
+_FROZEN_2D_NONUNIF = (-7507.811193372061, 4052.0456347246245,
                       3.6729327392578126)
 # re-baselined 2026-07-09 (M2b): evaluate_3d now installs the PER-CELL
 # eps_field (xmod-eps-field-3d-evaluator closed) + 3D momentum carries the

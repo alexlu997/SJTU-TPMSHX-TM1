@@ -15,6 +15,10 @@ def test_screening_three_process(tmp_path, name):
     from sjtu_tpmshx.io.result_io import load_result
     from sjtu_tpmshx.io.metrics_io import load_metrics
     reference = json.loads(Path('docs/plans/three-module-graph/evidence/S40/optimization-before-extraction.json').read_text())[name]['outputs']
+    if name.startswith('2d'):
+        # Approved enthalpy repair supersedes the historical temperature-form Q.
+        from sjtu_tpmshx.tests.test_evaluator_frozen_values import _FROZEN_2D_UNIFORM, _FROZEN_2D_NONUNIF
+        reference = _FROZEN_2D_UNIFORM if name == '2d-uniform' else _FROZEN_2D_NONUNIF
     source = tmp_path / 'input.json'
     source.write_text(json.dumps({'name': name}))
     paths = [source, tmp_path / 'case.yaml', tmp_path / 'results.h5', tmp_path / 'metrics.json']

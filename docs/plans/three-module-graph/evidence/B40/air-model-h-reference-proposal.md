@@ -1,4 +1,20 @@
-# Air integral-enthalpy reference proposal — awaiting approval
+# Air integral-enthalpy reference proposal — approved 2026-09-11
+
+The user explicitly approved these two Q updates. No other value or criterion
+is authorized to change by this decision. The original proposal follows.
+
+Applied validation: four frozen tests plus four saved-field energy tests pass,
+8 passed in 3.79 s, native exit 0. Log:
+`.cache/b40-approved-model-h-frozen.log`. Inputs, budgets and tolerances remain
+unchanged; broader public screening/control validation is recorded separately.
+
+The public three-process check initially returned 2 failed / 3 passed with the
+runtime-control test, native exit 1: its two 2D comparisons still loaded the
+historical S40 temperature-form Q. Those two active comparisons now reuse the
+approved frozen tuples; the historical S40 file remains untouched. All four
+real YAML/HDF5/JSON screening handoffs then pass in 11.51 s, native exit 0
+(`.cache/model-h-public-screening-approved.log`). The initial failure remains
+in `.cache/model-h-public-screening-controls.log`.
 
 After the user-approved cp(T) integral-enthalpy repair, the unchanged original
 budget test returns 2 failed / 2 passed, native exit 1. Only the two 2D Q

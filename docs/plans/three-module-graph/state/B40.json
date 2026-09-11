@@ -25,7 +25,7 @@
     "evidence/B40/native-2d-capacity.md",
     "evidence/B40/air-model-h.md"
   ],
-  "blocked_reason": "Historical failures and approved references are preserved. The approved air integral-enthalpy remedy now passes both 2D single-loop engineering F2, Q-change and independently reduced fluid boundary-energy criteria at ae6f236. Replacement frozen references and final combined acceptance remain unapproved or incomplete; earlier native original-cp boundary failures remain historical evidence.",
+  "blocked_reason": "Historical failures and approved references are preserved. The approved air integral-enthalpy remedy passes both 2D single-loop engineering F2, Q-change and independently reduced fluid boundary-energy criteria at ae6f236. The user approved both new original-budget 2D Q references and all four frozen tests pass. Final combined acceptance remains incomplete; earlier native original-cp boundary failures remain historical evidence.",
   "unblocks_when": "Under the user-approved 2026-09-11 scope, historical attribution, numerical regression, convergence, mass and boundary-energy evidence must be complete. No whole-exchanger experiment for these four cases is required or claimed. Preserve original failures and approved reference history; do not equate a corrected equation residual with boundary energy conservation.",
   "next_action": "Complete candidate reference disposition and remaining combined B40 verification without changing tolerances; retain historical and single-loop versus multi-loop scope distinctions. Continue M-A and the fixed real-experiment migration sets.",
   "tested_candidate_sha": null,
