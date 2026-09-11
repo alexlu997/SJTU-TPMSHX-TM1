@@ -70,6 +70,7 @@ _PROJECT = _PROJECT_ROOT.parent
 from scipy.interpolate import RBFInterpolator
 from sjtu_tpmshx.models.tpms_props import geometry as tpms_geometry, air_viscosity, P_atm
 from sjtu_tpmshx.logutil import get_logger
+from sjtu_tpmshx.df_surrogate.load_data import _assert_no_shanghai_leakage
 
 _log = get_logger(__name__)
 
@@ -201,6 +202,9 @@ class SurrogateV3:
         mask = L_col.notna()
         L_mm = L_col[mask].astype(float).values
         t_mm = pd.to_numeric(raw.iloc[:, 2], errors="coerce")[mask].astype(float).values
+        _assert_no_shanghai_leakage(
+            pd.DataFrame(dict(tpms=self.tpms, L_mm=L_mm, t_mm=t_mm)),
+            source=self._training_workbook)
         T_C = pd.to_numeric(raw.iloc[:, 7], errors="coerce")[mask].astype(float).values
         # 2026-05-28 G convention fix: previous code read col 48 ("G
         # 千克每平方米每秒") which is exactly 20× ρ·v — the total m_dot over

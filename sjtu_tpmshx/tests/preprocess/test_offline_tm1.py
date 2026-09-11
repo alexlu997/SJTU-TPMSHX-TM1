@@ -42,6 +42,9 @@ def test_explicit_clean_fit_publish_and_reload(tmp_path):
     shutil.copyfile(source, forbidden)
     with pytest.raises(ValueError, match='Shanghai keyword'):
         load_experiments(source=forbidden)
+    with pytest.raises(ValueError, match='Shanghai keyword'):
+        publish_surrogate(forbidden, tmp_path / 'forbidden', data_revision='test')
+    assert not (tmp_path / 'forbidden').exists()
     manifest = publish_surrogate(source, tmp_path / 'published', data_revision='artificial-test-v1')
     report = json.loads(manifest.read_text())
     assert report['data_revision'] == 'artificial-test-v1'
@@ -66,6 +69,23 @@ def test_missing_explicit_training_never_falls_back(tmp_path):
         publish_surrogate(tmp_path / 'missing.xlsx', tmp_path / 'output', data_revision='')
     with pytest.raises(ValueError, match='not both'):
         SurrogateV3(training_workbook=tmp_path / 'x', calibration_csv=tmp_path / 'y')
+
+
+@pytest.mark.parametrize('length,thickness', [(7., .4), (6., .6)])
+def test_training_rejects_held_out_geometry(tmp_path, length, thickness):
+    source = tmp_path / 'training.xlsx'
+    with pd.ExcelWriter(source) as writer:
+        pd.DataFrame([['synthetic', 1.]]).to_excel(
+            writer, sheet_name='边界效应系数', header=False, index=False)
+        for topology in ('Diamond', 'Gyroid'):
+            pd.DataFrame([['held-out', length, thickness]]).to_excel(
+                writer, sheet_name=topology + '_汇总', index=False)
+    for topology in ('Diamond', 'Gyroid'):
+        with pytest.raises(ValueError, match='Shanghai'):
+            SurrogateV3(topology, training_workbook=source)
+    with pytest.raises(ValueError, match='Shanghai'):
+        publish_surrogate(source, tmp_path / 'output', data_revision='test')
+    assert not (tmp_path / 'output').exists()
 
 
 def test_ordinary_full_preparation_never_reads_training(monkeypatch):
