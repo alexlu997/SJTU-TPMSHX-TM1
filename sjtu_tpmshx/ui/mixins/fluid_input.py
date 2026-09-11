@@ -19,7 +19,7 @@ import numpy as np
 
 from PySide6.QtWidgets import QMessageBox
 
-from sjtu_tpmshx.solvers.tpms_calc import compute as tpms_compute
+from sjtu_tpmshx.models.tpms_calc import compute as tpms_compute
 from sjtu_tpmshx.ui.ui_constants import RE_NU_LO, RE_NU_HI, TOAST_MS_MED
 
 
@@ -51,7 +51,7 @@ class FluidInputMixin:
             # tpms_compute so water side picks up water properties + the
             # Pr-substitution Nu correlation. Falls back to 'air' if combo
             # not present (legacy compute path).
-            from sjtu_tpmshx.solvers.tpms_calc import parse_fluid_type
+            from sjtu_tpmshx.models.tpms_calc import parse_fluid_type
             _combo = getattr(self, f'combo_fluid{fluid}', None)
             _ftype = parse_fluid_type(_combo) if _combo is not None else 'air'
             from sjtu_tpmshx.ui.window_config import sco2_nu_from_window

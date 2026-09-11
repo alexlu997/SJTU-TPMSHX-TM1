@@ -11,8 +11,8 @@ import numpy as np
 
 # 包根入 sys.path（runs/ 脚本惯例）：parents[2] = sjtu_tpmshx/ (script now under runs/<role>/)
 
-from sjtu_tpmshx.solvers.tpms_geometry import _phi_grid, _C_from_tL, compute_geometry
-from sjtu_tpmshx.solvers.asym_geometry import (
+from sjtu_tpmshx.models.tpms_geometry import _phi_grid, _C_from_tL, compute_geometry
+from sjtu_tpmshx.models.asym_geometry import (
     eps_sides, a0_sides, dh_sides, wall_thickness, percolates_z, find_delta_max,
 )
 

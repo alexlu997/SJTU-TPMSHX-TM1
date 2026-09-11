@@ -56,7 +56,7 @@ def test_legacy_toplevel_style_is_dead_in_clean_interpreter():
 
 
 def test_package_style_resolves_and_is_canonical():
-    import sjtu_tpmshx.solvers.nu_correlations as nc
+    import sjtu_tpmshx.models.nu_correlations as nc
     from sjtu_tpmshx.models import nu_correlations
     assert nc is nu_correlations
     assert nc.__name__ == 'sjtu_tpmshx.models.nu_correlations'

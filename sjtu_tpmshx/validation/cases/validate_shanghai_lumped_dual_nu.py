@@ -48,7 +48,7 @@ import pandas as pd
 _THIS = Path(__file__).resolve()
 _PROJECT_ROOT = _THIS.parent.parent.parent
 _PROJECT = _PROJECT_ROOT.parent
-from sjtu_tpmshx.solvers.tpms_calc import (
+from sjtu_tpmshx.models.tpms_calc import (
     geometry as tpms_geometry, nu_from_Re, nu_water_topo,
     air_density, air_viscosity, air_conductivity, air_cp,
     water_density, water_viscosity, water_conductivity, water_cp,

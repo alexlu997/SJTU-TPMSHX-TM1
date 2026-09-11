@@ -13,7 +13,7 @@ no TPMS near-critical experiment to validate against).
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.solvers import sco2_props as S
+from sjtu_tpmshx.models import sco2_props as S
 
 
 # ── enthalpy inverse ────────────────────────────────────────────────
@@ -71,7 +71,7 @@ def test_sco2_rho_cp_spikes_near_pseudocritical():
 # FIELD; the cached scalar primitive raised `unhashable type: numpy.ndarray`.
 # No pytest exercised the array path, so the break was silent until a smoke run.
 def test_sco2_prop_scalar_and_field_dispatch():
-    from sjtu_tpmshx.solvers.fluid_props import FLUIDS
+    from sjtu_tpmshx.models.fluid_props import FLUIDS
     m = FLUIDS['sco2']
     P = 8.0e6
     # scalar path (cached) returns a float
@@ -92,7 +92,7 @@ def test_sco2_prop_scalar_and_field_dispatch():
 
 
 def test_sco2_prop_missing_pressure_raises():
-    from sjtu_tpmshx.solvers.fluid_props import FLUIDS
+    from sjtu_tpmshx.models.fluid_props import FLUIDS
     with pytest.raises(ValueError, match="require pressure"):
         FLUIDS['sco2'].rho(371.0)              # P omitted → clear error
 
@@ -100,7 +100,7 @@ def test_sco2_prop_missing_pressure_raises():
 def test_air_water_registry_ignore_pressure_arg():
     """Air/water primitives must stay value-identical whether or not P is
     passed (the 2D loop now forwards P to every primitive)."""
-    from sjtu_tpmshx.solvers.fluid_props import FLUIDS
+    from sjtu_tpmshx.models.fluid_props import FLUIDS
     for name in ('air', 'water'):
         m = FLUIDS[name]
         for fn in (m.cp, m.mu, m.k):

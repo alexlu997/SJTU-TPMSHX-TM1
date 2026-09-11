@@ -46,7 +46,7 @@ from typing import Optional
 
 import numpy as np
 
-from sjtu_tpmshx.solvers.continuous_field import (
+from sjtu_tpmshx.models.continuous_field import (
     DEFAULT_L_BOUNDS,
     DEFAULT_N_CTRL_X,
     DEFAULT_N_CTRL_Y,

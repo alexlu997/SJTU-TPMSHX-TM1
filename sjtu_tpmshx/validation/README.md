@@ -2,7 +2,7 @@
 > **SUPERSEDED (2026-07-13).** 本文最后系统更新于 2026-05-06，此后 gate runner、
 > 收敛判据（F2，台账 C6-C9）、门禁数值（3D 4.88/2.12、2D 8.62/2.49）与部分脚本
 > 均已变化，正文数字与文件清单不可再引用。**数字溯源以 `_CSV_STATUS.md` 为准**，
-> 脚本清单以 `docs/atlas/validation.md`（2026-07-13 修订）为准。保留本文仅作
+> 脚本清单以 [历史 validation 清单](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/d3ba040de0d43fce8e9b485396a5b660c2d87c5f/docs/atlas/validation.md)（2026-07-13 修订）为准。保留本文仅作
 > 2026-05 时代的结构索引。
 
 # Validation Scripts — Canonical Index

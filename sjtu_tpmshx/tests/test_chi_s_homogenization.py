@@ -16,8 +16,8 @@ import numpy as np
 _HERE = Path(__file__).resolve()
 _PROJECT_ROOT = _HERE.parent.parent
 
-from sjtu_tpmshx.solvers.tpms_props import chi_s_eff, geometry
-from sjtu_tpmshx.solvers.tpms_calc import compute as tpms_compute
+from sjtu_tpmshx.models.tpms_props import chi_s_eff, geometry
+from sjtu_tpmshx.models.tpms_calc import compute as tpms_compute
 
 _HOM_PATH = _PROJECT_ROOT / 'runs' / 'tools' / 'homogenize_chi_s.py'
 _spec = importlib.util.spec_from_file_location('homogenize_chi_s', _HOM_PATH)

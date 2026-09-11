@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 
 from .theme import get_theme
 from .builders_base import (section, collapsible_section, row, res_row, add_row, right_align_combo)
+from .window_config import DOMAIN_SHAPE_NOTICE
 
 
 def _res_ab_row(window, rg, r, label, attr_a, attr_b, *, unit_lbl_attrs=None):
@@ -98,6 +99,11 @@ def build_page_domain(window):
     # Domain shape selector
     window.combo_shape = QComboBox()
     window.combo_shape.addItems(["Rectangle", "Hexagon", "Octagon"])
+    # Keep saved shape indices; unavailable polygons must not become rectangles.
+    for index in (1, 2):
+        window.combo_shape.model().item(index).setEnabled(False)
+        window.combo_shape.setItemData(index, DOMAIN_SHAPE_NOTICE, Qt.ItemDataRole.ToolTipRole)
+    window.combo_shape.setToolTip(DOMAIN_SHAPE_NOTICE)
     window.combo_shape.setStyleSheet(_COMBO)
     window.combo_shape.currentIndexChanged.connect(window._on_shape_changed)
     add_row(window, g, 3, "Domain shape", right_align_combo(window.combo_shape))

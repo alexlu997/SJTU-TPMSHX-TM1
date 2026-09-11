@@ -36,7 +36,7 @@ import numpy as np
 
 from sjtu_tpmshx.optimization.evaluator import DEFAULT_CONFIG, evaluate_design, _resolve_grid
 from sjtu_tpmshx.optimization.optimizer_qnehvi import run_qnehvi, _pareto_mask_max
-from sjtu_tpmshx.solvers.continuous_field import (
+from sjtu_tpmshx.models.continuous_field import (
     encode_decision_vector,
     from_decision_vector,
     decision_dim,

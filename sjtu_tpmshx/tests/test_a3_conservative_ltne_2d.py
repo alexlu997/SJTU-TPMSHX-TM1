@@ -114,7 +114,7 @@ def test_serial_and_redblack_agree_on_b_and_solid():
 def test_fine_grid_outer_coupling_stability():
     """Fine-grid air-water coupled eval with the conservative base (default
     config) must stay finite and produce a sane duty."""
-    from sjtu_tpmshx.solvers.continuous_field import uniform_field
+    from sjtu_tpmshx.models.continuous_field import uniform_field
     from sjtu_tpmshx.optimization.evaluator import evaluate_design
     cfg = {'Nx': 40, 'Ny': 80,
            'max_iter_simple': 800, 'tol_simple': 1e-3,

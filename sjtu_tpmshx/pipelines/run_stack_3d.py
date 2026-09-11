@@ -1,18 +1,11 @@
-"""pipelines/run_stack_3d.py — the unified 3D SIMPLE↔LTNE run stack.
+"""Prepare legacy dictionary inputs and sequence the numerical 3D stages.
 
-Moved verbatim from stages_3d.py (openspec split-pipelines, 2026-07-03);
-behavior bit-identical. Depends only on the leaf modules pipelines.flux_3d /
-pipelines.grid_3d / pipelines.stages_3d_helpers — it must NOT import
-pipelines.stages_3d (no cycles; stages_3d re-exports these names instead).
-
-P1.8b F3 (2026-07-21): the five stage functions, their dataclasses and
-local helpers moved verbatim to run_stack_3d_stages.py; this module is
-now the thin orchestrator plus a compatibility re-export of every moved
-name (rs._build_3d_problem etc. keep resolving — getsource follows the
-function object). Layering unchanged.
+Public CaseData execution enters the backend directly. This scripted entry
+keeps preprocessing at the orchestration boundary without modifying backend
+globals. Numerical implementations live in solvers.backends.python.three_d.
 """
 
-from sjtu_tpmshx.pipelines.run_stack_3d_stages import (  # noqa: F401  (compat re-export surface)
+from sjtu_tpmshx.solvers.backends.python.three_d.runtime import (  # noqa: F401
     _seed_p_ref,
     _simple_tol_default,
     _simple_max_iter,
@@ -26,7 +19,6 @@ from sjtu_tpmshx.pipelines.run_stack_3d_stages import (  # noqa: F401  (compat r
     _HvMachinery,
     _OuterState,
     _Metrics3D,
-    _build_3d_problem,
     _build_hv_machinery,
     _extract_3d_metrics,
     _assemble_3d_verdict,
@@ -38,6 +30,15 @@ from sjtu_tpmshx.pipelines.run_stack_3d_stages import (  # noqa: F401  (compat r
     _M4_DEFAULT_EXPONENT,
     _M4_DEFAULT_MODE,
 )
+
+
+def _build_3d_problem(cfg):
+    """Prepare legacy inputs at the orchestration boundary, then build runtime."""
+    from sjtu_tpmshx.preprocess.three_d.preparation import _prepare_problem_data
+    from sjtu_tpmshx.solvers.backends.python.three_d.runtime import build_problem
+    prepared = _prepare_problem_data(cfg)
+    return build_problem(prepared['cfg'], prepared)
+
 
 def _run_3d_stack(cfg):
     """Unified 3D stack: SIMPLE3D (A) + frozen Tb + LTNE3D.

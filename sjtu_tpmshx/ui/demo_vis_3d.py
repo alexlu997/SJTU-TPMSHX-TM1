@@ -30,14 +30,14 @@ except Exception:
     pass
 warnings.filterwarnings('ignore')
 
-from sjtu_tpmshx.solvers.tpms_calc import (
+from sjtu_tpmshx.models.tpms_calc import (
     geometry as tpms_geometry, air_density, air_viscosity,
     air_conductivity, air_cp, P_atm,
 )
 from sjtu_tpmshx.solvers.simple_solver_3d import SIMPLESolver3D
 from sjtu_tpmshx.solvers.ltne_energy_3d import solve_full_domain_3d, _inlet_transport_3d
 from sjtu_tpmshx.solvers.sigmoid_field_3d import build_continuous_arrays_3d
-from sjtu_tpmshx.solvers.sigmoid_field import get_geometry_lut
+from sjtu_tpmshx.models.sigmoid_field import get_geometry_lut
 from sjtu_tpmshx.df_surrogate.predict import predict_K_cF
 
 R_AIR = 287.05

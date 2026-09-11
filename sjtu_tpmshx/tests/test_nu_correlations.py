@@ -30,7 +30,7 @@ def _ref_gyroid_smooth(Re, L_mm, D_h_mm, Pr=0.72):
 ])
 def test_nu_from_Re_matches_legacy_formula(tpms, Re, L_mm, D_h_mm, ref_func):
     """Scalar nu_from_Re must match frozen reference formula bit-exact."""
-    from sjtu_tpmshx.solvers.nu_correlations import nu_from_Re, NU_ROUGHNESS_FACTOR
+    from sjtu_tpmshx.models.nu_correlations import nu_from_Re, NU_ROUGHNESS_FACTOR
     expected = NU_ROUGHNESS_FACTOR * ref_func(Re, L_mm, D_h_mm)
     actual = nu_from_Re(tpms, Re, eps_f=0.4, L_mm=L_mm, D_h_mm=D_h_mm)
     np.testing.assert_allclose(actual, expected, rtol=1e-15)
@@ -38,7 +38,7 @@ def test_nu_from_Re_matches_legacy_formula(tpms, Re, L_mm, D_h_mm, ref_func):
 
 def test_nu_vec_matches_scalar_path():
     """Vector path must produce identical values to scalar (modulo Re floor)."""
-    from sjtu_tpmshx.solvers.nu_correlations import nu_from_Re, nu_vec
+    from sjtu_tpmshx.models.nu_correlations import nu_from_Re, nu_vec
     Re_arr = np.array([500.0, 2000.0, 8000.0])
     L_mm, D_h_mm = 7.0, 1.5
     for tpms in ('Diamond', 'Gyroid'):
@@ -52,7 +52,7 @@ def test_nu_vec_matches_scalar_path():
 
 def test_nu_vec_applies_re_floor_at_10():
     """Re_floor=10 matches legacy sigmoid_field._nu_vec behavior."""
-    from sjtu_tpmshx.solvers.nu_correlations import nu_vec
+    from sjtu_tpmshx.models.nu_correlations import nu_vec
     Re_below = np.array([5.0, 1.0, 0.0])
     Re_at_10 = np.array([10.0, 10.0, 10.0])
     out_floored = nu_vec('Diamond', Re_below, 7.0, 1.5)
@@ -62,7 +62,7 @@ def test_nu_vec_applies_re_floor_at_10():
 
 def test_nu_water_pr_substitution():
     """Water Nu = air Nu × (Pr_water / Pr_air)^(1/3) (Reynolds analogy)."""
-    from sjtu_tpmshx.solvers.nu_correlations import nu_from_Re, nu_water_from_Re, Pr_AIR
+    from sjtu_tpmshx.models.nu_correlations import nu_from_Re, nu_water_from_Re, Pr_AIR
     Pr_w = 6.0
     air = nu_from_Re('Gyroid', 1000.0, eps_f=0.4, L_mm=7.0, D_h_mm=1.5)
     water = nu_water_from_Re('Gyroid', 1000.0, eps_f=0.4,
@@ -73,10 +73,10 @@ def test_nu_water_pr_substitution():
 
 def test_legacy_tpms_calc_api_still_works():
     """Backward compat: tpms_calc.nu_from_Re + _NU_ROUGHNESS_FACTOR re-exported."""
-    from sjtu_tpmshx.solvers import tpms_calc
+    from sjtu_tpmshx.models import tpms_calc
     assert abs(tpms_calc._NU_ROUGHNESS_FACTOR - 1.28) < 1e-15
     Nu = tpms_calc.nu_from_Re('Diamond', 1000.0, 0.4, 7.0, 1.5)
-    from sjtu_tpmshx.solvers.nu_correlations import nu_from_Re
+    from sjtu_tpmshx.models.nu_correlations import nu_from_Re
     assert abs(Nu - nu_from_Re('Diamond', 1000.0, 0.4, 7.0, 1.5)) < 1e-15
 
 
@@ -86,7 +86,7 @@ def test_legacy_sigmoid_field_nu_vec_still_works():
     Existing test_review_fixes.py:194 also exercises this contract; this is
     a duplicate guard since the 5-arg signature is load-bearing.
     """
-    from sjtu_tpmshx.solvers.sigmoid_field import _nu_vec
+    from sjtu_tpmshx.models.sigmoid_field import _nu_vec
     Re_arr = np.array([1000.0, 2000.0])
     eps_arr = np.array([0.8, 0.8])   # unused but signature requires it
     L_arr = np.array([7.0, 7.0])
@@ -99,7 +99,7 @@ def test_legacy_sigmoid_field_nu_vec_still_works():
 @pytest.mark.parametrize('fluid', ['air', 'water', 'sco2'])
 def test_source_statistics_precede_floor_without_changing_nu(fluid):
     from sjtu_tpmshx.domain.run_warnings import warning_scope
-    from sjtu_tpmshx.solvers import nu_correlations as nu
+    from sjtu_tpmshx.models import nu_correlations as nu
 
     raw = np.array([0., .1, 5000.])
     if fluid == 'air':

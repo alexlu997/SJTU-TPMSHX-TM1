@@ -92,7 +92,7 @@ if __name__ == '__main__':
     warnings.filterwarnings('ignore')
 
     # Build a uniform field at L=6, t=0.4 → equivalent to single-zone baseline
-    from sjtu_tpmshx.solvers.continuous_field import uniform_field
+    from sjtu_tpmshx.models.continuous_field import uniform_field
 
     fc = uniform_field(6.0, 0.4, 'Diamond', 17.0, 0.10, 0.05)
     print("Building uniform-field design …")

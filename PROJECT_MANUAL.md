@@ -213,7 +213,7 @@ SJTU-TPMSHX/                       ← 仓库根
 > 下面按文件夹组织。每个文件给出：**作用**、**关键函数/类**、**输入输出**、**依赖**、**注意点**。
 
 > **2026-07-20 增量（upgrade/loop 分支）**——以下新增/迁移未展开成子节。
-> 当前架构和物理约束以 `docs/architecture.md` 为准；`docs/atlas/` 是历史快照：
+> 当前架构和物理约束以 `docs/architecture.md` 为准；[Atlas 历史快照](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/d3ba040de0d43fce8e9b485396a5b660c2d87c5f/docs/atlas/README.md)保留当时的逐文件记录：
 > - `sjtu_tpmshx/cli.py` ⭐新 — `tpmshx-run` headless 入口（ComputeConfig JSON 进、摘要出，
 >   `--dry-run`/`--json`，exit 2 = 解出但被旗标；Qt 零导入）。注意与 `design/cli.py`（选型
 >   子模块 CLI，本节 6.x 既有条目）是两个不同入口。

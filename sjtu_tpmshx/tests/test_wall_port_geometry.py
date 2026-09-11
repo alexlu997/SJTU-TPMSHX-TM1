@@ -100,8 +100,8 @@ def test_equal_primary_fractions_can_have_different_staggered_openings():
 
 @pytest.mark.parametrize('direction', range(6))
 def test_nonuniform_rectangles_follow_real_direction_mapping(direction):
-    from sjtu_tpmshx.pipelines.grid_3d import _resolve_axis_map
-    from sjtu_tpmshx.pipelines.stages_3d_helpers import _port_rectangles
+    from sjtu_tpmshx.models.grid_3d import _resolve_axis_map
+    from sjtu_tpmshx.models.field_coordinates_3d import _port_rectangles
     widths = [np.array([.003, .007, .008, .012]),
               np.array([.004, .009, .017]), np.array([.011, .019])]
     f = dict(dir=direction, in_ctr=.009, in_w=.010,

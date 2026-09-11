@@ -34,10 +34,10 @@ _T_LO, _T_HI = 240.0, 420.0
 # h/T(h)/cp/k come from CoolProp at the side's pressure. For 'sco2' these are the
 # SAME CO2 calls sco2_props makes → byte-identical to the sCO2-only path.
 from CoolProp.CoolProp import PropsSI as _PropsSI  # noqa: E402
-from .fluid_props import (  # noqa: E402
+from sjtu_tpmshx.models.fluid_props import (  # noqa: E402
     WaterStateError, check_water_state, check_finite_temperatures,
 )
-from .sco2_props import _validate_state  # noqa: E402
+from sjtu_tpmshx.models.sco2_props import _validate_state  # noqa: E402
 _CP_NAME = {'sco2': 'CO2', 'water': 'Water', 'air': 'Air'}
 
 

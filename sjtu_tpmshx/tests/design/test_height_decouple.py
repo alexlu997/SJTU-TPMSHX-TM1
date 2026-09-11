@@ -49,7 +49,7 @@ def test_rect_height_changes_water_side():
 
 
 def test_nu_re_window_per_fluid():
-    from sjtu_tpmshx.design.fluids import nu_re_window, NU_RE_FIT_RANGE, WATER_NU_RE_RANGE
+    from sjtu_tpmshx.models.design_fluids import nu_re_window, NU_RE_FIT_RANGE, WATER_NU_RE_RANGE
     assert nu_re_window("air") == NU_RE_FIT_RANGE        # (400, 16000)
     assert nu_re_window("water") == WATER_NU_RE_RANGE     # 拓扑专属新式 (90, 51000)
     assert WATER_NU_RE_RANGE == (90.0, 51000.0)            # 2026-07-23 重拟窗口

@@ -11,7 +11,7 @@ import pytest
 from sjtu_tpmshx.df_surrogate import predict as P
 from sjtu_tpmshx.df_surrogate.backend import (DFBackend, available_methods,
                                   get_backend)
-from sjtu_tpmshx.solvers.tpms_calc import geometry as _geom
+from sjtu_tpmshx.models.tpms_calc import geometry as _geom
 
 _EF = {tp: _geom(tp, 7.0, 0.6, 16.0)['epsilon'] / 2
        for tp in ('Gyroid', 'Diamond')}
@@ -111,7 +111,7 @@ def test_fixed_sco2_backend_interpolates_geometry_and_rejects_extrapolation():
 
 
 def test_production_fixed_df_is_independent_of_fluid_and_reynolds():
-    from sjtu_tpmshx.solvers.tpms_calc import compute
+    from sjtu_tpmshx.models.tpms_calc import compute
 
     compute.cache_clear()
     cases = (

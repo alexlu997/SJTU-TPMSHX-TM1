@@ -1,3 +1,5 @@
+
+from sjtu_tpmshx.pipelines.run_stack_3d import _build_3d_problem
 import numpy as np
 import pytest
 from pathlib import Path
@@ -7,7 +9,7 @@ from sjtu_tpmshx.df_surrogate.experimental_correction import (
 from sjtu_tpmshx.df_surrogate.predict import predict_K_cF
 from sjtu_tpmshx.domain.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, PartialBCConfig, SolverConfig)
-from sjtu_tpmshx.solvers.tpms_calc import geometry
+from sjtu_tpmshx.models.tpms_calc import geometry
 
 
 def _base(tpms, L, t):
@@ -395,8 +397,9 @@ def test_matching_hx_air_and_water_pair_use_separate_frozen_scales():
 @pytest.mark.parametrize('dim', [2, 3])
 @pytest.mark.parametrize('fluid_A', ['water', 'sco2'])
 def test_application_coefficients_precede_real_seed_and_solver_setup(monkeypatch, dim, fluid_A):
-    from sjtu_tpmshx.pipelines import stages_2d, stages_3d, run_stack_3d_stages
-    from sjtu_tpmshx.solvers import fluid_props
+    from sjtu_tpmshx.pipelines import stages_2d, stages_3d
+    from sjtu_tpmshx.solvers.backends.python.three_d import runtime as run_stack_3d_stages
+    from sjtu_tpmshx.models import fluid_props
     from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
     from sjtu_tpmshx.domain.run_warnings import range_context, warning_scope, warning_messages
 
@@ -444,7 +447,7 @@ def test_application_coefficients_precede_real_seed_and_solver_setup(monkeypatch
         else:
             monkeypatch.setattr(run_stack_3d_stages, '_run_two_simple_parallel', lambda *a, **kw: None)
             parsed = stages_3d._parse_inputs_3d_cfg(cfg)
-            problem = run_stack_3d_stages._build_3d_problem(parsed)
+            problem = _build_3d_problem(parsed)
             solvers = [problem.sA, problem.sB]
 
     for s, fc in zip(solvers, (cfg.fluid_A, cfg.fluid_B)):

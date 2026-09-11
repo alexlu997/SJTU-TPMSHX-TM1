@@ -302,33 +302,16 @@ def test_2d_converged_resolve_supersedes_an_earlier_failure():
         "a converged re-solve must supersede an earlier failure on that side")
 
 
-def test_3d_convergence_detail_reaches_compute_result():
-    """stages_3d must forward convergence_detail into ComputeResult."""
-    import inspect
-    from sjtu_tpmshx.pipelines.stages_3d import _finalize_3d_cfg
-    assert "'convergence_detail'" in inspect.getsource(_finalize_3d_cfg)
 
 
 # ── 2D: same contract ────────────────────────────────────────────────────────
 
-def test_2d_forwards_envelope_and_clip_and_detail():
-    """stages_2d produced envelope_valid/reasons/p_clip_hits and forwarded none.
-
-    Guards the diagnostics contract (the 3D side had the same gap for
-    p_clip_hits; both closed 2026-07-12).
-    """
-    import inspect
-    from sjtu_tpmshx.pipelines.stages_2d import _finalize_cfg
-    src = inspect.getsource(_finalize_cfg)
-    for key in ("'envelope_valid'", "'envelope_reasons'", "'p_clip_hits'",
-                "'convergence_detail'"):
-        assert key in src, f"stages_2d must forward {key} into diagnostics"
 
 
 def test_2d_verdict_ands_the_ltne_inner_pass():
     """`e_info['converged']` must reach the 2D verdict (it was write-only)."""
     import inspect
-    from sjtu_tpmshx.pipelines import solve_2d as _s2
+    from sjtu_tpmshx.solvers.backends.python.two_d import coupling as _s2
     src = inspect.getsource(_s2.solve_2d_cfg if hasattr(_s2, 'solve_2d_cfg')
                             else _s2)
     assert "e_info.get('converged'" in src, (

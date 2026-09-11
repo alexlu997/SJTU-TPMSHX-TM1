@@ -3,7 +3,7 @@ from dataclasses import asdict, replace
 import numpy as np
 import pytest
 from sjtu_tpmshx.domain.compute_config import ComputeConfig, Sco2NuConfig
-from sjtu_tpmshx.solvers import fluid_props, nu_correlations as nu, tpms_calc
+from sjtu_tpmshx.models import fluid_props, nu_correlations as nu, tpms_calc
 
 SYNTHETIC = Sco2NuConfig('experimental', .8, 1.2, 'synthetic-test-v1',
                         'unit test, not measured', 'synthetic; no experimental validation')
@@ -40,8 +40,8 @@ def test_shared_scalar_array_nu_and_unchanged_other_fluids(topology, alpha):
 
 @pytest.mark.parametrize('shape', [(2, 3), (2, 3, 2)])
 def test_local_hv_multiplier_before_floor_without_extra_eos(monkeypatch, shape):
-    from sjtu_tpmshx.pipelines.flux_3d import _sco2_hv_local_field
-    from sjtu_tpmshx.solvers import sco2_props
+    from sjtu_tpmshx.solvers.backends.python.three_d.flux import _sco2_hv_local_field
+    from sjtu_tpmshx.models import sco2_props
     for name, value in (('density', 2.), ('viscosity', .5), ('conductivity', .25), ('cp', 4.)):
         monkeypatch.setattr(sco2_props, f'sco2_{name}_field', lambda T, P, v=value: np.full_like(T, v))
     T=np.full(shape, 320.); u=np.linspace(0.,10000.,T.size).reshape(shape)
@@ -85,17 +85,18 @@ def test_metadata_and_source_notice_are_independent_of_df():
 def test_real_pipeline_heat_builders_share_selected_parameters():
     from types import SimpleNamespace
     from sjtu_tpmshx.domain.compute_config import FluidConfig, GeometryConfig
-    from sjtu_tpmshx.pipelines.solve_2d import _PipelineWindowShim
-    from sjtu_tpmshx.pipelines.run_stack_3d_stages import _build_hv_machinery
+    from sjtu_tpmshx.preprocess.api import prepare_case
+    from sjtu_tpmshx.solvers.backends.python.three_d.runtime import _build_hv_machinery
     from sjtu_tpmshx.pipelines.stages_3d import _parse_inputs_3d_cfg
     cfg = ComputeConfig(fluid_A=FluidConfig(type='sco2', u_mps=1., T_in_K=400., P_in_Pa=10e6),
                         fluid_B=FluidConfig(type='sco2', u_mps=1., T_in_K=350., P_in_Pa=10e6),
                         geometry=GeometryConfig(tpms='Diamond', Lz_m=.042))
-    original = _PipelineWindowShim(cfg)
+    original = prepare_case(cfg, case_id='nu-default').parameters['static_properties']
     cfg.sco2_nu = SYNTHETIC
-    selected = _PipelineWindowShim(cfg)
-    assert selected._h_vA == pytest.approx(.8 * original._h_vA)
-    assert selected._h_vB == pytest.approx(.8 * original._h_vB)
+    selected = prepare_case(cfg, case_id='nu-selected').parameters['static_properties']
+    for side in ('A', 'B'):
+        assert selected[side]['A_0'] * selected[side]['H_sf'] == pytest.approx(
+            .8 * original[side]['A_0'] * original[side]['H_sf'])
     cfg.solver.Nz = 2
     assert _parse_inputs_3d_cfg(cfg)['sco2_nu'] is SYNTHETIC
     # Actual production h_v builders, with a prepared geometric/problem seam;

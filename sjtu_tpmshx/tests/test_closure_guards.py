@@ -10,11 +10,11 @@ import warnings as W
 import numpy as np
 import pytest
 
-import sjtu_tpmshx.solvers.tpms_calc as tpms_calc
-import sjtu_tpmshx.solvers.tpms_props as tpms_props   # warn-state lives here (arch-b-c-e B)
-from sjtu_tpmshx.solvers.tpms_calc import geometry, compute, water_density
-import sjtu_tpmshx.solvers.nu_correlations as nu_correlations
-from sjtu_tpmshx.solvers.nu_correlations import nu_water_topo
+import sjtu_tpmshx.models.tpms_calc as tpms_calc
+import sjtu_tpmshx.models.tpms_props as tpms_props   # warn-state lives here (arch-b-c-e B)
+from sjtu_tpmshx.models.tpms_calc import geometry, compute, water_density
+import sjtu_tpmshx.models.nu_correlations as nu_correlations
+from sjtu_tpmshx.models.nu_correlations import nu_water_topo
 from sjtu_tpmshx.df_surrogate.predict import predict_dP_compressible
 from sjtu_tpmshx.domain.compute_config import (ComputeConfig, FluidConfig,
                                          ZoneInputConfig)

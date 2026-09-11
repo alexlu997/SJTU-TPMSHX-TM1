@@ -6,7 +6,7 @@ t∈{0.3,0.4,0.5} 是闭合训练域; t=0.6 为外推 (低置信, K 外插可能
 """
 import math
 
-from sjtu_tpmshx.solvers.tpms_calc import geometry, nu_from_Re
+from sjtu_tpmshx.models.tpms_calc import geometry, nu_from_Re
 from sjtu_tpmshx.df_surrogate.predict import predict_K_cF, predict_dP_compressible
 
 

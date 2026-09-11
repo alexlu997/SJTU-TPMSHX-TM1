@@ -469,7 +469,7 @@ def test_nonfinite_bootstrap_return_is_rejected_before_main_iteration(monkeypatc
 def test_nonfinite_restart_resets_current_diagnostics(monkeypatch, dim, stage, bad):
     import ast
     from pathlib import Path
-    from sjtu_tpmshx.pipelines import run_stack_3d_stages
+    from sjtu_tpmshx.solvers.backends.python.three_d import runtime as run_stack_3d_stages
 
     if dim == 2:
         from sjtu_tpmshx.tests.test_f2_convergence_2d import _make

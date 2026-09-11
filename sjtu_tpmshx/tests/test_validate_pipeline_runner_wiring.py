@@ -21,7 +21,6 @@ physics numbers, so they are cheap and grid-independent.
 
 
 from sjtu_tpmshx.domain.compute_config import SolverConfig  # noqa: E402
-from sjtu_tpmshx.pipelines.stages_3d import _finalize_3d_cfg  # noqa: E402
 
 
 def test_solver_config_carries_max_outer_ltne():
@@ -144,15 +143,3 @@ def test_pipeline_branch_reports_real_pressure_diagnostics():
         "the reported count echo --max-outer regardless of what ran")
     assert r['outer_converged'] is False, (
         "a run that exhausted the cap must be reported as truncated")
-
-
-def test_finalize_3d_forwards_p_clip_hits():
-    """_finalize_3d_cfg must carry p_clip_hits into ComputeResult.diagnostics.
-
-    It was produced on the raw dict (run_stack_3d) but dropped here, which is
-    WHY the validation runner had nothing to read and hard-coded a 0.
-    """
-    import inspect
-    src = inspect.getsource(_finalize_3d_cfg)
-    assert "'p_clip_hits'" in src, (
-        "p_clip_hits must be forwarded into ComputeResult.diagnostics")

@@ -87,3 +87,41 @@ def test_mixed_partial_native_and_postprocessing(fluid_A,u_A,P_A,fluid_B,P_B,exp
     assert result.run_status['final_flow_after_last_thermal'] is True
     assert not np.array_equal(result.fields['Ta'], result.fields['Ta_display'])
     _assert_postprocessing(result)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize('axis', ['x', 'y', 'grid'])
+def test_zone_statistics_survive_result_handoff(tmp_path, axis):
+    from sjtu_tpmshx.controllers.module_adapter import to_compute_result
+    from sjtu_tpmshx.domain.compute_config import ZoneInputConfig
+    from sjtu_tpmshx.io.result_io import load_result, save_result
+    from sjtu_tpmshx.models.zone_config import Zone, ZoneConfig
+    from sjtu_tpmshx.tests.integration_tm1.test_public_api import assert_slots
+
+    cfg = baseline_config()
+    cfg.solver = SolverConfig(Nx=8, Ny=6, Nz=1, max_outer_ltne=3, max_iter_simple=500)
+    cfg.zones = ZoneInputConfig(enabled=True, axis=axis,
+        config=ZoneConfig([Zone('first', 0., .5, 7., .4),
+                           Zone('second', .5, 1., 6., .5)], 'Gyroid', 16.),
+        grid=dict(tpms_type='Gyroid', k_s=16.,
+                  cells=[dict(x0=0., x1=.5, y0=0., y1=1., L=7., t=.4),
+                         dict(x0=.5, x1=1., y0=0., y1=1., L=6., t=.5)]))
+    case = prepare_case(cfg, case_id=f'zone-handoff-{axis}')
+    result = run_case(case)
+    zones = result.metadata['application']['zones']
+    assert zones['axis_dir'] == axis
+    assert len(zones['stats']) == 2
+    area = np.asarray(case.grid['dx'])[:, None] * np.asarray(case.grid['dy'])[None, :]
+    for index, stats in enumerate(zones['stats']):
+        mask = case.design_fields['zone_id'] == index
+        assert stats['n_cells'] == np.count_nonzero(mask)
+        for field in ('Ta', 'Tb', 'Ts'):
+            assert stats[field + '_mean'] == pytest.approx(
+                np.average(result.fields[field][mask], weights=area[mask]), rel=1e-12)
+    path = tmp_path / 'results.h5'
+    save_result(result, path)
+    loaded = load_result(path)
+    assert_slots(loaded.metadata['application'], result.metadata['application'])
+    display = to_compute_result(loaded, evaluate(loaded))
+    assert_slots(display.zones, zones)
+    assert display.converged == result.run_status['converged']

@@ -1,0 +1,18 @@
+{
+  "fluid_A": {"type": "air", "u_mps": 10.0, "T_in_K": 422.0, "P_in_Pa": 192362.0},
+  "fluid_B": {"type": "air", "u_mps": 20.0, "T_in_K": 322.0, "P_in_Pa": 101325.0},
+  "geometry": {
+    "tpms": "Gyroid", "L_cell_mm": 7.0, "t_wall_mm": 0.6,
+    "k_s_W_mK": 16.0, "L_dom_m": 0.06, "H_dom_m": 0.03, "Lz_m": 0.03
+  },
+  "solver": {"Nx": 8, "Ny": 6, "Nz": 4},
+  "bc_A": {
+    "dir": 0, "in_ctr": 0.015, "in_w": 0.03, "out_ctr": 0.015, "out_w": 0.03,
+    "in_z_ctr": 0.015, "in_z_w": 0.03, "out_z_ctr": 0.015, "out_z_w": 0.03
+  },
+  "bc_B": {
+    "dir": 3, "in_ctr": 0.03, "in_w": 0.06, "out_ctr": 0.03, "out_w": 0.06,
+    "in_z_ctr": 0.015, "in_z_w": 0.03, "out_z_ctr": 0.015, "out_z_w": 0.03
+  },
+  "extrap": {"allow": true}
+}

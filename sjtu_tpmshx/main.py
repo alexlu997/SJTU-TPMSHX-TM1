@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QMessageBox, QWidget,
 )
 
-from sjtu_tpmshx.solvers.tpms_calc import geometry as tpms_geometry, adaptive_grid
+from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry, adaptive_grid
 from sjtu_tpmshx.ui.fmt import duration as _fmt_dur
 from sjtu_tpmshx.ui.matplotlib_canvas import _label_axes
 from sjtu_tpmshx.ui.mixins import (RunHistoryMixin, DialogsMixin, ZonePanelMixin,

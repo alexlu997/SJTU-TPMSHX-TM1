@@ -8,7 +8,7 @@ of the scalar sco2_temperature (the per-cell array form the kernel refresh needs
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.solvers import sco2_props
+from sjtu_tpmshx.models import sco2_props
 
 pytestmark = pytest.mark.skipif(
     not sco2_props._HAVE_COOLPROP, reason="CoolProp required for sCO2 tests")

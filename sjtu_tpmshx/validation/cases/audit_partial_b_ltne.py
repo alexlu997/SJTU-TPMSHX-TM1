@@ -42,7 +42,7 @@ except Exception:
 warnings.filterwarnings('ignore')
 
 from sjtu_tpmshx.pipelines.stages_3d import _run_3d_stack
-from sjtu_tpmshx.solvers.tpms_calc import air_density
+from sjtu_tpmshx.models.tpms_calc import air_density
 
 
 # ── Shanghai case 1 partial-B baseline (mirror sweep_m4_baseline.py C1) ──

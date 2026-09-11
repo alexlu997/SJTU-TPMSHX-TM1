@@ -6,9 +6,9 @@ import pytest
 from numba import get_num_threads, set_num_threads
 
 from sjtu_tpmshx.solvers import ltne_energy as energy
-from sjtu_tpmshx.solvers.tpms_props import model_h_coefficients
+from sjtu_tpmshx.models.tpms_props import model_h_coefficients
 from sjtu_tpmshx.solvers.simple_solver import _prolong_mass_faces_2d
-from sjtu_tpmshx.pipelines import solve_2d
+from sjtu_tpmshx.solvers.backends.python.two_d import coupling as solve_2d
 
 
 @pytest.mark.parametrize('direction,direction_b', [(0, 0), (1, 1), (2, 2), (3, 3), (3, 0)])

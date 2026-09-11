@@ -20,7 +20,7 @@ import pytest
 # test output stays readable.
 warnings.filterwarnings('ignore', category=UserWarning, module=r'solvers\.tpms_calc')
 
-from sjtu_tpmshx.solvers.continuous_field import (
+from sjtu_tpmshx.models.continuous_field import (
     ContinuousFieldConfig,
     decision_dim,
     decision_bounds,

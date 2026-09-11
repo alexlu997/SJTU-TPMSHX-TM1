@@ -353,12 +353,6 @@ def rectangle(W, H):
     return np.array([[0, 0], [W, 0], [W, H], [0, H]], dtype=np.float64)
 
 
-def regular_polygon(n_sides, radius):
-    """Return vertices for a regular n-gon centred at origin."""
-    angles = np.linspace(0, 2 * np.pi, n_sides, endpoint=False) - np.pi / 2
-    return np.column_stack([radius * np.cos(angles), radius * np.sin(angles)])
-
-
 def hexagon(W, H):
     """Elongated hexagon fitting inside W × H bounding box."""
     dx = W * 0.15

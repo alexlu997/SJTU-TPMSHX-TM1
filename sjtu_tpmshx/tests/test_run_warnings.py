@@ -8,7 +8,7 @@ import pytest
 from sjtu_tpmshx.domain.run_warnings import (
     current_warnings, warning_scope, range_context, warning_messages, merge_warnings,
 )
-from sjtu_tpmshx.solvers import fluid_props, nu_correlations as nu, tpms_props
+from sjtu_tpmshx.models import fluid_props, nu_correlations as nu, tpms_props
 from sjtu_tpmshx.tests.test_compute_pipeline import _RecordingPipeline
 from sjtu_tpmshx.domain.compute_config import ComputeConfig
 
@@ -100,7 +100,7 @@ def test_property_values_and_standalone_warning_location(name, temperature,
 
 
 def test_compute_uses_underlying_nu_notice_once(standalone_registries):
-    from sjtu_tpmshx.solvers.tpms_calc import compute
+    from sjtu_tpmshx.models.tpms_calc import compute
 
     with warning_scope({}) as records:
         result = compute('Gyroid', 7, 0.6, 0.001, 300, 101325, 16,
@@ -111,7 +111,7 @@ def test_compute_uses_underlying_nu_notice_once(standalone_registries):
 
 
 def test_compute_cache_hit_replays_warnings_without_recomputation(standalone_registries):
-    from sjtu_tpmshx.solvers import tpms_calc
+    from sjtu_tpmshx.models import tpms_calc
     compute = tpms_calc.compute
 
     args = ('Diamond', 6.9, 0.59, 0.00123, 370.12, 101325, 16)
@@ -133,7 +133,7 @@ def test_compute_cache_hit_replays_warnings_without_recomputation(standalone_reg
 
 def test_failed_cache_miss_restores_recording_context(monkeypatch):
     from sjtu_tpmshx.domain import run_warnings
-    from sjtu_tpmshx.solvers import tpms_calc
+    from sjtu_tpmshx.models import tpms_calc
 
     def fail(*args, **kwargs):
         raise ValueError('DF failure after properties and Nu')
@@ -191,7 +191,7 @@ def test_pipeline_exception_restores_scope_and_next_run(monkeypatch, error):
 
 
 def test_parallel_worker_scopes_merge_in_side_order():
-    from sjtu_tpmshx.pipelines.run_stack_3d_stages import _run_two_simple_parallel
+    from sjtu_tpmshx.solvers.backends.python.three_d.runtime import _run_two_simple_parallel
 
     b_done = threading.Event()
 
@@ -229,7 +229,7 @@ def test_nested_layout_inherits_side_and_stage():
 @pytest.mark.parametrize('pressure', [9e6, 12e6, 16e6])
 @pytest.mark.parametrize('zoned', [False, True])
 def test_sco2_nu_evidence_retains_unknown_qualification_without_eos(monkeypatch, pressure, zoned):
-    from sjtu_tpmshx.solvers import sco2_props
+    from sjtu_tpmshx.models import sco2_props
 
     def forbidden(*args, **kwargs):
         pytest.fail('evidence notice must not query EOS')
@@ -286,8 +286,8 @@ def test_temperature_state_comparison_does_not_evaluate_properties(monkeypatch, 
 @pytest.mark.parametrize('bound_context', [False, True])
 def test_sco2_local_raw_re_is_before_floor_without_extra_properties(monkeypatch, bound_context):
     from contextlib import nullcontext
-    from sjtu_tpmshx.pipelines.flux_3d import _sco2_hv_local_field
-    from sjtu_tpmshx.solvers import sco2_props
+    from sjtu_tpmshx.solvers.backends.python.three_d.flux import _sco2_hv_local_field
+    from sjtu_tpmshx.models import sco2_props
 
     calls = []
     for name, value in (('density', 2.), ('viscosity', 0.5),
@@ -385,7 +385,7 @@ def test_side_stage_layout_and_shape_isolation_and_scope_restore():
 
 @pytest.mark.parametrize('prewarm', [False, True])
 def test_cache_facts_bind_to_each_run_context(prewarm, standalone_registries):
-    from sjtu_tpmshx.solvers.tpms_calc import compute
+    from sjtu_tpmshx.models.tpms_calc import compute
 
     compute.cache_clear()
     args = ('Gyroid', 7., .6, .001, 300., 101325., 16., 'water')

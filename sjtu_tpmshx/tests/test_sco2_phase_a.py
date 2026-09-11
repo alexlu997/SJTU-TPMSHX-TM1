@@ -11,8 +11,8 @@ import warnings
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.solvers import fluid_props, tpms_calc
-from sjtu_tpmshx.solvers.nu_correlations import (
+from sjtu_tpmshx.models import fluid_props, tpms_calc
+from sjtu_tpmshx.models.nu_correlations import (
     nu_sco2_topo, SCO2_NU_COEFFS, SCO2_NU_RE_RANGE,
 )
 

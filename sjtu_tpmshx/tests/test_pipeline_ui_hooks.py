@@ -40,16 +40,18 @@ def test_ui_hooks_stored_and_default_empty():
     assert isinstance(p, Pipeline3D) and p.ui_hooks is hooks
 
 
-def test_shim_forwards_iter_label_and_progress():
-    from sjtu_tpmshx.pipelines.stages_2d import _PipelineWindowShim
+def test_backend_reports_iter_label_and_progress(monkeypatch):
+    from sjtu_tpmshx.domain.module_ports import RunControl
+    from sjtu_tpmshx.solvers.backends.python.two_d import coupling
+    from sjtu_tpmshx.tests.test_2d_warning_callers import _prepare, _stop, ThermalBoundary
+    pipe, fields = _prepare(monkeypatch, legacy=True)
+    monkeypatch.setattr(coupling, 'solve_full_domain', _stop)
     labels, pcts = [], []
-    shim = _PipelineWindowShim(ComputeConfig(),
-                               progress_cb=pcts.append,
-                               iter_label_cb=labels.append)
-    shim._iter_label_now = 'iter 2/10'
-    shim._compute_progress = 42
-    assert labels == ['iter 2/10']
-    assert pcts == [42]
+    with pytest.raises(ThermalBoundary):
+        coupling._run_solvers(pipe._parsed, fields, RunControl(
+            progress=pcts.append, iteration=labels.append))
+    assert labels == ['iter 1/10']
+    assert pcts == [10, 12]
 
 
 def test_3d_cfg_stage_wires_iter_cb(monkeypatch):

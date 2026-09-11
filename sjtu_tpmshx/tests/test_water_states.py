@@ -3,8 +3,8 @@ import numpy as np
 import pytest
 import CoolProp.CoolProp as CP
 
-from sjtu_tpmshx.solvers.fluid_props import WaterStateError, check_water_state, get
-from sjtu_tpmshx.solvers import tpms_calc, tpms_props
+from sjtu_tpmshx.models.fluid_props import WaterStateError, check_water_state, get
+from sjtu_tpmshx.models import tpms_calc, tpms_props
 from sjtu_tpmshx.domain.run_warnings import warning_scope
 
 
@@ -59,7 +59,7 @@ def test_paired_arrays_and_model_values_unchanged():
 
 
 def test_compute_guard_before_cache_and_warning_collection(monkeypatch):
-    from sjtu_tpmshx.solvers import fluid_props
+    from sjtu_tpmshx.models import fluid_props
     calls = []
     original = fluid_props.check_water_state
 

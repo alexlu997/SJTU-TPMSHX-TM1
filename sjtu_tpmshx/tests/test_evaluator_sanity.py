@@ -20,7 +20,7 @@ import pytest
 
 warnings.filterwarnings('ignore', category=UserWarning)
 
-from sjtu_tpmshx.solvers.continuous_field import (
+from sjtu_tpmshx.models.continuous_field import (
     encode_decision_vector,
     uniform_field,
 )

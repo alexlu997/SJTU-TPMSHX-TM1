@@ -34,7 +34,7 @@ import time
 
 import numpy as np
 
-from sjtu_tpmshx.solvers.tpms_geometry import _phi_grid, _C_from_tL  # noqa: E402
+from sjtu_tpmshx.models.tpms_geometry import _phi_grid, _C_from_tL  # noqa: E402
 
 K_VOID = 1e-6      # void conductivity (units of k_s); flux error O(K_VOID)
 CG_TOL = 1e-9      # relative residual

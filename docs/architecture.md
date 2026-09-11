@@ -19,6 +19,9 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 - `solvers/backends/python/` owns prepared numerical execution, current-state
   property evaluation and native result capture; SIMPLE/LTNE kernels remain
   under `solvers/`. It does not import preprocessing or formal postprocessing.
+  The 2D loop reads prepared properties directly, reports through `RunControl`,
+  and returns application coefficients and zone statistics with its native
+  result; it has no window-shaped runtime adapter or attribute-write hooks.
 - `postprocess/` reduces recorded fields, fluxes and pressure states. It never
   reruns a solver or reads a private runtime object to recover missing evidence.
 - `models/` and `df_surrogate/` own shared pure closures and versioned resources.
@@ -26,9 +29,13 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 - `io/` owns strict YAML/HDF5/JSON interchange. VTK export is a postprocessing
   view of recorded data, not a new numerical state.
 - `configs/` owns packaged case configuration.
-- `pipelines/` retains historical import compatibility through delegation.
+- `pipelines/` retains explicit scripted stage entry points. Callers import
+  shared models and numerical backends directly; there are no `sys.modules`
+  aliases or import-time function injection into the numerical backend.
 - `controllers/compute_pipeline.py` sequences the public modules; the module
   adapter maps their results to the historical GUI ComputeResult contract.
+  It is the sole production result mapper. The old 2D/3D mappings remain only
+  as frozen test oracles for the real native-result integration comparison.
 - `ui/` owns PySide6 and PyVista presentation only.
 - `validation/` and `runs/` are executable research and verification tools,
   not alternative production implementations.
@@ -36,8 +43,17 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 The GUI entry point is `python -m sjtu_tpmshx.main`; source-based headless
 work uses `python -m sjtu_tpmshx.cli`. Parameter optimization and design use
 the same public contracts with their explicitly named approximation modes.
-Current implementation evidence does not imply final M-A acceptance: review,
-CI, merge and outstanding baseline decisions remain in the Graph state.
+M-A review, CI and merged-main acceptance are recorded in the Graph state for
+the rectangular 2D/3D module flow. M-B extensions and historical baseline
+failures retain their separate scope and status.
+
+Production domain shapes are currently limited to **Rectangle**, in 2D and 3D.
+Hexagon/Octagon choices are disabled. Saved polygon presets retain their shape
+for viewing and saving, but the Compute entry and window-to-config adapter
+reject them; they are never silently interpreted as rectangles. The historical
+`ui/polygon_calc.py` and polygon kernels are outside the production path.
+Reopening polygon compute requires the mainline physical rules and real
+CaseData/FieldResult/PerformanceResult handoff, not just relocating the GUI code.
 
 ### Persistent interfaces and physical state
 

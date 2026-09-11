@@ -41,9 +41,6 @@ Picture.zip
 *.jpeg
 *.ico
 *.npz
-# …but README display assets must ship (rendered on the GitHub repo page)
-!assets/*.png
-!assets/*.svg
 
 # Run logs, caches and benchmark result snapshots (regeneratable)
 *.log

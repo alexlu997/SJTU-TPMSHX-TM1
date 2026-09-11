@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.solvers.nu_correlations import (
+from sjtu_tpmshx.models.nu_correlations import (
     GAMMA_NU_SCO2, SCO2_NU_COEFFS, gamma_nu_sco2,
     reset_gamma_nu_warn_registry,
 )
@@ -67,7 +67,7 @@ def test_kill_switch(monkeypatch):
 
 def test_registry_chokepoint_stays_smooth(monkeypatch):
     """V1 runtime ignores the retained experimental correction helper."""
-    from sjtu_tpmshx.solvers import fluid_props
+    from sjtu_tpmshx.models import fluid_props
 
     m = fluid_props.get("sco2")
     p = GAMMA_NU_SCO2["Diamond"]
@@ -82,8 +82,8 @@ def test_registry_chokepoint_stays_smooth(monkeypatch):
 
 def test_hv_local_field_chokepoint_stays_smooth(monkeypatch):
     """The shared 2D/3D local-property path stays on smooth-wall CFD Nu."""
-    from sjtu_tpmshx.pipelines.flux_3d import _sco2_hv_local_field
-    from sjtu_tpmshx.solvers import sco2_props as _s2
+    from sjtu_tpmshx.solvers.backends.python.three_d.flux import _sco2_hv_local_field
+    from sjtu_tpmshx.models import sco2_props as _s2
 
     P = 10.0e6
     T = np.full((2, 2, 2), 320.0)
@@ -112,7 +112,7 @@ def test_hv_local_field_chokepoint_stays_smooth(monkeypatch):
 
 def test_hv_local_field_uses_each_cells_temperature():
     """Uniform velocity must not freeze sCO2 transport properties at inlet T."""
-    from sjtu_tpmshx.pipelines.flux_3d import _sco2_hv_local_field
+    from sjtu_tpmshx.solvers.backends.python.three_d.flux import _sco2_hv_local_field
 
     T = np.array([[320.0, 360.0], [400.0, 440.0]])
     hv = _sco2_hv_local_field(
@@ -127,7 +127,7 @@ def test_hv_local_field_uses_each_cells_temperature():
 def test_smooth_base_function_untouched():
     """nu_sco2_topo stays SMOOTH (validation-baseline contract): its value
     must equal the raw coefficient formula, γ-free."""
-    from sjtu_tpmshx.solvers.nu_correlations import nu_sco2_topo
+    from sjtu_tpmshx.models.nu_correlations import nu_sco2_topo
     co = SCO2_NU_COEFFS["Diamond"]
     Re, Pr, L, Dh = 2.0e4, 0.9, 7.0, 2.6
     expect = co["c"] * Re ** co["a"] * Pr ** (1 / 3) * (Dh / L) ** co["d"]

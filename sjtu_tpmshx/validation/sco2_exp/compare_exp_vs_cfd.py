@@ -42,8 +42,8 @@ _PKG_ROOT = _THIS.parent.parent.parent
 sys.path.insert(0, str(_THIS.parent))
 
 from load_sco2_exp import load_exp                              # noqa: E402
-from sjtu_tpmshx.solvers.nu_correlations import SCO2_NU_COEFFS              # noqa: E402
-from sjtu_tpmshx.solvers.tpms_props import geometry as tpms_geometry        # noqa: E402
+from sjtu_tpmshx.models.nu_correlations import SCO2_NU_COEFFS              # noqa: E402
+from sjtu_tpmshx.models.tpms_props import geometry as tpms_geometry        # noqa: E402
 from sjtu_tpmshx.df_surrogate.predict import predict_K_cF                   # noqa: E402
 from sjtu_tpmshx.df_surrogate.sco2_df import predict_cF_sco2                # noqa: E402
 from sjtu_tpmshx.validation.report_template import (                        # noqa: E402

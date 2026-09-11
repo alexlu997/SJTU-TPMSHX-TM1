@@ -4,8 +4,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.pipelines import solve_2d, run_stack_3d_stages as stages
-from sjtu_tpmshx.solvers.fluid_props import WaterStateError
+from sjtu_tpmshx.solvers.backends.python.two_d import coupling as solve_2d
+from sjtu_tpmshx.solvers.backends.python.three_d import runtime as stages
+from sjtu_tpmshx.models.fluid_props import WaterStateError
 
 
 @pytest.mark.parametrize('direction', range(4))

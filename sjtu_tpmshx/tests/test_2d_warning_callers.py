@@ -6,14 +6,16 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.domain.run_warnings import warning_scope
-from sjtu_tpmshx.pipelines import solve_2d
-from sjtu_tpmshx.solvers import tpms_calc, tpms_props
+from sjtu_tpmshx.preprocess.two_d.preparation import prepare_case
+from sjtu_tpmshx.solvers.backends.python.two_d import coupling as solve_2d
+from sjtu_tpmshx.models import tpms_calc, tpms_props
 from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
 from sjtu_tpmshx.tests.test_cooperative_cancel import _cfg
 
 
-def test_shim_cold_and_cached_inlets_rebind_both_sides():
+def test_prepared_cold_and_cached_inlets_rebind_both_sides():
     cfg = _cfg()
+    cfg.extrap.allow = True  # Deliberate 1100 K property-warning probe.
     cfg.fluid_A.T_in_K = cfg.fluid_B.T_in_K = 1100.
     cfg.fluid_A.u_mps = cfg.fluid_B.u_mps = 1.
     tpms_calc.compute.cache_clear()
@@ -21,7 +23,7 @@ def test_shim_cold_and_cached_inlets_rebind_both_sides():
     for run in range(2):
         before = tpms_calc.compute.cache_info()
         with warning_scope({}) as records:
-            solve_2d._PipelineWindowShim(cfg)
+            prepare_case(cfg, case_id='inlet-warning-probe')
         after = tpms_calc.compute.cache_info()
         assert after.misses - before.misses == (1 if run == 0 else 0)
         assert after.hits - before.hits == (1 if run == 0 else 2)
@@ -46,17 +48,17 @@ def _prepare(monkeypatch, *, legacy=False, pair=('air', 'air'), temperatures=(40
         fluid.u_mps = .001
         if fluid.type == 'sco2':
             fluid.P_in_Pa = 9e6 if side == 'A' else 16e6
-    from sjtu_tpmshx.preprocess.two_d.preparation import _parse_inputs_cfg, _prepare_grid
+    from sjtu_tpmshx.solvers.backends.python.two_d.execution import build_execution_inputs
     from sjtu_tpmshx.solvers.backends.python.two_d.runtime import build_runtime
-    from sjtu_tpmshx.pipelines.stages_2d import _run_solvers_cfg, _finalize_cfg
     with warning_scope({}):
-        parsed = _parse_inputs_cfg(cfg)
-        fields = build_runtime(parsed, _prepare_grid(parsed))
+        parsed, grid = build_execution_inputs(prepare_case(cfg, case_id='caller-probe'))
+        fields = build_runtime(parsed, grid)
     # These controlled kernel tests intentionally mutate private runtime data;
     # they are not portable-Case or application acceptance tests.
+    cfg = parsed['compute_cfg']
+    parsed['_capture_native'] = False
     pipe = SimpleNamespace(cfg=cfg, _parsed=parsed,
-        run_solvers=lambda fields: _run_solvers_cfg(parsed, fields),
-        finalize=lambda raw, fields: _finalize_cfg(raw, parsed))
+        run_solvers=lambda fields: solve_2d._run_solvers(parsed, fields))
     if legacy:
         # Controlled asymmetric geometry activates the existing temperature path;
         # geometry accuracy itself is outside this caller test.
@@ -170,8 +172,7 @@ def test_main_warm_return_final_and_outlet_keep_actual_states(monkeypatch, nan, 
             assert record.nonfinite == 1
             assert not any(key[-1] == ('A', 'final', 'real-cell(x,y)') for key in records)
             return
-        raw = pipe.run_solvers(fields)
-        pipe.finalize(raw, fields)
+        pipe.run_solvers(fields)
     shape = pipe._parsed['N_x'], pipe._parsed['N_y']
     for side, warm, returned in (('A', 220. if low else 1050., 200. if low else 1100.),
                                   ('B', 1150., 1200.)):
@@ -191,7 +192,7 @@ def test_main_warm_return_final_and_outlet_keep_actual_states(monkeypatch, nan, 
 @pytest.mark.parametrize('legacy', [False, True])
 @pytest.mark.parametrize('side,bad', [(0, np.inf), (1, -np.inf), (2, np.nan), ('water', np.nan)])
 def test_main_nonfinite_return_precedes_refresh_and_q(monkeypatch, legacy, side, bad):
-    from sjtu_tpmshx.solvers.fluid_props import WaterStateError
+    from sjtu_tpmshx.models.fluid_props import WaterStateError
     pair = ('air', 'water') if side == 'water' else ('air', 'air')
     pipe, fields = _prepare(monkeypatch, legacy=legacy, pair=pair)
     returned = []
@@ -354,7 +355,8 @@ def test_model_branch_does_not_evaluate_legacy_inlet_flux(monkeypatch, where):
 ])
 def test_sco2_notice_follows_first_successful_hv_without_extra_eos(monkeypatch, pair, failed_side):
     from sjtu_tpmshx.models import local_heat_transfer
-    from sjtu_tpmshx.solvers import ltne_enthalpy_2d, sco2_props, fluid_props
+    from sjtu_tpmshx.solvers import ltne_enthalpy_2d
+    from sjtu_tpmshx.models import sco2_props, fluid_props
     from sjtu_tpmshx.domain import run_warnings as rw
     pipe, fields = _prepare(monkeypatch, pair=pair)
     original_hv = local_heat_transfer._sco2_hv_local_field
@@ -478,7 +480,7 @@ def test_malformed_mass_keeps_original_error_with_invalid_flow(monkeypatch, side
 @pytest.mark.parametrize('water_side', ['A', 'B'])
 @pytest.mark.parametrize('boundary', ['SIMPLE', 'energy'])
 def test_water_return_precedes_invalid_air_classification(monkeypatch, water_side, boundary):
-    from sjtu_tpmshx.solvers.fluid_props import WaterStateError
+    from sjtu_tpmshx.models.fluid_props import WaterStateError
     pair = ('water', 'air') if water_side == 'A' else ('air', 'water')
     pipe, fields = _prepare(monkeypatch, pair=pair, temperatures=(300., 300.))
     _failure_flow(monkeypatch, fields, side='B' if water_side == 'A' else 'A', invalid=True)

@@ -5,7 +5,7 @@ import numpy as np
 from sjtu_tpmshx.design.cases import DesignCase
 from sjtu_tpmshx.design.forward import (forward, _hvol, K_STEEL, GEOM_N, NX, _ARR,
                             SIZING_QTOL, SIZING_CHUNK)
-from sjtu_tpmshx.solvers.tpms_calc import geometry as tg
+from sjtu_tpmshx.models.tpms_calc import geometry as tg
 from sjtu_tpmshx.solvers.ltne_energy_3d import solve_full_domain_3d
 
 

@@ -66,7 +66,7 @@ def test_hx_loader_keeps_negative_dp_and_duplicate_records(monkeypatch):
 
 def test_pricing_config_uses_absolute_pressure_preserving_mass_flow():
     from sjtu_tpmshx.validation.cases.price_f2_convergence_3d import _build_cfg, SPEC
-    from sjtu_tpmshx.solvers.tpms_props import water_density
+    from sjtu_tpmshx.models.tpms_props import water_density
     row = {i: 0. for i in range(34)}
     row.update({5: .05, 7: .1, 24: 20., 28: 150., 30: 3000.})
     df = pd.DataFrame([row])

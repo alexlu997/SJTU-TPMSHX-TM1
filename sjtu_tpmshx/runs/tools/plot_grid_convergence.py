@@ -1,4 +1,4 @@
-"""plot_grid_convergence.py — regenerate assets/grid-convergence.png (README).
+"""Regenerate the historical grid-convergence figure in reports/figs/.
 
 A1 grid-convergence study, post-A2 convergence criteria (2026-07-06):
 all-axis r=2 refinement 16x8x4 -> 32x16x8 -> 64x32x16 -> 128x64x32 on the
@@ -10,7 +10,7 @@ face-extracted dP). Reads the per-grid CSVs written by
 
 plus the validation-gate grid CSV (shanghai_3d_baseline.csv, 20x10x3).
 
-Outputs assets/grid-convergence.png (dpi=300, PNG only per repo figure
+Outputs reports/figs/grid-convergence.png (dpi=300, PNG only per repo figure
 conventions). The predecessor script was lost to scratch cleanup — this one
 is versioned so the figure stays regenerable.
 """
@@ -28,7 +28,7 @@ import matplotlib.pyplot as plt
 ROOT = Path(__file__).resolve().parents[2]          # sjtu_tpmshx/
 REPO = ROOT.parent                                   # repo root
 VAL = ROOT / 'validation'
-OUT = REPO / 'assets' / 'grid-convergence.png'
+OUT = REPO / 'reports' / 'figs' / 'grid-convergence.png'
 
 GRIDS = [16, 32, 64, 128]                            # streamwise Nx (r=2)
 SUFFIX = {N: f"a1_{N}x{N // 2}x{N // 4}" for N in GRIDS}
@@ -144,6 +144,7 @@ def main():
               framealpha=0.95)
 
     fig.tight_layout()
+    OUT.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(OUT, dpi=300)
     print(f"saved {OUT}")
 

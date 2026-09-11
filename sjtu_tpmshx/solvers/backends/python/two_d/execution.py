@@ -9,7 +9,7 @@ from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.models.catalog import resolve_model
 from sjtu_tpmshx.models.zone_config import Zone, ZoneConfig
 from .runtime import build_runtime
-from .coupling import _PipelineWindowShim, _run_solvers
+from .coupling import _run_solvers
 
 
 from sjtu_tpmshx.models.zone_units import _legacy_zone_units
@@ -110,11 +110,8 @@ def run_case(case: CaseData, control: RunControl = RunControl()):
     control.check_cancelled()
     cfg, prepared = build_execution_inputs(case)
     runtime = build_runtime(cfg, prepared, residual_cb=control.residual)
-    state = _PipelineWindowShim(cfg['compute_cfg'], progress_cb=control.report_progress,
-                                iter_label_cb=control.iteration,
-                                prepared_properties=cfg['static_properties'])
-    raw = _run_solvers(state, cfg, runtime, cancel_check=control.cancel_check)
+    raw = _run_solvers(cfg, runtime, control)
     control.check_cancelled()
-    result = capture_result(case, raw, state)
+    result = capture_result(case, raw)
     control.report_progress(100)
     return result

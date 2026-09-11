@@ -12,7 +12,7 @@ PASS/FAIL uses corrected criteria (v3):
 """
 import pytest, numpy as np
 
-from sjtu_tpmshx.solvers.tpms_calc import air_cp, air_density as _air_rho
+from sjtu_tpmshx.models.tpms_calc import air_cp, air_density as _air_rho
 
 
 def _partial_bc_air_air_cfg(**overrides):

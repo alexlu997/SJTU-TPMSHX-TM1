@@ -54,7 +54,7 @@ def d76_spec() -> SpecimenSpec:
     reference numbers move accordingly (re-baselined in the B1 PR).
     """
     sh = shanghai_spec()        # domain dims are shared with Shanghai
-    from sjtu_tpmshx.solvers.tpms_calc import geometry as tpms_geometry
+    from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry
     g = tpms_geometry('Diamond', 7.0, 0.6, 16.0)
     return SpecimenSpec(
         name='d76',

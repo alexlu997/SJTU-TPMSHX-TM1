@@ -47,7 +47,7 @@ def test_two_end_cells_match_hand_energy_balance(monkeypatch, rb, direction, ope
 @pytest.mark.parametrize('direction', [0, 1, 2, 3])
 def test_pipeline_inlet_transport_uses_boundary_velocity_once(direction):
     from types import SimpleNamespace
-    from sjtu_tpmshx.pipelines.solve_2d import _inlet_transport_2d
+    from sjtu_tpmshx.solvers.backends.python.two_d.coupling import _inlet_transport_2d
 
     widths = np.array([.2, .3, .5])
     stream = np.array([.4, .6])

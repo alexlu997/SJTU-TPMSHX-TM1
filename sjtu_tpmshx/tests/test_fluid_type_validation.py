@@ -8,7 +8,7 @@ longer hard-blocked at validate time.
 
 sCO2 stays blocked pending its own Nu / D-F correlations.
 """
-from sjtu_tpmshx.solvers.tpms_calc import (
+from sjtu_tpmshx.models.tpms_calc import (
     parse_fluid_type, validate_fluid_type, _SUPPORTED_FLUIDS,
 )
 
@@ -61,7 +61,7 @@ def test_supported_fluids_air_water_sco2():
 
 def test_water_compute_returns_water_density():
     """compute(fluid_type='water') uses water properties, not air."""
-    from sjtu_tpmshx.solvers.tpms_calc import compute
+    from sjtu_tpmshx.models.tpms_calc import compute
     # u_air=10 m/s & u_water=1 m/s lands both Re in the air-fit window
     # [600, 30000] at the same Gyroid 7×0.4 geometry, 320 K, 200 kPa.
     r_air = compute('Gyroid', 7.0, 0.4, 10.0, 320.0, 200000.0, 16.0,
@@ -80,7 +80,7 @@ def test_water_compute_returns_water_density():
 def test_water_compute_higher_Nu_via_Pr_substitution():
     """Water Pr ~ 5-7, air Pr ~ 0.72. Pr-substitution lifts water Nu
     above air Nu at matched-Re-window by factor (Pr_water/Pr_air)^(1/3)."""
-    from sjtu_tpmshx.solvers.tpms_calc import compute
+    from sjtu_tpmshx.models.tpms_calc import compute
     r_air = compute('Gyroid', 7.0, 0.4, 10.0, 320.0, 200000.0, 16.0,
                     fluid_type='air')
     r_w   = compute('Gyroid', 7.0, 0.4, 1.0,  320.0, 200000.0, 16.0,

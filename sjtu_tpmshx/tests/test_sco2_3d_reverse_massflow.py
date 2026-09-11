@@ -23,7 +23,7 @@ import pytest
 # process-wide and breaks later-collected out-of-window surrogate-domain tests.
 PropsSI = pytest.importorskip("CoolProp.CoolProp").PropsSI
 
-from sjtu_tpmshx.solvers.tpms_calc import geometry as _geom          # noqa: E402
+from sjtu_tpmshx.models.tpms_calc import geometry as _geom          # noqa: E402
 import sjtu_tpmshx.pipelines.stages_3d as R                           # noqa: E402
 
 _G = _geom("Diamond", 7.0, 0.6, 16.0)

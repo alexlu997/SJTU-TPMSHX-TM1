@@ -9,7 +9,8 @@ import importlib
 import sys
 import numpy as np
 names = "tpms_calc tpms_props tpms_geometry fluid_props sco2_props nu_correlations zone_config continuous_field grid_schema".split()
-modules = [importlib.import_module("sjtu_tpmshx.models." + name) for name in names]
+for name in names:
+    importlib.import_module("sjtu_tpmshx.models." + name)
 from sjtu_tpmshx.models.fluid_props import get
 from sjtu_tpmshx.models.catalog import MODEL_VERSIONS, resolve_model
 from sjtu_tpmshx.domain.model_refs import ModelRef
@@ -27,8 +28,6 @@ for fluid in ("air", "water", "sco2"):
         assert np.all(np.isfinite(values)) and np.all(values > 0)
 for prefix in ("sjtu_tpmshx.solvers", "sjtu_tpmshx.pipelines", "numba", "PySide6"):
     assert not any(name == prefix or name.startswith(prefix + ".") for name in sys.modules), prefix
-for name, module in zip(names, modules):
-    assert importlib.import_module("sjtu_tpmshx.solvers." + name) is module
 '''
     result = subprocess.run([sys.executable, '-c', code], capture_output=True,
                             text=True, timeout=120)
@@ -43,7 +42,7 @@ from sjtu_tpmshx.models.zone_config import ZoneConfig
 barrier = Barrier(2)
 def load(_):
     barrier.wait()
-    from sjtu_tpmshx.solvers.zone_config import ZoneConfig as imported
+    from sjtu_tpmshx.models.zone_config import ZoneConfig as imported
     return imported
 with ThreadPoolExecutor(max_workers=2) as pool:
     assert all(cls is ZoneConfig for cls in pool.map(load, range(2)))

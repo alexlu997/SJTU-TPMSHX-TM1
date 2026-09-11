@@ -36,7 +36,7 @@ def _build_simple_B(cfg, fc, arrays, Nx, Ny):
     return build_flow(prepare_flow(cfg, fc, arrays, Nx, Ny, 'B'))
 
 
-from sjtu_tpmshx.solvers.continuous_field import (
+from sjtu_tpmshx.models.continuous_field import (
     encode_decision_vector,
     from_decision_vector,
 )
@@ -90,7 +90,7 @@ def test_default_config_is_fullface_no_percell():
 
 def test_energy_inlet_uses_same_physical_face_as_pipeline(monkeypatch):
     from sjtu_tpmshx.solvers.backends.python.screening import two_d as evaluator
-    from sjtu_tpmshx.solvers.tpms_calc import air_cp
+    from sjtu_tpmshx.models.tpms_calc import air_cp
     from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver, _port_fractions_1d
     cfg = {**_CFG_SMALL, 'ports_A': (.015, .045, 0., .03),
            'ports_B': (.015, .045, .03, .06)}

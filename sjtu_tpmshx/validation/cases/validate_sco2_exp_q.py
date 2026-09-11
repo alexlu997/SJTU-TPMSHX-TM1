@@ -30,9 +30,9 @@ from sjtu_tpmshx.domain.compute_config import (
     PartialBCConfig,
     SolverConfig,
 )
-from sjtu_tpmshx.solvers import fluid_props
-from sjtu_tpmshx.solvers.sco2_props import P_RANGE_PA
-from sjtu_tpmshx.solvers.tpms_props import geometry as tpms_geometry
+from sjtu_tpmshx.models import fluid_props
+from sjtu_tpmshx.models.sco2_props import P_RANGE_PA
+from sjtu_tpmshx.models.tpms_props import geometry as tpms_geometry
 from sjtu_tpmshx.validation.sco2_exp.load_sco2_exp import load_exp
 from sjtu_tpmshx.validation.harness._provenance import _git_sha, _iso_now
 

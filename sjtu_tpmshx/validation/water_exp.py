@@ -1,7 +1,7 @@
 """Pressure boundary for the explicitly confirmed water experiment workbooks."""
 from pathlib import Path
 
-from sjtu_tpmshx.solvers.fluid_props import check_water_state
+from sjtu_tpmshx.models.fluid_props import check_water_state
 
 
 WATER_EXPERIMENT_BOOKS = frozenset({

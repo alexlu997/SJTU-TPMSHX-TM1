@@ -54,8 +54,8 @@ from sjtu_tpmshx.validation.df_refit.gamma_hx_air import (
     A_FLOW, L_FLOW, _dev_node)
 from sjtu_tpmshx.validation.df_refit.gamma_hx_air import run as run_air
 from sjtu_tpmshx.validation.df_refit.gamma_specimen import fit_specimen_gamma
-from sjtu_tpmshx.solvers.tpms_props import water_density, water_viscosity
-from sjtu_tpmshx.solvers.fluid_props import check_water_state
+from sjtu_tpmshx.models.tpms_props import water_density, water_viscosity
+from sjtu_tpmshx.models.fluid_props import check_water_state
 from sjtu_tpmshx.validation.water_exp import with_water_absolute_pressures
 from sjtu_tpmshx.logutil import get_logger
 

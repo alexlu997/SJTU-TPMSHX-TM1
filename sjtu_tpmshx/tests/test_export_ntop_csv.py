@@ -19,7 +19,7 @@ from sjtu_tpmshx.optimization.export_ntop_csv import (
     export_decision_vector,
     export_pareto_row,
 )
-from sjtu_tpmshx.solvers.continuous_field import (
+from sjtu_tpmshx.models.continuous_field import (
     DEFAULT_L_BOUNDS,
     DEFAULT_T_BOUNDS,
     encode_decision_vector,

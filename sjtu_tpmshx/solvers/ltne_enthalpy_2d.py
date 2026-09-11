@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from . import sco2_props
+from sjtu_tpmshx.models import sco2_props
 
 
 _RELAX = 0.65

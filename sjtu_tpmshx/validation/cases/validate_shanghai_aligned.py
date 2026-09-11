@@ -50,7 +50,7 @@ _DATA = _ROOT.parent / 'data'                 # .../SJTU-TPMSHX/data
 sys.stdout.reconfigure(encoding='utf-8')
 warnings.filterwarnings('ignore')
 
-from sjtu_tpmshx.solvers.tpms_calc import (
+from sjtu_tpmshx.models.tpms_calc import (
     geometry as tpms_geometry, compute as tpms_compute,
     air_density, air_viscosity, air_cp, P_atm,
     water_density, water_viscosity, water_conductivity, water_cp,
@@ -99,7 +99,7 @@ N_UNITS = _SH['domain']['n_units']
 A_FLOW_PER_UNIT = _SH['domain']['a_flow_per_unit_m2']
 A_FLOW = N_UNITS * A_FLOW_PER_UNIT
 
-from sjtu_tpmshx.solvers.tpms_calc import adaptive_grid
+from sjtu_tpmshx.models.tpms_calc import adaptive_grid
 N_X_USER, N_Y_USER = adaptive_grid(L_DOM, H_DOM, D_H, alpha=0.2)
 DX_REFINED, DY_REFINED, N_X, N_Y = build_master_refined_grid(
     L_DOM, H_DOM, N_X_USER, N_Y_USER, n_refine=8, first_cell=0.02e-3, growth=1.8)

@@ -1,6 +1,6 @@
 import numpy as np
 
-from sjtu_tpmshx.solvers import sco2_props
+from sjtu_tpmshx.models import sco2_props
 from sjtu_tpmshx.solvers.ltne_enthalpy_2d import (
     solve_enthalpy_2d, solve_sco2_enthalpy_2d,
 )

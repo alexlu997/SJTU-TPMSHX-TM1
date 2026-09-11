@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from sjtu_tpmshx.solvers.tpms_calc import geometry as _tpms_geometry
+from sjtu_tpmshx.models.tpms_calc import geometry as _tpms_geometry
 
 
 @dataclass(frozen=True)
