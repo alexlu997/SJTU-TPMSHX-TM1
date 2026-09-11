@@ -6,6 +6,20 @@ The source requirements remain in `docs/plans/three-module-graph`.
 
 ## Shared rules
 
+Public preparation records `CaseData.metadata.provenance`: package version,
+source repository revision and tracked-change flag, plus configured raw-data
+repository revision and the separate `data-revision.txt` declaration. Public
+execution preserves that preparation record and adds its own entry snapshot
+under `FieldResult.metadata.provenance.execution`. Model versions remain in
+`model_refs`; backend/schema labels are not code revisions. YAML/HDF5 preserve
+these records without querying Git during loading or postprocessing.
+
+This is repository context, not a per-file data-use manifest or a claim that
+untracked files are versioned. Source installs without Git explicitly record
+revision unavailable (while retaining package version), and a missing original
+preparation record is `not_recorded`. Neither condition is filled from a later
+checkout or silently replaced with the declared data pin.
+
 Mappings have string keys. Payloads contain only scalar data, numeric/boolean
 arrays, sequences and nested mappings. Functions, live instances and object
 arrays are rejected, including inside model parameters and result metadata.

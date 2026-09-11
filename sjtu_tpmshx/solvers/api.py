@@ -2,6 +2,7 @@
 from dataclasses import replace
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.run_warnings import warning_scope, warning_messages
+from sjtu_tpmshx.domain.provenance import source_context
 
 
 def run_case(case, control=RunControl()):
@@ -23,10 +24,13 @@ def run_case(case, control=RunControl()):
         from .backends.python.three_d.execution import run_case as run
     else:
         raise ValueError(f'unsupported physical dimension: {dimension}')
+    provenance = dict(preparation=case.metadata.get('provenance', {'status':'not_recorded'}),
+                      execution=source_context())
     with warning_scope({}) as records:
         result = run(case, control)
     diagnostics = dict(result.metadata.get('diagnostics', {}))
     diagnostics['warnings_list'] = tuple(dict.fromkeys((
         *case.metadata.get('warnings', ()), *diagnostics.get('warnings_list', ()),
         *warning_messages(records))))
-    return replace(result, metadata={**result.metadata, 'diagnostics': diagnostics})
+    return replace(result, metadata={**result.metadata, 'diagnostics': diagnostics,
+                                     'provenance': provenance})
