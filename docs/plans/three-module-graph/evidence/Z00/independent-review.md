@@ -55,3 +55,14 @@ Offline/source/import regression: 19 passed, 1 skipped in 2.82 s, native exit
 The reviewer separately confirmed that this correction closes the reported
 bypass and found no import cycle; that review did not rerun the tests.
 No new PDE was run.
+
+## Explicit CFD input-path follow-up
+
+At `60417cf`, the reviewer compared the complete new source-path diff of
+load_sco2_cfd and load_water_cfd against `c7f0138`, including resolver,
+pressure/geometry calls and the artificial water test. No demonstrated
+regression was found: lattice and density checks still run; entrance-period
+filtering is unchanged; water flow_suspect marks rather than deletes rows;
+Dh_cfd_m and Re_nominal retain the source values. Unit conversions were not
+changed. This is a static review of the new source option, not comprehensive
+validation of the pre-existing correlations or missing real water dataset.
