@@ -35,17 +35,7 @@ from sjtu_tpmshx.ui.fmt import duration as _fmt_dur
 from sjtu_tpmshx.ui.ui_constants import VV_VELOCITY_LIMIT_MS, TOAST_MS_MED, TOAST_MS_SHORT
 
 
-def _run_pipeline(cfg, cancel_token, progress_cb, *, pipeline_cls, ui_hooks):
-    """Worker owns the pipeline; only callbacks and plain data cross threads."""
-    from sjtu_tpmshx.controllers.compute_pipeline import CancelledError
-    from sjtu_tpmshx.controllers.compute_orchestrator import ComputeOrchestrator
-
-    try:
-        return pipeline_cls(cfg, progress_cb=progress_cb,
-                            cancel_token=cancel_token, ui_hooks=ui_hooks).run()
-    except CancelledError as exc:
-        raise ComputeOrchestrator.CancelledError() from exc
-
+from sjtu_tpmshx.ui.compute_api_adapter import run as _run_pipeline
 
 class RunControllerMixin:
     """Compute entry points + orchestrator signal handlers + UI lifecycle."""

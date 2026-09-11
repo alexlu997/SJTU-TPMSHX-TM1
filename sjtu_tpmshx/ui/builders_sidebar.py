@@ -95,7 +95,7 @@ def refresh_result_sidebar(window):
         w = chips.get(key)
         s = w.text().strip() if w is not None else ''
         return s if s and s != '—' else '—'
-    labels['q'].setText(_chip('Q'))
+    labels['q'].setText(f"{_chip('Q')} {getattr(window, '_result_Q_unit', '')}".strip())
     labels['dpa'].setText(_chip('dPA'))
     labels['dpb'].setText(_chip('dPB'))
     labels['tout'].setText(f"{_chip('ToutA')} / {_chip('ToutB')}")
@@ -131,7 +131,9 @@ def refresh_result_sidebar(window):
 
     spark = getattr(window, '_resid_spark', None)
     hist = (getattr(window, '_live_residuals', None) or {}).get('A') or []
-    if spark is not None and hist:
+    if d.get('mode') == '3d':
+        hist = []
+    if spark is not None:
         import math as _m
         spark._data = [
             _m.log10(max(r, 1e-20)) for _i, r in hist[-500:]

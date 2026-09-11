@@ -57,6 +57,10 @@ def _store_3d_result_labels(window, result):
                 label.setText(text)
             except Exception:
                 pass
+    for attr, value in (('_r_ToutA', result.T_out_A_K), ('_r_ToutB', result.T_out_B_K)):
+        label = getattr(window, attr, None)
+        if label is not None and _fmt_metric(value, '{:.1f}') != '-':
+            window._set_temp_K(label, value, fmt='{:.1f}')
 
 
 def finalize_plots_3d(window) -> bool:
@@ -302,7 +306,7 @@ def _plot_3d_temperature(canvas, Ta_slice, Tb_slice, Ts_slice, xc, yc, z_info):
     blown-up next to the fluid panels.
     """
     _T = _get_theme()
-    axes = _begin_canvas_plot(canvas, 1, 3)
+    axes = _begin_canvas_plot(canvas, 3, 1)
     Y, X = np.meshgrid(yc, xc)
     vmin_unified = float(min(Ta_slice.min(), Tb_slice.min(), Ts_slice.min()))
     vmax_unified = float(max(Ta_slice.max(), Tb_slice.max(), Ts_slice.max()))
@@ -310,7 +314,7 @@ def _plot_3d_temperature(canvas, Ta_slice, Tb_slice, Ts_slice, xc, yc, z_info):
         vmax_unified = vmin_unified + 1.0
     datasets = [
         (Ta_slice, r'$T_{f,A}$ [K] — Fluid A'),
-        (Tb_slice, r'$T_{f,B}$ [K] — Fluid B (frozen)'),
+        (Tb_slice, r'$T_{f,B}$ [K] — Fluid B'),
         (Ts_slice, r'$T_s$ [K] — Solid'),
     ]
     for ax, (field, title) in zip(axes, datasets):
@@ -329,7 +333,7 @@ def _plot_3d_temperature(canvas, Ta_slice, Tb_slice, Ts_slice, xc, yc, z_info):
     canvas.fig.suptitle(f'Temperature — 3D {z_info}', fontsize=12,
                          fontweight='bold', color=_T['ax_text'], y=0.995)
     canvas.fig.subplots_adjust(left=0.05, right=0.97, top=0.88, bottom=0.10,
-                                wspace=0.32)
+                                hspace=0.45)
     canvas.draw()
 
 

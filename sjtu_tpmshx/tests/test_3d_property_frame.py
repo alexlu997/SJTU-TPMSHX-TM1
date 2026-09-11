@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.pipelines import run_stack_3d_stages as stages
+from sjtu_tpmshx.models.tpms_props import geometry
 
 
 @pytest.mark.parametrize('fluid', ['air', 'water', 'sco2'])
@@ -32,7 +33,7 @@ def test_outer_temperature_properties_share_simple_frame(
                u_A=.02, u_B=.02, T_inA=350., T_inB=300.,
                P_inA=pressure, P_inB=pressure, T_s_init=325.,
                tpms_type='Gyroid', Lcell=7., t_wall=.6, k_s=16.,
-               eps=stages.tpms_geometry('Gyroid', 7., .6, 16.)['epsilon'],
+               eps=geometry('Gyroid', 7., .6, 16.)['epsilon'],
                fluid_type_A=fluid, fluid_type_B=fluid,
                fluid_A_cfg=port(directions[0]), fluid_B_cfg=port(directions[1]),
                wall_refine_3d=False, outer_anderson=False, p_in_shooting=False)

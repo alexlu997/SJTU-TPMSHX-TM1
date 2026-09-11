@@ -27,9 +27,9 @@ REPO = PKG.parent
 # intended layering: unit -> layer index (lower = more fundamental)
 LAYERS = {
     "logutil": 0, "configs": 0, "domain": 0,
-    "solvers": 1,
-    "df_surrogate": 2, "design": 2,
-    "pipelines": 3, "core": 3, "optimization": 3,
+    "models": 0.5, "result_math": 0.5, "solvers": 1, "preprocess": 2, "postprocess": 2,
+    "df_surrogate": 2, "design": 2, "io": 2,
+    "pipelines": 3, "core": 3, "optimization": 3, "workflows": 3,
     "controllers": 4,
     "ui": 5, "main": 5,
 }
@@ -39,6 +39,10 @@ FREE = {"validation", "runs", "tests", "poc"}       # may import anything
 # reported separately, never counted as violations. Adding an entry here is
 # an architecture decision: cite it in docs/ARCHITECTURE-AUDIT-2026-07.md.
 SANCTIONED = {
+    ("models", "df_surrogate"):
+        "shared physical models consume the existing versioned DF closure; "
+        "TM1 extraction preserves the previously sanctioned closure boundary. "
+        "No numerical backend is imported by the model entry points.",
     ("solvers", "df_surrogate"):
         "closure boundary: solvers consume predict_K_cF* and the _domain "
         "training-hull constants, while df_surrogate imports solvers "

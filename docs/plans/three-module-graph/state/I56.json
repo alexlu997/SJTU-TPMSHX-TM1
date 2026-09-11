@@ -1,0 +1,31 @@
+{
+  "node_id": "I56",
+  "status": "running",
+  "worker": "takeover-controller",
+  "worktree": "/private/tmp/sjtu-tm1-apps-repair",
+  "branch": "codex/tm1/apps-repair",
+  "base_sha": "ebec9db8e144aa0e2774948ba8b9fbfed3a9c0a1",
+  "head_sha": null,
+  "pr_url": "https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/7",
+  "merge_sha": null,
+  "contract_version": null,
+  "review": "evidence/Z00/independent-review.md",
+  "ci_runs": [
+    "34563788328",
+    "34563788330"
+  ],
+  "evidence": [
+    "evidence/D10/environment-plan.md",
+    "evidence/V20/files.md",
+    "evidence/H20/exports.md",
+    "evidence/A20/application-routing.md",
+    "acceptance_architecture.md",
+    "evidence/Z00/independent-review.md"
+  ],
+  "blocked_reason": null,
+  "unblocks_when": null,
+  "next_action": "Current code and requirement review/CI evidence is recorded. Complete final combined acceptance, authorized merge and post-merge verification before marking done. Preserve historical failures and per-mode limitations.",
+  "tested_candidate_sha": "0ba165768b66eba7b19f29b2e783f6afec78fb69",
+  "tested_base_sha": "c7f013869e7127b35ac0c305376c13b3a834131b",
+  "source_head_sha": null
+}

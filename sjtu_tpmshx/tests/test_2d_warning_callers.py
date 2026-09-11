@@ -1,10 +1,10 @@
 """2D caller contexts at controlled SIMPLE/thermal boundaries, not PDE acceptance."""
 import inspect
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
 from sjtu_tpmshx.domain.run_warnings import warning_scope
 from sjtu_tpmshx.pipelines import solve_2d
 from sjtu_tpmshx.solvers import tpms_calc, tpms_props
@@ -46,18 +46,25 @@ def _prepare(monkeypatch, *, legacy=False, pair=('air', 'air'), temperatures=(40
         fluid.u_mps = .001
         if fluid.type == 'sco2':
             fluid.P_in_Pa = 9e6 if side == 'A' else 16e6
-    pipe = Pipeline2D(cfg)
+    from sjtu_tpmshx.preprocess.two_d.preparation import _parse_inputs_cfg, _prepare_grid
+    from sjtu_tpmshx.solvers.backends.python.two_d.runtime import build_runtime
+    from sjtu_tpmshx.pipelines.stages_2d import _run_solvers_cfg, _finalize_cfg
     with warning_scope({}):
-        fields = pipe.build_fields()
+        parsed = _parse_inputs_cfg(cfg)
+        fields = build_runtime(parsed, _prepare_grid(parsed))
+    # These controlled kernel tests intentionally mutate private runtime data;
+    # they are not portable-Case or application acceptance tests.
+    pipe = SimpleNamespace(cfg=cfg, _parsed=parsed,
+        run_solvers=lambda fields: _run_solvers_cfg(parsed, fields),
+        finalize=lambda raw, fields: _finalize_cfg(raw, parsed))
     if legacy:
         # Controlled asymmetric geometry activates the existing temperature path;
         # geometry accuracy itself is outside this caller test.
-        from sjtu_tpmshx.solvers import asym_split, asym_geometry, tpms_geometry
         cfg.geometry.delta_levelset = .1
-        monkeypatch.setattr(asym_split, '_asym_split_A', lambda *a: .6)
-        monkeypatch.setattr(tpms_geometry, '_phi_grid', lambda *a: np.zeros((2, 2, 2)))
-        monkeypatch.setattr(asym_geometry, 'a0_sides', lambda *a, **k: (100., 120.))
-        monkeypatch.setattr(asym_geometry, 'dh_sides', lambda *a, **k: (.002, .003))
+        parsed['thermal_geometry'] = {
+            **parsed['thermal_geometry'], 'split_A': .6,
+            'side_geometry': {'A': (100., .002, 100., .002),
+                              'B': (120., .003, 120., .003)}}
     def solved(solver, *args, **kwargs):
         # A completed fake flow needs outward mass for the result's Tout.
         solver.v[:, -1] = .001 * solver.outlet_geom_frac
@@ -97,6 +104,11 @@ def test_actual_workers_and_local_re_snapshots(monkeypatch, zoned):
         pipe._parsed['za'] = dict(L_mm_arr=np.full(shape, 7.), t_arr=np.full(shape, .6),
             K_ffA_arr=np.ones(shape), K_ffB_arr=np.ones(shape),
             K_ss_arr=np.ones(shape), eps_arr=np.full(shape, .7))
+        from sjtu_tpmshx.preprocess.thermal_geometry import prepare_thermal_geometry
+        parsed = pipe._parsed
+        parsed['thermal_geometry'] = prepare_thermal_geometry(
+            parsed['tpms_type'], parsed['Lcell'], parsed['t_wall'], parsed['k_s'],
+            L_field=parsed['za']['L_mm_arr'], t_field=parsed['za']['t_arr'])
     monkeypatch.setattr(solve_2d, 'solve_full_domain', _stop)
 
     def drive(*, step, **kwargs):
@@ -341,11 +353,11 @@ def test_model_branch_does_not_evaluate_legacy_inlet_flux(monkeypatch, where):
     (('air', 'sco2'), None), (('sco2', 'sco2'), 'A'), (('sco2', 'sco2'), 'B'),
 ])
 def test_sco2_notice_follows_first_successful_hv_without_extra_eos(monkeypatch, pair, failed_side):
-    from sjtu_tpmshx.pipelines import flux_3d
+    from sjtu_tpmshx.models import local_heat_transfer
     from sjtu_tpmshx.solvers import ltne_enthalpy_2d, sco2_props, fluid_props
     from sjtu_tpmshx.domain import run_warnings as rw
     pipe, fields = _prepare(monkeypatch, pair=pair)
-    original_hv = flux_3d._sco2_hv_local_field
+    original_hv = local_heat_transfer._sco2_hv_local_field
     original_notice = solve_2d.warn_sco2_nu_evidence
     events = []
 
@@ -381,7 +393,7 @@ def test_sco2_notice_follows_first_successful_hv_without_extra_eos(monkeypatch, 
             step(index)
         return 1, True
 
-    monkeypatch.setattr(flux_3d, '_sco2_hv_local_field', hv)
+    monkeypatch.setattr(local_heat_transfer, '_sco2_hv_local_field', hv)
     monkeypatch.setattr(solve_2d, 'warn_sco2_nu_evidence', notice)
     monkeypatch.setattr(ltne_enthalpy_2d, 'solve_enthalpy_2d', thermal)
     monkeypatch.setattr(solve_2d, 'run_outer_coupling', drive)

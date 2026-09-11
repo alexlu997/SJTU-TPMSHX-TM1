@@ -78,7 +78,7 @@ import pandas as pd
 
 _THIS = Path(__file__).resolve()
 _PROJECT_ROOT = _THIS.parent.parent  # .../sjtu_tpmshx
-from sjtu_tpmshx.solvers.tpms_props import geometry as tpms_geometry  # noqa: E402
+from sjtu_tpmshx.models.tpms_props import geometry as tpms_geometry  # noqa: E402
 from sjtu_tpmshx.logutil import get_logger  # noqa: E402
 
 _log = get_logger(__name__)
@@ -204,7 +204,7 @@ def _attach_geometry(df: pd.DataFrame, lattice: str) -> pd.DataFrame:
     return out
 
 
-def load_core(lattice: str = "Diamond") -> pd.DataFrame:
+def load_core(lattice: str = "Diamond", *, source=None) -> pd.DataFrame:
     """Core-summary rows (1/case) with repo-convention Re / f / Nu.
 
     Adds:
@@ -215,7 +215,9 @@ def load_core(lattice: str = "Diamond") -> pd.DataFrame:
         Re, f, Nu  repo-Dh conventions (reference properties at Tref)
         Re_nominal CSV case-matrix Re label
     """
-    df = pd.read_csv(_resolve_csv(lattice, "core"))
+    if lattice not in LATTICES:
+        raise ValueError(f'lattice must be one of {LATTICES}, got {lattice!r}')
+    df = pd.read_csv(_resolve_csv(lattice, "core") if source is None else source)
     df = _attach_pressure(df)
     _verify_rho_guard(df)
     df = _attach_geometry(df, lattice)
@@ -243,7 +245,7 @@ def load_core(lattice: str = "Diamond") -> pd.DataFrame:
 
 
 def load_segments(lattice: str = "Diamond",
-                  drop_entrance: bool = True) -> pd.DataFrame:
+                  drop_entrance: bool = True, *, source=None) -> pd.DataFrame:
     """Per-period rows with LOCAL bulk / wall properties (CoolProp).
 
     Local reduction (standard variable-property convention):
@@ -267,7 +269,9 @@ def load_segments(lattice: str = "Diamond",
     """
     from CoolProp.CoolProp import PropsSI
 
-    seg = pd.read_csv(_resolve_csv(lattice, "seg"))
+    if lattice not in LATTICES:
+        raise ValueError(f'lattice must be one of {LATTICES}, got {lattice!r}')
+    seg = pd.read_csv(_resolve_csv(lattice, "seg") if source is None else source)
     seg = _attach_pressure(seg)
     _verify_rho_guard(seg)
     seg = _attach_geometry(seg, lattice)

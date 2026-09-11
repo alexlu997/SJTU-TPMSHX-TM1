@@ -123,18 +123,7 @@ def _uniform_face_mass_flux(shape, m_dot, direction):
     return fluxes
 
 
-def _boundary_enthalpy_duty(h, h_in, mass_flux):
-    """Heat lost by a stream from its six boundary-face enthalpy flows."""
-    Fx, Fy, Fz = mass_flux
-    net_out = 0.0
-    for outward, adjacent in (
-        (-Fx[0], h[0]), (Fx[-1], h[-1]),
-        (-Fy[:, 0], h[:, 0]), (Fy[:, -1], h[:, -1]),
-        (-Fz[:, :, 0], h[:, :, 0]), (Fz[:, :, -1], h[:, :, -1]),
-    ):
-        net_out += float(np.sum(np.where(outward > 0.0, outward * adjacent,
-                                         outward * h_in)))
-    return -net_out
+from sjtu_tpmshx.result_math import _boundary_enthalpy_duty  # noqa: F401 - existing public name
 
 
 @njit(cache=True, fastmath=True)
@@ -542,6 +531,8 @@ def solve_ltne_enthalpy_3d_pipeline(Nx, Ny, Nz, dx, dy, dz, eps_arr, K_ss,
                 residual=float(resid), enthalpy_mode=True,
                 Q_A=float(q_A), Q_B=float(q_B),
                 energy_imbalance_rel=float(imbalance))
+    info['_native_state'] = dict(h_A=hA, h_B=hB, h_in_A=h_in_A, h_in_B=h_in_B,
+                                 mass_flux_A=flux_A, mass_flux_B=flux_B)
     if coupled is not None:
         info['coupled_energy_balance'] = coupled
     return Ta, Tb, Ts, info

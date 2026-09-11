@@ -36,7 +36,7 @@ import pandas as pd
 # Locate sjtu_tpmshx root for data paths and solvers package
 _THIS = Path(__file__).resolve()
 _PROJECT_ROOT = _THIS.parent.parent  # .../sjtu_tpmshx
-from sjtu_tpmshx.solvers.tpms_props import geometry as tpms_geometry  # noqa: E402
+from sjtu_tpmshx.models.tpms_props import geometry as tpms_geometry  # noqa: E402
 from sjtu_tpmshx.logutil import get_logger  # noqa: E402
 
 _log = get_logger(__name__)
@@ -69,7 +69,7 @@ _L8_RE_MIN = 1600.0
 _K_S_DEFAULT = 16.0
 
 
-def _load_sheet(tpms: str) -> pd.DataFrame:
+def _load_sheet(tpms: str, *, source=None) -> pd.DataFrame:
     """Load one TPMS type sheet from the training Excel and return a tidy frame.
 
     Header rows (row 0 = labels, row 1 = first group divider) and all group
@@ -77,7 +77,7 @@ def _load_sheet(tpms: str) -> pd.DataFrame:
     """
     sheet = _SHEETS[tpms]
     raw = pd.read_excel(
-        DATA_XLSX,
+        DATA_XLSX if source is None else source,
         sheet_name=sheet,
         engine="openpyxl",
         header=None,
@@ -164,7 +164,7 @@ _SHANGHAI_GEOMETRY = (7.0, 0.6)   # (L_mm, t_mm)
 _SHANGHAI_PATH_KEYWORDS = ('shanghai', '上海')
 
 
-def _assert_no_shanghai_leakage(df: pd.DataFrame) -> None:
+def _assert_no_shanghai_leakage(df: pd.DataFrame, *, source=None) -> None:
     """Raise ValueError if the loaded training set contains Shanghai data.
 
     Three independent checks (any one tripping is a hard failure):
@@ -181,12 +181,13 @@ def _assert_no_shanghai_leakage(df: pd.DataFrame) -> None:
     headline number is no longer a true out-of-sample test. C.5 of the
     2026-05-06 audit fix campaign added this guard.
     """
-    src = str(DATA_XLSX).lower()
+    source = DATA_XLSX if source is None else source
+    src = str(source).lower()
     for kw in _SHANGHAI_PATH_KEYWORDS:
         if kw.lower() in src:
             raise ValueError(
                 f"DATA_XLSX path contains Shanghai keyword {kw!r}: "
-                f"{DATA_XLSX!s} — training set must come from "
+                f"{source!s} — training set must come from "
                 f"试验记录表_整理版.xlsx, never a Shanghai workbook.")
     L_sh, t_sh = _SHANGHAI_GEOMETRY
     if (df['t_mm'] == t_sh).any():
@@ -206,7 +207,7 @@ def _assert_no_shanghai_leakage(df: pd.DataFrame) -> None:
             f"{sorted(set(zip(rows['tpms'], rows['t_mm'])))}")
 
 
-def load_all() -> pd.DataFrame:
+def load_all(*, source=None) -> pd.DataFrame:
     """Load and combine Diamond + Gyroid training data with geometry attached.
 
     Includes an explicit Shanghai-leakage guard (C.5 audit fix). The
@@ -214,9 +215,9 @@ def load_all() -> pd.DataFrame:
     Shanghai 16-case validation; any Shanghai row in the training set
     invalidates the out-of-sample RMSRE headline.
     """
-    frames = [_attach_geometry(_load_sheet(tpms)) for tpms in _SHEETS]
+    frames = [_attach_geometry(_load_sheet(tpms, source=source)) for tpms in _SHEETS]
     df = pd.concat(frames, ignore_index=True)
-    _assert_no_shanghai_leakage(df)
+    _assert_no_shanghai_leakage(df, source=source)
     return df
 
 

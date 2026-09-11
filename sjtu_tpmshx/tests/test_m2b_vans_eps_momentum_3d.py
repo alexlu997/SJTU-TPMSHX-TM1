@@ -109,14 +109,32 @@ def test_solver_selects_use_eps_from_field():
     assert float(s.eps_field.max()) != float(s.eps_field.min())
 
 
-def test_evaluate_3d_installs_per_cell_eps_field():
-    """Gate 3 (xmod-eps-field-3d closed): the graded ε reaches both solver
-    instances — checked structurally via _build_3d_arrays + the installation
-    code path (a full evaluate_3d solve is exercised by the frozen-values
-    suite; here we verify the field plumbing contract cheaply)."""
-    import inspect
-    from sjtu_tpmshx.core import evaluators as ev
-    src = inspect.getsource(ev.evaluate_3d)
-    assert "sA.eps_field" in src and "transpose(1, 0, 2)" in src, \
-        "fluid-A per-cell eps_field (axis-swapped) not installed"
-    assert "sB.eps_field" in src, "fluid-B per-cell eps_field not installed"
+def test_evaluate_3d_installs_per_cell_eps_field(monkeypatch):
+    """The real prepared asymmetric field reaches both numerical solvers."""
+    import pytest
+    from sjtu_tpmshx.preprocess.api import prepare_screening_3d
+    from sjtu_tpmshx.solvers.api import run_case
+    from sjtu_tpmshx.solvers.backends.python.screening import three_d as execution
+    x = np.r_[np.linspace(5., 7., 16), np.full(16, .4)]
+    cfg = dict(L_domain=.1, H_domain=.05, u_A=1., u_B=1., T_inA=350., T_inB=300., symmetric_y=False)
+    case = prepare_screening_3d(x, cfg, case_id='graded', Nx=4, Ny=3, Nz=2,
+                                roughness_mode='baseline', roughness_eps_um=0., verbose=False)
+    fields = []
+
+    def flow(s, **kwargs):
+        fields.append(s.eps_field.copy())
+        return False, 0
+
+    class Captured(Exception):
+        pass
+
+    def thermal(*args, **kwargs):
+        raise Captured
+
+    monkeypatch.setattr(execution.SIMPLESolver3D, 'solve', flow)
+    monkeypatch.setattr(execution, 'solve_full_domain_3d', thermal)
+    with pytest.raises(Captured):
+        run_case(case)
+    assert len(fields) == 2
+    np.testing.assert_array_equal(fields[0], case.design_fields['eps_arr'].transpose(1, 0, 2))
+    np.testing.assert_array_equal(fields[1], case.design_fields['eps_arr'][:, ::-1, :])

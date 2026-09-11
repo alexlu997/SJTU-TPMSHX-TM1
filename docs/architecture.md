@@ -1,4 +1,4 @@
-# SJTU-TPMSHX architecture
+# SJTU-TPMSHX-TM1 architecture
 
 This is the current architectural and physical contract for the repository.
 Historical audits and reports explain how the project reached this state, but
@@ -7,25 +7,66 @@ they do not override the running code or this document.
 ## Runtime flow
 
 ```text
-UI -> controllers -> pipelines -> solvers / df_surrogate
-                    |          -> domain / configs
-                    -> ComputeResult -> UI / validation / optimization
+applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
+                                                          -> postprocess.api -> PerformanceResult
+                         domain / models / versioned resources / file I/O
 ```
 
-- `domain/` owns typed input and result contracts and is Qt-free.
+- `domain/` owns immutable CaseData, FieldResult, metric definitions and
+  runtime control ports; it is Qt-free.
+- `preprocess/` owns physical grid/boundary preparation, fixed geometry and
+  coefficients, model/resource selection and portable execution inputs.
+- `solvers/backends/python/` owns prepared numerical execution, current-state
+  property evaluation and native result capture; SIMPLE/LTNE kernels remain
+  under `solvers/`. It does not import preprocessing or formal postprocessing.
+- `postprocess/` reduces recorded fields, fluxes and pressure states. It never
+  reruns a solver or reads a private runtime object to recover missing evidence.
+- `models/` and `df_surrogate/` own shared pure closures and versioned resources.
+  Explicit cleaning/calibration entry points live under `preprocess/offline/`.
+- `io/` owns strict YAML/HDF5/JSON interchange. VTK export is a postprocessing
+  view of recorded data, not a new numerical state.
 - `configs/` owns packaged case configuration.
-- `solvers/` owns geometry, fluid properties, closures, SIMPLE, and LTNE
-  numerical implementation.
-- `df_surrogate/` owns Darcy-Forchheimer prediction and its packaged tables.
-- `pipelines/` converts `ComputeConfig` into solver calls and assembles
-  `ComputeResult`.
-- `controllers/` coordinates pipelines for GUI and headless callers.
+- `pipelines/` retains historical import compatibility through delegation.
+- `controllers/compute_pipeline.py` sequences the public modules; the module
+  adapter maps their results to the historical GUI ComputeResult contract.
 - `ui/` owns PySide6 and PyVista presentation only.
 - `validation/` and `runs/` are executable research and verification tools,
   not alternative production implementations.
 
-The GUI entry point is `python -m sjtu_tpmshx.main`; the installed headless
-entry point is `tpmshx-run`.
+The GUI entry point is `python -m sjtu_tpmshx.main`; source-based headless
+work uses `python -m sjtu_tpmshx.cli`. Parameter optimization and design use
+the same public contracts with their explicitly named approximation modes.
+Current implementation evidence does not imply final M-A acceptance: review,
+CI, merge and outstanding baseline decisions remain in the Graph state.
+
+### Persistent interfaces and physical state
+
+CaseData contains the actual prepared grid, design fields, boundary inputs,
+fixed thermal/flow geometry, model versions and resolved settings. A config
+snapshot is provenance, not instructions for rebuilding the case in a receiver.
+Runtime controls (progress/cancellation callbacks) are separate and never
+serialized. Unknown modes/resources and incomplete prepared inputs fail.
+
+FieldResult contains native field locations/units, original flux and pressure
+evidence, execution/convergence status and diagnostic metadata. Display
+pressure/temperature fields do not replace the raw numerical state. NaN in
+diagnostic arrays and unconverged completed runs remain visible; strict JSON
+metrics report unavailable values with reasons. Cancelled/failed execution
+does not return a fabricated completed archive.
+
+Full 2D heat duty is W/m with no fabricated thickness or z-wall loss. Full 3D
+is W before any application normalization. The optimizer divides 3D duty/mass
+by actual Lz once at its boundary. Quick design is a prescribed-flow LTNE
+model with prepared analytical inlet-pressure fractions, not a SIMPLE solve.
+Its offline metrics need no EOS or calibration call. Screening retains its
+own frozen-B/nonconvergence and unsupported-metric limits.
+
+Separate processes use case.yaml + case.h5, results.h5, VTK views and
+metrics.json. Exact contracts and mode-specific restrictions are in
+`schemas/three_module_v1/`. Minimal postprocessing has a distinct dependency
+lock and actual import/runtime checks; the full environment is not evidence
+of minimal installation. Parallel run warnings and control state are local
+to each invocation, and arrays crossing contracts are detached and immutable.
 
 ### Cooperative cancellation
 
@@ -64,7 +105,7 @@ explicit numerical-model change with directly relevant validation.
    with a constant-density or isothermal shortcut.
 2. **Porosity is split once.** Symmetric LTNE callers pass the full porosity;
    the energy solver forms the two half-porosity streams. For an offset
-   isosurface, `solvers/asym_split.py` computes the upstream `eps_A`/`eps_B`
+   isosurface, `models/asym_split.py` computes the upstream `eps_A`/`eps_B`
    split, whose sides sum to the full porosity, and the kernel does not halve
    those values again.
 3. **Mass-flux inlet.** Compressible air uses the mass-flux inlet in both 2D
@@ -85,14 +126,15 @@ explicit numerical-model change with directly relevant validation.
    not separately modelled. Without a same-rig comparison they must not be
    attributed to fluid. `gamma_df` and `rbf` remain research modes.
 5. **Nusselt ownership.** Air, water, and sCO2 coefficient tables live only in
-   `solvers/nu_correlations.py`.
-6. **Compressible envelope.** `solvers/envelope.py` rejects operating points
+   `models/nu_correlations.py`.
+6. **Compressible envelope.** `models/envelope.py` rejects operating points
    without a steady subsonic solution. Do not bypass that result by widening a
    pressure clip or forcing a numerical answer.
 7. **Pressure reference.** `P_ref_abs` is the outlet absolute pressure; the
    SIMPLE pressure field is gauge pressure relative to it.
-8. **Units.** Runtime quantities use K, Pa, and m unless the name says
-   otherwise. TPMS cell size and wall thickness use mm.
+8. **Units.** Prepared contract quantities use K, Pa and m. Legacy closure calls that
+   accept cell size/wall thickness in mm receive an explicit boundary conversion;
+   those internal units do not change persisted SI fields.
 9. **Port boundary.** `ComputeConfig.validate()` normalizes both ports and
    calls the shared validator. 2D supports every ±x/±y direction; 3D also
    supports ±z, with both transverse extents validated against the correct
@@ -172,8 +214,8 @@ explicit numerical-model change with directly relevant validation.
 
 ## Extension points
 
-- Add a fluid through `solvers/fluid_props.py`; keep its Nu implementation in
-  `solvers/nu_correlations.py` and pass it through the existing pipeline.
+- Add a fluid through `models/fluid_props.py`; keep its Nu implementation in
+  `models/nu_correlations.py` and record its versioned resource and use it through the public module APIs.
 - Add a user-facing configuration field to the `domain/compute_config.py`
   dataclasses first, then adapt it once at the UI boundary.
 - Add a solver behavior behind an existing configuration boundary only when a

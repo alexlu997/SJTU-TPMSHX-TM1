@@ -68,8 +68,9 @@ _PROJECT = _PROJECT_ROOT.parent
 # below resolves regardless of how the app was launched (python main.py from
 # sjtu_tpmshx/, python -m sjtu_tpmshx.main from parent, or packaged entry).
 from scipy.interpolate import RBFInterpolator
-from sjtu_tpmshx.solvers.tpms_props import geometry as tpms_geometry, air_viscosity, P_atm
+from sjtu_tpmshx.models.tpms_props import geometry as tpms_geometry, air_viscosity, P_atm
 from sjtu_tpmshx.logutil import get_logger
+from sjtu_tpmshx.df_surrogate.load_data import _assert_no_shanghai_leakage
 
 _log = get_logger(__name__)
 
@@ -124,7 +125,14 @@ class SurrogateV3:
                  method: str = "rbf",
                  clip_margin: float = 0.1,
                  standardize: bool = False,
-                 features: tuple[str, ...] = _FEATURES_ALL):
+                 features: tuple[str, ...] = _FEATURES_ALL,
+                 training_workbook: Path | None = None,
+                 calibration_csv: Path | None = None):
+        if training_workbook is not None and calibration_csv is not None:
+            raise ValueError('choose training_workbook or calibration_csv, not both')
+        self._training_workbook = XLSX if training_workbook is None else Path(training_workbook)
+        if training_workbook is not None and not self._training_workbook.is_file():
+            raise FileNotFoundError(self._training_workbook)
         if method not in _METHODS:
             raise ValueError(f"unknown method {method!r}; valid: {_METHODS}")
         self.tpms = tpms
@@ -150,7 +158,11 @@ class SurrogateV3:
         # them as GBK bytes while pytest reads its capture stream as UTF-8 —
         # one such line poisons the capture and EVERY later test teardown
         # dies with UnicodeDecodeError (found the hard way, 2026-07-07).
-        if XLSX.exists():
+        if calibration_csv is not None:
+            self._source = 'prebuilt_csv'
+            _log.info('[SurrogateV3 %s/%s] using explicit calibrated CSV', self.tpms, self.method)
+            self._build_from_prebuilt(Path(calibration_csv))
+        elif self._training_workbook.exists():
             self._source = 'xlsx'
             _log.info("[SurrogateV3 %s/%s] calibrating from local experiment"
                       " Excel (data/raw_data)", self.tpms, self.method)
@@ -174,7 +186,7 @@ class SurrogateV3:
         """Load data, calibrate, build RBF interpolators."""
         # Load boundary effect coefficients
         alpha_df = pd.read_excel(
-            str(XLSX), engine="openpyxl",
+            str(self._training_workbook), engine="openpyxl",
             sheet_name="边界效应系数", header=None)
         alpha_map = {str(r.iloc[0]): float(r.iloc[1])
                      for _, r in alpha_df.iterrows()}
@@ -183,13 +195,16 @@ class SurrogateV3:
         prefix = self.tpms[0]  # 'G' for Gyroid, 'D' for Diamond
         sheet = f"{self.tpms}_汇总"
         raw = pd.read_excel(
-            str(XLSX), engine="openpyxl",
+            str(self._training_workbook), engine="openpyxl",
             sheet_name=sheet, header=None, skiprows=1)
 
         L_col = pd.to_numeric(raw.iloc[:, 1], errors="coerce")
         mask = L_col.notna()
         L_mm = L_col[mask].astype(float).values
         t_mm = pd.to_numeric(raw.iloc[:, 2], errors="coerce")[mask].astype(float).values
+        _assert_no_shanghai_leakage(
+            pd.DataFrame(dict(tpms=self.tpms, L_mm=L_mm, t_mm=t_mm)),
+            source=self._training_workbook)
         T_C = pd.to_numeric(raw.iloc[:, 7], errors="coerce")[mask].astype(float).values
         # 2026-05-28 G convention fix: previous code read col 48 ("G
         # 千克每平方米每秒") which is exactly 20× ρ·v — the total m_dot over
@@ -381,7 +396,7 @@ class SurrogateV3:
                               kernel="cubic", smoothing=0.1)
         return lambda X: rbf((np.asarray(X, dtype=float)[:, idx] - mu) / sd)
 
-    def _build_from_prebuilt(self) -> None:
+    def _build_from_prebuilt(self, path: Path | None = None) -> None:
         """Build from the committed calibrated CSV (no raw Excel needed).
 
         Used when the gitignored training Excel is absent (CI, fresh clones).
@@ -389,7 +404,7 @@ class SurrogateV3:
         `rows_df` is left empty — the residual-correction path (opt-in,
         TPMSHX_DF_RESIDUAL_CORR) needs the raw Excel and is unavailable here.
         """
-        path = _prebuilt_csv(self.tpms)
+        path = _prebuilt_csv(self.tpms) if path is None else path
         if not path.exists():
             raise FileNotFoundError(
                 f"SurrogateV3: no training Excel ({XLSX}) and no pre-built "

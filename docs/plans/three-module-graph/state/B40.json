@@ -1,0 +1,41 @@
+{
+  "node_id": "B40",
+  "status": "failed",
+  "worker": "takeover-controller",
+  "worktree": null,
+  "branch": "codex/tm1/b40",
+  "base_sha": "c7f013869e7127b35ac0c305376c13b3a834131b",
+  "head_sha": null,
+  "pr_url": "https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/7",
+  "merge_sha": null,
+  "contract_version": null,
+  "review": "evidence/Z00/independent-review.md",
+  "ci_runs": [
+    "34563788328",
+    "34563788330"
+  ],
+  "evidence": [
+    "evidence/B40/application-path-map.md",
+    "evidence/B40/failure-triage.md",
+    "evidence/B40/end-cv-investigation.md",
+    "evidence/B40/wall-investigation.md",
+    "evidence/B40/current-engineering-budget.md",
+    "evidence/B40/2d-history-investigation.md",
+    "evidence/B40/current-solid-diagnostic.md",
+    "evidence/B40/method-verification.md",
+    "evidence/B40/reference-disposition-proposal.md",
+    "evidence/B40/2d-boundary-diagnostic.md",
+    "evidence/B40/native-2d-capacity.md",
+    "evidence/B40/air-model-h.md",
+    "evidence/B40/native-3d-enthalpy.md",
+    "evidence/B40/3d-model-h-validation.md",
+    "acceptance_architecture.md",
+    "evidence/Z00/independent-review.md"
+  ],
+  "blocked_reason": "Approved reference updates, four-case regression, historical attribution, engineering F2/Q-change and native fluid/solid energy evidence are recorded and independently reviewed; code candidate CI passes. Final combined gate disposition and merge/post-merge verification remain. Historical failures are preserved.",
+  "unblocks_when": "Under the user-approved 2026-09-11 scope, historical attribution, numerical regression, convergence, mass and boundary-energy evidence must be complete. No whole-exchanger experiment for these four cases is required or claimed. Preserve original failures and approved reference history; do not equate a corrected equation residual with boundary energy conservation.",
+  "next_action": "Current code and requirement review/CI evidence is recorded. Complete final combined acceptance, authorized merge and post-merge verification before marking done. Preserve historical failures and per-mode limitations.",
+  "tested_candidate_sha": "0ba165768b66eba7b19f29b2e783f6afec78fb69",
+  "tested_base_sha": "c7f013869e7127b35ac0c305376c13b3a834131b",
+  "source_head_sha": null
+}

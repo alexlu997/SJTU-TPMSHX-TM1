@@ -41,7 +41,7 @@ import numpy as np
 
 from scipy.interpolate import RBFInterpolator
 
-from sjtu_tpmshx.solvers.tpms_props import geometry as tpms_geometry  # noqa: E402
+from sjtu_tpmshx.models.tpms_props import geometry as tpms_geometry  # noqa: E402
 from sjtu_tpmshx.logutil import get_logger  # noqa: E402
 
 _log = get_logger(__name__)

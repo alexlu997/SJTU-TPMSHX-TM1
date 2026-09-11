@@ -100,13 +100,16 @@ def test_real_pipeline_heat_builders_share_selected_parameters():
     assert _parse_inputs_3d_cfg(cfg)['sco2_nu'] is SYNTHETIC
     # Actual production h_v builders, with a prepared geometric/problem seam;
     # no momentum or thermal PDE is run in this functional check.
+    from sjtu_tpmshx.preprocess.thermal_geometry import prepare_thermal_geometry
     problem = SimpleNamespace(D_h=.003, L_mm_field=None, Lcell=7., Nx=2, Ny=3, Nz=2,
         P_inA=10e6, P_inB=10e6, T_inA=400., T_inB=350., eps=.7,
         fluid_type_A='sco2', fluid_type_B='sco2', mu_A=1e-5, mu_B=1e-5,
         rho_A=100., rho_B=200., sB=True, t_field_3d=None, t_wall=.6,
-        tpms_type='Diamond', u_A=1., k_s=16., cfg={'sco2_nu': Sco2NuConfig()})
+        tpms_type='Diamond', u_A=1., k_s=16., cfg={'sco2_nu': Sco2NuConfig(),
+        'thermal_geometry': prepare_thermal_geometry('Diamond', 7., .6, 16.),
+        'roughness_resolved': dict(mode='norris_1a', eps_m=100e-6)})
     cfd = _build_hv_machinery(problem)
-    problem.cfg={'sco2_nu': SYNTHETIC}
+    problem.cfg={**problem.cfg, 'sco2_nu': SYNTHETIC}
     exp = _build_hv_machinery(problem)
     assert np.allclose(exp.h_vA_field, .8*cfd.h_vA_field, rtol=1e-14)
     assert np.allclose(exp.h_vB_field, .8*cfd.h_vB_field, rtol=1e-14)

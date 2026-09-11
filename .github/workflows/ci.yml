@@ -26,6 +26,8 @@ jobs:
     timeout-minutes: 45
     env:
       PYTHONHASHSEED: "0"
+      MPLCONFIGDIR: .cache/matplotlib
+      XDG_CACHE_HOME: .cache/xdg
       QT_QPA_PLATFORM: offscreen
       SJTU_TPMSHX_DISABLE_3D_PANEL: "1"
     steps:
@@ -58,3 +60,10 @@ jobs:
       - name: Run fast test subset
         shell: bash
         run: '"$CI_PYTHON" -m pytest sjtu_tpmshx/tests/ -q -m "not slow and not heavy" --timeout=600 --timeout-method=thread'
+      - name: Run real public module integration
+        shell: bash
+        env:
+          OPENBLAS_NUM_THREADS: "1"
+          OMP_NUM_THREADS: "1"
+          NUMBA_NUM_THREADS: "1"
+        run: '"$CI_PYTHON" -m pytest sjtu_tpmshx/tests/integration_tm1 -q --timeout=600 --timeout-method=thread'

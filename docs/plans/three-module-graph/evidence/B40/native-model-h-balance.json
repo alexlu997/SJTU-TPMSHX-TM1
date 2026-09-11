@@ -1,0 +1,114 @@
+{
+  "uniform": {
+    "A": {
+      "native_boundary_minus_exchange_W_per_m": 3.194782038917765e-08,
+      "relative_boundary_gap": 3.983898163194156e-12,
+      "native_boundary_capacity_energy_W_per_m": [
+        -9512.779271853782,
+        1495.501530871183,
+        0.0,
+        0.0
+      ],
+      "native_T_div_mass_cp_W_per_m": -0.0009487646055106179,
+      "native_mass_div_l1": 1.3113794849296479e-08,
+      "cp_J_kg_K": 1017.271712259,
+      "source_W_per_m": -8019.236205466396,
+      "conduction_W_per_m": -1.958464451848791,
+      "f2": {
+        "final_res_mom": 7.522310643199078e-05,
+        "final_res_mass_local": 9.895967785341117e-09,
+        "final_res_mass_global": 1.5611725230053347e-08
+      }
+    },
+    "B": {
+      "native_boundary_minus_exchange_W_per_m": -1.6279955161735415e-10,
+      "relative_boundary_gap": 2.030112936506337e-14,
+      "native_boundary_capacity_energy_W_per_m": [
+        0.0,
+        0.0,
+        8017.454246324025,
+        0.0
+      ],
+      "native_T_div_mass_cp_W_per_m": -0.003552069915006359,
+      "native_mass_div_l1": 5.518328567215678e-08,
+      "cp_J_kg_K": 1009.063698259,
+      "source_W_per_m": 8019.236205524567,
+      "conduction_W_per_m": 1.7819592003790226,
+      "f2": {
+        "final_res_mom": 7.762201631498952e-05,
+        "final_res_mass_local": 1.5641687979732356e-08,
+        "final_res_mass_global": 2.597645886820324e-08
+      }
+    },
+    "source_sha": "ae6f236d0346f373f434bb14a0e157eb6ce9255e",
+    "energy_formulation": "air_integral_enthalpy",
+    "capture": ".cache/b40-current-2d-uniform-model-h",
+    "q_relative_change": 5.1127090043411e-13,
+    "temperature_chunk_change_K": {
+      "dTa_max": 8.36735125631094e-11,
+      "dTb_max": 3.643663148977794e-11,
+      "dTs_max": 5.917399903410114e-11
+    },
+    "outputs": [
+      -8019.236205524567,
+      4675.011354108352,
+      3.446685791015626
+    ]
+  },
+  "nonuniform": {
+    "A": {
+      "native_boundary_minus_exchange_W_per_m": 2.8867361834272742e-08,
+      "relative_boundary_gap": 3.8450536152268014e-12,
+      "native_boundary_capacity_energy_W_per_m": [
+        -9103.965916018906,
+        1598.267134416976,
+        0.0,
+        0.0
+      ],
+      "native_T_div_mass_cp_W_per_m": -6.771795555456258e-06,
+      "native_mass_div_l1": 2.0587520797898873e-09,
+      "cp_J_kg_K": 1017.271712259,
+      "source_W_per_m": -7507.6617189302815,
+      "conduction_W_per_m": -1.962937299484108,
+      "f2": {
+        "final_res_mom": 8.723140762951309e-05,
+        "final_res_mass_local": 3.0158385673285626e-09,
+        "final_res_mass_global": 1.1389268689363787e-10
+      }
+    },
+    "B": {
+      "native_boundary_minus_exchange_W_per_m": 2.3646862246096134e-10,
+      "relative_boundary_gap": 3.149697353339238e-14,
+      "native_boundary_capacity_energy_W_per_m": [
+        0.0,
+        0.0,
+        7505.937408111856,
+        0.0
+      ],
+      "native_T_div_mass_cp_W_per_m": -1.637560318902048e-05,
+      "native_mass_div_l1": 5.989932122555921e-09,
+      "cp_J_kg_K": 1009.063698259,
+      "source_W_per_m": 7507.661718998578,
+      "conduction_W_per_m": 1.7243108869590036,
+      "f2": {
+        "final_res_mom": 8.651516867758632e-05,
+        "final_res_mass_local": 4.507880149754755e-09,
+        "final_res_mass_global": 1.2141713811447934e-10
+      }
+    },
+    "source_sha": "ae6f236d0346f373f434bb14a0e157eb6ce9255e",
+    "energy_formulation": "air_integral_enthalpy",
+    "capture": ".cache/b40-current-2d-nonuniform-model-h",
+    "q_relative_change": 6.001384880170227e-13,
+    "temperature_chunk_change_K": {
+      "dTa_max": 6.87805368215777e-11,
+      "dTb_max": 4.9396930990042165e-11,
+      "dTs_max": 8.361666914424859e-11
+    },
+    "outputs": [
+      -7507.661718998576,
+      4051.9767479034927,
+      3.6729327392578126
+    ]
+  }
+}

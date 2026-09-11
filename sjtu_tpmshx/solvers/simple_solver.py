@@ -86,92 +86,13 @@ from ._kernels_simple_2d import (  # noqa: F401
 #  Adaptive grid generation
 # ===================================================================
 
-def _port_overlap_1d(widths, lo, hi, *, staggered=False):
-    """Exact interval overlap on primary CVs or CVs between adjacent centres."""
-    x_lo_edge = np.concatenate(([0.0], np.cumsum(widths[:-1])))
-    x_hi_edge = np.cumsum(widths)
-    if staggered:
-        centres = x_hi_edge - np.asarray(widths) / 2
-        x_lo_edge = np.r_[0., centres]
-        x_hi_edge = np.r_[centres, x_hi_edge[-1]]
-        widths = x_hi_edge - x_lo_edge
-    return np.clip((np.minimum(x_hi_edge, hi) - np.maximum(x_lo_edge, lo)) / widths,
-                   0.0, 1.0)
+from sjtu_tpmshx.models.grid import _port_overlap_1d  # noqa: F401
 
 
-def _port_fractions_1d(widths, lo, hi):
-    """Return physical overlap and the existing four-cell tapered profile."""
-    raw = _port_overlap_1d(widths, lo, hi)
-    profile = raw.copy()
-    for i in range(len(widths)):
-        if raw[i] > 0.99:
-            for d in range(1, 5):
-                if (i - d >= 0 and raw[i - d] < 0.01) or \
-                   (i + d < len(widths) and raw[i + d] < 0.01):
-                    profile[i] = 1.0 - 0.8 * np.exp(-1.0 * d)
-                    break
-    return raw, profile
+from sjtu_tpmshx.models.grid import _port_fractions_1d  # noqa: F401
 
 
-def _aligned_grid(N, L, breakpoints):
-    """Generate 1D grid with cell edges aligned to breakpoint positions.
-
-    Breakpoints are positions where inlet/outlet meets wall. Cell edges
-    are guaranteed to fall exactly on these positions, eliminating the
-    velocity discontinuity within any single cell.
-
-    Parameters
-    ----------
-    N : int — total number of cells
-    L : float — domain length [m]
-    breakpoints : iterable of float — positions [m] to align cell edges to
-
-    Returns
-    -------
-    dx_arr : (N,) array — cell widths [m]
-    """
-    # Build sorted unique segment boundaries [0, bp1, bp2, ..., L]
-    eps_b = L * 0.001
-    bps = sorted(set([0.0] + [bp for bp in breakpoints
-                               if eps_b < bp < L - eps_b] + [L]))
-
-    if len(bps) <= 2:
-        return np.full(N, L / N, dtype=np.float64)
-
-    # Segments and their lengths
-    segments = [(bps[i], bps[i + 1]) for i in range(len(bps) - 1)]
-    if N < 2 * len(segments):
-        raise ValueError(f"Increase N to at least {2 * len(segments)} to align all segments")
-    lengths = [s[1] - s[0] for s in segments]
-    total = sum(lengths)
-
-    # Distribute cells proportional to segment length (min 2 per segment)
-    n_cells = [max(2, round(N * l / total)) for l in lengths]
-    # Adjust last segment to match total N
-    diff = N - sum(n_cells)
-    n_cells[-1] += diff
-    # Borrow from as many segments as needed without breaking their minimum.
-    if n_cells[-1] < 2:
-        deficit = 2 - n_cells[-1]
-        n_cells[-1] = 2
-        while deficit:
-            big = max(range(len(n_cells) - 1), key=lambda k: n_cells[k])
-            borrowed = min(deficit, n_cells[big] - 2)
-            n_cells[big] -= borrowed
-            deficit -= borrowed
-
-    # Anchor each segment end despite cumulative roundoff in uniform widths.
-    dx_list = []
-    position = 0.0
-    for (lo, hi), nc in zip(segments, n_cells):
-        seg_dx = (hi - lo) / nc
-        for _ in range(nc - 1):
-            dx_list.append(seg_dx)
-            position += seg_dx
-        dx_list.append(hi - position)
-        position += dx_list[-1]
-
-    return np.array(dx_list, dtype=np.float64)
+from sjtu_tpmshx.models.grid import _aligned_grid  # noqa: F401
 
 
 def _prolong_mass_faces_2d(mass, dx, dy, fine_dx, fine_dy):
@@ -197,37 +118,7 @@ def _prolong_mass_faces_2d(mass, dx, dy, fine_dx, fine_dy):
             np.ascontiguousarray(overlap_x @ (jy / np.asarray(dx)[:, None])))
 
 
-def build_wall_refined_1d(W, N_bulk, n_refine=8, first_cell=0.02e-3, growth=1.8):
-    """Build a 1D cross-stream grid with geometric refinement at both walls.
-
-    Layout: [refine_fine → refine_coarse | uniform bulk | refine_coarse → refine_fine]
-    Total cells = 2*n_refine + N_bulk.
-
-    Parameters
-    ----------
-    W : float — domain width (cross-stream extent) [m]
-    N_bulk : int — number of uniform bulk cells in the interior
-    n_refine : int — refinement layers per wall (default 8)
-    first_cell : float — thickness of cell touching the wall [m] (default 0.02 mm)
-    growth : float — geometric growth ratio (default 1.8)
-
-    Returns
-    -------
-    dx_arr : np.ndarray shape (2*n_refine + N_bulk,), sum == W
-
-    Used to resolve Brinkman boundary layer at outer housing walls. See
-    vault/reports/2026-04-17-shanghai-dP-error-analysis-CN.md §12.
-    """
-    refine_sizes = np.array([first_cell * growth**k for k in range(n_refine)], dtype=np.float64)
-    total_refine = 2.0 * refine_sizes.sum()
-    bulk_width = W - total_refine
-    if bulk_width <= 0:
-        raise ValueError(
-            f"build_wall_refined_1d: refinement {total_refine*1000:.3f}mm exceeds "
-            f"domain width {W*1000:.3f}mm. Reduce n_refine or first_cell.")
-    bulk_cell = bulk_width / N_bulk
-    bulk = np.full(N_bulk, bulk_cell, dtype=np.float64)
-    return np.concatenate([refine_sizes, bulk, refine_sizes[::-1]])
+from sjtu_tpmshx.models.grid import build_wall_refined_1d  # noqa: F401
 
 
 def build_inlet_stretched_1d(L, N, first_cell, end='lo'):
@@ -334,6 +225,7 @@ class SIMPLESolver:
                  n_wall_refine=8,
                  wall_first_cell=0.02e-3,
                  df_method=None,
+                 dx_arr=None, dy_arr=None, K_arr=None, cF_arr=None,
                  **_legacy_kw):
         # Historical 'closure' kwarg is accepted but ignored; ConstDF-v1 D-F
         # is the only closure since 2026-04-19 f-Re cleanup.
@@ -356,6 +248,25 @@ class SIMPLESolver:
         # 2026-04-17. Adds 2*n_wall_refine cells on top of Nx (interpreted as
         # bulk cell count). Disabled if inlet/outlet are not full-width
         # (x_breaks present) or if the user passes wall_refine=False.
+        if (dx_arr is None) != (dy_arr is None):
+            raise ValueError('prepared SIMPLE grid requires both dx_arr and dy_arr')
+        if dx_arr is not None:
+            for widths, count, length in ((dx_arr, Nx, W), (dy_arr, Ny, H)):
+                values = np.asarray(widths, dtype=np.float64)
+                if (values.shape != (count,) or not np.all(np.isfinite(values))
+                        or np.any(values <= 0.0)
+                        or not np.isclose(values.sum(), length, rtol=1e-12, atol=1e-15)):
+                    raise ValueError('prepared SIMPLE grid does not match its domain')
+            wall_refine = False
+        if (K_arr is None) != (cF_arr is None):
+            raise ValueError('prepared SIMPLE drag requires both K_arr and cF_arr')
+        if K_arr is not None:
+            for values, positive in ((K_arr, True), (cF_arr, False)):
+                values = np.asarray(values, dtype=np.float64)
+                if (values.shape != (Ny,) or not np.all(np.isfinite(values))
+                        or np.any(values <= 0.0 if positive else values < 0.0)):
+                    raise ValueError('invalid prepared SIMPLE row drag coefficients')
+
         x_breaks = []
         if inlet_lo > W * 0.001:
             x_breaks.append(inlet_lo)
@@ -389,12 +300,15 @@ class SIMPLESolver:
         self.dx, self.dy = W / Nx, H / Ny  # scalar for backward compat
 
         # Aligned grid: cell edges at inlet/outlet-wall junctions
-        if self._wall_refined and dx_refined is not None:
+        if dx_arr is not None:
+            self.dx_arr = np.array(dx_arr, dtype=np.float64, copy=True)
+        elif self._wall_refined and dx_refined is not None:
             self.dx_arr = dx_refined
         else:
             self.dx_arr = _aligned_grid(Nx, W, x_breaks)
         # y-direction: aligned if y_breakpoints provided, else uniform
-        self.dy_arr = _aligned_grid(Ny, H, y_breakpoints or [])
+        self.dy_arr = (_aligned_grid(Ny, H, y_breakpoints or []) if dy_arr is None
+                       else np.array(dy_arr, dtype=np.float64, copy=True))
 
         # Porous medium (scalar, kept for temperature solver & backward compat)
         self.eps = eps
@@ -448,7 +362,10 @@ class SIMPLESolver:
         # graded designs. zone_arrays path doesn't carry L/t/eps metadata, so
         # it falls back to the uniform (scalar) prediction.
 
-        if zone_config is not None:
+        if K_arr is not None:
+            self._K_arr = np.array(K_arr, dtype=np.float64, copy=True)
+            self._cF_arr = np.array(cF_arr, dtype=np.float64, copy=True)
+        elif zone_config is not None:
             # Per-row (L, t, eps_f) → batched prediction
             L_row = np.empty(Ny, dtype=np.float64)
             t_row = np.empty(Ny, dtype=np.float64)

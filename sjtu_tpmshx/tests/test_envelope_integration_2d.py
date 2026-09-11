@@ -33,6 +33,7 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.domain.compute_config import ComputeConfig
+from sjtu_tpmshx.domain.portable_data import mutable_data
 from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
 from sjtu_tpmshx.solvers.envelope import ChokedFlowError
 from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
@@ -47,7 +48,7 @@ def _run_2d(u, L=0.182, Nx=20, Ny=20):
         solver=replace(base.solver, Nx=Nx, Ny=Ny, max_outer_ltne=2))
     pipe = Pipeline2D(cfg)
     fields = pipe.build_fields()
-    return pipe.run_solvers(fields)
+    return mutable_data(pipe.run_solvers(fields).metadata['diagnostics'])
 
 
 def test_2d_in_envelope_reports_valid_with_gate_keys():

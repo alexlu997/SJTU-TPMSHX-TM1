@@ -72,6 +72,12 @@ class RunResultsMixin:
             if _nc_msg not in result.warnings:
                 result.warnings.insert(0, _nc_msg)
         from copy import deepcopy
+        self._tout_K_cache = (result.T_out_A_K, result.T_out_B_K)
+        self._result_Q_unit = result.metadata.get('units', {}).get(
+            'Q', 'W' if result.diagnostics.get('mode') == '3d' else 'W/m')
+        label = getattr(self, '_lbl_Q_unit', None)
+        if label is not None:
+            label.setText(f'<i>Q</i><sub>total</sub> [{self._result_Q_unit}]')
         self._result_model_metadata = {key: deepcopy(result.metadata[key])
                                        for key in ('darcy_forchheimer', 'sco2_nu')
                                        if key in result.metadata}
@@ -79,6 +85,7 @@ class RunResultsMixin:
             'mode': result.diagnostics.get('mode', '2d'),
             'converged': bool(getattr(result, 'converged', True)),
             'Q_W': result.Q_W,
+            'Q_unit': self._result_Q_unit,
             'dP_A': result.dP_A_Pa, 'dP_B': result.dP_B_Pa,
             'Q_A': result.residuals.get('Q_A'),
             'Q_B': result.residuals.get('Q_B'),
@@ -109,7 +116,6 @@ class RunResultsMixin:
         if getattr(self, '_result_3d', None) is not None:
             self._result_3d = None
         f = result.fields
-        self._tout_K_cache = (result.T_out_A_K, result.T_out_B_K)
         self._compute_results = {
             'metadata': deepcopy(result.metadata),
             'converged': result.converged,
@@ -233,6 +239,10 @@ class RunResultsMixin:
                 continue
             chip.setText(v)
             _dl = getattr(chip, '_delta_label', None)
+            if key == 'Q' and prev is not None and prev.get('Q_unit') != getattr(self, '_result_Q_unit', None):
+                if _dl is not None:
+                    _dl.setText('')
+                continue
             if _dl is None or prev is None or direction == 'neutral':
                 if _dl is not None:
                     _dl.setText('')
@@ -287,9 +297,9 @@ class RunResultsMixin:
         co = d.get('coeffs') or {}
         lines = [
             f"SJTU-TPMSHX 诊断摘要 ({d.get('mode', '2d').upper()})",
-            f"Q = {_f(d.get('Q_W'))} W · ΔP_A = {_f(d.get('dP_A'))} Pa"
+            f"Q = {_f(d.get('Q_W'))} {d.get('Q_unit', '?')} · ΔP_A = {_f(d.get('dP_A'))} Pa"
             f" · ΔP_B = {_f(d.get('dP_B'))} Pa",
-            f"能量对账: Q_A = {_f(d.get('Q_A'))} W · Q_B = {_f(d.get('Q_B'))} W"
+            f"能量对账: Q_A = {_f(d.get('Q_A'))} {d.get('Q_unit', '?')} · Q_B = {_f(d.get('Q_B'))} {d.get('Q_unit', '?')}"
             f" · 闭合 = {_f(abs(rel) * 100 if isinstance(rel, (int, float)) and rel == rel else None, '{:.2f}')} %",
             f"收敛: {'是' if d.get('converged', True) else '否（结果仅供参考）'}"
             f" · 包络: {'有效' if env else ('失效' if env is not None else '—')}"

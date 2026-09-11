@@ -21,9 +21,11 @@ class TabViewMixin:
 
     def _canvas_tab_availability(self):
         """Return availability from result state, independent of UI widgets."""
-        is_3d = (hasattr(self, 'combo_dim')
-                 and self.combo_dim.currentIndex() == 1)
-        has_2d = (not is_3d) and getattr(self, '_has_results_2d', False)
+        mode = getattr(self, '_diag_summary', {}).get('mode')
+        is_3d = (mode == '3d' if mode is not None else
+                 hasattr(self, 'combo_dim') and self.combo_dim.currentIndex() == 1)
+        has_2d = (getattr(self, '_rendered_3d_slices', False) if is_3d else
+                  getattr(self, '_has_results_2d', False))
         has_3d = is_3d and getattr(self, '_3d_view_ready', False)
         return {
             'layout': True,

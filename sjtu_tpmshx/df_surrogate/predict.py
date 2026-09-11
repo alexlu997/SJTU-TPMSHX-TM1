@@ -174,9 +174,9 @@ def sco2_cf_scale(tpms: str, L_mm: float, t_mm: float, eps_f: float,
 
 
 def _apply_override(tpms: str, L_mm: float, t_mm: float,
-                    cF_rbf: float) -> float:
+                    cF_rbf: float, *, overrides: bool | None = None) -> float:
     """Blend end-to-end calibrated cF over a local region; RBF elsewhere."""
-    if not _overrides_enabled():
+    if not (_overrides_enabled() if overrides is None else overrides):
         return cF_rbf
     from math import exp, log10
     best_w, best_cf = 0.0, cF_rbf
@@ -228,7 +228,7 @@ def _get_model(tpms_type: str, method: str | None = None):
 # ==================================================================
 
 def predict_K_cF(tpms_type: str, L_mm: float, t_mm: float,
-                 eps_f: float, method: str | None = None
+                 eps_f: float, method: str | None = None, *, overrides: bool | None = None
                  ) -> tuple[float, float]:
     """Return (K [m^2], c_F [1/m]) for this geometry.
 
@@ -242,7 +242,7 @@ def predict_K_cF(tpms_type: str, L_mm: float, t_mm: float,
     K, cF = _get_model(tpms_type, resolved).predict(L_mm, t_mm, eps_f)
     if resolved == SCO2_DF_METHOD:
         return K, cF
-    return K, _apply_override(tpms_type, L_mm, t_mm, cF)
+    return K, _apply_override(tpms_type, L_mm, t_mm, cF, overrides=overrides)
 
 
 def predict_K_cF_vec(tpms_type: str, L_mm: np.ndarray, t_mm: np.ndarray,
@@ -281,12 +281,13 @@ def predict_K_cF_vec(tpms_type: str, L_mm: np.ndarray, t_mm: np.ndarray,
 
 def predict_dP(tpms_type: str, L_mm: float, t_mm: float, eps_f: float,
                u: float, rho: float, mu: float,
-               L_channel_m: float, method: str | None = None) -> float:
+               L_channel_m: float, method: str | None = None, *,
+               overrides: bool | None = None) -> float:
     """Compute dP via incompressible D-F (backward-compatible interface).
 
     For compressible flow, use predict_dP_compressible instead.
     """
-    K, c_F = predict_K_cF(tpms_type, L_mm, t_mm, eps_f, method=method)
+    K, c_F = predict_K_cF(tpms_type, L_mm, t_mm, eps_f, method=method, overrides=overrides)
     return (mu * u / K + rho * c_F * u ** 2) * L_channel_m
 
 
@@ -294,7 +295,8 @@ def predict_dP_compressible(tpms_type: str, L_mm: float, t_mm: float,
                             eps_f: float, G: float, T: float,
                             P_in: float, mu: float,
                             L: float, strict: bool = False,
-                            method: str | None = None) -> float:
+                            method: str | None = None, *, overrides: bool | None = None,
+                            residual_correction: bool | None = None) -> float:
     """1D compressible isothermal D-F pressure drop.
 
     P_out^2 = P_in^2 - 2*R*T*(mu*G/K + c_F*G^2)*L
@@ -311,7 +313,7 @@ def predict_dP_compressible(tpms_type: str, L_mm: float, t_mm: float,
     mu : dynamic viscosity [Pa s]
     L : channel length [m]
     """
-    K, c_F = predict_K_cF(tpms_type, L_mm, t_mm, eps_f, method=method)
+    K, c_F = predict_K_cF(tpms_type, L_mm, t_mm, eps_f, method=method, overrides=overrides)
     C = mu * G / K + c_F * G ** 2
     P_out_sq = P_in ** 2 - 2.0 * R_AIR * T * C * L
     if P_out_sq <= 0:
@@ -333,7 +335,7 @@ def predict_dP_compressible(tpms_type: str, L_mm: float, t_mm: float,
         return float('nan') if strict else P_in
     dP_baseline = P_in - sqrt(P_out_sq)
 
-    if not _residual_correction_enabled():
+    if not (_residual_correction_enabled() if residual_correction is None else residual_correction):
         return dP_baseline
 
     # FIX (2026-06-24 audit): the residual corrector g() is fit against the RBF
@@ -347,7 +349,7 @@ def predict_dP_compressible(tpms_type: str, L_mm: float, t_mm: float,
 
     # Apply residual learning correction (rbf baseline only)
     from .residual_correction import get_corrector
-    from sjtu_tpmshx.solvers.tpms_props import geometry as tpms_geometry
+    from sjtu_tpmshx.models.tpms_props import geometry as tpms_geometry
     geom = tpms_geometry(tpms_type, L_mm, t_mm, 16.0)
     D_h = float(geom["D_h"])
     rho_in = P_in / (R_AIR * T)
@@ -371,7 +373,7 @@ def smoke_test() -> None:
     model.summary()
 
     # Quick Shanghai check
-    from sjtu_tpmshx.solvers.tpms_props import geometry as tpms_geometry
+    from sjtu_tpmshx.models.tpms_props import geometry as tpms_geometry
     g = tpms_geometry("Gyroid", 7.0, 0.6, 16.0)
     K, cF = predict_K_cF("Gyroid", 7.0, 0.6, g["epsilon"] / 2)
     print(f"\nL=7 t=0.6: K={K:.4e}, c_F={cF:.2f}")

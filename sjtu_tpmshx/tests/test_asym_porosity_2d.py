@@ -114,9 +114,9 @@ def test_delta_pos_pipeline_runs_and_conserves():
     scalars, and the A↔B energy balance still closes (split conserves)."""
     from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
     p0 = Pipeline2D(_air_air_delta_cfg(0.0))
-    raw0 = p0.run_solvers(p0.build_fields())
+    raw0 = p0.run_solvers(p0.build_fields()).metadata['diagnostics']
     pd = Pipeline2D(_air_air_delta_cfg(0.6))
-    rawd = pd.run_solvers(pd.build_fields())
+    rawd = pd.run_solvers(pd.build_fields()).metadata['diagnostics']
 
     assert np.isfinite(rawd['Q_total']) and rawd['Q_total'] > 0.0
     assert np.isfinite(rawd['dP_A']) and np.isfinite(rawd['dP_B'])

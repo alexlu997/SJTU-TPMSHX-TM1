@@ -1,0 +1,30 @@
+{
+  "node_id": "D10",
+  "status": "running",
+  "worker": "takeover-controller",
+  "worktree": "/private/tmp/sjtu-tm1-io-repair",
+  "branch": "codex/tm1/io-repair",
+  "base_sha": "1139a0b",
+  "head_sha": null,
+  "pr_url": "https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/7",
+  "merge_sha": null,
+  "contract_version": null,
+  "review": "evidence/Z00/independent-review.md",
+  "ci_runs": [
+    "34563788328",
+    "34563788330"
+  ],
+  "evidence": [
+    "evidence/D10/environment-plan.md",
+    "evidence/V20/files.md",
+    "evidence/H20/exports.md",
+    "acceptance_architecture.md",
+    "evidence/Z00/independent-review.md"
+  ],
+  "blocked_reason": null,
+  "unblocks_when": null,
+  "next_action": "Current code and requirement review/CI evidence is recorded. Complete final combined acceptance, authorized merge and post-merge verification before marking done. Preserve historical failures and per-mode limitations.",
+  "tested_candidate_sha": "0ba165768b66eba7b19f29b2e783f6afec78fb69",
+  "tested_base_sha": "c7f013869e7127b35ac0c305376c13b3a834131b",
+  "source_head_sha": null
+}

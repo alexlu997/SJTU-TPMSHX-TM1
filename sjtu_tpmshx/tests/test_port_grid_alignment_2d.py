@@ -8,6 +8,15 @@ from sjtu_tpmshx.domain.compute_config import ComputeConfig, PartialBCConfig
 from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver, _aligned_grid
 
 
+def _backend_fields(config):
+    """Reach the actual runtime closure using the prepared public grid."""
+    from sjtu_tpmshx.solvers.backends.python.two_d.execution import build_execution_inputs
+    from sjtu_tpmshx.solvers.backends.python.two_d.runtime import build_runtime
+    case = Pipeline2D(config).build_fields()
+    parsed, prepared = build_execution_inputs(case)
+    return parsed, build_runtime(parsed, prepared)
+
+
 def _case(directions):
     cfg = ComputeConfig()
     cfg.geometry.L_dom_m = 0.182
@@ -101,14 +110,13 @@ def test_counter_port_endpoints_do_not_create_unknown_fine_inflow():
                                          (0, 1), (2, 3)])
 def test_ports_align_on_physical_axis(directions):
     cfg = _case(directions)
-    pipe = Pipeline2D(cfg)
-    fields = pipe.build_fields()
+    parsed, fields = _backend_fields(cfg)
     expected = {'x': set(), 'y': set()}
     for bc in (cfg.bc_A, cfg.bc_B):
         expected['y' if bc.dir in (0, 1) else 'x'].update(_edges(bc))
     for axis, length in (('x', 0.182), ('y', 0.042)):
         widths = fields[f'energy_d{axis}']
-        assert len(widths) == pipe._parsed[f'N_{axis}'] == 40
+        assert len(widths) == parsed[f'N_{axis}'] == 40
         assert np.all(widths > 0)
         assert widths.sum() == pytest.approx(length, rel=1e-13)
         assert fields[f'_{axis}_breaks'] == expected[axis]
@@ -119,7 +127,7 @@ def test_ports_align_on_physical_axis(directions):
 
 def test_default_direction_partial_grid_is_unchanged():
     cfg = _case((0, 2))
-    fields = Pipeline2D(cfg).build_fields()
+    _, fields = _backend_fields(cfg)
     np.testing.assert_array_equal(fields['energy_dx'],
                                   _aligned_grid(40, 0.182, _edges(cfg.bc_B)))
     np.testing.assert_array_equal(fields['energy_dy'],
@@ -134,7 +142,7 @@ def test_full_faces_keep_wall_refinement(directions):
     cfg.bc_A = PartialBCConfig(dir=directions[0])
     cfg.bc_B = PartialBCConfig(dir=directions[1])
     cfg.validate()
-    fields = Pipeline2D(cfg).build_fields()
+    _, fields = _backend_fields(cfg)
     dx, dy, _, _ = build_master_refined_grid(
         0.182, 0.042, 40, 40, n_refine=8, first_cell=0.02e-3, growth=1.8)
     assert fields['_x_breaks'] == fields['_y_breaks'] == set()
@@ -148,7 +156,7 @@ def test_near_wall_break_filter_is_preserved(inset):
     for bc, length in ((cfg.bc_A, 0.182), (cfg.bc_B, 0.042)):
         bc.in_ctr = bc.out_ctr = length / 2
         bc.in_w = bc.out_w = length * (1 - 2 * inset)
-    fields = Pipeline2D(cfg.validate()).build_fields()
+    _, fields = _backend_fields(cfg.validate())
     for axis, bc in (('x', cfg.bc_A), ('y', cfg.bc_B)):
         expected = set(_edges(bc)) if inset > 0.001 else set()
         assert fields[f'_{axis}_breaks'] == expected
@@ -182,8 +190,7 @@ def test_simple_profiles_follow_final_shared_coordinates(monkeypatch, directions
 
     monkeypatch.setattr(SIMPLESolver, 'solve', capture)
     cfg = _case(directions)
-    pipe = Pipeline2D(cfg)
-    fields = pipe.build_fields()
+    parsed, fields = _backend_fields(cfg)
     x = np.cumsum(fields['energy_dx']) - fields['energy_dx'] / 2
     y = np.cumsum(fields['energy_dy']) - fields['energy_dy'] / 2
     rho = 1000. + 10. * x[:, None] + y[None, :]
@@ -192,7 +199,7 @@ def test_simple_profiles_follow_final_shared_coordinates(monkeypatch, directions
     for side in ('A', 'B'):
         bc = getattr(cfg, f'bc_{side}')
         with pytest.raises(BeforeIteration):
-            fields['_run_simple'](pipe._parsed[f'cfg{side}'], rho, mu,
+            fields['_run_simple'](parsed[f'cfg{side}'], rho, mu,
                                   300.0, 0.2, side, fluid_type='incompressible',
                                   fluid_name='water', T_field_real=temperature)
         solver = captured[-1]

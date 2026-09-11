@@ -47,15 +47,18 @@ def test_mean_threads_solve_Lx_and_converges():
 
 @pytest.mark.parametrize('side,value', [(i, v) for i in range(3) for v in (np.nan, np.inf)])
 def test_forward_rejects_nonfinite_external_seed_before_properties(monkeypatch, side, value):
-    module = importlib.import_module('sjtu_tpmshx.design.forward')
+    module = importlib.import_module('sjtu_tpmshx.models.quick_design')
+    preparation = importlib.import_module('sjtu_tpmshx.preprocess.app_modes.quick_design')
+    execution = importlib.import_module('sjtu_tpmshx.solvers.backends.python.quick_design.execution')
     seed = [np.full((2, 2, 1), 400.) for _ in range(3)]
     seed[side][0, 0, 0] = value
 
     def unexpected(*args, **kwargs):
         pytest.fail('bad external seed reached geometry/properties/thermal solve')
 
-    for name in ('tpms_geometry', '_hvol', 'solve_full_domain_3d'):
-        monkeypatch.setattr(module, name, unexpected)
+    monkeypatch.setattr(preparation, 'tpms_geometry', unexpected)
+    monkeypatch.setattr(module, '_hvol', unexpected)
+    monkeypatch.setattr(execution, 'solve_full_domain_3d', unexpected)
     case = _case(100.)
     case.T_in_h = 600.
     with pytest.raises(ValueError, match='design external warm start'):
@@ -66,13 +69,15 @@ def test_forward_rejects_nonfinite_external_seed_before_properties(monkeypatch, 
     ('const', 1, 0, np.nan), ('mean', 1, 2, np.inf), ('mean', 2, 1, np.nan),
 ])
 def test_forward_rejects_nonfinite_thermal_return(monkeypatch, model, bad_pass, side, value):
-    module = importlib.import_module('sjtu_tpmshx.design.forward')
+    module = importlib.import_module('sjtu_tpmshx.models.quick_design')
+    preparation = importlib.import_module('sjtu_tpmshx.preprocess.app_modes.quick_design')
+    execution = importlib.import_module('sjtu_tpmshx.solvers.backends.python.quick_design.execution')
     # Only geometry cost and thermal output are stubbed; _hvol/air properties
     # and const/mean dispatch are real. This is not a natural PDE divergence.
-    monkeypatch.setattr(module, 'tpms_geometry', lambda *a, **k: {
+    monkeypatch.setattr(preparation, 'tpms_geometry', lambda *a, **k: {
         'epsilon': .6, 'epsilon_A': .3, 'A_0': 1000., 'D_h': .002})
     calls, outlets, properties = [], [], []
-    original_props, original_outlet = module.fluid_props, module._cold_outlet
+    original_props, original_outlet = module.fluid_props, execution._cold_outlet
 
     def props(*args):
         properties.append(args)
@@ -87,7 +92,7 @@ def test_forward_rejects_nonfinite_thermal_return(monkeypatch, model, bad_pass, 
         calls.append(fields)
         if len(calls) == bad_pass:
             fields[side][0, 0, 0] = value
-        return fields
+        return (*fields, {'converged': True})
 
     def outlet(*args):
         outlets.append(len(calls))
@@ -97,13 +102,14 @@ def test_forward_rejects_nonfinite_thermal_return(monkeypatch, model, bad_pass, 
         pytest.fail('bad thermal return reached final duty/pressure reporting')
 
     monkeypatch.setattr(module, 'fluid_props', props)
-    monkeypatch.setattr(module, 'solve_full_domain_3d', thermal)
-    monkeypatch.setattr(module, '_cold_outlet', outlet)
-    monkeypatch.setattr(module, 'dP_fracs', unexpected_dp)
+    monkeypatch.setattr(execution, 'solve_full_domain_3d', thermal)
+    monkeypatch.setattr(execution, '_cold_outlet', outlet)
+    monkeypatch.setattr(module, '_dp_fractions', unexpected_dp)
     case = _case(100.)
     case.T_in_h = 600.
     with pytest.raises(ValueError, match='design thermal return'):
         forward(case, 'Diamond', 7., .5, .084, .084, prop_model=model)
     assert len(calls) == bad_pass
     assert outlets == list(range(1, bad_pass))
-    assert len(properties) == 2 * bad_pass
+    # Two fixed inlet-pressure states are prepared before thermal passes.
+    assert len(properties) == 2 + 2 * bad_pass

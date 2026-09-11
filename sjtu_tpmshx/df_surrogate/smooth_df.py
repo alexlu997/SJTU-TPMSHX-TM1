@@ -43,7 +43,7 @@ from scipy.interpolate import RBFInterpolator
 
 _THIS = Path(__file__).resolve()
 _PROJECT_ROOT = _THIS.parent.parent          # .../sjtu_tpmshx
-from sjtu_tpmshx.solvers.tpms_props import geometry as tpms_geometry  # noqa: E402
+from sjtu_tpmshx.models.tpms_props import geometry as tpms_geometry  # noqa: E402
 from sjtu_tpmshx.logutil import get_logger  # noqa: E402
 
 _log = get_logger(__name__)

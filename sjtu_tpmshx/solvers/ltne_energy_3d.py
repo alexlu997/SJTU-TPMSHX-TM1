@@ -516,7 +516,7 @@ def _model_h_balance(temperatures, Ts, masses, coefficients, directions, inlets,
                   full_volume_m3=float(volume.sum()),
                   mass_source='completed SIMPLE raw faces before capacity balance/MAC',
                   thermal_state='last returned temperatures; nonlinear model h and temperature SOU',
-                  sides={})
+                  sides={}, _native_faces={})
     residuals = []
     exchange_fields = []
     for side, T, mass, coeff, direction, Tin, mask, K, hv, eps, source in zip(
@@ -527,6 +527,7 @@ def _model_h_balance(temperatures, Ts, masses, coefficients, directions, inlets,
             T, Ts, *zero_faces, eps, K, zeros, hv, dx, dy, dz, direction, Tin,
             mask, source, model_mass=mass, model_cp=coeff, return_field=True)
         faces = {}
+        native_faces = {}
         for axis in range(3):
             for end, sign in ((0, -1), (-1, 1)):
                 face_T = np.take(T, end, axis=axis)
@@ -537,6 +538,7 @@ def _model_h_balance(temperatures, Ts, masses, coefficients, directions, inlets,
                 up_T = np.where(patch & inflow, Tin if inlet else face_T, face_T)
                 energy = sign * (np.take(capacity[axis], end, axis=axis) * up_T
                                  + np.take(deferred[axis], end, axis=axis))
+                native_faces['xyz'[axis] + ('-' if end == 0 else '+')] = energy.copy()
                 unknown = inflow & ~patch
                 faces['xyz'[axis] + ('-' if end == 0 else '+')] = dict(
                     outward_mass_kg_s=float(outward_mass.sum()),
@@ -544,6 +546,7 @@ def _model_h_balance(temperatures, Ts, masses, coefficients, directions, inlets,
                     non_inlet_inward_mass_kg_s=float(-outward_mass[unknown].sum()),
                     unknown_inflow_count=int(unknown.sum()),
                     inlet_reverse_outward_mass_kg_s=float(outward_mass[patch & ~inflow].sum()))
+        result['_native_faces'][side] = native_faces
         complete = all(f['unknown_inflow_count'] == 0 for f in faces.values())
         convective_inward = -sum(f['outward_model_h_W'] for f in faces.values())
         diffusion_inward = float(inlet_diffusion.sum())
@@ -1009,6 +1012,7 @@ def solve_full_domain_3d(L, H, D, Nx, Ny, Nz,
             (K_ffA_arr, K_ffB_arr), K_ss_arr, (h_vA_arr, h_vB_arr),
             (eps_fA_arr, eps_fB_arr), (mms_S_A_arr, mms_S_B_arr), mms_S_s_arr,
             dx_arr, dy_arr, dz_arr)
+        info['_native_model_h'] = info['model_h_balance'].pop('_native_faces')
     if return_info:
         return Ta, Tb, Ts, info
     return Ta, Tb, Ts

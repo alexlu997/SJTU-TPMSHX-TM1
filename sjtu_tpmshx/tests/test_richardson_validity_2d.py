@@ -8,7 +8,7 @@ from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
 from sjtu_tpmshx.domain.compute_config import PartialBCConfig
 from sjtu_tpmshx.pipelines import solve_2d
 from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver, _port_fractions_1d
-from sjtu_tpmshx.tests.test_port_grid_alignment_2d import _case, _expected_profile
+from sjtu_tpmshx.tests.test_port_grid_alignment_2d import _case, _expected_profile, _backend_fields
 
 
 def _arguments(monkeypatch, directions=(1, 3), full=False):
@@ -17,8 +17,7 @@ def _arguments(monkeypatch, directions=(1, 3), full=False):
         cfg.bc_A = PartialBCConfig(dir=directions[0])
         cfg.bc_B = PartialBCConfig(dir=directions[1])
         cfg.validate()
-    pipe = Pipeline2D(cfg)
-    fields = pipe.build_fields()
+    parsed, fields = _backend_fields(cfg)
     captured = []
 
     class BeforeIteration(Exception):
@@ -32,7 +31,7 @@ def _arguments(monkeypatch, directions=(1, 3), full=False):
         patch.setattr(SIMPLESolver, 'solve', capture)
         for side in ('A', 'B'):
             with pytest.raises(BeforeIteration):
-                fields['_run_simple'](pipe._parsed[f'cfg{side}'], 1., 1e-5,
+                fields['_run_simple'](parsed[f'cfg{side}'], 1., 1e-5,
                                       400., 1., side, fluid_type='incompressible')
     dx, dy = fields['energy_dx'], fields['energy_dy']
     shape = len(dx), len(dy)
@@ -47,7 +46,7 @@ def _arguments(monkeypatch, directions=(1, 3), full=False):
         T_inA=400., T_inB=300., P_inA_val=101325., P_inB_val=101325., eps=.7,
         za=None, window=SimpleNamespace(_h_vA=1., _h_vB=1., _K_ffA=1.,
                                        _K_ffB=1., _K_ss=1.),
-        _pA=props, _pB=props, cfgA=pipe._parsed['cfgA'], cfgB=pipe._parsed['cfgB'],
+        _pA=props, _pB=props, cfgA=parsed['cfgA'], cfgB=parsed['cfgB'],
         u_A=1., u_B=1., warnings_list=[], h_vA_coarse=1., h_vB_coarse=1.)
     return cfg, args
 

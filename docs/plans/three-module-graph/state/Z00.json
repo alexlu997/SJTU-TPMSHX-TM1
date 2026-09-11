@@ -1,0 +1,36 @@
+{
+  "node_id": "Z00",
+  "status": "blocked",
+  "worker": "takeover-controller",
+  "worktree": "/private/tmp/sjtu-tm1-p40-offline-repair",
+  "branch": "codex/tm1/p40-offline-repair",
+  "base_sha": null,
+  "head_sha": null,
+  "pr_url": "https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/7",
+  "merge_sha": null,
+  "contract_version": null,
+  "review": "evidence/Z00/independent-review.md",
+  "ci_runs": [
+    "34541721546",
+    "34541721586",
+    "34549895039",
+    "34549895031",
+    "34559970329",
+    "34559970376",
+    "34562270719",
+    "34562270740",
+    "34563788328",
+    "34563788330"
+  ],
+  "evidence": [
+    "acceptance_architecture.md",
+    "evidence/real-experiments/fixed166-comparison.json",
+    "evidence/Z00/independent-review.md"
+  ],
+  "blocked_reason": "Code candidate 0ba1657 passes current matrix and three-module CI, independent implementation/reference review, approved screening regressions and fixed-166 migration comparison. Historical failures and experimental accuracy limitations remain preserved. Requirement-by-requirement final combined acceptance and merge/post-merge verification are not complete; PR #7 remains draft and unmerged.",
+  "unblocks_when": "B40 individual root-cause and acceptance requirements are resolved without blanket waiver, and full independent review, current-head CI and merge verification all pass.",
+  "next_action": "Current code and requirement review/CI evidence is recorded. Complete final combined acceptance, authorized merge and post-merge verification before marking done. Preserve historical failures and per-mode limitations.",
+  "tested_candidate_sha": "0ba165768b66eba7b19f29b2e783f6afec78fb69",
+  "tested_base_sha": "c7f013869e7127b35ac0c305376c13b3a834131b",
+  "source_head_sha": "797e4ec5c10f71a746997be3f1c0b5ed9916a26e"
+}

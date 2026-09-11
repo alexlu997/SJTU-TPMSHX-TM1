@@ -180,6 +180,18 @@ def apply_correction(tpms: str, fluid: str, L_mm: Any, t_mm: Any,
     return K_out, cF_out, metadata
 
 
+def apply_prepared_correction(K_base, cF_base, metadata):
+    """Apply already resolved scalar factors to the supplied physical fields."""
+    sK, sF = metadata['scale_K'], metadata['scale_F']
+    if not all(np.isscalar(v) and np.isfinite(v) and v > 0 for v in (sK, sF)):
+        raise ValueError('prepared experimental correction requires positive finite scalar factors')
+    K0, cF0 = np.asarray(K_base, dtype=float), np.asarray(cF_base, dtype=float)
+    K, cF = K0 * sK, cF0 * sF
+    info = {**metadata, 'base_K': _summary(K0), 'base_cF': _summary(cF0),
+            'applied_K': _summary(K), 'applied_cF': _summary(cF)}
+    return K, cF, info
+
+
 def cfd_metadata(K: Any, cF: Any) -> dict[str, Any]:
     """Audit metadata for the unchanged production CFD mode."""
     return {

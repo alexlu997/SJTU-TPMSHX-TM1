@@ -52,6 +52,7 @@ def detail_rows(results) -> list:
         冷侧相对压损_pct=round(pc["dP_cold_frac"] * 100, 3),
         换热量_kW=round(pc["Q_W"] / 1e3, 3),
         Re热=round(pc["Re_hot"]), Re冷=round(pc["Re_cold"]),
+        数值收敛=(pc.get('run_status') or {}).get('converged', 'unknown'),
         警告='\n'.join(pc.get('warnings', [])))
         for d in results if d.feasible for pc in d.percase]
 

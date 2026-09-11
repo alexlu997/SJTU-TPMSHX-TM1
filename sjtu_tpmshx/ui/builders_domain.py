@@ -378,21 +378,9 @@ def build_page_domain(window):
     _res_ab_row(window, rg, 2, "Δ<i>P</i><sub>total</sub> [Pa]",
                 '_r_dP_A', '_r_dP_B')
     window._r_Q     = res_row(window, rg, 3, "<i>Q</i><sub>total</sub> [W/m]", 0)
-    # Document which Q metric is shown so users don't conflate it with the
-    # other diagnostics in the result dict (Q_solid_B, Q_sA, Q_sB,
-    # Q_interior). pipelines/run_stack_3d._run_3d_stack sets primary Q =
-    # mean(Q_enthalpy_A, Q_enthalpy_B) when both fluids solve, else
-    # Q_enthalpy_A alone.
-    try:
-        window._r_Q.setToolTip(
-            "Primary heat transfer rate.\n"
-            "Q = 0.5 · (Q_enthalpy_A + Q_enthalpy_B) when both fluids solve\n"
-            "  = |m_dot · cp · (T_in − T_out)| per side\n"
-            "  = Q_enthalpy_A alone when Fluid B is frozen.\n"
-            "Diagnostic metrics (Q_solid_B, Q_sA/Q_sB, Q_interior) are "
-            "exported in the result dict but NOT shown here.")
-    except Exception:
-        pass
+    window._lbl_Q_unit = rg.itemAtPosition(3, 0).widget()
+    window._r_Q.setToolTip(
+        '换热量来自本次运行的工程指标。二维按单位深度展示（W/m），三维展示总量（W）。')
     lay.addWidget(res_frame, 0)
     window._ia_sections['results'] = res_frame
 

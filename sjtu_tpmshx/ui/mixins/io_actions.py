@@ -114,7 +114,7 @@ class IOActionsMixin:
                 status = {key: res_2d.get(key) for key in
                           ('converged', 'envelope_valid', 'outer_converged',
                            'warnings', 'extrap_reasons', 'metadata')}
-                rows.append(["Q [W]", f"{res_2d['Q_total']:.4f}"])
+                rows.append(["Q [W/m]", f"{res_2d['Q_total']:.4f}"])
                 rows.append(["dP_A [Pa]", f"{res_2d['dP_A']:.2f}"])
                 rows.append(["dP_B [Pa]", f"{res_2d['dP_B']:.2f}"])
                 Ta = res_2d.get('Ta')

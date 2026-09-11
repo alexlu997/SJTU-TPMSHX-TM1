@@ -37,8 +37,8 @@ def test_3d_evaluator_keeps_b_side_frozen():
     """DELIBERATE (BO throughput): the var-rho outer loop re-solves SIMPLE-A
     only; fluid B stays the cold solve (frozen-B tier, core/evaluators
     rationale at the rho_B_ltne block). The pipeline reseeds B too."""
-    import sjtu_tpmshx.core.evaluators as ev
-    src = inspect.getsource(ev.evaluate_3d)
+    from sjtu_tpmshx.solvers.backends.python.screening import three_d as execution
+    src = inspect.getsource(execution.run_case)
     assert 're-solving SIMPLE A' in src, (
         "lost the A-side re-solve marker — if the loop structure changed, "
         "re-read the frozen-B rationale before updating this contract")
@@ -53,7 +53,7 @@ def test_objective_shaping_is_evaluator_only():
     are OPTIMIZER objective shaping. The physics pipeline must stay free of
     them (a validation number must never contain a penalty term)."""
     import sjtu_tpmshx.optimization.evaluator as ev2d
-    import sjtu_tpmshx.pipelines.stages_2d as st2d
+    import sjtu_tpmshx.solvers.backends.python.two_d.runtime as st2d
     src_ev = inspect.getsource(ev2d)
     src_pipe = inspect.getsource(st2d)
     for token in ('penalty_enabled', 'dp_cap_pa'):
@@ -81,9 +81,9 @@ def test_2d_choke_policy_evaluator_raises_pipeline_clips():
     has never had a choke guard and CLIPS the seed instead (ledger O1).
     The evaluator being stricter than its pipeline is accepted; the pipeline
     growing a gate is DECISIONS D2 territory."""
-    import sjtu_tpmshx.optimization.evaluator as ev2d
-    import sjtu_tpmshx.pipelines.stages_2d as st2d
-    src_ev = inspect.getsource(ev2d)
+    import sjtu_tpmshx.preprocess.app_modes.screening_2d as prep2d
+    import sjtu_tpmshx.solvers.backends.python.two_d.runtime as st2d
+    src_ev = inspect.getsource(prep2d)
     src_pipe = inspect.getsource(st2d)
     assert 'ChokedFlowError' in src_ev
     # The word appears in a stages_2d COMMENT (the ledger-O1 rationale), so
@@ -115,14 +115,14 @@ def test_g_reference_density_convention_post_d3c():
     the convention: growing a rho_inlet_ref knob in 3D means re-opening the
     golden_3d + Shanghai re-validation question, consciously."""
     import sjtu_tpmshx.core.evaluators as ev3d
-    import sjtu_tpmshx.optimization.evaluator as ev2d
-    import sjtu_tpmshx.pipelines.stages_2d as st2d
+    import sjtu_tpmshx.solvers.backends.python.two_d.runtime as st2d
     from sjtu_tpmshx.solvers.simple_solver_3d import SIMPLESolver3D
 
     assert 'rho_inlet_ref' in inspect.getsource(st2d), (
         "2D pipeline stopped passing rho_inlet_ref — the C8-era ratchet "
         "guard is gone; that is a regression, not a D3 change")
-    assert 'rho_inlet_ref' in inspect.getsource(ev2d), (
+    from sjtu_tpmshx.preprocess.app_modes import screening_2d
+    assert 'rho_inlet_ref' in inspect.getsource(screening_2d), (
         "2D evaluator stopped passing rho_inlet_ref — D3(c) alignment "
         "regressed; frozen values were re-baselined WITH it (iter 41)")
     assert 'rho_inlet_ref' not in inspect.getsource(ev3d), (

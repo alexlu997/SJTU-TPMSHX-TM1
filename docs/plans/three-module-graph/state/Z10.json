@@ -1,0 +1,23 @@
+{
+  "node_id": "Z10",
+  "status": "running",
+  "worker": "takeover-controller",
+  "worktree": "/private/tmp/sjtu-tm1-p40-offline-repair",
+  "branch": "codex/tm1/p40-offline-repair",
+  "base_sha": null,
+  "head_sha": null,
+  "pr_url": null,
+  "merge_sha": null,
+  "contract_version": null,
+  "review": null,
+  "ci_runs": [],
+  "evidence": [
+    "acceptance_document.md"
+  ],
+  "blocked_reason": null,
+  "unblocks_when": null,
+  "next_action": "Track V0.1 capability gaps without claiming M-B completion; M-A is still unaccepted.",
+  "tested_candidate_sha": null,
+  "tested_base_sha": null,
+  "source_head_sha": null
+}
