@@ -7,6 +7,7 @@ The T-div-mass-cp field remains a constant-cp auxiliary, not an h(T) defect.
 
 import argparse
 import json
+import runpy
 from pathlib import Path
 from types import SimpleNamespace
 import numpy as np
@@ -23,6 +24,7 @@ directories = args.directories or [
 ]
 assert len(directories) == 2, "supply uniform and nonuniform captures"
 out = {}
+solid_residual = runpy.run_path(str(Path(__file__).with_name('reduce_history.py')))['solid_residual']
 for case, p in zip(("uniform", "nonuniform"), directories):
     raw = np.load(p / "native.npz")
     meta = json.loads((p / "capture.json").read_text())
@@ -90,6 +92,15 @@ for case, p in zip(("uniform", "nonuniform"), directories):
                 )
             },
         )
+    volume = a['dx_arr'][:, None] * a['dy_arr'][None, :]
+    source_s = sum(a['h_v'+side+'_arr']*(a[temp]-a['Ts'])*volume
+                   for side, temp in [('A', 'Ta'), ('B', 'Tb')])
+    residual_s = solid_residual(a['Ts'][:, :, None], a['K_ss_arr'][:, :, None],
+                                source_s[:, :, None], [a['dx_arr'], a['dy_arr'], np.ones(1)])
+    scale = max(abs(row['A']['source_W_per_m']), abs(row['B']['source_W_per_m']), 1.)
+    row['solid'] = dict(signed_residual_W_per_m=float(residual_s.sum()),
+                        l1_residual_W_per_m=float(abs(residual_s).sum()),
+                        relative_l1=float(abs(residual_s).sum()) / scale)
     row["source_sha"] = meta["source_sha"]
     row["energy_formulation"] = "air_integral_enthalpy" if args.enthalpy else "constant_inlet_cp"
     row["capture"] = str(p)
