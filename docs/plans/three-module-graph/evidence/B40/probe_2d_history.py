@@ -17,6 +17,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--case', choices=('uniform', 'nonuniform'), required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--engineering', action='store_true')
     args = parser.parse_args()
     assert Path(app.__file__).resolve().is_relative_to(Path.cwd().resolve())
     args.output.mkdir(parents=True, exist_ok=False)
@@ -39,7 +40,27 @@ def main():
             for i, item in enumerate(value):
                 save(prefix + '/' + str(i), item)
 
-    thermal_code = app.solve_full_domain.__code__
+    if args.engineering:
+        from sjtu_tpmshx.solvers.backends.python.screening import two_d as backend
+        original_build = backend.build_flow
+        original_thermal = backend.solve_full_domain
+
+        def build(prepared):
+            solver = original_build(prepared)
+            solver.convergence_mode = 'f2'
+            return solver
+
+        def thermal(*pos, **kw):
+            kw['q_rel_tol'] = 1e-4
+            return original_thermal(*pos, **kw)
+
+        backend.build_flow = build
+        backend.solve_full_domain = thermal
+        thermal_code = original_thermal.__code__
+        backend_code = backend.run_case.__code__
+    else:
+        thermal_code = app.solve_full_domain.__code__
+        backend_code = None
     evaluator_code = app.evaluate_design.__code__
 
     def observe(frame, event, result):
@@ -47,11 +68,15 @@ def main():
             save('thermal/' + event, dict(frame.f_locals))
             if event == 'call':
                 for side in ('sA', 'sB'):
-                    save('flow/' + side, vars(frame.f_back.f_locals[side]))
+                    caller = frame.f_back.f_back if args.engineering else frame.f_back
+                    save('flow/' + side, vars(caller.f_locals[side]))
+        elif frame.f_code is backend_code and event == 'return':
+            save('backend/return', dict(frame.f_locals))
         elif frame.f_code is evaluator_code and event == 'return':
             save('evaluator/return', dict(frame.f_locals))
             save('outputs', result)
 
+    save('engineering', args.engineering)
     save('source_sha', sha)
     save('source_file', app.__file__)
     save('interpreter', sys.executable)
@@ -60,13 +85,20 @@ def main():
     x = None if fc is not None else pins._X_NONUNIF.copy()
     sys.setprofile(observe)
     try:
-        values = app.evaluate_design(x, dict(pins._FAST_CFG), fc=fc)
+        config = dict(pins._FAST_CFG)
+        if args.engineering:
+            config.update(max_iter_simple=800, max_iter_energy=2000)
+        values = app.evaluate_design(x, config, fc=fc)
     finally:
         sys.setprofile(None)
+        if args.engineering:
+            backend.build_flow = original_build
+            backend.solve_full_domain = original_thermal
         np.savez(args.output / 'native.npz', **arrays)
         (args.output / 'capture.json').write_text(json.dumps(scalars, indent=2) + '\n')
     for key in ('thermal/return/Ta', 'flow/sA/P', 'flow/sB/P',
-                'evaluator/return/arrays/L_field'):
+                ('backend/return/arrays/eps_arr' if args.engineering else
+                 'evaluator/return/arrays/L_field')):
         assert key in arrays, f'missing native evidence: {key}'
     summary = dict(source_sha=sha, case=args.case, outputs=list(values),
                    units=['W/m', 'Pa', 'kg/m'], physical_validation='unestablished')

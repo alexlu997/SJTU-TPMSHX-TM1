@@ -21,11 +21,12 @@
     "evidence/B40/current-solid-diagnostic.md",
     "evidence/B40/method-verification.md",
     "evidence/B40/reference-disposition-proposal.md",
-    "evidence/B40/2d-boundary-diagnostic.md"
+    "evidence/B40/2d-boundary-diagnostic.md",
+    "evidence/B40/native-2d-capacity.md"
   ],
-  "blocked_reason": "Original 4/4 failures and original-budget 3D nonconvergence are preserved. Four reference updates were explicitly approved and pass. Offline 2D boundary accounting now exposes a 1705\u20132325 W/m boundary-energy gap, explained by the temperature-form capacity-flux divergence term; this has not passed boundary conservation.",
+  "blocked_reason": "Historical failures and approved references are preserved. The prior 23\u201329% diagnostic is thermal capacity accounting, not native SIMPLE mass accounting. Native original-cp boundary residuals are 0.60\u20131.13% after independently verified F2/thermal convergence, and the 2D transport handoff/formulation discrepancy remains unresolved.",
   "unblocks_when": "Under the user-approved 2026-09-11 scope, historical attribution, numerical regression, convergence, mass and boundary-energy evidence must be complete. No whole-exchanger experiment for these four cases is required or claimed. Preserve original failures and approved reference history; do not equate a corrected equation residual with boundary energy conservation.",
-  "next_action": "Trace and remedy the 2D capacity-flux mapping/transport conservation gap, independently validate the resulting evidence, then close B40 if the approved criteria are met. Continue M-A and migration accuracy regression for existing real experimental conditions.",
+  "next_action": "Resolve the 2D native-mass versus thermal-capacity transport discrepancy without silently changing the intended cp model, validate the remedy and retain all prior observations; then close B40 if approved criteria are met. Continue M-A and existing-real-experiment migration accuracy regression.",
   "tested_candidate_sha": null,
   "tested_base_sha": null,
   "source_head_sha": null

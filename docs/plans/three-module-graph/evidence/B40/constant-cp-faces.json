@@ -1,0 +1,98 @@
+{
+  "uniform": {
+    "converged": true,
+    "trace": [
+      {
+        "iterations": 500,
+        "Q_W_per_m": 8032.335649484354,
+        "relative_delta_Q": 0.0066376179560265645,
+        "max_chunk_delta_T_K": 0.2328473073890791,
+        "sweep_delta_T_K": 9.663381206337363e-11
+      },
+      {
+        "iterations": 1000,
+        "Q_W_per_m": 8032.3356494823165,
+        "relative_delta_Q": 2.5363334164237284e-13,
+        "max_chunk_delta_T_K": 8.890310709830374e-11,
+        "sweep_delta_T_K": 8.890310709830374e-11
+      }
+    ],
+    "source_capture": ".cache/b40-trace/current-2d-uniform-engineering-v2",
+    "cp_model": "original per-side constant inlet cp; h=cp*T",
+    "initialization": "saved engineering temperatures",
+    "scope": "independent thermal experiment on fixed native flow; no production or reference update",
+    "balance": {
+      "A": {
+        "residual_sum_W_per_m": -1.335106038918843e-08,
+        "residual_max_abs_W_per_m": 1.5104824058198574e-09,
+        "exchange_W_per_m": -8032.3356494517375,
+        "Q_advective_W_per_m": 8030.379705915257,
+        "inlet_conduction_W_per_m": 1.9559435231321431,
+        "physical_boundary_complete": true,
+        "relative_boundary_residual": 1.6621641539717942e-12
+      },
+      "B": {
+        "residual_sum_W_per_m": 2.326464481131052e-10,
+        "residual_max_abs_W_per_m": 1.4885870314174099e-12,
+        "exchange_W_per_m": 8032.3356494823165,
+        "Q_advective_W_per_m": -8030.548495974828,
+        "inlet_conduction_W_per_m": -1.7871535072420888,
+        "physical_boundary_complete": true,
+        "relative_boundary_residual": 2.896373586281834e-14
+      }
+    },
+    "solid": {
+      "solid_residual_sum_W_per_m": -3.0578591436736247e-08,
+      "solid_residual_max_abs_W_per_m": 2.955418132444265e-10,
+      "solid_imbalance_rel": 3.806936459223667e-12
+    }
+  },
+  "nonuniform": {
+    "converged": true,
+    "trace": [
+      {
+        "iterations": 500,
+        "Q_W_per_m": 7519.101440027539,
+        "relative_delta_Q": 0.005572434558946098,
+        "max_chunk_delta_T_K": 0.23438675298388034,
+        "sweep_delta_T_K": 9.652012522565201e-11
+      },
+      {
+        "iterations": 1000,
+        "Q_W_per_m": 7519.101440023398,
+        "relative_delta_Q": 5.507213076193392e-13,
+        "max_chunk_delta_T_K": 8.714096111361869e-11,
+        "sweep_delta_T_K": 8.714096111361869e-11
+      }
+    ],
+    "source_capture": ".cache/b40-trace/current-2d-nonuniform-engineering",
+    "cp_model": "original per-side constant inlet cp; h=cp*T",
+    "initialization": "saved engineering temperatures",
+    "scope": "independent thermal experiment on fixed native flow; no production or reference update",
+    "balance": {
+      "A": {
+        "residual_sum_W_per_m": -2.5578254278513235e-08,
+        "residual_max_abs_W_per_m": 3.0111202420357586e-10,
+        "exchange_W_per_m": -7519.1014399590995,
+        "Q_advective_W_per_m": 7517.141015252848,
+        "inlet_conduction_W_per_m": 1.9604246806718701,
+        "physical_boundary_complete": true,
+        "relative_boundary_residual": 3.4017700762196883e-12
+      },
+      "B": {
+        "residual_sum_W_per_m": -2.177511140150079e-10,
+        "residual_max_abs_W_per_m": 2.7045032879868813e-12,
+        "exchange_W_per_m": 7519.101440023398,
+        "Q_advective_W_per_m": -7517.372286576283,
+        "inlet_conduction_W_per_m": -1.7291534473636512,
+        "physical_boundary_complete": true,
+        "relative_boundary_residual": 2.895972554060001e-14
+      }
+    },
+    "solid": {
+      "solid_residual_sum_W_per_m": -6.429765320170588e-08,
+      "solid_residual_max_abs_W_per_m": 5.546478831774948e-10,
+      "solid_imbalance_rel": 8.551241623029068e-12
+    }
+  }
+}

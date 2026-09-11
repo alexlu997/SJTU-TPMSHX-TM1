@@ -1,4 +1,8 @@
-# 2D boundary diagnostic: unresolved conservation gap
+# 2D boundary diagnostic: thermal-capacity accounting
+
+Interpretation supplement: see `native-2d-capacity.md`. The 23–29% below is
+the thermal kernel capacity-flux gap; it is not the native SIMPLE mass
+boundary gap. The separately measured native residual is about 0.6–1.1%.
 
 2026-09-11. User-authorized B40 closure scope is historical attribution,
 numerical regression, convergence, mass and boundary-energy verification.
