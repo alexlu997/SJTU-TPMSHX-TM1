@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.pipelines import solve_2d
+from sjtu_tpmshx.solvers.backends.python.two_d import coupling as solve_2d
 from sjtu_tpmshx.tests.test_2d_warning_callers import _prepare
 
 
@@ -49,7 +49,7 @@ def test_nonfinite_flowing_temperature_is_an_error():
 
 
 @pytest.mark.parametrize('mode', ['model_h', 'true_h', 'offset', 'zones'])
-def test_pipeline_uses_last_main_raw_and_mass_then_transcribes_scalars(monkeypatch, mode):
+def test_backend_uses_last_main_raw_and_mass_for_reported_scalars(monkeypatch, mode):
     from sjtu_tpmshx.domain.run_warnings import warning_scope
     from sjtu_tpmshx.solvers import ltne_enthalpy_2d
 
@@ -149,20 +149,14 @@ def test_pipeline_uses_last_main_raw_and_mass_then_transcribes_scalars(monkeypat
     monkeypatch.setattr(solve_2d, '_outlet_temperature_2d', reduce)
     with warning_scope({}):
         raw = pipe.run_solvers(fields)
-        result = pipe.finalize(raw, fields)
     assert len(thermal_calls) == 2 and len(reductions) == 2
     assert not np.array_equal(raw['Ta'], thermal_calls[-1][0][0])
-    assert (result.T_out_A_K, result.T_out_B_K) == tuple(reductions)
-    assert result.Q_W == (10. if mode == 'true_h' else 123.)
-    assert not result.converged
-    assert result.residuals['mass_imbalance_rel_A'] == .2
-    assert result.residuals['Q_A'] == 10. and result.residuals['Q_B'] == -8.
+    assert (raw['T_out_A_K'], raw['T_out_B_K']) == tuple(reductions)
+    assert raw['Q_total'] == (10. if mode == 'true_h' else 123.)
+    assert not raw['solver_converged']
+    assert raw['mass_imbalance_rel_A'] == .2
+    assert raw['Q_A'] == 10. and raw['Q_B'] == -8.
     if mode == 'model_h':
         assert not raw['model_h_balance']['main']['physical_boundary_complete']
-    # Finalization must not revisit properties, display fields, or direction drafts.
-    raw['Ta'] = raw['Ta'] + 100.
-    raw['Tb'] = raw['Tb'] - 100.
-    pipe._parsed['dir_A'], pipe._parsed['dir_B'] = 1, 3
-    again = pipe.finalize(raw, fields)
-    assert (again.T_out_A_K, again.T_out_B_K, again.Q_W) == (
-        result.T_out_A_K, result.T_out_B_K, result.Q_W)
+    # Current application mapping is exercised with real FieldResult snapshots
+    # in test_module_result_mapping, including later changes to producer data.

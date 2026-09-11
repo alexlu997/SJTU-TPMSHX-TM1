@@ -187,3 +187,22 @@ def test_unavailable_metrics_and_incomplete_execution_stay_visible(native_result
         incomplete = replace(fields, run_status={**fields.run_status, 'execution': state})
         with pytest.raises(ValueError, match='completed result'):
             to_compute_result(incomplete, evaluate(fields))
+
+
+def test_mapping_keeps_recorded_state_after_producer_drafts_change(native_result):
+    fields, raw = native_result
+    expected = to_compute_result(fields, evaluate(fields))
+    # Change the original backend carrier after capture, including display,
+    # headline, direction, and failure data. The immutable archive owns its run.
+    changed = {**raw, 'Ta': raw['Ta'] + 100., 'Tb': raw['Tb'] - 100.,
+               'T_out_A_K': -999., 'T_out_A': -999., 'Q_total': -999., 'Q': -999.,
+               'dir_A': 1, 'dir_B': 3, 'solver_converged': False}
+    original = dict(raw)
+    try:
+        raw.update(changed)
+        actual = to_compute_result(fields, evaluate(fields))
+        for name in ('Q_W', 'T_out_A_K', 'T_out_B_K', 'converged', 'residuals'):
+            assert_slots(getattr(actual, name), getattr(expected, name))
+    finally:
+        raw.clear()
+        raw.update(original)
