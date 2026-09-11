@@ -14,11 +14,14 @@ import pytest
 def test_screening_three_process(tmp_path, name):
     from sjtu_tpmshx.io.result_io import load_result
     from sjtu_tpmshx.io.metrics_io import load_metrics
-    reference = json.loads(Path('docs/plans/three-module-graph/evidence/S40/optimization-before-extraction.json').read_text())[name]['outputs']
-    if name.startswith('2d'):
-        # Approved enthalpy repair supersedes the historical temperature-form Q.
-        from sjtu_tpmshx.tests.test_evaluator_frozen_values import _FROZEN_2D_UNIFORM, _FROZEN_2D_NONUNIF
-        reference = _FROZEN_2D_UNIFORM if name == '2d-uniform' else _FROZEN_2D_NONUNIF
+    from sjtu_tpmshx.tests.test_evaluator_frozen_values import (
+        _FROZEN_2D_UNIFORM, _FROZEN_2D_NONUNIF,
+        _FROZEN_3D_UNIFORM, _FROZEN_3D_NONUNIF,
+    )
+    reference = dict(zip(
+        ('2d-uniform', '2d-nonuniform', '3d-uniform', '3d-nonuniform'),
+        (_FROZEN_2D_UNIFORM, _FROZEN_2D_NONUNIF, _FROZEN_3D_UNIFORM, _FROZEN_3D_NONUNIF),
+    ))[name]
     source = tmp_path / 'input.json'
     source.write_text(json.dumps({'name': name}))
     paths = [source, tmp_path / 'case.yaml', tmp_path / 'results.h5', tmp_path / 'metrics.json']
@@ -68,13 +71,12 @@ raise SystemExit(status)
         run = subprocess.run([sys.executable, '-c', launcher, stage, str(paths[i]), str(paths[i + 1])],
                              env=env, capture_output=True, text=True, timeout=240)
         (evidence / (stage + '.log')).write_text(run.stdout + run.stderr)
-        expected_exit = 2 if stage == 'solve' and name.startswith('3d') else 0
-        assert run.returncode == expected_exit, run.stdout + run.stderr
+        assert run.returncode == 0, run.stdout + run.stderr
         paths[i].unlink()
         if stage == 'solve':
             (tmp_path / 'case.h5').unlink()
             result = load_result(paths[2])
-            assert result.run_status['converged'] is name.startswith('2d')
+            assert result.run_status['converged'] is True
             (evidence / 'status.json').write_text(json.dumps(dict(execution=result.run_status['execution'], converged=result.run_status['converged'], native_exit=run.returncode)))
             np.savez(evidence / 'native.npz', **{k: result.fields[k] for k in ('Ta', 'Tb', 'Ts')})
     metrics = load_metrics(paths[3]).metrics

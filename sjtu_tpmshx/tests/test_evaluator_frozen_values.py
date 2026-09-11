@@ -216,11 +216,16 @@ _FROZEN_2D_NONUNIF = (-7507.811193372061, 4052.0456347246245,
 # keep the original inputs, budgets and _REL. Geometry mass is unchanged.
 # Old uniform: (-9968.94601218934, 7546.892661164707, ...).
 # Old nonuniform: (-10850.667870259445, 2879.2940311398415, ...).
-# Approved complete-end-CV and wall-method references; both remain
-# unconverged observations at the ORIGINAL two-outer-call budget.
-_FROZEN_3D_UNIFORM = (-7209.103274428575, 7519.596015609637,
+# Previous complete-end-CV/wall references were unconverged observations:
+# uniform (-7209.103274428575, 7519.596015609637, 6.323593139648438);
+# nonuniform (-8672.919843820628, 2871.31457245229, 3.675970458984375).
+# 2026-09-11 explicit approval: update only 3D Q/dP for native air h(T).
+# Original inputs/budgets, masses and tolerance remain unchanged. New legacy
+# convergence does not establish F2 or experimental accuracy. Old failures
+# and boundary evidence remain in B40/3d-model-h-validation.md.
+_FROZEN_3D_UNIFORM = (-6231.317311633525, 7581.970714729965,
                       6.323593139648438)
-_FROZEN_3D_NONUNIF = (-8672.919843820628, 2871.31457245229,
+_FROZEN_3D_NONUNIF = (-7465.851654932007, 2880.481482369124,
                       3.675970458984375)
 
 

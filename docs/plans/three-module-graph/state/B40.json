@@ -27,9 +27,9 @@
     "evidence/B40/native-3d-enthalpy.md",
     "evidence/B40/3d-model-h-validation.md"
   ],
-  "blocked_reason": "The user approved the screening-only 3D air integral-enthalpy repair. Candidate 0773ef1 passes both engineering F2, Q-change and native fluid/solid energy reductions. Original-budget 3D Q/dP references now differ and their explicit disposition is pending; original failures and earlier native-h energy gaps remain preserved. Final combined acceptance remains incomplete.",
+  "blocked_reason": "The explicitly approved two 3D Q/dP references are updated with masses, 2D references and tolerances unchanged. Four frozen regressions, four three-process handoffs and two native-h boundary tests pass (10 tests, native exit 0). Historical failures and prior references remain preserved. Current-head CI and final combined acceptance remain incomplete.",
   "unblocks_when": "Under the user-approved 2026-09-11 scope, historical attribution, numerical regression, convergence, mass and boundary-energy evidence must be complete. No whole-exchanger experiment for these four cases is required or claimed. Preserve original failures and approved reference history; do not equate a corrected equation residual with boundary energy conservation.",
-  "next_action": "Obtain the specific 3D original-budget Q/dP reference decision, validate active references and real file handoff against the actual new status, and complete current-candidate review/CI. Continue the existing fixed-166 pair without restarting it.",
+  "next_action": "Complete current-candidate CI and final combined acceptance using the preserved history and approved references. Fixed-166 migration is complete; do not restart it.",
   "tested_candidate_sha": null,
   "tested_base_sha": null,
   "source_head_sha": null

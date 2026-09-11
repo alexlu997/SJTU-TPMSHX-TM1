@@ -62,3 +62,19 @@ and approved active references, while retaining old S40 data unchanged.
 
 This proposal does not change pins until explicit approval and does not claim
 experiment accuracy, final CI, full PR review, merge or M-A completion.
+
+## Reference decision: approved 2026-09-11
+
+The user explicitly confirmed the two Q/dP updates listed above. Only those
+3D active Q/dP constants change; masses, 2D references, inputs, budgets and
+tolerances remain unchanged. The three-process regression consumes the same
+active constants and checks the observed legacy convergence/native exit 0.
+Prior values, original failed runs and this proposal history are retained.
+This decision does not establish experimental accuracy or close B40/M-A.
+
+After the approved update, all four frozen regressions, four independent
+three-process screening handoffs and two 3D native-h boundary tests pass:
+10 passed in 14.27 s, native process exit 0. Log: `.cache/approved-3d-refs.log`.
+Pre-update handoff captures are retained in
+`.cache/tm1-optimization-before-approved-3d-refs`; historical evidence files
+are unchanged. Current-head CI and final combined acceptance remain pending.
