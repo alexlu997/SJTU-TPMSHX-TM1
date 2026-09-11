@@ -1,0 +1,866 @@
+{
+  "rows": [
+    {
+      "source_sha": "435b1d1b97d28ff220e7ba8fa60a521752eb8f2d",
+      "case": "uniform",
+      "outputs": [
+        -8085.955568764836,
+        4675.147100112292,
+        3.446685791015626
+      ],
+      "units": [
+        "W/m",
+        "Pa",
+        "kg/m"
+      ],
+      "physical_validation": "unestablished",
+      "native_exit": 0,
+      "controls": {
+        "L_domain": 0.1,
+        "H_domain": 0.05,
+        "Nx": null,
+        "Ny": null,
+        "grid_alpha": 0.8,
+        "tpms_type": "Diamond",
+        "k_s": 17.0,
+        "rho_s": 2700.0,
+        "u_A": 10.0,
+        "u_B": 10.0,
+        "T_inA": 350.0,
+        "T_inB": 300.0,
+        "P_inA": 101325.0,
+        "P_inB": 101325.0,
+        "dir_A": 0,
+        "dir_B": 3,
+        "ports_A": null,
+        "ports_B": null,
+        "per_cell_K": false,
+        "cf_aniso": 0.0,
+        "max_iter_simple": 800,
+        "tol_simple": 0.001,
+        "max_iter_energy": 1500,
+        "tol_energy": 0.5,
+        "n_rho_loops": 1,
+        "drho_tol": 0.01,
+        "rho_relax": 0.7,
+        "n_ctrl_x": 4,
+        "n_ctrl_y": 4,
+        "symmetric_y": true,
+        "L_bounds/0": 4.0,
+        "L_bounds/1": 8.0,
+        "t_bounds/0": 0.3,
+        "t_bounds/1": 0.5,
+        "spline_order": 3,
+        "penalty_enabled": true,
+        "penalty_weight": 1.0,
+        "dp_cap_pa": 1000000.0,
+        "reject_unconverged": false
+      },
+      "thermal": {
+        "converged": true,
+        "done": 1000,
+        "chg": 9.060840966412798e-11,
+        "model_fluids": null,
+        "q_rel_tol": null
+      },
+      "flow": {
+        "sA": {
+          "exit_reason": "tol",
+          "final_res": 7.39056552946324e-16,
+          "P_ref_abs": 98236.45405383836
+        },
+        "sB": {
+          "exit_reason": "tol",
+          "final_res": 8.86867863535591e-16,
+          "P_ref_abs": 99621.38103614011
+        }
+      },
+      "simple_flags": {
+        "sA_converged": true,
+        "sB_converged": true,
+        "_sA_iters": 20,
+        "_sB_iters": 20
+      }
+    },
+    {
+      "source_sha": "435b1d1b97d28ff220e7ba8fa60a521752eb8f2d",
+      "case": "nonuniform",
+      "outputs": [
+        -7561.25242589901,
+        4052.044538218606,
+        3.6729327392578126
+      ],
+      "units": [
+        "W/m",
+        "Pa",
+        "kg/m"
+      ],
+      "physical_validation": "unestablished",
+      "native_exit": 0,
+      "controls": {
+        "L_domain": 0.1,
+        "H_domain": 0.05,
+        "Nx": null,
+        "Ny": null,
+        "grid_alpha": 0.8,
+        "tpms_type": "Diamond",
+        "k_s": 17.0,
+        "rho_s": 2700.0,
+        "u_A": 10.0,
+        "u_B": 10.0,
+        "T_inA": 350.0,
+        "T_inB": 300.0,
+        "P_inA": 101325.0,
+        "P_inB": 101325.0,
+        "dir_A": 0,
+        "dir_B": 3,
+        "ports_A": null,
+        "ports_B": null,
+        "per_cell_K": false,
+        "cf_aniso": 0.0,
+        "max_iter_simple": 800,
+        "tol_simple": 0.001,
+        "max_iter_energy": 1500,
+        "tol_energy": 0.5,
+        "n_rho_loops": 1,
+        "drho_tol": 0.01,
+        "rho_relax": 0.7,
+        "n_ctrl_x": 4,
+        "n_ctrl_y": 4,
+        "symmetric_y": true,
+        "L_bounds/0": 4.0,
+        "L_bounds/1": 8.0,
+        "t_bounds/0": 0.3,
+        "t_bounds/1": 0.5,
+        "spline_order": 3,
+        "penalty_enabled": true,
+        "penalty_weight": 1.0,
+        "dp_cap_pa": 1000000.0,
+        "reject_unconverged": false
+      },
+      "thermal": {
+        "converged": true,
+        "done": 1000,
+        "chg": 9.907807907438837e-11,
+        "model_fluids": null,
+        "q_rel_tol": null
+      },
+      "flow": {
+        "sA": {
+          "exit_reason": "tol",
+          "final_res": 3.0889754441760263e-16,
+          "P_ref_abs": 98550.63476738226
+        },
+        "sB": {
+          "exit_reason": "tol",
+          "final_res": 3.933150356196064e-16,
+          "P_ref_abs": 99807.17633147113
+        }
+      },
+      "simple_flags": {
+        "sA_converged": true,
+        "sB_converged": true,
+        "_sA_iters": 20,
+        "_sB_iters": 20
+      }
+    },
+    {
+      "source_sha": "81dbccdcc5ea13969652a98661e6618d6797045c",
+      "case": "uniform",
+      "outputs": [
+        -8085.955568764836,
+        4675.147100112292,
+        3.446685791015626
+      ],
+      "units": [
+        "W/m",
+        "Pa",
+        "kg/m"
+      ],
+      "physical_validation": "unestablished",
+      "native_exit": 0,
+      "controls": {
+        "L_domain": 0.1,
+        "H_domain": 0.05,
+        "Nx": null,
+        "Ny": null,
+        "grid_alpha": 0.8,
+        "tpms_type": "Diamond",
+        "k_s": 17.0,
+        "rho_s": 2700.0,
+        "u_A": 10.0,
+        "u_B": 10.0,
+        "T_inA": 350.0,
+        "T_inB": 300.0,
+        "P_inA": 101325.0,
+        "P_inB": 101325.0,
+        "dir_A": 0,
+        "dir_B": 3,
+        "ports_A": null,
+        "ports_B": null,
+        "per_cell_K": false,
+        "cf_aniso": 0.0,
+        "max_iter_simple": 800,
+        "tol_simple": 0.001,
+        "max_iter_energy": 1500,
+        "tol_energy": 0.5,
+        "n_rho_loops": 1,
+        "drho_tol": 0.01,
+        "rho_relax": 0.7,
+        "n_ctrl_x": 4,
+        "n_ctrl_y": 4,
+        "symmetric_y": true,
+        "L_bounds/0": 4.0,
+        "L_bounds/1": 8.0,
+        "t_bounds/0": 0.3,
+        "t_bounds/1": 0.5,
+        "spline_order": 3,
+        "penalty_enabled": true,
+        "penalty_weight": 1.0,
+        "dp_cap_pa": 1000000.0,
+        "reject_unconverged": false
+      },
+      "thermal": {
+        "converged": true,
+        "done": 1000,
+        "chg": 9.060840966412798e-11,
+        "model_fluids": null,
+        "q_rel_tol": null
+      },
+      "flow": {
+        "sA": {
+          "exit_reason": "tol",
+          "final_res": 7.39056552946324e-16,
+          "P_ref_abs": 98236.45405383836
+        },
+        "sB": {
+          "exit_reason": "tol",
+          "final_res": 8.86867863535591e-16,
+          "P_ref_abs": 99621.38103614011
+        }
+      },
+      "simple_flags": {
+        "sA_converged": true,
+        "sB_converged": true,
+        "_sA_iters": 20,
+        "_sB_iters": 20
+      }
+    },
+    {
+      "source_sha": "81dbccdcc5ea13969652a98661e6618d6797045c",
+      "case": "nonuniform",
+      "outputs": [
+        -7561.25242589901,
+        4052.044538218606,
+        3.6729327392578126
+      ],
+      "units": [
+        "W/m",
+        "Pa",
+        "kg/m"
+      ],
+      "physical_validation": "unestablished",
+      "native_exit": 0,
+      "controls": {
+        "L_domain": 0.1,
+        "H_domain": 0.05,
+        "Nx": null,
+        "Ny": null,
+        "grid_alpha": 0.8,
+        "tpms_type": "Diamond",
+        "k_s": 17.0,
+        "rho_s": 2700.0,
+        "u_A": 10.0,
+        "u_B": 10.0,
+        "T_inA": 350.0,
+        "T_inB": 300.0,
+        "P_inA": 101325.0,
+        "P_inB": 101325.0,
+        "dir_A": 0,
+        "dir_B": 3,
+        "ports_A": null,
+        "ports_B": null,
+        "per_cell_K": false,
+        "cf_aniso": 0.0,
+        "max_iter_simple": 800,
+        "tol_simple": 0.001,
+        "max_iter_energy": 1500,
+        "tol_energy": 0.5,
+        "n_rho_loops": 1,
+        "drho_tol": 0.01,
+        "rho_relax": 0.7,
+        "n_ctrl_x": 4,
+        "n_ctrl_y": 4,
+        "symmetric_y": true,
+        "L_bounds/0": 4.0,
+        "L_bounds/1": 8.0,
+        "t_bounds/0": 0.3,
+        "t_bounds/1": 0.5,
+        "spline_order": 3,
+        "penalty_enabled": true,
+        "penalty_weight": 1.0,
+        "dp_cap_pa": 1000000.0,
+        "reject_unconverged": false
+      },
+      "thermal": {
+        "converged": true,
+        "done": 1000,
+        "chg": 9.907807907438837e-11,
+        "model_fluids": null,
+        "q_rel_tol": null
+      },
+      "flow": {
+        "sA": {
+          "exit_reason": "tol",
+          "final_res": 3.0889754441760263e-16,
+          "P_ref_abs": 98550.63476738226
+        },
+        "sB": {
+          "exit_reason": "tol",
+          "final_res": 3.933150356196064e-16,
+          "P_ref_abs": 99807.17633147113
+        }
+      },
+      "simple_flags": {
+        "sA_converged": true,
+        "sB_converged": true,
+        "_sA_iters": 20,
+        "_sB_iters": 20
+      }
+    },
+    {
+      "source_sha": "bc69d311d34069e4dac2bcfefb897e30a8b50571",
+      "case": "uniform",
+      "outputs": [
+        -8085.955568764836,
+        4675.147100112292,
+        3.446685791015626
+      ],
+      "units": [
+        "W/m",
+        "Pa",
+        "kg/m"
+      ],
+      "physical_validation": "unestablished",
+      "native_exit": 0,
+      "controls": {
+        "L_domain": 0.1,
+        "H_domain": 0.05,
+        "Nx": null,
+        "Ny": null,
+        "grid_alpha": 0.8,
+        "tpms_type": "Diamond",
+        "k_s": 17.0,
+        "rho_s": 2700.0,
+        "u_A": 10.0,
+        "u_B": 10.0,
+        "T_inA": 350.0,
+        "T_inB": 300.0,
+        "P_inA": 101325.0,
+        "P_inB": 101325.0,
+        "dir_A": 0,
+        "dir_B": 3,
+        "ports_A": null,
+        "ports_B": null,
+        "per_cell_K": false,
+        "cf_aniso": 0.0,
+        "max_iter_simple": 800,
+        "tol_simple": 0.001,
+        "max_iter_energy": 1500,
+        "tol_energy": 0.5,
+        "n_rho_loops": 1,
+        "drho_tol": 0.01,
+        "rho_relax": 0.7,
+        "n_ctrl_x": 4,
+        "n_ctrl_y": 4,
+        "symmetric_y": true,
+        "L_bounds/0": 4.0,
+        "L_bounds/1": 8.0,
+        "t_bounds/0": 0.3,
+        "t_bounds/1": 0.5,
+        "spline_order": 3,
+        "penalty_enabled": true,
+        "penalty_weight": 1.0,
+        "dp_cap_pa": 1000000.0,
+        "reject_unconverged": false
+      },
+      "thermal": {
+        "converged": true,
+        "done": 1000,
+        "chg": 9.060840966412798e-11,
+        "model_fluids": null,
+        "q_rel_tol": null
+      },
+      "flow": {
+        "sA": {
+          "exit_reason": "tol",
+          "final_res": 7.39056552946324e-16,
+          "P_ref_abs": 98236.45405383836
+        },
+        "sB": {
+          "exit_reason": "tol",
+          "final_res": 8.86867863535591e-16,
+          "P_ref_abs": 99621.38103614011
+        }
+      },
+      "simple_flags": {
+        "sA_converged": true,
+        "sB_converged": true,
+        "_sA_iters": 20,
+        "_sB_iters": 20
+      }
+    },
+    {
+      "source_sha": "bc69d311d34069e4dac2bcfefb897e30a8b50571",
+      "case": "nonuniform",
+      "outputs": [
+        -7561.25242589901,
+        4052.044538218606,
+        3.6729327392578126
+      ],
+      "units": [
+        "W/m",
+        "Pa",
+        "kg/m"
+      ],
+      "physical_validation": "unestablished",
+      "native_exit": 0,
+      "controls": {
+        "L_domain": 0.1,
+        "H_domain": 0.05,
+        "Nx": null,
+        "Ny": null,
+        "grid_alpha": 0.8,
+        "tpms_type": "Diamond",
+        "k_s": 17.0,
+        "rho_s": 2700.0,
+        "u_A": 10.0,
+        "u_B": 10.0,
+        "T_inA": 350.0,
+        "T_inB": 300.0,
+        "P_inA": 101325.0,
+        "P_inB": 101325.0,
+        "dir_A": 0,
+        "dir_B": 3,
+        "ports_A": null,
+        "ports_B": null,
+        "per_cell_K": false,
+        "cf_aniso": 0.0,
+        "max_iter_simple": 800,
+        "tol_simple": 0.001,
+        "max_iter_energy": 1500,
+        "tol_energy": 0.5,
+        "n_rho_loops": 1,
+        "drho_tol": 0.01,
+        "rho_relax": 0.7,
+        "n_ctrl_x": 4,
+        "n_ctrl_y": 4,
+        "symmetric_y": true,
+        "L_bounds/0": 4.0,
+        "L_bounds/1": 8.0,
+        "t_bounds/0": 0.3,
+        "t_bounds/1": 0.5,
+        "spline_order": 3,
+        "penalty_enabled": true,
+        "penalty_weight": 1.0,
+        "dp_cap_pa": 1000000.0,
+        "reject_unconverged": false
+      },
+      "thermal": {
+        "converged": true,
+        "done": 1000,
+        "chg": 9.907807907438837e-11,
+        "model_fluids": null,
+        "q_rel_tol": null
+      },
+      "flow": {
+        "sA": {
+          "exit_reason": "tol",
+          "final_res": 3.0889754441760263e-16,
+          "P_ref_abs": 98550.63476738226
+        },
+        "sB": {
+          "exit_reason": "tol",
+          "final_res": 3.933150356196064e-16,
+          "P_ref_abs": 99807.17633147113
+        }
+      },
+      "simple_flags": {
+        "sA_converged": true,
+        "sB_converged": true,
+        "_sA_iters": 20,
+        "_sB_iters": 20
+      }
+    },
+    {
+      "source_sha": "d61e341e0ad12b3f016eb980176b0ed0f25e0fa5",
+      "case": "uniform",
+      "outputs": [
+        -8085.955349708075,
+        4675.147979229178,
+        3.446685791015626
+      ],
+      "units": [
+        "W/m",
+        "Pa",
+        "kg/m"
+      ],
+      "physical_validation": "unestablished",
+      "native_exit": 0,
+      "controls": {
+        "L_domain": 0.1,
+        "H_domain": 0.05,
+        "Nx": null,
+        "Ny": null,
+        "grid_alpha": 0.8,
+        "tpms_type": "Diamond",
+        "k_s": 17.0,
+        "rho_s": 2700.0,
+        "u_A": 10.0,
+        "u_B": 10.0,
+        "T_inA": 350.0,
+        "T_inB": 300.0,
+        "P_inA": 101325.0,
+        "P_inB": 101325.0,
+        "dir_A": 0,
+        "dir_B": 3,
+        "ports_A": null,
+        "ports_B": null,
+        "per_cell_K": false,
+        "cf_aniso": 0.0,
+        "max_iter_simple": 800,
+        "tol_simple": 0.001,
+        "max_iter_energy": 1500,
+        "tol_energy": 0.5,
+        "n_rho_loops": 1,
+        "drho_tol": 0.01,
+        "rho_relax": 0.7,
+        "n_ctrl_x": 4,
+        "n_ctrl_y": 4,
+        "symmetric_y": true,
+        "L_bounds/0": 4.0,
+        "L_bounds/1": 8.0,
+        "t_bounds/0": 0.3,
+        "t_bounds/1": 0.5,
+        "spline_order": 3,
+        "penalty_enabled": true,
+        "penalty_weight": 1.0,
+        "dp_cap_pa": 1000000.0,
+        "reject_unconverged": false
+      },
+      "thermal": {
+        "converged": true,
+        "done": 1000,
+        "chg": 9.060840966412798e-11,
+        "model_fluids": null,
+        "q_rel_tol": null
+      },
+      "flow": {
+        "sA": {
+          "exit_reason": "tol",
+          "final_res": 7.39056552946324e-16,
+          "P_ref_abs": 98236.45405383836
+        },
+        "sB": {
+          "exit_reason": "tol",
+          "final_res": 1.013563272612104e-15,
+          "P_ref_abs": 99621.38103614011
+        }
+      },
+      "simple_flags": {
+        "sA_converged": true,
+        "sB_converged": true,
+        "_sA_iters": 20,
+        "_sB_iters": 20
+      }
+    },
+    {
+      "source_sha": "d61e341e0ad12b3f016eb980176b0ed0f25e0fa5",
+      "case": "nonuniform",
+      "outputs": [
+        -7561.252334176324,
+        4052.0456347246245,
+        3.6729327392578126
+      ],
+      "units": [
+        "W/m",
+        "Pa",
+        "kg/m"
+      ],
+      "physical_validation": "unestablished",
+      "native_exit": 0,
+      "controls": {
+        "L_domain": 0.1,
+        "H_domain": 0.05,
+        "Nx": null,
+        "Ny": null,
+        "grid_alpha": 0.8,
+        "tpms_type": "Diamond",
+        "k_s": 17.0,
+        "rho_s": 2700.0,
+        "u_A": 10.0,
+        "u_B": 10.0,
+        "T_inA": 350.0,
+        "T_inB": 300.0,
+        "P_inA": 101325.0,
+        "P_inB": 101325.0,
+        "dir_A": 0,
+        "dir_B": 3,
+        "ports_A": null,
+        "ports_B": null,
+        "per_cell_K": false,
+        "cf_aniso": 0.0,
+        "max_iter_simple": 800,
+        "tol_simple": 0.001,
+        "max_iter_energy": 1500,
+        "tol_energy": 0.5,
+        "n_rho_loops": 1,
+        "drho_tol": 0.01,
+        "rho_relax": 0.7,
+        "n_ctrl_x": 4,
+        "n_ctrl_y": 4,
+        "symmetric_y": true,
+        "L_bounds/0": 4.0,
+        "L_bounds/1": 8.0,
+        "t_bounds/0": 0.3,
+        "t_bounds/1": 0.5,
+        "spline_order": 3,
+        "penalty_enabled": true,
+        "penalty_weight": 1.0,
+        "dp_cap_pa": 1000000.0,
+        "reject_unconverged": false
+      },
+      "thermal": {
+        "converged": true,
+        "done": 1000,
+        "chg": 9.913492249324918e-11,
+        "model_fluids": null,
+        "q_rel_tol": null
+      },
+      "flow": {
+        "sA": {
+          "exit_reason": "tol",
+          "final_res": 4.633463166264039e-16,
+          "P_ref_abs": 98550.63476738226
+        },
+        "sB": {
+          "exit_reason": "tol",
+          "final_res": 5.244200474928086e-16,
+          "P_ref_abs": 99807.17633147113
+        }
+      },
+      "simple_flags": {
+        "sA_converged": true,
+        "sB_converged": true,
+        "_sA_iters": 20,
+        "_sB_iters": 20
+      }
+    }
+  ],
+  "comparisons": [
+    {
+      "before": "2d-pre",
+      "after": "2d-post",
+      "case": "uniform",
+      "shared_arrays": 133,
+      "changed_arrays": [],
+      "prepared_geometry_and_grid_arrays": 16,
+      "prepared_geometry_and_grid_equal": true,
+      "field_max_abs_difference": {
+        "flow/sA/P": 0.0,
+        "flow/sB/P": 0.0,
+        "flow/sA/u": 0.0,
+        "flow/sA/v": 0.0,
+        "flow/sB/u": 0.0,
+        "flow/sB/v": 0.0,
+        "thermal/return/Ta": 0.0,
+        "thermal/return/Tb": 0.0,
+        "thermal/return/Ts": 0.0
+      }
+    },
+    {
+      "before": "2d-pre",
+      "after": "2d-post",
+      "case": "nonuniform",
+      "shared_arrays": 134,
+      "changed_arrays": [],
+      "prepared_geometry_and_grid_arrays": 16,
+      "prepared_geometry_and_grid_equal": true,
+      "field_max_abs_difference": {
+        "flow/sA/P": 0.0,
+        "flow/sB/P": 0.0,
+        "flow/sA/u": 0.0,
+        "flow/sA/v": 0.0,
+        "flow/sB/u": 0.0,
+        "flow/sB/v": 0.0,
+        "thermal/return/Ta": 0.0,
+        "thermal/return/Tb": 0.0,
+        "thermal/return/Ts": 0.0
+      }
+    },
+    {
+      "before": "2d-post",
+      "after": "pre-wall",
+      "case": "uniform",
+      "shared_arrays": 133,
+      "changed_arrays": [],
+      "prepared_geometry_and_grid_arrays": 16,
+      "prepared_geometry_and_grid_equal": true,
+      "field_max_abs_difference": {
+        "flow/sA/P": 0.0,
+        "flow/sB/P": 0.0,
+        "flow/sA/u": 0.0,
+        "flow/sA/v": 0.0,
+        "flow/sB/u": 0.0,
+        "flow/sB/v": 0.0,
+        "thermal/return/Ta": 0.0,
+        "thermal/return/Tb": 0.0,
+        "thermal/return/Ts": 0.0
+      }
+    },
+    {
+      "before": "2d-post",
+      "after": "pre-wall",
+      "case": "nonuniform",
+      "shared_arrays": 134,
+      "changed_arrays": [],
+      "prepared_geometry_and_grid_arrays": 16,
+      "prepared_geometry_and_grid_equal": true,
+      "field_max_abs_difference": {
+        "flow/sA/P": 0.0,
+        "flow/sB/P": 0.0,
+        "flow/sA/u": 0.0,
+        "flow/sA/v": 0.0,
+        "flow/sB/u": 0.0,
+        "flow/sB/v": 0.0,
+        "thermal/return/Ta": 0.0,
+        "thermal/return/Tb": 0.0,
+        "thermal/return/Ts": 0.0
+      }
+    },
+    {
+      "before": "pre-wall",
+      "after": "post-wall",
+      "case": "uniform",
+      "shared_arrays": 133,
+      "changed_arrays": [
+        "evaluator/return/Ta",
+        "evaluator/return/Tb",
+        "evaluator/return/Ts",
+        "evaluator/return/ucA",
+        "evaluator/return/vcB",
+        "flow/sA/P",
+        "flow/sA/Pp",
+        "flow/sA/_pabs_buf",
+        "flow/sA/_rho_eps",
+        "flow/sA/_rho_new_buf",
+        "flow/sA/d_u",
+        "flow/sA/d_v",
+        "flow/sA/rho_field",
+        "flow/sA/u",
+        "flow/sA/v",
+        "flow/sA/v_inlet_field",
+        "flow/sB/P",
+        "flow/sB/Pp",
+        "flow/sB/_pabs_buf",
+        "flow/sB/_rho_eps",
+        "flow/sB/_rho_new_buf",
+        "flow/sB/d_u",
+        "flow/sB/d_v",
+        "flow/sB/rho_field",
+        "flow/sB/u",
+        "flow/sB/v",
+        "flow/sB/v_inlet_field",
+        "thermal/call/inlet_flux_A",
+        "thermal/call/inlet_flux_B",
+        "thermal/call/ucA",
+        "thermal/call/vcB",
+        "thermal/return/Ta",
+        "thermal/return/Ta_prev",
+        "thermal/return/Tb",
+        "thermal/return/Tb_prev",
+        "thermal/return/Ts",
+        "thermal/return/Ts_prev",
+        "thermal/return/inlet_flux_A",
+        "thermal/return/inlet_flux_B",
+        "thermal/return/ucA",
+        "thermal/return/vcB"
+      ],
+      "prepared_geometry_and_grid_arrays": 16,
+      "prepared_geometry_and_grid_equal": true,
+      "field_max_abs_difference": {
+        "flow/sA/P": 0.0006720479877913021,
+        "flow/sB/P": 0.000558540240945149,
+        "flow/sA/u": 4.472848031434294e-06,
+        "flow/sA/v": 4.415176574568136e-06,
+        "flow/sB/u": 2.749874553696196e-06,
+        "flow/sB/v": 2.6205787566624394e-06,
+        "thermal/return/Ta": 2.2087486399868794e-06,
+        "thermal/return/Tb": 1.2197174896755314e-06,
+        "thermal/return/Ts": 6.332607540571189e-07
+      }
+    },
+    {
+      "before": "pre-wall",
+      "after": "post-wall",
+      "case": "nonuniform",
+      "shared_arrays": 134,
+      "changed_arrays": [
+        "evaluator/return/Ta",
+        "evaluator/return/Tb",
+        "evaluator/return/Ts",
+        "evaluator/return/ucA",
+        "evaluator/return/vcB",
+        "flow/sA/P",
+        "flow/sA/Pp",
+        "flow/sA/_pabs_buf",
+        "flow/sA/_rho_eps",
+        "flow/sA/_rho_new_buf",
+        "flow/sA/d_u",
+        "flow/sA/d_v",
+        "flow/sA/rho_field",
+        "flow/sA/u",
+        "flow/sA/v",
+        "flow/sA/v_inlet_field",
+        "flow/sB/P",
+        "flow/sB/Pp",
+        "flow/sB/_pabs_buf",
+        "flow/sB/_rho_eps",
+        "flow/sB/_rho_new_buf",
+        "flow/sB/d_u",
+        "flow/sB/d_v",
+        "flow/sB/rho_field",
+        "flow/sB/u",
+        "flow/sB/v",
+        "flow/sB/v_inlet_field",
+        "thermal/call/inlet_flux_A",
+        "thermal/call/inlet_flux_B",
+        "thermal/call/ucA",
+        "thermal/call/vcB",
+        "thermal/return/Ta",
+        "thermal/return/Ta_prev",
+        "thermal/return/Tb",
+        "thermal/return/Tb_prev",
+        "thermal/return/Ts",
+        "thermal/return/Ts_prev",
+        "thermal/return/inlet_flux_A",
+        "thermal/return/inlet_flux_B",
+        "thermal/return/ucA",
+        "thermal/return/vcB"
+      ],
+      "prepared_geometry_and_grid_arrays": 16,
+      "prepared_geometry_and_grid_equal": true,
+      "field_max_abs_difference": {
+        "flow/sA/P": 0.0011961907252953097,
+        "flow/sB/P": 0.005002749343930191,
+        "flow/sA/u": 1.252469336594439e-05,
+        "flow/sA/v": 3.088420847596751e-05,
+        "flow/sB/u": 0.00012510206505320087,
+        "flow/sB/v": 3.74884495730754e-05,
+        "thermal/return/Ta": 5.76334099378073e-06,
+        "thermal/return/Tb": 1.1447899339600554e-05,
+        "thermal/return/Ts": 7.224473790756747e-06
+      }
+    }
+  ]
+}
