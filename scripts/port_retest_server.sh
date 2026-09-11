@@ -7,7 +7,7 @@
 #
 # 前置 (仅一次): 按 requirements-lock-server.txt 预置
 # $PORT_WORKDIR/venv；本脚本不创建或安装环境。再把标定数据传上来:
-#   scp -r data/raw_data  <user>@<server>:~/tpmshx-port/SJTU-TPMSHX/data/
+#   scp -r data/raw_data  <user>@<server>:~/tpmshx-port/SJTU-TPMSHX-TM1/data/
 #
 # 四臂: ctrl4/ctrl6 × seed 7/123, SAAS, 无早停. 每臂独立算 45 点均匀扫掠
 # (8 min, 避免臂间耦合). 预计墙钟 ~5-8 h (32 维臂 ~3-4 h, 72 维臂 ~5-7 h).
@@ -15,9 +15,9 @@
 set -euo pipefail
 
 WORKDIR="${PORT_WORKDIR:-$HOME/tpmshx-port}"
-REPO="$WORKDIR/SJTU-TPMSHX"
-BRANCH="worktree-m0-optimizer-debt"
-LOGD="$WORKDIR/logs"
+REPO="$WORKDIR/SJTU-TPMSHX-TM1"
+BRANCH="main"
+LOGD="$WORKDIR/logs/SJTU-TPMSHX-TM1"
 PY="$WORKDIR/venv/bin/python"
 
 if [ "${1:-}" = "status" ]; then
@@ -39,7 +39,7 @@ fi
 
 # 1. clone / update
 if [ ! -d "$REPO/.git" ]; then
-    git clone -b "$BRANCH" https://github.com/alexlu997/SJTU-TPMSHX.git "$REPO"
+    git clone -b "$BRANCH" https://github.com/alexlu997/SJTU-TPMSHX-TM1.git "$REPO"
 else
     git -C "$REPO" fetch origin "$BRANCH" && git -C "$REPO" checkout "$BRANCH" \
         && git -C "$REPO" pull --ff-only origin "$BRANCH"

@@ -30,11 +30,11 @@ param([string]$Mode = "run")
 
 $ErrorActionPreference = "Stop"
 $WorkDir  = if ($env:PORT_WORKDIR) { $env:PORT_WORKDIR } else { Join-Path $HOME "tpmshx-port" }
-$Repo     = Join-Path $WorkDir "SJTU-TPMSHX"
+$Repo     = Join-Path $WorkDir "SJTU-TPMSHX-TM1"
 $DataRepo = Join-Path $WorkDir "SJTU-TPMSHX-data"
-$LogD     = Join-Path $WorkDir "logs"
-$PidD     = Join-Path $WorkDir "pids"
-$Branch   = if ($env:PORT_BRANCH) { $env:PORT_BRANCH } else { "master" }
+$LogD     = Join-Path $WorkDir "logs/SJTU-TPMSHX-TM1"
+$PidD     = Join-Path $WorkDir "pids/SJTU-TPMSHX-TM1"
+$Branch   = if ($env:PORT_BRANCH) { $env:PORT_BRANCH } else { "main" }
 $Py       = Join-Path $WorkDir "venv\Scripts\python.exe"
 
 # 四臂定义 (单一来源: run / status / stop 都用它)
@@ -105,7 +105,7 @@ if (-not (Test-Path $Py -PathType Leaf)) {
 
 # ── 1. clone / update — 主仓 (public) + 数据仓 (private) ──
 if (-not (Test-Path (Join-Path $Repo ".git"))) {
-    git clone -b $Branch https://github.com/alexlu997/SJTU-TPMSHX.git $Repo
+    git clone -b $Branch https://github.com/alexlu997/SJTU-TPMSHX-TM1.git $Repo
 } else {
     git -C $Repo fetch origin $Branch
     git -C $Repo checkout $Branch
