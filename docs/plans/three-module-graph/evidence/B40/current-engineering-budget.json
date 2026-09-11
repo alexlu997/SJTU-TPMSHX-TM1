@@ -1,0 +1,576 @@
+[
+  {
+    "source_sha": "054dc96c92214872f2aeddcb5bcc1a6ae0cdb71c",
+    "case": "3d-uniform",
+    "outputs": [
+      -6449.470707238928,
+      9176.307996229752,
+      6.323593139648438
+    ],
+    "units": [
+      "W/m",
+      "Pa",
+      "kg/m"
+    ],
+    "thermal_calls": 5,
+    "converged": true,
+    "physical_validation": "unestablished",
+    "boundary_energy_status": "diagnostic_only_no_acceptance_threshold_applied",
+    "native_simple_flow": {
+      "last_thermal_input": {
+        "sA": {
+          "convention": "SIMPLE native total porosity; each symmetric physical fluid has half this mass",
+          "coordinates": "solver +y streamwise; A maps to real +x, B maps to real -y",
+          "faces": {
+            "x-": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            },
+            "x+": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            },
+            "y-": {
+              "signed_outward_kg_s": -0.011259514896648259,
+              "inward_kg_s": 0.011259514896648259,
+              "outward_kg_s": 0.0
+            },
+            "y+": {
+              "signed_outward_kg_s": 0.011259514205285955,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.011259514205285955
+            },
+            "z-": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            },
+            "z+": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            }
+          },
+          "net_outward_kg_s": -6.91362304211518e-10,
+          "pressure_gauge_range_Pa": [
+            0.0,
+            5882.923771215957
+          ],
+          "pressure_absolute_range_Pa": [
+            94809.57007302417,
+            100692.49384424012
+          ],
+          "P_ref_abs_Pa": 94809.57007302417,
+          "inlet_cell_area_mean_gauge_Pa": 5869.218146657254,
+          "outlet_cell_area_mean_gauge_Pa": 0.0,
+          "reported_dP_Pa": 5869.218146657254
+        },
+        "sB": {
+          "convention": "SIMPLE native total porosity; each symmetric physical fluid has half this mass",
+          "coordinates": "solver +y streamwise; A maps to real +x, B maps to real -y",
+          "faces": {
+            "x-": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            },
+            "x+": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            },
+            "y-": {
+              "signed_outward_kg_s": -0.026272214494547405,
+              "inward_kg_s": 0.026272214494547405,
+              "outward_kg_s": 0.0
+            },
+            "y+": {
+              "signed_outward_kg_s": 0.026272199812403755,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.026272199812403755
+            },
+            "z-": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            },
+            "z+": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            }
+          },
+          "net_outward_kg_s": -1.4682143650163182e-08,
+          "pressure_gauge_range_Pa": [
+            0.0,
+            3307.125007148143
+          ],
+          "pressure_absolute_range_Pa": [
+            97373.44136393747,
+            100680.56637108562
+          ],
+          "P_ref_abs_Pa": 97373.44136393747,
+          "inlet_cell_area_mean_gauge_Pa": 3307.089849572498,
+          "outlet_cell_area_mean_gauge_Pa": 0.0,
+          "reported_dP_Pa": 3307.089849572498
+        }
+      },
+      "core_return": {
+        "sA": {
+          "convention": "SIMPLE native total porosity; each symmetric physical fluid has half this mass",
+          "coordinates": "solver +y streamwise; A maps to real +x, B maps to real -y",
+          "faces": {
+            "x-": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            },
+            "x+": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            },
+            "y-": {
+              "signed_outward_kg_s": -0.011259514896648259,
+              "inward_kg_s": 0.011259514896648259,
+              "outward_kg_s": 0.0
+            },
+            "y+": {
+              "signed_outward_kg_s": 0.011259514205285955,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.011259514205285955
+            },
+            "z-": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            },
+            "z+": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            }
+          },
+          "net_outward_kg_s": -6.91362304211518e-10,
+          "pressure_gauge_range_Pa": [
+            0.0,
+            5882.923771215957
+          ],
+          "pressure_absolute_range_Pa": [
+            94809.57007302417,
+            100692.49384424012
+          ],
+          "P_ref_abs_Pa": 94809.57007302417,
+          "inlet_cell_area_mean_gauge_Pa": 5869.218146657254,
+          "outlet_cell_area_mean_gauge_Pa": 0.0,
+          "reported_dP_Pa": 5869.218146657254
+        },
+        "sB": {
+          "convention": "SIMPLE native total porosity; each symmetric physical fluid has half this mass",
+          "coordinates": "solver +y streamwise; A maps to real +x, B maps to real -y",
+          "faces": {
+            "x-": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            },
+            "x+": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            },
+            "y-": {
+              "signed_outward_kg_s": -0.026272214494547405,
+              "inward_kg_s": 0.026272214494547405,
+              "outward_kg_s": 0.0
+            },
+            "y+": {
+              "signed_outward_kg_s": 0.026272199812403755,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.026272199812403755
+            },
+            "z-": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            },
+            "z+": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            }
+          },
+          "net_outward_kg_s": -1.4682143650163182e-08,
+          "pressure_gauge_range_Pa": [
+            0.0,
+            3307.125007148143
+          ],
+          "pressure_absolute_range_Pa": [
+            97373.44136393747,
+            100680.56637108562
+          ],
+          "P_ref_abs_Pa": 97373.44136393747,
+          "inlet_cell_area_mean_gauge_Pa": 3307.089849572498,
+          "outlet_cell_area_mean_gauge_Pa": 0.0,
+          "reported_dP_Pa": 3307.089849572498
+        }
+      }
+    },
+    "temperature_transport_boundary": {
+      "A": {
+        "faces": {
+          "x-": {
+            "outward_advection_W": -2001.2378538977948,
+            "outward_conduction_W": -0.06461689149825148
+          },
+          "x+": {
+            "outward_advection_W": 1730.424701083576,
+            "outward_conduction_W": 0.0
+          },
+          "y-": {
+            "outward_advection_W": 0.0,
+            "outward_conduction_W": 0.0
+          },
+          "y+": {
+            "outward_advection_W": 0.0,
+            "outward_conduction_W": 0.0
+          },
+          "z-": {
+            "outward_advection_W": 0.0,
+            "outward_conduction_W": 0.0
+          },
+          "z+": {
+            "outward_advection_W": 0.0,
+            "outward_conduction_W": 0.0
+          }
+        },
+        "outward_total_W": -270.8777697057169,
+        "source_W": -270.877769705103,
+        "residual_W": -6.139089236967266e-10,
+        "relative_residual": 2.2663687919649956e-12
+      },
+      "B": {
+        "faces": {
+          "x-": {
+            "outward_advection_W": 0.0,
+            "outward_conduction_W": 0.0
+          },
+          "x+": {
+            "outward_advection_W": 0.0,
+            "outward_conduction_W": 0.0
+          },
+          "y-": {
+            "outward_advection_W": 4250.41339905279,
+            "outward_conduction_W": 0.0
+          },
+          "y+": {
+            "outward_advection_W": -3979.590091614802,
+            "outward_conduction_W": 0.054462265863480235
+          },
+          "z-": {
+            "outward_advection_W": 0.0,
+            "outward_conduction_W": 0.0
+          },
+          "z+": {
+            "outward_advection_W": 0.0,
+            "outward_conduction_W": 0.0
+          }
+        },
+        "outward_total_W": 270.8777697038513,
+        "source_W": 270.877769704035,
+        "residual_W": -1.837179297581315e-10,
+        "relative_residual": 6.782318458944209e-13
+      }
+    },
+    "solid_source_sum_W": -1.067974153556861e-09
+  },
+  {
+    "source_sha": "054dc96c92214872f2aeddcb5bcc1a6ae0cdb71c",
+    "case": "3d-nonuniform",
+    "outputs": [
+      -7731.673259143576,
+      3446.1217194864576,
+      3.675970458984375
+    ],
+    "units": [
+      "W/m",
+      "Pa",
+      "kg/m"
+    ],
+    "thermal_calls": 6,
+    "converged": true,
+    "physical_validation": "unestablished",
+    "boundary_energy_status": "diagnostic_only_no_acceptance_threshold_applied",
+    "native_simple_flow": {
+      "last_thermal_input": {
+        "sA": {
+          "convention": "SIMPLE native total porosity; each symmetric physical fluid has half this mass",
+          "coordinates": "solver +y streamwise; A maps to real +x, B maps to real -y",
+          "faces": {
+            "x-": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            },
+            "x+": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            },
+            "y-": {
+              "signed_outward_kg_s": -0.015234181492201527,
+              "inward_kg_s": 0.015234181492201527,
+              "outward_kg_s": 0.0
+            },
+            "y+": {
+              "signed_outward_kg_s": 0.015234182850110778,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.015234182850110778
+            },
+            "z-": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            },
+            "z+": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            }
+          },
+          "net_outward_kg_s": 1.3579092503213097e-09,
+          "pressure_gauge_range_Pa": [
+            0.0,
+            2219.113655040676
+          ],
+          "pressure_absolute_range_Pa": [
+            98816.93468171678,
+            101036.04833675746
+          ],
+          "P_ref_abs_Pa": 98816.93468171678,
+          "inlet_cell_area_mean_gauge_Pa": 2215.9151004390505,
+          "outlet_cell_area_mean_gauge_Pa": 0.0,
+          "reported_dP_Pa": 2215.9151004390505
+        },
+        "sB": {
+          "convention": "SIMPLE native total porosity; each symmetric physical fluid has half this mass",
+          "coordinates": "solver +y streamwise; A maps to real +x, B maps to real -y",
+          "faces": {
+            "x-": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            },
+            "x+": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            },
+            "y-": {
+              "signed_outward_kg_s": -0.03567991314936568,
+              "inward_kg_s": 0.03567991314936568,
+              "outward_kg_s": 0.0
+            },
+            "y+": {
+              "signed_outward_kg_s": 0.03567990670314766,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.03567990670314766
+            },
+            "z-": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            },
+            "z+": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            }
+          },
+          "net_outward_kg_s": -6.446218017708283e-09,
+          "pressure_gauge_range_Pa": [
+            0.0,
+            1251.40926333495
+          ],
+          "pressure_absolute_range_Pa": [
+            99811.43435786956,
+            101062.8436212045
+          ],
+          "P_ref_abs_Pa": 99811.43435786956,
+          "inlet_cell_area_mean_gauge_Pa": 1230.206619047407,
+          "outlet_cell_area_mean_gauge_Pa": 0.0,
+          "reported_dP_Pa": 1230.206619047407
+        }
+      },
+      "core_return": {
+        "sA": {
+          "convention": "SIMPLE native total porosity; each symmetric physical fluid has half this mass",
+          "coordinates": "solver +y streamwise; A maps to real +x, B maps to real -y",
+          "faces": {
+            "x-": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            },
+            "x+": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            },
+            "y-": {
+              "signed_outward_kg_s": -0.015234181492201527,
+              "inward_kg_s": 0.015234181492201527,
+              "outward_kg_s": 0.0
+            },
+            "y+": {
+              "signed_outward_kg_s": 0.015234182850110778,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.015234182850110778
+            },
+            "z-": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            },
+            "z+": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            }
+          },
+          "net_outward_kg_s": 1.3579092503213097e-09,
+          "pressure_gauge_range_Pa": [
+            0.0,
+            2219.113655040676
+          ],
+          "pressure_absolute_range_Pa": [
+            98816.93468171678,
+            101036.04833675746
+          ],
+          "P_ref_abs_Pa": 98816.93468171678,
+          "inlet_cell_area_mean_gauge_Pa": 2215.9151004390505,
+          "outlet_cell_area_mean_gauge_Pa": 0.0,
+          "reported_dP_Pa": 2215.9151004390505
+        },
+        "sB": {
+          "convention": "SIMPLE native total porosity; each symmetric physical fluid has half this mass",
+          "coordinates": "solver +y streamwise; A maps to real +x, B maps to real -y",
+          "faces": {
+            "x-": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            },
+            "x+": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            },
+            "y-": {
+              "signed_outward_kg_s": -0.03567991314936568,
+              "inward_kg_s": 0.03567991314936568,
+              "outward_kg_s": 0.0
+            },
+            "y+": {
+              "signed_outward_kg_s": 0.03567990670314766,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.03567990670314766
+            },
+            "z-": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            },
+            "z+": {
+              "signed_outward_kg_s": 0.0,
+              "inward_kg_s": -0.0,
+              "outward_kg_s": 0.0
+            }
+          },
+          "net_outward_kg_s": -6.446218017708283e-09,
+          "pressure_gauge_range_Pa": [
+            0.0,
+            1251.40926333495
+          ],
+          "pressure_absolute_range_Pa": [
+            99811.43435786956,
+            101062.8436212045
+          ],
+          "P_ref_abs_Pa": 99811.43435786956,
+          "inlet_cell_area_mean_gauge_Pa": 1230.206619047407,
+          "outlet_cell_area_mean_gauge_Pa": 0.0,
+          "reported_dP_Pa": 1230.206619047407
+        }
+      }
+    },
+    "temperature_transport_boundary": {
+      "A": {
+        "faces": {
+          "x-": {
+            "outward_advection_W": -2708.2617493010393,
+            "outward_conduction_W": -0.06359523506220195
+          },
+          "x+": {
+            "outward_advection_W": 2383.5950676518205,
+            "outward_conduction_W": 0.0
+          },
+          "y-": {
+            "outward_advection_W": 0.0,
+            "outward_conduction_W": 0.0
+          },
+          "y+": {
+            "outward_advection_W": 0.0,
+            "outward_conduction_W": 0.0
+          },
+          "z-": {
+            "outward_advection_W": 0.0,
+            "outward_conduction_W": 0.0
+          },
+          "z+": {
+            "outward_advection_W": 0.0,
+            "outward_conduction_W": 0.0
+          }
+        },
+        "outward_total_W": -324.730276884281,
+        "source_W": -324.73027688418574,
+        "residual_W": -9.526957001071423e-11,
+        "relative_residual": 2.9338062014060947e-13
+      },
+      "B": {
+        "faces": {
+          "x-": {
+            "outward_advection_W": 0.0,
+            "outward_conduction_W": 0.0
+          },
+          "x+": {
+            "outward_advection_W": 0.0,
+            "outward_conduction_W": 0.0
+          },
+          "y-": {
+            "outward_advection_W": 5728.298680300158,
+            "outward_conduction_W": 0.0
+          },
+          "y+": {
+            "outward_advection_W": -5403.631923170784,
+            "outward_conduction_W": 0.0635197546130564
+          },
+          "z-": {
+            "outward_advection_W": 0.0,
+            "outward_conduction_W": 0.0
+          },
+          "z+": {
+            "outward_advection_W": 0.0,
+            "outward_conduction_W": 0.0
+          }
+        },
+        "outward_total_W": 324.73027688398724,
+        "source_W": 324.7302768840302,
+        "residual_W": -4.297362465877086e-11,
+        "relative_residual": 1.3233636564821419e-13
+      }
+    },
+    "solid_source_sum_W": -1.5552359400317073e-10
+  }
+]

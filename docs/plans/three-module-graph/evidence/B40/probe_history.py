@@ -12,7 +12,6 @@ import sys
 
 import numpy as np
 
-from sjtu_tpmshx.core import evaluators as core
 from sjtu_tpmshx.optimization import evaluator_3d as app
 from sjtu_tpmshx.tests import test_evaluator_frozen_values as pins
 
@@ -26,7 +25,12 @@ def main():
     parser.add_argument('--energy-iterations', type=int)
     parser.add_argument('--convergence-mode', choices=('legacy', 'f2'))
     parser.add_argument('--q-rel-tol', type=float)
+    parser.add_argument('--prepared-backend', action='store_true')
     args = parser.parse_args()
+    if args.prepared_backend:
+        from sjtu_tpmshx.solvers.backends.python.screening import three_d as core
+    else:
+        from sjtu_tpmshx.core import evaluators as core
     assert Path(core.__file__).resolve().is_relative_to(Path.cwd().resolve())
     args.output.mkdir(parents=True, exist_ok=False)
     git_env = {k: v for k, v in os.environ.items()
@@ -59,7 +63,7 @@ def main():
 
     original_thermal = core.solve_full_domain_3d
     thermal_code = original_thermal.__code__
-    core_code = core.evaluate_3d.__code__
+    core_code = (core.run_case if args.prepared_backend else core.evaluate_3d).__code__
     thermal_call = 0
 
     def capture(frame, event, result):
@@ -77,7 +81,7 @@ def main():
                 save(f'thermal_{thermal_call}/output', result)
         elif frame.f_code is core_code and event == 'return':
             save('core/locals', dict(frame.f_locals))
-            save('core/result', result)
+            save('core/result', dict(result.run_status) if args.prepared_backend else result)
             for side in ('sA', 'sB'):
                 if side in frame.f_locals:
                     save('core/' + side, vars(frame.f_locals[side]))
