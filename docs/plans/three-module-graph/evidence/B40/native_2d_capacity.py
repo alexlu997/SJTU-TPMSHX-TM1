@@ -1,7 +1,8 @@
-"""Native SIMPLE mass times original constant inlet cp, on retained fields.
+"""Native SIMPLE boundary energy on retained fields.
 
 Run with runpy from the repository root. This is an offline diagnostic;
-no corrected thermal solve or new physical model is implied.
+Default is original constant inlet cp; --enthalpy selects approved air h(T).
+The T-div-mass-cp field remains a constant-cp auxiliary, not an h(T) defect.
 """
 
 import argparse
@@ -10,10 +11,11 @@ from pathlib import Path
 from types import SimpleNamespace
 import numpy as np
 from sjtu_tpmshx.solvers.backends.python.two_d.coupling import _face_mass_fluxes_2d
-from sjtu_tpmshx.models.tpms_props import air_cp
+from sjtu_tpmshx.models.tpms_props import air_cp, model_h_coefficients
 
 parser = argparse.ArgumentParser()
 parser.add_argument("directories", nargs="*", type=Path)
+parser.add_argument("--enthalpy", action="store_true", help="reduce approved air cp(T) integral transport")
 args = parser.parse_args()
 directories = args.directories or [
     Path("/private/tmp/sjtu-tm1-b40-post-wall/.cache/b40-2d-" + case)
@@ -39,7 +41,13 @@ for case, p in zip(("uniform", "nonuniform"), directories):
         T = a[Tn]
         temps = [T[0], T[-1], T[:, 0], T[:, -1]]
         temps[direction] = a["T_in" + side + "_arr"]
-        boundary = [float((f * cp * t).sum()) for f, t in zip(faces, temps)]
+        def h(t):
+            if not args.enthalpy:
+                return cp * t
+            ca, cb, cc, origin, reference = model_h_coefficients('air')
+            x, r = t - origin, reference - origin
+            return ca*(x-r) + cb/2*(x*x-r*r) + cc/3*(x*x*x-r*r*r)
+        boundary = [float((f * h(t)).sum()) for f, t in zip(faces, temps)]
         div = np.diff(mass[0], axis=0) + np.diff(mass[1], axis=1)
         axis = direction // 2
         end = 0 if direction % 2 == 0 else -1
@@ -83,6 +91,7 @@ for case, p in zip(("uniform", "nonuniform"), directories):
             },
         )
     row["source_sha"] = meta["source_sha"]
+    row["energy_formulation"] = "air_integral_enthalpy" if args.enthalpy else "constant_inlet_cp"
     row["capture"] = str(p)
     row["q_relative_change"] = meta[pre + "rel_chg"]
     row["temperature_chunk_change_K"] = {

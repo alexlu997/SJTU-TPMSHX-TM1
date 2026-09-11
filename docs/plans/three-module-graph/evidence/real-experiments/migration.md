@@ -1,5 +1,22 @@
 # Existing experiment migration regression: in progress
 
+## Shanghai 3D fixed-16 result
+
+Baseline `5f1cafb` and candidate `ae6f236` both completed 16/16 with native
+exit 0 at the existing 20x10x3 mesh and max_outer=12. All configs are equal;
+all rows report convergence. Maximum absolute differences are Q 2.274e-12 W,
+dP_A 1.456e-11 Pa, dP_B 5.685e-14 Pa, Tout_A 1.137e-13 K and
+Tout_B 1.706e-13 K. The largest relative difference is 8.471e-16.
+Local captures/logs are `shanghai-3d-migration-v1` in each worktree;
+the comparison is `.cache/shanghai-3d-comparison.json`.
+
+Warnings are text-identical for 15/16. Row 1 retains all seven warnings with
+the same side, stage, layout, extrema indices and outside counts. Only printed
+extrema change in the last digits (air minimum 386.6748508845845 versus
+386.6748508845846; water maximum 56.62509142717523 versus 56.62509142717519).
+No warning context is lost in this 3D pair. This records migration differences;
+it does not establish experimental accuracy or close B40.
+
 ## Shanghai 2D fixed-16 result
 
 Both third attempts completed all 16 rows with native exit 0. Baseline
