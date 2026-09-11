@@ -1,5 +1,30 @@
 # Existing experiment migration regression: in progress
 
+## Fixed-166 paired run in progress
+
+Both existing interpreters were rechecked (71/73 locked packages and pip check,
+native exit 0). `probe_fixed.py` reads all 166 immutable config snapshots,
+checks equality against the manifest's original configs and invokes each
+checkout's real pipeline. Both processes remain active; no process exit is
+inferred from completed rows. Baseline source is `5f1cafb`, candidate numerical
+source is `13cf657` (later changes are tests/evidence only). Outputs remain in
+each worktree's `.cache/fixed166-migration-v1`.
+
+`compare_fixed.py` keeps all 166 declared rows, records missing/failed pairs,
+config/status differences and lost diagnostics, and only computes each fixed
+group RMSRE once every member completes. Its experimental Q conversion follows
+the original fixed-set definition: 2D W/m times measured 0.042 m depth, 3D W.
+This comparison does not claim full energy qualification from process success.
+
+The first 39 completed pairs have no lost diagnostic keys, config or convergence
+changes. Warning order and D-F context labels change because D-F evaluation now
+occurs in preprocessing: 2D main/solver-cell becomes prepared-df/solver-row;
+3D df-application becomes prepared-df. After accounting for those exact labels
+and ordering, the warning multisets of these 39 pairs are equal, including
+counts and numerical text. Raw warnings and strict text comparison are retained;
+this is an explicit explanation, not a warning filter. This partial snapshot
+does not replace the eventual 166-row result or establish experiment accuracy.
+
 ## Shanghai 3D fixed-16 result
 
 Baseline `5f1cafb` and candidate `ae6f236` both completed 16/16 with native
