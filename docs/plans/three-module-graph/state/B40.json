@@ -24,11 +24,12 @@
     "evidence/B40/2d-boundary-diagnostic.md",
     "evidence/B40/native-2d-capacity.md",
     "evidence/B40/air-model-h.md",
-    "evidence/B40/native-3d-enthalpy.md"
+    "evidence/B40/native-3d-enthalpy.md",
+    "evidence/B40/3d-model-h-validation.md"
   ],
-  "blocked_reason": "Historical failures and approved references are preserved. Both corrected 2D fluid and solid energy checks pass, and approved reference regressions pass. The saved 3D engineering fields have native-mass air integral-enthalpy boundary gaps of 3.67-5.02%; earlier temperature-form equation balance does not establish this boundary criterion. A specific 3D energy-model decision is pending.",
+  "blocked_reason": "The user approved the screening-only 3D air integral-enthalpy repair. Candidate 0773ef1 passes both engineering F2, Q-change and native fluid/solid energy reductions. Original-budget 3D Q/dP references now differ and their explicit disposition is pending; original failures and earlier native-h energy gaps remain preserved. Final combined acceptance remains incomplete.",
   "unblocks_when": "Under the user-approved 2026-09-11 scope, historical attribution, numerical regression, convergence, mass and boundary-energy evidence must be complete. No whole-exchanger experiment for these four cases is required or claimed. Preserve original failures and approved reference history; do not equate a corrected equation residual with boundary energy conservation.",
-  "next_action": "Resolve the proposed 3D native-mass integral-enthalpy model decision, then validate the authorized remedy and separately propose any changed references. Continue the active fixed-166 migration pair; do not restart live processes.",
+  "next_action": "Obtain the specific 3D original-budget Q/dP reference decision, validate active references and real file handoff against the actual new status, and complete current-candidate review/CI. Continue the existing fixed-166 pair without restarting it.",
   "tested_candidate_sha": null,
   "tested_base_sha": null,
   "source_head_sha": null

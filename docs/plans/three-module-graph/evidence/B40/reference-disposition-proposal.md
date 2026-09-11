@@ -1,5 +1,10 @@
 # B40 reference disposition — approved 2026-09-11
 
+This approval applies to the earlier `e38b0c8` reference disposition below.
+Subsequent 2D air-h updates are recorded in `air-model-h-reference-proposal.md`.
+The later 3D air-h Q/dP proposal is in `3d-model-h-validation.md` and requires
+its own explicit decision; this older approval does not authorize those values.
+
 The user explicitly approved this proposal on 2026-09-11. The four reference
 updates below are authorized; no other acceptance condition changes.
 
