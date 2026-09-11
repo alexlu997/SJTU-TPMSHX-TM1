@@ -1,6 +1,21 @@
 # 历史资料索引
 
 当前架构与运行方式见[架构说明](../architecture.md)和[项目 README](../../README.md)。
+
+## 保留在当前仓库的历史文档
+
+| 内容 | 入口 | 阅读范围 |
+| --- | --- | --- |
+| 旧项目手册 | [PROJECT_MANUAL.md](PROJECT_MANUAL.md) | 原根目录手册，旧目录地图、命令和模型说明仅作历史参考 |
+| 旧开发日志 | [devlog.md](devlog.md) | 原始工作记录，保留已注明的同步缺口 |
+| V2 README | [v2-readme.md](v2-readme.md) | 来源版本的精度与物理说明 |
+| 2026-07 升级收尾记录 | [upgrade-2026-07.md](upgrade-2026-07.md) | 当时的分支和验收记录 |
+
+旧手册和开发日志归档自 `8041602`，正文保留原样；当前目录地图见
+[主体源码导航](../../sjtu_tpmshx/README.md)和[仓库导航](../README.md)。
+
+## 通过固定提交查阅的历史产物
+
 下列历史产物已从当前文件树移除，原文与原始数字固定保存在已合并的
 [d3ba040](https://github.com/alexlu997/SJTU-TPMSHX-TM1/commit/d3ba040de0d43fce8e9b485396a5b660c2d87c5f)。
 
@@ -16,5 +31,4 @@
 重新生成，输出位于已忽略的 `reports/figs/grid-convergence.png`。
 
 当前模型资源、冻结基线、正式失败证据、Graph 验收记录，以及仍被复现脚本读取的
-`reports/m1_uniform_vs_graded/` 留在原位置。另保留
-[V2 README](v2-readme.md)和[2026-07 升级收尾记录](upgrade-2026-07.md)。
+`reports/m1_uniform_vs_graded/` 留在原位置。

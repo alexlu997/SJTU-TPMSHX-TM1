@@ -5,6 +5,10 @@ updated: 2026-04-15
 
 # SJTU-TPMSHX reports — 索引
 
+本索引沿用旧版项目的研究分类；文中的“当前 baseline”和精度结论属于
+当时状态。当前默认模型见[架构说明](../docs/architecture.md)，TM1 实施与验收见
+[Graph 状态](../docs/plans/three-module-graph/state/)。以下历史结论保留原状。
+
 本目录按**工作话题**分组,不只是按日期排。所有报告文件名保留 `YYYY-MM-DD-` 日期前缀,
 便于和 git 历史、devlog 对齐。
 

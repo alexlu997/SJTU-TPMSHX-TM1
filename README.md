@@ -5,11 +5,26 @@ TM1 将 TPMS 换热器的前处理、求解和后处理拆为独立维护的模�
 [alexlu997/SJTU-TPMSHX-TM1](https://github.com/alexlu997/SJTU-TPMSHX-TM1)。
 原 SJTU-TPMSHX/V2 是来源参考，本分支不合回原仓库。
 
+**主体源码在 [sjtu_tpmshx/](sjtu_tpmshx/)**，前处理、求解和后处理都在这个包内。
+其他根目录分别存放文档、示例、工程项目、辅助工具和验证记录。
+
 矩形 2D/3D 三模块主线的 M-A 合并验收已记录；M-B 扩展能力继续单独追踪。
 历史 B40 失败与物理适用范围仍须保留。当前状态与证据见
 [Graph 状态](docs/plans/three-module-graph/state/)、
 [接管记录](docs/plans/three-module-graph/TAKEOVER.md) 与
 [验收协议](docs/plans/three-module-graph/OPERATIONS.md)。
+
+## 从这里开始
+
+| 你要做什么 | 入口 |
+| --- | --- |
+| 在本机运行 | [macOS / Windows 首次运行](#first-run)，含命令行算例和 GUI 启动 |
+| 阅读或修改源码 | [主体源码与模块地图](sjtu_tpmshx/README.md) |
+| 理解模块边界 | [架构说明](docs/architecture.md)、[三模块数据契约](schemas/three_module_v1/) |
+| 查找文档与其他目录 | [仓库目录与文档导航](docs/README.md) |
+| 查阅旧版本资料 | [历史资料索引](docs/history/README.md) |
+
+<a id="first-run"></a>
 
 ## 首次运行（macOS / Windows）
 
