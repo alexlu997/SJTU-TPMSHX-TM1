@@ -9,7 +9,7 @@
   "pr_url": "https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/7",
   "merge_sha": null,
   "contract_version": null,
-  "review": null,
+  "review": "evidence/Z00/independent-review.md",
   "ci_runs": [
     "34541721546",
     "34541721586",
@@ -18,16 +18,19 @@
     "34559970329",
     "34559970376",
     "34562270719",
-    "34562270740"
+    "34562270740",
+    "34563788328",
+    "34563788330"
   ],
   "evidence": [
     "acceptance_architecture.md",
-    "evidence/real-experiments/fixed166-comparison.json"
+    "evidence/real-experiments/fixed166-comparison.json",
+    "evidence/Z00/independent-review.md"
   ],
-  "blocked_reason": "The approved 3D screening enthalpy repair passes engineering flow and full energy checks; its two new 3D Q/dP references are now explicitly approved and updated, with 10 related regression/handoff/energy tests passing (native exit 0). Fixed-166 migration completed 166/166 pairs with both native exits 0; experimental Q errors remain unchanged. Full independent implementation review identified a provenance P2, now fixed and re-reviewed; six public API/file-handoff tests pass with native exit 0. Historical failures remain preserved. On 77d694b, three-module CI 34562270719 passed; matrix CI 34562270740 failed at collection due to duplicate test_provenance module names. The integration test is now renamed; both provenance modules pass together (8 tests, native exit 0), with new-head CI pending. PR #7 remains draft and unmerged.",
+  "blocked_reason": "Code candidate 0ba1657 passes current matrix and three-module CI, independent implementation/reference review, approved screening regressions and fixed-166 migration comparison. Historical failures and experimental accuracy limitations remain preserved. Requirement-by-requirement final combined acceptance and merge/post-merge verification are not complete; PR #7 remains draft and unmerged.",
   "unblocks_when": "B40 individual root-cause and acceptance requirements are resolved without blanket waiver, and full independent review, current-head CI and merge verification all pass.",
-  "next_action": "Complete current-head regression/CI and final combined acceptance. The two 3D reference changes are explicitly approved and validated. Preserve draft status and historical failures; no completion or merge claim.",
-  "tested_candidate_sha": null,
-  "tested_base_sha": null,
+  "next_action": "Current code and requirement review/CI evidence is recorded. Complete final combined acceptance, authorized merge and post-merge verification before marking done. Preserve historical failures and per-mode limitations.",
+  "tested_candidate_sha": "0ba165768b66eba7b19f29b2e783f6afec78fb69",
+  "tested_base_sha": "c7f013869e7127b35ac0c305376c13b3a834131b",
   "source_head_sha": "797e4ec5c10f71a746997be3f1c0b5ed9916a26e"
 }

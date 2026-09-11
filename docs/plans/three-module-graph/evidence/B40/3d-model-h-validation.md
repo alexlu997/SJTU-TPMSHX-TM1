@@ -78,3 +78,30 @@ three-process screening handoffs and two 3D native-h boundary tests pass:
 Pre-update handoff captures are retained in
 `.cache/tm1-optimization-before-approved-3d-refs`; historical evidence files
 are unchanged. Current-head CI and final combined acceptance remain pending.
+
+## Combined evidence index after approved regression update
+
+This index joins the separate evidence layers; it does not overwrite their
+historical conclusions or declare the overall gate closed.
+
+| Case | Reproduced historical cause | Current repair / regression | Independent numerical and energy evidence |
+| --- | --- | --- | --- |
+| 2D uniform | `bc69d31` to `d61e341` momentum wall/outlet change reproduces its Q/dP drift with unchanged geometry | Approved air native-mass integral-h transport; current original-budget frozen and three-process tests pass | `air-model-h.md`: F2 mass/momentum, chunk Q-change and complete fluid boundary balance; single-density-loop outer flag remains false |
+| 2D nonuniform | Same controlled commit pair separately reproduces this row's drift and retains its prepared-field comparison | Same approved transport with corrected reversed B-axis density mapping; its own frozen and three-process tests pass | Separate nonuniform row in `air-model-h.md`; multi-loop saved-field tests do not claim outer convergence |
+| 3D uniform | `cef75a5` to `5adb61d` complete endpoint CV explains the large Q shift; `bc69d31` to `d61e341` explains the remaining wall/outlet effect | Approved native-mass air integral-h transport; new Q/dP references at unchanged original budget pass | This report's engineering F2/Q-change, six-face fluid enthalpy and solid global/L1 evidence; original budget is not F2-qualified |
+| 3D nonuniform | Independently captured counterpart of both controlled comparisons; no attribution to an unreachable reporting branch | Its own approved Q/dP references and real three-process check pass | Separate nonuniform engineering flow, fluid enthalpy and solid residual rows above |
+
+Shared inputs, actual field limits, geometry and original controls are in
+`inputs.md`; original observations remain in `application-path-map.md` and
+`failure-triage.md`. Numerical-method justification is in
+`method-verification.md`, `end-cv-investigation.md`, `wall-investigation.md`
+and `2d-history-investigation.md`. Later native-h evidence supersedes the
+applicability of old temperature-form energy certificates, not their records.
+All new references retain original budgets and tolerance. Experimental accuracy,
+mesh independence and broader multi-loop convergence are not inferred here.
+
+Code candidate `0ba1657` passed matrix CI `34563788328` (both platforms:
+2979 fast tests and 27 public integration tests passed, with skips preserved)
+and three-module CI `34563788330`. The five-file reference update was independently
+reviewed with no concrete issue. Final combined acceptance remains separate
+from this evidence index and the PR remains unmerged.

@@ -6,20 +6,25 @@
   "branch": "codex/tm1/full-preparation-repair",
   "base_sha": "f4063579410806eb7143a9592dd66fdc4dfe6cf1",
   "head_sha": null,
-  "pr_url": null,
+  "pr_url": "https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/7",
   "merge_sha": null,
   "contract_version": null,
-  "review": null,
-  "ci_runs": [],
+  "review": "evidence/Z00/independent-review.md",
+  "ci_runs": [
+    "34563788328",
+    "34563788330"
+  ],
   "evidence": [
     "evidence/S20/integration.md",
     "evidence/S20/prepared-flow.md",
-    "evidence/S20/prepared-thermal.md"
+    "evidence/S20/prepared-thermal.md",
+    "acceptance_architecture.md",
+    "evidence/Z00/independent-review.md"
   ],
   "blocked_reason": null,
   "unblocks_when": null,
-  "next_action": "Prepared thermal inputs and real integration/fast checks passed locally; independent review, exact-head CI and merge verification remain required.",
-  "tested_candidate_sha": null,
-  "tested_base_sha": null,
+  "next_action": "Current code and requirement review/CI evidence is recorded. Complete final combined acceptance, authorized merge and post-merge verification before marking done. Preserve historical failures and per-mode limitations.",
+  "tested_candidate_sha": "0ba165768b66eba7b19f29b2e783f6afec78fb69",
+  "tested_base_sha": "c7f013869e7127b35ac0c305376c13b3a834131b",
   "source_head_sha": null
 }

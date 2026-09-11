@@ -66,3 +66,22 @@ filtering is unchanged; water flow_suspect marks rather than deletes rows;
 Dh_cfd_m and Re_nominal retain the source values. Unit conversions were not
 changed. This is a static review of the new source option, not comprehensive
 validation of the pre-existing correlations or missing real water dataset.
+
+## Final M-A requirement review, 2026-09-11
+
+Independent reviewer `b40_review` checked the original V0.1/REQUIREMENTS and
+all 37 architecture task cards against current implementation and evidence at
+code candidate `0ba1657`. No additional demonstrated M-A implementation gap
+was found. The review confirmed real GUI worker/slice/CSV evidence and actual
+2D/3D HDF5 production followed by evaluation without Numba/Qt in minimal CI.
+P40 explicitly permits recording the missing real water CFD dataset; synthetic
+tests are not substituted for that missing physical dataset. M-B remains open
+for real C++/OpenFOAM, providers/REFPROP, tensors, internal SI and H30 metrics.
+
+The reviewer identified stale/empty node evidence and next-action records,
+which are now linked to current evidence. The remaining release work is final
+combined acceptance, authorized merge and post-merge verification. No new
+multi-density-loop convergence requirement is inferred: 2D single-loop outer
+false remains explicit; F2, chunk Q-change, mass and native boundary energy
+have separate evidence. Interactive GPU volume rendering and multi-loop outer
+convergence are not claimed. This review did not rerun tests or PDE.
