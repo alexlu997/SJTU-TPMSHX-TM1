@@ -12,11 +12,12 @@
   "review": null,
   "ci_runs": [],
   "evidence": [
-    "evidence/B40/application-path-map.md"
+    "evidence/B40/application-path-map.md",
+    "evidence/B40/failure-triage.md"
   ],
   "blocked_reason": "Historical frozen evaluator pins failed 4/4 at the reference commit after documented intervening physics changes; pins and tolerances preserved.",
   "unblocks_when": null,
-  "next_action": "Reconcile pin-capture ancestry and obtain the required physical baseline decision; use independent same-source equivalence for migration evidence without relabelling the historical gate as passing.",
+  "next_action": "User accepted same-source equivalence for M-A architecture evidence on 2026-09-11, but explicitly retained the overall B40 gate. Review the four-row failure triage and proposed separate tracking; root causes and individual exit conditions remain unresolved. No pin or tolerance change is authorized by this decision.",
   "tested_candidate_sha": null,
   "tested_base_sha": null,
   "source_head_sha": null

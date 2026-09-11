@@ -2,14 +2,14 @@
 
 这是最终候选的需求核对表，不是独立状态真源；各节点以 state/*.json 为准。
 所有本地证据保留其源提交、环境、范围和原生退出，不能合计测试数量宣告收口。
-尚无本次修复候选的已合并提交或最终远端 CI，因此 Z00 不得置 done。
+PR #7 尚未合并；候选 `3650fcf` 的最小环境 CI 已通过，macOS/Windows 矩阵仍在运行，因此 Z00 不得置 done。
 
 | 节点/要求 | 可核查实现或证据 | 当前限制 / 下一项 |
 | --- | --- | --- |
 | G00 接管与协调 | TAKEOVER.md、独立 worktree/提交历史 | 最终目标分支和 PR/CI 状态需实时复核 |
 | G10 公共契约 | domain 的 CaseData/FieldResult/RunControl；schemas/three_module_v1 | 最终审查；不能携带回调或活动求解器对象 |
 | B20/B30 参考基线 | evidence/B20、B30 的选择记录及 S20/S30 真实比较 | 原历史 NaN、未收敛、缺 native exit 不回填成成功 |
-| B40 旧优化锁定值 | evidence/B40/application-path-map.md | 4/4 失败保留；同源架构比较不能私自将旧物理门槛改绿 |
+| B40 旧优化锁定值 | evidence/B40/application-path-map.md、failure-triage.md | 4/4 失败保留；用户允许同源架构比较，但明确未解除整体 B40 门槛 |
 | M00 共享模型 | models/；evidence/M00/extraction.md；导入分层检查 | 后端不得重复闭合，物理适用域不因提取放宽 |
 | P20/P30 前处理 | preprocess/two_d、three_d；prepared-flow / prepared-thermal 证据 | 固定几何、边界、系数交接；实际接收输入需校验 |
 | P40 离线资源 | evidence/P40；显式源路径、拟合和本地发布 | 当前水 CFD 工作簿缺失；不替换生产表或原始数据 |
@@ -19,7 +19,7 @@
 | H10 工程指标 | postprocess/metrics.py 与分模式 reducer | Q/Tout/ΔP 的定义和不支持原因随模式保留 |
 | D10/D20 正式文件 | YAML/HDF5/严格 JSON，evidence/V20/files.md | schema/形状/单位/资源与诊断 NaN 区分 |
 | H20 离线可视化/导出 | postprocess/export.py；真实 2D/3D 求解结果在独立进程逐字段 VTK 回读 | 本地 2 项通过、原生退出 0；最终 CI 仍待运行 |
-| E00 环境 | 主锁、最小后处理锁和 CI 环境检查 | 当前候选远端 CI 未执行；本地完整环境不等于最小环境 |
+| E00 环境 | 主锁、最小后处理锁和 CI 环境检查 | 当前候选最小环境 CI 已通过；macOS/Windows 矩阵待完成 |
 | Q10 测试/示例入口 | 分层测试、examples/ 参数及有效场调用 | slow/heavy 不在快测覆盖内 |
 | A10/A20 应用编排 | 公共 CLI 和控制器适配；evidence/A20 | UI 和报告消费结果数据，不读取运行时私有对象 |
 | A30/A40 外部优化/设计 | 公开 Case/Result 调用；参数、场及模式接口 | 无虚构梯度或伴随实现 |
@@ -30,13 +30,13 @@
 | I55 依赖边界 | 实际 prepare/solve/postprocess 子进程导入检查 | 最小环境真实文件求值须由 CI 实际执行 |
 | I56 报告/应用交接 | HDF5 后独立进程重建 ComputeResult | 不从旧摘要或 GUI 状态重算指标 |
 | V20/V30 文件边界 | 输入文件分阶段删除后的真实独立进程测试 | 完整文件与状态证据，不以临时 NPZ 替代正式交接 |
-| V40 隔离/最小运行 | 真实同进程 2D/3D 并行与取消、警告隔离通过 | 同作业双 venv 的真实最小依赖 CI 尚待运行 |
+| V40 隔离/最小运行 | 真实同进程 2D/3D 并行与取消、警告隔离通过 | 最小环境 CI 34549895031 已通过；仍须完整独立审查 |
 | Z00 最终收口 | 本表、README、architecture 和原始历史存档 | 独立审查、必要 CI、基线决定与合并后验证未齐 |
 
 ## 尚未通过的发布门槛
 
-1. B40 旧门槛与同源架构比较的处理决定：正在等待用户确认，不更改原锁定值。
-2. 对真实 diff 和证据的独立审查；实现者的总结不能替代它。
+1. 用户于 2026-09-11 允许同源迁移等价用于 M-A 架构证据，但不批准整体解除 B40。四项根因、修复及退出条件仍须逐项解决；见 evidence/B40/failure-triage.md。不更改原锁定值。
+2. 对真实 diff 和证据的独立审查已获授权，正在进行；B40 只读分析审查不等于全 PR 审查。
 3. 精确候选的既有 macOS/Windows CI、真实集成以及 Linux 最小环境运行。
 4. 目标 main 的基线一致性、串行正常合并及合并后验证。
 

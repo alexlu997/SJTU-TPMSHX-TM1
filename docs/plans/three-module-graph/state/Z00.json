@@ -1,22 +1,22 @@
 {
   "node_id": "Z00",
-  "status": "running",
+  "status": "blocked",
   "worker": "takeover-controller",
   "worktree": "/private/tmp/sjtu-tm1-p40-offline-repair",
   "branch": "codex/tm1/p40-offline-repair",
   "base_sha": null,
   "head_sha": null,
-  "pr_url": null,
+  "pr_url": "https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/7",
   "merge_sha": null,
   "contract_version": null,
   "review": null,
-  "ci_runs": [],
+  "ci_runs": ["34541721546", "34541721586", "34549895039", "34549895031"],
   "evidence": [
     "acceptance_architecture.md"
   ],
-  "blocked_reason": null,
-  "unblocks_when": null,
-  "next_action": "Final independent review, current-head CI and merge verification remain outstanding; preserve all historical baseline failures and pending B40 decision.",
+  "blocked_reason": "User authorized independent review and accepted same-source equivalence as M-A architecture evidence, but explicitly retained the overall B40 gate pending four-case cause/ownership/acceptance analysis. B40-only independent review is complete; full PR review remains. Candidate 085e075 Windows CI failed with UnicodeDecodeError (2971 passed, native exit 1), preserved. Fix 3650fcf local architecture tests 2 passed and Ruff passed, native exit 0; minimal-postprocess CI passed, macOS/Windows CI pending.",
+  "unblocks_when": "B40 individual root-cause and acceptance requirements are resolved without blanket waiver, and full independent review, current-head CI and merge verification all pass.",
+  "next_action": "Inspect CI runs 34549895039 and 34549895031 for candidate 3650fcf. Preserve draft status and historical physical failures until remaining gates are resolved.",
   "tested_candidate_sha": null,
   "tested_base_sha": null,
   "source_head_sha": null
