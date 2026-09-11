@@ -1,6 +1,4 @@
 """Refined duty must use physical ports and a converged energy solve."""
-from types import SimpleNamespace
-
 import numpy as np
 import pytest
 
@@ -44,8 +42,7 @@ def _arguments(monkeypatch, directions=(1, 3), full=False):
         dir_A=directions[0], dir_B=directions[1], energy_dx=dx, energy_dy=dy,
         _x_breaks=fields['_x_breaks'], _y_breaks=fields['_y_breaks'],
         T_inA=400., T_inB=300., P_inA_val=101325., P_inB_val=101325., eps=.7,
-        za=None, window=SimpleNamespace(_h_vA=1., _h_vB=1., _K_ffA=1.,
-                                       _K_ffB=1., _K_ss=1.),
+        za=None, coeffs=dict(K_ffA=1., K_ffB=1., K_ss=1.),
         _pA=props, _pB=props, cfgA=parsed['cfgA'], cfgB=parsed['cfgB'],
         u_A=1., u_B=1., warnings_list=[], h_vA_coarse=1., h_vB_coarse=1.)
     return cfg, args

@@ -67,7 +67,7 @@ def test_backend_uses_last_main_raw_and_mass_for_reported_scalars(monkeypatch, m
         parsed['thermal_geometry'] = prepare_thermal_geometry(
             parsed['tpms_type'], parsed['Lcell'], parsed['t_wall'], parsed['k_s'],
             L_field=parsed['za']['L_mm_arr'], t_field=parsed['za']['t_arr'])
-        monkeypatch.setattr(solve_2d, '_apply_zone_stats_2d', lambda *a: None)
+        monkeypatch.setattr(solve_2d, '_zone_statistics_2d', lambda *a: None)
     else:
         eps = pipe._parsed['eps']
     solvers, mass_calls, thermal_calls, reductions = {}, [], [], []

@@ -19,10 +19,9 @@ _SURFACE = {
     'sjtu_tpmshx.pipelines.stages_2d': [
         # cfg boundary (kept)
         '_check_zoned_fluid_support', '_parse_inputs_cfg',
-        '_build_fields_cfg', '_run_solvers_cfg',
+        '_build_fields_cfg',
         # re-exported from solve_2d
-        '_enthalpy_balance_2d', '_PipelineWindowShim',
-        '_compute_pressure_2d', '_apply_zone_stats_2d',
+        '_enthalpy_balance_2d', '_compute_pressure_2d',
         '_compute_Q_richardson', '_run_solvers',
     ],
     'sjtu_tpmshx.pipelines.stages_3d': [

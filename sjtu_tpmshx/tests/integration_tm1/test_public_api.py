@@ -41,11 +41,14 @@ def test_real_application_mapping_and_offline_readback(monkeypatch, tmp_path, di
         from sjtu_tpmshx.solvers.backends.python.two_d import result_capture
         from sjtu_tpmshx.tests.integration_tm1.legacy_result_mapping import _finalize_cfg
         capture = result_capture.capture_result
-        def checked_capture(case, raw, state):
-            result = capture(case, raw, state)
+        def checked_capture(case, raw):
+            result = capture(case, raw)
             legacy = dict(raw)
-            legacy.update({'_shim' + name: value for name, value in vars(state).items()
-                           if name.startswith(('_zone_', '_rho_', '_mu_', '_K_', '_h_v'))})
+            for group in ('coeffs', 'props'):
+                legacy.update({'_shim_' + name: value
+                               for name, value in raw['application'][group].items()})
+            legacy.update({'_shim_zone_' + name: value for name, value in
+                           (raw['application']['zones'] or {}).items()})
             parsed = dict(compute_cfg=config, N_x=len(case.grid['dx']), N_y=len(case.grid['dy']),
                           L=case.parameters['L'], H=case.parameters['H'],
                           dir_A=case.parameters['dir_A'], dir_B=case.parameters['dir_B'],

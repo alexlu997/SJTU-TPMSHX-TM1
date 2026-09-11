@@ -6,6 +6,8 @@ from sjtu_tpmshx.domain.run_warnings import range_context
 from sjtu_tpmshx.models.nu_correlations import record_raw_nu_range, warn_sco2_nu_evidence
 from sjtu_tpmshx.models.tpms_props import record_temperature_ranges
 from sjtu_tpmshx.domain.cancellation import CancelledError
+from sjtu_tpmshx.domain.module_ports import RunControl
+from sjtu_tpmshx.domain.validator import compute_volumetric_htc
 from sjtu_tpmshx.solvers.coupling_skeleton import OuterConvergence, run_outer_coupling
 from sjtu_tpmshx.solvers.ltne_energy import solve_full_domain
 from sjtu_tpmshx.solvers.simple_solver import _prolong_mass_faces_2d
@@ -16,120 +18,6 @@ _log = get_logger(__name__)
 
 
 from sjtu_tpmshx.result_math import _enthalpy_balance_2d  # noqa: F401 - existing public name
-
-
-class _PipelineWindowShim:
-    """Minimal window-like adapter feeding cfg-derived state into
-    ``_run_solvers`` and capturing back-mutations for the Pipeline.
-
-    Audit C4 (L-a-2). Pre-populates the read-only window attributes
-    (``_rho_A``, ``_rho_B``, ``_mu_A``, ``_mu_B``, ``_K_ffA``,
-    ``_K_ffB``, ``_K_ss``) by re-running ``tpms_calc.compute`` per
-    side; the legacy UI flow stashed these after the user clicked
-    Auto-Fill, but Pipeline2D drives a cfg-only entrypoint without
-    that hand-off.  Mutation writes (``_compute_progress``,
-    ``_iter_label_now``, ``_zone_*``) are captured for the Pipeline's
-    ``ComputeResult.diagnostics`` and ``ComputeResult.zones`` slots.
-
-    Bridging via this shim avoids a 770-line rewrite of the
-    ``_run_solvers`` body in this PR; C5 / future phases can hoist
-    the loop into a window-free function.
-    """
-
-    # Prevent the __setattr__ progress hook from firing during the
-    # constructor's many attribute assignments.
-    _init_done = False
-
-    def __init__(self, compute_cfg, progress_cb=None, iter_label_cb=None, prepared_properties=None):
-        from sjtu_tpmshx.models import tpms_calc as _tc
-        from sjtu_tpmshx.models.tpms_calc import geometry as _tpms_geom
-        from sjtu_tpmshx.domain.validator import compute_volumetric_htc
-
-        # Bypass our own __setattr__ during init so the progress
-        # callback only fires on the real loop updates below.
-        object.__setattr__(self, '_progress_cb',
-                           progress_cb or (lambda _pct: None))
-        # B2 2.1a: forward `_iter_label_now` writes ("iter k/N") to the UI
-        # ticker — the legacy window path read this attribute directly.
-        object.__setattr__(self, '_iter_label_cb',
-                           iter_label_cb or (lambda _s: None))
-
-        # Re-run tpms_calc.compute per side — the same call
-        # ``Main_Menu._auto_fill_fluid`` would have made in the UI
-        # path before _run_solvers, but driven purely by cfg here.
-        if prepared_properties is None:
-            with range_context(side='A', stage='inlet', layout='scalar'):
-                rA = _tc.compute(compute_cfg.geometry.tpms,
-                                 compute_cfg.geometry.L_cell_mm,
-                                 compute_cfg.geometry.t_wall_mm,
-                                 compute_cfg.fluid_A.u_mps,
-                                 compute_cfg.fluid_A.T_in_K,
-                                 compute_cfg.fluid_A.P_in_Pa,
-                                 compute_cfg.geometry.k_s_W_mK,
-                                 compute_cfg.fluid_A.type,
-                                 sco2_nu=getattr(compute_cfg, 'sco2_nu', None))
-            with range_context(side='B', stage='inlet', layout='scalar'):
-                rB = _tc.compute(compute_cfg.geometry.tpms,
-                                 compute_cfg.geometry.L_cell_mm,
-                                 compute_cfg.geometry.t_wall_mm,
-                                 compute_cfg.fluid_B.u_mps,
-                                 compute_cfg.fluid_B.T_in_K,
-                                 compute_cfg.fluid_B.P_in_Pa,
-                                 compute_cfg.geometry.k_s_W_mK,
-                                 compute_cfg.fluid_B.type,
-                                 sco2_nu=getattr(compute_cfg, 'sco2_nu', None))
-
-        else:
-            rA, rB = prepared_properties['A'], prepared_properties['B']
-
-        self._rho_A = rA['rho']
-        self._rho_B = rB['rho']
-        self._mu_A = rA['mu']
-        self._mu_B = rB['mu']
-        self._K_ffA = rA['K_ff']
-        self._K_ffB = rB['K_ff']
-        if prepared_properties is None:
-            g = _tpms_geom(compute_cfg.geometry.tpms,
-                           compute_cfg.geometry.L_cell_mm,
-                           compute_cfg.geometry.t_wall_mm,
-                           compute_cfg.geometry.k_s_W_mK)
-        else:
-            g = prepared_properties['geometry']
-        self._K_ss = g['K_ss']
-        # h_v stashed for completeness — _run_solvers builds local
-        # h_v fields per cell, but downstream UI panels read these.
-        self._h_vA = compute_volumetric_htc(rA['A_0'], rA['H_sf'])
-        self._h_vB = compute_volumetric_htc(rB['A_0'], rB['H_sf'])
-
-        # Mutation collectors — _run_solvers writes these directly.
-        self._compute_progress = 0
-        self._iter_label_now = ''
-        self._zone_axis_dir = None
-        self._zone_stats = None
-        self._zone_boundaries = None
-        self._zone_boundaries_x = None
-        self._zone_boundaries_y = None
-        self._extrap_reasons = []
-
-        # Now enable the progress forwarding hook.
-        object.__setattr__(self, '_init_done', True)
-
-    # Direction encoding shared with ``Main_Menu._DIR_MAP``.
-    _DIR_MAP = {0: '+x', 1: '-x', 2: '+y', 3: '-y', 4: '+z', 5: '-z'}
-
-    # _run_solvers calls ``window._is_x_dir(d)`` in three places.
-    @staticmethod
-    def _is_x_dir(d):
-        return d in (0, 1)
-
-    def __setattr__(self, name, value):
-        super().__setattr__(name, value)
-        if not getattr(self, '_init_done', False):
-            return
-        if name == '_compute_progress':
-            self._progress_cb(int(value))
-        elif name == '_iter_label_now':
-            self._iter_label_cb(str(value))
 
 
 from sjtu_tpmshx.result_math import _pipe_weighted  # noqa: F401 - existing public name
@@ -208,7 +96,7 @@ def _inlet_transport_2d(simp, direction, eps_side, cp_in, dx, dy):
 from sjtu_tpmshx.result_math import _outlet_temperature_2d  # noqa: F401 - existing public name
 
 
-def _compute_pressure_2d(simpA, simpB, dir_A, dir_B, P_inA, P_inB, window):
+def _compute_pressure_2d(simpA, simpB, dir_A, dir_B, P_inA, P_inB):
     """Real-coordinate pressure fields + pipe-weighted dP from converged SIMPLE.
 
     Extracted verbatim from ``_run_solvers`` (#9-2D god-function split).
@@ -230,7 +118,7 @@ def _compute_pressure_2d(simpA, simpB, dir_A, dir_B, P_inA, P_inB, window):
     P_out_gauge_A = _pipe_weighted(simpA.P[:, -1], _wA_out)  # pipe-outlet gauge
     P_out_gauge_B = _pipe_weighted(simpB.P[:, -1], _wB_out)
 
-    is_xA = window._is_x_dir(dir_A)
+    is_xA = dir_A in (0, 1)
     if is_xA:
         P_gA = simpA.P.T.copy()          # transpose to real coords
         if dir_A == 1:                     # -x: inlet at right
@@ -241,7 +129,7 @@ def _compute_pressure_2d(simpA, simpB, dir_A, dir_B, P_inA, P_inB, window):
             P_gA = P_gA[:, ::-1]
     P_fA = P_inA + (P_gA - P_ref_A)
 
-    is_xB = window._is_x_dir(dir_B)
+    is_xB = dir_B in (0, 1)
     if is_xB:
         P_gB = simpB.P.T.copy()
         if dir_B == 1:
@@ -260,22 +148,16 @@ def _compute_pressure_2d(simpA, simpB, dir_A, dir_B, P_inA, P_inB, window):
     return P_fA, P_fB, dP_A, dP_B
 
 
-def _apply_zone_stats_2d(window, z_axis, zone_config, za, L, H,
-                         energy_dx, energy_dy, Ta, Tb, Ts):
-    """Compute per-zone statistics + boundary lines and stash them on
-    ``window`` (read back by the Pipeline shim after ``_run_solvers``).
-
-    Extracted verbatim from ``_run_solvers`` (#9-2D god-function split).
-    Writes ``window._zone_{axis_dir,stats,boundaries,boundaries_x,
-    boundaries_y}``; returns nothing.
-    """
+def _zone_statistics_2d(z_axis, zone_config, za, L, H,
+                        energy_dx, energy_dy, Ta, Tb, Ts):
+    """Return area-weighted zone statistics and physical boundary positions."""
     if zone_config is not None and za is not None:
-        window._zone_axis_dir = z_axis
+        zones = dict(axis_dir=z_axis)
         if z_axis == 'grid':
             # Grid mode: boundaries from zone_config
-            window._zone_boundaries = []
-            window._zone_boundaries_x = [b * L for b in za.get('x_bounds', [])]
-            window._zone_boundaries_y = [b * H for b in za.get('y_bounds', [])]
+            zones['boundaries'] = []
+            zones['boundaries_x'] = [b * L for b in za.get('x_bounds', [])]
+            zones['boundaries_y'] = [b * H for b in za.get('y_bounds', [])]
             # Build dummy Zone objects for statistics
             from sjtu_tpmshx.models.zone_config import Zone
             dummy_zones = [Zone(f'g{r}', gc['y0'], gc['y1'], gc['L'], gc['t'])
@@ -286,7 +168,7 @@ def _apply_zone_stats_2d(window, z_axis, zone_config, za, L, H,
                                             cell_area=_ca)
             _log.info("\n[ZONE STATISTICS]")
             _log.info(format_zone_report(stats))
-            window._zone_stats = stats
+            zones['stats'] = stats
         else:
             # 1D mode
             from sjtu_tpmshx.models.zone_config import compute_zone_statistics, format_zone_report
@@ -295,26 +177,22 @@ def _apply_zone_stats_2d(window, z_axis, zone_config, za, L, H,
                                             zone_config.zones, cell_area=_ca)
             _log.info("\n[ZONE STATISTICS]")
             _log.info(format_zone_report(stats))
-            window._zone_stats = stats
-            window._zone_boundaries_x = None
-            window._zone_boundaries_y = None
+            zones['stats'] = stats
+            zones['boundaries_x'] = None
+            zones['boundaries_y'] = None
             if z_axis == 'y':
-                window._zone_boundaries = [z.y_frac_end * H for z in zone_config.zones[:-1]]
+                zones['boundaries'] = [z.y_frac_end * H for z in zone_config.zones[:-1]]
             else:
-                window._zone_boundaries = [z.y_frac_end * L for z in zone_config.zones[:-1]]
-    else:
-        window._zone_stats = None
-        window._zone_axis_dir = None
-        window._zone_boundaries = None
-        window._zone_boundaries_x = None
-        window._zone_boundaries_y = None
+                zones['boundaries'] = [z.y_frac_end * L for z in zone_config.zones[:-1]]
+        return zones
+    return None
 
 
 def _compute_Q_richardson(
         Ta, Tb, Ts, ucA, vcA, ucB, vcB, rho_cp_A, rho_cp_B,
         simpA, simpB, N_x, N_y, L, H, dir_A, dir_B,
         energy_dx, energy_dy, _x_breaks, _y_breaks,
-        T_inA, T_inB, P_inA_val, P_inB_val, eps, za, window,
+        T_inA, T_inB, P_inA_val, P_inB_val, eps, za, coeffs,
         _pA, _pB, cfgA, cfgB, u_A, u_B, warnings_list,
         h_vA_coarse, h_vB_coarse, split_A=0.5, cancel_check=None,
         model_inputs=None, model_balance=None, evidence=None):
@@ -407,8 +285,8 @@ def _compute_Q_richardson(
         K_ss2 = _interp2(za['K_ss_arr'])
         eps2 = _interp2(za['eps_arr'])
     else:
-        K_ffA2 = window._K_ffA; K_ffB2 = window._K_ffB
-        K_ss2 = window._K_ss; eps2 = eps
+        K_ffA2 = coeffs['K_ffA']; K_ffB2 = coeffs['K_ffB']
+        K_ss2 = coeffs['K_ss']; eps2 = eps
     # Use the actual last coarse thermal problem, including local Re and split.
     h_vA2, h_vB2 = _interp2(h_vA_coarse), _interp2(h_vB_coarse)
     # Per-side porosity on the refined grid (mirror the main solve) so the
@@ -727,8 +605,15 @@ def _compute_Q_richardson(
             richardson_warn, richardson_info)
 
 
-def _run_solvers(window, cfg, fields, *, cancel_check=None):
+def _run_solvers(cfg, fields, control: RunControl = RunControl()):
     """Phase 3: run SIMPLE + coupling loop + pressure + Richardson Q."""
+    properties = cfg['static_properties']
+    rA, rB = properties['A'], properties['B']
+    coeffs = dict(K_ffA=rA['K_ff'], K_ffB=rB['K_ff'],
+                  K_ss=properties['geometry']['K_ss'],
+                  h_vA=compute_volumetric_htc(rA['A_0'], rA['H_sf']),
+                  h_vB=compute_volumetric_htc(rB['A_0'], rB['H_sf']))
+    cancel_check = control.cancel_check
     L = cfg['L']; H = cfg['H']
     N_x = cfg['N_x']; N_y = cfg['N_y']
     u_A = cfg['u_A']; u_B = cfg['u_B']
@@ -877,7 +762,7 @@ def _run_solvers(window, cfg, fields, *, cancel_check=None):
     tpms_type = cfg['tpms_type']
     Lcell = cfg['Lcell']; t_wall = cfg['t_wall']
 
-    mu_A, mu_B = window._mu_A, window._mu_B
+    mu_A, mu_B = rA['mu'], rB['mu']
     P_inA_val = cfg['compute_cfg'].fluid_A.P_in_Pa
     P_inB_val = cfg['compute_cfg'].fluid_B.P_in_Pa
     fluid_props.check_water_state(fluid_A, T_inA, P_inA_val, where='2D direct inlet A')
@@ -1013,10 +898,11 @@ def _run_solvers(window, cfg, fields, *, cancel_check=None):
         nonlocal mass_flux_A, mass_flux_B
         if cancel_check is not None and cancel_check():
             raise CancelledError("compute cancelled by user")
-        window._compute_progress = 10 + int(80 * _coup_it / _MAX_COUPLING)
+        control.report_progress(10 + int(80 * _coup_it / _MAX_COUPLING))
         # Live iteration label for the UI button ticker (replaces the
         # dropped ETA text). 2026-05-14.
-        window._iter_label_now = f"iter {_coup_it + 1}/{_MAX_COUPLING}"
+        if control.iteration is not None:
+            control.iteration(f"iter {_coup_it + 1}/{_MAX_COUPLING}")
 
         # Step 1: SIMPLE velocity with current rho field. Pass Ta/Tb after
         # first outer iter so SIMPLE _update_density uses local T (not stale T_in).
@@ -1130,7 +1016,7 @@ def _run_solvers(window, cfg, fields, *, cancel_check=None):
                     float(inlet), mode=cfg.get('envelope_mode', 'raise'),
                     dims=f'2D-{side}', ma_max=mach_field_max(speed, temperature))
 
-        window._compute_progress = 10 + int(80 * (_coup_it + 0.3) / _MAX_COUPLING)
+        control.report_progress(10 + int(80 * (_coup_it + 0.3) / _MAX_COUPLING))
 
         # Smooth velocity near partial-width wall boundaries — DISPLAY ONLY.
         # N5 (2026-07-07): the smoothed fields used to OVERWRITE ucA/vcA and
@@ -1245,8 +1131,8 @@ def _run_solvers(window, cfg, fields, *, cancel_check=None):
             _Kffa_src = za['K_ffA_arr']; _Kffb_src = za['K_ffB_arr']
             _Kss_src = za['K_ss_arr']; _eps_src = za['eps_arr']
         else:
-            _Kffa_src = window._K_ffA; _Kffb_src = window._K_ffB
-            _Kss_src = window._K_ss; _eps_src = eps
+            _Kffa_src = coeffs['K_ffA']; _Kffb_src = coeffs['K_ffB']
+            _Kss_src = coeffs['K_ss']; _eps_src = eps
         if _asym_2d:
             _Kffa_use = _Kffa_src * _epsfac_A
             _Kffb_use = _Kffb_src * _epsfac_B
@@ -1480,8 +1366,8 @@ def _run_solvers(window, cfg, fields, *, cancel_check=None):
 
     # Zone statistics and boundary lines
     z_axis = cfg['z_axis']
-    _apply_zone_stats_2d(window, z_axis, zone_config, za, L, H,
-                         energy_dx, energy_dy, Ta, Tb, Ts)
+    zones = _zone_statistics_2d(z_axis, zone_config, za, L, H,
+                               energy_dx, energy_dy, Ta, Tb, Ts)
 
     # FIX (2026-06-24): keep RAW (unsmoothed) fields for Q extraction. The
     # display smoothing below blurs the sharp inlet/outlet thermal gradients;
@@ -1505,16 +1391,11 @@ def _run_solvers(window, cfg, fields, *, cancel_check=None):
         Tb = gaussian_filter(Tb, sigma=_st)
         Ts = gaussian_filter(Ts, sigma=_st)
 
-    # Store for slider / export (wrap in 3D for compatibility)
-    window.T_fA = Ta[np.newaxis]
-    window.T_fB = Tb[np.newaxis]
-    window.T_s  = Ts[np.newaxis]
-
     # ── Step 3: Pressure from SIMPLE ──
     P_inA = cfg['compute_cfg'].fluid_A.P_in_Pa
     P_inB = cfg['compute_cfg'].fluid_B.P_in_Pa
     P_fA, P_fB, dP_A, dP_B = _compute_pressure_2d(
-        simpA, simpB, dir_A, dir_B, P_inA, P_inB, window)
+        simpA, simpB, dir_A, dir_B, P_inA, P_inB)
     if not _enthalpy_mode:
         for side, fluid, temperature in (('A', fluid_A, Ta_raw), ('B', fluid_B, Tb_raw)):
             with range_context(side=side, stage='final', layout='real-cell(x,y)'):
@@ -1570,7 +1451,7 @@ def _run_solvers(window, cfg, fields, *, cancel_check=None):
             Ta_raw, Tb_raw, Ts_raw, ucA, vcA, ucB, vcB, rcp_A_energy, rcp_B_energy,
             simpA, simpB, N_x, N_y, L, H, dir_A, dir_B,
             energy_dx, energy_dy, _x_breaks, _y_breaks,
-            T_inA, T_inB, P_inA_val, P_inB_val, eps, za, window,
+            T_inA, T_inB, P_inA_val, P_inB_val, eps, za, coeffs,
             _pA, _pB, cfgA, cfgB, u_A, u_B, warnings_list,
             h_vA_coarse=hv_A_energy, h_vB_coarse=hv_B_energy,
             split_A=_split_A_2d,
@@ -1767,4 +1648,8 @@ def _run_solvers(window, cfg, fields, *, cancel_check=None):
     }
     if cfg.get('_capture_native'):
         result['_native_evidence'] = native_evidence
+    result['application'] = dict(
+        coeffs=coeffs,
+        props=dict(rho_A=rA['rho'], rho_B=rB['rho'], mu_A=rA['mu'], mu_B=rB['mu']),
+        zones=zones)
     return result

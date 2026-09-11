@@ -85,17 +85,18 @@ def test_metadata_and_source_notice_are_independent_of_df():
 def test_real_pipeline_heat_builders_share_selected_parameters():
     from types import SimpleNamespace
     from sjtu_tpmshx.domain.compute_config import FluidConfig, GeometryConfig
-    from sjtu_tpmshx.solvers.backends.python.two_d.coupling import _PipelineWindowShim
+    from sjtu_tpmshx.preprocess.api import prepare_case
     from sjtu_tpmshx.solvers.backends.python.three_d.runtime import _build_hv_machinery
     from sjtu_tpmshx.pipelines.stages_3d import _parse_inputs_3d_cfg
     cfg = ComputeConfig(fluid_A=FluidConfig(type='sco2', u_mps=1., T_in_K=400., P_in_Pa=10e6),
                         fluid_B=FluidConfig(type='sco2', u_mps=1., T_in_K=350., P_in_Pa=10e6),
                         geometry=GeometryConfig(tpms='Diamond', Lz_m=.042))
-    original = _PipelineWindowShim(cfg)
+    original = prepare_case(cfg, case_id='nu-default').parameters['static_properties']
     cfg.sco2_nu = SYNTHETIC
-    selected = _PipelineWindowShim(cfg)
-    assert selected._h_vA == pytest.approx(.8 * original._h_vA)
-    assert selected._h_vB == pytest.approx(.8 * original._h_vB)
+    selected = prepare_case(cfg, case_id='nu-selected').parameters['static_properties']
+    for side in ('A', 'B'):
+        assert selected[side]['A_0'] * selected[side]['H_sf'] == pytest.approx(
+            .8 * original[side]['A_0'] * original[side]['H_sf'])
     cfg.solver.Nz = 2
     assert _parse_inputs_3d_cfg(cfg)['sco2_nu'] is SYNTHETIC
     # Actual production h_v builders, with a prepared geometric/problem seam;

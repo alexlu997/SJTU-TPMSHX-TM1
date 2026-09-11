@@ -19,6 +19,9 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 - `solvers/backends/python/` owns prepared numerical execution, current-state
   property evaluation and native result capture; SIMPLE/LTNE kernels remain
   under `solvers/`. It does not import preprocessing or formal postprocessing.
+  The 2D loop reads prepared properties directly, reports through `RunControl`,
+  and returns application coefficients and zone statistics with its native
+  result; it has no window-shaped runtime adapter or attribute-write hooks.
 - `postprocess/` reduces recorded fields, fluxes and pressure states. It never
   reruns a solver or reads a private runtime object to recover missing evidence.
 - `models/` and `df_surrogate/` own shared pure closures and versioned resources.
