@@ -1,28 +1,35 @@
 {
   "node_id": "A30",
-  "status": "running",
+  "status": "done",
   "worker": "takeover-controller",
   "worktree": "/private/tmp/sjtu-tm1-optimization-repair",
   "branch": "codex/tm1/optimization-repair",
   "base_sha": "961fbb6edc8ded29e13d80456fc20495c4bd5552",
-  "head_sha": null,
+  "head_sha": "1f9bc07ee3f49565b250d7cc638ec4005024def4",
   "pr_url": "https://github.com/alexlu997/SJTU-TPMSHX-TM1/pull/7",
-  "merge_sha": null,
+  "merge_sha": "8ad9a55e9f0354d203337021903be5eaaab09b3b",
   "contract_version": null,
   "review": "evidence/Z00/independent-review.md",
   "ci_runs": [
     "34563788328",
-    "34563788330"
+    "34563788330",
+    "34570154000",
+    "34570153963",
+    "34572907461",
+    "34572907401"
   ],
   "evidence": [
     "evidence/S40/optimization-repair.md",
     "acceptance_architecture.md",
-    "evidence/Z00/independent-review.md"
+    "evidence/Z00/independent-review.md",
+    "evidence/Z00/post-merge-verification.md"
   ],
   "blocked_reason": null,
   "unblocks_when": null,
-  "next_action": "Current code and requirement review/CI evidence is recorded. Complete final combined acceptance, authorized merge and post-merge verification before marking done. Preserve historical failures and per-mode limitations.",
-  "tested_candidate_sha": "0ba165768b66eba7b19f29b2e783f6afec78fb69",
+  "next_action": "M-A accepted after PR #7 merge and successful main CI. Preserve historical failures and scope limits; M-B remains separately tracked.",
+  "tested_candidate_sha": "1f9bc07ee3f49565b250d7cc638ec4005024def4",
   "tested_base_sha": "c7f013869e7127b35ac0c305376c13b3a834131b",
-  "source_head_sha": null
+  "source_head_sha": null,
+  "pre_merge_status": "running",
+  "verified_main_sha": "8ad9a55e9f0354d203337021903be5eaaab09b3b"
 }
