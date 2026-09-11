@@ -1,29 +1,43 @@
-# Existing experiment migration regression: in progress
+# Existing experiment migration regression
 
-## Fixed-166 paired run in progress
+## Fixed-166 paired result
 
-Both existing interpreters were rechecked (71/73 locked packages and pip check,
-native exit 0). `probe_fixed.py` reads all 166 immutable config snapshots,
-checks equality against the manifest's original configs and invokes each
-checkout's real pipeline. Both processes remain active; no process exit is
-inferred from completed rows. Baseline source is `5f1cafb`, candidate numerical
-source is `13cf657` (later changes are tests/evidence only). Outputs remain in
-each worktree's `.cache/fixed166-migration-v1`.
+Both original processes completed all 166 declared jobs with native exit 0.
+Baseline source is `5f1cafb0c7e461a8c30a8ea96920ce03a828e412`; candidate numerical
+source is `13cf6571dedc46152b19cd4a0d29ad309cc914d5`. Both existing interpreters
+passed their exact locks (71/73 packages) and pip check before launch.
+Later 3D screening and provenance changes do not establish a new fixed-166
+numerical run; these results belong to the recorded loaded sources.
 
-`compare_fixed.py` keeps all 166 declared rows, records missing/failed pairs,
-config/status differences and lost diagnostics, and only computes each fixed
-group RMSRE once every member completes. Its experimental Q conversion follows
-the original fixed-set definition: 2D W/m times measured 0.042 m depth, 3D W.
-This comparison does not claim full energy qualification from process success.
+All 166 configs and convergence flags match (true on both sides). No diagnostic
+keys are lost and no common diagnostic values change. Q, dP_A and both outlet
+temperatures are exactly equal. Maximum dP_B difference is
+5.820766091346741e-11 Pa, relative difference 5.733362861724859e-16.
 
-The first 39 completed pairs have no lost diagnostic keys, config or convergence
-changes. Warning order and D-F context labels change because D-F evaluation now
-occurs in preprocessing: 2D main/solver-cell becomes prepared-df/solver-row;
-3D df-application becomes prepared-df. After accounting for those exact labels
-and ordering, the warning multisets of these 39 pairs are equal, including
-counts and numerical text. Raw warnings and strict text comparison are retained;
-this is an explicit explanation, not a warning filter. This partial snapshot
-does not replace the eventual 166-row result or establish experiment accuracy.
+Raw warning lists differ in all 166 rows. D-F evaluation moved to preprocessing:
+2D main/solver-cell becomes prepared-df/solver-row; 3D df-application becomes
+prepared-df. After these exact context substitutions and ordering comparison,
+all 166 warning multisets match, including multiplicities and numerical text.
+The strict comparison and raw local warnings remain preserved.
+
+| Fixed group | Count | Baseline Q RMSRE | Candidate Q RMSRE |
+| --- | ---: | ---: | ---: |
+| Diamond 2D | 43 | 0.30030222889137353 | 0.30030222889137353 |
+| Diamond 3D | 43 | 0.35920138464599694 | 0.35920138464599694 |
+| Gyroid 2D | 40 | 0.20840067040579077 | 0.20840067040579077 |
+| Gyroid 3D | 40 | 0.4140076786984805 | 0.4140076786984805 |
+
+The original fixed-set Q definition uses 2D W/m times measured 0.042 m depth
+and 3D W. Every declared row is retained, including its original train/holdout
+split. These equal errors preserve the existing experimental accuracy problem;
+process success and migration equivalence do not establish physical accuracy,
+complete boundary-energy qualification or B40 acceptance.
+
+`fixed166-comparison.json` contains all 166 comparison rows and source context;
+`compare_fixed.py` reproduces them from the original manifest and each worktree's
+`.cache/fixed166-migration-v1`. Raw configs, measurements and captures stay local.
+The first-39 partial snapshot is superseded by this complete result; historical
+failed Shanghai attempts below remain unchanged.
 
 ## Shanghai 3D fixed-16 result
 

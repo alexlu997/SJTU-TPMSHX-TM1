@@ -10,13 +10,23 @@
   "merge_sha": null,
   "contract_version": null,
   "review": null,
-  "ci_runs": ["34541721546", "34541721586", "34549895039", "34549895031", "34559970329", "34559970376"],
-  "evidence": [
-    "acceptance_architecture.md"
+  "ci_runs": [
+    "34541721546",
+    "34541721586",
+    "34549895039",
+    "34549895031",
+    "34559970329",
+    "34559970376",
+    "34562270719",
+    "34562270740"
   ],
-  "blocked_reason": "The approved 3D screening enthalpy repair passes engineering flow and full energy checks; its new regression references await a separate decision. Fixed-166 migration is running. Full independent implementation review identified a provenance P2, now fixed and re-reviewed; six public API/file-handoff tests pass with native exit 0. Historical failures remain preserved. Both CI runs for 797e4ec passed, but later model/provenance changes need current-head CI. PR #7 remains draft and unmerged.",
+  "evidence": [
+    "acceptance_architecture.md",
+    "evidence/real-experiments/fixed166-comparison.json"
+  ],
+  "blocked_reason": "The approved 3D screening enthalpy repair passes engineering flow and full energy checks; its new regression references await a separate decision. Fixed-166 migration completed 166/166 pairs with both native exits 0; experimental Q errors remain unchanged. Full independent implementation review identified a provenance P2, now fixed and re-reviewed; six public API/file-handoff tests pass with native exit 0. Historical failures remain preserved. On 77d694b, three-module CI 34562270719 passed; matrix CI 34562270740 failed at collection due to duplicate test_provenance module names. The integration test is now renamed; both provenance modules pass together (8 tests, native exit 0), with new-head CI pending. PR #7 remains draft and unmerged.",
   "unblocks_when": "B40 individual root-cause and acceptance requirements are resolved without blanket waiver, and full independent review, current-head CI and merge verification all pass.",
-  "next_action": "Finish the existing fixed-166 processes, obtain the 3D Q/dP reference decision, and complete current-head regression/CI and final acceptance. Preserve draft status and historical failures; no completion or merge claim.",
+  "next_action": "Obtain the 3D Q/dP reference decision, and complete current-head regression/CI and final acceptance. Preserve draft status and historical failures; no completion or merge claim.",
   "tested_candidate_sha": null,
   "tested_base_sha": null,
   "source_head_sha": "797e4ec5c10f71a746997be3f1c0b5ed9916a26e"
