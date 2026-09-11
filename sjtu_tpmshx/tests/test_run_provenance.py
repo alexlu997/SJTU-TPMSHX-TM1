@@ -98,10 +98,11 @@ def test_running_edits_recent_restore_and_consecutive_dimensions(run_window, mon
         assert entry['actual_grid'] == list(sizes)
         provenance = result.metadata['run_provenance']
         assert provenance['preset'] == expected
-        tip = win._r_Q.toolTip()
-        assert f'preset: start-{dim}' in tip and '99' not in tip
-        assert 'input grid 24×18' in tip and 'before refinement' in tip
-        assert 'actual result grid ' + '×'.join(map(str, sizes)) in tip
+        tip_fields = win._r_Q.toolTip().split('  ·  ')
+        assert f'preset: start-{dim}' in tip_fields
+        input_grid = '24×18×5' if dim else '24×18'
+        assert f'input grid {input_grid} (before refinement)' in tip_fields
+        assert 'actual result grid ' + '×'.join(map(str, sizes)) in tip_fields
         assert win._run_provenance is None
         win._on_orch_finished(result)  # duplicate terminal delivery is ignored
         assert len(win._recent_runs) == dim + 1
