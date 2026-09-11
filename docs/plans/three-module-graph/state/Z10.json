@@ -16,7 +16,7 @@
   ],
   "blocked_reason": null,
   "unblocks_when": null,
-  "next_action": "Track V0.1 capability gaps without claiming M-B completion; M-A is still unaccepted.",
+  "next_action": "Track V0.1 capability gaps; M-A acceptance is complete, while M-B remains incomplete.",
   "tested_candidate_sha": null,
   "tested_base_sha": null,
   "source_head_sha": null
