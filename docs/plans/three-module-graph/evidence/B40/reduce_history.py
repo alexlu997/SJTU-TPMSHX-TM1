@@ -10,6 +10,28 @@ from pathlib import Path
 import numpy as np
 
 
+def solid_residual(T, K, source, widths):
+    """Cell-integrated residual, inward conduction plus fluid-to-solid source."""
+    residual = source.copy()
+    for axis in range(3):
+        lo, hi = [slice(None)] * 3, [slice(None)] * 3
+        lo[axis], hi[axis] = slice(None, -1), slice(1, None)
+        lo, hi = tuple(lo), tuple(hi)
+        shape = [1, 1, 1]
+        shape[axis] = -1
+        distance = (.5 * (widths[axis][:-1] + widths[axis][1:])).reshape(shape)
+        area = np.ones([1, 1, 1])
+        for other in range(3):
+            if other != axis:
+                shape = [1, 1, 1]
+                shape[other] = -1
+                area = area * widths[other].reshape(shape)
+        flux = 2*K[lo]*K[hi]/(K[lo]+K[hi]+1e-30)*area/distance*(T[lo]-T[hi])
+        residual[lo] -= flux
+        residual[hi] += flux
+    return residual
+
+
 def boundary_energy(T, coefficient, velocities, K, widths, direction, Tin, opening):
     faces = {}
     inlet_axis, inlet_end = direction // 2, (0 if direction % 2 == 0 else -1)
@@ -90,11 +112,30 @@ def reduce(directory):
                                 ('core_return', 'core/'))}
         summary['temperature_transport_boundary'] = phases
         summary['solid_source_sum_W'] = sum(phase['source_W'] for phase in phases.values())
+        solid_source = sum(raw[prefix + 'h_v' + side + '_arr']
+                           * (raw[prefix + temperature] - raw[prefix + 'Ts']) * volume
+                           for side, temperature in (('A', 'Ta'), ('B', 'Tb')))
+        residual = solid_residual(raw[prefix + 'Ts'], raw[prefix + 'K_ss_arr'],
+                                  solid_source, widths)
+        scale = max(*(abs(phase['source_W']) for phase in phases.values()), 1.)
+        summary['solid_temperature_diagnostic'] = dict(
+            units='W', exterior_boundary_W=0., external_source_W=0.,
+            residual_sum_W=float(residual.sum()),
+            residual_max_abs_cell_W=float(np.abs(residual).max()),
+            residual_l1_W=float(np.abs(residual).sum()), normalization_W=scale,
+            relative_global=abs(float(residual.sum()))/scale,
+            relative_l1=float(np.abs(residual).sum())/scale,
+            acceptance='diagnostic; no new threshold applied')
         summary['boundary_energy_status'] = 'diagnostic_only_no_acceptance_threshold_applied'
     return summary
 
 
 def self_check():
+    solid = solid_residual(np.array([310., 320.]).reshape(2, 1, 1),
+                           np.full((2, 1, 1), 4.), np.zeros((2, 1, 1)),
+                           [np.ones(2), np.ones(1), np.ones(1)])
+    assert np.array_equal(solid.ravel(), [40., -40.])
+    assert solid.sum() == 0.
     T = np.array([310., 320.]).reshape(2, 1, 1)
     faces = boundary_energy(T, np.full_like(T, 2.),
                             (np.full((3, 1, 1), 3.), np.zeros((2, 2, 1)), np.zeros((2, 1, 2))),

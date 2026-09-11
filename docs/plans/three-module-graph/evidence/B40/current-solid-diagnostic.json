@@ -1,0 +1,30 @@
+[
+  {
+    "source_sha": "054dc96c92214872f2aeddcb5bcc1a6ae0cdb71c",
+    "case": "3d-uniform",
+    "units": "W",
+    "exterior_boundary_W": 0.0,
+    "external_source_W": 0.0,
+    "residual_sum_W": 1.0679474179986492e-09,
+    "residual_max_abs_cell_W": 8.466935675882338e-11,
+    "residual_l1_W": 1.072058492203166e-09,
+    "normalization_W": 270.877769705103,
+    "relative_global": 3.942543602456907e-12,
+    "relative_l1": 3.9577204632564935e-12,
+    "acceptance": "diagnostic; no new threshold applied"
+  },
+  {
+    "source_sha": "054dc96c92214872f2aeddcb5bcc1a6ae0cdb71c",
+    "case": "3d-nonuniform",
+    "units": "W",
+    "exterior_boundary_W": 0.0,
+    "external_source_W": 0.0,
+    "residual_sum_W": 1.5551043786032892e-10,
+    "residual_max_abs_cell_W": 2.7306908425633002e-11,
+    "residual_l1_W": 6.169286718800251e-10,
+    "normalization_W": 324.73027688418574,
+    "relative_global": 4.788910949495213e-13,
+    "relative_l1": 1.8998187597396445e-12,
+    "acceptance": "diagnostic; no new threshold applied"
+  }
+]
