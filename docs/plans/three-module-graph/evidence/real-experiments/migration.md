@@ -1,5 +1,30 @@
 # Existing experiment migration regression: in progress
 
+## Shanghai 2D fixed-16 result
+
+Both third attempts completed all 16 rows with native exit 0. Baseline
+`5f1cafb0c7e461a8c30a8ea96920ce03a828e412` and candidate
+`0ee79146d8de4da24379c91a44f2e59e1e0b52ca` have exactly equal unrounded
+Q (W/m), both pressure drops (Pa), both outlet temperatures (K), and configs
+in all 16 rows. All 16 report convergence; all 19 common diagnostic keys
+are unchanged and none are lost. Local evidence is
+`.cache/shanghai-pair-comparison.json` and the two `shanghai-migration-v3`
+directories; earlier failed attempts remain preserved.
+
+Warnings match in 15 rows. Row 1 exposed loss of the inlet B/scalar context
+when preparing static properties. The preparation fix restores that context;
+its regression fails before the fix and passes afterward (3 preparation tests,
+native exit 0). This metadata repair does not alter the property calculation.
+
+Using the existing measured total mass and inlet-cp experimental Q definition,
+both revisions give Q RMSRE 0.02498361703128195 and bias 0.01382220143706865;
+pressure-drop RMSRE is 0.6812256468519793 and bias -0.6794263886624797.
+These are experimental errors, not an accuracy acceptance claim. In particular,
+exact migration equivalence does not cure the pressure discrepancy.
+
+The chronological attempt record below is retained; its pending statements
+describe those earlier attempts. 3D and fixed-166 comparisons remain pending.
+
 2026-09-11. The original B20/B30 migration baseline is `5f1cafb`. A separate
 worktree `/private/tmp/sjtu-tm1-real-exp-baseline` now preserves that checkout;
 its configured 71-package interpreter passes the exact lock and pip check.
@@ -45,3 +70,19 @@ now uses stdlib `dataclasses.asdict`, checked against an actual ComputeConfig
 with JSON serialization before restarting. The third paired runs use separate
 `.cache/shanghai-migration-v3` outputs/logs. No solver, input row, physical
 validation or convergence threshold was changed to fix the observer.
+
+## Fixed sCO2 set located and checked
+
+The preserved fixed-166 source is
+`/Users/luwenhuan/.codex/worktrees/4393/SJTU-TPMSHX/.cache/p5-nu-calibration/fixed-166/frozen-launch-01/manifest.json`.
+A current read confirms 166 unique jobs and 166 matching immutable config
+snapshots. Each dimension retains Diamond 43 (33 train / 10 holdout) and
+Gyroid 40 (31 train / 9 holdout), with the original job order, explicit
+geometry, parameter version and reference records. This is the intended
+subsequent migration pair; it has not been rerun here. The source configs,
+references and measured values remain local and are not committed.
+
+The distinct hot-side fixed-95 pressure membership must not replace this
+Q set. Migration comparison must use the preserved config snapshots, not
+rebuild membership via `--all-valid`. Historical Q accuracy failures remain
+separate from any new before/after equivalence result.

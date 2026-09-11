@@ -56,3 +56,16 @@ def test_zoned_preparation_keeps_si_design_and_detaches_input():
     config.zones.config['zones'][0]['L_mm'] = 7.0
     assert case.parameters['zone_config']['zones'][0]['L_m'] == 0.006
     assert np.all(case.design_fields['zone_id'] == 0)
+
+
+def test_prepared_inlet_warning_keeps_side_and_stage():
+    from sjtu_tpmshx.domain.compute_config import ComputeConfig, FluidConfig
+    from sjtu_tpmshx.preprocess.api import prepare_case
+    config = ComputeConfig(fluid_B=FluidConfig(type='water', u_mps=.001,
+                                               T_in_K=300., P_in_Pa=101325.))
+    config.solver.Nx = config.solver.Ny = 10
+    config.extrap.allow = True
+    case = prepare_case(config, case_id='inlet-warning')
+    messages = [w for w in case.metadata['warnings'] if '[water Nu extrap]' in w]
+    assert messages
+    assert all('side=B, stage=inlet, layout=scalar' in w for w in messages)

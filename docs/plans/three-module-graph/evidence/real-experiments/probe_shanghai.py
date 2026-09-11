@@ -1,3 +1,4 @@
+import argparse
 from dataclasses import asdict
 import json
 import subprocess
@@ -6,7 +7,21 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from sjtu_tpmshx.validation.water_exp import with_water_absolute_pressures
-from sjtu_tpmshx.validation.cases import validate_shanghai_aligned as runner
+
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    "output", nargs="?", type=Path, default=Path(".cache/shanghai-migration")
+)
+parser.add_argument("--dimension", choices=("2d", "3d"), default="2d")
+args = parser.parse_args()
+if args.dimension == "2d":
+    from sjtu_tpmshx.validation.cases import validate_shanghai_aligned as runner
+
+    result_key = "res"
+else:
+    from sjtu_tpmshx.validation.cases import validate_shanghai_3d_real as runner
+
+    result_key = "result"
 
 
 def encode(value):
@@ -17,7 +32,7 @@ def encode(value):
     raise TypeError(type(value).__name__)
 
 
-root = Path(sys.argv[1] if len(sys.argv) > 1 else ".cache/shanghai-migration")
+root = args.output
 root.mkdir(exist_ok=False)
 (root / "provenance.json").write_text(
     json.dumps(
@@ -28,6 +43,7 @@ root.mkdir(exist_ok=False)
             interpreter=sys.executable,
             case_numbers=list(range(1, 17)),
             runner="pipeline",
+            dimension=args.dimension,
             workbook=str(runner.SHANGHAI_XLSX.resolve()),
         ),
         indent=2,
@@ -53,15 +69,16 @@ def observe(frame, event, result):
     if (
         frame.f_code is runner._run_one_case_pipeline.__code__
         and event == "return"
-        and "res" in frame.f_locals
+        and result_key in frame.f_locals
     ):
-        res = frame.f_locals["res"]
+        res = frame.f_locals[result_key]
         captured.update(
             raw_metrics={
                 k: getattr(res, k)
                 for k in ("Q_W", "dP_A_Pa", "dP_B_Pa", "T_out_A_K", "T_out_B_K")
             },
             diagnostics=res.diagnostics,
+            result_converged=bool(res.converged),
             warnings=list(res.warnings or []),
             config=asdict(frame.f_locals["cc"]),
         )
@@ -72,7 +89,12 @@ for index in range(16):
     captured = {}
     sys.setprofile(observe)
     try:
-        captured["reported_row"] = runner._run_one_case_pipeline(index, df)
+        captured["reported_row"] = (
+            runner._run_one_case_pipeline(index, df)
+            if args.dimension == "2d"
+            else runner._run_one_case_pipeline(index, df, 20, 10, 3, max_outer=12)
+        )
+        assert "raw_metrics" in captured, "observer did not capture the actual result"
         captured["execution"] = "completed"
     except Exception as exc:
         failed = True

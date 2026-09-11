@@ -399,11 +399,14 @@ def prepare_case(config: ComputeConfig, *, case_id: str):
     parsed['run_settings'] = _zone_data_si(asdict(config))
     parsed['run_settings'].pop('zones')
     from sjtu_tpmshx.models.tpms_calc import compute
-    parsed['static_properties'] = {side: compute(
-        config.geometry.tpms, config.geometry.L_cell_mm, config.geometry.t_wall_mm,
-        fluid.u_mps, fluid.T_in_K, fluid.P_in_Pa, config.geometry.k_s_W_mK,
-        fluid.type, sco2_nu=config.sco2_nu)
-        for side, fluid in (('A', config.fluid_A), ('B', config.fluid_B))}
+    from sjtu_tpmshx.domain.run_warnings import range_context
+    parsed['static_properties'] = {}
+    for side, fluid in (('A', config.fluid_A), ('B', config.fluid_B)):
+        with range_context(side=side, stage='inlet', layout='scalar'):
+            parsed['static_properties'][side] = compute(
+                config.geometry.tpms, config.geometry.L_cell_mm, config.geometry.t_wall_mm,
+                fluid.u_mps, fluid.T_in_K, fluid.P_in_Pa, config.geometry.k_s_W_mK,
+                fluid.type, sco2_nu=config.sco2_nu)
     parsed['static_properties']['geometry'] = tpms_geometry(
         config.geometry.tpms, config.geometry.L_cell_mm, config.geometry.t_wall_mm,
         config.geometry.k_s_W_mK)
