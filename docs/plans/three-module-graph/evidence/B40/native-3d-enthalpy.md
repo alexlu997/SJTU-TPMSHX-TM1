@@ -1,5 +1,10 @@
 # 3D native-mass integral-enthalpy audit
 
+Subsequent decision: the user explicitly approved applying the existing native
+mass/air integral-enthalpy model only to this 3D air-air screening path, retaining
+original results and requiring separate reference disposition. The audit below
+describes the pre-repair model; approval alone does not pass acceptance.
+
 Offline supplement to saved `054dc96` engineering-budget captures, no new PDE.
 Reproducer: `native_3d_enthalpy.py`, invoked with the two directories from
 `current-engineering-budget.md`. Full reduction is `native-3d-enthalpy.json`.

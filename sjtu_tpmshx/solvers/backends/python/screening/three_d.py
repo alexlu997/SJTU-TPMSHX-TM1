@@ -12,6 +12,7 @@ from sjtu_tpmshx.models.fluid_props import check_finite_temperatures
 from sjtu_tpmshx.models.envelope import R_AIR_DEFAULT, assess_solution_validity, mach_field_max, predict_outlet_p_sq
 from sjtu_tpmshx.solvers.simple_solver_3d import SIMPLESolver3D
 from sjtu_tpmshx.solvers.ltne_energy_3d import solve_full_domain_3d
+from sjtu_tpmshx.solvers.ltne_enthalpy_3d import face_mass_fluxes
 from sjtu_tpmshx.logutil import get_logger
 from .result_capture import capture
 
@@ -59,6 +60,8 @@ def run_case(case, control=RunControl()):
             raise ValueError(f'invalid prepared screening coefficient: {key}')
         if key == 'eps_arr' and np.any((values <= 0) | (values >= 1)):
             raise ValueError('invalid prepared screening porosity')
+    if case.metadata.get('energy_formulation') != 'conservative_air_model_h':
+        raise ValueError('unsupported prepared screening energy formulation')
     if case.grid['dimension'] != 3 or case.metadata['model'] != 'air_air_frozen_b_volume_ltne_v1':
         raise ValueError('unsupported screening physical model')
     if len(case.model_refs) != 2 or case.model_refs[0].name != 'screening' or case.model_refs[1].name != 'fluid' or dict(case.model_refs[1].parameters) != {'fluid': 'air'}:
@@ -183,6 +186,10 @@ def run_case(case, control=RunControl()):
         ufB = np.ascontiguousarray(sB.u[:, ::-1, :])          # (Nx+1,Ny,Nz)
         vfB = np.ascontiguousarray(-sB.v[:, ::-1, :])         # (Nx,Ny+1,Nz)
         wfB = np.ascontiguousarray(sB.w[:, ::-1, :])          # (Nx,Ny,Nz+1)
+        mass_A = face_mass_fluxes(ufA, vfA, wfA, sA.rho_field.transpose(1, 0, 2),
+                                 .5 * arrays['eps_arr'], dx_arr, dy_arr, dz_arr)
+        mass_B = face_mass_fluxes(ufB, vfB, wfB, sB.rho_field[:, ::-1, :],
+                                 .5 * arrays['eps_arr'], dx_arr, dy_arr, dz_arr)
 
         if verbose:
             _log.info(f"[3D] outer {outer_it+1}/{max_outer} … ")
@@ -204,6 +211,7 @@ def run_case(case, control=RunControl()):
             alpha_T=0.7,
             ufA=ufA, vfA=vfA, wfA=wfA, ufB=ufB, vfB=vfB, wfB=wfB,
             conservative_ltne=True,
+            model_mass_A=mass_A, model_mass_B=mass_B, model_fluids=('air', 'air'),
             return_info=True, cancel_check=control.cancel_check,
             progress_cb=lambda done, budget: control.report_progress(int(100 * (outer_it + done / budget) / max_outer)),
         )
@@ -275,6 +283,7 @@ def run_case(case, control=RunControl()):
                                       ltne_inner_converged=bool(ltne_inner_ok), outer_iterations=outer_it + 1,
                                       physical_validation='unestablished'), (sA, sB), (Ta, Tb, Ts),
                            dict(rho_cp_A=rcp_A_field, rho_cp_B=rcp_B_field,
+                                model_fluids=('air', 'air'), mass_flux_A=mass_A, mass_flux_B=mass_B,
                                 ufA=ufA, vfA=vfA, wfA=wfA, ufB=ufB, vfB=vfB, wfB=wfB))
         sA.P_ref_abs = float(np.sqrt(P_out_sq_new))
 
@@ -327,6 +336,7 @@ def run_case(case, control=RunControl()):
         status.update(rejection_stage='post_solve_envelope', reason='post-solve envelope gate: ' + '; '.join(env_reasons))
     result = capture(case, status, (sA, sB), (Ta, Tb, Ts),
                      dict(rho_cp_A=rcp_A_field, rho_cp_B=rcp_B_field,
+                          model_fluids=('air', 'air'), mass_flux_A=mass_A, mass_flux_B=mass_B,
                           ufA=ufA, vfA=vfA, wfA=wfA, ufB=ufB, vfB=vfB, wfB=wfB))
     control.report_progress(100)
     return result

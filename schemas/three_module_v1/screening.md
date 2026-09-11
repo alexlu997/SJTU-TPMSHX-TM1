@@ -71,6 +71,12 @@ updates reverse the physical y axis when mapped to the SIMPLE stream axis.
 This model choice was approved on 2026-09-11; historical temperature-form
 screening evidence and frozen references are retained separately.
 
+The 3D air-air frozen-B screen also declares this formulation, following the
+explicit 2026-09-11 screening-only approval. Its three native mass-face arrays
+per side are in physical x/y/z axes, kg/s. B's cold flow/density remains frozen;
+the existing air integral-enthalpy kernel consumes both native mass-face tuples.
+This does not change other fluids or the full experimental calculation routes.
+
 The postprocessor independently computes:
 
 - Q = sum(h_vB × (Ts − Tb) × cell measure), W/m in 2D and W in 3D.

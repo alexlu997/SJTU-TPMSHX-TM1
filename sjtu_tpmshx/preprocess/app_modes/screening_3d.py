@@ -163,8 +163,9 @@ def prepare_screening_3d(x_decision, cfg, *, case_id,
                     model_refs=(ModelRef('screening', MODEL_VERSIONS['screening']),
                                 ModelRef('fluid', MODEL_VERSIONS['fluid'], {'fluid': 'air'})),
                     metadata=dict(mode='screening_3d', model='air_air_frozen_b_volume_ltne_v1',
+                                  energy_formulation='conservative_air_model_h',
                                   roughness_mode=roughness_mode, roughness_m=roughness_eps_um * 1e-6,
                                   geometry_fields=geometry_fields,
                                   df_options=dict(method=_resolve_method(), overrides=_overrides_enabled(),
                                                   residual_correction=_residual_correction_enabled()),
-                                  applicability='Optimization screening; frozen cold B flow, original conservative LTNE and envelope gates; physical validation unestablished.'))
+                                  applicability='Optimization screening; frozen cold B flow, native-mass air integral enthalpy and envelope gates; physical validation unestablished.'))
