@@ -173,7 +173,7 @@ def test_2d_shooting_lands_on_spec(monkeypatch):
     monkeypatch.setenv('TPMSHX_P_IN_SHOOT', '1')
     monkeypatch.setenv('TPMSHX_CONV_MODE', 'f2')   # pin criterion (C11 lesson)
     res = Pipeline2D(_cfg2d()).run()
-    d = res.diagnostics   # forwarded by _finalize_cfg (raw dict is internal)
+    d = res.diagnostics   # forwarded by the public result adapter
     for side in ('A', 'B'):
         resid = d[f'P_in_shoot_resid_{side}']
         assert np.isfinite(resid)

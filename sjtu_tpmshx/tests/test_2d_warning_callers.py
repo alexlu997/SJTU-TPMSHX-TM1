@@ -48,15 +48,14 @@ def _prepare(monkeypatch, *, legacy=False, pair=('air', 'air'), temperatures=(40
             fluid.P_in_Pa = 9e6 if side == 'A' else 16e6
     from sjtu_tpmshx.preprocess.two_d.preparation import _parse_inputs_cfg, _prepare_grid
     from sjtu_tpmshx.solvers.backends.python.two_d.runtime import build_runtime
-    from sjtu_tpmshx.pipelines.stages_2d import _run_solvers_cfg, _finalize_cfg
+    from sjtu_tpmshx.pipelines.stages_2d import _run_solvers_cfg
     with warning_scope({}):
         parsed = _parse_inputs_cfg(cfg)
         fields = build_runtime(parsed, _prepare_grid(parsed))
     # These controlled kernel tests intentionally mutate private runtime data;
     # they are not portable-Case or application acceptance tests.
     pipe = SimpleNamespace(cfg=cfg, _parsed=parsed,
-        run_solvers=lambda fields: _run_solvers_cfg(parsed, fields),
-        finalize=lambda raw, fields: _finalize_cfg(raw, parsed))
+        run_solvers=lambda fields: _run_solvers_cfg(parsed, fields))
     if legacy:
         # Controlled asymmetric geometry activates the existing temperature path;
         # geometry accuracy itself is outside this caller test.
@@ -170,8 +169,7 @@ def test_main_warm_return_final_and_outlet_keep_actual_states(monkeypatch, nan, 
             assert record.nonfinite == 1
             assert not any(key[-1] == ('A', 'final', 'real-cell(x,y)') for key in records)
             return
-        raw = pipe.run_solvers(fields)
-        pipe.finalize(raw, fields)
+        pipe.run_solvers(fields)
     shape = pipe._parsed['N_x'], pipe._parsed['N_y']
     for side, warm, returned in (('A', 220. if low else 1050., 200. if low else 1100.),
                                   ('B', 1150., 1200.)):

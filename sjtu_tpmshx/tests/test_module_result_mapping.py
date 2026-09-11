@@ -1,30 +1,22 @@
-"""Anti-drift guard: _finalize_3d_cfg's ComputeResult must faithfully
-surface every value the _run_3d_stack raw dict produces AND every key the
-3D renderer / CSV-NPZ export consume.
-
-Since B3 C5 (2026-06-13) the ComputeResult is the SINGLE 3D result carrier:
-``Main_Menu.write_result`` publishes it as ``window._result_3d`` and
-``ui/plot_3d_results`` reads ``res.fields`` / the dataclass attributes.
-The old raw-dict ``diagnostics['raw_3d']`` carrier is gone. A key dropped
-or renamed in _finalize_3d_cfg would silently blank the 3D view / export
-(offscreen smokes cannot populate the PyVista panel to catch it).
-
-This test runs a real (small) 3D solve, builds the raw dict + the
-ComputeResult, asserts the ComputeResult surfaces the raw headline scalars
-+ field arrays faithfully, and locks the full render/export key contract.
-Originally 2026-06-09 G1 (dual-representation sync); upgraded to the
-single-carrier contract guard in B3 C5.
-"""
+"""Real public-result mapping retains the GUI/export and diagnostic contract."""
+from dataclasses import replace
+import importlib
 
 import numpy as np
 import pytest
 
+from sjtu_tpmshx.controllers.module_adapter import to_compute_result
 from sjtu_tpmshx.domain.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, SolverConfig,
     PartialBCConfig, ExtrapPolicy, FeatureFlags,
 )
 from sjtu_tpmshx.domain.compute_result import ComputeResult
-import sjtu_tpmshx.pipelines.stages_3d as R
+from sjtu_tpmshx.domain.portable_data import mutable_data
+from sjtu_tpmshx.postprocess.api import evaluate
+from sjtu_tpmshx.preprocess.api import prepare_case
+from sjtu_tpmshx.solvers.api import run_case
+from sjtu_tpmshx.tests.integration_tm1.test_2d_real import baseline_config
+from sjtu_tpmshx.tests.integration_tm1.test_public_api import assert_slots
 
 
 def _small_air_air_cfg():
@@ -45,15 +37,49 @@ def _small_air_air_cfg():
     )
 
 
-def test_finalize_3d_result_matches_raw():
-    cc = _small_air_air_cfg()
-    parsed = R._parse_inputs_3d_cfg(cc)
-    raw = R._run_3d_stack(parsed)
-    result = R._finalize_3d_cfg(raw, parsed)
+@pytest.fixture(scope='module', params=[2, 3])
+def native_result(request):
+    dimension = request.param
+    config = baseline_config() if dimension == 2 else _small_air_air_cfg()
+    module = importlib.import_module(
+        'sjtu_tpmshx.solvers.backends.python.'
+        + ('two_d' if dimension == 2 else 'three_d') + '.result_capture')
+    captured = []
+    capture = module.capture_result
+    def record(*args):
+        captured.append(args[1] if dimension == 2 else args[3])
+        return capture(*args)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(module, 'capture_result', record)
+        case = prepare_case(config, case_id=f'mapping-{dimension}d')
+        fields = run_case(case)
+    return fields, captured[0]
 
+
+def test_application_fields_and_scalars_match_native_solve(native_result):
+    fields, raw = native_result
+    result = to_compute_result(fields, evaluate(fields))
+    dimension = fields.grid['dimension']
+    assert result.converged == fields.run_status['converged']
+    assert result.metadata['units']['Q'] == ('W/m' if dimension == 2 else 'W')
+    for name in ('convergence_detail', 'envelope_valid', 'envelope_reasons',
+                 'p_clip_hits', 'model_h_balance', 'true_h_balance'):
+        assert_slots(result.diagnostics[name], raw[name])
+    if dimension == 2:
+        for name, source in (('Q_W', 'Q_total'), ('dP_A_Pa', 'dP_A'), ('dP_B_Pa', 'dP_B'),
+                             ('T_out_A_K', 'T_out_A_K'), ('T_out_B_K', 'T_out_B_K')):
+            assert getattr(result, name) == pytest.approx(raw[source])
+        for name in ('Ta', 'Tb', 'Ts', 'P_fA', 'P_fB', 'ucA', 'vcA', 'ucB', 'vcB'):
+            np.testing.assert_array_equal(result.fields[name], raw[name])
+        for name in ('Q_A', 'Q_B', 'Q_net', 'energy_imbalance_rel',
+                     'mass_imbalance_rel_A', 'mass_imbalance_rel_B'):
+            assert result.residuals[name] == pytest.approx(raw[name], nan_ok=True)
+        for axis in ('x', 'y'):
+            np.testing.assert_array_equal(result.fields[f'd{axis}_arr'], fields.grid[f'd{axis}'])
+        return
     assert isinstance(result, ComputeResult)
 
-    # ── headline scalars: ComputeResult must equal the raw dict source ──
+    # Native reduction must agree with the independently captured raw scalars.
     assert result.Q_W == pytest.approx(raw.get('Q_total', raw.get('Q')))
     assert result.dP_A_Pa == pytest.approx(raw.get('dP_A', raw.get('dP')))
     assert result.dP_B_Pa == pytest.approx(raw['dP_B'])
@@ -126,26 +152,38 @@ def test_finalize_3d_result_matches_raw():
     assert 'u_A_in_mps' in result.props and 'T_in_A_K' in result.props
 
 
-def test_finalize_3d_forwards_envelope_and_simple_warnings():
-    """U2 (audit 2026-06-28): _run_3d_stack collects envelope/choke messages AND
-    the explicit SIMPLE non-convergence warning on the raw dict, but the finalize
-    stage hard-coded warnings=[] and dropped them — so a 3D run with an
-    under-resolved SIMPLE solve or an envelope_mode='warn' flag reached the UI
-    with no indication (the 2D pipeline DOES surface these). Finalize must
-    forward raw['envelope_warnings'] to ComputeResult.warnings and carry
-    envelope_valid/reasons into diagnostics."""
-    raw = {
-        'envelope_warnings': [
-            'SIMPLE momentum solve did not converge to tol at: A',
-            'Choked/supersonic flow: predicted outlet vacuum.',
-        ],
-        'envelope_valid': False,
-        'envelope_reasons': ['[A] supersonic: Ma_max = 1.20 >= 1'],
-    }
-    result = R._finalize_3d_cfg(raw, {'extrap_reasons': []})
-    assert any('did not converge' in w for w in result.warnings), \
-        'SIMPLE non-convergence warning dropped at finalize'
-    assert any('Choked' in w for w in result.warnings), \
-        'envelope/choke warning dropped at finalize'
-    assert result.diagnostics.get('envelope_valid') is False
-    assert result.diagnostics.get('envelope_reasons')
+@pytest.mark.parametrize('converged', [False, True])
+def test_diagnostics_and_warnings_survive_mapping(native_result, converged):
+    fields, _ = native_result
+    metadata = mutable_data(fields.metadata)
+    expected = dict(
+        envelope_valid=False,
+        envelope_reasons=['[A] supersonic: Ma_max = 1.20 >= 1'],
+        p_clip_hits=17,
+        convergence_detail={'simple_A': False, 'ltne': True},
+        model_h_balance={'outer_index': 1, 'post_after_last_thermal': True,
+                         'sides': {'A': {'physical_boundary_complete': False}}},
+    )
+    warnings = ['SIMPLE momentum solve did not converge to tol at: A',
+                'Choked/supersonic flow: predicted outlet vacuum.']
+    metadata['diagnostics'].update(expected, envelope_warnings=warnings)
+    fields = replace(fields, metadata=metadata,
+                     run_status={**fields.run_status, 'converged': converged})
+    result = to_compute_result(fields, evaluate(fields))
+    assert result.converged is converged
+    for name, value in expected.items():
+        assert result.diagnostics[name] == value
+    assert set(warnings) <= set(result.warnings)
+
+
+def test_unavailable_metrics_and_incomplete_execution_stay_visible(native_result):
+    fields, _ = native_result
+    incomplete = replace(fields, boundary_fluxes={})
+    result = to_compute_result(incomplete, evaluate(incomplete))
+    assert np.isnan(result.Q_W)
+    assert result.metadata['metric_status']['Q'] == 'insufficient_data'
+    assert any(w.startswith('Q: insufficient_data:') for w in result.warnings)
+    for state in ('failed', 'cancelled'):
+        incomplete = replace(fields, run_status={**fields.run_status, 'execution': state})
+        with pytest.raises(ValueError, match='completed result'):
+            to_compute_result(incomplete, evaluate(fields))

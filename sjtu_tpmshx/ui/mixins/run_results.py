@@ -51,7 +51,7 @@ class RunResultsMixin:
         the legacy ``pipelines.stages_2d.run_calculation_inner``.
 
         Audit C4 (L-a-2, 2026-05-28). This is the *UI adapter*
-        counterpart to ``_finalize_cfg`` — together they replace the
+        counterpart to ``controllers.module_adapter.to_compute_result`` — together they replace the
         pre-C4 ``pipelines.stages_2d._store_results(window, cfg, raw)``
         which conflated UI writes with result assembly. Since B2 2.1b/c
         (2026-06-13) this is the ONLY ComputeResult→window copy: the GUI

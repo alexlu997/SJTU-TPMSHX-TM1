@@ -207,18 +207,17 @@ def test_model_h_ledger_reaches_result_before_final_post(monkeypatch, cap, inval
     monkeypatch.setattr(stages, 'solve_full_domain_3d', thermal)
     monkeypatch.setattr(stages, 'run_outer_coupling', outer)
     raw = stages_3d._run_3d_stack(_pipeline_cfg())
-    result = stages_3d._finalize_3d_cfg(raw, {})
-    ledger = result.diagnostics['model_h_balance']
+    ledger = raw['model_h_balance']
     assert ledger['numerical_external_inward_W'] == 2.5
     assert ledger['physical_external_inward_W'] is None
     assert ledger['outer_index'] == 1
     assert ledger['post_after_last_thermal'] == cap
     assert ledger['outer_converged'] == (not cap)
-    assert result.diagnostics['true_h_balance'] is None
+    assert raw['true_h_balance'] is None
     for side, expected in (('A', 312.), ('B', 456.)):
-        values = [raw['Q_enthalpy_'+side], result.residuals['Q_enthalpy_'+side]]
+        values = [raw['Q_enthalpy_'+side]]
         if side == 'A':
-            values += [raw['Q'], raw['Q_total'], result.Q_W]
+            values += [raw['Q'], raw['Q_total']]
         if invalid is not None and side == invalid[0]:
             assert all(np.isnan(value) for value in values)
         else:
@@ -255,9 +254,8 @@ def test_reported_model_h_two_unequal_outlets_excludes_diffusion(monkeypatch):
     cfg['fluid_A_cfg']['dir'] = 0
     cfg['fluid_B_cfg']['dir'] = 1
     raw = stages_3d._run_3d_stack(cfg)
-    result = stages_3d._finalize_3d_cfg(raw, {})
-    assert result.Q_W == pytest.approx(156.)
-    assert result.residuals['Q_enthalpy_B'] == pytest.approx(228.)
+    assert raw['Q_total'] == pytest.approx(156.)
+    assert raw['Q_enthalpy_B'] == pytest.approx(228.)
 
 
 def test_report_without_model_h_ledger_keeps_original_cp_temperature(monkeypatch):

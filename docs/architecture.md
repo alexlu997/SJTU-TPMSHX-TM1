@@ -29,6 +29,8 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 - `pipelines/` retains historical import compatibility through delegation.
 - `controllers/compute_pipeline.py` sequences the public modules; the module
   adapter maps their results to the historical GUI ComputeResult contract.
+  It is the sole production result mapper. The old 2D/3D mappings remain only
+  as frozen test oracles for the real native-result integration comparison.
 - `ui/` owns PySide6 and PyVista presentation only.
 - `validation/` and `runs/` are executable research and verification tools,
   not alternative production implementations.
