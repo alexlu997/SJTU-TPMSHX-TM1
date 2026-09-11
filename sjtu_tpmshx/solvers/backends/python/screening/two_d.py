@@ -11,6 +11,7 @@ from sjtu_tpmshx.models.fluid_props import check_finite_temperatures
 from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
 from sjtu_tpmshx.solvers.ltne_energy import solve_full_domain
 from .result_capture import capture
+from ..two_d.coupling import _face_mass_fluxes_2d, _simple_staggered_to_real_2d
 
 
 def build_flow(prepared):
@@ -48,6 +49,8 @@ def run_case(case, control=RunControl()):
             raise ValueError(f'invalid prepared screening coefficient: {key}')
         if key == 'eps_arr' and np.any((values <= 0) | (values >= 1)):
             raise ValueError('invalid prepared screening porosity')
+    if case.metadata.get('energy_formulation') != 'conservative_air_model_h':
+        raise ValueError('unsupported prepared screening energy formulation')
     if case.grid['dimension'] != 2 or case.metadata['model'] != 'air_air_volume_ltne_v1':
         raise ValueError('unsupported screening physical model')
     if len(case.model_refs) != 2 or case.model_refs[0].name != 'screening' or case.model_refs[1].name != 'fluid' or dict(case.model_refs[1].parameters) != {'fluid': 'air'}:
@@ -105,10 +108,12 @@ def run_case(case, control=RunControl()):
         control.check_cancelled()
         if control.outer_iteration is not None:
             control.outer_iteration(outer_it + 1, n_rho_loops)
-        ucA = (.5 * (sA.v[:, :-1] + sA.v[:, 1:])).T.copy()
-        vcA = np.zeros_like(ucA)
-        vcB = -(.5 * (sB.v[:, :-1] + sB.v[:, 1:]))[:, ::-1].copy()
-        ucB = np.zeros_like(vcB)
+        uxA, uyA = _simple_staggered_to_real_2d(sA, cfg_full['dir_A'])
+        uxB, uyB = _simple_staggered_to_real_2d(sB, cfg_full['dir_B'])
+        ucA, vcA = .5 * (uxA[:-1] + uxA[1:]), .5 * (uyA[:, :-1] + uyA[:, 1:])
+        ucB, vcB = .5 * (uxB[:-1] + uxB[1:]), .5 * (uyB[:, :-1] + uyB[:, 1:])
+        mass_A = _face_mass_fluxes_2d(sA, cfg_full['dir_A'], .5 * arrays['eps_arr'], dx_arr, dy_arr)
+        mass_B = _face_mass_fluxes_2d(sB, cfg_full['dir_B'], .5 * arrays['eps_arr'], dx_arr, dy_arr)
         inlet_A = .5 * arrays['eps_arr'][0, :] * sA.rho_field[:, 0] * sA.v[:, 0] * dy_arr * air_cp(T_inA)
         inlet_B = .5 * arrays['eps_arr'][:, -1] * sB.rho_field[:, 0] * sB.v[:, 0] * dx_arr * air_cp(T_inB)
         Ta, Tb, Ts, info = solve_full_domain(
@@ -120,6 +125,7 @@ def run_case(case, control=RunControl()):
             Ta_init=Ta, Tb_init=Tb, Ts_init=Ts, dx_arr=dx_arr, dy_arr=dy_arr,
             inlet_mask_A=flow['A']['inlet_mask'], inlet_mask_B=flow['B']['inlet_mask'],
             inlet_flux_A=inlet_A, inlet_flux_B=inlet_B,
+            model_fluids=('air', 'air'), mass_flux_A=mass_A, mass_flux_B=mass_B,
             return_info=True, cancel_check=control.cancel_check,
             progress_cb=lambda done, budget: control.report_progress(int(100 * (outer_it + done / budget) / n_rho_loops)))
         control.check_cancelled()
@@ -137,14 +143,13 @@ def run_case(case, control=RunControl()):
         rho_A_field = rho_relax * rho_A_new + (1. - rho_relax) * rho_A_field
         rho_B_field = rho_relax * rho_B_new + (1. - rho_relax) * rho_B_field
         sA.rho_field = np.ascontiguousarray(rho_A_field.T, dtype=np.float64)
-        # Preserve the source's identity mapping on the variable-density B update.
-        sB.rho_field = np.ascontiguousarray(rho_B_field, dtype=np.float64)
+        sB.rho_field = np.ascontiguousarray(rho_B_field[:, ::-1], dtype=np.float64)
         sA.update_T_field(np.ascontiguousarray(Ta.T, dtype=np.float64))
-        sB.update_T_field(np.ascontiguousarray(Tb, dtype=np.float64))
+        sB.update_T_field(np.ascontiguousarray(Tb[:, ::-1], dtype=np.float64))
         sA_converged, sA_iters = solve_flow(sA, 'A')
         sB_converged, sB_iters = solve_flow(sB, 'B')
         rcp_A = rho_relax * np.ascontiguousarray(sA.rho_field.T) * air_cp(Ta) + (1. - rho_relax) * rcp_A
-        rcp_B = rho_relax * np.ascontiguousarray(sB.rho_field) * air_cp(Tb) + (1. - rho_relax) * rcp_B
+        rcp_B = rho_relax * np.ascontiguousarray(sB.rho_field[:, ::-1]) * air_cp(Tb) + (1. - rho_relax) * rcp_B
     thermal_ok = bool(info['converged'])
     status = dict(execution='completed', screening=True,
                   converged=bool(sA_converged and sB_converged and thermal_ok and (n_rho_loops == 1 or outer_converged)),
@@ -155,6 +160,7 @@ def run_case(case, control=RunControl()):
                   physical_validation='unestablished')
     result = capture(case, status, (sA, sB), (Ta, Tb, Ts),
                      dict(rho_cp_A=rcp_A, rho_cp_B=rcp_B, ucA=ucA, vcA=vcA, ucB=ucB, vcB=vcB,
-                          inlet_flux_A=inlet_A, inlet_flux_B=inlet_B))
+                          inlet_flux_A=inlet_A, inlet_flux_B=inlet_B,
+                          model_fluids=('air', 'air'), mass_flux_A=mass_A, mass_flux_B=mass_B))
     control.report_progress(100)
     return result

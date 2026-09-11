@@ -62,6 +62,15 @@ inputs. `metadata.flow_coefficients` holds the drag, porosity and viscosity
 actually present on each flow solver. Model configuration and resolved physical
 inputs are retained even when the Case files are removed.
 
+The 2D air screen declares `energy_formulation=conservative_air_model_h`.
+All density-loop counts use the existing air cp(T) integral enthalpy kernel
+with full native staggered mass fluxes, including cross-flow. The recorded
+thermal transport includes `model_fluids` and `mass_flux_A/B`, each face pair
+in physical x/y axes and kg/(m s) for unit depth. B-side temperature and density
+updates reverse the physical y axis when mapped to the SIMPLE stream axis.
+This model choice was approved on 2026-09-11; historical temperature-form
+screening evidence and frozen references are retained separately.
+
 The postprocessor independently computes:
 
 - Q = sum(h_vB × (Ts − Tb) × cell measure), W/m in 2D and W in 3D.
