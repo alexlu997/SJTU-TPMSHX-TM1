@@ -10,7 +10,30 @@ from sjtu_tpmshx.domain.metric_spec import MetricSpec
 from sjtu_tpmshx.domain.performance_result import MetricValue, PerformanceResult
 from sjtu_tpmshx.io.metrics_io import load_metrics, save_metrics
 from sjtu_tpmshx.io.result_io import load_result, save_result
+from sjtu_tpmshx.io.hdf5_data import write_record
 from sjtu_tpmshx.tests.io_tm1.test_case_io import sample_case
+
+
+@pytest.mark.parametrize('change', ['temperature_unit', 'dimension', 'mode'])
+def test_result_file_rejects_conflicting_physical_declarations(tmp_path, change):
+    result = FieldResult('result', 'case', 'fixture', grid=sample_case().grid,
+        fields={'Ta': np.full((2, 2), 350.)},
+        field_metadata={'Ta': dict(unit='K', axes=('x', 'y'), location='cell', state='raw')},
+        run_status={'execution': 'completed', 'converged': True},
+        metadata={'dimension': 2, 'mode': 'screening_2d'})
+    if change == 'temperature_unit':
+        result = replace(result, fields={'Ta': result.fields['Ta'] - 273.15},
+                         field_metadata={'Ta': {**result.field_metadata['Ta'], 'unit': 'degC'}})
+    else:
+        result = replace(result, metadata={**result.metadata,
+                         **({'dimension': 3} if change == 'dimension' else {'mode': 'screening_3d'})})
+    path = tmp_path / 'results.h5'
+    # Write as an external producer, bypassing the public writer's validation.
+    write_record(path, result, 'FieldResult')
+    with pytest.raises(ValueError, match='unit|dimension'):
+        load_result(path)
+    with pytest.raises(ValueError, match='unit|dimension'):
+        save_result(result, tmp_path / 'invalid.h5')
 
 
 def test_nonconverged_result_is_preserved_and_cancelled_archive_rejected(tmp_path):

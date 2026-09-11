@@ -60,6 +60,12 @@ def validate_case(case):
 
 def validate_result(result):
     shape = validate_grid(result.grid)
+    dimension = result.grid['dimension']
+    if result.metadata.get('dimension', dimension) != dimension:
+        raise ValueError('result metadata dimension disagrees with grid')
+    mode_dimension = {'screening_2d': 2, 'screening_3d': 3, 'quick_design': 3}
+    if mode_dimension.get(result.metadata.get('mode'), dimension) != dimension:
+        raise ValueError('result mode dimension disagrees with grid')
     execution = result.run_status.get('execution')
     if execution not in ('completed', 'rejected'):
         raise ValueError('not a completed or explicitly rejected result archive')
@@ -75,6 +81,15 @@ def validate_result(result):
         metadata = result.field_metadata[key]
         if not metadata.get('unit') or not metadata.get('state') or metadata.get('location') != 'cell':
             raise ValueError(f'field {key} metadata is incomplete')
+        name = key.removesuffix('_display')
+        units = (('K',) if name in ('Ta', 'Tb', 'Ts') else
+                 ('Pa',) if name.startswith('P_') else
+                 ('m/s',) if name in ('ucA', 'vcA', 'wcA', 'ucB', 'vcB', 'wcB') else
+                 ('W/(m3 K)', 'W/(m^3 K)') if name.startswith('h_v') else
+                 ('W/(m K)',) if name in ('K_ss', 'K_ss_arr', 'K_ffA_arr', 'K_ffB_arr') else
+                 ('1',) if name == 'eps_arr' else None)
+        if units is not None and metadata['unit'] not in units:
+            raise ValueError(f'field {key} unit must be one of {units}')
         if tuple(metadata.get('axes', ())) != tuple(result.grid['axis_order']):
             raise ValueError(f'field {key} axes disagree with grid')
         if np.shape(value) != shape:
