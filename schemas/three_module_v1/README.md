@@ -1,8 +1,9 @@
 # TM1 public data contract
 
-Status: G10 repair in progress. This is the contract for the module work;
-it is not a claim that every producer, backend or file codec is implemented.
-The source requirements remain in `docs/plans/three-module-graph`.
+This document defines the public data contract. Current implementation and
+acceptance status are tracked in the [Graph state](../../docs/plans/three-module-graph/state/);
+the contract does not claim that every producer, backend or file codec is implemented.
+Source requirements remain in [the module plan](../../docs/plans/three-module-graph/README.md).
 
 ## Shared rules
 

@@ -1,3 +1,15 @@
+# 旧项目手册（历史参考）
+
+2026-09-12 从仓库根目录 `PROJECT_MANUAL.md` 归档，以下原文保留不变。
+[归档前版本](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/804160253a128a8b0415d2e6da2ccb125d53a635/PROJECT_MANUAL.md)
+中的目录、启动命令、默认模型和精度结论属于当时状态，不能作为当前使用指南。
+
+当前入口：[首次运行](../../README.md#first-run)、
+[主体源码与模块地图](../../sjtu_tpmshx/README.md)、[架构说明](../architecture.md)。
+正文中的相对路径按原仓库根目录或原章节语境解释。
+
+---
+
 # SJTU-TPMSHX 项目说明文档
 
 > 一份面向**人类读者**和**其他 AI（如 GPT、Gemini）**的完整说明文档。

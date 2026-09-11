@@ -1,3 +1,13 @@
+# 旧开发日志（历史参考）
+
+2026-09-12 从仓库根目录 `devlog.md` 归档，以下原文保留不变。
+[归档前版本](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/804160253a128a8b0415d2e6da2ccb125d53a635/devlog.md)
+记录当时的工作与同步缺口，文中的“待办”“当前”和本机路径不代表 TM1 当前状态。
+当前进展见[Graph 状态](../plans/three-module-graph/state/)和
+[验收说明](../plans/three-module-graph/acceptance_architecture.md)。
+
+---
+
 # SJTU-TPMSHX 开发日志
 
 > 每天记录做了什么、遇到了什么问题、怎么解决的、改了哪些代码/方程。
