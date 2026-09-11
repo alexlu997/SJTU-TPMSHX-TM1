@@ -190,6 +190,8 @@ export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
 当前水 CFD 工作簿缺失时不以旧版文件替代。
 
 原 README 的历史精度与物理说明原样保存在
-[V2 README 存档](docs/history/v2-readme.md)，相对路径沿用来源仓库根目录。
+[V2 README 存档](docs/history/v2-readme.md)，旧图片链接固定到历史提交。
+已移出当前文件树的图片、优化输出、探索记录与 Atlas 快照见
+[历史资料索引](docs/history/README.md)。
 这些数字不是 TM1 或当前默认 CFD 模式的新验收。B40 原锁定测试 4/4 失败、
 3D 筛选未收敛及其他原生失败证据继续保留；不改阈值或物理范围迎合结果。

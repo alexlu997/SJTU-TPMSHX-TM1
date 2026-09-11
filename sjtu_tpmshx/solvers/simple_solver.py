@@ -1285,52 +1285,6 @@ class SIMPLESolver:
 
 
 # ===================================================================
-#  Convenience function
-# ===================================================================
-
-def solve_transition_zone(W, H, Nx, Ny,
-                          tpms_type, L_cell_mm, t_mm, eps, r_h,
-                          T_in, P_in,
-                          inlet_lo, inlet_hi, v_inlet,
-                          # temperature params (optional)
-                          K_ff=None, K_ss=None, h_v=None,
-                          rho_cp_f=None, T_other=None, h_v2=0.0,
-                          **kwargs):
-    """
-    One-call interface: velocity solve + optional temperature solve.
-    """
-    rho = air_density(T_in, P_in)
-    mu  = air_viscosity(T_in)
-
-    solver = SIMPLESolver(W, H, Nx, Ny,
-                          tpms_type, L_cell_mm, t_mm, eps, r_h,
-                          rho, mu, T_in,
-                          inlet_lo, inlet_hi, v_inlet)
-
-    ok_v, it_v = solver.solve(**{k: v for k, v in kwargs.items()
-                                 if k in ('max_iter', 'tol', 'alpha_u',
-                                          'alpha_p', 'n_inner', 'verbose')})
-
-    ok_t = None
-    if K_ff is not None:
-        ok_t, _ = solver.solve_temperature(
-            K_ff, K_ss, h_v, rho_cp_f, T_in,
-            T_other=T_other, h_v2=h_v2,
-            verbose=kwargs.get('verbose', True))
-
-    return {
-        'u': solver.u.copy(), 'v': solver.v.copy(), 'P': solver.P.copy(),
-        'Tf': solver.Tf.copy() if solver.Tf is not None else None,
-        'Ts': solver.Ts.copy() if solver.Ts is not None else None,
-        'converged_v': ok_v, 'converged_T': ok_t,
-        'iterations_v': it_v,
-        'residuals': solver.residuals,
-        'exit': solver.get_exit_profile(),
-        'solver': solver,
-    }
-
-
-# ===================================================================
 #  Verification
 # ===================================================================
 

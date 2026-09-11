@@ -1,9 +1,9 @@
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/hero-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="assets/hero-light.svg">
-  <img src="assets/hero-light.svg" alt="SJTU-TPMSHX — validated 2D/3D CFD solver for TPMS heat exchangers. Headline metrics: air-side Q RMSRE 1.73%, 3D pressure-drop RMSRE ~10% (grid-converged), 3D heat-duty Q RMSRE ~3%, MMS observed order p_obs ≥ 2.07." width="100%">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/alexlu997/SJTU-TPMSHX-TM1/d3ba040de0d43fce8e9b485396a5b660c2d87c5f/assets/hero-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/alexlu997/SJTU-TPMSHX-TM1/d3ba040de0d43fce8e9b485396a5b660c2d87c5f/assets/hero-light.svg">
+  <img src="https://raw.githubusercontent.com/alexlu997/SJTU-TPMSHX-TM1/d3ba040de0d43fce8e9b485396a5b660c2d87c5f/assets/hero-light.svg" alt="SJTU-TPMSHX — validated 2D/3D CFD solver for TPMS heat exchangers. Headline metrics: air-side Q RMSRE 1.73%, 3D pressure-drop RMSRE ~10% (grid-converged), 3D heat-duty Q RMSRE ~3%, MMS observed order p_obs ≥ 2.07." width="100%">
 </picture>
 
 <br><br>
@@ -116,7 +116,7 @@
 
 <div align="center">
 
-<img src="assets/grid-convergence.png" width="84%" alt="3D grid convergence, Shanghai 16-case: under all-axis refinement the Δp RMSRE climbs from ~5% to a ~10% geometry/closure floor while the validation-gate 20×10×3 grid (~5%) is under-resolved; Q clean-converges to ~3%.">
+<img src="https://raw.githubusercontent.com/alexlu997/SJTU-TPMSHX-TM1/d3ba040de0d43fce8e9b485396a5b660c2d87c5f/assets/grid-convergence.png" width="84%" alt="3D grid convergence, Shanghai 16-case: under all-axis refinement the Δp RMSRE climbs from ~5% to a ~10% geometry/closure floor while the validation-gate 20×10×3 grid (~5%) is under-resolved; Q clean-converges to ~3%.">
 
 <sub>All-axis (r=2) refinement, 16×8×4 → 128×64×32, A2 normalized-residual criteria. **Δp** RMSRE climbs to a **≈ 10 % geometry / closure floor** (per-case Richardson, median p ≈ 1.6) — the validation-gate `20×10×3` grid (★, ≈ 5.3 %) is under-resolved. **Q** is a duty integral: grid-converged at **≈ 3 %**. Regenerate: `runs/tools/plot_grid_convergence.py`.</sub>
 
@@ -177,7 +177,7 @@ pressure-drop gate is pending a user decision (12% is only a candidate).
 
 <div align="center">
 
-<img src="assets/gammadf-error.png" width="92%" alt="gamma_df Forchheimer cF interpolation error — cF vs cell size L for Diamond and Gyroid, model curves at t=0.3/0.4/0.5mm with rough-experiment anchors at L6/L8 and leave-one-out blind predictions; LOO RMSRE 2.5% Diamond, 2.6% Gyroid.">
+<img src="https://raw.githubusercontent.com/alexlu997/SJTU-TPMSHX-TM1/d3ba040de0d43fce8e9b485396a5b660c2d87c5f/assets/gammadf-error.png" width="92%" alt="gamma_df Forchheimer cF interpolation error — cF vs cell size L for Diamond and Gyroid, model curves at t=0.3/0.4/0.5mm with rough-experiment anchors at L6/L8 and leave-one-out blind predictions; LOO RMSRE 2.5% Diamond, 2.6% Gyroid.">
 
 <sub>**Legacy/research `gamma_df` backend** is not either production UI mode. V3 experiment calibration is rebuilt on the current fixed-CFD K0/cF0 base and uses dataset/campaign applicability gates.</sub>
 
@@ -228,8 +228,8 @@ T/P/mass-flow domain or relax property-state guards.
 <br><br>
 
 <table><tr>
-<td><img src="assets/nu-air-error.png" width="100%" alt="Air-side Nu vs Re — CFD scatter and solver correlation curves for Diamond (orange, RMSRE 10.1%) and Gyroid (blue, RMSRE 9.9%), Nu = c·Pr^(1/3)·Re^a·(Dh/L)^d, smooth-wall, Re 400-16k, dashed = x1.28 production roughness."></td>
-<td><img src="assets/nu-water-error.png" width="100%" alt="Water-side Nu vs Re — CFD scatter and solver correlation curves for Diamond (orange, RMSRE 12.5%) and Gyroid (blue, RMSRE 12.0%), Nu = c·Re^a·Pr^(1/3), direct water-CFD fit, Re 100-50k, Pr 2.3-5.9."></td>
+<td><img src="https://raw.githubusercontent.com/alexlu997/SJTU-TPMSHX-TM1/d3ba040de0d43fce8e9b485396a5b660c2d87c5f/assets/nu-air-error.png" width="100%" alt="Air-side Nu vs Re — CFD scatter and solver correlation curves for Diamond (orange, RMSRE 10.1%) and Gyroid (blue, RMSRE 9.9%), Nu = c·Pr^(1/3)·Re^a·(Dh/L)^d, smooth-wall, Re 400-16k, dashed = x1.28 production roughness."></td>
+<td><img src="https://raw.githubusercontent.com/alexlu997/SJTU-TPMSHX-TM1/d3ba040de0d43fce8e9b485396a5b660c2d87c5f/assets/nu-water-error.png" width="100%" alt="Water-side Nu vs Re — CFD scatter and solver correlation curves for Diamond (orange, RMSRE 12.5%) and Gyroid (blue, RMSRE 12.0%), Nu = c·Re^a·Pr^(1/3), direct water-CFD fit, Re 100-50k, Pr 2.3-5.9."></td>
 </tr></table>
 
 <sub>Per-topology **Nusselt** power-laws (the solver's own coefficients, `solvers/nu_correlations.py`) — Nu vs Re over the full CFD fit set (**Diamond** orange · **Gyroid** blue). **Air** `Nu = c·Pr^⅓·Re^a·(Dh/L)^d` — smooth-wall fit RMSRE ≈ 10 %; production multiplies by **×1.28** experiment-derived SLM roughness (dashed). **Water** `Nu = c·Re^a·Pr^⅓` — direct fit to **water-CFD** (RMSRE ≈ 12 %).</sub>

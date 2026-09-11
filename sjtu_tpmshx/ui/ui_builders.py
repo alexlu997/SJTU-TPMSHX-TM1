@@ -504,28 +504,6 @@ def build_param_tabs(window):
     return panel
 
 
-def switch_param_tab(window, index):
-    """Expand accordion group by index.
-
-    Mapping (ui-ia-batch1 four-group restructure; no current callers —
-    kept defensively for compat):
-      0 = 几何与结构, 1 = 流体, 2 = 网格与求解器, 3 = 边界细节与高级
-    """
-    names = ["几何与结构", "流体", "网格与求解器", "边界细节与高级"]
-    groups = getattr(window, '_accordion_groups', {})
-    if 0 <= index < len(names):
-        grp = groups.get(names[index])
-        if grp is not None:
-            grp.setChecked(True)
-            from PySide6.QtWidgets import QScrollArea
-            from PySide6.QtCore import QTimer
-            w = grp.parent()
-            while w and not isinstance(w, QScrollArea):
-                w = w.parent()
-            if w:
-                QTimer.singleShot(50, lambda: w.ensureWidgetVisible(grp))
-
-
 def build_page_zones(window):
     """Ex-Main_Menu._build_page_zones(self) -> QScrollArea.
 

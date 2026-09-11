@@ -3,7 +3,7 @@
 证据基线：master `4b32da4` + upgrade/loop 前 5 轮。取证方式：AST 实测 import 图
 （`sjtu_tpmshx/runs/tools/audit_import_graph.py`，原始日志保留于 Git 历史）+
 两路只读代码侦察（file:line 全部核对到当前代码，非文档转述）。本文是 P1 后续条目的工作底稿；
-与 `docs/atlas/HANDOFF-windows-server.md` 冲突处**以本文为准**（HANDOFF 部分条目已过时，见 §3）。
+与 [当时的交接审计](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/d3ba040de0d43fce8e9b485396a5b660c2d87c5f/docs/atlas/HANDOFF-windows-server.md) 冲突处**以本文为准**（HANDOFF 部分条目已过时，见 §3）。
 
 ## 0. 执行摘要
 

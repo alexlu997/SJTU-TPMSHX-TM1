@@ -12,7 +12,7 @@
 # 四臂: ctrl4/ctrl6 x seed 7/123, SAAS, 无早停. 预计墙钟 ~4-7 h (瓶颈是 ctrl6
 # 臂的 144 点 Sobol init, 只有 2 个 BO worker, 与 --jobs 无关).
 #
-# ── 2026-07-11 交接审计后的修复 (docs/atlas/HANDOFF-windows-server.md) ──
+# ── 2026-07-11 交接审计后的修复 (https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/d3ba040de0d43fce8e9b485396a5b660c2d87c5f/docs/atlas/HANDOFF-windows-server.md) ──
 # P0  缺 raw_data 会让 DF 代理回退到 committed CSV 标定 (surrogate_v3.py:156
 #     的 XLSX.exists() 分支会告警但继续) → 产出不同数字.
 #     原脚本没有 .sh:52-56 那个 FATAL 检查, 且 Copy-Item -Recurse 二次执行可能
