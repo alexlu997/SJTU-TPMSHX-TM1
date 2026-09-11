@@ -10,14 +10,14 @@
   "merge_sha": null,
   "contract_version": null,
   "review": null,
-  "ci_runs": ["34541721546", "34541721586", "34549895039", "34549895031"],
+  "ci_runs": ["34541721546", "34541721586", "34549895039", "34549895031", "34559970329", "34559970376"],
   "evidence": [
     "acceptance_architecture.md"
   ],
-  "blocked_reason": "User authorized independent review and accepted same-source equivalence as M-A architecture evidence, but explicitly retained the overall B40 gate pending four-case cause/ownership/acceptance analysis. B40-only independent review is complete; full PR review remains. Candidate 085e075 Windows CI failed with UnicodeDecodeError (2971 passed, native exit 1), preserved. Fix 3650fcf local architecture tests 2 passed and Ruff passed, native exit 0; minimal-postprocess CI passed, macOS/Windows CI pending.",
+  "blocked_reason": "B40 remains failed on the newly identified 3D native integral-enthalpy boundary gap; its model decision is pending. Fixed-166 migration is running and full PR review remains incomplete. Historical 085e075 Windows UnicodeDecodeError (2971 passed, native exit 1) and 3650fcf repair evidence are preserved. Current remote head 797e4ec has successful three-module CI 34559970329; matrix CI 34559970376 is still running. PR #7 is OPEN and draft, not merged.",
   "unblocks_when": "B40 individual root-cause and acceptance requirements are resolved without blanket waiver, and full independent review, current-head CI and merge verification all pass.",
-  "next_action": "Inspect CI runs 34549895039 and 34549895031 for candidate 3650fcf. Preserve draft status and historical physical failures until remaining gates are resolved.",
+  "next_action": "Follow the existing fixed-166 process handles and current matrix CI, complete independent M-A consumption review, and resolve the pending 3D model decision. Preserve draft status and historical failures; no M-A completion or merge claim.",
   "tested_candidate_sha": null,
   "tested_base_sha": null,
-  "source_head_sha": null
+  "source_head_sha": "797e4ec5c10f71a746997be3f1c0b5ed9916a26e"
 }
