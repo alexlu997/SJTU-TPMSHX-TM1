@@ -1,6 +1,16 @@
-# B40 reference disposition — proposed, not approved
+# B40 reference disposition — approved 2026-09-11
 
-2026-09-11. No frozen reference or tolerance has been changed. This proposal
+The user explicitly approved this proposal on 2026-09-11. The four reference
+updates below are authorized; no other acceptance condition changes.
+
+Applied on the `e38b0c8` candidate. The four frozen tests pass in 2.31 s,
+native exit 0, using the configured 73-package interpreter after exact-lock
+and pip checks passed. Log: `.cache/b40-approved-references.log`. Ruff and
+diff whitespace checks pass. Original inputs, budgets, tolerance and historical
+failure artifacts are unchanged. B40 remains failed/open for its remaining
+acceptance conditions.
+
+Original proposal (retained): no frozen reference or tolerance had been changed. This proposal
 addresses deterministic regression references only. Approval would not close
 B40, assert physical accuracy, authorize merge/release, or replace the original
 two-outer-call failure with a larger-budget run.

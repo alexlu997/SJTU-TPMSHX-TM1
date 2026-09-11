@@ -19,11 +19,12 @@
     "evidence/B40/current-engineering-budget.md",
     "evidence/B40/2d-history-investigation.md",
     "evidence/B40/current-solid-diagnostic.md",
-    "evidence/B40/method-verification.md"
+    "evidence/B40/method-verification.md",
+    "evidence/B40/reference-disposition-proposal.md"
   ],
   "blocked_reason": "Historical frozen evaluator pins failed 4/4 at the reference commit after documented intervening physics changes; pins and tolerances preserved.",
   "unblocks_when": "Each of the four failures has accepted cause, remedy or reference disposition and corresponding validation; any frozen-reference or threshold change requires explicit approval. Numerical convergence and discrete energy diagnostics do not replace physical acceptance.",
-  "next_action": "Controlled original-budget comparisons attribute both major 3D Q shifts to 5adb61d and remaining 3D plus both full 2D drifts to d61e341. Historical and current engineering-budget numerical results and full-domain temperature/solid diagnostics are recorded separately. Review numerical-method and applicable physical evidence, resolve each reference disposition with explicit user approval, and retain original 4/4 failures, NaN/native-exit provenance and unchanged thresholds. Same-source migration equivalence remains architectural evidence only.",
+  "next_action": "The user explicitly approved the four reference updates on 2026-09-11. Updated original-budget frozen regression: 4 passed, native exit 0; inputs and tolerances unchanged. Original 4/4 failures and 3D original-budget nonconvergence remain historical facts. Complete remaining applicable physical acceptance and full M-A review/CI requirements; do not close B40 from the green regression alone.",
   "tested_candidate_sha": null,
   "tested_base_sha": null,
   "source_head_sha": null

@@ -171,9 +171,14 @@ _X_NONUNIF = np.array([5.0, 6.0, 7.0, 8.0, 5.5, 6.5, 7.5, 6.0,
 # stale already at G=cef75a5. Actual face mass * cp(Tin) then changes |Q| by
 # -0.0031863% / -0.0071319% versus G; measured G/A dP and mass agree.
 # The accumulated historical drift is not attributed to this inlet fix alone.
-_FROZEN_2D_UNIFORM = (-8085.955568764836, 4675.147100112292,
+# 2026-09-11: user-approved reference disposition after controlled B40
+# history comparisons. Inputs, budgets and tolerance remain unchanged.
+# Historical tuples and 4/4 failures are preserved under
+# docs/plans/three-module-graph/evidence/B40/. This is numerical regression
+# evidence, not physical acceptance or closure of the overall B40 gate.
+_FROZEN_2D_UNIFORM = (-8085.955349708075, 4675.147979229178,
                       3.446685791015626)
-_FROZEN_2D_NONUNIF = (-7561.25242589901, 4052.044538218606,
+_FROZEN_2D_NONUNIF = (-7561.252334176324, 4052.0456347246245,
                       3.6729327392578126)
 # re-baselined 2026-07-09 (M2b): evaluate_3d now installs the PER-CELL
 # eps_field (xmod-eps-field-3d-evaluator closed) + 3D momentum carries the
@@ -209,9 +214,11 @@ _FROZEN_2D_NONUNIF = (-7561.25242589901, 4052.044538218606,
 # keep the original inputs, budgets and _REL. Geometry mass is unchanged.
 # Old uniform: (-9968.94601218934, 7546.892661164707, ...).
 # Old nonuniform: (-10850.667870259445, 2879.2940311398415, ...).
-_FROZEN_3D_UNIFORM = (-9968.92699806532, 7546.892661221464,
+# Approved complete-end-CV and wall-method references; both remain
+# unconverged observations at the ORIGINAL two-outer-call budget.
+_FROZEN_3D_UNIFORM = (-7209.103274428575, 7519.596015609637,
                       6.323593139648438)
-_FROZEN_3D_NONUNIF = (-10850.753888768157, 2879.2941880943804,
+_FROZEN_3D_NONUNIF = (-8672.919843820628, 2871.31457245229,
                       3.675970458984375)
 
 
