@@ -105,3 +105,22 @@ Code candidate `0ba1657` passed matrix CI `34563788328` (both platforms:
 and three-module CI `34563788330`. The five-file reference update was independently
 reviewed with no concrete issue. Final combined acceptance remains separate
 from this evidence index and the PR remains unmerged.
+
+## Final technical disposition — 2026-09-11
+
+The four failure investigations satisfy their technical closure conditions in
+`state/B40.json`: each has reproducible input/history comparisons, an evidenced
+cause, the approved repair/reference disposition, its own regression and
+independent mass/energy evidence. This accepts the investigation and repaired
+screening baseline within the explicitly approved air-air scope. It does not
+qualify the original 3D iteration budget for engineering F2: that budget remains
+unqualified, and engineering conclusions must use the separately recorded
+engineering-budget results. The 2D single-density-loop outer flag remains false.
+These are retained mode qualifications, not relaxed convergence criteria.
+
+B40 is not yet `done`: the final PR-head checks, applicable merge authorization
+and post-merge verification are outstanding. The historical 4/4 failures and
+all later failed or unconverged evidence remain immutable historical records.
+The architecture milestone can close only after these release conditions and
+Z00's final-main checks are fulfilled. No experimental accuracy acceptance,
+mesh-independence result or M-B completion follows from this disposition.
