@@ -36,3 +36,12 @@ conversion/state validation to every selected row. This is fixed-row selection,
 not a valid-row filter or a changed denominator. The second paired attempts
 use separate `.cache/shanghai-migration-v2` outputs and logs. Completion remains
 pending; no failed attempt is counted as a successful solve.
+
+The second pair reached solving but its observer called the nonexistent
+`ComputeConfig.to_dict()`. The first recorded baseline row preserves this
+AttributeError. Both runs were deliberately interrupted after diagnosis and
+returned native exit 130; their partial results are not accepted. The observer
+now uses stdlib `dataclasses.asdict`, checked against an actual ComputeConfig
+with JSON serialization before restarting. The third paired runs use separate
+`.cache/shanghai-migration-v3` outputs/logs. No solver, input row, physical
+validation or convergence threshold was changed to fix the observer.

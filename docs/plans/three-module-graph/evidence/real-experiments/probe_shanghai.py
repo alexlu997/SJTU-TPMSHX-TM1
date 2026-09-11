@@ -1,3 +1,4 @@
+from dataclasses import asdict
 import json
 import subprocess
 import sys
@@ -62,7 +63,7 @@ def observe(frame, event, result):
             },
             diagnostics=res.diagnostics,
             warnings=list(res.warnings or []),
-            config=frame.f_locals["cc"].to_dict(),
+            config=asdict(frame.f_locals["cc"]),
         )
 
 
