@@ -1,7 +1,7 @@
 """Compute-run orchestration handlers for ``Main_Menu``.
 
 Extracted verbatim from the ``main`` god object: the Compute entry
-points (run_calculation / _run_calculation_3d / _run_polygon_calculation),
+points (run_calculation / _run_calculation_3d),
 the ComputeOrchestrator signal handlers (_on_orch_started / _progress /
 _finished / _error / _cancelled), and the compute-UI lifecycle helpers
 (_begin_compute_ui / _end_compute_ui / _on_cancel_compute /
@@ -33,6 +33,7 @@ from PySide6.QtWidgets import QMessageBox
 
 from sjtu_tpmshx.ui.fmt import duration as _fmt_dur
 from sjtu_tpmshx.ui.ui_constants import VV_VELOCITY_LIMIT_MS, TOAST_MS_MED, TOAST_MS_SHORT
+from sjtu_tpmshx.ui.window_config import validate_domain_shape
 
 
 from sjtu_tpmshx.ui.compute_api_adapter import run as _run_pipeline
@@ -62,6 +63,11 @@ class RunControllerMixin:
         # E10 — pre-flight: if the user has any invalid fields flagged by
         # the inline validator, surface them together in a modal instead
         # of letting the solver hit them one at a time.
+        try:
+            validate_domain_shape(self)
+        except ValueError as error:
+            QMessageBox.warning(self, "不支持的计算域", str(error))
+            return
         if not self._validate_inputs_preflight():
             return
         # Grid-legality preflight — refined shape, inlet/outlet coverage,
@@ -72,11 +78,6 @@ class RunControllerMixin:
         # Mark compute start so `_end_compute_ui` records elapsed for the
         # status bar clock. 3D branch overwrites with its own clock.
         self._compute_t0 = _time.time()
-        # Polygon solver runs on main thread (has its own processEvents)
-        if self.combo_shape.currentIndex() > 0:
-            self._run_polygon_calculation()
-            return
-
         # 3D dispatch: uniform MVP path (no zoning, Shanghai-style uniform TPMS)
         if hasattr(self, 'combo_dim') and self.combo_dim.currentIndex() == 1:
             self._run_calculation_3d()
@@ -320,14 +321,6 @@ class RunControllerMixin:
         wd.timeout.connect(_tick_3d)
         wd.start(500)
         return
-
-    def _run_polygon_calculation(self):
-        # P1.9: relocated runs/polygon_calc.py -> ui/polygon_calc.py — it is
-        # Qt-coupled UI code (takes the main window, uses ui.theme) that
-        # lived in the free scripts tier; GUI importing runs/ was a layering
-        # violation flagged by the import audit.
-        from sjtu_tpmshx.ui.polygon_calc import run_polygon_calculation
-        return run_polygon_calculation(self)
 
     def _on_orch_started(self, mode):
         """Compute kicked off. Lock UI + start progress widgets."""

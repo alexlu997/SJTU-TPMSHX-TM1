@@ -42,6 +42,36 @@ def apply_config(window, config):
     window.auto_fill_fluid_b()
 
 
+@pytest.mark.parametrize('shape', [1, 2], ids=['hexagon', 'octagon'])
+@pytest.mark.parametrize('dimension', [2, 3])
+def test_saved_polygon_cannot_start_compute(win, monkeypatch, shape, dimension):
+    from sjtu_tpmshx.ui.window_config import config_from_window, DOMAIN_SHAPE_NOTICE
+    import sjtu_tpmshx.ui.polygon_calc as legacy_polygon
+
+    apply_config(win, baseline_config() if dimension == 2 else _small_air_cfg())
+    assert win.combo_shape.model().item(0).isEnabled()
+    assert all(not win.combo_shape.model().item(index).isEnabled() for index in (1, 2))
+    # Saved presets can restore a disabled item; keep it visible and reject compute.
+    win._apply_user_preset({'combos': {'combo_shape': shape}})
+    messages = []
+    monkeypatch.setattr(QMessageBox, 'warning', lambda parent, title, text: messages.append(text))
+    def forbidden(*args, **kwargs):
+        pytest.fail('polygon selection reached grid preparation or numerical execution')
+    monkeypatch.setattr(win, '_preflight_grid', forbidden)
+    monkeypatch.setattr(win.compute, 'start', forbidden)
+    monkeypatch.setattr(legacy_polygon, 'run_polygon_calculation', forbidden)
+    try:
+        for strict in (False, True):
+            with pytest.raises(ValueError, match='Rectangle'):
+                config_from_window(win, strict=strict)
+        win.run_calculation()
+        assert messages == [DOMAIN_SHAPE_NOTICE]
+        assert win.combo_shape.currentIndex() == shape
+        assert win.compute.is_idle()
+    finally:
+        win.combo_shape.setCurrentIndex(0)
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize('dimension', [2, 3])
 def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, dimension):

@@ -19,6 +19,12 @@ from sjtu_tpmshx.domain.compute_config import (
     GeometryConfig, PartialBCConfig, SolverConfig, ZoneAxis, ZoneInputConfig,
 )
 
+DOMAIN_SHAPE_NOTICE = (
+    "当前仅支持 Rectangle（矩形）2D / 3D 计算。\n"
+    "Hexagon / Octagon 暂停计算，旧配置仍可查看和保存。\n"
+    "如需计算，请明确切换为 Rectangle。"
+)
+
 # ── helpers ──────────────────────────────────────────────────────────
 
 
@@ -399,6 +405,13 @@ def _read_extrap_policy(window) -> 'ExtrapPolicy':
     return ExtrapPolicy(allow=allow)
 
 
+def validate_domain_shape(window) -> None:
+    """Reject a polygon selection before it can become a rectangular config."""
+    shape = _qt_text(getattr(window, 'combo_shape', None))
+    if shape and shape != 'Rectangle':
+        raise ValueError(DOMAIN_SHAPE_NOTICE)
+
+
 def config_from_window(window, *, strict: bool = False,
                        force_3d: Optional[bool] = None) -> ComputeConfig:
     """Build a :class:`ComputeConfig` from the main UI window.
@@ -411,6 +424,7 @@ def config_from_window(window, *, strict: bool = False,
     selects the effective dimension (None = combo_dim, or le_Nz for
     headless callers). Hidden widget values are never changed.
     """
+    validate_domain_shape(window)
     is_3d = force_3d
     if is_3d is None:
         combo_dim = getattr(window, 'combo_dim', None)

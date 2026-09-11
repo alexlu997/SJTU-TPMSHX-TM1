@@ -36,8 +36,17 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 The GUI entry point is `python -m sjtu_tpmshx.main`; source-based headless
 work uses `python -m sjtu_tpmshx.cli`. Parameter optimization and design use
 the same public contracts with their explicitly named approximation modes.
-Current implementation evidence does not imply final M-A acceptance: review,
-CI, merge and outstanding baseline decisions remain in the Graph state.
+M-A review, CI and merged-main acceptance are recorded in the Graph state for
+the rectangular 2D/3D module flow. M-B extensions and historical baseline
+failures retain their separate scope and status.
+
+Production domain shapes are currently limited to **Rectangle**, in 2D and 3D.
+Hexagon/Octagon choices are disabled. Saved polygon presets retain their shape
+for viewing and saving, but the Compute entry and window-to-config adapter
+reject them; they are never silently interpreted as rectangles. The historical
+`ui/polygon_calc.py` and polygon kernels are outside the production path.
+Reopening polygon compute requires the mainline physical rules and real
+CaseData/FieldResult/PerformanceResult handoff, not just relocating the GUI code.
 
 ### Persistent interfaces and physical state
 

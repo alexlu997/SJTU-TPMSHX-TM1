@@ -1,7 +1,6 @@
 """Real isolated prepare / solve / postprocess processes using YAML and HDF5."""
-from dataclasses import asdict
-import json
 import os
+from pathlib import Path
 import shutil
 import subprocess
 import sys
@@ -13,18 +12,17 @@ import pytest
 @pytest.mark.slow
 @pytest.mark.parametrize('dimension', [2, 3])
 def test_real_three_process_handoff(tmp_path, dimension):
-    from sjtu_tpmshx.tests.integration_tm1.test_2d_real import baseline_config
-    from sjtu_tpmshx.tests.test_pipeline_3d_e2e import _small_air_cfg
     from sjtu_tpmshx.io.case_io import load_case
     from sjtu_tpmshx.io.result_io import load_result
     from sjtu_tpmshx.io.metrics_io import load_metrics
-    config = baseline_config() if dimension == 2 else _small_air_cfg()
     upstream = tmp_path / 'upstream'
     downstream = tmp_path / 'handoff'
     upstream.mkdir()
     downstream.mkdir()
     config_path = upstream / 'config.json'
-    config_path.write_text(json.dumps(asdict(config)))
+    example = (Path(__file__).resolve().parents[3] / 'examples' / 'three_module'
+               / f'air_{dimension}d.json')
+    shutil.copyfile(example, config_path)
     clean_env = dict(os.environ)
     from sjtu_tpmshx.domain.run_environment import RUN_OVERRIDES
     for name in RUN_OVERRIDES:

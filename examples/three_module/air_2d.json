@@ -1,0 +1,11 @@
+{
+  "fluid_A": {"type": "air", "u_mps": 10.0, "T_in_K": 600.0, "P_in_Pa": 101325.0},
+  "fluid_B": {"type": "air", "u_mps": 10.0, "T_in_K": 300.0, "P_in_Pa": 101325.0},
+  "geometry": {
+    "tpms": "Gyroid", "L_cell_mm": 7.0, "t_wall_mm": 0.4,
+    "k_s_W_mK": 16.0, "L_dom_m": 0.182, "H_dom_m": 0.042
+  },
+  "solver": {"Nx": 20, "Ny": 40, "Nz": 1},
+  "bc_A": {"dir": 0},
+  "bc_B": {"dir": 3}
+}
