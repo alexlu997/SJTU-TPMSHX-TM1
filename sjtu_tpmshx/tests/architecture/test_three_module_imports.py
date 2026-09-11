@@ -35,7 +35,7 @@ def test_implementation_import_boundaries():
     for directory, forbidden in RULES.items():
         for path in (ROOT / directory).rglob('*.py'):
             package = '.'.join(('sjtu_tpmshx', *path.relative_to(ROOT).parts[:-1]))
-            for line, module in forbidden_imports(path.read_text(), forbidden, package):
+            for line, module in forbidden_imports(path.read_text(encoding='utf-8'), forbidden, package):
                 failures.append(f'{path.relative_to(ROOT)}:{line}: {module}')
     assert not failures, '\n'.join(failures)
 
