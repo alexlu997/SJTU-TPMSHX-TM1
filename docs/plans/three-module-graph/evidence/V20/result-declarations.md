@@ -28,3 +28,16 @@ reported inconsistencies. It does not claim comprehensive validation of the
 in-memory public API and did not rerun the numerical tests. This repair is
 M-A file-contract work; B40 references, convergence and physical acceptance
 remain unchanged.
+
+## Direct in-memory postprocessing follow-up
+
+The same declaration checks now run at `postprocess.evaluate()` entry.
+Existing partial metric inputs keep their availability behavior; this does
+not impose the complete archive contract on them. Three new direct-evaluate
+assertions first failed (3 failed, 2 passed, native exit 1;
+`.cache/result-memory-declaration-before.log`). After the shared-helper fix,
+IO/metric tests pass 13 tests (native exit 0), and the real three-process,
+public screening, public quick-design and VTK tests pass 11 tests in 29.57 s
+(native exit 0; `.cache/result-memory-declaration-integration.log`).
+Independent static review by `b40_review` found no issue in this bounded diff.
+The unchanged 73-package lock and pip check pass.

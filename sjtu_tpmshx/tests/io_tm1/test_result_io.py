@@ -12,6 +12,7 @@ from sjtu_tpmshx.io.metrics_io import load_metrics, save_metrics
 from sjtu_tpmshx.io.result_io import load_result, save_result
 from sjtu_tpmshx.io.hdf5_data import write_record
 from sjtu_tpmshx.tests.io_tm1.test_case_io import sample_case
+from sjtu_tpmshx.postprocess.api import evaluate
 
 
 @pytest.mark.parametrize('change', ['temperature_unit', 'dimension', 'mode'])
@@ -34,6 +35,8 @@ def test_result_file_rejects_conflicting_physical_declarations(tmp_path, change)
         load_result(path)
     with pytest.raises(ValueError, match='unit|dimension'):
         save_result(result, tmp_path / 'invalid.h5')
+    with pytest.raises(ValueError, match='unit|dimension'):
+        evaluate(result)
 
 
 def test_nonconverged_result_is_preserved_and_cancelled_archive_rejected(tmp_path):

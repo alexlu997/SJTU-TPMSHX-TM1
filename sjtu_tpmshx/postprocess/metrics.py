@@ -5,6 +5,7 @@ import numpy as np
 
 from sjtu_tpmshx.domain.metric_spec import MetricSpec
 from sjtu_tpmshx.domain.performance_result import MetricValue, PerformanceResult
+from sjtu_tpmshx.domain.persistence_validation import validate_result_declarations
 from sjtu_tpmshx.result_math import (
     _boundary_enthalpy_duty, _enthalpy_balance_2d, _outlet_temperature_2d,
     _pipe_weighted,
@@ -126,6 +127,7 @@ def _evaluate_metric(result, name):
 
 def evaluate(result, metric_spec=None):
     """Compute core metrics; missing evidence stays explicitly unavailable."""
+    validate_result_declarations(result)
     definitions = {
         'Q': ('Q', 'W/m'), 'dP_A': ('dP', 'Pa'), 'dP_B': ('dP', 'Pa'),
         'T_out_A': ('T_out', 'K'), 'T_out_B': ('T_out', 'K'),
