@@ -14,9 +14,9 @@
   "evidence": [
     "acceptance_architecture.md"
   ],
-  "blocked_reason": "B40 remains failed on the newly identified 3D native integral-enthalpy boundary gap; its model decision is pending. Fixed-166 migration is running and full PR review remains incomplete. Historical 085e075 Windows UnicodeDecodeError (2971 passed, native exit 1) and 3650fcf repair evidence are preserved. Current remote head 797e4ec has successful three-module CI 34559970329; matrix CI 34559970376 is still running. PR #7 is OPEN and draft, not merged.",
+  "blocked_reason": "The approved 3D screening enthalpy repair passes engineering flow and full energy checks; its new regression references await a separate decision. Fixed-166 migration is running. Full independent implementation review identified a provenance P2, now fixed and re-reviewed; six public API/file-handoff tests pass with native exit 0. Historical failures remain preserved. Both CI runs for 797e4ec passed, but later model/provenance changes need current-head CI. PR #7 remains draft and unmerged.",
   "unblocks_when": "B40 individual root-cause and acceptance requirements are resolved without blanket waiver, and full independent review, current-head CI and merge verification all pass.",
-  "next_action": "Follow the existing fixed-166 process handles and current matrix CI, complete independent M-A consumption review, and resolve the pending 3D model decision. Preserve draft status and historical failures; no M-A completion or merge claim.",
+  "next_action": "Finish the existing fixed-166 processes, obtain the 3D Q/dP reference decision, and complete current-head regression/CI and final acceptance. Preserve draft status and historical failures; no completion or merge claim.",
   "tested_candidate_sha": null,
   "tested_base_sha": null,
   "source_head_sha": "797e4ec5c10f71a746997be3f1c0b5ed9916a26e"

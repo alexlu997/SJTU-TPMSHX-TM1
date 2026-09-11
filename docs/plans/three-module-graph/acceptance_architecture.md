@@ -60,3 +60,8 @@ config_snapshot 重跑旧 pipeline、忽略准备数组或后处理调用求解�
 unavailable。真实 YAML/HDF5 交接与缺仓库检查共 2 项通过、原生退出 0
 （`.cache/provenance-handoff.log`），独立复核确认该 P2 已修复。此来源记录不声称
 能重建未提交改动或逐个输入文件的使用情况。B40 参考决定和最终 CI 仍单列。
+
+来源修复后的公开 API、真实全模型三进程与来源交接合并验证：6 项通过，
+24.33 s，原生退出 0（`.cache/provenance-public-integration.log`）。
+此前提交 `797e4ec` 的矩阵 CI `34559970376` 与三模块 CI `34559970329`
+均已成功；后续 3D 模型与来源修复仍需当前提交的 CI，不能继承旧绿色结论。
