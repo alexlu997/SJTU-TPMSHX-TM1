@@ -22,25 +22,25 @@ def test_projection_coordinates(fluid, dimension, nonuniform, monkeypatch):
     # Coefficients expose projected L/t directly; no calibration is involved.
     monkeypatch.setattr(df_projection, 'predict_K_cF_vec',
                         lambda topo, L, t, eps: (L * 1e-8, t * 1000.))
-    L = np.array([[4., 5.], [6., 7.], [8., 9.]])
-    t = L / 20.
+    L = np.array([[4., 5., 6.], [5., 6., 7.], [6., 7., 8.]])
+    t = .1 + L / 20.
     widths = np.array([1., 3.]) if nonuniform else None
     if fluid == 'A':
-        expected = np.array([4.5, 6.5 if nonuniform else 8.5])
+        expected = np.array([5., 6. if nonuniform else 7.])
     else:
-        expected = np.array([7., 6.])
+        expected = np.array([7., 6. if nonuniform else 5.])
     if dimension == 2:
-        K, cF = p2d(L, t, 'Gyroid', 16., 3, 2, 2, fluid,
+        K, cF = p2d(L, t, 'Gyroid', 16., 3, 3, 2, fluid,
                      streamwise_dx=widths)
     else:
-        L3 = np.stack([L, L + .5], axis=2)
-        t3 = L3 / 20.
+        L3 = np.stack([L, L + .5, L + 1.], axis=2)
+        t3 = .1 + L3 / 20.
         K, cF = p3d(L3, t3, np.full_like(L3, .4), 'Gyroid', 2, 2, fluid,
                      streamwise_dx=widths,
-                     z_dx=np.array([3., 1.]) if nonuniform else None)
-        expected = np.stack([expected, expected + .5], axis=1)
+                     z_dx=widths)
+        expected = np.stack([expected, expected + (.5 if nonuniform else 1.)], axis=1)
     np.testing.assert_allclose(K, expected * 1e-8, rtol=1e-12, atol=0.)
-    np.testing.assert_allclose(cF, expected * 50., rtol=1e-12, atol=0.)
+    np.testing.assert_allclose(cF, 100. + expected * 50., rtol=1e-12, atol=0.)
 
 
 def test_helper_semantics():
