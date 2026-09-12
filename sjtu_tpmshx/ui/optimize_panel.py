@@ -13,7 +13,7 @@ This is a minimal but functional first cut:
   * Pareto front is rendered on whichever matplotlib canvas is available
     on the window (``window.canvas_pareto`` if present, otherwise printed);
   * picking a Pareto point pushes its decoded ``L_ctrl`` / ``t_ctrl`` back
-    onto the window so the user can re-run a Compute on that design.
+    as mean scalar parameters for a uniform Compute seed.
 
 Heavier polish (rich Pareto interactions, design-preview heatmaps, side-by-
 side L(x,y)/t(x,y) panels) is deliberately deferred — first prove the
@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import os
 import time
-import warnings
+from copy import deepcopy
 from typing import Optional
 
 import numpy as np
@@ -105,18 +105,16 @@ def _make_worker_class():
                 # Cap at q_batch (joblib auto-clamps if smaller batch).
                 n_jobs_inner = max(1, min(int(self.q_batch),
                                           int(self.cfg.get('n_jobs', 4))))
-                with warnings.catch_warnings():
-                    warnings.simplefilter('ignore')
-                    res = run_qnehvi(
-                        config=self.cfg,
-                        n_init=self.n_init, n_iter=self.n_iter,
-                        q_batch=self.q_batch, seed=self.seed,
-                        verbose=True,
-                        save_dir=self.save_dir,
-                        progress_cb=_cb,
-                        n_jobs=n_jobs_inner,
-                        evaluator_fn=self.evaluator_fn,
-                    )
+                res = run_qnehvi(
+                    config=self.cfg,
+                    n_init=self.n_init, n_iter=self.n_iter,
+                    q_batch=self.q_batch, seed=self.seed,
+                    verbose=True,
+                    save_dir=self.save_dir,
+                    progress_cb=_cb,
+                    n_jobs=n_jobs_inner,
+                    evaluator_fn=self.evaluator_fn,
+                )
                 self.finished_with_result.emit(res)
             except Exception as e:
                 self.error_signal.emit(f"{type(e).__name__}: {e}")
@@ -155,19 +153,18 @@ def _gather_cfg(window, base: dict | None = None) -> dict:
             cfg['alpha_outer']     = float(_oc.alpha_T)
         except (AttributeError, TypeError, ValueError) as _e:
             _log.warning(f"[optimize] _optimizer_cfg ignored (bad shape): {_e}")
-    # 2026-05-20 UI sweep (Tier 15, user re-audit): track which fields
-    # failed to parse so we can surface them in the status bar rather
-    # than silently using DEFAULT_CONFIG. Research-software anti-pattern:
-    # a typo in an optimizer input field used to produce "looks-normal"
-    # results that were actually run against the default geometry.
-    _parse_fails: list = []
+    from sjtu_tpmshx.ui.window_config import validate_domain_shape
+    validate_domain_shape(window)
 
     def _get(attr, cast=float, key=None):
         if hasattr(window, attr):
             try:
-                cfg[key or attr] = cast(getattr(window, attr).text())
-            except (ValueError, AttributeError):
-                _parse_fails.append((attr, key or attr))
+                value = cast(getattr(window, attr).text())
+                if not np.isfinite(value):
+                    raise ValueError('must be finite')
+            except (ValueError, AttributeError) as exc:
+                raise ValueError(f"{attr}: enter a finite number") from exc
+            cfg[key or attr] = value
 
     # Geometry (m) — UI defaults match Shanghai's cross-flow HX
     # (0.182 × 0.042 × 0.042 m³). Without these reads the optimizer would
@@ -190,36 +187,33 @@ def _gather_cfg(window, base: dict | None = None) -> dict:
     # (Shanghai's 304 SS at 7900 was being ignored).
     _get('le_rho_s',  float, 'rho_s')
 
-    if hasattr(window, '_temp_to_K'):
-        try:
-            cfg['T_inA'] = float(window._temp_to_K(window.le_TinA))
-            cfg['T_inB'] = float(window._temp_to_K(window.le_TinB))
-        except (ValueError, AttributeError):
-            pass
+    for side in ('A', 'B'):
+        widget = getattr(window, 'le_Tin' + side, None)
+        if widget is not None:
+            try:
+                converter = getattr(window, '_temp_to_K', lambda w: float(w.text()))
+                value = float(converter(widget))
+                if not np.isfinite(value) or value <= 0:
+                    raise ValueError('must be finite and positive')
+            except (ValueError, AttributeError) as exc:
+                raise ValueError(f"le_Tin{side}: enter a valid absolute temperature") from exc
+            cfg['T_in' + side] = value
+        direction = getattr(window, 'combo_dir' + side, None)
+        if direction is not None:
+            cfg['dir_' + side] = int(direction.currentIndex())
 
     if hasattr(window, 'combo_tpms'):
         cfg['tpms_type'] = window.combo_tpms.currentText()
 
-    # Fluid type (air / water). The 2D evaluator currently runs both sides as
-    # air; we pass the values through so a future water-side evaluator (the
-    # Shanghai air-water case) can dispatch on these without another _gather_cfg
-    # change. For now the evaluator ignores them — but the UI no longer drops
-    # the user's selection silently.
-    if hasattr(window, 'combo_fluidA'):
-        try:
-            cfg['fluid_type_A'] = window.combo_fluidA.currentText().lower()
-        except Exception:
-            pass
-    if hasattr(window, 'combo_fluidB'):
-        try:
-            cfg['fluid_type_B'] = window.combo_fluidB.currentText().lower()
-        except Exception:
-            pass
+    from sjtu_tpmshx.ui.window_config import _parse_fluid_label
+    for side in ('A', 'B'):
+        combo = getattr(window, 'combo_fluid' + side, None)
+        if combo is not None:
+            cfg['fluid_type_' + side] = _parse_fluid_label(combo)
 
     # Search space (M0, 2026-07-09): the 搜索空间 card's widgets. L/t bounds
-    # are hard-clamped to the DF/Nu training convex hull — rankings outside
-    # the hull are extrapolation and not trustworthy. Degenerate ranges
-    # (lo ≥ hi after clamping) fall back to the full hull.
+    # are clamped to the current CFD geometry grid. Each fluid's Nu window
+    # remains a separate applicability condition. Degenerate ranges fail.
     _sp = getattr(window, '_opt_space_params', None)
     if _sp:
         try:
@@ -228,7 +222,9 @@ def _gather_cfg(window, base: dict | None = None) -> dict:
             def _clamped(lo_w, hi_w, hull):
                 lo = max(hull[0], min(float(lo_w.value()), float(hi_w.value())))
                 hi = min(hull[1], max(float(lo_w.value()), float(hi_w.value())))
-                return (lo, hi) if lo < hi else tuple(hull)
+                if not np.isfinite(lo + hi) or lo >= hi:
+                    raise ValueError('search bounds require a finite lower < upper')
+                return (lo, hi)
 
             cfg['L_bounds'] = _clamped(_sp['L_min'], _sp['L_max'], TRAIN_L)
             cfg['t_bounds'] = _clamped(_sp['t_min'], _sp['t_max'], TRAIN_T)
@@ -237,7 +233,7 @@ def _gather_cfg(window, base: dict | None = None) -> dict:
                 cfg['n_ctrl_x'], cfg['n_ctrl_y'] = int(_grid[0]), int(_grid[1])
             cfg['symmetric_y'] = bool(_sp['symmetric_y'].isChecked())
         except Exception as _e:
-            _log.warning(f"[optimize] search-space widgets ignored: {_e}")
+            raise ValueError(f"invalid search-space settings: {_e}") from _e
 
     # Surrogate extrapolation toggle — the Compute path's UI checkbox. When
     # ticked the surrogate domain guard downgrades out-of-window inputs from
@@ -249,22 +245,6 @@ def _gather_cfg(window, base: dict | None = None) -> dict:
             cfg['allow_extrap'] = bool(window.chk_allow_extrap.isChecked())
         except Exception:
             pass
-
-    # Tier 15: surface parse failures so the user sees that defaults
-    # leaked in (avoids the silent "ran with wrong geometry" trap).
-    if _parse_fails:
-        _names = ', '.join(f"{a}→{k}" for a, k in _parse_fails)
-        try:
-            sb = window.statusBar()
-            sb.showMessage(
-                f"Optimizer cfg: {len(_parse_fails)} field(s) failed to parse "
-                f"— using DEFAULT_CONFIG values ({_names}). "
-                "Fix the highlighted Compute inputs to use your real geometry.",
-                12000)
-        except Exception:
-            pass
-        # Also log to stdout so it lands in the run journal.
-        _log.warning(f"[optimize] _gather_cfg fallbacks: {_names}")
 
     return cfg
 
@@ -560,36 +540,21 @@ def show_field_preview(window, x_decision=None) -> None:
     Drawn on ``window.canvas_layout`` if available (the dedicated 'Layout'
     tab), otherwise falls back to ``canvas_pareto`` so users see something.
     """
-    try:
-        pass
-    except Exception as e:
-        _set_status(window, f"matplotlib unavailable ({e})")
-        return
-
-    from sjtu_tpmshx.models.continuous_field import (
-        from_decision_vector, uniform_field,
-    )
-    cfg = _gather_cfg(window)
-    L_dom = float(cfg['L_domain']); H_dom = float(cfg['H_domain'])
-    tpms = cfg.get('tpms_type', 'Diamond')
-    k_s  = float(cfg.get('k_s', 17.0))
-
+    from sjtu_tpmshx.models.screening import build_field
+    from sjtu_tpmshx.models.continuous_field import decision_bounds
     if x_decision is None:
-        # cfg carries the search-space card's bounds (hull-clamped); the
-        # mid-bounds uniform field previews what the optimizer will explore.
-        L_avg = 0.5 * sum(cfg['L_bounds'])
-        t_avg = 0.5 * sum(cfg['t_bounds'])
-        fc = uniform_field(L_avg, t_avg, tpms, k_s, L_dom, H_dom)
-    else:
-        # M0 (2026-07-09): decode with the cfg's control grid, not the
-        # module defaults — a 6×6 run's decision vector previews correctly.
-        fc = from_decision_vector(
-            np.asarray(x_decision, dtype=np.float64),
-            tpms_type=tpms, k_s=k_s,
-            L_domain=L_dom, H_domain=H_dom,
-            n_ctrl_x=int(cfg['n_ctrl_x']), n_ctrl_y=int(cfg['n_ctrl_y']),
-            symmetric_y=bool(cfg['symmetric_y']),
-        )
+        x_decision = getattr(window, '_selected_pareto_x', None)
+    try:
+        cfg = _gather_cfg(window) if x_decision is None else _result_field_config(window)
+        if x_decision is None:
+            low, high = decision_bounds(cfg['n_ctrl_x'], cfg['n_ctrl_y'], cfg['symmetric_y'],
+                                        cfg['L_bounds'], cfg['t_bounds'])
+            x_decision = (low + high) / 2.
+        fc = build_field(np.asarray(x_decision, dtype=np.float64), cfg)
+    except (ValueError, KeyError) as exc:
+        _set_status(window, f"field preview unavailable: {exc}")
+        return
+    L_dom = float(cfg['L_domain']); H_dom = float(cfg['H_domain'])
 
     Nx_p, Ny_p = 80, 40
     L_field, t_field = fc.evaluate_grid(Nx_p, Ny_p)
@@ -697,6 +662,8 @@ def run_optimize(window) -> None:
         else:
             evaluator_fn = None          # run_qnehvi defaults to 2D
             cfg = _gather_cfg(window)
+        from sjtu_tpmshx.models.screening import validate_screening_config
+        validate_screening_config(cfg, dimension=3 if is_3d else 2)
     except Exception as _e:
         _abort_launch(f"launch aborted — _gather_cfg failed: {_e}")
         return
@@ -773,7 +740,8 @@ def run_optimize(window) -> None:
 
     def _on_done(res):
         window._last_opt_result = res
-        window._last_opt_cfg = cfg
+        window._last_opt_cfg = deepcopy(res.get('config', cfg))
+        window._selected_pareto_x = None
         # Best Q + dP from the Pareto: highest Q point and lowest dP point
         if len(res['F']) > 0:
             Q_arr  = -res['F'][:, 0]
@@ -803,7 +771,7 @@ def run_optimize(window) -> None:
         except Exception as e:
             _log.warning(f"[optimize] show_pareto failed: {e}")
         try:
-            save_opt_results(window, res, cfg)
+            save_opt_results(window, res, window._last_opt_cfg)
         except Exception as e:
             _log.warning(f"[optimize] save_opt_results failed: {e}")
 
@@ -1066,7 +1034,7 @@ def on_pareto_pick(window, event) -> None:
     x_decision = X[real_idx]
     Q = -F[real_idx, 0]; dP = F[real_idx, 1]
     _set_status(window,
-                f"Pareto pick: Q={Q:.0f} W/m  dP={dP:.0f} Pa  → loading design")
+                f"Pareto pick: Q={Q:.0f} W/m  dP={dP:.0f} Pa  → loading mean parameters")
     load_pareto_solution(window, x_decision)
 
 
@@ -1078,12 +1046,19 @@ def save_opt_results(window, res: dict, cfg: dict) -> None:
     try:
         import json
         with open(os.path.join(save_dir, 'cfg_used.json'), 'w') as f:
-            json.dump({k: v for k, v in cfg.items()
-                       if isinstance(v, (int, float, str, bool, type(None)))},
-                      f, indent=2)
+            json.dump(cfg, f, indent=2, allow_nan=False)
     except Exception as e:
-        _log.warning(f"[optimize] cfg dump failed: {e}")
+        _set_status(window, f"results configuration could not be saved: {e}")
+        return
     _set_status(window, f'results saved → {save_dir}')
+
+
+def _result_field_config(window):
+    from sjtu_tpmshx.models.screening import FIELD_CONFIG_KEYS
+    cfg = getattr(window, '_last_opt_cfg', None)
+    if cfg is None or any(key not in cfg for key in FIELD_CONFIG_KEYS):
+        raise ValueError('original geometry configuration is missing; cannot restore this design')
+    return cfg
 
 
 def load_pareto_solution(window, x_decision: np.ndarray) -> None:
@@ -1096,7 +1071,11 @@ def load_pareto_solution(window, x_decision: np.ndarray) -> None:
     """
     from sjtu_tpmshx.models.continuous_field import decode_decision_vector
 
-    cfg_full = _gather_cfg(window)
+    try:
+        cfg_full = _result_field_config(window)
+    except ValueError as exc:
+        _set_status(window, str(exc))
+        return
     # 2026-05-20 UI sweep: guard against a corrupt or mis-sized decision
     # vector. Previously a wrong shape (e.g. a stale cached `_pareto_X`
     # from a different `n_ctrl_x/y` setting) would crash inside
@@ -1105,7 +1084,7 @@ def load_pareto_solution(window, x_decision: np.ndarray) -> None:
     _ncx = int(cfg_full.get('n_ctrl_x', 4))
     _ncy = int(cfg_full.get('n_ctrl_y', 4))
     _sym = bool(cfg_full.get('symmetric_y', True))
-    _expected = _ncx * (_ncy // 2 if _sym else _ncy) * 2  # L_ctrl + t_ctrl flat
+    _expected = _ncx * ((_ncy + 1) // 2 if _sym else _ncy) * 2  # L_ctrl + t_ctrl flat
     if x_decision.ndim != 1 or x_decision.size == 0:
         _set_status(window,
                     f"load Pareto: decision vector has bad shape "
@@ -1125,6 +1104,7 @@ def load_pareto_solution(window, x_decision: np.ndarray) -> None:
         return
     L_avg = float(L_ctrl.mean())
     t_avg = float(t_ctrl.mean())
+    window._selected_pareto_x = x_decision.copy()
 
     # 2026-05-20 UI sweep (Tier 25): emit editingFinished after each
     # programmatic setText so loading a Pareto design is a real, undoable
@@ -1143,10 +1123,6 @@ def load_pareto_solution(window, x_decision: np.ndarray) -> None:
         except Exception:
             pass
 
-    # Stash the full grid on the window so a Compute path could opt-in to the
-    # heterogeneous design later.
-    window._pareto_selected_L_ctrl = L_ctrl
-    window._pareto_selected_t_ctrl = t_ctrl
     _set_status(window,
-                f"loaded Pareto solution: L_avg = {L_avg:.3f} mm, "
-                f"t_avg = {t_avg:.3f} mm  (full grid stashed on window)")
+                f"loaded mean parameters: L_avg = {L_avg:.3f} mm, "
+                f"t_avg = {t_avg:.3f} mm  (uniform seed; not the full graded design)")

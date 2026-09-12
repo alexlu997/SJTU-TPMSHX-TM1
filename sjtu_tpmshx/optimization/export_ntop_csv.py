@@ -14,14 +14,15 @@ Geometric assumptions (must match the optimizer cfg):
     z when building the lattice
   * Output coordinates in **millimeters** so nTop's default mm units consume
     them natively
-  * L_field, t_field values are clamped to [4, 8] mm × [0.3, 0.5] mm — the
-    surrogate's training window, which also bounds the optimizer (path A in
+  * L_field, t_field values are clamped to [4, 8] mm × [0.3, 0.6] mm — the
+    configured geometry window, which also bounds the optimizer (path A in
     the planning history)
 
 CLI usage::
 
-    python -m optimization.export_ntop_csv \\
+    python -m sjtu_tpmshx.optimization.export_ntop_csv \\
         --pareto opt_runs/production_v1/pareto_final.csv \\
+        --config opt_runs/production_v1/config.json \\
         --row    7 \\
         --out    nTop_inputs/case_7 \\
         --grid   100 50
@@ -52,8 +53,8 @@ from sjtu_tpmshx.models.continuous_field import (
     DEFAULT_N_CTRL_Y,
     DEFAULT_SYMMETRIC_Y,
     DEFAULT_T_BOUNDS,
-    from_decision_vector,
 )
+from sjtu_tpmshx.models.screening import build_field, FIELD_CONFIG_KEYS
 from sjtu_tpmshx.logutil import get_logger
 
 _log = get_logger(__name__)
@@ -71,37 +72,6 @@ DEFAULT_KS = 17.0
 
 
 # ─── Core conversion ────────────────────────────────────────────────
-
-
-def _evaluate_field_on_grid(x_decision: np.ndarray,
-                            *,
-                            L_domain_m: float,
-                            H_domain_m: float,
-                            Nx_export: int,
-                            Ny_export: int,
-                            tpms_type: str,
-                            k_s: float,
-                            n_ctrl_x: int,
-                            n_ctrl_y: int,
-                            symmetric_y: bool,
-                            ) -> tuple:
-    """Evaluate L(x, y), t(x, y) on the export grid. Returns
-    (xc_mm (Nx,), yc_mm (Ny,), L_field_mm (Nx, Ny), t_field_mm (Nx, Ny))."""
-    fc = from_decision_vector(
-        x_decision,
-        tpms_type=tpms_type, k_s=k_s,
-        L_domain=L_domain_m, H_domain=H_domain_m,
-        n_ctrl_x=n_ctrl_x, n_ctrl_y=n_ctrl_y,
-        symmetric_y=symmetric_y,
-    )
-    L_field, t_field = fc.evaluate_grid(Nx_export, Ny_export)
-
-    # Cell-centre coordinates in **millimetres** (uniform grid)
-    dx_m = L_domain_m / Nx_export
-    dy_m = H_domain_m / Ny_export
-    xc_mm = (np.arange(Nx_export) + 0.5) * dx_m * 1.0e3
-    yc_mm = (np.arange(Ny_export) + 0.5) * dy_m * 1.0e3
-    return xc_mm, yc_mm, L_field, t_field
 
 
 def _write_scalar_field_csv(path: str,
@@ -142,6 +112,9 @@ def export_decision_vector(x_decision: np.ndarray,
                            n_ctrl_x: int = DEFAULT_N_CTRL_X,
                            n_ctrl_y: int = DEFAULT_N_CTRL_Y,
                            symmetric_y: bool = DEFAULT_SYMMETRIC_Y,
+                           L_bounds: tuple = DEFAULT_L_BOUNDS,
+                           t_bounds: tuple = DEFAULT_T_BOUNDS,
+                           spline_order: int = 3,
                            extra_metadata: Optional[dict] = None) -> dict:
     """Export L(x, y) + t(x, y) CSVs + provenance JSON for one Pareto pick.
 
@@ -150,13 +123,13 @@ def export_decision_vector(x_decision: np.ndarray,
     """
     os.makedirs(out_dir, exist_ok=True)
 
-    xc_mm, yc_mm, L_field, t_field = _evaluate_field_on_grid(
-        x_decision,
-        L_domain_m=L_domain_m, H_domain_m=H_domain_m,
-        Nx_export=Nx_export, Ny_export=Ny_export,
-        tpms_type=tpms_type, k_s=k_s,
-        n_ctrl_x=n_ctrl_x, n_ctrl_y=n_ctrl_y, symmetric_y=symmetric_y,
-    )
+    cfg = dict(tpms_type=tpms_type, k_s=k_s, L_domain=L_domain_m, H_domain=H_domain_m,
+               n_ctrl_x=n_ctrl_x, n_ctrl_y=n_ctrl_y, symmetric_y=symmetric_y,
+               L_bounds=L_bounds, t_bounds=t_bounds, spline_order=spline_order)
+    fc = build_field(x_decision, cfg)
+    L_field, t_field = fc.evaluate_grid(Nx_export, Ny_export)
+    xc_mm = (np.arange(Nx_export) + .5) * L_domain_m / Nx_export * 1000.
+    yc_mm = (np.arange(Ny_export) + .5) * H_domain_m / Ny_export * 1000.
 
     L_path = os.path.join(out_dir, 'Lfield.csv')
     t_path = os.path.join(out_dir, 'tfield.csv')
@@ -175,10 +148,11 @@ def export_decision_vector(x_decision: np.ndarray,
         't_min_mm':    float(t_field.min()),
         't_max_mm':    float(t_field.max()),
         't_avg_mm':    float(t_field.mean()),
-        'L_bounds':    list(DEFAULT_L_BOUNDS),
-        't_bounds':    list(DEFAULT_T_BOUNDS),
+        'L_bounds':    list(L_bounds),
+        't_bounds':    list(t_bounds),
         'csv_L':       os.path.abspath(L_path),
         'csv_t':       os.path.abspath(t_path),
+        'geometry_config': cfg,
         'decision_vector': [float(v) for v in np.asarray(x_decision).ravel()],
     }
     if extra_metadata:
@@ -195,6 +169,7 @@ def export_pareto_row(pareto_csv_path: str,
                       out_dir: str,
                       *,
                       decision_dim_expected: int = None,
+                      config: dict | None = None,
                       **kwargs) -> dict:
     """Pull one row from a pareto_final.csv (or history.csv), strip the
     trailing (Q, dP) columns, and route through export_decision_vector.
@@ -237,8 +212,24 @@ def export_pareto_row(pareto_csv_path: str,
         'pareto_Q_W_m':  Q,
         'pareto_dP_Pa':  dP,
     }
+    if config is None:
+        config_path = os.path.join(os.path.dirname(pareto_csv_path), 'config.json')
+        try:
+            with open(config_path, encoding='utf-8') as source:
+                config = json.load(source)
+        except FileNotFoundError as exc:
+            raise ValueError('original config.json is required to restore this Pareto design') from exc
+    missing = [key for key in FIELD_CONFIG_KEYS if key not in config]
+    if missing:
+        raise ValueError(f'original geometry configuration is incomplete: {missing}')
+    geometry = {key: config[key] for key in FIELD_CONFIG_KEYS}
+    geometry['L_domain_m'] = geometry.pop('L_domain')
+    geometry['H_domain_m'] = geometry.pop('H_domain')
+    if set(kwargs) & geometry.keys():
+        raise ValueError('Pareto export geometry must come from its original configuration')
+    src['config'] = config
     return export_decision_vector(x_decision, out_dir,
-                                   extra_metadata=src, **kwargs)
+                                   extra_metadata=src, **geometry, **kwargs)
 
 
 # ─── CLI ────────────────────────────────────────────────────────────
@@ -258,22 +249,22 @@ def _build_argparser() -> argparse.ArgumentParser:
                    default=[DEFAULT_GRID_NX, DEFAULT_GRID_NY],
                    metavar=('NX', 'NY'),
                    help=f'export grid size (default {DEFAULT_GRID_NX} {DEFAULT_GRID_NY})')
-    p.add_argument('--L-domain-m', type=float, default=DEFAULT_L_DOMAIN_M)
-    p.add_argument('--H-domain-m', type=float, default=DEFAULT_H_DOMAIN_M)
-    p.add_argument('--tpms', default=DEFAULT_TPMS)
-    p.add_argument('--k_s', type=float, default=DEFAULT_KS)
+    p.add_argument('--config', help='original run config.json; defaults to the CSV directory')
     return p
 
 
 def main(argv: Optional[list] = None) -> int:
     args = _build_argparser().parse_args(argv)
+    config = None
+    if args.config:
+        with open(args.config, encoding='utf-8') as source:
+            config = json.load(source)
     summary = export_pareto_row(
         pareto_csv_path=args.pareto,
         row_index=args.row,
         out_dir=args.out,
         Nx_export=args.grid[0], Ny_export=args.grid[1],
-        L_domain_m=args.L_domain_m, H_domain_m=args.H_domain_m,
-        tpms_type=args.tpms, k_s=args.k_s,
+        config=config,
     )
     print(f"  L range  [{summary['L_min_mm']:.3f}, {summary['L_max_mm']:.3f}] mm "
           f"(avg {summary['L_avg_mm']:.3f})")

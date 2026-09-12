@@ -549,6 +549,9 @@ def _build_optimize_panel(window, card_lay, t, theme):
             pass
     _refresh_eval_preview()
     par_lay.addWidget(_eval_preview)
+    _scope = QLabel("空气/空气 · A:+x、B:−y · 整面开口筛选")
+    _scope.setWordWrap(True)
+    par_lay.addWidget(_scope)
     par_lay.addStretch(1)
     p1row.addWidget(par_card, 0)
 
@@ -556,7 +559,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
     # 2026-07-09). Previously this card hosted the zone panel, which
     # feeds the Compute path's zone feature and NOT the continuous-
     # field optimizer — a decorative interface. Now: L/t bounds
-    # (spinbox ranges = the DF/Nu training hull, so out-of-hull
+    # (spinbox ranges = the current CFD geometry grid, so out-of-grid
     # values are unreachable; _gather_cfg clamps again defensively),
     # control-point grid, Y-mirror toggle, field preview.
     space_card, space_lay = _opt_card("搜索空间 (连续场)", 250)
@@ -594,8 +597,8 @@ def _build_optimize_panel(window, card_lay, t, theme):
     _sp_Lmin = _mk_dspin(_hull_L[0], _hull_L[1], _hull_L[0], 0.5, 2)
     _sp_Lmax = _mk_dspin(_hull_L[0], _hull_L[1], _hull_L[1], 0.5, 2)
     _space_row("胞元 L 范围 [mm]",
-               f"决策变量 L 的上下界；代理训练凸包 {_hull_L} mm，"
-               "超出即外推、排名不可信（自动夹持）",
+               f"决策变量 L 的上下界；当前 CFD 几何范围 {_hull_L} mm；"
+               "Nu 适用范围单独检查",
                [_sp_Lmin, _sp_Lmax])
     window._opt_space_params['L_min'] = _sp_Lmin
     window._opt_space_params['L_max'] = _sp_Lmax
@@ -603,7 +606,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
     _sp_tmin = _mk_dspin(_hull_T[0], _hull_T[1], _hull_T[0], 0.05, 2)
     _sp_tmax = _mk_dspin(_hull_T[0], _hull_T[1], _hull_T[1], 0.05, 2)
     _space_row("壁厚 t 范围 [mm]",
-               f"决策变量 t 的上下界；代理训练凸包 {_hull_T} mm（自动夹持）",
+               f"决策变量 t 的上下界；当前 CFD 几何范围 {_hull_T} mm（自动夹持）",
                [_sp_tmin, _sp_tmax])
     window._opt_space_params['t_min'] = _sp_tmin
     window._opt_space_params['t_max'] = _sp_tmax

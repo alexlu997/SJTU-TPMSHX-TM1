@@ -159,21 +159,21 @@ def validate_geometry(L_dom: float, H_dom: float, Lz_dom: Optional[float],
 def geometry_extrapolation_warning(L_cell_mm: float,
                                     t_mm: float) -> Optional[Warning]:
     """Return a warning if (L, t) lies outside the training Diamond +
-    Gyroid grid {4,5,6,8} × {0.3,0.4,0.5}; else None.
+    Gyroid CFD grid, including its interpolated interior; else None.
 
     Lighter-weight than full ``validate_geometry`` — used by the live
     UI to flash an inline tip without recomputing every check.
     """
     L_train = TRAIN_L_NODES
     t_train = TRAIN_T_NODES
-    in_L = any(abs(L_cell_mm - v) < 1e-6 for v in L_train)
-    in_t = any(abs(t_mm - v) < 1e-6 for v in t_train)
+    in_L = L_train[0] <= L_cell_mm <= L_train[-1]
+    in_t = t_train[0] <= t_mm <= t_train[-1]
     if in_L and in_t:
         return None
     return Warning(
         'geometry_extrapolation',
         f'(L={L_cell_mm}, t={t_mm}) outside training grid '
-        f'{{4,5,6,8}} × {{0.3,0.4,0.5}} mm — surrogate extrapolating.')
+        f'[{L_train[0]}, {L_train[-1]}] × [{t_train[0]}, {t_train[-1]}] mm.')
 
 
 # ---------------------------------------------------------------- physics

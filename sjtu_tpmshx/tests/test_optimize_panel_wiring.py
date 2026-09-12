@@ -273,11 +273,10 @@ def test_gather_cfg_clamps_bounds_to_training_hull():
     assert cfg['t_bounds'] == pytest.approx(tuple(TRAIN_T))
 
 
-def test_gather_cfg_degenerate_range_falls_back_to_hull():
-    from sjtu_tpmshx.df_surrogate._domain import TRAIN_L
+def test_gather_cfg_degenerate_range_is_rejected():
     w = _add_space_widgets(_make_window(), L_min=6.0, L_max=6.0)
-    cfg = _gather_cfg(w)
-    assert cfg['L_bounds'] == pytest.approx(tuple(TRAIN_L))
+    with pytest.raises(ValueError, match='lower < upper'):
+        _gather_cfg(w)
 
 
 def test_gather_cfg_optimizer_config_hook():

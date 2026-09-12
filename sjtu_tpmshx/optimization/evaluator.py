@@ -39,6 +39,10 @@ def _compute_cfg_to_evaluator_dict(compute_cfg) -> dict:
         'T_inB': compute_cfg.fluid_B.T_in_K,
         'P_inA': compute_cfg.fluid_A.P_in_Pa,
         'P_inB': compute_cfg.fluid_B.P_in_Pa,
+        'fluid_type_A': compute_cfg.fluid_A.type,
+        'fluid_type_B': compute_cfg.fluid_B.type,
+        'dir_A': compute_cfg.bc_A.dir,
+        'dir_B': compute_cfg.bc_B.dir,
         # R3 (2026-07-07): the evaluator budget reads the OPTIMIZER block —
         # SolverConfig now carries the production pipeline knobs (None=auto)
         # and no longer describes the cheap screening solves.

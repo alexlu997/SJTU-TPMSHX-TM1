@@ -38,7 +38,7 @@ if stage == 'prepare':
     from sjtu_tpmshx.io.case_io import save_case
     name = json.loads(Path(source).read_text())['name']
     cfg = dict(max_iter_simple=800, tol_simple=1e-3, max_iter_energy=1500,
-               tol_energy=.5, n_rho_loops=1)
+               tol_energy=.5, n_rho_loops=1, t_bounds=(.3, .5))
     x = np.array([5., 6., 7., 8., 5.5, 6.5, 7.5, 6., .4, .45, .5, .55, .42, .48, .52, .46])
     fc = uniform_field(6., .4, 'Diamond', 17., .10, .05) if name == '2d-uniform' else None
     if name.startswith('2d'):
@@ -46,7 +46,8 @@ if stage == 'prepare':
     else:
         if name == '3d-uniform':
             x = np.r_[np.full(8, 4.), np.full(8, .6)]
-        case = prepare_screening_3d(x, dict(DEFAULT_CONFIG), case_id=name, Nx=10, Ny=6, Nz=3, Lz=.042,
+        # Same resolved historical bounds as the frozen reference capture.
+        case = prepare_screening_3d(x, dict(DEFAULT_CONFIG, t_bounds=(.3, .5)), case_id=name, Nx=10, Ny=6, Nz=3, Lz=.042,
                                    max_outer=2, max_iter_simple=300, tol_simple=1e-2,
                                    max_iter_energy=800, tol_energy=.5, roughness_mode='norris_1a',
                                    roughness_eps_um=100., verbose=False)

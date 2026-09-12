@@ -58,16 +58,8 @@ DEFAULT_CONFIG_3D: dict = {
     'max_iter_energy': 1000,
     'tol_energy':      0.5,
 
-    # ⚠ 2026-05-14 (revised): default 'norris_1a' is now a no-op for
-    # friction (f × 1.0, alias of baseline). The ×1.28 Nu factor in
-    # tpms_calc air-Gyroid is the only roughness compensation. c_F is
-    # trained on real SLM dP from 试验记录表 → already encodes Sa-driven
-    # friction; any f-side multiplier double-counts. See
-    # solvers/roughness.py module docstring. Current Shanghai 3D
-    # baseline dP RMSRE ≈ 9.82% (gamma_df) / 7.19% (rbf); the old ≈ 47%
-    # figure is retired (smooth-wall ConstDF + ε_A fix era). Water side
-    # (the topology-specific water Nu, `nu_water_topo`) embeds AM
-    # roughness already and is untouched here.
+    # norris_1a is a friction no-op. Production K/cF use the fixed CFD
+    # geometry table; the existing air-Gyroid Nu factor is unchanged.
     'roughness_mode':   'norris_1a',
     'roughness_eps_um': 100.0,        # only used by bhatti_shah_1b
 }

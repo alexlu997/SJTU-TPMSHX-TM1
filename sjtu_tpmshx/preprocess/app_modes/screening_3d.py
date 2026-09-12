@@ -3,8 +3,7 @@ import numpy as np
 from sjtu_tpmshx.domain.case_data import CaseData
 from sjtu_tpmshx.domain.model_refs import ModelRef
 from sjtu_tpmshx.models.catalog import MODEL_VERSIONS
-from sjtu_tpmshx.models.continuous_field import from_decision_vector
-from sjtu_tpmshx.models.screening import SCREENING_FIELDS, _build_3d_arrays
+from sjtu_tpmshx.models.screening import DEFAULT_CONFIG, SCREENING_FIELDS, _build_3d_arrays, build_field, validate_screening_config
 from sjtu_tpmshx.models.tpms_calc import air_density, air_viscosity
 from sjtu_tpmshx.models.envelope import predict_outlet_p_sq
 from sjtu_tpmshx.models.df_projection import project_fields_to_streamwise_K_cF_3d
@@ -20,12 +19,12 @@ def prepare_screening_3d(x_decision, cfg, *, case_id,
                          tol_simple=1e-2, max_iter_energy=2000, tol_energy=.5,
                          roughness_mode=None, roughness_eps_um=None,
                          convergence_mode='legacy', verbose=True):
+    cfg = {**DEFAULT_CONFIG, **cfg}
+    validate_screening_config(cfg, dimension=3)
     if max_outer < 1:
         raise ValueError(f'max_outer must be >= 1 (got {max_outer})')
     if min(Nx, Ny, Nz) < 2 or not np.isfinite(Lz) or Lz <= 0.:
         raise ValueError('3D screening requires a positive depth and at least two cells per axis')
-    if (cfg.get('dir_A', 0), cfg.get('dir_B', 3)) != (0, 3):
-        raise ValueError('3D screening flow mapping supports only +x A and -y B')
     if convergence_mode not in ('legacy', 'f2'):
         raise ValueError('unsupported screening convergence mode')
     L_dom = float(cfg['L_domain']); H_dom = float(cfg['H_domain'])
@@ -36,18 +35,11 @@ def prepare_screening_3d(x_decision, cfg, *, case_id,
     tpms_type = cfg.get('tpms_type', 'Diamond')
     k_s   = float(cfg.get('k_s', 17.0))
     rho_s = float(cfg.get('rho_s', 2700.0))
-    n_ctrl_x = int(cfg.get('n_ctrl_x', 4))
-    n_ctrl_y = int(cfg.get('n_ctrl_y', 4))
-    sym_y    = bool(cfg.get('symmetric_y', True))
 
     # 1. Build 2D field, extrude to 3D arrays
-    fc = from_decision_vector(
-        x_decision, tpms_type=tpms_type, k_s=k_s,
-        L_domain=L_dom, H_domain=H_dom,
-        n_ctrl_x=n_ctrl_x, n_ctrl_y=n_ctrl_y, symmetric_y=sym_y,
-    )
+    fc = build_field(x_decision, cfg)
     arrays = _build_3d_arrays(fc, Nx, Ny, Nz,
-                               u_A, u_B, T_inA, T_inB, P_inA, k_s, tpms_type)
+                               u_A, u_B, T_inA, T_inB, P_inA, k_s, tpms_type, P_inB=P_inB)
 
     dx_arr = np.full(Nx, L_dom / Nx, dtype=np.float64)
     dy_arr = np.full(Ny, H_dom / Ny, dtype=np.float64)
