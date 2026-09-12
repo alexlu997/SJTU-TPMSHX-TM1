@@ -12,7 +12,7 @@ from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry, adaptive_gri
 from sjtu_tpmshx.models.df_projection import project_fields_to_streamwise_K_cF
 from sjtu_tpmshx.models.envelope import predict_outlet_p_sq, ChokedFlowError
 from sjtu_tpmshx.models.grid import _aligned_grid, _port_fractions_1d
-from sjtu_tpmshx.df_surrogate.predict import predict_K_cF, _resolve_method, _overrides_enabled, _residual_correction_enabled
+from sjtu_tpmshx.df_surrogate.predict import predict_K_cF, _resolve_method
 
 
 def _resolve_grid(cfg: dict, fc: ContinuousFieldConfig) -> tuple:
@@ -141,6 +141,5 @@ def prepare_screening_2d(x, cfg=None, fc=None, *, case_id):
                     metadata=dict(mode='screening_2d', model='air_air_volume_ltne_v1',
                                   energy_formulation='conservative_air_model_h', warnings=tuple(warnings_list),
                                   geometry_fields=geometry_fields,
-                                  df_options=dict(method=_resolve_method(), overrides=_overrides_enabled(),
-                                                  residual_correction=_residual_correction_enabled()),
+                                  df_options=dict(method=_resolve_method()),
                                   applicability='Optimization screening; inherited flow/thermal coupling and port limitations; physical validation unestablished.'))

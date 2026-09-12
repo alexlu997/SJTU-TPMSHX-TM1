@@ -143,7 +143,9 @@ explicit numerical-model change with directly relevant validation.
    manifolds/distribution regions, whole-HX losses, flow-area/channel-count
    definitions, instrument zero, and data reduction; these contributions are
    not separately modelled. Without a same-rig comparison they must not be
-   attributed to fluid. `gamma_df` and `rbf` remain research modes.
+   attributed to fluid. The superseded `gamma_df` and `rbf` research modes
+   are retired; selecting them explicitly now raises an error. Their code,
+   tables and results remain available through the [history index](history/legacy-models.md).
 5. **Nusselt ownership.** Air, water, and sCO2 coefficient tables live only in
    `models/nu_correlations.py`.
 6. **Compressible envelope.** `models/envelope.py` rejects operating points

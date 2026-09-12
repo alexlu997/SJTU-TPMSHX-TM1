@@ -53,7 +53,6 @@ def _dp_one(fluid, topo, l, t, eps_A, mdot, A_flow, T, P, props, L_chan, *, df_o
     G = mdot / A_flow                              # 质量通量 [kg/(m²·s)]
     if fluid == "air":
         return predict_dP_compressible(topo, l, t, eps_A, G, T, P, props.mu, L_chan, **options)
-    options.pop('residual_correction', None)
     u = G / props.rho                              # 孔隙内速度
     return predict_dP(topo, l, t, eps_A, u, props.rho, props.mu, L_chan, **options)
 

@@ -8,7 +8,7 @@ from sjtu_tpmshx.models.screening import SCREENING_FIELDS, _build_3d_arrays
 from sjtu_tpmshx.models.tpms_calc import air_density, air_viscosity
 from sjtu_tpmshx.models.envelope import predict_outlet_p_sq
 from sjtu_tpmshx.models.df_projection import project_fields_to_streamwise_K_cF_3d
-from sjtu_tpmshx.df_surrogate.predict import _resolve_method, _overrides_enabled, _residual_correction_enabled
+from sjtu_tpmshx.df_surrogate.predict import _resolve_method
 from sjtu_tpmshx.logutil import get_logger
 
 _log = get_logger(__name__)
@@ -166,6 +166,5 @@ def prepare_screening_3d(x_decision, cfg, *, case_id,
                                   energy_formulation='conservative_air_model_h',
                                   roughness_mode=roughness_mode, roughness_m=roughness_eps_um * 1e-6,
                                   geometry_fields=geometry_fields,
-                                  df_options=dict(method=_resolve_method(), overrides=_overrides_enabled(),
-                                                  residual_correction=_residual_correction_enabled()),
+                                  df_options=dict(method=_resolve_method()),
                                   applicability='Optimization screening; frozen cold B flow, native-mass air integral enthalpy and envelope gates; physical validation unestablished.'))

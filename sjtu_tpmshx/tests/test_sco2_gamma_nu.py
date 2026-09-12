@@ -141,7 +141,7 @@ def test_smooth_base_function_untouched():
 def test_frozen_constants_match_live_refit(topo):
     """BASE-SWAP TRIPWIRE: γ_Nu is the anchored-fit ratio against the LIVE
     smooth coefficients — recompute from the raw Excel and compare."""
-    from sjtu_tpmshx.validation.sco2_exp.compare_exp_vs_cfd import analyse
+    from sjtu_tpmshx.validation.sco2_exp.fit_nu_correction import analyse
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")

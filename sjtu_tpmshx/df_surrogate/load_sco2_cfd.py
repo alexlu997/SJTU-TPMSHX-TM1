@@ -4,7 +4,7 @@ Dataset: ``data/raw_data/cfd/sco2/{Diamond,Gyroid}/`` — see the README.md
 there for the confirmed CFD setup (smooth wall, RANS, no gravity,
 Twall = Tref + 50 K) and the case-matrix derivation. Same post-processing
 pipeline / column schema as ``water-cfd-raw.xlsx``
-(see ``smooth_df._load_points``).
+(historical comparison code is indexed in ``docs/history/legacy-models.md``).
 
 Two loaders (``lattice`` = 'Diamond' | 'Gyroid'):
 

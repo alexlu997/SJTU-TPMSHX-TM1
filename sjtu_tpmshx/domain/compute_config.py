@@ -55,8 +55,6 @@ site or one shared helper, listed here. Adding a flag = add a row.
   homogenization fit ``chi_s_eff(type, ε)`` (2026-07-06);
   ``solvers/tpms_props.py`` (read at import).
 - ``TPMSHX_DEBUG`` (unset) — debug prints; ``solvers/simple_solver_3d.py``.
-- ``TPMSHX_DF_RESIDUAL_CORR`` (0) — dP residual-learning correction;
-  ``df_surrogate/predict.py``.
 - ``TPMSHX_DISABLE_3D_PANEL`` (0) — skip PyVista panel;
   ``ui/builders_canvas.py``.
 - ``TPMSHX_EAGER_3D_SLICES`` (0) — precompute 3D slices;
@@ -82,11 +80,9 @@ site or one shared helper, listed here. Adding a flag = add a row.
 Registry sync 2026-07-03 (maintainability-closeout) — flags that existed
 but were missing above:
 
-- ``TPMSHX_DF_METHOD`` — research-only D-F backend selector for direct
-  ``df_surrogate.predict`` calls. Production 2D/3D compute paths pin the
-  fixed water+sCO2 CFD table.
-- ``TPMSHX_DF_OVERRIDES`` — research-only legacy per-geometry cF override;
-  it is not applied to the production fixed-CFD backend.
+- ``TPMSHX_DF_METHOD`` — explicit method for direct ``df_surrogate.predict``
+  calls. Only ``cfd_full_core_3cell_fixed_v2`` is supported; retired method
+  names fail. Production 2D/3D compute paths pin this fixed table.
 - ``TPMSHX_ASYM_KAPPA`` (0) — research-only asym per-side κ correction
   after ``ingest_cfd_kappa``; production 2D/3D compute paths do not apply it.
   Read in ``df_surrogate/kappa_asym.py``.

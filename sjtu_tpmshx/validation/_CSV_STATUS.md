@@ -1,3 +1,5 @@
+> 2026-09-12：本文数值及模型名称保留为历史快照。旧 γ/RBF、SmoothDF 和旧 sCO2 阻力入口已退役；复现路径见[固定历史索引](../../docs/history/legacy-models.md)，下文旧命令不作为当前分支入口。
+
 # Shanghai 3D validation CSV provenance — READ BEFORE CITING ANY CSV
 
 > Codex 2026-05-19 review point #5: old CSVs in this dir are mutually

@@ -10,7 +10,7 @@ from pathlib import Path
 import pandas as pd
 
 from sjtu_tpmshx.validation.water_exp import with_water_absolute_pressures
-from sjtu_tpmshx.models.tpms_props import air_viscosity as air_mu
+from sjtu_tpmshx.models.tpms_props import air_viscosity as air_mu  # noqa: F401 - shared HX property re-export
 from sjtu_tpmshx.logutil import get_logger
 
 _log = get_logger(__name__)

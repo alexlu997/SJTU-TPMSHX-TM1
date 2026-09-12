@@ -10,7 +10,7 @@ from sjtu_tpmshx.models.fluid_props import check_finite_temperatures
 from sjtu_tpmshx.models.quick_design import K_STEEL, GEOM_N, NX, LTNE_TOL, _ARR, _dp_fractions
 from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry
 from sjtu_tpmshx.df_surrogate.predict import (
-    _resolve_method, _overrides_enabled, _residual_correction_enabled,
+    _resolve_method,
 )
 
 
@@ -40,8 +40,7 @@ def prepare_quick_design(case, topo, l, t, s, Lx, arrangement='cross', *,
         grid[axis + '_edges'] = np.r_[0., np.cumsum(widths)]
     inputs = {name: getattr(case, name) for name in
               ('hot_fluid', 'cold_fluid', 'T_in_h', 'T_in_c', 'P_in_h', 'P_in_c', 'mdot_h', 'mdot_c')}
-    df_options = dict(method=_resolve_method(), overrides=_overrides_enabled(),
-                      residual_correction=_residual_correction_enabled())
+    df_options = dict(method=_resolve_method())
     fractions = _dp_fractions(case, topo, l, t, geo['epsilon_A'], s, Lx,
                               arrangement, sz, df_options=df_options)
     return CaseData(

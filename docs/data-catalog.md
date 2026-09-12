@@ -14,11 +14,11 @@ data/raw_data/
 │   ├── air/           空气试件台架实验汇总
 │   ├── water_air/     水—空气整机实验及水侧压损整理表
 │   └── sco2/
-│       └── d76/       D7、壁厚 0.6 mm 的多种原始表布局及 REFPROP 附件
+│       └── d76/       D7、壁厚 0.6 mm 的现用整理版及数值版
 ├── cfd/
 │   ├── water/         现存水 CFD 历史结果
-│   ├── sco2/          超临界 CO2；仍按 Diamond/Gyroid 分目录
-│   └── co2/           液态/气态 CO2；与超临界数据分开
+│   └── sco2/          超临界 CO2；仍按 Diamond/Gyroid 分目录
+├── archive/           普通 CO2、旧水压损表、sCO2 处理公式及 REFPROP 附件
 └── plans/
     └── water/         水 CFD 工况计划，不是计算结果
 ```
@@ -40,18 +40,18 @@ data/raw_data/
 | `20260407-上海电气天然气加热器实验工况 -调换进出口-G_7_6.xlsx` | `experiments/water_air/water-air_G7-t0p6_shanghai_experiment_ports-swapped_20260407.xlsx` | 调换进出口的上海实验批次 |
 | `20260609-水直空气侧-D_7_6.xlsx` | `experiments/water_air/water-air_D7-t0p6_experiment_water-straight_20260609.xlsx` | D7/0.6 水—空气实验 |
 | `7-6-Water-dp.xlsx` | `experiments/water_air/water-air_DG7-t0p6_hx_water-dp_with-air-temperature.xlsx` | 水侧压损整理；D 页另有空气进口温度列；现有水 HX 读取器使用此表 |
-| `换热器压损——20260407-G-7-6+20260609-D_7_6.xlsx` | `experiments/water_air/water-air_DG7-t0p6_hx_water-dp.xlsx` | 另一份压损整理；D 页没有附加空气温度列，不与上一表合并 |
+| `换热器压损——20260407-G-7-6+20260609-D_7_6.xlsx` | `archive/water_air/water-air_DG7-t0p6_hx_water-dp.xlsx` | 另一份压损整理；D 页没有附加空气温度列，不与上一表合并 |
 | `试验记录表_整理版.xlsx` | `experiments/air/air_DG_specimen_experiment_summary.xlsx` | 电加热空气试件实验，含 CFD 对照列；不是水 CFD 结果 |
 | `sCO2-Experient.xlsx` | `experiments/sco2/sco2_DG7-t0p6_hx_experiment_summary.xlsx` | D/G sCO2 整机实验汇总；保留两种结构各自的列映射 |
 | `D-7-6实验数据-sCO2.xlsx` | `experiments/sco2/d76/sco2_D7-t0p6_hx_experiment_arranged.xlsx` | 原 `整理版`/`无公式` 布局，47 列 |
 | `D-7-6-sCO2/D-7-6实验数据-V1.xlsx` | `experiments/sco2/d76/sco2_D7-t0p6_hx_experiment_values_v1.xlsx` | 原 V1，`无公式` 页，48 列 |
-| `D-7-6-sCO2/D-7-6实验数据-formula.xlsx` | `experiments/sco2/d76/sco2_D7-t0p6_hx_experiment_formulas.xlsx` | 原公式版，保留 REFPROP 外链及缓存 |
-| `D-7-6-sCO2/D实验数据-超临界二氧化碳.xlsx` | `experiments/sco2/d76/sco2_D7-t0p6_hx_experiment_processing.xlsx` | 原 `实验数据处理` 页，49 列 |
+| `D-7-6-sCO2/D-7-6实验数据-formula.xlsx` | `archive/sco2/d76/sco2_D7-t0p6_hx_experiment_formulas.xlsx` | 原公式版，保留 REFPROP 外链及缓存 |
+| `D-7-6-sCO2/D实验数据-超临界二氧化碳.xlsx` | `archive/sco2/d76/sco2_D7-t0p6_hx_experiment_processing.xlsx` | 原 `实验数据处理` 页，49 列 |
 | `TPMS水_关联式拟合CFD工况.xlsx` | `plans/water/water_DG_cfd_worklist.xlsx` | 1880 条计划，含几何、参考物性和质量流量公式 |
 | `water-cfd-raw.xlsx` | `cfd/water/water_DG_cfd_results_legacy.xlsx` | 1879 条历史结果；W01600 按缺测结案、不再补齐，已有来源疑点另行讨论 |
 
-其他文件：`CO2-CFD/` → `cfd/co2/`，`sCO2-CFD/` → `cfd/sco2/`，
-8 个 CSV 的文件名和内容不变。`D-7-6-sCO2/REFPROP.XLA` 随 D76 工作簿归类；
+其他文件：`CO2-CFD/` → `archive/co2/`，`sCO2-CFD/` → `cfd/sco2/`，
+8 个 CSV 的文件名和内容不变。`D-7-6-sCO2/REFPROP.XLA` 随公式移至 `archive/sco2/d76/`；
 `说明.txt` 移至 `experiments/water_air/water-air_DG_hx_source-notes.txt`，原文保留。
 
 ## 水 CFD 计划孔隙率修订（2026-09-12）
@@ -114,7 +114,8 @@ Diamond 保留 `Nu = 0.3201·Re^0.6679·Pr^(1/3)`，Gyroid 保留
 
 `validation/hx_experiments.py` 统一保存 7/0.6 水—空气 HX 的读取、列映射、
 质量标记及已核定的 A/L/参考 Re 约定。`fit_experimental_effective` 与
-`cf_cross_fluid` 直接调用它；旧 gamma 工具也复用相同读取函数。
+`cf_cross_fluid` 直接调用它。旧 gamma 工具在完成读取解耦后已退役，
+源码与旧输出见[历史模型索引](history/legacy-models.md)。
 跨数据集 cF 反演只根据原始数据质量选样，不再根据旧 gamma 压降预测是否有解筛行。
 
 实表前后对照：空气 D/G 18/16 行、水 D/G 18/16 行读取结果与属性逐值一致；
@@ -145,6 +146,19 @@ Diamond 保留 `Nu = 0.3201·Re^0.6679·Pr^(1/3)`，Gyroid 保留
 - `data-revision.txt` 固定私有数据仓的对应 Git 提交。本次布局及计划修订已在
   `01b62ad09e487857b05b42c01c5c62288ebd0b4b` 保存并推送；23 份原始文件
   与修订前提交逐字节一致，原计划由 `before_porosity` 副本保留。
+  非现用原件进一步归档后，最终数据版本为
+  `1dcf916ed4468d8c365253f6e88d03b1546ecdfe`；24 份数据与整理版本逐字节一致。
 
 继续查水数据时，应按原 W 编号与字段定义核验。目录、名称及表内代数自洽
 均不替代原 CFD 几何、网格、收敛和物理适用性的证据。
+
+## 非现用原件归档（2026-09-12）
+
+8 份原件移至 `raw_data/archive/`：普通 CO2 的 4 个 CSV，D76 的公式版、
+处理版与 REFPROP.XLA，及较旧的水压损整理表。现用读取器没有引用这些路径。
+旧水压损表的有效内容已被 `with-air-temperature` 表包含，但原件仍保留；
+D76 公式和外链不重算，1071 个无缓存公式不作为数值输入。
+
+`arranged` 和 `values_v1` 分别继续供现有 Gate A、2D/holdout 读取，
+两者列布局不同，不能合并。原始水/空气/sCO2 实验、现行 CFD、修订水计划及
+修订前完整计划继续保留，全部原始内容可通过本目录或固定私有数据版本追溯。

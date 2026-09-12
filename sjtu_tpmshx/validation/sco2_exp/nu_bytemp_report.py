@@ -3,7 +3,7 @@
 用法:
     python sjtu_tpmshx/validation/sco2_exp/nu_bytemp_report.py
 输出:
-    reports/sco2_exp/sco2_exp_nu_bytemp.html   （独立于主报告 sco2_exp_vs_cfd.html）
+    reports/sco2_exp/sco2_exp_nu_bytemp.html   （旧 Nu/f 混合报告已归档）
 
 与主报告的区别
 --------------
@@ -27,8 +27,6 @@ _PKG_ROOT = _THIS.parent.parent.parent
 sys.path.insert(0, str(_THIS.parent))
 
 from load_sco2_exp import load_exp                              # noqa: E402
-from compare_exp_vs_cfd import (analyse as analyse_full,        # noqa: E402
-                                make_charts as make_charts_full)
 from sjtu_tpmshx.models.nu_correlations import SCO2_NU_COEFFS              # noqa: E402
 from sjtu_tpmshx.models.tpms_props import geometry as tpms_geometry        # noqa: E402
 from sjtu_tpmshx.validation.report_template import (                        # noqa: E402
@@ -55,7 +53,6 @@ M_NU = math_inline(mi("Nu"))
 M_RE = math_inline(mi("Re"))
 M_PR = math_inline(mi("Pr"))
 M_G_NU = math_inline(msub(mi("γ"), _up("Nu")))
-M_G_F = math_inline(msub(mi("γ"), _up("f")))
 M_DH = math_inline(msub(mi("D"), _up("h")))
 M_PR13 = math_inline(msup(mi("Pr"), mrow(mn(1), mo("/"), mn(3))))
 M_DHL = math_inline(paren_pow(mfrac(msub(mi("D"), _up("h")), mi("L")), "d"))
@@ -189,8 +186,7 @@ def make_chart(res: list[dict]) -> str:
 
 # ── HTML ──────────────────────────────────────────────────────────────
 
-def build_html(res: list[dict], chart: str, fcharts: dict,
-               res_full: list[dict]) -> str:
+def build_html(res: list[dict], chart: str) -> str:
     stamp = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")
 
     # 代入几何后的 CFD 关联式表（只留代入后的形式）
@@ -247,7 +243,7 @@ def build_html(res: list[dict], chart: str, fcharts: dict,
              f'<th>Re</th><th>Pr</th><th>Nu</th></tr></thead>'
              f'<tbody>{pt_rows}</tbody></table></div></details>')
 
-    # hero 大数字带（优化 B: 与主报告同构 —— γ_Nu 跨箱范围 + γ_f 分侧）
+    # hero 大数字带（优化 B: 与主报告同构 —— γ_Nu 跨箱范围）
     heroes = ""
     for r in res:
         gs = [b["gamma"] for b in r["bins"]]
@@ -257,14 +253,6 @@ def build_html(res: list[dict], chart: str, fcharts: dict,
             f'7/0.6</div><div class="big">×{min(gs):.2f}'
             f'<span class="u">–</span>{max(gs):.2f}</div>'
             f'<div class="sub">低/中/高温 {subs}</div></div>')
-    for rf in res_full:
-        gh, gc = rf["gamma_f_pt"]["hot"], rf["gamma_f_pt"]["cold"]
-        heroes += (
-            f'<div class="hero"><div class="lbl">{M_G_F} · {rf["topo"]} '
-            f'7/0.6</div><div class="big">{gh[0]:.1f}'
-            f'<span class="u"> / </span>{gc[0]:.1f}</div>'
-            f'<div class="sub">hot / cold 均值 · 中位 '
-            f'{gh[1]:.1f} / {gc[1]:.1f}</div></div>')
     hero_band = f'<div class="heroes">{heroes}</div>'
 
     body = (
@@ -298,30 +286,7 @@ def build_html(res: list[dict], chart: str, fcharts: dict,
                   "先读大数字带（跨箱倍数范围——γ 随温度稳定即 Pr 依赖弱的"
                   "直接证据），逐箱系数与精度见下表。",
                   hero_band + bin_table)
-        + section("04", "Darcy f：实验 vs CFD",
-                  "换热之外，压降侧的对比：主图藏青线 = hot 侧拟合、亮青线 = "
-                  "cold 侧拟合、浅紫虚线 = CFD D-F。hot 侧实验 f 近乎不随 Re "
-                  "变化、两侧互差一倍——压差测量含非摩擦成分（与主报告一致，"
-                  "此处并列）。",
-                  f"<figure><div class='figwrap' role='img' "
-                  f"aria-label='f–Re：实验点与拟合曲线 vs CFD D-F 曲线'>"
-                  f"{fcharts['f']}</div>"
-                  f"<figcaption>Darcy f–Re：藏青方框/藏青线 = hot 侧、"
-                  f"亮青实心圆/亮青线 = cold 侧、浅紫三角 + 浅紫虚线 = "
-                  f"CFD D-F；顶部标注分侧中位倍数。</figcaption></figure>")
-        + section("05", "倍数 γ 随 Re 的函数",
-                  f"{M_G_NU}(Re, Pr) 与 {M_G_F}(Re) 的幂律拟合（{M_G_F} 无 Pr——"
-                  "摩擦与 Prandtl 数无关）。γ_Nu 点按 Pr 着色。",
-                  f"<figure><div class='figwrap' role='img' "
-                  f"aria-label='γ_Nu 随 Re：散点与幂律拟合'>"
-                  f"{fcharts['gamma_nu']}</div>"
-                  f"<figcaption>{M_G_NU}(Re, Pr)：两侧合并；拟合线近水平"
-                  f"（Re 指数 ±0.02），均值即可代表。</figcaption></figure>"
-                  f"<figure><div class='figwrap' role='img' "
-                  f"aria-label='γ_f 随 Re（分侧）：散点与幂律拟合'>"
-                  f"{fcharts['gamma_f']}</div>"
-                  f"<figcaption>{M_G_F}(Re) 分侧幂律（无 Pr）：取用时代入函数；"
-                  f"cold 侧指数物理不合理，仅限窗内插值。</figcaption></figure>"))
+    )
 
     # masthead 速览（优化 B: 与主报告同构的 at-a-glance aside）
     grange = {r["topo"]: (min(b["gamma"] for b in r["bins"]),
@@ -354,8 +319,7 @@ def build_html(res: list[dict], chart: str, fcharts: dict,
         intro="把实验 Nu 按均温分 3 箱，每温度一条 Nu(Re) 曲线，"
               "与 CFD 关联式（代入 7/0.6 实际 " + M_DH + "、L）逐温度对比。",
         toc=[("01", "CFD 预测式", "s1"), ("02", "逐温度曲线", "s2"),
-             ("03", "系数与倍数", "s3"), ("04", "Darcy f", "s4"),
-             ("05", "γ 函数", "s5")],
+             ("03", "系数与倍数", "s3")],
         body=body, aside=aside,
         footer_left="SJTU-TPMSHX — sCO2 experiment Nu by temperature",
         footer_right=f"台账 SCO2-CFD · {stamp}")
@@ -364,14 +328,8 @@ def build_html(res: list[dict], chart: str, fcharts: dict,
 def main() -> None:
     res = [analyse(t) for t in TOPOS]
     chart = make_chart(res)
-    # 复用主报告的 f / γ 图（同一 analyse+make_charts 管线）
-    import warnings
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        res_full = [analyse_full(t) for t in TOPOS]
-        fcharts = make_charts_full(res_full)
     REPORT.parent.mkdir(parents=True, exist_ok=True)
-    REPORT.write_text(build_html(res, chart, fcharts, res_full),
+    REPORT.write_text(build_html(res, chart),
                       encoding="utf-8")
     for r in res:
         print(f"\n=== {r['topo']} 7/0.6 (D_h={r['Dh_m']*1e3:.3f}mm) ===")

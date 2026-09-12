@@ -165,7 +165,7 @@ Case YAML 引用伴随 HDF5；result/VTK 导出和严格指标 JSON 的限制见
 | 优化筛选 2D/3D | `prepare_screening_2d/3d`，随后相同求解和后处理 API | 核心 3D 为总量；优化目标在应用层按真实 Lz 归一 |
 | 快速设计 | `prepare_quick_design`，随后相同 API | 规定速度 LTNE 与解析入口压损，非完整 SIMPLE；Q 为 W |
 | 参数扫描与有效场输入 | [公开示例](examples/) | 不改求解器私有成员 |
-| 离线清洗与拟合 | `preprocess.offline` | 显式数据版本和本地输出目录，不自动替换生产模型 |
+| 离线清洗与 Nu 拟合 | `preprocess.offline` | 显式选择数据来源，不自动替换生产模型；旧 RBF 发布入口已退役 |
 
 当前计算域仅支持 **Rectangle（矩形）2D/3D**。Hexagon / Octagon 选项暂停使用，
 旧多边形配置仍可查看、保存，但点击计算会明确拒绝，也不会自动改成矩形。
@@ -204,6 +204,9 @@ export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
 [离线模型说明](docs/plans/three-module-graph/decisions/offline_models.md)。
 目录按实验、CFD 结果和工况计划分类；Excel 的新旧名称、用途及读取约束见
 [数据目录与文件名对照](docs/data-catalog.md)。移动数据时须同步加载器和压力口径识别。
+
+旧 γ/RBF、SmoothDF、水发展段及旧 sCO2 阻力模型已退役，代码和结果见
+[固定历史索引](docs/history/legacy-models.md)。当前联合 K/cF、原水 Nu 和实验修正继续使用。
 当前水 CFD 工作簿缺失时不以旧版文件替代。
 
 原 README 的历史精度与物理说明原样保存在
