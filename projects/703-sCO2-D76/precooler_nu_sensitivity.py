@@ -35,7 +35,7 @@ from pathlib import Path
 
 import numpy as np
 
-_ROOT = Path(__file__).resolve().parents[2] / "sjtu_tpmshx"
+_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_ROOT))
 warnings.filterwarnings("ignore")
 try:
@@ -44,8 +44,8 @@ except Exception:
     pass
 
 from CoolProp.CoolProp import PropsSI as P                     # noqa: E402
-from solvers.tpms_calc import geometry as _geom               # noqa: E402
-from solvers.nu_correlations import nu_sco2_topo               # noqa: E402
+from sjtu_tpmshx.models.tpms_calc import geometry as _geom               # noqa: E402
+from sjtu_tpmshx.models.nu_correlations import nu_sco2_topo               # noqa: E402
 
 G_ = _geom("Diamond", 7.0, 0.6, 16.0)
 EPS_A, D_H = G_["epsilon_A"], G_["D_h"]

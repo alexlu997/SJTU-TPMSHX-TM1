@@ -6,7 +6,7 @@ from __future__ import annotations
 import sys, os, time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2] / "sjtu_tpmshx"          # ...sjtu_tpmshx/
+ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -16,14 +16,14 @@ import math
 # import 时也读到放开值。旧的 `SZ.S_MAX=2.0` 模块全局突变不传给子进程 (r2-runs-01)。
 os.environ["TPMSHX_BUILD_S_MAX"] = "2.0"
 os.environ["TPMSHX_BUILD_LX_MAX"] = "2.0"
-import design.sizing as SZ
-from design.cases import DesignCase
-from design.sizing import size_fixed_cell, solve_Lx, Design
-from design.select import enumerate_select, pareto_tags
-from design.forward import forward, dP_fracs
-from design.fluids import nu_re_window
-from design.report import cid, detail_rows
-from solvers.tpms_calc import geometry as _geom
+import sjtu_tpmshx.design.sizing as SZ
+from sjtu_tpmshx.design.cases import DesignCase
+from sjtu_tpmshx.design.sizing import size_fixed_cell, solve_Lx, Design
+from sjtu_tpmshx.design.select import enumerate_select, pareto_tags
+from sjtu_tpmshx.design.forward import forward, dP_fracs
+from sjtu_tpmshx.models.design_fluids import nu_re_window
+from sjtu_tpmshx.design.report import cid, detail_rows
+from sjtu_tpmshx.models.tpms_calc import geometry as _geom
 import pandas as pd
 
 try:                                   # GBK console 无法编码 ²/中文 → 强制 UTF-8 stdout
@@ -31,8 +31,9 @@ try:                                   # GBK console 无法编码 ²/中文 → 
 except Exception:
     pass
 
-XLSX_OUT = r"C:\Users\ALEX\Downloads\quick_design_result.xlsx"
-HTML_OUT = r"C:\Users\ALEX\Downloads\quick_design_aircooler_report.html"
+OUT_DIR = Path(os.environ.get("TPMSHX_TOOL_OUT_DIR", ROOT / ".cache" / "aircooler-10kw"))
+XLSX_OUT = str(OUT_DIR / "quick_design_result.xlsx")
+HTML_OUT = str(OUT_DIR / "quick_design_aircooler_report.html")
 CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_aircooler_runs.pkl")
 
 AREA2 = 0.075        # 解读2: 总迎风面积 [m²] = 750 cm² (方形边 = sqrt = 273.9mm)
@@ -150,7 +151,7 @@ def size_fixed_area(cases, topo, l, t, A_f, arr="cross", k_s=16.0,
 def enumerate_area(cases, A_f, arr="cross", prop_model="mean", n_jobs=-1):
     """解读2 枚举: 全 NODES 各跑 size_fixed_area, 取 min-V best。
     size_fixed_area 为本模块顶层函数 → loky 可 pickle 并行 (各 worker 重 import 模块)。"""
-    from design.select import NODES
+    from sjtu_tpmshx.design.select import NODES
     combos = [(tp, l, t) for tp in NODES["topo"] for l in NODES["l"] for t in NODES["t"]]
     if n_jobs == 1:
         results = [size_fixed_area(cases, tp, l, t, A_f, arr, prop_model=prop_model)
@@ -287,7 +288,8 @@ code{{background:#eee;padding:1px 4px;border-radius:3px}}
 caption{{font-size:11px;color:#666;caption-side:bottom;padding-top:4px}}
 </style></head><body>
 <h1>10kW 空冷器 — TPMS 换热器快速设计预测报告</h1>
-<p style="color:#666;font-size:13px">生成 2026-06-01 · SJTU-TPMSHX 快速设计模块 (LTNE {arr_label}, 均温物性) · 许用压损 5% / 10% × 迎风「750」两解读</p>
+<p style="color:#666;font-size:13px">生成 {time.strftime('%Y-%m-%d')} · SJTU-TPMSHX 快速设计模块 (LTNE {arr_label}, 均温物性) · 许用压损 5% / 10% × 迎风「750」两解读</p>
+<p class="warn">历史研究模板：表格来自本次传入的计算或缓存；下文固定结论沿用 2026-06 报告，不代表当前 TM1 的设计或实验精度验收。重新选型前须核对工况、模型及原生结果状态。</p>
 
 <h2>1. 设计工况 (空气热侧 → 冷却到 45°C, 水冷侧)</h2>
 <table><thead><tr><th>工况</th><th>进风温 °C</th><th>空气绝压 kPa</th><th>空气 mdot kg/s</th>
@@ -330,15 +332,15 @@ caption{{font-size:11px;color:#666;caption-side:bottom;padding-top:4px}}
 <h2>6. 产物</h2>
 <ul style="font-size:13px">
 <li>枚举结果 Excel: <code>{XLSX_OUT}</code> (4 组 = 2 解读 × 5%/10%, 各汇总/明细)</li>
-<li>修正工况 Excel: <code>D:\\Postgraduate\\工况_修正.xlsx</code> · 脚本: <code>runs\\predict_aircooler_10kw.py</code></li>
+<li>工况入口: <code>projects/704-Aircooler-10kW/predict_aircooler_10kw.py</code> 的 <code>build_cases()</code>；本脚本不读取外部工况 Excel。</li>
 </ul>
 </body></html>"""
     with open(path, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"[html] {path}")
 
-XLSX_RPT = r"C:\Users\ALEX\Downloads\quick_design_aircooler_汇报.xlsx"
-HTML_RPT = r"C:\Users\ALEX\Downloads\quick_design_aircooler_汇报.html"
+XLSX_RPT = str(OUT_DIR / "quick_design_aircooler_汇报.xlsx")
+HTML_RPT = str(OUT_DIR / "quick_design_aircooler_汇报.html")
 
 # 术语速查 (给非专业听众的人话解释)
 GLOSSARY = [
@@ -598,10 +600,11 @@ border-radius:4px;font-size:12px}}
 <div class="head">
 <p class="org">SJTU-TPMSHX · 换热器快速设计</p>
 <h1>10 kW 空冷器 — TPMS 换热芯方案预测报告</h1>
-<p class="sub">迎风一边 750 mm 固定(甲方确认)× 流动布置(叉流 / 逆流)× 许用压降 5% / 10% · 生成于 2026-06</p>
+<p class="sub">迎风一边 750 mm 固定(甲方确认)× 流动布置(叉流 / 逆流)× 许用压降 5% / 10% · 生成于 {time.strftime('%Y-%m-%d')}</p>
 </div>
 
 <div class="body">
+<p class="note risk">历史研究模板：结果表读取既有计算缓存；摘要、精度数字及关键结论沿用 2026-06 文案，不代表当前 TM1 的设计或实验精度验收。缓存的代码、模型及原生状态须另行核对。</p>
 
 <p class="abstract">针对 10 kW 空冷器需求,采用增材制造(3D 打印)<b>TPMS</b>(三周期极小曲面,一种连续曲面多孔结构)
 换热芯,将约 0.25 m³/s 热空气冷却至 ≤45 °C,热量由 ≤38 °C 冷却水带走。迎风面一边固定 750 mm、
@@ -705,6 +708,7 @@ border-radius:4px;font-size:12px}}
 CASES = build_cases()           # 工况表 (供 html 工况展示; dPlim 在此不重要)
 
 if __name__ == "__main__":
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
     mode = sys.argv[1] if len(sys.argv) > 1 else "sanity"
     cases = build_cases()
     t0 = time.time()

@@ -37,7 +37,7 @@ from pathlib import Path
 
 os.environ.setdefault("TPMSHX_ALLOW_EXTRAP", "1")
 
-_ROOT = Path(__file__).resolve().parents[2] / "sjtu_tpmshx"
+_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_ROOT))
 warnings.filterwarnings("ignore")
 try:
@@ -46,10 +46,10 @@ except Exception:
     pass
 
 from CoolProp.CoolProp import PropsSI as _P                    # noqa: E402
-from domain.compute_config import (ComputeConfig, FluidConfig,  # noqa: E402
+from sjtu_tpmshx.domain.compute_config import (ComputeConfig, FluidConfig,  # noqa: E402
     GeometryConfig, SolverConfig, PartialBCConfig, ExtrapPolicy)
-from controllers.compute_pipeline import Pipeline2D            # noqa: E402
-from solvers.tpms_calc import geometry as _geom               # noqa: E402
+from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D            # noqa: E402
+from sjtu_tpmshx.models.tpms_calc import geometry as _geom               # noqa: E402
 
 EPS_A = _geom("Diamond", 7.0, 0.6, 16.0)["epsilon_A"]
 

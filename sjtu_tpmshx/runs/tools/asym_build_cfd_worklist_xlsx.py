@@ -17,10 +17,11 @@ proven domain + post-processing:
 cancels every recipe artifact (entrance/exit/mesh/turbulence). One offset cell
 gives both channels (kr_A>1 large, kr_B<1 small).
 
-Output: D:/Postgraduate/asym-porosity-data/asym_cfd_worklist.xlsx
-        (workspace-level dedicated folder, gitignored — porosity-offset generated data)
-Usage:  python -u runs/asym_build_cfd_worklist_xlsx.py
+Output: sjtu_tpmshx/runs/_out/asym_cfd/asym_cfd_worklist.xlsx
+        (gitignored; TPMSHX_TOOL_OUT_DIR overrides the producer/consumer directory)
+Usage:  python -m sjtu_tpmshx.runs.tools.asym_build_cfd_worklist_xlsx
 """
+import os
 from pathlib import Path
 
 import numpy as np
@@ -59,12 +60,9 @@ AIR = dict(name="air", Tref=300.0, P_MPa=0.101325, rho=1.1774, mu=1.846e-5,
 WATER = dict(name="water", Tref=325.0, P_MPa=0.101325, rho=987.11, mu=5.33e-4,
              cp=4180.9, k=0.643, Pr=3.4657, Twall=375.0)
 
-# Output → workspace-level dedicated folder for porosity-offset generated DATA.
-# parents[4] = the workspace root HOLDING the repo (old dev box: D:\Postgraduate;
-# this server: E:\LWH); folder is gitignored (not committed). Derived (not
-# hardcoded absolute) so it self-locates as long as the solver repo stays
-# nested under the workspace.
-OUT = Path(__file__).resolve().parents[4] / "asym-porosity-data"
+# Keep the worklist beside the downstream nTop expression output.
+OUT = Path(os.environ.get("TPMSHX_TOOL_OUT_DIR",
+                          Path(__file__).resolve().parents[1] / "_out" / "asym_cfd"))
 XLSX = OUT / "asym_cfd_worklist.xlsx"
 
 # water-cfd-raw.xlsx (prior water-side smooth-wall CFD) = the symmetric r=1 anchor

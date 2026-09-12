@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # Raw training Excel is a local asset (data/ is gitignored) — skip cleanly
 # on checkouts without it (CI) instead of FileNotFoundError.
 _RAW_XLSX = ROOT.parent / 'data' / 'raw_data' / '试验记录表_整理版.xlsx'
-pytestmark = pytest.mark.skipif(
+requires_training_excel = pytest.mark.skipif(
     not _RAW_XLSX.exists(),
     reason='local training Excel (gitignored data/) not present')
 
@@ -32,6 +32,7 @@ pytestmark = pytest.mark.skipif(
 # ---------------------------------------------------------------- live load
 
 
+@requires_training_excel
 def test_load_all_succeeds_with_real_excel():
     """If this test fails, either the Excel file moved or the leakage
     guard tripped. Either way: investigate, don't silence."""
@@ -41,6 +42,7 @@ def test_load_all_succeeds_with_real_excel():
     assert {'tpms', 'L_mm', 't_mm', 'Re', 'u_mps', 'dP_Pa'} <= set(df.columns)
 
 
+@requires_training_excel
 def test_no_shanghai_geometry_in_training():
     from sjtu_tpmshx.df_surrogate.load_data import load_all
     df = load_all()
@@ -50,6 +52,7 @@ def test_no_shanghai_geometry_in_training():
     assert n_L7 == 0, f"{n_L7} training rows have L_mm=7.0 (Shanghai)"
 
 
+@requires_training_excel
 def test_training_geometries_are_the_documented_set():
     """Lock in the exact geometry coverage of the training Excel."""
     from sjtu_tpmshx.df_surrogate.load_data import load_all

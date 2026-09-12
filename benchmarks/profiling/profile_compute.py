@@ -1,5 +1,5 @@
 """
-Profile a Shanghai-like Compute case (UI-equivalent: tight tol, n_rho_loops=3).
+Profile the historical tighter-tolerance 2D screening workload.
 
 Run::
 
@@ -11,12 +11,13 @@ Outputs (benchmarks/profiling/):
   - compute_baseline_tottime.txt
   - compute_baseline_callees.txt
 
-This represents the UI Compute path (run_calculation.py) at single-design fidelity:
+Uses optimization.evaluator.evaluate_design through the public screening mode.
+The historical filename does not imply a GUI/full-model profile. Workload:
   * Shanghai geometry: L=0.182, H=0.042 m
-  * Diamond air-water (or air-air per user choice)
+  * Fluid pair and remaining settings from evaluator.DEFAULT_CONFIG
   * tol_simple = 1e-3 (production), n_rho_loops = 3 (compressible)
   * Uniform L=6 mm, t=0.4 mm (centre of bounds)
-  * 1 call (no warm-up loop — Compute is one-shot)
+  * One warm-up, then one profiled call
 """
 
 from __future__ import annotations
@@ -24,24 +25,13 @@ from __future__ import annotations
 import cProfile
 import pstats
 import io
-import sys
 import time
 from pathlib import Path
 
 import numpy as np
 
-# Repo-root layout (Batch-5, 2026-06-10): benchmarks/ sits beside the
-# sjtu_tpmshx package; put the package dir on sys.path so the flat imports
-# below resolve when running `python -m benchmarks.profiling.profile_compute`
-# from the repo root.
-_PKG_DIR = Path(__file__).resolve().parents[2] / 'sjtu_tpmshx'
-if str(_PKG_DIR) not in sys.path:
-    sys.path.insert(0, str(_PKG_DIR))
-
-from optimization.evaluator import evaluate_design, DEFAULT_CONFIG
-# field_param was renamed to continuous_field in b0822dd (Tier-1 rename);
-# the old import made this regeneration script ImportError on arrival.
-from solvers.continuous_field import (
+from sjtu_tpmshx.optimization.evaluator import evaluate_design, DEFAULT_CONFIG
+from sjtu_tpmshx.models.continuous_field import (
     from_decision_vector,
     decision_bounds,
     DEFAULT_N_CTRL_X,

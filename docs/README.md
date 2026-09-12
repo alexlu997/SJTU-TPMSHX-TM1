@@ -13,6 +13,7 @@
 | 任务依赖、实施状态与验收证据 | [三模块计划](plans/three-module-graph/README.md)、[Graph 状态](plans/three-module-graph/state/) |
 | 当前 M-A / M-B 验收说明 | [架构验收](plans/three-module-graph/acceptance_architecture.md)、[需求验收](plans/three-module-graph/acceptance_document.md) |
 | 原始数据、离线清洗与模型发布边界 | [离线模型说明](plans/three-module-graph/decisions/offline_models.md) |
+| 工程、研究、性能工具的输入输出与运行边界 | [工具入口](tools.md) |
 
 当前运行和安装说明集中在项目 README，架构与物理约束集中在 architecture.md。
 历史手册中的旧命令、目录地图和精度数字保留其当时语境。
