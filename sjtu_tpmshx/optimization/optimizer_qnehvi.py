@@ -61,7 +61,7 @@ def _resolve_core_budget() -> tuple:
     ``TPMSHX_BO_CORE_BUDGET`` (2026-07-11): ``os.cpu_count()`` reports the
     WHOLE machine, so the workers×inner split silently assumes this process
     is the only BO on the box. A multi-arm launcher (e.g.
-    scripts/port_retest_server.ps1, 4 concurrent arms) breaks that — each
+    the retired port-retest launcher, 4 concurrent arms) breaks that — each
     arm claimed cpu_count//2 threads per worker and collectively
     oversubscribed the box ~4x. The launcher therefore declares each arm's
     share via the env var; unset keeps the historical whole-machine default

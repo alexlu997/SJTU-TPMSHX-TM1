@@ -240,7 +240,7 @@ def nu_water_topo(tpms_type, Re, Pr_water):
 # the D-7-6/G-7-6 rough SLM specimens. Re-anchor if the print process changes.
 # This lineage REPLACED the D-7-6 single-geometry EXPERIMENTAL fit
 # (0.28·Re^0.75·Pr^⅓, rough, Diamond 7/0.6 only) on 2026-07-15; that fit could
-# not extrapolate in geometry (kept only in projects/703-sCO2-D76/).
+# not extrapolate in geometry (history: docs/history/retired-tools.md).
 #
 # VALIDITY (per-cell medAPE, see validation/sco2_cfd/README.md):
 #   usable    P ≥ 10 MPa and T_b ≥ T_pc(P) − 2 K  →  4–12 %

@@ -37,7 +37,7 @@ FREE = {"validation", "runs", "tests", "poc"}       # may import anything
 
 # Adjudicated upward edges (P1.9, 2026-07-20) — ACCEPTED with rationale,
 # reported separately, never counted as violations. Adding an entry here is
-# an architecture decision: cite it in docs/ARCHITECTURE-AUDIT-2026-07.md.
+# an architecture decision: document it in docs/architecture.md.
 SANCTIONED = {
     ("models", "df_surrogate"):
         "shared physical models consume the existing versioned DF closure; "

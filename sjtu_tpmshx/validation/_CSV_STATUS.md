@@ -324,7 +324,7 @@ computing them for real, so the headline numbers are unaffected.
 Until now this file recorded the physics provenance but **no version record**,
 so "which numpy/numba produced 5.28/3.21" was unanswerable. Snapshot below is
 the dev box; the full `pip freeze` is committed as
-`constraints-devbox-2026-07-11.txt` (repo root).
+[constraints-devbox-2026-07-11.txt](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/b1af7edcea5796aa955aa8fae1785be3c1b57e1d/constraints-devbox-2026-07-11.txt).
 
 - Python 3.12.10 (MSC v.1943, 64-bit), Windows
 - numpy 2.4.4 · scipy 1.17.1 · numba 0.64.0 (llvmlite 0.46.0) · pyamg 5.3.0
