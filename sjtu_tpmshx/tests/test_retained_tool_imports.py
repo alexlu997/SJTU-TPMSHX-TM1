@@ -28,3 +28,22 @@ def test_retained_entry_imports_from_repository_root(script):
     result = subprocess.run([sys.executable, '-c', code, str(script)], cwd=ROOT,
                             env=env, capture_output=True, text=True, timeout=300)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_aircooler_html_identifies_its_companion_workbook(tmp_path):
+    # Empty result rows isolate the export path from numerical predictions.
+    code = """
+import runpy, sys
+from pathlib import Path
+module = runpy.run_path(sys.argv[1], run_name='__tm1_report_smoke__')
+for arrangement, filename in [('cross', 'quick_design_result.xlsx'),
+                              ('counter', 'quick_design_result_counter.xlsx')]:
+    workbook = Path(sys.argv[2]) / filename
+    report = Path(sys.argv[2]) / f'{arrangement}.html'
+    module['write_html_sweep'](report, workbook, [], module['AREA2'], arr=arrangement)
+    assert f'<code>{workbook}</code>' in report.read_text(encoding='utf-8')
+"""
+    script = ROOT / 'projects/704-Aircooler-10kW/predict_aircooler_10kw.py'
+    result = subprocess.run([sys.executable, '-c', code, str(script), str(tmp_path)],
+                            cwd=ROOT, capture_output=True, text=True, timeout=300)
+    assert result.returncode == 0, result.stdout + result.stderr

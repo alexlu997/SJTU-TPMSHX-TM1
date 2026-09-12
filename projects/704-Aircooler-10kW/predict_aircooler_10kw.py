@@ -209,7 +209,7 @@ def _lowdp(results):
     feas = [d for d in results if d.feasible]
     return min(feas, key=lambda d: d.dP_cold_max) if feas else None
 
-def write_html_sweep(path, runs, A_f, arr="cross"):
+def write_html_sweep(path, xlsx_path, runs, A_f, arr="cross"):
     """runs = [(key, label, results, height), ...]. 气水压损 5%/10% 两档 × 两解读。"""
     K0 = 273.15
     side = math.sqrt(A_f) * 1e3        # 解读2 方形边 [mm]
@@ -331,7 +331,7 @@ caption{{font-size:11px;color:#666;caption-side:bottom;padding-top:4px}}
 
 <h2>6. 产物</h2>
 <ul style="font-size:13px">
-<li>枚举结果 Excel: <code>{XLSX_OUT}</code> (4 组 = 2 解读 × 5%/10%, 各汇总/明细)</li>
+<li>枚举结果 Excel: <code>{xlsx_path}</code> (4 组 = 2 解读 × 5%/10%, 各汇总/明细)</li>
 <li>工况入口: <code>projects/704-Aircooler-10kW/predict_aircooler_10kw.py</code> 的 <code>build_cases()</code>；本脚本不读取外部工况 Excel。</li>
 </ul>
 </body></html>"""
@@ -756,7 +756,7 @@ if __name__ == "__main__":
         else:                                  # rehtml: 从缓存重写, 不重算
             with open(cache, "rb") as fh: runs = pickle.load(fh)
         write_xlsx_sweep(xlsx_out, runs)
-        write_html_sweep(html_out, runs, AREA2, arr=arr)
+        write_html_sweep(html_out, xlsx_out, runs, AREA2, arr=arr)
     elif mode == "combined":                    # 汇报版: 合并叉流+逆流缓存 → 1 xlsx + 1 html
         import pickle
         with open(CACHE, "rb") as fh: cross = pickle.load(fh)
