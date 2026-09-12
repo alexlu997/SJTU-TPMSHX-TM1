@@ -11,9 +11,9 @@ Outputs:
   - benchmarks/profiling/eval_baseline_callees.txt (callee tree top-20)
 
 Methodology:
-  * Single 16-D decision vector at the centre of the bounds → "nominal design"
-  * Uniform L = 6 mm, t = 0.4 mm (mid of training window)
-  * Shanghai air-water-like grid resolution (Nx=Ny=adaptive)
+  * Single 16-D decision vector at the fixed historical nominal geometry → "nominal design"
+  * Uniform L = 6 mm, t = 0.4 mm (fixed historical workload)
+  * Air/air screening domain 0.10 × 0.05 m, adaptive grid
   * tol_simple loose (1e-2) to mimic BO inner; n_rho_loops=2 (single Picard)
   * One warm-up, three profiled calls, then three wall-time calls
 """
@@ -29,117 +29,60 @@ from pathlib import Path
 import numpy as np
 
 from sjtu_tpmshx.optimization.evaluator import evaluate_design, DEFAULT_CONFIG
-from sjtu_tpmshx.models.continuous_field import (
-    from_decision_vector,
-    decision_bounds,
-    DEFAULT_N_CTRL_X,
-    DEFAULT_N_CTRL_Y,
-    DEFAULT_SYMMETRIC_Y,
-    DEFAULT_L_BOUNDS,
-    DEFAULT_T_BOUNDS,
-)
-
+from sjtu_tpmshx.models.screening import build_field
 
 OUT_DIR = Path(__file__).parent
 N_REPEAT = 3
-SEED = 42
 
 
 def _build_nominal_x() -> np.ndarray:
-    """Decision vector at centre of bounds (uniform L=6 mm, t=0.4 mm)."""
-    lb, ub = decision_bounds(
-        n_ctrl_x=DEFAULT_N_CTRL_X,
-        n_ctrl_y=DEFAULT_N_CTRL_Y,
-        symmetric_y=DEFAULT_SYMMETRIC_Y,
-        L_bounds=DEFAULT_L_BOUNDS,
-        t_bounds=DEFAULT_T_BOUNDS,
-    )
-    return 0.5 * (lb + ub)
+    """Preserve the historical 16-D L=6 mm, t=0.4 mm workload."""
+    return np.r_[np.full(8, 6.), np.full(8, .4)]
 
 
 def _build_cfg() -> dict:
-    cfg = dict(DEFAULT_CONFIG)
-    # BO inner loop preset
-    cfg['tol_simple']  = 1e-2
-    cfg['n_rho_loops'] = 2
-    cfg['penalty_enabled'] = False
-    return cfg
+    return {**DEFAULT_CONFIG, 'tol_simple': 1e-2, 'n_rho_loops': 2,
+            'penalty_enabled': False}
+
+
+def profile_workload(cfg, prefix, *, repeats, wall_repeats, callees):
+    """Shared execution/reporting; each entry retains its own workload."""
+    x_nom = _build_nominal_x()
+    fc = build_field(x_nom, cfg)
+    print(f"[profile-{prefix}] warm-up ...", flush=True)
+    started = time.perf_counter()
+    Q_neg, dP, _ = evaluate_design(x_nom, cfg, fc)
+    print(f"  warm-up: Q={-Q_neg:.1f}, dP={dP:.1f}, t={time.perf_counter()-started:.2f}s", flush=True)
+    profiler = cProfile.Profile()
+    profiler.enable()
+    for _ in range(repeats):
+        Q_neg, dP, _ = evaluate_design(x_nom, cfg, fc)
+    profiler.disable()
+    print(f"  result: Q={-Q_neg:.1f}, dP={dP:.1f}", flush=True)
+    if wall_repeats:
+        started = time.perf_counter()
+        for _ in range(wall_repeats):
+            evaluate_design(x_nom, cfg, fc)
+        print(f"  avg wall per call: {(time.perf_counter()-started)/wall_repeats:.2f}s", flush=True)
+    stem = OUT_DIR / f'{prefix}_baseline'
+    profiler.dump_stats(str(stem) + '.prof')
+    for suffix, sort, count in [('top30', 'cumulative', 30),
+                                 ('tottime', 'tottime', 20),
+                                 ('callees', 'cumulative', 5)]:
+        buffer = io.StringIO()
+        stats = pstats.Stats(profiler, stream=buffer).sort_stats(sort)
+        stats.print_stats(count)
+        if suffix == 'callees':
+            stats.print_callees(callees)
+        Path(f'{stem}_{suffix}.txt').write_text(buffer.getvalue(), encoding='utf-8')
+        if suffix == 'tottime':
+            print(buffer.getvalue())
 
 
 def main() -> None:
-    cfg = _build_cfg()
-    fc = from_decision_vector(
-        x=_build_nominal_x(),
-        tpms_type=cfg['tpms_type'],
-        k_s=cfg['k_s'],
-        L_domain=cfg['L_domain'],
-        H_domain=cfg['H_domain'],
-        n_ctrl_x=cfg['n_ctrl_x'],
-        n_ctrl_y=cfg['n_ctrl_y'],
-        symmetric_y=cfg['symmetric_y'],
-        L_bounds=cfg['L_bounds'],
-        t_bounds=cfg['t_bounds'],
-    )
-    x_nom = _build_nominal_x()
-
-    # Warm-up (JIT, cache fills)
-    print("[profile] warm-up call ...", flush=True)
-    t0 = time.perf_counter()
-    Q_neg, dP, mass = evaluate_design(x_nom, cfg, fc)
-    t_warm = time.perf_counter() - t0
-    print(f"  warm-up: Q={-Q_neg:.1f}, dP={dP:.1f}, t={t_warm:.2f}s",
-          flush=True)
-
-    pr = cProfile.Profile()
-    pr.enable()
-    for k in range(N_REPEAT):
-        Q_neg, dP, mass = evaluate_design(x_nom, cfg, fc)
-    pr.disable()
-
-    # Per-call wall summary (separate from cProfile self timing)
-    t1 = time.perf_counter()
-    for k in range(N_REPEAT):
-        evaluate_design(x_nom, cfg, fc)
-    t_avg = (time.perf_counter() - t1) / N_REPEAT
-    print(f"\n[profile] avg wall per call (post-warm): {t_avg:.2f}s",
-          flush=True)
-
-    prof_path = OUT_DIR / "eval_baseline.prof"
-    pr.dump_stats(str(prof_path))
-
-    # Top 30 cumulative
-    buf = io.StringIO()
-    ps = pstats.Stats(pr, stream=buf).sort_stats('cumulative')
-    ps.print_stats(30)
-    top30 = buf.getvalue()
-
-    # Top callees on the worst 5 by cumulative time
-    buf2 = io.StringIO()
-    ps2 = pstats.Stats(pr, stream=buf2).sort_stats('cumulative')
-    ps2.print_stats(5)
-    ps2.print_callees(5)
-    callees = buf2.getvalue()
-
-    # Top 20 by tottime (self time, excludes children)
-    buf3 = io.StringIO()
-    ps3 = pstats.Stats(pr, stream=buf3).sort_stats('tottime')
-    ps3.print_stats(20)
-    tottime = buf3.getvalue()
-
-    (OUT_DIR / "eval_baseline_top30.txt").write_text(top30, encoding='utf-8')
-    (OUT_DIR / "eval_baseline_callees.txt").write_text(
-        callees, encoding='utf-8')
-    (OUT_DIR / "eval_baseline_tottime.txt").write_text(
-        tottime, encoding='utf-8')
-
-    print("\n[profile] wrote:")
-    print(f"  {prof_path}")
-    print(f"  {OUT_DIR/'eval_baseline_top30.txt'}")
-    print(f"  {OUT_DIR/'eval_baseline_tottime.txt'}")
-    print(f"  {OUT_DIR/'eval_baseline_callees.txt'}")
-    print("\n[profile] === TOP 20 BY SELF TIME ===")
-    print(tottime)
+    profile_workload(_build_cfg(), 'eval', repeats=N_REPEAT,
+                     wall_repeats=N_REPEAT, callees=5)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

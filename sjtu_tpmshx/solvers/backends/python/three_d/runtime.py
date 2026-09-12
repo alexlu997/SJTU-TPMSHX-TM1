@@ -1276,7 +1276,7 @@ def _build_hv_machinery(prob: _Problem3D):
     )
 
 
-def _extract_3d_metrics(prob: _Problem3D, hv: _HvMachinery, outer: _OuterState):
+def _extract_3d_metrics(prob: _Problem3D, outer: _OuterState):
     """Seam-D extraction (P1.5, 2026-07-20): metric/field extraction --
     converged solvers + T fields -> Q (enthalpy + solid-side), dP, m_dot,
     outlet temperatures, real-coord P/velocity fields. Near-pure reads of
@@ -1551,7 +1551,7 @@ def _extract_3d_metrics(prob: _Problem3D, hv: _HvMachinery, outer: _OuterState):
     )
 
 
-def _assemble_3d_verdict(prob: _Problem3D, hv: _HvMachinery, outer: _OuterState, met: _Metrics3D):
+def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D):
     """Seam-E extraction (P1.5, 2026-07-20): verdict + assembly tail --
     conservation diagnostics, post-solve envelope gate, convergence
     verdict/truth table, result-dict assembly, opt-in audit exports.

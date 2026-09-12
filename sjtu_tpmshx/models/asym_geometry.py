@@ -40,6 +40,20 @@ def _count_interface(a: np.ndarray, b: np.ndarray) -> int:
     return n
 
 
+def delta_for_split(phi, C, target, n=6000):
+    """Smallest δ≥0 whose ε_A/ε_B ≥ target (fixed C). target≤1 → δ=0."""
+    if target <= 1.0:
+        return 0.0
+    for d in np.linspace(0.0, float(np.abs(phi).max()), n):
+        eA, eB, _ = eps_sides(phi, C, d)
+        if eB <= 1e-9:
+            break
+        if eA / eB >= target:
+            return float(d)
+    return None
+
+
+
 def a0_sides(phi: np.ndarray, C: float, delta: float, L_m: float, N: int):
     """per-side 单侧比表面积 [1/m]。
 

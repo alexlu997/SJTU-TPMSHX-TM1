@@ -15,7 +15,8 @@ import numpy as np
 import pandas as pd
 
 from sjtu_tpmshx.df_surrogate.load_water_cfd import (
-    FLOW_SUSPECT, LATTICES, _attach_geometry)
+    FLOW_SUSPECT, LATTICES)
+from sjtu_tpmshx.df_surrogate.cfd_geometry import attach_geometry
 from sjtu_tpmshx.models.nu_correlations import (
     WATER_NU_COEFFS, WATER_NU_RE_RANGE, nu_water_topo)
 
@@ -44,7 +45,7 @@ def evaluate(raw: pd.DataFrame) -> pd.DataFrame:
     raw["topology"] = raw.lattice.map({"D": "Diamond", "G": "Gyroid"})
     rows = []
     for topo, group in raw.groupby("topology", sort=False):
-        d = _attach_geometry(group, topo)  # current geometry, default N=128
+        d = attach_geometry(group, topo)  # current geometry, default N=128
         d = d.rename(columns={"Re": "Re_nominal"})
         d["u_current_m_s"] = (d.mdot_in_kg_s
                                / (d.rho_kg_m3 * d.eps_f * (d.L_mm * 1e-3) ** 2))

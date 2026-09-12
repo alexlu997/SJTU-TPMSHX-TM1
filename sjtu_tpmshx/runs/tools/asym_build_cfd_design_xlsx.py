@@ -18,17 +18,16 @@ Design parameters (finalized 2026-06-15):
 channels (A large r>1, B small r<1), so d↔1−d symmetry halves the geometry count.
 
 Output: runs/_out/asym_cfd/asym_cfd_design_matrix.xlsx
-Usage:  python -u runs/asym_build_cfd_design_xlsx.py
+Usage:  python -m sjtu_tpmshx.runs.tools.asym_build_cfd_design_xlsx
 """
 from pathlib import Path
 
-import numpy as np
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side as XLSide
 from openpyxl.utils import get_column_letter
 
 from sjtu_tpmshx.models.tpms_geometry import _phi_grid, _C_from_tL
-from sjtu_tpmshx.models.asym_geometry import eps_sides, a0_sides_mc, dh_sides, percolates_z
+from sjtu_tpmshx.models.asym_geometry import delta_for_split, eps_sides, a0_sides_mc, dh_sides, percolates_z
 
 # ── finalized design parameters ──────────────────────────────────
 N = 128
@@ -57,19 +56,6 @@ BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 CTR = Alignment(horizontal="center", vertical="center")
 
 
-def _delta_for_split(phi, C, target, n=6000):
-    """Smallest δ≥0 whose ε_A/ε_B ≥ target (fixed C). target≤1 → δ=0."""
-    if target <= 1.0:
-        return 0.0
-    for d in np.linspace(0.0, float(np.abs(phi).max()), n):
-        eA, eB, _ = eps_sides(phi, C, d)
-        if eB <= 1e-9:
-            break
-        if eA / eB >= target:
-            return float(d)
-    return None
-
-
 def _geom():
     """Compute per (tpms, split) geometry. Returns list of dict rows."""
     rows = []
@@ -78,7 +64,7 @@ def _geom():
         L_m = L_mm / 1000.0
         C = _C_from_tL(tpms, t_mm / L_mm)
         for r in SPLITS:
-            d = _delta_for_split(phi, C, r)
+            d = delta_for_split(phi, C, r)
             if d is None:
                 print(f"[warn] {tpms} r={r} unreachable (pinch); skipped")
                 continue

@@ -4,10 +4,10 @@
 仓库 CI 门（GitHub Actions，headless pytest 子集）及其安装/排除约定。来自 openspec archive `2026-07-02-cleanup-ci`（架构扫描批次 D+F）。
 ## Requirements
 ### Requirement: Headless CI gate on push/PR
-仓库 SHALL 提供 GitHub Actions workflow（`.github/workflows/ci.yml`），在 push 到 master 与 PR 时分别使用 macOS/Python 3.13 和 Windows/Python 3.12，从 `requirements.txt` 的共同精确锁安装，并在 `PYTHONHASHSEED=0` 下运行 `pytest sjtu_tpmshx/tests/ -m "not slow and not heavy"`。Qt SHALL 使用 offscreen 模式，3D 面板 SHALL 在该快速门中禁用。CI SHALL NOT 依赖 gitignored 的本地数据资产。
+仓库 SHALL 提供 GitHub Actions workflow（`.github/workflows/ci.yml`），在 push 到 main 与 PR 时分别使用 macOS/Python 3.13 和 Windows/Python 3.12，从 `requirements.txt` 引用的共同精确锁安装，并在 `PYTHONHASHSEED=0` 下运行 `pytest sjtu_tpmshx/tests/ -m "not slow and not heavy"`。随后运行 `tests/integration_tm1/` 的真实模块交接与数值检查。Qt SHALL 使用 offscreen 模式，3D 面板 SHALL 在该快速门中禁用。CI SHALL NOT 依赖 gitignored 的本地数据资产。
 
-#### Scenario: CI green on a clean master
-- **WHEN** workflow 在当前 master 运行
+#### Scenario: CI green on a clean main
+- **WHEN** workflow 在当前 main 运行
 - **THEN** pytest 子集 0 failed（skipped 允许），职位状态绿
 
 #### Scenario: Environment-gated tests skip, not fail
@@ -15,7 +15,7 @@
 - **THEN** 相关测试被 skip 而非 fail
 
 ### Requirement: Dead-reference cleanup with history preserved
-不可运行的历史基准脚本 `benchmarks/benchmark_a.py`（目标脚本已删除）SHALL 移入 `benchmarks/archive/` 并在头注标明冻结原因；polygon 功能链与 `sigmoid_field_3d` 的保留状态 SHALL 记入 PROJECT_MANUAL（有意保留，非遗漏）。
+不可运行的历史基准脚本与退役 polygon 求解链 SHALL 从当前树移除，通过 `docs/history/retired-tools.md` 的固定 Git 索引追溯；现行保留的工具 SHALL 有实际调用或验证用途。`sigmoid_field_3d` 仍供 3D 演示及测试使用。
 
 #### Scenario: No dangling runnable references
 - **WHEN** 搜索仓库内对 `validation/legacy/validate_shanghai.py` 的非注释引用

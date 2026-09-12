@@ -11,7 +11,7 @@ venv/
 /.venv-path
 /.cache/
 
-# Model artifacts (regeneratable by train_surrogate.py)
+# Historical model artifacts (retired tools are indexed in docs/history/)
 models/*.joblib
 
 # Report figures (regeneratable)
@@ -51,7 +51,7 @@ benchmarks/profiling/*.prof
 benchmarks/profiling/*_callees.txt
 benchmarks/profiling/*_top30.txt
 benchmarks/profiling/*_tottime.txt
-# Regenerated doc renders (canonical source = the .md; rebuild on demand)
+# Historical document renders (source snapshots are retained in Git history)
 PROJECT_MANUAL.html
 624-Retrodict/COMPUTATION-PIPELINE-CN.html
 
@@ -82,8 +82,8 @@ sjtu_tpmshx/.first_run_done
 sjtu_tpmshx/.user_presets.json
 
 # Regeneratable optimizer run outputs + generated inputs.
-# Root opt_runs/ holds the archived historical runs (tracked files stay
-# tracked); new runs land untracked wherever the launch CWD puts them.
+# Historical runs are indexed in docs/history/retired-tools.md; new outputs
+# remain local wherever the launch CWD puts them.
 opt_runs/
 sjtu_tpmshx/opt_runs/
 sjtu_tpmshx/nTop_inputs/

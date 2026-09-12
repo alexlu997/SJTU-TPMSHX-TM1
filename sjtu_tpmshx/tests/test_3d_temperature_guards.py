@@ -161,7 +161,7 @@ def test_temperature_warning_states_keep_warm_return_final_and_face_separate(mon
     monkeypatch.setattr(stages, 'run_outer_coupling', drive)
     with warning_scope({}) as records:
         outer = stages._run_outer_coupling_3d(prob, hv)
-        stages._extract_3d_metrics(prob, hv, outer)
+        stages._extract_3d_metrics(prob, outer)
     for side, warm, final in (('A', 1100., 1150.), ('B', 1120., 1200.)):
         for stage, layout, value in (
             ('main', 'real-cell(x,y,z)-warm', warm),

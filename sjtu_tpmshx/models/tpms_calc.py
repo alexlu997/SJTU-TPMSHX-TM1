@@ -378,9 +378,9 @@ def compute(tpms_type: str,
             fluid_type: str = 'air', *, sco2_nu=None) -> dict:
     """Public entry — see ``_compute_cached`` for the full docstring.
 
-    V2 production uses the fixed water+sCO2 CFD closure. Alternate backends
-    remain available through explicit ``predict_K_cF(..., method=...)`` calls
-    for research, but do not change this solver path through environment state.
+    Production uses the fixed water+sCO2 CFD closure; environment state does
+    not select a different backend. Experimental correction, when requested,
+    is applied by the caller after assembling these CFD properties.
 
     Cache hits used to return the SAME mutable dict object; a caller
        mutating its result would silently poison every later hit. The
@@ -390,8 +390,7 @@ def compute(tpms_type: str,
     from .fluid_props import check_water_state
     check_water_state(fluid_type, T_in_K, P_in_Pa, where='compute inlet')
     # Production V2 closure is fluid-independent and fixed for a TPMS/L/t
-    # geometry. Research callers can still invoke predict_K_cF directly with
-    # another explicit backend.
+    # geometry.
     _df_method = SCO2_DF_METHOD
     _df_env = (_df_method, '')
     result, records = _compute_cached(tpms_type, L_cell_mm, t_mm, u, T_in_K,

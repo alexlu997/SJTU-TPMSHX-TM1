@@ -32,6 +32,26 @@ def pad_field_to_edges(x_mm, y_mm, field, L_mm, H_mm):
     return Xp, Yp, Fp
 
 
+def style_field_axes(ax, cb, _t, main_title, subtitle):
+    """Shared temperature/pressure axes, colorbar and title formatting."""
+    cb.ax.tick_params(labelsize=8, colors=_t['ax_text'], length=3)
+    cb.ax.yaxis.set_major_locator(plt.MaxNLocator(nbins=7))
+    cb.outline.set_edgecolor(_t['ax_spine'])
+    # Inline title
+    ax.set_title(main_title, fontsize=13, fontweight="bold",
+                 color=_t['ax_text'], loc='left', pad=6)
+    ax.text(0.99, 1.02, subtitle, transform=ax.transAxes,
+            fontsize=9, color=_t['mpl_subtitle'], ha='right', va='bottom',
+            fontstyle='italic')
+    ax.set_xlabel("x [mm]", fontsize=10, color=_t['ax_text'])
+    ax.set_ylabel("y [mm]", fontsize=10, color=_t['ax_text'])
+    ax.tick_params(labelsize=9, colors=_t['ax_text'], length=4, width=0.8)
+    ax.set_aspect('auto')
+    ax.grid(True, alpha=0.12, linewidth=0.4, color=_t['ax_text'])
+    for spine in ax.spines.values():
+        spine.set_edgecolor(_t['ax_spine']); spine.set_linewidth(0.8)
+
+
 # ── Axis label helper ─────────────────────────────────────────
 def _label_axes(axes, L, H, mode=""):
     _t = get_theme()
@@ -247,22 +267,7 @@ class MatplotlibCanvas(FigureCanvas):
             cf = ax.contourf(_Xp, _Yp, _Fp, levels=256, cmap="turbo")
             ax.set_xlim(0, _Lmm); ax.set_ylim(0, _Hmm)
             cb = self.fig.colorbar(cf, ax=ax, shrink=0.9, aspect=25, format="%.0f")
-            cb.ax.tick_params(labelsize=8, colors=_t['ax_text'], length=3)
-            cb.ax.yaxis.set_major_locator(plt.MaxNLocator(nbins=7))
-            cb.outline.set_edgecolor(_t['ax_spine'])
-            # Inline title
-            ax.set_title(main_title, fontsize=13, fontweight="bold",
-                         color=_t['ax_text'], loc='left', pad=6)
-            ax.text(0.99, 1.02, subtitle, transform=ax.transAxes,
-                    fontsize=9, color=_t['mpl_subtitle'], ha='right', va='bottom',
-                    fontstyle='italic')
-            ax.set_xlabel("x [mm]", fontsize=10, color=_t['ax_text'])
-            ax.set_ylabel("y [mm]", fontsize=10, color=_t['ax_text'])
-            ax.tick_params(labelsize=9, colors=_t['ax_text'], length=4, width=0.8)
-            ax.set_aspect('auto')
-            ax.grid(True, alpha=0.12, linewidth=0.4, color=_t['ax_text'])
-            for spine in ax.spines.values():
-                spine.set_edgecolor(_t['ax_spine']); spine.set_linewidth(0.8)
+            style_field_axes(ax, cb, _t, main_title, subtitle)
 
         # (Pressure Drop Summary card + SIMPLE convergence mini-plot deleted
         # from the 2D pressure view. dP is shown in the top KPI strip; SIMPLE

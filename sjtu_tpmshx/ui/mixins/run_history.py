@@ -21,6 +21,8 @@ The mixin owns ``self._recent_runs`` (a deque) lazily.
 
 from __future__ import annotations
 
+from sjtu_tpmshx.ui.theme import _btn_styles
+
 import base64
 import collections
 import datetime
@@ -375,16 +377,3 @@ class RunHistoryMixin:
         QApplication.clipboard().setText("\n".join(lines))
         self.statusBar().showMessage(
             "Copied current inputs as Python snippet to clipboard.", 5000)
-
-
-def _btn_styles() -> dict:
-    """Resolve button stylesheets from the *current* theme at call time, so
-    dialogs respect a live theme switch (the old module-global snapshot in
-    main.py went stale after ThemeManager.rebuild())."""
-    try:
-        from sjtu_tpmshx.ui.theme import _build_styles
-        s = _build_styles()
-        return {"tertiary": s.get("BTN_TERTIARY", ""),
-                "secondary": s.get("BTN_SECONDARY", "")}
-    except Exception:
-        return {"tertiary": "", "secondary": ""}

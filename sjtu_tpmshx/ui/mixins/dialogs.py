@@ -15,17 +15,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 
-def _btn_styles() -> dict:
-    """Resolve button stylesheets from the *current* theme at call time, so a
-    dialog respects a live ``ThemeManager.rebuild()`` instead of the stale
-    module-global ``_BTN_*`` snapshot the original main.py read once at import."""
-    try:
-        from sjtu_tpmshx.ui.theme import _build_styles
-        s = _build_styles()
-        return {"tertiary": s.get("BTN_TERTIARY", ""),
-                "secondary": s.get("BTN_SECONDARY", "")}
-    except Exception:
-        return {"tertiary": "", "secondary": ""}
+from sjtu_tpmshx.ui.theme import _btn_styles
 
 
 class DialogsMixin:
