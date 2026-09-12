@@ -39,7 +39,7 @@ def test_pressure_outlet_includes_transverse_flux(east_factor):
     assert solver.v[0, -1] == solver.v[2, -1] == 0.
 
 
-@pytest.mark.parametrize('stage', ['sweep', 'pseudo', 'correct', 'closeout'])
+@pytest.mark.parametrize('stage', ['sweep', 'correct', 'closeout'])
 def test_small_geometric_overlap_owns_pressure_and_normal_flux(stage):
     from sjtu_tpmshx.solvers import _kernels_simple_2d as kernels
 
@@ -72,15 +72,4 @@ def test_small_geometric_overlap_owns_pressure_and_normal_flux(stage):
                                 s.dx_arr, s.dy_arr, s.rho_field, s._mu_eff_field,
                                 np.ones((3, 2)), np.zeros((3, 2)), s.mu_field,
                                 s.eps_field, .5, 0, 0.)
-    else:
-        # The pseudo-velocity closure consumes the actual predicted field.
-        from sjtu_tpmshx.tests.test_wall_momentum_flux import _call, _state
-        a, _, _ = _state(2)
-        a['outlet_frac'] = np.array([.005, .2, 0., 0., 0., 0.])
-        a['v'][:] = 2.
-        a['rho_field'][:] = 1.
-        _call(kernels._pseudo_v_jit_df, a)
-        np.testing.assert_allclose(a['vhat'][:2, -1], a['vhat'][:2, -2])
-        np.testing.assert_array_equal(a['vhat'][2:, -1], 0.)
-        return
     np.testing.assert_allclose(s.v[:, -1], [2.*1.4/1.6, 2.*1.4/1.6, 0.])

@@ -64,8 +64,6 @@ from ._kernels_simple_2d import (  # noqa: F401
     _umag_v,
     _sweep_u_jit_df,
     _sweep_v_jit_df,
-    _pseudo_u_jit_df,
-    _pseudo_v_jit_df,
     _build_pp_sparsity_pattern,
     _assemble_pp_data_jit,
     _solve_pp_sparse_fast,
@@ -664,37 +662,14 @@ class SIMPLESolver:
     def solve(self, max_iter=3000, tol=1e-6,
               alpha_u=0.7, alpha_p=0.3,
               n_inner=2,
-              coupling='simple', simpler_relax_p=1.0,
               verbose=True, progress_cb=None, cancel_check=None):
         """
         Run SIMPLE iterations. PP equation solved by sparse direct solver.
 
-        coupling : {'simple', 'simpler'}
-            'simple' (default) — the production SIMPLE loop, unchanged.
-            'simpler' — EXPERIMENTAL Patankar/Tao SIMPLER (openspec change
-            simpler-coupling-2d): pseudo-velocities û/v̂ build a pressure
-            equation solved directly each outer iteration (no α_p relaxation);
-            p' then corrects the velocities only. Benchmarked on full-width
-            inlet/outlet ideal-gas configs; partial-BC configs NOT benchmarked.
-        simpler_relax_p : float in (0, 1]
-            Relaxation for the direct P replacement in SIMPLER mode
-            (1.0 = Tao's unrelaxed replacement; fallback hook if the
-            compressible ρ(P) feedback oscillates). Ignored for 'simple'.
-
         Returns (converged: bool, iterations: int).
         """
-        if coupling not in ('simple', 'simpler'):
-            raise ValueError(
-                f"coupling must be 'simple' or 'simpler', got {coupling!r}")
         Nx, Ny = self.Nx, self.Ny
         dx_a, dy_a = self.dx_arr, self.dy_arr
-
-        if coupling == 'simpler' and getattr(self, '_uhat', None) is None:
-            # Persistent SIMPLER scratch: û/v̂ (pre-copied from u/v each iter so
-            # boundary faces carry BC values) and the directly-solved P field.
-            self._uhat = self.u.copy()
-            self._vhat = self.v.copy()
-            self._P_hat = np.zeros_like(self.P)
 
         # ── A+B early-exit (R1) — criteria single-sourced in
         # solvers/_solve_common.LowReExit since arch-b-c-e batch C (the 2D/3D
@@ -721,12 +696,6 @@ class SIMPLESolver:
                 f"convergence_mode must be 'legacy' or 'f2', got {_mode!r}")
         _f2 = None
         if _mode == 'f2':
-            if coupling != 'simple':
-                raise ValueError(
-                    "convergence_mode='f2' is only wired for coupling='simple'. "
-                    "SIMPLER solves the pressure directly (a different fixed "
-                    "point), so the momentum residual's SIMPLE-defect argument "
-                    "does not carry over unexamined.")
             _f2 = F2Monitor(self, (self.u, self.v), min_iter=20)
             for _h in ('mom_residuals', 'mass_local_residuals',
                        'mass_global_residuals'):
@@ -806,83 +775,26 @@ class SIMPLESolver:
             if self._pp_sparsity is None:
                 self._pp_sparsity = _build_pp_sparsity_pattern(Nx, Ny, self.outlet_geom_frac)
 
-            if coupling == 'simpler':
-                # SIMPLER six steps (design D2, openspec simpler-coupling-2d):
-                # ①② pseudo-velocities û/v̂ (no pressure source, no relax),
-                #     filling d_u/d_v with the same A/aP0 formula as the sweeps
-                np.copyto(self._uhat, self.u)
-                np.copyto(self._vhat, self.v)
-                _pseudo_u_jit_df(self.u, self.v, self._uhat, self.d_u,
-                                 self.outlet_u_frac,
-                                 Nx, Ny, dx_a, dy_a, self.rho_field,
-                                 self._mu_eff_field,
-                                 _K2d, _cF2d, self.mu_field,
-                                 self.eps_field, self.cf_aniso)
-                _pseudo_v_jit_df(self.u, self.v, self._uhat, self._vhat, self.d_v,
-                                 self.inlet_frac, self.v_inlet_field,
-                                 self.outlet_geom_frac,
-                                 Nx, Ny, dx_a, dy_a, self.rho_field,
-                                 self._mu_eff_field,
-                                 _K2d, _cF2d, self.mu_field,
-                                 self.eps_field, self.cf_aniso)
-                # ③ pressure equation from û/v̂ (same ρ·A·d stencil as p') —
-                #    P solved directly, replaced without α_p under-relaxation
-                _solve_pp_sparse_fast(self._P_hat, self._uhat, self._vhat,
-                                      self.d_u, self.d_v, self.outlet_geom_frac,
-                                      Nx, Ny, dx_a, dy_a, rho_eps_field,
-                                      self._pp_sparsity)
-                if simpler_relax_p >= 1.0:
-                    self.P[:, :] = self._P_hat
-                else:
-                    self.P *= (1.0 - simpler_relax_p)
-                    self.P += simpler_relax_p * self._P_hat
-                # ④ momentum with the solved P (existing kernels, α_u as usual)
-                _sweep_u_jit_df(self.u, self.v, self.P, self.d_u,
-                                self.outlet_u_frac,
-                                Nx, Ny, dx_a, dy_a, self.rho_field,
-                                self._mu_eff_field,
-                                _K2d, _cF2d, self.mu_field,
-                                self.eps_field,
-                                alpha_u, n_inner, self.cf_aniso)
-                _sweep_v_jit_df(self.u, self.v, self.P, self.d_v,
-                                self.inlet_frac, self.v_inlet_field,
-                                self.outlet_geom_frac,
-                                Nx, Ny, dx_a, dy_a, self.rho_field,
-                                self._mu_eff_field,
-                                _K2d, _cF2d, self.mu_field,
-                                self.eps_field,
-                                alpha_u, n_inner, self.cf_aniso)
-                # ⑤ p' from u*/v*  ⑥ α_p=0.0 → P untouched, velocities only
-                _solve_pp_sparse_fast(self.Pp, self.u, self.v,
-                                      self.d_u, self.d_v, self.outlet_geom_frac,
-                                      Nx, Ny, dx_a, dy_a, rho_eps_field,
-                                      self._pp_sparsity)
-                _correct_jit(self.u, self.v, self.P, self.Pp,
-                             self.d_u, self.d_v,
-                             self.inlet_frac, self.v_inlet_field,
-                             self.outlet_geom_frac,
-                             Nx, Ny, dx_a, dy_a, 0.0, self.rho_field, self.eps_field)
-            else:
-                _sweep_u_jit_df(self.u, self.v, self.P, self.d_u,
-                                self.outlet_u_frac,
-                                Nx, Ny, dx_a, dy_a, self.rho_field, self._mu_eff_field,
-                                _K2d, _cF2d, self.mu_field,
-                                self.eps_field,
-                                alpha_u, n_inner, self.cf_aniso)
-                _sweep_v_jit_df(self.u, self.v, self.P, self.d_v,
-                                self.inlet_frac, self.v_inlet_field, self.outlet_geom_frac,
-                                Nx, Ny, dx_a, dy_a, self.rho_field, self._mu_eff_field,
-                                _K2d, _cF2d, self.mu_field,
-                                self.eps_field,
-                                alpha_u, n_inner, self.cf_aniso)
-                _solve_pp_sparse_fast(self.Pp, self.u, self.v, self.d_u, self.d_v,
-                                      self.outlet_geom_frac,
-                                      Nx, Ny, dx_a, dy_a, rho_eps_field,
-                                      self._pp_sparsity)
-                _correct_jit(self.u, self.v, self.P, self.Pp,
-                             self.d_u, self.d_v,
-                             self.inlet_frac, self.v_inlet_field, self.outlet_geom_frac,
-                             Nx, Ny, dx_a, dy_a, alpha_p, self.rho_field, self.eps_field)
+            _sweep_u_jit_df(self.u, self.v, self.P, self.d_u,
+                            self.outlet_u_frac,
+                            Nx, Ny, dx_a, dy_a, self.rho_field, self._mu_eff_field,
+                            _K2d, _cF2d, self.mu_field,
+                            self.eps_field,
+                            alpha_u, n_inner, self.cf_aniso)
+            _sweep_v_jit_df(self.u, self.v, self.P, self.d_v,
+                            self.inlet_frac, self.v_inlet_field, self.outlet_geom_frac,
+                            Nx, Ny, dx_a, dy_a, self.rho_field, self._mu_eff_field,
+                            _K2d, _cF2d, self.mu_field,
+                            self.eps_field,
+                            alpha_u, n_inner, self.cf_aniso)
+            _solve_pp_sparse_fast(self.Pp, self.u, self.v, self.d_u, self.d_v,
+                                  self.outlet_geom_frac,
+                                  Nx, Ny, dx_a, dy_a, rho_eps_field,
+                                  self._pp_sparsity)
+            _correct_jit(self.u, self.v, self.P, self.Pp,
+                         self.d_u, self.d_v,
+                         self.inlet_frac, self.v_inlet_field, self.outlet_geom_frac,
+                         Nx, Ny, dx_a, dy_a, alpha_p, self.rho_field, self.eps_field)
             if (_f2 is not None and self.fluid_type == 'ideal_gas'
                     and not f2_state_is_finite(self, (self.u, self.v))):
                 return f2_nonfinite_exit(self, it)

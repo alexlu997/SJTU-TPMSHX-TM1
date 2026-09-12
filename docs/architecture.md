@@ -60,6 +60,9 @@ is linked in the [history index](history/retired-tools.md).
 Reopening polygon compute requires the mainline physical rules and real
 CaseData/FieldResult/PerformanceResult handoff, not just relocating the GUI code.
 
+The 2D momentum solver uses SIMPLE. The experimental SIMPLER branch is retired;
+its original benchmark and negative result remain in the history index.
+
 ### Persistent interfaces and physical state
 
 CaseData contains the actual prepared grid, design fields, boundary inputs,

@@ -368,7 +368,8 @@ def test_nonfinite_does_not_hide_configuration_error(dim, mode):
         options['coupling'] = 'simpler'
     else:
         s.use_anderson = True
-    with pytest.raises(ValueError, match='convergence_mode|coupling|use_anderson'):
+    error = TypeError if dim == 2 and mode == 'unsupported' else ValueError
+    with pytest.raises(error, match='convergence_mode|coupling|use_anderson'):
         s.solve(max_iter=1, verbose=False, **options)
 
 

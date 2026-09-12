@@ -58,3 +58,17 @@ A1/benchmark A 的旧输入原已缺失，历史代码不代表可在当前目�
 | `sjtu_tpmshx/ui/polygon_calc.py` | [原实现](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/b1af7edcea5796aa955aa8fae1785be3c1b57e1d/sjtu_tpmshx/ui/polygon_calc.py) |
 | `sjtu_tpmshx/solvers/polygon_fvm.py` | [原实现](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/b1af7edcea5796aa955aa8fae1785be3c1b57e1d/sjtu_tpmshx/solvers/polygon_fvm.py) |
 | `sjtu_tpmshx/solvers/unstructured_mesh.py` | [原实现](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/b1af7edcea5796aa955aa8fae1785be3c1b57e1d/sjtu_tpmshx/solvers/unstructured_mesh.py) |
+
+## SIMPLER 试验退役
+
+2D 默认 SIMPLE 保留；删除 SIMPLER 选择参数、伪速度核和专属 benchmark/test/spec。
+旧 `coupling` / `simpler_relax_p` 参数不再接受，传入会报错。
+原比较的两个网格上加速比为 0.46×、0.59×，没有性能收益；原结论和数值保留如下。
+
+| 原路径 | 固定历史入口 |
+| --- | --- |
+| `openspec/specs/simpler-coupling-2d/spec.md` | [原文件](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/b1af7edcea5796aa955aa8fae1785be3c1b57e1d/openspec/specs/simpler-coupling-2d/spec.md) |
+| `reports/simpler-coupling-2d/CONCLUSIONS.md` | [原文件](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/b1af7edcea5796aa955aa8fae1785be3c1b57e1d/reports/simpler-coupling-2d/CONCLUSIONS.md) |
+| `reports/simpler-coupling-2d/benchmark_simple_vs_simpler_2d.csv` | [原文件](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/b1af7edcea5796aa955aa8fae1785be3c1b57e1d/reports/simpler-coupling-2d/benchmark_simple_vs_simpler_2d.csv) |
+| `sjtu_tpmshx/runs/benchmark_simpler_2d.py` | [原文件](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/b1af7edcea5796aa955aa8fae1785be3c1b57e1d/sjtu_tpmshx/runs/benchmark_simpler_2d.py) |
+| `sjtu_tpmshx/tests/test_simpler_coupling_2d.py` | [原文件](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/b1af7edcea5796aa955aa8fae1785be3c1b57e1d/sjtu_tpmshx/tests/test_simpler_coupling_2d.py) |

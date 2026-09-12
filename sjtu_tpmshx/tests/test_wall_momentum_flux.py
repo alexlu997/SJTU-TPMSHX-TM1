@@ -35,8 +35,7 @@ def _state(dim):
         a['outlet_w_frac'] = np.zeros((shape[0], shape[2] + 1))
     else:
         a.update(inlet_frac=np.ones(shape[0]), outlet_frac=np.ones(shape[0]),
-                 v_inlet_field=np.zeros(shape[0]), uhat=a['u'].copy(),
-                 vhat=a['v'].copy())
+                 v_inlet_field=np.zeros(shape[0]))
     return a, widths, shape
 
 
@@ -106,7 +105,7 @@ def test_3d_cell_update_matches_independent_equation_at_every_face(use_eps, use_
             a[c][ijk] = old
 
 
-def test_2d_pseudo_and_sweep_match_independent_equations_on_nonuniform_grid():
+def test_2d_sweep_matches_independent_equations_on_nonuniform_grid():
     a, _, shape = _state(2)
     rng = np.random.default_rng(83)
     for key in ('u', 'v', 'P'):
@@ -120,13 +119,6 @@ def test_2d_pseudo_and_sweep_match_independent_equations_on_nonuniform_grid():
         indices = [range(n) for n in shape]
         indices[axis] = range(1, shape[axis])
         coeff = getattr(k2, f'_{c}_coeffs_df_2d')
-        _call(getattr(k2, f'_pseudo_{c}_jit_df'), a)
-        for i, j in product(*indices):
-            a.update(i=i, j=j)
-            ap, rhs = _call(coeff, a)
-            psrc = ((a['P'][i-1, j] - a['P'][i, j]) * a['dy_arr'][j] if c == 'u'
-                    else (a['P'][i, j-1] - a['P'][i, j]) * a['dx_arr'][i])
-            assert a[c + 'hat'][i, j] == pytest.approx((rhs - psrc) / ap, rel=2e-12, abs=1e-14)
         # Advance the independent equation in the same GS order as the sweep.
         frozen = a[c].copy()
         for i, j in product(*indices):
