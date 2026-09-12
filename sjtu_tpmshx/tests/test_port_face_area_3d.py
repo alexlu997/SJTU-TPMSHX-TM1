@@ -129,7 +129,7 @@ def test_pressure_reductions_use_nonuniform_face_area():
 @pytest.mark.parametrize('fluid', ['air', 'water', 'sco2'])
 def test_pipeline_inlets_preserve_opening_velocity_and_mass_target(monkeypatch, fluid):
     from sjtu_tpmshx.solvers.backends.python.three_d import runtime as stages
-    from sjtu_tpmshx.pipelines.stages_3d import _parse_inputs_3d_cfg
+    from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg
     from sjtu_tpmshx.tests.test_pipeline_3d_e2e import _small_air_cfg
 
     cfg = _parse_inputs_3d_cfg(_small_air_cfg())

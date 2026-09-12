@@ -19,7 +19,7 @@ pv.OFF_SCREEN = True
 pv.global_theme.background = 'white'
 pv.global_theme.font.color = 'black'
 
-from sjtu_tpmshx.pipelines.stages_3d import _run_3d_stack
+from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
 
 
 def build_cube_cfg():

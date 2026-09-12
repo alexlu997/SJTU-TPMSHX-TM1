@@ -19,6 +19,7 @@ from sjtu_tpmshx.domain.run_environment import run_environment
 from sjtu_tpmshx.domain.run_warnings import range_context
 from sjtu_tpmshx.models.nu_correlations import record_raw_nu_range, warn_sco2_nu_evidence
 from sjtu_tpmshx.models.tpms_props import record_temperature_ranges
+from sjtu_tpmshx.models.local_heat_transfer import _sco2_hv_local_field
 
 from sjtu_tpmshx.solvers.coupling_skeleton import OuterConvergence, run_outer_coupling
 from sjtu_tpmshx.solvers.simple_solver_3d import SIMPLESolver3D
@@ -35,7 +36,7 @@ from sjtu_tpmshx.solvers.envelope import (check_compressible_envelope, gate_solu
 
 from .flux import (
     _face_flux_weights, _mass_weighted_T_out, _mass_weighted_h_out,
-    _sco2_hv_local_field, _simple_mass_flow,
+    _simple_mass_flow,
     _apply_roughness_h_v,
 )
 from sjtu_tpmshx.models.grid_3d import _solver_spacings
@@ -351,15 +352,6 @@ R_AIR = 287.05
 _MAX_OUTER = 12       # outer SIMPLE ↔ LTNE iterations (cap, not a budget)
 _OUTER_TOL = 0.5      # K
 _ALPHA_T = 0.6
-
-# ── M4 partial-BC closure (experimental, opt-in) ──
-# Candidate: partial_B_closure='m4_effective_area', m4_exponent=0.67,
-#            m4_eff_mode='sqrt'.
-# Default: 'none' (no closure — η_eff ≡ 1, full LTNE).
-# DO NOT set as default until Shanghai real-data RMSRE validation passes.
-_M4_DEFAULT_EXPONENT = 0.67
-_M4_DEFAULT_MODE = 'sqrt'
-
 
 def _conservation_diagnostics_3d(Ta, Tb, Ts, h_vA_field, h_vB_field,
                                  sA, sB, fA, fB, dx, dy, dz):

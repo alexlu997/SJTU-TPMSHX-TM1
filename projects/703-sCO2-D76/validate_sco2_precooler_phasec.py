@@ -37,7 +37,7 @@ from pathlib import Path
 
 import numpy as np
 
-_ROOT = Path(__file__).resolve().parents[2] / "sjtu_tpmshx"
+_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_ROOT))
 warnings.filterwarnings("ignore")
 try:
@@ -46,11 +46,11 @@ except Exception:
     pass
 
 from CoolProp.CoolProp import PropsSI                          # noqa: E402
-from solvers.tpms_calc import geometry as tpms_geometry, nu_sco2_topo  # noqa: E402
-from solvers import sco2_props as S                            # noqa: E402
-from solvers.simple_solver import SIMPLESolver                 # noqa: E402
-from solvers.ltne_energy import solve_full_domain              # noqa: E402
-from df_surrogate.predict import predict_K_cF  # noqa: E402
+from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry, nu_sco2_topo  # noqa: E402
+from sjtu_tpmshx.models import sco2_props as S                            # noqa: E402
+from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver                 # noqa: E402
+from sjtu_tpmshx.solvers.ltne_energy import solve_full_domain              # noqa: E402
+from sjtu_tpmshx.df_surrogate.predict import predict_K_cF  # noqa: E402
 # Historical D-7-6 experimental effective-cF multiplier (retired from
 # production 2026-07-15 — solver now uses the smooth-wall sCO2 CFD cF).
 # Kept LOCALLY here: this script validates the ROUGH D-7-6 experiment.
@@ -124,7 +124,7 @@ def run(n_x=240, n_y=12, max_outer=40, alpha=0.30, verbose=False):
     cp_B = _wprop("C", 0.5 * (TC_IN + TC_OUT), PC)
     k_B = _wprop("L", 0.5 * (TC_IN + TC_OUT), PC)
     u_B = MC / (rho_B * A_FLOW)
-    from solvers.nu_correlations import nu_water_topo
+    from sjtu_tpmshx.models.nu_correlations import nu_water_topo
     Re_B = rho_B * abs(u_B) * D_H / mu_B
     Pr_B = mu_B * cp_B / k_B
     Nu_B = float(nu_water_topo("Diamond", max(Re_B, 1.0), Pr_B))

@@ -15,7 +15,7 @@ Methodology:
   * Uniform L = 6 mm, t = 0.4 mm (mid of training window)
   * Shanghai air-water-like grid resolution (Nx=Ny=adaptive)
   * tol_simple loose (1e-2) to mimic BO inner; n_rho_loops=2 (single Picard)
-  * Five repeats; report cumulative across all calls
+  * One warm-up, three profiled calls, then three wall-time calls
 """
 
 from __future__ import annotations
@@ -23,23 +23,13 @@ from __future__ import annotations
 import cProfile
 import pstats
 import io
-import sys
 import time
 from pathlib import Path
 
 import numpy as np
 
-# Repo-root layout (Batch-5, 2026-06-10): benchmarks/ sits beside the
-# sjtu_tpmshx package; put the package dir on sys.path so the flat imports
-# below resolve when running `python -m benchmarks.profiling.profile_evaluator`
-# from the repo root.
-_PKG_DIR = Path(__file__).resolve().parents[2] / 'sjtu_tpmshx'
-if str(_PKG_DIR) not in sys.path:
-    sys.path.insert(0, str(_PKG_DIR))
-
-from optimization.evaluator import evaluate_design, DEFAULT_CONFIG
-# field_param was renamed to continuous_field in b0822dd (Tier-1 rename).
-from solvers.continuous_field import (
+from sjtu_tpmshx.optimization.evaluator import evaluate_design, DEFAULT_CONFIG
+from sjtu_tpmshx.models.continuous_field import (
     from_decision_vector,
     decision_bounds,
     DEFAULT_N_CTRL_X,

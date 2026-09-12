@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from types import SimpleNamespace
 
-from sjtu_tpmshx.pipelines.stages_3d import _mass_weighted_T_out  # after refactor
+from sjtu_tpmshx.solvers.backends.python.three_d.flux import _mass_weighted_T_out
 
 
 def _mock_solver(NX=12, NY=6, NZ=12, eps=0.5, rho=1000.0):

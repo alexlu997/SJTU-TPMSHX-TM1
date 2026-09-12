@@ -660,7 +660,7 @@ class ComputeConfig:
                     "criterion (it needs a previous iterate to compare "
                     "against), so the run could only ever report "
                     "converged=False. For a deliberate single-pass screening "
-                    "sweep, drive pipelines.stages_3d._run_3d_stack directly "
+                    "sweep, drive pipelines.run_stack_3d._run_3d_stack directly "
                     "with a raw cfg dict and read convergence_detail — do not "
                     "route it through the typed production config.")
 

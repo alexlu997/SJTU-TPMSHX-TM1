@@ -1,5 +1,9 @@
 # compute-contracts Specification
 
+> 历史范围：以下汇总 V2 拆分时的契约和验收要求。TM1 当前模块归属与入口见
+> [架构说明](../../../docs/architecture.md)。原 `stages_2d`、`stages_3d`、
+> `_stage_common` 转导出面已在消费者迁移后退役；下面的原拆分记录保留。
+
 ## Purpose
 计算契约（`ComputeConfig` 族 / `ComputeResult`）的归属层与 import 方向约束：契约在 `domain/`，窗口采集在 `ui/window_config.py`，controllers 只留编排/状态。来自 openspec archive `2026-07-02-contracts-layer`（架构扫描批次 A）。
 ## Requirements
@@ -160,4 +164,3 @@ numba 内核 SHALL 与 Python 驱动层分模块：`solvers/_kernels_simple_2d.p
 #### Scenario: Cache growth changes no values
 - **WHEN** 相同 (tpms, L, t) 查询命中扩容后的缓存
 - **THEN** 返回值与未缓存计算一致（lru 语义）
-

@@ -15,7 +15,7 @@ conservative-scheme convergence defect is fixed.
 import numpy as np
 import pytest
 from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry
-from sjtu_tpmshx.pipelines.stages_3d import _run_3d_stack
+from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
 
 
 def _z_mirror_asym_pct(field):

@@ -9,7 +9,7 @@ in-envelope case -> valid result, no clip.
 import pytest
 
 from sjtu_tpmshx.runs._case_template import build_cfg
-from sjtu_tpmshx.pipelines.stages_3d import _run_3d_stack
+from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
 from sjtu_tpmshx.solvers.envelope import ChokedFlowError
 
 

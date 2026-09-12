@@ -16,9 +16,10 @@ nTop "inside = field < 0". Workflow (slide 3): Evaluate Expression → Multiply
 (give the field length) → Box → Boolean Intersect. Per case: just change δ (C
 fixed per topology).
 
-Reads geom_cases from runs/_out/asym_cfd/asym_cfd_worklist.xlsx.
-Output: C:/Users/ALEX/Desktop/asym-ntop-expressions.html
-Usage:  python -u runs/cfd_asym/asym_ntop_expressions_html.py
+Reads geom_cases from sjtu_tpmshx/runs/_out/asym_cfd/asym_cfd_worklist.xlsx.
+Output: asym-ntop-expressions.html in the same directory.
+TPMSHX_TOOL_OUT_DIR overrides the producer/consumer directory.
+Usage: python -m sjtu_tpmshx.runs.cfd_asym.asym_ntop_expressions_html
 """
 import html as _html
 import os
@@ -26,12 +27,9 @@ from pathlib import Path
 
 import pandas as pd
 
-XLSX = Path(__file__).resolve().parents[1] / "_out" / "asym_cfd" / "asym_cfd_worklist.xlsx"
-# P1.7: was a dead C:\Users\ALEX\Desktop path from the old dev box. Default
-# to the gitignored runs/_out; TPMSHX_TOOL_OUT_DIR overrides.
 _OUT_DIR = Path(os.environ.get('TPMSHX_TOOL_OUT_DIR',
-                               str(Path(__file__).resolve().parents[1] / "_out")))
-_OUT_DIR.mkdir(parents=True, exist_ok=True)
+                               Path(__file__).resolve().parents[1] / "_out" / "asym_cfd"))
+XLSX = _OUT_DIR / "asym_cfd_worklist.xlsx"
 OUT = _OUT_DIR / "asym-ntop-expressions.html"
 
 # φ in nTop convention (X,Y,Z uppercase spatial coords, Pi built-in, L = cell size)

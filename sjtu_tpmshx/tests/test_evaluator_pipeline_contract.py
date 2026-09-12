@@ -26,7 +26,7 @@ def test_3d_evaluator_defaults_to_legacy_convergence():
     the production pipeline resolves to 'f2' (ledger C6/C7). Reporting
     callers (verify_pareto_3d) explicitly pass 'f2'."""
     import sjtu_tpmshx.core.evaluators as ev
-    import sjtu_tpmshx.pipelines.run_stack_3d as rs
+    from sjtu_tpmshx.solvers.backends.python.three_d import runtime as rs
     assert (inspect.signature(ev.evaluate_3d)
             .parameters['convergence_mode'].default == 'legacy')
     assert "'f2'" in inspect.getsource(rs._apply_accel_flags), (

@@ -5,30 +5,11 @@ keeps preprocessing at the orchestration boundary without modifying backend
 globals. Numerical implementations live in solvers.backends.python.three_d.
 """
 
-from sjtu_tpmshx.solvers.backends.python.three_d.runtime import (  # noqa: F401
-    _seed_p_ref,
-    _simple_tol_default,
-    _simple_max_iter,
-    _apply_phase_flags,
-    _apply_accel_flags,
-    _prof_3d_enabled,
-    _prof_res_trace,
-    _run_two_simple_parallel,
-    _conservation_diagnostics_3d,
-    _Problem3D,
-    _HvMachinery,
-    _OuterState,
-    _Metrics3D,
+from sjtu_tpmshx.solvers.backends.python.three_d.runtime import (
     _build_hv_machinery,
     _extract_3d_metrics,
     _assemble_3d_verdict,
     _run_outer_coupling_3d,
-    R_AIR,
-    _MAX_OUTER,
-    _OUTER_TOL,
-    _ALPHA_T,
-    _M4_DEFAULT_EXPONENT,
-    _M4_DEFAULT_MODE,
 )
 
 

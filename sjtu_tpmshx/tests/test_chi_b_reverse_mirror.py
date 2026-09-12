@@ -16,7 +16,7 @@ the helper (no full solve) keeps it fast and deterministic.
 from types import SimpleNamespace
 import numpy as np
 
-from sjtu_tpmshx.pipelines.stages_3d import _build_chi_B_mass_flux_threshold
+from sjtu_tpmshx.models.field_coordinates_3d import _build_chi_B_mass_flux_threshold
 
 
 def _fake_solver(Nx, Ny, Nz):

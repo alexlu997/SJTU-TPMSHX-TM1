@@ -18,7 +18,8 @@ from sjtu_tpmshx.domain.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, SolverConfig,
     PartialBCConfig, ExtrapPolicy, FeatureFlags,
 )
-import sjtu_tpmshx.pipelines.stages_3d as R
+from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg
+from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
 
 
 def _cfg(dir_B, in_ctr, out_ctr):
@@ -37,7 +38,7 @@ def _cfg(dir_B, in_ctr, out_ctr):
         extrap=ExtrapPolicy(allow=True),
         flags=FeatureFlags(wall_refine_3d=False),
     )
-    return R._parse_inputs_3d_cfg(cc)
+    return _parse_inputs_3d_cfg(cc)
 
 
 # 2026-06-09 FIXED (was xfail). Root cause was NOT the interior negate+flip
@@ -58,8 +59,8 @@ def test_reverse_y_is_mirror_of_forward_y():
     # This is the exact y-mirror of the forward case.
     cfg_rev = _cfg(dir_B=3, in_ctr=0.07, out_ctr=0.03)
 
-    res_fwd = R._run_3d_stack(cfg_fwd)
-    res_rev = R._run_3d_stack(cfg_rev)
+    res_fwd = _run_3d_stack(cfg_fwd)
+    res_rev = _run_3d_stack(cfg_rev)
 
     Tb_fwd = res_fwd['Tb']
     Tb_rev = res_rev['Tb']
@@ -123,7 +124,7 @@ def test_displayed_pressure_is_absolute_matches_inlet():
     absolute (max ~ P_in) from gauge (max ~ dP << 0.5·P_in).
     """
     P_inA, P_inB = 150000.0, 120000.0   # must match _cfg() FluidConfig P_in_Pa
-    res = R._run_3d_stack(_cfg(dir_B=2, in_ctr=0.07, out_ctr=0.03))
+    res = _run_3d_stack(_cfg(dir_B=2, in_ctr=0.07, out_ctr=0.03))
     P_A = np.asarray(res['P_Pa'])         # fluid A (air, +x)
     P_B = np.asarray(res['P_Pa_B'])       # fluid B (water, +y)
 

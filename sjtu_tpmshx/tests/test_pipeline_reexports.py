@@ -1,12 +1,8 @@
-"""Re-export surface locks (openspec maintainability-closeout, 2026-07-03).
+"""Retained solver-kernel and UI-builder import surfaces.
 
-The 2026-07-03 splits moved engine code out of stages_2d/stages_3d and the
-solver kernels out of simple_solver/simple_solver_3d/ltne_energy_3d, with
-the originals re-exporting every moved name so the external import surface
-stayed put. Those re-export blocks were locked only incidentally (tests
-importing a subset). This file locks the FULL surface — deleting any
-re-exported name is now a test failure, not a runtime surprise in some
-runs/ script.
+Research/tests still use these kernel exports. Former stages_2d/stages_3d
+consumers now import preparation, shared models and numerical entries directly;
+their existing behavior tests continue at those owning modules.
 """
 from __future__ import annotations
 
@@ -16,35 +12,6 @@ import pytest
 
 
 _SURFACE = {
-    'sjtu_tpmshx.pipelines.stages_2d': [
-        # cfg boundary (kept)
-        '_check_zoned_fluid_support', '_parse_inputs_cfg',
-        '_build_fields_cfg',
-        # re-exported from solve_2d
-        '_enthalpy_balance_2d', '_compute_pressure_2d',
-        '_compute_Q_richardson', '_run_solvers',
-    ],
-    'sjtu_tpmshx.pipelines.stages_3d': [
-        # cfg boundary (kept)
-        '_parse_inputs_3d_cfg', '_build_fields_3d_cfg',
-        '_run_solvers_3d_cfg',
-        # flux_3d
-        '_resolve_ui_roughness', '_face_flux_weights',
-        '_mass_weighted_T_out', '_mass_weighted_h_out',
-        '_sco2_hv_local_field', '_simple_mass_flow',
-        '_apply_roughness_KcF', '_apply_roughness_h_v',
-        # grid_3d
-        '_resolve_axis_map', '_build_zone_fields_3d', '_build_grid_3d',
-        '_solver_spacings',
-        # run_stack_3d
-        '_seed_p_ref', '_simple_tol_default', '_apply_phase_flags',
-        '_apply_accel_flags', '_prof_3d_enabled', '_prof_res_trace',
-        '_run_two_simple_parallel', '_conservation_diagnostics_3d',
-        '_run_3d_stack',
-        # asym + helpers passthrough
-        '_asym_split_A', '_eps_sides_for_run', '_per_side_eps_override',
-        '_build_chi_B_mass_flux_threshold',
-    ],
     'sjtu_tpmshx.solvers.simple_solver': [
         'SIMPLESolver', '_aligned_grid', 'build_wall_refined_1d',
         'build_inlet_stretched_1d',

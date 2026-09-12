@@ -32,6 +32,9 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 - `pipelines/` retains explicit scripted stage entry points. Callers import
   shared models and numerical backends directly; there are no `sys.modules`
   aliases or import-time function injection into the numerical backend.
+  The retained dictionary-based 3D entry is `run_stack_3d._run_3d_stack`.
+  Former `stages_2d`, `stages_3d` and `_stage_common` import facades are retired;
+  preparation and shared helpers are imported from their owning modules.
 - `controllers/compute_pipeline.py` sequences the public modules; the module
   adapter maps their results to the historical GUI ComputeResult contract.
   It is the sole production result mapper. The old 2D/3D mappings remain only

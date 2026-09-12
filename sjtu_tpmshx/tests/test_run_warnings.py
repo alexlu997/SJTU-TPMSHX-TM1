@@ -286,7 +286,7 @@ def test_temperature_state_comparison_does_not_evaluate_properties(monkeypatch, 
 @pytest.mark.parametrize('bound_context', [False, True])
 def test_sco2_local_raw_re_is_before_floor_without_extra_properties(monkeypatch, bound_context):
     from contextlib import nullcontext
-    from sjtu_tpmshx.solvers.backends.python.three_d.flux import _sco2_hv_local_field
+    from sjtu_tpmshx.models.local_heat_transfer import _sco2_hv_local_field
     from sjtu_tpmshx.models import sco2_props
 
     calls = []

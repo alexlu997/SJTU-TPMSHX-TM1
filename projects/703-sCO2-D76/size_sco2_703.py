@@ -47,7 +47,7 @@ from pathlib import Path
 import numpy as np
 from scipy.optimize import brentq
 
-_ROOT = Path(__file__).resolve().parents[2] / "sjtu_tpmshx"
+_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_ROOT))
 warnings.filterwarnings("ignore")
 try:
@@ -56,9 +56,9 @@ except Exception:
     pass
 
 from CoolProp.CoolProp import PropsSI                          # noqa: E402
-from solvers.tpms_calc import geometry as tpms_geometry        # noqa: E402
-from solvers.nu_correlations import nu_sco2_topo, nu_water_topo  # noqa: E402
-from df_surrogate.predict import predict_K_cF  # noqa: E402
+from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry        # noqa: E402
+from sjtu_tpmshx.models.nu_correlations import nu_sco2_topo, nu_water_topo  # noqa: E402
+from sjtu_tpmshx.df_surrogate.predict import predict_K_cF  # noqa: E402
 # Historical D-7-6 experimental effective-cF multiplier (retired from
 # production 2026-07-15 — solver now uses the smooth-wall sCO2 CFD cF).
 # Kept LOCALLY here: this script validates the ROUGH D-7-6 experiment.

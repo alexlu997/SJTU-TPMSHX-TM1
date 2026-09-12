@@ -172,7 +172,6 @@ def _mass_weighted_h_out(T_face: np.ndarray, P_ref: float,
         return float(np.mean(h_face))
 
 
-from sjtu_tpmshx.models.local_heat_transfer import _sco2_hv_local_field  # noqa: F401
 
 
 # ── Direction → axis single source ──────────────────────────────────────────

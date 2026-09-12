@@ -8,7 +8,7 @@ solenoidal → telescoping 精确成立), 在同一定尺几何 / 同一 h_v / �
 from __future__ import annotations
 import sys, time
 from pathlib import Path
-ROOT = Path(__file__).resolve().parents[2] / "sjtu_tpmshx"
+ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 try:
@@ -17,12 +17,12 @@ except Exception:
     pass
 
 import numpy as np
-import design.sizing as SZ
+import sjtu_tpmshx.design.sizing as SZ
 SZ.S_MAX = 2.0; SZ.LX_MAX = 2.0          # 放开包络 (同 predict 脚本)
-from design.sizing import size_fixed_cell
-from design.forward import forward, _hvol, K_STEEL, GEOM_N, NX, NY_CROSS
-from solvers.tpms_calc import geometry as tpms_geometry
-from solvers.ltne_energy_3d import solve_full_domain_3d
+from sjtu_tpmshx.design.sizing import size_fixed_cell
+from sjtu_tpmshx.design.forward import forward, _hvol, K_STEEL, GEOM_N, NX, NY_CROSS
+from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry
+from sjtu_tpmshx.solvers.ltne_energy_3d import solve_full_domain_3d
 from predict_aircooler_10kw import build_cases
 
 K0 = 273.15

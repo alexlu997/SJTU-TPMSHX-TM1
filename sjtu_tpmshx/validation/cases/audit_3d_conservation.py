@@ -45,7 +45,7 @@ except Exception:
     pass
 warnings.filterwarnings('ignore')
 
-from sjtu_tpmshx.pipelines.stages_3d import _run_3d_stack
+from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
 
 
 # ──────────────────────────────────────────────────────────────────────────

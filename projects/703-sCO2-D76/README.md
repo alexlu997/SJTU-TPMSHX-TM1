@@ -2,7 +2,7 @@
 
 项目合作交付：合作方 **703** 的 sCO2 印刷电路板换热器（PCHE）/ 预冷器评估。几何采用 **D-7-6**（Diamond，L=7.0 mm / t=0.6 mm）TPMS 晶胞及其对应参数。
 
-这些是**驱动脚本**——它们 `import` 主代码包 `sjtu_tpmshx/`（求解器 / 关联式 / 压降代理）来跑评估，本身不含内核代码。实验数据存放在仓库根的 `data/raw_data/D-7-6-sCO2/`。
+这些是历史研究驱动脚本，调用 `sjtu_tpmshx` 的共享模型及求解器，并保留当时的工况、局部实验标定和研究近似。下表的泄漏、误差及可信度说明属于原评估，不能作为当前 TM1 的全模型验收结论。
 
 ## 脚本一览
 
@@ -18,12 +18,17 @@
 | `validate_sco2_d76_2d.py` | D-7-6 2D 场验证。 |
 | `validate_sco2_d76_dP_holdout.py` | D-7-6 ΔP holdout（导入 `validate_sco2_d76_2d` 的 `_run_case` / `XLSX` / `GOLD`）。 |
 
-## 运行（从仓库根目录）
+## 输入、输出与运行
+
+从仓库根目录运行；`python` 必须替换为 `.venv-path` 第一行的绝对解释器，先通过锁检查及 `pip check`。Matplotlib/Qt 缓存使用本工作树忽略的 `.cache/`。脚本将仓库根加入模块路径，并导入 `sjtu_tpmshx.*`；同目录兄弟脚本保留在一起。
+
+- Gate A 读取 `data/raw_data/D-7-6实验数据-sCO2.xlsx`，逐项核对列标题，输出 6 工况及原门槛判定。2026-09-12 恢复入口后实际运行 max\|Q 误差\|=15.9%，原 15% 门槛 **FAIL**（退出 1）；没有调整工况或容差。
+- 2D 与 ΔP holdout 仍要求 `data/raw_data/D-7-6-sCO2/D-7-6实验数据-V1.xlsx`。该原文件目前缺失；上面的重导出工作簿列定义不同，不能直接替代。
+- 其余驱动使用脚本内 `DEVICES` 或固定工况，结果输出到控制台。部分历史温压超出当前 sCO2 物性域；保留域拒绝，不能通过开启外推把这些研究脚本改记为验收通过。
 
 ```bash
 python -u projects/703-sCO2-D76/validate_sco2_d76.py            # 快速 Gate A
-python -u projects/703-sCO2-D76/validate_sco2_703_coupled.py    # 可信耦合 duty
-TPMSHX_ALLOW_EXTRAP=1 python -u projects/703-sCO2-D76/validate_sco2_703_3d.py
+python -u projects/703-sCO2-D76/validate_sco2_703_coupled.py    # 历史耦合研究入口
 ```
 
-> 脚本通过 `Path(__file__).resolve().parents[2] / "sjtu_tpmshx"` 把包挂上 `sys.path`，所以从仓库根目录或本文件夹运行都能解析 `from solvers ...`。`validate_sco2_d76_*` 读取仓库根 `data/raw_data/D-7-6-sCO2/`（深度不变，搬动后无需改路径）。
+当前正式运行与支持范围见[项目 README](../../README.md)和[架构说明](../../docs/architecture.md)。

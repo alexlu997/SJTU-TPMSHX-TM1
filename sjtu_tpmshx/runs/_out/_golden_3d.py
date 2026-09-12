@@ -15,7 +15,7 @@ import numpy as np
 
 # runs/_out/_golden_3d.py → sjtu_tpmshx root is 3 dirnames up.
 
-from sjtu_tpmshx.pipelines.stages_3d import _run_3d_stack
+from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
 
 
 def _air_air_cfg(**ov):

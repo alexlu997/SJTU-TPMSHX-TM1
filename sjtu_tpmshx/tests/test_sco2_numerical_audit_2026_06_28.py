@@ -29,7 +29,7 @@ _P = 8.0e6  # Pa — CO2 pseudocritical T ≈ 307.7 K at this pressure
 def test_d1_2d_duty_uses_true_enthalpy_for_sco2():
     """`_enthalpy_balance_2d` with an enthalpy_fn returns ṁ·Δh (= the true
     duty), not ṁ·cp(T_in)·ΔT, and the two differ materially for sCO2."""
-    from sjtu_tpmshx.pipelines.stages_2d import _enthalpy_balance_2d
+    from sjtu_tpmshx.solvers.backends.python.two_d.coupling import _enthalpy_balance_2d
     m = fluid_props.get('sco2')
 
     Nx, Ny = 4, 3
@@ -63,7 +63,7 @@ def test_d1_2d_duty_uses_true_enthalpy_for_sco2():
 
 def test_d1_air_path_unchanged_without_enthalpy_fn():
     """No enthalpy_fn → byte-identical legacy ρcp·ΔT arithmetic (air/water)."""
-    from sjtu_tpmshx.pipelines.stages_2d import _enthalpy_balance_2d
+    from sjtu_tpmshx.solvers.backends.python.two_d.coupling import _enthalpy_balance_2d
     rng = np.random.default_rng(0)
     Ta = 300.0 + rng.random((5, 4)) * 50.0
     uc = rng.random((5, 4)) + 0.1
@@ -90,7 +90,7 @@ def _fake_outlet_solver(Nx, Nz):
 
 
 def test_d2_mass_weighted_outlet_enthalpy_not_h_of_mean():
-    from sjtu_tpmshx.pipelines.stages_3d import _mass_weighted_h_out, _mass_weighted_T_out
+    from sjtu_tpmshx.solvers.backends.python.three_d.flux import _mass_weighted_h_out, _mass_weighted_T_out
     Nx, Nz = 2, 2
     T_face = np.array([[300.0, 315.0], [305.0, 312.0]])   # straddles the spike
     solver = _fake_outlet_solver(Nx, Nz)
@@ -120,7 +120,7 @@ def test_d3_sco2_hv_uses_local_temperature_props(monkeypatch):
     # kill it here so the original local-vs-frozen intent stays verbatim
     # (γ_Nu's own behaviour is covered by test_sco2_gamma_nu.py).
     monkeypatch.setenv('TPMSHX_SCO2_GAMMA_NU', '0')
-    from sjtu_tpmshx.pipelines.stages_3d import _sco2_hv_local_field
+    from sjtu_tpmshx.models.local_heat_transfer import _sco2_hv_local_field
     from sjtu_tpmshx.models.tpms_calc import nu_sco2_topo
 
     A_0, D_h_m = 500.0, 1.0e-3

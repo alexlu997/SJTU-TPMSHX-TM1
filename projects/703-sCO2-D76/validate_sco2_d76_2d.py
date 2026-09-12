@@ -38,7 +38,7 @@ import numpy as np
 import openpyxl
 from openpyxl.utils import column_index_from_string as ci
 
-_ROOT = Path(__file__).resolve().parents[2] / "sjtu_tpmshx"
+_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_ROOT))
 warnings.filterwarnings('ignore')
 try:
@@ -47,23 +47,23 @@ except Exception:
     pass
 
 from CoolProp.CoolProp import PropsSI                         # noqa: E402
-from solvers.tpms_calc import (compute as tpms_compute, adaptive_grid,
+from sjtu_tpmshx.models.tpms_calc import (compute as tpms_compute, adaptive_grid,
                                nu_sco2_topo)
-from solvers import sco2_props as S                           # noqa: E402
-from solvers.simple_solver import SIMPLESolver                # noqa: E402
-from solvers.ltne_energy import solve_full_domain             # noqa: E402
-from solvers.df_projection import (build_master_refined_grid,  # noqa: E402
+from sjtu_tpmshx.models import sco2_props as S                           # noqa: E402
+from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver                # noqa: E402
+from sjtu_tpmshx.solvers.ltne_energy import solve_full_domain             # noqa: E402
+from sjtu_tpmshx.solvers.df_projection import (build_master_refined_grid,  # noqa: E402
                                    extract_dP_mass_flux_from_simple)
-from df_surrogate.predict import predict_K_cF  # noqa: E402
+from sjtu_tpmshx.df_surrogate.predict import predict_K_cF  # noqa: E402
 # Historical D-7-6 experimental effective-cF multiplier (retired from
 # production 2026-07-15 — solver now uses the smooth-wall sCO2 CFD cF).
 # Kept LOCALLY here: this script validates the ROUGH D-7-6 experiment.
 SCO2_CF_SCALE = 3.39
 # Module moved to validation/harness/ (c3635cd-era reorg); old path broke
 # this script — the calibration driver for the production SCO2_CF_SCALE.
-from validation.harness._case_sets import d76_spec             # noqa: E402
+from sjtu_tpmshx.validation.harness._case_sets import d76_spec             # noqa: E402
 
-XLSX = (_ROOT.parent / "data" / "raw_data" / "D-7-6-sCO2"
+XLSX = (_ROOT / "data" / "raw_data" / "D-7-6-sCO2"
         / "D-7-6实验数据-V1.xlsx")
 GOLD = [15, 20, 21, 32, 37, 38]
 GATE_PCT = 15.0

@@ -189,8 +189,8 @@ def test_water_vector_eos_exception_does_not_invent_failed_index(monkeypatch):
 @pytest.mark.parametrize('dimension', [2, 3])
 def test_pipeline_inlet_checks_both_water_sides_before_domain_work(side, dimension):
     from sjtu_tpmshx.domain.compute_config import ComputeConfig, FluidConfig
-    from sjtu_tpmshx.pipelines.stages_2d import _parse_inputs_cfg
-    from sjtu_tpmshx.pipelines.stages_3d import _parse_inputs_3d_cfg
+    from sjtu_tpmshx.preprocess.two_d.preparation import _parse_inputs_cfg
+    from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg
     cfg = ComputeConfig(fluid_A=FluidConfig(type='water'),
                         fluid_B=FluidConfig(type='water'))
     getattr(cfg, 'fluid_' + side).T_in_K = 400.

@@ -38,7 +38,7 @@ except Exception:
     pass
 warnings.filterwarnings('ignore')
 
-from sjtu_tpmshx.pipelines.stages_3d import _run_3d_stack
+from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
 from sjtu_tpmshx.validation.harness._provenance import write_csv_with_provenance
 from sjtu_tpmshx.validation.cases.audit_3d_conservation import (
     make_T2, make_T4_H8,
