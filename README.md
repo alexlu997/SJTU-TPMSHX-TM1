@@ -167,10 +167,10 @@ Case YAML 引用伴随 HDF5；result/VTK 导出和严格指标 JSON 的限制见
 | 参数扫描与有效场输入 | [公开示例](examples/) | 不改求解器私有成员 |
 | 离线清洗与 Nu 拟合 | `preprocess.offline` | 显式选择数据来源，不自动替换生产模型；旧 RBF 发布入口已退役 |
 
-当前计算域仅支持 **Rectangle（矩形）2D/3D**。Hexagon / Octagon 选项暂停使用，
+当前计算域仅支持 **Rectangle（矩形）2D/3D**。Hexagon / Octagon 计算路线已退役，
 旧多边形配置仍可查看、保存，但点击计算会明确拒绝，也不会自动改成矩形。
-旧多边形实现不满足主线的可压缩空气、多流体及独立模块交接约束，重新开放须完成
-相应实现与验证；本次关闭入口不改变矩形求解模型。
+旧多边形代码通过[固定历史](docs/history/retired-tools.md)保留，重新开放须完成
+主线物理规则及独立模块交接的实现与验证。
 
 `models/`、`df_surrogate/` 等是共享技术支撑，不是第四个业务模块。旧 Pipeline/应用
 入口单向调用公开模块。具体边界见[架构说明](docs/architecture.md)。

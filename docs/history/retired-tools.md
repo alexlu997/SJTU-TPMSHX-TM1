@@ -47,3 +47,14 @@ A1/benchmark A 的旧输入原已缺失，历史代码不代表可在当前目�
 
 当前模型及数据约定见[架构](../architecture.md)和[数据目录](../data-catalog.md)；
 旧 RBF/γ 模型与更早的资料见[模型退役索引](legacy-models.md)和[历史总索引](README.md)。
+
+## 多边形计算退役
+
+公开 Compute 已拒绝 Hexagon/Octagon；删除旧计算实现和三角剖分，保留
+`unstructured_mesh.hexagon/octagon` 供旧预设查看、保存和流体输入展示。
+
+| 原路径 | 固定历史入口 |
+| --- | --- |
+| `sjtu_tpmshx/ui/polygon_calc.py` | [原实现](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/b1af7edcea5796aa955aa8fae1785be3c1b57e1d/sjtu_tpmshx/ui/polygon_calc.py) |
+| `sjtu_tpmshx/solvers/polygon_fvm.py` | [原实现](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/b1af7edcea5796aa955aa8fae1785be3c1b57e1d/sjtu_tpmshx/solvers/polygon_fvm.py) |
+| `sjtu_tpmshx/solvers/unstructured_mesh.py` | [原实现](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/b1af7edcea5796aa955aa8fae1785be3c1b57e1d/sjtu_tpmshx/solvers/unstructured_mesh.py) |
