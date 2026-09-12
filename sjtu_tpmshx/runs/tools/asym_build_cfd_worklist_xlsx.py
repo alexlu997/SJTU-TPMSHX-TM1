@@ -1,7 +1,7 @@
 """asym_build_cfd_worklist_xlsx.py — Phase 1 asym-porosity CFD worklist (water-cfd-raw style).
 
 Mirrors the prior water-side correlation-CFD design (TPMS水_关联式拟合CFD工况 →
-water-cfd-raw.xlsx) so the asymmetric (offset-δ) dP calibration reuses the SAME
+water_DG_cfd_results_legacy.xlsx) so the asymmetric (offset-δ) dP calibration reuses the SAME
 proven domain + post-processing:
 
   domain  = [15mm straight inlet] + [1×3 offset-TPMS core] + [15mm straight outlet]
@@ -65,12 +65,12 @@ OUT = Path(os.environ.get("TPMSHX_TOOL_OUT_DIR",
                           Path(__file__).resolve().parents[1] / "_out" / "asym_cfd"))
 XLSX = OUT / "asym_cfd_worklist.xlsx"
 
-# water-cfd-raw.xlsx (prior water-side smooth-wall CFD) = the symmetric r=1 anchor
+# water_DG_cfd_results_legacy.xlsx (prior water-side smooth-wall CFD) = the symmetric r=1 anchor
 # for the B (water) side. D-5 / G-5 sheets, wall_thickness_mm==4 (= t0.4 mm) cover
 # the locked L5/t0.4 geometry. We pre-fit (K, c_F) here so it doubles as a recipe-
 # match validation anchor: a freshly-meshed r=1 water run (same recipe as the asym
 # r>1 runs) should reproduce these K/c_F before its κ denominator is trusted.
-WATER_RAW = Path(__file__).resolve().parents[3] / "data" / "raw_data" / "water-cfd-raw.xlsx"
+WATER_RAW = Path(__file__).resolve().parents[3] / "data" / "raw_data" / 'cfd/water/water_DG_cfd_results_legacy.xlsx'
 R1_RE_MAX = 3000   # fit Re window = the B-side operating range in this worklist
 
 # ── styles ───────────────────────────────────────────────────────
@@ -97,7 +97,7 @@ def _delta_for_split(phi, C, target, n=6000):
 
 
 def _water_r1_ref():
-    """Read water-cfd-raw.xlsx D-5/G-5 @t0.4 and relative-weighted DF-fit (K, c_F).
+    """Read water_DG_cfd_results_legacy.xlsx D-5/G-5 @t0.4 and relative-weighted DF-fit (K, c_F).
 
     |ΔP|/L = (μ/K)·Um + c_F·ρ·Um²  fit as a·Um + b·Um² with w=1/(ΔP/L)
     (relative weighting — absolute lstsq over a 5-decade ΔP range biases K ~10×).
@@ -211,7 +211,7 @@ def build():
         ("【物性】 A 侧 = air 可压 ideal-gas ρ(P,T) @Tref=300K；B 侧 = water @Tref=325K（复用水物性表）。κ 与流体无关，物性只定 Um/ṁ。", None),
         ("", None),
         ("【r=1 对称锚状态】", Font(bold=True, size=12)),
-        ("  水侧 r=1 = water-cfd-raw.xlsx D-5/G-5 (wall_thickness_mm=4 = t0.4) 已有数据 → 预拟 (K, c_F) 见 r1_water_ref sheet。", None),
+        ("  水侧 r=1 = water_DG_cfd_results_legacy.xlsx D-5/G-5 (wall_thickness_mm=4 = t0.4) 已有数据 → 预拟 (K, c_F) 见 r1_water_ref sheet。", None),
         ("  空气侧 r=1 = 无旧数据（water-cfd-raw 是纯水），必须新跑。", None),
         ("  ⚠ κ(r)=X(r)/X(1) 抵消 entrance/mesh/turbulence 只在分子(r>1)与分母(r=1)同 recipe 时成立。", None),
         ("  旧 water-cfd-raw 是旧 CFD recipe → 新 r=1 应在同一 nTop+Fluent recipe 下重跑，旧数据仅作 validation 对账（新 r=1 应复现 r1_water_ref 的 K/c_F 再信其 κ 分母）。", None),
@@ -320,14 +320,14 @@ def build():
     ref = _water_r1_ref()
     ws = wb.create_sheet("r1_water_ref")
     note = ws.cell(row=1, column=1, value=(
-        "水侧 r=1 对称锚 — 预拟自 water-cfd-raw.xlsx (D-5/G-5, wall_thickness_mm=4=t0.4, "
+        "水侧 r=1 对称锚 — 预拟自 water_DG_cfd_results_legacy.xlsx (D-5/G-5, wall_thickness_mm=4=t0.4, "
         f"Re≤{R1_RE_MAX}, w=1/(ΔP/L) 相对加权)。|ΔP|/L=(μ/K)·Um+c_F·ρ·Um²。"))
     note.font = Font(bold=True, color="1F4E79")
     ws.cell(row=2, column=1, value=(
         "⚠ 旧 recipe。新 r=1 (同 nTop+Fluent recipe) 应复现下方 K/c_F 才信其 κ 分母；空气侧 r=1 无旧数据须新跑。")
     ).font = Font(italic=True, color="C00000")
     if not ref:
-        ws.cell(row=4, column=1, value="(water-cfd-raw.xlsx 未找到，跳过)").font = Font(color="C00000")
+        ws.cell(row=4, column=1, value="(water_DG_cfd_results_legacy.xlsx 未找到，跳过)").font = Font(color="C00000")
     else:
         # summary block
         scols = ["lattice", "fluid", "t_mm", "n_pts", "Re_min", "Re_max",
@@ -368,7 +368,7 @@ def build():
         for tpms, d in ref.items():
             print(f"  r1_water_ref {tpms}: K={d['K']:.3e} c_F={d['cF']:.1f} RMSRE={d['rmsre']:.1f}%")
     else:
-        print("  r1_water_ref : water-cfd-raw.xlsx 未找到 (跳过)")
+        print("  r1_water_ref : water_DG_cfd_results_legacy.xlsx 未找到 (跳过)")
 
 
 if __name__ == "__main__":

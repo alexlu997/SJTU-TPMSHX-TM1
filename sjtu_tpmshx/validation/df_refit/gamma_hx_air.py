@@ -32,6 +32,9 @@ import numpy as np
 import pandas as pd
 
 from sjtu_tpmshx.validation.df_refit.gamma_specimen import fit_specimen_gamma
+from sjtu_tpmshx.validation.hx_experiments import (
+    A_FLOW, L_FLOW, P_ATM, R_AIR, DP_FLOOR_PA, DH_REF, AIR_BOOKS as _BOOKS,
+    air_mu as _air_mu, load_air_cases as _load_cases)
 from sjtu_tpmshx.logutil import get_logger
 
 _log = get_logger(__name__)
@@ -40,61 +43,6 @@ _REPO = Path(__file__).resolve().parents[3]
 _DEV_CSV = (_REPO / "sjtu_tpmshx" / "df_surrogate" / "_prebuilt"
             / "df_cfd_coeffs_dev.csv")
 REPORT_DIR = _REPO / "reports" / "df_refit"
-
-R_AIR = 287.05
-P_ATM = 101325.0
-L_FLOW = 0.182                    # 流道长度 m（D-7-6 工作簿 B 列，7-6 同芯）
-# 整机每侧流通面积 = ε_side × 迎风面积（42×42mm=1.764e-3 m²）——三方自洽：
-#   Diamond 5.94e-4（D-7-6 工作簿 D 列实测值；0.3373×1.764e-3=5.95e-4 ✓）
-#   Gyroid  6.50e-4（G 表 密度/速度 列反推恒定值；0.3684×1.764e-3=6.50e-4 ✓）
-# 首版曾给 G 误用 D 值（差 ×1.094 ⇒ Forchheimer 项 ×1.20），已纠。
-A_FLOW = {"Diamond": 5.94e-4, "Gyroid": 6.50e-4}
-
-_BOOKS = {
-    "Diamond": ("20260609-水直空气侧-D_7_6.xlsx", "Sheet1"),
-    "Gyroid": ("20260407-上海电气天然气加热器实验工况 -调换进出口-G_7_6.xlsx",
-               "Sheet1"),
-}
-_NEED = ["样机空气流量kg/s", "空气进口温度/℃", "空气出口温度/℃",
-         "空气进口压力/Pa", "空气出口压力/Pa"]
-
-# 仪表地板筛（iter 75 补）：两表的**最低流量工况**都远离 γ_HX 平台
-#   D 工况1 Δp=893 Pa γ=0.69 / G 工况1 Δp=336 Pa γ=0.33，
-#   而次低点已是 4474 / 3925 Pa（γ 1.02 / 1.16）。阈值落在 (893, 3925) Pa
-#   这段宽空隙里取任意值结果都不变——2000 取其中段，非刀刃阈值。
-#   水侧同类缺陷（G 工况1 Δp=−48.4 Pa 负压差）见 gamma_hx_water。
-DP_FLOOR_PA = 2000.0
-
-
-def _air_mu(T_K: float) -> float:
-    """Sutherland（与求解器 air_viscosity 同式，避免拖 solver 依赖）。"""
-    return 1.716e-5 * (T_K / 273.15) ** 1.5 * (273.15 + 110.4) / (T_K + 110.4)
-
-
-def _load_cases(topo: str) -> pd.DataFrame:
-    book, sheet = _BOOKS[topo]
-    d = pd.read_excel(_REPO / "data" / "raw_data" / book,
-                      sheet_name=sheet, header=1)
-    missing = [c for c in _NEED if c not in d.columns]
-    if missing:
-        raise RuntimeError(f"{topo}: 列缺失 {missing} —— 表版式变了，重核列图")
-    d = d[d.iloc[:, 0].astype(str).str.startswith("工况")].copy()
-    d = d.dropna(subset=_NEED)
-    d = d[(d["样机空气流量kg/s"] > 0)
-          & (d["空气进口压力/Pa"] > d["空气出口压力/Pa"])]
-    d = d.reset_index(drop=True)
-    d["case"] = d.iloc[:, 0].astype(str)
-    dp = d["空气进口压力/Pa"] - d["空气出口压力/Pa"]
-    # 缺陷 1：仪表地板（最低流量端）
-    d["dp_floor"] = dp < DP_FLOOR_PA
-    # 缺陷 2：除 ṁ 外逐位重复的行——D_7_6 气表 工况10/11 与**同一样机的水表
-    # 同名工况**同址复现（gamma_hx_water 已记），两表同源复制粘贴，其一必错
-    key = ["空气进口温度/℃", "空气出口温度/℃",
-           "空气进口压力/Pa", "空气出口压力/Pa"]
-    d["dup_row"] = d.duplicated(subset=key, keep=False)
-    d["excluded"] = d.dp_floor | d.dup_row
-    return d
-
 
 def dp_pred_compressible(P_in: float, T_bar: float, G: float, K: float,
                          cF_eff: float, L: float = L_FLOW) -> float | None:
@@ -143,7 +91,7 @@ def run() -> pd.DataFrame:
             if dp_pred is None:
                 continue                     # 谱外点不进带
             rho_in = P_in / (R_AIR * T_in)
-            Re_in = G * (2 * 1.2995e-3) / mu   # Dh(D7/0.6)≈2.599mm 量级参考
+            Re_in = G * DH_REF / mu   # Dh(D7/0.6)≈2.599mm 量级参考
             rows.append(dict(
                 topo=topo, mdot=mdot, Re_ref=Re_in,
                 dp_meas=dp_meas, dp_pred_spec=dp_pred,

@@ -80,7 +80,7 @@ P_ATM = P_atm
 _KS = 16.0
 K_MIN = 1e-8  # TEMPORARY: lowered from 1e-7 to let L>=5 use real K. Revisit later.
 
-XLSX = _PROJECT / "data" / "raw_data" / "试验记录表_整理版.xlsx"
+XLSX = _PROJECT / "data" / "raw_data" / 'experiments/air/air_DG_specimen_experiment_summary.xlsx'
 
 # Pre-built calibrated coefficients (derived, NOT raw experiment data). The
 # raw training Excel is gitignored (data/ + *.xlsx). To let CI and any clone
@@ -505,7 +505,7 @@ class SurrogateV3:
 def eval_shanghai(model: SurrogateV3, L: float = 7.0, t: float = 0.6):
     """Evaluate on Shanghai 16 cases."""
     sh_xlsx = _PROJECT / "data" / "raw_data" / \
-              "20260401-上海电气天然气加热器实验工况.xlsx"
+              'experiments/water_air/water-air_G7-t0p6_shanghai_experiment_20260401.xlsx'
     sh = pd.read_excel(str(sh_xlsx), engine="openpyxl",
                        sheet_name="Sheet1", header=None, skiprows=2)
     # Canonical Shanghai params: see configs/shanghai_baseline.json

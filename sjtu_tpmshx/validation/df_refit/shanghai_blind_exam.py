@@ -172,9 +172,8 @@ def _score(csv: Path) -> pd.DataFrame:
 # --------------------------------------------------------------------------
 # 决定性对照：考卷与 γ_HX 锚其实是同一台样机的两次实验
 # --------------------------------------------------------------------------
-_BOOK_EXAM = "20260401-上海电气天然气加热器实验工况.xlsx"
-_BOOK_ANCHOR = ("20260407-上海电气天然气加热器实验工况 -调换进出口-"
-                "G_7_6.xlsx")
+_BOOK_EXAM = 'experiments/water_air/water-air_G7-t0p6_shanghai_experiment_20260401.xlsx'
+_BOOK_ANCHOR = 'experiments/water_air/water-air_G7-t0p6_shanghai_experiment_ports-swapped_20260407.xlsx'
 
 
 def campaign_compare() -> pd.DataFrame:

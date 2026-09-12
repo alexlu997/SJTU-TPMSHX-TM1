@@ -57,7 +57,7 @@ from sjtu_tpmshx.logutil import get_logger
 _log = get_logger(__name__)
 
 _REPO = Path(__file__).resolve().parents[3]
-_XLSX = _REPO / "data" / "raw_data" / "试验记录表_整理版.xlsx"
+_XLSX = _REPO / "data" / "raw_data" / 'experiments/air/air_DG_specimen_experiment_summary.xlsx'
 REPORT_DIR = _REPO / "reports" / "df_refit"
 P_ATM = 101325.0
 # surrogate_v3.py:188-215 的列位，逐位复刻（改了这里就是改了锚的口径）

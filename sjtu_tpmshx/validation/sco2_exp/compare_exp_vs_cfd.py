@@ -920,7 +920,7 @@ def build_html(res: list[dict], charts: dict[str, str],
       <div class="row"><span class="k">Pr 范围</span>
         <span class="v">0.79 – 1.04（远临界）</span></div>
       <div class="row"><span class="k">数据源</span>
-        <span class="v"><code>sCO2-Experient.xlsx</code></span></div>"""
+        <span class="v"><code>sco2_DG7-t0p6_hx_experiment_summary.xlsx</code></span></div>"""
     ver = "（CFD 代入几何版）" if subst_geom else ""
     ver_eb = " · CFD 代入几何版" if subst_geom else ""
     toc = [("01", "数据与过滤", "s1"), ("02", "关联式与倍数", "s2"),

@@ -50,57 +50,20 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from sjtu_tpmshx.validation.df_refit.gamma_hx_air import (
-    A_FLOW, L_FLOW, _dev_node)
+from sjtu_tpmshx.validation.df_refit.gamma_hx_air import _dev_node
+from sjtu_tpmshx.validation.hx_experiments import (
+    A_FLOW, L_FLOW, DH_REF, WATER_SHEETS as _SHEETS,
+    load_water_cases as _load_cases)
 from sjtu_tpmshx.validation.df_refit.gamma_hx_air import run as run_air
 from sjtu_tpmshx.validation.df_refit.gamma_specimen import fit_specimen_gamma
 from sjtu_tpmshx.models.tpms_props import water_density, water_viscosity
 from sjtu_tpmshx.models.fluid_props import check_water_state
-from sjtu_tpmshx.validation.water_exp import with_water_absolute_pressures
 from sjtu_tpmshx.logutil import get_logger
 
 _log = get_logger(__name__)
 
 _REPO = Path(__file__).resolve().parents[3]
-_BOOK = _REPO / "data" / "raw_data" / "7-6-Water-dp.xlsx"
 REPORT_DIR = _REPO / "reports" / "df_refit"
-
-# 表头行号逐 sheet 不同：G_7_6 首行是标题带（"水侧进口温度150℃"），
-# D_7_6 首行即列名。写死并在 _load_cases 里校验列名，版式变了立刻炸。
-_SHEETS = {"Diamond": ("D_7_6", 0), "Gyroid": ("G_7_6", 1)}
-_NEED = ["样机水流量kg/s", "水进口温度/℃", "水出口温度/℃",
-         "水进口压力/Pa", "水出口压力/Pa", "水侧压差/Pa"]
-# 参考 Re 的特征长度：沿用气侧工具的 2.599 mm（`gamma_hx_air.py:115`）以便
-# 两侧 Re 同尺；D-7-6 工作簿 特征长度 列记 2.57 mm（差 1.1%，仅读数不进 γ）。
-DH_REF = 2.599e-3
-
-
-def _load_cases(topo: str) -> pd.DataFrame:
-    sheet, header = _SHEETS[topo]
-    d = pd.read_excel(_BOOK, sheet_name=sheet, header=header)
-    missing = [c for c in _NEED if c not in d.columns]
-    if missing:
-        raise RuntimeError(f"{topo}: 列缺失 {missing} —— 表版式变了，重核列图")
-    d = d[d.iloc[:, 0].astype(str).str.startswith("工况")].copy()
-    d = d.dropna(subset=_NEED)
-    d = d[d["样机水流量kg/s"] > 0].reset_index(drop=True)
-    d["case"] = d.iloc[:, 0].astype(str)
-
-    # 缺陷 1：负压差（传感器地板）
-    d["dp_nonphysical"] = d["水侧压差/Pa"] <= 0.0
-    # 缺陷 2：除 ṁ 外逐位重复的行（原始表复制粘贴）
-    key = ["水进口温度/℃", "水出口温度/℃", "水进口压力/Pa",
-           "水出口压力/Pa", "水侧压差/Pa"]
-    d["dup_row"] = d.duplicated(subset=key, keep=False)
-    # 一致性自检：压差列 == 进口 − 出口（表若改为独立差压计读数，这里会亮）
-    resid = (d["水侧压差/Pa"]
-             - (d["水进口压力/Pa"] - d["水出口压力/Pa"])).abs().max()
-    if resid > 1e-6:
-        _log.warning("%s: 压差列与进出口差不一致（max %.3g Pa）——口径变了，"
-                     "核实哪一列是原始读数", topo, resid)
-    return with_water_absolute_pressures(
-        d, source=_BOOK, sheet=sheet, tin="水进口温度/℃", tout="水出口温度/℃",
-        pin="水进口压力/Pa", pout="水出口压力/Pa")
 
 
 def run() -> pd.DataFrame:
@@ -195,7 +158,7 @@ def main() -> int:
     for t, g in air.groupby("topo"):
         # 气侧 Darcy 份额：C 的两项之比（与水侧同定义，闭式里逐点不变）
         G = g.mdot.to_numpy(float) / A_FLOW[t]
-        mu = G * (2 * 1.2995e-3) / g.Re_ref.to_numpy(float)
+        mu = G * DH_REF / g.Re_ref.to_numpy(float)
         K_dev, cF_dev = _dev_node(t)
         dar = mu * G / K_dev
         forc = g.g_spec.to_numpy(float) * cF_dev * G * G

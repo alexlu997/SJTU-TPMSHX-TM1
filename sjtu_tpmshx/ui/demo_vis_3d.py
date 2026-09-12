@@ -55,7 +55,7 @@ A_FLOW = N_UNITS * 18.0565e-6
 def run_case_8_fields(Nx=30, Ny=15, Nz=5, max_outer=3):
     """Run Shanghai case 8 (mid-Re) and return solver + Ta for visualisation."""
     data_path = (ROOT.parent / 'data' / 'raw_data'
-                 / '20260401-上海电气天然气加热器实验工况.xlsx')
+                 / 'experiments/water_air/water-air_G7-t0p6_shanghai_experiment_20260401.xlsx')
     if not data_path.exists():
         raise FileNotFoundError(f'required demo data not found: {data_path}')
     df = pd.read_excel(data_path, engine='openpyxl', sheet_name='Sheet1',

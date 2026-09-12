@@ -22,7 +22,7 @@ from sjtu_tpmshx.models.nu_correlations import (
 )
 
 _REPO = Path(__file__).resolve().parents[2]
-_SCO2_XLSX = _REPO / "data" / "raw_data" / "sCO2-Experient.xlsx"
+_SCO2_XLSX = _REPO / "data" / "raw_data" / 'experiments/sco2/sco2_DG7-t0p6_hx_experiment_summary.xlsx'
 
 
 @pytest.fixture(autouse=True)

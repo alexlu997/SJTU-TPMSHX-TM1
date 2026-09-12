@@ -346,7 +346,7 @@ def build_html(res: list[dict], chart: str, fcharts: dict,
       <div class="row"><span class="k">Pr 范围</span>
         <span class="v">{pr_lo:.2f} – {pr_hi:.2f}（远临界）</span></div>
       <div class="row"><span class="k">数据源</span>
-        <span class="v"><code>sCO2-Experient.xlsx</code></span></div>"""
+        <span class="v"><code>sco2_DG7-t0p6_hx_experiment_summary.xlsx</code></span></div>"""
     return page(
         title="sCO2 实验 Nu（逐温度）vs CFD 关联式",
         eyebrow=f"SJTU-TPMSHX · D-7-6 / G-7-6 逐温度 Nu 对标 · {stamp}",

@@ -63,8 +63,8 @@ SCO2_CF_SCALE = 3.39
 # this script — the calibration driver for the production SCO2_CF_SCALE.
 from sjtu_tpmshx.validation.harness._case_sets import d76_spec             # noqa: E402
 
-XLSX = (_ROOT / "data" / "raw_data" / "D-7-6-sCO2"
-        / "D-7-6实验数据-V1.xlsx")
+XLSX = (_ROOT / "data" / "raw_data" / "experiments" / "sco2" / "d76"
+        / "sco2_D7-t0p6_hx_experiment_values_v1.xlsx")
 GOLD = [15, 20, 21, 32, 37, 38]
 GATE_PCT = 15.0
 _MAX_COUPLING, _COUP_TOL, _DT_TOL, _ALPHA = 10, 0.01, 1.0, 0.7

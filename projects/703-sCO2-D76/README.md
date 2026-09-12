@@ -22,8 +22,8 @@
 
 从仓库根目录运行；`python` 必须替换为 `.venv-path` 第一行的绝对解释器，先通过锁检查及 `pip check`。Matplotlib/Qt 缓存使用本工作树忽略的 `.cache/`。脚本将仓库根加入模块路径，并导入 `sjtu_tpmshx.*`；同目录兄弟脚本保留在一起。
 
-- Gate A 读取 `data/raw_data/D-7-6实验数据-sCO2.xlsx`，逐项核对列标题，输出 6 工况及原门槛判定。2026-09-12 恢复入口后实际运行 max\|Q 误差\|=15.9%，原 15% 门槛 **FAIL**（退出 1）；没有调整工况或容差。
-- 2D 与 ΔP holdout 仍要求 `data/raw_data/D-7-6-sCO2/D-7-6实验数据-V1.xlsx`。该原文件目前缺失；上面的重导出工作簿列定义不同，不能直接替代。
+- Gate A 读取 `data/raw_data/experiments/sco2/d76/sco2_D7-t0p6_hx_experiment_arranged.xlsx`，逐项核对列标题，输出 6 工况及原门槛判定。2026-09-12 恢复入口后实际运行 max\|Q 误差\|=15.9%，原 15% 门槛 **FAIL**（退出 1）；没有调整工况或容差。
+- 2D 与 ΔP holdout 读取 `data/raw_data/experiments/sco2/d76/sco2_D7-t0p6_hx_experiment_values_v1.xlsx`，holdout 复用 2D 脚本的路径。该原 V1 文件存在；此前“文件缺失”的说明有误。它与 Gate A 的整理版列定义不同，各自保留原列映射。
 - 其余驱动使用脚本内 `DEVICES` 或固定工况，结果输出到控制台。部分历史温压超出当前 sCO2 物性域；保留域拒绝，不能通过开启外推把这些研究脚本改记为验收通过。
 
 ```bash

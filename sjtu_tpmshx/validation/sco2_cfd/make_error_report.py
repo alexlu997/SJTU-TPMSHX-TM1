@@ -630,7 +630,7 @@ render();
              ("06", "逐 case 明细", "s6")],
         body=body,
         footer_left="SJTU-TPMSHX — sCO2 CFD calibration",
-        footer_right=f"数据 data/raw_data/sCO2-CFD · 台账条目 SCO2-CFD · {stamp}",
+        footer_right=f"数据 data/raw_data/cfd/sco2 · 台账条目 SCO2-CFD · {stamp}",
         extra_css=extra_css, scripts=scripts)
 
 

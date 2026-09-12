@@ -1,6 +1,6 @@
 # sco2_cfd — sCO2 单胞 CFD（双拓扑）：Nu 关联式构建 + D-F(cF) 标定
 
-> 数据：`data/raw_data/sCO2-CFD/{Diamond,Gyroid}/`（见该目录 README：
+> 数据：`data/raw_data/cfd/sco2/{Diamond,Gyroid}/`（见该目录 README：
 > Diamond 4000 + Gyroid 3000 例，光滑壁 RANS 无重力，Twall=Tref+50K，
 > P∈{8,10,12,15} MPa 锚 T_pc(P)，每晶格计划 5400 例分批上传）。
 > 加载统一走 `df_surrogate/load_sco2_cfd.py`（`lattice` 参数；重算 repo

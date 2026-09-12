@@ -250,15 +250,17 @@ repository:
 
 ```text
 data/raw_data/
-├── *.xlsx
-├── sCO2-CFD/
-│   ├── Diamond/
-│   └── Gyroid/
-└── CO2-CFD/
-    ├── Diamond/
-    └── Gyroid/
+├── experiments/{air,water_air,sco2}/
+├── cfd/
+│   ├── water/
+│   ├── sco2/{Diamond,Gyroid}/
+│   └── co2/{Diamond,Gyroid}/
+└── plans/water/
 ```
 
 Do not rename dataset directories without first updating the loader that names
 that exact path. Generated reports must not become a second source of truth for
 raw measurements.
+The [data catalog](data-catalog.md) maps original filenames to this layout.
+Workbook names also select the explicitly confirmed water pressure convention;
+renaming them requires updating that registry and its caller tests together.

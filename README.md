@@ -202,6 +202,8 @@ export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
 原始实验/CFD 数据位于本地 `data/raw_data/`，不提交。匹配版本见
 [data-revision.txt](data-revision.txt)。清洗、拟合和本地输出规则见
 [离线模型说明](docs/plans/three-module-graph/decisions/offline_models.md)。
+目录按实验、CFD 结果和工况计划分类；Excel 的新旧名称、用途及读取约束见
+[数据目录与文件名对照](docs/data-catalog.md)。移动数据时须同步加载器和压力口径识别。
 当前水 CFD 工作簿缺失时不以旧版文件替代。
 
 原 README 的历史精度与物理说明原样保存在

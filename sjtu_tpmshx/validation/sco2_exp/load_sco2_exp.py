@@ -44,7 +44,7 @@ from sjtu_tpmshx.logutil import get_logger  # noqa: E402
 
 _log = get_logger(__name__)
 
-XLSX = _PKG_ROOT.parent / "data" / "raw_data" / "sCO2-Experient.xlsx"
+XLSX = _PKG_ROOT.parent / "data" / "raw_data" / 'experiments/sco2/sco2_DG7-t0p6_hx_experiment_summary.xlsx'
 REFERENCE_VERSION = "coolprop-heos-gauge-101325-v1"
 
 # 每表独立列映射（0-based）。header 断言字串取自 row3（含换行已压平）。

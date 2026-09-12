@@ -49,7 +49,7 @@ from sjtu_tpmshx.logutil import get_logger  # noqa: E402
 _log = get_logger(__name__)
 
 PREBUILT_CSV = _THIS.parent / "_prebuilt" / "smooth_df_coeffs.csv"
-WATER_XLSX = _PROJECT_ROOT.parent / "data" / "raw_data" / "water-cfd-raw.xlsx"
+WATER_XLSX = _PROJECT_ROOT.parent / "data" / "raw_data" / 'cfd/water/water_DG_cfd_results_legacy.xlsx'
 # Relocated+renamed ~2026-07 (was server-pyfluent\Data_All_1,0.xlsx); shape
 # verified 2026-07-07: All_Cases_Combined, 840 data rows x 106 cols.
 # REBUILD-ONLY asset, never migrated off the old dev box (it is NOT in the

@@ -6,7 +6,7 @@
                             ≤ 4 %) cannot identify K; low-Re behaviour stays
                             anchored to the water CFD.
 
-Data: Diamond 5399 + Gyroid 5400 cases, ``data/raw_data/sCO2-CFD/`` (smooth
+Data: Diamond 5399 + Gyroid 5400 cases, ``data/raw_data/cfd/sco2/`` (smooth
 wall RANS, no gravity; P ∈ {8,10,12,15} MPa on the pseudocritical line).
 REBUILT 2026-07-26 (iter 85) on the Gyroid L=8 completion: **20 D / 20 G**
 geometries, 10799 cases. That upload is PURELY ADDITIVE — the prior 4400
@@ -151,7 +151,7 @@ class _Sco2CF:
                 raise FileNotFoundError(
                     f"prebuilt table missing: {PREBUILT_CSV} — run "
                     f"`python -m df_surrogate.sco2_df` (needs the raw sCO2 "
-                    f"CFD csvs under data/raw_data/sCO2-CFD/)")
+                    f"CFD csvs under data/raw_data/cfd/sco2/)")
             table = pd.read_csv(PREBUILT_CSV)
         self.table = table
         from scipy.interpolate import RBFInterpolator

@@ -50,3 +50,9 @@ Data revision checked locally: ddf11acdf6c05340fb832e427d3861d0534bd934.
 The data repository's selected experiment and sCO2 files were clean. The
 current Water-CFD/水数值模拟数据.xlsx is absent there; the older water-cfd-raw.xlsx
 is not substituted. Real water revalidation remains not run.
+
+The 2026-09-12 directory organization moves existing inputs according to the
+[data catalog](../../../data-catalog.md). The legacy water file is now
+`cfd/water/water_DG_cfd_results_legacy.xlsx`; this does not resolve the missing
+corrected source. Publication must pair the code paths with the corresponding
+data-layout commit, as described in the catalog.

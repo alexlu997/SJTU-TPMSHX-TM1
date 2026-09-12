@@ -142,7 +142,7 @@ Copy-Item -Recurse -Force $SrcRaw $DstRaw
 
 # 拷完硬校验: 生产推理路径唯一真正需要的是这个文件 (gamma_df 的 γ 锚点经
 # SurrogateV3 读它). 缺它 = 静默回退, 宁可现在 FATAL.
-$KeyXlsx = Join-Path $DstRaw "试验记录表_整理版.xlsx"
+$KeyXlsx = Join-Path $DstRaw "experiments/air/air_DG_specimen_experiment_summary.xlsx"
 if (-not (Test-Path $KeyXlsx)) {
     Write-Host "FATAL: 标定数据未就位 — 缺 $KeyXlsx" -ForegroundColor Red
     Write-Host "       (缺它 DF 代理会静默回退 CSV 标定, 产出不可比的数字)" -ForegroundColor Red

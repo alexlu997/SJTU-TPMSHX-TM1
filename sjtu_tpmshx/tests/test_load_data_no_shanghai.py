@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 # Raw training Excel is a local asset (data/ is gitignored) — skip cleanly
 # on checkouts without it (CI) instead of FileNotFoundError.
-_RAW_XLSX = ROOT.parent / 'data' / 'raw_data' / '试验记录表_整理版.xlsx'
+_RAW_XLSX = ROOT.parent / 'data' / 'raw_data' / 'experiments/air/air_DG_specimen_experiment_summary.xlsx'
 requires_training_excel = pytest.mark.skipif(
     not _RAW_XLSX.exists(),
     reason='local training Excel (gitignored data/) not present')
@@ -67,6 +67,18 @@ def test_training_geometries_are_the_documented_set():
 
 
 # ---------------------------------------------------------------- positive control
+
+
+@pytest.mark.parametrize('source', [
+    'water-air_G7-t0p6_shanghai_experiment_20260401.xlsx',
+    'water-air_G7-t0p6_shanghai_experiment_ports-swapped_20260407.xlsx',
+])
+def test_renamed_shanghai_sources_remain_excluded(source):
+    from sjtu_tpmshx.df_surrogate.load_data import _assert_no_shanghai_leakage
+    clean = pd.DataFrame({'tpms': ['Diamond'], 'L_mm': [5.0], 't_mm': [0.4]})
+    with pytest.raises(ValueError, match='Shanghai keyword'):
+        _assert_no_shanghai_leakage(
+            clean, source=Path('data/raw_data/experiments/water_air') / source)
 
 
 def test_assert_helper_raises_on_t06_leakage():

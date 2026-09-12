@@ -38,7 +38,7 @@ _log = get_logger(__name__)
 _REPO = Path(__file__).resolve().parents[3]
 _DEV_CSV = (_REPO / "sjtu_tpmshx" / "df_surrogate" / "_prebuilt"
             / "df_cfd_coeffs_dev.csv")
-_XLSX = _REPO / "data" / "raw_data" / "试验记录表_整理版.xlsx"
+_XLSX = _REPO / "data" / "raw_data" / 'experiments/air/air_DG_specimen_experiment_summary.xlsx'
 REPORT_DIR = _REPO / "reports" / "df_refit"
 
 RE_REF = 2530.0

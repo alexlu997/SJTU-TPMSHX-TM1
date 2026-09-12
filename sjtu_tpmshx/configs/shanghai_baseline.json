@@ -2,7 +2,7 @@
   "_meta": {
     "case_name": "Shanghai 上海电气天然气加热器 16-case",
     "specimen": "SLM Gyroid HX",
-    "data_source": "data/raw_data/20260401-上海电气天然气加热器实验工况.xlsx",
+    "data_source": "data/raw_data/experiments/water_air/water-air_G7-t0p6_shanghai_experiment_20260401.xlsx",
     "canonical_since": "2026-05-28",
     "audit_ref": "vault/reports/engineering/2026-05-28-sjtu-tpmshx-4-perspective-audit-CN.html §AR8"
   },
