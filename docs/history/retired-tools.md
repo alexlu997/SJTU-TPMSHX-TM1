@@ -72,3 +72,10 @@ A1/benchmark A 的旧输入原已缺失，历史代码不代表可在当前目�
 | `reports/simpler-coupling-2d/benchmark_simple_vs_simpler_2d.csv` | [原文件](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/b1af7edcea5796aa955aa8fae1785be3c1b57e1d/reports/simpler-coupling-2d/benchmark_simple_vs_simpler_2d.csv) |
 | `sjtu_tpmshx/runs/benchmark_simpler_2d.py` | [原文件](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/b1af7edcea5796aa955aa8fae1785be3c1b57e1d/sjtu_tpmshx/runs/benchmark_simpler_2d.py) |
 | `sjtu_tpmshx/tests/test_simpler_coupling_2d.py` | [原文件](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/b1af7edcea5796aa955aa8fae1785be3c1b57e1d/sjtu_tpmshx/tests/test_simpler_coupling_2d.py) |
+
+## RBF 退役后的依赖
+
+基础依赖不再需要 `scikit-learn` 和 `threadpoolctl`，已从基础锁移除。
+常规 BO 的 [GPyTorch 1.15.2](https://pypi.org/pypi/gpytorch/1.15.2/json)
+仍依赖 scikit-learn，因此两个原版本保留在 `requirements-lock-server.txt`。
+`joblib` 仍用于常规设计/优化并行计算，几何与现行 K/cF 的预热也继续保留。
