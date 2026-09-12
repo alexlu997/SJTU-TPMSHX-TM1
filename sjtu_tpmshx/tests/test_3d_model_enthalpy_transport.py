@@ -178,7 +178,7 @@ def _pipeline_cfg(pair=('air', 'air'), nz=4):
 @pytest.mark.parametrize('invalid', [None, ('A', 'unknown'), ('B', 'nan'), ('A', 'inf')])
 def test_model_h_ledger_reaches_result_before_final_post(monkeypatch, cap, invalid):
     from sjtu_tpmshx.solvers.backends.python.three_d import runtime as stages
-    from sjtu_tpmshx.pipelines import stages_3d
+    from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
     monkeypatch.setattr(stages.SIMPLESolver3D, 'solve', lambda *a, **k: (True, 0))
     signature = inspect.signature(energy.solve_full_domain_3d)
     seen = []
@@ -208,7 +208,7 @@ def test_model_h_ledger_reaches_result_before_final_post(monkeypatch, cap, inval
         return 1, False
     monkeypatch.setattr(stages, 'solve_full_domain_3d', thermal)
     monkeypatch.setattr(stages, 'run_outer_coupling', outer)
-    raw = stages_3d._run_3d_stack(_pipeline_cfg())
+    raw = _run_3d_stack(_pipeline_cfg())
     ledger = raw['model_h_balance']
     assert ledger['numerical_external_inward_W'] == 2.5
     assert ledger['physical_external_inward_W'] is None
@@ -228,7 +228,7 @@ def test_model_h_ledger_reaches_result_before_final_post(monkeypatch, cap, inval
 
 def test_reported_model_h_two_unequal_outlets_excludes_diffusion(monkeypatch):
     from sjtu_tpmshx.solvers.backends.python.three_d import runtime as stages
-    from sjtu_tpmshx.pipelines import stages_3d
+    from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
     # Two CVs with unequal outlet masses. Independent h=2*theta+.01*theta**2:
     # h(340)=96, h(310)=21, h(330)=69; 4*96-(1*21+3*69)=156 W.
     # cp(340)*4*(340-325)=168 and 4*(h(340)-h(325))=159 are both wrong.
@@ -256,7 +256,7 @@ def test_reported_model_h_two_unequal_outlets_excludes_diffusion(monkeypatch):
     cfg.update(Nx=1, Ny=1, T_inA=340.)
     cfg['fluid_A_cfg']['dir'] = 0
     cfg['fluid_B_cfg']['dir'] = 1
-    raw = stages_3d._run_3d_stack(cfg)
+    raw = _run_3d_stack(cfg)
     assert raw['Q_total'] == pytest.approx(156.)
     assert raw['Q_enthalpy_B'] == pytest.approx(228.)
 

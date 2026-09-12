@@ -77,7 +77,7 @@ def test_envelope_mode_field_and_from_dict():
 def test_envelope_mode_propagates_into_3d_cfg():
     from dataclasses import replace
     from sjtu_tpmshx.domain.compute_config import ComputeConfig
-    from sjtu_tpmshx.pipelines.stages_3d import _parse_inputs_3d_cfg
+    from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg
     base = ComputeConfig()
     cc = replace(base,
                  geometry=replace(base.geometry, t_wall_mm=0.5, Lz_m=0.042),

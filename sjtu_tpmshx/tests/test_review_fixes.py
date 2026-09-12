@@ -28,7 +28,7 @@ def test_domain_firewall_blocks_meter_typed_as_mm():
     entrypoints.
     """
     from sjtu_tpmshx.domain.compute_config import ComputeConfig, GeometryConfig, SolverConfig
-    from sjtu_tpmshx.pipelines.stages_3d import _parse_inputs_3d_cfg
+    from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg
 
     cc = ComputeConfig(
         geometry=GeometryConfig(L_dom_m=182.0,    # unit slip: meant 0.182

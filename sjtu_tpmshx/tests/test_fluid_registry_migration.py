@@ -61,7 +61,7 @@ def test_embeds_roughness_flags():
 def test_roughness_skip_uses_flag():
     """_apply_roughness_* must no-op for roughness-embedding fluids even
     under a non-baseline mode (the old string check, now via registry)."""
-    from sjtu_tpmshx.pipelines.stages_3d import _apply_roughness_KcF, _apply_roughness_h_v
+    from sjtu_tpmshx.solvers.backends.python.three_d.flux import _apply_roughness_KcF, _apply_roughness_h_v
     K = np.full((4, 4), 1e-8)
     cF = np.full((4, 4), 500.0)
     hv = np.full((4, 4), 1e6)

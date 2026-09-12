@@ -18,7 +18,7 @@ from sjtu_tpmshx.models.nu_correlations import nu_water_topo
 from sjtu_tpmshx.df_surrogate.predict import predict_dP_compressible
 from sjtu_tpmshx.domain.compute_config import (ComputeConfig, FluidConfig,
                                          ZoneInputConfig)
-from sjtu_tpmshx.pipelines.stages_2d import _check_zoned_fluid_support
+from sjtu_tpmshx.preprocess.two_d.preparation import _check_zoned_fluid_support
 
 
 # ── geometry degeneracy floor ──────────────────────────────────────────────

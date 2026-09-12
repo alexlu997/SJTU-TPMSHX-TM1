@@ -24,7 +24,7 @@ import pytest
 PropsSI = pytest.importorskip("CoolProp.CoolProp").PropsSI
 
 from sjtu_tpmshx.models.tpms_calc import geometry as _geom          # noqa: E402
-import sjtu_tpmshx.pipelines.stages_3d as R                           # noqa: E402
+from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
 
 _G = _geom("Diamond", 7.0, 0.6, 16.0)
 EPS, EPS_A = _G["epsilon"], _G["epsilon_A"]
@@ -55,7 +55,7 @@ def test_reverse_dir_sco2_massflow_recovered(monkeypatch):
         fluid_B_cfg=dict(dir=1, **_ff(H, LZ)),     # reverse-dir B
         fluid_type_A="sco2", fluid_type_B="sco2", wall_refine_3d=False,
     )
-    r = R._run_3d_stack(cfg)
+    r = _run_3d_stack(cfg)
 
     # B-side implied mass flow from the coupled duty: Q_B = m_B * dh_B.
     ToB = r["T_B_out"]

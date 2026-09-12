@@ -13,7 +13,8 @@ sCO2/water enthalpy-mode case is run.
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.pipelines.stages_3d import _per_side_eps_override, _simple_mass_flow
+from sjtu_tpmshx.models.asym_split import _per_side_eps_override
+from sjtu_tpmshx.solvers.backends.python.three_d.flux import _simple_mass_flow
 
 
 def test_per_side_eps_override_none_at_delta0():

@@ -40,7 +40,7 @@ def test_shared_scalar_array_nu_and_unchanged_other_fluids(topology, alpha):
 
 @pytest.mark.parametrize('shape', [(2, 3), (2, 3, 2)])
 def test_local_hv_multiplier_before_floor_without_extra_eos(monkeypatch, shape):
-    from sjtu_tpmshx.solvers.backends.python.three_d.flux import _sco2_hv_local_field
+    from sjtu_tpmshx.models.local_heat_transfer import _sco2_hv_local_field
     from sjtu_tpmshx.models import sco2_props
     for name, value in (('density', 2.), ('viscosity', .5), ('conductivity', .25), ('cp', 4.)):
         monkeypatch.setattr(sco2_props, f'sco2_{name}_field', lambda T, P, v=value: np.full_like(T, v))
@@ -87,7 +87,7 @@ def test_real_pipeline_heat_builders_share_selected_parameters():
     from sjtu_tpmshx.domain.compute_config import FluidConfig, GeometryConfig
     from sjtu_tpmshx.preprocess.api import prepare_case
     from sjtu_tpmshx.solvers.backends.python.three_d.runtime import _build_hv_machinery
-    from sjtu_tpmshx.pipelines.stages_3d import _parse_inputs_3d_cfg
+    from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg
     cfg = ComputeConfig(fluid_A=FluidConfig(type='sco2', u_mps=1., T_in_K=400., P_in_Pa=10e6),
                         fluid_B=FluidConfig(type='sco2', u_mps=1., T_in_K=350., P_in_Pa=10e6),
                         geometry=GeometryConfig(tpms='Diamond', Lz_m=.042))

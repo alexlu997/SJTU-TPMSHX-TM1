@@ -51,11 +51,7 @@ target-version = "py312"
 select = ["F", "E9"]
 
 [tool.ruff.lint.per-file-ignores]
-# 再导出面（拆分兼容层）与引导型导入：F401 是其存在方式
-# （test_pipeline_reexports 锁面的两个模块都在内——stages_2d 首轮漏豁免，
-#  被该守卫测试当场抓获，iter 22 实测）
-"sjtu_tpmshx/pipelines/stages_2d.py" = ["F401"]
-"sjtu_tpmshx/pipelines/stages_3d.py" = ["F401"]
+# 包入口的显式导出。
 "sjtu_tpmshx/**/__init__.py" = ["F401"]
 
 [tool.mypy]

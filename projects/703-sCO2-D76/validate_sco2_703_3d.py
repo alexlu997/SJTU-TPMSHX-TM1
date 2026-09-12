@@ -49,7 +49,7 @@ except Exception:
 
 from CoolProp.CoolProp import PropsSI as _P                    # noqa: E402
 from solvers.tpms_calc import geometry as _geom               # noqa: E402
-from pipelines.stages_3d import _run_3d_stack                 # noqa: E402
+from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
 
 _G = _geom("Diamond", 7.0, 0.6, 16.0)
 EPS, EPS_A = _G["epsilon"], _G["epsilon_A"]

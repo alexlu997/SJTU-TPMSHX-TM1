@@ -35,7 +35,7 @@ import pytest
 from sjtu_tpmshx.validation.cases.audit_3d_conservation import (
     make_T1, make_T2, make_T3, make_T4, make_T5, make_T6,
 )
-from sjtu_tpmshx.pipelines.stages_3d import _run_3d_stack
+from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
 
 _GATE = 0.01  # < 1 %
 

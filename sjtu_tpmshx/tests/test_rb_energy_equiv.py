@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 import sjtu_tpmshx.solvers.ltne_energy_3d as le
 from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry
-from sjtu_tpmshx.pipelines.stages_3d import _run_3d_stack
+from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
 
 
 def _z_asym_pct(field):

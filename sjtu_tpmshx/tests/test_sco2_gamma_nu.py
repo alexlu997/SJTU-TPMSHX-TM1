@@ -82,7 +82,7 @@ def test_registry_chokepoint_stays_smooth(monkeypatch):
 
 def test_hv_local_field_chokepoint_stays_smooth(monkeypatch):
     """The shared 2D/3D local-property path stays on smooth-wall CFD Nu."""
-    from sjtu_tpmshx.solvers.backends.python.three_d.flux import _sco2_hv_local_field
+    from sjtu_tpmshx.models.local_heat_transfer import _sco2_hv_local_field
     from sjtu_tpmshx.models import sco2_props as _s2
 
     P = 10.0e6
@@ -112,7 +112,7 @@ def test_hv_local_field_chokepoint_stays_smooth(monkeypatch):
 
 def test_hv_local_field_uses_each_cells_temperature():
     """Uniform velocity must not freeze sCO2 transport properties at inlet T."""
-    from sjtu_tpmshx.solvers.backends.python.three_d.flux import _sco2_hv_local_field
+    from sjtu_tpmshx.models.local_heat_transfer import _sco2_hv_local_field
 
     T = np.array([[320.0, 360.0], [400.0, 440.0]])
     hv = _sco2_hv_local_field(

@@ -125,7 +125,7 @@ def test_3d_knobs_turn():
     """max_outer_ltne must cap the 3D outer loop. (tol_simple is also passed
     but its exit-gating is legacy-only — ledger C6/C7; under the f2 pipeline
     default it only retunes the AMG scheduler, so no assertion hangs on it.)"""
-    from sjtu_tpmshx.pipelines.stages_3d import _run_3d_stack
+    from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
     from test_partial_bc_ghost_b import _partial_bc_air_air_cfg
     base = _partial_bc_air_air_cfg(Nx=8, Ny=6, Nz=6)
     r_def = _run_3d_stack(dict(base))

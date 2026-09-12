@@ -46,10 +46,13 @@ def test_tpms_props_is_a_leaf():
 
 
 def test_pipelines_import_without_controllers():
-    """contracts-layer lock: stages modules must not pull controllers."""
+    """Scripted orchestration and input preparation stay below controllers."""
     _probe(
-        "import sys; import pipelines.stages_2d, pipelines.stages_3d; "
-        "bad = [m for m in sys.modules if m.startswith('controllers')]; "
+        "import sys; import sjtu_tpmshx.pipelines.run_stack_3d; "
+        "import sjtu_tpmshx.preprocess.two_d.preparation; "
+        "import sjtu_tpmshx.preprocess.three_d.preparation; "
+        "bad = [m for m in sys.modules if m == 'controllers' "
+        "or m.startswith(('controllers.', 'sjtu_tpmshx.controllers'))]; "
         "assert not bad, f'pipelines pulled controllers: {bad}'"
     )
 

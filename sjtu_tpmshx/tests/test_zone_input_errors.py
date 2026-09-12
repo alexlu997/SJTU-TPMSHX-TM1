@@ -12,7 +12,7 @@ from sjtu_tpmshx.models.zone_config import Zone, ZoneConfig
 def test_canonical_1d_json_restores_the_same_zone_fields(tmp_path, capsys, axis):
     import json
     from sjtu_tpmshx.cli import main
-    from sjtu_tpmshx.pipelines.stages_2d import _parse_inputs_cfg
+    from sjtu_tpmshx.preprocess.two_d.preparation import _parse_inputs_cfg
 
     cfg = ComputeConfig(
         geometry=GeometryConfig(tpms='Diamond'),
@@ -49,7 +49,7 @@ def test_canonical_loader_keeps_unused_1d_config_semantics(enabled, axis):
 def test_canonical_1d_stage_does_not_mutate_or_share_source_dict():
     from copy import deepcopy
     from dataclasses import asdict
-    from sjtu_tpmshx.pipelines.stages_2d import _parse_inputs_cfg
+    from sjtu_tpmshx.preprocess.two_d.preparation import _parse_inputs_cfg
 
     cfg = ComputeConfig(geometry=GeometryConfig(tpms='Diamond'),
         solver=SolverConfig(Nx=8, Ny=6), extrap=ExtrapPolicy(allow=True),
@@ -71,7 +71,7 @@ def test_canonical_1d_stage_does_not_mutate_or_share_source_dict():
 @pytest.mark.parametrize('invalid', ['gap', 'missing_field'])
 def test_canonical_1d_json_does_not_swallow_invalid_zones(tmp_path, invalid):
     import json
-    from sjtu_tpmshx.pipelines.stages_2d import _parse_inputs_cfg
+    from sjtu_tpmshx.preprocess.two_d.preparation import _parse_inputs_cfg
 
     cfg = ComputeConfig(zones=ZoneInputConfig(enabled=True,
         config=ZoneConfig.single_zone(6, 0.3, 'Diamond', 16)))
@@ -98,8 +98,8 @@ def test_valid_partial_grid_coverage_is_not_redefined():
 
 @pytest.mark.parametrize('dimension', [2, 3])
 def test_direct_stage_parse_rejects_invalid_grid(dimension):
-    from sjtu_tpmshx.pipelines.stages_2d import _parse_inputs_cfg
-    from sjtu_tpmshx.pipelines.stages_3d import _parse_inputs_3d_cfg
+    from sjtu_tpmshx.preprocess.two_d.preparation import _parse_inputs_cfg
+    from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg
     cfg = ComputeConfig(
         geometry=GeometryConfig(Lz_m=0.042), solver=SolverConfig(Nz=dimension - 1),
         extrap=ExtrapPolicy(allow=True), zones=ZoneInputConfig(
@@ -112,7 +112,7 @@ def test_direct_stage_parse_rejects_invalid_grid(dimension):
 
 @pytest.mark.parametrize('axis', ['x', 'y', 'grid'])
 def test_supported_air_zones_build_fields(axis):
-    from sjtu_tpmshx.pipelines.stages_2d import _parse_inputs_cfg
+    from sjtu_tpmshx.preprocess.two_d.preparation import _parse_inputs_cfg
     grid = dict(cells=[dict(x0=0, x1=1, y0=0, y1=1, L=6, t=0.3)],
                 tpms_type='Diamond', k_s=16)
     zones = ZoneInputConfig(enabled=True, axis=axis, grid=grid,
@@ -125,7 +125,7 @@ def test_supported_air_zones_build_fields(axis):
 
 
 def test_supported_3d_grid_is_consumed():
-    from sjtu_tpmshx.pipelines.stages_3d import _parse_inputs_3d_cfg
+    from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg
     from sjtu_tpmshx.models.grid_3d import _build_zone_fields_3d
     cells = [dict(x0=0, x1=1, y0=0, y1=1, L=6, t=0.3)]
     cfg = ComputeConfig(geometry=GeometryConfig(Lz_m=0.042),

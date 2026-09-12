@@ -19,7 +19,8 @@ from sjtu_tpmshx.domain.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, SolverConfig,
     PartialBCConfig, ExtrapPolicy, FeatureFlags,
 )
-import sjtu_tpmshx.pipelines.stages_3d as R
+from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg
+from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
 
 # cube domain + cube grid + uniform geometry → x/y/z streams are the same
 # physical problem in a rotated frame.
@@ -44,7 +45,7 @@ def _cfg(dir_A, dir_B):
 
 
 def _dP_A(dir_A, dir_B):
-    raw = R._run_3d_stack(R._parse_inputs_3d_cfg(_cfg(dir_A, dir_B)))
+    raw = _run_3d_stack(_parse_inputs_3d_cfg(_cfg(dir_A, dir_B)))
     return float(raw.get('dP_A', raw.get('dP')))
 
 

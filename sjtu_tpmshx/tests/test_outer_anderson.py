@@ -22,7 +22,7 @@ import pytest
 
 from sjtu_tpmshx.solvers.anderson_acceleration import AndersonOuterCoupling  # noqa: E402
 from sjtu_tpmshx.runs._case_template import build_cfg                        # noqa: E402
-from sjtu_tpmshx.pipelines.stages_3d import _run_3d_stack                    # noqa: E402
+from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
 
 
 def _cfg(**over):

@@ -27,7 +27,7 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.runs._case_template import build_cfg          # noqa: E402
-from sjtu_tpmshx.pipelines.stages_3d import _run_3d_stack      # noqa: E402
+from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
 from sjtu_tpmshx.solvers.coupling_skeleton import run_outer_coupling  # noqa: E402
 
 _GATES = ('simple_ok', 'ltne_ok', 'outer_converged', 'fields_finite',
@@ -171,7 +171,7 @@ def test_typed_config_requires_explicit_lz_for_3d():
 
     # The pipeline entry must refuse it too (defence in depth: raw
     # ComputeConfig construction bypasses validate()).
-    from sjtu_tpmshx.pipelines.stages_3d import _parse_inputs_3d_cfg
+    from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg
     with pytest.raises(ValueError, match='Lz_m'):
         _parse_inputs_3d_cfg(_cc(Nz=3, Lz=None))
 

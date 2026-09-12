@@ -20,7 +20,7 @@ bias, so a silently dead knob fails), (4) incompressible sides stay out
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.pipelines.stages_3d import _run_3d_stack
+from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
 from sjtu_tpmshx.runs._out._golden_3d import _air_air_cfg as _cfg3d_air_air
 
 
