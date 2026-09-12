@@ -13,7 +13,7 @@ Nu reduction the experiment used.
 
 Geometry/conditions read from
   data/raw_data/experiments/sco2/d76/sco2_D7-t0p6_hx_experiment_arranged.xlsx
-Run:  python projects/703-sCO2-D76/validate_sco2_d76.py
+Run:  python -m sjtu_tpmshx.validation.cases.validate_sco2_d76
 Gate: max per-case |Q error| < 15 %.
 """
 
@@ -30,7 +30,6 @@ Gate: max per-case |Q error| < 15 %.
 # so a future re-export cannot silently shift again (the sCO2-Experient
 # Gyroid-sheet "+2 offset" lesson).
 import math
-import sys
 import warnings
 from pathlib import Path
 
@@ -38,12 +37,10 @@ import numpy as np
 import openpyxl
 from openpyxl.utils import column_index_from_string as ci
 
-_HERE = Path(__file__).resolve()
-sys.path.insert(0, str(_HERE.parents[2]))
+from sjtu_tpmshx.models import fluid_props, tpms_calc
 
-from sjtu_tpmshx.models import fluid_props, tpms_calc      # noqa: E402
-
-XLSX = (_HERE.parents[2] / "data" / "raw_data" / "experiments" / "sco2"
+ROOT = Path(__file__).resolve().parents[3]
+XLSX = (ROOT / "data" / "raw_data" / "experiments" / "sco2"
         / "d76" / "sco2_D7-t0p6_hx_experiment_arranged.xlsx")
 
 GOLD_CASES = [15, 20, 21, 32, 37, 38]   # ΔT_streams>10 °C & |bal|<5 %

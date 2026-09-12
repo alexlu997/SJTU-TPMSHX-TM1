@@ -233,12 +233,10 @@ def test_each_gate_can_hold_the_exit_open():
     assert s.exit_reason in ('max_iter', 'stall')
 
 
-def test_f2_rejects_simpler_coupling():
-    """SIMPLER solves the pressure directly — a different fixed point. The
-    momentum residual's "what SIMPLE drops is proportional to Pp" argument does
-    not carry over unexamined, so fail loud rather than gate on it."""
-    s = _make(convergence_mode='f2')
-    with pytest.raises(ValueError, match="coupling"):
+@pytest.mark.parametrize('mode', ['legacy', 'f2'])
+def test_retired_coupling_option_is_rejected(mode):
+    s = _make(convergence_mode=mode)
+    with pytest.raises(TypeError, match="coupling"):
         s.solve(max_iter=10, coupling='simpler', verbose=False)
 
 

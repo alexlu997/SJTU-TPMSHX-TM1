@@ -46,7 +46,6 @@ def apply_config(window, config):
 @pytest.mark.parametrize('dimension', [2, 3])
 def test_saved_polygon_cannot_start_compute(win, monkeypatch, shape, dimension):
     from sjtu_tpmshx.ui.window_config import config_from_window, DOMAIN_SHAPE_NOTICE
-    import sjtu_tpmshx.ui.polygon_calc as legacy_polygon
 
     apply_config(win, baseline_config() if dimension == 2 else _small_air_cfg())
     assert win.combo_shape.model().item(0).isEnabled()
@@ -59,7 +58,6 @@ def test_saved_polygon_cannot_start_compute(win, monkeypatch, shape, dimension):
         pytest.fail('polygon selection reached grid preparation or numerical execution')
     monkeypatch.setattr(win, '_preflight_grid', forbidden)
     monkeypatch.setattr(win.compute, 'start', forbidden)
-    monkeypatch.setattr(legacy_polygon, 'run_polygon_calculation', forbidden)
     try:
         for strict in (False, True):
             with pytest.raises(ValueError, match='Rectangle'):

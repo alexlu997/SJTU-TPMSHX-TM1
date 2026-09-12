@@ -6,7 +6,7 @@ TM1 将 TPMS 换热器的前处理、求解和后处理拆为独立维护的模�
 原 SJTU-TPMSHX/V2 是来源参考，本分支不合回原仓库。
 
 **主体源码在 [sjtu_tpmshx/](sjtu_tpmshx/)**，前处理、求解和后处理都在这个包内。
-其他根目录分别存放文档、示例、工程项目、辅助工具和验证记录。
+其他根目录分别存放文档、示例、辅助工具和验证记录。
 
 矩形 2D/3D 三模块主线的 M-A 合并验收已记录；M-B 扩展能力继续单独追踪。
 历史 B40 失败与物理适用范围仍须保留。当前状态与证据见
@@ -167,10 +167,10 @@ Case YAML 引用伴随 HDF5；result/VTK 导出和严格指标 JSON 的限制见
 | 参数扫描与有效场输入 | [公开示例](examples/) | 不改求解器私有成员 |
 | 离线清洗与 Nu 拟合 | `preprocess.offline` | 显式选择数据来源，不自动替换生产模型；旧 RBF 发布入口已退役 |
 
-当前计算域仅支持 **Rectangle（矩形）2D/3D**。Hexagon / Octagon 选项暂停使用，
+当前计算域仅支持 **Rectangle（矩形）2D/3D**。Hexagon / Octagon 计算路线已退役，
 旧多边形配置仍可查看、保存，但点击计算会明确拒绝，也不会自动改成矩形。
-旧多边形实现不满足主线的可压缩空气、多流体及独立模块交接约束，重新开放须完成
-相应实现与验证；本次关闭入口不改变矩形求解模型。
+旧多边形代码通过[固定历史](docs/history/retired-tools.md)保留，重新开放须完成
+主线物理规则及独立模块交接的实现与验证。
 
 `models/`、`df_surrogate/` 等是共享技术支撑，不是第四个业务模块。旧 Pipeline/应用
 入口单向调用公开模块。具体边界见[架构说明](docs/architecture.md)。
@@ -210,7 +210,7 @@ export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
 当前水 CFD 工作簿缺失时不以旧版文件替代。
 
 原 README 的历史精度与物理说明原样保存在
-[V2 README 存档](docs/history/v2-readme.md)，旧图片链接固定到历史提交。
+[V2 README 存档](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/b1af7edcea5796aa955aa8fae1785be3c1b57e1d/docs/history/v2-readme.md)，旧图片链接固定到历史提交。
 已移出当前文件树的图片、优化输出、探索记录与 Atlas 快照见
 [历史资料索引](docs/history/README.md)。
 这些数字不是 TM1 或当前默认 CFD 模式的新验收。B40 原锁定测试 4/4 失败、

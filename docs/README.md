@@ -25,13 +25,12 @@
 | [sjtu_tpmshx/](../sjtu_tpmshx/) | 主体源码，包含三模块、应用层、共享模型、测试和验证工具 |
 | [docs/](./) | 当前文档、实施计划和历史文档 |
 | [examples/](../examples/) | 公开调用示例和首次运行配置 |
-| [projects/](../projects/) | 各合作或工程评估项目的入口脚本、说明和交付记录；调用主体包 |
-| [scripts/](../scripts/) | 测试、服务器运行和结果拉取等辅助脚本 |
-| [benchmarks/](../benchmarks/) | 性能剖析工具与历史性能记录 |
+| [scripts/](../scripts/) | 通用测试与服务器测试辅助脚本 |
+| [benchmarks/](../benchmarks/) | 现行性能剖析工具 |
 | [poc/](../poc/) | 概念验证代码，其中部分由自动测试直接导入 |
 | [schemas/](../schemas/) | 三模块数据契约文档；实现位于主体包的 domain/ 和 io/ 等模块 |
 | [openspec/](../openspec/) | 设计规范与变更提案；提案本身不代表功能已实现 |
-| [reports/](../reports/) | 研究报告、验证记录和结果；部分 CSV 仍被复现脚本读取 |
+| [reports/](../reports/) | 现行验证输出和历史资料导航 |
 | [.github/](../.github/) | macOS / Windows CI 和最小后处理环境检查 |
 
 根目录的 `pyproject.toml`、`requirements*.txt`、`pytest.ini` 等负责构建、依赖和测试；
@@ -42,9 +41,8 @@
 ## 历史参考
 
 - [历史资料总索引](history/README.md)：旧 README、图片、探索记录与架构快照。
-- [旧项目手册](history/PROJECT_MANUAL.md)：保留旧目录、逐文件说明和当时的使用流程。
-- [旧开发日志](history/devlog.md)：保留原始工作记录及其已注明的同步缺口。
-- [2026-07-11 环境快照](../constraints-devbox-2026-07-11.txt)：历史复现记录，当前安装使用项目 README 指定的锁文件。
+- [退役工具索引](history/retired-tools.md)：已结束工程、固定试验、手册、审计与环境快照。
+- [旧模型索引](history/legacy-models.md)：旧 RBF/γ 等模型及其原始结果。
 
 M-A 三模块主线与 M-B 扩展能力分别追踪；目录或接口存在不等于通过验收。
 历史 B40 失败、冻结参考和原始报告结论保留原状。

@@ -3,7 +3,7 @@ layering violations.
 
 The layer model, the sanctioned-edge list (with adjudication rationale) and
 the checker all live in runs/tools/audit_import_graph.py; the architecture
-decisions behind the sanctions are in docs/ARCHITECTURE-AUDIT-2026-07.md §1.
+historical sanctions are indexed in docs/history/retired-tools.md.
 A new upward import either gets fixed or gets a conscious SANCTIONED entry —
 never silently merged.
 """

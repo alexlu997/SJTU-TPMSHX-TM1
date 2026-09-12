@@ -14,7 +14,7 @@
   现行 `fit_experimental_effective`、`cf_cross_fluid` 和 Nu 验证入口保留。
 - `fit_nu_correction` 从旧 Nu/f 混合报告独立保留现用 sCO2 Nu 锚定复核；
   D/G 52/80 条 Nu 记录、原修正值和逐温度拟合逐值一致。
-- B40、fixed-166、冻结物理参考、Graph 验收和 M1 复现输入留在原位。
+- B40、fixed-166、冻结物理参考和 Graph 验收留在原位；已结束的 M1/M2 试验见[退役工具索引](retired-tools.md)。
   `_data_df_projection_baseline.json` 保留原 γ 时代数字；当前投影检查改用
   可手算的几何场验证坐标、方向和非均匀重采样，不重写旧参考值。
 
@@ -74,7 +74,7 @@ RBF 残差/局部覆盖修正和 `preprocess.offline.publish_surrogate` 随专�
 ## 仍需正确理解的历史结果
 
 - 旧 RBF 的 D7 外推失效、旧 γ 锚点及不同流量/压损定义的问题仍是历史证据，
-  详见保留的 [2026-07 D-F 审计](../DF-CALIBRATION-AUDIT-2026-07.md)。
+  详见保留的 [2026-07 D-F 审计](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/b1af7edcea5796aa955aa8fae1785be3c1b57e1d/docs/DF-CALIBRATION-AUDIT-2026-07.md)。
 - 水 D_7_6 旧发展段 cF 的约 +28.5% 变化不是现行联合表的更改要求。
 - 水 Nu 的新核验仍为 D 9.9965%、G 10.6243% RMSRE；G 未过原 10% 门槛，
   用户选择继续使用原关联式，未放宽门槛或删点，见[数据记录](../data-catalog.md)。

@@ -2,19 +2,9 @@
 
 当前架构与运行方式见[架构说明](../architecture.md)和[项目 README](../../README.md)。
 
-## 保留在当前仓库的历史文档
-
-| 内容 | 入口 | 阅读范围 |
-| --- | --- | --- |
-| 旧项目手册 | [PROJECT_MANUAL.md](PROJECT_MANUAL.md) | 原根目录手册，旧目录地图、命令和模型说明仅作历史参考 |
-| 旧开发日志 | [devlog.md](devlog.md) | 原始工作记录，保留已注明的同步缺口 |
-| V2 README | [v2-readme.md](v2-readme.md) | 来源版本的精度与物理说明 |
-| 2026-07 升级收尾记录 | [upgrade-2026-07.md](upgrade-2026-07.md) | 当时的分支和验收记录 |
-
-旧手册和开发日志归档自 `8041602`，正文保留原样；当前目录地图见
-[主体源码导航](../../sjtu_tpmshx/README.md)和[仓库导航](../README.md)。
-
-本次旧阻力模型及专属资产退役见 [2026-09-12 历史模型索引](legacy-models.md)。
+旧手册、开发日志、V2 README、已结束工程和固定试验已移出当前树，
+从[退役工具索引](retired-tools.md)查阅固定提交中的原文件。
+旧 γ/RBF、SmoothDF 等阻力模型及原报告见[模型退役索引](legacy-models.md)。
 
 ## 通过固定提交查阅的历史产物
 
@@ -29,8 +19,4 @@
 | 2026-07 架构与交接快照 | [Atlas 索引](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/d3ba040de0d43fce8e9b485396a5b660c2d87c5f/docs/atlas/README.md) | 19 |
 
 探索记录中的失败与未采纳结论保留原状，不作为当前模型的新验收。
-历史网格收敛图仍可用 `sjtu_tpmshx/runs/tools/plot_grid_convergence.py` 和对应原始 CSV
-重新生成，输出位于已忽略的 `reports/figs/grid-convergence.png`。
-
-当前模型资源、冻结基线、正式失败证据、Graph 验收记录，以及仍被复现脚本读取的
-`reports/m1_uniform_vs_graded/` 留在原位置。
+当前模型资源、冻结基线、正式失败证据和 Graph 验收记录留在原位置。

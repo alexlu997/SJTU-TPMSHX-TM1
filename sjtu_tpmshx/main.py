@@ -489,12 +489,8 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         builds a 256^3 voxel grid. Doing that in the background keeps the
         first Auto-fill click from paying the full cold-cache cost.
 
-        Phase 5 follow-up (UI report #1, 2026-05-07): also pre-imports +
-        warms the D-F surrogate (joblib/sklearn RBF). First call to
-        ``df_surrogate.predict.predict_K_cF`` adds ~1-2 s on cold-cache because
-        joblib has to demand-load the .joblib model and sklearn pulls in
-        scipy. Doing that in the same background thread eliminates the
-        "Not Responding" flash when the user clicks Fluid Auto-fill.
+        Also load the current fixed K/cF table and make one geometry-based
+        prediction in the same background thread.
         """
         from PySide6.QtCore import QTimer
 
@@ -516,8 +512,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
                     tpms_geometry(*args)
                 except Exception:
                     pass
-                # Warm the D-F surrogate by triggering one prediction.
-                # Loads joblib model + first sklearn import.
+                # Warm the current fixed K/cF table with one prediction.
                 try:
                     from sjtu_tpmshx.df_surrogate.predict import predict_K_cF
                     predict_K_cF(tpms_type, float(Lcell), float(t_mm), 0.4)

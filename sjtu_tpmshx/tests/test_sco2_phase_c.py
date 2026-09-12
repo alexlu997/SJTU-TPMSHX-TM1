@@ -6,9 +6,9 @@ Covers the property-backend additions that Phase C needs over Phase A:
   * vectorised field queries (sco2_rho_cp_field etc.) for per-cell property
     refresh through the spike.
 
-The full 2D field-solver capability check lives in
-projects/703-sCO2-D76/validate_sco2_precooler_phasec.py (cross-check, not a gate — there is
-no TPMS near-critical experiment to validate against).
+The historical project field-solver cross-check is indexed in
+docs/history/retired-tools.md; it was not an experimental gate.
+These property-backend tests remain part of the current solver contract.
 """
 import numpy as np
 import pytest

@@ -13,6 +13,9 @@ opt_einsum==3.4.0
 pyre-extensions==0.0.32
 pyro-api==0.1.2
 pyro-ppl==1.9.1
+# Required by the retained GPyTorch optimization stack, not the base solver.
+scikit-learn==1.8.0
+threadpoolctl==3.6.0
 torch==2.11.0+cpu
 tqdm==4.68.4
 typing-inspect==0.9.0
