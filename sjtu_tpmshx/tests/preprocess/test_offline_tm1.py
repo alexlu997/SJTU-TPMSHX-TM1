@@ -1,30 +1,23 @@
 """Offline I/O/calibration behavior uses artificial data, never new physics evidence."""
-import json
 import shutil
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from sjtu_tpmshx.preprocess.offline import load_experiments, publish_surrogate
-from sjtu_tpmshx.df_surrogate.surrogate_v3 import (
-    SurrogateV3, P_ATM, R_AIR, K_S_CELLS, air_viscosity,
-)
+from sjtu_tpmshx.preprocess.offline import load_experiments
 
 
-def test_explicit_clean_fit_publish_and_reload(tmp_path):
+def test_explicit_cleaning_and_source_guard(tmp_path):
     source = tmp_path / 'artificial-training.xlsx'
     geometries = [(4., .3), (4., .5), (5., .4), (6., .3), (6., .5), (8., .4)]
     rows = []
-    temperature = 298.15
     for length, thickness in geometries:
         for velocity in (5., 10., 15.):
             row = [0.] * 49
-            flux = 1.2 * velocity
-            lhs = air_viscosity(temperature) * flux / 1e-8 + 500. * flux**2
-            dp = np.sqrt(P_ATM**2 + 2 * R_AIR * temperature * K_S_CELLS * length * 1e-3 * lhs) - P_ATM
+            dp = velocity * 100.
             for column, value in {1: length, 2: thickness, 3: 2000., 7: 25.,
-                                  9: air_viscosity(temperature), 12: 1.2,
+                                  9: 1.8e-5, 12: 1.2,
                                   13: velocity, 43: dp, 47: .9 * dp}.items():
                 row[column] = value
             rows.append(row)
@@ -42,50 +35,8 @@ def test_explicit_clean_fit_publish_and_reload(tmp_path):
     shutil.copyfile(source, forbidden)
     with pytest.raises(ValueError, match='Shanghai keyword'):
         load_experiments(source=forbidden)
-    with pytest.raises(ValueError, match='Shanghai keyword'):
-        publish_surrogate(forbidden, tmp_path / 'forbidden', data_revision='test')
-    assert not (tmp_path / 'forbidden').exists()
-    manifest = publish_surrogate(source, tmp_path / 'published', data_revision='artificial-test-v1')
-    report = json.loads(manifest.read_text())
-    assert report['data_revision'] == 'artificial-test-v1'
-    assert report['source_workbook'] == str(source.resolve())
-    assert report['pressure_basis'] == 'col43_alpha'
-    for topology, entry in report['models'].items():
-        assert entry['geometries'] == 6
-        fitted = SurrogateV3(topology, training_workbook=source)
-        loaded = SurrogateV3(topology, calibration_csv=manifest.parent / entry['file'])
-        np.testing.assert_allclose(loaded._fit_K, 1e-8, rtol=1e-10)
-        np.testing.assert_allclose(loaded._fit_cF, 500., rtol=1e-10)
-        np.testing.assert_allclose(loaded.predict(5., .4), fitted.predict(5., .4), rtol=1e-12)
-    with pytest.raises(FileExistsError):
-        publish_surrogate(source, manifest.parent, data_revision='artificial-test-v1')
-
-
-def test_missing_explicit_training_never_falls_back(tmp_path):
     with pytest.raises(FileNotFoundError):
-        publish_surrogate(tmp_path / 'missing.xlsx', tmp_path / 'output', data_revision='test')
-    assert not (tmp_path / 'output').exists()
-    with pytest.raises(ValueError, match='revision'):
-        publish_surrogate(tmp_path / 'missing.xlsx', tmp_path / 'output', data_revision='')
-    with pytest.raises(ValueError, match='not both'):
-        SurrogateV3(training_workbook=tmp_path / 'x', calibration_csv=tmp_path / 'y')
-
-
-@pytest.mark.parametrize('length,thickness', [(7., .4), (6., .6)])
-def test_training_rejects_held_out_geometry(tmp_path, length, thickness):
-    source = tmp_path / 'training.xlsx'
-    with pd.ExcelWriter(source) as writer:
-        pd.DataFrame([['synthetic', 1.]]).to_excel(
-            writer, sheet_name='边界效应系数', header=False, index=False)
-        for topology in ('Diamond', 'Gyroid'):
-            pd.DataFrame([['held-out', length, thickness]]).to_excel(
-                writer, sheet_name=topology + '_汇总', index=False)
-    for topology in ('Diamond', 'Gyroid'):
-        with pytest.raises(ValueError, match='Shanghai'):
-            SurrogateV3(topology, training_workbook=source)
-    with pytest.raises(ValueError, match='Shanghai'):
-        publish_surrogate(source, tmp_path / 'output', data_revision='test')
-    assert not (tmp_path / 'output').exists()
+        load_experiments(source=tmp_path / 'missing.xlsx')
 
 
 def test_ordinary_full_preparation_never_reads_training(monkeypatch):
@@ -97,7 +48,6 @@ def test_ordinary_full_preparation_never_reads_training(monkeypatch):
         raise AssertionError('ordinary Case preparation attempted offline training')
 
     monkeypatch.setattr(pd, 'read_excel', forbidden)
-    monkeypatch.setattr(SurrogateV3, '_build', forbidden)
     for dimension, config in ((2, baseline_config()), (3, _small_air_cfg())):
         case = prepare_case(config, case_id=f'offline-independent-{dimension}')
         assert case.grid['dimension'] == dimension

@@ -34,11 +34,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from sjtu_tpmshx.validation.df_refit.gamma_hx_air import (
-    A_FLOW, L_FLOW, R_AIR, _air_mu, run as run_air)
-from sjtu_tpmshx.validation.df_refit.gamma_hx_water import run as run_water
+from sjtu_tpmshx.validation.hx_experiments import (
+    A_FLOW, L_FLOW, P_ATM, R_AIR, DH_REF, air_mu, load_air_cases, load_water_cases)
 from sjtu_tpmshx.validation.sco2_exp.load_sco2_exp import load_exp
 from sjtu_tpmshx.df_surrogate.full_core_3cell_fixed_v2 import FullCore3CellFixedDFV2
+from sjtu_tpmshx.models.fluid_props import check_water_state
+from sjtu_tpmshx.models.tpms_props import water_density, water_viscosity
 from sjtu_tpmshx.logutil import get_logger
 
 _log = get_logger(__name__)
@@ -79,39 +80,43 @@ def _cf_from_C(C: np.ndarray, G: np.ndarray, mu: np.ndarray,
 
 
 def collect() -> pd.DataFrame:
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        air = run_air()
-        water = run_water()
-    air = air[~air.excluded]
-    water = water[~water.excluded]
-
     rows = []
     for topo in _TOPOS:
         K, _cF_base_unused = _base_node(topo)
 
-        # ---- 空气：可压闭式反演 ----
-        a = air[air.topo == topo]
-        P_in = a.P_in.to_numpy(float)
-        P_out = P_in - a.dp_meas.to_numpy(float)
-        T_bar = a.T_bar.to_numpy(float)
-        G = a.G.to_numpy(float)
-        mu = np.array([_air_mu(t) for t in T_bar])
+        # 只按原始数据质量取样，不以旧 gamma 模型的预测是否有解筛行。
+        a = load_air_cases(topo)
+        a = a[~a.excluded]
+        P_in = P_ATM + a["空气进口压力/Pa"].to_numpy(float)
+        dp = (a["空气进口压力/Pa"] - a["空气出口压力/Pa"]).to_numpy(float)
+        P_out = P_in - dp
+        T_bar = 0.5 * (a["空气进口温度/℃"].to_numpy(float) + 273.15
+                       + a["空气出口温度/℃"].to_numpy(float) + 273.15)
+        G = a["样机空气流量kg/s"].to_numpy(float) / A_FLOW[topo]
+        mu = np.array([air_mu(t) for t in T_bar])
+        Re = G * DH_REF / mu
         C = (P_in ** 2 - P_out ** 2) / (2.0 * R_AIR * T_bar * L_FLOW)
         cf, dsh = _cf_from_C(C, G, mu, K)
         for i in range(len(a)):
-            rows.append(dict(fluid="air", topo=topo, Re=float(a.Re_ref.iloc[i]),
+            rows.append(dict(fluid="air", topo=topo, case=str(a.case.iloc[i]), Re=float(Re[i]),
                              G=float(G[i]), cF_meas=float(cf[i]),
                              darcy_frac=float(dsh[i]), A_used=A_FLOW[topo]))
 
         # ---- 水：不可压 ----
-        w = water[water.topo == topo]
-        rho = w.rho.to_numpy(float)
-        Gw = w.mdot.to_numpy(float) / A_FLOW[topo]
-        Cw = rho * w.dp_meas.to_numpy(float) / L_FLOW
-        cfw, dshw = _cf_from_C(Cw, Gw, w.mu.to_numpy(float), K)
+        w = load_water_cases(topo)
+        w = w[~(w.dp_nonphysical | w.dup_row)]
+        T_bar_w = 0.5 * (w["水进口温度/℃"].to_numpy(float) + 273.15
+                         + w["水出口温度/℃"].to_numpy(float) + 273.15)
+        P_bar_w = 0.5 * (w.water_P_in_abs_Pa + w.water_P_out_abs_Pa).to_numpy(float)
+        check_water_state('water', T_bar_w, P_bar_w, where='water HX mean properties')
+        rho = np.asarray(water_density(T_bar_w), dtype=float)
+        mu_w = np.asarray(water_viscosity(T_bar_w), dtype=float)
+        Gw = w["样机水流量kg/s"].to_numpy(float) / A_FLOW[topo]
+        Re_w = Gw * DH_REF / mu_w
+        Cw = rho * w["水侧压差/Pa"].to_numpy(float) / L_FLOW
+        cfw, dshw = _cf_from_C(Cw, Gw, mu_w, K)
         for i in range(len(w)):
-            rows.append(dict(fluid="water", topo=topo, Re=float(w.Re_ref.iloc[i]),
+            rows.append(dict(fluid="water", topo=topo, case=str(w.case.iloc[i]), Re=float(Re_w[i]),
                              G=float(Gw[i]), cF_meas=float(cfw[i]),
                              darcy_frac=float(dshw[i]), A_used=A_FLOW[topo]))
 
@@ -125,7 +130,7 @@ def collect() -> pd.DataFrame:
         Cs = (s.rho.to_numpy(float) * s.dP_MPa.to_numpy(float) * 1e6 / L_FLOW)
         cfs, dshs = _cf_from_C(Cs, Gs, s.mu.to_numpy(float), K)
         for i in range(len(s)):
-            rows.append(dict(fluid="sco2", topo=topo, Re=float(s.Re.iloc[i]),
+            rows.append(dict(fluid="sco2", topo=topo, case=str(s.case.iloc[i]), Re=float(s.Re.iloc[i]),
                              G=float(Gs[i]), cF_meas=float(cfs[i]),
                              darcy_frac=float(dshs[i]), A_used=A_s))
     return pd.DataFrame(rows)

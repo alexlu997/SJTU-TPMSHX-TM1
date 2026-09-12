@@ -143,7 +143,9 @@ explicit numerical-model change with directly relevant validation.
    manifolds/distribution regions, whole-HX losses, flow-area/channel-count
    definitions, instrument zero, and data reduction; these contributions are
    not separately modelled. Without a same-rig comparison they must not be
-   attributed to fluid. `gamma_df` and `rbf` remain research modes.
+   attributed to fluid. The superseded `gamma_df` and `rbf` research modes
+   are retired; selecting them explicitly now raises an error. Their code,
+   tables and results remain available through the [history index](history/legacy-models.md).
 5. **Nusselt ownership.** Air, water, and sCO2 coefficient tables live only in
    `models/nu_correlations.py`.
 6. **Compressible envelope.** `models/envelope.py` rejects operating points
@@ -250,15 +252,17 @@ repository:
 
 ```text
 data/raw_data/
-├── *.xlsx
-├── sCO2-CFD/
-│   ├── Diamond/
-│   └── Gyroid/
-└── CO2-CFD/
-    ├── Diamond/
-    └── Gyroid/
+├── experiments/{air,water_air,sco2}/
+├── cfd/
+│   ├── water/
+│   ├── sco2/{Diamond,Gyroid}/
+│   └── co2/{Diamond,Gyroid}/
+└── plans/water/
 ```
 
 Do not rename dataset directories without first updating the loader that names
 that exact path. Generated reports must not become a second source of truth for
 raw measurements.
+The [data catalog](data-catalog.md) maps original filenames to this layout.
+Workbook names also select the explicitly confirmed water pressure convention;
+renaming them requires updating that registry and its caller tests together.

@@ -12,7 +12,7 @@ for air). It tests the Nu CORRELATION, not the field SIMPLE/LTNE solver
 Nu reduction the experiment used.
 
 Geometry/conditions read from
-  data/raw_data/D-7-6-sCO2/D-7-6实验数据-V1.xlsx
+  data/raw_data/experiments/sco2/d76/sco2_D7-t0p6_hx_experiment_arranged.xlsx
 Run:  python projects/703-sCO2-D76/validate_sco2_d76.py
 Gate: max per-case |Q error| < 15 %.
 """
@@ -23,8 +23,8 @@ Gate: max per-case |Q error| < 15 %.
 # experimental anchors LANDED — gamma_nu_sco2 (Nu, in compute()'s chain) and
 # gamma_f_sco2 (cF) — so this gate is re-armed: it now validates the
 # CORRECTED closure end-to-end (GOLD-case hot/cold Re ≈ 9–14 k, inside the
-# gamma_Nu window). Data path updated: the old D-7-6-sCO2/…V1.xlsx moved to
-# the flat data/raw_data/D-7-6实验数据-sCO2.xlsx re-export — SAME dataset
+# gamma_Nu window). Gate A uses the arranged re-export; the original V1
+# remains a separate workbook. Historical comparison of the re-export:
 # (cases 15/20/38 cross-checked to 6 decimals against sCO2-Experient.xlsx)
 # with every column shifted one LEFT vs V1; the map below is header-guarded
 # so a future re-export cannot silently shift again (the sCO2-Experient
@@ -43,8 +43,8 @@ sys.path.insert(0, str(_HERE.parents[2]))
 
 from sjtu_tpmshx.models import fluid_props, tpms_calc      # noqa: E402
 
-XLSX = (_HERE.parent.parent.parent / "data" / "raw_data"
-        / "D-7-6实验数据-sCO2.xlsx")
+XLSX = (_HERE.parents[2] / "data" / "raw_data" / "experiments" / "sco2"
+        / "d76" / "sco2_D7-t0p6_hx_experiment_arranged.xlsx")
 
 GOLD_CASES = [15, 20, 21, 32, 37, 38]   # ΔT_streams>10 °C & |bal|<5 %
 K_WALL = 16.0                            # solid conductivity [W/m·K] (steel spec)

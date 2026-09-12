@@ -62,7 +62,10 @@ def load_cases_df(xlsx_path: Path) -> pd.DataFrame:
         WATER_EXPERIMENT_BOOKS, with_water_absolute_pressures)
     d = pd.read_excel(xlsx_path, engine='openpyxl', sheet_name='Sheet1',
                       header=None, skiprows=2)
-    if xlsx_path.name in WATER_EXPERIMENT_BOOKS - {'7-6-Water-dp.xlsx'}:
+    if xlsx_path.name in WATER_EXPERIMENT_BOOKS - {'water-air_DG7-t0p6_hx_water-dp_with-air-temperature.xlsx'}:
+        # Rows after the last case ID contain sensor corrections, not cases.
+        # Keep interior gaps and incomplete cases for the existing validation.
+        d = d.loc[:d[0].last_valid_index()].copy()
         d = with_water_absolute_pressures(
             d, source=xlsx_path, sheet='Sheet1', tin=24, tout=25, pin=26, pout=27)
     return d

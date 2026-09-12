@@ -5,10 +5,10 @@ from sjtu_tpmshx.models.fluid_props import check_water_state
 
 
 WATER_EXPERIMENT_BOOKS = frozenset({
-    '20260401-上海电气天然气加热器实验工况.xlsx',
-    '20260407-上海电气天然气加热器实验工况 -调换进出口-G_7_6.xlsx',
-    '20260609-水直空气侧-D_7_6.xlsx',
-    '7-6-Water-dp.xlsx',
+    'water-air_G7-t0p6_shanghai_experiment_20260401.xlsx',
+    'water-air_G7-t0p6_shanghai_experiment_ports-swapped_20260407.xlsx',
+    'water-air_D7-t0p6_experiment_water-straight_20260609.xlsx',
+    'water-air_DG7-t0p6_hx_water-dp_with-air-temperature.xlsx',
 })
 WATER_P_ATM_ASSUMED_PA = 101325.0
 

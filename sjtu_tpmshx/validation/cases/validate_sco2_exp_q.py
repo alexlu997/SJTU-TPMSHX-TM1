@@ -421,7 +421,7 @@ def main() -> int:
         "tracked_code_dirty": bool(subprocess.check_output(
             ["git", "status", "--porcelain", "--untracked-files=no"],
             cwd=REPO_ROOT, text=True).strip()),
-        "dataset": "data/raw_data/sCO2-Experient.xlsx",
+        "dataset": 'data/raw_data/experiments/sco2/sco2_DG7-t0p6_hx_experiment_summary.xlsx',
         "sheets": [f"实验数据处理-{topo}" for topo in topologies],
         "recorded_data_pin": (pin_path.read_text(encoding="utf-8").strip()
                               if pin_path.exists() else None),

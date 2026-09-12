@@ -1,15 +1,9 @@
-"""B2 2.2 — DF backend registry equivalence + contract guards.
-
-Golden tuples below were captured from the pre-registry dispatch on
-2026-06-12 (gamma cF 534.8 == Shanghai gate point; Diamond-7 rbf cF 745
-== the falsified extrapolation the D_7_6 gate documents). Any drift here
-means the registry refactor changed numbers — it must not.
-"""
+"""Fixed CFD values, broadcast parity, and retired-method rejection."""
 import numpy as np
 import pytest
 
 from sjtu_tpmshx.df_surrogate import predict as P
-from sjtu_tpmshx.df_surrogate.backend import (DFBackend, available_methods,
+from sjtu_tpmshx.df_surrogate.backend import (available_methods,
                                   get_backend)
 from sjtu_tpmshx.models.tpms_calc import geometry as _geom
 
@@ -17,13 +11,7 @@ _EF = {tp: _geom(tp, 7.0, 0.6, 16.0)['epsilon'] / 2
        for tp in ('Gyroid', 'Diamond')}
 
 # (tpms, method) -> (K, cF) at L=7.0, t=0.6, eps_f=_EF — exact values.
-# gamma_df K re-baselined 2026-06-30: SmoothDF Dh² trend -> CFD-refit surface
-# (c_F unchanged). See gamma_df.py K UPDATE note + openspec/df-coeffs-cfd-refit.
 _GOLDEN = {
-    ('Gyroid', 'gamma_df'): (5.221645176691857e-08, 534.800000000008),
-    ('Gyroid', 'rbf'):      (3.218806963975885e-08, 534.7664446055616),
-    ('Diamond', 'gamma_df'): (5.1135209299724466e-08, 454.19001394852256),
-    ('Diamond', 'rbf'):      (2.4688411110399566e-08, 745.0133131278383),
     ('Gyroid', 'cfd_full_core_3cell_fixed_v2'):
         (5.3704042886967827e-08, 199.05002405781562),
     ('Diamond', 'cfd_full_core_3cell_fixed_v2'):
@@ -39,57 +27,29 @@ def test_golden_point_values_cross_platform(tpms, method):
     np.testing.assert_allclose(cF, cF_ref, rtol=1e-12, atol=0.0)
 
 
-@pytest.mark.parametrize(
-    'method', ('gamma_df', 'rbf', 'cfd_full_core_3cell_fixed_v2')
-)
-def test_scalar_vec_parity(method):
-    """Vectorised path must agree with the scalar path (modulo the
-    scalar-only override layer, empty since 2026-06-11).
-
-    rbf tolerance note: the RBF kernel matmul sums in a different order
-    for a 1-row query vs a batched query, giving a last-ulp difference
-    between the scalar and vec paths. This is PRE-EXISTING behaviour of
-    the retired inline dispatch (verified 2026-06-12), not a registry
-    regression — hence rel=1e-12 instead of exact equality here.
-    gamma_df is loop-based on both paths → exact.
-    """
+def test_scalar_vec_parity():
     L = np.array([5.0, 7.0, 6.0])
     t = np.array([0.4, 0.6, 0.5])
-    ef = np.array([_geom('Gyroid', float(l), float(tt), 16.0)['epsilon'] / 2
-                   for l, tt in zip(L, t)])
-    Kv, cv = P.predict_K_cF_vec('Gyroid', L, t, ef, method=method)
+    Kv, cv = P.predict_K_cF_vec('Gyroid', L, t, _EF['Gyroid'])
     for i in range(L.size):
-        Ks, cs = P.predict_K_cF('Gyroid', float(L[i]), float(t[i]),
-                                float(ef[i]), method=method)
-        if method != 'rbf':
-            assert Kv[i] == Ks and cv[i] == cs
-        else:
-            assert Kv[i] == pytest.approx(Ks, rel=1e-12)
-            assert cv[i] == pytest.approx(cs, rel=1e-12)
+        Ks, cs = P.predict_K_cF('Gyroid', L[i], t[i], _EF['Gyroid'])
+        assert Kv[i] == Ks and cv[i] == cs
 
 
-def test_rbf_clamp_engages_internally():
-    """K clamp is RBF-backend-internal: low-permeability geometry floors
-    at K_min exactly; gamma_df stays clamp-free at the same point."""
-    ef = _geom('Diamond', 4.0, 0.5, 16.0)['epsilon'] / 2
-    Kv, _ = P.predict_K_cF_vec('Diamond', np.array([4.0]), np.array([0.5]),
-                               np.array([ef]), method='rbf')
-    assert Kv[0] == get_backend('Diamond', 'rbf').K_min == 1e-8
-    Kg, _ = P.predict_K_cF('Diamond', 4.0, 0.5, ef, method='gamma_df')
-    assert Kg != 1e-8
-
-
-def test_registry_surface():
-    # 2026-06-30: the CFD-refit K surface was folded INTO gamma_df (it now is
-    # the default K source); the transient 'cfd_refit' backend was removed.
-    assert set(available_methods()) == {
-        'gamma_df', 'rbf', 'cfd_full_core_3cell_fixed_v2'
-    }
+@pytest.mark.parametrize('method', ['gamma_df', 'rbf', 'plhub_gp_typo'])
+def test_retired_or_unknown_method_rejected(method, monkeypatch):
     with pytest.raises(ValueError, match='unknown DF method'):
-        P.predict_K_cF('Gyroid', 7.0, 0.6, 0.36, method='plhub_gp_typo')
-    b = get_backend('Gyroid', 'gamma_df')
-    assert isinstance(b, DFBackend) and b.name == 'gamma_df'
-    assert get_backend('Gyroid', 'gamma_df') is b   # cached
+        P.predict_K_cF('Gyroid', 7.0, 0.6, .36, method=method)
+    monkeypatch.setenv('TPMSHX_DF_METHOD', method)
+    with pytest.raises(ValueError, match='unknown DF method'):
+        P.predict_K_cF_vec('Gyroid', np.array([7.0]), .6, .36)
+    assert P.predict_K_cF('Gyroid', 7.0, .6, .36, method=P.SCO2_DF_METHOD) == _GOLDEN[('Gyroid', P.SCO2_DF_METHOD)]
+
+
+def test_supported_method_surface():
+    assert available_methods() == ('cfd_full_core_3cell_fixed_v2',)
+    b = get_backend('Gyroid', P.SCO2_DF_METHOD)
+    assert get_backend('Gyroid', P.SCO2_DF_METHOD) is b
 
 
 def test_fixed_sco2_backend_interpolates_geometry_and_rejects_extrapolation():
@@ -127,14 +87,3 @@ def test_production_fixed_df_is_independent_of_fluid_and_reynolds():
         )
         coeffs.append((result['K_df'], result['cF_df']))
     assert coeffs[0] == coeffs[1] == coeffs[2]
-
-
-def test_diagnostics_passthrough():
-    """Unknown attributes reach the wrapped model (existing introspection
-    call sites: ._rbf_K, .K_min, .summary)."""
-    b = get_backend('Gyroid', 'rbf')
-    X = np.array([[7.0, 0.6, _EF['Gyroid']]])
-    assert np.isfinite(b._rbf_K(X)[0])     # wrapped-model attribute
-    assert b.K_min == 1e-8
-    g = get_backend('Gyroid', 'gamma_df')
-    assert hasattr(g, 'summary')

@@ -7,29 +7,30 @@ updated: 2026-04-15
 
 本索引沿用旧版项目的研究分类；文中的“当前 baseline”和精度结论属于
 当时状态。当前默认模型见[架构说明](../docs/architecture.md)，TM1 实施与验收见
-[Graph 状态](../docs/plans/three-module-graph/state/)。以下历史结论保留原状。
+[Graph 状态](../docs/plans/three-module-graph/state/)。以下历史结论保留原状。旧模型和派生报告已归档，完整路径见
+[历史模型索引](../docs/history/legacy-models.md)。
 
 本目录按**工作话题**分组,不只是按日期排。所有报告文件名保留 `YYYY-MM-DD-` 日期前缀,
 便于和 git 历史、devlog 对齐。
 
-## 1. ConstDF-v1 代理模型(当前 baseline)
+## 1. ConstDF-v1 代理模型（历史 baseline）
 
-### 支撑当前 baseline 的正式证据
+### 当时 baseline 的证据记录
 
 | 文件 | 一句话结论 |
 |---|---|
-| [`2026-04-14-DF-re-independence-report.md`](constdf-v1/2026-04-14-DF-re-independence-report.md) | 24/24 几何通过 Pearson 残差-Re 检验 → 2 参数 D-F 在训练 Re 范围内**统计独立于 Re**,作为 ConstDF-v1 物理合法性的**论文级证据** |
-| [`2026-04-14-DF-surrogate-loo-report.md`](constdf-v1/2026-04-14-DF-surrogate-loo-report.md) | ConstDF-v1 LOO 主结果:**Diamond 12.79% / Gyroid 16.95%**(由 `train_surrogate.py` 自动写入,跑训练即覆盖) |
-| [`2026-04-15-DF-residual-structure-diagnostic.md`](constdf-v1/2026-04-15-DF-residual-structure-diagnostic.md) | 残差 vs Re 诊断:**U 形残差在 24 个几何上普遍存在**,谷底 Re ≈ 800-2000,论证 12-17% MAPE 是 2-term D-F 闭合形式的**结构下限**,不是模型容量问题 |
+| [`2026-04-14-DF-re-independence-report.md`](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/a82fc0a0ce71fd47333594fa053799ac8b263150/reports/constdf-v1/2026-04-14-DF-re-independence-report.md) | 24/24 几何通过 Pearson 残差-Re 检验 → 2 参数 D-F 在训练 Re 范围内**统计独立于 Re**,作为 ConstDF-v1 物理合法性的**论文级证据** |
+| [`2026-04-14-DF-surrogate-loo-report.md`](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/a82fc0a0ce71fd47333594fa053799ac8b263150/reports/constdf-v1/2026-04-14-DF-surrogate-loo-report.md) | ConstDF-v1 LOO 主结果:**Diamond 12.79% / Gyroid 16.95%**(由 `train_surrogate.py` 自动写入,跑训练即覆盖) |
+| [`2026-04-15-DF-residual-structure-diagnostic.md`](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/a82fc0a0ce71fd47333594fa053799ac8b263150/reports/constdf-v1/2026-04-15-DF-residual-structure-diagnostic.md) | 残差 vs Re 诊断:**U 形残差在 24 个几何上普遍存在**,谷底 Re ≈ 800-2000,论证 12-17% MAPE 是 2-term D-F 闭合形式的**结构下限**,不是模型容量问题 |
 
 ### 被否方案(负结果,作"为什么不选 X"的论据)
 
 | 文件 | 被否原因 |
 |---|---|
-| [`2026-04-14-piedra-baseline.md`](constdf-v1/2026-04-14-piedra-baseline.md) | Piedra 4 参数幂律 LOO Diamond 33% / Gyroid 47%,远差于 3D MLP → 证明 $(L, t)$ 输入对代理有用,不只 $\varepsilon_f$ |
-| [`2026-04-15-kim-k1-diagnostic.md`](constdf-v1/2026-04-15-kim-k1-diagnostic.md) | Kim 严格 $K_1$ 线性子集判据下,大多几何只剩 ≤ 2 个点,样本不够拟合 |
-| [`2026-04-15-kim-adapted-diagnostic.md`](constdf-v1/2026-04-15-kim-adapted-diagnostic.md) | Kim 2-term 在低 Re 子集上的三种判据(固定 Re 阈、子集 MAPE、新点残差),没一个比全范围 $K_{Q1}$ 更好 |
-| [`2026-04-15-kim-constrained-diagnostic.md`](constdf-v1/2026-04-15-kim-constrained-diagnostic.md) | Kim 固定 $c_F$、反推 $K_1$ 的方案,全范围 MAPE 比直接 $K_{Q1}$ **大** 0.3-8pp |
+| [`2026-04-14-piedra-baseline.md`](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/a82fc0a0ce71fd47333594fa053799ac8b263150/reports/constdf-v1/2026-04-14-piedra-baseline.md) | Piedra 4 参数幂律 LOO Diamond 33% / Gyroid 47%,远差于 3D MLP → 证明 $(L, t)$ 输入对代理有用,不只 $\varepsilon_f$ |
+| [`2026-04-15-kim-k1-diagnostic.md`](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/a82fc0a0ce71fd47333594fa053799ac8b263150/reports/constdf-v1/2026-04-15-kim-k1-diagnostic.md) | Kim 严格 $K_1$ 线性子集判据下,大多几何只剩 ≤ 2 个点,样本不够拟合 |
+| [`2026-04-15-kim-adapted-diagnostic.md`](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/a82fc0a0ce71fd47333594fa053799ac8b263150/reports/constdf-v1/2026-04-15-kim-adapted-diagnostic.md) | Kim 2-term 在低 Re 子集上的三种判据(固定 Re 阈、子集 MAPE、新点残差),没一个比全范围 $K_{Q1}$ 更好 |
+| [`2026-04-15-kim-constrained-diagnostic.md`](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/a82fc0a0ce71fd47333594fa053799ac8b263150/reports/constdf-v1/2026-04-15-kim-constrained-diagnostic.md) | Kim 固定 $c_F$、反推 $K_1$ 的方案,全范围 MAPE 比直接 $K_{Q1}$ **大** 0.3-8pp |
 
 ### baseline 一览
 
@@ -54,7 +55,7 @@ Shanghai 16-case 从"21.8% 高 Re Q 误差"的 C-1 遗留问题到"3.7% 已解�
 
 ## 3. Scratch 探索(ConstDF-v1 之外的失败尝试)
 
-[`scratch/`](scratch/) 子目录下存了 **5 个** "绕开 ConstDF-v1 12-17% 下限"的实验记录——
+[`scratch/`](https://github.com/alexlu997/SJTU-TPMSHX-TM1/tree/d3ba040de0d43fce8e9b485396a5b660c2d87c5f/reports/scratch) 子目录下存了 **5 个** "绕开 ConstDF-v1 12-17% 下限"的实验记录——
 全部不入主干但数值有参考价值,避免未来会话重跑。
 
 - **EG-DIP Gompertz**(Singh 2026,2 个变体):filtered / fullL8
@@ -62,7 +63,7 @@ Shanghai 16-case 从"21.8% 高 Re Q 误差"的 C-1 遗留问题到"3.7% 已解�
 
 **最强的探索(Direct-ΔP wide)**:Diamond LOO **8.09%**,Gyroid LOO **9.17%**,**数值上打败 ConstDF-v1**。
 但因失去物理可解释性、求解器集成难、外推风险未知,**选择保留 ConstDF-v1 作为 baseline**。
-详情见 [`scratch/README.md`](scratch/README.md)。
+详情见 [`scratch/README.md`](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/d3ba040de0d43fce8e9b485396a5b660c2d87c5f/reports/scratch/README.md)。
 
 ---
 

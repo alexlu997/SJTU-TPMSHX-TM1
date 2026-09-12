@@ -1,25 +1,13 @@
-"""Pin the contract that batched predict_K_cF_vec matches the per-cell loop
-output bit-exact for representative input shapes.
-
-Per audit finding H2 / Item 2 (2026-05-28 4-perspective audit). The previous
-implementation was Python loop calling model.predict() per cell which rebuilt
-no kernel but still incurred per-call overhead. Refactored to native batched
-RBFInterpolator eval — ~50× speedup expected on Shanghai-shaped grids.
-
-This test catches regressions from any future "optimization" that changes
-numerical output. rtol=1e-12 against the per-cell loop reference (same
-RBFInterpolator, just different invocation pattern, so bit-exactness is
-expected modulo numerical-summation-order effects in the kernel matmul).
-"""
+"""Fixed-model vector evaluation must preserve scalar values and broadcasting."""
 import numpy as np
 import pytest
 
 
 @pytest.fixture(scope="module")
 def gyroid_model():
-    """Build SurrogateV3 once — Excel read on construction is expensive."""
-    from sjtu_tpmshx.df_surrogate.surrogate_v3 import SurrogateV3
-    return SurrogateV3(tpms='Gyroid')
+    """Use the unchanged fixed CFD model as the independent scalar reference."""
+    from sjtu_tpmshx.df_surrogate.full_core_3cell_fixed_v2 import FullCore3CellFixedDFV2
+    return FullCore3CellFixedDFV2('Gyroid')
 
 
 def _loop_reference(model, L_arr, t_arr, e_arr):
@@ -50,9 +38,7 @@ def test_batched_matches_loop_bit_exact(gyroid_model, shape):
     e = rng.uniform(0.30, 0.45, size=shape)
 
     K_loop, cF_loop = _loop_reference(gyroid_model, L, t, e)
-    # method='rbf' explicit: this test pins the RBF batch-vs-loop contract
-    # (default backend is gamma_df since 2026-06-12)
-    K_batch, cF_batch = predict_K_cF_vec('Gyroid', L, t, e, method='rbf')
+    K_batch, cF_batch = predict_K_cF_vec('Gyroid', L, t, e, method='cfd_full_core_3cell_fixed_v2')
 
     assert K_batch.shape == shape, f"K shape {K_batch.shape} != {shape}"
     assert cF_batch.shape == shape, f"cF shape {cF_batch.shape} != {shape}"
@@ -62,14 +48,6 @@ def test_batched_matches_loop_bit_exact(gyroid_model, shape):
                                err_msg=f"cF mismatch at shape {shape}")
 
 
-def test_K_min_floor_preserved():
-    """The K_min floor must still clamp tiny K predictions."""
-    from sjtu_tpmshx.df_surrogate.predict import predict_K_cF_vec
-    from sjtu_tpmshx.df_surrogate.surrogate_v3 import K_MIN
-    K, _ = predict_K_cF_vec('Gyroid',
-                             np.array([4.0]), np.array([0.5]),
-                             np.array([0.30]), method='rbf')
-    assert np.all(K >= K_MIN), f"K floor breached: min(K)={K.min():.2e} < {K_MIN:.2e}"
 
 
 def test_scalar_broadcast_to_array():

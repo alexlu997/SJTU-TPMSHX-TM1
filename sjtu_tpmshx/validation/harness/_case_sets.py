@@ -12,10 +12,10 @@ from sjtu_tpmshx.validation.harness._harness import SpecimenSpec
 _PKG_ROOT = Path(__file__).resolve().parent.parent.parent     # sjtu_tpmshx/
 _DATA = _PKG_ROOT.parent / 'data' / 'raw_data'
 
-SHANGHAI_XLSX = _DATA / '20260401-上海电气天然气加热器实验工况.xlsx'
+SHANGHAI_XLSX = _DATA / 'experiments/water_air/water-air_G7-t0p6_shanghai_experiment_20260401.xlsx'
 SHANGHAI_N_CASES = 16
 
-D76_XLSX = _DATA / '20260609-水直空气侧-D_7_6.xlsx'
+D76_XLSX = _DATA / 'experiments/water_air/water-air_D7-t0p6_experiment_water-straight_20260609.xlsx'
 D76_N_CASES = 18
 # Case index 11: duplicated sensor block (= case 10's T/P columns),
 # verified 2026-06-11 — excluded from the dP gate.

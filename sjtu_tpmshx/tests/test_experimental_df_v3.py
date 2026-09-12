@@ -302,14 +302,14 @@ def test_water_air_2d_and_3d_use_separate_hx_coefficients_once():
 
 _RAW = Path(__file__).resolve().parents[2] / "data" / "raw_data"
 _AIR_HX_BOOKS = (
-    _RAW / "20260609-水直空气侧-D_7_6.xlsx",
-    _RAW / "20260407-上海电气天然气加热器实验工况 -调换进出口-G_7_6.xlsx",
+    _RAW / 'experiments/water_air/water-air_D7-t0p6_experiment_water-straight_20260609.xlsx',
+    _RAW / 'experiments/water_air/water-air_G7-t0p6_shanghai_experiment_ports-swapped_20260407.xlsx',
 )
 
 
 @pytest.mark.skipif(not all(path.exists() for path in (
-                        _RAW / "试验记录表_整理版.xlsx",
-                        _RAW / "sCO2-Experient.xlsx")),
+                        _RAW / 'experiments/air/air_DG_specimen_experiment_summary.xlsx',
+                        _RAW / 'experiments/sco2/sco2_DG7-t0p6_hx_experiment_summary.xlsx')),
                     reason="private calibration data unavailable")
 def test_reviewed_experiment_pressure_error_gates(monkeypatch):
     from sjtu_tpmshx.validation.df_refit import fit_experimental_effective as evaluator
@@ -330,7 +330,7 @@ def test_reviewed_experiment_pressure_error_gates(monkeypatch):
         assert row.sF == row.packaged_sF == sf
 
 
-@pytest.mark.skipif(not (_RAW / "7-6-Water-dp.xlsx").exists(),
+@pytest.mark.skipif(not (_RAW / 'experiments/water_air/water-air_DG7-t0p6_hx_water-dp_with-air-temperature.xlsx').exists(),
                     reason="private water+air HX data unavailable")
 def test_water_hx_quality_flags_and_frozen_candidates():
     from sjtu_tpmshx.validation.df_refit.fit_experimental_effective import (
@@ -368,7 +368,7 @@ def test_water_hx_quality_flags_and_frozen_candidates():
 
 
 @pytest.mark.skipif(not all(path.exists() for path in (
-                        _RAW / "7-6-Water-dp.xlsx", *_AIR_HX_BOOKS)),
+                        _RAW / 'experiments/water_air/water-air_DG7-t0p6_hx_water-dp_with-air-temperature.xlsx', *_AIR_HX_BOOKS)),
                     reason="private water+air HX data unavailable")
 def test_matching_hx_air_and_water_pair_use_separate_frozen_scales():
     from sjtu_tpmshx.validation.df_refit.fit_experimental_effective import (

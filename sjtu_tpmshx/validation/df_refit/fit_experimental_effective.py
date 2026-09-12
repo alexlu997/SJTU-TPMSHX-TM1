@@ -16,11 +16,8 @@ from sjtu_tpmshx.df_surrogate.experimental_correction import (
     correction_scale, hx_velocity_bounds)
 from sjtu_tpmshx.df_surrogate.full_core_3cell_fixed_v2 import FullCore3CellFixedDFV2
 from sjtu_tpmshx.df_surrogate.load_data import load_all
-from sjtu_tpmshx.validation.df_refit.gamma_hx_water import (
-    _load_cases as _load_water_cases)
-from sjtu_tpmshx.validation.df_refit.gamma_hx_air import (
-    A_FLOW, L_FLOW, P_ATM, R_AIR, _air_mu,
-    _load_cases as _load_air_cases)
+from sjtu_tpmshx.validation.hx_experiments import (
+    A_FLOW, L_FLOW, P_ATM, R_AIR, air_mu, load_air_cases, load_water_cases)
 from sjtu_tpmshx.validation.sco2_exp.load_sco2_exp import load_exp
 from sjtu_tpmshx.models.tpms_props import water_density, water_viscosity
 
@@ -64,7 +61,7 @@ def fit_air() -> tuple[pd.DataFrame, list[tuple[str, str, float, float, float]]]
             packaged_sF=packaged, n=len(g), rmsre=rmsre, bias=bias,
             darcy_fraction_median=float(np.median(darcy / measured)),
             identifiability="K weak; fixed at CFD K0",
-            source="试验记录表_整理版.xlsx",
+            source='experiments/air/air_DG_specimen_experiment_summary.xlsx',
             filter="L8 Re>=1600" if L == 8.0 else "original valid rows",
             status=status, scope="core-calibrated"))
     return pd.DataFrame(rows), shared
@@ -110,7 +107,7 @@ def evaluate_sco2() -> tuple[pd.DataFrame, list[tuple[str, str, float, float, fl
             rmsre=rmsre, bias=bias,
             darcy_fraction_median=float(np.median(darcy / measured)),
             identifiability="K unidentifiable; fixed at CFD K0",
-            source="sCO2-Experient.xlsx",
+            source='experiments/sco2/sco2_DG7-t0p6_hx_experiment_summary.xlsx',
             filter=("hot side & ok_dp; require "
                     f"{u_lo:.6g}<=u_in<={u_hi:.6g} m/s"),
             status="approved", scope="HX-effective",
@@ -142,7 +139,7 @@ def fit_water_hx() -> tuple[pd.DataFrame, pd.DataFrame]:
     summaries, quality = [], []
     for tp in ("Diamond", "Gyroid"):
         K0, cF0 = FullCore3CellFixedDFV2(tp).predict(7.0, 0.6)
-        raw = _load_water_cases(tp)
+        raw = load_water_cases(tp)
         quality_valid = ~(raw.dp_nonphysical | raw.dup_row)
         T = (0.5 * (raw["水进口温度/℃"].to_numpy(float)
                     + raw["水出口温度/℃"].to_numpy(float)) + 273.15)
@@ -181,7 +178,7 @@ def fit_water_hx() -> tuple[pd.DataFrame, pd.DataFrame]:
             darcy_fraction_median=float(np.median(
                 darcy[included] / predicted[included])),
             identifiability="K fixed at production CFD K0",
-            source="7-6-Water-dp.xlsx",
+            source='experiments/water_air/water-air_DG7-t0p6_hx_water-dp_with-air-temperature.xlsx',
             filter=("exclude dp_nonphysical and duplicate_row; fit only "
                     f"{u_lo:.6g}<=u<={u_hi:.6g} m/s"),
             A_flow_m2=A_FLOW[tp], L_flow_m=L_FLOW,
@@ -212,7 +209,7 @@ def fit_air_hx() -> tuple[pd.DataFrame, pd.DataFrame]:
     summaries, quality = [], []
     for tp in ("Diamond", "Gyroid"):
         K0, cF0 = FullCore3CellFixedDFV2(tp).predict(7.0, 0.6)
-        raw = _load_air_cases(tp)
+        raw = load_air_cases(tp)
         included = ~(raw.dp_floor | raw.dup_row)
         g = raw.loc[included]
         G = g["样机空气流量kg/s"].to_numpy(float) / A_FLOW[tp]
@@ -226,7 +223,7 @@ def fit_air_hx() -> tuple[pd.DataFrame, pd.DataFrame]:
             raise RuntimeError(f"{tp}: reviewed HX-air velocity window drifted")
         measured = (g["空气进口压力/Pa"].to_numpy(float)
                     - g["空气出口压力/Pa"].to_numpy(float))
-        mu = np.array([_air_mu(T) for T in T_bar])
+        mu = np.array([air_mu(T) for T in T_bar])
         darcy = mu * G / K0
         forch = cF0 * G * G
         upper = float(np.min(

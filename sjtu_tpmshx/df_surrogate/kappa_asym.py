@@ -16,9 +16,8 @@ Three identity guards keep δ=0 (and the uncalibrated state) bit-identical:
   2. no κ table for this tpms_type             → (1.0, 1.0)
   3. r ≈ 1 (ε_side == ε_sym, i.e. δ=0)         → (1.0, 1.0)
 
-Mirrors the post-multiplier style of ``predict._apply_override``: κ multiplies
-the *output* of ``predict_K_cF`` and never touches its public signature, so the
-gamma_df / rbf backend and the golden gate are untouched at δ=0.
+κ multiplies the output of ``predict_K_cF``. The fixed geometry baseline
+is unchanged at δ=0; production preparation does not apply this research hook.
 """
 from __future__ import annotations
 

@@ -41,7 +41,7 @@ from sjtu_tpmshx.logutil import get_logger  # noqa: E402
 
 _log = get_logger(__name__)
 
-DATA_XLSX = _PROJECT_ROOT.parent / "data" / "raw_data" / "试验记录表_整理版.xlsx"
+DATA_XLSX = _PROJECT_ROOT.parent / "data" / "raw_data" / 'experiments/air/air_DG_specimen_experiment_summary.xlsx'
 
 # Sheet names (GBK 汇总)
 _SHEETS = {"Diamond": "Diamond_汇总", "Gyroid": "Gyroid_汇总"}
@@ -188,7 +188,7 @@ def _assert_no_shanghai_leakage(df: pd.DataFrame, *, source=None) -> None:
             raise ValueError(
                 f"DATA_XLSX path contains Shanghai keyword {kw!r}: "
                 f"{source!s} — training set must come from "
-                f"试验记录表_整理版.xlsx, never a Shanghai workbook.")
+                f"air_DG_specimen_experiment_summary.xlsx, never a Shanghai workbook.")
     L_sh, t_sh = _SHANGHAI_GEOMETRY
     if (df['t_mm'] == t_sh).any():
         rows = df[df['t_mm'] == t_sh]

@@ -1,10 +1,10 @@
 """Load sCO2 unit-cell CFD data (2026-07 campaign, smooth wall).
 
-Dataset: ``data/raw_data/sCO2-CFD/{Diamond,Gyroid}/`` — see the README.md
+Dataset: ``data/raw_data/cfd/sco2/{Diamond,Gyroid}/`` — see the README.md
 there for the confirmed CFD setup (smooth wall, RANS, no gravity,
 Twall = Tref + 50 K) and the case-matrix derivation. Same post-processing
 pipeline / column schema as ``water-cfd-raw.xlsx``
-(see ``smooth_df._load_points``).
+(historical comparison code is indexed in ``docs/history/legacy-models.md``).
 
 Two loaders (``lattice`` = 'Diamond' | 'Gyroid'):
 
@@ -83,7 +83,7 @@ from sjtu_tpmshx.logutil import get_logger  # noqa: E402
 
 _log = get_logger(__name__)
 
-DATA_ROOT = _PROJECT_ROOT.parent / "data" / "raw_data" / "sCO2-CFD"
+DATA_ROOT = _PROJECT_ROOT.parent / "data" / "raw_data" / 'cfd/sco2'
 LATTICES = ("Diamond", "Gyroid")
 
 

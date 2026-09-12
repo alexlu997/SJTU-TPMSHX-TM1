@@ -5,7 +5,7 @@ import pytest
 from sjtu_tpmshx.validation.sco2_exp.load_sco2_exp import load_exp
 
 
-_XLSX = Path(__file__).resolve().parents[2] / "data/raw_data/sCO2-Experient.xlsx"
+_XLSX = Path(__file__).resolve().parents[2] / 'data/raw_data/experiments/sco2/sco2_DG7-t0p6_hx_experiment_summary.xlsx'
 
 
 @pytest.mark.skipif(not _XLSX.exists(),
