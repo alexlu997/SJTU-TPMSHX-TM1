@@ -54,14 +54,35 @@ def test_backend_reports_iter_label_and_progress(monkeypatch):
     assert pcts == [10, 12]
 
 
-def test_3d_cfg_stage_wires_iter_cb(monkeypatch):
-    """_run_solvers_3d_cfg must plant iter_cb as cfg['_iter_cb'] (the key
-    _run_3d_stack polls each outer iteration)."""
-    import sjtu_tpmshx.pipelines.stages_3d as r3
-    seen = {}
-    monkeypatch.setattr(r3, '_run_3d_stack',
-                        lambda cfg: seen.update(cfg) or {'ok': True})
-    cb = lambda k, n: None
-    out = r3._run_solvers_3d_cfg({'Nx': 4}, {}, iter_cb=cb)
-    assert out == {'ok': True}
-    assert seen['_iter_cb'] is cb
+@pytest.mark.parametrize('pipeline_cls', [Pipeline2D, Pipeline3D])
+def test_pipeline_forwards_runtime_controls(monkeypatch, pipeline_cls):
+    """The GUI adapter passes live hooks and cancellation to the public solver."""
+    from sjtu_tpmshx.solvers import api
+
+    token = CancelToken()
+    progress, labels, outer, residuals = [], [], [], {}
+    fields, result = object(), object()
+
+    def run_case(case, control):
+        assert case is fields
+        assert not control.cancel_check()
+        control.progress(50)
+        control.iteration('iter 2/10')
+        control.outer_iteration(2, 10)
+        control.residual('A', 3, .01)
+        token.cancel()
+        assert control.cancel_check()
+        return result
+
+    monkeypatch.setattr(api, 'run_case', run_case)
+    pipe = pipeline_cls(ComputeConfig(), progress_cb=progress.append,
+                        cancel_token=token, ui_hooks={
+                            'iter_label_cb': labels.append,
+                            'iter_cb': lambda k, n: outer.append((k, n)),
+                            'live_residuals': residuals,
+                        })
+    assert pipe.run_solvers(fields) is result
+    assert progress == [55]
+    assert labels == ['iter 2/10']
+    assert outer == [(2, 10)]
+    assert residuals == {'A': [(3, .01)]}

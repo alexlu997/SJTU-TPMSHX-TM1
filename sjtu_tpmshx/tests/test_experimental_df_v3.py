@@ -397,7 +397,9 @@ def test_matching_hx_air_and_water_pair_use_separate_frozen_scales():
 @pytest.mark.parametrize('dim', [2, 3])
 @pytest.mark.parametrize('fluid_A', ['water', 'sco2'])
 def test_application_coefficients_precede_real_seed_and_solver_setup(monkeypatch, dim, fluid_A):
-    from sjtu_tpmshx.pipelines import stages_2d, stages_3d
+    from sjtu_tpmshx.preprocess.two_d.preparation import _parse_inputs_cfg, _prepare_grid
+    from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg
+    from sjtu_tpmshx.solvers.backends.python.two_d.runtime import build_runtime
     from sjtu_tpmshx.solvers.backends.python.three_d import runtime as run_stack_3d_stages
     from sjtu_tpmshx.models import fluid_props
     from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
@@ -423,8 +425,8 @@ def test_application_coefficients_precede_real_seed_and_solver_setup(monkeypatch
     solvers = []
     with warning_scope({}) as warnings:
         if dim == 2:
-            parsed = stages_2d._parse_inputs_cfg(cfg)
-            fields = stages_2d._build_fields_cfg(parsed)
+            parsed = _parse_inputs_cfg(cfg)
+            fields = build_runtime(parsed, _prepare_grid(parsed))
 
             def solve(s, **kwargs):
                 # Distinct interior values expose any post-solve attenuation.
@@ -446,7 +448,7 @@ def test_application_coefficients_precede_real_seed_and_solver_setup(monkeypatch
                 np.testing.assert_allclose(uc, .5 * (s.u[:-1] + s.u[1:]))
         else:
             monkeypatch.setattr(run_stack_3d_stages, '_run_two_simple_parallel', lambda *a, **kw: None)
-            parsed = stages_3d._parse_inputs_3d_cfg(cfg)
+            parsed = _parse_inputs_3d_cfg(cfg)
             problem = _build_3d_problem(parsed)
             solvers = [problem.sA, problem.sB]
 

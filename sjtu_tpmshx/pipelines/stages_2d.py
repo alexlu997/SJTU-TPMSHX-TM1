@@ -4,8 +4,6 @@ Applications use controllers.compute_pipeline and the three public modules.
 """
 from __future__ import annotations
 
-from typing import Any
-
 import os
 
 import numpy as np
@@ -37,8 +35,3 @@ _log = get_logger(__name__)
 from sjtu_tpmshx.preprocess.two_d.preparation import (
     _check_zoned_fluid_support, _parse_inputs_cfg, _prepare_grid,
 )
-
-
-def _build_fields_cfg(cfg: dict[str, Any], *, live_residuals=None):
-    from sjtu_tpmshx.solvers.backends.python.two_d.runtime import build_runtime
-    return build_runtime(cfg, _prepare_grid(cfg), live_residuals=live_residuals)
