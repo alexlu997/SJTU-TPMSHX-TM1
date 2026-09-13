@@ -75,6 +75,10 @@ def test_explicit_fullface_and_z_partial_ports():
     source.geometry.Lz_m = .03
     source.solver.Nz = 3
     assert _compute_cfg_to_evaluator_dict_3d(source)['ports_A'] is None
+    source.bc_A.in_z_ctr, source.bc_A.in_z_w = .015, .03
+    assert _compute_cfg_to_evaluator_dict_3d(source)['ports_A'] is None
+    source.bc_A.out_z_ctr, source.bc_A.out_z_w = .015, .03
+    assert _compute_cfg_to_evaluator_dict_3d(source)['ports_A'] is None
     source.bc_A.in_z_ctr = source.bc_A.out_z_ctr = .015
     source.bc_A.in_z_w = source.bc_A.out_z_w = .01
     with pytest.raises(ValueError, match='full-face ports only'):

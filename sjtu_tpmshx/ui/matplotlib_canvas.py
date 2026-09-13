@@ -12,6 +12,12 @@ from matplotlib.ticker import FormatStrFormatter
 from .theme import get_theme
 
 
+def cell_index_mm(position_mm, widths_m):
+    """Locate a physical point in a cell, clamping at the domain edges."""
+    index = np.searchsorted(np.cumsum(widths_m), position_mm / 1000., side='right')
+    return int(np.clip(index, 0, len(widths_m) - 1))
+
+
 # ── Contour edge-fill helper ──────────────────────────────────
 def pad_field_to_edges(x_mm, y_mm, field, L_mm, H_mm):
     """Extend cell-center coords + field to the domain boundary so contourf

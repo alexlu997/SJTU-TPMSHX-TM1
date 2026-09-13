@@ -94,6 +94,18 @@ explicit 2D API port intervals remain supported, while 3D screening rejects
 partial ports. Pareto-to-Compute loading supplies only mean L/t as a uniform
 seed, not a complete graded-design recomputation.
 
+For 2D partial-port screening, preparation owns a shared physical mesh:
+geometry sampling, flow, thermal transport and pressure-face averages use
+the same cell widths, including the B-side coordinate reversal. GUI probes
+locate cells from those widths; display velocity copies stay separate from
+the raw transport fields.
+
+Quick sizing accepts a candidate only after every final case converges and
+meets its duty/temperature and pressure limits with finite results. BO keeps
+bounded penalty objectives for training, but excludes failed evaluations
+from reported Pareto fronts and hypervolume. History rows retain their status
+and failure reason; a completed screening run is not experimental validation.
+
 Separate processes use case.yaml + case.h5, results.h5, VTK views and
 metrics.json. Exact contracts and mode-specific restrictions are in
 `schemas/three_module_v1/`. Minimal postprocessing has a distinct dependency

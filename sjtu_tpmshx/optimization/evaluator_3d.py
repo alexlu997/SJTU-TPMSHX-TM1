@@ -78,11 +78,12 @@ def _compute_cfg_to_evaluator_dict_3d(compute_cfg) -> dict:
     from sjtu_tpmshx.optimization.evaluator import _compute_cfg_to_evaluator_dict
     d = _compute_cfg_to_evaluator_dict(compute_cfg)
     for bc in (compute_cfg.bc_A, compute_cfg.bc_B):
-        z = (bc.in_z_ctr, bc.in_z_w, bc.out_z_ctr, bc.out_z_w)
-        if any(value is not None for value in z):
+        for centre, width in ((bc.in_z_ctr, bc.in_z_w), (bc.out_z_ctr, bc.out_z_w)):
+            if centre is None and width is None:
+                continue  # Each omitted z opening independently means full face.
             depth = compute_cfg.geometry.Lz_m
-            if (depth is None or any(value is None for value in z)
-                    or not np.allclose(z, (depth / 2., depth, depth / 2., depth),
+            if (depth is None or centre is None or width is None
+                    or not np.allclose((centre, width), (depth / 2., depth),
                                        rtol=1e-12, atol=1e-15)):
                 raise ValueError('3D screening supports full-face ports only')
     d['Nx_3d'] = compute_cfg.solver.Nx

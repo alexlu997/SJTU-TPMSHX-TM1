@@ -109,8 +109,12 @@ def _eval_worker(x: np.ndarray, cfg: dict, dp_cap: float,
         dP_c = float(np.clip(dP, 1.0, dp_cap))
         # Infeasible 3D designs return NaN Q (P_out²≤0 choke). Keep NaN out of
         # the qNEHVI train_Y or fit_gpytorch_mll can fail; treat as bad design.
-        if not (np.isfinite(Q) and np.isfinite(dP_c)):
+        if not (np.isfinite(Q) and np.isfinite(dP)):
             return (1e-6, dp_cap, 'infeasible')
+        if Q == 1e-6 and dP >= dp_cap:
+            return (Q, dP_c, 'evaluator rejected design (bounded penalty)')
+        if dP > dp_cap:
+            return (Q, dP_c, 'dP exceeds dp_cap')
         return (Q, dP_c, None)
     except Exception as e:
         return (1e-6, dp_cap, repr(e))
@@ -160,14 +164,16 @@ def clear_cancel() -> None:
 # ─── Pareto utilities ───────────────────────────────────────────────
 
 
-def _pareto_mask_max(Y: np.ndarray) -> np.ndarray:
+def _pareto_mask_max(Y: np.ndarray, *, valid=None) -> np.ndarray:
     """Boolean mask of non-dominated rows under MAXIMIZATION semantics.
 
     Y shape: (N, M). A row is non-dominated when no other row weakly dominates
     it on every objective AND strictly dominates on at least one.
     """
     N = Y.shape[0]
-    mask = np.ones(N, dtype=bool)
+    mask = np.isfinite(Y).all(axis=1)
+    if valid is not None:
+        mask &= valid
     for i in range(N):
         if not mask[i]:
             continue
@@ -203,6 +209,17 @@ def _save_pareto_csv(path: str, X: np.ndarray, F_min: np.ndarray) -> None:
               ',Q_W_per_m,dP_Pa')
     data = np.hstack([X, F_pos])
     np.savetxt(path, data, delimiter=',', header=header, comments='', fmt='%.6e')
+
+
+def _save_history(save_dir, X, F_min, errors, *, stem='history'):
+    """Keep every objective row and its outcome in matching evaluation order."""
+    if len(errors) != len(X):
+        raise ValueError('history status count does not match evaluated rows')
+    _save_pareto_csv(os.path.join(save_dir, stem + '.csv'), X, F_min)
+    rows = [dict(evaluation=i + 1, status='valid' if error is None else 'failed', reason=error)
+            for i, error in enumerate(errors)]
+    with open(os.path.join(save_dir, stem + '_status.json'), 'w', encoding='utf-8') as stream:
+        json.dump(rows, stream, indent=2, ensure_ascii=False, allow_nan=False)
 
 
 # ─── BO loop ────────────────────────────────────────────────────────
@@ -256,6 +273,7 @@ def run_qnehvi(config: Optional[dict] = None,
         'F'         : (P, 2) Pareto in minimization form: (-Q, dP)
         'history_X' : (N, D) all evaluated points
         'history_F' : (N, 2) all observed objectives in min-form
+        'history_errors' : (N,) None for valid evaluations, otherwise failure reason
         'n_evals'   : total number of evaluations
         'save_dir'  : path to checkpoint dir
     """
@@ -314,6 +332,7 @@ def run_qnehvi(config: Optional[dict] = None,
     progress['hv_hist'] = []
 
     dp_cap = float(cfg.get('dp_cap_pa', 1.0e6))
+    history_errors = []
 
     def _evaluate_batch(X_np: np.ndarray) -> np.ndarray:
         """Evaluate a batch of decision vectors.
@@ -361,12 +380,13 @@ def run_qnehvi(config: Optional[dict] = None,
 
         F = np.zeros((B, 2), dtype=np.float64)
         for i, (Q, dP_c, err) in enumerate(results):
+            history_errors.append(err)
             if err is not None and verbose:
                 _log.warning(f"  [eval ERR] x_idx={i}: {err}")
             F[i, 0] = Q                                 # maximize Q
             F[i, 1] = -np.log10(dP_c)                   # maximize -log10(dP)
             progress['count'] += 1
-            if Q > progress['best_Q']:
+            if err is None and Q > progress['best_Q']:
                 progress['best_Q'] = float(Q)
             if progress_cb is not None:
                 try:
@@ -485,8 +505,9 @@ def run_qnehvi(config: Optional[dict] = None,
         train_Y = torch.cat([train_Y, new_Y], dim=0)
 
         # 5d. Hypervolume tracking + checkpoint
-        bd = DominatedPartitioning(ref_point=ref_point, Y=train_Y)
-        hv = bd.compute_hypervolume().item()
+        valid = torch.tensor([error is None for error in history_errors], dtype=torch.bool)
+        hv = (DominatedPartitioning(ref_point=ref_point, Y=train_Y[valid])
+              .compute_hypervolume().item() if valid.any() else 0.0)
         hv_hist.append(float(hv))
         # Phase 2 — expose HV trace for live UI plot. Also fire progress_cb
         # one extra time per iter so the UI can refresh the HV overlay
@@ -507,7 +528,7 @@ def run_qnehvi(config: Optional[dict] = None,
                       f"n_evals={n_evals}  t={time.perf_counter()-t_iter:.0f}s")
 
         if (it + 1) % 5 == 0 or it == n_iter - 1:
-            _save_current_pareto(train_X, train_Y, save_dir, it + 1)
+            _save_current_pareto(train_X, train_Y, save_dir, it + 1, history_errors)
 
         # 5e. HV-plateau early stop. Production-quality termination criterion:
         # if the front isn't moving meaningfully, more evals waste budget.
@@ -521,7 +542,7 @@ def run_qnehvi(config: Optional[dict] = None,
     # MAX form; convert back to (Q_neg, dP) min-form for caller / CSV output.
     Y_np = train_Y.numpy()
     X_np = train_X.numpy()
-    mask = _pareto_mask_max(Y_np)
+    mask = _pareto_mask_max(Y_np, valid=np.array([error is None for error in history_errors]))
     X_pareto = X_np[mask]
     Y_pareto = Y_np[mask]
     F_min = np.column_stack([
@@ -545,17 +566,20 @@ def run_qnehvi(config: Optional[dict] = None,
         dP_real = np.power(10.0, -Y_pareto[:, 1])
         _log.info(f"[qNEHVI] DONE — {len(X_pareto)} Pareto solutions across "
                   f"{len(X_np)} total evaluations")
-        _log.info(f"  Q range  [{Q_real.min():.0f}, {Q_real.max():.0f}] W/m")
-        _log.info(f"  dP range [{dP_real.min():.0f}, {dP_real.max():.0f}] Pa")
+        if len(X_pareto):
+            _log.info(f"  Q range  [{Q_real.min():.0f}, {Q_real.max():.0f}] W/m")
+            _log.info(f"  dP range [{dP_real.min():.0f}, {dP_real.max():.0f}] Pa")
 
     _save_pareto_csv(os.path.join(save_dir, 'pareto_final.csv'), X_pareto, F_min)
-    _save_pareto_csv(os.path.join(save_dir, 'history.csv'), X_np, F_hist_min)
+    _save_pareto_csv(os.path.join(save_dir, 'pareto_latest.csv'), X_pareto, F_min)
+    _save_history(save_dir, X_np, F_hist_min, history_errors)
 
     return {
         'X': X_pareto,
         'F': F_min,
         'history_X': X_np,
         'history_F': F_hist_min,
+        'history_errors': history_errors,
         'n_evals': int(len(X_np)),
         'save_dir': save_dir,
         'config': cfg,
@@ -563,7 +587,7 @@ def run_qnehvi(config: Optional[dict] = None,
 
 
 def _save_current_pareto(train_X: 'torch.Tensor', train_Y: 'torch.Tensor',
-                          save_dir: str, step: int) -> None:
+                          save_dir: str, step: int, errors) -> None:
     """Write Pareto checkpoint CSV for the current accumulated samples.
 
     train_Y stores objectives in MAX form (Q, -log10(dP)); we convert to
@@ -572,7 +596,7 @@ def _save_current_pareto(train_X: 'torch.Tensor', train_Y: 'torch.Tensor',
     """
     Y_np = train_Y.numpy()
     X_np = train_X.numpy()
-    mask = _pareto_mask_max(Y_np)
+    mask = _pareto_mask_max(Y_np, valid=np.array([error is None for error in errors]))
     F_min = np.column_stack([
         -Y_np[mask, 0],
         np.power(10.0, -Y_np[mask, 1]),
@@ -581,6 +605,8 @@ def _save_current_pareto(train_X: 'torch.Tensor', train_Y: 'torch.Tensor',
                       X_np[mask], F_min)
     _save_pareto_csv(os.path.join(save_dir, 'pareto_latest.csv'),
                       X_np[mask], F_min)
+    F_history = np.column_stack([-Y_np[:, 0], np.power(10.0, -Y_np[:, 1])])
+    _save_history(save_dir, X_np, F_history, errors)
 
 
 # ─── Standalone smoke test ──────────────────────────────────────────

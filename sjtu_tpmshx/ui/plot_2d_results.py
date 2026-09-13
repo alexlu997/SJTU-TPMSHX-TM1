@@ -95,6 +95,7 @@ def plot_temperature_3panel(window, r, _t):
         'names': ['T_fA', 'T_fB', 'T_s'],
         'unit': 'K',
         'L': L, 'H': H, 'Nx': N_x, 'Ny': N_y,
+        'dx_arr': _dx, 'dy_arr': _dy,
     }
 
 
@@ -164,6 +165,7 @@ def finalize_plots(window):
         'names': ['P_A', 'P_B'],
         'unit': 'Pa',
         'L': L, 'H': H, 'Nx': N_x, 'Ny': N_y,
+        'dx_arr': _dx, 'dy_arr': _dy,
     }
 
     # Velocity plot: vertical 2×1 (Fluid A, Fluid B)
@@ -234,6 +236,7 @@ def finalize_plots(window):
         'names': ['|U_A|', '|U_B|'],
         'unit': 'm/s',
         'L': L, 'H': H, 'Nx': N_x, 'Ny': N_y,
+        'dx_arr': _dx, 'dy_arr': _dy,
     }
 
     window.slider.hide()
