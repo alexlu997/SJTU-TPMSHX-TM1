@@ -3,6 +3,7 @@
 不能只取冷却最小值 (否则薄板憋水, 误报不可行)。逆流冷侧迎风 = s² (与 Lx 无关)。"""
 from __future__ import annotations
 import os
+import math
 from dataclasses import dataclass, field
 
 from scipy.optimize import brentq
@@ -82,6 +83,9 @@ def solve_Lx(case, topo, l, t, s, arrangement, target=None, k_s=K_STEEL,
             else:
                 b = m
         Lx_root = b
+    # The root is only resolved to TOL metres. Choose its cooling side;
+    # the final cold-start solve still decides whether this design is usable.
+    Lx_root = min(Lx_root + TOL, hi)
     return Lx_root, ev(Lx_root, LTNE_TOL)    # 终点收紧
 
 RHO_S = 7900.0          # 304 SS [kg/m³]
@@ -266,12 +270,29 @@ def size_fixed_cell(cases, topo, l, t, arrangement="cross", rho_s=RHO_S,
                           reason="dP>lim@final")
     # 全 K 工况终验 (一次 forward/工况, 既出 percase 明细又汇总; 不再重复 dP_fracs)
     percase, dPh, dPc, Tout_max = [], 0.0, 0.0, 0.0
+    failures = []
     re_h_max = re_c_max = 0.0
     warns = set()                                   # A 外推 + B 退化 标记
     for c in cases:
         with warning_scope({}) as records:
             r = forward(c, topo, l, t, s_star, Lx_star, arrangement, k_s=k_s,
                         prop_model=prop_model, height=height)
+        reasons = []
+        if not r.run_status.get('converged', False):
+            reasons.append('not-converged@final')
+        values = (r.T_out_hot, r.T_out_cold, r.Q_hot, r.Q_cold,
+                  r.dP_hot_frac, r.dP_cold_frac, r.Re_hot, r.Re_cold)
+        if not all(math.isfinite(value) for value in values):
+            reasons.append('nonfinite@final')
+        else:
+            if c.dT is not None:
+                if r.T_out_hot > t_target(c):
+                    reasons.append('T_out>target@final')
+            elif r.Q_hot < c.Q:
+                reasons.append('Q<target@final')
+            if r.dP_hot_frac > c.dPlim_h or r.dP_cold_frac > c.dPlim_c:
+                reasons.append('dP>lim@final')
+        failures.extend(f'case {c.case}: {reason}' for reason in reasons)
         percase.append(dict(
             case=c.case, hot_fluid=c.hot_fluid, cold_fluid=c.cold_fluid,
             T_air_out=r.T_out_hot, T_cold_out=r.T_out_cold, Q_W=r.Q_hot,
@@ -279,7 +300,7 @@ def size_fixed_cell(cases, topo, l, t, arrangement="cross", rho_s=RHO_S,
             dP_cold_frac=r.dP_cold_frac, dP_cold_pa=r.dP_cold_frac * c.P_in_c,
             Re_hot=r.Re_hot, Re_cold=r.Re_cold,
             warnings=list(dict.fromkeys((*warning_messages(records), *r.warnings))),
-            run_status=r.run_status))
+            run_status=r.run_status, acceptance_reasons=reasons))
         dPh = max(dPh, r.dP_hot_frac); dPc = max(dPc, r.dP_cold_frac)
         Tout_max = max(Tout_max, r.T_out_hot)
         re_h_max = max(re_h_max, r.Re_hot); re_c_max = max(re_c_max, r.Re_cold)
@@ -291,8 +312,8 @@ def size_fixed_cell(cases, topo, l, t, arrangement="cross", rho_s=RHO_S,
         if r.dP_hot_frac > DP_DEGEN_FRAC: warns.add("热dP退化")   # B: 压降近进口压
         if r.dP_cold_frac > DP_DEGEN_FRAC: warns.add("冷dP退化")
     V = s_star * _sz(s_star) * Lx_star
-    return Design(True, topo, l, t, s_star, Lx_star, arrangement,
-                  V, (1.0 - EPS) * V * rho_s, dPh, dPc, Tout_max, reason="",
+    return Design(not failures, topo, l, t, s_star, Lx_star, arrangement,
+                  V, (1.0 - EPS) * V * rho_s, dPh, dPc, Tout_max, reason='; '.join(failures),
                   percase=percase, height=(height or 0.0),
                   Re_hot_max=re_h_max, Re_cold_max=re_c_max,
                   validity=";".join(sorted(warns)))

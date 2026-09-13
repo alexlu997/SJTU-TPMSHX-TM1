@@ -23,7 +23,8 @@ def _sized_with_notices(cases, topo, l, t, arrangement='cross', **kwargs):
         return .1, None
     def final(c, *args, **kw):
         record_warning(('source',), f'final case {c.case}, cell {l}')
-        return ForwardResult(400., 350., 10., 10., .01, .01, 1000., 1000.)
+        return ForwardResult(400., 350., 10., 10., .01, .01, 1000., 1000.,
+                             run_status={'converged': True})
     with patch.object(sizing, 'tpms_geometry', return_value={'epsilon': .5}), \
          patch.object(sizing, 'dP_fracs', return_value=(.01, .01)), \
          patch.object(sizing, 'solve_Lx', trial), \

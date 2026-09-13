@@ -24,16 +24,18 @@ from sjtu_tpmshx.optimization.evaluator import (
     DEFAULT_CONFIG,
     evaluate_design,
 )
-from sjtu_tpmshx.preprocess.app_modes.screening_2d import _percell_K_cF, _resolve_grid, prepare_flow
+from sjtu_tpmshx.preprocess.app_modes.screening_2d import _percell_K_cF, _resolve_grid, prepare_screening_2d
 from sjtu_tpmshx.solvers.backends.python.screening.two_d import build_flow
 
 
 def _build_simple_A(cfg, fc, arrays, Nx, Ny):
-    return build_flow(prepare_flow(cfg, fc, arrays, Nx, Ny, 'A'))
+    case = prepare_screening_2d(None, cfg, fc, case_id='port-test-A')
+    return build_flow(case.parameters['flow']['A'])
 
 
 def _build_simple_B(cfg, fc, arrays, Nx, Ny):
-    return build_flow(prepare_flow(cfg, fc, arrays, Nx, Ny, 'B'))
+    case = prepare_screening_2d(None, cfg, fc, case_id='port-test-B')
+    return build_flow(case.parameters['flow']['B'])
 
 
 from sjtu_tpmshx.models.continuous_field import (

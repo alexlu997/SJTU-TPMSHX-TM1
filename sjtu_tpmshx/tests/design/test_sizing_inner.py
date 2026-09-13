@@ -88,8 +88,10 @@ def test_brentq_finite_response_preserves_seed_chain_and_fallback(monkeypatch, m
     from sjtu_tpmshx.design.sizing import LX_MAX, SIZING_TOL, LTNE_TOL, TOL
     case, events, _ = _controlled_forward(monkeypatch, mode)
     length, result = solve_Lx(case, 'Diamond', 7., .5, .084, 'cross', target=500.)
-    assert length == pytest.approx(.25, abs=TOL)
-    assert result.T_out_hot == pytest.approx(500., abs=400. * TOL)
+    # Pick the cooling side of the existing length resolution, then tighten.
+    assert length == pytest.approx(.25 + TOL, abs=1e-8)
+    assert result.T_out_hot == pytest.approx(500. - 400. * TOL, abs=4e-6)
+    assert result.T_out_hot <= 500.
     assert events[0][0] == LX_MAX
     assert events[1][0] == .014
     # Actual brentq re-evaluates both endpoints, including in drift mode.

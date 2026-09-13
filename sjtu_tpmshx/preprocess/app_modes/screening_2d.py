@@ -44,12 +44,15 @@ def _percell_K_cF(cfg: dict, arrays: dict) -> tuple:
             cF.reshape(L_f.shape).astype(np.float64))
 
 
-def prepare_flow(cfg, fc, arrays, Nx, Ny, side):
+def prepare_flow(cfg, fc, arrays, grid, side):
     """Resolve the former _build_simple_A/B geometry without a solver object."""
     is_a = side == 'A'
     W, H = ((float(cfg['H_domain']), float(cfg['L_domain'])) if is_a
             else (float(cfg['L_domain']), float(cfg['H_domain'])))
-    nx, ny = (Ny, Nx) if is_a else (Nx, Ny)
+    real_dx, real_dy = grid['dx'], grid['dy']
+    Nx, Ny = len(real_dx), len(real_dy)
+    dx, dy = (real_dy, real_dx) if is_a else (real_dx, real_dy[::-1])
+    nx, ny = len(dx), len(dy)
     Tin, Pin, velocity = (float(cfg['T_in' + side]), float(cfg['P_in' + side]),
                          float(cfg['u_' + side]))
     rho, mu = air_density(Tin, Pin), air_viscosity(Tin)
@@ -59,8 +62,6 @@ def prepare_flow(cfg, fc, arrays, Nx, Ny, side):
     in_lo, in_hi, out_lo, out_hi = tuple(map(float, ports)) if ports is not None else (0., W, 0., W)
     if not (0. <= in_lo < in_hi <= W and 0. <= out_lo < out_hi <= W):
         raise ValueError('screening openings must lie within the physical face')
-    breaks = [v for v in (in_lo, in_hi, out_lo, out_hi) if W * .001 < v < W * .999]
-    dx, dy = _aligned_grid(nx, W, breaks), _aligned_grid(ny, H, [])
     K0, cF0 = predict_K_cF(cfg['tpms_type'], Lmean, tmean, .5 * eps)
     G = float(rho) * abs(velocity)
     C = float(mu) * G / max(K0, 1e-16) + cF0 * G * G
@@ -71,7 +72,9 @@ def prepare_flow(cfg, fc, arrays, Nx, Ny, side):
     pref = float(np.sqrt(max(psq, 1.0e4)))
     K, cF = project_fields_to_streamwise_K_cF(
         arrays['L_field'], arrays['t_field'], cfg['tpms_type'], cfg['k_s'],
-        Nx, Ny, ny, side, streamwise_dx=dy)
+        Nx, Ny, ny, side, streamwise_dx=dy,
+        source_grid=((real_dx, real_dy) if any(cfg.get('ports_' + s) is not None
+                                             for s in ('A', 'B')) else None))
     Kfield = cFfield = None
     if cfg.get('per_cell_K', False):
         kr, cr = _percell_K_cF(cfg, arrays)
@@ -104,19 +107,28 @@ def prepare_screening_2d(x, cfg=None, fc=None, *, case_id):
     Nx, Ny = _resolve_grid(cfg, fc)
     if min(Nx, Ny) < 2:
         raise ValueError('screening mesh requires at least two cells per axis')
-    arrays = fc.build_grid_arrays(Nx, Ny, u_A=cfg['u_A'], u_B=cfg['u_B'],
-                                 T_inA=cfg['T_inA'], T_inB=cfg['T_inB'],
-                                 P_in=cfg['P_inA'], P_inB=cfg['P_inB'])
     grid = dict(dimension=2, length_unit='m', axis_order=('x', 'y'),
                 depth_convention='unit_depth', depth_m=1.)
-    for axis, count, length in zip('xy', (Nx, Ny), (cfg['L_domain'], cfg['H_domain'])):
-        widths = np.full(count, length / count, dtype=np.float64)
+    for axis, side, count, length in zip('xy', ('B', 'A'), (Nx, Ny),
+                                         (cfg['L_domain'], cfg['H_domain'])):
+        ports = cfg.get('ports_' + side)
+        if ports is not None:
+            in_lo, in_hi, out_lo, out_hi = map(float, ports)
+            if not (0. <= in_lo < in_hi <= length and 0. <= out_lo < out_hi <= length):
+                raise ValueError('screening openings must lie within the physical face')
+        widths = _aligned_grid(count, length, () if ports is None else ports)
         grid['d' + axis] = widths
         grid[axis + '_edges'] = np.r_[0., np.cumsum(widths)]
+    field_grid = (dict(dx_arr=grid['dx'], dy_arr=grid['dy'])
+                  if any(cfg.get('ports_' + side) is not None for side in ('A', 'B')) else {})
+    arrays = fc.build_grid_arrays(Nx, Ny, u_A=cfg['u_A'], u_B=cfg['u_B'],
+                                 T_inA=cfg['T_inA'], T_inB=cfg['T_inB'],
+                                 P_in=cfg['P_inA'], P_inB=cfg['P_inB'],
+                                 **field_grid)
     flows, rejection = {}, None
     try:
         for side in ('A', 'B'):
-            flows[side] = prepare_flow(cfg, fc, arrays, Nx, Ny, side)
+            flows[side] = prepare_flow(cfg, fc, arrays, grid, side)
     except ChokedFlowError as exc:
         rejection = str(exc)
     fields = {key: arrays[key] for key in SCREENING_FIELDS}

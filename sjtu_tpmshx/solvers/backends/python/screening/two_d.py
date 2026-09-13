@@ -73,6 +73,10 @@ def run_case(case, control=RunControl()):
         p = flow[side]['initial']
         if (p['Nx'], p['Ny']) != shape or (p['W'], p['H']) != lengths:
             raise ValueError('prepared screening flow grid disagrees with its physical grid')
+        widths = (dy_arr, dx_arr) if side == 'A' else (dx_arr, dy_arr[::-1])
+        if not all(np.array_equal(p[key], width) for key, width in
+                   zip(('dx_arr', 'dy_arr'), widths)):
+            raise ValueError('prepared screening flow cell widths disagree with its physical grid')
         eps = arrays['eps_arr'].T if side == 'A' else arrays['eps_arr'][:, ::-1]
         if not np.array_equal(flow[side]['eps_field'], eps):
             raise ValueError('prepared flow porosity disagrees with physical design')
