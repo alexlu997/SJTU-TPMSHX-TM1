@@ -1,55 +1,13 @@
-"""IOActionsMixin — export results / figures, save & load config JSON.
-
-Extracted verbatim from main.py (openspec split-ui-main, 2026-07-03).
-Mixed into Main_Menu; methods keep their exact names and behaviour.
-``_export_figure`` reads ``__version__`` and ``_git_commit_hash`` as
-module globals — both live in ``main`` (which imports us), so they
-are resolved lazily here to keep the import graph acyclic (same
-pattern as ``ui.mixins.run_history._git_commit_hash``).
-"""
+"""Export results and figures, and save/load GUI configuration JSON."""
 from __future__ import annotations
 
 import json
 
 from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
 
+from sjtu_tpmshx._version import __version__
+from sjtu_tpmshx.domain.provenance import SOURCE_ROOT, repository_revision
 from sjtu_tpmshx.ui.ui_constants import TOAST_MS_SHORT, TOAST_MS_MED
-
-
-def _git_commit_hash() -> str:
-    """Short commit of the running tree, or ''. Lazy-resolved from ``main``
-    so this module never imports ``main`` at load time (``main`` imports us).
-    Tries both launch modes: ``python main.py`` / ``python -m sjtu_tpmshx.main``.
-    """
-    for mod in ("main", "sjtu_tpmshx.main"):
-        try:
-            return __import__(mod, fromlist=["_git_commit_hash"])._git_commit_hash()
-        except Exception:
-            continue
-    return ""
-
-
-class _LazyMainVersion:
-    """Lazy str proxy for ``main.__version__`` (same acyclic-import
-    rationale as ``_git_commit_hash`` above). Supports str() and
-    f-string formatting, which is all ``_export_figure`` needs."""
-
-    def _resolve(self) -> str:
-        for mod in ("main", "sjtu_tpmshx.main"):
-            try:
-                return __import__(mod, fromlist=["__version__"]).__version__
-            except Exception:
-                continue
-        return "?"
-
-    def __str__(self) -> str:
-        return self._resolve()
-
-    def __format__(self, spec: str) -> str:
-        return format(self._resolve(), spec)
-
-
-__version__ = _LazyMainVersion()
 
 
 class IOActionsMixin:
@@ -341,9 +299,9 @@ class IOActionsMixin:
                 'Author': 'alexlu997',
                 'Software': f"SJTU-TPMSHX v{__version__}",
                 'CreationDate': _dt_ef.datetime.now().isoformat(timespec='seconds'),
-                'Source': 'github.com/alexlu997/SJTU-TPMSHX',
+                'Source': 'https://github.com/alexlu997/SJTU-TPMSHX-TM1',
             }
-            commit = _git_commit_hash()
+            commit = (repository_revision(SOURCE_ROOT)['revision'] or '')[:7]
             if commit:
                 meta['Keywords'] = f"commit={commit}"
             preset = getattr(self, '_active_preset_name', None)

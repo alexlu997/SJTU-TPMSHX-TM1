@@ -788,7 +788,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
     _epsfac_B = 2.0 * (1.0 - _split_A_2d)    # ε_B / (ε/2)
 
     # Per-side interfacial coupling h_v geometry ratio under δ (mirror 3D
-    # stages_3d._hv_side_geom_ratio). Each side's (A_0, D_h) shift with the
+    # three_d.runtime._hv_side_geom_ratio). Each side's (A_0, D_h) shift with the
     # offset; the ratio vs the δ=0 reference is EXACTLY 1.0 at δ=0 (bit-
     # identical ×1.0) and u-independent (Re_side/Re_ref = D_h_side/D_h_ref), so
     # the scalar applies to both the bulk and local-Re h_v. k_f cancels. Captures

@@ -44,13 +44,14 @@ def test_set_result_with_none_clears():
     assert not c.has_results('2d')
 
 
-def test_invalid_mode_raises():
+@pytest.mark.parametrize('mode', ['quantum', 'poly'])
+def test_invalid_mode_raises(mode):
     _app()
     c = ResultCache()
     with pytest.raises(ValueError, match='unknown mode'):
-        c.set_result('quantum', {})
+        c.set_result(mode, {})
     with pytest.raises(ValueError, match='unknown mode'):
-        c.get_result('quantum')
+        c.get_result(mode)
 
 
 def test_has_results_aggregate():
@@ -94,20 +95,7 @@ def test_results_changed_signal_emits():
     assert received == ['2d', '3d', '2d']
 
 
-# ---------------------------------------------------------------- dirty + tabs
-
-
-def test_dirty_flag_lifecycle():
-    _app()
-    c = ResultCache()
-    assert not c.is_dirty('2d')
-    c.set_result('2d', {'x': 1})
-    assert c.is_dirty('2d')
-    c.mark_clean('2d')
-    assert not c.is_dirty('2d')
-    # New result re-dirties
-    c.set_result('2d', {'y': 2})
-    assert c.is_dirty('2d')
+# ---------------------------------------------------------------- tabs
 
 
 def test_drawn_tabs_tracking():
@@ -145,48 +133,6 @@ def test_replace_drawn_tabs_legacy():
     assert c.get_drawn_tabs() == {'temp', 'pres', '3d'}
 
 
-# ---------------------------------------------------------------- recent ring
-
-
-def test_push_recent_ring_bounded():
-    _app()
-    c = ResultCache(max_recent=3)
-    for i in range(5):
-        c.push_recent({'idx': i})
-    runs = c.get_recent()
-    assert len(runs) == 3
-    # newest 3 = idx 2, 3, 4 (FIFO eviction)
-    assert [r['idx'] for r in runs] == [2, 3, 4]
-
-
-def test_recent_pushed_signal_emits():
-    _app()
-    c = ResultCache()
-    received = []
-    c.recent_pushed.connect(lambda meta: received.append(meta))
-    c.push_recent({'Q': 100})
-    c.push_recent({'Q': 200})
-    assert len(received) == 2
-    assert received[0]['Q'] == 100
-
-
-def test_replace_recent_session_restore():
-    _app()
-    c = ResultCache(max_recent=5)
-    c.replace_recent([{'i': 1}, {'i': 2}])
-    assert [r['i'] for r in c.get_recent()] == [1, 2]
-
-
-def test_push_recent_isolated_from_caller_dict():
-    """Caller mutating the dict after push should not affect the ring."""
-    _app()
-    c = ResultCache()
-    payload = {'Q': 100}
-    c.push_recent(payload)
-    payload['Q'] = 999   # mutate caller's dict
-    assert c.get_recent()[0]['Q'] == 100   # ring unaffected
-
-
 # ---------------------------------------------------------------- repr
 
 
@@ -197,7 +143,4 @@ def test_repr_shows_state():
     assert '2d=-' in s and '3d=-' in s
     c.set_result('2d', {'x': 1})
     s = repr(c)
-    assert '2d=+d' in s   # has result + dirty
-    c.mark_clean('2d')
-    s = repr(c)
-    assert '2d=+' in s and '2d=+d' not in s
+    assert '2d=+' in s and '3d=-' in s

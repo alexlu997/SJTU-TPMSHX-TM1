@@ -28,68 +28,11 @@ from sjtu_tpmshx.controllers.result_cache import ResultCache  # noqa: E402
 
 
 def _make_bridge_class():
-    """Build a minimal ``Main_Menu``-like class carrying just the C5
-    Phase 5 property bridges.  Avoids importing ``main`` (which
-    constructs a full QApplication + UI tree)."""
+    from sjtu_tpmshx.ui.mixins.result_bridge import ResultBridgeMixin
 
-    class _BridgedMenu:
+    class _BridgedMenu(ResultBridgeMixin):
         def __init__(self):
             self.cache = ResultCache()
-
-        # Mirror the @property definitions from main.py:Main_Menu —
-        # if those are out of sync, this test will diverge and we'll
-        # know to update the bridge.
-        @property
-        def _compute_results(self):
-            r = self.cache.get_result('2d')
-            return r if r is not None else {}
-
-        @_compute_results.setter
-        def _compute_results(self, value):
-            self.cache.set_result('2d', value if value else None)
-
-        @property
-        def _result_3d(self):
-            return self.cache.get_result('3d')
-
-        @_result_3d.setter
-        def _result_3d(self, value):
-            self.cache.set_result('3d', value)
-
-        @property
-        def _has_results_2d(self):
-            return self.cache.has_results('2d')
-
-        @_has_results_2d.setter
-        def _has_results_2d(self, value):
-            if not value:
-                self.cache.set_result('2d', None)
-
-        @property
-        def _has_results_3d(self):
-            return self.cache.has_results('3d')
-
-        @_has_results_3d.setter
-        def _has_results_3d(self, value):
-            if not value:
-                self.cache.set_result('3d', None)
-
-        @property
-        def _has_results(self):
-            return self.cache.has_any_results()
-
-        @_has_results.setter
-        def _has_results(self, value):
-            if not value:
-                self.cache.clear()
-
-        @property
-        def _drawn_tabs(self):
-            return self.cache.get_drawn_tabs()
-
-        @_drawn_tabs.setter
-        def _drawn_tabs(self, value):
-            self.cache.replace_drawn_tabs(value)
 
     return _BridgedMenu
 

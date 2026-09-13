@@ -58,10 +58,11 @@ def test_serial_loky_and_refine_keep_selected_cases(monkeypatch):
     assert optimize.warm_start_joint([_case()], best) is best
 
 
-def test_cli_refined_best_and_both_export_sheets(monkeypatch, tmp_path, capsys):
+@pytest.mark.parametrize('hot_fluid', ['air', 'water', 'sco2'])
+def test_cli_refined_best_and_both_export_sheets(monkeypatch, tmp_path, capsys, hot_fluid):
     import openpyxl
     base = _sized_with_notices([_case()], 'Diamond', 6., .5)
-    ref = _sized_with_notices([_case(2)], 'Diamond', 4., .5)
+    ref = _sized_with_notices([replace(_case(2), hot_fluid=hot_fluid)], 'Diamond', 4., .5)
     monkeypatch.setattr(cli, 'load_cases', lambda path: [_case()])
     monkeypatch.setattr(cli, 'enumerate_select', lambda *a, **kw: ([base], base))
     monkeypatch.setattr(optimize, 'warm_start_joint', lambda *a, **kw: ref)
@@ -76,6 +77,13 @@ def test_cli_refined_best_and_both_export_sheets(monkeypatch, tmp_path, capsys):
         col = rows[0].index('警告')
         assert any('final case 2, cell 4.0' in str(row[col]) for row in rows[1:])
     assert 'discarded search' not in str(list(wb['工况明细'].values))
+    rows = list(wb['工况明细'].values)
+    detail = dict(zip(rows[0], rows[-1]))
+    assert detail['热流体'] == hot_fluid
+    assert detail['热侧出口_K'] == 400.
+    assert detail['热侧绝对压损_Pa'] == 2000.  # 1% of the case's 200 kPa inlet.
+    assert detail['热侧相对压损_pct'] == 1.
+    assert not any(column.startswith('空气') for column in rows[0])
 
 
 @pytest.mark.parametrize('model,passes', [('const', 1), ('mean', 2)])

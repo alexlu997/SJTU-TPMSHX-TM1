@@ -223,14 +223,16 @@ def test_eta_history_reports_median():
 # ----------------------------------------------------------- mode validation
 
 
-def test_invalid_mode_raises():
+@pytest.mark.parametrize('mode', ['quantum', 'poly'])
+def test_invalid_mode_raises(mode):
     orch = ComputeOrchestrator()
 
     def noop(cfg, cancel, progress_cb):
-        return {}
+        pytest.fail('invalid mode dispatched a worker')
 
     with pytest.raises(ValueError):
-        orch.start('quantum', noop, {})
+        orch.start(mode, noop, {})
+    assert not orch.is_running()
 
 
 # ----------------------------------------------------------- cancel idempotent

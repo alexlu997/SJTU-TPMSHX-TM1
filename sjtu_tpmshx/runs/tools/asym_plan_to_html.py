@@ -6,8 +6,10 @@ Wraps the vault markdown in the SJTU academic template
 the h2 sections, maps fenced code → `.eq` blocks and blockquotes → `.callout`.
 Unicode formulas (φ/δ/ε/≤/×) render as plain text — no MathJax, fully offline.
 
-Output: C:/Users/ALEX/Desktop/asym-porosity-phase1-CFD-plan-CN.html
-Usage:  python -u runs/asym_plan_to_html.py
+Inputs: external research vault, selected by TPMSHX_VAULT_DIR.
+Output: sjtu_tpmshx/runs/_out/asym-porosity-phase1-CFD-plan-CN.html
+        (TPMSHX_TOOL_OUT_DIR overrides the directory).
+Usage from repository root: python -m sjtu_tpmshx.runs.tools.asym_plan_to_html
 """
 import base64
 import os

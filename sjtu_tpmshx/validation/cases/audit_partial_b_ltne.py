@@ -836,9 +836,9 @@ def write_report(out_path: Path, sections: list, header_meta: dict) -> None:
     lines.append(f"- Date: {header_meta['date']}")
     lines.append("- Case: Shanghai case 1, B_area_frac ≈ 0.20")
     lines.append(f"- Grid: Nx=Ny=Nz={header_meta['grid']}")
-    lines.append("- Audit script: `sjtu_tpmshx/validation/audit_partial_b_ltne.py`")
+    lines.append("- Audit script: `sjtu_tpmshx/validation/cases/audit_partial_b_ltne.py`")
     lines.append("- Result-dict additive exports: keys prefixed `_audit_*` "
-                 "in `pipelines/stages_3d.py` (formerly run_calculation_3d)\n")
+                 "in `sjtu_tpmshx/solvers/backends/python/three_d/runtime.py`\n")
     lines.append('## Scope\n')
     lines.append('- Read-only audit. No solver, M4, M3, K/cF, momentum, or '
                  'closure formula was modified.')

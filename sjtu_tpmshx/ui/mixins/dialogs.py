@@ -67,7 +67,7 @@ class DialogsMixin:
         v.addLayout(btn_row)
         dlg.exec()
 
-    # Note: _show_about (version-coupled to main.__version__/_git_commit_hash)
+    # Note: _show_about (application and dependency versions)
     # and _maybe_show_onboarding / _show_quick_tour (locate `.first_run_done`
     # via __file__, which must stay anchored to main.py's directory) remain in
     # main.py by design; _show_help_menu below self-dispatches to them via the
