@@ -4,7 +4,7 @@ untouched — see ltne_energy_3d.py / docs/architecture.md."""
 
 import numpy as np
 from numba import njit, prange
-from ._kernels_2d import _model_h
+from ._kernels_2d import _model_h  # Shared explicit strict-math enthalpy policy.
 
 
 # ---------------------------------------------------------------------------

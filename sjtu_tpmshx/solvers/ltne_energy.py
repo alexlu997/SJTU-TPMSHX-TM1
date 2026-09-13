@@ -31,7 +31,10 @@ from ._kernels_2d import minmod, _model_h
 
 @njit(cache=True)
 def _model_h_faces(T, mass, coefficients, direction, Tin, ifrac, sou):
-    """One Picard capacity/intercept per signed mass face, frozen per sweep."""
+    """Picard capacity/intercept per signed mass face, frozen per sweep.
+
+    The shared enthalpy helper has an explicit strict-math compilation policy.
+    """
     a, b, c, origin, _ = coefficients
     capacity = (np.empty_like(mass[0]), np.empty_like(mass[1]))
     deferred = (np.empty_like(mass[0]), np.empty_like(mass[1]))
