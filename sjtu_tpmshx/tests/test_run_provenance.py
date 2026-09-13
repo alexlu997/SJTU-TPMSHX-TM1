@@ -232,11 +232,13 @@ def test_nu_run_snapshot_history_and_export(run_window, monkeypatch, tmp_path, d
     win.combo_sco2_nu_mode.setCurrentIndex(1)
     win.combo_dim.setCurrentIndex(dim)
     release = threading.Event()
+    eos = {'algorithm': 'bicubic_iteration_heos_final_v1', 'sides': ['A', 'B']}
     def run(pipe):
         assert pipe.cfg.sco2_nu == SYNTHETIC
         assert release.wait(10)
         return ComputeResult(Q_W=100., diagnostics={'mode': '3d' if dim else '2d'},
             metadata={'sco2_nu': sco2_nu_metadata(pipe.cfg.sco2_nu),
+                      'sco2_enthalpy_eos': eos,
                       'darcy_forchheimer': {'mode': pipe.cfg.df_mode}})
     monkeypatch.setattr(Pipeline3D if dim else Pipeline2D, 'run', run)
     try:
@@ -248,14 +250,18 @@ def test_nu_run_snapshot_history_and_export(run_window, monkeypatch, tmp_path, d
     _wait_for(win.compute.is_idle)
     expected = sco2_nu_metadata(SYNTHETIC)
     assert win._recent_runs[0]['model_metadata']['sco2_nu'] == expected
+    assert win._recent_runs[0]['model_metadata']['sco2_enthalpy_eos'] == eos
     timeline = json.loads((tmp_path / 'timeline.jsonl').read_text().splitlines()[-1])
     assert timeline['model_metadata']['sco2_nu'] == expected
+    assert timeline['model_metadata']['sco2_enthalpy_eos'] == eos
     output = tmp_path / 'result.csv'
     monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(output), ''))
     win._export_results()
     with output.open() as stream:
         rows = dict(csv.reader(stream))
     assert json.loads(rows['metadata'])['sco2_nu'] == expected
+    assert json.loads(rows['metadata'])['sco2_enthalpy_eos'] == eos
     if dim:
         with np.load(tmp_path / 'result_fields.npz', allow_pickle=False) as saved:
             assert json.loads(saved['metadata'].item())['sco2_nu'] == expected
+            assert json.loads(saved['metadata'].item())['sco2_enthalpy_eos'] == eos

@@ -70,8 +70,9 @@ def _assert_postprocessing(result):
 
 @pytest.mark.slow
 @pytest.mark.parametrize('fluid_A,u_A,P_A,fluid_B,P_B,expected_Q', [
-    ('sco2', .3, 12e6, 'water', 2e6, 45645.87093499693),
-    ('air', 3., 2e5, 'sco2', 12e6, 4419.516368208067),
+    # Approved iteration-only BICUBIC reference; HEOS final state, same budgets.
+    ('sco2', .3, 12e6, 'water', 2e6, 45645.89445485597),
+    ('air', 3., 2e5, 'sco2', 12e6, 4419.516474200189),
 ])
 def test_mixed_partial_native_and_postprocessing(fluid_A,u_A,P_A,fluid_B,P_B,expected_Q):
     from sjtu_tpmshx.domain.compute_config import ExtrapPolicy
@@ -90,6 +91,9 @@ def test_mixed_partial_native_and_postprocessing(fluid_A,u_A,P_A,fluid_B,P_B,exp
     assert result.run_status['converged'] is False
     assert result.run_status['final_flow_after_last_thermal'] is True
     assert not np.array_equal(result.fields['Ta'], result.fields['Ta_display'])
+    eos = result.metadata['model_metadata']['sco2_enthalpy_eos']
+    assert list(eos['sides']) == (['A'] if fluid_A == 'sco2' else ['B'])
+    assert eos['final_backend'] == 'HEOS'
     _assert_postprocessing(result)
 
 

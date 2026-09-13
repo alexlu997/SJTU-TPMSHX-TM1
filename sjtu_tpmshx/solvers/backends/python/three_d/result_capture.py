@@ -68,6 +68,9 @@ def capture_result(case, prob, outer, raw):
                               state='display' if name.endswith('_display') else 'final flow/report')
     diagnostics = {key: value for key, value in raw.items()
                    if not isinstance(value, np.ndarray) and key not in ('_native_evidence',)}
+    model_metadata = dict(case.metadata['model_metadata'])
+    if native['true_h'] and 'sco2_enthalpy_eos' in native['true_h']:
+        model_metadata['sco2_enthalpy_eos'] = native['true_h']['sco2_enthalpy_eos']
     return FieldResult(result_id=str(uuid4()), case_id=case.case_id,
         backend_id='python', backend_version='three_d_v1', grid=case.grid,
         fields=fields, field_metadata=metadata, model_refs=case.model_refs,
@@ -82,7 +85,7 @@ def capture_result(case, prob, outer, raw):
         metadata=dict(dimension=3, quantity_basis='total', thermal_mode=native['mode'],
             parameters=case.parameters, design_fields=case.design_fields,
             design_mode=case.metadata['design_mode'],
-            model_metadata=case.metadata['model_metadata'], notices=case.metadata['notices'],
+            model_metadata=model_metadata, notices=case.metadata['notices'],
             application=dict(
                 coeffs={key: raw.get('_audit_' + key) for key in ('K_ffA', 'K_ffB', 'K_ss')},
                 props={key: raw.get(source) for key, source in (

@@ -171,7 +171,7 @@ def run_one(job, output, *, sample_kind):
     row = dict(run_id=run_id, job_id=job['id'], sample_kind=sample_kind,
                source=source_context(), interpreter=sys.executable, execution='started',
                environment={key: value for key, value in os.environ.items() if key.startswith(
-                   ('TPMSHX_', 'SJTU_', 'NUMBA_', 'OMP_', 'OPENBLAS_', 'MKL_', 'VECLIB_', 'QT_'))},
+                   ('TPMSHX_', 'SJTU_', 'NUMBA_', 'OMP_', 'OPENBLAS_', 'MKL_', 'VECLIB_', 'QT_', 'COOLPROP_'))},
                reference=job.get('reference', {}), timings_s={}, stage_spans=[], calls=[], rss_samples=[])
     write_json(target / 'attempt.json', row)
 
@@ -199,6 +199,7 @@ def run_one(job, output, *, sample_kind):
             display = timed('application_map', to_compute_result, native, performance)
             row.update(execution=native.run_status['execution'], run_status=native.run_status,
                        result_id=native.result_id,
+                       model_metadata=native.metadata.get('model_metadata', {}),
                        native_metrics={key: asdict(metric) for key, metric in performance.metrics.items()},
                        residuals=display.residuals, warnings=display.warnings,
                        envelope_valid=display.diagnostics.get('envelope_valid'),

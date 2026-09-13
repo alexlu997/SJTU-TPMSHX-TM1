@@ -206,6 +206,12 @@ explicit numerical-model change with directly relevant validation.
     The 2026-09-09 pressure-floor extension leaves the EOS backend and the
     independent Nu/D-F applicability and acceptance gates unchanged; it does
     not establish experimental accuracy in the added range.
+    Production Picard iterations use CoolProp BICUBIC only for CO2 T(h,P).
+    Final temperatures, coupled-energy checks, outlet inversion and all other
+    properties remain HEOS. Each thermal solve owns its mutable table state;
+    HEOS enthalpy limits at local pressure keep domain-boundary checks on HEOS.
+    Results record `sco2_enthalpy_eos` in model metadata when the table is used.
+    This is an approximate iteration algorithm, not an experimental calibration.
 11. **Current TM1 limit.** sCO2 zones and offset level sets remain rejected;
     air/water-only runs retain their existing temperature-form kernels.
     For Nz>1, those kernels solve every physical fluid and solid end control
