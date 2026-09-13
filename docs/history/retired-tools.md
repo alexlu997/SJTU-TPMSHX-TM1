@@ -79,3 +79,26 @@ A1/benchmark A 的旧输入原已缺失，历史代码不代表可在当前目�
 常规 BO 的 [GPyTorch 1.15.2](https://pypi.org/pypi/gpytorch/1.15.2/json)
 仍依赖 scikit-learn，因此两个原版本保留在 `requirements-lock-server.txt`。
 `joblib` 仍用于常规设计/优化并行计算，几何与现行 K/cF 的预热也继续保留。
+
+## 旧可变物性方向性测试退役
+
+2026-09-13 经用户明确同意，退役
+`test_partial_bc_ghost_b.py::test_variable_rho_cp_off_override`，并移除其耗时测试清单条目。
+[原测试与断言](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/29aac9c3649fd640283d02ec0d303e585f743d1b/sjtu_tpmshx/tests/test_partial_bc_ghost_b.py#L240)
+固定保留在本轮修改前的提交 `29aac9c3649fd640283d02ec0d303e585f743d1b`。
+
+原断言要求关闭可变物性后的有效度满足 `ε_off > ε_on + 0.1`。修改前的隔离源码
+和本轮代码均得到 `ε_on=0.1759099320`、`ε_off=0.1374915884`，原测试均失败
+（退出码 1）。这项旧方向性假设不再用作开关是否有效的验收条件；没有调整求解公式、
+关联式、冻结参考数值或其他测试容差。基线失败及退役前全量失败日志保留在本任务
+`.cache/consistency-maintenance-20260913/` 的 `baseline-legacy-override.log`
+与 `full-suite-corrected.log`。
+
+现行覆盖继续保留：
+
+- [test_3d_property_frame.py](../../sjtu_tpmshx/tests/test_3d_property_frame.py)：
+  显式 ON/OFF 下的物性字段、流体与流向接线。
+- [test_3d_model_enthalpy_transport.py](../../sjtu_tpmshx/tests/test_3d_model_enthalpy_transport.py)：
+  开关控制内核路径、平衡前质量通量，以及关闭路径的温度/焓报告约定。
+- [test_partial_bc_ghost_b.py](../../sjtu_tpmshx/tests/test_partial_bc_ghost_b.py)：
+  默认与显式开启时的有效度上限、固体及两侧能量平衡、出口速度和场边界检查。

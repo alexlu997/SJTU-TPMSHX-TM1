@@ -7,7 +7,6 @@
 sjtu_tpmshx/tests/test_conservation_3d_energy.py::test_strict_energy_conservation[T4_partial_offset]
 sjtu_tpmshx/tests/test_conservation_3d_energy.py::test_strict_energy_conservation[T3_partial_aligned]
 sjtu_tpmshx/tests/test_wall_refine_3d.py::test_wall_refine_3d_solves_and_matches_uniform
-sjtu_tpmshx/tests/test_partial_bc_ghost_b.py::test_variable_rho_cp_off_override
 sjtu_tpmshx/tests/test_asym_porosity_3d.py::test_asym_delta_runs_and_changes_result[True]
 sjtu_tpmshx/tests/test_asym_porosity_3d.py::test_delta0_explicit_matches_baseline_bit_identical
 sjtu_tpmshx/tests/test_asym_porosity_3d.py::test_asym_delta_runs_and_changes_result[False]
