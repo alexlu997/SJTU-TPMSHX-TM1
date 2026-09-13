@@ -1,10 +1,14 @@
 # cf_aniso — 斜流 Forchheimer 方向因子标定（方向分辨单胞 CFD 工单）
 
+状态：**待方向分辨 CFD 数据，尚未标定**。下文保留原研究矩阵与判定建议，
+不代表当前方向系数已有实验或 CFD 验证，也不在本轮文档整理中启动标定。
+
 > 目的：给 2D 动量核的方向因子 `cF_eff = cF·(1 + cf_aniso·ξ4)`（`ξ4 = 4n_x²n_y²`，
 > 立方对称最低阶不变量：顺主轴 0、45° 斜穿 1）提供**实测系数**。
 > 机制已实装（`_kernels_simple_2d.py` 四核，默认 `cf_aniso = 0` 逐位等价旧行为，
 > 顺轴流对任意取值不变）；本工单产出唯一缺的东西——系数的数值。
-> 关联台账条目：**B3**（各向异性 K/cF 张量）、**IDEA-PORT-VALID**（端口工况对标）。
+> 原台账条目 B3 / IDEA-PORT-VALID 为历史研究编号，相关旧工程见
+> [固定历史索引](../../../docs/history/retired-tools.md)。
 
 ## 一、为什么需要
 
@@ -26,9 +30,9 @@
 
 **角度实现方式（推荐）**：旋转**几何**而非流向——把 TPMS 水平集在采样坐标上绕 z
 轴转 θ 再抽 STL，流动保持 +x，完全复用现有周期平移 BC + 质量流量的工作流
-（见 `docs/architecture.md` 的流体与边界约定：ideal-gas、pressure-based steady、
-periodic + mass-flow-rate）。域取 ≥3×3×3 胞防止旋转后周期性破缺伪影；
-网格无关性沿用原 air CFD 的准则。
+（原方案拟采用 ideal-gas、pressure-based steady、periodic + mass-flow-rate）。
+旋转后的周期性、域尺寸和网格无关性须在真正开展 CFD 前确认；
+当前[架构说明](../../../docs/architecture.md)并未将这套研究方案验收为有效。
 
 ⚠ 单流体单胞算例：只算 A 网络一侧（ε_f = ε/2 的那套通道），与原 DF 标定同口径。
 
@@ -40,7 +44,8 @@ periodic + mass-flow-rate）。域取 ≥3×3×3 胞防止旋转后周期性破�
 ## 四、拟合（跑 `fit_cf_aniso.py`）
 
 ```bash
-python sjtu_tpmshx/validation/cf_aniso/fit_cf_aniso.py results.csv
+PYTHON="$(head -n 1 .venv-path)"
+"$PYTHON" -m sjtu_tpmshx.validation.cf_aniso.fit_cf_aniso results.csv
 ```
 
 脚本做三件事：
@@ -53,13 +58,12 @@ python sjtu_tpmshx/validation/cf_aniso/fit_cf_aniso.py results.csv
 
 ## 五、结果落位
 
-- 系数写进 `optimization/evaluator.py` 的 `DEFAULT_CONFIG['cf_aniso']` 注释
-  （值本身仍默认 0，端口研究显式传入标定值）；
-- 台账 B3 行回写（触发条件"拿到方向分辨的标定数据"即由本工单满足）；
-- 端口维数复测（`run_port_dim_retest.py --cf-aniso <标定值>`）复跑一臂做
-  判决稳健性检查。
+拟合脚本输出候选 K/cF 与方向系数，不自动修改生产参数。真正取得数据后，
+另行审查速度、方向、几何、边界和压损定义，再决定是否接入当前
+`models.screening.DEFAULT_CONFIG['cf_aniso']` 的研究选项；默认仍为 0。
+旧 `run_port_dim_retest.py` 已退役，不再列为可运行的后续步骤。
 
 ## 六、在标定完成之前
 
-端口实验只做**维数间相对比较**（两臂同闭合，方向误差大部分对消）；
-绝对 Q/dP 不引用。判决稳健性可先用 `--cf-aniso ±0.3` 哨兵扫掠界定。
+原方案的维数对比与 ±0.3 哨兵扫掠仅是研究建议。相对比较不能证明方向误差抵消，
+更不构成绝对 Q/dP 的精度依据；新研究需独立定义实际入口与验收。

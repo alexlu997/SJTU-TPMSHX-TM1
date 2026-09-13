@@ -193,8 +193,8 @@ class SolverConfig:
     ------------------------------------------------------------------------
     - ``convergence_mode``: ``'legacy'`` or ``'f2'``. A ``None`` here resolves
       to **'f2' in BOTH production pipelines** (env ``TPMSHX_CONV_MODE`` >
-      this config > default 'f2'; ``run_stack_3d._apply_accel_flags`` and
-      ``stages_2d``). Only the raw solver CLASSES default to 'legacy' for
+      this config > default 'f2'; the two_d/three_d runtime modules under
+      ``solvers/backends/python``). Only the raw solver CLASSES default to 'legacy' for
       kernel-direct callers.
       ``'legacy'`` gates on ``tol_simple`` — in 3D an OUTLET-PIN ARTIFACT that
       never reaches its tolerance (ledger C6; LowReExit's velocity criterion
@@ -286,7 +286,7 @@ def bc_to_dict(bc: 'PartialBCConfig', L_dom: float, H_dom: float,
       partially-degenerate BC returns the raw partial dict (no full-face
       fallback). 3D side B only.
 
-      NOTE: the ComputeConfig→3D boundary (``stages_3d._parse_inputs_3d_cfg``)
+      NOTE: the ComputeConfig→3D boundary (``preprocess.three_d.preparation._parse_inputs_3d_cfg``)
       rebuilds a full-face B from a None here, because via ComputeConfig
       fluid_B is always a configured 2nd fluid (a None there is just the
       ``PartialBCConfig`` default widths, meaning full-face cross-flow). The

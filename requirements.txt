@@ -1,3 +1,4 @@
-# Reproducible Mac/Windows development environment.
+# Isolated Mac/Windows checkout or CI: locked dependencies plus editable project.
+# Shared worktree venvs install requirements-lock.txt only; run from the repo root.
 -r requirements-lock.txt
 -e .

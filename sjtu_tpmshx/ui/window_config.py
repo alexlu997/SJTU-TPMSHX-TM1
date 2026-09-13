@@ -156,15 +156,10 @@ def _read_section_fields(window, section: str) -> dict:
 def _validate_required_widgets(window, *, is_3d: bool) -> None:
     """Raise ``ValueError`` listing every invalid input widget.
 
-    Required fields (CONFIG_FIELDS membership, B2 2.4): blank or
-    non-numeric raises — preserves the legacy behaviour of
-    ``pipelines.stages_2d._parse``.
-
-    Optional numeric fields (W2, 2026-07-07): NON-EMPTY text that fails to
-    parse raises too. ``_qt_float``'s silent default-fallback meant a
-    typo'd P_in ("3e5 Pa", "1,5e5") ran the whole case at 101325 Pa with
-    no indication, and a malformed partial-BC width silently degraded the
-    run to a full-face BC. Blank stays legal (= keep the default).
+    Existing numeric widgets reject blank, malformed and nonfinite text.
+    Missing optional widgets use their declared defaults; a blank widget is
+    not a missing widget. Temperature input is interpreted in the selected
+    display unit before ComputeConfig checks positive Kelvin values.
     """
     import math as _math
     required = [fs for fs in CONFIG_FIELDS if fs.required_2d]

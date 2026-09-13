@@ -1,4 +1,4 @@
-"""pipelines/grid_3d.py — 3D grid / axis-map / zone-field builders.
+"""models/grid_3d.py — shared 3D grid / axis-map / zone-field builders.
 
 Moved verbatim from stages_3d.py (openspec split-pipelines, 2026-07-03);
 behavior bit-identical.

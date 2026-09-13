@@ -1,6 +1,12 @@
 """
 validate_shanghai_3d_real.py — Shanghai Electric 16-case 3D validation
 
+Current use: --runner pipeline calls the full-model public module path;
+--runner kernel retains the legacy frozen-B comparison. Continuous-field
+optimization uses its separate screening mode. The numerical discussion below
+records the 2026-07 runner migration, not a fresh TM1 accuracy result. Current
+entry points and evidence boundaries are in docs/tools.md and docs/history/.
+
 THE GATE. The Δp / Q RMSRE numbers quoted for this solver come from here.
 
 Two runners, selected by ``--runner``:

@@ -6,14 +6,14 @@
 ## Requirements
 
 ### Requirement: Four workflow accordion groups
-左面板 SHALL 呈现四段工作流手风琴：Geometry & Structure（默认展开）、Fluids（默认展开）、Grid & Solver（默认折叠）、Boundary Details & Advanced（默认折叠）。widget 属性名、信号连接、`_3d_only_widgets`/`_rect_only_widgets` 可见性门 SHALL 不变。
+左面板 SHALL 呈现四段工作流手风琴：几何与结构（默认展开）、流体（默认展开）、网格与求解器（默认折叠）、边界细节与高级（默认折叠）。widget 属性名、信号连接、`_3d_only_widgets`/`_rect_only_widgets` 可见性门 SHALL 保持一致。
 
 #### Scenario: Default expansion states
 - **WHEN** 离屏构造 Main_Menu
 - **THEN** 四组存在；①② `isChecked()` True，③④ False
 
 #### Scenario: Mode gates still work after re-parenting
-- **WHEN** combo_dim 切 3D 后展开 Grid & Solver 组
+- **WHEN** combo_dim 切 3D 后展开“网格与求解器”组
 - **THEN** Nz 行可见；切回 2D 后不可见（_on_dim_changed 复断言）
 
 ### Requirement: No nested scroll areas in the left panel

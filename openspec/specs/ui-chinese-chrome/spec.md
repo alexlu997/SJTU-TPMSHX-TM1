@@ -16,9 +16,5 @@ UI 表面中文化约定：可见文案中文、内部路由键保持英文。�
 - **WHEN** `_resolve_2d_view_card` / `_switch_tab` 运行
 - **THEN** 仍以原英文串作 key 解析（combo 条目未改值，仅不可见）
 
-### Requirement: Withdrawn item recorded
-③ 原"计算完成自动跳结果页签"子项 SHALL 记录为撤销——`run_controller.py:603/670` 已实现该行为。
-
-#### Scenario: Recorded
-- **WHEN** 阅读本 change proposal/design
-- **THEN** 撤销及既有实现位置在案
+计算完成后的结果页路由由 [ui-result-workbench](../ui-result-workbench/spec.md)
+统一说明；原提案的撤销记录保留在 Git 历史中。

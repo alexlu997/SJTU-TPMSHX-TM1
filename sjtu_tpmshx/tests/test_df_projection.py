@@ -144,7 +144,7 @@ def test_project_fields_returns_correct_shape():
 
 
 def test_project_fields_uniform_input_returns_uniform_output():
-    """If L, t are uniform across the field, K should be ~uniform (RBF noise OK)."""
+    """Uniform L and t must give uniform K under the current geometry model."""
     Nx, Ny = 20, 10
     L_field = np.full((Nx, Ny), 6.0)
     t_field = np.full((Nx, Ny), 0.4)

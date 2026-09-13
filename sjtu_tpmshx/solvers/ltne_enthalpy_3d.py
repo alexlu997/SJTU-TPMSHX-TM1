@@ -391,7 +391,7 @@ def solve_ltne_enthalpy_3d_pipeline(Nx, Ny, Nz, dx, dy, dz, eps_arr, K_ss,
     (h_v fields, full porosity field, per-side SIMPLE face mass flow, per-
     side pressure, warm-start T fields). Returns ``(Ta, Tb, Ts, info)`` matching
     the ``solve_full_domain_3d(..., return_info=True)`` contract so it can drop
-    into the stages_3d energy-solve call site behind an ``enthalpy_mode`` gate.
+    into the Python backend's energy-solve call site in true-enthalpy mode.
 
     ``mass_flux_A/B`` are signed real-coordinate ``(Fx,Fy,Fz)`` arrays. Their
     boundary faces encode arbitrary inlet/outlet patches; zero faces are walls.

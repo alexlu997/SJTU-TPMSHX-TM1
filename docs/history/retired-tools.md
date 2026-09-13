@@ -1,5 +1,7 @@
 # 退役工程、试验与工具索引
 
+各节注明各自的历史提交；2026-09-13 的文档整理见本页末尾。
+
 2026-09-12 按用户确认将已结束的工程、M1/M2 固定试验及历史资料移出当前树。
 原文件固定保存在已合并提交 [b1af7ed](https://github.com/alexlu997/SJTU-TPMSHX-TM1/commit/b1af7edcea5796aa955aa8fae1785be3c1b57e1d)，
 原数值、失败、被否原因及未实施事项不改写。常规设计/优化与现行验证继续保留。
@@ -102,3 +104,20 @@ A1/benchmark A 的旧输入原已缺失，历史代码不代表可在当前目�
   开关控制内核路径、平衡前质量通量，以及关闭路径的温度/焓报告约定。
 - [test_partial_bc_ghost_b.py](../../sjtu_tpmshx/tests/test_partial_bc_ghost_b.py)：
   默认与显式开启时的有效度上限、固体及两侧能量平衡、出口速度和场边界检查。
+
+## 旧规范与状态原稿归档（2026-09-13）
+
+以下 5 份原稿移出当前树，全文固定在文档整理前的已合并提交
+`5c517b415be0adbfc7bbfd205a3dba07fe8792a8`。原数值、失败、未实施事项与
+历史重基线决定保留；本轮不重算参考、不放宽物理校验，也不删除对应有效测试或 CSV。
+
+| 原路径与固定原文 | 现行约束承接 |
+| --- | --- |
+| [arch-b-c-e/spec.md](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/5c517b415be0adbfc7bbfd205a3dba07fe8792a8/openspec/specs/arch-b-c-e/spec.md) | [架构](../architecture.md)：共享模型、数值/GUI 归属；`solvers/_solve_common.py` 保留唯一 LowReExit，现有导入与 UI 检查继续执行 |
+| [compute-contracts/spec.md](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/5c517b415be0adbfc7bbfd205a3dba07fe8792a8/openspec/specs/compute-contracts/spec.md) | [正式数据契约](../../schemas/three_module_v1/)与架构：Qt-free domain、实际准备输入、原生状态、严格文件交接；输入、质量/能量、日志、收敛与持久化检查保留 |
+| [collaboration-project-layout/spec.md](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/5c517b415be0adbfc7bbfd205a3dba07fe8792a8/openspec/specs/collaboration-project-layout/spec.md) | 已结束工程按本页索引归档；共享模型、求解器与有效验证仍归主体包，不恢复旧项目目录 |
+| [solver-efficiency-r1-r4/spec.md](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/5c517b415be0adbfc7bbfd205a3dba07fe8792a8/openspec/specs/solver-efficiency-r1-r4/spec.md) | 历史性能结论见本页原工程索引；现有早退、守恒和 SOU 检查继续保留，原重基线步骤不作为新任务指令 |
+| [_CSV_STATUS.md](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/5c517b415be0adbfc7bbfd205a3dba07fe8792a8/sjtu_tpmshx/validation/_CSV_STATUS.md) | [验证导航](../../sjtu_tpmshx/validation/README.md)、[数据记录](../data-catalog.md)：当前入口与来源限制；原 CSV 数字不改写成新验收 |
+
+保留的 OpenSpec 说明当前 GUI、孔隙率分配与 CI 行为；Graph 继续保留原始需求、
+节点卡、合并证据及 M-B 缺口。它们均不因旧规范归档而视为已完成。

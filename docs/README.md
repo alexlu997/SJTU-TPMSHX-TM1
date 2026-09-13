@@ -13,7 +13,11 @@
 | 任务依赖、实施状态与验收证据 | [三模块计划](plans/three-module-graph/README.md)、[Graph 状态](plans/three-module-graph/state/) |
 | 当前 M-A / M-B 验收说明 | [架构验收](plans/three-module-graph/acceptance_architecture.md)、[需求验收](plans/three-module-graph/acceptance_document.md) |
 | 原始数据、离线清洗与模型发布边界 | [离线模型说明](plans/three-module-graph/decisions/offline_models.md) |
+| 数据文件名、已结案缺项与水 Nu 选择 | [数据目录](data-catalog.md) |
 | 工程、研究、性能工具的输入输出与运行边界 | [工具入口](tools.md) |
+| 验证工具及未标定的方向系数研究 | [验证导航](../sjtu_tpmshx/validation/README.md) |
+| GUI 行为与 CI 补充要求 | [OpenSpec 现行规范](../openspec/specs/) |
+| 连续场一致性修复及回归记录 | [2026-09-13 维护记录](maintenance-20260913.md) |
 
 当前运行和安装说明集中在项目 README，架构与物理约束集中在 architecture.md。
 历史手册中的旧命令、目录地图和精度数字保留其当时语境。
@@ -29,7 +33,7 @@
 | [benchmarks/](../benchmarks/) | 现行性能剖析工具 |
 | [poc/](../poc/) | 概念验证代码，其中部分由自动测试直接导入 |
 | [schemas/](../schemas/) | 三模块数据契约文档；实现位于主体包的 domain/ 和 io/ 等模块 |
-| [openspec/](../openspec/) | 设计规范与变更提案；提案本身不代表功能已实现 |
+| [openspec/](../openspec/) | 当前 GUI、孔隙率与 CI 补充规范；已完成的旧方案见固定历史索引 |
 | [reports/](../reports/) | 现行验证输出和历史资料导航 |
 | [.github/](../.github/) | macOS / Windows CI 和最小后处理环境检查 |
 
@@ -46,3 +50,11 @@
 
 M-A 三模块主线与 M-B 扩展能力分别追踪；目录或接口存在不等于通过验收。
 历史 B40 失败、冻结参考和原始报告结论保留原状。
+
+## 可选外部技能配置
+
+[domain](agents/domain.md)、[issue-tracker](agents/issue-tracker.md)、
+[triage-labels](agents/triage-labels.md) 是原外部技能流程的三个配置模板，
+本次保留以避免中断尚未确认停用的外部消费者。它们不是 TM1 运行依赖，
+其中的示例领域与可选 CONTEXT/ADR 目录不代表本库现有功能或待补功能；
+是否启用该流程以当前任务指令为准。

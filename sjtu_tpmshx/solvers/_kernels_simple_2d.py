@@ -148,12 +148,13 @@ def _sou_corr_v_y(v, i, j, Ny, Fn, Fs):
 
 @njit(cache=True)
 def _porous_src_df(umag, K, cF, mu, rho):
-    """Linearised porous resistance coefficient [kg/(m3 s)] for ConstDF-v1.
+    """Linearised Darcy-Forchheimer resistance coefficient [kg/(m3 s)].
 
     Darcy-Forchheimer closure: Sp * u = (mu/K) * u + rho * c_F * |u| * u.
     K and c_F are geometry-level constants supplied by the caller. Production
-    pipelines pin the fixed water+sCO2 CFD backend; direct research calls may
-    select gamma_df or rbf. Caller provides K, cF per-cell (2026-07-10
+    preparation pins the fixed water+sCO2 CFD baseline and applies any selected
+    experiment correction once; gamma_df and rbf are retired. Caller provides
+    K, cF per-cell (2026-07-10
     lateral-K: kernels now consume 2D (Nx, Ny) fields; a laterally-uniform
     field reproduces the historical per-row behaviour bit-identically).
     """

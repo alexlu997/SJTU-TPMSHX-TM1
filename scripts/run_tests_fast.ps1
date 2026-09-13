@@ -35,7 +35,8 @@ if ($venvHome -match 'Anaconda') {
 $env:PYTHONHASHSEED = "0"
 $env:OMP_NUM_THREADS = "1"; $env:OPENBLAS_NUM_THREADS = "1"
 $env:MKL_NUM_THREADS = "1"; $env:NUMEXPR_NUM_THREADS = "1"
-$env:NUMBA_NUM_THREADS = "1"
+# Enthalpy-transport tests explicitly exercise two Numba threads.
+$env:NUMBA_NUM_THREADS = "2"
 $env:QT_QPA_PLATFORM = "offscreen"
 $env:MPLCONFIGDIR = Join-Path $repo ".cache\matplotlib"
 $env:XDG_CACHE_HOME = Join-Path $repo ".cache\xdg"

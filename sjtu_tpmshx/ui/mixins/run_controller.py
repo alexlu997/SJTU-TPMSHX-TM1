@@ -13,9 +13,9 @@ _update_result_summary / _diag_summary_text / _show_diag_dialog) moved
 verbatim to ``ui/mixins/run_results.py`` (P2.5a, 2026-07-20); handlers
 here reach it via ``self`` through the ``Main_Menu`` MRO.
 
-UI-orchestration only: the numeric solve lives in pipelines/stages_2d.py /
-stages_3d.py (reached via Pipeline2D/3D on ComputeOrchestrator workers),
-not here. Deps are stable
+UI orchestration reaches prepare_case / run_case / evaluate through
+Pipeline2D/3D on ComputeOrchestrator workers. Numerical execution lives under
+solvers/backends/python; presentation stays in the UI. Deps are stable
 imports (PySide6 widgets, ui.fmt._fmt_dur, ui.ui_constants constants,
 time) — no main.py module state. Adopted via
 ``class Main_Menu(..., RunControllerMixin, QMainWindow)``; external wiring

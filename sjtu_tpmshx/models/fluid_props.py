@@ -1,9 +1,8 @@
 """Single source of truth for per-fluid transport properties + Nu dispatch.
 
-Adding a fluid = add one FLUIDS entry. Shim consumers in
-``pipelines/stages_2d.py`` / ``stages_3d.py`` (formerly
-``runs/run_calculation{,_3d}.py``) keep their own dict/tuple packing, Prandtl
-formula and laminar-Nu floor — this module only selects the per-fluid
+Adding a fluid starts with a FLUIDS entry and the applicable model tests.
+Consumers in preprocessing, numerical backends and shared models retain their
+packing, Prandtl formula and laminar-Nu floor. This module selects the per-fluid
 *primitives* (which rho/cp/mu/k/nu function to use), collapsing the scattered
 ``if fluid == 'water': ... else: ...`` branches into one place.
 

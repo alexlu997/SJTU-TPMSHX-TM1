@@ -25,8 +25,8 @@
 已完成的 changes SHALL 由 Git 历史保留；`openspec/changes/` SHALL 只包含真实活跃的 change，不在工作树内重复保存已归档副本。
 
 #### Scenario: Active list reflects reality
-- **WHEN** 运行 `openspec list`
-- **THEN** 仅剩真实活跃的 change
+- **WHEN** 检查 `openspec/changes/`（无活动提案时目录可以不存在）
+- **THEN** 仅保留真实活跃的 change；不要求默认 Python 环境安装 OpenSpec CLI
 
 ### Requirement: Pytest config single source
 仓库根 SHALL 提供 `pytest.ini`：`testpaths = sjtu_tpmshx/tests`、`--strict-markers`，并注册 `slow`、`fast` 与 `heavy` 标记。未注册标记 SHALL 导致收集期报错而非静默通过。
@@ -40,15 +40,20 @@
 - **THEN** pytest 收集期报错
 
 ### Requirement: Parallel local gate
-本地全量门 SHALL 支持 pytest-xdist 并行：`pytest sjtu_tpmshx/tests/ -q -n auto --dist loadscope`，且在启动 Python 前设置 `PYTHONHASHSEED=0`。`--dist loadscope` SHALL 为文档化默认，pytest-xdist SHALL 位于共同依赖锁中。
+本地全量门 SHALL 支持 pytest-xdist 并行：`pytest sjtu_tpmshx/tests/ -q -n auto --dist loadscope`，且在启动 Python 前设置 `PYTHONHASHSEED=0`、`NUMBA_NUM_THREADS=2` 和 BLAS/OMP 单线程。`--dist loadscope` 为本机文档默认，worker 数可按资源改为固定值；128 核服务器保留脚本中的 worksteal 策略。解释器、环境检查和完整命令集中在[根 README](../../../README.md#环境与检查)。pytest-xdist 位于共同依赖锁中。
 
 #### Scenario: Parallel full suite green
 - **WHEN** 在 `PYTHONHASHSEED=0` 下运行 `pytest sjtu_tpmshx/tests/ -q -n auto --dist loadscope`
-- **THEN** 结果与单进程一致（0 failed），墙钟时间显著低于单进程基线（~16 min）
+- **THEN** 所有实有测试进入验收（0 failed），skip 保留原因；历史耗时不作为跨机器速度承诺
 
 ### Requirement: Slow-marking policy — studies out, invariant gates in
-`slow` 标记 SHALL 按角色而非单纯耗时：实测 > ~45 s 且属**研究型/冗余等价型**（网格收敛研究、优化器质量对比、并行==串行等价）且同路径有廉价覆盖存留的测试标 `slow`；**不变量门**（严格能量守恒 `test_conservation_3d_energy`、asym δ=0 位相同 `test_asym_porosity_3d`、sizing golden）无论耗时 SHALL NOT 标 `slow`（CI 必须保留）。标记 SHALL 逐测试而非整模块。全量本地门（无 `-m` 过滤）仍 SHALL 是 "done" 判据。
+`slow` 按角色区分研究型/冗余等价检查，且同路径须保留廉价覆盖；
+物理不变量不得仅因耗时而标为 `slow`。`heavy` 是另一个耗时分层。
+标记逐测试维护，不为获得绿色而删除物理不变量或扩大排除集。
+严格能量守恒、asym δ=0、sizing 等既有检查保留在完整本地门中。
+CI 快测排除 slow/heavy，随后独立运行 `integration_tm1`；它们共同提供持续反馈，
+仍不覆盖全部本地重数值检查。全量本地门（无 `-m` 过滤）仍是完成判据。
 
 #### Scenario: Fast subset materially faster
-- **WHEN** 运行 `pytest sjtu_tpmshx/tests/ -q -m "not slow" -n auto --dist loadscope`
+- **WHEN** 运行 `pytest sjtu_tpmshx/tests/ -q -m "not slow and not heavy" -n auto --dist loadscope`
 - **THEN** 0 failed，且墙钟时间低于全量并行运行

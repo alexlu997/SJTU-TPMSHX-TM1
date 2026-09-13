@@ -29,10 +29,9 @@ and is not used by execution. The prepared data has:
   qtol/chunk defaults. The requested thermal `tol` remains separate.
 - `initial_fields`: absent or three finite cell temperature arrays in K.
   Copies cross the contract boundary; the receiving solve uses their values.
-- `df_options`: resolved method, override-enabled flag and residual-correction
-  flag. Explicit options override receiving-process environment without any
-  process-global environment replay. Existing standalone D-F calls still use
-  their historical defaults when those optional arguments are omitted.
+- `df_options`: the resolved `method` only (`cfd_full_core_3cell_fixed_v2`). It takes
+  precedence over the receiving-process environment without process-global
+  replay. Former override and residual-correction flags are retired.
 - `inlet_pressure_fractions`: prepared A/B analytical dP/P_in, dimensionless,
   finite and nonnegative. The producer evaluates the existing inlet-state D-F
   calculation with `df_options`; execution cannot start calibration or reload

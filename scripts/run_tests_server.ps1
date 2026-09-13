@@ -17,10 +17,9 @@
 #     (conservation_3d_energy, partial_bc_ghost_b, asym_porosity_3d) are
 #     unmarked, so the "fast" phase inherited the whole 40-min tail.
 #
-# Every test grid is far below TPMSHX_PARALLEL_THRESHOLD (200k cells; max
-# observed is 20^3 = 8k), so numba prange never engages — one compute thread
-# per worker is CORRECT, and default thread counts thrash (measured:
-# 7 CPU-hours wasted at -n 32 with 128-thread pools per worker).
+# The 2026-07 measurements above describe the historical suite. Current
+# enthalpy-transport tests explicitly exercise two Numba threads, so each
+# worker must allow two. Keep BLAS/OMP at one to avoid nested oversubscription.
 #
 # The venv MUST be built from C:\Python312 (python.org CPython), never
 # Anaconda — PySide6's abi3 forwarder crashes (0xc0000139) otherwise.
@@ -47,7 +46,7 @@ if ($venvHome -match 'Anaconda') {
 $env:PYTHONHASHSEED = "0"
 $env:OMP_NUM_THREADS = "1"; $env:OPENBLAS_NUM_THREADS = "1"
 $env:MKL_NUM_THREADS = "1"; $env:NUMEXPR_NUM_THREADS = "1"
-$env:NUMBA_NUM_THREADS = "1"
+$env:NUMBA_NUM_THREADS = "2"
 # Headless server — Qt tests need the offscreen platform plugin.
 $env:QT_QPA_PLATFORM = "offscreen"
 $env:MPLCONFIGDIR = Join-Path $repo ".cache\matplotlib"

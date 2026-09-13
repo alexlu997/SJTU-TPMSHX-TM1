@@ -1,7 +1,6 @@
 """coupling_skeleton.py — shared outer SIMPLE↔LTNE coupling-loop support.
 
-The 2D (`pipelines.stages_2d._run_solvers`) and 3D
-(`pipelines.stages_3d._run_3d_stack`) drivers each run an outer Picard
+The 2D and 3D drivers under `solvers/backends/python/` run an outer Picard
 loop that couples the momentum solve (SIMPLE) to the energy solve (LTNE)
 by feeding temperature-dependent properties (ρ, μ, cp, K) back into
 SIMPLE until the temperature field stops moving. This module owns the two
@@ -18,16 +17,13 @@ The loop *bodies* (the ``step``/``post`` callables each driver passes in)
 stay dimension-specific — they differ in solve order (2D SIMPLE→LTNE;
 3D LTNE→SIMPLE), in the physics one side carries (χ_B closure, conservative
 staggered-face LTNE, frozen-B, per-outer P_ref recompute), in their
-progress plumbing (2D's _MAX_COUPLING denominator + a 0.3 mid-iter sub-fill
-on a window attribute vs 3D's _MAX_OUTER-const denominator + per-run iter
-ticks via callbacks), and in Q extraction (2D Richardson vs 3D enthalpy).
+progress budgets and RunControl callbacks, and numerical duty diagnostics
+(2D Richardson vs 3D enthalpy). Formal reporting consumes the captured result.
 The driver owns only the control flow; the ``step``/``post`` closures keep
 each body's arithmetic and copy timing verbatim, so behaviour stays
 bit-identical to the prior inline loops — verified end-to-end by the 3D
 golden hash and the 2D golden gate. ``OuterConvergence`` is the predicate
-seam those closures call; ``run_outer_coupling`` is the loop seam that, when
-a third consumer (e.g. a quasi-2.5D mode) appears, gives the unification a
-ready insertion point.
+seam those closures call; ``run_outer_coupling`` supplies their shared loop.
 """
 from __future__ import annotations
 

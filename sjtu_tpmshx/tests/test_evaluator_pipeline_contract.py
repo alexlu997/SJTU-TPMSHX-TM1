@@ -103,7 +103,7 @@ def test_g_reference_density_convention_post_d3c():
     """G-reference convention after D3(c) (Alex 2026-07-20; the original
     decision record remains in Git history): per-dimension INTERNAL consistency.
 
-    2D: BOTH the pipeline (stages_2d) and the evaluator now pin the physical
+    2D: BOTH the full-model runtime and the screening evaluator pin the physical
     inlet mass flux via an explicit rho_inlet_ref = rho(T_in, P_in) — the
     evaluator was aligned in iter 41 (frozen 2D values re-baselined with it).
 

@@ -129,7 +129,7 @@ def test_energy_inlet_uses_same_physical_face_as_pipeline(monkeypatch):
 
 def test_b_side_eps_push_is_y_flipped():
     """Orientation fix: a y-graded ε field lands FLIPPED on SIMPLE B
-    (j=0 ↔ real y=H), mirroring stages_2d._to_simple_coords d==3."""
+    (j=0 ↔ real y=H), mirroring the full-model two_d runtime coordinate transform for d==3."""
     cfg = dict(_CFG_SMALL)
     _, fc, arrays, Nx, Ny = _fc_arrays(cfg, *_graded_y_ctrl(cfg))
     eps_real = arrays['eps_arr']

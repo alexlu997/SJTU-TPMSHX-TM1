@@ -7,7 +7,7 @@ property ladders with registry dispatch. These tests pin:
      (exact float equality — the migration must be value-preserving);
   2. flow_model() mapping (SIMPLE fluid_type strings);
   3. embeds_roughness flags (roughness double-count guard, see the
-     _apply_roughness_* helpers now in pipelines/stages_3d.py);
+     _apply_roughness_* helpers in solvers/backends/python/three_d/flux.py);
   4. nu_water_topo == the retired design/fluids.py inline formula;
   5. design.fluids thin-adapter outputs == registry primitives.
 """

@@ -1,7 +1,8 @@
 """Pure numpy helpers extracted verbatim from stages_3d.py (Phase 3 god-file
 split). No module-global / solver-import dependencies — index/face/slice math,
 3D smoothing, staggered<->real remap, stream-outflow balance, and chi_B field
-builders. Imported back into stages_3d.py; behavior is bit-identical."""
+builders. Current preparation and numerical backends import these helpers
+from models; the former stage facade is retired."""
 from __future__ import annotations
 
 import numpy as np

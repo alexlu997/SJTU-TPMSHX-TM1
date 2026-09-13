@@ -1,5 +1,11 @@
 """validate_shanghai_aligned.py — Shanghai 2D validation gate.
 
+Current use: --runner pipeline calls the full-model public module path;
+--runner kernel retains the legacy frozen-B comparison. Continuous-field
+optimization uses its separate screening mode. The numerical discussion below
+records the 2026-07 runner migration, not a fresh TM1 accuracy result. Current
+entry points and evidence boundaries are in docs/tools.md and docs/history/.
+
 Two runners, selected by ``--runner``:
 
   ``pipeline``  (DEFAULT since 2026-07-12)

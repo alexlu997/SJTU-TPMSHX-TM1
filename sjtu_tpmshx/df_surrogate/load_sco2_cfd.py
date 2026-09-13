@@ -1,9 +1,9 @@
 """Load sCO2 unit-cell CFD data (2026-07 campaign, smooth wall).
 
-Dataset: ``data/raw_data/cfd/sco2/{Diamond,Gyroid}/`` — see the README.md
-there for the confirmed CFD setup (smooth wall, RANS, no gravity,
-Twall = Tref + 50 K) and the case-matrix derivation. Same post-processing
-pipeline / column schema as ``water-cfd-raw.xlsx``
+Dataset: ``data/raw_data/cfd/sco2/{Diamond,Gyroid}/``; current file mapping is
+in docs/data-catalog.md. The recorded 2026-07 setup is smooth wall, RANS,
+no gravity, Twall = Tref + 50 K. Its historical post-processing column schema
+matches the water-cfd-raw source, now ``cfd/water/water_DG_cfd_results_legacy.xlsx``
 (historical comparison code is indexed in ``docs/history/legacy-models.md``).
 
 Two loaders (``lattice`` = 'Diamond' | 'Gyroid'):

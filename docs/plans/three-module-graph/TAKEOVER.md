@@ -1,5 +1,10 @@
 # TM1 takeover and repair record — 2026-09-10
 
+> Historical takeover and repair sequence, not current ownership or authorization.
+> M-A subsequently completed; see [final architecture acceptance](acceptance_architecture.md).
+> M-B remains incomplete in [capability tracking](acceptance_document.md) and `state/`.
+> Branches, environments, intermediate failures and pending items below retain their original dates.
+
 The user requested implementation of all findings in the takeover review.
 The final objective remains M-A three-module independence and V0.1 M-B
 tracking. The source plan, its 45 nodes and 110 dependencies are preserved;

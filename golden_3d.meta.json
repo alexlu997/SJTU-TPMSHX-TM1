@@ -2,6 +2,7 @@
   "artifact": "golden_3d.json",
   "sha256": "49255563dedec96dac4ccfd67e669870da85e4aaf622d2eb09a474e8fca58d71",
   "size_bytes": 2041,
+  "serialization_note": "Historical Windows/CRLF byte attestation. The Git/LF checkout is 1971 bytes (70 LF line endings); size_bytes and sha256 retain the original serialization record, not a new TM1 validation result.",
   "generator": "sjtu_tpmshx/runs/_out/_golden_3d.py",
   "attested": {
     "date": "2026-07-23",

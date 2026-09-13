@@ -8,7 +8,10 @@ Source: ``data/raw_data/Water-CFD/水数值模拟数据.xlsx`` (2026-07-23 uploa
 single sheet, 40 geometries D+G, L∈[4,8]×t∈[0.3,0.6] mm, ~46 Re each,
 Re 93–50000). One row per case; the three streamwise cells are reported as
 ``Core1_Nu`` / ``Core2_Nu`` / ``Core3_Nu`` plus the core aggregate
-``Nu_core`` / ``Darcy_f_core``. Replaces the retired ``water-cfd-raw.xlsx``.
+``Nu_core`` / ``Darcy_f_core``. This describes the 2026-07-23 source record;
+that revised workbook is currently missing. The older water-cfd-raw source is
+retained as ``cfd/water/water_DG_cfd_results_legacy.xlsx`` for its separate
+validation route, never as an automatic substitute. See docs/data-catalog.md.
 
 Conventions (repo, NOT the sheet's own) — identical to load_sco2_cfd:
     t_mm       real wall thickness; auto-detected (t-code 3..6 ÷10 vs real

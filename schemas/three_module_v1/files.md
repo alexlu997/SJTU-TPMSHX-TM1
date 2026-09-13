@@ -24,10 +24,10 @@ Nonfinite diagnostics remain in HDF5, never converted to a valid metric.
 The public stage commands are:
 
 ```
-python -m sjtu_tpmshx.workflows.cli prepare config.json case.yaml --case-id example
-python -m sjtu_tpmshx.workflows.cli solve case.yaml results.h5
-python -m sjtu_tpmshx.workflows.cli postprocess results.h5 metrics.json
-python -m sjtu_tpmshx.workflows.cli run config.json output-directory --case-id example
+python -m sjtu_tpmshx.cli prepare config.json case.yaml --case-id example
+python -m sjtu_tpmshx.cli solve case.yaml results.h5
+python -m sjtu_tpmshx.cli postprocess results.h5 metrics.json
+python -m sjtu_tpmshx.cli run config.json output-directory --case-id example
 ```
 
 Use the interpreter in the worktree's `.venv-path` for these commands.
