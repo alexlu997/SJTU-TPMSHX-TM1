@@ -51,6 +51,18 @@ PowerShell 读取 `.venv-path` 后使用 `& $tm1Python` 和相同参数，环境
 后两个示例的 Q 为 W/m，收敛与物理状态看 `summary.json` 和结果文件；
 脚本退出 0 不代表每个筛选工况均收敛。示例不扩大模型适用域。
 
+## 定尺与优化结果
+
+快速定尺以最终重算逐工况判定可行性；失败工况仍保留在明细中，`终验` 列说明
+未收敛、非有限值、温度/热量未达标或压降超限。只有通过终验的候选参与最优选择。
+
+BO 的 `history.csv` 保留全部评估的数值，包括训练所用惩罚值；配套
+`history_status.json` 按同一行序记录从 1 开始的评估序号、`valid/failed` 和原因。
+多种子输出对应 `history_merged.csv` 与 `history_merged_status.json`。
+API 的 `history_errors` 与 `history_X/history_F` 逐行对应，成功行为 `None`。
+`pareto_*.csv` 仅含未被拒绝的候选；全失败时文件仅有表头。显式从历史行导出几何时，
+导出元数据保留该行的评估状态。筛选通过不代表通过实验验证或生产求解验收。
+
 ## 数据与研究工具
 
 CFD 清单到 nTop 的默认目录为 `sjtu_tpmshx/runs/_out/asym_cfd/`（Git 忽略）。

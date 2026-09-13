@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from .theme import get_theme
+from .matplotlib_canvas import cell_index_mm
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -58,11 +59,8 @@ def _resolve_fields(window, x_mm, y_mm):
     if N_x <= 0 or N_y <= 0 or L <= 0 or H <= 0:
         return []
 
-    # Grid index (clamped)
-    i = int(x_mm / 1000 / L * N_x)
-    j = int(y_mm / 1000 / H * N_y)
-    i = max(0, min(i, N_x - 1))
-    j = max(0, min(j, N_y - 1))
+    i = cell_index_mm(x_mm, r.get('dx_arr', np.full(N_x, L / N_x)))
+    j = cell_index_mm(y_mm, r.get('dy_arr', np.full(N_y, H / N_y)))
 
     out = [('x', f"{x_mm:.2f}", 'mm'),
            ('y', f"{y_mm:.2f}", 'mm'),
@@ -247,9 +245,9 @@ class CoordInspector(QDockWidget):
         N_x = int(r.get('N_x', 0)); N_y = int(r.get('N_y', 0))
         L = float(r.get('L', 0.0)); H = float(r.get('H', 0.0))
         if N_x > 0 and N_y > 0 and L > 0 and H > 0:
-            i = int(event.xdata / 1000 / L * N_x)
-            j = int(event.ydata / 1000 / H * N_y)
-            ij = (max(0, min(i, N_x - 1)), max(0, min(j, N_y - 1)))
+            i = cell_index_mm(event.xdata, r.get('dx_arr', np.full(N_x, L / N_x)))
+            j = cell_index_mm(event.ydata, r.get('dy_arr', np.full(N_y, H / N_y)))
+            ij = (id(r), getattr(self._window, '_temp_unit', 'K'), i, j)
             if ij == self._last_ij:
                 return
             self._last_ij = ij

@@ -953,8 +953,12 @@ def show_pareto(window, res: dict) -> None:
     ax = fig.add_subplot(111)
     if F_hist is not None and F_hist.size:
         Qh = -F_hist[:, 0]; dPh = F_hist[:, 1]
-        ax.scatter(dPh, Qh, c='lightgray', s=14, alpha=0.6,
-                   label=f'history (n={len(Qh)})')
+        valid = np.array([error is None for error in res.get('history_errors', [None] * len(Qh))])
+        ax.scatter(dPh[valid], Qh[valid], c='lightgray', s=14, alpha=0.6,
+                   label=f'valid history (n={valid.sum()})')
+        if (~valid).any():
+            ax.scatter(dPh[~valid], Qh[~valid], c='gray', marker='x', s=14,
+                       label=f'failed / capped (n={(~valid).sum()})')
     order = np.argsort(dP)
     ax.plot(dP[order], Q[order], 'o-', color='C1', lw=1.5, ms=6,
             label=f'Pareto (n={len(Q)})', picker=True, pickradius=6)

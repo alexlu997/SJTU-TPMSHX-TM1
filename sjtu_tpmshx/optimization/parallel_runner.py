@@ -97,6 +97,7 @@ def _seed_subprocess_main(seed: int,
         'F':          out['F'],
         'history_X':  out['history_X'],
         'history_F':  out['history_F'],
+        'history_errors': out['history_errors'],
         'n_evals':    int(out['n_evals']),
         'save_dir':   out['save_dir'],
     }
@@ -112,10 +113,10 @@ def _merge_paretos(seed_outputs: List[dict]) -> tuple:
     """
     from sjtu_tpmshx.optimization.optimizer_qnehvi import _pareto_mask_max
 
-    X_paretos = [o['X'] for o in seed_outputs if o['X'].size]
-    F_paretos = [o['F'] for o in seed_outputs if o['F'].size]
-    X_hists   = [o['history_X'] for o in seed_outputs if o['history_X'].size]
-    F_hists   = [o['history_F'] for o in seed_outputs if o['history_F'].size]
+    X_paretos = [o['X'] for o in seed_outputs]
+    F_paretos = [o['F'] for o in seed_outputs]
+    X_hists   = [o['history_X'] for o in seed_outputs]
+    F_hists   = [o['history_F'] for o in seed_outputs]
     n_evals_total = sum(int(o['n_evals']) for o in seed_outputs)
 
     if not X_paretos:
@@ -233,15 +234,17 @@ def run_qnehvi_multiseed(config: Optional[dict] = None,
             _log.info(f"  dP range [{dP.min():.0f}, {dP.max():.0f}] Pa")
 
     # Write merged Pareto + history at top level
-    from sjtu_tpmshx.optimization.optimizer_qnehvi import _save_pareto_csv
+    from sjtu_tpmshx.optimization.optimizer_qnehvi import _save_pareto_csv, _save_history
+    history_errors = [error for output in per_seed_results for error in output['history_errors']]
     _save_pareto_csv(os.path.join(save_dir_base, 'pareto_merged.csv'), X_m, F_m)
-    _save_pareto_csv(os.path.join(save_dir_base, 'history_merged.csv'), X_h, F_h)
+    _save_history(save_dir_base, X_h, F_h, history_errors, stem='history_merged')
 
     return {
         'X':                 X_m,
         'F':                 F_m,
         'history_X':         X_h,
         'history_F':         F_h,
+        'history_errors':    history_errors,
         'n_evals':           n_evals_total,
         'seeds_used':        list(seeds),
         'per_seed_results':  per_seed_results,

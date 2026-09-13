@@ -730,8 +730,14 @@ class ComputeConfig:
            into :class:`GeometryConfig`. Fluids fall back to defaults
            because the Shanghai loop overwrites them per case.
         """
-        # ── canonical layout ────────────────────────────────────
-        if any(k in data for k in ('fluid_A', 'fluid_B', 'solver')):
+        if not isinstance(data, dict):
+            raise ValueError('ComputeConfig must be a JSON object')
+        # The legacy layout is identified by its domain section. Optional
+        # canonical sections must never decide how the remaining fields parse.
+        if 'domain' not in data:
+            unknown = set(data) - set(cls.__dataclass_fields__)
+            if unknown:
+                raise ValueError(f'unknown ComputeConfig fields: {sorted(unknown)}')
             fA_d = data.get('fluid_A', {}) or {}
             fB_d = data.get('fluid_B', {}) or {}
             ge_d = data.get('geometry', {}) or {}
@@ -772,8 +778,14 @@ class ComputeConfig:
 
         # ── legacy shanghai_baseline.json layout ────────────────
         # Keys: _meta / geometry / domain / _excluded
+        unknown = set(data) - {'_meta', 'geometry', 'domain', '_excluded', 'sco2_nu'}
+        if unknown:
+            raise ValueError(f'mixed or unknown legacy config fields: {sorted(unknown)}')
         geom_raw = data.get('geometry', {}) or {}
         domain_raw = data.get('domain', {}) or {}
+        unknown = set(geom_raw) - {'tpms', 'L_cell_mm', 't_wall_mm', 'k_s_W_mK'}
+        if unknown:
+            raise ValueError(f'legacy geometry has canonical or unknown fields: {sorted(unknown)}')
         geom = GeometryConfig(
             tpms=geom_raw.get('tpms', 'Gyroid'),
             L_cell_mm=float(geom_raw.get('L_cell_mm', 7.0)),

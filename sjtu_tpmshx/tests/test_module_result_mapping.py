@@ -1,5 +1,6 @@
 """Real public-result mapping retains the GUI/export and diagnostic contract."""
 from dataclasses import replace
+from types import SimpleNamespace
 import importlib
 
 import numpy as np
@@ -37,10 +38,15 @@ def _small_air_air_cfg():
     )
 
 
-@pytest.fixture(scope='module', params=[2, 3])
+@pytest.fixture(scope='module', params=[2, 3, '2-partial'])
 def native_result(request):
-    dimension = request.param
+    dimension = 3 if request.param == 3 else 2
     config = baseline_config() if dimension == 2 else _small_air_air_cfg()
+    if request.param == '2-partial':
+        config = replace(config,
+            geometry=replace(config.geometry, L_dom_m=.06, H_dom_m=.03, t_wall_mm=.6),
+            solver=SolverConfig(Nx=8, Ny=10, Nz=1, max_outer_ltne=2, max_iter_simple=500),
+            bc_A=PartialBCConfig(dir=0, in_ctr=.015, in_w=.014, out_ctr=.015, out_w=.014))
     module = importlib.import_module(
         'sjtu_tpmshx.solvers.backends.python.'
         + ('two_d' if dimension == 2 else 'three_d') + '.result_capture')
@@ -53,6 +59,9 @@ def native_result(request):
         patch.setattr(module, 'capture_result', record)
         case = prepare_case(config, case_id=f'mapping-{dimension}d')
         fields = run_case(case)
+    if request.param == '2-partial':
+        assert 'ucA_display' in fields.fields
+        assert not np.array_equal(fields.fields['ucA'], fields.fields['ucA_display'])
     return fields, captured[0]
 
 
@@ -187,6 +196,26 @@ def test_unavailable_metrics_and_incomplete_execution_stay_visible(native_result
         incomplete = replace(fields, run_status={**fields.run_status, 'execution': state})
         with pytest.raises(ValueError, match='completed result'):
             to_compute_result(incomplete, evaluate(fields))
+
+
+def test_native_result_reaches_gui_diagnostics_and_display_cache(native_result):
+    from sjtu_tpmshx.ui.mixins.run_results import RunResultsMixin
+    fields, _ = native_result
+    result = to_compute_result(fields, evaluate(fields))
+    window = SimpleNamespace()
+    RunResultsMixin.write_result(window, result)
+    if fields.grid['dimension'] == 3:
+        for side in ('A', 'B'):
+            assert window._diag_summary['Q_' + side] == pytest.approx(
+                result.residuals['Q_enthalpy_' + side], nan_ok=True)
+        assert window._diag_summary['closure_basis'] == '全域固体交换'
+        text = RunResultsMixin._diag_summary_text(window)
+        assert '两侧焓流: Q_A' in text and '能量闭合（全域固体交换）' in text
+    else:
+        for name in ('ucA', 'vcA', 'ucB', 'vcB'):
+            np.testing.assert_array_equal(window._compute_results[name], fields.fields[name])
+            np.testing.assert_array_equal(window._compute_results[name + '_disp'],
+                                          fields.fields.get(name + '_display'))
 
 
 def test_mapping_keeps_recorded_state_after_producer_drafts_change(native_result):

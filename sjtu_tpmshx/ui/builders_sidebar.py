@@ -113,6 +113,7 @@ def refresh_result_sidebar(window):
             f" font-family:{_t['mono_family']}; font-size:9pt;"
             " font-weight:600;")
     rel = d.get('closure_rel')
+    labels['closure'].setToolTip(d.get('closure_basis', '两侧焓流'))
     if rel is not None and rel == rel:          # not NaN
         _mark('closure', f"{abs(rel) * 100:.1f} % {'✓' if abs(rel) < 0.05 else '⚠'}",
               abs(rel) < 0.05)

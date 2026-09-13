@@ -5,6 +5,7 @@
            明确对应输入 Excel 的具体工况 (而非 max-over-工况 的单值)。
 """
 from __future__ import annotations
+import math
 import pandas as pd
 
 from .select import pareto_tags
@@ -27,6 +28,10 @@ def warning_text(d) -> str:
                      for message in pc.get('warnings', []))
 
 
+def _round_re(value):
+    return round(value) if math.isfinite(value) else value
+
+
 def summary_rows(results, tags) -> list:
     return [dict(
         构型=cid(d), 拓扑=d.topo, l_mm=d.l, t_mm=d.t, 布置=d.arrangement,
@@ -35,8 +40,8 @@ def summary_rows(results, tags) -> list:
         Lx_mm=round(d.Lx * 1e3, 2),
         V_L=round(d.V * 1e3, 4), 重量_kg=round(d.weight, 4),
         dP热_max=round(d.dP_hot_max, 4), dP冷_max=round(d.dP_cold_max, 4),
-        Re热_max=round(getattr(d, "Re_hot_max", 0.0)),
-        Re冷_max=round(getattr(d, "Re_cold_max", 0.0)),
+        Re热_max=_round_re(getattr(d, "Re_hot_max", 0.0)),
+        Re冷_max=_round_re(getattr(d, "Re_cold_max", 0.0)),
         验证=getattr(d, "validity", ""),
         警告=warning_text(d),
         备注=d.reason, 标记=",".join(tags.get(id(d), []))) for d in results]
@@ -51,10 +56,11 @@ def detail_rows(results) -> list:
         冷侧绝对压损_Pa=round(pc["dP_cold_pa"], 1),
         冷侧相对压损_pct=round(pc["dP_cold_frac"] * 100, 3),
         换热量_kW=round(pc["Q_W"] / 1e3, 3),
-        Re热=round(pc["Re_hot"]), Re冷=round(pc["Re_cold"]),
+        Re热=_round_re(pc["Re_hot"]), Re冷=_round_re(pc["Re_cold"]),
         数值收敛=(pc.get('run_status') or {}).get('converged', 'unknown'),
+        终验='; '.join(pc.get('acceptance_reasons', [])),
         警告='\n'.join(pc.get('warnings', [])))
-        for d in results if d.feasible for pc in d.percase]
+        for d in results for pc in d.percase]
 
 
 def write_xlsx(path, results) -> tuple:

@@ -110,13 +110,16 @@ def project_fields_to_streamwise_K_cF(L_field: np.ndarray,
                                        Ny_field: int,
                                        Ny_sim: int,
                                        fluid: str,
-                                       streamwise_dx: Optional[np.ndarray] = None
+                                       streamwise_dx: Optional[np.ndarray] = None,
+                                       *, source_grid=None
                                        ) -> Tuple[np.ndarray, np.ndarray]:
     """Project 2D sigmoid fields onto streamwise axis for SIMPLE's K/c_F arrays.
 
     L_field, t_field shape: (Nx_field, Ny_field) in real coords.
     For fluid A: average along real y at each real x, then resample to Ny_sim.
     For fluid B: average along real x at each real y, flip, then resample.
+    source_grid=(dx, dy) supplies actual source cell widths when nonuniform;
+    lateral averages and source lookup then use physical lengths.
 
     Returns (K_arr, cF_arr) both shape (Ny_sim,) float64.
     """
@@ -126,7 +129,18 @@ def project_fields_to_streamwise_K_cF(L_field: np.ndarray,
     src_n = _src_n
 
     s_fracs = _cell_centre_fracs(Ny_sim, streamwise_dx)
-    src_idx = _nearest_src_idx(s_fracs, src_n)
+    if source_grid is None:
+        src_idx = _nearest_src_idx(s_fracs, src_n)
+    else:
+        dx, dy = (np.asarray(widths) for widths in source_grid)
+        if fluid == 'A':
+            L_1d, t_1d = (np.average(f, axis=1, weights=dy) for f in (L_field, t_field))
+            stream_widths = dx
+        else:
+            L_1d, t_1d = (np.average(f, axis=0, weights=dx)[::-1] for f in (L_field, t_field))
+            stream_widths = dy[::-1]
+        src_idx = np.minimum(np.searchsorted(np.cumsum(stream_widths),
+                                             s_fracs * stream_widths.sum(), side='right'), src_n - 1)
 
     # Per-cell loop kept loop-form: eps_f derives from tpms_geometry per
     # (L, t) probe and the float evaluation order is gate-pinned.
@@ -183,5 +197,4 @@ def project_fields_to_streamwise_K_cF_3d(L_field: np.ndarray,
 
     K_arr, cF_arr = predict_K_cF_vec(tpms_type, L_proj, t_proj, eps_proj)
     return K_arr.astype(np.float64), cF_arr.astype(np.float64)
-
 

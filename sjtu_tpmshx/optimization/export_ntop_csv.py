@@ -212,6 +212,13 @@ def export_pareto_row(pareto_csv_path: str,
         'pareto_Q_W_m':  Q,
         'pareto_dP_Pa':  dP,
     }
+    status_path = os.path.splitext(pareto_csv_path)[0] + '_status.json'
+    if os.path.isfile(status_path):
+        with open(status_path, encoding='utf-8') as source:
+            statuses = json.load(source)
+        if len(statuses) != len(data):
+            raise ValueError('history status count does not match CSV rows')
+        src['evaluation_status'] = statuses[row_index]
     if config is None:
         config_path = os.path.join(os.path.dirname(pareto_csv_path), 'config.json')
         try:

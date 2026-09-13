@@ -15,6 +15,7 @@ def pressure_drop(pressure):
     mi, mo = inlet > .01, outlet > .5
     if not (mi.any() and mo.any()):
         return 0.
+    inlet, outlet = inlet * np.asarray(pressure['dx_m']), outlet * np.asarray(pressure['dx_m'])
     return float(np.average(p[mi, 0], weights=inlet[mi]) - np.average(p[mo, -1], weights=outlet[mo]))
 
 

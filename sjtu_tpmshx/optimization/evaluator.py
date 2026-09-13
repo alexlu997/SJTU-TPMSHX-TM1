@@ -26,7 +26,19 @@ def _compute_cfg_to_evaluator_dict(compute_cfg) -> dict:
     that overlaps with :data:`DEFAULT_CONFIG`; everything else stays
     on the dataclass defaults.
     """
+    from sjtu_tpmshx.domain.compute_config import bc_to_dict
+    compute_cfg.validate()
+    ports = {}
+    for side, bc in (('A', compute_cfg.bc_A), ('B', compute_cfg.bc_B)):
+        pipe = bc_to_dict(bc, compute_cfg.geometry.L_dom_m, compute_cfg.geometry.H_dom_m)
+        width = (compute_cfg.geometry.H_dom_m if bc.dir in (0, 1)
+                 else compute_cfg.geometry.L_dom_m)
+        bounds = tuple(pipe[end + '_ctr'] + sign * pipe[end + '_w'] / 2.
+                       for end in ('in', 'out') for sign in (-1, 1))
+        ports['ports_' + side] = (None if np.allclose(bounds, (0., width, 0., width),
+                                                     rtol=1e-12, atol=1e-15) else bounds)
     return {
+        **ports,
         'L_domain': compute_cfg.geometry.L_dom_m,
         'H_domain': compute_cfg.geometry.H_dom_m,
         'Nx': compute_cfg.solver.Nx,

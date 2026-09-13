@@ -343,7 +343,7 @@ class TabViewMixin:
             except Exception:
                 pass
 
-        if event.inaxes is None or event.xdata is None:
+        if event.inaxes is None or event.xdata is None or event.ydata is None:
             self._hover_label.setText("")
             return
 
@@ -357,10 +357,10 @@ class TabViewMixin:
         x_mm, y_mm = event.xdata, event.ydata
         L, H = hd['L'], hd['H']
         Nx, Ny = hd['Nx'], hd['Ny']
-        i = int(x_mm / 1000 / L * Nx)
-        j = int(y_mm / 1000 / H * Ny)
-        i = max(0, min(i, Nx - 1))
-        j = max(0, min(j, Ny - 1))
+        from sjtu_tpmshx.ui.matplotlib_canvas import cell_index_mm
+        import numpy as np
+        i = cell_index_mm(x_mm, hd.get('dx_arr', np.full(Nx, L / Nx)))
+        j = cell_index_mm(y_mm, hd.get('dy_arr', np.full(Ny, H / Ny)))
 
         # Find which subplot the mouse is in. Cache the flattened axes
         # list on the canvas so we do not rebuild it on every motion —
