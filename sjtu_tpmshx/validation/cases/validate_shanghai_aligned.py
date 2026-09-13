@@ -1,5 +1,9 @@
 """validate_shanghai_aligned.py — Shanghai 2D validation gate.
 
+2026-09-13: the production runner uses the confirmed GUI partial water
+ports and current-model inlet mass-flow conversion. Earlier scores below
+describe historical configurations, not acceptance of this corrected setup.
+
 Current use: --runner pipeline calls the full-model public module path;
 --runner kernel retains the legacy frozen-B comparison. Continuous-field
 optimization uses its separate screening mode. The numerical discussion below
@@ -53,8 +57,9 @@ import pandas as pd
 _ROOT = Path(__file__).resolve().parents[2]   # .../sjtu_tpmshx
 _DATA = _ROOT.parent / 'data'                 # .../SJTU-TPMSHX/data
 
-sys.stdout.reconfigure(encoding='utf-8')
-warnings.filterwarnings('ignore')
+if __name__ == '__main__':
+    sys.stdout.reconfigure(encoding='utf-8')
+    warnings.filterwarnings('ignore')
 
 from sjtu_tpmshx.models.tpms_calc import (
     geometry as tpms_geometry, compute as tpms_compute,
@@ -113,7 +118,7 @@ DX_REFINED, DY_REFINED, N_X, N_Y = build_master_refined_grid(
 print(f"[Shanghai aligned] Geometry: {TPMS} L={L_CELL} t={T_WALL} "
       f"eps={EPS:.4f} D_h={D_H*1000:.3f}mm")
 print(f"[Shanghai aligned] Domain {L_DOM*1000:.0f}x{H_DOM*1000:.0f}mm, "
-      f"Grid {N_X}x{N_Y} (refined)")
+      f"Kernel reference grid {N_X}x{N_Y} (refined)")
 K0, cF0 = predict_K_cF(TPMS, L_CELL, T_WALL, EPS_A)
 print(f"[Shanghai aligned] D-F ConstDF-v1: K={K0:.3e} m², c_F={cF0:.3e} 1/m\n")
 
@@ -200,6 +205,12 @@ from sjtu_tpmshx.validation.harness._case_sets import SHANGHAI_XLSX
 #  PRODUCTION-PIPELINE RUNNER (default) — real water solve, shipped code
 # ═══════════════════════════════════════════════════════════════════════
 
+def _pipeline_config(ci, df):
+    from sjtu_tpmshx.domain.compute_config import SolverConfig
+    from sjtu_tpmshx.validation.harness._case_sets import shanghai_pipeline_config
+    return shanghai_pipeline_config(ci, df, SolverConfig(Nx=N_X_USER, Ny=N_Y_USER))
+
+
 def _run_one_case_pipeline(ci, df):
     """Drive the production `Pipeline2D` — the stack the GUI runs.
 
@@ -214,44 +225,15 @@ def _run_one_case_pipeline(ci, df):
     the enthalpy-balance residual) are NaN here — they were only ever a
     self-consistency check on a prescribed profile.
     """
-    from sjtu_tpmshx.domain.compute_config import (FluidConfig, GeometryConfig,
-                                       SolverConfig, PartialBCConfig,
-                                       ExtrapPolicy, FeatureFlags)
     from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
-
+    cc = _pipeline_config(ci, df)
     case = ci + 1
     m_air = float(df.iloc[ci, 5])
-    T_Ain_K = float(df.iloc[ci, 28]) + 273.15
-    P_Ain_g = float(df.iloc[ci, 30])
-    P_Ain = P_atm + P_Ain_g
-    m_water = float(df.iloc[ci, 7])
-    T_Bin_K = float(df.iloc[ci, 24]) + 273.15
-    dP_A_exp = P_Ain_g - float(df.iloc[ci, 31])
+    u_A, u_B = cc.fluid_A.u_mps, cc.fluid_B.u_mps
+    T_Ain_K, T_Bin_K = cc.fluid_A.T_in_K, cc.fluid_B.T_in_K
+    P_Ain = cc.fluid_A.P_in_Pa
+    dP_A_exp = float(df.iloc[ci, 30]) - float(df.iloc[ci, 31])
     Q_exp = float(df.iloc[ci, 33])
-
-    rho_A0 = float(air_density(T_Ain_K, P_Ain))
-    u_A = m_air / (rho_A0 * A_FLOW)
-    u_B = m_water / (float(water_density(T_Bin_K)) * A_FLOW)
-
-    cc = ComputeConfig(
-        fluid_A=FluidConfig(type='air', u_mps=u_A, T_in_K=T_Ain_K,
-                            P_in_Pa=P_Ain),
-        fluid_B=FluidConfig(type='water', u_mps=u_B, T_in_K=T_Bin_K,
-                            P_in_Pa=float(df['water_P_in_abs_Pa'].iloc[ci])),
-        geometry=GeometryConfig(tpms=TPMS, L_cell_mm=L_CELL, t_wall_mm=T_WALL,
-                                k_s_W_mK=K_S, L_dom_m=L_DOM, H_dom_m=H_DOM),
-        # Nz omitted -> 1 -> the 2D path. Grid from the same adaptive_grid the
-        # kernel runner uses, so the two runners are compared on the same mesh.
-        solver=SolverConfig(Nx=N_X_USER, Ny=N_Y_USER),
-        # Full-face crossflow: A along +x, B along -y (the production Shanghai
-        # topology, and what the kernel runner models with outlet_lo/hi = 0..H).
-        bc_A=PartialBCConfig(dir=0, in_ctr=H_DOM / 2, in_w=H_DOM,
-                             out_ctr=H_DOM / 2, out_w=H_DOM),
-        bc_B=PartialBCConfig(dir=3, in_ctr=L_DOM / 2, in_w=L_DOM,
-                             out_ctr=L_DOM / 2, out_w=L_DOM),
-        extrap=ExtrapPolicy(allow=True),
-        flags=FeatureFlags(),
-    )
     res = Pipeline2D(cc).run()
 
     dP_A_sim = float(res.dP_A_Pa)
@@ -289,6 +271,9 @@ def _run_one_case_pipeline(ci, df):
         'dP_air_exp': round(dP_A_exp), 'dP_air_sim': round(dP_A_sim),
         'err_dP%': round(err_dP, 1),
         'Q_exp': round(Q_exp, 1), 'Q_sim': round(Q_sim, 1),
+        'Q_native': float(res.Q_W), 'Q_native_unit': 'W/m',
+        'Q_legacy_definition': 'measured m_air * cp(T_in) * (T_in - T_out)',
+        **{'grid_n' + axis: len(res.fields['d' + axis + '_arr']) for axis in 'xy'},
         'err_Q%': round(err_Q, 1),
         # Frozen-B self-consistency numbers: meaningless once Tb is SOLVED.
         'Q_solid_A': _nan, 'Q_solid_B': _nan, 'eb_resid%': _nan,

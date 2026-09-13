@@ -4,6 +4,7 @@ from pathlib import Path
 from sjtu_tpmshx.domain.case_data import CaseData, SCHEMA_VERSION
 from .hdf5_data import read_record, write_record
 from .text_file import write_text
+from .file_set import staged_files
 from sjtu_tpmshx.domain.persistence_validation import validate_case as validate_physical_case
 
 
@@ -25,9 +26,11 @@ def save_case(case, path):
         raise ValueError('prepared Case path must end in .yaml, .yml or .h5')
     import yaml
     payload = path.with_suffix('.h5')
-    write_record(payload, case, 'CaseData')
-    write_text(path, yaml.safe_dump(dict(schema_version=SCHEMA_VERSION, record_kind='CaseData',
-                                       case_id=case.case_id, hdf5=payload.name), sort_keys=False))
+    with staged_files([payload, path]) as stage:
+        write_record(stage / payload.name, case, 'CaseData')
+        write_text(stage / path.name, yaml.safe_dump(dict(
+            schema_version=SCHEMA_VERSION, record_kind='CaseData',
+            case_id=case.case_id, hdf5=payload.name), sort_keys=False))
     return path
 
 

@@ -10,7 +10,7 @@ Usage::
 Design constraints (do not "simplify" these away):
 
 1. **Handler writes to sys.stdout, resolved PER RECORD.** The GUI solve-log
-   viewer captures solver output via ``contextlib.redirect_stdout`` in
+   viewer captures run-local solver output through ``capture_output`` in
    ``controllers/compute_orchestrator.py``. A plain
    ``StreamHandler(sys.stdout)`` binds the stream object at handler-creation
    time, so redirected runs would silently miss every log record. The
@@ -37,9 +37,77 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import threading
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 _ROOT_NAME = "tpmshx"
 _configured = False
+_output = ContextVar('solver_output', default=None)
+_stream_lock = threading.Lock()
+_stream_users = 0
+_original_streams = None
+
+
+def current_output():
+    """The current run's sinks, explicitly handed to its SIMPLE workers."""
+    return _output.get()
+
+
+@contextmanager
+def output_scope(streams):
+    token = _output.set(streams)
+    try:
+        yield
+    finally:
+        _output.reset(token)
+
+
+class _RoutedStream:
+    def __init__(self, original, index):
+        self.original = original
+        self.index = index
+
+    def _target(self):
+        streams = current_output()
+        return self.original if streams is None else streams[self.index]
+
+    def write(self, text):
+        target = self._target()
+        return len(text) if target is None else target.write(text)
+
+    def flush(self):
+        target = self._target()
+        if target is not None:
+            target.flush()
+
+    def __getattr__(self, name):
+        return getattr(self.original, name)
+
+
+@contextmanager
+def capture_output(stdout, stderr):
+    """Route only this run's writes; unrelated threads retain their own output.
+
+    The lock protects installing/restoring streams, never solver execution.
+    Reference counting also permits scopes to finish in either order.
+    """
+    global _stream_users, _original_streams
+    with _stream_lock:
+        if _stream_users == 0:
+            _original_streams = sys.stdout, sys.stderr
+            sys.stdout = _RoutedStream(sys.stdout, 0)
+            sys.stderr = _RoutedStream(sys.stderr, 1)
+        _stream_users += 1
+    try:
+        with output_scope((stdout, stderr)):
+            yield
+    finally:
+        with _stream_lock:
+            _stream_users -= 1
+            if _stream_users == 0:
+                sys.stdout, sys.stderr = _original_streams
+                _original_streams = None
 
 
 class _StdoutHandler(logging.StreamHandler):

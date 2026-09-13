@@ -21,6 +21,7 @@ physics numbers, so they are cheap and grid-independent.
 
 
 from sjtu_tpmshx.domain.compute_config import SolverConfig  # noqa: E402
+import pytest
 
 
 def test_solver_config_carries_max_outer_ltne():
@@ -54,6 +55,7 @@ def test_pipeline_branch_wires_max_outer_into_solver_config():
             class _R:
                 dP_A_Pa = 1.0
                 Q_W = 1.0
+                fields = {'dx': [1.] * 8, 'dy': [1.] * 4, 'dz': [1.] * 3}
                 diagnostics = {'envelope_valid': True, 'p_clip_hits': 0,
                                '_max_outer': 4,   # the CAP — must NOT be read
                                'convergence_detail': {
@@ -105,6 +107,7 @@ def test_pipeline_branch_reports_real_pressure_diagnostics():
             class _R:
                 dP_A_Pa = 2000.0
                 Q_W = 5000.0
+                fields = {'dx': [1.] * 8, 'dy': [1.] * 4, 'dz': [1.] * 3}
                 # A case the post-solve gate marked NON-physical, with clips.
                 # `_max_outer` is the CAP (30). The runner must report the work
                 # ACTUALLY done (4) and that it was TRUNCATED — reading the cap
@@ -143,3 +146,60 @@ def test_pipeline_branch_reports_real_pressure_diagnostics():
         "the reported count echo --max-outer regardless of what ran")
     assert r['outer_converged'] is False, (
         "a run that exhausted the cap must be reported as truncated")
+
+
+def test_wall_refinement_reaches_actual_prepared_case():
+    import numpy as np
+    import pandas as pd
+    from sjtu_tpmshx.preprocess.api import prepare_case
+    from sjtu_tpmshx.validation.cases.validate_shanghai_3d_real import _pipeline_config
+    row = {i: 0.0 for i in range(34)}
+    row.update({5: .05, 7: .10, 24: 20., 28: 200., 30: 3000., 31: 1000., 33: 5000.})
+    df = pd.DataFrame([row])
+    df['water_P_in_abs_Pa'] = 99325.
+    plain = prepare_case(_pipeline_config(0, df, 8, 4, 3, max_outer=4), case_id='plain')
+    refined = prepare_case(_pipeline_config(0, df, 8, 4, 3, max_outer=4, wall_refine=True), case_id='refined')
+    assert refined.config_snapshot['flags']['wall_refine_3d'] is True
+    assert refined.parameters['wall_refine_3d'] is True
+    assert refined.parameters['max_outer_ltne'] == 4
+    assert any(not np.array_equal(plain.grid['d' + axis], refined.grid['d' + axis]) for axis in 'xyz')
+    for axis in 'xyz':
+        assert len(refined.grid[axis + '_edges']) == len(refined.grid['d' + axis]) + 1
+
+
+def test_pipeline_rejects_explicit_unsupported_options_before_data_access(monkeypatch, capsys):
+    import pytest
+    from sjtu_tpmshx.validation.cases import validate_shanghai_3d_real as runner
+    monkeypatch.setattr(runner, 'load_cases_df', lambda *a: pytest.fail('data read before option validation'))
+    for option in (['--profile', 'uniform'], ['--profile', 'edge'], ['--eta', '0'], ['--disp-c', '0.1']):
+        with pytest.raises(SystemExit) as exc:
+            runner.main(option)
+        assert exc.value.code == 2
+        assert 'kernel-only' in capsys.readouterr().err
+
+
+@pytest.mark.parametrize('dimension', [2, 3])
+def test_shanghai_actual_native_flow_matches_measured_total(monkeypatch, dimension):
+    """Catch the old 4.33x water-flow error through real port fluxes."""
+    import pandas as pd
+    from sjtu_tpmshx.preprocess.api import prepare_case
+    from sjtu_tpmshx.solvers.api import run_case
+    from sjtu_tpmshx.postprocess.api import evaluate
+    from sjtu_tpmshx.validation.cases import validate_shanghai_aligned as v2
+    from sjtu_tpmshx.validation.cases import validate_shanghai_3d_real as v3
+    row = {i: 0. for i in range(34)}
+    row.update({5: .0023, 7: .0108, 24: 20., 28: 120., 30: 1500.})
+    df = pd.DataFrame([row])
+    df['water_P_in_abs_Pa'] = 101500.
+    monkeypatch.setattr(v2, 'N_X_USER', 12)
+    monkeypatch.setattr(v2, 'N_Y_USER', 8)
+    cfg = v2._pipeline_config(0, df) if dimension == 2 else v3._pipeline_config(0, df, 12, 8, 3)
+    assert (cfg.bc_B.dir, cfg.bc_B.in_ctr, cfg.bc_B.out_ctr,
+            cfg.bc_B.in_w, cfg.bc_B.out_w) == (3, .154, .028, .042, .042)
+    # This checks imposed inlet flux under normal solve criteria, not Q accuracy.
+    result = evaluate(run_case(prepare_case(cfg, case_id=f'shanghai-flow-{dimension}d')))
+    for side, column in (('A', 5), ('B', 7)):
+        flow = result.metrics['mass_flow_' + side]
+        assert flow.status == 'available'
+        actual = flow.value * (.042 if dimension == 2 else 1.)
+        assert actual == pytest.approx(row[column], rel=1e-6)

@@ -1,44 +1,22 @@
-"""Golden bit-identical gate for the run_calculation_3d.py refactor.
+"""Manual reproduction of the historical 3D refactor reference (three cases).
 
-Runs `_run_3d_stack` on two representative cfgs (air-air partial-BC 15³ and a
-water-B variant) and captures headline scalars + SHA-256 of every output field.
-Compare before/after a refactor change:  identical hashes ⇒ behaviour preserved.
+The root golden_3d.json and golden_3d.meta.json retain their original values
+and environment. This historical bitwise comparison is not a current physical
+acceptance gate or a portable cross-platform baseline. Do not rebaseline it
+as part of cleanup or performance work.
 
-    python -u runs/_out/_golden_3d.py            # capture → prints JSON
-    python -u runs/_out/_golden_3d.py golden.json # capture + write file
-    python -u runs/_out/_golden_3d.py --check golden.json  # diff vs file
+    python -m sjtu_tpmshx.runs._out._golden_3d --check golden_3d.json
 
-Untracked diagnostic (runs/_out/). Not a pytest.
+Current tests import configuration from tests.cases_3d, independently of this
+tracked historical diagnostic. Capture to a NEW local file when investigating.
 """
 import os, sys, json, hashlib
 import numpy as np
 
-# runs/_out/_golden_3d.py → sjtu_tpmshx root is 3 dirnames up.
-
 from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
 
 
-def _air_air_cfg(**ov):
-    cfg = dict(
-        L=0.182, H=0.042, Lz=0.042,
-        Nx=15, Ny=15, Nz=15,
-        u_A=10.0, u_B=20.0, T_inA=422.0, T_inB=322.0,
-        P_inA=192362.0, P_inB=101325.0,
-        tpms_type='Gyroid', Lcell=7.0, t_wall=0.6, k_s=16.0, eps=0.85,
-        fluid_A_cfg=dict(dir=0, in_ctr=0.021, in_w=0.042,
-                         out_ctr=0.021, out_w=0.042,
-                         in_z_ctr=0.021, in_z_w=0.042,
-                         out_z_ctr=0.021, out_z_w=0.042),
-        fluid_B_cfg=dict(dir=3, in_ctr=0.154, in_w=0.042,
-                         out_ctr=0.028, out_w=0.042,
-                         in_z_ctr=0.021, in_z_w=0.042,
-                         out_z_ctr=0.021, out_z_w=0.042),
-        fluid_type_A='air', fluid_type_B='air',
-        wall_refine_3d=False,
-        partial_B_closure='m4_effective_area', m4_exponent=0.67,
-    )
-    cfg.update(ov)
-    return cfg
+from sjtu_tpmshx.tests.cases_3d import air_air_cfg as _air_air_cfg
 
 
 def _water_b_cfg(**ov):
@@ -123,7 +101,6 @@ if __name__ == '__main__':
     # convergence_mode as env > cfg > 'f2' — a stray TPMSHX_CONV_MODE in the
     # shell would silently swap the criterion between capture and check, and
     # a future default flip would silently re-baseline. Pinned HERE, not at
-    # module level: tests import `_air_air_cfg` from this file, and a
-    # module-level env write poisons the whole pytest worker process.
+    # module level: importing a historical diagnostic must not write process-wide settings.
     os.environ['TPMSHX_CONV_MODE'] = 'f2'
     main()

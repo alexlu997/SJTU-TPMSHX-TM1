@@ -928,6 +928,8 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
         # changes. Errors are re-raised after BOTH threads join so a
         # cancel/exception on one side can't orphan the other.
         import threading as _threading
+        from sjtu_tpmshx.logutil import current_output, output_scope
+        _parent_output = current_output()
         _res: list = [None, None]
         _err: list = [None, None]
         _parent_warnings = current_warnings()
@@ -935,7 +937,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
 
         def _solve_side(idx, args, kwargs):
             try:
-                with warning_scope(_side_warnings[idx]), range_context(
+                with output_scope(_parent_output), warning_scope(_side_warnings[idx]), range_context(
                         side=('A', 'B')[idx], stage='main', layout='solver-cell(perp,stream)'):
                     _res[idx] = _run_simple(*args, **kwargs, cancel_check=cancel_check)
             except BaseException as e:   # incl. InterruptedError
@@ -951,6 +953,9 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
                 if simpA is not None else None)
         _psB = ((float(simpB.P_ref_abs), _pipe_dp_2d(simpB))
                 if simpB is not None else None)
+        # All fluids use their inlet-state model density. Air must not use
+        # a separately rounded gas constant here; water's rho(T) updates
+        # must not redefine the prescribed inlet throughput on each rebuild.
         with range_context(side='A', stage='inlet', layout='scalar'):
             _tA = _threading.Thread(
                 target=_solve_side,
@@ -959,9 +964,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
                       dict(T_field_real=_Ta_for_simpA,
                            fluid_type=_ftA, df_method=_dfA,
                            fluid_name=_pA['name'],
-                           rho_inlet_ref=(
-                               float(_pA['rho'](T_inA, P_inA_val))
-                               if _pA['name'] == 'sco2' else None),
+                           rho_inlet_ref=float(_pA['rho'](T_inA, P_inA_val)),
                            p_shoot_prev=_psA)),
                 daemon=True)
         with range_context(side='B', stage='inlet', layout='scalar'):
@@ -972,9 +975,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
                       dict(T_field_real=_Tb_for_simpB,
                            fluid_type=_ftB, df_method=_dfB,
                            fluid_name=_pB['name'],
-                           rho_inlet_ref=(
-                               float(_pB['rho'](T_inB, P_inB_val))
-                               if _pB['name'] == 'sco2' else None),
+                           rho_inlet_ref=float(_pB['rho'](T_inB, P_inB_val)),
                            p_shoot_prev=_psB)),
                 daemon=True)
         _tA.start(); _tB.start()

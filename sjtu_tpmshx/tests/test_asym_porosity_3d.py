@@ -9,7 +9,7 @@ import pytest
 
 from sjtu_tpmshx.models.asym_split import _asym_split_A, _eps_sides_for_run
 from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
-from sjtu_tpmshx.runs._out._golden_3d import _air_air_cfg
+from sjtu_tpmshx.tests.cases_3d import air_air_cfg as _air_air_cfg
 from sjtu_tpmshx.df_surrogate import kappa_asym
 
 

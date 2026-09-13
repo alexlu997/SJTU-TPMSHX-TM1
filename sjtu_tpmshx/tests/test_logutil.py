@@ -97,3 +97,58 @@ def test_invalid_level_env_falls_back_to_info(monkeypatch):
     finally:
         monkeypatch.setattr(lu, '_configured', True)
         logging.getLogger('tpmshx').setLevel(logging.INFO)
+
+
+def test_parallel_simple_workers_keep_their_parent_output_scope():
+    import sys
+    from sjtu_tpmshx.logutil import capture_output
+    from sjtu_tpmshx.solvers.backends.python.three_d.runtime import _run_two_simple_parallel
+
+    original = sys.stdout, sys.stderr
+    out, err = io.StringIO(), io.StringIO()
+
+    class Solver:
+        def __init__(self, side):
+            self.side = side
+
+        def solve(self, **kwargs):
+            print(f'worker-{self.side}')
+            print(f'diagnostic-{self.side}', file=sys.stderr)
+            get_logger('tests.parallel').info(f'logged-{self.side}')
+            return True, 1
+
+    with capture_output(out, err):
+        assert _run_two_simple_parallel(Solver('A'), Solver('B')) == [(True, 1), (True, 1)]
+    for side in ('A', 'B'):
+        assert f'worker-{side}' in out.getvalue()
+        assert f'logged-{side}' in out.getvalue()
+        assert f'diagnostic-{side}' in err.getvalue()
+    assert (sys.stdout, sys.stderr) == original
+
+
+def test_overlapping_capture_scopes_restore_streams_after_out_of_order_exit():
+    import sys
+    import threading
+    from sjtu_tpmshx.logutil import capture_output
+
+    original = sys.stdout, sys.stderr
+    ready, release = threading.Event(), threading.Event()
+    first, second = io.StringIO(), io.StringIO()
+
+    def worker():
+        with capture_output(second, second):
+            ready.set()
+            assert release.wait(2)
+            print('second-run')
+
+    with capture_output(first, first):
+        thread = threading.Thread(target=worker)
+        thread.start()
+        assert ready.wait(2)
+        print('first-run')
+    release.set()
+    thread.join(2)
+    assert not thread.is_alive()
+    assert first.getvalue() == 'first-run\n'
+    assert second.getvalue() == 'second-run\n'
+    assert (sys.stdout, sys.stderr) == original

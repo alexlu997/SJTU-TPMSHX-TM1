@@ -518,6 +518,40 @@ def test_export_results_writes_3d_values_and_fields(tmp_path, monkeypatch, win):
         assert fields['outer_converged'].item() == 'unknown'
 
 
+def test_export_failure_preserves_old_pair_and_memory_then_retries(tmp_path, monkeypatch, win):
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+    from sjtu_tpmshx.domain.compute_result import ComputeResult
+    csv_path = tmp_path / 'result.csv'
+    npz_path = tmp_path / 'result_fields.npz'
+    csv_path.write_text('previous successful CSV')
+    npz_path.write_bytes(b'previous successful NPZ')
+    result = ComputeResult(Q_W=321., fields={'Ta': np.ones((2, 2, 2))},
+                           metadata={'source_result_id': 'next-run'})
+    win._result_3d = result
+    monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(csv_path), 'CSV'))
+    errors = []
+    monkeypatch.setattr(QMessageBox, 'critical', lambda *a: errors.append(a[-1]))
+    original = np.savez_compressed
+
+    def fail(path, **kwargs):
+        from pathlib import Path
+        Path(path).write_bytes(b'partial NPZ')
+        raise OSError('simulated full disk at NPZ write')
+
+    monkeypatch.setattr(np, 'savez_compressed', fail)
+    win._export_results()
+    assert errors and 'full disk' in errors[-1]
+    assert csv_path.read_text() == 'previous successful CSV'
+    assert npz_path.read_bytes() == b'previous successful NPZ'
+    assert win._result_3d is result
+    monkeypatch.setattr(np, 'savez_compressed', original)
+    win._export_results()
+    assert 'next-run' in csv_path.read_text()
+    with np.load(npz_path, allow_pickle=False) as fields:
+        assert 'next-run' in fields['metadata'].item()
+    assert sorted(p.name for p in tmp_path.iterdir()) == ['result.csv', 'result_fields.npz']
+
+
 @pytest.mark.parametrize('converged,envelope,outer', [
     (True, True, True), (False, True, True), (True, False, True),
     (True, True, False),

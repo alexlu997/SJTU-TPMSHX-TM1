@@ -235,6 +235,22 @@ PowerShell 使用同样的 pytest 参数，并以 `$env:NUMBA_NUM_THREADS='2'` �
 `requirements-lock-postprocess.txt` 环境，并消费另一完整环境生成的真实 2D/3D
 结果文件；文件留在 CI 作业本地，不上传结果 artifact。配置不等于实际 CI 通过。
 
+## 协作与合并
+
+公开契约的修改需要检查下游消费者：前处理的配置/单位/网格由求解侧复核；求解的
+原生场/边界证据/状态由后处理侧复核；指标定义及文件关联由应用/文件消费者复核。
+GUI 和调度留在 `ui/`、`controllers/`，模型资源保持共享。每个 PR 写明受影响的
+接口、验证证据和参与复核者。当前仓库维护者为 `alexlu997`；师兄加入后再分配具名
+模块责任人，当前不建立虚构的 CODEOWNERS 或把模型自查写成人工独立批准。
+
+2026-09-13 已回读核验 main 保护：通过 PR 更新，要求分支与 main 同步，并通过
+`tests (macos-14, 3.13)`、`tests (windows-2022, 3.12)`、`minimal-postprocess`
+三项 GitHub Actions 检查；管理员同样受约束，禁止强推和删除。多人正式参与后
+再启用至少一位非作者批准；目前平台所需批准人数为 0。实际状态以 GitHub 为准。
+
+本阶段主计算可靠性与性能任务的范围和验收见
+[现行计划](docs/plans/main-compute-20260913.md)。
+
 ## 数据与历史证据
 
 原始实验/CFD 数据位于本地 `data/raw_data/`，不提交。匹配版本见

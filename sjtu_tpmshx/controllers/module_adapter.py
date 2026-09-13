@@ -77,6 +77,8 @@ def to_compute_result(result, performance):
         if metric.status != 'available':
             warnings.append(f'{name}: {metric.status}: {metric.reason}')
     metadata['metric_status'] = {name: performance.metrics[name].status for name in values}
+    metadata['metric_reasons'] = {name: performance.metrics[name].reason for name in values
+                                  if performance.metrics[name].status != 'available'}
     return ComputeResult(
         Q_W=values['Q'], dP_A_Pa=values['dP_A'], dP_B_Pa=values['dP_B'],
         T_out_A_K=values['T_out_A'], T_out_B_K=values['T_out_B'],

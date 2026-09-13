@@ -263,6 +263,8 @@ def _run_two_simple_parallel(sA, sB, *, max_iter=2000, tol=None,
     After both threads finish, real failures take precedence over cancellation.
     """
     import threading
+    from sjtu_tpmshx.logutil import current_output, output_scope
+    parent_output = current_output()
     from sjtu_tpmshx.domain.run_warnings import (
         current_warnings, merge_warnings, warning_scope,
     )
@@ -278,7 +280,7 @@ def _run_two_simple_parallel(sA, sB, *, max_iter=2000, tol=None,
 
     def _solve_A():
         try:
-            with warning_scope(side_warnings[0]), range_context(
+            with output_scope(parent_output), warning_scope(side_warnings[0]), range_context(
                     side='A', stage='initial', layout='solver-cell(cross1,stream,cross2)'):
                 res[0] = sA.solve(max_iter=max_iter, tol=tol, verbose=False,
                                   cancel_check=cancel_check)
@@ -287,7 +289,7 @@ def _run_two_simple_parallel(sA, sB, *, max_iter=2000, tol=None,
 
     def _solve_B():
         try:
-            with warning_scope(side_warnings[1]), range_context(
+            with output_scope(parent_output), warning_scope(side_warnings[1]), range_context(
                     side='B', stage='initial', layout='solver-cell(cross1,stream,cross2)'):
                 res[1] = sB.solve(max_iter=max_iter, tol=tol, verbose=False,
                                   cancel_check=cancel_check)
@@ -772,9 +774,9 @@ def build_problem(cfg, prepared):
     sA._df_metadata = _df_meta_A
     # Phase A/B/C acceleration flags (Phase A on by default; B/C opt-in).
     _apply_accel_flags(sA, cfg)
-    # sCO2 keeps pressure frozen in V1 but rho(T) still changes; retain the
-    # measured inlet mass flux when the outer property loop updates rho.
-    if fluid_type_A == 'sco2':
+    # Water also has rho(T): an outer update must not change inlet throughput.
+    # Air already captures its target in the compressible SIMPLE path.
+    if fluid_type_A in ('sco2', 'water'):
         sA._massflux_target = (v_inlet_field * rho_A).copy()
     # Zoned ε → push to SIMPLE so its continuity ∇·(ε·ρ·u)=0 picks up the
     # ∇ε contribution. Uniform ε leaves the default unchanged.
@@ -852,7 +854,7 @@ def build_problem(cfg, prepared):
         sB._df_metadata = _df_meta_B
         # Mirror Phase A/B/C flags onto sB (sweep config consistent with sA).
         _apply_accel_flags(sB, cfg)
-        if fluid_type_B == 'sco2':
+        if fluid_type_B in ('sco2', 'water'):
             sB._massflux_target = (v_inlet_B * rho_B).copy()
         # Zoned ε for sB.
         if eps_field_3d is not None:
@@ -2864,7 +2866,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
         eps_eff_A = sA.eps_field if hasattr(sA, 'eps_field') else sA.eps
         sA._mu_eff_field = np.ascontiguousarray(
             sA.mu_field / eps_eff_A, dtype=np.float64)
-        if fluid_type_A == 'sco2':
+        if fluid_type_A in ('sco2', 'water'):
             sA._apply_massflux_inlet()
 
         T_avg = float(Ta_sA.mean())
@@ -3045,7 +3047,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
             eps_eff_B = sB.eps_field if hasattr(sB, 'eps_field') else sB.eps
             sB._mu_eff_field = np.ascontiguousarray(
                 sB.mu_field / eps_eff_B, dtype=np.float64)
-            if fluid_type_B == 'sco2':
+            if fluid_type_B in ('sco2', 'water'):
                 sB._apply_massflux_inlet()
 
             if _mB.compressible:   # P_ref recompute is compressible-only

@@ -20,6 +20,26 @@
 | [水 Nu 现存表验证](../sjtu_tpmshx/validation/cases/validate_water_nu_excel.py) | 1879 条 legacy 水 CFD 结果 → 逐行、拓扑、几何、Re 分段误差 | `python -m sjtu_tpmshx.validation.cases.validate_water_nu_excel --out .cache/water-nu-validation`；固定现行关联式，退出码 0 通过、2 精度未通过，数据错误直接报错 |
 | [现行实验修正](../sjtu_tpmshx/validation/df_refit/fit_experimental_effective.py)、[跨数据集 cF 对照](../sjtu_tpmshx/validation/df_refit/cf_cross_fluid.py) | 实验原表 + 当前固定 CFD 基线 → `reports/df_refit/` 审查 CSV | `python -m sjtu_tpmshx.validation.df_refit.<模块名>`；共享 `validation/hx_experiments.py` 读取，不依赖旧 γ/RBF 拟合或六张旧系数表，不更新生产系数 |
 | [sCO2 Nu 修正复核](../sjtu_tpmshx/validation/sco2_exp/fit_nu_correction.py)、[逐温度 Nu 报告](../sjtu_tpmshx/validation/sco2_exp/nu_bytemp_report.py) | sCO2 实验汇总 → 原锚定修正值 / 分温度 Nu 对照 | `python -m sjtu_tpmshx.validation.sco2_exp.<模块名>`；仅依赖现行 Nu、实验读取器及几何，不再运行旧压降模型 |
+| [主计算测量](../sjtu_tpmshx/runs/tools/benchmark_main_compute.py) | 本地固定 `jobs` 清单（每项 `id/config`，可含 `reference/depth_m`）→ 每次运行独立的 Case/Result/metrics、日志和分段测量 | `python -m sjtu_tpmshx.runs.tools.benchmark_main_compute MANIFEST NEW_OUTPUT --warmup --repeat 5`；只复用完整主计算，0=软件状态合格、2=存在未合格结果、1=执行异常；不代表实验精度通过 |
+| [历史 3D golden](../sjtu_tpmshx/runs/_out/_golden_3d.py) | `golden_3d.json` 与原始元数据 → 同环境历史对照 | 手工历史诊断，三组配置；不是当前跨平台验收。现行测试配置独立放在 [tests/cases_3d.py](../sjtu_tpmshx/tests/cases_3d.py)，不改写旧数值以消除差异 |
+
+主计算测量的时间以单调时钟记录；求解时间包含原生结果捕获，内部 SIMPLE 调用
+可能重叠，不能相加当作总耗时。RSS 每 0.5 秒通过本机 `ps` 采样，采集失败明确
+记录；该工具不代替桌面首帧/交互测量。首次、磁盘缓存和同进程预热须分开组织。
+工况成员、实际数据版本、测量预算及节点状态见[本阶段计划](plans/main-compute-20260913.md)。
+
+上海生产 3D 验证支持 `--wall-refine`；实际网格来自本次结果的准备网格。
+两维完整上海验证共用 4 月 1 日批次已确认的局部水口：上侧入口
+`x=133–175 mm`，下侧出口 `x=7–49 mm`，贯穿 `42 mm` 深度。
+速度按实验总质量流量、当前模型单侧孔隙面积和入口密度换算。
+显式 `--profile/--eta/--disp-c` 仅适用于历史 kernel，生产分支在读取数据前拒绝。
+上海二维 CSV 的 `Q_sim` 仍为原实验质量流量/入口比热口径，新列 `Q_native`
+保留主计算 W/m；三维原生 Q 为 W。不同定义分别比较，不覆盖旧实验门槛。
+
+正式文件和 GUI 导出先写暂存文件组，再发布；写入或发布异常时恢复上次成功文件。
+二维覆盖同名三维 CSV 时也移除旧 NPZ，避免串用。单目标只允许一个写入者；突然
+断电不保证文件组原子性。遗留 `.tm1-publish-*` 表示未完成尝试，`previous/` 中为
+恢复文件，不能把它当作成功输出；当前异常会保留恢复位置。新运行优先用独立目录。
 
 ## 公开模块扩展示例
 

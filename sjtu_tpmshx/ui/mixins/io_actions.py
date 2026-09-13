@@ -13,7 +13,9 @@ from sjtu_tpmshx.ui.ui_constants import TOAST_MS_SHORT, TOAST_MS_MED
 class IOActionsMixin:
     def _export_results(self):
         """Export last compute results to CSV + optional NPZ."""
-        import os, csv
+        import csv
+        from pathlib import Path
+        from sjtu_tpmshx.io.file_set import staged_files
         res_3d = getattr(self, '_result_3d', None)
         has_2d = getattr(self, '_has_results_2d', False)
         # 2026-05-20 UI sweep (Tier 14, user re-audit): previously this
@@ -89,14 +91,11 @@ class IOActionsMixin:
                             json.dumps(value, ensure_ascii=False))
                       for key, value in status.items()}
             rows.extend(status.items())
-            with open(path, 'w', newline='', encoding='utf-8') as f:
-                w = csv.writer(f)
-                w.writerow(["Parameter", "Value"])
-                w.writerows(rows)
             # Optional: save 3D fields as NPZ alongside. Keep the legacy
             # NPZ schema (vmag, P_kPa) stable: map from ComputeResult.fields
             # (vmag_A → vmag; P_fA/1000 → P_kPa).
-            npz_path = os.path.splitext(path)[0] + '_fields.npz'
+            path = Path(path)
+            npz_path = path.with_name(path.stem + '_fields.npz')
             if res_3d is not None:
                 _rf = res_3d.fields
                 save_dict = dict(status)
@@ -110,11 +109,20 @@ class IOActionsMixin:
                 _p_fa = _rf.get('P_fA')
                 if _p_fa is not None:
                     save_dict['P_kPa'] = _p_fa / 1000.0
-                if save_dict:
+            paths = [path, npz_path] if res_3d is not None else [path]
+            # A 2D replacement also retires the old 3D companion, after the
+            # new CSV is complete; a failed export leaves the old pair intact.
+            with staged_files(paths, remove=(() if res_3d is not None else (npz_path,))) as stage:
+                with (stage / path.name).open('w', newline='', encoding='utf-8') as f:
+                    w = csv.writer(f)
+                    w.writerow(["Parameter", "Value"])
+                    w.writerows(rows)
+                if res_3d is not None:
                     import numpy as _np_exp
-                    _np_exp.savez_compressed(npz_path, **save_dict)
+                    _np_exp.savez_compressed(stage / npz_path.name, **save_dict)
             self.statusBar().showMessage(f"Exported: {path}", TOAST_MS_MED)
         except Exception as e:
+            self.statusBar().showMessage(f"Export failed: {path}", TOAST_MS_MED)
             QMessageBox.critical(self, "Export Error", str(e))
 
     # ─────────────────────────────────────────────────────────
