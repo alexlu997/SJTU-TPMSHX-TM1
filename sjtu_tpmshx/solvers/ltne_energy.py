@@ -162,7 +162,7 @@ def _sou_corr_y(T, i, j, Ny, v_loc, Fy_field):
         return 0.5 * (Fn * phi_n - Fs * phi_s)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _gs_full_chunk(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
                    K_ffA_arr, K_ffB_arr, K_ss_arr,
                    h_vA_arr, h_vB_arr, eps_fA_arr, eps_fB_arr,
