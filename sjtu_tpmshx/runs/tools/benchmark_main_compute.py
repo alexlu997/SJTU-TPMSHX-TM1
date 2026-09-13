@@ -246,7 +246,8 @@ def run_one(job, output, *, sample_kind):
             assert restored_case.case_id == restored_result.case_id == case.case_id
             assert restored_metrics.source_result_id == restored_result.result_id == native.result_id
     except Exception as exc:
-        row.update(execution='failed', exception=type(exc).__name__, message=str(exc), traceback=traceback.format_exc())
+        row.update(execution='failed', qualified_for_performance=False,
+                   exception=type(exc).__name__, message=str(exc), traceback=traceback.format_exc())
     row['timings_s']['total_inclusive'] = perf_counter() - start
     row['files_bytes'] = {p.name: p.stat().st_size for p in target.iterdir()}
     row['python_threads_after'] = threading.active_count()
