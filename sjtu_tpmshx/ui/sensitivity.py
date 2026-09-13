@@ -30,7 +30,7 @@ _METRICS = [
     ('Q_per_vol',   'Q / volume',       'W / m³'),
     ('dP_per_L',    'ΔP / length',      'Pa / m'),
     ('h_v',         'Volumetric h_v',   'W/m³·K'),
-    ('ratio',       'h_v / (ΔP/L)',     'm·K / Pa'),
+    ('ratio',       'h_v / (ΔP/L)',     'W/(m²·K·Pa)'),
 ]
 
 
@@ -133,7 +133,7 @@ class SensitivityDialog(QDialog):
         # Hint footer
         hint = QLabel(
             "Surrogate-based sweep — uses the 0-D TPMS correlation "
-            "(fast, approximate). Click any cell to load those parameters "
+            "(air only; Q/volume assumes ΔT=40 K). Click a valid cell to load parameters "
             "into the main inputs.")
         hint.setWordWrap(True)
         hint.setStyleSheet(
@@ -305,11 +305,10 @@ class SensitivityDialog(QDialog):
         fig.clear()
         fig.patch.set_facecolor(t['fig_bg'])
         ax = fig.add_subplot(111)
+        self._grid_axes = ax
         ax.set_facecolor(t['ax_bg'])
 
-        im = ax.imshow(grid, origin='lower', aspect='auto',
-                       extent=[xs[0], xs[-1], ys[0], ys[-1]],
-                       cmap='viridis')
+        im = ax.pcolormesh(xs, ys, grid, shading='nearest', cmap='viridis')
         try:
             levels = np.linspace(np.nanmin(grid), np.nanmax(grid), 8)
             ax.contour(xs, ys, grid, levels=levels, colors='white',
@@ -340,7 +339,8 @@ class SensitivityDialog(QDialog):
         self._canvas.draw()
 
     def _on_click(self, event):
-        if self._grid_params is None or event.inaxes is None:
+        if (self._grid_params is None or event.inaxes is None
+                or event.inaxes is not getattr(self, '_grid_axes', None)):
             return
         gp = self._grid_params
         xs = gp['xs']; ys = gp['ys']
@@ -349,6 +349,8 @@ class SensitivityDialog(QDialog):
             return
         i = int(np.argmin(np.abs(xs - x_click)))
         j = int(np.argmin(np.abs(ys - y_click)))
+        if not np.isfinite(gp['grid'][j, i]):
+            return
         vx = float(xs[i]); vy = float(ys[j])
         # 2026-05-20 UI sweep (Tier 24): a picked design changes the input
         # fields, so the previous compute result is now stale. Invalidate

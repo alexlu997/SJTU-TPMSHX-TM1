@@ -12,7 +12,7 @@ Re 93–50000). One row per case; the three streamwise cells are reported as
 
 Conventions (repo, NOT the sheet's own) — identical to load_sco2_cfd:
     t_mm       real wall thickness; auto-detected (t-code 3..6 ÷10 vs real
-               0.3..0.6 as-is), decided on whether the column max exceeds 1.
+               0.3..0.6 as-is), decided per row by whether the value exceeds 1.
     Dh_m       from ``tpms_calc.geometry``; the sheet's mesh Dh kept as
                ``Dh_cfd_m``. Every solver / correlation consumer uses the
                tpms_calc value, so the fit must share it.
@@ -35,12 +35,11 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 _THIS = Path(__file__).resolve()
 _PROJECT_ROOT = _THIS.parent.parent  # .../sjtu_tpmshx
-from sjtu_tpmshx.models.tpms_props import geometry as tpms_geometry  # noqa: E402
+from sjtu_tpmshx.df_surrogate.cfd_geometry import attach_geometry
 from sjtu_tpmshx.logutil import get_logger  # noqa: E402
 
 _log = get_logger(__name__)
@@ -49,35 +48,10 @@ WATER_XLSX = (_PROJECT_ROOT.parent / "data" / "raw_data" / "Water-CFD"
               / "水数值模拟数据.xlsx")
 LATTICES = ("Diamond", "Gyroid")
 _CODE = {"Diamond": "D", "Gyroid": "G"}
-_K_S_DEFAULT = 16.0  # only affects K_ss inside tpms_calc, not eps / Dh
 
 # geometries whose reported Um/mdot don't close continuity with the true
 # geometry (see module doc); velocity-derived quantities suspect there.
 FLOW_SUSPECT = {"D_7_3", "D_7_4", "D_7_5"}
-
-
-def _attach_geometry(df: pd.DataFrame, lattice: str) -> pd.DataFrame:
-    """Real t_mm + repo-convention eps / Dh (tpms_calc); raw Dh -> Dh_cfd_m."""
-    out = df.copy()
-    out["L_mm"] = out["cell_size_mm"].astype(float)
-    # wall-thickness convention auto-detect (see load_sco2_cfd)
-    t_raw = out["wall_thickness_mm"].astype(float)
-    out["t_mm"] = np.where(t_raw.to_numpy() > 1.0, t_raw / 10.0, t_raw)
-    cache: dict[tuple[float, float], tuple[float, float]] = {}
-    eps = np.empty(len(out))
-    dh = np.empty(len(out))
-    for i, (L, t) in enumerate(zip(out["L_mm"].to_numpy(),
-                                   out["t_mm"].to_numpy())):
-        key = (round(L, 3), round(t, 3))
-        if key not in cache:
-            g = tpms_geometry(lattice, key[0], key[1], _K_S_DEFAULT)
-            cache[key] = (float(g["epsilon"]), float(g["D_h"]))
-        eps[i], dh[i] = cache[key]
-    out["eps"] = eps
-    out["eps_f"] = eps / 2.0
-    out["Dh_cfd_m"] = out["Dh_m"]
-    out["Dh_m"] = dh
-    return out
 
 
 def load_water(lattice: str = "Diamond", *, source=None) -> pd.DataFrame:
@@ -100,7 +74,7 @@ def load_water(lattice: str = "Diamond", *, source=None) -> pd.DataFrame:
     df = xl[xl["geometry_id"].str.startswith(code)].copy()
     if df.empty:
         raise ValueError(f"no {lattice} ({code}_*) rows in {source.name}")
-    df = _attach_geometry(df, lattice)
+    df = attach_geometry(df, lattice)
     df = df.rename(columns={"Re": "Re_nominal"})
     df["tpms"] = lattice
 

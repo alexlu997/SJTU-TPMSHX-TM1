@@ -13,6 +13,7 @@ import json
 import numpy as np
 import pytest
 
+from sjtu_tpmshx.models.screening import DEFAULT_CONFIG
 from sjtu_tpmshx.optimization.export_ntop_csv import (
     DEFAULT_GRID_NX,
     DEFAULT_GRID_NY,
@@ -109,7 +110,8 @@ def test_pareto_row_loads_decision_vector(tmp_path):
 
     out = tmp_path / 'export'
     summary = export_pareto_row(str(csv_path), 0, str(out),
-                                 Nx_export=10, Ny_export=8)
+                                 Nx_export=10, Ny_export=8,
+                                 config=DEFAULT_CONFIG)
     assert summary['source']['pareto_Q_W_m'] == Q_dummy
     assert summary['source']['pareto_dP_Pa'] == dP_dummy
     assert summary['Nx_export'] == 10

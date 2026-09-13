@@ -42,11 +42,14 @@ pytestmark = pytest.mark.slow
 _REL = 1e-12
 
 # Lighter solver settings (mirror tests/test_evaluator_sanity.py:_FAST_CFG).
+# Preserve the resolved geometry bounds used to capture these references.
+# New searches use 0.3..0.6 mm; these historical vectors were clipped at 0.5.
 _FAST_CFG = {'max_iter_simple': 800, 'tol_simple': 1e-3,
-             'max_iter_energy': 1500, 'tol_energy': 0.5, 'n_rho_loops': 1}
+             'max_iter_energy': 1500, 'tol_energy': 0.5, 'n_rho_loops': 1,
+             't_bounds': (0.3, 0.5)}
 
 _CFG_3D = {'Nx_3d': 10, 'Ny_3d': 6, 'Nz_3d': 3, 'max_outer_3d': 2,
-           'max_iter_energy': 800, 'tol_energy': 0.5}
+           'max_iter_energy': 800, 'tol_energy': 0.5, 't_bounds': (0.3, 0.5)}
 
 # Non-uniform 16D decision vector: [L_flat(8), t_flat(8)] (mm), L > t.
 # n_ctrl=(4,4) symmetric_y → 8 L + 8 t. Spatially-varying ⇒ many unique

@@ -85,6 +85,15 @@ model with prepared analytical inlet-pressure fractions, not a SIMPLE solve.
 Its offline metrics need no EOS or calibration call. Screening retains its
 own frozen-B/nonconvergence and unsupported-metric limits.
 
+Continuous screening uses `models.screening.build_field` for preparation,
+preview and export. Saved decision vectors must be decoded with their original
+bounds, control grid, symmetry and spline order. The current geometry window
+is L=4..8 mm, t=0.3..0.6 mm; this does not extend any Nu correlation's evidence.
+Screening accepts air/air with A:+x and B:-y only. Its GUI uses full-face ports;
+explicit 2D API port intervals remain supported, while 3D screening rejects
+partial ports. Pareto-to-Compute loading supplies only mean L/t as a uniform
+seed, not a complete graded-design recomputation.
+
 Separate processes use case.yaml + case.h5, results.h5, VTK views and
 metrics.json. Exact contracts and mode-specific restrictions are in
 `schemas/three_module_v1/`. Minimal postprocessing has a distinct dependency

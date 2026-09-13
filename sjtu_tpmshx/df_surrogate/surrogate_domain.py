@@ -12,8 +12,7 @@ from typing import List
 
 from sjtu_tpmshx.models.tpms_props import geometry as _geom
 
-_SURROGATE_L_MM = (4.0, 5.0, 6.0, 7.0, 8.0)
-_SURROGATE_T_MM = (0.3, 0.4, 0.5, 0.6)
+from ._domain import TRAIN_L_NODES as _SURROGATE_L_MM, TRAIN_T_NODES as _SURROGATE_T_MM
 
 
 def check_surrogate_domain_at_point(tpms_type: str,

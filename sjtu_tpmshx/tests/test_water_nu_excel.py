@@ -14,7 +14,7 @@ def test_current_basis_ignores_legacy_velocity_and_full_core_nu(monkeypatch):
         Core2_Nu=[20.], Core3_Nu=[40.], Core1_Nu=[1000.],
         Nu_core=[1000.], Um_m_s=[123.]))
     # A known geometry isolates the units/reduction from the geometry algorithm.
-    monkeypatch.setattr(validator, '_attach_geometry', lambda d, topo:
+    monkeypatch.setattr(validator, 'attach_geometry', lambda d, topo:
                         d.assign(L_mm=10., eps_f=.25, Dh_cfd_m=d.Dh_m, Dh_m=.002))
     d = validator.evaluate(raw)
     assert len(d) == 1

@@ -1,5 +1,4 @@
 """Prepare the existing air/air optimizer mesh, coefficients and flow seeds."""
-import warnings
 import os
 import numpy as np
 
@@ -7,7 +6,7 @@ from sjtu_tpmshx.domain.case_data import CaseData
 from sjtu_tpmshx.domain.model_refs import ModelRef
 from sjtu_tpmshx.models.catalog import MODEL_VERSIONS
 from sjtu_tpmshx.models.continuous_field import ContinuousFieldConfig
-from sjtu_tpmshx.models.screening import DEFAULT_CONFIG, SCREENING_FIELDS, build_field
+from sjtu_tpmshx.models.screening import DEFAULT_CONFIG, SCREENING_FIELDS, build_field, validate_screening_config
 from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry, adaptive_grid, air_density, air_viscosity
 from sjtu_tpmshx.models.df_projection import project_fields_to_streamwise_K_cF
 from sjtu_tpmshx.models.envelope import predict_outlet_p_sq, ChokedFlowError
@@ -100,25 +99,14 @@ def prepare_flow(cfg, fc, arrays, Nx, Ny, side):
 
 def prepare_screening_2d(x, cfg=None, fc=None, *, case_id):
     cfg = {**DEFAULT_CONFIG, **(cfg or {})}
-    if (cfg['dir_A'], cfg['dir_B']) != (0, 3):
-        raise ValueError('2D screening flow mapping supports only +x A and -y B')
-    for key in ('L_domain', 'H_domain', 'T_inA', 'T_inB', 'P_inA', 'P_inB', 'k_s', 'rho_s'):
-        if not np.isfinite(cfg[key]) or cfg[key] <= 0.:
-            raise ValueError(f'screening {key} must be finite and positive')
-    warnings_list = []
-    for key in ('fluid_type_A', 'fluid_type_B'):
-        fluid = cfg.get(key)
-        if fluid is not None and str(fluid).lower() != 'air':
-            message = (f'2D optimizer evaluator has no {fluid!r} dispatch yet — '
-                       f'{key} runs as AIR. Rankings for water-side cases are not trustworthy.')
-            warnings_list.append(message)
-            warnings.warn(message, RuntimeWarning, stacklevel=2)
+    validate_screening_config(cfg)
     fc = build_field(x, cfg) if fc is None else fc
     Nx, Ny = _resolve_grid(cfg, fc)
     if min(Nx, Ny) < 2:
         raise ValueError('screening mesh requires at least two cells per axis')
     arrays = fc.build_grid_arrays(Nx, Ny, u_A=cfg['u_A'], u_B=cfg['u_B'],
-                                 T_inA=cfg['T_inA'], T_inB=cfg['T_inB'], P_in=cfg['P_inA'])
+                                 T_inA=cfg['T_inA'], T_inB=cfg['T_inB'],
+                                 P_in=cfg['P_inA'], P_inB=cfg['P_inB'])
     grid = dict(dimension=2, length_unit='m', axis_order=('x', 'y'),
                 depth_convention='unit_depth', depth_m=1.)
     for axis, count, length in zip('xy', (Nx, Ny), (cfg['L_domain'], cfg['H_domain'])):
@@ -139,7 +127,7 @@ def prepare_screening_2d(x, cfg=None, fc=None, *, case_id):
                     model_refs=(ModelRef('screening', MODEL_VERSIONS['screening']),
                                 ModelRef('fluid', MODEL_VERSIONS['fluid'], {'fluid': 'air'})),
                     metadata=dict(mode='screening_2d', model='air_air_volume_ltne_v1',
-                                  energy_formulation='conservative_air_model_h', warnings=tuple(warnings_list),
+                                  energy_formulation='conservative_air_model_h', warnings=(),
                                   geometry_fields=geometry_fields,
                                   df_options=dict(method=_resolve_method()),
                                   applicability='Optimization screening; inherited flow/thermal coupling and port limitations; physical validation unestablished.'))

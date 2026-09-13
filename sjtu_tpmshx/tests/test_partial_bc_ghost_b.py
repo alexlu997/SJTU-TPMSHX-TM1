@@ -66,7 +66,7 @@ def _compute_epsilon(r):
 # variable_rho_cp (now DEFAULT ON) builds ρcp from SIMPLE's local density so the
 # kernel telescopes cp·(SIMPLE mass flux) → conservative → ε under bound. Uncheck
 # the UI box / cfg['variable_rho_cp']=False / env TPMSHX_VAR_RHOCP=0 for the
-# legacy inlet-P path (see test_epsilon_ntu_bound_legacy_off).
+# legacy inlet-P path (see test_3d_model_enthalpy_transport.py).
 def test_epsilon_ntu_bound():
     """ε_obs ≤ ε_max for partial-BC ghost-B case.
 
@@ -200,8 +200,10 @@ def test_eta_B_field_bounds():
 # LOCAL density ρ(P_local,T), so the strict kernel telescopes cp·(ε·ρ_local·u) =
 # cp·(SIMPLE mass flux) ⇒ ∮ ≈ 0 ⇒ conservative ⇒ Q_A ≈ Q_B and ε under bound
 # (test_epsilon_ntu_bound / test_full_face_B_recovers_identity, un-xfailed). The
-# two tests below add the explicit Q_A≈Q_B energy-balance signature;
-# test_variable_rho_cp_off_override guards the legacy inlet-P toggle.
+# two tests below add the explicit Q_A≈Q_B energy-balance signature.
+# The explicit ON/OFF property and report contracts are covered by
+# test_3d_property_frame and test_3d_model_enthalpy_transport. The retired
+# OFF > ON + 0.1 direction claim is indexed in docs/history/retired-tools.md.
 
 
 def _energy_balanced(r, rel_max=0.15):
@@ -235,17 +237,3 @@ def test_full_face_B_varrhocp():
     assert eps <= 0.95, f"Full-face ε={eps:.4f} > 0.95 with variable_rho_cp"
     ok, QA, QB, rel = _energy_balanced(r)
     assert ok, f"Q_A={QA:.1f} vs Q_B={QB:.1f} not energy-balanced (rel={rel:.3f})"
-
-
-def test_variable_rho_cp_off_override():
-    """The legacy inlet-P density is reachable via variable_rho_cp=False and is
-    NOT a silent no-op: it gives a materially higher ε than the default ON path
-    (which conserves). Guards both the OFF override and the default flip."""
-    from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
-    eps_on = _compute_epsilon(_run_3d_stack(_partial_bc_air_air_cfg()))
-    eps_off = _compute_epsilon(
-        _run_3d_stack(_partial_bc_air_air_cfg(variable_rho_cp=False)))
-    assert eps_on <= 0.90, f"default (ON) should conserve: ε_on={eps_on:.4f}"
-    assert eps_off > eps_on + 0.1, (
-        f"OFF override looks like a no-op: ε_off={eps_off:.4f} vs "
-        f"ε_on={eps_on:.4f} (expect the legacy inlet-P path far higher)")

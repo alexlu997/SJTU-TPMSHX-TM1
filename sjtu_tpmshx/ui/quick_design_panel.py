@@ -4,6 +4,7 @@
 公开 API: run_quick_design(window) / _gather_inputs(window) / _make_worker_class()。
 """
 from __future__ import annotations
+from math import isfinite
 
 from sjtu_tpmshx.logutil import get_logger
 
@@ -25,24 +26,21 @@ def _gather_inputs(window) -> dict:
         w = getattr(window, attr, None)
         return bool(w.isChecked()) if (w is not None and hasattr(w, "isChecked")) else dflt
 
-    try:
-        rho_s = float(txt("le_qd_rho", "7900"))
-    except ValueError:
-        rho_s = 7900.0
-    try:
-        k_s = float(txt("le_qd_ks", "16"))
-    except ValueError:
-        k_s = 16.0
+    def positive(attr, default):
+        value = float(txt(attr, str(default)))
+        if not isfinite(value) or value <= 0:
+            raise ValueError(f"{attr} 必须为有限正数")
+        return value
+
+    rho_s = positive("le_qd_rho", 7900)
+    k_s = positive("le_qd_ks", 16)
     # 物性模型下拉显示中文, 映射回后端的 const/mean (含 "定" 字 → const, 否则 mean)
     pm_txt = cur("combo_qd_prop", "均温")
     prop_model = "const" if ("定" in pm_txt or pm_txt == "const") else "mean"
     # 矩形迎风 (固定高度) opt-in: 勾选 → 高 [mm]→[m]; 默认关 = 方形 (height=None)
     height = None
     if chk("chk_qd_rect"):
-        try:
-            height = float(txt("le_qd_height", "750")) / 1e3
-        except ValueError:
-            height = 0.750
+        height = positive("le_qd_height", 750) / 1e3
     return {
         "file": txt("le_qd_file"),
         "mode": cur("combo_qd_mode", "auto"),
@@ -58,8 +56,8 @@ def _gather_inputs(window) -> dict:
             "t": _flist(txt("le_qd_t", "0.3,0.4,0.5,0.6")),
         },
         "cell": (cur("combo_qd_cell_topo", "Diamond"),
-                 float(txt("le_qd_cell_l", "7") or 7),
-                 float(txt("le_qd_cell_t", "0.5") or 0.5)),
+                 positive("le_qd_cell_l", 7),
+                 positive("le_qd_cell_t", 0.5)),
     }
 
 def _make_worker_class():

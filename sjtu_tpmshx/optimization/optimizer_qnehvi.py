@@ -301,9 +301,7 @@ def run_qnehvi(config: Optional[dict] = None,
         _log.info(f"[qNEHVI] save_dir = {save_dir}")
 
     with open(os.path.join(save_dir, 'config.json'), 'w') as f:
-        json.dump({k: v for k, v in cfg.items()
-                   if isinstance(v, (int, float, str, bool, type(None)))},
-                  f, indent=2)
+        json.dump(cfg, f, indent=2, allow_nan=False)
 
     # 2. Reset progress + cancel
     progress['count'] = 0
@@ -560,6 +558,7 @@ def run_qnehvi(config: Optional[dict] = None,
         'history_F': F_hist_min,
         'n_evals': int(len(X_np)),
         'save_dir': save_dir,
+        'config': cfg,
     }
 
 

@@ -58,7 +58,7 @@ def test_clip_bounds():
     assert L.min() >= 4.0 - 1e-12, f"L min {L.min()} < 4"
     assert L.max() <= 8.0 + 1e-12, f"L max {L.max()} > 8"
     assert t.min() >= 0.3 - 1e-12, f"t min {t.min()} < 0.3"
-    assert t.max() <= 0.5 + 1e-12, f"t max {t.max()} > 0.5"
+    assert t.max() <= 0.6 + 1e-12, f"t max {t.max()} > 0.6"
     print(f"test_clip_bounds PASS (L [{L.min():.3f}, {L.max():.3f}] "
           f"t [{t.min():.3f}, {t.max():.3f}])")
 

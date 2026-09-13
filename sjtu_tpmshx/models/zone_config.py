@@ -4,12 +4,12 @@ zone_config.py — Zone-based domain partitioning for SJTU-TPMSHX
 DEPRECATED FOR OPTIMIZER USE
 ============================
 The optimizer (`optimization/optimizer_qnehvi.py` + `evaluator.py`) now
-uses `solvers.continuous_field.ContinuousFieldConfig` (4×4 + Y-mirror = 16-D
+uses `models.continuous_field.ContinuousFieldConfig` (4×4 + Y-mirror = 16-D
 bicubic B-spline) for continuous-field optimization, which superseded
 the old patch-zoning NSGA-II workflow (2026-05-08 rewrite).
 
 This module is RETAINED ONLY for the UI Compute path's "Define zones"
-tab (`pipelines/stages_2d.py` consumes the ZoneInputConfig snapshot that
+tab (`preprocess/two_d/preparation.py` consumes the ZoneInputConfig snapshot that
 `ui/window_config.py` builds from window._zone_grid / the zone table).
 New optimization code MUST NOT import ZoneConfig — use
 ContinuousFieldConfig instead.
@@ -98,14 +98,15 @@ class ZoneConfig:
 
     def compute_properties(self, u_A: float, u_B: float,
                            T_inA: float, T_inB: float,
-                           P_in: float = 101325.0):
+                           P_in: float = 101325.0, *, P_inB: float | None = None):
         """Compute TPMS properties for each zone using tpms_calc.compute()."""
         self.validate()
+        P_inB = P_in if P_inB is None else P_inB
         for z in self.zones:
             z.props_A = tpms_calc.compute(
                 self.tpms_type, z.L_mm, z.t_mm, u_A, T_inA, P_in, self.k_s)
             z.props_B = tpms_calc.compute(
-                self.tpms_type, z.L_mm, z.t_mm, u_B, T_inB, P_in, self.k_s)
+                self.tpms_type, z.L_mm, z.t_mm, u_B, T_inB, P_inB, self.k_s)
 
     # ── Structured grid arrays ──────────────────────────────────
 
@@ -201,7 +202,7 @@ class ZoneConfig:
     def build_grid_arrays(Nx, Ny, L, H, grid_cells,
                           tpms_type, k_s,
                           u_A, u_B, T_inA, T_inB, P_in=101325.0,
-                          dx_arr=None, dy_arr=None):
+                          dx_arr=None, dy_arr=None, *, P_inB=None):
         """Build per-cell arrays from a list of 2D zone rectangles.
 
         Parameters
@@ -222,6 +223,7 @@ class ZoneConfig:
         from . import tpms_calc
 
         # Compute properties for each unique (L, t)
+        P_inB = P_in if P_inB is None else P_inB
         props_cache = {}
         for gc in grid_cells:
             key = (gc['L'], gc['t'])
@@ -229,7 +231,7 @@ class ZoneConfig:
                 pA = tpms_calc.compute(tpms_type, gc['L'], gc['t'],
                                        u_A, T_inA, P_in, k_s)
                 pB = tpms_calc.compute(tpms_type, gc['L'], gc['t'],
-                                       u_B, T_inB, P_in, k_s)
+                                       u_B, T_inB, P_inB, k_s)
                 props_cache[key] = (pA, pB)
 
         zone_id   = np.full((Nx, Ny), -1, dtype=np.int32)

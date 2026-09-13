@@ -6,6 +6,10 @@ from sjtu_tpmshx.models.continuous_field import (
 )
 
 
+FIELD_CONFIG_KEYS = ('tpms_type', 'k_s', 'L_domain', 'H_domain', 'n_ctrl_x',
+                     'n_ctrl_y', 'symmetric_y', 'spline_order', 'L_bounds', 't_bounds')
+
+
 SCREENING_FIELDS = ('eps_arr', 'K_ffA_arr', 'K_ffB_arr', 'K_ss_arr', 'h_vA_arr', 'h_vB_arr')
 
 DEFAULT_CONFIG: dict = {
@@ -28,6 +32,8 @@ DEFAULT_CONFIG: dict = {
     'T_inB':      300.0,
     'P_inA':      101325.0,
     'P_inB':      101325.0,
+    'fluid_type_A': 'air',
+    'fluid_type_B': 'air',
 
     # Flow direction codes
     #   0 = +x, 1 = -x, 2 = +y, 3 = -y
@@ -119,6 +125,20 @@ DEFAULT_CONFIG: dict = {
 
 
 
+def validate_screening_config(cfg, *, dimension=2):
+    """Reject unsupported physical requests before they become air defaults."""
+    if (cfg.get('dir_A', 0), cfg.get('dir_B', 3)) != (0, 3):
+        raise ValueError(f'{dimension}D screening flow mapping supports only +x A and -y B')
+    for key in ('fluid_type_A', 'fluid_type_B'):
+        if str(cfg.get(key, 'air')).lower() != 'air':
+            raise ValueError(f'screening supports air only: {key}={cfg[key]!r}')
+    for key in ('L_domain', 'H_domain', 'T_inA', 'T_inB', 'P_inA', 'P_inB', 'k_s', 'rho_s'):
+        if not np.isfinite(cfg[key]) or cfg[key] <= 0.:
+            raise ValueError(f'screening {key} must be finite and positive')
+    if dimension == 3 and any(cfg.get(key) is not None for key in ('ports_A', 'ports_B')):
+        raise ValueError('3D screening supports full-face ports only')
+
+
 def build_field(x, cfg):
     return from_decision_vector(
         x, tpms_type=cfg['tpms_type'], k_s=cfg['k_s'],
@@ -134,7 +154,7 @@ def _build_3d_arrays(fc, Nx: int, Ny: int, Nz: int,
                      P_inA: float, k_s: float,
                      tpms_type: str,
                      quant_L: float = 0.05,
-                     quant_t: float = 0.01) -> dict:
+                     quant_t: float = 0.01, *, P_inB: float | None = None) -> dict:
     """Per-voxel arrays (eps, K_ffA/B, K_ss, h_vA/B, A_0, eps_A) of shape
     (Nx, Ny, Nz). 2D field extruded uniformly along z.
     """
@@ -148,7 +168,7 @@ def _build_3d_arrays(fc, Nx: int, Ny: int, Nz: int,
     from sjtu_tpmshx.models.continuous_field import props_from_Lt_fields
     p = props_from_Lt_fields(L_field_2D, t_field_2D, tpms_type, k_s,
                              u_A, u_B, T_inA, T_inB, P_inA,
-                             quant_L=quant_L, quant_t=quant_t)
+                             P_inB=P_inB, quant_L=quant_L, quant_t=quant_t)
 
     L_field_3D = np.broadcast_to(L_field_2D[:, :, None], (Nx, Ny, Nz)).copy()
     t_field_3D = np.broadcast_to(t_field_2D[:, :, None], (Nx, Ny, Nz)).copy()
@@ -170,5 +190,4 @@ def _build_3d_arrays(fc, Nx: int, Ny: int, Nz: int,
         't_field':   t_field_3D,
         'cache_size': p['n_unique'],
     }
-
 

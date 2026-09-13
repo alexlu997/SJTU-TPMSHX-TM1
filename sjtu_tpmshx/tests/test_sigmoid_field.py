@@ -37,7 +37,7 @@ def test_shape_contract():
 
 
 def test_clip_bounds():
-    """L_field ∈ [4, 8] mm, t_field ∈ [0.3, 0.5] mm regardless of x values."""
+    """L_field ∈ [4, 8] mm, t_field ∈ [0.3, 0.6] mm regardless of x values."""
     x = np.zeros(36)
     # Half way-out values, half within
     for k in range(9):
@@ -51,8 +51,8 @@ def test_clip_bounds():
         f"L_field max {za['L_field'].max()} > 8.0"
     assert za['t_field'].min() >= 0.3 - 1e-9, \
         f"t_field min {za['t_field'].min()} < 0.3"
-    assert za['t_field'].max() <= 0.5 + 1e-9, \
-        f"t_field max {za['t_field'].max()} > 0.5"
+    assert za['t_field'].max() <= 0.6 + 1e-9, \
+        f"t_field max {za['t_field'].max()} > 0.6"
     print("test_clip_bounds PASS")
 
 

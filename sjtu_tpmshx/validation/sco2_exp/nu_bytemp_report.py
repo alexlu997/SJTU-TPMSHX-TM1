@@ -1,7 +1,7 @@
 """nu_bytemp_report.py — sCO2 实验 Nu 按温度分层 vs CFD 关联式（代入实际 D_h/L）.
 
 用法:
-    python sjtu_tpmshx/validation/sco2_exp/nu_bytemp_report.py
+    python -m sjtu_tpmshx.validation.sco2_exp.nu_bytemp_report
 输出:
     reports/sco2_exp/sco2_exp_nu_bytemp.html   （旧 Nu/f 混合报告已归档）
 
@@ -24,9 +24,8 @@ import pandas as pd
 
 _THIS = Path(__file__).resolve()
 _PKG_ROOT = _THIS.parent.parent.parent
-sys.path.insert(0, str(_THIS.parent))
 
-from load_sco2_exp import load_exp                              # noqa: E402
+from sjtu_tpmshx.validation.sco2_exp.load_sco2_exp import load_exp          # noqa: E402
 from sjtu_tpmshx.models.nu_correlations import SCO2_NU_COEFFS              # noqa: E402
 from sjtu_tpmshx.models.tpms_props import geometry as tpms_geometry        # noqa: E402
 from sjtu_tpmshx.validation.report_template import (                        # noqa: E402

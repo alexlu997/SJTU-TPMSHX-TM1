@@ -41,10 +41,10 @@ def _run_3d_stack(cfg):
 
     outer = _run_outer_coupling_3d(prob, hv)
 
-    met = _extract_3d_metrics(prob, hv, outer)
+    met = _extract_3d_metrics(prob, outer)
 
     # Conservation diagnostics (energy + mass balance + interior-corrected Q) —
     # extracted to _conservation_diagnostics_3d (F1). Always computed so the
     # user spots non-physical regressions without re-running validation.
-    _result = _assemble_3d_verdict(prob, hv, outer, met)
+    _result = _assemble_3d_verdict(prob, outer, met)
     return _result

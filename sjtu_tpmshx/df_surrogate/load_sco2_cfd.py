@@ -20,7 +20,7 @@ Conventions (repo, NOT the CSV's own):
     t_mm       real wall thickness, auto-detected from
                ``wall_thickness_mm``: older exports store the t-code 3..6
                (÷10), the 2026-07-23 exports store real mm 0.3..0.6 as-is;
-               ``_attach_geometry`` decides per-file on whether the max
+               ``attach_geometry`` decides per row on whether the value
                exceeds 1.0.
     Dh_m       from ``tpms_calc.geometry`` — every downstream consumer
                (solver, correlations) uses the tpms_calc value, so the fit
@@ -78,7 +78,7 @@ import pandas as pd
 
 _THIS = Path(__file__).resolve()
 _PROJECT_ROOT = _THIS.parent.parent  # .../sjtu_tpmshx
-from sjtu_tpmshx.models.tpms_props import geometry as tpms_geometry  # noqa: E402
+from sjtu_tpmshx.df_surrogate.cfd_geometry import attach_geometry  # noqa: E402
 from sjtu_tpmshx.logutil import get_logger  # noqa: E402
 
 _log = get_logger(__name__)
@@ -126,7 +126,6 @@ _P_BY_CENTS = {82: 8.0, 16: 10.0, 12: 12.0, 48: 15.0}
 _TPC_BY_P = {8.0: 307.82, 10.0: 318.16, 12.0: 327.12, 15.0: 337.48}
 
 _RHO_GUARD_RTOL = 0.01   # CoolProp vs CSV reference density
-_K_S_DEFAULT = 16.0      # only affects K_ss inside tpms_calc, not eps/Dh
 
 # Nu-fit hygiene: period-1 slice is entrance-affected (Nu ~13% low vs
 # periods 2/3 which agree to ~1%); drop it by default in load_segments.
@@ -173,35 +172,13 @@ def _verify_rho_guard(df: pd.DataFrame) -> None:
 
 def _attach_geometry(df: pd.DataFrame, lattice: str) -> pd.DataFrame:
     """Real t_mm plus repo-convention eps / eps_f / Dh (tpms_calc)."""
-    out = df.copy()
+    out = df
     expected_code = {"Diamond": "D", "Gyroid": "G"}[lattice]
     codes = set(out["lattice"].unique())
     if codes != {expected_code}:
         raise ValueError(f"{lattice} loader got lattice codes {codes} — "
                          f"wrong folder contents?")
-    out["L_mm"] = out["cell_size_mm"].astype(float)
-    # Wall-thickness convention auto-detect (flipped between uploads):
-    #   older exports store the t-CODE 3..6  (real t = code/10),
-    #   2026-07-23 exports store REAL mm 0.3..0.6 directly.
-    # Real walls are always < 1 mm and codes always ≥ 3, so the gap at 1.0
-    # separates them unambiguously; decide per-file on the max.
-    t_raw = out["wall_thickness_mm"].astype(float)
-    out["t_mm"] = np.where(t_raw.to_numpy() > 1.0, t_raw / 10.0, t_raw)
-    cache: dict[tuple[float, float], tuple[float, float]] = {}
-    eps = np.empty(len(out))
-    dh = np.empty(len(out))
-    for i, (L, t) in enumerate(zip(out["L_mm"].to_numpy(),
-                                   out["t_mm"].to_numpy())):
-        key = (round(L, 3), round(t, 3))
-        if key not in cache:
-            g = tpms_geometry(lattice, key[0], key[1], _K_S_DEFAULT)
-            cache[key] = (float(g["epsilon"]), float(g["D_h"]))
-        eps[i], dh[i] = cache[key]
-    out["eps"] = eps
-    out["eps_f"] = eps / 2.0
-    out["Dh_cfd_m"] = out["Dh_m"]
-    out["Dh_m"] = dh
-    return out
+    return attach_geometry(out, lattice)
 
 
 def load_core(lattice: str = "Diamond", *, source=None) -> pd.DataFrame:

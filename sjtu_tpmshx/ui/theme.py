@@ -8,14 +8,11 @@ Typography: modular scale 9 / 10 / 11 / 12 / 14 pt.
 # One coherent hierarchy. Section titles (FONT_SECTION) now sit one step
 # above field labels (was equal at 10pt) so panel groups read as headings
 # rather than just bold rows.
-FONT_CAPTION = 8     # COMPUTED divider, micro-captions
 FONT_STATUS = 9      # status bar text
-FONT_TAB = 9         # tab-button labels
 FONT_BTN = 9         # secondary / tertiary button text
 FONT_LABEL = 10      # field labels
 FONT_INPUT = 10      # input + value text
 FONT_SECTION = 11    # second-level section titles (panel groups)
-FONT_HEADER = 12     # primary headers
 FONT_BTN_RUN = 12    # primary CTA (Compute)
 
 # ── Spacing — 4dp rhythm, single source ─────────────────────
@@ -23,12 +20,8 @@ SPACE_XS = 4
 SPACE_SM = 6
 SPACE_MD = 10
 SPACE_LG = 16
-SPACE_XL = 24
 
 # ── Sizing ──────────────────────────────────────────────────
-BTN_H_PRIMARY = 32
-BTN_H_SECONDARY = 28
-BTN_H_SMALL = 26
 
 # ── Corner radii — unified 6px + semantic exceptions (ui-plan3a) ────
 # Policy: every card / input / button / frame / menu takes 6px. Semantic
@@ -39,8 +32,6 @@ BTN_H_SMALL = 26
 RADIUS_INPUT = 6     # inputs + small/secondary buttons
 RADIUS_BTN = 6
 RADIUS_CARD = 6      # cards, primary CTA, header (was 12 pre-plan3a)
-RADIUS_HEADER = 6
-RADIUS_TAB = 14      # pill tabs (semantic)
 
 # ── Theme colour definitions ────────────────────────────────
 _THEMES = {
@@ -575,3 +566,15 @@ def apply_mpl_theme():
     # with bold global font weight on Windows.
     mpl.rcParams['legend.frameon'] = True
     mpl.rcParams['legend.framealpha'] = 0.9
+
+
+def _btn_styles() -> dict:
+    """Resolve button stylesheets from the *current* theme at call time, so a
+    dialog respects a live ``ThemeManager.rebuild()`` instead of the stale
+    module-global ``_BTN_*`` snapshot the original main.py read once at import."""
+    try:
+        s = _build_styles()
+        return {"tertiary": s.get("BTN_TERTIARY", ""),
+                "secondary": s.get("BTN_SECONDARY", "")}
+    except Exception:
+        return {"tertiary": "", "secondary": ""}

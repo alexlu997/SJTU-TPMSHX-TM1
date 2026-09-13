@@ -15,6 +15,7 @@ from scipy.interpolate import RegularGridInterpolator
 
 from .tpms_geometry import compute_geometry, _phi_grid, _C_from_tL, _eps_from_C, _A0_from_C
 from .tpms_calc import (air_density, air_viscosity, air_conductivity)
+from sjtu_tpmshx.df_surrogate._domain import TRAIN_L, TRAIN_T
 
 from sjtu_tpmshx.logutil import get_logger
 
@@ -107,8 +108,8 @@ class GeometryLUT:
     Cached to disk as .npz file for fast loading.
     """
 
-    def __init__(self, tpms_type, L_range=(4.0, 8.0), t_range=(0.3, 0.5),
-                 n_L=41, n_t=21, N=256, cache_dir=None):
+    def __init__(self, tpms_type, L_range=TRAIN_L, t_range=TRAIN_T,
+                 n_L=41, n_t=31, N=256, cache_dir=None):
         self.tpms_type = tpms_type
         self.L_vals = np.linspace(L_range[0], L_range[1], n_L)
         self.t_vals = np.linspace(t_range[0], t_range[1], n_t)
@@ -244,7 +245,7 @@ def build_continuous_arrays(x, L0, t0, y_trans_inlet, y_trans_outlet,
                             sigmoid_width_y=0.02, sigmoid_width_x=0.05,
                             fix_L=False, fix_t=False, opt_axis='y',
                             dx_arr=None, dy_arr=None,
-                            allow_extrap=None, fluid_type='air'):
+                            allow_extrap=None, fluid_type='air', P_inB=None):
     """Build per-cell property arrays from sigmoid-interpolated L(x,y), t(x,y).
 
     AIR-ONLY: this builder hardcodes air ρ/μ/k/Nu (it predates the fluid
@@ -298,25 +299,35 @@ def build_continuous_arrays(x, L0, t0, y_trans_inlet, y_trans_outlet,
                                y_trans_inlet, y_trans_outlet,
                                sigmoid_width_x, sigmoid_width_y)
 
+    return _arrays_from_fields(
+        L_field, t_field, tpms_type, k_s, u_A, u_B, T_inA, T_inB, lut,
+        P_in=P_in, P_inB=P_inB, allow_extrap=allow_extrap,
+        fluid_type=fluid_type, axis='continuous')
+
+
+def _arrays_from_fields(L_field, t_field, tpms_type, k_s, u_A, u_B,
+                        T_inA, T_inB, lut, *, P_in=101325., P_inB=None,
+                        allow_extrap=None, fluid_type='air', axis):
+    """Shared property assembly for the 2D and 3D sigmoid fields."""
     # Clip to fit range — bypassed under allow_extrap so user can sweep
-    # outside ConstDF-v1 [L 4-8mm, t 0.3-0.5mm] (e.g. Shanghai t=0.6mm).
+    # outside the current CFD geometry grid.
     # Env var TPMSHX_ALLOW_EXTRAP=1 also triggers bypass for non-UI callers.
     if allow_extrap is None:
         import os as _os_ax
         allow_extrap = _os_ax.environ.get(
             'TPMSHX_ALLOW_EXTRAP', '').lower() in ('1', 'true', 'yes')
     if not allow_extrap:
-        L_field = np.clip(L_field, 4.0, 8.0)
-        t_field = np.clip(t_field, 0.3, 0.5)
+        L_field = np.clip(L_field, *TRAIN_L)
+        t_field = np.clip(t_field, *TRAIN_T)
     else:
         Lo, Lhi = float(L_field.min()), float(L_field.max())
         to, thi = float(t_field.min()), float(t_field.max())
-        if Lo < 4.0 or Lhi > 8.0 or to < 0.3 or thi > 0.5:
+        if Lo < TRAIN_L[0] or Lhi > TRAIN_L[1] or to < TRAIN_T[0] or thi > TRAIN_T[1]:
             import warnings as _w_ax
             _w_ax.warn(
-                f"[ConstDF-v1 extrap] L=[{Lo:.2f},{Lhi:.2f}]mm "
+                f"[geometry extrap] L=[{Lo:.2f},{Lhi:.2f}]mm "
                 f"t=[{to:.3f},{thi:.3f}]mm outside fit "
-                "L[4,8] / t[0.3,0.5]; LUT/Nu extrapolated.",
+                f"L{TRAIN_L} / t{TRAIN_T}; geometry LUT extrapolated.",
                 stacklevel=2)
 
     # 4. Query LUT for epsilon and A_0
@@ -336,7 +347,7 @@ def build_continuous_arrays(x, L0, t0, y_trans_inlet, y_trans_outlet,
     rho_ref_A = air_density(T_inA, P_in)  # FIX (2026-06-24 audit): use actual P_in, not P_atm — Re scales with rho(P), matching tpms_calc.compute
     k_fB = air_conductivity(T_inB)
     mu_B = air_viscosity(T_inB)
-    rho_ref_B = air_density(T_inB, P_in)
+    rho_ref_B = air_density(T_inB, P_in if P_inB is None else P_inB)
 
     # Reynolds (D_h convention, confirmed 2026-04-22)
     Re_A = np.maximum(rho_ref_A * u_A * D_h_arr / mu_A, 10.0)
@@ -363,7 +374,7 @@ def build_continuous_arrays(x, L0, t0, y_trans_inlet, y_trans_outlet,
     K_ss_arr = _chi_s_eff(tpms_type, eps_arr) * (1.0 - eps_arr) * k_s
 
     return {
-        'zone_id': np.zeros((Nx, Ny), dtype=np.int32),  # continuous = single zone
+        'zone_id': np.zeros(L_field.shape, dtype=np.int32),  # continuous = single zone
         'eps_arr': eps_arr,
         'eps_f_arr': eps_arr / 2.0,
         'K_ffA_arr': K_ffA_arr,
@@ -375,7 +386,7 @@ def build_continuous_arrays(x, L0, t0, y_trans_inlet, y_trans_outlet,
         'A_0_arr': A0_arr,
         'L_field': L_field,
         't_field': t_field,
-        'axis': 'continuous',
+        'axis': axis,
     }
 
 

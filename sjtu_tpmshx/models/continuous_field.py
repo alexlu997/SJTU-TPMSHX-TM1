@@ -41,12 +41,7 @@ DEFAULT_N_CTRL_X = 4
 DEFAULT_N_CTRL_Y = 4
 DEFAULT_SYMMETRIC_Y = True
 
-# Decision-vector bounds — pinned to the ConstDF-v1 surrogate's training
-# window. Outside this rectangle predict_K_cF clamps K to the 1e-8 floor
-# (no extrapolation), which collapses SIMPLE convergence and produces
-# 100% rejected designs. See df_surrogate/surrogate_domain.py for the same
-# limits enforced on the UI Compute path.
-# Training convex hull [mm] — single source in df_surrogate/_domain.py.
+# Geometry bounds [mm]; independent of per-fluid Nu applicability.
 from sjtu_tpmshx.df_surrogate._domain import TRAIN_L as DEFAULT_L_BOUNDS, TRAIN_T as DEFAULT_T_BOUNDS
 # Manufacturability ratio: lower-bounded slightly below 0.3/8 = 0.0375 so
 # the corner (L=8, t=0.3) does not trip the penalty; upper-bounded loose.
@@ -148,7 +143,7 @@ def props_from_Lt_fields(L_field: np.ndarray, t_field: np.ndarray,
                          u_A: float, u_B: float,
                          T_inA: float, T_inB: float,
                          P_in: float = 101325.0,
-                         *, quant_L: float = 0.05,
+                         *, P_inB: float | None = None, quant_L: float = 0.05,
                          quant_t: float = 0.01) -> dict:
     """Per-cell TPMS property arrays from (L, t) fields via quantized scatter.
 
@@ -157,13 +152,14 @@ def props_from_Lt_fields(L_field: np.ndarray, t_field: np.ndarray,
     scatter into output arrays via boolean masks — calls compute()
     n_unique times instead of L_field.size. Shared by
     :meth:`ContinuousFieldConfig.build_grid_arrays` (2D) and
-    ``core.evaluators._build_3d_arrays`` (3D, which z-broadcasts the result),
+    ``models.screening._build_3d_arrays`` (3D, which z-broadcasts the result),
     so both dimensions use one quantisation + scatter (B3 C7).
 
     Returns a dict of nine ``L_field.shape`` arrays — ``eps_arr``,
     ``eps_f_arr``, ``K_ffA_arr``, ``K_ffB_arr``, ``K_ss_arr``, ``h_vA_arr``,
     ``h_vB_arr``, ``r_h_arr``, ``A_0_arr`` — plus ``n_unique``.
     """
+    P_inB = P_in if P_inB is None else P_inB
     L_q = np.round(L_field / quant_L) * quant_L
     t_q = np.round(t_field / quant_t) * quant_t
 
@@ -196,7 +192,7 @@ def props_from_Lt_fields(L_field: np.ndarray, t_field: np.ndarray,
     for u_idx in range(uniq.shape[0]):
         L_u = float(uniq[u_idx, 0]); t_u = float(uniq[u_idx, 1])
         pA = tpms_calc.compute(tpms_type, L_u, t_u, u_A, T_inA, P_in, k_s)
-        pB = tpms_calc.compute(tpms_type, L_u, t_u, u_B, T_inB, P_in, k_s)
+        pB = tpms_calc.compute(tpms_type, L_u, t_u, u_B, T_inB, P_inB, k_s)
         m = (inv == u_idx)
         f_eps[m]  = pA['epsilon'];   f_epsf[m] = pA['epsilon_A']
         f_KffA[m] = pA['K_ff'];      f_KffB[m] = pB['K_ff']
@@ -320,7 +316,7 @@ class ContinuousFieldConfig:
                           dx_arr: Optional[np.ndarray] = None,
                           dy_arr: Optional[np.ndarray] = None,
                           quant_L: float = 0.05,
-                          quant_t: float = 0.01) -> dict:
+                          quant_t: float = 0.01, *, P_inB: float | None = None) -> dict:
         """Build per-cell property arrays. Drop-in for ZoneConfig.build_grid_arrays.
 
         Strategy
@@ -336,7 +332,7 @@ class ContinuousFieldConfig:
         # same order, so bit-identical to the prior inline loop.
         p = props_from_Lt_fields(L_field, t_field, self.tpms_type, self.k_s,
                                  u_A, u_B, T_inA, T_inB, P_in,
-                                 quant_L=quant_L, quant_t=quant_t)
+                                 P_inB=P_inB, quant_L=quant_L, quant_t=quant_t)
 
         from .grid_schema import validate_grid_arrays
         return validate_grid_arrays({

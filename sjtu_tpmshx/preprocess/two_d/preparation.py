@@ -113,6 +113,7 @@ def _parse_inputs_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
         _check_zoned_fluid_support(compute_cfg)
         z_axis = compute_cfg.zones.axis
         P_in_val = compute_cfg.fluid_A.P_in_Pa
+        P_inB = compute_cfg.fluid_B.P_in_Pa
         if z_axis == 'grid':
             grid = compute_cfg.zones.grid
             _x_dec = compute_cfg.zones.pareto_x_decision
@@ -128,7 +129,7 @@ def _parse_inputs_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
                     N_x, N_y, L, H,
                     tpms_type, k_s,
                     u_A, u_B, T_inA, T_inB, _lut,
-                    P_in=P_in_val,  # FIX (2026-06-24 audit): was defaulting to P_atm
+                    P_in=P_in_val, P_inB=P_inB,
                     allow_extrap=_allow_extrap,
                     fluid_type=fluid_A)  # air-only builder; non-air raises
                 _log.info(f"[ZONE] Continuous Sigmoid field ({N_x}x{N_y})")
@@ -138,7 +139,7 @@ def _parse_inputs_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
                     N_x, N_y, L, H,
                     grid['cells'],
                     grid['tpms_type'], grid['k_s'],
-                    u_A, u_B, T_inA, T_inB, P_in_val)
+                    u_A, u_B, T_inA, T_inB, P_in_val, P_inB=P_inB)
                 _log.info(f"[ZONE] Grid {len(grid['cells'])} cells (discrete)")
             zone_config = 'grid'
         else:
@@ -155,7 +156,7 @@ def _parse_inputs_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
                 zone_config = ZoneConfig(**zone_data)
             zone_config.compute_properties(
                 u_A=u_A, u_B=u_B, T_inA=T_inA, T_inB=T_inB,
-                P_in=P_in_val)
+                P_in=P_in_val, P_inB=P_inB)
             z_dim = H if z_axis == 'y' else L
             za = zone_config.build_structured_arrays(
                 N_x, N_y, z_dim, axis=z_axis)

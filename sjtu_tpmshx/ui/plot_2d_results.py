@@ -3,7 +3,7 @@
 Extracted from ``runs/run_calculation.py`` in batch-3 (2026-06-13), mirroring
 ``ui/plot_3d_results.py``: holds the matplotlib canvas population for the
 temperature / pressure / velocity tabs so the compute stage module
-(``pipelines/stages_2d.py``) stays Qt/matplotlib-free.
+(``preprocess/two_d/preparation.py``) stays Qt/matplotlib-free.
 
 Public entry points (consumed by ``ui.mixins.run_controller`` and ``main``):
     finalize_plots(window)          — render all 2D result canvases (main thread)
@@ -68,27 +68,13 @@ def plot_temperature_3panel(window, r, _t):
                 kw.update(vmin=vmin_s, vmax=vmax_s)
         else:
             kw = dict(levels=128, cmap='turbo', vmin=vmin_f, vmax=vmax_f)
-        from sjtu_tpmshx.ui.matplotlib_canvas import pad_field_to_edges
+        from sjtu_tpmshx.ui.matplotlib_canvas import pad_field_to_edges, style_field_axes
         _Xp, _Yp, _Fp = pad_field_to_edges(x, y, field, L * 1000.0, H * 1000.0)
         cf = ax.contourf(_Xp, _Yp, _Fp, **kw)
         ax.set_xlim(0, L * 1000.0); ax.set_ylim(0, H * 1000.0)
         cb = window.canvas_temp.fig.colorbar(cf, ax=ax, shrink=0.9,
                                               aspect=25, format="%.0f")
-        cb.ax.tick_params(labelsize=8, colors=_t['ax_text'], length=3)
-        cb.ax.yaxis.set_major_locator(plt.MaxNLocator(nbins=7))
-        cb.outline.set_edgecolor(_t['ax_spine'])
-        ax.set_title(main_title, fontsize=13, fontweight="bold",
-                     color=_t['ax_text'], loc='left', pad=6)
-        ax.text(0.99, 1.02, subtitle, transform=ax.transAxes,
-                fontsize=9, color=_t['mpl_subtitle'], ha='right', va='bottom',
-                fontstyle='italic')
-        ax.set_xlabel("x [mm]", fontsize=10, color=_t['ax_text'])
-        ax.set_ylabel("y [mm]", fontsize=10, color=_t['ax_text'])
-        ax.tick_params(labelsize=9, colors=_t['ax_text'], length=4, width=0.8)
-        ax.set_aspect('auto')
-        ax.grid(True, alpha=0.12, linewidth=0.4, color=_t['ax_text'])
-        for sp in ax.spines.values():
-            sp.set_edgecolor(_t['ax_spine']); sp.set_linewidth(0.8)
+        style_field_axes(ax, cb, _t, main_title, subtitle)
         if hasattr(window, '_zone_boundaries') and window._zone_boundaries:
             z_dir = getattr(window, '_zone_axis_dir', 'y')
             for b in window._zone_boundaries:

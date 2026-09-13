@@ -15,16 +15,14 @@ each y-row, then z blend across 3 x-lines, then y blend across 7 xz-layers
 
 Phase 1 additions:
   * 3D cross-stream + streamwise tensor product
-  * L clip [4, 8] mm, t clip [0.3, 0.5] mm (same as 2D)
+  * L clip [4, 8] mm, t clip [0.3, 0.6] mm (same as 2D)
   * dimension-agnostic LUT query + property broadcasts
   * shape contract: all returned arrays (Nx, Ny, Nz) float64
 """
 
 import numpy as np
 
-from sjtu_tpmshx.models.sigmoid_field import _sigmoid, _blend_1d, _nu_vec
-from sjtu_tpmshx.models.tpms_calc import (air_density, air_viscosity,
-                                air_conductivity)
+from sjtu_tpmshx.models.sigmoid_field import _sigmoid, _blend_1d, _arrays_from_fields
 
 from sjtu_tpmshx.logutil import get_logger
 
@@ -110,7 +108,7 @@ def build_continuous_arrays_3d(x, L0, t0,
                                 sigmoid_width_z=0.05,
                                 fix_L=False, fix_t=False,
                                 dx_arr=None, dy_arr=None, dz_arr=None,
-                                allow_extrap=None, fluid_type='air'):
+                                allow_extrap=None, fluid_type='air', P_inB=None):
     """Construct per-cell property arrays from 108-d decision vector.
 
     Parameters
@@ -168,80 +166,10 @@ def build_continuous_arrays_3d(x, L0, t0,
                                 y_trans_inlet, y_trans_outlet,
                                 sigmoid_width_x, sigmoid_width_y, sigmoid_width_z)
 
-    # Clip to fit range — bypassed under allow_extrap (env TPMSHX_ALLOW_EXTRAP=1
-    # or kwarg=True). Mirrors 2D path so Shanghai t=0.6mm runs through.
-    if allow_extrap is None:
-        import os as _os_ax
-        allow_extrap = _os_ax.environ.get(
-            'TPMSHX_ALLOW_EXTRAP', '').lower() in ('1', 'true', 'yes')
-    if not allow_extrap:
-        L_field = np.clip(L_field, 4.0, 8.0)
-        t_field = np.clip(t_field, 0.3, 0.5)
-    else:
-        Lo, Lhi = float(L_field.min()), float(L_field.max())
-        to, thi = float(t_field.min()), float(t_field.max())
-        if Lo < 4.0 or Lhi > 8.0 or to < 0.3 or thi > 0.5:
-            import warnings as _w_ax
-            _w_ax.warn(
-                f"[ConstDF-v1 extrap 3D] L=[{Lo:.2f},{Lhi:.2f}]mm "
-                f"t=[{to:.3f},{thi:.3f}]mm outside fit "
-                "L[4,8] / t[0.3,0.5]; LUT/Nu extrapolated.",
-                stacklevel=2)
-
-    # LUT query (shape-agnostic)
-    eps_arr, A0_arr = lut.query(L_field, t_field)
-    D_h_arr = 2.0 * eps_arr / (A0_arr + 1e-30)  # [m]
-
-    # AIR ONLY (hardcodes air ρ/μ/k/Nu). The 3D pipeline builds zoned h_v via
-    # the fluid-aware _build_hv_field_3d, not this; guard so this builder can
-    # never silently use air for a non-air fluid. Zoned/graded non-air deferred.
-    if fluid_type != 'air':
-        raise NotImplementedError(
-            f"build_continuous_arrays_3d hardcodes air properties; fluid_type="
-            f"{fluid_type!r} would silently use air. Use uniform geometry for "
-            "non-air fluids (the uniform 3D path is per-fluid correct).")
-    k_fA = air_conductivity(T_inA); mu_A = air_viscosity(T_inA)
-    rho_ref_A = air_density(T_inA, P_in)  # FIX (2026-06-24 audit): use actual P_in, not P_atm (matches tpms_calc.compute + 2D builder)
-    k_fB = air_conductivity(T_inB); mu_B = air_viscosity(T_inB)
-    rho_ref_B = air_density(T_inB, P_in)
-
-    # Reynolds (D_h convention, confirmed 2026-04-22)
-    Re_A = np.maximum(rho_ref_A * u_A * D_h_arr / mu_A, 10.0)
-    Re_B = np.maximum(rho_ref_B * u_B * D_h_arr / mu_B, 10.0)
-
-    D_h_mm = D_h_arr * 1000.0
-    Nu_A = _nu_vec(tpms_type, Re_A, eps_arr, L_field, D_h_mm)
-    Nu_B = _nu_vec(tpms_type, Re_B, eps_arr, L_field, D_h_mm)
-
-    H_sf_A = Nu_A * k_fA / D_h_arr
-    H_sf_B = Nu_B * k_fB / D_h_arr
-    h_vA_arr = H_sf_A * A0_arr
-    h_vB_arr = H_sf_B * A0_arr
-
-    K_ffA_arr = eps_arr * k_fA
-    K_ffB_arr = eps_arr * k_fB
-    # χ_s to match the main field path (run_stack_3d K_ss =
-    # chi_s_eff(type, ε)·(1−ε)·k_s) + tpms_calc.compute(). B2 (2026-07-06):
-    # per-cell fitted χ_s from unit-cell homogenization; env TPMSHX_CHI_S
-    # constant still overrides.
-    from sjtu_tpmshx.models.tpms_calc import chi_s_eff as _chi_s_eff
-    K_ss_arr = _chi_s_eff(tpms_type, eps_arr) * (1.0 - eps_arr) * k_s
-
-    return {
-        'zone_id': np.zeros((Nx, Ny, Nz), dtype=np.int32),
-        'eps_arr': eps_arr,
-        'eps_f_arr': eps_arr / 2.0,
-        'K_ffA_arr': K_ffA_arr,
-        'K_ffB_arr': K_ffB_arr,
-        'K_ss_arr': K_ss_arr,
-        'h_vA_arr': h_vA_arr,
-        'h_vB_arr': h_vB_arr,
-        'r_h_arr': D_h_arr / 2.0,
-        'A_0_arr': A0_arr,
-        'L_field': L_field,
-        't_field': t_field,
-        'axis': 'continuous_3d',
-    }
+    return _arrays_from_fields(
+        L_field, t_field, tpms_type, k_s, u_A, u_B, T_inA, T_inB, lut,
+        P_in=P_in, P_inB=P_inB, allow_extrap=allow_extrap,
+        fluid_type=fluid_type, axis='continuous_3d')
 
 
 if __name__ == '__main__':

@@ -145,7 +145,7 @@ def test_geometry_extrapolation_warning_in_grid_returns_none():
 
 
 def test_geometry_extrapolation_warning_off_grid():
-    w = geometry_extrapolation_warning(L_cell_mm=7.0, t_mm=0.6)
+    w = geometry_extrapolation_warning(L_cell_mm=7.0, t_mm=0.61)
     assert w is not None
     assert w.code == 'geometry_extrapolation'
 

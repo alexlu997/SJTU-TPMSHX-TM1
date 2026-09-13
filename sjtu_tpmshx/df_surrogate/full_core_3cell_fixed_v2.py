@@ -11,8 +11,7 @@ from pathlib import Path
 METHOD = "cfd_full_core_3cell_fixed_v2"
 TABLE_PATH = Path(__file__).parent / "_prebuilt" / f"{METHOD}.csv"
 _TOPOLOGIES = ("Diamond", "Gyroid")
-_L_NODES = (4.0, 5.0, 6.0, 7.0, 8.0)
-_T_NODES = (0.3, 0.4, 0.5, 0.6)
+from ._domain import TRAIN_L_NODES as _L_NODES, TRAIN_T_NODES as _T_NODES
 
 
 def _load_table() -> dict[str, dict[tuple[float, float], tuple[float, float]]]:
