@@ -35,29 +35,8 @@ from sjtu_tpmshx.ui.theme import (
     apply_mpl_theme, set_density,
 )
 
-# Version lives in _version.py (P1.9): a leaf module UI widgets can import
-# without pulling in this composition root. Re-exported here for back-compat.
 from sjtu_tpmshx._version import __version__  # noqa: E402
-
-
-def _git_commit_hash():
-    """Return the running source tree's 7-character commit, or '' without Git."""
-    import os
-    import subprocess
-
-    root = _PathBoot(__file__).resolve().parent.parent
-    if not (root / '.git').exists():
-        return ''
-    env = os.environ.copy()
-    for name in ('GIT_DIR', 'GIT_COMMON_DIR', 'GIT_WORK_TREE'):
-        env.pop(name, None)
-    try:
-        return subprocess.check_output(
-            ['git', 'rev-parse', '--verify', 'HEAD'], cwd=root,
-            stderr=subprocess.DEVNULL, text=True, env=env,
-        ).strip()[:7]
-    except (OSError, subprocess.CalledProcessError):
-        return ''
+from sjtu_tpmshx.domain.provenance import SOURCE_ROOT, repository_revision
 
 def _rebuild_styles(theme_name=None):
     """Refresh styles after a theme switch.
@@ -558,13 +537,11 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             pass
 
         # Auto-update suggested grid from D_h.
-        #   2D: alpha=0.4 (~5% Q accuracy)
+        #   2D: alpha=0.4
         #   3D: alpha=1.0 (streamwise x), 0.5 (cross-stream y, z) — with
         #       wall-refine adding 16 BL cells/axis, N_user ~ 2-3x Nx_target
-        #       gives "paper-run" ~90k-cell refined grid matching the
-        #       current Shanghai 3D dP baseline ≈ 9.82% (gamma_df) /
-        #       7.19% (rbf) RMSRE without runaway timing (17.83% is
-        #       historical).
+        #       gives a refined grid of roughly 90k cells. This size heuristic
+        #       is not an accuracy estimate for the selected fluid or model.
         is_3d = (hasattr(self, 'combo_dim')
                  and self.combo_dim.currentIndex() == 1)
         try:
@@ -1098,7 +1075,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
     def _show_about(self):
         """Report version, commit, Python/Qt/NumPy/SciPy versions, author."""
         lines = [f"<b>SJTU-TPMSHX</b> v{__version__}"]
-        commit = _git_commit_hash()
+        commit = (repository_revision(SOURCE_ROOT)['revision'] or '')[:7]
         if commit:
             lines.append(f"Commit: <code>{commit}</code>")
         lines.append("")

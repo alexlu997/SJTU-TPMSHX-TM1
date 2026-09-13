@@ -50,9 +50,9 @@ def summary_rows(results, tags) -> list:
 def detail_rows(results) -> list:
     return [dict(
         构型=cid(d), 工况=pc["case"], 热流体=pc["hot_fluid"], 冷流体=pc["cold_fluid"],
-        空气出口_K=round(pc["T_air_out"], 2), 冷侧出口_K=round(pc["T_cold_out"], 2),
-        空气绝对压损_Pa=round(pc["dP_hot_pa"], 1),
-        空气相对压损_pct=round(pc["dP_hot_frac"] * 100, 3),
+        热侧出口_K=round(pc["T_air_out"], 2), 冷侧出口_K=round(pc["T_cold_out"], 2),
+        热侧绝对压损_Pa=round(pc["dP_hot_pa"], 1),
+        热侧相对压损_pct=round(pc["dP_hot_frac"] * 100, 3),
         冷侧绝对压损_Pa=round(pc["dP_cold_pa"], 1),
         冷侧相对压损_pct=round(pc["dP_cold_frac"] * 100, 3),
         换热量_kW=round(pc["Q_W"] / 1e3, 3),

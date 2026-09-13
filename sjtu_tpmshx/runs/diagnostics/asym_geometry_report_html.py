@@ -1,6 +1,7 @@
 """
-Phase 0 完整流程报告：读 asym_geom_scan CSV → 自包含 HTML（手绘 SVG + Task 0-5 全流程）→ 桌面。
-蓝色简约风。用法：python -u runs/asym_geometry_report_html.py
+Phase 0 历史流程报告：读 asym_geom_scan CSV → 自包含 HTML（手绘 SVG + Task 0-5 全流程）。
+默认输出至 sjtu_tpmshx/runs/_out，TPMSHX_TOOL_OUT_DIR 可覆盖目录。
+在仓库根目录运行：python -m sjtu_tpmshx.runs.diagnostics.asym_geometry_report_html
 """
 import csv
 import html as _html

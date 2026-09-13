@@ -73,14 +73,8 @@ class ResultBridgeMixin:
 
     @property
     def _drawn_tabs(self) -> set:
-        """Live view of ``self.cache._drawn_tabs``. Mutations on the
-        returned set do NOT propagate back to the cache; call sites
-        that previously did ``self._drawn_tabs.add(x)`` work because
-        the cache exposes a real ``set`` reference (see
-        ``ResultCache.get_drawn_tabs`` — currently returns a copy).
-        Sites doing in-place ``.add`` after C5 Phase 5 should switch
-        to ``self.cache.mark_drawn(x)``; meanwhile the setter below
-        catches the common ``self._drawn_tabs = drawn`` pattern."""
+        """Copy of the rendered-tab names. Use cache.mark_drawn() for one
+        tab or assign a complete set through the setter below."""
         return self.cache.get_drawn_tabs()
 
     @_drawn_tabs.setter

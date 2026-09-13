@@ -153,7 +153,7 @@ class GeometryConfig:
     Lz_m: Optional[float] = None
     # Asymmetric porosity: offset-isosurface centre δ (φ-units). 0.0 →
     # symmetric 50/50 (bit-identical). |δ|>0 → ε_A (φ<δ−C) ≠ ε_B (φ>δ+C);
-    # consumed by pipelines.stages_3d._eps_sides_for_run. Human targets
+    # consumed by models.asym_split._eps_sides_for_run. Human targets
     # (A%/B%) convert to δ in run scripts via runs/diagnostics/asym_target_scan.
     delta_levelset: float = 0.0
 

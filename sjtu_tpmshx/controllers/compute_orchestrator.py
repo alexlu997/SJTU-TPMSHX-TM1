@@ -7,15 +7,14 @@ pattern. Provides:
   - re-entrancy guard (refuse to start while running)
   - cooperative cancel via cancel_token (worker checks at epoch boundaries)
   - structured signals (started / progress / finished / error / cancelled)
-  - ETA history per mode (2d / 3d / poly)
+  - ETA history per mode (2d / 3d)
   - solver stdout capture into a 500 KB ring (for the D9 solve-log viewer)
 
 The actual solver work runs in `worker_fn(cfg, cancel_token, progress_cb)`.
 Caller passes a callable that does the compute and returns its result object.
 The orchestrator handles thread spawn / lifecycle / signal dispatch.
 
-Phase 1 of 2026-05-06 main.py refactor (audit fix #4).
-See vault/reports/refactor/2026-05-06-main-py-refactor-plan-CN.md.
+Current controller/module boundaries are documented in docs/architecture.md.
 """
 from __future__ import annotations
 
@@ -154,7 +153,7 @@ class ComputeOrchestrator(QObject):
     Signals
     -------
     started(str mode)
-        Emitted right before worker dispatch. mode in {'2d', '3d', 'poly'}.
+        Emitted right before worker dispatch. mode in {'2d', '3d'}.
     progress(int percent)
         Emitted as the worker reports progress. 0..100. Solver controls cadence.
     finished(object result)
@@ -217,7 +216,6 @@ class ComputeOrchestrator(QObject):
         self._eta_history = {
             '2d': deque(maxlen=10),
             '3d': deque(maxlen=10),
-            'poly': deque(maxlen=10),
         }
 
     # ---- introspection -----------------------------------------------------
@@ -266,7 +264,7 @@ class ComputeOrchestrator(QObject):
         """
         if self._is_running:
             return False
-        if mode not in ('2d', '3d', 'poly'):
+        if mode not in ('2d', '3d'):
             raise ValueError(f"unknown compute mode: {mode!r}")
 
         self._mode = mode

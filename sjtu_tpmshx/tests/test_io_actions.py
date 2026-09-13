@@ -46,6 +46,31 @@ def win(tmp_path_factory):
     mp.undo()
 
 
+def test_figure_export_records_current_source_and_version(tmp_path, monkeypatch, win):
+    from PIL import Image
+    from sjtu_tpmshx._version import __version__
+    from sjtu_tpmshx.ui.mixins import io_actions
+
+    path = tmp_path / 'figure.png'
+    choices = iter([('温度', True), ('150 (screen)', True)])
+    monkeypatch.setattr(io_actions.QInputDialog, 'getItem', lambda *a, **kw: next(choices))
+    monkeypatch.setattr(io_actions.QFileDialog, 'getSaveFileName',
+                        lambda *a, **kw: (str(path), 'PNG (*.png)'))
+    roots = []
+    def revision(root):
+        roots.append(root)
+        return {'revision': 'example-revision'}
+    monkeypatch.setattr(io_actions, 'repository_revision', revision)
+    monkeypatch.setattr(win, '_drawn_tabs', {'temp'})
+    monkeypatch.chdir(tmp_path)
+    win._export_figure()
+    with Image.open(path) as figure:
+        assert figure.info['Source'] == 'https://github.com/alexlu997/SJTU-TPMSHX-TM1'
+        assert figure.info['Software'] == f'SJTU-TPMSHX v{__version__}'
+        assert figure.info['Keywords'] == 'commit=example'
+    assert roots == [io_actions.SOURCE_ROOT]
+
+
 @pytest.mark.parametrize('side', ['A', 'B'])
 def test_sco2_switch_default_and_explicit_pressure_preserved(win, side):
     from sjtu_tpmshx.ui.window_config import config_from_window

@@ -59,9 +59,7 @@ def _parse_inputs_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
         check_water_state(config.type, config.T_in_K, config.P_in_Pa,
                           where=f'pipeline inlet {side}')
 
-    # Surrogate training-domain guard for the UI Compute path (#10) —
-    # previously only the optimizer did this; the Compute tab now also
-    # guards a single out-of-window (u, T, L, t) from silent RBF extrap.
+    # Current geometry/Nu applicability guard for the UI Compute path.
     # If ``cfg.extrap.allow`` is set (the checkbox is on, or the env
     # var TPMSHX_ALLOW_EXTRAP=1 fed the dataclass), out-of-window
     # values downgrade to warn and we stash the reasons in the parsed
