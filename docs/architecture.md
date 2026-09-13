@@ -194,7 +194,7 @@ explicit numerical-model change with directly relevant validation.
     The 2026-09-09 pressure-floor extension leaves the EOS backend and the
     independent Nu/D-F applicability and acceptance gates unchanged; it does
     not establish experimental accuracy in the added range.
-11. **Current V2 limit.** sCO2 zones and offset level sets remain rejected;
+11. **Current TM1 limit.** sCO2 zones and offset level sets remain rejected;
     air/water-only runs retain their existing temperature-form kernels.
     For Nz>1, those kernels solve every physical fluid and solid end control
     volume. Tin is imposed at the open inlet face with half-cell conduction;
@@ -269,8 +269,8 @@ data/raw_data/
 ├── experiments/{air,water_air,sco2}/
 ├── cfd/
 │   ├── water/
-│   ├── sco2/{Diamond,Gyroid}/
-│   └── co2/{Diamond,Gyroid}/
+│   └── sco2/{Diamond,Gyroid}/
+├── archive/{co2,water_air,sco2}/
 └── plans/water/
 ```
 

@@ -37,16 +37,18 @@ Both use recorded `screening@v2-5f1cafb` and `fluid@v2-5f1cafb` (air) resources.
 - `parameters.rejection`: null, or the original cold 1D choke reason. A rejected
   preparation still contains real geometry and coefficients and can cross a
   file boundary; execution does not invent a thermal state for it.
-- `metadata`: actual D-F method/override settings and, for 3D, resolved roughness
+- `metadata.df_options`: the resolved `method` (`cfd_full_core_3cell_fixed_v2`);
+  former override/residual flags are retired. Metadata also records, for 3D, resolved roughness
   mode and roughness in m. `geometry_fields` contains source cell/wall lengths
   in m for provenance; changing geometry must go through preparation to update
   all dependent coefficients. `config_snapshot` is provenance only and may be
   deleted before solving. No solver consults it.
 
-The 2D model retains its warning when a caller labels a fluid as non-air: its
-actual physics remains air/air and the warning is also stored in the result.
-The supported flow mapping is +x A / -y B. This extraction does not introduce
-other orientations or 3D partial ports. The 3D B flow remains frozen after the
+Preparation rejects any fluid pair other than air/air or flow mapping other
+than +x A / -y B. GUI optimization uses full-face ports; the explicit 2D API
+also accepts `ports_A/B` intervals, while 3D rejects partial ports. Geometry
+bounds are L=4–8 mm and t=0.3–0.6 mm; each fluid's Nu applicability is checked
+separately. The 3D B flow remains frozen after the
 cold solve. Its hot A seed and post-solve envelope gates retain their original
 rejection semantics. No refinement or surrogate prediction occurs in execution.
 

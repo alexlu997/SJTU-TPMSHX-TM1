@@ -28,13 +28,6 @@ KPI 条 Q/ΔP_A/ΔP_B 数值 SHALL 高于 T_out 次要项一档（字号/颜色�
 - **WHEN** 检查 KPI chips QSS
 - **THEN** Q/dPA/dPB 数值 chip 含主层标记（10pt/val 色），Tout 为次层
 
-### Requirement: Withdrawn items recorded
-RS-1（A/B 并排）与 RS-3（共享色标）SHALL 记录为撤销：RS-3 已由 `chk_sync_colorbar_T` 覆盖，RS-1 与域纵横比（宽扁场图）冲突。
-
-#### Scenario: Design records the withdrawal
-- **WHEN** 阅读本 change design.md
-- **THEN** 两项撤销及理由在案
-
 ### Requirement: Workbench-aligned tab shortcuts
 键盘层 SHALL 与可见三页签工作台一致：Ctrl+1 → 几何布局，Ctrl+2 → 结果（经 `_result_view` 解析到 2D 场/3D），Ctrl+3 → 优化，Ctrl+4 → 结果页内 2D|3D 切换（无结果侧可切时为 no-op）。退役的 Ctrl+5 与直达 temp/pres/vel 的绑定 SHALL NOT 存在。`_cycle_tab`（Ctrl+↑/↓）SHALL 按 ('layout','result','pareto') 走，当前页签属结果家族（temp/pres/vel/3d）时视为 'result'。
 
@@ -67,4 +60,3 @@ RS-1（A/B 并排）与 RS-3（共享色标）SHALL 记录为撤销：RS-3 已�
 #### Scenario: Saved result tab without results falls back
 - **WHEN** 上次会话停在结果页，但新会话尚无结果
 - **THEN** 回落 layout，不报错
-

@@ -1,6 +1,6 @@
 """load_sco2_exp.py — sCO2 换热器实验数据入库（D-7-6 / G-7-6, 2026-07）.
 
-数据源: data/raw_data/sCO2-Experient.xlsx
+数据源: data/raw_data/experiments/sco2/sco2_DG7-t0p6_hx_experiment_summary.xlsx
     实验数据处理-Diamond  51 工况（无差压计列）
     实验数据处理-Gyroid   44 工况（两侧测试块各多一列"差压计 MPa", 布局 +2 偏移
                           —— 两表列映射独立硬编码, 加表头断言守卫, 勿合并）
@@ -22,7 +22,8 @@
                 Nu ∝ 1/ΔT_streams, ΔT 小时爆伪影, 拟合前须过滤）
     h           Q_side / (A_heat · |T̄_side − T_w|),  Nu = h·Dh/k̄
 
-过滤旗标（load 不删行, 只打标; 下游按用途选）:
+加载先按 mdot、Tin_C、Tout_C、Q_kW、dP_MPa 关键列执行 dropna。
+对完成前置清洗的行只添加以下质量旗标，不再据旗标删行；下游按用途选：
     ok_dp   ΔP > 0（负压差 = 坏点, 用户裁决 2026-07-15 剔除）
     ok_dT   ΔT_streams = |T̄_h − T̄_c| > 10 K（Nu 构造伪影阈, 历史惯例）
     ok_hb   |热平衡| ≤ 0.15

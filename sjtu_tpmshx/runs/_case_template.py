@@ -32,7 +32,7 @@ def build_cfg(*, tpms_type: str = 'Gyroid', Lcell: float = 7.0,
               fluid_A_cfg: dict | None = None,
               fluid_B_cfg: dict | None = None,
               **overrides) -> dict:
-    """One canonical cfg for ``pipelines.stages_3d._run_3d_stack``.
+    """One canonical cfg for ``pipelines.run_stack_3d._run_3d_stack``.
 
     ``fluid_A_cfg`` / ``fluid_B_cfg`` default to full-face +x / -y
     crossflow derived from (L, H); pass a dict to override (partial BC).

@@ -139,9 +139,9 @@ def test_massflux_inlet_default_on_3d():
 
 
 def test_norris_1a_friction_is_exactly_noop():
-    """norris_1a MUST stay f×1.0 (alias of baseline): gamma_df's cF already
-    encodes SLM roughness; any friction multiplier double-counts (ledger
-    ROUGH-X, constructive double-count)."""
+    """norris_1a remains a friction no-op. The original ROUGH-X guard prevented
+    double-counting roughness in the historical gamma_df calibration; that
+    model is now retired, while the no-op contract remains unchanged."""
     from sjtu_tpmshx.solvers.roughness import f_enhancement, nu_extra_factor, apply_to_K_cF
     for Re in (500.0, 2000.0, 8000.0, 16000.0):
         assert f_enhancement(Re, mode='norris_1a') == 1.0

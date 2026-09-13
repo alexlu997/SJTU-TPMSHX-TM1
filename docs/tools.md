@@ -21,6 +21,38 @@
 | [现行实验修正](../sjtu_tpmshx/validation/df_refit/fit_experimental_effective.py)、[跨数据集 cF 对照](../sjtu_tpmshx/validation/df_refit/cf_cross_fluid.py) | 实验原表 + 当前固定 CFD 基线 → `reports/df_refit/` 审查 CSV | `python -m sjtu_tpmshx.validation.df_refit.<模块名>`；共享 `validation/hx_experiments.py` 读取，不依赖旧 γ/RBF 拟合或六张旧系数表，不更新生产系数 |
 | [sCO2 Nu 修正复核](../sjtu_tpmshx/validation/sco2_exp/fit_nu_correction.py)、[逐温度 Nu 报告](../sjtu_tpmshx/validation/sco2_exp/nu_bytemp_report.py) | sCO2 实验汇总 → 原锚定修正值 / 分温度 Nu 对照 | `python -m sjtu_tpmshx.validation.sco2_exp.<模块名>`；仅依赖现行 Nu、实验读取器及几何，不再运行旧压降模型 |
 
+## 公开模块扩展示例
+
+以下命令从仓库根执行，复用已通过环境检查的解释器，无需私有原始数据：
+
+```bash
+PYTHON="$(head -n 1 .venv-path)"
+export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
+export NUMBA_NUM_THREADS=2 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
+"$PYTHON" -m examples.three_module.external_design examples/three_module/design_case.json .cache/examples/design
+"$PYTHON" -m examples.three_module.parameter_scan .cache/examples/scan
+"$PYTHON" -m examples.three_module.design_field_call .cache/examples/field
+```
+
+PowerShell 读取 `.venv-path` 后使用 `& $tm1Python` 和相同参数，环境设置见根 README。
+
+- [external_design](../examples/three_module/external_design.py) 接收
+  [DesignCase JSON](../examples/three_module/design_case.json)：温度 K、绝压 Pa、
+  质量流量 kg/s、Q 为 W，`dPlim_h/c` 为 ΔP/P_in 分数。它对脚本中固定的
+  Diamond 7/0.5 mm 几何做正向计算，不按输入 Q 自动定尺；输出 Q 为总 W。
+  返回码 0/2 分别表示收敛/未收敛。GUI 表格 loader 的温压列另用 K/kPa，Q 列用 kW，
+  不能把表格列名直接当成这个 JSON 的字段。
+- [parameter_scan](../examples/three_module/parameter_scan.py) 对两个空气速度运行 2D
+  筛选；每个工况保存 Case/Result/metrics，根输出目录保存 `summary.json`。
+- [design_field_call](../examples/three_module/design_field_call.py) 对比原始场和显式
+  修改的有效固体导热场，按工况保存相同文件并确认 Q 随输入变化；没有伴随或梯度计算。
+
+各工况都有 `case.yaml` 与伴随 `case.h5`、`results.h5`、`metrics.json`。
+后两个示例的 Q 为 W/m，收敛与物理状态看 `summary.json` 和结果文件；
+脚本退出 0 不代表每个筛选工况均收敛。示例不扩大模型适用域。
+
+## 数据与研究工具
+
 CFD 清单到 nTop 的默认目录为 `sjtu_tpmshx/runs/_out/asym_cfd/`（Git 忽略）。
 设置 `TPMSHX_TOOL_OUT_DIR` 时，两次命令须使用同一个值：
 

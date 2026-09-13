@@ -6,7 +6,7 @@
 ## Requirements
 
 ### Requirement: Three-tab workbench
-画布工具条 SHALL 只呈现 几何布局｜结果｜优化 三个页签；温度/压力/速度/3D/2D 视图的 legacy 按钮对象 SHALL 保留（热键、分屏、路由兼容）但不上工具条；「结果」SHALL 在任一模式有结果时可用。
+画布工具条 SHALL 只呈现 几何布局｜结果｜优化 三个页签；温度/压力/速度/3D/2D 的内部路由键继续由 `ui/mixins/tab_view.py` 解析，不依赖隐藏按钮对象；「结果」SHALL 在任一模式有结果时可用。
 
 #### Scenario: Tabs collapsed
 - **WHEN** 检查工具条可见按钮

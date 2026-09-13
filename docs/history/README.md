@@ -5,6 +5,9 @@
 旧手册、开发日志、V2 README、已结束工程和固定试验已移出当前树，
 从[退役工具索引](retired-tools.md)查阅固定提交中的原文件。
 旧 γ/RBF、SmoothDF 等阻力模型及原报告见[模型退役索引](legacy-models.md)。
+旧 OpenSpec 拆分方案与 CSV 状态原稿也由
+[文档归档索引](retired-tools.md#旧规范与状态原稿归档2026-09-13)追溯；
+当前补充规范保留在 `openspec/specs/`，不把历史稿中的“当前”当作本版状态。
 
 ## 通过固定提交查阅的历史产物
 

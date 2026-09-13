@@ -9,16 +9,17 @@ TM1 将 TPMS 换热器的前处理、求解和后处理拆为独立维护的模�
 其他根目录分别存放文档、示例、辅助工具和验证记录。
 
 矩形 2D/3D 三模块主线的 M-A 合并验收已记录；M-B 扩展能力继续单独追踪。
-历史 B40 失败与物理适用范围仍须保留。当前状态与证据见
-[Graph 状态](docs/plans/three-module-graph/state/)、
-[接管记录](docs/plans/three-module-graph/TAKEOVER.md) 与
-[验收协议](docs/plans/three-module-graph/OPERATIONS.md)。
+历史 B40 失败与物理适用范围仍须保留。当前结论见
+[架构验收](docs/plans/three-module-graph/acceptance_architecture.md) 与
+[能力追踪](docs/plans/three-module-graph/acceptance_document.md)；
+原计划、接管过程与各节点证据从[Graph 索引](docs/plans/three-module-graph/README.md)查阅。
 
 ## 从这里开始
 
 | 你要做什么 | 入口 |
 | --- | --- |
 | 在本机运行 | [macOS / Windows 首次运行](#first-run)，含命令行算例和 GUI 启动 |
+| 从界面开始使用 | [GUI 常用流程](#gui-use) |
 | 阅读或修改源码 | [主体源码与模块地图](sjtu_tpmshx/README.md) |
 | 理解模块边界 | [架构说明](docs/architecture.md)、[三模块数据契约](schemas/three_module_v1/) |
 | 查找文档与其他目录 | [仓库目录与文档导航](docs/README.md) |
@@ -118,6 +119,26 @@ $env:NUMBA_CACHE_DIR = Join-Path $PWD '.cache/numba'
 贝叶斯优化的 Windows CPU 环境另见 `requirements-lock-server.txt`；上述小算例
 无需 BO。原始实验回归与重新拟合则需要匹配版本的本地数据，见文末。
 
+<a id="gui-use"></a>
+
+## GUI 常用流程
+
+1. 启动 `sjtu_tpmshx.main`，载入算例预设或填写左侧“几何与结构”“流体”。
+   在“网格与求解器”“边界细节与高级”中核对维度、网格和开口。
+2. 点击底部“计算”（Ctrl+R）。完成后进入“结果”，选择温度、压力或速度；
+   右侧查看收敛、能量闭合、适用域警告和“诊断详情”。数值可显示不等于验收通过。
+3. 用保存/导出菜单保存配置、结果或图像。GUI 会话保留界面状态；正式模块交接
+   使用 `case.yaml` 与伴随 HDF5、`results.h5`，两者用途不同。
+
+“快速设计”从给定流体工况、换热需求与压损约束筛选尺寸，使用规定速度的近似模型。
+“优化”页进行空气/空气连续场筛选与 Pareto 比较，BO 需另配对应锁定环境。
+命令面板中的 `Sensitivity sweep` 是两个参数的局部趋势热图，使用空气、固定 40 K
+温差估算；它不是当前完整工况的重新求解，也不替代最终计算。
+
+输入文件分三类：CLI 配置（`air_2d.json` / `air_3d.json`）、GUI 会话/预设、
+快速设计的 `DesignCase`。字段与单位不同，不能互相当作输入；
+最小 DesignCase 和扩展示例见[工具说明](docs/tools.md#公开模块扩展示例)。
+
 ## 三个模块
 
 ```text
@@ -195,11 +216,22 @@ PYTHON="$(head -n 1 .venv-path)"
 "$PYTHON" -m sjtu_tpmshx.runs.tools.check_locked_environment
 "$PYTHON" -m pip check
 export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
+export QT_QPA_PLATFORM=offscreen PYTHONHASHSEED=0
+export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+export NUMBA_NUM_THREADS=2
 "$PYTHON" -m pytest sjtu_tpmshx/tests -q -m "not slow and not heavy" --timeout=600 --timeout-method=thread
 "$PYTHON" -m pytest sjtu_tpmshx/tests/integration_tm1 -q --timeout=600 --timeout-method=thread
+# 完整本地验收：没有 -m 过滤；按本机 CPU/内存可将 auto 换为固定 worker 数。
+"$PYTHON" -m pytest sjtu_tpmshx/tests -q -n auto --dist loadscope --timeout=600 --timeout-method=thread
 ```
 
-第一条 pytest 排除了 slow/heavy，不能代替真实集成。最小后处理 CI 使用独立的
+PowerShell 使用同样的 pytest 参数，并以 `$env:NUMBA_NUM_THREADS='2'` 等设置
+上述环境变量，以 `& $tm1Python` 调用解释器。Numba 上限至少为 2，因为焓输运测试
+显式运行双线程检查。固定 128 核服务器的并行预算见 `scripts/run_tests_server.ps1`；
+`run_tests_fast.ps1` 只提供开发反馈，其 `not heavy` 子集与 CI 快测不同。
+
+第一条 pytest 排除了 slow/heavy，不能代替真实集成或第三条完整本地验收。
+完整验收的 skip 须保留具体原因，不能当作被跳过能力已经通过。最小后处理 CI 使用独立的
 `requirements-lock-postprocess.txt` 环境，并消费另一完整环境生成的真实 2D/3D
 结果文件；文件留在 CI 作业本地，不上传结果 artifact。配置不等于实际 CI 通过。
 

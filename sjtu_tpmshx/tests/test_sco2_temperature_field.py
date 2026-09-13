@@ -1,7 +1,7 @@
 """Vectorised T(h,P) inverse for the Option B enthalpy-form 3D LTNE rewrite.
 
 The conservative enthalpy kernel keeps h as the primary fluid unknown; the
-pipeline (stages_3d) must invert T = T(h,P) each outer iteration to feed the
+3D Python backend must invert T = T(h,P) each outer iteration to feed the
 diffusion/inter-phase coupling. sco2_temperature_field is the field counterpart
 of the scalar sco2_temperature (the per-cell array form the kernel refresh needs).
 """

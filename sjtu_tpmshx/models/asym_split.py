@@ -2,10 +2,8 @@
 
 The asymmetric-porosity split ratio is pure TPMS geometry (it depends only on
 the offset δ and the wall fraction C(t/L)), so it is shared by BOTH the 2D and
-3D pipelines. It lives here, in ``solvers/``, rather than in ``stages_3d`` so the
-2D path can import it WITHOUT dragging in the heavy 3D solver
-(``SIMPLESolver3D`` / the numba 3D kernels) that ``stages_3d`` pulls in at
-import time.
+3D preparation and numerical paths. It lives in ``models/`` so either
+consumer can import the geometry split without importing a numerical backend.
 
 Single source of truth for:
   - ``_asym_split_A``        — fraction of total ε assigned to side A;

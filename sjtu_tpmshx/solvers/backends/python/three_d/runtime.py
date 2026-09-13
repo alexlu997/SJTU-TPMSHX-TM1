@@ -1,12 +1,9 @@
-"""pipelines/run_stack_3d_stages.py — the five 3D stage functions + their
-dataclass interfaces and local helpers.
+"""Prepared 3D numerical execution, runtime state and local helpers.
 
-Moved VERBATIM from run_stack_3d.py (P1.8b F3 / P1.5 tail, 2026-07-21);
-behavior bit-identical (golden-gated). run_stack_3d.py keeps the thin
-_run_3d_stack orchestrator and re-exports every name moved here, so all
-callers (stages_3d re-export surface, tests, tools) are unaffected.
-Same layering contract as before: leaf modules only, never import
-pipelines.stages_3d (no cycles).
+Originally extracted from run_stack_3d.py (2026-07-21), then moved into the
+Python backend for TM1. Public execution consumes prepared inputs; current
+callers import owning modules directly. Former stages_3d re-exports are retired.
+This backend does not import preprocessing, pipelines or formal postprocessing.
 """
 
 from __future__ import annotations

@@ -1,8 +1,8 @@
 """Unit tests for solvers.coupling_skeleton — the shared outer-coupling
 convergence tracker (OuterConvergence).
 
-These lock the tracker contract that pipelines.stages_2d (dual ΔT + Δρ)
-and pipelines.stages_3d (single ΔT) both drive their convergence through.
+These lock the tracker contract used by the two_d (dual ΔT + Δρ) and
+three_d (single ΔT) numerical backends under solvers/backends/python/.
 Bit-identical-to-legacy behaviour is gated end-to-end by _golden_2d.py /
 _golden_3d.py; this file pins the unit-level semantics.
 """

@@ -1,0 +1,14 @@
+{
+  "case": 1,
+  "hot_fluid": "air",
+  "T_in_h": 688.23,
+  "P_in_h": 1088700.0,
+  "mdot_h": 0.2855,
+  "cold_fluid": "water",
+  "T_in_c": 320.0,
+  "P_in_c": 200000.0,
+  "mdot_c": 0.5,
+  "Q": 36700.0,
+  "dPlim_h": 0.075,
+  "dPlim_c": 0.05
+}

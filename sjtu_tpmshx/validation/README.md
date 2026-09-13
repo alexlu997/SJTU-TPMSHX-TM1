@@ -6,7 +6,8 @@
 - [cases/](cases/)：Nu、换热器、制造解和守恒验证。
 - [hx_experiments.py](hx_experiments.py)：现行实验工具共享读取。
 - [df_refit/](df_refit/)、[sco2_cfd/](sco2_cfd/)、[sco2_exp/](sco2_exp/)：现行闭合验证与显式离线拟合。
-- [_CSV_STATUS.md](_CSV_STATUS.md)：原 CSV 的历史数值和版本语境，不作为当前结果的新验收。
+- [cf_aniso](cf_aniso/README.md)：待方向分辨 CFD 数据的研究工单与拟合模板，尚未标定。
+- [原 CSV 状态说明](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/5c517b415be0adbfc7bbfd205a3dba07fe8792a8/sjtu_tpmshx/validation/_CSV_STATUS.md)：历史数值和版本语境，全文按固定 Git 保存；CSV 与有效测试继续保留。
 
 验证保留原成员、门槛和失败；导入成功、收敛、守恒与实验精度分别判断。
 旧 2026-05 索引的原文保留在

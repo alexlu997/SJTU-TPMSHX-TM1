@@ -392,11 +392,13 @@ def build_quick_design_dialog(parent=None):
     auto_form.addRow("拓扑 (topo):", le_topo)
 
     le_l = QLineEdit("4,5,6,7,8")
-    le_l.setToolTip("胞元尺寸 l (mm) 列表，逗号分隔 (默认 5 节点; 4/5/6/8 在训练域, 7 内插)")
+    le_l.setToolTip("胞元尺寸 l (mm) 列表，逗号分隔。当前 K/cF 的 CFD 节点为 4/5/6/7/8；"
+                    "各流体 Nu 与实验修正的适用范围另行检查。")
     auto_form.addRow("l 列表 (mm):", le_l)
 
     le_t = QLineEdit("0.3,0.4,0.5,0.6")
-    le_t.setToolTip("壁厚 t (mm) 列表，逗号分隔。注: 训练域 t∈{0.3,0.4,0.5}; t=0.6 为外推, 低置信")
+    le_t.setToolTip("壁厚 t (mm) 列表，逗号分隔。当前 K/cF 的 CFD 节点为 0.3/0.4/0.5/0.6；"
+                    "各流体 Nu 与实验修正的适用范围另行检查。")
     auto_form.addRow("t 列表 (mm):", le_t)
 
     chk_refine = QCheckBox("warm-start (连续 l,t 精修)")

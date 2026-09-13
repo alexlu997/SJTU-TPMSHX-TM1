@@ -34,7 +34,7 @@ def _make_solver(Nx=8, Ny=12, Nz=4, v_inlet=3.0, **kw):
 def test_legacy_is_the_default():
     """The SOLVER CLASS default stays 'legacy' — deliberately, even though F2
     is now priced (reports/f2_pricing_3d.csv), re-baselined, and the PIPELINE
-    default (run_stack_3d / stages_2d resolve env > cfg > 'f2'). The class
+    default (the full-model runtimes resolve env > cfg > 'f2'). The class
     default is what kernel-direct callers (tests, diagnostics, the optimizer
     evaluator per ledger O2/R3) get without opting in; flipping it would
     silently change every one of them. If you flip it intentionally, this

@@ -113,7 +113,8 @@ RBF 残差/局部覆盖修正和 `preprocess.offline.publish_surrogate` 随专�
 ConstDF 的负结果保留：Piedra 的 LOO 33%/47%，Kim K1 样本不足，
 Kim 子集和约束变体未优于当时基线。旧 γ/双层 γ/方法矩阵的失败行也未筛除。
 现行 `reports/df_refit/cf_cross_fluid.csv`、四份 `experimental_effective_*`，
-sCO2 Nu 系数/留一报告和仍被复现脚本读取的 M1 输入继续留在当前树。
+sCO2 Nu 系数/留一报告继续留在当前树。M1/M2 固定输入及消费者随后已退役，
+见[工程与试验索引](retired-tools.md)，不再作为当前重跑入口。
 
 ## 私有原件归档
 
