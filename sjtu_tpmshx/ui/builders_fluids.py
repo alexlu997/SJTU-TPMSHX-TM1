@@ -7,7 +7,7 @@ sections and the polygon pipe-edge selectors.
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QGridLayout, QLabel, QPushButton,
-    QComboBox, QScrollArea, QFrame,
+    QComboBox, QScrollArea, QFrame, QCheckBox,
 )
 
 from .builders_base import (section, row, res_row, add_row, _computed_divider, right_align_combo)
@@ -56,6 +56,12 @@ def _build_pipe_section(window, lay, side, *, title_style, frame_style,
         setattr(window, f'_lbl_pipe{side}_{suffix}', lbl)
         if '_z_' in suffix:
             window._3d_only_widgets += [le, lbl]
+    uniform = QCheckBox("开口内均匀")
+    uniform.setToolTip("仅用于二维；未勾选时保留旧入口边缘平滑分布。三维使用几何开口内均匀入口。")
+    uniform.setEnabled(window.combo_dim.currentIndex() == 0)
+    window.combo_dim.currentIndexChanged.connect(lambda index: uniform.setEnabled(index == 0))
+    setattr(window, f'chk_uniform_inlet{side}_2d', uniform)
+    add_row(window, gio, len(_PIPE_ROWS) + 1, "二维入口分布", uniform)
 
 
 def _build_fluid_io_rows(window, g, side, t, u_default, T_default, P_default,

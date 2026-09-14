@@ -12,6 +12,15 @@ from PySide6.QtWidgets import QInputDialog, QMessageBox, QTableWidgetItem
 
 
 class SessionPresetsMixin:
+    def _set_shanghai_grid(self, *, is_3d):
+        from sjtu_tpmshx.models.grid import SHANGHAI_GRID_2D, SHANGHAI_GRID_3D
+        counts = SHANGHAI_GRID_3D if is_3d else SHANGHAI_GRID_2D
+        for axis, count in zip('xyz', counts):
+            getattr(self, 'le_N' + axis).setText(str(count))
+        self.chk_wall_refine_3d.setChecked(False)
+        self.chk_port_wall_refine.setChecked(True)
+        self._user_edited_grid = True
+
     # Canonical presets shipped with the app; user presets append after
     # these. Index 0 is the prompt placeholder managed by the combo itself.
     _BUILTIN_PRESETS = [
@@ -180,7 +189,11 @@ class SessionPresetsMixin:
                                 self._update_edge_combos()
                             c.setCurrentIndex(int(idx))
                 except Exception: pass
-        for name, val in (preset.get('checks') or {}).items():
+        checks = dict(preset.get('checks') or {})
+        checks.setdefault('chk_port_wall_refine', False)
+        for side in ('A', 'B'):
+            checks.setdefault(f'chk_uniform_inlet{side}_2d', False)
+        for name, val in checks.items():
             if name not in allowed_checks:
                 continue
             b = getattr(self, name, None)
@@ -239,6 +252,8 @@ class SessionPresetsMixin:
                 required -= set(self._POLYGON_COMBOS)
             if section == 'combos' and 'combo_sco2_nu_mode' not in values:
                 required.discard('combo_sco2_nu_mode')  # old saved configs default to CFD
+            if section == 'checks' and 'chk_port_wall_refine' not in values:
+                required.discard('chk_port_wall_refine')
             if complete and set(values) != required:
                 raise ValueError(f'Incomplete or unsupported {section}: '
                                  f'{sorted(set(values) ^ required)}')
@@ -362,6 +377,7 @@ class SessionPresetsMixin:
         self._apply_shanghai_defaults()
         if name == "Shanghai (2D Gyroid)":
             self.combo_dim.setCurrentIndex(0)
+            self._set_shanghai_grid(is_3d=False)
         elif name == "Shanghai (3D Diamond)":
             self.combo_tpms.setCurrentIndex(0)
         self.statusBar().showMessage(f"Preset: {name}.", 5000)
@@ -408,7 +424,8 @@ class SessionPresetsMixin:
         'combo_fluidA', 'combo_fluidB',
         'combo_dirA', 'combo_dirB',
     )
-    _SESSION_CHECKS = ('chk_zones', 'chk_wall_refine_3d', 'chk_var_rhocp')
+    _SESSION_CHECKS = ('chk_zones', 'chk_wall_refine_3d', 'chk_port_wall_refine', 'chk_var_rhocp',
+                       'chk_uniform_inletA_2d', 'chk_uniform_inletB_2d')
     # Explicit loads restore inputs; startup sessions retain their reset policy.
     _POLYGON_COMBOS = ('combo_edge_inA', 'combo_edge_outA',
                        'combo_edge_inB', 'combo_edge_outB')
@@ -612,7 +629,10 @@ class SessionPresetsMixin:
                     c.setCurrentIndex(int(idx))
             except Exception:
                 continue
-        for name, val in (payload.get('checks') or {}).items():
+        checks = dict(payload.get('checks') or {})
+        for side in ('A', 'B'):
+            checks.setdefault(f'chk_uniform_inlet{side}_2d', False)
+        for name, val in checks.items():
             b = getattr(self, name, None)
             if b is None:
                 continue
@@ -659,34 +679,20 @@ class SessionPresetsMixin:
                     self._apply_fluid_defaults(_side)
                 except Exception:
                     pass
-        # User preference: grid defaults Nx=Ny=Nz=20 must win on every
-        # startup, even when a previous session saved different values, AND
-        # must survive a subsequent "Compute TPMS Geometry" call which would
-        # otherwise auto-suggest D_h-derived Nx/Ny/Nz. Setting the
-        # `_user_edited_grid` sentinel makes compute_tpms skip its
-        # auto-fill block so the 20/20/20 default is sticky.
-        # Detect if any reset diverges from saved state — if so, show a
-        # one-shot status message so the user knows their session was NOT
-        # fully restored (was previously silent — auditor's "feels like a
-        # bug" concern, 2026-05-05 audit).
+        # Keep the existing startup-reset policy, using the current Shanghai
+        # grid. Explicit preset loads and subsequent manual edits keep theirs.
         _saved_grid = (payload.get('line_edits') or {})
+        self._set_shanghai_grid(is_3d=self.combo_dim.currentIndex() == 1)
         _grid_was_custom = any(
-            (str(_saved_grid.get(_n, '20')).strip() not in ('', '20'))
+            str(_saved_grid.get(_n, '')).strip() not in ('', getattr(self, _n).text())
             for _n in ('le_Nx', 'le_Ny', 'le_Nz'))
-        for _attr in ('le_Nx', 'le_Ny', 'le_Nz'):
-            _le = getattr(self, _attr, None)
-            if _le is not None:
-                try:
-                    _le.setText('20')
-                except Exception:
-                    pass
-        self._user_edited_grid = True
         # Surface reset notices via deferred status bar — wait until the
         # window is shown so the message isn't eaten by subsequent renders.
         from PySide6.QtCore import QTimer as _QT_msg
         _msgs = []
         if _grid_was_custom:
-            _msgs.append("Grid reset to 20×20×20 (default; saved values discarded)")
+            _msgs.append("Grid reset to Shanghai recommendation: " + "×".join(
+                getattr(self, 'le_N' + axis).text() for axis in 'xyz'))
         _saved_combos2 = payload.get('combos') or {}
         if any(int(_saved_combos2.get(f'combo_fluid{_s}', 0) or 0) != 0
                for _s in ('A', 'B')):

@@ -267,6 +267,9 @@ class PartialBCConfig:
     in_z_w: Optional[float] = None
     out_z_ctr: Optional[float] = None
     out_z_w: Optional[float] = None
+    # 2D only: False preserves the historical four-cell edge profile.
+    # 3D already imposes uniform flow over the geometric opening.
+    uniform_inlet_2d: bool = False
 
 
 def bc_to_dict(bc: 'PartialBCConfig', L_dom: float, H_dom: float,
@@ -313,6 +316,8 @@ def bc_to_dict(bc: 'PartialBCConfig', L_dom: float, H_dom: float,
         d['in_z_w'] = bc.in_z_w
         d['out_z_ctr'] = bc.out_z_ctr
         d['out_z_w'] = bc.out_z_w
+    if not with_z and bc.uniform_inlet_2d:
+        d['uniform_inlet_2d'] = True
     return d
 
 
@@ -395,6 +400,7 @@ class FeatureFlags:
     Audit C4 (L-a-2).
     """
     wall_refine_3d: bool = False
+    port_wall_refine: bool = False  # 2D/3D port-aligned graded grid; Nx/Ny/Nz are totals
     variable_rho_cp: bool = True   # default ON (local-P gas density; 2026-06-09)
     temp_unit: Literal['K', 'C'] = 'K'
 
@@ -510,6 +516,8 @@ class ComputeConfig:
 
         self.zones.validate()
         self.sco2_nu.validate()
+        if self.flags.port_wall_refine and self.flags.wall_refine_3d:
+            raise ValueError('Select either port/wall refinement or six-wall 3D refinement')
         if self.df_mode not in ('cfd_smooth', 'experimental'):
             raise ValueError(
                 f"ComputeConfig.df_mode={self.df_mode!r} — must be "
@@ -575,6 +583,8 @@ class ComputeConfig:
         # single-fluid only below this boundary.
         from .validator import validate_pipe_config
         for side, bc in (('A', self.bc_A), ('B', self.bc_B)):
+            if not isinstance(bc.uniform_inlet_2d, bool):
+                raise ValueError(f'ComputeConfig.bc_{side}.uniform_inlet_2d must be boolean')
             if (bc.in_w <= 0.0) != (bc.out_w <= 0.0):
                 raise ValueError(
                     f"ComputeConfig.bc_{side}.in_w and out_w must both be "

@@ -221,7 +221,10 @@ def _prepare_grid(cfg):
         len(_x_breaks) == 0 and len(_y_breaks) == 0
         and zone_config is None and za is None
     )
-    if _wall_refine_gui:
+    if cfg['compute_cfg'].flags.port_wall_refine:
+        from sjtu_tpmshx.models.grid import build_port_wall_grid
+        energy_dx, energy_dy = build_port_wall_grid((L, H), (N_x, N_y), (cfgA, cfgB))
+    elif _wall_refine_gui:
         from sjtu_tpmshx.models.grid import build_master_refined_grid
         try:
             energy_dx, energy_dy, N_x, N_y = build_master_refined_grid(
@@ -366,7 +369,9 @@ def _prepare_openings(cfg, dx, dy):
         openings = {}
         for end in ('in', 'out'):
             center, width = port[end + '_ctr'], port[end + '_w']
-            raw, profile = _port_fractions_1d(widths, center-width/2, center+width/2)
+            raw, profile = _port_fractions_1d(
+                widths, center-width/2, center+width/2,
+                uniform=end == 'in' and port.get('uniform_inlet_2d', False))
             openings[end + '_geom_frac'] = raw
             openings[end + '_profile_frac'] = profile
         boundaries[side] = openings

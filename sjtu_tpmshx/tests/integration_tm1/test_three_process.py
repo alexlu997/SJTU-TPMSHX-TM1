@@ -12,7 +12,7 @@ import pytest
 @pytest.mark.slow
 @pytest.mark.parametrize('dimension', [2, 3])
 def test_real_three_process_handoff(tmp_path, dimension):
-    from sjtu_tpmshx.tests.integration_tm1.test_2d_real import AIR_BASELINE_METRICS
+    from sjtu_tpmshx.tests.integration_tm1.test_2d_real import AIR_PUBLIC_METRICS
     from sjtu_tpmshx.io.case_io import load_case
     from sjtu_tpmshx.io.result_io import load_result
     from sjtu_tpmshx.io.metrics_io import load_metrics
@@ -64,7 +64,7 @@ raise SystemExit(status)
     assert result.run_status['converged'] is True
     stage('postprocess', result_path, downstream / 'metrics.json', receiver)
     metrics = load_metrics(downstream / 'metrics.json').metrics
-    expected = (AIR_BASELINE_METRICS if dimension == 2 else
+    expected = (AIR_PUBLIC_METRICS if dimension == 2 else
                 [338.48590825124325, 1945.2469619113485, 3044.9340885522665,
                  359.19558834036184, 344.9435887813375])
     names = ('Q', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B')

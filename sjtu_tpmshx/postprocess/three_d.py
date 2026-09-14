@@ -29,54 +29,54 @@ def _dp(pressure):
 
 
 def thermal_duties(result):
+    return tuple(thermal_duty(result, side) for side in ('A', 'B'))
+
+
+def thermal_duty(result, side):
     flux = result.boundary_fluxes
     if result.metadata['thermal_mode'] == 'model_h':
-        return tuple(-sum(float(np.sum(face)) for face in flux['model_h'][side].values())
-                     for side in ('A', 'B'))
+        if not result.metadata['diagnostics']['model_h_balance']['sides'][side]['physical_boundary_complete']:
+            raise ValueError('unknown inflow prevents a complete heat duty')
+        return -sum(float(np.sum(face)) for face in flux['model_h'][side].values())
     if result.metadata['thermal_mode'] == 'true_h':
         native = flux['true_h']
-        return tuple(_boundary_enthalpy_duty(native['h_' + side], native['h_in_' + side],
-                                             native['mass_flux_' + side]) for side in ('A', 'B'))
+        return _boundary_enthalpy_duty(native['h_' + side], native['h_in_' + side],
+                                      native['mass_flux_' + side])
     raise NotImplementedError('legacy temperature route has no captured complete enthalpy transport')
 
 
-def _reported_duty(result, side):
-    report = result.boundary_fluxes['report'][side]
-    temperature = _outlet(result.fields['Ta' if side == 'A' else 'Tb'], report['direction'])
-    weights = np.asarray(report['outlet_weights'])
-    inlet_mass = float(np.sum(report['inlet_weights']))
-    parameters = result.metadata['parameters']
-    if 'sco2' in (parameters['fluid_type_A'], parameters['fluid_type_B']):
-        h_out = _weighted(report['h_out_J_kg'], weights)
-        h_in = report['h_in_J_kg']
-        return abs(inlet_mass * (h_in - h_out))
-    return abs(inlet_mass * report['cp'] * (report['inlet_temperature'] - _weighted(temperature, weights)))
+def _mass_flow(result, side):
+    faces = result.boundary_fluxes['mass_' + side]
+    if faces is None:
+        raise KeyError('last thermal mass faces')
+    outward = [sign * np.take(face, end, axis=axis) for axis, face in enumerate(faces)
+               for end, sign in ((0, -1), (-1, 1))]
+    return tuple(sum(float(np.maximum(sign * face, 0).sum()) for face in outward)
+                 for sign in (-1, 1))
 
 
 def evaluate_metric(result, name):
     if name == 'Q':
-        if result.metadata['thermal_mode'] == 'model_h':
-            if not result.metadata['diagnostics']['model_h_balance']['sides']['A']['physical_boundary_complete']:
-                raise ValueError('unknown inflow prevents a complete heat duty')
-            return abs(thermal_duties(result)[0])
-        return _reported_duty(result, 'A')
+        return abs(thermal_duty(result, 'A'))
+    if name in ('Q_A', 'Q_B'):
+        return thermal_duty(result, name[-1])
     if name.startswith('dP_'):
         return _dp(result.pressure_evidence[name[-1]])
     if name.startswith('T_out_'):
         side = name[-1]
-        report = result.boundary_fluxes['report'][side]
-        return _weighted(_outlet(result.fields['Ta' if side == 'A' else 'Tb'], report['direction']),
-                         np.asarray(report['outlet_weights']))
+        direction = result.boundary_fluxes['report'][side]['direction']
+        mass = result.boundary_fluxes['mass_' + side]
+        outward = _outlet(mass[direction // 2], direction) * (1 if direction % 2 == 0 else -1)
+        if not np.all(np.isfinite(outward)):
+            raise ValueError('outlet temperature requires finite native mass flux')
+        weights = np.maximum(outward, 0.)
+        flowing = weights > 0.
+        temperature = _outlet(result.fields['Ta' if side == 'A' else 'Tb'], direction)
+        return _weighted(temperature[flowing], weights[flowing])
     if name.startswith('mass_flow_'):
-        return float(np.sum(result.boundary_fluxes['report'][name[-1]]['inlet_weights']))
+        return _mass_flow(result, name[-1])[0]
     if name.startswith('mass_imbalance_rel_'):
-        faces = result.boundary_fluxes['mass_' + name[-1]]
-        if faces is None:
-            raise KeyError('last thermal mass faces')
-        outward = [sign * np.take(face, end, axis=axis) for axis, face in enumerate(faces)
-                   for end, sign in ((0, -1), (-1, 1))]
-        inflow = sum(float(np.maximum(-face, 0).sum()) for face in outward)
-        outflow = sum(float(np.maximum(face, 0).sum()) for face in outward)
+        inflow, outflow = _mass_flow(result, name[-1])
         return abs(outflow-inflow) / max(inflow, outflow, 1e-30)
     if name == 'energy_imbalance_rel':
         a, b = thermal_duties(result)

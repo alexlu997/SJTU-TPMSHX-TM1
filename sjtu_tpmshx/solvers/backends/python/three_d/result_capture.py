@@ -4,9 +4,7 @@ from uuid import uuid4
 import numpy as np
 
 from sjtu_tpmshx.domain.field_result import FieldResult
-from .flux import _face_flux_weights
-from sjtu_tpmshx.models.field_coordinates_3d import _real_outlet_slice
-from .runtime import _pressure_real_3d, _prepared_eps_overrides
+from .runtime import _pressure_real_3d
 
 
 def capture_result(case, prob, outer, raw):
@@ -24,8 +22,7 @@ def capture_result(case, prob, outer, raw):
             fields[name] = raw[source]
             display_units[name] = unit
     pressure, report = {}, {}
-    overrides = _prepared_eps_overrides(prob.cfg, prob.eps)
-    for side, solver, port, override in zip(('A', 'B'), (prob.sA, prob.sB), (prob.fA, prob.fB), overrides):
+    for side, solver, port in zip(('A', 'B'), (prob.sA, prob.sB), (prob.fA, prob.fB)):
         if solver is None:
             continue
         axis = case.parameters['prepared']['axes'][side]
@@ -36,27 +33,9 @@ def capture_result(case, prob, outer, raw):
                               P_ref_abs=solver.P_ref_abs, axis_map=axis,
                               unit='Pa', axes=('solver_x', 'solver_y', 'solver_z'),
                               stream_axis=1, state='final SIMPLE flow', method='face_extrapolation_v1')
-        chi = (_real_outlet_slice(outer.chi_B, port['dir'])
-               if side == 'B' and outer.chi_B is not None else None)
-        report[side] = dict(
-            inlet_weights=_face_flux_weights(solver, port['dir'], face='real_inlet',
-                eps_f_per_side=.5 * prob.eps, eps_side_override=override),
-            outlet_weights=_face_flux_weights(solver, port['dir'], face='real_outlet',
-                eps_f_per_side=.5 * prob.eps, eps_side_override=override, chi_face=chi),
-            cp=prob.cp_A if side == 'A' else prob.cp_B,
-            inlet_temperature=prob.T_inA if side == 'A' else prob.T_inB,
-            inlet_pressure=prob.P_inA if side == 'A' else prob.P_inB,
-            direction=port['dir'], weight_unit='kg/s',
-            convention='rho * abs(normal velocity) * full face area * side porosity * optional chi',
-            state='final SIMPLE flow/report')
-        if 'sco2' in (prob.fluid_type_A, prob.fluid_type_B):
-            from sjtu_tpmshx.solvers.ltne_enthalpy_3d import _prop_field, _h_scalar
-            fluid = prob.fluid_type_A if side == 'A' else prob.fluid_type_B
-            item = report[side]
-            item['h_out_J_kg'] = _prop_field('H',
-                _real_outlet_slice(fields['Ta' if side == 'A' else 'Tb'], port['dir']),
-                _real_outlet_slice(fields['P_report_' + side], port['dir']), fluid)
-            item['h_in_J_kg'] = _h_scalar(item['inlet_temperature'], item['inlet_pressure'], fluid)
+        # Reductions consume the native thermal faces below. Persist only
+        # the port direction, without a second flow/enthalpy reconstruction.
+        report[side] = dict(direction=port['dir'])
     metadata = {key: dict(unit='K' if key in ('Ta', 'Tb', 'Ts') else
                           'Pa' if key.startswith('P_') else
                           'W/(m3 K)' if key.startswith('h_v') else 'W/(m K)',

@@ -67,21 +67,28 @@ def native_result(request):
 
 def test_application_fields_and_scalars_match_native_solve(native_result):
     fields, raw = native_result
-    result = to_compute_result(fields, evaluate(fields))
+    performance = evaluate(fields)
+    result = to_compute_result(fields, performance)
     dimension = fields.grid['dimension']
     assert result.converged == fields.run_status['converged']
     assert result.metadata['units']['Q'] == ('W/m' if dimension == 2 else 'W')
+    assert result.Q_W == performance.metrics['Q'].value
+    for name in ('Q_A', 'Q_B', 'energy_imbalance_rel'):
+        assert result.residuals[name] == performance.metrics[name].value
+    assert result.residuals['Q_net'] == result.residuals['Q_A'] + result.residuals['Q_B']
     for name in ('convergence_detail', 'envelope_valid', 'envelope_reasons',
                  'p_clip_hits', 'model_h_balance', 'true_h_balance'):
         assert_slots(result.diagnostics[name], raw[name])
     if dimension == 2:
-        for name, source in (('Q_W', 'Q_total'), ('dP_A_Pa', 'dP_A'), ('dP_B_Pa', 'dP_B'),
-                             ('T_out_A_K', 'T_out_A_K'), ('T_out_B_K', 'T_out_B_K')):
+        for side in ('A', 'B'):
+            metric = performance.metrics[f'dP_{side}']
+            assert metric.spec.definition_version == 'pressure_face_v1'
+            assert getattr(result, f'dP_{side}_Pa') == metric.value
+        for name, source in (('T_out_A_K', 'T_out_A_K'), ('T_out_B_K', 'T_out_B_K')):
             assert getattr(result, name) == pytest.approx(raw[source])
         for name in ('Ta', 'Tb', 'Ts', 'P_fA', 'P_fB', 'ucA', 'vcA', 'ucB', 'vcB'):
             np.testing.assert_array_equal(result.fields[name], raw[name])
-        for name in ('Q_A', 'Q_B', 'Q_net', 'energy_imbalance_rel',
-                     'mass_imbalance_rel_A', 'mass_imbalance_rel_B'):
+        for name in ('mass_imbalance_rel_A', 'mass_imbalance_rel_B'):
             assert result.residuals[name] == pytest.approx(raw[name], nan_ok=True)
         for axis in ('x', 'y'):
             np.testing.assert_array_equal(result.fields[f'd{axis}_arr'], fields.grid[f'd{axis}'])
@@ -111,8 +118,7 @@ def test_application_fields_and_scalars_match_native_solve(native_result):
                                           err_msg=f"{k_res} != raw[{k_raw}]")
 
     # ── residuals dict surfaces the conservation diagnostics faithfully ──
-    for key in ('Q_enthalpy_A', 'Q_enthalpy_B', 'Q_net',
-                'energy_imbalance_rel', 'mass_imbalance_rel_A'):
+    for key in ('Q_enthalpy_A', 'Q_enthalpy_B', 'mass_imbalance_rel_A'):
         assert key in result.residuals, f"residuals missing {key!r}"
         rv = raw.get(key)
         if rv is not None and np.isfinite(float(rv)):
@@ -207,10 +213,10 @@ def test_native_result_reaches_gui_diagnostics_and_display_cache(native_result):
     if fields.grid['dimension'] == 3:
         for side in ('A', 'B'):
             assert window._diag_summary['Q_' + side] == pytest.approx(
-                result.residuals['Q_enthalpy_' + side], nan_ok=True)
-        assert window._diag_summary['closure_basis'] == '全域固体交换'
+                result.residuals['Q_' + side], nan_ok=True)
+        assert window._diag_summary['closure_basis'] == '主网格两侧有符号焓流'
         text = RunResultsMixin._diag_summary_text(window)
-        assert '两侧焓流: Q_A' in text and '能量闭合（全域固体交换）' in text
+        assert '两侧焓流: Q_A' in text and '能量闭合（主网格两侧有符号焓流）' in text
     else:
         for name in ('ucA', 'vcA', 'ucB', 'vcB'):
             np.testing.assert_array_equal(window._compute_results[name], fields.fields[name])

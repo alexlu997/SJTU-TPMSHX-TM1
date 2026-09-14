@@ -616,7 +616,8 @@ def solve_full_domain_3d(L, H, D, Nx, Ny, Nz,
                           conservative_ltne=False,
                           cancel_check=None,
                           q_rel_tol=None, conv_chunk=None, inlet_flux_A=None, inlet_flux_B=None,
-                          model_mass_A=None, model_mass_B=None, model_fluids=None):
+                          model_mass_A=None, model_mass_B=None, model_fluids=None,
+                          accelerate=False):
     """3D full-domain 2-fluid LTNE solver (Ta, Tb, Ts).
 
     Shape contracts
@@ -648,6 +649,8 @@ def solve_full_domain_3d(L, H, D, Nx, Ny, Nz,
     """
     Nx, Ny, Nz = int(Nx), int(Ny), int(Nz)
     model_enabled = any(x is not None for x in (model_mass_A, model_mass_B, model_fluids))
+    if accelerate and not model_enabled:
+        raise ValueError('energy acceleration requires model-h transport')
     model_cp_A = model_cp_B = None
     if model_enabled:
         if (model_mass_A is None or model_mass_B is None
@@ -906,15 +909,12 @@ def solve_full_domain_3d(L, H, D, Nx, Ny, Nz,
         ufB, vfB, wfB = _project_faces_div_free(
             ufB, vfB, wfB, eps_fB_arr, rho_cp_fB_arr, dx_arr, dy_arr, dz_arr)
 
-    while done < max_iter:
-        if cancel_check is not None and cancel_check():
-            raise CancelledError("compute cancelled by user")
-        n = min(chunk, max_iter - done)
+    def step(n):
         if use_stag:
             _use_rb = _RB_ENERGY and (Nx * Ny * Nz > _RB_ENERGY_GATE)
             _stag_fn = (_gs_full_chunk_3d_stag_rb if _use_rb
                         else _gs_full_chunk_3d_stag)
-            chg = _stag_fn(
+            return _stag_fn(
                 Ta, Tb, Ts, Nx, Ny, Nz,
                 dx_arr, dy_arr, dz_arr,
                 K_ffA_arr, K_ffB_arr, K_ss_arr,
@@ -929,7 +929,7 @@ def solve_full_domain_3d(L, H, D, Nx, Ny, Nz,
                 _cons, inlet_flux_A, inlet_flux_B,
                 model_mass_A, model_mass_B, model_cp_A, model_cp_B)
         else:
-            chg = _gs_full_chunk_3d(
+            return _gs_full_chunk_3d(
                 Ta, Tb, Ts, Nx, Ny, Nz,
                 dx_arr, dy_arr, dz_arr,
                 K_ffA_arr, K_ffB_arr, K_ss_arr,
@@ -939,6 +939,16 @@ def solve_full_domain_3d(L, H, D, Nx, Ny, Nz,
                 dir_A, dir_B, T_inA_arr, T_inB_arr,
                 ifrac_A, ifrac_B,
                 n, freeze_Tb, a_fA, a_s, a_fB, inlet_flux_A, inlet_flux_B)
+
+    while done < max_iter:
+        if cancel_check is not None and cancel_check():
+            raise CancelledError("compute cancelled by user")
+        n = min(chunk, max_iter - done)
+        if accelerate:
+            from sjtu_tpmshx.solvers.anderson_acceleration import advance_energy
+            chg = advance_energy(step, (Ta, Tb, Ts), n)
+        else:
+            chg = step(n)
         done += n
         if progress_cb:
             progress_cb(done, max_iter)

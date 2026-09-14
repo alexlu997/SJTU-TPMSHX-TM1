@@ -5,6 +5,7 @@ import numpy as np
 from sjtu_tpmshx.domain.run_warnings import range_context
 from sjtu_tpmshx.models.nu_correlations import record_raw_nu_range, warn_sco2_nu_evidence
 from sjtu_tpmshx.models.tpms_props import record_temperature_ranges
+from sjtu_tpmshx.models.grid import cell_average
 from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.validator import compute_volumetric_htc
@@ -195,7 +196,7 @@ def _compute_Q_richardson(
         T_inA, T_inB, P_inA_val, P_inB_val, eps, za, coeffs,
         _pA, _pB, cfgA, cfgB, u_A, u_B, warnings_list,
         h_vA_coarse, h_vB_coarse, split_A=0.5, cancel_check=None,
-        model_inputs=None, model_balance=None, evidence=None):
+        model_inputs=None, model_balance=None, evidence=None, port_wall_refine=False):
     """Heat duty Q via Richardson extrapolation on the enthalpy balance.
 
     Re-solves the coupled energy field on a 2x-refined grid, applies
@@ -229,8 +230,12 @@ def _compute_Q_richardson(
 
     # Richardson: run energy at 200×100 for Q extrapolation
     Nx2, Ny2 = N_x * 2, N_y * 2
-    energy_dx2 = _aligned_grid(Nx2, L, list(_x_breaks))
-    energy_dy2 = _aligned_grid(Ny2, H, list(_y_breaks))
+    if port_wall_refine:
+        from sjtu_tpmshx.models.grid import split_cells
+        energy_dx2, energy_dy2 = split_cells(energy_dx), split_cells(energy_dy)
+    else:
+        energy_dx2 = _aligned_grid(Nx2, L, list(_x_breaks))
+        energy_dy2 = _aligned_grid(Ny2, H, list(_y_breaks))
     # 2026-05-07: `_aligned_grid` silently expands the cell count when
     # `min(2, ...)` per segment forces total > N (case: B partial pipe
     # with 4 break points on x). Read back the actual length so Nx2/Ny2
@@ -246,7 +251,8 @@ def _compute_Q_richardson(
         widths = energy_dy2 if direction in (0, 1) else energy_dx2
         raw_inlet, inlet = _port_fractions_1d(
             widths, port['in_ctr'] - port['in_w'] / 2,
-            port['in_ctr'] + port['in_w'] / 2)
+            port['in_ctr'] + port['in_w'] / 2,
+            uniform=port.get('uniform_inlet_2d', False))
         outlet = _port_fractions_1d(
             widths, port['out_ctr'] - port['out_w'] / 2,
             port['out_ctr'] + port['out_w'] / 2)[1]
@@ -334,6 +340,7 @@ def _compute_Q_richardson(
     if model_inputs is not None:
         model_kwargs = dict(
             model_fluids=model_inputs['model_fluids'],
+            accelerate=port_wall_refine,
             mass_flux_A=_prolong_mass_faces_2d(model_inputs['mass_flux_A'], energy_dx, energy_dy, energy_dx2, energy_dy2),
             mass_flux_B=_prolong_mass_faces_2d(model_inputs['mass_flux_B'], energy_dx, energy_dy, energy_dx2, energy_dy2))
         K_ffA2_use = _interp2(model_inputs['K_ffA'])
@@ -1067,12 +1074,13 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
                     return _sco2_hv_local_field(
                         T_field, P_in, u_mag, _g_hv['A_0'], _g_hv['D_h'],
                         tpms_type, Lcell, sco2_nu=sco2_nu, observation=observation)
-                rho = float(np.asarray(props['rho'](T_field, P_in)).mean())
-                mu = float(np.asarray(props['mu'](T_field, P_in)).mean())
+                rho = cell_average(props['rho'](T_field, P_in), energy_dx, energy_dy)
+                mu = cell_average(props['mu'](T_field, P_in), energy_dx, energy_dy)
+                mean_T = cell_average(T_field, energy_dx, energy_dy)
                 return _build_hv_local_2d(
-                    rho, mu, float(props['k'](float(np.mean(T_field)), P_in)),
+                    rho, mu, float(props['k'](mean_T, P_in)),
                     u_mag, None, None, side_props=props,
-                    side_T_for_Pr=float(np.mean(T_field)), side_P=P_in)
+                    side_T_for_Pr=mean_T, side_P=P_in)
 
             with range_context(side='A', stage='main-hv', layout='real-cell(x,y)'):
                 h_vA_local = _enthalpy_side_hv(_pA, _Ta_hv, P_inA_val, u_mag_A, nu_observations['A'])
@@ -1087,12 +1095,10 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
                         side='B', stage='2D main-hv', tpms_type=tpms_type,
                         L_mm=Lcell, t_mm=t_wall, P_in=P_inB_val)
         else:
-            rho_A_scalar = float(rho_A_field.mean())
-            rho_B_scalar = float(rho_B_field.mean())
-            mu_A_scalar = (float(np.asarray(mu_A).mean())
-                           if np.ndim(mu_A) else float(mu_A))
-            mu_B_scalar = (float(np.asarray(mu_B).mean())
-                           if np.ndim(mu_B) else float(mu_B))
+            rho_A_scalar = cell_average(rho_A_field, energy_dx, energy_dy)
+            rho_B_scalar = cell_average(rho_B_field, energy_dx, energy_dy)
+            mu_A_scalar = cell_average(mu_A, energy_dx, energy_dy)
+            mu_B_scalar = cell_average(mu_B, energy_dx, energy_dy)
             with range_context(side='A', stage='main-hv', layout='scalar'):
                 k_fA = float(_pA['k'](T_inA, P_inA_val))
             with range_context(side='B', stage='main-hv', layout='scalar'):
@@ -1194,6 +1200,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
             if _model_h_mode:
                 model_kwargs = dict(
                     model_fluids=(_pA['name'], _pB['name']),
+                    accelerate=cfg['compute_cfg'].flags.port_wall_refine,
                     mass_flux_A=mass_flux_A, mass_flux_B=mass_flux_B)
                 last_model_inputs = dict(model_kwargs, K_ffA=_Kffa_use, K_ffB=_Kffb_use,
                                          K_ss=_Kss_src, outer_index=int(_coup_it))
@@ -1296,7 +1303,8 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
             mu_A = _pA['mu'](Ta, P_abs_A)
         with range_context(side='B', stage='property-refresh', layout='real-cell(x,y)'):
             mu_B = _pB['mu'](Tb, P_abs_B)
-        T_avg_A = float(Ta.mean()); T_avg_B = float(Tb.mean())
+        T_avg_A = cell_average(Ta, energy_dx, energy_dy)
+        T_avg_B = cell_average(Tb, energy_dx, energy_dy)
 
         # Convergence: mass-flux-weighted relative rho change.
         # Physical reasoning — the coupling is driven by ∇·(ρu) = 0, so only
@@ -1456,6 +1464,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
             _pA, _pB, cfgA, cfgB, u_A, u_B, warnings_list,
             h_vA_coarse=hv_A_energy, h_vB_coarse=hv_B_energy,
             split_A=_split_A_2d,
+            port_wall_refine=cfg['compute_cfg'].flags.port_wall_refine,
             cancel_check=cancel_check, model_inputs=last_model_inputs, model_balance=model_balance,
             **({'evidence': fine_evidence} if cfg.get('_capture_native') else {}))
 

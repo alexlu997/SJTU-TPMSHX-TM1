@@ -1,6 +1,80 @@
 """Physical grid construction, independent of numerical kernels."""
 import numpy as np
 
+SHANGHAI_GRID_2D = (84, 24, 1)
+SHANGHAI_GRID_3D = (92, 14, 10)
+
+
+def cell_average(field, *widths):
+    """Physical area/volume average, independent of how cells are subdivided."""
+    value = np.asarray(field)
+    if value.ndim == 0:
+        return float(value)
+    for axis_widths in widths:
+        value = np.average(value, axis=0, weights=axis_widths)
+    return float(value)
+
+
+def split_cells(widths):
+    """Bisect each cell while keeping its physical end point."""
+    result = []
+    position = 0.
+    for width, end in zip(widths, np.cumsum(widths)):
+        result.append(width / 2)
+        position += result[-1]
+        result.append(end - position)
+        position += result[-1]
+    return np.asarray(result)
+
+
+def build_port_wall_grid(lengths, counts, ports):
+    """Port-aligned, graded cells; counts include all wall and port layers.
+
+    The Shanghai mesh study uses 0.2 mm first cells at port edges, and
+    20 um (2D) / 56 um (3D) first cells at uninterrupted housing walls.
+    Other geometries require their own mesh-convergence assessment.
+    """
+    breaks = [set() for _ in lengths]
+    for port in ports:
+        if port is None:  # Prepared 3D side B uses None for a full-face opening.
+            continue
+        cross_axes = [axis for axis in range(len(lengths)) if axis != port['dir'] // 2]
+        for axis, suffix in zip(cross_axes, ('', '_z')):
+            for end in ('in', 'out'):
+                centre = port.get(f'{end}{suffix}_ctr', lengths[axis] / 2)
+                width = port.get(f'{end}{suffix}_w', lengths[axis])
+                for edge in (centre - width / 2, centre + width / 2):
+                    if lengths[axis] * .001 < edge < lengths[axis] * .999:
+                        breaks[axis].add(edge)
+    result = []
+    for length, count, knots in zip(lengths, counts, breaks):
+        knots = sorted(knots)
+        if knots:
+            layers, first, growth = 4, .2e-3, 1.8
+        elif len(lengths) == 2:
+            layers, first, growth = 8, .02e-3, 1.8
+        else:
+            layers, first, growth = 4, .02e-3 * (1 + 1.8), 1.8**2
+        segments = len(knots) + 1
+        bulk_count = count - 2 * layers * segments
+        if bulk_count < 2 * segments:
+            raise ValueError(f'Port/wall grid needs at least {2 * (layers + 1) * segments} cells on this axis; got {count}')
+        bulk = _aligned_grid(bulk_count, length, knots)
+        edges = np.r_[0., np.cumsum(bulk)]
+        bounds = [0., *knots, length]
+        widths = []
+        position = 0.
+        for lo, hi in zip(bounds[:-1], bounds[1:]):
+            n = np.count_nonzero((edges[:-1] >= lo - 1e-12) & (edges[:-1] < hi - 1e-12))
+            segment = build_wall_refined_1d(hi - lo, n, layers, first, growth)
+            for width in segment[:-1]:
+                widths.append(width)
+                position += width
+            widths.append(hi - position)
+            position += widths[-1]
+        result.append(np.asarray(widths))
+    return tuple(result)
+
 
 def _aligned_grid(N, L, breakpoints):
     """Generate 1D grid with cell edges aligned to breakpoint positions.
@@ -131,14 +205,20 @@ def _port_overlap_1d(widths, lo, hi, *, staggered=False):
         x_lo_edge = np.r_[0., centres]
         x_hi_edge = np.r_[centres, x_hi_edge[-1]]
         widths = x_hi_edge - x_lo_edge
-    return np.clip((np.minimum(x_hi_edge, hi) - np.maximum(x_lo_edge, lo)) / widths,
-                   0.0, 1.0)
+    overlap = np.minimum(x_hi_edge, hi) - np.maximum(x_lo_edge, lo)
+    # A rounded shared edge must not turn a wall into a pressure outlet.
+    # Use spatial ULPs, not a fraction threshold that erases real small ports.
+    roundoff = 8 * np.spacing(max(abs(lo), abs(hi), abs(x_hi_edge[-1])))
+    overlap = np.where(np.abs(overlap) <= roundoff, 0., overlap)
+    return np.clip(overlap / widths, 0.0, 1.0)
 
 
-def _port_fractions_1d(widths, lo, hi):
-    """Return physical overlap and the existing four-cell tapered profile."""
+def _port_fractions_1d(widths, lo, hi, *, uniform=False):
+    """Return geometric overlap and the selected imposed port profile."""
     raw = _port_overlap_1d(widths, lo, hi)
     profile = raw.copy()
+    if uniform:
+        return raw, profile
     for i in range(len(widths)):
         if raw[i] > 0.99:
             for d in range(1, 5):

@@ -22,6 +22,24 @@ def _convex_line(n):
     return np.array([1.0 + 0.1 * ii + 0.01 * ii * ii for ii in range(n)])
 
 
+@pytest.mark.parametrize('helper,axis', [(_sou_corr_u_x, 0), (_sou_corr_u_y, 1),
+                                       (_sou_corr_v_x, 0), (_sou_corr_v_y, 1)])
+def test_sou_shared_face_uses_its_own_flow_direction(helper, axis):
+    # The shared face flows forward; the next face flows backward. Its
+    # direction must not change the correction on the shared face.
+    line = np.array([8., 6., 4., 3., 1., -2., -6., -9., -12.])
+    field = np.repeat(line[:, None], len(line), axis=1)
+    if axis == 1:
+        field = field.T.copy()
+    i, j = 3, 3
+    ni, nj = i + (axis == 0), j + (axis == 1)
+    left = helper(field, i, j, 8, 1., 0.)
+    right = (helper(field, ni, nj, 8, -2., 1.)
+             - helper(field, ni, nj, 8, -2., 0.))
+    assert left != 0.
+    assert left + right == pytest.approx(0., abs=1e-14)
+
+
 def test_sou_corr_u_x_telescopes_at_shared_x_face():
     Nx, Ny = 12, 1
     u = np.zeros((Nx + 1, Ny))

@@ -30,6 +30,41 @@ def test_stack_unstack_roundtrip():
     assert np.allclose(P, P2)
 
 
+@pytest.mark.parametrize('bad_candidate', [False, True])
+def test_energy_acceleration_budget_and_rollback(monkeypatch, bad_candidate):
+    from sjtu_tpmshx.solvers.anderson_acceleration import advance_energy
+    fields = [np.full((2, 3), 300.) for _ in range(3)]
+    snapshots = [fields[0].copy()]
+    calls = 0
+
+    def step(count):
+        nonlocal calls
+        calls += count
+        for _ in range(count):
+            snapshots[0][:] = fields[0]
+            residual = 0.
+            for field in fields:
+                update = .03 * (350. - field)
+                residual = max(residual, float(np.max(np.abs(update))))
+                field += update
+        return residual
+
+    if bad_candidate:
+        monkeypatch.setattr(AndersonSIMPLE, 'candidate',
+                            lambda self, x: (np.full_like(x, 1e6), True))
+    residual = advance_energy(step, fields, 100, snapshots)
+    assert calls == 100
+    assert np.isfinite(residual)
+    if bad_candidate:
+        # Rejected trials consume budget without altering the accepted state.
+        accepted_sweeps = 97
+        expected = 350. - 50. * .97 ** accepted_sweeps
+        np.testing.assert_allclose(fields[0], expected)
+        np.testing.assert_allclose(snapshots[0], 350. - 50. * .97 ** (accepted_sweeps - 1))
+    else:
+        np.testing.assert_allclose(fields, 350., atol=1e-9, rtol=0.)
+
+
 def test_anderson_accelerates_linear_fixed_point():
     """On a contracting linear map G(x) = A x + b with ρ(A) ~ 0.9, Anderson
     must reach |F| < 1e-8 in fewer Picard steps than vanilla iteration.

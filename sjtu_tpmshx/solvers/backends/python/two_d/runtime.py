@@ -4,6 +4,7 @@ from typing import Any
 from sjtu_tpmshx.domain.run_environment import run_environment
 import numpy as np
 from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
+from sjtu_tpmshx.models.grid import cell_average
 from sjtu_tpmshx.logutil import get_logger
 
 _log = get_logger(__name__)
@@ -133,7 +134,7 @@ def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
             _K0, _cF0 = flow['seed_K_m2'], flow['seed_cF_per_m']
             _rho_in = float(P_in_abs) / (287.05 * float(T_in_f))
             _G = _rho_in * abs(float(u_f))                   # mass flux ρ·u
-            _mu_in = float(np.mean(mu_f)) if np.ndim(mu_f) else float(mu_f)
+            _mu_in = cell_average(mu_f, energy_dx, energy_dy)
             _C = _mu_in * _G / max(_K0, 1e-16) + _cF0 * _G * _G
             _P_out_sq = predict_outlet_p_sq(float(P_in_abs), float(T_in_f),
                                             _C, L_stream)
@@ -158,6 +159,7 @@ def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
                          outlet_lo=out_lo, outlet_hi=out_hi,
                          wall_refine=False, P_ref_abs=P_ref_out,
                          rho_inlet_ref=rho_inlet_ref, fluid_type=fluid_type,
+                         uniform_inlet=cfg_fluid.get('uniform_inlet_2d', False),
                          dx_arr=flow['dx'], dy_arr=flow['dy'],
                          K_arr=flow['K_m2'], cF_arr=flow['cF_per_m'])
         if 'boundary_openings' in cfg:

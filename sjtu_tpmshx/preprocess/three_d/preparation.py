@@ -120,6 +120,7 @@ def _parse_inputs_3d_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
         fluid_A_cfg=fluid_A_cfg,
         fluid_B_cfg=fluid_B_cfg,
         wall_refine_3d=wall_refine,
+        port_wall_refine=compute_cfg.flags.port_wall_refine,
         variable_rho_cp=bool(compute_cfg.flags.variable_rho_cp),
         # R3 (2026-07-07): production solver knobs (None = run_stack's
         # dim-specific autos; see SolverConfig docstring).
@@ -169,8 +170,15 @@ def _prepare_problem_data(cfg):
         if max_outer < 1:
             raise ValueError('max_outer_ltne must be >= 1; zero iterations solves nothing')
     L, H, Lz = cfg['L'], cfg['H'], cfg['Lz']
-    dx, dy, dz, nx, ny, nz = _build_grid_3d(
-        cfg.get('wall_refine_3d', False), L, H, Lz, cfg['Nx'], cfg['Ny'], cfg['Nz'])
+    if cfg.get('port_wall_refine', False):
+        from sjtu_tpmshx.models.grid import build_port_wall_grid
+        dx, dy, dz = build_port_wall_grid(
+            (L, H, Lz), (cfg['Nx'], cfg['Ny'], cfg['Nz']),
+            (cfg['fluid_A_cfg'], cfg['fluid_B_cfg']))
+        nx, ny, nz = map(len, (dx, dy, dz))
+    else:
+        dx, dy, dz, nx, ny, nz = _build_grid_3d(
+            cfg.get('wall_refine_3d', False), L, H, Lz, cfg['Nx'], cfg['Ny'], cfg['Nz'])
     cap = int(cfg.get('max_cells_3d', os.environ.get('TPMSHX_MAX_CELLS_3D', '2000000')))
     if nx * ny * nz > cap:
         raise ValueError(f'3D grid {nx}x{ny}x{nz} exceeds the {cap}-cell cap')

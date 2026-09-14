@@ -79,12 +79,24 @@ def test_real_application_mapping_and_offline_readback(monkeypatch, tmp_path, di
     performance = evaluate(result)
     actual = to_compute_result(result, performance)
     reference = expected[0]()
-    for slot in ('fields', 'coeffs', 'props', 'residuals', 'diagnostics', 'metadata', 'extrap_reasons'):
+    for slot in ('fields', 'coeffs', 'props', 'diagnostics', 'metadata', 'extrap_reasons'):
         assert_slots(getattr(actual, slot), getattr(reference, slot))
+    # Old backend scalars remain an oracle for unchanged fields. The public
+    # thermal metrics now deliberately use one native boundary state.
+    native_residuals = {'Q_A', 'Q_B', 'Q_net', 'energy_imbalance_rel', 'enthalpy_imbalance_rel',
+                        'mass_imbalance_rel_A', 'mass_imbalance_rel_B'}
+    assert_slots(actual.residuals, {k: v for k, v in reference.residuals.items() if k not in native_residuals})
+    for name in ('Q_A', 'Q_B', 'energy_imbalance_rel', 'mass_imbalance_rel_A', 'mass_imbalance_rel_B'):
+        assert actual.residuals[name] == performance.metrics[name].value
+    assert actual.Q_W == abs(actual.residuals['Q_A'])
     assert set(reference.warnings) <= set(actual.warnings)
-    for name in ('Q_W', 'dP_A_Pa', 'dP_B_Pa', 'T_out_A_K', 'T_out_B_K', 'converged'):
+    for side in ('A', 'B'):
+        assert_slots(getattr(actual, f'dP_{side}_Pa'), performance.metrics[f'dP_{side}'].value)
+        assert performance.metrics[f'dP_{side}'].spec.definition_version == 'pressure_face_v1'
+    for name in ('T_out_A_K', 'T_out_B_K', 'converged'):
         assert_slots(getattr(actual, name), getattr(reference, name))
     assert actual.metadata['units']['Q'] == ('W/m' if dimension == 2 else 'W')
+    assert actual.metadata['metric_definitions']['Q']['definition_version'] == 'native_boundary_v1'
     with pytest.raises(ValueError, match='another result'):
         to_compute_result(result, replace(performance, source_result_id='other'))
     path = tmp_path / 'results.h5'

@@ -8,6 +8,87 @@ from sjtu_tpmshx.domain.compute_config import ComputeConfig, PartialBCConfig
 from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver, _aligned_grid
 
 
+@pytest.mark.parametrize('staggered', [False, True])
+def test_port_roundoff_does_not_open_an_adjacent_wall(staggered):
+    from sjtu_tpmshx.models.grid import _port_overlap_1d
+
+    widths = np.array([.007, .042, .133])
+    edges = np.r_[0., np.cumsum(widths)]
+    if staggered:
+        edges = np.r_[0., edges[1:] - widths / 2, edges[-1]]
+    lo, hi = edges[1:3]
+    expected = _port_overlap_1d(widths, lo, hi, staggered=staggered) > 0
+    for shift in (-1, 0, 1):
+        observed = _port_overlap_1d(widths, lo + shift * np.spacing(lo),
+                                    hi + shift * np.spacing(hi), staggered=staggered)
+        np.testing.assert_array_equal(observed > 0, expected)
+    # A real subcell opening, much smaller than 1% of a cell, remains open.
+    small = _port_overlap_1d(widths, lo - 1e-8, lo, staggered=staggered)
+    assert np.any(small > 0)
+    assert np.dot(small, np.diff(edges)) == pytest.approx(1e-8, abs=1e-17)
+
+
+@pytest.mark.parametrize('depth', [None, np.array([.02, .04])])
+def test_cell_average_is_invariant_to_subdividing_one_cell(depth):
+    from sjtu_tpmshx.models.grid import cell_average
+
+    field = np.array([[300., 340.], [400., 440.]])
+    widths = [np.array([.001, .009]), np.array([.03, .01])]
+    if depth is not None:
+        field = np.repeat(field[:, :, None], len(depth), axis=2)
+        widths.append(depth)
+    # Physical average: 90% of the volume is in the warmer x cell;
+    # the warmer y cell occupies 25%. Counting cells would give 370 K.
+    assert cell_average(field, *widths) == pytest.approx(400.)
+    refined = np.concatenate([field[:1], np.repeat(field[1:], 9, axis=0)])
+    assert cell_average(refined, np.full(10, .001), *widths[1:]) == pytest.approx(400.)
+    assert cell_average(997., *widths) == 997.
+
+
+@pytest.mark.parametrize('counts', [(84, 24), (92, 14, 10)])
+def test_port_wall_grid_prepared_counts_and_nested_port_area(counts):
+    from dataclasses import asdict
+    from sjtu_tpmshx.models.grid import split_cells, _port_overlap_1d
+    from sjtu_tpmshx.preprocess.api import prepare_case
+
+    config = ComputeConfig()
+    config.geometry.L_dom_m, config.geometry.H_dom_m = .182, .042
+    config.geometry.Lz_m = .042 if len(counts) == 3 else None
+    config.solver.Nx, config.solver.Ny = counts[:2]
+    config.solver.Nz = counts[2] if len(counts) == 3 else 1
+    config.flags.port_wall_refine = True
+    config.bc_A = PartialBCConfig(dir=0, in_ctr=.021, in_w=.042, out_ctr=.021, out_w=.042)
+    config.bc_B = PartialBCConfig(dir=3, in_ctr=.154, in_w=.042, out_ctr=.028, out_w=.042,
+                                 uniform_inlet_2d=True)
+    restored = ComputeConfig.from_dict(asdict(config))
+    case = prepare_case(restored, case_id='port-wall-grid')
+    assert tuple(len(case.grid['d' + axis]) for axis in 'xyz'[:len(counts)]) == counts
+    for axis, length in zip('xyz', (.182, .042, .042)):
+        if 'd' + axis not in case.grid:
+            continue
+        widths = case.grid['d' + axis]
+        assert np.all(widths > 0)
+        assert sum(widths) == pytest.approx(length, abs=1e-15)
+        fine = split_cells(widths)
+        assert len(fine) == 2 * len(widths)
+        np.testing.assert_allclose(np.cumsum(fine)[1::2], np.cumsum(widths), atol=1e-17, rtol=0.)
+    for widths in (case.grid['dx'], split_cells(case.grid['dx'])):
+        for centre in (.154, .028):
+            fractions = _port_overlap_1d(widths, centre - .021, centre + .021)
+            assert np.dot(fractions, widths) == pytest.approx(.042, abs=1e-15)
+    if len(counts) == 3:
+        config.bc_B = PartialBCConfig(dir=3)
+        full_face = prepare_case(config, case_id='port-wall-full-face')
+        assert tuple(len(full_face.grid['d' + axis]) for axis in 'xyz') == counts
+
+
+def test_port_wall_grid_rejects_insufficient_total_count():
+    from sjtu_tpmshx.models.grid import build_port_wall_grid
+    with pytest.raises(ValueError, match='at least'):
+        build_port_wall_grid((.182, .042), (8, 8),
+                             (dict(dir=0, in_ctr=.021, in_w=.042, out_ctr=.021, out_w=.042),))
+
+
 def _backend_fields(config):
     """Reach the actual runtime closure using the prepared public grid."""
     from sjtu_tpmshx.solvers.backends.python.two_d.execution import build_execution_inputs

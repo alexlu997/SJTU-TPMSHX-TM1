@@ -179,9 +179,11 @@ def test_pipeline_rejects_explicit_unsupported_options_before_data_access(monkey
 
 
 @pytest.mark.parametrize('dimension', [2, 3])
-def test_shanghai_actual_native_flow_matches_measured_total(monkeypatch, dimension):
+def test_shanghai_actual_native_flow_matches_measured_total(monkeypatch, tmp_path, dimension):
     """Catch the old 4.33x water-flow error through real port fluxes."""
     import pandas as pd
+    import numpy as np
+    from sjtu_tpmshx.io.case_io import save_case, load_case
     from sjtu_tpmshx.preprocess.api import prepare_case
     from sjtu_tpmshx.solvers.api import run_case
     from sjtu_tpmshx.postprocess.api import evaluate
@@ -196,8 +198,22 @@ def test_shanghai_actual_native_flow_matches_measured_total(monkeypatch, dimensi
     cfg = v2._pipeline_config(0, df) if dimension == 2 else v3._pipeline_config(0, df, 12, 8, 3)
     assert (cfg.bc_B.dir, cfg.bc_B.in_ctr, cfg.bc_B.out_ctr,
             cfg.bc_B.in_w, cfg.bc_B.out_w) == (3, .154, .028, .042, .042)
+    assert cfg.bc_B.uniform_inlet_2d and not cfg.bc_A.uniform_inlet_2d
     # This checks imposed inlet flux under normal solve criteria, not Q accuracy.
-    result = evaluate(run_case(prepare_case(cfg, case_id=f'shanghai-flow-{dimension}d')))
+    case = prepare_case(cfg, case_id=f'shanghai-flow-{dimension}d')
+    save_case(case, tmp_path / 'case.yaml')
+    case = load_case(tmp_path / 'case.yaml')
+    native = run_case(case)
+    if dimension == 2:
+        opening = case.parameters['boundary_openings']['B']
+        np.testing.assert_array_equal(opening['in_geom_frac'], opening['in_profile_frac'])
+        width = np.asarray(case.grid['dx']) * opening['in_geom_frac']
+        mass_per_width = -native.boundary_fluxes['mass_B'][1][:, -1][width > 0] / width[width > 0]
+        np.testing.assert_allclose(mass_per_width, mass_per_width[0], rtol=1e-12)
+        fine = native.boundary_fluxes['fine']
+        # The auxiliary thermal solve must preserve the selected inlet too.
+        np.testing.assert_allclose(fine['inlet_B'][fine['inlet_B'] > 0], 1., atol=1e-12)
+    result = evaluate(native)
     for side, column in (('A', 5), ('B', 7)):
         flow = result.metrics['mass_flow_' + side]
         assert flow.status == 'available'
