@@ -215,7 +215,8 @@ def test_validated_pair_is_consumed_only_by_next_chunk(
     def temperature(h, pressure):
         return (h - pressure * .001) / 1000.
 
-    def eos(h, pressure, fluid, *, where):
+    def eos(h, pressure, fluid, *, where, lookup=None):
+        assert lookup is None  # These air-only runs must not create a CO2 table.
         calls.append((where, h.copy(), pressure.copy()))
         if 'final' in where and where.endswith(eos_failure or '!'):
             raise EOSFailure(where)

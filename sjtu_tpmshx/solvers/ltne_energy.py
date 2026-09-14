@@ -31,7 +31,10 @@ from ._kernels_2d import minmod, _model_h
 
 @njit(cache=True)
 def _model_h_faces(T, mass, coefficients, direction, Tin, ifrac, sou):
-    """One Picard capacity/intercept per signed mass face, frozen per sweep."""
+    """Picard capacity/intercept per signed mass face, frozen per sweep.
+
+    The shared enthalpy helper has an explicit strict-math compilation policy.
+    """
     a, b, c, origin, _ = coefficients
     capacity = (np.empty_like(mass[0]), np.empty_like(mass[1]))
     deferred = (np.empty_like(mass[0]), np.empty_like(mass[1]))
@@ -159,7 +162,7 @@ def _sou_corr_y(T, i, j, Ny, v_loc, Fy_field):
         return 0.5 * (Fn * phi_n - Fs * phi_s)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _gs_full_chunk(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
                    K_ffA_arr, K_ffB_arr, K_ss_arr,
                    h_vA_arr, h_vB_arr, eps_fA_arr, eps_fB_arr,

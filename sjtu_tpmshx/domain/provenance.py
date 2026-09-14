@@ -15,13 +15,17 @@ def repository_revision(root):
     env = {k:v for k,v in os.environ.items()
            if k not in ('GIT_DIR','GIT_COMMON_DIR','GIT_WORK_TREE')}
     try:
-        revision = subprocess.check_output(['git','rev-parse','--verify','HEAD'],
-            cwd=root,env=env,stderr=subprocess.DEVNULL,text=True).strip()
-        dirty = subprocess.check_output(['git','status','--porcelain','--untracked-files=no'],
-            cwd=root,env=env,stderr=subprocess.DEVNULL,text=True).strip()
+        lines = subprocess.check_output(
+            ['git','status','--porcelain=v2','--branch','--no-ahead-behind','--untracked-files=no'],
+            cwd=root,env=env,stderr=subprocess.DEVNULL,text=True).splitlines()
     except (OSError, subprocess.CalledProcessError):
         return dict(revision=None, tracked_changes=None, status='unavailable')
-    return dict(revision=revision, tracked_changes=bool(dirty), status='recorded')
+    revision = next((line.removeprefix('# branch.oid ') for line in lines
+                     if line.startswith('# branch.oid ')), None)
+    if revision in (None, '(initial)'):
+        return dict(revision=None, tracked_changes=None, status='unavailable')
+    return dict(revision=revision, tracked_changes=any(not line.startswith('# ') for line in lines),
+                status='recorded')
 
 
 def source_context():

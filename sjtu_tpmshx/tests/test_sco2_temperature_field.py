@@ -123,7 +123,7 @@ def test_true_h_local_pressure_floor_routes_without_sweeps(monkeypatch, dimensio
     p_local = [7.9e6 if fluid == 'sco2' else 2e5 for fluid in fluids]
     if dimension == 3:
         cell = np.full((1, 1, 1), 330.)
-        Ta, Tb, _, _ = _guard_pipeline(
+        Ta, Tb, _, info = _guard_pipeline(
             fluid_A=fluids[0], fluid_B=fluids[1], P_A=p_in[0], P_B=p_in[1],
             T_inA=330., T_inB=330., Ta_init=cell, Tb_init=cell,
             pressure_A_field=np.full(cell.shape, p_local[0]),
@@ -131,13 +131,19 @@ def test_true_h_local_pressure_floor_routes_without_sweeps(monkeypatch, dimensio
     else:
         cell = np.full((1, 1), 330.)
         flux = (np.full((2, 1), .01), np.zeros((1, 2)))
-        Ta, Tb, _, _ = solve_enthalpy_2d(
+        Ta, Tb, _, info = solve_enthalpy_2d(
             330., 330., p_local[0], p_local[1], flux, flux,
             100., 100., 5., .35, .35, [.01], [.01],
             fluid_A=fluids[0], fluid_B=fluids[1],
             P_inA=p_in[0], P_inB=p_in[1], Ta_init=cell, Tb_init=cell, max_iter=1)
     np.testing.assert_allclose(Ta, 330., atol=1e-6)
     np.testing.assert_allclose(Tb, 330., atol=1e-6)
+    native = info['_native_state']
+    assert native['sco2_enthalpy_eos']['sides'] == [
+        side for side, fluid in zip(('A', 'B'), fluids) if fluid == 'sco2']
+    for side, T, fluid, pressure in zip(('A', 'B'), (Ta, Tb), fluids, p_local):
+        exact = ent._T_of_h_field(native['h_' + side], pressure, fluid)
+        np.testing.assert_array_equal(T, exact.reshape(T.shape))
 
 
 @pytest.mark.parametrize('dimension', [2, 3])
@@ -170,7 +176,7 @@ def test_true_h_boundary_allows_mathematical_bracket_outside_model(monkeypatch, 
     def eos(key, input_key, value, *args):
         if key == 'T':
             return np.full(np.shape(value), temperature)
-        if key == 'H' and input_key == 'T':
+        if key == 'H' and input_key == 'T' and np.ndim(value) == 0:
             bracket_queries.append(float(value))
         return original(key, input_key, value, *args)
 
@@ -211,3 +217,64 @@ def test_true_h_nonfinite_eos_return_is_rejected(monkeypatch, returned):
     monkeypatch.setattr(ent, '_PropsSI', lambda *args: [330., returned])
     with pytest.raises(ValueError, match=r'must be finite.*index=\(1,\)'):
         ent._T_of_h_field(np.ones(2), np.array([8e6, 16e6]), 'sco2')
+
+
+@pytest.mark.parametrize('temperature', [279., 280., 700., 701.])
+def test_iteration_table_cannot_mask_heos_domain_boundaries(temperature):
+    from sjtu_tpmshx.solvers import ltne_enthalpy_3d as ent
+    pressure = np.array([12e6])
+    # A non-state sentinel makes any accidental table evaluation fail.
+    lookup = ent._sco2_iteration_lookup(pressure, object())
+    h = np.array([ent._h_scalar(temperature, 12e6, 'sco2')])
+    try:
+        exact = ent._T_of_h_field(h, pressure, 'sco2')
+    except ValueError:
+        with pytest.raises(ValueError, match='temperature must be within'):
+            ent._T_of_h_field(h, pressure, 'sco2', lookup=lookup)
+    else:
+        np.testing.assert_array_equal(
+            ent._T_of_h_field(h, pressure, 'sco2', lookup=lookup), exact)
+    assert not lookup['used']
+
+
+def test_iteration_state_is_owned_by_solve_and_discarded_after_failure(monkeypatch):
+    from sjtu_tpmshx.solvers import ltne_enthalpy_3d as ent
+    original_state, original_eos = ent.AbstractState, ent._T_of_h_field
+    states, calls = [], []
+
+    def state(*args):
+        states.append(original_state(*args))
+        return states[-1]
+
+    def eos(*args, **kwargs):
+        calls.append((kwargs['where'], kwargs.get('lookup')))
+        return original_eos(*args, **kwargs)
+
+    monkeypatch.setattr(ent, 'AbstractState', state)
+    monkeypatch.setattr(ent, '_T_of_h_field', eos)
+    with monkeypatch.context() as failing:
+        def fail(*args):
+            raise ValueError('injected sweep failure')
+        failing.setattr(ent, '_gs_enthalpy_sweeps_3d', fail)
+        with pytest.raises(ValueError, match='injected sweep failure'):
+            _guard_pipeline()
+    monkeypatch.setattr(ent, '_gs_enthalpy_sweeps_3d', lambda *args: None)
+    _, _, _, info = _guard_pipeline(coupled_energy_tol=.05)
+    assert len(states) == 2 and states[0] is not states[1]
+    iterations = [lookup for where, lookup in calls if 'iteration' in where]
+    assert len(iterations) == 4
+    assert all(lookup['state'] is states[i // 2] for i, lookup in enumerate(iterations))
+    assert all(lookup is None for where, lookup in calls if 'final' in where)
+    assert info['_native_state']['sco2_enthalpy_eos']['final_backend'] == 'HEOS'
+    _guard_pipeline(fluid_A='air', fluid_B='water', P_A=2e5, P_B=2e5)
+    assert len(states) == 2
+
+
+def test_pending_cancel_precedes_table_initialization(monkeypatch):
+    from sjtu_tpmshx.solvers import ltne_enthalpy_3d as ent
+    from sjtu_tpmshx.domain.cancellation import CancelledError
+    def forbidden(*args):
+        pytest.fail('cancelled solve initialized a table')
+    monkeypatch.setattr(ent, 'AbstractState', forbidden)
+    with pytest.raises(CancelledError):
+        _guard_pipeline(cancel_check=lambda: True)

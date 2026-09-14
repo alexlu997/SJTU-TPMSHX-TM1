@@ -103,6 +103,78 @@ def test_worker_exception_emits_error_signal():
     assert orch.last_error() == msg
 
 
+@pytest.mark.parametrize('outcome', ['finished', 'error', 'cancelled'])
+def test_large_log_keeps_recent_diagnostics_in_every_terminal_state(monkeypatch, outcome):
+    import io
+    import sys
+
+    _make_app()
+    orch = ComputeOrchestrator()
+    monkeypatch.setattr(sys, '__stdout__', io.StringIO())
+    monkeypatch.setattr(sys, '__stderr__', io.StringIO())
+
+    def worker(cfg, cancel, progress_cb):
+        print('old-start-marker')
+        print('x' * 500_100)
+        print('最后一条诊断', file=sys.stderr)
+        if outcome == 'error':
+            raise ValueError('last-error-marker')
+        if outcome == 'cancelled':
+            raise orch.CancelledError()
+        return {'ok': True}
+
+    assert orch.start('2d', worker, {})
+    assert _wait_for(orch.is_idle)
+    log = orch.last_log()
+    assert len(log) <= 500_000
+    assert '最后一条诊断' in log
+    assert 'old-start-marker' not in log
+    if outcome == 'error':
+        assert 'ValueError: last-error-marker' in log
+
+
+def test_tail_log_storage_is_bounded_before_completion():
+    from sjtu_tpmshx.controllers.compute_orchestrator import _TailLog
+
+    log = _TailLog(limit=16)
+    expected = ''
+    for chunk in ('开头', '1234567890', '末尾', 'x' * 50, '终', ''):
+        assert log.write(chunk) == len(chunk)
+        expected = (expected + chunk)[-16:]
+        assert log.getvalue() == expected
+        assert sum(map(len, log._chunks)) <= 16
+
+
+def test_gui_output_does_not_enter_the_active_solver_log(monkeypatch):
+    import io
+    import sys
+
+    _make_app()
+    orch = ComputeOrchestrator()
+    ready, release = threading.Event(), threading.Event()
+    stdout, stderr = sys.stdout, sys.stderr
+    monkeypatch.setattr(sys, '__stdout__', io.StringIO())
+
+    def worker(cfg, cancel, progress_cb):
+        print('solver-start-marker')
+        ready.set()
+        assert release.wait(2)
+        print('solver-end-marker')
+        return {}
+
+    assert orch.start('2d', worker, {})
+    try:
+        assert ready.wait(2)
+        print('unrelated-gui-marker')
+    finally:
+        release.set()
+        assert _wait_for(orch.is_idle)
+    assert 'solver-start-marker' in orch.last_log()
+    assert 'solver-end-marker' in orch.last_log()
+    assert 'unrelated-gui-marker' not in orch.last_log()
+    assert sys.stdout is stdout and sys.stderr is stderr
+
+
 # ----------------------------------------------------------- cancel path
 
 

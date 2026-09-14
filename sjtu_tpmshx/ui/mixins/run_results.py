@@ -79,7 +79,7 @@ class RunResultsMixin:
         if label is not None:
             label.setText(f'<i>Q</i><sub>total</sub> [{self._result_Q_unit}]')
         self._result_model_metadata = {key: deepcopy(result.metadata[key])
-                                       for key in ('darcy_forchheimer', 'sco2_nu')
+                                       for key in ('darcy_forchheimer', 'sco2_nu', 'sco2_enthalpy_eos')
                                        if key in result.metadata}
         is_3d = result.diagnostics.get('mode') == '3d'
         self._diag_summary = {

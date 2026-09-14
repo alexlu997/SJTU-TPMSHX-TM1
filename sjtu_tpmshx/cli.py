@@ -18,8 +18,22 @@ flagged (not converged / envelope-invalid); >0 argparse/IO errors as usual.
 from __future__ import annotations
 
 import argparse
+from contextlib import nullcontext, redirect_stdout
 import json
+import math
 import sys
+
+
+def _json_values(value):
+    """Represent unavailable numbers as null; accompanying statuses stay intact."""
+    if isinstance(value, dict):
+        return {key: _json_values(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_values(item) for item in value]
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
 
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
@@ -41,8 +55,10 @@ def main(argv=None) -> int:
     from sjtu_tpmshx.domain.compute_config import ComputeConfig
     from sjtu_tpmshx.controllers.compute_pipeline import pipeline_for
 
-    cc = ComputeConfig.from_json(args.config)
-    pipe = pipeline_for(cc)
+    with redirect_stdout(sys.stderr) if args.as_json else nullcontext():
+        cc = ComputeConfig.from_json(args.config)
+        pipe = pipeline_for(cc)
+        result = None if args.dry_run else pipe.run()
     if args.dry_run:
         info = {'pipeline': type(pipe).__name__,
                 'grid': [cc.solver.Nx, cc.solver.Ny, cc.solver.Nz]}
@@ -50,7 +66,7 @@ def main(argv=None) -> int:
               else f"[dry-run] {info['pipeline']} grid={info['grid']}")
         return 0
 
-    result = pipe.run()
+    assert result is not None  # The dry-run branch has already returned.
     diag = result.diagnostics or {}
     ok = result.converged and bool(diag.get('envelope_valid', True)) and bool(
         (diag.get('convergence_detail') or {}).get('outer_converged', True))
@@ -70,7 +86,8 @@ def main(argv=None) -> int:
         'metadata': result.metadata,
     }
     if args.as_json:
-        print(json.dumps(summary, ensure_ascii=False, default=str))
+        print(json.dumps(_json_values(summary), ensure_ascii=False,
+                         allow_nan=False, default=str))
     else:
         print(f"Q = {summary['Q_W']} {summary['Q_unit']}")
         print(f"dP_A = {summary['dP_A_Pa']} Pa   dP_B = {summary['dP_B_Pa']} Pa")

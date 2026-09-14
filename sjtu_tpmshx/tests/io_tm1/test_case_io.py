@@ -70,3 +70,25 @@ def test_reject_corrupt_version_shape_and_external_manifest(tmp_path):
     import yaml
     with pytest.raises(yaml.constructor.ConstructorError):
         load_case(manifest)
+
+
+def test_yaml_failure_preserves_previous_case_and_allows_retry(tmp_path, monkeypatch):
+    from dataclasses import replace
+    from sjtu_tpmshx.io import case_io
+    target = tmp_path / 'case.yaml'
+    old = sample_case()
+    new = replace(old, case_id='next-run')
+    save_case(old, target)
+    original = case_io.write_text
+
+    def fail(*args):
+        raise OSError('simulated full disk at YAML write')
+
+    monkeypatch.setattr(case_io, 'write_text', fail)
+    with pytest.raises(OSError, match='full disk'):
+        save_case(new, target)
+    assert load_case(target).case_id == old.case_id
+    assert sorted(p.name for p in tmp_path.iterdir()) == ['case.h5', 'case.yaml']
+    monkeypatch.setattr(case_io, 'write_text', original)
+    save_case(new, target)
+    assert load_case(target).case_id == new.case_id

@@ -21,7 +21,7 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
-from sjtu_tpmshx.runs._out._golden_3d import _air_air_cfg as _cfg3d_air_air
+from sjtu_tpmshx.tests.cases_3d import air_air_cfg as _cfg3d_air_air
 
 
 def _shoot_update(P_in, P_ref, dP):

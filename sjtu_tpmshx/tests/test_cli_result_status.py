@@ -49,3 +49,37 @@ def test_dry_run_does_not_claim_computed_status(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(pipeline, 'pipeline_for', lambda cc: SimpleNamespace())
     assert main([str(config), '--dry-run', '--json']) == 0
     assert set(json.loads(capsys.readouterr().out)) == {'pipeline', 'grid'}
+
+
+def test_machine_output_separates_logs_and_preserves_unavailable_status(tmp_path, monkeypatch, capsys):
+    import sys
+    import sjtu_tpmshx.controllers.compute_pipeline as pipeline
+
+    config = tmp_path / 'config.json'
+    ComputeConfig().to_json(config)
+    result = ComputeResult(
+        Q_W=float('nan'), converged=False, warnings=['热量不可用'],
+        metadata={'metric_status': {'Q': 'invalid'},
+                  'metric_reasons': {'Q': 'nonfinite boundary energy'},
+                  'diagnostic': [float('inf'), float('-inf')]},
+    )
+
+    def run():
+        print('solver progress')
+        print('solver warning', file=sys.stderr)
+        return result
+
+    monkeypatch.setattr(pipeline, 'pipeline_for', lambda cc: SimpleNamespace(run=run))
+    assert main([str(config), '--json']) == 2
+    captured = capsys.readouterr()
+
+    def reject_constant(value):
+        raise AssertionError(f'nonstandard JSON constant: {value}')
+
+    summary = json.loads(captured.out, parse_constant=reject_constant)
+    assert summary['Q_W'] is None
+    assert summary['metadata']['metric_status']['Q'] == 'invalid'
+    assert summary['metadata']['metric_reasons']['Q'] == 'nonfinite boundary energy'
+    assert summary['metadata']['diagnostic'] == [None, None]
+    assert summary['warnings'] == ['热量不可用']
+    assert 'solver progress' in captured.err and 'solver warning' in captured.err

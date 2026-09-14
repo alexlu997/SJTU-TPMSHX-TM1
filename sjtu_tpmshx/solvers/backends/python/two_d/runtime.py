@@ -87,8 +87,9 @@ def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
         # density the pipeline used to convert ṁ → u_f. Passed explicitly so the
         # pin holds the PHYSICAL throughput even though this pipeline recreates
         # the solver every outer iter with an already-compressed rho_f (a
-        # field-based capture would ratchet here). sCO2 passes its CoolProp
-        # inlet density explicitly; water leaves this unset.
+        # field-based capture would ratchet here). The production pipeline
+        # supplies the registered inlet density for every fluid. The branch
+        # below retains the convention for direct ideal-gas callers.
         if rho_inlet_ref is None and fluid_type == 'ideal_gas':
             rho_inlet_ref = float(P_in_abs) / (287.05 * float(T_in_f))
 

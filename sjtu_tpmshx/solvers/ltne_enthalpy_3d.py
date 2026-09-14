@@ -31,13 +31,14 @@ _T_LO, _T_HI = 240.0, 420.0
 # The njit kernel is fluid-agnostic (it consumes cp / h / T* arrays). Only this
 # driver layer needs to know the fluid, so the energy solve can mix a variable-cp
 # sCO2 stream with a water (or air) stream — the real 703 precooler. Each fluid's
-# h/T(h)/cp/k come from CoolProp at the side's pressure. For 'sco2' these are the
-# SAME CO2 calls sco2_props makes → byte-identical to the sCO2-only path.
+# h/cp/k and final T(h) use HEOS at the side's pressure. Production sCO2
+# iterations use BICUBIC for T(h) only; final energy checks remain HEOS.
+from CoolProp import AbstractState, HmassP_INPUTS, __version__ as _CP_VERSION  # noqa: E402
 from CoolProp.CoolProp import PropsSI as _PropsSI  # noqa: E402
 from sjtu_tpmshx.models.fluid_props import (  # noqa: E402
     WaterStateError, check_water_state, check_finite_temperatures,
 )
-from sjtu_tpmshx.models.sco2_props import _validate_state  # noqa: E402
+from sjtu_tpmshx.models.sco2_props import _validate_state, T_RANGE_K  # noqa: E402
 _CP_NAME = {'sco2': 'CO2', 'water': 'Water', 'air': 'Air'}
 
 
@@ -61,12 +62,30 @@ def _prop_field(key, T, P, fluid):
         (len(key),) + T.shape)
 
 
-def _T_of_h_field(h, P, fluid, *, where='enthalpy EOS return'):
+def _sco2_iteration_lookup(P, state):
+    # Fixed local pressure: compute HEOS domain boundaries once per solve.
+    # At/outside these boundaries use HEOS so interpolation cannot hide an
+    # invalid state (including strict floating-point boundary roundtrips).
+    return dict(state=state, used=False, h_bounds=tuple(
+        _prop_field('H', np.full(P.shape, temperature), P, 'sco2')
+        for temperature in T_RANGE_K))
+
+
+def _T_of_h_field(h, P, fluid, *, where='enthalpy EOS return', lookup=None):
     h = np.ascontiguousarray(h, dtype=np.float64)
     P = np.broadcast_to(np.asarray(P, dtype=np.float64), h.shape)
     try:
-        out = _PropsSI("T", "H", h.ravel(), "P", np.ascontiguousarray(P).ravel(),
-                       _CP_NAME.get(fluid, fluid))
+        if lookup is not None and np.all(
+                (h > lookup['h_bounds'][0]) & (h < lookup['h_bounds'][1])):
+            state = lookup['state']
+            out = np.empty(h.size, dtype=np.float64)
+            for index, (enthalpy, pressure) in enumerate(zip(h.flat, P.flat)):
+                state.update(HmassP_INPUTS, float(enthalpy), float(pressure))
+                out[index] = state.T()
+            lookup['used'] = True
+        else:
+            out = _PropsSI("T", "H", h.ravel(), "P", np.ascontiguousarray(P).ravel(),
+                           _CP_NAME.get(fluid, fluid))
     except ValueError as exc:
         if fluid == 'water':
             location = (f'index={tuple(0 for _ in h.shape)}' if h.size == 1
@@ -467,6 +486,7 @@ def solve_ltne_enthalpy_3d_pipeline(Nx, Ny, Nz, dx, dy, dz, eps_arr, K_ss,
     hA = np.ascontiguousarray(hA, dtype=np.float64)
     hB = np.ascontiguousarray(hB, dtype=np.float64)
 
+    lookup_A = lookup_B = None
     n_done = 0
     resid = 0.0
     coupled = None
@@ -475,9 +495,15 @@ def solve_ltne_enthalpy_3d_pipeline(Nx, Ny, Nz, dx, dy, dz, eps_arr, K_ss,
     for outer in range(n_outer):
         if cancel_check is not None and cancel_check():
             raise CancelledError("compute cancelled by user")
+        if outer == 0 and 'sco2' in (fluid_A, fluid_B):
+            # Initialize after the first cancellation check. One mutable state
+            # belongs to this solve, shared only by its serial sides.
+            state = AbstractState('BICUBIC&HEOS', 'CO2')
+            lookup_A = _sco2_iteration_lookup(P_A_field, state) if fluid_A == 'sco2' else None
+            lookup_B = _sco2_iteration_lookup(P_B_field, state) if fluid_B == 'sco2' else None
         if next_temperatures is None:
-            T_A = _T_of_h_field(hA, P_A_field, fluid_A, where='enthalpy iteration EOS return A')
-            T_B = _T_of_h_field(hB, P_B_field, fluid_B, where='enthalpy iteration EOS return B')
+            T_A = _T_of_h_field(hA, P_A_field, fluid_A, where='enthalpy iteration EOS return A', lookup=lookup_A)
+            T_B = _T_of_h_field(hB, P_B_field, fluid_B, where='enthalpy iteration EOS return B', lookup=lookup_B)
         else:
             T_A, T_B = next_temperatures
             next_temperatures = None
@@ -533,6 +559,13 @@ def solve_ltne_enthalpy_3d_pipeline(Nx, Ny, Nz, dx, dy, dz, eps_arr, K_ss,
                 energy_imbalance_rel=float(imbalance))
     info['_native_state'] = dict(h_A=hA, h_B=hB, h_in_A=h_in_A, h_in_B=h_in_B,
                                  mass_flux_A=flux_A, mass_flux_B=flux_B)
+    table_sides = [side for side, lookup in (('A', lookup_A), ('B', lookup_B))
+                   if lookup is not None and lookup['used']]
+    if table_sides:
+        info['_native_state']['sco2_enthalpy_eos'] = dict(
+            algorithm='bicubic_iteration_heos_final_v1', iteration_backend='BICUBIC&HEOS',
+            final_backend='HEOS', transport_backend='HEOS', coolprop_version=_CP_VERSION,
+            sides=table_sides)
     if coupled is not None:
         info['coupled_energy_balance'] = coupled
     return Ta, Tb, Ts, info

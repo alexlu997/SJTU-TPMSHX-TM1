@@ -30,6 +30,9 @@ def capture_result(case, raw):
         field_metadata[key] = dict(unit=unit, axes=('x', 'y'), location='cell', state=state)
     diagnostics = {key: value for key, value in raw.items()
                    if not isinstance(value, np.ndarray) and key not in ('_native_evidence', 'application')}
+    model_metadata = dict(case.metadata['model_metadata'])
+    if native['true_h'] and 'sco2_enthalpy_eos' in native['true_h']:
+        model_metadata['sco2_enthalpy_eos'] = native['true_h']['sco2_enthalpy_eos']
     return FieldResult(
         result_id=str(uuid4()), case_id=case.case_id,
         backend_id='python', backend_version='two_d_v1', grid=case.grid,
@@ -50,7 +53,7 @@ def capture_result(case, raw):
                       rho_cp_A=native['rho_cp_A'], rho_cp_B=native['rho_cp_B'],
                       parameters=case.parameters, design_fields=case.design_fields,
                       design_mode=case.metadata['design_mode'], application=raw['application'],
-                      model_metadata=case.metadata['model_metadata'], notices=case.metadata['notices'],
+                      model_metadata=model_metadata, notices=case.metadata['notices'],
                       diagnostics=diagnostics, df_metadata=raw['df_metadata'],
                       model_roles=case.metadata['model_roles'],
                       reporting_reference={key: raw[key] for key in (

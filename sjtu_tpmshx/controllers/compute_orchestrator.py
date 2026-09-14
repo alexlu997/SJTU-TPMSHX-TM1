@@ -8,7 +8,7 @@ pattern. Provides:
   - cooperative cancel via cancel_token (worker checks at epoch boundaries)
   - structured signals (started / progress / finished / error / cancelled)
   - ETA history per mode (2d / 3d)
-  - solver stdout capture into a 500 KB ring (for the D9 solve-log viewer)
+  - solver stdout/stderr capture of the latest 500,000 characters
 
 The actual solver work runs in `worker_fn(cfg, cancel_token, progress_cb)`.
 Caller passes a callable that does the compute and returns its result object.
@@ -18,16 +18,15 @@ Current controller/module boundaries are documented in docs/architecture.md.
 """
 from __future__ import annotations
 
-import io
 import sys
 import time
 import threading
 import traceback
-import contextlib
 from collections import deque
 from typing import Callable, Optional
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Qt, Signal, Slot
+from sjtu_tpmshx.logutil import capture_output
 
 
 # ---------------------------------------------------------------- public types
@@ -64,6 +63,38 @@ class CancelToken:
 # ---------------------------------------------------------------- runnable
 
 
+class _TailLog:
+    """Bound retained text while both SIMPLE workers may be writing."""
+
+    def __init__(self, limit=500_000):
+        self._limit = limit
+        self._chunks = deque()
+        self._size = 0
+        self._lock = threading.Lock()
+
+    def write(self, text):
+        if not text:
+            return 0
+        with self._lock:
+            tail = text[-self._limit:]
+            self._chunks.append(tail)
+            self._size += len(tail)
+            while self._size > self._limit:
+                first = self._chunks.popleft()
+                excess = self._size - self._limit
+                if len(first) > excess:
+                    self._chunks.appendleft(first[excess:])
+                self._size -= min(len(first), excess)
+        return len(text)
+
+    def flush(self):
+        pass
+
+    def getvalue(self):
+        with self._lock:
+            return ''.join(self._chunks)
+
+
 class _ComputeRunnable(QRunnable):
     """QRunnable wrapper that drives `worker_fn` and forwards stdout / events.
 
@@ -83,7 +114,7 @@ class _ComputeRunnable(QRunnable):
 
     def run(self):
         orch = self._orch
-        log_buf = io.StringIO()
+        log_buf = _TailLog()
 
         # Tee solver stdout: terminal + capture buffer (for solve-log viewer).
         # The broad except/pass pairs below are DELIBERATE (except-audit
@@ -99,6 +130,7 @@ class _ComputeRunnable(QRunnable):
                         s.write(x)
                     except Exception:
                         pass
+                return len(x)
 
             def flush(self):
                 for s in self._s:
@@ -107,7 +139,7 @@ class _ComputeRunnable(QRunnable):
                     except Exception:
                         pass
 
-        t0 = time.time()
+        t0 = time.perf_counter()
         try:
             # stderr is tee'd too: `warnings.warn` (the degradation channel —
             # flux-weight fallback, choke rescue, conservation-NaN notices)
@@ -115,25 +147,22 @@ class _ComputeRunnable(QRunnable):
             # those messages were invisible in the GUI solve log (blind-spot
             # audit W1b, 2026-07-07). _Tee tolerates sys.__stderr__ = None
             # (pythonw) via its per-stream except guards.
-            with contextlib.redirect_stdout(_Tee(sys.__stdout__, log_buf)), \
-                 contextlib.redirect_stderr(_Tee(sys.__stderr__, log_buf)):
+            with capture_output(_Tee(sys.__stdout__, log_buf),
+                                _Tee(sys.__stderr__, log_buf)):
                 result = self._worker_fn(
                     self._cfg, self._cancel,
                     progress_cb=lambda p: orch.progress.emit(int(p)))
 
-            elapsed = time.time() - t0
-            # Cap log at 500 KB to bound memory.
-            log_text = log_buf.getvalue()[:500_000]
+            elapsed = time.perf_counter() - t0
+            log_text = log_buf.getvalue()
             orch._worker_finished.emit(result, log_text, elapsed)
         except _CancelledError:
-            elapsed = time.time() - t0
-            log_text = log_buf.getvalue()[:500_000]
+            elapsed = time.perf_counter() - t0
+            log_text = log_buf.getvalue()
             orch._worker_cancelled.emit(log_text, elapsed)
         except Exception as e:
-            log_text = log_buf.getvalue()[:500_000]
-            tb = traceback.format_exc()
-            log_text = log_text + "\n" + tb
-            orch._worker_error.emit(str(e), log_text)
+            log_buf.write("\n" + traceback.format_exc())
+            orch._worker_error.emit(str(e), log_buf.getvalue())
 
 
 class _CancelledError(Exception):

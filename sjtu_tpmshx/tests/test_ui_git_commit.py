@@ -59,3 +59,32 @@ def test_git_unavailable_or_invalid_metadata(tmp_path, monkeypatch):
     assert repository_revision(tmp_path)['revision'] is None
     monkeypatch.setenv('PATH', '')
     assert repository_revision(tmp_path)['revision'] is None
+
+
+def test_revision_and_tracked_changes_are_fresh(tmp_path):
+    def git(*args):
+        return subprocess.check_output(
+            ['git', '-C', str(tmp_path), '-c', 'user.name=Test',
+             '-c', 'user.email=test@example.com', '-c', 'commit.gpgsign=false', *args],
+            text=True, stderr=subprocess.DEVNULL,
+        ).strip()
+
+    git('init')
+    assert repository_revision(tmp_path)['status'] == 'unavailable'
+    tracked = tmp_path / '# tracked file.txt'
+    tracked.write_text('first')
+    git('add', '--', tracked.name)
+    assert repository_revision(tmp_path)['status'] == 'unavailable'
+    git('commit', '-m', 'first')
+    first = repository_revision(tmp_path)
+    assert first == dict(revision=git('rev-parse', 'HEAD'), tracked_changes=False, status='recorded')
+    (tmp_path / 'untracked.txt').write_text('ignored by provenance')
+    assert repository_revision(tmp_path) == first
+    tracked.write_text('second')
+    assert repository_revision(tmp_path) == {**first, 'tracked_changes': True}
+    git('add', '--', tracked.name)
+    assert repository_revision(tmp_path) == {**first, 'tracked_changes': True}
+    git('commit', '-m', 'second')
+    current = repository_revision(tmp_path)
+    assert current == dict(revision=git('rev-parse', 'HEAD'), tracked_changes=False, status='recorded')
+    assert current['revision'] != first['revision']

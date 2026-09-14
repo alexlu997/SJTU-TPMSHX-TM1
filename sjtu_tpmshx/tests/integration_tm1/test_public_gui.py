@@ -1,5 +1,6 @@
 """Actual Qt Compute entry, numerical modules, rendering and CSV export."""
 import csv
+from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
@@ -9,7 +10,7 @@ from PySide6.QtCore import QTimer
 
 from sjtu_tpmshx.tests.test_io_actions import win as win
 from sjtu_tpmshx.tests.test_worker_result_handoff import _wait_for
-from sjtu_tpmshx.tests.integration_tm1.test_2d_real import baseline_config
+from sjtu_tpmshx.tests.integration_tm1.test_2d_real import baseline_config, AIR_BASELINE_METRICS
 from sjtu_tpmshx.tests.test_pipeline_3d_e2e import _small_air_cfg
 from sjtu_tpmshx.ui.window_config import CONFIG_FIELDS
 from sjtu_tpmshx.domain.compute_config import bc_to_dict
@@ -30,11 +31,13 @@ def apply_config(window, config):
                 value = normalized.get(end + '_' + suffix)
                 edits[f'le_pipe{side}_{end}_{suffix}'] = str(default if value is None else value)
     window._apply_user_preset(dict(
-        temp_unit='K', line_edits=edits,
+        temp_unit='K', line_edits=edits, sco2_nu_parameters=asdict(config.sco2_nu),
         combos={'combo_shape': 0, 'combo_dim': int(config.is_3d),
                 'combo_tpms': window.combo_tpms.findText(config.geometry.tpms),
-                'combo_fluidA': 0, 'combo_fluidB': 0,
+                'combo_fluidA': ('air', 'water', 'sco2').index(config.fluid_A.type),
+                'combo_fluidB': ('air', 'water', 'sco2').index(config.fluid_B.type),
                 'combo_df_mode': window.combo_df_mode.findData(config.df_mode),
+                'combo_sco2_nu_mode': window.combo_sco2_nu_mode.findData(config.sco2_nu.mode),
                 'combo_dirA': config.bc_A.dir, 'combo_dirB': config.bc_B.dir},
         checks={'chk_zones': False, 'chk_wall_refine_3d': config.flags.wall_refine_3d,
                 'chk_var_rhocp': config.flags.variable_rho_cp, 'chk_allow_extrap': config.extrap.allow}))
@@ -130,7 +133,7 @@ def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, di
     assert result.fields['Ta'].shape[0] != 99
     np.testing.assert_allclose(
         [result.Q_W, result.dP_A_Pa, result.dP_B_Pa, result.T_out_A_K, result.T_out_B_K],
-        ([31084.383039293898, 1665.684133288371, 1212.2971501411819, 304.2430037398466, 334.69721144655796]
+        (AIR_BASELINE_METRICS
          if dimension == 2 else
          [338.48590825124325, 1945.2469619113485, 3044.9340885522665, 359.19558834036184, 344.9435887813375]),
         rtol=1e-10, atol=1e-10)

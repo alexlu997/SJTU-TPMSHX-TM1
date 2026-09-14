@@ -44,12 +44,15 @@ def main(argv=None):
         from sjtu_tpmshx.io.case_io import save_case
         from sjtu_tpmshx.io.result_io import save_result
         from sjtu_tpmshx.io.metrics_io import save_metrics
+        from sjtu_tpmshx.io.file_set import staged_files
         from .compute import compute
         args.output.mkdir(parents=True, exist_ok=True)
         case, result, performance = compute(load_config(args.input), case_id=args.case_id)
-        save_case(case, args.output / 'case.yaml')
-        save_result(result, args.output / 'results.h5')
-        save_metrics(performance, args.output / 'metrics.json')
+        names = ('case.h5', 'case.yaml', 'results.h5', 'metrics.json')
+        with staged_files([args.output / name for name in names]) as stage:
+            save_case(case, stage / 'case.yaml')
+            save_result(result, stage / 'results.h5')
+            save_metrics(performance, stage / 'metrics.json')
         required = ('Q', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B')
         return 0 if result.run_status['converged'] and all(
             performance.metrics[key].status == 'available' for key in required) else 2

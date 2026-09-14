@@ -43,6 +43,49 @@ def shanghai_spec() -> SpecimenSpec:
     )
 
 
+def shanghai_pipeline_config(ci, df, solver, *, wall_refine=False, spec=None):
+    """April 1 experiment: measured total flows and confirmed staggered ports.
+
+    The user confirmed the GUI geometry on 2026-09-13: water enters the
+    top face at x=133..175 mm and exits the bottom at x=7..49 mm, both
+    through the full 42 mm depth. Historical frozen-water kernels retain
+    their old geometry/rounded flow area; they are not this full solve.
+    """
+    from sjtu_tpmshx.domain.compute_config import (
+        ComputeConfig, FluidConfig, GeometryConfig, PartialBCConfig,
+        ExtrapPolicy, FeatureFlags)
+    from sjtu_tpmshx.models.fluid_props import get
+
+    spec = shanghai_spec() if spec is None else spec
+    L, H, depth = spec.L_dom_m, spec.H_dom_m, spec.Lz_m
+    bc_A = PartialBCConfig(dir=0, in_ctr=H / 2, in_w=H,
+                          out_ctr=H / 2, out_w=H)
+    bc_B = PartialBCConfig(dir=3, in_ctr=.154, in_w=.042,
+                          out_ctr=.028, out_w=.042)
+    if solver.Nz >= 2:
+        for bc in (bc_A, bc_B):
+            bc.in_z_ctr = bc.out_z_ctr = depth / 2
+            bc.in_z_w = bc.out_z_w = depth
+    fluids = []
+    for kind, mass_col, temp_col, pressure, eps, bc in (
+        ('air', 5, 28, 101325. + float(df.iloc[ci, 30]), spec.eps_A, bc_A),
+        ('water', 7, 24, float(df['water_P_in_abs_Pa'].iloc[ci]), spec.eps - spec.eps_A, bc_B),
+    ):
+        temperature = float(df.iloc[ci, temp_col]) + 273.15
+        rho = float(get(kind).rho(temperature, pressure))
+        velocity = float(df.iloc[ci, mass_col]) / (rho * eps * bc.in_w * depth)
+        fluids.append(FluidConfig(type=kind, u_mps=velocity,
+                                  T_in_K=temperature, P_in_Pa=pressure))
+    return ComputeConfig(
+        fluid_A=fluids[0], fluid_B=fluids[1],
+        geometry=GeometryConfig(tpms=spec.tpms, L_cell_mm=spec.L_cell_mm,
+            t_wall_mm=spec.t_wall_mm, k_s_W_mK=spec.k_s_W_mK,
+            L_dom_m=L, H_dom_m=H, Lz_m=depth if solver.Nz >= 2 else None),
+        solver=solver, bc_A=bc_A, bc_B=bc_B,
+        extrap=ExtrapPolicy(allow=True),
+        flags=FeatureFlags(wall_refine_3d=wall_refine))
+
+
 def d76_spec() -> SpecimenSpec:
     """D_7_6 specimen (Diamond L=7 t=0.6, SLM) — same domain architecture
     as Shanghai; frontal flow area = void fraction x 36 cells x (7 mm)^2.

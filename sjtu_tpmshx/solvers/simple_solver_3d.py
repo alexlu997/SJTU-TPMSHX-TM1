@@ -234,7 +234,7 @@ def _build_pp_sparsity_3d(Nx, Ny, Nz, outlet_mask_ij):
 def _solve_pp_amg(Pp, u, v, w, d_u, d_v, d_w,
                    Nx, Ny, Nz, dx, dy, dz, rho_field, sparsity,
                    ml_cache, rebuild, rtol_dyn=1e-5, drift_thresh=0.05):
-    """Assemble + solve the pressure-correction system using PyAMG SA.
+    """Assemble pressure correction; use cached AMG above ``_AMG_GATE``.
 
     ml_cache : dict holding the reusable multilevel hierarchy. Rebuilt when
         `rebuild` is True or when no cached entry exists.
@@ -328,7 +328,7 @@ def _solve_pp_amg(Pp, u, v, w, d_u, d_v, d_w,
             ml_cache.get('bcg_time', 0.0) + (_perf_counter() - t0))
         ml_cache['bcg_calls'] = ml_cache.get('bcg_calls', 0) + 1
         if info != 0:
-            # AMG-PCG failed; fall back to direct for robustness.
+            # AMG-preconditioned BiCGStab failed; fall back to direct.
             # Keep cached hierarchy — popping forces next-iter rebuild that
             # is unlikely to fix the failure (A drift bounded within outer
             # SIMPLE step) and would double the cost. Track failure count
@@ -338,8 +338,7 @@ def _solve_pp_amg(Pp, u, v, w, d_u, d_v, d_w,
             from scipy.sparse.linalg import spsolve
             Pp_flat = spsolve(A, rhs)
     else:
-        # Small / medium grids: direct sparse LU. Fast and robust for the
-        # Phase 1 MVP validation grids (< 3e4 cells).
+        # At or below _AMG_GATE, use direct sparse LU.
         from scipy.sparse.linalg import spsolve
         Pp_flat = spsolve(A, rhs)
 

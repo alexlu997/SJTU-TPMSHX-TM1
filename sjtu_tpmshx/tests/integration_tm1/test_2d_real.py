@@ -12,6 +12,11 @@ from sjtu_tpmshx.preprocess.two_d.preparation import prepare_case
 from sjtu_tpmshx.solvers.backends.python.two_d.execution import run_case
 from sjtu_tpmshx.postprocess.metrics import evaluate
 
+# 2026-09-13: inlet density now comes from the configured fluid model for
+# every side. Previous values remain at 1a820521; tolerances are unchanged.
+AIR_BASELINE_METRICS = [31086.937427058772, 1665.933909859572, 1212.4863954370883,
+                        304.2432522135503, 334.6971842257337]
+
 
 def baseline_config():
     return ComputeConfig(
@@ -38,8 +43,7 @@ def test_prepared_only_b20_air_baseline(monkeypatch):
     reference = result.metadata['reporting_reference']
     np.testing.assert_allclose(
         [reference[key] for key in ('Q_total', 'dP_A', 'dP_B', 'T_out_A_K', 'T_out_B_K')],
-        [31084.383039293898, 1665.684133288371, 1212.2971501411819,
-         304.2430037398466, 334.69721144655796], rtol=1e-10, atol=1e-10)
+        AIR_BASELINE_METRICS, rtol=1e-10, atol=1e-10)
     assert result.run_status['converged'] is True
     assert result.fields['Ta'].shape == (36, 56)
     assert result.boundary_fluxes['mass_A'][0].shape == (37, 56)
@@ -66,8 +70,9 @@ def _assert_postprocessing(result):
 
 @pytest.mark.slow
 @pytest.mark.parametrize('fluid_A,u_A,P_A,fluid_B,P_B,expected_Q', [
-    ('sco2', .3, 12e6, 'water', 2e6, 45645.686638674175),
-    ('air', 3., 2e5, 'sco2', 12e6, 4419.163268961036),
+    # Approved iteration-only BICUBIC reference; HEOS final state, same budgets.
+    ('sco2', .3, 12e6, 'water', 2e6, 45645.89445485597),
+    ('air', 3., 2e5, 'sco2', 12e6, 4419.516474200189),
 ])
 def test_mixed_partial_native_and_postprocessing(fluid_A,u_A,P_A,fluid_B,P_B,expected_Q):
     from sjtu_tpmshx.domain.compute_config import ExtrapPolicy
@@ -86,6 +91,9 @@ def test_mixed_partial_native_and_postprocessing(fluid_A,u_A,P_A,fluid_B,P_B,exp
     assert result.run_status['converged'] is False
     assert result.run_status['final_flow_after_last_thermal'] is True
     assert not np.array_equal(result.fields['Ta'], result.fields['Ta_display'])
+    eos = result.metadata['model_metadata']['sco2_enthalpy_eos']
+    assert list(eos['sides']) == (['A'] if fluid_A == 'sco2' else ['B'])
+    assert eos['final_backend'] == 'HEOS'
     _assert_postprocessing(result)
 
 

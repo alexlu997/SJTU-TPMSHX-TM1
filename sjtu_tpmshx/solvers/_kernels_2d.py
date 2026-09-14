@@ -8,8 +8,9 @@ compiled output byte-identical while collapsing the duplication.
 from numba import njit
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=False)
 def _model_h(T, coefficients):
+    # Shared by 2D and fastmath 3D kernels: do not inherit the first caller's flags.
     a, b, c, origin, reference = coefficients
     x = T - origin
     x0 = reference - origin
