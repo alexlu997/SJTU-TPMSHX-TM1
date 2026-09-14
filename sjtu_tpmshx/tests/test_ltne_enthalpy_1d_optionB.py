@@ -1,15 +1,17 @@
 """Option B (solve-in-enthalpy) 1D LTNE conservation PoC test.
 
-The 3D conservative LTNE kernel telescopes a face-shared flux F = ε·ρcp·u·A and
-convects T — i.e. it conserves the ρcp·T "energy", which equals true enthalpy
+The historical temperature-form 3D kernel telescoped a face-shared flux
+F = ε·ρcp·u·A and convected T, conserving the ρcp·T "energy", which equals enthalpy
 ONLY for constant cp. For sCO2 (cp spikes ×10-56 near the pseudocritical line)
-ρcp·u·T ≠ ρu·h, and the two fluid streams' duties go out of balance (~41% on the
-703 recuperator). The fix (Option B) makes enthalpy h the primary fluid unknown,
+ρcp·u·T ≠ ρu·h; the historical imbalance was ~41% on the 703 recuperator.
+The enthalpy form (Option B) makes h the primary fluid unknown,
 so the convection telescopes the true enthalpy flux ṁ·h.
 
 This 1D PoC proves the enthalpy form conserves (A/B imbalance < 1%) on a
-variable-cp CO2 counterflow case where the legacy cp·T form does not. It is the
-de-risking step before porting Option B into solvers/ltne_energy_3d.py.
+variable-cp CO2 counterflow case where the legacy cp·T form does not.
+The production enthalpy implementation is now in solvers/ltne_enthalpy_3d.py;
+test_ltne_enthalpy_3d.py checks its 3D behavior separately. This test retains
+the PoC formulation comparison and does not replace those production checks.
 """
 import os
 import sys
@@ -37,7 +39,7 @@ def test_enthalpy_form_conserves_where_cpT_fails():
 
     s = m.make_setup_sco2()
 
-    # Legacy ρcp·u·T transport (the production 3D conservative kernel's form):
+    # Historical ρcp·u·T transport retained as the comparison control:
     res_cpT = m.solve_cpT(s)
     met_cpT = m.compute_metrics(res_cpT, s)
 

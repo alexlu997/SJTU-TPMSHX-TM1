@@ -21,6 +21,7 @@
 | [现行实验修正](../sjtu_tpmshx/validation/df_refit/fit_experimental_effective.py)、[跨数据集 cF 对照](../sjtu_tpmshx/validation/df_refit/cf_cross_fluid.py) | 实验原表 + 当前固定 CFD 基线 → `reports/df_refit/` 审查 CSV | `python -m sjtu_tpmshx.validation.df_refit.<模块名>`；共享 `validation/hx_experiments.py` 读取，不依赖旧 γ/RBF 拟合或六张旧系数表，不更新生产系数 |
 | [sCO2 Nu 修正复核](../sjtu_tpmshx/validation/sco2_exp/fit_nu_correction.py)、[逐温度 Nu 报告](../sjtu_tpmshx/validation/sco2_exp/nu_bytemp_report.py) | sCO2 实验汇总 → 原锚定修正值 / 分温度 Nu 对照 | `python -m sjtu_tpmshx.validation.sco2_exp.<模块名>`；仅依赖现行 Nu、实验读取器及几何，不再运行旧压降模型 |
 | [主计算测量](../sjtu_tpmshx/runs/tools/benchmark_main_compute.py) | 本地固定 `jobs` 清单（每项 `id/config`，可含 `reference/depth_m`）→ 每次运行独立的 Case/Result/metrics、日志和分段测量 | `python -m sjtu_tpmshx.runs.tools.benchmark_main_compute MANIFEST NEW_OUTPUT --warmup --repeat 5`；0=执行、状态及已声明流量检查通过，2=存在未合格结果，1=执行异常；不代表实验精度通过 |
+| [历史 2D golden](../sjtu_tpmshx/runs/_out/_golden_2d.py) | 两组固定 Pipeline2D 配置 → 新的本地快照 / 与指定快照比较 | 手工历史诊断，非当前物理验收；`test_asym_porosity_2d.py` 仍使用其中的配置函数。用 `python -m sjtu_tpmshx.runs._out._golden_2d .cache/golden-2d-new.json` 保存新快照，保留原记录 |
 | [历史 3D golden](../sjtu_tpmshx/runs/_out/_golden_3d.py) | `golden_3d.json` 与原始元数据 → 同环境历史对照 | 手工历史诊断，三组配置；不是当前跨平台验收。现行测试配置独立放在 [tests/cases_3d.py](../sjtu_tpmshx/tests/cases_3d.py)，不改写旧数值以消除差异 |
 
 主计算测量的时间以单调时钟记录；求解时间包含原生结果捕获，内部 SIMPLE 调用
