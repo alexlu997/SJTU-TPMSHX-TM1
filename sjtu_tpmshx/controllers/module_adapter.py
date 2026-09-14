@@ -1,4 +1,6 @@
 """Map archived module results to the existing application display contract."""
+from dataclasses import asdict
+
 from sjtu_tpmshx.domain.compute_result import ComputeResult
 from sjtu_tpmshx.domain.portable_data import mutable_data
 from sjtu_tpmshx.models.zone_units import _legacy_zone_units
@@ -14,6 +16,8 @@ def to_compute_result(result, performance):
     unit = 'W/m' if dimension == 2 else 'W'
     if performance.metrics['Q'].spec.unit != unit:
         raise ValueError('heat-duty unit disagrees with the result dimension')
+    if performance.metrics['Q'].spec.definition_version != 'native_boundary_v1':
+        raise ValueError('re-evaluate native results before displaying the current heat-duty definition')
     f = mutable_data(result.fields)
     parameters = mutable_data(result.metadata['parameters'])
     diagnostics = mutable_data(result.metadata['diagnostics'])
@@ -79,6 +83,15 @@ def to_compute_result(result, performance):
     metadata['metric_status'] = {name: performance.metrics[name].status for name in values}
     metadata['metric_reasons'] = {name: performance.metrics[name].reason for name in values
                                   if performance.metrics[name].status != 'available'}
+    metadata['metric_definitions'] = {name: asdict(metric.spec)
+                                      for name, metric in performance.metrics.items()}
+    for name in ('Q_A', 'Q_B', 'energy_imbalance_rel', 'mass_imbalance_rel_A', 'mass_imbalance_rel_B',
+                 'Q_richardson_A', 'Q_richardson_B'):
+        if name in performance.metrics:
+            metric = performance.metrics[name]
+            residuals[name] = metric.value if metric.status == 'available' else float('nan')
+    residuals['Q_net'] = residuals['Q_A'] + residuals['Q_B']
+    residuals['enthalpy_imbalance_rel'] = residuals['energy_imbalance_rel']
     return ComputeResult(
         Q_W=values['Q'], dP_A_Pa=values['dP_A'], dP_B_Pa=values['dP_B'],
         T_out_A_K=values['T_out_A'], T_out_B_K=values['T_out_B'],

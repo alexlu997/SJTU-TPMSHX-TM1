@@ -85,6 +85,20 @@ model with prepared analytical inlet-pressure fractions, not a SIMPLE solve.
 Its offline metrics need no EOS or calibration call. Screening retains its
 own frozen-B/nonconvergence and unsupported-metric limits.
 
+Full-compute thermal metrics use definition `native_boundary_v1`: `Q` is
+the absolute A-side main-grid boundary heat loss, and `Q_A`/`Q_B` retain
+signed heat loss (positive when a stream releases heat). Energy imbalance
+uses these same native side duties. Outlet temperature uses the raw main
+thermal temperature weighted by positive outward signed thermal mass flux;
+mass flow reports total inward thermal boundary mass. 2D Richardson duties
+are separately named `Q_richardson_A/B` and never replace main-grid `Q`.
+Their extra solve and physical/convergence checks remain in force.
+Pressure drop retains the final SIMPLE pressure convention and its distinct
+recorded state. Metric definitions survive JSON and GUI export metadata.
+Old metrics files retain their definitions; re-evaluate their native result
+before mapping it to the current GUI contract. Frozen backend reporting
+references are historical numerical oracles, not the current metric contract.
+
 Continuous screening uses `models.screening.build_field` for preparation,
 preview and export. Saved decision vectors must be decoded with their original
 bounds, control grid, symmetry and spline order. The current geometry window

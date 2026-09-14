@@ -66,7 +66,7 @@ snapshots do not authorize ambiguous units in prepared data.
 | `run_status` | Execution, convergence, physical-domain and screening/validation state, residuals and warnings. These verdicts remain distinct. |
 | `model_refs`, `metadata` | Models and their provenance, original result metadata, code/data revision and required resolved input provenance. |
 
-The 2D outlet temperature uses last-main raw temperature and positive outward
+The full 2D/3D outlet temperature uses last-main raw temperature and positive outward
 signed mass over true openings. Backflow stays in the stored signed flux for
 conservation. Never multiply by heat capacity or face area again. Pressure
 state and display offsets remain explicitly different when the old path used
@@ -85,6 +85,17 @@ pressure measurement rule and thermal time point. A finite result from an
 unconverged run does not become a validated metric merely because evaluation
 finished. `available`, `insufficient_data`, `unsupported` and `invalid` are
 metric statuses; the original run verdict remains in FieldResult.
+
+Full-compute `native_boundary_v1` defines `Q` as `abs(Q_A)` from the main
+thermal boundary transport. `Q_A`/`Q_B` are signed heat loss, positive for a
+stream releasing heat. `energy_imbalance_rel` uses those same native duties;
+outlet temperature and mass flow use the matching signed thermal mass faces.
+The separately named 2D `Q_richardson_A/B` retain the accepted absolute-duty
+extrapolation; they do not replace main-grid metrics. Each definition is saved
+in `MetricSpec.description` and `definition_version`, including JSON exports.
+An explicit request for the former full-compute metric definition is unsupported
+by current evaluation. Old saved metrics remain readable with their original
+definition; re-evaluate the native result for the current GUI mapping.
 
 ## RunControl and module ports
 

@@ -1,5 +1,6 @@
 """Actual Qt Compute entry, numerical modules, rendering and CSV export."""
 import csv
+import json
 from dataclasses import asdict
 from pathlib import Path
 
@@ -10,7 +11,7 @@ from PySide6.QtCore import QTimer
 
 from sjtu_tpmshx.tests.test_io_actions import win as win
 from sjtu_tpmshx.tests.test_worker_result_handoff import _wait_for
-from sjtu_tpmshx.tests.integration_tm1.test_2d_real import baseline_config, AIR_BASELINE_METRICS
+from sjtu_tpmshx.tests.integration_tm1.test_2d_real import baseline_config, AIR_BASELINE_METRICS, AIR_NATIVE_Q
 from sjtu_tpmshx.tests.test_pipeline_3d_e2e import _small_air_cfg
 from sjtu_tpmshx.ui.window_config import CONFIG_FIELDS
 from sjtu_tpmshx.domain.compute_config import bc_to_dict
@@ -133,7 +134,7 @@ def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, di
     assert result.fields['Ta'].shape[0] != 99
     np.testing.assert_allclose(
         [result.Q_W, result.dP_A_Pa, result.dP_B_Pa, result.T_out_A_K, result.T_out_B_K],
-        (AIR_BASELINE_METRICS
+        ([AIR_NATIVE_Q, *AIR_BASELINE_METRICS[1:]]
          if dimension == 2 else
          [338.48590825124325, 1945.2469619113485, 3044.9340885522665, 359.19558834036184, 344.9435887813375]),
         rtol=1e-10, atol=1e-10)
@@ -144,6 +145,8 @@ def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, di
     with output.open() as stream:
         rows = dict(list(csv.reader(stream))[1:])
     assert float(rows[f'Q [{unit}]']) == pytest.approx(result.Q_W, abs=.0001)
+    assert json.loads(rows['metadata'])['metric_definitions']['Q']['definition_version'] == 'native_boundary_v1'
+    assert '主网格 A 侧' in win._diag_summary_text()
     assert unit in win._diag_summary_text()
     win.show()
     assert win._canvas_tab_availability()['temp']

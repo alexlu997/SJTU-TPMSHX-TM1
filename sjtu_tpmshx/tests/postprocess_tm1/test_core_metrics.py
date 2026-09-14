@@ -11,8 +11,8 @@ from sjtu_tpmshx.postprocess.metrics import evaluate
 
 def test_native_metrics_ignore_display_and_reported_scalars():
     def balance(q):
-        return {'A': {'h_faces_W_per_m': (np.array([[q, q], [0., 0.], [q/2, q/2]]), np.zeros((2, 3)))},
-                'B': {'h_faces_W_per_m': (np.array([[q/2, q/2], [0., 0.], [q, q]]), np.zeros((2, 3)))}}
+        return {'A': {'physical_boundary_complete': True, 'h_faces_W_per_m': (np.array([[q, q], [0., 0.], [q/2, q/2]]), np.zeros((2, 3)))},
+                'B': {'physical_boundary_complete': True, 'h_faces_W_per_m': (np.array([[q/2, q/2], [0., 0.], [q, q]]), np.zeros((2, 3)))}}
     pressure = {'inlet_gauge_Pa': np.array([100., 200.]), 'outlet_gauge_Pa': np.array([10., 20.]),
                 'inlet_fraction': np.array([.25, .75]), 'outlet_fraction': np.array([.5, .5]),
                 'outlet_geom_frac': np.array([.3, .9])}
@@ -30,7 +30,11 @@ def test_native_metrics_ignore_display_and_reported_scalars():
                   'diagnostics': {'richardson_info': {'extrapolated': True}},
                   'reporting_reference': {'Q_total': -999., 'T_out_A_K': -999.}})
     metrics = evaluate(result).metrics
-    assert metrics['Q'].value == 14.
+    assert metrics['Q'].value == 10.
+    assert metrics['Q_A'].value == 10.
+    assert metrics['Q_B'].value == -10.
+    assert metrics['Q_richardson_A'].value == metrics['Q_richardson_B'].value == 14.
+    assert metrics['Q'].spec.definition_version == 'native_boundary_v1'
     assert metrics['dP_A'].value == 160.
     assert metrics['T_out_A'].value == 315.
     assert metrics['mass_flow_A'].value == 4.
@@ -40,6 +44,14 @@ def test_native_metrics_ignore_display_and_reported_scalars():
     missing = evaluate(replace(result, boundary_fluxes={})).metrics
     assert missing['Q'].status == 'insufficient_data'
     assert missing['T_out_A'].status == 'insufficient_data'
+    bad = balance(10.)
+    bad['A']['h_faces_W_per_m'][0][0, 0] = np.nan
+    invalid = evaluate(replace(result, boundary_fluxes={**result.boundary_fluxes, 'model_h': bad})).metrics
+    assert invalid['Q'].status == 'invalid'
+    assert invalid['Q_B'].value == -10.  # A may not borrow the finite B duty.
+    from sjtu_tpmshx.domain.metric_spec import MetricSpec
+    old_definition = evaluate(result, MetricSpec('Q', 'W/m')).metrics['Q']
+    assert old_definition.status == 'unsupported'
 
 
 def test_postprocessing_imports_no_backend():

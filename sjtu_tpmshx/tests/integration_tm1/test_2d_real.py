@@ -16,6 +16,9 @@ from sjtu_tpmshx.postprocess.metrics import evaluate
 # every side. Previous values remain at 1a820521; tolerances are unchanged.
 AIR_BASELINE_METRICS = [31086.937427058772, 1665.933909859572, 1212.4863954370883,
                         304.2432522135503, 334.6971842257337]
+# Native main-grid A duty; the unchanged backend reference above retains
+# the historical Richardson/max-side report for numerical regression.
+AIR_NATIVE_Q = 31032.260073309655
 
 
 def baseline_config():
@@ -61,11 +64,18 @@ def _assert_postprocessing(result):
     metadata = dict(result.metadata)
     metadata.pop('reporting_reference')
     metrics = evaluate(replace(result, metadata=metadata)).metrics
-    for name, raw_name in (('Q', 'Q_total'), ('dP_A', 'dP_A'), ('dP_B', 'dP_B'),
+    for name, raw_name in (('dP_A', 'dP_A'), ('dP_B', 'dP_B'),
                           ('T_out_A', 'T_out_A_K'), ('T_out_B', 'T_out_B_K')):
         assert metrics[name].status == 'available', metrics[name].reason
         np.testing.assert_allclose(metrics[name].value, reference[raw_name], rtol=1e-10, atol=1e-10)
     assert metrics['Q'].spec.unit == 'W/m'
+    assert metrics['Q'].value == abs(metrics['Q_A'].value)
+    assert metrics['Q'].spec.definition_version == 'native_boundary_v1'
+    if result.metadata['thermal_mode'] == 'true_h':
+        assert metrics['Q'].value == pytest.approx(reference['Q_total'], rel=1e-10)
+    else:
+        assert metrics['Q'].value == pytest.approx(AIR_NATIVE_Q, rel=1e-10)
+        assert max(metrics[f'Q_richardson_{side}'].value for side in ('A', 'B')) == pytest.approx(reference['Q_total'], rel=1e-10)
 
 
 @pytest.mark.slow

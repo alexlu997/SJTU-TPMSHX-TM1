@@ -81,18 +81,18 @@ class RunResultsMixin:
         self._result_model_metadata = {key: deepcopy(result.metadata[key])
                                        for key in ('darcy_forchheimer', 'sco2_nu', 'sco2_enthalpy_eos')
                                        if key in result.metadata}
-        is_3d = result.diagnostics.get('mode') == '3d'
         self._diag_summary = {
             'mode': result.diagnostics.get('mode', '2d'),
             'converged': bool(getattr(result, 'converged', True)),
             'Q_W': result.Q_W,
             'Q_unit': self._result_Q_unit,
             'dP_A': result.dP_A_Pa, 'dP_B': result.dP_B_Pa,
-            'Q_A': result.residuals.get('Q_enthalpy_A' if is_3d else 'Q_A'),
-            'Q_B': result.residuals.get('Q_enthalpy_B' if is_3d else 'Q_B'),
+            'Q_A': result.residuals.get('Q_A'),
+            'Q_B': result.residuals.get('Q_B'),
             'Q_net': result.residuals.get('Q_net'),
             'closure_rel': result.residuals.get('energy_imbalance_rel'),
-            'closure_basis': '全域固体交换' if is_3d else '两侧焓流',
+            'closure_basis': '主网格两侧有符号焓流',
+            'Q_definition': result.metadata.get('metric_definitions', {}).get('Q', {}),
             'envelope_valid': result.diagnostics.get('envelope_valid'),
             'envelope_warnings': list(
                 result.diagnostics.get('envelope_warnings', []) or []),
@@ -302,6 +302,7 @@ class RunResultsMixin:
             f"SJTU-TPMSHX 诊断摘要 ({d.get('mode', '2d').upper()})",
             f"Q = {_f(d.get('Q_W'))} {d.get('Q_unit', '?')} · ΔP_A = {_f(d.get('dP_A'))} Pa"
             f" · ΔP_B = {_f(d.get('dP_B'))} Pa",
+            "换热量口径：主网格 A 侧边界焓流绝对值；两侧焓流以放热为正。",
             f"两侧焓流: Q_A = {_f(d.get('Q_A'))} {d.get('Q_unit', '?')} · Q_B = {_f(d.get('Q_B'))} {d.get('Q_unit', '?')}",
             f"能量闭合（{d.get('closure_basis', '两侧焓流')}） = {_f(abs(rel) * 100 if isinstance(rel, (int, float)) and rel == rel else None, '{:.2f}')} %",
             f"收敛: {'是' if d.get('converged', True) else '否（结果仅供参考）'}"

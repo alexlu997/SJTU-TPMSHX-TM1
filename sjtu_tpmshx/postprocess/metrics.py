@@ -18,23 +18,31 @@ def _outward_faces(mass):
 
 
 def _model_duty(balance, side):
+    if not balance[side]['physical_boundary_complete']:
+        raise ValueError('unknown inflow prevents a complete heat duty')
     return -sum(float(face.sum()) for face in _outward_faces(balance[side]['h_faces_W_per_m']))
 
 
 def _side_duties(result):
+    return tuple(_side_duty(result, side) for side in ('A', 'B'))
+
+
+def _side_duty(result, side, *, fine=False):
     mode = result.metadata['thermal_mode']
     fluxes = result.boundary_fluxes
     if mode == 'true_h':
+        if fine:
+            raise NotImplementedError('true enthalpy has no Richardson thermal solve')
         native = fluxes['true_h']
-        return tuple(_boundary_enthalpy_duty(
+        return _boundary_enthalpy_duty(
             np.asarray(native['h_' + side]), native['h_in_' + side],
             tuple(np.asarray(face) for face in native['mass_flux_' + side]))
-                     for side in ('A', 'B'))
     if mode == 'model_h':
-        return tuple(_model_duty(fluxes['model_h'], side) for side in ('A', 'B'))
+        balance = fluxes['fine']['model_h_balance'] if fine else fluxes['model_h']
+        return _model_duty(balance, side)
     if mode != 'temperature':
         raise NotImplementedError(f'unsupported thermal mode: {mode}')
-    return tuple(_temperature_duty(result, side) for side in ('A', 'B'))
+    return _temperature_duty(result, side, fine=fine)
 
 
 def _temperature_duty(result, side, *, fine=False):
@@ -57,24 +65,15 @@ def _temperature_duty(result, side, *, fine=False):
 
 
 def _heat_duty(result):
-    user = _side_duties(result)
-    mode = result.metadata['thermal_mode']
-    if mode == 'true_h':
-        return abs(user[0])
-    refined = result.metadata['diagnostics']['richardson_info']
-    if refined['extrapolated']:
-        fine = result.boundary_fluxes['fine']
-        values = (tuple(_model_duty(fine['model_h_balance'], side) for side in ('A', 'B'))
-                  if mode == 'model_h' else
-                  tuple(_temperature_duty(result, side, fine=True) for side in ('A', 'B')))
-        candidates = [(4. * abs(finer) - abs(coarser)) / 3.
-                      for coarser, finer in zip(user, values)]
-    else:
-        candidates = [abs(value) for value in user]
-    finite = [value for value in candidates if np.isfinite(value)]
-    if not finite:
-        raise ValueError('no finite native heat-duty evidence')
-    return max(finite)
+    return abs(_side_duty(result, 'A'))
+
+
+def _richardson_duty(result, side):
+    if result.metadata['thermal_mode'] == 'true_h':
+        raise NotImplementedError('true enthalpy has no Richardson thermal solve')
+    if not result.metadata['diagnostics']['richardson_info']['extrapolated']:
+        raise NotImplementedError('Richardson extrapolation was not accepted')
+    return (4. * abs(_side_duty(result, side, fine=True)) - abs(_side_duty(result, side))) / 3.
 
 
 def _mass_flow(result, side):
@@ -98,6 +97,10 @@ def _evaluate_metric(result, name):
         raise NotImplementedError('unsupported physical dimension')
     if name == 'Q':
         return _heat_duty(result)
+    if name in ('Q_A', 'Q_B'):
+        return _side_duty(result, name[-1])
+    if name.startswith('Q_richardson_'):
+        return _richardson_duty(result, name[-1])
     if name.startswith('dP_'):
         pressure = result.pressure_evidence[name[-1]]
         return (_pipe_weighted(np.asarray(pressure['inlet_gauge_Pa']), np.asarray(pressure['inlet_fraction']))
@@ -142,13 +145,32 @@ def evaluate(result, metric_spec=None):
     if result.metadata.get('mode') == 'quick_design':
         from .quick_design import DEFINITIONS
         definitions.update(DEFINITIONS)
+    full_compute = result.metadata.get('mode') not in ('quick_design', 'screening_2d', 'screening_3d')
+    if full_compute:
+        unit = definitions['Q'][1]
+        definitions.update({name: (name, unit) for name in ('Q_A', 'Q_B')})
+        if result.metadata['dimension'] == 2:
+            definitions.update({name: (name, unit) for name in ('Q_richardson_A', 'Q_richardson_B')})
+    descriptions = {
+        'Q': 'Absolute A-side heat loss from the native main thermal boundary state; no side selection or extrapolation.',
+        'Q_A': 'Signed A-side heat loss from the native main thermal boundary state; heat loss is positive.',
+        'Q_B': 'Signed B-side heat loss from the native main thermal boundary state; heat loss is positive.',
+        'Q_richardson_A': 'A-side Richardson extrapolation of absolute coarse/fine duties; separate from main-grid Q.',
+        'Q_richardson_B': 'B-side Richardson extrapolation of absolute coarse/fine duties; separate from main-grid Q.',
+        'T_out_A': 'Raw main thermal outlet temperature weighted by positive outward native mass flux.',
+        'T_out_B': 'Raw main thermal outlet temperature weighted by positive outward native mass flux.',
+        'mass_flow_A': 'Total inward signed boundary mass from the main thermal input state.',
+        'mass_flow_B': 'Total inward signed boundary mass from the main thermal input state.',
+        'energy_imbalance_rel': 'Absolute sum of native signed A/B duties divided by their maximum absolute value.',
+    }
     metrics = {}
     for name, (kind, unit) in definitions.items():
         if metric_spec is not None and metric_spec.name not in (kind, name):
             continue
-        spec = metric_spec or MetricSpec(kind, unit)
+        version = 'native_boundary_v1' if full_compute and name in descriptions else 'three_module_v1'
+        spec = metric_spec or MetricSpec(kind, unit, version, descriptions.get(name, '') if full_compute else '')
         try:
-            if spec.unit != unit or spec.definition_version != 'three_module_v1':
+            if spec.unit != unit or spec.definition_version != version:
                 raise NotImplementedError(f'unsupported requested definition: {spec}')
             value = float(_evaluate_metric(result, name))
             if not np.isfinite(value):
