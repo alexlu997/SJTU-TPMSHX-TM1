@@ -281,7 +281,7 @@ def test_failed_refinement_preserves_main_fields_and_rejects_overall(monkeypatch
             result = original(*args, **kwargs)
         for old, actual in zip(before, args[:3]):
             np.testing.assert_array_equal(actual, old)
-        main['Q'] = max(abs(result[1]), abs(result[2]))
+        main['Q'] = abs(result[1])  # Public Q is the native main-grid A duty.
         return result
 
     monkeypatch.setattr(solve_2d, '_compute_Q_richardson', richardson)
