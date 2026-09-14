@@ -19,8 +19,9 @@ that — the NON-UNIFORM cases exercise the multi-unique-pair scatter path
 rel=1e-12 (not exact ==): same-machine numba is deterministic, but the
 tolerance absorbs trailing-ULP float-repr noise while still catching any
 rounding-key / ordering change (which moves results far above 1e-12).
-Same capture/check convention as runs/_out/_golden_3d.py. If a different
-CI machine trips this on FMA/thread-count variance, relax to rel=1e-9.
+The manual historical golden diagnostics have a separate capture/check
+workflow. Investigate any mismatch in the configured environment; changes
+to these references or tolerances require a separate approved disposition.
 
 Marked ``slow`` (each eval is a full SIMPLE x2 + LTNE solve).
 """

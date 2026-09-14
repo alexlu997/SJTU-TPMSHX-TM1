@@ -1,19 +1,19 @@
-"""Golden bit-identical gate for the 2D GUI compute path (Pipeline2D).
+"""Manual diagnostic for the historical 2D pipeline refactor cases.
 
-The 3D path had `_golden_3d.py`; the 2D `_run_solvers` outer-coupling loop
-had no field-hash gate (the optimizer's evaluate_design is a DIFFERENT 2D
-loop). Added with batch-4 (coupling_skeleton) so the OuterConvergence
-wiring into `pipelines.stages_2d` can be proven bit-identical.
+This tracked tool captures two fixed Pipeline2D cases (air-air and air/water-B
+cross-flow) and compares supplied snapshots exactly. It originally checked
+the retired pipeline stages; the numerical loop now lives under
+solvers/backends/python/two_d. It is not a current physical acceptance gate
+or a portable cross-platform baseline.
 
-Runs Pipeline2D on two representative cfgs (air-air + air/water-B cross-flow,
-both with the dual ΔT + Δρ convergence criterion) and captures headline
-scalars + SHA-256 of every output field.
+Run from the repository root with the interpreter specified by .venv-path.
+Capture to a NEW local file; retain earlier snapshots when investigating:
 
-    python -u runs/_out/_golden_2d.py             # capture → prints JSON
-    python -u runs/_out/_golden_2d.py golden.json  # capture + write file
-    python -u runs/_out/_golden_2d.py --check golden.json  # diff vs file
+    python -m sjtu_tpmshx.runs._out._golden_2d .cache/golden-2d-new.json
+    python -m sjtu_tpmshx.runs._out._golden_2d --check .cache/golden-2d-new.json
 
-Untracked diagnostic (runs/_out/). Not a pytest.
+test_asym_porosity_2d imports _air_air_cfg as a configuration helper.
+The manual capture/check path is not run by that test.
 """
 import os, sys, json, hashlib
 import numpy as np
@@ -108,7 +108,7 @@ def main():
 
 if __name__ == '__main__':
     # Pin the convergence criterion (2026-07-13 audit; mirrors _golden_3d.py):
-    # stages_2d resolves convergence_mode as env > cfg > 'f2' — a stray
+    # The 2D backend resolves convergence_mode as env > cfg > 'f2' — a stray
     # TPMSHX_CONV_MODE in the shell would silently swap the criterion between
     # capture and check. Pinned HERE, not at module level: tests import
     # `_air_air_cfg` from this file, and a module-level env write poisons the

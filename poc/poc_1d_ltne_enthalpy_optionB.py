@@ -5,9 +5,8 @@ case, to prove the enthalpy formulation conserves where the legacy one does not:
 
   solve_cpT      — legacy: primary unknown T, convection telescopes the
                    face-shared flux F = ṁ·cp_face on T, i.e. conserves ṁ·cp·T.
-                   This is the form the production 3D conservative kernel uses
-                   (ltne_energy_3d.py _gs_full_chunk_3d_stag, conservative=1).
-                   For variable cp it conserves the WRONG quantity.
+                   This historical temperature-form control conserves the
+                   wrong quantity for variable cp.
   solve_enthalpy — Option B: primary fluid unknown h. Convection telescopes the
                    mass flux ṁ on h, i.e. conserves the true enthalpy flux ṁ·h.
                    Diffusion recast (εk/cp)∇h; inter-phase h_v(Ts−T(h))
@@ -15,7 +14,11 @@ case, to prove the enthalpy formulation conserves where the legacy one does not:
 
 Conserved-quantity gap: ṁ·cp·T vs ṁ·h differ by ∫T·dcp, which does NOT vanish
 under grid refinement when cp varies strongly (sCO2 pseudocritical spike). That
-∫T·dcp is the ~41% A/B imbalance on the 703 recuperator.
+∫T·dcp explains the historical ~41% A/B imbalance on the 703 recuperator.
+
+The current production enthalpy path is implemented in
+sjtu_tpmshx/solvers/ltne_enthalpy_3d.py. This PoC retains the independent
+1D formulation comparison; production 3D regression has its own tests.
 
 Run as a script for the tuning sweep; the pytest test asserts the key gates.
 """
@@ -104,7 +107,7 @@ def make_setup_sco2(Nx=60):
     )
 
 
-# ── Legacy form: solve T, convect ṁ·cp·T (the production conservative kernel) ─
+# ── Historical temperature-form control: solve T, convect ṁ·cp·T ─
 def solve_cpT(s, n_outer=500, n_sweep=2, omega=0.3, tol=1e-9):
     Nx, dx, A = s["Nx"], s["dx"], s["Apipe"]
     P, ks, hv = s["P"], s["k_s"], s["h_v"]

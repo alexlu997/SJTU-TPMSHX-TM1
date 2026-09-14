@@ -3,8 +3,9 @@ convergence tracker (OuterConvergence).
 
 These lock the tracker contract used by the two_d (dual ΔT + Δρ) and
 three_d (single ΔT) numerical backends under solvers/backends/python/.
-Bit-identical-to-legacy behaviour is gated end-to-end by _golden_2d.py /
-_golden_3d.py; this file pins the unit-level semantics.
+This file pins the tracker and iteration-driver semantics. The separate
+_golden_2d.py / _golden_3d.py tools are manual historical diagnostics;
+current real-module execution checks live in integration_tm1/.
 """
 from __future__ import annotations
 
