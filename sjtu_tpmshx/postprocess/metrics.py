@@ -8,7 +8,6 @@ from sjtu_tpmshx.domain.performance_result import MetricValue, PerformanceResult
 from sjtu_tpmshx.domain.persistence_validation import validate_result_declarations
 from sjtu_tpmshx.result_math import (
     _boundary_enthalpy_duty, _enthalpy_balance_2d, _outlet_temperature_2d,
-    _pipe_weighted,
 )
 
 
@@ -83,6 +82,25 @@ def _mass_flow(result, side):
     return inflow, outflow
 
 
+def _pressure_drop_2d(result, side):
+    """Use the same physical-face reduction as 3D, with unit depth."""
+    from .three_d import _dp
+    parameters = result.metadata['parameters']
+    direction = parameters['dir_' + side]
+    pressure = np.asarray(result.fields['P_report_' + side])
+    dx, dy = np.asarray(result.grid['dx']), np.asarray(result.grid['dy'])
+    if direction in (1, 3):
+        pressure = np.flip(pressure, axis=direction // 2)
+    if direction in (0, 1):
+        pressure, dx, dy = pressure.T, dy, dx
+    if direction in (1, 3):
+        dy = dy[::-1]
+    openings = parameters['boundary_openings'][side]
+    return _dp(dict(P=pressure[:, :, None], dx=dx, dy=dy, dz=np.ones(1),
+                    inlet_frac=np.asarray(openings['in_geom_frac'])[:, None],
+                    outlet_frac=np.asarray(openings['out_geom_frac'])[:, None]))
+
+
 def _evaluate_metric(result, name):
     if result.metadata.get('mode') in ('screening_2d', 'screening_3d'):
         from .screening import evaluate_metric
@@ -102,9 +120,7 @@ def _evaluate_metric(result, name):
     if name.startswith('Q_richardson_'):
         return _richardson_duty(result, name[-1])
     if name.startswith('dP_'):
-        pressure = result.pressure_evidence[name[-1]]
-        return (_pipe_weighted(np.asarray(pressure['inlet_gauge_Pa']), np.asarray(pressure['inlet_fraction']))
-                - _pipe_weighted(np.asarray(pressure['outlet_gauge_Pa']), np.asarray(pressure['outlet_fraction'])))
+        return _pressure_drop_2d(result, name[-1])
     if name.startswith('T_out_'):
         side = name[-1]
         return _outlet_temperature_2d(
@@ -162,12 +178,16 @@ def evaluate(result, metric_spec=None):
         'mass_flow_A': 'Total inward signed boundary mass from the main thermal input state.',
         'mass_flow_B': 'Total inward signed boundary mass from the main thermal input state.',
         'energy_imbalance_rel': 'Absolute sum of native signed A/B duties divided by their maximum absolute value.',
+        'dP_A': 'Geometric-area-weighted inlet minus outlet pressure, extrapolated to physical port faces from the final SIMPLE field.',
+        'dP_B': 'Geometric-area-weighted inlet minus outlet pressure, extrapolated to physical port faces from the final SIMPLE field.',
     }
     metrics = {}
     for name, (kind, unit) in definitions.items():
         if metric_spec is not None and metric_spec.name not in (kind, name):
             continue
-        version = 'native_boundary_v1' if full_compute and name in descriptions else 'three_module_v1'
+        version = ('pressure_face_v1' if full_compute and name in ('dP_A', 'dP_B')
+                   else 'native_boundary_v1' if full_compute and name in descriptions
+                   else 'three_module_v1')
         spec = metric_spec or MetricSpec(kind, unit, version, descriptions.get(name, '') if full_compute else '')
         try:
             if spec.unit != unit or spec.definition_version != version:

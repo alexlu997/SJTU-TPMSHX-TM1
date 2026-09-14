@@ -93,6 +93,8 @@ outlet temperature and mass flow use the matching signed thermal mass faces.
 The separately named 2D `Q_richardson_A/B` retain the accepted absolute-duty
 extrapolation; they do not replace main-grid metrics. Each definition is saved
 in `MetricSpec.description` and `definition_version`, including JSON exports.
+Full-compute pressure drops use `pressure_face_v1`, the geometric-area-weighted
+difference between extrapolated physical inlet and outlet face pressures.
 An explicit request for the former full-compute metric definition is unsupported
 by current evaluation. Old saved metrics remain readable with their original
 definition; re-evaluate the native result for the current GUI mapping.

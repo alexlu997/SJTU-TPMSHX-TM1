@@ -210,6 +210,9 @@ def test_shanghai_actual_native_flow_matches_measured_total(monkeypatch, tmp_pat
         width = np.asarray(case.grid['dx']) * opening['in_geom_frac']
         mass_per_width = -native.boundary_fluxes['mass_B'][1][:, -1][width > 0] / width[width > 0]
         np.testing.assert_allclose(mass_per_width, mass_per_width[0], rtol=1e-12)
+        fine = native.boundary_fluxes['fine']
+        # The auxiliary thermal solve must preserve the selected inlet too.
+        np.testing.assert_allclose(fine['inlet_B'][fine['inlet_B'] > 0], 1., atol=1e-12)
     result = evaluate(native)
     for side, column in (('A', 5), ('B', 7)):
         flow = result.metrics['mass_flow_' + side]

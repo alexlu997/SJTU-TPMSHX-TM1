@@ -238,17 +238,26 @@ def build_page_domain(window):
     g_adv.addWidget(window.chk_allow_extrap, 0, 0, 1, 2)
 
     # 3D wall-refine checkbox — adds 8 BL cells near each wall (all 6 faces).
-    # OFF by default (5-15× faster, ~1pp accuracy cost). Turn ON for production
-    # validation runs where dP near-wall BL matters more than UX speed.
+    # Kept for explicit six-wall studies; Shanghai uses the port-aligned option.
     window.chk_wall_refine_3d = QCheckBox("6-wall BL refine (3D)")
     window.chk_wall_refine_3d.setChecked(False)
     window.chk_wall_refine_3d.setToolTip(
         "Enable six-wall boundary-layer refinement for 3D solves. "
         "Adds 8 cells per wall (first_cell=0.02 mm, growth 1.8). "
-        "ON: 5-15× slower, ~+1pp dP accuracy. OFF: production-fast (default).")
+        "The resulting cell count and mesh-convergence study determine cost and accuracy.")
     window.chk_wall_refine_3d.setStyleSheet(_chk_box_qss)
     g_adv.addWidget(window.chk_wall_refine_3d, 1, 0, 1, 2)
     window._3d_only_widgets.append(window.chk_wall_refine_3d)
+    window.chk_port_wall_refine = QCheckBox("端口与壁面加密（2D / 3D）")
+    window.chk_port_wall_refine.setToolTip(
+        "在端口边缘和壁面集中布置网格，Nx/Ny/Nz 包含全部加密单元。\n"
+        "上海水—空气推荐网格由预设提供；修改几何后需重新检查网格精度。")
+    window.chk_port_wall_refine.setStyleSheet(_chk_box_qss)
+    g_adv.addWidget(window.chk_port_wall_refine, 3, 0, 1, 2)
+    window.chk_port_wall_refine.toggled.connect(
+        lambda checked: window.chk_wall_refine_3d.setChecked(False) if checked else None)
+    window.chk_wall_refine_3d.toggled.connect(
+        lambda checked: window.chk_port_wall_refine.setChecked(False) if checked else None)
     # NOTE: legacy `_chk_wall_refine_3d` alias removed 2026-05-05 audit;
     # no remaining readers (grep confirmed). Use `chk_wall_refine_3d`.
 
@@ -345,7 +354,7 @@ def build_page_domain(window):
     _cpu_h.addWidget(_btn_dn)
     _cpu_h.addWidget(window.spin_cpu_cores)
     _cpu_h.addWidget(_btn_up)
-    g_adv.addWidget(_cpu_card, 3, 0, 1, 2)
+    g_adv.addWidget(_cpu_card, 4, 0, 1, 2)
     # Register the CARD (one widget) for 3D-only visibility — hiding it hides
     # the label + spinbox together; no separate child entries needed.
     window._3d_only_widgets.append(_cpu_card)

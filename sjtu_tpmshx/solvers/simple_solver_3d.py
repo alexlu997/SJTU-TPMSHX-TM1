@@ -318,6 +318,15 @@ def _solve_pp_amg(Pp, u, v, w, d_u, d_v, d_w,
         # res~1e-6 → inner rtol~5e-7 (matches legacy precision).
         t0 = _perf_counter()
         Pp_flat, info = _bcg(A, rhs, M=M, rtol=rtol_dyn, maxiter=200)
+        if info < 0:
+            # BiCGStab's absolute rho-breakdown threshold can reject a tiny
+            # continuity RHS near convergence. Scale the same linear problem
+            # before resorting to LU; keep the relative tolerance unchanged.
+            scale = float(np.linalg.norm(rhs))
+            if scale > 0.:
+                Pp_flat, info = _bcg(A, rhs / scale, M=M, rtol=rtol_dyn, maxiter=200)
+                Pp_flat *= scale
+                ml_cache['bcg_rescale_count'] = ml_cache.get('bcg_rescale_count', 0) + 1
         ml_cache['bcg_time'] = (
             ml_cache.get('bcg_time', 0.0) + (_perf_counter() - t0))
         ml_cache['bcg_calls'] = ml_cache.get('bcg_calls', 0) + 1

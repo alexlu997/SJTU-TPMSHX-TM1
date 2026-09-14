@@ -23,126 +23,74 @@ from ._kernels_2d import minmod
 # differs at truncation level — an intentional 2D-golden re-baseline.
 @njit(cache=True)
 def _sou_corr_u_x(u, i, j, Nx, Fe, Fw):
-    """SOU deferred correction for u-momentum in x-direction.
-    u is on x-faces: u[i,j] at face between cells i-1 and i.
-    Fe/Fw = rho*u_face*dy are the east/west-face convective fluxes for this
-    u-cell (the same fluxes that build aE/aW).
-    """
-    ue_loc = 0.5 * (u[i, j] + u[min(i + 1, Nx), j])
-    if ue_loc >= 0:
-        phi_w = 0.0
+    """Conservative SOU correction using each face's own upwind direction."""
+    low = 0.0
+    if Fw >= 0.0:
         if i > 2:
-            gu = u[i - 1, j] - u[i - 2, j]
-            gd = u[i, j] - u[i - 1, j]
-            phi_w = minmod(gu, gd)
-        phi_e = 0.0
-        if i + 1 < Nx and i > 1:
-            gu = u[i, j] - u[i - 1, j]
-            gd = u[i + 1, j] - u[i, j]
-            phi_e = minmod(gu, gd)
-        return 0.5 * (Fw * phi_w - Fe * phi_e)
-    else:
-        phi_e = 0.0
-        if i + 2 <= Nx:
-            gu = u[i + 1, j] - u[min(i + 2, Nx), j]
-            gd = u[i, j] - u[i + 1, j]
-            phi_e = minmod(gu, gd)
-        phi_w = 0.0
-        if i > 1 and i + 1 <= Nx:
-            gu = u[i, j] - u[i + 1, j]
-            gd = u[i - 1, j] - u[i, j]
-            phi_w = minmod(gu, gd)
-        return 0.5 * (Fe * phi_e - Fw * phi_w)
+            low = minmod(u[i - 1, j] - u[i - 2, j], u[i, j] - u[i - 1, j])
+    elif i > 1 and i + 1 <= Nx:
+        low = -minmod(u[i, j] - u[i + 1, j], u[i - 1, j] - u[i, j])
+    high = 0.0
+    if Fe >= 0.0:
+        if i > 1 and i + 1 < Nx:
+            high = minmod(u[i, j] - u[i - 1, j], u[i + 1, j] - u[i, j])
+    elif i + 2 <= Nx:
+        high = -minmod(u[i + 1, j] - u[i + 2, j], u[i, j] - u[i + 1, j])
+    return 0.5 * (Fw * low - Fe * high)
 
 
 @njit(cache=True)
 def _sou_corr_u_y(u, i, j, Ny, Fn, Fs):
-    """SOU deferred correction for u-momentum in y-direction."""
-    if Fn >= 0:
-        phi_s = 0.0
+    """Conservative SOU correction using each face's own upwind direction."""
+    low = 0.0
+    if Fs >= 0.0:
         if j > 1:
-            gu = u[i, j - 1] - u[i, j - 2]
-            gd = u[i, j] - u[i, j - 1]
-            phi_s = minmod(gu, gd)
-        phi_n = 0.0
-        if j < Ny - 1 and j > 0:
-            gu = u[i, j] - u[i, j - 1]
-            gd = u[i, j + 1] - u[i, j]
-            phi_n = minmod(gu, gd)
-        return 0.5 * (Fs * phi_s - Fn * phi_n)
-    else:
-        phi_n = 0.0
-        if j < Ny - 2:
-            gu = u[i, j + 1] - u[i, j + 2]
-            gd = u[i, j] - u[i, j + 1]
-            phi_n = minmod(gu, gd)
-        phi_s = 0.0
+            low = minmod(u[i, j - 1] - u[i, j - 2], u[i, j] - u[i, j - 1])
+    elif j > 0 and j < Ny - 1:
+        low = -minmod(u[i, j] - u[i, j + 1], u[i, j - 1] - u[i, j])
+    high = 0.0
+    if Fn >= 0.0:
         if j > 0 and j < Ny - 1:
-            gu = u[i, j] - u[i, j + 1]
-            gd = u[i, j - 1] - u[i, j]
-            phi_s = minmod(gu, gd)
-        return 0.5 * (Fn * phi_n - Fs * phi_s)
+            high = minmod(u[i, j] - u[i, j - 1], u[i, j + 1] - u[i, j])
+    elif j < Ny - 2:
+        high = -minmod(u[i, j + 1] - u[i, j + 2], u[i, j] - u[i, j + 1])
+    return 0.5 * (Fs * low - Fn * high)
 
 
 @njit(cache=True)
 def _sou_corr_v_x(v, i, j, Nx, Fe, Fw):
-    """SOU deferred correction for v-momentum in x-direction."""
-    if Fe >= 0:
-        phi_w = 0.0
+    """Conservative SOU correction using each face's own upwind direction."""
+    low = 0.0
+    if Fw >= 0.0:
         if i > 1:
-            gu = v[i - 1, j] - v[i - 2, j]
-            gd = v[i, j] - v[i - 1, j]
-            phi_w = minmod(gu, gd)
-        phi_e = 0.0
-        if i < Nx - 1 and i > 0:
-            gu = v[i, j] - v[i - 1, j]
-            gd = v[i + 1, j] - v[i, j]
-            phi_e = minmod(gu, gd)
-        return 0.5 * (Fw * phi_w - Fe * phi_e)
-    else:
-        phi_e = 0.0
-        if i < Nx - 2:
-            gu = v[i + 1, j] - v[i + 2, j]
-            gd = v[i, j] - v[i + 1, j]
-            phi_e = minmod(gu, gd)
-        phi_w = 0.0
+            low = minmod(v[i - 1, j] - v[i - 2, j], v[i, j] - v[i - 1, j])
+    elif i > 0 and i < Nx - 1:
+        low = -minmod(v[i, j] - v[i + 1, j], v[i - 1, j] - v[i, j])
+    high = 0.0
+    if Fe >= 0.0:
         if i > 0 and i < Nx - 1:
-            gu = v[i, j] - v[i + 1, j]
-            gd = v[i - 1, j] - v[i, j]
-            phi_w = minmod(gu, gd)
-        return 0.5 * (Fe * phi_e - Fw * phi_w)
+            high = minmod(v[i, j] - v[i - 1, j], v[i + 1, j] - v[i, j])
+    elif i < Nx - 2:
+        high = -minmod(v[i + 1, j] - v[i + 2, j], v[i, j] - v[i + 1, j])
+    return 0.5 * (Fw * low - Fe * high)
 
 
 @njit(cache=True)
 def _sou_corr_v_y(v, i, j, Ny, Fn, Fs):
-    """SOU deferred correction for v-momentum in y-direction.
-    v is on y-faces: v[i,j] at face between cells j-1 and j.
-    """
-    vn_loc = 0.5 * (v[i, j] + v[i, min(j + 1, Ny)])
-    if vn_loc >= 0:
-        phi_s = 0.0
+    """Conservative SOU correction using each face's own upwind direction."""
+    low = 0.0
+    if Fs >= 0.0:
         if j > 2:
-            gu = v[i, j - 1] - v[i, j - 2]
-            gd = v[i, j] - v[i, j - 1]
-            phi_s = minmod(gu, gd)
-        phi_n = 0.0
-        if j + 1 <= Ny and j > 1:
-            gu = v[i, j] - v[i, j - 1]
-            gd = v[i, min(j + 1, Ny)] - v[i, j]
-            phi_n = minmod(gu, gd)
-        return 0.5 * (Fs * phi_s - Fn * phi_n)
-    else:
-        phi_n = 0.0
-        if j + 2 <= Ny:
-            gu = v[i, j + 1] - v[i, min(j + 2, Ny)]
-            gd = v[i, j] - v[i, j + 1]
-            phi_n = minmod(gu, gd)
-        phi_s = 0.0
+            low = minmod(v[i, j - 1] - v[i, j - 2], v[i, j] - v[i, j - 1])
+    elif j > 1 and j + 1 <= Ny:
+        low = -minmod(v[i, j] - v[i, j + 1], v[i, j - 1] - v[i, j])
+    high = 0.0
+    if Fn >= 0.0:
         if j > 1 and j + 1 <= Ny:
-            gu = v[i, j] - v[i, j + 1]
-            gd = v[i, j - 1] - v[i, j]
-            phi_s = minmod(gu, gd)
-        return 0.5 * (Fn * phi_n - Fs * phi_s)
+            high = minmod(v[i, j] - v[i, j - 1], v[i, j + 1] - v[i, j])
+    elif j + 2 <= Ny:
+        high = -minmod(v[i, j + 1] - v[i, j + 2], v[i, j] - v[i, j + 1])
+    return 0.5 * (Fs * low - Fn * high)
 
 
 

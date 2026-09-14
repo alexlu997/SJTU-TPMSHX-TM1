@@ -69,18 +69,20 @@ def _porous_src_df_3d(umag, K, cF, mu, rho):
 @njit(cache=True, fastmath=True, inline='always')
 def _sou_axis(p_mm, p_m, p_c, p_p, p_pp,
               lo_pos, hi_pos, hi_neg, lo_neg,
-              Flo, Fhi, adv):
+              Flo, Fhi):
     """SOU correction along ONE axis. p_c = this face's value; p_m/p_p the
     axis neighbours (lo/hi side); p_mm/p_pp the second neighbours. Values at
-    clamped indices are ignored when the matching flag is False. Flo/Fhi =
-    lo/hi-face convective fluxes of this CV; adv selects the upwind branch."""
-    if adv >= 0.0:
+    clamped indices are ignored when the matching flag is False. Each face
+    selects its own upwind branch from its signed convective flux."""
+    if Flo >= 0.0:
         lo = minmod(p_m - p_mm, p_c - p_m) if lo_pos else 0.0
+    else:
+        lo = -minmod(p_c - p_p, p_m - p_c) if lo_neg else 0.0
+    if Fhi >= 0.0:
         hi = minmod(p_c - p_m, p_p - p_c) if hi_pos else 0.0
-        return 0.5 * (Flo * lo - Fhi * hi)
-    hi = minmod(p_p - p_pp, p_c - p_p) if hi_neg else 0.0
-    lo = minmod(p_c - p_p, p_m - p_c) if lo_neg else 0.0
-    return 0.5 * (Fhi * hi - Flo * lo)
+    else:
+        hi = -minmod(p_p - p_pp, p_c - p_p) if hi_neg else 0.0
+    return 0.5 * (Flo * lo - Fhi * hi)
 
 
 # ── SIMPLE Step 1: u-momentum (x-direction), 7-point first-order upwind ──
@@ -211,17 +213,17 @@ def _u_cell_df_3d(u, v, w, P, d_u, i, j, k,
                           u[i, j, k], u[min(i + 1, Nx), j, k],
                           u[min(i + 2, Nx), j, k],
                           i > 2, i > 1 and i + 1 < Nx, i + 2 <= Nx, i > 1,
-                          Fw, Fe, ue)
+                          Fw, Fe)
                 + _sou_axis(u[i, max(j - 2, 0), k], u[i, max(j - 1, 0), k],
                             u[i, j, k], u[i, min(j + 1, Ny - 1), k],
                             u[i, min(j + 2, Ny - 1), k],
                             j > 1, j > 0 and j < Ny - 1, j < Ny - 2,
-                            j > 0 and j < Ny - 1, Fs, Fn, Fn)
+                            j > 0 and j < Ny - 1, Fs, Fn)
                 + _sou_axis(u[i, j, max(k - 2, 0)], u[i, j, max(k - 1, 0)],
                             u[i, j, k], u[i, j, min(k + 1, Nz - 1)],
                             u[i, j, min(k + 2, Nz - 1)],
                             k > 1, k > 0 and k < Nz - 1, k < Nz - 2,
-                            k > 0 and k < Nz - 1, Fb, Ft, Ft))
+                            k > 0 and k < Nz - 1, Fb, Ft))
     aP = aP0 / alpha_u
     rhs += (1.0 - alpha_u) / alpha_u * aP0 * u[i, j, k]
 
@@ -396,17 +398,17 @@ def _v_cell_df_3d(u, v, w, P, d_v, i, j, k,
                           v[i, j, k], v[min(i + 1, Nx - 1), j, k],
                           v[min(i + 2, Nx - 1), j, k],
                           i > 1, i > 0 and i < Nx - 1, i < Nx - 2,
-                          i > 0 and i < Nx - 1, Fw, Fe, Fe)
+                          i > 0 and i < Nx - 1, Fw, Fe)
                 + _sou_axis(v[i, max(j - 2, 0), k], v[i, max(j - 1, 0), k],
                             v[i, j, k], v[i, min(j + 1, Ny), k],
                             v[i, min(j + 2, Ny), k],
                             j > 2, j > 1, j + 2 <= Ny, j > 1,
-                            Fs, Fn, vn)
+                            Fs, Fn)
                 + _sou_axis(v[i, j, max(k - 2, 0)], v[i, j, max(k - 1, 0)],
                             v[i, j, k], v[i, j, min(k + 1, Nz - 1)],
                             v[i, j, min(k + 2, Nz - 1)],
                             k > 1, k > 0 and k < Nz - 1, k < Nz - 2,
-                            k > 0 and k < Nz - 1, Fb, Ft, Ft))
+                            k > 0 and k < Nz - 1, Fb, Ft))
     aP = aP0 / alpha_u
     rhs += (1.0 - alpha_u) / alpha_u * aP0 * v[i, j, k]
 
@@ -602,17 +604,17 @@ def _w_cell_df_3d(u, v, w, P, d_w, i, j, k,
                           w[i, j, k], w[min(i + 1, Nx - 1), j, k],
                           w[min(i + 2, Nx - 1), j, k],
                           i > 1, i > 0 and i < Nx - 1, i < Nx - 2,
-                          i > 0 and i < Nx - 1, Fw_, Fe, Fe)
+                          i > 0 and i < Nx - 1, Fw_, Fe)
                 + _sou_axis(w[i, max(j - 2, 0), k], w[i, max(j - 1, 0), k],
                             w[i, j, k], w[i, min(j + 1, Ny - 1), k],
                             w[i, min(j + 2, Ny - 1), k],
                             j > 1, j > 0 and j < Ny - 1, j < Ny - 2,
-                            j > 0 and j < Ny - 1, Fs, Fn, Fn)
+                            j > 0 and j < Ny - 1, Fs, Fn)
                 + _sou_axis(w[i, j, max(k - 2, 0)], w[i, j, max(k - 1, 0)],
                             w[i, j, k], w[i, j, min(k + 1, Nz)],
                             w[i, j, min(k + 2, Nz)],
                             k > 2, k > 1, k + 2 <= Nz, k > 1,
-                            Fb, Ft, wn))
+                            Fb, Ft))
     aP = aP0 / alpha_u
     rhs += (1.0 - alpha_u) / alpha_u * aP0 * w[i, j, k]
 
@@ -1146,17 +1148,17 @@ def _u_coeffs_df_3d(u, v, w, P, i, j, k,
                           u[i, j, k], u[min(i + 1, Nx), j, k],
                           u[min(i + 2, Nx), j, k],
                           i > 2, i > 1 and i + 1 < Nx, i + 2 <= Nx, i > 1,
-                          Fw, Fe, ue)
+                          Fw, Fe)
                 + _sou_axis(u[i, max(j - 2, 0), k], u[i, max(j - 1, 0), k],
                             u[i, j, k], u[i, min(j + 1, Ny - 1), k],
                             u[i, min(j + 2, Ny - 1), k],
                             j > 1, j > 0 and j < Ny - 1, j < Ny - 2,
-                            j > 0 and j < Ny - 1, Fs, Fn, Fn)
+                            j > 0 and j < Ny - 1, Fs, Fn)
                 + _sou_axis(u[i, j, max(k - 2, 0)], u[i, j, max(k - 1, 0)],
                             u[i, j, k], u[i, j, min(k + 1, Nz - 1)],
                             u[i, j, min(k + 2, Nz - 1)],
                             k > 1, k > 0 and k < Nz - 1, k < Nz - 2,
-                            k > 0 and k < Nz - 1, Fb, Ft, Ft))
+                            k > 0 and k < Nz - 1, Fb, Ft))
     return aP0, rhs
 
 
@@ -1266,17 +1268,17 @@ def _v_coeffs_df_3d(u, v, w, P, i, j, k,
                           v[i, j, k], v[min(i + 1, Nx - 1), j, k],
                           v[min(i + 2, Nx - 1), j, k],
                           i > 1, i > 0 and i < Nx - 1, i < Nx - 2,
-                          i > 0 and i < Nx - 1, Fw, Fe, Fe)
+                          i > 0 and i < Nx - 1, Fw, Fe)
                 + _sou_axis(v[i, max(j - 2, 0), k], v[i, max(j - 1, 0), k],
                             v[i, j, k], v[i, min(j + 1, Ny), k],
                             v[i, min(j + 2, Ny), k],
                             j > 2, j > 1, j + 2 <= Ny, j > 1,
-                            Fs, Fn, vn)
+                            Fs, Fn)
                 + _sou_axis(v[i, j, max(k - 2, 0)], v[i, j, max(k - 1, 0)],
                             v[i, j, k], v[i, j, min(k + 1, Nz - 1)],
                             v[i, j, min(k + 2, Nz - 1)],
                             k > 1, k > 0 and k < Nz - 1, k < Nz - 2,
-                            k > 0 and k < Nz - 1, Fb, Ft, Ft))
+                            k > 0 and k < Nz - 1, Fb, Ft))
     return aP0, rhs
 
 
@@ -1388,17 +1390,17 @@ def _w_coeffs_df_3d(u, v, w, P, i, j, k,
                           w[i, j, k], w[min(i + 1, Nx - 1), j, k],
                           w[min(i + 2, Nx - 1), j, k],
                           i > 1, i > 0 and i < Nx - 1, i < Nx - 2,
-                          i > 0 and i < Nx - 1, Fw_, Fe, Fe)
+                          i > 0 and i < Nx - 1, Fw_, Fe)
                 + _sou_axis(w[i, max(j - 2, 0), k], w[i, max(j - 1, 0), k],
                             w[i, j, k], w[i, min(j + 1, Ny - 1), k],
                             w[i, min(j + 2, Ny - 1), k],
                             j > 1, j > 0 and j < Ny - 1, j < Ny - 2,
-                            j > 0 and j < Ny - 1, Fs, Fn, Fn)
+                            j > 0 and j < Ny - 1, Fs, Fn)
                 + _sou_axis(w[i, j, max(k - 2, 0)], w[i, j, max(k - 1, 0)],
                             w[i, j, k], w[i, j, min(k + 1, Nz)],
                             w[i, j, min(k + 2, Nz)],
                             k > 2, k > 1, k + 2 <= Nz, k > 1,
-                            Fb, Ft, wn))
+                            Fb, Ft))
     return aP0, rhs
 
 

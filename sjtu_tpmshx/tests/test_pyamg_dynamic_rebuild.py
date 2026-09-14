@@ -49,6 +49,32 @@ def test_pressure_pins_do_not_hide_coefficient_change(monkeypatch):
     assert np.linalg.norm(changed @ s.Pp.ravel() - rhs) <= 1e-9*np.linalg.norm(rhs) + 1e-12
 
 
+def test_tiny_continuity_rhs_avoids_direct_factorization(monkeypatch):
+    from scipy.sparse import linalg
+    from sjtu_tpmshx.solvers import simple_solver_3d as mod
+    monkeypatch.setattr(mod, '_AMG_GATE', 0)
+    s = SIMPLESolver3D(Lx=.08, Ly=.08, Lz=.04, Nx=8, Ny=8, Nz=4,
+                      rho=1., mu=2e-5, T_in=300., v_inlet=1e-18,
+                      use_coarse_bootstrap=False)
+    s.v.fill(0.)
+    s.v[:, 0, :] = 1e-18
+    sparsity = mod._build_pp_sparsity_3d(s.Nx, s.Ny, s.Nz, s.outlet_mask_ij)
+    for coefficient in (s.d_u, s.d_v, s.d_w):
+        coefficient.fill(1e-3)
+
+    def no_direct(*args, **kwargs):
+        raise AssertionError('a tiny nonzero RHS must not trigger sparse LU')
+
+    monkeypatch.setattr(linalg, 'spsolve', no_direct)
+    matrix, rhs = mod._solve_pp_amg(
+        s.Pp, s.u, s.v, s.w, s.d_u, s.d_v, s.d_w,
+        s.Nx, s.Ny, s.Nz, s.dx, s.dy, s.dz, s.rho_field,
+        sparsity, s._ml_cache, False, rtol_dyn=1e-9)
+    assert s._ml_cache['bcg_rescale_count'] == 1
+    assert np.linalg.norm(rhs) > 0.
+    assert np.linalg.norm(matrix @ s.Pp.ravel() - rhs) <= 1e-9 * np.linalg.norm(rhs)
+
+
 # 60x60x10 = 36 000 cells > 30 000 AMG gate.
 _NX, _NY, _NZ = 60, 60, 10
 

@@ -2,11 +2,10 @@
 _bc_cfg_to_dict_* functions it replaced (DUP-E / #8), including the
 intentional side-B None asymmetry. Exhaustive over (dir, in_w, out_w, z)."""
 import itertools
-import types
 
 import pytest
 
-from sjtu_tpmshx.domain.compute_config import bc_to_dict
+from sjtu_tpmshx.domain.compute_config import PartialBCConfig, bc_to_dict
 
 
 # ── Reference reimplementations of the deleted legacy functions ──────
@@ -50,7 +49,7 @@ def _ref_3d_B(bc):                           # was _bc_cfg_to_dict_3d_B
 
 
 def _mk(dir_, in_w, out_w, z):
-    return types.SimpleNamespace(
+    return PartialBCConfig(
         dir=dir_, in_ctr=0.3, in_w=in_w, out_ctr=0.4, out_w=out_w,
         in_z_ctr=(0.5 if z else None), in_z_w=(0.2 if z else None),
         out_z_ctr=(0.6 if z else None), out_z_w=(0.25 if z else None))

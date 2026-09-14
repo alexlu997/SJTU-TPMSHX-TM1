@@ -400,6 +400,7 @@ class FeatureFlags:
     Audit C4 (L-a-2).
     """
     wall_refine_3d: bool = False
+    port_wall_refine: bool = False  # 2D/3D port-aligned graded grid; Nx/Ny/Nz are totals
     variable_rho_cp: bool = True   # default ON (local-P gas density; 2026-06-09)
     temp_unit: Literal['K', 'C'] = 'K'
 
@@ -515,6 +516,8 @@ class ComputeConfig:
 
         self.zones.validate()
         self.sco2_nu.validate()
+        if self.flags.port_wall_refine and self.flags.wall_refine_3d:
+            raise ValueError('Select either port/wall refinement or six-wall 3D refinement')
         if self.df_mode not in ('cfd_smooth', 'experimental'):
             raise ValueError(
                 f"ComputeConfig.df_mode={self.df_mode!r} — must be "

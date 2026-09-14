@@ -90,7 +90,10 @@ def test_real_application_mapping_and_offline_readback(monkeypatch, tmp_path, di
         assert actual.residuals[name] == performance.metrics[name].value
     assert actual.Q_W == abs(actual.residuals['Q_A'])
     assert set(reference.warnings) <= set(actual.warnings)
-    for name in ('dP_A_Pa', 'dP_B_Pa', 'T_out_A_K', 'T_out_B_K', 'converged'):
+    for side in ('A', 'B'):
+        assert_slots(getattr(actual, f'dP_{side}_Pa'), performance.metrics[f'dP_{side}'].value)
+        assert performance.metrics[f'dP_{side}'].spec.definition_version == 'pressure_face_v1'
+    for name in ('T_out_A_K', 'T_out_B_K', 'converged'):
         assert_slots(getattr(actual, name), getattr(reference, name))
     assert actual.metadata['units']['Q'] == ('W/m' if dimension == 2 else 'W')
     assert actual.metadata['metric_definitions']['Q']['definition_version'] == 'native_boundary_v1'

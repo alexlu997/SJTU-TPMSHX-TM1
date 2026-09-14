@@ -17,6 +17,7 @@ from sjtu_tpmshx.domain.run_warnings import range_context
 from sjtu_tpmshx.models.nu_correlations import record_raw_nu_range, warn_sco2_nu_evidence
 from sjtu_tpmshx.models.tpms_props import record_temperature_ranges
 from sjtu_tpmshx.models.local_heat_transfer import _sco2_hv_local_field
+from sjtu_tpmshx.models.grid import cell_average
 
 from sjtu_tpmshx.solvers.coupling_skeleton import OuterConvergence, run_outer_coupling
 from sjtu_tpmshx.solvers.simple_solver_3d import SIMPLESolver3D
@@ -2634,6 +2635,12 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
         # ρcp·u·T solve for only a couple of sweeps (a cheap warm-start) rather
         # than to full convergence — its Ta/Tb/Ts are discarded.
         _eff_ltne_max_iter = 2 if _enth_gate else _ltne_max_iter
+        _refined_thermal = {}
+        if cfg.get('port_wall_refine', False) and _model_h_gate:
+            _refined_thermal = dict(
+                accelerate=True, alpha_T_s=1.,
+                alpha_T_fA=.1 if fluid_type_A == 'water' else .7,
+                alpha_T_fB=.1 if fluid_type_B == 'water' else .7)
         _ltne_result = solve_full_domain_3d(
             L, H, Lz, Nx, Ny, Nz, T_inA, T_inB,
             K_ffA, K_ffB, K_ss, h_vA_field, h_vB_field,
@@ -2649,6 +2656,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
             Tb_prescribed=Tb_presc, max_iter=_eff_ltne_max_iter, tol=1e-5,
             Ta_init=Ta, Tb_init=Tb, Ts_init=Ts,
             alpha_T=float(cfg.get('ltne_alpha_T', 0.7)),
+            **_refined_thermal,
             # force_cc_ltne: drop face velocities so the LTNE uses the cc
             # (non-stag) advection chunk — same scheme as the V&V'd 2D solver.
             # The face (stag) chunk's SOU uses a cc-reconstructed flux magnitude
@@ -2869,7 +2877,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
         if fluid_type_A in ('sco2', 'water'):
             sA._apply_massflux_inlet()
 
-        T_avg = float(Ta_sA.mean())
+        T_avg = cell_average(Ta, dx, dy, dz)
         if _mA.compressible:
             if _p_shoot:
                 # ── C8 shooting: reseed from the MEASURED drag ──────────
@@ -2920,7 +2928,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
                 # (ρ tracks P on this path, unlike Phase A's frozen ρ). If the
                 # drop would push the outlet to/below the floor, route through
                 # envelope_mode (raise/warn) instead of the silent clip.
-                _rho_mean = max(float(np.mean(sA.rho_field)), 1.0e-9)
+                _rho_mean = max(cell_average(sA.rho_field, sA.dx, sA.dy, sA.dz), 1.0e-9)
                 _dP_1d = C_avg * L_stream / _rho_mean
                 _P_out_1d = float(P_inA - _dP_1d)
                 if _P_out_1d <= PRESSURE_FLOOR_PA:
@@ -3051,7 +3059,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
                 sB._apply_massflux_inlet()
 
             if _mB.compressible:   # P_ref recompute is compressible-only
-                Tb_avg = float(Tb_sB.mean())
+                Tb_avg = cell_average(Tb, dx, dy, dz)
                 if _p_shoot:
                     # C8 shooting, B side — same measured-drag P² update as
                     # fluid A above (see that comment for the derivation).

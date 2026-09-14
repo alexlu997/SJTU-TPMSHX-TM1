@@ -181,9 +181,16 @@ _X_NONUNIF = np.array([5.0, 6.0, 7.0, 8.0, 5.5, 6.5, 7.5, 6.0,
 # evidence, not physical acceptance or closure of the overall B40 gate.
 # 2026-09-11: user-approved native air integral-enthalpy transport Q update.
 # Previous references and subsequent 2/4 failure remain in B40 evidence.
-_FROZEN_2D_UNIFORM = (-8019.434130581629, 4675.147979229178,
+# 2026-09-14 discretization v2: each momentum SOU face uses its own flow
+# direction. Restoring only the prior kernels reproduces both old tuples at
+# the original 1e-12 tolerance. Same inputs, bounds, budgets and masses.
+# Prior uniform: (-8019.434130581629, 4675.147979229178, 3.446685791015626).
+# Prior nonuniform: (-7507.811193372061, 4052.0456347246245, 3.6729327392578126).
+# This shares the approved SOU numerical-reference revision. Search policy
+# and the independent historical B40 disposition remain as recorded.
+_FROZEN_2D_UNIFORM = (-8019.434130580891, 4675.147979179401,
                       3.446685791015626)
-_FROZEN_2D_NONUNIF = (-7507.811193372061, 4052.0456347246245,
+_FROZEN_2D_NONUNIF = (-7507.8111925965495, 4052.0456380591795,
                       3.6729327392578126)
 # re-baselined 2026-07-09 (M2b): evaluate_3d now installs the PER-CELL
 # eps_field (xmod-eps-field-3d-evaluator closed) + 3D momentum carries the

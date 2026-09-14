@@ -18,6 +18,9 @@ def to_compute_result(result, performance):
         raise ValueError('heat-duty unit disagrees with the result dimension')
     if performance.metrics['Q'].spec.definition_version != 'native_boundary_v1':
         raise ValueError('re-evaluate native results before displaying the current heat-duty definition')
+    if any(performance.metrics[name].spec.definition_version != 'pressure_face_v1'
+           for name in ('dP_A', 'dP_B')):
+        raise ValueError('re-evaluate native results before displaying the current pressure-drop definition')
     f = mutable_data(result.fields)
     parameters = mutable_data(result.metadata['parameters'])
     diagnostics = mutable_data(result.metadata['diagnostics'])

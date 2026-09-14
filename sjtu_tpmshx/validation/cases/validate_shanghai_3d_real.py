@@ -1,93 +1,15 @@
-"""
-validate_shanghai_3d_real.py — Shanghai Electric 16-case 3D validation
+"""Validate 16 Shanghai Electric water-air cases against their recorded inputs.
 
-2026-09-13: the production runner uses the confirmed GUI partial water
-ports and current-model inlet mass-flow conversion. Earlier scores below
-describe historical configurations, not acceptance of this corrected setup.
+The default pipeline solves both fluids through the public module interface,
+using the confirmed local water ports and current-model mass-flow conversion.
+Without explicit grid options it uses the port/wall mesh in models.grid;
+reported counts always come from the actual prepared result.
 
-Current use: --runner pipeline calls the full-model public module path;
---runner kernel retains the legacy frozen-B comparison. Continuous-field
-optimization uses its separate screening mode. The numerical discussion below
-records the 2026-07 runner migration, not a fresh TM1 accuracy result. Current
-entry points and evidence boundaries are in docs/tools.md and docs/history/.
-
-THE GATE. The Δp / Q RMSRE numbers quoted for this solver come from here.
-
-Two runners, selected by ``--runner``:
-
-  pipeline (DEFAULT since 2026-07-12)
-      The production stack — ``controllers.compute_pipeline.Pipeline3D``, the
-      exact path the GUI, the optimizer and the server batch runs drive. BOTH
-      fluids are SOLVED (a real SIMPLE-B water solve).
-      Gate grid 20×10×3 → **RMSRE_dP 4.88 % / RMSRE_Q 2.12 %**
-      (4.93 → 4.88 on 2026-07-12: the F2 convergence criterion replaced the
-      legacy exit — ledger C6/C7. `TPMSHX_CONV_MODE=legacy` reproduces 4.93.)
-
-  kernel (legacy reference)
-      Kernel-direct: SIMPLESolver3D + solve_full_domain_3d called straight,
-      with the water side FROZEN via ``Tb_prescribed`` (a 1-D linear profile
-      broadcast along y). Gate grid → RMSRE_dP 5.28 % / RMSRE_Q 3.21 %.
-
-Why the default moved from `kernel` to `pipeline` (2026-07-12)
---------------------------------------------------------------
-Three reasons, in ascending order of importance:
-
-1. **It is more accurate.** dP 5.28 → 4.88 %, and Q 3.21 → **2.12 %** — a 34 %
-   cut in the heat-duty error, which also puts 3D ahead of the 2D aligned
-   kernel gate's Q RMSRE (2.51 %) for the first time. (The ε-NTU LUMPED
-   baseline is a different number, 1.71 % — early notes conflated the two.
-   Max per-case error is slightly worse: 16.24 % dP on case 1, whose Δp is
-   only 1149 Pa, and +7.2 % Q on case 12.)
-
-2. **The frozen-B runner is fed part of the answer.** ``Tb_prescribed`` is built
-   from the MEASURED water outlet temperature (Excel col 25):
-
-       Tb(y) = T_Bout_measured + (T_Bin − T_Bout_measured)·(y/H)
-
-   and Q is evaluated as Σ h_vB·(Ts − Tb)·dV — so Tb sets the driving force
-   directly. That measured outlet temperature already encodes the true duty via
-   the water-side enthalpy balance (0.0108 kg/s × 4180 × 5.42 K = 243.8 W, vs
-   the experimental air-side Q_exp of 248.4 W — the same number to within the
-   2 % experimental closure error). It is not a tautology (Q_exp is an
-   independent AIR-side measurement), but the water field is pinned to truth
-   rather than predicted. The pipeline runner predicts it from scratch — and
-   still does better. A method given LESS information producing a BETTER answer
-   is the load-bearing part of this decision.
-
-3. **The gate was validating a code path production never runs.** Nothing in
-   production calls ``_run_one_case``. The GUI, the optimizer and the server
-   batches all drive Pipeline3D. A gate should exercise the shipped code.
-
-Convergence status of the new default (measured, not assumed)
--------------------------------------------------------------
-All 16 cases converge the SIMPLE↔LTNE outer coupling in **3 iterations**, none
-truncated (a `!` after ``outer=N`` in the per-case line marks a truncated run).
-
-Cases 8 and 12–16 (u_A ≈ 22 m/s) DO log ``A@init[stall]``. Investigated
-2026-07-12 — it is benign, and specifically it is NOT the known clip-stall
-mechanism (``_p_clip_hits`` is 0 on every case):
-  * only the COLD-START SIMPLE-A solve stalls; every warm-started re-solve in
-    the outer loop exits ``'velocity'`` (converged), and the reported field
-    comes from one of those;
-  * the SIMPLE mass residual has a hard FLOOR at ≈ 8e-4 (normalised by inlet
-    mass flux) on every case — including the ones that never stall. Disabling
-    the LowReExit early-exit and running 3× the iterations (6000) moves it by
-    nothing (case 16: 7.86e-4 → 7.86e-4, bit-identical). So ``tol = 1e-5`` is
-    80× below an unreachable floor: NO Shanghai case has ever exited via
-    ``'tol'`` — every one exits on LowReExit's velocity-stability criterion.
-The residual floor itself (a discrete BC mass-closure issue, most likely) is an
-open question, tracked separately. It does not invalidate these numbers.
-
-Note on the README headline
----------------------------
-README quotes the GRID-CONVERGED Δp ≈ 10 % / Q ≈ 3 % (4-grid Richardson), not
-the gate-grid numbers above. That study was run on the `kernel` runner and has
-NOT been repeated on `pipeline` — the grid-converged figures are therefore
-still the kernel ones. Re-running it is a follow-up.
-
-Uniform Shanghai geometry (no zoning): Gyroid L=7.0, t=0.6, k_s=16.
-
-P1b-b (2026-04-20): establishes Shanghai 3D baseline before Phase 2 multi-channel.
+The kernel runner is a separate historical comparison with water temperature
+prescribed from the measured outlet. Its scores are not production acceptance.
+Historical migration scores and discussion remain at Git commit 51eb05388b6a.
+See docs/tools.md and docs/accuracy-performance-20260914.md for current usage,
+mesh evidence, numerical precision and experimental-error boundaries.
 """
 
 from __future__ import annotations
@@ -568,17 +490,18 @@ def _run_one_case(ci, df, Nx_u, Ny_u, Nz_u, wall_refine=False, verbose=False,
     }
 
 
-def _pipeline_config(ci, df, Nx_u, Ny_u, Nz_u, spec=None, max_outer=None, wall_refine=False):
+def _pipeline_config(ci, df, Nx_u, Ny_u, Nz_u, spec=None, max_outer=None, wall_refine=False,
+                     port_wall_refine=False):
     from sjtu_tpmshx.domain.compute_config import SolverConfig
     from sjtu_tpmshx.validation.harness._case_sets import shanghai_pipeline_config
     return shanghai_pipeline_config(ci, df,
         SolverConfig(Nx=Nx_u, Ny=Ny_u, Nz=Nz_u,
                      max_outer_ltne=None if max_outer is None else int(max_outer)),
-        wall_refine=wall_refine, spec=spec)
+        wall_refine=wall_refine, port_wall_refine=port_wall_refine, spec=spec)
 
 
 def _run_one_case_pipeline(ci, df, Nx_u, Ny_u, Nz_u, spec=None,
-                           max_outer=None, wall_refine=False):
+                           max_outer=None, wall_refine=False, port_wall_refine=False):
     """B2 2.1d — production-path runner: ComputeConfig → Pipeline3D
     (the exact stack the GUI drives: _run_3d_stack with a REAL
     incompressible water-B SIMPLE solve).
@@ -595,7 +518,8 @@ def _run_one_case_pipeline(ci, df, Nx_u, Ny_u, Nz_u, spec=None,
     gate SILENTLY. ``--runner kernel`` reproduces the frozen-B era numbers.
     """
     from sjtu_tpmshx.controllers.compute_pipeline import Pipeline3D
-    cc = _pipeline_config(ci, df, Nx_u, Ny_u, Nz_u, spec, max_outer, wall_refine)
+    cc = _pipeline_config(ci, df, Nx_u, Ny_u, Nz_u, spec, max_outer, wall_refine,
+                          port_wall_refine)
     case = ci + 1
     u_A, u_B = cc.fluid_A.u_mps, cc.fluid_B.u_mps
     dP_A_exp = float(df.iloc[ci, 30]) - float(df.iloc[ci, 31])
@@ -656,18 +580,18 @@ def main(argv=None):
     # frozen-B reference.
     ap.add_argument('--runner', choices=['pipeline', 'kernel'],
                     default='pipeline',
-                    help="pipeline (DEFAULT) = production Pipeline3D, water "
-                         "side SOLVED (gate grid 20x10x3: RMSRE_dP 4.88 / "
-                         "RMSRE_Q 2.12); kernel = legacy frozen-B reference "
-                         "runner (Tb prescribed from the MEASURED water outlet "
-                         "temperature; RMSRE_dP 5.28 / RMSRE_Q 3.21)")
+                    help="pipeline (DEFAULT) solves both fluids on the prepared grid; "
+                         "kernel prescribes water temperature from the measured outlet "
+                         "and is a separate historical comparison")
     ap.add_argument('--wall-refine', action='store_true', help='Enable 6-wall refinement')
+    ap.add_argument('--port-wall-refine', action='store_true',
+                    help='Use port/wall grading; counts include all refinement cells')
     ap.add_argument('--disp-c', type=float, default=None,
                     help='B4 thermal-dispersion coefficient C '
                          '(K_ff += C*rho*cp*|u|*D_h per side; 0 = off)')
-    ap.add_argument('--nx', type=int, default=20)
-    ap.add_argument('--ny', type=int, default=10)
-    ap.add_argument('--nz', type=int, default=3)
+    ap.add_argument('--nx', type=int)
+    ap.add_argument('--ny', type=int)
+    ap.add_argument('--nz', type=int)
     ap.add_argument('--cases', type=int, default=16, help='Run first N cases (default 16)')
     ap.add_argument('--suffix', type=str, default='', help='CSV output suffix')
     ap.add_argument('--profile', choices=['uniform', 'parabolic', 'edge'],
@@ -693,6 +617,15 @@ def main(argv=None):
     ap.add_argument('--no-gate', action='store_true',
                     help='Report only; always exit 0 (legacy behaviour)')
     args = ap.parse_args(argv)
+    if args.port_wall_refine and (args.wall_refine or args.runner == 'kernel'):
+        ap.error('--port-wall-refine requires the pipeline and cannot combine with --wall-refine')
+    explicit_grid = any(n is not None for n in (args.nx, args.ny, args.nz))
+    port_refine = args.port_wall_refine or (
+        args.runner == 'pipeline' and not explicit_grid and not args.wall_refine)
+    from sjtu_tpmshx.models.grid import SHANGHAI_GRID_3D
+    defaults = SHANGHAI_GRID_3D if port_refine else (20, 10, 3)
+    Nx_u, Ny_u, Nz_u = (default if value is None else value
+                        for value, default in zip((args.nx, args.ny, args.nz), defaults))
     if args.runner == 'pipeline' and any(value is not None for value in
                                          (args.profile, args.eta, args.disp_c)):
         ap.error('--profile, --eta and --disp-c are kernel-only options; the production pipeline does not support them')
@@ -704,8 +637,8 @@ def main(argv=None):
 
     print(f"Shanghai 3D validation (Gyroid L={L_CELL} t={T_WALL} eps={EPS:.4f})")
     print(f"Domain: {L_DOM*1000:.0f}x{H_DOM*1000:.0f}x{LZ*1000:.0f} mm")
-    Nx_u, Ny_u, Nz_u = args.nx, args.ny, args.nz
-    print(f"Requested grid: {Nx_u} x {Ny_u} x {Nz_u}; wall_refine={args.wall_refine}")
+    print(f"Requested grid: {Nx_u} x {Ny_u} x {Nz_u}; "
+          f"wall_refine={args.wall_refine}, port_wall_refine={port_refine}")
     if args.runner == 'kernel':
         _dx, _dy, _dz, Nx, Ny, Nz = _build_grid(Nx_u, Ny_u, Nz_u, wall_refine=args.wall_refine)
         print(f"Kernel grid: {Nx} x {Ny} x {Nz}")
@@ -719,7 +652,8 @@ def main(argv=None):
     for ci in range(args.cases):
         if args.runner == 'pipeline':
             r = _run_one_case_pipeline(ci, df, Nx_u, Ny_u, Nz_u,
-                                       max_outer=args.max_outer, wall_refine=args.wall_refine)
+                                       max_outer=args.max_outer, wall_refine=args.wall_refine,
+                                       port_wall_refine=port_refine)
             print(f"Actual prepared grid: {r['grid_nx']} x {r['grid_ny']} x {r['grid_nz']}")
         else:
             r = _run_one_case(ci, df, Nx_u, Ny_u, Nz_u,

@@ -45,6 +45,8 @@ class FluidCfg:
     out_w: float
     z_in_ctr: Optional[float] = None
     z_in_w: Optional[float] = None
+    z_out_ctr: Optional[float] = None
+    z_out_w: Optional[float] = None
 
 
 @dataclass
@@ -122,19 +124,16 @@ def compute_preflight(
     fluid_B: Optional[FluidCfg] = None,
     T_inA: Optional[float] = None,
     T_inB: Optional[float] = None,
+    port_wall_refine: bool = False,
 ) -> Preflight:
     """Run the grid-legality checks. Returns findings; never raises."""
     out = Preflight()
 
-    # Sign-flip notice — when T_inA < T_inB the solid sits cooler than B
-    # and the legacy Q = ∑h_vB·(Ts−Tb) went negative. Post-Option-C Q_total
-    # is unsigned max(|Q_A|, |Q_B|), so the number is correct. Demoted from
-    # warning to info (2026-05-14) — the real bug is fixed; this is just a
-    # diagnostic so the user knows which side is hot without re-checking.
+    # Main duty uses the magnitude of the native side-A boundary enthalpy flow.
     if T_inA is not None and T_inB is not None and T_inA < T_inB - 1e-6:
         out.info.append(
             f"T_inA ({T_inA:.1f} K) < T_inB ({T_inB:.1f} K): B is the hot "
-            f"side. Q is reported as HX capacity max(|Q_A|,|Q_B|), unsigned.")
+            f"side. Q is reported as the unsigned heat duty of fluid A.")
 
     # 2D wall refine only kicks in when BOTH fluid inlets/outlets are full
     # width along their cross-axis. Otherwise run_calculation.py falls back
@@ -144,7 +143,9 @@ def compute_preflight(
             return True
         return abs(cfg.in_w - span) < span * 0.01 and abs(cfg.out_w - span) < span * 0.01
 
-    if is_3d:
+    if port_wall_refine:
+        apply_refine = False  # supplied counts already include graded cells
+    elif is_3d:
         apply_refine = wall_refine_3d
     else:
         # Cross-axis span depends on each fluid's direction — approximate by
@@ -179,6 +180,29 @@ def compute_preflight(
     Nz_r = _refined_N(Nz, apply_refine) if is_3d else 1
 
     refine_tag = "wall-refined" if apply_refine else "uniform (no refine)"
+    port_edges = {}
+    if port_wall_refine:
+        import numpy as np
+        from sjtu_tpmshx.models.grid import build_port_wall_grid
+        ports = []
+        for cfg in (fluid_A, fluid_B):
+            if cfg is None:
+                continue
+            port = {key: getattr(cfg, key) for key in ('dir', 'in_ctr', 'in_w', 'out_ctr', 'out_w')}
+            for end in ('in', 'out'):
+                for key in ('ctr', 'w'):
+                    value = getattr(cfg, f'z_{end}_{key}')
+                    if value is not None:
+                        port[f'{end}_z_{key}'] = value
+            ports.append(port)
+        try:
+            widths = build_port_wall_grid(
+                (L, H, Lz) if is_3d else (L, H),
+                (Nx, Ny, Nz) if is_3d else (Nx, Ny), ports)
+            port_edges = {axis: np.r_[0., np.cumsum(w)] for axis, w in zip('xyz', widths)}
+        except ValueError as error:
+            out.errors.append(str(error))
+        refine_tag = "port/wall graded; counts include refinement"
     if is_3d:
         out.info.append(
             f"Effective grid: {Nx_r} × {Ny_r} × {Nz_r} "
@@ -197,7 +221,7 @@ def compute_preflight(
         (c1_name, _c1_is_x), (c2_name, c2_is_3d_only) = _cross_axes(d)
 
         N_stream = {'x': Nx_r, 'y': Ny_r, 'z': Nz_r}[stream]
-        if N_stream < _STREAM_MIN_CELLS:
+        if N_stream < _STREAM_MIN_CELLS and not port_wall_refine:
             out.warnings.append(
                 f"Fluid {side}: stream axis {stream} has only {N_stream} "
                 f"refined cells (< {_STREAM_MIN_CELLS}). SIMPLE may be "
@@ -206,7 +230,8 @@ def compute_preflight(
         # Cross-axis 1 (always present; the in_ctr / in_w pair).
         W1 = _axis_extent(c1_name, L, H, Lz)
         N1_bulk = {'x': Nx, 'y': Ny, 'z': Nz}[c1_name]
-        edges1 = _refined_edges(W1, N1_bulk, apply_refine)
+        edges1 = (port_edges[c1_name] if c1_name in port_edges
+                  else _refined_edges(W1, N1_bulk, apply_refine))
         pipe_lo = cfg.in_ctr - cfg.in_w / 2
         pipe_hi = cfg.in_ctr + cfg.in_w / 2
         if pipe_lo < -1e-9 or pipe_hi > W1 + 1e-9:
@@ -239,7 +264,8 @@ def compute_preflight(
         if is_3d and cfg.z_in_ctr is not None and cfg.z_in_w is not None:
             W2 = _axis_extent(c2_name, L, H, Lz)
             N2_bulk = {'x': Nx, 'y': Ny, 'z': Nz}[c2_name]
-            edges2 = _refined_edges(W2, N2_bulk, apply_refine)
+            edges2 = (port_edges[c2_name] if c2_name in port_edges
+                      else _refined_edges(W2, N2_bulk, apply_refine))
             z_lo = cfg.z_in_ctr - cfg.z_in_w / 2
             z_hi = cfg.z_in_ctr + cfg.z_in_w / 2
             if z_lo < -1e-9 or z_hi > W2 + 1e-9:

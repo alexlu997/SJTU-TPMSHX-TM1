@@ -327,6 +327,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         and switch to 3D mode. Single-call post-build_ui, users can edit after.
         """
         self._active_preset_name = "Shanghai (3D Gyroid)"
+        self._set_shanghai_grid(is_3d=True)
         for side in ('A', 'B'):
             uniform = getattr(self, f'chk_uniform_inlet{side}_2d', None)
             if uniform is not None:
@@ -353,13 +354,6 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             'le_uB':    '0.133',  # Fluid B (water) — Shanghai case 8 Re_water=400
             'le_TinB':  '300.0',  # Fluid B inlet (Excel col 24: 26.89 °C)
             'le_PinB':  '101973', # Fluid B inlet absolute (Excel 647.6 Pa gauge + atm)
-            # 3D grid: wall-refine expands +16 per axis, so 30/20/5 →
-            # refined 46×36×21 = ~35k cells, compressible dual-fluid
-            # solve ~2–3 min. Keeping the 2D default 100/50 here would
-            # push refined 3D to ~160k cells and 10+ min.
-            'le_Nx':    '20',
-            'le_Ny':    '20',
-            'le_Nz':    '20',
             # Shanghai pipe inlet/outlet: A full-width (42 mm strip), B
             # staggered cross-flow (water enters top-right +x end, exits
             # bottom-left -x end; inlet/outlet 42 mm strips along real x).
@@ -774,7 +768,9 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
                 out_ctr=raw.get('out_ctr', raw['in_ctr']),
                 out_w=raw.get('out_w', raw['in_w']),
                 z_in_ctr=raw.get('in_z_ctr'),
-                z_in_w=raw.get('in_z_w'))
+                z_in_w=raw.get('in_z_w'),
+                z_out_ctr=raw.get('out_z_ctr'),
+                z_out_w=raw.get('out_z_w'))
 
         def _t_k(attr):
             le = getattr(self, attr, None)
@@ -807,6 +803,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         report = compute_preflight(
             L=L, H=H, Lz=Lz, Nx=Nx, Ny=Ny, Nz=Nz,
             is_3d=is_3d, wall_refine_3d=wall_refine_3d,
+            port_wall_refine=self.chk_port_wall_refine.isChecked(),
             fluid_A=_cfg('A'), fluid_B=_cfg('B'),
             T_inA=_t_k('le_TinA'), T_inB=_t_k('le_TinB'))
         for _w in _geom_warnings:

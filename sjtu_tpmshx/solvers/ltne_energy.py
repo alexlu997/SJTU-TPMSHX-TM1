@@ -843,7 +843,8 @@ def solve_full_domain(L, H, Nx, Ny,
                       q_rel_tol=None, conv_chunk=None,
                       use_sou_B=False, cancel_check=None,
                       inlet_flux_A=None, inlet_flux_B=None,
-                      model_fluids=None, mass_flux_A=None, mass_flux_B=None):
+                      model_fluids=None, mass_flux_A=None, mass_flux_B=None,
+                      accelerate=False):
     """Full-domain steady-state 2-fluid LTNE solver.
 
     q_rel_tol : float or None — per-chunk Q-relative convergence threshold.
@@ -1042,11 +1043,11 @@ def solve_full_domain(L, H, Nx, Ny,
 
     _use_rb = _RB_ENERGY_2D and (Nx * Ny > _RB_ENERGY_2D_GATE)
     _gs_fn = _gs_full_chunk_rb if _use_rb else _gs_full_chunk
-    while done < max_iter:
-        if cancel_check is not None and cancel_check():
-            raise CancelledError("compute cancelled by user")
-        n = min(chunk, max_iter - done)
-        chg = _gs_fn(
+    if accelerate and model_fluids is None:
+        raise ValueError('energy acceleration requires model-h transport')
+
+    def step(n):
+        return _gs_fn(
             Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
             K_ffA_arr, K_ffB_arr, K_ss_arr,
             h_vA_arr, h_vB_arr, eps_fA_arr, eps_fB_arr,
@@ -1056,6 +1057,16 @@ def solve_full_domain(L, H, Nx, Ny,
             ifrac_A, ifrac_B,
             n, freeze_Tb, 1 if use_sou_B else 0, inlet_flux_A, inlet_flux_B,
             *model_args)
+
+    while done < max_iter:
+        if cancel_check is not None and cancel_check():
+            raise CancelledError("compute cancelled by user")
+        n = min(chunk, max_iter - done)
+        if accelerate:
+            from sjtu_tpmshx.solvers.anderson_acceleration import advance_energy
+            chg = advance_energy(step, (Ta, Tb, Ts), n, (last_Ta, last_Tb))
+        else:
+            chg = step(n)
         done += n
         if progress_cb:
             progress_cb(done, max_iter)

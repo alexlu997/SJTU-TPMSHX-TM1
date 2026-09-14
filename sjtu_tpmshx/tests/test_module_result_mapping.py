@@ -80,8 +80,11 @@ def test_application_fields_and_scalars_match_native_solve(native_result):
                  'p_clip_hits', 'model_h_balance', 'true_h_balance'):
         assert_slots(result.diagnostics[name], raw[name])
     if dimension == 2:
-        for name, source in (('dP_A_Pa', 'dP_A'), ('dP_B_Pa', 'dP_B'),
-                             ('T_out_A_K', 'T_out_A_K'), ('T_out_B_K', 'T_out_B_K')):
+        for side in ('A', 'B'):
+            metric = performance.metrics[f'dP_{side}']
+            assert metric.spec.definition_version == 'pressure_face_v1'
+            assert getattr(result, f'dP_{side}_Pa') == metric.value
+        for name, source in (('T_out_A_K', 'T_out_A_K'), ('T_out_B_K', 'T_out_B_K')):
             assert getattr(result, name) == pytest.approx(raw[source])
         for name in ('Ta', 'Tb', 'Ts', 'P_fA', 'P_fB', 'ucA', 'vcA', 'ucB', 'vcB'):
             np.testing.assert_array_equal(result.fields[name], raw[name])

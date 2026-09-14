@@ -416,7 +416,9 @@ def test_partial_preset_allowlist_and_startup_reset_policy(win):
     win._apply_shanghai_defaults()
     win._restore_session()
     assert win._temp_unit == 'K'
-    assert [getattr(win, n).text() for n in ('le_Nx', 'le_Ny', 'le_Nz')] == ['20'] * 3
+    from sjtu_tpmshx.models.grid import SHANGHAI_GRID_3D
+    assert [getattr(win, n).text() for n in ('le_Nx', 'le_Ny', 'le_Nz')] == list(map(str, SHANGHAI_GRID_3D))
+    assert win.chk_port_wall_refine.isChecked()
     assert win.combo_fluidA.currentIndex() == 0
     assert win.combo_fluidB.currentIndex() == 1
 

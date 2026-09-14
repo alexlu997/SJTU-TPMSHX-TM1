@@ -11,7 +11,7 @@ from PySide6.QtCore import QTimer
 
 from sjtu_tpmshx.tests.test_io_actions import win as win
 from sjtu_tpmshx.tests.test_worker_result_handoff import _wait_for
-from sjtu_tpmshx.tests.integration_tm1.test_2d_real import baseline_config, AIR_BASELINE_METRICS, AIR_NATIVE_Q
+from sjtu_tpmshx.tests.integration_tm1.test_2d_real import baseline_config, AIR_PUBLIC_METRICS
 from sjtu_tpmshx.tests.test_pipeline_3d_e2e import _small_air_cfg
 from sjtu_tpmshx.ui.window_config import CONFIG_FIELDS
 from sjtu_tpmshx.domain.compute_config import bc_to_dict
@@ -41,6 +41,7 @@ def apply_config(window, config):
                 'combo_sco2_nu_mode': window.combo_sco2_nu_mode.findData(config.sco2_nu.mode),
                 'combo_dirA': config.bc_A.dir, 'combo_dirB': config.bc_B.dir},
         checks={'chk_zones': False, 'chk_wall_refine_3d': config.flags.wall_refine_3d,
+                'chk_port_wall_refine': config.flags.port_wall_refine,
                 'chk_uniform_inletA_2d': config.bc_A.uniform_inlet_2d,
                 'chk_uniform_inletB_2d': config.bc_B.uniform_inlet_2d,
                 'chk_var_rhocp': config.flags.variable_rho_cp, 'chk_allow_extrap': config.extrap.allow}))
@@ -62,6 +63,27 @@ def test_shanghai_uniform_inlet_is_explicit_and_preserved_by_preset(win):
     preset['checks'].pop('chk_uniform_inletB_2d')
     win._apply_user_preset(preset)
     assert not config_from_window(win).bc_B.uniform_inlet_2d
+
+
+def test_shanghai_recommended_grid_and_manual_preset_roundtrip(win):
+    from sjtu_tpmshx.models.grid import SHANGHAI_GRID_2D, SHANGHAI_GRID_3D
+    from sjtu_tpmshx.ui.window_config import config_from_window
+    for name, counts in (('Shanghai (2D Gyroid)', SHANGHAI_GRID_2D),
+                         ('Shanghai (3D Gyroid)', SHANGHAI_GRID_3D)):
+        win._load_named_preset(name)
+        cfg = config_from_window(win)
+        assert (cfg.solver.Nx, cfg.solver.Ny, cfg.solver.Nz) == counts
+        assert cfg.flags.port_wall_refine and not cfg.flags.wall_refine_3d
+    win.le_Nx.setText('100')
+    win.compute_tpms()
+    assert win.le_Nx.text() == '100'
+    saved = win._capture_current_preset('manual grid')
+    win._load_named_preset('Shanghai (2D Gyroid)')
+    win._apply_user_preset(saved)
+    assert win.le_Nx.text() == '100' and win.chk_port_wall_refine.isChecked()
+    saved['checks'].pop('chk_port_wall_refine')
+    win._apply_user_preset(saved)
+    assert not win.chk_port_wall_refine.isChecked()  # legacy files keep their mesh
 
 
 @pytest.mark.parametrize('shape', [1, 2], ids=['hexagon', 'octagon'])
@@ -152,7 +174,7 @@ def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, di
     assert result.fields['Ta'].shape[0] != 99
     np.testing.assert_allclose(
         [result.Q_W, result.dP_A_Pa, result.dP_B_Pa, result.T_out_A_K, result.T_out_B_K],
-        ([AIR_NATIVE_Q, *AIR_BASELINE_METRICS[1:]]
+        (AIR_PUBLIC_METRICS
          if dimension == 2 else
          [338.48590825124325, 1945.2469619113485, 3044.9340885522665, 359.19558834036184, 344.9435887813375]),
         rtol=1e-10, atol=1e-10)

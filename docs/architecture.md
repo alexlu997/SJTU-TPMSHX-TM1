@@ -93,6 +93,11 @@ thermal temperature weighted by positive outward signed thermal mass flux;
 mass flow reports total inward thermal boundary mass. 2D Richardson duties
 are separately named `Q_richardson_A/B` and never replace main-grid `Q`.
 Their extra solve and physical/convergence checks remain in force.
+Full-compute pressure drops use `pressure_face_v1`: extrapolate the final
+SIMPLE pressure to physical inlet/outlet faces and weight by geometric open
+area. Both dimensions share the same reduction. This does not change the
+absolute-pressure anchor used for fluid properties or reconstruct thermal
+enthalpy at another pressure state.
 Pressure drop retains the final SIMPLE pressure convention and its distinct
 recorded state. Metric definitions survive JSON and GUI export metadata.
 Old metrics files retain their definitions; re-evaluate their native result

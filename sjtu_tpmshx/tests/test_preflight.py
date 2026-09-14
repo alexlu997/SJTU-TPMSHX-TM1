@@ -15,6 +15,20 @@ def _shanghai_B_partial():
                     out_ctr=0.028, out_w=0.042)
 
 
+def test_port_wall_counts_match_the_actual_grid():
+    for nx, ny, nz in ((84, 24, 1), (92, 14, 10)):
+        report = compute_preflight(L=.182, H=.042, Lz=.042, Nx=nx, Ny=ny, Nz=nz,
+            is_3d=nz > 1, wall_refine_3d=False, port_wall_refine=True,
+            fluid_A=_shanghai_A(), fluid_B=_shanghai_B_partial())
+        assert not report.errors, report.errors
+        assert not report.warnings, report.warnings
+        assert any(f'{nx} × {ny}' in s and 'port/wall' in s for s in report.info)
+    invalid = compute_preflight(L=.182, H=.042, Lz=.042, Nx=8, Ny=8, Nz=3,
+        is_3d=True, wall_refine_3d=False, port_wall_refine=True,
+        fluid_A=_shanghai_A(), fluid_B=_shanghai_B_partial())
+    assert any('at least' in s for s in invalid.errors)
+
+
 def test_shanghai_2d_partial_no_refine():
     """Partial-width B inlet forces 2D path onto uniform (no wall refine)."""
     r = compute_preflight(

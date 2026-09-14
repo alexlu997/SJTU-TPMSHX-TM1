@@ -24,6 +24,51 @@ from collections import deque
 from typing import Tuple
 
 
+def advance_energy(step, fields, sweeps, snapshots=()):
+    """Accelerate an existing GS chunk, accepting only smaller GS residuals.
+
+    Trial sweeps count against the original iteration budget. ``snapshots``
+    are the 2D deferred-flux temperatures, restored with a rejected trial.
+    The caller retains its original convergence and conservation checks.
+    """
+    accelerator = AndersonSIMPLE(m=5, K=1)
+    size = fields[0].size
+
+    def pack():
+        return np.concatenate([field.ravel() for field in fields])
+
+    def restore(values):
+        for index, field in enumerate(fields):
+            field[:] = values[index * size:(index + 1) * size].reshape(field.shape)
+
+    done = 0
+    residual = 0.0
+    while done < sweeps:
+        previous = pack()
+        count = min(25, sweeps - done)
+        residual = step(count)
+        done += count
+        picard = pack()
+        accelerator.push(previous, picard)
+        candidate, applied = accelerator.candidate(picard)
+        if not applied or done + 2 > sweeps:
+            continue
+        picard_residual = step(1)
+        picard = pack()
+        saved = [field.copy() for field in snapshots]
+        restore(candidate)
+        candidate_residual = step(1)
+        done += 2
+        if np.isfinite(candidate_residual) and candidate_residual <= picard_residual:
+            residual = candidate_residual
+        else:
+            restore(picard)
+            for field, value in zip(snapshots, saved):
+                field[:] = value
+            residual = picard_residual
+    return residual
+
+
 class AndersonSIMPLE:
     """Type-II Anderson acceleration for SIMPLE outer loop.
 

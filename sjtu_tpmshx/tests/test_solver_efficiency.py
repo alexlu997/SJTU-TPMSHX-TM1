@@ -97,21 +97,19 @@ def test_sou_axis_matches_2d_kernels():
     Fe, Fw = 1.7, 1.3
     for j in (0, 4):
         for i in range(1, Nx):
-            ue_loc = 0.5 * (u[i, j] + u[min(i + 1, Nx), j])
             got = _sou_axis(u[max(i - 2, 0), j], u[max(i - 1, 0), j], u[i, j],
                             u[min(i + 1, Nx), j], u[min(i + 2, Nx), j],
                             i > 2, i > 1 and i + 1 < Nx, i + 2 <= Nx, i > 1,
-                            Fw, Fe, ue_loc)
+                            Fw, Fe)
             ref = _sou_corr_u_x(u, i, j, Nx, Fe, Fw)
             assert got == pytest.approx(ref, abs=1e-15), ('u-x', i, j)
     Fn, Fs = -0.9, 2.1
     for i in (0, 4):
         for j in range(1, Ny):
-            vn_loc = 0.5 * (v[i, j] + v[i, min(j + 1, Ny)])
             got = _sou_axis(v[i, max(j - 2, 0)], v[i, max(j - 1, 0)], v[i, j],
                             v[i, min(j + 1, Ny)], v[i, min(j + 2, Ny)],
                             j > 2, j > 1, j + 2 <= Ny, j > 1,
-                            Fs, Fn, vn_loc)
+                            Fs, Fn)
             ref = _sou_corr_v_y(v, i, j, Ny, Fn, Fs)
             assert got == pytest.approx(ref, abs=1e-15), ('v-y', i, j)
 

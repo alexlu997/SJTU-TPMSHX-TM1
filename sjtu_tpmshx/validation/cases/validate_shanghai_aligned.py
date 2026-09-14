@@ -207,8 +207,11 @@ from sjtu_tpmshx.validation.harness._case_sets import SHANGHAI_XLSX
 
 def _pipeline_config(ci, df):
     from sjtu_tpmshx.domain.compute_config import SolverConfig
+    from sjtu_tpmshx.models.grid import SHANGHAI_GRID_2D
     from sjtu_tpmshx.validation.harness._case_sets import shanghai_pipeline_config
-    return shanghai_pipeline_config(ci, df, SolverConfig(Nx=N_X_USER, Ny=N_Y_USER))
+    nx, ny, nz = SHANGHAI_GRID_2D
+    return shanghai_pipeline_config(ci, df, SolverConfig(Nx=nx, Ny=ny, Nz=nz),
+                                    port_wall_refine=True)
 
 
 def _run_one_case_pipeline(ci, df):

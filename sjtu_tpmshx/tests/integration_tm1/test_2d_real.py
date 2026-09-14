@@ -12,13 +12,15 @@ from sjtu_tpmshx.preprocess.two_d.preparation import prepare_case
 from sjtu_tpmshx.solvers.backends.python.two_d.execution import run_case
 from sjtu_tpmshx.postprocess.metrics import evaluate
 
-# 2026-09-13: inlet density now comes from the configured fluid model for
-# every side. Previous values remain at 1a820521; tolerances are unchanged.
-AIR_BASELINE_METRICS = [31086.937427058772, 1665.933909859572, 1212.4863954370883,
-                        304.2432522135503, 334.6971842257337]
-# Native main-grid A duty; the unchanged backend reference above retains
-# the historical Richardson/max-side report for numerical regression.
-AIR_NATIVE_Q = 31032.260073309655
+# 2026-09-14 v2: physical-area averages and conservative SOU face corrections.
+# Both prior reference versions remain in the accuracy-performance report.
+# Backend Richardson/centre-pressure and public native/face-pressure metrics
+# have separate references; all comparison tolerances remain unchanged.
+AIR_BASELINE_METRICS = [31171.632390440765, 1650.0050550672206, 1213.564251412174,
+                        303.393804881137, 334.7861493059314]
+AIR_NATIVE_Q = 31119.441855838544
+AIR_PUBLIC_METRICS = [AIR_NATIVE_Q, 1644.7284633226664, 1189.438420679231,
+                      303.393804881137, 334.7861493059314]
 
 
 def baseline_config():
@@ -64,10 +66,13 @@ def _assert_postprocessing(result):
     metadata = dict(result.metadata)
     metadata.pop('reporting_reference')
     metrics = evaluate(replace(result, metadata=metadata)).metrics
-    for name, raw_name in (('dP_A', 'dP_A'), ('dP_B', 'dP_B'),
-                          ('T_out_A', 'T_out_A_K'), ('T_out_B', 'T_out_B_K')):
+    for name, raw_name in (('T_out_A', 'T_out_A_K'), ('T_out_B', 'T_out_B_K')):
         assert metrics[name].status == 'available', metrics[name].reason
         np.testing.assert_allclose(metrics[name].value, reference[raw_name], rtol=1e-10, atol=1e-10)
+    for name in ('dP_A', 'dP_B'):
+        assert metrics[name].status == 'available', metrics[name].reason
+        assert metrics[name].spec.definition_version == 'pressure_face_v1'
+        assert np.isfinite(metrics[name].value)
     assert metrics['Q'].spec.unit == 'W/m'
     assert metrics['Q'].value == abs(metrics['Q_A'].value)
     assert metrics['Q'].spec.definition_version == 'native_boundary_v1'
@@ -81,8 +86,8 @@ def _assert_postprocessing(result):
 @pytest.mark.slow
 @pytest.mark.parametrize('fluid_A,u_A,P_A,fluid_B,P_B,expected_Q', [
     # Approved iteration-only BICUBIC reference; HEOS final state, same budgets.
-    ('sco2', .3, 12e6, 'water', 2e6, 45645.89445485597),
-    ('air', 3., 2e5, 'sco2', 12e6, 4419.516474200189),
+    ('sco2', .3, 12e6, 'water', 2e6, 45643.347257385045),
+    ('air', 3., 2e5, 'sco2', 12e6, 4417.464591176275),
 ])
 def test_mixed_partial_native_and_postprocessing(fluid_A,u_A,P_A,fluid_B,P_B,expected_Q):
     from sjtu_tpmshx.domain.compute_config import ExtrapPolicy

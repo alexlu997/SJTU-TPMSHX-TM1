@@ -390,7 +390,10 @@ def _read_feature_flags(window) -> 'FeatureFlags':
     unit = getattr(window, '_temp_unit', 'K')
     if unit not in ('K', 'C'):
         unit = 'K'
-    return FeatureFlags(wall_refine_3d=wall, variable_rho_cp=var_rhocp,
+    chk_ports = getattr(window, 'chk_port_wall_refine', None)
+    return FeatureFlags(wall_refine_3d=wall,
+                        port_wall_refine=bool(chk_ports is not None and chk_ports.isChecked()),
+                        variable_rho_cp=var_rhocp,
                         temp_unit=unit)
 
 
