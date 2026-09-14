@@ -242,8 +242,8 @@ def _solve_pp_amg(Pp, u, v, w, d_u, d_v, d_w,
         Caller passes ~0.05 * outer_simple_residual so inner solve does not
         over-solve while outer is still loose. Default 1e-5 reproduces legacy
         fixed-tol behaviour.
-    drift_thresh : relative L2-norm drift on A's diagonal that forces a
-        rebuild on a non-cadence iter (audit P4 / phase L-d). 0 disables.
+    drift_thresh : relative L2 change of the unpinned diagonal that forces
+        a rebuild on a non-cadence iter. 0 disables.
     """
     N = Nx * Ny * Nz
     nnz = sparsity['nnz']
@@ -278,23 +278,16 @@ def _solve_pp_amg(Pp, u, v, w, d_u, d_v, d_w,
         A.sort_indices()
         A.sum_duplicates()
 
-        # Dynamic rebuild trigger (audit P4 / phase L-d, 2026-05-28).
-        # Caller-requested rebuild always honoured (it == 1 or cadence hit).
-        # On non-cadence iters, force rebuild if A's diagonal L2 norm drifted
-        # by more than `drift_thresh` since the last rebuild — proxy for
-        # hierarchy staleness. Rationale: A_ij depends on d_u/d_v/d_w (face
-        # momentum coefficients) + rho_field, both of which evolve with the
-        # outer SIMPLE iteration. A near-static diagonal means the existing
-        # hierarchy is still a good preconditioner; rebuilding is wasted
-        # work. Drift threshold default 5 % matches audit P4 recommendation.
-        # Track counts for diagnostics (`solver._ml_cache` exposes them).
-        # drift_thresh <= 0 disables the drift check entirely (legacy
-        # cadence-only behaviour, no per-iter diagonal-norm cost).
+        # Outlet rows are unit pressure pins, not momentum coefficients.
+        # Including them can hide a ~99% change in the active diagonal as
+        # <0.2% global-norm drift. Compare the active vectors themselves:
+        # equal scalar norms can also hide a spatial redistribution.
         if drift_thresh > 0.0 and not rebuild and 'ml' in ml_cache:
-            diag_norm = float(np.linalg.norm(A.diagonal()))
+            diagonal = A.diagonal()[sparsity['cell_kind'] == 0]
+            diag_norm = float(np.linalg.norm(diagonal))
             last = ml_cache.get('diag_norm', None)
             if last is not None and last > 0.0:
-                drift = abs(diag_norm - last) / last
+                drift = float(np.linalg.norm(diagonal - ml_cache['diagonal'])) / last
                 if drift > drift_thresh:
                     rebuild = True
                     ml_cache['drift_rebuild_count'] = (
@@ -310,7 +303,8 @@ def _solve_pp_amg(Pp, u, v, w, d_u, d_v, d_w,
             t0 = _perf_counter()
             ml = pyamg.ruge_stuben_solver(A, max_coarse=200)
             ml_cache['ml'] = ml
-            ml_cache['diag_norm'] = float(np.linalg.norm(A.diagonal()))
+            ml_cache['diagonal'] = A.diagonal()[sparsity['cell_kind'] == 0]
+            ml_cache['diag_norm'] = float(np.linalg.norm(ml_cache['diagonal']))
             ml_cache['rebuild_count'] = (
                 ml_cache.get('rebuild_count', 0) + 1)
             ml_cache['rebuild_time'] = (
@@ -608,9 +602,8 @@ class SIMPLESolver3D:
         self.alpha_u = float(alpha_u)
         self.alpha_p = float(alpha_p)
         self.pyamg_rebuild_every = int(pyamg_rebuild_every)
-        # Audit P4 / phase L-d (2026-05-28): dynamic rebuild trigger. On
-        # non-cadence iters the hierarchy is reused unless A's diagonal L2
-        # norm drifts by more than this threshold since last rebuild. 0
+        # On non-cadence iters, reuse the hierarchy unless the unpinned
+        # diagonal's relative L2 change exceeds this threshold. 0
         # disables drift checks (legacy fixed-cadence-only behaviour).
         self.pyamg_rebuild_drift_thresh = float(pyamg_rebuild_drift_thresh)
 

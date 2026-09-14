@@ -3,7 +3,7 @@
 The pressure-correction solver caches a PyAMG hierarchy in
 `SIMPLESolver3D._ml_cache` and rebuilds it on (a) the first SIMPLE iter,
 (b) cadence hits (`it % pyamg_rebuild_every == 0`), or (c) when the
-diagonal-norm drift on the assembled `A` exceeds
+unpinned diagonal-vector change on the assembled `A` exceeds
 `pyamg_rebuild_drift_thresh`. These tests cover the bookkeeping and the
 trigger-vs-skip decision on an AMG-active grid (`N > 30000`).
 
@@ -19,6 +19,34 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.solvers.simple_solver_3d import SIMPLESolver3D
+
+
+def test_pressure_pins_do_not_hide_coefficient_change(monkeypatch):
+    from sjtu_tpmshx.solvers import simple_solver_3d as mod
+    monkeypatch.setattr(mod, '_AMG_GATE', 0)
+    s = SIMPLESolver3D(Lx=.08, Ly=.08, Lz=.04, Nx=8, Ny=8, Nz=4,
+                      rho=1., mu=2e-5, T_in=300., v_inlet=1.,
+                      use_coarse_bootstrap=False)
+    s._pp_sparsity = mod._build_pp_sparsity_3d(s.Nx, s.Ny, s.Nz, s.outlet_mask_ij)
+    for d in (s.d_u, s.d_v, s.d_w):
+        d.fill(1e-3)
+
+    def solve():
+        return mod._solve_pp_amg(s.Pp, s.u, s.v, s.w, s.d_u, s.d_v, s.d_w,
+            s.Nx, s.Ny, s.Nz, s.dx, s.dy, s.dz, s.rho_field,
+            s._pp_sparsity, s._ml_cache, False, rtol_dyn=1e-9)
+
+    first, _ = solve()
+    solve()
+    assert s._ml_cache['rebuild_count'] == 1  # An unchanged matrix is reused.
+    for d in (s.d_u, s.d_v, s.d_w):
+        d *= .01
+    changed, rhs = solve()
+    old_norm_drift = abs(np.linalg.norm(changed.diagonal()) / np.linalg.norm(first.diagonal()) - 1.)
+    assert old_norm_drift < .05  # Unit outlet pins conceal the real change.
+    assert s._ml_cache['rebuild_count'] == 2
+    assert s._ml_cache['last_drift'] == pytest.approx(.99)
+    assert np.linalg.norm(changed @ s.Pp.ravel() - rhs) <= 1e-9*np.linalg.norm(rhs) + 1e-12
 
 
 # 60x60x10 = 36 000 cells > 30 000 AMG gate.
@@ -46,24 +74,16 @@ def _make_solver(drift_thresh=0.05, rebuild_every=100,
 
 
 @pytest.mark.slow
-def test_static_K_only_rebuilds_at_first_iter():
-    """K_arr / cF_arr fixed → drift stays below 5 % after the first iter.
-
-    Expected: hierarchy rebuilt once at it=1, then reused (skip_count grows).
-    Drift-triggered rebuilds should not fire.
-    """
+def test_fixed_drag_rebuilds_during_startup_then_reuses():
+    """Fixed K/cF still has evolving momentum coefficients at startup."""
     s = _make_solver(drift_thresh=0.05)
     s.solve(max_iter=20, tol=1e-6)
     c = s._ml_cache
-    assert c.get('rebuild_count', 0) == 1, (
-        f"expected exactly 1 rebuild (cold-start), "
-        f"got {c.get('rebuild_count')}")
+    assert 1 < c['rebuild_count'] < c['bcg_calls']
     assert c.get('skip_count', 0) >= 5, (
         f"expected drift-skip to fire on >=5 iters, "
         f"got {c.get('skip_count')}")
-    assert c.get('drift_rebuild_count', 0) == 0, (
-        f"drift-rebuild should not fire on static K case, got "
-        f"{c.get('drift_rebuild_count')}")
+    assert c.get('drift_rebuild_count', 0) > 0
     assert c.get('last_drift', 1.0) < 0.05, (
         f"final drift should be < 5 %, got {c.get('last_drift')}")
 
