@@ -327,6 +327,10 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         and switch to 3D mode. Single-call post-build_ui, users can edit after.
         """
         self._active_preset_name = "Shanghai (3D Gyroid)"
+        for side in ('A', 'B'):
+            uniform = getattr(self, f'chk_uniform_inlet{side}_2d', None)
+            if uniform is not None:
+                uniform.setChecked(side == 'B')
         presets = {
             # Shanghai Electric gas-heater experimental log (工况8, Re_air=5000,
             # Re_water=400) — raw values from `data/raw_data/

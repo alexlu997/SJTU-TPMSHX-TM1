@@ -158,6 +158,7 @@ def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
                          outlet_lo=out_lo, outlet_hi=out_hi,
                          wall_refine=False, P_ref_abs=P_ref_out,
                          rho_inlet_ref=rho_inlet_ref, fluid_type=fluid_type,
+                         uniform_inlet=cfg_fluid.get('uniform_inlet_2d', False),
                          dx_arr=flow['dx'], dy_arr=flow['dy'],
                          K_arr=flow['K_m2'], cF_arr=flow['cF_per_m'])
         if 'boundary_openings' in cfg:

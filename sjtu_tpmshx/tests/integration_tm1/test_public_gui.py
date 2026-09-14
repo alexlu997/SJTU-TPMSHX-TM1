@@ -41,9 +41,27 @@ def apply_config(window, config):
                 'combo_sco2_nu_mode': window.combo_sco2_nu_mode.findData(config.sco2_nu.mode),
                 'combo_dirA': config.bc_A.dir, 'combo_dirB': config.bc_B.dir},
         checks={'chk_zones': False, 'chk_wall_refine_3d': config.flags.wall_refine_3d,
+                'chk_uniform_inletA_2d': config.bc_A.uniform_inlet_2d,
+                'chk_uniform_inletB_2d': config.bc_B.uniform_inlet_2d,
                 'chk_var_rhocp': config.flags.variable_rho_cp, 'chk_allow_extrap': config.extrap.allow}))
     window.auto_fill_fluid_a()
     window.auto_fill_fluid_b()
+
+
+def test_shanghai_uniform_inlet_is_explicit_and_preserved_by_preset(win):
+    from sjtu_tpmshx.ui.window_config import config_from_window
+    win._apply_shanghai_defaults()
+    win.combo_dim.setCurrentIndex(0)
+    cfg = config_from_window(win)
+    assert cfg.bc_B.uniform_inlet_2d and not cfg.bc_A.uniform_inlet_2d
+    preset = win._capture_current_preset('Shanghai uniform inlet')
+    win.chk_uniform_inletB_2d.setChecked(False)
+    win._apply_user_preset(preset)
+    assert config_from_window(win).bc_B.uniform_inlet_2d
+    # Old explicitly loaded presets retain their original inlet distribution.
+    preset['checks'].pop('chk_uniform_inletB_2d')
+    win._apply_user_preset(preset)
+    assert not config_from_window(win).bc_B.uniform_inlet_2d
 
 
 @pytest.mark.parametrize('shape', [1, 2], ids=['hexagon', 'octagon'])

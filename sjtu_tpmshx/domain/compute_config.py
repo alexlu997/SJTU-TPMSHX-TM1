@@ -267,6 +267,9 @@ class PartialBCConfig:
     in_z_w: Optional[float] = None
     out_z_ctr: Optional[float] = None
     out_z_w: Optional[float] = None
+    # 2D only: False preserves the historical four-cell edge profile.
+    # 3D already imposes uniform flow over the geometric opening.
+    uniform_inlet_2d: bool = False
 
 
 def bc_to_dict(bc: 'PartialBCConfig', L_dom: float, H_dom: float,
@@ -313,6 +316,8 @@ def bc_to_dict(bc: 'PartialBCConfig', L_dom: float, H_dom: float,
         d['in_z_w'] = bc.in_z_w
         d['out_z_ctr'] = bc.out_z_ctr
         d['out_z_w'] = bc.out_z_w
+    if not with_z and bc.uniform_inlet_2d:
+        d['uniform_inlet_2d'] = True
     return d
 
 
@@ -575,6 +580,8 @@ class ComputeConfig:
         # single-fluid only below this boundary.
         from .validator import validate_pipe_config
         for side, bc in (('A', self.bc_A), ('B', self.bc_B)):
+            if not isinstance(bc.uniform_inlet_2d, bool):
+                raise ValueError(f'ComputeConfig.bc_{side}.uniform_inlet_2d must be boolean')
             if (bc.in_w <= 0.0) != (bc.out_w <= 0.0):
                 raise ValueError(
                     f"ComputeConfig.bc_{side}.in_w and out_w must both be "

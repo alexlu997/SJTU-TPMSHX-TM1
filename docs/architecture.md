@@ -99,6 +99,13 @@ Old metrics files retain their definitions; re-evaluate their native result
 before mapping it to the current GUI contract. Frozen backend reporting
 references are historical numerical oracles, not the current metric contract.
 
+`PartialBCConfig.uniform_inlet_2d` selects geometric overlap without the
+historical four-cell inlet taper. Preparation records the selected profile,
+and the 2D solver consumes and checks that same profile. Shanghai water
+defaults to uniform flow over its confirmed local opening; total mass flow
+and port geometry are unchanged. Other defaults and saved presets lacking
+the field retain the historical profile. The flag does not alter 3D flow.
+
 Continuous screening uses `models.screening.build_field` for preparation,
 preview and export. Saved decision vectors must be decoded with their original
 bounds, control grid, symmetry and spline order. The current geometry window

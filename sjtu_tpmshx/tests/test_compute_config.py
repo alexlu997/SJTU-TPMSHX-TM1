@@ -380,12 +380,15 @@ def test_c4_config_from_window_reads_partial_bc_widgets():
     window.le_pipeB_in_w = _StubLineEdit('0.080')
     window.le_pipeB_out_ctr = _StubLineEdit('0.091')
     window.le_pipeB_out_w = _StubLineEdit('0.080')
+    window.chk_uniform_inletB_2d = _StubCheckBox(True)
     cfg = config_from_window(window)
     assert cfg.bc_A.dir == 0
     assert cfg.bc_A.in_ctr == pytest.approx(0.021)
     assert cfg.bc_A.out_w == pytest.approx(0.020)
     assert cfg.bc_B.dir == 3
     assert cfg.bc_B.in_w == pytest.approx(0.080)
+    assert cfg.bc_B.uniform_inlet_2d is True
+    assert cfg.bc_A.uniform_inlet_2d is False
     # 3D z-fields absent → stay None
     assert cfg.bc_A.in_z_ctr is None
     assert cfg.bc_B.in_z_w is None
@@ -518,7 +521,7 @@ def test_c4_json_roundtrip_includes_new_fields():
         bc_A=PartialBCConfig(dir=0, in_ctr=0.021, in_w=0.02,
                               out_ctr=0.021, out_w=0.02),
         bc_B=PartialBCConfig(dir=3, in_ctr=0.091, in_w=0.08,
-                              out_ctr=0.091, out_w=0.08),
+                              out_ctr=0.091, out_w=0.08, uniform_inlet_2d=True),
         zones=ZoneInputConfig(enabled=True, axis='x',
                               pareto_y_trans_inlet=0.18),
         flags=FeatureFlags(wall_refine_3d=True, temp_unit='C'),
@@ -535,12 +538,18 @@ def test_c4_json_roundtrip_includes_new_fields():
     assert cfg2.bc_A.dir == 0
     assert cfg2.bc_A.in_ctr == pytest.approx(0.021)
     assert cfg2.bc_B.dir == 3
+    assert cfg2.bc_B.uniform_inlet_2d is True
     assert cfg2.zones.enabled is True
     assert cfg2.zones.axis == 'x'
     assert cfg2.zones.pareto_y_trans_inlet == pytest.approx(0.18)
     assert cfg2.flags.wall_refine_3d is True
     assert cfg2.flags.temp_unit == 'C'
     assert cfg2.extrap.allow is True
+
+
+def test_uniform_inlet_rejects_text_boolean():
+    with pytest.raises(ValueError, match='uniform_inlet_2d must be boolean'):
+        ComputeConfig(bc_B=PartialBCConfig(uniform_inlet_2d='false')).validate()
 
 
 def test_c4_legacy_json_without_new_fields_keeps_defaults():

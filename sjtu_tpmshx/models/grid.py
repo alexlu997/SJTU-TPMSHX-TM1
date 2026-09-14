@@ -135,10 +135,12 @@ def _port_overlap_1d(widths, lo, hi, *, staggered=False):
                    0.0, 1.0)
 
 
-def _port_fractions_1d(widths, lo, hi):
-    """Return physical overlap and the existing four-cell tapered profile."""
+def _port_fractions_1d(widths, lo, hi, *, uniform=False):
+    """Return geometric overlap and the selected imposed port profile."""
     raw = _port_overlap_1d(widths, lo, hi)
     profile = raw.copy()
+    if uniform:
+        return raw, profile
     for i in range(len(widths)):
         if raw[i] > 0.99:
             for d in range(1, 5):

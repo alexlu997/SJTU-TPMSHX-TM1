@@ -180,7 +180,10 @@ class SessionPresetsMixin:
                                 self._update_edge_combos()
                             c.setCurrentIndex(int(idx))
                 except Exception: pass
-        for name, val in (preset.get('checks') or {}).items():
+        checks = dict(preset.get('checks') or {})
+        for side in ('A', 'B'):
+            checks.setdefault(f'chk_uniform_inlet{side}_2d', False)
+        for name, val in checks.items():
             if name not in allowed_checks:
                 continue
             b = getattr(self, name, None)
@@ -408,7 +411,8 @@ class SessionPresetsMixin:
         'combo_fluidA', 'combo_fluidB',
         'combo_dirA', 'combo_dirB',
     )
-    _SESSION_CHECKS = ('chk_zones', 'chk_wall_refine_3d', 'chk_var_rhocp')
+    _SESSION_CHECKS = ('chk_zones', 'chk_wall_refine_3d', 'chk_var_rhocp',
+                       'chk_uniform_inletA_2d', 'chk_uniform_inletB_2d')
     # Explicit loads restore inputs; startup sessions retain their reset policy.
     _POLYGON_COMBOS = ('combo_edge_inA', 'combo_edge_outA',
                        'combo_edge_inB', 'combo_edge_outB')
@@ -612,7 +616,10 @@ class SessionPresetsMixin:
                     c.setCurrentIndex(int(idx))
             except Exception:
                 continue
-        for name, val in (payload.get('checks') or {}).items():
+        checks = dict(payload.get('checks') or {})
+        for side in ('A', 'B'):
+            checks.setdefault(f'chk_uniform_inlet{side}_2d', False)
+        for name, val in checks.items():
             b = getattr(self, name, None)
             if b is None:
                 continue

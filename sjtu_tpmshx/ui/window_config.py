@@ -294,12 +294,14 @@ def _read_partial_bc(window, side: Literal['A', 'B']) -> 'PartialBCConfig':
             dir_int = int(combo_dir.currentIndex())
         except Exception:
             dir_int = default_dir
+    uniform = getattr(window, f'chk_uniform_inlet{side}_2d', None)
     bc = PartialBCConfig(
         dir=dir_int,
         in_ctr=_qt_float(getattr(window, f'{le_prefix}_in_ctr', None), 0.0),
         in_w=_qt_float(getattr(window, f'{le_prefix}_in_w', None), 0.0),
         out_ctr=_qt_float(getattr(window, f'{le_prefix}_out_ctr', None), 0.0),
         out_w=_qt_float(getattr(window, f'{le_prefix}_out_w', None), 0.0),
+        uniform_inlet_2d=bool(uniform is not None and uniform.isChecked()),
     )
     # 3D z-partial widgets are only present (and visible) in 3D mode.
     le_in_z_ctr = getattr(window, f'{le_prefix}_in_z_ctr', None)

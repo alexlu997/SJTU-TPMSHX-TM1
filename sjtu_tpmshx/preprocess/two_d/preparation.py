@@ -366,7 +366,9 @@ def _prepare_openings(cfg, dx, dy):
         openings = {}
         for end in ('in', 'out'):
             center, width = port[end + '_ctr'], port[end + '_w']
-            raw, profile = _port_fractions_1d(widths, center-width/2, center+width/2)
+            raw, profile = _port_fractions_1d(
+                widths, center-width/2, center+width/2,
+                uniform=end == 'in' and port.get('uniform_inlet_2d', False))
             openings[end + '_geom_frac'] = raw
             openings[end + '_profile_frac'] = profile
         boundaries[side] = openings

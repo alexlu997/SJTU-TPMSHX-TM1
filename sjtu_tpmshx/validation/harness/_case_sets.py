@@ -61,7 +61,7 @@ def shanghai_pipeline_config(ci, df, solver, *, wall_refine=False, spec=None):
     bc_A = PartialBCConfig(dir=0, in_ctr=H / 2, in_w=H,
                           out_ctr=H / 2, out_w=H)
     bc_B = PartialBCConfig(dir=3, in_ctr=.154, in_w=.042,
-                          out_ctr=.028, out_w=.042)
+                          out_ctr=.028, out_w=.042, uniform_inlet_2d=True)
     if solver.Nz >= 2:
         for bc in (bc_A, bc_B):
             bc.in_z_ctr = bc.out_z_ctr = depth / 2

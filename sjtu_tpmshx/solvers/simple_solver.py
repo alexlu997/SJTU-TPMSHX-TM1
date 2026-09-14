@@ -224,6 +224,7 @@ class SIMPLESolver:
                  wall_first_cell=0.02e-3,
                  df_method=None,
                  dx_arr=None, dy_arr=None, K_arr=None, cF_arr=None,
+                 uniform_inlet=False,
                  **_legacy_kw):
         # Historical 'closure' kwarg is accepted but ignored; ConstDF-v1 D-F
         # is the only closure since 2026-04-19 f-Re cleanup.
@@ -434,6 +435,7 @@ class SIMPLESolver:
         self.Ts = None
 
         self._pp_sparsity = None  # lazily built on first solve() call
+        self.uniform_inlet = uniform_inlet
         self._refresh_ports(inlet_lo, inlet_hi, outlet_lo, outlet_hi)
         self.residuals = []
 
@@ -449,7 +451,8 @@ class SIMPLESolver:
         """Initialize port profiles on the final grid before the first solve."""
         Nx = self.Nx
         self.v_inlet_field = np.full(Nx, float(self.v_inlet), dtype=np.float64)
-        inf_raw, self.inlet_frac = _port_fractions_1d(self.dx_arr, inlet_lo, inlet_hi)
+        inf_raw, self.inlet_frac = _port_fractions_1d(
+            self.dx_arr, inlet_lo, inlet_hi, uniform=self.uniform_inlet)
         self.inlet_geom_frac = inf_raw
         # N3 (2026-07-07): the taper smooths the imposed profile but must not
         # DELETE throughput — unrenormalised it under-delivered the imposed
