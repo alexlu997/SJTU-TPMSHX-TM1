@@ -164,6 +164,7 @@ class SessionPresetsMixin:
         # independent of JSON object key order.
         self._set_sco2_nu_parameters(preset.get('sco2_nu_parameters', {}))
         combos = dict(preset.get('combos') or {})
+        combos.setdefault('combo_df_mode', 0)  # legacy saved inputs used smooth CFD
         combos.setdefault('combo_sco2_nu_mode', 0)
         for name in self._PRESET_COMBOS:
             if name not in combos:
@@ -572,6 +573,7 @@ class SessionPresetsMixin:
         payload = self.sm.load_session(ws)
         if payload is None:
             return
+        self.combo_df_mode.setCurrentIndex(0)  # preserve legacy sessions without this field
         self._set_sco2_nu_parameters(payload.get('sco2_nu_parameters', {}))
         nu_combo = getattr(self, 'combo_sco2_nu_mode', None)
         if nu_combo is not None:

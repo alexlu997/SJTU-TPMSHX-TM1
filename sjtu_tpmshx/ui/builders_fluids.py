@@ -123,10 +123,11 @@ def build_page_fluids(window):
                                        _T_NEUTRAL, _F_NEUTRAL)
     window._ia_sections['df_method'] = method_section
     window.combo_df_mode = QComboBox()
-    window.combo_df_mode.addItem("CFD 光滑壁面（默认）", "cfd_smooth")
+    window.combo_df_mode.addItem("CFD 光滑壁面", "cfd_smooth")
     window.combo_df_mode.addItem("实验标定", "experimental")
     window.combo_df_mode.setStyleSheet(_COMBO)
     window.combo_df_mode.setToolTip(
+        "内置上海预设默认使用实验标定。"
         "实验标定使用与具体实验 campaign、边界和压降定义绑定的有效修正；"
         "数据集选择不代表已证实的工质本征效应。")
     add_row(window, g_method, 0, "方法", right_align_combo(window.combo_df_mode))
