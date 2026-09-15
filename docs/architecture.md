@@ -96,6 +96,18 @@ Thermal routes are selected by their present qualification conditions:
 | Model enthalpy | Existing air/water h(T) transport; 2D includes water/water when unzoned and symmetric. 3D currently includes air/air, air/water and water/air with its Nz, variable-property, dual-flow, conservative and mask conditions. |
 | Temperature | Existing remaining cases and approximation modes keep their current discretization and property sampling. |
 
+Model-h uses signed mass faces and minmod SOU on **both** fluid sides in both
+dimensions. Its fluid Picard update uses the shared `MODEL_H_RELAXATION=0.2`
+policy, including outlet cells; 3D retains explicitly smaller relaxation values.
+The earlier 2D B-side first-order default and 3D fluid-name relaxation choice
+do not apply to this route. Damping changes the iteration, not its steady
+energy equation. Q/field convergence, physical boundary energy, solid energy
+and mass checks remain separate and retain their thresholds. The turning-flow
+regression covers serial/red-black execution and physical A/B label invariance.
+Model-h Richardson refinement has a 12000-sweep ceiling so the finer grid can
+meet those same criteria; temperature-form refinement retains 5000. See the
+[air/water convergence and validation record](air-water-convergence-20260915.md).
+
 Changing a shared convergence rule affects both dimensions. Changing a
 dimensional momentum or heat kernel affects every fluid using that route.
 Changing an EOS or Nu correlation belongs in the fluid/model owner, not in
@@ -134,9 +146,18 @@ are separately named `Q_richardson_A/B` and never replace main-grid `Q`.
 Their extra solve and physical/convergence checks remain in force.
 Full-compute pressure drops use `pressure_face_v1`: extrapolate the final
 SIMPLE pressure to physical inlet/outlet faces and weight by geometric open
-area. Both dimensions share the same reduction. This does not change the
-absolute-pressure anchor used for fluid properties or reconstruct thermal
-enthalpy at another pressure state.
+area. Both dimensions share the same reduction. Air inlet-pressure correction
+also uses these physical faces: the outlet-cell anchor is iterated until the
+inlet open-area mean meets the specified absolute pressure within `1e-4`
+relative error. This check joins the outer convergence gate. Correction is on
+by default; explicit `p_in_shooting=False` / `TPMSHX_P_IN_SHOOT=0` remains a
+diagnostic override and cannot certify a mismatched inlet as converged.
+The 2D air property, thermal and report fields use that same SIMPLE absolute
+state; they do not shift it again to pin the inlet cell row. Numerical and
+experimental before/after evidence is in
+[the pressure-boundary diagnosis](pressure-boundary-diagnosis-20260915.md).
+Water and the current frozen-pressure sCO₂ route retain their property-pressure
+convention. Postprocessing does not reconstruct thermal enthalpy at a new state.
 Pressure drop retains the final SIMPLE pressure convention and its distinct
 recorded state. Metric definitions survive JSON and GUI export metadata.
 Old metrics files retain their definitions; re-evaluate their native result
@@ -224,8 +245,11 @@ explicit numerical-model change with directly relevant validation.
    pure geometry baseline: one water+sCO2 CFD table for both sides and every
    fluid. Base K0 and cF0 depend only on topology, L, and t, are bilinearly
    interpolated inside 4–8 mm by 0.3–0.6 mm, and never depend on Re or fluid.
-   The UI exposes exactly two production methods. **CFD smooth-wall** is the
-   default and is V2-compatible. **Experiment calibration** applies one fixed,
+   The UI exposes exactly two production methods. **CFD smooth-wall** remains
+   the generic `ComputeConfig` default and is V2-compatible. Built-in Shanghai
+   presets default to **Experiment calibration**; saved inputs preserve their
+   choice, and legacy saved inputs missing the selector retain smooth CFD.
+   **Experiment calibration** applies one fixed,
    reviewed effective correction per side after pipeline assembly and before
    pressure seeding/SIMPLE; K/cF stay fixed for the solve. The selector routes
    to a dataset whose campaign, boundary, pressure-drop definition, and
@@ -238,12 +262,24 @@ explicit numerical-model change with directly relevant validation.
    are retired; selecting them explicitly now raises an error. Their code,
    tables and results remain available through the [history index](history/legacy-models.md).
 5. **Nusselt ownership.** Air, water, and sCO2 coefficient tables live only in
-   `models/nu_correlations.py`.
+   `models/nu_correlations.py`. Full 2D/3D solves rebuild each side's local
+   scalar Re/Nu from `models/local_heat_transfer.local_speed`: the current
+   cell-centered pore-velocity magnitude, sqrt(uc² + vc² [+ wc²]). Do not
+   select a fixed inlet-axis component or apply porosity a second time.
+   Signed normal components still own face mass/enthalpy fluxes. The existing
+   Re/Nu floors apply to genuinely low speeds; bulk initial coefficients and
+   prescribed-velocity approximate modes retain their existing definitions.
+   Using bulk-fitted scalar Nu locally in turning flow remains a modelling
+   assumption, distinct from this velocity consistency requirement. See the
+   [implementation and paired validation](nu-local-speed-20260915.md).
 6. **Compressible envelope.** `models/envelope.py` rejects operating points
    without a steady subsonic solution. Do not bypass that result by widening a
    pressure clip or forcing a numerical answer.
-7. **Pressure reference.** `P_ref_abs` is the outlet absolute pressure; the
-   SIMPLE pressure field is gauge pressure relative to it.
+7. **Pressure reference.** On ideal-gas sides, `P_ref_abs` anchors the outlet
+   cells, and local absolute pressure is `P_ref_abs + P`. The physical outlet
+   face can have nonzero extrapolated gauge pressure; `P_ref_abs + dP` is not
+   the realized inlet pressure. Use geometric area means at actual port faces
+   for inlet-pressure correction and its convergence diagnostic.
 8. **Units.** Prepared contract quantities use K, Pa and m. Legacy closure calls that
    accept cell size/wall thickness in mm receive an explicit boundary conversion;
    those internal units do not change persisted SI fields.
