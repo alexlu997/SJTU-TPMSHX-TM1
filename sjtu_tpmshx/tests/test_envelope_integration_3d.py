@@ -1,16 +1,15 @@
-"""End-to-end envelope guards in the 3D pipeline (_run_3d_stack).
+"""3D seed warnings, inlet-pressure qualification and final-field guards.
 
-A choked case (Forchheimer dP >= inlet abs pressure) must NOT silently return
-converged garbage. Default (envelope_mode='raise') -> ChokedFlowError before/at
-the doomed solve; envelope_mode='warn' -> run but flag the result invalid; an
-in-envelope case -> valid result, no clip.
+A rejected 1D seed raises by default. Warn mode retains that history, while
+the final-field envelope and inlet-pressure convergence are separate checks.
 """
 
 import pytest
 
 from sjtu_tpmshx.runs._case_template import build_cfg
+from sjtu_tpmshx.pipelines import run_stack_3d
 from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
-from sjtu_tpmshx.solvers.envelope import ChokedFlowError
+from sjtu_tpmshx.solvers.envelope import ChokedFlowError, PRESSURE_FLOOR_PA
 
 
 def test_choked_case_raises_by_default():
@@ -22,27 +21,54 @@ def test_choked_case_raises_by_default():
         _run_3d_stack(cfg)
 
 
-def test_choked_warn_mode_returns_flagged_result():
+@pytest.mark.parametrize('side', ['A', 'B'])
+def test_seed_warning_preserves_failed_inlet_pressure_verdict(side):
+    # These seed estimates fail, but pressure shooting leaves subsonic,
+    # positive cell fields. The specified inlet pressure is still unmet;
+    # a seed warning alone does not determine the final-field envelope.
     cfg = build_cfg(L=0.7, H=0.7, Lz=0.7, Nx=12, Ny=12, Nz=12,
-                    u_A=30.0, T_inA=800.0, u_B=10.0, T_inB=400.0,
+                    u_A=30.0 if side == 'A' else 3.0, T_inA=800.0,
+                    u_B=10.0 if side == 'A' else 20.0, T_inB=400.0,
                     envelope_mode='warn', sweep_profile='fast_sweep')
     res = _run_3d_stack(cfg)
-    assert res['envelope_valid'] is False
-    assert res['envelope_warnings'], "warn mode must surface a choke warning"
+    assert any(f'fluid {side} inlet seed' in warning
+               for warning in res['envelope_warnings'])
+    inlet = res['convergence_detail']['inlet_pressure'][side]
+    assert abs(inlet['relative_error']) > inlet['relative_tolerance']
+    assert inlet['passed'] is False
+    assert res['convergence_detail']['outer_converged'] is False
+    assert res['solver_converged'] is False
 
 
-def test_air_air_b_side_choke_is_flagged():
-    # Fluid A benign (3 m/s), fluid B over-driven (20 m/s through a 0.7 m -y
-    # path) -> B chokes. The post-solve gate must flag it via the B side even
-    # though A is fine (the pre-fix gate checked fluid A only and returned
-    # envelope_valid=True). Audit finding: no-bside-post-solve-gate.
-    cfg = build_cfg(L=0.7, H=0.7, Lz=0.7, Nx=12, Ny=12, Nz=12,
-                    u_A=3.0, T_inA=800.0, u_B=20.0, T_inB=400.0,
-                    fluid_type_A='air', fluid_type_B='air',
-                    envelope_mode='warn', sweep_profile='fast_sweep')
+@pytest.mark.parametrize('side', ['A', 'B'])
+@pytest.mark.parametrize('invalid_field', ['pressure', 'mach'])
+def test_final_field_violation_is_flagged_on_each_side(monkeypatch, side, invalid_field):
+    original = run_stack_3d._extract_3d_metrics
+
+    def invalid_final_field(prob, outer):
+        metrics = original(prob, outer)
+        # Inject a known invalid final state at the verdict boundary. Leave
+        # the real gate, its thresholds and its returned verdict untouched.
+        if invalid_field == 'pressure':
+            solver = prob.sA if side == 'A' else prob.sB
+            solver.P_ref_abs = PRESSURE_FLOOR_PA - float(solver.P.min())
+        else:
+            speed = metrics.vmag if side == 'A' else metrics.vmag_B
+            speed[:] = 2000.0  # supersonic throughout this 400–800 K case
+        return metrics
+
+    monkeypatch.setattr(run_stack_3d, '_extract_3d_metrics', invalid_final_field)
+    cfg = build_cfg(L=0.05, H=0.05, Lz=0.05, Nx=6, Ny=6, Nz=3,
+                    u_A=8.0, T_inA=800.0, u_B=4.0, T_inB=400.0,
+                    envelope_mode='warn', max_outer_ltne=2)
     res = _run_3d_stack(cfg)
     assert res['envelope_valid'] is False
-    assert any('[B]' in r for r in res['envelope_reasons'])
+    reason = 'pressure' if invalid_field == 'pressure' else 'supersonic'
+    assert any(r.startswith(f'[{side}]') and reason in r
+               for r in res['envelope_reasons'])
+    assert not any(r.startswith('[B]' if side == 'A' else '[A]')
+                   for r in res['envelope_reasons'])
+    assert res['solver_converged'] is False
 
 
 def test_in_envelope_case_valid_and_unclipped():
