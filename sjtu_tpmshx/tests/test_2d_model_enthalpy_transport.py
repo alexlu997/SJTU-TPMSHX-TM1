@@ -37,11 +37,12 @@ def test_two_cv_picard_row_and_final_nonlinear_balance(direction, direction_b, r
             # Half-CV inlet conduction=.5*.4; inlet enthalpy=.1*44.
             rhs = .2*expected_A[1] + .2*320. + 300. + 4.4 + 66.1
             candidate = rhs / (.2+.2+.22+1.)
-            expected_A[0] += .7*(candidate-expected_A[0])
+            expected_A[0] += .2*(candidate-expected_A[0])
         else:
-            expected_A[1] = (.42*expected_A[0]+300.-3.075) / 1.41
+            candidate = (.42*expected_A[0]+300.-3.075) / 1.41
+            expected_A[1] += .2*(candidate-expected_A[1])
         expected_S[cell] = .5*(expected_A[cell]+expected_B[cell])
-        expected_B[cell] = expected_S[cell]
+        expected_B[cell] += .2*(expected_S[cell]-expected_B[cell])
     fn = energy._gs_full_chunk_rb if rb else energy._gs_full_chunk
     threads = get_num_threads()
     try:
@@ -119,10 +120,11 @@ def test_three_cv_sweep_uses_frozen_sou_for_both_backends(rb, sou_B):
     for i in ([0, 2, 1] if rb else [0, 1, 2]):
         incoming = 4.4 if i == 0 else cap_A[i-1]*expected_A[i-1]+def_A[i-1]
         candidate = (expected_S[i]+incoming-def_A[i])/(1+cap_A[i])
-        expected_A[i] += (.7 if i < 2 else 1.)*(candidate-expected_A[i])
+        expected_A[i] += .2*(candidate-expected_A[i])
         expected_S[i] = .5*(expected_A[i]+expected_B[i])
         incoming = 0. if i == 0 else cap_B[i-1]*expected_B[i-1]+def_B[i-1]
-        expected_B[i] = (expected_S[i]+incoming-def_B[i])/(1+cap_B[i])
+        candidate = (expected_S[i]+incoming-def_B[i])/(1+cap_B[i])
+        expected_B[i] += .2*(candidate-expected_B[i])
     mass = (np.full((4, 1), .1), np.zeros((3, 2)))
     cp = (2., .02, 0., 300., 300.)
     fn = energy._gs_full_chunk_rb if rb else energy._gs_full_chunk

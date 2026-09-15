@@ -328,6 +328,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         """
         self._active_preset_name = "Shanghai (3D Gyroid)"
         self._set_shanghai_grid(is_3d=True)
+        self.combo_df_mode.setCurrentIndex(self.combo_df_mode.findData('experimental'))
         for side in ('A', 'B'):
             uniform = getattr(self, f'chk_uniform_inlet{side}_2d', None)
             if uniform is not None:

@@ -16,12 +16,14 @@ from sjtu_tpmshx.domain.run_environment import run_environment
 from sjtu_tpmshx.domain.run_warnings import range_context
 from sjtu_tpmshx.models.nu_correlations import record_raw_nu_range, warn_sco2_nu_evidence
 from sjtu_tpmshx.models.tpms_props import record_temperature_ranges
-from sjtu_tpmshx.models.local_heat_transfer import _sco2_hv_local_field
+from sjtu_tpmshx.models.local_heat_transfer import _sco2_hv_local_field, local_speed
 from sjtu_tpmshx.models.grid import cell_average
 
 from sjtu_tpmshx.solvers.coupling_skeleton import OuterConvergence, run_outer_coupling
 from sjtu_tpmshx.solvers.simple_solver_3d import SIMPLESolver3D
-from sjtu_tpmshx.solvers._solve_common import configure_convergence
+from sjtu_tpmshx.solvers._solve_common import (
+    configure_convergence, inlet_pressure_state, pressure_shooting_target_sq,
+)
 from sjtu_tpmshx.solvers.ltne_energy_3d import solve_full_domain_3d, _inlet_transport_3d
 from sjtu_tpmshx.models.tpms_calc import (
     air_density, air_viscosity,
@@ -1074,25 +1076,18 @@ def _build_hv_machinery(prob: _Problem3D):
             record_raw_nu_range(fluid_type, tpms_type, raw_Re)
         return out
 
-    # Local-Re per-cell h_v (2026-04-25 #B fix).
-    # Each cell uses its own |u_local|·D_h·ρ/μ Reynolds → local Nu via
-    # tpms_calc.nu_from_Re → local h_v = A_0·Nu·k/D_h. Wall-BL cells with
-    # u_local→0 fall back to laminar Nu floor (4.36) so h_v doesn't blow up
-    # to zero (correlation Nu→0 at Re→0 is non-physical extrapolation).
-    # This kills the wall-BL stagnation over-count that pushed |Q_sB| above
-    # the NTU thermodynamic bound.
+    # The caller supplies the full local pore speed, independent of port axis.
+    # Retain the existing Re/Nu floors for true low-speed cells. Applying a
+    # bulk-fitted scalar correlation locally remains a closure assumption.
     def _build_hv_local_3d(
-        L_fld, t_fld, u_field_3d, T_side, P_side, fluid_type='air',
+        L_fld, t_fld, speed_field, T_side, P_side, fluid_type='air',
         A_0_scalar=None, observation=None,
     ):
-        """Per-cell h_v using LOCAL |u_cc|·D_h·ρ/μ Reynolds + Nu floor."""
-        u_abs = np.abs(u_field_3d) + 1e-12
-        # D3 fix (audit 2026-06-28): uniform-geometry sCO2 with a LOCAL T FIELD
-        # evaluates ρ,μ,k,Pr per cell instead of freezing them at the scalar
-        # inlet T. air/water and the zoned (L_fld not None) path fall through to
-        # the scalar-inlet branch below → golden + Shanghai-3D bit-identical.
-        # (Iter-0 Ta is None → caller passes scalar T_inA → scalar path, so the
-        # first sweep is value-identical; local props kick in from iter 1.)
+        """Per-cell h_v from Re = ρ |U| D_h / μ and the existing Nu floor."""
+        u_abs = np.abs(speed_field) + 1e-12
+        # Uniform sCO2 evaluates ρ,μ,k,Pr at the lagged local temperature.
+        # Without a temperature field, use inlet properties for initialization;
+        # air/water retain the scalar-inlet property branch below.
         if fluid_type == 'sco2' and L_fld is None and np.ndim(T_side) > 0:
             g = cfg['thermal_geometry']['uniform']
             return _sco2_hv_local_field(T_side, P_side, u_abs,
@@ -1589,23 +1584,17 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D):
     Q_interior_primary = _cdiag['Q_interior_primary']
     AB_interior = _cdiag['AB_interior']
 
-    # ── C8 shooting diagnostics (openspec c8-p-in-shooting) ────────────
-    # Realized inlet absolute pressure = P_ref_abs (outlet anchor, ledger
-    # C8) + reported dP. With shooting OFF this exposes the legacy seed-vs-
-    # solved mismatch (the bias the knob removes); with it ON the residual
-    # certifies the shot landed. Ideal-gas sides only — incompressible
-    # P_ref_abs is a frozen inlet value (level inert), so the metric is
-    # meaningless there (NaN).
-    P_in_realized_A = float('nan')
-    P_in_shoot_resid_A = float('nan')
-    if cfg.get('fluid_type_A', 'air') == 'air':
-        P_in_realized_A = float(sA.P_ref_abs) + float(dP)
-        P_in_shoot_resid_A = (P_in_realized_A - float(P_inA)) / float(P_inA)
-    P_in_realized_B = float('nan')
-    P_in_shoot_resid_B = float('nan')
-    if sB is not None and cfg.get('fluid_type_B', 'air') == 'air':
-        P_in_realized_B = float(sB.P_ref_abs) + float(dP_B)
-        P_in_shoot_resid_B = (P_in_realized_B - float(P_inB)) / float(P_inB)
+    # Physical face pressures; frozen-pressure incompressible sides stay out.
+    pressure_states = {'A': inlet_pressure_state(sA, P_inA),
+                       'B': inlet_pressure_state(sB, P_inB)}
+    P_in_realized_A = (pressure_states['A']['realized_Pa']
+                       if pressure_states['A'] is not None else float('nan'))
+    P_in_shoot_resid_A = (pressure_states['A']['relative_error']
+                          if pressure_states['A'] is not None else float('nan'))
+    P_in_realized_B = (pressure_states['B']['realized_Pa']
+                       if pressure_states['B'] is not None else float('nan'))
+    P_in_shoot_resid_B = (pressure_states['B']['relative_error']
+                          if pressure_states['B'] is not None else float('nan'))
 
     # ═══════════════════════════════════════════════════════════════════
     # Phase 2 diagnostics (Plan A v3): REQ_1–4 data dump
@@ -1903,6 +1892,7 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D):
                     outlet_backflow_frac=getattr(
                         s, 'outlet_backflow_frac', None))
     _result['convergence_detail'] = dict(
+        inlet_pressure=pressure_states,
         simple_A=_simple_detail(sA),
         simple_B=_simple_detail(sB),
         simple_nonconv=list(_simple_nonconv),
@@ -2114,30 +2104,14 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
     vcB = prob.vcB
     wcB = prob.wcB
     cfg = prob.cfg
-    # ── C8 shooting knob (openspec c8-p-in-shooting) ────────────────────
-    # When ON, the outer-loop P_ref_abs reseed uses the PREVIOUS solve's
-    # measured dP instead of the 1D closed-form estimate, so the realized
-    # inlet absolute pressure (P_ref_abs + dP) iterates onto the user-
-    # specified P_in (ledger C8 leftover: seed-vs-solved dP mismatch left
-    # the inlet ~5% off spec on high-dP cases). cfg key wins over env;
-    # default OFF until the pricing round flips it (§5 re-baseline flow).
+    # Air pressure correction is on by default; explicit OFF is diagnostic.
+    # Convergence still requires the physical inlet pressure to meet its target.
     _p_shoot = bool(cfg.get('p_in_shooting',
-                            run_environment(cfg, 'TPMSHX_P_IN_SHOOT', '0') == '1'))
+                            run_environment(cfg, 'TPMSHX_P_IN_SHOOT', '1') == '1'))
     # Conditionally-bound cross-seam names (surgery tool definite-
     # assignment pass): None-init so the unconditional return below
     # cannot raise UnboundLocalError on guarded paths. Downstream
     # reads keep their original guards.
-    # NOTE on wall-BL homogenization (2026-04-25 NTU audit):
-    # Kim/Gyroid Nu correlations fit BULK TPMS-cell flow at Re ≥ 600. Cells
-    # adjacent to domain walls have reduced |u| (Brinkman BL), but uniform
-    # h_v overstates their contribution to ∫h_v·(Ts-T)·dV → Q_sA exceeds the
-    # thermodynamic NTU upper bound by ~5-25% on REFINE grids.
-    # Tried local-Re rescaling h ∝ Re^0.6 — h_reduction only 1-3% mean
-    # (cell-center u doesn't drop steeply enough on uniform grids; refined
-    # grids do but contribution is small). True fix requires BL-specific
-    # Nu correlation or conjugate heat transfer at outer walls — research
-    # work beyond this audit. Q_enthalpy_A/_B (m·cp·ΔT) remain physically
-    # consistent with NTU; mean(Q_A,Q_B) is the user-facing Q.
     # P2: rho_cp as 3D field (not scalar) for per-cell accuracy
     rho_cp_fA = np.full((Nx, Ny, Nz), rho_A * cp_A, dtype=np.float64)
     rho_cp_fB = np.full((Nx, Ny, Nz), rho_B_ltne * cp_B, dtype=np.float64)
@@ -2157,10 +2131,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
     else:
         _var_rhocp = bool(cfg.get('variable_rho_cp', True))
 
-    # Helper: solver streamwise velocity → correct real component (uc/vc/wc).
-    # Transposes solver (Nx_sol, Ny_sol, Nz_sol) → real (Nx, Ny, Nz) via
-    # `solver_to_real_perm` (self-inverse for all 3 supported perms), then
-    # assigns the streamwise vector to the matching real axis.
+    # Map all three solver velocity components into real coordinates.
     def _assemble_real_velocity():
         return _solver_velocity_to_real(sA, axis_map, (Nx, Ny, Nz))
 
@@ -2217,10 +2188,6 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
         Ta = np.full(_shape3d, float(T_inA), dtype=np.float64)
         Tb = np.full(_shape3d, float(T_inB), dtype=np.float64)
         Ts = np.full(_shape3d, float(_Ts_init_user), dtype=np.float64)
-    def _stream_component(uc, vc, wc, dir_code):
-        """Streamwise cell-center velocity component (single dir source)."""
-        return (uc, vc, wc)[_stream_axis(dir_code)]
-
     _progress_cb = cfg.get('_progress_cb')
     _cancel_check = cfg.get('_cancel_check')
     _iter_cb = cfg.get('_iter_cb')
@@ -2279,16 +2246,15 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
         if not _enth_gate:
             _record_temperature_state('main', 'real-cell(x,y,z)-warm')
 
-        # #B fix: rebuild h_v per cell using LOCAL Re (cell-center stream u).
-        # Wall cells with |u_local|→0 → Nu_lam floor (4.36) → h_local much
-        # smaller than bulk h. Removes wall-BL stagnation over-count.
-        u_stream_A = _stream_component(ucA, vcA, wcA, fA['dir'])
+        # Rebuild from the latest full vector: turning flow is not stagnation
+        # merely because its component normal to the inlet becomes small.
+        speed_A = local_speed(ucA, vcA, wcA)
         # D3: sCO2 uses the LOCAL temperature field (lagged Ta) for h_v props;
         # iter-0 Ta is None → scalar T_inA (frozen, = old behaviour).
         _T_hvA = Ta if (fluid_type_A == 'sco2' and Ta is not None) else T_inA
-        with range_context(side='A', stage='main', layout='real-cell(x,y,z)-hv-stream'):
+        with range_context(side='A', stage='main', layout='real-cell(x,y,z)-hv-speed'):
             h_vA_field = _build_hv_local_3d(
-                L_mm_field, t_field_3d, u_stream_A, _T_hvA, P_inA, fluid_type_A,
+                L_mm_field, t_field_3d, speed_A, _T_hvA, P_inA, fluid_type_A,
                     observation=cfg['sco2_nu_observations']['A'])
         if outer == 0 and fluid_type_A == 'sco2':
             warn_sco2_nu_evidence(
@@ -2309,11 +2275,11 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
             _ltne_mask_B = in_mask_B
 
         if sB is not None:
-            u_stream_B = _stream_component(ucB, vcB, wcB, fB['dir'])
+            speed_B = local_speed(ucB, vcB, wcB)
             _T_hvB = Tb if (fluid_type_B == 'sco2' and Tb is not None) else T_inB
-            with range_context(side='B', stage='main', layout='real-cell(x,y,z)-hv-stream'):
+            with range_context(side='B', stage='main', layout='real-cell(x,y,z)-hv-speed'):
                 h_vB_field = _build_hv_local_3d(
-                    L_mm_field, t_field_3d, u_stream_B, _T_hvB, P_inB, fluid_type_B,
+                    L_mm_field, t_field_3d, speed_B, _T_hvB, P_inB, fluid_type_B,
                     observation=cfg['sco2_nu_observations']['B'])
             if outer == 0 and fluid_type_B == 'sco2':
                 warn_sco2_nu_evidence(
@@ -2564,10 +2530,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
         _eff_ltne_max_iter = 2 if _enth_gate else _ltne_max_iter
         _refined_thermal = {}
         if cfg.get('port_wall_refine', False) and _model_h_gate:
-            _refined_thermal = dict(
-                accelerate=True, alpha_T_s=1.,
-                alpha_T_fA=.1 if fluid_type_A == 'water' else .7,
-                alpha_T_fB=.1 if fluid_type_B == 'water' else .7)
+            _refined_thermal = dict(accelerate=True, alpha_T_s=1.)
         _ltne_result = solve_full_domain_3d(
             L, H, Lz, Nx, Ny, Nz, T_inA, T_inB,
             K_ffA, K_ffB, K_ss, h_vA_field, h_vB_field,
@@ -2742,6 +2705,10 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
 
         _converged, _outer_deltas = _outer_conv.check(
             {'Ta': Ta, 'Tb': Tb, 'Ts': Ts})
+        pressure_states = (inlet_pressure_state(sA, P_inA),
+                           inlet_pressure_state(sB, P_inB))
+        _converged = _converged and all(
+            state is None or state['passed'] for state in pressure_states)
         _outer_dT_hist.append(_outer_deltas)
         return _converged, None
 
@@ -2807,21 +2774,8 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
         T_avg = cell_average(Ta, dx, dy, dz)
         if _mA.compressible:
             if _p_shoot:
-                # ── C8 shooting: reseed from the MEASURED drag ──────────
-                # P_ref_abs is the outlet absolute pressure; the previous
-                # solve realized inlet = P_ref + dP_meas. The P² update
-                #   P_out²_new = P_in² − (realized² − P_ref²)
-                # reuses the 1D compressible invariant (P_in²−P_out² =
-                # 2RT̄CL, level-free) with the SOLVER-measured drag integral
-                # in place of the 1D estimate, so the realized inlet lands
-                # on the specified P_in in 1–2 shots (fixed point: realized
-                # == P_in ⟹ P_out²_new == P_ref² exactly). Same dP reducer
-                # as the reported headline dP (face-extrap) so "realized"
-                # is self-consistent with what the pipeline reports.
-                _dp_meas = float(SIMPLESolver3D.extract_dP_face_extrap(sA))
-                _pref_old = float(sA.P_ref_abs)
-                P_out_sq_new = (P_inA ** 2
-                                - _dp_meas * (_dp_meas + 2.0 * _pref_old))
+                _pressure_A = inlet_pressure_state(sA, P_inA)
+                P_out_sq_new = pressure_shooting_target_sq(_pressure_A)
                 _shoot_ctx = 'fluid A shooting reseed (outer iter)'
             else:
                 with range_context(side='A', stage='property-refresh', layout='mean'):
@@ -2834,6 +2788,8 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
             sA.P_ref_abs = _seed_p_ref(P_out_sq_new, P_inA, mode=_env_mode,
                                        warn_list=_env_warnings,
                                        context=_shoot_ctx)
+            if _p_shoot:
+                sA.P_ref_abs -= _pressure_A['outlet_gauge_Pa']
         else:
             # Incompressible reseed: D-F coefficients stay constant while the
             # registry supplies the fluid viscosity at the mean temperature.
@@ -2988,14 +2944,8 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
             if _mB.compressible:   # P_ref recompute is compressible-only
                 Tb_avg = cell_average(Tb, dx, dy, dz)
                 if _p_shoot:
-                    # C8 shooting, B side — same measured-drag P² update as
-                    # fluid A above (see that comment for the derivation).
-                    _dp_meas_B = float(
-                        SIMPLESolver3D.extract_dP_face_extrap(sB))
-                    _pref_old_B = float(sB.P_ref_abs)
-                    P_out_sq_B_new = (P_inB ** 2
-                                      - _dp_meas_B * (_dp_meas_B
-                                                      + 2.0 * _pref_old_B))
+                    _pressure_B = inlet_pressure_state(sB, P_inB)
+                    P_out_sq_B_new = pressure_shooting_target_sq(_pressure_B)
                     _shoot_ctx_B = 'fluid B shooting reseed (outer iter)'
                 else:
                     with range_context(side='B', stage='property-refresh', layout='mean'):
@@ -3016,6 +2966,8 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
                                            mode=_env_mode,
                                            warn_list=_env_warnings,
                                            context=_shoot_ctx_B)
+                if _p_shoot:
+                    sB.P_ref_abs -= _pressure_B['outlet_gauge_Pa']
 
             with range_context(side='B', stage='property-refresh', layout='solver-cell(cross1,stream,cross2)'):
                 sB.update_T_field(Tb_sB)

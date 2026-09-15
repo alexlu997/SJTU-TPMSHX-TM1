@@ -2,6 +2,18 @@
 import numpy as np
 
 
+def pressure_face_values(pressure, stream_widths):
+    """Extrapolate a +axis-1 pressure field to its physical end faces."""
+    p = np.asarray(pressure)
+    if p.shape[1] < 2:
+        return p[:, 0], p[:, -1]
+    dy = np.asarray(stream_widths)
+    ri = dy[0] / (dy[0] + dy[1])
+    ro = dy[-1] / (dy[-2] + dy[-1])
+    return ((1.0 + ri) * p[:, 0] - ri * p[:, 1],
+            (1.0 + ro) * p[:, -1] - ro * p[:, -2])
+
+
 def _enthalpy_balance_2d(T_field, uc, vc, rho_cp_field, dir_code,
                           dx_arr, dy_arr, inlet_mask=None, outlet_mask=None,
                           enthalpy_fn=None, rho_fn=None, P_ref=None,
@@ -103,9 +115,7 @@ def _enthalpy_balance_2d(T_field, uc, vc, rho_cp_field, dir_code,
 
 
 def _pipe_weighted(P_row, w):
-    """Open-fraction-weighted boundary-row mean (module-level so the C8
-    shooting reseed can measure dP with EXACTLY the reporting convention —
-    see `_pipe_dp_2d`). Was nested in `_compute_pressure_2d`; moved verbatim."""
+    """Open-fraction-weighted boundary-row mean for legacy field consumers."""
     s = float(w.sum())
     return float((P_row * w).sum() / s) if s > 1e-12 else float(P_row.mean())
 

@@ -1,7 +1,7 @@
 """3D engineering reductions over portable fields and boundary evidence."""
 import numpy as np
 
-from sjtu_tpmshx.result_math import _boundary_enthalpy_duty
+from sjtu_tpmshx.result_math import _boundary_enthalpy_duty, pressure_face_values
 
 
 def _outlet(field, direction):
@@ -21,11 +21,8 @@ def _dp(pressure):
     area = np.asarray(pressure['dx'])[:, None] * np.asarray(pressure['dz'])[None, :]
     inlet = np.asarray(pressure['inlet_frac']) * area
     outlet = np.asarray(pressure['outlet_frac']) * area
-    if p.shape[1] < 2:
-        return _weighted(p[:, 0], inlet) - _weighted(p[:, -1], outlet)
-    ri, ro = dy[0] / (dy[0] + dy[1]), dy[-1] / (dy[-2] + dy[-1])
-    return (_weighted((1 + ri) * p[:, 0] - ri * p[:, 1], inlet)
-            - _weighted((1 + ro) * p[:, -1] - ro * p[:, -2], outlet))
+    pin, pout = pressure_face_values(p, dy)
+    return _weighted(pin, inlet) - _weighted(pout, outlet)
 
 
 def thermal_duties(result):

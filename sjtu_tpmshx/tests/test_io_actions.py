@@ -405,6 +405,30 @@ def test_legacy_file_preserves_fields_and_reports_missing_inputs(tmp_path, monke
             win.le_pipeA_in_z_w.text()) == untouched
 
 
+@pytest.mark.parametrize('name', [
+    'Shanghai (3D Gyroid)', 'Shanghai (2D Gyroid)', 'Shanghai (3D Diamond)',
+])
+def test_shanghai_preset_defaults_to_experimental_df(win, name):
+    from sjtu_tpmshx.ui.window_config import config_from_window
+
+    win.combo_df_mode.setCurrentIndex(0)
+    win._load_named_preset(name)
+    assert config_from_window(win).df_mode == 'experimental'
+
+
+@pytest.mark.parametrize('route', ['preset', 'session'])
+@pytest.mark.parametrize('saved_mode', [None, 0, 1])
+def test_saved_df_choice_is_preserved(win, monkeypatch, route, saved_mode):
+    payload = {'combos': {} if saved_mode is None else {'combo_df_mode': saved_mode}}
+    win.combo_df_mode.setCurrentIndex(1)
+    if route == 'preset':
+        win._apply_user_preset(payload)
+    else:
+        monkeypatch.setattr(win.sm, 'load_session', lambda *args: payload)
+        win._restore_session()
+    assert win.combo_df_mode.currentIndex() == (saved_mode or 0)
+
+
 def test_partial_preset_allowlist_and_startup_reset_policy(win):
     win._apply_user_preset({'line_edits': {'le_L': '0.22', 'statusBar': 'evil'},
                             'combos': {'combo_fluidA': 1}, 'temp_unit': 'C'})

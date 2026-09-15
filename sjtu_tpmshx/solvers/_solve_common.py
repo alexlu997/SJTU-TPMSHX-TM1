@@ -1,9 +1,49 @@
-"""Shared SIMPLE convergence configuration, residuals and F2 monitor."""
+"""Shared SIMPLE residuals, convergence and physical inlet-pressure checks."""
 from __future__ import annotations
 
 import numpy as np
 
 from sjtu_tpmshx.domain.run_environment import require_f2_mode, run_environment
+from sjtu_tpmshx.result_math import pressure_face_values
+
+
+INLET_PRESSURE_REL_TOL = 1e-4
+
+
+def inlet_pressure_state(solver, specified_Pa):
+    """Actual ideal-gas port pressures, using geometric areas in either dimension.
+
+    The pressure anchor pins outlet *cells*. The extrapolated outlet face
+    can have nonzero gauge pressure, so anchor + dP is not the inlet pressure.
+    """
+    if solver is None or solver.fluid_type != 'ideal_gas':
+        return None
+    if solver.P.ndim == 2:
+        area, stream_widths = solver.dx_arr, solver.dy_arr
+        inlet, outlet = solver.inlet_geom_frac, solver.outlet_geom_frac
+    else:
+        area, stream_widths = solver.dx[:, None] * solver.dz[None, :], solver.dy
+        inlet, outlet = solver.inlet_frac, solver.outlet_frac
+    pin, pout = pressure_face_values(solver.P, stream_widths)
+    def mean(values, weights):
+        mask = weights > 0.
+        return float(np.average(values[mask], weights=weights[mask]))
+    inlet_gauge = mean(pin, inlet * area)
+    outlet_gauge = mean(pout, outlet * area)
+    realized = float(solver.P_ref_abs) + inlet_gauge
+    outlet_abs = float(solver.P_ref_abs) + outlet_gauge
+    residual = (realized - float(specified_Pa)) / float(specified_Pa)
+    return dict(specified_Pa=float(specified_Pa), realized_Pa=realized,
+                outlet_Pa=outlet_abs, outlet_gauge_Pa=outlet_gauge,
+                relative_error=residual, relative_tolerance=INLET_PRESSURE_REL_TOL,
+                passed=bool(np.isfinite(residual) and abs(residual) < INLET_PRESSURE_REL_TOL),
+                definition='geometric open-area mean at physical port faces')
+
+
+def pressure_shooting_target_sq(state):
+    """P² iteration at physical faces; callers convert back to a cell anchor."""
+    return (state['specified_Pa'] ** 2
+            - (state['realized_Pa'] ** 2 - state['outlet_Pa'] ** 2))
 
 
 def f2_state_is_finite(solver, velocities):

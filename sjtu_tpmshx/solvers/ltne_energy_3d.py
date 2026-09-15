@@ -27,6 +27,7 @@ import numpy as np
 from sjtu_tpmshx.domain.cancellation import CancelledError
 
 from sjtu_tpmshx.solvers.ltne_energy import solve_full_domain as _solve_full_2d
+from sjtu_tpmshx.solvers._kernels_2d import MODEL_H_RELAXATION
 from sjtu_tpmshx.models.tpms_props import model_h_coefficients
 
 
@@ -642,7 +643,9 @@ def solve_full_domain_3d(L, H, D, Nx, Ny, Nz,
     inlet_flux_A/B             : optional signed inward eps*rho*cp*u*A (W/K)
                                 at physical inlet faces, separate from internal
                                 cell capacity coefficients in CC/staggered modes.
-    alpha_T                    : 0 < α ≤ 1 under-relax (default 0.7).
+    alpha_T                    : 0 < α ≤ 1 under-relax (default 0.7). Model-h
+                                 fluid steps are capped by the shared 2D/3D
+                                 damping; smaller explicit values are retained.
 
     Nz == 1 fast path: delegates to solvers.ltne_energy.solve_full_domain
     (bitwise-identical Nz=1 regression).
@@ -708,6 +711,9 @@ def solve_full_domain_3d(L, H, D, Nx, Ny, Nz,
     for name, v in (('alpha_T_s', a_s), ('alpha_T_fA', a_fA), ('alpha_T_fB', a_fB)):
         if not (0.0 < v <= 1.0):
             raise ValueError(f"{name} must be in (0, 1], got {v}")
+    if model_enabled:
+        a_fA = min(a_fA, MODEL_H_RELAXATION)
+        a_fB = min(a_fB, MODEL_H_RELAXATION)
 
     # Grid arrays
     if dx_arr is None:

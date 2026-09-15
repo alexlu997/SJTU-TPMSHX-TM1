@@ -113,6 +113,63 @@ def _problem(monkeypatch, pair):
 
 
 @pytest.mark.parametrize('fluid', ['air', 'water', 'sco2'])
+def test_outer_hv_uses_fresh_full_velocity_on_both_sides(monkeypatch, fluid):
+    """Exercise both local-Nu calls and the real B refresh between passes."""
+    from sjtu_tpmshx.solvers import ltne_energy_3d
+
+    prob, hv = _problem(monkeypatch, (fluid, fluid))
+    shape = (prob.Nx, prob.Ny, prob.Nz)
+    vector = [np.full(shape, v) for v in (.03, .04, .12)]
+    speed = np.full(shape, .13)
+    # A turn with no port-normal velocity, stagnation, then pure axial flow.
+    for index, components, expected in (
+        ((0, 0, 0), (.03, 0., .04), .05),
+        ((0, 0, 1), (0., 0., 0.), 0.),
+        ((0, 0, 2), (0., -.07, 0.), .07),
+    ):
+        for field, value in zip(vector, components):
+            field[index] = value
+        speed[index] = expected
+    epoch = 0
+
+    def velocity(solver, *args):
+        scale = (epoch + 1) * (1 if solver is prob.sA else -2)
+        return tuple(scale * field for field in vector)
+
+    for field, initial in zip((prob.ucB, prob.vcB, prob.wcB), velocity(prob.sB)):
+        field[:] = initial
+    monkeypatch.setattr(stages, '_solver_velocity_to_real', velocity)
+    seen = []
+    original = hv._build_hv_local_3d
+
+    def observe(*args, **kwargs):
+        seen.append(args[2].copy())
+        return original(*args, **kwargs)
+
+    hv._build_hv_local_3d = observe
+    fields = [np.full(shape, t) for t in (350., 310., 325.)]
+    info = dict(converged=True, iterations=1, residual=0., Q_A=1., Q_B=1.)
+    monkeypatch.setattr(stages, 'solve_full_domain_3d', lambda *a, **k: (*fields, info))
+    monkeypatch.setattr(ent, 'solve_ltne_enthalpy_3d_pipeline', lambda *a, **k: (*fields, info))
+    monkeypatch.setattr(ltne_energy_3d, '_project_faces_div_free', lambda u, v, w, *a: (u, v, w))
+
+    def drive(*, step, post, **kwargs):
+        nonlocal epoch
+        step(0)
+        epoch = 1
+        post(0, None)
+        step(1)
+        return 1, True
+
+    monkeypatch.setattr(stages, 'run_outer_coupling', drive)
+    with warning_scope({}):
+        stages._run_outer_coupling_3d(prob, hv)
+    assert len(seen) == 4
+    for actual, scale in zip(seen, (1, 2, 2, 4)):
+        np.testing.assert_allclose(actual, scale * speed, rtol=1e-15, atol=0.)
+
+
+@pytest.mark.parametrize('fluid', ['air', 'water', 'sco2'])
 @pytest.mark.parametrize('zoned', [False, True])
 def test_local_hv_records_full_raw_field_and_preserves_values(monkeypatch, fluid, zoned):
     prob, hv = _problem(monkeypatch, (fluid, fluid))
@@ -129,7 +186,7 @@ def test_local_hv_records_full_raw_field_and_preserves_values(monkeypatch, fluid
     args = (length, thickness, velocity, prob.T_inA, prob.P_inA, fluid)
     with warning_scope({}):
         expected = hv._build_hv_local_3d(*args)
-    labels = ('A', 'main', 'real-cell(x,y,z)-hv-stream')
+    labels = ('A', 'main', 'real-cell(x,y,z)-hv-speed')
     with warning_scope({}) as records, range_context(side=labels[0], stage=labels[1], layout=labels[2]):
         for _ in range(2):
             actual = hv._build_hv_local_3d(*args)

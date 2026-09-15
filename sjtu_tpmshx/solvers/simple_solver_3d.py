@@ -525,10 +525,8 @@ class SIMPLESolver3D:
             return 0.0
         if s.P.shape[1] < 2:          # need 2 cells to extrapolate
             return SIMPLESolver3D.extract_dP_weighted(s, numerical_taper=numerical_taper)
-        r_in = s.dy[0] / (s.dy[0] + s.dy[1])
-        r_out = s.dy[-1] / (s.dy[-2] + s.dy[-1])
-        P_in_face = (1.0 + r_in) * s.P[:, 0, :] - r_in * s.P[:, 1, :]
-        P_out_face = (1.0 + r_out) * s.P[:, -1, :] - r_out * s.P[:, -2, :]
+        from sjtu_tpmshx.result_math import pressure_face_values
+        P_in_face, P_out_face = pressure_face_values(s.P, s.dy)
         return float(np.average(P_in_face[mI], weights=wI[mI])
                      - np.average(P_out_face[mO], weights=wO[mO]))
 

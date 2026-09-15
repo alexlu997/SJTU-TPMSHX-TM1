@@ -12,7 +12,8 @@ from sjtu_tpmshx.models.fluid_props import WaterStateError
 @pytest.mark.parametrize('direction', range(4))
 def test_2d_pressure_preserves_partial_inlet_anchor_and_direction(direction):
     p = np.arange(12.).reshape(3, 4) * 100.
-    solver = SimpleNamespace(P=p, inlet_frac=np.array([0., .5, 1.]))
+    solver = SimpleNamespace(P=p, inlet_frac=np.array([0., .5, 1.]),
+                             fluid_type='incompressible')
     expected = p.T if direction < 2 else p
     if direction % 2:
         expected = np.flip(expected, axis=0 if direction == 1 else 1)

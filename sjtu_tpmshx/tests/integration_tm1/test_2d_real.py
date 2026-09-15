@@ -12,15 +12,16 @@ from sjtu_tpmshx.preprocess.two_d.preparation import prepare_case
 from sjtu_tpmshx.solvers.backends.python.two_d.execution import run_case
 from sjtu_tpmshx.postprocess.metrics import evaluate
 
-# 2026-09-14 v2: physical-area averages and conservative SOU face corrections.
-# Both prior reference versions remain in the accuracy-performance report.
+# 2026-09-15: both model-h fluids use SOU with shared stable damping.
+# Prior references remain in docs/air-water-convergence-20260915.md and
+# docs/pressure-boundary-diagnosis-20260915.md.
 # Backend Richardson/centre-pressure and public native/face-pressure metrics
 # have separate references; all comparison tolerances remain unchanged.
-AIR_BASELINE_METRICS = [31171.632390440765, 1650.0050550672206, 1213.564251412174,
-                        303.393804881137, 334.7861493059314]
-AIR_NATIVE_Q = 31119.441855838544
-AIR_PUBLIC_METRICS = [AIR_NATIVE_Q, 1644.7284633226664, 1189.438420679231,
-                      303.393804881137, 334.7861493059314]
+AIR_BASELINE_METRICS = [31169.14975139894, 1631.5681439590921, 1212.8087976193476,
+                        303.3434292362961, 334.7910498494355]
+AIR_NATIVE_Q = 31124.61165761201
+AIR_PUBLIC_METRICS = [AIR_NATIVE_Q, 1626.34436863444, 1188.9738258369762,
+                      303.3434292362961, 334.7910498494355]
 
 
 def baseline_config():
@@ -87,7 +88,7 @@ def _assert_postprocessing(result):
 @pytest.mark.parametrize('fluid_A,u_A,P_A,fluid_B,P_B,expected_Q', [
     # Approved iteration-only BICUBIC reference; HEOS final state, same budgets.
     ('sco2', .3, 12e6, 'water', 2e6, 45643.347257385045),
-    ('air', 3., 2e5, 'sco2', 12e6, 4417.464591176275),
+    ('air', 3., 2e5, 'sco2', 12e6, 4417.110199312396),
 ])
 def test_mixed_partial_native_and_postprocessing(fluid_A,u_A,P_A,fluid_B,P_B,expected_Q):
     from sjtu_tpmshx.domain.compute_config import ExtrapPolicy
