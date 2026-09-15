@@ -64,9 +64,11 @@ raise SystemExit(status)
     assert result.run_status['converged'] is True
     stage('postprocess', result_path, downstream / 'metrics.json', receiver)
     metrics = load_metrics(downstream / 'metrics.json').metrics
+    # Actual inlet-pressure reference; old values and native evidence are
+    # preserved in docs/pressure-boundary-diagnosis-20260915.md.
     expected = (AIR_PUBLIC_METRICS if dimension == 2 else
-                [338.48590825124325, 1945.2469619113485, 3044.9340885522665,
-                 359.19558834036184, 344.9435887813375])
+                [338.325949393, 1944.010935833327, 3038.067091602703,
+                 359.22541117456143, 344.9327731893514])
     names = ('Q', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B')
     for name, value in zip(names, expected):
         assert metrics[name].status == 'available', metrics[name].reason

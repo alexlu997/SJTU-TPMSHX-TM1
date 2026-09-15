@@ -1,15 +1,15 @@
-"""2D solver engine loop + Q/pressure postprocessing, moved verbatim from
-stages_2d.py (openspec split-pipelines, 2026-07-03); behavior bit-identical.
-"""
+"""2D SIMPLE/LTNE coupling and native heat/pressure evidence."""
 import numpy as np
 from sjtu_tpmshx.domain.run_warnings import range_context
 from sjtu_tpmshx.models.nu_correlations import record_raw_nu_range, warn_sco2_nu_evidence
 from sjtu_tpmshx.models.tpms_props import record_temperature_ranges
 from sjtu_tpmshx.models.grid import cell_average
+from sjtu_tpmshx.models.local_heat_transfer import local_speed
 from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.validator import compute_volumetric_htc
 from sjtu_tpmshx.solvers.coupling_skeleton import OuterConvergence, run_outer_coupling
+from sjtu_tpmshx.solvers._solve_common import inlet_pressure_state
 from sjtu_tpmshx.solvers.ltne_energy import solve_full_domain
 from sjtu_tpmshx.solvers.simple_solver import _prolong_mass_faces_2d
 from sjtu_tpmshx.solvers.envelope import gate_solution, mach_field_max
@@ -22,18 +22,6 @@ from sjtu_tpmshx.result_math import _enthalpy_balance_2d  # noqa: F401 - existin
 
 
 from sjtu_tpmshx.result_math import _pipe_weighted  # noqa: F401 - existing public name
-
-
-def _pipe_dp_2d(simp):
-    """Solved dP of one SIMPLE instance, in the 2D REPORTING convention:
-    pipe-weighted inlet-row gauge minus pipe-weighted outlet-row gauge
-    (identical arithmetic to `_compute_pressure_2d`'s dP_A/dP_B). Used by
-    the C8 shooting reseed so 'realized inlet = P_ref_abs + dP' is self-
-    consistent with the dP the pipeline reports."""
-    return (_pipe_weighted(simp.P[:, 0],
-                           simp.inlet_frac.astype(np.float64))
-            - _pipe_weighted(simp.P[:, -1],
-                             simp.outlet_frac.astype(np.float64)))
 
 
 def _simple_staggered_to_real_2d(simp, direction):
@@ -59,8 +47,10 @@ def _simple_scalar_to_real_2d(field, direction):
 
 
 def _simple_pressure_abs_2d(simp, direction, P_in):
-    """Actual property/kernel pressure; retain the weighted-inlet anchor."""
+    """Air uses the SIMPLE absolute state; frozen fluids retain their anchor."""
     gauge = _simple_scalar_to_real_2d(simp.P, direction)
+    if simp.fluid_type == 'ideal_gas':
+        return np.ascontiguousarray(simp.P_ref_abs + gauge)
     inlet_gauge = _pipe_weighted(simp.P[:, 0], simp.inlet_frac.astype(np.float64))
     return np.ascontiguousarray(P_in + gauge - inlet_gauge)
 
@@ -98,11 +88,7 @@ from sjtu_tpmshx.result_math import _outlet_temperature_2d  # noqa: F401 - exist
 
 
 def _compute_pressure_2d(simpA, simpB, dir_A, dir_B, P_inA, P_inB):
-    """Real-coordinate pressure fields + pipe-weighted dP from converged SIMPLE.
-
-    Extracted verbatim from ``_run_solvers`` (#9-2D god-function split).
-    Returns ``(P_fA, P_fB, dP_A, dP_B)``.
-    """
+    """Property pressure fields and legacy cell-row dP; public dP uses faces."""
     # Pipe-weighted pressure references (exclude wall cells under partial BC).
     # SIMPLE convention: inlet row = P[:, 0], outlet row = P[:, -1]; inlet_frac
     # / outlet_frac are 1-D (length = SIMPLE's perpendicular dim) indicating the
@@ -119,27 +105,8 @@ def _compute_pressure_2d(simpA, simpB, dir_A, dir_B, P_inA, P_inB):
     P_out_gauge_A = _pipe_weighted(simpA.P[:, -1], _wA_out)  # pipe-outlet gauge
     P_out_gauge_B = _pipe_weighted(simpB.P[:, -1], _wB_out)
 
-    is_xA = dir_A in (0, 1)
-    if is_xA:
-        P_gA = simpA.P.T.copy()          # transpose to real coords
-        if dir_A == 1:                     # -x: inlet at right
-            P_gA = P_gA[::-1, :]
-    else:
-        P_gA = simpA.P.copy()
-        if dir_A == 3:                     # -y: inlet at top
-            P_gA = P_gA[:, ::-1]
-    P_fA = P_inA + (P_gA - P_ref_A)
-
-    is_xB = dir_B in (0, 1)
-    if is_xB:
-        P_gB = simpB.P.T.copy()
-        if dir_B == 1:
-            P_gB = P_gB[::-1, :]
-    else:
-        P_gB = simpB.P.copy()
-        if dir_B == 3:
-            P_gB = P_gB[:, ::-1]
-    P_fB = P_inB + (P_gB - P_ref_B)
+    P_fA = _simple_pressure_abs_2d(simpA, dir_A, P_inA)
+    P_fB = _simple_pressure_abs_2d(simpB, dir_B, P_inB)
 
     # Pressure drop = pipe-inlet minus pipe-outlet gauge pressure. The
     # P_inA/P_inB shift cancels in this difference, so using gauge directly
@@ -359,7 +326,9 @@ def _compute_Q_richardson(
         K_ffA2_use, K_ffB2_use, K_ss2, h_vA2, h_vB2,
         rcp_A2, rcp_B2, eps2,
         ucA2, vcA2, ucB2, vcB2,
-        dir_A, dir_B, tol=0.5, max_iter=5000,
+        # Damped model-h can need more sweeps on the doubled thermal grid.
+        # Keep the convergence criteria; stop early at the same accepted state.
+        dir_A, dir_B, tol=0.5, max_iter=12000 if model_inputs is not None else 5000,
         dx_arr=energy_dx2, dy_arr=energy_dy2,
         inlet_mask_A=areaA_in2, inlet_mask_B=areaB_in2, return_info=True,
         inlet_flux_A=inlet_flux_A2,
@@ -924,16 +893,10 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
             except BaseException as e:   # incl. InterruptedError
                 _err[idx] = e
 
-        # C8 shooting: hand the PREVIOUS iteration's (P_ref_abs, solved
-        # dP — reporting convention) to _run_simple, which recreates the
-        # solver each outer iter. First iteration has no previous solve
-        # → None (the 1D closed-form seed stands). _run_simple itself
-        # gates on the knob + ideal_gas, so passing unconditionally is
-        # inert when shooting is off or the side is incompressible.
-        _psA = ((float(simpA.P_ref_abs), _pipe_dp_2d(simpA))
-                if simpA is not None else None)
-        _psB = ((float(simpB.P_ref_abs), _pipe_dp_2d(simpB))
-                if simpB is not None else None)
+        # The rebuilt solver uses the previous physical port pressures.
+        # The first iteration has no previous solve and uses the 1D seed.
+        _psA = inlet_pressure_state(simpA, P_inA_val)
+        _psB = inlet_pressure_state(simpB, P_inB_val)
         # All fluids use their inlet-state model density. Air must not use
         # a separately rounded gas constant here; water's rho(T) updates
         # must not redefine the prescribed inlet throughput on each rebuild.
@@ -1026,8 +989,8 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
         _imA, _imB = (cfg['boundary_openings'][side]['in_geom_frac'] for side in ('A', 'B'))
 
         # Build local-Re per-cell h_v fields (#1 fix). Use cell-center magnitude.
-        u_mag_A = np.sqrt(ucA**2 + vcA**2)
-        u_mag_B = np.sqrt(ucB**2 + vcB**2)
+        u_mag_A = local_speed(ucA, vcA)
+        u_mag_B = local_speed(ucB, vcB)
         # Zoned L/t fields (only if zone_config and grid mode); otherwise None
         L_field_2d = None; t_field_2d = None
         if zone_config is not None and za is not None:
@@ -1164,7 +1127,8 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
                 Q_A=float(e_info['Q_A']), Q_B=float(e_info['Q_B']), units='W/m',
                 outer_index=int(_coup_it), converged=bool(e_info['converged']),
                 iterations=int(e_info['iterations']), residual=float(e_info['residual']),
-                pressure_source='P_in + SIMPLE gauge - weighted inlet gauge',
+                pressure_source=('air: P_ref_abs + SIMPLE gauge; frozen fluids: '
+                                 'P_in + SIMPLE gauge - weighted inlet gauge'),
                 P_in_A_Pa=float(P_inA_val), P_in_B_Pa=float(P_inB_val),
                 P_A_range_Pa=[float(P_abs_A.min()), float(P_abs_A.max())],
                 P_B_range_Pa=[float(P_abs_B.min()), float(P_abs_B.max())])
@@ -1304,6 +1268,9 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
         _converged, _deltas = _outer_conv.check(
             {'Ta': Ta, 'Tb': Tb, 'Ts': Ts},
             extra=(drho_A, drho_B), extra_tol=_COUPLING_TOL)
+        pressure_states = (inlet_pressure_state(simpA, P_inA_val),
+                           inlet_pressure_state(simpB, P_inB_val))
+        _converged = _converged and all(s is None or s['passed'] for s in pressure_states)
         dT_A = _deltas['Ta']; dT_B = _deltas['Tb']
         _log.info(f"  [Coupling {_coup_it+1}] drho_A={drho_A:.4f} drho_B={drho_B:.4f} "
                   f"dT_A={dT_A:.2f}K dT_B={dT_B:.2f}K dT_S={_deltas['Ts']:.2f}K "
@@ -1325,6 +1292,8 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
 
     _last_coup, coupling_converged = run_outer_coupling(
         max_iter=_MAX_COUPLING, step=_step_2d, post=_post_2d)
+    pressure_states = {'A': inlet_pressure_state(simpA, P_inA_val),
+                       'B': inlet_pressure_state(simpB, P_inB_val)}
     model_balance = None
     if _model_h_mode:
         model_balance = e_info['model_h_balance']
@@ -1525,29 +1494,22 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
         'ucB_disp': ucB_disp, 'vcB_disp': vcB_disp,
         'P_fA': P_fA, 'P_fB': P_fB,
         'dP_A': dP_A, 'dP_B': dP_B,
-        # ── C8 shooting diagnostics (openspec c8-p-in-shooting) ──────────
-        # Realized inlet absolute pressure = P_ref_abs (outlet anchor,
-        # ledger C8) + reported dP, vs the specified P_in. Ideal-gas sides
-        # only (incompressible P_ref_abs is a frozen inlet value — level
-        # inert, metric meaningless → NaN). With shooting OFF this exposes
-        # the legacy 1D-seed bias; ON, it certifies the shot landed.
+        # Actual ideal-gas face pressures, also used by the convergence gate.
         'P_in_realized_A': (
-            float(simpA.P_ref_abs) + float(dP_A)
-            if getattr(simpA, 'fluid_type', None) == 'ideal_gas'
+            pressure_states['A']['realized_Pa']
+            if pressure_states['A'] is not None
             else float('nan')),
         'P_in_shoot_resid_A': (
-            (float(simpA.P_ref_abs) + float(dP_A) - float(P_inA_val))
-            / float(P_inA_val)
-            if getattr(simpA, 'fluid_type', None) == 'ideal_gas'
+            pressure_states['A']['relative_error']
+            if pressure_states['A'] is not None
             else float('nan')),
         'P_in_realized_B': (
-            float(simpB.P_ref_abs) + float(dP_B)
-            if getattr(simpB, 'fluid_type', None) == 'ideal_gas'
+            pressure_states['B']['realized_Pa']
+            if pressure_states['B'] is not None
             else float('nan')),
         'P_in_shoot_resid_B': (
-            (float(simpB.P_ref_abs) + float(dP_B) - float(P_inB_val))
-            / float(P_inB_val)
-            if getattr(simpB, 'fluid_type', None) == 'ideal_gas'
+            pressure_states['B']['relative_error']
+            if pressure_states['B'] is not None
             else float('nan')),
         'Q_total': Q_total,
         'mass_flow_A_kg_s_per_m': (
@@ -1569,7 +1531,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
         #       separate key but not ANDed into the headline flag.
         # Verdict only — no numeric field is touched.
         'solver_converged': bool(
-            coupling_converged                       # outer ΔT+Δρ criterion
+            coupling_converged                       # outer ΔT+Δρ+inlet-P
             and not simple_warnings                  # every SIMPLE side ok
             and bool(e_info.get('converged', False))  # LTNE inner pass
             and (_enthalpy_mode or (richardson_info['converged']
@@ -1580,6 +1542,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
             and not _energy_nan_hit                  # no patched-over NaN
             and bool(_env_valid)),                   # envelope gate
         'convergence_detail': {
+            'inlet_pressure': pressure_states,
             'outer_converged': bool(coupling_converged),
             # The ACTUAL outer-iteration count (3D parity). `_last_coup` is the
             # 0-based index the skeleton stopped at, so +1 is the count of passes

@@ -26,7 +26,7 @@ the temperature-form equations above remain the default for direct callers.
 import numpy as np
 from sjtu_tpmshx.domain.cancellation import CancelledError
 from numba import njit, prange
-from ._kernels_2d import minmod, _model_h
+from ._kernels_2d import minmod, _model_h, MODEL_H_RELAXATION
 
 
 @njit(cache=True)
@@ -68,7 +68,7 @@ def _model_h_faces(T, mass, coefficients, direction, Tin, ifrac, sou):
 @njit(cache=True)
 def _model_h_cell(T, Ts, K, hv, i, j, dx, dy, direction, Tin, ifrac,
                   mass, capacity, deferred):
-    """Conservative fluid row; no temperature-form minus T div(capacity)."""
+    """Damped conservative row; no temperature-form minus T div(capacity)."""
     nx, ny = T.shape
     volume = dx[i] * dy[j]
     diagonal = hv[i, j] * volume
@@ -102,7 +102,7 @@ def _model_h_cell(T, Ts, K, hv, i, j, dx, dy, direction, Tin, ifrac,
                 neighbor = Tin[patch]
         diagonal += conductance + (cap if outward >= 0.0 else 0.0)
         rhs += (conductance - (cap if outward < 0.0 else 0.0)) * neighbor
-    return rhs / diagonal
+    return T[i, j] + MODEL_H_RELAXATION * (rhs / diagonal - T[i, j])
 
 
 @njit(cache=True)
@@ -197,7 +197,9 @@ def _gs_full_chunk(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
     2026-06-24 diagnosis that the instability is the deferred-correction
     fixed point on a near-isothermal high-rho_cp field, NOT the old
     non-conservative flux. Default stays OFF (accuracy cost documented
-    <0.4% of Q); the conservative BASE flux above is the A3 fix.
+    <0.4% of Q); the conservative BASE flux above is the A3 fix. This
+    temperature-form policy does not apply to model-h: its driver enables
+    SOU for both fluids with the shared damped conservative row.
     """
     max_chg = 0.0
 
@@ -319,10 +321,10 @@ def _gs_full_chunk(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
                                         dx_arr, dy_arr, bc_A, T_inA_arr, ifrac_A, mass_A, cap_A, def_A)
                 else:
                     new = (aE*tE + aW*tW + aN*tN + aS*tS + hvA*Ts[i,j] + sou) / aP
-                # Retain the existing per-cell relaxation policy.
+                # Model-h already damps both fluids, including outlet cells.
                 is_outlet_A = ((bc_A == 0 and i == Nx-1) or (bc_A == 1 and i == 0) or
                                (bc_A == 2 and j == Ny-1) or (bc_A == 3 and j == 0))
-                if not is_outlet_A:
+                if mass_A is None and not is_outlet_A:
                     new = Ta[i,j] + 0.7 * (new - Ta[i,j])
                 chg = abs(new - Ta[i,j])
                 if chg > max_chg: max_chg = chg
@@ -572,10 +574,10 @@ def _gs_full_chunk_rb(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
                                         dx_arr, dy_arr, bc_A, T_inA_arr, ifrac_A, mass_A, cap_A, def_A)
                 else:
                     new = (aE*tE + aW*tW + aN*tN + aS*tS + hvA*Ts[i,j] + sou) / aP
-                # Retain the serial per-cell relaxation policy.
+                # Retain the serial policy; model-h is damped in its row.
                 is_outlet_A = ((bc_A == 0 and i == Nx-1) or (bc_A == 1 and i == 0) or
                                (bc_A == 2 and j == Ny-1) or (bc_A == 3 and j == 0))
-                if not is_outlet_A:
+                if mass_A is None and not is_outlet_A:
                     new = Ta[i,j] + 0.7 * (new - Ta[i,j])
                 c = abs(new - Ta[i,j])
                 if c > cell_chg: cell_chg = c
@@ -873,7 +875,8 @@ def solve_full_domain(L, H, Nx, Ny,
     return_info : bool — if True, return (Ta, Tb, Ts, info_dict)
     model_fluids : optional internal (fluid_A, fluid_B) air/water identifiers.
         Enables conservative model-h transport with both complete signed
-        mass_flux_A/B face tuples, already integrated in kg/(s m).
+        mass_flux_A/B face tuples, already integrated in kg/(s m). Both fluids
+        use SOU and the same damping; use_sou_B controls temperature-form only.
     Ta_init, Tb_init, Ts_init : 2D arrays (Nx, Ny) — warm-start initial guess
     Tb_prescribed : 2D array (Nx, Ny) or None
         If provided, Tb is pinned to this field and NOT updated by the solver.
@@ -1005,6 +1008,7 @@ def solve_full_domain(L, H, Nx, Ny,
     model_args = ()
     if model_fluids is not None:
         from sjtu_tpmshx.models.tpms_props import model_h_coefficients
+        use_sou_B = True
         if len(model_fluids) != 2 or freeze_Tb:
             raise ValueError('model h requires two solved air/water fluids')
         cp_A, cp_B = (model_h_coefficients(f) for f in model_fluids)

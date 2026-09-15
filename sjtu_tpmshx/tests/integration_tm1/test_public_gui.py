@@ -176,7 +176,9 @@ def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, di
         [result.Q_W, result.dP_A_Pa, result.dP_B_Pa, result.T_out_A_K, result.T_out_B_K],
         (AIR_PUBLIC_METRICS
          if dimension == 2 else
-         [338.48590825124325, 1945.2469619113485, 3044.9340885522665, 359.19558834036184, 344.9435887813375]),
+         # Physical inlet-pressure reference; previous values and native
+         # evidence: docs/pressure-boundary-diagnosis-20260915.md.
+         [338.325949393, 1944.010935833327, 3038.067091602703, 359.22541117456143, 344.9327731893514]),
         rtol=1e-10, atol=1e-10)
     output = tmp_path / 'results.csv'
     monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *args: (str(output), 'CSV'))

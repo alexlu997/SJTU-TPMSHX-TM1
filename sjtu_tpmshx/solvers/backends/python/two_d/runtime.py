@@ -4,7 +4,7 @@ from typing import Any
 from sjtu_tpmshx.domain.run_environment import run_environment
 import numpy as np
 from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
-from sjtu_tpmshx.solvers._solve_common import configure_convergence
+from sjtu_tpmshx.solvers._solve_common import configure_convergence, pressure_shooting_target_sq
 from sjtu_tpmshx.models.grid import cell_average
 from sjtu_tpmshx.logutil import get_logger
 
@@ -56,10 +56,8 @@ def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
         Controls whether SIMPLE's _update_density runs ρ = P / (R·T) per
         iter or treats ρ as fixed (water). Option B 2026-05-09.
 
-        p_shoot_prev : optional (P_ref_abs_prev, dP_solved_prev) from the
-        PREVIOUS outer iteration's converged SIMPLE (this pipeline recreates
-        the solver each outer iter). Consumed only when the C8 shooting knob
-        is ON and fluid_type is ideal_gas — see the shooting block below.
+        p_shoot_prev : physical port-pressure state from the previous SIMPLE
+        solve. The pressure iteration is enabled by default for ideal gas.
         """
         d = cfg_fluid['dir']
         is_x = d in (0, 1)  # x-flow = dirs {+x, -x}
@@ -211,25 +209,15 @@ def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
                     float(P_in_abs), float(T_in_f),
                     float(np.mean(_C_rows)), L_stream)
                 s.P_ref_abs = float(np.sqrt(max(_P_out_sq_g, 1.0e4)))
-        # ── C8 shooting: reseed from the PREVIOUS iteration's MEASURED drag
-        # (openspec c8-p-in-shooting). The 1D seed above (and its graded
-        # refinement) only ESTIMATE the drag, so the realized inlet absolute
-        # pressure P_ref_abs + Δp_solved misses the specified P_in (ledger
-        # C8: case 16 realized 288980 vs spec 304746, −5.2%). The P² update
-        #     P_out²_new = P_in² − (realized_prev² − P_ref_prev²)
-        # reuses the 1D compressible invariant (P_in²−P_out² = 2RT̄CL, level-
-        # free) with the solver-measured drag integral, landing the realized
-        # inlet on spec in 1–2 outer iterations. Overrides BOTH seeds above
-        # (measured drag supersedes any estimate). Same clip posture as the
-        # seeds: 1e4 Pa floor, no raise (2D has no choke guard — ledger O1,
-        # deliberately a separate change).
+        # Correct the actual face pressures, then convert the outlet face
+        # target back to the outlet-cell anchor. Retain the 2D seed's existing
+        # squared-pressure floor (1e4 Pa² = 100 Pa).
         if (fluid_type == 'ideal_gas' and p_shoot_prev is not None
                 and cfg.get('p_in_shooting',
-                            run_environment(cfg, 'TPMSHX_P_IN_SHOOT', '0') == '1')):
-            _pref_prev, _dp_prev = float(p_shoot_prev[0]), float(p_shoot_prev[1])
-            _P_out_sq_shoot = (float(P_in_abs) ** 2
-                               - _dp_prev * (_dp_prev + 2.0 * _pref_prev))
-            s.P_ref_abs = float(np.sqrt(max(_P_out_sq_shoot, 1.0e4)))
+                            run_environment(cfg, 'TPMSHX_P_IN_SHOOT', '1') == '1')):
+            _P_out_sq_shoot = pressure_shooting_target_sq(p_shoot_prev)
+            s.P_ref_abs = (float(np.sqrt(max(_P_out_sq_shoot, 1.0e4)))
+                           - p_shoot_prev['outlet_gauge_Pa'])
         _has_partial = np.any(s.outlet_frac < 0.99) and np.any(s.outlet_frac > 0.5)
         # R3 (2026-07-07): production solver knobs, precedence
         # env > SolverConfig > dim-specific auto. The autos are the

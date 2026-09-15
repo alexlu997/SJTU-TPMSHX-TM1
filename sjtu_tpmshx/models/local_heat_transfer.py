@@ -1,6 +1,18 @@
 """State-local physical heat-transfer closure shared by dimensional backends."""
 import numpy as np
 
+
+def local_speed(uc, vc, wc=None):
+    """Cell-centered pore speed for scalar local Re/Nu; no porosity rescaling.
+
+    Face mass/enthalpy fluxes still use signed normal velocity components.
+    """
+    speed_squared = uc**2 + vc**2
+    if wc is not None:
+        speed_squared = speed_squared + wc**2
+    return np.sqrt(speed_squared)
+
+
 def _sco2_hv_local_field(T_field: np.ndarray, P_Pa: float,
                          u_abs: np.ndarray | float, A_0: float,
                          D_h_m: float, tpms_type: str,
@@ -10,11 +22,8 @@ def _sco2_hv_local_field(T_field: np.ndarray, P_Pa: float,
     ρ, μ, k, cp — hence Re and Pr — are evaluated per cell at the local
     temperature field (fixed P), not frozen at the scalar inlet T. sCO2
     transport props swing 2-8× across the pseudocritical line, so freezing
-    them at inlet biased the dominant fluid↔solid coupling by a large factor
-    wherever local T departed from inlet (while the neighbouring K_ff / ρcp
-    already used the local Ta field). Air/water are never routed here — they
-    keep the scalar-inlet path so the golden 2D/3D and Shanghai-3D baselines
-    stay bit-identical.
+    them at inlet biases fluid↔solid coupling wherever local T departs from
+    inlet. Air/water retain their scalar-inlet property path.
     """
     from sjtu_tpmshx.models import sco2_props as _s2
     from sjtu_tpmshx.models.tpms_calc import nu_sco2_topo as _nu_s2
@@ -49,5 +58,3 @@ def _sco2_hv_local_field(T_field: np.ndarray, P_Pa: float,
             P_abs_Pa=float(P_Pa))
     Nu_loc = np.maximum(Nu_raw, _floor)
     return A_0 * Nu_loc * k_f / D_h_m
-
-

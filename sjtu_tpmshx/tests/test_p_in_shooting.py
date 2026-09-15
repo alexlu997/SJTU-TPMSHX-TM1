@@ -1,32 +1,19 @@
-"""C8 shooting loop (openspec c8-p-in-shooting) — behavioural contract.
+"""Physical inlet pressure: face geometry, P² update and both real pipelines."""
+from types import SimpleNamespace
 
-`P_ref_abs` is the OUTLET absolute pressure (ledger C8): the realized inlet
-absolute pressure is P_ref_abs + dP_solved. Both pipelines seed the anchor
-from the 1D compressible Forchheimer closed form, which only ESTIMATES the
-drag. The 3D correction test imposes a known estimate bias, rather than
-depending on a particular wall model to produce one. With the knob ON the outer
-loop reseeds from the MEASURED drag via the P² update
-
-    P_out²_new = P_in² − (realized_prev² − P_ref_prev²)
-
-whose fixed point is realized == P_in exactly.
-
-These tests pin: (1) the update algebra (fixed point + one-shot landing under
-exact-P²-law physics), (2) 3D pipeline ON lands on spec AND beats OFF,
-(3) 2D pipeline ON lands on spec (tolerance chosen BELOW the measured OFF
-bias, so a silently dead knob fails), (4) incompressible sides stay out
-(NaN diagnostics, no crash on mixed-fluid runs).
-"""
 import numpy as np
 import pytest
 
 from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
+from sjtu_tpmshx.solvers._solve_common import (
+    inlet_pressure_state, pressure_shooting_target_sq,
+)
 from sjtu_tpmshx.tests.cases_3d import air_air_cfg as _cfg3d_air_air
 
 
 def _shoot_update(P_in, P_ref, dP):
-    """The C8 P² update, verbatim algebra (both dims implement this)."""
-    P_out_sq = P_in ** 2 - dP * (dP + 2.0 * P_ref)
+    P_out_sq = pressure_shooting_target_sq(dict(
+        specified_Pa=P_in, realized_Pa=P_ref + dP, outlet_Pa=P_ref))
     return float(np.sqrt(max(P_out_sq, 1.0e4)))
 
 
@@ -61,9 +48,59 @@ def test_p2_update_one_shot_under_exact_p2_law():
 
 
 def test_p2_update_choke_floors():
-    """Measured drag ≥ spec inlet pressure ⇒ P_out² ≤ 0 ⇒ the 1e4 Pa floor
+    """Measured overload ⇒ P_out² ≤ 0 ⇒ the existing 100 Pa floor
     (2D posture; 3D routes the same quantity through _seed_p_ref's gate)."""
     assert _shoot_update(1.0e5, 5.0e4, 2.0e5) == pytest.approx(100.0)
+
+
+@pytest.mark.parametrize('dimension', [2, 3])
+def test_nonuniform_physical_faces_and_geometric_open_area(dimension):
+    """Linear manufactured field has zero outlet cells but a negative face.
+
+    Unequal cell sizes and partial openings distinguish geometric area from
+    cell/profile weighting. A pressure state already on target must not move.
+    """
+    dy = np.array([.2, .3, .5])
+    y = np.cumsum(dy) - dy / 2
+    p = np.array([10000., 20000.])[:, None] * (y[-1] - y)
+    geom = np.array([.5, 1.])
+    solver = SimpleNamespace(fluid_type='ideal_gas', P=p, P_ref_abs=100000.,
+                             dx=np.array([.01, .03]), dy=dy,
+                             dx_arr=np.array([.01, .03]), dy_arr=dy,
+                             inlet_geom_frac=geom, outlet_geom_frac=geom,
+                             inlet_frac=np.array([1., 0.]), outlet_frac=geom)
+    if dimension == 3:
+        solver.P = np.repeat(p[:, :, None], 2, axis=2)
+        solver.dz = np.array([.02, .04])
+        solver.inlet_frac = solver.outlet_frac = np.repeat(geom[:, None], 2, axis=1)
+    gradient = (10000. * .005 + 20000. * .03) / .035
+    target = 100000. + .75 * gradient
+    state = inlet_pressure_state(solver, target)
+    assert state['realized_Pa'] == pytest.approx(target)
+    assert state['outlet_gauge_Pa'] == pytest.approx(-.25 * gradient)
+    assert state['outlet_Pa'] == pytest.approx(100000. - .25 * gradient)
+    assert state['passed']
+    corrected_anchor = np.sqrt(pressure_shooting_target_sq(state)) - state['outlet_gauge_Pa']
+    assert corrected_anchor == pytest.approx(solver.P_ref_abs)
+
+
+@pytest.mark.parametrize('direction', range(4))
+def test_2d_air_thermal_and_report_use_actual_simple_pressure(direction):
+    from sjtu_tpmshx.solvers.backends.python.two_d.coupling import (
+        _simple_pressure_abs_2d, _compute_pressure_2d,
+    )
+    gauge = np.arange(12.).reshape(3, 4) * 1000.
+    solver = SimpleNamespace(P=gauge, P_ref_abs=100000., fluid_type='ideal_gas',
+                             inlet_frac=np.array([0., 1., 1.]), outlet_frac=np.ones(3))
+    expected = gauge.T if direction < 2 else gauge
+    if direction % 2:
+        expected = np.flip(expected, axis=direction // 2)
+    expected = expected + 100000.
+    actual = _simple_pressure_abs_2d(solver, direction, 130000.)
+    np.testing.assert_array_equal(actual, expected)
+    a, b, _, _ = _compute_pressure_2d(solver, solver, direction, direction, 130000., 130000.)
+    np.testing.assert_array_equal(a, expected)
+    np.testing.assert_array_equal(b, expected)
 
 
 # ── (2) 3D pipeline: ON lands on spec and beats OFF ────────────────────
@@ -94,8 +131,9 @@ def _res3d_pair():
                 fluid_B_cfg=dict(_FULL_B_3D))
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(stages, '_seed_p_ref', biased_estimate)
-        r_off = _run_3d_stack(_cfg3d_air_air(**base))
-        r_on = _run_3d_stack(_cfg3d_air_air(**base, p_in_shooting=True))
+        patch.delenv('TPMSHX_P_IN_SHOOT', raising=False)
+        r_off = _run_3d_stack(_cfg3d_air_air(**base, p_in_shooting=False))
+        r_on = _run_3d_stack(_cfg3d_air_air(**base))
     return r_off, r_on
 
 
@@ -108,10 +146,14 @@ def test_3d_shooting_lands_on_spec(_res3d_pair):
     assert abs(resid_off) > 5e-3, (
         f"controlled estimate bias not visible: legacy resid {resid_off:.2%}")
     # ON: realized inlet lands on the specified P_in.
-    assert abs(resid_on) < 2e-3, (
+    assert abs(resid_on) < 1e-4, (
         f"shooting did not land: realized {r_on['P_in_realized_A']:.0f} vs "
         f"spec, resid {resid_on:.2%}")
     assert abs(resid_on) < abs(resid_off) / 3.0
+    assert not r_off['solver_converged']
+    assert not r_off['convergence_detail']['outer_converged']
+    for side in ('A', 'B'):
+        assert r_on['convergence_detail']['inlet_pressure'][side]['passed']
 
 
 def test_3d_diagnostic_keys_present_and_finite(_res3d_pair):
@@ -130,10 +172,12 @@ def test_3d_shooting_rejects_overloaded_measured_drag(monkeypatch):
     keep the real shooting P² update and its original envelope check.
     """
     from sjtu_tpmshx.solvers.envelope import ChokedFlowError
-    from sjtu_tpmshx.solvers.simple_solver_3d import SIMPLESolver3D
+    from sjtu_tpmshx.solvers.backends.python.three_d import runtime as stages
     cfg = _cfg3d_air_air(Nx=12, Ny=12, Nz=12, p_in_shooting=True)
-    monkeypatch.setattr(SIMPLESolver3D, 'extract_dP_face_extrap',
-                        staticmethod(lambda solver: 2.0 * cfg['P_inA']))
+    def overloaded(solver, target):
+        state = inlet_pressure_state(solver, target)
+        return state | dict(realized_Pa=2.0 * target, outlet_Pa=target, passed=False)
+    monkeypatch.setattr(stages, 'inlet_pressure_state', overloaded)
     with pytest.raises(ChokedFlowError, match='shooting reseed'):
         _run_3d_stack(cfg)
 
@@ -151,8 +195,7 @@ def _cfg2d(fluid_B='air'):
           FluidConfig(type='water', u_mps=0.15, T_in_K=300.0,
                       P_in_Pa=101325.0))
     return ComputeConfig(
-        # u_A 10 → 15 m/s vs the golden cfg: pushes the legacy seed bias
-        # well above the 2e-3 assertion tolerance (dead-knob teeth).
+        # Large enough pressure drop to expose a dead correction path.
         fluid_A=FluidConfig(type='air', u_mps=15.0, T_in_K=422.0,
                             P_in_Pa=192362.0),
         fluid_B=fB,
@@ -170,16 +213,17 @@ def _cfg2d(fluid_B='air'):
 
 def test_2d_shooting_lands_on_spec(monkeypatch):
     from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
-    monkeypatch.setenv('TPMSHX_P_IN_SHOOT', '1')
+    monkeypatch.delenv('TPMSHX_P_IN_SHOOT', raising=False)
     monkeypatch.setenv('TPMSHX_CONV_MODE', 'f2')   # pin criterion (C11 lesson)
     res = Pipeline2D(_cfg2d()).run()
     d = res.diagnostics   # forwarded by the public result adapter
     for side in ('A', 'B'):
         resid = d[f'P_in_shoot_resid_{side}']
         assert np.isfinite(resid)
-        assert abs(resid) < 2e-3, (
+        assert abs(resid) < 1e-4, (
             f"2D side {side} did not land: realized "
             f"{d[f'P_in_realized_{side}']:.0f}, resid {resid:.2%}")
+        assert d['convergence_detail']['inlet_pressure'][side]['passed']
 
 
 def test_2d_water_side_inert_nan_keys(monkeypatch):
@@ -191,6 +235,6 @@ def test_2d_water_side_inert_nan_keys(monkeypatch):
     monkeypatch.setenv('TPMSHX_CONV_MODE', 'f2')
     res = Pipeline2D(_cfg2d(fluid_B='water')).run()
     d = res.diagnostics
-    assert abs(d['P_in_shoot_resid_A']) < 2e-3
+    assert abs(d['P_in_shoot_resid_A']) < 1e-4
     assert np.isnan(d['P_in_realized_B'])
     assert np.isnan(d['P_in_shoot_resid_B'])

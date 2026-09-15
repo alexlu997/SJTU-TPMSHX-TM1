@@ -1,4 +1,4 @@
-"""Shared Numba kernel helpers for the 2D solvers.
+"""Shared Numba limiter and 2D/3D model-h helpers.
 
 minmod() is the MINMOD-limited slope used by every SOU deferred-correction
 kernel (_sou_corr_* in simple_solver.py and ltne_energy.py). It was previously
@@ -6,6 +6,11 @@ inlined ~24 times verbatim; extracting it with ``inline='always'`` keeps the
 compiled output byte-identical while collapsing the duplication.
 """
 from numba import njit
+
+
+# Shared 2D/3D model-h Picard damping. Larger steps limit-cycle for turning
+# flow with deferred SOU on stretched grids; this changes no steady equation.
+MODEL_H_RELAXATION = 0.2
 
 
 @njit(cache=True, fastmath=False)
