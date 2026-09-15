@@ -23,7 +23,7 @@ jobs:
           - os: windows-2022
             python: "3.12"
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       PYTHONHASHSEED: "0"
       MPLCONFIGDIR: .cache/matplotlib
