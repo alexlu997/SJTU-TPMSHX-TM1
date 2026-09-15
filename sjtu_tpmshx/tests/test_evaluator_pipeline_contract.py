@@ -21,16 +21,14 @@ rationale before updating.
 import inspect
 
 
-def test_3d_evaluator_defaults_to_legacy_convergence():
-    """DELIBERATE: evaluate_3d screens with the cheaper 'legacy' criterion;
-    the production pipeline resolves to 'f2' (ledger C6/C7). Reporting
-    callers (verify_pareto_3d) explicitly pass 'f2'."""
+def test_3d_evaluator_and_pipeline_share_f2_default():
+    from types import SimpleNamespace
     import sjtu_tpmshx.core.evaluators as ev
     from sjtu_tpmshx.solvers.backends.python.three_d import runtime as rs
-    assert (inspect.signature(ev.evaluate_3d)
-            .parameters['convergence_mode'].default == 'legacy')
-    assert "'f2'" in inspect.getsource(rs._apply_accel_flags), (
-        "pipeline default convergence resolution lost its 'f2' branch")
+    assert inspect.signature(ev.evaluate_3d).parameters['convergence_mode'].default == 'f2'
+    solver = SimpleNamespace()
+    rs._apply_accel_flags(solver, {'_environment': {}})
+    assert solver.convergence_mode == 'f2' and solver.mom_tol == 1e-4
 
 
 def test_3d_evaluator_keeps_b_side_frozen():

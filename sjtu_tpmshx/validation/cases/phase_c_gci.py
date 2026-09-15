@@ -12,13 +12,12 @@ C.1 Roache GCI (1d): 4-grid h-refinement {12, 16, 20, 30} on T2 (full
 C.2 Iterative convergence audit (0.5d): leverage existing solver telemetry
     — run 1 production case, capture last_chg + outer iteration count.
 
-C.3 tol/round-off sensitivity (0.5d): TPMSHX_SIMPLE_TOL ∈ {1e-3, 1e-5,
+C.3 F2 momentum-tolerance sensitivity: mom_tol ∈ {1e-3, 1e-5,
     1e-7}; verify Q saturates.
 
 Outputs:
   validation/phase_c_gci.csv
-  validation/phase_c_tol_sweep.csv
-  vault/reports/3d-solver/2026-05-04-phase-c-CN.md (manual)
+  validation/phase_c_f2_tol_sweep.csv
 """
 from __future__ import annotations
 import argparse
@@ -163,26 +162,14 @@ def _patched_env(name: str, value: str):
 
 
 def run_c3_tol(case_id='T2', grid=20, tols=(1e-3, 1e-5, 1e-7)):
-    """C.3 tol sweep — sets TPMSHX_SIMPLE_TOL env, runs each, records Q.
-
-    Uses ``_patched_env`` context manager so env var is restored even if
-    a sweep run raises.
-
-    FORCED LEGACY (2026-07-13 audit): `tol_simple` gates the SIMPLE exit only
-    under convergence_mode='legacy' (ledger C6/C7 — under the 'f2' pipeline
-    default it drives nothing but the AMG scheduler, and the three sweep
-    points would be bit-identical, turning "Q saturates" into a vacuous
-    pass). This sweep exists to demonstrate tol-insensitivity OF THE LEGACY
-    CRITERION, so it pins that criterion explicitly; the f2 analogue would
-    sweep `mom_tol` instead (see reports/f2_pricing_3d.csv for that data).
-    """
+    """Sweep the current momentum gate; the old mass-only CSV is in Git history."""
     print(f"\n--- C.3 tol sweep: case={case_id}, grid={grid} ---")
     rows = []
     for tol in tols:
-        with _patched_env('TPMSHX_SIMPLE_TOL', f'{tol:.2e}'), \
-             _patched_env('TPMSHX_CONV_MODE', 'legacy'):
+        with _patched_env('TPMSHX_CONV_MODE', 'f2'):
             cfg = dict(CASES_C[case_id](grid))
-            cfg['convergence_mode'] = 'legacy'   # belt (env above is braces)
+            cfg['convergence_mode'] = 'f2'
+            cfg['mom_tol'] = tol
             t0 = time.time()
             res = _run_3d_stack(cfg)
             dt = time.time() - t0
@@ -247,7 +234,7 @@ def main():
         tol_rows = run_c3_tol('T2', grid=20)
         tdf = pd.DataFrame(tol_rows)
         write_csv_with_provenance(tdf,
-                                  ROOT / 'validation' / 'phase_c_tol_sweep.csv',
+                                  ROOT / 'validation' / 'phase_c_f2_tol_sweep.csv',
                                   __file__)
         Qs = [r['Q_enth_A'] for r in tol_rows]
         rng = max(Qs) - min(Qs)

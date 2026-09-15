@@ -8,7 +8,7 @@ pieces of that loop both drivers share:
 
   * :class:`OuterConvergence` — the warm-start ``prev = field.copy()``
     tracking + the ``max|field − prev|`` delta and AND-gate break decision
-    (2D: dual ΔT_A/ΔT_B + mass-flux-weighted Δρ; 3D: single ΔT).
+    (both dimensions: ΔT_A/ΔT_B/ΔT_s; 2D also weights Δρ by mass flux).
   * :func:`run_outer_coupling` — the loop skeleton itself: iterate, run a
     ``step``, break on convergence, otherwise run the between-iteration
     ``post`` update.
@@ -21,8 +21,8 @@ progress budgets and RunControl callbacks, and numerical duty diagnostics
 (2D Richardson vs 3D enthalpy). Formal reporting consumes the captured result.
 The driver owns only the control flow; the ``step``/``post`` closures keep
 each body's arithmetic and copy timing verbatim, so behaviour stays
-bit-identical to the prior inline loops — verified end-to-end by the 3D
-golden hash and the 2D golden gate. ``OuterConvergence`` is the predicate
+equivalent to the prior inline loops; compare native fields, convergence and
+conservation separately from software reference tolerances. ``OuterConvergence`` is the predicate
 seam those closures call; ``run_outer_coupling`` supplies their shared loop.
 """
 from __future__ import annotations
@@ -48,7 +48,7 @@ class OuterConvergence:
         Temperature-delta tolerance [K]. 2D uses 1.0, 3D uses 0.5.
     track : iterable of str
         Names of the temperature fields to track across iterations.
-        2D tracks ('Ta', 'Tb'); 3D tracks ('Ta',).
+        Both full-compute drivers track ('Ta', 'Tb', 'Ts').
 
     Notes
     -----
@@ -130,7 +130,7 @@ def run_outer_coupling(
             post(it, carry)
 
     The ``step``/``post`` bodies are dimension-specific (2D SIMPLE→LTNE with
-    a dual ΔT + Δρ gate; 3D LTNE→SIMPLE with a single ΔT gate) and live in
+    ΔTa/ΔTb/ΔTs + Δρ gates; 3D LTNE→SIMPLE with ΔTa/ΔTb/ΔTs gates) and live in
     their own modules — this owns only the loop skeleton and the
     converged / last-iteration bookkeeping each caller needs afterwards.
 

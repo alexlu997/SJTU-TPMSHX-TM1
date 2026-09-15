@@ -1,4 +1,6 @@
 """Refined duty must use physical ports and a converged energy solve."""
+from dataclasses import replace
+from sjtu_tpmshx.models.fluid_props import get
 import numpy as np
 import pytest
 
@@ -33,7 +35,7 @@ def _arguments(monkeypatch, directions=(1, 3), full=False):
                                       400., 1., side, fluid_type='incompressible')
     dx, dy = fields['energy_dx'], fields['energy_dy']
     shape = len(dx), len(dy)
-    props = dict(name='air', rho=lambda *a: 1., cp=lambda *a: 1.)
+    props = replace(get('air'), rho=lambda *a: 1., cp=lambda *a: 1.)
     args = dict(
         Ta=np.full(shape, 400.), Tb=np.full(shape, 300.), Ts=np.full(shape, 350.),
         ucA=np.ones(shape), vcA=np.ones(shape), ucB=np.ones(shape), vcB=np.ones(shape),
@@ -64,16 +66,15 @@ def _finite_refined(args, kwargs, converged):
 def test_refined_nonfinite_return_precedes_duty_and_fallback(monkeypatch, model, side, bad):
     from sjtu_tpmshx.models.fluid_props import WaterStateError
     _, args = _arguments(monkeypatch, full=True)
-    args['_pA'], args['_pB'] = dict(args['_pA']), dict(args['_pB'])
     if side == 'water':
-        args['_pB']['name'] = 'water'
+        args['_pB'] = replace(args['_pB'], name='water')
     if model:
         nx, ny = args['Ta'].shape
         mass = (np.ones((nx + 1, ny)), np.zeros((nx, ny + 1)))
         for label in ('A', 'B'):
             args[f'rho_cp_{label}'] = np.ones((nx, ny))
         args['model_inputs'] = dict(
-            model_fluids=('air', args['_pB']['name']), mass_flux_A=mass, mass_flux_B=mass,
+            model_fluids=('air', args['_pB'].name), mass_flux_A=mass, mass_flux_B=mass,
             K_ffA=.1, K_ffB=.2, K_ss=1.)
     returned = []
 
@@ -104,7 +105,7 @@ def test_refined_profiles_use_physical_coordinates(monkeypatch, directions, full
     _, arguments = _arguments(monkeypatch, directions, full)
     arguments.update(rho_cp_A=17., rho_cp_B=23., P_inB_val=202650.)
     for side in ('A', 'B'):
-        arguments[f'_p{side}'] = dict(arguments[f'_p{side}'],
+        arguments[f'_p{side}'] = replace(arguments[f'_p{side}'],
                                      cp=lambda T, P: T/100. + P/100000.)
     observed = {}
     balances = []

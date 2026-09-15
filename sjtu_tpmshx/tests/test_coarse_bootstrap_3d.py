@@ -65,7 +65,7 @@ def test_bootstrap_seeds_fine_velocity_field():
     """After bootstrap, fine v[:, 0, :] equals inlet BC and field is
     not all-zero (cold-start would leave it zero outside the inlet)."""
     s = _build_solver()
-    info = bootstrap_simple_3d(s, max_iter_coarse=50, tol_coarse=1e-2)
+    info = bootstrap_simple_3d(s, max_iter_coarse=50)
     assert info['applied'] is True
     assert info['coarse_shape'] == (8, 6, 4)
     # Fine v field should not be all zeros after prolongation.
@@ -84,7 +84,6 @@ def test_bootstrap_solver_matches_baseline_converged_state():
     s_warm = _build_solver()
     s_warm.use_coarse_bootstrap = True
     s_warm.coarse_bootstrap_max_iter = 80
-    s_warm.coarse_bootstrap_tol = 1e-3
     conv_w, it_w = s_warm.solve(max_iter=400, tol=1e-4)
     assert conv_w, "Bootstrap-warmed solver did not converge"
 
@@ -118,7 +117,7 @@ def test_bootstrap_rebuilds_rectangles_and_conserves_inlet_mass(monkeypatch):
 
     def solve(coarse, **kwargs):
         seen.append(coarse)
-        assert kwargs['max_iter'] == 37 and kwargs['tol'] == .002
+        assert kwargs['max_iter'] == 37 and coarse.convergence_mode == 'f2'
         assert coarse.inlet_rect == fine.inlet_rect
         assert coarse.outlet_rect == fine.outlet_rect
         area = coarse.dx[:, None] * coarse.dz[None, :]
@@ -134,7 +133,7 @@ def test_bootstrap_rebuilds_rectangles_and_conserves_inlet_mass(monkeypatch):
         return False, 37
 
     monkeypatch.setattr(SIMPLESolver3D, 'solve', solve)
-    info = bootstrap_simple_3d(fine, max_iter_coarse=37, tol_coarse=.002)
+    info = bootstrap_simple_3d(fine, max_iter_coarse=37)
     assert len(seen) == 1 and info['applied'] and not info['coarse_converged']
     np.testing.assert_array_equal(fine.v[:, 0, :], fine.v_inlet_field)
     assert np.all(fine.v[:, -1, :][~fine.outlet_mask_ij] == 0.)

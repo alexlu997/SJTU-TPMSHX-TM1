@@ -4,6 +4,7 @@ from typing import Any
 from sjtu_tpmshx.domain.run_environment import run_environment
 import numpy as np
 from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
+from sjtu_tpmshx.solvers._solve_common import configure_convergence
 from sjtu_tpmshx.models.grid import cell_average
 from sjtu_tpmshx.logutil import get_logger
 
@@ -268,47 +269,17 @@ def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
         # partial-B inlet (e.g. user's pipeB w=0.068m of L=0.182) +
         # high-u Forchheimer-branch needs more iters to drive residual
         # below tol. 5000 left B at res~3e-3 with target 1e-3.
-        # ── Ledger C9 / F2 convergence gates ────────────────────────────
-        # DEFAULT ON in the pipeline, mirroring 3D (ledger C7). The legacy `tol`
-        # gates `_mass_res_jit`, a PLANE-INTEGRATED flux defect that the pp solve
-        # makes TAUTOLOGICALLY ZERO on a full-face outlet (measured 1.6e-15), so
-        # it fires at the min-iter floor (iteration 20) and stops the solve there
-        # — under-converging dP_A by 3.3 %. F2 gates on the momentum residual +
-        # solved-cell continuity + global boundary mass instead.
-        #
-        # NOT `tol_simple`: that name already means several different numbers
-        # across the codebase and it still drives the legacy path. F2 gets its own
-        # names so nothing forks silently (codex review P0-4).
-        # precedence: env > SolverConfig > cfg > default (same shape as `_tol`)
-        def _f2_knob(name, default):
-            v = getattr(_sol_knobs, name, None) if _sol_knobs is not None else None
-            if v is None:
-                v = cfg.get(name)
-            return default if v is None else v
-
-        s.convergence_mode = str(run_environment(
-            cfg, 'TPMSHX_CONV_MODE', _f2_knob('convergence_mode', 'f2')))
-        s.mom_tol = float(_f2_knob('mom_tol', 1e-4))
-        s.mass_local_tol = float(_f2_knob('mass_local_tol', 1e-6))
-        s.mass_global_tol = float(_f2_knob('mass_global_tol', 1e-6))
+        configure_convergence(s, cfg, _sol_knobs)
 
         conv, n_it = s.solve(max_iter=_max_it, tol=_tol, verbose=False,
                                progress_cb=_progress_cb, cancel_check=cancel_check)
         if not conv:
-            # Under f2 the legacy `residuals[-1]` is the C9 tautology (~1e-15
-            # on a full-face outlet) — quoting it makes a FAILED solve look
-            # converged. Report the gates that actually held the exit open.
-            if str(getattr(s, 'convergence_mode', 'legacy')) == 'f2':
-                simple_warnings[label] = (
-                    f"SIMPLE ({label}): not converged after {n_it} iters "
-                    f"(exit={getattr(s, 'exit_reason', '?')}, "
-                    f"mom={getattr(s, 'final_res_mom', None)}, "
-                    f"mass_local={getattr(s, 'final_res_mass_local', None)}, "
-                    f"mass_global={getattr(s, 'final_res_mass_global', None)})")
-            else:
-                simple_warnings[label] = (
-                    f"SIMPLE ({label}): not converged after {n_it} iters "
-                    f"(res={s.residuals[-1]:.2e})")
+            simple_warnings[label] = (
+                f"SIMPLE ({label}): not converged after {n_it} iters "
+                f"(exit={getattr(s, 'exit_reason', '?')}, "
+                f"mom={getattr(s, 'final_res_mom', None)}, "
+                f"mass_local={getattr(s, 'final_res_mass_local', None)}, "
+                f"mass_global={getattr(s, 'final_res_mass_global', None)})")
         else:
             # A converged re-solve SUPERSEDES an earlier failure on the same
             # side (2026-07-12). This dict is keyed by label and was only ever

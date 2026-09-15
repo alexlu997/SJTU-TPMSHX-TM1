@@ -1,5 +1,6 @@
 """2D caller contexts at controlled SIMPLE/thermal boundaries, not PDE acceptance."""
 import inspect
+from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
@@ -55,6 +56,9 @@ def _prepare(monkeypatch, *, legacy=False, pair=('air', 'air'), temperatures=(40
         fields = build_runtime(parsed, grid)
     # These controlled kernel tests intentionally mutate private runtime data;
     # they are not portable-Case or application acceptance tests.
+    # Mutable per-side test doubles allow injection at an exact execution stage.
+    for side in ('A', 'B'):
+        parsed['_models']['fluid_' + side] = SimpleNamespace(**vars(parsed['_models']['fluid_' + side]))
     cfg = parsed['compute_cfg']
     parsed['_capture_native'] = False
     pipe = SimpleNamespace(cfg=cfg, _parsed=parsed,
@@ -83,6 +87,27 @@ def _thermal(*args, **kwargs):
 
 def _stop(*args, **kwargs):
     raise ThermalBoundary
+
+
+def test_shared_fluid_model_keeps_each_sides_asymmetric_geometry(monkeypatch):
+    from sjtu_tpmshx.models.fluid_props import get
+    pipe, fields = _prepare(monkeypatch, legacy=True)
+    pipe._parsed['_models']['fluid_A'] = pipe._parsed['_models']['fluid_B'] = get('air')
+    pipe._parsed['thermal_geometry']['side_geometry'] = {
+        'A': (100., .002, 100., .002),
+        'B': (200., .002, 100., .002),
+    }
+
+    def drive(*, step, **kwargs):
+        state = inspect.getclosurevars(step).nonlocals
+        # Same hydraulic diameter cancels Nu/k; only B doubles its area.
+        assert state['_hv_ratio_A_2d'] == pytest.approx(1.)
+        assert state['_hv_ratio_B_2d'] == pytest.approx(2.)
+        raise ThermalBoundary
+
+    monkeypatch.setattr(solve_2d, 'run_outer_coupling', drive)
+    with pytest.raises(ThermalBoundary):
+        pipe.run_solvers(fields)
 
 
 @pytest.mark.parametrize('zoned', [False, True])
@@ -209,7 +234,7 @@ def test_main_nonfinite_return_precedes_refresh_and_q(monkeypatch, legacy, side,
             result[0][0, 0] = np.inf  # Water must win over A's generic failure.
         returned.extend(result[:3])
         for label in ('A', 'B'):
-            state[f'_p{label}']['rho'] = forbidden
+            state[f'_p{label}'].rho = forbidden
         return result
 
     def drive(*, step, **kwargs):
@@ -259,7 +284,7 @@ def test_inlet_cp_transport_order_and_failure_boundary(monkeypatch, where, failu
         def drive(*, step, **kwargs):
             state = inspect.getclosurevars(step).nonlocals
             for side in ('A', 'B'):
-                state[f'_p{side}']['cp'] = cp(side)
+                state[f'_p{side}'].cp = cp(side)
             step(0)
         monkeypatch.setattr(solve_2d, 'run_outer_coupling', drive)
         with warning_scope({}), pytest.raises(ThermalBoundary):
@@ -269,7 +294,7 @@ def test_inlet_cp_transport_order_and_failure_boundary(monkeypatch, where, failu
         _, args = _arguments(monkeypatch, full=True)
         for side in ('A', 'B'):
             args[f'rho_cp_{side}'] = np.ones_like(args['Ta'])
-            args[f'_p{side}'] = dict(args[f'_p{side}'], cp=cp(side))
+            args[f'_p{side}'] = replace(args[f'_p{side}'], cp=cp(side))
         with warning_scope({}), pytest.raises(ThermalBoundary):
             solve_2d._compute_Q_richardson(**args)
     expected = [('A', 'cp')]
@@ -292,7 +317,7 @@ def test_richardson_stages_keep_shapes_and_fallback_sources(monkeypatch, fallbac
         def prop(T, P, side=side):
             calls.append(rw._range_context.get())
             return tpms_props.air_cp(T)
-        args[f'_p{side}'] = dict(args[f'_p{side}'], cp=prop)
+        args[f'_p{side}'] = replace(args[f'_p{side}'], cp=prop)
 
     def duty(*a, **k):
         calls.append(rw._range_context.get())
@@ -330,7 +355,7 @@ def test_model_branch_does_not_evaluate_legacy_inlet_flux(monkeypatch, where):
         def drive(*, step, **kwargs):
             state = inspect.getclosurevars(step).nonlocals
             for side in ('A', 'B'):
-                state[f'_p{side}']['cp'] = lambda *a: pytest.fail('legacy inlet cp')
+                state[f'_p{side}'].cp = lambda *a: pytest.fail('legacy inlet cp')
             step(0)
         monkeypatch.setattr(solve_2d, 'run_outer_coupling', drive)
         with warning_scope({}), pytest.raises(ThermalBoundary):
@@ -342,7 +367,7 @@ def test_model_branch_does_not_evaluate_legacy_inlet_flux(monkeypatch, where):
         mass = (np.ones((nx + 1, ny)), np.zeros((nx, ny + 1)))
         for side in ('A', 'B'):
             args[f'rho_cp_{side}'] = np.ones((nx, ny))
-            args[f'_p{side}']['cp'] = lambda *a: pytest.fail('legacy inlet cp')
+            args[f'_p{side}'] = replace(args[f'_p{side}'], cp=lambda *a: pytest.fail('legacy inlet cp'))
         inputs = dict(model_fluids=('air', 'air'), mass_flux_A=mass, mass_flux_B=mass,
                       K_ffA=.1, K_ffB=.2, K_ss=1.)
         with warning_scope({}), pytest.raises(ThermalBoundary):

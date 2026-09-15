@@ -1,5 +1,6 @@
 """Prepare the inherited 3D air/air frozen-B screening model."""
 import numpy as np
+from sjtu_tpmshx.domain.run_environment import require_f2_mode
 from sjtu_tpmshx.domain.case_data import CaseData
 from sjtu_tpmshx.domain.model_refs import ModelRef
 from sjtu_tpmshx.models.catalog import MODEL_VERSIONS
@@ -18,15 +19,14 @@ def prepare_screening_3d(x_decision, cfg, *, case_id,
                          outer_tol_K=.5, alpha_outer=.6, max_iter_simple=800,
                          tol_simple=1e-2, max_iter_energy=2000, tol_energy=.5,
                          roughness_mode=None, roughness_eps_um=None,
-                         convergence_mode='legacy', verbose=True):
+                         convergence_mode='f2', verbose=True):
     cfg = {**DEFAULT_CONFIG, **cfg}
     validate_screening_config(cfg, dimension=3)
     if max_outer < 1:
         raise ValueError(f'max_outer must be >= 1 (got {max_outer})')
     if min(Nx, Ny, Nz) < 2 or not np.isfinite(Lz) or Lz <= 0.:
         raise ValueError('3D screening requires a positive depth and at least two cells per axis')
-    if convergence_mode not in ('legacy', 'f2'):
-        raise ValueError('unsupported screening convergence mode')
+    convergence_mode = require_f2_mode(convergence_mode)
     L_dom = float(cfg['L_domain']); H_dom = float(cfg['H_domain'])
     u_A   = float(cfg['u_A']);     u_B   = float(cfg['u_B'])
     T_inA = float(cfg['T_inA']);   T_inB = float(cfg['T_inB'])

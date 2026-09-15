@@ -14,7 +14,7 @@ Hard gates (per plan):
 Outputs:
   validation/mms_phase_a3_h_refine.csv     (raw L2/Linf per grid per case)
   validation/mms_phase_a3_orders.csv       (fitted slopes)
-  vault/reports/3d-solver/2026-05-04-mms-phase-a3-CN.md (auto-written)
+  .cache/validation/mms_phase_a3_report.md (auto-written, repository-local)
   validation/mms_phase_a3_loglog.png       (log-log plot, if matplotlib)
 """
 from __future__ import annotations
@@ -38,7 +38,7 @@ from sjtu_tpmshx.validation.harness._provenance import write_csv_with_provenance
 from sjtu_tpmshx.validation.harness._order_fit import fit_order_loglog
 from sjtu_tpmshx.validation.harness._mms_driver import run_grid_sequence
 
-_SCRIPT_REL = 'sjtu_tpmshx/validation/mms_phase_a3_h_refine.py'
+_SCRIPT_REL = 'sjtu_tpmshx/validation/cases/mms_phase_a3_h_refine.py'
 
 
 def main():
@@ -53,8 +53,7 @@ def main():
     ap.add_argument('--out_csv', default='validation/mms_phase_a3_h_refine.csv')
     ap.add_argument('--orders_csv', default='validation/mms_phase_a3_orders.csv')
     ap.add_argument('--report', default=str(
-        ROOT.parent.parent / 'vault' / 'reports' / '3d-solver'
-        / '2026-05-04-mms-phase-a3-CN.md'))
+        ROOT.parent / '.cache' / 'validation' / 'mms_phase_a3_report.md'))
     ap.add_argument('--plot', action='store_true', help='Generate log-log plot')
     args = ap.parse_args()
 
@@ -199,7 +198,7 @@ def main():
 
 def _write_report(path, cases, grids, df, order_df, args):
     lines = [
-        "# MMS Phase A.3 — h-refinement Order Verification (2026-05-04)",
+        "# MMS Phase A.3 — h-refinement Order Verification",
         "",
         "## 目标",
         "",
@@ -248,12 +247,13 @@ def _write_report(path, cases, grids, df, order_df, args):
         "",
         "## 文件",
         "",
-        "- driver: `validation/mms_phase_a3_h_refine.py`",
+        f"- driver: `{_SCRIPT_REL}`",
         f"- 原始数据: `{args.out_csv}`",
         f"- order csv: `{args.orders_csv}`",
         "- log-log 图: `validation/mms_phase_a3_loglog.png` (--plot)",
         "",
     ]
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_text('\n'.join(lines), encoding='utf-8')
 
 

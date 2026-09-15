@@ -1,7 +1,7 @@
 """Anderson acceleration on the SIMPLE↔LTNE **outer** coupling map.
 
-Opt-in (`cfg['outer_anderson']`, default OFF). Distinct from the existing
-`use_anderson` knob, which accelerates SIMPLE's *inner* Picard map.
+Opt-in (`cfg['outer_anderson']`, default OFF). The old inner SIMPLE
+`use_anderson` option is retired; this outer accelerator remains supported.
 
 The load-bearing requirement is NEGATIVE: with the knob off, the production
 outer loop must run the original damped-Picard blend verbatim, so the golden

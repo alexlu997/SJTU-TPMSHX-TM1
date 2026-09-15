@@ -19,6 +19,7 @@
 | GUI 行为与 CI 补充要求 | [OpenSpec 现行规范](../openspec/specs/) |
 | 连续场一致性修复及回归记录 | [2026-09-13 维护记录](maintenance-20260913.md) |
 | 主计算结果定义、数值精度及性能证据 | [2026-09-14 验证记录](accuracy-performance-20260914.md)、[执行计划](plans/accuracy-performance-20260914.md) |
+| 共同 F2、工质逻辑、架构回归及当前压降实验误差 | [求解器整理记录](solver-architecture-20260914.md)、[执行计划](plans/solver-architecture-20260914.md) |
 
 当前运行和安装说明集中在项目 README，架构与物理约束集中在 architecture.md。
 历史手册中的旧命令、目录地图和精度数字保留其当时语境。

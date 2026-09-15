@@ -17,8 +17,8 @@ Public API:
                                           'seeds_used' and 'per_seed_results'
 
 CLI:
-    python -m optimization.parallel_runner            # default 3-seed smoke
-    python -m optimization.parallel_runner --seeds 4 --n_init 32 --n_iter 24
+    python -m sjtu_tpmshx.optimization.parallel_runner  # default 3-seed smoke
+    python -m sjtu_tpmshx.optimization.parallel_runner --seeds 4 --n_init 32 --n_iter 24
 
 Implementation note:
     Multi-seed BO is a "trivial parallel" pattern: each seed's BO loop is

@@ -2,6 +2,11 @@
 __pycache__/
 *.pyc
 *.pyo
+*.nbi
+*.nbc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
 .venv/
 .venv-*/
 venv/
@@ -56,9 +61,12 @@ PROJECT_MANUAL.html
 624-Retrodict/COMPUTATION-PIPELINE-CN.html
 
 # Shanghai validation probe outputs (suffixed runs = diagnostics; the
-# canonical baseline + archived references are tracked explicitly and
-# stay tracked — gitignore only silences new untracked probes)
+# canonical baseline stays tracked; retired probes are in fixed Git history)
 sjtu_tpmshx/validation/shanghai_3d_baseline?*.csv
+# Current F2 research outputs; old numerical tables remain in Git history.
+reports/f2_pricing_3d_v2.csv
+sjtu_tpmshx/validation/phase_c_f2_tol_sweep.csv
+sjtu_tpmshx/validation/phase_c_f2_tol_sweep.csv.meta.json
 
 # OS / editor
 .DS_Store
@@ -72,8 +80,9 @@ docs/superpowers/
 
 # Per-machine UI state (auto-generated at runtime, never shared)
 sjtu_tpmshx/.last_session.json
-sjtu_tpmshx/.last_session_*.json   # workspace B/C session slots
-sjtu_tpmshx/.workspace             # active-workspace marker
+# Workspace B/C session slots and the active-workspace marker
+sjtu_tpmshx/.last_session_*.json
+sjtu_tpmshx/.workspace
 sjtu_tpmshx/.session_timeline.jsonl
 sjtu_tpmshx/.theme
 sjtu_tpmshx/.density

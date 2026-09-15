@@ -21,7 +21,7 @@ tolerance absorbs trailing-ULP float-repr noise while still catching any
 rounding-key / ordering change (which moves results far above 1e-12).
 The manual historical golden diagnostics have a separate capture/check
 workflow. Investigate any mismatch in the configured environment; changes
-to these references or tolerances require a separate approved disposition.
+to these references follow the documented, user-approved disposition.
 
 Marked ``slow`` (each eval is a full SIMPLE x2 + LTNE solve).
 """
@@ -40,6 +40,11 @@ from sjtu_tpmshx.optimization.evaluator_3d import evaluate_design_3d
 
 pytestmark = pytest.mark.slow
 
+# 2026-09-14: legacy convergence retired across all consumers. Same inputs,
+# bounds and budgets; old ec1c73e with only F2 enabled reproduces the new fields
+# and tuples. Preserve the original four failures and values in the architecture
+# report; do not treat the change as new experimental/physical qualification.
+# The original comparison tolerance stays unchanged.
 _REL = 1e-12
 
 # Lighter solver settings (mirror tests/test_evaluator_sanity.py:_FAST_CFG).
@@ -189,10 +194,8 @@ _X_NONUNIF = np.array([5.0, 6.0, 7.0, 8.0, 5.5, 6.5, 7.5, 6.0,
 # Prior nonuniform: (-7507.811193372061, 4052.0456347246245, 3.6729327392578126).
 # This shares the approved SOU numerical-reference revision. Search policy
 # and the independent historical B40 disposition remain as recorded.
-_FROZEN_2D_UNIFORM = (-8019.434130580891, 4675.147979179401,
-                      3.446685791015626)
-_FROZEN_2D_NONUNIF = (-7507.8111925965495, 4052.0456380591795,
-                      3.6729327392578126)
+_FROZEN_2D_UNIFORM = (-8019.2362055245885, 4675.0113541092605, 3.446685791015626)
+_FROZEN_2D_NONUNIF = (-7507.661718358688, 4051.9767509675603, 3.6729327392578126)
 # re-baselined 2026-07-09 (M2b): evaluate_3d now installs the PER-CELL
 # eps_field (xmod-eps-field-3d-evaluator closed) + 3D momentum carries the
 # guarded VANS ε-ratio factors. ONLY the NONUNIFORM 3D tuple moves — and by
@@ -234,10 +237,8 @@ _FROZEN_2D_NONUNIF = (-7507.8111925965495, 4052.0456380591795,
 # Original inputs/budgets, masses and tolerance remain unchanged. New legacy
 # convergence does not establish F2 or experimental accuracy. Old failures
 # and boundary evidence remain in B40/3d-model-h-validation.md.
-_FROZEN_3D_UNIFORM = (-6231.317311633525, 7581.970714729965,
-                      6.323593139648438)
-_FROZEN_3D_NONUNIF = (-7465.851654932007, 2880.481482369124,
-                      3.675970458984375)
+_FROZEN_3D_UNIFORM = (-6226.343494204949, 9173.850936470822, 6.323593139648438)
+_FROZEN_3D_NONUNIF = (-7464.290988047737, 3441.8758132102334, 3.675970458984375)
 
 
 def _assert_tuple(got, frozen, label):

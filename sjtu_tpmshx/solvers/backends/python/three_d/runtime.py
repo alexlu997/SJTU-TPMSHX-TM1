@@ -21,6 +21,7 @@ from sjtu_tpmshx.models.grid import cell_average
 
 from sjtu_tpmshx.solvers.coupling_skeleton import OuterConvergence, run_outer_coupling
 from sjtu_tpmshx.solvers.simple_solver_3d import SIMPLESolver3D
+from sjtu_tpmshx.solvers._solve_common import configure_convergence
 from sjtu_tpmshx.solvers.ltne_energy_3d import solve_full_domain_3d, _inlet_transport_3d
 from sjtu_tpmshx.models.tpms_calc import (
     air_density, air_viscosity,
@@ -98,88 +99,19 @@ def _simple_max_iter(cfg, default):
     return int(v) if v is not None else int(default)
 
 
-def _apply_phase_flags(cfg):
-    """Phase A/B/C acceleration flags — env-var entrypoint (UI checkbox TBD).
-
-    Phase A defaults ON (zero-loss); Phase B/C opt-in until full-sweep
-    validated. Set ``TPMSHX_PHASE_A=0`` to disable A; ``TPMSHX_PHASE_B=1`` /
-    ``_C=1`` to enable B/C. ``setdefault`` so explicit cfg keys win over env.
-    Single env-read source for both the window path and the cfg (Pipeline3D)
-    path; ``_apply_accel_flags`` below then mirrors cfg onto each solver.
-    """
-    cfg.setdefault('use_adaptive_amg_tol',
-                    os.getenv('TPMSHX_PHASE_A', '1') != '0')
-    cfg.setdefault('use_anderson',
-                    os.getenv('TPMSHX_PHASE_B', '0') == '1')
-    cfg.setdefault('use_coarse_bootstrap',
-                    os.getenv('TPMSHX_PHASE_C', '0') == '1')
-
-
 def _apply_accel_flags(solver, cfg):
-    """Mirror the Phase A/B/C acceleration knobs from ``cfg`` onto a SIMPLE3D
-    solver. Single source so fluid A and fluid B stay in lockstep (these seven
-    assignments were previously duplicated verbatim per fluid). Phase A defaults
-    on (zero-loss inner-tol scheduling); B/C opt-in until full-sweep validated."""
+    """Apply shared convergence and the supported 3D acceleration controls."""
     solver.use_adaptive_amg_tol = bool(cfg.get('use_adaptive_amg_tol', True))
     solver.use_anderson = bool(cfg.get('use_anderson', False))
-    solver.anderson_m = int(cfg.get('anderson_m', 5))
-    solver.anderson_K = int(cfg.get('anderson_K', 3))
     solver.use_coarse_bootstrap = bool(cfg.get('use_coarse_bootstrap', False))
     solver.coarse_bootstrap_max_iter = int(cfg.get('coarse_bootstrap_max_iter', 200))
-    solver.coarse_bootstrap_tol = float(cfg.get('coarse_bootstrap_tol', 1e-3))
-    # ── Ledger C7 / F2 convergence gates — DEFAULT ON in the pipeline ─
-    # The production pipeline is the AUTHORITATIVE path, so it gets the honest
-    # convergence criterion. Ledger C6: the legacy `tol` gates a mass residual
-    # that is the Dirichlet-outlet-row artifact — it never reaches its tolerance
-    # (measured floor 7.9e-4 .. 9.4e-4 across all 16 Shanghai cases), so what
-    # actually decided was LowReExit's velocity criterion, which declares
-    # converged while the momentum residual is still 1.8e-3 .. 1.5e-2 and falling.
-    #
-    # Measured cost of the switch (validation/cases/price_f2_convergence_3d.py,
-    # reports/f2_pricing_3d.csv, Shanghai 16 @ 20x10x3):
-    #   legacy    92 SIMPLE iters, 0.22 s/case, exit='velocity', RMSRE dP 4.93 %
-    #   f2 1e-4  234 SIMPLE iters, 0.44 s/case, exit='tol',      RMSRE dP 4.88 %
-    # i.e. ~2.0x wall for a slightly BETTER gate and a criterion that means what
-    # it says. Also verified on the AMG path (40x40x20 = 32 000 cells: exit='tol'
-    # at R_mom = 8.8e-5, 2.1x wall) and on all three golden configs (air-air
-    # partial-BC, water-B, asym offset — every scalar moves < 0.1 %).
-    #
-    # NOT `tol_simple`. That one name already means five different numbers
-    # (solve() default 1e-6, this pipeline 1e-5, the Shanghai kernel runner 1e-3,
-    # coarse bootstrap 1e-3, the 3D optimizer 1e-2) and it still gates the legacy
-    # artifact + the adaptive-AMG scheduler. Silently re-pointing it at the
-    # momentum residual would fork all five (codex review P0-4).
-    #
-    # The OPTIMIZER is deliberately NOT switched: `core/evaluators.py` builds
-    # SIMPLESolver3D directly and never reaches this function, so it keeps the
-    # solver-level default ('legacy') and its throughput is unchanged. That is
-    # the standing convention (ledger O2 / audit R3): the optimizer produces
-    # RANKINGS only, and Pareto picks are re-solved through this pipeline before
-    # any number is reported. Switching it to f2 @ 1e-3 costs a measured 1.74x —
-    # a separate decision, recorded in ledger C7.
-    # Precedence env > cfg > default 'f2' (2026-07-13 audit): this used to be
-    # cfg-first, while the 2D pipeline (stages_2d) and the R3 solver-knob
-    # convention are env-first — an explicit SolverConfig + a set env var
-    # diverged between dims. TPMSHX_CONV_MODE is the operator's kill switch
-    # (docstring'd as the override in compute_config.py); it must win in both.
-    solver.convergence_mode = str(
-        run_environment(cfg, 'TPMSHX_CONV_MODE')
-        or cfg.get('convergence_mode')
-        or 'f2')
-    solver.mom_tol = float(cfg.get('mom_tol', 1e-4))
-    solver.mass_local_tol = float(cfg.get('mass_local_tol', 1e-6))
-    solver.mass_global_tol = float(cfg.get('mass_global_tol', 1e-6))
+    configure_convergence(solver, cfg)
     if cfg.get('track_momentum_residual'):
         solver.track_momentum_residual = True
-    # Anderson (Phase B) is incompatible with a residual-gated exit until its
-    # acceptance gate stops using the C6-falsified mass artifact and its rollback
-    # restores rho_field exactly (ledger C7 P0-3). solve() raises on the
-    # combination; make the pipeline's default coherent rather than explosive.
-    if solver.convergence_mode == 'f2' and solver.use_anderson:
+    if solver.use_anderson:
         raise ValueError(
-            "convergence_mode='f2' with use_anderson=True (TPMSHX_PHASE_B=1) is "
-            "not supported — see ledger C7 P0-3. Set TPMSHX_CONV_MODE=legacy or "
-            "TPMSHX_PHASE_B=0.")
+            "use_anderson=True in SIMPLE has been retired with legacy "
+            "convergence; disable TPMSHX_PHASE_B/use_anderson")
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -1879,10 +1811,8 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D):
     # the full history stays in convergence_detail for diagnosis, and a
     # superseded stall still raises a (differently worded) warning.
     #
-    # `SIMPLESolver3D.solve` returns converged=True for exit_reason 'tol' or
-    # 'velocity' (LowReExit's velocity-stability criterion) and False for
-    # 'stall' / 'max_iter' / 'cancelled'. `exit_reason` holds the LAST solve.
-    _OK_EXITS = ('tol', 'velocity')
+    # Only a final F2 'tol' exit certifies the returned momentum state.
+    _OK_EXITS = ('tol',)
 
     def _final_ok(s):
         return s is None or getattr(s, 'exit_reason', None) in _OK_EXITS
@@ -1896,8 +1826,8 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D):
         _env_warnings.append(
             "SIMPLE momentum solve did not converge in the FINAL solve: "
             + ", ".join(_simple_nonconv_final or _simple_nonconv)
-            + " — the reported velocity/pressure field is not converged (raise "
-              "max_iter or relax tol).")
+            + " — the reported velocity/pressure field is not converged (inspect "
+              "the F2 residuals and iteration budget).")
     elif _simple_nonconv_transient:
         _env_warnings.append(
             "SIMPLE momentum solve stalled in a TRANSIENT (superseded) solve: "
@@ -1962,9 +1892,9 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D):
                     final_res=getattr(s, 'final_res', None),
                     res_norm_ref=getattr(s, 'res_norm_ref', None),
                     iterations=len(getattr(s, 'residuals', []) or []),
-                    # F2 gates (ledger C7). None in convergence_mode='legacy'
+                    # Native F2 convergence diagnostics.
                     # unless track_momentum_residual was set.
-                    convergence_mode=getattr(s, 'convergence_mode', 'legacy'),
+                    convergence_mode=getattr(s, 'convergence_mode', 'f2'),
                     final_res_mom=getattr(s, 'final_res_mom', None),
                     final_res_mass_local=getattr(
                         s, 'final_res_mass_local', None),
@@ -2258,11 +2188,8 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
     # convergence rate on the table.
     #
     # `AndersonOuterCoupling` replaces the constant with a least-squares mix
-    # over the last m (x, G(x)) pairs. Distinct from the EXISTING
-    # `use_anderson` knob, which accelerates SIMPLE's INNER Picard map
-    # (momentum/pressure) inside each solver — this one accelerates the
-    # SIMPLE<->LTNE coupling BETWEEN solves. They compose; neither is on by
-    # default.
+    # over the last m (x, G(x)) pairs for SIMPLE<->LTNE coupling BETWEEN
+    # solves. The old inner SIMPLE `use_anderson` option is retired.
     #
     # OFF by default: when disabled, `_outer_post_3d` runs the original blend
     # expression verbatim, so the production path and the golden gates are

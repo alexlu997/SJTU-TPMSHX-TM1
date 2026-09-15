@@ -17,7 +17,7 @@ Hard gates (per plan #4 §3.5 V&V scope):
     R^2 >= 0.999               # log-log fit must be clean
 
 If gates ever loosen, regenerate the CSV via:
-    python -m validation.cases.mms_phase_a3_h_refine
+    python -m sjtu_tpmshx.validation.cases.mms_phase_a3_h_refine
 and update the gate constants below to reflect the new ground truth.
 """
 from __future__ import annotations

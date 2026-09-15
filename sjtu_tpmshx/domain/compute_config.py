@@ -61,8 +61,9 @@ site or one shared helper, listed here. Adding a flag = add a row.
   ``ui/plot_3d_results.py``.
 - ``TPMSHX_PARALLEL_THRESHOLD`` (200000) — red-black prange cell gate;
   ``solvers/simple_solver_3d.py`` (module-level, fixed at import).
-- ``TPMSHX_PHASE_A/B/C`` (1/0/0) — SIMPLE acceleration phases; single
-  helper ``pipelines.run_stack_3d._apply_phase_flags`` (cfg keys win).
+- ``TPMSHX_PHASE_A/C`` (1/0) — adaptive AMG / coarse bootstrap.
+  Captured by ``preprocess/three_d/preparation.py`` (cfg keys win).
+  Phase B / inner SIMPLE Anderson is retired; explicit enablement raises.
 - ``TPMSHX_PREINIT_3D`` (0) — prewarm 3D panel at startup; ``main.py``.
 - ``TPMSHX_PROFILE_3D`` (0) — per-outer wall-clock profiler;
   ``pipelines/run_stack_3d.py`` (``_prof_3d_enabled``; ``.profile_3d``
@@ -166,8 +167,8 @@ class SolverConfig:
     (tol 1e-2 / 800 iters) and were consumed by nothing else — the
     pipelines hardcoded their own values, so a saved JSON did not
     describe what actually ran. The optimizer budget now lives in
-    :class:`OptimizerConfig`; the four knobs below drive the production
-    pipelines, and ``None`` means "use the dimension-specific built-in":
+    :class:`OptimizerConfig`. For the production controls below, ``None``
+    means "use the dimension-specific built-in":
 
     - ``max_outer_ltne``: SIMPLE↔LTNE outer iterations.
       Auto = 10 (2D coupling) / sweep-profile value (3D: 5, fast 3).
@@ -175,10 +176,8 @@ class SolverConfig:
       Auto = 1.0 (2D) / 0.5 (3D).
     - ``max_iter_simple``: SIMPLE inner iteration cap.
       Auto = 10000 (2D) / per-stage 600–2000 (3D).
-    - ``tol_simple``: SIMPLE mass-residual tolerance.
-      Auto = 1e-5 (2D full-face; 5e-4 partial) / 1e-5 (3D).
-      Env ``TPMSHX_SIMPLE_TOL`` still outranks the config (sweep habit):
-      precedence env > config > auto.
+    - ``tol_simple``: retained for configuration/call compatibility;
+      it does not control the F2 gates described below.
 
     ``alpha_T`` (numerics-internal relaxation) and ``rough_mode`` (the
     bhatti_shah_1b option is the ledger-ROUGH-X double-count trap) were
@@ -191,28 +190,16 @@ class SolverConfig:
 
     F2 CONVERGENCE GATES (BOTH dims since C9, ledger C6/C7/C9 — 2026-07-12)
     ------------------------------------------------------------------------
-    - ``convergence_mode``: ``'legacy'`` or ``'f2'``. A ``None`` here resolves
-      to **'f2' in BOTH production pipelines** (env ``TPMSHX_CONV_MODE`` >
-      this config > default 'f2'; the two_d/three_d runtime modules under
-      ``solvers/backends/python``). Only the raw solver CLASSES default to 'legacy' for
-      kernel-direct callers.
-      ``'legacy'`` gates on ``tol_simple`` — in 3D an OUTLET-PIN ARTIFACT that
-      never reaches its tolerance (ledger C6; LowReExit's velocity criterion
-      actually decides, declaring converged at momentum residual 1.8e-3 ..
-      1.5e-2, still falling), in 2D a full-face TAUTOLOGY that fires at the
-      20-iteration floor (ledger C9, dP under-converged −3.3%).
-      ``'f2'`` gates on three independent residuals instead — see below.
-    - ``mom_tol`` / ``mass_local_tol`` / ``mass_global_tol``: the F2 gates
-      (momentum residual / solved-cell continuity / global boundary mass). All
-      three must hold for ``f2_n_confirm`` consecutive checks.
+    - ``convergence_mode``: ``None`` or ``'f2'`` in every compute mode and
+      raw solver. Captured ``TPMSHX_CONV_MODE`` overrides config. The old
+      mass/velocity exit and ``'legacy'`` selector are retired.
+    - ``mom_tol`` / ``mass_local_tol`` / ``mass_global_tol``: independent
+      momentum / solved-cell continuity / boundary mass gates, confirmed
+      consecutively, with a separate outlet-backflow gate.
 
-    These are DELIBERATELY separate names, not a redefinition of ``tol_simple``.
-    ``tol_simple`` already means five different numbers across the codebase
-    (``solve()`` default 1e-6, this pipeline 1e-5, the Shanghai kernel runner
-    1e-3, coarse bootstrap 1e-3, the 3D optimizer 1e-2). Re-pointing it at the
-    momentum residual would silently fork every one of them (codex review P0-4).
-    ``tol_simple`` keeps its legacy meaning and keeps driving the legacy path and
-    the adaptive-AMG scheduler.
+    ``tol_simple`` remains a serialized setting and ``solve(tol=...)`` remains
+    callable; neither sets F2 tolerances. The pressure-subproblem residual
+    history still drives adaptive AMG, independently of these exit gates.
     """
     max_outer_ltne: Optional[int] = None
     outer_tol_K: Optional[float] = None
@@ -237,6 +224,7 @@ class OptimizerConfig:
     picks must be re-solved through the production pipeline (which obeys
     :class:`SolverConfig`). Defaults are byte-identical to the values the
     optimizer consumed from the old SolverConfig fields.
+    ``tol_simple`` remains serialized but does not control F2 convergence.
     """
     max_outer_ltne: int = 4
     outer_tol_K: float = 0.5
@@ -625,14 +613,8 @@ class ComputeConfig:
                 _bad(_gname, _gval)
             if not math.isfinite(fv) or fv <= 0.0:
                 _bad(_gname, _gval)
-        if self.solver.convergence_mode is not None:
-            if self.solver.convergence_mode not in ('legacy', 'f2'):
-                raise ValueError(
-                    f"ComputeConfig.solver.convergence_mode="
-                    f"{self.solver.convergence_mode!r} — must be 'legacy' or "
-                    "'f2' (ledger C6/C7). 'legacy' gates on the mass residual "
-                    "that C6 showed to be an outlet-pin artifact; 'f2' gates on "
-                    "momentum + solved-cell mass + global mass.")
+        from sjtu_tpmshx.domain.run_environment import require_f2_mode
+        require_f2_mode(self.solver.convergence_mode)
 
         if self.solver.max_iter_simple is not None:
             try:

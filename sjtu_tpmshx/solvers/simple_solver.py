@@ -43,7 +43,8 @@ import os
 import numpy as np
 from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.df_surrogate.predict import predict_K_cF, predict_K_cF_vec
-from ._solve_common import (LowReExit, F2Monitor, f2_state_is_finite,
+from sjtu_tpmshx.domain.run_environment import require_f2_mode
+from ._solve_common import (F2Monitor, f2_state_is_finite,
                             f2_nonfinite_exit, momentum_component_residuals,
                             global_mass_residual)
 from sjtu_tpmshx.models.tpms_calc import (air_density, air_viscosity, P_atm)
@@ -674,49 +675,21 @@ class SIMPLESolver:
         Nx, Ny = self.Nx, self.Ny
         dx_a, dy_a = self.dx_arr, self.dy_arr
 
-        # ── A+B early-exit (R1) — criteria single-sourced in
-        # solvers/_solve_common.LowReExit since arch-b-c-e batch C (the 2D/3D
-        # copies drifted for months before R1; see that module's docstring).
-        _lowre = LowReExit(self, (self.u, self.v), min_iter=20)
-
-        # ── Ledger C9 / F2 — convergence mode (mirrors the 3D solver, C7) ──
-        # 'legacy' (default): `tol` on `_mass_res_jit` + LowReExit.
-        #     That residual is a PLANE-INTEGRATED flux defect, and the pp solve
-        #     drives the per-cell divergence to zero, so every plane's flux
-        #     telescopes to the inlet's — on a FULL-FACE outlet it is a
-        #     TAUTOLOGY (measured 1.6e-15). `tol` therefore fires at the
-        #     min-iter floor (iteration 20) and the solve stops there.
-        #     Measured cost on the production Pipeline2D: dP_A under-converged
-        #     by -3.3 %. Kept as the default until F2 is priced and re-baselined.
-        # 'f2'    : three independent gates — momentum residual + solved-cell
-        #     continuity (fresh rho, cell_kind == 0) + global boundary mass —
-        #     each with its own tolerance, confirmed over consecutive checks.
-        #     A static velocity field TRIGGERS a check; it does NOT terminate.
-        _mode = str(getattr(self, 'convergence_mode',
-                            os.environ.get('TPMSHX_CONV_MODE', 'legacy')))
-        if _mode not in ('legacy', 'f2'):
-            raise ValueError(
-                f"convergence_mode must be 'legacy' or 'f2', got {_mode!r}")
-        _f2 = None
-        if _mode == 'f2':
-            _f2 = F2Monitor(self, (self.u, self.v), min_iter=20)
-            for _h in ('mom_residuals', 'mass_local_residuals',
-                       'mass_global_residuals'):
-                if not hasattr(self, _h):
-                    setattr(self, _h, [])
-            self.final_res_mom = None
-            self.final_res_mass_local = None
-            self.final_res_mass_global = None
-            self.outlet_backflow_frac = 0.0
-            # Legacy attribute name: gates on the returned field after local
-            # outlet closure; None until an F2 exit happens.
-            self.f2_cert_post_rescale_ok = None
-        # A2: exit bookkeeping — 'tol' | 'velocity' | 'stall' | 'max_iter' | 'nonfinite';
+        self.convergence_mode = require_f2_mode(getattr(
+            self, 'convergence_mode', os.environ.get('TPMSHX_CONV_MODE', 'f2')))
+        _f2 = F2Monitor(self, (self.u, self.v), min_iter=20)
+        self.final_res_mom = None
+        self.final_res_mass_local = None
+        self.final_res_mass_global = None
+        self.outlet_backflow_frac = 0.0
+        # Returned-field certificate after the local outlet closure.
+        self.f2_cert_post_rescale_ok = None
+        # A2: exit bookkeeping — 'tol' | 'stall' | 'max_iter' | 'nonfinite';
         # reset on every (re-)entry (the 2D pipeline rebuilds the solver per
         # outer iteration, but direct callers may reuse one instance).
         self.exit_reason = None
         self.final_res = None
-        if _f2 is not None and not f2_state_is_finite(self, (self.u, self.v)):
+        if not f2_state_is_finite(self, (self.u, self.v)):
             return f2_nonfinite_exit(self, 0)
 
         # Capture the mass-flux inlet target G = v · ρ_inlet,ref ONCE, before
@@ -798,11 +771,11 @@ class SIMPLESolver:
                          self.d_u, self.d_v,
                          self.inlet_frac, self.v_inlet_field, self.outlet_geom_frac,
                          Nx, Ny, dx_a, dy_a, alpha_p, self.rho_field, self.eps_field)
-            if (_f2 is not None and self.fluid_type == 'ideal_gas'
+            if (self.fluid_type == 'ideal_gas'
                     and not f2_state_is_finite(self, (self.u, self.v))):
                 return f2_nonfinite_exit(self, it)
             self._update_density()  # compressible: update rho from P
-            if _f2 is not None and not f2_state_is_finite(self, (self.u, self.v)):
+            if not f2_state_is_finite(self, (self.u, self.v)):
                 return f2_nonfinite_exit(self, it)
 
             res = _mass_res_jit(self.u, self.v, Nx, Ny, dx_a, dy_a, rho_eps_field)
@@ -819,120 +792,78 @@ class SIMPLESolver:
             if verbose and it % 200 == 0:
                 _log.info(f"  iter {it:5d}  |R| = {res:.3e}")
 
-            # ══ F2 path (ledger C9) — three honest gates ══════════════════
-            if _f2 is not None:
-                _vd = _f2.velocity_delta((self.u, self.v))
+            _vd = _f2.velocity_delta((self.u, self.v))
 
-                _rho_eps_now = np.ascontiguousarray(
-                    self.rho_field * self.eps_field, dtype=np.float64)
-                _Rml, _n_solved = _mass_res_solved_jit_2d(
-                    self.u, self.v, Nx, Ny, dx_a, dy_a,
-                    _rho_eps_now, self._pp_sparsity['cell_kind'])
-                _min, _mout, _bf = _mass_global_jit_2d(
-                    self.v, Nx, Ny, dx_a, _rho_eps_now)
-                _Rmg = global_mass_residual(_min, _mout)
-                self.mass_local_residuals.append(_Rml)
-                self.mass_global_residuals.append(_Rmg)
-                self.outlet_backflow_frac = _bf
-                self.final_res_mass_local = _Rml
-                self.final_res_mass_global = _Rmg
-                if not np.isfinite((res, _vd, _Rml, _Rmg, _bf)).all():
+            _rho_eps_now = np.ascontiguousarray(
+                self.rho_field * self.eps_field, dtype=np.float64)
+            _Rml, _n_solved = _mass_res_solved_jit_2d(
+                self.u, self.v, Nx, Ny, dx_a, dy_a,
+                _rho_eps_now, self._pp_sparsity['cell_kind'])
+            _min, _mout, _bf = _mass_global_jit_2d(
+                self.v, Nx, Ny, dx_a, _rho_eps_now)
+            _Rmg = global_mass_residual(_min, _mout)
+            self.mass_local_residuals.append(_Rml)
+            self.mass_global_residuals.append(_Rmg)
+            self.outlet_backflow_frac = _bf
+            self.final_res_mass_local = _Rml
+            self.final_res_mass_global = _Rmg
+            if not np.isfinite((res, _vd, _Rml, _Rmg, _bf)).all():
+                return f2_nonfinite_exit(self, it)
+
+            if _f2.should_eval_momentum(it, _vd):
+                _Rmom, _rec = self._momentum_residual(Nx, Ny, dx_a, dy_a,
+                                                      _K2d, _cF2d)
+                _rec['iter'] = it
+                self.mom_residuals.append(_rec)
+                self.final_res_mom = _Rmom
+                _reason = _f2.submit(it, _Rmom, _Rml, _Rmg, _vd, _bf)
+                if _reason == 'nonfinite':
                     return f2_nonfinite_exit(self, it)
-
-                if _f2.should_eval_momentum(it, _vd):
-                    _Rmom, _rec = self._momentum_residual(Nx, Ny, dx_a, dy_a,
-                                                          _K2d, _cF2d)
-                    _rec['iter'] = it
-                    self.mom_residuals.append(_rec)
-                    self.final_res_mom = _Rmom
-                    _reason = _f2.submit(it, _Rmom, _Rml, _Rmg, _vd, _bf)
-                    if _reason == 'nonfinite':
+                if _reason is not None:
+                    self._enforce_mass_conservation(verbose=verbose)
+                    if not f2_state_is_finite(self, (self.u, self.v)):
                         return f2_nonfinite_exit(self, it)
-                    if _reason is not None:
-                        self._enforce_mass_conservation(verbose=verbose)
-                        if not f2_state_is_finite(self, (self.u, self.v)):
-                            return f2_nonfinite_exit(self, it)
-                        # Re-measure the returned field after local outlet closure.
-                        # Keep the original exit decision; post-checks may only
-                        # reject convergence, never upgrade a failed pre-check.
-                        _rho_eps_post = np.ascontiguousarray(
-                            self.rho_field * self.eps_field, dtype=np.float64)
-                        _Rml_p, _ = _mass_res_solved_jit_2d(
-                            self.u, self.v, Nx, Ny, dx_a, dy_a,
-                            _rho_eps_post, self._pp_sparsity['cell_kind'])
-                        _min_p, _mout_p, _bf_p = _mass_global_jit_2d(
-                            self.v, Nx, Ny, dx_a, _rho_eps_post)
-                        _Rmg_p = global_mass_residual(_min_p, _mout_p)
-                        _Rmom_p, _ = self._momentum_residual(
-                            Nx, Ny, dx_a, dy_a, _K2d, _cF2d)
-                        self.final_res_mass_local = _Rml_p
-                        self.final_res_mass_global = _Rmg_p
-                        self.final_res_mom = _Rmom_p
-                        self.outlet_backflow_frac = _bf_p
-                        if not np.isfinite((_Rmom_p, _Rml_p, _Rmg_p, _bf_p)).all():
-                            return f2_nonfinite_exit(self, it)
-                        self.f2_cert_post_rescale_ok = bool(
-                            _Rmom_p < _f2.mom_tol
-                            and _Rml_p < _f2.mass_local_tol
-                            and _Rmg_p < _f2.mass_global_tol
-                            and _bf_p <= _f2.backflow_max)
-                        if _reason == 'tol' and not self.f2_cert_post_rescale_ok:
-                            _log.warning(
-                                "  [WARN] F2 gates held BEFORE the outlet mass "
-                                "closure but not after (mom %.2e local %.2e "
-                                "global %.2e backflow %.2e) — the returned "
-                                "field's certificate exceeds the gates; "
-                                "inspect the returned outlet field.",
-                                _Rmom_p, _Rml_p, _Rmg_p, _bf_p)
-                        self.exit_reason = _reason
-                        self.final_res = res
-                        return (_reason == 'tol' and self.f2_cert_post_rescale_ok), it
-                # NOTE: no `velocity` exit. A static field only TRIGGERS a check
-                # (F2Monitor.should_eval_momentum); it never terminates.
-                continue
-
-            # ── LEGACY path ──────────────────────────────────────────────
-            # Require minimum iterations for pressure field to develop
-            # (exact PP gives mass convergence in 1 iter, but P needs more).
-            #
-            # ⚠️ Ledger C9: on a FULL-FACE outlet `res` is a TAUTOLOGY. The pp
-            # solve drives the per-cell divergence to zero, so every plane's flux
-            # telescopes to the inlet's and this plane-integrated defect reaches
-            # ~1e-15. `tol` therefore fires at THIS `it >= 20` floor, and the
-            # solve stops at iteration 20 — measured cost on the production
-            # Pipeline2D: dP_A under-converged by -3.3 %. Use convergence_mode
-            # ='f2' for a criterion that means something.
-            if res < tol and it >= 20:
-                if verbose:
-                    _log.info(f"  [OK] Converged at iter {it}, |R| = {res:.3e}")
-                self._enforce_mass_conservation(verbose=verbose)
-                self.exit_reason = 'tol'
-                self.final_res = res
-                return True, it
-
-            # ── A+B early-exit — see LowReExit. Closeout mirrors the strict
-            # path (2D-specific _enforce_mass_conservation).
-            _reason = _lowre.check((self.u, self.v), res, it)
-            if _reason is not None:
-                if verbose:
-                    _label = ('velocity static' if _reason == 'velocity'
-                              else 'plateau stall')
-                    _log.info(f"  [OK] Early exit ({_label}) at "
-                              f"iter {it}, |R| = {res:.3e}")
-                self._enforce_mass_conservation(verbose=verbose)
-                # A2 (2026-07-06): 'velocity' (field static) = converged
-                # fixed point; 'stall' (residual plateau, still-creeping
-                # field) returns the fields but reports converged=False.
-                self.exit_reason = _reason
-                self.final_res = res
-                return (_reason == 'velocity'), it
-
+                    # Re-measure the returned field after local outlet closure.
+                    # Keep the original exit decision; post-checks may only
+                    # reject convergence, never upgrade a failed pre-check.
+                    _rho_eps_post = np.ascontiguousarray(
+                        self.rho_field * self.eps_field, dtype=np.float64)
+                    _Rml_p, _ = _mass_res_solved_jit_2d(
+                        self.u, self.v, Nx, Ny, dx_a, dy_a,
+                        _rho_eps_post, self._pp_sparsity['cell_kind'])
+                    _min_p, _mout_p, _bf_p = _mass_global_jit_2d(
+                        self.v, Nx, Ny, dx_a, _rho_eps_post)
+                    _Rmg_p = global_mass_residual(_min_p, _mout_p)
+                    _Rmom_p, _ = self._momentum_residual(
+                        Nx, Ny, dx_a, dy_a, _K2d, _cF2d)
+                    self.final_res_mass_local = _Rml_p
+                    self.final_res_mass_global = _Rmg_p
+                    self.final_res_mom = _Rmom_p
+                    self.outlet_backflow_frac = _bf_p
+                    if not np.isfinite((_Rmom_p, _Rml_p, _Rmg_p, _bf_p)).all():
+                        return f2_nonfinite_exit(self, it)
+                    self.f2_cert_post_rescale_ok = bool(
+                        _Rmom_p < _f2.mom_tol
+                        and _Rml_p < _f2.mass_local_tol
+                        and _Rmg_p < _f2.mass_global_tol
+                        and _bf_p <= _f2.backflow_max)
+                    if _reason == 'tol' and not self.f2_cert_post_rescale_ok:
+                        _log.warning(
+                            "  [WARN] F2 gates held BEFORE the outlet mass "
+                            "closure but not after (mom %.2e local %.2e "
+                            "global %.2e backflow %.2e) — the returned "
+                            "field's certificate exceeds the gates; "
+                            "inspect the returned outlet field.",
+                            _Rmom_p, _Rml_p, _Rmg_p, _bf_p)
+                    self.exit_reason = _reason
+                    self.final_res = res
+                    return (_reason == 'tol' and self.f2_cert_post_rescale_ok), it
         if verbose:
             _log.warning(f"  [!!] NOT converged after {max_iter} iters, |R| = {res:.3e}")
 
         # Post-solve: enforce mass conservation at partial outlet
         self._enforce_mass_conservation(verbose=verbose)
-        if _f2 is not None and not f2_state_is_finite(self, (self.u, self.v)):
+        if not f2_state_is_finite(self, (self.u, self.v)):
             return f2_nonfinite_exit(self, max_iter)
 
         self.exit_reason = 'max_iter'

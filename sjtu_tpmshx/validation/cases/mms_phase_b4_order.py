@@ -14,7 +14,7 @@ already-V&V'd cell-local SOU path (Phase A.3) bit-for-bit — the order carries
 over. The conservation gain itself lives in NON-uniform/reverse flow and is
 certified separately by tests/test_conservation_3d_energy.py (T1-T6).
 
-Run:  python -m validation.cases.mms_phase_b4_order
+Run:  python -m sjtu_tpmshx.validation.cases.mms_phase_b4_order
 Writes validation/mms_phase_b4_orders.csv (read by tests/test_mms_b4_conservative_order.py).
 """
 from __future__ import annotations

@@ -1,6 +1,7 @@
 """Prepare the existing air/air optimizer mesh, coefficients and flow seeds."""
 import os
 import numpy as np
+from sjtu_tpmshx.domain.run_environment import require_f2_mode
 
 from sjtu_tpmshx.domain.case_data import CaseData
 from sjtu_tpmshx.domain.model_refs import ModelRef
@@ -96,7 +97,7 @@ def prepare_flow(cfg, fc, arrays, grid, side):
                              dx_arr=dx, dy_arr=dy, K_arr=K, cF_arr=cF),
                 eps_field=arrays['eps_arr'].T if is_a else arrays['eps_arr'][:, ::-1],
                 K_field=Kfield, cF_field=cFfield, cf_aniso=float(cfg.get('cf_aniso', 0.)),
-                convergence_mode=os.environ.get('TPMSHX_CONV_MODE', 'legacy'),
+                convergence_mode=require_f2_mode(os.environ.get('TPMSHX_CONV_MODE', 'f2')),
                 inlet_mask=(_port_fractions_1d(dx, in_lo, in_hi)[0] if ports is not None else None))
 
 

@@ -1,6 +1,6 @@
 # 退役工程、试验与工具索引
 
-各节注明各自的历史提交；2026-09-13 的文档整理见本页末尾。
+各节注明各自的历史提交与现行承接。
 
 2026-09-12 按用户确认将已结束的工程、M1/M2 固定试验及历史资料移出当前树。
 原文件固定保存在已合并提交 [b1af7ed](https://github.com/alexlu997/SJTU-TPMSHX-TM1/commit/b1af7edcea5796aa955aa8fae1785be3c1b57e1d)，
@@ -113,11 +113,47 @@ A1/benchmark A 的旧输入原已缺失，历史代码不代表可在当前目�
 
 | 原路径与固定原文 | 现行约束承接 |
 | --- | --- |
-| [arch-b-c-e/spec.md](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/5c517b415be0adbfc7bbfd205a3dba07fe8792a8/openspec/specs/arch-b-c-e/spec.md) | [架构](../architecture.md)：共享模型、数值/GUI 归属；`solvers/_solve_common.py` 保留唯一 LowReExit，现有导入与 UI 检查继续执行 |
+| [arch-b-c-e/spec.md](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/5c517b415be0adbfc7bbfd205a3dba07fe8792a8/openspec/specs/arch-b-c-e/spec.md) | [架构](../architecture.md)：共享模型、数值/GUI 归属；`solvers/_solve_common.py` 统一 F2；LowReExit 于下述 2026-09-14 整理中退役 |
 | [compute-contracts/spec.md](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/5c517b415be0adbfc7bbfd205a3dba07fe8792a8/openspec/specs/compute-contracts/spec.md) | [正式数据契约](../../schemas/three_module_v1/)与架构：Qt-free domain、实际准备输入、原生状态、严格文件交接；输入、质量/能量、日志、收敛与持久化检查保留 |
 | [collaboration-project-layout/spec.md](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/5c517b415be0adbfc7bbfd205a3dba07fe8792a8/openspec/specs/collaboration-project-layout/spec.md) | 已结束工程按本页索引归档；共享模型、求解器与有效验证仍归主体包，不恢复旧项目目录 |
-| [solver-efficiency-r1-r4/spec.md](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/5c517b415be0adbfc7bbfd205a3dba07fe8792a8/openspec/specs/solver-efficiency-r1-r4/spec.md) | 历史性能结论见本页原工程索引；现有早退、守恒和 SOU 检查继续保留，原重基线步骤不作为新任务指令 |
+| [solver-efficiency-r1-r4/spec.md](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/5c517b415be0adbfc7bbfd205a3dba07fe8792a8/openspec/specs/solver-efficiency-r1-r4/spec.md) | 历史性能结论见本页原工程索引；旧早退测试迁为 F2，守恒和 SOU 检查继续保留，原重基线步骤不作为新任务指令 |
 | [_CSV_STATUS.md](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/5c517b415be0adbfc7bbfd205a3dba07fe8792a8/sjtu_tpmshx/validation/_CSV_STATUS.md) | [验证导航](../../sjtu_tpmshx/validation/README.md)、[数据记录](../data-catalog.md)：当前入口与来源限制；原 CSV 数字不改写成新验收 |
 
 保留的 OpenSpec 说明当前 GUI、孔隙率分配与 CI 行为；Graph 继续保留原始需求、
 节点卡、合并证据及 M-B 缺口。它们均不因旧规范归档而视为已完成。
+
+## 旧收敛与内部接口退役（2026-09-14）
+
+本轮按用户确定的架构范围，迁移完整求解、原始类和筛选的消费者，统一使用 F2。
+源代码和原始筛选参考固定在 `ec1c73e06971c7d9af98d121ba9dd1e4f7dfba7f`；
+[数值及性能处置记录](../solver-architecture-20260914.md)解释新旧差异。
+
+| 退役项与固定源码 | 当前承接 |
+|---|---|
+| [LowReExit 与 legacy 语义](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/ec1c73e06971c7d9af98d121ba9dd1e4f7dfba7f/sjtu_tpmshx/solvers/_solve_common.py) | 同一模块的 F2Monitor；质量残差、动量残差、回流及确认规则分别核验 |
+| [3D 内部 SIMPLE Anderson](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/ec1c73e06971c7d9af98d121ba9dd1e4f7dfba7f/sjtu_tpmshx/solvers/simple_solver_3d.py)及其 stack/unstack 辅助函数 | 显式启用旧 use_anderson 会报错；热量/外层 Anderson 保留 |
+| [旧筛选数值参考](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/ec1c73e06971c7d9af98d121ba9dd1e4f7dfba7f/sjtu_tpmshx/tests/test_evaluator_frozen_values.py) | 新 F2 参考保持同一参数、预算和 1e-12 比较容差；旧四项失败另存 |
+| [旧 F2/legacy 计价工具](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/ec1c73e06971c7d9af98d121ba9dd1e4f7dfba7f/sjtu_tpmshx/validation/cases/price_f2_convergence_3d.py) | 同名工具只扫描 F2 动量容差，新输出 `f2_pricing_3d_v2.csv`；原 CSV 见下节固定历史 |
+| [旧 C.3 质量容差扫描](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/ec1c73e06971c7d9af98d121ba9dd1e4f7dfba7f/sjtu_tpmshx/validation/cases/phase_c_gci.py) | 迁为 F2 动量容差扫描，输出 `phase_c_f2_tol_sweep.csv`；原 CSV 见下节固定历史 |
+
+同时移除无调用者的 `_apply_phase_flags`、二维工质字典包装、旧粗网格质量容差参数。
+F2 的速度检查触发参数改名为 `f2_velocity_check_tol`，不再沿用 LowReExit 名称。
+原历史结果不因参考迁移而获得新的物理、实验或整体 B40 验收结论。
+
+## 无现行消费者的诊断表退役（2026-09-15）
+
+以下 6 个文件移出当前树。移出前确认内容与固定提交
+`ec1c73e06971c7d9af98d121ba9dd1e4f7dfba7f` 一致，并核对源码、测试、打包与文档引用。
+原数字、失败行和版本信息通过以下链接保留；没有把旧误差当成当前精度。
+
+| 原文件与固定历史 | 处置依据与现行承接 |
+|---|---|
+| [f2_pricing_3d.csv](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/ec1c73e06971c7d9af98d121ba9dd1e4f7dfba7f/reports/f2_pricing_3d.csv) | legacy/F2 历史成本比较；无现行读取者，工具已改为 F2 容差扫描 |
+| [phase_c_tol_sweep.csv](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/ec1c73e06971c7d9af98d121ba9dd1e4f7dfba7f/sjtu_tpmshx/validation/phase_c_tol_sweep.csv)及[元数据](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/ec1c73e06971c7d9af98d121ba9dd1e4f7dfba7f/sjtu_tpmshx/validation/phase_c_tol_sweep.csv.meta.json) | 旧质量容差不再控制收敛；当前扫描输出另命名，不覆盖原表 |
+| [shanghai_3d_baseline_gammadf_nz10.csv](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/ec1c73e06971c7d9af98d121ba9dd1e4f7dfba7f/sjtu_tpmshx/validation/shanghai_3d_baseline_gammadf_nz10.csv) | 已退役 γ 模型的 Nz=10 诊断；现行验证使用当前闭合与物理端口 |
+| [shanghai_3d_baseline_gammadf_routing_check.csv](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/ec1c73e06971c7d9af98d121ba9dd1e4f7dfba7f/sjtu_tpmshx/validation/shanghai_3d_baseline_gammadf_routing_check.csv) | 已结束的 γ 路由检查，无现行读取者 |
+| [shanghai_3d_baseline_nz10_massflux.csv](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/ec1c73e06971c7d9af98d121ba9dd1e4f7dfba7f/sjtu_tpmshx/validation/shanghai_3d_baseline_nz10_massflux.csv) | 旧通量诊断快照，无现行读取者；当前原生质量/能量证据随正式结果保存 |
+
+MMS 误差原表、阶数门槛、GCI 参考、Shanghai 主基准、模型拟合输出、PoC 测试依赖、
+Graph/B40 原始失败和本地完整计算证据继续保留。当前上海与 sCO2 压降实验误差见
+[求解器整理记录](../solver-architecture-20260914.md)。

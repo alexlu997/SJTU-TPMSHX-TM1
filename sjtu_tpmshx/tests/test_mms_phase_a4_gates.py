@@ -13,7 +13,7 @@ Hard gates (per script):
     interior all phases: p_obs >= 1.8 AND L2 < 1.0%
 
 Regenerate via:
-    python -m validation.cases.mms_phase_a4_boundary
+    python -m sjtu_tpmshx.validation.cases.mms_phase_a4_boundary
 """
 from __future__ import annotations
 

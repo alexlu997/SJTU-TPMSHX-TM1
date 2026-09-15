@@ -7,8 +7,7 @@
 | --- | --- |
 | [df_refit/](df_refit/) | 现行实验有效修正候选、质量记录及跨数据集 cF 对照 |
 | [sco2_cfd/](sco2_cfd/) | 现行 sCO2 Nu 拟合与留出验证结果 |
-| [f2_pricing_3d.csv](f2_pricing_3d.csv) | F2 收敛判据的历史成本比较，不替代当前验收 |
 
-已结束的 M1/M2、SIMPLER、Shanghai 旧分析和求解效率报告见
+已结束的 M1/M2、SIMPLER、Shanghai 旧分析、F2/legacy 成本表和求解效率报告见
 [退役工具索引](../docs/history/retired-tools.md)。旧 RBF/γ 和 ConstDF 研究见
 [模型退役索引](../docs/history/legacy-models.md)。原报告、失败与数值均可通过固定历史查阅。
