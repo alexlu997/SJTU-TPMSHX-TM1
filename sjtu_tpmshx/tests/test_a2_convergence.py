@@ -1,15 +1,4 @@
-"""A2 convergence-criteria semantics (2026-07-06).
-
-Covers the four A2 repairs:
-  * 3D mass residual normalised by the inlet mass flux (``res_norm_ref``),
-    so ``tol`` means "worst-cell imbalance as a fraction of throughput";
-  * degenerate-inlet fallback to the absolute norm (``res_norm_ref == 1.0``);
-  * ``'stall'`` early-exit reports ``converged=False`` while ``'velocity'``
-    keeps reporting ``converged=True`` (2D + 3D), with ``exit_reason`` set
-    on every exit path;
-  * ``OuterConvergence`` AND-gates over all three tracked temperature
-    fields (the wiring contract for the Ta/Tb/Ts outer gates).
-"""
+"""Pressure-subproblem normalization, failed F2 exits and outer temperature gates."""
 import warnings
 
 warnings.filterwarnings('ignore')
@@ -48,7 +37,7 @@ def _solver_2d(v_inlet=3.0, Nx=12, Ny=20):
 def test_res_norm_ref_matches_inlet_flux():
     """res_norm_ref must equal Σ ε·ρ·|v_in|·dA over the j=0 inlet face."""
     s = _solver_3d()
-    s.solve(max_iter=15, tol=0.0)   # tol=0 → never strict-exits
+    s.solve(max_iter=15, tol=0.0)   # fixed budget before F2 converges
     rho_eps = s.rho_field * s.eps_field
     expected = float(np.sum(rho_eps[:, 0, :] * np.abs(s.v[:, 0, :])
                             * s.dx[:, None] * s.dz[None, :]))
@@ -98,7 +87,7 @@ def test_residual_scale_invariance(monkeypatch):
 
     monkeypatch.setattr(module, '_mass_res_jit_3d', record)
     s = _solver_3d(v_inlet=1.)
-    s.lowre_early_exit = False
+    s.mom_tol = 0.0
     s.solve(max_iter=30, tol=0.)
     assert len(expected) == len(s.residuals) == 30
     assert np.any(np.asarray(expected) > 0.)
@@ -108,8 +97,8 @@ def test_residual_scale_invariance(monkeypatch):
 # ── exit_reason semantics ────────────────────────────────────────────
 
 def test_stall_reports_not_converged_3d(monkeypatch):
-    monkeypatch.setattr(_solve_common.LowReExit, 'check',
-                        lambda self, vels, res, it: 'stall')
+    monkeypatch.setattr(_solve_common.F2Monitor, 'submit',
+                        lambda self, *args: 'stall')
     s = _solver_3d()
     conv, it = s.solve(max_iter=50, tol=0.0)
     assert conv is False and s.exit_reason == 'stall', \
@@ -117,19 +106,9 @@ def test_stall_reports_not_converged_3d(monkeypatch):
     print("test_stall_reports_not_converged_3d PASS")
 
 
-def test_velocity_reports_converged_3d(monkeypatch):
-    monkeypatch.setattr(_solve_common.LowReExit, 'check',
-                        lambda self, vels, res, it: 'velocity')
-    s = _solver_3d()
-    conv, it = s.solve(max_iter=50, tol=0.0)
-    assert conv is True and s.exit_reason == 'velocity', \
-        (conv, s.exit_reason)
-    print("test_velocity_reports_converged_3d PASS")
-
-
 def test_stall_reports_not_converged_2d(monkeypatch):
-    monkeypatch.setattr(_solve_common.LowReExit, 'check',
-                        lambda self, vels, res, it: 'stall')
+    monkeypatch.setattr(_solve_common.F2Monitor, 'submit',
+                        lambda self, *args: 'stall')
     s = _solver_2d()
     conv, it = s.solve(max_iter=60, tol=0.0)
     assert conv is False and s.exit_reason == 'stall', \
@@ -137,25 +116,15 @@ def test_stall_reports_not_converged_2d(monkeypatch):
     print("test_stall_reports_not_converged_2d PASS")
 
 
-def test_velocity_reports_converged_2d(monkeypatch):
-    monkeypatch.setattr(_solve_common.LowReExit, 'check',
-                        lambda self, vels, res, it: 'velocity')
-    s = _solver_2d()
-    conv, it = s.solve(max_iter=60, tol=0.0)
-    assert conv is True and s.exit_reason == 'velocity', \
-        (conv, s.exit_reason)
-    print("test_velocity_reports_converged_2d PASS")
-
-
 def test_exit_reason_on_strict_and_max_iter_3d():
-    # generous tol → strict or velocity exit, both converged
+    # Default F2 gates must be satisfied.
     s = _solver_3d()
     conv, _ = s.solve(max_iter=500, tol=1e-3)
-    assert conv is True and s.exit_reason in ('tol', 'velocity'), \
+    assert conv is True and s.exit_reason == 'tol', \
         (conv, s.exit_reason)
-    # impossible tol + early-exit disabled → max_iter, not converged
+    # Impossible momentum tolerance must not produce success.
     s2 = _solver_3d()
-    s2.lowre_early_exit = False
+    s2.mom_tol = 0.0
     conv2, it2 = s2.solve(max_iter=12, tol=0.0)
     assert conv2 is False and s2.exit_reason == 'max_iter' and it2 == 12, \
         (conv2, s2.exit_reason, it2)

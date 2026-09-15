@@ -5,7 +5,7 @@ Times evaluate_design_3d on a midrange Sobol point at the fast-mode preset
 (n_init=24 + n_iter=40 × q_batch=2 = 104 evals serial, ~ 5-9 h) is feasible.
 
 Usage::
-    python -u -m runs.smoke_3d_eval
+    python -u -m sjtu_tpmshx.runs.smokes.smoke_3d_eval
 """
 
 from __future__ import annotations

@@ -1,22 +1,4 @@
-"""F2 convergence mode for the 2D SIMPLE solver (ledger C6 / C7 / C9).
-
-2D's legacy `tol` is even more degenerate than 3D's. `_mass_res_jit` is a
-PLANE-INTEGRATED flux defect; the pp solve drives the per-cell divergence to
-zero, so every plane's flux telescopes to the inlet's and on a FULL-FACE outlet
-the residual is a TAUTOLOGY. `tol` therefore fires at the MIN-ITER FLOOR
-(iteration 20) and the solve stops there — with dP under-converged by 3.3 % on
-the production pipeline.
-
-The load-bearing tests here:
-
-  * `test_legacy_tol_is_a_tautology_and_fires_at_the_min_iter_floor` — pins the
-    DEFECT itself, so nobody "fixes" F2 by reverting to a criterion that never
-    tested anything.
-  * `test_momentum_residual_vanishes_at_the_sweep_fixed_point` — the sync guard
-    for the deliberate parallel assembly in `_{u,v}_coeffs_df_2d`.
-  * `test_balanced_denominator_has_no_false_zero` — the P0 the balanced
-    denominator exists to kill.
-"""
+"""F2 gates must reject a small mass-only diagnostic and certify returned fields."""
 import numpy as np
 import pytest
 
@@ -60,34 +42,18 @@ def _mom(s):
 #  The defect (pin it, so nobody "restores" it)
 # ─────────────────────────────────────────────────────────────────────────
 
-def test_legacy_tol_is_a_tautology_and_fires_at_the_min_iter_floor():
-    """THE 2D defect, pinned (ledger C9).
-
-    On a full-face outlet the legacy residual is not small — it is ZERO, by
-    construction. The pp solve makes every cell divergence-free, so each plane's
-    mass flux telescopes to the inlet's, and `max_j |Q_j − Q_in| / Q_in` has
-    nothing left to measure. `tol` then fires at the `it >= 20` minimum-iteration
-    floor and the solve stops after 20 iterations.
-
-    If this test ever starts FAILING because the residual became meaningful,
-    that is good news — but re-derive the exit criterion before celebrating.
-    """
+def test_small_mass_diagnostic_does_not_certify_momentum():
     s = _make()
-    conv, n = s.solve(max_iter=3000, tol=1e-5, verbose=False)
-
-    assert conv is True and s.exit_reason == 'tol'
-    assert n == 20, (
-        f"legacy exited at iteration {n}, not the min-iter floor of 20 — the "
-        "tautology may no longer hold; re-read ledger C9")
-    assert s.residuals[-1] < 1e-12, (
-        f"legacy residual is {s.residuals[-1]:.2e} — it is supposed to be "
-        "machine zero (a tautology), not merely small")
+    conv, n = s.solve(max_iter=20, tol=1e-5, verbose=False)
+    assert not conv and n == 20 and s.exit_reason == 'max_iter'
+    assert s.residuals[-1] < 1e-12
+    assert s.final_res_mom > 1e-4
 
 
-def test_f2_reaches_lower_momentum_residual_than_legacy():
+def test_f2_improves_momentum_beyond_the_old_iteration_floor():
     """F2 must improve the equation residual beyond the legacy false exit."""
     s_leg = _make()
-    s_leg.solve(max_iter=3000, tol=1e-5, verbose=False)
+    s_leg.solve(max_iter=20, tol=1e-5, verbose=False)
     dP_leg = float(np.mean(s_leg.P[:, 0]) - np.mean(s_leg.P[:, -1]))
 
     s_f2 = _make(convergence_mode='f2', mom_tol=1e-4,
@@ -185,11 +151,12 @@ def test_balanced_denominator_has_no_false_zero():
 #  Wiring
 # ─────────────────────────────────────────────────────────────────────────
 
-def test_legacy_is_the_default():
+def test_f2_is_the_default():
     s = _make()
-    s.solve(max_iter=100, tol=1e-5, verbose=False)
-    assert not hasattr(s, 'mass_local_residuals'), \
-        "F2 histories must not exist unless convergence_mode='f2'"
+    conv, n = s.solve(max_iter=3000, verbose=False)
+    assert conv and s.convergence_mode == 'f2'
+    assert len(s.mass_local_residuals) == n
+    assert s.final_res_mom < 1e-4
 
 
 def test_f2_exits_on_tol_with_all_three_gates_met():
@@ -240,8 +207,9 @@ def test_retired_coupling_option_is_rejected(mode):
         s.solve(max_iter=10, coupling='simpler', verbose=False)
 
 
-def test_f2_rejects_unknown_mode():
-    s = _make(convergence_mode='momentum')
+@pytest.mark.parametrize('mode', ['legacy', 'momentum'])
+def test_f2_rejects_retired_or_unknown_mode(mode):
+    s = _make(convergence_mode=mode)
     with pytest.raises(ValueError, match="convergence_mode"):
         s.solve(max_iter=10, verbose=False)
 

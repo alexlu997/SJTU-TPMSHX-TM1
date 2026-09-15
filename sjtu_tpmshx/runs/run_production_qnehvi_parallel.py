@@ -5,11 +5,11 @@
     OMP/MKL thread caps = 1 to prevent BLAS oversubscription.
 
 Total evals: 3 × (32 init + 24 iter × 4 q_batch) = 3 × 128 = 384 evals.
-Expected wall: 25-50 min depending on tol_simple convergence.
+Runtime depends on F2 convergence and the selected worker budget.
 
 Usage:
-    python -m runs.run_production_qnehvi_parallel
-    python -m runs.run_production_qnehvi_parallel --seeds 4 --n_iter 30
+    python -m sjtu_tpmshx.runs.run_production_qnehvi_parallel
+    python -m sjtu_tpmshx.runs.run_production_qnehvi_parallel --seeds 4 --n_iter 30
 
 Outputs (under opt_runs/production_v3_<timestamp>/):
     seed_NNN/                — per-seed BO checkpoint dirs (one per seed)
@@ -32,7 +32,7 @@ def _parse_args(argv: Optional[list] = None) -> argparse.Namespace:
     p.add_argument('--n_jobs',   type=int, default=4)
     p.add_argument('--save_dir', type=str, default=None)
     p.add_argument('--tol',      type=float, default=1e-2,
-                   help='SIMPLE mass-residual tolerance (BO inner)')
+                   help='Retained compatibility value; does not set F2 tolerances')
     p.add_argument('--rho_loops', type=int, default=2,
                    help='Compressible Picard outer iterations')
     p.add_argument('--quiet',    action='store_true')

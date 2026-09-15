@@ -2,7 +2,7 @@
 validation/verify_pareto_3d.py — Independent 3D verification of a 2D Pareto pick.
 
 The continuous-field optimizer runs a 2D SIMPLE × 2 + LTNE pipeline that
-returns (Q_2D, dP_2D) per unit HX depth. This script takes one Pareto
+returns Q_2D per unit HX depth (W/m) and dP_2D in Pa. This script takes one Pareto
 solution, extrudes its L(x, y) and t(x, y) fields uniformly along z to fill
 a 3D voxel grid, runs the full 3D solver stack
 (SIMPLESolver3D + solve_full_domain_3d with outer ρ(T) coupling), and
@@ -14,7 +14,7 @@ reports::
 
 Usage::
 
-    python -m validation.cases.verify_pareto_3d \\
+    python -m sjtu_tpmshx.validation.cases.verify_pareto_3d \\
         --pareto opt_runs/production_v1/pareto_final.csv \\
         --row    2 \\
         --Nx 40 --Ny 16 --Nz 16 \\

@@ -28,7 +28,7 @@ def evaluate_3d(x_decision: np.ndarray,
                 tol_energy: float = 0.5,
                 roughness_mode: str | None = None,
                 roughness_eps_um: float | None = None,
-                convergence_mode: str = 'legacy',
+                convergence_mode: str = 'f2',
                 verbose: bool = True) -> dict:
     from sjtu_tpmshx.preprocess.api import prepare_screening_3d
     from sjtu_tpmshx.solvers.api import run_case

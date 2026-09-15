@@ -1,34 +1,9 @@
-"""Price the F2 convergence gate against the legacy exit — Shanghai 16 cases.
+"""Measure the F2 tolerance cost/accuracy curve on the 16 Shanghai cases.
 
-Ledger C6 / C7. This script exists because the first F2 pricing table lived only
-in a commit message and a ledger row: the probes that produced it were throwaway
-and were deleted, so nobody (including codex, on review) could reproduce it. The
-numbers a re-baseline rests on have to be re-runnable. This is that script.
-
-WHAT IT COMPARES
-
-  legacy   `tol` on the mass residual + LowReExit. Ledger C6: `tol` is
-           unreachable (the residual is the Dirichlet-outlet-row artifact), so
-           LowReExit's velocity criterion is what actually decides — and it
-           declares converged while the momentum residual is still 1.8e-3..1.5e-2
-           and falling.
-  f2       Three gates: momentum residual, solved-cell continuity (fresh rho,
-           `cell_kind == 0` only), and global boundary mass — each with its own
-           tolerance, held for `f2_n_confirm` consecutive checks. A static
-           velocity field TRIGGERS a check; it does not terminate.
-
-The point of the sweep is the COST/ACCURACY CURVE: F2 lands on the converged
-answer but costs more SIMPLE iterations, and that cost lands on optimizer
-throughput. Wall time is reported, not just iteration count — `f2_mom_every`
-means the two are not proportional.
-
-USAGE
-    python -u sjtu_tpmshx/validation/cases/price_f2_convergence_3d.py
-    python -u ... --modes legacy,f2 --mom-tol 1e-3,1e-4,1e-5 --cases 1,8,16
-
-Writes reports/f2_pricing_3d.csv (one row per mode x case) and prints the
-summary table. PYTHONHASHSEED=0 is required for reproducibility (3D pipeline
-output is hash-seed sensitive).
+Run as a module with --mom-tol 1e-3,1e-4,1e-5 --cases 1,8,16.
+The retired legacy comparison remains in Git history at ec1c73e; its original
+reports/f2_pricing_3d.csv is indexed in docs/history/retired-tools.md.
+New runs default to a separate v2 CSV.
 """
 from __future__ import annotations
 
@@ -57,7 +32,7 @@ SPEC = shanghai_spec()
 _REPORTS = _PKG.parent / 'reports'
 
 
-def _build_cfg(ci, df, Nx, Ny, Nz, *, mode, mom_tol, mass_local_tol,
+def _build_cfg(ci, df, Nx, Ny, Nz, *, mom_tol, mass_local_tol,
                mass_global_tol, max_outer=None):
     m_air = float(df.iloc[ci, 5])
     T_Ain_K = float(df.iloc[ci, 28]) + 273.15
@@ -73,11 +48,8 @@ def _build_cfg(ci, df, Nx, Ny, Nz, *, mode, mom_tol, mass_local_tol,
     solver = SolverConfig(
         Nx=Nx, Ny=Ny, Nz=Nz,
         max_outer_ltne=(None if max_outer is None else int(max_outer)),
-        convergence_mode=mode,
-        **({} if mode != 'f2' else dict(
-            mom_tol=mom_tol,
-            mass_local_tol=mass_local_tol,
-            mass_global_tol=mass_global_tol)))
+        convergence_mode='f2', mom_tol=mom_tol,
+        mass_local_tol=mass_local_tol, mass_global_tol=mass_global_tol)
 
     return ComputeConfig(
         fluid_A=FluidConfig(type='air', u_mps=u_A, T_in_K=T_Ain_K,
@@ -135,7 +107,6 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--grid', default='20,10,3')
     ap.add_argument('--cases', default=','.join(str(i) for i in range(1, 17)))
-    ap.add_argument('--modes', default='legacy,f2')
     ap.add_argument('--mom-tol', default='1e-3,1e-4,1e-5',
                     help='momentum-residual tolerances to sweep (f2 only)')
     ap.add_argument('--mass-local-tol', type=float, default=1e-6)
@@ -151,33 +122,30 @@ def main():
 
     Nx, Ny, Nz = (int(x) for x in args.grid.split(','))
     cases = [int(c) for c in args.cases.split(',')]
-    modes = [m.strip() for m in args.modes.split(',')]
     mom_tols = [float(t) for t in args.mom_tol.split(',')]
     df = load_cases_df(SHANGHAI_XLSX)
 
     runs = []
-    for mode in modes:
-        tols = [None] if mode == 'legacy' else mom_tols
-        for mt in tols:
-            label = mode if mt is None else f"f2@{mt:g}"
-            print(f"\n=== {label} ===", flush=True)
-            for c in cases:
-                r = _run(c - 1, df, Nx, Ny, Nz, mode=mode, mom_tol=mt,
-                         mass_local_tol=args.mass_local_tol,
-                         mass_global_tol=args.mass_global_tol,
-                         max_outer=args.max_outer)
-                r['mode'] = label
-                r['mom_tol'] = mt
-                runs.append(r)
-                print(f"  case {r['case']:2d}  exit={str(r['exit_A']):>8s} "
-                      f"iters={r['simple_iters_A']!s:>5s} "
-                      f"{r['wall_s']:6.1f}s  "
-                      f"dP={r['dP_sim']:10.1f} ({r['err_dP%']:+6.2f}%)  "
-                      f"Q={r['Q_sim']:8.1f} ({r['err_Q%']:+6.2f}%)",
-                      flush=True)
+    for mt in mom_tols:
+        label = f"f2@{mt:g}"
+        print(f"\n=== {label} ===", flush=True)
+        for c in cases:
+            r = _run(c - 1, df, Nx, Ny, Nz, mom_tol=mt,
+                     mass_local_tol=args.mass_local_tol,
+                     mass_global_tol=args.mass_global_tol,
+                     max_outer=args.max_outer)
+            r['mode'] = label
+            r['mom_tol'] = mt
+            runs.append(r)
+            print(f"  case {r['case']:2d}  exit={str(r['exit_A']):>8s} "
+                  f"iters={r['simple_iters_A']!s:>5s} "
+                  f"{r['wall_s']:6.1f}s  "
+                  f"dP={r['dP_sim']:10.1f} ({r['err_dP%']:+6.2f}%)  "
+                  f"Q={r['Q_sim']:8.1f} ({r['err_Q%']:+6.2f}%)",
+                  flush=True)
 
     out = pd.DataFrame(runs)
-    dest = Path(args.out) if args.out else (_REPORTS / 'f2_pricing_3d.csv')
+    dest = Path(args.out) if args.out else (_REPORTS / 'f2_pricing_3d_v2.csv')
     dest.parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(dest, index=False)
 

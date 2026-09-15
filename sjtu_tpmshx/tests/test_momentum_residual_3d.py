@@ -194,12 +194,10 @@ def test_balanced_denominator_has_no_false_zero():
         "raw num/den must be preserved in the record for post-hoc re-normalisation"
 
 
-def test_tracking_is_opt_in_and_off_by_default():
+def test_f2_does_not_evaluate_momentum_before_its_iteration_floor():
     s = _make_solver()
     s.solve(max_iter=5, tol=1e-12)
-    assert not hasattr(s, 'mom_residuals'), \
-        "momentum-residual tracking must be OFF by default (it costs an extra " \
-        "coefficient assembly per iteration)"
+    assert s.mom_residuals == [] and s.final_res_mom is None
 
 
 def test_tracking_records_a_history_and_does_not_change_the_result():
@@ -239,7 +237,6 @@ def test_momentum_residual_decays_over_a_solve():
     s.track_momentum_residual = True
     s.convergence_mode = 'f2'
     s.mom_tol = 1e-4
-    s.lowre_early_exit = False
     converged, n = s.solve(max_iter=400, tol=1e-14)
 
     mom = [r['max'] for r in s.mom_residuals]

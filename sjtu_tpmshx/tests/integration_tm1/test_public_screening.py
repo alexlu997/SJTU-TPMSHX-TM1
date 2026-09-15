@@ -63,12 +63,12 @@ for prefix in prefixes:
     assert not any(n == prefix or n.startswith(prefix + '.') for n in sys.modules), prefix
 raise SystemExit(status)
 '''
-    env = dict(os.environ, TPMSHX_DF_METHOD='cfd_full_core_3cell_fixed_v2', TPMSHX_DF_OVERRIDES='1', TPMSHX_DF_RESIDUAL_CORR='0', TPMSHX_CONV_MODE='legacy')
+    env = dict(os.environ, TPMSHX_DF_METHOD='cfd_full_core_3cell_fixed_v2', TPMSHX_DF_OVERRIDES='1', TPMSHX_DF_RESIDUAL_CORR='0', TPMSHX_CONV_MODE='f2')
     evidence = Path('.cache/tm1-optimization') / ('handoff-' + name)
     evidence.mkdir(parents=True, exist_ok=True)
     for i, stage in enumerate(('prepare', 'solve', 'postprocess')):
         if i:
-            env.update(TPMSHX_DF_METHOD='rbf', TPMSHX_DF_OVERRIDES='0', TPMSHX_DF_RESIDUAL_CORR='1', TPMSHX_CHI_S='1.0', TPMSHX_CONV_MODE='f2')
+            env.update(TPMSHX_DF_METHOD='rbf', TPMSHX_DF_OVERRIDES='0', TPMSHX_DF_RESIDUAL_CORR='1', TPMSHX_CHI_S='1.0', TPMSHX_CONV_MODE='legacy')
         run = subprocess.run([sys.executable, '-c', launcher, stage, str(paths[i]), str(paths[i + 1])],
                              env=env, capture_output=True, text=True, timeout=240)
         (evidence / (stage + '.log')).write_text(run.stdout + run.stderr)

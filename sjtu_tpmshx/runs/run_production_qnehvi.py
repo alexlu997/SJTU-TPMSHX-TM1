@@ -1,15 +1,15 @@
 """
 runs/run_production_qnehvi.py — Production-grade Pareto run.
 
-Settings vs the smoke (`python -m optimization.optimizer_qnehvi`):
+Settings vs the smoke (`python -m sjtu_tpmshx.optimization.optimizer_qnehvi`):
   * n_init   16 → 32  (≈ 2 × decision_dim, escapes Sobol-init basin)
   * n_iter    8 → 24  (BO has room to converge before HV plateau early-stop)
   * n_rho_loops uses the new DEFAULT (3) → compressible ρ(T) coupling on
-  * tol_simple stays loose (1e-2) — side B residual stagnates at O(5e-3)
-    on heterogeneous fields and dp_cap_pa already guards against blowups
+  * tol_simple=1e-2 is retained for configuration compatibility;
+    screening now uses the shared F2 convergence gates
 
-Wall time estimate: 80 evals at ~3.3× isothermal cost ≈ 30–60 min plus
-24 iter × ~30 s GP overhead ≈ 12 min ≈ **45–75 min total**.
+Historical timing estimates predate F2 screening; measure this workload
+again before assigning a current runtime budget.
 
 Outputs in opt_runs/production_v1/:
   pareto_final.csv     Pareto-only decisions + (Q, dP)

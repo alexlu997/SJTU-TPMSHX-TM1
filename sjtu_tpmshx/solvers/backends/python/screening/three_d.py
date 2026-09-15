@@ -1,6 +1,7 @@
 """Execute prepared 3D screening with the original frozen-B outer loop."""
 import time
 import numpy as np
+from sjtu_tpmshx.domain.run_environment import require_f2_mode
 
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.persistence_validation import validate_case
@@ -84,8 +85,9 @@ def run_case(case, control=RunControl()):
     max_iter_simple, tol_simple = cfg['max_iter_simple'], cfg['tol_simple']
     max_iter_energy, tol_energy = cfg['max_iter_energy'], cfg['tol_energy']
     verbose = cfg['verbose']
-    if max_outer < 1 or cfg['convergence_mode'] not in ('legacy', 'f2'):
+    if max_outer < 1:
         raise ValueError('invalid prepared screening iteration controls')
+    require_f2_mode(cfg['convergence_mode'])
     if (cfg['dir_A'], cfg['dir_B']) != (0, 3):
         raise ValueError('unsupported screening flow orientation')
     solvers = []

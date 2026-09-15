@@ -113,7 +113,8 @@ $env:NUMBA_CACHE_DIR = Join-Path $PWD '.cache/numba'
 有符号的两侧换热量，二维 Richardson 外推值另列，不替代主指标。
 两维度的压降统一按物理端口面压力、几何开口面积加权，定义版本为
 `pressure_face_v1`。数值网格精度与实验预测误差分别评估，见
-[本轮精度与性能记录](docs/accuracy-performance-20260914.md)。
+[网格精度与性能记录](docs/accuracy-performance-20260914.md)及
+[当前求解器整理与实验误差](docs/solver-architecture-20260914.md)。
 热量、温度及流量指标的定义版本为 `native_boundary_v1`；旧指标文件保留原定义，
 旧原生结果可重新后处理。
 

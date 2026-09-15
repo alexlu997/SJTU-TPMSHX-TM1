@@ -333,30 +333,3 @@ class AndersonOuterCoupling:
         return dict(applied=self.applied_count, rejected=self.rejected_count,
                     resets=self.reset_count,
                     residuals=[float(v) for v in self.residuals])
-
-
-def stack_state(u: np.ndarray, v: np.ndarray, w: np.ndarray,
-                 P: np.ndarray) -> np.ndarray:
-    """Flatten (u,v,w,P) into a single 1-D float64 vector.
-
-    Staggered grid friendly: each component may have its own shape
-    (e.g. u is (Nx+1, Ny, Nz), v is (Nx, Ny+1, Nz), w is (Nx, Ny, Nz+1),
-    P is (Nx, Ny, Nz)). Shapes are recovered by :func:`unstack_state`
-    using the original arrays as templates.
-    """
-    return np.concatenate([u.ravel(), v.ravel(), w.ravel(), P.ravel()])
-
-
-def unstack_state(x: np.ndarray, u_ref: np.ndarray, v_ref: np.ndarray,
-                   w_ref: np.ndarray, P_ref: np.ndarray
-                   ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Inverse of :func:`stack_state` using reference arrays for shapes."""
-    nu = u_ref.size
-    nv = v_ref.size
-    nw = w_ref.size
-    nP = P_ref.size
-    u = x[0:nu].reshape(u_ref.shape).copy()
-    v = x[nu:nu + nv].reshape(v_ref.shape).copy()
-    w = x[nu + nv:nu + nv + nw].reshape(w_ref.shape).copy()
-    P = x[nu + nv + nw:nu + nv + nw + nP].reshape(P_ref.shape).copy()
-    return u, v, w, P

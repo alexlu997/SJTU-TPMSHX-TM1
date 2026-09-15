@@ -1,33 +1,9 @@
-"""Anderson SIMPLE acceleration regression tests (Phase B).
-
-Confirm:
-1. AndersonSIMPLE class machinery (push, candidate, rollback) works.
-2. Solver with `use_anderson=True` reaches the same converged state as
-   the pure-Picard baseline (zero precision loss).
-3. Mass conservation is preserved post-Anderson (handled by re-projection).
-"""
+"""Shared Anderson algebra and energy-step budget/rollback regressions."""
 from __future__ import annotations
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.solvers.anderson_acceleration import (
-    AndersonSIMPLE, stack_state, unstack_state)
-
-
-def test_stack_unstack_roundtrip():
-    """Staggered-grid round-trip preserves all four arrays."""
-    rng = np.random.default_rng(0)
-    Nx, Ny, Nz = 4, 5, 3
-    u = rng.standard_normal((Nx + 1, Ny, Nz))   # staggered in x
-    v = rng.standard_normal((Nx, Ny + 1, Nz))   # staggered in y
-    w = rng.standard_normal((Nx, Ny, Nz + 1))   # staggered in z
-    P = rng.standard_normal((Nx, Ny, Nz))
-    x = stack_state(u, v, w, P)
-    u2, v2, w2, P2 = unstack_state(x, u, v, w, P)
-    assert np.allclose(u, u2)
-    assert np.allclose(v, v2)
-    assert np.allclose(w, w2)
-    assert np.allclose(P, P2)
+from sjtu_tpmshx.solvers.anderson_acceleration import AndersonSIMPLE
 
 
 @pytest.mark.parametrize('bad_candidate', [False, True])
@@ -129,43 +105,3 @@ def test_anderson_skips_rank_deficient():
     assert not applied
     assert np.allclose(cand, gx)
     assert acc.skipped_count >= 1
-
-
-def _build_solver(use_anderson: bool):
-    pytest.importorskip("numba")
-    from sjtu_tpmshx.solvers.simple_solver_3d import SIMPLESolver3D
-    Nx, Ny, Nz = 16, 12, 4
-    K_arr = np.full((Ny, Nz), 1e-7, dtype=np.float64)
-    cF_arr = np.full((Ny, Nz), 340.0, dtype=np.float64)
-    s = SIMPLESolver3D(
-        Lx=0.1, Ly=0.04, Lz=0.02,
-        Nx=Nx, Ny=Ny, Nz=Nz,
-        rho=1.0, mu=2e-5, T_in=350.0, v_inlet=3.0,
-        eps=0.78, K_arr=K_arr, cF_arr=cF_arr,
-        P_ref_abs=101325.0)
-    if use_anderson:
-        s.use_anderson = True
-        s.anderson_m = 5
-        s.anderson_K = 3
-    return s
-
-
-def test_anderson_solver_matches_picard_baseline():
-    """Full SIMPLE solver: Anderson-accelerated must reach the same
-    converged state as pure Picard (within tight tolerance)."""
-    solver_picard = _build_solver(use_anderson=False)
-    conv_p, it_p = solver_picard.solve(max_iter=400, tol=1e-4)
-
-    solver_and = _build_solver(use_anderson=True)
-    conv_a, it_a = solver_and.solve(max_iter=400, tol=1e-4)
-
-    # Both must reach the residual gate.
-    assert conv_p, f"Picard baseline did not converge in {it_p} iters"
-    assert conv_a, f"Anderson-accelerated did not converge in {it_a} iters"
-
-    # Velocity fields within loose tolerance (Anderson can take a different
-    # trajectory but must reach the same divergence-free attractor).
-    np.testing.assert_allclose(
-        solver_picard.u, solver_and.u, rtol=2e-2, atol=1e-3)
-    np.testing.assert_allclose(
-        solver_picard.v, solver_and.v, rtol=2e-2, atol=1e-3)

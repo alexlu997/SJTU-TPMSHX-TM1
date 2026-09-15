@@ -31,20 +31,12 @@ def _make_solver(Nx=8, Ny=12, Nz=4, v_inlet=3.0, **kw):
     return s
 
 
-def test_legacy_is_the_default():
-    """The SOLVER CLASS default stays 'legacy' — deliberately, even though F2
-    is now priced (reports/f2_pricing_3d.csv), re-baselined, and the PIPELINE
-    default (the full-model runtimes resolve env > cfg > 'f2'). The class
-    default is what kernel-direct callers (tests, diagnostics, the optimizer
-    evaluator per ledger O2/R3) get without opting in; flipping it would
-    silently change every one of them. If you flip it intentionally, this
-    test is the loud part — re-derive the optimizer cost (measured 1.74x at
-    mom_tol=1e-3) first."""
+def test_f2_is_the_default():
     s = _make_solver()
-    s.solve(max_iter=30, tol=1e-12)
-    assert not hasattr(s, 'mass_local_residuals'), \
-        "F2 histories must not exist unless convergence_mode='f2'"
-    assert s.exit_reason in ('tol', 'velocity', 'stall', 'max_iter')
+    conv, n = s.solve(max_iter=3000, verbose=False)
+    assert conv and s.convergence_mode == 'f2'
+    assert len(s.mass_local_residuals) == n
+    assert s.final_res_mom < 1e-4
 
 
 def test_f2_exits_on_tol_with_all_three_gates_met():
@@ -65,27 +57,16 @@ def test_f2_exits_on_tol_with_all_three_gates_met():
 
 
 def test_velocity_static_does_not_terminate():
-    """F2 must continue past a legacy mass-only or static-velocity exit and
-    reach a materially lower momentum residual.
-    """
-    s_leg = _make_solver()
-    s_leg.track_momentum_residual = True
-    conv_leg, n_leg = s_leg.solve(max_iter=3000, tol=1e-12)
-    assert s_leg.exit_reason in ('tol', 'velocity'), \
-        "legacy can now reach its mass-only tol after local outlet closure"
-    mom_leg = s_leg.mom_residuals[-1]['max']
-
-    s_f2 = _make_solver(convergence_mode='f2', mom_tol=1e-4,
-                        mass_local_tol=1e-6, mass_global_tol=1e-6)
-    conv_f2, n_f2 = s_f2.solve(max_iter=3000)
-
-    assert conv_f2 and s_f2.exit_reason == 'tol'
-    assert n_f2 > n_leg, (
-        f"F2 stopped no later than the velocity criterion ({n_f2} <= {n_leg}) — "
-        "it is still terminating on a static field, not on the residual gate")
-    assert s_f2.final_res_mom < mom_leg / 10.0, (
-        f"F2 exited at momentum residual {s_f2.final_res_mom:.2e}, barely better "
-        f"than the legacy exit's {mom_leg:.2e}")
+    # Force every iterate to count as velocity-static: it must trigger checks,
+    # without stopping before the momentum and mass equations meet their gates.
+    s = _make_solver(f2_velocity_check_tol=float('inf'), f2_stall_window=3000)
+    conv, n = s.solve(max_iter=10, verbose=False)
+    assert not conv and n == 10
+    early_mom = s.final_res_mom
+    assert early_mom > 1e-4
+    conv, n = s.solve(max_iter=3000, verbose=False)
+    assert conv and n > 10 and s.exit_reason == 'tol'
+    assert s.final_res_mom < min(1e-4, early_mom / 10.)
 
 
 def test_f2_rejects_anderson():
@@ -98,8 +79,9 @@ def test_f2_rejects_anderson():
         s.solve(max_iter=10)
 
 
-def test_f2_rejects_unknown_mode():
-    s = _make_solver(convergence_mode='momentum')
+@pytest.mark.parametrize('mode', ['legacy', 'momentum'])
+def test_f2_rejects_retired_or_unknown_mode(mode):
+    s = _make_solver(convergence_mode=mode)
     with pytest.raises(ValueError, match="convergence_mode"):
         s.solve(max_iter=10)
 

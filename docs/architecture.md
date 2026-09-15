@@ -63,6 +63,45 @@ CaseData/FieldResult/PerformanceResult handoff, not just relocating the GUI code
 The 2D momentum solver uses SIMPLE. The experimental SIMPLER branch is retired;
 its original benchmark and negative result remain in the history index.
 
+### Shared solver implementation
+
+All supported fluids use `SIMPLESolver` in 2D and `SIMPLESolver3D` in 3D.
+`solvers/_solve_common.py` owns F2 configuration and the common convergence
+monitor: momentum, fresh-density local/global mass and outlet backflow must
+pass consecutive checks. Full compute, screening and raw solver calls now
+use this same criterion. `convergence_mode=None` resolves to `f2`; explicit
+`legacy` is rejected. A static field triggers a check and never certifies
+convergence alone. The mass-only/velocity exit and its inner SIMPLE Anderson
+implementation are retired. Thermal and outer-coupling Anderson remain active.
+
+The public `tol_simple` field and `solve(tol=...)` signature are retained for
+file/call compatibility; they do not set F2 tolerances. Use `mom_tol`,
+`mass_local_tol` and `mass_global_tol` for those gates. The pressure-subproblem
+residual history retains its definition because adaptive AMG consumes it.
+Coarse bootstrap supplies a bounded initial guess, not a convergence certificate.
+Old result files remain readable; rerunning an explicit legacy configuration
+requires selecting F2 and accepting the independently measured result.
+
+Both backends consume `models/fluid_props.FluidModel`. Correlations, property
+sources and validity checks stay in their owning model modules. Shared outer
+iteration and temperature-delta tracking live in `coupling_skeleton.py`; both
+full-compute drivers track Ta, Tb and Ts, with the existing extra 2D density
+gate. Dimension-specific solve order and native flux capture remain explicit.
+
+Thermal routes are selected by their present qualification conditions:
+
+| Route | Shared implementation and retained differences |
+|---|---|
+| True enthalpy | Pairs containing sCO2 use signed mass/enthalpy transport; the 2D adapter calls the shared 3D enthalpy kernel. Existing zone/route constraints remain. |
+| Model enthalpy | Existing air/water h(T) transport; 2D includes water/water when unzoned and symmetric. 3D currently includes air/air, air/water and water/air with its Nz, variable-property, dual-flow, conservative and mask conditions. |
+| Temperature | Existing remaining cases and approximation modes keep their current discretization and property sampling. |
+
+Changing a shared convergence rule affects both dimensions. Changing a
+dimensional momentum or heat kernel affects every fluid using that route.
+Changing an EOS or Nu correlation belongs in the fluid/model owner, not in
+another per-fluid solver. Cross-route method changes require separate numerical
+qualification. See the [implementation and validation record](solver-architecture-20260914.md).
+
 ### Persistent interfaces and physical state
 
 CaseData contains the actual prepared grid, design fields, boundary inputs,
@@ -239,9 +278,10 @@ explicit numerical-model change with directly relevant validation.
     Results record `sco2_enthalpy_eos` in model metadata when the table is used.
     This is an approximate iteration algorithm, not an experimental calibration.
 11. **Current TM1 limit.** sCO2 zones and offset level sets remain rejected;
-    air/water-only runs retain their existing temperature-form kernels.
-    For Nz>1, those kernels solve every physical fluid and solid end control
-    volume. Tin is imposed at the open inlet face with half-cell conduction;
+    air/water-only runs retain the qualified model-enthalpy and temperature
+    routes listed above. For Nz>1, their end-cell treatment covers every
+    physical fluid and solid end control volume. Tin is imposed at the open
+    inlet face with half-cell conduction;
     outlet zero-gradient applies at the external face. Explicit CC callers
     with SIMPLE supply actual inlet capacity transport while retaining the CC
     interior scheme. Prescribed B remains an external thermal reservoir.

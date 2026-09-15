@@ -218,8 +218,8 @@ def _compute_Q_richardson(
     # δ=0 ⇒ bit-identical). Matches the K_ff / convective scaling in the main
     # solve so the extracted A / B duties stay balanced on the split geometry.
     from sjtu_tpmshx.models.fluid_props import check_water_state, WaterStateError, check_finite_temperatures
-    check_water_state(_pA['name'], T_inA, P_inA_val, where='Richardson inlet A')
-    check_water_state(_pB['name'], T_inB, P_inB_val, where='Richardson inlet B')
+    check_water_state(_pA.name, T_inA, P_inA_val, where='Richardson inlet A')
+    check_water_state(_pB.name, T_inB, P_inB_val, where='Richardson inlet B')
     _asymQ = (float(split_A) != 0.5)
     _fAQ = 2.0 * float(split_A)
     _fBQ = 2.0 * (1.0 - float(split_A))
@@ -280,11 +280,11 @@ def _compute_Q_richardson(
     with range_context(side='A', stage='richardson-inlet', layout='scalar'):
         rcp_A2 = _interp2(rho_cp_A if np.ndim(rho_cp_A) > 0 else
                            np.full((N_x, N_y),
-                                   _pA['rho'](T_inA, P_inA_val) * _pA['cp'](T_inA, P_inA_val)))
+                                   _pA.rho(T_inA, P_inA_val) * _pA.cp(T_inA, P_inA_val)))
     with range_context(side='B', stage='richardson-inlet', layout='scalar'):
         rcp_B2 = _interp2(rho_cp_B if np.ndim(rho_cp_B) > 0 else
                            np.full((N_x, N_y),
-                                   _pB['rho'](T_inB, P_inB_val) * _pB['cp'](T_inB, P_inB_val)))
+                                   _pB.rho(T_inB, P_inB_val) * _pB.cp(T_inB, P_inB_val)))
     if za is not None and 'h_vB_arr' in za:
         K_ffA2 = _interp2(za['K_ffA_arr'])
         K_ffB2 = _interp2(za['K_ffB_arr'])
@@ -310,12 +310,12 @@ def _compute_Q_richardson(
     Ta_init2, Tb_init2, Ts_init2 = _interp2(Ta), _interp2(Tb), _interp2(Ts)
     for side, props, temperature in (('A', _pA, Ta_init2), ('B', _pB, Tb_init2)):
         with range_context(side=side, stage='richardson-warm', layout='real-cell(x,y)'):
-            record_temperature_ranges(props['name'], temperature)
+            record_temperature_ranges(props.name, temperature)
     water_pressures = []
     for props, simp, direction, pin, coarse, initial, side in (
             (_pA, simpA, dir_A, P_inA_val, Ta, Ta_init2, 'A'),
             (_pB, simpB, dir_B, P_inB_val, Tb, Tb_init2, 'B')):
-        if props['name'] == 'water':
+        if props.name == 'water':
             if simp is None:
                 raise WaterStateError(f'Richardson {side}: actual water pressure unavailable')
             pressure = _simple_pressure_abs_2d(simp, direction, pin)
@@ -348,11 +348,11 @@ def _compute_Q_richardson(
         K_ss2 = _interp2(model_inputs['K_ss'])
     with range_context(side='A', stage='richardson-inlet', layout='scalar'):
         inlet_flux_A2 = (_refined_inlet(
-            simpA, dir_A, _pA['cp'](T_inA, P_inA_val), split_A)
+            simpA, dir_A, _pA.cp(T_inA, P_inA_val), split_A)
             if model_inputs is None else None)
     with range_context(side='B', stage='richardson-inlet', layout='scalar'):
         inlet_flux_B2 = (_refined_inlet(
-            simpB, dir_B, _pB['cp'](T_inB, P_inB_val), 1. - split_A)
+            simpB, dir_B, _pB.cp(T_inB, P_inB_val), 1. - split_A)
             if model_inputs is None else None)
     Ta2, Tb2, Ts2, refined_info = solve_full_domain(
         L, H, Nx2, Ny2, T_inA, T_inB,
@@ -368,7 +368,7 @@ def _compute_Q_richardson(
         eps_A=epsA2_use, eps_B=epsB2_use, cancel_check=cancel_check, **model_kwargs)
     for side, props, temperature in (('A', _pA, Ta2), ('B', _pB, Tb2)):
         with range_context(side=side, stage='richardson-return', layout='real-cell(x,y)'):
-            record_temperature_ranges(props['name'], temperature)
+            record_temperature_ranges(props.name, temperature)
     for side, pressure in water_pressures:
         check_water_state('water', Ta2 if side == 'A' else Tb2, pressure,
                           where=f'Richardson return {side}')
@@ -415,8 +415,8 @@ def _compute_Q_richardson(
     # sCO2 (audit 2026-06-28 D1): true mass-weighted enthalpy duty ṁ·(⟨h_in⟩−
     # ⟨h_out⟩); cp(T_in)·ΔT is −40 %…+224 % wrong across the pseudocritical cp
     # spike. air/water pass None → byte-identical legacy ρcp·ΔT (golden-safe).
-    _enth_A = _pA.get('enthalpy') if _pA.get('name') == 'sco2' else None
-    _enth_B = _pB.get('enthalpy') if _pB.get('name') == 'sco2' else None
+    _enth_A = _pA.enthalpy if _pA.name == 'sco2' else None
+    _enth_B = _pB.enthalpy if _pB.name == 'sco2' else None
 
     # Per-side void fraction ε_side = ε·s (N1 fix, 2026-07-07): velocities are
     # interstitial, so the physical face mass flux is ε_side·ρ·|u|·A. The old
@@ -439,26 +439,26 @@ def _compute_Q_richardson(
                 Q_A_fine = _enthalpy_balance_2d(
                     Ta, ucA, vcA, rho_cp_A_fld, dir_A, energy_dx, energy_dy,
                     inlet_mask=mA_in, outlet_mask=mA_out,
-                    enthalpy_fn=_enth_A, rho_fn=_pA['rho'], P_ref=P_inA_val,
+                    enthalpy_fn=_enth_A, rho_fn=_pA.rho, P_ref=P_inA_val,
                     eps_side=eps * _sA_Q, T_in=T_inA)
             with range_context(side='B', stage='main-duty', layout='duty-source'):
                 Q_B_fine = _enthalpy_balance_2d(
                     Tb, ucB, vcB, rho_cp_B_fld, dir_B, energy_dx, energy_dy,
                     inlet_mask=mB_in, outlet_mask=mB_out,
-                    enthalpy_fn=_enth_B, rho_fn=_pB['rho'], P_ref=P_inB_val,
+                    enthalpy_fn=_enth_B, rho_fn=_pB.rho, P_ref=P_inB_val,
                     eps_side=eps * _sB_Q, T_in=T_inB)
             if refined_ok:
                 with range_context(side='A', stage='richardson-duty', layout='duty-source'):
                     Q_A_coarse = _enthalpy_balance_2d(
                         Ta2, ucA2, vcA2, rcp_A2, dir_A, energy_dx2, energy_dy2,
                         inlet_mask=mA_in2, outlet_mask=mA_out2,
-                        enthalpy_fn=_enth_A, rho_fn=_pA['rho'], P_ref=P_inA_val,
+                        enthalpy_fn=_enth_A, rho_fn=_pA.rho, P_ref=P_inA_val,
                         eps_side=eps2 * _sA_Q, T_in=T_inA)
                 with range_context(side='B', stage='richardson-duty', layout='duty-source'):
                     Q_B_coarse = _enthalpy_balance_2d(
                         Tb2, ucB2, vcB2, rcp_B2, dir_B, energy_dx2, energy_dy2,
                         inlet_mask=mB_in2, outlet_mask=mB_out2,
-                        enthalpy_fn=_enth_B, rho_fn=_pB['rho'], P_ref=P_inB_val,
+                        enthalpy_fn=_enth_B, rho_fn=_pB.rho, P_ref=P_inB_val,
                         eps_side=eps2 * _sB_Q, T_in=T_inB)
             else:
                 Q_A_coarse = Q_B_coarse = float('nan')
@@ -550,13 +550,13 @@ def _compute_Q_richardson(
             T_out_B_mean = (float(np.mean(_Tout_B_finite))
                             if _Tout_B_finite.size else float(T_inB))
             with range_context(side='A', stage='fallback-inlet', layout='scalar'):
-                rho_A_in = float(_pA['rho'](T_inA, P_inA_val))
+                rho_A_in = float(_pA.rho(T_inA, P_inA_val))
             with range_context(side='B', stage='fallback-inlet', layout='scalar'):
-                rho_B_in = float(_pB['rho'](T_inB, P_inB_val))
+                rho_B_in = float(_pB.rho(T_inB, P_inB_val))
             with range_context(side='A', stage='fallback-inlet', layout='scalar'):
-                cp_A_in  = float(_pA['cp'](T_inA, P_inA_val))
+                cp_A_in  = float(_pA.cp(T_inA, P_inA_val))
             with range_context(side='B', stage='fallback-inlet', layout='scalar'):
-                cp_B_in  = float(_pB['cp'](T_inB, P_inB_val))
+                cp_B_in  = float(_pB.cp(T_inB, P_inB_val))
             A_in_A = float(cfgA.get('in_w', H))
             A_in_B = float(cfgB.get('in_w', L))
             m_dot_A = rho_A_in * abs(u_A) * A_in_A
@@ -569,14 +569,14 @@ def _compute_Q_richardson(
             m_dot_B *= _eps_mean_1d * (1.0 - float(split_A))
             # sCO2 (D1): ṁ·Δh even in the last-resort fallback (cp_in·ΔT is
             # badly wrong near the pseudocritical line). air/water keep cp·ΔT.
-            if _pA.get('name') == 'sco2':
-                Q_A_simple = m_dot_A * abs(float(_pA['enthalpy'](T_inA, P_inA_val))
-                                           - float(_pA['enthalpy'](T_out_A_mean, P_inA_val)))
+            if _pA.name == 'sco2':
+                Q_A_simple = m_dot_A * abs(float(_pA.enthalpy(T_inA, P_inA_val))
+                                           - float(_pA.enthalpy(T_out_A_mean, P_inA_val)))
             else:
                 Q_A_simple = m_dot_A * cp_A_in * abs(T_inA - T_out_A_mean)
-            if _pB.get('name') == 'sco2':
-                Q_B_simple = m_dot_B * abs(float(_pB['enthalpy'](T_inB, P_inB_val))
-                                           - float(_pB['enthalpy'](T_out_B_mean, P_inB_val)))
+            if _pB.name == 'sco2':
+                Q_B_simple = m_dot_B * abs(float(_pB.enthalpy(T_inB, P_inB_val))
+                                           - float(_pB.enthalpy(T_out_B_mean, P_inB_val)))
             else:
                 Q_B_simple = m_dot_B * cp_B_in * abs(T_inB - T_out_B_mean)
             Q_total = max(Q_A_simple, Q_B_simple)
@@ -646,21 +646,12 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
     from sjtu_tpmshx.models import tpms_calc as _tc
     from sjtu_tpmshx.models import fluid_props
 
-    # 2026-05-09 (option B) — per-side fluid property accessors. Air uses
-    # ideal-gas density (T, P); water is incompressible so P is ignored.
-    # Returns (rho_fn, cp_fn, mu_fn, k_fn) — each accepts a scalar or
-    # ndarray T (K) and P (Pa, optional) with broadcast semantics.
-    def _props_for(fluid: str, side: str):
-        # Primitives from the single fluid registry; dict shape kept for the
-        # downstream ['name']/['rho']/... consumers (behavior-identical).
-        m = cfg['_models']['fluid_' + side] if '_models' in cfg else fluid_props.get(fluid)
-        return dict(rho=m.rho, cp=m.cp, mu=m.mu, k=m.k, name=m.name,
-                    enthalpy=m.enthalpy)
+    # Use the same FluidModel objects as 3D, including prepared model resources.
     sco2_nu = getattr(cfg.get('compute_cfg'), 'sco2_nu', None)
     nu_observations = {'A': {}, 'B': {}}
-    _pA = _props_for(fluid_A, 'A')
-    _pB = _props_for(fluid_B, 'B')
-    _enthalpy_mode = ('sco2' in (_pA['name'], _pB['name'])
+    _pA = cfg['_models']['fluid_A'] if '_models' in cfg else fluid_props.get(fluid_A)
+    _pB = cfg['_models']['fluid_B'] if '_models' in cfg else fluid_props.get(fluid_B)
+    _enthalpy_mode = ('sco2' in (_pA.name, _pB.name)
                       and zone_config is None)
     mA_rows = mB_rows = None
 
@@ -695,24 +686,23 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
         correlation; air uses its native Nu. ``side_P`` (Pa) is forwarded to
         the property primitives — air/water ignore it (value-identical), sCO2
         requires it (real-gas)."""
-        m = fluid_props.get(side_props['name'], sco2_nu=sco2_nu)
+        m = fluid_props.get(side_props.name, sco2_nu=sco2_nu)
         Pr = None
-        if side_props['name'] in ('water', 'sco2'):
+        if side_props.name in ('water', 'sco2'):
             # Pr-substitution (2D convention: no k guard) computed here so the
             # registry stays free of the 2D-vs-3D Prandtl differences.
-            mu_w = float(side_props['mu'](side_T_for_Pr, side_P))
-            k_w  = float(side_props['k'](side_T_for_Pr, side_P))
-            cp_w = float(side_props['cp'](side_T_for_Pr, side_P))
+            mu_w = float(side_props.mu(side_T_for_Pr, side_P))
+            k_w  = float(side_props.k(side_T_for_Pr, side_P))
+            cp_w = float(side_props.cp(side_T_for_Pr, side_P))
             Pr = mu_w * cp_w / k_w
         return m.nu(tpms_type, Re, eps_f, L_mm, D_h_mm, Pr)
 
     def _build_hv_local_2d(rho_scalar, mu_scalar, k_f_scalar,
                             u_mag_field, L_mm_field, t_mm_field,
-                            side_props=None, side_T_for_Pr=None, side_P=None):
+                            *, side_props, side_T_for_Pr, side_P):
         """Per-cell h_v = A_0 · max(Nu(Re_local), Nu_lam) · k_f / D_h.
         L_mm_field, t_mm_field None → uniform Lcell, t_wall.
-        side_props (dict) + side_T_for_Pr (K) drive water Nu dispatch
-        when present; default None falls back to air Nu (legacy)."""
+        The supplied FluidModel and scalar T/P determine the Nu correlation."""
         Nx_l, Ny_l = u_mag_field.shape
         if L_mm_field is None:
             g_u = cfg['thermal_geometry']['uniform']
@@ -725,21 +715,10 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
             # did per cell, Nu post-floor at _NU_LAM_FLOOR_2D, single-stream
             # ε_f = ε/2), so it is bit-identical — just Nx·Ny× fewer Python
             # calls per side per outer coupling iter.
-            record_raw_nu_range(side_props['name'] if side_props else 'air', tpms_type, Re_loc)
+            record_raw_nu_range(side_props.name, tpms_type, Re_loc)
             Re_arr = np.maximum(Re_loc, 1.0)
-            if side_props is not None:
-                m = fluid_props.get(side_props['name'], sco2_nu=sco2_nu)
-                Pr = None
-                if side_props['name'] in ('water', 'sco2'):
-                    mu_w = float(side_props['mu'](side_T_for_Pr, side_P))
-                    k_w = float(side_props['k'](side_T_for_Pr, side_P))
-                    cp_w = float(side_props['cp'](side_T_for_Pr, side_P))
-                    Pr = mu_w * cp_w / k_w
-                Nu_arr = m.nu(tpms_type, Re_arr, eps_g / 2.0, Lcell,
-                              D_h * 1000.0, Pr)
-            else:
-                Nu_arr = _tc.nu_from_Re(tpms_type, Re_arr, eps_g / 2.0,
-                                        Lcell, D_h * 1000.0)
+            Nu_arr = _nu_dispatch(side_props, side_T_for_Pr, Re_arr,
+                                  eps_g / 2.0, Lcell, D_h * 1000.0, side_P)
             Nu_arr = np.maximum(np.asarray(Nu_arr, dtype=np.float64),
                                 _NU_LAM_FLOOR_2D)
             return A0 * Nu_arr * k_f_scalar / D_h
@@ -753,17 +732,12 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
                 Re_l = rho_scalar * (abs(float(u_mag_field[i, j])) + 1e-12) * D_h_l / mu_scalar
                 raw_Re[i, j] = Re_l
                 Re_ij = max(Re_l, 1.0)
-                if side_props is not None:
-                    nu_corr = _nu_dispatch(side_props, side_T_for_Pr,
-                                            Re_ij, g['epsilon'] / 2.0,
-                                            L_ij, D_h_l * 1000.0, side_P)
-                else:
-                    nu_corr = _tc.nu_from_Re(tpms_type, Re_ij,
-                                              g['epsilon'] / 2.0,
-                                              L_ij, D_h_l * 1000.0)
+                nu_corr = _nu_dispatch(side_props, side_T_for_Pr,
+                                        Re_ij, g['epsilon'] / 2.0,
+                                        L_ij, D_h_l * 1000.0, side_P)
                 Nu_l = max(nu_corr, _NU_LAM_FLOOR_2D)
                 out[i, j] = g['A_0'] * Nu_l * k_f_scalar / D_h_l
-        record_raw_nu_range(side_props['name'] if side_props else 'air', tpms_type, raw_Re)
+        record_raw_nu_range(side_props.name, tpms_type, raw_Re)
         return out
 
     tpms_type = cfg['tpms_type']
@@ -789,7 +763,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
     _delta_2d = float(cfg['compute_cfg'].geometry.delta_levelset)
     _asym_2d = (_delta_2d != 0.0)
     _model_h_mode = (not _enthalpy_mode and zone_config is None and not _asym_2d
-                     and _pA['name'] in ('air', 'water') and _pB['name'] in ('air', 'water'))
+                     and _pA.name in ('air', 'water') and _pB.name in ('air', 'water'))
     _split_A_2d = cfg['thermal_geometry']['split_A']
     _epsfac_A = 2.0 * _split_A_2d            # ε_A / (ε/2)
     _epsfac_B = 2.0 * (1.0 - _split_A_2d)    # ε_B / (ε/2)
@@ -803,19 +777,19 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
     # out of scope). Per-side dP (Darcy-Forchheimer κ) is likewise the opt-in
     # CFD κ layer — 3D's default kappa_KcF returns (1,1) with no table, so the
     # symmetric K_df/cF here matches the 3D default. See design D2(b) / Risks.
-    def _hv_side_geom_ratio_2d(side_props, u_side, T_side, P_side):
+    def _hv_side_geom_ratio_2d(side_props, u_side, T_side, P_side, side):
         if not _asym_2d:
             return 1.0
-        A0_s, Dh_s, A0_r, Dh_r = cfg['thermal_geometry']['side_geometry']['A' if side_props is _pA else 'B']
-        _rho = float(side_props['rho'](T_side, P_side))
-        _mu = float(side_props['mu'](T_side, P_side))
+        A0_s, Dh_s, A0_r, Dh_r = cfg['thermal_geometry']['side_geometry'][side]
+        _rho = float(side_props.rho(T_side, P_side))
+        _mu = float(side_props.mu(T_side, P_side))
 
         def _hv(A0, Dh):
             Dh_m = max(float(Dh), 1e-12)
             Re_raw = _rho * abs(float(u_side)) * Dh_m / max(_mu, 1e-30)
-            record_raw_nu_range(side_props['name'], tpms_type, Re_raw)
+            record_raw_nu_range(side_props.name, tpms_type, Re_raw)
             Re = max(Re_raw, 1.0)
-            if side_props['name'] in ('water', 'sco2'):
+            if side_props.name in ('water', 'sco2'):
                 nu = _nu_dispatch(side_props, T_side, Re, 0.5 * float(eps),
                                   Lcell, Dh_m * 1000.0, P_side)
             else:
@@ -829,9 +803,9 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
             return (_hv(A0_s, Dh_s) / _ref) if _ref > 0 else 1.0
 
     with range_context(side='A', stage='asym-ratio', layout='scalar'):
-        _hv_ratio_A_2d = _hv_side_geom_ratio_2d(_pA, u_A, T_inA, P_inA_val)
+        _hv_ratio_A_2d = _hv_side_geom_ratio_2d(_pA, u_A, T_inA, P_inA_val, 'A')
     with range_context(side='B', stage='asym-ratio', layout='scalar'):
-        _hv_ratio_B_2d = _hv_side_geom_ratio_2d(_pB, u_B, T_inB, P_inB_val)
+        _hv_ratio_B_2d = _hv_side_geom_ratio_2d(_pB, u_B, T_inB, P_inB_val, 'B')
 
     def _on_progress(step, total):
         pass  # progress handled by main thread timer
@@ -873,9 +847,9 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
     simpA = simpB = None
 
     with range_context(side='A', stage='inlet', layout='scalar'):
-        rho_cp_A = _pA['rho'](T_inA, P_inA_val) * _pA['cp'](T_inA, P_inA_val)
+        rho_cp_A = _pA.rho(T_inA, P_inA_val) * _pA.cp(T_inA, P_inA_val)
     with range_context(side='B', stage='inlet', layout='scalar'):
-        rho_cp_B = _pB['rho'](T_inB, P_inB_val) * _pB['cp'](T_inB, P_inB_val)
+        rho_cp_B = _pB.rho(T_inB, P_inB_val) * _pB.cp(T_inB, P_inB_val)
     last_temperature_inputs = None
     native_evidence = {}
     fine_evidence = {}
@@ -884,9 +858,9 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
 
     # Variable density: 2D rho fields for SIMPLE (initialized uniform)
     with range_context(side='A', stage='inlet', layout='scalar'):
-        rho_A_field = np.full((N_x, N_y), _pA['rho'](T_inA, P_inA_val))
+        rho_A_field = np.full((N_x, N_y), _pA.rho(T_inA, P_inA_val))
     with range_context(side='B', stage='inlet', layout='scalar'):
-        rho_B_field = np.full((N_x, N_y), _pB['rho'](T_inB, P_inB_val))
+        rho_B_field = np.full((N_x, N_y), _pB.rho(T_inB, P_inB_val))
 
     # Outer SIMPLE↔LTNE loop, driven by the shared run_outer_coupling skeleton
     # (2D = SIMPLE-first: `step` solves SIMPLE A/B + the coupled energy + the
@@ -919,8 +893,8 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
         # _update_density (ideal-gas P/RT update) as a no-op; ρ stays
         # at the inlet value over the whole field. B1 1.1: mapping via
         # the registry's flow_model() instead of a per-site string check.
-        _ftA = fluid_props.flow_model(_pA['name'])
-        _ftB = fluid_props.flow_model(_pB['name'])
+        _ftA = fluid_props.flow_model(_pA.name)
+        _ftB = fluid_props.flow_model(_pB.name)
         from sjtu_tpmshx.df_surrogate.predict import SCO2_DF_METHOD
         # V2 uses one water+sCO2 CFD-only closure for every fluid. K and
         # cF depend on TPMS/L/t only and stay fixed through the solve.
@@ -970,8 +944,8 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
                           'Fluid A', P_inA_val),
                       dict(T_field_real=_Ta_for_simpA,
                            fluid_type=_ftA, df_method=_dfA,
-                           fluid_name=_pA['name'],
-                           rho_inlet_ref=float(_pA['rho'](T_inA, P_inA_val)),
+                           fluid_name=_pA.name,
+                           rho_inlet_ref=float(_pA.rho(T_inA, P_inA_val)),
                            p_shoot_prev=_psA)),
                 daemon=True)
         with range_context(side='B', stage='inlet', layout='scalar'):
@@ -981,8 +955,8 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
                           'Fluid B', P_inB_val),
                       dict(T_field_real=_Tb_for_simpB,
                            fluid_type=_ftB, df_method=_dfB,
-                           fluid_name=_pB['name'],
-                           rho_inlet_ref=float(_pB['rho'](T_inB, P_inB_val)),
+                           fluid_name=_pB.name,
+                           rho_inlet_ref=float(_pB.rho(T_inB, P_inB_val)),
                            p_shoot_prev=_psB)),
                 daemon=True)
         _tA.start(); _tB.start()
@@ -1068,29 +1042,29 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
                       else np.full_like(u_mag_B, T_inB))
 
             def _enthalpy_side_hv(props, T_field, P_in, u_mag, observation):
-                fluid_props.check_water_state(props['name'], T_field, P_in,
+                fluid_props.check_water_state(props.name, T_field, P_in,
                                               where='2D h_v property refresh')
-                if props['name'] == 'sco2':
+                if props.name == 'sco2':
                     return _sco2_hv_local_field(
                         T_field, P_in, u_mag, _g_hv['A_0'], _g_hv['D_h'],
                         tpms_type, Lcell, sco2_nu=sco2_nu, observation=observation)
-                rho = cell_average(props['rho'](T_field, P_in), energy_dx, energy_dy)
-                mu = cell_average(props['mu'](T_field, P_in), energy_dx, energy_dy)
+                rho = cell_average(props.rho(T_field, P_in), energy_dx, energy_dy)
+                mu = cell_average(props.mu(T_field, P_in), energy_dx, energy_dy)
                 mean_T = cell_average(T_field, energy_dx, energy_dy)
                 return _build_hv_local_2d(
-                    rho, mu, float(props['k'](mean_T, P_in)),
+                    rho, mu, float(props.k(mean_T, P_in)),
                     u_mag, None, None, side_props=props,
                     side_T_for_Pr=mean_T, side_P=P_in)
 
             with range_context(side='A', stage='main-hv', layout='real-cell(x,y)'):
                 h_vA_local = _enthalpy_side_hv(_pA, _Ta_hv, P_inA_val, u_mag_A, nu_observations['A'])
-                if _coup_it == 0 and _pA['name'] == 'sco2':
+                if _coup_it == 0 and _pA.name == 'sco2':
                     warn_sco2_nu_evidence(
                         side='A', stage='2D main-hv', tpms_type=tpms_type,
                         L_mm=Lcell, t_mm=t_wall, P_in=P_inA_val)
             with range_context(side='B', stage='main-hv', layout='real-cell(x,y)'):
                 h_vB_local = _enthalpy_side_hv(_pB, _Tb_hv, P_inB_val, u_mag_B, nu_observations['B'])
-                if _coup_it == 0 and _pB['name'] == 'sco2':
+                if _coup_it == 0 and _pB.name == 'sco2':
                     warn_sco2_nu_evidence(
                         side='B', stage='2D main-hv', tpms_type=tpms_type,
                         L_mm=Lcell, t_mm=t_wall, P_in=P_inB_val)
@@ -1100,9 +1074,9 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
             mu_A_scalar = cell_average(mu_A, energy_dx, energy_dy)
             mu_B_scalar = cell_average(mu_B, energy_dx, energy_dy)
             with range_context(side='A', stage='main-hv', layout='scalar'):
-                k_fA = float(_pA['k'](T_inA, P_inA_val))
+                k_fA = float(_pA.k(T_inA, P_inA_val))
             with range_context(side='B', stage='main-hv', layout='scalar'):
-                k_fB = float(_pB['k'](T_inB, P_inB_val))
+                k_fB = float(_pB.k(T_inB, P_inB_val))
             with range_context(side='A', stage='main-hv', layout='real-cell(x,y)'):
                 h_vA_local = _build_hv_local_2d(
                     rho_A_scalar, mu_A_scalar, k_fA,
@@ -1123,7 +1097,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
         # GS-smoother is air-fit and can NaN-blow up on raw water settings.
         # Loosen tol + raise max_iter when ANY side is water; air-air case
         # keeps the original tight settings.
-        _has_water = (_pA['name'] == 'water') or (_pB['name'] == 'water')
+        _has_water = (_pA.name == 'water') or (_pB.name == 'water')
         _e_max_iter = 12000 if _has_water else 5000
         _e_tol      = 1.0   if _has_water else 0.5
         if _enthalpy_mode:
@@ -1182,7 +1156,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
             Ta, Tb, Ts, e_info = solve_enthalpy_2d(
                 T_inA, T_inB, P_abs_A, P_abs_B, mass_flux_A, mass_flux_B,
                 h_vA_local, h_vB_local, _Kss_src, eps_A_ent, eps_B_ent,
-                energy_dx, energy_dy, fluid_A=_pA['name'], fluid_B=_pB['name'],
+                energy_dx, energy_dy, fluid_A=_pA.name, fluid_B=_pB.name,
                 P_inA=P_inA_val, P_inB=P_inB_val,
                 Ta_init=Ta, Tb_init=Tb, Ts_init=Ts,
                 max_iter=_e_max_iter, tol=_e_tol, cancel_check=cancel_check)
@@ -1199,7 +1173,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
             model_kwargs = {}
             if _model_h_mode:
                 model_kwargs = dict(
-                    model_fluids=(_pA['name'], _pB['name']),
+                    model_fluids=(_pA.name, _pB.name),
                     accelerate=cfg['compute_cfg'].flags.port_wall_refine,
                     mass_flux_A=mass_flux_A, mass_flux_B=mass_flux_B)
                 last_model_inputs = dict(model_kwargs, K_ffA=_Kffa_use, K_ffB=_Kffb_use,
@@ -1213,12 +1187,12 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
             with range_context(side='A', stage='main-inlet', layout='scalar'):
                 inlet_flux_A = (_inlet_transport_2d(
                     simpA, dir_A, _epsA_use if _epsA_use is not None else .5*_eps_src,
-                    _pA['cp'](T_inA, P_inA_val), energy_dx, energy_dy)
+                    _pA.cp(T_inA, P_inA_val), energy_dx, energy_dy)
                     if not _model_h_mode else None)
             with range_context(side='B', stage='main-inlet', layout='scalar'):
                 inlet_flux_B = (_inlet_transport_2d(
                     simpB, dir_B, _epsB_use if _epsB_use is not None else .5*_eps_src,
-                    _pB['cp'](T_inB, P_inB_val), energy_dx, energy_dy)
+                    _pB.cp(T_inB, P_inB_val), energy_dx, energy_dy)
                     if not _model_h_mode else None)
             for side, fluid, temperature in (('A', fluid_A, Ta), ('B', fluid_B, Tb)):
                 with range_context(side=side, stage='main-warm', layout='real-cell(x,y)'):
@@ -1287,22 +1261,22 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
         # from the 3D path (which already uses P_ref_abs + P). Transpose /
         # flip SIMPLE coords → real (Nx, Ny) to match Ta shape.
         with range_context(side='A', stage='property-refresh', layout='real-cell(x,y)'):
-            rho_cp_A_new = _pA['rho'](Ta, P_abs_A) * _pA['cp'](Ta, P_abs_A)
+            rho_cp_A_new = _pA.rho(Ta, P_abs_A) * _pA.cp(Ta, P_abs_A)
         with range_context(side='B', stage='property-refresh', layout='real-cell(x,y)'):
-            rho_cp_B_new = _pB['rho'](Tb, P_abs_B) * _pB['cp'](Tb, P_abs_B)
+            rho_cp_B_new = _pB.rho(Tb, P_abs_B) * _pB.cp(Tb, P_abs_B)
         with range_context(side='A', stage='property-refresh', layout='real-cell(x,y)'):
-            rho_A_field_new = _pA['rho'](Ta, P_abs_A)
+            rho_A_field_new = _pA.rho(Ta, P_abs_A)
         with range_context(side='B', stage='property-refresh', layout='real-cell(x,y)'):
-            rho_B_field_new = _pB['rho'](Tb, P_abs_B)
+            rho_B_field_new = _pB.rho(Tb, P_abs_B)
 
         # Variable mu: build 2D viscosity field from per-cell Ta/Tb via
         # Sutherland (air) or Vogel (water). With local-P density now using
         # the full field, local mu keeps the momentum balance consistent
         # cell-by-cell.
         with range_context(side='A', stage='property-refresh', layout='real-cell(x,y)'):
-            mu_A = _pA['mu'](Ta, P_abs_A)
+            mu_A = _pA.mu(Ta, P_abs_A)
         with range_context(side='B', stage='property-refresh', layout='real-cell(x,y)'):
-            mu_B = _pB['mu'](Tb, P_abs_B)
+            mu_B = _pB.mu(Tb, P_abs_B)
         T_avg_A = cell_average(Ta, energy_dx, energy_dy)
         T_avg_B = cell_average(Tb, energy_dx, energy_dy)
 

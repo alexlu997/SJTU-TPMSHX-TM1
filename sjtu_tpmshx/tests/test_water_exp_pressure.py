@@ -166,7 +166,7 @@ def test_pricing_config_uses_absolute_pressure_preserving_mass_flow():
     row.update({5: .05, 7: .1, 24: 20., 28: 150., 30: 3000.})
     df = pd.DataFrame([row])
     df['water_P_in_abs_Pa'] = 99325.
-    cfg = _build_cfg(0, df, 8, 4, 3, mode='f2', mom_tol=1e-4,
+    cfg = _build_cfg(0, df, 8, 4, 3, mom_tol=1e-4,
                      mass_local_tol=1e-4, mass_global_tol=1e-4)
     assert cfg.fluid_B.P_in_Pa == 99325.
     assert (cfg.fluid_B.u_mps * water_density(cfg.fluid_B.T_in_K)

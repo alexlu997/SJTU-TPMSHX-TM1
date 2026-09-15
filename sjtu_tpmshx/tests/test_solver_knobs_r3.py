@@ -8,8 +8,8 @@ Contract under test:
    the optimizer used to read from SolverConfig.
 3. Legacy JSONs with the retired solver.alpha_T / solver.rough_mode keys
    still load (dropped with a warning, not TypeError).
-4. EFFECTIVENESS: setting a knob actually changes solver behaviour in
-   both dims — the whole point of R3 is that these were decorative.
+4. The outer-iteration budget changes solver behaviour in both dims.
+   tol_simple is retained for file/call compatibility; F2 has separate gates.
 """
 import json
 import warnings as _warnings
@@ -105,10 +105,8 @@ def test_2d_max_outer_knob_turns():
     1: `Pipeline.run()` now enforces `ComputeConfig.validate()` (codex
     review 2026-07-13), whose deliberate rule is max_outer_ltne >= 2 (a
     single pass cannot even measure a dT change — the truth-table tests
-    pin that rule). tol_simple gates the exit only under
-    convergence_mode='legacy' (ledger C6/C9 — under the f2 pipeline
-    default it drives nothing but the AMG scheduler), so its
-    effectiveness is not asserted here."""
+    pin that rule). tol_simple is a compatibility field and does not set
+    F2 tolerances, so its effectiveness is not asserted here."""
     from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
     Ta_def = Pipeline2D(_small_2d_cfg()).run().fields['Ta']
     Ta_capped = Pipeline2D(_small_2d_cfg(max_outer_ltne=2)).run().fields['Ta']
@@ -122,9 +120,8 @@ def test_2d_max_outer_knob_turns():
 
 @pytest.mark.slow
 def test_3d_knobs_turn():
-    """max_outer_ltne must cap the 3D outer loop. (tol_simple is also passed
-    but its exit-gating is legacy-only — ledger C6/C7; under the f2 pipeline
-    default it only retunes the AMG scheduler, so no assertion hangs on it.)"""
+    """max_outer_ltne must cap the 3D outer loop. tol_simple is also passed
+    for compatibility, but does not control F2 convergence."""
     from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
     from test_partial_bc_ghost_b import _partial_bc_air_air_cfg
     base = _partial_bc_air_air_cfg(Nx=8, Ny=6, Nz=6)

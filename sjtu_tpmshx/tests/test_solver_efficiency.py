@@ -1,8 +1,4 @@
-"""R1/R4 tests — openspec change solver-efficiency-r1-r4.
-
-R1: 2D A+B early-exit (port of the 3D low-Re/plateau exit).
-R4: opt-in 3D momentum SOU (flag off => bit-identical default path).
-"""
+"""F2 stopping accuracy and opt-in 3D momentum SOU regressions."""
 from __future__ import annotations
 import numpy as np
 import pytest
@@ -21,34 +17,30 @@ def _make_solver(**kw):
 
 
 # ────────────────────────────────────────────────────────────────────
-# R1 — 2D early-exit
+# 2D F2 stopping accuracy
 # ────────────────────────────────────────────────────────────────────
 
-def test_early_exit_fires_on_unreachable_tol():
-    """tol=0 is unreachable for the absolute residual; the velocity-stability
-    exit must still return converged well before max_iter."""
+def test_f2_converges_within_budget():
     s = _make_solver()
-    conv, it = s.solve(max_iter=2000, tol=1e-30, verbose=False)
-    assert conv and it < 500
+    conv, it = s.solve(max_iter=2000, verbose=False)
+    assert conv and it < 500 and s.final_res_mom < 1e-4
 
 
-def test_early_exit_off_restores_legacy_burnout():
-    """lowre_early_exit=False → only the strict residual test remains, so an
-    unreachable tol burns all max_iter (legacy behaviour)."""
+def test_impossible_momentum_gate_reaches_iteration_cap():
     s = _make_solver()
-    s.lowre_early_exit = False
-    conv, it = s.solve(max_iter=100, tol=1e-30, verbose=False)
-    assert (not conv) and it == 100
+    s.mom_tol = 0.0
+    conv, it = s.solve(max_iter=100, verbose=False)
+    assert not conv and it == 100
 
 
-def test_early_exit_state_matches_deep_run():
-    """The early-exit iterate must equal the flag-off deep-run iterate to
-    engineering tolerance — evidence the exit only fires on a settled field."""
+def test_default_f2_matches_tighter_momentum_solution():
+    """Default stopping error remains below 0.5% of the tighter solution."""
     sA = _make_solver()
     convA, itA = sA.solve(max_iter=2000, tol=1e-30, verbose=False)
     sB = _make_solver()
-    sB.lowre_early_exit = False
-    sB.solve(max_iter=2000, tol=1e-30, verbose=False)
+    sB.mom_tol = 1e-6
+    convB, _ = sB.solve(max_iter=2000, verbose=False)
+    assert convB
     assert convA
     dP_A = float(sA.P[:, 0].mean() - sA.P[:, -1].mean())
     dP_B = float(sB.P[:, 0].mean() - sB.P[:, -1].mean())

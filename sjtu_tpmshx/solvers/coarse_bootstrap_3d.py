@@ -1,11 +1,9 @@
 """Coarse-grid bootstrap for 3D SIMPLE solver (Phase C acceleration).
 
 Strategy: build a half-resolution SIMPLE solver (Nx//2, Ny//2, Nz//2),
-solve to a loose mass-residual tol (1e-3), trilinear-interpolate the
-converged (u, v, w, P) onto the fine staggered grid, and inject as
-the initial guess for the fine solve. The fine solver then reaches
-its tight tol in ~half the outer iterations because the cold-start
-transient is already absorbed at coarse resolution.
+run a bounded F2 solve, trilinear-interpolate (u, v, w, P) onto the fine
+staggered grid, and inject an initial guess. A capped coarse solve supplies
+only a seed; the fine solver must still satisfy its own F2 gates.
 
 Geometry coefficients (K_arr, cF_arr, eps) are
 block-averaged onto the coarse grid — geometry is NOT re-evaluated via
@@ -15,13 +13,12 @@ Ports are rebuilt from their physical rectangles; inlet mass is transferred
 by open-area intersection, including nonuniform and odd-sized fine grids.
 
 Final correctness is preserved: the fine solver still converges to its
-own tol gate. Coarse bootstrap is opt-in via `solver_fine.use_coarse_bootstrap`.
+own F2 gates. Coarse bootstrap is opt-in via `solver_fine.use_coarse_bootstrap`.
 
 Skips silently if the coarse grid would be too small to be useful
 (any axis < 4 cells).
 """
 from __future__ import annotations
-import os
 import numpy as np
 
 from ._solve_common import f2_state_is_finite
@@ -63,7 +60,6 @@ def _open_intersections(fine_widths, coarse_widths, lo, hi):
 
 
 def bootstrap_simple_3d(solver_fine, max_iter_coarse: int = 200,
-                         tol_coarse: float = 1e-3,
                          min_coarse_axis: int = 4,
                          verbose: bool = False) -> dict:
     """Run a coarse SIMPLE solve, prolongate (u,v,w,P) into ``solver_fine``.
@@ -75,8 +71,6 @@ def bootstrap_simple_3d(solver_fine, max_iter_coarse: int = 200,
         P arrays are overwritten with prolongated coarse fields.
     max_iter_coarse : int
         Cap on coarse SIMPLE iterations.
-    tol_coarse : float
-        Mass-residual gate for coarse solve. Loose by design (1e-3).
     min_coarse_axis : int
         Skip bootstrap if any coarse axis would be smaller than this.
     verbose : bool
@@ -163,10 +157,11 @@ def bootstrap_simple_3d(solver_fine, max_iter_coarse: int = 200,
     # (less benefit, more risk for short solve).
     solver_coarse.use_adaptive_amg_tol = getattr(
         solver_fine, 'use_adaptive_amg_tol', True)
+    solver_coarse.convergence_mode = 'f2'  # Parent already validated its captured choice.
     solver_coarse.use_anderson = False
 
     converged, iters = solver_coarse.solve(
-        max_iter=max_iter_coarse, tol=tol_coarse, verbose=verbose)
+        max_iter=max_iter_coarse, verbose=verbose)
     res_final = float(solver_coarse.residuals[-1]) if solver_coarse.residuals else float('nan')
 
     # Prolongate (u, v, w, P) onto fine staggered shapes.
@@ -175,11 +170,9 @@ def bootstrap_simple_3d(solver_fine, max_iter_coarse: int = 200,
     solver_fine.w[:] = _trilinear_zoom(solver_coarse.w, solver_fine.w.shape)
     solver_fine.P[:] = _trilinear_zoom(solver_coarse.P, solver_fine.P.shape)
 
-    mode = str(getattr(solver_fine, 'convergence_mode',
-                       os.environ.get('TPMSHX_CONV_MODE', 'legacy')))
     # Preserve any invalid prolonged field for the parent F2 exit guard.
     # Neither density clipping nor reapplying a boundary may erase it.
-    if mode != 'f2' or f2_state_is_finite(
+    if f2_state_is_finite(
             solver_fine, (solver_fine.u, solver_fine.v, solver_fine.w)):
         solver_fine.v[:, 0, :] = solver_fine.v_inlet_field
         if solver_fine.fluid_type == 'ideal_gas':
@@ -188,7 +181,7 @@ def bootstrap_simple_3d(solver_fine, max_iter_coarse: int = 200,
     # Prolongation can smear a partial outlet across its edge. Reapply the
     # fine solver's existing boundary closure using the fine physical support.
     from ._kernels_simple_3d import _v_bc_3d
-    if mode != 'f2' or f2_state_is_finite(
+    if f2_state_is_finite(
             solver_fine, (solver_fine.u, solver_fine.v, solver_fine.w)):
         _v_bc_3d(solver_fine.u, solver_fine.v, solver_fine.w,
                  solver_fine.v_inlet_field, solver_fine.rho_field,

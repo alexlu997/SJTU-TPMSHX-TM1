@@ -27,7 +27,6 @@ Hard gates:
 Output:
   validation/mms_phase_a4_boundary.csv
   validation/mms_phase_a4_orders.csv
-  vault/reports/3d-solver/2026-05-04-mms-phase-a4-CN.md  (manual write)
 """
 from __future__ import annotations
 import argparse
@@ -50,7 +49,7 @@ from sjtu_tpmshx.validation.harness._provenance import write_csv_with_provenance
 from sjtu_tpmshx.validation.harness._order_fit import fit_order_loglog
 from sjtu_tpmshx.validation.harness._mms_driver import run_grid_sequence
 
-_SCRIPT_REL = 'sjtu_tpmshx/validation/mms_phase_a4_boundary.py'
+_SCRIPT_REL = 'sjtu_tpmshx/validation/cases/mms_phase_a4_boundary.py'
 
 
 def _region_masks(Nx, Ny, Nz):

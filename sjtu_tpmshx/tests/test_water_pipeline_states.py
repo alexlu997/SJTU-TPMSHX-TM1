@@ -149,8 +149,10 @@ def test_richardson_water_failure_cannot_fall_back(monkeypatch, failure):
     from sjtu_tpmshx.tests.test_richardson_validity_2d import _arguments
     _, arguments = _arguments(monkeypatch)
     arguments.update(T_inA=380., T_inB=300., P_inA_val=2e5, P_inB_val=2e5)
+    from dataclasses import replace
+    from sjtu_tpmshx.models.fluid_props import get
     for side, t in (('A', 380.), ('B', 300.)):
-        arguments['_p' + side] = dict(name='water', rho=lambda *a: 1., cp=lambda *a: 1.)
+        arguments['_p' + side] = replace(get('water'), rho=lambda *a: 1., cp=lambda *a: 1.)
         arguments['T' + side.lower()][:] = t
 
     def refined(*args, **kwargs):
@@ -166,12 +168,14 @@ def test_richardson_water_failure_cannot_fall_back(monkeypatch, failure):
         nonlocal calls
         calls += 1
         if failure == 'fallback' and calls == 1:
-            def invalid_density(*args):
-                raise WaterStateError('injected fallback property state')
-            arguments['_pA']['rho'] = invalid_density
             raise RuntimeError('exercise existing fallback')
         raise WaterStateError('injected duty state')
 
+    def density(*args):
+        if failure == 'fallback' and calls:
+            raise WaterStateError('injected fallback property state')
+        return 1.
+    arguments['_pA'] = replace(arguments['_pA'], rho=density)
     monkeypatch.setattr(solve_2d, 'solve_full_domain', refined)
     monkeypatch.setattr(solve_2d, '_enthalpy_balance_2d', duty)
     with pytest.raises(WaterStateError):
