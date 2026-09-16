@@ -1,26 +1,15 @@
-"""Compressible validity-envelope guards for the SIMPLE/LTNE solvers.
+"""Compressible validity checks for the SIMPLE/LTNE solvers.
 
-The steady, low-Mach, pressure-based SIMPLE solver is valid only while the
-Forchheimer pressure drop stays well below the inlet *absolute* pressure. Once
-the predicted dP approaches P_in the 1D outlet pressure goes to zero/negative
-(P_out^2 < 0): there is no steady subsonic solution — the real flow chokes /
-goes supersonic, and the discrete solver responds by driving rho = P/(R T)
-toward zero while the mass-flux inlet holds rho*v fixed, so v explodes. The
-mass residual stays self-consistent through all of this, so the solver used to
-return ``converged=True`` with physically-meaningless fields (negative absolute
-pressure, |v| ~ 2000 m/s) and no warning.
+The full solver qualifies actual cell absolute pressures and local Mach
+numbers, together with physical inlet-pressure matching in the coupled loop.
+A positive/subsonic field with the wrong inlet pressure is not a solution of
+the requested operating point.
 
-These helpers make that failure mode explicit:
-
-* :func:`predict_outlet_p_sq` / :func:`check_compressible_envelope` — a cheap
-  *pre-solve* gate from the same 1D Forchheimer seed the pipeline already
-  computes. ``P_out_sq <= 0`` means choked; raise (default), warn, or ignore.
-* :func:`assess_solution_validity` — a *post-solve* gate on the actual fields
-  (positive absolute pressure everywhere, sub-sonic). Catches dynamic choking
-  the 1D seed missed.
-
-Nothing here changes an in-envelope solve; the gate is a no-op when
-``P_out_sq > 0`` and the validity check only reports.
+The 1D Forchheimer estimate describes straight, isothermal flow. Its failure
+is not proof that a turning, non-isothermal coupled flow has no solution.
+``check_compressible_envelope`` retains that limited 1D diagnostic; full 2D/3D
+startup and bounded pressure updates live in ``solvers._solve_common``.
+The final-field floor, nonfinite and Mach gates below remain unchanged.
 """
 from __future__ import annotations
 
@@ -41,12 +30,7 @@ PRESSURE_FLOOR_PA = 1.0e3
 
 
 class ChokedFlowError(RuntimeError):
-    """The compressible 1D drag predicts dP >= inlet absolute pressure.
-
-    The outlet pressure would have to be <= 0 (vacuum), so no steady subsonic
-    solution exists — the flow is choked / supersonic. Subclasses RuntimeError
-    so callers that only catch RuntimeError still handle it.
-    """
+    """A compressible validity check failed; the message identifies the check."""
 
 
 def predict_outlet_p_sq(P_in, T_in, C_est, L, *, R=R_AIR_DEFAULT):
@@ -54,14 +38,14 @@ def predict_outlet_p_sq(P_in, T_in, C_est, L, *, R=R_AIR_DEFAULT):
 
     ``P_out^2 = P_in^2 - 2 R T C_est L`` with ``C_est = mu*G/K + cF*G^2`` and
     ``G = rho*u`` (mass flux, constant along the pipe). Returns a float that is
-    negative when the predicted dP exceeds P_in (choked).
+    nonpositive when that isothermal 1D model has no positive outlet state.
     """
     return (float(P_in) ** 2
             - 2.0 * float(R) * float(T_in) * float(C_est) * float(L))
 
 
 def check_compressible_envelope(P_out_sq, P_in, *, mode='raise', context=''):
-    """Pre-solve choke gate.
+    """Validity diagnostic for the straight, isothermal 1D approximation.
 
     ``P_out_sq > 0`` → in envelope → return ``None`` (never raises). Otherwise
     the 1D drag predicts dP >= P_in (outlet vacuum): with ``mode='raise'``
@@ -77,7 +61,7 @@ def check_compressible_envelope(P_out_sq, P_in, *, mode='raise', context=''):
         f"Choked/supersonic flow: the 1D Forchheimer drag predicts a pressure "
         f"drop >= the inlet absolute pressure (P_in={float(P_in):.0f} Pa, "
         f"predicted outlet P^2={float(P_out_sq):.3e} < 0). No steady subsonic "
-        f"solution exists. Reduce the inlet velocity, shorten the streamwise "
+        f"solution exists for this isothermal 1D approximation. Reduce the inlet velocity, shorten the streamwise "
         f"domain, or raise the inlet pressure."
     )
     if context:

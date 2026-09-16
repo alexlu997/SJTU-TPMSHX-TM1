@@ -4,7 +4,9 @@ from typing import Any
 from sjtu_tpmshx.domain.run_environment import run_environment
 import numpy as np
 from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
-from sjtu_tpmshx.solvers._solve_common import configure_convergence, pressure_shooting_target_sq
+from sjtu_tpmshx.solvers._solve_common import (
+    configure_convergence, pressure_initial_reference, pressure_shooting_reference,
+)
 from sjtu_tpmshx.models.grid import cell_average
 from sjtu_tpmshx.logutil import get_logger
 
@@ -93,40 +95,12 @@ def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
         if rho_inlet_ref is None and fluid_type == 'ideal_gas':
             rho_inlet_ref = float(P_in_abs) / (287.05 * float(T_in_f))
 
-        # ── P_ref_abs is the OUTLET absolute pressure, not the inlet ────────
-        # BUG FIX 2026-07-12 (ledger C8). This used to pass `P_ref_abs=P_in_abs`.
-        #
-        # `P_ref_abs` is the ABSOLUTE pressure the solver's GAUGE field is
-        # measured from, and the gauge field's zero sits at the OUTLET: the pp
-        # equation pins the outlet row `Pp = 0` (`_kernels_simple_2d.py:735`) and
-        # `_correct_jit` never corrects those cells' P, so the outlet gauge stays
-        # 0 for the entire solve. Hence
-        #
-        #       outlet absolute pressure  ==  P_ref_abs   (exactly)
-        #       inlet  absolute pressure  ==  P_ref_abs + Δp
-        #
-        # Passing the INLET pressure therefore anchored the OUTLET at the inlet
-        # and floated the whole field up by Δp. Measured on Shanghai case 16
-        # (experiment: 304.7 kPa in -> 126.1 kPa out, Δp = 178.7 kPa):
-        #
-        #       before:  inlet 407.3 kPa -> outlet 304.7 kPa,  Δp =  102.6 kPa
-        #                                          ^^^^^ the experiment's INLET
-        #
-        # The outlet density was ~2.4x too high, so the compressible physics was
-        # wrong throughout and Δp came out 43 % low. The error scales with
-        # Δp/P_in: negligible for low-Δp designs (case 1: ~1 %), catastrophic for
-        # high-Δp ones. It was invisible because the 2D validation gate is
-        # kernel-direct and seeds this correctly itself — the gate was validating
-        # a path production does not run.
-        #
-        # (An older project guide described this as "2D is inlet-anchored ... rarely chokes".
-        # That was a description of the SYMPTOM, not a design: it "rarely chokes"
-        # because it never lets the outlet pressure fall.)
-        #
-        # 3D always did this right (`run_stack_3d._seed_p_ref`, ~line 620). Use
-        # the same 1D compressible Forchheimer closed form, with the SAME (K, cF)
-        # the solver itself will build (`simple_solver.py:409-412`), so the seed
-        # can never drift from the drag it is seeding for.
+        # P_ref_abs anchors outlet cells. The initial 1D estimate and later
+        # physical-face corrections use the same policy as 3D.
+        shooting = (fluid_type == 'ideal_gas' and p_shoot_prev is not None
+                    and cfg.get('p_in_shooting',
+                                run_environment(cfg, 'TPMSHX_P_IN_SHOOT', '1') == '1'))
+        pressure_history = p_shoot_prev['iterations'] if shooting else []
         L_stream = float(L if is_x else H)
         if fluid_type == 'ideal_gas':
             from sjtu_tpmshx.solvers.envelope import predict_outlet_p_sq
@@ -137,13 +111,9 @@ def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
             _C = _mu_in * _G / max(_K0, 1e-16) + _cF0 * _G * _G
             _P_out_sq = predict_outlet_p_sq(float(P_in_abs), float(T_in_f),
                                             _C, L_stream)
-            # A non-positive P_out² means the 1D estimate says Δp >= P_in, i.e.
-            # the outlet would go to vacuum — no steady solution exists there.
-            # The 3D path raises ChokedFlowError; 2D has never had a choke guard
-            # (ledger O1), so clip to the same 1e4 Pa floor 3D's `_seed_p_ref`
-            # uses and leave the guard as a separate change, rather than silently
-            # widening the envelope here.
-            P_ref_out = float(np.sqrt(max(_P_out_sq, 1.0e4)))
+            P_ref_out = (pressure_shooting_reference(p_shoot_prev) if shooting else
+                         pressure_initial_reference(_P_out_sq, P_in_abs,
+                                                    history=pressure_history))
         else:
             # Incompressible (water, sCO2 Phase-A): ρ is frozen, so the gauge
             # LEVEL does not feed back into the physics at all — only gradients
@@ -187,18 +157,10 @@ def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
                 s._mu_eff_field = np.ascontiguousarray(
                     s.mu_field / s.eps_field, dtype=np.float64)
         s._df_metadata = flow['metadata']
-        # ── Re-seed P_ref_abs from the solver's ACTUAL drag (2026-07-13) ────
-        # The seed above used the uniform-geometry (K0, cF0); the zone_config /
-        # zone_arrays paths then swap in per-row graded K/cF (constructor or
-        # override_simple_K_cF). P_ref_abs is the PHYSICAL outlet absolute
-        # pressure (ledger C8) — leaving the uniform seed on a graded design
-        # anchors the outlet at the wrong pressure by (Δp_graded − Δp_uniform),
-        # which feeds ρ = P_abs/(RT) everywhere: the C8 mechanism surviving on
-        # the zoned branch. Per-row C averaged arithmetically (rows are drag in
-        # SERIES along the stream). Guarded on genuine non-uniformity so the
-        # uniform path never recomputes — bit-identical there (same reasoning
-        # as the kernels' use_eps guard).
-        if fluid_type == 'ideal_gas':
+        s.pressure_iterations = pressure_history
+        # Graded drag affects the initial estimate only. Later iterations use
+        # the pressure measured from the actual graded flow.
+        if fluid_type == 'ideal_gas' and not shooting:
             _K_rows = np.asarray(s._K_arr, dtype=np.float64)
             _cF_rows = np.asarray(s._cF_arr, dtype=np.float64)
             if (float(_K_rows.max()) != float(_K_rows.min())
@@ -208,16 +170,9 @@ def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
                 _P_out_sq_g = predict_outlet_p_sq(
                     float(P_in_abs), float(T_in_f),
                     float(np.mean(_C_rows)), L_stream)
-                s.P_ref_abs = float(np.sqrt(max(_P_out_sq_g, 1.0e4)))
-        # Correct the actual face pressures, then convert the outlet face
-        # target back to the outlet-cell anchor. Retain the 2D seed's existing
-        # squared-pressure floor (1e4 Pa² = 100 Pa).
-        if (fluid_type == 'ideal_gas' and p_shoot_prev is not None
-                and cfg.get('p_in_shooting',
-                            run_environment(cfg, 'TPMSHX_P_IN_SHOOT', '1') == '1')):
-            _P_out_sq_shoot = pressure_shooting_target_sq(p_shoot_prev)
-            s.P_ref_abs = (float(np.sqrt(max(_P_out_sq_shoot, 1.0e4)))
-                           - p_shoot_prev['outlet_gauge_Pa'])
+                pressure_history.clear()
+                s.P_ref_abs = pressure_initial_reference(
+                    _P_out_sq_g, P_in_abs, history=pressure_history)
         _has_partial = np.any(s.outlet_frac < 0.99) and np.any(s.outlet_frac > 0.5)
         # R3 (2026-07-07): production solver knobs, precedence
         # env > SolverConfig > dim-specific auto. The autos are the

@@ -22,7 +22,8 @@ from sjtu_tpmshx.models.grid import cell_average
 from sjtu_tpmshx.solvers.coupling_skeleton import OuterConvergence, run_outer_coupling
 from sjtu_tpmshx.solvers.simple_solver_3d import SIMPLESolver3D
 from sjtu_tpmshx.solvers._solve_common import (
-    configure_convergence, inlet_pressure_state, pressure_shooting_target_sq,
+    configure_convergence, inlet_pressure_state, pressure_shooting_reference,
+    pressure_initial_reference,
 )
 from sjtu_tpmshx.solvers.ltne_energy_3d import solve_full_domain_3d, _inlet_transport_3d
 from sjtu_tpmshx.models.tpms_calc import (
@@ -31,7 +32,7 @@ from sjtu_tpmshx.models.tpms_calc import (
 )
 from sjtu_tpmshx.models import fluid_props
 from sjtu_tpmshx.models import sco2_props
-from sjtu_tpmshx.solvers.envelope import (check_compressible_envelope, gate_solution,
+from sjtu_tpmshx.solvers.envelope import (gate_solution,
                                mach_field_max, ChokedFlowError,
                                PRESSURE_FLOOR_PA)
 
@@ -66,20 +67,6 @@ def _pressure_real_3d(solver, axis_map, offset):
     if axis_map['is_reverse']:
         field = np.flip(field, axis=axis_map['stream_real_axis'])
     return np.ascontiguousarray(field)
-
-
-def _seed_p_ref(P_out_sq, P_in, *, mode, warn_list, context):
-    """Pre-solve choke gate + the legacy 1D P_ref_abs seed.
-
-    ``check_compressible_envelope`` raises (mode='raise') or returns a warning
-    string (mode='warn') when ``P_out_sq <= 0`` (predicted dP >= inlet abs
-    pressure). The returned ``sqrt(max(P_out_sq, 1e4))`` is the unchanged seed
-    used by 'warn'/'off' so a non-raising run still produces a P_ref_abs.
-    """
-    w = check_compressible_envelope(P_out_sq, P_in, mode=mode, context=context)
-    if w:
-        warn_list.append(w)
-    return float(np.sqrt(max(P_out_sq, 1.0e4)))
 
 
 # 2026-04-26: env var TPMSHX_SIMPLE_TOL overrides default SIMPLE pp tol for
@@ -680,11 +667,11 @@ def build_problem(cfg, prepared):
     G_A = rho_A * u_A
     # C = μG/K + cF·G² where G = ρu (mass flux, constant along pipe by continuity).
     C_est = mu_A * G_A / max(K_pred, 1e-16) + cF_pred * G_A * G_A
+    pressure_history_A = []
     if _mA.compressible:
-        # P² compressible (ideal-gas) seed; only air-A can choke.
+        # The 1D estimate is a startup hint, not a coupled-flow verdict.
         P_out_sq = P_inA ** 2 - 2.0 * R_AIR * T_inA * C_est * L_stream
-        P_ref_A = _seed_p_ref(P_out_sq, P_inA, mode=_env_mode,
-                              warn_list=_env_warnings, context='fluid A inlet seed')
+        P_ref_A = pressure_initial_reference(P_out_sq, P_inA, history=pressure_history_A)
     else:
         # sco2 Phase-A is incompressible (ρ frozen) → simple 1D Darcy-Forchheimer
         # pressure-drop seed sets the gauge level; no choke path.
@@ -707,6 +694,7 @@ def build_problem(cfg, prepared):
             **_port_rectangles(fA, float(np.sum(dcross2))),
         )
     sA._df_metadata = _df_meta_A
+    sA.pressure_iterations = pressure_history_A
     # Phase A/B/C acceleration flags (Phase A on by default; B/C opt-in).
     _apply_accel_flags(sA, cfg)
     # Water also has rho(T): an outer update must not change inlet throughput.
@@ -762,13 +750,10 @@ def build_problem(cfg, prepared):
         G_B = rho_B * u_B
         C_B = mu_B * G_B / max(K_pred_B, 1e-16) + cF_pred_B * G_B * G_B
         solver_fluid_type_B = fluid_props.flow_model(fluid_type_B)
+        pressure_history_B = []
         if _mB.compressible:
             P_out_sq_B = P_inB ** 2 - 2.0 * R_AIR * T_inB * C_B * L_stream_B
-            # Only an ideal-gas (air) B side can choke; water B is incompressible.
-            _b_mode = _env_mode if solver_fluid_type_B == 'ideal_gas' else 'off'
-            P_ref_B = _seed_p_ref(P_out_sq_B, P_inB, mode=_b_mode,
-                                  warn_list=_env_warnings,
-                                  context='fluid B inlet seed')
+            P_ref_B = pressure_initial_reference(P_out_sq_B, P_inB, history=pressure_history_B)
         else:
             P_ref_B = float(P_inB - C_B * L_stream_B / rho_B)
             P_ref_B = max(P_ref_B, 1.0e4)
@@ -787,6 +772,7 @@ def build_problem(cfg, prepared):
                 **_port_rectangles(fB, float(np.sum(dcross2_B))),
             )
         sB._df_metadata = _df_meta_B
+        sB.pressure_iterations = pressure_history_B
         # Mirror Phase A/B/C flags onto sB (sweep config consistent with sA).
         _apply_accel_flags(sB, cfg)
         if fluid_type_B in ('sco2', 'water'):
@@ -2713,6 +2699,10 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
         return _converged, None
 
     def _outer_post_3d(outer, _carry):
+        # Measure the completed flow before refreshing its temperature and
+        # properties. The bounded pressure step joins that outer Picard update.
+        _pressure_A = inlet_pressure_state(sA, P_inA)
+        _pressure_B = inlet_pressure_state(sB, P_inB)
         _check_property_water('3D property refresh')
         # Non-iso coupling: Ta real → solver coords via self-inverse perm
         Ta_sA = np.ascontiguousarray(Ta.transpose(solver_to_real_perm))
@@ -2774,9 +2764,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
         T_avg = cell_average(Ta, dx, dy, dz)
         if _mA.compressible:
             if _p_shoot:
-                _pressure_A = inlet_pressure_state(sA, P_inA)
-                P_out_sq_new = pressure_shooting_target_sq(_pressure_A)
-                _shoot_ctx = 'fluid A shooting reseed (outer iter)'
+                sA.P_ref_abs = pressure_shooting_reference(_pressure_A)
             else:
                 with range_context(side='A', stage='property-refresh', layout='mean'):
                     mu_avg = float(air_viscosity(T_avg))
@@ -2784,12 +2772,8 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
                          + cF_pred * G_A * G_A)
                 P_out_sq_new = (P_inA ** 2
                                 - 2.0 * R_AIR * T_avg * C_avg * L_stream)
-                _shoot_ctx = 'fluid A reseed (outer iter)'
-            sA.P_ref_abs = _seed_p_ref(P_out_sq_new, P_inA, mode=_env_mode,
-                                       warn_list=_env_warnings,
-                                       context=_shoot_ctx)
-            if _p_shoot:
-                sA.P_ref_abs -= _pressure_A['outlet_gauge_Pa']
+                sA.P_ref_abs = pressure_initial_reference(
+                    P_out_sq_new, P_inA, history=sA.pressure_iterations)
         else:
             # Incompressible reseed: D-F coefficients stay constant while the
             # registry supplies the fluid viscosity at the mean temperature.
@@ -2944,9 +2928,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
             if _mB.compressible:   # P_ref recompute is compressible-only
                 Tb_avg = cell_average(Tb, dx, dy, dz)
                 if _p_shoot:
-                    _pressure_B = inlet_pressure_state(sB, P_inB)
-                    P_out_sq_B_new = pressure_shooting_target_sq(_pressure_B)
-                    _shoot_ctx_B = 'fluid B shooting reseed (outer iter)'
+                    sB.P_ref_abs = pressure_shooting_reference(_pressure_B)
                 else:
                     with range_context(side='B', stage='property-refresh', layout='mean'):
                         mu_avg_B = float(_mB.mu(Tb_avg))
@@ -2961,13 +2943,8 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
                     P_out_sq_B_new = (P_inB ** 2
                                       - 2.0 * R_AIR * Tb_avg * C_avg_B
                                       * L_stream_B)
-                    _shoot_ctx_B = 'fluid B reseed (outer iter)'
-                sB.P_ref_abs = _seed_p_ref(P_out_sq_B_new, P_inB,
-                                           mode=_env_mode,
-                                           warn_list=_env_warnings,
-                                           context=_shoot_ctx_B)
-                if _p_shoot:
-                    sB.P_ref_abs -= _pressure_B['outlet_gauge_Pa']
+                    sB.P_ref_abs = pressure_initial_reference(
+                        P_out_sq_B_new, P_inB, history=sB.pressure_iterations)
 
             with range_context(side='B', stage='property-refresh', layout='solver-cell(cross1,stream,cross2)'):
                 sB.update_T_field(Tb_sB)

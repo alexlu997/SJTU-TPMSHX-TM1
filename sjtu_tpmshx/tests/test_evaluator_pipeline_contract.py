@@ -7,11 +7,9 @@ throughput budget is why BO is affordable. The master rule this file encodes:
     **Pareto picks must be re-solved through the production Pipeline
     (verify_pareto_3d / stages_*) before any number is quoted.**
 
-Each test below pins ONE deliberate divergence with its rationale. If a test
-here fails, either (a) an accidental drift crept in — fix the code, or (b) a
-divergence was consciously resolved — update the assertion AND the openspec
-change evaluator-envelope-authority (design.md) in the same commit. Never
-"fix" these by deleting the assertion.
+Each test below pins a current difference between screening and full compute.
+Current numerical ownership and validity requirements live in
+``docs/architecture.md``; historical decisions remain in Git history.
 
 Several assertions are source-marker checks (repo precedent:
 test_validate_pipeline_runner_wiring.py). They are deliberately brittle:
@@ -73,28 +71,22 @@ def test_evaluators_do_not_route_through_pipeline():
             "tier change, not a refactor")
 
 
-def test_2d_choke_policy_evaluator_raises_pipeline_clips():
-    """CURRENT STATE, both sides pinned: the 2D evaluator rejects choked
-    designs pre-solve (raise -> bounded penalty, aa3f477); the 2D pipeline
-    has never had a choke guard and CLIPS the seed instead (ledger O1).
-    The evaluator being stricter than its pipeline is accepted; the pipeline
-    growing a gate is DECISIONS D2 territory."""
-    import sjtu_tpmshx.preprocess.app_modes.screening_2d as prep2d
-    import sjtu_tpmshx.solvers.backends.python.two_d.runtime as st2d
-    src_ev = inspect.getsource(prep2d)
-    src_pipe = inspect.getsource(st2d)
-    assert 'ChokedFlowError' in src_ev
-    # The word appears in a stages_2d COMMENT (the ledger-O1 rationale), so
-    # assert the absence of the raising MECHANISMS, not of the token.
-    assert 'raise ChokedFlowError' not in src_pipe, (
-        "the 2D pipeline grew a choke raise — that resolves DECISIONS D2; "
-        "update this contract with the decision reference")
-    assert 'check_compressible_envelope' not in src_pipe, (
-        "the 2D pipeline adopted the raising pre-solve gate — DECISIONS D2")
-    assert 'max(_P_out_sq, 1.0e4)' in src_pipe, (
-        "2D pipeline lost its documented clip-not-raise seed floor")
-    assert 'predict_outlet_p_sq' in src_pipe, (
-        "2D pipeline lost its envelope seed authority")
+def test_screening_retains_1d_rejection_while_full_flow_can_initialize():
+    """Screening keeps its qualified shortcut; full coupling has a new startup.
+
+    A positive full-solve start is not an acceptance verdict. Its actual
+    inlet and final fields are checked by the pipeline integration tests.
+    """
+    from sjtu_tpmshx.models.continuous_field import uniform_field
+    from sjtu_tpmshx.preprocess.api import prepare_screening_2d
+    from sjtu_tpmshx.solvers._solve_common import pressure_initial_reference
+    field = uniform_field(7., .6, 'Gyroid', 16., L_domain=.7, H_domain=.042)
+    case = prepare_screening_2d(None, dict(
+        tpms_type='Gyroid', k_s=16., L_domain=.7, H_domain=.042,
+        Nx=4, Ny=4, u_A=40., u_B=5., T_inA=400., T_inB=300.,
+        P_inA=101325., P_inB=101325.), fc=field, case_id='screening-rejection')
+    assert '1D D-F seed' in case.parameters['rejection']
+    assert pressure_initial_reference(-1., 101325., history=[]) == 101325.
 
 
 def test_g_reference_density_convention_post_d3c():

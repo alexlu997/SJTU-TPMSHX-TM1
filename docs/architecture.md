@@ -149,7 +149,15 @@ SIMPLE pressure to physical inlet/outlet faces and weight by geometric open
 area. Both dimensions share the same reduction. Air inlet-pressure correction
 also uses these physical faces: the outlet-cell anchor is iterated until the
 inlet open-area mean meets the specified absolute pressure within `1e-4`
-relative error. This check joins the outer convergence gate. Correction is on
+relative error. Both dimensions share pressure initialization and a bounded
+P-squared update in `solvers/_solve_common.py`. A positive 1D estimate above
+the existing pressure floor is used as the initial outlet-cell anchor; an
+unusable isothermal estimate starts at the specified inlet pressure. Downward
+updates consume at most half the remaining squared-pressure distance to the
+face/cell floor, then the coupled flow is recomputed. The original proposal,
+accepted step and initial method are retained in each inlet state's `iterations`.
+These numerical choices do not determine physical validity.
+This inlet check joins the outer convergence gate. Correction is on
 by default; explicit `p_in_shooting=False` / `TPMSHX_P_IN_SHOOT=0` remains a
 diagnostic override and cannot certify a mismatched inlet as converged.
 The 2D air property, thermal and report fields use that same SIMPLE absolute
@@ -272,9 +280,14 @@ explicit numerical-model change with directly relevant validation.
    Using bulk-fitted scalar Nu locally in turning flow remains a modelling
    assumption, distinct from this velocity consistency requirement. See the
    [implementation and paired validation](nu-local-speed-20260915.md).
-6. **Compressible envelope.** `models/envelope.py` rejects operating points
-   without a steady subsonic solution. Do not bypass that result by widening a
-   pressure clip or forcing a numerical answer.
+6. **Compressible envelope.** `models/envelope.py` checks the actual final
+   pressure and local Mach fields. Nonfinite states, pressure at/below the
+   existing 1000 Pa floor and Mach >= 1 remain invalid. Positive/subsonic
+   fields must also meet the specified physical inlet pressure to converge.
+   An unusable isothermal 1D initial estimate is a numerical startup issue,
+   not a proof that the coupled non-isothermal problem has no solution.
+   Do not bypass the final-field or inlet-pressure gates by widening a clip
+   or forcing a numerical answer.
 7. **Pressure reference.** On ideal-gas sides, `P_ref_abs` anchors the outlet
    cells, and local absolute pressure is `P_ref_abs + P`. The physical outlet
    face can have nonzero extrapolated gauge pressure; `P_ref_abs + dP` is not
