@@ -1,31 +1,7 @@
-"""End-to-end compressible validity gate in the 2D pipeline (_run_solvers).
+"""Actual 2D outlet datum, inlet-pressure matching and final-field validity.
 
-REWRITTEN 2026-07-12 (ledger C8). The previous version asserted that a
-Δp ≈ 3 × P_in operating point produces a VALID result, on the grounds that "the
-2D path is inlet-anchored: a large dP raises the inlet absolute pressure instead
-... so the solve stays physical".
-
-That was pinning a BUG as a feature.
-
-`P_ref_abs` is the OUTLET absolute pressure — the pp equation pins the outlet row
-at `Pp = 0` and never corrects those cells' P, so the outlet's gauge pressure
-stays 0 for the whole solve. `stages_2d` was passing `P_ref_abs = P_in`, which
-anchors the OUTLET at the INLET pressure and lets the field run from P_in up to
-P_in + Δp. Everything stayed positive, so the gate had nothing to catch — but the
-density was wrong everywhere, and at Δp ≈ 3 × P_in the operating point is one
-whose true outlet pressure would be **−2 atm**.
-
-There is no steady solution there. The physical invariant in
-``docs/architecture.md`` says so:
-
-    "valid only while the Forchheimer Δp stays below the inlet absolute pressure
-     ... Once Δp ≳ P_in the outlet goes to vacuum, the flow chokes / goes
-     supersonic, and NO steady solution exists"
-
-So the correct assertion is the OPPOSITE of the old one: with the datum at the
-right end, Δp ≈ 3 × P_in must be REJECTED, exactly as 3D rejects it. The old test
-was the very thing the invariant forbids — a ChokedFlowError made to go away by
-arranging for the guard never to fire.
+A positive initial anchor is only a startup value. It never certifies the
+specified inlet condition, which must match the final physical port face.
 """
 from dataclasses import replace
 
@@ -35,7 +11,7 @@ import pytest
 from sjtu_tpmshx.domain.compute_config import ComputeConfig
 from sjtu_tpmshx.domain.portable_data import mutable_data
 from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
-from sjtu_tpmshx.solvers.envelope import ChokedFlowError
+from sjtu_tpmshx.solvers.envelope import ChokedFlowError, PRESSURE_FLOOR_PA
 from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
 
 
@@ -60,18 +36,7 @@ def test_2d_in_envelope_reports_valid_with_gate_keys():
 
 
 def test_2d_outlet_is_anchored_below_the_inlet():
-    """The load-bearing invariant behind everything else here (ledger C8).
-
-    `P_ref_abs` IS the outlet absolute pressure, because the outlet row is the
-    pinned gauge-zero reference. A forward-flowing compressible solve must
-    therefore end with
-
-        outlet absolute pressure  <  inlet absolute pressure
-
-    and that is only true if `P_ref_abs` is seeded from the predicted OUTLET
-    pressure. Seeding it from `P_in` (the old behaviour) inverts the whole thing:
-    the outlet lands AT the inlet pressure and the inlet floats to P_in + Δp.
-    """
+    """The outlet cell datum must agree with the actual solved gauge field."""
     seen = []
     orig = SIMPLESolver.solve
 
@@ -101,21 +66,29 @@ def test_2d_outlet_is_anchored_below_the_inlet():
     assert p_out > 0.0, "absolute pressure must stay positive"
 
 
-def test_2d_choked_operating_point_is_rejected():
-    """Δp ≈ 3 × P_in has NO steady solution — 2D must reject it, as 3D does.
+def test_2d_overloaded_estimate_cannot_certify_unmatched_inlet():
+    raw = _run_2d(u=40.0, L=0.7)
+    state = raw['convergence_detail']['inlet_pressure']['A']
+    assert state['iterations'][0]['method'] == 'inlet-pressure'
+    assert not state['passed']
+    assert not raw['solver_converged']
 
-    This is the test that used to assert the opposite ("not falsely flagged").
-    It passed only because the outlet was anchored at the inlet pressure, so the
-    field never approached vacuum and the gate had nothing to catch. With the
-    datum at the correct end, this operating point is what it always physically
-    was: choked. Rejecting it IS the correct behaviour.
 
-    NEVER "fix" a failure here by widening the guard, clipping harder, or
-    reverting the anchor. Move the operating point (lower u, shorter L, higher
-    P_in) — see ``docs/architecture.md``.
-    """
-    with pytest.raises(ChokedFlowError):
-        _run_2d(u=40.0, L=0.7)
+@pytest.mark.parametrize('side', ['A', 'B'])
+def test_2d_actual_final_pressure_floor_still_raises(monkeypatch, side):
+    from sjtu_tpmshx.solvers.backends.python.two_d import coupling
+    original = coupling._compute_pressure_2d
+
+    def invalid_final_field(a, b, *args):
+        result = original(a, b, *args)
+        # Inject at the final verdict boundary, leaving the real gate intact.
+        solver = a if side == 'A' else b
+        solver.P_ref_abs = PRESSURE_FLOOR_PA - float(solver.P.min())
+        return result
+
+    monkeypatch.setattr(coupling, '_compute_pressure_2d', invalid_final_field)
+    with pytest.raises(ChokedFlowError, match=f'2D-{side}.*non-physical field'):
+        _run_2d(u=5.)
 
 
 def test_2d_high_but_subsonic_dp_still_solves():

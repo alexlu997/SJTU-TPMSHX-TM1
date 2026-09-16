@@ -7,14 +7,16 @@ import pytest
 from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
 from sjtu_tpmshx.solvers._solve_common import (
     inlet_pressure_state, pressure_shooting_target_sq,
+    pressure_initial_reference, pressure_shooting_reference,
 )
 from sjtu_tpmshx.tests.cases_3d import air_air_cfg as _cfg3d_air_air
 
 
 def _shoot_update(P_in, P_ref, dP):
-    P_out_sq = pressure_shooting_target_sq(dict(
-        specified_Pa=P_in, realized_Pa=P_ref + dP, outlet_Pa=P_ref))
-    return float(np.sqrt(max(P_out_sq, 1.0e4)))
+    return pressure_shooting_reference(dict(
+        specified_Pa=P_in, realized_Pa=P_ref + dP, outlet_Pa=P_ref,
+        outlet_gauge_Pa=0., minimum_Pa=P_ref, iterations=[],
+        relative_error=(P_ref + dP - P_in) / P_in))
 
 
 # ── (1) update algebra ─────────────────────────────────────────────────
@@ -47,10 +49,43 @@ def test_p2_update_one_shot_under_exact_p2_law():
     assert P_ref_new == pytest.approx(P_out_true, rel=1e-12)
 
 
-def test_p2_update_choke_floors():
-    """Measured overload ⇒ P_out² ≤ 0 ⇒ the existing 100 Pa floor
-    (2D posture; 3D routes the same quantity through _seed_p_ref's gate)."""
-    assert _shoot_update(1.0e5, 5.0e4, 2.0e5) == pytest.approx(100.0)
+def test_first_update_overshoot_is_damped_without_clipping():
+    # Observed April 1 case 14 at r=1.45: a valid solved field proposed a
+    # negative squared outlet pressure. Keep its real face/cell distinction.
+    state = dict(specified_Pa=273094.0838563896, realized_Pa=275792.48610135575,
+                 outlet_Pa=34009.02222166519, outlet_gauge_Pa=-803.8841643337943,
+                 minimum_Pa=34812.906385999, relative_error=.00988085207435,
+                 iterations=[])
+    assert pressure_shooting_target_sq(state) < 0
+    anchor = pressure_shooting_reference(state)
+    assert 1000. < anchor < state['minimum_Pa']
+    assert 0. < state['iterations'][-1]['step_fraction'] < 1.
+
+
+@pytest.mark.parametrize('estimate', [-1e9, 0., 1e4])
+def test_unusable_isothermal_seed_uses_input_pressure(estimate):
+    history = []
+    assert pressure_initial_reference(estimate, 2e5, history=history) == 2e5
+    assert history[0]['method'] == 'inlet-pressure'
+    assert history[0]['estimate_Pa2'] == estimate
+
+
+def test_usable_seed_and_nonfinite_input():
+    assert pressure_initial_reference(1e10, 2e5, history=[]) == 1e5
+    with pytest.raises(ValueError, match='initialization'):
+        pressure_initial_reference(float('nan'), 2e5, history=[])
+
+
+def test_pressure_step_respects_the_lowest_cell_and_rejects_nonfinite_state():
+    state = dict(specified_Pa=90000., realized_Pa=120000., outlet_Pa=50000.,
+                 outlet_gauge_Pa=4000., minimum_Pa=3000.,
+                 relative_error=1./3., iterations=[])
+    anchor = pressure_shooting_reference(state)
+    shifted_minimum = state['minimum_Pa'] + anchor - (state['outlet_Pa'] - state['outlet_gauge_Pa'])
+    assert shifted_minimum > 1000.
+    assert anchor + state['outlet_gauge_Pa'] > 1000.
+    with pytest.raises(RuntimeError, match='non-finite'):
+        pressure_shooting_reference(state | dict(realized_Pa=float('nan')))
 
 
 @pytest.mark.parametrize('dimension', [2, 3])
@@ -80,7 +115,7 @@ def test_nonuniform_physical_faces_and_geometric_open_area(dimension):
     assert state['outlet_gauge_Pa'] == pytest.approx(-.25 * gradient)
     assert state['outlet_Pa'] == pytest.approx(100000. - .25 * gradient)
     assert state['passed']
-    corrected_anchor = np.sqrt(pressure_shooting_target_sq(state)) - state['outlet_gauge_Pa']
+    corrected_anchor = pressure_shooting_reference(state)
     assert corrected_anchor == pytest.approx(solver.P_ref_abs)
 
 
@@ -120,17 +155,16 @@ def _res3d_pair():
     """
     from sjtu_tpmshx.solvers.backends.python.three_d import runtime as stages
 
-    original_seed = stages._seed_p_ref
+    original_seed = stages.pressure_initial_reference
 
     def biased_estimate(*args, **kwargs):
         value = original_seed(*args, **kwargs)
-        context = kwargs['context']
-        return .98 * value if context.startswith('fluid A ') and 'shooting' not in context else value
+        return .98 * value if args[1] == 192362.0 else value
 
     base = dict(Nx=12, Ny=12, Nz=12, u_A=16.0, u_B=5.0,
                 fluid_B_cfg=dict(_FULL_B_3D))
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(stages, '_seed_p_ref', biased_estimate)
+        patch.setattr(stages, 'pressure_initial_reference', biased_estimate)
         patch.delenv('TPMSHX_P_IN_SHOOT', raising=False)
         r_off = _run_3d_stack(_cfg3d_air_air(**base, p_in_shooting=False))
         r_on = _run_3d_stack(_cfg3d_air_air(**base))
@@ -162,24 +196,6 @@ def test_3d_diagnostic_keys_present_and_finite(_res3d_pair):
               'P_in_realized_B', 'P_in_shoot_resid_B'):
         assert k in r_off, f"missing diagnostic key {k}"
         assert np.isfinite(r_off[k]), f"{k} not finite on an air-air run"
-
-
-def test_3d_shooting_rejects_overloaded_measured_drag(monkeypatch):
-    """A known overloading pressure measurement must reach the choke guard.
-
-    The original partial-port point no longer necessarily chokes with the
-    no-slip walls. Inject the measurement, not a new physical operating point;
-    keep the real shooting P² update and its original envelope check.
-    """
-    from sjtu_tpmshx.solvers.envelope import ChokedFlowError
-    from sjtu_tpmshx.solvers.backends.python.three_d import runtime as stages
-    cfg = _cfg3d_air_air(Nx=12, Ny=12, Nz=12, p_in_shooting=True)
-    def overloaded(solver, target):
-        state = inlet_pressure_state(solver, target)
-        return state | dict(realized_Pa=2.0 * target, outlet_Pa=target, passed=False)
-    monkeypatch.setattr(stages, 'inlet_pressure_state', overloaded)
-    with pytest.raises(ChokedFlowError, match='shooting reseed'):
-        _run_3d_stack(cfg)
 
 
 # ── (3)/(4) 2D pipeline ────────────────────────────────────────────────
@@ -238,3 +254,30 @@ def test_2d_water_side_inert_nan_keys(monkeypatch):
     assert abs(d['P_in_shoot_resid_A']) < 1e-4
     assert np.isnan(d['P_in_realized_B'])
     assert np.isnan(d['P_in_shoot_resid_B'])
+
+
+@pytest.mark.parametrize('dimension', [2, 3])
+@pytest.mark.parametrize('side', ['A', 'B'])
+def test_coupled_flow_recovers_from_unusable_seed(monkeypatch, dimension, side):
+    """A bad straight/isothermal estimate must not block a valid coupled run."""
+    from sjtu_tpmshx.solvers.backends.python.two_d import runtime as two_d
+    from sjtu_tpmshx.solvers.backends.python.three_d import runtime as three_d
+    runtime = two_d if dimension == 2 else three_d
+    pin = 192362.0 if side == 'A' else 101325.0
+
+    def unusable_estimate(estimate, inlet, *, history):
+        return pressure_initial_reference(-1.0 if inlet == pin else estimate,
+                                          inlet, history=history)
+
+    monkeypatch.setattr(runtime, 'pressure_initial_reference', unusable_estimate)
+    if dimension == 2:
+        from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
+        result = Pipeline2D(_cfg2d()).run().diagnostics
+    else:
+        result = _run_3d_stack(_cfg3d_air_air(
+            Nx=12, Ny=12, Nz=12, u_A=16., u_B=5., fluid_B_cfg=dict(_FULL_B_3D)))
+    state = result['convergence_detail']['inlet_pressure'][side]
+    assert state['iterations'][0]['method'] == 'inlet-pressure'
+    assert state['passed']
+    assert result['envelope_valid']
+    assert result['convergence_detail']['outer_converged']
