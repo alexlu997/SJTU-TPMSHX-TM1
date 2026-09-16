@@ -33,6 +33,13 @@ MMS A3 自动报告默认输出至本库 `.cache/validation/mms_phase_a3_report.
 记录；该工具不代替桌面首帧/交互测量。首次、磁盘缓存和同进程预热须分开组织。
 工况成员、实际数据版本、测量预算及节点状态见[本阶段计划](plans/main-compute-20260913.md)。
 
+现行 Gyroid HX 空气标定使用 4 月 1 日直通数据，第 2–16 项拟合固定 K0 的
+一维 `sF`；4 月 7 日数据只作接法迁移对照。`fit_experimental_effective`
+重新输出带源文件、工作表和行号的审查表，并核对封装系数；完整二维/三维验证
+直接调用 `benchmark_main_compute`，从正式系数入口读取 `sF`。
+标定公式、运行清单位置及旧候选工具的退役安排见
+[直通标定报告](air-drag-straight-calibration-20260916.md)。
+
 本阶段 sCO₂ 使用用户确认的 fixed-166 配置快照：交叉流局部端口、实验阻力、
 Nu 倍率 D=1.77/G=1.07。`validate_sco2_exp_q.py` 默认的逆流/CFD 阻力/基础 Nu
 属于另一套物理复核配置，`--all-valid` 也会按当前读取器重新选择成员。复现本阶段时，

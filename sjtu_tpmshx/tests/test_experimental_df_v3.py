@@ -136,13 +136,34 @@ def test_hx_application_window_retains_calibration_and_warns(fluid, topology, lo
             merge_warnings(records, [cached], bind_context=True)
         notice, = warning_messages(records)
         assert f"side={side}" in notice and fluid in notice and topology in notice
-        assert str(lo) in notice and str(original[0]) in notice
+        assert str(lo) in notice and str(meta["calibration_runtime_velocity_window_mps"]["min"]) in notice
         assert "approved application" in notice
     assert hx_velocity_bounds(fluid, topology) == original
     correction_scale(topology, fluid, 7., .6, hi)
     for outside in (lo - 1e-6, hi + 1e-6):
         with pytest.raises(ValueError, match="HX.*requires"):
             correction_scale(topology, fluid, 7., .6, outside)
+
+
+def test_gyroid_air_straight_calibration_runtime_endpoints_and_provenance():
+    from sjtu_tpmshx.domain.run_warnings import warning_scope, warning_messages
+
+    endpoints = np.array([8.027855328062564, 22.446874107951544])
+    with warning_scope({}) as warnings:
+        K, cF, meta = apply_correction("Gyroid", "air", 7., .6, 2., 3., endpoints)
+    np.testing.assert_array_equal(K, [2., 2.])
+    np.testing.assert_array_equal(cF, 3. * np.full(2, 2.649010286988306))
+    assert not meta["extrapolated"] and not list(warning_messages(warnings))
+    assert meta["campaign"] == "shanghai-air-straight-20260401-v1"
+    assert meta["calibration"]["source"].endswith("experiment_20260401.xlsx")
+    assert meta["calibration"]["excel_rows"] == "4:18"
+    assert meta["calibration"]["cases"] == "2-16"
+    assert "other fluid pairs unvalidated" in meta["calibration"]["accuracy_scope"]
+    assert meta["calibration_velocity_window_mps"]["max"] < endpoints[-1]
+    # The accepted swapped-channel campaign extends above the fit window.
+    with warning_scope({}) as warnings:
+        _, _, outside = apply_correction("Gyroid", "air", 7., .6, 2., 3., 24.)
+    assert outside["extrapolated"] and list(warning_messages(warnings))
 
 
 def test_water_hx_requires_matching_domain_but_allows_local_ports():
@@ -166,12 +187,12 @@ _HX_FLUID = {
 }
 
 
-def _experimental_hx_cfg(fluid_A, fluid_B, *, dir_A=0, dir_B=1, nz=2):
+def _experimental_hx_cfg(fluid_A, fluid_B, *, dir_A=0, dir_B=1, nz=2, tpms="Diamond"):
     return ComputeConfig(
         fluid_A=FluidConfig(type=fluid_A, **_HX_FLUID[fluid_A]),
         fluid_B=FluidConfig(type=fluid_B, **_HX_FLUID[fluid_B]),
         geometry=GeometryConfig(
-            tpms="Diamond", L_cell_mm=7.0, t_wall_mm=0.6,
+            tpms=tpms, L_cell_mm=7.0, t_wall_mm=0.6,
             L_dom_m=0.182, H_dom_m=0.042,
             Lz_m=0.042 if nz > 1 else None),
         solver=SolverConfig(Nx=4, Ny=4, Nz=nz),
@@ -184,8 +205,9 @@ def _experimental_hx_cfg(fluid_A, fluid_B, *, dir_A=0, dir_B=1, nz=2):
     "fluid_A,fluid_B",
     [(a, b) for a in _HX_FLUID for b in _HX_FLUID],
 )
-def test_experimental_hx_accepts_all_ordered_fluid_pairs(fluid_A, fluid_B):
-    _experimental_hx_cfg(fluid_A, fluid_B).validate()
+@pytest.mark.parametrize("tpms", ["Diamond", "Gyroid"])
+def test_experimental_hx_accepts_all_ordered_fluid_pairs(fluid_A, fluid_B, tpms):
+    _experimental_hx_cfg(fluid_A, fluid_B, tpms=tpms).validate()
 
 
 def _sco2_cfg(*, dir_B=1, local_port=False):
@@ -249,7 +271,11 @@ def test_2d_and_3d_apply_the_same_coefficients_once():
 
 
 @pytest.mark.slow
-def test_water_air_2d_and_3d_use_separate_hx_coefficients_once():
+@pytest.mark.parametrize("tpms,water_sf,air_sf", [
+    ("Diamond", 4.892779870412083, 1.8024228153853061),
+    ("Gyroid", 4.198913430360186, 2.649010286988306),
+])
+def test_water_air_2d_and_3d_use_separate_hx_coefficients_once(tpms, water_sf, air_sf):
     from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D, Pipeline3D
 
     def cfg(nz):
@@ -277,7 +303,7 @@ def test_water_air_2d_and_3d_use_separate_hx_coefficients_once():
             fluid_B=FluidConfig(type="air", u_mps=20.0, T_in_K=400.0,
                                 P_in_Pa=150000.0),
             geometry=GeometryConfig(
-                tpms="Diamond", L_cell_mm=7.0, t_wall_mm=0.6,
+                tpms=tpms, L_cell_mm=7.0, t_wall_mm=0.6,
                 L_dom_m=0.182, H_dom_m=0.042,
                 Lz_m=0.042 if nz > 1 else None),
             # The 2D half-width ports split x into three aligned segments.
@@ -289,21 +315,24 @@ def test_water_air_2d_and_3d_use_separate_hx_coefficients_once():
 
     m2 = Pipeline2D(cfg(1)).run().metadata["darcy_forchheimer"]
     m3 = Pipeline3D(cfg(2)).run().metadata["darcy_forchheimer"]
-    assert m2["A"]["scale_F"] == pytest.approx(4.892779870412083)
-    assert m2["B"]["scale_F"] == pytest.approx(1.8024228153853061)
+    assert m2["A"]["scale_F"] == pytest.approx(water_sf)
+    assert m2["B"]["scale_F"] == pytest.approx(air_sf)
     assert m3["A"]["scale_F"] == pytest.approx(m2["A"]["scale_F"])
     assert m3["B"]["scale_F"] == pytest.approx(m2["B"]["scale_F"])
     for side in ("A", "B"):
         assert (m2[side]["applied_cF"] / m2[side]["base_cF"]
                 == pytest.approx(m2[side]["scale_F"]))
-        assert m2[side]["campaign"] == "water-air-hx-7-6"
-        assert m3[side]["campaign"] == "water-air-hx-7-6"
+        campaign = ("shanghai-air-straight-20260401-v1"
+                    if tpms == "Gyroid" and side == "B" else "water-air-hx-7-6")
+        assert m2[side]["campaign"] == m3[side]["campaign"] == campaign
+    if tpms == "Gyroid":
+        assert m2["B"]["calibration"] == m3["B"]["calibration"]
 
 
 _RAW = Path(__file__).resolve().parents[2] / "data" / "raw_data"
 _AIR_HX_BOOKS = (
     _RAW / 'experiments/water_air/water-air_D7-t0p6_experiment_water-straight_20260609.xlsx',
-    _RAW / 'experiments/water_air/water-air_G7-t0p6_shanghai_experiment_ports-swapped_20260407.xlsx',
+    _RAW / 'experiments/water_air/water-air_G7-t0p6_shanghai_experiment_20260401.xlsx',
 )
 
 
@@ -374,14 +403,21 @@ def test_matching_hx_air_and_water_pair_use_separate_frozen_scales():
     from sjtu_tpmshx.validation.df_refit.fit_experimental_effective import (
         fit_air_hx)
 
-    air, _ = fit_air_hx()
+    air, quality = fit_air_hx()
     assert (air.status == "approved").all()
     assert air.rmsre.max() <= 0.10
     assert air.bias.abs().max() <= 0.10
     assert dict(zip(air.topology, air.sF)) == pytest.approx({
         "Diamond": 1.8024228153853061,
-        "Gyroid": 2.0119682018983225,
+        "Gyroid": 2.649010286988306,
     }, rel=1e-9)
+    gyroid = air[air.topology == "Gyroid"].iloc[0]
+    assert gyroid.source.endswith("experiment_20260401.xlsx")
+    assert gyroid.n == 15 and gyroid.n_total == 16
+    assert gyroid.excluded_cases == "工况1:dp_floor"
+    members = quality[(quality.topology == "Gyroid") & quality.included]
+    assert members["case"].tolist() == [f"工况{i}" for i in range(2, 17)]
+    assert members.excel_row.tolist() == list(range(4, 19))
 
     cfg = _water_air_cfg()
     cfg.validate()
@@ -396,7 +432,8 @@ def test_matching_hx_air_and_water_pair_use_separate_frozen_scales():
 
 @pytest.mark.parametrize('dim', [2, 3])
 @pytest.mark.parametrize('fluid_A', ['water', 'sco2'])
-def test_application_coefficients_precede_real_seed_and_solver_setup(monkeypatch, dim, fluid_A):
+@pytest.mark.parametrize('tpms', ['Diamond', 'Gyroid'])
+def test_application_coefficients_precede_real_seed_and_solver_setup(monkeypatch, dim, fluid_A, tpms):
     from sjtu_tpmshx.preprocess.two_d.preparation import _parse_inputs_cfg, _prepare_grid
     from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg
     from sjtu_tpmshx.solvers.backends.python.two_d.runtime import build_runtime
@@ -410,7 +447,7 @@ def test_application_coefficients_precede_real_seed_and_solver_setup(monkeypatch
                             T_in_K=300. if fluid_A == 'water' else 350.,
                             P_in_Pa=150000. if fluid_A == 'water' else 1e7),
         fluid_B=FluidConfig(type='air', u_mps=4., T_in_K=400., P_in_Pa=150000.),
-        geometry=GeometryConfig(tpms='Diamond', L_cell_mm=7., t_wall_mm=.6,
+        geometry=GeometryConfig(tpms=tpms, L_cell_mm=7., t_wall_mm=.6,
                                 L_dom_m=.182, H_dom_m=.042, Lz_m=.042 if dim == 3 else None),
         solver=SolverConfig(Nx=6, Ny=4, Nz=3 if dim == 3 else 1),
         bc_A=PartialBCConfig(dir=4 if dim == 3 else 2, in_ctr=.091, in_w=.091,
@@ -454,8 +491,8 @@ def test_application_coefficients_precede_real_seed_and_solver_setup(monkeypatch
 
     for s, fc in zip(solvers, (cfg.fluid_A, cfg.fluid_B)):
         meta = s._df_metadata
-        base_K, base_cF = _base('Diamond', 7., .6)
-        _, sf, _, _ = correction_scale('Diamond', fc.type, 7., .6, fc.u_mps)
+        base_K, base_cF = _base(tpms, 7., .6)
+        _, sf, _, _ = correction_scale(tpms, fc.type, 7., .6, fc.u_mps)
         np.testing.assert_allclose(s._K_arr if dim == 2 else s.K_arr, base_K, rtol=1e-13)
         np.testing.assert_allclose(s._cF_arr if dim == 2 else s.cF_arr, base_cF * sf, rtol=1e-13)
         assert meta['extrapolated']

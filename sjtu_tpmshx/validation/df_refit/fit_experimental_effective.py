@@ -248,7 +248,7 @@ def fit_air_hx() -> tuple[pd.DataFrame, pd.DataFrame]:
         rmsre = float(np.sqrt(np.mean(error * error)))
         bias = float(error.mean())
         passed = rmsre <= RMSRE_GATE and abs(bias) <= BIAS_GATE
-        _, packaged, _, _ = correction_scale(
+        _, packaged, campaign, _ = correction_scale(
             tp, "air", 7.0, 0.6, float(np.median(u_in)))
         excluded = [
             f"{r.case}:{_quality_reason(r)}"
@@ -263,18 +263,21 @@ def fit_air_hx() -> tuple[pd.DataFrame, pd.DataFrame]:
             darcy_fraction_median=float(np.median(
                 darcy / (darcy + sF * forch))),
             identifiability="K fixed at production CFD K0",
-            source="matched D/G-7-6 water+air HX workbooks",
+            source=raw.attrs["source"], sheet=raw.attrs["sheet"],
+            excel_rows=";".join(g.excel_row.astype(str)),
             filter=("exclude dp_floor and duplicate_row; require "
                     f"{u_lo:.6g}<=u<={u_hi:.6g} m/s"),
             A_flow_m2=A_FLOW[tp], L_flow_m=L_FLOW,
             u_min_mps=u_lo, u_max_mps=u_hi,
             status="approved" if passed else "rejected_accuracy_gate",
-            scope="HX-effective", campaign="water-air-hx-7-6"))
+            scope="HX-effective", campaign=campaign))
         valid_i = iter(u_in)
         for i, (_, row) in enumerate(raw.iterrows()):
             row_u = next(valid_i) if included.iloc[i] else np.nan
             quality.append(dict(
                 topology=tp, case=str(row.case), included=bool(included.iloc[i]),
+                source=raw.attrs["source"], sheet=raw.attrs["sheet"],
+                excel_row=int(row.excel_row),
                 exclusion_reason=_quality_reason(row),
                 u_mps=row_u, u_min_mps=u_lo, u_max_mps=u_hi,
                 dp_floor=bool(row.dp_floor), duplicate_row=bool(row.dup_row)))
