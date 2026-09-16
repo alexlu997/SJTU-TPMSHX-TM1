@@ -27,27 +27,27 @@ A_FLOW = {"Diamond": 5.94e-4, "Gyroid": 6.50e-4}
 
 AIR_BOOKS = {
     "Diamond": ('experiments/water_air/water-air_D7-t0p6_experiment_water-straight_20260609.xlsx', "Sheet1"),
-    "Gyroid": ('experiments/water_air/water-air_G7-t0p6_shanghai_experiment_ports-swapped_20260407.xlsx',
+    "Gyroid": ('experiments/water_air/water-air_G7-t0p6_shanghai_experiment_20260401.xlsx',
                "Sheet1"),
 }
 _AIR_NEED = ["样机空气流量kg/s", "空气进口温度/℃", "空气出口温度/℃",
              "空气进口压力/Pa", "空气出口压力/Pa"]
 
-# 仪表地板筛（iter 75 补）：两表的**最低流量工况**都远离 γ_HX 平台
-#   D 工况1 Δp=893 Pa γ=0.69 / G 工况1 Δp=336 Pa γ=0.33，
-#   而次低点已是 4474 / 3925 Pa（γ 1.02 / 1.16）。阈值落在 (893, 3925) Pa
-#   这段宽空隙里取任意值结果都不变——2000 取其中段，非刀刃阈值。
-#   水侧同类缺陷（G 工况1 Δp=−48.4 Pa 负压差）见 gamma_hx_water。
+# Retain the original low-dP membership rule. It excludes case 1 in both
+# Shanghai campaigns, including April 1 (1149 Pa); it is not a verified
+# instrument-accuracy limit. Excluded rows remain available for full reporting.
 DP_FLOOR_PA = 2000.0
 
 
-def load_air_cases(topo: str) -> pd.DataFrame:
-    book, sheet = AIR_BOOKS[topo]
+def load_air_cases(topo: str, *, source: tuple[str, str] | None = None) -> pd.DataFrame:
+    """Read the active calibration, or an explicit source for historical comparison."""
+    book, sheet = AIR_BOOKS[topo] if source is None else source
     d = pd.read_excel(_REPO / "data" / "raw_data" / book,
                       sheet_name=sheet, header=1)
     missing = [c for c in _AIR_NEED if c not in d.columns]
     if missing:
         raise RuntimeError(f"{topo}: 列缺失 {missing} —— 表版式变了，重核列图")
+    d["excel_row"] = d.index + 3  # Header is Excel row 2.
     d = d[d.iloc[:, 0].astype(str).str.startswith("工况")].copy()
     d = d.dropna(subset=_AIR_NEED)
     d = d[(d["样机空气流量kg/s"] > 0)
@@ -55,14 +55,15 @@ def load_air_cases(topo: str) -> pd.DataFrame:
     d = d.reset_index(drop=True)
     d["case"] = d.iloc[:, 0].astype(str)
     dp = d["空气进口压力/Pa"] - d["空气出口压力/Pa"]
-    # 缺陷 1：仪表地板（最低流量端）
+    # The existing low-dP fit exclusion does not suppress the reporting row.
     d["dp_floor"] = dp < DP_FLOOR_PA
-    # 缺陷 2：除 ṁ 外逐位重复的行——D_7_6 气表 工况10/11 与**同一样机的水表
-    # 同名工况**同址复现（gamma_hx_water 已记），两表同源复制粘贴，其一必错
+    # D_7_6 air cases 10/11 duplicate temperatures and pressures at different
+    # mass flows, as do the matching water rows; retain their quality flag.
     key = ["空气进口温度/℃", "空气出口温度/℃",
            "空气进口压力/Pa", "空气出口压力/Pa"]
     d["dup_row"] = d.duplicated(subset=key, keep=False)
     d["excluded"] = d.dp_floor | d.dup_row
+    d.attrs.update(source=book, sheet=sheet)
     return d
 
 

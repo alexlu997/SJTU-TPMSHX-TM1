@@ -349,14 +349,24 @@ explicit numerical-model change with directly relevant validation.
     boundary has direct experimental evidence. The
     water+air D/G-7-6 experiment consists of two complete, disconnected TPMS
     networks with
-    full-face inlets and delta=0. Water and air therefore use the same
+    delta=0. Shanghai's April 1 air path is straight/full-face while water
+    uses staggered local openings; April 7 exchanges the fluid networks.
+    Water and air use the same
     topology-derived single-side flow area (D 5.94e-4 / G 6.50e-4 m²), with no
     28/34 channel-count scale or geometric-face shortcut. After excluding
     G/water case 1 (`dp_nonphysical`) and D/water cases 10/11
     (`duplicate_row`), the production water fit uses the declared high-flow
     window `u>=0.10 m/s`; this original calibration membership is unchanged. Fixed-K0 water RMSRE is 6.84% D / 0.93% G with sF 4.8928 / 4.1989.
     The measured upper bounds are 0.2541 / 0.2232 m/s. Matching HX-air uses its
-    own sF 1.8024 / 2.0120 and measured velocity windows. `ComputeConfig`
+    own sF: Diamond 1.8024228153853061 retains its original campaign;
+    Gyroid 2.649010286988306 uses April 1 straight-air cases 2–16,
+    fixed CFD K0, experimental endpoint mean temperature and the original
+    1D compressible pressure-drop relative-error fit. April 7 is used for
+    connection-transfer evaluation, not fitting this coefficient. Full 2D/3D
+    results do not tune another multiplier. Source, columns, row membership,
+    velocity conventions and measured errors are recorded in the
+    [straight-air calibration report](air-drag-straight-calibration-20260916.md).
+    `ComputeConfig`
     selects each side independently, allowing all nine ordered air/water/sCO2
     pairs and every valid 2D/3D flow direction. A mixed pair may therefore combine
     corrections from different campaigns; that is a model composition, not joint
@@ -364,17 +374,29 @@ explicit numerical-model change with directly relevant validation.
     own velocity window, the matching 0.182 x 0.042 x 0.042 m domain, and delta=0.
     Custom inlet/outlet positions and sizes remain supported. Every active side
     must match its own applicability rules; there is no silent fallback.
-    `hx_velocity_bounds()` retains original calibration/source-audit windows.
+    `hx_velocity_bounds()` retains active calibration/source-audit windows.
     `hx_application_velocity_bounds()` separately supplies the approved
     production windows (Diamond/Gyroid, m/s): water 0.0139648..0.254055 /
     0.0162341..0.225876; air 3.88324..22.7599 / 3.91282..24.5467; sCO2
     0.434925..2.53961 / 0.381408..2.47046. Full precision is in the selector.
     These windows cover reviewed 7/0.6 mm full-HX measured combinations and
     approved port validation, not arbitrary T/P/mdot combinations. Both ranges,
-    actual inlet u and approved purpose are retained in correction metadata;
-    leaving the calibration window emits a run-local side-specific warning
+    actual inlet u and approved purpose are retained in correction metadata.
+    Gyroid air records campaign `shanghai-air-straight-20260401-v1` and a
+    `calibration` object with source workbook, sheet, rows, columns, method
+    and accuracy scope. Its source-convention calibration span is
+    8.026110584256458..22.441995588974073 m/s; the same members in production
+    inlet-density units span 8.027855328062564..22.446874107951544 m/s.
+    The latter is saved as `calibration_runtime_velocity_window_mps` and
+    used for the warning and `extrapolated` flag, avoiding a false warning
+    at the source upper endpoint. Other campaign warning bounds are unchanged.
+    Leaving the calibration window emits a run-local side-specific warning
     through the existing cache/UI/export path. Water's lower-speed extension
-    is substantial approved extrapolation; no coefficients are refitted.
+    is substantial approved extrapolation; water coefficients are unchanged.
+    Gyroid air retains the approved low-flow application window and computes
+    those cases with extrapolation notices. Full 16-case statistics retain
+    case 1, separately from the accepted 15-case comparison. Air-water
+    pressure-error evidence does not qualify air-air or air-sCO2 accuracy.
     Each side applies its frozen sF exactly once before pressure seeding and
     SIMPLE, with K unchanged. Explicit CFD mode and independent Nu selection
     retain their defaults. D-F permission does not relax water-state, sCO2

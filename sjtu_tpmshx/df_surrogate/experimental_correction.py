@@ -17,7 +17,8 @@ CFD_SMOOTH = "cfd_smooth"
 EXPERIMENTAL = "experimental"
 DF_MODES = (CFD_SMOOTH, EXPERIMENTAL)
 
-# Fixed-K0 relative fits against data/raw_data/试验记录表_整理版.xlsx.
+# Fixed-K0 relative fits against raw_data/experiments/air/
+# air_DG_specimen_experiment_summary.xlsx.
 # Existing quality rule retained: only L={6,8}; L8 rows require Re>=1600.
 _AIR_SF = {
     "Diamond": np.array([
@@ -29,17 +30,17 @@ _AIR_SF = {
         [1.4331707818978240, 1.4103961069169382, 1.3503861318521013],
     ]),
 }
-_AIR_L = np.array([6.0, 8.0])
 _AIR_T = np.array([0.3, 0.4, 0.5])
 
-# Fixed-K0 HX-effective fits.  Water and air share the D/G-7-6 water+air
-# campaign; sCO2 uses the hot-side ok_dp rows from sCO2-Experient.xlsx.
+# Fixed-K0 HX-effective fits. Gyroid air uses the April 1 straight-air
+# campaign; water and Diamond air retain their original campaigns.
+# sCO2 uses the hot-side ok_dp rows from sCO2-Experient.xlsx.
 # Bounds are the matching campaigns' measured inlet-velocity spans.
 _HX_SF = {
     ("water", "Diamond"): 4.892779870412083,
     ("water", "Gyroid"): 4.198913430360186,
     ("air", "Diamond"): 1.8024228153853061,
-    ("air", "Gyroid"): 2.0119682018983225,
+    ("air", "Gyroid"): 2.649010286988306,
     ("sco2", "Diamond"): 6.313005350332494,
     ("sco2", "Gyroid"): 7.608907691857889,
 }
@@ -47,7 +48,7 @@ _HX_U_BOUNDS = {
     ("water", "Diamond"): (0.10, 0.25405479940574704),
     ("water", "Gyroid"): (0.10, 0.2232167044622796),
     ("air", "Diamond"): (7.656604926203154, 22.759887982116293),
-    ("air", "Gyroid"): (7.5230599026715375, 24.54137550823153),
+    ("air", "Gyroid"): (8.026110584256458, 22.441995588974073),
     # Same hot-side members, mdot and flow area; rho_in uses gauge + 101325 Pa.
     # Corrected 2026-09-06 with user approval; the sF values above stay frozen.
     ("sco2", "Diamond"): (0.5826657772921353, 2.53960962894522),
@@ -55,7 +56,7 @@ _HX_U_BOUNDS = {
 }
 
 # Approved 2026-09-09: production inlet density and voxel single-side area.
-# Keep the calibration windows above: source audits and fit membership use them.
+# Keep active calibration windows separate: source audits and fit membership use them.
 _HX_APPLICATION_U_BOUNDS = {
     ("water", "Diamond"): (0.013964829878811822, 0.25405479940574704),
     ("water", "Gyroid"): (0.01623408984155984, 0.22587576822423192),
@@ -68,6 +69,23 @@ _HX_APPLICATION_SCOPE = (
     "7/0.6 mm, 0.182 x 0.042 x 0.042 m HX measured combinations and "
     "approved port validation; not an arbitrary T/P/mdot domain or "
     "independent cold-side sCO2 pressure-drop validation")
+
+_GYROID_AIR_CALIBRATION = {
+    "version": "shanghai-air-straight-20260401-v1",
+    "source": "experiments/water_air/water-air_G7-t0p6_shanghai_experiment_20260401.xlsx",
+    "sheet": "Sheet1", "excel_rows": "4:18", "cases": "2-16",
+    "mass_flow": "F: nominal kg/s",
+    "temperature": "mean of AC/AD, degC converted to K",
+    "pressure": "AE/AF: gauge Pa; add 101325 Pa",
+    "method": "fixed CFD K0; 1D compressible dP; mean squared relative error",
+    "filter": "dP >= 2000 Pa and no duplicate row; case 1 reported separately",
+    "accuracy_scope": "reviewed Shanghai air-water cases; other fluid pairs unvalidated",
+    "report": "docs/air-drag-straight-calibration-20260916.md",
+}
+# Same April 1 members in the production inlet-density convention. The 1D
+# fit keeps R=287.05; using its source-audit speeds to check runtime speeds
+# would incorrectly flag the upper calibration endpoint as extrapolation.
+_GYROID_AIR_RUNTIME_CALIBRATION_U = (8.027855328062564, 22.446874107951544)
 
 
 def _summary(value: Any) -> float | dict[str, float]:
@@ -99,7 +117,7 @@ def _is_hx_76(L_mm: Any, t_mm: Any) -> bool:
 
 
 def hx_velocity_bounds(fluid: str, tpms: str) -> tuple[float, float]:
-    """Return the original calibration window; preserve source members/audits."""
+    """Return the active calibration's source-convention velocity window."""
     return _HX_U_BOUNDS[(fluid, tpms)]
 
 
@@ -127,6 +145,8 @@ def _hx_scale(tpms: str, fluid: str, L_mm: Any, t_mm: Any,
     sf = np.full(shape, _HX_SF[(fluid, tpms)])
     campaign = ("sco2-hx-hot-ok-dp" if fluid == "sco2"
                 else "water-air-hx-7-6")
+    if (fluid, tpms) == ("air", "Gyroid"):
+        campaign = _GYROID_AIR_CALIBRATION["version"]
     return np.ones_like(sf), sf, campaign, "HX-effective"
 
 
@@ -166,14 +186,19 @@ def apply_correction(tpms: str, fluid: str, L_mm: Any, t_mm: Any,
     if scope == "HX-effective":
         lo, hi = hx_application_velocity_bounds(fluid, tpms)
         cal_lo, cal_hi = hx_velocity_bounds(fluid, tpms)
+        runtime_lo, runtime_hi = cal_lo, cal_hi
+        if (fluid, tpms) == ("air", "Gyroid"):
+            runtime_lo, runtime_hi = _GYROID_AIR_RUNTIME_CALIBRATION_U
+            metadata["calibration"] = dict(_GYROID_AIR_CALIBRATION)
         u = np.asarray(u_mps, dtype=float)
         metadata.update(inlet_u_mps=_summary(u_mps),
                         velocity_window_mps={"min": lo, "max": hi},
                         calibration_velocity_window_mps={"min": cal_lo, "max": cal_hi},
+                        calibration_runtime_velocity_window_mps={"min": runtime_lo, "max": runtime_hi},
                         application_scope=_HX_APPLICATION_SCOPE,
-                        extrapolated=bool(np.any((u < cal_lo) | (u > cal_hi))))
+                        extrapolated=bool(np.any((u < runtime_lo) | (u > runtime_hi))))
         record_range(
-            ('df-experimental', fluid, tpms), u, (cal_lo, cal_hi),
+            ('df-experimental', fluid, tpms), u, (runtime_lo, runtime_hi),
             label=(f"[D-F extrap] {fluid}/{tpms}; frozen sF; approved application "
                    f"window [{lo}, {hi}] m/s; {_HX_APPLICATION_SCOPE}"),
             quantity='inlet u', unit='m/s')

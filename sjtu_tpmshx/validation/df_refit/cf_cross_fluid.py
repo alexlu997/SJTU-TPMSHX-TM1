@@ -17,8 +17,9 @@ K 统一取当前生产 `cfd_full_core_3cell_fixed_v2` 的 7/0.6 节点，不复
 （D 5.9359e-4 / G 6.4915e-4）逐位一致，L 同为 0.182 m，Dh 同源
 ——气与 sCO2 表面记录的面积/长度口径一致，工具启动时断言之；这并不排除
 测点、歧管、突缩突扩、仪器零点或数据归约等 campaign 系统差异。
-water+air 试件是对称、delta=0 的两个完整且互不连通的流体网络；两侧入口
-覆盖各自完整端面。因此 water 与 air 使用相同的单侧有效 A_flow，不按通道数
+water+air 试件是对称、delta=0 的两个完整且互不连通的流体网络；Gyroid 空气
+使用 4 月 1 日直通数据，互换流道不等于双侧全端面入口。
+water 与 air 使用相同的单侧有效 A_flow，不按通道数
 28/34 缩放，也不使用 42×42 mm 几何端面或简单除以 2。
 
 用法（从仓库根）:
@@ -35,7 +36,7 @@ import numpy as np
 import pandas as pd
 
 from sjtu_tpmshx.validation.hx_experiments import (
-    A_FLOW, L_FLOW, P_ATM, R_AIR, DH_REF, air_mu, load_air_cases, load_water_cases)
+    AIR_BOOKS, A_FLOW, L_FLOW, P_ATM, R_AIR, DH_REF, air_mu, load_air_cases, load_water_cases)
 from sjtu_tpmshx.validation.sco2_exp.load_sco2_exp import load_exp
 from sjtu_tpmshx.df_surrogate.full_core_3cell_fixed_v2 import FullCore3CellFixedDFV2
 from sjtu_tpmshx.models.fluid_props import check_water_state
@@ -99,6 +100,7 @@ def collect() -> pd.DataFrame:
         cf, dsh = _cf_from_C(C, G, mu, K)
         for i in range(len(a)):
             rows.append(dict(fluid="air", topo=topo, case=str(a.case.iloc[i]), Re=float(Re[i]),
+                             source=AIR_BOOKS[topo][0],
                              G=float(G[i]), cF_meas=float(cf[i]),
                              darcy_frac=float(dsh[i]), A_used=A_FLOW[topo]))
 

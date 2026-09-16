@@ -36,7 +36,7 @@ data/raw_data/
 
 | 原路径 | 新路径 | 用途与区别 |
 | --- | --- | --- |
-| `20260401-上海电气天然气加热器实验工况.xlsx` | `experiments/water_air/water-air_G7-t0p6_shanghai_experiment_20260401.xlsx` | 上海验证实验；保留 `shanghai` 标识，训练集来源守卫仍拒绝它 |
+| `20260401-上海电气天然气加热器实验工况.xlsx` | `experiments/water_air/water-air_G7-t0p6_shanghai_experiment_20260401.xlsx` | Gyroid HX 空气直通标定源（第 2–16 项）及整机对照；空气小试件训练集仍拒绝上海来源，见下文 |
 | `20260407-上海电气天然气加热器实验工况 -调换进出口-G_7_6.xlsx` | `experiments/water_air/water-air_G7-t0p6_shanghai_experiment_ports-swapped_20260407.xlsx` | 用户于2026-09-15确认：空气与水互换流道，试件及其他硬件不变；空气走错列开口、水走原空气直通流道。见[压力诊断](pressure-boundary-diagnosis-20260915.md) |
 | `20260609-水直空气侧-D_7_6.xlsx` | `experiments/water_air/water-air_D7-t0p6_experiment_water-straight_20260609.xlsx` | D7/0.6 水—空气实验 |
 | `7-6-Water-dp.xlsx` | `experiments/water_air/water-air_DG7-t0p6_hx_water-dp_with-air-temperature.xlsx` | 水侧压损整理；D 页另有空气进口温度列；现有水 HX 读取器使用此表 |
@@ -125,7 +125,22 @@ Diamond 保留 `Nu = 0.3201·Re^0.6679·Pr^(1/3)`，Gyroid 保留
 空气 D/G 15/15、水 16/15、sCO2 51/44。数值最大相对差 1.20e-15，属于浮点舍入。
 在新进程中禁用旧 gamma/RBF 模块和六张旧系数表，两个现行工具仍以退出码 0 完成。
 本地对照与日志已存入上述私有归档的 `hx-experiment-decouple-20260912/`。
-当前联合 K/cF、实验 sF、质量标记、速度适用域及压力换算约定保持不变。
+该次解耦保留当时的联合 K/cF、实验 sF、质量标记、速度适用域及压力换算约定。
+
+## Gyroid HX 空气标定来源更新（2026-09-16）
+
+`AIR_BOOKS["Gyroid"]` 现指向 4 月 1 日空气直通工作簿。原一维固定 K0
+标定使用 `Sheet1` 第 4–18 行（第 2–16 工况）：F 列名义质量流量，
+AC/AD 温度平均值，AE/AF 表压。保留 2000 Pa 的既有筛选规则；第 1 项仍
+读取并列入完整对照。标定入口和每行审查结果记录原文件、工作表和 Excel 行号。
+
+4 月 7 日互换流道工作簿继续作为迁移及旧系数来源对照，读取时显式传入
+`load_air_cases("Gyroid", source=(工作簿相对路径, "Sheet1"))`。
+Diamond 空气、水和 sCO2 的源文件及标定选择保持原状。
+
+本次变更仅作用于独立的 7/0.6 mm HX 修正。`df_surrogate.load_data` 的
+空气小试件训练集隔离守卫继续有效，上海整机数据不进入该训练表。
+新系数和适用范围见[直通标定报告](air-drag-straight-calibration-20260916.md)。
 
 ## 读取行为与版本边界
 
@@ -137,7 +152,7 @@ Diamond 保留 `Nu = 0.3201·Re^0.6679·Pr^(1/3)`，Gyroid 保留
   列位置和数值保留；工况内部缺失温压仍由原检查报错，不作静默剔除。
 - D76 sCO2 的 Gate A、2D 与压损 holdout 分别使用整理版和原 V1 的新路径，
   保留各自列映射；路径修复不代表历史物理验收通过。
-- 训练数据仍受上海来源隔离守卫保护；重命名不能让验证数据进入训练集。
+- 空气小试件训练数据仍受上海来源隔离守卫保护；独立 HX 标定的来源见上文。
 - 同步更新加载器、验证脚本、测试私有数据存在性检查、上海配置和服务器
   复制后的文件检查。旧文件名仍可出现在历史报告和冻结来源记录中，通过本表追溯。
 - 两个工作簿已有的 REFPROP 外链指向原 Windows 加载项位置。本次不重算、

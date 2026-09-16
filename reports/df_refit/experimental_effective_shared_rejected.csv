@@ -1,2 +1,2 @@
 ﻿model,sF,n,rmsre,bias,sco2_bias,verdict
-forced_single_sF_air_plus_sco2,2.14891102841901,290,0.4859443069974584,-0.23798434975364244,-0.685865854070456,rejected: campaign/system effects cannot be shared
+forced_single_sF_air_plus_sco2,2.1474016566740195,290,0.48780811756079734,-0.2398184040896425,-0.6901271117156026,rejected: campaign/system effects cannot be shared
