@@ -1,7 +1,7 @@
-"""Tab-switching, canvas-zoom, and detach/reattach handlers for ``Main_Menu``.
+"""Tab-switching and detach/reattach handlers for ``Main_Menu``.
 
 Extracted verbatim from the ``main`` god object: 2D/3D tab visibility &
-switching, canvas zoom controls, coordinate hover read-out, and the
+switching, coordinate hover read-out, and the
 detach/reattach of the 3D window and 2D canvases. UI-only -- no solver
 or numeric path. Adopted via
 ``class Main_Menu(..., TabViewMixin, ..., QMainWindow)``; methods resolve
@@ -37,18 +37,6 @@ class TabViewMixin:
             '2d_view': has_2d,
             'result': has_2d or has_3d,
         }
-
-    def _canvas_zoom(self, factor):
-        from sjtu_tpmshx.ui.builders_canvas import canvas_zoom
-        return canvas_zoom(self, factor)
-
-    def _canvas_zoom_reset(self):
-        from sjtu_tpmshx.ui.builders_canvas import canvas_zoom_reset
-        return canvas_zoom_reset(self)
-
-    def _canvas_wheel_zoom(self, event, canvas, key):
-        from sjtu_tpmshx.ui.builders_canvas import canvas_wheel_zoom
-        return canvas_wheel_zoom(self, event, canvas, key)
 
     def _update_tab_visibility(self):
         """Show/hide tab buttons based on available results and current mode.

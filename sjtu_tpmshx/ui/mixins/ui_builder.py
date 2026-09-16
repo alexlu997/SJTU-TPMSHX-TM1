@@ -1,8 +1,8 @@
 """UI construction + install/setup handlers for ``Main_Menu``.
 
-Extracted verbatim from the ``main`` god object: the page/tab/canvas
-builders (thin delegators to ui.ui_builders) plus the status-bar,
-undo-stack, field-help, and status-log installers. UI-only -- no solver
+The main UI builder and row callback delegate to their owning modules;
+page/tab/canvas assembly calls those module functions directly. This mixin
+also installs the status bar, undo stack and field help. UI-only -- no solver
 or numeric path. Adopted via
 ``class Main_Menu(..., UIBuilderMixin, ..., QMainWindow)``; methods
 resolve on the live window through the MRO so external wiring keeps
@@ -12,7 +12,7 @@ imports needed are PySide6 widgets and ui.theme.get_theme.
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QLabel, QLineEdit, QScrollArea, QWidget
+from PySide6.QtWidgets import QLabel, QLineEdit
 
 from sjtu_tpmshx.ui.theme import get_theme
 
@@ -24,41 +24,9 @@ class UIBuilderMixin:
         from sjtu_tpmshx.ui.ui_builders import build_ui
         return build_ui(self)
 
-    def _build_param_tabs(self) -> QWidget:
-        from sjtu_tpmshx.ui.ui_builders import build_param_tabs
-        return build_param_tabs(self)
-
-    def _build_page_domain(self) -> QScrollArea:
-        from sjtu_tpmshx.ui.builders_domain import build_page_domain
-        return build_page_domain(self)
-
-    def _build_page_fluids(self) -> QScrollArea:
-        from sjtu_tpmshx.ui.builders_fluids import build_page_fluids
-        return build_page_fluids(self)
-
-    def _build_page_zones(self) -> QScrollArea:
-        from sjtu_tpmshx.ui.ui_builders import build_page_zones
-        return build_page_zones(self)
-
-    def _build_canvas_area(self) -> QWidget:
-        from sjtu_tpmshx.ui.builders_canvas import build_canvas_area
-        return build_canvas_area(self)
-
-    def _section(self, parent_lay, title, title_style, frame_style):
-        from sjtu_tpmshx.ui.builders_base import section
-        return section(self, parent_lay, title, title_style, frame_style)
-
     def _row(self, g, row, text, default) -> QLineEdit:
         from sjtu_tpmshx.ui.builders_base import row as _row_impl
         return _row_impl(self, g, row, text, default)
-
-    def _res_row(self, g, row, text, col=0) -> QLabel:
-        from sjtu_tpmshx.ui.builders_base import res_row
-        return res_row(self, g, row, text, col)
-
-    def _add_row(self, g, row, text, widget):
-        from sjtu_tpmshx.ui.builders_base import add_row
-        return add_row(self, g, row, text, widget)
 
     def _install_status_bar_widgets(self):
         """Mount permanent status-bar widgets on the right edge of the

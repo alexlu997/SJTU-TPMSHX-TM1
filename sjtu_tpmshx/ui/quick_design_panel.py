@@ -218,39 +218,9 @@ def build_quick_design_dialog(parent=None):
         QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGridLayout,
         QGroupBox, QLabel, QLineEdit, QPushButton,
         QComboBox, QCheckBox, QTableWidget, QFileDialog,
-        QSizePolicy, QFrame, QWidget, QLayout,
+        QSizePolicy, QFrame, QWidget,
     )
-    from PySide6.QtCore import Qt, QRect, QSize, QPoint
-
-    class _FlowLayout(QLayout):
-        """控件按宽度自动折行 (窄窗/小字体不重叠)。标准 Qt FlowLayout 习语。"""
-        def __init__(self, hs=14, vs=6):
-            super().__init__(); self._items = []; self._hs = hs; self._vs = vs
-            self.setContentsMargins(0, 0, 0, 0)
-        def addItem(self, it): self._items.append(it)
-        def count(self): return len(self._items)
-        def itemAt(self, i): return self._items[i] if 0 <= i < len(self._items) else None
-        def takeAt(self, i): return self._items.pop(i) if 0 <= i < len(self._items) else None
-        def expandingDirections(self): return Qt.Orientation(0)
-        def hasHeightForWidth(self): return True
-        def heightForWidth(self, w): return self._lay(QRect(0, 0, w, 0), True)
-        def setGeometry(self, r): super().setGeometry(r); self._lay(r, False)
-        def sizeHint(self): return self.minimumSize()
-        def minimumSize(self):
-            sz = QSize()
-            for it in self._items:
-                sz = sz.expandedTo(it.minimumSize())
-            return sz
-        def _lay(self, r, test):
-            x, y, line_h = r.x(), r.y(), 0
-            for it in self._items:
-                w, h = it.sizeHint().width(), it.sizeHint().height()
-                if x + w > r.right() and line_h > 0:
-                    x = r.x(); y += line_h + self._vs; line_h = 0
-                if not test:
-                    it.setGeometry(QRect(QPoint(x, y), it.sizeHint()))
-                x += w + self._hs; line_h = max(line_h, h)
-            return y + line_h - r.y()
+    from PySide6.QtCore import Qt
 
     def _pair(label, widget):
         """label + 控件 打包成一个 flow item (整体折行, 不拆散)。"""

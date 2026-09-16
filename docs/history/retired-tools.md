@@ -157,3 +157,17 @@ F2 的速度检查触发参数改名为 `f2_velocity_check_tol`，不再沿用 L
 MMS 误差原表、阶数门槛、GCI 参考、Shanghai 主基准、模型拟合输出、PoC 测试依赖、
 Graph/B40 原始失败和本地完整计算证据继续保留。当前上海与 sCO2 压降实验误差见
 [求解器整理记录](../solver-architecture-20260914.md)。
+
+## 无调用者的 UI 转发与旧系数写入工具退役（2026-09-16）
+
+原实现固定在已合并提交 `c45d9cb1e57a28809c0250abbd34221211eb2a15`。
+核对源码、测试、字符串回调和文档引用后，移除以下未被现行路径调用的实现：
+
+| 退役项与固定源码 | 现行承接 |
+|---|---|
+| [UI mixins](https://github.com/alexlu997/SJTU-TPMSHX-TM1/tree/c45d9cb1e57a28809c0250abbd34221211eb2a15/sjtu_tpmshx/ui/mixins) 中的 19 个私有转发/判向方法 | 页面组装、布局绘制、画布缩放、Pareto 展示/保存和分区配置直接调用所属模块函数；实际按钮与信号仍使用的窗口回调保留 |
+| [快速设计 `_FlowLayout`](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/c45d9cb1e57a28809c0250abbd34221211eb2a15/sjtu_tpmshx/ui/quick_design_panel.py) | 该局部类从未实例化；对话框继续使用原有 Qt 布局 |
+| [旧 `override_simple_K_cF`](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/c45d9cb1e57a28809c0250abbd34221211eb2a15/sjtu_tpmshx/solvers/df_projection.py) | 当前前处理准备 K/cF，筛选求解侧消费准备字段；现行投影函数和仍有验证调用者的压降诊断保留 |
+| [旧 `clear_field_cache`](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/c45d9cb1e57a28809c0250abbd34221211eb2a15/sjtu_tpmshx/models/sco2_props.py) | 没有现行调用者；标量查询继续使用原有 `lru_cache`，场查询继续直接使用向量化 CoolProp |
+
+求解方程、关联式、收敛条件、参考值和正式配置/结果格式未改。

@@ -2,7 +2,8 @@
 
 Extracted from the ``main`` god object: the per-region zone editor's
 button/combo handlers (add/remove row & column, mode switch, 1-D init,
-axis query) plus the zone-config builder. Every method is a thin delegator
+axis query). The window-config adapter calls the zone-config builder directly.
+Every method here is a thin delegator
 to ``ui.zone_table`` — the real table/grid logic lives there and reads
 the live window through ``self``. Moving these out of main.Main_Menu changes
 no behaviour: ``zone_table`` wires its buttons to ``window._zone_*`` and
@@ -46,7 +47,3 @@ class ZonePanelMixin:
     def _zone_axis(self):
         from sjtu_tpmshx.ui.zone_table import zone_axis
         return zone_axis(self)
-
-    def _build_zone_config(self):
-        from sjtu_tpmshx.ui.zone_table import build_zone_config
-        return build_zone_config(self)
