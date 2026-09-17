@@ -1132,6 +1132,9 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
                 P_in_A_Pa=float(P_inA_val), P_in_B_Pa=float(P_inB_val),
                 P_A_range_Pa=[float(P_abs_A.min()), float(P_abs_A.max())],
                 P_B_range_Pa=[float(P_abs_B.min()), float(P_abs_B.max())])
+            e_info['true_h_balance'].update({key: e_info[key] for key in (
+                'exit_reason', 'enthalpy_clip_counts', 'effective_settings',
+                'coupled_energy_balance', 'equation_energy_balance') if key in e_info})
         else:
             last_temperature_inputs = (rho_cp_A, rho_cp_B, h_vA_local, h_vB_local)
             model_kwargs = {}

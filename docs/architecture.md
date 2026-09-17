@@ -96,6 +96,18 @@ Thermal routes are selected by their present qualification conditions:
 | Model enthalpy | Existing air/water h(T) transport; 2D includes water/water when unzoned and symmetric. 3D currently includes air/air, air/water and water/air with its Nz, variable-property, dual-flow, conservative and mask conditions. |
 | Temperature | Existing remaining cases and approximation modes keep their current discretization and property sampling. |
 
+The true-enthalpy fluid diffusion term is Fourier conduction on temperature,
+linearized consistently in the enthalpy unknown on each shared internal face.
+A pressure-dependent enthalpy difference is not itself a temperature gradient.
+Both production adapters require fresh HEOS fluid and solid equation residuals:
+the largest per-phase sum of absolute cell residuals, together with the boundary
+energy imbalance, must be <=0.001 of `max(abs(Q_A), abs(Q_B), 1)` in native units.
+The enthalpy-update criterion remains independent. A final chunk containing
+clipped enthalpy updates cannot certify convergence. The true-h ledger records
+the effective settings, residual budgets, clip counts and exit reason.
+See the [same-grid diagnostic and validation](sco2-numerical-consistency-20260917.md)
+and the [D8/G8 three-level grid study](sco2-grid-study-20260917.md).
+
 Model-h uses signed mass faces and minmod SOU on **both** fluid sides in both
 dimensions. Its fluid Picard update uses the shared `MODEL_H_RELAXATION=0.2`
 policy, including outlet cells; 3D retains explicitly smaller relaxation values.
@@ -322,9 +334,13 @@ explicit numerical-model change with directly relevant validation.
     not establish experimental accuracy in the added range.
     Production Picard iterations use CoolProp BICUBIC only for CO2 T(h,P).
     Final temperatures, coupled-energy checks, outlet inversion and all other
-    properties remain HEOS. Each thermal solve owns its mutable table state;
+    properties remain HEOS. If an exact-EOS energy check fails, the remaining
+    iterations finish on HEOS; returning to the table can cycle between two
+    different fixed points. Each thermal solve owns its mutable table state;
     HEOS enthalpy limits at local pressure keep domain-boundary checks on HEOS.
-    Results record `sco2_enthalpy_eos` in model metadata when the table is used.
+    Results record `sco2_enthalpy_eos` in model metadata when the table is used,
+    including the `bicubic_iteration_heos_polish_v2` algorithm and whether
+    exact-EOS finishing was needed.
     This is an approximate iteration algorithm, not an experimental calibration.
 11. **Current TM1 limit.** sCO2 zones and offset level sets remain rejected;
     air/water-only runs retain the qualified model-enthalpy and temperature

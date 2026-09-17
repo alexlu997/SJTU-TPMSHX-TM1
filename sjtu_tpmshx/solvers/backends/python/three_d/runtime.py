@@ -2631,7 +2631,8 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
                 omega=float(cfg.get('ltne_enthalpy_omega', 0.6)),
                 n_outer=int(cfg.get('ltne_enthalpy_outer', 1500)),
                 tol=float(cfg.get('ltne_enthalpy_tol', 1e-3)),
-                cancel_check=_cancel_check)
+                cancel_check=_cancel_check, coupled_energy_tol=0.001,
+                equation_energy_tol=0.001)
             fluid_props.check_water_state(fluid_type_A, Ta, _P_A_local,
                                           where='3D enthalpy return A')
             fluid_props.check_water_state(fluid_type_B, Tb, _P_B_local,
@@ -2681,6 +2682,9 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
                 P_A_offset_Pa=float(P_inA - _dPA), P_B_offset_Pa=float(P_inB - _dPB),
                 P_A_range_Pa=[float(_P_A_local.min()), float(_P_A_local.max())],
                 P_B_range_Pa=[float(_P_B_local.min()), float(_P_B_local.max())])
+            _ltne_info[-1]['true_h_balance'].update({key: _ltne_info_d[key] for key in (
+                'exit_reason', 'enthalpy_clip_counts', 'effective_settings',
+                'coupled_energy_balance', 'equation_energy_balance') if key in _ltne_info_d})
         if _prof_t_ltne is not None:
             _dt = _time.perf_counter() - _prof_t_ltne
             _log.info(f"[PROF] outer {outer}: LTNE {_dt:7.2f}s  "

@@ -86,9 +86,10 @@ def _assert_postprocessing(result):
 
 @pytest.mark.slow
 @pytest.mark.parametrize('fluid_A,u_A,P_A,fluid_B,P_B,expected_Q', [
-    # Approved iteration-only BICUBIC reference; HEOS final state, same budgets.
-    ('sco2', .3, 12e6, 'water', 2e6, 45643.347257385045),
-    ('air', 3., 2e5, 'sco2', 12e6, 4417.110199312396),
+    # Fresh fluid-equation gate; old references and attribution are retained in
+    # docs/sco2-numerical-consistency-20260917.md. Comparison tolerance unchanged.
+    ('sco2', .3, 12e6, 'water', 2e6, 45628.22458923646),
+    ('air', 3., 2e5, 'sco2', 12e6, 4416.1880296567215),
 ])
 def test_mixed_partial_native_and_postprocessing(fluid_A,u_A,P_A,fluid_B,P_B,expected_Q):
     from sjtu_tpmshx.domain.compute_config import ExtrapPolicy
