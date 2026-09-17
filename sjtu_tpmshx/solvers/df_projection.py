@@ -10,7 +10,7 @@ df_projection.py — 投影 2D 几何设计到 SIMPLE 1D K/c_F 数组 + master �
 对应报告：vault/reports/2026-04-17-shanghai-dP-error-analysis-CN.md §11-§12
 """
 from __future__ import annotations
-from typing import Any, List, Optional
+from typing import Any
 
 import numpy as np
 from sjtu_tpmshx.models.grid import build_wall_refined_1d  # noqa: F401 - existing public name
@@ -27,36 +27,6 @@ from sjtu_tpmshx.models.df_projection import (
     _nearest_src_idx as _nearest_src_idx,
     _stream_profile as _stream_profile,
 )
-
-
-def override_simple_K_cF(sim: Any,
-                          tpms_type: str,
-                          k_s: float,
-                          Ny_sim: int,
-                          grid_cells: Optional[List[dict]],
-                          L_field: Optional[np.ndarray],
-                          t_field: Optional[np.ndarray],
-                          fluid: str) -> None:
-    """Project design geometry to streamwise axis, override sim._K_arr/_cF_arr.
-
-    Reads sim.dy_arr (SIMPLE internal streamwise widths) to handle non-uniform
-    grids correctly. No-op if neither grid_cells nor fields provided.
-    """
-    if grid_cells is None and L_field is None:
-        return
-    streamwise_dx = sim.dy_arr if sim.dy_arr is not None else None
-    if grid_cells is not None:
-        K_arr, cF_arr = project_cells_to_streamwise_K_cF(
-            grid_cells, tpms_type, k_s, Ny_sim, fluid,
-            streamwise_dx=streamwise_dx)
-    else:
-        Nx_field, Ny_field = L_field.shape
-        K_arr, cF_arr = project_fields_to_streamwise_K_cF(
-            L_field, t_field, tpms_type, k_s,
-            Nx_field, Ny_field, Ny_sim, fluid,
-            streamwise_dx=streamwise_dx)
-    sim._K_arr[:] = K_arr
-    sim._cF_arr[:] = cF_arr
 
 
 from sjtu_tpmshx.models.grid import build_master_refined_grid_3d  # noqa: F401

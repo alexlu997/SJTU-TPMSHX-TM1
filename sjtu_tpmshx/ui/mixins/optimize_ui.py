@@ -1,8 +1,8 @@
 """Multi-objective optimization + quick-design launchers for ``Main_Menu``.
 
-Extracted from the ``main`` god object: the qNEHVI zone-optimization panel
-handlers (run/cancel, Pareto show/reshow/pick, save, load-solution) — all thin
-delegators to ``ui.optimize_panel`` — plus the quick-design dialog launcher.
+Run/cancel and Pareto-pick callbacks delegate to ``ui.optimize_panel``;
+the quick-design callback opens its dialog. Plotting, saving and loading
+call the owning module functions directly.
 
 Pure UI glue, no solver / numeric path. Adopted via
 ``class Main_Menu(..., OptimizeUIMixin, ..., QMainWindow)``; external callers
@@ -29,25 +29,9 @@ class OptimizeUIMixin:
         from sjtu_tpmshx.ui.optimize_panel import cancel_optimize
         return cancel_optimize(self)
 
-    def _reshow_pareto(self):
-        from sjtu_tpmshx.ui.optimize_panel import reshow_pareto
-        return reshow_pareto(self)
-
-    def _show_pareto(self, res):
-        from sjtu_tpmshx.ui.optimize_panel import show_pareto
-        return show_pareto(self, res)
-
     def _on_pareto_pick(self, event):
         from sjtu_tpmshx.ui.optimize_panel import on_pareto_pick
         return on_pareto_pick(self, event)
-
-    def _save_opt_results(self, res, cfg):
-        from sjtu_tpmshx.ui.optimize_panel import save_opt_results
-        return save_opt_results(self, res, cfg)
-
-    def _load_pareto_solution(self, x):
-        from sjtu_tpmshx.ui.optimize_panel import load_pareto_solution
-        return load_pareto_solution(self, x)
 
     # ── quick-design tool (Phase 2 Task 4) ───────────────────────────────
     def _open_quick_design(self):

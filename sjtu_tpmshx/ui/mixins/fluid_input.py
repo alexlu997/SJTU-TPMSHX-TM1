@@ -316,8 +316,6 @@ class FluidInputMixin:
         # 0=+x 1=-x 2=+y 3=-y 4=+z 5=-z (z-dirs: 3D only)
         return combo.currentIndex()
 
-    def _is_x_dir(self, d): return d in (0, 1)
-
     def _inlet_wall(self, d):
         from sjtu_tpmshx.domain.validator import wall_for_dir
         return wall_for_dir(d, 'inlet')
@@ -419,11 +417,3 @@ class FluidInputMixin:
     def _draw_layout(self):
         from sjtu_tpmshx.ui.layout_drawer import draw_layout
         return draw_layout(self)
-
-    def _draw_layout_rect(self, ax, L, H, Lmm, Hmm):
-        from sjtu_tpmshx.ui.layout_drawer import draw_layout_rect
-        return draw_layout_rect(self, ax, L, H, Lmm, Hmm)
-
-    def _draw_layout_polygon(self, ax, L, H, Lmm, Hmm):
-        from sjtu_tpmshx.ui.layout_drawer import draw_layout_polygon
-        return draw_layout_polygon(self, ax, L, H, Lmm, Hmm)

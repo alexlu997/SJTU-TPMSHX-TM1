@@ -1,10 +1,9 @@
 """
 ui/optimize_panel.py — UI bindings for the continuous-field qNEHVI optimizer.
 
-Replaces the retired patch-zoning panel. Public surface preserved so main.py's
-lazy-imported handler methods (``_run_optimize``, ``_cancel_optimize``,
-``_reshow_pareto``, ``_show_pareto``, ``_on_pareto_pick``,
-``_save_opt_results``, ``_load_pareto_solution``) remain valid bind points.
+Replaces the retired patch-zoning panel. Main window callbacks delegate
+run/cancel and Pareto picking here; plotting, saving and loading use the
+module functions directly.
 
 This is a minimal but functional first cut:
 

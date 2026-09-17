@@ -158,11 +158,6 @@ def sco2_temperature_from_enthalpy(h_Jkg, P_Pa):
 # Used by the variable-property outer loop where the cp/ρ field is refreshed
 # every iteration as T evolves through the pseudocritical zone.
 
-def clear_field_cache() -> None:
-    """Clear the scalar CoolProp cache (kept for existing callers/tests)."""
-    _prop.cache_clear()
-
-
 def sco2_field(key: str, T_K, P_Pa: float):
     """Direct vectorised CoolProp query over a temperature field."""
     return sco2_prop(key, T_K, P_Pa)

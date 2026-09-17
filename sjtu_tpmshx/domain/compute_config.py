@@ -322,7 +322,7 @@ class ZoneInputConfig:
     input, restored at the 1D pipeline boundary. It is ``None`` when zones are disabled or
     running in grid mode (``grid`` carries the cell list instead).
     The UI adapter snapshots ``config`` via
-    ``window._build_zone_config()`` at the boundary so the Pipeline
+    ``ui.zone_table.build_zone_config(window)`` at the boundary so the Pipeline
     layer never has to touch the Qt zone-table widget.
 
     Audit C4 (L-a-2).
