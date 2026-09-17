@@ -139,7 +139,7 @@ def test_pipeline_inlets_preserve_opening_velocity_and_mass_target(monkeypatch, 
         cfg[key].update(in_ctr=.013, in_w=.011, out_ctr=.017, out_w=.013,
                         in_z_ctr=.014, in_z_w=.009, out_z_ctr=.015, out_z_w=.012)
     # Exercise real setup, without launching a coupled temperature solve.
-    monkeypatch.setattr(stages, '_run_two_simple_parallel', lambda *a, **kw: None)
+    monkeypatch.setattr(stages, '_run_two_simple', lambda *a, **kw: None)
     p = _build_3d_problem(cfg)
     for solver, u, rho in ((p.sA, .02, p.rho_A), (p.sB, .03, p.rho_B)):
         f = solver.inlet_frac

@@ -112,14 +112,14 @@ def test_real_error_wins_over_other_side_cancel(monkeypatch, nz, error_type, err
         monkeypatch.setattr(execution, 'build_runtime', build)
     else:
         from sjtu_tpmshx.solvers.backends.python.three_d import runtime as stages
-        original_pair = stages._run_two_simple_parallel
+        original_pair = stages._run_two_simple
 
         def pair(a, b, **kwargs):
             a.solve = lambda **k: side(0)
             b.solve = lambda **k: side(1)
             return original_pair(a, b, **kwargs)
 
-        monkeypatch.setattr(stages, '_run_two_simple_parallel', pair)
+        monkeypatch.setattr(stages, '_run_two_simple', pair)
     with pytest.raises(error_type) as caught:
         pipe.run()
     assert caught.value is failure

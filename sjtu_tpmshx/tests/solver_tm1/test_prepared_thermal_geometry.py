@@ -29,7 +29,7 @@ def test_prepared_geometry_and_roughness_are_consumed(monkeypatch, mode):
     monkeypatch.setattr(flux, '_resolve_ui_roughness', forbidden)
     from sjtu_tpmshx.df_surrogate import experimental_correction
     monkeypatch.setattr(experimental_correction, 'correction_scale', forbidden)
-    monkeypatch.setattr(runtime, '_run_two_simple_parallel', lambda *a, **k: None)
+    monkeypatch.setattr(runtime, '_run_two_simple', lambda *a, **k: None)
     problem = runtime.build_problem(parameters, prepared)
     hv = runtime._build_hv_machinery(problem)
     assert np.all(np.isfinite(hv.h_vA_field))

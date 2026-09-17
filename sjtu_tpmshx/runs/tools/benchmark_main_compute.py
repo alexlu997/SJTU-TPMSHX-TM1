@@ -94,11 +94,11 @@ def observe_solver(dimension, calls):
             stack.enter_context(patch.object(runtime, 'run_outer_coupling', clocked(runtime.run_outer_coupling, 'outer_loop')))
             stack.enter_context(patch.object(runtime, 'solve_full_domain_3d', clocked(runtime.solve_full_domain_3d, 'LTNE')))
             stack.enter_context(patch.object(enthalpy, 'solve_ltne_enthalpy_3d_pipeline', clocked(enthalpy.solve_ltne_enthalpy_3d_pipeline, 'enthalpy')))
-            pair = runtime._run_two_simple_parallel
+            pair = runtime._run_two_simple
             def paired(a, b, **kwargs):
                 sides.update({id(a): 'A', id(b): 'B'})
                 return pair(a, b, **kwargs)
-            stack.enter_context(patch.object(runtime, '_run_two_simple_parallel', paired))
+            stack.enter_context(patch.object(runtime, '_run_two_simple', paired))
         else:
             from sjtu_tpmshx.solvers.backends.python.two_d import coupling
             from sjtu_tpmshx.solvers import ltne_enthalpy_2d as enthalpy

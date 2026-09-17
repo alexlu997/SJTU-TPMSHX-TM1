@@ -869,9 +869,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
         # cF depend on TPMS/L/t only and stay fixed through the solve.
         _dfA = _dfB = SCO2_DF_METHOD
         # perf-wave1 (2026-07-03): run the two independent SIMPLE solves
-        # on two OS threads — the 2D port of run_stack_3d's
-        # _run_two_simple_parallel. njit kernels + spsolve release the
-        # GIL, the solvers share no mutable state (separate instances,
+        # on two OS threads. The solvers share no mutable state (separate instances,
         # per-side live-residual lists, per-label simple_warnings keys),
         # and the outputs are the same objects the sequential calls
         # produced — golden 2D stays bit-identical, only wall-clock

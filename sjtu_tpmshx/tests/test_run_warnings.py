@@ -191,11 +191,13 @@ def test_pipeline_exception_restores_scope_and_next_run(monkeypatch, error):
 
 
 def test_parallel_worker_scopes_merge_in_side_order():
-    from sjtu_tpmshx.solvers.backends.python.three_d.runtime import _run_two_simple_parallel
+    from sjtu_tpmshx.solvers.backends.python.three_d.runtime import _run_two_simple
 
     b_done = threading.Event()
 
     class Side:
+        Nx = Ny = Nz = 2
+
         def __init__(self, fluid):
             self.fluid = fluid
 
@@ -208,7 +210,7 @@ def test_parallel_worker_scopes_merge_in_side_order():
             return True, 1
 
     with warning_scope({}) as records:
-        _run_two_simple_parallel(Side('air'), Side('water'))
+        _run_two_simple(Side('air'), Side('water'))
     assert [key[1] for key in records] == ['air', 'water']
     assert [key[-1] for key in records] == [
         (side, 'initial', 'solver-cell(cross1,stream,cross2)') for side in ('A', 'B')]

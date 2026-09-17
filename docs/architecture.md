@@ -88,6 +88,14 @@ iteration and temperature-delta tracking live in `coupling_skeleton.py`; both
 full-compute drivers track Ta, Tb and Ts, with the existing extra 2D density
 gate. Dimension-specific solve order and native flux capture remain explicit.
 
+The 3D initial A/B SIMPLE dispatch uses one level of parallelism. If either
+side reaches the existing parallel-sweep grid threshold, A and B run in order
+on the caller thread and retain their parallel sweeps. Otherwise the two sides
+run on separate threads with serial sweeps. This shared rule applies to all
+supported fluid pairs and avoids concurrent launches into Numba workqueue;
+outer property-refresh solves already run in side order. Thread counts and
+numerical convergence gates remain independent of this scheduling decision.
+
 Thermal routes are selected by their present qualification conditions:
 
 | Route | Shared implementation and retained differences |
