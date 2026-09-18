@@ -24,6 +24,9 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   result; it has no window-shaped runtime adapter or attribute-write hooks.
 - `postprocess/` reduces recorded fields, fluxes and pressure states. It never
   reruns a solver or reads a private runtime object to recover missing evidence.
+  Full-compute evaluation reuses successful heat and mass reductions only within
+  that call, lazily by side and by coarse/fine evidence. Each requested metric
+  retains its own missing/unsupported/invalid status handling.
 - `models/` and `df_surrogate/` own shared pure closures and versioned resources.
   Explicit cleaning/calibration entry points live under `preprocess/offline/`.
 - `io/` owns strict YAML/HDF5/JSON interchange. VTK export is a postprocessing
