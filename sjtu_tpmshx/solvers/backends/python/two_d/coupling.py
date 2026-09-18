@@ -740,8 +740,9 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
     # Per-side interfacial coupling h_v geometry ratio under δ (mirror 3D
     # three_d.runtime._hv_side_geom_ratio). Each side's (A_0, D_h) shift with the
     # offset; the ratio vs the δ=0 reference is EXACTLY 1.0 at δ=0 (bit-
-    # identical ×1.0) and u-independent (Re_side/Re_ref = D_h_side/D_h_ref), so
-    # the scalar applies to both the bulk and local-Re h_v. k_f cancels. Captures
+    # identical ×1.0). The inlet-reference scalar is also applied to local h_v;
+    # Re/Nu floors can put the side and reference on different branches, so
+    # their diameter ratio alone does not prove speed independence. k_f cancels. Captures
     # the geometric Nu/area effect; the residual κ_Nu is CFD calibration (P1-CFD,
     # out of scope). Per-side dP (Darcy-Forchheimer κ) is likewise the opt-in
     # CFD κ layer — 3D's default kappa_KcF returns (1,1) with no table, so the

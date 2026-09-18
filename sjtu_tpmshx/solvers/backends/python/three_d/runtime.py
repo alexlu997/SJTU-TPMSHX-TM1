@@ -1124,8 +1124,9 @@ def _build_hv_machinery(prob: _Problem3D):
     # taken vs asym_geometry's OWN δ=0 reference (same method) so it is EXACTLY
     # 1.0 at δ=0 → multiplying the existing symmetric h_v is bit-identical
     # (×1.0). k_f cancels; Nu's ε arg is inert (air/water Nu ignore ε); the
-    # ratio is u-independent (Re_side/Re_ref = D_h_side/D_h_ref) so it applies
-    # equally to the bulk and the later local-Re h_v. Captures the geometric
+    # inlet-reference ratio is applied to bulk and later local-Re h_v. Re/Nu
+    # floors can put side and reference on different branches; the diameter
+    # ratio alone does not prove speed independence. Captures the geometric
     # Nu/area effect; the residual (κ_Nu) is a CFD calibration left to
     # ingest_cfd_kappa (Nu is secondary per the Phase-1 plan; dP is primary).
     def _hv_side_geom_ratio(fluid_type, u_side, T_side, P_side, side):

@@ -23,7 +23,9 @@ def _sco2_hv_local_field(T_field: np.ndarray, P_Pa: float,
     temperature field (fixed P), not frozen at the scalar inlet T. sCO2
     transport props swing 2-8× across the pseudocritical line, so freezing
     them at inlet biases fluid↔solid coupling wherever local T departs from
-    inlet. Air/water retain their scalar-inlet property path.
+    inlet. Air/water property sampling belongs to each caller: 2D also uses
+    field averages, including lagged-temperature properties on a mixed true-h
+    side; 3D local air/water closure uses scalar inlet properties.
     """
     from sjtu_tpmshx.models import sco2_props as _s2
     from sjtu_tpmshx.models.tpms_calc import nu_sco2_topo as _nu_s2

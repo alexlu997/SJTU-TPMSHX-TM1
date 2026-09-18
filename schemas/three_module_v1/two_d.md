@@ -51,8 +51,11 @@ versions and inconsistent fluid/topology declarations fail before execution.
 `P_report_A/B` is the unsmoothed final reporting pressure, a distinct state.
 `field_metadata` declares units, location, axes and state for each array.
 Pressure evidence additionally stores final SIMPLE inlet/outlet gauge rows,
-profile weights and absolute reference. dP uses these row weights exactly;
-it is not area-weighted or inferred from a smoothed pressure field.
+profile weights and absolute reference for the retained backend summaries.
+Formal dP uses `P_report_A/B`, the physical cell widths and geometric opening
+fractions: extrapolate to physical port faces, then average by open face area
+(unit depth), using `pressure_face_v1`. It does not use the old profile weights
+or a smoothed pressure field.
 
 `boundary_fluxes.mass_A/B` are `(x-face,y-face)` arrays on `(Nx+1,Ny)` and
 `(Nx,Ny+1)`, positive along physical axes, kg/(s m), already including open
@@ -63,11 +66,14 @@ array shape. `fine` is a separately identified refined thermal return.
 `run_status` preserves numerical convergence and any final flow update after
 the last thermal return; it does not recast a nonconverged run as accepted.
 
-Postprocessing reads native evidence only. Model-h Q integrates signed h faces
-and applies the existing per-side Richardson formula if its original status
-permits it; true-h Q uses fluid A boundary enthalpy duty; temperature-form Q
-uses its original rho-cp/velocity/profile convention. Tout uses raw main T and
-positive outward mass over true openings. Q is W/m. Missing evidence yields
+Postprocessing reads native evidence only. Formal `Q=abs(Q_A)` uses the last
+main-grid thermal state (`native_boundary_v1`): model-h integrates signed h
+faces, true-h uses native boundary enthalpy duty, and temperature-form retains
+its rho-cp/velocity/profile convention. Accepted per-side Richardson duties
+are separate `Q_richardson_A/B` metrics and never replace main-grid Q. Backend
+summaries and `reporting_reference` retain their historical definitions for
+existing consumers. Tout uses raw main T and positive outward mass over true
+openings. Q is W/m. Missing evidence yields
 an unavailable metric; it never invokes a solver. A finite metric does not
 change the source run's numerical or physical status. Solid mass additionally
 requires an explicitly supplied solid density; it is not inferred from k_s.

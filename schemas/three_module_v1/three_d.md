@@ -33,14 +33,19 @@ thermal face operator. True-h evidence stores native h, inlet h (J/kg) and the
 actual last thermal mass faces. Legacy temperature mode has no complete
 captured enthalpy certificate and that reduction remains explicitly unsupported.
 
-The final report's mass weights remain a distinct state: rho times absolute
-normal velocity times full face area times side porosity, with the existing
-B-side chi weighting at the outlet. This preserves the 3D report's definition;
-it is different from the 2D positive-outward-mass outlet convention. For a
-true-h pair, final report outlet/inlet enthalpies are captured with their exact
-property-pressure source. Offline Q preserves A-side report semantics; native
-thermal duty balance is evaluated separately. Model-h Q integrates the native
-outward energy arrays and retains the incomplete-boundary rejection.
+Formal `Q=abs(Q_A)` uses the last thermal state (`native_boundary_v1`). True-h
+duty is computed from saved native h, inlet h and the actual thermal mass
+faces. Model-h duty integrates the native outward energy arrays and retains
+the boundary-completeness check in `diagnostics.model_h_balance.sides`.
+Tout uses raw thermal temperature and positive outward thermal mass at the
+configured outlet. Neither Q nor Tout is reconstructed from the final flow's
+property-pressure state. Formal dP separately uses final SIMPLE pressure,
+physical-face extrapolation and geometric open-area weights (`pressure_face_v1`).
+
+The backend's historical final-report summaries and `reporting_reference`
+remain available to their existing consumers. They are distinct from formal
+offline metrics; retained report metadata supplies outlet direction without
+requiring a second mass or enthalpy reconstruction.
 
 All dimensional duties here are W and mass flows kg/s. No division by depth
 occurs. Numerical convergence remains independent from metric availability.
