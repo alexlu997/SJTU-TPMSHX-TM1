@@ -79,6 +79,12 @@ def _prepare(monkeypatch, *, legacy=False, pair=('air', 'air'), temperatures=(40
     return pipe, fields
 
 
+def _step_context(step):
+    prepare = inspect.getclosurevars(step).nonlocals['_prepare_thermal_inputs']
+    context = inspect.getclosurevars(prepare).nonlocals
+    return {**context, **vars(context['state'])}
+
+
 def _thermal(*args, **kwargs):
     shape = args[2], args[3]
     return (*(np.full(shape, t) for t in (1100., 1200., 350.)),
@@ -99,7 +105,7 @@ def test_shared_fluid_model_keeps_each_sides_asymmetric_geometry(monkeypatch):
     }
 
     def drive(*, step, **kwargs):
-        state = inspect.getclosurevars(step).nonlocals
+        state = _step_context(step)
         # Same hydraulic diameter cancels Nu/k; only B doubles its area.
         assert state['_hv_ratio_A_2d'] == pytest.approx(1.)
         assert state['_hv_ratio_B_2d'] == pytest.approx(2.)
@@ -181,7 +187,7 @@ def test_uniform_hv_keeps_second_pass_property_sampling(monkeypatch, pair):
 
     def nusselt(model, topology, Re, eps, length, diameter, Pr):
         side = rw._range_context.get()[0]
-        state = inspect.getclosurevars(step_call).nonlocals
+        state = _step_context(step_call)
         props = state['_p' + side]
         inlet = cfg['T_in' + side]
         pressure = getattr(cfg['compute_cfg'], 'fluid_' + side).P_in_Pa
@@ -250,12 +256,12 @@ def test_last_thermal_capacities_survive_post_for_richardson(monkeypatch, cap):
         _, carry = step(0)
         post(0, carry)
         _, carry = step(1)
-        state = inspect.getclosurevars(step).nonlocals
+        state = _step_context(step)
         consumed = state['last_temperature_inputs'][:2]
         wanted.extend(value.copy() for value in consumed)
         if cap:
             post(1, carry)
-            state = inspect.getclosurevars(step).nonlocals
+            state = _step_context(step)
             for side, value in zip(('A', 'B'), consumed):
                 working = state['rho_cp_' + side]
                 assert not np.shares_memory(value, working)
@@ -290,7 +296,7 @@ def test_main_warm_return_final_and_outlet_keep_actual_states(monkeypatch, nan, 
         return result
 
     def drive(*, step, **kwargs):
-        state = inspect.getclosurevars(step).nonlocals
+        state = _step_context(step)
         state['Ta'][:] = 220. if low else 1050.
         state['Tb'][:] = 1150.
         step(0)
@@ -351,7 +357,7 @@ def test_main_nonfinite_return_precedes_refresh_and_q(monkeypatch, legacy, side,
         return result
 
     def drive(*, step, **kwargs):
-        state.update(inspect.getclosurevars(step).nonlocals)
+        state.update(_step_context(step))
         step(0)
         pytest.fail('nonfinite main step returned')
 
@@ -395,7 +401,7 @@ def test_inlet_cp_transport_order_and_failure_boundary(monkeypatch, where, failu
     if where == 'main':
         pipe, fields = _prepare(monkeypatch, legacy=True)
         def drive(*, step, **kwargs):
-            state = inspect.getclosurevars(step).nonlocals
+            state = _step_context(step)
             for side in ('A', 'B'):
                 state[f'_p{side}'].cp = cp(side)
             step(0)
@@ -466,7 +472,7 @@ def test_model_branch_does_not_evaluate_legacy_inlet_flux(monkeypatch, where):
     if where == 'main':
         pipe, fields = _prepare(monkeypatch)
         def drive(*, step, **kwargs):
-            state = inspect.getclosurevars(step).nonlocals
+            state = _step_context(step)
             for side in ('A', 'B'):
                 state[f'_p{side}'].cp = lambda *a: pytest.fail('legacy inlet cp')
             step(0)
@@ -668,7 +674,7 @@ def test_failure_mach_uses_current_simple_input_not_nan_return(monkeypatch, iter
         return result
 
     def drive(*, step, **kwargs):
-        state = inspect.getclosurevars(step).nonlocals
+        state = _step_context(step)
         state['Ta'][:] = np.nan if bad_input else 330.
         state['Tb'][:] = 310.
         step(iteration)

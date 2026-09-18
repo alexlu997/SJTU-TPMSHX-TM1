@@ -1,4 +1,9 @@
 """2D SIMPLE/LTNE coupling and native heat/pressure evidence."""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
 import numpy as np
 from sjtu_tpmshx.domain.run_warnings import range_context
 from sjtu_tpmshx.models.nu_correlations import record_raw_nu_range, warn_sco2_nu_evidence
@@ -15,7 +20,76 @@ from sjtu_tpmshx.solvers.simple_solver import _prolong_mass_faces_2d
 from sjtu_tpmshx.solvers.envelope import gate_solution, mach_field_max
 from sjtu_tpmshx.logutil import get_logger
 
+if TYPE_CHECKING:
+    from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
+
 _log = get_logger(__name__)
+
+
+@dataclass
+class _OuterState2D:
+    """One live owner for fields shared by the 2D steps and final reporting.
+
+    SIMPLE objects are replaced each iteration. Post rebinds density/capacity,
+    preserving the arrays retained by the last thermal call for Richardson.
+    Display fields remain separate from raw transport and thermal evidence.
+    """
+
+    mu_A: float | np.ndarray
+    mu_B: float | np.ndarray
+    rho_A_field: np.ndarray | None = None
+    rho_B_field: np.ndarray | None = None
+    rho_cp_A: float | np.ndarray | None = None
+    rho_cp_B: float | np.ndarray | None = None
+    ucA: np.ndarray | None = None
+    vcA: np.ndarray | None = None
+    ucB: np.ndarray | None = None
+    vcB: np.ndarray | None = None
+    simpA: SIMPLESolver | None = None
+    simpB: SIMPLESolver | None = None
+    Ta: np.ndarray | None = None
+    Tb: np.ndarray | None = None
+    Ts: np.ndarray | None = None
+    e_info: dict = field(default_factory=lambda: dict(
+        converged=False, iterations=0, residual=float('inf')))
+    mA_rows: np.ndarray | None = None
+    mB_rows: np.ndarray | None = None
+    # Sticky even if a later iteration converges on a patched NaN field.
+    _energy_nan_hit: bool = False
+    ucA_disp: np.ndarray | None = None
+    vcA_disp: np.ndarray | None = None
+    ucB_disp: np.ndarray | None = None
+    vcB_disp: np.ndarray | None = None
+    _has_partial_A: bool = False
+    _has_partial_B: bool = False
+    drho_A: float = float('inf')
+    drho_B: float = float('inf')
+    dT_A: float = float('inf')
+    dT_B: float = float('inf')
+    last_temperature_inputs: tuple[
+        float | np.ndarray, float | np.ndarray, np.ndarray, np.ndarray] | None = None
+    last_model_inputs: dict | None = None
+    mass_flux_A: tuple[np.ndarray, np.ndarray] | None = None
+    mass_flux_B: tuple[np.ndarray, np.ndarray] | None = None
+
+
+@dataclass
+class _ThermalInputs2D:
+    """Borrowed inputs for one thermal call, with no copies or live state."""
+
+    h_vA: np.ndarray
+    h_vB: np.ndarray
+    K_ffA: float | np.ndarray
+    K_ffB: float | np.ndarray
+    K_ss: float | np.ndarray
+    eps: float | np.ndarray
+    eps_A: float | np.ndarray | None
+    eps_B: float | np.ndarray | None
+    inlet_mask_A: np.ndarray
+    inlet_mask_B: np.ndarray
+    max_iter: int
+    tol: float
+    has_water: bool
 
 
 from sjtu_tpmshx.result_math import _enthalpy_balance_2d  # noqa: F401 - existing public name
@@ -622,7 +696,6 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
     _pB = cfg['_models']['fluid_B'] if '_models' in cfg else fluid_props.get(fluid_B)
     _enthalpy_mode = ('sco2' in (_pA.name, _pB.name)
                       and zone_config is None)
-    mA_rows = mB_rows = None
 
     # 2026-05-09 — bump _MAX_COUPLING 5→10 default. The loop short-circuits
     # once both drho_X and dT_X drop below their respective tolerances, so
@@ -704,7 +777,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
     tpms_type = cfg['tpms_type']
     Lcell = cfg['Lcell']; t_wall = cfg['t_wall']
 
-    mu_A, mu_B = rA['mu'], rB['mu']
+    state = _OuterState2D(mu_A=rA['mu'], mu_B=rB['mu'])
     P_inA_val = cfg['compute_cfg'].fluid_A.P_in_Pa
     P_inB_val = cfg['compute_cfg'].fluid_B.P_in_Pa
     fluid_props.check_water_state(fluid_A, T_inA, P_inA_val, where='2D direct inlet A')
@@ -773,22 +846,11 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
         pass  # progress handled by main thread timer
 
     coupling_converged = False
-    drho_A = drho_B = float('inf')
-    dT_A = dT_B = float('inf')
     # Warm-start delta tracker (shared with the 3D driver) — ΔTa/ΔTb/ΔTs < tol
     # AND mass-flux-weighted Δρ < tol; owns the prev-copy bookkeeping.
     # A2 (2026-07-06): Ts added — the solid field settles slowest and the old
     # (Ta,Tb)-only gate could break while Ts was still moving.
     _outer_conv = OuterConvergence(tol_T=_DT_TOL_K, track=('Ta', 'Tb', 'Ts'))
-    e_info = {'converged': False, 'iterations': 0, 'residual': float('inf')}
-    # Sticky: set the moment the energy solve produces a NaN cell. The NaN is
-    # patched over (below) so the UI can still render velocity/pressure, but a
-    # patched-over blow-up must never be reported as a converged solve. Sticky
-    # because a later outer iteration starting from the PATCHED field can
-    # converge on the patch — the deltas between two identically-patched fields
-    # are small. (Audit 2026-07-12.)
-    _energy_nan_hit = False
-    Ta = Tb = Ts = None
     # User-provided solid warm-start seed. Empty → solver fallback
     # (per-fluid inlet T for Ta/Tb, 0.5*(T_inA+T_inB) for Ts).
     # Filled → only Ts is overridden with the user value; Ta/Tb stay at
@@ -799,30 +861,22 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
     # solid energy equation still updates it every sweep.
     _Ts_init_user = cfg.get('T_s_init')
     if _Ts_init_user is not None:
-        Ta = np.full((N_x, N_y), float(T_inA), dtype=np.float64)
-        Tb = np.full((N_x, N_y), float(T_inB), dtype=np.float64)
-        Ts = np.full((N_x, N_y), float(_Ts_init_user), dtype=np.float64)
-    _has_partial_A = False
-    _has_partial_B = False
-    ucA = vcA = ucB = vcB = None
-    ucA_disp = vcA_disp = ucB_disp = vcB_disp = None   # N5 display copies
-    simpA = simpB = None
+        state.Ta = np.full((N_x, N_y), float(T_inA), dtype=np.float64)
+        state.Tb = np.full((N_x, N_y), float(T_inB), dtype=np.float64)
+        state.Ts = np.full((N_x, N_y), float(_Ts_init_user), dtype=np.float64)
 
     with range_context(side='A', stage='inlet', layout='scalar'):
-        rho_cp_A = _pA.rho(T_inA, P_inA_val) * _pA.cp(T_inA, P_inA_val)
+        state.rho_cp_A = _pA.rho(T_inA, P_inA_val) * _pA.cp(T_inA, P_inA_val)
     with range_context(side='B', stage='inlet', layout='scalar'):
-        rho_cp_B = _pB.rho(T_inB, P_inB_val) * _pB.cp(T_inB, P_inB_val)
-    last_temperature_inputs = None
+        state.rho_cp_B = _pB.rho(T_inB, P_inB_val) * _pB.cp(T_inB, P_inB_val)
     native_evidence = {}
     fine_evidence = {}
-    last_model_inputs = None
-    mass_flux_A = mass_flux_B = None
 
     # Variable density: 2D rho fields for SIMPLE (initialized uniform)
     with range_context(side='A', stage='inlet', layout='scalar'):
-        rho_A_field = np.full((N_x, N_y), _pA.rho(T_inA, P_inA_val))
+        state.rho_A_field = np.full((N_x, N_y), _pA.rho(T_inA, P_inA_val))
     with range_context(side='B', stage='inlet', layout='scalar'):
-        rho_B_field = np.full((N_x, N_y), _pB.rho(T_inB, P_inB_val))
+        state.rho_B_field = np.full((N_x, N_y), _pB.rho(T_inB, P_inB_val))
 
     def _enthalpy_side_hv(props, T_field, P_in, u_mag, geometry, observation):
         """Evaluate h_v at the lagged thermal field and frozen inlet pressure."""
@@ -842,33 +896,12 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
             u_mag, None, None, side_props=props,
             side_T_for_Pr=mean_T, side_P=P_in)
 
-    # Outer SIMPLE↔LTNE loop, driven by the shared run_outer_coupling skeleton
-    # (2D = SIMPLE-first: `step` solves SIMPLE A/B + the coupled energy + the
-    # dual ΔT/Δρ check; `post` under-relaxes the rho/rho·cp fields for the next
-    # iter via the carry). Body below is the verbatim former loop body; the
-    # `nonlocal`s are the vars that persist across iters or are read afterwards.
-    def _step_2d(_coup_it):
-        nonlocal ucA, vcA, ucB, vcB, simpA, simpB, Ta, Tb, Ts, e_info
-        nonlocal mA_rows, mB_rows
-        nonlocal _energy_nan_hit
-        nonlocal ucA_disp, vcA_disp, ucB_disp, vcB_disp
-        nonlocal mu_A, mu_B, _has_partial_A, _has_partial_B
-        nonlocal drho_A, drho_B, dT_A, dT_B
-        nonlocal last_temperature_inputs
-        nonlocal last_model_inputs
-        nonlocal mass_flux_A, mass_flux_B
-        if cancel_check is not None and cancel_check():
-            raise CancelledError("compute cancelled by user")
-        control.report_progress(10 + int(80 * _coup_it / _MAX_COUPLING))
-        # Live iteration label for the UI button ticker (replaces the
-        # dropped ETA text). 2026-05-14.
-        if control.iteration is not None:
-            control.iteration(f"iter {_coup_it + 1}/{_MAX_COUPLING}")
-
+    def _solve_flow(_coup_it):
+        """Rebuild both flows and join both workers before propagating errors."""
         # Step 1: SIMPLE velocity with current rho field. Pass Ta/Tb after
         # first outer iter so SIMPLE _update_density uses local T (not stale T_in).
-        _Ta_for_simpA = Ta if _coup_it > 0 else None
-        _Tb_for_simpB = Tb if _coup_it > 0 else None
+        _Ta_for_simpA = state.Ta if _coup_it > 0 else None
+        _Tb_for_simpB = state.Tb if _coup_it > 0 else None
         # 2026-05-09 (option B) — incompressible fluids run SIMPLE with
         # _update_density (ideal-gas P/RT update) as a no-op; ρ stays
         # at the inlet value over the whole field. B1 1.1: mapping via
@@ -904,15 +937,15 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
 
         # The rebuilt solver uses the previous physical port pressures.
         # The first iteration has no previous solve and uses the 1D seed.
-        _psA = inlet_pressure_state(simpA, P_inA_val)
-        _psB = inlet_pressure_state(simpB, P_inB_val)
+        _psA = inlet_pressure_state(state.simpA, P_inA_val)
+        _psB = inlet_pressure_state(state.simpB, P_inB_val)
         # All fluids use their inlet-state model density. Air must not use
         # a separately rounded gas constant here; water's rho(T) updates
         # must not redefine the prescribed inlet throughput on each rebuild.
         with range_context(side='A', stage='inlet', layout='scalar'):
             _tA = _threading.Thread(
                 target=_solve_side,
-                args=(0, (cfgA, rho_A_field, mu_A, T_inA, u_A,
+                args=(0, (cfgA, state.rho_A_field, state.mu_A, T_inA, u_A,
                           'Fluid A', P_inA_val),
                       dict(T_field_real=_Ta_for_simpA,
                            fluid_type=_ftA, df_method=_dfA,
@@ -923,7 +956,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
         with range_context(side='B', stage='inlet', layout='scalar'):
             _tB = _threading.Thread(
                 target=_solve_side,
-                args=(1, (cfgB, rho_B_field, mu_B, T_inB, u_B,
+                args=(1, (cfgB, state.rho_B_field, state.mu_B, T_inB, u_B,
                           'Fluid B', P_inB_val),
                       dict(T_field_real=_Tb_for_simpB,
                            fluid_type=_ftB, df_method=_dfB,
@@ -944,34 +977,37 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
                 raise _e
         if cancel_check is not None and cancel_check():
             raise CancelledError("compute cancelled by user")
-        ucA, vcA, simpA = _res[0]
-        ucB, vcB, simpB = _res[1]
-        P_abs_A = _simple_pressure_abs_2d(simpA, dir_A, P_inA_val)
-        P_abs_B = _simple_pressure_abs_2d(simpB, dir_B, P_inB_val)
-        fluid_props.check_water_state(fluid_A, T_inA if Ta is None else Ta,
+        state.ucA, state.vcA, state.simpA = _res[0]
+        state.ucB, state.vcB, state.simpB = _res[1]
+        P_abs_A = _simple_pressure_abs_2d(state.simpA, dir_A, P_inA_val)
+        P_abs_B = _simple_pressure_abs_2d(state.simpB, dir_B, P_inB_val)
+        fluid_props.check_water_state(fluid_A, T_inA if state.Ta is None else state.Ta,
                                       P_abs_A, where='2D SIMPLE return A')
-        fluid_props.check_water_state(fluid_B, T_inB if Tb is None else Tb,
+        fluid_props.check_water_state(fluid_B, T_inB if state.Tb is None else state.Tb,
                                       P_abs_B, where='2D SIMPLE return B')
 
-        def _classify_nonfinite_flow_failure():
-            # Only called on already-fatal inputs/returns; finite outer states
-            # can still recover. Use this SIMPLE iteration's temperature input.
-            for side, solver, u, v, temperature, inlet in (
-                    ('A', simpA, ucA, vcA, _Ta_for_simpA, T_inA),
-                    ('B', simpB, ucB, vcB, _Tb_for_simpB, T_inB)):
-                if solver.fluid_type != 'ideal_gas':
-                    continue
-                temperature = inlet if temperature is None else temperature
-                if not np.all(np.isfinite(temperature)):
-                    continue
-                speed = np.sqrt(np.asarray(u)**2 + np.asarray(v)**2)
-                gate_solution(
-                    float((solver.P_ref_abs + solver.P).min()), float(speed.max()),
-                    float(inlet), mode=cfg.get('envelope_mode', 'raise'),
-                    dims=f'2D-{side}', ma_max=mach_field_max(speed, temperature))
+        return P_abs_A, P_abs_B, (_Ta_for_simpA, _Tb_for_simpB)
 
-        control.report_progress(10 + int(80 * (_coup_it + 0.3) / _MAX_COUPLING))
+    def _classify_nonfinite_flow_failure(simple_temperatures):
+        _Ta_for_simpA, _Tb_for_simpB = simple_temperatures
+        # Only called on already-fatal inputs/returns; finite outer states
+        # can still recover. Use this SIMPLE iteration's temperature input.
+        for side, solver, u, v, temperature, inlet in (
+                ('A', state.simpA, state.ucA, state.vcA, _Ta_for_simpA, T_inA),
+                ('B', state.simpB, state.ucB, state.vcB, _Tb_for_simpB, T_inB)):
+            if solver.fluid_type != 'ideal_gas':
+                continue
+            temperature = inlet if temperature is None else temperature
+            if not np.all(np.isfinite(temperature)):
+                continue
+            speed = np.sqrt(np.asarray(u)**2 + np.asarray(v)**2)
+            gate_solution(
+                float((solver.P_ref_abs + solver.P).min()), float(speed.max()),
+                float(inlet), mode=cfg.get('envelope_mode', 'raise'),
+                dims=f'2D-{side}', ma_max=mach_field_max(speed, temperature))
 
+    def _prepare_thermal_inputs(_coup_it, P_abs_A, P_abs_B):
+        """Sample h_v and capture the current SIMPLE transport before energy."""
         # Smooth velocity near partial-width wall boundaries — DISPLAY ONLY.
         # N5 (2026-07-07): the smoothed fields used to OVERWRITE ucA/vcA and
         # feed the LTNE energy solve, the local-Re h_v build and the duty
@@ -981,25 +1017,25 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
         # 2026-06-24 temperature-smoothing fix, which kept Ta_raw for
         # physics. Physics now consumes the raw mass-conserving fields;
         # only the rendered copies are smoothed.
-        _has_partial_A = np.any(simpA.outlet_frac < 0.99) or np.any(simpA.inlet_frac < 0.99)
-        _has_partial_B = np.any(simpB.outlet_frac < 0.99) or np.any(simpB.inlet_frac < 0.99)
-        ucA_disp = vcA_disp = ucB_disp = vcB_disp = None
-        if _has_partial_A or _has_partial_B:
+        state._has_partial_A = np.any(state.simpA.outlet_frac < 0.99) or np.any(state.simpA.inlet_frac < 0.99)
+        state._has_partial_B = np.any(state.simpB.outlet_frac < 0.99) or np.any(state.simpB.inlet_frac < 0.99)
+        state.ucA_disp = state.vcA_disp = state.ucB_disp = state.vcB_disp = None
+        if state._has_partial_A or state._has_partial_B:
             from scipy.ndimage import gaussian_filter
             _sv = 2.0
-            if _has_partial_A:
-                ucA_disp = gaussian_filter(ucA, sigma=_sv)
-                vcA_disp = gaussian_filter(vcA, sigma=_sv)
-            if _has_partial_B:
-                ucB_disp = gaussian_filter(ucB, sigma=_sv)
-                vcB_disp = gaussian_filter(vcB, sigma=_sv)
+            if state._has_partial_A:
+                state.ucA_disp = gaussian_filter(state.ucA, sigma=_sv)
+                state.vcA_disp = gaussian_filter(state.vcA, sigma=_sv)
+            if state._has_partial_B:
+                state.ucB_disp = gaussian_filter(state.ucB, sigma=_sv)
+                state.vcB_disp = gaussian_filter(state.vcB, sigma=_sv)
 
         # Heat diffusion uses physical open area; SIMPLE's taper is velocity data.
         _imA, _imB = (cfg['boundary_openings'][side]['in_geom_frac'] for side in ('A', 'B'))
 
         # Build local-Re per-cell h_v fields (#1 fix). Use cell-center magnitude.
-        u_mag_A = local_speed(ucA, vcA)
-        u_mag_B = local_speed(ucB, vcB)
+        u_mag_A = local_speed(state.ucA, state.vcA)
+        u_mag_B = local_speed(state.ucB, state.vcB)
         # Zoned L/t fields (only if zone_config and grid mode); otherwise None
         L_field_2d = None; t_field_2d = None
         if zone_config is not None and za is not None:
@@ -1007,9 +1043,9 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
             t_field_2d = za.get('t_arr')
         if _enthalpy_mode:
             _g_hv = cfg['thermal_geometry']['uniform']
-            _Ta_hv = (Ta if Ta is not None
+            _Ta_hv = (state.Ta if state.Ta is not None
                       else np.full_like(u_mag_A, T_inA))
-            _Tb_hv = (Tb if Tb is not None
+            _Tb_hv = (state.Tb if state.Tb is not None
                       else np.full_like(u_mag_B, T_inB))
 
             with range_context(side='A', stage='main-hv', layout='real-cell(x,y)'):
@@ -1025,10 +1061,10 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
                         side='B', stage='2D main-hv', tpms_type=tpms_type,
                         L_mm=Lcell, t_mm=t_wall, P_in=P_inB_val)
         else:
-            rho_A_scalar = cell_average(rho_A_field, energy_dx, energy_dy)
-            rho_B_scalar = cell_average(rho_B_field, energy_dx, energy_dy)
-            mu_A_scalar = cell_average(mu_A, energy_dx, energy_dy)
-            mu_B_scalar = cell_average(mu_B, energy_dx, energy_dy)
+            rho_A_scalar = cell_average(state.rho_A_field, energy_dx, energy_dy)
+            rho_B_scalar = cell_average(state.rho_B_field, energy_dx, energy_dy)
+            mu_A_scalar = cell_average(state.mu_A, energy_dx, energy_dy)
+            mu_B_scalar = cell_average(state.mu_B, energy_dx, energy_dy)
             with range_context(side='A', stage='main-hv', layout='scalar'):
                 k_fA = float(_pA.k(T_inA, P_inA_val))
             with range_context(side='B', stage='main-hv', layout='scalar'):
@@ -1080,18 +1116,32 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
             _epsA_use = None; _epsB_use = None
         # Retain the last main thermal input for the raw outlet temperature,
         # including the legacy temperature-form zones/offset paths.
-        mass_flux_A = _face_mass_fluxes_2d(
-            simpA, dir_A, _epsA_use if _epsA_use is not None else .5*_eps_src,
+        state.mass_flux_A = _face_mass_fluxes_2d(
+            state.simpA, dir_A, _epsA_use if _epsA_use is not None else .5*_eps_src,
             energy_dx, energy_dy)
-        mass_flux_B = _face_mass_fluxes_2d(
-            simpB, dir_B, _epsB_use if _epsB_use is not None else .5*_eps_src,
+        state.mass_flux_B = _face_mass_fluxes_2d(
+            state.simpB, dir_B, _epsB_use if _epsB_use is not None else .5*_eps_src,
             energy_dx, energy_dy)
         if cfg.get('_capture_native'):
             native_evidence.update(
                 P_thermal_A=np.array(P_abs_A, copy=True), P_thermal_B=np.array(P_abs_B, copy=True),
-                mass_flux_A=mass_flux_A, mass_flux_B=mass_flux_B,
+                mass_flux_A=state.mass_flux_A, mass_flux_B=state.mass_flux_B,
                 outer_index=int(_coup_it), h_vA=np.array(h_vA_local, copy=True),
                 h_vB=np.array(h_vB_local, copy=True), K_ss=np.array(_Kss_src, copy=True))
+        return _ThermalInputs2D(
+            h_vA=h_vA_local, h_vB=h_vB_local,
+            K_ffA=_Kffa_use, K_ffB=_Kffb_use, K_ss=_Kss_src,
+            eps=_eps_src, eps_A=_epsA_use, eps_B=_epsB_use,
+            inlet_mask_A=_imA, inlet_mask_B=_imB,
+            max_iter=_e_max_iter, tol=_e_tol, has_water=_has_water)
+
+    def _solve_thermal(_coup_it, inputs, P_abs_A, P_abs_B, simple_temperatures):
+        """Keep true-h and model-h/temperature route qualifications unchanged."""
+        h_vA_local, h_vB_local = inputs.h_vA, inputs.h_vB
+        _Kffa_use, _Kffb_use, _Kss_src = inputs.K_ffA, inputs.K_ffB, inputs.K_ss
+        _eps_src, _epsA_use, _epsB_use = inputs.eps, inputs.eps_A, inputs.eps_B
+        _imA, _imB = inputs.inlet_mask_A, inputs.inlet_mask_B
+        _e_max_iter, _e_tol = inputs.max_iter, inputs.tol
         if _enthalpy_mode:
             from sjtu_tpmshx.solvers.ltne_enthalpy_2d import solve_enthalpy_2d
             eps_total = np.broadcast_to(
@@ -1107,99 +1157,101 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
                     + np.maximum(-fx[-1], 0.0).sum()
                     + np.maximum(fy[:, 0], 0.0).sum()
                     + np.maximum(-fy[:, -1], 0.0).sum())
-            mA_rows = np.array([_inflow_total(mass_flux_A)])
-            mB_rows = np.array([_inflow_total(mass_flux_B)])
-            Ta, Tb, Ts, e_info = solve_enthalpy_2d(
-                T_inA, T_inB, P_abs_A, P_abs_B, mass_flux_A, mass_flux_B,
+            state.mA_rows = np.array([_inflow_total(state.mass_flux_A)])
+            state.mB_rows = np.array([_inflow_total(state.mass_flux_B)])
+            state.Ta, state.Tb, state.Ts, state.e_info = solve_enthalpy_2d(
+                T_inA, T_inB, P_abs_A, P_abs_B, state.mass_flux_A, state.mass_flux_B,
                 h_vA_local, h_vB_local, _Kss_src, eps_A_ent, eps_B_ent,
                 energy_dx, energy_dy, fluid_A=_pA.name, fluid_B=_pB.name,
                 P_inA=P_inA_val, P_inB=P_inB_val,
-                Ta_init=Ta, Tb_init=Tb, Ts_init=Ts,
+                Ta_init=state.Ta, Tb_init=state.Tb, Ts_init=state.Ts,
                 max_iter=_e_max_iter, tol=_e_tol, cancel_check=cancel_check)
-            e_info['true_h_balance'] = dict(
-                Q_A=float(e_info['Q_A']), Q_B=float(e_info['Q_B']), units='W/m',
-                outer_index=int(_coup_it), converged=bool(e_info['converged']),
-                iterations=int(e_info['iterations']), residual=float(e_info['residual']),
+            state.e_info['true_h_balance'] = dict(
+                Q_A=float(state.e_info['Q_A']), Q_B=float(state.e_info['Q_B']), units='W/m',
+                outer_index=int(_coup_it), converged=bool(state.e_info['converged']),
+                iterations=int(state.e_info['iterations']), residual=float(state.e_info['residual']),
                 pressure_source=('air: P_ref_abs + SIMPLE gauge; frozen fluids: '
                                  'P_in + SIMPLE gauge - weighted inlet gauge'),
                 P_in_A_Pa=float(P_inA_val), P_in_B_Pa=float(P_inB_val),
                 P_A_range_Pa=[float(P_abs_A.min()), float(P_abs_A.max())],
                 P_B_range_Pa=[float(P_abs_B.min()), float(P_abs_B.max())])
-            e_info['true_h_balance'].update({key: e_info[key] for key in (
+            state.e_info['true_h_balance'].update({key: state.e_info[key] for key in (
                 'exit_reason', 'enthalpy_clip_counts', 'effective_settings',
-                'coupled_energy_balance', 'equation_energy_balance') if key in e_info})
+                'coupled_energy_balance', 'equation_energy_balance') if key in state.e_info})
         else:
-            last_temperature_inputs = (rho_cp_A, rho_cp_B, h_vA_local, h_vB_local)
+            state.last_temperature_inputs = (state.rho_cp_A, state.rho_cp_B, h_vA_local, h_vB_local)
             model_kwargs = {}
             if _model_h_mode:
                 model_kwargs = dict(
                     model_fluids=(_pA.name, _pB.name),
                     accelerate=cfg['compute_cfg'].flags.port_wall_refine,
-                    mass_flux_A=mass_flux_A, mass_flux_B=mass_flux_B)
-                last_model_inputs = dict(model_kwargs, K_ffA=_Kffa_use, K_ffB=_Kffb_use,
+                    mass_flux_A=state.mass_flux_A, mass_flux_B=state.mass_flux_B)
+                state.last_model_inputs = dict(model_kwargs, K_ffA=_Kffa_use, K_ffB=_Kffb_use,
                                          K_ss=_Kss_src, outer_index=int(_coup_it))
                 masses = (model_kwargs['mass_flux_A'], model_kwargs['mass_flux_B'])
                 if (all(m is not None and len(m) == 2
                         and m[0].shape == (N_x+1, N_y)
                         and m[1].shape == (N_x, N_y+1) for m in masses)
                         and any(not np.all(np.isfinite(f)) for m in masses for f in m)):
-                    _classify_nonfinite_flow_failure()
+                    _classify_nonfinite_flow_failure(simple_temperatures)
             with range_context(side='A', stage='main-inlet', layout='scalar'):
                 inlet_flux_A = (_inlet_transport_2d(
-                    simpA, dir_A, _epsA_use if _epsA_use is not None else .5*_eps_src,
+                    state.simpA, dir_A, _epsA_use if _epsA_use is not None else .5*_eps_src,
                     _pA.cp(T_inA, P_inA_val), energy_dx, energy_dy)
                     if not _model_h_mode else None)
             with range_context(side='B', stage='main-inlet', layout='scalar'):
                 inlet_flux_B = (_inlet_transport_2d(
-                    simpB, dir_B, _epsB_use if _epsB_use is not None else .5*_eps_src,
+                    state.simpB, dir_B, _epsB_use if _epsB_use is not None else .5*_eps_src,
                     _pB.cp(T_inB, P_inB_val), energy_dx, energy_dy)
                     if not _model_h_mode else None)
-            for side, fluid, temperature in (('A', fluid_A, Ta), ('B', fluid_B, Tb)):
+            for side, fluid, temperature in (('A', fluid_A, state.Ta), ('B', fluid_B, state.Tb)):
                 with range_context(side=side, stage='main-warm', layout='real-cell(x,y)'):
                     record_temperature_ranges(fluid, temperature)
-            Ta, Tb, Ts, e_info = solve_full_domain(
+            state.Ta, state.Tb, state.Ts, state.e_info = solve_full_domain(
                 L, H, N_x, N_y, T_inA, T_inB,
                 _Kffa_use, _Kffb_use, _Kss_src,
                 h_vA_local, h_vB_local,
-                rho_cp_A, rho_cp_B,
-                _eps_src, ucA, vcA, ucB, vcB,
+                state.rho_cp_A, state.rho_cp_B,
+                _eps_src, state.ucA, state.vcA, state.ucB, state.vcB,
                 dir_A, dir_B,
                 max_iter=_e_max_iter, tol=_e_tol,
                 progress_cb=_on_progress, return_info=True,
-                Ta_init=Ta, Tb_init=Tb, Ts_init=Ts,
+                Ta_init=state.Ta, Tb_init=state.Tb, Ts_init=state.Ts,
                 dx_arr=energy_dx, dy_arr=energy_dy,
                 inlet_mask_A=_imA, inlet_mask_B=_imB,
                 inlet_flux_A=inlet_flux_A,
                 inlet_flux_B=inlet_flux_B,
                 eps_A=_epsA_use, eps_B=_epsB_use, cancel_check=cancel_check, **model_kwargs)
 
+    def _validate_thermal_return(P_abs_A, P_abs_B, simple_temperatures, _has_water):
+        """Validate before refreshing properties; retain the sticky NaN verdict."""
         if not _enthalpy_mode:
-            for side, fluid, temperature in (('A', fluid_A, Ta), ('B', fluid_B, Tb)):
+            for side, fluid, temperature in (('A', fluid_A, state.Ta), ('B', fluid_B, state.Tb)):
                 with range_context(side=side, stage='main-return', layout='real-cell(x,y)'):
                     record_temperature_ranges(fluid, temperature)
 
-        fluid_props.check_water_state(fluid_A, Ta, P_abs_A, where='2D energy return A')
-        fluid_props.check_water_state(fluid_B, Tb, P_abs_B, where='2D energy return B')
+        fluid_props.check_water_state(fluid_A, state.Ta, P_abs_A, where='2D energy return A')
+        fluid_props.check_water_state(fluid_B, state.Tb, P_abs_B, where='2D energy return B')
         if not _enthalpy_mode:
-            if any(not np.all(np.isfinite(t)) for t in (Ta, Tb, Ts)):
-                _classify_nonfinite_flow_failure()
-            fluid_props.check_finite_temperatures(Ta, Tb, Ts, where='2D energy return')
+            if any(not np.all(np.isfinite(t)) for t in (state.Ta, state.Tb, state.Ts)):
+                _classify_nonfinite_flow_failure(simple_temperatures)
+            fluid_props.check_finite_temperatures(state.Ta, state.Tb, state.Ts, where='2D energy return')
 
         # 2026-05-09 NaN guard — energy solver may NaN-blow up on water-side
         # stiffness (rho·cp 4100× + h_v 2-3× vs air). Replace nan with the
         # per-side inlet T so finalize_plots can render velocity / pressure
         # canvases (the user still wants those visible) instead of crashing
         # on contourf(nan). Surface a warning so the user knows Q is unreliable.
-        _has_nan = (np.any(np.isnan(Ta)) or np.any(np.isnan(Tb))
-                    or np.any(np.isnan(Ts)))
+        _has_nan = (np.any(np.isnan(state.Ta)) or np.any(np.isnan(state.Tb))
+                    or np.any(np.isnan(state.Ts)))
         if _has_nan:
             # Validity, not just a warning string: the patched field is NOT a
             # solution. Sticky flag → forced into solver_converged below.
-            _energy_nan_hit = True
-            n_nan_a = int(np.sum(np.isnan(Ta)))
-            n_nan_b = int(np.sum(np.isnan(Tb)))
-            n_nan_s = int(np.sum(np.isnan(Ts)))
-            n_total = Ta.size
+            state._energy_nan_hit = True
+            n_nan_a = int(np.sum(np.isnan(state.Ta)))
+            n_nan_b = int(np.sum(np.isnan(state.Tb)))
+            n_nan_s = int(np.sum(np.isnan(state.Ts)))
+            n_total = state.Ta.size
             _cause = ("water-side LTNE stiffness (ρ·cp 4100× air)"
                       if _has_water
                       else "energy solver divergence (likely Nu/h_v "
@@ -1211,34 +1263,41 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
                 f"Ts {n_nan_s}/{n_total}) — replacing with inlet T so "
                 f"the 2D result view can render velocity/pressure. "
                 f"Q value is unreliable. Cause: {_cause}.")
-            Ta = np.where(np.isnan(Ta), T_inA, Ta)
-            Tb = np.where(np.isnan(Tb), T_inB, Tb)
-            Ts = np.where(np.isnan(Ts), 0.5 * (T_inA + T_inB), Ts)
+            state.Ta = np.where(np.isnan(state.Ta), T_inA, state.Ta)
+            state.Tb = np.where(np.isnan(state.Tb), T_inB, state.Tb)
+            state.Ts = np.where(np.isnan(state.Ts), 0.5 * (T_inA + T_inB), state.Ts)
 
+    def _refresh_thermal_properties(P_abs_A, P_abs_B):
+        """Return new density/capacity fields; viscosity updates immediately."""
         # Step 3: Update rho*cp and rho field from per-cell temperature AND
         # per-cell absolute pressure. Using the scalar inlet P here under-
         # predicts density drop across the domain at high dP and diverges
         # from the 3D path (which already uses P_ref_abs + P). Transpose /
         # flip SIMPLE coords → real (Nx, Ny) to match Ta shape.
         with range_context(side='A', stage='property-refresh', layout='real-cell(x,y)'):
-            rho_cp_A_new = _pA.rho(Ta, P_abs_A) * _pA.cp(Ta, P_abs_A)
+            rho_cp_A_new = _pA.rho(state.Ta, P_abs_A) * _pA.cp(state.Ta, P_abs_A)
         with range_context(side='B', stage='property-refresh', layout='real-cell(x,y)'):
-            rho_cp_B_new = _pB.rho(Tb, P_abs_B) * _pB.cp(Tb, P_abs_B)
+            rho_cp_B_new = _pB.rho(state.Tb, P_abs_B) * _pB.cp(state.Tb, P_abs_B)
         with range_context(side='A', stage='property-refresh', layout='real-cell(x,y)'):
-            rho_A_field_new = _pA.rho(Ta, P_abs_A)
+            rho_A_field_new = _pA.rho(state.Ta, P_abs_A)
         with range_context(side='B', stage='property-refresh', layout='real-cell(x,y)'):
-            rho_B_field_new = _pB.rho(Tb, P_abs_B)
+            rho_B_field_new = _pB.rho(state.Tb, P_abs_B)
 
         # Variable mu: build 2D viscosity field from per-cell Ta/Tb via
         # Sutherland (air) or Vogel (water). With local-P density now using
         # the full field, local mu keeps the momentum balance consistent
         # cell-by-cell.
         with range_context(side='A', stage='property-refresh', layout='real-cell(x,y)'):
-            mu_A = _pA.mu(Ta, P_abs_A)
+            state.mu_A = _pA.mu(state.Ta, P_abs_A)
         with range_context(side='B', stage='property-refresh', layout='real-cell(x,y)'):
-            mu_B = _pB.mu(Tb, P_abs_B)
-        T_avg_A = cell_average(Ta, energy_dx, energy_dy)
-        T_avg_B = cell_average(Tb, energy_dx, energy_dy)
+            state.mu_B = _pB.mu(state.Tb, P_abs_B)
+        return (rho_A_field_new, rho_B_field_new,
+                rho_cp_A_new, rho_cp_B_new)
+
+    def _check_outer_convergence(_coup_it, new_properties):
+        rho_A_field_new, rho_B_field_new, _, _ = new_properties
+        T_avg_A = cell_average(state.Ta, energy_dx, energy_dy)
+        T_avg_B = cell_average(state.Tb, energy_dx, energy_dy)
 
         # Convergence: mass-flux-weighted relative rho change.
         # Physical reasoning — the coupling is driven by ∇·(ρu) = 0, so only
@@ -1247,12 +1306,12 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
         # diffusion but does not affect the coupled solution. Weighting by
         # |u| filters that tail-end noise cleanly so the metric reflects
         # convergence where it matters.
-        dA = rho_A_field_new - rho_A_field
-        dB = rho_B_field_new - rho_B_field
-        wA = np.sqrt(ucA * ucA + vcA * vcA) + 1e-12
-        wB = np.sqrt(ucB * ucB + vcB * vcB) + 1e-12
-        drho_A = float(np.sum(np.abs(dA / rho_A_field) * wA) / np.sum(wA))
-        drho_B = float(np.sum(np.abs(dB / rho_B_field) * wB) / np.sum(wB))
+        dA = rho_A_field_new - state.rho_A_field
+        dB = rho_B_field_new - state.rho_B_field
+        wA = np.sqrt(state.ucA * state.ucA + state.vcA * state.vcA) + 1e-12
+        wB = np.sqrt(state.ucB * state.ucB + state.vcB * state.vcB) + 1e-12
+        state.drho_A = float(np.sum(np.abs(dA / state.rho_A_field) * wA) / np.sum(wA))
+        state.drho_B = float(np.sum(np.abs(dB / state.rho_B_field) * wB) / np.sum(wB))
 
         # Temperature-field convergence: max|ΔT| across outer iterations.
         # rho-only criterion can flag converged while the T field is still
@@ -1262,60 +1321,75 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
         # _COUPLING_TOL) — the shared tracker owns the ΔT deltas + warm-start
         # prev-copy; Δρ is the 2D-specific extra criterion.
         _converged, _deltas = _outer_conv.check(
-            {'Ta': Ta, 'Tb': Tb, 'Ts': Ts},
-            extra=(drho_A, drho_B), extra_tol=_COUPLING_TOL)
-        pressure_states = (inlet_pressure_state(simpA, P_inA_val),
-                           inlet_pressure_state(simpB, P_inB_val))
+            {'Ta': state.Ta, 'Tb': state.Tb, 'Ts': state.Ts},
+            extra=(state.drho_A, state.drho_B), extra_tol=_COUPLING_TOL)
+        pressure_states = (inlet_pressure_state(state.simpA, P_inA_val),
+                           inlet_pressure_state(state.simpB, P_inB_val))
         _converged = _converged and all(s is None or s['passed'] for s in pressure_states)
-        dT_A = _deltas['Ta']; dT_B = _deltas['Tb']
-        _log.info(f"  [Coupling {_coup_it+1}] drho_A={drho_A:.4f} drho_B={drho_B:.4f} "
-                  f"dT_A={dT_A:.2f}K dT_B={dT_B:.2f}K dT_S={_deltas['Ts']:.2f}K "
+        state.dT_A = _deltas['Ta']; state.dT_B = _deltas['Tb']
+        _log.info(f"  [Coupling {_coup_it+1}] drho_A={state.drho_A:.4f} drho_B={state.drho_B:.4f} "
+                  f"dT_A={state.dT_A:.2f}K dT_B={state.dT_B:.2f}K dT_S={_deltas['Ts']:.2f}K "
                   f"T_avg_A={T_avg_A:.1f}K T_avg_B={T_avg_B:.1f}K")
 
-        # Carry the under-relaxation inputs to `post` (avoids 4 more nonlocals).
-        return _converged, (rho_A_field_new, rho_B_field_new,
-                            rho_cp_A_new, rho_cp_B_new)
+        return _converged
+
+    def _step_2d(_coup_it):
+        # 2D remains flow-first. Each helper owns the existing numerical phase.
+        if cancel_check is not None and cancel_check():
+            raise CancelledError("compute cancelled by user")
+        control.report_progress(10 + int(80 * _coup_it / _MAX_COUPLING))
+        # Live iteration label for the UI button ticker (replaces the
+        # dropped ETA text). 2026-05-14.
+        if control.iteration is not None:
+            control.iteration(f"iter {_coup_it + 1}/{_MAX_COUPLING}")
+
+        P_abs_A, P_abs_B, simple_temperatures = _solve_flow(_coup_it)
+        control.report_progress(10 + int(80 * (_coup_it + 0.3) / _MAX_COUPLING))
+        inputs = _prepare_thermal_inputs(_coup_it, P_abs_A, P_abs_B)
+        _solve_thermal(_coup_it, inputs, P_abs_A, P_abs_B, simple_temperatures)
+        _validate_thermal_return(P_abs_A, P_abs_B, simple_temperatures, inputs.has_water)
+        new_properties = _refresh_thermal_properties(P_abs_A, P_abs_B)
+        return _check_outer_convergence(_coup_it, new_properties), new_properties
 
     def _post_2d(_coup_it, _carry):
-        nonlocal rho_A_field, rho_B_field, rho_cp_A, rho_cp_B
         (rho_A_field_new, rho_B_field_new,
          rho_cp_A_new, rho_cp_B_new) = _carry
         # Rebind; Richardson retains the capacities from the last thermal call.
-        rho_A_field = _ALPHA_COUP * rho_A_field_new + (1 - _ALPHA_COUP) * rho_A_field
-        rho_B_field = _ALPHA_COUP * rho_B_field_new + (1 - _ALPHA_COUP) * rho_B_field
-        rho_cp_A = _ALPHA_COUP * rho_cp_A_new + (1 - _ALPHA_COUP) * rho_cp_A
-        rho_cp_B = _ALPHA_COUP * rho_cp_B_new + (1 - _ALPHA_COUP) * rho_cp_B
+        state.rho_A_field = _ALPHA_COUP * rho_A_field_new + (1 - _ALPHA_COUP) * state.rho_A_field
+        state.rho_B_field = _ALPHA_COUP * rho_B_field_new + (1 - _ALPHA_COUP) * state.rho_B_field
+        state.rho_cp_A = _ALPHA_COUP * rho_cp_A_new + (1 - _ALPHA_COUP) * state.rho_cp_A
+        state.rho_cp_B = _ALPHA_COUP * rho_cp_B_new + (1 - _ALPHA_COUP) * state.rho_cp_B
 
     _last_coup, coupling_converged = run_outer_coupling(
         max_iter=_MAX_COUPLING, step=_step_2d, post=_post_2d)
-    pressure_states = {'A': inlet_pressure_state(simpA, P_inA_val),
-                       'B': inlet_pressure_state(simpB, P_inB_val)}
+    pressure_states = {'A': inlet_pressure_state(state.simpA, P_inA_val),
+                       'B': inlet_pressure_state(state.simpB, P_inB_val)}
     model_balance = None
     if _model_h_mode:
-        model_balance = e_info['model_h_balance']
+        model_balance = state.e_info['model_h_balance']
         model_balance.update(
             mass_source='last thermal input: actual signed SIMPLE faces',
             outer_index=int(_last_coup), outer_converged=bool(coupling_converged),
             post_after_last_thermal=bool(not coupling_converged),
-            raw_state_matches_last_thermal=bool(not _energy_nan_hit))
+            raw_state_matches_last_thermal=bool(not state._energy_nan_hit))
         model_balance['passed'] = bool(model_balance['passed'] and coupling_converged
-                                       and not _energy_nan_hit)
-        mA_rows = np.array([model_balance['A']['mass_in_kg_s_per_m']])
-        mB_rows = np.array([model_balance['B']['mass_in_kg_s_per_m']])
+                                       and not state._energy_nan_hit)
+        state.mA_rows = np.array([model_balance['A']['mass_in_kg_s_per_m']])
+        state.mB_rows = np.array([model_balance['B']['mass_in_kg_s_per_m']])
     if cancel_check is not None and cancel_check():
         raise CancelledError("compute cancelled by user")
 
     if not coupling_converged:
         warnings_list.append(
             f"Velocity-temperature coupling: not converged after {_MAX_COUPLING} iters "
-            f"(drho_A={drho_A:.4f}, drho_B={drho_B:.4f}, "
-            f"dT_A={dT_A:.2f}K, dT_B={dT_B:.2f}K)")
+            f"(drho_A={state.drho_A:.4f}, drho_B={state.drho_B:.4f}, "
+            f"dT_A={state.dT_A:.2f}K, dT_B={state.dT_B:.2f}K)")
     warnings_list.extend(simple_warnings.values())
 
     # Zone statistics and boundary lines
     z_axis = cfg['z_axis']
     zones = _zone_statistics_2d(z_axis, zone_config, za, L, H,
-                               energy_dx, energy_dy, Ta, Tb, Ts)
+                               energy_dx, energy_dy, state.Ta, state.Tb, state.Ts)
 
     # FIX (2026-06-24): keep RAW (unsmoothed) fields for Q extraction. The
     # display smoothing below blurs the sharp inlet/outlet thermal gradients;
@@ -1327,23 +1401,23 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
     # fresh = unsmoothed, so the two disagreed wildly). The old comment "Q/dP
     # already computed from raw fields" was STALE — Q is computed below, AFTER
     # this block, so it must be fed the raw fields explicitly.
-    Ta_raw, Tb_raw, Ts_raw = Ta, Tb, Ts
+    Ta_raw, Tb_raw, Ts_raw = state.Ta, state.Tb, state.Ts
 
     # Smooth temperature fields FOR DISPLAY ONLY if partial-width inlets exist
     # (removes Brinkman-induced stripes). Rebinds Ta/Tb/Ts to display copies;
     # the Q call below uses Ta_raw/Tb_raw/Ts_raw.
-    if _has_partial_A or _has_partial_B:
+    if state._has_partial_A or state._has_partial_B:
         from scipy.ndimage import gaussian_filter
         _st = 1.5  # temperature smoothing width in cells
-        Ta = gaussian_filter(Ta, sigma=_st)
-        Tb = gaussian_filter(Tb, sigma=_st)
-        Ts = gaussian_filter(Ts, sigma=_st)
+        state.Ta = gaussian_filter(state.Ta, sigma=_st)
+        state.Tb = gaussian_filter(state.Tb, sigma=_st)
+        state.Ts = gaussian_filter(state.Ts, sigma=_st)
 
     # ── Step 3: Pressure from SIMPLE ──
     P_inA = cfg['compute_cfg'].fluid_A.P_in_Pa
     P_inB = cfg['compute_cfg'].fluid_B.P_in_Pa
     P_fA, P_fB, dP_A, dP_B = _compute_pressure_2d(
-        simpA, simpB, dir_A, dir_B, P_inA, P_inB)
+        state.simpA, state.simpB, dir_A, dir_B, P_inA, P_inB)
     if not _enthalpy_mode:
         for side, fluid, temperature in (('A', fluid_A, Ta_raw), ('B', fluid_B, Tb_raw)):
             with range_context(side=side, stage='final', layout='real-cell(x,y)'):
@@ -1360,11 +1434,11 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
     _env_valid = True
     _env_reasons = []
     _clip_hits_2d = 0
-    if simpA is not None and getattr(simpA, 'fluid_type', None) == 'ideal_gas':
-        _clip_hits_2d += int(getattr(simpA, '_p_clip_hits', 0))
-        _vmagA = np.sqrt(np.asarray(ucA) ** 2 + np.asarray(vcA) ** 2)
+    if state.simpA is not None and getattr(state.simpA, 'fluid_type', None) == 'ideal_gas':
+        _clip_hits_2d += int(getattr(state.simpA, '_p_clip_hits', 0))
+        _vmagA = np.sqrt(np.asarray(state.ucA) ** 2 + np.asarray(state.vcA) ** 2)
         _vA, _rA = gate_solution(
-            float((simpA.P_ref_abs + simpA.P).min()), float(_vmagA.max()),
+            float((state.simpA.P_ref_abs + state.simpA.P).min()), float(_vmagA.max()),
             float(T_inA), mode=_env_mode, dims='2D-A',
             # RAW T (2026-07-13 audit): Ta/Tb are display-smoothed rebinds by
             # this point on partial-BC runs — a physics gate must not read a
@@ -1372,11 +1446,11 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
             ma_max=mach_field_max(_vmagA, Ta_raw))
         _env_valid = _env_valid and _vA
         _env_reasons += [f"[A] {r}" for r in _rA]
-    if simpB is not None and getattr(simpB, 'fluid_type', None) == 'ideal_gas':
-        _clip_hits_2d += int(getattr(simpB, '_p_clip_hits', 0))
-        _vmagB = np.sqrt(np.asarray(ucB) ** 2 + np.asarray(vcB) ** 2)
+    if state.simpB is not None and getattr(state.simpB, 'fluid_type', None) == 'ideal_gas':
+        _clip_hits_2d += int(getattr(state.simpB, '_p_clip_hits', 0))
+        _vmagB = np.sqrt(np.asarray(state.ucB) ** 2 + np.asarray(state.vcB) ** 2)
         _vB, _rB = gate_solution(
-            float((simpB.P_ref_abs + simpB.P).min()), float(_vmagB.max()),
+            float((state.simpB.P_ref_abs + state.simpB.P).min()), float(_vmagB.max()),
             float(T_inB), mode=_env_mode, dims='2D-B',
             ma_max=mach_field_max(_vmagB, Tb_raw))
         _env_valid = _env_valid and _vB
@@ -1384,8 +1458,8 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
 
     richardson_info = None
     if _enthalpy_mode:
-        Q_A_fine = float(e_info['Q_A'])
-        Q_B_fine = float(e_info['Q_B'])
+        Q_A_fine = float(state.e_info['Q_A'])
+        Q_B_fine = float(state.e_info['Q_B'])
         # Match the established 3D/Shanghai headline convention: Fluid-A
         # advective enthalpy duty. Fluid B remains the conservation diagnostic.
         Q_total = abs(Q_A_fine)
@@ -1393,18 +1467,18 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
         richardson_warn = False
     else:
         # Compute Q with Richardson extrapolation (N_x×N_y + 2N_x×2N_y)
-        rcp_A_energy, rcp_B_energy, hv_A_energy, hv_B_energy = last_temperature_inputs
+        rcp_A_energy, rcp_B_energy, hv_A_energy, hv_B_energy = state.last_temperature_inputs
         (Q_total, Q_A_fine, Q_B_fine, Q_solid_richardson,
          richardson_warn, richardson_info) = _compute_Q_richardson(
-            Ta_raw, Tb_raw, Ts_raw, ucA, vcA, ucB, vcB, rcp_A_energy, rcp_B_energy,
-            simpA, simpB, N_x, N_y, L, H, dir_A, dir_B,
+            Ta_raw, Tb_raw, Ts_raw, state.ucA, state.vcA, state.ucB, state.vcB, rcp_A_energy, rcp_B_energy,
+            state.simpA, state.simpB, N_x, N_y, L, H, dir_A, dir_B,
             energy_dx, energy_dy, _x_breaks, _y_breaks,
             T_inA, T_inB, P_inA_val, P_inB_val, eps, za, coeffs,
             _pA, _pB, cfgA, cfgB, u_A, u_B, warnings_list,
             h_vA_coarse=hv_A_energy, h_vB_coarse=hv_B_energy,
             split_A=_split_A_2d,
             port_wall_refine=cfg['compute_cfg'].flags.port_wall_refine,
-            cancel_check=cancel_check, model_inputs=last_model_inputs, model_balance=model_balance,
+            cancel_check=cancel_check, model_inputs=state.last_model_inputs, model_balance=model_balance,
             **({'evidence': fine_evidence} if cfg.get('_capture_native') else {}))
 
     # ΔP: always from SIMPLE converged P fields (dP_A, dP_B set above at line 580-581
@@ -1417,7 +1491,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
         native_evidence.update(
             Ta=Ta_raw, Tb=Tb_raw, Ts=Ts_raw,
             P_report_A=np.array(P_fA, copy=True), P_report_B=np.array(P_fB, copy=True),
-            fine=fine_evidence, true_h=e_info.get('_native_state'),
+            fine=fine_evidence, true_h=state.e_info.get('_native_state'),
             model_h_balance=model_balance, mode=('true_h' if _enthalpy_mode else
                                                 'model_h' if _model_h_mode else 'temperature'),
             split_A=float(_split_A_2d), rho_cp_A=None if _enthalpy_mode else rcp_A_energy,
@@ -1429,15 +1503,15 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
                                  outlet_fraction=np.array(simp.outlet_frac, copy=True),
                                  outlet_geom_frac=np.array(simp.outlet_geom_frac, copy=True),
                                  reference_abs_Pa=float(simp.P_ref_abs))
-                      for side, simp in (('A', simpA), ('B', simpB))})
+                      for side, simp in (('A', state.simpA), ('B', state.simpB))})
 
     # Smooth pressure and velocity fields for display if partial-width
-    if _has_partial_A or _has_partial_B:
+    if state._has_partial_A or state._has_partial_B:
         from scipy.ndimage import gaussian_filter
         _sp = 1.5
-        if _has_partial_A:
+        if state._has_partial_A:
             P_fA = gaussian_filter(P_fA, sigma=_sp)
-        if _has_partial_B:
+        if state._has_partial_B:
             P_fB = gaussian_filter(P_fB, sigma=_sp)
 
     # Capture SIMPLE residual histories so the Pressure tab can render a
@@ -1447,11 +1521,11 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
     # / non-iterable `residuals` attr is expected here (cosmetic mini-plot
     # data); anything else should surface.
     try:
-        resid_A = list(simpA.residuals) if simpA is not None else None
+        resid_A = list(state.simpA.residuals) if state.simpA is not None else None
     except (AttributeError, TypeError):
         resid_A = None
     try:
-        resid_B = list(simpB.residuals) if simpB is not None else None
+        resid_B = list(state.simpB.residuals) if state.simpB is not None else None
     except (AttributeError, TypeError):
         resid_B = None
 
@@ -1478,16 +1552,16 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
 
     result = {
         'sco2_nu_observations': nu_observations,
-        'Ta': Ta, 'Tb': Tb, 'Ts': Ts,
+        'Ta': state.Ta, 'Tb': state.Tb, 'Ts': state.Ts,
         'T_out_A_K': _outlet_temperature_2d(
-            Ta_raw, mass_flux_A, dir_A, simpA.outlet_geom_frac),
+            Ta_raw, state.mass_flux_A, dir_A, state.simpA.outlet_geom_frac),
         'T_out_B_K': _outlet_temperature_2d(
-            Tb_raw, mass_flux_B, dir_B, simpB.outlet_geom_frac),
-        'ucA': ucA, 'vcA': vcA, 'ucB': ucB, 'vcB': vcB,
+            Tb_raw, state.mass_flux_B, dir_B, state.simpB.outlet_geom_frac),
+        'ucA': state.ucA, 'vcA': state.vcA, 'ucB': state.ucB, 'vcB': state.vcB,
         # N5: display-smoothed copies (partial-BC runs only; None ⇒ use raw).
         # Physics consumers ('ucA' etc.) stay raw / mass-conserving.
-        'ucA_disp': ucA_disp, 'vcA_disp': vcA_disp,
-        'ucB_disp': ucB_disp, 'vcB_disp': vcB_disp,
+        'ucA_disp': state.ucA_disp, 'vcA_disp': state.vcA_disp,
+        'ucB_disp': state.ucB_disp, 'vcB_disp': state.vcB_disp,
         'P_fA': P_fA, 'P_fB': P_fB,
         'dP_A': dP_A, 'dP_B': dP_B,
         # Actual ideal-gas face pressures, also used by the convergence gate.
@@ -1509,9 +1583,9 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
             else float('nan')),
         'Q_total': Q_total,
         'mass_flow_A_kg_s_per_m': (
-            float(np.sum(mA_rows)) if mA_rows is not None else float('nan')),
+            float(np.sum(state.mA_rows)) if state.mA_rows is not None else float('nan')),
         'mass_flow_B_kg_s_per_m': (
-            float(np.sum(mB_rows)) if mB_rows is not None else float('nan')),
+            float(np.sum(state.mB_rows)) if state.mB_rows is not None else float('nan')),
         'energy_dx': energy_dx, 'energy_dy': energy_dy,
         'warnings_list': warnings_list,
         # ── Convergence verdict — explicit AND over every gate (2026-07-12) ──
@@ -1529,13 +1603,13 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
         'solver_converged': bool(
             coupling_converged                       # outer ΔT+Δρ+inlet-P
             and not simple_warnings                  # every SIMPLE side ok
-            and bool(e_info.get('converged', False))  # LTNE inner pass
+            and bool(state.e_info.get('converged', False))  # LTNE inner pass
             and (_enthalpy_mode or (richardson_info['converged']
                                     and richardson_info['extrapolated']))
             and (not _enthalpy_mode or energy_rel < 0.05)  # true-h pair balance
             and (not _model_h_mode or (model_balance['passed']
                  and richardson_info['model_h_balance']['passed']))
-            and not _energy_nan_hit                  # no patched-over NaN
+            and not state._energy_nan_hit                  # no patched-over NaN
             and bool(_env_valid)),                   # envelope gate
         'convergence_detail': {
             'inlet_pressure': pressure_states,
@@ -1547,22 +1621,22 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
             'outer_iters': int(_last_coup) + 1,
             'outer_hit_cap': bool(not coupling_converged),
             'simple_ok': bool(not simple_warnings),
-            'ltne_ok': bool(e_info.get('converged', False)),
+            'ltne_ok': bool(state.e_info.get('converged', False)),
             'richardson_ok': (None if _enthalpy_mode else bool(
                 richardson_info['converged'] and richardson_info['extrapolated'])),
-            'ltne_iterations': int(e_info.get('iterations', 0)),
-            'ltne_residual': float(e_info.get('residual', float('inf'))),
+            'ltne_iterations': int(state.e_info.get('iterations', 0)),
+            'ltne_residual': float(state.e_info.get('residual', float('inf'))),
             'enthalpy_balance_ok': bool(not _enthalpy_mode or energy_rel < 0.05),
             'model_h_balance_ok': (bool(model_balance['passed'] and richardson_info['model_h_balance']['passed'])
                                    if _model_h_mode else None),
-            'energy_nan_hit': bool(_energy_nan_hit),
+            'energy_nan_hit': bool(state._energy_nan_hit),
             'envelope_ok': bool(_env_valid),
         },
         'residuals_A': resid_A, 'residuals_B': resid_B,
         'mass_imbalance_rel_A': float(getattr(
-            simpA, 'final_res_mass_global', float('nan'))),
+            state.simpA, 'final_res_mass_global', float('nan'))),
         'mass_imbalance_rel_B': float(getattr(
-            simpB, 'final_res_mass_global', float('nan'))),
+            state.simpB, 'final_res_mass_global', float('nan'))),
         # Conservation diagnostics
         'Q_A': Q_A, 'Q_B': Q_B, 'Q_net': Q_net,
         'energy_imbalance_rel': energy_rel,
@@ -1575,7 +1649,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
         'model_h_balance': (dict(main=model_balance, fine=richardson_info['model_h_balance'])
                             if _model_h_mode else None),
         'true_h_balance': (dict(
-            e_info['true_h_balance'], outer_converged=bool(coupling_converged),
+            state.e_info['true_h_balance'], outer_converged=bool(coupling_converged),
             post_after_last_thermal=bool(not coupling_converged),
             state='last true-h solve, before any final post update')
             if _enthalpy_mode else None),
@@ -1585,8 +1659,8 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
         'p_clip_hits': _clip_hits_2d,
         'df_metadata': {
             'mode': getattr(cfg.get('compute_cfg'), 'df_mode', 'cfd_smooth'),
-            'A': getattr(simpA, '_df_metadata', None),
-            'B': getattr(simpB, '_df_metadata', None),
+            'A': getattr(state.simpA, '_df_metadata', None),
+            'B': getattr(state.simpB, '_df_metadata', None),
         },
     }
     if cfg.get('_capture_native'):
