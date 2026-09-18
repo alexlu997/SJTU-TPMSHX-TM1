@@ -824,6 +824,24 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
     with range_context(side='B', stage='inlet', layout='scalar'):
         rho_B_field = np.full((N_x, N_y), _pB.rho(T_inB, P_inB_val))
 
+    def _enthalpy_side_hv(props, T_field, P_in, u_mag, geometry, observation):
+        """Evaluate h_v at the lagged thermal field and frozen inlet pressure."""
+        fluid_props.check_water_state(props.name, T_field, P_in,
+                                      where='2D h_v property refresh')
+        if props.name == 'sco2':
+            from sjtu_tpmshx.models.local_heat_transfer import _sco2_hv_local_field
+
+            return _sco2_hv_local_field(
+                T_field, P_in, u_mag, geometry['A_0'], geometry['D_h'],
+                tpms_type, Lcell, sco2_nu=sco2_nu, observation=observation)
+        rho = cell_average(props.rho(T_field, P_in), energy_dx, energy_dy)
+        mu = cell_average(props.mu(T_field, P_in), energy_dx, energy_dy)
+        mean_T = cell_average(T_field, energy_dx, energy_dy)
+        return _build_hv_local_2d(
+            rho, mu, float(props.k(mean_T, P_in)),
+            u_mag, None, None, side_props=props,
+            side_T_for_Pr=mean_T, side_P=P_in)
+
     # Outer SIMPLE↔LTNE loop, driven by the shared run_outer_coupling skeleton
     # (2D = SIMPLE-first: `step` solves SIMPLE A/B + the coupled energy + the
     # dual ΔT/Δρ check; `post` under-relaxes the rho/rho·cp fields for the next
@@ -988,36 +1006,20 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
             L_field_2d = za.get('L_mm_arr')
             t_field_2d = za.get('t_arr')
         if _enthalpy_mode:
-            from sjtu_tpmshx.models.local_heat_transfer import _sco2_hv_local_field
             _g_hv = cfg['thermal_geometry']['uniform']
             _Ta_hv = (Ta if Ta is not None
                       else np.full_like(u_mag_A, T_inA))
             _Tb_hv = (Tb if Tb is not None
                       else np.full_like(u_mag_B, T_inB))
 
-            def _enthalpy_side_hv(props, T_field, P_in, u_mag, observation):
-                fluid_props.check_water_state(props.name, T_field, P_in,
-                                              where='2D h_v property refresh')
-                if props.name == 'sco2':
-                    return _sco2_hv_local_field(
-                        T_field, P_in, u_mag, _g_hv['A_0'], _g_hv['D_h'],
-                        tpms_type, Lcell, sco2_nu=sco2_nu, observation=observation)
-                rho = cell_average(props.rho(T_field, P_in), energy_dx, energy_dy)
-                mu = cell_average(props.mu(T_field, P_in), energy_dx, energy_dy)
-                mean_T = cell_average(T_field, energy_dx, energy_dy)
-                return _build_hv_local_2d(
-                    rho, mu, float(props.k(mean_T, P_in)),
-                    u_mag, None, None, side_props=props,
-                    side_T_for_Pr=mean_T, side_P=P_in)
-
             with range_context(side='A', stage='main-hv', layout='real-cell(x,y)'):
-                h_vA_local = _enthalpy_side_hv(_pA, _Ta_hv, P_inA_val, u_mag_A, nu_observations['A'])
+                h_vA_local = _enthalpy_side_hv(_pA, _Ta_hv, P_inA_val, u_mag_A, _g_hv, nu_observations['A'])
                 if _coup_it == 0 and _pA.name == 'sco2':
                     warn_sco2_nu_evidence(
                         side='A', stage='2D main-hv', tpms_type=tpms_type,
                         L_mm=Lcell, t_mm=t_wall, P_in=P_inA_val)
             with range_context(side='B', stage='main-hv', layout='real-cell(x,y)'):
-                h_vB_local = _enthalpy_side_hv(_pB, _Tb_hv, P_inB_val, u_mag_B, nu_observations['B'])
+                h_vB_local = _enthalpy_side_hv(_pB, _Tb_hv, P_inB_val, u_mag_B, _g_hv, nu_observations['B'])
                 if _coup_it == 0 and _pB.name == 'sco2':
                     warn_sco2_nu_evidence(
                         side='B', stage='2D main-hv', tpms_type=tpms_type,
@@ -1278,7 +1280,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
         nonlocal rho_A_field, rho_B_field, rho_cp_A, rho_cp_B
         (rho_A_field_new, rho_B_field_new,
          rho_cp_A_new, rho_cp_B_new) = _carry
-        # Under-relax (field-wise)
+        # Rebind; Richardson retains the capacities from the last thermal call.
         rho_A_field = _ALPHA_COUP * rho_A_field_new + (1 - _ALPHA_COUP) * rho_A_field
         rho_B_field = _ALPHA_COUP * rho_B_field_new + (1 - _ALPHA_COUP) * rho_B_field
         rho_cp_A = _ALPHA_COUP * rho_cp_A_new + (1 - _ALPHA_COUP) * rho_cp_A
