@@ -209,7 +209,7 @@ def test_temperature_warning_states_keep_warm_return_final_and_face_separate(mon
         *fields, dict(converged=True, iterations=1, residual=0.)))
 
     def drive(*, step, **kwargs):
-        state = inspect.getclosurevars(step).nonlocals
+        state = vars(inspect.getclosurevars(step).nonlocals["state"])
         state['Ta'][:] = 1100.
         state['Tb'][:] = 1120.
         step(0)
@@ -398,7 +398,7 @@ def test_wired_nonfinite_boundaries_precede_post_and_result(monkeypatch, phase, 
 
     def drive(*, step, **kwargs):
         if phase == 'warm':
-            state = inspect.getclosurevars(step).nonlocals
+            state = vars(inspect.getclosurevars(step).nonlocals["state"])
             state[('Ta', 'Tb', 'Ts')[side]][:] = fields[side]
         step(0)
         pytest.fail('invalid temperature reached normal outer return')
@@ -423,7 +423,7 @@ def test_water_error_still_precedes_generic_finite_error(monkeypatch, warm):
 
     def drive(*, step, **kwargs):
         if warm:
-            state = inspect.getclosurevars(step).nonlocals
+            state = vars(inspect.getclosurevars(step).nonlocals["state"])
             state['Ta'][:] = fields[0]
             state['Tb'][:] = fields[1]
         step(0)

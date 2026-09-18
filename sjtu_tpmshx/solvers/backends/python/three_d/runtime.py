@@ -467,7 +467,7 @@ class _HvMachinery:
 
 @dataclass
 class _OuterState:
-    """Return bundle built after the loop; it is not the live iteration state.
+    """Live outer-coupling state, returned directly after the loop.
 
     Cell arrays use real (x,y,z) axes. Temperatures and h_v belong to the
     last thermal solve; K_ffB and rho_cp may include the final post update.
@@ -495,6 +495,23 @@ class _OuterState:
     rho_cp_fA: np.ndarray  # J/(m3 K)
     rho_cp_fB: np.ndarray
     native_evidence: dict[str, object] | None  # detached last thermal state, before post
+
+
+@dataclass
+class _ThermalInputs3D:
+    """One thermal call's real-axis inputs; no copies or cross-iteration state.
+
+    model_kwargs contains mass faces captured before capacity balancing.
+    faces_A/B are the temperature-route velocities; true-h separately balances
+    and projects copies into its own mass faces.
+    """
+    velocity_A: tuple[np.ndarray, np.ndarray, np.ndarray]
+    faces_A: tuple[np.ndarray, np.ndarray, np.ndarray]
+    faces_B: tuple[np.ndarray, np.ndarray, np.ndarray]
+    model_kwargs: dict[str, object]
+    inlet_flux_A: np.ndarray
+    inlet_flux_B: np.ndarray | None
+    mode: str
 
 
 @dataclass
@@ -2012,7 +2029,6 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
     K_disp_A = prob.K_disp_A
     K_disp_B = prob.K_disp_B
     K_ffA = prob.K_ffA
-    K_ffB = prob.K_ffB
     K_pred = prob.K_pred
     K_pred_B = prob.K_pred_B
     K_ss = prob.K_ss
@@ -2061,8 +2077,6 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
     fB = prob.fB
     fluid_type_A = prob.fluid_type_A
     fluid_type_B = prob.fluid_type_B
-    h_vA_field = hv.h_vA_field
-    h_vB_field = hv.h_vB_field
     in_mask_2d = prob.in_mask_2d
     in_mask_B = prob.in_mask_B
     mu_A = prob.mu_A
@@ -2089,13 +2103,6 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
     # Convergence still requires the physical inlet pressure to meet its target.
     _p_shoot = bool(cfg.get('p_in_shooting',
                             run_environment(cfg, 'TPMSHX_P_IN_SHOOT', '1') == '1'))
-    # Conditionally-bound cross-seam names (surgery tool definite-
-    # assignment pass): None-init so the unconditional return below
-    # cannot raise UnboundLocalError on guarded paths. Downstream
-    # reads keep their original guards.
-    # P2: rho_cp as 3D field (not scalar) for per-cell accuracy
-    rho_cp_fA = np.full((Nx, Ny, Nz), rho_A * cp_A, dtype=np.float64)
-    rho_cp_fB = np.full((Nx, Ny, Nz), rho_B_ltne * cp_B, dtype=np.float64)
     # Default ON (2026-06-09): build the LTNE convective rho_cp from SIMPLE's
     # LOCAL density field ρ(P_local,T) instead of ρ(T,P_inlet). For compressible
     # fluids the kernel then telescopes cp·(ε·ρ_local·u) = cp·(SIMPLE mass flux),
@@ -2122,14 +2129,27 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
             field = np.flip(field, axis=amap['stream_real_axis'])
         return np.ascontiguousarray(field, dtype=np.float64)
 
-    # ── Outer SIMPLE ↔ LTNE coupling ──
-    Ta = Tb = Ts = None
+    # One live owner for state shared by thermal, diagnostic and post steps.
+    # SIMPLE and problem-owned arrays retain their existing in-place ownership.
+    state = _OuterState(
+        K_ffB=prob.K_ffB, Ta=None, Tb=None, Ts=None,
+        _and_A=None, _and_B=None, _assemble_real_velocity=_assemble_real_velocity,
+        _eps_A_strict=None, _eps_A_strict_cellmax=None,
+        _eps_B_strict=None, _eps_B_strict_cellmax=None,
+        _ltne_mask_A=None, _ltne_mask_B=None,
+        _outer_converged=False, _outer_dT_hist=[], _outer_last_iter=-1,
+        _use_outer_and=False, chi_B=None,
+        h_vA_field=hv.h_vA_field, h_vB_field=hv.h_vB_field,
+        rho_cp_fA=np.full((Nx, Ny, Nz), rho_A * cp_A, dtype=np.float64),
+        rho_cp_fB=np.full((Nx, Ny, Nz), rho_B_ltne * cp_B, dtype=np.float64),
+        native_evidence=None,
+    )
+
     # Warm-start delta tracker (shared with the 2D driver). A2 (2026-07-06):
     # gate on ALL THREE temperature fields — the old ('Ta',)-only criterion
     # let Tb/Ts drift unmonitored (a cross-flow B side or slow solid could
     # still be moving when Ta settled).
     _outer_conv = OuterConvergence(tol_T=_outer_tol, track=('Ta', 'Tb', 'Ts'))
-    _outer_dT_hist = []   # per-outer-iter {field: max|Δ|} — convergence_detail
 
     # ── Anderson acceleration on the OUTER coupling map (opt-in, 2026-07-12) ──
     # The outer loop's relaxation is a fixed constant (_ALPHA_T = 0.6) applied
@@ -2146,16 +2166,14 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
     # OFF by default: when disabled, `_outer_post_3d` runs the original blend
     # expression verbatim, so the production path and the golden gates are
     # bit-identical.
-    _use_outer_and = bool(cfg.get('outer_anderson', False))
-    _and_A = _and_B = None
-    if _use_outer_and:
+    state._use_outer_and = bool(cfg.get('outer_anderson', False))
+    if state._use_outer_and:
         from sjtu_tpmshx.solvers.anderson_acceleration import AndersonOuterCoupling
         _and_kw = dict(m=int(cfg.get('outer_anderson_m', 3)),
                        trust=float(cfg.get('outer_anderson_trust', 5.0)),
                        patience=int(cfg.get('outer_anderson_patience', 3)))
-        _and_A = AndersonOuterCoupling(**_and_kw)
-        _and_B = AndersonOuterCoupling(**_and_kw)
-    chi_B = None         # B flow-path indicator field (χ_B), built each outer iter
+        state._and_A = AndersonOuterCoupling(**_and_kw)
+        state._and_B = AndersonOuterCoupling(**_and_kw)
     # Optional solid warm-start seed from the UI. Empty → solver default
     # (Ta=T_inA, Tb=T_inB, Ts=0.5*(T_inA+T_inB) inside solve_full_domain_3d).
     # Filled → only Ts is overridden with the user value; Ta/Tb stay at the
@@ -2166,39 +2184,24 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
     _Ts_init_user = cfg.get('T_s_init')
     if _Ts_init_user is not None:
         _shape3d = (Nx, Ny, Nz)
-        Ta = np.full(_shape3d, float(T_inA), dtype=np.float64)
-        Tb = np.full(_shape3d, float(T_inB), dtype=np.float64)
-        Ts = np.full(_shape3d, float(_Ts_init_user), dtype=np.float64)
+        state.Ta = np.full(_shape3d, float(T_inA), dtype=np.float64)
+        state.Tb = np.full(_shape3d, float(T_inB), dtype=np.float64)
+        state.Ts = np.full(_shape3d, float(_Ts_init_user), dtype=np.float64)
     _cancel_check = control.cancel_check
-    native_evidence = None
-    # B2 strict-conservation certificates — assigned each outer iter, read
-    # after the loop for the result dict; pre-init so the step closure's
-    # `nonlocal` has an enclosing binding (loop always runs ≥1 iter so the
-    # None default is dead, but it keeps the scope valid).
-    _eps_A_strict = _eps_B_strict = None
-    _eps_A_strict_cellmax = _eps_B_strict_cellmax = None
-    # LTNE inlet-patch masks — assigned each iter inside the step, read after
-    # the loop (χ_B inlet-patch slice + audit dict); pre-init so the step
-    # closure's `nonlocal` has an enclosing binding (legacy relied on the
-    # loop variable leaking to function scope).
-    _ltne_mask_A = _ltne_mask_B = None
 
-    # Outer SIMPLE↔LTNE loop, driven by the shared run_outer_coupling skeleton
-    # (3D = LTNE-first: `step` builds props + solves LTNE + checks ΔTa; `post`
-    # re-solves SIMPLE A/B with the updated fields for the next iter). The body
-    # below is the verbatim former loop body, wrapped so the only `nonlocal`s
-    # are the fields that persist across iters or are read after the loop.
+    # 3D remains thermal-first. The last nonconverged iteration still runs post;
+    # its native thermal evidence must be detached before those working updates.
     def _check_property_water(where):
         # The temperature path refreshes properties at frozen inlet pressure.
         # It does not consume the separate true-h kernel pressure offset.
-        fluid_props.check_water_state(fluid_type_A, T_inA if Ta is None else Ta,
+        fluid_props.check_water_state(fluid_type_A, T_inA if state.Ta is None else state.Ta,
                                       P_inA, where=f'{where} A')
-        fluid_props.check_water_state(fluid_type_B, T_inB if Tb is None else Tb,
+        fluid_props.check_water_state(fluid_type_B, T_inB if state.Tb is None else state.Tb,
                                       P_inB, where=f'{where} B')
 
     def _record_temperature_state(stage, layout):
         # Only called for the empirical temperature/model-h route, not HEOS.
-        for side, fluid, temperature in (('A', fluid_type_A, Ta), ('B', fluid_type_B, Tb)):
+        for side, fluid, temperature in (('A', fluid_type_A, state.Ta), ('B', fluid_type_B, state.Tb)):
             with range_context(side=side, stage=stage, layout=layout):
                 record_temperature_ranges(fluid, temperature)
 
@@ -2208,49 +2211,26 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
         # arrays even on the last budget iteration. These are thermal inputs.
         from sjtu_tpmshx.domain.portable_data import mutable_data
         return mutable_data(dict(
-            Ta=Ta, Tb=Tb, Ts=Ts, h_vA=h_vA_field, h_vB=h_vB_field,
+            Ta=state.Ta, Tb=state.Tb, Ts=state.Ts, h_vA=state.h_vA_field, h_vB=state.h_vB_field,
             K_ss=K_ss, outer_index=int(outer), mode=mode,
             true_h=info.get('_native_state') if mode == 'true_h' else None,
             model_h=info.get('_native_model_h'),
             mass_A=mass_A, mass_B=mass_B,
             P_thermal_A=pressure_A, P_thermal_B=pressure_B,
             face_velocity_A=faces_A, face_velocity_B=faces_B,
-            rho_cp_A=rho_cp_fA, rho_cp_B=rho_cp_fB))
+            rho_cp_A=state.rho_cp_fA, rho_cp_B=state.rho_cp_fB))
 
-    def _outer_step_3d(outer):
-        nonlocal Ta, Tb, Ts, chi_B, h_vA_field, h_vB_field, K_ffB
-        nonlocal native_evidence
-        nonlocal _ltne_mask_A, _ltne_mask_B
-        nonlocal _eps_A_strict, _eps_B_strict
-        nonlocal _eps_A_strict_cellmax, _eps_B_strict_cellmax
-        # Cooperative cancel: only safe boundary is between outer iterations
-        # — a JIT'd SIMPLE inner sweep cannot be interrupted. The UI sets the
-        # flag via the Cancel button or the wall-clock timeout.
-        if _cancel_check is not None and _cancel_check():
-            raise CancelledError("compute cancelled by user")
-        if control.iteration is not None:
-            control.iteration(f'outer {outer + 1}/{_max_outer}')
-        if control.outer_iteration is not None:
-            control.outer_iteration(outer + 1, _max_outer)
-        control.report_progress(10 + int(80 * outer / _MAX_OUTER))
-        ucA, vcA, wcA = _assemble_real_velocity()
-        _enth_gate = (sB is not None
-                      and 'sco2' in (fluid_type_A, fluid_type_B))
-        if not _enth_gate:
-            _check_property_water('3D temperature warm start')
-        fluid_props.check_finite_temperatures(
-            Ta, Tb, Ts, where='3D temperature warm start')
-        if not _enth_gate:
-            _record_temperature_state('main', 'real-cell(x,y,z)-warm')
-
+    def _refresh_heat_transfer(outer, velocity_A):
+        """Refresh h_v and the existing B participation closure in real axes."""
+        ucA, vcA, wcA = velocity_A
         # Rebuild from the latest full vector: turning flow is not stagnation
         # merely because its component normal to the inlet becomes small.
         speed_A = local_speed(ucA, vcA, wcA)
         # D3: sCO2 uses the LOCAL temperature field (lagged Ta) for h_v props;
         # iter-0 Ta is None → scalar T_inA (frozen, = old behaviour).
-        _T_hvA = Ta if (fluid_type_A == 'sco2' and Ta is not None) else T_inA
+        _T_hvA = state.Ta if (fluid_type_A == 'sco2' and state.Ta is not None) else T_inA
         with range_context(side='A', stage='main', layout='real-cell(x,y,z)-hv-speed'):
-            h_vA_field = _build_hv_local_3d(
+            state.h_vA_field = _build_hv_local_3d(
                 L_mm_field, t_field_3d, speed_A, _T_hvA, P_inA, fluid_type_A,
                     observation=cfg['sco2_nu_observations']['A'])
         if outer == 0 and fluid_type_A == 'sco2':
@@ -2259,23 +2239,23 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
                 tpms_type=tpms_type, L_mm=Lcell if L_mm_field is None else L_mm_field,
                 t_mm=t_wall if L_mm_field is None else t_field_3d,
                 P_in=P_inA)
-        h_vA_field = _apply_roughness_h_v(
-            h_vA_field, fluid_type_A, rho_A, mu_A, u_A, D_h, resolved=cfg['roughness_resolved'])
-        h_vA_field = h_vA_field * _hv_ratio_A   # per-side asym geom (1.0 at δ=0)
+        state.h_vA_field = _apply_roughness_h_v(
+            state.h_vA_field, fluid_type_A, rho_A, mu_A, u_A, D_h, resolved=cfg['roughness_resolved'])
+        state.h_vA_field = state.h_vA_field * _hv_ratio_A   # per-side asym geom (1.0 at δ=0)
         # Pre-compute LTNE inlet masks (needed by χ_B block and LTNE solve).
         # approach-(a): the kernel applies the inlet BC at its inlet face using
         # this mask; with the reverse spatial flip + no mask swap, the physical
         # inlet patch is in_mask for BOTH forward and reverse dirs.
-        _ltne_mask_A = in_mask_2d
-        _ltne_mask_B = None
+        state._ltne_mask_A = in_mask_2d
+        state._ltne_mask_B = None
         if fB is not None:
-            _ltne_mask_B = in_mask_B
+            state._ltne_mask_B = in_mask_B
 
         if sB is not None:
             speed_B = local_speed(ucB, vcB, wcB)
-            _T_hvB = Tb if (fluid_type_B == 'sco2' and Tb is not None) else T_inB
+            _T_hvB = state.Tb if (fluid_type_B == 'sco2' and state.Tb is not None) else T_inB
             with range_context(side='B', stage='main', layout='real-cell(x,y,z)-hv-speed'):
-                h_vB_field = _build_hv_local_3d(
+                state.h_vB_field = _build_hv_local_3d(
                     L_mm_field, t_field_3d, speed_B, _T_hvB, P_inB, fluid_type_B,
                     observation=cfg['sco2_nu_observations']['B'])
             if outer == 0 and fluid_type_B == 'sco2':
@@ -2284,9 +2264,9 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
                     tpms_type=tpms_type, L_mm=Lcell if L_mm_field is None else L_mm_field,
                     t_mm=t_wall if L_mm_field is None else t_field_3d,
                     P_in=P_inB)
-            h_vB_field = _apply_roughness_h_v(
-                h_vB_field, fluid_type_B, rho_B, mu_B, u_B_val, D_h, resolved=cfg['roughness_resolved'])
-            h_vB_field = h_vB_field * _hv_ratio_B   # per-side asym geom (1.0 at δ=0)
+            state.h_vB_field = _apply_roughness_h_v(
+                state.h_vB_field, fluid_type_B, rho_B, mu_B, u_B_val, D_h, resolved=cfg['roughness_resolved'])
+            state.h_vB_field = state.h_vB_field * _hv_ratio_B   # per-side asym geom (1.0 at δ=0)
             # ── partial-B closure dispatch ──
             # Three options selectable via cfg['partial_B_closure']:
             #   'none'                 — no correction (χ_B ≡ 1; legacy)
@@ -2329,8 +2309,8 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
                     r_eff = float(np.sqrt(_r_in * _r_out))
                 p = float(cfg.get('m4_exponent', 0.67))
                 eta_eff = r_eff ** p
-                chi_B = np.full((Nx, Ny, Nz), eta_eff, dtype=np.float64)
-                h_vB_field = h_vB_field * eta_eff
+                state.chi_B = np.full((Nx, Ny, Nz), eta_eff, dtype=np.float64)
+                state.h_vB_field = state.h_vB_field * eta_eff
                 # NOTE: legacy path does NOT modify K_ffB — that's exactly
                 # the diffusion-leak channel the per-cell path closes.
                 if outer == 0:
@@ -2341,7 +2321,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
                 # ── Phase 1 fix: per-cell 3D participation field ──
                 _method = cfg.get('chi_B_method', 'mass_flux_threshold')
                 if _method == 'union_extrude':
-                    chi_B = _build_chi_B_union_extrude(
+                    state.chi_B = _build_chi_B_union_extrude(
                         fB, dx, dy, dz, (Nx, Ny, Nz),
                         n_taper=int(cfg.get('chi_B_n_taper', 3)))
                 elif _method == 'mass_flux_threshold':
@@ -2353,14 +2333,14 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
                     # runs when explicitly requested via cfg. Original
                     # permissive defaults (0.05, 2) restored for symmetry
                     # with prior calibration scripts.
-                    chi_B = _build_chi_B_mass_flux_threshold(
+                    state.chi_B = _build_chi_B_mass_flux_threshold(
                         sB, axis_map_B, (Nx, Ny, Nz),
                         threshold_frac=float(cfg.get('chi_B_threshold_frac', 0.05)),
                         n_dilate=int(cfg.get('chi_B_n_dilate', 2)),
                         n_smooth=int(cfg.get('chi_B_n_smooth', 1)),
                         ref_mode=cfg.get('chi_B_mass_ref_mode', 'p75'))
                 else:  # 'velocity_threshold' (legacy method, geometry-tuned)
-                    chi_B = _build_chi_B_velocity_threshold(
+                    state.chi_B = _build_chi_B_velocity_threshold(
                         ucB, vcB, wcB,
                         threshold_frac=float(cfg.get('chi_B_threshold_frac', 0.5)),
                         u_ref_mode=cfg.get('chi_B_u_ref_mode', 'inlet'),
@@ -2371,18 +2351,18 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
                 # non-zero even in pure ghost cells. Heat leak negligible at
                 # 1e-3 (1000× attenuation vs bulk K).
                 chi_floor = float(cfg.get('chi_B_floor', 1e-3))
-                chi_B_eff_K = np.maximum(chi_B, chi_floor)
+                chi_B_eff_K = np.maximum(state.chi_B, chi_floor)
                 # Apply: zero source AND zero diffusion path in pure ghost
-                h_vB_field = h_vB_field * chi_B
-                K_ffB      = K_ffB      * chi_B_eff_K
+                state.h_vB_field = state.h_vB_field * state.chi_B
+                state.K_ffB      = state.K_ffB      * chi_B_eff_K
                 if outer == 0:
-                    _part_frac = float(np.sum(chi_B > 0.5)) / chi_B.size
+                    _part_frac = float(np.sum(state.chi_B > 0.5)) / state.chi_B.size
                     _log.info(f"[χ_B] closure=per_cell_chi_b method={_method} "
-                              f"min={chi_B.min():.3f} max={chi_B.max():.3f} "
-                              f"mean={chi_B.mean():.3f} part_frac={_part_frac:.3f} "
+                              f"min={state.chi_B.min():.3f} max={state.chi_B.max():.3f} "
+                              f"mean={state.chi_B.mean():.3f} part_frac={_part_frac:.3f} "
                               f"floor={chi_floor:.1e}")
             else:
-                chi_B = np.ones((Nx, Ny, Nz), dtype=np.float64)
+                state.chi_B = np.ones((Nx, Ny, Nz), dtype=np.float64)
 
         # ── H2 audit hook: zero K_ffB at the real-outlet 1-cell layer ──
         # Diagnostic-only (NOT physics). Tests whether T_B_out hot-spot is
@@ -2405,10 +2385,24 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
             _sl[_ax] = _idx
             _sl = tuple(_sl)
             _h2_floor = float(cfg.get('audit_h2_K_floor', 1e-6))
-            K_ffB[_sl] = K_ffB[_sl] * 0.0 + _h2_floor * float(np.mean(K_ffB))
+            state.K_ffB[_sl] = state.K_ffB[_sl] * 0.0 + _h2_floor * float(np.mean(state.K_ffB))
             if outer == 0:
                 _log.info(f"[H2-audit] K_ffB := {_h2_floor:.0e}·K̄ at outlet "
                           f"axis={_ax} idx={_idx} ({_layers} cell-layer)")
+
+    def _prepare_thermal_inputs(outer):
+        """Keep model-h mass faces before balancing the temperature faces."""
+        ucA, vcA, wcA = _assemble_real_velocity()
+        _enth_gate = (sB is not None
+                      and 'sco2' in (fluid_type_A, fluid_type_B))
+        if not _enth_gate:
+            _check_property_water('3D temperature warm start')
+        fluid_props.check_finite_temperatures(
+            state.Ta, state.Tb, state.Ts, where='3D temperature warm start')
+        if not _enth_gate:
+            _record_temperature_state('main', 'real-cell(x,y,z)-warm')
+
+        _refresh_heat_transfer(outer, (ucA, vcA, wcA))
 
         # Extract SIMPLE's staggered face velocities in REAL coords for the
         # mass-conserving LTNE kernel (2026-04-25 FV#6).
@@ -2450,11 +2444,11 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
         # including the first call and B's post-SIMPLE density refresh.
         if _var_rhocp and fluid_type_A == 'air' and _mA.compressible:
             with range_context(side='A', stage='property-refresh', layout='real-cell(x,y,z)-thermal-cp'):
-                rho_cp_fA[:] = _rho_real(sA, axis_map) * air_cp(T_inA if Ta is None else Ta)
+                state.rho_cp_fA[:] = _rho_real(sA, axis_map) * air_cp(T_inA if state.Ta is None else state.Ta)
         if (_var_rhocp and fluid_type_B == 'air' and _mB.compressible
                 and sB is not None):
             with range_context(side='B', stage='property-refresh', layout='real-cell(x,y,z)-thermal-cp'):
-                rho_cp_fB[:] = _rho_real(sB, axis_map_B) * air_cp(T_inB if Tb is None else Tb)
+                state.rho_cp_fB[:] = _rho_real(sB, axis_map_B) * air_cp(T_inB if state.Tb is None else state.Tb)
 
         # Strict-conservation prerequisite (2026-06-09): enforce discrete global
         # mass balance ∮F·n=0 on the extracted stream-boundary faces so the
@@ -2481,13 +2475,31 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
                 # Per-side ε must match the LTNE kernel's eps_fA/eps_fB exactly,
                 # else the MAC projection corrupts and reverse-dir Q drift
                 # silently returns. δ=0 → eps_fA_arr == eps_arr/2 (identical).
-                _coefA = eps_fA_arr * rho_cp_fA
+                _coefA = eps_fA_arr * state.rho_cp_fA
                 _balance_stream_outflow([ufA, vfA, wfA], axis_map, _coefA, dx, dy, dz)
             if sB is not None and (
                     (not fluid_props.get(fluid_type_B).compressible) or _var_rhocp):
-                _coefB = eps_fB_arr * rho_cp_fB
+                _coefB = eps_fB_arr * state.rho_cp_fB
                 _balance_stream_outflow([ufB, vfB, wfB], axis_map_B, _coefB, dx, dy, dz)
 
+        return _ThermalInputs3D(
+            velocity_A=(ucA, vcA, wcA),
+            faces_A=(ufA, vfA, wfA), faces_B=(ufB, vfB, wfB),
+            model_kwargs=_model_kwargs,
+            inlet_flux_A=inlet_flux_A, inlet_flux_B=inlet_flux_B,
+            mode=('true_h' if _enth_gate else
+                  'model_h' if _model_h_gate else 'legacy_temperature'),
+        )
+
+    def _solve_temperature(inputs):
+        """Run model-h/temperature, or the two-sweep true-h warm start."""
+        ucA, vcA, wcA = inputs.velocity_A
+        ufA, vfA, wfA = inputs.faces_A
+        ufB, vfB, wfB = inputs.faces_B
+        _enth_gate = inputs.mode == 'true_h'
+        _model_h_gate = inputs.mode == 'model_h'
+        _model_kwargs = inputs.model_kwargs
+        inlet_flux_A, inlet_flux_B = inputs.inlet_flux_A, inputs.inlet_flux_B
         # H6 ghost-pin: pass chi_B_field + threshold to LTNE kernel. At cells
         # where chi_B_field < chi_B_kernel_threshold, kernel skips Tb update
         # (leaves Tb at init = T_inB). Prevents stagnant cells from relaxing
@@ -2518,30 +2530,29 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
         # half the LTNE fluid heat capacity). K_ffA/K_ffB stay built from
         # eps_f_arr (= ε_A, correct for diffusion); only the convective
         # epsilon arg must be FULL ε.
-        _prof_t_ltne = _time.perf_counter() if _prof_3d_enabled() else None
         # Any pair containing sCO2 uses true enthalpy. The face-flux kernel
         # supports every real axis and arbitrary inlet/outlet patches.
         # When the enthalpy solve will overwrite the result below, run the legacy
         # ρcp·u·T solve for only a couple of sweeps (a cheap warm-start) rather
-        # than to full convergence — its Ta/Tb/Ts are discarded.
+        # than to full convergence. Its returned temperatures seed true-h.
         _eff_ltne_max_iter = 2 if _enth_gate else _ltne_max_iter
         _refined_thermal = {}
         if cfg.get('port_wall_refine', False) and _model_h_gate:
             _refined_thermal = dict(accelerate=True, alpha_T_s=1.)
         _ltne_result = solve_full_domain_3d(
             L, H, Lz, Nx, Ny, Nz, T_inA, T_inB,
-            K_ffA, K_ffB, K_ss, h_vA_field, h_vB_field,
-            rho_cp_fA, rho_cp_fB, eps_arr,
+            K_ffA, state.K_ffB, K_ss, state.h_vA_field, state.h_vB_field,
+            state.rho_cp_fA, state.rho_cp_fB, eps_arr,
             ucA, vcA, wcA, ucB, vcB, wcB,
             dir_A=fA['dir'],
             dir_B=(fB['dir'] if fB is not None else 3),
             dx_arr=dx, dy_arr=dy, dz_arr=dz,
             inlet_flux_A=inlet_flux_A,
             inlet_flux_B=inlet_flux_B,
-            inlet_mask_A=_ltne_mask_A,
-            inlet_mask_B=_ltne_mask_B,
+            inlet_mask_A=state._ltne_mask_A,
+            inlet_mask_B=state._ltne_mask_B,
             Tb_prescribed=Tb_presc, max_iter=_eff_ltne_max_iter, tol=1e-5,
-            Ta_init=Ta, Tb_init=Tb, Ts_init=Ts,
+            Ta_init=state.Ta, Tb_init=state.Tb, Ts_init=state.Ts,
             alpha_T=float(cfg.get('ltne_alpha_T', 0.7)),
             **_refined_thermal,
             # force_cc_ltne: drop face velocities so the LTNE uses the cc
@@ -2556,7 +2567,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
             vfA=(vfA if _conservative_ltne or not cfg.get('force_cc_ltne', True) else None),
             wfA=(wfA if _conservative_ltne or not cfg.get('force_cc_ltne', True) else None),
             ufB=ufB, vfB=vfB, wfB=wfB,
-            chi_B_field=chi_B,
+            chi_B_field=state.chi_B,
             chi_B_kernel_threshold=_chi_B_kernel_thr,
             mms_S_A_field=_mms_S_A,
             mms_S_B_field=_mms_S_B,
@@ -2573,98 +2584,93 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
                    else None),
             cancel_check=_cancel_check,
             return_info=True, **_model_kwargs)
-        Ta, Tb, Ts, _ltne_info_d = _ltne_result
+        state.Ta, state.Tb, state.Ts, _ltne_info_d = _ltne_result
         if not _enth_gate:
             _check_property_water('3D temperature return')
             fluid_props.check_finite_temperatures(
-                Ta, Tb, Ts, where='3D temperature return')
+                state.Ta, state.Tb, state.Ts, where='3D temperature return')
             _record_temperature_state('main', 'real-cell(x,y,z)-return')
 
-        # ── Option B: enthalpy-conservative LTNE for variable-cp sCO2 ──
-        # The ρcp·u·T conservative kernel above conserves ρcp·T-energy, which
-        # for sCO2 (cp spikes near the pseudocritical line) is NOT the true
-        # enthalpy ṁ·h → the 703 recuperator ~41% A/B imbalance / wrong cold
-        # outlet. For any pair containing sCO2, replace the result with the
-        # enthalpy-form solve (true face-by-face ṁ·h transport). Air/water-only
-        # cases stay bit-identical on the established temperature kernel.
-        # (Plan: vault reports/method/3d/2026-06-28-3d-ltne-enthalpy-*.)
-        if _enth_gate:
-            from sjtu_tpmshx.solvers.ltne_enthalpy_3d import (
-                face_mass_fluxes, solve_ltne_enthalpy_3d_pipeline,
-            )
-            from sjtu_tpmshx.solvers.ltne_energy_3d import _project_faces_div_free
-            _epsps = 0.5 * float(eps)
-            # N4 (2026-06-28): under δ≠0 the per-side ṁ must weight by the actual
-            # channel void (ε·split), matching the duty-extraction path and the
-            # asymmetric eps_A/eps_B fields handed to the kernel. None at δ=0 →
-            # symmetric 0.5·ε (every 703/production config; bit-identical).
-            _ov_A_e, _ov_B_e = _prepared_eps_overrides(cfg, eps)
-            _mdA = (1.0 if fA['dir'] % 2 == 0 else -1.0) * abs(
-                _simple_mass_flow(sA, fA['dir'], eps_f_per_side=_epsps,
-                                  eps_side_override=_ov_A_e))
-            _mdB = (1.0 if fB['dir'] % 2 == 0 else -1.0) * abs(
-                _simple_mass_flow(sB, fB['dir'], eps_f_per_side=_epsps,
-                                  eps_side_override=_ov_B_e))
-            _dPA = float(SIMPLESolver3D.extract_dP_face_extrap(sA))
-            _P_A_local = _pressure_real_3d(sA, axis_map, P_inA - _dPA)
-            _dPB = float(SIMPLESolver3D.extract_dP_face_extrap(sB))
-            _P_B_local = _pressure_real_3d(sB, axis_map_B, P_inB - _dPB)
+        return _ltne_info_d
 
-            _rho_A_real = _rho_real(sA, axis_map)
-            _rho_B_real = _rho_real(sB, axis_map_B)
-            _faces_A = [ufA.copy(), vfA.copy(), wfA.copy()]
-            _faces_B = [ufB.copy(), vfB.copy(), wfB.copy()]
-            _balance_stream_outflow(
-                _faces_A, axis_map, eps_fA_arr * _rho_A_real, dx, dy, dz)
-            _balance_stream_outflow(
-                _faces_B, axis_map_B, eps_fB_arr * _rho_B_real, dx, dy, dz)
-            _faces_A = _project_faces_div_free(
-                *_faces_A, eps_fA_arr, _rho_A_real, dx, dy, dz)
-            _faces_B = _project_faces_div_free(
-                *_faces_B, eps_fB_arr, _rho_B_real, dx, dy, dz)
-            _mass_faces_A = face_mass_fluxes(
-                *_faces_A, _rho_A_real, eps_fA_arr, dx, dy, dz)
-            _mass_faces_B = face_mass_fluxes(
-                *_faces_B, _rho_B_real, eps_fB_arr, dx, dy, dz)
-            Ta, Tb, Ts, _ltne_info_d = solve_ltne_enthalpy_3d_pipeline(
-                Nx, Ny, Nz, dx, dy, dz, eps_arr, K_ss,
-                h_vA_field, h_vB_field, _mdA, _mdB,
-                T_inA, T_inB, P_inA, P_inB, fA['dir'], fB['dir'],
-                fluid_A=fluid_type_A, fluid_B=fluid_type_B,
-                pressure_A_field=_P_A_local,
-                pressure_B_field=_P_B_local,
-                mass_flux_A=_mass_faces_A,
-                mass_flux_B=_mass_faces_B,
-                eps_A_field=(eps_fA_arr if float(cfg.get('delta_levelset', 0.0)) != 0.0 else None),
-                eps_B_field=(eps_fB_arr if float(cfg.get('delta_levelset', 0.0)) != 0.0 else None),
-                Ta_init=Ta, Tb_init=Tb, Ts_init=Ts,
-                n_sweep=int(cfg.get('ltne_enthalpy_nsweep', 25)),
-                omega=float(cfg.get('ltne_enthalpy_omega', 0.6)),
-                n_outer=int(cfg.get('ltne_enthalpy_outer', 1500)),
-                tol=float(cfg.get('ltne_enthalpy_tol', 1e-3)),
-                cancel_check=_cancel_check, coupled_energy_tol=0.001,
-                equation_energy_tol=0.001)
-            fluid_props.check_water_state(fluid_type_A, Ta, _P_A_local,
-                                          where='3D enthalpy return A')
-            fluid_props.check_water_state(fluid_type_B, Tb, _P_B_local,
-                                          where='3D enthalpy return B')
-            fluid_props.check_finite_temperatures(
-                Ta, Tb, Ts, where='3D enthalpy return')
+    def _solve_true_enthalpy(inputs):
+        """Balance and project separate mass faces, then consume the warm start."""
+        ufA, vfA, wfA = inputs.faces_A
+        ufB, vfB, wfB = inputs.faces_B
+        from sjtu_tpmshx.solvers.ltne_enthalpy_3d import (
+            face_mass_fluxes, solve_ltne_enthalpy_3d_pipeline,
+        )
+        from sjtu_tpmshx.solvers.ltne_energy_3d import _project_faces_div_free
+        _epsps = 0.5 * float(eps)
+        # N4 (2026-06-28): under δ≠0 the per-side ṁ must weight by the actual
+        # channel void (ε·split), matching the duty-extraction path and the
+        # asymmetric eps_A/eps_B fields handed to the kernel. None at δ=0 →
+        # symmetric 0.5·ε (every 703/production config; bit-identical).
+        _ov_A_e, _ov_B_e = _prepared_eps_overrides(cfg, eps)
+        _mdA = (1.0 if fA['dir'] % 2 == 0 else -1.0) * abs(
+            _simple_mass_flow(sA, fA['dir'], eps_f_per_side=_epsps,
+                              eps_side_override=_ov_A_e))
+        _mdB = (1.0 if fB['dir'] % 2 == 0 else -1.0) * abs(
+            _simple_mass_flow(sB, fB['dir'], eps_f_per_side=_epsps,
+                              eps_side_override=_ov_B_e))
+        _dPA = float(SIMPLESolver3D.extract_dP_face_extrap(sA))
+        _P_A_local = _pressure_real_3d(sA, axis_map, P_inA - _dPA)
+        _dPB = float(SIMPLESolver3D.extract_dP_face_extrap(sB))
+        _P_B_local = _pressure_real_3d(sB, axis_map_B, P_inB - _dPB)
 
-        if capture_native:
-            native_evidence = _snapshot_thermal(
-                outer, _ltne_info_d,
-                'true_h' if _enth_gate else 'model_h' if _model_h_gate else 'legacy_temperature',
-                _mass_faces_A if _enth_gate else _model_kwargs.get('model_mass_A'),
-                _mass_faces_B if _enth_gate else _model_kwargs.get('model_mass_B'),
-                _P_A_local if _enth_gate else None, _P_B_local if _enth_gate else None,
-                (ufA, vfA, wfA), (ufB, vfB, wfB))
+        _rho_A_real = _rho_real(sA, axis_map)
+        _rho_B_real = _rho_real(sB, axis_map_B)
+        _faces_A = [ufA.copy(), vfA.copy(), wfA.copy()]
+        _faces_B = [ufB.copy(), vfB.copy(), wfB.copy()]
+        _balance_stream_outflow(
+            _faces_A, axis_map, eps_fA_arr * _rho_A_real, dx, dy, dz)
+        _balance_stream_outflow(
+            _faces_B, axis_map_B, eps_fB_arr * _rho_B_real, dx, dy, dz)
+        _faces_A = _project_faces_div_free(
+            *_faces_A, eps_fA_arr, _rho_A_real, dx, dy, dz)
+        _faces_B = _project_faces_div_free(
+            *_faces_B, eps_fB_arr, _rho_B_real, dx, dy, dz)
+        _mass_faces_A = face_mass_fluxes(
+            *_faces_A, _rho_A_real, eps_fA_arr, dx, dy, dz)
+        _mass_faces_B = face_mass_fluxes(
+            *_faces_B, _rho_B_real, eps_fB_arr, dx, dy, dz)
+        state.Ta, state.Tb, state.Ts, _ltne_info_d = solve_ltne_enthalpy_3d_pipeline(
+            Nx, Ny, Nz, dx, dy, dz, eps_arr, K_ss,
+            state.h_vA_field, state.h_vB_field, _mdA, _mdB,
+            T_inA, T_inB, P_inA, P_inB, fA['dir'], fB['dir'],
+            fluid_A=fluid_type_A, fluid_B=fluid_type_B,
+            pressure_A_field=_P_A_local,
+            pressure_B_field=_P_B_local,
+            mass_flux_A=_mass_faces_A,
+            mass_flux_B=_mass_faces_B,
+            eps_A_field=(eps_fA_arr if float(cfg.get('delta_levelset', 0.0)) != 0.0 else None),
+            eps_B_field=(eps_fB_arr if float(cfg.get('delta_levelset', 0.0)) != 0.0 else None),
+            Ta_init=state.Ta, Tb_init=state.Tb, Ts_init=state.Ts,
+            n_sweep=int(cfg.get('ltne_enthalpy_nsweep', 25)),
+            omega=float(cfg.get('ltne_enthalpy_omega', 0.6)),
+            n_outer=int(cfg.get('ltne_enthalpy_outer', 1500)),
+            tol=float(cfg.get('ltne_enthalpy_tol', 1e-3)),
+            cancel_check=_cancel_check, coupled_energy_tol=0.001,
+            equation_energy_tol=0.001)
+        fluid_props.check_water_state(fluid_type_A, state.Ta, _P_A_local,
+                                      where='3D enthalpy return A')
+        fluid_props.check_water_state(fluid_type_B, state.Tb, _P_B_local,
+                                      where='3D enthalpy return B')
+        fluid_props.check_finite_temperatures(
+            state.Ta, state.Tb, state.Ts, where='3D enthalpy return')
 
+        return (_ltne_info_d, _mass_faces_A, _mass_faces_B,
+                _P_A_local, _P_B_local, _dPA, _dPB)
+
+    def _record_thermal_diagnostics(outer, _ltne_info_d, mode, *,
+                                    _P_A_local, _P_B_local, _dPA, _dPB,
+                                    _prof_t_ltne):
+        """Record the existing certificates after native evidence is detached."""
         # B2 strict-conservation certificate (last outer iter holds final).
-        _eps_A_strict = _ltne_info_d.get('eps_A_strict')
-        _eps_B_strict = _ltne_info_d.get('eps_B_strict')
-        _eps_A_strict_cellmax = _ltne_info_d.get('eps_A_strict_cellmax')
-        _eps_B_strict_cellmax = _ltne_info_d.get('eps_B_strict_cellmax')
+        state._eps_A_strict = _ltne_info_d.get('eps_A_strict')
+        state._eps_B_strict = _ltne_info_d.get('eps_B_strict')
+        state._eps_A_strict_cellmax = _ltne_info_d.get('eps_A_strict_cellmax')
+        state._eps_B_strict_cellmax = _ltne_info_d.get('eps_B_strict_cellmax')
         if _cancel_check is not None and _cancel_check():
             raise CancelledError("compute cancelled by user")
         _ltne_info.append(dict(outer=outer, iters=_ltne_info_d.get('iterations',0),
@@ -2675,7 +2681,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
                 _ltne_info_d['model_h_balance'], outer_index=outer,
                 converged=bool(_ltne_info_d['converged']),
                 iterations=int(_ltne_info_d['iterations']))
-        if _enth_gate:
+        if mode == 'true_h':
             _ltne_info[-1]['true_h_balance'] = dict(
                 Q_A=float(_ltne_info_d['Q_A']), Q_B=float(_ltne_info_d['Q_B']),
                 units='W', outer_index=int(outer),
@@ -2698,23 +2704,48 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
                       f"res={_ltne_info_d.get('residual',0.0):.2e}  "
                       f"(cap={_ltne_max_iter})")
 
+    def _check_outer_convergence():
         _converged, _outer_deltas = _outer_conv.check(
-            {'Ta': Ta, 'Tb': Tb, 'Ts': Ts})
+            {'Ta': state.Ta, 'Tb': state.Tb, 'Ts': state.Ts})
         pressure_states = (inlet_pressure_state(sA, P_inA),
                            inlet_pressure_state(sB, P_inB))
         _converged = _converged and all(
             state is None or state['passed'] for state in pressure_states)
-        _outer_dT_hist.append(_outer_deltas)
-        return _converged, None
+        state._outer_dT_hist.append(_outer_deltas)
+        return _converged
 
-    def _outer_post_3d(outer, _carry):
-        # Measure the completed flow before refreshing its temperature and
-        # properties. The bounded pressure step joins that outer Picard update.
-        _pressure_A = inlet_pressure_state(sA, P_inA)
-        _pressure_B = inlet_pressure_state(sB, P_inB)
-        _check_property_water('3D property refresh')
+    def _outer_step_3d(outer):
+        # Cooperative cancel: only safe boundary is between outer iterations
+        # — a JIT'd SIMPLE inner sweep cannot be interrupted. The UI sets the
+        # flag via the Cancel button or the wall-clock timeout.
+        if _cancel_check is not None and _cancel_check():
+            raise CancelledError("compute cancelled by user")
+        if control.iteration is not None:
+            control.iteration(f'outer {outer + 1}/{_max_outer}')
+        if control.outer_iteration is not None:
+            control.outer_iteration(outer + 1, _max_outer)
+        control.report_progress(10 + int(80 * outer / _MAX_OUTER))
+        inputs = _prepare_thermal_inputs(outer)
+        _prof_t_ltne = _time.perf_counter() if _prof_3d_enabled() else None
+        info = _solve_temperature(inputs)
+        mass_A = inputs.model_kwargs.get('model_mass_A')
+        mass_B = inputs.model_kwargs.get('model_mass_B')
+        pressure_A = pressure_B = dP_A = dP_B = None
+        if inputs.mode == 'true_h':
+            info, mass_A, mass_B, pressure_A, pressure_B, dP_A, dP_B = _solve_true_enthalpy(inputs)
+        if capture_native:
+            state.native_evidence = _snapshot_thermal(
+                outer, info, inputs.mode, mass_A, mass_B,
+                pressure_A, pressure_B, inputs.faces_A, inputs.faces_B)
+        _record_thermal_diagnostics(
+            outer, info, inputs.mode, _P_A_local=pressure_A, _P_B_local=pressure_B,
+            _dPA=dP_A, _dPB=dP_B, _prof_t_ltne=_prof_t_ltne)
+        return _check_outer_convergence(), None
+
+    def _refresh_flow_A(outer, _pressure_A):
+        """A updates its temperature before density/viscosity and SIMPLE."""
         # Non-iso coupling: Ta real → solver coords via self-inverse perm
-        Ta_sA = np.ascontiguousarray(Ta.transpose(solver_to_real_perm))
+        Ta_sA = np.ascontiguousarray(state.Ta.transpose(solver_to_real_perm))
         # Invert the velocity/density spatial reflection for every fluid.
         # After transpose, the real stream axis maps to SIMPLE's stream axis.
         if axis_map['is_reverse']:
@@ -2750,8 +2781,8 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
             # (x, G(x)) pairs; it falls back to EXACTLY this blend whenever the
             # candidate is inadmissible or history is short, so the disabled
             # path — and the golden gates — are bit-identical.
-            if _and_A is not None:
-                (sA.rho_field, sA.mu_field), _ok_A = _and_A.step(
+            if state._and_A is not None:
+                (sA.rho_field, sA.mu_field), _ok_A = state._and_A.step(
                     [sA.rho_field, sA.mu_field], [rho_new, mu_new_A],
                     _ALPHA_T)
             else:
@@ -2770,7 +2801,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
         if fluid_type_A in ('sco2', 'water'):
             sA._apply_massflux_inlet()
 
-        T_avg = cell_average(Ta, dx, dy, dz)
+        T_avg = cell_average(state.Ta, dx, dy, dz)
         if _mA.compressible:
             if _p_shoot:
                 sA.P_ref_abs = pressure_shooting_reference(_pressure_A)
@@ -2840,6 +2871,8 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
             _log.info(f"[PROF] outer {outer}: SIMPLE_A {_time.perf_counter()-_prof_t_sa:7.2f}s  "
                       f"iters={_sa_it}  conv={_sa_conv}  (cap=600)")
 
+    def _refresh_thermal_properties():
+        """Refresh conductivity/capacity between the A and B SIMPLE solves."""
         # Refresh fluid-property fields using the *local* T field, keeping
         # the spatial structure built by the zoned-geometry pass up-front
         # (#1). The previous implementation used `eps_f` (undefined in
@@ -2854,11 +2887,11 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
         # disp_C_A=0 ⇒ no-op.
         with range_context(side='A', stage='property-refresh', layout='real-cell(x,y,z)'):
             if _mA.compressible:
-                K_ffA[:] = eps_fA_arr * air_conductivity(Ta)
-                _cpA_fld = air_cp(Ta)
+                K_ffA[:] = eps_fA_arr * air_conductivity(state.Ta)
+                _cpA_fld = air_cp(state.Ta)
             else:
-                K_ffA[:] = eps_fA_arr * _mA.k(Ta, P_inA)
-                _cpA_fld = _mA.cp(Ta, P_inA)
+                K_ffA[:] = eps_fA_arr * _mA.k(state.Ta, P_inA)
+                _cpA_fld = _mA.cp(state.Ta, P_inA)
             if disp_C_A > 0.0:
                 K_ffA[:] += K_disp_A
             if (_var_rhocp and sA is not None
@@ -2867,130 +2900,139 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
                 _rhoA_real = sA.rho_field.transpose(axis_map['solver_to_real_perm'])
                 if axis_map['is_reverse']:
                     _rhoA_real = np.flip(_rhoA_real, axis=axis_map['stream_real_axis'])
-                rho_cp_fA[:] = np.ascontiguousarray(_rhoA_real) * _cpA_fld
+                state.rho_cp_fA[:] = np.ascontiguousarray(_rhoA_real) * _cpA_fld
             elif not (_var_rhocp and fluid_type_A == 'air' and _mA.compressible):
-                _rhoA_fld = (air_density(Ta, P_inA) if _mA.compressible
-                             else _mA.rho(Ta, P_inA))
-                rho_cp_fA[:] = _rhoA_fld * _cpA_fld
+                _rhoA_fld = (air_density(state.Ta, P_inA) if _mA.compressible
+                             else _mA.rho(state.Ta, P_inA))
+                state.rho_cp_fA[:] = _rhoA_fld * _cpA_fld
         # h_v rebuilt at top of next outer iter using LOCAL Re (#B fix).
 
-        if Tb is not None:
+        if state.Tb is not None:
             # B1 1.1: per-fluid primitives via registry; the local-P
             # rho·cp path is compressible-only physics (water keeps ρ(T)).
             with range_context(side='B', stage='property-refresh', layout='real-cell(x,y,z)'):
-                K_ffB[:] = eps_fB_arr * _mB.k(Tb, P_inB)  # FIX (2026-06-24 audit): asym per-side eps + re-add dispersion (see fluid-A note above); P for sco2
+                state.K_ffB[:] = eps_fB_arr * _mB.k(state.Tb, P_inB)  # FIX (2026-06-24 audit): asym per-side eps + re-add dispersion (see fluid-A note above); P for sco2
                 if disp_C_B > 0.0:
-                    K_ffB[:] += K_disp_B
+                    state.K_ffB[:] += K_disp_B
                 if (_mB.compressible and _var_rhocp and sB is not None
                         and fluid_type_B != 'air'):
                     _rhoB_real = sB.rho_field.transpose(perm_B)
                     if axis_map_B['is_reverse']:
                         _rhoB_real = np.flip(
                             _rhoB_real, axis=axis_map_B['stream_real_axis'])
-                    rho_cp_fB[:] = np.ascontiguousarray(_rhoB_real) * _mB.cp(Tb, P_inB)
+                    state.rho_cp_fB[:] = np.ascontiguousarray(_rhoB_real) * _mB.cp(state.Tb, P_inB)
                 elif not (_var_rhocp and fluid_type_B == 'air' and _mB.compressible
                           and sB is not None):
-                    rho_cp_fB[:] = _mB.rho(Tb, P_inB) * _mB.cp(Tb, P_inB)
+                    state.rho_cp_fB[:] = _mB.rho(state.Tb, P_inB) * _mB.cp(state.Tb, P_inB)
             # h_vB rebuilt at top of next outer iter using LOCAL Re (#B fix).
 
-        # Non-iso coupling for fluid B. Water: ρ(T) only, no ideal gas.
-        # Air: ρ(P,T) via ideal gas law (mirror of A).
-        if sB is not None and Tb is not None:
-            Tb_sB = np.ascontiguousarray(Tb.transpose(perm_B))
-            # Match B's velocity/density frame, as for A above.
-            if axis_map_B['is_reverse']:
-                _ssax_B = perm_B[int(axis_map_B['stream_real_axis'])]
-                Tb_sB = np.ascontiguousarray(np.flip(Tb_sB, axis=_ssax_B))
-            with range_context(side='B', stage='property-refresh', layout='solver-cell(cross1,stream,cross2)'):
-                if _mB.compressible:
-                    P_abs_B = sB.P_ref_abs + sB.P
-                    rho_new_B = P_abs_B / (R_AIR * Tb_sB)
-                else:
-                    rho_new_B = _mB.rho(Tb_sB, P_inB)   # water ignores P; sco2 (T,P_in)
-                mu_new_B = _mB.mu(Tb_sB, P_inB)          # air/water ignore P; sco2 needs P
-            if outer > 0:
-                # Mirror of the fluid-A property update above (see comment
-                # there). Separate Anderson instance per side: A's blend is
-                # applied BEFORE the SIMPLE-A re-solve and B's before SIMPLE-B,
-                # so the two are sequential, not simultaneous — block-wise
-                # acceleration respects that structure.
-                if _and_B is not None:
-                    (sB.rho_field, sB.mu_field), _ok_B = _and_B.step(
-                        [sB.rho_field, sB.mu_field], [rho_new_B, mu_new_B],
-                        _ALPHA_T)
-                else:
-                    sB.rho_field = np.ascontiguousarray(
-                        _ALPHA_T * rho_new_B + (1.0 - _ALPHA_T) * sB.rho_field,
-                        dtype=np.float64)
-                    sB.mu_field = np.ascontiguousarray(
-                        _ALPHA_T * mu_new_B + (1.0 - _ALPHA_T) * sB.mu_field,
-                        dtype=np.float64)
+    def _refresh_flow_B(outer, _pressure_B):
+        """B updates its temperature after density/viscosity and pressure."""
+        Tb_sB = np.ascontiguousarray(state.Tb.transpose(perm_B))
+        # Match B's velocity/density frame, as for A above.
+        if axis_map_B['is_reverse']:
+            _ssax_B = perm_B[int(axis_map_B['stream_real_axis'])]
+            Tb_sB = np.ascontiguousarray(np.flip(Tb_sB, axis=_ssax_B))
+        with range_context(side='B', stage='property-refresh', layout='solver-cell(cross1,stream,cross2)'):
+            if _mB.compressible:
+                P_abs_B = sB.P_ref_abs + sB.P
+                rho_new_B = P_abs_B / (R_AIR * Tb_sB)
             else:
-                sB.rho_field = np.ascontiguousarray(rho_new_B, dtype=np.float64)
-                sB.mu_field = np.ascontiguousarray(mu_new_B, dtype=np.float64)
-            eps_eff_B = sB.eps_field if hasattr(sB, 'eps_field') else sB.eps
-            sB._mu_eff_field = np.ascontiguousarray(
-                sB.mu_field / eps_eff_B, dtype=np.float64)
-            if fluid_type_B in ('sco2', 'water'):
-                sB._apply_massflux_inlet()
+                rho_new_B = _mB.rho(Tb_sB, P_inB)   # water ignores P; sco2 (T,P_in)
+            mu_new_B = _mB.mu(Tb_sB, P_inB)          # air/water ignore P; sco2 needs P
+        if outer > 0:
+            # Mirror of the fluid-A property update above (see comment
+            # there). Separate Anderson instance per side: A's blend is
+            # applied BEFORE the SIMPLE-A re-solve and B's before SIMPLE-B,
+            # so the two are sequential, not simultaneous — block-wise
+            # acceleration respects that structure.
+            if state._and_B is not None:
+                (sB.rho_field, sB.mu_field), _ok_B = state._and_B.step(
+                    [sB.rho_field, sB.mu_field], [rho_new_B, mu_new_B],
+                    _ALPHA_T)
+            else:
+                sB.rho_field = np.ascontiguousarray(
+                    _ALPHA_T * rho_new_B + (1.0 - _ALPHA_T) * sB.rho_field,
+                    dtype=np.float64)
+                sB.mu_field = np.ascontiguousarray(
+                    _ALPHA_T * mu_new_B + (1.0 - _ALPHA_T) * sB.mu_field,
+                    dtype=np.float64)
+        else:
+            sB.rho_field = np.ascontiguousarray(rho_new_B, dtype=np.float64)
+            sB.mu_field = np.ascontiguousarray(mu_new_B, dtype=np.float64)
+        eps_eff_B = sB.eps_field if hasattr(sB, 'eps_field') else sB.eps
+        sB._mu_eff_field = np.ascontiguousarray(
+            sB.mu_field / eps_eff_B, dtype=np.float64)
+        if fluid_type_B in ('sco2', 'water'):
+            sB._apply_massflux_inlet()
 
-            if _mB.compressible:   # P_ref recompute is compressible-only
-                Tb_avg = cell_average(Tb, dx, dy, dz)
-                if _p_shoot:
-                    sB.P_ref_abs = pressure_shooting_reference(_pressure_B)
-                else:
-                    with range_context(side='B', stage='property-refresh', layout='mean'):
-                        mu_avg_B = float(_mB.mu(Tb_avg))
-                    # Use the B-side permeability / Forchheimer coeff (audit
-                    # 2026-06-28): the outer-loop reseed previously used fluid
-                    # A's K_pred / cF_pred, inconsistent with the initial B
-                    # seed (L1829, K_pred_B / cF_pred_B). Identical for
-                    # same-geometry same-fluid A/B; differs for asymmetric ε
-                    # (δ≠0) or differing per-side cF.
-                    C_avg_B = (mu_avg_B * G_B / max(K_pred_B, 1e-16)
-                               + cF_pred_B * G_B * G_B)
-                    P_out_sq_B_new = (P_inB ** 2
-                                      - 2.0 * R_AIR * Tb_avg * C_avg_B
-                                      * L_stream_B)
-                    sB.P_ref_abs = pressure_initial_reference(
-                        P_out_sq_B_new, P_inB, history=sB.pressure_iterations)
+        if _mB.compressible:   # P_ref recompute is compressible-only
+            Tb_avg = cell_average(state.Tb, dx, dy, dz)
+            if _p_shoot:
+                sB.P_ref_abs = pressure_shooting_reference(_pressure_B)
+            else:
+                with range_context(side='B', stage='property-refresh', layout='mean'):
+                    mu_avg_B = float(_mB.mu(Tb_avg))
+                # Use the B-side permeability / Forchheimer coeff (audit
+                # 2026-06-28): the outer-loop reseed previously used fluid
+                # A's K_pred / cF_pred, inconsistent with the initial B
+                # seed (L1829, K_pred_B / cF_pred_B). Identical for
+                # same-geometry same-fluid A/B; differs for asymmetric ε
+                # (δ≠0) or differing per-side cF.
+                C_avg_B = (mu_avg_B * G_B / max(K_pred_B, 1e-16)
+                           + cF_pred_B * G_B * G_B)
+                P_out_sq_B_new = (P_inB ** 2
+                                  - 2.0 * R_AIR * Tb_avg * C_avg_B
+                                  * L_stream_B)
+                sB.P_ref_abs = pressure_initial_reference(
+                    P_out_sq_B_new, P_inB, history=sB.pressure_iterations)
 
-            with range_context(side='B', stage='property-refresh', layout='solver-cell(cross1,stream,cross2)'):
-                sB.update_T_field(Tb_sB)
-            _prof_t_sb = _time.perf_counter() if _prof_3d_enabled() else None
-            with range_context(side='B', stage='main', layout='solver-cell(cross1,stream,cross2)'):
-                _sb_conv, _sb_it = sB.solve(max_iter=_simple_max_iter(cfg, 600),
-                                            tol=_simple_tol_default(cfg),
-                                            verbose=False, cancel_check=_cancel_check)
-            if not _sb_conv:
-                _simple_nonconv.append(
-                    f"B@outer{outer}[{getattr(sB, 'exit_reason', '?')}]")
-            if _prof_t_sb is not None:
-                _log.info(f"[PROF] outer {outer}: SIMPLE_B {_time.perf_counter()-_prof_t_sb:7.2f}s  "
-                          f"iters={_sb_it}  conv={_sb_conv}  (cap=600)")
-                _prof_res_trace(f"outer {outer} SIMPLE_B", sB)
+        with range_context(side='B', stage='property-refresh', layout='solver-cell(cross1,stream,cross2)'):
+            sB.update_T_field(Tb_sB)
+        _prof_t_sb = _time.perf_counter() if _prof_3d_enabled() else None
+        with range_context(side='B', stage='main', layout='solver-cell(cross1,stream,cross2)'):
+            _sb_conv, _sb_it = sB.solve(max_iter=_simple_max_iter(cfg, 600),
+                                        tol=_simple_tol_default(cfg),
+                                        verbose=False, cancel_check=_cancel_check)
+        if not _sb_conv:
+            _simple_nonconv.append(
+                f"B@outer{outer}[{getattr(sB, 'exit_reason', '?')}]")
+        if _prof_t_sb is not None:
+            _log.info(f"[PROF] outer {outer}: SIMPLE_B {_time.perf_counter()-_prof_t_sb:7.2f}s  "
+                      f"iters={_sb_it}  conv={_sb_conv}  (cap=600)")
+            _prof_res_trace(f"outer {outer} SIMPLE_B", sB)
 
-            # Other routes refreshed rho_cp_fB above; variable-density air
-            # refreshes it before the next thermal call, after this SIMPLE solve.
+        # Other routes refreshed rho_cp_fB above; variable-density air
+        # refreshes it before the next thermal call, after this SIMPLE solve.
 
-            # Re-extract the full B vector for the next LTNE pass.
-            ucB2, vcB2, wcB2 = _solver_velocity_to_real(
-                sB, axis_map_B, (Nx, Ny, Nz))
-            ucB[:] = ucB2
-            vcB[:] = vcB2
-            wcB[:] = wcB2
+        # Re-extract the full B vector for the next LTNE pass.
+        ucB2, vcB2, wcB2 = _solver_velocity_to_real(
+            sB, axis_map_B, (Nx, Ny, Nz))
+        ucB[:] = ucB2
+        vcB[:] = vcB2
+        wcB[:] = wcB2
+
+    def _outer_post_3d(outer, _carry):
+        # Measure both completed flows before either temperature refresh.
+        pressure_A = inlet_pressure_state(sA, P_inA)
+        pressure_B = inlet_pressure_state(sB, P_inB)
+        _check_property_water('3D property refresh')
+        _refresh_flow_A(outer, pressure_A)
+        _refresh_thermal_properties()
+        if sB is not None and state.Tb is not None:
+            _refresh_flow_B(outer, pressure_B)
 
     # The skeleton returns (last_iter, converged). 3D used to DISCARD both, so
     # the outer-coupling verdict never reached `solver_converged` (2D captures
     # it — solve_2d.py:1173). A run that burned every outer iteration with ΔT
     # still bouncing could therefore report success as long as the final LTNE
     # inner pass and the SIMPLE solves converged. (Audit 2026-07-12.)
-    _outer_last_iter, _outer_converged = run_outer_coupling(
+    state._outer_last_iter, state._outer_converged = run_outer_coupling(
         max_iter=_max_outer, step=_outer_step_3d, post=_outer_post_3d)
     # Metrics use P_ref_abs + gauge, independently of the true-h kernel offset.
     for fluid, temperature, solver, amap, side in (
-            (fluid_type_A, Ta, sA, axis_map, 'A'),
-            (fluid_type_B, Tb, sB, axis_map_B, 'B')):
+            (fluid_type_A, state.Ta, sA, axis_map, 'A'),
+            (fluid_type_B, state.Tb, sB, axis_map_B, 'B')):
         if fluid == 'water' and solver is not None:
             fluid_props.check_water_state(
                 fluid, temperature, _pressure_real_3d(solver, amap, solver.P_ref_abs),
@@ -3003,28 +3045,4 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
     if not (sB is not None and 'sco2' in (fluid_type_A, fluid_type_B)):
         _record_temperature_state('final', 'real-cell(x,y,z)')
 
-    return _OuterState(
-        K_ffB=K_ffB,
-        Ta=Ta,
-        Tb=Tb,
-        Ts=Ts,
-        _and_A=_and_A,
-        _and_B=_and_B,
-        _assemble_real_velocity=_assemble_real_velocity,
-        _eps_A_strict=_eps_A_strict,
-        _eps_A_strict_cellmax=_eps_A_strict_cellmax,
-        _eps_B_strict=_eps_B_strict,
-        _eps_B_strict_cellmax=_eps_B_strict_cellmax,
-        _ltne_mask_A=_ltne_mask_A,
-        _ltne_mask_B=_ltne_mask_B,
-        _outer_converged=_outer_converged,
-        _outer_dT_hist=_outer_dT_hist,
-        _outer_last_iter=_outer_last_iter,
-        _use_outer_and=_use_outer_and,
-        chi_B=chi_B,
-        h_vA_field=h_vA_field,
-        h_vB_field=h_vB_field,
-        rho_cp_fA=rho_cp_fA,
-        rho_cp_fB=rho_cp_fB,
-        native_evidence=native_evidence,
-    )
+    return state

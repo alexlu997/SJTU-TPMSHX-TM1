@@ -95,6 +95,17 @@ iteration and temperature-delta tracking live in `coupling_skeleton.py`; both
 full-compute drivers track Ta, Tb and Ts, with the existing extra 2D density
 gate. Dimension-specific solve order and native flux capture remain explicit.
 
+The 3D outer loop owns one live `_OuterState`, returned after iteration without
+a second synchronized state copy. Its steps prepare local heat transfer and
+transport inputs, run temperature/model-h or the true-h warm start and solve,
+detach native thermal evidence, then record diagnostics and check convergence.
+The nonconverged post step refreshes A flow, thermal properties, then B flow;
+A and B retain their distinct temperature/property update order. Model-h mass
+faces are captured before temperature-face balancing; true-h separately
+balances and projects its mass transport. Per-call transport inputs do not
+become persistent iteration state. The native thermal snapshot stays detached
+from the conductivity, capacity and final SIMPLE arrays updated by post.
+
 The 3D initial A/B SIMPLE dispatch uses one level of parallelism. If either
 side reaches the existing parallel-sweep grid threshold, A and B run in order
 on the caller thread and retain their parallel sweeps. Otherwise the two sides

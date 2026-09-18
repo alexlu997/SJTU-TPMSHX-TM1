@@ -69,9 +69,22 @@ def test_invalid_raw_water_return_raises_before_nan_patch_or_refresh(monkeypatch
         (Pipeline2D if dimension == 2 else Pipeline3D)(_water_cfg(dimension)).run()
 
 
+@pytest.fixture
+def observed_3d_problem(monkeypatch):
+    observed = {}
+    original = stages._run_outer_coupling_3d
+
+    def run(problem, hv, **kwargs):
+        observed['problem'] = problem
+        return original(problem, hv, **kwargs)
+
+    monkeypatch.setattr(stages, '_run_outer_coupling_3d', run)
+    return observed
+
+
 @pytest.mark.parametrize('offset', [-1e9, 190000.])
-def test_3d_temperature_path_uses_property_then_final_report_pressure(monkeypatch, offset):
-    import inspect
+def test_3d_temperature_path_uses_property_then_final_report_pressure(
+        monkeypatch, offset, observed_3d_problem):
     from sjtu_tpmshx.controllers.compute_pipeline import Pipeline3D
     observed = {}
     original = stages.fluid_props.check_water_state
@@ -92,8 +105,8 @@ def test_3d_temperature_path_uses_property_then_final_report_pressure(monkeypatc
     def cap(*, step, post, **kwargs):
         _, carry = step(0)
         post(0, carry)
-        state = inspect.getclosurevars(step).nonlocals
-        solver, amap = state['sB'], state['axis_map_B']
+        problem = observed_3d_problem['problem']
+        solver, amap = problem.sB, problem.axis_map_B
         solver.P_ref_abs = offset
         observed['report'] = stages._pressure_real_3d(solver, amap, offset)
         observed['kernel'] = stages._pressure_real_3d(
@@ -106,8 +119,7 @@ def test_3d_temperature_path_uses_property_then_final_report_pressure(monkeypatc
         Pipeline3D(_water_cfg(3)).run()
 
 
-def test_3d_true_h_return_uses_last_kernel_pressure_not_report(monkeypatch):
-    import inspect
+def test_3d_true_h_return_uses_last_kernel_pressure_not_report(monkeypatch, observed_3d_problem):
     from sjtu_tpmshx.controllers.compute_pipeline import Pipeline3D
     from sjtu_tpmshx.solvers import ltne_enthalpy_3d as ent
     cfg = _water_cfg(3)
@@ -119,7 +131,8 @@ def test_3d_true_h_return_uses_last_kernel_pressure_not_report(monkeypatch):
     original = stages.fluid_props.check_water_state
 
     def outer(*, step, **kwargs):
-        observed.update(inspect.getclosurevars(step).nonlocals)
+        problem = observed_3d_problem['problem']
+        observed.update(sB=problem.sB, axis_map_B=problem.axis_map_B)
         step(0)
         pytest.fail('invalid kernel return was accepted')
 
