@@ -86,8 +86,8 @@ def _assert_postprocessing(result):
 
 @pytest.mark.slow
 @pytest.mark.parametrize('fluid_A,u_A,P_A,fluid_B,P_B,expected_Q', [
-    # Fresh fluid-equation gate; old references and attribution are retained in
-    # docs/sco2-numerical-consistency-20260917.md. Comparison tolerance unchanged.
+    # Fresh fluid-equation checks require additional inner iterations at this
+    # fixed outer-iteration budget. Comparison tolerances are unchanged.
     ('sco2', .3, 12e6, 'water', 2e6, 45628.22458923646),
     ('air', 3., 2e5, 'sco2', 12e6, 4416.1880296567215),
 ])

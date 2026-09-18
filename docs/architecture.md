@@ -113,8 +113,6 @@ energy imbalance, must be <=0.001 of `max(abs(Q_A), abs(Q_B), 1)` in native unit
 The enthalpy-update criterion remains independent. A final chunk containing
 clipped enthalpy updates cannot certify convergence. The true-h ledger records
 the effective settings, residual budgets, clip counts and exit reason.
-See the [same-grid diagnostic and validation](sco2-numerical-consistency-20260917.md)
-and the [D8/G8 three-level grid study](sco2-grid-study-20260917.md).
 
 Model-h uses signed mass faces and minmod SOU on **both** fluid sides in both
 dimensions. Its fluid Picard update uses the shared `MODEL_H_RELAXATION=0.2`
