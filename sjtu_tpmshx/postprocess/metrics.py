@@ -1,4 +1,5 @@
 """Engineering metrics recomputed from native evidence, never solver callbacks."""
+from functools import cache, partial
 from uuid import uuid4
 
 import numpy as np
@@ -20,10 +21,6 @@ def _model_duty(balance, side):
     if not balance[side]['physical_boundary_complete']:
         raise ValueError('unknown inflow prevents a complete heat duty')
     return -sum(float(face.sum()) for face in _outward_faces(balance[side]['h_faces_W_per_m']))
-
-
-def _side_duties(result):
-    return tuple(_side_duty(result, side) for side in ('A', 'B'))
 
 
 def _side_duty(result, side, *, fine=False):
@@ -63,16 +60,12 @@ def _temperature_duty(result, side, *, fine=False):
         eps_side=eps * split, T_in=parameters['T_in' + side])
 
 
-def _heat_duty(result):
-    return abs(_side_duty(result, 'A'))
-
-
-def _richardson_duty(result, side):
+def _richardson_duty(result, side, duty):
     if result.metadata['thermal_mode'] == 'true_h':
         raise NotImplementedError('true enthalpy has no Richardson thermal solve')
     if not result.metadata['diagnostics']['richardson_info']['extrapolated']:
         raise NotImplementedError('Richardson extrapolation was not accepted')
-    return (4. * abs(_side_duty(result, side, fine=True)) - abs(_side_duty(result, side))) / 3.
+    return (4. * abs(duty(side, fine=True)) - abs(duty(side))) / 3.
 
 
 def _mass_flow(result, side):
@@ -101,7 +94,7 @@ def _pressure_drop_2d(result, side):
                     outlet_frac=np.asarray(openings['out_geom_frac'])[:, None]))
 
 
-def _evaluate_metric(result, name):
+def _evaluate_metric(result, name, *, duty, mass_flow):
     if result.metadata.get('mode') in ('screening_2d', 'screening_3d'):
         from .screening import evaluate_metric
         return evaluate_metric(result, name)
@@ -110,15 +103,15 @@ def _evaluate_metric(result, name):
         return evaluate_metric(result, name)
     if result.metadata['dimension'] == 3:
         from .three_d import evaluate_metric
-        return evaluate_metric(result, name)
+        return evaluate_metric(result, name, duty=duty, mass_flow=mass_flow)
     if result.metadata['dimension'] != 2:
         raise NotImplementedError('unsupported physical dimension')
     if name == 'Q':
-        return _heat_duty(result)
+        return abs(duty('A'))
     if name in ('Q_A', 'Q_B'):
-        return _side_duty(result, name[-1])
+        return duty(name[-1])
     if name.startswith('Q_richardson_'):
-        return _richardson_duty(result, name[-1])
+        return _richardson_duty(result, name[-1], duty)
     if name.startswith('dP_'):
         return _pressure_drop_2d(result, name[-1])
     if name.startswith('T_out_'):
@@ -129,12 +122,12 @@ def _evaluate_metric(result, name):
             result.metadata['parameters']['dir_' + side],
             result.pressure_evidence[side]['outlet_geom_frac'])
     if name.startswith('mass_flow_'):
-        return _mass_flow(result, name[-1])[0]
+        return mass_flow(name[-1])[0]
     if name.startswith('mass_imbalance_rel_'):
-        inflow, outflow = _mass_flow(result, name[-1])
+        inflow, outflow = mass_flow(name[-1])
         return abs(outflow - inflow) / max(inflow, outflow, 1e-30)
     if name == 'energy_imbalance_rel':
-        a, b = _side_duties(result)
+        a, b = (duty(side) for side in ('A', 'B'))
         return abs(a + b) / max(abs(a), abs(b), 1e-30)
     if name == 'mass':
         density = result.metadata['solid_density_kg_m3']
@@ -162,7 +155,16 @@ def evaluate(result, metric_spec=None):
         from .quick_design import DEFINITIONS
         definitions.update(DEFINITIONS)
     full_compute = result.metadata.get('mode') not in ('quick_design', 'screening_2d', 'screening_3d')
+    duty = mass_flow = None
     if full_compute:
+        side_duty, side_mass_flow = _side_duty, _mass_flow
+        if result.metadata['dimension'] == 3:
+            from .three_d import thermal_duty, _mass_flow as side_mass_flow
+            side_duty = thermal_duty
+        # One evaluation owns these lazy reductions. A/B and coarse/fine stay
+        # separate; failed reductions still reach each metric's error handling.
+        duty = cache(partial(side_duty, result))
+        mass_flow = cache(partial(side_mass_flow, result))
         unit = definitions['Q'][1]
         definitions.update({name: (name, unit) for name in ('Q_A', 'Q_B')})
         if result.metadata['dimension'] == 2:
@@ -192,7 +194,7 @@ def evaluate(result, metric_spec=None):
         try:
             if spec.unit != unit or spec.definition_version != version:
                 raise NotImplementedError(f'unsupported requested definition: {spec}')
-            value = float(_evaluate_metric(result, name))
+            value = float(_evaluate_metric(result, name, duty=duty, mass_flow=mass_flow))
             if not np.isfinite(value):
                 raise ValueError('native evidence produced a non-finite metric')
             metrics[name] = MetricValue(value, spec)

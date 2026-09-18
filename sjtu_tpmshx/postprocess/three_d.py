@@ -25,10 +25,6 @@ def _dp(pressure):
     return _weighted(pin, inlet) - _weighted(pout, outlet)
 
 
-def thermal_duties(result):
-    return tuple(thermal_duty(result, side) for side in ('A', 'B'))
-
-
 def thermal_duty(result, side):
     flux = result.boundary_fluxes
     if result.metadata['thermal_mode'] == 'model_h':
@@ -52,11 +48,11 @@ def _mass_flow(result, side):
                  for sign in (-1, 1))
 
 
-def evaluate_metric(result, name):
+def evaluate_metric(result, name, *, duty, mass_flow):
     if name == 'Q':
-        return abs(thermal_duty(result, 'A'))
+        return abs(duty('A'))
     if name in ('Q_A', 'Q_B'):
-        return thermal_duty(result, name[-1])
+        return duty(name[-1])
     if name.startswith('dP_'):
         return _dp(result.pressure_evidence[name[-1]])
     if name.startswith('T_out_'):
@@ -71,12 +67,12 @@ def evaluate_metric(result, name):
         temperature = _outlet(result.fields['Ta' if side == 'A' else 'Tb'], direction)
         return _weighted(temperature[flowing], weights[flowing])
     if name.startswith('mass_flow_'):
-        return _mass_flow(result, name[-1])[0]
+        return mass_flow(name[-1])[0]
     if name.startswith('mass_imbalance_rel_'):
-        inflow, outflow = _mass_flow(result, name[-1])
+        inflow, outflow = mass_flow(name[-1])
         return abs(outflow-inflow) / max(inflow, outflow, 1e-30)
     if name == 'energy_imbalance_rel':
-        a, b = thermal_duties(result)
+        a, b = (duty(side) for side in ('A', 'B'))
         return abs(a+b) / max(abs(a), abs(b), 1e-30)
     if name == 'mass':
         density = result.metadata['solid_density_kg_m3']
