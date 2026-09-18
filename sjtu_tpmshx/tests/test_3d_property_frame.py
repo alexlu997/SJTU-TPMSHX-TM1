@@ -79,7 +79,7 @@ def test_outer_temperature_properties_share_simple_frame(
     monkeypatch.setattr(stages, 'solve_full_domain_3d', observe_inlet)
 
     def drive(*, step, post, **kwargs):
-        state = inspect.getclosurevars(post).nonlocals
+        state = vars(inspect.getclosurevars(post).nonlocals["state"])
         solvers = (prob.sA, prob.sB)
         for solver in solvers:
             observations[id(solver)] = []
