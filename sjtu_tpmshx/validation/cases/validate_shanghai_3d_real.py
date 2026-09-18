@@ -8,7 +8,7 @@ reported counts always come from the actual prepared result.
 The kernel runner is a separate historical comparison with water temperature
 prescribed from the measured outlet. Its scores are not production acceptance.
 Historical migration scores and discussion remain at Git commit 51eb05388b6a.
-See docs/tools.md and docs/accuracy-performance-20260914.md for current usage,
+See docs/tools.md and docs/history/README.md for current usage,
 mesh evidence, numerical precision and experimental-error boundaries.
 """
 

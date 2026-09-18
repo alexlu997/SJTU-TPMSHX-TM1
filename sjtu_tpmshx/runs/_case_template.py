@@ -5,9 +5,8 @@ demo_3d_cube_air_air, demo_3d_cube_volume, diag_ab_imbal,
 smoke_ui_3d_modes) — a changed default geometry never reached the demos.
 This is the single template; scripts pass only their deltas.
 
-The manual historical diagnostic runs/_out/_golden_3d.py uses
-tests.cases_3d instead of this demo template. Its historical snapshot is
-separate from current integration acceptance.
+Current 3D regression configurations live in tests.cases_3d independently
+of this demo template.
 
 Defaults mirror the demo/cube family: Gyroid 7.0/0.5, hot air A
 (+x, 422 K, 192 362 Pa abs) vs cold air B (-y crossflow, 293.15 K,

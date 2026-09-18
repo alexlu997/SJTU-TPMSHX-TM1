@@ -119,14 +119,15 @@ A1/benchmark A 的旧输入原已缺失，历史代码不代表可在当前目�
 | [solver-efficiency-r1-r4/spec.md](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/5c517b415be0adbfc7bbfd205a3dba07fe8792a8/openspec/specs/solver-efficiency-r1-r4/spec.md) | 历史性能结论见本页原工程索引；旧早退测试迁为 F2，守恒和 SOU 检查继续保留，原重基线步骤不作为新任务指令 |
 | [_CSV_STATUS.md](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/5c517b415be0adbfc7bbfd205a3dba07fe8792a8/sjtu_tpmshx/validation/_CSV_STATUS.md) | [验证导航](../../sjtu_tpmshx/validation/README.md)、[数据记录](../data-catalog.md)：当前入口与来源限制；原 CSV 数字不改写成新验收 |
 
-保留的 OpenSpec 说明当前 GUI、孔隙率分配与 CI 行为；Graph 继续保留原始需求、
-节点卡、合并证据及 M-B 缺口。它们均不因旧规范归档而视为已完成。
+保留的 OpenSpec 说明当前 GUI、孔隙率分配与 CI 行为；原 Graph 需求、节点卡和
+合并证据见[历史总索引](README.md)，M-B 缺口见[能力范围](../capabilities.md)。
+它们不因旧规范归档而视为已完成。
 
 ## 旧收敛与内部接口退役（2026-09-14）
 
 本轮按用户确定的架构范围，迁移完整求解、原始类和筛选的消费者，统一使用 F2。
 源代码和原始筛选参考固定在 `ec1c73e06971c7d9af98d121ba9dd1e4f7dfba7f`；
-[数值及性能处置记录](../solver-architecture-20260914.md)解释新旧差异。
+[原数值及性能处置记录](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/5534369de8f1f9e535076b36b55d2bce2c1d1e38/docs/solver-architecture-20260914.md)解释当时的新旧差异。
 
 | 退役项与固定源码 | 当前承接 |
 |---|---|
@@ -154,9 +155,10 @@ F2 的速度检查触发参数改名为 `f2_velocity_check_tol`，不再沿用 L
 | [shanghai_3d_baseline_gammadf_routing_check.csv](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/ec1c73e06971c7d9af98d121ba9dd1e4f7dfba7f/sjtu_tpmshx/validation/shanghai_3d_baseline_gammadf_routing_check.csv) | 已结束的 γ 路由检查，无现行读取者 |
 | [shanghai_3d_baseline_nz10_massflux.csv](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/ec1c73e06971c7d9af98d121ba9dd1e4f7dfba7f/sjtu_tpmshx/validation/shanghai_3d_baseline_nz10_massflux.csv) | 旧通量诊断快照，无现行读取者；当前原生质量/能量证据随正式结果保存 |
 
-MMS 误差原表、阶数门槛、GCI 参考、Shanghai 主基准、模型拟合输出、PoC 测试依赖、
-Graph/B40 原始失败和本地完整计算证据继续保留。当前上海与 sCO2 压降实验误差见
-[求解器整理记录](../solver-architecture-20260914.md)。
+MMS 误差原表、阶数门槛、GCI 参考、Shanghai 主基准和有效测试继续保留。
+模型拟合输出及 Graph/B40 原始失败于 2026-09-18 移到固定历史入口；一维焓参考
+实现移入 tests/，见[历史总索引](README.md)。当时上海与 sCO2 压降误差见
+[原求解器整理记录](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/5534369de8f1f9e535076b36b55d2bce2c1d1e38/docs/solver-architecture-20260914.md)，不作为现行精度。
 
 ## 无调用者的 UI 转发与旧系数写入工具退役（2026-09-16）
 

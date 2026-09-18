@@ -1924,7 +1924,7 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D):
 
     # ── Audit-only additive exports (read-only, deep-copied) ── OPT-IN.
     # Passthrough of SIMPLE face arrays + masks for the standalone partial-B
-    # LTNE conservation audit (validation/cases/audit_partial_b_ltne.py).
+    # LTNE conservation diagnostics (historical audit: docs/history/README.md).
     # 2026-06-09 perf C1: gated behind cfg['_emit_audit'] (default False) —
     # these deep-copy both solvers' full u/v/w/ρ fields + K/eps/rho_cp/χ arrays,
     # a large memory + wall-time cost paid on EVERY run. Only the audit scripts

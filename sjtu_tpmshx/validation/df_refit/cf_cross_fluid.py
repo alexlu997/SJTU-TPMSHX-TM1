@@ -25,7 +25,7 @@ water 与 air 使用相同的单侧有效 A_flow，不按通道数
 用法（从仓库根）:
     python -u sjtu_tpmshx/validation/df_refit/cf_cross_fluid.py
 
-输出: stdout 记分板 + reports/df_refit/cf_cross_fluid.csv。生产零改动。
+输出: stdout 记分板 + .cache/reports/df_refit/cf_cross_fluid.csv。生产零改动。
 """
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ from sjtu_tpmshx.logutil import get_logger
 _log = get_logger(__name__)
 
 _REPO = Path(__file__).resolve().parents[3]
-REPORT_DIR = _REPO / "reports" / "df_refit"
+REPORT_DIR = _REPO / ".cache" / "reports" / "df_refit"
 _TOPOS = ("Diamond", "Gyroid")
 
 

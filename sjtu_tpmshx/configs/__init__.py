@@ -16,10 +16,9 @@ _THIS_DIR = Path(__file__).resolve().parent
 def load_shanghai_baseline() -> dict[str, Any]:
     """Return the canonical Shanghai 16-case baseline parameters.
 
-    Used by 4 production validation scripts (and the SurrogateV3 self-test
-    helper as of 2026-05-28). NOT used by diag_shanghai_* one-shot scripts,
-    audit_3d_conservation / audit_partial_b_ltne (which have their own
-    convention), or surrogate_v3 training data (per-geometry L_ch).
+    Shared by Shanghai validation tools. Individual diagnostic tools may
+    declare their own geometry and pressure conventions; this resource
+    does not override those inputs.
 
     Returns
     -------

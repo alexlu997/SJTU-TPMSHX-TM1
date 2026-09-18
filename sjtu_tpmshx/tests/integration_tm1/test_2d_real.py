@@ -13,8 +13,7 @@ from sjtu_tpmshx.solvers.backends.python.two_d.execution import run_case
 from sjtu_tpmshx.postprocess.metrics import evaluate
 
 # 2026-09-15: both model-h fluids use SOU with shared stable damping.
-# Prior references remain in docs/air-water-convergence-20260915.md and
-# docs/pressure-boundary-diagnosis-20260915.md.
+# Prior references remain in docs/history/README.md.
 # Backend Richardson/centre-pressure and public native/face-pressure metrics
 # have separate references; all comparison tolerances remain unchanged.
 AIR_BASELINE_METRICS = [31169.14975139894, 1631.5681439590921, 1212.8087976193476,

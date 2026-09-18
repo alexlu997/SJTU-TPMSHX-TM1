@@ -103,7 +103,7 @@ def test_g_reference_density_convention_post_d3c():
     the only offset is the seeded-profile half-cell datum (~0.5%, grid-
     convergent — openspec a2-3d-physical-g). These assertions still guard
     the convention: growing a rho_inlet_ref knob in 3D means re-opening the
-    golden_3d + Shanghai re-validation question, consciously."""
+    3D regression + Shanghai re-validation question, consciously."""
     import sjtu_tpmshx.core.evaluators as ev3d
     import sjtu_tpmshx.solvers.backends.python.two_d.runtime as st2d
     from sjtu_tpmshx.solvers.simple_solver_3d import SIMPLESolver3D
@@ -117,8 +117,8 @@ def test_g_reference_density_convention_post_d3c():
         "regressed; frozen values were re-baselined WITH it (iter 41)")
     assert 'rho_inlet_ref' not in inspect.getsource(ev3d), (
         "3D evaluator G convention changed — candidate A2 executed? "
-        "Update contract + golden_3d + Shanghai validation together")
+        "Update contract + 3D regression + Shanghai validation together")
     assert 'rho_inlet_ref' not in inspect.signature(
         SIMPLESolver3D.__init__).parameters, (
         "SIMPLESolver3D grew a rho_inlet_ref knob — candidate A2 executed? "
-        "golden_3d + Shanghai headline re-validation are prerequisites")
+        "3D regression + Shanghai headline re-validation are prerequisites")

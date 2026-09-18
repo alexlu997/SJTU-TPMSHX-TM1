@@ -6,7 +6,7 @@ the two fluids' duties balance — unlike the legacy ρcp·u·T conservative ker
 which on the same case leaves a large A/B imbalance (the 703 ~41% defect).
 
 This is the 3D (njit) counterpart of the validated 1D PoC
-(poc/poc_1d_ltne_enthalpy_optionB.py). Counterflow along x, variable-cp CO2
+(sjtu_tpmshx/tests/enthalpy_1d_reference.py). Counterflow along x, variable-cp CO2
 straddling the pseudocritical line.
 """
 import numpy as np

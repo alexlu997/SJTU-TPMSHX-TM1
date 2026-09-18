@@ -97,6 +97,9 @@ opt_runs/
 sjtu_tpmshx/opt_runs/
 sjtu_tpmshx/nTop_inputs/
 
+# Offline research outputs (not runtime model resources)
+/reports/
+
 # Agent / tooling scratch (per-machine, not project content)
 sjtu_tpmshx/.agents/
 sjtu_tpmshx/skills-lock.json

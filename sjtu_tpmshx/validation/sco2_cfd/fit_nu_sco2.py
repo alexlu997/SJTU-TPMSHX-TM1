@@ -45,8 +45,8 @@ b=−0.9 病态）；mu_w/mu_b（corr −0.69）是唯一有独立信息的壁�
 
 输出
 ----
-reports/sco2_cfd/nu_sco2_fit_coeffs.csv    各变体系数 + 全局指标
-reports/sco2_cfd/nu_sco2_logo.csv          LOGO 逐几何误差
+.cache/reports/sco2_cfd/nu_sco2_fit_coeffs.csv    各变体系数 + 全局指标
+.cache/reports/sco2_cfd/nu_sco2_logo.csv          LOGO 逐几何误差
 stdout                                     汇总
 """
 from __future__ import annotations
@@ -65,7 +65,7 @@ from sjtu_tpmshx.models.nu_correlations import SCO2_NU_COEFFS              # noq
 
 from sjtu_tpmshx.preprocess.offline.nu_fit import fit_nu_sco2 as _fit
 
-REPORT_DIR = _PKG_ROOT.parent / "reports" / "sco2_cfd"
+REPORT_DIR = _PKG_ROOT.parent / ".cache" / "reports" / "sco2_cfd"
 
 FAR_CRITICAL_MIN_DT = 10.0      # dT_pc >= this ⇒ 远临界子集
 NEAR_CRITICAL_ABS_DT = 2.0      # |dT_pc| <= this ⇒ 近临界子集

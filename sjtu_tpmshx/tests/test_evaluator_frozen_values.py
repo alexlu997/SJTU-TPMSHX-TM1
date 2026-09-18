@@ -183,7 +183,7 @@ _X_NONUNIF = np.array([5.0, 6.0, 7.0, 8.0, 5.5, 6.5, 7.5, 6.0,
 # 2026-09-11: user-approved reference disposition after controlled B40
 # history comparisons. Inputs, budgets and tolerance remain unchanged.
 # Historical tuples and 4/4 failures are preserved under
-# docs/plans/three-module-graph/evidence/B40/. This is numerical regression
+# docs/history/README.md. This is numerical regression
 # evidence, not physical acceptance or closure of the overall B40 gate.
 # 2026-09-11: user-approved native air integral-enthalpy transport Q update.
 # Previous references and subsequent 2/4 failure remain in B40 evidence.
@@ -197,7 +197,7 @@ _X_NONUNIF = np.array([5.0, 6.0, 7.0, 8.0, 5.5, 6.5, 7.5, 6.0,
 # 2026-09-15: shared stable model-h damping and SOU on both 2D fluids.
 # Independent evaluator captures and three-process comparisons use unchanged
 # inputs/budgets/_REL. Prior tuples and failures are retained in
-# docs/air-water-convergence-20260915.md; no historical B40 gate is revised.
+# docs/history/README.md; no historical B40 gate is revised.
 _FROZEN_2D_UNIFORM = (-8060.095418774442, 4675.0113541092605, 3.446685791015626)
 _FROZEN_2D_NONUNIF = (-7546.534378624765, 4051.9767509675603, 3.6729327392578126)
 # re-baselined 2026-07-09 (M2b): evaluate_3d now installs the PER-CELL
