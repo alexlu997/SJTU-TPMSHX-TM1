@@ -16,7 +16,7 @@ from sjtu_tpmshx.domain.run_environment import run_environment
 from sjtu_tpmshx.domain.run_warnings import range_context
 from sjtu_tpmshx.models.nu_correlations import record_raw_nu_range, warn_sco2_nu_evidence
 from sjtu_tpmshx.models.tpms_props import record_temperature_ranges
-from sjtu_tpmshx.models.local_heat_transfer import _sco2_hv_local_field, local_speed
+from sjtu_tpmshx.models.local_heat_transfer import _sco2_hv_local_field, local_nusselt, local_speed
 from sjtu_tpmshx.models.grid import cell_average
 
 from sjtu_tpmshx.solvers.coupling_skeleton import OuterConvergence, run_outer_coupling
@@ -1083,19 +1083,11 @@ def _build_hv_machinery(prob: _Problem3D):
             D_h_mm = D_h_m * 1000.0
             Re_loc = rho * u_abs * D_h_m / mu
             record_raw_nu_range(fluid_type, tpms_type, Re_loc)
-            # Vectorized Nu over the whole grid. fluid_props .nu forwards to
-            # nu_from_Re, which accepts an array Re. This mirrors the scalar
-            # _nu_for_fluid path element-for-element (Re pre-floor at 1.0, Nu
-            # post-floor at _NU_LAM_FLOOR, single-stream ε_f = ε/2), so it is
-            # bit-identical to the prior per-cell triple loop — just Nx·Ny·Nz×
-            # fewer Python calls. 2026-06-09 perf B1.
             _m = fluid_props.get(fluid_type, sco2_nu=cfg.get('sco2_nu'))
             _Pr = (None if _m.compressible
                    else float(Pr_f if Pr_f is not None else 7.0))
-            Nu_loc = _m.nu(tpms_type, np.maximum(Re_loc, 1.0),
-                           g['epsilon'] / 2.0, Lcell, D_h_mm, _Pr)
-            Nu_loc = np.maximum(np.asarray(Nu_loc, dtype=np.float64),
-                                _NU_LAM_FLOOR)
+            Nu_loc = local_nusselt(_m, tpms_type, Re_loc,
+                                   g['epsilon'] / 2.0, Lcell, D_h_mm, _Pr)
             H_sf_loc = Nu_loc * k_f / D_h_m
             return A_0 * H_sf_loc
         # Zoned (L,t): consume the prepared per-cell geometry.
@@ -1124,8 +1116,9 @@ def _build_hv_machinery(prob: _Problem3D):
     # taken vs asym_geometry's OWN δ=0 reference (same method) so it is EXACTLY
     # 1.0 at δ=0 → multiplying the existing symmetric h_v is bit-identical
     # (×1.0). k_f cancels; Nu's ε arg is inert (air/water Nu ignore ε); the
-    # ratio is u-independent (Re_side/Re_ref = D_h_side/D_h_ref) so it applies
-    # equally to the bulk and the later local-Re h_v. Captures the geometric
+    # inlet-reference ratio is applied to bulk and later local-Re h_v. Re/Nu
+    # floors can put side and reference on different branches; the diameter
+    # ratio alone does not prove speed independence. Captures the geometric
     # Nu/area effect; the residual (κ_Nu) is a CFD calibration left to
     # ingest_cfd_kappa (Nu is secondary per the Phase-1 plan; dP is primary).
     def _hv_side_geom_ratio(fluid_type, u_side, T_side, P_side, side):

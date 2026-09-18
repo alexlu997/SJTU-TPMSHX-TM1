@@ -13,6 +13,13 @@ def local_speed(uc, vc, wc=None):
     return np.sqrt(speed_squared)
 
 
+def local_nusselt(model, tpms_type, Re, eps_f, L_mm, D_h_mm, Pr):
+    """Uniform-grid Nu floors; callers own properties, raw-Re notices and h_v."""
+    from sjtu_tpmshx.models.nu_correlations import NU_LAM_FLOOR
+    Nu = model.nu(tpms_type, np.maximum(Re, 1.0), eps_f, L_mm, D_h_mm, Pr)
+    return np.maximum(np.asarray(Nu, dtype=np.float64), NU_LAM_FLOOR)
+
+
 def _sco2_hv_local_field(T_field: np.ndarray, P_Pa: float,
                          u_abs: np.ndarray | float, A_0: float,
                          D_h_m: float, tpms_type: str,
@@ -23,7 +30,9 @@ def _sco2_hv_local_field(T_field: np.ndarray, P_Pa: float,
     temperature field (fixed P), not frozen at the scalar inlet T. sCO2
     transport props swing 2-8× across the pseudocritical line, so freezing
     them at inlet biases fluid↔solid coupling wherever local T departs from
-    inlet. Air/water retain their scalar-inlet property path.
+    inlet. Air/water property sampling belongs to each caller: 2D also uses
+    field averages, including lagged-temperature properties on a mixed true-h
+    side; 3D local air/water closure uses scalar inlet properties.
     """
     from sjtu_tpmshx.models import sco2_props as _s2
     from sjtu_tpmshx.models.tpms_calc import nu_sco2_topo as _nu_s2

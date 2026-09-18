@@ -4,7 +4,7 @@ from sjtu_tpmshx.domain.run_warnings import range_context
 from sjtu_tpmshx.models.nu_correlations import record_raw_nu_range, warn_sco2_nu_evidence
 from sjtu_tpmshx.models.tpms_props import record_temperature_ranges
 from sjtu_tpmshx.models.grid import cell_average
-from sjtu_tpmshx.models.local_heat_transfer import local_speed
+from sjtu_tpmshx.models.local_heat_transfer import local_nusselt, local_speed
 from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.validator import compute_volumetric_htc
@@ -649,12 +649,8 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
     # Hagen-Poiseuille floor (prevents Nu→0 non-physical extrapolation).
     from sjtu_tpmshx.models.nu_correlations import NU_LAM_FLOOR as _NU_LAM_FLOOR_2D
 
-    def _nu_dispatch(side_props, side_T_for_Pr, Re, eps_f, L_mm, D_h_mm,
-                     side_P=None):
-        """Per-side Nu: water / sCO2 use Pr-substitution onto a topo-fit
-        correlation; air uses its native Nu. ``side_P`` (Pa) is forwarded to
-        the property primitives — air/water ignore it (value-identical), sCO2
-        requires it (real-gas)."""
+    def _nu_inputs(side_props, side_T_for_Pr, side_P):
+        """Retain the 2D property sampling and unguarded Pr denominator."""
         m = fluid_props.get(side_props.name, sco2_nu=sco2_nu)
         Pr = None
         if side_props.name in ('water', 'sco2'):
@@ -664,6 +660,11 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
             k_w  = float(side_props.k(side_T_for_Pr, side_P))
             cp_w = float(side_props.cp(side_T_for_Pr, side_P))
             Pr = mu_w * cp_w / k_w
+        return m, Pr
+
+    def _nu_dispatch(side_props, side_T_for_Pr, Re, eps_f, L_mm, D_h_mm,
+                     side_P=None):
+        m, Pr = _nu_inputs(side_props, side_T_for_Pr, side_P)
         return m.nu(tpms_type, Re, eps_f, L_mm, D_h_mm, Pr)
 
     def _build_hv_local_2d(rho_scalar, mu_scalar, k_f_scalar,
@@ -677,19 +678,10 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
             g_u = cfg['thermal_geometry']['uniform']
             A0 = g_u['A_0']; D_h = g_u['D_h']; eps_g = g_u['epsilon']
             Re_loc = rho_scalar * (np.abs(u_mag_field) + 1e-12) * D_h / mu_scalar
-            # perf-wave1 (2026-07-03): vectorized Nu over the whole grid —
-            # the 2D port of the 3D perf-B1 transform. Mirrors the old
-            # per-cell loop element-for-element (Re pre-floor at 1.0, Pr
-            # computed ONCE from the scalar side T exactly as _nu_dispatch
-            # did per cell, Nu post-floor at _NU_LAM_FLOOR_2D, single-stream
-            # ε_f = ε/2), so it is bit-identical — just Nx·Ny× fewer Python
-            # calls per side per outer coupling iter.
             record_raw_nu_range(side_props.name, tpms_type, Re_loc)
-            Re_arr = np.maximum(Re_loc, 1.0)
-            Nu_arr = _nu_dispatch(side_props, side_T_for_Pr, Re_arr,
-                                  eps_g / 2.0, Lcell, D_h * 1000.0, side_P)
-            Nu_arr = np.maximum(np.asarray(Nu_arr, dtype=np.float64),
-                                _NU_LAM_FLOOR_2D)
+            m, Pr = _nu_inputs(side_props, side_T_for_Pr, side_P)
+            Nu_arr = local_nusselt(m, tpms_type, Re_loc,
+                                  eps_g / 2.0, Lcell, D_h * 1000.0, Pr)
             return A0 * Nu_arr * k_f_scalar / D_h
         out = np.empty((Nx_l, Ny_l), dtype=np.float64)
         raw_Re = np.empty_like(out)
@@ -740,8 +732,9 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
     # Per-side interfacial coupling h_v geometry ratio under δ (mirror 3D
     # three_d.runtime._hv_side_geom_ratio). Each side's (A_0, D_h) shift with the
     # offset; the ratio vs the δ=0 reference is EXACTLY 1.0 at δ=0 (bit-
-    # identical ×1.0) and u-independent (Re_side/Re_ref = D_h_side/D_h_ref), so
-    # the scalar applies to both the bulk and local-Re h_v. k_f cancels. Captures
+    # identical ×1.0). The inlet-reference scalar is also applied to local h_v;
+    # Re/Nu floors can put the side and reference on different branches, so
+    # their diameter ratio alone does not prove speed independence. k_f cancels. Captures
     # the geometric Nu/area effect; the residual κ_Nu is CFD calibration (P1-CFD,
     # out of scope). Per-side dP (Darcy-Forchheimer κ) is likewise the opt-in
     # CFD κ layer — 3D's default kappa_KcF returns (1,1) with no table, so the
