@@ -20,7 +20,7 @@ from sjtu_tpmshx.models.local_heat_transfer import _sco2_hv_local_field, local_s
 from sjtu_tpmshx.models.grid import cell_average
 
 from sjtu_tpmshx.solvers.coupling_skeleton import OuterConvergence, run_outer_coupling
-from sjtu_tpmshx.solvers.simple_solver_3d import SIMPLESolver3D
+from sjtu_tpmshx.solvers.simple_solver_3d import SIMPLESolver3D, _should_parallelize
 from sjtu_tpmshx.solvers._solve_common import (
     configure_convergence, inlet_pressure_state, pressure_shooting_reference,
     pressure_initial_reference,
@@ -170,19 +170,19 @@ def _prof_res_trace(tag, solver):
         _log.warning(f"[PROF-RES] {tag}: trace failed: {_e}")
 
 
-def _run_two_simple_parallel(sA, sB, *, max_iter=2000, tol=None,
-                             cancel_check=None):
-    """Run SIMPLE A and SIMPLE B concurrently on two OS threads.
+def _run_two_simple(sA, sB, *, max_iter=2000, tol=None,
+                    cancel_check=None):
+    """Use parallelism across sides or inside sweeps, never both at once.
 
-    `SIMPLESolver3D.solve` spends its wall-clock inside Numba njit kernels
-    and PyAMG/BiCGStab (both release the GIL), so pure Python threading
-    delivers real parallelism. Fluid A and Fluid B use independent instances
-    (own matrix, ml_cache, arrays) — no shared mutable state.
+    Small-grid sides have independent state and may overlap on two threads.
+    If either side uses parallel sweeps, solve A then B on the caller thread:
+    Numba's workqueue cannot accept concurrent parallel kernel launches.
+    The same rule also avoids two inner thread pools competing on other backends.
 
     `cancel_check` (optional callable -> bool) is forwarded to both solves so
-    each thread exits its SIMPLE loop on cancel.
+    each side exits its SIMPLE loop on cancel.
 
-    After both threads finish, real failures take precedence over cancellation.
+    After both sides finish, real failures take precedence over cancellation.
     """
     import threading
     from sjtu_tpmshx.logutil import current_output, output_scope
@@ -192,6 +192,7 @@ def _run_two_simple_parallel(sA, sB, *, max_iter=2000, tol=None,
     )
     if tol is None:
         tol = _simple_tol_default()
+    parallel_sweeps = any(_should_parallelize(s.Nx, s.Ny, s.Nz) for s in (sA, sB))
 
     err = [None, None]
     parent_warnings = current_warnings()
@@ -200,33 +201,29 @@ def _run_two_simple_parallel(sA, sB, *, max_iter=2000, tol=None,
     _prof = _prof_3d_enabled()
     _t0 = _time.perf_counter() if _prof else None
 
-    def _solve_A():
+    def _solve_side(index, solver):
         try:
-            with output_scope(parent_output), warning_scope(side_warnings[0]), range_context(
-                    side='A', stage='initial', layout='solver-cell(cross1,stream,cross2)'):
-                res[0] = sA.solve(max_iter=max_iter, tol=tol, verbose=False,
-                                  cancel_check=cancel_check)
+            with output_scope(parent_output), warning_scope(side_warnings[index]), range_context(
+                    side=('A', 'B')[index], stage='initial', layout='solver-cell(cross1,stream,cross2)'):
+                res[index] = solver.solve(max_iter=max_iter, tol=tol, verbose=False,
+                                          cancel_check=cancel_check)
         except Exception as e:
-            err[0] = e
+            err[index] = e
 
-    def _solve_B():
-        try:
-            with output_scope(parent_output), warning_scope(side_warnings[1]), range_context(
-                    side='B', stage='initial', layout='solver-cell(cross1,stream,cross2)'):
-                res[1] = sB.solve(max_iter=max_iter, tol=tol, verbose=False,
-                                  cancel_check=cancel_check)
-        except Exception as e:
-            err[1] = e
-
-    tA = threading.Thread(target=_solve_A, daemon=True)
-    tB = threading.Thread(target=_solve_B, daemon=True)
-    tA.start(); tB.start()
-    tA.join();  tB.join()
+    if parallel_sweeps:
+        _solve_side(0, sA)
+        _solve_side(1, sB)
+    else:
+        tA = threading.Thread(target=_solve_side, args=(0, sA), daemon=True)
+        tB = threading.Thread(target=_solve_side, args=(1, sB), daemon=True)
+        tA.start(); tB.start()
+        tA.join(); tB.join()
     merge_warnings(parent_warnings, side_warnings)
 
     if _prof:
         _dt = _time.perf_counter() - _t0
-        _log.info(f"[PROF] initial SIMPLE (A||B parallel) {_dt:7.2f}s  "
+        _mode = 'A then B, parallel sweeps' if parallel_sweeps else 'A||B, serial sweeps'
+        _log.info(f"[PROF] initial SIMPLE ({_mode}) {_dt:7.2f}s  "
                   f"A={res[0]}  B={res[1]}  (cap={max_iter})")
         _prof_res_trace("initial SIMPLE_A", sA)
         _prof_res_trace("initial SIMPLE_B", sB)
@@ -715,11 +712,11 @@ def build_problem(cfg, prepared):
     if fluid_type_A != 'sco2':
         sA.apply_outlet_taper(n_taper=8, min_frac=0.2)
     # Rectangles set both raw BC support and staggered wall areas.
-    # A.solve() deferred — build B first then run both in parallel threads.
+    # A.solve() deferred — build B first, then select one level of parallelism.
 
     # Fluid A type was resolved through the same registry path as side B.
 
-    # ── Fluid B: cross-flow SIMPLE — BUILD ONLY (solve in parallel with A) ──
+    # ── Fluid B: cross-flow SIMPLE — BUILD ONLY (dispatch with A below) ──
     fB = cfg.get('fluid_B_cfg')
     # B1 1.1: property primitives + flow model for side B via the registry
     # (frozen-B / stiffness semantics keep using is_water_B).
@@ -790,13 +787,13 @@ def build_problem(cfg, prepared):
         if fluid_type_B != 'sco2':
             sB.apply_outlet_taper(n_taper=8, min_frac=0.2)
         # Rectangles set both raw BC support and staggered wall areas.
-        # sB.solve deferred — dispatched with sA below in parallel threads.
+        # sB.solve deferred — dispatched with sA below.
         sB_info = dict(
             axis_map=axis_map_B,
             u_B=u_B, rho_B=rho_B, mu_B=mu_B,
             G_B=G_B, T_inB=T_inB,
         )
-        # ── Parallel SIMPLE A + B solve (threads, njit releases GIL) ──
+        # ── Dual-side SIMPLE: parallel sides or parallel sweeps ──
         # SolverConfig propagation (2026-07-12): this call used to pass NEITHER
         # max_iter NOR tol, so the dual-fluid INITIAL solve silently fell back
         # to the helper's signature defaults (max_iter=2000, tol=None →
@@ -806,7 +803,7 @@ def build_problem(cfg, prepared):
         # every SIMPLE solve EXCEPT the first one. Same resolution helpers as
         # the A-alone branch, so a config leaving both knobs at None (and no
         # TPMSHX_SIMPLE_TOL) is bit-identical to before.
-        _init_res = _run_two_simple_parallel(
+        _init_res = _run_two_simple(
             sA, sB,
             max_iter=_simple_max_iter(cfg, 2000),
             tol=_simple_tol_default(cfg),
@@ -2631,7 +2628,8 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
                 omega=float(cfg.get('ltne_enthalpy_omega', 0.6)),
                 n_outer=int(cfg.get('ltne_enthalpy_outer', 1500)),
                 tol=float(cfg.get('ltne_enthalpy_tol', 1e-3)),
-                cancel_check=_cancel_check)
+                cancel_check=_cancel_check, coupled_energy_tol=0.001,
+                equation_energy_tol=0.001)
             fluid_props.check_water_state(fluid_type_A, Ta, _P_A_local,
                                           where='3D enthalpy return A')
             fluid_props.check_water_state(fluid_type_B, Tb, _P_B_local,
@@ -2681,6 +2679,9 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
                 P_A_offset_Pa=float(P_inA - _dPA), P_B_offset_Pa=float(P_inB - _dPB),
                 P_A_range_Pa=[float(_P_A_local.min()), float(_P_A_local.max())],
                 P_B_range_Pa=[float(_P_B_local.min()), float(_P_B_local.max())])
+            _ltne_info[-1]['true_h_balance'].update({key: _ltne_info_d[key] for key in (
+                'exit_reason', 'enthalpy_clip_counts', 'effective_settings',
+                'coupled_energy_balance', 'equation_energy_balance') if key in _ltne_info_d})
         if _prof_t_ltne is not None:
             _dt = _time.perf_counter() - _prof_t_ltne
             _log.info(f"[PROF] outer {outer}: LTNE {_dt:7.2f}s  "

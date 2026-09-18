@@ -15,6 +15,13 @@ def run_driver(**kwargs):
         cell, cell, 0., 0., 350., 300., 2e5, 2e5, 0, 1, **options)
 
 
+@pytest.mark.parametrize('name', ['coupled_energy_tol', 'equation_energy_tol'])
+@pytest.mark.parametrize('limit', [0., -1., np.nan, np.inf])
+def test_energy_gate_requires_finite_positive_tolerance(name, limit):
+    with pytest.raises(ValueError, match=name):
+        run_driver(**{name: limit})
+
+
 @pytest.mark.parametrize('limit, gate, expected_iterations, expected_ok', [
     (2, None, 1, True), (1, .001, 1, False), (2, .001, 2, True),
 ])
@@ -83,6 +90,27 @@ def test_new_gate_cannot_replace_old_conditions(monkeypatch, old_gate):
     assert not info['converged']
 
 
+def test_stalled_fluid_equation_is_not_convergence(monkeypatch):
+    def sweep(hA, hB, Ts, *args):
+        Ts[:] = .5 * (args[4] + args[5])
+    monkeypatch.setattr(ent, '_gs_enthalpy_sweeps_3d', sweep)
+    *_, info = run_driver(n_outer=1, coupled_energy_tol=.001, equation_energy_tol=.001)
+    assert info['residual'] == 0. and info['energy_imbalance_rel'] == 0.
+    assert info['coupled_energy_balance']['ratio'] < .001
+    assert info['equation_energy_balance']['ratio'] > 1.
+    assert not info['converged'] and info['exit_reason'] == 'iteration_limit'
+
+
+def test_limited_chunk_cannot_certify_convergence(monkeypatch):
+    def sweep(*args):
+        args[-1][:] = [1, 0]  # A clipped update in this last sweep chunk.
+    monkeypatch.setattr(ent, '_gs_enthalpy_sweeps_3d', sweep)
+    *_, info = run_driver(n_outer=2)
+    assert info['residual'] == 0. and not info['converged']
+    assert info['exit_reason'] == 'enthalpy_limited'
+    assert info['enthalpy_clip_counts'] == dict(total=[2, 0], last=[1, 0])
+
+
 @pytest.mark.parametrize('bad_state', ['hB', 'Ts', 'qB'])
 def test_driver_rejects_nan_before_max_can_hide_it(monkeypatch, bad_state):
     def sweep(hA, hB, Ts, *args):
@@ -130,10 +158,11 @@ def test_2d_adapter_explicitly_enables_gate_for_true_h_pairs(monkeypatch, pair):
     monkeypatch.setattr(ent, '_gs_enthalpy_sweeps_3d', sweep)
     flux = (np.zeros((3, 1)), np.zeros((2, 2)))
     *_, info = solve_enthalpy_2d(
-        350., 300., 12e6, 12e6, flux, flux, 1., 1., 0., .35, .35,
+        350., 350., 12e6, 12e6, flux, flux, 1., 1., 0., .35, .35,
         [1., 1.], [1.], P_inA=12e6, P_inB=12e6,
         fluid_A=pair[0], fluid_B=pair[1], max_iter=1, tol=.1)
     assert seen[0]['coupled_energy_tol'] == .001
+    assert seen[0]['equation_energy_tol'] == .001
     assert (seen[0]['n_outer'], seen[0]['n_sweep'], seen[0]['tol']) == (1, 3, .001)
     assert info['converged']
 
@@ -306,6 +335,12 @@ def test_validated_pair_is_consumed_only_by_next_chunk(
                     face_shape = list(shape)
                     face_shape[axis] += 1
                     np.testing.assert_array_equal(face, np.zeros(face_shape))
+            assert info.pop('exit_reason') == ('converged' if n == pass_at else 'iteration_limit')
+            assert info.pop('enthalpy_clip_counts') == dict(total=[0, 0], last=[0, 0])
+            settings = info.pop('effective_settings')
+            assert settings['coupled_energy_tol'] == gate
+            assert settings['equation_energy_tol'] is None
+            assert settings['max_iterations'] == len(increments)
             assert info == expected_info
         assert len(properties) == 2 * len(sweeps)
         for i, expected_T in enumerate(sweeps):

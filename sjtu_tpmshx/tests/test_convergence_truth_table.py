@@ -177,9 +177,9 @@ def test_typed_config_requires_explicit_lz_for_3d():
 
 
 def test_3d_initial_dual_fluid_simple_obeys_solver_config():
-    """The FIRST (A‖B) SIMPLE solve used to ignore SolverConfig.
+    """The initial dual-side SIMPLE solve used to ignore SolverConfig.
 
-    `_run_two_simple_parallel` was called with neither max_iter nor tol, so it
+    `_run_two_simple` was called with neither max_iter nor tol, so it
     fell back to its signature defaults — a user-set max_iter_simple /
     tol_simple governed every SIMPLE solve EXCEPT the initial one. Assert the
     call site now forwards both.
@@ -189,11 +189,11 @@ def test_3d_initial_dual_fluid_simple_obeys_solver_config():
     # Seam-A extraction (P1.5, 2026-07-20): the initial dual-fluid solve now
     # lives in _build_3d_problem (problem setup/build), not _run_3d_stack.
     src = inspect.getsource(_r3.build_problem)
-    assert '_run_two_simple_parallel(' in src
+    assert '_run_two_simple(' in src
     # Take the call's argument region up to the terminating `cancel_check=`
     # kwarg (the inner _simple_max_iter(...) call has its own parens, so a
     # naive split on ')' truncates).
-    call = src.split('_run_two_simple_parallel(')[1].split('cancel_check=')[0]
+    call = src.split('_run_two_simple(')[1].split('cancel_check=')[0]
     assert 'max_iter=_simple_max_iter(cfg' in call, (
         "the initial dual-fluid SIMPLE solve must forward SolverConfig's "
         f"max_iter_simple (got: {call!r})")

@@ -13,6 +13,9 @@ before changing solver, pipeline, closure, or data-loading code.
   demonstrated failure mode.
 - Keep raw experiment and CFD data under `data/raw_data/`; `data/` is local and
   must not be committed.
+- Keep exploratory investigation scripts and result reports in ignored `.cache/`;
+  do not commit or upload them. Production code, regression tests, and necessary
+  usage and architecture documentation remain tracked.
 - Commit and push only when authorized by the user. Existing task authorization
   remains valid unless changed by the user; do not request it again.
 - Global instruction or skill changes do not reset an active Goal/Graph,

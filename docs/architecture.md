@@ -88,6 +88,14 @@ iteration and temperature-delta tracking live in `coupling_skeleton.py`; both
 full-compute drivers track Ta, Tb and Ts, with the existing extra 2D density
 gate. Dimension-specific solve order and native flux capture remain explicit.
 
+The 3D initial A/B SIMPLE dispatch uses one level of parallelism. If either
+side reaches the existing parallel-sweep grid threshold, A and B run in order
+on the caller thread and retain their parallel sweeps. Otherwise the two sides
+run on separate threads with serial sweeps. This shared rule applies to all
+supported fluid pairs and avoids concurrent launches into Numba workqueue;
+outer property-refresh solves already run in side order. Thread counts and
+numerical convergence gates remain independent of this scheduling decision.
+
 Thermal routes are selected by their present qualification conditions:
 
 | Route | Shared implementation and retained differences |
@@ -95,6 +103,16 @@ Thermal routes are selected by their present qualification conditions:
 | True enthalpy | Pairs containing sCO2 use signed mass/enthalpy transport; the 2D adapter calls the shared 3D enthalpy kernel. Existing zone/route constraints remain. |
 | Model enthalpy | Existing air/water h(T) transport; 2D includes water/water when unzoned and symmetric. 3D currently includes air/air, air/water and water/air with its Nz, variable-property, dual-flow, conservative and mask conditions. |
 | Temperature | Existing remaining cases and approximation modes keep their current discretization and property sampling. |
+
+The true-enthalpy fluid diffusion term is Fourier conduction on temperature,
+linearized consistently in the enthalpy unknown on each shared internal face.
+A pressure-dependent enthalpy difference is not itself a temperature gradient.
+Both production adapters require fresh HEOS fluid and solid equation residuals:
+the largest per-phase sum of absolute cell residuals, together with the boundary
+energy imbalance, must be <=0.001 of `max(abs(Q_A), abs(Q_B), 1)` in native units.
+The enthalpy-update criterion remains independent. A final chunk containing
+clipped enthalpy updates cannot certify convergence. The true-h ledger records
+the effective settings, residual budgets, clip counts and exit reason.
 
 Model-h uses signed mass faces and minmod SOU on **both** fluid sides in both
 dimensions. Its fluid Picard update uses the shared `MODEL_H_RELAXATION=0.2`
@@ -322,9 +340,13 @@ explicit numerical-model change with directly relevant validation.
     not establish experimental accuracy in the added range.
     Production Picard iterations use CoolProp BICUBIC only for CO2 T(h,P).
     Final temperatures, coupled-energy checks, outlet inversion and all other
-    properties remain HEOS. Each thermal solve owns its mutable table state;
+    properties remain HEOS. If an exact-EOS energy check fails, the remaining
+    iterations finish on HEOS; returning to the table can cycle between two
+    different fixed points. Each thermal solve owns its mutable table state;
     HEOS enthalpy limits at local pressure keep domain-boundary checks on HEOS.
-    Results record `sco2_enthalpy_eos` in model metadata when the table is used.
+    Results record `sco2_enthalpy_eos` in model metadata when the table is used,
+    including the `bicubic_iteration_heos_polish_v2` algorithm and whether
+    exact-EOS finishing was needed.
     This is an approximate iteration algorithm, not an experimental calibration.
 11. **Current TM1 limit.** sCO2 zones and offset level sets remain rejected;
     air/water-only runs retain the qualified model-enthalpy and temperature

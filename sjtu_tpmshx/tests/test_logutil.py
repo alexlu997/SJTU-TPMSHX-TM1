@@ -102,12 +102,14 @@ def test_invalid_level_env_falls_back_to_info(monkeypatch):
 def test_parallel_simple_workers_keep_their_parent_output_scope():
     import sys
     from sjtu_tpmshx.logutil import capture_output
-    from sjtu_tpmshx.solvers.backends.python.three_d.runtime import _run_two_simple_parallel
+    from sjtu_tpmshx.solvers.backends.python.three_d.runtime import _run_two_simple
 
     original = sys.stdout, sys.stderr
     out, err = io.StringIO(), io.StringIO()
 
     class Solver:
+        Nx = Ny = Nz = 2
+
         def __init__(self, side):
             self.side = side
 
@@ -118,7 +120,7 @@ def test_parallel_simple_workers_keep_their_parent_output_scope():
             return True, 1
 
     with capture_output(out, err):
-        assert _run_two_simple_parallel(Solver('A'), Solver('B')) == [(True, 1), (True, 1)]
+        assert _run_two_simple(Solver('A'), Solver('B')) == [(True, 1), (True, 1)]
     for side in ('A', 'B'):
         assert f'worker-{side}' in out.getvalue()
         assert f'logged-{side}' in out.getvalue()

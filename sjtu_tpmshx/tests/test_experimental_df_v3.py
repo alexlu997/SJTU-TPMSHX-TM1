@@ -484,7 +484,7 @@ def test_application_coefficients_precede_real_seed_and_solver_setup(monkeypatch
                 np.testing.assert_allclose(abs(vc), .7)
                 np.testing.assert_allclose(uc, .5 * (s.u[:-1] + s.u[1:]))
         else:
-            monkeypatch.setattr(run_stack_3d_stages, '_run_two_simple_parallel', lambda *a, **kw: None)
+            monkeypatch.setattr(run_stack_3d_stages, '_run_two_simple', lambda *a, **kw: None)
             parsed = _parse_inputs_3d_cfg(cfg)
             problem = _build_3d_problem(parsed)
             solvers = [problem.sA, problem.sB]
