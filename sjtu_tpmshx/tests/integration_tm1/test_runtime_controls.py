@@ -14,10 +14,10 @@ def test_public_three_d_iteration_and_cancellation(monkeypatch, tmp_path):
     from sjtu_tpmshx.solvers.backends.python.three_d import result_capture
     from sjtu_tpmshx.io.result_io import load_result, save_result
     capture = result_capture.capture_result
-    def checked_capture(case, problem, outer, raw):
+    def checked_capture(case, problem, outer, raw, diagnostics):
         assert not {'_capture_native', '_native_evidence', '_cancel_check',
                     '_progress_cb', '_iter_cb'}.intersection(problem.cfg)
-        result = capture(case, problem, outer, raw)
+        result = capture(case, problem, outer, raw, diagnostics)
         for name, source in (('P_fA_display', 'P_Pa'), ('P_fB_display', 'P_Pa_B'),
                              ('ucA', 'uc_real'), ('vcA', 'vc_real'), ('wcA', 'wc_real'),
                              ('ucB', 'uc_real_B'), ('vcB', 'vc_real_B'), ('wcB', 'wc_real_B')):

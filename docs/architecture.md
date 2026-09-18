@@ -177,6 +177,14 @@ diagnostic arrays and unconverged completed runs remain visible; strict JSON
 metrics report unavailable values with reasons. Cancelled/failed execution
 does not return a fabricated completed archive.
 
+Each full-compute backend explicitly produces its display/flow fields and
+final diagnostics, passing diagnostics directly to native result capture.
+Capture does not infer diagnostic ownership from value types. The retained
+3D dictionary entry still returns the flattened compatibility mapping, including
+optional audit exports and absent-field placeholders. Final report diagnostics
+remain separate from the detached last-thermal snapshot; reporting references
+do not replace formal reductions from native evidence.
+
 Full 2D heat duty is W/m with no fabricated thickness or z-wall loss. Full 3D
 is W before any application normalization. The optimizer divides 3D duty/mass
 by actual Lz once at its boundary. Quick design is a prescribed-flow LTNE

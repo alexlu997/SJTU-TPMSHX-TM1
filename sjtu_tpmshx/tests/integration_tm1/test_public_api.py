@@ -41,8 +41,8 @@ def test_real_application_mapping_and_offline_readback(monkeypatch, tmp_path, di
         from sjtu_tpmshx.solvers.backends.python.two_d import result_capture
         from sjtu_tpmshx.tests.integration_tm1.legacy_result_mapping import _finalize_cfg
         capture = result_capture.capture_result
-        def checked_capture(case, raw):
-            result = capture(case, raw)
+        def checked_capture(case, raw, diagnostics):
+            result = capture(case, raw, diagnostics)
             legacy = dict(raw)
             for group in ('coeffs', 'props'):
                 legacy.update({'_shim_' + name: value
@@ -59,8 +59,8 @@ def test_real_application_mapping_and_offline_readback(monkeypatch, tmp_path, di
         from sjtu_tpmshx.solvers.backends.python.three_d import result_capture
         from sjtu_tpmshx.tests.integration_tm1.legacy_result_mapping import _finalize_3d_cfg
         capture = result_capture.capture_result
-        def checked_capture(case, problem, outer, raw):
-            result = capture(case, problem, outer, raw)
+        def checked_capture(case, problem, outer, raw, diagnostics):
+            result = capture(case, problem, outer, raw, diagnostics)
             expected.append(lambda: _finalize_3d_cfg(dict(raw), dict(
                 compute_cfg=config, extrap_reasons=case.parameters['extrap_reasons'])))
             return result

@@ -57,5 +57,5 @@ def _run_3d_stack(cfg, *, control: RunControl = RunControl()):
     # Conservation diagnostics (energy + mass balance + interior-corrected Q) —
     # extracted to _conservation_diagnostics_3d (F1). Always computed so the
     # user spots non-physical regressions without re-running validation.
-    _result = _assemble_3d_verdict(prob, outer, met)
+    _result, _diagnostics = _assemble_3d_verdict(prob, outer, met)
     return _result

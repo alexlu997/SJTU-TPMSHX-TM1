@@ -655,8 +655,8 @@ def _compute_Q_richardson(
             richardson_warn, richardson_info)
 
 
-def _run_solvers(cfg, fields, control: RunControl = RunControl()):
-    """Phase 3: run SIMPLE + coupling loop + pressure + Richardson Q."""
+def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict, dict]:
+    """Run coupling and return compatibility fields plus explicit diagnostics."""
     properties = cfg['static_properties']
     rA, rB = properties['A'], properties['B']
     coeffs = dict(K_ffA=rA['K_ff'], K_ffB=rB['K_ff'],
@@ -1550,19 +1550,12 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
     except TypeError:
         Q_net = energy_rel = float('nan')
 
-    result = {
+    diagnostics = {
         'sco2_nu_observations': nu_observations,
-        'Ta': state.Ta, 'Tb': state.Tb, 'Ts': state.Ts,
         'T_out_A_K': _outlet_temperature_2d(
             Ta_raw, state.mass_flux_A, dir_A, state.simpA.outlet_geom_frac),
         'T_out_B_K': _outlet_temperature_2d(
             Tb_raw, state.mass_flux_B, dir_B, state.simpB.outlet_geom_frac),
-        'ucA': state.ucA, 'vcA': state.vcA, 'ucB': state.ucB, 'vcB': state.vcB,
-        # N5: display-smoothed copies (partial-BC runs only; None ⇒ use raw).
-        # Physics consumers ('ucA' etc.) stay raw / mass-conserving.
-        'ucA_disp': state.ucA_disp, 'vcA_disp': state.vcA_disp,
-        'ucB_disp': state.ucB_disp, 'vcB_disp': state.vcB_disp,
-        'P_fA': P_fA, 'P_fB': P_fB,
         'dP_A': dP_A, 'dP_B': dP_B,
         # Actual ideal-gas face pressures, also used by the convergence gate.
         'P_in_realized_A': (
@@ -1586,7 +1579,6 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
             float(np.sum(state.mA_rows)) if state.mA_rows is not None else float('nan')),
         'mass_flow_B_kg_s_per_m': (
             float(np.sum(state.mB_rows)) if state.mB_rows is not None else float('nan')),
-        'energy_dx': energy_dx, 'energy_dy': energy_dy,
         'warnings_list': warnings_list,
         # ── Convergence verdict — explicit AND over every gate (2026-07-12) ──
         # robustness-hardening (2026-07-03) ANDed SIMPLE with the outer
@@ -1663,10 +1655,22 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()):
             'B': getattr(state.simpB, '_df_metadata', None),
         },
     }
+    # Display/flow fields are named here; native thermal evidence stays separate.
+    result = dict(
+        Ta=state.Ta, Tb=state.Tb, Ts=state.Ts, P_fA=P_fA, P_fB=P_fB,
+        ucA=state.ucA, vcA=state.vcA, ucB=state.ucB, vcB=state.vcB,
+        ucA_disp=state.ucA_disp, vcA_disp=state.vcA_disp,
+        ucB_disp=state.ucB_disp, vcB_disp=state.vcB_disp,
+        energy_dx=energy_dx, energy_dy=energy_dy)
+    # Existing archives retain a None diagnostic when a display copy is absent.
+    for key in ('ucA_disp', 'vcA_disp', 'ucB_disp', 'vcB_disp'):
+        if result[key] is None:
+            diagnostics[key] = None
+    result.update(diagnostics)
     if cfg.get('_capture_native'):
         result['_native_evidence'] = native_evidence
     result['application'] = dict(
         coeffs=coeffs,
         props=dict(rho_A=rA['rho'], rho_B=rB['rho'], mu_A=rA['mu'], mu_B=rB['mu']),
         zones=zones)
-    return result
+    return result, diagnostics

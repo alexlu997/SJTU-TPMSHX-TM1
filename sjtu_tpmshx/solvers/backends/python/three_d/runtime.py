@@ -1206,11 +1206,10 @@ def _build_hv_machinery(prob: _Problem3D):
 
 
 def _extract_3d_metrics(prob: _Problem3D, outer: _OuterState):
-    """Seam-D extraction (P1.5, 2026-07-20): metric/field extraction --
-    converged solvers + T fields -> Q (enthalpy + solid-side), dP, m_dot,
-    outlet temperatures, real-coord P/velocity fields. Near-pure reads of
-    converged state. Moved VERBATIM from _run_3d_stack; returns the
-    cross-seam bundle. Contract: bit-identical behavior (golden gate).
+    """Build final-flow compatibility summaries and real-axis display fields.
+
+    These reporting values retain final-pressure property calls and warnings.
+    Formal postprocessing instead reduces the detached native thermal evidence.
     """
     L_mm_field = prob.L_mm_field
     Lcell = prob.Lcell
@@ -1480,12 +1479,11 @@ def _extract_3d_metrics(prob: _Problem3D, outer: _OuterState):
     )
 
 
-def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D):
-    """Seam-E extraction (P1.5, 2026-07-20): verdict + assembly tail --
-    conservation diagnostics, post-solve envelope gate, convergence
-    verdict/truth table, result-dict assembly, opt-in audit exports.
-    Moved VERBATIM from _run_3d_stack; returns the cross-seam
-    bundle. Contract: bit-identical behavior (golden gate).
+def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D) -> tuple[dict, dict]:
+    """Return compatibility fields and explicit final-state diagnostics.
+
+    Thermal evidence was detached by the outer loop. These reporting reductions
+    retain their distinct final-flow timing and do not replace native metrics.
     """
     H = prob.H
     K_ffA = prob.K_ffA
@@ -1701,16 +1699,14 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D):
                               f"p90={_dbg.percentile(chi_out_patch,90):.3f}")
     # ═══════════════════════════════════════════════════════════════════
 
-    _result = dict(
-        Ta=Ta, Tb=Tb, Ts=Ts,
-        vmag=vmag, P_kPa=P_kPa, L_mm=L_mm,
-        P_Pa=P_real,
-        uc_real=uc_real, vc_real=vc_real, wc_real=wc_real,
-        # Fluid B (None if frozen)
-        P_Pa_B=P_real_B,
-        uc_real_B=ucB, vc_real_B=vcB, wc_real_B=wcB,
-        vmag_B=vmag_B, dP_B=dP_B,
-        dx=dx, dy=dy, dz=dz,
+    result = dict(
+        Ta=Ta, Tb=Tb, Ts=Ts, vmag=vmag, P_kPa=P_kPa, L_mm=L_mm,
+        P_Pa=P_real, uc_real=uc_real, vc_real=vc_real, wc_real=wc_real,
+        P_Pa_B=P_real_B, uc_real_B=ucB, vc_real_B=vcB, wc_real_B=wcB,
+        vmag_B=vmag_B, dx=dx, dy=dy, dz=dz,
+        h_vA_field=h_vA_field, h_vB_field=h_vB_field, chi_B=chi_B)
+    diagnostics = dict(
+        dP_B=dP_B,
         Lx=L, Ly=H, Lz=Lz,
         Q=Q, Q_total=Q, Q_enthalpy_A=Q_enthalpy_A, Q_enthalpy_B=Q_enthalpy_B,
         Q_solid_B=Q_solid_B,
@@ -1734,8 +1730,6 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D):
         # #5: sCO2 A/B enthalpy-duty imbalance (nan for air/water) — the residual
         # after the reverse-dir mass-flow fix; >10% ⇒ trust 2D coupled duty.
         Q_AB_imbalance_rel=Q_AB_imbalance_rel,
-        # h_v fields for BC-layer split diagnostic (path 0' v3)
-        h_vA_field=h_vA_field, h_vB_field=h_vB_field,
         # Historical subvolume metrics (physical end CVs excluded)
         Q_sA_interior=Q_sA_interior,
         Q_sB_interior=Q_sB_interior,
@@ -1746,8 +1740,6 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D):
         eps_B_strict=_eps_B_strict,
         eps_A_strict_cellmax=_eps_A_strict_cellmax,
         eps_B_strict_cellmax=_eps_B_strict_cellmax,
-        # Plan C v2: B flow-path indicator field (χ_B) for visualization
-        chi_B=chi_B,
         # Sweep profile diagnostics
         _ltne_info=_ltne_info,
         _max_outer=_max_outer,
@@ -1755,8 +1747,8 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D):
         _needs_full_validate=(_compact_diag and not all(
             d['converged'] for d in _ltne_info)),
     )
-    _result['sco2_nu_observations'] = cfg.get('sco2_nu_observations', {})
-    _result['df_metadata'] = {
+    diagnostics['sco2_nu_observations'] = cfg.get('sco2_nu_observations', {})
+    diagnostics['df_metadata'] = {
         'mode': prob.cfg.get('df_mode', 'cfd_smooth'),
         'A': getattr(sA, '_df_metadata', None),
         'B': getattr(sB, '_df_metadata', None) if sB is not None else None,
@@ -1827,10 +1819,10 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D):
               "reported field DID converge, so this is informational. It does "
               "flag a hard cold start (typically high u).")
     _env_warnings = list(dict.fromkeys(_env_warnings))   # dedup, keep order
-    _result['envelope_valid'] = _env_valid
-    _result['envelope_reasons'] = _env_reasons
-    _result['envelope_warnings'] = _env_warnings
-    _result['p_clip_hits'] = _clip_hits
+    diagnostics['envelope_valid'] = _env_valid
+    diagnostics['envelope_reasons'] = _env_reasons
+    diagnostics['envelope_warnings'] = _env_warnings
+    diagnostics['p_clip_hits'] = _clip_hits
     # ── Convergence verdict — explicit AND over every gate (2026-07-12) ──
     # robustness-hardening (2026-07-03) introduced this key but only ANDed
     # SIMPLE with the FINAL outer LTNE pass. Three ways a bad solve could still
@@ -1855,10 +1847,10 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D):
             "velocity field — the result is not physical; solver_converged "
             "is forced False.")
         _env_warnings = list(dict.fromkeys(_env_warnings))
-        _result['envelope_warnings'] = _env_warnings
+        diagnostics['envelope_warnings'] = _env_warnings
     _ltne_ok = bool(_ltne_info) and bool(
         _ltne_info[-1].get('converged', False))
-    _result['solver_converged'] = bool(
+    diagnostics['solver_converged'] = bool(
         _simple_final_ok               # the FINAL SIMPLE solve on EACH side
         and _ltne_ok                   # FINAL outer LTNE inner pass converged
         and bool(_outer_converged)     # outer coupling converged (not capped)
@@ -1893,7 +1885,7 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D):
                         s, 'final_res_mass_global', None),
                     outlet_backflow_frac=getattr(
                         s, 'outlet_backflow_frac', None))
-    _result['convergence_detail'] = dict(
+    diagnostics['convergence_detail'] = dict(
         inlet_pressure=pressure_states,
         simple_A=_simple_detail(sA),
         simple_B=_simple_detail(sB),
@@ -1930,12 +1922,12 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D):
             A=_and_A.stats(), B=(_and_B.stats() if sB is not None else None))),
     )
 
-    _result['true_h_balance'] = (dict(
+    diagnostics['true_h_balance'] = (dict(
         _ltne_info[-1]['true_h_balance'], outer_converged=bool(_outer_converged),
         post_after_last_thermal=bool(not _outer_converged),
         state='last true-h solve, before any final post update')
         if _ltne_info and 'true_h_balance' in _ltne_info[-1] else None)
-    _result['model_h_balance'] = (dict(
+    diagnostics['model_h_balance'] = (dict(
         _ltne_info[-1]['model_h_balance'], outer_converged=bool(_outer_converged),
         post_after_last_thermal=bool(not _outer_converged),
         state='last model-h thermal solve, before any final post update')
@@ -1950,7 +1942,7 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D):
     # and test_partial_bc_ghost_b consume them, so those callers set
     # _emit_audit=True. Consumers must not mutate. No physics change.
     if cfg.get('_emit_audit', False):
-        _result.update(
+        diagnostics.update(
         _audit_sA_face=dict(
             u=sA.u.copy(), v=sA.v.copy(), w=sA.w.copy(),
             rho=sA.rho_field.copy(),
@@ -1979,18 +1971,6 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D):
             dir_real=fB['dir'],
             solver_to_real_perm=sB_info['axis_map']['solver_to_real_perm'],
         ) if sB is not None else None),
-        _audit_ltne_mask_B=(np.asarray(_ltne_mask_B).copy()
-                             if _ltne_mask_B is not None else None),
-        _audit_ltne_mask_A=(np.asarray(_ltne_mask_A).copy()
-                             if _ltne_mask_A is not None else None),
-        _audit_in_mask_B=(np.asarray(in_mask_B).copy()
-                          if (sB is not None and in_mask_B is not None) else None),
-        _audit_out_mask_B=(np.asarray(out_mask_B).copy()
-                           if (sB is not None and out_mask_B is not None) else None),
-        _audit_in_mask_2d=(np.asarray(in_mask_2d).copy()
-                           if in_mask_2d is not None else None),
-        _audit_out_mask_2d=(np.asarray(out_mask_2d).copy()
-                            if out_mask_2d is not None else None),
         _audit_m_dot_A_simple=float(m_dot_A_simple),
         _audit_m_dot_B_simple=(float(m_dot_B_simple) if sB is not None else None),
         _audit_m_dot_B_phys_in=(float(m_dot_B_phys_in) if sB is not None else None),
@@ -2004,6 +1984,23 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D):
         _audit_eps=float(eps),
         _audit_fA=dict(fA),
         _audit_fB=(dict(fB) if fB is not None else None),
+        _audit_P_inA=float(P_inA),
+        _audit_P_inB=float(P_inB),
+        )
+
+        result.update(
+        _audit_ltne_mask_B=(np.asarray(_ltne_mask_B).copy()
+                             if _ltne_mask_B is not None else None),
+        _audit_ltne_mask_A=(np.asarray(_ltne_mask_A).copy()
+                             if _ltne_mask_A is not None else None),
+        _audit_in_mask_B=(np.asarray(in_mask_B).copy()
+                          if (sB is not None and in_mask_B is not None) else None),
+        _audit_out_mask_B=(np.asarray(out_mask_B).copy()
+                           if (sB is not None and out_mask_B is not None) else None),
+        _audit_in_mask_2d=(np.asarray(in_mask_2d).copy()
+                           if in_mask_2d is not None else None),
+        _audit_out_mask_2d=(np.asarray(out_mask_2d).copy()
+                            if out_mask_2d is not None else None),
         # Phase 2 conservation-residual exports (post-χ_B for K_ffB)
         _audit_K_ffA=K_ffA.copy(),
         _audit_K_ffB=K_ffB.copy(),
@@ -2012,11 +2009,19 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D):
         _audit_rho_cp_fA=rho_cp_fA.copy(),
         _audit_rho_cp_fB=rho_cp_fB.copy(),
         _audit_chi_B=(chi_B.copy() if chi_B is not None else None),
-        _audit_P_inA=float(P_inA),
-        _audit_P_inB=float(P_inB),
         )
+        for key in ('_audit_ltne_mask_B', '_audit_ltne_mask_A', '_audit_in_mask_B',
+                    '_audit_out_mask_B', '_audit_in_mask_2d', '_audit_out_mask_2d',
+                    '_audit_chi_B'):
+            if result[key] is None:
+                diagnostics[key] = None
 
-    return (_result)
+    # Preserve absent-field diagnostic placeholders used by existing archives.
+    for key in ('P_Pa_B', 'vmag_B', 'chi_B'):
+        if result[key] is None:
+            diagnostics[key] = None
+    result.update(diagnostics)
+    return result, diagnostics
 
 
 def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,

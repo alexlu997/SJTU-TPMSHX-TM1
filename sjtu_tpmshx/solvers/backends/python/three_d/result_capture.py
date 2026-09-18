@@ -1,13 +1,11 @@
 """Detach native 3D thermal and final-flow evidence from backend instances."""
 from uuid import uuid4
 
-import numpy as np
-
 from sjtu_tpmshx.domain.field_result import FieldResult
 from .runtime import _pressure_real_3d
 
 
-def capture_result(case, prob, outer, raw):
+def capture_result(case, prob, outer, raw, diagnostics):
     native = outer.native_evidence
     fields = {key: native[key] for key in ('Ta', 'Tb', 'Ts', 'h_vA', 'h_vB', 'K_ss',
                                           'P_thermal_A', 'P_thermal_B') if native[key] is not None}
@@ -45,8 +43,6 @@ def capture_result(case, prob, outer, raw):
     for name, unit in display_units.items():
         metadata[name] = dict(unit=unit, axes=('x', 'y', 'z'), location='cell',
                               state='display' if name.endswith('_display') else 'final flow/report')
-    diagnostics = {key: value for key, value in raw.items()
-                   if not isinstance(value, np.ndarray)}
     model_metadata = dict(case.metadata['model_metadata'])
     if native['true_h'] and 'sco2_enthalpy_eos' in native['true_h']:
         model_metadata['sco2_enthalpy_eos'] = native['true_h']['sco2_enthalpy_eos']
