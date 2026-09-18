@@ -114,6 +114,15 @@ supported fluid pairs and avoids concurrent launches into Numba workqueue;
 outer property-refresh solves already run in side order. Thread counts and
 numerical convergence gates remain independent of this scheduling decision.
 
+The 2D loop keeps one live `_OuterState2D`. Its flow step rebuilds both SIMPLE
+objects and joins both workers before propagating failures. It then prepares
+thermal inputs, solves the selected energy route, validates the return,
+refreshes properties, and checks convergence. Fatal-flow classification uses
+the temperatures consumed by that iteration's SIMPLE calls. The post step
+rebinds the four density/capacity fields; Richardson retains the inputs of the
+last main thermal call even when that final post runs. Per-call thermal inputs
+borrow arrays, while display smoothing stays separate from raw evidence.
+
 Thermal routes are selected by their present qualification conditions:
 
 | Route | Shared implementation and retained differences |
