@@ -33,6 +33,12 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   shared models and numerical backends directly; there are no `sys.modules`
   aliases or import-time function injection into the numerical backend.
   The retained dictionary-based 3D entry is `run_stack_3d._run_3d_stack`.
+  It and `_build_3d_problem` accept keyword-only `control=RunControl(...)`,
+  forwarded to initial SIMPLE and outer coupling. Runtime callbacks do not
+  belong in `cfg`: `_cancel_check`, `_progress_cb` and `_iter_cb` are rejected
+  with a migration error. Use `RunControl.cancel_check`, `.progress` and
+  `.outer_iteration(current, total)` respectively; `.iteration(message)` is
+  the separate text callback. Existing calls without controls remain valid.
   Former `stages_2d`, `stages_3d` and `_stage_common` import facades are retired;
   preparation and shared helpers are imported from their owning modules.
 - `controllers/compute_pipeline.py` sequences the public modules; the module
