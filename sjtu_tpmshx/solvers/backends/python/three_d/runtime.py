@@ -10,6 +10,8 @@ from __future__ import annotations
 import os
 import time as _time
 from dataclasses import dataclass
+from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING
 import numpy as np
 from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.domain.run_environment import run_environment
@@ -50,6 +52,9 @@ from sjtu_tpmshx.models.field_coordinates_3d import (  # Phase 3: extracted pure
     _build_chi_B_mass_flux_threshold, _build_chi_B_velocity_threshold,
 )
 from sjtu_tpmshx.logutil import get_logger
+
+if TYPE_CHECKING:
+    from sjtu_tpmshx.solvers.anderson_acceleration import AndersonOuterCoupling
 
 _log = get_logger(__name__)
 
@@ -358,96 +363,94 @@ def _conservation_diagnostics_3d(Ta, Tb, Ts, h_vA_field, h_vB_field,
         Q_interior_primary=Q_interior_primary, AB_interior=AB_interior)
 
 
-# ─────────────────────────────────────────────────────────────────────────
-#  Cross-seam state bundles (P2.0, 2026-07-20) — transitional dataclasses
-#  replacing the five stage functions' giant positional tuples. Pure
-#  plumbing: fields are exactly the old return-tuple names, in the same
-#  order, untyped beyond `object` (these are transitional bundles, not a
-#  redesigned data model). Behavior is bit-identical to the tuple form.
-# ─────────────────────────────────────────────────────────────────────────
 @dataclass
 class _Problem3D:
-    """Seam-A state bundle (P2.0): _build_3d_problem's return, as fields."""
-    D_h: object
-    G_A: object
-    G_B: object
-    H: object
-    K_disp_A: object
-    K_disp_B: object
-    K_ffA: object
-    K_ffB: object
-    K_pred: object
-    K_pred_B: object
-    K_ss: object
-    L: object
-    L_mm_field: object
-    L_stream: object
-    L_stream_B: object
-    Lcell: object
-    Lz: object
-    Nx: object
-    Ny: object
-    Nz: object
-    P_inA: object
-    P_inB: object
-    T_inA: object
-    T_inB: object
-    Tb_presc: object
-    _compact_diag: object
-    _env_mode: object
-    _env_warnings: object
-    _ltne_info: object
-    _ltne_max_iter: object
-    _mA: object
-    _mB: object
-    _max_outer: object
-    _outer_tol: object
-    _simple_nonconv: object
-    axis_map: object
-    axis_map_B: object
-    cF_pred: object
-    cF_pred_B: object
-    cfg: object
-    cp_A: object
-    cp_B: object
-    disp_C_A: object
-    disp_C_B: object
-    dx: object
-    dy: object
-    dz: object
-    eps: object
-    eps_arr: object
-    eps_fA_arr: object
-    eps_fB_arr: object
-    fA: object
-    fB: object
-    fluid_type_A: object
-    fluid_type_B: object
-    in_mask_2d: object
-    in_mask_B: object
-    is_reverse: object
-    k_s: object
-    mu_A: object
-    mu_B: object
-    out_mask_2d: object
-    out_mask_B: object
-    perm_B: object
-    rho_A: object
-    rho_B: object
-    rho_B_ltne: object
-    sA: object
-    sB: object
-    sB_info: object
-    solver_to_real_perm: object
-    stream_real_axis: object
-    t_field_3d: object
-    t_wall: object
-    tpms_type: object
-    u_A: object
-    u_B: object
-    ucB: object
-    vcB: object
-    wcB: object
+    """Prepared problem plus live solver references, not an immutable snapshot.
+
+    Cell arrays use real (x,y,z) axes; SIMPLE owns its staggered solver axes.
+    K_ffA is refreshed in place. K_ffB may be rebound and is returned by
+    _OuterState. B velocities are refreshed in place for existing consumers.
+    """
+    D_h: float  # m
+    G_A: float  # kg/(m2 s)
+    G_B: float | None
+    H: float
+    K_disp_A: float | None
+    K_disp_B: float | None
+    K_ffA: np.ndarray  # W/(m K)
+    K_ffB: np.ndarray
+    K_pred: float  # m2
+    K_pred_B: float
+    K_ss: np.ndarray  # W/(m K)
+    L: float
+    L_mm_field: np.ndarray | None
+    L_stream: float
+    L_stream_B: float | None
+    Lcell: float  # mm
+    Lz: float
+    Nx: int
+    Ny: int
+    Nz: int
+    P_inA: float  # Pa, inlet targets
+    P_inB: float
+    T_inA: float  # K
+    T_inB: float
+    Tb_presc: np.ndarray | None
+    _compact_diag: bool
+    _env_mode: str
+    _env_warnings: list[str]
+    _ltne_info: list[dict[str, object]]
+    _ltne_max_iter: int
+    _mA: fluid_props.FluidModel
+    _mB: fluid_props.FluidModel
+    _max_outer: int
+    _outer_tol: float
+    _simple_nonconv: list[str]
+    axis_map: dict[str, object]
+    axis_map_B: dict[str, object] | None
+    cF_pred: float  # 1/m
+    cF_pred_B: float
+    cfg: dict[str, object]
+    cp_A: float  # J/(kg K), inlet properties
+    cp_B: float
+    disp_C_A: float
+    disp_C_B: float
+    dx: np.ndarray  # m, real-axis cell widths
+    dy: np.ndarray
+    dz: np.ndarray
+    eps: float
+    eps_arr: np.ndarray
+    eps_fA_arr: np.ndarray
+    eps_fB_arr: np.ndarray
+    fA: dict[str, object]
+    fB: dict[str, object] | None
+    fluid_type_A: str
+    fluid_type_B: str
+    in_mask_2d: np.ndarray  # geometric opening fractions, solver (cross1,cross2)
+    in_mask_B: np.ndarray | None
+    is_reverse: bool
+    k_s: float
+    mu_A: float  # Pa s, inlet properties
+    mu_B: float | None
+    out_mask_2d: np.ndarray
+    out_mask_B: np.ndarray | None
+    perm_B: Sequence[int] | None
+    rho_A: float  # kg/m3, inlet properties
+    rho_B: float | None
+    rho_B_ltne: float
+    sA: SIMPLESolver3D
+    sB: SIMPLESolver3D | None
+    sB_info: dict[str, object] | None
+    solver_to_real_perm: Sequence[int]
+    stream_real_axis: int
+    t_field_3d: np.ndarray | None  # mm
+    t_wall: float  # mm
+    tpms_type: str
+    u_A: float  # m/s
+    u_B: float | None
+    ucB: np.ndarray
+    vcB: np.ndarray
+    wcB: np.ndarray
 
 
 @dataclass
@@ -463,29 +466,33 @@ class _HvMachinery:
 
 @dataclass
 class _OuterState:
-    """Seam-C state bundle (P2.0): _run_outer_coupling_3d's return, as fields."""
-    K_ffB: object
-    Ta: object
-    Tb: object
-    Ts: object
-    _and_A: object
-    _and_B: object
-    _assemble_real_velocity: object
-    _eps_A_strict: object
-    _eps_A_strict_cellmax: object
-    _eps_B_strict: object
-    _eps_B_strict_cellmax: object
-    _ltne_mask_A: object
-    _ltne_mask_B: object
-    _outer_converged: object
-    _outer_dT_hist: object
-    _outer_last_iter: object
-    _use_outer_and: object
-    chi_B: object
-    h_vA_field: object
-    h_vB_field: object
-    rho_cp_fA: object
-    rho_cp_fB: object
+    """Return bundle built after the loop; it is not the live iteration state.
+
+    Cell arrays use real (x,y,z) axes. Temperatures and h_v belong to the
+    last thermal solve; K_ffB and rho_cp may include the final post update.
+    """
+    K_ffB: np.ndarray  # W/(m K)
+    Ta: np.ndarray | None  # K
+    Tb: np.ndarray | None
+    Ts: np.ndarray | None
+    _and_A: AndersonOuterCoupling | None
+    _and_B: AndersonOuterCoupling | None
+    _assemble_real_velocity: Callable[[], tuple[np.ndarray, np.ndarray, np.ndarray]]
+    _eps_A_strict: float | None
+    _eps_A_strict_cellmax: float | None
+    _eps_B_strict: float | None
+    _eps_B_strict_cellmax: float | None
+    _ltne_mask_A: np.ndarray | None
+    _ltne_mask_B: np.ndarray | None
+    _outer_converged: bool
+    _outer_dT_hist: list[dict[str, float]]
+    _outer_last_iter: int
+    _use_outer_and: bool
+    chi_B: np.ndarray | None
+    h_vA_field: np.ndarray  # W/(m3 K)
+    h_vB_field: np.ndarray
+    rho_cp_fA: np.ndarray  # J/(m3 K)
+    rho_cp_fB: np.ndarray
 
 
 @dataclass
