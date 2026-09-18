@@ -80,7 +80,7 @@ _GYROID_AIR_CALIBRATION = {
     "method": "fixed CFD K0; 1D compressible dP; mean squared relative error",
     "filter": "dP >= 2000 Pa and no duplicate row; case 1 reported separately",
     "accuracy_scope": "reviewed Shanghai air-water cases; other fluid pairs unvalidated",
-    "report": "docs/air-drag-straight-calibration-20260916.md",
+    "report": "docs/model-resources.md",
 }
 # Same April 1 members in the production inlet-density convention. The 1D
 # fit keeps R=287.05; using its source-audit speeds to check runtime speeds

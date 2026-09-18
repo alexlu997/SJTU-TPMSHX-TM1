@@ -46,9 +46,10 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 The GUI entry point is `python -m sjtu_tpmshx.main`; source-based headless
 work uses `python -m sjtu_tpmshx.cli`. Parameter optimization and design use
 the same public contracts with their explicitly named approximation modes.
-M-A review, CI and merged-main acceptance are recorded in the Graph state for
-the rectangular 2D/3D module flow. M-B extensions and historical baseline
-failures retain their separate scope and status.
+M-A review, CI and merged-main acceptance for the rectangular 2D/3D module
+flow are retained in [fixed history](history/README.md). Current M-B extensions
+and their unmet acceptance conditions are listed in [capabilities](capabilities.md);
+historical baseline failures retain their original status.
 
 Production domain shapes are currently limited to **Rectangle**, in 2D and 3D.
 Hexagon/Octagon choices are disabled. Saved polygon presets retain their shape
@@ -124,13 +125,13 @@ and mass checks remain separate and retain their thresholds. The turning-flow
 regression covers serial/red-black execution and physical A/B label invariance.
 Model-h Richardson refinement has a 12000-sweep ceiling so the finer grid can
 meet those same criteria; temperature-form refinement retains 5000. See the
-[air/water convergence and validation record](air-water-convergence-20260915.md).
+[air/water convergence and validation record](history/README.md#2026-09-18-历史材料整理).
 
 Changing a shared convergence rule affects both dimensions. Changing a
 dimensional momentum or heat kernel affects every fluid using that route.
 Changing an EOS or Nu correlation belongs in the fluid/model owner, not in
 another per-fluid solver. Cross-route method changes require separate numerical
-qualification. See the [implementation and validation record](solver-architecture-20260914.md).
+qualification. See the [implementation and validation record](history/README.md#2026-09-18-历史材料整理).
 
 ### Persistent interfaces and physical state
 
@@ -181,7 +182,7 @@ diagnostic override and cannot certify a mismatched inlet as converged.
 The 2D air property, thermal and report fields use that same SIMPLE absolute
 state; they do not shift it again to pin the inlet cell row. Numerical and
 experimental before/after evidence is in
-[the pressure-boundary diagnosis](pressure-boundary-diagnosis-20260915.md).
+[the pressure-boundary diagnosis](history/README.md#2026-09-18-历史材料整理).
 Water and the current frozen-pressure sCO₂ route retain their property-pressure
 convention. Postprocessing does not reconstruct thermal enthalpy at a new state.
 Pressure drop retains the final SIMPLE pressure convention and its distinct
@@ -297,7 +298,7 @@ explicit numerical-model change with directly relevant validation.
    prescribed-velocity approximate modes retain their existing definitions.
    Using bulk-fitted scalar Nu locally in turning flow remains a modelling
    assumption, distinct from this velocity consistency requirement. See the
-   [implementation and paired validation](nu-local-speed-20260915.md).
+   [implementation and paired validation](history/README.md#2026-09-18-历史材料整理).
 6. **Compressible envelope.** `models/envelope.py` checks the actual final
    pressure and local Mach fields. Nonfinite states, pressure at/below the
    existing 1000 Pa floor and Mach >= 1 remain invalid. Positive/subsonic
@@ -387,7 +388,7 @@ explicit numerical-model change with directly relevant validation.
     connection-transfer evaluation, not fitting this coefficient. Full 2D/3D
     results do not tune another multiplier. Source, columns, row membership,
     velocity conventions and measured errors are recorded in the
-    [straight-air calibration report](air-drag-straight-calibration-20260916.md).
+    [straight-air calibration source and scope](model-resources.md).
     `ComputeConfig`
     selects each side independently, allowing all nine ordered air/water/sCO2
     pairs and every valid 2D/3D flow direction. A mixed pair may therefore combine

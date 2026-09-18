@@ -223,7 +223,7 @@ def nu_water_topo(tpms_type, Re, Pr_water):
 # segments with LOCAL bulk properties (CoolProp at (P, T_b)); V0b pure-bulk
 # form (no wall-ratio — ΔT≡50K makes those exponents non-general, user
 # decision 2026-07-15). Fit + validation: validation/sco2_cfd/fit_nu_sco2.py,
-# reports/sco2_cfd/, ledger SCO2-CFD.
+# local .cache/reports/sco2_cfd/; archived outputs: docs/history/README.md.
 #   ⚠ Diamond D_7_3/4/5 carry a flow-data (mdot/Um) inconsistency, but Nu is
 #     velocity-free so their Nu is sound and they are kept in the fit; see
 #     df_surrogate/load_sco2_cfd.py module doc.

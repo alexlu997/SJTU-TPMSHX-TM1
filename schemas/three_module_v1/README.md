@@ -1,9 +1,9 @@
 # TM1 public data contract
 
 This document defines the public data contract. Current implementation and
-acceptance status are tracked in the [Graph state](../../docs/plans/three-module-graph/state/);
+acceptance status are tracked in [capabilities](../../docs/capabilities.md);
 the contract does not claim that every producer, backend or file codec is implemented.
-Source requirements remain in [the module plan](../../docs/plans/three-module-graph/README.md).
+Original requirements and node evidence remain in [fixed history](../../docs/history/README.md).
 
 ## Shared rules
 

@@ -177,7 +177,7 @@ def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, di
         (AIR_PUBLIC_METRICS
          if dimension == 2 else
          # Physical inlet-pressure reference; previous values and native
-         # evidence: docs/pressure-boundary-diagnosis-20260915.md.
+         # evidence: docs/history/README.md.
          [338.325949393, 1944.010935833327, 3038.067091602703, 359.22541117456143, 344.9327731893514]),
         rtol=1e-10, atol=1e-10)
     output = tmp_path / 'results.csv'

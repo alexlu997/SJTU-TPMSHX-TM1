@@ -4,7 +4,7 @@
 `df_surrogate/load_sco2_cfd.py`，保留拓扑、布局、压力/密度和原始字段守卫。
 
 `fit_nu_sco2.py` 保留 Nu 各变体拟合、几何/压力留一验证及
-`reports/sco2_cfd/nu_sco2_fit_coeffs.csv`、`nu_sco2_logo.csv` 输出。
+`.cache/reports/sco2_cfd/nu_sco2_fit_coeffs.csv`、`nu_sco2_logo.csv` 输出。
 研究重拟合不自动更新 `models/nu_correlations.py` 的现行系数。
 
 旧 `compare_smooth_df.py`、`make_error_report.py`、SmoothDF/sCO2 B/m 模型

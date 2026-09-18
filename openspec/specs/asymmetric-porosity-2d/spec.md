@@ -25,9 +25,9 @@ The 2D LTNE solver `solve_full_domain` SHALL accept distinct per-side single-cha
 
 ### Requirement: Symmetric input is bit-identical to the legacy path
 
-For the symmetric case (ε_A = ε_B = ε/2, i.e. offset δ=0), the solver SHALL produce output fields bit-identical to the existing single-`eps_f_arr` path, so that the 2D golden gate and the Shanghai 2D baseline are unchanged.
+For the symmetric case (ε_A = ε_B = ε/2, i.e. offset δ=0), the solver SHALL produce output fields bit-identical to the existing single-`eps_f_arr` path. The 2D symmetric-path equality and Shanghai regression checks remain in force.
 
-#### Scenario: Zero offset reproduces the golden baseline
+#### Scenario: Zero offset preserves symmetric-path parity
 
 - **WHEN** the offset δ=0 (symmetric porosity, no per-side override supplied)
 - **THEN** output arrays retain the symmetric path's values; existing numerical equality and conservation checks remain in force

@@ -37,7 +37,7 @@ data/raw_data/
 | 原路径 | 新路径 | 用途与区别 |
 | --- | --- | --- |
 | `20260401-上海电气天然气加热器实验工况.xlsx` | `experiments/water_air/water-air_G7-t0p6_shanghai_experiment_20260401.xlsx` | Gyroid HX 空气直通标定源（第 2–16 项）及整机对照；空气小试件训练集仍拒绝上海来源，见下文 |
-| `20260407-上海电气天然气加热器实验工况 -调换进出口-G_7_6.xlsx` | `experiments/water_air/water-air_G7-t0p6_shanghai_experiment_ports-swapped_20260407.xlsx` | 用户于2026-09-15确认：空气与水互换流道，试件及其他硬件不变；空气走错列开口、水走原空气直通流道。见[压力诊断](pressure-boundary-diagnosis-20260915.md) |
+| `20260407-上海电气天然气加热器实验工况 -调换进出口-G_7_6.xlsx` | `experiments/water_air/water-air_G7-t0p6_shanghai_experiment_ports-swapped_20260407.xlsx` | 用户于2026-09-15确认：空气与水互换流道，试件及其他硬件不变；空气走错列开口、水走原空气直通流道。见[压力诊断](history/README.md#2026-09-18-历史材料整理) |
 | `20260609-水直空气侧-D_7_6.xlsx` | `experiments/water_air/water-air_D7-t0p6_experiment_water-straight_20260609.xlsx` | D7/0.6 水—空气实验 |
 | `7-6-Water-dp.xlsx` | `experiments/water_air/water-air_DG7-t0p6_hx_water-dp_with-air-temperature.xlsx` | 水侧压损整理；D 页另有空气进口温度列；现有水 HX 读取器使用此表 |
 | `换热器压损——20260407-G-7-6+20260609-D_7_6.xlsx` | `archive/water_air/water-air_DG7-t0p6_hx_water-dp.xlsx` | 另一份压损整理；D 页没有附加空气温度列，不与上一表合并 |
@@ -140,7 +140,7 @@ Diamond 空气、水和 sCO2 的源文件及标定选择保持原状。
 
 本次变更仅作用于独立的 7/0.6 mm HX 修正。`df_surrogate.load_data` 的
 空气小试件训练集隔离守卫继续有效，上海整机数据不进入该训练表。
-新系数和适用范围见[直通标定报告](air-drag-straight-calibration-20260916.md)。
+新系数和适用范围见[标定来源与适用范围](model-resources.md)。
 
 ## 读取行为与版本边界
 

@@ -5,7 +5,7 @@ the primary fluid unknown, so the convection telescopes the mass flux ṁ on h
 (true enthalpy flux ṁ·h) instead of the legacy ṁ·cp·T. For a strongly
 variable-cp fluid (sCO2 across the pseudocritical line) ṁ·cp·T conserves the
 wrong quantity (off by ∫T·dcp → the 703 ~41% A/B imbalance); the enthalpy form
-closes it. See the validated 1D PoC poc/poc_1d_ltne_enthalpy_optionB.py and the
+closes it. See the validated 1D PoC sjtu_tpmshx/tests/enthalpy_1d_reference.py and the
 plan vault reports/method/3d/2026-06-28-3d-ltne-enthalpy-conservative-rewrite-plan-CN.md.
 
 Architecture (numba constraint): the inner Gauss-Seidel sweeps are @njit and

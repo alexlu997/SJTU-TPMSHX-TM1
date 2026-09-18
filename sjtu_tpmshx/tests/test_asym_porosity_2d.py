@@ -4,7 +4,7 @@ Mirrors `test_asym_porosity_3d.py` at the kernel level. Guards:
   - the new asymmetric path: `solve_full_domain` runs (no NotImplementedError)
     and conserves energy (A→solid heat == solid→B heat, insulated solid);
   - the δ=0 bit-identity contract: explicit ε_A = ε_B = ε/2 reproduces the
-    default single-`eps_f_arr` path bit-for-bit (golden 2D / Shanghai 2D safe);
+    default single-`eps_f_arr` path bit-for-bit (symmetric 2D / Shanghai 2D parity);
   - the total-void guard still rejects ε_A + ε_B > ε.
 """
 
@@ -102,11 +102,25 @@ def test_over_allocation_rejected():
 # ── Phase 2: end-to-end through Pipeline2D (δ split plumbing) ─────────────────
 
 def _air_air_delta_cfg(delta):
-    """Golden 2D air-air cfg with the offset δ set on the geometry."""
-    from sjtu_tpmshx.runs._out._golden_2d import _air_air_cfg
-    cc = _air_air_cfg()
-    cc.geometry.delta_levelset = float(delta)
-    return cc
+    """Fixed 2D air-air regression case with geometry offset δ."""
+    from sjtu_tpmshx.domain.compute_config import (
+        ComputeConfig, FluidConfig, GeometryConfig, SolverConfig,
+        PartialBCConfig, ExtrapPolicy, FeatureFlags,
+    )
+    return ComputeConfig(
+        fluid_A=FluidConfig(type='air', u_mps=10.0, T_in_K=422.0, P_in_Pa=192362.0),
+        fluid_B=FluidConfig(type='air', u_mps=20.0, T_in_K=322.0, P_in_Pa=101325.0),
+        geometry=GeometryConfig(tpms='Gyroid', L_cell_mm=7.0, t_wall_mm=0.6,
+                                k_s_W_mK=16.0, L_dom_m=0.182, H_dom_m=0.042,
+                                delta_levelset=float(delta)),
+        solver=SolverConfig(Nx=20, Ny=20),
+        bc_A=PartialBCConfig(dir=0, in_ctr=0.021, in_w=0.042,
+                             out_ctr=0.021, out_w=0.042),
+        bc_B=PartialBCConfig(dir=3, in_ctr=0.021, in_w=0.042,
+                             out_ctr=0.021, out_w=0.042),
+        extrap=ExtrapPolicy(allow=True),
+        flags=FeatureFlags(),
+    )
 
 
 def test_delta_pos_pipeline_runs_and_conserves():

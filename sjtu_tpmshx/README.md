@@ -18,7 +18,7 @@
 
 真实算例和文件交接入口见[三模块示例](../examples/three_module/)。
 当前正式计算域为矩形 2D/3D；应用近似模式和扩展能力状态见
-[项目 README](../README.md)与[验收记录](../docs/plans/three-module-graph/state/)。
+[项目 README](../README.md)与[能力范围](../docs/capabilities.md)。
 
 ## 支撑模块与应用入口
 

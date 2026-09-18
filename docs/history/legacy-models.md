@@ -14,8 +14,8 @@
   现行 `fit_experimental_effective`、`cf_cross_fluid` 和 Nu 验证入口保留。
 - `fit_nu_correction` 从旧 Nu/f 混合报告独立保留现用 sCO2 Nu 锚定复核；
   D/G 52/80 条 Nu 记录、原修正值和逐温度拟合逐值一致。
-- B40、fixed-166、冻结物理参考和 Graph 验收留在原位；已结束的 M1/M2 试验见[退役工具索引](retired-tools.md)。
-  `_data_df_projection_baseline.json` 保留原 γ 时代数字；当前投影检查改用
+- B40、fixed-166、冻结物理参考和 Graph 验收按[历史总索引](README.md)保留；已结束的 M1/M2 试验见[退役工具索引](retired-tools.md)。
+  `_data_df_projection_baseline.json` 的原 γ 时代数字移入固定历史；当前投影检查使用
   可手算的几何场验证坐标、方向和非均匀重采样，不重写旧参考值。
 
 ## 已关闭的入口
@@ -112,8 +112,9 @@ RBF 残差/局部覆盖修正和 `preprocess.offline.publish_surrogate` 随专�
 
 ConstDF 的负结果保留：Piedra 的 LOO 33%/47%，Kim K1 样本不足，
 Kim 子集和约束变体未优于当时基线。旧 γ/双层 γ/方法矩阵的失败行也未筛除。
-现行 `reports/df_refit/cf_cross_fluid.csv`、四份 `experimental_effective_*`，
-sCO2 Nu 系数/留一报告继续留在当前树。M1/M2 固定输入及消费者随后已退役，
+`reports/df_refit/cf_cross_fluid.csv`、四份 `experimental_effective_*` 和
+sCO2 Nu 系数/留一报告已移入[固定历史](README.md)；复核工具现在写入本地 `.cache/reports/`。
+M1/M2 固定输入及消费者随后已退役，
 见[工程与试验索引](retired-tools.md)，不再作为当前重跑入口。
 
 ## 私有原件归档

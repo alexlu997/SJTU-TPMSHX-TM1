@@ -1,6 +1,6 @@
 """Evaluate frozen sCO2 corrections and rebuild other V3 D-F candidates.
 
-Outputs under reports/df_refit are review artifacts, not runtime inputs.
+Outputs under .cache/reports/df_refit are review artifacts, not runtime inputs.
 No campaign is interpreted as fluid-intrinsic physics.
 """
 from __future__ import annotations
@@ -23,7 +23,7 @@ from sjtu_tpmshx.models.tpms_props import water_density, water_viscosity
 
 
 _REPO = Path(__file__).resolve().parents[3]
-REPORT_DIR = _REPO / "reports" / "df_refit"
+REPORT_DIR = _REPO / ".cache" / "reports" / "df_refit"
 RMSRE_GATE = 0.10
 BIAS_GATE = 0.10
 

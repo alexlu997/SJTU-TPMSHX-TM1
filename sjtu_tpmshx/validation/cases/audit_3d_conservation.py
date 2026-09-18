@@ -915,9 +915,8 @@ def compute_phase4(res):
         # streamwise "out" face is j=Ny. FIX (2026-06-24 audit): reverse-direction
         # fluids (dir_real in {1,3,5}, e.g. fluid B with dir=3 in the T2 case)
         # physically enter at solver j=-1 (north), so swap in/out — otherwise the
-        # imbalance is normalized on the OUTLET flux. Mirrors the is_reverse branch
-        # in audit_partial_b_ltne._solver_face_flux_2d. (net_out_solver above is
-        # signed/direction-independent and stays unchanged.)
+        # imbalance is normalized on the OUTLET flux. net_out_solver above is
+        # signed/direction-independent and stays unchanged.
         is_reverse = dir_real in (1, 3, 5)
         if is_reverse:
             m_in_face = m_north    # signed positive entering

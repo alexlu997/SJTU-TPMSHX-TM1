@@ -17,42 +17,38 @@ MMS A3 自动报告默认输出至本库 `.cache/validation/mms_phase_a3_report.
 | [CFD 工况清单](../sjtu_tpmshx/runs/tools/asym_build_cfd_worklist_xlsx.py) → [nTop 表达式](../sjtu_tpmshx/runs/cfd_asym/asym_ntop_expressions_html.py) | 内置几何/流体 + 可选旧 `water-cfd-raw.xlsx` → XLSX → HTML | 顺序运行下方两条命令；两个工具共用输出目录。该旧工作簿目前存在；缺文件时 `r1_water_ref` 页保留跳过说明，不补造锚点 |
 | [asym CFD/诊断工具](../sjtu_tpmshx/runs/cfd_asym/)、[diagnostics/](../sjtu_tpmshx/runs/diagnostics/) | 脚本声明的几何、场/CFD 文件 → 研究结果 | `python -m sjtu_tpmshx.runs.<子目录>.<模块名>`；Fluent/vault 等外部依赖按各工具声明，未作为默认安装或本轮运行能力 |
 | [scripts/](../scripts/) | 固定服务器环境/测试选择 → 测试日志 | PowerShell/shell 平台入口；服务器地址、目录和已预置解释器按脚本参数设置，不自动安装依赖 |
-| [poc/](../poc/) | 内置简化问题 → 对应测试/实验结果 | `test_ltne_enthalpy_1d_optionB.py` 仍导入其中实现；保留为实验及测试依赖，不是生产求解入口 |
-| [reports/](../reports/README.md) | 历史测量、模型拟合及研究运行结果 | 现行验证输出保留；已结束的试验见历史索引。正式运行模型资源的归属见架构说明 |
 | [D76 Nu 验证](../sjtu_tpmshx/validation/cases/validate_sco2_d76.py) | 6 个固定 D-7-6 工况/私有 Excel → Q 对照 | `python -m sjtu_tpmshx.validation.cases.validate_sco2_d76`；保留原 15% 最大误差门槛，退出码 0 通过、1 未通过 |
 | [水 Nu 现存表验证](../sjtu_tpmshx/validation/cases/validate_water_nu_excel.py) | 1879 条 legacy 水 CFD 结果 → 逐行、拓扑、几何、Re 分段误差 | `python -m sjtu_tpmshx.validation.cases.validate_water_nu_excel --out .cache/water-nu-validation`；固定现行关联式，退出码 0 通过、2 精度未通过，数据错误直接报错 |
-| [现行实验修正](../sjtu_tpmshx/validation/df_refit/fit_experimental_effective.py)、[跨数据集 cF 对照](../sjtu_tpmshx/validation/df_refit/cf_cross_fluid.py) | 实验原表 + 当前固定 CFD 基线 → `reports/df_refit/` 审查 CSV | `python -m sjtu_tpmshx.validation.df_refit.<模块名>`；共享 `validation/hx_experiments.py` 读取，不依赖旧 γ/RBF 拟合或六张旧系数表，不更新生产系数 |
+| [现行实验修正](../sjtu_tpmshx/validation/df_refit/fit_experimental_effective.py)、[跨数据集 cF 对照](../sjtu_tpmshx/validation/df_refit/cf_cross_fluid.py) | 实验原表 + 当前固定 CFD 基线 → `.cache/reports/df_refit/` 审查 CSV | `python -m sjtu_tpmshx.validation.df_refit.<模块名>`；共享 `validation/hx_experiments.py` 读取，不依赖旧 γ/RBF 拟合或六张旧系数表，不更新生产系数 |
 | [sCO2 Nu 修正复核](../sjtu_tpmshx/validation/sco2_exp/fit_nu_correction.py)、[逐温度 Nu 报告](../sjtu_tpmshx/validation/sco2_exp/nu_bytemp_report.py) | sCO2 实验汇总 → 原锚定修正值 / 分温度 Nu 对照 | `python -m sjtu_tpmshx.validation.sco2_exp.<模块名>`；仅依赖现行 Nu、实验读取器及几何，不再运行旧压降模型 |
 | [主计算测量](../sjtu_tpmshx/runs/tools/benchmark_main_compute.py) | 本地固定 `jobs` 清单（每项 `id/config`，可含 `reference/depth_m`）→ 每次运行独立的 Case/Result/metrics、日志和分段测量 | `python -m sjtu_tpmshx.runs.tools.benchmark_main_compute MANIFEST NEW_OUTPUT --warmup --repeat 5`；0=执行、状态及已声明流量检查通过，2=存在未合格结果，1=执行异常；不代表实验精度通过 |
 | [F2 容差计价](../sjtu_tpmshx/validation/cases/price_f2_convergence_3d.py) | 上海实验工况 → `reports/f2_pricing_3d_v2.csv` | `python -m sjtu_tpmshx.validation.cases.price_f2_convergence_3d --mom-tol 1e-3,1e-4,1e-5 --cases 1,8,16`；扫描 F2，输出仅本地保留；该工具使用其声明的全侧端口，不能代替局部端口主计算证据 |
-| [历史 2D golden](../sjtu_tpmshx/runs/_out/_golden_2d.py) | 两组固定 Pipeline2D 配置 → 新的本地快照 / 与指定快照比较 | 手工历史诊断，非当前物理验收；`test_asym_porosity_2d.py` 仍使用其中的配置函数。用 `python -m sjtu_tpmshx.runs._out._golden_2d .cache/golden-2d-new.json` 保存新快照，保留原记录 |
-| [历史 3D golden](../sjtu_tpmshx/runs/_out/_golden_3d.py) | `golden_3d.json` 与原始元数据 → 同环境历史对照 | 手工历史诊断，三组配置；不是当前跨平台验收。现行测试配置独立放在 [tests/cases_3d.py](../sjtu_tpmshx/tests/cases_3d.py)，不改写旧数值以消除差异 |
 
 主计算测量的时间以单调时钟记录；求解时间包含原生结果捕获，内部 SIMPLE 调用
 可能重叠，不能相加当作总耗时。RSS 每 0.5 秒通过本机 `ps` 采样，采集失败明确
 记录；该工具不代替桌面首帧/交互测量。首次、磁盘缓存和同进程预热须分开组织。
-工况成员、实际数据版本、测量预算及节点状态见[本阶段计划](plans/main-compute-20260913.md)。
+每次测量保留实际工况清单、数据版本、预算和原生退出状态；旧固定清单见[历史索引](history/README.md)。
 
 现行 Gyroid HX 空气标定使用 4 月 1 日直通数据，第 2–16 项拟合固定 K0 的
 一维 `sF`；4 月 7 日数据只作接法迁移对照。`fit_experimental_effective`
 重新输出带源文件、工作表和行号的审查表，并核对封装系数；完整二维/三维验证
 直接调用 `benchmark_main_compute`，从正式系数入口读取 `sF`。
-标定公式、运行清单位置及旧候选工具的退役安排见
-[直通标定报告](air-drag-straight-calibration-20260916.md)。
+标定公式、输入字段和适用范围见[模型资源](model-resources.md)；旧候选和研究输出见历史索引。
 
 本阶段 sCO₂ 使用用户确认的 fixed-166 配置快照：交叉流局部端口、实验阻力、
 Nu 倍率 D=1.77/G=1.07。`validate_sco2_exp_q.py` 默认的逆流/CFD 阻力/基础 Nu
 属于另一套物理复核配置，`--all-valid` 也会按当前读取器重新选择成员。复现本阶段时，
-按计划的私有证据索引取得 `workloads.json`，使用 `--jobs` 选择其中的固定 ID；
+使用本地保存的固定 manifest（原 `workloads.json`）及匹配原始数据，
+用 `--jobs` 选择其中的固定 ID；旧证据入口见历史索引，不从当前读取器重新生成成员；
 例如 `--jobs sco2-009-Diamond-8-2d shanghai-01-3d`。新输出目录必须尚不存在。
 
 上海生产验证的端口/壁面网格由同一构造函数生成，网格数包含所有加密单元。
 二维入口采用 `84×24`；三维无显式网格参数时采用 `92×14×10`。
-精度研究状态见[本轮记录](accuracy-performance-20260914.md)。三维显式
+历史网格研究见[历史索引](history/README.md)。三维显式
 `--nx/--ny/--nz` 保留手选网格，`--port-wall-refine` 选择端口/壁面加密；
 旧 `--wall-refine` 为另一种六面壁面加密，两者不能同时启用。
 实际网格始终来自本次结果的准备网格。
-当前共同 F2、架构回归和已测压降实验误差见[求解器整理记录](solver-architecture-20260914.md)。
+当前共同 F2 和物理边界见[架构说明](architecture.md)；旧架构回归和实验误差见历史索引。
 `tol_simple`/旧 `--tol` 仅保留配置与调用兼容，不再调节 F2 收敛。
 两维完整上海验证共用 4 月 1 日批次已确认的局部水口：上侧入口
 `x=133–175 mm`，下侧出口 `x=7–49 mm`，贯穿 `42 mm` 深度。
@@ -131,7 +127,7 @@ python -m sjtu_tpmshx.runs.cfd_asym.asym_ntop_expressions_html
 
 性能文件和研究报告可能使用固定文件名；重测前保留有用的旧产物。
 导入检查只证明包路径可解析；数据存在、真实执行、收敛、能量/质量及实验精度分别验收。
-历史 B40、fixed-166、M-A/M-B 状态和冻结参考仍以原记录为准。
+历史 B40、fixed-166 和冻结参考从历史索引查阅，当前 M-A/M-B 状态见[能力范围](capabilities.md)。
 
 已退役的旧模型、六张系数表、专属发布/比较脚本及历史报告统一从
 [历史模型索引](history/legacy-models.md) 查询；原失败结果不改写为通过。

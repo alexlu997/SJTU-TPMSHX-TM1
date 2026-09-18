@@ -78,5 +78,4 @@ sjtu_tpmshx = [
     "configs/*.json",
     "df_surrogate/_prebuilt/*.csv",
     "validation/*.meta.json",
-    "tests/_data_*.json",
 ]

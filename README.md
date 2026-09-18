@@ -10,9 +10,8 @@ TM1 将 TPMS 换热器的前处理、求解和后处理拆为独立维护的模�
 
 矩形 2D/3D 三模块主线的 M-A 合并验收已记录；M-B 扩展能力继续单独追踪。
 历史 B40 失败与物理适用范围仍须保留。当前结论见
-[架构验收](docs/plans/three-module-graph/acceptance_architecture.md) 与
-[能力追踪](docs/plans/three-module-graph/acceptance_document.md)；
-原计划、接管过程与各节点证据从[Graph 索引](docs/plans/three-module-graph/README.md)查阅。
+[能力范围与未完成事项](docs/capabilities.md)；
+原计划、接管过程与各节点证据从[固定历史索引](docs/history/README.md)查阅。
 
 ## 从这里开始
 
@@ -110,18 +109,15 @@ $env:NUMBA_CACHE_DIR = Join-Path $PWD '.cache/numba'
 | air_3d | 338.33 W | 1944.01 / 3038.07 | 359.23 / 344.93 |
 
 空气现按真实端口面的面积平均值校准入口绝压，误差低于0.01%才满足该项收敛条件；
-压力定义见[压力边界修复报告](docs/pressure-boundary-diagnosis-20260915.md)；
-热量参考和空气—水两种接法的收敛修复见
-[热量收敛修复报告](docs/air-water-convergence-20260915.md)。
-当前空气阻力系数来源、适用范围和预测误差见
-[直通实验标定](docs/air-drag-straight-calibration-20260916.md)。
+压力和热量收敛定义见[架构说明](docs/architecture.md)。
+当前空气阻力系数、标定来源与适用范围见[模型资源](docs/model-resources.md)；
+阶段修复与实验对照报告从[历史索引](docs/history/README.md)查阅。
 
 完整计算的 `Q` 统一为主网格 A 侧原始边界焓流绝对值。`Q_A`、`Q_B` 保留
 有符号的两侧换热量，二维 Richardson 外推值另列，不替代主指标。
 两维度的压降统一按物理端口面压力、几何开口面积加权，定义版本为
-`pressure_face_v1`。数值网格精度与实验预测误差分别评估，见
-[网格精度与性能记录](docs/accuracy-performance-20260914.md)及
-[当前求解器整理与实验误差](docs/solver-architecture-20260914.md)。
+`pressure_face_v1`。数值网格精度与实验预测误差分别评估，历史测量只代表
+其记录的代码、工况与配置，见[历史索引](docs/history/README.md)。
 热量、温度及流量指标的定义版本为 `native_boundary_v1`；旧指标文件保留原定义，
 旧原生结果可重新后处理。
 
@@ -154,9 +150,8 @@ $env:NUMBA_CACHE_DIR = Join-Path $PWD '.cache/numba'
 4 月 1 日直通实验的一维标定 `sF=2.649010286988306`，水侧保留原修正。
 保存的配置保留所选模式，旧文件未记录阻力模式时仍使用光滑 CFD；通用 API/CLI
 默认值不变。实验修正有几何、工况和标定范围限制，不代表所有压降误差已消除。
-上海原16工况×二维/三维的系数接入记录见[压降验证](docs/shanghai-experimental-df-20260915.md)；
-现行系数、两批接法的二维/三维验证和低流量外推说明见
-[直通实验标定](docs/air-drag-straight-calibration-20260916.md)。
+现行系数与低流量外推规则见[模型资源](docs/model-resources.md)。
+两批接法的历史二维/三维验证保留在[历史索引](docs/history/README.md)中。
 
 “快速设计”从给定流体工况、换热需求与压损约束筛选尺寸，使用规定速度的近似模型。
 “优化”页进行空气/空气连续场筛选与 Pareto 比较，BO 需另配对应锁定环境。
@@ -276,14 +271,14 @@ GUI 和调度留在 `ui/`、`controllers/`，模型资源保持共享。每个 P
 三项 GitHub Actions 检查；管理员同样受约束，禁止强推和删除。多人正式参与后
 再启用至少一位非作者批准；目前平台所需批准人数为 0。实际状态以 GitHub 为准。
 
-本阶段主计算可靠性与性能任务的范围和验收见
-[现行计划](docs/plans/main-compute-20260913.md)。
+现行能力与待完成事项见[能力范围](docs/capabilities.md)，
+测量工具和复现边界见[工具说明](docs/tools.md)。
 
 ## 数据与历史证据
 
 原始实验/CFD 数据位于本地 `data/raw_data/`，不提交。匹配版本见
 [data-revision.txt](data-revision.txt)。清洗、拟合和本地输出规则见
-[离线模型说明](docs/plans/three-module-graph/decisions/offline_models.md)。
+[离线模型说明](docs/model-resources.md)。
 目录按实验、CFD 结果和工况计划分类；Excel 的新旧名称、用途及读取约束见
 [数据目录与文件名对照](docs/data-catalog.md)。移动数据时须同步加载器和压力口径识别。
 

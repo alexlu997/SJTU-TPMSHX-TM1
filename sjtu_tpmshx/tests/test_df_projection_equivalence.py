@@ -1,7 +1,7 @@
 """Projection checks independent of retired gamma calibration.
 
-The original gamma baseline JSON remains unchanged as historical evidence;
-docs/history/legacy-models.md identifies the corresponding runnable Git state.
+The retired gamma baseline is preserved in fixed Git history;
+docs/history/README.md links its original file and numerical values.
 """
 import numpy as np
 import pytest

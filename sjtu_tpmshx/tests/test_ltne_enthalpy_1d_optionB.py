@@ -13,14 +13,7 @@ The production enthalpy implementation is now in solvers/ltne_enthalpy_3d.py;
 test_ltne_enthalpy_3d.py checks its 3D behavior separately. This test retains
 the PoC formulation comparison and does not replace those production checks.
 """
-import os
-import sys
-
 import pytest
-
-# poc/ lives at the repo root (sibling of the sjtu_tpmshx package).
-_REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, os.path.join(_REPO, "poc"))
 
 try:
     from CoolProp.CoolProp import PropsSI as _PropsSI  # noqa: F401
@@ -35,7 +28,7 @@ def test_enthalpy_form_conserves_where_cpT_fails():
     """On a variable-cp CO2 counterflow straddling the pseudocritical line:
     legacy cp·T transport leaves a sizeable A/B enthalpy imbalance; the Option B
     enthalpy transport closes it to < 1%."""
-    import poc_1d_ltne_enthalpy_optionB as m
+    from sjtu_tpmshx.tests import enthalpy_1d_reference as m
 
     s = m.make_setup_sco2()
 
@@ -65,7 +58,7 @@ def test_enthalpy_form_conserves_where_cpT_fails():
 def test_enthalpy_form_recovers_solid_balance():
     """Option B: each stream's boundary enthalpy duty matches the volumetric
     solid exchange it sees (|Q_enth| ≈ |Q_solid|), to a few percent."""
-    import poc_1d_ltne_enthalpy_optionB as m
+    from sjtu_tpmshx.tests import enthalpy_1d_reference as m
 
     s = m.make_setup_sco2()
     met = m.compute_metrics(m.solve_enthalpy(s), s)
