@@ -14,6 +14,7 @@ from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 import numpy as np
 from sjtu_tpmshx.domain.cancellation import CancelledError
+from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.run_environment import run_environment
 from sjtu_tpmshx.domain.run_warnings import range_context
 from sjtu_tpmshx.models.nu_correlations import record_raw_nu_range, warn_sco2_nu_evidence
@@ -493,6 +494,7 @@ class _OuterState:
     h_vB_field: np.ndarray
     rho_cp_fA: np.ndarray  # J/(m3 K)
     rho_cp_fB: np.ndarray
+    native_evidence: dict[str, object] | None  # detached last thermal state, before post
 
 
 @dataclass
@@ -525,7 +527,7 @@ class _Metrics3D:
     wc_real: object
 
 
-def build_problem(cfg, prepared):
+def build_problem(cfg, prepared, *, control: RunControl = RunControl()):
     """Seam-A extraction (P1.5, 2026-07-20): problem setup/build --
     profile/grid/axis-map resolution, D-F surrogate, SIMPLE A/B build,
     initial (parallel) SIMPLE solve, LTNE input fields. Moved VERBATIM
@@ -814,7 +816,7 @@ def build_problem(cfg, prepared):
             sA, sB,
             max_iter=_simple_max_iter(cfg, 2000),
             tol=_simple_tol_default(cfg),
-            cancel_check=cfg.get('_cancel_check'))
+            cancel_check=control.cancel_check)
         if _init_res and _init_res[0] is not None and not _init_res[0][0]:
             _simple_nonconv.append(
                 f"A@init[{getattr(sA, 'exit_reason', '?')}]")
@@ -832,7 +834,7 @@ def build_problem(cfg, prepared):
             _a0_conv, _a0_it = sA.solve(max_iter=_simple_max_iter(cfg, 2000),
                                         tol=_simple_tol_default(cfg),
                                         verbose=False,
-                                        cancel_check=cfg.get('_cancel_check'))
+                                        cancel_check=control.cancel_check)
         if not _a0_conv:
             _simple_nonconv.append(
                 f"A@init[{getattr(sA, 'exit_reason', '?')}]")
@@ -2000,13 +2002,9 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D):
     return (_result)
 
 
-def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
-    """Seam-C extraction (P1.5, 2026-07-20): the outer coupling engine --
-    outer-loop state init, the step/post closures (their nonlocals now
-    bind THIS function's locals) and the run_outer_coupling drive.
-    Moved VERBATIM from _run_3d_stack; returns the cross-seam
-    bundle. Contract: bit-identical behavior (golden gate).
-    """
+def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
+                           control: RunControl = RunControl(), capture_native=False):
+    """Run thermal-first coupling; detach native evidence before any final post."""
     D_h = prob.D_h
     G_A = prob.G_A
     G_B = prob.G_B
@@ -2171,9 +2169,8 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
         Ta = np.full(_shape3d, float(T_inA), dtype=np.float64)
         Tb = np.full(_shape3d, float(T_inB), dtype=np.float64)
         Ts = np.full(_shape3d, float(_Ts_init_user), dtype=np.float64)
-    _progress_cb = cfg.get('_progress_cb')
-    _cancel_check = cfg.get('_cancel_check')
-    _iter_cb = cfg.get('_iter_cb')
+    _cancel_check = control.cancel_check
+    native_evidence = None
     # B2 strict-conservation certificates — assigned each outer iter, read
     # after the loop for the result dict; pre-init so the step closure's
     # `nonlocal` has an enclosing binding (loop always runs ≥1 iter so the
@@ -2205,8 +2202,24 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
             with range_context(side=side, stage=stage, layout=layout):
                 record_temperature_ranges(fluid, temperature)
 
+    def _snapshot_thermal(outer, info, mode, mass_A, mass_B,
+                          pressure_A, pressure_B, faces_A, faces_B):
+        # Detach now: post can mutate capacities, conductivities and SIMPLE
+        # arrays even on the last budget iteration. These are thermal inputs.
+        from sjtu_tpmshx.domain.portable_data import mutable_data
+        return mutable_data(dict(
+            Ta=Ta, Tb=Tb, Ts=Ts, h_vA=h_vA_field, h_vB=h_vB_field,
+            K_ss=K_ss, outer_index=int(outer), mode=mode,
+            true_h=info.get('_native_state') if mode == 'true_h' else None,
+            model_h=info.get('_native_model_h'),
+            mass_A=mass_A, mass_B=mass_B,
+            P_thermal_A=pressure_A, P_thermal_B=pressure_B,
+            face_velocity_A=faces_A, face_velocity_B=faces_B,
+            rho_cp_A=rho_cp_fA, rho_cp_B=rho_cp_fB))
+
     def _outer_step_3d(outer):
         nonlocal Ta, Tb, Ts, chi_B, h_vA_field, h_vB_field, K_ffB
+        nonlocal native_evidence
         nonlocal _ltne_mask_A, _ltne_mask_B
         nonlocal _eps_A_strict, _eps_B_strict
         nonlocal _eps_A_strict_cellmax, _eps_B_strict_cellmax
@@ -2215,10 +2228,11 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
         # flag via the Cancel button or the wall-clock timeout.
         if _cancel_check is not None and _cancel_check():
             raise CancelledError("compute cancelled by user")
-        if _iter_cb is not None:
-            _iter_cb(outer + 1, _max_outer)
-        if _progress_cb is not None:
-            _progress_cb(10 + int(80 * outer / _MAX_OUTER))
+        if control.iteration is not None:
+            control.iteration(f'outer {outer + 1}/{_max_outer}')
+        if control.outer_iteration is not None:
+            control.outer_iteration(outer + 1, _max_outer)
+        control.report_progress(10 + int(80 * outer / _MAX_OUTER))
         ucA, vcA, wcA = _assemble_real_velocity()
         _enth_gate = (sB is not None
                       and 'sco2' in (fluid_type_A, fluid_type_B))
@@ -2637,20 +2651,14 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
             fluid_props.check_finite_temperatures(
                 Ta, Tb, Ts, where='3D enthalpy return')
 
-        if cfg.get('_capture_native'):
-            from sjtu_tpmshx.domain.portable_data import mutable_data
-            cfg['_native_evidence'] = mutable_data(dict(
-                Ta=Ta, Tb=Tb, Ts=Ts, h_vA=h_vA_field, h_vB=h_vB_field,
-                K_ss=K_ss, outer_index=int(outer),
-                mode=('true_h' if _enth_gate else 'model_h' if _model_h_gate else 'legacy_temperature'),
-                true_h=_ltne_info_d.get('_native_state') if _enth_gate else None,
-                model_h=_ltne_info_d.get('_native_model_h'),
-                mass_A=(_mass_faces_A if _enth_gate else _model_kwargs.get('model_mass_A')),
-                mass_B=(_mass_faces_B if _enth_gate else _model_kwargs.get('model_mass_B')),
-                P_thermal_A=(_P_A_local if _enth_gate else None),
-                P_thermal_B=(_P_B_local if _enth_gate else None),
-                face_velocity_A=(ufA, vfA, wfA), face_velocity_B=(ufB, vfB, wfB),
-                rho_cp_A=rho_cp_fA, rho_cp_B=rho_cp_fB))
+        if capture_native:
+            native_evidence = _snapshot_thermal(
+                outer, _ltne_info_d,
+                'true_h' if _enth_gate else 'model_h' if _model_h_gate else 'legacy_temperature',
+                _mass_faces_A if _enth_gate else _model_kwargs.get('model_mass_A'),
+                _mass_faces_B if _enth_gate else _model_kwargs.get('model_mass_B'),
+                _P_A_local if _enth_gate else None, _P_B_local if _enth_gate else None,
+                (ufA, vfA, wfA), (ufB, vfB, wfB))
 
         # B2 strict-conservation certificate (last outer iter holds final).
         _eps_A_strict = _ltne_info_d.get('eps_A_strict')
@@ -3018,4 +3026,5 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery):
         h_vB_field=h_vB_field,
         rho_cp_fA=rho_cp_fA,
         rho_cp_fB=rho_cp_fB,
+        native_evidence=native_evidence,
     )
