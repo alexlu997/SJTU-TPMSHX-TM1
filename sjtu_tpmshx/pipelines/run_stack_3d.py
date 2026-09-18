@@ -5,6 +5,7 @@ keeps preprocessing at the orchestration boundary without modifying backend
 globals. Numerical implementations live in solvers.backends.python.three_d.
 """
 
+from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.solvers.backends.python.three_d.runtime import (
     _build_hv_machinery,
     _extract_3d_metrics,
@@ -13,16 +14,26 @@ from sjtu_tpmshx.solvers.backends.python.three_d.runtime import (
 )
 
 
-def _build_3d_problem(cfg):
+def _build_3d_problem(cfg, *, control: RunControl = RunControl()):
     """Prepare legacy inputs at the orchestration boundary, then build runtime."""
+    for key, port in (('_cancel_check', 'cancel_check'),
+                      ('_progress_cb', 'progress'), ('_iter_cb', 'outer_iteration')):
+        if key in cfg:
+            raise ValueError(f'{key} is no longer supported in cfg; '
+                             f'pass control=RunControl({port}=...) instead')
+    if control.backend != 'python':
+        raise ValueError(f'unsupported backend: {control.backend}')
+    control.check_cancelled()
     from sjtu_tpmshx.preprocess.three_d.preparation import _prepare_problem_data
     from sjtu_tpmshx.solvers.backends.python.three_d.runtime import build_problem
     prepared = _prepare_problem_data(cfg)
-    return build_problem(prepared['cfg'], prepared)
+    return build_problem(prepared['cfg'], prepared, control=control)
 
 
-def _run_3d_stack(cfg):
+def _run_3d_stack(cfg, *, control: RunControl = RunControl()):
     """Unified 3D stack: SIMPLE3D (A) + frozen Tb + LTNE3D.
+
+    Runtime callbacks are supplied through ``control``, never through ``cfg``.
 
     Supports fluid-A streamwise direction ∈ {+x, -x, +y, -y} and partial
     inlet/outlet in the cross-stream dimension (z-partial optional via
@@ -35,11 +46,11 @@ def _run_3d_stack(cfg):
       'full_validate' — cfg grid,  outer cap 12, max_iter=50000, full diag
       None (default)  — cfg values, outer cap 12 (_MAX_OUTER), full diagnostic
     """
-    prob = _build_3d_problem(cfg)
+    prob = _build_3d_problem(cfg, control=control)
     cfg = prob.cfg   # fast_sweep profile may rebind cfg inside seam A
     hv = _build_hv_machinery(prob)
 
-    outer = _run_outer_coupling_3d(prob, hv)
+    outer = _run_outer_coupling_3d(prob, hv, control=control)
 
     met = _extract_3d_metrics(prob, outer)
 
