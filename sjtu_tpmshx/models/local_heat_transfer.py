@@ -13,6 +13,13 @@ def local_speed(uc, vc, wc=None):
     return np.sqrt(speed_squared)
 
 
+def local_nusselt(model, tpms_type, Re, eps_f, L_mm, D_h_mm, Pr):
+    """Uniform-grid Nu floors; callers own properties, raw-Re notices and h_v."""
+    from sjtu_tpmshx.models.nu_correlations import NU_LAM_FLOOR
+    Nu = model.nu(tpms_type, np.maximum(Re, 1.0), eps_f, L_mm, D_h_mm, Pr)
+    return np.maximum(np.asarray(Nu, dtype=np.float64), NU_LAM_FLOOR)
+
+
 def _sco2_hv_local_field(T_field: np.ndarray, P_Pa: float,
                          u_abs: np.ndarray | float, A_0: float,
                          D_h_m: float, tpms_type: str,

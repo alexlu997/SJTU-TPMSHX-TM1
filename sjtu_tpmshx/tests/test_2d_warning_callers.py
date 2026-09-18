@@ -162,6 +162,80 @@ def test_actual_workers_and_local_re_snapshots(monkeypatch, zoned):
         assert source.minimum[0] == 1.
 
 
+@pytest.mark.parametrize('pair', [('air', 'water'), ('water', 'air'),
+                                ('sco2', 'water'), ('air', 'sco2')])
+def test_uniform_hv_keeps_second_pass_property_sampling(monkeypatch, pair):
+    from sjtu_tpmshx.domain import run_warnings as rw
+    from sjtu_tpmshx.models.grid import cell_average
+    from sjtu_tpmshx.solvers import ltne_enthalpy_2d
+
+    pipe, fields = _prepare(monkeypatch, pair=pair, temperatures=(330., 300.))
+    cfg = pipe._parsed
+    shape = cfg['N_x'], cfg['N_y']
+    variation = np.linspace(0., 10., np.prod(shape)).reshape(shape)
+    returned = (320. + variation, 300. + variation, 310. + variation)
+    original_nu = solve_2d.local_nusselt
+    enthalpy = 'sco2' in pair
+    epoch, step_call = 0, None
+    expected_hv, sampled = {}, []
+
+    def nusselt(model, topology, Re, eps, length, diameter, Pr):
+        side = rw._range_context.get()[0]
+        state = inspect.getclosurevars(step_call).nonlocals
+        props = state['_p' + side]
+        inlet = cfg['T_in' + side]
+        pressure = getattr(cfg['compute_cfg'], 'fluid_' + side).P_in_Pa
+        speed = solve_2d.local_speed(state['uc' + side], state['vc' + side])
+        if enthalpy:
+            temperature = state['Ta' if side == 'A' else 'Tb']
+            temperature = np.full_like(speed, inlet) if temperature is None else temperature
+            rho = cell_average(props.rho(temperature, pressure), fields['energy_dx'], fields['energy_dy'])
+            mu = cell_average(props.mu(temperature, pressure), fields['energy_dx'], fields['energy_dy'])
+            sample_T = cell_average(temperature, fields['energy_dx'], fields['energy_dy'])
+        else:
+            rho = cell_average(state['rho_' + side + '_field'], fields['energy_dx'], fields['energy_dy'])
+            mu = cell_average(state['mu_' + side], fields['energy_dx'], fields['energy_dy'])
+            sample_T = inlet
+        geometry = cfg['thermal_geometry']['uniform']
+        expected = rho * (np.abs(speed) + 1e-12) * geometry['D_h'] / mu
+        np.testing.assert_array_equal(Re, expected)
+        expected_Pr = (float(props.mu(sample_T, pressure)) * float(props.cp(sample_T, pressure))
+                       / float(props.k(sample_T, pressure))) if model.name == 'water' else None
+        assert Pr == expected_Pr
+        if epoch == 1:
+            inlet_Re = (props.rho(inlet, pressure) * (np.abs(speed) + 1e-12)
+                        * geometry['D_h'] / props.mu(inlet, pressure))
+            assert not np.array_equal(Re, inlet_Re)
+        Nu = original_nu(model, topology, Re, eps, length, diameter, Pr)
+        expected_hv[side] = geometry['A_0'] * Nu * float(props.k(sample_T, pressure)) / geometry['D_h']
+        sampled.append((epoch, side))
+        return Nu
+
+    def thermal(*args, **kwargs):
+        for side, value in zip(('A', 'B'), args[6:8] if enthalpy else args[9:11]):
+            if pair[0 if side == 'A' else 1] != 'sco2':
+                np.testing.assert_array_equal(value, expected_hv[side])
+        return (*returned, dict(converged=True, iterations=1, residual=0., Q_A=10., Q_B=-10.))
+
+    def drive(*, step, post, **kwargs):
+        nonlocal epoch, step_call
+        step_call = step
+        _, carry = step(0)
+        post(0, carry)
+        epoch = 1
+        step(1)
+        raise ThermalBoundary
+
+    monkeypatch.setattr(solve_2d, 'local_nusselt', nusselt)
+    monkeypatch.setattr(solve_2d, 'solve_full_domain', thermal)
+    monkeypatch.setattr(ltne_enthalpy_2d, 'solve_enthalpy_2d', thermal)
+    monkeypatch.setattr(solve_2d, 'run_outer_coupling', drive)
+    with warning_scope({}), pytest.raises(ThermalBoundary):
+        pipe.run_solvers(fields)
+    assert sampled == [(epoch, side) for epoch in range(2)
+                       for side, fluid in zip(('A', 'B'), pair) if fluid != 'sco2']
+
+
 @pytest.mark.parametrize('nan', [False, True])
 @pytest.mark.parametrize('low', [False, True])
 def test_main_warm_return_final_and_outlet_keep_actual_states(monkeypatch, nan, low):
