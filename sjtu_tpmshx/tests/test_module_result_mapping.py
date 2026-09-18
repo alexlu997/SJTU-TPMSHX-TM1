@@ -20,6 +20,17 @@ from sjtu_tpmshx.tests.integration_tm1.test_2d_real import baseline_config
 from sjtu_tpmshx.tests.integration_tm1.test_public_api import assert_slots
 
 
+def _assert_producer_diagnostics(raw, diagnostics):
+    # Frozen former capture rule: protect every existing key, including None
+    # placeholders and nested audit arrays, as producers take over ownership.
+    expected = {key: value for key, value in raw.items()
+                if not isinstance(value, np.ndarray)
+                and key not in ('_native_evidence', 'application')}
+    assert diagnostics.keys() == expected.keys()
+    for key, value in expected.items():
+        assert diagnostics[key] is value, key
+
+
 def _small_air_air_cfg():
     """Tiny air-air cross-flow case (8x8x4) — fast, exercises both fluids."""
     return ComputeConfig(
@@ -53,8 +64,14 @@ def native_result(request):
     captured = []
     capture = module.capture_result
     def record(*args):
-        captured.append(args[1] if dimension == 2 else args[3])
-        return capture(*args)
+        raw = args[1] if dimension == 2 else args[3]
+        diagnostics = args[-1]
+        _assert_producer_diagnostics(raw, diagnostics)
+        captured.append(raw)
+        result = capture(*args)
+        assert result.metadata['diagnostics'].keys() == diagnostics.keys()
+        assert_slots(result.metadata['diagnostics'], diagnostics)
+        return result
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(module, 'capture_result', record)
         case = prepare_case(config, case_id=f'mapping-{dimension}d')
@@ -63,6 +80,44 @@ def native_result(request):
         assert 'ucA_display' in fields.fields
         assert not np.array_equal(fields.fields['ucA'], fields.fields['ucA_display'])
     return fields, captured[0]
+
+
+@pytest.mark.parametrize('frozen_B', [False, True])
+@pytest.mark.parametrize('audit', [False, True])
+def test_legacy_3d_producer_preserves_optional_diagnostics(monkeypatch, frozen_B, audit):
+    from sjtu_tpmshx.pipelines import run_stack_3d as stack
+    from sjtu_tpmshx.tests.test_convergence_truth_table import _cheap_3d
+
+    cfg = _cheap_3d(max_outer_ltne=1, _emit_audit=audit)
+    # Exercise ordinary reporting; compact sweep CSV expects a solved B outlet.
+    cfg['sweep_profile'] = None
+    if frozen_B:
+        cfg['fluid_B_cfg'] = None
+    assemble = stack._assemble_3d_verdict
+    observed = []
+
+    def record(prob, outer, metrics):
+        raw, diagnostics = assemble(prob, outer, metrics)
+        _assert_producer_diagnostics(raw, diagnostics)
+        observed.append(raw)
+        if frozen_B:
+            assert raw['P_Pa_B'] is raw['vmag_B'] is None
+            assert diagnostics['P_Pa_B'] is diagnostics['vmag_B'] is None
+        if audit:
+            assert '_audit_sA_face' in diagnostics
+            assert '_audit_K_ffA' not in diagnostics
+            assert not np.shares_memory(raw['_audit_K_ffA'], prob.K_ffA)
+            assert not np.shares_memory(diagnostics['_audit_sA_face']['u'], prob.sA.u)
+            if frozen_B:
+                assert diagnostics['_audit_sB_face'] is None
+                assert diagnostics['_audit_in_mask_B'] is None
+        else:
+            assert not any(key.startswith('_audit_') for key in raw)
+        return raw, diagnostics
+
+    monkeypatch.setattr(stack, '_assemble_3d_verdict', record)
+    result = stack._run_3d_stack(cfg)
+    assert len(observed) == 1 and result is observed[0]
 
 
 def test_application_fields_and_scalars_match_native_solve(native_result):

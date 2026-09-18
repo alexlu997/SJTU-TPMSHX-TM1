@@ -111,8 +111,8 @@ def run_case(case, control=RunControl()):
     hv = runtime._build_hv_machinery(prob)
     outer = runtime._run_outer_coupling_3d(prob, hv, control=control, capture_native=True)
     metrics = runtime._extract_3d_metrics(prob, outer)
-    raw = runtime._assemble_3d_verdict(prob, outer, metrics)
+    raw, diagnostics = runtime._assemble_3d_verdict(prob, outer, metrics)
     control.check_cancelled()
-    result = capture_result(case, prob, outer, raw)
+    result = capture_result(case, prob, outer, raw, diagnostics)
     control.report_progress(100)
     return result

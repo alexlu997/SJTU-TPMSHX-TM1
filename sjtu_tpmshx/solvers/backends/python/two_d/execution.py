@@ -110,8 +110,8 @@ def run_case(case: CaseData, control: RunControl = RunControl()):
     control.check_cancelled()
     cfg, prepared = build_execution_inputs(case)
     runtime = build_runtime(cfg, prepared, residual_cb=control.residual)
-    raw = _run_solvers(cfg, runtime, control)
+    raw, diagnostics = _run_solvers(cfg, runtime, control)
     control.check_cancelled()
-    result = capture_result(case, raw)
+    result = capture_result(case, raw, diagnostics)
     control.report_progress(100)
     return result

@@ -5,7 +5,7 @@ import numpy as np
 from sjtu_tpmshx.domain.field_result import FieldResult
 
 
-def capture_result(case, raw):
+def capture_result(case, raw, diagnostics):
     native = raw['_native_evidence']
     fields = {key: native[key] for key in (
         'Ta', 'Tb', 'Ts', 'P_thermal_A', 'P_thermal_B', 'P_report_A', 'P_report_B',
@@ -28,8 +28,6 @@ def capture_result(case, raw):
                  'final flow/report' if key.startswith(('P_report', 'uc', 'vc')) else
                  'raw last main thermal return')
         field_metadata[key] = dict(unit=unit, axes=('x', 'y'), location='cell', state=state)
-    diagnostics = {key: value for key, value in raw.items()
-                   if not isinstance(value, np.ndarray) and key not in ('_native_evidence', 'application')}
     model_metadata = dict(case.metadata['model_metadata'])
     if native['true_h'] and 'sco2_enthalpy_eos' in native['true_h']:
         model_metadata['sco2_enthalpy_eos'] = native['true_h']['sco2_enthalpy_eos']
