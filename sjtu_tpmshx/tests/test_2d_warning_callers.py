@@ -236,6 +236,45 @@ def test_uniform_hv_keeps_second_pass_property_sampling(monkeypatch, pair):
                        for side, fluid in zip(('A', 'B'), pair) if fluid != 'sco2']
 
 
+@pytest.mark.parametrize('cap', [False, True])
+def test_last_thermal_capacities_survive_post_for_richardson(monkeypatch, cap):
+    pipe, fields = _prepare(monkeypatch, legacy=True, temperatures=(400., 300.))
+    shape = pipe._parsed['N_x'], pipe._parsed['N_y']
+    wanted = []
+
+    def thermal(*args, **kwargs):
+        return (*(np.full(shape, t) for t in (340., 310., 325.)),
+                dict(converged=True, iterations=1, residual=0.))
+
+    def drive(*, step, post, **kwargs):
+        _, carry = step(0)
+        post(0, carry)
+        _, carry = step(1)
+        state = inspect.getclosurevars(step).nonlocals
+        consumed = state['last_temperature_inputs'][:2]
+        wanted.extend(value.copy() for value in consumed)
+        if cap:
+            post(1, carry)
+            state = inspect.getclosurevars(step).nonlocals
+            for side, value in zip(('A', 'B'), consumed):
+                working = state['rho_cp_' + side]
+                assert not np.shares_memory(value, working)
+                working[:] *= 1.1
+        return 1, not cap
+
+    def richardson(*args, **kwargs):
+        for actual, expected in zip(args[7:9], wanted):
+            np.testing.assert_array_equal(actual, expected)
+        return 10., 10., -10., 10., False, dict(converged=True, extrapolated=True)
+
+    monkeypatch.setattr(solve_2d, 'solve_full_domain', thermal)
+    monkeypatch.setattr(solve_2d, 'run_outer_coupling', drive)
+    monkeypatch.setattr(solve_2d, '_compute_Q_richardson', richardson)
+    with warning_scope({}):
+        pipe.run_solvers(fields)
+    assert len(wanted) == 2
+
+
 @pytest.mark.parametrize('nan', [False, True])
 @pytest.mark.parametrize('low', [False, True])
 def test_main_warm_return_final_and_outlet_keep_actual_states(monkeypatch, nan, low):

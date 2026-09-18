@@ -226,6 +226,45 @@ def test_model_h_ledger_reaches_result_before_final_post(monkeypatch, cap, inval
             assert all(value == expected for value in values)
 
 
+@pytest.mark.parametrize('cap', [False, True])
+def test_native_thermal_snapshot_survives_final_post(monkeypatch, cap):
+    from sjtu_tpmshx.solvers.backends.python.three_d import runtime as stages
+    from sjtu_tpmshx.pipelines.run_stack_3d import _build_3d_problem
+    monkeypatch.setattr(stages.SIMPLESolver3D, 'solve', lambda *a, **k: (True, 0))
+    prob = _build_3d_problem(_pipeline_cfg())
+    hv = stages._build_hv_machinery(prob)
+    signature = inspect.signature(energy.solve_full_domain_3d)
+    consumed = {}
+
+    def thermal(*args, **kwargs):
+        call = signature.bind(*args, **kwargs).arguments
+        consumed.update({name: call[name].copy() for name in ('rho_cp_fA', 'rho_cp_fB')})
+        shape = prob.Nx, prob.Ny, prob.Nz
+        return (np.full(shape, 340.), np.full(shape, 310.), np.full(shape, 325.),
+                dict(converged=True, iterations=1, residual=0.))
+
+    def drive(*, step, post, **kwargs):
+        _, carry = step(0)
+        if cap:
+            post(0, carry)
+        return 0, not cap
+
+    monkeypatch.setattr(stages, 'solve_full_domain_3d', thermal)
+    monkeypatch.setattr(stages, 'run_outer_coupling', drive)
+    outer = stages._run_outer_coupling_3d(prob, hv, capture_native=True)
+    native = outer.native_evidence
+    assert native['outer_index'] == 0 and outer._outer_converged == (not cap)
+    assert '_native_evidence' not in prob.cfg
+    for side in ('A', 'B'):
+        np.testing.assert_array_equal(native['rho_cp_' + side], consumed['rho_cp_f' + side])
+        assert not np.shares_memory(native['rho_cp_' + side], getattr(outer, 'rho_cp_f' + side))
+        assert not np.shares_memory(native['h_v' + side], getattr(outer, 'h_v' + side + '_field'))
+    outer.Ta[:] = 350.
+    prob.K_ss[:] = 0.
+    np.testing.assert_array_equal(native['Ta'], 340.)
+    assert np.all(native['K_ss'] > 0.)
+
+
 def test_reported_model_h_two_unequal_outlets_excludes_diffusion(monkeypatch):
     from sjtu_tpmshx.solvers.backends.python.three_d import runtime as stages
     from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack

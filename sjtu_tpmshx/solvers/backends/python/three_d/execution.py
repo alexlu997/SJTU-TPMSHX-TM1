@@ -107,18 +107,9 @@ def run_case(case, control=RunControl()):
         raise ValueError(f'unsupported backend: {control.backend}')
     control.check_cancelled()
     cfg, prepared = build_execution_inputs(case)
-    cfg['_capture_native'] = True
-    cfg['_cancel_check'] = control.cancel_check
-    cfg['_progress_cb'] = control.report_progress
-    def report_iteration(current, total):
-        if control.iteration is not None:
-            control.iteration(f'outer {current}/{total}')
-        if control.outer_iteration is not None:
-            control.outer_iteration(current, total)
-    cfg['_iter_cb'] = report_iteration
-    prob = runtime.build_problem(cfg, prepared)
+    prob = runtime.build_problem(cfg, prepared, control=control)
     hv = runtime._build_hv_machinery(prob)
-    outer = runtime._run_outer_coupling_3d(prob, hv)
+    outer = runtime._run_outer_coupling_3d(prob, hv, control=control, capture_native=True)
     metrics = runtime._extract_3d_metrics(prob, outer)
     raw = runtime._assemble_3d_verdict(prob, outer, metrics)
     control.check_cancelled()

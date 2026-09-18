@@ -43,11 +43,10 @@ def to_compute_result(result, performance):
                       za=(_legacy_zone_units(mutable_data(result.metadata['design_fields']))
                           if result.metadata['design_mode'] != 'uniform' else None))
         residuals = {name: diagnostics[name] for name in
-                     ('mass_imbalance_rel_A', 'mass_imbalance_rel_B', 'Q_A', 'Q_B', 'Q_net', 'energy_imbalance_rel')}
+                     ('mass_imbalance_rel_A', 'mass_imbalance_rel_B', 'Q_A', 'Q_B', 'energy_imbalance_rel')}
         residuals.update(r_dP_A=float('nan'), r_dP_B=float('nan'),
                          r_Q=float(bool(diagnostics['Q_richardson_warn'])),
-                         simple_A=diagnostics['residuals_A'], simple_B=diagnostics['residuals_B'],
-                         enthalpy_imbalance_rel=diagnostics['energy_imbalance_rel'])
+                         simple_A=diagnostics['residuals_A'], simple_B=diagnostics['residuals_B'])
         zones = application['zones']
     elif dimension == 3:
         geometry = parameters['prepared']['geometry']
@@ -58,9 +57,8 @@ def to_compute_result(result, performance):
                       dir_A=diagnostics['dir_A'], dir_B=diagnostics['dir_B'],
                       h_vA_field=f['h_vA'], h_vB_field=f['h_vB'])
         residuals = {name: diagnostics.get(name) for name in (
-            'Q_enthalpy_A', 'Q_enthalpy_B', 'Q_solid_B', 'Q_sA', 'Q_sB', 'Q_net', 'Q_interior',
+            'Q_enthalpy_A', 'Q_enthalpy_B', 'Q_solid_B', 'Q_sA', 'Q_sB', 'Q_interior',
             'energy_imbalance_rel', 'mass_imbalance_rel_A', 'mass_imbalance_rel_B')}
-        residuals['enthalpy_imbalance_rel'] = diagnostics['Q_AB_imbalance_rel']
         zones = None
     else:
         raise ValueError(f'unsupported result dimension: {dimension}')
