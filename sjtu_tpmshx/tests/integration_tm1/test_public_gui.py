@@ -118,7 +118,7 @@ def test_saved_polygon_cannot_start_compute(win, monkeypatch, shape, dimension):
 @pytest.mark.parametrize('dimension', [2, 3])
 def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, dimension):
     monkeypatch.setenv('SJTU_TPMSHX_DISABLE_3D_PANEL', '1')
-    monkeypatch.setenv('TPMSHX_EAGER_3D_SLICES', '1')
+    monkeypatch.delenv('TPMSHX_EAGER_3D_SLICES', raising=False)
     monkeypatch.setattr('sjtu_tpmshx.ui.mixins.run_history._TIMELINE_FILE', tmp_path / 'timeline.jsonl')
     errors = []
     dialogs = []
@@ -201,6 +201,16 @@ def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, di
     assert '[°C]' in win._lbl_sidebar_tout_unit.text()
     if dimension == 3:
         assert win._resid_spark._data == []
+    for width in (900, 1440):
+        win.resize(width, 720 if width == 900 else 900)
+        _wait_for(lambda: win._canvas_scroll.verticalScrollBar().maximum() == 0,
+                  timeout=2)
+        QApplication.processEvents()
+        canvas = win.canvas_temp
+        canvas.draw()
+        axis = canvas.axes[0][0]
+        assert axis.xaxis.label.get_window_extent(canvas.renderer).y0 >= 0
+        assert axis.title.get_window_extent(canvas.renderer).y1 <= canvas.fig.bbox.height
     screenshot = Path(f'.cache/tm1-apps/gui-{dimension}d.png')
     screenshot.parent.mkdir(parents=True, exist_ok=True)
     assert win.grab().save(str(screenshot))

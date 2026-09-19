@@ -216,29 +216,20 @@ class AppearanceMixin:
                 "3D immersive mode off.", 3000)
 
     def _toggle_left_panel(self):
-        """Collapse / restore the left parameter panel.
-
-        Hides the splitter's first widget rather than zero-sizing it, because
-        build_ui pins `setChildrenCollapsible(False)` to prevent accidental
-        drag-collapse. Tracks state in `_left_collapsed` so the toggle works
-        even before the window is mapped to the screen (when `isVisible()`
-        would otherwise lie).
-        """
-        if not hasattr(self, '_splitter'):
+        """Collapse the parameter inspector; retain the existing shortcut name."""
+        if not hasattr(self, '_param_panel'):
             return
-        left_widget = self._splitter.widget(0)
-        if left_widget is None:
-            return
+        panel = self._param_panel
         collapsed = getattr(self, '_left_collapsed', False)
         if not collapsed:
-            left_widget.hide()
+            panel.hide()
             self._left_collapsed = True
             if hasattr(self, 'btn_toggle_left'):
-                self.btn_toggle_left.setText("›")
-                self.btn_toggle_left.setToolTip("Restore parameter panel")
+                self.btn_toggle_left.setText("‹")
+                self.btn_toggle_left.setToolTip("展开右侧参数")
         else:
-            left_widget.show()
+            panel.show()
             self._left_collapsed = False
             if hasattr(self, 'btn_toggle_left'):
-                self.btn_toggle_left.setText("‹")
-                self.btn_toggle_left.setToolTip("Collapse parameter panel")
+                self.btn_toggle_left.setText("›")
+                self.btn_toggle_left.setToolTip("收起右侧参数")

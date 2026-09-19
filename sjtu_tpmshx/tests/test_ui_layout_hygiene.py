@@ -123,7 +123,7 @@ def test_sticky_cta_outside_scroll(win):
 _EXPECTED_GROUPS = {
     "几何与结构": True,
     "流体": True,
-    "网格与求解器": False,
+    "网格与求解器": True,
     "边界细节与高级": False,
 }
 
@@ -135,9 +135,9 @@ def test_four_workflow_groups_with_default_states(win):
         assert groups[name].isChecked() == open_, name
 
 
-def test_left_panel_has_single_scroll_area(win):
+def test_parameter_inspector_has_single_scroll_area(win):
     """Nested page scroll shells were dropped — one outer scroll only."""
-    outer = win._splitter.widget(0) if hasattr(win, "_splitter") else None
+    outer = win._param_panel
     assert outer is not None
     scrolls = [s for s in outer.findChildren(QScrollArea) if s.isVisible()]
     assert len(scrolls) <= 1, [s.objectName() or repr(s) for s in scrolls]
@@ -145,6 +145,7 @@ def test_left_panel_has_single_scroll_area(win):
 
 def test_tpms_computed_collapsed_then_autoexpands(win):
     app = QApplication.instance()
+    win._select_param_page(0)
     sec = win._ia_sections["tpms_computed"]
     frame = sec.layout().itemAt(1).widget()
     assert not frame.isVisible()          # starts collapsed
@@ -153,6 +154,7 @@ def test_tpms_computed_collapsed_then_autoexpands(win):
     # group ① is open, so the expanded card becomes visible-to-window
     assert frame.isVisibleTo(win)
     assert win._v_eps.text() not in ("—", "")
+    win._select_param_page(1)
 
 
 def test_group_badge_counts_empty_field(win):
@@ -297,7 +299,85 @@ def test_result_summary_toggle_keeps_values_and_tab_choice(win):
     assert win.btn_result_summary.isHidden()
 
 
+def test_field_toolbar_wraps_without_truncating_button_text(win):
+    from sjtu_tpmshx.tests.test_worker_result_handoff import _wait_for
+    app = QApplication.instance()
+    old_size = win.size()
+    win.combo_dim.setCurrentIndex(0)
+    win.cache.set_result('2d', {'stub': True})
+    win._has_results = True
+    win._update_tab_visibility()
+    win._switch_tab('temp')
+    try:
+        for width, direction in (
+                (900, QBoxLayout.Direction.TopToBottom),
+                (1440, QBoxLayout.Direction.LeftToRight)):
+            win.resize(width, 720)
+            app.processEvents()
+            app.processEvents()
+            assert win.width() == width
+            assert win._field_toolbar.direction == direction
+            _wait_for(lambda: win._canvas_scroll.verticalScrollBar().maximum() == 0,
+                      timeout=1)
+            for button in (*win._field_phase_btns, *win._2d_field_btns):
+                assert button.isVisibleTo(win)
+                assert button.width() >= button.sizeHint().width(), button.text()
+    finally:
+        win._switch_tab('layout')
+        win._has_results_2d = False
+        win._has_results = False
+        win.resize(old_size)
+        win._update_tab_visibility()
+
+
+def test_result_footer_wraps_full_diagnostics_and_long_kpis(win):
+    from sjtu_tpmshx.tests.test_worker_result_handoff import _wait_for
+    from PySide6.QtWidgets import QLabel
+    from sjtu_tpmshx.ui.builders_sidebar import refresh_result_sidebar
+
+    app = QApplication.instance()
+    old_size = win.size()
+    win.combo_dim.setCurrentIndex(0)
+    win.cache.set_result('2d', {'stub': True})
+    win._has_results = True
+    win._update_tab_visibility()
+    win._switch_tab('temp')
+    values = {'Q': '31124.6', 'dPA': '1626.3', 'dPB': '1189.0',
+              'ToutA': '303.34', 'ToutB': '334.79'}
+    for key, value in values.items():
+        win._res_chips[key].setText(value)
+    win._result_Q_unit = 'W/m'
+    win._diag_summary = {'mode': '2d', 'closure_rel': .012,
+                         'envelope_valid': True, 'extrap': ['outside fit'],
+                         'iters': {'iter_outer': 12}, 'wall_s': 123.4}
+    refresh_result_sidebar(win)
+    try:
+        for width, direction in (
+                (900, QBoxLayout.Direction.TopToBottom),
+                (1440, QBoxLayout.Direction.LeftToRight)):
+            win.resize(width, 720)
+            app.processEvents()
+            app.processEvents()
+            assert win.width() == width
+            assert win._result_kpi_row.direction == direction
+            assert win._result_diagnostic_row.direction == direction
+            _wait_for(lambda: win._canvas_scroll.verticalScrollBar().maximum() == 0,
+                      timeout=1)
+            for label in win._result_sidebar.findChildren(QLabel):
+                if label.isVisibleTo(win):
+                    if label.wordWrap():
+                        # Wrapped labels may be narrower than their preferred size.
+                        assert label.width() >= label.minimumSizeHint().width(), label.text()
+                        assert label.height() >= label.heightForWidth(label.width()), label.text()
+                    else:
+                        assert label.width() >= label.sizeHint().width(), label.text()
+    finally:
+        win._invalidate_results_for_preset_load()
+        win.resize(old_size)
+
+
 # ── ui-plan-b-wizard: Optimize tab three-page wizard ─────────────────
+
 
 def test_optimize_wizard_pages(win):
     """Three wizard pages; pills flip the stack; engine stage transitions
@@ -424,6 +504,7 @@ def test_mode_gates_survive_group_toggle(win):
     """Expanding a collapsed group must not resurrect 3D-only widgets in
     2D mode (blanket-show + re-assert)."""
     app = QApplication.instance()
+    win._select_param_page(2)
     win.combo_dim.setCurrentIndex(0)      # force 2D
     app.processEvents()
     grp = win._accordion_groups["网格与求解器"]
@@ -432,6 +513,7 @@ def test_mode_gates_survive_group_toggle(win):
     assert not win.le_Nz.isVisibleTo(win), "3D-only Nz visible in 2D mode"
     grp.setChecked(False)
     app.processEvents()
+    win._select_param_page(1)
 
 
 def test_collapsing_and_resizing_preserves_solver_inputs(win):
@@ -441,6 +523,10 @@ def test_collapsing_and_resizing_preserves_solver_inputs(win):
     before = asdict(config_from_window(win))
     for width in (900, 1440):
         win.resize(width, 800)
+        for button in win._param_btns:
+            button.click()
+            QApplication.processEvents()
+            assert asdict(config_from_window(win)) == before
         for group in win._accordion_groups.values():
             group.setChecked(False)
         QApplication.processEvents()
@@ -451,6 +537,24 @@ def test_collapsing_and_resizing_preserves_solver_inputs(win):
         assert asdict(config_from_window(win)) == before
     for name, expanded in _EXPECTED_GROUPS.items():
         win._accordion_groups[name].setChecked(expanded)
+    win._select_param_page(1)
+
+
+def test_reveal_invalid_input_opens_its_page_and_inspector(win):
+    from sjtu_tpmshx.ui.ui_builders import reveal_parameter
+
+    win._select_param_page(1)
+    win._accordion_groups['网格与求解器'].setChecked(False)
+    win._toggle_left_panel()
+    assert win._param_panel.isHidden()
+    reveal_parameter(win, win.le_Nx)
+    QApplication.processEvents()
+    assert win._param_page == 2
+    assert win.le_Nx.isVisibleTo(win)
+    assert win._param_panel.isVisibleTo(win)
+    assert win._workbench_canvas.isVisibleTo(win)
+    assert win.btn_compute.isVisibleTo(win)
+    win._select_param_page(1)
 
 
 @pytest.mark.parametrize('side', ['A', 'B'])

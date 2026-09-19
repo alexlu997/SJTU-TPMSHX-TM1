@@ -1,8 +1,9 @@
-"""Theme system for SJTU-TPMSHX GUI — light + glassmorphism dark.
+"""Theme system for SJTU-TPMSHX GUI — light and charcoal workbenches.
 
 Design tokens follow an 8dp spacing rhythm.
 Typography: modular scale 9 / 10 / 11 / 12 / 14 pt.
 """
+from sjtu_tpmshx.ui.typography import FONT_STACK
 
 # ── Typography — modular scale (pt), smallest → largest ──────
 # One coherent hierarchy. Section titles (FONT_SECTION) now sit one step
@@ -38,12 +39,12 @@ _THEMES = {
     'light': dict(
         # Light theme 4-tier elevation — subtler than dark since contrast
         # is driven by shadows rather than tonal lightening.
-        surface_base="#f7f8fa", surface_raised="#ffffff",
-        surface_elevated="#ffffff", surface_overlay="#ffffff",
-        border_subtle="#e5e7eb", border_strong="#cbd5e1",
-        bg="#f7f8fa", fg="#1f2937", val="#1e40af", warn="#b45309",
-        card_bg="#ffffff", card_border="#e5e7eb", card_shadow="rgba(0,0,0,18)",
-        scroll_bg="#f3f4f6",
+        surface_base="#eef1f5", surface_raised="#ffffff",
+        surface_elevated="#f8fafc", surface_overlay="#ffffff",
+        border_subtle="#dce2e9", border_strong="#bac5d2",
+        bg="#eef1f5", fg="#243140", val="#1e609b", warn="#a35d11",
+        card_bg="#ffffff", card_border="#dce2e9", card_shadow="rgba(0,0,0,18)",
+        scroll_bg="#f8fafc",
         inp_bg="#ffffff", inp_fg="#111827", inp_border="#d1d5db",
         inp_focus="#2c5282",
         frame_border="rgba(0,0,0,0.05)", frame_neutral="255,255,255,60",
@@ -61,12 +62,9 @@ _THEMES = {
         ax_text="#333333", ax_spine="#cccccc", zone_line="#666666",
         zone_fill="#4472c4", poly_fill="#e8e8e8",
         splitter="rgba(0,0,0,25)", splitter_hover="#2c5282",
-        hdr_bg="qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #1a2a44,stop:1 #2a4060)",
-        hdr_fg="white",
-        hdr_btn_bg="rgba(255,255,255,0.12)",
-        hdr_btn_border="rgba(255,255,255,0.25)",
-        hdr_btn_fg="rgba(255,255,255,0.85)",
-        hdr_btn_hover="rgba(255,255,255,0.20)",
+        hdr_bg="#ffffff", hdr_fg="#243140",
+        hdr_btn_bg="#f8fafc", hdr_btn_border="#dce2e9",
+        hdr_btn_fg="#526174", hdr_btn_hover="#e8eef5",
         tab_on_bg="#2c5282", tab_on_fg="white", tab_on_border="#2c5282",
         tab_off_bg="transparent", tab_off_fg="#6b7280", tab_off_border="#d1d5db",
         tab_off_hover="#eef0f3",
@@ -75,7 +73,7 @@ _THEMES = {
         slider_groove="rgba(0,0,0,30)", slider_handle="rgba(0,0,0,120)",
         slider_sub="rgba(68,114,196,120)",
         scroll_handle="#9ca3af", scroll_handle_hover="#6b7280",
-        accent_primary="#4F46E5", accent_green="#548235", accent_orange="#c55a11",
+        accent_primary="#2c5282", accent_green="#548235", accent_orange="#c55a11",
         # Semantic state colors (ui-plan3a) — darker pair for the white ground.
         err="#B91C1C", err_soft="#B91C1C", search_hl="#B45309",
         # Section-title fg: forced near-black so titles stay legible on white
@@ -83,7 +81,7 @@ _THEMES = {
         title_fg="#020617",
         mpl_subtitle="#6b7280",
         sub_fg="#6b7280",              # secondary/caption gray (WCAG AA on white)
-        val_empty_fg="#9ca3af",        # muted placeholder color for unfilled res_row
+        val_empty_fg="#6b7280",
         dp_card_bg="#F0F2F5", dp_card_border="#D8DBE0",
         dp_color_a="#2e75b6", dp_color_b="#548235",
         inlet_color="#e8751a", outlet_color="#1e5a9e",
@@ -92,16 +90,15 @@ _THEMES = {
         wireframe="#3c4758", pane_edge="#e0e0e0", pane_grid="#cfd4d9",
         # 3D viewport background — pure white on light theme reads fine.
         vp_bg_3d="#ffffff",
-        mono_family="'Fira Code','JetBrains Mono','Consolas','Courier New',monospace",
-        sans_family="'Fira Sans','Inter','Segoe UI',sans-serif",
+        mono_family=FONT_STACK,
+        sans_family=FONT_STACK,
         glass_bg_alpha=1.0, glass_border_alpha=0.0,
         chk_bg="#ffffff", chk_border="#aeb4ba", chk_hover_border="#2c5282",
         chk_hover_bg="#eef2f6", chk_checked_bg="#2c5282", chk_checked_border="#1e3a5f",
         chk_indicator_border="#606870",
         shadow_alpha=15, shadow_blur=8,
-        # Perceptually ordered series palette (indigo→sky→teal→violet→amber→
-        # slate); primary #4F46E5 unchanged so single-series plots match.
-        canvas_accents=["#4F46E5", "#0EA5E9", "#0D9488", "#7C3AED", "#D97706", "#64748B"],
+        # Chart series begin with the workbench's blue accent.
+        canvas_accents=["#2c5282", "#0EA5E9", "#0D9488", "#7C3AED", "#D97706", "#64748B"],
         # 4-tier button semantics
         btn_primary_rgb="44,82,130",       # blue filled (Compute)
         btn_long_rgb="197,90,17",          # orange filled (NSGA-II)
@@ -120,44 +117,41 @@ _THEMES = {
         #   surface_raised:   param panels, result cards
         #   surface_elevated: menus, popups, tooltips, command palette
         #   surface_overlay:  modal dialogs, highest layer
-        surface_base="#08090A", surface_raised="#0F1115",
-        surface_elevated="#16181D", surface_overlay="#1B1D22",
-        border_subtle="#1E2025", border_strong="#2A2D33",
-        bg="#08090A", fg="#F1F5F9", val="#60A5FA", warn="#FBBF24",
-        card_bg="#0F1115", card_border="#1E2025",
+        surface_base="#202329", surface_raised="#292d34",
+        surface_elevated="#323740", surface_overlay="#393f49",
+        border_subtle="#3b424d", border_strong="#566171",
+        bg="#202329", fg="#e8edf3", val="#85b9e9", warn="#f2bd64",
+        card_bg="#292d34", card_border="#3b424d",
         card_shadow="rgba(0,0,0,30)",
-        scroll_bg="#0B0C0E",
-        inp_bg="#16181D", inp_fg="#F1F5F9",
-        inp_border="#334155",
+        scroll_bg="#25292f",
+        inp_bg="#24282f", inp_fg="#e8edf3",
+        inp_border="#48515e",
         inp_focus="#3B82F6",
-        frame_border="#1E293B", frame_neutral="17,24,39,60",
+        frame_border="#3b424d", frame_neutral="41,45,52,180",
         frame_a="79,70,229,20", frame_b="13,148,136,20",
         t_neutral=("148,163,184","100,116,139"),
         t_a=("79,70,229","120,110,245"),
         t_b=("13,148,136","40,180,170"),
         btn_tpms=("59,130,246","96,165,250"),
         btn_run=("34,197,94","74,222,128"),
-        combo_list_bg="#1E293B", combo_list_fg="#F1F5F9",
-        combo_sel="rgba(59,130,246,120)", combo_border="#334155",
+        combo_list_bg="#323740", combo_list_fg="#e8edf3",
+        combo_sel="rgba(59,130,246,120)", combo_border="#48515e",
         combo_arrow="148,163,184",
         combo_hover_border="#3B82F6",
-        fig_bg="#111827", ax_bg="#111827",
-        ax_text="#CBD5E1", ax_spine="#1E293B", zone_line="#94A3B8",
-        zone_fill="#3B82F6", poly_fill="#1E293B",
-        splitter="#1E293B", splitter_hover="#3B82F6",
-        hdr_bg="#111827",
-        hdr_fg="#F1F5F9",
-        hdr_btn_bg="#1E293B",
-        hdr_btn_border="#334155",
-        hdr_btn_fg="#CBD5E1",
-        hdr_btn_hover="#475569",
+        fig_bg="#202329", ax_bg="#202329",
+        ax_text="#d4dce6", ax_spine="#48515e", zone_line="#a5b1c1",
+        zone_fill="#3B82F6", poly_fill="#323740",
+        splitter="#3b424d", splitter_hover="#3B82F6",
+        hdr_bg="#292d34", hdr_fg="#e8edf3",
+        hdr_btn_bg="#323740", hdr_btn_border="#48515e",
+        hdr_btn_fg="#d4dce6", hdr_btn_hover="#424b58",
         tab_on_bg="#3B82F6", tab_on_fg="#FFFFFF", tab_on_border="#3B82F6",
         tab_off_bg="transparent", tab_off_fg="#94A3B8",
         tab_off_border="#475569",
-        tab_off_hover="#1E293B",
-        tab_disabled_fg="#475569", tab_disabled_border="#1E293B",
+        tab_off_hover="#323740",
+        tab_disabled_fg="#7b8797", tab_disabled_border="#3b424d",
         prog_chunk="#3B82F6",
-        slider_groove="#1E293B",
+        slider_groove="#3b424d",
         slider_handle="#3B82F6",
         slider_sub="#1D4ED8",
         scroll_handle="#64748B", scroll_handle_hover="#94A3B8",
@@ -170,23 +164,20 @@ _THEMES = {
         # forced near-black (see that token's comment).
         title_fg="#F8FAFC",
         mpl_subtitle="#94A3B8",
-        sub_fg="#94A3B8",              # secondary/caption gray (WCAG AA on #0B1220)
-        val_empty_fg="#475569",        # muted placeholder color for unfilled res_row
-        dp_card_bg="#1E293B", dp_card_border="#334155",
+        sub_fg="#a5b1c1",
+        val_empty_fg="#94a0b1",
+        dp_card_bg="#323740", dp_card_border="#48515e",
         dp_color_a="#60A5FA", dp_color_b="#4ADE80",
         inlet_color="#F97316", outlet_color="#38BDF8",
         pareto_accent="#F87171",
         triad_x="#F87171", triad_y="#4ADE80", triad_z="#60A5FA",
-        wireframe="#475569", pane_edge="#334155", pane_grid="#1E293B",
-        # 3D viewport background — deep slate (not pure black) so transparent
-        # cold voxels read against a soft contrast instead of dissolving
-        # into a "black hole". Lifted ~4% above pure black.
-        vp_bg_3d="#12161c",
-        mono_family="'Fira Code','JetBrains Mono','Consolas','Courier New',monospace",
-        sans_family="'Fira Sans','Inter','Segoe UI',sans-serif",
+        wireframe="#7b8797", pane_edge="#48515e", pane_grid="#3b424d",
+        vp_bg_3d="#202329",
+        mono_family=FONT_STACK,
+        sans_family=FONT_STACK,
         glass_bg_alpha=1.0, glass_border_alpha=0.0,
-        chk_bg="#1E293B", chk_border="#334155",
-        chk_hover_border="#3B82F6", chk_hover_bg="#1E293B",
+        chk_bg="#24282f", chk_border="#566171",
+        chk_hover_border="#3B82F6", chk_hover_bg="#323740",
         chk_checked_bg="#3B82F6", chk_checked_border="#2563EB",
         chk_indicator_border="#64748B",
         shadow_alpha=80, shadow_blur=16,
@@ -199,7 +190,7 @@ _THEMES = {
         btn_long_rgb="249,115,22",         # orange filled (NSGA-II)
         btn_sec_fg="#60A5FA", btn_sec_border="#3B82F6",
         btn_sec_hover_bg="rgba(59,130,246,30)",
-        btn_tert_fg="#94A3B8", btn_tert_border="#334155",
+        btn_tert_fg="#a5b1c1", btn_tert_border="#48515e",
         btn_tert_hover_bg="rgba(148,163,184,25)",
         # top-level accordion group left accent bar
         group_accent="#3B82F6",
@@ -292,11 +283,8 @@ def _build_styles(theme_name=None):
                 "border:none; background:transparent; letter-spacing:1px;")
     # res_row value label: two dynamic states via Qt property `valState`.
     # empty  → muted italic  |  filled → bold accent
-    # Monospaced font stack for numeric displays — Fira Code ships tabular
-    # digit widths by default, so decimal points line up across rows without
-    # needing font-feature-settings (which Qt QSS parses unevenly). Falls
-    # back to Consolas / Courier for systems without Fira Code installed.
-    _MONO_STACK = "'Fira Code','JetBrains Mono','Consolas','Courier New',monospace"
+    # The legacy token name is retained; numeric text now uses Times New Roman.
+    _MONO_STACK = t['mono_family']
     _pad_v = _px(5); _pad_h = _px(10)
     _focus_v = max(1, _pad_v - 1); _focus_h = max(1, _pad_h - 1)
     s['VAL'] = (
@@ -494,16 +482,7 @@ def apply_mpl_theme():
     """Set matplotlib rcParams to match active theme and favour fast
     redraws so hover + contour updates feel 144 Hz-smooth."""
     import matplotlib as mpl
-    import warnings as _warnings
-    # 2026-05-09 — suppress the matplotlib font_manager noise about
-    # individual glyphs (⚠ U+26A0, etc.) missing from the primary sans
-    # font; matplotlib still falls back through font.sans-serif and finds
-    # DejaVu Sans which has the glyph, but it emits a UserWarning per
-    # missing glyph that floods the terminal during finalize_plots.
-    _warnings.filterwarnings(
-        'ignore',
-        message=r'.*Glyph \d+ \(\\N\{.+\}\) missing from font.*',
-        category=UserWarning)
+    from sjtu_tpmshx.ui.typography import matplotlib_font_families
     t = get_theme()
     mpl.rcParams['figure.facecolor'] = t['fig_bg']
     mpl.rcParams['axes.facecolor'] = t['ax_bg']
@@ -519,51 +498,31 @@ def apply_mpl_theme():
     mpl.rcParams['path.simplify'] = True
     mpl.rcParams['path.simplify_threshold'] = 1.0
     mpl.rcParams['agg.path.chunksize'] = 10000
-    # Typography — display serif for figure titles, sans for body /
-    # axis labels, Fira Code-ish for tabular tick numerics. Matches the
-    # in-app Hero KPI look so a standalone-exported figure shares the
-    # tool's visual identity.
-    mpl.rcParams['font.family'] = 'sans-serif'
-    # 2026-05-09 — append 'Segoe UI Symbol' / 'Segoe UI Emoji' as the last
-    # sans-serif fallback so matplotlib can resolve Unicode warning / arrow
-    # / box-drawing glyphs (e.g. U+26A0 ⚠) that the primary Segoe UI body
-    # font is missing. Without this, every contour with a "⚠ ConstDF-v1
-    # extrapolated …" annotation logged
-    #     UserWarning: Glyph 9888 (\N{WARNING SIGN}) missing from font(s)
-    #     Segoe UI.
-    # DejaVu Sans is the matplotlib-bundled fallback that DOES carry ⚠,
-    # so listing it explicitly ensures every Windows / Linux / Mac box
-    # ends with a valid glyph source.
-    mpl.rcParams['font.sans-serif'] = [
-        'Fira Sans', 'Inter', 'Segoe UI', 'Helvetica', 'Arial',
-        'Segoe UI Symbol', 'Segoe UI Emoji', 'DejaVu Sans']
-    mpl.rcParams['font.serif'] = [
-        'Instrument Serif', 'Fraunces', 'EB Garamond',
-        'Source Serif Pro', 'Georgia', 'DejaVu Serif']
-    mpl.rcParams['axes.titleweight'] = '600'
-    mpl.rcParams['figure.titleweight'] = '600'
-    # Use serif for the axes title (per-subplot) to read as scientific
-    # figure-caption style while keeping labels + ticks in sans.
+    # Font fallback is per glyph: Latin/digits in Times, Chinese in YaHei.
+    # DejaVu remains last for scientific symbols absent from both fonts.
+    families = list(matplotlib_font_families())
+    mpl.rcParams['font.family'] = families
+    mpl.rcParams['font.sans-serif'] = families
+    mpl.rcParams['font.serif'] = families
+    mpl.rcParams['font.monospace'] = families
+    mpl.rcParams['font.weight'] = 'normal'
+    mpl.rcParams['axes.titleweight'] = 'normal'
+    mpl.rcParams['figure.titleweight'] = 'normal'
     mpl.rcParams['axes.titlelocation'] = 'left'
     mpl.rcParams['axes.titlesize'] = 12
-    # 2026-05-09 Phase 3 — bold by default + math italic rendering for
-    # symbols typed as $D_h$, $\rho_s$, $\mu_f$, etc.
-    # FIX 2026-05-09 — `mathtext.fontset='stixsans'` + global `font.weight=
-    # 'bold'` triggers an infinite glyph-fallback recursion in
-    # matplotlib._mathtext._get_glyph (RecursionError on every contour
-    # title containing `$T_a$`/`$T_b$`/`$T_s$`, the temperature panel
-    # finalize_plots draws). Reverted to the default `dejavusans` fontset
-    # which renders the same italic-subscript style without the bold-fallback
-    # bug. axes.labelweight stays 'bold' so axis labels stay heavy; we drop
-    # the global font.weight so plain (non-mathtext) text inherits matplotlib's
-    # default normal weight + we get crisp mathtext.
-    mpl.rcParams['axes.labelweight'] = 'bold'
+    mpl.rcParams['axes.labelweight'] = 'normal'
     mpl.rcParams['xtick.labelsize'] = 9
     mpl.rcParams['ytick.labelsize'] = 9
-    mpl.rcParams['mathtext.default'] = 'it'   # italic letters in $...$
-    # Keep matplotlib default mathtext.fontset (dejavusans). DO NOT set
-    # mathtext.fontset='stixsans' here — it interacts catastrophically
-    # with bold global font weight on Windows.
+    mpl.rcParams['mathtext.fontset'] = 'custom'
+    mpl.rcParams['mathtext.rm'] = families[0]
+    mpl.rcParams['mathtext.it'] = f'{families[0]}:italic'
+    mpl.rcParams['mathtext.bf'] = f'{families[0]}:bold'
+    mpl.rcParams['mathtext.bfit'] = f'{families[0]}:italic:bold'
+    mpl.rcParams['mathtext.sf'] = families[0]
+    mpl.rcParams['mathtext.tt'] = families[0]
+    mpl.rcParams['mathtext.cal'] = families[0]
+    mpl.rcParams['mathtext.default'] = 'it'
+    mpl.rcParams['mathtext.fallback'] = 'stix'
     mpl.rcParams['legend.frameon'] = True
     mpl.rcParams['legend.framealpha'] = 0.9
 

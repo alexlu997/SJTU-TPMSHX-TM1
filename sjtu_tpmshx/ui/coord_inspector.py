@@ -51,7 +51,7 @@ def _resolve_fields(window, x_mm, y_mm):
     been computed yet, returns an empty list (caller displays "— no
     compute yet —" in that case).
     """
-    r = getattr(window, '_compute_results', None)
+    r = _display_fields(window)
     if r is None:
         return []
     N_x = int(r.get('N_x', 0)); N_y = int(r.get('N_y', 0))
@@ -65,6 +65,11 @@ def _resolve_fields(window, x_mm, y_mm):
     out = [('x', f"{x_mm:.2f}", 'mm'),
            ('y', f"{y_mm:.2f}", 'mm'),
            ('(i,j)', f"({i},{j})", '')]
+    if getattr(window, '_result_3d', None) is not None:
+        dz = np.asarray(r['dz'])
+        k = min(getattr(window, '_slice_index', len(dz) // 2), len(dz) - 1)
+        z_mm = (np.cumsum(dz) - dz / 2)[k] * 1000.
+        out.append(('z', f"{z_mm:.2f}", 'mm'))
 
     # Honour the global K ↔ °C toggle when rendering temperature fields.
     temp_unit = getattr(window, '_temp_unit', 'K')
@@ -79,7 +84,8 @@ def _resolve_fields(window, x_mm, y_mm):
             if arr.ndim == 2:
                 v = float(arr[i, j])
             elif arr.ndim == 3:
-                v = float(arr[i, j, arr.shape[2] // 2])
+                k = getattr(window, '_slice_index', arr.shape[2] // 2)
+                v = float(arr[i, j, min(k, arr.shape[2] - 1)])
             else:
                 continue
             # Temperature conversion for display consistency with
@@ -113,6 +119,17 @@ def _resolve_fields(window, x_mm, y_mm):
             continue
 
     return out
+
+
+def _display_fields(window):
+    """Read the same immutable result source as the active field canvas."""
+    result_3d = getattr(window, '_result_3d', None)
+    if result_3d is None:
+        return getattr(window, '_compute_results', None)
+    f = result_3d.fields
+    nx, ny, _ = f['Ta'].shape
+    return {**f, 'N_x': nx, 'N_y': ny, 'L': f['Lx'], 'H': f['Ly'],
+            'dx_arr': f['dx'], 'dy_arr': f['dy']}
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -241,13 +258,16 @@ class CoordInspector(QDockWidget):
         # the same grid cell. Grid index resolution is the visual
         # information limit of the inspector, so intra-cell motion events
         # yield zero new pixels and can be dropped cheaply.
-        r = getattr(self._window, '_compute_results', None) or {}
+        r = _display_fields(self._window) or {}
         N_x = int(r.get('N_x', 0)); N_y = int(r.get('N_y', 0))
         L = float(r.get('L', 0.0)); H = float(r.get('H', 0.0))
         if N_x > 0 and N_y > 0 and L > 0 and H > 0:
             i = cell_index_mm(event.xdata, r.get('dx_arr', np.full(N_x, L / N_x)))
             j = cell_index_mm(event.ydata, r.get('dy_arr', np.full(N_y, H / N_y)))
-            ij = (id(r), getattr(self._window, '_temp_unit', 'K'), i, j)
+            source = getattr(self._window, '_result_3d', None)
+            ij = (id(source) if source is not None else id(r),
+                  getattr(self._window, '_slice_index', None),
+                  getattr(self._window, '_temp_unit', 'K'), i, j)
             if ij == self._last_ij:
                 return
             self._last_ij = ij

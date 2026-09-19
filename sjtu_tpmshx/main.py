@@ -91,7 +91,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         # wiring is needed here.
         self.setCentralWidget(QWidget())
         self.setWindowTitle("SJTU-TPMSHX")
-        self.resize(1350, 1100)
+        self.resize(1440, 900)
         self.setMinimumSize(900, 720)
         # Showing the window is the entry-point's responsibility —
         # `window.showMaximized()` at the bottom of this file. Keeping
@@ -645,8 +645,8 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         Invoked by the Sync-colorbar toggle on canvas_temp's mini toolbar.
         """
         try:
-            from sjtu_tpmshx.ui.plot_2d_results import redraw_temperature_panel
-            redraw_temperature_panel(self)
+            from sjtu_tpmshx.ui.plot_2d_results import redraw_result_fields
+            redraw_result_fields(self)
         except Exception:
             pass
 
@@ -679,7 +679,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             f"<tr><td style='padding:4px 14px 4px 0;'>{_html_esc.escape(str(lbl))}</td>"
             f"<td style='padding:4px 14px 4px 0; color:#6b7280;'>"
             f"<code>{_html_esc.escape(str(name))}</code></td>"
-            f"<td style='padding:4px 0; color:#DC2626; font-family:monospace;'>"
+            f"<td style='padding:4px 0; color:#DC2626; font-family:Times New Roman,Microsoft YaHei;'>"
             f"{_html_esc.escape(str(val))}</td></tr>"
             for lbl, name, val in bad[:30])
         html = (
@@ -700,6 +700,8 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         first_attr = bad[0][1]
         le = getattr(self, first_attr, None)
         if le is not None:
+            from sjtu_tpmshx.ui.ui_builders import reveal_parameter
+            reveal_parameter(self, le)
             try:
                 le.setFocus(); le.selectAll()
             except Exception:
@@ -1441,27 +1443,9 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
 
 # ── Entry point ───────────────────────────────────────────────
 def _apply_app_font(app):
-    """Use regular body text; theme styles emphasize headings and results."""
-    from PySide6.QtGui import QFont, QFontDatabase
-    candidates = [
-        "Fira Sans", "Inter", "Inter Display",
-        "Segoe UI", "Segoe UI Variable",
-        "Roboto", "Helvetica Neue", "Arial",
-    ]
-    families = set(QFontDatabase.families())
-    chosen = next((n for n in candidates if n in families), None)
-    if chosen is None:
-        print("[font] no sans-serif candidate found; system default")
-        return None
-    qf = QFont(chosen, 10)
-    qf.setWeight(QFont.Weight.Normal)
-    app.setFont(qf)
-    mono = next((n for n in ["Fira Code", "JetBrains Mono", "Consolas", "Courier New"]
-                 if n in families), None)
-    if mono:
-        app._mono_font_family = mono
-    print(f"[font] using {chosen!r}")
-    return chosen
+    """Use Times New Roman for Latin text and Microsoft YaHei for Chinese."""
+    from sjtu_tpmshx.ui.typography import apply_app_font
+    return apply_app_font(app)
 
 
 if __name__ == "__main__":

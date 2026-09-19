@@ -49,6 +49,12 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   It is the sole production result mapper. The old 2D/3D mappings remain only
   as frozen test oracles for the real native-result integration comparison.
 - `ui/` owns PySide6 and PyVista presentation only.
+  Its canvas workbench reuses the existing parameter widgets in a right-hand
+  geometry/boundary/solver inspector. Field phase and 3D z-slice selections
+  read the accepted result snapshot; draft edits do not replace that source.
+  Figure exports follow the selected view, while CSV/NPZ exports retain the
+  complete result. `ui/typography.py` resolves local fonts for Qt, Matplotlib
+  and VTK without bundling font files or importing Qt into lower layers.
 - `validation/` and `runs/` are executable research and verification tools,
   not alternative production implementations.
 

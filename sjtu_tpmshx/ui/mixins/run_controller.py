@@ -460,7 +460,9 @@ class RunControllerMixin:
                     drawn.add(k)
             self._drawn_tabs = drawn
             self._update_tab_visibility()
-            if _3d_vis_ok:
+            if getattr(self, '_rendered_3d_slices', False):
+                self._switch_tab('temp')
+            elif _3d_vis_ok:
                 self._switch_tab('3d')
             res = getattr(self, '_result_3d', None)
             # Outer-coupling convergence note: the SIMPLE↔LTNE loop exits

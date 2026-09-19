@@ -98,6 +98,9 @@ class TabViewMixin:
         # Fall back to Layout if active tab just became disabled
         if not rules.get(getattr(self, '_active_tab', 'layout'), True):
             self._switch_tab('layout')
+        refresh_navigation = getattr(self, '_refresh_workbench_navigation', None)
+        if refresh_navigation is not None:
+            refresh_navigation()
 
     def _split_with_current(self, tab):
         """Enter split-view pairing the currently active tab with `tab`.
@@ -225,6 +228,9 @@ class TabViewMixin:
                 return
 
         self._active_tab = tab
+        from sjtu_tpmshx.ui.builders_canvas import refresh_field_controls
+        if hasattr(self, '_field_phase_seg'):
+            refresh_field_controls(self)
         tabs = ('temp', 'pres', 'vel', 'layout', 'pareto', '3d')
         drawn = getattr(self, '_drawn_tabs', set())
         # Two-phase tab swap (UI report 2026-05-07 issue #4):
@@ -288,6 +294,9 @@ class TabViewMixin:
                             or getattr(self, '_has_results', False)
                             or tab in drawn):
             target_card.show()
+            fit = getattr(self, '_fit_3d_card_to_viewport', None)
+            if fit is not None:
+                fit()
             showed_any = True
         elif tab == '3d' and target_card:
             target_card.hide()
@@ -309,6 +318,9 @@ class TabViewMixin:
         except Exception:
             pass
         self._hover_label.setText("")
+        refresh_navigation = getattr(self, '_refresh_workbench_navigation', None)
+        if refresh_navigation is not None:
+            refresh_navigation()
 
     def _on_hover(self, event):
         """Show data value at mouse position on contour plots."""

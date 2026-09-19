@@ -39,17 +39,33 @@ class _ShiftTabBtn(QPushButton):
 def _build_canvas_toolbar(window, vlay, t, theme):
     """Build canvas navigation and export controls."""
     _t = theme
+    window._result_heading = QLabel("场图工作台")
+    window._result_heading.setStyleSheet(
+        f"color:{_t['fg']}; padding:14px 20px 6px; font-size:18pt; font-weight:700;")
+    vlay.addWidget(window._result_heading)
     # ── Tab buttons + Export + Progress ──
-    toolbar = QHBoxLayout()
+    from .responsive import ResponsiveRow
+    toolbar_host = ResponsiveRow(threshold=640, spacing=8)
+    toolbar_host.layout().setContentsMargins(20, 4, 20, 8)
+    primary_controls = QWidget()
+    toolbar = QHBoxLayout(primary_controls)
     toolbar.setSpacing(4)
     toolbar.setAlignment(Qt.AlignmentFlag.AlignVCenter)
-    toolbar.setContentsMargins(12, 4, 4, 4)
+    toolbar.setContentsMargins(0, 0, 0, 0)
+    view_controls = QWidget()
+    view_toolbar = QHBoxLayout(view_controls)
+    view_toolbar.setContentsMargins(0, 0, 0, 0)
+    view_toolbar.setSpacing(4)
+    view_toolbar.setAlignment(Qt.AlignmentFlag.AlignRight)
+    toolbar_host.addWidget(primary_controls)
+    toolbar_host.addWidget(view_controls)
+    window._field_toolbar = toolbar_host
 
     # Left-panel collapse toggle — chevron flips direction to reflect state.
-    btn_toggle_left = QPushButton("‹")
+    btn_toggle_left = QPushButton("›")
     btn_toggle_left.setFixedSize(24, 28)
     btn_toggle_left.setStyleSheet(t.style('BTN_TERTIARY'))
-    btn_toggle_left.setToolTip("Collapse parameter panel")
+    btn_toggle_left.setToolTip("收起右侧参数编辑器")
     btn_toggle_left.clicked.connect(window._toggle_left_panel)
     window.btn_toggle_left = btn_toggle_left
     toolbar.addWidget(btn_toggle_left)
@@ -147,11 +163,11 @@ def _build_canvas_toolbar(window, vlay, t, theme):
     _seg_qss_on = (
         f"QPushButton{{color:{_ct['inp_fg']}; background:transparent;"
         f" border:1px solid {_ct['combo_hover_border']}; padding:2px 8px;"
-        f" font-size:9pt; font-weight:600;}}")
+        f" font-size:10.5pt; font-weight:600;}}")
     _seg_qss_off = (
         f"QPushButton{{color:{_ct['tab_off_fg']}; background:transparent;"
         f" border:1px solid {_ct['tab_off_border']}; padding:2px 8px;"
-        f" font-size:9pt; font-weight:normal;}}"
+        f" font-size:10.5pt; font-weight:normal;}}"
         f"QPushButton:hover{{color:{_ct['inp_fg']};}}"
         f"QPushButton:disabled{{color:{_ct['tab_disabled_fg']};"
         f" border-color:{_ct['border_subtle']};}}")
@@ -173,6 +189,29 @@ def _build_canvas_toolbar(window, vlay, t, theme):
     _paint_2d_seg()
     window._2d_field_seg = _seg
     window._paint_2d_seg = _paint_2d_seg
+
+    window._field_phase = getattr(window, '_field_phase', 0)
+    window._field_phase_seg = QFrame()
+    window._field_phase_seg.setStyleSheet("QFrame{background:transparent; border:none;}")
+    phase_row = QHBoxLayout(window._field_phase_seg)
+    phase_row.setContentsMargins(0, 0, 12, 0)
+    phase_row.setSpacing(0)
+    window._field_phase_btns = []
+    for index, label in enumerate(("流体 A", "流体 B", "固体")):
+        button = QPushButton(label)
+        button.setFixedHeight(28)
+        button.setCheckable(True)
+        button.setToolTip("显示该相的真实计算场；不会重新求解")
+        def _pick_phase(_checked=False, i=index):
+            window._field_phase = i
+            refresh_field_controls(window)
+            from .plot_2d_results import redraw_result_fields
+            redraw_result_fields(window)
+        button.clicked.connect(_pick_phase)
+        phase_row.addWidget(button)
+        window._field_phase_btns.append(button)
+    window._phase_styles = (_seg_qss_on, _seg_qss_off)
+    window._field_phase_seg.hide()
 
     # ── Workbench toolbar (ui-plan3-workbench T1) ─────────────────────
     # Three tabs only: 几何布局 | 结果 | 优化. The 结果 button aggregates
@@ -237,14 +276,16 @@ def _build_canvas_toolbar(window, vlay, t, theme):
 
     toolbar.addWidget(window.btn_tab_layout)
     toolbar.addWidget(window.btn_tab_result)
+    toolbar.addWidget(window._field_phase_seg)
     toolbar.addWidget(window._2d_field_seg)
     # Context control: hidden until a 2D field card is active (the
     # _switch_tab handler flips it per tab).
     window._2d_field_seg.hide()
     toolbar.addWidget(window.btn_tab_pareto)
     toolbar.addStretch()
-    toolbar.addWidget(_rv_seg)
-    toolbar.addSpacing(8)
+    view_toolbar.addWidget(_rv_seg)
+    window._result_render_seg = _rv_seg
+    view_toolbar.addSpacing(8)
 
     window.btn_result_summary = QPushButton("摘要")
     window.btn_result_summary.setFixedHeight(28)
@@ -257,7 +298,7 @@ def _build_canvas_toolbar(window, vlay, t, theme):
     window.btn_result_summary.toggled.connect(
         lambda _checked: update_result_sidebar_visibility(window))
     window.btn_result_summary.hide()
-    toolbar.addWidget(window.btn_result_summary)
+    view_toolbar.addWidget(window.btn_result_summary)
 
     # Fit View restores the canvas size after Ctrl+Wheel zooming.
     btn_reset_view = QPushButton("适应视图")
@@ -265,7 +306,7 @@ def _build_canvas_toolbar(window, vlay, t, theme):
     btn_reset_view.setStyleSheet(t.style('BTN_TERTIARY'))
     btn_reset_view.setToolTip("Fit current canvas card to its default size")
     btn_reset_view.clicked.connect(lambda: canvas_zoom_reset(window))
-    toolbar.addWidget(btn_reset_view)
+    view_toolbar.addWidget(btn_reset_view)
 
     # Single Export menu — Results (data) + Figure (image) in one entry, in
     # the canvas toolbar next to the data it exports (the old header "Export
@@ -290,13 +331,42 @@ def _build_canvas_toolbar(window, vlay, t, theme):
         f"border:1px solid {_t['card_border']}; border-radius:6px; padding:4px; }}"
         f"QMenu::item {{ padding:6px 20px; border-radius:4px; }}"
         f"QMenu::item:selected {{ background:{_t['accent_primary']}; color:{_t['tab_on_fg']}; }}")
-    _ex_menu.addAction("导出结果 — CSV + NPZ", window._export_results)
+    _ex_menu.addAction("导出完整结果 — CSV + NPZ", window._export_results)
     _ex_menu.addAction("导出图像 — PNG / SVG / PDF", window._export_figure)
     _ex_menu.addAction("复制当前图像", window._copy_figure_clipboard)
     btn_export.setMenu(_ex_menu)
     window.btn_export = btn_export
-    toolbar.addWidget(btn_export)
-    vlay.addLayout(toolbar)
+    view_toolbar.addWidget(btn_export)
+    vlay.addWidget(toolbar_host)
+
+
+def refresh_field_controls(window):
+    """Show only selectors backed by the current rendered result."""
+    tab = getattr(window, '_active_tab', None)
+    is_field = tab in ('temp', 'pres', 'vel')
+    result = getattr(window, '_result_3d', None)
+    b_source = 'dir_B' if tab in ('pres', 'vel') else 'Tb'
+    has_b = result is None or result.fields.get(b_source) is not None
+    phase = getattr(window, '_field_phase', 0)
+    if (tab in ('pres', 'vel') and phase == 2) or (phase == 1 and not has_b):
+        phase = window._field_phase = 0
+        from .plot_2d_results import redraw_result_fields
+        redraw_result_fields(window)
+    window._field_phase_seg.setVisible(is_field)
+    for i, btn in enumerate(window._field_phase_btns):
+        btn.setVisible(i != 2 or tab == 'temp')
+        btn.setEnabled(i != 1 or has_b)
+        btn.setChecked(i == phase)
+        btn.setStyleSheet(window._phase_styles[0 if i == phase else 1])
+    slice_controls = getattr(window, '_slice_controls', None)
+    if slice_controls is not None:
+        slice_controls.setVisible(is_field and result is not None)
+    heading = getattr(window, '_result_heading', None)
+    if heading is not None:
+        mode = (getattr(window, '_diag_summary', None) or {}).get('mode')
+        heading.setText(
+            f"本次结果 · {mode.upper()}" if tab in ('temp', 'pres', 'vel', '3d') and mode
+            else {"layout": "几何与工况", "pareto": "优化设计"}.get(tab, "场图工作台"))
 
 
 def _build_result_summary(window, vlay, theme):
@@ -320,13 +390,13 @@ def _build_result_summary(window, vlay, theme):
     # runs — key for quick visual scanning of delta chips next to values.
     _chip_num_qss = (
         f"color:{_t['fg']}; background:transparent; border:none;"
-        f"font-family:'Fira Code','Consolas',monospace;"
+        f"font-family:{_t['mono_family']};"
         f"font-size:9pt; font-weight:600;")
     # Primary tier (ui-batch2 RS-2): the engineering headline numbers
     # (Q, ΔP_A, ΔP_B) read one step above the secondary T_out chips.
     _chip_num_primary_qss = (
         f"color:{_t['val']}; background:transparent; border:none;"
-        f"font-family:'Fira Code','Consolas',monospace;"
+        f"font-family:{_t['mono_family']};"
         f"font-size:10pt; font-weight:700;")
     _PRIMARY_KEYS = ('Q', 'dPA', 'dPB')
     window._res_chips = {}
@@ -391,7 +461,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
     _surface_ra = _t.get('surface_raised', _t['card_bg'])
     _border_sub = _t.get('border_subtle', _t['card_border'])
     _sub_fg = _t.get('sub_fg', _t['fg'])
-    _mono = "'Fira Code','JetBrains Mono','Consolas',monospace"
+    _mono = _t['mono_family']
 
     # ui-plan-b-wizard: the Optimize tab is a THREE-PAGE WIZARD
     # (配置 → 运行 → 结果) in a QStackedWidget. The engine, worker,
@@ -405,7 +475,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
     _pill_base = (
         "QLabel{{padding:5px 14px; border-radius:12px;"
         "font-size:9pt; font-weight:700; letter-spacing:0.8px;"
-        "font-family:'Fira Sans','Inter','Segoe UI',sans-serif;"
+        "font-family:" + _t['sans_family'] + ";"
         "background:{bg}; color:{fg}; border:1px solid {bd};}}")
     _pill_idle = _pill_base.format(
         bg=_surface_ra, fg=_sub_fg, bd=_border_sub)
@@ -692,9 +762,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
     # Display-serif stack for hero numerics — research-tool gravitas.
     # Falls through to mono if no serif installed, so builds without
     # Instrument Serif still look sharp.
-    _hero_font = ("'Instrument Serif','Fraunces','EB Garamond',"
-                  "'Source Serif Pro','Georgia',"
-                  "'Fira Code',serif")
+    _hero_font = _t['mono_family']
     def _mk_kpi(caption, initial="—", min_w=150):
         card = _QFop()
         card.setStyleSheet(
@@ -708,7 +776,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
         cap.setStyleSheet(
             f"color:{_sub_fg}; font-size:8pt; font-weight:700;"
             "letter-spacing:1.4px; background:transparent; border:none;"
-            "font-family:'Fira Sans','Inter',sans-serif;")
+            f"font-family:{_t['sans_family']};")
         val = QLabel(initial)
         val.setStyleSheet(
             f"color:{_t['fg']}; font-family:{_hero_font};"
@@ -745,7 +813,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
     spark_cap.setStyleSheet(
         f"color:{_sub_fg}; font-size:8pt; font-weight:700;"
         "letter-spacing:1.4px; background:transparent; border:none;"
-        "font-family:'Fira Sans','Inter',sans-serif;")
+        f"font-family:{_t['sans_family']};")
     spark = _SLop(height=40)
     window._opt_sparkline = spark
     scl.addWidget(spark_cap)
@@ -849,7 +917,7 @@ def _build_canvas_content(window, vlay, t):
         f"<p style='color:{_t['fg']}; font-size:12pt; font-weight:600;"
         f" margin:0 0 14px 0;'>运行第一个算例</p>"
         f"<p style='margin:0 0 8px 0;'><span style='color:{_acc};"
-        f" font-weight:700;'>1</span>&nbsp;&nbsp;在左侧面板设置几何与两侧流体</p>"
+        f" font-weight:700;'>1</span>&nbsp;&nbsp;在右侧面板设置几何与两侧流体</p>"
         f"<p style='margin:0 0 8px 0;'><span style='color:{_acc};"
         f" font-weight:700;'>2</span>&nbsp;&nbsp;点击 <b>▶ 计算</b>"
         f"（Ctrl+R）— 进度显示在按钮上</p>"
@@ -899,9 +967,9 @@ def _build_canvas_content(window, vlay, t):
         window.canvas_pareto = _reuse['pareto']
         window.canvas_3d     = _reuse.get('3d')
     else:
-        window.canvas_temp   = MatplotlibCanvas(3, 1, figsize=(14, 24))
-        window.canvas_pres   = MatplotlibCanvas(1, 1, figsize=(14, 18))
-        window.canvas_vel    = MatplotlibCanvas(2, 1, figsize=(14, 16))
+        window.canvas_temp   = MatplotlibCanvas(1, 1, figsize=(12, 7))
+        window.canvas_pres   = MatplotlibCanvas(1, 1, figsize=(12, 7))
+        window.canvas_vel    = MatplotlibCanvas(1, 1, figsize=(12, 7))
         window.canvas_layout = MatplotlibCanvas(1, 1, figsize=(10.5, 6.8))
         window.canvas_pareto = MatplotlibCanvas(1, 1, figsize=(14, 8))
 
@@ -916,22 +984,12 @@ def _build_canvas_content(window, vlay, t):
                 'TPMSHX_DISABLE_3D_PANEL', '').lower() in ('1', 'true', 'yes')):
         window._vis3d_import_error = 'headless/offscreen — 3D panel skipped'
 
-    _ca = _t['canvas_accents']
-    _accents = {
-        'temp':   _ca[0],
-        'pres':   _ca[1],
-        'vel':    _ca[2],
-        'layout': _ca[3],
-        'pareto': _ca[4],
-        '3d':     _ca[5],
-    }
-
     window._canvas_default_h = {}
     window._canvas_cards = {}
     _card_specs = [
-        (window.canvas_temp,   'temp',   1500),
-        (window.canvas_pres,   'pres',   1200),
-        (window.canvas_vel,    'vel',    1100),
+        (window.canvas_temp,   'temp',   440),
+        (window.canvas_pres,   'pres',   440),
+        (window.canvas_vel,    'vel',    440),
         (window.canvas_layout, 'layout', 680),
         (window.canvas_pareto, 'pareto', 880),
     ]
@@ -943,24 +1001,21 @@ def _build_canvas_content(window, vlay, t):
     _card_specs.append((window._canvas_3d_placeholder, '3d', 1100))
     _card_row_order = []
     for c, key, h in _card_specs:
+        if key in ('temp', 'pres', 'vel'):
+            # Recompute text margins on resize so axis units remain visible
+            # when the narrow workbench leaves a short plotting area.
+            c.fig.set_layout_engine('tight', pad=0.9)
         # Card frame. 3D card skips top-accent stripe (its curved arc was
         # visually colliding with embedded toolbar labels — user report
         # 2026-04-21). Other cards keep the coloured accent.
         card = QFrame()
-        accent = _accents.get(key, _t['accent_primary'])
         # No left accent stripe for layout/3d (arc collision, 2026-04-21)
         # and pareto (ui-plan-b-wizard follow-up: the card's `QFrame{…}`
         # type selector CASCADES to every unstyled descendant frame — the
         # wizard's new frames all grew amber left bars, user report).
-        if key in ('layout', '3d', 'pareto'):
-            card.setStyleSheet(
-                f"QFrame{{background:{_t['card_bg']};"
-                f"border:none; border-radius:4px;}}")
-        else:
-            card.setStyleSheet(
-                f"QFrame{{background:{_t['card_bg']};"
-                f"border:none; border-left:3px solid {accent};"
-                f"border-radius:4px;}}")
+        card.setStyleSheet(
+            f"QFrame{{background:{_t['card_bg']};"
+            f"border:none; border-radius:4px;}}")
         card_lay = QVBoxLayout(card)
         if key == 'layout':
             card_lay.setContentsMargins(8, 8, 8, 8)
@@ -983,7 +1038,7 @@ def _build_canvas_content(window, vlay, t):
             tbl = _HB(tb)
             tbl.setContentsMargins(0, 0, 0, 6); tbl.setSpacing(8)
             tbl.addStretch(1)
-            chk = QCheckBox("Sync colorbar (Ta/Tb/Ts)")
+            chk = QCheckBox("各相使用相同温标")
             chk.setChecked(True)
             chk.setToolTip(
                 "When on, all three panels share a common vmin/vmax so "
@@ -1086,10 +1141,33 @@ def _build_canvas_content(window, vlay, t):
     # extrapolation) and convergence sparkline. Hidden on non-result tabs
     # and before the first compute; the retired _res_bar stays as the
     # data carrier only.
-    _body = QHBoxLayout()
+    _body = QVBoxLayout()
     _body.setContentsMargins(0, 0, 0, 0)
     _body.setSpacing(8)
     _body.addWidget(window._canvas_scroll, 1)
+    slice_controls = QWidget()
+    slice_row = QHBoxLayout(slice_controls)
+    slice_row.setContentsMargins(36, 0, 36, 4)
+    slice_row.setSpacing(14)
+    slice_row.addWidget(QLabel("截面 z"))
+    window._slice_slider = QSlider(Qt.Orientation.Horizontal)
+    window._slice_slider.setTracking(False)
+    window._slice_slider.setToolTip("显示已计算的真实网格截面，不重新求解")
+    window._slice_slider.setStyleSheet(
+        f"QSlider::groove:horizontal{{background:{_t['border_subtle']}; height:5px;}}"
+        f"QSlider::handle:horizontal{{background:{_t['accent_primary']};"
+        "width:15px; margin:-5px 0; border-radius:7px;}")
+    def _select_slice(index):
+        window._slice_index = index
+        from .plot_2d_results import redraw_result_fields
+        redraw_result_fields(window)
+    window._slice_slider.valueChanged.connect(_select_slice)
+    slice_row.addWidget(window._slice_slider, 1)
+    window._slice_label = QLabel()
+    slice_row.addWidget(window._slice_label)
+    window._slice_controls = slice_controls
+    slice_controls.hide()
+    _body.addWidget(slice_controls)
     _body.addWidget(_build_result_sidebar(window, _t, t), 0)
     vlay.addLayout(_body, 1)
 
@@ -1104,13 +1182,17 @@ def _connect_canvas_interactions(window, vlay, theme):
     # scroll-resize and whenever the card is shown (tab switch) so it lands
     # correctly sized with no scroll.
     def _fit_3d_card_to_viewport():
-        c3d = window._canvas_cards.get('3d')
         sc = getattr(window, '_canvas_scroll', None)
-        if c3d is None or sc is None or not c3d.isVisible():
+        if sc is None:
             return
         vh = sc.viewport().height()
-        if vh > 240:
-            c3d.setFixedHeight(vh - 4)
+        for key in ('temp', 'pres', 'vel', '3d'):
+            card = window._canvas_cards.get(key)
+            if card is not None and card.isVisible() and vh > 24:
+                height = vh - 24
+                factor = getattr(window, '_canvas_zoom_factors', {}).get(key, 1.0)
+                window._canvas_default_h[key] = height
+                card.setFixedHeight(int(height * factor))
     window._fit_3d_card_to_viewport = _fit_3d_card_to_viewport
 
     _sc = window._canvas_scroll
@@ -1120,6 +1202,14 @@ def _connect_canvas_interactions(window, vlay, theme):
             _o(ev)
         _fit_3d_card_to_viewport()
     _sc.resizeEvent = _sc_resize
+
+    for key in ('temp', 'pres', 'vel'):
+        card = window._canvas_cards[key]
+        _orig_show = card.showEvent
+        def _field_show(ev, _o=_orig_show):
+            _o(ev)
+            _fit_3d_card_to_viewport()
+        card.showEvent = _field_show
 
     _c3d = window._canvas_cards.get('3d')
     if _c3d is not None:
@@ -1262,6 +1352,9 @@ def canvas_zoom(window, factor):
                 pass
     card = window._canvas_cards.get(tab)
     if card:
+        factors = getattr(window, '_canvas_zoom_factors', {})
+        factors[tab] = factors.get(tab, 1.0) * factor
+        window._canvas_zoom_factors = factors
         h = max(200, int(card.height() * factor))
         card.setFixedHeight(h)
 
@@ -1279,6 +1372,7 @@ def canvas_zoom_reset(window):
                 pass
     card = window._canvas_cards.get(tab)
     if card and tab in window._canvas_default_h:
+        getattr(window, '_canvas_zoom_factors', {}).pop(tab, None)
         card.setFixedHeight(window._canvas_default_h[tab])
 
 
@@ -1298,5 +1392,8 @@ def canvas_wheel_zoom(window, event, canvas, key):
         return
     card = window._canvas_cards.get(key)
     if card:
+        factors = getattr(window, '_canvas_zoom_factors', {})
+        factors[key] = factors.get(key, 1.0) * factor
+        window._canvas_zoom_factors = factors
         h = max(200, int(card.height() * factor))
         card.setFixedHeight(h)

@@ -16,6 +16,7 @@ Entry:
 """
 from __future__ import annotations
 import numpy as np
+from matplotlib.ticker import MaxNLocator
 
 # Theme — resolved at call time via get_theme()
 from sjtu_tpmshx.ui.theme import get_theme as _get_theme
@@ -178,7 +179,8 @@ def finalize_plots_3d(window) -> bool:
     #       tabs relevant under 3D mode) ──
     import os as _os_3d_fin
     window._rendered_3d_slices = False
-    if _os_3d_fin.environ.get('TPMSHX_EAGER_3D_SLICES', '0') == '1':
+    if (hasattr(window, '_field_phase')
+            or _os_3d_fin.environ.get('TPMSHX_EAGER_3D_SLICES', '0') == '1'):
         _render_2d_slices_from_3d(window, res)
         window._rendered_3d_slices = True
 
@@ -186,7 +188,7 @@ def finalize_plots_3d(window) -> bool:
 
 
 def _render_2d_slices_from_3d(window, res):
-    """Mid-z slice of 3D fields → Temperature/Pressure/Velocity canvases.
+    """Selected z cell of 3D fields → Temperature/Pressure/Velocity canvases.
 
     Custom renderers (not `plot_temperature`/`plot_pressure`) because refined
     3D grid is non-uniform; legacy 2D plotters assume `np.linspace` spacing.
@@ -198,15 +200,31 @@ def _render_2d_slices_from_3d(window, res):
     wc = f.get('wcA')
     dx = f['dx']; dy = f['dy']
     Nx, Ny, Nz = Ta.shape
-    k_mid = Nz // 2
-    z_info = f'mid-z (k={k_mid}/{Nz})'
+    # A new result starts at its middle cell. Subsequent slice changes use
+    # the actual nonuniform z centres, never an evenly-spaced display proxy.
+    if getattr(window, '_slice_result_id', None) != id(res):
+        window._slice_result_id = id(res)
+        window._slice_index = Nz // 2
+    k_mid = int(np.clip(getattr(window, '_slice_index', Nz // 2), 0, Nz - 1))
+    dz = np.asarray(f['dz'])
+    z_mm = float((np.cumsum(dz) - dz / 2)[k_mid] * 1000)
+    z_info = f'z = {z_mm:.2f} mm ({k_mid + 1}/{Nz})'
+    slice_slider = getattr(window, '_slice_slider', None)
+    if slice_slider is not None:
+        slice_slider.blockSignals(True)
+        slice_slider.setRange(0, Nz - 1)
+        slice_slider.setValue(k_mid)
+        slice_slider.blockSignals(False)
+        window._slice_label.setText(z_info)
+    phase = getattr(window, '_field_phase', None)
+    unit = '°C' if getattr(window, '_temp_unit', 'K') == 'C' else 'K'
 
     # Legacy attrs for hover/export (single-step (1, Nx, Ny))
     window.T_fA = Ta[None, :, :, k_mid]
     window.T_fB = Tb[None, :, :, k_mid]
     window.T_s  = Ts[None, :, :, k_mid]
     window.P_fA = P_Pa[:, :, k_mid]
-    window.P_fB = np.zeros_like(window.P_fA)
+    window.P_fB = f['P_fB'][:, :, k_mid] if f.get('P_fB') is not None else None
 
     # Shared cumsum coord grid (mm) — handles non-uniform dx/dy
     xc = (np.cumsum(dx) - dx / 2) * 1000.0
@@ -243,7 +261,36 @@ def _render_2d_slices_from_3d(window, res):
         if canvas is None:
             continue
         try:
-            fn(canvas, *args)
+            kwargs = {'phase': phase}
+            if attr == 'canvas_temp':
+                kwargs['unit'] = unit
+                sync = getattr(window, 'chk_sync_colorbar_T', None)
+                kwargs['sync'] = sync is None or sync.isChecked()
+            fn(canvas, *args, **kwargs)
+            if attr == 'canvas_temp':
+                fields = [Ta[:, :, k_mid], Tb[:, :, k_mid], Ts[:, :, k_mid]]
+                if unit == '°C':
+                    fields = [a - 273.15 for a in fields]
+                names, field_unit = ['T_fA', 'T_fB', 'T_s'], unit
+            elif attr == 'canvas_pres':
+                fields, names, field_unit = [P_Pa[:, :, k_mid] / 1000], ['P_A'], 'kPa'
+                if has_B:
+                    fields.append(P_Pa_B[:, :, k_mid] / 1000); names.append('P_B')
+            else:
+                fields = [np.sqrt(uc[:, :, k_mid] ** 2 + vc[:, :, k_mid] ** 2
+                                  + wc[:, :, k_mid] ** 2)]
+                names, field_unit = ['|U_A|'], 'm/s'
+                if has_B:
+                    fields.append(np.sqrt(uc_B[:, :, k_mid] ** 2 + vc_B[:, :, k_mid] ** 2
+                                          + wc_B[:, :, k_mid] ** 2))
+                    names.append('|U_B|')
+            indices = range(len(fields)) if phase is None else [min(phase, len(fields) - 1)]
+            canvas._hover_data = {
+                'fields': [fields[i] for i in indices],
+                'names': [names[i] for i in indices], 'unit': field_unit,
+                'Nx': Nx, 'Ny': Ny, 'L': float(np.sum(dx)), 'H': float(np.sum(dy)),
+                'dx_arr': dx, 'dy_arr': dy, 'slice_index': k_mid,
+            }
         except Exception as e:
             import traceback; traceback.print_exc()
             _log.warning(f"[3D->2D {attr}] {e}")
@@ -283,7 +330,7 @@ def _begin_canvas_plot(canvas, nrows=1, ncols=1):
 
 
 def _style_axis(ax, xlabel='x [mm]', ylabel='y [mm]', title='',
-                title_size=12, label_size=10, tick_size=9):
+                title_size=13, label_size=11, tick_size=11):
     _T = _get_theme()
     ax.set_facecolor(_T['ax_bg'])
     if title:
@@ -296,7 +343,8 @@ def _style_axis(ax, xlabel='x [mm]', ylabel='y [mm]', title='',
         sp.set_edgecolor(_T['ax_spine'])
 
 
-def _plot_3d_temperature(canvas, Ta_slice, Tb_slice, Ts_slice, xc, yc, z_info):
+def _plot_3d_temperature(canvas, Ta_slice, Tb_slice, Ts_slice, xc, yc, z_info,
+                         phase=None, unit='K', sync=True):
     """3-panel temperature (Ta / Tb / Ts) on mid-z slice.
 
     All three panels share a single (vmin, vmax) so the slice colorscale
@@ -306,23 +354,35 @@ def _plot_3d_temperature(canvas, Ta_slice, Tb_slice, Ts_slice, xc, yc, z_info):
     blown-up next to the fluid panels.
     """
     _T = _get_theme()
-    axes = _begin_canvas_plot(canvas, 3, 1)
+    if unit == '°C':
+        Ta_slice, Tb_slice, Ts_slice = (a - 273.15 for a in (Ta_slice, Tb_slice, Ts_slice))
+    indices = list(range(3)) if phase is None else [phase]
+    axes = np.atleast_1d(_begin_canvas_plot(canvas, len(indices), 1))
     Y, X = np.meshgrid(yc, xc)
     vmin_unified = float(min(Ta_slice.min(), Tb_slice.min(), Ts_slice.min()))
     vmax_unified = float(max(Ta_slice.max(), Tb_slice.max(), Ts_slice.max()))
     if vmax_unified - vmin_unified < 1e-12:
         vmax_unified = vmin_unified + 1.0
     datasets = [
-        (Ta_slice, r'$T_{f,A}$ [K] — Fluid A'),
-        (Tb_slice, r'$T_{f,B}$ [K] — Fluid B'),
-        (Ts_slice, r'$T_s$ [K] — Solid'),
+        (Ta_slice, rf'$T_{{f,A}}$ [{unit}] — Fluid A'),
+        (Tb_slice, rf'$T_{{f,B}}$ [{unit}] — Fluid B'),
+        (Ts_slice, rf'$T_s$ [{unit}] — Solid'),
     ]
-    for ax, (field, title) in zip(axes, datasets):
+    for ax, index in zip(axes, indices):
+        field, title = datasets[index]
+        vmin, vmax = vmin_unified, vmax_unified
+        if not sync:
+            scale_fields = (Ta_slice, Tb_slice) if index < 2 else (Ts_slice,)
+            vmin = float(min(a.min() for a in scale_fields))
+            vmax = float(max(a.max() for a in scale_fields))
+            if vmax - vmin < 1e-12:
+                vmax = vmin + 1.
         cf = ax.contourf(X, Y, field, levels=256, cmap='turbo',
-                          vmin=vmin_unified, vmax=vmax_unified)
+                          vmin=vmin, vmax=vmax)
         cb = canvas.fig.colorbar(cf, ax=ax, shrink=0.85, aspect=18, format='%.1f')
-        cb.ax.tick_params(labelsize=8, colors=_T['ax_text'])
-        _style_axis(ax, title=title, title_size=11, label_size=9, tick_size=8)
+        cb.ax.tick_params(labelsize=11, colors=_T['ax_text'])
+        cb.ax.yaxis.set_major_locator(MaxNLocator(nbins='auto'))
+        _style_axis(ax, title=title)
         # Equal aspect preserves geometric proportion (e.g. Shanghai 182×42 mm
         # is not square; default 'auto' stretches it to fill the axis box and
         # makes the contour shapes disagree with the 3D volume rendering).
@@ -330,14 +390,16 @@ def _plot_3d_temperature(canvas, Ta_slice, Tb_slice, Ts_slice, xc, yc, z_info):
             ax.set_aspect('equal')
         except Exception:
             pass
-    canvas.fig.suptitle(f'Temperature — 3D {z_info}', fontsize=12,
-                         fontweight='bold', color=_T['ax_text'], y=0.995)
-    canvas.fig.subplots_adjust(left=0.14, right=0.97, top=0.88, bottom=0.10,
+    if phase is None:
+        canvas.fig.suptitle(f'Temperature — 3D {z_info}', fontsize=12,
+                           fontweight='bold', color=_T['ax_text'], y=0.995)
+    canvas.fig.subplots_adjust(left=0.11, right=0.97, top=0.86, bottom=0.14,
                                 hspace=0.45)
     canvas.draw()
 
 
-def _plot_3d_pressure(canvas, P_slice_A, P_slice_B, xc, yc, dP_A, dP_B, z_info):
+def _plot_3d_pressure(canvas, P_slice_A, P_slice_B, xc, yc, dP_A, dP_B, z_info,
+                      phase=None):
     """Pressure panels. If P_slice_B is None → single panel (A only, B frozen).
 
     A/B panels share one (vmin, vmax) so the same color reads as the same
@@ -347,11 +409,12 @@ def _plot_3d_pressure(canvas, P_slice_A, P_slice_B, xc, yc, dP_A, dP_B, z_info):
     """
     _T = _get_theme()
     if P_slice_B is None:
-        axes = [_begin_canvas_plot(canvas)]
         P_data = [(P_slice_A, 'A', dP_A)]
     else:
-        axes = _begin_canvas_plot(canvas, 1, 2)
         P_data = [(P_slice_A, 'A', dP_A), (P_slice_B, 'B', dP_B)]
+    if phase is not None:
+        P_data = [P_data[min(phase, len(P_data) - 1)]]
+    axes = np.atleast_1d(_begin_canvas_plot(canvas, 1, len(P_data)))
     Y, X = np.meshgrid(yc, xc)
     # Shared clim across all panels (kPa).
     p_min_kpa = float(P_slice_A.min()) / 1000.0
@@ -368,19 +431,23 @@ def _plot_3d_pressure(canvas, P_slice_A, P_slice_B, xc, yc, dP_A, dP_B, z_info):
         cf = ax.contourf(X, Y, p / 1000.0, levels=256, cmap='turbo',
                           vmin=p_min_kpa, vmax=p_max_kpa)
         cb = canvas.fig.colorbar(cf, ax=ax, shrink=0.9, aspect=25, format='%.1f')
-        cb.ax.tick_params(labelsize=9, colors=_T['ax_text'])
-        _style_axis(ax, title=(f'$P_{tag}$ (kPa) — Fluid {tag} — 3D {z_info}   '
-                                rf'$|\Delta P|$ = {dp:.0f} Pa'))
+        cb.ax.tick_params(labelsize=11, colors=_T['ax_text'])
+        cb.ax.yaxis.set_major_locator(MaxNLocator(nbins='auto'))
+        title = f'$P_{tag}$ [kPa] — Fluid {tag}'
+        if phase is None:
+            title += f'\n3D {z_info}   ' + rf'$|\Delta P|$ = {dp:.0f} Pa'
+        _style_axis(ax, title=title)
         try:
             ax.set_aspect('equal')
         except Exception:
             pass
-    canvas.fig.subplots_adjust(left=0.06, right=0.96, top=0.90, bottom=0.10,
+    canvas.fig.subplots_adjust(left=0.11, right=0.96, top=0.86, bottom=0.14,
                                 wspace=0.25)
     canvas.draw()
 
 
-def _plot_3d_velocity_slice(canvas, uA, vA, wA, uB, vB, wB, xc, yc, z_info):
+def _plot_3d_velocity_slice(canvas, uA, vA, wA, uB, vB, wB, xc, yc, z_info,
+                           phase=None):
     """Velocity magnitude panels. If uB is None → single panel (A only).
 
     A/B panels share one vmax (vmin pinned at 0) so cross-flow B running
@@ -390,11 +457,11 @@ def _plot_3d_velocity_slice(canvas, uA, vA, wA, uB, vB, wB, xc, yc, z_info):
     """
     _T = _get_theme()
     if uB is None:
-        axes = [_begin_canvas_plot(canvas)]
         V_data = [(uA, vA, wA, 'A')]
     else:
-        axes = _begin_canvas_plot(canvas, 1, 2)
         V_data = [(uA, vA, wA, 'A'), (uB, vB, wB, 'B')]
+    indices = list(range(len(V_data))) if phase is None else [min(phase, len(V_data) - 1)]
+    axes = np.atleast_1d(_begin_canvas_plot(canvas, 1, len(indices)))
     Y, X = np.meshgrid(yc, xc)
     # Pre-compute |v| so we can pick a shared vmax across panels.
     vmags = []
@@ -404,16 +471,22 @@ def _plot_3d_velocity_slice(canvas, uA, vA, wA, uB, vB, wB, xc, yc, z_info):
     vmax_v = max(float(vm.max()) for vm in vmags)
     if vmax_v <= 0.0:
         vmax_v = 1.0
-    for ax, vmag, (u, v, w, tag) in zip(axes, vmags, V_data):
+    for ax, index in zip(axes, indices):
+        vmag = vmags[index]
+        u, v, w, tag = V_data[index]
         cf = ax.contourf(X, Y, vmag, levels=256, cmap='turbo',
                           vmin=0.0, vmax=vmax_v)
         cb = canvas.fig.colorbar(cf, ax=ax, shrink=0.9, aspect=25, format='%.2f')
-        cb.ax.tick_params(labelsize=9, colors=_T['ax_text'])
-        _style_axis(ax, title=f'|v| (m/s) — Fluid {tag} — 3D {z_info}')
+        cb.ax.tick_params(labelsize=11, colors=_T['ax_text'])
+        cb.ax.yaxis.set_major_locator(MaxNLocator(nbins='auto'))
+        title = f'|v| (m/s) — Fluid {tag}'
+        if phase is None:
+            title += f' — 3D {z_info}'
+        _style_axis(ax, title=title)
         try:
             ax.set_aspect('equal')
         except Exception:
             pass
-    canvas.fig.subplots_adjust(left=0.06, right=0.96, top=0.92, bottom=0.08,
+    canvas.fig.subplots_adjust(left=0.11, right=0.96, top=0.86, bottom=0.14,
                                 wspace=0.25)
     canvas.draw()

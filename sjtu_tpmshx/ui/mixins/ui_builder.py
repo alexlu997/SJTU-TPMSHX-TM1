@@ -39,7 +39,7 @@ class UIBuilderMixin:
         _t = _gt_sb()
         _mono_css = (
             f"color:{_t.get('sub_fg', _t['fg'])};"
-            f"font-family:'Fira Code','Consolas',monospace;"
+            f"font-family:{_t['mono_family']};"
             f"font-size:9pt; font-weight:500;"
             f"background:transparent; border:none; padding:0 6px;")
 
