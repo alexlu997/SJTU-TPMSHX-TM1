@@ -365,9 +365,12 @@ def test_result_footer_wraps_full_diagnostics_and_long_kpis(win):
                       timeout=1)
             for label in win._result_sidebar.findChildren(QLabel):
                 if label.isVisibleTo(win):
-                    assert label.width() >= label.sizeHint().width(), label.text()
                     if label.wordWrap():
-                        assert label.height() >= label.heightForWidth(label.width())
+                        # Wrapped labels may be narrower than their preferred size.
+                        assert label.width() >= label.minimumSizeHint().width(), label.text()
+                        assert label.height() >= label.heightForWidth(label.width()), label.text()
+                    else:
+                        assert label.width() >= label.sizeHint().width(), label.text()
     finally:
         win._invalidate_results_for_preset_load()
         win.resize(old_size)
