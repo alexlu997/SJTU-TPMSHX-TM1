@@ -87,7 +87,7 @@ def plot_temperature_3panel(window, r, _t):
         for b in (getattr(window, '_zone_boundaries_y', None) or []):
             ax.axhline(y=b*1000, color=_t['zone_line'], ls='--', lw=0.8, alpha=0.6)
 
-    window.canvas_temp.fig.subplots_adjust(left=0.08, right=0.93,
+    window.canvas_temp.fig.subplots_adjust(left=0.14, right=0.93,
                                             top=0.96, bottom=0.06, hspace=0.34)
     window.canvas_temp.draw()
     window.canvas_temp._hover_data = {

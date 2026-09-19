@@ -47,13 +47,15 @@ def _build_result_sidebar(window, _t, t):
         row.addWidget(l); row.addStretch(1); row.addWidget(v)
         cl.addLayout(row)
         window._sb_labels[key] = v
-        return v
+        return l
 
     c1, cl1 = _card("本次结果")
+    window._sb_result_heading = cl1.itemAt(0).widget()
     _kv(cl1, "Q", 'q', primary=True)
     _kv(cl1, "ΔP_A [Pa]", 'dpa', primary=True)
     _kv(cl1, "ΔP_B [Pa]", 'dpb', primary=True)
-    _kv(cl1, "T_out A / B", 'tout')
+    unit = "°C" if getattr(window, '_temp_unit', 'K') == 'C' else "K"
+    window._lbl_sidebar_tout_unit = _kv(cl1, f"出口 A / B [{unit}]", 'tout')
     slay.addWidget(c1)
 
     c2, cl2 = _card("可信度")
@@ -101,6 +103,9 @@ def refresh_result_sidebar(window):
     labels['tout'].setText(f"{_chip('ToutA')} / {_chip('ToutB')}")
 
     d = getattr(window, '_diag_summary', None) or {}
+    mode = d.get('mode')
+    window._sb_result_heading.setText(
+        f"本次结果 · {mode.upper()}" if mode in ('2d', '3d') else "本次结果")
     _good = _t.get('accent_green', '#22C55E')
     _warn = _t.get('warn', '#FBBF24')
 
@@ -143,10 +148,12 @@ def refresh_result_sidebar(window):
 
 
 def update_result_sidebar_visibility(window):
-    """Sidebar shows only on the result family with results present."""
+    """Keep the user's summary choice while navigating result tabs."""
     side = getattr(window, '_result_sidebar', None)
     if side is None:
         return
     show = (getattr(window, '_active_tab', None) in ('temp', 'pres', 'vel', '3d')
             and getattr(window, '_has_results', False))
-    side.setVisible(bool(show))
+    toggle = window.btn_result_summary
+    toggle.setVisible(bool(show))
+    side.setVisible(bool(show) and toggle.isChecked())

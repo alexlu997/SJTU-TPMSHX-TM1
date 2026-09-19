@@ -188,7 +188,7 @@ def _build_canvas_toolbar(window, vlay, t, theme):
     window.btn_tab_result._shift_cb = (
         lambda: window._split_with_current('result'))
     window.btn_tab_result.setToolTip(
-        "结果视图（Ctrl+2；2D 场 / 3D 体渲染，用右侧 2D|3D 切换）。"
+        "结果视图（Ctrl+2；用右侧「场图 / 三维」切换显示方式）。"
         "Shift+点击可与其他页并排对比。")
     window.btn_tab_result.clicked.connect(
         lambda: window._switch_tab('result'))
@@ -202,10 +202,10 @@ def _build_canvas_toolbar(window, vlay, t, theme):
     _rv_lay.setContentsMargins(0, 0, 0, 0)
     _rv_lay.setSpacing(0)
     window._result_view_btns = {}
-    for key, cap in (('2d', "2D"), ('3d', "3D")):
+    for key, cap in (('2d', "场图"), ('3d', "三维")):
         b = QPushButton(cap)
         b.setFixedHeight(28)
-        b.setToolTip("切换结果渲染：2D 场图 / 3D 体渲染（Ctrl+4）")
+        b.setToolTip("切换结果显示方式（Ctrl+4），不改变计算维度或重新求解。")
         b.setEnabled(False)
         def _pick_view(_c=False, k=key):
             window._result_view = k
@@ -246,16 +246,20 @@ def _build_canvas_toolbar(window, vlay, t, theme):
     toolbar.addWidget(_rv_seg)
     toolbar.addSpacing(8)
 
-    # Fit View — restore the current canvas card to its default size after
-    # Ctrl+Wheel zooming. (The +/- buttons were redundant with the wheel;
-    # the 1↔2 column toggle was niche — both removed in the 2026-06 declutter.)
-    btn_copy_img = QPushButton("复制图像")
-    btn_copy_img.setFixedHeight(28)
-    btn_copy_img.setStyleSheet(t.style('BTN_TERTIARY'))
-    btn_copy_img.setToolTip("复制当前画布图像到剪贴板")
-    btn_copy_img.clicked.connect(window._copy_figure_clipboard)
-    toolbar.addWidget(btn_copy_img)
+    window.btn_result_summary = QPushButton("摘要")
+    window.btn_result_summary.setFixedHeight(28)
+    window.btn_result_summary.setCheckable(True)
+    window.btn_result_summary.setChecked(True)
+    window.btn_result_summary.setStyleSheet(
+        t.style('BTN_TERTIARY')
+        + f"QPushButton:checked{{color:{_t['fg']}; border-color:{_t['accent_primary']};}}")
+    window.btn_result_summary.setToolTip("显示或收起结果摘要，为图表腾出空间")
+    window.btn_result_summary.toggled.connect(
+        lambda _checked: update_result_sidebar_visibility(window))
+    window.btn_result_summary.hide()
+    toolbar.addWidget(window.btn_result_summary)
 
+    # Fit View restores the canvas size after Ctrl+Wheel zooming.
     btn_reset_view = QPushButton("适应视图")
     btn_reset_view.setFixedHeight(28)
     btn_reset_view.setStyleSheet(t.style('BTN_TERTIARY'))
@@ -460,7 +464,9 @@ def _build_optimize_panel(window, card_lay, t, theme):
     p1 = _QWop()
     p1v = _VBop(p1)
     p1v.setContentsMargins(0, 0, 0, 0); p1v.setSpacing(10)
-    p1row = _HBop(); p1row.setSpacing(10)
+    from .responsive import ResponsiveRow
+    p1row = ResponsiveRow(threshold=720, spacing=10)
+    p1row.layout().setAlignment(Qt.AlignmentFlag.AlignTop)
 
     def _opt_card(title, min_w=0):
         fr = _QFop()
@@ -514,6 +520,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
         par_lay.addLayout(prow)
         window._opt_inline_params[pkey] = sp
     _eval_preview = QLabel("")
+    _eval_preview.setWordWrap(True)
     _eval_preview.setStyleSheet(
         f"color:{_sub_fg}; font-size:8.5pt; font-style:italic;"
         " background:transparent; border:none;")
@@ -551,9 +558,10 @@ def _build_optimize_panel(window, card_lay, t, theme):
     par_lay.addWidget(_eval_preview)
     _scope = QLabel("空气/空气 · A:+x、B:−y · 整面开口筛选")
     _scope.setWordWrap(True)
+    _scope.setStyleSheet(t.style('LBL'))
     par_lay.addWidget(_scope)
     par_lay.addStretch(1)
-    p1row.addWidget(par_card, 0)
+    p1row.addWidget(par_card)
 
     # 搜索空间 — the optimizer's REAL search-space inputs (M0,
     # 2026-07-09). Previously this card hosted the zone panel, which
@@ -649,17 +657,21 @@ def _build_optimize_panel(window, card_lay, t, theme):
     btn_field_prev.clicked.connect(_preview_field)
     space_lay.addWidget(btn_field_prev)
     space_lay.addStretch(1)
-    p1row.addWidget(space_card, 0)
+    p1row.addWidget(space_card)
+    p1v.addWidget(p1row)
 
     # 分区定义 — the zone panel serves the COMPUTE path's zone
     # feature (zone_config.py is retained for exactly that); it is
     # not an optimizer input. Own clearly-labelled card, no more
     # runtime hide-and-patch.
     if getattr(window, '_zone_panel', None) is not None:
-        zone_card, zone_lay = _opt_card("分区定义 (Compute 路径)")
-        zone_lay.addWidget(window._zone_panel, 1)
-        p1row.addWidget(zone_card, 1)
-    p1v.addLayout(p1row, 1)
+        from .builders_base import collapsible_section
+        zone_grid, zone_card = collapsible_section(
+            window, p1v, "单点计算分区（不参与优化搜索）",
+            t.style('T_NEUTRAL'), t.style('F_NEUTRAL'), expanded=False)
+        zone_grid.addWidget(window._zone_panel, 0, 0, 1, 2)
+        window.chk_zones.toggled.connect(zone_card._set_expanded)
+    p1v.addStretch(1)
     _stack.addWidget(p1)
 
     # ═══ Page 2 · 运行 ═══ (assembled below once the KPI row and
@@ -701,12 +713,11 @@ def _build_optimize_panel(window, card_lay, t, theme):
         val.setStyleSheet(
             f"color:{_t['fg']}; font-family:{_hero_font};"
             f"font-size:22pt; font-weight:600;"
-            "background:transparent; border:none;"
-            "font-feature-settings: 'tnum' on, 'lnum' on;")
+            "background:transparent; border:none;")
         cl.addWidget(cap); cl.addWidget(val)
         return card, val
 
-    kpi_row = _HBop()
+    kpi_row = QGridLayout()
     kpi_row.setSpacing(10)
     card_gen, val_gen = _mk_kpi("阶段 · 代数", "—", 130)
     card_q,   val_q   = _mk_kpi("最优 Q [W/m]", "—", 180)
@@ -716,10 +727,10 @@ def _build_optimize_panel(window, card_lay, t, theme):
     window._opt_kpi_q = val_q
     window._opt_kpi_dp = val_dp
     window._opt_kpi_eta = val_eta
-    kpi_row.addWidget(card_gen)
-    kpi_row.addWidget(card_q)
-    kpi_row.addWidget(card_dp)
-    kpi_row.addWidget(card_eta)
+    kpi_row.addWidget(card_gen, 0, 0)
+    kpi_row.addWidget(card_q, 0, 1)
+    kpi_row.addWidget(card_dp, 1, 0)
+    kpi_row.addWidget(card_eta, 1, 1)
 
     # Sparkline card (flex 1)
     spark_card = _QFop()
@@ -739,7 +750,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
     window._opt_sparkline = spark
     scl.addWidget(spark_cap)
     scl.addWidget(spark, 1)
-    kpi_row.addWidget(spark_card, 1)
+    kpi_row.addWidget(spark_card, 2, 0, 1, 2)
     p2v.addLayout(kpi_row)
 
     # ── Launch (inside the 优化参数 card, always above the fold)
@@ -1001,18 +1012,11 @@ def _build_canvas_content(window, vlay, t):
         if key == 'pareto':
             _build_optimize_panel(window, card_lay, t, _t)
 
-        # Canvas inside card. For the Optimize (pareto) tab the canvas
-        # shares a horizontal QSplitter with the zone-configuration
-        # panel that used to live in the left accordion — zones now read
-        # as the "input" half and Pareto as the "output" half of the
-        # optimisation workflow.
+        # The Pareto canvas lives in the wizard's result page.
         c.setSizePolicy(QSizePolicy.Policy.Expanding,
                         QSizePolicy.Policy.Expanding)
         c.setStyleSheet("border-radius:6px;")
         if key == 'pareto':
-            # ui-plan-b-wizard: the Pareto canvas is page 3 of the wizard;
-            # the zone panel already lives in page 1's 搜索空间 card (the
-            # old zones|canvas splitter is retired).
             window._opt_page3_lay.addWidget(c, 1)
         else:
             card_lay.addWidget(c)
@@ -1042,7 +1046,10 @@ def _build_canvas_content(window, vlay, t):
             except Exception:
                 pass
 
-        card.setFixedHeight(h + 44)  # h + padding (2x16 margin + 2x2 border + 5 accent + buffer)
+        if key == 'pareto':
+            card.setMinimumHeight(520)
+        else:
+            card.setFixedHeight(h + 44)
         _card_row_order.append((key, card))
         window._canvas_default_h[key] = h + 44
         window._canvas_cards[key] = card
@@ -1074,7 +1081,7 @@ def _build_canvas_content(window, vlay, t):
 
     window._canvas_scroll.setWidget(canvas_container)
     # ── Diagnostics sidebar (ui-plan3-workbench T2) ────────────────────
-    # 298px always-on companion for the 结果 tab: headline KPIs (mirrors
+    # Collapsible companion for the 结果 tab: headline KPIs (mirrors
     # the _res_chips data), credibility card (energy closure / envelope /
     # extrapolation) and convergence sparkline. Hidden on non-result tabs
     # and before the first compute; the retired _res_bar stays as the
