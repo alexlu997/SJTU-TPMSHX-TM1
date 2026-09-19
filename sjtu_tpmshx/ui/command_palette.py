@@ -150,7 +150,7 @@ class CommandPalette(QDialog):
             f"QLineEdit{{background:{_t.get('surface_raised', _t['card_bg'])};"
             f"color:{_t['fg']}; border:1px solid {_border};"
             f"border-radius:6px; padding:10px 14px; font-size:12pt;"
-            f"font-family:'Fira Sans','Inter','Segoe UI',sans-serif;}}"
+            f"font-family:{_t['sans_family']};}}"
             f"QLineEdit:focus{{border:1px solid {_t.get('accent_primary', '#3B82F6')};}}")
         lay.addWidget(self._input)
 

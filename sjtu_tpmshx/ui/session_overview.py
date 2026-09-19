@@ -32,9 +32,8 @@ class OverviewDialog(QDialog):
         _elev = t.get('surface_elevated', t['card_bg'])
         _border = t.get('border_subtle', t['card_border'])
         _sub = t.get('sub_fg', t['fg'])
-        _hero = ("'Instrument Serif','Fraunces','EB Garamond',"
-                 "'Source Serif Pro','Georgia','Fira Code',serif")
-        _mono = "'Fira Code','JetBrains Mono','Consolas',monospace"
+        _hero = t['sans_family']
+        _mono = t['mono_family']
         self.setStyleSheet(f"QDialog{{background:{_surface};}}")
 
         root = QVBoxLayout(self)
@@ -79,7 +78,7 @@ class OverviewDialog(QDialog):
             cap.setStyleSheet(
                 f"color:{accent}; font-size:9pt; font-weight:700;"
                 "letter-spacing:1.6px; background:transparent; border:none;"
-                "font-family:'Fira Sans','Inter',sans-serif;")
+                f"font-family:{t['sans_family']};")
             val = QLabel(value)
             val.setStyleSheet(
                 f"color:{t['fg']}; font-family:{_hero};"
@@ -123,7 +122,7 @@ class OverviewDialog(QDialog):
         trend_cap.setStyleSheet(
             f"color:{_sub}; font-size:8pt; font-weight:700;"
             "letter-spacing:1.4px; background:transparent; border:none;"
-            "font-family:'Fira Sans','Inter',sans-serif;")
+            f"font-family:{t['sans_family']};")
         tv.addWidget(trend_cap)
         spark = Sparkline(height=60)
         for e in reversed(list(getattr(window, '_recent_runs', []) or [])):
@@ -140,7 +139,7 @@ class OverviewDialog(QDialog):
         preset_label.setStyleSheet(
             f"color:{_sub}; font-size:8pt; font-weight:700;"
             "letter-spacing:1.4px; background:transparent; border:none;"
-            "padding-top:4px; font-family:'Fira Sans','Inter',sans-serif;")
+            f"padding-top:4px; font-family:{t['sans_family']};")
         root.addWidget(preset_label)
 
         pr_row = QHBoxLayout(); pr_row.setSpacing(8)
@@ -161,7 +160,7 @@ class OverviewDialog(QDialog):
             rc_label.setStyleSheet(
                 f"color:{_sub}; font-size:8pt; font-weight:700;"
                 "letter-spacing:1.4px; background:transparent; border:none;"
-                "padding-top:4px; font-family:'Fira Sans','Inter',sans-serif;")
+                f"padding-top:4px; font-family:{t['sans_family']};")
             root.addWidget(rc_label)
             rc_row = QHBoxLayout(); rc_row.setSpacing(8)
             for e in recents:

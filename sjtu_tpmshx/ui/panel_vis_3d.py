@@ -46,6 +46,7 @@ from sjtu_tpmshx.ui.vis3d_constants import FIELD_ORDER, FIELD_META
 
 # ── Theme-aware QSS generators for 3D panel controls ──
 from sjtu_tpmshx.ui.theme import get_theme, get_theme_name
+from sjtu_tpmshx.ui.typography import apply_vtk_font
 
 _CTRL_HEIGHT = 32
 
@@ -88,7 +89,7 @@ def _label_qss():
 def _status_qss():
     t = get_theme()
     return (f"color: {t['mpl_subtitle']}; font-size: 9pt; font-weight: 500; "
-            f"font-family: 'Microsoft YaHei','Segoe UI',sans-serif; "
+            f"font-family: {t['sans_family']}; "
             f"background: {t['scroll_bg']}; border-top: 1px solid {t['card_border']}; "
             "padding: 6px 12px;")
 
@@ -660,29 +661,16 @@ class ThreeDVisPanel(QWidget):
         t = get_theme()
         try:
             _wm = pl.add_text(
-                str(text),
+                str(text).replace('⚠', 'Warning:'),
                 # upper_left, not lower_left: the lower-left corner already holds
                 # the XYZ orientation triad + the Qt status strip below, so the
                 # watermark there read as a cramped pile. Top-left is clear.
                 position='upper_left', font_size=8,
                 color=t.get('warn', '#F59E0B'),
                 name='_extrap_watermark', shadow=False,
-                font='arial',   # VTK GL text only knows arial/courier/times
+                font='times',
             )
-            # Prefer Microsoft YaHei. VTK add_text can't name it, so set the
-            # actor's text property to a font FILE. Guarded: if the .ttc fails
-            # to load, VTK falls back to the embedded arial above.
-            try:
-                import os as _os
-                for _fp in (r'C:\Windows\Fonts\msyh.ttc',
-                            r'C:\Windows\Fonts\msyhl.ttc'):
-                    if _os.path.exists(_fp):
-                        _tp = _wm.GetTextProperty()
-                        _tp.SetFontFamily(4)          # VTK_FONT_FILE
-                        _tp.SetFontFile(_fp)
-                        break
-            except Exception:
-                pass
+            apply_vtk_font(_wm.GetTextProperty())
         except Exception:
             pass
         pl.render()
@@ -1129,10 +1117,12 @@ class ThreeDVisPanel(QWidget):
     def _render_placeholder(self):
         pl = self.plotter
         pl.clear()
-        pl.add_text(
+        placeholder = pl.add_text(
             "Set Dimensionality = 3D, configure L/H/Lz + inlet/outlet, then Compute.",
             font_size=8, color=get_theme()['ax_text'], position='upper_edge',
+            font='times',
         )
+        apply_vtk_font(placeholder.GetTextProperty())
         pl.reset_camera()
 
     def _render_initial_scene(self):
@@ -1143,13 +1133,16 @@ class ThreeDVisPanel(QWidget):
         # Minimal bounds: only endpoint ticks (2 per axis) + smaller font
         # so numbers don't collide with the bounding-box edges. The full 3-tick
         # grid was overlapping the wireframe on narrow geometries like 42 mm.
-        pl.show_bounds(
+        bounds = pl.show_bounds(
             grid='back', location='outer',
             xtitle='x (mm)', ytitle='y (mm)', ztitle='z (mm)',
             n_xlabels=2, n_ylabels=2, n_zlabels=2,
             all_edges=False, minor_ticks=False, use_2d=False,
-            font_size=9, color=t['ax_text'], padding=0.02,
+            font_size=9, color=t['ax_text'], padding=0.02, font_family='times',
         )
+        for axis in range(3):
+            apply_vtk_font(bounds.GetTitleTextProperty(axis))
+            apply_vtk_font(bounds.GetLabelTextProperty(axis))
         # Corner XYZ triad — per-label RGB (X red / Y green / Z blue) instead
         # of a single-colour axis helper. Engineers parse orientation by
         # colour convention, so a monochrome triad slows down reading.
@@ -1162,11 +1155,15 @@ class ThreeDVisPanel(QWidget):
             )
         except TypeError:
             # Older PyVista lacks per-axis colour kwargs; fall back to mono.
-            pl.add_axes(
+            _vtk_ax = pl.add_axes(
                 interactive=False, line_width=2,
                 xlabel='X', ylabel='Y', zlabel='Z',
                 color=t['ax_text'],
             )
+        for caption in (_vtk_ax.GetXAxisCaptionActor2D(),
+                        _vtk_ax.GetYAxisCaptionActor2D(),
+                        _vtk_ax.GetZAxisCaptionActor2D()):
+            apply_vtk_font(caption.GetCaptionTextProperty())
         self._add_flow_glyph()
         pl.view_isometric(render=False)
         # Auto-fit zoom: 182×42×42 mm aspect is very flat → camera framed
@@ -1368,7 +1365,7 @@ class ThreeDVisPanel(QWidget):
                 vol_mapper.SetSampleDistance(max(0.005, min_cell))
             except Exception:
                 pass
-            # Scalar bar — responsive placement + theme mono font. Narrow
+            # Scalar bar — responsive placement + Times New Roman. Narrow
             # viewports (<800 px wide) slim the bar so it doesn't overlap
             # the viewport edge.
             win_w = 1.0
@@ -1379,8 +1376,6 @@ class ThreeDVisPanel(QWidget):
                 pass
             bar_width = 0.040 if win_w >= 800 else 0.030
             bar_x = 0.905 if win_w >= 800 else 0.920
-            mono = t.get('mono_family',
-                         "'Fira Code','Consolas','Courier New',monospace")
             _sbar = pl.add_scalar_bar(
                 # Shorter (0.55) + lower (0.24) bar centred in the right
                 # margin; smaller title (10) so the field label clears the top
@@ -1393,28 +1388,12 @@ class ThreeDVisPanel(QWidget):
                 width=bar_width, height=0.55,
                 fmt=meta['fmt'],
                 title_font_size=10, label_font_size=11,
-                color=t['ax_text'], font_family='arial',
+                color=t['ax_text'], font_family='times',
                 bold=False, italic=False,
                 shadow=False, outline=False,
             )
-            # Prefer Microsoft YaHei for the title + value labels (VTK's
-            # font_family enum only has arial/courier/times, so route through a
-            # font FILE). Guarded: if the .ttc fails to load, the 'arial' above
-            # stands. `mono` is consumed by surrounding Qt widgets, not here.
-            _ = mono
-            try:
-                import os as _os
-                for _fp in (r'C:\Windows\Fonts\msyh.ttc',
-                            r'C:\Windows\Fonts\msyhl.ttc'):
-                    if _os.path.exists(_fp):
-                        for _getp in ('GetTitleTextProperty',
-                                      'GetLabelTextProperty'):
-                            _tp = getattr(_sbar, _getp)()
-                            _tp.SetFontFamily(4)      # VTK_FONT_FILE
-                            _tp.SetFontFile(_fp)
-                        break
-            except Exception:
-                pass
+            apply_vtk_font(_sbar.GetTitleTextProperty())
+            apply_vtk_font(_sbar.GetLabelTextProperty())
             # Solid colour bar. The volume's opacity transfer function bled into
             # the scalar bar (semi-transparent over white → washed-out pastel,
             # worst at the hot end). Attach an independent OPAQUE turbo LUT over

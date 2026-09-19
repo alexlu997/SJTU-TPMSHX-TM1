@@ -15,7 +15,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 
-from sjtu_tpmshx.ui.theme import _btn_styles
+from sjtu_tpmshx.ui.theme import _btn_styles, get_theme
 
 
 class DialogsMixin:
@@ -50,7 +50,7 @@ class DialogsMixin:
         edit.setStyleSheet(
             f"QPlainTextEdit{{background:{_tsl.get('surface_raised', _tsl['card_bg'])};"
             f"color:{_tsl['fg']}; border:1px solid {_tsl['card_border']};"
-            f"font-family:'Fira Code','Consolas',monospace; font-size:10pt;"
+            f"font-family:{_tsl['mono_family']}; font-size:10pt;"
             "padding:8px;}")
         v.addWidget(edit, 1)
         btn_row = QHBoxLayout(); btn_row.addStretch(1)
@@ -102,9 +102,10 @@ class DialogsMixin:
 
     def _show_shortcuts(self):
         """Popup dialog listing all keyboard shortcuts as a two-column table."""
+        mono = get_theme()['mono_family']
         rows_html = "".join(
             f"<tr><td style='padding:4px 16px 4px 0;'>{label}</td>"
-            f"<td style='padding:4px 0; font-family:monospace;'><b>{key}</b></td></tr>"
+            f'<td style="padding:4px 0; font-family:{mono};"><b>{key}</b></td></tr>'
             for label, key in self._SHORTCUT_ROWS)
         html = (
             "<h3 style='margin:0 0 8px 0;'>Keyboard shortcuts</h3>"
@@ -198,7 +199,7 @@ class DialogsMixin:
             f"QDialog{{background:{_t['bg']};}}"
             f"QPlainTextEdit{{background:{_t['inp_bg']}; color:{_t['inp_fg']};"
             f" border:1px solid {_t['card_border']}; border-radius:6px;"
-            f" font-family:'Fira Code','Consolas',monospace; font-size:9pt;}}"
+            f" font-family:{_t['mono_family']}; font-size:9pt;}}"
             f"QPushButton{{background:transparent; color:{_t['btn_sec_fg']};"
             f" border:1px solid {_t['btn_sec_border']}; border-radius:6px;"
             f" padding:5px 16px; font-weight:600;}}"

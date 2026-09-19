@@ -264,6 +264,8 @@ class FluidInputMixin:
             except Exception:
                 pass
             self._update_result_summary()
+        from sjtu_tpmshx.ui.plot_2d_results import redraw_result_fields
+        redraw_result_fields(self)
         self.statusBar().showMessage(
             f"Temperature display switched to {self._temp_unit}.", 3000)
 

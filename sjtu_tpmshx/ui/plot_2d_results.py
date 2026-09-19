@@ -14,19 +14,51 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
+def _phase_indices(window, count):
+    """Direct renderer callers keep all panels; the workbench selects one."""
+    phase = getattr(window, '_field_phase', None)
+    return list(range(count)) if phase is None else [min(phase, count - 1)]
+
+
+def _style_workbench_axes(ax, cb, theme, title, subtitle):
+    from .matplotlib_canvas import style_field_axes
+    style_field_axes(ax, cb, theme, title, subtitle)
+    ax.tick_params(labelsize=11)
+    ax.xaxis.label.set_fontsize(11)
+    ax.yaxis.label.set_fontsize(11)
+    cb.ax.tick_params(labelsize=11)
+    cb.ax.yaxis.set_major_locator(plt.MaxNLocator(nbins='auto'))
+
+
+def redraw_result_fields(window):
+    """Redraw cached fields after a display selection, without a new solve."""
+    if 'temp' not in getattr(window, '_drawn_tabs', ()):
+        return
+    result_3d = getattr(window, '_result_3d', None)
+    if result_3d is not None:
+        from .plot_3d_results import _render_2d_slices_from_3d
+        _render_2d_slices_from_3d(window, result_3d)
+    elif getattr(window, '_compute_results', None) is not None:
+        finalize_plots(window)
+
+
 def plot_temperature_3panel(window, r, _t):
-    """Render the 3-row T_fA / T_fB / T_s contour panel on canvas_temp.
+    """Render the chosen T_fA / T_fB / T_s field, or all three for callers
+    without a workbench phase selector.
 
     Honours `window.chk_sync_colorbar_T` — when checked, all three panels
     share the global vmin/vmax so a colour has the same temperature meaning
     across fluids and solid. When off, fluids share vmin/vmax and solid
     auto-scales independently (the pre-toggle behaviour).
     """
-    Ta, Tb, Ts = r['Ta'], r['Tb'], r['Ts']
+    unit = '°C' if getattr(window, '_temp_unit', 'K') == 'C' else 'K'
+    offset = 273.15 if unit == '°C' else 0.0
+    Ta, Tb, Ts = (r[key] - offset for key in ('Ta', 'Tb', 'Ts'))
     N_x, N_y, L, H = r['N_x'], r['N_y'], r['L'], r['H']
 
     window.canvas_temp.fig.clear()
-    axes = window.canvas_temp.fig.subplots(3, 1)
+    selected = _phase_indices(window, 3)
+    axes = np.atleast_1d(window.canvas_temp.fig.subplots(len(selected), 1))
     window.canvas_temp.axes = [list(axes)]
     window.canvas_temp.fig.patch.set_facecolor(_t['fig_bg'])
 
@@ -51,13 +83,14 @@ def plot_temperature_3panel(window, r, _t):
         vmin_s, vmax_s = None, None
 
     plot_items = [
-        (Ta, r"$T_{f,A}$  [K]", "Fluid A"),
-        (Tb, r"$T_{f,B}$  [K]", "Fluid B"),
-        (Ts, r"$T_s$  [K]", "Solid"),
+        (Ta, rf"$T_{{f,A}}$  [{unit}]", "Fluid A"),
+        (Tb, rf"$T_{{f,B}}$  [{unit}]", "Fluid B"),
+        (Ts, rf"$T_s$  [{unit}]", "Solid"),
     ]
-    for ax, (field, main_title, subtitle) in zip(axes, plot_items):
+    for ax, index in zip(axes, selected):
+        field, main_title, subtitle = plot_items[index]
         ax.set_facecolor(_t['ax_bg'])
-        if 'T_s' in main_title:
+        if index == 2:
             # T_s uses turbo to match fluid T_a/T_b + 3D volume — all physics
             # fields share the same modern-rainbow LUT for cross-plot parity.
             # levels=128 (was 512): see 2026-05-20 UI sweep note in
@@ -68,13 +101,13 @@ def plot_temperature_3panel(window, r, _t):
                 kw.update(vmin=vmin_s, vmax=vmax_s)
         else:
             kw = dict(levels=128, cmap='turbo', vmin=vmin_f, vmax=vmax_f)
-        from sjtu_tpmshx.ui.matplotlib_canvas import pad_field_to_edges, style_field_axes
+        from sjtu_tpmshx.ui.matplotlib_canvas import pad_field_to_edges
         _Xp, _Yp, _Fp = pad_field_to_edges(x, y, field, L * 1000.0, H * 1000.0)
         cf = ax.contourf(_Xp, _Yp, _Fp, **kw)
         ax.set_xlim(0, L * 1000.0); ax.set_ylim(0, H * 1000.0)
         cb = window.canvas_temp.fig.colorbar(cf, ax=ax, shrink=0.9,
                                               aspect=25, format="%.0f")
-        style_field_axes(ax, cb, _t, main_title, subtitle)
+        _style_workbench_axes(ax, cb, _t, main_title, subtitle)
         if hasattr(window, '_zone_boundaries') and window._zone_boundaries:
             z_dir = getattr(window, '_zone_axis_dir', 'y')
             for b in window._zone_boundaries:
@@ -87,13 +120,13 @@ def plot_temperature_3panel(window, r, _t):
         for b in (getattr(window, '_zone_boundaries_y', None) or []):
             ax.axhline(y=b*1000, color=_t['zone_line'], ls='--', lw=0.8, alpha=0.6)
 
-    window.canvas_temp.fig.subplots_adjust(left=0.14, right=0.93,
-                                            top=0.96, bottom=0.06, hspace=0.34)
+    window.canvas_temp.fig.subplots_adjust(left=0.11, right=0.96,
+                                            top=0.89, bottom=0.14, hspace=0.34)
     window.canvas_temp.draw()
     window.canvas_temp._hover_data = {
-        'fields': [Ta, Tb, Ts],
-        'names': ['T_fA', 'T_fB', 'T_s'],
-        'unit': 'K',
+        'fields': [[Ta, Tb, Ts][i] for i in selected],
+        'names': [['T_fA', 'T_fB', 'T_s'][i] for i in selected],
+        'unit': unit,
         'L': L, 'H': H, 'Nx': N_x, 'Ny': N_y,
         'dx_arr': _dx, 'dy_arr': _dy,
     }
@@ -142,7 +175,7 @@ def finalize_plots(window):
 
     mode_label = f"A:{dir_flow_A} B:{dir_flow_B}"
 
-    # Temperature: vertical 3×1 plot (Fluid A, Fluid B, Solid) — delegated
+    # Temperature: selected fluid/solid field — delegated
     # to a module-level helper so the K/°C sync toggle can redraw without
     # re-running the full finalize pipeline.
     plot_temperature_3panel(window, r, _t)
@@ -158,23 +191,42 @@ def finalize_plots(window):
 
     # Pressure plot — clouds only (dP shown in the KPI strip; the summary card
     # + SIMPLE convergence plot were removed from this tab).
-    window.canvas_pres.plot_pressure(P_fA, P_fB, N_x, N_y, L, H, mode_label,
-                                     dx_arr=r.get('dx_arr'), dy_arr=r.get('dy_arr'))
+    selected = _phase_indices(window, 2)
+    if len(selected) == 2:
+        window.canvas_pres.plot_pressure(P_fA, P_fB, N_x, N_y, L, H, mode_label,
+                                         dx_arr=r.get('dx_arr'), dy_arr=r.get('dy_arr'))
+    else:
+        from .matplotlib_canvas import pad_field_to_edges
+        canvas = window.canvas_pres
+        canvas.fig.clear()
+        canvas.fig.patch.set_facecolor(_t['fig_bg'])
+        ax = canvas.fig.subplots()
+        canvas.axes = [[ax]]
+        index = selected[0]
+        field = (P_fA, P_fB)[index]
+        Xp, Yp, Fp = pad_field_to_edges(x, y, field, L * 1000, H * 1000)
+        cf = ax.contourf(Xp, Yp, Fp, levels=256, cmap='turbo')
+        ax.set_xlim(0, L * 1000); ax.set_ylim(0, H * 1000)
+        cb = canvas.fig.colorbar(cf, ax=ax, shrink=.9, aspect=25, format='%.0f')
+        tag = ('A', 'B')[index]
+        _style_workbench_axes(ax, cb, _t, rf'$P_{tag}$ [Pa]', f'Fluid {tag}')
+        canvas.fig.subplots_adjust(left=.11, right=.96, top=.89, bottom=.14)
+        canvas.draw()
     window.canvas_pres._hover_data = {
-        'fields': [P_fA, P_fB],
-        'names': ['P_A', 'P_B'],
+        'fields': [[P_fA, P_fB][i] for i in selected],
+        'names': [['P_A', 'P_B'][i] for i in selected],
         'unit': 'Pa',
         'L': L, 'H': H, 'Nx': N_x, 'Ny': N_y,
         'dx_arr': _dx, 'dy_arr': _dy,
     }
 
-    # Velocity plot: vertical 2×1 (Fluid A, Fluid B)
+    # Velocity: the selected fluid; direct legacy callers retain both.
     window.canvas_vel.fig.clear()
     window.canvas_vel.fig.patch.set_facecolor(_t['fig_bg'])
-    ax_vA, ax_vB = window.canvas_vel.fig.subplots(2, 1)
+    axes_v = np.atleast_1d(window.canvas_vel.fig.subplots(len(selected), 1))
     # Register axes for _on_hover (list-of-rows format expected by the
     # generic hover handler at _on_hover:907)
-    window.canvas_vel.axes = [[ax_vA, ax_vB]]
+    window.canvas_vel.axes = [list(axes_v)]
     UmagA = np.sqrt(ucA**2 + vcA**2)
     UmagB = np.sqrt(ucB**2 + vcB**2)
     # Colour scale aligned to the 3D velocity slice convention
@@ -190,10 +242,12 @@ def finalize_plots(window):
     _vmax_v = max(float(UmagA.max()), float(UmagB.max()))
     if _vmax_v <= 0.0:
         _vmax_v = 1.0
-    for ax, (field, main_title, subtitle) in zip([ax_vA, ax_vB], [
+    velocity_items = [
         (UmagA, r"$|\mathbf{U}_A|$  [m/s]", "Fluid A"),
         (UmagB, r"$|\mathbf{U}_B|$  [m/s]", "Fluid B"),
-    ]):
+    ]
+    for ax, index in zip(axes_v, selected):
+        field, main_title, subtitle = velocity_items[index]
         ax.set_facecolor(_t['ax_bg'])
         from sjtu_tpmshx.ui.matplotlib_canvas import pad_field_to_edges
         _Xp, _Yp, _Fp = pad_field_to_edges(x, y, field, L * 1000.0, H * 1000.0)
@@ -202,7 +256,7 @@ def finalize_plots(window):
         ax.set_xlim(0, L * 1000.0); ax.set_ylim(0, H * 1000.0)
         cb = window.canvas_vel.fig.colorbar(cf, ax=ax, shrink=0.9,
                                              aspect=25, format="%.1f")
-        cb.ax.tick_params(labelsize=8, colors=_t['ax_text'], length=3)
+        cb.ax.tick_params(labelsize=11, colors=_t['ax_text'], length=3)
         cb.ax.yaxis.set_major_locator(plt.MaxNLocator(nbins=7))
         cb.outline.set_edgecolor(_t['ax_spine'])
         ax.set_title(main_title, fontsize=13, fontweight="bold",
@@ -210,9 +264,9 @@ def finalize_plots(window):
         ax.text(0.99, 1.02, subtitle, transform=ax.transAxes,
                 fontsize=9, color=_t['mpl_subtitle'], ha='right', va='bottom',
                 fontstyle='italic')
-        ax.set_xlabel("x [mm]", fontsize=10, color=_t['ax_text'])
-        ax.set_ylabel("y [mm]", fontsize=10, color=_t['ax_text'])
-        ax.tick_params(labelsize=9, colors=_t['ax_text'], length=4, width=0.8)
+        ax.set_xlabel("x [mm]", fontsize=11, color=_t['ax_text'])
+        ax.set_ylabel("y [mm]", fontsize=11, color=_t['ax_text'])
+        ax.tick_params(labelsize=11, colors=_t['ax_text'], length=4, width=0.8)
         ax.set_aspect('auto')
         ax.grid(True, alpha=0.15, linewidth=0.5, color=_t['ax_text'])
         for sp in ax.spines.values():
@@ -228,12 +282,12 @@ def finalize_plots(window):
             ax.axvline(x=b*1000, color=_t['zone_line'], ls='--', lw=0.8, alpha=0.6)
         for b in (getattr(window, '_zone_boundaries_y', None) or []):
             ax.axhline(y=b*1000, color=_t['zone_line'], ls='--', lw=0.8, alpha=0.6)
-    window.canvas_vel.fig.subplots_adjust(left=0.08, right=0.93,
-                                           top=0.96, bottom=0.07, hspace=0.32)
+    window.canvas_vel.fig.subplots_adjust(left=0.11, right=0.96,
+                                           top=0.89, bottom=0.14, hspace=0.32)
     window.canvas_vel.draw()
     window.canvas_vel._hover_data = {
-        'fields': [UmagA, UmagB],
-        'names': ['|U_A|', '|U_B|'],
+        'fields': [[UmagA, UmagB][i] for i in selected],
+        'names': [['|U_A|', '|U_B|'][i] for i in selected],
         'unit': 'm/s',
         'L': L, 'H': H, 'Nx': N_x, 'Ny': N_y,
         'dx_arr': _dx, 'dy_arr': _dy,

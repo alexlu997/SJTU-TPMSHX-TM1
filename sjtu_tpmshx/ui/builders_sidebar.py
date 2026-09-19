@@ -1,30 +1,30 @@
-"""结果工作台诊断侧栏 — moved verbatim from builders_canvas.py (openspec split-ui-main, 2026-07-03)."""
+"""Result metrics and diagnostics below the field workbench."""
 from PySide6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
+    QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QWidget,
 )
 
 from .theme import get_theme
+from .responsive import ResponsiveRow
 
 
 def _build_result_sidebar(window, _t, t):
-    """Diagnostics sidebar for the 结果 tab (ui-plan3-workbench T2)."""
+    """Keep the existing result-label interface in a horizontal footer."""
     from .sparkline import Sparkline
     side = QFrame()
-    side.setFixedWidth(298)
     side.setStyleSheet("QFrame{background:transparent; border:none;}")
     slay = QVBoxLayout(side)
-    slay.setContentsMargins(0, 0, 4, 0)
-    slay.setSpacing(8)
+    slay.setContentsMargins(20, 0, 20, 12)
+    slay.setSpacing(12)
 
-    _card_qss = (f"QFrame{{background:{_t['card_bg']};"
+    _card_qss = (f"QWidget#resultDiagnostics{{background:{_t['card_bg']};"
                  f" border:1px solid {_t['card_border']}; border-radius:6px;}}")
     _h_qss = (f"color:{_t.get('sub_fg', _t['fg'])}; background:transparent;"
               " border:none; font-size:8pt; font-weight:600;"
               " letter-spacing:1.2px;")
     _lbl_qss = (f"color:{_t.get('sub_fg', _t['fg'])}; background:transparent;"
                 " border:none; font-size:9pt;")
-    _val_qss = (f"color:{_t['val']}; background:transparent; border:none;"
-                f" font-family:{_t['mono_family']}; font-size:10pt;"
+    _val_qss = (f"color:{_t['fg']}; background:transparent; border:none;"
+                f" font-family:{_t['mono_family']}; font-size:19pt;"
                 " font-weight:700;")
     _val2_qss = (f"color:{_t['fg']}; background:transparent; border:none;"
                  f" font-family:{_t['mono_family']}; font-size:9pt;"
@@ -32,52 +32,75 @@ def _build_result_sidebar(window, _t, t):
 
     window._sb_labels = {}
 
-    def _card(title):
-        c = QFrame(); c.setStyleSheet(_card_qss)
-        cl = QVBoxLayout(c)
-        cl.setContentsMargins(12, 8, 12, 10); cl.setSpacing(4)
-        h = QLabel(title); h.setStyleSheet(_h_qss)
-        cl.addWidget(h)
-        return c, cl
-
-    def _kv(cl, label, key, primary=False):
-        row = QHBoxLayout(); row.setSpacing(8)
+    def _kv(row, label, key, primary=False):
+        group = QVBoxLayout() if primary else QHBoxLayout()
+        group.setSpacing(4 if primary else 8)
         l = QLabel(label); l.setStyleSheet(_lbl_qss)
         v = QLabel("—"); v.setStyleSheet(_val_qss if primary else _val2_qss)
-        row.addWidget(l); row.addStretch(1); row.addWidget(v)
-        cl.addLayout(row)
+        group.addWidget(l); group.addWidget(v)
+        row.addLayout(group, 1 if primary else 0)
         window._sb_labels[key] = v
         return l
 
-    c1, cl1 = _card("本次结果")
-    window._sb_result_heading = cl1.itemAt(0).widget()
-    _kv(cl1, "Q", 'q', primary=True)
-    _kv(cl1, "ΔP_A [Pa]", 'dpa', primary=True)
-    _kv(cl1, "ΔP_B [Pa]", 'dpb', primary=True)
+    window._sb_result_heading = QLabel("本次结果")
+    window._sb_result_heading.setStyleSheet(_h_qss)
+    slay.addWidget(window._sb_result_heading)
+    window._sb_result_heading.hide()  # The workbench header shows the run mode.
+    headline = ResponsiveRow(threshold=640, spacing=16)
+    window._result_kpi_row = headline
+    heat_pressure = QWidget()
+    heat_row = QHBoxLayout(heat_pressure)
+    heat_row.setContentsMargins(0, 0, 0, 0)
+    heat_row.setSpacing(24)
+    outlet_pressure = QWidget()
+    outlet_row = QHBoxLayout(outlet_pressure)
+    outlet_row.setContentsMargins(0, 0, 0, 0)
+    outlet_row.setSpacing(24)
+    headline.addWidget(heat_pressure)
+    headline.addWidget(outlet_pressure)
+    _kv(heat_row, "换热量 Q", 'q', primary=True)
+    _kv(heat_row, "ΔP_A [Pa]", 'dpa', primary=True)
+    _kv(outlet_row, "ΔP_B [Pa]", 'dpb', primary=True)
     unit = "°C" if getattr(window, '_temp_unit', 'K') == 'C' else "K"
-    window._lbl_sidebar_tout_unit = _kv(cl1, f"出口 A / B [{unit}]", 'tout')
-    slay.addWidget(c1)
+    window._lbl_sidebar_tout_unit = _kv(
+        outlet_row, f"出口温度 A / B [{unit}]", 'tout', primary=True)
+    slay.addWidget(headline)
 
-    c2, cl2 = _card("可信度")
-    _kv(cl2, "能量闭合", 'closure')
-    _kv(cl2, "压缩性包络", 'envelope')
-    _kv(cl2, "代理外推", 'extrap')
-    slay.addWidget(c2)
+    diagnostic = ResponsiveRow(threshold=680, spacing=12)
+    window._result_diagnostic_row = diagnostic
+    diagnostic.setObjectName('resultDiagnostics')
+    diagnostic.setStyleSheet(_card_qss)
+    diagnostic.layout().setContentsMargins(12, 8, 12, 8)
+    confidence = QWidget()
+    row = QHBoxLayout(confidence)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(16)
+    _kv(row, "能量闭合", 'closure')
+    _kv(row, "压缩性包络", 'envelope')
+    _kv(row, "外推", 'extrap')
+    row.addStretch(1)
+    convergence = QWidget()
+    detail_row = QHBoxLayout(convergence)
+    detail_row.setContentsMargins(0, 0, 0, 0)
+    detail_row.setSpacing(16)
+    detail_row.addStretch(1)
+    diagnostic.addWidget(confidence)
+    diagnostic.addWidget(convergence)
 
-    c3, cl3 = _card("收敛 · SIMPLE-A 残差 (log₁₀)")
-    spark = Sparkline(height=52)
-    cl3.addWidget(spark)
+    spark = Sparkline(height=26)
+    spark.setFixedWidth(72)
+    spark.setToolTip("SIMPLE-A 残差 (log₁₀)")
+    detail_row.addWidget(spark)
     window._resid_spark = spark
-    _kv(cl3, "外循环 / 耗时", 'iters')
+    _kv(detail_row, "迭代 / 耗时", 'iters')
     btn_diag = QPushButton("诊断详情…")
     btn_diag.setFixedHeight(26)
     btn_diag.setStyleSheet(t.style('BTN_TERTIARY'))
     btn_diag.clicked.connect(
         lambda: getattr(window, '_show_diag_dialog', lambda: None)())
-    cl3.addWidget(btn_diag)
-    slay.addWidget(c3)
+    detail_row.addWidget(btn_diag)
+    slay.addWidget(diagnostic)
 
-    slay.addStretch(1)
     side.hide()
     window._result_sidebar = side
     return side

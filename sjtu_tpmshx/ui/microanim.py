@@ -92,7 +92,7 @@ def toast(parent, text, kind="success", duration_ms=2200, copy_payload=None):
     pill.setStyleSheet(
         f"color:{_tk.get('tab_on_fg', '#FFFFFF')}; background:{fg_hint};"
         f"border:none; border-radius:18px; padding:10px 18px;"
-        f"font-family:'Fira Sans','Inter','Segoe UI',sans-serif;"
+        f"font-family:{_tk['sans_family']};"
         f"font-size:10pt; font-weight:700; letter-spacing:0.3px;")
     pill.adjustSize()
 

@@ -1,8 +1,6 @@
 """Matplotlib canvas for SJTU-TPMSHX result visualization.
 
-Extracted from main.py (Task B.2). Light-only as of D-1 (dark mode and
-the runtime toggle were removed; `_current_theme` and `_dp_card_colors`
-went away with apply_theme).
+Extracted from main.py (Task B.2). Figures use the active theme tokens.
 """
 import numpy as np
 import matplotlib.pyplot as plt
@@ -115,6 +113,15 @@ class MatplotlibCanvas(FigureCanvas):
         self.min_temp = self.max_temp = None
         self.min_s    = self.max_s    = None
         self.time_text = None
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # Qt sizes are whole pixels. The inches→pixels round trip can land
+        # just below one (953 becomes 952.9999999999999), and Agg truncates
+        # it, leaving a stale one-pixel edge when Qt paints the full widget.
+        pixels = np.array([event.size().width(), event.size().height()])
+        inches = pixels * self.device_pixel_ratio / self.figure.dpi
+        self.figure.set_size_inches(np.nextafter(inches, np.inf), forward=False)
 
     def plot_zones(self, zones, dx, dy, mode=""):
         """Plot 3×3 grid: rows = Fluid A / Fluid B / Solid, cols = inlet / uniform / outlet.
