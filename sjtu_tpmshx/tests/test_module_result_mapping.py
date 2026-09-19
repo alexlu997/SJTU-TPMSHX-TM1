@@ -20,15 +20,130 @@ from sjtu_tpmshx.tests.integration_tm1.test_2d_real import baseline_config
 from sjtu_tpmshx.tests.integration_tm1.test_public_api import assert_slots
 
 
-def _assert_producer_diagnostics(raw, diagnostics):
-    # Frozen former capture rule: protect every existing key, including None
-    # placeholders and nested audit arrays, as producers take over ownership.
+# Fixed from the real scenarios below on pre-producer-refactor main 736c0a8.
+# Keep these expectations independent of the current raw/diagnostic mappings.
+_DIAGNOSTICS_2D = frozenset('''
+    P_in_realized_A P_in_realized_B P_in_shoot_resid_A P_in_shoot_resid_B
+    Q_A Q_B Q_enthalpy_A Q_enthalpy_B Q_net Q_richardson_warn
+    Q_solid_richardson Q_total T_out_A_K T_out_B_K convergence_detail dP_A dP_B
+    df_metadata energy_imbalance_rel envelope_reasons envelope_valid
+    mass_flow_A_kg_s_per_m mass_flow_B_kg_s_per_m mass_imbalance_rel_A
+    mass_imbalance_rel_B model_h_balance p_clip_hits residuals_A residuals_B
+    richardson_info sco2_nu_observations solver_converged true_h_balance
+    ucA_disp ucB_disp vcA_disp vcB_disp warnings_list
+'''.split())
+_DIAGNOSTICS_3D = frozenset('''
+    AB_interior Lx Ly Lz P_in_realized_A P_in_realized_B
+    P_in_shoot_resid_A P_in_shoot_resid_B Q Q_AB_imbalance_rel Q_enthalpy_A
+    Q_enthalpy_B Q_interior Q_net Q_sA Q_sA_interior Q_sB Q_sB_interior
+    Q_solid_B Q_total T_A_out T_B_out T_in T_out_A T_out_B _ltne_info
+    _ltne_max_iter _max_outer _needs_full_validate convergence_detail dP dP_A
+    dP_B df_metadata dir_A dir_B energy_imbalance_rel envelope_reasons
+    envelope_valid envelope_warnings eps_A_strict eps_A_strict_cellmax
+    eps_B_strict eps_B_strict_cellmax mass_flow_A_kg_s mass_flow_B_kg_s
+    mass_imbalance_rel_A mass_imbalance_rel_B model_h_balance p_clip_hits
+    sco2_nu_observations solver_converged true_h_balance u_A
+'''.split())
+_AUDIT_DIAGNOSTICS_3D = frozenset('''
+    _audit_P_inA _audit_P_inB _audit_T_inA _audit_T_inB _audit_cp_A _audit_cp_B
+    _audit_eps _audit_fA _audit_fB _audit_m_dot_A_simple _audit_m_dot_B_phys_in
+    _audit_m_dot_B_phys_out _audit_m_dot_B_simple _audit_sA_face _audit_sB_face
+    _audit_u_A _audit_u_B
+'''.split())
+_CONVERGENCE_2D = frozenset('''
+    energy_nan_hit enthalpy_balance_ok envelope_ok inlet_pressure
+    ltne_iterations ltne_ok ltne_residual model_h_balance_ok outer_converged
+    outer_hit_cap outer_iters richardson_ok simple_ok
+'''.split())
+_CONVERGENCE_3D = frozenset('''
+    envelope_ok fields_finite inlet_pressure ltne_ok outer_anderson
+    outer_converged outer_dT outer_hit_cap outer_iters simple_A simple_B
+    simple_exit_A simple_exit_B simple_nonconv simple_nonconv_final
+    simple_nonconv_transient simple_ok
+'''.split())
+_INLET_PRESSURE_KEYS = frozenset('''
+    definition iterations minimum_Pa outlet_Pa outlet_gauge_Pa passed realized_Pa
+    relative_error relative_tolerance specified_Pa
+'''.split())
+
+
+def _assert_producer_diagnostics(raw, diagnostics, expected_keys):
+    assert diagnostics.keys() == expected_keys, (
+        f'diagnostic keys: missing={sorted(expected_keys - diagnostics.keys())}, '
+        f'unexpected={sorted(diagnostics.keys() - expected_keys)}')
+    # The former capture rule separately checks classification and shared values;
+    # it cannot detect a key missing from both new mappings on its own.
     expected = {key: value for key, value in raw.items()
                 if not isinstance(value, np.ndarray)
                 and key not in ('_native_evidence', 'application')}
     assert diagnostics.keys() == expected.keys()
     for key, value in expected.items():
         assert diagnostics[key] is value, key
+
+
+def _assert_3d_diagnostics(raw, diagnostics, *, frozen_B=False, audit=False):
+    expected = _DIAGNOSTICS_3D
+    none_keys = {'true_h_balance'}
+    if frozen_B:
+        expected |= {'P_Pa_B', 'vmag_B', 'chi_B'}
+        none_keys |= {'P_Pa_B', 'vmag_B', 'chi_B', 'T_B_out', 'T_out_B', 'dir_B',
+                      'eps_B_strict', 'eps_B_strict_cellmax', 'mass_flow_B_kg_s',
+                      'model_h_balance'}
+    if audit:
+        expected |= _AUDIT_DIAGNOSTICS_3D
+        if frozen_B:
+            expected |= {'_audit_chi_B', '_audit_in_mask_B',
+                         '_audit_ltne_mask_B', '_audit_out_mask_B'}
+            none_keys |= {'_audit_chi_B', '_audit_in_mask_B', '_audit_ltne_mask_B',
+                          '_audit_out_mask_B', '_audit_T_inB', '_audit_cp_B',
+                          '_audit_fB', '_audit_m_dot_B_phys_in', '_audit_m_dot_B_phys_out',
+                          '_audit_m_dot_B_simple', '_audit_sB_face', '_audit_u_B'}
+        for side in ('A',) if frozen_B else ('A', 'B'):
+            assert diagnostics[f'_audit_s{side}_face'].keys() == {
+                'dir_real', 'dx', 'dy', 'dz', 'eps', 'inlet_frac', 'outlet_coeff',
+                'outlet_frac', 'rho', 'solver_to_real_perm', 'u', 'v', 'w'}
+            assert diagnostics[f'_audit_f{side}'].keys() == {
+                'dir', 'in_ctr', 'in_w', 'out_ctr', 'out_w'}
+    _assert_producer_diagnostics(raw, diagnostics, expected)
+    for key in none_keys:
+        assert diagnostics[key] is None, key
+    detail = diagnostics['convergence_detail']
+    assert detail.keys() == _CONVERGENCE_3D
+    assert detail['inlet_pressure'].keys() == {'A', 'B'}
+    assert diagnostics['df_metadata'].keys() == {'mode', 'A', 'B'}
+    if frozen_B:
+        assert detail['simple_B'] is detail['simple_exit_B'] is None
+        assert detail['inlet_pressure']['B'] is diagnostics['df_metadata']['B'] is None
+    else:
+        balance = diagnostics['model_h_balance']
+        assert {'outer_index', 'post_after_last_thermal', 'thermal_state',
+                'physical_boundary_complete', 'sides'} <= balance.keys()
+        assert balance['sides'].keys() == {'A', 'B'}
+        for side in ('A', 'B'):
+            assert {'physical_boundary_complete', 'physical_external_inward_W',
+                    'faces'} <= balance['sides'][side].keys()
+    for side in ('A',) if frozen_B else ('A', 'B'):
+        assert detail['inlet_pressure'][side].keys() == _INLET_PRESSURE_KEYS
+        assert detail[f'simple_{side}'].keys() == {
+            'convergence_mode', 'exit_reason', 'final_res', 'final_res_mass_global',
+            'final_res_mass_local', 'final_res_mom', 'iterations',
+            'outlet_backflow_frac', 'res_norm_ref'}
+
+
+@pytest.mark.parametrize('keys, missing', [
+    pytest.param(_DIAGNOSTICS_2D, 'Q_total', id='2d'),
+    pytest.param(_DIAGNOSTICS_3D, 'Q_total', id='3d'),
+    pytest.param(_DIAGNOSTICS_3D | {'P_Pa_B', 'vmag_B', 'chi_B'},
+                 'P_Pa_B', id='3d-none-placeholder'),
+])
+def test_diagnostic_contract_rejects_joint_field_loss(keys, missing):
+    raw = dict.fromkeys(keys)
+    diagnostics = raw.copy()
+    _assert_producer_diagnostics(raw, diagnostics, keys)
+    del raw[missing]
+    del diagnostics[missing]
+    with pytest.raises(AssertionError, match=missing):
+        _assert_producer_diagnostics(raw, diagnostics, keys)
 
 
 def _small_air_air_cfg():
@@ -66,7 +181,31 @@ def native_result(request):
     def record(*args):
         raw = args[1] if dimension == 2 else args[3]
         diagnostics = args[-1]
-        _assert_producer_diagnostics(raw, diagnostics)
+        if dimension == 2:
+            expected = (_DIAGNOSTICS_2D - {'ucA_disp', 'vcA_disp'}
+                        if request.param == '2-partial' else _DIAGNOSTICS_2D)
+            _assert_producer_diagnostics(raw, diagnostics, expected)
+            for key in expected & {'ucA_disp', 'vcA_disp', 'ucB_disp', 'vcB_disp'}:
+                assert diagnostics[key] is None, key
+            assert diagnostics['true_h_balance'] is None
+            detail = diagnostics['convergence_detail']
+            assert detail.keys() == _CONVERGENCE_2D
+            assert detail['inlet_pressure'].keys() == {'A', 'B'}
+            for side in ('A', 'B'):
+                assert detail['inlet_pressure'][side].keys() == _INLET_PRESSURE_KEYS
+            assert diagnostics['df_metadata'].keys() == {'mode', 'A', 'B'}
+            assert diagnostics['richardson_info'].keys() == {
+                'converged', 'extrapolated', 'iterations', 'model_h_balance', 'residual'}
+            assert diagnostics['model_h_balance'].keys() == {'main', 'fine'}
+            for grid in ('main', 'fine'):
+                balance = diagnostics['model_h_balance'][grid]
+                assert {'A', 'B', 'outer_index', 'post_after_last_thermal',
+                        'physical_boundary_complete', 'passed', 'state'} <= balance.keys()
+                for side in ('A', 'B'):
+                    assert {'physical_boundary_complete', 'Q_advective_W_per_m',
+                            'h_faces_W_per_m', 'mass_faces_kg_s_per_m'} <= balance[side].keys()
+        else:
+            _assert_3d_diagnostics(raw, diagnostics)
         captured.append(raw)
         result = capture(*args)
         assert result.metadata['diagnostics'].keys() == diagnostics.keys()
@@ -98,7 +237,7 @@ def test_legacy_3d_producer_preserves_optional_diagnostics(monkeypatch, frozen_B
 
     def record(prob, outer, metrics):
         raw, diagnostics = assemble(prob, outer, metrics)
-        _assert_producer_diagnostics(raw, diagnostics)
+        _assert_3d_diagnostics(raw, diagnostics, frozen_B=frozen_B, audit=audit)
         observed.append(raw)
         if frozen_B:
             assert raw['P_Pa_B'] is raw['vmag_B'] is None
