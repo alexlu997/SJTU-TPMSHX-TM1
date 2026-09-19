@@ -64,6 +64,7 @@ def _build_result_sidebar(window, _t, t):
     unit = "°C" if getattr(window, '_temp_unit', 'K') == 'C' else "K"
     window._lbl_sidebar_tout_unit = _kv(
         outlet_row, f"出口温度 A / B [{unit}]", 'tout', primary=True)
+    window._sb_labels['tout'].setWordWrap(True)
     slay.addWidget(headline)
 
     diagnostic = ResponsiveRow(threshold=680, spacing=12)
