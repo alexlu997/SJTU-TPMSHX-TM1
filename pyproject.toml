@@ -54,10 +54,9 @@ select = ["F", "E9"]
 "sjtu_tpmshx/**/__init__.py" = ["F401"]
 
 [tool.mypy]
-# P2.2（2026-07-21）：宽松档，只锁"核心公共面"——envelope 权威、compute_pipeline
-# 接缝、domain 配置/结果、CLI。运行方式（P1.8b F2 起仓库根基底，与包名风格一致）：
-#   python -m mypy @mypy-core-files.txt   （cwd = 仓库根）
-# 文件清单在 mypy-core-files.txt；扩圈 = 往清单加文件并清零（后续波次）。
+# 公共接口与数据契约门：显式文件清单在 mypy-core-files.txt。
+# 从仓库根使用锁定解释器运行 python -m mypy @mypy-core-files.txt。
+# follow_imports=silent 不对整个求解器实施严格类型检查；扩圈须在同一改动中清零。
 python_version = "3.12"
 ignore_missing_imports = true
 follow_imports = "silent"
@@ -66,6 +65,16 @@ no_implicit_optional = true
 # P1.8b（W0 引入，F2 定型）：explicit_package_bases + 仓库根 cwd ⇒ 模块名
 # 恒为 sjtu_tpmshx.*，与包内 __init__ 上溯一致，杜绝 "found twice" 双名。
 explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+module = [
+    "sjtu_tpmshx.models.envelope",
+    "sjtu_tpmshx.preprocess.api",
+    "sjtu_tpmshx.solvers.api",
+    "sjtu_tpmshx.postprocess.metrics",
+]
+# 这些边界文件中的无注解辅助函数也必须检查函数体。
+check_untyped_defs = true
 
 [tool.setuptools.dynamic]
 version = { attr = "sjtu_tpmshx._version.__version__" }

@@ -5,3 +5,14 @@ sjtu_tpmshx/domain/compute_result.py
 sjtu_tpmshx/configs/__init__.py
 sjtu_tpmshx/_version.py
 sjtu_tpmshx/cli.py
+sjtu_tpmshx/models/envelope.py
+sjtu_tpmshx/domain/case_data.py
+sjtu_tpmshx/domain/field_result.py
+sjtu_tpmshx/domain/performance_result.py
+sjtu_tpmshx/domain/metric_spec.py
+sjtu_tpmshx/domain/module_ports.py
+sjtu_tpmshx/domain/model_refs.py
+sjtu_tpmshx/preprocess/api.py
+sjtu_tpmshx/solvers/api.py
+sjtu_tpmshx/postprocess/api.py
+sjtu_tpmshx/postprocess/metrics.py

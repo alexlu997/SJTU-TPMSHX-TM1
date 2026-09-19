@@ -39,6 +39,17 @@
 - **WHEN** 某测试使用未注册标记（如 `@pytest.mark.slwo`）
 - **THEN** pytest 收集期报错
 
+### Requirement: Public interface type gate
+`mypy-core-files.txt` SHALL 显式列出公共接口与数据契约检查范围，包含当前 envelope
+实现、三模块 API 和数据对象，同时保留仍有消费者的兼容入口。`pyproject.toml`
+SHALL 对 envelope、前处理 API、求解 API 和后处理 metrics 启用无注解函数体检查。
+这不声明全求解器严格类型覆盖。`test_type_gate.py` SHALL 在快测中执行清单检查，
+并验证错误类型不能传入 `prepare_case`、`run_case`、`evaluate`；CI 不另加重复 mypy 步骤。
+
+#### Scenario: Wrong public input types are rejected
+- **WHEN** mypy 检查向三个公共 API 传入字符串代替各自数据对象的调用
+- **THEN** 三处调用均报告参数类型错误；清单中的实际代码仍须零错误
+
 ### Requirement: Parallel local gate
 本地全量门 SHALL 支持 pytest-xdist 并行：`pytest sjtu_tpmshx/tests/ -q -n auto --dist loadscope`，且在启动 Python 前设置 `PYTHONHASHSEED=0`、`NUMBA_NUM_THREADS=2` 和 BLAS/OMP 单线程。`--dist loadscope` 为本机文档默认，worker 数可按资源改为固定值；128 核服务器保留脚本中的 worksteal 策略。解释器、环境检查和完整命令集中在[根 README](../../../README.md#环境与检查)。pytest-xdist 位于共同依赖锁中。
 

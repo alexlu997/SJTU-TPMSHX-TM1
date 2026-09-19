@@ -1,11 +1,13 @@
 """Public prepared-case execution entry point."""
 from dataclasses import replace
+from sjtu_tpmshx.domain.case_data import CaseData
+from sjtu_tpmshx.domain.field_result import FieldResult
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.run_warnings import warning_scope, warning_messages
 from sjtu_tpmshx.domain.provenance import source_context
 
 
-def run_case(case, control=RunControl()):
+def run_case(case: CaseData, control: RunControl = RunControl()) -> FieldResult:
     if control.backend != 'python':
         raise ValueError(f'unsupported backend: {control.backend}')
     dimension = case.grid.get('dimension')

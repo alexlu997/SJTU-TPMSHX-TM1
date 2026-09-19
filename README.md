@@ -242,6 +242,7 @@ export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
 export QT_QPA_PLATFORM=offscreen PYTHONHASHSEED=0
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 export NUMBA_NUM_THREADS=2
+"$PYTHON" -m mypy @mypy-core-files.txt --config-file pyproject.toml
 "$PYTHON" -m pytest sjtu_tpmshx/tests -q -m "not slow and not heavy" --timeout=600 --timeout-method=thread
 "$PYTHON" -m pytest sjtu_tpmshx/tests/integration_tm1 -q --timeout=600 --timeout-method=thread
 # 完整本地验收：没有 -m 过滤；按本机 CPU/内存可将 auto 换为固定 worker 数。
@@ -252,6 +253,12 @@ PowerShell 使用同样的 pytest 参数，并以 `$env:NUMBA_NUM_THREADS='2'` �
 上述环境变量，以 `& $tm1Python` 调用解释器。Numba 上限至少为 2，因为焓输运测试
 显式运行双线程检查。固定 128 核服务器的并行预算见 `scripts/run_tests_server.ps1`；
 `run_tests_fast.ps1` 只提供开发反馈，其 `not heavy` 子集与 CI 快测不同。
+
+`mypy-core-files.txt` 显式列出 18 个类型检查文件：保留既有配置、控制器、CLI
+及兼容入口，并覆盖当前 envelope 实现、三模块数据契约与公共 API、后处理指标入口。
+`pyproject.toml` 还对四个边界实现模块启用无注解函数体检查；这不等于全求解器严格类型覆盖。
+`test_type_gate.py` 在 pytest 快测中执行同一清单，并确认错误类型不能传入三个公共 API；
+上面的 mypy 命令用于本地单独检查，CI 不另加重复步骤。
 
 第一条 pytest 排除了 slow/heavy，不能代替真实集成或第三条完整本地验收。
 完整验收的 skip 须保留具体原因，不能当作被跳过能力已经通过。最小后处理 CI 使用独立的
