@@ -32,6 +32,8 @@
 | [.github/](../.github/) | macOS / Windows CI 和最小后处理环境检查 |
 
 `pyproject.toml`、`requirements*.txt`、`pytest.ini` 负责构建、依赖和测试；
+`mypy-core-files.txt` 声明公共接口与数据契约的显式类型检查范围，执行方式见
+[环境与检查](../README.md#环境与检查)。
 `AGENTS.md` 记录项目协作规则，`LICENSE` 记录许可，`data-revision.txt` 声明配套数据版本。
 原始实验/CFD 数据位于本地 `data/raw_data/`，研究脚本与结果放在忽略的 `.cache/`，
 均不随公共代码仓库提交。旧 `reports/` 输出目录也被忽略，避免旧命令重新提交结果表。

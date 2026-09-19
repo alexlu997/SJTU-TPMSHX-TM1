@@ -4,7 +4,17 @@
 仓库 CI 门（GitHub Actions，headless pytest 子集）及其安装/排除约定。来自 openspec archive `2026-07-02-cleanup-ci`（架构扫描批次 D+F）。
 ## Requirements
 ### Requirement: Headless CI gate on push/PR
-仓库 SHALL 提供 GitHub Actions workflow（`.github/workflows/ci.yml`），在 push 到 main 与 PR 时分别使用 macOS/Python 3.13 和 Windows/Python 3.12，从 `requirements.txt` 引用的共同精确锁安装，并在 `PYTHONHASHSEED=0` 下运行 `pytest sjtu_tpmshx/tests/ -m "not slow and not heavy"`。随后运行 `tests/integration_tm1/` 的真实模块交接与数值检查。Qt SHALL 使用 offscreen 模式，3D 面板 SHALL 在该快速门中禁用。CI SHALL NOT 依赖 gitignored 的本地数据资产。
+仓库 SHALL 提供 GitHub Actions workflow（`.github/workflows/ci.yml`），在 push 到 main 与 PR 时分别使用 macOS/Python 3.13 和 Windows/Python 3.12，从 `requirements.txt` 引用的共同精确锁安装，并在 `PYTHONHASHSEED=0` 下运行 `pytest sjtu_tpmshx/tests/ -m "not slow and not heavy" --ignore=sjtu_tpmshx/tests/integration_tm1 -n 2 --dist loadscope`。随后串行完整运行 `tests/integration_tm1/` 的真实模块交接与数值检查，不加 marker 过滤。Qt SHALL 使用 offscreen 模式，3D 面板 SHALL 在该快速门中禁用。CI SHALL NOT 依赖 gitignored 的本地数据资产。
+
+快测 SHALL 固定两个 worker，BLAS/OMP/MKL/NumExpr 单线程、Numba 上限为 2；
+独立集成步骤的 Numba 上限为 1。两个步骤 SHALL 输出最慢 30 项与 skip 原因，并保存
+逐项状态及耗时的 JUnit XML，测试报告 artifact 保留 7 天。上传范围 SHALL 仅为
+`.cache/ci/fast.xml`、`.cache/ci/integration.xml`，不包含原生求解结果或本地数据。
+平台快测、真实集成和最小后处理门均保留；三项必需检查名称与数值断言/容差不因提速改变。
+
+#### Scenario: Integration is executed once per platform job
+- **WHEN** 合并快测和独立集成步骤的测试集合
+- **THEN** 既有用例仍被覆盖，集成目录不在快测中重复执行；新增测试单独记录
 
 #### Scenario: CI green on a clean main
 - **WHEN** workflow 在当前 main 运行
@@ -39,6 +49,17 @@
 - **WHEN** 某测试使用未注册标记（如 `@pytest.mark.slwo`）
 - **THEN** pytest 收集期报错
 
+### Requirement: Public interface type gate
+`mypy-core-files.txt` SHALL 显式列出公共接口与数据契约检查范围，包含当前 envelope
+实现、三模块 API 和数据对象，同时保留仍有消费者的兼容入口。`pyproject.toml`
+SHALL 对 envelope、前处理 API、求解 API 和后处理 metrics 启用无注解函数体检查。
+这不声明全求解器严格类型覆盖。`test_type_gate.py` SHALL 在快测中执行清单检查，
+并验证错误类型不能传入 `prepare_case`、`run_case`、`evaluate`；CI 不另加重复 mypy 步骤。
+
+#### Scenario: Wrong public input types are rejected
+- **WHEN** mypy 检查向三个公共 API 传入字符串代替各自数据对象的调用
+- **THEN** 三处调用均报告参数类型错误；清单中的实际代码仍须零错误
+
 ### Requirement: Parallel local gate
 本地全量门 SHALL 支持 pytest-xdist 并行：`pytest sjtu_tpmshx/tests/ -q -n auto --dist loadscope`，且在启动 Python 前设置 `PYTHONHASHSEED=0`、`NUMBA_NUM_THREADS=2` 和 BLAS/OMP 单线程。`--dist loadscope` 为本机文档默认，worker 数可按资源改为固定值；128 核服务器保留脚本中的 worksteal 策略。解释器、环境检查和完整命令集中在[根 README](../../../README.md#环境与检查)。pytest-xdist 位于共同依赖锁中。
 
@@ -55,5 +76,5 @@ CI 快测排除 slow/heavy，随后独立运行 `integration_tm1`；它们共同
 仍不覆盖全部本地重数值检查。全量本地门（无 `-m` 过滤）仍是完成判据。
 
 #### Scenario: Fast subset materially faster
-- **WHEN** 运行 `pytest sjtu_tpmshx/tests/ -q -m "not slow and not heavy" -n auto --dist loadscope`
-- **THEN** 0 failed，且墙钟时间低于全量并行运行
+- **WHEN** 调整 CI 并行或测试分组
+- **THEN** 0 failed，并记录同平台基准及候选的快测、集成、整 job 墙钟耗时；不得为提速扩大排除集

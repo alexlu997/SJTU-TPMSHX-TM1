@@ -1,9 +1,7 @@
-"""P2.2 standing gate: mypy (loose profile) is clean on the CORE surface.
+"""Keep the selected public interfaces and data contracts type-checked.
 
-Scope = mypy-core-files.txt at the repo root (envelope authority, the
-compute_pipeline seam, domain config/result, configs loader, CLI, version
-leaf). Widening the circle = append to that list and get it to zero in the
-same commit. Config lives in pyproject [tool.mypy].
+The explicit scope lives in mypy-core-files.txt, with scoped function-body
+checks in pyproject.toml. This is not a strict whole-solver type gate.
 """
 import subprocess
 import sys
@@ -21,3 +19,21 @@ def test_mypy_core_surface_clean():
          '--config-file', 'pyproject.toml'],
         capture_output=True, text=True, timeout=600, cwd=str(_REPO))
     assert r.returncode == 0, "mypy findings:\n" + r.stdout[-2000:]
+
+
+def test_public_module_inputs_reject_wrong_types():
+    source = '''
+from sjtu_tpmshx.preprocess.api import prepare_case
+from sjtu_tpmshx.solvers.api import run_case
+from sjtu_tpmshx.postprocess.api import evaluate
+
+prepare_case("not a config", case_id="type-check")
+run_case("not a prepared case")
+evaluate("not a native result")
+'''
+    result = subprocess.run(
+        [sys.executable, '-m', 'mypy', '-c', source,
+         '--config-file', 'pyproject.toml'],
+        capture_output=True, text=True, timeout=600, cwd=str(_REPO))
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert result.stdout.count('[arg-type]') == 3, result.stdout

@@ -16,6 +16,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
+from numpy.typing import ArrayLike
 
 R_AIR_DEFAULT = 287.05      # J/(kg K), dry air
 GAMMA_AIR = 1.4
@@ -33,7 +34,8 @@ class ChokedFlowError(RuntimeError):
     """A compressible validity check failed; the message identifies the check."""
 
 
-def predict_outlet_p_sq(P_in, T_in, C_est, L, *, R=R_AIR_DEFAULT):
+def predict_outlet_p_sq(P_in: float, T_in: float, C_est: float, L: float,
+                        *, R: float = R_AIR_DEFAULT) -> float:
     """1D compressible Forchheimer outlet pressure squared.
 
     ``P_out^2 = P_in^2 - 2 R T C_est L`` with ``C_est = mu*G/K + cF*G^2`` and
@@ -44,7 +46,8 @@ def predict_outlet_p_sq(P_in, T_in, C_est, L, *, R=R_AIR_DEFAULT):
             - 2.0 * float(R) * float(T_in) * float(C_est) * float(L))
 
 
-def check_compressible_envelope(P_out_sq, P_in, *, mode='raise', context=''):
+def check_compressible_envelope(P_out_sq: float, P_in: float, *,
+                                mode: str = 'raise', context: str = '') -> str | None:
     """Validity diagnostic for the straight, isothermal 1D approximation.
 
     ``P_out_sq > 0`` → in envelope → return ``None`` (never raises). Otherwise
@@ -73,13 +76,15 @@ def check_compressible_envelope(P_out_sq, P_in, *, mode='raise', context=''):
     return None      # mode == 'off'
 
 
-def mach(vmax, T_ref, *, R=R_AIR_DEFAULT, gamma=GAMMA_AIR):
+def mach(vmax: float, T_ref: float, *, R: float = R_AIR_DEFAULT,
+         gamma: float = GAMMA_AIR) -> float:
     """Mach number of speed ``vmax`` against the local sound speed at T_ref."""
     c = math.sqrt(float(gamma) * float(R) * float(T_ref))
     return float(vmax) / c
 
 
-def mach_field_max(vmag, T_field, *, R=R_AIR_DEFAULT, gamma=GAMMA_AIR):
+def mach_field_max(vmag: ArrayLike, T_field: ArrayLike, *, R: float = R_AIR_DEFAULT,
+                   gamma: float = GAMMA_AIR) -> float:
     """Conservative peak Mach over a field: max over cells of
     ``|v|_cell / sqrt(gamma R T_cell)``.
 
@@ -96,8 +101,10 @@ def mach_field_max(vmag, T_field, *, R=R_AIR_DEFAULT, gamma=GAMMA_AIR):
     return float(np.max(v / c))
 
 
-def assess_solution_validity(P_abs_min, vmax, T_ref, *, mach_limit=1.0,
-                             R=R_AIR_DEFAULT, gamma=GAMMA_AIR, ma_max=None):
+def assess_solution_validity(P_abs_min: float, vmax: float, T_ref: float, *,
+                             mach_limit: float = 1.0, R: float = R_AIR_DEFAULT,
+                             gamma: float = GAMMA_AIR,
+                             ma_max: float | None = None) -> tuple[bool, list[str]]:
     """Post-solve physical-validity check on the converged fields.
 
     Returns ``(valid, reasons)``. ``valid`` is False when the minimum absolute
@@ -134,8 +141,10 @@ def assess_solution_validity(P_abs_min, vmax, T_ref, *, mach_limit=1.0,
     return (len(reasons) == 0, reasons)
 
 
-def gate_solution(P_abs_min, vmax, T_ref, *, mode='raise', dims='3D',
-                  mach_limit=1.0, R=R_AIR_DEFAULT, gamma=GAMMA_AIR, ma_max=None):
+def gate_solution(P_abs_min: float, vmax: float, T_ref: float, *,
+                  mode: str = 'raise', dims: str = '3D', mach_limit: float = 1.0,
+                  R: float = R_AIR_DEFAULT, gamma: float = GAMMA_AIR,
+                  ma_max: float | None = None) -> tuple[bool, list[str]]:
     """Post-solve gate shared by the 2D and 3D pipelines.
 
     Runs :func:`assess_solution_validity`; with ``mode='raise'`` raise

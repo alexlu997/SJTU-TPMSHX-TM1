@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import numpy as np
 
+from sjtu_tpmshx.domain.field_result import FieldResult
 from sjtu_tpmshx.domain.metric_spec import MetricSpec
 from sjtu_tpmshx.domain.performance_result import MetricValue, PerformanceResult
 from sjtu_tpmshx.domain.persistence_validation import validate_result_declarations
@@ -96,14 +97,14 @@ def _pressure_drop_2d(result, side):
 
 def _evaluate_metric(result, name, *, duty, mass_flow):
     if result.metadata.get('mode') in ('screening_2d', 'screening_3d'):
-        from .screening import evaluate_metric
-        return evaluate_metric(result, name)
+        from .screening import evaluate_metric as evaluate_screening_metric
+        return evaluate_screening_metric(result, name)
     if result.metadata.get('mode') == 'quick_design':
-        from .quick_design import evaluate_metric
-        return evaluate_metric(result, name)
+        from .quick_design import evaluate_metric as evaluate_quick_design_metric
+        return evaluate_quick_design_metric(result, name)
     if result.metadata['dimension'] == 3:
-        from .three_d import evaluate_metric
-        return evaluate_metric(result, name, duty=duty, mass_flow=mass_flow)
+        from .three_d import evaluate_metric as evaluate_3d_metric
+        return evaluate_3d_metric(result, name, duty=duty, mass_flow=mass_flow)
     if result.metadata['dimension'] != 2:
         raise NotImplementedError('unsupported physical dimension')
     if name == 'Q':
@@ -137,7 +138,7 @@ def _evaluate_metric(result, name, *, duty, mass_flow):
     raise NotImplementedError(f'unsupported metric: {name}')
 
 
-def evaluate(result, metric_spec=None):
+def evaluate(result: FieldResult, metric_spec: MetricSpec | None = None) -> PerformanceResult:
     """Compute core metrics; missing evidence stays explicitly unavailable."""
     validate_result_declarations(result)
     definitions = {
@@ -157,14 +158,15 @@ def evaluate(result, metric_spec=None):
     full_compute = result.metadata.get('mode') not in ('quick_design', 'screening_2d', 'screening_3d')
     duty = mass_flow = None
     if full_compute:
-        side_duty, side_mass_flow = _side_duty, _mass_flow
-        if result.metadata['dimension'] == 3:
-            from .three_d import thermal_duty, _mass_flow as side_mass_flow
-            side_duty = thermal_duty
         # One evaluation owns these lazy reductions. A/B and coarse/fine stay
         # separate; failed reductions still reach each metric's error handling.
-        duty = cache(partial(side_duty, result))
-        mass_flow = cache(partial(side_mass_flow, result))
+        if result.metadata['dimension'] == 3:
+            from .three_d import thermal_duty, _mass_flow as mass_flow_3d
+            duty = cache(partial(thermal_duty, result))
+            mass_flow = cache(partial(mass_flow_3d, result))
+        else:
+            duty = cache(partial(_side_duty, result))
+            mass_flow = cache(partial(_mass_flow, result))
         unit = definitions['Q'][1]
         definitions.update({name: (name, unit) for name in ('Q_A', 'Q_B')})
         if result.metadata['dimension'] == 2:

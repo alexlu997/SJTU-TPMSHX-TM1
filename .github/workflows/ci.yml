@@ -30,6 +30,11 @@ jobs:
       XDG_CACHE_HOME: .cache/xdg
       QT_QPA_PLATFORM: offscreen
       SJTU_TPMSHX_DISABLE_3D_PANEL: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      NUMBA_NUM_THREADS: "2"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -59,11 +64,26 @@ jobs:
         run: '"$CI_PYTHON" -m pip check'
       - name: Run fast test subset
         shell: bash
-        run: '"$CI_PYTHON" -m pytest sjtu_tpmshx/tests/ -q -m "not slow and not heavy" --timeout=600 --timeout-method=thread'
+        run: >-
+          "$CI_PYTHON" -m pytest sjtu_tpmshx/tests/ -q -ra
+          -m "not slow and not heavy" --ignore=sjtu_tpmshx/tests/integration_tm1
+          -n 2 --dist loadscope --timeout=600 --timeout-method=thread
+          --durations=30 --junitxml=.cache/ci/fast.xml
       - name: Run real public module integration
         shell: bash
         env:
-          OPENBLAS_NUM_THREADS: "1"
-          OMP_NUM_THREADS: "1"
           NUMBA_NUM_THREADS: "1"
-        run: '"$CI_PYTHON" -m pytest sjtu_tpmshx/tests/integration_tm1 -q --timeout=600 --timeout-method=thread'
+        run: >-
+          "$CI_PYTHON" -m pytest sjtu_tpmshx/tests/integration_tm1 -q -ra
+          --timeout=600 --timeout-method=thread
+          --durations=30 --junitxml=.cache/ci/integration.xml
+      - name: Save test outcomes and timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-${{ matrix.os }}-py${{ matrix.python }}
+          path: |
+            .cache/ci/fast.xml
+            .cache/ci/integration.xml
+          include-hidden-files: true
+          retention-days: 7
