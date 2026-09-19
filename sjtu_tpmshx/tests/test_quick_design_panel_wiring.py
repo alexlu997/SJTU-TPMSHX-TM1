@@ -133,7 +133,8 @@ def test_thread_result_warnings_reach_table_and_fallback(monkeypatch):
     cell = w._qd_table.item(0, 11)
     assert cell.text() == '有警告'
     assert cell.toolTip() == '[工况 2] final-source'
-    assert cell.foreground().color().red() == 200
+    from sjtu_tpmshx.ui.theme import get_theme
+    assert cell.foreground().color().name() == get_theme()['warn'].lower()
     logs = []
     monkeypatch.setattr(panel._log, 'info', logs.append)
     panel._fill_table(types.SimpleNamespace(), [d], d)

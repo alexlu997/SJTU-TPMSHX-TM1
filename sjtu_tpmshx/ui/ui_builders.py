@@ -50,7 +50,7 @@ def build_ui(window):
     _BG = t.style('BG')
 
     cw = window.centralWidget()
-    cw.setStyleSheet(f"background:{_BG};")
+    cw.setStyleSheet(f"background:{_BG}; color:{get_theme()['fg']};")
 
     root = QVBoxLayout(cw)
     root.setContentsMargins(8, 6, 8, 6)
@@ -217,13 +217,12 @@ def build_ui(window):
     # scrolls away. See build_param_tabs.
     root.addWidget(header_widget, 0)
 
-    # Splitter: 1px separator — narrow band that reads as a divider,
-    # widens on hover for a grab affordance.
+    # Keep a quiet divider with a usable mouse target.
     splitter = QSplitter(Qt.Orientation.Horizontal)
     _sep_col = _t.get('card_border', _t['splitter'])
-    splitter.setHandleWidth(1)
+    splitter.setHandleWidth(6)
     splitter.setStyleSheet(
-        f"QSplitter::handle{{background:{_sep_col};}}"
+        f"QSplitter::handle{{background:{_BG}; border-left:1px solid {_sep_col};}}"
         f"QSplitter::handle:hover{{background:{_t['splitter_hover']};}}")
     # Non-opaque resize: only recompute layout on mouse release. The rubber
     # band indicator drags at screen refresh rate, avoiding per-pixel child
@@ -401,7 +400,7 @@ def build_param_tabs(window):
         ("几何与结构", True,
          ['domain_geometry', 'tpms_structure', 'tpms_computed']),
         ("流体", True,
-         ['df_method', 'sco2_nu', 'fluids_row', 'preview_btn']),
+         ['fluids_row', 'df_method', 'sco2_nu', 'preview_btn']),
         ("网格与求解器", False,
          ['grid_rect', 'mesh_poly', 'material']),
         ("边界细节与高级", False,

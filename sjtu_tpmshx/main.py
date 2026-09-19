@@ -436,6 +436,8 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         # the values that preceded the preset load. Safe at init (the
         # helper no-ops when `_undo_last` is not yet built).
         self._resync_undo_baseline()
+        from sjtu_tpmshx.ui.builders_fluids import refresh_fluid_model_visibility
+        refresh_fluid_model_visibility(self)
         self.statusBar().showMessage(
             "Loaded Shanghai Electric preset (3D, Gyroid L=7 t=0.6, 182×42×42 mm).",
             5000)
@@ -1439,14 +1441,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
 
 # ── Entry point ───────────────────────────────────────────────
 def _apply_app_font(app):
-    """Pick Fira Sans > Inter > Segoe UI for labels, Fira Code for numbers.
-
-    2026-05-09 Phase 3: app-wide font weight is set to Bold so the entire
-    UI (labels, buttons, combos, dropdowns) shares one consistent weight.
-    Individual stylesheet rules can still override (e.g. theme.py uses
-    explicit ``font-weight:500`` for some labels), but the QApplication
-    default is now bold.
-    """
+    """Use regular body text; theme styles emphasize headings and results."""
     from PySide6.QtGui import QFont, QFontDatabase
     candidates = [
         "Fira Sans", "Inter", "Inter Display",
@@ -1459,13 +1454,13 @@ def _apply_app_font(app):
         print("[font] no sans-serif candidate found; system default")
         return None
     qf = QFont(chosen, 10)
-    qf.setWeight(QFont.Weight.Bold)
+    qf.setWeight(QFont.Weight.Normal)
     app.setFont(qf)
     mono = next((n for n in ["Fira Code", "JetBrains Mono", "Consolas", "Courier New"]
                  if n in families), None)
     if mono:
         app._mono_font_family = mono
-    print(f"[font] using {chosen!r} (Bold)")
+    print(f"[font] using {chosen!r}")
     return chosen
 
 

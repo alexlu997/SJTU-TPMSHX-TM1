@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QComboBox, QScrollArea, QFrame, QCheckBox,
 )
 
-from .builders_base import (section, row, res_row, add_row, _computed_divider, right_align_combo)
+from .builders_base import (section, collapsible_section, row, res_row, add_row, right_align_combo)
 
 _DIR_ITEMS = ["+x  (left → right)", "-x  (right → left)",
               "+y  (bottom → top)", "-y  (top → bottom)",
@@ -30,6 +30,14 @@ _PIPE_ROWS = (
 )
 
 
+def refresh_fluid_model_visibility(window):
+    """Presentation only; never reset a saved model or its parameters."""
+    relevant = (window.combo_fluidA.currentIndex() == 2
+                or window.combo_fluidB.currentIndex() == 2
+                or window.combo_sco2_nu_mode.currentData() != 'cfd_smooth')
+    window._ia_sections['sco2_nu'].setVisible(relevant)
+
+
 def _build_pipe_section(window, lay, side, *, title_style, frame_style,
                         combo_style, dir_index, in_ctr, out_ctr):
     """One ``Fluid X  Inlet / Outlet`` card — the A/B mirror collapsed
@@ -47,7 +55,7 @@ def _build_pipe_section(window, lay, side, *, title_style, frame_style,
     combo.setStyleSheet(combo_style)
     combo.currentIndexChanged.connect(window._on_dir_changed)
     setattr(window, f'combo_dir{side}', combo)
-    add_row(window, gio, 0, "Flow direction", combo)
+    add_row(window, gio, 0, "流动方向", combo)
     per_side = {'in_ctr': in_ctr, 'out_ctr': out_ctr}
     for r, (suffix, label, default) in enumerate(_PIPE_ROWS, start=1):
         le = row(window, gio, r, label, per_side.get(suffix, default))
@@ -66,8 +74,7 @@ def _build_pipe_section(window, lay, side, *, title_style, frame_style,
 
 def _build_fluid_io_rows(window, g, side, t, u_default, T_default, P_default,
                          btn_text):
-    """Rows 1-10 shared by the Fluid A/B cards: u / T_in / P_in inputs, the
-    COMPUTED divider, ρ/Re/Nu/dP·dL result rows and the Auto-fill button.
+    """Shared input rows, Auto-fill button and collapsible property preview.
 
     Row 0 (fluid-type combo) stays per-side — the supported-fluid sets and
     their tooltips genuinely differ. ``btn_text`` is passed whole so each
@@ -75,23 +82,30 @@ def _build_fluid_io_rows(window, g, side, t, u_default, T_default, P_default,
     """
     s = side
     setattr(window, f'le_u{s}',
-            row(window, g, 1, f"<i>u</i><sub>{s}</sub> [m/s]", u_default))
+            row(window, g, 1, f"入口速度 <i>u</i><sub>{s}</sub> [m/s]", u_default))
     setattr(window, f'le_Tin{s}',
-            row(window, g, 2, "<i>T</i><sub>in</sub> [K]", T_default))
+            row(window, g, 2, "入口温度 <i>T</i><sub>in</sub> [K]", T_default))
     setattr(window, f'_lbl_Tin{s}_unit', g.itemAtPosition(2, 0).widget())
     setattr(window, f'le_Pin{s}',
-            row(window, g, 3, "<i>P</i><sub>in</sub> [Pa]", P_default))
-    _computed_divider(g, 4)
-    setattr(window, f'_v_rho{s}', res_row(window, g, 5, "<i>&rho;</i> [kg/m³]"))
-    setattr(window, f'_v_Re{s}',  res_row(window, g, 6, "Re"))
-    setattr(window, f'_v_Nu{s}',  res_row(window, g, 7, "Nu"))
-    setattr(window, f'_v_dPL{s}', res_row(window, g, 8, "d<i>P</i>/d<i>L</i> [Pa/m]"))
+            row(window, g, 3, "入口绝压 <i>P</i><sub>in</sub> [Pa]", P_default))
     btn = QPushButton(btn_text)
     btn.setFixedHeight(28); btn.setStyleSheet(t.style('BTN_SECONDARY'))
     btn.setToolTip(f"Compute Fluid {s} density / Reynolds / Nusselt / dP·dL "
                    "from current state")
     btn.clicked.connect(getattr(window, f'auto_fill_fluid_{s.lower()}'))
-    g.addWidget(btn, 10, 0, 1, 2)
+    g.addWidget(btn, 4, 0, 1, 2)
+    details = QWidget()
+    details_lay = QVBoxLayout(details)
+    details_lay.setContentsMargins(0, 0, 0, 0)
+    gd, computed = collapsible_section(
+        window, details_lay, "物性预览", t.style('T_NEUTRAL'),
+        t.style('F_NEUTRAL'), expanded=False)
+    setattr(window, f'_fluid_computed_{s}', computed)
+    setattr(window, f'_v_rho{s}', res_row(window, gd, 0, "<i>&rho;</i> [kg/m³]"))
+    setattr(window, f'_v_Re{s}', res_row(window, gd, 1, "Re"))
+    setattr(window, f'_v_Nu{s}', res_row(window, gd, 2, "Nu"))
+    setattr(window, f'_v_dPL{s}', res_row(window, gd, 3, "d<i>P</i>/d<i>L</i> [Pa/m]"))
+    g.addWidget(details, 5, 0, 1, 2)
 
 
 def build_page_fluids(window):
@@ -141,9 +155,11 @@ def build_page_fluids(window):
     window.combo_sco2_nu_mode.setToolTip("独立于 D-F；实验模式需要导入带来源的有效传热参数。")
     add_row(window, g_nu, 0, "方法", right_align_combo(window.combo_sco2_nu_mode))
     window.btn_sco2_nu_parameters = QPushButton("导入标定参数…")
+    window.btn_sco2_nu_parameters.setStyleSheet(t.style('BTN_SECONDARY'))
     window.btn_sco2_nu_parameters.clicked.connect(window._load_sco2_nu_parameters)
     add_row(window, g_nu, 1, "参数", window.btn_sco2_nu_parameters)
     window.lbl_sco2_nu_parameters = QLabel("未导入标定参数")
+    window.lbl_sco2_nu_parameters.setStyleSheet(t.style('LBL'))
     window.lbl_sco2_nu_parameters.setWordWrap(True)
     add_row(window, g_nu, 2, "来源", window.lbl_sco2_nu_parameters)
 
@@ -185,7 +201,7 @@ def build_page_fluids(window):
                 "custom ports and all directions inside the CFD L/t grid.")
     except Exception:
         pass
-    add_row(window, g1, 0, "Fluid type", right_align_combo(window.combo_fluidA))
+    add_row(window, g1, 0, "流体类型", right_align_combo(window.combo_fluidA))
     _build_fluid_io_rows(window, g1, 'A', t,
                          u_default="20.0", T_default="422.0",
                          P_default="192362", btn_text="自动填充 A")
@@ -210,7 +226,7 @@ def build_page_fluids(window):
                 "and all directions inside the CFD L/t grid.")
     except Exception:
         pass
-    add_row(window, g2b, 0, "Fluid type", right_align_combo(window.combo_fluidB))
+    add_row(window, g2b, 0, "流体类型", right_align_combo(window.combo_fluidB))
     # Fluid B defaults: Shanghai Electric cold side = Water (case 8,
     # Re_water≈400). Raw values from data/raw_data/20260401-上海电气天然气
     # 加热器实验工况.xlsx Sheet1 row 9: water_in 26.89 °C → 300.0 K (col 24),
@@ -221,6 +237,12 @@ def build_page_fluids(window):
     _build_fluid_io_rows(window, g2b, 'B', t,
                          u_default="0.133", T_default="300.0",
                          P_default="101973", btn_text="自动填充 B")
+
+    # An explicitly selected model stays visible even without sCO2, so an
+    # invalid saved model cannot become an invisible validation failure.
+    for combo in (window.combo_fluidA, window.combo_fluidB, window.combo_sco2_nu_mode):
+        combo.currentIndexChanged.connect(lambda *_: refresh_fluid_model_visibility(window))
+    refresh_fluid_model_visibility(window)
 
     # ── Inlet / Outlet configuration (unified, A/B via _build_pipe_section) ──
     # A: +x default, inlet/outlet centred (0.021). B: -y crossflow default,

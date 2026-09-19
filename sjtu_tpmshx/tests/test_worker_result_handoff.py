@@ -81,10 +81,14 @@ def test_2d_tout_displays_result_scalars_across_units_and_direction_drafts(win):
         assert float(win._r_ToutA.text()) == 341.25
         assert float(win._r_ToutB.text()) == 312.75
     win._toggle_temp_unit()
+    assert '[°C]' in win._lbl_sidebar_tout_unit.text()
+    assert win._sb_labels['tout'].text() == '68.10 / 39.60'
     win._update_tout(0)
     assert float(win._r_ToutA.text()) == pytest.approx(68.10)
     assert float(win._r_ToutB.text()) == pytest.approx(39.60)
     win._toggle_temp_unit()
+    assert '[K]' in win._lbl_sidebar_tout_unit.text()
+    assert win._sb_labels['tout'].text() == '341.25 / 312.75'
     assert float(win._r_ToutA.text()) == 341.25
     assert float(win._r_ToutB.text()) == 312.75
     assert win._compute_results['Q_total'] == result.Q_W == 123.

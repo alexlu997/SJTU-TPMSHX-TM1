@@ -96,6 +96,9 @@ class FluidInputMixin:
             self._v_ReB.setStyleSheet(re_style)
             self._v_NuB.setText(f"{r['Nu']:.4f}")
             self._v_dPLB.setText(f"{r['dP_per_L']:.1f}")
+        details = getattr(self, f'_fluid_computed_{fluid}', None)
+        if details is not None:
+            details._set_expanded(True)
 
     def auto_fill_fluid_a(self): self._auto_fill_fluid('A')
 
@@ -196,7 +199,7 @@ class FluidInputMixin:
         # captured by ui_builders. Previously these stayed `[K]` after a
         # K/°C toggle, mismatching the converted value.
         for attr in ('_lbl_TinA_unit', '_lbl_TinB_unit', '_lbl_TsInit_unit',
-                     '_lbl_ToutA_unit', '_lbl_ToutB_unit'):
+                     '_lbl_ToutA_unit', '_lbl_ToutB_unit', '_lbl_sidebar_tout_unit'):
             lbl = getattr(self, attr, None)
             if lbl is None:
                 continue
@@ -260,6 +263,7 @@ class FluidInputMixin:
                 self._set_temp_K(self._r_ToutB, tb_K)
             except Exception:
                 pass
+            self._update_result_summary()
         self.statusBar().showMessage(
             f"Temperature display switched to {self._temp_unit}.", 3000)
 

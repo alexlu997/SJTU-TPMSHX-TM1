@@ -273,6 +273,30 @@ def test_result_view_toggle_gating(win):
     assert not win.btn_tab_result.isEnabled()
 
 
+def test_result_summary_toggle_keeps_values_and_tab_choice(win):
+    win.combo_dim.setCurrentIndex(0)
+    result = {'stub': True}
+    win.cache.set_result('2d', result)
+    win._has_results = True
+    win._update_tab_visibility()
+    win._switch_tab('temp')
+    assert win.btn_result_summary.isVisibleTo(win)
+    assert win._result_sidebar.isVisibleTo(win)
+    before = {key: label.text() for key, label in win._sb_labels.items()}
+    win.btn_result_summary.click()
+    assert win._result_sidebar.isHidden()
+    win._switch_tab('layout')
+    assert win.btn_result_summary.isHidden()
+    win._switch_tab('temp')
+    assert win._result_sidebar.isHidden()
+    assert {key: label.text() for key, label in win._sb_labels.items()} == before
+    win.btn_result_summary.click()
+    assert win._result_sidebar.isVisibleTo(win)
+    win._invalidate_results_for_preset_load()
+    assert win._result_sidebar.isHidden()
+    assert win.btn_result_summary.isHidden()
+
+
 # ── ui-plan-b-wizard: Optimize tab three-page wizard ─────────────────
 
 def test_optimize_wizard_pages(win):
@@ -304,6 +328,28 @@ def test_optimize_zone_panel_in_wizard(win):
     retired)."""
     p1 = win._opt_stack.widget(0)
     assert win._zone_panel.isVisibleTo(p1) or p1.isAncestorOf(win._zone_panel)
+
+
+def test_optimize_controls_fit_narrow_viewport(win):
+    from PySide6.QtCore import QPoint
+    from PySide6.QtTest import QTest
+
+    win.resize(1100, 760)
+    win._switch_tab('pareto')
+    viewport = win._canvas_scroll.viewport()
+    for page, widgets in (
+        (0, list(win._opt_inline_params.values()) + list(win._opt_space_params.values())),
+        (1, [win._opt_kpi_gen, win._opt_kpi_q, win._opt_kpi_dp, win._opt_kpi_eta]),
+    ):
+        win._opt_stack.setCurrentIndex(page)
+        QTest.qWait(30)
+        for widget in widgets:
+            position = viewport.mapFromGlobal(widget.mapToGlobal(QPoint()))
+            assert position.x() >= 0
+            assert position.x() + widget.width() <= viewport.width()
+    win._opt_stack.setCurrentIndex(0)
+    win._switch_tab('layout')
+    win.resize(1600, 1000)
 
 
 # ── ui-plan3a: design-token discipline ───────────────────────────────
@@ -386,6 +432,74 @@ def test_mode_gates_survive_group_toggle(win):
     assert not win.le_Nz.isVisibleTo(win), "3D-only Nz visible in 2D mode"
     grp.setChecked(False)
     app.processEvents()
+
+
+def test_collapsing_and_resizing_preserves_solver_inputs(win):
+    from dataclasses import asdict
+    from sjtu_tpmshx.ui.window_config import config_from_window
+
+    before = asdict(config_from_window(win))
+    for width in (900, 1440):
+        win.resize(width, 800)
+        for group in win._accordion_groups.values():
+            group.setChecked(False)
+        QApplication.processEvents()
+        assert asdict(config_from_window(win)) == before
+        for group in win._accordion_groups.values():
+            group.setChecked(True)
+        QApplication.processEvents()
+        assert asdict(config_from_window(win)) == before
+    for name, expanded in _EXPECTED_GROUPS.items():
+        win._accordion_groups[name].setChecked(expanded)
+
+
+@pytest.mark.parametrize('side', ['A', 'B'])
+def test_model_visibility_follows_preset_without_changing_inputs(win, side):
+    from sjtu_tpmshx.ui.window_config import config_from_window
+
+    win._apply_user_preset({'combos': {'combo_fluidA': 0, 'combo_fluidB': 1}})
+    section = win._ia_sections['sco2_nu']
+    assert section.isHidden()
+    win._apply_user_preset({
+        'combos': {f'combo_fluid{side}': 2},
+        'line_edits': {f'le_u{side}': '1.8', f'le_Tin{side}': '360',
+                       f'le_Pin{side}': '8000000'},
+    })
+    assert not section.isHidden()
+    fluid = getattr(config_from_window(win), f'fluid_{side}')
+    assert (fluid.type, fluid.u_mps, fluid.T_in_K, fluid.P_in_Pa) == (
+        'sco2', 1.8, 360., 8e6)
+    saved = win._capture_current_preset('sCO2')
+    win._apply_user_preset({'combos': {'combo_fluidA': 0, 'combo_fluidB': 1}})
+    assert section.isHidden()
+    win._apply_user_preset(saved)
+    assert not section.isHidden()
+    assert getattr(config_from_window(win), f'fluid_{side}') == fluid
+    # A selected experimental model remains reachable even without sCO2.
+    win.combo_sco2_nu_mode.setCurrentIndex(1)
+    getattr(win, f'combo_fluid{side}').setCurrentIndex(0)
+    assert not section.isHidden()
+    assert win.combo_sco2_nu_mode.currentData() == 'experimental'
+    win.combo_sco2_nu_mode.setCurrentIndex(0)
+
+
+def test_property_preview_keyboard_toggle_keeps_inputs(win):
+    from dataclasses import asdict
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    from sjtu_tpmshx.ui.window_config import config_from_window
+
+    section = win._fluid_computed_A
+    header = section.layout().itemAt(0).widget()
+    body = section.layout().itemAt(1).widget()
+    section._set_expanded(False)
+    before = asdict(config_from_window(win))
+    header.setFocus()
+    QTest.keyClick(header, Qt.Key.Key_Space)
+    assert not body.isHidden()
+    QTest.keyClick(header, Qt.Key.Key_Space)
+    assert body.isHidden()
+    assert asdict(config_from_window(win)) == before
 
 
 # ── ui-shortcuts-persist: workbench shortcuts + session ui_state ──────

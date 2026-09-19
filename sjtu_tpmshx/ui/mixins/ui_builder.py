@@ -51,6 +51,7 @@ class UIBuilderMixin:
         sb = self.statusBar()
         sb.setStyleSheet(
             f"QStatusBar{{background:{_t.get('surface_raised', _t['card_bg'])};"
+            f"color:{_t['fg']};"
             f"border-top:1px solid {_t['card_border']};}}"
             f"QStatusBar QLabel{{color:{_t['fg']};}}"
             "QStatusBar::item{border:none;}")

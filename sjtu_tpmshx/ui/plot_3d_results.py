@@ -332,7 +332,7 @@ def _plot_3d_temperature(canvas, Ta_slice, Tb_slice, Ts_slice, xc, yc, z_info):
             pass
     canvas.fig.suptitle(f'Temperature — 3D {z_info}', fontsize=12,
                          fontweight='bold', color=_T['ax_text'], y=0.995)
-    canvas.fig.subplots_adjust(left=0.05, right=0.97, top=0.88, bottom=0.10,
+    canvas.fig.subplots_adjust(left=0.14, right=0.97, top=0.88, bottom=0.10,
                                 hspace=0.45)
     canvas.draw()
 

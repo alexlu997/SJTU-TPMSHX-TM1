@@ -9,6 +9,7 @@ Run from repo root:
     python -m pytest sjtu_tpmshx/tests/test_quick_design_dialog.py -v
 """
 from unittest.mock import patch
+import pytest
 from sjtu_tpmshx.ui.quick_design_panel import build_quick_design_dialog
 
 CONTRACT = [
@@ -23,8 +24,8 @@ def test_dialog_builds_with_contract_attrs():
     dlg = build_quick_design_dialog()
     for a in CONTRACT:
         assert hasattr(dlg, a), f"missing contract attr {a}"
-    assert dlg.combo_qd_mode.currentText() in ("auto", "fixed")
-    assert dlg.combo_qd_arr.currentText() in ("counter", "cross")
+    assert dlg.combo_qd_mode.currentData() in ("auto", "fixed")
+    assert dlg.combo_qd_arr.currentData() in ("counter", "cross")
     dlg.deleteLater()
 
 
@@ -38,8 +39,27 @@ def test_run_button_invokes_run_quick_design():
 
 def test_mode_toggle_switches_groups():
     dlg = build_quick_design_dialog()
-    dlg.combo_qd_mode.setCurrentText("fixed")
+    dlg.combo_qd_mode.setCurrentIndex(dlg.combo_qd_mode.findData("fixed"))
     assert dlg._qd_fixed_group.isVisibleTo(dlg) or not dlg._qd_auto_group.isVisibleTo(dlg)
-    dlg.combo_qd_mode.setCurrentText("auto")
+    dlg.combo_qd_mode.setCurrentIndex(dlg.combo_qd_mode.findData("auto"))
     assert dlg._qd_auto_group.isVisibleTo(dlg) or not dlg._qd_fixed_group.isVisibleTo(dlg)
+    dlg.deleteLater()
+
+
+@pytest.mark.parametrize('mode', ['auto', 'fixed'])
+@pytest.mark.parametrize('arrangement', ['counter', 'cross'])
+def test_display_labels_do_not_change_backend_values(mode, arrangement):
+    from sjtu_tpmshx.ui.quick_design_panel import _gather_inputs
+
+    dlg = build_quick_design_dialog()
+    dlg.combo_qd_mode.setCurrentIndex(dlg.combo_qd_mode.findData(mode))
+    dlg.combo_qd_arr.setCurrentIndex(dlg.combo_qd_arr.findData(arrangement))
+    dlg.combo_qd_prop.setCurrentIndex(dlg.combo_qd_prop.findData('const'))
+    for combo in (dlg.combo_qd_mode, dlg.combo_qd_arr, dlg.combo_qd_prop):
+        combo.setItemText(combo.currentIndex(), '修改后的显示名称')
+    params = _gather_inputs(dlg)
+    assert (params['mode'], params['arrangement'], params['prop_model']) == (
+        mode, arrangement, 'const')
+    assert dlg._qd_auto_group.isHidden() == (mode != 'auto')
+    assert dlg._qd_fixed_group.isHidden() == (mode != 'fixed')
     dlg.deleteLater()

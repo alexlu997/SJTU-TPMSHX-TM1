@@ -219,6 +219,9 @@ class SessionPresetsMixin:
             self._pareto_y_trans_outlet = zones['pareto_y_trans_outlet']
         self._user_edited_grid = True
         self._resync_undo_baseline()
+        # Fluid signals are blocked above to preserve the preset's inputs.
+        from sjtu_tpmshx.ui.builders_fluids import refresh_fluid_model_visibility
+        refresh_fluid_model_visibility(self)
         if hasattr(self, '_refresh_status_bar'):
             self._refresh_status_bar()
 
@@ -733,3 +736,5 @@ class SessionPresetsMixin:
         # state so the user's first manual edit undoes to what they see,
         # not to the construction-time defaults.
         self._resync_undo_baseline()
+        from sjtu_tpmshx.ui.builders_fluids import refresh_fluid_model_visibility
+        refresh_fluid_model_visibility(self)

@@ -86,9 +86,9 @@ def build_page_domain(window):
     # Domain Geometry
     g, _sec_dg = section(window, lay, "  域几何", _T_NEUTRAL, _F_NEUTRAL)
     window._ia_sections['domain_geometry'] = _sec_dg
-    window.le_L        = row(window, g, 0, "Length <i>L</i> [m]",                     "0.182")
-    window.le_H        = row(window, g, 1, "Width <i>H</i> [m]",                      "0.042")
-    window.le_Lz       = row(window, g, 2, "Depth <i>L<sub>z</sub></i> [m] (3D only)", "0.042")
+    window.le_L        = row(window, g, 0, "长度 <i>L</i> [m]", "0.182")
+    window.le_H        = row(window, g, 1, "横向尺寸 <i>H</i> [m]", "0.042")
+    window.le_Lz       = row(window, g, 2, "厚度 <i>L<sub>z</sub></i> [m]", "0.042")
     window._lbl_Lz     = g.itemAtPosition(2, 0).widget()
     window._3d_only_widgets += [window.le_Lz, window._lbl_Lz]
 
@@ -106,7 +106,7 @@ def build_page_domain(window):
     window.combo_shape.setToolTip(DOMAIN_SHAPE_NOTICE)
     window.combo_shape.setStyleSheet(_COMBO)
     window.combo_shape.currentIndexChanged.connect(window._on_shape_changed)
-    add_row(window, g, 3, "Domain shape", right_align_combo(window.combo_shape))
+    add_row(window, g, 3, "计算域形状", right_align_combo(window.combo_shape))
 
     # Dimensionality (2D / 3D MVP) — dispatch in run_calculation
     window.combo_dim = QComboBox()
@@ -114,7 +114,8 @@ def build_page_domain(window):
     window.combo_dim.setStyleSheet(_COMBO)
     window.combo_dim.currentIndexChanged.connect(
         lambda *_: _on_dim_changed(window))
-    add_row(window, g, 4, "Dimensionality", right_align_combo(window.combo_dim))
+    window.combo_dim.setToolTip("选择求解器的计算维度；结果中的场图 / 三维只切换显示方式。")
+    add_row(window, g, 4, "计算维度", right_align_combo(window.combo_dim))
 
     # ── TPMS Structure ──
     g0, _sec_tp = section(window, lay, "  TPMS 结构", _T_NEUTRAL, _F_NEUTRAL)
@@ -123,11 +124,11 @@ def build_page_domain(window):
     window.combo_tpms.addItems(["Diamond", "Gyroid"])
     window.combo_tpms.setCurrentIndex(1)  # default Gyroid
     window.combo_tpms.setStyleSheet(_COMBO)
-    add_row(window, g0, 0, "Type", right_align_combo(window.combo_tpms))
-    window.le_Lcell = row(window, g0, 1, "<i>L</i><sub>cell</sub> [mm]", "7.0")
+    add_row(window, g0, 0, "拓扑类型", right_align_combo(window.combo_tpms))
+    window.le_Lcell = row(window, g0, 1, "胞元 <i>L</i><sub>cell</sub> [mm]", "7.0")
     # t=0.6 mm is the Shanghai specimen and a supported fixed-CFD node.
-    window.le_t     = row(window, g0, 2, "<i>t</i> [mm]", "0.6")
-    window.le_ks    = row(window, g0, 3, "<i>k</i><sub>s</sub> [W/(m·K)]", "16.0")
+    window.le_t     = row(window, g0, 2, "壁厚 <i>t</i> [mm]", "0.6")
+    window.le_ks    = row(window, g0, 3, "热导率 <i>k</i><sub>s</sub> [W/(m·K)]", "16.0")
     btn_tpms = QPushButton("计算 TPMS 几何")
     btn_tpms.setFixedHeight(28); btn_tpms.setStyleSheet(t.style('BTN_SECONDARY'))
     btn_tpms.setToolTip("Compute porosity, specific area, hydraulic diameter, k_ss from current L_cell / t")
@@ -173,9 +174,9 @@ def build_page_domain(window):
     g4, sec_solver_rect = section(window, lay, "  网格设置", _T_NEUTRAL, _F_NEUTRAL)
     window._rect_only_widgets.append(sec_solver_rect)
     window._ia_sections['grid_rect'] = sec_solver_rect
-    window.le_Nx = row(window, g4, 0, "Grid <i>N<sub>x</sub></i>", "30")
-    window.le_Ny = row(window, g4, 1, "Grid <i>N<sub>y</sub></i>", "20")
-    window.le_Nz = row(window, g4, 2, "Grid <i>N<sub>z</sub></i> (3D only)", "5")
+    window.le_Nx = row(window, g4, 0, "网格 <i>N<sub>x</sub></i>", "30")
+    window.le_Ny = row(window, g4, 1, "网格 <i>N<sub>y</sub></i>", "20")
+    window.le_Nz = row(window, g4, 2, "网格 <i>N<sub>z</sub></i>（三维）", "5")
     window._lbl_Nz = g4.itemAtPosition(2, 0).widget()
     window._3d_only_widgets += [window.le_Nz, window._lbl_Nz]
 

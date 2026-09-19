@@ -21,7 +21,11 @@ def _gather_inputs(window) -> dict:
         return w.text() if (w is not None and hasattr(w, "text")) else dflt
     def cur(attr, dflt=""):
         w = getattr(window, attr, None)
-        return w.currentText() if (w is not None and hasattr(w, "currentText")) else dflt
+        if w is None:
+            return dflt
+        # Display translations do not enter the worker/backend contract.
+        # Existing text-only combos (including the topology) retain their values.
+        return w.currentData() or w.currentText()
     def chk(attr, dflt=False):
         w = getattr(window, attr, None)
         return bool(w.isChecked()) if (w is not None and hasattr(w, "isChecked")) else dflt
@@ -34,7 +38,7 @@ def _gather_inputs(window) -> dict:
 
     rho_s = positive("le_qd_rho", 7900)
     k_s = positive("le_qd_ks", 16)
-    # 物性模型下拉显示中文, 映射回后端的 const/mean (含 "定" 字 → const, 否则 mean)
+    # Keep the existing text-only property selector usable by scripted callers.
     pm_txt = cur("combo_qd_prop", "均温")
     prop_model = "const" if ("定" in pm_txt or pm_txt == "const") else "mean"
     # 矩形迎风 (固定高度) opt-in: 勾选 → 高 [mm]→[m]; 默认关 = 方形 (height=None)
@@ -138,12 +142,13 @@ def _fill_table(window, feasible, best):
             if notices:
                 _log.info(notices)
         return
-    cols = ["拓扑","l","t","W×H(mm)","Lx(mm)","V(L)","重量(kg)","热侧压损%","冷侧压损%",
+    cols = ["拓扑","l [mm]","t [mm]","W×H [mm]","Lx [mm]","体积 [L]","重量 [kg]","热侧压损%","冷侧压损%",
             "Re热","Re冷","验证域","标签"]
     tbl.setColumnCount(len(cols)); tbl.setRowCount(len(rows))
     tbl.setHorizontalHeaderLabels(cols)
     from PySide6.QtWidgets import QTableWidgetItem
     from PySide6.QtGui import QColor
+    from .theme import get_theme
     for i, d in enumerate(rows):
         vd = getattr(d, "validity", "")
         notices = warning_text(d)
@@ -158,7 +163,7 @@ def _fill_table(window, feasible, best):
             if j == 11 and notices:
                 it.setToolTip(notices)
             if vd or notices:           # Final-case warnings remain visible with validity.
-                it.setForeground(QColor(200, 0, 0))
+                it.setForeground(QColor(get_theme()['warn']))
             tbl.setItem(i, j, it)
 
 def run_quick_design(window) -> None:
@@ -223,15 +228,15 @@ def build_quick_design_dialog(parent=None):
     from PySide6.QtCore import Qt
 
     def _pair(label, widget):
-        """label + 控件 打包成一个 flow item (整体折行, 不拆散)。"""
+        """Keep each label beside its input within the grid."""
         w = QWidget(); h = QHBoxLayout(w); h.setContentsMargins(0, 0, 0, 0); h.setSpacing(6)
         h.addWidget(QLabel(label)); h.addWidget(widget)
         return w
 
     dlg = QDialog(parent)
     dlg.setWindowTitle("快速设计工具")
-    dlg.resize(800, 680)
-    dlg.setMinimumSize(640, 520)
+    dlg.resize(900, 700)
+    dlg.setMinimumSize(640, 600)
 
     # ── Theme styling ────────────────────────────────────────────────
     # Quick-design previously used raw Qt defaults (it only inherited the
@@ -315,17 +320,34 @@ def build_quick_design_dialog(parent=None):
     btn_browse.clicked.connect(_browse)
     file_row.addWidget(btn_browse)
     root.addLayout(file_row)
+    file_help = QLabel(
+        "工况单位：温度 K · 绝压 kPa · 质量流量 kg/s · 换热量 kW；压降上限填比例。")
+    file_help.setWordWrap(True)
+    file_help.setStyleSheet(_qd_styles['SUB'])
+    file_help.setToolTip(
+        "CSV 表头或 Excel 首张工作表首行：\n"
+        "case, hot_fluid, T_in_h_K, P_in_h_kPa, mdot_h,\n"
+        "cold_fluid, T_in_c_K, P_in_c_kPa, mdot_c, dPlim_h, dPlim_c。\n"
+        "另需 Q_kW 或 dT_h_K 至少一列；两者均填写时优先使用热侧温降 dT_h_K。\n"
+        "例如 5% 压降上限填 0.05。此格式与 GUI 预设及 CLI 配置不同。")
+    root.addWidget(file_help)
 
-    # ── 模式 / 排列 / 材料 / 物性 (FlowLayout: 窄窗自动折行不重叠) ──────
-    combo_mode = QComboBox(); combo_mode.addItems(["auto", "fixed"])
+    # ── 模式 / 排列 / 材料 / 物性 ────────────────────────────
+    combo_mode = QComboBox()
+    combo_mode.addItem("自动搜索", "auto")
+    combo_mode.addItem("固定胞元", "fixed")
     combo_mode.setFixedWidth(100)
-    combo_arr = QComboBox(); combo_arr.addItems(["counter", "cross"])
+    combo_arr = QComboBox()
+    combo_arr.addItem("逆流", "counter")
+    combo_arr.addItem("交叉流", "cross")
     combo_arr.setFixedWidth(100)
     le_rho = QLineEdit("7900"); le_rho.setFixedWidth(80)
     le_ks = QLineEdit("16"); le_ks.setFixedWidth(60)
     le_ks.setToolTip("固体热导率: 304SS=16, AlSi10Mg≈150, Cu≈300。"
                      "钢系内 Q 影响<1%; k_s↑ 经轴向寄生导热略降 Q。")
-    combo_prop = QComboBox(); combo_prop.addItems(["均温", "定物性"])  # 均温 首=默认
+    combo_prop = QComboBox()
+    combo_prop.addItem("均温", "mean")
+    combo_prop.addItem("定物性", "const")
     combo_prop.setFixedWidth(90)
     combo_prop.setToolTip("物性取值温度: 均温=(入口+出口)/2 膜温 (推荐, 消大-ΔT 偏置, ~2× 解两遍); "
                           "定物性=入口温 (最快)。dP 始终用入口物性 (保守)。")
@@ -338,18 +360,18 @@ def build_quick_design_dialog(parent=None):
     le_height.setToolTip("矩形迎风固定高 H [mm] (仅勾选「固定高度迎风」时生效)。")
     chk_rect.toggled.connect(le_height.setEnabled)
 
-    # 4 列对齐网格 (替代 FlowLayout: 折行后控件与上行成列对齐, 不再左飘错位)
+    # Three columns keep complete labels visible at the minimum width.
     mode_grid = QGridLayout()
     mode_grid.setHorizontalSpacing(16); mode_grid.setVerticalSpacing(6)
     _al = Qt.AlignLeft | Qt.AlignVCenter
     mode_grid.addWidget(_pair("模式:", combo_mode),         0, 0, _al)
     mode_grid.addWidget(_pair("排列:", combo_arr),          0, 1, _al)
-    mode_grid.addWidget(_pair("材料密度 (kg/m³):", le_rho), 0, 2, _al)
-    mode_grid.addWidget(_pair("热导率 (W/m·K):", le_ks),    0, 3, _al)
-    mode_grid.addWidget(_pair("物性模型:", combo_prop),     1, 0, _al)
-    mode_grid.addWidget(chk_rect,                           1, 1, _al)
-    mode_grid.addWidget(_pair("迎风高 (mm):", le_height),   1, 2, _al)
-    mode_grid.setColumnStretch(4, 1)        # 右侧吸收余量 → 各列内容宽、左对齐
+    mode_grid.addWidget(_pair("物性模型:", combo_prop),     0, 2, _al)
+    mode_grid.addWidget(_pair("密度 (kg/m³):", le_rho),     1, 0, _al)
+    mode_grid.addWidget(_pair("热导率 (W/m·K):", le_ks),    1, 1, _al)
+    mode_grid.addWidget(chk_rect,                           2, 0, _al)
+    mode_grid.addWidget(_pair("迎风高 (mm):", le_height),   2, 1, _al)
+    mode_grid.setColumnStretch(3, 1)
     root.addLayout(mode_grid)
 
     # ── Auto 参数组 ───────────────────────────────────────────
@@ -371,7 +393,7 @@ def build_quick_design_dialog(parent=None):
                     "各流体 Nu 与实验修正的适用范围另行检查。")
     auto_form.addRow("t 列表 (mm):", le_t)
 
-    chk_refine = QCheckBox("warm-start (连续 l,t 精修)")
+    chk_refine = QCheckBox("连续 l、t 精修（warm-start）")
     chk_refine.setChecked(False)                 # 默认关: 串行 NM, 耗时≈枚举一遍, 增益通常 <1%
     chk_refine.setToolTip("可选: 对枚举最优件再做连续 (l,t) Nelder-Mead 精修。"
                           "串行不并行, 耗时约等于整轮枚举; 相对密集离散网格增益通常 <1%。"
@@ -402,12 +424,12 @@ def build_quick_design_dialog(parent=None):
     # ── 初始可见性 & 切换 ─────────────────────────────────────
     fixed_group.setVisible(False)   # 默认 auto 模式
 
-    def _on_mode_changed(text):
-        is_auto = (text == "auto")
+    def _on_mode_changed(_index):
+        is_auto = combo_mode.currentData() == "auto"
         auto_group.setVisible(is_auto)
         fixed_group.setVisible(not is_auto)
 
-    combo_mode.currentTextChanged.connect(_on_mode_changed)
+    combo_mode.currentIndexChanged.connect(_on_mode_changed)
 
     # ── 操作按钮行 ────────────────────────────────────────────
     btn_row = QHBoxLayout()
@@ -459,11 +481,17 @@ def build_quick_design_dialog(parent=None):
 
     tbl = QTableWidget(0, 13)
     tbl.setHorizontalHeaderLabels(
-        ["拓扑", "l", "t", "W×H(mm)", "Lx(mm)", "V(L)", "重量(kg)",
+        ["拓扑", "l [mm]", "t [mm]", "W×H [mm]", "Lx [mm]", "体积 [L]", "重量 [kg]",
          "热侧压损%", "冷侧压损%", "Re热", "Re冷", "验证域", "标签"])
     tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
     tbl.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
     tbl.horizontalHeader().setStretchLastSection(True)
+    # Visual order only: retain logical column indices for table writers.
+    tbl.horizontalHeader().moveSection(5, 1)
+    tbl.setColumnWidth(0, 90)
+    tbl.setColumnWidth(1, 64)
+    tbl.setColumnWidth(2, 64)
+    tbl.setColumnWidth(5, 88)
     tbl.setSizePolicy(
         QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
     root.addWidget(tbl, 1)

@@ -197,6 +197,8 @@ def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, di
     QApplication.processEvents()
     assert win._active_tab == 'temp'
     assert unit in win._sb_labels['q'].text()
+    assert f'{dimension}D' in win._sb_result_heading.text()
+    assert '[°C]' in win._lbl_sidebar_tout_unit.text()
     if dimension == 3:
         assert win._resid_spark._data == []
     screenshot = Path(f'.cache/tm1-apps/gui-{dimension}d.png')

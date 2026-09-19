@@ -9,7 +9,7 @@ All functions keep the legacy ``window`` first argument for call-site
 compatibility even where it is unused.
 """
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QWidget, QHBoxLayout, QLabel, QFrame
+from PySide6.QtWidgets import QWidget, QHBoxLayout, QLabel, QFrame, QToolButton, QSizePolicy
 
 from .theme import get_theme
 
@@ -67,62 +67,55 @@ def collapsible_section(window, parent_lay, title, title_style, frame_style,
     """Collapsible variant of :func:`section`.
 
     Same ``(grid, container)`` return and the same visual card, but the
-    title becomes a clickable header that shows / hides the body. A chevron
-    prefixes the title (``▾`` open · ``▸`` collapsed). Mirrors the top-level
+    title becomes a keyboard-accessible button that shows / hides the body.
+    A native arrow indicates its state. Mirrors the top-level
     accordion in ``ui_builders.build_param_tabs`` but scoped to one in-page
     sub-section, so rarely-touched "advanced" controls collapse out of the
     way by default.
 
-    ``on_toggle(is_open)`` — optional callback fired after each *user* click
-    (not the initial state). Showing the frame makes Qt blanket-show every
-    child, which would re-reveal widgets a per-mode gate (e.g.
-    ``_on_dim_changed``) had hidden; pass that gate here so it re-asserts
-    per-widget visibility right after an expand. ``window`` is unused — kept
+    ``on_toggle(is_open)`` — optional callback fired after state changes
+    (not the initial state), allowing mode-dependent visibility to refresh.
+    ``window`` is unused — kept
     for call-site symmetry with :func:`section`.
     """
     from .field_factory import default_factory
     grid, container = default_factory().section(parent_lay, title,
                                                  title_style, frame_style)
     clay = container.layout()            # QVBoxLayout: [title, frame]
-    title_lbl = clay.itemAt(0).widget()
-    frame = clay.itemAt(1).widget()
-    base = (title or "").strip()
+    title_lbl = clay.takeAt(0).widget()
+    title_lbl.deleteLater()
+    frame = clay.itemAt(0).widget()
+    header = QToolButton(container)
+    header.setText((title or "").strip())
+    header.setCheckable(True)
+    header.setChecked(expanded)
+    header.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+    header.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+    header.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+    _ht = get_theme()
+    header.setStyleSheet(
+        f"QToolButton{{color:{_ht['sub_fg']}; font-size:10pt; font-weight:600;"
+        f" background:{_ht.get('surface_elevated', _ht['card_bg'])};"
+        f" border:1px solid {_ht['card_border']}; border-radius:6px; padding:5px 8px;}}"
+        f"QToolButton:hover{{color:{_ht['fg']}; border-color:{_ht['inp_focus']};}}"
+        f"QToolButton:focus{{border:2px solid {_ht['inp_focus']}; padding:4px 7px;}}")
+    clay.insertWidget(0, header)
 
     def _apply(exp):
         frame.setVisible(exp)
-        title_lbl.setText(("▾  " if exp else "▸  ") + base)
+        header.setArrowType(Qt.ArrowType.DownArrow if exp else Qt.ArrowType.RightArrow)
+
+    def _toggle(exp):
+        _apply(exp)
+        if on_toggle is not None:
+            on_toggle(exp)
 
     _apply(expanded)
-
-    # Prominent, obviously-clickable header bar (accent text + accent border +
-    # raised fill) so the collapsed section is easy to spot — the plain slate
-    # section titles otherwise blend in and get scanned past. Overrides the
-    # palette pin that FieldFactory.section sets on the title label.
-    from PySide6.QtGui import QColor, QPalette
-    _ht = get_theme()
-    _acc = _ht.get('accent_primary', '#3B82F6')
-    _txt = _ht.get('val', _acc)
-    title_lbl.setStyleSheet(
-        f"QLabel{{color:{_txt}; font-size:11pt; font-weight:700;"
-        f" background:{_ht.get('surface_elevated', _ht['card_bg'])};"
-        f" border:1px solid {_acc}; border-radius:6px; padding:7px 12px;}}"
-        f"QLabel:hover{{background:{_ht.get('chk_hover_bg', _ht['card_bg'])};}}")
-    _pal = title_lbl.palette()
-    _pal.setColor(QPalette.ColorRole.WindowText, QColor(_txt))
-    _pal.setColor(QPalette.ColorRole.Text, QColor(_txt))
-    title_lbl.setPalette(_pal)
-    title_lbl.setCursor(Qt.CursorShape.PointingHandCursor)
-
-    def _toggle(_ev):
-        _apply(not frame.isVisible())
-        if on_toggle is not None:
-            on_toggle(frame.isVisible())
-
-    title_lbl.mousePressEvent = _toggle
+    header.toggled.connect(_toggle)
     # Programmatic expand/collapse hook (ui-ia-batch1): lets callers open a
     # collapsed section when its content becomes relevant (e.g. compute_tpms
     # auto-expands "Computed geometry" once values exist).
-    container._set_expanded = _apply
+    container._set_expanded = header.setChecked
     return grid, container
 
 
