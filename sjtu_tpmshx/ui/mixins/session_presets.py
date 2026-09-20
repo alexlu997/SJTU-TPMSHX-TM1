@@ -29,6 +29,15 @@ class SessionPresetsMixin:
         "Shanghai (3D Diamond)",
     ]
 
+    def _use_current_sco2_nu_parameters(self):
+        """Explicitly replace draft parameters with the current total amplitudes."""
+        from dataclasses import asdict
+        from sjtu_tpmshx.models.nu_correlations import sco2_effective_nu_config
+
+        self._set_sco2_nu_parameters(asdict(sco2_effective_nu_config()))
+        self.combo_sco2_nu_mode.setCurrentIndex(
+            self.combo_sco2_nu_mode.findData('experimental'))
+
     def _set_sco2_nu_parameters(self, payload):
         from dataclasses import asdict
         from sjtu_tpmshx.domain.compute_config import Sco2NuConfig
@@ -36,9 +45,9 @@ class SessionPresetsMixin:
         self._sco2_nu_parameters = asdict(settings) if payload else {}
         label = getattr(self, 'lbl_sco2_nu_parameters', None)
         if label is not None:
-            label.setText(f"{settings.parameter_version} · {settings.source}"
+            label.setText(f"Ceff: G={settings.alpha_G}, D={settings.alpha_D}\n{settings.parameter_version}"
                           if settings.parameter_version else "未导入标定参数")
-            label.setToolTip(settings.applicability)
+            label.setToolTip(f"{settings.source}\n{settings.applicability}")
 
     def _load_user_presets(self):
         """Return the list of user-defined preset dicts (possibly empty).

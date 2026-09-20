@@ -9,14 +9,37 @@
 
 - 联合水+sCO2 几何固定 K/cF：`full_core_3cell_fixed_v2.py` 及唯一现用预制表
   `cfd_full_core_3cell_fixed_v2.csv`；40 个节点、原系数及插值约定不变。
-- 原水 Nu 关联式、sCO2 Nu 及其现用修正、实验 D-F 修正与适用范围不变。
+- 原水 Nu、sCO2 CFD 基础关联式及实验 D-F 修正继续保留；sCO2 的现行有效 Nu
+  系数以[模型资源](../model-resources.md#sco2-有效-nu-系数)为准。
 - `load_data`、水/sCO2 CFD 读取器、`validation/hx_experiments.py`，
   现行 `fit_experimental_effective`、`cf_cross_fluid` 和 Nu 验证入口保留。
-- `fit_nu_correction` 从旧 Nu/f 混合报告独立保留现用 sCO2 Nu 锚定复核；
-  D/G 52/80 条 Nu 记录、原修正值和逐温度拟合逐值一致。
+- `fit_nu_correction` 曾于 2026-09-12 从旧 Nu/f 混合报告独立保留；D/G 52/80 条
+  Nu 记录、旧修正值及逐温度拟合当时逐值一致。该路线已于 2026-09-20 退役，
+  不再代表当前参数生成方式，见下方固定历史入口。
 - B40、fixed-166、冻结物理参考和 Graph 验收按[历史总索引](README.md)保留；已结束的 M1/M2 试验见[退役工具索引](retired-tools.md)。
   `_data_df_projection_baseline.json` 的原 γ 时代数字移入固定历史；当前投影检查使用
   可手算的几何场验证坐标、方向和非均匀重采样，不重写旧参考值。
+
+## sCO2 Nu 旧锚定路线（2026-09-20）
+
+现行实验模式改用 `sco2-effective-nu-20260920-v1` 的总有效系数，来源与物理范围
+见[模型资源](../model-resources.md#sco2-有效-nu-系数)。旧运行倍率 D/G=1.77/1.07、
+独立旧锚定 γ≈1.809019957/1.130361673，以及相关 helper、环境开关
+`TPMSHX_SCO2_GAMMA_NU`，均只属于历史。原 83 工况基线数字、旧失败记录和保存
+输入不改写；显式导入有来源的历史参数仍可复现其所声明的输入，而不会自动迁移。
+
+退役前源码固定于
+[ddfea83](https://github.com/alexlu997/SJTU-TPMSHX-TM1/commit/ddfea830c0f45f6da1fea9c7630c64d15c64b1c1)：
+
+| 原入口 | 固定历史文件 | 当前处理 |
+| --- | --- | --- |
+| `GAMMA_NU_SCO2` / `gamma_nu_sco2` / 环境开关 | [nu_correlations.py](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/ddfea830c0f45f6da1fea9c7630c64d15c64b1c1/sjtu_tpmshx/models/nu_correlations.py) | 旧实验锚定路线退役；当前 CFD 基础式保留 |
+| `validation/sco2_exp/fit_nu_correction.py` | [原文件](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/ddfea830c0f45f6da1fea9c7630c64d15c64b1c1/sjtu_tpmshx/validation/sco2_exp/fit_nu_correction.py) | 旧表观 Nu 锚定复核退役 |
+| `validation/sco2_exp/nu_bytemp_report.py` | [原文件](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/ddfea830c0f45f6da1fea9c7630c64d15c64b1c1/sjtu_tpmshx/validation/sco2_exp/nu_bytemp_report.py) | 旧逐温度修正报告退役 |
+| `tests/test_sco2_gamma_nu.py` | [原文件](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/ddfea830c0f45f6da1fea9c7630c64d15c64b1c1/sjtu_tpmshx/tests/test_sco2_gamma_nu.py) | 旧 γ 专用测试退役；现行模式/来源测试继续维护 |
+
+CFD 基础式拟合、原始读取与清洗、实验 Q 诊断以及联合 K/cF/D-F 参数没有随之
+退役。当前不再用这两个实验脚本生成系数，也不把旧 γ 与现行总 Ceff 叠加。
 
 ## 已关闭的入口
 

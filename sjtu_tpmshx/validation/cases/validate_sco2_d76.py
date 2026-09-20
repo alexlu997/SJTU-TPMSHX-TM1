@@ -17,14 +17,13 @@ Run:  python -m sjtu_tpmshx.validation.cases.validate_sco2_d76
 Gate: max per-case |Q error| < 15 %.
 """
 
-# ⚠ HISTORY — 2026-07-15: solver sCO2 closures switched to SMOOTH-WALL
-# unit-cell CFD fits, this gate suspended (errors expected ~1.7× on Nu until
-# a roughness anchor lands). 2026-07-22 (candidate D · D-2sc-3/4): the
-# experimental anchors LANDED — gamma_nu_sco2 (Nu, in compute()'s chain) and
-# gamma_f_sco2 (cF) — so this gate is re-armed: it now validates the
-# CORRECTED closure end-to-end (GOLD-case hot/cold Re ≈ 9–14 k, inside the
-# gamma_Nu window). Gate A uses the arranged re-export; the original V1
-# remains a separate workbook. Historical comparison of the re-export:
+# Historical lumped comparison: this runner explicitly retains the default
+# smooth CFD Nu, not the current full-model effective-Q calibration. Its
+# original threshold and failures remain independent historical evidence;
+# it does not validate the current effective coefficients. See
+# docs/model-resources.md and docs/history/legacy-models.md.
+# Gate A uses the arranged re-export; the original V1 remains a separate
+# workbook. Historical comparison of the re-export:
 # (cases 15/20/38 cross-checked to 6 decimals against sCO2-Experient.xlsx)
 # with every column shifted one LEFT vs V1; the map below is header-guarded
 # so a future re-export cannot silently shift again (the sCO2-Experient

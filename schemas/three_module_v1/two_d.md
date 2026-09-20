@@ -45,6 +45,9 @@ Four `ModelRef` records identify fluid A, fluid B, geometry and the fixed CFD
 D-F table, with indices in `metadata.model_roles`. Fluid references retain the
 run-owned sCO2 Nu parameters and their source/applicability. Unknown resource
 versions and inconsistent fluid/topology declarations fail before execution.
+Experimental `alpha_D/alpha_G` are total Ceff, not a historical coefficient
+plus an independent multiplier. The same one-application rule holds in 3D;
+replaying this prepared Case does not reload the current parameter resource.
 
 `FieldResult.fields` separates raw last-main `Ta/Tb/Ts` from `*_display` copies.
 `P_thermal_A/B` is the local absolute pressure used by the last thermal solve;

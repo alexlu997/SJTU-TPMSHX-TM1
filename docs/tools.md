@@ -20,7 +20,7 @@ MMS A3 自动报告默认输出至本库 `.cache/validation/mms_phase_a3_report.
 | [D76 Nu 验证](../sjtu_tpmshx/validation/cases/validate_sco2_d76.py) | 6 个固定 D-7-6 工况/私有 Excel → Q 对照 | `python -m sjtu_tpmshx.validation.cases.validate_sco2_d76`；保留原 15% 最大误差门槛，退出码 0 通过、1 未通过 |
 | [水 Nu 现存表验证](../sjtu_tpmshx/validation/cases/validate_water_nu_excel.py) | 1879 条 legacy 水 CFD 结果 → 逐行、拓扑、几何、Re 分段误差 | `python -m sjtu_tpmshx.validation.cases.validate_water_nu_excel --out .cache/water-nu-validation`；固定现行关联式，退出码 0 通过、2 精度未通过，数据错误直接报错 |
 | [现行实验修正](../sjtu_tpmshx/validation/df_refit/fit_experimental_effective.py)、[跨数据集 cF 对照](../sjtu_tpmshx/validation/df_refit/cf_cross_fluid.py) | 实验原表 + 当前固定 CFD 基线 → `.cache/reports/df_refit/` 审查 CSV | `python -m sjtu_tpmshx.validation.df_refit.<模块名>`；共享 `validation/hx_experiments.py` 读取，不依赖旧 γ/RBF 拟合或六张旧系数表，不更新生产系数 |
-| [sCO2 Nu 修正复核](../sjtu_tpmshx/validation/sco2_exp/fit_nu_correction.py)、[逐温度 Nu 报告](../sjtu_tpmshx/validation/sco2_exp/nu_bytemp_report.py) | sCO2 实验汇总 → 原锚定修正值 / 分温度 Nu 对照 | `python -m sjtu_tpmshx.validation.sco2_exp.<模块名>`；仅依赖现行 Nu、实验读取器及几何，不再运行旧压降模型 |
+| [sCO2 CFD 基础 Nu 拟合](../sjtu_tpmshx/validation/sco2_cfd/fit_nu_sco2.py) | 原 CFD 表 → 基础式研究拟合、几何/压力留一结果 | `python -m sjtu_tpmshx.validation.sco2_cfd.fit_nu_sco2`；保留原数据清洗与验证，不自动覆盖现行有效系数；旧实验锚定工具已移至[历史入口](history/legacy-models.md#sco2-nu-旧锚定路线2026-09-20) |
 | [主计算测量](../sjtu_tpmshx/runs/tools/benchmark_main_compute.py) | 本地固定 `jobs` 清单（每项 `id/config`，可含 `reference/depth_m`）→ 每次运行独立的 Case/Result/metrics、日志和分段测量 | `python -m sjtu_tpmshx.runs.tools.benchmark_main_compute MANIFEST NEW_OUTPUT --warmup --repeat 5`；0=执行、状态及已声明流量检查通过，2=存在未合格结果，1=执行异常；不代表实验精度通过 |
 | [F2 容差计价](../sjtu_tpmshx/validation/cases/price_f2_convergence_3d.py) | 上海实验工况 → `reports/f2_pricing_3d_v2.csv` | `python -m sjtu_tpmshx.validation.cases.price_f2_convergence_3d --mom-tol 1e-3,1e-4,1e-5 --cases 1,8,16`；扫描 F2，输出仅本地保留；该工具使用其声明的全侧端口，不能代替局部端口主计算证据 |
 
@@ -35,12 +35,18 @@ MMS A3 自动报告默认输出至本库 `.cache/validation/mms_phase_a3_report.
 直接调用 `benchmark_main_compute`，从正式系数入口读取 `sF`。
 标定公式、输入字段和适用范围见[模型资源](model-resources.md)；旧候选和研究输出见历史索引。
 
-本阶段 sCO₂ 使用用户确认的 fixed-166 配置快照：交叉流局部端口、实验阻力、
-Nu 倍率 D=1.77/G=1.07。`validate_sco2_exp_q.py` 默认的逆流/CFD 阻力/基础 Nu
-属于另一套物理复核配置，`--all-valid` 也会按当前读取器重新选择成员。复现本阶段时，
+历史 sCO₂ fixed-166 配置快照及其中 83 个三维工况基线使用交叉流局部端口、
+实验阻力和**旧 Nu 倍率 D=1.77/G=1.07**。它们的成员、实验分母和原误差数字
+继续保留，不改标为现行系数的验证。现行总 Ceff、标定来源和新配对结果见
+[模型资源](model-resources.md#sco2-有效-nu-系数)；不同参数、网格或容差的结果不可
+混在同一组中宣称改进。`validate_sco2_exp_q.py` 默认的逆流/CFD 阻力/基础 Nu
+属于另一套物理复核配置，`--all-valid` 也会按当前读取器重新选择成员。复现旧基线时，
 使用本地保存的固定 manifest（原 `workloads.json`）及匹配原始数据，
 用 `--jobs` 选择其中的固定 ID；旧证据入口见历史索引，不从当前读取器重新生成成员；
 例如 `--jobs sco2-009-Diamond-8-2d shanghai-01-3d`。新输出目录必须尚不存在。
+新的 sCO₂ 有效系数通过 `sco2_effective_nu_config()` 或 GUI 显式选择，原
+`fit_nu_correction`/`nu_bytemp_report` 不再作为现行重算入口；仅换 Nu JSON
+不会自动重建严格求解设置或旧固定 manifest。
 
 上海生产验证的端口/壁面网格由同一构造函数生成，网格数包含所有加密单元。
 二维入口采用 `84×24`；三维无显式网格参数时采用 `92×14×10`。

@@ -648,6 +648,30 @@ def test_result_status_survives_notification_and_mode_switch(
             assert not npz.exists()
 
 
+def test_current_nu_button_explicit_selection_and_saved_parameter_restore(win):
+    from dataclasses import asdict
+    from sjtu_tpmshx.models.nu_correlations import sco2_effective_nu_config
+    from sjtu_tpmshx.tests.test_sco2_nu_modes import SYNTHETIC
+    from sjtu_tpmshx.ui.window_config import config_from_window
+
+    win._apply_shanghai_defaults()
+    assert config_from_window(win).sco2_nu.mode == 'cfd_smooth'
+    win._set_sco2_nu_parameters(asdict(SYNTHETIC))
+    win.combo_sco2_nu_mode.setCurrentIndex(1)
+    previous = win._capture_current_preset('explicit previous parameters')
+    df_mode = win.combo_df_mode.currentData()
+    win.btn_sco2_nu_current.click()
+    assert config_from_window(win).sco2_nu == sco2_effective_nu_config()
+    assert win.combo_df_mode.currentData() == df_mode
+    assert '2.4824' in win.lbl_sco2_nu_parameters.text()
+    assert '4.1064' in win.lbl_sco2_nu_parameters.text()
+    current = win._capture_current_preset('current parameters')
+    win._apply_user_preset(previous)
+    assert config_from_window(win).sco2_nu == SYNTHETIC
+    win._apply_user_preset(current)
+    assert config_from_window(win).sco2_nu == sco2_effective_nu_config()
+
+
 @pytest.mark.parametrize('nu_mode,df_mode', [(0,0),(0,1),(1,0),(1,1)])
 def test_nu_parameters_import_save_load_snapshot(win, monkeypatch, tmp_path, nu_mode, df_mode):
     from dataclasses import asdict

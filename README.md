@@ -156,6 +156,11 @@ $env:NUMBA_CACHE_DIR = Join-Path $PWD '.cache/numba'
 
 流体卡片优先显示入口条件；“自动填充”后展开物性预览，折叠不改变参数。
 sCO₂ 传热选项随流体选择显示；已选择的实验模式会保留可见，便于核对或切回。
+“使用现行有效系数”显式载入版本 `sco2-effective-nu-20260920-v1`；也可导入带
+来源、版本和适用范围的自定义或历史参数。现行 `alpha_D=4.1064`、
+`alpha_G=2.4824` 是各拓扑的总 Nu 幅度，只应用一次，不再叠加旧倍率。
+通用 `cfd_smooth` 默认模式不变，打开旧保存输入也不会静默替换其中的参数。
+选择方法、Gyroid 标定及 Diamond 迁移限制见[模型资源](docs/model-resources.md#sco2-有效-nu-系数)。
 “优化”页将搜索设置与单点计算分区分开，分区仍只服务于单点计算。
 
 二维边界中的“开口内均匀”控制入口速度分布；上海预设的水侧默认启用，
@@ -315,7 +320,9 @@ GUI 和调度留在 `ui/`、`controllers/`，模型资源保持共享。每个 P
 [数据目录与文件名对照](docs/data-catalog.md)。移动数据时须同步加载器和压力口径识别。
 
 旧 γ/RBF、SmoothDF、水发展段及旧 sCO2 阻力模型已退役，代码和结果见
-[固定历史索引](docs/history/legacy-models.md)。当前联合 K/cF、原水 Nu 和实验修正继续使用。
+[固定历史索引](docs/history/legacy-models.md)。当前联合 K/cF、原水 Nu 和 D-F
+实验修正继续使用；sCO₂ Nu 的旧锚定 γ 及专属报告工具已由
+[现行有效系数](docs/model-resources.md#sco2-有效-nu-系数)替代。历史实验误差不改写。
 当前水 CFD 工作簿缺失时不以旧版文件替代。
 
 原 README 的历史精度与物理说明原样保存在

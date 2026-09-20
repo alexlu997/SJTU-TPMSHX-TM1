@@ -150,18 +150,23 @@ def build_page_fluids(window):
     window._ia_sections['sco2_nu'] = nu_section
     window.combo_sco2_nu_mode = QComboBox()
     window.combo_sco2_nu_mode.addItem("CFD 光滑壁面（默认）", "cfd_smooth")
-    window.combo_sco2_nu_mode.addItem("实验标定", "experimental")
+    window.combo_sco2_nu_mode.addItem("有效系数标定", "experimental")
     window.combo_sco2_nu_mode.setStyleSheet(_COMBO)
-    window.combo_sco2_nu_mode.setToolTip("独立于 D-F；实验模式需要导入带来源的有效传热参数。")
+    window.combo_sco2_nu_mode.setToolTip("独立于 D-F；选择现行有效系数，或导入带来源的参数。")
     add_row(window, g_nu, 0, "方法", right_align_combo(window.combo_sco2_nu_mode))
+    window.btn_sco2_nu_current = QPushButton("使用现行有效系数")
+    window.btn_sco2_nu_current.setStyleSheet(t.style('BTN_SECONDARY'))
+    window.btn_sco2_nu_current.setToolTip("Gyroid 为换热量标定；Diamond 为同倍率迁移。适用范围见参数来源。")
+    window.btn_sco2_nu_current.clicked.connect(window._use_current_sco2_nu_parameters)
+    add_row(window, g_nu, 1, "现行参数", window.btn_sco2_nu_current)
     window.btn_sco2_nu_parameters = QPushButton("导入标定参数…")
     window.btn_sco2_nu_parameters.setStyleSheet(t.style('BTN_SECONDARY'))
     window.btn_sco2_nu_parameters.clicked.connect(window._load_sco2_nu_parameters)
-    add_row(window, g_nu, 1, "参数", window.btn_sco2_nu_parameters)
+    add_row(window, g_nu, 2, "其他参数", window.btn_sco2_nu_parameters)
     window.lbl_sco2_nu_parameters = QLabel("未导入标定参数")
     window.lbl_sco2_nu_parameters.setStyleSheet(t.style('LBL'))
     window.lbl_sco2_nu_parameters.setWordWrap(True)
-    add_row(window, g_nu, 2, "来源", window.lbl_sco2_nu_parameters)
+    add_row(window, g_nu, 3, "来源", window.lbl_sco2_nu_parameters)
 
     # Pack Fluid A and Fluid B side-by-side when the panel is wide enough
     # (≥ 520 px), stacked vertically when narrower — ResponsiveRow flips the

@@ -39,7 +39,6 @@ Convention
 """
 from __future__ import annotations
 
-import os
 import warnings
 from sjtu_tpmshx.domain.run_warnings import record_range, record_warning
 import numpy as np
@@ -234,10 +233,10 @@ def nu_water_topo(tpms_type, Re, Pr_water):
 # Gyroid 7.9% (was 8.4% on 17 geometries — it IMPROVED while the fit task got
 # harder by 3 geometries, which is the sign the L=8 column was the weak spot).
 #
-# ⚠ SMOOTH WALL — SLM roughness deliberately NOT included. With D_7_6/G_7_6
-# now REAL CFD, the experiment/CFD ratio is a CLEAN roughness factor (no more
-# geometry-extrapolation contamination): γ ≈ 1.80 (Diamond) / 1.13 (Gyroid) on
-# the D-7-6/G-7-6 rough SLM specimens. Re-anchor if the print process changes.
+# Smooth CFD base. The retired experiment/apparent-Nu ratios did not isolate
+# roughness from geometry, reduction or model effects. Explicit current
+# C_eff selection calibrates complete-model Q; it is not a measured local
+# roughness enhancement. Source and scope: docs/model-resources.md.
 # This lineage REPLACED the D-7-6 single-geometry EXPERIMENTAL fit
 # (0.28·Re^0.75·Pr^⅓, rough, Diamond 7/0.6 only) on 2026-07-15; that fit could
 # not extrapolate in geometry (history: docs/history/retired-tools.md).
@@ -321,9 +320,9 @@ def nu_sco2_topo(tpms_type, Re, Pr_sco2, L_mm, D_h_mm):
     Pr is the BULK Prandtl at (T_b, P) — no wall-property ratio by design.
     Validity/failure bands: see SCO2_NU_COEFFS block comment.
 
-    STAYS SMOOTH-WALL by contract. Experimental γ_Nu below is retained for
-    historical validation only; sCO2 V1 production calls this function
-    directly."""
+    Stays smooth-wall by contract. ``nu_sco2_selected`` applies the explicitly
+    selected total effective amplitude; no historical gamma is stacked here.
+    """
     if tpms_type not in SCO2_NU_COEFFS:
         raise NotImplementedError(
             f"sCO2 Nu fit only available for {sorted(SCO2_NU_COEFFS)} "
@@ -337,8 +336,18 @@ def nu_sco2_topo(tpms_type, Re, Pr_sco2, L_mm, D_h_mm):
             * (D_h_mm / L_mm) ** co['d'])
 
 
+def sco2_effective_nu_config():
+    """Load the current, explicitly selected C_eff calibration from one resource."""
+    import json
+    from importlib.resources import files
+    from sjtu_tpmshx.domain.compute_config import Sco2NuConfig
+
+    resource = files('sjtu_tpmshx').joinpath('configs', 'sco2_effective_nu.json')
+    return Sco2NuConfig(**json.loads(resource.read_text(encoding='utf-8'))).validate()
+
+
 def nu_sco2_selected(tpms_type, Re, Pr, L_mm, D_h_mm, *, settings):
-    """Apply the shared effective multiplier before the caller's existing floor."""
+    """Apply total C_eff once, before the caller's existing Nu floor."""
     settings.validate()
     base = nu_sco2_topo(tpms_type, Re, Pr, L_mm, D_h_mm)
     if settings.mode == 'cfd_smooth':
@@ -358,7 +367,7 @@ def sco2_nu_metadata(settings):
         info.update(alpha_D=settings.alpha_D, alpha_G=settings.alpha_G,
                     parameter_version=settings.parameter_version, source=settings.source,
                     applicability=settings.applicability,
-                    interpretation='Frozen-model effective heat transfer; not measured local Nu')
+                    interpretation='Total C_eff times the CFD base, applied once; not measured local Nu')
     else:
         info.update(model_version='sco2-cfd-smooth', coefficients={name: dict(values) for name, values in SCO2_NU_COEFFS.items()})
     return info
@@ -379,85 +388,3 @@ def sco2_nu_notices(config):
     if g.L_cell_mm != 7.0 or g.t_wall_mm != 0.6 or g.delta_levelset != 0.0 or config.zones.enabled:
         message += ' Experimental geometry extrapolation beyond the uniform 7 mm / 0.6 mm specimen.'
     return [message]
-
-
-# ── sCO2 experimental heat-transfer correction γ_Nu (D-2sc-3, 2026-07-22) ──
-# HX-level amplitude on top of the smooth-wall fit above, anchored on the
-# D-7-6 / G-7-6 sCO2 experiments (both sides pooled — the subst.v2 use-card's
-# "换热修正 · 两侧合用" row; anchored-fit convention: exponent a fixed at the
-# CFD value, γ = c_exp/c_cfd_eff). Amplitude-ONLY by measurement: the fitted
-# Re-slopes are ±0.02 (flat — unlike γ_f's significant hot-side slope).
-# Applied per-element inside the experimental Re window; outside, the element
-# keeps the smooth value (never extrapolate an experimental anchor) with a
-# one-shot warning. Kill switch TPMSHX_SCO2_GAMMA_NU=0 → pre-anchor smooth.
-# REFROZEN 2026-07-23 against the refit SCO2_NU_COEFFS (corrected upload,
-# REAL CFD at D_7_6/G_7_6): both anchors are now CLEAN roughness factors —
-# the former Gyroid caveat (γ conflated with the G L=7 RBF extrapolation)
-# is RESOLVED by the backfill. Exp windows unchanged (same experiment set).
-# REFROZEN 2026-07-26 (Gyroid only) against the Gyroid L=8 completion —
-# the smooth base moved, so the base-relative anchor had to follow. Diamond is
-# bit-identical (its CFD did not change), which is the control. Gyroid moved
-# only γ +0.33% / σln +0.39%; the EXPERIMENT is untouched (same 80 points,
-# same Re window), so this is purely the smooth denominator being better
-# resolved at L=8. Retired 2026-07-23 Gyroid values, for reference:
-#   Gyroid  γ=1.1253904125495358 σln=0.03404943924575467.
-# Retired 2026-07-22 values (old wrong-Dh/extrapolated base), for reference:
-#   Diamond γ=1.7557581458289075 σln=0.1284497503774956;
-#   Gyroid  γ=1.0743811537767434 σln=0.033961111486825596.
-# Uncertainty: pointwise ln-residual σln frozen for downstream UQ.
-# REFROZEN 2026-09-06 with user approval on coolprop-heos-gauge-101325-v1:
-# corrected absolute pressure and measured endpoint-Q reference; same pooled
-# Diamond52/Gyroid80 sides, anchored-amplitude method and smooth CFD base.
-# Re windows follow that same set's corrected reduction. Historical validation
-# only; current solver Nu and the former parameters in Git (0f21d97) are intact.
-GAMMA_NU_SCO2 = {
-    'Diamond': {'gamma': 1.8090199573275527,
-                're_lo': 8939.609650115377, 're_hi': 35098.141764163316,
-                'sig_ln': 0.1283563539008298, 'n': 52},
-    'Gyroid':  {'gamma': 1.1303616727629382,
-                're_lo': 10620.777013615836, 're_hi': 48860.02078334884,
-                'sig_ln': 0.03428100882817446, 'n': 80},
-}
-
-_GAMMA_NU_WARNED: set[tuple[str, str]] = set()
-
-
-def gamma_nu_sco2(tpms_type, Re):
-    """Historical validation-only γ_Nu for ``nu_sco2_topo``.
-
-    Returns an array shaped like ``Re`` (or a scalar for scalar input):
-    γ inside the experimental window, 1.0 outside / for unanchored
-    topologies. The sCO2 V1 solver does not call this helper."""
-    if os.environ.get('TPMSHX_SCO2_GAMMA_NU', '1') == '0':
-        return np.ones_like(np.asarray(Re, dtype=np.float64)) \
-            if np.ndim(Re) else 1.0
-    p = GAMMA_NU_SCO2.get(tpms_type)
-    if p is None:
-        key = (str(tpms_type), 'topo')
-        if key not in _GAMMA_NU_WARNED:
-            _GAMMA_NU_WARNED.add(key)
-            warnings.warn(
-                f"[sCO2 gamma_Nu] no experimental anchor for topology "
-                f"{tpms_type!r} — smooth-wall Nu kept.", stacklevel=3)
-        return np.ones_like(np.asarray(Re, dtype=np.float64)) \
-            if np.ndim(Re) else 1.0
-    Re_arr = np.asarray(Re, dtype=np.float64)
-    inside = (Re_arr >= p['re_lo']) & (Re_arr <= p['re_hi'])
-    if Re_arr.size and not bool(np.all(inside)):
-        key = (str(tpms_type), 'window')
-        if key not in _GAMMA_NU_WARNED:
-            _GAMMA_NU_WARNED.add(key)
-            warnings.warn(
-                f"[sCO2 gamma_Nu] {tpms_type}: part of the Re field "
-                f"(range [{float(Re_arr.min()):,.0f}, "
-                f"{float(Re_arr.max()):,.0f}]) lies outside the experimental "
-                f"window [{p['re_lo']:,.0f}, {p['re_hi']:,.0f}] — those "
-                f"cells keep the SMOOTH-WALL Nu (the anchor never "
-                f"extrapolates).", stacklevel=3)
-    out = np.where(inside, p['gamma'], 1.0)
-    return out if np.ndim(Re) else float(out)
-
-
-def reset_gamma_nu_warn_registry():
-    """Test hook (mirrors _SCO2_NU_WARNED / sco2_gamma_f conventions)."""
-    _GAMMA_NU_WARNED.clear()

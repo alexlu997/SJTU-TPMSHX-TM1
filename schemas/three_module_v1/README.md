@@ -117,7 +117,16 @@ G10 consumers and D/I/V nodes can be accepted.
 
 Case metadata `model_metadata.sco2_nu` and `notices` carry the resolved model's
 presentation provenance and explanatory strings. Current 2D/3D producers emit
-these fields. This development draft has not been released as a stable archive
+these fields. Experimental `alpha_D/alpha_G` are the total effective Nu
+coefficients applied once to the selected CFD base. There is no serialized
+extra `beta` factor. Explicit current-model selection resolves
+`configs/sco2_effective_nu.json` through `sco2_effective_nu_config()`; its version,
+source and applicability travel with the values. Loading a saved configuration
+or prepared Case preserves its own parameters rather than substituting a newer
+resource. Custom and historical experimental parameters still require their
+own provenance. The generic `cfd_smooth` default is unchanged. See
+[model resources](../../docs/model-resources.md#sco2-有效-nu-系数).
+This development draft has not been released as a stable archive
 format; earlier draft fixtures do not establish backward compatibility.
 FieldResult additionally records `design_mode`, those model fields, and
 `application`: `coeffs` (Kff in W/(m K), Kss in W/(m K), hv in W/(m3 K)), `props`
