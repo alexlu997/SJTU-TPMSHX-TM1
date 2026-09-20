@@ -25,8 +25,9 @@ a = Analysis(
     [str(root / 'packaging' / 'desktop_entry.py')],
     pathex=[str(root)], binaries=[], datas=data, hiddenimports=hidden,
     excludes=[*excluded, 'torch', 'botorch', 'gpytorch', 'pytest', 'mypy', 'ruff'],
-    # Numba cache locators need real source files for the packaged JIT kernels.
-    module_collection_mode={'sjtu_tpmshx': 'pyz+py'},
+    # Load from real files: PYZ code keeps relative co_filename values that
+    # Numba's cache locator cannot resolve outside the source directory.
+    module_collection_mode={'sjtu_tpmshx': 'py'},
 )
 pyz = PYZ(a.pure)
 exe = EXE(

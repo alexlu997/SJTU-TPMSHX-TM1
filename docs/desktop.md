@@ -26,7 +26,8 @@ python -m PyInstaller --noconfirm --clean --distpath .cache/desktop-build/dist -
 ```
 
 示例中的 `python` 均替换为构建指针记录的绝对解释器。Numba 需要真实的源文件
-定位 JIT 缓存，spec 为应用模块同时收集 Python 源码。启动器在导入计算模块前
+定位 JIT 缓存，spec 为应用模块采用纯 Python 源文件收集和加载，避免归档内的
+相对代码路径使独立目录启动时找不到缓存定位文件。启动器在导入计算模块前
 将 JIT 和 Matplotlib 缓存指向系统用户缓存目录，并执行
 `multiprocessing.freeze_support()`；参见
 [PyInstaller 多进程说明](https://pyinstaller.org/en/stable/common-issues-and-pitfalls.html#multi-processing)。
