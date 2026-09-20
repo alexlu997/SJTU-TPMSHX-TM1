@@ -1,4 +1,8 @@
 """Check rendered font choices instead of only checking requested family names."""
+import os
+import subprocess
+import sys
+
 import pytest
 
 from sjtu_tpmshx.ui.typography import (
@@ -6,7 +10,7 @@ from sjtu_tpmshx.ui.typography import (
 )
 
 
-def test_qt_interface_uses_native_sans_glyphs():
+def _check_native_sans_glyphs():
     from PySide6.QtGui import QFontDatabase, QTextLayout
     from PySide6.QtWidgets import QApplication, QLabel
 
@@ -29,13 +33,36 @@ def test_qt_interface_uses_native_sans_glyphs():
             layout.endLayout()
             runs = layout.glyphRuns()
             assert runs
-            families = {run.rawFont().familyName() for run in runs}
+            fonts = [run.rawFont() for run in runs]
+            assert all(font.isValid() for font in fonts)
+            families = {font.familyName() for font in fonts}
             if expected_available:
                 assert families == {expected}
             assert not families.intersection({"Times New Roman", "DejaVu Serif"})
             assert all(glyph != 0 for run in runs for glyph in run.glyphIndexes())
     finally:
         app.setFont(previous_font)
+
+
+def test_qt_interface_uses_native_sans_glyphs():
+    if sys.platform == 'win32':
+        # Windows offscreen uses Qt's generic FreeType database, not the
+        # native GDI/DirectWrite engines supported by QRawFont. Test the real
+        # Windows engine in its own QApplication; never replace the suite's
+        # already-created offscreen application. A native fault must fail this
+        # test with its exit code, rather than kill an xdist worker and hang CI.
+        result = subprocess.run(
+            [sys.executable, '-c',
+             'from PySide6.QtWidgets import QApplication; '
+             'app = QApplication(["font-probe", "-platform", "windows"]); '
+             'from sjtu_tpmshx.tests.test_ui_typography import _check_native_sans_glyphs; '
+             '_check_native_sans_glyphs()'],
+            env={**os.environ, 'QT_QPA_PLATFORM': 'windows'},
+            capture_output=True, text=True, timeout=60,
+        )
+        assert result.returncode == 0, (result.returncode, result.stdout, result.stderr)
+    else:
+        _check_native_sans_glyphs()
 
 
 def test_native_interface_does_not_require_office_fonts(monkeypatch):
