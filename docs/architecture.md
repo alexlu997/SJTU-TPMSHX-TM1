@@ -331,8 +331,18 @@ explicit numerical-model change with directly relevant validation.
    attributed to fluid. The superseded `gamma_df` and `rbf` research modes
    are retired; selecting them explicitly now raises an error. Their code,
    tables and results remain available through the [history index](history/legacy-models.md).
-5. **Nusselt ownership.** Air, water, and sCO2 coefficient tables live only in
-   `models/nu_correlations.py`. Full 2D/3D solves rebuild each side's local
+5. **Nusselt ownership.** Air, water, and sCO2 base correlations belong to
+   `models/nu_correlations.py`. The sole current sCO2 effective-parameter
+   resource is `configs/sco2_effective_nu.json`, loaded by
+   `sco2_effective_nu_config()` as a validated `Sco2NuConfig`. The retained
+   `alpha_D/alpha_G` fields are total Ceff, applied once to the current base
+   before the existing final Nu floor; there is no additional beta layer or
+   output-Q scaling. The generic `cfd_smooth` default and run-owned saved
+   parameters are unchanged: explicit selection loads the current resource,
+   while old Cases continue to replay their recorded parameters. The retired
+   experimental-gamma helper and environment switch are not a second route.
+   Calibration evidence and physical scope are in [model resources](model-resources.md#sco2-有效-nu-系数).
+   Full 2D/3D solves rebuild each side's local
    scalar Re/Nu from `models/local_heat_transfer.local_speed`: the current
    cell-centered pore-velocity magnitude, sqrt(uc² + vc² [+ wc²]). Do not
    select a fixed inlet-axis component or apply porosity a second time.

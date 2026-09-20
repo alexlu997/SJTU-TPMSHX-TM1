@@ -14,6 +14,10 @@
 
 现行阻力采用联合水+sCO2 几何固定 K/cF 及已审查的实验修正，见
 [架构](../../../docs/architecture.md)；旧模型完整入口见
-[历史索引](../../../docs/history/legacy-models.md)。现行 sCO2 实验 Nu 修正可由
-`python -m sjtu_tpmshx.validation.sco2_exp.fit_nu_correction` 独立复核，
-逐温度报告由 `nu_bytemp_report` 生成，无旧压降模型依赖。
+[历史索引](../../../docs/history/legacy-models.md)。现行 sCO2 实验模式从
+`configs/sco2_effective_nu.json` 读取总有效 Nu 系数，通过
+`models.nu_correlations.sco2_effective_nu_config()` 显式选择；使用、标定来源及
+有限验证范围见[模型资源](../../../docs/model-resources.md#sco2-有效-nu-系数)。
+旧 `fit_nu_correction` 和 `nu_bytemp_report` 随原实验锚定 γ 路线退役，固定源码
+见[历史入口](../../../docs/history/legacy-models.md#sco2-nu-旧锚定路线2026-09-20)，
+不能用于重建现行系数。这里保留的 CFD 基础式拟合、读取和清洗不受该退役影响。

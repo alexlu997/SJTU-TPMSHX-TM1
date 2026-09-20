@@ -11,7 +11,7 @@
 | 模块职责、调用关系和物理约束 | [architecture.md](architecture.md) |
 | CaseData、FieldResult、指标与文件交接 | [三模块数据契约](../schemas/three_module_v1/) |
 | 已交付能力、M-B 未完成事项与阻塞条件 | [能力范围](capabilities.md) |
-| 离线清洗、生产模型资源与上海空气标定来源 | [模型资源](model-resources.md) |
+| 离线清洗、sCO2 有效 Nu 与上海空气阻力标定来源 | [模型资源](model-resources.md) |
 | 数据文件名、已结案缺项与水 Nu 选择 | [数据目录](data-catalog.md) |
 | 工程、验证、研究与性能工具的输入输出 | [工具入口](tools.md) |
 | 数值/实验验证工具与方向系数研究边界 | [验证导航](../sjtu_tpmshx/validation/README.md) |

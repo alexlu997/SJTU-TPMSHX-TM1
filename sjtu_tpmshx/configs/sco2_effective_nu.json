@@ -1,0 +1,8 @@
+{
+  "mode": "experimental",
+  "alpha_D": 4.1064,
+  "alpha_G": 2.4824,
+  "parameter_version": "sco2-effective-nu-20260920-v1",
+  "source": "Gyroid: single effective amplitude fitted to hot-side Q of 30 experiments using the full homogenized model; 8 retrospective holdouts. Diamond: same relative change transferred without fitting Diamond. Calibration solver: 99a1d2d89a9faccb421838d0d8812bf173e076a3. See docs/model-resources.md.",
+  "applicability": "Total C_eff applied once to the current CFD Nu base, before its existing floor; no extra beta or output-Q correction. Uniform D/G 7 mm cell, 0.6 mm wall, 182x42x42 mm core, existing partial cold ports, variable-property sCO2; calibrated on the 104x24x12 grid with the strict convergence settings in docs/model-resources.md. Grid dependence and cold-side bias remain. Diamond has only three transfer checks and remains underpredicted. Other geometries, grids, flow arrangements and mixed-fluid pairs are unvalidated transfers. This parameter file does not set solver tolerances or establish local-Nu accuracy."
+}

@@ -70,7 +70,7 @@ def test_sco2_nu_unknown_topology_raises():
 def test_sco2_fluidmodel_incompressible_phase_a():
     m = fluid_props.get('sco2')
     assert m.compressible is False              # Phase A: incompressible
-    assert m.embeds_roughness is True           # SLM roughness baked in
+    assert m.embeds_roughness is True           # do not stack the air roughness factor
     assert fluid_props.flow_model('sco2') == 'incompressible'
 
 

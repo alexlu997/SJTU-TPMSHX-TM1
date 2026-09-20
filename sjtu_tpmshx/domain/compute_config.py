@@ -395,7 +395,12 @@ class FeatureFlags:
 
 @dataclass(frozen=True)
 class Sco2NuConfig:
-    """Run-owned effective Nu parameters; no measured coefficients ship by default."""
+    """Run-owned total C_eff values; smooth CFD remains the default selection.
+
+    ``alpha_D/G`` store the complete amplitude, not an additional multiplier.
+    The current calibration is selected explicitly through the model factory
+    or its packaged parameter file; saved inputs retain their own values.
+    """
     mode: str = 'cfd_smooth'
     alpha_D: float | None = None
     alpha_G: float | None = None

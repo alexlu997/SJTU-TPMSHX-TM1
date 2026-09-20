@@ -1,4 +1,4 @@
-"""Synthetic multipliers verify plumbing; these are not experimental fits."""
+"""Current total amplitudes and synthetic parameters share one Nu call chain."""
 from dataclasses import asdict, replace
 import numpy as np
 import pytest
@@ -7,6 +7,31 @@ from sjtu_tpmshx.models import fluid_props, nu_correlations as nu, tpms_calc
 
 SYNTHETIC = Sco2NuConfig('experimental', .8, 1.2, 'synthetic-test-v1',
                         'unit test, not measured', 'synthetic; no experimental validation')
+
+
+@pytest.mark.parametrize('topology,total', [('Diamond', 4.1064), ('Gyroid', 2.4824)])
+def test_current_effective_parameters_roundtrip_and_apply_once(tmp_path, topology, total):
+    from sjtu_tpmshx.models.local_heat_transfer import _sco2_hv_local_field
+
+    settings = nu.sco2_effective_nu_config()
+    assert settings.parameter_version == 'sco2-effective-nu-20260920-v1'
+    assert settings.mode == 'experimental'
+    path = tmp_path / 'current.json'
+    config = ComputeConfig(sco2_nu=settings)
+    config.to_json(path)
+    assert ComputeConfig.from_json(path).sco2_nu == settings
+    assert Sco2NuConfig().mode == 'cfd_smooth'
+    args = (topology, np.array([10000., 20000.]), .4, 7., 3., 1.2)
+    assert np.array_equal(fluid_props.get('sco2', sco2_nu=settings).nu(*args),
+                          total * fluid_props.get('sco2').nu(*args))
+    temperature = np.array([[350., 400.], [430., 470.]])
+    args = (temperature, 10e6, np.ones((2, 2)), 500., .003, topology, 7.)
+    smooth = _sco2_hv_local_field(*args)
+    selected = _sco2_hv_local_field(*args, sco2_nu=settings)
+    np.testing.assert_allclose(selected, total * smooth, rtol=1e-14)
+    metadata = nu.sco2_nu_metadata(settings)
+    assert metadata['alpha_D'] == 4.1064 and metadata['alpha_G'] == 2.4824
+    assert metadata['parameter_version'] == settings.parameter_version
 
 
 def test_modes_roundtrip_and_missing_parameters(tmp_path):
