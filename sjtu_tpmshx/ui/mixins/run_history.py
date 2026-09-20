@@ -29,18 +29,11 @@ import datetime
 import json
 import zlib
 from copy import deepcopy
-from pathlib import Path
 
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from sjtu_tpmshx.domain.provenance import SOURCE_ROOT, repository_revision
 from sjtu_tpmshx.ui.ui_constants import TOAST_MS_SHORT
-
-# Persistent session log lives next to main.py (project package root), NOT next
-# to this module. Anchor to parents[2]: ui/mixins/run_history.py -> sjtu_tpmshx/.
-_PKG_ROOT = Path(__file__).resolve().parents[2]
-_TIMELINE_FILE = _PKG_ROOT / ".session_timeline.jsonl"
-
 
 class RunHistoryMixin:
     """Recent-runs menu, session timeline, reproducible links, provenance."""
@@ -89,7 +82,7 @@ class RunHistoryMixin:
         # timeline dialog can surface the full research-session log.
         try:
             slim = {k: v for k, v in entry.items() if k != "preset"}
-            with open(_TIMELINE_FILE, "a", encoding="utf-8") as f:
+            with open(self.sm.base_dir / '.session_timeline.jsonl', "a", encoding="utf-8") as f:
                 f.write(json.dumps(slim) + "\n")
         except Exception:
             pass
@@ -186,9 +179,10 @@ class RunHistoryMixin:
     def _show_full_timeline(self):
         """E15 — viewer for the persistent .session_timeline.jsonl log."""
         entries = []
-        if _TIMELINE_FILE.exists():
+        timeline_file = self.sm.base_dir / '.session_timeline.jsonl'
+        if timeline_file.exists():
             try:
-                with open(_TIMELINE_FILE, "r", encoding="utf-8") as f:
+                with open(timeline_file, "r", encoding="utf-8") as f:
                     for line in f:
                         line = line.strip()
                         if not line:
@@ -241,8 +235,9 @@ class RunHistoryMixin:
 
         def _clear():
             try:
-                if _TIMELINE_FILE.exists():
-                    _TIMELINE_FILE.unlink()
+                # Retain the empty user file so a legacy package log is not
+                # imported again on the next launch after an explicit clear.
+                timeline_file.write_text('', encoding='utf-8')
             except Exception:
                 pass
             dlg.accept()

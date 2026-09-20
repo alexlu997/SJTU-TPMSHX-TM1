@@ -1,0 +1,8 @@
+# Separate packaging environment; never install into the shared solver venv.
+-r requirements-lock.txt
+altgraph==0.17.5
+macholib==1.16.4; sys_platform == "darwin"
+pefile==2024.8.26; sys_platform == "win32"
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.7
+pywin32-ctypes==0.2.3; sys_platform == "win32"

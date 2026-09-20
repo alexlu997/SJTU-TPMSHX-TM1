@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QWidget,
 )
 
-from .theme import get_theme
+from .theme import get_theme, glass_surface
 from .responsive import ResponsiveRow
 
 
@@ -13,19 +13,17 @@ def _build_result_sidebar(window, _t, t):
     side = QFrame()
     side.setStyleSheet("QFrame{background:transparent; border:none;}")
     slay = QVBoxLayout(side)
-    slay.setContentsMargins(20, 0, 20, 12)
-    slay.setSpacing(12)
+    slay.setContentsMargins(20, 0, 20, 6)
+    slay.setSpacing(6)
 
-    _card_qss = (f"QWidget#resultDiagnostics{{background:{_t['card_bg']};"
-                 f" border:1px solid {_t['card_border']}; border-radius:6px;}}")
+    _card_qss = f"QWidget#resultDiagnostics{{{glass_surface(_t)}}}"
     _h_qss = (f"color:{_t.get('sub_fg', _t['fg'])}; background:transparent;"
-              " border:none; font-size:8pt; font-weight:600;"
-              " letter-spacing:1.2px;")
+              " border:none; font-size:9pt; font-weight:600;")
     _lbl_qss = (f"color:{_t.get('sub_fg', _t['fg'])}; background:transparent;"
                 " border:none; font-size:9pt;")
     _val_qss = (f"color:{_t['fg']}; background:transparent; border:none;"
-                f" font-family:{_t['mono_family']}; font-size:19pt;"
-                " font-weight:700;")
+                f" font-family:{_t['mono_family']}; font-size:18pt;"
+                " font-weight:600;")
     _val2_qss = (f"color:{_t['fg']}; background:transparent; border:none;"
                  f" font-family:{_t['mono_family']}; font-size:9pt;"
                  " font-weight:600;")
@@ -46,7 +44,7 @@ def _build_result_sidebar(window, _t, t):
     window._sb_result_heading.setStyleSheet(_h_qss)
     slay.addWidget(window._sb_result_heading)
     window._sb_result_heading.hide()  # The workbench header shows the run mode.
-    headline = ResponsiveRow(threshold=640, spacing=16)
+    headline = ResponsiveRow(threshold=640, spacing=8)
     window._result_kpi_row = headline
     heat_pressure = QWidget()
     heat_row = QHBoxLayout(heat_pressure)
@@ -67,11 +65,11 @@ def _build_result_sidebar(window, _t, t):
     window._sb_labels['tout'].setWordWrap(True)
     slay.addWidget(headline)
 
-    diagnostic = ResponsiveRow(threshold=680, spacing=12)
+    diagnostic = ResponsiveRow(threshold=680, spacing=6)
     window._result_diagnostic_row = diagnostic
     diagnostic.setObjectName('resultDiagnostics')
     diagnostic.setStyleSheet(_card_qss)
-    diagnostic.layout().setContentsMargins(12, 8, 12, 8)
+    diagnostic.layout().setContentsMargins(12, 5, 12, 5)
     confidence = QWidget()
     row = QHBoxLayout(confidence)
     row.setContentsMargins(0, 0, 0, 0)
@@ -180,4 +178,5 @@ def update_result_sidebar_visibility(window):
             and getattr(window, '_has_results', False))
     toggle = window.btn_result_summary
     toggle.setVisible(bool(show))
-    side.setVisible(bool(show) and toggle.isChecked())
+    side.setVisible(bool(show) and toggle.isChecked()
+                    and not getattr(window, '_3d_immersive', False))

@@ -119,7 +119,6 @@ def test_saved_polygon_cannot_start_compute(win, monkeypatch, shape, dimension):
 def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, dimension):
     monkeypatch.setenv('SJTU_TPMSHX_DISABLE_3D_PANEL', '1')
     monkeypatch.delenv('TPMSHX_EAGER_3D_SLICES', raising=False)
-    monkeypatch.setattr('sjtu_tpmshx.ui.mixins.run_history._TIMELINE_FILE', tmp_path / 'timeline.jsonl')
     errors = []
     dialogs = []
     solver_warnings = []

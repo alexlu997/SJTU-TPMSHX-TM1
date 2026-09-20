@@ -33,7 +33,7 @@ from typing import Optional
 import numpy as np
 import pyvista as pv
 from pyvistaqt import QtInteractor
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QVariantAnimation, QEasingCurve
 from PySide6.QtGui import QDoubleValidator, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QComboBox,
@@ -49,6 +49,7 @@ from sjtu_tpmshx.ui.theme import get_theme, get_theme_name
 from sjtu_tpmshx.ui.typography import apply_vtk_font
 
 _CTRL_HEIGHT = 32
+_CAMERA_UPDATE_RATE = 120.0  # Adaptive motion budget, not a guaranteed FPS.
 
 
 def _btn_qss():
@@ -425,6 +426,10 @@ class ThreeDVisPanel(QWidget):
 
         # ── PyVistaQt interactor ──
         self.plotter = QtInteractor(self)
+        self._pause_rendering()  # A newly constructed panel is still hidden.
+        if self.plotter.iren is not None:  # Offscreen plotters have no interactor.
+            self.plotter.iren.interactor.SetDesiredUpdateRate(_CAMERA_UPDATE_RATE)
+            self.plotter.iren.add_observer('StartInteractionEvent', self._cancel_preset_for_interaction)
         root.addWidget(self.plotter.interactor, stretch=1)
 
         pv.set_plot_theme('dark' if get_theme_name() == 'dark' else 'document')
@@ -465,11 +470,9 @@ class ThreeDVisPanel(QWidget):
         self._opacity = opacity_default / 100.0       # 0..1, mirrors slider/100
         self._flow_dir = '+x'                        # Fluid A arrow direction
         self._flow_dir_B = None                      # Fluid B arrow direction
-        self._tween_timer: Optional[QTimer] = None   # active camera interp
-        # Render-gate: True when card is off-screen (tab hidden). Suppresses
-        # PyVistaQt paint events so switching away from the 3D tab doesn't
-        # burn CPU on ray-casting a volume the user can't see.
-        self._render_gated = False
+        self._tween_animation: Optional[QVariantAnimation] = None
+        self._tween_end_pose = None
+        self._tween_previous_update_rate = None
 
     def _init_timers(self):
         """Configure slice and opacity debounce timers."""
@@ -686,6 +689,7 @@ class ThreeDVisPanel(QWidget):
         if getattr(self, '_cleaned_up', False):
             return
         self._cleaned_up = True
+        self._stop_camera_tween()
         for dlg in list(self._popup_dialogs):
             try:
                 dlg.close()
@@ -736,46 +740,30 @@ class ThreeDVisPanel(QWidget):
         return clim
 
     # ─────────────────────────── visibility gate ──────────────────────
-    # Qt fires showEvent/hideEvent when the card holding this widget is
-    # toggled by `_switch_tab`. Gating the PyVistaQt render loop here is
-    # what makes Geometry ↔ 3D View tab flips feel instant — otherwise
-    # every expose triggers a full ray-cast of the volume actor.
+    def _pause_rendering(self):
+        self._render_gated = True
+        # suppress_rendering also covers already queued PyVistaQt render
+        # signals; stopping its idle timer avoids hidden 5 Hz work entirely.
+        self.plotter.suppress_rendering = True
+        self.plotter.render_timer.stop()
+
     def showEvent(self, event):
         super().showEvent(event)
+        if getattr(self, '_cleaned_up', False):
+            return
         self._render_gated = False
-        try:
-            self.plotter.enable_render()
-            # One explicit render so the viewport is fresh on tab entry.
-            self.plotter.render()
-        except Exception:
-            pass
+        self.plotter.suppress_rendering = False
+        self.plotter.render_timer.start()  # QTimer retains its original 200 ms interval.
+        # One explicit render so the viewport is fresh on tab entry.
+        self.plotter.render()
 
     def hideEvent(self, event):
         super().hideEvent(event)
-        self._render_gated = True
-        # If a camera tween was in flight, snap to its END pose before
-        # stopping the timer. Otherwise the camera is left mid-interpolation
-        # and re-entering the tab shows a partial pose that the user has to
-        # manually fix.
-        if self._tween_timer is not None:
-            try:
-                self._tween_timer.stop()
-            except Exception:
-                pass
-            tween_end = getattr(self, '_tween_end_pose', None)
-            if tween_end is not None:
-                try:
-                    cam = self.plotter.camera
-                    cam.position = tween_end[0]
-                    cam.focal_point = tween_end[1]
-                    cam.up = tween_end[2]
-                except Exception:
-                    pass
-                self._tween_end_pose = None
-        try:
-            self.plotter.disable_render()
-        except Exception:
-            pass
+        # Stop before snapping so the shared animation clock cannot render
+        # another frame after this panel has been hidden.
+        self._stop_camera_tween(snap=True)
+        if not getattr(self, '_cleaned_up', False):
+            self._pause_rendering()
 
     # ─────────────────────────── hover probe ──────────────────────────
 
@@ -898,30 +886,31 @@ class ThreeDVisPanel(QWidget):
     def _set_view(self, preset: str):
         """Tween camera from its current pose to a canonical preset.
 
-        Linear interp over ~18 frames (≈300 ms) on position + focal point +
-        up vector so the viewer sees the rotation instead of a hard cut.
-        Reduced-motion envs (QT_REDUCED_MOTION=1) get the old instant snap.
+        The shared elapsed-time clock advances a 300 ms timeline by real
+        elapsed time; late frames skip ahead instead of extending the motion.
+        Reduced-motion envs (QT_REDUCED_MOTION=1) get an instant snap.
         """
+        self._stop_camera_tween()
         pl = self.plotter
-        # Target pose: sample by snapping a *throwaway* camera at the preset,
-        # reading it, then restoring the current camera so we can animate to it.
+        # Obtain the fitted target without first rendering a jump to it.
         cam = pl.camera
         start = (tuple(cam.position), tuple(cam.focal_point), tuple(cam.up))
         if preset == 'top':
-            pl.view_xy()
+            pl.view_xy(render=False)
         elif preset == 'front':
-            pl.view_xz()
+            pl.view_xz(render=False)
         elif preset == 'side':
-            pl.view_yz()
+            pl.view_yz(render=False)
         else:
-            pl.view_isometric()
-        pl.camera.zoom(1.55)   # fill more (was 1.35); matches initial framing
+            pl.view_isometric(render=False)
+        # Use the native fitted pose; fixed zoom cropped short viewports.
         end = (tuple(cam.position), tuple(cam.focal_point), tuple(cam.up))
 
         import os as _os
         reduced = _os.environ.get('QT_REDUCED_MOTION', '').lower() in ('1', 'true')
-        if reduced or start == end:
-            pl.render()
+        if reduced or start == end or not self.isVisible():
+            if self.isVisible():
+                pl.render()
             self._sync_view_button(preset)
             return
 
@@ -930,34 +919,67 @@ class ThreeDVisPanel(QWidget):
         cam.focal_point = start[1]
         cam.up = start[2]
 
-        if self._tween_timer is not None:
-            self._tween_timer.stop()
-        timer = QTimer(self)
-        timer.setInterval(16)                    # ≈60 fps
-        self._tween_timer = timer
-        # Stash the target pose so hideEvent can snap there if user switches
-        # tabs mid-tween (avoids leaving camera at half-rotated state).
+        animation = QVariantAnimation(self)
+        animation.setStartValue(0.0)
+        animation.setEndValue(1.0)
+        animation.setDuration(300)
+        animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._tween_animation = animation
         self._tween_end_pose = end
-        n_frames = 18
-        state = {'i': 0}
+        self._tween_preset = preset
+        self._tween_previous_update_rate = pl.ren_win.GetDesiredUpdateRate()
+        # VTK distributes this budget to its renderers. Keep its existing
+        # adaptive sampling during motion and restore the original still rate.
+        pl.ren_win.SetDesiredUpdateRate(_CAMERA_UPDATE_RATE)
 
-        def _step():
-            t = min(1.0, (state['i'] + 1) / n_frames)
-            # Ease-out cubic for natural deceleration.
-            ease = 1.0 - (1.0 - t) ** 3
+        def _step(ease):
             def _lerp(a, b): return tuple(a[k] + (b[k] - a[k]) * ease for k in range(3))
             cam.position = _lerp(start[0], end[0])
             cam.focal_point = _lerp(start[1], end[1])
             cam.up = _lerp(start[2], end[2])
-            pl.render()
-            state['i'] += 1
-            if t >= 1.0:
-                timer.stop()
-                self._tween_end_pose = None   # tween done, no need to snap
-                self._sync_view_button(preset)
+            # The shared clock can complete this timeline during window Hide;
+            # do not render an endpoint after the native window is hidden.
+            window = self.window().windowHandle()
+            if self.isVisible() and window is not None and window.isVisible():
+                pl.render()
 
-        timer.timeout.connect(_step)
-        timer.start()
+        def _finished():
+            if self._tween_animation is animation:
+                self._stop_camera_tween()
+                self._sync_view_button(preset)
+                window = self.window().windowHandle()
+                if self.isVisible() and window is not None and window.isVisible():
+                    pl.render()  # Refresh the endpoint at the original still quality.
+
+        animation.valueChanged.connect(_step)
+        animation.finished.connect(_finished)
+        from .microanim import start_animation
+        start_animation(self, animation)
+
+    def _cancel_preset_for_interaction(self, _obj, _event):
+        if self._tween_animation is not None:
+            self._stop_camera_tween()
+            # VTK enters the interactive budget before emitting this event;
+            # stopping the preset must not replace it with the saved still rate.
+            self.plotter.ren_win.SetDesiredUpdateRate(
+                self.plotter.iren.interactor.GetDesiredUpdateRate())
+
+    def _stop_camera_tween(self, *, snap=False):
+        animation = self._tween_animation
+        self._tween_animation = None
+        if animation is not None:
+            animation.stop()
+            animation.deleteLater()
+        rate = self._tween_previous_update_rate
+        self._tween_previous_update_rate = None
+        if rate is not None:
+            self.plotter.ren_win.SetDesiredUpdateRate(rate)
+        end = self._tween_end_pose
+        self._tween_end_pose = None
+        if snap and end is not None:
+            cam = self.plotter.camera
+            cam.position, cam.focal_point, cam.up = end
+            self._sync_view_button(self._tween_preset)
 
     def _sync_view_button(self, preset: str):
         """Reflect the active view preset on the segmented button group."""
@@ -1166,12 +1188,7 @@ class ThreeDVisPanel(QWidget):
             apply_vtk_font(caption.GetCaptionTextProperty())
         self._add_flow_glyph()
         pl.view_isometric(render=False)
-        # Auto-fit zoom: 182×42×42 mm aspect is very flat → camera framed
-        # too loose by default. 1.75 fills the viewport more (less white
-        # margin) while staying clear of clipping the long edges. (A flat
-        # object in iso inherently leaves corner space; Front / Top / Fit View
-        # fill better when inspecting a broad face.)
-        pl.camera.zoom(1.75)
+        # Keep the native fit for any core aspect and viewport height.
 
     def _add_flow_glyph(self):
         """Place faint inlet/outlet cone arrows on domain faces per flow_dir.

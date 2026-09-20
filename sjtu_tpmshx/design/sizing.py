@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 
 from scipy.optimize import brentq
 from sjtu_tpmshx.domain.run_warnings import warning_scope, warning_messages
+from sjtu_tpmshx.domain.module_ports import RunControl
 
 from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry
 from sjtu_tpmshx.models.design_fluids import fluid_props, nu_re_window
@@ -37,7 +38,7 @@ def t_target(case) -> float:
     return case.T_in_h - case.Q / (case.mdot_h * cp_h)
 
 def solve_Lx(case, topo, l, t, s, arrangement, target=None, k_s=K_STEEL,
-             prop_model="const", seed=None, height=None):
+             prop_model="const", seed=None, height=None, control=None):
     """求 Lx ∈ (0, LX_MAX] 使 T_out_hot = target (T_out 随 Lx 单调↓)。
     B: 用 brentq (超线性) 代替二分 → ~3× 少解。
     A: seed=(Ta,Tb,Ts) 跨-s 续解种子 (s 平滑变, 场近似); ev 内每步续解。
@@ -45,10 +46,12 @@ def solve_Lx(case, topo, l, t, s, arrangement, target=None, k_s=K_STEEL,
     height: 矩形迎风高 (None=方形); 透传 forward。
     返回 (Lx, ForwardResult)。不可达 (LX_MAX 仍欠冷) → (None, None)。"""
     tgt = target if target is not None else t_target(case)
+    control = control or RunControl()
     prev = {"f": seed, "last": None}
     forward_failed = False
     def ev(Lx, tol):
         nonlocal forward_failed
+        control.check_cancelled()
         try:
             r = forward(case, topo, l, t, s, Lx, arrangement, init=prev["f"],
                         k_s=k_s, prop_model=prop_model, tol=tol, height=height)
@@ -119,13 +122,13 @@ def _maxnorm_dP(cases, topo, l, t, s, Lx, arrangement, height=None) -> float:
     return w
 
 def _Lx_all(cases, topo, l, t, s, arrangement, k_s=K_STEEL, prop_model="const",
-            seed=None, height=None):
+            seed=None, height=None, control=None):
     """全 K 工况冷却所需 Lx 的最大 (governing 终验)。任一不可达 → None。
     seed: 跨工况续解种子 (链式, 减 LTNE 迭代)。"""
     mx = 0.0
     for c in cases:
         Lx, r = solve_Lx(c, topo, l, t, s, arrangement, k_s=k_s,
-                         prop_model=prop_model, seed=seed, height=height)
+                         prop_model=prop_model, seed=seed, height=height, control=control)
         if Lx is None:
             return None
         if r is not None:
@@ -146,12 +149,15 @@ def _min_Lx_for_dP(cases, topo, l, t, s, arrangement, Lx_floor, height=None):
     return None
 
 def size_fixed_cell(cases, topo, l, t, arrangement="cross", rho_s=RHO_S,
-                    k_s=K_STEEL, prop_model="const", height=None) -> Design:
+                    k_s=K_STEEL, prop_model="const", height=None,
+                    control: RunControl | None = None) -> Design:
     """min-V over s: 每个 s 内定 Lx = max(冷却所需, 满足两侧 dP 所需) (≤450),
     取 V=s·sz·Lx 最小者 (方形 sz=s)。s-loop 冷却只跑 cooling-governing 工况 (其余
     dP 解析), s* 处对全 K 冷却终验。叉流冷侧迎风=Lx·sz → 冷侧 dP 紧时加厚 Lx。
     height: 矩形迎风高 sz [m] (固定, 搜索宽 s); None → 方形 sz=s (现状/UI 默认)。
     k_s: 固体热导率 [W/(m·K)], 默认 16 (304SS); 入 LTNE 固体能量 K_ss=(1-ε)·k_s。"""
+    control = control or RunControl()
+    control.check_cancelled()
     geo = tpms_geometry(topo, l, t, k_s, N=GEOM_N); EPS = geo["epsilon"]
     def _sz(sv):
         return sv if height is None else height        # z(高)向跨度 (方形=s)
@@ -171,7 +177,8 @@ def size_fixed_cell(cases, topo, l, t, arrangement="cross", rho_s=RHO_S,
         if _dh_min(s) > 1.0:                            # 热侧 dP 超限 (任何 Lx 不可行)
             return None, None
         Lx_cool, r = solve_Lx(cool_gov, topo, l, t, s, arrangement, k_s=k_s,
-                              prop_model=prop_model, seed=state["seed"], height=height)
+                              prop_model=prop_model, seed=state["seed"], height=height,
+                              control=control)
         if Lx_cool is None:                             # governing 冷不到
             return None, None
         state["cooled"] = True
@@ -231,7 +238,7 @@ def size_fixed_cell(cases, topo, l, t, arrangement="cross", rho_s=RHO_S,
         """该 s 的全-K (所有工况) 定尺: 返回 (Lx_floor, Lx_star)。
         Lx_floor None=某工况冷不到; Lx_star None=该长度下两侧 dP 超限。"""
         Lxf = _Lx_all(cases, topo, l, t, s, arrangement, k_s=k_s,
-                      prop_model=prop_model, seed=s_seed, height=height)
+                      prop_model=prop_model, seed=s_seed, height=height, control=control)
         if Lxf is None or Lxf > LX_MAX:
             return None, None
         return Lxf, _min_Lx_for_dP(cases, topo, l, t, s, arrangement, Lxf, height=height)
@@ -274,6 +281,7 @@ def size_fixed_cell(cases, topo, l, t, arrangement="cross", rho_s=RHO_S,
     re_h_max = re_c_max = 0.0
     warns = set()                                   # A 外推 + B 退化 标记
     for c in cases:
+        control.check_cancelled()
         with warning_scope({}) as records:
             r = forward(c, topo, l, t, s_star, Lx_star, arrangement, k_s=k_s,
                         prop_model=prop_model, height=height)

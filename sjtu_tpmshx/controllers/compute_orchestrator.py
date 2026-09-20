@@ -27,6 +27,7 @@ from typing import Callable, Optional
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Qt, Signal, Slot
 from sjtu_tpmshx.logutil import capture_output
+from sjtu_tpmshx.solvers.threads import get_solver_threads, set_solver_threads
 
 
 # ---------------------------------------------------------------- public types
@@ -111,6 +112,9 @@ class _ComputeRunnable(QRunnable):
         self._worker_fn = worker_fn
         self._cfg = cfg
         self._cancel = cancel_token
+        # Numba masks belong to the calling thread; Qt pool threads do not
+        # inherit the GUI setting. Freeze it with this run's other inputs.
+        self._solver_threads = get_solver_threads()
 
     def run(self):
         orch = self._orch
@@ -140,7 +144,9 @@ class _ComputeRunnable(QRunnable):
                         pass
 
         t0 = time.perf_counter()
+        previous_threads = get_solver_threads()
         try:
+            set_solver_threads(self._solver_threads)
             # stderr is tee'd too: `warnings.warn` (the degradation channel —
             # flux-weight fallback, choke rescue, conservation-NaN notices)
             # prints to stderr, which the stdout-only tee never captured, so
@@ -163,6 +169,8 @@ class _ComputeRunnable(QRunnable):
         except Exception as e:
             log_buf.write("\n" + traceback.format_exc())
             orch._worker_error.emit(str(e), log_buf.getvalue())
+        finally:
+            set_solver_threads(previous_threads)
 
 
 class _CancelledError(Exception):

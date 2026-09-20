@@ -1,15 +1,16 @@
-"""Requested mixed-script fonts, shared by Qt widgets and Matplotlib figures.
-
-Times New Roman supplies Latin letters and digits; Microsoft YaHei supplies
-Chinese glyphs. Fonts remain on the user's machine and are never bundled.
-"""
+"""Native sans-serif interface fonts and the existing publication chart fonts."""
 from functools import lru_cache
 import logging
 from pathlib import Path
+import sys
 
 
 REQUESTED_FAMILIES = ("Times New Roman", "Microsoft YaHei")
-FONT_FAMILIES = (*REQUESTED_FAMILIES, "PingFang SC", "Noto Sans CJK SC", "DejaVu Sans")
+CHART_FONT_FAMILIES = (*REQUESTED_FAMILIES, "PingFang SC", "Noto Sans CJK SC", "DejaVu Sans")
+FONT_FAMILIES = {
+    "darwin": (".AppleSystemUIFont", "PingFang SC"),
+    "win32": ("Segoe UI", "Microsoft YaHei"),
+}.get(sys.platform, ("Noto Sans", "Noto Sans CJK SC", "DejaVu Sans"))
 FONT_STACK = ",".join(f"'{family}'" for family in FONT_FAMILIES)
 
 
@@ -27,35 +28,20 @@ def _office_fonts() -> tuple[Path, ...]:
 
 
 def apply_app_font(app) -> str:
-    """Register locally available fonts and expose missing requests explicitly."""
+    """Use the platform's interface face; Qt supplies per-glyph CJK fallback."""
     from PySide6.QtGui import QFont, QFontDatabase
 
-    available = set(QFontDatabase.families())
-    if not set(REQUESTED_FAMILIES) <= available:
-        for path in _office_fonts():
-            QFontDatabase.addApplicationFont(str(path))
-        available = set(QFontDatabase.families())
-    missing = tuple(name for name in REQUESTED_FAMILIES if name not in available)
-    families = [name for name in FONT_FAMILIES if name in available]
-    font = QFont(app.font())
-    if families:
-        font.setFamilies(families)
-    font.setPointSize(10)
+    font = QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont)
+    font.setFamilies(list(dict.fromkeys((font.family(), *FONT_FAMILIES))))
+    font.setPointSize(11)
     font.setWeight(QFont.Weight.Normal)
     app.setFont(font)
-    app._mono_font_family = font.family()
-    app._missing_font_families = missing
-    if missing:
-        logging.getLogger(__name__).warning(
-            "Requested GUI fonts unavailable: %s; using available system fallback: %s",
-            ", ".join(missing), ", ".join(font.families()),
-        )
     return font.family()
 
 
 @lru_cache(maxsize=1)
 def matplotlib_font_families() -> tuple[str, ...]:
-    """Resolve the same fonts for charts without requiring a QApplication."""
+    """Keep chart/export typography independent of the native interface face."""
     from matplotlib import font_manager
 
     available = {font.name for font in font_manager.fontManager.ttflist}
@@ -69,7 +55,7 @@ def matplotlib_font_families() -> tuple[str, ...]:
             "Requested chart fonts unavailable: %s; using available system fallback",
             ", ".join(missing),
         )
-    return tuple(name for name in FONT_FAMILIES if name in available)
+    return tuple(name for name in CHART_FONT_FAMILIES if name in available)
 
 
 def apply_vtk_font(text_property) -> None:

@@ -397,13 +397,12 @@ def build_actions(w) -> list[Action]:
         add("Show quick tour", "Help", w._show_quick_tour,
             keywords=("onboarding", "guide"))
 
+    add("Toggle canvas focus", "View", w._toggle_3d_immersive,
+        shortcut="F", keywords=("focus", "immersive", "专注"))
     # 3D commands require both an available result and an initialized panel.
     _3d_tab_ready = _available_tabs.get('3d', False)
     _3d_panel_ready = getattr(w, 'canvas_3d', None) is not None
     if _3d_tab_ready and _3d_panel_ready:
-        add("Toggle 3D immersive mode", "3D",
-            (lambda: w._switch_tab('3d') or w._toggle_3d_immersive()),
-            shortcut="F", keywords=("immersive", "fullscreen"))
         if getattr(w, '_3d_detached_window', None) is None:
             add("Open 3D in new window", "3D", w._detach_3d_window,
                 keywords=("detach", "window", "multi-monitor"))

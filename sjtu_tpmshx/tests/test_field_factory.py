@@ -48,6 +48,104 @@ def _reset_default_factory():
 # ---------------------------------------------------------------- atoms
 
 
+@pytest.mark.parametrize('theme_name', ['light', 'dark'])
+@pytest.mark.parametrize('editable', [False, True])
+def test_combo_hover_and_focus_preserve_text_and_arrow_positions(theme_name, editable):
+    from PySide6.QtWidgets import QStyle, QStyleOptionComboBox
+    from sjtu_tpmshx.ui.theme import _build_styles
+
+    app = _app()
+    combo = QComboBox()
+    combo.addItems(['Gyroid', 'Diamond'])
+    combo.setEditable(editable)
+    if editable:
+        combo.lineEdit().setReadOnly(True)
+    combo.setStyleSheet(_build_styles(theme_name)['COMBO'])
+    combo.resize(160, 32)
+    combo.show()
+    app.processEvents()
+    regions = []
+    for state in (QStyle.StateFlag.State_None, QStyle.StateFlag.State_MouseOver,
+                  QStyle.StateFlag.State_HasFocus):
+        option = QStyleOptionComboBox()
+        combo.initStyleOption(option)
+        option.state = QStyle.StateFlag.State_Enabled | state
+        regions.append(tuple(combo.style().subControlRect(
+            QStyle.ComplexControl.CC_ComboBox, option, control, combo)
+            for control in (QStyle.SubControl.SC_ComboBoxEditField,
+                            QStyle.SubControl.SC_ComboBoxArrow)))
+    combo.close()
+    combo.deleteLater()
+    assert regions[0] == regions[1] == regions[2]
+
+
+@pytest.mark.parametrize('theme_name', ['light', 'dark'])
+@pytest.mark.parametrize('enabled', [True, False])
+def test_combo_arrow_has_visible_pixels_in_both_themes(theme_name, enabled):
+    from PySide6.QtCore import QRect
+    from PySide6.QtWidgets import QStyle, QStyleOptionComboBox
+    from sjtu_tpmshx.ui.theme import _build_styles
+
+    combo = QComboBox()
+    combo.addItem('')  # Isolate the arrow from the text and control outline.
+    combo.setStyleSheet(_build_styles(theme_name)['COMBO'])
+    combo.setEnabled(enabled)
+    combo.resize(160, 34)
+    combo.show()
+    QApplication.processEvents()
+    option = QStyleOptionComboBox()
+    combo.initStyleOption(option)
+    arrow = combo.style().subControlRect(
+        QStyle.ComplexControl.CC_ComboBox, option,
+        QStyle.SubControl.SC_ComboBoxArrow, combo)
+    target = QRect(0, 0, 12, 12)
+    target.moveCenter(arrow.center())
+    pixmap = combo.grab()
+    image = pixmap.toImage()
+    scale = pixmap.devicePixelRatio()
+    background = image.pixelColor(round(arrow.center().x() * scale), round((arrow.top() + 3) * scale))
+    visible = []
+    for y in range(round(target.top() * scale), round((target.bottom() + 1) * scale)):
+        for x in range(round(target.left() * scale), round((target.right() + 1) * scale)):
+            pixel = image.pixelColor(x, y)
+            if max(abs(pixel.red() - background.red()),
+                   abs(pixel.green() - background.green()),
+                   abs(pixel.blue() - background.blue())) > 35:
+                visible.append((x, y))
+    combo.close()
+    combo.deleteLater()
+    assert len(visible) >= 4, 'The styled combo lost its dropdown chevron'
+
+
+@pytest.mark.parametrize('theme_name', ['light', 'dark'])
+def test_scrollbar_theme_has_no_native_arrow_boxes_or_white_outline(theme_name):
+    from PySide6.QtGui import QColor
+    from PySide6.QtWidgets import QScrollArea, QStyle, QStyleOptionSlider
+    from sjtu_tpmshx.ui.theme import _build_styles, _THEMES
+
+    area = QScrollArea()
+    area.setStyleSheet(_build_styles(theme_name)['SCROLLBAR'])
+    content = QWidget()
+    content.setFixedSize(80, 600)
+    area.setWidget(content)
+    area.resize(180, 180)
+    area.show()
+    QApplication.processEvents()
+    bar = area.verticalScrollBar()
+    assert bar.isVisible()
+    option = QStyleOptionSlider()
+    bar.initStyleOption(option)
+    for control in (QStyle.SubControl.SC_ScrollBarAddLine, QStyle.SubControl.SC_ScrollBarSubLine):
+        assert bar.style().subControlRect(QStyle.ComplexControl.CC_ScrollBar, option, control, bar).isEmpty()
+    image = bar.grab().toImage()
+    background = QColor(_THEMES[theme_name]['scroll_bg'])
+    for x in (0, image.width() - 1):
+        for y in (0, image.height() // 2, image.height() - 1):
+            assert image.pixelColor(x, y) == background
+    area.close()
+    area.deleteLater()
+
+
 def test_label_returns_qlabel_with_text(factory):
     lbl = factory.label('hello')
     assert isinstance(lbl, QLabel)

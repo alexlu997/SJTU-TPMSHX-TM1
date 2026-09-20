@@ -180,72 +180,52 @@ def build_page_domain(window):
     window._lbl_Nz = g4.itemAtPosition(2, 0).widget()
     window._3d_only_widgets += [window.le_Nz, window._lbl_Nz]
 
-    # ── Advanced (collapsed by default) ──────────────────────────────
-    # Rarely-touched switches relocated out of the TPMS / Grid sections so
-    # the core inputs (L/H · TPMS · Nx/Ny/Nz · ρ_s) read clean. Click the
-    # header to expand. The 3D-only members register below exactly as before;
-    # the collapse composes with `_on_dim_changed` (see collapsible_section).
+    # Research controls keep their existing values and preset keys, but stay
+    # folded away from the everyday compute-resource control below.
     g_adv, _sec_adv = collapsible_section(
-        window, lay, "高级", _T_NEUTRAL, _F_NEUTRAL, expanded=False,
+        window, lay, "专家设置", _T_NEUTRAL, _F_NEUTRAL, expanded=False,
         on_toggle=lambda _open: _on_dim_changed(window))
     window._ia_sections['advanced_flags'] = _sec_adv
 
-    # One shared style for every Advanced checkbox so the rows read as a
-    # uniform set (boxed card · 10pt bold · 16px indicator). Previously
-    # `chk_allow_extrap` carried a smaller bespoke style and looked out of
-    # place next to the boxed 3D toggles.
+    # Keep advanced options as regular-weight rows inside their shared card.
+    # Native indicators preserve a visible checkmark and keyboard feedback.
     _tc = get_theme()
     _chk_box_qss = f"""
         QCheckBox {{
             color: {_tc['fg']};
             font-size: 10pt;
-            font-weight: bold;
-            background: {_tc['chk_bg']};
-            border: 1px solid {_tc['chk_border']};
+            font-weight: 400;
+            background: transparent;
+            border: 1px solid transparent;
             border-radius: 6px;
             padding: 6px 10px;
             spacing: 8px;
         }}
         QCheckBox:hover {{ border-color: {_tc['chk_hover_border']}; background: {_tc['chk_hover_bg']}; }}
-        QCheckBox::indicator {{
-            width: 16px; height: 16px;
-            border: 1.5px solid {_tc['chk_indicator_border']};
-            border-radius: 3px;
-            background: {_tc['chk_bg']};
-        }}
-        QCheckBox::indicator:hover {{ border-color: {_tc['chk_hover_border']}; }}
-        QCheckBox::indicator:checked {{
-            background: {_tc['chk_checked_bg']};
-            border-color: {_tc['chk_checked_border']};
-            image: none;
-        }}
         QCheckBox:focus {{
             outline: 0;
-            border: 2px solid {_tc['inp_focus']};
+            border: 1px solid {_tc['inp_focus']};
         }}
     """
 
     # Geometry cannot extrapolate beyond the fixed CFD grid. This switch only
     # downgrades a fluid-specific Nu Reynolds-window violation to a warning.
-    window.chk_allow_extrap = QCheckBox("Allow Nu correlation extrapolation")
+    window.chk_allow_extrap = QCheckBox("允许入口 Nu 超范围")
     window.chk_allow_extrap.setChecked(True)
     window.chk_allow_extrap.setToolTip(
-        "D-F 几何范围: 4 ≤ L ≤ 8 mm, 0.3 ≤ t ≤ 0.6 mm；"
-        "节点之间双线性插值。\n"
-        "未勾选: 超出当前工质 Nu 的 Re 拟合窗口时拒绝运行。\n"
-        "勾选: 超出 Re 窗口时继续运行，并在结果中告警。"
+        "入口 Re 超出 Nu 关联式拟合范围时继续计算并告警，关闭则拒绝该入口工况。\n"
+        "此选项不修正 Nu，不放宽 D-F 几何范围，也不保证芯体内所有局部状态都在验证域。"
     )
     window.chk_allow_extrap.setStyleSheet(_chk_box_qss)
     g_adv.addWidget(window.chk_allow_extrap, 0, 0, 1, 2)
 
     # 3D wall-refine checkbox — adds 8 BL cells near each wall (all 6 faces).
     # Kept for explicit six-wall studies; Shanghai uses the port-aligned option.
-    window.chk_wall_refine_3d = QCheckBox("6-wall BL refine (3D)")
+    window.chk_wall_refine_3d = QCheckBox("六壁面加密（3D）")
     window.chk_wall_refine_3d.setChecked(False)
     window.chk_wall_refine_3d.setToolTip(
-        "Enable six-wall boundary-layer refinement for 3D solves. "
-        "Adds 8 cells per wall (first_cell=0.02 mm, growth 1.8). "
-        "The resulting cell count and mesh-convergence study determine cost and accuracy.")
+        "六个壁面各增加 8 层网格，三轴实际格数各增加 16，与端口/壁面加密互斥。\n"
+        "用于特定网格研究，计算代价与精度需结合实际网格检查。")
     window.chk_wall_refine_3d.setStyleSheet(_chk_box_qss)
     g_adv.addWidget(window.chk_wall_refine_3d, 1, 0, 1, 2)
     window._3d_only_widgets.append(window.chk_wall_refine_3d)
@@ -254,7 +234,7 @@ def build_page_domain(window):
         "在端口边缘和壁面集中布置网格，Nx/Ny/Nz 包含全部加密单元。\n"
         "上海水—空气推荐网格由预设提供；修改几何后需重新检查网格精度。")
     window.chk_port_wall_refine.setStyleSheet(_chk_box_qss)
-    g_adv.addWidget(window.chk_port_wall_refine, 3, 0, 1, 2)
+    g_adv.addWidget(window.chk_port_wall_refine, 2, 0, 1, 2)
     window.chk_port_wall_refine.toggled.connect(
         lambda checked: window.chk_wall_refine_3d.setChecked(False) if checked else None)
     window.chk_wall_refine_3d.toggled.connect(
@@ -262,59 +242,45 @@ def build_page_domain(window):
     # NOTE: legacy `_chk_wall_refine_3d` alias removed 2026-05-05 audit;
     # no remaining readers (grep confirmed). Use `chk_wall_refine_3d`.
 
-    # 3D variable-rho_cp checkbox — LTNE energy kernel builds gas density from
-    # SIMPLE's LOCAL cell pressure ρ(P_local,T) instead of inlet ρ(T,P_in).
-    # Conserves COMPRESSIBLE reverse-dir flow (Q_A≈Q_B); strict certificate
-    # machine-zero; Shanghai bit-identical. ON by default (2026-06-09) — uncheck
-    # for the legacy inlet-pressure density.
-    window.chk_var_rhocp = QCheckBox("Local-P gas density (3D)")
+    # This also gates the eligible air/water model-h transport path; it is
+    # not the master switch for sCO2 variable properties or true-h transport.
+    window.chk_var_rhocp = QCheckBox("局部密度热输运（3D）")
     window.chk_var_rhocp.setChecked(True)
     window.chk_var_rhocp.setToolTip(
-        "3D LTNE energy kernel: gas density ρ=P/RT from the LOCAL cell pressure "
-        "(SIMPLE) instead of the inlet pressure. Conserves energy for "
-        "compressible reverse-dir flow (Q_A≈Q_B). Strict conservation stays "
-        "machine-zero; 算例工况 bit-identical; low-ΔP cases unchanged. "
-        "ON = default; uncheck for the legacy inlet-pressure density.")
+        "使用局部流场密度参与 3D 热输运，并在满足条件的空气/水组合中启用对应质量通量路径。\n"
+        "默认开启；关闭用于旧路径对照，不是 sCO₂ 变物性的总开关。")
     window.chk_var_rhocp.setStyleSheet(_chk_box_qss)
-    g_adv.addWidget(window.chk_var_rhocp, 2, 0, 1, 2)
+    g_adv.addWidget(window.chk_var_rhocp, 3, 0, 1, 2)
     window._3d_only_widgets.append(window.chk_var_rhocp)
 
-    # CPU cores for the parallel (red-black) energy GS kernel. Default = all
-    # cores (Numba pool); lower it to leave cores for other work. Funnels
-    # through solvers.threads.set_solver_threads (clamped to the pool size); the
-    # count is global to every parallel @njit kernel. Headless/batch runs use
-    # the TPMSHX_NUM_THREADS env var instead. GS is memory-bandwidth bound, so
-    # gains taper past ~8-16 cores.
+    # The ordinary compute orchestrator captures this thread-local Numba
+    # mask at launch and applies it in the worker. Optimization has its own
+    # resource policy; headless runs use TPMSHX_NUM_THREADS.
     from PySide6.QtWidgets import QSpinBox, QHBoxLayout
     from sjtu_tpmshx.solvers.threads import (max_threads as _max_threads,
                                  get_solver_threads as _get_threads,
                                  set_solver_threads as _set_threads)
     _mx_cores = _max_threads()
-    # Wrap label + spinbox in a bordered card so this row matches the checkbox
-    # boxes above (identical outer frame). The spinbox stays fully editable —
-    # type a value, or use the −/+ buttons added below.
+    g_cpu, sec_cpu = section(window, lay, "计算资源", _T_NEUTRAL, _F_NEUTRAL)
+    window._ia_sections['compute_resources'] = sec_cpu
+    # Separate the resource control from numerical switches. The spinbox
+    # supports both keyboard entry and the −/+ buttons below.
     _cpu_card = QFrame()
-    _cpu_card.setStyleSheet(
-        f"QFrame {{ background:{_tc['chk_bg']}; border:1px solid {_tc['chk_border']};"
-        f" border-radius:6px; }}"
-        f"QFrame:hover {{ border-color:{_tc['chk_hover_border']};"
-        f" background:{_tc['chk_hover_bg']}; }}")
+    _cpu_card.setStyleSheet("QFrame { background:transparent; border:none; }")
     _cpu_h = QHBoxLayout(_cpu_card)
-    _cpu_h.setContentsMargins(10, 6, 10, 6)
+    _cpu_h.setContentsMargins(0, 0, 0, 0)
     _cpu_h.setSpacing(8)
-    _lbl_cores = QLabel("CPU cores (energy ‖)")
+    _lbl_cores = QLabel("计算线程数")
     _lbl_cores.setStyleSheet(
-        f"QLabel {{ color:{_tc['fg']}; font-size:10pt; font-weight:bold;"
+        f"QLabel {{ color:{_tc['fg']}; font-size:10pt; font-weight:400;"
         f" background:transparent; border:none; padding:0; }}")
     window.spin_cpu_cores = QSpinBox()
     window.spin_cpu_cores.setRange(1, _mx_cores)
     window.spin_cpu_cores.setValue(_get_threads())
     window.spin_cpu_cores.setToolTip(
-        f"CPU cores for the parallel energy kernel (red-black GS), 1–{_mx_cores}. "
-        "Default = all cores; lower it to leave cores for other work. The count "
-        "is global to every parallel kernel. GS is memory-bandwidth bound, so "
-        "gains taper past ~8–16 cores. Headless / batch runs can set the "
-        "env var TPMSHX_NUM_THREADS instead.")
+        f"设置下一次普通计算使用的 Numba 并行核线程数（1–{_mx_cores}），小网格可能使用串行核。\n"
+        "它不限制整个应用的 CPU 占用，也不控制优化任务数量。")
+    _lbl_cores.setToolTip(window.spin_cpu_cores.toolTip())
     # Native QSpinBox arrows can't be themed reliably here: an ANCESTOR
     # stylesheet forces every descendant onto QStyleSheetStyle, and a QSS-styled
     # spin button with no ::up-arrow/::down-arrow IMAGE renders invisible (the
@@ -342,8 +308,8 @@ def build_page_domain(window):
     _btn_dn = QPushButton("−")            # U+2212 MINUS SIGN
     _btn_up = QPushButton("+")
     window._spin_cpu_btns = (_btn_dn, _btn_up)
-    for _b, _fn, _tip in ((_btn_dn, window.spin_cpu_cores.stepDown, "Fewer cores"),
-                          (_btn_up, window.spin_cpu_cores.stepUp,   "More cores")):
+    for _b, _fn, _tip in ((_btn_dn, window.spin_cpu_cores.stepDown, "减少线程数"),
+                          (_btn_up, window.spin_cpu_cores.stepUp,   "增加线程数")):
         _b.setFixedSize(24, 24)
         _b.setStyleSheet(_step_qss)
         _b.setToolTip(_tip)
@@ -355,10 +321,9 @@ def build_page_domain(window):
     _cpu_h.addWidget(_btn_dn)
     _cpu_h.addWidget(window.spin_cpu_cores)
     _cpu_h.addWidget(_btn_up)
-    g_adv.addWidget(_cpu_card, 4, 0, 1, 2)
-    # Register the CARD (one widget) for 3D-only visibility — hiding it hides
-    # the label + spinbox together; no separate child entries needed.
-    window._3d_only_widgets.append(_cpu_card)
+    g_cpu.addWidget(_cpu_card, 0, 0, 1, 2)
+    # Hide the heading too when this 3D-only control is unavailable.
+    window._3d_only_widgets.append(sec_cpu)
 
     # Hide 3D-only inputs by default (2D mode)
     _on_dim_changed(window)

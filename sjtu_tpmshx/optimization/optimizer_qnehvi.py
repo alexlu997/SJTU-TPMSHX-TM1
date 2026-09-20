@@ -127,7 +127,7 @@ progress: dict = {
     'count': 0,
     'total': 0,
     'best_Q': -float('inf'),
-    'phase': 'idle',                    # 'init' | 'optimize' | 'done'
+    'phase': 'idle',                    # init / optimize / completed / cancelled / plateau
     'cancel_requested': False,
     # Hypervolume tracking (Phase 2 — live HV plot in optimize panel)
     'hv':     0.0,                       # current iter HV
@@ -153,7 +153,7 @@ def _reset_warn_registries() -> None:
 
 
 def request_cancel() -> None:
-    """UI button → set this; the BO loop checks at every iteration boundary."""
+    """UI button → set this; the BO loop checks before each candidate wave."""
     progress['cancel_requested'] = True
 
 
@@ -222,6 +222,28 @@ def _save_history(save_dir, X, F_min, errors, *, stem='history'):
         json.dump(rows, stream, indent=2, ensure_ascii=False, allow_nan=False)
 
 
+def _evaluation_results(X_np, cfg, dp_cap, evaluator_fn, n_jobs, cancel_check):
+    """Yield completed candidates in order, cancelling only between joined waves."""
+    width = min(max(1, n_jobs), max(1, len(X_np)))
+    for start in range(0, len(X_np), width):
+        if cancel_check():
+            break
+        wave = X_np[start:start + width]
+        if width > 1 and len(wave) > 1:
+            from joblib import Parallel, delayed
+            cores, source = _resolve_core_budget()
+            inner = max(1, cores // len(wave))
+            _log.info("BO parallel eval: %d workers × %d inner threads "
+                      "(core budget %d, source=%s)",
+                      len(wave), inner, cores, source)
+            results = Parallel(n_jobs=len(wave), backend='loky',
+                               inner_max_num_threads=inner)(
+                delayed(_eval_worker)(x, cfg, dp_cap, evaluator_fn) for x in wave)
+        else:
+            results = [_eval_worker(x, cfg, dp_cap, evaluator_fn) for x in wave]
+        yield from results
+
+
 # ─── BO loop ────────────────────────────────────────────────────────
 
 
@@ -236,7 +258,8 @@ def run_qnehvi(config: Optional[dict] = None,
                hv_tol: float = 0.01,
                hv_window: int = 3,
                n_jobs: int = 1,
-               evaluator_fn=None) -> dict:
+               evaluator_fn=None,
+               cancel_check=None) -> dict:
     """qNEHVI Bayesian multi-objective optimization.
 
     Parameters
@@ -276,6 +299,10 @@ def run_qnehvi(config: Optional[dict] = None,
         'history_errors' : (N,) None for valid evaluations, otherwise failure reason
         'n_evals'   : total number of evaluations
         'save_dir'  : path to checkpoint dir
+        'termination_reason': completed / cancelled / plateau
+
+    Cancellation is cooperative between candidates (parallel: active wave).
+    ``cancel_check`` stays in the coordinator; it is never sent to loky.
     """
     # Lazy-import torch / botorch so importing this module is cheap when the
     # optimizer isn't actually invoked (e.g. UI startup).
@@ -333,6 +360,10 @@ def run_qnehvi(config: Optional[dict] = None,
 
     dp_cap = float(cfg.get('dp_cap_pa', 1.0e6))
     history_errors = []
+    termination_reason = 'completed'
+
+    def _cancelled():
+        return bool(progress['cancel_requested'] or (cancel_check and cancel_check()))
 
     def _evaluate_batch(X_np: np.ndarray) -> np.ndarray:
         """Evaluate a batch of decision vectors.
@@ -351,40 +382,13 @@ def run_qnehvi(config: Optional[dict] = None,
         bookkeeping remains in one place. Workers must NOT modify the
         global progress dict — they get pickled cfg copies.
         """
-        B = len(X_np)
-        if n_jobs > 1 and B > 1:
-            from joblib import Parallel, delayed
-            _workers = min(n_jobs, B)
-            # perf-wave1 (2026-07-03): was pinned to 1 — right for the
-            # serial 2D evaluator, but a 3D BO (q_batch=4, 12 cores) left
-            # 8 cores idle because each worker's numba pool was capped at
-            # a single thread. Share the cores across workers instead;
-            # loky propagates this to NUMBA_NUM_THREADS (joblib >= 1.5).
-            #
-            # TPMSHX_BO_CORE_BUDGET resolution + visibility: see
-            # _resolve_core_budget (P3.3 extraction of the 2026-07-11 inline
-            # parse). Default/valid paths unchanged; the engage-time INFO
-            # line is what makes a multi-arm launch debuggable.
-            _cores, _src = _resolve_core_budget()
-            _inner = max(1, _cores // _workers)
-            _log.info("BO parallel eval: %d workers × %d inner threads "
-                      "(core budget %d, source=%s)",
-                      _workers, _inner, _cores, _src)
-            results = Parallel(
-                n_jobs=_workers,
-                backend='loky',
-                inner_max_num_threads=_inner,
-            )(delayed(_eval_worker)(x, cfg, dp_cap, evaluator_fn) for x in X_np)
-        else:
-            results = [_eval_worker(x, cfg, dp_cap, evaluator_fn) for x in X_np]
-
-        F = np.zeros((B, 2), dtype=np.float64)
-        for i, (Q, dP_c, err) in enumerate(results):
+        rows = []
+        for Q, dP_c, err in _evaluation_results(
+                X_np, cfg, dp_cap, evaluator_fn, n_jobs, _cancelled):
             history_errors.append(err)
             if err is not None and verbose:
-                _log.warning(f"  [eval ERR] x_idx={i}: {err}")
-            F[i, 0] = Q                                 # maximize Q
-            F[i, 1] = -np.log10(dP_c)                   # maximize -log10(dP)
+                _log.warning(f"  [eval ERR]: {err}")
+            rows.append((Q, -np.log10(dP_c)))
             progress['count'] += 1
             if err is None and Q > progress['best_Q']:
                 progress['best_Q'] = float(Q)
@@ -392,10 +396,9 @@ def run_qnehvi(config: Optional[dict] = None,
                 try:
                     progress_cb(progress['count'], progress['total'], progress)
                 except Exception:
-                    # Deliberate (except-audit 2026-07-03): a crashing UI
-                    # progress callback must never kill a 45-75 min BO run.
+                    # Presentation must not abort a numerical campaign.
                     pass
-        return F
+        return np.asarray(rows, dtype=np.float64).reshape(-1, 2)
 
     # 3. Sobol initial samples
     torch.manual_seed(seed)
@@ -405,22 +408,25 @@ def run_qnehvi(config: Optional[dict] = None,
         _log.info(f"[qNEHVI] Evaluating {n_init} Sobol initial points …")
     t_phase = time.perf_counter()
     train_Y_np = _evaluate_batch(train_X_np)
+    train_X = train_X[:len(train_Y_np)]
     train_Y = torch.tensor(train_Y_np, dtype=torch.double)
     if verbose:
         _log.info(f"[qNEHVI] init done in {time.perf_counter() - t_phase:.0f}s, "
                   f"best Q = {progress['best_Q']:.0f} W/m")
 
     # 4. Reference point for hypervolume — slightly worse than worst observed
-    span = train_Y.max(dim=0).values - train_Y.min(dim=0).values
-    ref_point = train_Y.min(dim=0).values - 0.1 * (span.clamp(min=1.0))
-    ref_point = ref_point.double()
+    if len(train_Y_np):
+        span = train_Y.max(dim=0).values - train_Y.min(dim=0).values
+        ref_point = train_Y.min(dim=0).values - 0.1 * (span.clamp(min=1.0))
+        ref_point = ref_point.double()
 
     progress['phase'] = 'optimize'
 
     # 5. BO loop
     hv_hist: list = []
     for it in range(n_iter):
-        if progress['cancel_requested']:
+        if _cancelled():
+            termination_reason = 'cancelled'
             if verbose:
                 _log.info(f"[qNEHVI] cancel requested → stopping at iter {it+1}")
             break
@@ -501,8 +507,12 @@ def run_qnehvi(config: Optional[dict] = None,
         new_Y_np = _evaluate_batch(new_X_np)
         new_Y = torch.tensor(new_Y_np, dtype=torch.double)
 
-        train_X = torch.cat([train_X, candidates.detach()], dim=0)
+        train_X = torch.cat([train_X, candidates.detach()[:len(new_Y_np)]], dim=0)
         train_Y = torch.cat([train_Y, new_Y], dim=0)
+
+        if _cancelled():
+            termination_reason = 'cancelled'
+            break
 
         # 5d. Hypervolume tracking + checkpoint
         valid = torch.tensor([error is None for error in history_errors], dtype=torch.bool)
@@ -533,6 +543,7 @@ def run_qnehvi(config: Optional[dict] = None,
         # 5e. HV-plateau early stop. Production-quality termination criterion:
         # if the front isn't moving meaningfully, more evals waste budget.
         if hv_tol > 0.0 and hv_plateau_detected(hv_hist, hv_tol, hv_window):
+            termination_reason = 'plateau'
             if verbose:
                 _log.info(f"[qNEHVI] HV plateau (rel < {hv_tol:.1%} for "
                           f"{hv_window} iter) → early stop at iter {it+1}/{n_iter}")
@@ -542,7 +553,8 @@ def run_qnehvi(config: Optional[dict] = None,
     # MAX form; convert back to (Q_neg, dP) min-form for caller / CSV output.
     Y_np = train_Y.numpy()
     X_np = train_X.numpy()
-    mask = _pareto_mask_max(Y_np, valid=np.array([error is None for error in history_errors]))
+    mask = _pareto_mask_max(Y_np, valid=np.array(
+        [error is None for error in history_errors], dtype=bool))
     X_pareto = X_np[mask]
     Y_pareto = Y_np[mask]
     F_min = np.column_stack([
@@ -555,7 +567,12 @@ def run_qnehvi(config: Optional[dict] = None,
         np.power(10.0, -Y_np[:, 1]),
     ])
 
-    progress['phase'] = 'done'
+    if _cancelled():
+        termination_reason = 'cancelled'
+    progress['phase'] = termination_reason
+    with open(os.path.join(save_dir, 'run_status.json'), 'w') as stream:
+        json.dump({'termination_reason': termination_reason,
+                   'n_evals': len(X_np), 'planned_evals': progress['total']}, stream)
 
     if verbose:
         # Y_pareto stores objectives in MAX form: column 0 = Q, column 1 =
@@ -564,7 +581,7 @@ def run_qnehvi(config: Optional[dict] = None,
         # nonsense like "dP range [4, 4]").
         Q_real  = Y_pareto[:, 0]
         dP_real = np.power(10.0, -Y_pareto[:, 1])
-        _log.info(f"[qNEHVI] DONE — {len(X_pareto)} Pareto solutions across "
+        _log.info(f"[qNEHVI] {termination_reason.upper()} — {len(X_pareto)} Pareto solutions across "
                   f"{len(X_np)} total evaluations")
         if len(X_pareto):
             _log.info(f"  Q range  [{Q_real.min():.0f}, {Q_real.max():.0f}] W/m")
@@ -583,6 +600,7 @@ def run_qnehvi(config: Optional[dict] = None,
         'n_evals': int(len(X_np)),
         'save_dir': save_dir,
         'config': cfg,
+        'termination_reason': termination_reason,
     }
 
 

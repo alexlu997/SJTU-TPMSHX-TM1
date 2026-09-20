@@ -251,6 +251,8 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         # preset combo. Only .json with the expected preset/session shape
         # is honoured; anything else is rejected with a status message.
         self.setAcceptDrops(True)
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(0, self, self._preview_initial_geometry)
 
     def dragEnterEvent(self, event):
         mime = event.mimeData()
@@ -679,7 +681,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             f"<tr><td style='padding:4px 14px 4px 0;'>{_html_esc.escape(str(lbl))}</td>"
             f"<td style='padding:4px 14px 4px 0; color:#6b7280;'>"
             f"<code>{_html_esc.escape(str(name))}</code></td>"
-            f"<td style='padding:4px 0; color:#DC2626; font-family:Times New Roman,Microsoft YaHei;'>"
+            f"<td style='padding:4px 0; color:#DC2626;'>"
             f"{_html_esc.escape(str(val))}</td></tr>"
             for lbl, name, val in bad[:30])
         html = (
@@ -884,15 +886,22 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
            2026-05-06 #4 — belt-and-braces against bound-method slots
            that close over ``self`` and outlive C++ widget destruction).
         """
-        # Keep the window and its child orchestrator/pool alive until both
-        # terminal publication and QRunnable.run() have returned. A JIT sweep
-        # may exceed any fixed timeout; cancellation stays cooperative.
-        if not self.compute.is_idle():
+        # Keep every task owner alive until terminal delivery and worker exit.
+        # A JIT sweep/candidate batch may exceed any fixed timeout.
+        opt_worker = getattr(self, '_opt_worker', None)
+        qd_dialog = getattr(self, '_qd_dialog', None)
+        qd_worker = getattr(qd_dialog, '_qd_worker', None)
+        from sjtu_tpmshx.ui.background_tasks import has_active_tasks
+        if has_active_tasks(self):
             event.ignore()
             self._close_pending = True
             self.compute.cancel()
+            if opt_worker is not None:
+                opt_worker.requestInterruption()
+            if qd_worker is not None:
+                qd_dialog.close()
             self.setEnabled(False)
-            self.statusBar().showMessage("正在关闭 — 等待计算安全结束…")
+            self.statusBar().showMessage("正在关闭 — 等待计算、优化和快速设计安全结束…")
             if not hasattr(self, '_close_retry_timer'):
                 from PySide6.QtCore import QTimer
                 self._close_retry_timer = QTimer(self)
@@ -955,12 +964,10 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
     def _maybe_show_onboarding(self):
         """First-run only: surface a 3-step guidance dialog pointing at the
         parameter panel, Compute button, and result tabs. Dismissal writes
-        `.first_run_done` next to the executable; future launches skip.
+        `.first_run_done` in the user data directory; future launches skip.
         """
         import os as _os_ob
-        flag = _os_ob.path.join(
-            _os_ob.path.dirname(_os_ob.path.abspath(__file__)),
-            '.first_run_done')
+        flag = self.sm.base_dir / '.first_run_done'
         if _os_ob.path.exists(flag):
             return
         # Headless guard: a fresh checkout has no flag file, and a modal
@@ -1127,9 +1134,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
     def _show_quick_tour(self):
         """Re-show the first-run onboarding dialog (clears the flag)."""
         import os as _os_qt
-        flag = _os_qt.path.join(
-            _os_qt.path.dirname(_os_qt.path.abspath(__file__)),
-            '.first_run_done')
+        flag = self.sm.base_dir / '.first_run_done'
         try:
             if _os_qt.path.exists(flag):
                 _os_qt.remove(flag)
@@ -1443,12 +1448,13 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
 
 # ── Entry point ───────────────────────────────────────────────
 def _apply_app_font(app):
-    """Use Times New Roman for Latin text and Microsoft YaHei for Chinese."""
+    """Use the platform's native sans-serif interface fonts."""
     from sjtu_tpmshx.ui.typography import apply_app_font
     return apply_app_font(app)
 
 
-if __name__ == "__main__":
+def main():
+    """Start the desktop interface from source or an installed launcher."""
     # High-DPI + font smoothing before QApplication instantiation
     from PySide6.QtCore import Qt as _Qt
     QApplication.setHighDpiScaleFactorRoundingPolicy(
@@ -1481,42 +1487,13 @@ if __name__ == "__main__":
             print(f"[i18n] loaded {_qm}")
             break
 
-    # Load persisted theme choice (from a previous `_toggle_theme`) before
-    # styles rebuild — falls back to the hard-coded default if absent.
-    import os as _os_boot
-    _theme_file = _os_boot.path.join(
-        _os_boot.path.dirname(_os_boot.path.abspath(__file__)), '.theme')
-    if _os_boot.path.exists(_theme_file):
-        try:
-            with open(_theme_file, 'r', encoding='utf-8') as _fth:
-                _saved_theme = _fth.read().strip()
-            if _saved_theme in ('dark', 'light'):
-                set_theme(_saved_theme)
-        except Exception:
-            pass
-    # Density persistence — same pattern as theme.
-    _density_file = _os_boot.path.join(
-        _os_boot.path.dirname(_os_boot.path.abspath(__file__)), '.density')
-    if _os_boot.path.exists(_density_file):
-        try:
-            with open(_density_file, 'r', encoding='utf-8') as _fd:
-                _saved_density = _fd.read().strip()
-            if _saved_density in ('compact', 'cozy', 'comfortable'):
-                set_density(_saved_density)
-        except Exception:
-            pass
-    # Accent override — E13 custom brand colour.
-    _accent_file = _os_boot.path.join(
-        _os_boot.path.dirname(_os_boot.path.abspath(__file__)), '.accent')
-    if _os_boot.path.exists(_accent_file):
-        try:
-            with open(_accent_file, 'r', encoding='utf-8') as _fac:
-                _saved_accent = _fac.read().strip()
-            if _saved_accent.startswith('#') and len(_saved_accent) == 7:
-                from sjtu_tpmshx.ui.theme import set_accent_override
-                set_accent_override(_saved_accent)
-        except Exception:
-            pass
+    from sjtu_tpmshx.controllers.user_storage import load_appearance_settings
+    from sjtu_tpmshx.ui.theme import set_accent_override
+    saved = load_appearance_settings()
+    for name, setter in (('theme', set_theme), ('density', set_density),
+                         ('accent', set_accent_override)):
+        if name in saved:
+            setter(saved[name])
     # Force grayscale anti-aliasing to eliminate sub-pixel color fringing
     from PySide6.QtGui import QFont
     font = app.font()
@@ -1528,4 +1505,8 @@ if __name__ == "__main__":
     _rebuild_styles()
     window = Main_Menu()
     window.showMaximized()
-    sys.exit(app.exec())
+    return app.exec()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 
 import pytest
 
@@ -51,11 +50,12 @@ def test_session_path_invalid_workspace_raises(sm):
         sm.session_path('Z')
 
 
-def test_default_base_dir_is_package_dir():
-    """Constructor with no args defaults to sjtu_tpmshx/ package directory."""
+def test_default_base_dir_is_user_data_dir(tmp_path, monkeypatch):
+    """Default construction uses the same stable directory as GUI history."""
+    monkeypatch.setattr('sjtu_tpmshx.controllers.session_manager.user_data_dir',
+                        lambda: tmp_path)
     sm = SessionManager()
-    expected = Path(__file__).resolve().parents[1]
-    assert sm.base_dir == expected
+    assert sm.base_dir == tmp_path
 
 
 # ---------------------------------------------------------------- session io

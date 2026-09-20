@@ -1,5 +1,6 @@
 from __future__ import annotations
 import types
+import pytest
 from unittest.mock import patch
 from PySide6.QtWidgets import QLineEdit, QComboBox, QCheckBox, QLabel
 
@@ -38,7 +39,9 @@ def test_gather_inputs_fixed():
     assert p["mode"] == "fixed"
     assert p["cell"] == ("Diamond", 7.0, 0.5)
 
-def test_worker_auto_calls_backend_and_emits():
+@pytest.mark.parametrize('frozen', [False, True])
+def test_worker_auto_calls_backend_and_emits(monkeypatch, frozen):
+    monkeypatch.setattr('sys.frozen', frozen, raising=False)
     w = _make_window("auto"); p = _gather_inputs(w)
     Worker = _make_worker_class()
     worker = Worker(p)
@@ -49,7 +52,7 @@ def test_worker_auto_calls_backend_and_emits():
         T_out_hot_max=560.0; arrangement="counter"; reason=""
     def _fake_load(path): captured["path"]=path; return ["case1"]
     def _fake_enum(cases, arrangement, nodes, rho_s, n_jobs=1, k_s=16.0,
-                   prop_model="const", height=None):
+                   prop_model="const", height=None, control=None):
         captured.update(arr=arrangement, nodes=nodes, rho=rho_s, jobs=n_jobs,
                         ks=k_s, pm=prop_model, height=height)
         d=_D(); return [d], d
@@ -60,13 +63,73 @@ def test_worker_auto_calls_backend_and_emits():
         worker.run()
     assert captured["path"]=="spec.xlsx"
     assert captured["arr"]=="counter" and captured["rho"]==7900.0
-    assert captured["jobs"]==-1   # UI auto 默认全核并行
+    assert captured["jobs"] == (1 if frozen else -1)
     assert captured["ks"]==16.0   # 默认 304SS 热导率传入后端
     assert captured["pm"]=="mean" # UI 默认物性模型 = 均温
     assert captured["height"] is None   # 默认方形 (未勾固定高度迎风)
     assert len(received)==1
     feas, best = received[0]["feasible"], received[0]["best"]
     assert best.topo=="Diamond" and len(feas)==1
+
+
+@pytest.mark.parametrize('stage', ['enumeration', 'refinement'])
+def test_cancel_retains_completed_candidates_from_current_stage(monkeypatch, stage):
+    from sjtu_tpmshx.design.sizing import Design
+    from sjtu_tpmshx.design.select import SelectionCancelled
+    from sjtu_tpmshx.domain.cancellation import CancelledError
+    d = Design(True, topo='Diamond', l=5., t=.4, V=.01)
+    def enumeration(*args, **kwargs):
+        if stage == 'enumeration':
+            raise SelectionCancelled([d])
+        return [d], d
+    def refinement(*args, **kwargs):
+        raise CancelledError('cancelled during refinement')
+    monkeypatch.setattr('sjtu_tpmshx.design.cases.load_cases', lambda p: ['case'])
+    monkeypatch.setattr('sjtu_tpmshx.design.select.enumerate_select', enumeration)
+    monkeypatch.setattr('sjtu_tpmshx.design.optimize.warm_start_joint', refinement)
+    params = _gather_inputs(_make_window())
+    params['refine'] = True
+    worker = _make_worker_class()(params)
+    received = []
+    worker.finished_with_result.connect(received.append)
+    worker.run()
+    result, = received
+    assert result['all'] == result['feasible'] == [d]
+    assert result['best'] is d
+    assert result['partial'] and result['termination_reason'] == 'cancelled'
+
+
+def test_new_run_clears_stale_results_then_publishes_partial_current_result(monkeypatch):
+    import threading
+    from PySide6.QtWidgets import QTableWidget
+    from sjtu_tpmshx.design.sizing import Design
+    from sjtu_tpmshx.design.select import SelectionCancelled
+    from sjtu_tpmshx.tests.test_worker_result_handoff import _wait_for
+    from sjtu_tpmshx.ui import quick_design_panel as panel
+    monkeypatch.setattr('sys.frozen', True, raising=False)
+    release = threading.Event()
+    d = Design(True, topo='Gyroid', l=5., t=.4, V=.01)
+    def enumeration(*args, **kwargs):
+        assert kwargs['n_jobs'] == 1
+        assert release.wait(10)
+        raise SelectionCancelled([d])
+    monkeypatch.setattr('sjtu_tpmshx.design.cases.load_cases', lambda p: ['case'])
+    monkeypatch.setattr('sjtu_tpmshx.design.select.enumerate_select', enumeration)
+    w = _make_window()
+    w._qd_last = {'old': True}
+    w._qd_table = QTableWidget(1, 1)
+    w._qd_status = QLabel()
+    panel.run_quick_design(w)
+    try:
+        assert w._qd_last is None and w._qd_table.rowCount() == 0
+        assert '单进程串行' in w._qd_status.text()
+    finally:
+        release.set()
+    _wait_for(lambda: w._qd_worker is None)
+    assert w._qd_last['all'] == [d] and w._qd_last['partial']
+    assert '已取消' in w._qd_status.text() and '不代表完整搜索最优' in w._qd_status.text()
+    assert w._qd_table.rowCount() == 1
+    assert w._qd_table.item(0, 12).text().startswith('已完成候选内')
 
 def test_gather_inputs_rect_height():
     w = _make_window("auto")

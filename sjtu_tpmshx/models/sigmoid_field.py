@@ -116,7 +116,10 @@ class GeometryLUT:
         self.N = N
 
         if cache_dir is None:
-            cache_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'solvers')
+            cache_dir = os.path.join(
+                os.environ.get('XDG_CACHE_HOME') or os.path.expanduser('~/.cache'),
+                'sjtu-tpmshx', 'geometry')
+        os.makedirs(cache_dir, exist_ok=True)
         # N (voxel resolution) MUST be in the cache key + load-validation: the
         # eps_table / A0_table are computed at resolution N (_phi_grid(...,N),
         # _A0_from_C(...,N)), so a different N produces a different table. The
