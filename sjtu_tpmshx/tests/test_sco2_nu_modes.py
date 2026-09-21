@@ -67,8 +67,10 @@ def test_shared_scalar_array_nu_and_unchanged_other_fluids(topology, alpha):
 def test_local_hv_multiplier_before_floor_without_extra_eos(monkeypatch, shape):
     from sjtu_tpmshx.models.local_heat_transfer import _sco2_hv_local_field
     from sjtu_tpmshx.models import sco2_props
-    for name, value in (('density', 2.), ('viscosity', .5), ('conductivity', .25), ('cp', 4.)):
-        monkeypatch.setattr(sco2_props, f'sco2_{name}_field', lambda T, P, v=value: np.full_like(T, v))
+    def properties(keys, T, P):
+        assert keys == ('D', 'V', 'L', 'C')
+        return np.array([np.full_like(T, value) for value in (2., .5, .25, 4.)])
+    monkeypatch.setattr(sco2_props, 'sco2_prop', properties)
     T=np.full(shape, 320.); u=np.linspace(0.,10000.,T.size).reshape(shape)
     args=(T, 10e6, u, 10., 1., 'Diamond', 7.)
     raw=nu.nu_sco2_topo('Diamond', np.maximum(4*u,1.), 8., 7., 1000.)

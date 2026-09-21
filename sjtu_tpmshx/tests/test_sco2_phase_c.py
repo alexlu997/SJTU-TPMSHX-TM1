@@ -97,6 +97,30 @@ def test_sco2_prop_missing_pressure_raises():
         FLUIDS['sco2'].rho(371.0)              # P omitted → clear error
 
 
+@pytest.mark.parametrize('temperature,pressure', [
+    (310., 8e6), (np.full((1, 1, 1), 310.), 8e6),
+    (np.array([280., 300., 304.13, 307., 310., 320., 400., 700.])[:, None],
+     np.array([7.9e6, 8e6, 12e6, 16e6])[None, :]),
+])
+def test_joint_properties_match_separate_heos_queries(monkeypatch, temperature, pressure):
+    keys = ('D', 'V', 'L', 'C')
+    expected = np.array([S.sco2_prop(key, temperature, pressure) for key in keys])
+    original, calls = S._PropsSI, []
+
+    def query(*args):
+        calls.append(args[0])
+        return original(*args)
+
+    monkeypatch.setattr(S, '_PropsSI', query)
+    actual = S.sco2_prop(keys, temperature, pressure)
+    np.testing.assert_array_equal(actual, expected)
+    assert actual.flags.c_contiguous
+    assert calls == [keys]
+    with pytest.raises(ValueError, match='temperature'):
+        S.sco2_prop(keys, np.array([310., 701.]), pressure)
+    assert calls == [keys]  # Invalid states are still rejected before querying.
+
+
 def test_air_water_registry_ignore_pressure_arg():
     """Air/water primitives must stay value-identical whether or not P is
     passed (the 2D loop now forwards P to every primitive)."""
