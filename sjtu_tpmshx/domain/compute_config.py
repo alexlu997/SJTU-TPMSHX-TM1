@@ -94,7 +94,9 @@ but were missing above:
   engage-time INFO logs the resolved split).
 - ``TPMSHX_SCO2_COMPRESSIBLE`` (0, experimental) — A-side sCO2 local-pressure
   density/viscosity update and pressure-seed envelope check in the 3D Python
-  runtime. B is unchanged; this is not full compressible continuity.
+  runtime. B is unchanged; this is not full compressible continuity. Its
+  pressure anchor differs from true-h and is not covered by the ideal-gas
+  inlet-pressure correction; an ON/OFF change is not accuracy evidence.
 - ``TPMSHX_MAX_CELLS_3D`` (2000000) — hard 3D cell cap;
   ``preprocess/three_d/preparation.py``.
 - ``TPMSHX_BUILD_S_MAX`` / ``TPMSHX_BUILD_LX_MAX`` — sizing-tool build

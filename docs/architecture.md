@@ -200,6 +200,11 @@ do not apply to this route. Damping changes the iteration, not its steady
 energy equation. Q/field convergence, physical boundary energy, solid energy
 and mass checks remain separate and retain their thresholds. The turning-flow
 regression covers serial/red-black execution and physical A/B label invariance.
+The 3D model-h inner `converged` flag checks duty and temperature changes;
+its recorded equation/solid/boundary budgets are additional diagnostics, not
+the true-h route's independent 0.001 equation gate. The conservation tests
+check their declared budgets separately. Do not infer identical acceptance
+criteria from the shared word `converged` across thermal routes.
 Model-h Richardson refinement has a 12000-sweep ceiling so the finer grid can
 meet those same criteria; temperature-form refinement retains 5000. See the
 [air/water convergence and validation record](history/README.md#2026-09-18-历史材料整理).
@@ -472,7 +477,12 @@ explicit numerical-model change with directly relevant validation.
     that side's pressure initialization/envelope handling. B-side sCO2 flow
     properties retain the inlet-pressure convention. This switch does not
     implement a full compressible continuity equation or qualify a symmetric
-    two-sided compressible model; it is off by default.
+    two-sided compressible model; it is off by default. Its A-side flow-property
+    pressure uses `P_ref_abs + P`, while true-h uses `P_in - dP_face + P`;
+    these anchors are not guaranteed equal. The ideal-gas inlet-pressure
+    correction does not certify this sCO2 research branch. Compare actual
+    inlet pressure and both anchors alongside mass/energy budgets before
+    interpreting an ON/OFF difference as improved accuracy.
 11. **Current TM1 limit.** sCO2 zones and offset level sets remain rejected;
     air/water-only runs retain the qualified model-enthalpy and temperature
     routes listed above. For Nz>1, their end-cell treatment covers every

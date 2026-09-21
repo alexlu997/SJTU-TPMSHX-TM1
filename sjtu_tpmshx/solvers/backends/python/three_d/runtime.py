@@ -1875,7 +1875,7 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D) 
     # Passthrough of SIMPLE face arrays + masks for the standalone partial-B
     # LTNE conservation diagnostics (historical audit: docs/history/README.md).
     # 2026-06-09 perf C1: gated behind cfg['_emit_audit'] (default False) —
-    # these deep-copy both solvers' full u/v/w/ρ fields + K/eps/rho_cp/χ arrays,
+    # these deep-copy both solvers' full u/v/w/ρ fields + K/eps/rho_cp arrays,
     # a large memory + wall-time cost paid on EVERY run. Only the audit scripts
     # and test_partial_bc_ghost_b consume them, so those callers set
     # _emit_audit=True. Consumers must not mutate. No physics change.
