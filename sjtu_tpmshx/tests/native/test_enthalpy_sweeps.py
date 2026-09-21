@@ -1,4 +1,4 @@
-"""Same-algorithm native port qualification; no production dispatch changes.
+"""Same-algorithm native qualification through the production C sweep API.
 
 Tolerances are fixed before port comparison, allowing LLVM fastmath roundoff:
 rtol=2e-13; atol=2e-8 J/kg for h and 2e-11 K for Ts. Clips must match exactly.
@@ -28,11 +28,13 @@ def native_library(tmp_path_factory):
         pytest.skip(message)
     root = Path(__file__).resolve().parents[3]
     suffix = ".dylib" if sys.platform == "darwin" else ".so"
+    link_flag = "-dynamiclib" if sys.platform == "darwin" else "-shared"
     output = tmp_path_factory.mktemp("cpp-enthalpy") / ("test_thermal" + suffix)
     subprocess.run(
         [*compiler, "-std=c++17", "-O2", "-Wall", "-Wextra", "-Wpedantic", "-Werror",
-         "-shared", "-fPIC", "-I", str(root / "native/include"),
+         link_flag, "-fPIC", "-I", str(root / "native/include"),
          str(root / "native/src/enthalpy_sweeps.cpp"),
+         str(root / "native/src/thermal_c_api.cpp"),
          str(Path(__file__).with_name("enthalpy_bridge.cpp")), "-o", str(output)],
         check=True, capture_output=True, text=True,
     )
@@ -40,25 +42,41 @@ def native_library(tmp_path_factory):
 
 
 @pytest.fixture(scope="module")
-def native(native_library):
-    function = native_library.test_enthalpy_sweeps
+def native_function(native_library):
+    version = native_library.tpmshx_thermal_abi_version
+    version.argtypes = []
+    version.restype = ctypes.c_uint32
+    assert version() == 1
+    function = native_library.tpmshx_enthalpy_sweeps_v1
     double_p = ctypes.POINTER(ctypes.c_double)
     function.argtypes = [ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(double_p),
                          ctypes.POINTER(ctypes.c_size_t), double_p, ctypes.c_size_t,
-                         ctypes.POINTER(ctypes.c_uint64)]
+                         ctypes.POINTER(ctypes.c_uint64), ctypes.POINTER(ctypes.c_char),
+                         ctypes.c_size_t]
     function.restype = ctypes.c_int
+    return function
 
+
+def _sweep_arguments(case, sweeps=5, omega=0.6):
+    a, b = case["a"], case["b"]
+    arrays = [*case["widths"], *case["state"], *a["arrays"], *b["arrays"], case["kss"]]
+    assert all(x.dtype == np.float64 and x.flags.c_contiguous for x in arrays)
+    double_p = ctypes.POINTER(ctypes.c_double)
+    pointers = (double_p * len(arrays))(*(x.ctypes.data_as(double_p) for x in arrays))
+    sizes = (ctypes.c_size_t * len(arrays))(*(x.size for x in arrays))
+    shape = (ctypes.c_size_t * 3)(*case["shape"])
+    scalars = (ctypes.c_double * 7)(a["hin"], b["hin"], *a["bounds"], *b["bounds"], omega)
+    clips = (ctypes.c_uint64 * 2)(99, 99)
+    error = ctypes.create_string_buffer(256)
+    return [shape, pointers, sizes, scalars, sweeps, clips, error, len(error)]
+
+
+@pytest.fixture(scope="module")
+def native(native_function):
     def run(case, sweeps=5, omega=0.6):
-        a, b = case["a"], case["b"]
-        arrays = [*case["widths"], *case["state"], *a["arrays"], *b["arrays"], case["kss"]]
-        assert all(x.dtype == np.float64 and x.flags.c_contiguous for x in arrays)
-        pointers = (double_p * len(arrays))(*(x.ctypes.data_as(double_p) for x in arrays))
-        sizes = (ctypes.c_size_t * len(arrays))(*(x.size for x in arrays))
-        shape = (ctypes.c_size_t * 3)(*case["shape"])
-        scalars = (ctypes.c_double * 7)(a["hin"], b["hin"], *a["bounds"], *b["bounds"], omega)
-        clips = (ctypes.c_uint64 * 2)(99, 99)
-        code = function(shape, pointers, sizes, scalars, sweeps, clips)
-        return code, tuple(clips)
+        arguments = _sweep_arguments(case, sweeps, omega)
+        code = native_function(*arguments)
+        return code, tuple(arguments[5]), arguments[6].value.decode("utf-8")
 
     return run
 
@@ -106,8 +124,8 @@ def test_same_signed_flow_and_fourier_updates(native, shape, sweeps):
     case = case_data(shape)
     expected, expected_clips = python_sweeps(case, sweeps)
     frozen = [x.copy() for f in (case["a"], case["b"]) for x in f["arrays"]]
-    code, clips = native(case, sweeps)
-    assert code == 0
+    code, clips, error = native(case, sweeps)
+    assert code == 0 and not error
     np.testing.assert_array_equal(clips, expected_clips)
     for actual, target, atol in zip(case["state"], expected, (2e-8, 2e-8, 2e-11)):
         np.testing.assert_allclose(actual, target, rtol=2e-13, atol=atol)
@@ -124,8 +142,8 @@ def test_all_face_directions_transport_inlet_enthalpy(native, direction):
         aa[4].fill(0.)
         aa[5:] = list(reference._uniform_face_mass_flux(case["shape"], .01, direction))
         h.fill(fluid["hin"] + 5000.)
-    code, clips = native(case, sweeps=5, omega=1.)
-    assert code == 0 and clips == (0, 0)
+    code, clips, error = native(case, sweeps=5, omega=1.)
+    assert code == 0 and clips == (0, 0) and not error
     for h in case["state"][:2]:
         np.testing.assert_allclose(h, 3e5, rtol=0., atol=2e-8)
 
@@ -144,8 +162,8 @@ def test_isothermal_pressure_gradient_has_no_false_conduction(native, native_aud
             flux.fill(0.)
         h[:] = initial
     case["state"][2][:] = temperature
-    code, clips = native(case, sweeps=4, omega=1.)
-    assert code == 0 and clips == (0, 0)
+    code, clips, error = native(case, sweeps=4, omega=1.)
+    assert code == 0 and clips == (0, 0) and not error
     for h in case["state"][:2]:
         np.testing.assert_allclose(h, initial, rtol=0., atol=2e-8)
     np.testing.assert_allclose(case["state"][2], temperature, rtol=0., atol=2e-11)
@@ -162,8 +180,8 @@ def test_clip_counts_match_actual_updates(native):
     for fluid in (case["a"], case["b"]):
         fluid["bounds"] = (290000., 310000.)
     expected, expected_clips = python_sweeps(case)
-    code, clips = native(case)
-    assert code == 0 and all(x > 0 for x in clips)
+    code, clips, error = native(case)
+    assert code == 0 and all(x > 0 for x in clips) and not error
     np.testing.assert_array_equal(clips, expected_clips)
     for h, target in zip(case["state"][:2], expected[:2]):
         np.testing.assert_allclose(h, target, rtol=2e-13, atol=2e-8)
@@ -177,8 +195,8 @@ def test_zero_diagonal_preserves_state(native):
             fluid["arrays"][i].fill(0.)
     case["kss"].fill(0.)
     initial = [x.copy() for x in case["state"]]
-    code, clips = native(case)
-    assert code == 0 and clips == (0, 0)
+    code, clips, error = native(case)
+    assert code == 0 and clips == (0, 0) and not error
     for actual, target in zip(case["state"], initial):
         np.testing.assert_array_equal(actual, target)
 
@@ -199,8 +217,8 @@ def test_fixed_solid_exponential_solution_and_energy(native):
             aa[5:] = list(reference._uniform_face_mass_flux(case["shape"], .01, 0))
             fluid["hin"] = 400000.
             h.fill(400000.)
-        code, clips = native(case, sweeps=1, omega=1.)
-        assert code == 0 and clips == (0, 0)
+        code, clips, error = native(case, sweeps=1, omega=1.)
+        assert code == 0 and clips == (0, 0) and not error
         h = case["state"][0]
         expected_outlet = 300. + 100. * np.exp(-2.)
         errors.append(abs(h[-1, 0, 0] / 1000. - expected_outlet))
@@ -222,10 +240,77 @@ def test_invalid_input_rejected_before_state_mutation(native, invalid):
         case["widths"][0][0] = -1.
     elif invalid == "nan":
         case["a"]["arrays"][6].flat[0] = np.nan
-    code, _ = native(case, omega=2. if invalid == "omega" else .6)
+    code, clips, error = native(case, omega=2. if invalid == "omega" else .6)
     assert code == 1
+    expected = {"length": "array length does not match grid", "cp": "invalid physical coefficient",
+                "width": "invalid physical coefficient", "nan": "nonfinite array value",
+                "omega": "omega must be in (0, 1]"}
+    assert error == expected[invalid]
+    assert clips == (99, 99)
     for actual, target in zip(case["state"], initial):
         np.testing.assert_array_equal(actual, target)
+
+
+@pytest.mark.parametrize("slot", [0, 1, 2, 3, 5, 6])
+def test_c_api_rejects_null_arguments_before_update(native_function, slot):
+    case = case_data()
+    initial = [x.copy() for x in case["state"]]
+    arguments = _sweep_arguments(case)
+    clips, error = arguments[5], arguments[6]
+    arguments[slot] = None
+    assert native_function(*arguments) == 1
+    if slot != 6:
+        assert error.value.startswith(b"null ")
+    assert tuple(clips) == (99, 99)
+    for actual, target in zip(case["state"], initial):
+        np.testing.assert_array_equal(actual, target)
+
+
+@pytest.mark.parametrize("slot", [0, 3, 22])
+def test_c_api_rejects_null_array_data(native_function, slot):
+    case = case_data()
+    initial = [x.copy() for x in case["state"]]
+    arguments = _sweep_arguments(case)
+    arguments[1][slot] = None
+    assert native_function(*arguments) == 1
+    assert arguments[6].value == b"null array data pointer"
+    assert tuple(arguments[5]) == (99, 99)
+    for actual, target in zip(case["state"], initial):
+        np.testing.assert_array_equal(actual, target)
+
+
+@pytest.mark.parametrize("capacity", [1, 4])
+def test_c_api_error_buffer_is_bounded_and_terminated(native_function, capacity):
+    case = case_data()
+    arguments = _sweep_arguments(case, omega=2.)
+    error = ctypes.create_string_buffer(b"xxxxxxxx")
+    before = error.raw
+    arguments[6:] = [error, capacity]
+    assert native_function(*arguments) == 1
+    assert error.raw[:capacity] == b"omega must be in (0, 1]"[:capacity - 1] + b"\0"
+    assert error.raw[capacity:] == before[capacity:]
+
+
+def test_c_api_rejects_zero_error_capacity(native_function):
+    case = case_data()
+    initial = [x.copy() for x in case["state"]]
+    arguments = _sweep_arguments(case)
+    arguments[6].value = b"unchanged"
+    arguments[7] = 0
+    assert native_function(*arguments) == 1
+    assert arguments[6].value == b"unchanged"
+    assert tuple(arguments[5]) == (99, 99)
+    for actual, target in zip(case["state"], initial):
+        np.testing.assert_array_equal(actual, target)
+
+
+def test_c_api_success_clears_old_error(native_function):
+    case = case_data()
+    arguments = _sweep_arguments(case, sweeps=0)
+    arguments[6].value = b"old failure"
+    assert native_function(*arguments) == 0
+    assert not arguments[6].value
+    assert tuple(arguments[5]) == (0, 0)
 
 
 # Fixed before the energy port comparison: 2e-12 relative / 1e-9 W per cell,
@@ -408,6 +493,10 @@ def test_sweeps_reject_finite_input_arithmetic_overflow(native, overflow):
     else:
         case["a"]["hin"] = 1e308
         case["a"]["arrays"][5][:, 0, 0] = [1., 1e-29]  # finite rhs/ap overflows
-    code, clips = native(case, sweeps=1, omega=1.)
+    code, clips, error = native(case, sweeps=1, omega=1.)
     assert code == 2  # specifically std::domain_error, not a successful clipped state
+    expected = {"exchange": "nonfinite fluid sweep equation",
+                "solid_conductivity": "nonfinite solid sweep equation",
+                "fluid_update": "nonfinite fluid sweep update"}
+    assert error == expected[overflow]
     assert clips == (99, 99)  # no success result returned; state is unusable

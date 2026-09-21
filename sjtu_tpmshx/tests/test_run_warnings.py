@@ -306,18 +306,16 @@ def test_sco2_local_raw_re_is_before_floor_without_extra_properties(monkeypatch,
     from sjtu_tpmshx.models import sco2_props
 
     calls = []
-    for name, value in (('density', 2.), ('viscosity', 0.5),
-                        ('conductivity', 0.25), ('cp', 4.)):
-        def prop(T, P, name=name, value=value):
-            calls.append(name)
-            return np.full_like(T, value)
-        monkeypatch.setattr(sco2_props, f'sco2_{name}_field', prop)
+    def properties(keys, T, P):
+        calls.append(keys)
+        return np.array([np.full_like(T, value) for value in (2., .5, .25, 4.)])
+    monkeypatch.setattr(sco2_props, 'sco2_prop', properties)
     temperature = np.full((1, 1, 2), 310.)
     velocity = np.array([[[0., 0.125]]])
     context = range_context(side='B', stage='main', layout='real-cell(x,y,z)') if bound_context else nullcontext()
     with warning_scope({}) as records, context:
         actual = _sco2_hv_local_field(temperature, 8e6, velocity, 10., 1., 'Gyroid', 7.)
-    assert calls == ['density', 'viscosity', 'conductivity', 'cp']
+    assert calls == [('D', 'V', 'L', 'C')]
     labels = ('B', 'main', 'real-cell(x,y,z)') if bound_context else ('unbound', 'unbound', 'source')
     raw = records[('nu_raw', 'sco2', 'Gyroid', temperature.shape, labels)]
     source = records[('nu', 'sco2', 'Gyroid', temperature.shape, labels)]

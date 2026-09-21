@@ -5,6 +5,7 @@ import numpy as np
 
 from sjtu_tpmshx.domain.case_data import CaseData
 from sjtu_tpmshx.domain.model_refs import ModelRef
+from sjtu_tpmshx.domain.run_environment import capture_environment
 from sjtu_tpmshx.models.catalog import MODEL_VERSIONS
 from sjtu_tpmshx.models.fluid_props import check_finite_temperatures
 from sjtu_tpmshx.models.quick_design import K_STEEL, GEOM_N, NX, LTNE_TOL, _ARR, _dp_fractions
@@ -53,7 +54,7 @@ def prepare_quick_design(case, topo, l, t, s, Lx, arrangement='cross', *,
                         k_s=k_s, A_0=geo['A_0'], D_h=geo['D_h'],
                         arrangement=arrangement, prop_model=prop_model, tol=tol,
                         controls={key: value for key, value in arr.items() if key not in ('ny', 'nz')}, initial_fields=init,
-                        df_options=df_options,
+                        df_options=df_options, _environment=capture_environment(),
                         inlet_pressure_fractions=dict(zip(('A', 'B'), fractions))),
         model_refs=(ModelRef('quick_design', MODEL_VERSIONS['quick_design']),
                     ModelRef('fluid', MODEL_VERSIONS['fluid'], {'fluid': case.hot_fluid}),

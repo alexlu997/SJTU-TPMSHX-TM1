@@ -1,6 +1,6 @@
 """Prepare the inherited 3D air/air frozen-B screening model."""
 import numpy as np
-from sjtu_tpmshx.domain.run_environment import require_f2_mode
+from sjtu_tpmshx.domain.run_environment import capture_environment, require_f2_mode
 from sjtu_tpmshx.domain.case_data import CaseData
 from sjtu_tpmshx.domain.model_refs import ModelRef
 from sjtu_tpmshx.models.catalog import MODEL_VERSIONS
@@ -151,7 +151,8 @@ def prepare_screening_3d(x_decision, cfg, *, case_id,
                    max_iter_energy=max_iter_energy, tol_energy=tol_energy,
                    convergence_mode=convergence_mode, verbose=verbose)
     return CaseData(case_id=case_id, config_snapshot=cfg, grid=grid, design_fields=fields,
-                    parameters=dict(compute=compute, flow=flows, rejection=rejection),
+                    parameters=dict(compute=compute, flow=flows, rejection=rejection,
+                                    _environment=capture_environment()),
                     model_refs=(ModelRef('screening', MODEL_VERSIONS['screening']),
                                 ModelRef('fluid', MODEL_VERSIONS['fluid'], {'fluid': 'air'})),
                     metadata=dict(mode='screening_3d', model='air_air_frozen_b_volume_ltne_v1',

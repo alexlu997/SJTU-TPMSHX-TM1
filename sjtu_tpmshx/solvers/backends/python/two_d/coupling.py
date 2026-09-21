@@ -696,6 +696,8 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
     _pB = cfg['_models']['fluid_B'] if '_models' in cfg else fluid_props.get(fluid_B)
     _enthalpy_mode = ('sco2' in (_pA.name, _pB.name)
                       and zone_config is None)
+    from sjtu_tpmshx.solvers.backends.python.thermal_native import resolve_true_h_kernel
+    native_sweeps = resolve_true_h_kernel(cfg, supported=_enthalpy_mode)
 
     # 2026-05-09 — bump _MAX_COUPLING 5→10 default. The loop short-circuits
     # once both drho_X and dT_X drop below their respective tolerances, so
@@ -1165,7 +1167,8 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
                 energy_dx, energy_dy, fluid_A=_pA.name, fluid_B=_pB.name,
                 P_inA=P_inA_val, P_inB=P_inB_val,
                 Ta_init=state.Ta, Tb_init=state.Tb, Ts_init=state.Ts,
-                max_iter=_e_max_iter, tol=_e_tol, cancel_check=cancel_check)
+                max_iter=_e_max_iter, tol=_e_tol, cancel_check=cancel_check,
+                native_sweeps=native_sweeps)
             state.e_info['true_h_balance'] = dict(
                 Q_A=float(state.e_info['Q_A']), Q_B=float(state.e_info['Q_B']), units='W/m',
                 outer_index=int(_coup_it), converged=bool(state.e_info['converged']),

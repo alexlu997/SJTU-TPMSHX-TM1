@@ -60,7 +60,7 @@ def _prop(key: str, T_K: float, P_Pa: float) -> float:
     return float(_PropsSI(key, "T", float(T_K), "P", float(P_Pa), _FLUID))
 
 
-def sco2_prop(key: str, T_K, P_Pa):
+def sco2_prop(key: str | tuple[str, ...], T_K, P_Pa):
     """Scalar-OR-vectorised CoolProp query of `key` over (T, P).
 
     The caller supplies inlet or local absolute pressure for the property
@@ -71,19 +71,23 @@ def sco2_prop(key: str, T_K, P_Pa):
         broadcast to a common shape (so a scalar P broadcasts across a T field,
         and a per-cell P field is honoured cell-by-cell).
 
-    Returns a float for the all-scalar case, else an ndarray shaped like the
-    broadcast of T and P.
+    A tuple of keys queries one HEOS state per cell for all requested outputs;
+    its result has a leading property axis. A single key returns a float for
+    the all-scalar case, else an ndarray shaped like the broadcast of T and P.
     """
     import numpy as _np
     T = _np.asarray(T_K, dtype=float)
     P = _np.asarray(P_Pa, dtype=float)
-    if T.ndim == 0 and P.ndim == 0:
+    if isinstance(key, str) and T.ndim == 0 and P.ndim == 0:
         return _prop(key, float(T), float(P))
     _validate_state(T, P)
     shape = _np.broadcast_shapes(T.shape, P.shape)
     Tf = _np.ascontiguousarray(_np.broadcast_to(T, shape)).ravel()
     Pf = _np.ascontiguousarray(_np.broadcast_to(P, shape)).ravel()
     out = _PropsSI(key, "T", Tf, "P", Pf, _FLUID)
+    if not isinstance(key, str):
+        return _np.ascontiguousarray(_np.asarray(out, dtype=float).reshape(-1, len(key)).T).reshape(
+            (len(key),) + shape)
     return _np.asarray(out, dtype=float).reshape(shape)
 
 

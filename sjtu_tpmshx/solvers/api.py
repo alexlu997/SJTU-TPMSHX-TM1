@@ -12,6 +12,9 @@ def run_case(case: CaseData, control: RunControl = RunControl()) -> FieldResult:
         raise ValueError(f'unsupported backend: {control.backend}')
     dimension = case.grid.get('dimension')
     mode = case.metadata.get('mode', 'full')
+    if mode != 'full':
+        from .backends.python.thermal_native import resolve_true_h_kernel
+        resolve_true_h_kernel(case.parameters, supported=False)
     if mode == 'quick_design':
         from .backends.python.quick_design.execution import run_case as run
     elif mode == 'screening_2d':

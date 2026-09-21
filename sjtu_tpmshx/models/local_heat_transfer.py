@@ -39,10 +39,8 @@ def _sco2_hv_local_field(T_field: np.ndarray, P_Pa: float,
     from sjtu_tpmshx.models.nu_correlations import NU_LAM_FLOOR as _floor
     from sjtu_tpmshx.models.nu_correlations import record_raw_nu_range
     T = np.asarray(T_field, dtype=np.float64)
-    rho = _s2.sco2_density_field(T, P_Pa)
-    mu = _s2.sco2_viscosity_field(T, P_Pa)
-    k_f = _s2.sco2_conductivity_field(T, P_Pa)
-    Pr = _s2.sco2_cp_field(T, P_Pa) * mu / np.maximum(k_f, 1e-30)
+    rho, mu, k_f, cp = _s2.sco2_prop(('D', 'V', 'L', 'C'), T, P_Pa)
+    Pr = cp * mu / np.maximum(k_f, 1e-30)
     Re_loc = rho * np.abs(u_abs) * D_h_m / np.maximum(mu, 1e-30)
     record_raw_nu_range('sco2', tpms_type, Re_loc)
     if sco2_nu is not None:
