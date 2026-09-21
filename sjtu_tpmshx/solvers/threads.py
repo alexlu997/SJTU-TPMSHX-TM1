@@ -12,8 +12,10 @@ Three control layers, all funnelling through `set_solver_threads`:
     (all cores, up to the cap).
   * `set_solver_threads(n)` — the runtime knob the GUI "CPU cores" spinbox calls.
 
-Note: the count is GLOBAL to Numba, so it governs every `parallel=True` kernel
-(energy GS, pressure assembly, …), not only the energy solve.
+The active mask is local to the calling thread. It governs `parallel=True`
+kernels launched from that thread, not only the energy solve. Reused worker
+threads must apply the launch setting themselves and restore their prior mask;
+the GUI's ComputeOrchestrator handles this for ordinary calculations.
 """
 import os
 
@@ -27,12 +29,12 @@ def max_threads() -> int:
 
 
 def get_solver_threads() -> int:
-    """The active thread count Numba will use for the next parallel kernel."""
+    """The calling thread's active count for the next Numba parallel kernel."""
     return int(numba.get_num_threads())
 
 
 def set_solver_threads(n: int) -> int:
-    """Set the active thread count, clamped to ``[1, max_threads()]``.
+    """Set this thread's active Numba count, clamped to ``[1, max_threads()]``.
 
     Returns the value actually applied (after clamping)."""
     n = max(1, min(int(n), max_threads()))

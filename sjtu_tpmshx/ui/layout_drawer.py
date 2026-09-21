@@ -67,48 +67,12 @@ def draw_layout(window):
         window._drawn_tabs.add('layout')
     if hasattr(window, 'btn_export'):
         window.btn_export.setEnabled(True)
-    # Switch tab so the Layout card is shown, then defer the draw() calls
-    # to subsequent event-loop ticks. The issue fixed here: Matplotlib's
-    # FigureCanvas needs a real (non-zero) geometry before draw() can flush
-    # pixels. card.show() inside _switch_tab only schedules a Qt Show event;
-    # the widget's width/height are not finalised until Qt has drained the
-    # show + layout + resize events. A draw() issued immediately after
-    # _switch_tab can paint into a 0×0 buffer, leaving the canvas blank
-    # until the user switches tabs twice (which forces another resize).
-    #
-    # The fix: kick the draw via QTimer.singleShot(0, ...) so it runs on
-    # the NEXT event-loop iteration, after Qt has fully laid out the card.
-    # Belt and braces: issue one more draw_idle after 50 ms as a safety net
-    # against slow layout cascades (scroll-area viewport resize, splitter
-    # width propagation, etc.).
+    # Let Qt finish showing/layout of the card before Matplotlib paints.
+    # Its draw_idle coalesces further resize requests; nested processEvents
+    # and timed duplicate draws can repaint during an unfinished UI update.
     window._switch_tab('layout')
-
-    def _deferred_draw():
-        try:
-            window.canvas_layout.draw()
-        except Exception:
-            pass
-
-    def _deferred_draw_idle():
-        try:
-            window.canvas_layout.draw_idle()
-        except Exception:
-            pass
-
-    try:
-        from PySide6.QtCore import QTimer as _QTimer
-        from PySide6.QtWidgets import QApplication as _QApp
-        _QApp.processEvents()
-        _QTimer.singleShot(0, _deferred_draw)
-        _QTimer.singleShot(50, _deferred_draw_idle)
-        _QTimer.singleShot(200, _deferred_draw_idle)
-    except Exception:
-        # Fallback: synchronous draw if Qt is unavailable (shouldn't happen
-        # at runtime, but keep headless tests happy).
-        try:
-            window.canvas_layout.draw()
-        except Exception:
-            pass
+    from PySide6.QtCore import QTimer
+    QTimer.singleShot(0, window.canvas_layout, window.canvas_layout.draw_idle)
 
 
 def draw_layout_rect_3d(window, ax, L, H, Lz):
@@ -282,9 +246,8 @@ def draw_layout_rect_3d(window, ax, L, H, Lz):
     except Exception:
         pass
 
-    # Clean title — legend now inline
-    ax.set_title('3D Computational Domain   (inlet orange · outlet blue)',
-                 color=_t['ax_text'], fontsize=12, fontweight='bold', pad=14)
+    ax.set_title('3D Computational Domain\ninlet: orange · outlet: blue',
+                 color=_t['ax_text'], fontsize=11, fontweight='bold', pad=10)
 
     # ── Mouse-wheel camera zoom (override canvas_wheel_zoom which scrolls) ──
     # Save original wheelEvent once so 2D mode can restore it.
@@ -403,7 +366,8 @@ def draw_layout_rect_3d(window, ax, L, H, Lz):
     ax.view_init(elev=22, azim=-52)
     try:
         ax.figure.subplots_adjust(left=0.0, right=1.0, top=0.94, bottom=0.0)
-        ax.set_position([0.02, 0.02, 0.96, 0.86])
+        # Leave room for projected z-axis labels in the narrow workbench.
+        ax.set_position([0.02, 0.04, 0.84, 0.84])
     except Exception:
         pass
 

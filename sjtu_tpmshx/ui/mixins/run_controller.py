@@ -32,6 +32,7 @@ from functools import partial
 from PySide6.QtWidgets import QMessageBox
 
 from sjtu_tpmshx.ui.fmt import duration as _fmt_dur
+from sjtu_tpmshx.ui.icons import icon
 from sjtu_tpmshx.ui.ui_constants import VV_VELOCITY_LIMIT_MS, TOAST_MS_MED, TOAST_MS_SHORT
 from sjtu_tpmshx.ui.window_config import validate_domain_shape
 
@@ -299,10 +300,10 @@ class RunControllerMixin:
                 return
             elapsed = _time.time() - self._compute_t0
             if elapsed > _hard_timeout_s:
+                self._on_cancel_compute()
                 self.statusBar().showMessage(
                     f"3D compute exceeded {int(_hard_timeout_s)}s budget "
                     "— auto-cancelling at next checkpoint.", 8000)
-                self.compute.cancel()
                 wd.stop()
                 return
             # ETA prediction removed 2026-06-01: the linear cell-scaling model
@@ -350,6 +351,9 @@ class RunControllerMixin:
 
     def _on_orch_iteration(self, label):
         self._iter_label_now = label
+        card = getattr(self, '_run_status_card', None)
+        if card is not None:
+            card.set_iteration(label)
 
     def _on_orch_finished(self, result):
         """Publish once on the GUI thread; unlock only after rendering."""
@@ -365,6 +369,10 @@ class RunControllerMixin:
                 timer.stop()
         self.btn_compute.setEnabled(False)
         self.btn_compute.setText("正在显示结果…")
+        card = getattr(self, '_run_status_card', None)
+        if card is not None:
+            card.title.setText("正在显示结果")
+            card.cancel_button.setEnabled(False)
         success = False
         try:
             provenance = getattr(self, '_run_provenance', None)
@@ -592,6 +600,7 @@ class RunControllerMixin:
         if getattr(self, '_close_pending', False):
             return
         self._compute_running = False
+        self._compute_cancel = True
         self._last_solve_log = log_text
         wd = getattr(self, '_compute_3d_watchdog', None)
         if wd is not None:
@@ -624,6 +633,10 @@ class RunControllerMixin:
         # Reset + reveal the live residual sparkline. A timer drains the
         # shared buffer every 300 ms while the compute thread runs.
         self._live_residuals = {'A': [], 'B': []}
+        self._live_resid_cursors = {'A': 0, 'B': 0}
+        card = getattr(self, '_run_status_card', None)
+        if card is not None:
+            card.start(self.compute.current_mode())
         if hasattr(self, '_sb_live_resid'):
             self._sb_live_resid.clear_data()
             self._sb_live_resid.show()
@@ -651,6 +664,7 @@ class RunControllerMixin:
             # config changed. Live elapsed + iter counter via _tick_btn.
             self._iter_label_now = None
             self.btn_compute.setText("取消  ·  0.0s")
+            self.btn_compute.setIcon(icon('square', 'white'))
             self.btn_compute.setEnabled(True)
             self._begin_btn_ticker()
             # Surgical disconnect of the *exact* current handler (run_calculation
@@ -684,6 +698,33 @@ class RunControllerMixin:
         Called after terminal publication; stops the UI tickers and restores
         the Compute action. The orchestrator stays busy until its slots return.
         """
+        card = getattr(self, '_run_status_card', None)
+        if card is not None:
+            self._drain_live_residuals()
+            elapsed = _time.time() - getattr(self, '_compute_t0', _time.time())
+            message = ''
+            if success:
+                result = self.compute.last_result()
+                notices = list(dict.fromkeys((*result.warnings, *result.extrap_reasons)))
+                view_missing = (self.compute.current_mode() == '3d'
+                                and not getattr(self, '_3d_view_ready', False))
+                state = ('unconverged' if not result.converged else
+                         'warning' if notices or view_missing else 'success')
+                if state == 'unconverged':
+                    message = '求解器未达到收敛条件；请查看诊断，结果仅供参考。'
+                elif notices:
+                    message = f'本次计算有 {len(notices)} 条提示，请查看诊断。'
+                if view_missing:
+                    message += ' 三维视图不可用；计算结果仍可导出。'
+            elif getattr(self, '_compute_error', None):
+                state, message = 'error', str(self._compute_error)
+            elif getattr(self, '_compute_cancel', False):
+                state, message = 'cancelled', '求解器已响应取消请求。'
+            else:
+                state, message = 'error', '计算结束，但结果显示未完成。请查看诊断与日志。'
+            card.finish(state, elapsed,
+                        log_available=bool(getattr(self, '_last_solve_log', '').strip()),
+                        message=message)
         self._compute_running = False
         # Stop the elapsed/iter button-text ticker (paired with
         # _begin_btn_ticker). Idempotent — silently no-ops when absent.
@@ -697,7 +738,8 @@ class RunControllerMixin:
         if hasattr(self, 'btn_compute'):
             self.btn_compute.setEnabled(True)
             self.btn_compute.setText(
-                getattr(self, '_btn_compute_text_saved', '▶  计算'))
+                getattr(self, '_btn_compute_text_saved', '开始计算'))
+            self.btn_compute.setIcon(icon('play', 'white'))
             # Restore the original Compute click handler. Surgical
             # disconnect of the *exact* current handler avoids dropping
             # third-party connections (e.g. shortcut bridges).
@@ -731,7 +773,7 @@ class RunControllerMixin:
                 lrt.stop()
             if hasattr(self, '_sb_live_resid'):
                 self._sb_live_resid.hide()
-            self._live_resid_cursor = 0
+            self._live_resid_cursors = {'A': 0, 'B': 0}
             # Micro-anim polish: pulse the result chips + floating toast.
             try:
                 from sjtu_tpmshx.ui.microanim import pulse_glow, toast
@@ -761,7 +803,7 @@ class RunControllerMixin:
                 lrt.stop()
             if hasattr(self, '_sb_live_resid'):
                 self._sb_live_resid.hide()
-            self._live_resid_cursor = 0
+            self._live_resid_cursors = {'A': 0, 'B': 0}
 
     def _on_cancel_compute(self):
         """User clicked the Compute button while a solve was running, so it
@@ -769,6 +811,9 @@ class RunControllerMixin:
         button stays disabled until the worker reaches the next checkpoint
         and returns through `_check`."""
         self._compute_cancel = True
+        card = getattr(self, '_run_status_card', None)
+        if card is not None:
+            card.request_cancel()
         # B2 2.1c: the Pipeline path polls the orchestrator CancelToken
         # (token.cancelled), not the window flag — bridge both cancel
         # mechanisms onto the token so either converges.
@@ -816,6 +861,11 @@ class RunControllerMixin:
         if t0 is None:
             return
         elapsed = _time.time() - t0
+        card = getattr(self, '_run_status_card', None)
+        if card is not None:
+            card.set_elapsed(elapsed)
+        if getattr(self, '_compute_cancel', False):
+            return
         label = getattr(self, '_iter_label_now', None)
         suffix = f"  ·  {label}" if label else ""
         new_text = f"取消  ·  {_fmt_dur(elapsed)}{suffix}"
@@ -825,23 +875,25 @@ class RunControllerMixin:
             self.btn_compute.setText(new_text)
 
     def _drain_live_residuals(self):
-        """Timer tick — push the Fluid A residual trail (log scale) into
-        the status-bar sparkline. Reads + clears any new samples from
-        `_live_residuals['A']` to bound memory."""
+        """Drain new A/B samples on the existing 120 ms GUI timer.
+
+        The status bar retains its Fluid A sparkline; the expandable card
+        shows both actual streams without changing the worker callbacks.
+        """
         buf = getattr(self, '_live_residuals', None) or {}
         spark = getattr(self, '_sb_live_resid', None)
-        if spark is None or not buf:
+        card = getattr(self, '_run_status_card', None)
+        if (spark is None and card is None) or not buf:
             return
-        lst = buf.get('A') or []
-        # Grab what's new since last drain; cursor stored on the timer.
-        cursor = getattr(self, '_live_resid_cursor', 0)
-        new_items = lst[cursor:]
-        self._live_resid_cursor = len(lst)
+        cursors = getattr(self, '_live_resid_cursors', {'A': 0, 'B': 0})
         import math as _math_lr
-        for _it, r in new_items:
-            # Log10 transform so the 6-decade convergence fan fits into
-            # the 20-pixel sparkline height usefully.
-            try:
-                spark.push(_math_lr.log10(max(r, 1e-20)))
-            except Exception:
-                pass
+        for side in ('A', 'B'):
+            cursor = cursors[side]
+            new_items = (buf.get(side) or [])[cursor:]
+            cursors[side] = cursor + len(new_items)
+            if card is not None:
+                card.push_residuals(side, new_items)
+            if side == 'A' and spark is not None:
+                for _it, r in new_items:
+                    spark.push(_math_lr.log10(max(r, 1e-20)))
+        self._live_resid_cursors = cursors

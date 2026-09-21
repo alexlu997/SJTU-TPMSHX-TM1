@@ -519,3 +519,95 @@ def test_close_cancels_live_pipeline_without_destroying_its_callbacks(win, monke
         release.set()
     _wait_for(lambda: not isValid(win))
     assert cancellation_seen == [True]
+
+
+@pytest.mark.parametrize('kind', ['optimize', 'quick_design'])
+@pytest.mark.parametrize('outcome', ['result', 'error'])
+def test_auxiliary_task_close_keeps_thread_until_run_returns(win, monkeypatch, tmp_path,
+                                                            kind, outcome):
+    """A published result/error does not permit destruction of a running QThread."""
+    from sjtu_tpmshx.ui import optimize_panel, quick_design_panel
+    from sjtu_tpmshx.design.sizing import Design
+    from sjtu_tpmshx.ui.background_tasks import has_active_tasks
+
+    release, terminal_sent = threading.Event(), threading.Event()
+    panel = optimize_panel if kind == 'optimize' else quick_design_panel
+    Worker = panel._make_worker_class()
+    original_run = Worker.run
+
+    def held_run(worker):
+        original_run(worker)
+        terminal_sent.set()
+        assert release.wait(10)
+
+    monkeypatch.setattr(Worker, 'run', held_run)
+    monkeypatch.setattr(panel, '_make_worker_class', lambda: Worker)
+    def fail_or_result(*args, **kwargs):
+        if outcome == 'error':
+            raise RuntimeError('terminal error before thread exit')
+        if kind == 'quick_design':
+            return Design(False)
+        return dict(X=np.zeros((0, 16)), F=np.zeros((0, 2)), n_evals=0,
+                    save_dir=str(tmp_path), termination_reason='cancelled')
+
+    monkeypatch.setattr('sjtu_tpmshx.optimization.optimizer_qnehvi.run_qnehvi', fail_or_result)
+    monkeypatch.setattr(optimize_panel, 'optimization_output_dir', lambda: tmp_path)
+    monkeypatch.setattr('sjtu_tpmshx.design.cases.load_cases', lambda p: ['case'])
+    monkeypatch.setattr('sjtu_tpmshx.design.sizing.size_fixed_cell', fail_or_result)
+    if kind == 'optimize':
+        owner, attr = win, '_opt_worker'
+        from sjtu_tpmshx.models.screening import DEFAULT_CONFIG
+        win.combo_dim.setCurrentIndex(0)
+        monkeypatch.setattr(optimize_panel, '_gather_cfg', lambda *a, **kw: dict(DEFAULT_CONFIG))
+        optimize_panel.run_optimize(win)
+    else:
+        owner = quick_design_panel.build_quick_design_dialog(win)
+        win._qd_dialog = owner
+        owner.le_qd_file.setText('not-read.xlsx')
+        owner.combo_qd_mode.setCurrentIndex(owner.combo_qd_mode.findData('fixed'))
+        attr = '_qd_worker'
+        quick_design_panel.run_quick_design(owner)
+    worker = getattr(owner, attr)
+    win.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+    try:
+        assert terminal_sent.wait(5)
+        assert not win.close()
+        assert has_active_tasks(win)
+        _wait_for(lambda: worker.isInterruptionRequested())
+        QApplication.processEvents()
+        assert getattr(owner, attr) is worker and worker.isRunning()
+        assert isValid(win) and isValid(worker)
+        assert not win.close()
+    finally:
+        release.set()
+    _wait_for(lambda: not isValid(win))
+
+
+def test_quick_design_escape_requests_cooperative_cancel(win, monkeypatch):
+    from sjtu_tpmshx.ui import quick_design_panel as panel
+    from sjtu_tpmshx.design.sizing import Design
+    entered, release = threading.Event(), threading.Event()
+    def candidate(*args, control, **kwargs):
+        entered.set()
+        assert release.wait(10)
+        control.check_cancelled()
+        return Design(False)
+    monkeypatch.setattr('sjtu_tpmshx.design.cases.load_cases', lambda p: ['case'])
+    monkeypatch.setattr('sjtu_tpmshx.design.sizing.size_fixed_cell', candidate)
+    dlg = panel.build_quick_design_dialog(win)
+    win._qd_dialog = dlg
+    dlg.le_qd_file.setText('unused.xlsx')
+    dlg.combo_qd_mode.setCurrentIndex(dlg.combo_qd_mode.findData('fixed'))
+    dlg.show()
+    panel.run_quick_design(dlg)
+    worker = dlg._qd_worker
+    try:
+        assert entered.wait(5)
+        dlg.reject()  # Escape follows QDialog.reject, as well as the titlebar close.
+        assert dlg.isVisible() and not dlg.isEnabled()
+        assert worker.isInterruptionRequested()
+    finally:
+        release.set()
+    _wait_for(lambda: dlg._qd_worker is None)
+    assert not dlg.isVisible() and dlg.isEnabled()
+    assert '已取消' in dlg._qd_status.text()

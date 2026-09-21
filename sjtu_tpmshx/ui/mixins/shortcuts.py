@@ -40,7 +40,7 @@ class ShortcutsMixin:
             ts(key, (lambda n=name: self._switch_tab(n)),
                 tag=f'sc-tab-{name}')
         ts("Ctrl+4", self._toggle_result_view, tag='sc-result-view')
-        # Immersive 3D toggle (F key)
+        ts("Ctrl+\\", self._toggle_left_panel, tag='sc-parameter-panel')
         ts("F", self._toggle_3d_immersive, tag='sc-immersive')
         ts("Ctrl+?", self._show_shortcuts, tag='sc-help-q')
         ts("Ctrl+/", self._show_shortcuts, tag='sc-help-s')

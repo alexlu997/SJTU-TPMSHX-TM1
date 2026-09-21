@@ -3,6 +3,8 @@
 Design tokens follow an 8dp spacing rhythm.
 Typography: modular scale 9 / 10 / 11 / 12 / 14 pt.
 """
+from pathlib import Path
+
 from sjtu_tpmshx.ui.typography import FONT_STACK
 
 # ── Typography — modular scale (pt), smallest → largest ──────
@@ -10,9 +12,9 @@ from sjtu_tpmshx.ui.typography import FONT_STACK
 # above field labels (was equal at 10pt) so panel groups read as headings
 # rather than just bold rows.
 FONT_STATUS = 9      # status bar text
-FONT_BTN = 9         # secondary / tertiary button text
+FONT_BTN = 10        # secondary / tertiary button text
 FONT_LABEL = 10      # field labels
-FONT_INPUT = 10      # input + value text
+FONT_INPUT = 11      # input + value text
 FONT_SECTION = 11    # second-level section titles (panel groups)
 FONT_BTN_RUN = 12    # primary CTA (Compute)
 
@@ -24,15 +26,11 @@ SPACE_LG = 16
 
 # ── Sizing ──────────────────────────────────────────────────
 
-# ── Corner radii — unified 6px + semantic exceptions (ui-plan3a) ────
-# Policy: every card / input / button / frame / menu takes 6px. Semantic
-# shapes keep their own radius: pill tabs / status pills / toasts (14-18px,
-# rounded ends ARE the shape) and micro-controls (slider grooves, checkbox
-# indicators, progress chunks, scrollbar handles — radius is proportional
-# to the element and forcing 6px breaks the geometry).
-RADIUS_INPUT = 6     # inputs + small/secondary buttons
-RADIUS_BTN = 6
-RADIUS_CARD = 6      # cards, primary CTA, header (was 12 pre-plan3a)
+# Nested controls have tighter corners than their enclosing cards.
+# Pills and micro-controls retain radii proportional to their dimensions.
+RADIUS_INPUT = 8
+RADIUS_BTN = 8
+RADIUS_CARD = 12
 
 # ── Theme colour definitions ────────────────────────────────
 _THEMES = {
@@ -92,7 +90,9 @@ _THEMES = {
         vp_bg_3d="#ffffff",
         mono_family=FONT_STACK,
         sans_family=FONT_STACK,
-        glass_bg_alpha=1.0, glass_border_alpha=0.0,
+        glass_top="#ffffff", glass_bottom="#f0f4f9",
+        glass_edge_light="rgba(255,255,255,245)",
+        glass_edge_shade="rgba(133,157,183,125)",
         chk_bg="#ffffff", chk_border="#aeb4ba", chk_hover_border="#2c5282",
         chk_hover_bg="#eef2f6", chk_checked_bg="#2c5282", chk_checked_border="#1e3a5f",
         chk_indicator_border="#606870",
@@ -117,33 +117,33 @@ _THEMES = {
         #   surface_raised:   param panels, result cards
         #   surface_elevated: menus, popups, tooltips, command palette
         #   surface_overlay:  modal dialogs, highest layer
-        surface_base="#202329", surface_raised="#292d34",
-        surface_elevated="#323740", surface_overlay="#393f49",
-        border_subtle="#3b424d", border_strong="#566171",
-        bg="#202329", fg="#e8edf3", val="#85b9e9", warn="#f2bd64",
-        card_bg="#292d34", card_border="#3b424d",
+        surface_base="#181d25", surface_raised="#262e3a",
+        surface_elevated="#303a48", surface_overlay="#3b4757",
+        border_subtle="#465366", border_strong="#65788f",
+        bg="#181d25", fg="#e8edf3", val="#85b9e9", warn="#f2bd64",
+        card_bg="#262e3a", card_border="#465366",
         card_shadow="rgba(0,0,0,30)",
-        scroll_bg="#25292f",
-        inp_bg="#24282f", inp_fg="#e8edf3",
-        inp_border="#48515e",
+        scroll_bg="#1d242e",
+        inp_bg="#1d2530", inp_fg="#e8edf3",
+        inp_border="#526176",
         inp_focus="#3B82F6",
-        frame_border="#3b424d", frame_neutral="41,45,52,180",
+        frame_border="#465366", frame_neutral="38,46,58,180",
         frame_a="79,70,229,20", frame_b="13,148,136,20",
         t_neutral=("148,163,184","100,116,139"),
         t_a=("79,70,229","120,110,245"),
         t_b=("13,148,136","40,180,170"),
         btn_tpms=("59,130,246","96,165,250"),
         btn_run=("34,197,94","74,222,128"),
-        combo_list_bg="#323740", combo_list_fg="#e8edf3",
-        combo_sel="rgba(59,130,246,120)", combo_border="#48515e",
+        combo_list_bg="#303a48", combo_list_fg="#e8edf3",
+        combo_sel="rgba(59,130,246,120)", combo_border="#526176",
         combo_arrow="148,163,184",
         combo_hover_border="#3B82F6",
-        fig_bg="#202329", ax_bg="#202329",
+        fig_bg="#181d25", ax_bg="#181d25",
         ax_text="#d4dce6", ax_spine="#48515e", zone_line="#a5b1c1",
         zone_fill="#3B82F6", poly_fill="#323740",
-        splitter="#3b424d", splitter_hover="#3B82F6",
-        hdr_bg="#292d34", hdr_fg="#e8edf3",
-        hdr_btn_bg="#323740", hdr_btn_border="#48515e",
+        splitter="#465366", splitter_hover="#3B82F6",
+        hdr_bg="#262e3a", hdr_fg="#e8edf3",
+        hdr_btn_bg="#303a48", hdr_btn_border="#526176",
         hdr_btn_fg="#d4dce6", hdr_btn_hover="#424b58",
         tab_on_bg="#3B82F6", tab_on_fg="#FFFFFF", tab_on_border="#3B82F6",
         tab_off_bg="transparent", tab_off_fg="#94A3B8",
@@ -172,10 +172,12 @@ _THEMES = {
         pareto_accent="#F87171",
         triad_x="#F87171", triad_y="#4ADE80", triad_z="#60A5FA",
         wireframe="#7b8797", pane_edge="#48515e", pane_grid="#3b424d",
-        vp_bg_3d="#202329",
+        vp_bg_3d="#181d25",
         mono_family=FONT_STACK,
         sans_family=FONT_STACK,
-        glass_bg_alpha=1.0, glass_border_alpha=0.0,
+        glass_top="#343c48", glass_bottom="#272d36",
+        glass_edge_light="rgba(217,235,255,100)",
+        glass_edge_shade="rgba(126,155,187,35)",
         chk_bg="#24282f", chk_border="#566171",
         chk_hover_border="#3B82F6", chk_hover_bg="#323740",
         chk_checked_bg="#3B82F6", chk_checked_border="#2563EB",
@@ -254,6 +256,18 @@ def _density_profile():
     return _DENSITY_PROFILES[_active_density]
 
 
+def glass_surface(t):
+    """Static glass highlight for card chrome; no blur of scientific plots."""
+    return (
+        "background:qlineargradient(x1:0,y1:0,x2:0.4,y2:1,"
+        f"stop:0 {t['glass_top']}, stop:1 {t['glass_bottom']});"
+        "border:1px solid qlineargradient(x1:0,y1:0,x2:1,y2:1,"
+        f"stop:0 {t['glass_edge_light']}, stop:0.5 {t['glass_edge_shade']},"
+        f"stop:1 {t['glass_edge_light']});"
+        f"border-radius:{RADIUS_CARD}px;"
+    )
+
+
 # ── Style builder ────────────────────────────────────────────
 
 def _build_styles(theme_name=None):
@@ -277,33 +291,33 @@ def _build_styles(theme_name=None):
 
     s = {}
     s['BG'] = t['bg']
-    s['LBL'] = (f"color:{t['fg']}; font-size:{_fl}pt; font-weight:500;"
+    s['LBL'] = (f"color:{t['fg']}; font-size:{_fl}pt; font-weight:400;"
                 "border:none; background:transparent;")
-    s['SUB'] = (f"color:{t['sub_fg']}; font-size:{_fs}pt; font-weight:500;"
-                "border:none; background:transparent; letter-spacing:1px;")
+    s['SUB'] = (f"color:{t['sub_fg']}; font-size:{_fs}pt; font-weight:400;"
+                "border:none; background:transparent;")
     # res_row value label: two dynamic states via Qt property `valState`.
     # empty  → muted italic  |  filled → bold accent
-    # The legacy token name is retained; numeric text now uses Times New Roman.
+    # Keep numeric controls in the same native sans-serif face as their labels.
     _MONO_STACK = t['mono_family']
     _pad_v = _px(5); _pad_h = _px(10)
     _focus_v = max(1, _pad_v - 1); _focus_h = max(1, _pad_h - 1)
     s['VAL'] = (
         f"QLabel{{color:{t['val']}; font-family:{_MONO_STACK};"
-        f"font-size:{_fi}pt; font-weight:bold;"
+        f"font-size:{_fi}pt; font-weight:600;"
         "border:none; background:transparent;}"
         f"QLabel[valState=\"empty\"]{{color:{t['val_empty_fg']}; font-style:italic;"
         "font-weight:normal;}"
-        f"QLabel[valState=\"filled\"]{{color:{t['val']}; font-weight:bold;"
+        f"QLabel[valState=\"filled\"]{{color:{t['val']}; font-weight:600;"
         " font-style:normal;}"
     )
     s['VAL_WARN'] = (f"color:{t['warn']}; font-family:{_MONO_STACK};"
-                     f"font-size:{_fi}pt; font-weight:bold;"
+                     f"font-size:{_fi}pt; font-weight:600;"
                      "border:none; background:transparent;")
     s['INP'] = (
         f"QLineEdit{{background:{t['inp_bg']}; color:{t['inp_fg']};"
         f"font-family:{_MONO_STACK};"
         f"border:1px solid {t['inp_border']}; border-radius:{RADIUS_INPUT}px;"
-        f"font-size:{_fi}pt; font-weight:bold;"
+        f"font-size:{_fi}pt; font-weight:400;"
         f"padding:{_pad_v}px {_pad_h}px; min-width:60px;"
         f"selection-background-color:rgba(44,82,130,0.15);}}"
         f"QLineEdit:hover{{border:1px solid {t['combo_hover_border']};}}"
@@ -326,27 +340,16 @@ def _build_styles(theme_name=None):
     _title_fg = t['title_fg']
 
     def _title(rgb, _border=None):
-        # Flat card_bg + 4px left accent bar (unified second-level title style).
-        # Object name selector `QLabel#secTitle` gives this rule higher
-        # specificity than any parent `QGroupBox { color: … }` cascade, so
-        # the section heading stays readable even inside accordion groups.
-        return (f"QLabel{{background:{t['card_bg']}; color:{_title_fg};"
-                f"border:1px solid {t['card_border']};"
-                f"border-left:4px solid rgba({rgb},255);"
-                f"border-radius:4px; font-weight:700; font-size:{_fsec}pt;"
-                "padding:6px 12px; letter-spacing:0.3px;"
-                "qproperty-alignment: AlignLeft | AlignVCenter;}"
-                # More-specific override to beat any cascading color rule
-                # from a wrapping QGroupBox / QScrollArea stylesheet.
-                f"QLabel#secTitle{{color:{_title_fg};"
-                f"background:{t['card_bg']};"
-                f"border:1px solid {t['card_border']};"
-                f"border-left:4px solid rgba({rgb},255);"
-                f"border-radius:4px; font-weight:700; font-size:{_fsec}pt;"
-                "padding:6px 12px; letter-spacing:0.3px;}")
+        # One flat label above each input group; avoid nested title boxes.
+        return (f"QLabel, QLabel#secTitle{{background:transparent; color:{_title_fg};"
+                "border:none; border-radius:0;"
+                f"border-bottom:1px solid rgba({rgb},100);"
+                f"font-weight:600; font-size:{_fsec}pt; padding:6px 2px;"
+                "qproperty-alignment: AlignLeft | AlignVCenter;}")
 
     def _frame(rgba):
-        return (f"QFrame{{background:rgba({rgba}); border:1px solid {t['frame_border']};"
+        return (f"QFrame{{background:{t['card_bg']};"
+                f"border:1px solid {t['card_border']};"
                 f"border-radius:{RADIUS_CARD}px; padding:3px;}}")
 
     s['T_NEUTRAL'] = _title(*t['t_neutral'])
@@ -356,7 +359,7 @@ def _build_styles(theme_name=None):
     s['F_A'] = _frame(t['frame_a'])
     s['F_B'] = _frame(t['frame_b'])
 
-    _btn = (f"border-radius:{RADIUS_BTN}px; color:white; font-weight:bold;"
+    _btn = (f"border-radius:{RADIUS_BTN}px; color:white; font-weight:600;"
             f"font-size:{FONT_BTN}pt; padding:{SPACE_XS}px {SPACE_MD}px;")
 
     # ── 4-tier button semantics (Primary/Secondary/Tertiary/Long-running) ──
@@ -369,7 +372,7 @@ def _build_styles(theme_name=None):
     # Primary: blue filled, big padding — main CTA (Compute)
     _rp = t['btn_primary_rgb']
     s['BTN_PRIMARY'] = (f"QPushButton{{border-radius:{RADIUS_CARD}px; color:white;"
-                        f"font-weight:bold; font-size:{FONT_BTN_RUN}pt; padding:{SPACE_SM}px {SPACE_LG}px;"
+                        f"font-weight:600; font-size:{FONT_BTN_RUN}pt; padding:{SPACE_SM}px {SPACE_LG}px;"
                         f"background:qlineargradient(x1:0,y1:0,x2:0,y2:1,"
                         f"stop:0 rgba({_rp},230), stop:1 rgba({_rp},190));"
                         f"border:1px solid rgba({_rp},210);}}"
@@ -395,7 +398,7 @@ def _build_styles(theme_name=None):
 
     # Secondary: blue outlined — Preview, Export, Auto-fill, Compute-TPMS
     s['BTN_SECONDARY'] = (f"QPushButton{{border-radius:{RADIUS_BTN}px;"
-                          f"color:{t['btn_sec_fg']}; font-weight:bold;"
+                          f"color:{t['btn_sec_fg']}; font-weight:500;"
                           f"font-size:{FONT_BTN}pt; padding:{SPACE_XS}px {SPACE_MD}px;"
                           f"background:transparent; border:1px solid {t['btn_sec_border']};}}"
                           f"QPushButton:hover{{background:{t['btn_sec_hover_bg']};"
@@ -408,7 +411,7 @@ def _build_styles(theme_name=None):
 
     # Tertiary: gray outlined — Reset, +/-, zone row ops
     s['BTN_TERTIARY'] = (f"QPushButton{{border-radius:{RADIUS_BTN}px;"
-                         f"color:{t['btn_tert_fg']}; font-weight:bold;"
+                         f"color:{t['btn_tert_fg']}; font-weight:400;"
                          f"font-size:{FONT_BTN}pt; padding:{SPACE_XS}px {SPACE_MD}px;"
                          f"background:transparent; border:1px solid {t['btn_tert_border']};}}"
                          f"QPushButton:hover{{background:{t['btn_tert_hover_bg']};"
@@ -430,7 +433,7 @@ def _build_styles(theme_name=None):
         "QToolButton::menu-button{"
         "  border-left:1px solid rgba(255,255,255,0.28);"
         "  width:18px; background:transparent;"
-        "  border-top-right-radius:12px; border-bottom-right-radius:12px;}"
+        f"  border-top-right-radius:{RADIUS_CARD}px; border-bottom-right-radius:{RADIUS_CARD}px;}}"
         "QToolButton::menu-arrow{"
         "  image:none;"
         "  border-left:4px solid transparent;"
@@ -443,36 +446,48 @@ def _build_styles(theme_name=None):
         "QToolButton:focus{border:2px solid #FFFFFF; padding:5px 15px;}"
     )
 
-    _ac = t['combo_arrow']
+    # Explicit SVGs remain visible when macOS delegates the control to QSS.
+    arrow = (Path(__file__).with_name('assets') / 'icons'
+             / f'chevron-down-{theme_name}.svg').as_posix()
+    s['SCROLLBAR'] = (
+        f"QScrollBar:vertical{{background:{t['scroll_bg']}; width:10px; margin:2px; border:none;}}"
+        f"QScrollBar::handle:vertical{{background:{t['scroll_handle']}; border:none;"
+        "border-radius:3px; min-height:28px;}"
+        f"QScrollBar::handle:vertical:hover{{background:{t['scroll_handle_hover']};}}"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical{"
+        "height:0; width:0; border:none; background:transparent;}"
+        "QScrollBar::up-arrow:vertical, QScrollBar::down-arrow:vertical{"
+        "image:none; width:0; height:0; border:none;}"
+        "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical{"
+        "background:transparent; border:none;}"
+        f"QAbstractScrollArea::corner{{background:{t['scroll_bg']}; border:none;}}")
     s['COMBO'] = (
         f"QComboBox{{color:{t['inp_fg']}; background:{t['inp_bg']};"
         f"border:1px solid {t['inp_border']}; border-radius:{RADIUS_INPUT}px;"
-        f"font-size:{FONT_INPUT}pt; font-weight:bold; padding:3px 24px 3px 6px;}}"
-        f"QComboBox:hover{{border:2px solid {t['combo_hover_border']};}}"
-        f"QComboBox:focus{{border:2px solid {t['inp_focus']};}}"
-        f"QComboBox::drop-down{{subcontrol-origin:padding; subcontrol-position:top right;"
-        f"width:22px; border-left:1px solid {t['inp_border']};"
-        "border-top-right-radius:4px; border-bottom-right-radius:4px;"
-        f"background:rgba({_ac},30);}}"
-        f"QComboBox::down-arrow{{"
-        f"border-left:5px solid transparent; border-right:5px solid transparent;"
-        f"border-top:6px solid rgba({_ac},200);"
-        "width:0; height:0;}"
+        f"font-size:{_fi}pt; font-weight:400; padding:4px 28px 4px 8px;"
+        "combobox-popup:0;}"
+        f"QComboBox:hover{{border:1px solid {t['combo_hover_border']};}}"
+        f"QComboBox:focus{{border:2px solid {t['inp_focus']}; padding:3px 27px 3px 7px;}}"
+        f"QComboBox::drop-down{{subcontrol-origin:border; subcontrol-position:top right;"
+        "width:24px; margin:1px; border:none;"
+        f"border-top-right-radius:{RADIUS_INPUT - 1}px; border-bottom-right-radius:{RADIUS_INPUT - 1}px;"
+        "background:transparent;}"
+        f'QComboBox::down-arrow{{image:url("{arrow}"); width:12px; height:12px;}}'
         # Disabled combo (e.g. the 2D-field selector before a result exists):
         # flatten to a quiet ghost — transparent fill + muted text + subtle
         # border — so it blends with the flat tab strip instead of reading as
         # a solid white box on the light theme.
         f"QComboBox:disabled{{color:{t['val_empty_fg']}; background:transparent;"
         f"border:1px solid {t['border_subtle']};}}"
-        f"QComboBox::drop-down:disabled{{background:transparent;"
-        f"border-left:1px solid {t['border_subtle']};}}"
-        f"QComboBox::down-arrow:disabled{{border-top:6px solid {t['val_empty_fg']};}}"
+        "QComboBox::drop-down:disabled{background:transparent;}"
         f"QComboBox QAbstractItemView{{"
         f"background:{t['combo_list_bg']}; color:{t['combo_list_fg']};"
-        f"font-size:{FONT_INPUT}pt; font-weight:bold;"
+        f"font-size:{_fi}pt; font-weight:400;"
         f"selection-background-color:{t['combo_sel']};"
         f"border:1px solid {t['combo_border']};"
-        "border-radius:4px; padding:2px; outline:none;}")
+        "border-radius:4px; padding:4px; outline:none;}"
+        "QComboBox QAbstractItemView::item{min-height:26px; padding:3px 8px;}"
+        + s['SCROLLBAR'])
 
     s['_THEMES'] = _THEMES
     return s

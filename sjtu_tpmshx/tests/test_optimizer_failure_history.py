@@ -68,3 +68,23 @@ def test_full_bo_initial_batch_publishes_no_front_on_failure(tmp_path):
     assert bo.progress['best_Q'] == -float('inf')
     assert len((tmp_path / 'pareto_final.csv').read_text().splitlines()) == 1
     assert len(json.loads((tmp_path / 'history_status.json').read_text())) == 2
+
+
+@pytest.mark.parametrize('cancel_before_start', [False, True])
+def test_bo_cancel_during_initial_sampling_retains_only_evaluated_rows(tmp_path, cancel_before_start):
+    pytest.importorskip('botorch', reason='BO execution requires the optional server lock')
+    cancelled = cancel_before_start
+    def evaluate(*args):
+        nonlocal cancelled
+        cancelled = True
+        return -10., 10., 1.
+    result = bo.run_qnehvi(n_init=4, n_iter=3, evaluator_fn=evaluate,
+                           cancel_check=lambda: cancelled, save_dir=str(tmp_path),
+                           verbose=False)
+    count = 0 if cancel_before_start else 1
+    assert result['termination_reason'] == bo.progress['phase'] == 'cancelled'
+    assert result['n_evals'] == count
+    assert result['history_X'].shape == (count, 16)
+    assert result['history_F'].shape == (count, 2)
+    status = json.loads((tmp_path / 'run_status.json').read_text())
+    assert status['termination_reason'] == 'cancelled' and status['n_evals'] == count

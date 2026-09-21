@@ -14,8 +14,6 @@ from sjtu_tpmshx.tests.test_worker_result_handoff import win as win, _wait_for
 
 @pytest.fixture
 def run_window(win, monkeypatch, tmp_path):
-    monkeypatch.setattr('sjtu_tpmshx.ui.mixins.run_history._TIMELINE_FILE',
-                        tmp_path / 'timeline.jsonl')
     monkeypatch.setattr(QMessageBox, 'information', lambda *args: None)
     win._apply_shanghai_defaults()
     win.combo_shape.setCurrentIndex(0)
@@ -251,7 +249,7 @@ def test_nu_run_snapshot_history_and_export(run_window, monkeypatch, tmp_path, d
     expected = sco2_nu_metadata(SYNTHETIC)
     assert win._recent_runs[0]['model_metadata']['sco2_nu'] == expected
     assert win._recent_runs[0]['model_metadata']['sco2_enthalpy_eos'] == eos
-    timeline = json.loads((tmp_path / 'timeline.jsonl').read_text().splitlines()[-1])
+    timeline = json.loads((win.sm.base_dir / '.session_timeline.jsonl').read_text().splitlines()[-1])
     assert timeline['model_metadata']['sco2_nu'] == expected
     assert timeline['model_metadata']['sco2_enthalpy_eos'] == eos
     output = tmp_path / 'result.csv'

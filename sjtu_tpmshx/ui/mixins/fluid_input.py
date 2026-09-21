@@ -423,3 +423,19 @@ class FluidInputMixin:
     def _draw_layout(self):
         from sjtu_tpmshx.ui.layout_drawer import draw_layout
         return draw_layout(self)
+
+    def _preview_initial_geometry(self):
+        """Show the restored core envelope without opening input dialogs."""
+        import math
+        if getattr(self, '_active_tab', 'layout') != 'layout':
+            return
+        fields = [self.le_L, self.le_H]
+        if self.combo_dim.currentIndex() == 1:
+            fields.append(self.le_Lz)
+        try:
+            valid = all(math.isfinite(float(f.text())) and float(f.text()) > 0
+                        for f in fields)
+        except ValueError:
+            valid = False
+        if valid:
+            self._draw_layout()

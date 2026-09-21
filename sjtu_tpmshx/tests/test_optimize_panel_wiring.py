@@ -226,6 +226,52 @@ def test_worker_emits_error_signal_on_exception():
     assert "synthetic BO crash" in errors[0]
 
 
+@pytest.mark.parametrize('reason,label,count', [
+    ('completed', '完成', 4), ('cancelled', '已取消', 1),
+    ('plateau', '平台期提前结束', 2), ('error', 'ERROR', 0),
+])
+def test_terminal_state_and_progress_survive_until_thread_exit(monkeypatch, tmp_path,
+                                                              reason, label, count):
+    import threading
+    from PySide6.QtWidgets import QLabel, QPushButton, QProgressBar
+    from sjtu_tpmshx.ui import optimize_panel as panel
+    from sjtu_tpmshx.tests.test_worker_result_handoff import _wait_for
+    w = _make_window()
+    w.combo_fluidB.setCurrentIndex(0)  # Current screening supports air/air.
+    w._opt_status, w._opt_kpi_gen = QLabel(), QLabel()
+    w._opt_btn, w._opt_cancel_btn = QPushButton(), QPushButton()
+    w._opt_progress = QProgressBar()
+    release = threading.Event()
+    Worker = _make_worker_class()
+    original_run = Worker.run
+    def held_run(worker):
+        original_run(worker)
+        assert release.wait(10)
+    monkeypatch.setattr(Worker, 'run', held_run)
+    monkeypatch.setattr(panel, '_make_worker_class', lambda: Worker)
+    monkeypatch.setattr(panel, '_show_qnehvi_param_dialog', lambda *a: dict(
+        n_init=4, n_iter=0, q_batch=2, seed=1, n_rho_loops=3))
+    monkeypatch.setattr(panel, 'optimization_output_dir', lambda: tmp_path)
+    def result(**kwargs):
+        if reason == 'error':
+            raise RuntimeError('test failure')
+        return dict(X=np.zeros((0, 16)), F=np.zeros((0, 2)), n_evals=count,
+                    save_dir=str(tmp_path), termination_reason=reason)
+    monkeypatch.setattr('sjtu_tpmshx.optimization.optimizer_qnehvi.run_qnehvi', result)
+    panel.run_optimize(w)
+    worker = w._opt_worker
+    try:
+        _wait_for(lambda: label in w._opt_status.text())
+        assert label in w._opt_kpi_gen.text()
+        assert w._opt_progress.value() == count * 25
+        assert w._opt_worker is worker and worker.isRunning()
+        assert not w._opt_btn.isEnabled()
+    finally:
+        release.set()
+    _wait_for(lambda: w._opt_worker is None)
+    assert w._opt_btn.isEnabled() and not w._opt_cancel_btn.isEnabled()
+
+
 # ─── M0 (2026-07-09): search space, optimizer-budget hook, 3D routing ─
 
 

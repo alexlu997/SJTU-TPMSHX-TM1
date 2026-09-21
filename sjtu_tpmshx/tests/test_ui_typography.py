@@ -1,56 +1,85 @@
 """Check rendered font choices instead of only checking requested family names."""
+import os
+import subprocess
+import sys
+
 import pytest
 
 from sjtu_tpmshx.ui.typography import (
-    FONT_STACK, REQUESTED_FAMILIES, apply_app_font, matplotlib_font_families,
+    FONT_FAMILIES, FONT_STACK, REQUESTED_FAMILIES, apply_app_font, matplotlib_font_families,
 )
 
 
-def test_qt_mixed_script_uses_requested_glyph_fonts():
-    from PySide6.QtGui import QTextLayout
+def _check_native_sans_glyphs():
+    from PySide6.QtGui import QFontDatabase, QTextLayout
     from PySide6.QtWidgets import QApplication, QLabel
 
     app = QApplication.instance()
     previous_font = app.font()
     try:
         apply_app_font(app)
-        if app._missing_font_families:
-            pytest.skip(f"Host lacks requested fonts: {app._missing_font_families}")
         label = QLabel()
         label.setStyleSheet(f"font-family:{FONT_STACK};")
         label.ensurePolished()
-        for text, expected in (("温度出口", "Microsoft YaHei"),
-                               ("Q = 123.45 W", "Times New Roman")):
+        for text, expected in (("温度出口", FONT_FAMILIES[1]),
+                               ("Q = 123.45 W", FONT_FAMILIES[0])):
+            expected_available = (expected in QFontDatabase.families()
+                                  or expected.startswith('.Apple'))
+            if text == "温度出口" and not expected_available:
+                continue  # Linux CI may lack CJK fonts; still exercise Latin below.
             layout = QTextLayout(text, label.font())
             layout.beginLayout()
             layout.createLine()
             layout.endLayout()
             runs = layout.glyphRuns()
             assert runs
-            assert {run.rawFont().familyName() for run in runs} == {expected}
+            fonts = [run.rawFont() for run in runs]
+            assert all(font.isValid() for font in fonts)
+            families = {font.familyName() for font in fonts}
+            if expected_available:
+                assert families == {expected}
+            assert not families.intersection({"Times New Roman", "DejaVu Serif"})
             assert all(glyph != 0 for run in runs for glyph in run.glyphIndexes())
     finally:
         app.setFont(previous_font)
 
 
-def test_missing_requested_fonts_are_reported(monkeypatch, caplog):
-    from PySide6.QtGui import QFontDatabase
+def test_qt_interface_uses_native_sans_glyphs():
+    if sys.platform == 'win32':
+        # Windows offscreen uses Qt's generic FreeType database, not the
+        # native GDI/DirectWrite engines supported by QRawFont. Test the real
+        # Windows engine in its own QApplication; never replace the suite's
+        # already-created offscreen application. A native fault must fail this
+        # test with its exit code, rather than kill an xdist worker and hang CI.
+        result = subprocess.run(
+            [sys.executable, '-c',
+             'from PySide6.QtWidgets import QApplication; '
+             'app = QApplication(["font-probe", "-platform", "windows"]); '
+             'from sjtu_tpmshx.tests.test_ui_typography import _check_native_sans_glyphs; '
+             '_check_native_sans_glyphs()'],
+            env={**os.environ, 'QT_QPA_PLATFORM': 'windows'},
+            capture_output=True, text=True, timeout=60,
+        )
+        assert result.returncode == 0, (result.returncode, result.stdout, result.stderr)
+    else:
+        _check_native_sans_glyphs()
+
+
+def test_native_interface_does_not_require_office_fonts(monkeypatch):
     from PySide6.QtWidgets import QApplication
     from sjtu_tpmshx.ui import typography
 
     app = QApplication.instance()
     previous_font = app.font()
-    previous_missing = getattr(app, '_missing_font_families', ())
-    monkeypatch.setattr(QFontDatabase, "families", lambda: ["DejaVu Sans"])
-    monkeypatch.setattr(typography, "_office_fonts", lambda: ())
+    def unexpected_office_lookup():
+        pytest.fail("Native interface fonts must not depend on Office being installed")
+    monkeypatch.setattr(typography, "_office_fonts", unexpected_office_lookup)
     try:
         apply_app_font(app)
-        assert app._missing_font_families == REQUESTED_FAMILIES
-        assert "Times New Roman, Microsoft YaHei" in caplog.text
-        assert "unavailable" in caplog.text
+        assert app.font().pointSize() == 11
+        assert 'Times New Roman' not in app.font().families()
     finally:
         app.setFont(previous_font)
-        app._missing_font_families = previous_missing
 
 
 def test_vtk_renders_latin_labels_from_times_new_roman():

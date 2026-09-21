@@ -25,6 +25,23 @@ from sjtu_tpmshx.optimization.optimizer_qnehvi import (
 )
 
 
+@pytest.mark.parametrize('n_jobs', [1, 2])
+def test_cancellation_keeps_active_wave_but_launches_no_more(n_jobs, tmp_path):
+    from sjtu_tpmshx.optimization.optimizer_qnehvi import _evaluation_results
+    def evaluate(x, cfg):
+        (tmp_path / f'{int(x[0])}.txt').write_text('evaluated')
+        return -float(x[0] + 1), 10., 1.
+    cancelled = False
+    rows = _evaluation_results(np.arange(6).reshape(-1, 1), {}, 100., evaluate,
+                               n_jobs, lambda: cancelled)
+    first = next(rows)
+    cancelled = True
+    completed = [first, *rows]
+    assert len(completed) == n_jobs
+    assert len(list(tmp_path.glob('*.txt'))) == n_jobs
+    assert all(row[2] is None for row in completed)
+
+
 # ─── _pareto_mask_max — Pareto under MAX ───────────────────────────
 
 

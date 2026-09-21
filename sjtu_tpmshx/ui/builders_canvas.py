@@ -5,7 +5,7 @@ canvas stack (Temperature / Pressure / Velocity / Geometry / Optimize /
 3D View cards), the tab-button row with split/detach affordances, and
 the card zoom / re-layout helpers used by TabViewMixin.
 """
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
     QComboBox, QScrollArea, QFrame, QSizePolicy, QSlider,
@@ -13,7 +13,8 @@ from PySide6.QtWidgets import (
 )
 
 from .matplotlib_canvas import MatplotlibCanvas
-from .theme import get_theme
+from .theme import FONT_INPUT, FONT_LABEL, FONT_SECTION, RADIUS_CARD, get_theme, glass_surface
+from .icons import icon
 
 # Re-exports — run_controller/tab_view import these from ui.builders_canvas.
 from .builders_sidebar import (  # noqa: F401
@@ -41,7 +42,7 @@ def _build_canvas_toolbar(window, vlay, t, theme):
     _t = theme
     window._result_heading = QLabel("场图工作台")
     window._result_heading.setStyleSheet(
-        f"color:{_t['fg']}; padding:14px 20px 6px; font-size:18pt; font-weight:700;")
+        f"color:{_t['fg']}; padding:10px 20px 4px; font-size:16pt; font-weight:600;")
     vlay.addWidget(window._result_heading)
     # ── Tab buttons + Export + Progress ──
     from .responsive import ResponsiveRow
@@ -61,14 +62,20 @@ def _build_canvas_toolbar(window, vlay, t, theme):
     toolbar_host.addWidget(view_controls)
     window._field_toolbar = toolbar_host
 
-    # Left-panel collapse toggle — chevron flips direction to reflect state.
-    btn_toggle_left = QPushButton("›")
-    btn_toggle_left.setFixedSize(24, 28)
-    btn_toggle_left.setStyleSheet(t.style('BTN_TERTIARY'))
-    btn_toggle_left.setToolTip("收起右侧参数编辑器")
+    # Kept for existing shortcut/accessibility callers; the parameter header
+    # and collapsed rail now own the visible control.
+    btn_toggle_left = QPushButton("收起参数", window)
     btn_toggle_left.clicked.connect(window._toggle_left_panel)
     window.btn_toggle_left = btn_toggle_left
-    toolbar.addWidget(btn_toggle_left)
+    btn_toggle_left.hide()
+    window.btn_update_geometry = QPushButton("更新几何")
+    window.btn_update_geometry.setFixedHeight(28)
+    window.btn_update_geometry.setStyleSheet(t.style('BTN_TERTIARY'))
+    window.btn_update_geometry.setIcon(icon('box', _t['sub_fg']))
+    window.btn_update_geometry.setIconSize(QSize(16, 16))
+    window.btn_update_geometry.setToolTip("按当前参数重绘芯体外形和进出口位置")
+    window.btn_update_geometry.clicked.connect(window._draw_layout)
+    toolbar.addWidget(window.btn_update_geometry)
 
     # Chrome text is Chinese (ui-batch4 ①); the tab KEYS ('temp'/'pres'/…)
     # stay English — they are internal routing, not UI.
@@ -304,22 +311,29 @@ def _build_canvas_toolbar(window, vlay, t, theme):
     btn_reset_view = QPushButton("适应视图")
     btn_reset_view.setFixedHeight(28)
     btn_reset_view.setStyleSheet(t.style('BTN_TERTIARY'))
-    btn_reset_view.setToolTip("Fit current canvas card to its default size")
+    btn_reset_view.setIcon(icon('fit-view', _t['sub_fg']))
+    btn_reset_view.setIconSize(QSize(16, 16))
+    btn_reset_view.setToolTip("让当前画布适应可用空间")
     btn_reset_view.clicked.connect(lambda: canvas_zoom_reset(window))
     view_toolbar.addWidget(btn_reset_view)
+    window.btn_focus_view = QPushButton("专注")
+    window.btn_focus_view.setFixedHeight(28)
+    window.btn_focus_view.setCheckable(True)
+    window.btn_focus_view.setStyleSheet(t.style('BTN_TERTIARY'))
+    window.btn_focus_view.setIcon(icon('maximize', _t['sub_fg']))
+    window.btn_focus_view.setIconSize(QSize(16, 16))
+    window.btn_focus_view.setToolTip("收起参数与结果摘要，专注当前画布（F）")
+    window.btn_focus_view.clicked.connect(window._toggle_3d_immersive)
+    view_toolbar.addWidget(window.btn_focus_view)
 
     # Single Export menu — Results (data) + Figure (image) in one entry, in
     # the canvas toolbar next to the data it exports (the old header "Export
     # Results" copy was easy to miss). Gated until a compute / layout fills it.
-    from PySide6.QtWidgets import QToolButton as _QTB, QMenu as _QMenu
-    btn_export = _QTB()
-    btn_export.setText("导出 ▾")
-    btn_export.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-    btn_export.setPopupMode(_QTB.ToolButtonPopupMode.InstantPopup)
-    btn_export.setFixedHeight(28)
-    btn_export.setStyleSheet(
-        t.style('BTN_SECONDARY').replace("QPushButton", "QToolButton")
-        + "QToolButton::menu-indicator{image:none;width:0;}")
+    from PySide6.QtWidgets import QMenu as _QMenu
+    from .builders_base import MenuToolButton
+    btn_export = MenuToolButton(t.style('BTN_TERTIARY'))
+    btn_export.setText("导出")
+    btn_export.setIcon(icon('download', _t['sub_fg']))
     btn_export.setToolTip(
         "Export results (CSV + NPZ) or the current figure (PNG / SVG / PDF)")
     btn_export.setEnabled(False)
@@ -344,6 +358,7 @@ def refresh_field_controls(window):
     """Show only selectors backed by the current rendered result."""
     tab = getattr(window, '_active_tab', None)
     is_field = tab in ('temp', 'pres', 'vel')
+    window.btn_update_geometry.setVisible(tab == 'layout')
     result = getattr(window, '_result_3d', None)
     b_source = 'dir_B' if tab in ('pres', 'vel') else 'Tb'
     has_b = result is None or result.fields.get(b_source) is not None
@@ -474,7 +489,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
     # ── Stage strip ────────────────────────────────────────
     _pill_base = (
         "QLabel{{padding:5px 14px; border-radius:12px;"
-        "font-size:9pt; font-weight:700; letter-spacing:0.8px;"
+        "font-size:10pt; font-weight:600;"
         "font-family:" + _t['sans_family'] + ";"
         "background:{bg}; color:{fg}; border:1px solid {bd};}}")
     _pill_idle = _pill_base.format(
@@ -515,7 +530,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
     status.setMinimumHeight(24)
     status.setStyleSheet(
         f"color:{_sub_fg}; font-family:{_mono};"
-        f"font-size:9pt; font-weight:bold;"
+        f"font-size:9pt; font-weight:400;"
         f"background:transparent; border:none; padding:2px 8px;")
     status.setAlignment(Qt.AlignmentFlag.AlignRight
                         | Qt.AlignmentFlag.AlignVCenter)
@@ -549,8 +564,8 @@ def _build_optimize_panel(window, card_lay, t, theme):
         fl.setContentsMargins(14, 10, 14, 12); fl.setSpacing(6)
         cap = QLabel(title)
         cap.setStyleSheet(
-            f"color:{_sub_fg}; font-size:8pt; font-weight:700;"
-            "letter-spacing:1.4px; background:transparent;"
+            f"color:{_t['fg']}; font-size:{FONT_SECTION}pt; font-weight:600;"
+            "background:transparent;"
             "border:none;")
         fl.addWidget(cap)
         return fr, fl
@@ -561,7 +576,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
     _spin_qss = (
         f"QSpinBox{{background:{_t['inp_bg']}; color:{_t['inp_fg']};"
         f" border:1px solid {_t['inp_border']}; border-radius:6px;"
-        f" padding:3px 8px; font-family:{_mono}; font-size:9pt;}}"
+        f" padding:4px 8px; font-family:{_mono}; font-size:{FONT_INPUT}pt;}}"
         f"QSpinBox:focus{{border-color:{_t['inp_focus']};}}")
     window._opt_inline_params = {}
     _param_specs = [
@@ -579,20 +594,21 @@ def _build_optimize_panel(window, card_lay, t, theme):
     for pkey, plabel, lo, hi, dflt, tip in _param_specs:
         prow = _HBop(); prow.setSpacing(8)
         pl = QLabel(plabel)
-        pl.setStyleSheet(f"color:{_sub_fg}; font-size:9pt;"
+        pl.setStyleSheet(f"color:{_t['fg']}; font-size:{FONT_LABEL}pt;"
                          " background:transparent; border:none;")
         sp = _QSBop(); sp.setRange(lo, hi); sp.setValue(dflt)
         sp.setToolTip(tip)
         sp.setStyleSheet(_spin_qss)
         sp.setAlignment(Qt.AlignmentFlag.AlignRight)
-        sp.setFixedWidth(86)
+        sp.setFixedWidth(92)
+        sp.setMinimumHeight(30)
         prow.addWidget(pl); prow.addStretch(1); prow.addWidget(sp)
         par_lay.addLayout(prow)
         window._opt_inline_params[pkey] = sp
     _eval_preview = QLabel("")
     _eval_preview.setWordWrap(True)
     _eval_preview.setStyleSheet(
-        f"color:{_sub_fg}; font-size:8.5pt; font-style:italic;"
+        f"color:{_sub_fg}; font-size:9pt;"
         " background:transparent; border:none;")
 
     def _refresh_eval_preview(*_):
@@ -648,7 +664,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
         f"QDoubleSpinBox{{background:{_t['inp_bg']};"
         f" color:{_t['inp_fg']}; border:1px solid {_t['inp_border']};"
         f" border-radius:6px; padding:3px 8px;"
-        f" font-family:{_mono}; font-size:9pt;}}"
+        f" font-family:{_mono}; font-size:{FONT_INPUT}pt;}}"
         f"QDoubleSpinBox:focus{{border-color:{_t['inp_focus']};}}")
     window._opt_space_params = {}
 
@@ -656,7 +672,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
         srow = _HBop(); srow.setSpacing(8)
         sl = QLabel(label)
         sl.setToolTip(tip)
-        sl.setStyleSheet(f"color:{_sub_fg}; font-size:9pt;"
+        sl.setStyleSheet(f"color:{_t['fg']}; font-size:{FONT_LABEL}pt;"
                          " background:transparent; border:none;")
         srow.addWidget(sl); srow.addStretch(1)
         for wdg in widgets:
@@ -669,7 +685,8 @@ def _build_optimize_panel(window, card_lay, t, theme):
         ds.setSingleStep(step); ds.setDecimals(dec)
         ds.setStyleSheet(_dspin_qss)
         ds.setAlignment(Qt.AlignmentFlag.AlignRight)
-        ds.setFixedWidth(66)
+        ds.setFixedWidth(80)
+        ds.setMinimumHeight(30)
         return ds
 
     _sp_Lmin = _mk_dspin(_hull_L[0], _hull_L[1], _hull_L[0], 0.5, 2)
@@ -695,10 +712,8 @@ def _build_optimize_panel(window, card_lay, t, theme):
     _cb_grid.setToolTip(
         "B-spline 控制点网格。6×6 提高空间自由度但 GP 建模更难，"
         "建议同时加大 n_init（约 2×维数）")
-    _cb_grid.setStyleSheet(
-        f"QComboBox{{background:{_t['inp_bg']}; color:{_t['inp_fg']};"
-        f" border:1px solid {_t['inp_border']}; border-radius:6px;"
-        f" padding:3px 8px; font-family:{_mono}; font-size:9pt;}}")
+    _cb_grid.setStyleSheet(t.style('COMBO'))
+    _cb_grid.setMinimumHeight(30)
     _space_row("控制点网格", "决策向量维数 = 控制点数 × 2（L、t 两场）",
                [_cb_grid])
     window._opt_space_params['ctrl_grid'] = _cb_grid
@@ -891,7 +906,8 @@ def _build_canvas_content(window, vlay, t):
     window._canvas_scroll = QScrollArea()
     window._canvas_scroll.setWidgetResizable(True)
     window._canvas_scroll.setStyleSheet(
-        f"border:none; background:{_t['scroll_bg']};")
+        f"QScrollArea{{border:none; background:{_t['scroll_bg']};}}"
+        + t.style('SCROLLBAR'))
     window._canvas_scroll.setHorizontalScrollBarPolicy(
         Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
@@ -917,10 +933,10 @@ def _build_canvas_content(window, vlay, t):
         f"<p style='color:{_t['fg']}; font-size:12pt; font-weight:600;"
         f" margin:0 0 14px 0;'>运行第一个算例</p>"
         f"<p style='margin:0 0 8px 0;'><span style='color:{_acc};"
-        f" font-weight:700;'>1</span>&nbsp;&nbsp;在右侧面板设置几何与两侧流体</p>"
+        f" font-weight:700;'>1</span>&nbsp;&nbsp;在左侧面板设置几何与两侧流体</p>"
         f"<p style='margin:0 0 8px 0;'><span style='color:{_acc};"
-        f" font-weight:700;'>2</span>&nbsp;&nbsp;点击 <b>▶ 计算</b>"
-        f"（Ctrl+R）— 进度显示在按钮上</p>"
+        f" font-weight:700;'>2</span>&nbsp;&nbsp;点击 <b>开始计算</b>"
+        f"（Ctrl+R），展开计算状态查看迭代与残差</p>"
         f"<p style='margin:0;'><span style='color:{_acc};"
         f" font-weight:700;'>3</span>&nbsp;&nbsp;在此查看温度 / 压力 / 速度场；"
         f"就绪后上方页签自动点亮</p>"
@@ -934,9 +950,9 @@ def _build_canvas_content(window, vlay, t):
     # `_empty_state_label` now points at the CONTAINER — its only consumers
     # call setVisible, so text+button hide together after the first compute.
     _empty_box = QWidget()
+    _empty_box.setObjectName('emptyStateCard')
     _empty_box.setStyleSheet(
-        f"background:transparent; border:1px dashed {_t['card_border']};"
-        f"border-radius:6px;")
+        f"QWidget#emptyStateCard{{{glass_surface(_t)}}}")
     _eb_lay = QVBoxLayout(_empty_box)
     _eb_lay.setContentsMargins(48, 48, 48, 40)
     _eb_lay.setSpacing(18)
@@ -1009,24 +1025,22 @@ def _build_canvas_content(window, vlay, t):
         # visually colliding with embedded toolbar labels — user report
         # 2026-04-21). Other cards keep the coloured accent.
         card = QFrame()
+        card.setObjectName('plotCard')
         # No left accent stripe for layout/3d (arc collision, 2026-04-21)
         # and pareto (ui-plan-b-wizard follow-up: the card's `QFrame{…}`
         # type selector CASCADES to every unstyled descendant frame — the
         # wizard's new frames all grew amber left bars, user report).
         card.setStyleSheet(
-            f"QFrame{{background:{_t['card_bg']};"
-            f"border:none; border-radius:4px;}}")
+            f"QFrame#plotCard{{background:{_t['card_bg']};"
+            f"border:1px solid {_t['card_border']}; border-radius:{RADIUS_CARD}px;}}")
         card_lay = QVBoxLayout(card)
         if key == 'layout':
             card_lay.setContentsMargins(8, 8, 8, 8)
         else:
             card_lay.setContentsMargins(16, 16, 16, 16)
         card_lay.setSpacing(0)
-        # Drop shadows removed (2026-04-23): QGraphicsDropShadowEffect on a
-        # large Matplotlib/PyVista surface repaints on every scroll, costing
-        # noticeable FPS. Card depth is conveyed by the 3px left accent and
-        # card_bg contrast against scroll_bg instead, which renders flat and
-        # cheap. Re-enable only if a future design absolutely requires depth.
+        # Paint only the static outer chrome: no graphics effect on a large
+        # Matplotlib/PyVista surface or blur over scientific field values.
 
         # Card-local mini toolbar (temperature only) — hosts the
         # "Sync colorbar across Ta/Tb/Ts" toggle so users can flip between
@@ -1143,7 +1157,7 @@ def _build_canvas_content(window, vlay, t):
     # data carrier only.
     _body = QVBoxLayout()
     _body.setContentsMargins(0, 0, 0, 0)
-    _body.setSpacing(8)
+    _body.setSpacing(6)
     _body.addWidget(window._canvas_scroll, 1)
     slice_controls = QWidget()
     slice_row = QHBoxLayout(slice_controls)
@@ -1168,6 +1182,11 @@ def _build_canvas_content(window, vlay, t):
     window._slice_controls = slice_controls
     slice_controls.hide()
     _body.addWidget(slice_controls)
+    from .run_status import RunStatusCard
+    window._run_status_card = RunStatusCard()
+    window._run_status_card.cancel_requested.connect(window._on_cancel_compute)
+    window._run_status_card.log_requested.connect(window._show_solve_log)
+    _body.addWidget(window._run_status_card)
     _body.addWidget(_build_result_sidebar(window, _t, t), 0)
     vlay.addLayout(_body, 1)
 
@@ -1186,7 +1205,7 @@ def _connect_canvas_interactions(window, vlay, theme):
         if sc is None:
             return
         vh = sc.viewport().height()
-        for key in ('temp', 'pres', 'vel', '3d'):
+        for key in ('temp', 'pres', 'vel', 'layout', '3d'):
             card = window._canvas_cards.get(key)
             if card is not None and card.isVisible() and vh > 24:
                 height = vh - 24
@@ -1203,7 +1222,7 @@ def _connect_canvas_interactions(window, vlay, theme):
         _fit_3d_card_to_viewport()
     _sc.resizeEvent = _sc_resize
 
-    for key in ('temp', 'pres', 'vel'):
+    for key in ('temp', 'pres', 'vel', 'layout'):
         card = window._canvas_cards[key]
         _orig_show = card.showEvent
         def _field_show(ev, _o=_orig_show):

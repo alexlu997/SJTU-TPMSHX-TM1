@@ -233,94 +233,79 @@ class TabViewMixin:
             refresh_field_controls(self)
         tabs = ('temp', 'pres', 'vel', 'layout', 'pareto', '3d')
         drawn = getattr(self, '_drawn_tabs', set())
-        # Two-phase tab swap (UI report 2026-05-07 issue #4):
-        #   Phase 1 — hide all non-target cards + restyle ALL tab buttons.
-        #             These ops are cheap; finish them inside one repaint
-        #             batch so the user sees the button highlight + the
-        #             old card disappear immediately.
-        #   Phase 2 — defer the heavy `card.show()` for the target tab
-        #             (especially 3D, which spins up PyVista's OpenGL
-        #             context for ~50-100 ms). Using QTimer.singleShot(0)
-        #             yields one event-loop tick so the Phase-1 paint
-        #             flushes before the heavy work blocks the thread.
-        #
-        # Prior to this split the user saw the 3D button highlight but
-        # the Geometry card stayed visible until OpenGL came up.
+        # Publish the complete tab state in one repaint batch. Dispatching
+        # processEvents between hide/show let a newer click run inside this
+        # call, then the older call showed its stale target over the new one.
         _scroll = getattr(self, '_canvas_scroll', None)
         _viewport = _scroll.viewport() if _scroll is not None else None
+        _updates_enabled = _viewport.updatesEnabled() if _viewport is not None else False
         if _viewport is not None:
             _viewport.setUpdatesEnabled(False)
-        for key in tabs:
-            card = self._canvas_cards.get(key)
-            if key != tab and card:
-                card.hide()
-        for key, btn in (('layout', self.btn_tab_layout),
-                         ('pareto', self.btn_tab_pareto)):
-            btn.setStyleSheet(self._PTAB_ON if key == tab else self._PTAB_OFF)
-        # ui-plan3-workbench follow-up (user screenshot): the 温度/速度/压力
-        # field seg is a CONTEXT control — visible only while a 2D field
-        # card is active, not parked highlighted next to 优化.
-        _fs = getattr(self, '_2d_field_seg', None)
-        if _fs is not None:
-            _fs.setVisible(tab in ('temp', 'pres', 'vel'))
-        # ui-plan3-workbench: 结果 button lights for ANY result rendering;
-        # legacy direct calls (_switch_tab('temp')/'3d') reverse-sync the
-        # 2D|3D toggle so the seg always tells the truth.
-        _btn_res = getattr(self, 'btn_tab_result', None)
-        if _btn_res is not None:
-            if tab in ('temp', 'pres', 'vel', '3d'):
-                self._result_view = '3d' if tab == '3d' else '2d'
-                paint = getattr(self, '_paint_result_seg', None)
-                if paint is not None:
-                    paint()
-                _btn_res.setStyleSheet(self._PTAB_ON)
-            elif _btn_res.isEnabled():
-                _btn_res.setStyleSheet(self._PTAB_OFF)
-            else:
-                _btn_res.setStyleSheet(self._PTAB_DISABLED)
-        if _viewport is not None:
-            _viewport.setUpdatesEnabled(True)
-        # Phase 1 flush — paint button + hides before heavy work.
         try:
-            from PySide6.QtWidgets import QApplication as _QApp
-            _QApp.processEvents()
-        except Exception:
-            pass
+            for key in tabs:
+                card = self._canvas_cards.get(key)
+                if key != tab and card:
+                    card.hide()
+                    if self._active_tab != tab:
+                        return
+            for key, btn in (('layout', self.btn_tab_layout),
+                             ('pareto', self.btn_tab_pareto)):
+                btn.setStyleSheet(self._PTAB_ON if key == tab else self._PTAB_OFF)
+            # Field controls only accompany a 2D result card.
+            _fs = getattr(self, '_2d_field_seg', None)
+            if _fs is not None:
+                _fs.setVisible(tab in ('temp', 'pres', 'vel'))
+            # Reverse-sync aggregate result navigation to the actual card.
+            _btn_res = getattr(self, 'btn_tab_result', None)
+            if _btn_res is not None:
+                if tab in ('temp', 'pres', 'vel', '3d'):
+                    self._result_view = '3d' if tab == '3d' else '2d'
+                    paint = getattr(self, '_paint_result_seg', None)
+                    if paint is not None:
+                        paint()
+                    _btn_res.setStyleSheet(self._PTAB_ON)
+                elif _btn_res.isEnabled():
+                    _btn_res.setStyleSheet(self._PTAB_OFF)
+                else:
+                    _btn_res.setStyleSheet(self._PTAB_DISABLED)
 
-        # Phase 2 — defer target card.show() (may activate OpenGL).
-        target_card = self._canvas_cards.get(tab)
-        showed_any = False
-        if target_card and (tab == 'pareto'
-                            or getattr(self, '_has_results', False)
-                            or tab in drawn):
-            target_card.show()
-            fit = getattr(self, '_fit_3d_card_to_viewport', None)
-            if fit is not None:
-                fit()
-            showed_any = True
-        elif tab == '3d' and target_card:
-            target_card.hide()
+            target_card = self._canvas_cards.get(tab)
+            showed_any = False
+            if target_card and (tab == 'pareto'
+                                or getattr(self, '_has_results', False)
+                                or tab in drawn):
+                target_card.show()
+                # A widget showEvent can synchronously choose another tab.
+                if self._active_tab != tab:
+                    return
+                fit = getattr(self, '_fit_3d_card_to_viewport', None)
+                if fit is not None:
+                    fit()
+                showed_any = True
+            elif tab == '3d' and target_card:
+                target_card.hide()
 
-        if hasattr(self, '_empty_state_label'):
-            self._empty_state_label.setVisible(not showed_any)
-        # UI report 2026-05-07 issue #5: re-evaluate summary bar
-        # visibility against the new active tab (hides on Geometry).
-        if hasattr(self, '_result_summary_bar') \
-                and getattr(self, '_has_results', False):
+            if hasattr(self, '_empty_state_label'):
+                self._empty_state_label.setVisible(not showed_any)
+            if hasattr(self, '_result_summary_bar') \
+                    and getattr(self, '_has_results', False):
+                try:
+                    self._update_result_summary()
+                except Exception:
+                    pass
+            # Sidebar follows the result family.
             try:
-                self._update_result_summary()
+                from sjtu_tpmshx.ui.builders_canvas import update_result_sidebar_visibility
+                update_result_sidebar_visibility(self)
             except Exception:
                 pass
-        # ui-plan3-workbench T2: sidebar follows the result family.
-        try:
-            from sjtu_tpmshx.ui.builders_canvas import update_result_sidebar_visibility
-            update_result_sidebar_visibility(self)
-        except Exception:
-            pass
-        self._hover_label.setText("")
-        refresh_navigation = getattr(self, '_refresh_workbench_navigation', None)
-        if refresh_navigation is not None:
-            refresh_navigation()
+            self._hover_label.setText("")
+            refresh_navigation = getattr(self, '_refresh_workbench_navigation', None)
+            if refresh_navigation is not None:
+                refresh_navigation()
+        finally:
+            if _viewport is not None:
+                _viewport.setUpdatesEnabled(_updates_enabled)
 
     def _on_hover(self, event):
         """Show data value at mouse position on contour plots."""

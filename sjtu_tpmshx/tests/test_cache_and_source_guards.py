@@ -77,6 +77,34 @@ def test_geometry_lut_cache_keys_on_kwargs(tmp_path):
     assert lut_a2 is lut_a
 
 
+def test_geometry_lut_uses_external_cache_with_read_only_package(tmp_path, monkeypatch):
+    from pathlib import Path
+    import numpy as np
+    from sjtu_tpmshx.models import sigmoid_field
+
+    package = tmp_path / 'installed' / 'sjtu_tpmshx'
+    (package / 'models').mkdir(parents=True)
+    (package / 'solvers').mkdir()
+    monkeypatch.setattr(sigmoid_field, '__file__', str(package / 'models' / 'sigmoid_field.py'))
+    cache = tmp_path / 'user-cache'
+    monkeypatch.setenv('XDG_CACHE_HOME', str(cache))
+    (package / 'solvers').chmod(0o555)
+    try:
+        lut = sigmoid_field.GeometryLUT('Gyroid', n_L=3, n_t=2, N=24)
+        expected = cache / 'sjtu-tpmshx' / 'geometry' / 'lut_Gyroid_3x2_N24.npz'
+        assert Path(lut._cache_path) == expected
+        assert expected.is_file()
+        assert list((package / 'solvers').iterdir()) == []
+        def no_rebuild(self):
+            pytest.fail('second load ignored the persistent user cache')
+        monkeypatch.setattr(sigmoid_field.GeometryLUT, '_precompute', no_rebuild)
+        restored = sigmoid_field.GeometryLUT('Gyroid', n_L=3, n_t=2, N=24)
+        np.testing.assert_array_equal(restored.eps_table, lut.eps_table)
+        np.testing.assert_array_equal(restored.A0_table, lut.A0_table)
+    finally:
+        (package / 'solvers').chmod(0o755)
+
+
 # ── compute() cache — fixed production DF + hit-copy poison guard ──
 
 

@@ -12,12 +12,12 @@ that was previously inlined in Main_Menu:
     self._load_user_presets()         sm.load_user_presets()
     self._save_user_presets(presets)  sm.save_user_presets(presets)
 
-File locations (unchanged from legacy):
-    sjtu_tpmshx/.last_session.json        ← workspace A
-    sjtu_tpmshx/.last_session_B.json      ← workspace B
-    sjtu_tpmshx/.last_session_C.json      ← workspace C
-    sjtu_tpmshx/.user_presets.json        ← named preset library
-    sjtu_tpmshx/.workspace                ← single-char active workspace marker
+File names under the platform user data directory:
+    .last_session.json        ← workspace A
+    .last_session_B.json      ← workspace B
+    .last_session_C.json      ← workspace C
+    .user_presets.json        ← named preset library
+    .workspace               ← single-char active workspace marker
 
 Schema version (NEW)
 --------------------
@@ -25,11 +25,8 @@ All session/preset payloads now include `schema_version` (currently 1).
 Older files without the field are treated as v0 and silently migrated on
 load (no field changes yet — version stamp is forward-compat only).
 
-Future-proofing
----------------
-`base_dir` is configurable. Default = package directory (legacy compat).
-Future change: pass `~/.sjtu_tpmshx/` for multi-worktree isolation or
-PyInstaller .exe packaging — single line override, no API change.
+`base_dir` remains configurable for isolated sessions and tests. The default
+imports existing package-local user files without changing the originals.
 
 Phase 2 of 2026-05-06 plan #4 refactor.
 See vault/reports/refactor/2026-05-06-main-py-refactor-plan-CN.md.
@@ -43,6 +40,8 @@ from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import QObject, Signal
 
+from sjtu_tpmshx.controllers.user_storage import user_data_dir
+
 
 SCHEMA_VERSION = 1
 
@@ -50,11 +49,11 @@ SCHEMA_VERSION = 1
 class SessionManager(QObject):
     """Disk persistence for session state, user presets, and active workspace.
 
-    Construct with no args to get the legacy package-dir layout:
-        sm = SessionManager()              # base_dir = sjtu_tpmshx/
+    Construct with no args to use the platform user data directory:
+        sm = SessionManager()
         sm = SessionManager(parent=window) # Qt parent for cleanup
 
-    Or override base_dir for testing / future home-dir migration:
+    Or override base_dir for isolated sessions and testing:
         sm = SessionManager(base_dir=tmp_path)
 
     Signals
@@ -81,8 +80,7 @@ class SessionManager(QObject):
                  parent: Optional[QObject] = None):
         super().__init__(parent)
         if base_dir is None:
-            # Default to package directory (legacy: sjtu_tpmshx/)
-            base_dir = Path(__file__).resolve().parents[1]
+            base_dir = user_data_dir()
         self._base = Path(base_dir)
 
     # ------------------------------------------------------------------ paths

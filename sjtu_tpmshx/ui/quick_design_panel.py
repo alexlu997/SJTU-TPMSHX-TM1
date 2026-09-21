@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 from math import isfinite
+import sys
 
 from sjtu_tpmshx.logutil import get_logger
 
@@ -71,17 +72,36 @@ def _make_worker_class():
     class _QDWorker(QThread):
         finished_with_result = Signal(object)   # {"feasible":[Design],"best":Design|None,"params":dict}
         error_signal = Signal(str)
+        cancelled = Signal()
 
         def __init__(self, params):
             super().__init__()
             self.params = params
+            # The first desktop bundle has no loky subprocess entry point.
+            self.n_jobs = 1 if getattr(sys, 'frozen', False) else -1
 
         def run(self):
+            from sjtu_tpmshx.domain.module_ports import RunControl
+            from sjtu_tpmshx.domain.cancellation import CancelledError
+            from sjtu_tpmshx.design.select import SelectionCancelled
+            control = RunControl(cancel_check=self.isInterruptionRequested)
+            results = []
+            p = self.params
+
+            def publish(partial=False):
+                feasible = [d for d in results if d.feasible]
+                best = min(feasible, key=lambda d: d.V) if feasible else None
+                self.finished_with_result.emit({
+                    'feasible': feasible, 'all': results, 'best': best, 'params': p,
+                    'termination_reason': 'cancelled' if partial else 'completed',
+                    'partial': partial,
+                })
+
             try:
                 from sjtu_tpmshx.design.cases import load_cases
                 from sjtu_tpmshx.design.sizing import size_fixed_cell
                 from sjtu_tpmshx.design.select import enumerate_select
-                p = self.params
+                control.check_cancelled()
                 cases = load_cases(p["file"])
                 ks = p.get("k_s", 16.0)
                 pm = p.get("prop_model", "mean")
@@ -90,24 +110,28 @@ def _make_worker_class():
                     topo, l, t = p["cell"]
                     d = size_fixed_cell(cases, topo, l, t, p["arrangement"],
                                         rho_s=p["rho_s"], k_s=ks, prop_model=pm,
-                                        height=ht)
+                                        height=ht, control=control)
                     results = [d]; best = d if d.feasible else None
                 else:
                     results, best = enumerate_select(cases, p["arrangement"], p["nodes"],
-                                                     rho_s=p["rho_s"], n_jobs=-1, k_s=ks,
-                                                     prop_model=pm, height=ht)  # 全核并行
+                                                     rho_s=p["rho_s"], n_jobs=self.n_jobs, k_s=ks,
+                                                     prop_model=pm, height=ht, control=control)
                     if p["refine"] and best is not None:
                         from sjtu_tpmshx.design.optimize import warm_start_joint
                         ref = warm_start_joint(cases, best, p["arrangement"],
                                                rho_s=p["rho_s"], k_s=ks, prop_model=pm,
-                                               height=ht)
+                                               height=ht, control=control)
                         if ref is not best and ref.feasible:
                             results = list(results) + [ref]
                             if ref.V < best.V:
                                 best = ref
-                feas = [d for d in results if d.feasible]   # enumerate 返全部 → 过滤可行
-                self.finished_with_result.emit({"feasible": feas, "all": results,
-                                                "best": best, "params": p})
+                control.check_cancelled()
+                publish()
+            except CancelledError as exc:
+                if isinstance(exc, SelectionCancelled):
+                    results = exc.results
+                publish(partial=True)
+                self.cancelled.emit()
             except Exception as e:
                 self.error_signal.emit(f"{type(e).__name__}: {e}")
 
@@ -120,12 +144,14 @@ def _set_status(window, text):
         except Exception: pass
     _log.info(f"[quick-design] {text}")
 
-def _fill_table(window, feasible, best):
+def _fill_table(window, feasible, best, *, partial=False):
     """把可行件按 V 排序填进 window._qd_table (QTableWidget)。无表则打印。"""
     rows = sorted(feasible, key=lambda d: d.V)
     from sjtu_tpmshx.design.select import pareto_tags
     from sjtu_tpmshx.design.report import warning_text
     tags = pareto_tags(feasible)
+    if partial:
+        tags = {key: [f'已完成候选内 {tag}' for tag in value] for key, value in tags.items()}
     def _hmm(d):                       # 矩形取固定高, 方形回退 W=s
         h = getattr(d, "height", 0.0) or d.s
         return f"{d.s*1e3:.0f}×{h*1e3:.0f}"
@@ -168,7 +194,9 @@ def _fill_table(window, feasible, best):
 
 def run_quick_design(window) -> None:
     """点「运行设计」入口: 后台 worker 跑后端, 完成回填表。"""
-    if getattr(window, "_qd_worker", None) is not None and window._qd_worker.isRunning():
+    if getattr(window, '_close_pending', False):
+        return
+    if getattr(window, "_qd_worker", None) is not None:
         _set_status(window, "设计运行中…"); return
     # U3 (audit 2026-06-28): _gather_inputs parses free-text numeric fields
     # (node lists via _flist, the fixed-cell tuple — built even in auto mode).
@@ -186,24 +214,63 @@ def run_quick_design(window) -> None:
 
     def _on_done(res):
         feas, best = res["feasible"], res["best"]
-        if not feas:
+        partial = res.get('partial', False)
+        window._qd_last = res
+        _fill_table(window, feas, best, partial=partial)
+        if partial:
+            _set_status(window, f"已取消 · 保留 {len(res['all'])} 个已完成候选，"
+                        f"其中 {len(feas)} 个可行 · 部分结果，不代表完整搜索最优")
+        elif not feas:
             _set_status(window, "无可行件 (≤450mm)")
         else:
-            _fill_table(window, feas, best)
             bt = f"{best.topo} l={best.l:g} t={best.t:g} V={best.V*1e3:.3f}L" if best else "—"
             _set_status(window, f"完成 · {len(feas)} 可行 · min-V: {bt}")
-        window._qd_last = res
-        window._qd_worker = None
 
     def _on_err(msg):
+        if getattr(window, '_close_pending', False):
+            return
         _set_status(window, f"错误: {msg}")
+
+    def _on_finished():
+        if not worker.wait(0):
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(10, _on_finished)
+            return
         window._qd_worker = None
+        for attr, enabled in (('_qd_run_btn', True), ('_qd_cancel_btn', False)):
+            button = getattr(window, attr, None)
+            if button is not None:
+                button.setEnabled(enabled)
+        worker.deleteLater()
+        if getattr(window, '_close_pending', False):
+            window._close_pending = False
+            window.setEnabled(True)
+            window.close()
 
     worker.finished_with_result.connect(_on_done)
     worker.error_signal.connect(_on_err)
+    worker.finished.connect(_on_finished)
     window._qd_worker = worker
-    _set_status(window, f"运行中 · {params['mode']} · {params['arrangement']} …")
+    window._qd_last = None
+    table = getattr(window, '_qd_table', None)
+    if table is not None:
+        table.setRowCount(0)
+    for attr, enabled in (('_qd_run_btn', False), ('_qd_cancel_btn', True)):
+        button = getattr(window, attr, None)
+        if button is not None:
+            button.setEnabled(enabled)
+    execution = '单进程串行（桌面包）' if getattr(sys, 'frozen', False) else '并行候选'
+    if params['mode'] == 'fixed':
+        execution = '单候选定尺'
+    _set_status(window, f"运行中 · {params['mode']} · {params['arrangement']} · {execution} …")
     worker.start()
+
+
+def cancel_quick_design(window) -> None:
+    worker = getattr(window, '_qd_worker', None)
+    if worker is not None:
+        worker.requestInterruption()
+        _set_status(window, "正在取消 · 等待当前候选批次或计算步结束…")
 
 
 def build_quick_design_dialog(parent=None):
@@ -233,7 +300,23 @@ def build_quick_design_dialog(parent=None):
         h.addWidget(QLabel(label)); h.addWidget(widget)
         return w
 
-    dlg = QDialog(parent)
+    class QuickDesignDialog(QDialog):
+        def reject(self):
+            if getattr(self, '_qd_worker', None) is not None:
+                self.close()
+            else:
+                super().reject()
+
+        def closeEvent(self, event):
+            if getattr(self, '_qd_worker', None) is not None:
+                event.ignore()
+                self._close_pending = True
+                cancel_quick_design(self)
+                self.setEnabled(False)
+                return
+            super().closeEvent(event)
+
+    dlg = QuickDesignDialog(parent)
     dlg.setWindowTitle("快速设计工具")
     dlg.resize(900, 700)
     dlg.setMinimumSize(640, 600)
@@ -439,6 +522,12 @@ def build_quick_design_dialog(parent=None):
     btn_run.clicked.connect(lambda: run_quick_design(dlg))
     btn_row.addWidget(btn_run)
 
+    btn_cancel = QPushButton("取消")
+    btn_cancel.setEnabled(False)
+    btn_cancel.clicked.connect(lambda: cancel_quick_design(dlg))
+    dlg._qd_cancel_btn = btn_cancel
+    btn_row.addWidget(btn_cancel)
+
     btn_export = QPushButton("导出 xlsx")
     btn_export.setMinimumWidth(90)
 
@@ -458,9 +547,10 @@ def build_quick_design_dialog(parent=None):
             return
         try:
             from sjtu_tpmshx.design.report import write_xlsx          # CLI/UI 共用双 sheet
-            n_total, n_feas, n_det = write_xlsx(path, results)
+            partial = last.get('partial', False)
+            n_total, n_feas, n_det = write_xlsx(path, results, partial=partial)
             dlg._qd_status.setText(
-                f"已导出 → {path}  (构型汇总 {n_total}/可行 {n_feas} · "
+                f"{'已导出部分结果（已取消）' if partial else '已导出'} → {path}  (构型汇总 {n_total}/可行 {n_feas} · "
                 f"工况明细 {n_det} 行)")
         except Exception as exc:
             dlg._qd_status.setText(f"导出失败: {exc}")

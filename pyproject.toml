@@ -35,9 +35,13 @@ bo = ["torch>=2.2", "botorch>=0.10", "gpytorch>=1.11"]
 test = ["pytest>=8.0", "pytest-xdist>=3.5", "pytest-timeout>=2.3"]
 dev = ["ruff>=0.15", "mypy>=2.0"]
 tools = ["Markdown>=3.10"]
+desktop-build = ["pyinstaller==6.22.3"]
 
 [project.scripts]
 tpmshx-run = "sjtu_tpmshx.cli:main"
+
+[project.gui-scripts]
+tpmshx-gui = "sjtu_tpmshx.desktop:main"
 
 [tool.ruff]
 # Lint keeps the existing source formatting and checks error-level rules only.
@@ -87,4 +91,7 @@ sjtu_tpmshx = [
     "configs/*.json",
     "df_surrogate/_prebuilt/*.csv",
     "validation/*.meta.json",
+    "ui/assets/icons/*.svg",
+    "ui/assets/icons/LICENSE",
+    "ui/assets/icons/README.md",
 ]

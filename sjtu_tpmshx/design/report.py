@@ -63,14 +63,19 @@ def detail_rows(results) -> list:
         for d in results for pc in d.percase]
 
 
-def write_xlsx(path, results) -> tuple:
+def write_xlsx(path, results, *, partial=False) -> tuple:
     """写双 sheet。返回 (构型数, 可行数, 明细行数)。"""
     tags = pareto_tags(results)
+    if partial:
+        tags = {key: [f'已完成候选内 {tag}' for tag in value] for key, value in tags.items()}
     df_s = pd.DataFrame(summary_rows(results, tags))
     if not df_s.empty:
         df_s = df_s.sort_values(["可行", "V_L"], ascending=[True, True])
     det = detail_rows(results)
     df_d = pd.DataFrame(det) if det else pd.DataFrame([{"提示": "无可行构型"}])
+    if partial:
+        for frame in (df_s, df_d):
+            frame['任务状态'] = '已取消：部分候选，不代表完整搜索最优'
     with pd.ExcelWriter(path, engine="openpyxl") as xw:
         df_s.to_excel(xw, sheet_name="构型汇总", index=False)
         df_d.to_excel(xw, sheet_name="工况明细", index=False)

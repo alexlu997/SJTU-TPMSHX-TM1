@@ -107,3 +107,4 @@ sjtu_tpmshx/runs/_out/
 
 # Python packaging metadata (editable installs write into the source tree)
 *.egg-info/
+/build/

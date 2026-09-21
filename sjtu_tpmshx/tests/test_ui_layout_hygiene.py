@@ -87,12 +87,49 @@ def test_responsive_row_direction_flips():
 def test_empty_state_has_three_steps_and_preset(win):
     from PySide6.QtWidgets import QLabel
     box = getattr(win, "_empty_state_label", None)   # container since batch2
-    assert box is not None and box.isVisibleTo(win)
+    assert box is not None
+    assert not box.isVisibleTo(win)
+    assert win._canvas_cards['layout'].isVisibleTo(win)
+    assert 'layout' in win._drawn_tabs
     txt = " ".join(l.text() for l in box.findChildren(QLabel))
     for marker in (">1<", ">2<", ">3<", "计算"):
         assert marker in txt, f"empty state missing {marker!r}"
     btn = getattr(win, "_empty_state_preset_btn", None)
-    assert btn is not None and btn.isVisibleTo(win)
+    assert btn is not None and btn.isVisibleTo(box)
+
+
+def test_initial_geometry_skips_invalid_draft(win, monkeypatch):
+    original = win.le_L.text()
+    draws = []
+    monkeypatch.setattr(win, '_draw_layout', lambda: draws.append(True))
+    try:
+        for text in ('', 'bad', '-1', 'nan', 'inf'):
+            win.le_L.setText(text)
+            win._preview_initial_geometry()
+        assert not draws
+        win.le_L.setText(original)
+        win._preview_initial_geometry()
+        assert draws == [True]
+    finally:
+        win.le_L.setText(original)
+
+
+def test_geometry_labels_fit_narrow_workbench(win):
+    from PySide6.QtTest import QTest
+    win.resize(900, 800)
+    win._draw_layout()
+    QTest.qWait(100)
+    canvas = win.canvas_layout
+    canvas.draw()
+    renderer = canvas.get_renderer()
+    bounds = canvas.fig.bbox
+    for ax in canvas.fig.axes:
+        for label in (ax.xaxis.label, ax.yaxis.label, ax.zaxis.label, ax.title):
+            box = label.get_window_extent(renderer)
+            assert box.x0 >= bounds.x0 and box.x1 <= bounds.x1
+            assert box.y0 >= bounds.y0 and box.y1 <= bounds.y1
+    assert win._canvas_scroll.verticalScrollBar().maximum() == 0
+    win.resize(1600, 1000)
 
 
 def test_empty_state_preset_button_applies_shanghai(win):
@@ -451,8 +488,8 @@ def _ui_sources():
 
 
 def test_no_stray_card_radii():
-    """Card/control-level radii are 6px; 8/10/12px strays are regressions.
-    Pills (14/18) and micro-controls (1-3px on tiny elements) are exempt."""
+    """New card/control radii use theme tokens, not stray 8/10/12px literals.
+    Existing pills and micro-controls retain their proportional geometry."""
     import re
     bad = []
     for p, src in _ui_sources():

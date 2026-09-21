@@ -2,6 +2,16 @@
 from __future__ import annotations
 from .sizing import size_fixed_cell, RHO_S
 from .forward import K_STEEL
+from sjtu_tpmshx.domain.module_ports import RunControl
+from sjtu_tpmshx.domain.cancellation import CancelledError
+
+
+class SelectionCancelled(CancelledError):
+    """A stopped search retains fully evaluated candidates, never a partial solve."""
+
+    def __init__(self, results):
+        super().__init__('Design selection cancelled; completed candidates retained')
+        self.results = list(results)
 
 # 默认枚举网格 = 2 拓扑 × 5 l × 4 t = 40 构型。
 # 几何范围为 l=4–8 mm、t=0.3–0.6 mm；各流体 Nu、阻力模型的适用范围
@@ -10,7 +20,8 @@ NODES = {"topo": ["Diamond", "Gyroid"],
          "l": [4.0, 5.0, 6.0, 7.0, 8.0], "t": [0.3, 0.4, 0.5, 0.6]}
 
 def enumerate_select(cases, arrangement="cross", nodes=None, rho_s=RHO_S,
-                     n_jobs=1, k_s=K_STEEL, prop_model="const", height=None):
+                     n_jobs=1, k_s=K_STEEL, prop_model="const", height=None,
+                     control: RunControl | None = None):
     """枚举 {拓扑×l×t}, 各跑 size_fixed_cell, 取可行件 + min-V best。
     候选彼此独立 → n_jobs!=1 时用 joblib(loky 进程, 绕 GIL)跨候选并行
     (size_fixed_cell 为顶层函数, 可 pickle); n_jobs=1 走串行(确定性/测试)。
@@ -20,18 +31,32 @@ def enumerate_select(cases, arrangement="cross", nodes=None, rho_s=RHO_S,
     nd = nodes or NODES
     combos = [(topo, l, t) for topo in nd["topo"]
               for l in nd["l"] for t in nd["t"]]
-    if n_jobs == 1 or len(combos) <= 1:
-        results = [size_fixed_cell(cases, topo, l, t, arrangement,
-                                   rho_s=rho_s, k_s=k_s, prop_model=prop_model,
-                                   height=height)
-                   for topo, l, t in combos]
-    else:
-        from joblib import Parallel, delayed
-        results = Parallel(n_jobs=n_jobs, backend="loky")(
-            delayed(size_fixed_cell)(cases, topo, l, t, arrangement,
-                                     rho_s=rho_s, k_s=k_s, prop_model=prop_model,
-                                     height=height)
-            for topo, l, t in combos)
+    control = control or RunControl()
+    results = []
+    try:
+        control.check_cancelled()
+        if n_jobs == 1 or len(combos) <= 1:
+            for topo, l, t in combos:
+                control.check_cancelled()
+                results.append(size_fixed_cell(cases, topo, l, t, arrangement,
+                                               rho_s=rho_s, k_s=k_s, prop_model=prop_model,
+                                               height=height, control=control))
+        else:
+            from joblib import Parallel, delayed, effective_n_jobs
+            # Finish the active wave before honouring cancellation. Qt callbacks
+            # remain in this process; no queued candidates launch after that wave.
+            width = min(effective_n_jobs(n_jobs), len(combos))
+            with Parallel(n_jobs=n_jobs, backend="loky") as parallel:
+                for start in range(0, len(combos), width):
+                    control.check_cancelled()
+                    results.extend(parallel(
+                        delayed(size_fixed_cell)(cases, topo, l, t, arrangement,
+                                                 rho_s=rho_s, k_s=k_s, prop_model=prop_model,
+                                                 height=height)
+                        for topo, l, t in combos[start:start + width]))
+        control.check_cancelled()
+    except CancelledError as exc:
+        raise SelectionCancelled(results) from exc
     feasible = [d for d in results if d.feasible]
     best = min(feasible, key=lambda d: d.V) if feasible else None
     return results, best          # results = 全部候选 (含不可行, 供汇总表 40 行)

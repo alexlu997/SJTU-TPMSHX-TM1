@@ -29,6 +29,7 @@ from typing import Optional
 import numpy as np
 
 from sjtu_tpmshx.logutil import get_logger
+from sjtu_tpmshx.controllers.user_storage import optimization_output_dir
 
 _log = get_logger(__name__)
 
@@ -113,6 +114,7 @@ def _make_worker_class():
                     progress_cb=_cb,
                     n_jobs=n_jobs_inner,
                     evaluator_fn=self.evaluator_fn,
+                    cancel_check=self.isInterruptionRequested,
                 )
                 self.finished_with_result.emit(res)
             except Exception as e:
@@ -610,10 +612,12 @@ def run_optimize(window) -> None:
     # A fast double-click could therefore spawn two dialogs / two
     # workers. `_opt_launching` is set synchronously on entry and cleared
     # in `finally`, blocking the second click during the dialog window.
+    if getattr(window, '_close_pending', False):
+        return
     if getattr(window, '_opt_launching', False):
         _set_status(window, 'launch already in progress')
         return
-    if getattr(window, '_opt_worker', None) is not None and window._opt_worker.isRunning():
+    if getattr(window, '_opt_worker', None) is not None:
         _set_status(window, 'optimizer already running')
         return
     window._opt_launching = True
@@ -693,11 +697,9 @@ def run_optimize(window) -> None:
         _abort_launch(f"launch aborted — bad params payload: {_e}")
         return
 
-    save_dir = os.path.join(
-        'opt_runs',
-        f"qnehvi{'3d' if is_3d else ''}_{time.strftime('%Y%m%d_%H%M%S')}")
-
     try:
+        save_dir = str(optimization_output_dir() /
+                       f"qnehvi{'3d' if is_3d else ''}_{time.strftime('%Y%m%d_%H%M%S')}")
         Worker = _make_worker_class()
         worker = Worker(cfg, n_init, n_iter, q_batch, seed, save_dir,
                         evaluator_fn=evaluator_fn)
@@ -711,6 +713,8 @@ def run_optimize(window) -> None:
     window._opt_sl_is_hv = False
 
     def _on_progress(count, total, best_Q):
+        if getattr(window, '_close_pending', False):
+            return
         # Phase derived from count: first n_init evals are Sobol init, after
         # that we are inside the BO iteration loop.
         if count <= n_init:
@@ -738,33 +742,35 @@ def run_optimize(window) -> None:
             _push_sparkline(window, best_Q)
 
     def _on_done(res):
+        if getattr(window, '_close_pending', False):
+            return
         window._last_opt_result = res
         window._last_opt_cfg = deepcopy(res.get('config', cfg))
         window._selected_pareto_x = None
+        label = _termination_label(res)
         # Best Q + dP from the Pareto: highest Q point and lowest dP point
         if len(res['F']) > 0:
             Q_arr  = -res['F'][:, 0]
             dP_arr =  res['F'][:, 1]
             _set_kpi(window,
-                     gen=f"DONE ({res['n_evals']} evals)",
+                     gen=f"{label} ({res['n_evals']} evals)",
                      best_q=float(Q_arr.max()),
                      best_dp=float(dP_arr.min()),
-                     eta="✓")
+                     eta="—")
         else:
             # 2026-05-20 UI sweep: empty Pareto front used to leave KPI
             # stuck at the "starting" placeholder. Surface a DONE state
             # so the user knows the run finished (even if it produced no
             # non-dominated points).
             _set_kpi(window,
-                     gen=f"DONE ({res['n_evals']} evals)",
+                     gen=f"{label} ({res['n_evals']} evals)",
                      best_q="—",
                      best_dp="—",
-                     eta="✓")
-        _set_progress_pct(window, 100.0)
+                     eta="—")
+        _set_progress_pct(window, 100.0 * res['n_evals'] / max(1, window._opt_total_evals))
         _set_status(window,
-                    f"qNEHVI DONE: {len(res['X'])} Pareto / {res['n_evals']} evals "
+                    f"qNEHVI {label}: {len(res['X'])} Pareto / {res['n_evals']} evals "
                     f"→ {res['save_dir']}")
-        _toggle_buttons(window, running=False)
         try:
             show_pareto(window, res)
         except Exception as e:
@@ -775,9 +781,10 @@ def run_optimize(window) -> None:
             _log.warning(f"[optimize] save_opt_results failed: {e}")
 
     def _on_error(msg):
+        if getattr(window, '_close_pending', False):
+            return
         _set_status(window, f"qNEHVI ERROR: {msg}")
         _set_kpi(window, gen="ERROR", best_q="—", best_dp="—", eta="—")
-        _toggle_buttons(window, running=False)
         # 2026-05-20 UI sweep: previously the error path only touched
         # status + the GENERATION KPI cell, leaving stage pills frozen at
         # `running:active`, the summary banner stale from the prior run,
@@ -792,13 +799,14 @@ def run_optimize(window) -> None:
             _set_summary_banner(window, f"ERROR — {msg}", show=True)
         except Exception:
             pass
-        window._opt_worker = None
         # Release the reentrance latch in case the error fires before
         # worker.start() unblocked it (e.g. worker constructor raised).
         window._opt_launching = False
         _log.warning(f"[optimize] worker error: {msg}")
 
     def _on_hv(iter_idx, hv, hv_hist):
+        if getattr(window, '_close_pending', False):
+            return
         # Phase 2 — push HV trace to the sparkline (preferred) or surface as
         # status text. We push individual HV values so the sparkline's
         # internal ring buffer renders the trace incrementally.
@@ -830,11 +838,23 @@ def run_optimize(window) -> None:
         except Exception:
             pass
 
+    def _on_finished():
+        # QThread.finished precedes thread-local cleanup; wait(0) proves exit
+        # without blocking the GUI or dropping the still-running object.
+        if not worker.wait(0):
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(10, _on_finished)
+            return
+        window._opt_worker = None
+        _toggle_buttons(window, running=False)
+        worker.deleteLater()
+
     try:
         worker.progress_signal.connect(_on_progress)
         worker.hv_signal.connect(_on_hv)
         worker.finished_with_result.connect(_on_done)
         worker.error_signal.connect(_on_error)
+        worker.finished.connect(_on_finished)
         window._opt_worker = worker
         _toggle_buttons(window, running=True)
         _set_kpi(window, gen="starting", best_q="—", best_dp="—", eta="—")
@@ -870,9 +890,15 @@ def run_optimize(window) -> None:
 
 def cancel_optimize(window) -> None:
     """Request graceful cancel of the running optimizer."""
-    from sjtu_tpmshx.optimization.optimizer_qnehvi import request_cancel
-    request_cancel()
-    _set_status(window, 'cancel requested — stopping at next iteration boundary')
+    worker = getattr(window, '_opt_worker', None)
+    if worker is not None:
+        worker.requestInterruption()
+        _set_status(window, '正在取消 — 等待当前候选批次或模型拟合结束…')
+
+
+def _termination_label(res: dict) -> str:
+    return {'completed': '完成', 'cancelled': '已取消',
+            'plateau': '平台期提前结束'}.get(res.get('termination_reason', 'completed'), '结束')
 
 
 def show_pareto(window, res: dict) -> None:
@@ -882,6 +908,7 @@ def show_pareto(window, res: dict) -> None:
     Compute fields.
     """
     F_min = res['F']                  # (-Q, dP)  shape (P, 2)
+    label = _termination_label(res)
 
     # 2026-05-20 UI sweep: empty Pareto front guard. Previously the
     # closing banner's `Q.min() / Q.max()` would raise on an empty `F`,
@@ -895,11 +922,11 @@ def show_pareto(window, res: dict) -> None:
         _set_stage_pill(window, 'result',  'idle')
         try:
             _set_summary_banner(
-                window, "DONE — no Pareto points returned", show=True)
+                window, f"{label} — 无 Pareto 点", show=True)
         except Exception:
             pass
         try:
-            _set_kpi(window, gen="DONE", best_q="—", best_dp="—", eta="✓")
+            _set_kpi(window, gen=label, best_q="—", best_dp="—", eta="—")
         except Exception:
             pass
         # 2026-05-20 UI sweep (Tier 13, user re-audit): the prior version
@@ -996,7 +1023,7 @@ def show_pareto(window, res: dict) -> None:
     # Update the summary banner
     _set_summary_banner(
         window,
-        f"DONE — {len(res['X'])} Pareto points | "
+        f"{label} — {len(res['X'])} Pareto points | "
         f"Q range [{Q.min():.0f}, {Q.max():.0f}] W/m | "
         f"dP range [{dP.min():.0f}, {dP.max():.0f}] Pa")
 
@@ -1053,7 +1080,7 @@ def save_opt_results(window, res: dict, cfg: dict) -> None:
     except Exception as e:
         _set_status(window, f"results configuration could not be saved: {e}")
         return
-    _set_status(window, f'results saved → {save_dir}')
+    _set_status(window, f'{_termination_label(res)} · 结果已保存 → {save_dir}')
 
 
 def _result_field_config(window):

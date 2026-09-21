@@ -26,7 +26,8 @@ def test_frozen_b_temperature_remains_selectable_in_real_phase_controls():
         button.setCheckable(True)
     result = SimpleNamespace(fields={'Tb': np.full((2, 2, 2), 300.), 'dir_B': None})
     window = SimpleNamespace(_result_3d=result, _field_phase_seg=host,
-                             _field_phase_btns=buttons, _phase_styles=('', ''))
+                             _field_phase_btns=buttons, _phase_styles=('', ''),
+                             btn_update_geometry=QPushButton('更新几何', host))
     for tab in ('temp', 'pres', 'vel'):
         window._active_tab = tab
         window._field_phase = 1

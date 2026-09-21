@@ -27,7 +27,8 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QAbstractItemView,
 )
-from .theme import get_theme, get_theme_name
+from .theme import get_theme, get_theme_name, glass_surface, RADIUS_BTN, RADIUS_CARD
+from .icons import icon
 
 # Internal imports only — the Batch-2 re-export shim was removed in
 # refactor B1 (2026-06-12); import page builders from their source
@@ -39,10 +40,12 @@ from .builders_canvas import build_canvas_area
 
 
 def build_ui(window):
-    """Build the canvas-first workbench around the existing input widgets."""
+    """Build the engineering workbench around the existing input widgets."""
     from PySide6.QtCore import QSize, QPoint
-    from PySide6.QtWidgets import QMenu, QStyle
+    from PySide6.QtWidgets import QMenu
     from .field_factory import default_factory
+    from .responsive import ResponsiveRow
+    from .builders_base import MenuToolButton
 
     t = default_factory().theme
     theme = get_theme()
@@ -58,63 +61,88 @@ def build_ui(window):
     window._param_panel = params
     window._workbench_canvas = canvas
 
-    header = QWidget()
+    header = ResponsiveRow(threshold=1120, spacing=4)
     header.setObjectName('workbenchHeader')
-    header.setFixedHeight(56)
     header.setStyleSheet(
-        f"QWidget#workbenchHeader{{background:{theme['hdr_bg']};"
+        f"QWidget#workbenchHeader{{{glass_surface(theme)}"
+        "border:0; border-radius:0;"
         f"border-bottom:1px solid {theme['card_border']};}}")
-    row = QHBoxLayout(header)
-    row.setContentsMargins(16, 8, 12, 8)
+    header.layout().setContentsMargins(16, 8, 16, 8)
+    navigation = QWidget()
+    row = QHBoxLayout(navigation)
+    row.setContentsMargins(0, 0, 0, 0)
     row.setSpacing(8)
-    title = QLabel('SJTU-TPMSHX')
+    title = QLabel('SJTU · TPMSHX')
     title.setStyleSheet(
         f"color:{theme['fg']}; background:transparent; border:none;"
-        f"font-family:{theme['sans_family']}; font-size:16pt; font-weight:600;")
+        f"font-family:{theme['sans_family']}; font-size:15pt; font-weight:600;")
     row.addWidget(title)
     row.addSpacing(12)
-    row.addStretch(1)
     # Reparent these existing buttons; routing, shortcuts and Shift-click survive.
-    window.btn_tab_layout.setText('设置')
-    for button in (window.btn_tab_layout, window.btn_tab_result,
-                   window.btn_tab_pareto):
+    window.btn_tab_layout.setText('工况设置')
+    window.btn_tab_result.setText('场图结果')
+    window.btn_tab_pareto.setText('优化设计')
+    for button, name in ((window.btn_tab_layout, 'sliders'),
+                         (window.btn_tab_result, 'layers'),
+                         (window.btn_tab_pareto, 'box')):
         button.setFixedHeight(36)
+        button.setIcon(icon(name, theme['sub_fg']))
+        button.setIconSize(QSize(18, 18))
         row.addWidget(button)
     quick = QPushButton('快速设计')
     quick.setStyleSheet(window._PTAB_OFF)
     quick.setFixedHeight(36)
+    quick.setIcon(icon('activity', theme['sub_fg']))
+    quick.setIconSize(QSize(18, 18))
     quick.clicked.connect(window._open_quick_design)
     window.btn_quick_design = quick
     row.addWidget(quick)
     row.addStretch(1)
+    header.addWidget(navigation)
+    actions = QWidget()
+    action_row = QHBoxLayout(actions)
+    action_row.setContentsMargins(0, 0, 0, 0)
+    action_row.setSpacing(6)
+    action_row.addStretch(1)
+    header.addWidget(actions)
+    window._workbench_header = header
 
     menu_style = (
-        f"QMenu{{background:{theme['surface_elevated']}; color:{theme['fg']};"
-        f"border:1px solid {theme['card_border']}; padding:4px;}}"
-        "QMenu::item{padding:7px 18px;}"
+        f"QMenu{{{glass_surface(theme)} color:{theme['fg']}; padding:5px;}}"
+        f"QMenu::item{{padding:7px 18px; border-radius:{RADIUS_BTN}px;}}"
         f"QMenu::item:selected{{background:{theme['accent_primary']}; color:white;}}")
 
-    def menu_button(text):
-        button = QToolButton()
+    def menu_button(text, name):
+        button = MenuToolButton(t.style('BTN_TERTIARY'))
         button.setText(text)
-        button.setFixedHeight(34)
-        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        button.setStyleSheet(t.style('BTN_TERTIARY').replace('QPushButton', 'QToolButton'))
+        button.setIcon(icon(name, theme['sub_fg']))
         menu = QMenu(button)
         menu.setStyleSheet(menu_style)
         button.setMenu(menu)
-        row.addWidget(button)
+        action_row.addWidget(button, 0, Qt.AlignmentFlag.AlignVCenter)
         return button, menu
 
-    window.btn_recent, _ = menu_button('载入')
+    window.btn_recent, _ = menu_button('载入', 'folder-open')
     window.btn_recent.setToolTip('载入配置、预设或最近运行')
     window._rebuild_recent_menu()
-    window.btn_save, save_menu = menu_button('保存')
+    window.btn_save, save_menu = menu_button('保存', 'save')
     save_menu.addAction('保存配置文件…', window.save_config)
     save_menu.addAction('保存为预设…', window._save_current_as_preset)
-    window.btn_export.setFixedHeight(34)
-    row.addWidget(window.btn_export)
-    window.btn_more, more_menu = menu_button('更多')
+    action_row.addWidget(window.btn_export, 0, Qt.AlignmentFlag.AlignVCenter)
+    window.btn_more, more_menu = menu_button('更多', 'more-horizontal')
+    search = QToolButton()
+    search.setIcon(icon('search', theme['sub_fg']))
+    search.setIconSize(QSize(20, 20))
+    search.setFixedSize(36, 36)
+    search.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+    search.setAccessibleName('搜索命令')
+    search.setToolTip('搜索命令 (Ctrl+K)')
+    search.setStyleSheet(
+        t.style('BTN_TERTIARY').replace('QPushButton', 'QToolButton')
+        + 'QToolButton, QToolButton:focus{padding:0;}')
+    search.clicked.connect(lambda: window._command_palette_shortcut.activated.emit())
+    window.btn_command_search = search
+    action_row.addWidget(search, 0, Qt.AlignmentFlag.AlignVCenter)
 
     # These existing controls remain the state sources for session/theme actions.
     window.btn_workspace = QToolButton(header)
@@ -135,6 +163,9 @@ def build_ui(window):
     more_menu.addAction('切换工作区…', lambda: window.btn_workspace.menu().exec(
         window.btn_more.mapToGlobal(QPoint(0, window.btn_more.height()))))
     more_menu.addSeparator()
+    more_menu.addAction('收起 / 展开参数栏', window._toggle_left_panel)
+    more_menu.addAction('计算日志…', window._show_solve_log)
+    more_menu.addAction('诊断详情…', window._show_diag_dialog)
     more_menu.addAction('重置参数', window._reset_defaults)
     more_menu.addAction('帮助与快捷键', window.btn_help.click)
 
@@ -148,56 +179,68 @@ def build_ui(window):
     body.setContentsMargins(0, 0, 0, 0)
     body.setSpacing(0)
     rail = QFrame()
-    rail.setFixedWidth(64)
+    rail.setFixedWidth(56)
     rail.setStyleSheet(
         f"QFrame{{background:{theme['surface_raised']};"
-        f"border:none; border-right:1px solid {theme['card_border']};}}")
+        f"border:none; border-radius:{RADIUS_CARD}px;}}")
     rail_layout = QVBoxLayout(rail)
-    rail_layout.setContentsMargins(0, 12, 0, 8)
+    rail_layout.setContentsMargins(4, 8, 4, 8)
     rail_layout.setSpacing(6)
     rail_qss = (
         f"QToolButton{{background:transparent; color:{theme['sub_fg']};"
-        "border:none; border-left:3px solid transparent; font-size:10pt;}"
+        f"border:1px solid transparent; border-radius:{RADIUS_BTN}px; font-size:9pt;}}"
         f"QToolButton:checked{{background:{theme['btn_sec_hover_bg']};"
-        f"color:{theme['fg']}; border-left:3px solid {theme['accent_primary']};}}"
+        f"color:{theme['fg']}; border-color:{theme['card_border']};}}"
         f"QToolButton:hover{{background:{theme['surface_elevated']};}}"
         f"QToolButton:focus{{border:1px solid {theme['inp_focus']};}}"
         f"QToolButton:disabled{{color:{theme['tab_disabled_fg']};}}")
 
-    def nav_button(text, icon, action):
+    def nav_button(text, name, action):
         button = QToolButton()
         button.setText(text)
-        button.setIcon(window.style().standardIcon(icon))
-        button.setIconSize(QSize(22, 22))
+        button.setIcon(icon(name, theme['sub_fg']))
+        button.setIconSize(QSize(20, 20))
         button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
-        button.setFixedSize(64, 68)
+        button.setFixedSize(48, 52)
+        button.setAccessibleName(text)
+        button.setToolTip(text)
         button.setStyleSheet(rail_qss)
         button.clicked.connect(action)
         rail_layout.addWidget(button)
         return button
 
-    def show_inputs():
-        if getattr(window, '_left_collapsed', False):
+    window.btn_expand_parameters = nav_button('展开', 'panel-left-open', window._toggle_left_panel)
+    window._param_rail_btns = []
+    for i, (caption, name) in enumerate((('几何', 'box'), ('边界', 'arrow-right-left'),
+                                        ('求解', 'sliders'))):
+        def show_page(_checked=False, index=i):
             window._toggle_left_panel()
-        window._switch_tab('layout')
-    window._nav_inputs = nav_button('工况', QStyle.StandardPixmap.SP_FileDialogDetailedView, show_inputs)
-    window._nav_results = nav_button('场图', QStyle.StandardPixmap.SP_FileDialogContentsView,
-                                    lambda: window._switch_tab('result'))
-    window._nav_diagnostics = nav_button('诊断', QStyle.StandardPixmap.SP_MessageBoxInformation,
-                                        window._show_diag_dialog)
-    window._nav_inputs.setCheckable(True)
-    window._nav_results.setCheckable(True)
+            window._select_param_page(index)
+        button = nav_button(caption, name, show_page)
+        button.setCheckable(True)
+        window._param_rail_btns.append(button)
     rail_layout.addStretch(1)
+    nav_button('诊断', 'activity', window._show_diag_dialog)
+    rail.hide()
+    window._param_rail = rail
 
     def refresh_navigation():
-        active = getattr(window, '_active_tab', 'layout')
-        window._nav_inputs.setChecked(active == 'layout')
-        window._nav_results.setChecked(active in ('temp', 'pres', 'vel', '3d'))
-        window._nav_results.setEnabled(window.btn_tab_result.isEnabled())
-        window._nav_diagnostics.setEnabled(bool(getattr(window, '_has_results', False)))
+        for i, button in enumerate(window._param_rail_btns):
+            selected = i == getattr(window, '_param_page', 0)
+            button.setChecked(selected)
     window._refresh_workbench_navigation = refresh_navigation
     refresh_navigation()
-    body.addWidget(rail)
+
+    parameter_host = QWidget()
+    parameter_host.setMinimumWidth(320)
+    parameter_host.setMaximumWidth(520)
+    parameter_layout = QHBoxLayout(parameter_host)
+    parameter_layout.setContentsMargins(0, 0, 0, 0)
+    parameter_layout.setSpacing(0)
+    parameter_layout.addWidget(params)
+    parameter_layout.addWidget(rail)
+    window._parameter_host = parameter_host
+    window._param_width = 360
 
     splitter = QSplitter(Qt.Orientation.Horizontal)
     splitter.setHandleWidth(6)
@@ -206,11 +249,11 @@ def build_ui(window):
         f"QSplitter::handle:hover{{background:{theme['splitter_hover']};}}")
     splitter.setOpaqueResize(False)
     splitter.setChildrenCollapsible(False)
+    splitter.addWidget(parameter_host)
     splitter.addWidget(canvas)
-    splitter.addWidget(params)
-    splitter.setStretchFactor(0, 1)
-    splitter.setStretchFactor(1, 0)
-    splitter.setSizes([960, 360])
+    splitter.setStretchFactor(0, 0)
+    splitter.setStretchFactor(1, 1)
+    splitter.setSizes([360, 960])
     window._splitter = splitter
     body.addWidget(splitter, 1)
     root.addLayout(body, 1)
@@ -269,25 +312,24 @@ def build_param_tabs(window):
     t = f.theme
     _BG = t.style('BG')
 
-    # Canvas-tab styles: flat underline indicator instead of the older filled
-    # pill. Active tab shows a 2px accent bar along the bottom edge; hover on
-    # inactive tabs lightens the label without adding a second bar.
+    # Shared navigation chrome; identical box metrics prevent a tab or its
+    # neighbour moving when hover, keyboard focus or selection changes.
     _ts = get_theme()
     _accent = _ts['tab_on_bg']
     window._PTAB_ON  = (
-        f"QPushButton{{color:{_accent};"
-        "background:transparent; border:none;"
-        f"border-bottom:2px solid {_accent};"
-        "font-weight:600; font-size:11pt; padding:6px 12px 4px 12px;}")
+        f"QPushButton{{background:{_ts['surface_elevated']}; color:{_accent};"
+        f"border:1px solid {_ts['card_border']};"
+        f"border-radius:{RADIUS_BTN}px;"
+        "font-weight:600; font-size:11pt; padding:5px 11px;}"
+        f"QPushButton:focus{{border:2px solid {_ts['inp_focus']}; padding:4px 10px;}}")
     window._PTAB_OFF = (
         f"QPushButton{{color:{_ts['tab_off_fg']};"
-        "background:transparent; border:none;"
-        "border-bottom:2px solid transparent;"
-        "font-size:11pt; font-weight:normal; padding:6px 12px 4px 12px;}"
-        f"QPushButton:hover{{color:{_ts['fg']};"
-        f"border-bottom:2px solid {_ts['tab_off_border']};}}"
+        f"background:transparent; border:1px solid transparent; border-radius:{RADIUS_BTN}px;"
+        "font-size:11pt; font-weight:400; padding:5px 11px;}"
+        f"QPushButton:hover{{background:{_ts['surface_raised']}; color:{_ts['fg']};"
+        f"border-radius:{RADIUS_BTN}px;}}"
         f"QPushButton:focus{{color:{_ts['fg']};"
-        f"border-bottom:2px solid {_ts['inp_focus']};}}")
+        f"border:2px solid {_ts['inp_focus']}; padding:4px 10px;}}")
     # ★ fix #3 (2026-05-09) — disabled tabs explicitly drop bold + use a dimmer
     # foreground so the global QApplication Bold (Phase 3) doesn't make
     # disabled and enabled tabs visually identical.
@@ -297,9 +339,8 @@ def build_param_tabs(window):
     # yet legible on both palettes.
     window._PTAB_DISABLED = (
         f"QPushButton{{color:{_ts['tab_disabled_fg']};"
-        "background:transparent; border:none;"
-        "border-bottom:2px solid transparent;"
-        "font-size:11pt; font-weight:normal; padding:6px 12px 4px 12px;}")
+        f"background:transparent; border:1px solid transparent; border-radius:{RADIUS_BTN}px;"
+        "font-size:11pt; font-weight:400; padding:5px 11px;}")
 
     scroll = QScrollArea()
     scroll.setWidgetResizable(True)
@@ -327,8 +368,7 @@ def build_param_tabs(window):
         "QGroupBox::title {"
         f"  subcontrol-origin:margin; subcontrol-position:top left;"
         f"  left:0px; right:0px;"
-        f"  background:{_ts['card_bg']}; color:{_ts['fg']};"
-        f"  border-left:3px solid {_ts['group_accent']};"
+        f"  background:transparent; color:{_ts['fg']};"
         f"  border-bottom:1px solid {_ts['card_border']};"
         f"  border-top-left-radius:4px; border-top-right-radius:4px;"
         "  padding:6px 8px; min-height:20px;"
@@ -380,7 +420,7 @@ def build_param_tabs(window):
         ("流体", True,
          ['fluids_row', 'preview_btn']),
         ("网格与求解器", True,
-         ['grid_rect', 'mesh_poly', 'material', 'df_method', 'sco2_nu']),
+         ['grid_rect', 'mesh_poly', 'material', 'df_method', 'sco2_nu', 'compute_resources']),
         ("边界细节与高级", False,
          ['pipe_a', 'pipe_b', 'poly_pipe_label', 'poly_pipe_frame',
           'advanced_flags']),
@@ -462,26 +502,47 @@ def build_param_tabs(window):
     p_lay = QVBoxLayout(panel)
     p_lay.setContentsMargins(0, 0, 0, 0)
     p_lay.setSpacing(0)
-    title = QLabel('待计算配置')
+    panel_header = QHBoxLayout()
+    panel_header.setContentsMargins(16, 16, 12, 8)
+    title = QLabel('工况参数')
     title.setStyleSheet(
-        f"color:{_ts['fg']}; font-size:16pt; font-weight:600;"
-        "background:transparent; border:none; padding:16px 12px 8px 12px;")
-    p_lay.addWidget(title)
+        f"color:{_ts['fg']}; font-size:14pt; font-weight:600;"
+        "background:transparent; border:none;")
+    panel_header.addWidget(title, 1)
+    collapse = QPushButton('收起')
+    collapse.setIcon(icon('panel-left-close', _ts['sub_fg']))
+    collapse.setStyleSheet(t.style('BTN_TERTIARY'))
+    collapse.setToolTip('收起参数栏 (Ctrl+\\)')
+    collapse.clicked.connect(window._toggle_left_panel)
+    window.btn_collapse_parameters = collapse
+    panel_header.addWidget(collapse)
+    p_lay.addLayout(panel_header)
     tabs = QHBoxLayout()
     tabs.setContentsMargins(8, 0, 8, 8)
-    tabs.setSpacing(0)
+    tabs.setSpacing(4)
     window._param_page_by_group = {
         '几何与结构': 0, '流体': 1, '边界细节与高级': 1, '网格与求解器': 2,
     }
 
+    window._param_page_scroll = {}
     def select_page(index):
+        previous = getattr(window, '_param_page', None)
+        if previous is not None:
+            window._param_page_scroll[previous] = scroll.verticalScrollBar().value()
         window._param_page = index
         for name, group in window._accordion_groups.items():
             group.setVisible(window._param_page_by_group[name] == index)
         for i, button in enumerate(window._param_btns):
             button.setStyleSheet(window._PTAB_ON if i == index else window._PTAB_OFF)
             button.setChecked(i == index)
-        scroll.verticalScrollBar().setValue(0)
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(0, scroll, lambda: scroll.verticalScrollBar().setValue(
+            window._param_page_scroll.get(index, 0)) if window._param_page == index else None)
+        if hasattr(window, '_refresh_workbench_navigation'):
+            window._refresh_workbench_navigation()
+        if previous is not None and previous != index:
+            from .microanim import reveal
+            reveal(scroll.viewport())
 
     window._select_param_page = select_page
     window._param_scroll = scroll
@@ -494,7 +555,7 @@ def build_param_tabs(window):
         tabs.addWidget(button)
     p_lay.addLayout(tabs)
     p_lay.addWidget(scroll, 1)
-    select_page(1)
+    select_page(0)
 
     cta_bar = QWidget()
     cta_bar.setStyleSheet(
@@ -503,7 +564,8 @@ def build_param_tabs(window):
     cta_lay = QVBoxLayout(cta_bar)
     cta_lay.setContentsMargins(10, 8, 10, 8)
     # CJK mnemonics are useless — no '&'; Ctrl+R stays the shortcut.
-    btn_run = QPushButton("▶  计算")
+    btn_run = QPushButton("开始计算")
+    btn_run.setIcon(icon('play', 'white'))
     btn_run.setMinimumHeight(48)
     btn_run.setStyleSheet(t.style('BTN_PRIMARY'))
     btn_run.setToolTip("运行单点计算 (Ctrl+R)")

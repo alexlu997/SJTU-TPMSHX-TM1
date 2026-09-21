@@ -67,11 +67,8 @@ class DialogsMixin:
         v.addLayout(btn_row)
         dlg.exec()
 
-    # Note: _show_about (application and dependency versions)
-    # and _maybe_show_onboarding / _show_quick_tour (locate `.first_run_done`
-    # via __file__, which must stay anchored to main.py's directory) remain in
-    # main.py by design; _show_help_menu below self-dispatches to them via the
-    # MRO. The methods here are the dialogs with no main.py-module coupling.
+    # About and onboarding remain owned by main.py; the help menu dispatches
+    # to those methods through the window's MRO.
 
     _SHORTCUT_ROWS = (
         ("Command palette",        "Ctrl+K"),
@@ -91,7 +88,8 @@ class DialogsMixin:
         ("页签 — 结果",             "Ctrl+2"),
         ("页签 — 优化",             "Ctrl+3"),
         ("结果 2D|3D 切换",         "Ctrl+4"),
-        ("3D immersive toggle",    "F  (in 3D tab)"),
+        ("专注当前画布",            "F"),
+        ("收起/展开参数栏",          "Ctrl+\\"),
         ("Keyboard cheat sheet",   "Ctrl+?"),
         ("Compute button",         "Alt+C"),
         ("Reset button",           "Alt+R"),

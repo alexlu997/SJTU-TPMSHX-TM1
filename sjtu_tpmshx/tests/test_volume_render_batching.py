@@ -90,5 +90,5 @@ def test_initial_scene_defers_mesh_and_camera_render():
     plotter.show_bounds.assert_called_once()
     plotter.add_axes.assert_called_once()
     plotter.view_isometric.assert_called_once_with(render=False)
-    plotter.camera.zoom.assert_called_once_with(1.75)
+    plotter.camera.zoom.assert_not_called()
     plotter.render.assert_not_called()

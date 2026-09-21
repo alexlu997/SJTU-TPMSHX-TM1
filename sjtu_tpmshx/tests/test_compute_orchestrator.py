@@ -22,7 +22,7 @@ import pytest
 # Headless Qt for CI / non-GUI test environments.
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
-from PySide6.QtCore import QCoreApplication, QEventLoop
+from PySide6.QtCore import QCoreApplication, QEventLoop, QRunnable
 
 from sjtu_tpmshx.controllers.compute_orchestrator import ComputeOrchestrator, CancelToken
 
@@ -263,6 +263,86 @@ def test_terminal_state_is_queued_and_locked_through_publication(outcome):
     assert orch.current_mode() == '2d'
     if outcome == 'finished':
         assert orch.last_result() is result
+
+
+@pytest.mark.parametrize('outcome', ['finished', 'error', 'cancelled'])
+def test_compute_applies_launch_thread_count_and_restores_reused_pool_thread(outcome):
+    from sjtu_tpmshx.solvers.threads import (
+        get_solver_threads, max_threads, set_solver_threads,
+    )
+
+    if max_threads() < 2:
+        pytest.skip('Needs two distinct Numba masks to detect a missing handoff')
+    _make_app()
+    orch = ComputeOrchestrator()
+    orch._pool.setExpiryTimeout(-1)
+    original_gui_count = get_solver_threads()
+    seeded, ready, release, inspected = (threading.Event() for _ in range(4))
+    seen = {}
+    terminal = []
+    getattr(orch, outcome).connect(lambda *args: terminal.append(outcome))
+
+    def seed_pool_thread():
+        seen['pool_thread'] = threading.get_ident()
+        set_solver_threads(2)
+        seeded.set()
+
+    def worker(cfg, cancel, progress_cb):
+        seen['compute_thread'] = threading.get_ident()
+        seen['compute_count'] = get_solver_threads()
+        ready.set()
+        assert release.wait(3)
+        if outcome == 'error':
+            raise ValueError('thread-mask error path')
+        if cancel.is_set():
+            raise orch.CancelledError()
+        return {'ok': True}
+
+    def inspect_reused_pool_thread():
+        seen['restored_thread'] = threading.get_ident()
+        seen['restored_count'] = get_solver_threads()
+        inspected.set()
+
+    # Keep the probes on production's QRunnable subclass dispatch path;
+    # QRunnable.create uses a separate native callback bridge in PySide.
+    class Probe(QRunnable):
+        def __init__(self, callback):
+            super().__init__()
+            self.callback = callback
+
+        def run(self):
+            self.callback()
+
+    seed_probe = Probe(seed_pool_thread)
+    inspect_probe = Probe(inspect_reused_pool_thread)
+    try:
+        orch._pool.start(seed_probe)
+        assert seeded.wait(3)
+        set_solver_threads(1)
+        # The next-draft GUI setting can change before dispatch. This run
+        # must retain the count captured at start(), before started is emitted.
+        orch.started.connect(lambda mode: set_solver_threads(2))
+        assert orch.start('3d', worker, {})
+        assert ready.wait(3)
+        if outcome == 'cancelled':
+            orch.cancel()
+        release.set()
+        # Avoid waitForDone/is_idle here: Qt destroys pool threads when that
+        # wait completes. Inspect the still-live worker to verify restoration.
+        assert _wait_for(lambda: not orch.is_running()
+                         and orch._pool.activeThreadCount() == 0)
+        orch._pool.start(inspect_probe)
+        assert inspected.wait(3)
+        assert terminal == [outcome]
+        assert seen['compute_thread'] != threading.get_ident()
+        assert seen['pool_thread'] == seen['compute_thread'] == seen['restored_thread']
+        assert seen['compute_count'] == 1
+        assert seen['restored_count'] == 2
+        assert get_solver_threads() == 2
+    finally:
+        release.set()
+        orch._pool.waitForDone(5000)
+        set_solver_threads(original_gui_count)
 
 
 # ----------------------------------------------------------- ETA history

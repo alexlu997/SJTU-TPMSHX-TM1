@@ -49,12 +49,15 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   It is the sole production result mapper. The old 2D/3D mappings remain only
   as frozen test oracles for the real native-result integration comparison.
 - `ui/` owns PySide6 and PyVista presentation only.
-  Its canvas workbench reuses the existing parameter widgets in a right-hand
+  Its canvas workbench reuses the existing parameter widgets in a left-hand
   geometry/boundary/solver inspector. Field phase and 3D z-slice selections
   read the accepted result snapshot; draft edits do not replace that source.
   Figure exports follow the selected view, while CSV/NPZ exports retain the
-  complete result. `ui/typography.py` resolves local fonts for Qt, Matplotlib
-  and VTK without bundling font files or importing Qt into lower layers.
+  complete result. `ui/typography.py` uses native sans-serif fonts for Qt and
+  keeps publication fonts for Matplotlib/VTK, without bundling font files or
+  importing Qt into lower layers. Ordinary GUI computations capture the
+  launch thread's Numba mask and apply/restore it in the reused Qt worker;
+  optimization retains its independent process/thread resource policy.
 - `validation/` and `runs/` are executable research and verification tools,
   not alternative production implementations.
 
@@ -287,6 +290,12 @@ must finish before its next checkpoint; there is no forced thread termination
 or fixed wall-time cancellation guarantee. Cancelled runs do not publish results.
 
 ### UI structure
+
+Desktop preferences and session/history files use platform user directories,
+not the installed package. `controllers/user_storage.py` owns these paths and
+imports only missing, known legacy user files without deleting their originals.
+`desktop.py` configures writable caches before loading the GUI and supplies the
+installed entry point; standalone packaging is described in [desktop builds](desktop.md).
 
 - `ui/builders_canvas.py` assembles the visible geometry, result, and
   optimization workbench. `build_canvas_area()` only coordinates its named

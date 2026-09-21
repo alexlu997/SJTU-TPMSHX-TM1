@@ -58,7 +58,7 @@ class SessionPresetsMixin:
 
     def _save_user_presets(self, presets):
         """Persist user preset list. Delegates to SessionManager (P2.3)."""
-        self.sm.save_user_presets(presets)
+        return self.sm.save_user_presets(presets)
 
     def _resync_undo_baseline(self):
         """Reset the undo baseline (`_undo_last`) to the CURRENT text of
@@ -407,7 +407,9 @@ class SessionPresetsMixin:
         presets = self._load_user_presets()
         presets = [p for p in presets if p.get('name') != name]  # overwrite
         presets.append(self._capture_current_preset(name))
-        self._save_user_presets(presets)
+        if not self._save_user_presets(presets):
+            QMessageBox.warning(self, "预设未保存", "无法写入用户预设，当前输入保持不变。请检查用户数据目录。")
+            return
         self._rebuild_recent_menu()
         self.statusBar().showMessage(
             f"Saved preset: {name}.", 5000)
@@ -455,9 +457,12 @@ class SessionPresetsMixin:
         if cur == new:
             return
         try:
-            self._save_session()  # saves to the current workspace path
+            saved = bool(self._save_session())
         except Exception:
-            pass
+            saved = False
+        if not saved:
+            QMessageBox.warning(self, "会话未保存", "当前输入保存失败，已取消切换工作区。请先保存当前配置。")
+            return
         self._active_workspace = new
         # Tier 25: a workspace switch reloads a completely different input
         # set, so the current compute result belongs to the OLD workspace.
@@ -552,10 +557,16 @@ class SessionPresetsMixin:
         _tab = getattr(self, '_active_tab', 'layout')
         if _tab in ('temp', 'pres', 'vel', '3d', '2d_view'):
             _tab = 'result'
+        _collapsed = bool(getattr(self, '_left_collapsed', False))
+        _parameter_width = (getattr(self, '_param_width', 360) if _collapsed
+                            else self._parameter_host.width())
         payload['ui_state'] = {
             'active_tab': _tab,
-            'left_collapsed': bool(getattr(self, '_left_collapsed', False)),
+            'left_collapsed': _collapsed,
             'result_view': getattr(self, '_result_view', '2d'),
+            'parameter_width': max(320, min(520, _parameter_width)),
+            'parameter_page': getattr(self, '_param_page', 0),
+            'result_summary_visible': self.btn_result_summary.isChecked(),
         }
         # Window geometry + state (maximised, size, position). Store as
         # base64 so the JSON stays readable when the rest is inspected.
@@ -725,15 +736,25 @@ class SessionPresetsMixin:
         # button-disabled path (→ layout); no new fallback logic here.
         _ui = payload.get('ui_state') or {}
         try:
+            if getattr(self, '_3d_immersive', False):
+                self._toggle_3d_immersive()
             _rvw = _ui.get('result_view')
             if _rvw in ('2d', '3d'):
                 self._result_view = _rvw
                 _paint = getattr(self, '_paint_result_seg', None)
                 if _paint is not None:
                     _paint()
-            if bool(_ui.get('left_collapsed')) != bool(
-                    getattr(self, '_left_collapsed', False)):
-                self._toggle_left_panel()
+            _width = _ui.get('parameter_width', 360)
+            if isinstance(_width, (int, float)):
+                self._param_width = max(320, min(520, int(_width)))
+            # Apply the saved width before collapsing, so a current expanded
+            # panel cannot overwrite it with its construction-time width.
+            self._set_parameter_panel_collapsed(False)
+            self._set_parameter_panel_collapsed(bool(_ui.get('left_collapsed', False)))
+            _page = _ui.get('parameter_page', 0)
+            if _page in (0, 1, 2):
+                self._select_param_page(_page)
+            self.btn_result_summary.setChecked(bool(_ui.get('result_summary_visible', True)))
             _tab = _ui.get('active_tab')
             if _tab in ('layout', 'result', 'pareto') and \
                     _tab != getattr(self, '_active_tab', 'layout'):
