@@ -8,6 +8,13 @@ DF 表和 SVG 图标打包；不包含原始实验数据、研究输出、测试
 冻结桌面包的快速设计采用单进程串行候选搜索，避免子进程重复启动 GUI；
 源码运行保留现有并行路径。界面会显示实际执行方式。
 
+三维代码按 `vtkmodules` 定向导入；打包排除会加载全部 VTK 可选模块的旧
+`vtk` 聚合入口，保留 PyVista、体渲染、拾取、透明度和导出所需的实际依赖。
+更换 VTK/PyVista 版本后需重新核查导入闭包，并验证三维显示和图像/VTK 导出；
+不能只因某个二进制体积较大就手动删除它。
+Matplotlib 显式收集 Agg、QtAgg、SVG 和 PDF 后端，以覆盖界面和三种图像导出
+格式；只依靠静态导入分析会漏掉 `savefig` 动态选择的矢量后端。
+
 macOS 输出 `.app`，Windows 输出包含可执行文件及依赖的目录。构建必须在
 目标系统上进行，不能将本机 macOS 验证当作 Windows 安装验证。参见
 [PyInstaller 使用说明](https://pyinstaller.org/en/stable/usage.html)。
