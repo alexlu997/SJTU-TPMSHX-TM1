@@ -1,9 +1,8 @@
 import numpy as np
 
 from sjtu_tpmshx.models import sco2_props
-from sjtu_tpmshx.solvers.ltne_enthalpy_2d import (
-    solve_enthalpy_2d, solve_sco2_enthalpy_2d,
-)
+from sjtu_tpmshx.solvers.ltne_enthalpy_2d import solve_enthalpy_2d
+from sjtu_tpmshx.tests.enthalpy_2d_reference import solve_sco2_enthalpy_2d
 
 
 def test_fullface_counterflow_conserves_true_enthalpy():

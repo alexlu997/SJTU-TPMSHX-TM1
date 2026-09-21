@@ -12,8 +12,7 @@ API
 ``nu_vec(tpms, Re_arr, L_mm, D_h_mm, *, Re_floor=10)`` — vector path, air
 ``nu_water_topo(tpms, Re, Pr_water)`` — PRODUCTION water (per-topology direct
                                        water-CFD fit, WATER_NU_COEFFS)
-``nu_water_from_Re(tpms, Re, eps_f, L_mm, D_h_mm, Pr_water)`` — legacy Pr-sub
-                                       water (cross-check / test-only)
+Historical Pr-substitution and Yan comparisons live in tests/water_nu_reference.py.
 
 Roughness factor
 ----------------
@@ -134,17 +133,6 @@ def nu_vec(tpms_type, Re, L_mm, D_h_mm, *, Re_floor=10.0, Pr=Pr_AIR):
         tpms_type, Re_arr, L_mm, D_h_mm, Pr=Pr)
 
 
-def nu_water_from_Re(tpms_type, Re, eps_f, L_mm, D_h_mm, Pr_water):
-    """Water-side Nu via Pr-substitution onto the air-fit correlation
-    (Reynolds analogy, Dittus-Boelter / Sieder-Tate basis).
-
-    Legacy / cross-check only — NOT the production water path. Production
-    water Nu now uses ``nu_water_topo`` (per-topology direct water-CFD fit,
-    ``WATER_NU_COEFFS``). This function and ``nu_water_gyroid_yan6`` (Yan
-    [6] 2024) are retained for cross-check / test only.
-    """
-    return nu_from_Re(tpms_type, Re, eps_f, L_mm, D_h_mm) \
-           * (Pr_water / Pr_AIR) ** (1/3)
 
 
 # ── Topology-specific DIRECT water fits (design-tool lineage) ────────

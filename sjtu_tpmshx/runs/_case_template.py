@@ -36,7 +36,7 @@ def build_cfg(*, tpms_type: str = 'Gyroid', Lcell: float = 7.0,
     ``fluid_A_cfg`` / ``fluid_B_cfg`` default to full-face +x / -y
     crossflow derived from (L, H); pass a dict to override (partial BC).
     Any extra keyword lands verbatim in the cfg (``sweep_profile``,
-    ``partial_B_closure``, accel flags, …).
+    accel flags, …).
     """
     g = tpms_geometry(tpms_type, Lcell, t_wall, k_s)
     cfg = dict(

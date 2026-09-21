@@ -5,15 +5,22 @@
 忽略的 `.cache/`。下表中的 `python` 表示该解释器，不是系统 Python。
 公开计算入口与正式 Case/Result 文件交接仍见 README；这些工具不替代主线验收。
 
-MMS A3 自动报告默认输出至本库 `.cache/validation/mms_phase_a3_report.md`，
-可用 `--report` 指定其他位置；MMS 原始 CSV、阶数参考及其历史元数据继续保留。
+MMS A3/A4/B4 和 GCI 每次默认创建独立的 `.cache/validation/<工具>-<运行ID>/`，
+保存本次 CSV、报告与元数据；可用 `--out-dir` 指定输出目录。A3 另支持
+`--out_csv`、`--orders_csv`、`--report`，A4 支持前两项，B4 支持 `--out_csv`；
+显式相对文件路径按当前工作目录解析。`sjtu_tpmshx/validation/` 内的参考 CSV、
+阶数与历史元数据保留，工具在求解前拒绝向该目录写入，也拒绝指向它的符号链接。
+显式指定的其他输出目录可以复用；需要保留每次结果时使用默认独立目录。
+
+GCI 当前使用 T2 和 T4（偏置局部开口、无 B 侧实验修正）。历史 T4_H8 等实验入口
+已退役，不能用旧 H8 表证明当前 T4 的精度；详见[退役说明](history/retired-tools.md#b-侧局部开口实验修正退役2026-09-22)。
 
 | 工具 | 输入 → 输出 | 运行方式与状态 |
 | --- | --- | --- |
 | [examples/](../examples/) | 公开 JSON/YAML 配置 → Case/Result/metrics | README 真实 2D/3D CLI 示例；当前支持范围内的首次运行入口 |
 | [runs/smokes/](../sjtu_tpmshx/runs/smokes/) | 内置样例 → 控制台及脚本声明的诊断文件 | `python -m sjtu_tpmshx.runs.smokes.<模块名>`；GUI 无显示运行须用 `QT_QPA_PLATFORM=offscreen` |
 | [runs/demos/](../sjtu_tpmshx/runs/demos/) | 内置 3D 工况 → 控制台/可视化 | `python -m sjtu_tpmshx.runs.demos.<模块名>`；交互图形依赖桌面，示例不扩大支持域 |
-| [profile_compute](../benchmarks/profiling/profile_compute.py)、[profile_evaluator](../benchmarks/profiling/profile_evaluator.py) | 内置 nominal design → 同目录 `*_baseline.prof` / 文本 | `python -m benchmarks.profiling.profile_compute` 或 `profile_evaluator`；均测现有 2D screening evaluator，不是 GUI/full 模型或完整 BO |
+| [profile_compute](../benchmarks/profiling/profile_compute.py)、[profile_evaluator](../benchmarks/profiling/profile_evaluator.py) | 内置 nominal design → 每次独立 `.cache/profiling/compute-*` 或 `eval-*` 下的 `*_baseline.prof` / 文本 | `python -m benchmarks.profiling.profile_compute` 或 `profile_evaluator`；均测现有 2D screening evaluator，不是 GUI/full 模型或完整 BO |
 | [CFD 工况清单](../sjtu_tpmshx/runs/tools/asym_build_cfd_worklist_xlsx.py) → [nTop 表达式](../sjtu_tpmshx/runs/cfd_asym/asym_ntop_expressions_html.py) | 内置几何/流体 + 可选旧 `water-cfd-raw.xlsx` → XLSX → HTML | 顺序运行下方两条命令；两个工具共用输出目录。该旧工作簿目前存在；缺文件时 `r1_water_ref` 页保留跳过说明，不补造锚点 |
 | [asym CFD/诊断工具](../sjtu_tpmshx/runs/cfd_asym/)、[diagnostics/](../sjtu_tpmshx/runs/diagnostics/) | 脚本声明的几何、场/CFD 文件 → 研究结果 | `python -m sjtu_tpmshx.runs.<子目录>.<模块名>`；Fluent/vault 等外部依赖按各工具声明，未作为默认安装或本轮运行能力 |
 | [scripts/](../scripts/) | 固定服务器环境/测试选择 → 测试日志 | PowerShell/shell 平台入口；服务器地址、目录和已预置解释器按脚本参数设置，不自动安装依赖 |
@@ -23,6 +30,20 @@ MMS A3 自动报告默认输出至本库 `.cache/validation/mms_phase_a3_report.
 | [sCO2 CFD 基础 Nu 拟合](../sjtu_tpmshx/validation/sco2_cfd/fit_nu_sco2.py) | 原 CFD 表 → 基础式研究拟合、几何/压力留一结果 | `python -m sjtu_tpmshx.validation.sco2_cfd.fit_nu_sco2`；保留原数据清洗与验证，不自动覆盖现行有效系数；旧实验锚定工具已移至[历史入口](history/legacy-models.md#sco2-nu-旧锚定路线2026-09-20) |
 | [主计算测量](../sjtu_tpmshx/runs/tools/benchmark_main_compute.py) | 本地固定 `jobs` 清单（每项 `id/config`，可含 `reference/depth_m`）→ 每次运行独立的 Case/Result/metrics、日志和分段测量 | `python -m sjtu_tpmshx.runs.tools.benchmark_main_compute MANIFEST NEW_OUTPUT --warmup --repeat 5`；0=执行、状态及已声明流量检查通过，2=存在未合格结果，1=执行异常；不代表实验精度通过 |
 | [F2 容差计价](../sjtu_tpmshx/validation/cases/price_f2_convergence_3d.py) | 上海实验工况 → `reports/f2_pricing_3d_v2.csv` | `python -m sjtu_tpmshx.validation.cases.price_f2_convergence_3d --mom-tol 1e-3,1e-4,1e-5 --cases 1,8,16`；扫描 F2，输出仅本地保留；该工具使用其声明的全侧端口，不能代替局部端口主计算证据 |
+
+无求解 GUI 检查分别运行：
+
+```bash
+python -m sjtu_tpmshx.runs.smokes.smoke_ui_offscreen
+python -m sjtu_tpmshx.runs.smokes.smoke_ui_screenshots --output .cache/ui-smoke-screenshots
+```
+
+两者要求 Qt offscreen 平台，并使用 `.cache/` 下的临时会话和外观目录，退出后
+清理临时状态，不覆盖用户偏好。截图输出默认也在 `.cache/ui-smoke-screenshots`。
+必需控件/选项缺失、页面未切换成功、Qt 回调异常或窗口关闭失败均返回 1；截图
+保存失败同样返回 1。只有检查完成且无上述失败才打印 PASS、返回 0。截图包含
+主窗口、2D/3D 模式和优化页；没有计算结果时结果页只检查入口存在，不伪装成
+结果渲染验收。offscreen 检查不证明原生三维渲染、桌面交互帧率或数值正确性。
 
 主计算测量的时间以单调时钟记录；求解时间包含原生结果捕获，内部 SIMPLE 调用
 可能重叠，不能相加当作总耗时。RSS 每 0.5 秒通过本机 `ps` 采样，采集失败明确
@@ -124,6 +145,13 @@ python -m sjtu_tpmshx.runs.cfd_asym.asym_ntop_expressions_html
 `data/raw_data/cfd/water/water_DG_cfd_results_legacy.xlsx`，仅是此研究工具声明的
 旧 recipe 锚点；完整新旧名称见[数据目录](data-catalog.md)。正式离线流程要求的
 `Water-CFD/水数值模拟数据.xlsx` 仍缺失，两者不能互相替代。
+
+非对称 CFD 的两条 κ 研究路径使用不同分母：`ingest_cfd_kappa` 使用当前对称
+预测器，`asym_postproc_kappa` 使用配对 r=1 CFD 参考。不可把两者的 κ 数字直接
+混用；导入器按排序节点做分段线性插值，不保证数据本身单调或强制 r=1 锚点。
+注册表仅在本进程有效，显式调用 `kappa_KcF` 可做研究求值；它尚未接入正式
+求解准备流程，开启环境变量不会自动改变完整 2D/3D 或 GUI 计算。
+工单中的旧精度数字是历史参考，现行验证须另行记录版本、输入与结果。
 
 水 Nu 验证单独使用现存 legacy 表的实际质量流量、当前 N=128 几何和表内物性，
 重算速度、Re、Pr；参考值为 `mean(Core2_Nu, Core3_Nu) × Dh_current / Dh_excel`。

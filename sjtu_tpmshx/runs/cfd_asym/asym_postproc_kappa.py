@@ -8,11 +8,12 @@ internal-plane pressures filled in), then in one pass:
                (linear in [Um, Um²] → least squares → K = μ/a, c_F = b/ρ).
   2. κ self-ratio — per tpms divide by the SYMMETRIC (split_r==1) anchor:
                κ_K(r)  = K(r)  / K(r=1) ,   κ_cF(r) = c_F(r) / c_F(r=1) ,
-               r = ε_side / ε_sym  (κ-table axis; symmetric → r=1 → κ=1 exact).
-     Both numerator and denominator are CFD in the SAME recipe → mesh /
-     turbulence-model / smooth-wall / entrance-exit bias cancels. The experimental
-     baseline (predict_K_cF) stays the absolute anchor; κ is the geometry-only
-     correction applied on top:  K_asym = κ_K(r) · K_baseline.
+               r = ε_side / ε_sym (κ-table axis).
+     The denominator is the mean of all split_r≈1 fitted rows for that tpms;
+     individual symmetric rows need not equal their mean. Supply paired CFD
+     from the same recipe and geometry scale to study the relative effect;
+     common numerical/model biases are not guaranteed to cancel. This differs
+     from ingest_cfd_kappa, whose denominator is the symmetric model predictor.
 
 Input CSV columns (the contract PyFluent must emit — see asym_pyfluent_runner.py):
     tpms|lattice, split_r, side, Re, Um_m_s, rho, mu, Dh_m|Dh_mm,
@@ -21,13 +22,15 @@ Input CSV columns (the contract PyFluent must emit — see asym_pyfluent_runner.
 Output:
     <results>_kappa.csv               κ table (tpms, r, kappa_K, kappa_cF, ...)
     <results>_dffit.csv               per-(tpms,split,side) (K, c_F, kr)
-    optional: register into the live solver via kappa_asym.set_kappa_table.
+    optional: register in this Python process via kappa_asym.set_kappa_table.
+    Research callers can evaluate kappa_KcF(..., enabled=True) in that process.
+    Production preparation does not consume the table; no calibration is installed.
 
-Usage:  python -u runs/cfd_asym/asym_postproc_kappa.py results.csv [--register]
+Usage:  python -m sjtu_tpmshx.runs.cfd_asym.asym_postproc_kappa results.csv [--register]
 """
 from __future__ import annotations
 
-import sys
+import argparse
 from pathlib import Path
 
 import numpy as np
@@ -113,7 +116,11 @@ def kappa(fit: pd.DataFrame) -> pd.DataFrame:
 
 
 def register(kap: pd.DataFrame):
-    """Push κ_K(r), κ_cF(r) interp tables into the live solver (kappa_asym)."""
+    """Register piecewise linear tables in this process, with flat end values.
+
+    Supplied r≈1 values are retained; the outer κ helper separately
+    enforces symmetric identity. No monotonicity constraint is fitted here.
+    """
     from sjtu_tpmshx.df_surrogate import kappa_asym
     for tpms, g in kap.groupby("tpms"):
         g = g.sort_values("r")
@@ -122,7 +129,7 @@ def register(kap: pd.DataFrame):
 
         def _mk(rp, kp):
             rp = np.asarray(rp, float); kp = np.asarray(kp, float)
-            if not np.any(np.isclose(rp, 1.0)):           # ensure r=1→κ=1 anchor
+            if not np.any(np.isclose(rp, 1.0)):           # add a missing anchor
                 rp = np.append(rp, 1.0); kp = np.append(kp, 1.0)
             o = np.argsort(rp); rp, kp = rp[o], kp[o]
             keep = np.concatenate(([True], np.diff(rp) > 1e-9))
@@ -132,7 +139,9 @@ def register(kap: pd.DataFrame):
         kappa_asym.set_kappa_table(tpms, _mk(r, kK), _mk(r, kcF))
         print(f"[register] {tpms}: r∈[{r.min():.3f},{r.max():.3f}] "
               f"κ_K∈[{kK.min():.3f},{kK.max():.3f}] κ_cF∈[{kcF.min():.3f},{kcF.max():.3f}]")
-    print("[register] set env TPMSHX_ASYM_KAPPA=1 to activate in the 3D stack.")
+    print("[register] tables are local to this process; research callers can evaluate "
+          "kappa_KcF(..., enabled=True). Production preparation does not consume "
+          "these tables; no calibration was installed.")
 
 
 def main(results_csv: str, do_register: bool = False):
@@ -152,7 +161,8 @@ def main(results_csv: str, do_register: bool = False):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("usage: python -u runs/cfd_asym/asym_postproc_kappa.py results.csv [--register]")
-        sys.exit(1)
-    main(sys.argv[1], do_register="--register" in sys.argv[2:])
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('results_csv', help='Per-side/Re CFD rows, including internal-plane pressure drop.')
+    parser.add_argument('--register', action='store_true', help='Register only in this process; does not install a calibration.')
+    args = parser.parse_args()
+    main(args.results_csv, do_register=args.register)

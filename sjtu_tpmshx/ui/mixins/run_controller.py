@@ -5,8 +5,7 @@ points (run_calculation / _run_calculation_3d),
 the ComputeOrchestrator signal handlers (_on_orch_started / _progress /
 _finished / _error / _cancelled), and the compute-UI lifecycle helpers
 (_begin_compute_ui / _end_compute_ui / _on_cancel_compute /
-_active_compute_mode / _begin_btn_ticker / _tick_btn /
-_drain_live_residuals). 13 methods.
+_active_compute_mode / _begin_btn_ticker / _tick_btn).
 
 Result presentation (write_result / _finalize_plots /
 _update_result_summary / _diag_summary_text / _show_diag_dialog) moved
@@ -26,6 +25,7 @@ connections) resolves on the live window through the MRO.
 from __future__ import annotations
 
 import time as _time
+from time import perf_counter
 from copy import deepcopy
 from functools import partial
 
@@ -34,7 +34,6 @@ from PySide6.QtWidgets import QMessageBox
 from sjtu_tpmshx.ui.fmt import duration as _fmt_dur
 from sjtu_tpmshx.ui.icons import icon
 from sjtu_tpmshx.ui.ui_constants import VV_VELOCITY_LIMIT_MS, TOAST_MS_MED, TOAST_MS_SHORT
-from sjtu_tpmshx.ui.window_config import validate_domain_shape
 
 
 from sjtu_tpmshx.ui.compute_api_adapter import run as _run_pipeline
@@ -64,11 +63,6 @@ class RunControllerMixin:
         # E10 — pre-flight: if the user has any invalid fields flagged by
         # the inline validator, surface them together in a modal instead
         # of letting the solver hit them one at a time.
-        try:
-            validate_domain_shape(self)
-        except ValueError as error:
-            QMessageBox.warning(self, "不支持的计算域", str(error))
-            return
         if not self._validate_inputs_preflight():
             return
         # Grid-legality preflight — refined shape, inlet/outlet coverage,
@@ -105,10 +99,8 @@ class RunControllerMixin:
             QMessageBox.warning(self, "Invalid Input", str(e))
             return
 
-        live_residuals = {'A': [], 'B': []}
         from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
         worker = partial(_run_pipeline, pipeline_cls=Pipeline2D, ui_hooks={
-            'live_residuals': live_residuals,
             'iter_label_cb': self.compute.iteration.emit,
         })
 
@@ -119,7 +111,6 @@ class RunControllerMixin:
                 self, "Compute Busy",
                 "Compute orchestrator rejected start — already running.")
             return
-        self._live_residuals = live_residuals
         # Lifecycle now driven entirely by orchestrator signals; the legacy
         # threading.Thread + QTimer poll block is gone (~100 lines deleted).
         return
@@ -165,19 +156,12 @@ class RunControllerMixin:
         # BEFORE the try. Previously a parse failure (empty field, stray
         # unit text) left `Nz_u` undefined and the guard below raised
         # NameError — turning a bad-input case into a hard crash.
-        # U4 (2026-06-28): the cell estimate must honour the ACTUAL wall-refine
-        # setting. wall-refine adds 16 cells/axis; with it OFF (the default) the
-        # unconditional +16 inflated a 40^3=64000 grid to 56^3=175616 and popped
-        # a spurious 'Large 3D Grid' confirm whose message described an expansion
-        # that won't happen (the displayed label below was already refine-aware).
-        _refine_on = bool(getattr(self, 'chk_wall_refine_3d', None)
-                          and self.chk_wall_refine_3d.isChecked())
-        _pad = 16 if _refine_on else 0
+        # Desktop mesh counts include every cell, including port refinement.
         Nx_u = Ny_u = Nz_u = 0
         try:
             Nx_u = int(self.le_Nx.text()); Ny_u = int(self.le_Ny.text())
             Nz_u = int(self.le_Nz.text())
-            est_cells = (Nx_u + _pad) * (Ny_u + _pad) * (Nz_u + _pad)
+            est_cells = Nx_u * Ny_u * Nz_u
         except Exception:
             est_cells = 0
 
@@ -195,14 +179,8 @@ class RunControllerMixin:
                 "  • Increase Nz to 5 or more for a real 3D run (recommended).\n"
                 "  • Switch Dimensionality to 2D for single-layer homogeneous cases.")
             return False, 0, ''
-        # Large-grid warning. est_cells already reflects the actual refine
-        # setting (U4); the message only mentions the wall-refine expansion when
-        # it is actually on.
         if est_cells > 100_000:
-            _expand = (f"With user grid {Nx_u}x{Ny_u}x{Nz_u}, wall-refine "
-                       f"expands to ~{Nx_u+16}x{Ny_u+16}x{Nz_u+16}. "
-                       if _refine_on
-                       else f"User grid {Nx_u}x{Ny_u}x{Nz_u}. ")
+            _expand = f"User grid {Nx_u}x{Ny_u}x{Nz_u}. "
             # robustness-hardening (2026-07-03): give the user a RAM number
             # before they click Yes — ~50 float64 field arrays per solve
             # (u/v/w/P/T ×2 fluids + props + AMG hierarchies, empirical
@@ -220,11 +198,7 @@ class RunControllerMixin:
             if reply == QMessageBox.StandardButton.No:
                 return False, 0, ''
 
-        # Displayed cell count / label reuse the refine-aware _pad from above.
-        Nx_r, Ny_r, Nz_r = Nx_u + _pad, Ny_u + _pad, Nz_u + _pad
-        _cell_label = (f"refined {Nx_r}×{Ny_r}×{Nz_r}" if _refine_on
-                       else f"{Nx_r}×{Ny_r}×{Nz_r}")
-        return True, Nx_r * Ny_r * Nz_r, _cell_label
+        return True, est_cells, f"{Nx_u}×{Ny_u}×{Nz_u}"
 
     def _run_calculation_3d(self):
         """Threaded 3D solve → auto-switch to 3D View tab on success."""
@@ -374,6 +348,8 @@ class RunControllerMixin:
             card.title.setText("正在显示结果")
             card.cancel_button.setEnabled(False)
         success = False
+        published = False
+        display_started = perf_counter()
         try:
             provenance = getattr(self, '_run_provenance', None)
             if provenance is not None:
@@ -383,12 +359,20 @@ class RunControllerMixin:
                     for key in keys]
                 result.metadata['run_provenance'] = deepcopy(provenance)
             self.write_result(result)
+            published = True
             success = self._render_compute_result()
         except Exception as exc:
             import traceback
             traceback.print_exc()
             self.statusBar().showMessage(f"Result publication failed: {exc}", 12000)
         finally:
+            timings = result.metadata.setdefault('timings_s', {})
+            timings['display'] = perf_counter() - display_started
+            if published:
+                self._diag_summary['timings_s'] = dict(timings)
+            if published and result.diagnostics.get('mode') != '3d':
+                # The 2D presentation/export cache owns a metadata snapshot.
+                self._compute_results['metadata']['timings_s'] = dict(timings)
             try:
                 self._end_compute_ui(success=success)
             finally:
@@ -463,9 +447,6 @@ class RunControllerMixin:
             drawn = getattr(self, '_drawn_tabs', set())
             if _3d_vis_ok:
                 drawn.add('3d')
-            if getattr(self, '_rendered_3d_slices', False):
-                for k in ('temp', 'pres', 'vel'):
-                    drawn.add(k)
             self._drawn_tabs = drawn
             self._update_tab_visibility()
             if getattr(self, '_rendered_3d_slices', False):
@@ -630,26 +611,9 @@ class RunControllerMixin:
         empty-state hint in case it was still showing."""
         self.progress.show()
         self.progress.setValue(10)
-        # Reset + reveal the live residual sparkline. A timer drains the
-        # shared buffer every 300 ms while the compute thread runs.
-        self._live_residuals = {'A': [], 'B': []}
-        self._live_resid_cursors = {'A': 0, 'B': 0}
         card = getattr(self, '_run_status_card', None)
         if card is not None:
             card.start(self.compute.current_mode())
-        if hasattr(self, '_sb_live_resid'):
-            self._sb_live_resid.clear_data()
-            self._sb_live_resid.show()
-        if not hasattr(self, '_live_resid_timer'):
-            from PySide6.QtCore import QTimer as _QT_lr
-            t = _QT_lr(self)
-            # 120 ms poll (~8 Hz) — frequent enough that the sparkline
-            # tracks the solver within a frame-ish budget on a 144 Hz
-            # display, cheap enough that the drain is a no-op most ticks.
-            t.setInterval(120)
-            t.timeout.connect(self._drain_live_residuals)
-            self._live_resid_timer = t
-        self._live_resid_timer.start()
         # Cooperative cancel: clear the flag at compute start, then repurpose
         # the Compute button as a Cancel button. The worker polls
         # `_compute_cancel` at outer-iteration boundaries (the only safe
@@ -698,13 +662,17 @@ class RunControllerMixin:
         Called after terminal publication; stops the UI tickers and restores
         the Compute action. The orchestrator stays busy until its slots return.
         """
+        if success:
+            result = self.compute.last_result()
+            # Worker time includes validation/setup as well as the three phases.
+            # User interaction and queued delivery do not belong to compute time.
+            elapsed = self.compute.last_elapsed() + result.metadata['timings_s']['display']
+        else:
+            elapsed = _time.time() - getattr(self, '_compute_t0', _time.time())
         card = getattr(self, '_run_status_card', None)
         if card is not None:
-            self._drain_live_residuals()
-            elapsed = _time.time() - getattr(self, '_compute_t0', _time.time())
             message = ''
             if success:
-                result = self.compute.last_result()
                 notices = list(dict.fromkeys((*result.warnings, *result.extrap_reasons)))
                 view_missing = (self.compute.current_mode() == '3d'
                                 and not getattr(self, '_3d_view_ready', False))
@@ -757,23 +725,12 @@ class RunControllerMixin:
             _QT.singleShot(500, self.progress.hide)
             self._push_recent_run()
             self._update_result_summary()
-            # Record the elapsed wall-clock for the status bar clock.
-            t0 = getattr(self, '_compute_t0', None)
-            elapsed = None
-            if t0 is not None:
-                elapsed = _time.time() - t0
-                self._last_elapsed_s = elapsed
+            self._last_elapsed_s = elapsed
             self._refresh_status_bar()
             # D8 — stamp provenance tooltip on every result label so users
             # can trace "where did this number come from" without guessing.
-            self._stamp_result_provenance(elapsed or 0.0)
+            self._stamp_result_provenance(elapsed)
             # Stop the live-residual sparkline timer + hide widget.
-            lrt = getattr(self, '_live_resid_timer', None)
-            if lrt is not None:
-                lrt.stop()
-            if hasattr(self, '_sb_live_resid'):
-                self._sb_live_resid.hide()
-            self._live_resid_cursors = {'A': 0, 'B': 0}
             # Micro-anim polish: pulse the result chips + floating toast.
             try:
                 from sjtu_tpmshx.ui.microanim import pulse_glow, toast
@@ -784,10 +741,7 @@ class RunControllerMixin:
                     if chip is not None:
                         pulse_glow(chip,
                                     blur_peak=20, duration_ms=550)
-                if elapsed is not None:
-                    toast(self, f"Compute done · {_fmt_dur(elapsed)}", kind='success')
-                else:
-                    toast(self, "Compute done", kind='success')
+                toast(self, f"Compute done · {_fmt_dur(elapsed)}", kind='success')
                 # If the user is still on Geometry, pulse the visible result tab.
                 if getattr(self, '_active_tab', None) == 'layout':
                     nxt = self.btn_tab_result
@@ -798,12 +752,6 @@ class RunControllerMixin:
                 pass
         else:
             self.progress.hide()
-            lrt = getattr(self, '_live_resid_timer', None)
-            if lrt is not None:
-                lrt.stop()
-            if hasattr(self, '_sb_live_resid'):
-                self._sb_live_resid.hide()
-            self._live_resid_cursors = {'A': 0, 'B': 0}
 
     def _on_cancel_compute(self):
         """User clicked the Compute button while a solve was running, so it
@@ -829,11 +777,9 @@ class RunControllerMixin:
             6000)
 
     def _active_compute_mode(self):
-        """'2d' / '3d' / 'poly' depending on current UI selection. Used by
+        """'2d' / '3d' depending on current UI selection. Used by
         the ETA helper so 2D reheats don't skew 3D predictions."""
         try:
-            if hasattr(self, 'combo_shape') and self.combo_shape.currentIndex() > 0:
-                return 'poly'
             if hasattr(self, 'combo_dim') and self.combo_dim.currentIndex() == 1:
                 return '3d'
         except Exception:
@@ -873,27 +819,3 @@ class RunControllerMixin:
         # 500 ms tick when sub-second elapsed rounds to same string.
         if self.btn_compute.text() != new_text:
             self.btn_compute.setText(new_text)
-
-    def _drain_live_residuals(self):
-        """Drain new A/B samples on the existing 120 ms GUI timer.
-
-        The status bar retains its Fluid A sparkline; the expandable card
-        shows both actual streams without changing the worker callbacks.
-        """
-        buf = getattr(self, '_live_residuals', None) or {}
-        spark = getattr(self, '_sb_live_resid', None)
-        card = getattr(self, '_run_status_card', None)
-        if (spark is None and card is None) or not buf:
-            return
-        cursors = getattr(self, '_live_resid_cursors', {'A': 0, 'B': 0})
-        import math as _math_lr
-        for side in ('A', 'B'):
-            cursor = cursors[side]
-            new_items = (buf.get(side) or [])[cursor:]
-            cursors[side] = cursor + len(new_items)
-            if card is not None:
-                card.push_residuals(side, new_items)
-            if side == 'A' and spark is not None:
-                for _it, r in new_items:
-                    spark.push(_math_lr.log10(max(r, 1e-20)))
-        self._live_resid_cursors = cursors

@@ -24,20 +24,18 @@ Hard gates:
 - Interior L2 order_obs >= 1.8 (matches global A.3)
 - All L2 (g30) < 1.0%
 
-Output:
-  validation/mms_phase_a4_boundary.csv
-  validation/mms_phase_a4_orders.csv
+Each run writes mms_phase_a4_boundary.csv and mms_phase_a4_orders.csv in a
+new .cache/validation/mms_phase_a4-*/ directory (or --out-dir). Explicit file
+paths use the working directory; the recorded validation tables are read-only.
 """
 from __future__ import annotations
 import argparse
 import sys
 import warnings
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[2]
 try:
     sys.stdout.reconfigure(encoding='utf-8')
 except Exception:
@@ -45,7 +43,9 @@ except Exception:
 warnings.filterwarnings('ignore')
 
 from sjtu_tpmshx.validation.cases.mms_3d_air_air import run_mms, L_DOM
-from sjtu_tpmshx.validation.harness._provenance import write_csv_with_provenance
+from sjtu_tpmshx.validation.harness._provenance import (
+    write_csv_with_provenance, output_directory, output_path,
+)
 from sjtu_tpmshx.validation.harness._order_fit import fit_order_loglog
 from sjtu_tpmshx.validation.harness._mms_driver import run_grid_sequence
 
@@ -95,9 +95,20 @@ def main():
     ap.add_argument('--max_outer', type=int, default=2500)
     ap.add_argument('--inner', type=int, default=100)
     ap.add_argument('--alpha_f', type=float, default=0.7)
-    ap.add_argument('--out_csv', default='validation/mms_phase_a4_boundary.csv')
-    ap.add_argument('--orders_csv', default='validation/mms_phase_a4_orders.csv')
+    ap.add_argument('--out-dir', help='Output directory (default: new .cache/validation/mms_phase_a4-*/).')
+    ap.add_argument('--out_csv', help='Raw CSV path; relative paths use the working directory.')
+    ap.add_argument('--orders_csv', help='Order CSV path; reference tables cannot be overwritten.')
     args = ap.parse_args()
+    try:
+        for path in (args.out_csv, args.orders_csv):
+            if path is not None:
+                output_path(path)
+        out_dir = output_directory('mms_phase_a4', args.out_dir)
+        args.out_csv = output_path(args.out_csv or out_dir / 'mms_phase_a4_boundary.csv')
+        args.orders_csv = output_path(args.orders_csv or out_dir / 'mms_phase_a4_orders.csv')
+    except ValueError as exc:
+        ap.error(str(exc))
+    print(f'Output directory: {out_dir}')
 
     grids = [int(g) for g in args.grids.split(',')]
 
@@ -141,7 +152,7 @@ def main():
         _row, on_grid=_progress)
 
     df = pd.DataFrame(rows)
-    out_csv = ROOT / args.out_csv
+    out_csv = args.out_csv
     write_csv_with_provenance(df, out_csv, _SCRIPT_REL)
     print(f"\nRaw written: {out_csv}")
 
@@ -165,7 +176,7 @@ def main():
             print(f"  {region:<11} {phase:<6} {p:>7.3f} {r2:>7.4f} "
                   f"{l2_max:>11.3e}")
     order_df = pd.DataFrame(order_rows)
-    orders_csv = ROOT / args.orders_csv
+    orders_csv = args.orders_csv
     write_csv_with_provenance(order_df, orders_csv, _SCRIPT_REL)
     print(f"\nOrders written: {orders_csv}")
 

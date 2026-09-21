@@ -5,16 +5,17 @@ Run::
 
     python -m benchmarks.profiling.profile_evaluator
 
-Outputs:
-  - benchmarks/profiling/eval_baseline.prof (pstats binary)
-  - benchmarks/profiling/eval_baseline_top30.txt (text top-30 cumulative)
-  - benchmarks/profiling/eval_baseline_callees.txt (callee tree top-20)
+Outputs in a new .cache/profiling/eval-*/ directory per run:
+  - eval_baseline.prof (pstats binary)
+  - eval_baseline_top30.txt (text top-30 cumulative)
+  - eval_baseline_tottime.txt and eval_baseline_callees.txt
 
 Methodology:
   * Single 16-D decision vector at the fixed historical nominal geometry → "nominal design"
   * Uniform L = 6 mm, t = 0.4 mm (fixed historical workload)
   * Air/air screening domain 0.10 × 0.05 m, adaptive grid
-  * tol_simple loose (1e-2) to mimic BO inner; n_rho_loops=2 (single Picard)
+  * Historical tol_simple=1e-2 is retained but does not control F2 gates
+  * n_rho_loops=2 (screening density-coupling budget)
   * One warm-up, three profiled calls, then three wall-time calls
 """
 
@@ -24,6 +25,7 @@ import cProfile
 import pstats
 import io
 import time
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -31,7 +33,7 @@ import numpy as np
 from sjtu_tpmshx.optimization.evaluator import evaluate_design, DEFAULT_CONFIG
 from sjtu_tpmshx.models.screening import build_field
 
-OUT_DIR = Path(__file__).parent
+OUT_DIR = Path(__file__).resolve().parents[2] / '.cache' / 'profiling'
 N_REPEAT = 3
 
 
@@ -47,6 +49,9 @@ def _build_cfg() -> dict:
 
 def profile_workload(cfg, prefix, *, repeats, wall_repeats, callees):
     """Shared execution/reporting; each entry retains its own workload."""
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_dir = Path(tempfile.mkdtemp(prefix=f'{prefix}-', dir=OUT_DIR))
+    print(f'Output directory: {out_dir}')
     x_nom = _build_nominal_x()
     fc = build_field(x_nom, cfg)
     print(f"[profile-{prefix}] warm-up ...", flush=True)
@@ -64,7 +69,7 @@ def profile_workload(cfg, prefix, *, repeats, wall_repeats, callees):
         for _ in range(wall_repeats):
             evaluate_design(x_nom, cfg, fc)
         print(f"  avg wall per call: {(time.perf_counter()-started)/wall_repeats:.2f}s", flush=True)
-    stem = OUT_DIR / f'{prefix}_baseline'
+    stem = out_dir / f'{prefix}_baseline'
     profiler.dump_stats(str(stem) + '.prof')
     for suffix, sort, count in [('top30', 'cumulative', 30),
                                  ('tottime', 'tottime', 20),

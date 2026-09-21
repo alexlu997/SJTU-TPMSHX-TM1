@@ -67,9 +67,9 @@ def test_sco2_nu_unknown_topology_raises():
 
 
 # ── FluidModel primitives (CoolProp) ────────────────────────────────
-def test_sco2_fluidmodel_incompressible_phase_a():
+def test_sco2_fluidmodel_incompressible_adapter():
     m = fluid_props.get('sco2')
-    assert m.compressible is False              # Phase A: incompressible
+    assert m.compressible is False              # momentum adapter
     assert m.embeds_roughness is True           # do not stack the air roughness factor
     assert fluid_props.flow_model('sco2') == 'incompressible'
 
@@ -109,8 +109,8 @@ def test_compute_sco2_routes_sco2_nu():
 @pytest.mark.parametrize('T,P', [(279.9, 8e6), (700.1, 8e6),
                                   (300.0, np.nextafter(7.9e6, -np.inf)),
                                   (300.0, np.nextafter(16e6, np.inf))])
-def test_sco2_v1_property_envelope(T, P):
-    with pytest.raises(ValueError, match='sCO2 V1'):
+def test_sco2_property_envelope(T, P):
+    with pytest.raises(ValueError, match='sCO2 (temperature|pressure) must be within'):
         fluid_props.get('sco2').rho(T, P)
 
 

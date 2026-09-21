@@ -85,16 +85,16 @@ def _assert_3d_diagnostics(raw, diagnostics, *, frozen_B=False, audit=False):
     expected = _DIAGNOSTICS_3D
     none_keys = {'true_h_balance'}
     if frozen_B:
-        expected |= {'P_Pa_B', 'vmag_B', 'chi_B'}
-        none_keys |= {'P_Pa_B', 'vmag_B', 'chi_B', 'T_B_out', 'T_out_B', 'dir_B',
+        expected |= {'P_Pa_B', 'vmag_B'}
+        none_keys |= {'P_Pa_B', 'vmag_B', 'T_B_out', 'T_out_B', 'dir_B',
                       'eps_B_strict', 'eps_B_strict_cellmax', 'mass_flow_B_kg_s',
                       'model_h_balance'}
     if audit:
         expected |= _AUDIT_DIAGNOSTICS_3D
         if frozen_B:
-            expected |= {'_audit_chi_B', '_audit_in_mask_B',
+            expected |= {'_audit_in_mask_B',
                          '_audit_ltne_mask_B', '_audit_out_mask_B'}
-            none_keys |= {'_audit_chi_B', '_audit_in_mask_B', '_audit_ltne_mask_B',
+            none_keys |= {'_audit_in_mask_B', '_audit_ltne_mask_B',
                           '_audit_out_mask_B', '_audit_T_inB', '_audit_cp_B',
                           '_audit_fB', '_audit_m_dot_B_phys_in', '_audit_m_dot_B_phys_out',
                           '_audit_m_dot_B_simple', '_audit_sB_face', '_audit_u_B'}
@@ -133,7 +133,7 @@ def _assert_3d_diagnostics(raw, diagnostics, *, frozen_B=False, audit=False):
 @pytest.mark.parametrize('keys, missing', [
     pytest.param(_DIAGNOSTICS_2D, 'Q_total', id='2d'),
     pytest.param(_DIAGNOSTICS_3D, 'Q_total', id='3d'),
-    pytest.param(_DIAGNOSTICS_3D | {'P_Pa_B', 'vmag_B', 'chi_B'},
+    pytest.param(_DIAGNOSTICS_3D | {'P_Pa_B', 'vmag_B'},
                  'P_Pa_B', id='3d-none-placeholder'),
 ])
 def test_diagnostic_contract_rejects_joint_field_loss(keys, missing):
@@ -416,6 +416,14 @@ def test_native_result_reaches_gui_diagnostics_and_display_cache(native_result):
             np.testing.assert_array_equal(window._compute_results[name], fields.fields[name])
             np.testing.assert_array_equal(window._compute_results[name + '_disp'],
                                           fields.fields.get(name + '_display'))
+
+
+def test_diagnostic_text_includes_recorded_stage_seconds():
+    from sjtu_tpmshx.ui.mixins.run_results import RunResultsMixin
+    window = SimpleNamespace(_diag_summary={'timings_s': {
+        'prepare': 0.125, 'solve': 12.5, 'postprocess': 0.25, 'display': 0.375}})
+    text = RunResultsMixin._diag_summary_text(window)
+    assert '阶段耗时：准备 0.125 s · 求解 12.500 s · 后处理 0.250 s · 显示 0.375 s' in text
 
 
 def test_mapping_keeps_recorded_state_after_producer_drafts_change(native_result):

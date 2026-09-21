@@ -1,8 +1,8 @@
 """流体分派 (design 工具薄适配层, B1 1.1 单源化后)。
 
 物性原语与水侧拓扑专属 Nu 系数现单源于 models 层
-(``solvers.fluid_props.FLUIDS`` 注册表 + ``solvers.nu_correlations``);
-本模块只保留 design 工具的便捷接口与历史别名, 不再自带任何数据。
+(``models.fluid_props`` 注册表 + ``models.nu_correlations``);
+本模块提供 design 工具的便捷接口，不重复定义物性数据。
 """
 from __future__ import annotations
 from dataclasses import dataclass
@@ -18,12 +18,10 @@ from sjtu_tpmshx.models.nu_correlations import (
     nu_sco2_topo,
 )
 
-YAN_RE_RANGE = WATER_NU_RE_RANGE        # 向后兼容别名 (旧名, 现已非 Yan)
-
 
 def nu_re_window(fluid: str):
     """该流体 Nu 关联式的验证 Re 域 (lo, hi)。域外 = 外推, 低置信。
-    air → 项目幂律拟合窗 (400,16000); water → 拓扑专属 (100,50000);
+    air → 项目幂律拟合窗 (400,16000); water → 拓扑专属 (90,51000);
     sco2 → 光滑壁单胞 CFD 拟合 (2600,128000), Diamond+Gyroid
     (2026-07-15, 局部体物性 Re_b 覆盖; 失效带见 nu_correlations)。"""
     if fluid == "water":
@@ -39,8 +37,8 @@ class Props:
 
 
 def fluid_props(fluid: str, T_K: float, P_Pa: float) -> Props:
-    # Always forward P: air/water primitives ignore it (value-identical to the
-    # old T-only calls), sco2 REQUIRES it (real-gas). Fixes sco2 crash here.
+    # Absolute pressure enters air density and sCO2 properties. Current water
+    # property primitives and the other air correlations depend on T only.
     m = _registry.get(fluid)            # raises ValueError on unknown
     rho = m.rho(T_K, P_Pa); mu = m.mu(T_K, P_Pa)
     k = m.k(T_K, P_Pa); cp = m.cp(T_K, P_Pa)

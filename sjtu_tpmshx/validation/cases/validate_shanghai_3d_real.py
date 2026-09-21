@@ -42,7 +42,7 @@ from sjtu_tpmshx.solvers.simple_solver_3d import SIMPLESolver3D
 from sjtu_tpmshx.solvers.ltne_energy_3d import (solve_full_domain_3d, _inlet_transport_3d,
                                      energy_balance_3d, mass_balance_3d)
 from sjtu_tpmshx.df_surrogate.predict import predict_K_cF
-from sjtu_tpmshx.solvers.roughness import (f_enhancement, nu_extra_factor,
+from sjtu_tpmshx.models.roughness import (f_enhancement, nu_extra_factor,
                                  apply_to_K_cF, resolve_mode_from_env)
 
 R_AIR = 287.05
@@ -130,7 +130,7 @@ def _build_grid(Nx_u, Ny_u, Nz_u, wall_refine=False, spec=None):
     """Build (dx, dy, dz, Nx, Ny, Nz). Optional six-wall refinement."""
     spec = SPEC if spec is None else spec
     if wall_refine:
-        from sjtu_tpmshx.solvers.df_projection import build_master_refined_grid_3d
+        from sjtu_tpmshx.models.grid import build_master_refined_grid_3d
         dx, dy, dz, Nx, Ny, Nz = build_master_refined_grid_3d(
             spec.L_dom_m, spec.H_dom_m, spec.Lz_m, Nx_u, Ny_u, Nz_u,
             n_refine=8, first_cell=0.02e-3)
@@ -534,7 +534,7 @@ def _run_one_case_pipeline(ci, df, Nx_u, Ny_u, Nz_u, spec=None,
     # made `valid_mask` below (and therefore the pressure-invalid exclusion the
     # RMSRE口径 depends on) a permanent no-op on this branch — the exact
     # "silent exclusion" the main() comment forbids. envelope_valid is the
-    # post-solve gate verdict (Mach + positive-pressure, solvers/envelope.py);
+    # post-solve gate verdict (Mach + positive-pressure, models/envelope.py);
     # p_clip_hits is the lifetime P_abs-clip counter summed over both sides.
     _diag = result.diagnostics or {}
     _env_valid = bool(_diag.get('envelope_valid', True))

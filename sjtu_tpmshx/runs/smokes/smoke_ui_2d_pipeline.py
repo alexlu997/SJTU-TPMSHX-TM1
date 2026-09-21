@@ -1,48 +1,50 @@
-"""runs/smoke_ui_2d_pipeline.py — offscreen end-to-end 2D compute smoke.
+"""Run a real 2D GUI compute offscreen with isolated user state.
 
-Added with the B2 2.1b traffic switch (2026-06-13): boots Main_Menu
-offscreen, auto-fills both fluids, forces 2D mode and drives the REAL
-Compute path (run_calculation → ComputeOrchestrator worker → Pipeline2D
-→ write_result → finalize_plots). Asserts results + render caches land.
-
-All modals are auto-accepted — including INSTANCE QMessageBox(...).exec()
-(main._preflight_grid), which a class-method patch alone does not catch;
-that exact gap hung the first version of this smoke for 20 minutes.
+Verifies current result fields and temperature plotting after worker publication.
+Run from the repository root with ``python -m
+sjtu_tpmshx.runs.smokes.smoke_ui_2d_pipeline``. This is a wiring smoke, not a
+mesh-independence or experimental-accuracy check.
 """
 import time
 
-from sjtu_tpmshx.runs import _smoke_boot   # sets QT_QPA=offscreen BEFORE any Qt import
+import numpy as np
+
+from sjtu_tpmshx.runs import _smoke_boot
+from sjtu_tpmshx.runs.smokes.smoke_ui_offscreen import _smoke_window
 
 
 def main():
-    app = _smoke_boot.get_app()
     _smoke_boot.patch_modals()
-    from sjtu_tpmshx.main import Main_Menu
-    win = Main_Menu()
-    app.processEvents()
+    with _smoke_window() as (app, win):
+        win.combo_dim.setCurrentIndex(0)
+        win.combo_grid.setCurrentIndex(win.combo_grid.findData(False))
+        win.le_Nx.setText('16'); win.le_Ny.setText('24')
+        win.auto_fill_fluid_a(); win.auto_fill_fluid_b()
+        app.processEvents()
+        print('[1/3] autofill OK', flush=True)
 
-    win.combo_dim.setCurrentIndex(0)            # force 2D
-    win.le_Nx.setText('16'); win.le_Ny.setText('24')
-    win.auto_fill_fluid_a(); win.auto_fill_fluid_b()
-    app.processEvents()
-    print('[1/3] autofill OK', flush=True)
+        win.run_calculation()
+        assert win.compute.is_running(), 'orchestrator did not start'
+        print('[2/3] compute started (Pipeline2D worker)', flush=True)
+        t0 = time.monotonic()
+        while win.compute.is_running() and time.monotonic() - t0 < 600:
+            app.processEvents(); time.sleep(0.05)
+        app.processEvents()
+        assert not win.compute.is_running(), '2D smoke timed out'
+        assert win._compute_error is None, f'worker error: {win._compute_error}'
 
-    win.run_calculation()
-    assert win.compute.is_running(), 'orchestrator did not start'
-    print('[2/3] compute started (Pipeline2D worker)', flush=True)
-    t0 = time.time()
-    while win.compute.is_running() and time.time() - t0 < 600:
-        app.processEvents(); time.sleep(0.05)
-    app.processEvents(); time.sleep(0.3); app.processEvents()
-
-    r = win._compute_results
-    assert r is not None and r.get('Ta') is not None, 'no results written'
-    assert r['Q_total'] > 0, f"non-physical Q_total {r['Q_total']!r}"
-    assert win.T_fA is not None and win.T_fA.ndim == 3, 'T_fA cache missing'
-    assert win._compute_error is None, f"worker error: {win._compute_error}"
-    print(f"[3/3] PASS in {time.time()-t0:.0f}s — "
-          f"Q={r['Q_total']:.1f} W  dP_A={r['dP_A']:.0f} Pa  "
-          f"dP_B={r['dP_B']:.0f} Pa  T_fA{win.T_fA.shape}", flush=True)
+        result = win._compute_results
+        assert result and result.get('Ta') is not None, 'no results written'
+        shape = (result['N_x'], result['N_y'])
+        for name in ('Ta', 'Tb', 'Ts'):
+            values = result[name]
+            assert values.shape == shape and np.isfinite(values).all(), name
+        assert result['Q_total'] > 0, f"non-physical Q_total {result['Q_total']!r}"
+        assert 'temp' in win._drawn_tabs and win.canvas_temp._hover_data
+        summary = (f"[3/3] PASS in {time.monotonic()-t0:.0f}s — "
+                   f"Q={result['Q_total']:.1f} W/m  dP_A={result['dP_A']:.0f} Pa  "
+                   f"dP_B={result['dP_B']:.0f} Pa  Ta{shape}")
+    print(summary, flush=True)
 
 
 if __name__ == '__main__':

@@ -355,7 +355,6 @@ def _gs_full_chunk_3d_stag(Ta, Tb, Ts, Nx, Ny, Nz,
                             ifrac_A, ifrac_B,
                             n_iters, freeze_Tb,
                             alpha_fA, alpha_s, alpha_fB,
-                            chi_B_arr, chi_B_kernel_threshold,
                             mms_S_A_arr, mms_S_B_arr, mms_S_s_arr,
                             conservative, inlet_flux_A=None, inlet_flux_B=None,
                             model_mass_A=None, model_mass_B=None,
@@ -572,125 +571,116 @@ def _gs_full_chunk_3d_stag(Ta, Tb, Ts, Nx, Ny, Nz,
 
                     # ── Fluid B ── (stag kernel)
                     if freeze_Tb == 0:
-                        if chi_B_arr[i, j, k] < chi_B_kernel_threshold:
-                            # H6 ghost-skip: at low-participation cells, leave
-                            # Tb at its init value (T_inB throughout). Prevents
-                            # stagnant cells from relaxing to local Ts via h_v
-                            # and then leaking that hot value into the active
-                            # flow channel via 1st-order upwind. Necessary for
-                            # offset partial-B cross-flow (T4 Shanghai-like).
-                            pass
-                        else:
-                            vol_b = dxi * dyj * dzk
-                            Kc_b = K_ffB_arr[i, j, k]
-                            hvB = h_vB_arr[i, j, k] * vol_b
+                        vol_b = dxi * dyj * dzk
+                        Kc_b = K_ffB_arr[i, j, k]
+                        hvB = h_vB_arr[i, j, k] * vol_b
 
-                            # Face spacing for B (stag) — same as A
-                            dxe_b = 0.5 * (dxi + dx_arr[i+1]) if i < Nx-1 else dxi
-                            dxw_b = 0.5 * (dx_arr[i-1] + dxi) if i > 0    else dxi
-                            dyn_b = 0.5 * (dyj + dy_arr[j+1]) if j < Ny-1 else dyj
-                            dys_b = 0.5 * (dy_arr[j-1] + dyj) if j > 0    else dyj
-                            dzt_b = 0.5 * (dzk + dz_arr[k+1]) if k < Nz-1 else dzk
-                            dzb_b = 0.5 * (dz_arr[k-1] + dzk) if k > 0    else dzk
-                            dEb = 2.0*Kc_b*K_ffB_arr[i+1, j, k]/(Kc_b+K_ffB_arr[i+1, j, k]+1e-30)*Ax/dxe_b if i < Nx-1 else 0.0
-                            dWb = 2.0*Kc_b*K_ffB_arr[i-1, j, k]/(Kc_b+K_ffB_arr[i-1, j, k]+1e-30)*Ax/dxw_b if i > 0 else 0.0
-                            dNb = 2.0*Kc_b*K_ffB_arr[i, j+1, k]/(Kc_b+K_ffB_arr[i, j+1, k]+1e-30)*Ay/dyn_b if j < Ny-1 else 0.0
-                            dSb = 2.0*Kc_b*K_ffB_arr[i, j-1, k]/(Kc_b+K_ffB_arr[i, j-1, k]+1e-30)*Ay/dys_b if j > 0 else 0.0
-                            dTb_ = 2.0*Kc_b*K_ffB_arr[i, j, k+1]/(Kc_b+K_ffB_arr[i, j, k+1]+1e-30)*Az/dzt_b if k < Nz-1 else 0.0
-                            dBb = 2.0*Kc_b*K_ffB_arr[i, j, k-1]/(Kc_b+K_ffB_arr[i, j, k-1]+1e-30)*Az/dzb_b if k > 0 else 0.0
+                        # Face spacing for B (stag) — same as A
+                        dxe_b = 0.5 * (dxi + dx_arr[i+1]) if i < Nx-1 else dxi
+                        dxw_b = 0.5 * (dx_arr[i-1] + dxi) if i > 0    else dxi
+                        dyn_b = 0.5 * (dyj + dy_arr[j+1]) if j < Ny-1 else dyj
+                        dys_b = 0.5 * (dy_arr[j-1] + dyj) if j > 0    else dyj
+                        dzt_b = 0.5 * (dzk + dz_arr[k+1]) if k < Nz-1 else dzk
+                        dzb_b = 0.5 * (dz_arr[k-1] + dzk) if k > 0    else dzk
+                        dEb = 2.0*Kc_b*K_ffB_arr[i+1, j, k]/(Kc_b+K_ffB_arr[i+1, j, k]+1e-30)*Ax/dxe_b if i < Nx-1 else 0.0
+                        dWb = 2.0*Kc_b*K_ffB_arr[i-1, j, k]/(Kc_b+K_ffB_arr[i-1, j, k]+1e-30)*Ax/dxw_b if i > 0 else 0.0
+                        dNb = 2.0*Kc_b*K_ffB_arr[i, j+1, k]/(Kc_b+K_ffB_arr[i, j+1, k]+1e-30)*Ay/dyn_b if j < Ny-1 else 0.0
+                        dSb = 2.0*Kc_b*K_ffB_arr[i, j-1, k]/(Kc_b+K_ffB_arr[i, j-1, k]+1e-30)*Ay/dys_b if j > 0 else 0.0
+                        dTb_ = 2.0*Kc_b*K_ffB_arr[i, j, k+1]/(Kc_b+K_ffB_arr[i, j, k+1]+1e-30)*Az/dzt_b if k < Nz-1 else 0.0
+                        dBb = 2.0*Kc_b*K_ffB_arr[i, j, k-1]/(Kc_b+K_ffB_arr[i, j, k-1]+1e-30)*Az/dzb_b if k > 0 else 0.0
 
-                            uB_e = ufB[i+1, j, k]
-                            uB_w = ufB[i, j, k]
-                            vB_n = vfB[i, j+1, k]
-                            vB_s = vfB[i, j, k]
-                            wB_t = wfB[i, j, k+1]
-                            wB_b = wfB[i, j, k]
+                        uB_e = ufB[i+1, j, k]
+                        uB_w = ufB[i, j, k]
+                        vB_n = vfB[i, j+1, k]
+                        vB_s = vfB[i, j, k]
+                        wB_t = wfB[i, j, k+1]
+                        wB_b = wfB[i, j, k]
 
-                            rcpB_c = rho_cp_fB[i,j,k]; efB_c = eps_fB_arr[i,j,k]
-                            rcpB_e = 0.5*(rcpB_c + rho_cp_fB[i+1,j,k]) if i < Nx-1 else rcpB_c
-                            rcpB_w = 0.5*(rho_cp_fB[i-1,j,k] + rcpB_c) if i > 0 else rcpB_c
-                            rcpB_n = 0.5*(rcpB_c + rho_cp_fB[i,j+1,k]) if j < Ny-1 else rcpB_c
-                            rcpB_s = 0.5*(rho_cp_fB[i,j-1,k] + rcpB_c) if j > 0 else rcpB_c
-                            rcpB_t = 0.5*(rcpB_c + rho_cp_fB[i,j,k+1]) if k < Nz-1 else rcpB_c
-                            rcpB_b = 0.5*(rho_cp_fB[i,j,k-1] + rcpB_c) if k > 0 else rcpB_c
-                            efB_e = 0.5*(efB_c + eps_fB_arr[i+1,j,k]) if i < Nx-1 else efB_c
-                            efB_w = 0.5*(eps_fB_arr[i-1,j,k] + efB_c) if i > 0 else efB_c
-                            efB_n = 0.5*(efB_c + eps_fB_arr[i,j+1,k]) if j < Ny-1 else efB_c
-                            efB_s = 0.5*(eps_fB_arr[i,j-1,k] + efB_c) if j > 0 else efB_c
-                            efB_t = 0.5*(efB_c + eps_fB_arr[i,j,k+1]) if k < Nz-1 else efB_c
-                            efB_b = 0.5*(eps_fB_arr[i,j,k-1] + efB_c) if k > 0 else efB_c
+                        rcpB_c = rho_cp_fB[i,j,k]; efB_c = eps_fB_arr[i,j,k]
+                        rcpB_e = 0.5*(rcpB_c + rho_cp_fB[i+1,j,k]) if i < Nx-1 else rcpB_c
+                        rcpB_w = 0.5*(rho_cp_fB[i-1,j,k] + rcpB_c) if i > 0 else rcpB_c
+                        rcpB_n = 0.5*(rcpB_c + rho_cp_fB[i,j+1,k]) if j < Ny-1 else rcpB_c
+                        rcpB_s = 0.5*(rho_cp_fB[i,j-1,k] + rcpB_c) if j > 0 else rcpB_c
+                        rcpB_t = 0.5*(rcpB_c + rho_cp_fB[i,j,k+1]) if k < Nz-1 else rcpB_c
+                        rcpB_b = 0.5*(rho_cp_fB[i,j,k-1] + rcpB_c) if k > 0 else rcpB_c
+                        efB_e = 0.5*(efB_c + eps_fB_arr[i+1,j,k]) if i < Nx-1 else efB_c
+                        efB_w = 0.5*(eps_fB_arr[i-1,j,k] + efB_c) if i > 0 else efB_c
+                        efB_n = 0.5*(efB_c + eps_fB_arr[i,j+1,k]) if j < Ny-1 else efB_c
+                        efB_s = 0.5*(eps_fB_arr[i,j-1,k] + efB_c) if j > 0 else efB_c
+                        efB_t = 0.5*(efB_c + eps_fB_arr[i,j,k+1]) if k < Nz-1 else efB_c
+                        efB_b = 0.5*(eps_fB_arr[i,j,k-1] + efB_c) if k > 0 else efB_c
 
-                            FB_e = efB_e * rcpB_e * uB_e * Ax
-                            FB_w = efB_w * rcpB_w * uB_w * Ax
-                            FB_n = efB_n * rcpB_n * vB_n * Ay
-                            FB_s = efB_s * rcpB_s * vB_s * Ay
-                            FB_t = efB_t * rcpB_t * wB_t * Az
-                            FB_b = efB_b * rcpB_b * wB_b * Az
+                        FB_e = efB_e * rcpB_e * uB_e * Ax
+                        FB_w = efB_w * rcpB_w * uB_w * Ax
+                        FB_n = efB_n * rcpB_n * vB_n * Ay
+                        FB_s = efB_s * rcpB_s * vB_s * Ay
+                        FB_t = efB_t * rcpB_t * wB_t * Az
+                        FB_b = efB_b * rcpB_b * wB_b * Az
 
-                            FB_e, FB_w, FB_n, FB_s, FB_t, FB_b = _inlet_capacity_faces(
-                                bc_B, i, j, k, Nx, Ny, Nz, ifrac_B, inlet_flux_B,
-                                FB_e, FB_w, FB_n, FB_s, FB_t, FB_b)
+                        FB_e, FB_w, FB_n, FB_s, FB_t, FB_b = _inlet_capacity_faces(
+                            bc_B, i, j, k, Nx, Ny, Nz, ifrac_B, inlet_flux_B,
+                            FB_e, FB_w, FB_n, FB_s, FB_t, FB_b)
+                        if model_mass_A is not None:
+                            FB_e = model_FB[0][i+1, j, k]
+                            FB_w = model_FB[0][i, j, k]
+                            FB_n = model_FB[1][i, j+1, k]
+                            FB_s = model_FB[1][i, j, k]
+                            FB_t = model_FB[2][i, j, k+1]
+                            FB_b = model_FB[2][i, j, k]
+
+                        aEb = dEb  + max(-FB_e, 0.0)
+                        aWb = dWb  + max( FB_w, 0.0)
+                        aNb = dNb  + max(-FB_n, 0.0)
+                        aSb = dSb  + max( FB_s, 0.0)
+                        aTb = dTb_ + max(-FB_t, 0.0)
+                        aBb = dBb  + max( FB_b, 0.0)
+
+                        tEb = Tb[i+1, j, k] if i < Nx-1 else Tb[i, j, k]
+                        tWb = Tb[i-1, j, k] if i > 0    else Tb[i, j, k]
+                        tNb = Tb[i, j+1, k] if j < Ny-1 else Tb[i, j, k]
+                        tSb = Tb[i, j-1, k] if j > 0    else Tb[i, j, k]
+                        tTb = Tb[i, j, k+1] if k < Nz-1 else Tb[i, j, k]
+                        tBb = Tb[i, j, k-1] if k > 0    else Tb[i, j, k]
+
+                        (aEb, aWb, aNb, aSb, aTb, aBb, tEb, tWb, tNb, tSb, tTb, tBb) = _inlet_face_terms(
+                            bc_B, i, j, k, Nx, Ny, Nz, ifrac_B, T_inB_arr,
+                            Kc_b, dxi, dyj, dzk, aEb, aWb, aNb, aSb, aTb, aBb, tEb, tWb, tNb, tSb, tTb, tBb)
+
+                        if conservative == 1:
+                            # Strict-conservation B side (mirror of A):
+                            # face-shared SOU deferred correction (HO + telescoping).
+                            soub = (_sou_face_x_cons(Tb, i, j, k, Nx, FB_w, FB_e)
+                                    + _sou_face_y_cons(Tb, i, j, k, Ny, FB_s, FB_n)
+                                    + _sou_face_z_cons(Tb, i, j, k, Nz, FB_b, FB_t))
                             if model_mass_A is not None:
-                                FB_e = model_FB[0][i+1, j, k]
-                                FB_w = model_FB[0][i, j, k]
-                                FB_n = model_FB[1][i, j+1, k]
-                                FB_s = model_FB[1][i, j, k]
-                                FB_t = model_FB[2][i, j, k+1]
-                                FB_b = model_FB[2][i, j, k]
-
-                            aEb = dEb  + max(-FB_e, 0.0)
-                            aWb = dWb  + max( FB_w, 0.0)
-                            aNb = dNb  + max(-FB_n, 0.0)
-                            aSb = dSb  + max( FB_s, 0.0)
-                            aTb = dTb_ + max(-FB_t, 0.0)
-                            aBb = dBb  + max( FB_b, 0.0)
-
-                            tEb = Tb[i+1, j, k] if i < Nx-1 else Tb[i, j, k]
-                            tWb = Tb[i-1, j, k] if i > 0    else Tb[i, j, k]
-                            tNb = Tb[i, j+1, k] if j < Ny-1 else Tb[i, j, k]
-                            tSb = Tb[i, j-1, k] if j > 0    else Tb[i, j, k]
-                            tTb = Tb[i, j, k+1] if k < Nz-1 else Tb[i, j, k]
-                            tBb = Tb[i, j, k-1] if k > 0    else Tb[i, j, k]
-
-                            (aEb, aWb, aNb, aSb, aTb, aBb, tEb, tWb, tNb, tSb, tTb, tBb) = _inlet_face_terms(
-                                bc_B, i, j, k, Nx, Ny, Nz, ifrac_B, T_inB_arr,
-                                Kc_b, dxi, dyj, dzk, aEb, aWb, aNb, aSb, aTb, aBb, tEb, tWb, tNb, tSb, tTb, tBb)
-
-                            if conservative == 1:
-                                # Strict-conservation B side (mirror of A):
-                                # face-shared SOU deferred correction (HO + telescoping).
-                                soub = (_sou_face_x_cons(Tb, i, j, k, Nx, FB_w, FB_e)
-                                        + _sou_face_y_cons(Tb, i, j, k, Ny, FB_s, FB_n)
-                                        + _sou_face_z_cons(Tb, i, j, k, Nz, FB_b, FB_t))
-                                if model_mass_A is not None:
-                                    soub = model_source_B[i, j, k]
-                                net_outB = ((FB_e - FB_w) + (FB_n - FB_s)
-                                            + (FB_t - FB_b))
-                                aPb = (aEb + aWb + aNb + aSb + aTb + aBb
-                                       + net_outB + hvB)
-                            else:
-                                uBc_sou = 0.5*(uB_e + uB_w)
-                                vBc_sou = 0.5*(vB_n + vB_s)
-                                wBc_sou = 0.5*(wB_t + wB_b)
-                                FxB_mag = efB_c * rcpB_c * abs(uBc_sou) * Ax
-                                FyB_mag = efB_c * rcpB_c * abs(vBc_sou) * Ay
-                                FzB_mag = efB_c * rcpB_c * abs(wBc_sou) * Az
-                                soub = (_sou_corr_x_3d(Tb, i, j, k, Nx, uBc_sou, FxB_mag)
-                                        + _sou_corr_y_3d(Tb, i, j, k, Ny, vBc_sou, FyB_mag)
-                                        + _sou_corr_z_3d(Tb, i, j, k, Nz, wBc_sou, FzB_mag))
-                                aPb = aEb + aWb + aNb + aSb + aTb + aBb + hvB
-                            if aPb < 1e-30:
-                                aPb = 1e-30
-                            # MMS source for B (vol-integrated, [W]).
-                            S_B_cell = mms_S_B_arr[i, j, k] * vol_b
-                            new_b = (aEb*tEb + aWb*tWb + aNb*tNb + aSb*tSb
-                                     + aTb*tTb + aBb*tBb + hvB*Ts[i, j, k]
-                                     + soub + S_B_cell) / aPb
-                            old_b = Tb[i, j, k]
-                            upd_b = old_b + alpha_fB * (new_b - old_b)
-                            chg = abs(upd_b - old_b)
-                            if chg > max_chg: max_chg = chg
-                            Tb[i, j, k] = upd_b
+                                soub = model_source_B[i, j, k]
+                            net_outB = ((FB_e - FB_w) + (FB_n - FB_s)
+                                        + (FB_t - FB_b))
+                            aPb = (aEb + aWb + aNb + aSb + aTb + aBb
+                                   + net_outB + hvB)
+                        else:
+                            uBc_sou = 0.5*(uB_e + uB_w)
+                            vBc_sou = 0.5*(vB_n + vB_s)
+                            wBc_sou = 0.5*(wB_t + wB_b)
+                            FxB_mag = efB_c * rcpB_c * abs(uBc_sou) * Ax
+                            FyB_mag = efB_c * rcpB_c * abs(vBc_sou) * Ay
+                            FzB_mag = efB_c * rcpB_c * abs(wBc_sou) * Az
+                            soub = (_sou_corr_x_3d(Tb, i, j, k, Nx, uBc_sou, FxB_mag)
+                                    + _sou_corr_y_3d(Tb, i, j, k, Ny, vBc_sou, FyB_mag)
+                                    + _sou_corr_z_3d(Tb, i, j, k, Nz, wBc_sou, FzB_mag))
+                            aPb = aEb + aWb + aNb + aSb + aTb + aBb + hvB
+                        if aPb < 1e-30:
+                            aPb = 1e-30
+                        # MMS source for B (vol-integrated, [W]).
+                        S_B_cell = mms_S_B_arr[i, j, k] * vol_b
+                        new_b = (aEb*tEb + aWb*tWb + aNb*tNb + aSb*tSb
+                                 + aTb*tTb + aBb*tBb + hvB*Ts[i, j, k]
+                                 + soub + S_B_cell) / aPb
+                        old_b = Tb[i, j, k]
+                        upd_b = old_b + alpha_fB * (new_b - old_b)
+                        chg = abs(upd_b - old_b)
+                        if chg > max_chg: max_chg = chg
+                        Tb[i, j, k] = upd_b
 
 
         if max_chg < 1e-10:
@@ -709,7 +699,6 @@ def _gs_full_chunk_3d_stag_rb(Ta, Tb, Ts, Nx, Ny, Nz,
                                ifrac_A, ifrac_B,
                                n_iters, freeze_Tb,
                                alpha_fA, alpha_s, alpha_fB,
-                               chi_B_arr, chi_B_kernel_threshold,
                                mms_S_A_arr, mms_S_B_arr, mms_S_s_arr,
                                conservative, inlet_flux_A=None, inlet_flux_B=None,
                             model_mass_A=None, model_mass_B=None,
@@ -901,100 +890,97 @@ def _gs_full_chunk_3d_stag_rb(Ta, Tb, Ts, Nx, Ny, Nz,
 
                 # ── Fluid B ──
                 if freeze_Tb == 0:
-                    if chi_B_arr[i, j, k] < chi_B_kernel_threshold:
-                        pass
-                    else:
-                        vol_b = dxi * dyj * dzk
-                        Kc_b = K_ffB_arr[i, j, k]
-                        hvB = h_vB_arr[i, j, k] * vol_b
-                        dxe_b = 0.5 * (dxi + dx_arr[i+1]) if i < Nx-1 else dxi
-                        dxw_b = 0.5 * (dx_arr[i-1] + dxi) if i > 0    else dxi
-                        dyn_b = 0.5 * (dyj + dy_arr[j+1]) if j < Ny-1 else dyj
-                        dys_b = 0.5 * (dy_arr[j-1] + dyj) if j > 0    else dyj
-                        dzt_b = 0.5 * (dzk + dz_arr[k+1]) if k < Nz-1 else dzk
-                        dzb_b = 0.5 * (dz_arr[k-1] + dzk) if k > 0    else dzk
-                        dEb = 2.0*Kc_b*K_ffB_arr[i+1, j, k]/(Kc_b+K_ffB_arr[i+1, j, k]+1e-30)*Ax/dxe_b if i < Nx-1 else 0.0
-                        dWb = 2.0*Kc_b*K_ffB_arr[i-1, j, k]/(Kc_b+K_ffB_arr[i-1, j, k]+1e-30)*Ax/dxw_b if i > 0 else 0.0
-                        dNb = 2.0*Kc_b*K_ffB_arr[i, j+1, k]/(Kc_b+K_ffB_arr[i, j+1, k]+1e-30)*Ay/dyn_b if j < Ny-1 else 0.0
-                        dSb = 2.0*Kc_b*K_ffB_arr[i, j-1, k]/(Kc_b+K_ffB_arr[i, j-1, k]+1e-30)*Ay/dys_b if j > 0 else 0.0
-                        dTb_ = 2.0*Kc_b*K_ffB_arr[i, j, k+1]/(Kc_b+K_ffB_arr[i, j, k+1]+1e-30)*Az/dzt_b if k < Nz-1 else 0.0
-                        dBb = 2.0*Kc_b*K_ffB_arr[i, j, k-1]/(Kc_b+K_ffB_arr[i, j, k-1]+1e-30)*Az/dzb_b if k > 0 else 0.0
-                        uB_e = ufB[i+1, j, k]; uB_w = ufB[i, j, k]
-                        vB_n = vfB[i, j+1, k]; vB_s = vfB[i, j, k]
-                        wB_t = wfB[i, j, k+1]; wB_b = wfB[i, j, k]
-                        rcpB_c = rho_cp_fB[i,j,k]; efB_c = eps_fB_arr[i,j,k]
-                        rcpB_e = 0.5*(rcpB_c + rho_cp_fB[i+1,j,k]) if i < Nx-1 else rcpB_c
-                        rcpB_w = 0.5*(rho_cp_fB[i-1,j,k] + rcpB_c) if i > 0 else rcpB_c
-                        rcpB_n = 0.5*(rcpB_c + rho_cp_fB[i,j+1,k]) if j < Ny-1 else rcpB_c
-                        rcpB_s = 0.5*(rho_cp_fB[i,j-1,k] + rcpB_c) if j > 0 else rcpB_c
-                        rcpB_t = 0.5*(rcpB_c + rho_cp_fB[i,j,k+1]) if k < Nz-1 else rcpB_c
-                        rcpB_b = 0.5*(rho_cp_fB[i,j,k-1] + rcpB_c) if k > 0 else rcpB_c
-                        efB_e = 0.5*(efB_c + eps_fB_arr[i+1,j,k]) if i < Nx-1 else efB_c
-                        efB_w = 0.5*(eps_fB_arr[i-1,j,k] + efB_c) if i > 0 else efB_c
-                        efB_n = 0.5*(efB_c + eps_fB_arr[i,j+1,k]) if j < Ny-1 else efB_c
-                        efB_s = 0.5*(eps_fB_arr[i,j-1,k] + efB_c) if j > 0 else efB_c
-                        efB_t = 0.5*(efB_c + eps_fB_arr[i,j,k+1]) if k < Nz-1 else efB_c
-                        efB_b = 0.5*(eps_fB_arr[i,j,k-1] + efB_c) if k > 0 else efB_c
-                        FB_e = efB_e * rcpB_e * uB_e * Ax
-                        FB_w = efB_w * rcpB_w * uB_w * Ax
-                        FB_n = efB_n * rcpB_n * vB_n * Ay
-                        FB_s = efB_s * rcpB_s * vB_s * Ay
-                        FB_t = efB_t * rcpB_t * wB_t * Az
-                        FB_b = efB_b * rcpB_b * wB_b * Az
-                        FB_e, FB_w, FB_n, FB_s, FB_t, FB_b = _inlet_capacity_faces(
-                            bc_B, i, j, k, Nx, Ny, Nz, ifrac_B, inlet_flux_B,
-                            FB_e, FB_w, FB_n, FB_s, FB_t, FB_b)
-                        if model_mass_A is not None:
-                            FB_e = model_FB[0][i+1, j, k]
-                            FB_w = model_FB[0][i, j, k]
-                            FB_n = model_FB[1][i, j+1, k]
-                            FB_s = model_FB[1][i, j, k]
-                            FB_t = model_FB[2][i, j, k+1]
-                            FB_b = model_FB[2][i, j, k]
-                        aEb = dEb  + max(-FB_e, 0.0); aWb = dWb  + max( FB_w, 0.0)
-                        aNb = dNb  + max(-FB_n, 0.0); aSb = dSb  + max( FB_s, 0.0)
-                        aTb = dTb_ + max(-FB_t, 0.0); aBb = dBb  + max( FB_b, 0.0)
-                        tEb = Tb[i+1, j, k] if i < Nx-1 else Tb[i, j, k]
-                        tWb = Tb[i-1, j, k] if i > 0    else Tb[i, j, k]
-                        tNb = Tb[i, j+1, k] if j < Ny-1 else Tb[i, j, k]
-                        tSb = Tb[i, j-1, k] if j > 0    else Tb[i, j, k]
-                        tTb = Tb[i, j, k+1] if k < Nz-1 else Tb[i, j, k]
-                        tBb = Tb[i, j, k-1] if k > 0    else Tb[i, j, k]
+                    vol_b = dxi * dyj * dzk
+                    Kc_b = K_ffB_arr[i, j, k]
+                    hvB = h_vB_arr[i, j, k] * vol_b
+                    dxe_b = 0.5 * (dxi + dx_arr[i+1]) if i < Nx-1 else dxi
+                    dxw_b = 0.5 * (dx_arr[i-1] + dxi) if i > 0    else dxi
+                    dyn_b = 0.5 * (dyj + dy_arr[j+1]) if j < Ny-1 else dyj
+                    dys_b = 0.5 * (dy_arr[j-1] + dyj) if j > 0    else dyj
+                    dzt_b = 0.5 * (dzk + dz_arr[k+1]) if k < Nz-1 else dzk
+                    dzb_b = 0.5 * (dz_arr[k-1] + dzk) if k > 0    else dzk
+                    dEb = 2.0*Kc_b*K_ffB_arr[i+1, j, k]/(Kc_b+K_ffB_arr[i+1, j, k]+1e-30)*Ax/dxe_b if i < Nx-1 else 0.0
+                    dWb = 2.0*Kc_b*K_ffB_arr[i-1, j, k]/(Kc_b+K_ffB_arr[i-1, j, k]+1e-30)*Ax/dxw_b if i > 0 else 0.0
+                    dNb = 2.0*Kc_b*K_ffB_arr[i, j+1, k]/(Kc_b+K_ffB_arr[i, j+1, k]+1e-30)*Ay/dyn_b if j < Ny-1 else 0.0
+                    dSb = 2.0*Kc_b*K_ffB_arr[i, j-1, k]/(Kc_b+K_ffB_arr[i, j-1, k]+1e-30)*Ay/dys_b if j > 0 else 0.0
+                    dTb_ = 2.0*Kc_b*K_ffB_arr[i, j, k+1]/(Kc_b+K_ffB_arr[i, j, k+1]+1e-30)*Az/dzt_b if k < Nz-1 else 0.0
+                    dBb = 2.0*Kc_b*K_ffB_arr[i, j, k-1]/(Kc_b+K_ffB_arr[i, j, k-1]+1e-30)*Az/dzb_b if k > 0 else 0.0
+                    uB_e = ufB[i+1, j, k]; uB_w = ufB[i, j, k]
+                    vB_n = vfB[i, j+1, k]; vB_s = vfB[i, j, k]
+                    wB_t = wfB[i, j, k+1]; wB_b = wfB[i, j, k]
+                    rcpB_c = rho_cp_fB[i,j,k]; efB_c = eps_fB_arr[i,j,k]
+                    rcpB_e = 0.5*(rcpB_c + rho_cp_fB[i+1,j,k]) if i < Nx-1 else rcpB_c
+                    rcpB_w = 0.5*(rho_cp_fB[i-1,j,k] + rcpB_c) if i > 0 else rcpB_c
+                    rcpB_n = 0.5*(rcpB_c + rho_cp_fB[i,j+1,k]) if j < Ny-1 else rcpB_c
+                    rcpB_s = 0.5*(rho_cp_fB[i,j-1,k] + rcpB_c) if j > 0 else rcpB_c
+                    rcpB_t = 0.5*(rcpB_c + rho_cp_fB[i,j,k+1]) if k < Nz-1 else rcpB_c
+                    rcpB_b = 0.5*(rho_cp_fB[i,j,k-1] + rcpB_c) if k > 0 else rcpB_c
+                    efB_e = 0.5*(efB_c + eps_fB_arr[i+1,j,k]) if i < Nx-1 else efB_c
+                    efB_w = 0.5*(eps_fB_arr[i-1,j,k] + efB_c) if i > 0 else efB_c
+                    efB_n = 0.5*(efB_c + eps_fB_arr[i,j+1,k]) if j < Ny-1 else efB_c
+                    efB_s = 0.5*(eps_fB_arr[i,j-1,k] + efB_c) if j > 0 else efB_c
+                    efB_t = 0.5*(efB_c + eps_fB_arr[i,j,k+1]) if k < Nz-1 else efB_c
+                    efB_b = 0.5*(eps_fB_arr[i,j,k-1] + efB_c) if k > 0 else efB_c
+                    FB_e = efB_e * rcpB_e * uB_e * Ax
+                    FB_w = efB_w * rcpB_w * uB_w * Ax
+                    FB_n = efB_n * rcpB_n * vB_n * Ay
+                    FB_s = efB_s * rcpB_s * vB_s * Ay
+                    FB_t = efB_t * rcpB_t * wB_t * Az
+                    FB_b = efB_b * rcpB_b * wB_b * Az
+                    FB_e, FB_w, FB_n, FB_s, FB_t, FB_b = _inlet_capacity_faces(
+                        bc_B, i, j, k, Nx, Ny, Nz, ifrac_B, inlet_flux_B,
+                        FB_e, FB_w, FB_n, FB_s, FB_t, FB_b)
+                    if model_mass_A is not None:
+                        FB_e = model_FB[0][i+1, j, k]
+                        FB_w = model_FB[0][i, j, k]
+                        FB_n = model_FB[1][i, j+1, k]
+                        FB_s = model_FB[1][i, j, k]
+                        FB_t = model_FB[2][i, j, k+1]
+                        FB_b = model_FB[2][i, j, k]
+                    aEb = dEb  + max(-FB_e, 0.0); aWb = dWb  + max( FB_w, 0.0)
+                    aNb = dNb  + max(-FB_n, 0.0); aSb = dSb  + max( FB_s, 0.0)
+                    aTb = dTb_ + max(-FB_t, 0.0); aBb = dBb  + max( FB_b, 0.0)
+                    tEb = Tb[i+1, j, k] if i < Nx-1 else Tb[i, j, k]
+                    tWb = Tb[i-1, j, k] if i > 0    else Tb[i, j, k]
+                    tNb = Tb[i, j+1, k] if j < Ny-1 else Tb[i, j, k]
+                    tSb = Tb[i, j-1, k] if j > 0    else Tb[i, j, k]
+                    tTb = Tb[i, j, k+1] if k < Nz-1 else Tb[i, j, k]
+                    tBb = Tb[i, j, k-1] if k > 0    else Tb[i, j, k]
 
-                        (aEb, aWb, aNb, aSb, aTb, aBb, tEb, tWb, tNb, tSb, tTb, tBb) = _inlet_face_terms(
-                            bc_B, i, j, k, Nx, Ny, Nz, ifrac_B, T_inB_arr,
-                            Kc_b, dxi, dyj, dzk, aEb, aWb, aNb, aSb, aTb, aBb, tEb, tWb, tNb, tSb, tTb, tBb)
-                        if conservative == 1:
-                            soub = (_sou_face_x_cons(Tb_snap, i, j, k, Nx, FB_w, FB_e)
-                                    + _sou_face_y_cons(Tb_snap, i, j, k, Ny, FB_s, FB_n)
-                                    + _sou_face_z_cons(Tb_snap, i, j, k, Nz, FB_b, FB_t))
-                            if model_mass_A is not None:
-                                soub = model_source_B[i, j, k]
-                            net_outB = ((FB_e - FB_w) + (FB_n - FB_s)
-                                        + (FB_t - FB_b))
-                            aPb = (aEb + aWb + aNb + aSb + aTb + aBb
-                                   + net_outB + hvB)
-                        else:
-                            uBc_sou = 0.5*(uB_e + uB_w); vBc_sou = 0.5*(vB_n + vB_s)
-                            wBc_sou = 0.5*(wB_t + wB_b)
-                            FxB_mag = efB_c * rcpB_c * abs(uBc_sou) * Ax
-                            FyB_mag = efB_c * rcpB_c * abs(vBc_sou) * Ay
-                            FzB_mag = efB_c * rcpB_c * abs(wBc_sou) * Az
-                            soub = (_sou_corr_x_3d(Tb_snap, i, j, k, Nx, uBc_sou, FxB_mag)
-                                    + _sou_corr_y_3d(Tb_snap, i, j, k, Ny, vBc_sou, FyB_mag)
-                                    + _sou_corr_z_3d(Tb_snap, i, j, k, Nz, wBc_sou, FzB_mag))
-                            aPb = aEb + aWb + aNb + aSb + aTb + aBb + hvB
-                        if aPb < 1e-30:
-                            aPb = 1e-30
-                        S_B_cell = mms_S_B_arr[i, j, k] * vol_b
-                        new_b = (aEb*tEb + aWb*tWb + aNb*tNb + aSb*tSb
-                                 + aTb*tTb + aBb*tBb + hvB*Ts[i, j, k]
-                                 + soub + S_B_cell) / aPb
-                        old_b = Tb[i, j, k]
-                        upd_b = old_b + alpha_fB * (new_b - old_b)
-                        c = abs(upd_b - old_b)
-                        if c > cell_chg: cell_chg = c
-                        Tb[i, j, k] = upd_b
+                    (aEb, aWb, aNb, aSb, aTb, aBb, tEb, tWb, tNb, tSb, tTb, tBb) = _inlet_face_terms(
+                        bc_B, i, j, k, Nx, Ny, Nz, ifrac_B, T_inB_arr,
+                        Kc_b, dxi, dyj, dzk, aEb, aWb, aNb, aSb, aTb, aBb, tEb, tWb, tNb, tSb, tTb, tBb)
+                    if conservative == 1:
+                        soub = (_sou_face_x_cons(Tb_snap, i, j, k, Nx, FB_w, FB_e)
+                                + _sou_face_y_cons(Tb_snap, i, j, k, Ny, FB_s, FB_n)
+                                + _sou_face_z_cons(Tb_snap, i, j, k, Nz, FB_b, FB_t))
+                        if model_mass_A is not None:
+                            soub = model_source_B[i, j, k]
+                        net_outB = ((FB_e - FB_w) + (FB_n - FB_s)
+                                    + (FB_t - FB_b))
+                        aPb = (aEb + aWb + aNb + aSb + aTb + aBb
+                               + net_outB + hvB)
+                    else:
+                        uBc_sou = 0.5*(uB_e + uB_w); vBc_sou = 0.5*(vB_n + vB_s)
+                        wBc_sou = 0.5*(wB_t + wB_b)
+                        FxB_mag = efB_c * rcpB_c * abs(uBc_sou) * Ax
+                        FyB_mag = efB_c * rcpB_c * abs(vBc_sou) * Ay
+                        FzB_mag = efB_c * rcpB_c * abs(wBc_sou) * Az
+                        soub = (_sou_corr_x_3d(Tb_snap, i, j, k, Nx, uBc_sou, FxB_mag)
+                                + _sou_corr_y_3d(Tb_snap, i, j, k, Ny, vBc_sou, FyB_mag)
+                                + _sou_corr_z_3d(Tb_snap, i, j, k, Nz, wBc_sou, FzB_mag))
+                        aPb = aEb + aWb + aNb + aSb + aTb + aBb + hvB
+                    if aPb < 1e-30:
+                        aPb = 1e-30
+                    S_B_cell = mms_S_B_arr[i, j, k] * vol_b
+                    new_b = (aEb*tEb + aWb*tWb + aNb*tNb + aSb*tSb
+                             + aTb*tTb + aBb*tBb + hvB*Ts[i, j, k]
+                             + soub + S_B_cell) / aPb
+                    old_b = Tb[i, j, k]
+                    upd_b = old_b + alpha_fB * (new_b - old_b)
+                    c = abs(upd_b - old_b)
+                    if c > cell_chg: cell_chg = c
+                    Tb[i, j, k] = upd_b
 
                 color_chg = max(color_chg, cell_chg)
             if color_chg > sweep_chg:

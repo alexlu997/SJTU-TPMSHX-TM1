@@ -1,4 +1,4 @@
-"""Property correlation + geometry sanity tests for solvers.tpms_calc.
+"""Property correlation + geometry sanity tests for models.tpms_calc.
 
 Covers:
   * air_density ideal gas exact relation
@@ -16,11 +16,11 @@ import warnings
 
 import numpy as np
 import pytest
+from sjtu_tpmshx.tests.water_nu_reference import nu_water_gyroid_yan6
 
 from sjtu_tpmshx.models.tpms_calc import (
     air_density, air_viscosity, air_cp,
     water_density, water_viscosity, water_cp, water_conductivity,
-    nu_water_gyroid_yan6,
     geometry, adaptive_grid, compute,
     parse_fluid_type, validate_fluid_type,
 )

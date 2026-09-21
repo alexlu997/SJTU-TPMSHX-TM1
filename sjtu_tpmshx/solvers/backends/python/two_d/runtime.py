@@ -103,7 +103,7 @@ def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
         pressure_history = p_shoot_prev['iterations'] if shooting else []
         L_stream = float(L if is_x else H)
         if fluid_type == 'ideal_gas':
-            from sjtu_tpmshx.solvers.envelope import predict_outlet_p_sq
+            from sjtu_tpmshx.models.envelope import predict_outlet_p_sq
             _K0, _cF0 = flow['seed_K_m2'], flow['seed_cF_per_m']
             _rho_in = float(P_in_abs) / (287.05 * float(T_in_f))
             _G = _rho_in * abs(float(u_f))                   # mass flux ρ·u

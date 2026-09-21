@@ -14,11 +14,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-_PKG = str(Path(__file__).resolve().parents[1])
+_REPO = str(Path(__file__).resolve().parents[2])
 
 
 def _probe(code: str) -> None:
-    r = subprocess.run([sys.executable, '-c', code], cwd=_PKG,
+    r = subprocess.run([sys.executable, '-c', code], cwd=_REPO,
                        capture_output=True, text=True, timeout=300)
     assert r.returncode == 0, f"probe failed:\n{r.stdout}\n{r.stderr}"
 
@@ -27,7 +27,7 @@ def test_df_surrogate_is_below_the_kernel():
     """df_surrogate must import via the tpms_props LEAF only — pulling
     tpms_calc/simple_solver back in would recreate the two-way coupling."""
     _probe(
-        "import sys; import df_surrogate.predict; "
+        "import sys; import sjtu_tpmshx.df_surrogate.predict; "
         "bad = [m for m in ('sjtu_tpmshx.models.tpms_calc', 'sjtu_tpmshx.solvers.simple_solver')"
         " if m in sys.modules]; "
         "assert not bad, f'df_surrogate pulled kernel modules: {bad}'; "
@@ -36,11 +36,13 @@ def test_df_surrogate_is_below_the_kernel():
 
 
 def test_tpms_props_is_a_leaf():
-    """tpms_props must not import df_surrogate or the solvers above it."""
+    """Property imports may reach training-domain constants, not inference/solvers."""
     _probe(
         "import sys; import sjtu_tpmshx.models.tpms_props; "
-        "bad = [m for m in sys.modules if m.startswith('df_surrogate')"
-        " or m in ('sjtu_tpmshx.models.tpms_calc', 'sjtu_tpmshx.solvers.simple_solver')]; "
+        "allowed = {'sjtu_tpmshx.df_surrogate', 'sjtu_tpmshx.df_surrogate._domain'}; "
+        "bad = [m for m in sys.modules if (m.startswith('sjtu_tpmshx.df_surrogate')"
+        " and m not in allowed) or m.startswith('sjtu_tpmshx.solvers')"
+        " or m == 'sjtu_tpmshx.models.tpms_calc']; "
         "assert not bad, f'tpms_props is not a leaf: {bad}'"
     )
 

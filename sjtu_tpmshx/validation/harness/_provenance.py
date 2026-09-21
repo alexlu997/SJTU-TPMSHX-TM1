@@ -16,10 +16,8 @@ Two artefacts per CSV:
        case,N,h,L2_A,...
 
    Readers can keep using ``pd.read_csv(path, comment='#')`` to skip
-   it transparently. ``pd.read_csv(path)`` *without* ``comment='#'``
-   still works because the comment lines come **before** the column
-   header — pandas treats the first non-blank line as headers but
-   chokes on the ``#`` rows; pass ``comment='#'`` to be safe.
+   it transparently. Reading without ``comment='#'`` can misinterpret
+   the provenance lines as a table header; use the read helper below.
 
 2. **Sidecar ``<csv>.meta.json``** with structured metadata, useful
    when something other than pandas reads the CSV (R, awk, Excel).
@@ -38,6 +36,7 @@ import datetime as _dt
 import json as _json
 import os as _os
 import subprocess as _sp
+import tempfile
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
@@ -45,6 +44,27 @@ import pandas as pd
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+REFERENCE_DIR = REPO_ROOT / 'validation'
+
+
+def output_path(path) -> Path:
+    """Resolve a new output path without allowing writes to frozen references."""
+    path = Path(path).resolve()
+    if path.is_relative_to(REFERENCE_DIR.resolve()):
+        raise ValueError(f'Validation reference directory is read-only: {path}. '
+                         'Write new results under .cache/validation instead.')
+    return path
+
+
+def output_directory(name: str, path=None) -> Path:
+    """Use an explicit output directory or create a separate local run directory."""
+    if path is not None:
+        out = output_path(path)
+        out.mkdir(parents=True, exist_ok=True)
+        return out
+    root = REPO_ROOT.parent / '.cache' / 'validation'
+    root.mkdir(parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix=f'{name}-', dir=root))
 
 
 # ---------------------------------------------------------------- git/time
@@ -99,10 +119,15 @@ def write_csv_with_provenance(df: pd.DataFrame, path,
 
     ``to_csv_kw`` is forwarded to ``DataFrame.to_csv`` (e.g. ``index=False``).
     Default behaviour matches ``df.to_csv(path, index=False)``.
+    The package validation directory holds recorded references and cannot be
+    used as a destination, including through a resolved symbolic link.
 
     Returns the metadata dict that was also written to the sidecar.
     """
-    path = Path(path)
+    path = output_path(path)
+    if sidecar:
+        output_path(path.with_suffix(path.suffix + '.meta.json'))
+    path.parent.mkdir(parents=True, exist_ok=True)
     sha = _git_sha(short=True)
     when = _iso_now()
     header = _build_header_lines(script, sha, when)

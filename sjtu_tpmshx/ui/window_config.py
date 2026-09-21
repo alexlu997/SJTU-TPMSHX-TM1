@@ -20,9 +20,9 @@ from sjtu_tpmshx.domain.compute_config import (
 )
 
 DOMAIN_SHAPE_NOTICE = (
-    "当前仅支持 Rectangle（矩形）2D / 3D 计算。\n"
-    "Hexagon / Octagon 暂停计算，旧配置仍可查看和保存。\n"
-    "如需计算，请明确切换为 Rectangle。"
+    "当前仅支持矩形二维／长方体三维计算。\n"
+    "六边形／八边形配置已不再支持载入，请使用矩形配置。\n"
+    "原文件未修改。"
 )
 
 # ── helpers ──────────────────────────────────────────────────────────
@@ -235,11 +235,7 @@ def _validate_required_widgets(window, *, is_3d: bool) -> None:
 
 
 def _parse_fluid_label(combo) -> FluidType:
-    """Inline copy of ``solvers.tpms_calc.parse_fluid_type``.
-
-    Keeping the small mapping inline avoids importing the solver
-    package from this controller module (purity rule, see header).
-    """
+    """Map GUI labels using the aliases in ``models.tpms_calc.parse_fluid_type``."""
     if combo is None:
         return 'air'
     try:
@@ -294,14 +290,13 @@ def _read_partial_bc(window, side: Literal['A', 'B']) -> 'PartialBCConfig':
             dir_int = int(combo_dir.currentIndex())
         except Exception:
             dir_int = default_dir
-    uniform = getattr(window, f'chk_uniform_inlet{side}_2d', None)
     bc = PartialBCConfig(
         dir=dir_int,
         in_ctr=_qt_float(getattr(window, f'{le_prefix}_in_ctr', None), 0.0),
         in_w=_qt_float(getattr(window, f'{le_prefix}_in_w', None), 0.0),
         out_ctr=_qt_float(getattr(window, f'{le_prefix}_out_ctr', None), 0.0),
         out_w=_qt_float(getattr(window, f'{le_prefix}_out_w', None), 0.0),
-        uniform_inlet_2d=bool(uniform is not None and uniform.isChecked()),
+        uniform_inlet_2d=True,
     )
     # 3D z-partial widgets are only present (and visible) in 3D mode.
     le_in_z_ctr = getattr(window, f'{le_prefix}_in_z_ctr', None)
@@ -378,22 +373,14 @@ def _read_zone_input(window) -> 'ZoneInputConfig':
 
 
 def _read_feature_flags(window) -> 'FeatureFlags':
-    """Snapshot UI feature-flag toggles that survive into the solver."""
-    chk_wall = getattr(window, 'chk_wall_refine_3d', None)
-    wall = bool(chk_wall is not None and
-                getattr(chk_wall, 'isChecked', lambda: False)())
-    # variable_rho_cp defaults ON (2026-06-09); an absent toggle (old/partial
-    # window) keeps the default, a present one mirrors its checked state.
-    chk_vrc = getattr(window, 'chk_var_rhocp', None)
-    var_rhocp = (bool(getattr(chk_vrc, 'isChecked', lambda: True)())
-                 if chk_vrc is not None else True)
+    """Snapshot the current desktop mesh and transport policy."""
     unit = getattr(window, '_temp_unit', 'K')
     if unit not in ('K', 'C'):
         unit = 'K'
-    chk_ports = getattr(window, 'chk_port_wall_refine', None)
-    return FeatureFlags(wall_refine_3d=wall,
-                        port_wall_refine=bool(chk_ports is not None and chk_ports.isChecked()),
-                        variable_rho_cp=var_rhocp,
+    mesh = getattr(window, 'combo_grid', None)
+    return FeatureFlags(wall_refine_3d=False,
+                        port_wall_refine=bool(mesh is not None and mesh.currentData()),
+                        variable_rho_cp=True,
                         temp_unit=unit)
 
 
@@ -405,10 +392,9 @@ def _read_extrap_policy(window) -> 'ExtrapPolicy':
     return ExtrapPolicy(allow=allow)
 
 
-def validate_domain_shape(window) -> None:
-    """Reject a polygon selection before it can become a rectangular config."""
-    shape = _qt_text(getattr(window, 'combo_shape', None))
-    if shape and shape != 'Rectangle':
+def validate_domain_shape(shape: int = 0) -> None:
+    """Reject unsupported saved shapes before any desktop inputs are applied."""
+    if type(shape) is not int or shape != 0:
         raise ValueError(DOMAIN_SHAPE_NOTICE)
 
 
@@ -424,7 +410,6 @@ def config_from_window(window, *, strict: bool = False,
     selects the effective dimension (None = combo_dim, or le_Nz for
     headless callers). Hidden widget values are never changed.
     """
-    validate_domain_shape(window)
     is_3d = force_3d
     if is_3d is None:
         combo_dim = getattr(window, 'combo_dim', None)

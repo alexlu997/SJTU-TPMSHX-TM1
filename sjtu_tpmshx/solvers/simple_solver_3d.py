@@ -25,7 +25,7 @@ Phase-1 "MVP" caveats are superseded):
 
 Physics (velocity, interstitial convention — matches 2D). Production default
 is COMPRESSIBLE ideal-gas ρ=ρ(P,T) with a mass-flux inlet and the choke
-envelope guard (solvers/envelope.py); the discrete pressure-correction
+envelope guard (models/envelope.py); the discrete pressure-correction
 continuity operator carries ε·ρ (rho_eps_field), so per-side and spatially
 varying ε enter mass conservation.
 
@@ -1113,64 +1113,3 @@ class SIMPLESolver3D:
         rmax = max(ru, rv, rw)
         return rmax, {'u': ru, 'v': rv, 'w': rw, 'max': rmax,
                       'num': (nu_, nv_, nw_), 'den': (du_, dv_, dw_)}
-
-
-# Optional benchmark prewarm. Production compiles on first kernel use,
-# after cooperative cancellation is reachable.
-def _warmup_simple_3d():
-    """Explicitly compile Numba momentum/mass kernels for warm benchmarks.
-
-    Args MUST match the kernel signatures exactly. The previous version
-    mis-ordered them (dx/dy/dz fell into the Nx/Ny/Nz int slots, eps into
-    n_sweeps), so every call raised a TypeError that was silently swallowed
-    — the warmup compiled nothing and the first Run ate the full compile.
-    Both the serial and red-black ``_parallel`` variants are warmed because
-    solve() dispatches either one depending on grid size
-    (see ``_should_parallelize``).
-    """
-    try:
-        Nx, Ny, Nz = 3, 3, 3
-        zeros3 = lambda shp: np.zeros(shp, dtype=np.float64)
-        ones3 = lambda shp: np.ones(shp, dtype=np.float64)
-        u = zeros3((Nx + 1, Ny, Nz))
-        v = zeros3((Nx, Ny + 1, Nz))
-        w = zeros3((Nx, Ny, Nz + 1))
-        P = zeros3((Nx, Ny, Nz))
-        d_u = zeros3((Nx + 1, Ny, Nz))
-        d_v = zeros3((Nx, Ny + 1, Nz))
-        d_w = zeros3((Nx, Ny, Nz + 1))
-        dx = ones3(Nx); dy = ones3(Ny); dz = ones3(Nz)
-        rho = ones3((Nx, Ny, Nz))
-        eps = ones3((Nx, Ny, Nz)) * 0.5
-        mu = ones3((Nx, Ny, Nz))
-        mu_eff = ones3((Nx, Ny, Nz))
-        K_arr = ones3((Ny, Nz)) * 1e-7
-        cF_arr = ones3((Ny, Nz)) * 340.0
-        v_inlet = ones3((Nx, Nz))
-        out_u_frac = ones3((Nx + 1, Nz))
-        out_w_frac = ones3((Nx, Nz + 1))
-        outlet_mask = np.ones((Nx, Nz), dtype=np.bool_)
-        alpha_u = 0.5
-        n = 1
-        # u/w sig: (u,v,w,P,d, Nx,Ny,Nz, dx,dy,dz, rho,mu_eff,mu,eps, K,cF,
-        #           staggered outlet fraction, alpha, n, use_sou, use_eps)
-        for ku in (_sweep_u_jit_df_3d, _sweep_u_jit_df_3d_parallel):
-            ku(u, v, w, P, d_u, Nx, Ny, Nz, dx, dy, dz,
-               rho, mu_eff, mu, eps, K_arr, cF_arr, out_u_frac, alpha_u,
-               n, 0, 0)
-        # v sig inserts v_inlet right after d_v, before Nx,Ny,Nz; eps after rho.
-        for kv in (_sweep_v_jit_df_3d, _sweep_v_jit_df_3d_parallel):
-            kv(u, v, w, P, d_v, v_inlet, Nx, Ny, Nz, dx, dy, dz,
-               rho, eps, mu_eff, mu, K_arr, cF_arr,
-               alpha_u, n, 0, 0, outlet_mask)
-        for kw in (_sweep_w_jit_df_3d, _sweep_w_jit_df_3d_parallel):
-            kw(u, v, w, P, d_w, Nx, Ny, Nz, dx, dy, dz,
-               rho, mu_eff, mu, eps, K_arr, cF_arr, out_w_frac, alpha_u,
-               n, 0, 0)
-        _mass_res_jit_3d(u, v, w, Nx, Ny, Nz, dx, dy, dz, rho)
-    except Exception as e:
-        import os
-        if os.environ.get('TPMSHX_DEBUG'):
-            import warnings
-            warnings.warn(
-                f"3D JIT warmup failed (kernels compile on first solve): {e!r}")

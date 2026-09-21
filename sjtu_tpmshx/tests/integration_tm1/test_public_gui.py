@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from PySide6.QtWidgets import QFileDialog, QMessageBox
+from PySide6.QtWidgets import QDialog, QFileDialog, QMessageBox, QPlainTextEdit
 from PySide6.QtCore import QTimer
 
 from sjtu_tpmshx.tests.test_io_actions import win as win
@@ -34,17 +34,15 @@ def apply_config(window, config):
     window._apply_user_preset(dict(
         temp_unit='K', line_edits=edits, sco2_nu_parameters=asdict(config.sco2_nu),
         combos={'combo_shape': 0, 'combo_dim': int(config.is_3d),
+                'combo_grid': int(config.flags.port_wall_refine),
                 'combo_tpms': window.combo_tpms.findText(config.geometry.tpms),
                 'combo_fluidA': ('air', 'water', 'sco2').index(config.fluid_A.type),
                 'combo_fluidB': ('air', 'water', 'sco2').index(config.fluid_B.type),
                 'combo_df_mode': window.combo_df_mode.findData(config.df_mode),
                 'combo_sco2_nu_mode': window.combo_sco2_nu_mode.findData(config.sco2_nu.mode),
                 'combo_dirA': config.bc_A.dir, 'combo_dirB': config.bc_B.dir},
-        checks={'chk_zones': False, 'chk_wall_refine_3d': config.flags.wall_refine_3d,
-                'chk_port_wall_refine': config.flags.port_wall_refine,
-                'chk_uniform_inletA_2d': config.bc_A.uniform_inlet_2d,
-                'chk_uniform_inletB_2d': config.bc_B.uniform_inlet_2d,
-                'chk_var_rhocp': config.flags.variable_rho_cp, 'chk_allow_extrap': config.extrap.allow}))
+        checks={'chk_zones': False, **window._FIXED_SOLVER_CHECKS,
+                'chk_allow_extrap': config.extrap.allow}))
     window.auto_fill_fluid_a()
     window.auto_fill_fluid_b()
 
@@ -54,15 +52,10 @@ def test_shanghai_uniform_inlet_is_explicit_and_preserved_by_preset(win):
     win._apply_shanghai_defaults()
     win.combo_dim.setCurrentIndex(0)
     cfg = config_from_window(win)
-    assert cfg.bc_B.uniform_inlet_2d and not cfg.bc_A.uniform_inlet_2d
+    assert cfg.bc_B.uniform_inlet_2d and cfg.bc_A.uniform_inlet_2d
     preset = win._capture_current_preset('Shanghai uniform inlet')
-    win.chk_uniform_inletB_2d.setChecked(False)
     win._apply_user_preset(preset)
     assert config_from_window(win).bc_B.uniform_inlet_2d
-    # Old explicitly loaded presets retain their original inlet distribution.
-    preset['checks'].pop('chk_uniform_inletB_2d')
-    win._apply_user_preset(preset)
-    assert not config_from_window(win).bc_B.uniform_inlet_2d
 
 
 def test_shanghai_recommended_grid_and_manual_preset_roundtrip(win):
@@ -80,38 +73,31 @@ def test_shanghai_recommended_grid_and_manual_preset_roundtrip(win):
     saved = win._capture_current_preset('manual grid')
     win._load_named_preset('Shanghai (2D Gyroid)')
     win._apply_user_preset(saved)
-    assert win.le_Nx.text() == '100' and win.chk_port_wall_refine.isChecked()
-    saved['checks'].pop('chk_port_wall_refine')
+    assert win.le_Nx.text() == '100' and win.combo_grid.currentData() is True
+    saved['combos'].pop('combo_grid')
     win._apply_user_preset(saved)
-    assert not win.chk_port_wall_refine.isChecked()  # legacy files keep their mesh
+    assert win.combo_grid.currentData() is False  # files without port refinement keep their mesh
 
 
 @pytest.mark.parametrize('shape', [1, 2], ids=['hexagon', 'octagon'])
 @pytest.mark.parametrize('dimension', [2, 3])
-def test_saved_polygon_cannot_start_compute(win, monkeypatch, shape, dimension):
+def test_saved_polygon_cannot_replace_the_current_compute_case(win, monkeypatch, shape, dimension):
     from sjtu_tpmshx.ui.window_config import config_from_window, DOMAIN_SHAPE_NOTICE
 
     apply_config(win, baseline_config() if dimension == 2 else _small_air_cfg())
-    assert win.combo_shape.model().item(0).isEnabled()
-    assert all(not win.combo_shape.model().item(index).isEnabled() for index in (1, 2))
-    # Saved presets can restore a disabled item; keep it visible and reject compute.
-    win._apply_user_preset({'combos': {'combo_shape': shape}})
-    messages = []
-    monkeypatch.setattr(QMessageBox, 'warning', lambda parent, title, text: messages.append(text))
+    assert not hasattr(win, 'combo_shape')
+    assert win.lbl_domain_shape.text() == ('矩形' if dimension == 2 else '长方体')
+    before = asdict(config_from_window(win))
     def forbidden(*args, **kwargs):
-        pytest.fail('polygon selection reached grid preparation or numerical execution')
+        pytest.fail('polygon configuration reached grid preparation or numerical execution')
     monkeypatch.setattr(win, '_preflight_grid', forbidden)
     monkeypatch.setattr(win.compute, 'start', forbidden)
-    try:
-        for strict in (False, True):
-            with pytest.raises(ValueError, match='Rectangle'):
-                config_from_window(win, strict=strict)
-        win.run_calculation()
-        assert messages == [DOMAIN_SHAPE_NOTICE]
-        assert win.combo_shape.currentIndex() == shape
-        assert win.compute.is_idle()
-    finally:
-        win.combo_shape.setCurrentIndex(0)
+    with pytest.raises(ValueError) as error:
+        win._apply_user_preset({'combos': {'combo_shape': shape},
+                                'line_edits': {'le_L': '0.333'}})
+    assert str(error.value) == DOMAIN_SHAPE_NOTICE
+    assert asdict(config_from_window(win)) == before
+    assert win.compute.is_idle()
 
 
 @pytest.mark.slow
@@ -121,7 +107,6 @@ def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, di
     monkeypatch.delenv('TPMSHX_EAGER_3D_SLICES', raising=False)
     errors = []
     dialogs = []
-    solver_warnings = []
     original_exec = QMessageBox.exec
     def accept_grid_warning(dialog):
         assert 'Grid preflight' in dialog.text(), dialog.text()
@@ -131,12 +116,7 @@ def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, di
         return original_exec(dialog)
     monkeypatch.setattr(QMessageBox, 'exec', accept_grid_warning)
     monkeypatch.setattr(QMessageBox, 'critical', lambda *args: errors.append(args[1:]))
-    def record_warning(parent, title, message, *args):
-        if title == 'Solver Warnings':
-            solver_warnings.append(message)
-        else:
-            errors.append((title, message))
-    monkeypatch.setattr(QMessageBox, 'warning', record_warning)
+    monkeypatch.setattr(QMessageBox, 'warning', lambda *args: errors.append(args[1:]))
     monkeypatch.setattr(QMessageBox, 'question', lambda *args: pytest.fail(f'unexpected preflight prompt: {args[1:3]}'))
     config = baseline_config() if dimension == 2 else _small_air_cfg()
     apply_config(win, config)
@@ -161,8 +141,10 @@ def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, di
     assert not errors
     assert len(finished) == 1
     result = finished[0]
-    assert bool(solver_warnings) == bool(result.warnings)
-    assert all(warning in '\n'.join(solver_warnings) for warning in result.warnings)
+    assert win._diag_summary['warnings'] == result.warnings
+    if result.warnings:
+        assert win._run_status_card.state == ('warning' if result.converged else 'unconverged')
+        assert '诊断' in win._run_status_card.note.text()
     unit = 'W/m' if dimension == 2 else 'W'
     assert result.metadata['source_result_id']
     assert result.metadata['units']['Q'] == win._result_Q_unit == unit
@@ -194,12 +176,32 @@ def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, di
     win._switch_tab('temp')
     from PySide6.QtWidgets import QApplication
     QApplication.processEvents()
+    # Solver notices now live in the status card and the user-opened
+    # diagnostics dialog, rather than a blocking "Solver Warnings" popup.
+    diagnostic_views = []
+    original_dialog_exec = QDialog.exec
+    def inspect_diagnostics(dialog):
+        def read_and_close():
+            try:
+                view = dialog.findChild(QPlainTextEdit)
+                diagnostic_views.append((dialog.isVisible(), dialog.windowTitle(),
+                                         view.toPlainText() if view is not None else ''))
+            finally:
+                dialog.accept()
+        QTimer.singleShot(0, read_and_close)
+        return original_dialog_exec(dialog)
+    monkeypatch.setattr(QDialog, 'exec', inspect_diagnostics)
+    assert win.btn_parameter_diagnostics.isVisible()
+    win.btn_parameter_diagnostics.click()
+    assert len(diagnostic_views) == 1
+    visible, title, diagnostic_text = diagnostic_views[0]
+    assert visible and title == '诊断详情'
+    assert diagnostic_text == win._diag_summary_text()
+    assert all(f'⚠ {warning}' in diagnostic_text for warning in result.warnings)
     assert win._active_tab == 'temp'
     assert unit in win._sb_labels['q'].text()
     assert f'{dimension}D' in win._sb_result_heading.text()
     assert '[°C]' in win._lbl_sidebar_tout_unit.text()
-    if dimension == 3:
-        assert win._resid_spark._data == []
     for width in (900, 1440):
         win.resize(width, 720 if width == 900 else 900)
         _wait_for(lambda: win._canvas_scroll.verticalScrollBar().maximum() == 0,
@@ -214,4 +216,4 @@ def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, di
     screenshot.parent.mkdir(parents=True, exist_ok=True)
     assert win.grab().save(str(screenshot))
     Path(f'.cache/tm1-apps/gui-{dimension}d-preflight.txt').write_text('\n'.join(dialogs))
-    Path(f'.cache/tm1-apps/gui-{dimension}d-warnings.txt').write_text('\n'.join(solver_warnings))
+    Path(f'.cache/tm1-apps/gui-{dimension}d-warnings.txt').write_text(diagnostic_text)

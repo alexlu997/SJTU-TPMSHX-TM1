@@ -36,6 +36,10 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   shared models and numerical backends directly; there are no `sys.modules`
   aliases or import-time function injection into the numerical backend.
   The retained dictionary-based 3D entry is `run_stack_3d._run_3d_stack`.
+  Research and conservation tools still use it for single-fluid and manufactured
+  source cases outside `ComputeConfig`; it shares the prepared numerical backend
+  rather than carrying another solver. It is not a compatibility alias to remove
+  before those physical cases have an equivalent public contract.
   It and `_build_3d_problem` accept keyword-only `control=RunControl(...)`,
   forwarded to initial SIMPLE and outer coupling. Runtime callbacks do not
   belong in `cfg`: `_cancel_check`, `_progress_cb` and `_iter_cb` are rejected
@@ -44,6 +48,9 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   the separate text callback. Existing calls without controls remain valid.
   Former `stages_2d`, `stages_3d` and `_stage_common` import facades are retired;
   preparation and shared helpers are imported from their owning modules.
+  The former `solvers.envelope` and `solvers.roughness` facades are also retired.
+  Grid and projection helpers come from `models.grid` and `models.df_projection`;
+  `solvers.df_projection` retains its active pressure reductions only.
 - `controllers/compute_pipeline.py` sequences the public modules; the module
   adapter maps their results to the historical GUI ComputeResult contract.
   It is the sole production result mapper. The old 2D/3D mappings remain only
@@ -58,6 +65,11 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   importing Qt into lower layers. Ordinary GUI computations capture the
   launch thread's Numba mask and apply/restore it in the reused Qt worker;
   optimization retains its independent process/thread resource policy.
+  Desktop inputs use uniform velocity over each inlet opening, local-density
+  thermal transport enabled, and no additional six-wall refinement. Port/wall
+  refinement is selected through the mesh scheme. Loading a GUI preset or
+  session with different retired settings reports the conversion and saves
+  the current explicit settings; scripted solver configuration remains separate.
 - `validation/` and `runs/` are executable research and verification tools,
   not alternative production implementations.
 
@@ -70,17 +82,35 @@ and their unmet acceptance conditions are listed in [capabilities](capabilities.
 historical baseline failures retain their original status.
 
 Production domain shapes are currently limited to **Rectangle**, in 2D and 3D.
-Hexagon/Octagon choices are disabled. Saved polygon presets retain their shape
-for viewing and saving, but the Compute entry and window-to-config adapter
-reject them; they are never silently interpreted as rectangles. The historical
-`ui/polygon_calc.py`, polygon kernels and triangular meshing are retired;
-only the preset vertex helpers remain for viewing and saving. Original code
+The desktop displays a fixed rectangle/cuboid label, with no polygon controls.
+Saved polygon presets are rejected before modifying inputs or results; polygon
+startup sessions are not restored, with an explicit notice. Saved rectangular
+files remain supported and write shape index 0 explicitly. The historical
+`ui/polygon_calc.py`, polygon kernels and triangular meshing are retired. Original code
 is linked in the [history index](history/retired-tools.md).
 Reopening polygon compute requires the mainline physical rules and real
 CaseData/FieldResult/PerformanceResult handoff, not just relocating the GUI code.
 
 The 2D momentum solver uses SIMPLE. The experimental SIMPLER branch is retired;
 its original benchmark and negative result remain in the history index.
+
+The B-side partial-opening experiments (M4 area scaling, per-cell participation
+mask, temperature freezing and H2 outlet conductivity suppression) are retired.
+Explicit retired settings are rejected before execution, including in research
+dictionaries and directly prepared inputs. Real port locations, dimensions,
+directions and physical mass/energy checks remain active. The default model
+applies no extra B-side participation correction. The independent
+`TPMSHX_SCO2_COMPRESSIBLE` A-side pressure/property experiment remains separate;
+it is not the GUI's local-density thermal-transport setting.
+Historical experimental cases and their original results are indexed in
+[retired tools](history/retired-tools.md); rerunning their geometry under the
+current model produces a new comparison, not a reproduction of that experiment.
+
+Historical water-Nu comparisons and the old full-face 2D enthalpy reference now
+live in `tests/water_nu_reference.py` and `tests/enthalpy_2d_reference.py`.
+Production keeps the direct water CFD closure and shared 3D enthalpy adapter.
+The unused `postprocess.report` and `postprocess.visualization` helpers are
+retired; public evaluation, recorded-field plots and exports remain supported.
 
 ### Shared solver implementation
 
@@ -97,6 +127,9 @@ The public `tol_simple` field and `solve(tol=...)` signature are retained for
 file/call compatibility; they do not set F2 tolerances. Use `mom_tol`,
 `mass_local_tol` and `mass_global_tol` for those gates. The pressure-subproblem
 residual history retains its definition because adaptive AMG consumes it.
+Changing `tol_simple` does not explain a runtime or accuracy difference between
+full compute and screening. Their actual inputs, approximation modes, grids,
+iteration budgets and F2 settings must be compared instead.
 Coarse bootstrap supplies a bounded initial guess, not a convergence certificate.
 Old result files remain readable; rerunning an explicit legacy configuration
 requires selecting F2 and accepting the independently measured result.
@@ -117,6 +150,12 @@ faces are captured before temperature-face balancing; true-h separately
 balances and projects its mass transport. Per-call transport inputs do not
 become persistent iteration state. The native thermal snapshot stays detached
 from the conductivity, capacity and final SIMPLE arrays updated by post.
+
+Iteration labels, the 3D progress fraction and SIMPLE cap logs use the effective
+per-run limits. The 3D default outer budget is 12 (3 for `fast_sweep`); progress
+marks iteration entry and is not elapsed-time progress or proof of convergence.
+The application pipeline reserves separate progress intervals for preparation
+and publication, then reports completion after the required stages return.
 
 The 3D initial A/B SIMPLE dispatch uses one level of parallelism. If either
 side reaches the existing parallel-sweep grid threshold, A and B run in order
@@ -239,10 +278,12 @@ references are historical numerical oracles, not the current metric contract.
 
 `PartialBCConfig.uniform_inlet_2d` selects geometric overlap without the
 historical four-cell inlet taper. Preparation records the selected profile,
-and the 2D solver consumes and checks that same profile. Shanghai water
-defaults to uniform flow over its confirmed local opening; total mass flow
-and port geometry are unchanged. Other defaults and saved presets lacking
-the field retain the historical profile. The flag does not alter 3D flow.
+and the 2D solver consumes and checks that same profile. The desktop fixes
+this flag to true for both fluids and reports conversion of retired settings
+when loading GUI files; it has no inlet-profile switch. The lower-level API
+retains the historical profile for scripted configurations with the flag
+false. Total mass flow and port geometry are unchanged by profile selection,
+and the flag does not alter 3D flow.
 
 Continuous screening uses `models.screening.build_field` for preparation,
 preview and export. Saved decision vectors must be decoded with their original
@@ -296,6 +337,21 @@ not the installed package. `controllers/user_storage.py` owns these paths and
 imports only missing, known legacy user files without deleting their originals.
 `desktop.py` configures writable caches before loading the GUI and supplies the
 installed entry point; standalone packaging is described in [desktop builds](desktop.md).
+
+Existing sessions restore the complete input snapshot, including fluid types,
+flow directions, grids and ports, without reapplying a preset. Shanghai defaults
+apply to a new workspace without a saved session or an explicit reset/load.
+Each workspace saves its own partition axis, tables and continuous-field control
+points. Older sessions missing partition data clear and disable partitions, with
+a notice if they had been enabled; another workspace's partitions are never
+reused. Startup converts temperature inputs to K while preserving their physical
+values.
+
+Copy-as-Python and reproducible links use the same complete GUI preset capture
+and restore path as saved inputs, including temperature units, partition rows,
+continuous-field inputs and custom model parameters. The Python snippet expects
+an existing `window`; it restores inputs without launching a solve. This preset
+format is distinct from the public module's `ComputeConfig` input.
 
 - `ui/builders_canvas.py` assembles the visible geometry, result, and
   optimization workbench. `build_canvas_area()` only coordinates its named
@@ -411,6 +467,12 @@ explicit numerical-model change with directly relevant validation.
     including the `bicubic_iteration_heos_polish_v2` algorithm and whether
     exact-EOS finishing was needed.
     This is an approximate iteration algorithm, not an experimental calibration.
+    The separate experimental `TPMSHX_SCO2_COMPRESSIBLE` switch enables
+    local-pressure density/viscosity updates only on the 3D A side and changes
+    that side's pressure initialization/envelope handling. B-side sCO2 flow
+    properties retain the inlet-pressure convention. This switch does not
+    implement a full compressible continuity equation or qualify a symmetric
+    two-sided compressible model; it is off by default.
 11. **Current TM1 limit.** sCO2 zones and offset level sets remain rejected;
     air/water-only runs retain the qualified model-enthalpy and temperature
     routes listed above. For Nz>1, their end-cell treatment covers every

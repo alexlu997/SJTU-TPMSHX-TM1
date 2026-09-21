@@ -1,10 +1,9 @@
 """Codex #6 — explicit invalid-pressure-state flag (minimal slice, no optimizer).
 
-1D compressible D-F: P_out² = P_in² − 2RT·C·L. When C·L is large enough
-that P_out² ≤ 0 the operating point is physically infeasible (choked /
-over-driven). The code historically *silently rescued* it (`return P_in`),
-hiding infeasibility behind a finite plausible number — dangerous for BO
-and high-Re extrapolation.
+1D isothermal D-F: P_out² = P_in² − 2RT·C·L. When P_out² ≤ 0, this
+approximation has no positive outlet pressure solution; it does not establish
+physical choking. Historically the code silently returned P_in, hiding the
+approximation failure behind a finite number used by optimization/evaluation.
 
 Contract (Option i):
 - `predict_dP(..., strict=False)`  → DEFAULT unchanged (returns P_in on

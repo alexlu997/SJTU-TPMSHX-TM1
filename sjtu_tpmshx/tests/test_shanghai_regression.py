@@ -1,31 +1,24 @@
 """Shanghai 16-case validation regression tests (opt-in, slow).
 
-Per audit 2026-05-28 H3: previously only legacy 2D was guarded by CI
-(via `validation/test_shanghai_regression.py` CLI form — now deleted
-since its target `validation.legacy.validate_shanghai` was retired
-2026-05-06). Now 3 production validation paths are covered:
-
-  test_shanghai_2d_legacy    — `validation.legacy.validate_shanghai`
-                               (legacy 2D, baseline 2026-04-17 refined grid)
-  test_shanghai_3d_baseline  — `validation.cases.validate_shanghai_3d_real`
-                               (production 3D Nz=3 default)
-  test_shanghai_lumped_paper — `validation.cases.validate_shanghai_lumped_dual_nu`
-                               (paper baseline ε-NTU cross-flow)
+Two historical validation comparisons remain: the 3D driver and the
+cross-flow lumped model. The retired 2D test placeholder is indexed in
+``docs/history/retired-tools.md``. Historical reference numbers below retain
+their original version and thresholds; they are not current accuracy claims.
 
 These tests are SLOW (~6 min each) and OPT-IN. Default pytest run skips
 them. To enable:
 
     # Shell (env var)
-    TPMSHX_RUN_SHANGHAI_REGRESSION=1 pytest tests/test_shanghai_regression.py -v
+    TPMSHX_RUN_SHANGHAI_REGRESSION=1 python -m pytest sjtu_tpmshx/tests/test_shanghai_regression.py -v
 
     # PowerShell
     $env:TPMSHX_RUN_SHANGHAI_REGRESSION = '1'
-    pytest tests/test_shanghai_regression.py -v
+    python -m pytest sjtu_tpmshx/tests/test_shanghai_regression.py -v
 
 Baseline values are pinned per the audit report (vault/reports/engineering/
 2026-05-28-validation-correctness-audit-CN.html §H3). If a deliberate
-solver change shifts numbers, update the BASELINE_* constants below and
-the audit report's "current baseline" entries.
+solver change shifts numbers, record a separately attributable comparison.
+Do not overwrite these historical references to make the checks pass.
 """
 from __future__ import annotations
 
@@ -68,27 +61,6 @@ def _rmsre_from_pct(arr) -> float:
     arr = np.asarray(arr, dtype=np.float64)
     arr = arr[np.isfinite(arr)]
     return float(np.sqrt(np.mean(arr ** 2)))
-
-
-# ── 1. Legacy 2D Shanghai validation (retired 2026-05-06) ────────────
-
-@pytest.mark.skip(reason=(
-    "validation.legacy.validate_shanghai retired 2026-05-06 fix #5; "
-    "production paths are now lumped_dual_nu (paper baseline) and "
-    "3d_real (3D LTNE) — see two tests below. Kept as skip placeholder "
-    "to document the deliberate scope change."))
-def test_shanghai_2d_legacy():
-    """[RETIRED] Legacy 2D Shanghai dP regression.
-
-    The legacy module ``validation.legacy.validate_shanghai`` no longer
-    exists in the codebase (retired 2026-05-06 fix #5). The original CLI
-    form in ``validation/test_shanghai_regression.py`` was also deleted
-    in this audit batch since its subprocess target was broken.
-
-    Replaced by the two new tests below (3D + lumped). Marked skip so
-    pytest discovery still surfaces the deliberate retirement.
-    """
-    pass
 
 
 # ── 2. Production 3D Shanghai validation ─────────────────────────────

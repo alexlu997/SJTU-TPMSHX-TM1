@@ -9,21 +9,29 @@ Darcy-Forchheimer baseline:
 
     κ_K(r)  = K_cfd  / K_sym ,    κ_cF(r) = cF_cfd / cF_sym ,    r = ε_side/ε_sym
 
-where (K_sym, cF_sym) = ``predict.predict_K_cF(tpms, L, t, ε_sym)`` (the κ=1
-symmetric anchor). The ratio cancels the shared CFD provenance (mesh /
-turbulence model / AM-roughness factor) so only the geometry-induced per-side
-shift survives. Fits a monotone κ_K(r), κ_cF(r) map (linear interp on sorted r,
-flat-extrapolated, with the r=1→κ=1 anchor enforced) and registers it via
-``kappa_asym.set_kappa_table``. After ingest, set env ``TPMSHX_ASYM_KAPPA=1``
-to activate the correction in the 3D stack.
+where (K_sym, cF_sym) = ``predict.predict_K_cF(tpms, L, t, ε_sym)``. This
+denominator is the current symmetric model prediction, not a paired CFD run;
+the ratio can therefore include differences in CFD recipe and model baseline.
+For the separate same-recipe CFD self-ratio workflow, use
+``sjtu_tpmshx.runs.cfd_asym.asym_postproc_kappa`` instead.
 
-Usage:  python -m df_surrogate.ingest_cfd_kappa results.csv
+Tables use piecewise linear interpolation on sorted r with flat ends; κ is not
+constrained to be monotone. A (1, 1) point is added only when r≈1 is absent;
+supplied r≈1 values are retained. The outer ``kappa_asym.kappa_KcF`` caller has
+its own symmetric-r identity guard.
+
+``ingest`` registers tables in the calling Python process only. Research code
+can then explicitly call ``kappa_asym.kappa_KcF(..., enabled=True)`` in that
+process. The tables are not connected to production preparation; neither this
+CLI nor ``TPMSHX_ASYM_KAPPA=1`` installs or enables them in a full 3D/GUI solve.
+
+Usage:  python -m sjtu_tpmshx.df_surrogate.ingest_cfd_kappa results.csv
         (or import ingest(path) programmatically)
 """
 from __future__ import annotations
 
 import csv
-import sys
+import argparse
 
 import numpy as np
 
@@ -34,9 +42,11 @@ from sjtu_tpmshx.logutil import get_logger
 _log = get_logger(__name__)
 
 
-def _monotone_interp(r_pts, k_pts):
-    """Return a callable κ(r): linear interp on sorted (r, κ), flat ends,
-    with the r=1 → κ=1 anchor guaranteed present."""
+def _linear_interp(r_pts, k_pts):
+    """Interpolate sorted (r, κ), with flat ends and no monotonicity constraint.
+
+    Add (1, 1) only if r≈1 is absent; retain a supplied near-symmetric value.
+    """
     r = list(r_pts)
     k = list(k_pts)
     if not any(abs(rv - 1.0) < 1e-9 for rv in r):
@@ -52,8 +62,8 @@ def _monotone_interp(r_pts, k_pts):
 
 
 def ingest(path: str) -> dict:
-    """Read Fluent results CSV → fit + register κ tables. Returns a summary
-    dict {tpms: n_points}."""
+    """Divide fitted CFD coefficients by the symmetric predictor and register
+    interpolation tables in this process. Return {tpms: n_points}."""
     by_tpms: dict = {}
     with open(path, newline="", encoding="utf-8") as f:
         for row in csv.DictReader(f):
@@ -72,21 +82,21 @@ def ingest(path: str) -> dict:
 
     summary = {}
     for tpms, d in by_tpms.items():
-        kK_fn = _monotone_interp(d["r"], d["kK"])
-        kcF_fn = _monotone_interp(d["r"], d["kcF"])
+        kK_fn = _linear_interp(d["r"], d["kK"])
+        kcF_fn = _linear_interp(d["r"], d["kcF"])
         kappa_asym.set_kappa_table(tpms, kK_fn, kcF_fn)
         summary[tpms] = len(d["r"])
         print(f"[kappa] {tpms}: {len(d['r'])} points, "
               f"r∈[{min(d['r']):.3f},{max(d['r']):.3f}], "
               f"κ_K∈[{min(d['kK']):.3f},{max(d['kK']):.3f}], "
               f"κ_cF∈[{min(d['kcF']):.3f},{max(d['kcF']):.3f}]")
-    print(f"[kappa] registered {len(summary)} tpms tables. "
-          f"Set TPMSHX_ASYM_KAPPA=1 to activate in the 3D stack.")
+    print(f"[kappa] registered {len(summary)} tpms tables in this process only. "
+          "Research callers can explicitly evaluate kappa_KcF(..., enabled=True). "
+          "Production preparation does not consume these tables; no calibration was installed.")
     return summary
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("usage: python -m df_surrogate.ingest_cfd_kappa <results.csv>")
-        sys.exit(1)
-    ingest(sys.argv[1])
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('results_csv', help='Per-side fitted CFD coefficients (7-column CSV).')
+    ingest(parser.parse_args().results_csv)

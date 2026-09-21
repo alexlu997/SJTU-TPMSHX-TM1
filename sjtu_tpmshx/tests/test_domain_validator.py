@@ -119,12 +119,11 @@ def test_validate_geometry_cell_larger_than_domain_errors():
     assert err[0].severity == 'error'
 
 
-def test_validate_geometry_shanghai_geometry_flagged():
+def test_validate_geometry_shanghai_has_no_invented_error_band():
     warns = validate_geometry(
         L_dom=0.080, H_dom=0.040, Lz_dom=0.020,
         L_cell_mm=7.0, t_mm=0.6, is_3d=True)
-    codes = [w.code for w in warns]
-    assert 'shanghai_geometry' in codes
+    assert not warns
 
 
 def test_validate_geometry_3d_requires_Lz():

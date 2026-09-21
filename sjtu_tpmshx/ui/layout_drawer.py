@@ -9,7 +9,7 @@ from .theme import get_theme
 
 
 def draw_layout(window):
-    """Draw geometry. 2D (rect/hex/oct) or 3D cuboid wireframe based on mode."""
+    """Draw geometry. 2D rectangle or 3D cuboid wireframe based on mode."""
     try:
         L = float(window.le_L.text()); H = float(window.le_H.text())
     except ValueError:
@@ -40,11 +40,7 @@ def draw_layout(window):
             _canvas.wheelEvent = _canvas._orig_wheel_event
         ax = _canvas.fig.add_subplot(111)
         window.canvas_layout.axes = [[ax]]
-        shape_idx = window.combo_shape.currentIndex()
-        if shape_idx == 0:
-            draw_layout_rect(window, ax, L, H, Lmm, Hmm)
-        else:
-            draw_layout_polygon(window, ax, L, H, Lmm, Hmm)
+        draw_layout_rect(window, ax, L, H, Lmm, Hmm)
         ax.set_xlabel('x [mm]', color=_t['ax_text'])
         ax.set_ylabel('y [mm]', color=_t['ax_text'])
         ax.set_aspect('equal')
@@ -515,78 +511,4 @@ def draw_layout_rect(window, ax, L, H, Lmm, Hmm):
     ax.set_xlim(-8, Lmm + 8); ax.set_ylim(-8, Hmm + 8)
     dA = window._DIR_MAP[cfgA['dir']]; dB = window._DIR_MAP[cfgB['dir']]
     ax.set_title(f'Geometry: {Lmm:.0f}x{Hmm:.0f}mm | A:{dA} B:{dB}',
-                 color=_t['ax_text'], fontsize=10)
-
-
-def draw_layout_polygon(window, ax, L, H, Lmm, Hmm):
-    """Ex-Main_Menu._draw_layout_polygon(self, ax, L, H, Lmm, Hmm)."""
-    _t = get_theme()
-    from sjtu_tpmshx.solvers import unstructured_mesh as um
-    from matplotlib.patches import Polygon as MplPolygon
-
-    shape = window.combo_shape.currentText()
-    verts = um.hexagon(L, H) if shape == 'Hexagon' else um.octagon(L, H)
-    verts_mm = verts * 1000
-    n_v = len(verts_mm)
-
-    # Draw filled polygon
-    ax.add_patch(MplPolygon(verts_mm, closed=True,
-                            fc=_t['poly_fill'], ec=_t['ax_text'], lw=2, alpha=0.9))
-
-    # Pipe edge indices
-    edge_inA  = window.combo_edge_inA.currentIndex()
-    edge_outA = window.combo_edge_outA.currentIndex()
-    edge_inB  = window.combo_edge_inB.currentIndex()
-    edge_outB = window.combo_edge_outB.currentIndex()
-
-    pipe_edges = {edge_inA: ('A in', _t['inlet_color']),
-                  edge_outA: ('A out', _t['inlet_color']),
-                  edge_inB: ('B in', _t['outlet_color']),
-                  edge_outB: ('B out', _t['outlet_color'])}
-
-    for ei in range(n_v):
-        p0 = verts_mm[ei]
-        p1 = verts_mm[(ei + 1) % n_v]
-        mid = 0.5 * (p0 + p1)
-
-        # Edge direction for outward offset
-        edge = p1 - p0
-        elen = np.linalg.norm(edge)
-        if elen < 1e-6:
-            continue
-        outward = np.array([edge[1], -edge[0]]) / elen  # outward normal
-
-        if ei in pipe_edges:
-            tag, color = pipe_edges[ei]
-            # Highlight pipe edge with thick colored line
-            ax.plot([p0[0], p1[0]], [p0[1], p1[1]], color=color, lw=5, alpha=0.85,
-                    solid_capstyle='round')
-            # Label outside
-            lbl_pos = mid + outward * 4
-            ax.text(lbl_pos[0], lbl_pos[1], tag, color=color, fontsize=8,
-                    fontweight='bold', ha='center', va='center')
-
-            # Flow arrow for inlets
-            if 'in' in tag:
-                arr_start = mid + outward * 3
-                arr_end = mid - outward * 2
-                ax.annotate('', xy=(arr_end[0], arr_end[1]),
-                            xytext=(arr_start[0], arr_start[1]),
-                            arrowprops=dict(arrowstyle='->', color=color, lw=1.5))
-        else:
-            # Edge number label (small, grey)
-            lbl_pos = mid + outward * 2.5
-            ax.text(lbl_pos[0], lbl_pos[1], f'E{ei}', color='grey', fontsize=6,
-                    ha='center', va='center', alpha=0.6)
-
-    # Centre label
-    cx = verts_mm[:, 0].mean()
-    cy = verts_mm[:, 1].mean()
-    ax.text(cx, cy, f'TPMS\n{shape}', color=_t['ax_text'], ha='center', va='center',
-            fontsize=10, fontweight='bold', alpha=0.5)
-
-    margin = max(Lmm, Hmm) * 0.1
-    ax.set_xlim(verts_mm[:, 0].min() - margin, verts_mm[:, 0].max() + margin)
-    ax.set_ylim(verts_mm[:, 1].min() - margin, verts_mm[:, 1].max() + margin)
-    ax.set_title(f'Geometry: {shape} {Lmm:.0f}x{Hmm:.0f}mm',
                  color=_t['ax_text'], fontsize=10)

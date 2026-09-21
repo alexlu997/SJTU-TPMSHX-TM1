@@ -69,16 +69,8 @@ DEFAULT_CONFIG: dict = {
 
     # Solver knobs
     'max_iter_simple': 5000,
-    'tol_simple':      1e-3,        # SIMPLE mass residual tolerance. The
-                                    # cross-flow geometry (no manifold,
-                                    # axis-swap on side B) leaves side B's
-                                    # residual stagnating at O(1e-3) on
-                                    # heterogeneous fields even though dP
-                                    # has fully stabilized; tightening past
-                                    # 1e-3 produces 100% rejection during
-                                    # Sobol exploration without changing
-                                    # Q / dP. V&V Standard-Tier paths can
-                                    # override to 1e-5 explicitly.
+    'tol_simple':      1e-3,        # Retained call/config compatibility only;
+                                    # SIMPLE uses the shared F2 gates.
     'max_iter_energy': 5000,
     'tol_energy':      0.5,        # K
     'n_rho_loops':     3,          # 1 = isothermal-ρ fast path; >1 enables
@@ -110,17 +102,9 @@ DEFAULT_CONFIG: dict = {
                                     # so the BO surrogate sees a bounded
                                     # input distribution (no 17-MPa outliers
                                     # destroying GP lengthscale estimates).
-    'reject_unconverged':   False,  # When True, a SIMPLE solve that exits at
-                                    # max_iter without hitting tol returns at
-                                    # the cap with Q ≈ 0. Default off because
-                                    # the dp_cap_pa final guard already
-                                    # catches the failure mode we care about
-                                    # (residual-dominated dP > 1 MPa); strict
-                                    # convergence-flag rejection just discards
-                                    # designs where dP is already stable but
-                                    # mass residual happens to plateau above
-                                    # tol_simple. Set True for diagnostics
-                                    # that demand machine-precision SIMPLE.
+    'reject_unconverged':   False,  # Opt-in screening rejection of a failed
+                                    # SIMPLE F2 verdict; independent of the
+                                    # final dp_cap_pa guard and tol_simple.
 }
 
 

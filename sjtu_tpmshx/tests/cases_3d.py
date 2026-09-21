@@ -17,7 +17,6 @@ def air_air_cfg(**ov):
                          out_z_ctr=0.021, out_z_w=0.042),
         fluid_type_A='air', fluid_type_B='air',
         wall_refine_3d=False,
-        partial_B_closure='m4_effective_area', m4_exponent=0.67,
     )
     cfg.update(ov)
     return cfg

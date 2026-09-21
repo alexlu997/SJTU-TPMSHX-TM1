@@ -119,7 +119,7 @@ def _check_two_cells(direction, fraction, mode, unequal, inlet_scale=None):
             set_num_threads(2)
             extra = () if inlet_fluxes is None else tuple(
                 np.full((2,2), flux) for flux in inlet_fluxes)
-            fn(*args, one,0.0,one*0,one*0,one*0,int(conservative), *extra)
+            fn(*args, one*0,one*0,one*0,int(conservative), *extra)
         finally:
             set_num_threads(old_threads)
     for actual, pair in zip(fields, expected.reshape(3,2)):

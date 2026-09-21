@@ -17,13 +17,13 @@ from sjtu_tpmshx.domain.run_warnings import record_warning
 
 R_AIR = 287.05
 
-# One-shot warning when the 1D compressible dP is infeasible (choked) and the
-# non-strict path rescues to P_in (robustness 2026-06-25).
+# One-shot warnings when the 1D pressure approximation has no positive outlet
+# pressure solution, with separate records for each return policy.
 _CHOKE_WARNED: set = set()
 
 
 def reset_choke_warn_registry() -> None:
-    """Re-arm the standalone choke registry; pipeline runs own their records."""
+    """Re-arm standalone pressure-limit warnings; runs own their records."""
     _CHOKE_WARNED.clear()
 
 
@@ -103,7 +103,7 @@ def predict_dP_compressible(tpms_type: str, L_mm: float, t_mm: float,
                             P_in: float, mu: float,
                             L: float, strict: bool = False,
                             method: str | None = None) -> float:
-    """1D compressible isothermal D-F pressure drop.
+    """1D isothermal ideal-gas D-F pressure-drop approximation for air.
 
     P_out^2 = P_in^2 - 2*R*T*(mu*G/K + c_F*G^2)*L
 
@@ -114,22 +114,24 @@ def predict_dP_compressible(tpms_type: str, L_mm: float, t_mm: float,
     P_in : inlet absolute pressure [Pa]
     mu : dynamic viscosity [Pa s]
     L : channel length [m]
+    strict : if no positive outlet pressure solution exists, True returns NaN
+        and False returns P_in as a fallback dP. Neither is a solved pressure.
     """
     K, c_F = predict_K_cF(tpms_type, L_mm, t_mm, eps_f, method=method)
     C = mu * G / K + c_F * G ** 2
     P_out_sq = P_in ** 2 - 2.0 * R_AIR * T * C * L
     if P_out_sq <= 0:
-        # Codex #6: infeasible (no real P_out). strict → NaN for
-        # detect+exclude+count; default → legacy P_in (optimizer untouched).
-        # Robustness (2026-06-25): the non-strict P_in rescue used to be
-        # silent. Warn once so a choked operating point isn't mistaken for a
-        # genuine dP ≈ P_in result.
-        _choke_key = (tpms_type, round(float(L_mm), 2), round(float(t_mm), 2))
+        # No positive P_out: preserve each return policy without interpreting
+        # failure of this approximation as a physical choking diagnosis.
+        _choke_key = (tpms_type, round(float(L_mm), 2), round(float(t_mm), 2),
+                      bool(strict))
+        return_policy = ("returning NaN (strict=True)." if strict else
+                         "returning P_in as a fallback dP (strict=False).")
         message = (
-            f"[D-F choke] 1D compressible dP infeasible "
-            f"(P_out^2={P_out_sq:.3e} <= 0, predicted dP >= P_in): the flow "
-            "is choked at these conditions; returning P_in as the dP "
-            "rescue. Reduce velocity/length or raise inlet pressure.")
+            f"[D-F approximation] 1D isothermal air pressure model has no "
+            f"positive outlet pressure solution (P_out^2={P_out_sq:.3e} <= 0); "
+            f"{return_policy} This is not a physical choking diagnosis. "
+            "Check mass flux, channel length and inlet pressure.")
         if (not record_warning(('df_choke', *_choke_key), message)
                 and _choke_key not in _CHOKE_WARNED):
             _CHOKE_WARNED.add(_choke_key)

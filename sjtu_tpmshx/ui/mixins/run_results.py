@@ -21,23 +21,16 @@ class RunResultsMixin:
     """ComputeResult→window adapter + plot finalizer + diagnostics surface."""
 
     def _finalize_plots(self):
-        """Thin wrapper — delegates to run_calculation module (Task B.9).
-        Freezes repaints around the multi-canvas population so the user
-        sees one clean frame flip instead of five intermediate paints."""
-        from sjtu_tpmshx.ui.plot_2d_results import finalize_plots
+        """Show the initial temperature plot; other fields render on demand."""
+        from sjtu_tpmshx.ui.plot_2d_results import finalize_plots, ensure_result_plot
         self.setUpdatesEnabled(False)
         try:
             out = finalize_plots(self)
+            for field, dialog in getattr(self, '_detached_canvases', {}).items():
+                if field in ('temp', 'pres', 'vel') and dialog.isVisible():
+                    ensure_result_plot(self, field)
         finally:
             self.setUpdatesEnabled(True)
-        # 2026-05-22 (UI report point 1): finalize_plots renders the
-        # temp/pres/vel canvases but never recorded them in _drawn_tabs, so
-        # Export Figure's picker only listed "Geometry" after a 2D compute.
-        # Mark them here (mirrors the 3D path's drawn.add at main.py ~4207).
-        # layout/pareto are marked by their own draw routines.
-        drawn = getattr(self, '_drawn_tabs', set())
-        drawn.update({'temp', 'pres', 'vel'})
-        self._drawn_tabs = drawn
         return out
 
     def write_result(self, result):
@@ -147,17 +140,6 @@ class RunResultsMixin:
             'energy_imbalance_rel': result.residuals.get(
                 'energy_imbalance_rel', float('nan')),
         }
-        # Slider/export caches — the legacy _run_solvers wrote these
-        # directly onto the window (run_calculation.py Step-2 tail); on
-        # the Pipeline path those writes land on the shim and vanish, so
-        # mirror them here ([np.newaxis] wrap = legacy 3D-compat shape).
-        import numpy as _np
-        self.T_fA = (f['Ta'][_np.newaxis] if f.get('Ta') is not None
-                     else None)
-        self.T_fB = (f['Tb'][_np.newaxis] if f.get('Tb') is not None
-                     else None)
-        self.T_s = (f['Ts'][_np.newaxis] if f.get('Ts') is not None
-                    else None)
         self._compute_warnings = list(result.warnings)
         self._extrap_reasons = list(result.extrap_reasons)
         self._has_extrap = bool(result.extrap_reasons)
@@ -314,6 +296,12 @@ class RunResultsMixin:
             f"闭合系数: K_ffA={_f(co.get('K_ffA'))} K_ffB={_f(co.get('K_ffB'))}"
             f" h_vA={_f(co.get('h_vA'))} h_vB={_f(co.get('h_vB'))}",
         ]
+        timings = d.get('timings_s')
+        if timings:
+            lines.append("阶段耗时：" + " · ".join(
+                f"{label} {_f(timings.get(key), '{:.3f}')} s"
+                for key, label in (('prepare', '准备'), ('solve', '求解'),
+                                   ('postprocess', '后处理'), ('display', '显示'))))
         for w in (d.get('warnings') or []) + (d.get('envelope_warnings') or []):
             lines.append(f"⚠ {w}")
         for e in d.get('extrap') or []:

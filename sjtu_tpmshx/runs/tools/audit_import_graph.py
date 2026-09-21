@@ -1,14 +1,13 @@
 """Static import-graph audit for the sjtu_tpmshx package (P1.1, 2026-07-19).
 
 AST-based — no module is actually imported, so Qt/numba side effects can't
-bite. Handles BOTH import conventions used in this repo: top-level style
-(``from solvers.x import y``, enabled by the various sys.path bootstraps)
-and package style (``from sjtu_tpmshx.solvers.x import y``), plus relative
-imports.
+bite. Recognises current package-qualified and relative imports, plus historical
+top-level imports when auditing old source. That recognition does not make old
+``from solvers.x import y`` paths supported runtime entry points.
 
 Usage (from repo root):
-    python -u sjtu_tpmshx/runs/tools/audit_import_graph.py
-    python -u sjtu_tpmshx/runs/tools/audit_import_graph.py --fail-on-violations  # CI gate mode
+    python -m sjtu_tpmshx.runs.tools.audit_import_graph
+    python -m sjtu_tpmshx.runs.tools.audit_import_graph --fail-on-violations
 
 The layer model below encodes the INTENDED dependency direction (lower may
 never import higher). validation/runs/tests are "free" consumers: they may
@@ -45,9 +44,8 @@ SANCTIONED = {
         "No numerical backend is imported by the model entry points.",
     ("solvers", "df_surrogate"):
         "closure boundary: solvers consume predict_K_cF* and the _domain "
-        "training-hull constants, while df_surrogate imports solvers "
-        "geometry helpers (a mutual pair). Extracting a closure-interface "
-        "layer is P1.8b-scale restructuring - deliberately accepted as-is.",
+        "training-hull constants. The shared DF closure does not import "
+        "the numerical backend; this accepted edge preserves that direction.",
     ("domain", "df_surrogate"):
         "df_surrogate/_domain.py is a leaf constants module (training-grid "
         "nodes); domain/validator reads the single source. Direction is "

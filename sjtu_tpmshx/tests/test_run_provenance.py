@@ -16,7 +16,6 @@ from sjtu_tpmshx.tests.test_worker_result_handoff import win as win, _wait_for
 def run_window(win, monkeypatch, tmp_path):
     monkeypatch.setattr(QMessageBox, 'information', lambda *args: None)
     win._apply_shanghai_defaults()
-    win.combo_shape.setCurrentIndex(0)
     win.le_Nx.setText('24')
     win.le_Ny.setText('18')
     win.le_Nz.setText('5')
@@ -54,7 +53,7 @@ def test_running_edits_recent_restore_and_consecutive_dimensions(run_window, mon
         win.le_Ny.setText('18')
         win.le_Nz.setText('5')
         win._active_preset_name = f'start-{dim}'
-        win.chk_wall_refine_3d.setChecked(True)
+        win.combo_grid.setCurrentIndex(win.combo_grid.findData(True))
         win.auto_fill_fluid_a()
         win.auto_fill_fluid_b()
         expected = original_capture('Run inputs')
@@ -177,6 +176,45 @@ def test_snapshot_deepcopies_nested_preset_payload(run_window, monkeypatch):
     _wait_for(win.compute.is_idle)
     assert win.compute.last_result().metadata['run_provenance']['preset'] == expected
     assert win._recent_runs[0]['preset']['zone_inputs'] == expected['zone_inputs']
+
+
+def test_python_export_restores_complete_gui_inputs(run_window, monkeypatch):
+    from dataclasses import asdict
+    from types import SimpleNamespace
+    from sjtu_tpmshx.tests.test_sco2_nu_modes import SYNTHETIC
+
+    win = run_window
+    win.combo_dim.setCurrentIndex(1)
+    win.combo_fluidA.setCurrentIndex(2)
+    win.combo_fluidB.setCurrentIndex(0)
+    win.combo_dirA.setCurrentIndex(1)
+    win.combo_df_mode.setCurrentIndex(0)
+    win.combo_grid.setCurrentIndex(win.combo_grid.findData(True))
+    win._set_sco2_nu_parameters(asdict(SYNTHETIC))
+    win.combo_sco2_nu_mode.setCurrentIndex(1)
+    win._temp_unit = 'C'
+    win.le_TinA.setText('76.85')
+    win.le_TinB.setText('26.85')
+    win.combo_zone_axis.setCurrentIndex(1)
+    win._zone_init_1d(2)
+    win.zone_table.item(0, 2).setText('6.5')
+    win.chk_zones.setChecked(True)
+    win._pareto_x_decision = [6.5, .45] * 18
+    win._pareto_y_trans_inlet, win._pareto_y_trans_outlet = .15, .18
+    expected = win._capture_current_preset('Python inputs')
+    copied = []
+    monkeypatch.setattr(QApplication, 'clipboard',
+                        lambda: SimpleNamespace(setText=copied.append))
+    win._copy_inputs_as_python()
+
+    win._apply_shanghai_defaults()
+    win._temp_unit = 'K'
+    win.le_TinA.setText('422')
+    namespace = {'window': win}
+    exec(compile(copied[0], '<generated GUI preset>', 'exec'), namespace)
+    assert namespace['cfg'] == expected
+    assert win._capture_current_preset('Python inputs') == expected
+    assert win._temp_unit == 'C' and win.le_TinA.text() == '76.85'
 
 
 @pytest.mark.parametrize('dim', [0, 1])

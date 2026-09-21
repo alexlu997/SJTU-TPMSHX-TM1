@@ -181,17 +181,20 @@ def finalize_plots_3d(window) -> bool:
     window._rendered_3d_slices = False
     if (hasattr(window, '_field_phase')
             or _os_3d_fin.environ.get('TPMSHX_EAGER_3D_SLICES', '0') == '1'):
-        _render_2d_slices_from_3d(window, res)
-        window._rendered_3d_slices = True
+        _render_2d_slices_from_3d(window, res, field='temp')
+        window._rendered_3d_slices = 'temp' in getattr(window, '_drawn_tabs', ())
+        from .plot_2d_results import ensure_result_plot
+        for field, dialog in getattr(window, '_detached_canvases', {}).items():
+            if field in ('temp', 'pres', 'vel') and dialog.isVisible():
+                ensure_result_plot(window, field)
 
     return _3d_vis_ok
 
 
-def _render_2d_slices_from_3d(window, res):
-    """Selected z cell of 3D fields → Temperature/Pressure/Velocity canvases.
+def _render_2d_slices_from_3d(window, res, field=None):
+    """Render one requested z-slice field (all fields for direct callers).
 
-    Custom renderers (not `plot_temperature`/`plot_pressure`) because refined
-    3D grid is non-uniform; legacy 2D plotters assume `np.linspace` spacing.
+    Use the recorded nonuniform grid spacing and the selected physical z cell.
     """
     # B3 C5: res is the ComputeResult — arrays live in res.fields.
     f = res.fields
@@ -219,10 +222,6 @@ def _render_2d_slices_from_3d(window, res):
     phase = getattr(window, '_field_phase', None)
     unit = '°C' if getattr(window, '_temp_unit', 'K') == 'C' else 'K'
 
-    # Legacy attrs for hover/export (single-step (1, Nx, Ny))
-    window.T_fA = Ta[None, :, :, k_mid]
-    window.T_fB = Tb[None, :, :, k_mid]
-    window.T_s  = Ts[None, :, :, k_mid]
     window.P_fA = P_Pa[:, :, k_mid]
     window.P_fB = f['P_fB'][:, :, k_mid] if f.get('P_fB') is not None else None
 
@@ -257,6 +256,9 @@ def _render_2d_slices_from_3d(window, res):
              xc, yc, z_info)),
     ]
     for attr, fn, args in plot_jobs:
+        key = attr.removeprefix('canvas_')
+        if field is not None and field != key:
+            continue
         canvas = getattr(window, attr, None)
         if canvas is None:
             continue
@@ -291,6 +293,7 @@ def _render_2d_slices_from_3d(window, res):
                 'Nx': Nx, 'Ny': Ny, 'L': float(np.sum(dx)), 'H': float(np.sum(dy)),
                 'dx_arr': dx, 'dy_arr': dy, 'slice_index': k_mid,
             }
+            window._drawn_tabs = set(getattr(window, '_drawn_tabs', ())) | {key}
         except Exception as e:
             import traceback; traceback.print_exc()
             _log.warning(f"[3D->2D {attr}] {e}")
@@ -306,6 +309,8 @@ def _render_2d_slices_from_3d(window, res):
         _tw = _gt().get('warn', '#B45309')
         _wm_text = "⚠ ConstDF-v1 extrapolated: " + " | ".join(_reasons)
         for attr in ('canvas_temp', 'canvas_pres', 'canvas_vel'):
+            if field is not None and attr != f'canvas_{field}':
+                continue
             _cv = getattr(window, attr, None)
             if _cv is None:
                 continue

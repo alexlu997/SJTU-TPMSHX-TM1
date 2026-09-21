@@ -6,11 +6,7 @@ docs/history/README.md links its original file and numerical values.
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.solvers.df_projection import (
-    _cell_centre_fracs, _nearest_src_idx,
-    project_fields_to_streamwise_K_cF as p2d,
-    project_fields_to_streamwise_K_cF_3d as p3d,
-)
+from sjtu_tpmshx.models.df_projection import _cell_centre_fracs, _nearest_src_idx, project_fields_to_streamwise_K_cF as p2d, project_fields_to_streamwise_K_cF_3d as p3d
 
 
 @pytest.mark.parametrize('fluid', ['A', 'B'])

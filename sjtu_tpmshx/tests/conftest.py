@@ -29,7 +29,7 @@ os.environ['PYTHONPATH'] = os.pathsep.join(
 # subsequent test_*.py import.
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
-import sjtu_tpmshx  # noqa: F401  (P1.8b W1: 触发包自举，会话级顶层名可用)
+import sjtu_tpmshx  # noqa: F401 — verify the current checkout is importable
 
 
 # 2026-05-09 — Eagerly instantiate a process-wide QApplication so that:

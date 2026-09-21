@@ -14,7 +14,7 @@ Three audit findings fixed here:
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.solvers.envelope import (
+from sjtu_tpmshx.models.envelope import (
     assess_solution_validity, mach_field_max, gate_solution, ChokedFlowError,
     PRESSURE_FLOOR_PA,
 )

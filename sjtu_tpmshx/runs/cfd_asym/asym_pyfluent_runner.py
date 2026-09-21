@@ -19,7 +19,7 @@ Adjust MESH_DIR / mesh_path(), the periodic-zone names, and any version-specific
 settings-tree paths to your PyFluent build (tested shape: 2024R1 / 2025R1 API).
 
 Usage (on the CFD box):
-    python -u asym_pyfluent_runner.py  --worklist asym_cfd_worklist.xlsx \
+    python -m sjtu_tpmshx.runs.cfd_asym.asym_pyfluent_runner --worklist asym_cfd_worklist.xlsx \
         --mesh-dir ./meshes  --out asym_cfd_results.csv  --procs 8
 """
 from __future__ import annotations
@@ -133,7 +133,7 @@ def main(worklist: str, mesh_dir: str, out_csv: str, procs: int):
 
     pd.DataFrame(results).to_csv(out_csv, index=False)
     print(f"\n[csv] {out_csv}  ({len(results)} rows) "
-          f"→ python asym_postproc_kappa.py {out_csv} --register")
+          f"→ python -m sjtu_tpmshx.runs.cfd_asym.asym_postproc_kappa {out_csv}")
 
 
 if __name__ == "__main__":

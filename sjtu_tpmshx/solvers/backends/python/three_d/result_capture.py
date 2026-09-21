@@ -15,7 +15,7 @@ def capture_result(case, prob, outer, raw, diagnostics):
         ('P_fA_display', 'P_Pa', 'Pa'), ('P_fB_display', 'P_Pa_B', 'Pa'),
         ('ucA', 'uc_real', 'm/s'), ('vcA', 'vc_real', 'm/s'), ('wcA', 'wc_real', 'm/s'),
         ('ucB', 'uc_real_B', 'm/s'), ('vcB', 'vc_real_B', 'm/s'), ('wcB', 'wc_real_B', 'm/s'),
-        ('vmag_A', 'vmag', 'm/s'), ('vmag_B', 'vmag_B', 'm/s'), ('chi_B', 'chi_B', '1')):
+        ('vmag_A', 'vmag', 'm/s'), ('vmag_B', 'vmag_B', 'm/s')):
         if raw[source] is not None:
             fields[name] = raw[source]
             display_units[name] = unit

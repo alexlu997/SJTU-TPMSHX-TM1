@@ -11,7 +11,6 @@ from .responsive import ResponsiveRow
 
 def _build_result_sidebar(window, _t, t):
     """Keep the existing result-label interface in a horizontal footer."""
-    from .sparkline import Sparkline
     side = QFrame()
     side.setStyleSheet("QFrame{background:transparent; border:none;}")
     slay = QVBoxLayout(side)
@@ -88,11 +87,6 @@ def _build_result_sidebar(window, _t, t):
     diagnostic.addWidget(confidence)
     diagnostic.addWidget(convergence)
 
-    spark = Sparkline(height=26)
-    spark.setFixedWidth(72)
-    spark.setToolTip("SIMPLE-A 残差 (log₁₀)")
-    detail_row.addWidget(spark)
-    window._resid_spark = spark
     _kv(detail_row, "迭代 / 耗时", 'iters')
     btn_diag = QPushButton("诊断详情…")
     btn_diag.setFixedHeight(26)
@@ -122,9 +116,7 @@ def _build_result_sidebar(window, _t, t):
 
 
 def refresh_result_sidebar(window):
-    """Repaint the sidebar from _res_chips (KPI) + _diag_summary +
-    _live_residuals. Cheap; called after each result lands and on tab
-    switches into the result family."""
+    """Refresh result metrics and diagnostics after publication or tab changes."""
     labels = getattr(window, '_sb_labels', None)
     if not labels:
         return
@@ -172,17 +164,6 @@ def refresh_result_sidebar(window):
     labels['iters'].setText(
         f"{it if it is not None else '—'} · "
         f"{f'{ws:.1f} s' if isinstance(ws, (int, float)) else '—'}")
-
-    spark = getattr(window, '_resid_spark', None)
-    hist = (getattr(window, '_live_residuals', None) or {}).get('A') or []
-    if d.get('mode') == '3d':
-        hist = []
-    if spark is not None:
-        import math as _m
-        spark._data = [
-            _m.log10(max(r, 1e-20)) for _i, r in hist[-500:]
-            if isinstance(r, (int, float)) and r == r]
-        spark.update()
 
 
 def update_result_sidebar_visibility(window):

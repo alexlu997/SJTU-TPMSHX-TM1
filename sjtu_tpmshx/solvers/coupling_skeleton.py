@@ -15,7 +15,7 @@ pieces of that loop both drivers share:
 
 The loop *bodies* (the ``step``/``post`` callables each driver passes in)
 stay dimension-specific — they differ in solve order (2D SIMPLE→LTNE;
-3D LTNE→SIMPLE), in the physics one side carries (χ_B closure, conservative
+3D LTNE→SIMPLE), in the physics one side carries (conservative
 staggered-face LTNE, frozen-B, per-outer P_ref recompute), in their
 progress budgets and RunControl callbacks, and numerical duty diagnostics
 (2D Richardson vs 3D enthalpy). Formal reporting consumes the captured result.

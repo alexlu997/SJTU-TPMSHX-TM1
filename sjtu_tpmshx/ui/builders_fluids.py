@@ -2,12 +2,12 @@
 
 Split out of ui_builders.py (Batch-2, 2026-06-10). Builds the Fluid A /
 Fluid B input cards, the per-fluid inlet/outlet (partial-pipe BC)
-sections and the polygon pipe-edge selectors.
+sections.
 """
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QGridLayout, QLabel, QPushButton,
-    QComboBox, QScrollArea, QFrame, QCheckBox,
+    QWidget, QVBoxLayout, QLabel, QPushButton,
+    QComboBox, QScrollArea,
 )
 
 from .builders_base import (section, collapsible_section, row, res_row, add_row, right_align_combo)
@@ -46,16 +46,15 @@ def _build_pipe_section(window, lay, side, *, title_style, frame_style,
     ``window._3d_only_widgets`` in (le, lbl) pairs, preserving the
     original ordering.
     """
-    gio, sec = section(window, lay, f"  流体 {side}  进 / 出口",
+    gio, sec = section(window, lay, f"流体 {side} 进/出口",
                        title_style, frame_style)
-    window._rect_only_widgets.append(sec)
     window._ia_sections[f'pipe_{side.lower()}'] = sec
     combo = QComboBox(); combo.addItems(_DIR_ITEMS)
     combo.setCurrentIndex(dir_index)
     combo.setStyleSheet(combo_style)
     combo.currentIndexChanged.connect(window._on_dir_changed)
     setattr(window, f'combo_dir{side}', combo)
-    add_row(window, gio, 0, "流动方向", combo)
+    add_row(window, gio, 0, "流动方向", right_align_combo(combo))
     per_side = {'in_ctr': in_ctr, 'out_ctr': out_ctr}
     for r, (suffix, label, default) in enumerate(_PIPE_ROWS, start=1):
         le = row(window, gio, r, label, per_side.get(suffix, default))
@@ -64,12 +63,8 @@ def _build_pipe_section(window, lay, side, *, title_style, frame_style,
         setattr(window, f'_lbl_pipe{side}_{suffix}', lbl)
         if '_z_' in suffix:
             window._3d_only_widgets += [le, lbl]
-    uniform = QCheckBox("开口内均匀")
-    uniform.setToolTip("仅用于二维；未勾选时保留旧入口边缘平滑分布。三维使用几何开口内均匀入口。")
-    uniform.setEnabled(window.combo_dim.currentIndex() == 0)
-    window.combo_dim.currentIndexChanged.connect(lambda index: uniform.setEnabled(index == 0))
-    setattr(window, f'chk_uniform_inlet{side}_2d', uniform)
-    add_row(window, gio, len(_PIPE_ROWS) + 1, "二维入口分布", uniform)
+    combo.setToolTip("入口速度在指定几何开口内均匀施加；开口外为壁面。")
+
 
 
 def _build_fluid_io_rows(window, g, side, t, u_default, T_default, P_default,
@@ -260,32 +255,6 @@ def build_page_fluids(window):
                         title_style=_T_B, frame_style=_F_B,
                         combo_style=_COMBO,
                         dir_index=3, in_ctr="0.154", out_ctr="0.028")
-
-    # ── Polygon pipe edge config (hidden by default) ──────
-    window._poly_pipe_frame = QFrame()
-    window._poly_pipe_frame.setStyleSheet(_F_NEUTRAL)
-    ppg = QGridLayout(window._poly_pipe_frame)
-    ppg.setContentsMargins(10, 6, 10, 6); ppg.setVerticalSpacing(5)
-    ppg.setColumnStretch(0, 3); ppg.setColumnStretch(1, 2)
-    lbl_pp = QLabel("  Polygon Pipe Edges")
-    lbl_pp.setStyleSheet(_T_NEUTRAL)
-    lbl_pp.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    lay.addWidget(lbl_pp)
-    window._poly_pipe_label = lbl_pp
-
-    window.combo_edge_inA = QComboBox(); window.combo_edge_inA.setStyleSheet(_COMBO)
-    window.combo_edge_outA = QComboBox(); window.combo_edge_outA.setStyleSheet(_COMBO)
-    window.combo_edge_inB = QComboBox(); window.combo_edge_inB.setStyleSheet(_COMBO)
-    window.combo_edge_outB = QComboBox(); window.combo_edge_outB.setStyleSheet(_COMBO)
-    add_row(window, ppg, 0, "Inlet A edge", window.combo_edge_inA)
-    add_row(window, ppg, 1, "Outlet A edge", window.combo_edge_outA)
-    add_row(window, ppg, 2, "Inlet B edge", window.combo_edge_inB)
-    add_row(window, ppg, 3, "Outlet B edge", window.combo_edge_outB)
-    lay.addWidget(window._poly_pipe_frame)
-    window._poly_pipe_frame.hide()
-    window._poly_pipe_label.hide()
-    window._ia_sections['poly_pipe_label'] = window._poly_pipe_label
-    window._ia_sections['poly_pipe_frame'] = window._poly_pipe_frame
 
     # Preview button
     btn_preview = QPushButton("预览布局")

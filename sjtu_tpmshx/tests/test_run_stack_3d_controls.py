@@ -85,3 +85,72 @@ def test_dictionary_callback_exception_propagates(callback):
     with pytest.raises(RuntimeError) as caught:
         _run_3d_stack(_cheap_3d(), control=RunControl(**{callback: fail}))
     assert caught.value is failure
+
+
+@pytest.mark.parametrize('cap,last_raw,last_pipeline', [(4, 70, 69), (12, 83, 78), (24, 86, 80)])
+def test_outer_progress_uses_effective_budget_through_pipeline(monkeypatch, cap, last_raw, last_pipeline):
+    """Exercise real callbacks and pipeline mapping; stop before thermal work."""
+    from sjtu_tpmshx.controllers.compute_pipeline import Pipeline3D
+    from sjtu_tpmshx.domain.compute_config import ComputeConfig, GeometryConfig, SolverConfig
+    from sjtu_tpmshx.solvers import api
+    from sjtu_tpmshx.solvers.backends.python.three_d import runtime
+
+    monkeypatch.setattr(runtime.SIMPLESolver3D, 'solve', lambda *a, **k: (True, 0))
+    prob = _build_3d_problem(_cheap_3d(max_outer_ltne=cap))
+    hv = runtime._build_hv_machinery(prob)
+    raw, mapped, counts = [], [], []
+
+    class BeforeThermal(Exception):
+        pass
+
+    class FinishedProbe(Exception):
+        pass
+
+    def outer_loop(*, max_iter, step, **kwargs):
+        assert max_iter == cap
+        for index in range(max_iter):
+            with pytest.raises(BeforeThermal):
+                step(index)
+        raise FinishedProbe
+
+    def run_case(case, control):
+        def progress(percent):
+            raw.append(percent)
+            control.report_progress(percent)
+            raise BeforeThermal
+
+        with pytest.raises(FinishedProbe):
+            runtime._run_outer_coupling_3d(prob, hv, control=RunControl(
+                progress=progress,
+                outer_iteration=lambda current, total: counts.append((current, total))))
+
+    monkeypatch.setattr(runtime, 'run_outer_coupling', outer_loop)
+    monkeypatch.setattr(api, 'run_case', run_case)
+    cfg = ComputeConfig(geometry=GeometryConfig(Lz_m=.02), solver=SolverConfig(Nz=3))
+    Pipeline3D(cfg, progress_cb=mapped.append).run_solvers(None)
+    assert counts == [(index + 1, cap) for index in range(cap)]
+    assert raw[0] == 10 and raw[-1] == last_raw
+    assert all(0 <= p < 90 for p in raw)
+    assert raw == sorted(raw)
+    assert mapped[0] == 27 and mapped[-1] == last_pipeline
+    assert all(20 <= p < 90 for p in mapped)
+
+
+def test_initial_single_fluid_profile_reports_effective_simple_cap(monkeypatch):
+    from sjtu_tpmshx.solvers.backends.python.three_d import runtime
+
+    calls, messages = [], []
+
+    def solve(self, **kwargs):
+        calls.append(kwargs['max_iter'])
+        return True, 0
+
+    monkeypatch.setattr(runtime.SIMPLESolver3D, 'solve', solve)
+    monkeypatch.setattr(runtime, '_prof_3d_enabled', lambda: True)
+    monkeypatch.setattr(runtime._log, 'info', lambda message, *a, **k: messages.append(message))
+    cfg = _cheap_3d(max_iter_simple=37)
+    cfg['fluid_B_cfg'] = None
+    _build_3d_problem(cfg)
+    assert calls == [37]
+    initial = next(message for message in messages if 'initial SIMPLE_A (serial, no-B)' in message)
+    assert '(cap=37)' in initial

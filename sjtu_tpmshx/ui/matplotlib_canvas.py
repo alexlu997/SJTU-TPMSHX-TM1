@@ -6,7 +6,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.ticker import FormatStrFormatter
 from .theme import get_theme
 
 
@@ -56,34 +55,6 @@ def style_field_axes(ax, cb, _t, main_title, subtitle):
         spine.set_edgecolor(_t['ax_spine']); spine.set_linewidth(0.8)
 
 
-# ── Axis label helper ─────────────────────────────────────────
-def _label_axes(axes, L, H, mode=""):
-    _t = get_theme()
-    # Determine arrow directions from mode string like "A:+x B:-y"
-    dir_arrows = {'+x': r'\rightarrow', '-x': r'\leftarrow',
-                  '+y': r'\uparrow',    '-y': r'\downarrow'}
-    a_arrow = r'\rightarrow'; b_arrow = r'\leftarrow'
-    if mode:
-        for key, arrow in dir_arrows.items():
-            if f"A:{key}" in mode: a_arrow = arrow
-            if f"B:{key}" in mode: b_arrow = arrow
-    titles = [
-        r"$T_{f,A}$ [K] — Fluid A ($" + a_arrow + r"$)",
-        r"$T_{f,B}$ [K] — Fluid B ($" + b_arrow + r"$)",
-        r"$T_s$ [K] — Solid",
-    ]
-    for ax, title in zip(axes, titles):
-        ax.set_title(title, fontsize=11, fontweight="bold", color=_t['ax_text'], pad=6)
-        ax.set_xlabel(r"$x$ [m]", fontsize=10, color=_t['ax_text'])
-        ax.set_ylabel(r"$y$ [m]", fontsize=10, color=_t['ax_text'],
-                      rotation=90, labelpad=4)
-        ax.tick_params(labelsize=9, colors=_t['ax_text'])
-        ax.xaxis.set_major_formatter(FormatStrFormatter("%.3f"))
-        ax.yaxis.set_major_formatter(FormatStrFormatter("%.3f"))
-        for spine in ax.spines.values():
-            spine.set_edgecolor(_t['ax_spine'])
-
-
 # ── Matplotlib canvas ─────────────────────────────────────────
 class MatplotlibCanvas(FigureCanvas):
     def __init__(self, nrows=1, ncols=3, figsize=(15, 4.5)):
@@ -109,10 +80,6 @@ class MatplotlibCanvas(FigureCanvas):
             for ax in row:
                 ax.set_facecolor(_t['ax_bg'])
         super().__init__(self.fig)
-        self.X = self.Y = self.L = self.H = self.mode = None
-        self.min_temp = self.max_temp = None
-        self.min_s    = self.max_s    = None
-        self.time_text = None
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -122,128 +89,6 @@ class MatplotlibCanvas(FigureCanvas):
         pixels = np.array([event.size().width(), event.size().height()])
         inches = pixels * self.device_pixel_ratio / self.figure.dpi
         self.figure.set_size_inches(np.nextafter(inches, np.inf), forward=False)
-
-    def plot_zones(self, zones, dx, dy, mode=""):
-        """Plot 3×3 grid: rows = Fluid A / Fluid B / Solid, cols = inlet / uniform / outlet.
-
-        Parameters
-        ----------
-        zones : dict with keys like 'TfA_in', 'TfA_uni', 'TfA_out', etc.
-                Each value is a 2D array or None.
-        """
-        _t = get_theme()
-        self.fig.clear()
-        axes = self.fig.subplots(3, 3)
-        self.axes = [list(r) for r in axes]
-        self.fig.patch.set_facecolor(_t['fig_bg'])
-
-        row_labels = ['Fluid A', 'Fluid B', 'Solid']
-        col_labels = ['Inlet Trans.', 'Uniform Zone', 'Outlet Trans.']
-        field_keys = [
-            ['TfA_in', 'TfA_uni', 'TfA_out'],
-            ['TfB_in', 'TfB_uni', 'TfB_out'],
-            ['Ts_in',  'Ts_uni',  'Ts_out'],
-        ]
-
-        # Global colour range for fluid fields
-        all_f = [zones.get(k) for row in field_keys[:2] for k in row if zones.get(k) is not None]
-        if all_f:
-            vmin_f = min(f.min() for f in all_f)
-            vmax_f = max(f.max() for f in all_f)
-        else:
-            vmin_f, vmax_f = 300, 400
-
-        for r in range(3):
-            for c in range(3):
-                ax = self.axes[r][c]
-                ax.set_facecolor(_t['ax_bg'])
-                key = field_keys[r][c]
-                field = zones.get(key)
-                if field is None or field.size == 0:
-                    ax.text(0.5, 0.5, 'N/A', color='grey', ha='center', va='center',
-                            transform=ax.transAxes, fontsize=12)
-                    ax.set_xticks([]); ax.set_yticks([])
-                else:
-                    Nxf, Nyf = field.shape
-                    x = np.linspace(0, Nxf * dx * 1000, Nxf)
-                    y = np.linspace(0, Nyf * dy * 1000, Nyf)
-                    Y, X = np.meshgrid(y, x)
-                    if r < 2:  # fluid
-                        # levels=256 = turbo's full 256-colour LUT (128 under-
-                        # sampled it by half); still half the wasteful 512
-                        # (2026-05-20 perf note) so banding is finer, not slower.
-                        kw = dict(levels=256, cmap='turbo', vmin=vmin_f, vmax=vmax_f)
-                    else:      # solid — unified turbo for cross-field parity
-                        kw = dict(levels=256, cmap='turbo')
-                    try:
-                        cf = ax.contourf(X, Y, field, **kw)
-                        cb = self.fig.colorbar(cf, ax=ax, shrink=0.8, aspect=15, format="%.0f")
-                        cb.ax.tick_params(labelsize=6, colors=_t['ax_text'])
-                    except Exception:
-                        pass
-                    ax.set_xlabel("x [mm]", fontsize=7, color=_t['ax_text'])
-                    ax.set_ylabel("y [mm]", fontsize=7, color=_t['ax_text'])
-                    ax.tick_params(labelsize=6, colors=_t['ax_text'])
-
-                # Titles
-                if r == 0:
-                    ax.set_title(col_labels[c], fontsize=9, fontweight="bold",
-                                 color=_t['ax_text'], pad=4)
-                if c == 0:
-                    ax.annotate(row_labels[r], xy=(-0.35, 0.5),
-                                xycoords='axes fraction', fontsize=9,
-                                fontweight='bold', color=_t['ax_text'],
-                                ha='center', va='center', rotation=90)
-
-                for spine in ax.spines.values():
-                    spine.set_edgecolor(_t['ax_spine'])
-
-        self.fig.subplots_adjust(left=0.08, right=0.95, top=0.90, bottom=0.06,
-                                 wspace=0.40, hspace=0.35)
-        self.fig.text(0.5, 0.96, f"Temperature Fields  |  {mode}",
-                      ha="center", fontsize=11, fontweight="bold", color=_t['ax_text'])
-        self.draw()
-
-    def plot_temperature(self, T_fA, T_fB, T_s,
-                         dx, dy, N_t, N_x, N_y, L, H, dt, mode="Counterflow"):
-        _t = get_theme()
-        self.fig.clear()
-        self.axes = [self.fig.subplots(1, 3)]
-        self.fig.patch.set_facecolor(_t['fig_bg'])
-        self.L, self.H, self.mode = L, H, mode
-
-        self.min_temp = min(T_fA.min(), T_fB.min())
-        self.max_temp = max(T_fA.max(), T_fB.max())
-        self.min_s    = T_s.min()
-        self.max_s    = T_s.max()
-
-        x = np.linspace(0, L, N_x)
-        y = np.linspace(0, H, N_y)
-        self.Y, self.X = np.meshgrid(y, x)
-
-        kw_f = dict(levels=256, cmap="turbo", vmin=self.min_temp, vmax=self.max_temp)
-        kw_s = dict(levels=256, cmap="turbo", vmin=self.min_s,    vmax=self.max_s)
-
-        datasets = [
-            (T_fA[-1], r"$T_{f,A}$ [K] — Fluid A", kw_f),
-            (T_fB[-1], r"$T_{f,B}$ [K] — Fluid B", kw_f),
-            (T_s[-1],  r"$T_s$ [K] — Solid",        kw_s),
-        ]
-        for ax, (field, title, kw) in zip(self.axes[0], datasets):
-            ax.set_facecolor(_t['ax_bg'])
-            cf = ax.contourf(self.X, self.Y, field, **kw)
-            cb = self.fig.colorbar(cf, ax=ax, shrink=0.85, aspect=18, format="%.1f")
-            cb.ax.tick_params(labelsize=7.5, colors=_t['ax_text'])
-            cb.ax.yaxis.label.set_color(_t['ax_text'])
-            for spine in ax.spines.values():
-                spine.set_edgecolor(_t['ax_spine'])
-
-        _label_axes(self.axes[0], L, H, mode)
-        self.fig.subplots_adjust(left=0.05, right=0.95, top=0.88, bottom=0.10, wspace=0.38)
-        self.time_text = self.fig.text(
-            0.5, 0.95, rf"$t = {dt * (N_t - 1):.4f}$ s  (steady state)",
-            ha="center", fontsize=13, fontweight="bold", color=_t['ax_text'])
-        self.draw()
 
     def plot_pressure(self, P_fA, P_fB, N_x, N_y, L, H, mode="",
                        dx_arr=None, dy_arr=None):

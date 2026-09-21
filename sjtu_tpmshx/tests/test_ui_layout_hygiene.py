@@ -227,7 +227,7 @@ _EXPECTED_GROUPS = {
     "几何与结构": True,
     "流体": True,
     "网格与求解器": True,
-    "边界细节与高级": False,
+    "进出口边界": False,
 }
 
 
@@ -373,6 +373,7 @@ def test_legacy_switch_lights_result_button(win):
     earlier preset test leaves the window in 3D mode."""
     win.combo_dim.setCurrentIndex(0)
     win.cache.set_result('2d', {'stub': True})
+    win._drawn_tabs = {'temp', 'pres', 'vel'}  # These layout stubs represent rendered fields.
     win._update_tab_visibility()
     win._switch_tab('temp')
     assert win._active_tab == 'temp'
@@ -388,6 +389,7 @@ def test_result_view_toggle_gating(win):
     3D view. In 2D mode with results: 2D enabled, 3D disabled."""
     win.combo_dim.setCurrentIndex(0)
     win.cache.set_result('2d', {'stub': True})
+    win._drawn_tabs = {'temp', 'pres', 'vel'}  # These layout stubs represent rendered fields.
     win._update_tab_visibility()
     assert win._result_view_btns['2d'].isEnabled()
     assert not win._result_view_btns['3d'].isEnabled()
@@ -405,6 +407,7 @@ def test_result_summary_toggle_keeps_values_and_tab_choice(win):
     win.combo_dim.setCurrentIndex(0)
     result = {'stub': True}
     win.cache.set_result('2d', result)
+    win._drawn_tabs = {'temp', 'pres', 'vel'}
     win._has_results = True
     win._update_tab_visibility()
     win._switch_tab('temp')
@@ -431,6 +434,7 @@ def test_field_toolbar_wraps_without_truncating_button_text(win):
     old_size = win.size()
     win.combo_dim.setCurrentIndex(0)
     win.cache.set_result('2d', {'stub': True})
+    win._drawn_tabs = {'temp', 'pres', 'vel'}  # These layout stubs represent rendered fields.
     win._has_results = True
     win._update_tab_visibility()
     win._switch_tab('temp')
@@ -465,6 +469,7 @@ def test_result_footer_wraps_full_diagnostics_and_long_kpis(win):
     old_size = win.size()
     win.combo_dim.setCurrentIndex(0)
     win.cache.set_result('2d', {'stub': True})
+    win._drawn_tabs = {'temp', 'pres', 'vel'}  # These layout stubs represent rendered fields.
     win._has_results = True
     win._update_tab_visibility()
     win._switch_tab('temp')
@@ -634,6 +639,34 @@ def test_numeric_inputs_right_aligned(win):
     assert win.le_Nx.alignment() & _Qt.AlignmentFlag.AlignRight
 
 
+def test_sidebar_combo_values_end_next_to_the_arrow(win):
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QStyle, QStyleOptionComboBox
+
+    app = QApplication.instance()
+    for page, names in ((0, ('combo_dim', 'combo_tpms')),
+                        (1, ('combo_fluidA', 'combo_fluidB', 'combo_dirA', 'combo_dirB')),
+                        (2, ('combo_grid', 'combo_df_mode', 'combo_sco2_nu_mode'))):
+        win._select_param_page(page)
+        app.processEvents()
+        for name in names:
+            combo = getattr(win, name)
+            combo.ensurePolished()
+            edit = combo.lineEdit()
+            assert edit.isReadOnly()
+            assert edit.alignment() & Qt.AlignmentFlag.AlignRight
+            for focused in (False, True):
+                combo.setFocus() if focused else win.btn_compute.setFocus()
+                app.processEvents()
+                option = QStyleOptionComboBox()
+                combo.initStyleOption(option)
+                arrow = combo.style().subControlRect(
+                    QStyle.ComplexControl.CC_ComboBox, option,
+                    QStyle.SubControl.SC_ComboBoxArrow, combo)
+                # Keep one arrow reservation, with a small gap and no overlap.
+                assert 0 <= arrow.left() - edit.geometry().right() <= 8, name
+
+
 def test_mode_gates_survive_group_toggle(win):
     """Expanding a collapsed group must not resurrect 3D-only widgets in
     2D mode (blanket-show + re-assert)."""
@@ -758,6 +791,7 @@ def test_cycle_tab_skips_hidden_legacy(win):
     maps to 'result' so cycling never lands on hidden legacy buttons."""
     win.combo_dim.setCurrentIndex(0)
     win.cache.set_result('2d', {'stub': True})
+    win._drawn_tabs = {'temp', 'pres', 'vel'}  # These layout stubs represent rendered fields.
     win._update_tab_visibility()
     win._switch_tab('temp')               # result family
     win._cycle_tab(+1)
@@ -773,6 +807,7 @@ def test_toggle_result_view_gated(win):
     toggling from a 2D field view is a no-op (stays 2D)."""
     win.combo_dim.setCurrentIndex(0)
     win.cache.set_result('2d', {'stub': True})
+    win._drawn_tabs = {'temp', 'pres', 'vel'}  # These layout stubs represent rendered fields.
     win._update_tab_visibility()
     win._switch_tab('temp')
     assert win._result_view == '2d'
@@ -798,6 +833,7 @@ def test_session_ui_state_round_trip(win):
     _restore_session re-applies result_view + active_tab."""
     win.combo_dim.setCurrentIndex(0)
     win.cache.set_result('2d', {'stub': True})
+    win._drawn_tabs = {'temp', 'pres', 'vel'}  # These layout stubs represent rendered fields.
     win._update_tab_visibility()
     win._switch_tab('temp')               # result family, view '2d'
 
@@ -814,8 +850,8 @@ def test_session_ui_state_round_trip(win):
     assert ui['result_view'] == '2d'
     assert ui['left_collapsed'] in (True, False)
 
-    # Restore path: feed the captured payload back and confirm the tab
-    # resolves through 'result' (→ a 2D field card) again.
+    # Restoring inputs invalidates the old field cache; a saved result tab
+    # therefore falls back to layout until this restored case is computed.
     win._switch_tab('layout')
     orig_load = win.sm.load_session
     win.sm.load_session = lambda ws: dict(captured)
@@ -823,7 +859,8 @@ def test_session_ui_state_round_trip(win):
         win._restore_session()
     finally:
         win.sm.load_session = orig_load
-    assert win._active_tab in ('temp', 'pres', 'vel')
+    assert win._active_tab == 'layout'
+    assert not win.cache.has_results('2d')
     win._switch_tab('layout')
     win._has_results_2d = False
     win._update_tab_visibility()

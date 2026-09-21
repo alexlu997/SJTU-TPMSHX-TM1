@@ -35,7 +35,7 @@ from sjtu_tpmshx.models.tpms_calc import (
 )
 from sjtu_tpmshx.models import fluid_props
 from sjtu_tpmshx.models import sco2_props
-from sjtu_tpmshx.solvers.envelope import (gate_solution,
+from sjtu_tpmshx.models.envelope import (gate_solution,
                                mach_field_max, ChokedFlowError,
                                PRESSURE_FLOOR_PA)
 
@@ -47,10 +47,9 @@ from .flux import (
 from sjtu_tpmshx.models.grid_3d import _solver_spacings
 from sjtu_tpmshx.models.field_coordinates_3d import (  # Phase 3: extracted pure helpers
     _stream_axis, _inlet_index, _outlet_index,
-    _face_slice, _real_outlet_slice,
+    _real_outlet_slice,
     _port_rectangles, _solver_velocity_to_real, _solver_staggered_to_real,
-    _balance_stream_outflow, _build_chi_B_union_extrude,
-    _build_chi_B_mass_flux_threshold, _build_chi_B_velocity_threshold,
+    _balance_stream_outflow,
 )
 from sjtu_tpmshx.logutil import get_logger
 
@@ -75,10 +74,8 @@ def _pressure_real_3d(solver, axis_map, offset):
     return np.ascontiguousarray(field)
 
 
-# 2026-04-26: env var TPMSHX_SIMPLE_TOL overrides default SIMPLE pp tol for
-# diagnostic sweeps (path 0 / 0' v3 plan). Read each call to allow sweeps.
-# R3 (2026-07-07): SolverConfig.tol_simple slots between env and the auto —
-# precedence env > config > 1e-5. cfg-less callers keep the old behaviour.
+# Retained call argument: captured environment > config > 1e-5.
+# SIMPLE's F2 gates use mom_tol/mass_local_tol/mass_global_tol, not this value.
 def _simple_tol_default(cfg=None):
     env = run_environment(cfg, 'TPMSHX_SIMPLE_TOL')
     if env is not None:
@@ -122,12 +119,12 @@ def _apply_accel_flags(solver, cfg):
 #  (2026-06-02): it showed SIMPLE_B hitting its iteration cap (2000/600,
 #  conv=False) while its velocity field was already settled — i.e. the
 #  absolute mass residual plateaus above the air-tuned tol for slow water.
-#  That finding drove the A+B early-exit in solvers/simple_solver_3d.py.
+#  That historical finding predates the current shared F2 exit gates.
 #
 #  OUTPUT (stdout, grep-friendly):
 #    [PROF]     <stage>: <wall>s  iters=<n>  conv=<bool>  (cap=<n>)
 #    [PROF-RES] <stage>: n=<N> first=[..] last=[..] min=<r>@<it> final=<r>
-#               — the per-iter mass-residual trajectory (head/tail/min), to
+#               — the pressure-subproblem residual history (head/tail/min), to
 #               distinguish a slow-but-monotone descent from a plateau.
 #
 #  COST: gated behind _prof_3d_enabled(); when off, no perf_counter call, no
@@ -155,7 +152,7 @@ def _prof_3d_enabled():
 
 
 def _prof_res_trace(tag, solver):
-    """B2a: print the SIMPLE mass-residual trajectory (per-iter ``residuals``
+    """Print the pressure-subproblem residual history (per-iter ``residuals``
     list) so we can tell a slow-but-monotone descent (raise cap / accelerate)
     from a plateau / limit-cycle (needs a scheme change). Samples first 5,
     last 5, and the min residual + the iter it occurred."""
@@ -489,7 +486,6 @@ class _OuterState:
     _outer_dT_hist: list[dict[str, float]]
     _outer_last_iter: int
     _use_outer_and: bool
-    chi_B: np.ndarray | None
     h_vA_field: np.ndarray  # W/(m3 K)
     h_vB_field: np.ndarray
     rho_cp_fA: np.ndarray  # J/(m3 K)
@@ -528,9 +524,7 @@ class _Metrics3D:
     Q_solid_B: object
     T_A_out: object
     T_B_out: object
-    T_B_out_no_chi: object
     cell_vol: object
-    chi_B_out_face: object
     dP: object
     dP_B: object
     m_dot_A_simple: object
@@ -551,6 +545,8 @@ def build_problem(cfg, prepared, *, control: RunControl = RunControl()):
     from _run_3d_stack; returns the cross-seam state bundle. Contract:
     bit-identical behavior (golden gate).
     """
+    from sjtu_tpmshx.domain.compute_config import reject_retired_boundary_options
+    reject_retired_boundary_options(cfg)
     # Conditionally-bound cross-seam names (surgery tool definite-
     # assignment pass): None-init so the unconditional return below
     # cannot raise UnboundLocalError on guarded paths. Downstream
@@ -858,7 +854,8 @@ def build_problem(cfg, prepared, *, control: RunControl = RunControl()):
         if _prof_t_a0 is not None:
             _log.info(f"[PROF] initial SIMPLE_A (serial, no-B) "
                       f"{_time.perf_counter()-_prof_t_a0:7.2f}s  "
-                      f"iters={_a0_it}  conv={_a0_conv}  (cap=2000)")
+                      f"iters={_a0_it}  conv={_a0_conv}  "
+                      f"(cap={_simple_max_iter(cfg, 2000)})")
         ucB = np.zeros((Nx, Ny, Nz))
         vcB = np.zeros((Nx, Ny, Nz))
         wcB = np.zeros((Nx, Ny, Nz))
@@ -1224,7 +1221,6 @@ def _extract_3d_metrics(prob: _Problem3D, outer: _OuterState):
     Tb = outer.Tb
     Ts = outer.Ts
     _assemble_real_velocity = outer._assemble_real_velocity
-    chi_B = outer.chi_B
     cp_A = prob.cp_A
     cp_B = prob.cp_B
     dx = prob.dx
@@ -1252,7 +1248,6 @@ def _extract_3d_metrics(prob: _Problem3D, outer: _OuterState):
     # reads keep their original guards.
     P_real_B = None
     Q_enthalpy_A = None
-    T_B_out_no_chi = None
     dP_B = None
     m_dot_B_phys_in = None
     m_dot_B_phys_out = None
@@ -1303,8 +1298,6 @@ def _extract_3d_metrics(prob: _Problem3D, outer: _OuterState):
     T_A_out_face = _real_outlet_slice(Ta, fA['dir'])
     T_A_out = _mass_weighted_T_out(T_A_out_face, sA, fA['dir'], eps_f_per_side,
                                    eps_side_override=_eps_ov_A)
-    # (A side has no χ_B weighting, so there is no chi/no-chi distinction here —
-    #  the former duplicate `T_A_out_no_chi` local was dead and was removed.)
     # A pair containing sCO2 is solved in true enthalpy for BOTH streams, so
     # report the same boundary-face quantity for both fluids. Other routes
     # retain cp·ΔT unless the completed thermal solve supplied a model-h ledger.
@@ -1330,27 +1323,17 @@ def _extract_3d_metrics(prob: _Problem3D, outer: _OuterState):
 
     # Fluid B
     Q_enthalpy_B = 0.0
-    chi_B_out_face = None
     if sB is not None:
         m_dot_B_simple = _simple_mass_flow(sB, fB['dir'], eps_f_per_side=eps_f_per_side,
                                            eps_side_override=_eps_ov_B)
         T_B_out_face = _real_outlet_slice(Tb, fB['dir'])
-        # χ_B at outlet face for ghost-B suppression
-        if chi_B is not None:
-            chi_B_out_face = _real_outlet_slice(chi_B, fB['dir'])
-        # T_out with and without χ_B for diagnostic comparison
-        T_B_out_no_chi = _mass_weighted_T_out(T_B_out_face, sB, fB['dir'],
-                                               eps_f_per_side,
-                                               eps_side_override=_eps_ov_B)
         T_B_out = _mass_weighted_T_out(T_B_out_face, sB, fB['dir'], eps_f_per_side,
-                                        chi_face=chi_B_out_face,
                                         eps_side_override=_eps_ov_B)
         # m_dot variants for diagnostic
         m_dot_B_phys_in = float(np.sum(_face_flux_weights(
             sB, fB['dir'], face='real_inlet', eps_mode='physical')))
         m_dot_B_phys_out = float(np.sum(_face_flux_weights(
-            sB, fB['dir'], face='real_outlet', eps_mode='physical',
-            chi_face=chi_B_out_face)))
+            sB, fB['dir'], face='real_outlet', eps_mode='physical')))
         if _true_h_pair:
             _P_B_real_h = (sB.P_ref_abs + sB.P).transpose(
                 sB_info['axis_map']['solver_to_real_perm'])
@@ -1362,7 +1345,7 @@ def _extract_3d_metrics(prob: _Problem3D, outer: _OuterState):
                 h_B_out = _mass_weighted_h_out(
                     T_B_out_face, _P_B_out,
                     lambda T, P: _prop_field('H', T, P, fluid_type_B), sB, fB['dir'],
-                    eps_f_per_side, chi_face=chi_B_out_face,
+                    eps_f_per_side,
                     eps_side_override=_eps_ov_B)
             with range_context(side='B', stage='final', layout='scalar-inlet-reference'):
                 Q_enthalpy_B = abs(m_dot_B_simple * (
@@ -1462,9 +1445,7 @@ def _extract_3d_metrics(prob: _Problem3D, outer: _OuterState):
         Q_solid_B=Q_solid_B,
         T_A_out=T_A_out,
         T_B_out=T_B_out,
-        T_B_out_no_chi=T_B_out_no_chi,
         cell_vol=cell_vol,
-        chi_B_out_face=chi_B_out_face,
         dP=dP,
         dP_B=dP_B,
         m_dot_A_simple=m_dot_A_simple,
@@ -1504,7 +1485,6 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D) 
     Q_solid_B = met.Q_solid_B
     T_A_out = met.T_A_out
     T_B_out = met.T_B_out
-    T_B_out_no_chi = met.T_B_out_no_chi
     T_inA = prob.T_inA
     T_inB = prob.T_inB
     Ta = outer.Ta
@@ -1530,8 +1510,6 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D) 
     _simple_nonconv = prob._simple_nonconv
     _use_outer_and = outer._use_outer_and
     cell_vol = met.cell_vol
-    chi_B = outer.chi_B
-    chi_B_out_face = met.chi_B_out_face
     cp_A = prob.cp_A
     cp_B = prob.cp_B
     dP = met.dP
@@ -1606,16 +1584,15 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D) 
         _ltne_hit_max = [d['iters'] >= _ltne_max_iter for d in _ltne_info]
         eps_obs = ((T_B_out - T_inB) / (T_inA - T_inB)
                    if sB is not None and T_inA != T_inB else 0.0)
-        chi_p50 = float(np.percentile(chi_B, 50)) if chi_B is not None else 1.0
         _log.info(f"[SWEEP-CSV] {cfg.get('_case_label','?')},"
                   f"{len(_ltne_info)},{_ltne_iters},{_ltne_conv},"
                   f"{any(_ltne_hit_max)},{_ltne_info[-1]['residual']:.2e},"
                   f"{T_A_out:.1f},{T_B_out:.1f},{Q:.1f},"
                   f"{Q_sA:.1f},{Q_sB:.1f},{Q_sA+Q_sB:.1f},"
-                  f"{energy_rel:.6f},{eps_obs:.4f},{chi_p50:.4f}")
-    # Run diagnostics (Q-DIAG / CHI / CHI-BC) — OPT-IN, skipped in production.
+                  f"{energy_rel:.6f},{eps_obs:.4f}")
+    # Run diagnostics (Q-DIAG) — OPT-IN, skipped in production.
     # None of these locals feed the return dict; gating avoids the extra
-    # _face_flux_weights / percentile / histogram recompute + ~30 lines of
+    # _face_flux_weights recompute and extra lines of
     # console spam on every run. Enable via the 3D profiler (.profile_3d /
     # TPMSHX_PROFILE_3D=1) or cfg['_verbose_diag']=True. 2026-06-09 perf B2.
     if _prof_3d_enabled() or bool(cfg.get('_verbose_diag', False)):
@@ -1623,7 +1600,7 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D) 
         Q_solid_A_val = float(_dbg.sum(h_vA_field * (Ts - Ta) * cell_vol))
         Q_solid_B_val = float(_dbg.sum(h_vB_field * (Ts - Tb) * cell_vol))
 
-        # Group 1: LTNE-effective Q (uses eps_f, chi_face, LTNE volume source)
+        # Group 1: LTNE-effective Q (uses eps_f and LTNE volume source)
         Q_enth_A_ltne = abs(m_dot_A_simple * cp_A * (T_inA - T_A_out))
         Q_enth_B_ltne = abs(m_dot_B_simple * cp_B * (T_inB - T_B_out)) if sB is not None else 0.0
 
@@ -1641,8 +1618,7 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D) 
                   f"T_A_out={T_A_out:.1f} K  Q_enth_A_ltne={Q_enth_A_ltne:.1f} W")
         if sB is not None:
             _log.info(f"[Q-DIAG] m_dot_B_ltne={m_dot_B_simple:.5f} kg/s  "
-                      f"T_B_out={T_B_out:.1f} K (chi)  "
-                      f"T_B_out_no_chi={T_B_out_no_chi:.1f} K  "
+                      f"T_B_out={T_B_out:.1f} K  "
                       f"Q_enth_B_ltne={Q_enth_B_ltne:.1f} W")
         _log.info(f"[Q-DIAG] Q_solid_A={Q_solid_A_val:.1f}  Q_solid_B={Q_solid_B_val:.1f}  "
                   f"balance={Q_solid_A_val+Q_solid_B_val:.1f} W")
@@ -1655,48 +1631,10 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D) 
                   f"Q_enth_A_phys={Q_enth_A_phys:.1f} W")
         if sB is not None:
             _log.info(f"[Q-DIAG] m_B_phys_in={m_dot_B_phys_in:.5f}  "
-                      f"m_B_phys_out_chi={m_dot_B_phys_out:.5f} kg/s  "
+                      f"m_B_phys_out={m_dot_B_phys_out:.5f} kg/s  "
                       f"T_B_out={T_B_out:.1f} K")
             _log.info(f"[Q-DIAG] Q_enth_B_phys={Q_enth_B_phys:.1f} W")
 
-        # ── REQ_2: χ_B distribution histogram ──
-        if chi_B is not None:
-            chi_flat = chi_B.ravel()
-            _log.info(f"[CHI] min={chi_flat.min():.3f} max={chi_flat.max():.3f} "
-                      f"mean={chi_flat.mean():.3f}")
-            _log.info(f"[CHI] p10={_dbg.percentile(chi_flat,10):.3f} "
-                      f"p25={_dbg.percentile(chi_flat,25):.3f} "
-                      f"p50={_dbg.percentile(chi_flat,50):.3f} "
-                      f"p75={_dbg.percentile(chi_flat,75):.3f} "
-                      f"p90={_dbg.percentile(chi_flat,90):.3f}")
-            hist, bin_edges = _dbg.histogram(chi_flat, bins=10, range=(0, 1))
-            _log.info("[CHI] histogram bins:")
-            for i, c in enumerate(hist):
-                _log.info(f"  [{bin_edges[i]:.1f}, {bin_edges[i+1]:.1f}): "
-                          f"{c} ({100*c/chi_flat.size:.1f}%)")
-
-        # ── REQ_4: χ_B on B inlet/outlet patches (masked, not full face) ──
-        if chi_B is not None and sB is not None:
-            # B inlet face slice in real coords (single dir source).
-            chi_B_in_face = _face_slice(chi_B, fB['dir'], 'inlet')
-            # Inlet patch mask: _ltne_mask_B is the physical inlet patch in 2D
-            # (in_mask_B; approach-(a), no in/out swap).
-            _ltne_mask_B_val = _ltne_mask_B  # from outer loop scope
-            if _ltne_mask_B_val is not None:
-                chi_in_patch = chi_B_in_face[_ltne_mask_B_val > 0.0]
-                if len(chi_in_patch) > 0:
-                    _log.info(f"[CHI-BC] χ_B on inlet PATCH (n={len(chi_in_patch)}): "
-                              f"p10={_dbg.percentile(chi_in_patch,10):.3f} "
-                              f"p50={_dbg.percentile(chi_in_patch,50):.3f} "
-                              f"p90={_dbg.percentile(chi_in_patch,90):.3f}")
-            # Outlet patch
-            if chi_B_out_face is not None:
-                chi_out_patch = chi_B_out_face[out_mask_B > 0.0] if out_mask_B is not None else chi_B_out_face.ravel()
-                if len(chi_out_patch) > 0:
-                    _log.info(f"[CHI-BC] χ_B on outlet PATCH (n={len(chi_out_patch)}): "
-                              f"p10={_dbg.percentile(chi_out_patch,10):.3f} "
-                              f"p50={_dbg.percentile(chi_out_patch,50):.3f} "
-                              f"p90={_dbg.percentile(chi_out_patch,90):.3f}")
     # ═══════════════════════════════════════════════════════════════════
 
     result = dict(
@@ -1704,7 +1642,7 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D) 
         P_Pa=P_real, uc_real=uc_real, vc_real=vc_real, wc_real=wc_real,
         P_Pa_B=P_real_B, uc_real_B=ucB, vc_real_B=vcB, wc_real_B=wcB,
         vmag_B=vmag_B, dx=dx, dy=dy, dz=dz,
-        h_vA_field=h_vA_field, h_vB_field=h_vB_field, chi_B=chi_B)
+        h_vA_field=h_vA_field, h_vB_field=h_vB_field)
     diagnostics = dict(
         dP_B=dP_B,
         Lx=L, Ly=H, Lz=Lz,
@@ -1862,8 +1800,8 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D) 
     #                'stall'|'max_iter'|'cancelled'), final normalised
     #                residual, and the kg/s normalisation reference.
     #   outer_dT   : per-outer-iteration {Ta,Tb,Ts: max|Δ| [K]} history.
-    #   outer_converged : the tracked-field AND-gate verdict of the LAST
-    #                outer iteration (False when the loop hit _MAX_OUTER).
+    #   outer_converged : the tracked-field AND-gate verdict of the last
+    #                outer iteration; reaching the budget is not convergence.
     def _simple_detail(s):
         if s is None:
             return None
@@ -2001,23 +1939,21 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D) 
                            if in_mask_2d is not None else None),
         _audit_out_mask_2d=(np.asarray(out_mask_2d).copy()
                             if out_mask_2d is not None else None),
-        # Phase 2 conservation-residual exports (post-χ_B for K_ffB)
+        # Phase 2 conservation-residual exports
         _audit_K_ffA=K_ffA.copy(),
         _audit_K_ffB=K_ffB.copy(),
         _audit_K_ss=K_ss.copy(),
         _audit_eps_arr=eps_arr.copy(),
         _audit_rho_cp_fA=rho_cp_fA.copy(),
         _audit_rho_cp_fB=rho_cp_fB.copy(),
-        _audit_chi_B=(chi_B.copy() if chi_B is not None else None),
         )
         for key in ('_audit_ltne_mask_B', '_audit_ltne_mask_A', '_audit_in_mask_B',
-                    '_audit_out_mask_B', '_audit_in_mask_2d', '_audit_out_mask_2d',
-                    '_audit_chi_B'):
+                    '_audit_out_mask_B', '_audit_in_mask_2d', '_audit_out_mask_2d'):
             if result[key] is None:
                 diagnostics[key] = None
 
     # Preserve absent-field diagnostic placeholders used by existing archives.
-    for key in ('P_Pa_B', 'vmag_B', 'chi_B'):
+    for key in ('P_Pa_B', 'vmag_B'):
         if result[key] is None:
             diagnostics[key] = None
     result.update(diagnostics)
@@ -2086,7 +2022,6 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
     in_mask_B = prob.in_mask_B
     mu_A = prob.mu_A
     mu_B = prob.mu_B
-    out_mask_B = prob.out_mask_B
     perm_B = prob.perm_B
     rho_A = prob.rho_A
     rho_B = prob.rho_B
@@ -2098,7 +2033,6 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
     t_wall = prob.t_wall
     tpms_type = prob.tpms_type
     u_A = prob.u_A
-    u_B = prob.u_B
     u_B_val = hv.u_B_val
     ucB = prob.ucB
     vcB = prob.vcB
@@ -2116,8 +2050,8 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
     # (fixes the air-air reverse ε-NTU/full-face cases). Strict certificate
     # machine-zero on all 6 audit cases; Shanghai bit-identical to the old
     # inlet-P path. Env `TPMSHX_VAR_RHOCP=0/1` is an explicit override; otherwise
-    # cfg/flags default True. Set cfg['variable_rho_cp']=False (or uncheck the
-    # UI box) to restore the legacy inlet-pressure density.
+    # cfg/flags default True. Scripted cfg['variable_rho_cp']=False restores
+    # the legacy inlet-pressure density; the desktop fixes this setting ON.
     _env_vrc = run_environment(cfg, 'TPMSHX_VAR_RHOCP')
     if _env_vrc in ('0', '1'):
         _var_rhocp = _env_vrc == '1'
@@ -2143,7 +2077,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
         _eps_B_strict=None, _eps_B_strict_cellmax=None,
         _ltne_mask_A=None, _ltne_mask_B=None,
         _outer_converged=False, _outer_dT_hist=[], _outer_last_iter=-1,
-        _use_outer_and=False, chi_B=None,
+        _use_outer_and=False,
         h_vA_field=hv.h_vA_field, h_vB_field=hv.h_vB_field,
         rho_cp_fA=np.full((Nx, Ny, Nz), rho_A * cp_A, dtype=np.float64),
         rho_cp_fB=np.full((Nx, Ny, Nz), rho_B_ltne * cp_B, dtype=np.float64),
@@ -2226,7 +2160,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
             rho_cp_A=state.rho_cp_fA, rho_cp_B=state.rho_cp_fB))
 
     def _refresh_heat_transfer(outer, velocity_A):
-        """Refresh h_v and the existing B participation closure in real axes."""
+        """Refresh each side's h_v and physical inlet masks in real axes."""
         ucA, vcA, wcA = velocity_A
         # Rebuild from the latest full vector: turning flow is not stagnation
         # merely because its component normal to the inlet becomes small.
@@ -2247,7 +2181,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
         state.h_vA_field = _apply_roughness_h_v(
             state.h_vA_field, fluid_type_A, rho_A, mu_A, u_A, D_h, resolved=cfg['roughness_resolved'])
         state.h_vA_field = state.h_vA_field * _hv_ratio_A   # per-side asym geom (1.0 at δ=0)
-        # Pre-compute LTNE inlet masks (needed by χ_B block and LTNE solve).
+        # Pre-compute physical LTNE inlet masks.
         # approach-(a): the kernel applies the inlet BC at its inlet face using
         # this mask; with the reverse spatial flip + no mask swap, the physical
         # inlet patch is in_mask for BOTH forward and reverse dirs.
@@ -2272,128 +2206,6 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
             state.h_vB_field = _apply_roughness_h_v(
                 state.h_vB_field, fluid_type_B, rho_B, mu_B, u_B_val, D_h, resolved=cfg['roughness_resolved'])
             state.h_vB_field = state.h_vB_field * _hv_ratio_B   # per-side asym geom (1.0 at δ=0)
-            # ── partial-B closure dispatch ──
-            # Three options selectable via cfg['partial_B_closure']:
-            #   'none'                 — no correction (χ_B ≡ 1; legacy)
-            #   'm4_effective_area'    — 0D scalar η_eff (legacy, regression)
-            #   'per_cell_chi_b'       — Phase 1 fix (3D field, NEW default-
-            #                            recommended for any partial-B run).
-            # 2026-05-04 audit (vault/reports/3d-solver/2026-05-04-partial-b-
-            # ltne-audit-CN.md) showed the 0D scalar leaks ghost-B diffusion
-            # into the active flow channel via ε_f·k_f·∇²Tb, inflating
-            # T_B_out 4×. Per-cell approach cuts BOTH source and diffusion
-            # path in pure ghost cells (h_vB → 0 AND K_ffB → 0).
-            # 2026-05-14: tried 'per_cell_chi_b' default but reverted —
-            # at Shanghai partial-B inlet u_B=0.15, χ_B mask was 90.5% active
-            # (Brinkman spread water to all cells, mass-flux threshold caught
-            # almost none as ghost) AND tightening `chi_B_kernel_threshold`
-            # to 0.30 broke discrete mass conservation (m_in 0.208 ≠ m_out
-            # 0.222 kg/s, 7% imbalance). Visual ghost-heating in T_B plots
-            # is a known-acceptable artefact: production Q reporting uses
-            # m_dot·cp·ΔT_face with χ_B-weighted T_out (not domain mean),
-            # so the LTNE-internal Q_solid_B figure remains physically
-            # correct. UI users should read inlet/outlet face values, not
-            # domain colour maps, until partial-B physics is re-examined.
-            _closure = cfg.get('partial_B_closure', 'none')
-            if _closure == 'm4_effective_area':
-                # Legacy 0D scalar — kept for regression comparison.
-                _dx_s = sB.dx; _dz_s = sB.dz  # solver cross1, cross2
-                _area_2d = _dx_s[:, None] * _dz_s[None, :]
-                _A_full = float(np.sum(_area_2d))
-                if in_mask_B is not None:
-                    _A_in = float(np.sum(_area_2d * in_mask_B))
-                    _r_in = _A_in / max(_A_full, 1e-30)
-                    _A_out = float(np.sum(_area_2d * out_mask_B))
-                    _r_out = _A_out / max(_A_full, 1e-30)
-                else:
-                    _r_in = _r_out = 1.0
-                _mode = cfg.get('m4_eff_mode', 'sqrt')
-                if _mode == 'min':
-                    r_eff = min(_r_in, _r_out)
-                else:
-                    r_eff = float(np.sqrt(_r_in * _r_out))
-                p = float(cfg.get('m4_exponent', 0.67))
-                eta_eff = r_eff ** p
-                state.chi_B = np.full((Nx, Ny, Nz), eta_eff, dtype=np.float64)
-                state.h_vB_field = state.h_vB_field * eta_eff
-                # NOTE: legacy path does NOT modify K_ffB — that's exactly
-                # the diffusion-leak channel the per-cell path closes.
-                if outer == 0:
-                    _log.info(f"[M4-legacy] r_in={_r_in:.4f} r_out={_r_out:.4f} "
-                              f"mode={_mode} r_eff={r_eff:.4f} "
-                              f"p={p} η_eff={eta_eff:.4f}")
-            elif _closure == 'per_cell_chi_b':
-                # ── Phase 1 fix: per-cell 3D participation field ──
-                _method = cfg.get('chi_B_method', 'mass_flux_threshold')
-                if _method == 'union_extrude':
-                    state.chi_B = _build_chi_B_union_extrude(
-                        fB, dx, dy, dz, (Nx, Ny, Nz),
-                        n_taper=int(cfg.get('chi_B_n_taper', 3)))
-                elif _method == 'mass_flux_threshold':
-                    # Method H8: auto-adaptive based on per-cell mass flux
-                    # throughput. Geometry-independent (no u_ref tuning).
-                    # 2026-05-14: H8-tightened defaults (thr=0.20, n_dil=1)
-                    # were tried but reverted with the parent closure flip;
-                    # production default is now 'none' so this branch only
-                    # runs when explicitly requested via cfg. Original
-                    # permissive defaults (0.05, 2) restored for symmetry
-                    # with prior calibration scripts.
-                    state.chi_B = _build_chi_B_mass_flux_threshold(
-                        sB, axis_map_B, (Nx, Ny, Nz),
-                        threshold_frac=float(cfg.get('chi_B_threshold_frac', 0.05)),
-                        n_dilate=int(cfg.get('chi_B_n_dilate', 2)),
-                        n_smooth=int(cfg.get('chi_B_n_smooth', 1)),
-                        ref_mode=cfg.get('chi_B_mass_ref_mode', 'p75'))
-                else:  # 'velocity_threshold' (legacy method, geometry-tuned)
-                    state.chi_B = _build_chi_B_velocity_threshold(
-                        ucB, vcB, wcB,
-                        threshold_frac=float(cfg.get('chi_B_threshold_frac', 0.5)),
-                        u_ref_mode=cfg.get('chi_B_u_ref_mode', 'inlet'),
-                        u_inlet=float(u_B),
-                        n_dilate=int(cfg.get('chi_B_n_dilate', 3)),
-                        n_smooth=int(cfg.get('chi_B_n_smooth', 2)))
-                # Floor for stiffness: K_ffB·χ_floor keeps Tb-matrix diagonal
-                # non-zero even in pure ghost cells. Heat leak negligible at
-                # 1e-3 (1000× attenuation vs bulk K).
-                chi_floor = float(cfg.get('chi_B_floor', 1e-3))
-                chi_B_eff_K = np.maximum(state.chi_B, chi_floor)
-                # Apply: zero source AND zero diffusion path in pure ghost
-                state.h_vB_field = state.h_vB_field * state.chi_B
-                state.K_ffB      = state.K_ffB      * chi_B_eff_K
-                if outer == 0:
-                    _part_frac = float(np.sum(state.chi_B > 0.5)) / state.chi_B.size
-                    _log.info(f"[χ_B] closure=per_cell_chi_b method={_method} "
-                              f"min={state.chi_B.min():.3f} max={state.chi_B.max():.3f} "
-                              f"mean={state.chi_B.mean():.3f} part_frac={_part_frac:.3f} "
-                              f"floor={chi_floor:.1e}")
-            else:
-                state.chi_B = np.ones((Nx, Ny, Nz), dtype=np.float64)
-
-        # ── H2 audit hook: zero K_ffB at the real-outlet 1-cell layer ──
-        # Diagnostic-only (NOT physics). Tests whether T_B_out hot-spot is
-        # driven by lateral diffusion from hot solid into the outlet patch.
-        # Activated via cfg['audit_zero_K_ffB_at_outlet']=True. No effect
-        # otherwise. See vault/reports/3d-solver/2026-05-04-3d-conservation-
-        # spec-CN.md §H2.
-        if (cfg.get('audit_zero_K_ffB_at_outlet', False)
-                and sB is not None and fB is not None):
-            _dir_B = int(fB['dir'])
-            _layers = int(cfg.get('audit_h2_n_layers', 1))
-            _idx_dict = {0: (0, slice(Nx-_layers, Nx)),
-                         1: (0, slice(0, _layers)),
-                         2: (1, slice(Ny-_layers, Ny)),
-                         3: (1, slice(0, _layers)),
-                         4: (2, slice(Nz-_layers, Nz)),
-                         5: (2, slice(0, _layers))}
-            _ax, _idx = _idx_dict[_dir_B]
-            _sl = [slice(None), slice(None), slice(None)]
-            _sl[_ax] = _idx
-            _sl = tuple(_sl)
-            _h2_floor = float(cfg.get('audit_h2_K_floor', 1e-6))
-            state.K_ffB[_sl] = state.K_ffB[_sl] * 0.0 + _h2_floor * float(np.mean(state.K_ffB))
-            if outer == 0:
-                _log.info(f"[H2-audit] K_ffB := {_h2_floor:.0e}·K̄ at outlet "
-                          f"axis={_ax} idx={_idx} ({_layers} cell-layer)")
 
     def _prepare_thermal_inputs(outer):
         """Keep model-h mass faces before balancing the temperature faces."""
@@ -2426,8 +2238,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
             Nz > 1 and _var_rhocp and sB is not None and Tb_presc is None
             and (fluid_type_A, fluid_type_B) in (('air', 'air'), ('air', 'water'), ('water', 'air'))
             and bool(cfg.get('conservative_ltne', True))
-            and float(cfg.get('delta_levelset', 0.0)) == 0.0
-            and float(cfg.get('chi_B_kernel_threshold', 0.0)) == 0.0)
+            and float(cfg.get('delta_levelset', 0.0)) == 0.0)
         if _model_h_gate:
             from sjtu_tpmshx.solvers.ltne_enthalpy_3d import face_mass_fluxes
             _model_kwargs = dict(
@@ -2505,16 +2316,6 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
         _model_h_gate = inputs.mode == 'model_h'
         _model_kwargs = inputs.model_kwargs
         inlet_flux_A, inlet_flux_B = inputs.inlet_flux_A, inputs.inlet_flux_B
-        # H6 ghost-pin: pass chi_B_field + threshold to LTNE kernel. At cells
-        # where chi_B_field < chi_B_kernel_threshold, kernel skips Tb update
-        # (leaves Tb at init = T_inB). Prevents stagnant cells from relaxing
-        # to local Ts via h_v and leaking that hot value into mass flow via
-        # 1st-order upwind. Default 0.0 = no kernel-level masking.
-        # 2026-05-14: 0.30 tightening was tested with the now-reverted
-        # 'per_cell_chi_b' default and broke discrete mass conservation
-        # (7% imbalance between m_in and m_out). Default restored to 0.0;
-        # tuning requires re-validation before re-enabling.
-        _chi_B_kernel_thr = float(cfg.get('chi_B_kernel_threshold', 0.0))
         # B-plan B5: strict face-centered energy conservation is now the 3D
         # production default (telescoping aP + face-shared HO + MAC projection).
         # The legacy cell-local-|u_c| kernel remains an explicit fallback via
@@ -2572,8 +2373,6 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
             vfA=(vfA if _conservative_ltne or not cfg.get('force_cc_ltne', True) else None),
             wfA=(wfA if _conservative_ltne or not cfg.get('force_cc_ltne', True) else None),
             ufB=ufB, vfB=vfB, wfB=wfB,
-            chi_B_field=state.chi_B,
-            chi_B_kernel_threshold=_chi_B_kernel_thr,
             mms_S_A_field=_mms_S_A,
             mms_S_B_field=_mms_S_B,
             mms_S_s_field=_mms_S_s,
@@ -2720,16 +2519,15 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
         return _converged
 
     def _outer_step_3d(outer):
-        # Cooperative cancel: only safe boundary is between outer iterations
-        # — a JIT'd SIMPLE inner sweep cannot be interrupted. The UI sets the
-        # flag via the Cancel button or the wall-clock timeout.
+        # Cancel before each thermal stage. SIMPLE and thermal solvers also
+        # check between iterations/chunks; an active JIT sweep finishes first.
         if _cancel_check is not None and _cancel_check():
             raise CancelledError("compute cancelled by user")
         if control.iteration is not None:
             control.iteration(f'outer {outer + 1}/{_max_outer}')
         if control.outer_iteration is not None:
             control.outer_iteration(outer + 1, _max_outer)
-        control.report_progress(10 + int(80 * outer / _MAX_OUTER))
+        control.report_progress(10 + int(80 * outer / _max_outer))
         inputs = _prepare_thermal_inputs(outer)
         _prof_t_ltne = _time.perf_counter() if _prof_3d_enabled() else None
         info = _solve_temperature(inputs)
@@ -2767,15 +2565,15 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
             elif (fluid_type_A == 'sco2'
                   and run_environment(cfg, 'TPMSHX_SCO2_COMPRESSIBLE', '').lower()
                   in ('1', 'true', 'yes')):
-                # #4 Phase-B (opt-in, EXPERIMENTAL): sco2 ρ/μ at the LOCAL absolute-P
+                # A-side only (opt-in, EXPERIMENTAL): sco2 ρ/μ at the LOCAL absolute-P
                 # field (ρ tracks local P, not frozen inlet P). ⚠ PROPERTY SIDE ONLY —
                 # the full compressible continuity (∂ρ/∂P in the pressure correction,
                 # Karki-Patankar ψ) is NOT implemented, so high-dP convergence is
-                # unverified. 703 dP<2% ⇒ default Phase A (below) is sufficient.
+                # unverified by this property switch.
                 rho_new = sco2_props.sco2_prop("D", Ta_sA, P_abs)
                 mu_new_A = sco2_props.sco2_prop("V", Ta_sA, P_abs)
             else:
-                # Incompressible registry path. Water ignores P; sCO2 Phase A
+                # Incompressible registry path. Water ignores P; default sCO2
                 # evaluates ρ(T,P_in) and μ(T,P_in) with pressure frozen.
                 rho_new = _mA.rho(Ta_sA, P_inA)
                 mu_new_A = _mA.mu(Ta_sA, P_inA)
@@ -2832,38 +2630,32 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
                 and run_environment(cfg, 'TPMSHX_SCO2_COMPRESSIBLE', '').lower()
                 in ('1', 'true', 'yes'))
             if _sco2_compress:
-                # #4 (2026-06-28): the opt-in compressible sCO2 path is now
-                # ENVELOPE-GUARDED (repo hard invariant: a compressible path must
-                # not silently floor into a vacuum/garbage state). sCO2 is
-                # real-gas, so the ideal-gas P² choke relation does not apply —
-                # use the linear DF outlet pressure with the mean LOCAL density
-                # (ρ tracks P on this path, unlike Phase A's frozen ρ). If the
-                # drop would push the outlet to/below the floor, route through
-                # envelope_mode (raise/warn) instead of the silent clip.
+                # Guard the A-side pressure seed with linear D-F at mean local
+                # density. Failure of this approximation does not diagnose
+                # physical choking. Report/raise before applying the floor.
                 _rho_mean = max(cell_average(sA.rho_field, sA.dx, sA.dy, sA.dz), 1.0e-9)
                 _dP_1d = C_avg * L_stream / _rho_mean
                 _P_out_1d = float(P_inA - _dP_1d)
                 if _P_out_1d <= PRESSURE_FLOOR_PA:
-                    _ck = (f"Off-envelope sCO2 (compressible path): 1D "
-                           f"Darcy-Forchheimer drop {_dP_1d:.3e} Pa >= inlet "
-                           f"absolute P {float(P_inA):.0f} Pa → outlet <= floor. "
-                           f"No steady solution; lower the velocity, shorten the "
-                           f"streamwise domain, or raise the inlet pressure. "
-                           f"[fluid A sCO2 compressible reseed]")
+                    _ck = (f"Off-envelope sCO2: A-side local-pressure property "
+                           f"experiment has an inadmissible 1D D-F pressure seed. "
+                           f"Estimated drop {_dP_1d:.3e} Pa at inlet absolute P "
+                           f"{float(P_inA):.0f} Pa gives outlet {_P_out_1d:.3e} Pa "
+                           f"<= floor {PRESSURE_FLOOR_PA:.3e} Pa. "
+                           f"This approximation does not establish physical choking "
+                           f"or the absence of a steady multidimensional solution. "
+                           f"Check flow and pressure inputs. [fluid A sCO2 reseed]")
                     if _env_mode == 'raise':
                         raise ChokedFlowError(_ck)
                     if _env_mode == 'warn':
                         _env_warnings.append(_ck)
                 sA.P_ref_abs = max(_P_out_1d, PRESSURE_FLOOR_PA)
             else:
-                # Phase A (default): frozen-ρ 1D DF seed. ρ at the inlet
-                # reference ⇒ no compressible positive feedback ⇒ no choke path.
+                # Default linear D-F seed uses the inlet-reference density.
                 sA.P_ref_abs = max(float(P_inA - C_avg * L_stream / rho_A), 1.0e4)
 
-        # Warm restart: SIMPLE fields nearly converged after outer 0.
-        # ρ/μ change is small (α_T=0.6 under-relaxation), so 150 iter is plenty
-        # for the residual to re-sink to 1e-3. Saves ~50% of SIMPLE work in
-        # outer iters 1-2.
+        # Warm restart from current SIMPLE fields, using the effective iteration
+        # budget and the same F2 convergence checks as the initial solve.
         _prof_t_sa = _time.perf_counter() if _prof_3d_enabled() else None
         with range_context(side='A', stage='main', layout='solver-cell(cross1,stream,cross2)'):
             _sa_conv, _sa_it = sA.solve(max_iter=_simple_max_iter(cfg, 600),
@@ -2874,7 +2666,8 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
                 f"A@outer{outer}[{getattr(sA, 'exit_reason', '?')}]")
         if _prof_t_sa is not None:
             _log.info(f"[PROF] outer {outer}: SIMPLE_A {_time.perf_counter()-_prof_t_sa:7.2f}s  "
-                      f"iters={_sa_it}  conv={_sa_conv}  (cap=600)")
+                      f"iters={_sa_it}  conv={_sa_conv}  "
+                      f"(cap={_simple_max_iter(cfg, 600)})")
 
     def _refresh_thermal_properties():
         """Refresh conductivity/capacity between the A and B SIMPLE solves."""
@@ -3004,7 +2797,8 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
                 f"B@outer{outer}[{getattr(sB, 'exit_reason', '?')}]")
         if _prof_t_sb is not None:
             _log.info(f"[PROF] outer {outer}: SIMPLE_B {_time.perf_counter()-_prof_t_sb:7.2f}s  "
-                      f"iters={_sb_it}  conv={_sb_conv}  (cap=600)")
+                      f"iters={_sb_it}  conv={_sb_conv}  "
+                      f"(cap={_simple_max_iter(cfg, 600)})")
             _prof_res_trace(f"outer {outer} SIMPLE_B", sB)
 
         # Other routes refreshed rho_cp_fB above; variable-density air

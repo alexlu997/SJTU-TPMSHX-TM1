@@ -52,14 +52,46 @@ A1/benchmark A 的旧输入原已缺失，历史代码不代表可在当前目�
 
 ## 多边形计算退役
 
-公开 Compute 已拒绝 Hexagon/Octagon；删除旧计算实现和三角剖分，保留
-`unstructured_mesh.hexagon/octagon` 供旧预设查看、保存和流体输入展示。
+公开 Compute 已拒绝 Hexagon/Octagon；旧计算实现、三角剖分和已无消费者的
+`unstructured_mesh.hexagon/octagon` 均已退役。旧矩形工况仍可导入；多边形
+文件在修改当前输入前被拒绝，不再作为可用计算形状展示。
 
 | 原路径 | 固定历史入口 |
 | --- | --- |
 | `sjtu_tpmshx/ui/polygon_calc.py` | [原实现](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/b1af7edcea5796aa955aa8fae1785be3c1b57e1d/sjtu_tpmshx/ui/polygon_calc.py) |
 | `sjtu_tpmshx/solvers/polygon_fvm.py` | [原实现](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/b1af7edcea5796aa955aa8fae1785be3c1b57e1d/sjtu_tpmshx/solvers/polygon_fvm.py) |
 | `sjtu_tpmshx/solvers/unstructured_mesh.py` | [原实现](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/b1af7edcea5796aa955aa8fae1785be3c1b57e1d/sjtu_tpmshx/solvers/unstructured_mesh.py) |
+
+## B 侧局部开口实验修正退役（2026-09-22）
+
+按用户确认，移除 M4 有效参与面积缩放、逐单元 χB 热源/导热缩放、χB 阈值
+冻结温度，以及 H2 出口低导热诊断。它们是附加实验修正，不是进出口的真实几何
+边界。当前端口位置、尺寸、方向及质量/能量守恒检查继续保留。
+
+原实现和 H2/H6/H8 调查可从 [87dcfbab 的求解运行时](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/87dcfbab5bf3e7dcc32e6a0d4e77fe58c5625fcc/sjtu_tpmshx/solvers/backends/python/three_d/runtime.py)
+及[守恒审计](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/87dcfbab5bf3e7dcc32e6a0d4e77fe58c5625fcc/sjtu_tpmshx/validation/cases/audit_3d_conservation.py)查阅。
+历史结果及失败记录保留原模型含义，不改写为现行结果。
+
+- 配置/原始研究字典/准备后的执行输入中的 `partial_B_closure`、`m4_*`、
+  `chi_B_*`、`audit_h2_*`、`audit_zero_K_ffB_at_outlet` 均显式拒绝；即使值为
+  `none`、0 或 False，也需移除该旧实验设置。移除后是现行模型的新计算。
+- 守恒工具保留 T1–T6 的整面、局部、偏置、隔离和等温工况，删除专用 H2/H6/H8
+  入口。当前 GCI 的偏置开口工况名为 **T4**，不再使用 T4_H8，不能与旧 H8 的
+  数字直接合并。当前偏置端口测试仍要求原有热力学、能量和亚声速门槛。
+- `TPMSHX_SCO2_COMPRESSIBLE` 属于另一项 A 侧物性研究，未在此组退役。
+  非对称 CFD 工单、导入和研究求值也继续保留。
+
+## 无消费者代码与参考实现整理（2026-09-22）
+
+移除闲置的 GUI 时间滑条/窗口场缓存/主题镜像、画布和预热辅助函数，以及
+未接入的后处理报告/绘图帮助器。仍在使用的菜单操作改为直接连接现有处理函数。
+旧矩形工况导入、实际场图、导出和取消功能继续保留。
+
+`solvers.envelope`、`solvers.roughness` 纯转发模块及 `df_projection` 的模型转发
+已退役，仓内调用者改从 models 导入；活动压力归约仍留在 solvers。
+历史水 Nu 对照和完整端面二维焓参考实现移至 tests，继续做比较，不再作为生产
+求解入口。永久跳过、只有 pass 的旧二维上海测试占位删除，其[历史说明](README.md)
+及现行三维/集总验证的原门槛保留。
 
 ## SIMPLER 试验退役
 

@@ -47,7 +47,7 @@ def build_port_wall_grid(lengths, counts, ports):
                     if lengths[axis] * .001 < edge < lengths[axis] * .999:
                         breaks[axis].add(edge)
     result = []
-    for length, count, knots in zip(lengths, counts, breaks):
+    for axis, length, count, knots in zip('xyz', lengths, counts, breaks):
         knots = sorted(knots)
         if knots:
             layers, first, growth = 4, .2e-3, 1.8
@@ -58,7 +58,13 @@ def build_port_wall_grid(lengths, counts, ports):
         segments = len(knots) + 1
         bulk_count = count - 2 * layers * segments
         if bulk_count < 2 * segments:
-            raise ValueError(f'Port/wall grid needs at least {2 * (layers + 1) * segments} cells on this axis; got {count}')
+            minimum = 2 * (layers + 1) * segments
+            edges_mm = ', '.join(f'{edge * 1000:g}' for edge in knots) or 'none'
+            raise ValueError(
+                f'Port/wall grid needs at least {minimum} cells on {axis} axis; '
+                f'got {count}. Interior port edges: {edges_mm} mm '
+                f'({segments} segments). Increase N{axis} to at least {minimum} '
+                'or check the inlet/outlet position and width on this axis.')
         bulk = _aligned_grid(bulk_count, length, knots)
         edges = np.r_[0., np.cumsum(bulk)]
         bounds = [0., *knots, length]

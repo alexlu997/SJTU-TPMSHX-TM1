@@ -151,19 +151,33 @@ def test_failed_cache_miss_restores_recording_context(monkeypatch):
     assert ('nu', 'water', 'Diamond', (), ('unbound', 'unbound', 'source')) in records
 
 
-def test_choke_is_general_warning_and_keeps_return_contract(monkeypatch):
+@pytest.mark.parametrize('policies', [(False, True), (True, False)])
+def test_pressure_limit_warning_matches_each_return_policy(monkeypatch, policies):
     from sjtu_tpmshx.df_surrogate import predict
 
     monkeypatch.setattr(predict, '_CHOKE_WARNED', set())
     args = ('Gyroid', 7, 0.6, 0.35, 1e5, 400, 101325, 2e-5, 0.1)
     with warning_scope({}) as records:
-        assert predict.predict_dP_compressible(*args) == 101325
-        assert np.isnan(predict.predict_dP_compressible(*args, strict=True))
-    assert len(records) == 1
-    assert next(iter(records.values())).startswith('[D-F choke]')
+        for strict in policies * 2:
+            value = predict.predict_dP_compressible(*args, strict=strict)
+            assert np.isnan(value) if strict else value == 101325
+    assert len(records) == 2
+    for key, message in records.items():
+        assert message.startswith('[D-F approximation]')
+        assert 'no positive outlet pressure solution' in message
+        assert 'not a physical choking diagnosis' in message
+        if key[-1]:
+            assert 'returning NaN (strict=True)' in message
+            assert 'returning P_in' not in message
+        else:
+            assert 'returning P_in as a fallback dP (strict=False)' in message
+            assert 'returning NaN' not in message
     assert not predict._CHOKE_WARNED
-    with pytest.warns(UserWarning, match='D-F choke'):
-        predict.predict_dP_compressible(*args)
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter('always')
+        for strict in policies * 2:
+            predict.predict_dP_compressible(*args, strict=strict)
+    assert [str(item.message) for item in captured] == list(records.values())
 
 
 @pytest.mark.parametrize('error', [ValueError, InterruptedError])

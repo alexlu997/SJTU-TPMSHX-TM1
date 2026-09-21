@@ -45,10 +45,8 @@ def _parse_inputs_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
     warnings_list = []
     extrap_reasons = []
 
-    # Block unsupported fluids up-front (2D path currently hardcodes air_*
-    # 2026-05-09 (option B) — water + air supported in 2D Compute. sCO2
-    # still blocks. Per-side fluid type captured into cfg so _run_solvers
-    # picks the right property accessors.
+    # Air, water and sCO2 use the per-side property registry. Zoned geometry
+    # retains its separate air/air-only guard below.
     from sjtu_tpmshx.models.tpms_calc import validate_fluid_type
     fluid_A = compute_cfg.fluid_A.type
     fluid_B = compute_cfg.fluid_B.type
@@ -59,11 +57,8 @@ def _parse_inputs_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
         check_water_state(config.type, config.T_in_K, config.P_in_Pa,
                           where=f'pipeline inlet {side}')
 
-    # Current geometry/Nu applicability guard for the UI Compute path.
-    # If ``cfg.extrap.allow`` is set (the checkbox is on, or the env
-    # var TPMSHX_ALLOW_EXTRAP=1 fed the dataclass), out-of-window
-    # values downgrade to warn and we stash the reasons in the parsed
-    # dict so the UI can mark the result + watermark the plots.
+    # Inlet Nu/Re applicability warnings may be allowed here. D-F geometry
+    # and property hard limits still apply; local field ranges are separate.
     _allow_extrap = bool(compute_cfg.extrap.allow)
     extrap_reasons += surrogate_extrap_reasons(compute_cfg, _allow_extrap)
 

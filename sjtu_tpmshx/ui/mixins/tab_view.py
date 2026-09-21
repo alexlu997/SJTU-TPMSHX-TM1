@@ -125,6 +125,10 @@ class TabViewMixin:
             self.statusBar().showMessage(
                 "Split view requires both tabs to have data.", 4000)
             return
+        from sjtu_tpmshx.ui.plot_2d_results import ensure_result_plot
+        for key in (cur, tab):
+            if key in ('temp', 'pres', 'vel') and not ensure_result_plot(self, key):
+                return
         from sjtu_tpmshx.ui.builders_canvas import _layout_split_cards
         _layout_split_cards(self, [cur, tab])
         # Paint the visible workbench tabs for the two selected cards.
@@ -224,13 +228,20 @@ class TabViewMixin:
         if tab == getattr(self, '_active_tab', None) \
                 and not getattr(self, '_split_tabs', None):
             card = getattr(self, '_canvas_cards', {}).get(tab)
-            if card is not None and card.isVisible():
+            if card is not None and card.isVisible() and (
+                    tab not in ('temp', 'pres', 'vel') or tab in self._drawn_tabs):
                 return
 
         self._active_tab = tab
         from sjtu_tpmshx.ui.builders_canvas import refresh_field_controls
         if hasattr(self, '_field_phase_seg'):
             refresh_field_controls(self)
+        if tab in ('temp', 'pres', 'vel'):
+            from sjtu_tpmshx.ui.plot_2d_results import ensure_result_plot
+            if not ensure_result_plot(self, tab):
+                self._canvas_cards[tab].hide()
+                self._switch_tab('layout')
+                return
         tabs = ('temp', 'pres', 'vel', 'layout', 'pareto', '3d')
         drawn = getattr(self, '_drawn_tabs', set())
         # Publish the complete tab state in one repaint batch. Dispatching
@@ -472,6 +483,10 @@ class TabViewMixin:
         canvas = self._canvas_for_key(key)
         if canvas is None:
             return
+        if key in ('temp', 'pres', 'vel'):
+            from sjtu_tpmshx.ui.plot_2d_results import ensure_result_plot
+            if not ensure_result_plot(self, key):
+                return
         if self._detached_canvases.get(key) is not None:
             self._detached_canvases[key].raise_()
             return

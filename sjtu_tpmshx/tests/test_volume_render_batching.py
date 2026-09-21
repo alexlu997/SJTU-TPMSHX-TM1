@@ -1,8 +1,11 @@
 """Exercise the real volume builder without an OpenGL context."""
-from types import SimpleNamespace
+from types import MethodType, SimpleNamespace
 from unittest.mock import Mock
 
+import numpy as np
+import pyvista as pv
 import pytest
+from PySide6.QtWidgets import QComboBox
 
 from sjtu_tpmshx.ui.panel_vis_3d import FIELD_META, ThreeDVisPanel
 
@@ -32,7 +35,7 @@ def test_volume_builder_defers_intermediate_render(render, field):
         _grid=grid, _grid_vol=grid, _field=field, plotter=plotter,
         _volume_actor=actor,
         _clim_for=lambda field: (300., 420.), _opacity_ramp=lambda: (.2, .5),
-        _vol_min_cell_mm=1., status=Mock(),
+        _build_volume_grid=lambda: (grid, 1.), _vol_min_cell_mm=1., status=Mock(),
     )
     ThreeDVisPanel._rebuild_volume(panel, render=render)
 
@@ -120,3 +123,77 @@ def test_hover_and_opacity_work_without_vtk_compatibility_aggregator(monkeypatch
     assert opacity.GetValue(360.) == pytest.approx(.4)
     plotter.render.assert_called_once_with()
     panel._rebuild_volume.assert_not_called()
+
+
+@pytest.mark.parametrize('graded', [False, True])
+def test_volume_fields_are_lazy_cached_and_reset_without_changing_values(monkeypatch, graded):
+    """Real VTK data and Qt selection; no graphics context is needed."""
+    from scipy import ndimage
+
+    panel = SimpleNamespace(plotter=Mock(window_size=(1000, 800)), status=Mock())
+    ThreeDVisPanel._init_state(panel, 30)
+    panel.combo_field = QComboBox()
+    for name in ('combo_plane', 'le_coord', 'btn_apply', 'btn_clim', 'btn_shot',
+                 'slider_opacity', 'btn_view_top', 'btn_view_front',
+                 'btn_view_side', 'btn_view_iso', 'btn_clear'):
+        setattr(panel, name, Mock())
+    for name in ('_render_initial_scene', 'fit_view', '_update_coord_label',
+                 '_validate_coord_input', '_update_status'):
+        setattr(panel, name, Mock())
+    for name in ('_build_volume_grid', '_build_global_clim', '_rebuild_volume',
+                 '_clim_for', '_opacity_ramp'):
+        setattr(panel, name, MethodType(getattr(ThreeDVisPanel, name), panel))
+    zoom = ndimage.zoom
+    zoom_calls = Mock(wraps=zoom)
+    monkeypatch.setattr(ndimage, 'zoom', zoom_calls)
+    base = np.arange(24., dtype=float).reshape(4, 3, 2)
+    fields = {key: base + 100. * i for i, key in enumerate(FIELD_META)}
+    widths = [np.linspace(.0002, .001, n) if graded else np.full(n, .001)
+              for n in base.shape]
+    ThreeDVisPanel.set_fields(panel, **fields, dx=widths[0], dy=widths[1], dz=widths[2])
+
+    # Only the initial field gets a high-resolution allocation. Low-resolution
+    # fields remain complete for identical shared color limits, hover and slices.
+    assert set(panel._volume_grids) == {'Ta'}
+    assert set(panel._grid_vol.point_data) == {'Ta'}
+    assert zoom_calls.call_count == 1
+    edges = [np.r_[0., np.cumsum(w * 1000.)] for w in widths]
+    raw = pv.RectilinearGrid(*edges)
+    fine = pv.RectilinearGrid(*[np.linspace(0., edge[-1], n * 3 + 1)
+                                for edge, n in zip(edges, base.shape)])
+    for key, values in fields.items():
+        raw.cell_data[key] = values.flatten(order='F')
+        fine.cell_data[key] = zoom(values, (3, 3, 3), order=1).flatten(order='F')
+    raw = raw.cell_data_to_point_data()
+    fine = fine.cell_data_to_point_data()
+    np.testing.assert_array_equal(panel._grid.points, raw.points)
+    previous_clim = ThreeDVisPanel._build_global_clim(
+        SimpleNamespace(_grid=raw, _arrays=fields))
+    assert panel._global_clim == previous_clim
+    for key in fields:
+        np.testing.assert_array_equal(panel._grid[key], raw[key])
+        ThreeDVisPanel._on_field_changed(panel, panel.combo_field.findData(key))
+        np.testing.assert_array_equal(panel._grid_vol[key], fine[key])
+        np.testing.assert_array_equal(panel._grid_vol.points, fine.points)
+    assert zoom_calls.call_count == len(fields)
+    first_tb = panel._volume_grids['Tb'][0]
+    ThreeDVisPanel._on_field_changed(panel, panel.combo_field.findData('Tb'))
+    assert panel._grid_vol is first_tb
+    assert zoom_calls.call_count == len(fields)
+    actual_slice = panel._grid.slice(normal='z', origin=panel._grid.center)
+    expected_slice = raw.slice(normal='z', origin=raw.center)
+    np.testing.assert_array_equal(actual_slice['Tb'], expected_slice['Tb'])
+
+    # Same resolution/new result and a subsequent different resolution both
+    # discard old display grids while restoring a still-available selection.
+    ThreeDVisPanel.set_fields(panel, **{k: v + 1 for k, v in fields.items()},
+                             dx=widths[0], dy=widths[1], dz=widths[2])
+    assert panel._field == 'Tb' and set(panel._volume_grids) == {'Tb'}
+    assert panel._grid_vol is not first_tb
+    np.testing.assert_allclose(panel._grid_vol['Tb'], fine['Tb'] + 1.)
+    ThreeDVisPanel.set_fields(panel, Ta=base[:2], dx=widths[0][:2],
+                             dy=widths[1], dz=widths[2])
+    assert panel._field == 'Ta' and set(panel._volume_grids) == {'Ta'}
+    assert panel._grid_vol.dimensions == (7, 10, 7)
+    assert set(panel._arrays) == {'Ta'}
+    panel.combo_field.deleteLater()

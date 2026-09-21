@@ -468,6 +468,10 @@ def _build_styles(theme_name=None):
         "combobox-popup:0;}"
         f"QComboBox:hover{{border:1px solid {t['combo_hover_border']};}}"
         f"QComboBox:focus{{border:2px solid {t['inp_focus']}; padding:3px 27px 3px 7px;}}"
+        # Editable value fields already exclude the arrow subcontrol. Extra
+        # right padding would leave right-aligned text in the control's middle.
+        "QComboBox:editable{padding:4px 1px 4px 8px;}"
+        "QComboBox:editable:focus{padding:3px 0px 3px 7px;}"
         f"QComboBox::drop-down{{subcontrol-origin:border; subcontrol-position:top right;"
         "width:24px; margin:1px; border:none;"
         f"border-top-right-radius:{RADIUS_INPUT - 1}px; border-bottom-right-radius:{RADIUS_INPUT - 1}px;"

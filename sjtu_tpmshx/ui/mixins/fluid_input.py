@@ -1,8 +1,8 @@
 """Per-fluid input handlers for ``Main_Menu``.
 
 Extracted verbatim from the ``main`` god object: auto-fill of fluid
-properties, temperature-unit conversion/toggle, flow-direction & shape
-change handlers, edge-combo sync, the per-side fluid-config reader, and
+properties, temperature-unit conversion/toggle, flow-direction
+change handlers, the per-side fluid-config reader, and
 the layout drawers. UI-only -- no solver / numeric path. Adopted via
 ``class Main_Menu(..., FluidInputMixin, ..., QMainWindow)``; external
 wiring resolves on the live window through the MRO.
@@ -15,12 +15,11 @@ a live ThemeManager.rebuild(). Behaviour-identical at first paint.
 
 from __future__ import annotations
 
-import numpy as np
-
 from PySide6.QtWidgets import QMessageBox
 
+from sjtu_tpmshx.models.design_fluids import nu_re_window
 from sjtu_tpmshx.models.tpms_calc import compute as tpms_compute
-from sjtu_tpmshx.ui.ui_constants import RE_NU_LO, RE_NU_HI, TOAST_MS_MED
+from sjtu_tpmshx.ui.ui_constants import TOAST_MS_MED
 
 
 def _fluid_styles() -> dict:
@@ -69,17 +68,18 @@ class FluidInputMixin:
         from sjtu_tpmshx.domain.validator import compute_volumetric_htc
         h_v_vol = compute_volumetric_htc(r['A_0'], r['H_sf'])
 
-        # Re range check against Nu v4.1 calibration window.
+        # Use the selected fluid's source range, shared with its Nu model.
         Re = r['Re']
+        re_lo, re_hi = nu_re_window(_ftype)
         _re_styles = _fluid_styles()
         re_style = _re_styles['VAL']
         re_tag = ""
-        if Re < RE_NU_LO:
+        if Re < re_lo:
             re_style = _re_styles['VAL_WARN']
-            re_tag = f"  (< {RE_NU_LO}!)"
-        elif Re > RE_NU_HI:
+            re_tag = f"  (< {re_lo:g}!)"
+        elif Re > re_hi:
             re_style = _re_styles['VAL_WARN']
-            re_tag = f"  (> {RE_NU_HI}!)"
+            re_tag = f"  (> {re_hi:g}!)"
 
         self.statusBar().showMessage(f"Fluid {fluid} filled.  Re={Re:.0f}{re_tag}  Nu={r['Nu']:.2f}  dP/L={r['dP_per_L']:.1f} Pa/m", TOAST_MS_MED)
         if fluid == 'A':
@@ -186,11 +186,10 @@ class FluidInputMixin:
             pass
 
     def _sync_temp_unit_labels(self):
-        """Refresh the `[K]`/`[°C]` suffix on the three temperature row
-        labels (T_inA, T_inB) + the header button caption to
-        match `self._temp_unit`. Call whenever the unit changes, whether via
-        the toggle button, preset load, or session restore — prevents the
-        value-vs-label mismatch the user reported."""
+        """Match inlet and outlet row units to the current temperature display.
+
+        Called after a menu toggle, preset load, or session restore.
+        """
         unit_display = "°C" if getattr(self, '_temp_unit', 'K') == 'C' else "K"
         # Swap the trailing " [K]"/" [°C]" on each label. The label text uses
         # QLabel rich-text HTML so we replace both variants.
@@ -210,10 +209,6 @@ class FluidInputMixin:
                 lbl.setText(txt)
             except Exception:
                 pass
-        if hasattr(self, 'btn_temp_unit'):
-            self.btn_temp_unit.setText(unit_display)
-            self.btn_temp_unit.setToolTip(
-                f"Temperatures currently in {unit_display}. Click to switch.")
 
     def _toggle_temp_unit(self):
         """Flip between Kelvin and Celsius display for the three main
@@ -275,21 +270,6 @@ class FluidInputMixin:
         if cached is not None:
             self._set_temp_K(self._r_ToutA, cached[0])
             self._set_temp_K(self._r_ToutB, cached[1])
-
-    def _on_shape_changed(self, idx):
-        """Show/hide controls based on domain shape (Rectangle vs Polygon)."""
-        is_poly = idx > 0
-        # Show polygon pipe edge config
-        self._poly_pipe_frame.setVisible(is_poly)
-        self._poly_pipe_label.setVisible(is_poly)
-        # Hide rect-only controls
-        for w in self._rect_only_widgets:
-            w.setVisible(not is_poly)
-        # Show polygon-only controls
-        for w in self._poly_only_widgets:
-            w.setVisible(is_poly)
-        if is_poly:
-            self._update_edge_combos()
 
     def _on_dir_changed(self):
         """Relabel inlet/outlet fields to match selected flow-axis.
@@ -369,56 +349,6 @@ class FluidInputMixin:
                 except ValueError:
                     pass
             return cfg
-
-    def _update_edge_combos(self):
-        """Populate edge combo boxes with readable edge descriptions."""
-        from sjtu_tpmshx.solvers import unstructured_mesh as um
-        try:
-            L = float(self.le_L.text())
-            H = float(self.le_H.text())
-        except ValueError:
-            return
-        shape = self.combo_shape.currentText()
-        if shape == 'Hexagon':
-            verts = um.hexagon(L, H)
-        elif shape == 'Octagon':
-            verts = um.octagon(L, H)
-        else:
-            return
-        n_v = len(verts)
-        cx, cy = verts[:, 0].mean(), verts[:, 1].mean()
-
-        items = []
-        for i in range(n_v):
-            p0, p1 = verts[i], verts[(i + 1) % n_v]
-            mid = 0.5 * (p0 + p1)
-            # Descriptive direction label
-            dx, dy = mid[0] - cx, mid[1] - cy
-            if abs(dx) > abs(dy):
-                side = "Right" if dx > 0 else "Left"
-            else:
-                side = "Top" if dy > 0 else "Bottom"
-            edge = p1 - p0
-            elen = np.linalg.norm(edge) * 1000
-            items.append(f"E{i}: {side} ({elen:.1f} mm)")
-
-        for cb in (self.combo_edge_inA, self.combo_edge_outA,
-                   self.combo_edge_inB, self.combo_edge_outB):
-            cb.blockSignals(True)
-            cb.clear()
-            cb.addItems(items)
-            cb.blockSignals(False)
-        # Defaults: A left->right, B bottom->top
-        if shape == 'Octagon' and n_v == 8:
-            self.combo_edge_inA.setCurrentIndex(6)
-            self.combo_edge_outA.setCurrentIndex(2)
-            self.combo_edge_inB.setCurrentIndex(0)
-            self.combo_edge_outB.setCurrentIndex(4)
-        elif shape == 'Hexagon' and n_v == 6:
-            self.combo_edge_inA.setCurrentIndex(5)
-            self.combo_edge_outA.setCurrentIndex(2)
-            self.combo_edge_inB.setCurrentIndex(0)
-            self.combo_edge_outB.setCurrentIndex(3)
 
     def _draw_layout(self):
         from sjtu_tpmshx.ui.layout_drawer import draw_layout
