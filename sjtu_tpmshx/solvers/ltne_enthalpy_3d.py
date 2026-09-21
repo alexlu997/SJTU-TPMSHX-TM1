@@ -450,10 +450,10 @@ def solve_ltne_enthalpy_3d_pipeline(Nx, Ny, Nz, dx, dy, dz, eps_arr, K_ss,
                                     Ta_init=None, Tb_init=None, Ts_init=None,
                                     n_outer=3000, n_sweep=5, omega=0.6, tol=2e-5,
                                     cancel_check=None, coupled_energy_tol=None,
-                                    equation_energy_tol=None):
+                                    equation_energy_tol=None, native_sweeps=None):
     """Pipeline-facing true-enthalpy LTNE solve using SIMPLE face mass flow.
 
-    Drives the njit enthalpy kernel from the production pipeline's fielded data
+    Drives the selected enthalpy sweep kernel from the pipeline's fielded data
     (h_v fields, full porosity field, per-side SIMPLE face mass flow, per-
     side pressure, warm-start T fields). Returns ``(Ta, Tb, Ts, info)`` matching
     the ``solve_full_domain_3d(..., return_info=True)`` contract so it can drop
@@ -546,6 +546,7 @@ def solve_ltne_enthalpy_3d_pipeline(Nx, Ny, Nz, dx, dy, dz, eps_arr, K_ss,
     converged = False
     next_temperatures = None
     heos_polish = False
+    sweep = _gs_enthalpy_sweeps_3d if native_sweeps is None else native_sweeps
     for outer in range(n_outer):
         if cancel_check is not None and cancel_check():
             raise CancelledError("compute cancelled by user")
@@ -569,7 +570,7 @@ def solve_ltne_enthalpy_3d_pipeline(Nx, Ny, Nz, dx, dy, dz, eps_arr, K_ss,
         dhB = epsB * kB / np.maximum(cpB, 1e-30)
         hA_star = hA.copy(); hB_star = hB.copy()
 
-        _gs_enthalpy_sweeps_3d(
+        sweep(
             hA, hB, Ts, dhA, dhB, cpA, cpB, T_A, T_B, hA_star, hB_star,
             *flux_A, *flux_B, hvA_fld, hvB_fld, Kss,
             dx, dy, dz, h_in_A, h_in_B,
@@ -641,6 +642,9 @@ def solve_ltne_enthalpy_3d_pipeline(Nx, Ny, Nz, dx, dy, dz, eps_arr, K_ss,
                 effective_settings=dict(update_tol=float(tol),
                     coupled_energy_tol=coupled_energy_tol, equation_energy_tol=equation_energy_tol,
                     max_iterations=int(n_outer), sweeps=int(n_sweep), omega=float(omega)))
+    info['effective_settings'].update(
+        dict(sweep_kernel='numba', energy_audit='python')
+        if native_sweeps is None else native_sweeps.metadata)
     info['_native_state'] = dict(h_A=hA, h_B=hB, h_in_A=h_in_A, h_in_B=h_in_B,
                                  mass_flux_A=flux_A, mass_flux_B=flux_B)
     table_sides = [side for side, lookup in (('A', lookup_A), ('B', lookup_B))

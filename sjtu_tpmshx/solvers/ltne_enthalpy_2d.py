@@ -7,7 +7,7 @@ def solve_enthalpy_2d(
     T_inA, T_inB, pressure_A, pressure_B, mass_flux_A, mass_flux_B,
     h_vA, h_vB, k_s, eps_A, eps_B, dx, dy, *, P_inA, P_inB,
     fluid_A='sco2', fluid_B='sco2', Ta_init=None, Tb_init=None, Ts_init=None,
-    max_iter=5000, tol=0.5, cancel_check=None,
+    max_iter=5000, tol=0.5, cancel_check=None, native_sweeps=None,
 ):
     """2D-per-metre adapter for the shared face-flux true-enthalpy kernel.
 
@@ -44,7 +44,7 @@ def solve_enthalpy_2d(
         Ts_init=None if Ts_init is None else cell3(Ts_init),
         n_outer=max_iter, n_sweep=3, tol=max(float(tol), 1e-8) / 100.0,
         cancel_check=cancel_check, coupled_energy_tol=0.001,
-        equation_energy_tol=0.001,
+        equation_energy_tol=0.001, native_sweeps=native_sweeps,
     )
     Ta, Tb, Ts, info = result
     return Ta[..., 0], Tb[..., 0], Ts[..., 0], info

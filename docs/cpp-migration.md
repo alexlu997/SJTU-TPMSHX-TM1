@@ -17,15 +17,17 @@ the project into repositories. V0.3's useful extension is an independently
 qualified C++ backend inside the solver module, consuming the same physical
 case and producing evidence usable by the existing postprocessor.
 
-**The native library is an unconnected thermal-kernel pilot. It is not
-a complete C++ solver backend.** The production solver still uses Python/Numba;
-no `backend='cpp'` capability is advertised or enabled. Replacing only an inner
-kernel would also remain acceleration of the Python backend under V0.3 §3.2.1.
+**The native sweeps are an optional thermal kernel inside the Python backend,
+not a complete C++ solver.** Python/Numba remains the default; no `backend='cpp'`
+capability is advertised or enabled. This is the incremental kernel route in
+V0.3 §3.2.1. The native energy-audit operator remains an isolated pilot.
 
-The agreed sequence (2026-09-22) is to finish Python solver cleanup and qualify
-repeatable case/field/flux comparisons and cancellation/error handling first.
-Keep the existing pilot and its tests during that work; defer connecting a new
-C++ execution path until the Python reference and its physical scope are stable.
+The first connection (2026-09-22) follows full-budget Python reference checks.
+It supports full two-fluid 2D/3D true-enthalpy runs containing sCO2, including
+signed partial ports. Python still owns EOS, property updates, convergence,
+independent energy checks and cancellation between sweep chunks. Model-h,
+single-fluid, screening and quick-design execution reject an explicit native
+request; they never silently fall back to Numba.
 
 ## First implemented slice
 
@@ -90,15 +92,22 @@ From the repository root, with an existing POSIX C++17 compiler and `make`:
 
 ```sh
 make -f native/Makefile CXX=c++
+make -f native/Makefile CXX=c++ shared
 ```
 
 This builds `.cache/native/libtpmshx_thermal.a`. Include `native/include` and
 link that archive from a C++ caller. There is no Python, Qt, NumPy, CoolProp,
 OpenMP, CMake or binding-library dependency in the native library itself.
-The pilot is not included in the Python wheel or desktop application.
+The shared target builds `.cache/native/libtpmshx_thermal.dylib` on macOS or
+`.so` on other POSIX platforms. The library is not bundled with the Python
+wheel or desktop application, discovered automatically, or built during a run.
 
-The tests compile a temporary shared library and use **a test-only ctypes
-bridge**. That bridge is not a stable C ABI or a production backend adapter.
+`thermal_c_api.h` exposes the versioned sweep ABI and bounded error messages;
+exceptions do not cross the C boundary. The production ctypes adapter validates
+shapes, contiguous float64 storage, alignment and nonaliasing mutable arrays.
+Native errors invalidate the run; cancelled/failed runs are not finalized.
+The energy-audit tests still use a test-only bridge.
+
 Use the interpreter from `.venv-path`, after the normal environment checks:
 
 ```sh
@@ -109,8 +118,24 @@ MPLCONFIGDIR="$PWD/.cache/matplotlib" \
 XDG_CACHE_HOME="$PWD/.cache/xdg" \
 NUMBA_CACHE_DIR="$PWD/.cache/numba" \
 TPMSHX_REQUIRE_CPP_TESTS=1 \
-"$tm1_python" -m pytest -q sjtu_tpmshx/tests/native/test_enthalpy_sweeps.py
+"$tm1_python" -m pytest -q sjtu_tpmshx/tests/native
 ```
+
+For an accepted full true-h case, set these before `prepare_case` or the CLI:
+
+```sh
+export TPMSHX_TRUE_H_KERNEL=cpp_sweeps_v1
+export TPMSHX_THERMAL_LIBRARY="$PWD/.cache/native/libtpmshx_thermal.dylib"
+"$tm1_python" -m sjtu_tpmshx.cli --help
+```
+
+Use the `.so` path on other POSIX hosts. `TPMSHX_TRUE_H_KERNEL=numba` selects
+the default. Prepared cases freeze both values, including across save/load;
+changing the receiving process environment does not change that case's kernel.
+A native case requires its recorded absolute library path to exist on the
+execution host. Missing libraries, wrong ABI and unsupported choices fail
+before SIMPLE. `true_h_balance.effective_settings` records the selected kernel,
+native ABI/path when used, and `energy_audit='python'`.
 
 The required flag makes a missing compiler fail this qualification command.
 General Python-only testing skips these tests when the POSIX compiler is absent;
@@ -137,13 +162,17 @@ These compare arithmetic implementations; they do not change production gates.
 Performance qualification must include input checks/binding overhead and compare
 equally warmed Numba sweeps and NumPy audit operators, separately from EOS,
 compilation and end-to-end execution. A kernel result cannot prove application
-speedup, and neither slice is automatically selected by production.
+speedup. The public execution tests compare 2D/3D sCO2/water and air/sCO2
+fields, signed boundary fluxes, pressure evidence and metrics with fixed
+`rtol=atol=1e-10`, alongside unchanged F2 and true-h physical gates. They also
+exercise saved-case selection, cancellation and actual native error exits.
+Neither native operator is automatically selected by production.
 
 ## Remaining stages and acceptance gates
 
 | Stage | Implementation boundary | Required evidence before advancing |
 | --- | --- | --- |
-| 0: thermal operators | The native sweeps and actual-state energy audit above; production remains Python. | Compile and same-algorithm/physical operator checks. |
+| 0: thermal operators | Optional native sweeps inside the Python driver; native energy audit remains isolated. | Operator checks plus public field/flux/metric, handoff, cancellation and error comparisons. |
 | 1: complete thermal driver | Port Picard state, property refresh, EOS inverse, residuals, warm starts and cooperative cancellation in the same order. Keep fluid properties separate from Nu/hv closure evaluation. | Fixed inlet/pressure/grid inputs; A/B/solid equation and boundary-energy criteria unchanged; clipped/invalid/cancelled runs retain their meaning; compare detached native fields and fluxes. |
 | 2: flow and coupling | Port SIMPLE/Brinkman–Forchheimer operators, pressure and mass corrections, then the existing outer coupling order for a declared subset of rectangular cases. | Momentum and fresh-density local/global mass F2 gates; physical inlet-pressure, outlet/backflow and energy checks; directional and grid tests; same prepared geometry/closures, no coefficient retuning. |
 | 3: actual C++ backend | Add the smallest solver-side adapter needed to consume CaseData and produce complete FieldResult; advertise only the accepted capability subset. | Run without the Python solver kernels; separate-process case/result handoff, state/units/field locations and model provenance; missing or unsupported capabilities explicitly rejected. |
@@ -173,6 +202,6 @@ port does not inherit its experimental claims. Performance measurements must
 separate compilation, EOS, flow, thermal sweeps and overall time and use
 equally warmed runs with the same convergence gates.
 
-OpenFOAM, a stable external C ABI, general unstructured meshes, extra physical
+OpenFOAM, a complete external solver ABI, general unstructured meshes, extra physical
 models and a framework of abstract factories are not prerequisites for this
 port. Add each only for a specified, separately qualified capability.

@@ -295,7 +295,9 @@ Case YAML 引用伴随 HDF5；result/VTK 导出和严格指标 JSON 的限制见
 `models/`、`df_surrogate/` 等是共享技术支撑，不是第四个业务模块。旧 Pipeline/应用
 入口单向调用公开模块。具体边界见[架构说明](docs/architecture.md)。
 
-实际后端为 Python/Numba。C++、OpenFOAM、REFPROP 等提供器、扩展 h/f/PEC 定义与
+实际后端为 Python，默认使用 Numba；完整双流体 true-h 路线可显式选择
+[C++ 热迭代内核](docs/cpp-migration.md)，物性、收敛与能量验收仍由 Python 执行。
+完整 C++ 后端、OpenFOAM、REFPROP 等提供器、扩展 h/f/PEC 定义与
 伴随能力继续按 M-B/原文限定追踪，不能据目录或接口声明为已实现。
 
 ## 环境与检查

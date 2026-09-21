@@ -1,32 +1,6 @@
-// Test-only bridge. This is not an installed API or a promised stable C ABI.
+// Test-only energy-audit bridge; sweep tests use the production C API.
 #include "tpmshx/enthalpy_sweeps.hpp"
 #include <stdexcept>
-
-extern "C" int test_enthalpy_sweeps(const std::size_t* shape, double** arrays,
-                                   const std::size_t* sizes, const double* scalars,
-                                   std::size_t sweeps, std::uint64_t* clips) {
-    using namespace tpmshx;
-    const auto view = [&](std::size_t i) { return ArrayView<const double>{arrays[i], sizes[i]}; };
-    const auto state_view = [&](std::size_t i) { return ArrayView<double>{arrays[i], sizes[i]}; };
-    const GridView grid{shape[0], shape[1], shape[2], view(0), view(1), view(2)};
-    const ThermalStateView state{state_view(3), state_view(4), state_view(5)};
-    const FluidView a{view(6), view(7), view(8), view(9), view(10), view(11), view(12), view(13),
-                      scalars[0], scalars[2], scalars[3]};
-    const FluidView b{view(14), view(15), view(16), view(17), view(18), view(19), view(20), view(21),
-                      scalars[1], scalars[4], scalars[5]};
-    try {
-        const auto result = enthalpy_sweeps(grid, a, b, view(22), state, sweeps, scalars[6]);
-        clips[0] = result.a;
-        clips[1] = result.b;
-        return 0;
-    } catch (const std::invalid_argument&) {
-        return 1;
-    } catch (const std::domain_error&) {
-        return 2;
-    } catch (...) {
-        return 3;
-    }
-}
 
 extern "C" int test_thermal_energy_audit(const std::size_t* shape, double** arrays,
                                         const std::size_t* sizes, const double* hin,

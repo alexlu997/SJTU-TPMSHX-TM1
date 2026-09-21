@@ -1,7 +1,7 @@
 """Prepare the existing air/air optimizer mesh, coefficients and flow seeds."""
 import os
 import numpy as np
-from sjtu_tpmshx.domain.run_environment import require_f2_mode
+from sjtu_tpmshx.domain.run_environment import capture_environment, require_f2_mode
 
 from sjtu_tpmshx.domain.case_data import CaseData
 from sjtu_tpmshx.domain.model_refs import ModelRef
@@ -136,7 +136,8 @@ def prepare_screening_2d(x, cfg=None, fc=None, *, case_id):
     geometry_fields = dict(L_cell_m=arrays['L_field'] / 1000., t_wall_m=arrays['t_field'] / 1000.)
     computation = {k: v for k, v in cfg.items() if k not in ('penalty_enabled', 'penalty_weight', 'dp_cap_pa')}
     return CaseData(case_id=case_id, config_snapshot=cfg, grid=grid, design_fields=fields,
-                    parameters=dict(compute=computation, flow=flows, rejection=rejection),
+                    parameters=dict(compute=computation, flow=flows, rejection=rejection,
+                                    _environment=capture_environment()),
                     model_refs=(ModelRef('screening', MODEL_VERSIONS['screening']),
                                 ModelRef('fluid', MODEL_VERSIONS['fluid'], {'fluid': 'air'})),
                     metadata=dict(mode='screening_2d', model='air_air_volume_ltne_v1',

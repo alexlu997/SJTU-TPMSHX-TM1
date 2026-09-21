@@ -424,6 +424,7 @@ class _Problem3D:
     fB: dict[str, object] | None
     fluid_type_A: str
     fluid_type_B: str
+    native_sweeps: object
     in_mask_2d: np.ndarray  # geometric opening fractions, solver (cross1,cross2)
     in_mask_B: np.ndarray | None
     is_reverse: bool
@@ -622,6 +623,9 @@ def build_problem(cfg, prepared, *, control: RunControl = RunControl()):
     # sco2: real-gas properties at (T,P).
     fluid_type_A = cfg.get('fluid_type_A', 'air')
     fluid_type_B = cfg.get('fluid_type_B', 'air')
+    from sjtu_tpmshx.solvers.backends.python.thermal_native import resolve_true_h_kernel
+    native_sweeps = resolve_true_h_kernel(cfg, supported=(
+        cfg.get('fluid_B_cfg') is not None and 'sco2' in (fluid_type_A, fluid_type_B)))
     fluid_props.check_water_state(fluid_type_A, T_inA, P_inA, where='3D direct inlet A')
     fluid_props.check_water_state(fluid_type_B, T_inB, P_inB, where='3D direct inlet B')
     _mA = cfg['_models']['fluid_A'] if '_models' in cfg else fluid_props.get(fluid_type_A)
@@ -954,6 +958,7 @@ def build_problem(cfg, prepared, *, control: RunControl = RunControl()):
         fB=fB,
         fluid_type_A=fluid_type_A,
         fluid_type_B=fluid_type_B,
+        native_sweeps=native_sweeps,
         in_mask_2d=in_mask_2d,
         in_mask_B=in_mask_B,
         is_reverse=is_reverse,
@@ -2455,7 +2460,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
             n_outer=int(cfg.get('ltne_enthalpy_outer', 1500)),
             tol=float(cfg.get('ltne_enthalpy_tol', 1e-3)),
             cancel_check=_cancel_check, coupled_energy_tol=0.001,
-            equation_energy_tol=0.001)
+            equation_energy_tol=0.001, native_sweeps=prob.native_sweeps)
         fluid_props.check_water_state(fluid_type_A, state.Ta, _P_A_local,
                                       where='3D enthalpy return A')
         fluid_props.check_water_state(fluid_type_B, state.Tb, _P_B_local,
