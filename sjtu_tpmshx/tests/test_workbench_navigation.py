@@ -107,6 +107,10 @@ def test_session_restores_width_page_and_legacy_defaults(win, monkeypatch):
     win._splitter.setSizes([320, 980])
     win._select_param_page(0)
     win.btn_result_summary.setChecked(True)
+    # Keep this sidebar-state test at its 1300 px viewport. Qt otherwise
+    # clamps restored window geometry to the offscreen backend's small screen,
+    # where the chart's minimum width prevents a 450 px parameter panel.
+    saved.pop('geometry')
     monkeypatch.setattr(win.sm, 'load_session', lambda ws: saved)
     win._restore_session()
     QApplication.processEvents()

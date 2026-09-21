@@ -1036,9 +1036,9 @@ def _build_canvas_content(window, vlay, t):
     _card_row_order = []
     for c, key, h in _card_specs:
         if key in ('temp', 'pres', 'vel'):
-            # Recompute text margins on resize so axis units remain visible
-            # when the narrow workbench leaves a short plotting area.
-            c.fig.set_layout_engine('tight', pad=0.9)
+            # Reserve real text extents on resize, including equal-aspect 3D
+            # slices. Tight layout can retain invalid margins on short canvases.
+            c.fig.set_layout_engine('compressed')
         # Card frame. 3D card skips top-accent stripe (its curved arc was
         # visually colliding with embedded toolbar labels — user report
         # 2026-04-21). Other cards keep the coloured accent.
