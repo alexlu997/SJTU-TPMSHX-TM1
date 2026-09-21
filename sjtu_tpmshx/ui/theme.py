@@ -484,6 +484,7 @@ def _build_styles(theme_name=None):
         f"background:{t['combo_list_bg']}; color:{t['combo_list_fg']};"
         f"font-size:{_fi}pt; font-weight:400;"
         f"selection-background-color:{t['combo_sel']};"
+        f"selection-color:{t['combo_list_fg']};"
         f"border:1px solid {t['combo_border']};"
         "border-radius:4px; padding:4px; outline:none;}"
         "QComboBox QAbstractItemView::item{min-height:26px; padding:3px 8px;}"

@@ -134,12 +134,9 @@ def build_page_domain(window):
     btn_tpms.setToolTip("Compute porosity, specific area, hydraulic diameter, k_ss from current L_cell / t")
     btn_tpms.clicked.connect(window.compute_tpms)
     g0.addWidget(btn_tpms, 4, 0, 1, 2)
-    # Computed outputs — own collapsible card (ui-ia-batch1 / IA-2): starts
-    # collapsed so the input flow reads clean; compute_tpms auto-expands it
-    # via container._set_expanded once values exist.
-    gC, _sec_tc = collapsible_section(
-        window, lay, "几何计算值", _T_NEUTRAL, _F_NEUTRAL,
-        expanded=False)
+    # Computed outputs use the same always-visible card as the geometry inputs.
+    gC, _sec_tc = section(
+        window, lay, "  几何计算值", _T_NEUTRAL, _F_NEUTRAL)
     window._ia_sections['tpms_computed'] = _sec_tc
     window._v_eps  = res_row(window, gC, 0, "<i>&epsilon;</i>")
     window._v_A0   = res_row(window, gC, 1, "<i>A</i><sub>0</sub> [m<sup>-1</sup>]")

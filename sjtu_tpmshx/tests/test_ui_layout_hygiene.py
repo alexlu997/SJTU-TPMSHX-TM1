@@ -59,9 +59,75 @@ def test_param_pages_have_no_horizontal_scroll(win):
     assert not offenders, f"horizontal scroll present in: {offenders}"
 
 
+@pytest.mark.parametrize('field', ['temp', 'pres', 'vel'])
+@pytest.mark.parametrize('dpi', [100, 125])
+def test_equal_aspect_field_labels_fit_after_short_canvas_resize(win, field, dpi):
+    """The embedded field canvas must reserve real text space on every draw."""
+    import numpy as np
+    import warnings
+    from sjtu_tpmshx.ui.plot_3d_results import (
+        _plot_3d_temperature, _plot_3d_pressure, _plot_3d_velocity_slice,
+    )
+
+    canvas = getattr(win, 'canvas_' + field)
+    figure = canvas.fig
+    previous_dpi, previous_size = figure.dpi, figure.get_size_inches().copy()
+    values = np.arange(48.).reshape(8, 6) + 300.
+    xc, yc = np.linspace(3.75, 56.25, 8), np.linspace(2.5, 27.5, 6)
+    try:
+        figure.set_dpi(dpi)
+        figure.set_size_inches(12, 7, forward=False)
+        if field == 'temp':
+            _plot_3d_temperature(canvas, values, values + 20, values + 10,
+                                 xc, yc, 'z = 15 mm', phase=0, unit='°C')
+        elif field == 'pres':
+            _plot_3d_pressure(canvas, values, values + 20, xc, yc,
+                              100., 200., 'z = 15 mm', phase=0)
+        else:
+            _plot_3d_velocity_slice(canvas, values, values, values,
+                                    values, values, values, xc, yc,
+                                    'z = 15 mm', phase=0)
+        # A short workbench can follow a large, previously laid-out figure.
+        for width, height in ((515, 80), (1015, 417), (515, 161)):
+            figure.set_size_inches(width / 100, height / 100, forward=False)
+            with warnings.catch_warnings():
+                warnings.filterwarnings('error', message='.*layout.*', category=UserWarning)
+                canvas.draw()
+            axis = canvas.axes[0][0]
+            assert axis.get_aspect() == 1
+            assert axis.xaxis.label.get_window_extent(canvas.renderer).y0 >= 0
+            for title in (axis.title, axis._left_title, axis._right_title):
+                if title.get_text():
+                    assert title.get_window_extent(canvas.renderer).y1 <= figure.bbox.height
+            assert axis.get_window_extent().height > 0
+    finally:
+        figure.clear()
+        figure.set_dpi(previous_dpi)
+        figure.set_size_inches(previous_size, forward=False)
+
+
 def test_fluids_row_is_responsive(win):
     from sjtu_tpmshx.ui.responsive import ResponsiveRow
     assert isinstance(getattr(win, "_fluids_row", None), ResponsiveRow)
+
+
+def test_model_dropdown_has_room_for_the_full_current_label(win):
+    app = QApplication.instance()
+    combo = win.combo_df_mode
+    previous = combo.currentIndex()
+    page = win._param_page
+    try:
+        win._select_param_page(2)
+        for index in range(combo.count()):
+            combo.setCurrentIndex(index)
+            combo.setFocus()
+            app.processEvents()
+            edit = combo.lineEdit()
+            # QLineEdit reserves internal text/cursor margins beyond glyphs.
+            assert edit.width() >= edit.fontMetrics().horizontalAdvance(edit.text()) + 4
+    finally:
+        combo.setCurrentIndex(previous)
+        win._select_param_page(page)
 
 
 def test_responsive_row_direction_flips():
@@ -180,18 +246,37 @@ def test_parameter_inspector_has_single_scroll_area(win):
     assert len(scrolls) <= 1, [s.objectName() or repr(s) for s in scrolls]
 
 
-def test_tpms_computed_collapsed_then_autoexpands(win):
+def test_tpms_computed_is_visible_before_and_after_calculation(win):
+    from PySide6.QtWidgets import QLabel
+
     app = QApplication.instance()
     win._select_param_page(0)
     sec = win._ia_sections["tpms_computed"]
+    assert isinstance(sec.layout().itemAt(0).widget(), QLabel)
     frame = sec.layout().itemAt(1).widget()
-    assert not frame.isVisible()          # starts collapsed
+    assert frame.isVisibleTo(win)
     assert win.compute_tpms()             # default inputs are valid
     app.processEvents()
-    # group ① is open, so the expanded card becomes visible-to-window
     assert frame.isVisibleTo(win)
     assert win._v_eps.text() not in ("—", "")
     win._select_param_page(1)
+
+
+def test_diagnostics_reachable_with_expanded_or_collapsed_sidebar(win, monkeypatch):
+    calls = []
+    monkeypatch.setattr(win, '_show_diag_dialog', lambda: calls.append(True))
+    try:
+        if getattr(win, '_left_collapsed', False):
+            win._toggle_left_panel()
+        assert win.btn_parameter_diagnostics.isVisibleTo(win)
+        win.btn_parameter_diagnostics.click()
+        win._toggle_left_panel()
+        assert win.btn_rail_diagnostics.isVisibleTo(win)
+        win.btn_rail_diagnostics.click()
+        assert len(calls) == 2
+    finally:
+        if getattr(win, '_left_collapsed', False):
+            win._toggle_left_panel()
 
 
 def test_group_badge_counts_empty_field(win):
@@ -307,6 +392,10 @@ def test_result_view_toggle_gating(win):
     assert win._result_view_btns['2d'].isEnabled()
     assert not win._result_view_btns['3d'].isEnabled()
     assert win.btn_tab_result.isEnabled()
+    for _ in range(2):
+        win._result_view_btns['2d'].click()
+        assert win._result_view_btns['2d'].isChecked()
+        assert not win._result_view_btns['3d'].isChecked()
     win._has_results_2d = False
     win._update_tab_visibility()
     assert not win.btn_tab_result.isEnabled()
@@ -400,6 +489,14 @@ def test_result_footer_wraps_full_diagnostics_and_long_kpis(win):
             assert win._result_diagnostic_row.direction == direction
             _wait_for(lambda: win._canvas_scroll.verticalScrollBar().maximum() == 0,
                       timeout=1)
+            summary = win._result_sidebar
+            assert isinstance(summary, QScrollArea)
+            _wait_for(lambda: (summary.verticalScrollBar().maximum() > 0) == (width == 900),
+                      timeout=1)
+            assert win.btn_result_summary.isChecked()
+            if width == 900:
+                summary.ensureWidgetVisible(win._sb_labels['iters'])
+                assert summary.verticalScrollBar().value() > 0
             for label in win._result_sidebar.findChildren(QLabel):
                 if label.isVisibleTo(win):
                     if label.wordWrap():

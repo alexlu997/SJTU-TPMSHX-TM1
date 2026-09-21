@@ -393,8 +393,9 @@ def _plot_3d_temperature(canvas, Ta_slice, Tb_slice, Ts_slice, xc, yc, z_info,
     if phase is None:
         canvas.fig.suptitle(f'Temperature — 3D {z_info}', fontsize=12,
                            fontweight='bold', color=_T['ax_text'], y=0.995)
-    canvas.fig.subplots_adjust(left=0.11, right=0.97, top=0.86, bottom=0.14,
-                                hspace=0.45)
+    if not canvas.fig.get_constrained_layout():
+        canvas.fig.subplots_adjust(left=0.11, right=0.97, top=0.86, bottom=0.14,
+                                    hspace=0.45)
     canvas.draw()
 
 
@@ -441,8 +442,9 @@ def _plot_3d_pressure(canvas, P_slice_A, P_slice_B, xc, yc, dP_A, dP_B, z_info,
             ax.set_aspect('equal')
         except Exception:
             pass
-    canvas.fig.subplots_adjust(left=0.11, right=0.96, top=0.86, bottom=0.14,
-                                wspace=0.25)
+    if not canvas.fig.get_constrained_layout():
+        canvas.fig.subplots_adjust(left=0.11, right=0.96, top=0.86, bottom=0.14,
+                                    wspace=0.25)
     canvas.draw()
 
 
@@ -487,6 +489,7 @@ def _plot_3d_velocity_slice(canvas, uA, vA, wA, uB, vB, wB, xc, yc, z_info,
             ax.set_aspect('equal')
         except Exception:
             pass
-    canvas.fig.subplots_adjust(left=0.11, right=0.96, top=0.86, bottom=0.14,
-                                wspace=0.25)
+    if not canvas.fig.get_constrained_layout():
+        canvas.fig.subplots_adjust(left=0.11, right=0.96, top=0.86, bottom=0.14,
+                                    wspace=0.25)
     canvas.draw()

@@ -61,7 +61,7 @@ def _open_intersections(fine_widths, coarse_widths, lo, hi):
 
 def bootstrap_simple_3d(solver_fine, max_iter_coarse: int = 200,
                          min_coarse_axis: int = 4,
-                         verbose: bool = False) -> dict:
+                         verbose: bool = False, *, cancel_check=None) -> dict:
     """Run a coarse SIMPLE solve, prolongate (u,v,w,P) into ``solver_fine``.
 
     Parameters
@@ -75,6 +75,8 @@ def bootstrap_simple_3d(solver_fine, max_iter_coarse: int = 200,
         Skip bootstrap if any coarse axis would be smaller than this.
     verbose : bool
         Print coarse solve summary.
+    cancel_check : callable, optional
+        Forward the parent's cooperative cancellation to the coarse solve.
 
     Returns
     -------
@@ -161,7 +163,7 @@ def bootstrap_simple_3d(solver_fine, max_iter_coarse: int = 200,
     solver_coarse.use_anderson = False
 
     converged, iters = solver_coarse.solve(
-        max_iter=max_iter_coarse, verbose=verbose)
+        max_iter=max_iter_coarse, verbose=verbose, cancel_check=cancel_check)
     res_final = float(solver_coarse.residuals[-1]) if solver_coarse.residuals else float('nan')
 
     # Prolongate (u, v, w, P) onto fine staggered shapes.

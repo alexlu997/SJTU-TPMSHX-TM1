@@ -793,9 +793,9 @@ class ThreeDVisPanel(QWidget):
             return
         self._hover_last_t = _now
         try:
-            import vtk
+            from vtkmodules.vtkRenderingCore import vtkPropPicker
             x, y = obj.GetEventPosition()
-            picker = vtk.vtkPropPicker()
+            picker = vtkPropPicker()
             picker.Pick(x, y, 0, self.plotter.renderer)
             if picker.GetActor() is None:
                 if self._last_hover_text and self._base_status_text:
@@ -1063,7 +1063,7 @@ class ThreeDVisPanel(QWidget):
         """Apply current `self._opacity` to the volume actor + render once."""
         if self._volume_actor is not None and self._field is not None:
             try:
-                from vtk import vtkPiecewiseFunction
+                from vtkmodules.vtkCommonDataModel import vtkPiecewiseFunction
                 lo, hi = self._clim_for(self._field)
                 if abs(hi - lo) < 1e-12:
                     hi = lo + 1.0

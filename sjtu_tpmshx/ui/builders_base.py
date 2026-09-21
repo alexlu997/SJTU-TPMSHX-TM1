@@ -61,7 +61,11 @@ def right_align_combo(combo):
     # The embedded QLineEdit doesn't inherit the combo QSS — keep it
     # invisible chrome (transparent, borderless) in the combo's text color.
     le.setStyleSheet(f"background:transparent; border:none;"
-                     f" color:{t['inp_fg']}; font-weight:400;")
+                     f" padding:0; color:{t['inp_fg']}; font-weight:400;")
+    # The editable label needs room for QLineEdit's internal text/cursor
+    # margins in addition to the combo's arrow and stylesheet padding.
+    combo.ensurePolished()
+    combo.setMinimumWidth(combo.sizeHint().width() + 8)
 
     class _PopupOnClick(QObject):
         def eventFilter(self, _obj, ev):
@@ -143,8 +147,8 @@ def collapsible_section(window, parent_lay, title, title_style, frame_style,
     _apply(expanded)
     header.toggled.connect(_toggle)
     # Programmatic expand/collapse hook (ui-ia-batch1): lets callers open a
-    # collapsed section when its content becomes relevant (e.g. compute_tpms
-    # auto-expands "Computed geometry" once values exist).
+    # collapsed section when its content becomes relevant (e.g. fluid
+    # auto-fill opens the property details).
     container._set_expanded = header.setChecked
     return grid, container
 

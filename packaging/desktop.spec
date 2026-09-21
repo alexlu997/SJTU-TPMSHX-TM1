@@ -24,7 +24,13 @@ data += [(str(root / 'LICENSE'), 'licenses')]
 a = Analysis(
     [str(root / 'packaging' / 'desktop_entry.py')],
     pathex=[str(root)], binaries=[], datas=data, hiddenimports=hidden,
-    excludes=[*excluded, 'torch', 'botorch', 'gpytorch', 'pytest', 'mypy', 'ruff'],
+    # VTK's compatibility aggregator imports every optional VTK module.
+    # The app and locked PyVista use vtkmodules directly; PyVista's type hints
+    # and old-version fallbacks otherwise pull the aggregator into Analysis.
+    excludes=[*excluded, 'vtk', 'torch', 'botorch', 'gpytorch', 'pytest', 'mypy', 'ruff'],
+    # savefig selects vector backends dynamically; static discovery misses
+    # the SVG/PDF formats exposed by the desktop export dialog.
+    hooksconfig={'matplotlib': {'backends': ['Agg', 'QtAgg', 'svg', 'pdf']}},
     # Load from real files: PYZ code keeps relative co_filename values that
     # Numba's cache locator cannot resolve outside the source directory.
     module_collection_mode={'sjtu_tpmshx': 'py'},

@@ -443,19 +443,19 @@ def _show_qnehvi_param_dialog(window, cfg: dict) -> Optional[dict]:
 
     sp_init = QSpinBox(); sp_init.setRange(4, 256); sp_init.setValue(n_init_init)
     sp_init.setToolTip("Sobol initial samples (~2 × decision_dim recommended; 16-D → 32)")
-    form.addRow("n_init (Sobol)", sp_init)
+    form.addRow(QLabel("<i>n</i><sub>init</sub> (Sobol)"), sp_init)
 
     sp_iter = QSpinBox(); sp_iter.setRange(0, 200); sp_iter.setValue(n_iter_init)
     sp_iter.setToolTip("BO iterations after init. HV-plateau early-stop may shorten this.")
-    form.addRow("n_iter (BO)", sp_iter)
+    form.addRow(QLabel("<i>n</i><sub>iter</sub> (BO)"), sp_iter)
 
     sp_batch = QSpinBox(); sp_batch.setRange(1, 8); sp_batch.setValue(q_batch_init)
     sp_batch.setToolTip("Parallel candidates per BO iter; q=2 is a good Pareto-coverage default")
-    form.addRow("q_batch", sp_batch)
+    form.addRow(QLabel("<i>q</i><sub>batch</sub>"), sp_batch)
 
     sp_seed = QSpinBox(); sp_seed.setRange(0, 9999); sp_seed.setValue(seed_init)
     sp_seed.setToolTip("Random seed for Sobol + BoTorch (paper reproducibility)")
-    form.addRow("seed", sp_seed)
+    form.addRow(QLabel("随机种子"), sp_seed)
 
     sp_rho = QSpinBox(); sp_rho.setRange(1, 8); sp_rho.setValue(n_rho_init)
     sp_rho.setToolTip(
@@ -463,7 +463,7 @@ def _show_qnehvi_param_dialog(window, cfg: dict) -> Optional[dict]:
         "1 = isothermal-ρ fast path (Q/dP ~10 % off)\n"
         "3 = 与算例工况验证基线一致 (default)\n"
         "≥4 = tighter ρ convergence; not usually worth the cost")
-    form.addRow("n_rho_loops", sp_rho)
+    form.addRow(QLabel("<i>ρ</i>(<i>T</i>) 外循环"), sp_rho)
 
     lay.addLayout(form)
 
@@ -957,14 +957,6 @@ def show_pareto(window, res: dict) -> None:
     Q  = -F_min[:, 0]
     dP =  F_min[:, 1]
     F_hist = res.get('history_F')
-
-    # Hide the skeleton shimmer overlay built by ui_builders for the Pareto tab
-    skel = getattr(window, '_pareto_skeleton', None)
-    if skel is not None:
-        try:
-            skel.stop(); skel.hide()
-        except Exception:
-            pass
 
     canvas = getattr(window, 'canvas_pareto', None)
     if canvas is None:
