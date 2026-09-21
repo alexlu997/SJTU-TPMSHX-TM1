@@ -10,7 +10,7 @@ compatibility even where it is unused.
 """
 from PySide6.QtCore import QRect, QSize, Qt
 from PySide6.QtGui import QIcon, QPainter
-from PySide6.QtWidgets import QWidget, QHBoxLayout, QLabel, QFrame, QToolButton, QSizePolicy
+from PySide6.QtWidgets import QLabel, QToolButton, QSizePolicy
 
 from .theme import get_theme, RADIUS_INPUT
 from .icons import icon
@@ -173,40 +173,6 @@ def add_row(window, g, row_idx, text, widget):
     """Ex-Main_Menu._add_row. Phase 5: delegates to FieldFactory."""
     from .field_factory import default_factory
     return default_factory().add_row(g, row_idx, text, widget)
-
-
-def _computed_divider(g, row_idx, cols=2):
-    """Insert a left-aligned `COMPUTED` caption + thin horizontal rule into
-    grid `g` at the given row, spanning `cols` columns.
-
-    Replaces the older `── computed ──` text separator. Visual weight is
-    deliberately low — this is a layout hint, not a header.
-    """
-    t = get_theme()
-    sub_fg = t.get('sub_fg', t['fg'])
-    card_border = t.get('card_border', '#334155')
-
-    holder = QWidget()
-    holder.setStyleSheet("background:transparent;")
-    h = QHBoxLayout(holder)
-    h.setContentsMargins(0, 6, 0, 2)
-    h.setSpacing(8)
-
-    cap = QLabel("COMPUTED")
-    cap.setStyleSheet(
-        f"color:{sub_fg}; font-size:8pt; font-weight:600; letter-spacing:1.2px;"
-        "background:transparent; border:none; padding:0;")
-    cap.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-    h.addWidget(cap, 0)
-
-    line = QFrame()
-    line.setFrameShape(QFrame.Shape.HLine)
-    line.setFixedHeight(1)
-    line.setStyleSheet(
-        f"background:{card_border}; border:none; color:{card_border};")
-    h.addWidget(line, 1)
-
-    g.addWidget(holder, row_idx, 0, 1, cols)
 
 
 class _ResultLabel(QLabel):

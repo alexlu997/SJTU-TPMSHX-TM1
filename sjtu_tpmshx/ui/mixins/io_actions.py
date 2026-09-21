@@ -245,6 +245,10 @@ class IOActionsMixin:
         tab = getattr(self, '_active_tab', None)
         if tab == '2d_view':
             tab = self._resolve_2d_view_card()
+        if tab in ('temp', 'pres', 'vel'):
+            from sjtu_tpmshx.ui.plot_2d_results import ensure_result_plot
+            if not ensure_result_plot(self, tab):
+                return
         canvas = {'temp': getattr(self, 'canvas_temp', None),
                   'pres': getattr(self, 'canvas_pres', None),
                   'vel': getattr(self, 'canvas_vel', None),
@@ -269,8 +273,12 @@ class IOActionsMixin:
                       'vel': self.canvas_vel, 'layout': self.canvas_layout,
                       'pareto': self.canvas_pareto}
         drawn = getattr(self, '_drawn_tabs', set())
-        items = [name for name, key in all_items if key in drawn]
-        tab_keys = [key for name, key in all_items if key in drawn]
+        available = set(drawn)
+        if (getattr(self, '_compute_results', None) is not None
+                or getattr(self, '_result_3d', None) is not None):
+            available.update(('temp', 'pres', 'vel'))
+        items = [name for name, key in all_items if key in available]
+        tab_keys = [key for name, key in all_items if key in available]
         if not items:
             self.statusBar().showMessage("No figures to export yet.", TOAST_MS_SHORT)
             return
@@ -298,6 +306,10 @@ class IOActionsMixin:
         if not path:
             return
         try:
+            if key in ('temp', 'pres', 'vel'):
+                from sjtu_tpmshx.ui.plot_2d_results import ensure_result_plot
+                if not ensure_result_plot(self, key):
+                    raise RuntimeError("当前字段绘图失败，未导出图像。")
             # Build reproducibility metadata embedded in PNG tEXt / PDF
             # keywords. Matplotlib respects this via savefig's `metadata`
             # kwarg.

@@ -1,19 +1,13 @@
-"""Headless CLI for the compute pipeline (P1.8, 2026-07-20).
+"""Qt-free command line entry: ``python -m sjtu_tpmshx.cli ...``.
 
-Formalizes the Qt-free seam (`controllers/compute_pipeline.py`) as an
-installable entry point::
+``prepare``, ``solve``, ``postprocess`` and ``run`` dispatch to the public
+file-based workflow. A direct ComputeConfig JSON argument retains the summary
+interface, with ``--dry-run`` and ``--json`` options. GUI presets use a separate
+format and must be restored through the GUI.
 
-    tpmshx-run path/to/config.json            # solve, print summary
-    tpmshx-run config.json --dry-run          # parse + dispatch only
-    tpmshx-run config.json --json             # machine-readable summary
-
-In-repo equivalent (no install): ``python -m sjtu_tpmshx.cli ...``.
-Config schema: ``domain/compute_config.py`` (``ComputeConfig.from_json``
-accepts the canonical schema and the legacy ``configs/shanghai_baseline.json``
-shape).
-
-Exit codes: 0 = solved and converged/valid; 2 = solved but the result is
-flagged (not converged / envelope-invalid); >0 argparse/IO errors as usual.
+Calculation exit codes are 0 for a successful stage and 2 for failed
+convergence/required-result checks; public workflow cancellation returns 130.
+Parsing and file errors exit nonzero. See README for each stage's contract.
 """
 from __future__ import annotations
 
@@ -42,8 +36,20 @@ def main(argv=None) -> int:
         return module_main(argv)
     ap = argparse.ArgumentParser(
         prog='tpmshx-run',
+        usage='%(prog)s {prepare,solve,postprocess,run} ...\n'
+              '       %(prog)s config [--dry-run] [--json]',
         description='Headless SJTU-TPMSHX solve: ComputeConfig JSON in, '
-                    'summary out. Qt is never imported.')
+                    'formal module files or a direct summary out. Qt is never imported.',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='Public file workflow (use COMMAND --help for arguments):\n'
+               '  prepare       configuration -> case.yaml + case.h5\n'
+               '  solve         case.yaml -> results.h5\n'
+               '  postprocess   results.h5 -> metrics.json\n'
+               '  run           configuration -> all four files\n\n'
+               'From a source checkout:\n'
+               '  python -m sjtu_tpmshx.cli run INPUT OUTPUT_DIR --case-id ID\n'
+               'The direct config argument retains the summary interface;\n'
+               'GUI saved sessions are not CLI configuration files.')
     ap.add_argument('config', help='ComputeConfig JSON file '
                                    '(canonical or legacy baseline shape)')
     ap.add_argument('--dry-run', action='store_true',

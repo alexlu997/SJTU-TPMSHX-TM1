@@ -11,11 +11,10 @@ Hard gates (per plan):
   p_obs_s >= 1.8       (pure diffusion expects 2nd order)
   L2 (grid 30) < 1.0% per phase
 
-Outputs:
-  validation/mms_phase_a3_h_refine.csv     (raw L2/Linf per grid per case)
-  validation/mms_phase_a3_orders.csv       (fitted slopes)
-  .cache/validation/mms_phase_a3_report.md (auto-written, repository-local)
-  validation/mms_phase_a3_loglog.png       (log-log plot, if matplotlib)
+Each run writes raw/order CSVs, a report and an optional plot into a new
+.cache/validation/mms_phase_a3-*/ directory. --out-dir selects another output
+directory; explicit file paths are relative to the working directory.
+The recorded reference tables under sjtu_tpmshx/validation are read-only.
 """
 from __future__ import annotations
 import argparse
@@ -26,7 +25,6 @@ from pathlib import Path
 
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[2]
 try:
     sys.stdout.reconfigure(encoding='utf-8')
 except Exception:
@@ -34,7 +32,9 @@ except Exception:
 warnings.filterwarnings('ignore')
 
 from sjtu_tpmshx.validation.cases.mms_3d_air_air import run_mms, L_DOM
-from sjtu_tpmshx.validation.harness._provenance import write_csv_with_provenance
+from sjtu_tpmshx.validation.harness._provenance import (
+    write_csv_with_provenance, output_directory, output_path,
+)
 from sjtu_tpmshx.validation.harness._order_fit import fit_order_loglog
 from sjtu_tpmshx.validation.harness._mms_driver import run_grid_sequence
 
@@ -50,12 +50,25 @@ def main():
     ap.add_argument('--inner', type=int, default=100)
     ap.add_argument('--alpha_f', type=float, default=0.7)
     ap.add_argument('--alpha_s', type=float, default=1.0)
-    ap.add_argument('--out_csv', default='validation/mms_phase_a3_h_refine.csv')
-    ap.add_argument('--orders_csv', default='validation/mms_phase_a3_orders.csv')
-    ap.add_argument('--report', default=str(
-        ROOT.parent / '.cache' / 'validation' / 'mms_phase_a3_report.md'))
+    ap.add_argument('--out-dir', help='Output directory (default: new .cache/validation/mms_phase_a3-*/).')
+    ap.add_argument('--out_csv', help='Raw CSV path; relative paths use the working directory.')
+    ap.add_argument('--orders_csv', help='Order CSV path; reference tables cannot be overwritten.')
+    ap.add_argument('--report', help='Report path (default: in the run output directory).')
     ap.add_argument('--plot', action='store_true', help='Generate log-log plot')
     args = ap.parse_args()
+    # Validate all destinations before starting the expensive grid sweep.
+    try:
+        for path in (args.out_csv, args.orders_csv, args.report):
+            if path is not None:
+                output_path(path)
+        out_dir = output_directory('mms_phase_a3', args.out_dir)
+        args.out_csv = output_path(args.out_csv or out_dir / 'mms_phase_a3_h_refine.csv')
+        args.orders_csv = output_path(args.orders_csv or out_dir / 'mms_phase_a3_orders.csv')
+        args.report = output_path(args.report or out_dir / 'mms_phase_a3_report.md')
+        plot_path = output_path(out_dir / 'mms_phase_a3_loglog.png')
+    except ValueError as exc:
+        ap.error(str(exc))
+    print(f'Output directory: {out_dir}')
 
     cases = ['1d', '2d', '3d'] if args.cases == 'all' else args.cases.split(',')
     grids = [int(g) for g in args.grids.split(',')]
@@ -93,7 +106,7 @@ def main():
         print()
 
     df = pd.DataFrame(rows)
-    out_csv = ROOT / args.out_csv
+    out_csv = args.out_csv
     write_csv_with_provenance(df, out_csv, _SCRIPT_REL)
     print(f"Raw data written: {out_csv}")
 
@@ -119,7 +132,7 @@ def main():
                   f"{row['val_g30']:>9.4g}")
         print()
     order_df = pd.DataFrame(order_rows)
-    orders_csv = ROOT / args.orders_csv
+    orders_csv = args.orders_csv
     write_csv_with_provenance(order_df, orders_csv, _SCRIPT_REL)
     print(f"Orders written: {orders_csv}")
 
@@ -180,7 +193,6 @@ def main():
                 ax.legend(fontsize=8)
                 ax.grid(True, which='both', alpha=0.3)
             plt.tight_layout()
-            plot_path = ROOT / 'validation' / 'mms_phase_a3_loglog.png'
             plt.savefig(plot_path, dpi=120)
             print(f"  Plot saved: {plot_path}")
         except Exception as e:
@@ -188,7 +200,7 @@ def main():
 
     # Auto-write report
     try:
-        _write_report(args.report, cases, grids, df, order_df, args)
+        _write_report(args.report, cases, grids, df, order_df, args, plot_path)
         print(f"  Report saved: {args.report}")
     except Exception as e:
         print(f"  Report write skipped: {e}")
@@ -196,7 +208,7 @@ def main():
     return 1 if fail else 0
 
 
-def _write_report(path, cases, grids, df, order_df, args):
+def _write_report(path, cases, grids, df, order_df, args, plot_path):
     lines = [
         "# MMS Phase A.3 — h-refinement Order Verification",
         "",
@@ -250,7 +262,7 @@ def _write_report(path, cases, grids, df, order_df, args):
         f"- driver: `{_SCRIPT_REL}`",
         f"- 原始数据: `{args.out_csv}`",
         f"- order csv: `{args.orders_csv}`",
-        "- log-log 图: `validation/mms_phase_a3_loglog.png` (--plot)",
+        f"- log-log 图: `{plot_path}` (--plot)",
         "",
     ]
     Path(path).parent.mkdir(parents=True, exist_ok=True)

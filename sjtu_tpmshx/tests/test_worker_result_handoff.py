@@ -59,7 +59,6 @@ def win(tmp_path, monkeypatch):
 
 def _configure(win, monkeypatch, mode):
     cfg = ComputeConfig(solver=SolverConfig(Nz=2 if mode == '3d' else 1))
-    win.combo_shape.setCurrentIndex(0)
     win.combo_dim.setCurrentIndex(1 if mode == '3d' else 0)
     monkeypatch.setattr('sjtu_tpmshx.ui.window_config.config_from_window',
                         lambda *args, **kwargs: cfg)
@@ -185,7 +184,6 @@ def test_autofill_cache_and_draft_warnings_are_isolated_from_worker(win, monkeyp
 @pytest.mark.parametrize('dimensions', [(0,), (1, 0, 1)])
 def test_real_window_config_preserves_explicit_pipeline_mode(win, monkeypatch, dimensions):
     """A hidden Nz survives switching to 2D; it must not select Pipeline3D."""
-    win.combo_shape.setCurrentIndex(0)
     win.le_Nz.setText('5')
     win.auto_fill_fluid_a()
     win.auto_fill_fluid_b()
@@ -333,7 +331,6 @@ def test_worker_publishes_payload_on_gui_thread_without_reentry(win, monkeypatch
     def run(pipe):
         pipe.progress_cb(37)
         if mode == '2d':
-            pipe.ui_hooks['live_residuals']['A'].append((1, 1e-3))
             pipe.ui_hooks['iter_label_cb']('iter 1/2')
         else:
             pipe.ui_hooks['iter_cb'](1, 2)
@@ -370,8 +367,6 @@ def test_worker_publishes_payload_on_gui_thread_without_reentry(win, monkeypatch
         _wait_for(lambda: bool(iterations))
         assert win._compute_progress == 37
         assert win._iter_label_now == ('iter 1/2' if mode == '2d' else 'outer 1/2')
-        if mode == '2d':
-            assert win._live_residuals['A'] == [(1, 1e-3)]
         assert not writes and not cache_writes
         win.le_Nz.setText('99')  # UI edits cannot change the in-flight config.
     finally:
@@ -397,6 +392,61 @@ def test_worker_publishes_payload_on_gui_thread_without_reentry(win, monkeypatch
     assert not win._compute_running
     assert win.btn_compute.isEnabled()
     assert win._compute_btn_handler == win.run_calculation
+
+
+@pytest.mark.parametrize('mode', ['2d', '3d'])
+def test_display_timing_reaches_result_and_export_cache(win, monkeypatch, mode):
+    _configure(win, monkeypatch, mode)
+    clock = [0.0]
+    monkeypatch.setattr('sjtu_tpmshx.ui.mixins.run_controller.perf_counter',
+                        lambda: clock[0])
+    result = ComputeResult(
+        Q_W=123.5, diagnostics={'mode': mode}, warnings=['retained warning'],
+        metadata={'timings_s': {'prepare': 1.0, 'solve': 2.0, 'postprocess': 3.0}})
+    monkeypatch.setattr(Pipeline2D if mode == '2d' else Pipeline3D, 'run',
+                        lambda _pipe: result)
+    original_write = win.write_result
+    original_end = win._end_compute_ui
+    original_finish = win._run_status_card.finish
+    card_elapsed, provenance_elapsed = [], []
+    # Worker time includes overhead beyond the 1+2+3-second phase timings.
+    monkeypatch.setattr(win.compute, 'last_elapsed', lambda: 20.0)
+
+    def write(payload):
+        original_write(payload)
+        clock[0] += 2.0
+
+    def render():
+        clock[0] += 3.0
+        return True
+
+    def end(*, success):
+        clock[0] += 100.0
+        win._compute_t0 -= 3600.0  # time spent waiting/reading is not compute work
+        original_end(success=success)
+
+    def finish(state, elapsed, **kwargs):
+        card_elapsed.append(elapsed)
+        original_finish(state, elapsed, **kwargs)
+
+    monkeypatch.setattr(win, 'write_result', write)
+    monkeypatch.setattr(win, '_render_compute_result', render)
+    monkeypatch.setattr(win, '_end_compute_ui', end)
+    monkeypatch.setattr(win._run_status_card, 'finish', finish)
+    monkeypatch.setattr(win, '_stamp_result_provenance', provenance_elapsed.append)
+    win.run_calculation()
+    _wait_for(win.compute.is_idle)
+
+    expected = {'prepare': 1.0, 'solve': 2.0, 'postprocess': 3.0, 'display': 5.0}
+    assert result.metadata['timings_s'] == expected
+    cached = win.cache.get_result(mode)
+    metadata = cached.metadata if mode == '3d' else cached['metadata']
+    assert metadata['timings_s'] == expected
+    assert win._diag_summary['timings_s'] == expected
+    assert card_elapsed == provenance_elapsed == [25.0]
+    assert win._last_elapsed_s == 25.0
+    assert win._diag_summary['warnings'] == ['retained warning']
+    assert result.Q_W == 123.5
 
 
 @pytest.mark.parametrize('mode', ['2d', '3d'])
@@ -432,7 +482,6 @@ def test_terminal_paths_restore_ui(win, monkeypatch, mode, outcome):
     assert win.btn_compute.isEnabled()
     assert win._compute_btn_handler == win.run_calculation
     assert not win._btn_ticker_timer.isActive()
-    assert not win._live_resid_timer.isActive()
     assert not win.progress.isVisible()
     if mode == '3d':
         assert not win._compute_3d_watchdog.isActive()

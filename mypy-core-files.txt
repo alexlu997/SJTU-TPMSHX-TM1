@@ -1,4 +1,3 @@
-sjtu_tpmshx/solvers/envelope.py
 sjtu_tpmshx/controllers/compute_pipeline.py
 sjtu_tpmshx/domain/compute_config.py
 sjtu_tpmshx/domain/compute_result.py

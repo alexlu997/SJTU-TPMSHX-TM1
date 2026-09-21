@@ -1,16 +1,12 @@
 """Supercritical CO2 transport/thermo properties via CoolProp (Span-Wagner).
 
-Phase A backend for the ``'sco2'`` fluid (2026-06-26). Unlike air (ideal-gas,
-T-only) and water (incompressible, T-only), sCO2 properties depend on BOTH
-temperature and pressure — strongly so near the pseudocritical line. All
-functions therefore take ``(T_K, P_Pa)``.
+Scalar and field APIs query CoolProp's CO2 model at supplied temperature and
+absolute pressure; inverse queries recover temperature from enthalpy and
+pressure. Thermodynamic properties use its equation of state, while viscosity
+and conductivity use its transport-property models.
 
-CoolProp's CO2 model is the Span-Wagner reference EOS; equilibrium properties
-(ρ, cp, h) match REFPROP exactly, transport (μ, k) within ~1 %
-(see vault [[reference_coolprop_refprop_co2]]).
-
-Far-from-critical use is robust; near the critical point (304 K / 7.38 MPa)
-the property derivatives are stiff — that regime is Phase C, not Phase A.
+Properties can vary sharply near the pseudocritical line. The state bounds
+checked here are independent of Nu-fit applicability and solver validation.
 """
 from __future__ import annotations
 
@@ -27,7 +23,7 @@ except Exception:                       # pragma: no cover - import guard
     def _PropsSI(*_a, **_k):
         raise ImportError(
             "CoolProp is required for the sCO2 fluid but is not installed. "
-            "`pip install CoolProp` (see requirements.txt).")
+            "Use the project's locked environment; see README.md.")
 
 
 _FLUID = "CO2"
@@ -42,10 +38,10 @@ def _validate_state(T_K, P_Pa, *, where=None) -> None:
         message = "sCO2 state must be finite"
         invalid = ~_np.isfinite(T) | ~_np.isfinite(P)
     elif _np.any((T < T_RANGE_K[0]) | (T > T_RANGE_K[1])):
-        message = "sCO2 V1 temperature must be within 280..700 K"
+        message = "sCO2 temperature must be within 280..700 K"
         invalid = (T < T_RANGE_K[0]) | (T > T_RANGE_K[1])
     elif _np.any((P < P_RANGE_PA[0]) | (P > P_RANGE_PA[1])):
-        message = "sCO2 V1 pressure must be within 7.9..16 MPa"
+        message = "sCO2 pressure must be within 7.9..16 MPa"
         invalid = (P < P_RANGE_PA[0]) | (P > P_RANGE_PA[1])
     else:
         return
@@ -59,8 +55,7 @@ def _validate_state(T_K, P_Pa, *, where=None) -> None:
 
 @lru_cache(maxsize=4096)
 def _prop(key: str, T_K: float, P_Pa: float) -> float:
-    """Cached scalar CoolProp query. CO2 EOS calls are ~µs but repeat heavily
-    across solver iterations at near-identical (T,P); cache keeps it cheap."""
+    """Cache scalar CoolProp queries for repeated identical (key, T, P)."""
     _validate_state(T_K, P_Pa)
     return float(_PropsSI(key, "T", float(T_K), "P", float(P_Pa), _FLUID))
 
@@ -68,10 +63,8 @@ def _prop(key: str, T_K: float, P_Pa: float) -> float:
 def sco2_prop(key: str, T_K, P_Pa):
     """Scalar-OR-vectorised CoolProp query of `key` over (T, P).
 
-    The registry primitives (fluid_props) call rho/cp/mu/k both with scalars
-    (inlet references) and with whole 2D/3D FIELDS (the variable-property outer
-    loop passes a T field and the local absolute-P field). Span-Wagner real-gas
-    ρ/cp depend on BOTH, so neither can be frozen. Dispatch:
+    The caller supplies inlet or local absolute pressure for the property
+    evaluation. Temperature and pressure may each be scalar or arrays:
 
       * scalar T and scalar P  -> the cached scalar `_prop` (hot path, cached);
       * any array T or P       -> a single vectorised CoolProp call, T and P
@@ -122,13 +115,13 @@ def sco2_enthalpy(T_K: float, P_Pa: float) -> float:
 
 @lru_cache(maxsize=4096)
 def sco2_temperature(h_Jkg: float, P_Pa: float) -> float:
-    """Inverse: T [K] = T(h, P). Span-Wagner is monotone in h at fixed P, so
-    the inversion is single-valued. Needed for the Phase C (near-critical)
-    enthalpy formulation — across the pseudocritical line cp spikes ×10-20, so
-    the energy balance is carried in enthalpy and converted back to T here
-    rather than integrating an ill-conditioned cp·dT."""
+    """Inverse T [K] = T(h, P) using CoolProp at supplied absolute pressure.
+
+    Validate both the supplied pressure and the returned temperature against
+    this module's state bounds.
+    """
     if not P_RANGE_PA[0] <= float(P_Pa) <= P_RANGE_PA[1]:
-        raise ValueError("sCO2 V1 pressure must be within 7.9..16 MPa")
+        raise ValueError("sCO2 pressure must be within 7.9..16 MPa")
     T = float(_PropsSI("T", "H", float(h_Jkg), "P", float(P_Pa), _FLUID))
     _validate_state(T, P_Pa)
     return T
@@ -145,54 +138,48 @@ def sco2_temperature_from_enthalpy(h_Jkg, P_Pa):
     hf = _np.ascontiguousarray(_np.broadcast_to(h, shape)).ravel()
     Pf = _np.ascontiguousarray(_np.broadcast_to(P, shape)).ravel()
     if _np.any((Pf < P_RANGE_PA[0]) | (Pf > P_RANGE_PA[1])):
-        raise ValueError("sCO2 V1 pressure must be within 7.9..16 MPa")
+        raise ValueError("sCO2 pressure must be within 7.9..16 MPa")
     T = _np.asarray(_PropsSI("T", "H", hf, "P", Pf, _FLUID), dtype=float)
     T = T.reshape(shape)
     _validate_state(T, _np.broadcast_to(P, shape))
     return T
 
 
-# ── Vectorised field queries (Phase C: per-cell property updates) ──────────
-# CoolProp's PropsSI broadcasts over the state arrays, so a whole temperature
-# field at a (near-constant) pressure is one call instead of N cached scalars.
-# Used by the variable-property outer loop where the cp/ρ field is refreshed
-# every iteration as T evolves through the pseudocritical zone.
+# ── Vectorised field queries ─────────────────────────────────────────────
+# sco2_prop broadcasts supplied T/P states before querying CoolProp.
 
 def sco2_field(key: str, T_K, P_Pa: float):
-    """Direct vectorised CoolProp query over a temperature field."""
+    """CoolProp query over a T field with scalar or broadcastable absolute P."""
     return sco2_prop(key, T_K, P_Pa)
 
 
 def sco2_density_field(T_K, P_Pa: float):
-    """ρ field [kg/m³] over a T field at fixed P."""
+    """ρ field [kg/m³] at the supplied T/P states."""
     return sco2_field("D", T_K, P_Pa)
 
 
 def sco2_cp_field(T_K, P_Pa: float):
-    """cp field [J/(kg·K)] over a T field at fixed P."""
+    """cp field [J/(kg·K)] at the supplied T/P states."""
     return sco2_field("C", T_K, P_Pa)
 
 
 def sco2_rho_cp_field(T_K, P_Pa: float):
-    """ρ·cp field [J/(m³·K)] — the energy-equation convective coefficient that
-    swings ×10-20 through the pseudocritical line (Phase C)."""
+    """ρ·cp field [J/(m³·K)] at the supplied T/P states."""
     return sco2_density_field(T_K, P_Pa) * sco2_cp_field(T_K, P_Pa)
 
 
 def sco2_enthalpy_field(T_K, P_Pa: float):
-    """h field [J/kg] over a T field at fixed P. Vectorised counterpart of
-    ``sco2_enthalpy`` for the mass-weighted mean outlet enthalpy ⟨h(T)⟩ in the
-    duty extraction (the scalar lru_cache form can't take an array face)."""
+    """h field [J/kg] at supplied T/P states, e.g. for mass-weighted outlet
+    enthalpy in duty extraction. Vectorised counterpart of ``sco2_enthalpy``.
+    """
     return sco2_field("H", T_K, P_Pa)
 
 
 def sco2_temperature_field(h_Jkg, P_Pa: float):
-    """T field [K] = T(h, P) over an enthalpy field at fixed P. Vectorised
-    inverse of ``sco2_enthalpy_field`` (Span-Wagner is monotone in h at fixed
-    P → single-valued). The Option B enthalpy-form 3D LTNE kernel keeps h as the
-    primary fluid unknown; the pipeline inverts T = T(h,P) each outer iteration
-    to feed the diffusion / inter-phase coupling. Array form of
-    ``sco2_temperature``."""
+    """T field [K] = T(h, P) using direct CoolProp at supplied absolute P.
+
+    Vectorised inverse of ``sco2_enthalpy_field``; h and P are broadcast.
+    """
     return sco2_temperature_from_enthalpy(h_Jkg, P_Pa)
 
 

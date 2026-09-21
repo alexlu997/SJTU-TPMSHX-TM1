@@ -1,35 +1,66 @@
-"""runs/smoke_ui_offscreen.py — Phase A: Qt offscreen smoke.
+"""Check current GUI navigation and dimensions offscreen without solving.
 
-Boots MainWindow with QT_QPA_PLATFORM=offscreen, simulates user flow:
-  1. Construct window (catches __init__ crashes / missing imports)
-  2. List all visible buttons + their text + enabled state
-  3. Switch tabs programmatically
-  4. Click a few non-destructive buttons
-  5. Verify no exceptions / unhandled errors
+Run from the repository root as
+``python -m sjtu_tpmshx.runs.smokes.smoke_ui_offscreen``.
+Uses temporary user state; missing controls, failed navigation or callback
+exceptions return exit code 1. This does not qualify native 3D rendering.
 """
 from __future__ import annotations
-import sys, traceback
+from contextlib import contextmanager
+import os
+from pathlib import Path
+import sys
+from tempfile import TemporaryDirectory
+import traceback
+from unittest.mock import patch
 
 from sjtu_tpmshx.runs import _smoke_boot   # sets QT_QPA=offscreen BEFORE any Qt import
 
+from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QPushButton, QToolButton, QComboBox
 
-app = _smoke_boot.get_app()
 
-# Capture any unhandled exception
-caught = []
-def _hook(exctype, value, tb):
-    caught.append((exctype.__name__, str(value), ''.join(traceback.format_tb(tb))))
-sys.excepthook = _hook
+@contextmanager
+def _smoke_window():
+    """Use the existing session-directory override without touching user files."""
+    app = _smoke_boot.get_app()
+    if app.platformName() != 'offscreen':
+        raise RuntimeError('UI smoke requires QT_QPA_PLATFORM=offscreen')
+    cache = Path('.cache/ui-smoke')
+    cache.mkdir(parents=True, exist_ok=True)
+    caught = []
+
+    def hook(exctype, value, tb):
+        caught.append(''.join(traceback.format_exception(exctype, value, tb)))
+
+    with TemporaryDirectory(dir=cache) as directory:
+        state_dir = Path(directory)
+        with patch('sjtu_tpmshx.controllers.session_manager.user_data_dir',
+                   return_value=state_dir), \
+             patch('sjtu_tpmshx.controllers.user_storage._appearance_dir',
+                   return_value=state_dir), \
+             patch.dict(os.environ, {'QT_REDUCED_MOTION': '1'}), \
+             patch.object(sys, 'excepthook', hook):
+            from sjtu_tpmshx.main import Main_Menu
+            win = Main_Menu()
+            try:
+                win.resize(1600, 1000)
+                win.show()
+                app.processEvents()
+                yield app, win
+            finally:
+                closed = win.close()
+                app.processEvents()
+                win.deleteLater()
+                QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+                if not closed:
+                    raise RuntimeError('Smoke window did not close')
+            if caught:
+                raise RuntimeError('Unhandled Qt callback exceptions:\n' + '\n'.join(caught))
 
 
-def main():
-    from sjtu_tpmshx.main import Main_Menu
-    print("[1/5] Constructing Main_Menu ... ", end='', flush=True)
-    win = Main_Menu()
-    print("OK", flush=True)
-    win.show()
-    app.processEvents()
+def _inspect_window(app, win):
+    print("[1/5] Constructed Main_Menu", flush=True)
     print(f"      window title: {win.windowTitle()}", flush=True)
     print(f"      size: {win.size().width()}x{win.size().height()}", flush=True)
 
@@ -63,53 +94,54 @@ def main():
             print(f"      {c.objectName() or '<no-name>'}: "
                   f"current = {c.currentText()!r}, items = {c.count()}", flush=True)
 
-    # Tab switching — try by attribute names
+    # Result exists but is normally disabled before any calculation.
     print("\n[4/5] Tab navigation test", flush=True)
     tab_attrs = ['btn_tab_layout', 'btn_tab_result', 'btn_tab_pareto']
     for t in tab_attrs:
         b = getattr(win, t, None)
         if b is None:
-            print(f"      {t}: <missing>", flush=True); continue
+            raise RuntimeError(f'Required navigation entry is missing: {t}')
         state = 'visible' if b.isVisible() else 'hidden'
         en = 'enabled' if b.isEnabled() else 'DISABLED'
         print(f"      {t}: {state} {en}  text={b.text()!r}", flush=True)
-        if b.isVisible() and b.isEnabled():
-            try:
-                b.click()
-                app.processEvents()
-            except Exception as e:
-                print(f"        ! click crash: {type(e).__name__}: {e}", flush=True)
-        else:
-            pass
+        if not b.isVisible():
+            raise RuntimeError(f'Required navigation entry is hidden: {t}')
+        if t != 'btn_tab_result':
+            if not b.isEnabled():
+                raise RuntimeError(f'Required navigation entry is disabled: {t}')
+            b.click()
+            app.processEvents()
+            expected = 'layout' if t == 'btn_tab_layout' else 'pareto'
+            if win._active_tab != expected or not win._canvas_cards[expected].isVisibleTo(win):
+                raise RuntimeError(f'Navigation did not show {expected}')
 
     # Combo dim switch (2D ↔ 3D)
     print("\n[5/5] 2D ↔ 3D switching", flush=True)
     combo_dim = getattr(win, 'combo_dim', None)
-    if combo_dim:
-        n = combo_dim.count()
-        for i in range(n):
-            t = combo_dim.itemText(i)
-            try:
-                combo_dim.setCurrentIndex(i)
-                app.processEvents()
-                print(f"      combo_dim[{i}] = {t!r}  -> set OK", flush=True)
-            except Exception as e:
-                print(f"      combo_dim[{i}] = {t!r}  -> CRASH {type(e).__name__}: {e}", flush=True)
-    else:
-        print("      no combo_dim found", flush=True)
+    if combo_dim is None:
+        raise RuntimeError('Required dimension selector is missing')
+    for target in ('2D', '3D'):
+        index = combo_dim.findText(target)
+        if index < 0:
+            raise RuntimeError(f'Dimension selector has no {target} option')
+        combo_dim.setCurrentIndex(index)
+        app.processEvents()
+        if combo_dim.currentText() != target:
+            raise RuntimeError(f'Dimension did not change to {target}')
+        print(f"      dimension = {target}: OK", flush=True)
 
-    # Summary
-    print("\n=== UNHANDLED EXCEPTIONS ===", flush=True)
-    if caught:
-        for n, v, tb in caught:
-            print(f"  {n}: {v}\n{tb}", flush=True)
-    else:
-        print("  none", flush=True)
 
-    win.close()
-    app.processEvents()
-    print("\nSmoke pass DONE", flush=True)
+def main():
+    try:
+        with _smoke_window() as (app, win):
+            _inspect_window(app, win)
+    except Exception:
+        traceback.print_exc()
+        print('UI smoke FAIL', flush=True)
+        return 1
+    print('UI smoke PASS', flush=True)
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())

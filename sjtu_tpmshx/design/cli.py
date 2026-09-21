@@ -1,6 +1,7 @@
 """快速设计 CLI: auto (枚举选胞元) / fixed (指定胞元只定外形)。"""
 from __future__ import annotations
 import argparse, sys
+from collections import Counter
 
 from .cases import load_cases
 from .sizing import size_fixed_cell
@@ -67,7 +68,9 @@ def run(argv=None) -> int:
         if notices:
             print(notices)
     else:
-        print("无可行构型 (全部 >450mm 或 dP 超限)", file=sys.stderr)
+        reasons = Counter(d.reason or '未记录失败原因' for d in results)
+        detail = '；'.join(f'{reason} ({count})' for reason, count in reasons.items())
+        print(f"无可行构型：{detail or '未生成候选构型'}", file=sys.stderr)
     return 0
 
 if __name__ == "__main__":

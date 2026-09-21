@@ -399,7 +399,6 @@ def _delegate_to_2d(L, H, D, Nx, Ny, Nz,
                     alpha_T,
                     q_rel_tol=None, conv_chunk=None,
                     eps_A=None, eps_B=None,
-                    chi_B_field=None,
                     mms_S_A_field=None, mms_S_B_field=None,
                     mms_S_s_field=None, cancel_check=None, inlet_flux_A=None, inlet_flux_B=None):
     """Nz == 1 shortcut: squeeze z axis and call 2D solver for bitwise equivalence.
@@ -410,17 +409,13 @@ def _delegate_to_2d(L, H, D, Nx, Ny, Nz,
       * eps_A / eps_B — forwarded (the 2D solver has the same asym hooks);
         dropping them reverted a δ≠0 asymmetric Nz=1 call to the symmetric
         ε/2 split with converged=True.
-      * chi_B_field / mms_S_* — no 2D equivalent: RAISE instead of silently
+      * mms_S_* — no 2D equivalent: RAISE instead of silently
         solving a different problem.
       * conservative_ltne — intentionally NOT forwarded: the 2D solver's own
         A3 signed shared-face scheme is its conservative form, and the Nz=1
         delegate has always mapped onto it (the Nz=1 bitwise regression pins
         this). Staggered ufA..wfB faces are unused for the same reason.
     """
-    if chi_B_field is not None:
-        raise NotImplementedError(
-            "Nz==1 delegates to the 2D LTNE solver, which has no chi_B_field "
-            "hook — refusing to silently drop it. Use Nz >= 2.")
     if any(s is not None for s in (mms_S_A_field, mms_S_B_field,
                                    mms_S_s_field)):
         raise NotImplementedError(
@@ -609,8 +604,7 @@ def solve_full_domain_3d(L, H, D, Nx, Ny, Nz,
                           eps_A=None, eps_B=None,
                           ufA=None, vfA=None, wfA=None,
                           ufB=None, vfB=None, wfB=None,
-                          chi_B_field=None,
-                          chi_B_kernel_threshold=0.0,
+                          *,
                           mms_S_A_field=None,
                           mms_S_B_field=None,
                           mms_S_s_field=None,
@@ -659,8 +653,8 @@ def solve_full_domain_3d(L, H, D, Nx, Ny, Nz,
         if (model_mass_A is None or model_mass_B is None
                 or model_fluids not in (('air', 'air'), ('air', 'water'), ('water', 'air'))
                 or Nz <= 1 or not conservative_ltne or Tb_prescribed is not None
-                or chi_B_kernel_threshold > 0.0 or eps_A is not None or eps_B is not None):
-            raise ValueError('model h requires unmasked symmetric 3D AA/AW/WA with two solved fluids')
+                or eps_A is not None or eps_B is not None):
+            raise ValueError('model h requires symmetric 3D AA/AW/WA with two solved fluids')
         shapes = ((Nx+1, Ny, Nz), (Nx, Ny+1, Nz), (Nx, Ny, Nz+1))
         for mass in (model_mass_A, model_mass_B):
             if len(mass) != 3 or any(np.shape(f) != shape or not np.all(np.isfinite(f))
@@ -697,7 +691,6 @@ def solve_full_domain_3d(L, H, D, Nx, Ny, Nz,
             inlet_mask_A, inlet_mask_B, Tb_prescribed, alpha_T,
             q_rel_tol=q_rel_tol, conv_chunk=conv_chunk,
             eps_A=eps_A, eps_B=eps_B,
-            chi_B_field=chi_B_field,
             mms_S_A_field=mms_S_A_field, mms_S_B_field=mms_S_B_field,
             mms_S_s_field=mms_S_s_field, cancel_check=cancel_check,
             inlet_flux_A=inlet_flux_A, inlet_flux_B=inlet_flux_B)
@@ -883,16 +876,6 @@ def solve_full_domain_3d(L, H, D, Nx, Ny, Nz,
         if wfA.shape != (Nx, Ny, Nz+1):
             raise ValueError(f"wfA shape {wfA.shape} != ({Nx}, {Ny}, {Nz+1})")
 
-    # H6 ghost-pin support: build chi_B_arr (default ones) for kernel pass-through
-    if chi_B_field is None:
-        chi_B_arr = np.ones((Nx, Ny, Nz), dtype=np.float64)
-    else:
-        chi_B_arr = np.ascontiguousarray(chi_B_field, dtype=np.float64)
-        if chi_B_arr.shape != (Nx, Ny, Nz):
-            raise ValueError(
-                f"chi_B_field shape {chi_B_arr.shape} != ({Nx},{Ny},{Nz})")
-    chi_B_thr = float(chi_B_kernel_threshold)
-
     # MMS source field arrays (default zeros = no-op).
     def _mms_arr(field):
         if field is None:
@@ -930,7 +913,6 @@ def solve_full_domain_3d(L, H, D, Nx, Ny, Nz,
                 dir_A, dir_B, T_inA_arr, T_inB_arr,
                 ifrac_A, ifrac_B,
                 n, freeze_Tb, a_fA, a_s, a_fB,
-                chi_B_arr, chi_B_thr,
                 mms_S_A_arr, mms_S_B_arr, mms_S_s_arr,
                 _cons, inlet_flux_A, inlet_flux_B,
                 model_mass_A, model_mass_B, model_cp_A, model_cp_B)
@@ -1137,7 +1119,7 @@ def _warmup_jit():
         uc = np.full((Nx, Ny, Nz), 0.5); v0 = np.zeros((Nx, Ny, Nz))
         TinA = np.full((Ny, Nz), 300.0); TinB = np.full((Nx, Nz), 290.0)
         fA = np.ones((Ny, Nz)); fB = np.ones((Nx, Nz))
-        chi = np.ones((Nx, Ny, Nz)); mms = np.zeros((Nx, Ny, Nz))
+        mms = np.zeros((Nx, Ny, Nz))
         # staggered face velocities for the conservative default path
         ufA = np.full((Nx + 1, Ny, Nz), 0.5)
         vfA = np.zeros((Nx, Ny + 1, Nz)); wfA = np.zeros((Nx, Ny, Nz + 1))
@@ -1156,6 +1138,6 @@ def _warmup_jit():
                 K, K, K, hv, hv, ef, ef, rcp, rcp,
                 ufA, vfA, wfA, ufB, vfB, wfB,
                 0, 3, TinA, TinB, fA, fB, 1, 0, 0.7, 0.7, 0.7,
-                chi, 0.5, mms, mms, mms, 1)
+                mms, mms, mms, 1)
     except Exception:
         pass  # Optional benchmark warmup is best-effort.

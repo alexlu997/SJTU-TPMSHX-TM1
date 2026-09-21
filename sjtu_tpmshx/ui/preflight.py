@@ -172,7 +172,8 @@ def compute_preflight(
             out.errors.append(
                 f"{name} = {val * 1e3:.2f} mm too small for wall refinement "
                 f"(needs > {_REFINE_WIDTH * 1e3:.2f} mm for 8 BL cells per "
-                f"wall). Disable 3D wall-refine or enlarge domain.")
+                f"wall). Choose a compatible mesh scheme or review the "
+                f"domain dimensions.")
 
     # Refined per-axis cell counts the solver will actually run on.
     Nx_r = _refined_N(Nx, apply_refine)
@@ -203,11 +204,12 @@ def compute_preflight(
         except ValueError as error:
             out.errors.append(str(error))
         refine_tag = "port/wall graded; counts include refinement"
-    if is_3d:
+    grid_available = not port_wall_refine or bool(port_edges)
+    if grid_available and is_3d:
         out.info.append(
             f"Effective grid: {Nx_r} × {Ny_r} × {Nz_r} "
             f"= {Nx_r * Ny_r * Nz_r:,} cells ({refine_tag}).")
-    else:
+    elif grid_available:
         out.info.append(
             f"Effective grid: {Nx_r} × {Ny_r} "
             f"= {Nx_r * Ny_r:,} cells ({refine_tag}).")
@@ -229,9 +231,6 @@ def compute_preflight(
 
         # Cross-axis 1 (always present; the in_ctr / in_w pair).
         W1 = _axis_extent(c1_name, L, H, Lz)
-        N1_bulk = {'x': Nx, 'y': Ny, 'z': Nz}[c1_name]
-        edges1 = (port_edges[c1_name] if c1_name in port_edges
-                  else _refined_edges(W1, N1_bulk, apply_refine))
         pipe_lo = cfg.in_ctr - cfg.in_w / 2
         pipe_hi = cfg.in_ctr + cfg.in_w / 2
         if pipe_lo < -1e-9 or pipe_hi > W1 + 1e-9:
@@ -239,7 +238,12 @@ def compute_preflight(
                 f"Fluid {side} inlet [{pipe_lo * 1e3:.2f}, "
                 f"{pipe_hi * 1e3:.2f}] mm exceeds {c1_name} domain "
                 f"[0, {W1 * 1e3:.2f}] mm.")
-        else:
+        elif grid_available:
+            # A failed graded grid has no coverage to report; retain the
+            # independent geometric bounds checks without a uniform fallback.
+            N1_bulk = {'x': Nx, 'y': Ny, 'z': Nz}[c1_name]
+            edges1 = (port_edges[c1_name] if c1_name in port_edges
+                      else _refined_edges(W1, N1_bulk, apply_refine))
             n_cells = _count_cells(edges1, pipe_lo, pipe_hi)
             if n_cells == 0:
                 out.errors.append(
@@ -263,9 +267,6 @@ def compute_preflight(
             continue
         if is_3d and cfg.z_in_ctr is not None and cfg.z_in_w is not None:
             W2 = _axis_extent(c2_name, L, H, Lz)
-            N2_bulk = {'x': Nx, 'y': Ny, 'z': Nz}[c2_name]
-            edges2 = (port_edges[c2_name] if c2_name in port_edges
-                      else _refined_edges(W2, N2_bulk, apply_refine))
             z_lo = cfg.z_in_ctr - cfg.z_in_w / 2
             z_hi = cfg.z_in_ctr + cfg.z_in_w / 2
             if z_lo < -1e-9 or z_hi > W2 + 1e-9:
@@ -273,7 +274,10 @@ def compute_preflight(
                     f"Fluid {side} inlet z-span [{z_lo * 1e3:.2f}, "
                     f"{z_hi * 1e3:.2f}] mm exceeds {c2_name} domain "
                     f"[0, {W2 * 1e3:.2f}] mm.")
-            else:
+            elif grid_available:
+                N2_bulk = {'x': Nx, 'y': Ny, 'z': Nz}[c2_name]
+                edges2 = (port_edges[c2_name] if c2_name in port_edges
+                          else _refined_edges(W2, N2_bulk, apply_refine))
                 n2 = _count_cells(edges2, z_lo, z_hi)
                 if n2 == 0:
                     out.errors.append(

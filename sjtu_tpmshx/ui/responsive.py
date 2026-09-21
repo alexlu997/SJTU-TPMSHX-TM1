@@ -9,13 +9,15 @@ hard QHBoxLayout used to clip both cards on narrow panels
 """
 from __future__ import annotations
 
-from PySide6.QtWidgets import QBoxLayout, QWidget
+from PySide6.QtCore import QEvent, QSize
+from PySide6.QtWidgets import QBoxLayout, QLayout, QSizePolicy, QWidget
 
 
 class ResponsiveRow(QWidget):
     """Two-or-more children side by side when wide, stacked when narrow.
 
-    ``threshold``: available width (px) below which children stack.
+    ``threshold``: preferred width (px) below which children stack. Children
+    also stack when their platform-dependent minimum widths do not fit.
     The flip is idempotent (direction only set when it changes), so
     repeated resize events are cheap and never thrash the layout.
     """
@@ -25,9 +27,13 @@ class ResponsiveRow(QWidget):
         super().__init__(parent)
         self._threshold = int(threshold)
         self.setStyleSheet("background:transparent;")
-        self._lay = QBoxLayout(QBoxLayout.Direction.LeftToRight, self)
+        self._lay = QBoxLayout(QBoxLayout.Direction.TopToBottom, self)
         self._lay.setContentsMargins(0, 0, 0, 0)
         self._lay.setSpacing(spacing)
+        # A horizontal box's minimum width must not become a hard widget
+        # minimum: that would prevent the resize which switches back to a stack.
+        # The row still reports the widest child's minimum width to its parent.
+        self._lay.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
 
     def layout(self):  # noqa: D102 — QWidget override, returns the box layout
         return self._lay
@@ -39,10 +45,68 @@ class ResponsiveRow(QWidget):
     def direction(self) -> QBoxLayout.Direction:
         return self._lay.direction()
 
-    def resizeEvent(self, event) -> None:  # noqa: N802 — Qt override
+    @staticmethod
+    def _content_minimum_width(item) -> int:
+        """Keep native content hints that Qt's explicit minimum can mask."""
+        minimum = item.minimumSize().width()
+        if item.isEmpty():
+            return minimum
+        widget = item.widget()
+        if widget is not None:
+            if widget.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Ignored:
+                return minimum
+            content = widget.minimumSizeHint().width()
+            layout = widget.layout()
+            if layout is not None and not isinstance(widget, ResponsiveRow):
+                # Ordinary widget wrappers inherit their layout's minimum.
+                # ResponsiveRow already reports its own foldable width contract.
+                content += (ResponsiveRow._content_minimum_width(layout)
+                            - layout.minimumSize().width())
+            return max(minimum, min(content, widget.maximumWidth()))
+        if isinstance(item, QBoxLayout):
+            children = [item.itemAt(i) for i in range(item.count())]
+            qt_widths = [child.minimumSize().width() for child in children]
+            content_widths = [ResponsiveRow._content_minimum_width(child)
+                              for child in children]
+            if item.direction() in (QBoxLayout.Direction.LeftToRight,
+                                    QBoxLayout.Direction.RightToLeft):
+                extra = sum(content_widths) - sum(qt_widths)
+            else:
+                extra = max(content_widths, default=0) - max(qt_widths, default=0)
+            # Preserve Qt's spacing and margins rather than reconstructing them.
+            return minimum + extra
+        return minimum
+
+    def _minimum_widths(self) -> tuple[int, int]:
+        items = [self._lay.itemAt(i) for i in range(self._lay.count())]
+        widths = [self._content_minimum_width(item) for item in items]
+        margins = self._lay.contentsMargins()
+        edge = margins.left() + margins.right()
+        gaps = max(0, sum(not item.isEmpty() for item in items) - 1)
+        return (max(widths, default=0) + edge,
+                sum(widths) + gaps * self._lay.spacing() + edge)
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 — Qt override
+        stacked_width, _ = self._minimum_widths()
+        return QSize(stacked_width, self._lay.minimumSize().height())
+
+    def _update_direction(self, width: int) -> None:
+        _, horizontal_width = self._minimum_widths()
         want = (QBoxLayout.Direction.TopToBottom
-                if event.size().width() < self._threshold
+                if width < max(self._threshold, horizontal_width)
                 else QBoxLayout.Direction.LeftToRight)
         if self._lay.direction() != want:
             self._lay.setDirection(want)
+            self.updateGeometry()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 — Qt override
+        self._update_direction(event.size().width())
         super().resizeEvent(event)
+
+    def event(self, event) -> bool:
+        handled = super().event(event)
+        if event.type() == QEvent.Type.LayoutRequest:
+            # Text, fonts and visibility can change without resizing this row.
+            self._update_direction(self.width())
+            self.updateGeometry()
+        return handled

@@ -113,6 +113,36 @@ def test_pipeline_progress_cb_default_is_noop():
     pipe.run()  # should not raise
 
 
+def test_pipeline_times_phases_without_between_phase_progress_callbacks(monkeypatch):
+    clock = [0.0]
+    monkeypatch.setattr('sjtu_tpmshx.controllers.compute_pipeline.perf_counter',
+                        lambda: clock[0])
+
+    class TimedPipeline(_RecordingPipeline):
+        def build_fields(self):
+            clock[0] += 1.0
+            return super().build_fields()
+
+        def run_solvers(self, fields):
+            clock[0] += 2.0
+            return super().run_solvers(fields)
+
+        def finalize(self, raw, fields):
+            clock[0] += 3.0
+            result = super().finalize(raw, fields)
+            result.metadata['units'] = {'Q': 'W'}
+            return result
+
+    def progress(_percent):
+        clock[0] += 100.0
+
+    result = TimedPipeline(ComputeConfig(), progress_cb=progress).run()
+    assert result.metadata['timings_s'] == {
+        'prepare': 1.0, 'solve': 2.0, 'postprocess': 3.0}
+    assert result.metadata['units'] == {'Q': 'W'}
+    assert result.Q_W == 42.0
+
+
 class _CancelToken:
     def __init__(self):
         self.cancelled = False

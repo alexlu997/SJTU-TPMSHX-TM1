@@ -1,7 +1,7 @@
 """Execute prepared 3D physical data without running preprocessing."""
 import numpy as np
 
-from sjtu_tpmshx.domain.compute_config import Sco2NuConfig
+from sjtu_tpmshx.domain.compute_config import Sco2NuConfig, reject_retired_boundary_options
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.portable_data import mutable_data
 from sjtu_tpmshx.models.catalog import resolve_model
@@ -11,6 +11,7 @@ def build_execution_inputs(case):
     if case.grid.get('dimension') != 3 or case.grid.get('length_unit') != 'm':
         raise ValueError('3D execution requires a prepared SI grid')
     cfg = mutable_data(case.parameters)
+    reject_retired_boundary_options(cfg)
     missing = set(('thermal_geometry', 'roughness_resolved', 'df_application')) - cfg.keys()
     if missing:
         raise ValueError(f'incomplete prepared 3D execution data: {sorted(missing)}')

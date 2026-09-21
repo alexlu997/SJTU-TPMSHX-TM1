@@ -217,8 +217,6 @@ def run_mms(case='3d', Nx=20, Ny=20, Nz=20,
     ifrac_A = np.ones((Ny, Nz), dtype=np.float64)
     ifrac_B = np.ones((Nx, Nz), dtype=np.float64)
 
-    # chi_B = 1 (no ghost-skip; full participation)
-    chi_B_arr = np.ones((Nx, Ny, Nz), dtype=np.float64)
 
     # ── Iterate kernel ───────────────────────────────────────────────────
     t0 = time.time()
@@ -237,7 +235,6 @@ def run_mms(case='3d', Nx=20, Ny=20, Nz=20,
             ifrac_A, ifrac_B,
             inner, 0,                          # n_iters per call, freeze_Tb=0
             alpha_f, alpha_s, alpha_f,         # under-relaxation (SOU at high Pe)
-            chi_B_arr, 0.0,                    # kernel chi threshold = 0 (no skip)
             mms_S_A, mms_S_B, mms_S_s,
             conservative,                      # 0=cell-local SOU; 1=face-shared conservative HO
         )

@@ -1,11 +1,11 @@
 """
-Profile the historical tighter-tolerance 2D screening workload.
+Profile a screening workload with a Shanghai-sized domain and three density loops.
 
 Run::
 
     python -m benchmarks.profiling.profile_compute
 
-Outputs (benchmarks/profiling/):
+Outputs (new .cache/profiling/compute-*/ directory per run):
   - compute_baseline.prof
   - compute_baseline_top30.txt
   - compute_baseline_tottime.txt
@@ -15,7 +15,8 @@ Uses optimization.evaluator.evaluate_design through the public screening mode.
 The historical filename does not imply a GUI/full-model profile. Workload:
   * Shanghai geometry: L=0.182, H=0.042 m
   * Fluid pair and remaining settings from evaluator.DEFAULT_CONFIG
-  * tol_simple = 1e-3, n_rho_loops = 3 (compressible)
+  * Historical tol_simple=1e-3 is retained but does not control F2 gates
+  * n_rho_loops=3 (screening density-coupling budget)
   * Uniform L=6 mm, t=0.4 mm (fixed historical workload)
   * One warm-up, then one profiled call
 """

@@ -11,7 +11,7 @@ import pytest
 from sjtu_tpmshx.domain.compute_config import ComputeConfig
 from sjtu_tpmshx.domain.portable_data import mutable_data
 from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
-from sjtu_tpmshx.solvers.envelope import ChokedFlowError, PRESSURE_FLOOR_PA
+from sjtu_tpmshx.models.envelope import ChokedFlowError, PRESSURE_FLOOR_PA
 from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
 
 

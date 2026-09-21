@@ -3,7 +3,7 @@
 Standard Tier ASME V&V 20 — Phase C (~2 d).
 
 C.1 Roache GCI (1d): 4-grid h-refinement {12, 16, 20, 30} on T2 (full
-    cross) and T4_H8 (partial-B). Per case:
+    cross) and T4 (offset partial-B, current unmodified physical model). Per case:
       - Apparent order p_app from Richardson triplet (fine 3 grids)
       - Richardson extrapolated Q_∞
       - GCI_fine_grid = 1.25 · |Q_fine − Q_med| / (r^p − 1) / |Q_fine|
@@ -15,9 +15,11 @@ C.2 Iterative convergence audit (0.5d): leverage existing solver telemetry
 C.3 F2 momentum-tolerance sensitivity: mom_tol ∈ {1e-3, 1e-5,
     1e-7}; verify Q saturates.
 
-Outputs:
-  validation/phase_c_gci.csv
-  validation/phase_c_f2_tol_sweep.csv
+Writes phase_c_gci.csv, phase_c_gci_summary.csv and the optional
+phase_c_f2_tol_sweep.csv into a new .cache/validation/phase_c_gci-*/ directory
+(or --out-dir). Recorded validation reference tables remain read-only.
+The former T4_H8 participation experiment is retired; its historical results
+are not reference values for the current T4 case.
 """
 from __future__ import annotations
 import argparse
@@ -25,12 +27,10 @@ import os
 import sys
 import time
 import warnings
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[2]
 try:
     sys.stdout.reconfigure(encoding='utf-8')
 except Exception:
@@ -38,15 +38,17 @@ except Exception:
 warnings.filterwarnings('ignore')
 
 from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
-from sjtu_tpmshx.validation.harness._provenance import write_csv_with_provenance
+from sjtu_tpmshx.validation.harness._provenance import (
+    write_csv_with_provenance, output_directory, output_path,
+)
 from sjtu_tpmshx.validation.cases.audit_3d_conservation import (
-    make_T2, make_T4_H8,
+    make_T2, make_T4,
 )
 
 
 CASES_C = {
     'T2': make_T2,
-    'T4_H8': make_T4_H8,
+    'T4': make_T4,
 }
 
 
@@ -183,14 +185,28 @@ def run_c3_tol(case_id='T2', grid=20, tols=(1e-3, 1e-5, 1e-7)):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--cases', default='T2,T4_H8',
-                    help='comma-list from {T2, T4_H8}')
+    ap.add_argument('--cases', default='T2,T4',
+                    help='comma-list from {T2, T4}; historical T4_H8 is retired')
     ap.add_argument('--grids', default='12,16,20,30',
                     help='comma-list of grid sizes')
     ap.add_argument('--skip_tol', action='store_true', help='skip C.3')
+    ap.add_argument('--out-dir', help='Output directory (default: new .cache/validation/phase_c_gci-*/).')
     args = ap.parse_args()
-
     cases = [c.strip() for c in args.cases.split(',') if c.strip()]
+    unknown = [case for case in cases if case not in CASES_C]
+    if unknown:
+        ap.error(f'Unsupported cases: {", ".join(unknown)}. Use T2 or T4; '
+                 'historical T4_H8 used retired experimental corrections and '
+                 'cannot be silently rerun as the current model.')
+    try:
+        out_dir = output_directory('phase_c_gci', args.out_dir)
+        out_csv = output_path(out_dir / 'phase_c_gci.csv')
+        summary_csv = output_path(out_dir / 'phase_c_gci_summary.csv')
+        tol_csv = output_path(out_dir / 'phase_c_f2_tol_sweep.csv')
+    except ValueError as exc:
+        ap.error(str(exc))
+    print(f'Output directory: {out_dir}')
+
     grids = [int(g) for g in args.grids.split(',')]
 
     print(f"{'='*72}")
@@ -208,12 +224,9 @@ def main():
     df = pd.DataFrame(all_rows)
     # C.4 provenance headers (# script/commit/date) — a plain to_csv here
     # silently dropped them on regeneration (found 2026-07-14).
-    write_csv_with_provenance(df, ROOT / 'validation' / 'phase_c_gci.csv',
-                              __file__)
+    write_csv_with_provenance(df, out_csv, __file__)
     sdf = pd.DataFrame(summary)
-    write_csv_with_provenance(sdf,
-                              ROOT / 'validation' / 'phase_c_gci_summary.csv',
-                              __file__)
+    write_csv_with_provenance(sdf, summary_csv, __file__)
 
     print(f"\n{'='*72}")
     print("  GCI summary")
@@ -233,9 +246,7 @@ def main():
     if not args.skip_tol:
         tol_rows = run_c3_tol('T2', grid=20)
         tdf = pd.DataFrame(tol_rows)
-        write_csv_with_provenance(tdf,
-                                  ROOT / 'validation' / 'phase_c_f2_tol_sweep.csv',
-                                  __file__)
+        write_csv_with_provenance(tdf, tol_csv, __file__)
         Qs = [r['Q_enth_A'] for r in tol_rows]
         rng = max(Qs) - min(Qs)
         rel = rng / max(abs(Qs[-1]), 1e-30)

@@ -2,7 +2,7 @@
 tpms_calc.py — TPMS Property Calculator
 
 Given TPMS geometry (type, L_cell, t) and flow conditions (u, T_in, P_in),
-computes all parameters needed by solve.py:
+computes geometry and closure parameters for prepared solver inputs:
   epsilon, A_0, D_h, Re, Nu, f, dP/L, H_sf, K_ff, K_ss, rho, mu, k_f
 
 Includes:
@@ -44,11 +44,8 @@ from sjtu_tpmshx.domain.run_warnings import (
 )
 from .tpms_geometry import compute_geometry as _tpms_geom
 
-# arch-b-c-e batch B (2026-07-02): geometry + fluid-property correlations
-# moved verbatim to the LEAF module tpms_props so df_surrogate can import
-# them without pulling this orchestrator (whose compute() needs
-# df_surrogate.predict). Re-exported here so existing consumers keep their
-# `from solvers.tpms_calc import ...` paths unchanged.
+# Geometry and property primitives live in tpms_props. Current consumers may
+# also import the explicitly re-exported names from models.tpms_calc.
 from .tpms_props import (  # noqa: F401 — re-exports
     CHI_S, chi_s_eff, M_air, P_atm, R,
     air_conductivity, air_cp, air_density, air_viscosity,
@@ -67,33 +64,6 @@ Pr    = 0.72       # Prandtl number (air, approximately constant)
 Sa_mm = 0.031      # Surface roughness Sa [mm]  (= 31 μm, constant for both TPMS types)
 
 
-def nu_water_gyroid_yan6(Re, Pr):
-    """Water-side Nusselt number for Gyroid TPMS, Yan et al 2024 [6].
-
-        Nu = 0.471 · Re^0.627 · Pr^(1/3)
-
-    Source: K. Yan, H. Deng, Y. Xiao, J. Wang, Y. Luo,
-    'Thermo-hydraulic performance evaluation through experiment and
-    simulation of additive manufactured Gyroid-structured heat exchanger',
-    Appl. Therm. Eng. 241 (2024) 122402.
-    doi:10.1016/j.applthermaleng.2024.122402
-
-    Validated range: 150 < Re < 3000 (water, AM Gyroid).
-
-    Convention:
-      Re = ρ·u·D_h / μ        (single-stream, D_h = 4·ε_A/A_0)
-      Nu = h_sf · D_h / k_f   (face heat-transfer coefficient h_sf)
-      Pr = μ·c_p / k_f
-
-    Notes:
-      * Experiment + CFD double-fit on AM gyroid sample (cell 20 mm).
-      * Surface roughness from AM is naturally embedded; do not apply
-        an extra ×1.28 roughness factor on top.
-      * Project Shanghai cases 3-16 (Re 173-1146) fall in-range.
-      * Cases 1-2 (Re 54, 108) extrapolate to lower Re, ≈ -9 % on Nu
-        relative to Yan [58] in-range; acceptable since h_vB dominates U.
-    """
-    return 0.471 * Re ** 0.627 * Pr ** (1.0 / 3.0)
 
 
 # ── Fluid type validation ─────────────────────────────────────
@@ -142,14 +112,13 @@ def validate_fluid_type(fluid_type: str, side: str) -> None:
 
 
 # ── Nu correlations ───────────────────────────────────────────
-# Single source of truth lives in `solvers.nu_correlations` (2026-05-28
+# Single source of truth lives in `models.nu_correlations` (2026-05-28
 # audit Item 1 / H1). Detailed roughness rationale + known limitations
 # moved to that module's docstring.
 
 from .nu_correlations import (  # noqa: F401 - existing public re-exports
     nu_from_Re,
     nu_vec,
-    nu_water_from_Re,
     nu_water_topo,
     nu_sco2_topo,
     NU_ROUGHNESS_FACTOR as _NU_ROUGHNESS_FACTOR,  # back-compat re-export
@@ -227,9 +196,11 @@ def _compute_cached(tpms_type: str,
     Parameters
     ----------
     tpms_type : 'Diamond' or 'Gyroid'
-    L_cell_mm : TPMS unit cell size [mm]  (valid range: 4–8 mm)
-    t_mm      : wall thickness [mm]        (valid range: 0.3–0.5 mm)
-    u         : fluid (air) velocity [m/s]
+    L_cell_mm : TPMS unit cell size [mm]  (geometry/D-F table: 4–8 mm)
+    t_mm      : wall thickness [mm]       (geometry/D-F table: 0.3–0.6 mm)
+        Nu fits and experimental corrections have independent applicability
+        ranges; the table domain does not extend those ranges.
+    u         : selected fluid's interstitial velocity [m/s]
     T_in_K    : inlet temperature [K]
     P_in_Pa   : inlet pressure [Pa]
     k_s       : solid thermal conductivity [W/(m·K)]
@@ -255,9 +226,9 @@ def _compute_cached(tpms_type: str,
         H_sf      – face heat transfer coefficient [W/(m²·K)]
         K_ff      – fluid effective thermal conductivity [W/(m·K)]
         K_ss      – solid effective thermal conductivity [W/(m·K)]
-        rho       – air density [kg/m³]
-        mu        – air dynamic viscosity [Pa·s]
-        k_f       – air thermal conductivity [W/(m·K)]
+        rho       – selected fluid density [kg/m³]
+        mu        – selected fluid dynamic viscosity [Pa·s]
+        k_f       – selected fluid thermal conductivity [W/(m·K)]
     """
     with cache_warning_records({}) as records:
         # ── Geometry from numerical computation ─────────────────────
@@ -273,8 +244,8 @@ def _compute_cached(tpms_type: str,
         # Function-level import: fluid_props imports tpms_calc at module level.
         from sjtu_tpmshx.models import fluid_props as _fluids
         _m = _fluids.get(fluid_type, sco2_nu=sco2_nu)
-        # Pass P to all primitives: air/water ignore it (T-only), sCO2 needs it
-        # (real-gas cp/mu/k/rho depend on both T and P). Widened 2026-06-26.
+        # Pass absolute P to all primitives: air density and all sCO2
+        # properties use it; the remaining air/water fits are T-only.
         mu = float(_m.mu(T_in_K, P_in_Pa))
         k_f = float(_m.k(T_in_K, P_in_Pa))
         rho = float(_m.rho(T_in_K, P_in_Pa))

@@ -1,37 +1,12 @@
-"""
-df_projection.py — 投影 2D 几何设计到 SIMPLE 1D K/c_F 数组 + master 加密网格
+"""Historical cell-row pressure reductions used by validation comparisons.
 
-用于 optimizer 和 runs 共享。SIMPLE 内核的 K/c_F 数组是 1D (Ny_sim,) 行向，
-这里把 2D grid_cells 或 sigmoid 连续场投影到 SIMPLE 的流向轴。
-
-核心原则（2026-04-17）：生产 dP 路径严格走 SIMPLE，不允许任何解析公式
-（1D D-F、f-Re、compute_dP_continuous 等）绕过 SIMPLE。
-
-对应报告：vault/reports/2026-04-17-shanghai-dP-error-analysis-CN.md §11-§12
+Current public pressure metrics use physical port-face evidence in postprocess.
+Geometry projection and grids are owned by models.df_projection and models.grid.
 """
 from __future__ import annotations
 from typing import Any
 
 import numpy as np
-from sjtu_tpmshx.models.grid import build_wall_refined_1d  # noqa: F401 - existing public name
-
-
-from sjtu_tpmshx.models.grid import build_master_refined_grid  # noqa: F401
-
-
-from sjtu_tpmshx.models.df_projection import (
-    project_cells_to_streamwise_K_cF as project_cells_to_streamwise_K_cF,
-    project_fields_to_streamwise_K_cF as project_fields_to_streamwise_K_cF,
-    project_fields_to_streamwise_K_cF_3d as project_fields_to_streamwise_K_cF_3d,
-    _cell_centre_fracs as _cell_centre_fracs,
-    _nearest_src_idx as _nearest_src_idx,
-    _stream_profile as _stream_profile,
-)
-
-
-from sjtu_tpmshx.models.grid import build_master_refined_grid_3d  # noqa: F401
-
-
 def extract_dP_from_simple(s: Any) -> float:
     """Extract inlet/outlet-averaged dP from a converged SIMPLE instance.
 

@@ -93,8 +93,8 @@ def test_actual_flux_uses_area_once_and_matches_true_h(direction):
         np.testing.assert_allclose(w, np.abs(fy[:, j, :]))
         np.testing.assert_allclose(_face_flux_weights(s, direction, face, 'physical'), w / .3)
         np.testing.assert_allclose(_face_flux_weights(s, direction, face,
-                                  chi_face=np.full((2, 2), .7), eps_side_override=.2),
-                                  w * (.2 / .3) * .7)
+                                  eps_side_override=.2),
+                                  w * (.2 / .3))
 
 
 def test_pressure_reductions_use_nonuniform_face_area():

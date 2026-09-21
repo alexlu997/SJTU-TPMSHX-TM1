@@ -217,7 +217,7 @@ def test_default_direction_partial_grid_is_unchanged():
 
 @pytest.mark.parametrize('directions', [(0, 2), (2, 0), (0, 1), (2, 3)])
 def test_full_faces_keep_wall_refinement(directions):
-    from sjtu_tpmshx.solvers.df_projection import build_master_refined_grid
+    from sjtu_tpmshx.models.grid import build_master_refined_grid
 
     cfg = _case(directions)
     cfg.bc_A = PartialBCConfig(dir=directions[0])

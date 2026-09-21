@@ -28,11 +28,6 @@ class _LE:
     def text(self): return self._t
 
 
-class _Chk:
-    def __init__(self, v): self._v = v
-    def isChecked(self): return self._v
-
-
 class _Status:
     def __init__(self): self.msgs = []
     def showMessage(self, *a, **k): self.msgs.append(a)
@@ -72,16 +67,16 @@ def test_highvel_notice_high_uB_only():
 
 
 # ── U4: Large-grid confirm reflects the actual refine setting ───────────────
-def _win_grid(nx, ny, nz, refine):
+def _win_grid(nx, ny, nz):
     return SimpleNamespace(le_Nx=_LE(str(nx)), le_Ny=_LE(str(ny)),
-                           le_Nz=_LE(str(nz)), chk_wall_refine_3d=_Chk(refine))
+                           le_Nz=_LE(str(nz)))
 
 
 def test_large_grid_no_confirm_when_refine_off():
     """40^3 = 64000 actual cells with refine OFF is below the 100k threshold ->
     no confirm dialog. Pre-fix the unconditional +16 inflated it to
     56^3 = 175616 and popped a spurious 'Large 3D Grid' confirm."""
-    win = _win_grid(40, 40, 40, refine=False)
+    win = _win_grid(40, 40, 40)
     with patch.object(QMessageBox, 'question') as q, \
          patch.object(QMessageBox, 'warning'):
         proceed, est, label = RunControllerMixin._preflight_3d(win)
@@ -91,14 +86,13 @@ def test_large_grid_no_confirm_when_refine_off():
     assert label == "40×40×40"
 
 
-def test_large_grid_confirms_when_refine_on():
-    """Same 40^3 with refine ON expands to 56^3 = 175616 > 100k -> confirm."""
-    win = _win_grid(40, 40, 40, refine=True)
+def test_large_grid_confirms_using_total_input_counts():
+    win = _win_grid(50, 50, 50)
     with patch.object(QMessageBox, 'question',
                       return_value=QMessageBox.StandardButton.Yes) as q, \
          patch.object(QMessageBox, 'warning'):
         proceed, est, label = RunControllerMixin._preflight_3d(win)
     q.assert_called_once()
     assert proceed is True
-    assert est == 56 ** 3
-    assert label == "refined 56×56×56"
+    assert est == 50 ** 3
+    assert label == "50×50×50"

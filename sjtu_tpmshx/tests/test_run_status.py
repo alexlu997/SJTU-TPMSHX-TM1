@@ -32,8 +32,6 @@ def test_worker_lifecycle_keeps_cancel_logs_and_verdict(win, monkeypatch, tmp_pa
     def run(pipe):
         print('captured solver log')
         pipe.ui_hooks['iter_label_cb']('SIMPLE A · 2')
-        pipe.ui_hooks['live_residuals']['A'].extend([(1, .1), (2, .01)])
-        pipe.ui_hooks['live_residuals']['B'].append((1, .2))
         callbacks_sent.set()
         assert released.wait(10)
         if outcome == 'error':
@@ -53,11 +51,6 @@ def test_worker_lifecycle_keeps_cancel_logs_and_verdict(win, monkeypatch, tmp_pa
         assert not card.isHidden(), 'a new run must reveal the focused-view cancel control'
         assert action_icons[-1] == ('square', 'white')
         assert card.log_button.isHidden(), 'old logs must not appear during a fresh run'
-        win._drain_live_residuals()
-        win._drain_live_residuals()
-        assert card.trails['A']._data == pytest.approx([-1., -2.])
-        assert len(card.trails['B']._data) == 1
-        assert '1.00e-02' in card.residual_labels['A'].text()
         win.le_Nx.setText('77')  # Parameters remain an editable next-run draft.
         assert win.le_Nx.isEnabled()
         if outcome == 'cancelled':
@@ -108,12 +101,12 @@ def test_card_expansion_narrow_width_and_restart_clear_previous_run():
         assert card.details.isVisible()
         card.start('3d')
         card.finish('cancelled', 12, log_available=True)
-        assert '本次未发布实时残差' in card.residual_labels['A'].text()
+        from PySide6.QtWidgets import QLabel
+        assert not any('残差' in label.text() for label in card.findChildren(QLabel))
         card.start('2d')
         assert card.toggle.isChecked(), 'keep the user detail preference'
         assert card.log_button.isHidden()
         assert card.cancel_button.isEnabled()
-        assert not card.trails['A']._data
         assert card.iteration.text() == '等待求解器迭代信息'
         card.toggle.setChecked(False)
         card.finish('unconverged', 3599, log_available=True)

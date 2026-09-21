@@ -29,6 +29,28 @@ def test_port_wall_counts_match_the_actual_grid():
     assert any('at least' in s for s in invalid.errors)
 
 
+def test_failed_port_grid_keeps_bounds_checks_without_coverage_claims():
+    # Stale 30 mm z-ports split the 42 mm domain into two segments; Nz=10
+    # cannot build the graded grid. An independent x-span error must remain.
+    A = _shanghai_A()
+    A.z_in_ctr = A.z_out_ctr = .015
+    A.z_in_w = A.z_out_w = .03
+    B = _shanghai_B_partial()
+    B.in_ctr = .19
+    report = compute_preflight(
+        L=.182, H=.042, Lz=.042, Nx=92, Ny=14, Nz=10,
+        is_3d=True, wall_refine_3d=False, port_wall_refine=True,
+        fluid_A=A, fluid_B=B, T_inA=300., T_inB=422.)
+
+    assert any('at least 20 cells on z axis' in s and 'got 10' in s
+               and '30 mm (2 segments)' in s and 'Increase Nz' in s
+               for s in report.errors)
+    assert any('exceeds x domain' in s for s in report.errors)
+    assert any('B is the hot side' in s for s in report.info)
+    assert not any('Effective grid' in s or 'covers' in s
+                   for s in report.info + report.warnings + report.errors)
+
+
 def test_shanghai_2d_partial_no_refine():
     """Partial-width B inlet forces 2D path onto uniform (no wall refine)."""
     r = compute_preflight(

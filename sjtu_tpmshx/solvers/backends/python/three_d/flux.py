@@ -1,8 +1,4 @@
-"""pipelines/flux_3d.py — 3D face-flux / outlet postprocessing + roughness.
-
-Flux/outlet postprocessing + roughness application, moved verbatim from
-stages_3d.py (openspec split-pipelines, 2026-07-03); behavior bit-identical.
-"""
+"""3D runtime face-flux/outlet reductions and shared roughness application."""
 
 from __future__ import annotations
 
@@ -16,22 +12,13 @@ if TYPE_CHECKING:
     from sjtu_tpmshx.solvers.simple_solver_3d import SIMPLESolver3D
 
 from sjtu_tpmshx.models import fluid_props
-from sjtu_tpmshx.solvers.roughness import (f_enhancement, nu_extra_factor,
+from sjtu_tpmshx.models.roughness import (f_enhancement, nu_extra_factor,
                                  resolve_mode_from_env)
 
 
-# ⚠ 2026-05-14 (revised): `norris_1a` is now a no-op for friction (f×1.0,
-# alias of `baseline`). The ×1.28 Nu factor in tpms_calc air-Gyroid is the
-# only roughness compensation; c_F was trained on real SLM dP so the friction
-# side already encodes Sa. See `solvers/roughness.py` module docstring for
-# the audit history (1.46 → 1.28 → 1.0).
-#
-# Naming retained for back-compat with existing config files / BO defaults
-# (optimization/evaluator_3d.py also defaults to 'norris_1a'). 2D path in
-# run_calculation.py defaults to 'baseline' — label asymmetry is cosmetic
-# only (verified 2026-05-28 audit C2 follow-up). Stale earlier comment had
-# claimed "norris_1a closes 44.74 %→24.15 %"; that data is from the pre-
-# revert multiplier-bearing version and is obsolete post-2026-05-14.
+# Saved configurations retain this name. Both baseline and norris_1a return
+# unit factors; current CFD/experimental closures own the base coefficients.
+# Optional roughness behavior is defined only in models.roughness.
 _UI_ROUGH_MODE_DEFAULT = 'norris_1a'
 
 
@@ -46,7 +33,7 @@ def _resolve_ui_roughness() -> tuple[str, float]:
 def _face_flux_weights(solver: SIMPLESolver3D, dir_code: int,
                        face: str = 'real_outlet',
                        eps_mode: str = 'ltne',
-                       chi_face: np.ndarray | None = None,
+                       *,
                        eps_f_per_side: float | None = None,
                        eps_side_override: float | None = None) -> np.ndarray:
     """Unified face-flux weight array for T_out, m_dot, Q_enth.
@@ -57,7 +44,6 @@ def _face_flux_weights(solver: SIMPLESolver3D, dir_code: int,
     dir_code : int — 0=+x,1=-x,2=+y,3=-y,4=+z,5=-z
     face : 'real_inlet' or 'real_outlet'
     eps_mode : 'ltne' (× eps_f) or 'physical' (no eps_f)
-    chi_face : optional 2D array — χ_B at this face for ghost suppression
     eps_f_per_side : optional scalar fallback when solver has no eps_field
 
     Returns
@@ -100,14 +86,12 @@ def _face_flux_weights(solver: SIMPLESolver3D, dir_code: int,
                         "solver.eps_field or explicit eps_f_per_side")
                 w = w * float(eps_f_per_side)
     # Face-average velocity already contains the open-area fraction.
-    if chi_face is not None:
-        w = w * np.asarray(chi_face, dtype=np.float64)
     return w
 
 
 def _mass_weighted_T_out(T_face: np.ndarray, solver: SIMPLESolver3D,
                           dir_code: int, eps_f_scalar: float | None,
-                          chi_face: np.ndarray | None = None,
+                          *,
                           eps_side_override: float | None = None) -> float:
     """Mass-flux-weighted T average at the REAL outlet face.
     Delegates to _face_flux_weights for consistent weighting.
@@ -118,7 +102,7 @@ def _mass_weighted_T_out(T_face: np.ndarray, solver: SIMPLESolver3D,
     """
     try:
         w = _face_flux_weights(solver, dir_code, face='real_outlet',
-                               eps_mode='ltne', chi_face=chi_face,
+                               eps_mode='ltne',
                                eps_f_per_side=eps_f_scalar,
                                eps_side_override=eps_side_override)
         tot = float(np.sum(w))
@@ -140,7 +124,7 @@ def _mass_weighted_h_out(T_face: np.ndarray, P_ref: float,
                           enthalpy_fn: Callable[[np.ndarray, float], np.ndarray],
                           solver: SIMPLESolver3D, dir_code: int,
                           eps_f_scalar: float | None,
-                          chi_face: np.ndarray | None = None,
+                          *,
                           eps_side_override: float | None = None) -> float:
     """Mass-flux-weighted mean ENTHALPY at the real outlet face: ⟨h(T)⟩_w.
 
@@ -156,7 +140,7 @@ def _mass_weighted_h_out(T_face: np.ndarray, P_ref: float,
                         dtype=np.float64)
     try:
         w = _face_flux_weights(solver, dir_code, face='real_outlet',
-                               eps_mode='ltne', chi_face=chi_face,
+                               eps_mode='ltne',
                                eps_f_per_side=eps_f_scalar,
                                eps_side_override=eps_side_override)
         tot = float(np.sum(w))
@@ -204,9 +188,11 @@ def _simple_mass_flow(solver: SIMPLESolver3D, dir_code: int,
 def _apply_roughness_KcF(K_arr: np.ndarray, cF_arr: np.ndarray,
                          fluid_type: str, rho: float, mu: float, u: float,
                          D_h_m: float) -> tuple[np.ndarray, np.ndarray]:
-    """Scale K/cF arrays by f_enhancement; skip fluids whose closure already
-    embeds AM roughness (water: the per-topology water fit (`nu_water_topo`))
-    — registry flag, B1 1.1."""
+    """Apply the selected air-specific friction multiplier to K/cF arrays.
+
+    The registry flag excludes other fluids; it does not assert that their
+    base CFD closure contains roughness.
+    """
     if fluid_props.get(fluid_type).embeds_roughness:
         return K_arr, cF_arr
     mode, eps_um = _resolve_ui_roughness()
@@ -222,8 +208,8 @@ def _apply_roughness_KcF(K_arr: np.ndarray, cF_arr: np.ndarray,
 def _apply_roughness_h_v(h_v_field: np.ndarray, fluid_type: str,
                          rho: float, mu: float, u: float,
                          D_h_m: float, *, resolved=None) -> np.ndarray:
-    """Multiply h_v by nu_extra_factor; skip roughness-embedding fluids
-    (registry flag, B1 1.1). Norris 1a returns 1.0 (Nu unchanged ×1.28),
+    """Apply air-specific nu_extra_factor to h_v; the registry excludes other
+    fluids. Norris 1a returns 1.0 (Nu unchanged ×1.28),
     so this is a no-op for the default mode; only bhatti_shah_1b actually
     rescales Nu."""
     if fluid_props.get(fluid_type).embeds_roughness:

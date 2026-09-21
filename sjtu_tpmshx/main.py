@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
 
 from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry, adaptive_grid
 from sjtu_tpmshx.ui.fmt import duration as _fmt_dur
-from sjtu_tpmshx.ui.matplotlib_canvas import _label_axes
 from sjtu_tpmshx.ui.mixins import (RunHistoryMixin, DialogsMixin, ZonePanelMixin,
                        OptimizeUIMixin, TabViewMixin, UIBuilderMixin,
                        FluidInputMixin, RunControllerMixin, RunResultsMixin,
@@ -70,12 +69,6 @@ def _rebuild_styles(theme_name=None):
 
 
 # ── Auto-select delegate for zone table editing ─────────────
-# Moved to ui/delegates.py (Phase 5 follow-up). Re-exported here for
-# any historical callers that imported `main._SelectAllDelegate`.
-from sjtu_tpmshx.ui.delegates import SelectAllDelegate as _SelectAllDelegate  # noqa: F401
-
-
-# ── Main window ───────────────────────────────────────────────
 class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
                 TabViewMixin, UIBuilderMixin, FluidInputMixin,
                 RunControllerMixin, RunResultsMixin,
@@ -110,13 +103,8 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         self._K_ffA = self._K_ffB = self._K_ss = None
         self._rho_A = self._rho_B = self._h_vB = None
         self._mu_A  = self._mu_B  = None
-        self.T_fA   = self.T_fB   = self.T_s = None
 
-        # Widgets to show/hide based on domain shape
-        self._rect_only_widgets = []
-        self._poly_only_widgets = []
-
-        # Temperature unit state — toggled by the header K/°C button. All
+        # Temperature unit state — toggled through the More menu. All
         # compute paths read temperatures via `_temp_to_K(le)` which honours
         # this flag, so internal physics always runs in Kelvin regardless of
         # what the user is typing.
@@ -135,10 +123,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
                                   SessionManager, SignalRouter)
         from sjtu_tpmshx.ui.theme_manager import ThemeManager
 
-        # Phase 3: ThemeManager owns the style dict. Batch-3 (2026-06-10):
-        # the legacy `import main as _m; m._BG` back-import path is retired
-        # — the last consumers (ui/overview.py, ui/sensitivity.py) now read
-        # styles via default_factory().theme, so no bind_to_module call.
+        # ThemeManager owns the styles consumed by FieldFactory and builders.
         # SignalRouter records connections for bulk disconnect on closeEvent.
         self.theme = ThemeManager(self)
         self.signals = SignalRouter(self)
@@ -325,16 +310,10 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
     #  Shanghai presets + deferred 3D init
     # ─────────────────────────────────────────────────────────
     def _apply_shanghai_defaults(self):
-        """Overwrite default text fields with Shanghai Electric case-8 params
-        and switch to 3D mode. Single-call post-build_ui, users can edit after.
-        """
+        """Restore the complete Shanghai Electric case-8 input baseline."""
         self._active_preset_name = "Shanghai (3D Gyroid)"
         self._set_shanghai_grid(is_3d=True)
         self.combo_df_mode.setCurrentIndex(self.combo_df_mode.findData('experimental'))
-        for side in ('A', 'B'):
-            uniform = getattr(self, f'chk_uniform_inlet{side}_2d', None)
-            if uniform is not None:
-                uniform.setChecked(side == 'B')
         presets = {
             # Shanghai Electric gas-heater experimental log (工况8, Re_air=5000,
             # Re_water=400) — raw values from `data/raw_data/
@@ -351,6 +330,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             'le_Lcell': '7.0',
             'le_t':     '0.6',
             'le_ks':    '16.0',   # Shanghai SS solid k_s
+            'le_rho_s': '7900',
             'le_uA':    '20.0',   # Fluid A (air) interstitial, back-calc Re=5000
             'le_TinA':  '422.0',  # Fluid A inlet (Excel col 28: 148.908 °C)
             'le_PinA':  '192362', # Fluid A inlet absolute (Excel 91037 Pa gauge + atm)
@@ -367,6 +347,11 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             'le_pipeA_out_ctr': '0.021', 'le_pipeA_out_w': '0.042',
             'le_pipeB_in_ctr':  '0.154', 'le_pipeB_in_w':  '0.042',
             'le_pipeB_out_ctr': '0.028', 'le_pipeB_out_w': '0.042',
+            # Both networks span the full thickness; reset prior-case Z ports.
+            'le_pipeA_in_z_ctr':  '0.021', 'le_pipeA_in_z_w':  '0.042',
+            'le_pipeA_out_z_ctr': '0.021', 'le_pipeA_out_z_w': '0.042',
+            'le_pipeB_in_z_ctr':  '0.021', 'le_pipeB_in_z_w':  '0.042',
+            'le_pipeB_out_z_ctr': '0.021', 'le_pipeB_out_z_w': '0.042',
         }
         # Temperature fields are authored in Kelvin. If the UI is currently
         # showing °C, convert on write so the displayed digits match the
@@ -400,35 +385,35 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
                 self.combo_dim.setCurrentIndex(1)
         except Exception:
             pass
-        # Flow topology → canonical Shanghai crossflow. This method used to
-        # leave the direction/fluid-B combos at whatever the session had set,
-        # so a stale session could open in a ROTATED topology (e.g. A:+y B:-x)
-        # even after Reset. Pin them here:
-        #   A air  → +x (index 0), streams along the 182 mm length
-        #   B water→ -y (index 3), crossflow across the 42 mm width
-        #   Fluid B→ Water (index 1), the gas-heater cold side
+        # Restore both fluids and directions without overwriting the explicit
+        # Shanghai inlet values with generic fluid defaults.
         for combo_attr, idx in (('combo_dirA', 0),
                                 ('combo_dirB', 3),
+                                ('combo_fluidA', 0),
                                 ('combo_fluidB', 1)):
             try:
                 c = getattr(self, combo_attr, None)
                 if c is None or not (0 <= idx < c.count()):
                     continue
-                # FIX (2026-06-24 audit): suppress combo_fluidB's
-                # currentIndexChanged so setCurrentIndex does NOT re-fire
-                # _apply_fluid_defaults('B'), which would overwrite the preset's
-                # explicit le_uB=0.133 / le_PinB=101973 with generic Water defaults
-                # (0.15 / 101325). Manifested on every reset/preset/workspace-switch
-                # once the user had moved Fluid B off Water. Direction combos keep
-                # their signals (harmless layout redraw only).
-                if combo_attr == 'combo_fluidB':
-                    c.blockSignals(True)
+                if combo_attr in ('combo_fluidA', 'combo_fluidB'):
+                    blocked = c.blockSignals(True)
                     c.setCurrentIndex(idx)
-                    c.blockSignals(False)
+                    c.blockSignals(blocked)
                 else:
                     c.setCurrentIndex(idx)
             except Exception:
                 pass
+        self.combo_sco2_nu_mode.setCurrentIndex(
+            self.combo_sco2_nu_mode.findData('cfd_smooth'))
+        self._set_sco2_nu_parameters({})
+        self.chk_allow_extrap.setChecked(True)
+        self.chk_zones.setChecked(False)
+        self.combo_zone_axis.setCurrentIndex(0)
+        self._grid_nx = 2
+        self._zone_init_1d(3)
+        self._zone_grid = None
+        self._pareto_x_decision = None
+        self._pareto_y_trans_inlet = self._pareto_y_trans_outlet = 0.2
         # Treat preset Nx/Ny/Nz as authoritative — without this flag the next
         # `compute_tpms` call would auto-overwrite the preset values with
         # D_h-derived suggestions (e.g. 20/20/20 → 14/25/25).
@@ -753,9 +738,6 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             return False
         is_3d = (hasattr(self, 'combo_dim')
                  and self.combo_dim.currentIndex() == 1)
-        wall_refine_3d = True
-        if is_3d and hasattr(self, 'chk_wall_refine_3d'):
-            wall_refine_3d = bool(self.chk_wall_refine_3d.isChecked())
 
         def _cfg(which):
             try:
@@ -784,7 +766,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         # robustness-hardening (2026-07-03): wire domain.validator.
         # validate_geometry into the run path — it was defined + tested but
         # never called in production (t/L feasibility, cell-larger-than-
-        # domain, Shanghai-extrap reminders all dead). Hard nonsense raises
+        # domain). Hard nonsense raises
         # → critical modal; soft findings merge into the preflight report.
         _geom_warnings = []
         try:
@@ -802,8 +784,8 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
 
         report = compute_preflight(
             L=L, H=H, Lz=Lz, Nx=Nx, Ny=Ny, Nz=Nz,
-            is_3d=is_3d, wall_refine_3d=wall_refine_3d,
-            port_wall_refine=self.chk_port_wall_refine.isChecked(),
+            is_3d=is_3d, wall_refine_3d=False,
+            port_wall_refine=bool(self.combo_grid.currentData()),
             fluid_A=_cfg('A'), fluid_B=_cfg('B'),
             T_inA=_t_k('le_TinA'), T_inB=_t_k('le_TinB'))
         for _w in _geom_warnings:
@@ -975,13 +957,13 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             msg.setIcon(QMessageBox.Icon.Information)
             msg.setText(
                 "快速上手\n\n"
-                "1.  左侧面板 — 按四个工作流分组填写参数"
-                "（几何与结构 → 流体 → 网格与求解器 → 边界细节）。\n"
-                "2.  ▶ 计算 — 面板底部蓝色按钮"
-                "（优化页签内可运行 qNEHVI 多目标优化）。\n"
-                "3.  右侧画布 — 计算完成后查看温度 / 压力 / 速度 / "
-                "3D 视图页签。\n\n"
-                "预设、主题切换（☀/☾）与 K/°C 单位在顶栏。"
+                "1.  左侧工况参数 — 在几何、边界、求解三个页签填写参数。\n"
+                "2.  开始计算 — 使用面板底部蓝色按钮；"
+                "优化设计页面可运行 qNEHVI 多目标优化。\n"
+                "3.  场图结果 — 选择温度、压力或速度，"
+                "三维计算还可切换到三维视图；提示可在诊断详情中查看。\n\n"
+                "顶栏“载入”可打开工况和预设；"
+                "“更多”中可切换主题与 K/°C 单位。"
                 "本提示只显示一次。")
             msg.setStandardButtons(QMessageBox.StandardButton.Ok)
             msg.exec()
@@ -1003,12 +985,8 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         _A = [
             ('btn_compute', "Compute",
              "Run heat-transfer and pressure-drop solve for current parameters"),
-            ('btn_theme', "Theme",
-             "Toggle light and dark application theme"),
-            ('btn_temp_unit', "Temperature unit",
-             "Switch temperature display between Kelvin and Celsius"),
-            ('btn_help', "Help",
-             "Open help menu — About, keyboard shortcuts, and quick tour"),
+            ('btn_more', "更多",
+             "切换主题、温度单位和工作区，查看诊断、帮助与快捷键"),
             ('btn_toggle_left', "Parameter panel",
              "Collapse or expand the left parameter panel"),
             ('combo_tpms', "TPMS type",
@@ -1016,9 +994,9 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             ('combo_dim', "Dimensionality",
              "Switch between 2D planar and 3D volumetric solve"),
             ('combo_fluidA', "Fluid A type",
-             "Working fluid for channel A (hot side)"),
+             "Working fluid for channel A"),
             ('combo_fluidB', "Fluid B type",
-             "Working fluid for channel B (cold side)"),
+             "Working fluid for channel B"),
             ('combo_dirA', "Flow direction A",
              "Principal flow axis for channel A"),
             ('combo_dirB', "Flow direction B",
@@ -1164,17 +1142,18 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             "SS316L ≈ 16, Inconel 625 ≈ 12, copper ≈ 390."),
         'le_uA': (
             "<b>Fluid A interstitial velocity <i>u<sub>A</sub></i></b> [m/s]"
-            "<br/>Through-pore superficial / ε<sub>f</sub>. "
-            "Target 600 &lt; Re &lt; 30000."),
+            "<br/>孔隙内速度 = 表观速度 / ε<sub>f</sub>。"
+            "Nu 的 Re 适用范围随流体类型变化，自动填充会显示对应范围提示。"),
         'le_uB': (
             "<b>Fluid B interstitial velocity <i>u<sub>B</sub></i></b> [m/s]"
-            "<br/>Typical cross-flow water: 0.1 – 0.2 m/s."),
+            "<br/>孔隙内速度 = 表观速度 / ε<sub>f</sub>。"
+            "Nu 的 Re 适用范围随流体类型变化，自动填充会显示对应范围提示。"),
         'le_TinA': (
             "<b>Fluid A inlet temperature <i>T<sub>in,A</sub></i></b><br/>"
-            "Physics uses K internally. K/°C toggle lives in the header."),
+            "内部计算使用 K；可在“更多”菜单中切换 K/°C 显示。"),
         'le_TinB': (
             "<b>Fluid B inlet temperature <i>T<sub>in,B</sub></i></b><br/>"
-            "Physics uses K internally. K/°C toggle lives in the header."),
+            "内部计算使用 K；可在“更多”菜单中切换 K/°C 显示。"),
         'le_PinA': (
             "<b>Fluid A inlet absolute pressure <i>P<sub>in,A</sub></i></b> "
             "[Pa]<br/>101 325 = 1 atm. Gauge + atm." + _CO2_PRESSURE_HELP),
@@ -1183,11 +1162,16 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             "[Pa]" + _CO2_PRESSURE_HELP),
         'le_Nx': (
             "<b>Grid count along <i>x</i></b><br/>"
-            "3D refinement adds +8 cells per wall on each axis."),
-        'le_Ny': "<b>Grid count along <i>y</i></b>",
+            "端口与壁面加密方案中，输入格数包含全部加密单元；"
+            "实际网格及端口覆盖情况见计算前的网格检查。"),
+        'le_Ny': (
+            "<b>Grid count along <i>y</i></b><br/>"
+            "端口与壁面加密方案中，输入格数包含全部加密单元；"
+            "实际网格及端口覆盖情况见计算前的网格检查。"),
         'le_Nz': (
             "<b>Grid count along <i>z</i></b> (3D only)<br/>"
-            "Wall-refine multiplies actual cells; keep modest for interactive runs."),
+            "端口与壁面加密方案中，输入格数包含全部加密单元；"
+            "内部开口边缘会分段，每段均需足够单元，具体要求见网格检查。"),
     }
 
 
@@ -1412,33 +1396,6 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             self._lazy_init_3d_running = False
 
 
-    # ─────────────────────────────────────────────────────────
-    #  Slider callback
-    # ─────────────────────────────────────────────────────────
-    def update_graph_from_slider(self, value):
-        if self.T_fA is None:
-            return
-        c = self.canvas_temp
-        if c.X is None or c.time_text is None:
-            return
-        t = 0  # steady-state only; slider is legacy
-        for ax in c.axes[0]:
-            ax.cla()
-        kw_f = dict(levels=100, cmap="turbo",
-                    vmin=c.min_temp, vmax=c.max_temp)
-        kw_s = dict(levels=100, cmap="turbo",
-                    vmin=c.min_s, vmax=c.max_s)
-        c.axes[0][0].contourf(c.X, c.Y, self.T_fA[value], **kw_f)
-        c.axes[0][1].contourf(c.X, c.Y, self.T_fB[value], **kw_f)
-        c.axes[0][2].contourf(c.X, c.Y, self.T_s[value],  **kw_s)
-        mode_label = f"A:{self._DIR_MAP[self._dir_int(self.combo_dirA)]} " \
-                     f"B:{self._DIR_MAP[self._dir_int(self.combo_dirB)]}"
-        _label_axes(c.axes[0], c.L, c.H, mode_label)
-        c.fig.canvas.draw_idle()
-        c.time_text.set_text(rf"$\mathbf{{t = {t:.4f}}}$ s")
-        self._update_tout(value)
-
-
 # ── Entry point ───────────────────────────────────────────────
 def _apply_app_font(app):
     """Use the platform's native sans-serif interface fonts."""
@@ -1455,30 +1412,6 @@ def main():
     import os as _os_main
     _os_main.environ.setdefault('QT_ENABLE_HIGHDPI_SCALING', '1')
     app = QApplication.instance() or QApplication(sys.argv)
-
-    # ── i18n translator install (scaffolding) ──────────────────
-    # Loads `i18n/sjtu_tpmshx_<locale>.qm` if present — e.g.
-    # `i18n/sjtu_tpmshx_zh_CN.qm`. Produce .qm files with:
-    #   pylupdate6 main.py ui/*.py -ts i18n/sjtu_tpmshx_zh_CN.ts
-    #   lrelease   i18n/sjtu_tpmshx_zh_CN.ts
-    # All user-visible strings are expected to be wrapped with `self.tr("…")`
-    # (QObject.tr) or `QApplication.translate("ctx", "…")`. The current
-    # codebase is English-only; this block lays the groundwork for a
-    # contributor to add translations without further code changes.
-    from PySide6.QtCore import QLocale, QTranslator
-    import os as _os_i18n
-    _i18n_dir = _os_i18n.path.join(
-        _os_i18n.path.dirname(_os_i18n.path.abspath(__file__)), 'i18n')
-    _translator = QTranslator()
-    _loc = QLocale.system().name()  # e.g. "zh_CN", "en_US"
-    _candidates = [f"sjtu_tpmshx_{_loc}.qm",
-                   f"sjtu_tpmshx_{_loc.split('_')[0]}.qm"]
-    for _qm in _candidates:
-        _qm_path = _os_i18n.path.join(_i18n_dir, _qm)
-        if _os_i18n.path.exists(_qm_path) and _translator.load(_qm_path):
-            app.installTranslator(_translator)
-            print(f"[i18n] loaded {_qm}")
-            break
 
     from sjtu_tpmshx.controllers.user_storage import load_appearance_settings
     from sjtu_tpmshx.ui.theme import set_accent_override

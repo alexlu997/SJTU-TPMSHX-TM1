@@ -111,7 +111,6 @@ def test_complete_config_menu_roundtrip(tmp_path, monkeypatch, win,
     from sjtu_tpmshx.ui.window_config import config_from_window
 
     win._apply_shanghai_defaults()
-    win.combo_shape.setCurrentIndex(0)
     win.combo_dim.setCurrentIndex(dim)
     win._temp_unit = unit
     win._sync_temp_unit_labels()
@@ -142,8 +141,7 @@ def test_complete_config_menu_roundtrip(tmp_path, monkeypatch, win,
                                   ('z_ctr', '0.022'), ('z_w', '0.016')):
                 getattr(win, f'le_pipe{side}_{port}_{suffix}').setText(value)
     win.chk_allow_extrap.setChecked(True)
-    win.chk_var_rhocp.setChecked(False)
-    win.chk_wall_refine_3d.setChecked(True)
+    win.combo_grid.setCurrentIndex(win.combo_grid.findData(False))
     win.chk_zones.setChecked(axis is not None)
     win.combo_zone_axis.setCurrentIndex(axis or 0)
     win._pareto_x_decision = None
@@ -223,41 +221,75 @@ def test_complete_config_menu_roundtrip(tmp_path, monkeypatch, win,
         win._compute_3d_watchdog.stop()
 
 
-@pytest.mark.parametrize('shape,perturb_shape,edges', [
-    (1, 0, [1, 4, 2, 5]), (2, 1, [7, 5, 1, 3]), (2, 2, [7, 5, 1, 3]),
-])
-def test_polygon_edges_menu_roundtrip(tmp_path, monkeypatch, win,
-                                      shape, perturb_shape, edges):
+@pytest.mark.parametrize('shape', [1, 2])
+def test_polygon_file_is_rejected_without_changing_inputs_or_results(
+        tmp_path, monkeypatch, win, shape):
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+    from sjtu_tpmshx.ui.window_config import DOMAIN_SHAPE_NOTICE
+
+    win._apply_shanghai_defaults()
+    before = win._capture_current_preset('current')
+    old = win._capture_current_preset('polygon')
+    old['combos'].update(combo_shape=shape, combo_edge_inA=2)
+    old['line_edits'].update(le_L='0.333', le_mesh_density='1200')
+    path = tmp_path / 'polygon.json'
+    original = json.dumps({'config_format': 1, 'preset': old})
+    path.write_text(original)
+    result = {'already computed': True}
+    win._compute_results = result
+    errors = []
+    monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *args: (str(path), ''))
+    monkeypatch.setattr(QMessageBox, 'critical', lambda *args: errors.append(args[2]))
+    assert not win.load_config()
+    assert errors == [DOMAIN_SHAPE_NOTICE]
+    assert win._capture_current_preset('current') == before
+    assert win._compute_results is result
+    assert path.read_text() == original
+
+
+@pytest.mark.parametrize('shape', [1, 2])
+def test_polygon_session_does_not_partially_restore(win, monkeypatch, shape):
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QMessageBox
+    from sjtu_tpmshx.ui.window_config import DOMAIN_SHAPE_NOTICE
+
+    win._apply_shanghai_defaults()
+    before = win._capture_current_preset('current')
+    old = win._capture_current_preset('polygon session')
+    old['combos']['combo_shape'] = shape
+    old['line_edits']['le_L'] = '0.333'
+    monkeypatch.setattr(win.sm, 'load_session', lambda *args: old)
+    callbacks, notices = [], []
+    monkeypatch.setattr(QTimer, 'singleShot', lambda interval, callback: callbacks.append(callback))
+    monkeypatch.setattr(QMessageBox, 'warning', lambda *args: notices.append(args[2]))
+    win._restore_session()
+    assert win._capture_current_preset('current') == before
+    assert len(callbacks) == 1
+    callbacks[0]()
+    assert len(notices) == 1 and DOMAIN_SHAPE_NOTICE in notices[0]
+    assert '保留当前' in notices[0]
+
+
+def test_old_rectangular_file_with_unused_mesh_field_remains_loadable(
+        tmp_path, monkeypatch, win):
     from PySide6.QtWidgets import QFileDialog, QMessageBox
 
     win._apply_shanghai_defaults()
-    win.combo_shape.setCurrentIndex(shape)
-    win.le_mesh_density.setText('1200')
-    for name, index in zip(win._POLYGON_COMBOS, edges):
-        getattr(win, name).setCurrentIndex(index)
-    before = win._capture_current_preset('test')
-    labels = [getattr(win, n).currentText() for n in win._POLYGON_COMBOS]
-    path = tmp_path / 'polygon.json'
-    monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(path), ''))
-    monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *a: (str(path), ''))
+    old = win._capture_current_preset('rectangle')
+    old['line_edits'].update(le_L='0.195', le_mesh_density='auto')
+    path = tmp_path / 'rectangle.json'
+    original = json.dumps({'config_format': 1, 'preset': old})
+    path.write_text(original)
+    monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *args: (str(path), ''))
     errors = []
-    monkeypatch.setattr(QMessageBox, 'critical', lambda *a: errors.append(a))
-    actions = {a.text(): a for a in win.btn_recent.menu().actions()}
-    actions['保存配置文件…'].trigger()
-    assert not errors
-    payload = json.loads(path.read_text())
-    payload['preset']['combos'] = dict(reversed(list(payload['preset']['combos'].items())))
-    path.write_text(json.dumps(payload))  # JSON key order must not govern restore order
-    win.combo_shape.setCurrentIndex(perturb_shape)
-    win.le_L.setText('0.333')
-    win.le_mesh_density.setText('auto')
-    for name in win._POLYGON_COMBOS:
-        getattr(win, name).setCurrentIndex(0)
-    actions['加载配置文件…'].trigger()
-    assert not errors
-    assert win._capture_current_preset('test') == before
-    assert [getattr(win, n).currentText() for n in win._POLYGON_COMBOS] == labels
-    win.combo_shape.setCurrentIndex(0)
+    monkeypatch.setattr(QMessageBox, 'critical', lambda *args: errors.append(args[2]))
+    assert win.load_config() and not errors
+    assert win.le_L.text() == '0.195'
+    current = win._capture_current_preset('current')
+    assert current['combos']['combo_shape'] == 0
+    assert 'le_mesh_density' not in current['line_edits']
+    assert not any(name.startswith('combo_edge_') for name in current['combos'])
+    assert path.read_text() == original
 
 
 def test_save_load_config_roundtrip(tmp_path, monkeypatch, win):
@@ -408,12 +440,63 @@ def test_legacy_file_preserves_fields_and_reports_missing_inputs(tmp_path, monke
 @pytest.mark.parametrize('name', [
     'Shanghai (3D Gyroid)', 'Shanghai (2D Gyroid)', 'Shanghai (3D Diamond)',
 ])
-def test_shanghai_preset_defaults_to_experimental_df(win, name):
+@pytest.mark.parametrize('unit', ['K', 'C'])
+def test_shanghai_preset_restores_ports_and_valid_grid(win, name, unit):
+    from dataclasses import asdict
+    from sjtu_tpmshx.domain.compute_config import bc_to_dict
+    from sjtu_tpmshx.models.grid import build_port_wall_grid
+    from sjtu_tpmshx.tests.test_sco2_nu_modes import SYNTHETIC
     from sjtu_tpmshx.ui.window_config import config_from_window
 
+    win._temp_unit = unit
+    win._sync_temp_unit_labels()
+    win.combo_fluidA.setCurrentIndex(2)
+    win.combo_fluidB.setCurrentIndex(0)
+    win.combo_dirA.setCurrentIndex(1)
+    win.combo_dirB.setCurrentIndex(2)
+    win.chk_zones.setChecked(True)
+    win.combo_zone_axis.setCurrentIndex(2)
+    win._zone_grid = {'stale': True}
+    win._pareto_x_decision = [6.0, 0.4] * 18
+    win._set_sco2_nu_parameters(asdict(SYNTHETIC))
+    win.combo_sco2_nu_mode.setCurrentIndex(1)
+    win.le_rho_s.setText('1234')
+    win.chk_allow_extrap.setChecked(False)
+    # Loading after a smaller case must not retain its 30 mm Z openings.
+    win.le_Lz.setText('0.03')
+    for side in ('A', 'B'):
+        for end in ('in', 'out'):
+            getattr(win, f'le_pipe{side}_{end}_z_ctr').setText('0.015')
+            getattr(win, f'le_pipe{side}_{end}_z_w').setText('0.03')
     win.combo_df_mode.setCurrentIndex(0)
     win._load_named_preset(name)
-    assert config_from_window(win).df_mode == 'experimental'
+    cfg = config_from_window(win)
+    assert cfg.df_mode == 'experimental'
+    assert (cfg.fluid_A.type, cfg.fluid_B.type) == ('air', 'water')
+    assert (cfg.bc_A.dir, cfg.bc_B.dir) == (0, 3)
+    assert (cfg.fluid_A.u_mps, cfg.fluid_A.T_in_K, cfg.fluid_A.P_in_Pa) == (20.0, 422.0, 192362.0)
+    assert (cfg.fluid_B.u_mps, cfg.fluid_B.T_in_K, cfg.fluid_B.P_in_Pa) == (0.133, 300.0, 101973.0)
+    assert win._temp_unit == unit
+    assert cfg.sco2_nu.mode == 'cfd_smooth' and win._sco2_nu_parameters == {}
+    assert not cfg.zones.enabled and win._zone_grid is None
+    assert win._pareto_x_decision is None and win.combo_zone_axis.currentIndex() == 0
+    assert float(win.le_rho_s.text()) == 7900 and cfg.extrap.allow
+    assert win._active_preset_name == name
+    for side in ('A', 'B'):
+        for end in ('in', 'out'):
+            assert getattr(win, f'le_pipe{side}_{end}_z_ctr').text() == '0.021'
+            assert getattr(win, f'le_pipe{side}_{end}_z_w').text() == '0.042'
+    geom, solver = cfg.geometry, cfg.solver
+    lengths = (geom.L_dom_m, geom.H_dom_m)
+    counts = (solver.Nx, solver.Ny)
+    if cfg.is_3d:
+        lengths += (geom.Lz_m,)
+        counts += (solver.Nz,)
+    ports = [bc_to_dict(getattr(cfg, f'bc_{side}'), *lengths[:2],
+                        side=side, with_z=cfg.is_3d)
+             for side in ('A', 'B')]
+    grid = build_port_wall_grid(lengths, counts, ports)
+    assert tuple(len(widths) for widths in grid) == counts
 
 
 @pytest.mark.parametrize('route', ['preset', 'session'])
@@ -429,7 +512,7 @@ def test_saved_df_choice_is_preserved(win, monkeypatch, route, saved_mode):
     assert win.combo_df_mode.currentIndex() == (saved_mode or 0)
 
 
-def test_partial_preset_allowlist_and_startup_reset_policy(win):
+def test_partial_preset_allowlist_and_session_preserves_saved_case(win):
     win._apply_user_preset({'line_edits': {'le_L': '0.22', 'statusBar': 'evil'},
                             'combos': {'combo_fluidA': 1}, 'temp_unit': 'C'})
     assert win.le_L.text() == '0.22' and callable(win.statusBar)
@@ -440,11 +523,132 @@ def test_partial_preset_allowlist_and_startup_reset_policy(win):
     win._apply_shanghai_defaults()
     win._restore_session()
     assert win._temp_unit == 'K'
-    from sjtu_tpmshx.models.grid import SHANGHAI_GRID_3D
-    assert [getattr(win, n).text() for n in ('le_Nx', 'le_Ny', 'le_Nz')] == list(map(str, SHANGHAI_GRID_3D))
-    assert win.chk_port_wall_refine.isChecked()
-    assert win.combo_fluidA.currentIndex() == 0
+    assert win.le_Nx.text() == '31'
+    assert float(win.le_TinA.text()) == pytest.approx(343.15)
+    assert win.combo_grid.currentData() is False
+    assert win.combo_fluidA.currentIndex() == 1
     assert win.combo_fluidB.currentIndex() == 1
+
+
+@pytest.mark.parametrize('unit', ['K', 'C'])
+def test_session_restores_complete_physical_case_in_kelvin(win, monkeypatch, unit):
+    from dataclasses import asdict
+    from sjtu_tpmshx.ui.window_config import config_from_window
+
+    win._apply_shanghai_defaults()
+    win._temp_unit = unit
+    win._sync_temp_unit_labels()
+    win.combo_fluidA.setCurrentIndex(2)
+    win.combo_fluidB.setCurrentIndex(0)
+    win.combo_dirA.setCurrentIndex(1)
+    win.combo_dirB.setCurrentIndex(2)
+    win.combo_df_mode.setCurrentIndex(0)
+    win.combo_grid.setCurrentIndex(win.combo_grid.findData(False))
+    edits = {'le_L': '.06', 'le_H': '.03', 'le_Lz': '.03',
+             'le_Nx': '30', 'le_Ny': '18', 'le_Nz': '10',
+             'le_uA': '1.7', 'le_PinA': '12000000',
+             'le_uB': '7.5', 'le_PinB': '201325',
+             'le_TinA': '86.85' if unit == 'C' else '360',
+             'le_TinB': '26.85' if unit == 'C' else '300'}
+    for side, centre, width in (('A', '.015', '.020'), ('B', '.030', '.030')):
+        for end in ('in', 'out'):
+            for suffix, value in (('ctr', centre), ('w', width),
+                                  ('z_ctr', '.01'), ('z_w', '.02')):
+                edits[f'le_pipe{side}_{end}_{suffix}'] = value
+    for name, value in edits.items():
+        getattr(win, name).setText(value)
+    before = asdict(config_from_window(win))
+    before['flags']['temp_unit'] = 'K'
+    saved = {}
+    monkeypatch.setattr(win.sm, 'save_session', lambda payload, ws: saved.update(payload) or True)
+    assert win._save_session()
+    win._apply_shanghai_defaults()
+    win._compute_results = {'stale': True}
+    monkeypatch.setattr(win.sm, 'load_session', lambda ws: saved)
+    win._restore_session()
+    assert win._temp_unit == 'K'
+    assert asdict(config_from_window(win)) == before
+    assert not win._compute_results
+    assert saved['temp_unit'] == unit  # loading did not rewrite the source payload
+
+
+def test_partial_celsius_session_does_not_convert_missing_kelvin_field(win, monkeypatch):
+    win._temp_unit = 'K'
+    win._apply_shanghai_defaults()
+    old = {'temp_unit': 'C', 'line_edits': {'le_TinA': '70'}, 'combos': {}}
+    monkeypatch.setattr(win.sm, 'load_session', lambda ws: old)
+    win._restore_session()
+    assert float(win.le_TinA.text()) == pytest.approx(343.15)
+    assert float(win.le_TinB.text()) == 300.0
+
+
+def test_workspaces_restore_their_own_zone_table_and_pareto_state(win, monkeypatch, tmp_path):
+    from PySide6.QtWidgets import QTableWidgetItem
+
+    monkeypatch.setattr(win.sm, '_base', tmp_path)
+    monkeypatch.setattr(win, '_active_workspace', 'A')
+    win._temp_unit = 'K'
+    win._apply_shanghai_defaults()
+    win.combo_df_mode.setCurrentIndex(0)
+    win.combo_zone_axis.setCurrentIndex(2)
+    win.chk_zones.setChecked(True)
+    win._grid_nx = 2
+    rows_a = [[str(y0), str(y1), str(x0), str(x1), '6.5', '0.45']
+              for y0, y1 in ((0, 40), (40, 100))
+              for x0, x1 in ((0, 60), (60, 100))]
+    win.zone_table.setRowCount(len(rows_a))
+    for r, row in enumerate(rows_a):
+        for c, value in enumerate(row):
+            win.zone_table.setItem(r, c, QTableWidgetItem(value))
+    win._pareto_x_decision = [6.5, .45] * 18
+    win._pareto_y_trans_inlet, win._pareto_y_trans_outlet = .15, .18
+    saved_a = win._capture_current_preset('A')
+    win._switch_workspace('B')
+    win.combo_df_mode.setCurrentIndex(0)
+    win.combo_dim.setCurrentIndex(0)
+    win.combo_zone_axis.setCurrentIndex(1)
+    win.chk_zones.setChecked(True)
+    win._zone_init_1d(2)
+    win.zone_table.item(0, 2).setText('8.0')
+    saved_b = win._capture_current_preset('B')
+
+    win._switch_workspace('A')
+    restored_a = win._capture_current_preset('A')
+    assert restored_a['zone_inputs'] == saved_a['zone_inputs']
+    assert restored_a['combos']['combo_zone_axis'] == 2
+    assert restored_a['checks']['chk_zones']
+    on_disk = json.loads(win.sm.session_path('A').read_text())
+    assert on_disk['zone_inputs'] == saved_a['zone_inputs']
+    win._switch_workspace('B')
+    restored_b = win._capture_current_preset('B')
+    assert restored_b['zone_inputs'] == saved_b['zone_inputs']
+    assert restored_b['combos']['combo_zone_axis'] == 1
+    assert restored_b['checks']['chk_zones']
+
+
+def test_legacy_session_without_zone_data_disables_and_clears_stale_zones(win, monkeypatch):
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QMessageBox
+
+    win._apply_shanghai_defaults()
+    win.combo_zone_axis.setCurrentIndex(2)
+    win.chk_zones.setChecked(True)
+    win._pareto_x_decision = [8.0, .5] * 18
+    old = win._capture_current_preset('old session')
+    old.pop('zone_inputs')
+    old['combos'].pop('combo_zone_axis')
+    callbacks, messages = [], []
+    monkeypatch.setattr(win.sm, 'load_session', lambda ws: old)
+    monkeypatch.setattr(QTimer, 'singleShot', lambda interval, callback: callbacks.append(callback))
+    monkeypatch.setattr(QMessageBox, 'information', lambda *args: messages.append(args[2]))
+    win._restore_session()
+    assert not win.chk_zones.isChecked() and win.zone_table.rowCount() == 0
+    assert win._zone_grid is None and win._pareto_x_decision is None
+    assert win.combo_zone_axis.currentIndex() == 0 and win._grid_nx == 2
+    assert old['checks']['chk_zones'] and 'zone_inputs' not in old
+    for callback in callbacks:
+        callback()
+    assert len(messages) == 1 and '旧会话未保存分区数据' in messages[0]
 
 
 @pytest.mark.parametrize('route', ['preset', 'recent', 'link'])
@@ -613,8 +817,8 @@ def test_result_status_survives_notification_and_mode_switch(
         expected_warnings = result.warnings.copy()
         if mode == '2d':
             finalize_plots(win)
-            assert win._compute_warnings is None
-            assert notices
+            assert win._compute_warnings == expected_warnings
+            assert not notices, 'completed solves must not wait for a warning popup'
             assert win._diag_summary['converged'] == converged
             assert win._compute_results['warnings'] == expected_warnings
             # Result owns copies; a later notification/draft must not replace it.
@@ -703,3 +907,76 @@ def test_nu_parameters_import_save_load_snapshot(win, monkeypatch, tmp_path, nu_
     win._apply_user_preset(old)
     assert config_from_window(win).sco2_nu.mode == 'cfd_smooth'
     assert config_from_window(win).sco2_nu.alpha_D is None
+
+
+@pytest.mark.parametrize('missing_inlet_flags', [False, True])
+def test_saved_older_solver_settings_upgrade_once_and_save_current_values(
+        win, tmp_path, monkeypatch, missing_inlet_flags):
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+    from sjtu_tpmshx.ui.window_config import config_from_window
+
+    win._apply_shanghai_defaults()
+    win.combo_dim.setCurrentIndex(0)
+    old = win._capture_current_preset('older inlet settings')
+    old['combos'].pop('combo_grid')
+    old['checks'].update(chk_port_wall_refine=False, chk_wall_refine_3d=True,
+                         chk_var_rhocp=False)
+    for side in ('A', 'B'):
+        key = f'chk_uniform_inlet{side}_2d'
+        if missing_inlet_flags:
+            old['checks'].pop(key)
+        else:
+            old['checks'][key] = False
+    path = tmp_path / 'input.json'
+    original = json.dumps({'config_format': 1, 'preset': old})
+    path.write_text(original)
+    notices, errors = [], []
+    monkeypatch.setattr(QMessageBox, 'information', lambda *args: notices.append(args[2]))
+    monkeypatch.setattr(QMessageBox, 'critical', lambda *args: errors.append(args))
+    monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *args: (str(path), ''))
+    assert win.load_config()
+    assert not errors and len(notices) == 1
+    assert all(part in notices[0] for part in ('流体 A', '流体 B', '六壁面', '局部密度'))
+    assert path.read_text() == original
+    config = config_from_window(win)
+    assert config.bc_A.uniform_inlet_2d and config.bc_B.uniform_inlet_2d
+    assert not config.flags.wall_refine_3d and config.flags.variable_rho_cp
+    assert not config.flags.port_wall_refine
+    new_path = tmp_path / 'current.json'
+    monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *args: (str(new_path), ''))
+    assert win.save_config()
+    current = json.loads(new_path.read_text())['preset']
+    assert all(current['checks'][key] == value for key, value in win._FIXED_SOLVER_CHECKS.items())
+    assert 'chk_port_wall_refine' not in current['checks']
+    assert current['combos']['combo_grid'] == win.combo_grid.findData(False)
+    monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *args: (str(new_path), ''))
+    assert win.load_config()
+    assert len(notices) == 1
+
+
+def test_session_restore_reports_solver_update_and_resave_removes_repeat(win, monkeypatch):
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QMessageBox
+    from sjtu_tpmshx.ui.window_config import config_from_window
+
+    win._apply_shanghai_defaults()
+    old = win._capture_current_preset('previous session')
+    old['checks']['chk_var_rhocp'] = False
+    old['checks']['chk_uniform_inletB_2d'] = False
+    monkeypatch.setattr(win.sm, 'load_session', lambda *args: old)
+    callbacks = []
+    monkeypatch.setattr(QTimer, 'singleShot', lambda interval, callback: callbacks.append((interval, callback)))
+    messages = []
+    monkeypatch.setattr(QMessageBox, 'information', lambda *args: messages.append(args[2]))
+    win._restore_session()
+    for interval, callback in callbacks:
+        if interval == 0:
+            callback()
+    assert len(messages) == 1 and '局部密度热输运' in messages[0]
+    assert '流体 B' in messages[0]
+    config = config_from_window(win)
+    assert config.flags.variable_rho_cp and config.bc_B.uniform_inlet_2d
+    saved = []
+    monkeypatch.setattr(win.sm, 'save_session', lambda payload, *args: saved.append(payload) or True)
+    assert win._save_session()
+    assert win._solver_settings_notice(saved[0]) == ''

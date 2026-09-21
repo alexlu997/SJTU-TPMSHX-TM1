@@ -954,7 +954,7 @@ def _build_canvas_content(window, vlay, t):
         f" font-weight:700;'>1</span>&nbsp;&nbsp;在左侧面板设置几何与两侧流体</p>"
         f"<p style='margin:0 0 8px 0;'><span style='color:{_acc};"
         f" font-weight:700;'>2</span>&nbsp;&nbsp;点击 <b>开始计算</b>"
-        f"（Ctrl+R），展开计算状态查看迭代与残差</p>"
+        f"（Ctrl+R），展开计算状态查看迭代与提示</p>"
         f"<p style='margin:0;'><span style='color:{_acc};"
         f" font-weight:700;'>3</span>&nbsp;&nbsp;在此查看温度 / 压力 / 速度场；"
         f"就绪后上方页签自动点亮</p>"
@@ -1056,6 +1056,9 @@ def _build_canvas_content(window, vlay, t):
                 f"QFrame#plotCard{{background:{_t['card_bg']};"
                 f"border:1px solid {_t['card_border']}; border-radius:{RADIUS_CARD}px;}}")
         card_lay = QVBoxLayout(card)
+        if key == '3d':
+            from PySide6.QtWidgets import QLayout
+            card_lay.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         if key == 'layout':
             card_lay.setContentsMargins(8, 8, 8, 8)
         elif key == 'pareto':
@@ -1210,14 +1213,10 @@ def _build_canvas_content(window, vlay, t):
 
 
 def _connect_canvas_interactions(window, vlay, theme):
-    """Attach viewport sizing, hover, and slider interactions."""
+    """Attach viewport sizing and hover interactions."""
     _t = theme
-    # ── 3D card fits the scroll viewport (no forced vertical scrollbar) ──
-    # The fixed card heights suit the stacked 2D canvases, but the lone 3D card
-    # (1144 px) overflowed shorter screens → a scrollbar the user had to drag to
-    # reach a usable size. Refit it to the visible viewport height on every
-    # scroll-resize and whenever the card is shown (tab switch) so it lands
-    # correctly sized with no scroll.
+    # Fit cards to the viewport. The 3D controls and native viewport retain
+    # their minimum size; short windows use the existing canvas scroll area.
     def _fit_3d_card_to_viewport():
         sc = getattr(window, '_canvas_scroll', None)
         if sc is None:
@@ -1227,6 +1226,8 @@ def _connect_canvas_interactions(window, vlay, theme):
             card = window._canvas_cards.get(key)
             if card is not None and card.isVisible() and vh > 24:
                 height = vh - 24
+                if key == '3d':
+                    height = max(height, card.minimumSizeHint().height())
                 factor = getattr(window, '_canvas_zoom_factors', {}).get(key, 1.0)
                 window._canvas_default_h[key] = height
                 card.setFixedHeight(int(height * factor))
@@ -1254,11 +1255,10 @@ def _connect_canvas_interactions(window, vlay, theme):
         def _c3d_show(ev, _o=_orig_show):
             if _o is not None:
                 _o(ev)
-            # 3D fills one card → no scroll needed. Hide the vertical bar so a
-            # few px of layout slack can't trigger a stray scrollbar, and refit
-            # the card to the viewport.
+            # Keep compact controls and a usable native viewport reachable
+            # when details and the result summary occupy a short window.
             window._canvas_scroll.setVerticalScrollBarPolicy(
-                Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+                Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             _fit_3d_card_to_viewport()
         _c3d.showEvent = _c3d_show
         _orig_hide = _c3d.hideEvent
@@ -1283,20 +1283,6 @@ def _connect_canvas_interactions(window, vlay, theme):
     # Connect hover events
     for c in (window.canvas_temp, window.canvas_pres, window.canvas_vel):
         c.mpl_connect('motion_notify_event', window._on_hover)
-
-    # ── Slider (hidden for steady-state) ──
-    window.slider = QSlider(Qt.Orientation.Horizontal)
-    window.slider.setStyleSheet(
-        "QSlider::groove:horizontal{background:rgba(0,0,0,30);"
-        "height:5px; border-radius:3px;}"
-        "QSlider::handle:horizontal{background:rgba(68,114,196,200);"
-        "width:13px; height:13px; margin:-4px 0; border-radius:7px;}"
-        "QSlider::sub-page:horizontal{background:rgba(68,114,196,150);"
-        "border-radius:3px;}")
-    window.slider.valueChanged.connect(window.update_graph_from_slider)
-    window.slider.hide()
-    vlay.addWidget(window.slider)
-
 
 def build_canvas_area(window):
     """Ex-Main_Menu._build_canvas_area(self) -> QWidget."""
@@ -1374,28 +1360,6 @@ def _relayout_canvas_cards(window, cols):
     window._canvas_cols = cols
 
 
-def canvas_zoom(window, factor):
-    """Ex-Main_Menu._canvas_zoom(self, factor). Zoom current canvas card by factor."""
-    tab = window._active_tab
-    if tab == '3d':
-        panel = getattr(window, 'canvas_3d', None)
-        plotter = getattr(panel, 'plotter', None)
-        if plotter is not None:
-            try:
-                plotter.camera.zoom(float(factor))
-                plotter.render()
-                return
-            except Exception:
-                pass
-    card = window._canvas_cards.get(tab)
-    if card:
-        factors = getattr(window, '_canvas_zoom_factors', {})
-        factors[tab] = factors.get(tab, 1.0) * factor
-        window._canvas_zoom_factors = factors
-        h = max(200, int(card.height() * factor))
-        card.setFixedHeight(h)
-
-
 def canvas_zoom_reset(window):
     """Ex-Main_Menu._canvas_zoom_reset(self). Reset current canvas card to default height."""
     tab = window._active_tab
@@ -1403,7 +1367,7 @@ def canvas_zoom_reset(window):
         panel = getattr(window, 'canvas_3d', None)
         if panel is not None:
             try:
-                panel._set_view('iso')
+                panel.fit_view()
                 return
             except Exception:
                 pass

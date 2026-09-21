@@ -5,14 +5,13 @@ Phase 3 of 2026-05-06 main.py refactor (audit fix #4).
 from __future__ import annotations
 
 import os
-import types
 
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 from PySide6.QtCore import QCoreApplication
 
-from sjtu_tpmshx.ui.theme_manager import ThemeManager, _LEGACY_GLOBALS
+from sjtu_tpmshx.ui.theme_manager import ThemeManager
 
 
 def _app():
@@ -55,45 +54,6 @@ def test_palette_is_dict():
     assert 'bg' in p
 
 
-# ---------------------------------------------------------------- bind
-
-
-def test_bind_to_module_writes_legacy_globals():
-    _app()
-    tm = ThemeManager()
-    mod = types.ModuleType('mock_main')
-    tm.bind_to_module(mod)
-    # Every legacy global must exist on the bound module
-    for key in _LEGACY_GLOBALS:
-        assert hasattr(mod, f'_{key}'), f'missing _{key}'
-    # Master dict also exposed
-    assert hasattr(mod, '_S')
-    assert isinstance(mod._S, dict)
-
-
-def test_bind_idempotent():
-    _app()
-    tm = ThemeManager()
-    mod = types.ModuleType('mock_main')
-    tm.bind_to_module(mod)
-    tm.bind_to_module(mod)   # second time should not duplicate
-    assert tm._bound.count(mod) == 1
-
-
-def test_rebuild_refreshes_bound_modules():
-    _app()
-    tm = ThemeManager()
-    mod = types.ModuleType('mock_main')
-    tm.bind_to_module(mod)
-    bg_before = mod._BG
-    tm.rebuild()
-    # BG may be unchanged value-wise (same theme) but the dict ref must
-    # reflect a freshly built instance.
-    assert tm.current_styles() is mod._S
-    assert isinstance(mod._BG, str)
-    _ = bg_before   # silence linter — we kept reference for symmetry
-
-
 # ---------------------------------------------------------------- signal
 
 
@@ -130,4 +90,4 @@ def test_repr_safe():
     tm = ThemeManager()
     s = repr(tm)
     assert 'ThemeManager' in s
-    assert 'bound_modules' in s
+    assert tm.current_theme_name() in s

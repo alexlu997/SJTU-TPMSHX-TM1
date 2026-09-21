@@ -9,15 +9,16 @@ Design parameters (finalized 2026-06-15):
              representative — C fixed by (topology, t/L), covers all same-ratio cells)
   split r  : ε_A/ε_B ∈ {1, 1.5, 2, 2.5, 3, 3.5}  (1 = symmetric κ=1 anchor)
              → δ back-solved per topology (fixed C, sweep δ)
-  Re sweep : side A (large/gas)  {600, 2000, 6000, 12000, 20000}
-             side B (small/liq)  {150, 400, 1000, 2000, 3000}
+  Re sweep : side A (large/gas)  {600, 2000, 6000, 12000}
+             side B (small/liq)  {150, 500, 1500, 3000}
              (each side fit |ΔP|/L = (μ/K)u + c_F ρ u² → K, c_F)
 
-κ method (relative-ratio): κ_X(r) = X_asym / X_sym, r = ε_side/ε_sym.
-δ=0 → r=1 → κ=1 → bit-identical (zero regression). One offset cell gives BOTH
-channels (A large r>1, B small r<1), so d↔1−d symmetry halves the geometry count.
+κ method: κ_X(r) = X_CFD / X_symmetric_model, r = ε_side/ε_sym.
+The denominator is predict_K_cF, not a same-recipe CFD reference; the ratio
+may include differences beyond geometry. The outer κ caller enforces identity
+at r≈1. One offset cell gives both channels (A large r>1, B small r<1).
 
-Output: runs/_out/asym_cfd/asym_cfd_design_matrix.xlsx
+Output: sjtu_tpmshx/runs/_out/asym_cfd/asym_cfd_design_matrix.xlsx
 Usage:  python -m sjtu_tpmshx.runs.tools.asym_build_cfd_design_xlsx
 """
 from pathlib import Path
@@ -37,8 +38,8 @@ TPMS = ["Diamond", "Gyroid"]
 SPLITS = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5]
 RE_A = [600, 2000, 6000, 12000]   # side A: large channel (gas-like); cap Mach<0.3 (Um≲96 m/s)
 RE_B = [150, 500, 1500, 3000]     # side B: small channel (liquid-like)
-# nominal fluid props for inlet-velocity convenience (κ is geometry-only;
-# props cancel in the ratio — Um here only seeds the Fluent BC).
+# Nominal fluid props seed inlet velocity; transfer of fitted κ between fluids
+# remains a research assumption, not an exact cancellation of CFD differences.
 AIR = dict(name="air",   rho=1.2,   mu=1.85e-5)
 WATER = dict(name="water", rho=992.0, mu=6.5e-4)
 
@@ -114,7 +115,7 @@ def build():
         ("", None),
         ("目标: 标定 per-side Darcy-Forchheimer (K, c_F) 的相对修正 κ(r)，给 ε_A≠ε_B 偏移几何。", None),
         ("方法 = 相对比值: κ_X(r) = X_asym / X_sym,  r = ε_side/ε_sym。X_sym = 现有对称 baseline (predict_K_cF)。", None),
-        ("比值抵消 sym/asym 共有 provenance (网格/湍流/粗糙) → 只留几何偏移效应。δ=0→r=1→κ=1→零回归。", None),
+        ("分母是对称预测模型，并非同 recipe CFD；比值可能含网格/湍流/粗糙等差异。外层 κ 调用在 r≈1 返回 1。", None),
         ("", None),
         ("【设计参数】", Font(bold=True, size=12)),
         ("  topology : Diamond + Gyroid", None),
@@ -139,10 +140,12 @@ def build():
         ("  1. geom_cases → nTop 建偏移-TPMS 周期胞元 (验 ε 匹配) → 导出流体域给 Fluent。", None),
         ("  2. cfd_runs: 每 (case, side, Re) 一行, Um 已给 → Fluent 跑 → 填黄色 dP_Pa 列。", None),
         ("  3. 每 (tpms, split, side) 对其 Re 的 (u, dP) 拟 DF → 得 (K_cfd, c_F_cfd)。", None),
-        ("  4. 填 results_template 黄色 K_cfd/cF_cfd 列 → 另存 CSV → python -m df_surrogate.ingest_cfd_kappa <csv>。", None),
-        ("  5. $env:TPMSHX_ASYM_KAPPA=1 → 跑 Shanghai 3D (δ=0→κ=1) 必复现 9.82/3.20 (零回归闸)。", None),
+        ("  4. 填 results_template 黄色 K_cfd/cF_cfd 列 → 另存 CSV → python -m sjtu_tpmshx.df_surrogate.ingest_cfd_kappa <csv>。", None),
+        ("  5. ingest 仅当前进程注册；研究代码可显式调用 kappa_KcF(..., enabled=True) 求值，尚未接入正式求解准备。", None),
+        ("  后续接入验收: 固定代码版本、输入及网格，配对比较 κ 关闭/开启时 δ=0 的结果，保留差异及原验收门槛。", None),
+        ("  历史记录: 9.82/3.20 属 2026-06-12 gamma_df 上海 3D 记录，见 tests/test_shanghai_regression.py；不是当前固定精度目标。", None),
         ("", None),
-        (f"  Um 名义流体 (仅给入口速度, κ 与流体无关): air ρ={AIR['rho']}/μ={AIR['mu']}, water ρ={WATER['rho']}/μ={WATER['mu']}。", None),
+        (f"  Um 名义流体 (仅给入口速度): air ρ={AIR['rho']}/μ={AIR['mu']}, water ρ={WATER['rho']}/μ={WATER['mu']}；κ 跨流体使用需验证。", None),
         ("  Um = Re·μ/(ρ·D_h)。黄色单元格 = 待 CFD 填。绿色行 = 对称锚 (r=1)。", None),
     ]
     for i, (txt, font) in enumerate(lines, 1):

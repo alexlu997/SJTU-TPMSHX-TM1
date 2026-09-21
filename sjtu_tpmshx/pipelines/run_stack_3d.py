@@ -31,13 +31,13 @@ def _build_3d_problem(cfg, *, control: RunControl = RunControl()):
 
 
 def _run_3d_stack(cfg, *, control: RunControl = RunControl()):
-    """Unified 3D stack: SIMPLE3D (A) + frozen Tb + LTNE3D.
+    """Full 3D stack: per-side SIMPLE3D coupled to the thermal solve.
 
     Runtime callbacks are supplied through ``control``, never through ``cfg``.
 
-    Supports fluid-A streamwise direction ∈ {+x, -x, +y, -y} and partial
-    inlet/outlet in the cross-stream dimension (z-partial optional via
-    `in_z_ctr`/`in_z_w` etc. in `fluid_A_cfg`).
+    Both sides support ±x, ±y and ±z with partial openings in both
+    cross-stream coordinates. An explicit ``fluid_B_cfg=None`` selects the
+    single-fluid path; it is distinct from the frozen-B screening model.
 
     Sweep profiles (cfg['sweep_profile']):
       'fast_sweep'    — 15³ grid, outer cap 3 (BELOW the converging count —

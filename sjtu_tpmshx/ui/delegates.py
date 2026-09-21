@@ -1,9 +1,4 @@
-"""Custom Qt item delegates for table editing.
-
-Phase 5 follow-up: extracts ``_SelectAllDelegate`` out of ``main.py`` so
-the last ``import main`` reference in ``ui_builders.py`` (zone_table
-delegate) goes away. Pure Qt, no ThemeManager / FieldFactory deps.
-"""
+"""Custom Qt item delegates for table editing."""
 from __future__ import annotations
 
 from PySide6.QtCore import QTimer

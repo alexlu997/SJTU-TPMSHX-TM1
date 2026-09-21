@@ -74,7 +74,6 @@ class DialogsMixin:
         ("Command palette",        "Ctrl+K"),
         ("Overview dashboard",     "Ctrl+D"),
         ("Coordinate inspector",   "Ctrl+I"),
-        ("Filter parameters",      "Ctrl+F"),
         ("Launch qNEHVI optimize", "Ctrl+Enter"),
         ("Cycle tabs",             "Ctrl+↑ / Ctrl+↓"),
         ("Quick fluid (A / B)",    "Alt+1/2/3  ·  Alt+Shift+1/2/3"),
@@ -91,27 +90,29 @@ class DialogsMixin:
         ("专注当前画布",            "F"),
         ("收起/展开参数栏",          "Ctrl+\\"),
         ("Keyboard cheat sheet",   "Ctrl+?"),
-        ("Compute button",         "Alt+C"),
-        ("Reset button",           "Alt+R"),
-        ("Export results",         "Alt+E"),
-        ("Preview layout",         "Alt+P"),
-        ("Optimize (qNEHVI)",      "Alt+O"),
     )
 
     def _show_shortcuts(self):
         """Popup dialog listing all keyboard shortcuts as a two-column table."""
+        from PySide6.QtGui import QKeySequence
+
         mono = get_theme()['mono_family']
+        edit_keys = {
+            label: QKeySequence(key).toString(QKeySequence.SequenceFormat.NativeText)
+            for label, key in (
+                ("Undo field edit", QKeySequence.StandardKey.Undo),
+                ("Redo field edit", QKeySequence.StandardKey.Redo),
+            )
+        }
         rows_html = "".join(
             f"<tr><td style='padding:4px 16px 4px 0;'>{label}</td>"
-            f'<td style="padding:4px 0; font-family:{mono};"><b>{key}</b></td></tr>'
+            f'<td style="padding:4px 0; font-family:{mono};"><b>{edit_keys.get(label, key)}</b></td></tr>'
             for label, key in self._SHORTCUT_ROWS)
         html = (
             "<h3 style='margin:0 0 8px 0;'>Keyboard shortcuts</h3>"
             "<table style='border-collapse:collapse;'>"
             f"{rows_html}"
-            "</table>"
-            "<p style='margin-top:12px; color:#888;'>Alt-mnemonics activate "
-            "the underlined letter on any button when Alt is held.</p>")
+            "</table>")
         msg = QMessageBox(self)
         msg.setWindowTitle("Keyboard Shortcuts")
         msg.setIcon(QMessageBox.Icon.NoIcon)

@@ -73,7 +73,7 @@ def main() -> None:
         # 2026-05-14 (revised): norris_1a is alias of baseline for friction.
         # ×1.28 Nu in tpms_calc is the only roughness compensation; c_F is
         # already SLM-fit, so any f-side multiplier double-counts. See
-        # solvers/roughness.py docstring.
+        # models/roughness.py docstring.
         'roughness_mode':      'norris_1a',
         'roughness_eps_um':    100.0,
     }

@@ -6,18 +6,21 @@ Relative-ratio closure for the offset-isosurface (ε_A ≠ ε_B) work:
 
 where ``X_sym`` is the existing symmetric Darcy-Forchheimer prediction
 (``predict.predict_K_cF`` at ε_sym = ε_total/2) and ``κ_X(r)`` is fitted from
-the EXTERNAL ANSYS Fluent per-side runs (populated by
-``ingest_cfd_kappa.ingest``). The relative ratio cancels the shared provenance
-(turbulence model, mesh, AM-roughness factor) between the asymmetric and
-symmetric CFD, so only the *geometry-induced* per-side shift survives.
+external ANSYS Fluent per-side runs. Two research import paths use different
+denominators: ``ingest_cfd_kappa.ingest`` divides CFD coefficients by the
+symmetric model prediction; ``runs.cfd_asym.asym_postproc_kappa`` divides them
+by the same dataset's symmetric CFD fit mean. These ratios are not automatically
+equivalent, and CFD/model bias cancellation is not guaranteed. Tables are
+registered only in the calling process; neither CLI installs a persistent model.
 
 Three identity guards keep δ=0 (and the uncalibrated state) bit-identical:
   1. env ``TPMSHX_ASYM_KAPPA`` off (default)  → (1.0, 1.0)
   2. no κ table for this tpms_type             → (1.0, 1.0)
   3. r ≈ 1 (ε_side == ε_sym, i.e. δ=0)         → (1.0, 1.0)
 
-κ multiplies the output of ``predict_K_cF``. The fixed geometry baseline
-is unchanged at δ=0; production preparation does not apply this research hook.
+The returned κ values are intended to multiply ``predict_K_cF`` outputs in a
+research caller. Production preparation does not consume this hook, even when
+the environment flag is set; registering a table alone does not change a solve.
 """
 from __future__ import annotations
 

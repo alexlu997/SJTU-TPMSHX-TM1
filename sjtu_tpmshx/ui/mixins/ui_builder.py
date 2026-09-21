@@ -68,17 +68,7 @@ class UIBuilderMixin:
                 "border:none; padding:0 2px; font-size:10pt;")
             return s
 
-        # Tiny live-residual sparkline — shown while a compute is in
-        # flight so users can eyeball convergence without waiting for the
-        # pressure-tab residual plot. Fluid A only (keep footprint small);
-        # the full A+B semilog plot remains on Pressure tab post-run.
-        from sjtu_tpmshx.ui.sparkline import Sparkline as _LiveSpark
-        self._sb_live_resid = _LiveSpark(height=20)
-        self._sb_live_resid.setFixedWidth(120)
-        self._sb_live_resid.hide()
-
-        for w in (self._sb_re, _sep(), self._sb_clock,
-                  _sep(), self._sb_live_resid):
+        for w in (self._sb_re, _sep(), self._sb_clock):
             sb.addPermanentWidget(w)
         self._refresh_status_bar()
 

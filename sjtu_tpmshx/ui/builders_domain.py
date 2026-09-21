@@ -12,8 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from .theme import get_theme
-from .builders_base import (section, collapsible_section, row, res_row, add_row, right_align_combo)
-from .window_config import DOMAIN_SHAPE_NOTICE
+from .builders_base import (section, row, res_row, add_row, right_align_combo)
 
 
 def _res_ab_row(window, rg, r, label, attr_a, attr_b, *, unit_lbl_attrs=None):
@@ -43,6 +42,7 @@ def _on_dim_changed(window):
     no hardcoded attribute list to keep in sync.
     """
     is_3d = window.combo_dim.currentIndex() == 1
+    window.lbl_domain_shape.setText("长方体" if is_3d else "矩形")
     for w in getattr(window, '_3d_only_widgets', []):
         w.setVisible(is_3d)
     # Mode change also reveals/hides the result tabs for the current mode
@@ -92,21 +92,10 @@ def build_page_domain(window):
     window._lbl_Lz     = g.itemAtPosition(2, 0).widget()
     window._3d_only_widgets += [window.le_Lz, window._lbl_Lz]
 
-    # Update edge labels when L or H changes
-    window.le_L.editingFinished.connect(window._update_edge_combos)
-    window.le_H.editingFinished.connect(window._update_edge_combos)
-
-    # Domain shape selector
-    window.combo_shape = QComboBox()
-    window.combo_shape.addItems(["Rectangle", "Hexagon", "Octagon"])
-    # Keep saved shape indices; unavailable polygons must not become rectangles.
-    for index in (1, 2):
-        window.combo_shape.model().item(index).setEnabled(False)
-        window.combo_shape.setItemData(index, DOMAIN_SHAPE_NOTICE, Qt.ItemDataRole.ToolTipRole)
-    window.combo_shape.setToolTip(DOMAIN_SHAPE_NOTICE)
-    window.combo_shape.setStyleSheet(_COMBO)
-    window.combo_shape.currentIndexChanged.connect(window._on_shape_changed)
-    add_row(window, g, 3, "计算域形状", right_align_combo(window.combo_shape))
+    window.lbl_domain_shape = QLabel("矩形")
+    window.lbl_domain_shape.setStyleSheet(_LBL)
+    window.lbl_domain_shape.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+    add_row(window, g, 3, "计算域形状", window.lbl_domain_shape)
 
     # Dimensionality (2D / 3D MVP) — dispatch in run_calculation
     window.combo_dim = QComboBox()
@@ -142,10 +131,6 @@ def build_page_domain(window):
     window._v_A0   = res_row(window, gC, 1, "<i>A</i><sub>0</sub> [m<sup>-1</sup>]")
     window._v_Dh   = res_row(window, gC, 2, "<i>D<sub>h</sub></i> [mm]")
     window._v_Kss  = res_row(window, gC, 3, "<i>K</i><sub>ss</sub> [W/(m·K)]")
-    # NOTE: `chk_allow_extrap` used to live here; relocated to the
-    # collapsible "Advanced" sub-section built right after Grid Settings
-    # (2026-06-25 UI declutter). Construction is unchanged — just reparented.
-
     # Material — only rho_s remains (k_s is in the solver/geometry panel).
     # cp_s and cp_f were removed: no solver path reads them. Solid cp is a
     # per-material constant hardcoded downstream; fluid cp is computed
@@ -153,14 +138,10 @@ def build_page_domain(window):
     g2, _sec_mat = section(window, lay, "  材料属性", _T_NEUTRAL, _F_NEUTRAL)
     window._ia_sections['material'] = _sec_mat
     window.le_rho_s = row(window, g2, 0, "<i>&rho;</i><sub>s</sub> [kg/m³]", "7900")
-    # rho_s is NOT consumed by the steady-state LTNE energy equation
-    # (∂T_s/∂t is dropped → ρ_s·cp_s prefactor disappears). It is saved with
-    # the session config for forward compatibility with a future transient
-    # extension (kernel would add ρ_s·cp_s·(T_s^{n+1}−T_s^n)/Δt).
+    # Optimization uses rho_s for solid mass; steady LTNE has no solid storage term.
     window.le_rho_s.setToolTip(
-        "Solid density. Saved with session config but NOT read by the "
-        "current steady-state LTNE solver (no ∂T_s/∂t term in the solid "
-        "energy equation). Reserved for a future transient extension.")
+        "固体密度：用于优化设计的质量计算，并随工况保存。"
+        "当前稳态 LTNE 固体能量方程没有储热项，不直接使用该密度。")
     # T_s_init removed from UI (2026-04-29) -- was numerical iteration seed
     # only, not a physical parameter. Solver auto-seeds at 0.5*(T_inA+T_inB);
     # converged Ts is independent of seed within solver tolerance. Removed to
@@ -169,7 +150,6 @@ def build_page_domain(window):
 
     # ── Grid Settings (rect mode) ──
     g4, sec_solver_rect = section(window, lay, "  网格设置", _T_NEUTRAL, _F_NEUTRAL)
-    window._rect_only_widgets.append(sec_solver_rect)
     window._ia_sections['grid_rect'] = sec_solver_rect
     window.le_Nx = row(window, g4, 0, "网格 <i>N<sub>x</sub></i>", "30")
     window.le_Ny = row(window, g4, 1, "网格 <i>N<sub>y</sub></i>", "20")
@@ -177,14 +157,19 @@ def build_page_domain(window):
     window._lbl_Nz = g4.itemAtPosition(2, 0).widget()
     window._3d_only_widgets += [window.le_Nz, window._lbl_Nz]
 
-    # Research controls keep their existing values and preset keys, but stay
-    # folded away from the everyday compute-resource control below.
-    g_adv, _sec_adv = collapsible_section(
-        window, lay, "专家设置", _T_NEUTRAL, _F_NEUTRAL, expanded=False,
-        on_toggle=lambda _open: _on_dim_changed(window))
-    window._ia_sections['advanced_flags'] = _sec_adv
+    window.combo_grid = QComboBox()
+    window.combo_grid.addItem("常规网格", False)
+    window.combo_grid.addItem("端口与壁面加密", True)
+    window.combo_grid.setStyleSheet(_COMBO)
+    window.combo_grid.setToolTip(
+        "端口与壁面加密在开口边缘和壁面集中布置网格，Nx/Ny/Nz 包含全部加密单元。\n"
+        "上海水—空气预设使用端口加密；修改几何后需重新检查网格精度。")
+    add_row(window, g4, 3, "网格方案", right_align_combo(window.combo_grid))
 
-    # Keep advanced options as regular-weight rows inside their shared card.
+    g_policy, sec_policy = section(window, lay, "关联式适用范围", _T_NEUTRAL, _F_NEUTRAL)
+    window._ia_sections['correlation_policy'] = sec_policy
+
+    # Keep the applicability gate visible alongside the solver settings.
     # Native indicators preserve a visible checkmark and keyboard feedback.
     _tc = get_theme()
     _chk_box_qss = f"""
@@ -214,41 +199,7 @@ def build_page_domain(window):
         "此选项不修正 Nu，不放宽 D-F 几何范围，也不保证芯体内所有局部状态都在验证域。"
     )
     window.chk_allow_extrap.setStyleSheet(_chk_box_qss)
-    g_adv.addWidget(window.chk_allow_extrap, 0, 0, 1, 2)
-
-    # 3D wall-refine checkbox — adds 8 BL cells near each wall (all 6 faces).
-    # Kept for explicit six-wall studies; Shanghai uses the port-aligned option.
-    window.chk_wall_refine_3d = QCheckBox("六壁面加密（3D）")
-    window.chk_wall_refine_3d.setChecked(False)
-    window.chk_wall_refine_3d.setToolTip(
-        "六个壁面各增加 8 层网格，三轴实际格数各增加 16，与端口/壁面加密互斥。\n"
-        "用于特定网格研究，计算代价与精度需结合实际网格检查。")
-    window.chk_wall_refine_3d.setStyleSheet(_chk_box_qss)
-    g_adv.addWidget(window.chk_wall_refine_3d, 1, 0, 1, 2)
-    window._3d_only_widgets.append(window.chk_wall_refine_3d)
-    window.chk_port_wall_refine = QCheckBox("端口与壁面加密（2D / 3D）")
-    window.chk_port_wall_refine.setToolTip(
-        "在端口边缘和壁面集中布置网格，Nx/Ny/Nz 包含全部加密单元。\n"
-        "上海水—空气推荐网格由预设提供；修改几何后需重新检查网格精度。")
-    window.chk_port_wall_refine.setStyleSheet(_chk_box_qss)
-    g_adv.addWidget(window.chk_port_wall_refine, 2, 0, 1, 2)
-    window.chk_port_wall_refine.toggled.connect(
-        lambda checked: window.chk_wall_refine_3d.setChecked(False) if checked else None)
-    window.chk_wall_refine_3d.toggled.connect(
-        lambda checked: window.chk_port_wall_refine.setChecked(False) if checked else None)
-    # NOTE: legacy `_chk_wall_refine_3d` alias removed 2026-05-05 audit;
-    # no remaining readers (grep confirmed). Use `chk_wall_refine_3d`.
-
-    # This also gates the eligible air/water model-h transport path; it is
-    # not the master switch for sCO2 variable properties or true-h transport.
-    window.chk_var_rhocp = QCheckBox("局部密度热输运（3D）")
-    window.chk_var_rhocp.setChecked(True)
-    window.chk_var_rhocp.setToolTip(
-        "使用局部流场密度参与 3D 热输运，并在满足条件的空气/水组合中启用对应质量通量路径。\n"
-        "默认开启；关闭用于旧路径对照，不是 sCO₂ 变物性的总开关。")
-    window.chk_var_rhocp.setStyleSheet(_chk_box_qss)
-    g_adv.addWidget(window.chk_var_rhocp, 3, 0, 1, 2)
-    window._3d_only_widgets.append(window.chk_var_rhocp)
+    g_policy.addWidget(window.chk_allow_extrap, 0, 0, 1, 2)
 
     # The ordinary compute orchestrator captures this thread-local Numba
     # mask at launch and applies it in the worker. Optimization has its own
@@ -324,14 +275,6 @@ def build_page_domain(window):
 
     # Hide 3D-only inputs by default (2D mode)
     _on_dim_changed(window)
-
-    # ── Solver Settings (polygon mode) ──
-    gp, sec_solver_poly = section(window, lay, "  网格划分", _T_NEUTRAL, _F_NEUTRAL)
-    window._poly_only_widgets.append(sec_solver_poly)
-    window._ia_sections['mesh_poly'] = sec_solver_poly
-    sec_solver_poly.hide()  # hidden by default (rect mode)
-    window.le_mesh_density = row(window, gp, 0, "Target cells", "auto")
-    window._v_mesh_actual  = res_row(window, gp, 1, "Actual cells")
 
     # ── Results ──
     res_frame = QFrame()

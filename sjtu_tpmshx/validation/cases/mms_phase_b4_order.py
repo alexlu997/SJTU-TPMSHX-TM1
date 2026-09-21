@@ -15,24 +15,35 @@ over. The conservation gain itself lives in NON-uniform/reverse flow and is
 certified separately by tests/test_conservation_3d_energy.py (T1-T6).
 
 Run:  python -m sjtu_tpmshx.validation.cases.mms_phase_b4_order
-Writes validation/mms_phase_b4_orders.csv (read by tests/test_mms_b4_conservative_order.py).
+Writes mms_phase_b4_orders.csv in a new .cache/validation/mms_phase_b4-*/
+directory, or --out-dir. Tests retain the separately recorded reference CSV;
+new runs never replace it automatically.
 """
 from __future__ import annotations
 
-from pathlib import Path
-
-
-ROOT = Path(__file__).resolve().parents[2]
+import argparse
 
 from sjtu_tpmshx.validation.cases.mms_3d_air_air import run_mms
 from sjtu_tpmshx.validation.harness._order_fit import fit_order_loglog
 from sjtu_tpmshx.validation.harness import _provenance as _prov
 
 GRIDS = [10, 16, 24, 32]
-OUT_CSV = ROOT / 'validation' / 'mms_phase_b4_orders.csv'
 
 
 def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument('--out-dir', help='Output directory (default: new .cache/validation/mms_phase_b4-*/).')
+    ap.add_argument('--out_csv', help='CSV path; reference tables cannot be overwritten.')
+    args = ap.parse_args()
+    try:
+        if args.out_csv is not None:
+            _prov.output_path(args.out_csv)
+        out_dir = _prov.output_directory('mms_phase_b4', args.out_dir)
+        out_csv = _prov.output_path(args.out_csv or out_dir / 'mms_phase_b4_orders.csv')
+    except ValueError as exc:
+        ap.error(str(exc))
+    out_csv.parent.mkdir(parents=True, exist_ok=True)
+    print(f'Output directory: {out_dir}')
     from sjtu_tpmshx.validation.harness._mms_driver import run_grid_sequence
     rows_raw = run_grid_sequence(
         GRIDS,
@@ -56,7 +67,7 @@ def main():
     # below in the console codepage (GBK) and the utf-8 reader in
     # tests/test_mms_b4_conservative_order.py dies with UnicodeDecodeError
     # (found 2026-07-14). Provenance trio per the C.4 convention.
-    with open(OUT_CSV, 'w', encoding='utf-8', newline='') as f:
+    with open(out_csv, 'w', encoding='utf-8', newline='') as f:
         f.write("# MMS Phase B4 — conservative HO path observed order\n")
         f.write(f"# grids={GRIDS}  case=3d  conservative=1\n")
         f.write(f"# script: {_prov._normalise_script(__file__)}\n")
@@ -65,7 +76,7 @@ def main():
         f.write("case,metric,p_obs,R2,val_gfine\n")
         for m, p, r2, v in rows:
             f.write(f"3d,{m},{p:.4f},{r2:.5f},{v:.4e}\n")
-    print(f"wrote {OUT_CSV}")
+    print(f"wrote {out_csv}")
 
 
 if __name__ == '__main__':

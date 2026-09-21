@@ -247,7 +247,6 @@ def _finalize_3d_cfg(raw: dict[str, Any],
             'dir_B': raw.get('dir_B'),
             'vmag_A': raw.get('vmag'),
             'vmag_B': raw.get('vmag_B'),
-            'chi_B': raw.get('chi_B'),
             'h_vA_field': raw.get('h_vA_field'),
             'h_vB_field': raw.get('h_vB_field'),
         },
@@ -284,7 +283,7 @@ def _finalize_3d_cfg(raw: dict[str, Any],
             'mass_imbalance_rel_B': _safe_float(
                 raw.get('mass_imbalance_rel_B')),
         },
-        zones=None,  # 3D zones land in fields['chi_B'] / fields['*'] directly
+        zones=None,  # 3D design fields are included directly in fields.
         # U2 (audit 2026-06-28): _run_3d_stack collects the envelope/choke
         # messages AND the explicit SIMPLE non-convergence warning on the raw
         # dict; forward them so the UI sees them (was hard-coded [], silently

@@ -9,9 +9,10 @@ injection face, so rho_in = rho(T_out) instead of rho(T_in). For air/water
 B-side mass flow ~2.4x (15.5 vs 37.6 kg/s on the 703 recuperator) and inflated
 the A/B enthalpy-duty imbalance to ~76%.
 
-The fix (gated to sCO2 reverse-dir B) flips the density frame to match the
-velocity frame. This test asserts the B-side implied mass flow recovers to the
-physical value and the A/B imbalance drops out of the bug regime.
+The current property refresh maps local temperatures into each SIMPLE frame,
+including reverse directions. This test keeps the historical B-side mass-flow
+and raw-duty checks as guards against the old frame bug; it does not certify
+current coupled-energy closure or experimental accuracy.
 
 skipped if CoolProp is unavailable.
 """
@@ -57,7 +58,8 @@ def test_reverse_dir_sco2_massflow_recovered(monkeypatch):
     )
     r = _run_3d_stack(cfg)
 
-    # B-side implied mass flow from the coupled duty: Q_B = m_B * dh_B.
+    # Historical proxy: raw Q_B divided by an inlet-pressure enthalpy change.
+    # This is not the directly recorded native boundary mass flux.
     ToB = r["T_B_out"]
     QeB = r.get("Q_enthalpy_B", 0.0)
     dhB = abs(PropsSI("H", "T", ToB, "P", PC, "CO2")
@@ -65,21 +67,21 @@ def test_reverse_dir_sco2_massflow_recovered(monkeypatch):
     assert dhB > 1.0e3, "degenerate: no B-side enthalpy change to compare"
     m_B_implied = QeB / dhB
 
-    # With the bug the SIMPLE-B inlet density was rho(T_out)~207 not rho(T_in)
-    # ~503 -> m_B_implied ~15.5 kg/s (41% of physical). The fix recovers the
-    # physical 37.6 kg/s. Gate at 30 kg/s sits well above the bug regime and
-    # below the physical value (coarse-grid + duty leak give a few % slack).
+    # The old frame bug gave an implied flow near 15.5 kg/s versus the
+    # prescribed 37.6 kg/s. Keep the original 30 kg/s regression threshold;
+    # this proxy is not a strict mass-conservation or accuracy certificate.
     assert m_B_implied > 30.0, (
         f"reverse-dir sCO2 B mass flow not recovered: m_B_implied="
         f"{m_B_implied:.2f} kg/s (physical 37.6; bug regime ~15.5). The "
         f"T->SIMPLE-density frame flip for reverse-dir sCO2 B is missing."
     )
 
-    # The A/B enthalpy-duty imbalance must drop out of the bug regime (~76%).
+    # Retain the original raw-report regression gate; strict current thermal
+    # closure is checked separately from the native true-h energy ledger.
     imbal = r.get("Q_AB_imbalance_rel", float("nan"))
     assert imbal == imbal, "Q_AB_imbalance_rel not populated for sCO2 3D"
     assert imbal < 0.55, (
         f"A/B imbalance {imbal*100:.0f}% still in the bug regime (~76%); "
-        f"reverse-dir density-frame fix regressed. Residual ~41% is the "
-        f"known enthalpy-vs-(cp*T) kernel limit."
+        f"check the density frame and native thermal ledger. This historical "
+        f"raw-report threshold does not certify current energy closure."
     )

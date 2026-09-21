@@ -4,7 +4,8 @@ Locks in that the strict-conservation kernel branch (cfg['conservative_ltne']
 =True, face-shared SOU + telescoping a_P) keeps 2nd-order accuracy — i.e.
 conservation does NOT cost order. Reads the persisted CSV from
 ``validation/cases/mms_phase_b4_order.py`` (the h-refinement sweep is not re-run in
-CI; regenerate via ``python -m sjtu_tpmshx.validation.cases.mms_phase_b4_order``).
+CI; new comparisons use ``python -m sjtu_tpmshx.validation.cases.mms_phase_b4_order``
+and write separately under .cache/validation/mms_phase_b4-*/).
 
 Hard gates (B-plan B4 §3):
     p_obs (L2_A) >= 1.8
@@ -30,7 +31,7 @@ GATE_R2 = 0.99
 @pytest.fixture(scope='module')
 def orders():
     if not ORDERS_CSV.exists():
-        pytest.skip(f"{ORDERS_CSV} missing — run mms_phase_b4_order.py")
+        pytest.skip(f"Recorded reference missing: {ORDERS_CSV}; restore it from repository history")
     return pd.read_csv(ORDERS_CSV, comment='#')
 
 

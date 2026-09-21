@@ -1,8 +1,6 @@
 """Compact, expandable view of the existing compute callbacks."""
 from __future__ import annotations
 
-import math
-
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QToolButton,
@@ -12,7 +10,6 @@ from PySide6.QtWidgets import (
 from .fmt import duration
 from .icons import icon
 from .responsive import ResponsiveRow
-from .sparkline import Sparkline
 from .theme import RADIUS_CARD, get_theme
 
 
@@ -60,7 +57,7 @@ class RunStatusCard(QFrame):
         self.toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.toggle.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         self.toggle.setAccessibleName("展开计算详情")
-        self.toggle.setToolTip("展开迭代与残差")
+        self.toggle.setToolTip("展开计算详情")
         action_row.addWidget(self.toggle, 0, Qt.AlignmentFlag.AlignVCenter)
         header.addWidget(actions)
         layout.addWidget(header)
@@ -72,24 +69,7 @@ class RunStatusCard(QFrame):
         self.iteration = QLabel("尚未开始")
         self.iteration.setWordWrap(True)
         detail_layout.addWidget(self.iteration)
-        self.trails = {}
-        self.residual_labels = {}
-        residual_row = QHBoxLayout()
-        residual_row.setSpacing(18)
-        for side in ("A", "B"):
-            column = QVBoxLayout()
-            label = QLabel(f"流体 {side} · 等待残差")
-            label.setWordWrap(True)
-            trail = Sparkline(height=44)
-            trail.setFixedHeight(44)
-            trail.setToolTip(f"流体 {side} 残差趋势 · 纵轴为 log₁₀ · 最近 500 个样本")
-            column.addWidget(label)
-            column.addWidget(trail)
-            residual_row.addLayout(column, 1)
-            self.residual_labels[side] = label
-            self.trails[side] = trail
-        detail_layout.addLayout(residual_row)
-        self.note = QLabel("迭代和残差由求解器发布；完整日志在计算结束后提供。")
+        self.note = QLabel("完整日志在计算结束后提供。")
         self.note.setWordWrap(True)
         detail_layout.addWidget(self.note)
         self.details.hide()
@@ -102,7 +82,7 @@ class RunStatusCard(QFrame):
         self.details.setVisible(expanded)
         self.toggle.setIcon(icon('chevron-up' if expanded else 'chevron-down', get_theme()['sub_fg']))
         self.toggle.setAccessibleName("收起计算详情" if expanded else "展开计算详情")
-        self.toggle.setToolTip("收起计算详情" if expanded else "展开迭代与残差")
+        self.toggle.setToolTip("收起计算详情" if expanded else "展开计算详情")
         if reveal_details:
             from .microanim import reveal
             reveal(self.details)
@@ -128,8 +108,6 @@ class RunStatusCard(QFrame):
             button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
             button.setIcon(icon(name, t['sub_fg']))
             button.setIconSize(QSize(14, 14) if button is self.toggle else QSize(16, 16))
-        for trail in self.trails.values():
-            trail.update()
 
     def _set_title_color(self, theme=None):
         t = theme or get_theme()
@@ -143,10 +121,7 @@ class RunStatusCard(QFrame):
         self.title.setText(f"{mode.upper()} 计算中")
         self.set_elapsed(0)
         self.iteration.setText("等待求解器迭代信息")
-        self.note.setText("迭代和残差由求解器发布；完整日志在计算结束后提供。")
-        for side, trail in self.trails.items():
-            trail.clear_data()
-            self.residual_labels[side].setText(f"流体 {side} · 等待残差")
+        self.note.setText("完整日志在计算结束后提供。")
         self.log_button.hide()
         self.cancel_button.setEnabled(True)
         self.cancel_button.show()
@@ -158,15 +133,6 @@ class RunStatusCard(QFrame):
 
     def set_iteration(self, label):
         self.iteration.setText(str(label) if label else "等待求解器迭代信息")
-
-    def push_residuals(self, side, samples):
-        """Consume actual solver samples, retaining the existing bounded sparkline."""
-        for index, residual in samples:
-            if not math.isfinite(residual) or residual < 0:
-                continue
-            self.trails[side].push(math.log10(max(residual, 1e-20)))
-            self.residual_labels[side].setText(
-                f"流体 {side} · 迭代 {index} · 残差 {residual:.2e}")
 
     def request_cancel(self):
         self.state = "cancelling"
@@ -182,11 +148,8 @@ class RunStatusCard(QFrame):
         self.set_elapsed(elapsed)
         self.cancel_button.hide()
         self.log_button.setVisible(log_available)
-        self.note.setText(message or ("可展开查看本次迭代与残差。" if state == 'success'
+        self.note.setText(message or ("收敛与守恒信息见诊断详情。" if state == 'success'
                                      else "本次计算已结束。"))
         if self.iteration.text().startswith("等待"):
             self.iteration.setText("本次未发布迭代信息")
-        for side, trail in self.trails.items():
-            if not trail._data:
-                self.residual_labels[side].setText(f"流体 {side} · 本次未发布实时残差")
         self._set_title_color()

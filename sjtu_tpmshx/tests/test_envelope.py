@@ -9,7 +9,7 @@ ChokedFlowError (pre-solve) or a flagged-invalid result (post-solve).
 
 import pytest
 
-from sjtu_tpmshx.solvers.envelope import (
+from sjtu_tpmshx.models.envelope import (
     ChokedFlowError, predict_outlet_p_sq, check_compressible_envelope,
     mach, assess_solution_validity, gate_solution,
 )

@@ -7,9 +7,8 @@ solver / runs / optimization / validation layers all accept
 place that reads ``QLineEdit`` / ``QComboBox`` values — everything
 below this module is Qt-free.
 
-The module is deliberately pure: no imports from ``sjtu_tpmshx``
-internals (only stdlib + ``typing``). This avoids any circular import
-risk and keeps the schema readable from a single file.
+The schema and validation are Qt-free. Validation imports the shared
+physical and model checks at their call sites.
 
 Schema (per
 ``vault/reports/engineering/2026-05-28-sjtu-tpmshx-4-perspective-audit-CN.html``
@@ -17,7 +16,8 @@ Schema (per
 
 - ``FluidConfig``     — per-side fluid (type + u + T_in + P_in)
 - ``GeometryConfig``  — domain + TPMS unit-cell + solid k_s
-- ``SolverConfig``    — grid + LTNE outer + SIMPLE inner + roughness
+- ``SolverConfig``    — grid + LTNE outer + SIMPLE inner convergence
+- ``PartialBCConfig`` / ``ZoneInputConfig`` — per-side ports and spatial geometry
 - ``ComputeConfig``   — composite, has the entrypoint adapters
 
 Adapters
@@ -30,30 +30,24 @@ Adapters
 - ``ComputeConfig.from_json(path)`` / ``to_json(path)`` — JSON
   serialisation for production validation scripts and tests.
 
-Roadmap
-~~~~~~~
-
-C3 is the foundation for C4 (Pipeline ABC).  This module purposefully
-does *not* describe partial-pipe BC, zone configs, or session state
-(extrap reasons, cancel tokens) — those continue through their
-existing window attributes for now; the grep gate (Task 4.3) limits
-the scope to ``window.le_*`` reads, which this dataclass replaces.
+Port, zone and extrapolation settings are explicit inputs. Runtime callbacks
+and cancellation belong to ``RunControl``; emitted warnings belong to results.
 
 Runtime env-flag registry (Batch-4, 2026-06-10)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Central inventory of every ``TPMSHX_*`` knob. Flags are read at call
-time (never cached) so tests can monkeypatch them; each has one reading
-site or one shared helper, listed here. Adding a flag = add a row.
+Runtime overrides and diagnostic switches. Production run overrides are
+captured by ``domain.run_environment.capture_environment``; remaining flags
+follow the read timing stated below.
 
-- ``TPMSHX_ALLOW_EXTRAP`` (0) — surrogate out-of-window → warn, not abort.
-  Read in ``df_surrogate/surrogate_domain.py``, ``solvers/sigmoid_field.py``,
-  ``solvers/sigmoid_field_3d.py`` (3 identical 1-line parsers — kept local
-  to avoid a solvers→df_surrogate dependency; keep in sync).
+- ``TPMSHX_ALLOW_EXTRAP`` (0) — permits warnings at the point applicability
+  check. In production this allows inlet Nu/Re checks to proceed; it does not
+  relax D-F geometry or fluid-property hard limits. Read by
+  ``df_surrogate/surrogate_domain.py`` and continuous-field preparation.
 - ``TPMSHX_CHI_S`` (unset) — CONSTANT χ_s override (legacy escape hatch,
   pre-B2 default was 1.0). When unset, χ_s comes from the B2 unit-cell
   homogenization fit ``chi_s_eff(type, ε)`` (2026-07-06);
-  ``solvers/tpms_props.py`` (read at import).
+  ``models/tpms_props.py`` (``chi_s_eff`` reads the override on each call).
 - ``TPMSHX_DEBUG`` (unset) — debug prints; ``solvers/simple_solver_3d.py``.
 - ``TPMSHX_DISABLE_3D_PANEL`` (0) — skip PyVista panel;
   ``ui/builders_canvas.py``.
@@ -66,17 +60,19 @@ site or one shared helper, listed here. Adding a flag = add a row.
   Phase B / inner SIMPLE Anderson is retired; explicit enablement raises.
 - ``TPMSHX_PREINIT_3D`` (0) — prewarm 3D panel at startup; ``main.py``.
 - ``TPMSHX_PROFILE_3D`` (0) — per-outer wall-clock profiler;
-  ``pipelines/run_stack_3d.py`` (``_prof_3d_enabled``; ``.profile_3d``
+  ``solvers/backends/python/three_d/runtime.py`` (``_prof_3d_enabled``; ``.profile_3d``
   flag file works too).
 - ``TPMSHX_ROUGH_MODE`` (baseline; UI path defaults norris_1a) +
   ``TPMSHX_ROUGH_EPS_UM`` (100) — roughness model; single helper
-  ``solvers.roughness.resolve_mode_from_env``.
+  ``models.roughness.resolve_mode_from_env``.
 - ``TPMSHX_RUN_SHANGHAI_REGRESSION`` (0) — opt-in long validation gate;
   ``tests/test_shanghai_regression.py``.
-- ``TPMSHX_SIMPLE_TOL`` (1e-5) — SIMPLE pp tol for diagnostic sweeps;
-  single helper ``pipelines.run_stack_3d._simple_tol_default``.
-- ``TPMSHX_VAR_RHOCP`` (unset) — local-P gas density override (UI checkbox
-  is primary); ``pipelines/run_stack_3d.py``.
+- ``TPMSHX_SIMPLE_TOL`` (1e-5 in 3D) — retained ``tol`` call argument;
+  it does not control F2 convergence. Use ``mom_tol``, ``mass_local_tol`` and
+  ``mass_global_tol``. Read by the 2D/3D Python runtimes.
+- ``TPMSHX_VAR_RHOCP`` (unset) — overrides the 3D local-density thermal
+  transport setting; defaults ON. The desktop fixes its config ON, while
+  an explicit captured environment override still takes precedence.
 
 Registry sync 2026-07-03 (maintainability-closeout) — flags that existed
 but were missing above:
@@ -96,10 +92,13 @@ but were missing above:
   core share for the joblib workers×inner split; multi-arm launchers set
   it per arm (``optimization/optimizer_qnehvi.py::_resolve_core_budget``,
   engage-time INFO logs the resolved split).
-- ``TPMSHX_SCO2_COMPRESSIBLE`` (0, experimental) — opt-in sCO2
-  compressible path; ``pipelines/run_stack_3d.py``.
+- ``TPMSHX_SCO2_COMPRESSIBLE`` (0, experimental) — A-side sCO2 local-pressure
+  density/viscosity update and pressure-seed envelope check in the 3D Python
+  runtime. B is unchanged; this is not full compressible continuity. Its
+  pressure anchor differs from true-h and is not covered by the ideal-gas
+  inlet-pressure correction; an ON/OFF change is not accuracy evidence.
 - ``TPMSHX_MAX_CELLS_3D`` (2000000) — hard 3D cell cap;
-  ``pipelines/run_stack_3d.py`` (robustness-hardening).
+  ``preprocess/three_d/preparation.py``.
 - ``TPMSHX_BUILD_S_MAX`` / ``TPMSHX_BUILD_LX_MAX`` — sizing-tool build
   envelope caps; ``design/sizing.py``.
 - ``TPMSHX_2D_MASSFLUX`` (1) — validation-only toggle;
@@ -125,6 +124,17 @@ ZoneAxis = Literal['x', 'y', 'grid']
 SCO2_P_RANGE_PA = (7.9e6, 16.0e6)
 
 
+def reject_retired_boundary_options(config):
+    """Reject removed B-participation experiments before physical preparation."""
+    retired = sorted(key for key in config
+                     if key in ('partial_B_closure', 'audit_zero_K_ffB_at_outlet')
+                     or isinstance(key, str) and key.startswith(('m4_', 'chi_B_', 'audit_h2_')))
+    if retired:
+        raise ValueError(
+            f'B-side participation experiments are retired: {retired}. '
+            'Remove these research options; physical port boundaries remain supported.')
+
+
 # ── dataclasses ──────────────────────────────────────────────────────
 
 
@@ -141,9 +151,8 @@ class FluidConfig:
 class GeometryConfig:
     """TPMS unit cell + macroscopic domain + solid conductivity.
 
-    ``Lz_m=None`` flags a 2D run; the legacy 2D path keeps using the
-    XY plane and ignores Lz, while the 3D path *requires* ``Lz_m``
-    (and ``solver.Nz >= 2``).
+    ``solver.Nz >= 2`` selects 3D and requires an explicit positive ``Lz_m``.
+    ``Nz=1`` selects the 2D XY plane, where ``Lz_m`` is unused.
     """
     tpms: TPMSType = 'Gyroid'
     L_cell_mm: float = 7.0
@@ -171,7 +180,7 @@ class SolverConfig:
     means "use the dimension-specific built-in":
 
     - ``max_outer_ltne``: SIMPLE↔LTNE outer iterations.
-      Auto = 10 (2D coupling) / sweep-profile value (3D: 5, fast 3).
+      Auto = 10 (2D coupling) / 12 (3D; fast_sweep profile: 3).
     - ``outer_tol_K``: outer temperature-delta tolerance [K].
       Auto = 1.0 (2D) / 0.5 (3D).
     - ``max_iter_simple``: SIMPLE inner iteration cap.
@@ -237,11 +246,12 @@ class OptimizerConfig:
 class PartialBCConfig:
     """Per-side partial-pipe inlet/outlet placement (cross-stream).
 
-    ``dir`` is the flow direction encoded by ``window._DIR_MAP``:
-    ``0=+x``, ``1=-x``, ``2=+y``, ``3=-y``. ``in_ctr``/``in_w`` and
+    ``dir`` encodes ``0=+x``, ``1=-x``, ``2=+y``, ``3=-y``;
+    3D also supports ``4=+z`` and ``5=-z``. ``in_ctr``/``in_w`` and
     ``out_ctr``/``out_w`` are inlet / outlet centre + width in the
-    cross-stream coordinate (m). ``in_z_*``/``out_z_*`` extend to the
-    3D z-axis partial mask; ``None`` means "full face along z".
+    first cross-stream coordinate (m). ``in_z_*``/``out_z_*`` describe the
+    second cross-stream coordinate (z for x/y flow, y for z flow);
+    ``None`` means full extent along that coordinate.
 
     Audit C4 (L-a-2): added so the pipeline does not have to call back
     into ``window._fluid_config(which)``.
@@ -360,12 +370,12 @@ class ZoneInputConfig:
 
 @dataclass
 class ExtrapPolicy:
-    """Surrogate-domain extrapolation policy.
+    """Permit inlet Nu/Re applicability warnings in production preparation.
 
-    ``allow`` mirrors the ``chk_allow_extrap`` checkbox (or the
-    ``TPMSHX_ALLOW_EXTRAP=1`` env var read by the optimizer entrypoints).
-    The pipeline appends string reasons to a separate ``warnings`` list
-    on :class:`ComputeResult`; this dataclass is *input only*.
+    ``allow`` is the saved input setting; the point check also accepts the
+    ``TPMSHX_ALLOW_EXTRAP`` environment override. Neither changes D-F geometry
+    or fluid-property hard limits, nor certifies the local field's Nu range.
+    Reasons are recorded separately in run warnings; this dataclass is input only.
 
     Audit C4 (L-a-2).
     """
@@ -374,14 +384,14 @@ class ExtrapPolicy:
 
 @dataclass
 class FeatureFlags:
-    """UI toggles that survive into the solver layer.
+    """Solver mesh and transport settings.
 
-    ``wall_refine_3d`` mirrors ``window.chk_wall_refine_3d`` (3D wall
-    boundary-layer refinement). ``variable_rho_cp`` mirrors
-    ``window.chk_var_rhocp`` (3D LTNE energy-kernel gas density from SIMPLE's
-    local pressure ρ(P_local,T) instead of inlet pressure — conserves
-    compressible reverse flow; default ON since 2026-06-09, see the field
-    default below — hard invariant #1, never default this off). ``temp_unit`` mirrors
+    ``wall_refine_3d`` enables additional 3D wall layers for scripted studies.
+    The desktop uses no additional six-wall layers and selects port refinement
+    through its mesh scheme. ``variable_rho_cp`` uses SIMPLE's local density
+    in 3D thermal transport and gates eligible air/water mass-flux transport.
+    It is fixed ON in the desktop and defaults ON for other callers; never
+    default this off. ``temp_unit`` mirrors
     ``window._temp_unit`` purely for round-tripping; ComputeConfig fields are
     always Kelvin so the solver itself never needs this flag.
 
@@ -729,6 +739,7 @@ class ComputeConfig:
         """
         if not isinstance(data, dict):
             raise ValueError('ComputeConfig must be a JSON object')
+        reject_retired_boundary_options(data)
         # The legacy layout is identified by its domain section. Optional
         # canonical sections must never decide how the remaining fields parse.
         if 'domain' not in data:
@@ -739,6 +750,7 @@ class ComputeConfig:
             fB_d = data.get('fluid_B', {}) or {}
             ge_d = data.get('geometry', {}) or {}
             so_d = dict(data.get('solver', {}) or {})
+            reject_retired_boundary_options(so_d)
             # R3 legacy tolerance: alpha_T / rough_mode left SolverConfig
             # (2026-07-07) — old JSONs still carry them; drop with a notice
             # instead of TypeError-ing every archived config.
@@ -755,6 +767,7 @@ class ComputeConfig:
             bcB_d = data.get('bc_B', {}) or {}
             zn_d = data.get('zones', {}) or {}
             fl_d = data.get('flags', {}) or {}
+            reject_retired_boundary_options(fl_d)
             ex_d = data.get('extrap', {}) or {}
             return cls(
                 fluid_A=FluidConfig(**fA_d) if fA_d else FluidConfig(),

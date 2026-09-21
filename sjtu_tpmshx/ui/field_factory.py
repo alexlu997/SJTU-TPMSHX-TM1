@@ -102,8 +102,6 @@ class FieldFactory:
         return self._tm
 
     def _style(self, key: str, default: str = '') -> str:
-        # Force a styles refresh through the manager so tests that
-        # bypass ``bind_to_module`` still see the right strings.
         return self._tm.style(key, default)
 
     # ------------------------------------------------------------------ atoms

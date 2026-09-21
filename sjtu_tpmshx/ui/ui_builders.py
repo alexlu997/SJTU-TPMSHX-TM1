@@ -144,35 +144,29 @@ def build_ui(window):
     window.btn_command_search = search
     action_row.addWidget(search, 0, Qt.AlignmentFlag.AlignVCenter)
 
-    # These existing controls remain the state sources for session/theme actions.
-    window.btn_workspace = QToolButton(header)
-    window.btn_workspace.hide()
+    window._workspace_menu = QMenu(window.btn_more)
     window._rebuild_workspace_menu()
-    window.btn_temp_unit = QPushButton(
-        '°C' if getattr(window, '_temp_unit', 'K') == 'C' else 'K', header)
-    window.btn_temp_unit.clicked.connect(window._toggle_temp_unit)
-    window.btn_temp_unit.hide()
-    window.btn_theme = QPushButton(header)
-    window.btn_theme.clicked.connect(window._toggle_theme)
-    window.btn_theme.hide()
-    window.btn_help = QPushButton(header)
-    window.btn_help.clicked.connect(lambda: window._show_help_menu(window.btn_more))
-    window.btn_help.hide()
-    theme_action = more_menu.addAction('', window.btn_theme.click)
-    unit_action = more_menu.addAction('', window.btn_temp_unit.click)
-    more_menu.addAction('切换工作区…', lambda: window.btn_workspace.menu().exec(
+    theme_action = more_menu.addAction('', window._toggle_theme)
+    theme_action.setToolTip('切换浅色或深色主题')
+    unit_action = more_menu.addAction('', window._toggle_temp_unit)
+    unit_action.setToolTip('在开尔文与摄氏度之间切换温度显示')
+    more_menu.addAction('切换工作区…', lambda: window._workspace_menu.exec(
         window.btn_more.mapToGlobal(QPoint(0, window.btn_more.height()))))
     more_menu.addSeparator()
     more_menu.addAction('收起 / 展开参数栏', window._toggle_left_panel)
     more_menu.addAction('计算日志…', window._show_solve_log)
     more_menu.addAction('诊断详情…', window._show_diag_dialog)
     more_menu.addAction('重置参数', window._reset_defaults)
-    more_menu.addAction('帮助与快捷键', window.btn_help.click)
+    help_action = more_menu.addAction(
+        '帮助与快捷键', lambda: window._show_help_menu(window.btn_more))
+    help_action.setToolTip('查看软件说明、快捷键和快速上手引导')
 
     def refresh_more_menu():
         theme_action.setText('切换到浅色主题' if get_theme_name() == 'dark' else '切换到深色主题')
-        unit_action.setText(f'温度单位：{window.btn_temp_unit.text()}（点击切换）')
+        unit = '°C' if window._temp_unit == 'C' else 'K'
+        unit_action.setText(f'温度单位：{unit}（点击切换）')
     more_menu.aboutToShow.connect(refresh_more_menu)
+    refresh_more_menu()
     root.addWidget(header)
 
     body = QHBoxLayout()
@@ -419,12 +413,11 @@ def build_param_tabs(window):
         ("几何与结构", True,
          ['domain_geometry', 'tpms_structure', 'tpms_computed']),
         ("流体", True,
-         ['fluids_row', 'preview_btn']),
+         ['fluids_row']),
         ("网格与求解器", True,
-         ['grid_rect', 'mesh_poly', 'material', 'df_method', 'sco2_nu', 'compute_resources']),
-        ("边界细节与高级", False,
-         ['pipe_a', 'pipe_b', 'poly_pipe_label', 'poly_pipe_frame',
-          'advanced_flags']),
+         ['grid_rect', 'material', 'df_method', 'sco2_nu', 'correlation_policy', 'compute_resources']),
+        ("进出口边界", False,
+         ['pipe_a', 'pipe_b', 'preview_btn']),
     ]
 
     window._accordion_groups = {}
@@ -454,14 +447,11 @@ def build_param_tabs(window):
             g.setTitle(_group_title_text(window, t))
             # Re-assert per-widget mode gates: QWidget.setVisible(True)
             # blanket-shows children, which would resurrect widgets a 2D/3D
-            # or rect/poly gate had hidden (same rationale as the Advanced
-            # collapsible's on_toggle in builders_domain).
+            # gate had hidden.
             if checked:
                 try:
                     from .builders_domain import _on_dim_changed as _dim_gate
                     _dim_gate(window)
-                    window._on_shape_changed(
-                        window.combo_shape.currentIndex())
                 except Exception:
                     pass
             # Gate re-assertion may flip field visibility → recount badges.
@@ -522,7 +512,7 @@ def build_param_tabs(window):
     tabs.setContentsMargins(8, 0, 8, 8)
     tabs.setSpacing(4)
     window._param_page_by_group = {
-        '几何与结构': 0, '流体': 1, '边界细节与高级': 1, '网格与求解器': 2,
+        '几何与结构': 0, '流体': 1, '进出口边界': 1, '网格与求解器': 2,
     }
 
     window._param_page_scroll = {}
@@ -638,7 +628,6 @@ def build_page_zones(window):
     g_zone.setColumnStretch(0, 3); g_zone.setColumnStretch(1, 2)
     _cz_lay.addWidget(_cz_frame)
     lay.addWidget(sec_zone)
-    window._rect_only_widgets.append(sec_zone)
 
     window.chk_zones = QCheckBox("Enable zone partitioning")
     _tcz = get_theme()

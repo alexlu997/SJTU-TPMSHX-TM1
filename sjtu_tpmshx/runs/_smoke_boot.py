@@ -1,11 +1,8 @@
-"""Offscreen UI-smoke boot invariants (B2 2.6, 2026-06-13).
+"""Select the offscreen platform before importing Qt for GUI smoke tools.
 
-IMPORT THIS MODULE BEFORE ANY PySide6 IMPORT: it sets
-``QT_QPA_PLATFORM=offscreen`` at import time, which Qt only honours
-before the platform plugin loads, and puts the package root on
-``sys.path``. Window construction stays per-script — the smokes differ
-deliberately in show/resize/diagnostic-print order; only these
-import-order-critical lines were copy-paste invariants.
+Importing this helper neither creates an application nor patches dialogs.
+Call get_app/patch_modals explicitly; smoke_ui_offscreen._smoke_window owns
+the isolated user state and window lifetime. Run modules from the repo root.
 """
 import os
 import sys

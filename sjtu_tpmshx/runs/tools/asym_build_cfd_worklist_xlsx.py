@@ -14,8 +14,9 @@ proven domain + post-processing:
             same straight channels, only the core void differs.
 
 κ relative-ratio: run the symmetric r=1 case in the SAME recipe → κ(r)=X(r)/X(1)
-cancels every recipe artifact (entrance/exit/mesh/turbulence). One offset cell
-gives both channels (kr_A>1 large, kr_B<1 small).
+uses paired CFD to study relative geometry effects. Cancellation of numerical
+and model biases must be checked, not assumed exact. One offset cell gives both
+channels (kr_A>1 large, kr_B<1 small).
 
 Output: sjtu_tpmshx/runs/_out/asym_cfd/asym_cfd_worklist.xlsx
         (gitignored; TPMSHX_TOOL_OUT_DIR overrides the producer/consumer directory)
@@ -183,7 +184,7 @@ def build():
     lines = [
         ("非对称孔隙率 Phase 1 — CFD 工况表（仿 water-cfd-raw 设计）", TITLE_FONT),
         ("", None),
-        ("目标: per-side Darcy-Forchheimer (K, c_F) 的相对修正 κ_dP(r)。κ(r)=X(r)/X(r=1) 同 recipe 自比 → 抵消 entrance/exit/mesh/湍流。", None),
+        ("目标: per-side Darcy-Forchheimer (K, c_F) 相对修正 κ_dP(r)。κ(r)=X(r)/X(r=1) 使用同 recipe CFD 配对；误差抵消程度需验证。", None),
         ("", None),
         ("【流道几何（锁定）】", Font(bold=True, size=12)),
         (f"  域 = [{INLET_LEN_MM:g}mm 直通道进口] + [1×{N_CORE} offset-TPMS 核心 = {CORE_LEN_MM:g}mm] + [{OUTLET_LEN_MM:g}mm 直通道出口]，总 {INLET_LEN_MM+CORE_LEN_MM+OUTLET_LEN_MM:g}mm", None),
@@ -196,16 +197,19 @@ def build():
         ("【offset-TPMS 核心方程（per-case 换）】 φ_族 见 lattice 列；固体壁 phi_lo≤φ≤phi_hi（worklist 列）；void_A={φ<phi_lo}(大/气) / void_B={φ>phi_hi}(小/液)。", None),
         ("  ⚠ nTop 建好先验体积分数 = eps_side（worklist 列）再 mesh。per-side: void_A 跑 A 行、void_B 跑 B 行，各一套（直通道相同，只核心换 void）。", None),
         ("", None),
-        ("【物性】 A 侧 = air 可压 ideal-gas ρ(P,T) @Tref=300K；B 侧 = water @Tref=325K（复用水物性表）。κ 与流体无关，物性只定 Um/ṁ。", None),
+        ("【物性】 A 侧 = air 可压 ideal-gas ρ(P,T) @Tref=300K；B 侧 = water @Tref=325K（复用水物性表）。物性用于 Um/ṁ，κ 跨流体使用需验证。", None),
         ("", None),
         ("【r=1 对称锚状态】", Font(bold=True, size=12)),
         ("  水侧 r=1 = water_DG_cfd_results_legacy.xlsx D-5/G-5 (wall_thickness_mm=4 = t0.4) 已有数据 → 预拟 (K, c_F) 见 r1_water_ref sheet。", None),
         ("  空气侧 r=1 = 无旧数据（water-cfd-raw 是纯水），必须新跑。", None),
-        ("  ⚠ κ(r)=X(r)/X(1) 抵消 entrance/mesh/turbulence 只在分子(r>1)与分母(r=1)同 recipe 时成立。", None),
+        ("  ⚠ 分子(r≠1)与分母(r=1)须采用同 recipe 和几何尺度；同 recipe 本身不证明入口/网格/湍流偏差完全抵消。", None),
         ("  旧 water-cfd-raw 是旧 CFD recipe → 新 r=1 应在同一 nTop+Fluent recipe 下重跑，旧数据仅作 validation 对账（新 r=1 应复现 r1_water_ref 的 K/c_F 再信其 κ 分母）。", None),
         ("", None),
         ("【流程】 nTop 建 24 域(12 case×2 side) → Fluent 跑 worklist(Um/ṁ 已给) → 填黄列 p0..p3 → dp_core=p0−p3 → 每 (case,side) 4-6 Re 拟", None),
-        ("  |ΔP|_core/L_core = (μ/K)·Um + c_F·ρ·Um²  → (K,c_F) → results sheet → python -m df_surrogate.ingest_cfd_kappa（先改成 κ(r)=X(r)/X(1)）。", None),
+        ("  导出逐 (tpms,split,side,Re) 压降 CSV → python -m sjtu_tpmshx.runs.cfd_asym.asym_postproc_kappa <csv>。", None),
+        ("  后处理拟合 (K,c_F)，按每拓扑 split_r≈1 的 CFD 拟合均值归一化；CSV 字段见该模块帮助，不能直接传 results sheet。", None),
+        ("  ingest_cfd_kappa 是另一条研究路径，分母为对称模型预测，不等同于本工单的 CFD 自比。", None),
+        ("  --register 仅当前进程注册；研究代码可调用 kappa_KcF(..., enabled=True)，完整3D/GUI求解准备尚不读取此表。", None),
         ("", None),
         ("黄列 = 待 Fluent 填。绿行 = 对称锚 r=1。', '主拟合'=操作 Re 区(4 点); 低 Re 钉 Darcy K。", None),
     ]

@@ -42,7 +42,7 @@ class Warning:
 def suggest_grid_2d(L_dom: float, H_dom: float, D_h: float,
                     alpha: float = 0.4) -> Tuple[int, int]:
     """Suggest (Nx, Ny) for a 2D run from domain extents and hydraulic
-    diameter. Mirror of ``solvers.tpms_calc.adaptive_grid`` interpreted
+    diameter. Mirror of ``models.tpms_calc.adaptive_grid`` interpreted
     purely in Python.
 
     The actual ``adaptive_grid`` is preferred when available; this fallback
@@ -110,7 +110,6 @@ def validate_geometry(L_dom: float, H_dom: float, Lz_dom: Optional[float],
       * ``t/L < 0.05`` (extrapolation below tested range)
       * ``L_cell_mm > min(L_dom, H_dom) * 1000`` — cell larger than a
         domain dimension means single-cell HX, results untrustworthy.
-      * Geometry matches Shanghai (L=7, t=0.6) — extrapolation reminder.
     """
     for name, v in (('L_dom', L_dom), ('H_dom', H_dom),
                     ('L_cell_mm', L_cell_mm), ('t_mm', t_mm),
@@ -145,13 +144,6 @@ def validate_geometry(L_dom: float, H_dom: float, Lz_dom: Optional[float],
             f'extent {L_min_mm:.1f} mm — domain holds < 1 cell, '
             f'closures invalid.',
             severity='error'))
-
-    if abs(L_cell_mm - 7.0) < 1e-6 and abs(t_mm - 0.6) < 1e-6:
-        out.append(Warning(
-            'shanghai_geometry',
-            'Geometry matches Shanghai validation (L=7, t=0.6) — '
-            'this is the unique extrapolation point in t (training '
-            'maxes at t=0.5); expect ~5-15 % wider error band.'))
 
     return out
 

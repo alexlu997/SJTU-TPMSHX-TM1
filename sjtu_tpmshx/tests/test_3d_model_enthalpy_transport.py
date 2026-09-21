@@ -45,7 +45,7 @@ def test_two_cell_model_h_balance(direction, fraction, rb):
            *zero_faces, *zero_faces, direction, direction,
            np.full((2, 2), 320.), np.full((2, 2), 300.),
            np.full((2, 2), fraction), np.ones((2, 2)),
-           2000, 0, .7, .7, .7, one, 0., one*0, source_B, source_S, 1,
+           2000, 0, .7, .7, .7, one*0, source_B, source_S, 1,
            model_mass_A=mass, model_mass_B=zero_faces,
            model_cp_A=coeff, model_cp_B=constant)
     finally:
@@ -106,20 +106,19 @@ def test_nonzero_mass_divergence_and_unknown_external_inflow():
     assert abs(budget['telescoping_error_W']) < 1e-12
 
 
-@pytest.mark.parametrize('pair,var,nz,chi,enabled', [
-    (('air', 'air'), True, 4, 0., True),
-    (('air', 'water'), True, 4, 0., True),
-    (('water', 'air'), True, 4, 0., True),
-    (('water', 'water'), True, 4, 0., False),
-    (('air', 'sco2'), True, 4, 0., False),
-    (('air', 'air'), False, 4, 0., False),
-    (('air', 'air'), True, 1, 0., False),
-    (('air', 'air'), True, 4, .1, False),
+@pytest.mark.parametrize('pair,var,nz,enabled', [
+    (('air', 'air'), True, 4, True),
+    (('air', 'water'), True, 4, True),
+    (('water', 'air'), True, 4, True),
+    (('water', 'water'), True, 4, False),
+    (('air', 'sco2'), True, 4, False),
+    (('air', 'air'), False, 4, False),
+    (('air', 'air'), True, 1, False),
 ])
-def test_actual_pipeline_gate_and_prebalance_mass(monkeypatch, pair, var, nz, chi, enabled):
+def test_actual_pipeline_gate_and_prebalance_mass(monkeypatch, pair, var, nz, enabled):
     from sjtu_tpmshx.solvers.backends.python.three_d import runtime as stages
     cfg = _pipeline_cfg(pair, nz)
-    cfg.update(variable_rho_cp=var, chi_B_kernel_threshold=chi)
+    cfg.update(variable_rho_cp=var)
     monkeypatch.delenv('TPMSHX_VAR_RHOCP', raising=False)
     monkeypatch.setattr(stages.SIMPLESolver3D, 'solve', lambda *a, **k: (True, 0))
     prob = _build_3d_problem(cfg)
@@ -386,7 +385,7 @@ def test_picard_coefficients_frozen_for_entire_sweep(rb):
         fn(ta, tb, ts, 2, 2, 2, np.ones(2), np.ones(2), np.ones(2),
            one*0, one*0, one*0, one, one*0, one*.5, one*.5, one, one,
            *zero, *zero, 0, 0, one[0]*320, one[0]*300, one[0], one[0],
-           1, 0, .7, .7, .7, one, 0., one*0, one*0, one*0, 1,
+           1, 0, .7, .7, .7, one*0, one*0, one*0, 1,
            model_mass_A=mass, model_mass_B=zero,
            model_cp_A=(2., .02, 0., 300., 300.), model_cp_B=(2., 0., 0., 300., 300.))
     finally:

@@ -16,9 +16,3 @@ TOAST_MS_MED = 5000    # standard results / config confirmations
 # outer iterations slow 5-10× on the Forchheimer branch. Drives the
 # off-domain status-bar notice at compute start.
 VV_VELOCITY_LIMIT_MS = 10.0
-
-# Nu correlation v4.1 (Diamond/Gyroid air + ×1.28 Sa=31μm) calibrated
-# Reynolds range. Outside this, the UI tags the auto-fill Re value with
-# a red `(< 600!)` / `(> 30000!)` suffix.
-RE_NU_LO = 600
-RE_NU_HI = 30000

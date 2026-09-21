@@ -62,7 +62,8 @@ def test_nu_vec_applies_re_floor_at_10():
 
 def test_nu_water_pr_substitution():
     """Water Nu = air Nu × (Pr_water / Pr_air)^(1/3) (Reynolds analogy)."""
-    from sjtu_tpmshx.models.nu_correlations import nu_from_Re, nu_water_from_Re, Pr_AIR
+    from sjtu_tpmshx.models.nu_correlations import nu_from_Re, Pr_AIR
+    from sjtu_tpmshx.tests.water_nu_reference import nu_water_from_Re
     Pr_w = 6.0
     air = nu_from_Re('Gyroid', 1000.0, eps_f=0.4, L_mm=7.0, D_h_mm=1.5)
     water = nu_water_from_Re('Gyroid', 1000.0, eps_f=0.4,

@@ -1,7 +1,7 @@
 """demo_vis_3d_interactive.py — interactive 3D visualisation.
 
 PyVista standalone window showing Shanghai case 8 3D fields, with a draggable
-slice-plane widget on a display-stretched cube.
+slice-plane widget. The default display preserves the domain's real aspect.
 
 Controls:
     [f]       cycle field (T_a → |v| → P → L_mm)
@@ -10,14 +10,14 @@ Controls:
     [r]       reset camera
     [q]       quit
 
-Domain visually stretched to unit cube [0,1]³ (option C — real physics data,
-display-only scaling). Axis labels show normalised position; annotation
-provides the real-world dimensions.
+With --cube, the domain is visually stretched to [0,1]³ (display-only scaling).
+Its axis labels then show normalised position and an annotation provides the
+real-world dimensions. The underlying physics data are unchanged.
 
 Usage (from the repo root):
-    python -u examples/demo_vis_3d_interactive.py            # interactive window
-    python -u examples/demo_vis_3d_interactive.py --test     # off-screen smoke test
-    python -u examples/demo_vis_3d_interactive.py --real-aspect  # keep real box
+    python -m sjtu_tpmshx.runs.demos.demo_vis_3d_interactive         # real aspect
+    python -m sjtu_tpmshx.runs.demos.demo_vis_3d_interactive --test  # off-screen smoke
+    python -m sjtu_tpmshx.runs.demos.demo_vis_3d_interactive --cube  # stretch display
 """
 
 from __future__ import annotations

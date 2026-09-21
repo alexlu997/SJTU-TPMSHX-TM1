@@ -10,6 +10,8 @@ from __future__ import annotations
 # never imported — the "Save Preset" action raised NameError on first use.
 from PySide6.QtWidgets import QInputDialog, QMessageBox, QTableWidgetItem
 
+from sjtu_tpmshx.ui.window_config import DOMAIN_SHAPE_NOTICE, validate_domain_shape
+
 
 class SessionPresetsMixin:
     def _set_shanghai_grid(self, *, is_3d):
@@ -17,8 +19,7 @@ class SessionPresetsMixin:
         counts = SHANGHAI_GRID_3D if is_3d else SHANGHAI_GRID_2D
         for axis, count in zip('xyz', counts):
             getattr(self, 'le_N' + axis).setText(str(count))
-        self.chk_wall_refine_3d.setChecked(False)
-        self.chk_port_wall_refine.setChecked(True)
+        self.combo_grid.setCurrentIndex(self.combo_grid.findData(True))
         self._user_edited_grid = True
 
     # Canonical presets shipped with the app; user presets append after
@@ -98,7 +99,6 @@ class SessionPresetsMixin:
         """
         # 2D-mode result flags + cached fields.
         self._has_results_2d = False
-        self.T_fA = self.T_fB = self.T_s = None
         self._compute_results = None
         # 3D-mode result flags + cached fields.
         self._has_results_3d = False
@@ -136,7 +136,7 @@ class SessionPresetsMixin:
                 except Exception:
                     pass
 
-    def _apply_user_preset(self, preset):
+    def _apply_user_preset(self, preset, *, show_notice=True):
         """Apply a saved preset payload (shape matches _save_session output).
 
         Widget names are filtered through the SESSION allow-lists so a tampered
@@ -146,7 +146,7 @@ class SessionPresetsMixin:
         caches up front. Prior to this, loading a preset (or clicking a
         Recent run via ``_load_recent_run`` which delegates here) only
         rewrote the input fields. The result flags / drawn tabs / cached
-        3D result dict / 2D T_fA/T_fB/T_s arrays all survived, so the
+        3D result / 2D field caches all survived, so the
         Temperature/Velocity/Pressure/3D tabs remained ENABLED and the
         canvas still showed the PREVIOUS compute's plots next to the
         freshly-loaded parameters. Easy to read as "preset applied",
@@ -169,12 +169,11 @@ class SessionPresetsMixin:
             if w is not None:
                 try: w.setText(str(txt))
                 except Exception: pass
-        # Shape rebuilds polygon edge options: restore in canonical order,
-        # independent of JSON object key order.
         self._set_sco2_nu_parameters(preset.get('sco2_nu_parameters', {}))
         combos = dict(preset.get('combos') or {})
         combos.setdefault('combo_df_mode', 0)  # legacy saved inputs used smooth CFD
         combos.setdefault('combo_sco2_nu_mode', 0)
+        combos.setdefault('combo_grid', int((preset.get('checks') or {}).get('chk_port_wall_refine', False)))
         for name in self._PRESET_COMBOS:
             if name not in combos:
                 continue
@@ -194,15 +193,9 @@ class SessionPresetsMixin:
                             c.setCurrentIndex(int(idx))
                             c.blockSignals(False)
                         else:
-                            if (name == 'combo_shape' and int(idx) > 0
-                                    and c.currentIndex() == int(idx)):
-                                self._update_edge_combos()
                             c.setCurrentIndex(int(idx))
                 except Exception: pass
         checks = dict(preset.get('checks') or {})
-        checks.setdefault('chk_port_wall_refine', False)
-        for side in ('A', 'B'):
-            checks.setdefault(f'chk_uniform_inlet{side}_2d', False)
         for name, val in checks.items():
             if name not in allowed_checks:
                 continue
@@ -233,6 +226,30 @@ class SessionPresetsMixin:
         refresh_fluid_model_visibility(self)
         if hasattr(self, '_refresh_status_bar'):
             self._refresh_status_bar()
+        notice = self._solver_settings_notice(preset)
+        if notice and show_notice:
+            QMessageBox.information(self, "工况设置已更新", notice)
+
+    def _solver_settings_notice(self, payload):
+        """Explain changed historical settings without restoring retired controls."""
+        checks = payload.get('checks') or {}
+        combos = payload.get('combos') or {}
+        edits = payload.get('line_edits') or {}
+        updates = []
+        for side in ('A', 'B'):
+            key = f'chk_uniform_inlet{side}_2d'
+            implicit_old_inlet = (key not in checks and combos.get('combo_dim') == 0
+                                  and f'le_pipe{side}_in_w' in edits)
+            if checks.get(key) is False or implicit_old_inlet:
+                updates.append(f"流体 {side} 的二维入口采用开口内均匀速度")
+        if checks.get('chk_wall_refine_3d') is True:
+            updates.append("三维网格不再额外增加六壁面细化层")
+        if checks.get('chk_var_rhocp') is False:
+            updates.append("启用局部密度热输运")
+        if not updates:
+            return ''
+        return ("已按当前求解设置载入：\n" + "\n".join(updates)
+                + "\n这些设置与原文件不同，重新计算的结果可能变化；原文件和已保存结果未修改。")
 
     def _validate_preset(self, preset, *, complete=False):
         """Check the payload before touching widgets; old partial presets stay valid."""
@@ -253,20 +270,31 @@ class SessionPresetsMixin:
             raise ValueError('Invalid combos.')
         if combos.get('combo_sco2_nu_mode', 0) == 1:
             replace(parameters, mode='experimental').validate()
-        shape = combos.get('combo_shape', self.combo_shape.currentIndex())
+        validate_domain_shape(combos.get('combo_shape', 0))
+        if any(name.startswith('combo_edge_') for name in combos):
+            raise ValueError(DOMAIN_SHAPE_NOTICE)
         for section, allowed in (('line_edits', self._SESSION_LINE_EDITS),
-                                 ('combos', self._PRESET_COMBOS),
-                                 ('checks', self._PRESET_CHECKS)):
+                                 ('combos', self._PRESET_COMBOS + ('combo_shape',)),
+                                 ('checks', self._PRESET_CHECKS + tuple(self._FIXED_SOLVER_CHECKS)
+                                  + ('chk_port_wall_refine',))):
             values = preset.get(section, {})
             if not isinstance(values, dict):
                 raise ValueError(f'Invalid {section}.')
+            if section == 'line_edits':
+                # Former rectangular files also stored this unused polygon field.
+                values = {name: value for name, value in values.items()
+                          if name != 'le_mesh_density'}
             required = {n for n in allowed if getattr(self, n, None) is not None}
-            if section == 'combos' and shape == 0:
-                required -= set(self._POLYGON_COMBOS)
+            if section == 'combos':
+                required.add('combo_shape')
             if section == 'combos' and 'combo_sco2_nu_mode' not in values:
                 required.discard('combo_sco2_nu_mode')  # old saved configs default to CFD
-            if section == 'checks' and 'chk_port_wall_refine' not in values:
-                required.discard('chk_port_wall_refine')
+            if section == 'combos' and 'combo_grid' not in values:
+                required.discard('combo_grid')
+            if section == 'checks':
+                # Old complete files may omit newly fixed settings or use the
+                # former port-refinement checkbox instead of the mesh combo.
+                required |= set(values) & (set(self._FIXED_SOLVER_CHECKS) | {'chk_port_wall_refine'})
             if complete and set(values) != required:
                 raise ValueError(f'Incomplete or unsupported {section}: '
                                  f'{sorted(set(values) ^ required)}')
@@ -275,8 +303,7 @@ class SessionPresetsMixin:
                     continue  # retain the shared preset allow-list boundary
                 if section == 'line_edits' and type(value) not in (str, int, float):
                     raise ValueError(f'Invalid text field: {name}')
-                if (section == 'line_edits' and name != 'le_mesh_density'
-                        and str(value).strip()):
+                if section == 'line_edits' and str(value).strip():
                     try:
                         number = float(value)
                         if not math.isfinite(number):
@@ -287,18 +314,12 @@ class SessionPresetsMixin:
                         raise ValueError(f'Invalid numeric field: {name}') from None
                 if section == 'combos':
                     widget = getattr(self, name, None)
-                    count = ((6 if shape == 1 else 8) if name in self._POLYGON_COMBOS
-                             and shape in (1, 2) else widget.count() if widget else 0)
+                    count = widget.count() if widget else 0
                     if type(value) is not int or (widget is not None and
                                                 not 0 <= value < count):
                         raise ValueError(f'Unsupported selection: {name}')
                 if section == 'checks' and type(value) is not bool:
                     raise ValueError(f'Invalid checkbox: {name}')
-        if any(n in combos for n in self._POLYGON_COMBOS):
-            edits = preset.get('line_edits', {})
-            if any(not str(edits.get(n, getattr(self, n).text())).strip()
-                   for n in ('le_L', 'le_H')):
-                raise ValueError('Polygon edge options require domain dimensions.')
         zones = preset.get('zone_inputs')
         if complete and ('temp_unit' not in preset or zones is None):
             raise ValueError('Incomplete configuration: missing unit or zone inputs.')
@@ -339,7 +360,7 @@ class SessionPresetsMixin:
         """Build a preset payload from the current field state."""
         payload = {'name': name,
                    'temp_unit': getattr(self, '_temp_unit', 'K'),
-                   'line_edits': {}, 'combos': {}, 'checks': {},
+                   'line_edits': {}, 'combos': {'combo_shape': 0}, 'checks': {},
                    'sco2_nu_parameters': dict(getattr(self, '_sco2_nu_parameters', {}))}
         for n in self._SESSION_LINE_EDITS:
             w = getattr(self, n, None)
@@ -347,8 +368,6 @@ class SessionPresetsMixin:
                 try: payload['line_edits'][n] = w.text()
                 except Exception: pass
         for n in self._PRESET_COMBOS:
-            if n in self._POLYGON_COMBOS and self.combo_shape.currentIndex() == 0:
-                continue
             c = getattr(self, n, None)
             if c is not None:
                 try: payload['combos'][n] = int(c.currentIndex())
@@ -358,6 +377,7 @@ class SessionPresetsMixin:
             if b is not None:
                 try: payload['checks'][n] = bool(b.isChecked())
                 except Exception: pass
+        payload['checks'].update(self._FIXED_SOLVER_CHECKS)
         if hasattr(self, 'zone_table'):
             table = self.zone_table
             decision = getattr(self, '_pareto_x_decision', None)
@@ -379,9 +399,6 @@ class SessionPresetsMixin:
         combo handler)."""
         if name not in self._BUILTIN_PRESETS:
             return
-        self._active_preset_name = name
-        if hasattr(self, '_refresh_status_bar'):
-            self._refresh_status_bar()
         # Builtin presets rewrite inputs via _apply_shanghai_defaults, which
         # does NOT route through _apply_user_preset (where the result-cache
         # invalidate lives). Invalidate here so stale result tabs/plots/export
@@ -393,6 +410,9 @@ class SessionPresetsMixin:
             self._set_shanghai_grid(is_3d=False)
         elif name == "Shanghai (3D Diamond)":
             self.combo_tpms.setCurrentIndex(0)
+        self._active_preset_name = name
+        if hasattr(self, '_refresh_status_bar'):
+            self._refresh_status_bar()
         self.statusBar().showMessage(f"Preset: {name}.", 5000)
 
     def _save_current_as_preset(self):
@@ -431,20 +451,21 @@ class SessionPresetsMixin:
         'le_pipeA_out_z_ctr', 'le_pipeA_out_z_w',
         'le_pipeB_in_z_ctr', 'le_pipeB_in_z_w',
         'le_pipeB_out_z_ctr', 'le_pipeB_out_z_w',
-        'le_mesh_density',
     )
     _SESSION_COMBOS = (
-        'combo_shape', 'combo_dim', 'combo_tpms',
+        'combo_dim', 'combo_tpms', 'combo_grid',
         'combo_df_mode', 'combo_sco2_nu_mode',
         'combo_fluidA', 'combo_fluidB',
         'combo_dirA', 'combo_dirB',
     )
-    _SESSION_CHECKS = ('chk_zones', 'chk_wall_refine_3d', 'chk_port_wall_refine', 'chk_var_rhocp',
-                       'chk_uniform_inletA_2d', 'chk_uniform_inletB_2d')
-    # Explicit loads restore inputs; startup sessions retain their reset policy.
-    _POLYGON_COMBOS = ('combo_edge_inA', 'combo_edge_outA',
-                       'combo_edge_inB', 'combo_edge_outB')
-    _PRESET_COMBOS = _SESSION_COMBOS + ('combo_zone_axis',) + _POLYGON_COMBOS
+    _SESSION_CHECKS = ('chk_zones',)
+    # Keep the physical choices explicit in saved files, without GUI toggles.
+    _FIXED_SOLVER_CHECKS = {
+        'chk_wall_refine_3d': False, 'chk_var_rhocp': True,
+        'chk_uniform_inletA_2d': True, 'chk_uniform_inletB_2d': True,
+    }
+    # Presets and sessions share the complete physical-input snapshot.
+    _PRESET_COMBOS = _SESSION_COMBOS + ('combo_zone_axis',)
     _PRESET_CHECKS = _SESSION_CHECKS + ('chk_allow_extrap',)
 
     _WORKSPACES = ('A', 'B', 'C')
@@ -498,59 +519,21 @@ class SessionPresetsMixin:
                 f"marker failed; next launch may default to 'A'.", 8000)
 
     def _rebuild_workspace_menu(self):
-        """Refresh the header Workspace ▾ menu to reflect the active tab."""
-        from PySide6.QtWidgets import QMenu
-        if not hasattr(self, 'btn_workspace'):
+        """Refresh the workspace choices shown from the More menu."""
+        menu = getattr(self, '_workspace_menu', None)
+        if menu is None:
             return
         active = getattr(self, '_active_workspace', 'A')
-        self.btn_workspace.setText(f"WS: {active} ▾")
-        menu = QMenu(self)
+        menu.clear()
         for ws in self._WORKSPACES:
             mark = "● " if ws == active else "   "
             act = menu.addAction(f"{mark}Workspace {ws}")
             act.triggered.connect(
                 lambda _checked=False, name=ws: self._switch_workspace(name))
-        self.btn_workspace.setMenu(menu)
 
     def _save_session(self):
-        """Dump every input field's current value via SessionManager (P2.3).
-
-        Best-effort: any attribute that is missing or that throws on read
-        is silently skipped — partial sessions still reload cleanly
-        (missing keys fall back to the Shanghai preset).
-        """
-        payload = {'temp_unit': getattr(self, '_temp_unit', 'K'),
-                   'sco2_nu_parameters': dict(getattr(self, '_sco2_nu_parameters', {}))}
-        lines = {}
-        for name in self._SESSION_LINE_EDITS:
-            w = getattr(self, name, None)
-            if w is None:
-                continue
-            try:
-                lines[name] = w.text()
-            except Exception:
-                continue
-        payload['line_edits'] = lines
-        combos = {}
-        for name in self._SESSION_COMBOS:
-            c = getattr(self, name, None)
-            if c is None:
-                continue
-            try:
-                combos[name] = int(c.currentIndex())
-            except Exception:
-                continue
-        payload['combos'] = combos
-        checks = {}
-        for name in self._SESSION_CHECKS:
-            b = getattr(self, name, None)
-            if b is None:
-                continue
-            try:
-                checks[name] = bool(b.isChecked())
-            except Exception:
-                continue
-        payload['checks'] = checks
+        """Save the complete preset inputs plus window state for this workspace."""
+        payload = self._capture_current_preset('Last session')
         # Workbench UI state (ui-shortcuts-persist): last tab (result-family
         # keys collapse to 'result' so restore re-resolves via _result_view),
         # left-panel collapse, 2D|3D result-view choice.
@@ -587,84 +570,56 @@ class SessionPresetsMixin:
             payload, getattr(self, '_active_workspace', 'A')))
 
     def _restore_session(self):
-        """Load values saved by `_save_session` on top of the Shanghai
-        defaults. Silently no-ops if the file doesn't exist or is malformed.
+        """Restore one saved case; Shanghai defaults only fill absent old fields."""
+        from copy import deepcopy
+        from PySide6.QtCore import QTimer
 
-        Delegates IO to SessionManager (P2.3).
-        """
         ws = getattr(self, '_active_workspace', 'A')
         payload = self.sm.load_session(ws)
         if payload is None:
             return
-        self.combo_df_mode.setCurrentIndex(0)  # preserve legacy sessions without this field
-        self._set_sco2_nu_parameters(payload.get('sco2_nu_parameters', {}))
-        nu_combo = getattr(self, 'combo_sco2_nu_mode', None)
-        if nu_combo is not None:
-            nu_combo.setCurrentIndex(0)
-        # Apply temp_unit first so we can interpret text correctly. The JSON
-        # stores text as the user saw it, so matching units is the safe path.
+        # Use the same validation as explicit configuration loads, before
+        # changing any widgets or invalidating the current result.
+        try:
+            self._validate_preset(payload)
+        except (TypeError, ValueError) as error:
+            message = f"{error}\n已保留当前工况。"
+            QTimer.singleShot(0, lambda: QMessageBox.warning(
+                self, "会话未恢复", message))
+            return
+
+        restored = deepcopy(payload)
+        notice = self._solver_settings_notice(payload)
+        if restored.get('zone_inputs') is None:
+            # Older sessions saved the enabled flag without the table. Never
+            # apply it to a table/Pareto field left over from another workspace.
+            checks = restored.setdefault('checks', {})
+            if checks.get('chk_zones'):
+                notice += ("\n" if notice else "") + (
+                    "旧会话未保存分区数据，已关闭分区并清空分区表；"
+                    "请重新载入完整分区配置或设置分区后再计算。")
+            checks['chk_zones'] = False
+            restored.setdefault('combos', {})['combo_zone_axis'] = 0
+            restored['zone_inputs'] = {
+                'rows': [], 'grid_nx': 2, 'pareto_x_decision': None,
+                'pareto_y_trans_inlet': 0.2, 'pareto_y_trans_outlet': 0.2,
+            }
+
+        # Open in Kelvin without changing either inlet's physical temperature.
+        # Convert only saved C values; missing fields already have a known
+        # physical value in the seeded defaults/current display unit.
         saved_unit = payload.get('temp_unit', 'K')
-        if saved_unit in ('K', 'C'):
-            self._temp_unit = saved_unit
-            # Header button + row labels need to match the restored unit so
-            # the restored text ("148.85") is not misread as Kelvin.
-            if hasattr(self, '_sync_temp_unit_labels'):
-                self._sync_temp_unit_labels()
-        # User preference: app must open with temperature unit = K. If the
-        # saved session was authored in °C, the line-edit text below is in
-        # °C — restore it as-is, then convert + flip the unit to K so the
-        # initial view is always Kelvin.
-        _temp_field_names = {'le_TinA', 'le_TinB'}
-        for name, txt in (payload.get('line_edits') or {}).items():
-            w = getattr(self, name, None)
-            if w is None:
-                continue
-            try:
-                w.setText(str(txt))
-            except Exception:
-                continue
-        if saved_unit == 'C':
-            for name in _temp_field_names:
-                w = getattr(self, name, None)
-                if w is None:
-                    continue
-                try:
-                    val = float(w.text())
-                    w.setText(f"{val + 273.15:.2f}")
-                except (ValueError, TypeError):
-                    continue
-            self._temp_unit = 'K'
-            if hasattr(self, '_sync_temp_unit_labels'):
-                self._sync_temp_unit_labels()
-        for name, idx in (payload.get('combos') or {}).items():
-            # The app must open in the canonical Shanghai topology regardless
-            # of what the previous session stored: fluids A=Air / B=Water and
-            # crossflow directions A:+x / B:-y. Skip restoring these four so
-            # the construction + _apply_shanghai_defaults values stand — a
-            # stale session must not rotate the case (A:+y B:-x) or swap the
-            # cold fluid back to Air.
-            if name in ('combo_fluidA', 'combo_fluidB',
-                        'combo_dirA', 'combo_dirB'):
-                continue
-            c = getattr(self, name, None)
-            if c is None:
-                continue
-            try:
-                if 0 <= int(idx) < c.count():
-                    c.setCurrentIndex(int(idx))
-            except Exception:
-                continue
-        checks = dict(payload.get('checks') or {})
-        for side in ('A', 'B'):
-            checks.setdefault(f'chk_uniform_inlet{side}_2d', False)
-        for name, val in checks.items():
-            b = getattr(self, name, None)
-            if b is None:
-                continue
-            try:
-                b.setChecked(bool(val))
-            except Exception:
-                continue
+        edits = restored.setdefault('line_edits', {})
+        for name in ('le_TinA', 'le_TinB'):
+            if name not in edits:
+                edits[name] = str(self._temp_to_K(getattr(self, name)))
+            elif saved_unit == 'C' and str(edits[name]).strip():
+                edits[name] = str(float(edits[name]) + 273.15)
+        restored['temp_unit'] = 'K'
+        self._apply_user_preset(restored, show_notice=False)
+        if notice:
+            QTimer.singleShot(0, lambda: QMessageBox.information(
+                self, "工况设置已更新", notice))
         # Restore window geometry / dock state last so it doesn't fight the
         # `showMaximized()` the constructor already called. Pass-through:
         # if the payload is missing or corrupt, the explicit showMaximized
@@ -683,52 +638,6 @@ class SessionPresetsMixin:
                 self.restoreState(QByteArray(_b64.b64decode(st_b64)))
             except Exception:
                 pass
-        # The restore loop above SKIPS the fluid combos, so each stays at its
-        # construction-time index: A = 0 (Air), B = 1 (Water, pinned by
-        # _apply_shanghai_defaults). The restored line-edits, however, are in
-        # whatever fluid range the SAVED combo had. Push the LIVE fluid's
-        # defaults only when the saved index DIFFERS from the held index — i.e.
-        # the line-edits are in a different fluid's range than the live combo.
-        # Gating on `!= 0` (the old code) was wrong for B (held=1): a saved
-        # Air-B left Air velocities under a Water combo (r2-ui-01), and a saved
-        # Water-B clobbered the user's custom Water inlet (r2-ui-02).
-        _saved_combos = payload.get('combos') or {}
-        for _side in ('A', 'B'):
-            _held = 0 if _side == 'A' else 1
-            try:
-                _saved_idx = int(_saved_combos.get(f'combo_fluid{_side}', _held))
-            except (ValueError, TypeError):
-                _saved_idx = _held
-            if _saved_idx != _held:
-                try:
-                    self._apply_fluid_defaults(_side)
-                except Exception:
-                    pass
-        # Keep the existing startup-reset policy, using the current Shanghai
-        # grid. Explicit preset loads and subsequent manual edits keep theirs.
-        _saved_grid = (payload.get('line_edits') or {})
-        self._set_shanghai_grid(is_3d=self.combo_dim.currentIndex() == 1)
-        _grid_was_custom = any(
-            str(_saved_grid.get(_n, '')).strip() not in ('', getattr(self, _n).text())
-            for _n in ('le_Nx', 'le_Ny', 'le_Nz'))
-        # Surface reset notices via deferred status bar — wait until the
-        # window is shown so the message isn't eaten by subsequent renders.
-        from PySide6.QtCore import QTimer as _QT_msg
-        _msgs = []
-        if _grid_was_custom:
-            _msgs.append("Grid reset to Shanghai recommendation: " + "×".join(
-                getattr(self, 'le_N' + axis).text() for axis in 'xyz'))
-        _saved_combos2 = payload.get('combos') or {}
-        if any(int(_saved_combos2.get(f'combo_fluid{_s}', 0) or 0) != 0
-               for _s in ('A', 'B')):
-            _msgs.append("Fluid type reset to Air (default; saved selection discarded)")
-        if _msgs:
-            def _flash():
-                try:
-                    self.statusBar().showMessage(" · ".join(_msgs), 8000)
-                except Exception:
-                    pass
-            _QT_msg.singleShot(800, _flash)
         # Workbench UI state (ui-shortcuts-persist) — best-effort, mirrors
         # the save side. result_view first (so a restored 'result' tab
         # resolves to the saved side), then the left panel, then the tab.
@@ -761,10 +670,3 @@ class SessionPresetsMixin:
                 self._switch_tab(_tab)
         except Exception:
             pass
-        # Tier 25: the restore above rewrote every field via setText with
-        # no editingFinished — snap the undo baseline to the restored
-        # state so the user's first manual edit undoes to what they see,
-        # not to the construction-time defaults.
-        self._resync_undo_baseline()
-        from sjtu_tpmshx.ui.builders_fluids import refresh_fluid_model_visibility
-        refresh_fluid_model_visibility(self)

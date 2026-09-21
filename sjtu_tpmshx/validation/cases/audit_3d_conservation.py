@@ -1,9 +1,9 @@
-"""audit_3d_conservation.py — Phase 2 3D LTNE conservation audit (hybrid path).
+"""3D LTNE conservation audit of the current model on synthetic T1–T6 cases.
 
 Verifies the 3D solver against the conservation contract spec at
 `vault/reports/3d-solver/2026-05-04-3d-conservation-spec-CN.md`.
 
-Three diagnostic blocks:
+Conservation diagnostic blocks:
 
   Phase 2a — volumetric ε_α                  (per-phase 1st-law residual)
       LHS_α = ∮_∂Ω F_α·n dA       (advective + diffusive surface integral)
@@ -11,17 +11,14 @@ Three diagnostic blocks:
       ε_α   = |LHS − RHS| / max(|LHS|, |RHS|)
       Hard gate: ε_α < 1.0 % per phase, ε_total < 0.5 % for LTNE 3-phase sum.
 
-  Phase 2b — outlet-face K_ffB shortcircuit (H2 test)
-      Reruns the same case with K_ffB := 0 in the 1-cell outlet boundary
-      layer (real outlet of B). Compares T_B_out and Q_enth_B vs baseline.
-      Quantifies how much T_B_out hot-spot is due to local diffusion from
-      hot solid into the outlet patch fluid.
-
   Phase 2c — per-cell mass-imbalance audit (H3 test)
       Computes per-cell NET_OUT_α = Σ_face F_face_advective_α and the
-      associated spurious enthalpy Σ_cells T_cell · NET_OUT_cell. Locates
-      where the 6.6 % global mass imbalance accrues and quantifies its
-      energy-budget impact.
+      associated spurious enthalpy Σ_cells T_cell · NET_OUT_cell, to locate
+      imbalance in the current run and assess its energy-budget impact.
+
+The H2 outlet-conduction and H6/H8 B-participation experiments are retired.
+Their historical implementations and results remain indexed in docs/history;
+they are not alternate physical settings of this current audit.
 
 Test cases (synthetic, no Shanghai data):
   T1 — full-face cubic, parallel flow (A and B both dir=0)
@@ -31,7 +28,7 @@ Test cases (synthetic, no Shanghai data):
   T5 — B-isolated null (B_frac=0)
   T6 — A=B equi-temperature (T_inA == T_inB)
 
-Output: vault/reports/3d-solver/2026-05-04-phase2-conservation-CN.md
+Use --out to choose the report path; historical reports are separate evidence.
 """
 from __future__ import annotations
 import argparse, sys, time, warnings
@@ -61,7 +58,6 @@ def _base_cfg(grid: int = 20):
         tpms_type='Gyroid', Lcell=7.0, t_wall=0.6, k_s=16.0, eps=0.85,
         fluid_type_A='air', fluid_type_B='air',
         wall_refine_3d=False,
-        partial_B_closure='none',
     )
 
 
@@ -171,161 +167,9 @@ def make_T6(grid):  # A == B equi-temperature
     return cfg
 
 
-def make_T4_H2(grid):  # T4 + H2 outlet K_ffB=0 test
-    cfg = make_T4(grid)
-    cfg['audit_zero_K_ffB_at_outlet'] = True
-    cfg['audit_h2_n_layers'] = 1
-    cfg['_case_label'] = 'T4_H2_outlet_K_ffB_zero'
-    return cfg
-
-
-def make_T4_H6(grid):  # T4 + H6 ghost-pin (per-cell χ_B + kernel threshold)
-    cfg = make_T4(grid)
-    cfg['partial_B_closure'] = 'per_cell_chi_b'
-    cfg['chi_B_method'] = 'velocity_threshold'
-    cfg['chi_B_threshold_frac'] = 0.30
-    cfg['chi_B_n_dilate'] = 2
-    cfg['chi_B_n_smooth'] = 1
-    cfg['chi_B_floor'] = 1e-3
-    cfg['chi_B_kernel_threshold'] = 0.30   # H6 kernel pin threshold
-    cfg['_case_label'] = 'T4_H6_ghost_pin'
-    return cfg
-
-
-def make_T4_H6_tight(grid):
-    cfg = make_T4_H6(grid)
-    cfg['chi_B_threshold_frac'] = 0.50
-    cfg['chi_B_kernel_threshold'] = 0.50
-    cfg['_case_label'] = 'T4_H6_tight'
-    return cfg
-
-
-def make_T4_H6_xtight(grid):
-    cfg = make_T4_H6(grid)
-    cfg['chi_B_threshold_frac'] = 0.70
-    cfg['chi_B_kernel_threshold'] = 0.70
-    cfg['chi_B_n_dilate'] = 1
-    cfg['chi_B_n_smooth'] = 1
-    cfg['_case_label'] = 'T4_H6_xtight'
-    return cfg
-
-
-def make_T4_H6_extreme(grid):
-    cfg = make_T4_H6(grid)
-    cfg['chi_B_threshold_frac'] = 0.90
-    cfg['chi_B_kernel_threshold'] = 0.90
-    cfg['chi_B_n_dilate'] = 0
-    cfg['chi_B_n_smooth'] = 0
-    cfg['_case_label'] = 'T4_H6_extreme'
-    return cfg
-
-
-def make_T2_H6(grid):  # full-face cross-flow + H6 (regression check)
-    cfg = make_T2(grid)
-    cfg['partial_B_closure'] = 'per_cell_chi_b'
-    cfg['chi_B_method'] = 'velocity_threshold'
-    cfg['chi_B_threshold_frac'] = 0.70
-    cfg['chi_B_n_dilate'] = 1
-    cfg['chi_B_n_smooth'] = 1
-    cfg['chi_B_floor'] = 1e-3
-    cfg['chi_B_kernel_threshold'] = 0.70
-    cfg['chi_B_u_ref_mode'] = 'inlet'
-    cfg['_case_label'] = 'T2_H6_fullface'
-    return cfg
-
-
-def make_T3_H6(grid):  # partial-aligned + H6
-    cfg = make_T3(grid)
-    cfg['partial_B_closure'] = 'per_cell_chi_b'
-    cfg['chi_B_method'] = 'velocity_threshold'
-    cfg['chi_B_threshold_frac'] = 0.70
-    cfg['chi_B_n_dilate'] = 1
-    cfg['chi_B_n_smooth'] = 1
-    cfg['chi_B_floor'] = 1e-3
-    cfg['chi_B_kernel_threshold'] = 0.70
-    cfg['chi_B_u_ref_mode'] = 'inlet'
-    cfg['_case_label'] = 'T3_H6_aligned'
-    return cfg
-
-
-# ── H8 cases — mass-flux threshold (auto-adaptive) ──
-def _h8_cfg(cfg, threshold_frac=0.20, kernel_thr=0.30, n_dil=1,
-            ref_mode='max'):
-    """Default H8 params (max-ref + per-grid tuned, REVERTED from p75):
-    thr=0.20, n_dil=1, kthr=0.30, ref='max'. Max-ref needs per-grid tune
-    for offset partial-B (12: thr=0.30, 20: thr=0.20, 30: thr=0.25), but
-    is BIMODAL-AWARE — full-face/aligned cases unchanged.
-
-    p75-ref attempted (selection B') made grid 20 sweet thr universal at
-    1.00 BUT broke full-face cases: T1_H8 ε_B=17.9 %, T2_H8 S_gen=-0.68
-    (NEGATIVE — 2nd law violation). p75 cuts half cells in uniform-flow
-    geometries. Lesson: percentile-ref only safe when distribution is
-    bimodal; a robust auto-detect is needed (TODO future work)."""
-    cfg['partial_B_closure'] = 'per_cell_chi_b'
-    cfg['chi_B_method'] = 'mass_flux_threshold'
-    cfg['chi_B_threshold_frac'] = threshold_frac
-    cfg['chi_B_n_dilate'] = n_dil
-    cfg['chi_B_n_smooth'] = 0
-    cfg['chi_B_floor'] = 1e-3
-    cfg['chi_B_kernel_threshold'] = kernel_thr
-    cfg['chi_B_mass_ref_mode'] = ref_mode
-    return cfg
-
-
-def make_T2_H8(grid):
-    cfg = _h8_cfg(make_T2(grid))
-    cfg['_case_label'] = 'T2_H8'
-    return cfg
-
-
-def make_T3_H8(grid):
-    cfg = _h8_cfg(make_T3(grid))
-    cfg['_case_label'] = 'T3_H8'
-    return cfg
-
-
-def make_T4_H8(grid):
-    cfg = _h8_cfg(make_T4(grid))
-    cfg['_case_label'] = 'T4_H8'
-    return cfg
-
-
-def make_T4_H8_loose(grid):
-    cfg = _h8_cfg(make_T4(grid), threshold_frac=0.20, kernel_thr=0.20)
-    cfg['_case_label'] = 'T4_H8_loose'
-    return cfg
-
-
-def make_T4_H8_tight(grid):
-    cfg = _h8_cfg(make_T4(grid), threshold_frac=0.50, kernel_thr=0.50)
-    cfg['_case_label'] = 'T4_H8_tight'
-    return cfg
-
-
-def make_T1_H8(grid):
-    cfg = _h8_cfg(make_T1(grid))
-    cfg['_case_label'] = 'T1_H8'
-    return cfg
-
-
-def make_T4_H2_3layer(grid):  # T4 + H2 with 3-layer K_ffB=0
-    cfg = make_T4(grid)
-    cfg['audit_zero_K_ffB_at_outlet'] = True
-    cfg['audit_h2_n_layers'] = 3
-    cfg['_case_label'] = 'T4_H2_3layer'
-    return cfg
-
-
 CASES = {
     'T1': make_T1, 'T2': make_T2, 'T3': make_T3,
     'T4': make_T4, 'T5': make_T5, 'T6': make_T6,
-    'T4_H2': make_T4_H2, 'T4_H2_3L': make_T4_H2_3layer,
-    'T4_H6': make_T4_H6, 'T4_H6_tight': make_T4_H6_tight,
-    'T4_H6_xtight': make_T4_H6_xtight, 'T4_H6_extreme': make_T4_H6_extreme,
-    'T2_H6': make_T2_H6, 'T3_H6': make_T3_H6,
-    'T2_H8': make_T2_H8, 'T3_H8': make_T3_H8,
-    'T4_H8': make_T4_H8, 'T1_H8': make_T1_H8,
-    'T4_H8_loose': make_T4_H8_loose, 'T4_H8_tight': make_T4_H8_tight,
 }
 
 
@@ -797,12 +641,8 @@ def compute_phase3(res):
         Q_volumetric_phys = abs(float(res.get('Q_sB_interior', 0.0)))
         Q_primary = 0.5 * (Q_LTNE_A + Q_LTNE_B) if Q_LTNE_B > 0 else Q_LTNE_A
         eps_obs = Q_primary / max(Q_NTU_max, 1e-30)
-        # NTU estimate: ∫h_vB·χ_B·dV / C_min
-        chi_B = res.get('_audit_chi_B')
-        if chi_B is not None:
-            NTU_int = float(np.sum(h_vB * chi_B * cell_vol)) / max(C_min, 1e-30)
-        else:
-            NTU_int = float(np.sum(h_vB * cell_vol)) / max(C_min, 1e-30)
+        # NTU estimate from the current unscaled interphase coupling.
+        NTU_int = float(np.sum(h_vB * cell_vol)) / max(C_min, 1e-30)
         # Cross-flow unmixed-unmixed Incropera ε_max
         if NTU_int > 0:
             try:
@@ -1111,7 +951,7 @@ def render_case(label, res, p2a, p2c, p3=None, p4=None, p5=None):
         lines.append(f'| Q_LTNE_A = C_A·\\|T_inA−T_A_out\\| | {_fmt(p3["Q_phys_A"], 1)} W |')
         lines.append(f'| Q_LTNE_B = C_B·\\|T_B_out−T_inB\\| | {_fmt(p3["Q_phys_B"], 1)} W |')
         lines.append(f'| \\|Q_sB_interior\\| (volumetric source) | {_fmt(p3["Q_volumetric_phys"], 1)} W |')
-        lines.append(f'| NTU_int = ∫h_vB·χ_B·dV / C_min | {_fmt(p3["NTU_int"], 3)} |')
+        lines.append(f'| NTU_int = ∫h_vB·dV / C_min | {_fmt(p3["NTU_int"], 3)} |')
         lines.append(f'| ε_max(C_r, NTU) cross-flow | {_fmt(p3["eps_max_NTU"], 4)} |')
         lines.append(f'| ε_obs = Q_LTNE / Q_NTU_max | {_fmt(p3["eps_obs"], 4)} |')
         lines.append('')
@@ -1250,7 +1090,11 @@ def main():
     else:
         out_path = Path(args.out).resolve()
 
-    selected = [c.strip() for c in args.cases.split(',') if c.strip() in CASES]
+    selected = [c.strip() for c in args.cases.split(',') if c.strip()]
+    unsupported = sorted(set(selected) - CASES.keys())
+    if unsupported or not selected:
+        ap.error(f'unsupported cases {unsupported}; use T1..T6. '
+                 'H2/H6/H8 B-participation experiments are retired.')
 
     # ── Phase 6: grid convergence sweep ──
     if args.phase6_grid_convergence:

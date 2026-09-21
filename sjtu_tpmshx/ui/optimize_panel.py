@@ -154,9 +154,6 @@ def _gather_cfg(window, base: dict | None = None) -> dict:
             cfg['alpha_outer']     = float(_oc.alpha_T)
         except (AttributeError, TypeError, ValueError) as _e:
             _log.warning(f"[optimize] _optimizer_cfg ignored (bad shape): {_e}")
-    from sjtu_tpmshx.ui.window_config import validate_domain_shape
-    validate_domain_shape(window)
-
     def _get(attr, cast=float, key=None):
         if hasattr(window, attr):
             try:
@@ -1018,16 +1015,6 @@ def show_pareto(window, res: dict) -> None:
         f"{label} — {len(res['X'])} Pareto points | "
         f"Q range [{Q.min():.0f}, {Q.max():.0f}] W/m | "
         f"dP range [{dP.min():.0f}, {dP.max():.0f}] Pa")
-
-
-def reshow_pareto(window) -> None:
-    """Re-render the most recent Pareto result. Useful after a window resize
-    or theme change."""
-    res = getattr(window, '_last_opt_result', None)
-    if res is None:
-        _set_status(window, 'no optimizer result to reshow')
-        return
-    show_pareto(window, res)
 
 
 def on_pareto_pick(window, event) -> None:

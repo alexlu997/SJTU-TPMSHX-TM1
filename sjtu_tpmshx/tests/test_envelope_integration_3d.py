@@ -5,7 +5,7 @@ import pytest
 from sjtu_tpmshx.runs._case_template import build_cfg
 from sjtu_tpmshx.pipelines import run_stack_3d
 from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
-from sjtu_tpmshx.solvers.envelope import ChokedFlowError, PRESSURE_FLOOR_PA
+from sjtu_tpmshx.models.envelope import ChokedFlowError, PRESSURE_FLOOR_PA
 
 
 def test_unusable_seed_cannot_certify_the_inlet_by_default():

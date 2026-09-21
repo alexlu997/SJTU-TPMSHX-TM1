@@ -12,8 +12,10 @@ Hard gates (per script):
     lateral L2_s order:  p_obs >= 1.5        (cosine BC, adiabatic-compat)
     interior all phases: p_obs >= 1.8 AND L2 < 1.0%
 
-Regenerate via:
+Generate a separate new comparison run via:
     python -m sjtu_tpmshx.validation.cases.mms_phase_a4_boundary
+Outputs go to .cache/validation/mms_phase_a4-*/; the recorded CSVs and gates
+remain unchanged.
 """
 from __future__ import annotations
 
@@ -38,7 +40,7 @@ GATE_INTERIOR_L2 = 0.010   # 1%
 @pytest.fixture(scope='module')
 def orders():
     if not ORDERS_CSV.exists():
-        pytest.skip(f"{ORDERS_CSV} missing — run mms_phase_a4_boundary.py")
+        pytest.skip(f"Recorded reference missing: {ORDERS_CSV}; restore it from repository history")
     # comment='#' skips the C.4 provenance header (script/commit/date)
     return pd.read_csv(ORDERS_CSV, comment='#')
 
@@ -46,7 +48,7 @@ def orders():
 @pytest.fixture(scope='module')
 def h_refine():
     if not H_REFINE_CSV.exists():
-        pytest.skip(f"{H_REFINE_CSV} missing — run mms_phase_a4_boundary.py")
+        pytest.skip(f"Recorded reference missing: {H_REFINE_CSV}; restore it from repository history")
     return pd.read_csv(H_REFINE_CSV, comment='#')
 
 

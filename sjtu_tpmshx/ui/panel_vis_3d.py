@@ -38,14 +38,15 @@ from PySide6.QtGui import QDoubleValidator, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QComboBox,
     QLineEdit, QDialog, QFileDialog, QMessageBox, QFrame, QSlider,
-    QButtonGroup,
+    QBoxLayout, QButtonGroup, QSizePolicy,
 )
 
 
 from sjtu_tpmshx.ui.vis3d_constants import FIELD_ORDER, FIELD_META
+from sjtu_tpmshx.ui.responsive import ResponsiveRow
 
 # ── Theme-aware QSS generators for 3D panel controls ──
-from sjtu_tpmshx.ui.theme import get_theme, get_theme_name
+from sjtu_tpmshx.ui.theme import get_theme, get_theme_name, _build_styles
 from sjtu_tpmshx.ui.typography import apply_vtk_font
 
 _CTRL_HEIGHT = 32
@@ -93,34 +94,6 @@ def _status_qss():
             f"font-family: {t['sans_family']}; "
             f"background: {t['scroll_bg']}; border-top: 1px solid {t['card_border']}; "
             "padding: 6px 12px;")
-
-
-def _combo_qss():
-    t = get_theme()
-    return f"""
-QComboBox {{
-    color: {t['fg']}; background: {t['inp_bg']};
-    border: 1px solid {t['inp_border']}; border-radius: 6px;
-    padding: 4px 24px 4px 10px; font-size: 10pt; font-weight: 500; min-width: 140px;
-}}
-QComboBox:hover {{ border-color: {t['accent_primary']}; }}
-QComboBox::drop-down {{
-    subcontrol-origin: padding; subcontrol-position: center right;
-    width: 22px; border: none; background: transparent;
-}}
-QComboBox::down-arrow {{
-    width: 0; height: 0;
-    border-left: 4px solid transparent;
-    border-right: 4px solid transparent;
-    border-top: 5px solid {t['fg']};
-    margin-right: 8px;
-}}
-QComboBox QAbstractItemView {{
-    background: {t['combo_list_bg']}; color: {t['combo_list_fg']};
-    selection-background-color: {t['accent_primary']}; selection-color: white;
-    border: 1px solid {t['inp_border']}; padding: 2px;
-}}
-"""
 
 
 def _lineedit_qss():
@@ -220,7 +193,7 @@ class ThreeDVisPanel(QWidget):
         self._setup_hover()
 
     def _build_toolbar(self, root):
-        """Build the two-row field, slice, view, and export toolbar."""
+        """Build field, slice, view, and export groups that wrap when narrow."""
         toolbar_col = QVBoxLayout()
         toolbar_col.setContentsMargins(6, 4, 6, 4)
         toolbar_col.setSpacing(4)
@@ -232,21 +205,33 @@ class ThreeDVisPanel(QWidget):
 
     def _build_parameter_controls(self, toolbar_col):
         """Build field, plane, coordinate, and opacity controls."""
-        # ── Row 1: Parameters (Field, Plane, Coord, Opacity) ──
+        parameter_row = ResponsiveRow(threshold=900, spacing=6)
+        parameter_row.setObjectName('volumeParameterControls')
+        parameter_row.layout().setDirection(QBoxLayout.Direction.TopToBottom)
+        selectors = ResponsiveRow(threshold=0, spacing=12)
+        selectors.setObjectName('volumeFieldPlaneControls')
+        parameter_row.addWidget(selectors)
         params = QHBoxLayout(); params.setSpacing(6)
+        params.setContentsMargins(0, 0, 0, 0)
         params.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        selectors.layout().addLayout(params)
 
         # Field combo
         lbl_f = QLabel("Field:"); lbl_f.setStyleSheet(_label_qss())
         params.addWidget(lbl_f)
+        combo_style = _build_styles()['COMBO']
         self.combo_field = QComboBox()
-        self.combo_field.setStyleSheet(_combo_qss())
+        self.combo_field.setStyleSheet(combo_style)
+        self.combo_field.setMinimumWidth(140)
         self.combo_field.setFixedHeight(_CTRL_HEIGHT)
         self.combo_field.currentIndexChanged.connect(self._on_field_changed)
         self.combo_field.setEnabled(False)
         params.addWidget(self.combo_field)
 
-        params.addSpacing(6)
+        params = QHBoxLayout(); params.setSpacing(6)
+        params.setContentsMargins(0, 0, 0, 0)
+        params.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        selectors.layout().addLayout(params)
 
         # Plane combo
         lbl_p = QLabel("Plane:"); lbl_p.setStyleSheet(_label_qss())
@@ -254,14 +239,20 @@ class ThreeDVisPanel(QWidget):
         self.combo_plane = QComboBox()
         for _pid, label, _axis in _PLANE_OPTIONS:
             self.combo_plane.addItem(label, userData=_pid)
-        self.combo_plane.setStyleSheet(_combo_qss())
+        self.combo_plane.setStyleSheet(combo_style)
         self.combo_plane.setFixedHeight(_CTRL_HEIGHT)
         self.combo_plane.setMinimumWidth(110)
         self.combo_plane.setEnabled(False)
         self.combo_plane.currentIndexChanged.connect(self._on_plane_changed)
         params.addWidget(self.combo_plane)
 
-        params.addSpacing(6)
+        slice_controls = ResponsiveRow(threshold=0, spacing=16)
+        slice_controls.setObjectName('volumeCoordOpacityControls')
+        parameter_row.addWidget(slice_controls)
+        params = QHBoxLayout(); params.setSpacing(6)
+        params.setContentsMargins(0, 0, 0, 0)
+        params.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        slice_controls.layout().addLayout(params)
 
         # Coord input (mm) with live range-validation
         self.lbl_coord = QLabel("Coord:")
@@ -281,7 +272,11 @@ class ThreeDVisPanel(QWidget):
         self.le_coord.textChanged.connect(self._on_coord_text_changed)
         params.addWidget(self.le_coord)
 
-        params.addSpacing(10)
+        params.addStretch(1)
+        params = QHBoxLayout(); params.setSpacing(6)
+        params.setContentsMargins(0, 0, 0, 0)
+        params.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        slice_controls.layout().addLayout(params)
 
         # Opacity slider — controls volume transparency (0 = invisible, 100 = opaque)
         # Defaults balance "glass cube" feel against cold-end legibility:
@@ -293,7 +288,8 @@ class ThreeDVisPanel(QWidget):
         self.slider_opacity.setRange(0, 100)
         _op_default = 30 if get_theme_name() == 'dark' else 25
         self.slider_opacity.setValue(_op_default)
-        self.slider_opacity.setFixedWidth(110)
+        self.slider_opacity.setMinimumWidth(80)
+        self.slider_opacity.setMaximumWidth(110)
         self.slider_opacity.setFixedHeight(_CTRL_HEIGHT)
         self.slider_opacity.setStyleSheet(_slider_qss())
         self.slider_opacity.setEnabled(False)
@@ -303,10 +299,10 @@ class ThreeDVisPanel(QWidget):
         params.addWidget(self.slider_opacity)
         self.lbl_opacity_val = QLabel(f"{_op_default}%")
         self.lbl_opacity_val.setStyleSheet(_label_qss())
-        self.lbl_opacity_val.setFixedWidth(36)
+        self.lbl_opacity_val.setMinimumWidth(36)
         params.addWidget(self.lbl_opacity_val)
         params.addStretch(1)
-        toolbar_col.addLayout(params)
+        toolbar_col.addWidget(parameter_row)
         return _op_default
 
     def _build_action_controls(self, toolbar_col):
@@ -317,9 +313,12 @@ class ThreeDVisPanel(QWidget):
             d.setStyleSheet(_divider_qss())
             d.setFixedHeight(_CTRL_HEIGHT)
             return d
-        # ── Row 2: Actions (Apply, Clear, Range, View, Save) ──
+        action_row = ResponsiveRow(threshold=640, spacing=6)
+        action_row.setObjectName('volumeActionControls')
+        action_row.layout().setDirection(QBoxLayout.Direction.TopToBottom)
         actions = QHBoxLayout(); actions.setSpacing(6)
         actions.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        action_row.layout().addLayout(actions)
 
         # Primary action: Apply
         self.btn_apply = QPushButton("Apply")
@@ -356,7 +355,14 @@ class ThreeDVisPanel(QWidget):
         self.btn_clim.clicked.connect(self._on_clim_toggled)
         actions.addWidget(self.btn_clim)
 
-        actions.addWidget(_divider())
+        actions.addStretch(1)
+        view_export = ResponsiveRow(threshold=0, spacing=6)
+        view_export.setObjectName('volumeViewExportControls')
+        action_row.addWidget(view_export)
+        actions = QHBoxLayout(); actions.setSpacing(6)
+        actions.setContentsMargins(0, 0, 0, 0)
+        actions.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        view_export.layout().addLayout(actions)
 
         # View preset segmented buttons: Top / Front / Side / Iso
         # QButtonGroup (exclusive) keeps one button visually "active" so the
@@ -368,7 +374,7 @@ class ThreeDVisPanel(QWidget):
         def _mk_view_btn(label, corners, width, preset, tip, hotkey):
             b = QPushButton(label)
             b.setStyleSheet(_seg_qss(corners))
-            b.setFixedHeight(_CTRL_HEIGHT); b.setFixedWidth(width)
+            b.setFixedHeight(_CTRL_HEIGHT); b.setMinimumWidth(width)
             b.setCheckable(True)
             b.setToolTip(f"{tip}   [{hotkey}]")
             b.setEnabled(False)
@@ -391,6 +397,7 @@ class ThreeDVisPanel(QWidget):
             "Camera → isometric (default)", "I")
         self.btn_view_iso.setChecked(True)   # default view on load
         actions.addLayout(view_seg)
+        actions.addStretch(1)
 
         # Keyboard shortcuts — T/F/S/I trigger the same presets.
         # ApplicationShortcut keeps them active regardless of focused widget
@@ -403,6 +410,10 @@ class ThreeDVisPanel(QWidget):
             sc.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
             sc.activated.connect(btn.click)
 
+        actions = QHBoxLayout(); actions.setSpacing(6)
+        actions.setContentsMargins(0, 0, 0, 0)
+        actions.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        view_export.layout().addLayout(actions)
         actions.addWidget(_divider())
 
         self.btn_shot = QPushButton("Save PNG")
@@ -414,7 +425,7 @@ class ThreeDVisPanel(QWidget):
         actions.addWidget(self.btn_shot)
 
         actions.addStretch(1)
-        toolbar_col.addLayout(actions)
+        toolbar_col.addWidget(action_row)
 
     def _build_viewport(self, root):
         """Build the PyVista interactor and status line."""
@@ -426,6 +437,7 @@ class ThreeDVisPanel(QWidget):
 
         # ── PyVistaQt interactor ──
         self.plotter = QtInteractor(self)
+        self.plotter.interactor.setMinimumHeight(160)
         self._pause_rendering()  # A newly constructed panel is still hidden.
         if self.plotter.iren is not None:  # Offscreen plotters have no interactor.
             self.plotter.iren.interactor.SetDesiredUpdateRate(_CAMERA_UPDATE_RATE)
@@ -445,12 +457,16 @@ class ThreeDVisPanel(QWidget):
             "No data loaded — set Dimensionality to '3D' in "
             "Domain panel, then click Compute.")
         self.status.setStyleSheet(_status_qss())
+        self.status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.status.setMinimumWidth(0)
         root.addWidget(self.status)
 
     def _init_state(self, opacity_default):
         """Initialize field, actor, slice, and camera state."""
         # ── State ──
         self._grid: Optional[pv.RectilinearGrid] = None
+        self._volume_grids: dict = {}
+        self._grid_vol = None
         self._arrays: dict[str, np.ndarray] = {}     # {key: (Nx,Ny,Nz) array}
         self._dx_mm: Optional[np.ndarray] = None
         self._dy_mm: Optional[np.ndarray] = None
@@ -473,6 +489,7 @@ class ThreeDVisPanel(QWidget):
         self._tween_animation: Optional[QVariantAnimation] = None
         self._tween_end_pose = None
         self._tween_previous_update_rate = None
+        self._camera_fit_pending = False
 
     def _init_timers(self):
         """Configure slice and opacity debounce timers."""
@@ -561,14 +578,10 @@ class ThreeDVisPanel(QWidget):
             grid.cell_data[key] = arr.flatten(order='F')
         self._grid = grid.cell_data_to_point_data()
 
-        # Display-only UPSAMPLED grid for smooth volume rendering. The compute
-        # grid is coarse (e.g. 46×11×5); a volume ray-cast of coarse point data
-        # shows per-cell colour blocks ("一块一块"). Trilinearly upsampling each
-        # field onto a finer uniform grid bakes smooth gradients into the data
-        # so the volume reads continuous regardless of mesh coarseness — the
-        # root fix vs fighting ray sample distance. Slices / hover / clim keep
-        # using the RAW self._grid (real values, no interpolation).
-        self._grid_vol, self._vol_min_cell_mm = self._build_volume_grid()
+        # Prepare high-resolution display data only when its field is shown.
+        # New results (including a changed grid) must invalidate every field.
+        self._volume_grids.clear()
+        self._grid_vol = None
 
         self._global_clim = self._build_global_clim()
         self._real_dims = tuple(real_dims)
@@ -614,7 +627,8 @@ class ThreeDVisPanel(QWidget):
         self._slice_info = None
 
         self._render_initial_scene()
-        self._rebuild_volume()
+        self._rebuild_volume(render=False)
+        self.fit_view()
         self._update_coord_label()
         self._validate_coord_input()
         self._update_status()
@@ -754,8 +768,11 @@ class ThreeDVisPanel(QWidget):
         self._render_gated = False
         self.plotter.suppress_rendering = False
         self.plotter.render_timer.start()  # QTimer retains its original 200 ms interval.
-        # One explicit render so the viewport is fresh on tab entry.
-        self.plotter.render()
+        if getattr(self, '_camera_fit_pending', False):
+            # A hidden result receives its final viewport geometry on show.
+            QTimer.singleShot(0, self, lambda: self._camera_fit_pending and self.fit_view())
+        else:
+            self.plotter.render()
 
     def hideEvent(self, event):
         super().hideEvent(event)
@@ -894,7 +911,7 @@ class ThreeDVisPanel(QWidget):
         pl = self.plotter
         # Obtain the fitted target without first rendering a jump to it.
         cam = pl.camera
-        start = (tuple(cam.position), tuple(cam.focal_point), tuple(cam.up))
+        start = (tuple(cam.position), tuple(cam.focal_point), tuple(cam.up), cam.view_angle)
         if preset == 'top':
             pl.view_xy(render=False)
         elif preset == 'front':
@@ -903,8 +920,8 @@ class ThreeDVisPanel(QWidget):
             pl.view_yz(render=False)
         else:
             pl.view_isometric(render=False)
-        # Use the native fitted pose; fixed zoom cropped short viewports.
-        end = (tuple(cam.position), tuple(cam.focal_point), tuple(cam.up))
+        self.fit_view(render=False)
+        end = (tuple(cam.position), tuple(cam.focal_point), tuple(cam.up), cam.view_angle)
 
         import os as _os
         reduced = _os.environ.get('QT_REDUCED_MOTION', '').lower() in ('1', 'true')
@@ -918,6 +935,7 @@ class ThreeDVisPanel(QWidget):
         cam.position = start[0]
         cam.focal_point = start[1]
         cam.up = start[2]
+        cam.view_angle = start[3]
 
         animation = QVariantAnimation(self)
         animation.setStartValue(0.0)
@@ -937,6 +955,7 @@ class ThreeDVisPanel(QWidget):
             cam.position = _lerp(start[0], end[0])
             cam.focal_point = _lerp(start[1], end[1])
             cam.up = _lerp(start[2], end[2])
+            cam.view_angle = start[3] + (end[3] - start[3]) * ease
             # The shared clock can complete this timeline during window Hide;
             # do not render an endpoint after the native window is hidden.
             window = self.window().windowHandle()
@@ -956,7 +975,24 @@ class ThreeDVisPanel(QWidget):
         from .microanim import start_animation
         start_animation(self, animation)
 
+    def fit_view(self, *, render=True):
+        """Frame the current orientation using the actual viewport aspect."""
+        if getattr(self, '_grid', None) is None:
+            return
+        self._stop_camera_tween()
+        if not self.isVisible():
+            self._camera_fit_pending = True
+            return
+        self._camera_fit_pending = False
+        # Native screen-space fitting avoids the excess space of a bounding
+        # sphere, while reserving a margin for axis labels and the scalar bar.
+        self.plotter.renderer.ResetCameraScreenSpace(0.8)
+        self.plotter.renderer.ResetCameraClippingRange()
+        if render:
+            self.plotter.render()
+
     def _cancel_preset_for_interaction(self, _obj, _event):
+        self._camera_fit_pending = False
         if self._tween_animation is not None:
             self._stop_camera_tween()
             # VTK enters the interactive budget before emitting this event;
@@ -978,7 +1014,8 @@ class ThreeDVisPanel(QWidget):
         self._tween_end_pose = None
         if snap and end is not None:
             cam = self.plotter.camera
-            cam.position, cam.focal_point, cam.up = end
+            cam.position, cam.focal_point, cam.up = end[:3]
+            cam.view_angle = end[3]
             self._sync_view_button(self._tween_preset)
 
     def _sync_view_button(self, preset: str):
@@ -1267,14 +1304,16 @@ class ThreeDVisPanel(QWidget):
         return lo, hi
 
     def _build_volume_grid(self):
-        """Trilinearly upsample every field onto a finer UNIFORM grid so the
-        volume render is smooth on coarse compute meshes. Returns
-        (grid_with_point_data, fine_min_cell_mm). The upsample factor is chosen
-        per-axis-equal to cap total fine cells ~1.5M (large grids get a smaller
-        factor, tiny grids up to 5×). Falls back to the raw grid if SciPy is
+        """Cache the selected field's smooth display grid on first access.
+
+        Returns (grid_with_point_data, fine_min_cell_mm). The display-only
+        upsample factor is unchanged (up to 3× per axis, targeting ~300k
+        cells). Falls back to the raw grid if SciPy is
         missing or the factor is 1. Uniform fine edges assume ~uniform compute
-        spacing (true when wall_refine_3d is off — the default); display-only.
+        spacing; slices, hover and color ranges retain the real compute grid.
         """
+        if self._field in self._volume_grids:
+            return self._volume_grids[self._field]
         raw_min = float(min(self._dx_mm.min(), self._dy_mm.min(),
                             self._dz_mm.min()))
         try:
@@ -1283,7 +1322,8 @@ class ThreeDVisPanel(QWidget):
             return self._grid, raw_min
         if not self._arrays:
             return self._grid, raw_min
-        Nx, Ny, Nz = next(iter(self._arrays.values())).shape
+        field = self._arrays[self._field]
+        Nx, Ny, Nz = field.shape
         ncells = max(Nx * Ny * Nz, 1)
         # Cap total fine cells ~3e5 so the GPU upload + ray-cast stay light
         # enough that scroll-zoom / rotation re-renders feel responsive (the
@@ -1294,14 +1334,15 @@ class ThreeDVisPanel(QWidget):
         if f <= 1:
             return self._grid, raw_min
         Lx, Ly, Lz = self._L_mm
-        fine = {k: zoom(a, (f, f, f), order=1) for k, a in self._arrays.items()}
-        nx, ny, nz = next(iter(fine.values())).shape
+        fine = zoom(field, (f, f, f), order=1)
+        nx, ny, nz = fine.shape
         gv = pv.RectilinearGrid(np.linspace(0.0, Lx, nx + 1),
                                 np.linspace(0.0, Ly, ny + 1),
                                 np.linspace(0.0, Lz, nz + 1))
-        for k, a in fine.items():
-            gv.cell_data[k] = a.flatten(order='F')
-        return gv.cell_data_to_point_data(), float(min(Lx/nx, Ly/ny, Lz/nz))
+        gv.cell_data[self._field] = fine.flatten(order='F')
+        result = gv.cell_data_to_point_data(), float(min(Lx/nx, Ly/ny, Lz/nz))
+        self._volume_grids[self._field] = result
+        return result
 
     def _rebuild_volume(self, render: bool = True):
         """Redraw the volume-rendered cube for the current field.
@@ -1313,10 +1354,6 @@ class ThreeDVisPanel(QWidget):
         """
         if self._grid is None or self._field is None:
             return
-        # Smooth volume uses the upsampled display grid (falls back to raw).
-        vol_grid = getattr(self, '_grid_vol', None)
-        if vol_grid is None:
-            vol_grid = self._grid
         pl = self.plotter
         # Remove previous volume + scalar bars (but keep slice if any)
         try:
@@ -1345,6 +1382,8 @@ class ThreeDVisPanel(QWidget):
             if render:
                 pl.render()
             return
+        self._grid_vol, self._vol_min_cell_mm = self._build_volume_grid()
+        vol_grid = self._grid_vol
         meta = FIELD_META[self._field]
         clim = self._clim_for(self._field)
         opacity_list = list(self._opacity_ramp())
@@ -1670,4 +1709,5 @@ class ThreeDVisPanel(QWidget):
         text = "   •   ".join(parts)
         self._base_status_text = text
         self.status.setText(text)
+        self.status.setToolTip(text)
         self._last_hover_text = ''

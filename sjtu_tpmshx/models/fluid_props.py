@@ -105,8 +105,8 @@ def _nu_water(tpms_type, Re, eps_f, L_mm, D_h_mm, Pr):
 
 
 def _nu_sco2(tpms_type, Re, eps_f, L_mm, D_h_mm, Pr, *, settings=None):
-    # V1 uses the smooth-wall CFD fit directly; experiment roughness/pressure
-    # losses are deliberately outside this validation round.
+    # Default: smooth-wall CFD fit. Explicit experimental settings select the
+    # total effective coefficient in nu_sco2_selected, applied once.
     del eps_f
     if settings is not None:
         from .nu_correlations import nu_sco2_selected
@@ -142,16 +142,14 @@ class FluidModel:
     # (lambda T, P=None: f(T)) so existing m.cp(T) calls stay value-identical;
     # sCO2 cp/mu/k REQUIRE P (real-gas) and callers must forward it.
     nu: Callable     # (tpms, Re, eps_f, L_mm, D_h_mm, Pr) -> Nu (pre-floor)
-    # Guard for the (air-calibrated) roughness.py multipliers: when True they
-    # must NOT be applied to this fluid. Water's D-F closure is experiment-
-    # trained (already contains SLM roughness) and its Nu is the smooth-wall
-    # per-topology fit (nu_water_topo) — the air roughness modes don't apply
-    # either way. Air takes the env-gated roughness modes.
+    # True excludes the air-calibrated roughness.py multipliers. Despite the
+    # flag's name, this does not assert that a CFD fit contains roughness.
+    # Water/sCO2 use the fixed CFD D-F base; any selected experimental D-F
+    # correction has its own calibration scope. Water Nu is smooth-wall CFD.
     embeds_roughness: bool = False
     # Specific enthalpy h(T[, P]) [J/kg], for the true-enthalpy duty Q = ṁ·Δh.
-    # Only set for strongly-variable-cp fluids (sCO2) where cp·ΔT ≠ Δh across a
-    # HX temperature span; None for air/water (near-constant cp ⇒ the duty
-    # extraction keeps the value-identical cp·ΔT form, golden-safe).
+    # Set for sCO2. None for air/water: their callers retain the selected
+    # temperature/cp or integrated model-enthalpy formulation.
     enthalpy: Callable | None = None
 
 
@@ -175,20 +173,16 @@ FLUIDS = {
         embeds_roughness=True,
     ),
     'sco2': FluidModel(
-        name='sco2', compressible=False,   # Phase A: incompressible (D-7-6 ΔP/P<2%);
-                                           # ρ=ρ(T,P_in) varies with T. Compressible
-                                           # ρ(P_local) is Phase B (high-ΔP cases).
+        # Incompressible momentum adapter; density can still vary with T.
+        # Property calls accept inlet or local absolute P from their caller;
+        # this flag does not freeze the energy solver's pressure-dependent EOS.
+        name='sco2', compressible=False,
         rho=_sco2_prop("D"),
         cp=_sco2_prop("C"),
         mu=_sco2_prop("V"),
         k=_sco2_prop("L"),
         nu=_nu_sco2,
-        # True here means "do NOT apply the air-calibrated roughness.py
-        # multipliers" — correct for sCO2 whose closures are now smooth-wall
-        # CFD (2026-07-15): roughness is deliberately UNMODELLED (not baked
-        # in), and the air modes are the wrong anchor for it. Rename trap:
-        # the flag gates air-mode application, it does not assert the fit
-        # contains roughness.
+        # Exclude air-specific multipliers for both sCO2 Nu selections.
         embeds_roughness=True,
         enthalpy=_sco2_prop("H"),  # true-enthalpy duty ṁ·Δh (cp·ΔT wrong for sCO2)
     ),
@@ -196,7 +190,7 @@ FLUIDS = {
 
 
 def get(fluid: str, *, sco2_nu=None) -> FluidModel:
-    """Return the FluidModel for ``fluid`` ('air' | 'water'), case-insensitive."""
+    """Return the model for 'air', 'water' or 'sco2', case-insensitive."""
     try:
         model = FLUIDS[fluid.strip().lower()]
     except (KeyError, AttributeError):

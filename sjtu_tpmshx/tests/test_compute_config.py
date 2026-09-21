@@ -334,26 +334,14 @@ def test_c4_new_dataclasses_have_safe_defaults():
     assert ex.allow is False
 
 
-def test_read_feature_flags_variable_rho_cp():
-    """`chk_var_rhocp` checkbox → FeatureFlags.variable_rho_cp (default ON)."""
+def test_read_feature_flags_use_current_gui_transport_policy():
+    from types import SimpleNamespace
     from sjtu_tpmshx.ui.window_config import _read_feature_flags
 
-    class _Chk:
-        def __init__(self, v): self._v = v
-        def isChecked(self): return self._v
-
-    class _W:
-        pass
-
-    w = _W()
-    w.chk_wall_refine_3d = _Chk(False)
-    w.chk_var_rhocp = _Chk(True)
-    assert _read_feature_flags(w).variable_rho_cp is True
-    w.chk_var_rhocp = _Chk(False)
-    assert _read_feature_flags(w).variable_rho_cp is False
-    # absent checkbox → default ON (no crash)
-    del w.chk_var_rhocp
-    assert _read_feature_flags(w).variable_rho_cp is True
+    window = SimpleNamespace(combo_grid=SimpleNamespace(currentData=lambda: True))
+    flags = _read_feature_flags(window)
+    assert flags.variable_rho_cp and flags.port_wall_refine
+    assert not flags.wall_refine_3d
 
 
 def test_c4_compute_config_default_has_new_fields():
@@ -380,7 +368,6 @@ def test_c4_config_from_window_reads_partial_bc_widgets():
     window.le_pipeB_in_w = _StubLineEdit('0.080')
     window.le_pipeB_out_ctr = _StubLineEdit('0.091')
     window.le_pipeB_out_w = _StubLineEdit('0.080')
-    window.chk_uniform_inletB_2d = _StubCheckBox(True)
     cfg = config_from_window(window)
     assert cfg.bc_A.dir == 0
     assert cfg.bc_A.in_ctr == pytest.approx(0.021)
@@ -388,7 +375,7 @@ def test_c4_config_from_window_reads_partial_bc_widgets():
     assert cfg.bc_B.dir == 3
     assert cfg.bc_B.in_w == pytest.approx(0.080)
     assert cfg.bc_B.uniform_inlet_2d is True
-    assert cfg.bc_A.uniform_inlet_2d is False
+    assert cfg.bc_A.uniform_inlet_2d is True
     # 3D z-fields absent → stay None
     assert cfg.bc_A.in_z_ctr is None
     assert cfg.bc_B.in_z_w is None
@@ -501,10 +488,9 @@ def test_c4_config_from_window_extrap_default_when_widget_absent():
 
 def test_c4_config_from_window_reads_feature_flags():
     window = _StubWindow()
-    window.chk_wall_refine_3d = _StubCheckBox(checked=True)
     window._temp_unit = 'C'
     cfg = config_from_window(window)
-    assert cfg.flags.wall_refine_3d is True
+    assert cfg.flags.wall_refine_3d is False
     assert cfg.flags.temp_unit == 'C'
 
 

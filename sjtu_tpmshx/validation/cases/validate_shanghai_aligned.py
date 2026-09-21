@@ -69,9 +69,10 @@ from sjtu_tpmshx.models.tpms_calc import (
 )
 from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
 from sjtu_tpmshx.solvers.ltne_energy import solve_full_domain
-from sjtu_tpmshx.solvers.df_projection import build_master_refined_grid, extract_dP_from_simple
+from sjtu_tpmshx.models.grid import build_master_refined_grid
+from sjtu_tpmshx.solvers.df_projection import extract_dP_from_simple
 from sjtu_tpmshx.df_surrogate.predict import predict_K_cF
-from sjtu_tpmshx.solvers.roughness import (f_enhancement, nu_extra_factor,
+from sjtu_tpmshx.models.roughness import (f_enhancement, nu_extra_factor,
                                  resolve_mode_from_env)
 
 # 2026-05-13 — roughness mode from env (baseline / norris_1a / bhatti_shah_1b).

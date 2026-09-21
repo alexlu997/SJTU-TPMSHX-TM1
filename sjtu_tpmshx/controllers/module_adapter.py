@@ -50,7 +50,7 @@ def to_compute_result(result, performance):
         zones = application['zones']
     elif dimension == 3:
         geometry = parameters['prepared']['geometry']
-        fields.update({name: f.get(name) for name in ('wcA', 'wcB', 'vmag_A', 'vmag_B', 'chi_B')})
+        fields.update({name: f.get(name) for name in ('wcA', 'wcB', 'vmag_A', 'vmag_B')})
         fields.update({axis: result.grid[axis] for axis in ('dx', 'dy', 'dz')})
         fields.update(Lx=parameters['L'], Ly=parameters['H'], Lz=parameters['Lz'],
                       L_mm=result.metadata['design_fields']['L_field_m'] * 1e3,

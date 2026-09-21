@@ -14,12 +14,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.solvers.df_projection import (
-    extract_dP_from_simple,
-    extract_dP_mass_flux_from_simple,
-    build_master_refined_grid,
-    project_fields_to_streamwise_K_cF,
-)
+from sjtu_tpmshx.solvers.df_projection import extract_dP_from_simple, extract_dP_mass_flux_from_simple
+from sjtu_tpmshx.models.grid import build_master_refined_grid
+from sjtu_tpmshx.models.df_projection import project_fields_to_streamwise_K_cF
 
 
 class _FakeSim:

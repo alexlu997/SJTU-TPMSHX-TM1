@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from time import perf_counter
 from typing import Any, Callable, Dict, Optional
 
 from sjtu_tpmshx.domain.compute_config import ComputeConfig
@@ -72,13 +73,20 @@ class ComputePipeline(ABC):
         with warning_scope({}) as records:
             self.cfg.validate()
             self._check_cancel()
+            started = perf_counter()
             fields = self.build_fields()
+            timings = {'prepare': perf_counter() - started}
             self.progress_cb(20)
             self._check_cancel()
+            started = perf_counter()
             raw = self.run_solvers(fields)
+            timings['solve'] = perf_counter() - started
             self.progress_cb(90)
             self._check_cancel()
+            started = perf_counter()
             result = self.finalize(raw, fields)
+            timings['postprocess'] = perf_counter() - started
+            result.metadata['timings_s'] = timings
             self._check_cancel()
             self.progress_cb(100)
             for message in warning_messages(records):

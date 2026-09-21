@@ -1,74 +1,59 @@
-"""runs/smoke_ui_3d_pipeline.py — offscreen end-to-end 3D compute smoke.
+"""Run a real 3D GUI compute offscreen with isolated user state.
 
-Boots Main_Menu offscreen, drives the REAL 3D Compute path
-(run_calculation → _run_calculation_3d → ComputeOrchestrator worker →
-Pipeline3D → write_result). Since B3 C5 (2026-06-13) write_result
-publishes the ComputeResult itself as window._result_3d (the raw_3d dict
-carrier was retired), so this smoke asserts the ComputeResult carries the
-full renderer/export contract.
-
-TPMSHX_EAGER_3D_SLICES=1 is forced so finalize_plots_3d actually runs the
-2D mid-z slice renderer offscreen (_render_2d_slices_from_3d) — the
-PyVistaQt volume panel cannot init offscreen (logged + tolerated), but the
-slice path exercises the ComputeResult consumer surface end to end.
+Checks the published ComputeResult and lazily rendered temperature, pressure
+and velocity slices. The native PyVista volume panel is unavailable offscreen;
+its absence must not discard fields used for plotting or export. This is a
+wiring smoke, not native 3D or physical-accuracy qualification.
 """
-import os
 import time
 
-os.environ['TPMSHX_EAGER_3D_SLICES'] = '1'   # run the 2D slice renderer
-from sjtu_tpmshx.runs import _smoke_boot   # sets QT_QPA=offscreen BEFORE any Qt import
+import numpy as np
+
+from sjtu_tpmshx.runs import _smoke_boot
+from sjtu_tpmshx.runs.smokes.smoke_ui_offscreen import _smoke_window
 
 
 def main():
-    app = _smoke_boot.get_app()
     _smoke_boot.patch_modals()
-    from sjtu_tpmshx.main import Main_Menu
-    win = Main_Menu()
-    app.processEvents()
+    with _smoke_window() as (app, win):
+        win.combo_dim.setCurrentIndex(1)
+        win.combo_grid.setCurrentIndex(win.combo_grid.findData(False))
+        win.le_Nx.setText('12'); win.le_Ny.setText('10'); win.le_Nz.setText('4')
+        win.auto_fill_fluid_a(); win.auto_fill_fluid_b()
+        app.processEvents()
+        print('[1/3] autofill OK', flush=True)
 
-    win.combo_dim.setCurrentIndex(1)            # force 3D
-    win.le_Nx.setText('12'); win.le_Ny.setText('10'); win.le_Nz.setText('4')
-    win.auto_fill_fluid_a(); win.auto_fill_fluid_b()
-    app.processEvents()
-    print('[1/3] autofill OK', flush=True)
-
-    # Offscreen quirk: _on_orch_finished sets `_has_results_3d = _3d_vis_ok`
-    # and the PyVista panel cannot init offscreen, so the cached result is
-    # CLEARED right after finalize (pre-existing behaviour, identical on
-    # the legacy path). Capture the ComputeResult at publish time instead.
-    captured = {}
-    _orig_write = win.write_result
-    def _spy_write(result):
-        captured['result'] = result
-        return _orig_write(result)
-    win.write_result = _spy_write
-
-    win.run_calculation()
-    assert win.compute.is_running(), 'orchestrator did not start'
-    print('[2/3] compute started (Pipeline3D worker)', flush=True)
-    t0 = time.time()
-    while win.compute.is_running() and time.time() - t0 < 900:
-        app.processEvents(); time.sleep(0.05)
-    app.processEvents(); time.sleep(0.3); app.processEvents()
-
-    res = captured.get('result')
-    assert res is not None, 'ComputeResult never published via write_result'
-    assert win._compute_error is None, f"worker error: {win._compute_error}"
-    assert res.diagnostics.get('mode') == '3d', \
-        f"expected 3D ComputeResult, got mode={res.diagnostics.get('mode')!r}"
-
-    # Full render/export contract — every key the 3D renderer + export read.
-    f = res.fields
-    needed_fields = {'Ta', 'Tb', 'Ts', 'vmag_A', 'vmag_B', 'P_fA', 'P_fB',
-                     'L_mm', 'dx', 'dy', 'dz', 'Lx', 'Ly', 'Lz',
-                     'dir_A', 'dir_B', 'ucA', 'vcA', 'wcA'}
-    missing = needed_fields - set(f)
-    assert not missing, f'ComputeResult.fields missing keys: {sorted(missing)}'
-    assert f['Ta'] is not None and f['Ta'].ndim == 3
-    assert 'u_A_in_mps' in res.props and 'T_in_A_K' in res.props
-    print(f"[3/3] PASS in {time.time()-t0:.0f}s — "
-          f"Q={res.Q_W:.1f} W  dP_A={res.dP_A_Pa:.0f} Pa  "
-          f"Ta{f['Ta'].shape}  extrap={bool(res.extrap_reasons)}", flush=True)
+        win.run_calculation()
+        assert win.compute.is_running(), 'orchestrator did not start'
+        print('[2/3] compute started (Pipeline3D worker)', flush=True)
+        t0 = time.monotonic()
+        while win.compute.is_running() and time.monotonic() - t0 < 900:
+            app.processEvents(); time.sleep(0.05)
+        app.processEvents()
+        assert not win.compute.is_running(), '3D smoke timed out'
+        assert win._compute_error is None, f'worker error: {win._compute_error}'
+        res = win._result_3d
+        assert res is not None, 'ComputeResult was not retained after publication'
+        assert res.diagnostics.get('mode') == '3d'
+        fields = res.fields
+        needed = {'Ta', 'Tb', 'Ts', 'vmag_A', 'vmag_B', 'P_fA', 'P_fB',
+                  'L_mm', 'dx', 'dy', 'dz', 'Lx', 'Ly', 'Lz',
+                  'dir_A', 'dir_B', 'ucA', 'vcA', 'wcA'}
+        missing = needed - set(fields)
+        assert not missing, f'ComputeResult.fields missing: {sorted(missing)}'
+        for name in ('Ta', 'Tb', 'Ts'):
+            assert fields[name].ndim == 3 and np.isfinite(fields[name]).all(), name
+        assert 'u_A_in_mps' in res.props and 'T_in_A_K' in res.props
+        from sjtu_tpmshx.ui.plot_2d_results import ensure_result_plot
+        for name in ('temp', 'pres', 'vel'):
+            assert ensure_result_plot(win, name), f'{name} slice failed'
+            assert name in win._drawn_tabs
+            assert getattr(win, 'canvas_' + name)._hover_data
+        assert win._result_3d is res, 'slice rendering replaced the export source'
+        summary = (f"[3/3] PASS in {time.monotonic()-t0:.0f}s — "
+                   f"Q={res.Q_W:.1f} W  dP_A={res.dP_A_Pa:.0f} Pa  "
+                   f"Ta{fields['Ta'].shape}  extrap={bool(res.extrap_reasons)}")
+    print(summary, flush=True)
 
 
 if __name__ == '__main__':

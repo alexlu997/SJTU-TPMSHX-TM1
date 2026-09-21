@@ -17,7 +17,7 @@ from sjtu_tpmshx.solvers.coupling_skeleton import OuterConvergence, run_outer_co
 from sjtu_tpmshx.solvers._solve_common import inlet_pressure_state
 from sjtu_tpmshx.solvers.ltne_energy import solve_full_domain
 from sjtu_tpmshx.solvers.simple_solver import _prolong_mass_faces_2d
-from sjtu_tpmshx.solvers.envelope import gate_solution, mach_field_max
+from sjtu_tpmshx.models.envelope import gate_solution, mach_field_max
 from sjtu_tpmshx.logutil import get_logger
 
 if TYPE_CHECKING:

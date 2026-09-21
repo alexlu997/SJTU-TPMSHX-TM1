@@ -8,13 +8,9 @@ imports on the solvers side). New direction, module-load level:
 
     tpms_geometry  ←  tpms_props  ←  df_surrogate  ←  tpms_calc / simple_solver
 
-``tpms_calc`` re-exports every name below verbatim, so existing consumers
-(``from solvers.tpms_calc import geometry, air_viscosity, ...``) are
-unaffected. Dependencies stay limited to stdlib / numpy / ``.tpms_geometry``
-and the Qt-free ``domain.run_warnings`` leaf.
-
-All functions moved verbatim (bit-identical); see tpms_calc.py's module
-docstring for the project-wide Re/Nu conventions.
+Current imports use ``sjtu_tpmshx.models.tpms_props``. The calculator
+re-exports selected primitives for its existing consumers. Dependencies remain
+Qt-free; Re/Nu conventions are documented in ``models.tpms_calc``.
 """
 from __future__ import annotations
 

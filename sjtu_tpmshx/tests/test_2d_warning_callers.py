@@ -575,7 +575,7 @@ def _failure_flow(monkeypatch, fields, *, side, invalid):
 @pytest.mark.parametrize('mode', ['raise', 'warn', 'off'])
 @pytest.mark.parametrize('invalid', [False, True])
 def test_fatal_nonfinite_classifies_only_invalid_flow(monkeypatch, boundary, side, mode, invalid):
-    from sjtu_tpmshx.solvers.envelope import ChokedFlowError
+    from sjtu_tpmshx.models.envelope import ChokedFlowError
     pipe, fields = _prepare(monkeypatch)
     pipe._parsed['envelope_mode'] = mode
     _failure_flow(monkeypatch, fields, side=side, invalid=invalid)

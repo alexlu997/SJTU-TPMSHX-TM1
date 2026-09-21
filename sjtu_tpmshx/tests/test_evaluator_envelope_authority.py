@@ -1,5 +1,5 @@
 """P1.3 slice-A guards: the 3D evaluator's 1D D-F seed must come from the
-solvers/envelope authority, not a local copy of the algebra (architecture
+models/envelope authority, not a local copy of the algebra (architecture
 audit 2026-07 §2 — the copies are how evaluator/pipeline physics drifted in
 the C8 era), and a BO campaign must start with fresh warn-dedup registries
 (audit §5 — latched warnings from a previous campaign silence this one).
@@ -13,7 +13,7 @@ import inspect
 def test_seed_algebra_bitwise_matches_envelope():
     """The swap is a pure refactor ONLY if the authority computes the exact
     same float — same op order, same constant. Lock the bitwise equality."""
-    from sjtu_tpmshx.solvers.envelope import predict_outlet_p_sq, R_AIR_DEFAULT
+    from sjtu_tpmshx.models.envelope import predict_outlet_p_sq, R_AIR_DEFAULT
     for P_in, T, C, L in [
         (101325.0, 350.0, 1.7e4, 0.182),
         (304746.0, 370.7, 8.3e5, 0.042),
@@ -41,7 +41,7 @@ def test_evaluators_R_AIR_is_envelope_value():
     """R_AIR stays exported (verify_pareto_3d imports it) but its value is
     the envelope authority's constant."""
     import sjtu_tpmshx.core.evaluators as ev
-    from sjtu_tpmshx.solvers.envelope import R_AIR_DEFAULT
+    from sjtu_tpmshx.models.envelope import R_AIR_DEFAULT
     assert ev.R_AIR == R_AIR_DEFAULT
 
 
@@ -89,7 +89,7 @@ def test_post_solve_gate_flags_supersonic():
 
 
 def test_post_solve_gate_flags_floor_clipped_pressure():
-    from sjtu_tpmshx.solvers.envelope import PRESSURE_FLOOR_PA
+    from sjtu_tpmshx.models.envelope import PRESSURE_FLOOR_PA
     ok, reasons = _gate_with_fakes(
         P_gauge_min_B=-(101325.0 - PRESSURE_FLOOR_PA))  # abs P at the floor
     assert not ok

@@ -16,9 +16,10 @@ Hard gates (per plan #4 §3.5 V&V scope):
     L2 (grid 30) < 1.0%       # absolute error floor
     R^2 >= 0.999               # log-log fit must be clean
 
-If gates ever loosen, regenerate the CSV via:
+To obtain a separate new run for comparison:
     python -m sjtu_tpmshx.validation.cases.mms_phase_a3_h_refine
-and update the gate constants below to reflect the new ground truth.
+Outputs go to .cache/validation/mms_phase_a3-*/. This test continues to read
+the recorded reference; do not replace it or loosen gates to conceal failures.
 """
 from __future__ import annotations
 
@@ -43,7 +44,7 @@ GATE_R2 = 0.999
 @pytest.fixture(scope='module')
 def orders():
     if not ORDERS_CSV.exists():
-        pytest.skip(f"{ORDERS_CSV} missing — run mms_phase_a3_h_refine.py")
+        pytest.skip(f"Recorded reference missing: {ORDERS_CSV}; restore it from repository history")
     # comment='#' skips the C.4 provenance header (script/commit/date)
     return pd.read_csv(ORDERS_CSV, comment='#')
 

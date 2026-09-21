@@ -22,6 +22,11 @@ a complete C++ solver backend.** The production solver still uses Python/Numba;
 no `backend='cpp'` capability is advertised or enabled. Replacing only an inner
 kernel would also remain acceleration of the Python backend under V0.3 §3.2.1.
 
+The agreed sequence (2026-09-22) is to finish Python solver cleanup and qualify
+repeatable case/field/flux comparisons and cancellation/error handling first.
+Keep the existing pilot and its tests during that work; defer connecting a new
+C++ execution path until the Python reference and its physical scope are stable.
+
 ## First implemented slice
 
 `native/include/tpmshx/enthalpy_sweeps.hpp` and
