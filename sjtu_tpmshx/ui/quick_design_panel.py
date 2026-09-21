@@ -339,16 +339,6 @@ def build_quick_design_dialog(parent=None):
         f" border:1px solid {_t['inp_border']}; border-radius:6px; padding:4px 8px;}}"
         f"QLineEdit:focus{{border:1px solid {_t['inp_focus']};}}"
         f"QLineEdit:disabled{{color:{_t['val_empty_fg']}; background:{_t['scroll_bg']};}}"
-        f"QComboBox{{background:{_t['inp_bg']}; color:{_t['inp_fg']};"
-        f" border:1px solid {_t['inp_border']}; border-radius:6px; padding:3px 22px 3px 8px;}}"
-        f"QComboBox:hover{{border:1px solid {_t['combo_hover_border']};}}"
-        f"QComboBox::drop-down{{border:none; width:20px;}}"
-        f"QComboBox::down-arrow{{width:0; height:0;"
-        f" border-left:5px solid transparent; border-right:5px solid transparent;"
-        f" border-top:6px solid rgba({_t['combo_arrow']},220);}}"
-        f"QComboBox QAbstractItemView{{background:{_t['combo_list_bg']};"
-        f" color:{_t['combo_list_fg']}; selection-background-color:{_t['combo_sel']};"
-        f" border:1px solid {_t['combo_border']}; outline:none;}}"
         f"QGroupBox{{color:{_t['fg']}; background:{_t['surface_raised']};"
         f" border:1px solid {_t['card_border']}; border-radius:6px;"
         f" margin-top:12px; padding:12px 8px 8px 8px; font-weight:600;}}"
@@ -419,21 +409,22 @@ def build_quick_design_dialog(parent=None):
     combo_mode = QComboBox()
     combo_mode.addItem("自动搜索", "auto")
     combo_mode.addItem("固定胞元", "fixed")
-    combo_mode.setFixedWidth(100)
+    combo_mode.setToolTip("自动搜索：枚举拓扑、胞元尺寸和壁厚，再为各候选定尺。\n"
+                         "固定胞元：使用指定的拓扑、胞元尺寸和壁厚，搜索芯体尺寸。")
     combo_arr = QComboBox()
     combo_arr.addItem("逆流", "counter")
     combo_arr.addItem("交叉流", "cross")
-    combo_arr.setFixedWidth(100)
+    combo_arr.setToolTip("逆流：两股流体沿同轴反向流动。\n交叉流：两股流体沿相互垂直的方向流动。")
     le_rho = QLineEdit("7900"); le_rho.setFixedWidth(80)
     le_ks = QLineEdit("16"); le_ks.setFixedWidth(60)
     le_ks.setToolTip("固体热导率: 304SS=16, AlSi10Mg≈150, Cu≈300。"
                      "钢系内 Q 影响<1%; k_s↑ 经轴向寄生导热略降 Q。")
     combo_prop = QComboBox()
-    combo_prop.addItem("均温", "mean")
-    combo_prop.addItem("定物性", "const")
-    combo_prop.setFixedWidth(90)
-    combo_prop.setToolTip("物性取值温度: 均温=(入口+出口)/2 膜温 (推荐, 消大-ΔT 偏置, ~2× 解两遍); "
-                          "定物性=入口温 (最快)。dP 始终用入口物性 (保守)。")
+    combo_prop.addItem("均温物性", "mean")
+    combo_prop.addItem("入口定物性", "const")
+    combo_prop.setToolTip("均温物性：先按入口温度求解，再按各股流体的入口与出口平均温度更新物性并求解一次。\n"
+                          "入口定物性：按入口温度取物性，只求解一次。\n"
+                          "两种方案均在每次求解中保持各股物性均匀；压降均使用入口物性。")
     # 矩形迎风 (固定高度) opt-in — 默认关 = 方形 s×s (UI 现状不变)
     chk_rect = QCheckBox("固定高度迎风")
     chk_rect.setChecked(False)
@@ -492,6 +483,9 @@ def build_quick_design_dialog(parent=None):
 
     combo_cell_topo = QComboBox()
     combo_cell_topo.addItems(["Diamond", "Gyroid"])
+    for combo in (combo_mode, combo_arr, combo_prop, combo_cell_topo):
+        combo.setStyleSheet(_qd_styles['COMBO'])
+        combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
     fixed_form.addRow("拓扑:", combo_cell_topo)
 
     le_cell_l = QLineEdit("7")

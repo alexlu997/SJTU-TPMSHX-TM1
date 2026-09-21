@@ -199,14 +199,13 @@ class FieldFactory:
                 ) -> Tuple[QGridLayout, QWidget]:
         """Build a titled card. Returns ``(grid, container)``.
 
-        Matches the legacy ``ui_builders.section`` byte-for-byte:
-        same margins / spacing / column stretch / palette pinning.
+        Shared title spacing keeps every parameter card visually separated.
         """
         container = QWidget()
         container.setStyleSheet('background:transparent;')
         clay = QVBoxLayout(container)
         clay.setContentsMargins(0, 8, 0, 0)
-        clay.setSpacing(0)
+        clay.setSpacing(6)
 
         t = QLabel(title)
         t.setObjectName('secTitle')

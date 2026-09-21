@@ -13,7 +13,10 @@ from PySide6.QtWidgets import (
 )
 
 from .matplotlib_canvas import MatplotlibCanvas
-from .theme import FONT_INPUT, FONT_LABEL, FONT_SECTION, RADIUS_CARD, get_theme, glass_surface
+from .theme import (
+    FONT_INPUT, FONT_LABEL, FONT_SECTION, RADIUS_CARD, RADIUS_INPUT,
+    get_theme, glass_surface,
+)
 from .icons import icon
 
 # Re-exports — run_controller/tab_view import these from ui.builders_canvas.
@@ -242,20 +245,34 @@ def _build_canvas_toolbar(window, vlay, t, theme):
 
     # 2D|3D rendering toggle — enabled per side by _update_tab_visibility.
     _rv_seg = QFrame()
+    _rv_seg.setObjectName('resultViewSwitch')
     _rv_seg.setStyleSheet(
-        "QFrame{background:transparent; border:none; padding:0px;}")
+        f"QFrame#resultViewSwitch{{background:{_ct['surface_elevated']};"
+        f"border:1px solid {_ct['border_subtle']}; border-radius:{RADIUS_INPUT + 3}px;}}")
     _rv_lay = QHBoxLayout(_rv_seg)
-    _rv_lay.setContentsMargins(0, 0, 0, 0)
-    _rv_lay.setSpacing(0)
+    _rv_lay.setContentsMargins(3, 3, 3, 3)
+    _rv_lay.setSpacing(2)
+    _view_qss = (
+        f"QPushButton{{border:1px solid transparent; border-radius:{RADIUS_INPUT}px;"
+        f"padding:2px 12px; font-size:10.5pt; color:{_ct['sub_fg']};"
+        "background:transparent;}"
+        f"QPushButton:checked{{background:{_ct['accent_primary']};"
+        f"color:{_ct['tab_on_fg']}; font-weight:600;}}"
+        f"QPushButton:hover:!checked{{background:{_ct['btn_sec_hover_bg']};}}"
+        f"QPushButton:focus{{border-color:{_ct['inp_focus']};}}"
+        f"QPushButton:disabled{{color:{_ct['tab_disabled_fg']}; background:transparent;}}")
     window._result_view_btns = {}
     for key, cap in (('2d', "场图"), ('3d', "三维")):
         b = QPushButton(cap)
         b.setFixedHeight(28)
+        b.setCheckable(True)
+        b.setStyleSheet(_view_qss)
         b.setToolTip("切换结果显示方式（Ctrl+4），不改变计算维度或重新求解。")
         b.setEnabled(False)
         def _pick_view(_c=False, k=key):
             window._result_view = k
             window._switch_tab('result')
+            window._paint_result_seg()
         b.clicked.connect(_pick_view)
         _rv_lay.addWidget(b)
         window._result_view_btns[key] = b
@@ -277,7 +294,7 @@ def _build_canvas_toolbar(window, vlay, t, theme):
     def _paint_result_seg():
         cur = getattr(window, '_result_view', '2d')
         for k, b in window._result_view_btns.items():
-            b.setStyleSheet(_seg_qss_on if k == cur else _seg_qss_off)
+            b.setChecked(k == cur)
     _paint_result_seg()
     window._paint_result_seg = _paint_result_seg
 
@@ -472,7 +489,6 @@ def _build_optimize_panel(window, card_lay, t, theme):
         QFrame as _QFop, QStackedWidget as _QSWop,
         QSpinBox as _QSBop, QDoubleSpinBox as _QDSBop)
     from .sparkline import Sparkline as _SLop
-    _surface_el = _t.get('surface_elevated', _t['card_bg'])
     _surface_ra = _t.get('surface_raised', _t['card_bg'])
     _border_sub = _t.get('border_subtle', _t['card_border'])
     _sub_fg = _t.get('sub_fg', _t['fg'])
@@ -483,8 +499,9 @@ def _build_optimize_panel(window, card_lay, t, theme):
     # KPI/status setters and stage-pill machinery are untouched —
     # _set_stage_pill('…', 'active') now also flips the page.
     op_host = _QWop()
+    op_host.setStyleSheet("QWidget { background:transparent; }")
     op_v = _VBop(op_host)
-    op_v.setContentsMargins(0, 0, 0, 10); op_v.setSpacing(12)
+    op_v.setContentsMargins(0, 0, 0, 0); op_v.setSpacing(16)
 
     # ── Stage strip ────────────────────────────────────────
     _pill_base = (
@@ -548,20 +565,20 @@ def _build_optimize_panel(window, card_lay, t, theme):
     # ═══ Page 1 · 配置 ═══
     p1 = _QWop()
     p1v = _VBop(p1)
-    p1v.setContentsMargins(0, 0, 0, 0); p1v.setSpacing(10)
+    p1v.setContentsMargins(0, 0, 0, 0); p1v.setSpacing(16)
     from .responsive import ResponsiveRow
-    p1row = ResponsiveRow(threshold=720, spacing=10)
+    p1row = ResponsiveRow(threshold=720, spacing=16)
     p1row.layout().setAlignment(Qt.AlignmentFlag.AlignTop)
 
     def _opt_card(title, min_w=0):
         fr = _QFop()
         fr.setStyleSheet(
-            f"QFrame{{background:{_surface_el};"
-            f"border:1px solid {_border_sub}; border-radius:6px;}}")
+            f"QFrame{{background:{_surface_ra};"
+            f"border:1px solid {_border_sub}; border-radius:{RADIUS_CARD}px;}}")
         if min_w:
             fr.setMinimumWidth(min_w)
         fl = _VBop(fr)
-        fl.setContentsMargins(14, 10, 14, 12); fl.setSpacing(6)
+        fl.setContentsMargins(16, 16, 16, 16); fl.setSpacing(8)
         cap = QLabel(title)
         cap.setStyleSheet(
             f"color:{_t['fg']}; font-size:{FONT_SECTION}pt; font-weight:600;"
@@ -580,20 +597,21 @@ def _build_optimize_panel(window, card_lay, t, theme):
         f"QSpinBox:focus{{border-color:{_t['inp_focus']};}}")
     window._opt_inline_params = {}
     _param_specs = [
-        ('n_init',      "初始样本 n_init", 4, 256, 32,
+        ('n_init',      "初始样本 <i>n</i><sub>init</sub>", 4, 256, 32,
          "Sobol 初始采样数（约 2×决策维度）"),
-        ('n_iter',      "迭代数 n_iter", 0, 200, 24,
+        ('n_iter',      "迭代数 <i>n</i><sub>iter</sub>", 0, 200, 24,
          "BO 迭代次数（HV 平台早停可能提前结束）"),
-        ('q_batch',     "每代批量 q_batch", 1, 8, 2,
+        ('q_batch',     "每代批量 <i>q</i><sub>batch</sub>", 1, 8, 2,
          "每次 BO 迭代的并行候选数"),
-        ('seed',        "随机种子 seed", 0, 9999, 42,
+        ('seed',        "随机种子", 0, 9999, 42,
          "Sobol + BoTorch 随机种子（复现实验用）"),
-        ('n_rho_loops', "ρ(T) 外循环", 1, 8, 3,
+        ('n_rho_loops', "<i>ρ</i>(<i>T</i>) 外循环", 1, 8, 3,
          "压缩性密度外循环次数；3 = 上海基准"),
     ]
     for pkey, plabel, lo, hi, dflt, tip in _param_specs:
         prow = _HBop(); prow.setSpacing(8)
         pl = QLabel(plabel)
+        pl.setTextFormat(Qt.TextFormat.RichText)
         pl.setStyleSheet(f"color:{_t['fg']}; font-size:{FONT_LABEL}pt;"
                          " background:transparent; border:none;")
         sp = _QSBop(); sp.setRange(lo, hi); sp.setValue(dflt)
@@ -691,7 +709,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
 
     _sp_Lmin = _mk_dspin(_hull_L[0], _hull_L[1], _hull_L[0], 0.5, 2)
     _sp_Lmax = _mk_dspin(_hull_L[0], _hull_L[1], _hull_L[1], 0.5, 2)
-    _space_row("胞元 L 范围 [mm]",
+    _space_row("胞元 <i>L</i> 范围 [mm]",
                f"决策变量 L 的上下界；当前 CFD 几何范围 {_hull_L} mm；"
                "Nu 适用范围单独检查",
                [_sp_Lmin, _sp_Lmax])
@@ -700,7 +718,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
 
     _sp_tmin = _mk_dspin(_hull_T[0], _hull_T[1], _hull_T[0], 0.05, 2)
     _sp_tmax = _mk_dspin(_hull_T[0], _hull_T[1], _hull_T[1], 0.05, 2)
-    _space_row("壁厚 t 范围 [mm]",
+    _space_row("壁厚 <i>t</i> 范围 [mm]",
                f"决策变量 t 的上下界；当前 CFD 几何范围 {_hull_T} mm（自动夹持）",
                [_sp_tmin, _sp_tmax])
     window._opt_space_params['t_min'] = _sp_tmin
@@ -763,13 +781,13 @@ def _build_optimize_panel(window, card_lay, t, theme):
     # progress bar are built — see p2v.addLayout calls.)
     p2 = _QWop()
     p2v = _VBop(p2)
-    p2v.setContentsMargins(0, 0, 0, 0); p2v.setSpacing(12)
+    p2v.setContentsMargins(0, 0, 0, 0); p2v.setSpacing(16)
     _stack.addWidget(p2)
 
     # ═══ Page 3 · 结果 ═══ (banner + Pareto canvas mounted below.)
     p3 = _QWop()
     p3v = _VBop(p3)
-    p3v.setContentsMargins(0, 0, 0, 0); p3v.setSpacing(10)
+    p3v.setContentsMargins(0, 0, 0, 0); p3v.setSpacing(16)
     _stack.addWidget(p3)
     window._opt_page3_lay = p3v
 
@@ -781,8 +799,8 @@ def _build_optimize_panel(window, card_lay, t, theme):
     def _mk_kpi(caption, initial="—", min_w=150):
         card = _QFop()
         card.setStyleSheet(
-            f"QFrame{{background:{_surface_el};"
-            f"border:1px solid {_border_sub}; border-radius:6px;}}")
+            f"QFrame{{background:{_surface_ra};"
+            f"border:1px solid {_border_sub}; border-radius:{RADIUS_CARD}px;}}")
         card.setFixedHeight(78)
         card.setMinimumWidth(min_w)
         cl = _VBop(card)
@@ -801,7 +819,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
         return card, val
 
     kpi_row = QGridLayout()
-    kpi_row.setSpacing(10)
+    kpi_row.setSpacing(16)
     card_gen, val_gen = _mk_kpi("阶段 · 代数", "—", 130)
     card_q,   val_q   = _mk_kpi("最优 Q [W/m]", "—", 180)
     card_dp,  val_dp  = _mk_kpi("最优 ΔP [Pa]", "—", 180)
@@ -818,8 +836,8 @@ def _build_optimize_panel(window, card_lay, t, theme):
     # Sparkline card (flex 1)
     spark_card = _QFop()
     spark_card.setStyleSheet(
-        f"QFrame{{background:{_surface_el};"
-        f"border:1px solid {_border_sub}; border-radius:6px;}}")
+        f"QFrame{{background:{_surface_ra};"
+        f"border:1px solid {_border_sub}; border-radius:{RADIUS_CARD}px;}}")
     spark_card.setFixedHeight(72)
     spark_card.setMinimumWidth(220)
     scl = _VBop(spark_card)
@@ -1030,12 +1048,18 @@ def _build_canvas_content(window, vlay, t):
         # and pareto (ui-plan-b-wizard follow-up: the card's `QFrame{…}`
         # type selector CASCADES to every unstyled descendant frame — the
         # wizard's new frames all grew amber left bars, user report).
-        card.setStyleSheet(
-            f"QFrame#plotCard{{background:{_t['card_bg']};"
-            f"border:1px solid {_t['card_border']}; border-radius:{RADIUS_CARD}px;}}")
+        if key == 'pareto':
+            # The optimizer owns its inner cards; its page uses the workbench background.
+            card.setStyleSheet("QFrame#plotCard{background:transparent; border:none;}")
+        else:
+            card.setStyleSheet(
+                f"QFrame#plotCard{{background:{_t['card_bg']};"
+                f"border:1px solid {_t['card_border']}; border-radius:{RADIUS_CARD}px;}}")
         card_lay = QVBoxLayout(card)
         if key == 'layout':
             card_lay.setContentsMargins(8, 8, 8, 8)
+        elif key == 'pareto':
+            card_lay.setContentsMargins(12, 12, 12, 12)
         else:
             card_lay.setContentsMargins(16, 16, 16, 16)
         card_lay.setSpacing(0)
@@ -1090,15 +1114,12 @@ def _build_canvas_content(window, vlay, t):
         else:
             card_lay.addWidget(c)
 
-        # Skeleton shimmer placeholder for tabs that start with no data.
-        # Overlays the canvas widget until the first relevant compute
-        # finishes; stop() + hide() from the show_* callback restores the
-        # real chart. Uses an event filter to keep geometry in sync.
-        if key in ('pareto', '3d'):
+        # Keep the 3D loading placeholder; optimization results stay static
+        # until the search supplies a real Pareto chart.
+        if key == '3d':
             try:
                 from .skeleton import Skeleton as _Sk
-                skel_kind = 'pareto' if key == 'pareto' else '3d'
-                skel = _Sk(skel_kind, parent=c)
+                skel = _Sk('3d', parent=c)
                 skel.setGeometry(0, 0, max(1, c.width()), max(1, c.height()))
                 _prev_resize = c.resizeEvent
                 def _on_resize(ev, s=skel, cv=c, prev=_prev_resize):
@@ -1108,10 +1129,7 @@ def _build_canvas_content(window, vlay, t):
                         prev(ev)
                 c.resizeEvent = _on_resize
                 skel.start()
-                if key == 'pareto':
-                    window._pareto_skeleton = skel
-                else:
-                    window._3d_skeleton = skel
+                window._3d_skeleton = skel
             except Exception:
                 pass
 

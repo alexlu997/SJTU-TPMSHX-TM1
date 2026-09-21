@@ -220,7 +220,8 @@ def build_ui(window):
         button.setCheckable(True)
         window._param_rail_btns.append(button)
     rail_layout.addStretch(1)
-    nav_button('诊断', 'activity', window._show_diag_dialog)
+    window.btn_rail_diagnostics = nav_button(
+        '诊断', 'activity', lambda: window._show_diag_dialog())
     rail.hide()
     window._param_rail = rail
 
@@ -563,6 +564,13 @@ def build_param_tabs(window):
         f"border-top:1px solid {_ts['card_border']};")
     cta_lay = QVBoxLayout(cta_bar)
     cta_lay.setContentsMargins(10, 8, 10, 8)
+    diagnostics = QPushButton('诊断详情')
+    diagnostics.setIcon(icon('activity', _ts['sub_fg']))
+    diagnostics.setStyleSheet(t.style('BTN_TERTIARY'))
+    diagnostics.setToolTip('查看求解收敛、能量闭合与模型适用范围')
+    diagnostics.clicked.connect(lambda: window._show_diag_dialog())
+    window.btn_parameter_diagnostics = diagnostics
+    cta_lay.addWidget(diagnostics, 0, Qt.AlignmentFlag.AlignRight)
     # CJK mnemonics are useless — no '&'; Ctrl+R stays the shortcut.
     btn_run = QPushButton("开始计算")
     btn_run.setIcon(icon('play', 'white'))

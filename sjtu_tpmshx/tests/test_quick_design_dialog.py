@@ -48,18 +48,20 @@ def test_mode_toggle_switches_groups():
 
 @pytest.mark.parametrize('mode', ['auto', 'fixed'])
 @pytest.mark.parametrize('arrangement', ['counter', 'cross'])
-def test_display_labels_do_not_change_backend_values(mode, arrangement):
+@pytest.mark.parametrize('properties', ['mean', 'const'])
+def test_display_labels_do_not_change_backend_values(mode, arrangement, properties):
     from sjtu_tpmshx.ui.quick_design_panel import _gather_inputs
 
     dlg = build_quick_design_dialog()
     dlg.combo_qd_mode.setCurrentIndex(dlg.combo_qd_mode.findData(mode))
     dlg.combo_qd_arr.setCurrentIndex(dlg.combo_qd_arr.findData(arrangement))
-    dlg.combo_qd_prop.setCurrentIndex(dlg.combo_qd_prop.findData('const'))
+    dlg.combo_qd_prop.setCurrentIndex(dlg.combo_qd_prop.findData(properties))
     for combo in (dlg.combo_qd_mode, dlg.combo_qd_arr, dlg.combo_qd_prop):
+        assert combo.count() == 2
         combo.setItemText(combo.currentIndex(), '修改后的显示名称')
     params = _gather_inputs(dlg)
     assert (params['mode'], params['arrangement'], params['prop_model']) == (
-        mode, arrangement, 'const')
+        mode, arrangement, properties)
     assert dlg._qd_auto_group.isHidden() == (mode != 'auto')
     assert dlg._qd_fixed_group.isHidden() == (mode != 'fixed')
     dlg.deleteLater()

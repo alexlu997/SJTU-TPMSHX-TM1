@@ -110,6 +110,7 @@ class RunStatusCard(QFrame):
     def set_theme(self, theme=None):
         t = theme or get_theme()
         self.setStyleSheet(
+            "QWidget { background:transparent; }"
             f"QFrame#runStatusCard {{ background:{t['card_bg']}; "
             f"border:1px solid {t['card_border']}; border-radius:{RADIUS_CARD}px; }}"
             f"QLabel {{ color:{t['sub_fg']}; border:0; background:transparent; font-size:10pt; }}"

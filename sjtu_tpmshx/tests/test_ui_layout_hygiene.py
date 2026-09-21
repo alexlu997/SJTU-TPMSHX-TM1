@@ -64,6 +64,25 @@ def test_fluids_row_is_responsive(win):
     assert isinstance(getattr(win, "_fluids_row", None), ResponsiveRow)
 
 
+def test_model_dropdown_has_room_for_the_full_current_label(win):
+    app = QApplication.instance()
+    combo = win.combo_df_mode
+    previous = combo.currentIndex()
+    page = win._param_page
+    try:
+        win._select_param_page(2)
+        for index in range(combo.count()):
+            combo.setCurrentIndex(index)
+            combo.setFocus()
+            app.processEvents()
+            edit = combo.lineEdit()
+            # QLineEdit reserves internal text/cursor margins beyond glyphs.
+            assert edit.width() >= edit.fontMetrics().horizontalAdvance(edit.text()) + 4
+    finally:
+        combo.setCurrentIndex(previous)
+        win._select_param_page(page)
+
+
 def test_responsive_row_direction_flips():
     """Standalone instance — a layout-managed widget can't be resized freely
     (the parent layout re-imposes geometry), so the flip is tested on a
@@ -180,18 +199,37 @@ def test_parameter_inspector_has_single_scroll_area(win):
     assert len(scrolls) <= 1, [s.objectName() or repr(s) for s in scrolls]
 
 
-def test_tpms_computed_collapsed_then_autoexpands(win):
+def test_tpms_computed_is_visible_before_and_after_calculation(win):
+    from PySide6.QtWidgets import QLabel
+
     app = QApplication.instance()
     win._select_param_page(0)
     sec = win._ia_sections["tpms_computed"]
+    assert isinstance(sec.layout().itemAt(0).widget(), QLabel)
     frame = sec.layout().itemAt(1).widget()
-    assert not frame.isVisible()          # starts collapsed
+    assert frame.isVisibleTo(win)
     assert win.compute_tpms()             # default inputs are valid
     app.processEvents()
-    # group ① is open, so the expanded card becomes visible-to-window
     assert frame.isVisibleTo(win)
     assert win._v_eps.text() not in ("—", "")
     win._select_param_page(1)
+
+
+def test_diagnostics_reachable_with_expanded_or_collapsed_sidebar(win, monkeypatch):
+    calls = []
+    monkeypatch.setattr(win, '_show_diag_dialog', lambda: calls.append(True))
+    try:
+        if getattr(win, '_left_collapsed', False):
+            win._toggle_left_panel()
+        assert win.btn_parameter_diagnostics.isVisibleTo(win)
+        win.btn_parameter_diagnostics.click()
+        win._toggle_left_panel()
+        assert win.btn_rail_diagnostics.isVisibleTo(win)
+        win.btn_rail_diagnostics.click()
+        assert len(calls) == 2
+    finally:
+        if getattr(win, '_left_collapsed', False):
+            win._toggle_left_panel()
 
 
 def test_group_badge_counts_empty_field(win):
@@ -307,6 +345,10 @@ def test_result_view_toggle_gating(win):
     assert win._result_view_btns['2d'].isEnabled()
     assert not win._result_view_btns['3d'].isEnabled()
     assert win.btn_tab_result.isEnabled()
+    for _ in range(2):
+        win._result_view_btns['2d'].click()
+        assert win._result_view_btns['2d'].isChecked()
+        assert not win._result_view_btns['3d'].isChecked()
     win._has_results_2d = False
     win._update_tab_visibility()
     assert not win.btn_tab_result.isEnabled()

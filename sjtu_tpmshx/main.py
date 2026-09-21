@@ -532,13 +532,6 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         self._v_A0.setText(f"{r['A_0']:.2f}")
         self._v_Dh.setText(f"{r['D_h'] * 1000:.4f}")
         self._v_Kss.setText(f"{r['K_ss']:.5f}")
-        # ui-ia-batch1: the "Computed geometry" card starts collapsed —
-        # auto-expand it now that it has values to show.
-        try:
-            self._ia_sections['tpms_computed']._set_expanded(True)
-        except Exception:
-            pass
-
         # Auto-update suggested grid from D_h.
         #   2D: alpha=0.4
         #   3D: alpha=1.0 (streamwise x), 0.5 (cross-stream y, z) — with
