@@ -303,8 +303,20 @@ def test_compute_applies_launch_thread_count_and_restores_reused_pool_thread(out
         seen['restored_count'] = get_solver_threads()
         inspected.set()
 
+    # Keep the probes on production's QRunnable subclass dispatch path;
+    # QRunnable.create uses a separate native callback bridge in PySide.
+    class Probe(QRunnable):
+        def __init__(self, callback):
+            super().__init__()
+            self.callback = callback
+
+        def run(self):
+            self.callback()
+
+    seed_probe = Probe(seed_pool_thread)
+    inspect_probe = Probe(inspect_reused_pool_thread)
     try:
-        orch._pool.start(QRunnable.create(seed_pool_thread))
+        orch._pool.start(seed_probe)
         assert seeded.wait(3)
         set_solver_threads(1)
         # The next-draft GUI setting can change before dispatch. This run
@@ -319,7 +331,7 @@ def test_compute_applies_launch_thread_count_and_restores_reused_pool_thread(out
         # wait completes. Inspect the still-live worker to verify restoration.
         assert _wait_for(lambda: not orch.is_running()
                          and orch._pool.activeThreadCount() == 0)
-        orch._pool.start(QRunnable.create(inspect_reused_pool_thread))
+        orch._pool.start(inspect_probe)
         assert inspected.wait(3)
         assert terminal == [outcome]
         assert seen['compute_thread'] != threading.get_ident()

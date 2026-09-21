@@ -67,7 +67,8 @@ jobs:
         run: >-
           "$CI_PYTHON" -m pytest sjtu_tpmshx/tests/ -q -ra
           -m "not slow and not heavy" --ignore=sjtu_tpmshx/tests/integration_tm1
-          -n 2 --dist loadscope --timeout=600 --timeout-method=thread
+          -n 2 --dist loadscope --max-worker-restart=0
+          --timeout=600 --timeout-method=thread
           --durations=30 --junitxml=.cache/ci/fast.xml
       - name: Run real public module integration
         shell: bash
