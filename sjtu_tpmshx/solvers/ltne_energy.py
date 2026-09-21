@@ -1117,11 +1117,11 @@ def solve_full_domain(L, H, Nx, Ny,
 
 
 def _warmup_jit():
-    """Pre-compile _gs_full_chunk on module import.
+    """Explicitly pre-compile _gs_full_chunk for warm benchmarks.
 
     Triggers JIT compilation with a tiny 4x4 dummy problem so the first real
     call doesn't pay the ~15-60 second compilation cost. Failures are
-    silently caught — we never block module import on a warmup hiccup.
+    silently caught — this optional benchmark warmup is best-effort.
     """
     try:
         import numpy as _np
@@ -1158,7 +1158,4 @@ def _warmup_jit():
                        0, 3, _TinA, _TinB, _fracA, _fracB,
                        1, 1, 1)
     except Exception:
-        pass  # warmup is best-effort; never block import
-
-
-_warmup_jit()
+        pass  # Optional benchmark warmup is best-effort.

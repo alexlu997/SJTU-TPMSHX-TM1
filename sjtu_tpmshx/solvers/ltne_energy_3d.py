@@ -1112,8 +1112,10 @@ def mass_balance_3d(u, v, w, rho_field, dy_arr, dx_arr, dz_arr, dir_code):
 # ---------------------------------------------------------------------------
 
 def _warmup_jit():
-    """Pre-compile the LTNE GS kernels on import so the user's first 3D Run does
-    not pay the multi-second numba compile. Best-effort, never raises.
+    """Explicitly pre-compile LTNE GS kernels for warm benchmarks.
+
+    Production imports do not invoke this: actual solves compile only the
+    selected kernel, after reaching their cancellation checkpoints.
 
     E1 (audit 2026-06-28): must warm the DEFAULT-path STAGGERED kernels
     (_gs_full_chunk_3d_stag + the >30k-cell red-black _stag_rb), not just the
@@ -1156,7 +1158,4 @@ def _warmup_jit():
                 0, 3, TinA, TinB, fA, fB, 1, 0, 0.7, 0.7, 0.7,
                 chi, 0.5, mms, mms, mms, 1)
     except Exception:
-        pass  # warmup is best-effort; never block import (same as ltne_energy)
-
-
-_warmup_jit()
+        pass  # Optional benchmark warmup is best-effort.

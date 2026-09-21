@@ -667,32 +667,33 @@ def test_prolongated_nonfinite_reaches_parent_without_reset(
 def test_nonfinite_iteration_does_not_add_cancel_checkpoint(monkeypatch, dim):
     s = _small_f2(dim)
     calls = []
+    requested = False
 
     def cancel():
         calls.append(True)
-        # 2D's original iteration checkpoint continues; another poll would cancel.
-        return dim == 3 or len(calls) > 1
+        return requested
 
     update = s._update_density
 
     def density():
+        nonlocal requested
         update()
         s.P.flat[0] = np.nan
+        requested = True
 
     monkeypatch.setattr(s, '_update_density', density)
     assert s.solve(max_iter=1, verbose=False, cancel_check=cancel) == (False, 1)
-    assert len(calls) == (1 if dim == 2 else 0)
+    assert len(calls) == (1 if dim == 2 else 2)
     assert s.exit_reason == 'nonfinite'
     assert np.isnan(s.P.flat[0])
     _assert_invalid_final_diagnostics(s)
 
 
-@pytest.mark.parametrize('dim,completed', [(2, 0), (3, 24)])
-def test_finite_f2_cancels_at_original_checkpoint(dim, completed):
+@pytest.mark.parametrize('dim', [2, 3])
+def test_finite_f2_cancels_before_first_iteration(dim):
     from sjtu_tpmshx.domain.cancellation import CancelledError
     from sjtu_tpmshx.solvers._solve_common import f2_state_is_finite
     s = _small_f2(dim)
-    s.mom_tol = 0.0  # Hold convergence open until the original checkpoint.
     calls = []
 
     def cancel():
@@ -701,6 +702,6 @@ def test_finite_f2_cancels_at_original_checkpoint(dim, completed):
 
     with pytest.raises(CancelledError):
         s.solve(max_iter=25, verbose=False, cancel_check=cancel)
-    assert calls == [completed]
-    assert len(s.residuals) == completed
+    assert calls == [0]
+    assert s.residuals == []
     assert f2_state_is_finite(s, (s.u, s.v) + ((s.w,) if dim == 3 else ()))

@@ -92,3 +92,31 @@ def test_initial_scene_defers_mesh_and_camera_render():
     plotter.view_isometric.assert_called_once_with(render=False)
     plotter.camera.zoom.assert_not_called()
     plotter.render.assert_not_called()
+
+
+def test_hover_and_opacity_work_without_vtk_compatibility_aggregator(monkeypatch):
+    """The bundle keeps vtkmodules, without the import-everything vtk shim."""
+    import sys
+    import vtkmodules.vtkRenderingCore as rendering
+
+    monkeypatch.setitem(sys.modules, 'vtk', None)
+    picker = Mock()
+    picker.GetActor.return_value = None
+    monkeypatch.setattr(rendering, 'vtkPropPicker', lambda: picker)
+    plotter = Mock()
+    actor = rendering.vtkVolume()
+    panel = SimpleNamespace(
+        _grid=object(), _last_hover_text='', plotter=plotter,
+        _volume_actor=actor, _field='Ta', _clim_for=lambda _: (300., 420.),
+        _opacity_ramp=lambda: (.2, .6), _rebuild_volume=Mock(),
+    )
+    event = Mock()
+    event.GetEventPosition.return_value = (4, 5)
+    ThreeDVisPanel._on_mouse_move(panel, event, None)
+    picker.Pick.assert_called_once_with(4, 5, 0, plotter.renderer)
+
+    ThreeDVisPanel._apply_opacity_now(panel)
+    opacity = actor.GetProperty().GetScalarOpacity()
+    assert opacity.GetValue(360.) == pytest.approx(.4)
+    plotter.render.assert_called_once_with()
+    panel._rebuild_volume.assert_not_called()

@@ -59,6 +59,53 @@ def test_param_pages_have_no_horizontal_scroll(win):
     assert not offenders, f"horizontal scroll present in: {offenders}"
 
 
+@pytest.mark.parametrize('field', ['temp', 'pres', 'vel'])
+@pytest.mark.parametrize('dpi', [100, 125])
+def test_equal_aspect_field_labels_fit_after_short_canvas_resize(win, field, dpi):
+    """The embedded field canvas must reserve real text space on every draw."""
+    import numpy as np
+    import warnings
+    from sjtu_tpmshx.ui.plot_3d_results import (
+        _plot_3d_temperature, _plot_3d_pressure, _plot_3d_velocity_slice,
+    )
+
+    canvas = getattr(win, 'canvas_' + field)
+    figure = canvas.fig
+    previous_dpi, previous_size = figure.dpi, figure.get_size_inches().copy()
+    values = np.arange(48.).reshape(8, 6) + 300.
+    xc, yc = np.linspace(3.75, 56.25, 8), np.linspace(2.5, 27.5, 6)
+    try:
+        figure.set_dpi(dpi)
+        figure.set_size_inches(12, 7, forward=False)
+        if field == 'temp':
+            _plot_3d_temperature(canvas, values, values + 20, values + 10,
+                                 xc, yc, 'z = 15 mm', phase=0, unit='°C')
+        elif field == 'pres':
+            _plot_3d_pressure(canvas, values, values + 20, xc, yc,
+                              100., 200., 'z = 15 mm', phase=0)
+        else:
+            _plot_3d_velocity_slice(canvas, values, values, values,
+                                    values, values, values, xc, yc,
+                                    'z = 15 mm', phase=0)
+        # A short workbench can follow a large, previously laid-out figure.
+        for width, height in ((515, 80), (1015, 417), (515, 161)):
+            figure.set_size_inches(width / 100, height / 100, forward=False)
+            with warnings.catch_warnings():
+                warnings.filterwarnings('error', message='.*layout.*', category=UserWarning)
+                canvas.draw()
+            axis = canvas.axes[0][0]
+            assert axis.get_aspect() == 1
+            assert axis.xaxis.label.get_window_extent(canvas.renderer).y0 >= 0
+            for title in (axis.title, axis._left_title, axis._right_title):
+                if title.get_text():
+                    assert title.get_window_extent(canvas.renderer).y1 <= figure.bbox.height
+            assert axis.get_window_extent().height > 0
+    finally:
+        figure.clear()
+        figure.set_dpi(previous_dpi)
+        figure.set_size_inches(previous_size, forward=False)
+
+
 def test_fluids_row_is_responsive(win):
     from sjtu_tpmshx.ui.responsive import ResponsiveRow
     assert isinstance(getattr(win, "_fluids_row", None), ResponsiveRow)
@@ -442,6 +489,14 @@ def test_result_footer_wraps_full_diagnostics_and_long_kpis(win):
             assert win._result_diagnostic_row.direction == direction
             _wait_for(lambda: win._canvas_scroll.verticalScrollBar().maximum() == 0,
                       timeout=1)
+            summary = win._result_sidebar
+            assert isinstance(summary, QScrollArea)
+            _wait_for(lambda: (summary.verticalScrollBar().maximum() > 0) == (width == 900),
+                      timeout=1)
+            assert win.btn_result_summary.isChecked()
+            if width == 900:
+                summary.ensureWidgetVisible(win._sb_labels['iters'])
+                assert summary.verticalScrollBar().value() > 0
             for label in win._result_sidebar.findChildren(QLabel):
                 if label.isVisibleTo(win):
                     if label.wordWrap():

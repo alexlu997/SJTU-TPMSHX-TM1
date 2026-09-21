@@ -1,7 +1,9 @@
 """Result metrics and diagnostics below the field workbench."""
 from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QWidget,
+    QScrollArea, QSizePolicy,
 )
+from PySide6.QtCore import Qt
 
 from .theme import get_theme, glass_surface
 from .responsive import ResponsiveRow
@@ -100,9 +102,23 @@ def _build_result_sidebar(window, _t, t):
     detail_row.addWidget(btn_diag)
     slay.addWidget(diagnostic)
 
-    side.hide()
-    window._result_sidebar = side
-    return side
+    # Wrapped metrics must not consume the field viewport on short windows.
+    # Keep the user's summary choice; only its overflow needs scrolling.
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QFrame.Shape.NoFrame)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    scroll.setStyleSheet("QScrollArea{background:transparent; border:none;}"
+                        + t.style('SCROLLBAR'))
+    scroll.viewport().setAutoFillBackground(False)
+    scroll.setWidget(side)
+    scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+    scroll.setMaximumHeight(max(
+        120, window._sb_labels['q'].sizeHint().height()
+        + window._lbl_sidebar_tout_unit.sizeHint().height() + btn_diag.height() + 36))
+    scroll.hide()
+    window._result_sidebar = scroll
+    return scroll
 
 
 def refresh_result_sidebar(window):

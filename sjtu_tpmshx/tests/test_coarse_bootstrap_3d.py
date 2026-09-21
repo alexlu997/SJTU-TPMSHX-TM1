@@ -3,6 +3,7 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
+import pytest
 
 warnings.filterwarnings('ignore')
 
@@ -96,6 +97,32 @@ def test_bootstrap_solver_matches_baseline_converged_state():
     # final attractor; bootstrap is only an init perturbation).
     np.testing.assert_allclose(s_cold.u, s_warm.u, rtol=2e-2, atol=1e-3)
     np.testing.assert_allclose(s_cold.v, s_warm.v, rtol=2e-2, atol=1e-3)
+
+
+@pytest.mark.parametrize('bootstrap', [False, True])
+def test_cancel_after_real_iteration_stops_before_next_sweep(monkeypatch, bootstrap):
+    from sjtu_tpmshx.domain.cancellation import CancelledError
+    from sjtu_tpmshx.solvers import simple_solver_3d, coarse_bootstrap_3d
+    solver = _build_solver()
+    solver.use_coarse_bootstrap = bootstrap
+    original = simple_solver_3d._correct_jit_3d
+    corrections = []
+
+    def correct(*args, **kwargs):
+        result = original(*args, **kwargs)
+        corrections.append(True)
+        return result
+
+    def forbidden(*args):
+        pytest.fail('cancelled coarse fields were prolonged into the fine solver')
+
+    monkeypatch.setattr(simple_solver_3d, '_correct_jit_3d', correct)
+    monkeypatch.setattr(coarse_bootstrap_3d, '_trilinear_zoom', forbidden)
+    with pytest.raises(CancelledError):
+        solver.solve(cancel_check=lambda: bool(corrections))
+    assert corrections == [True]
+    assert solver.exit_reason == 'cancelled'
+    assert len(solver.residuals) == (0 if bootstrap else 1)
 
 
 def test_bootstrap_rebuilds_rectangles_and_conserves_inlet_mass(monkeypatch):

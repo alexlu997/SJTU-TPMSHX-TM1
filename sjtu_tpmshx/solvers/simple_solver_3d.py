@@ -809,10 +809,11 @@ class SIMPLESolver3D:
               n_inner=1, verbose=False, cancel_check=None):
         """Run the SIMPLE iterative loop.
 
-        cancel_check : optional callable -> bool. Polled every 25 outer SIMPLE
-            iterations (cheap; the JIT sweeps inside one iteration are not
-            interruptible). True raises CancelledError; a cancelled solve
-            never returns a partial iterate as a completed result.
+        cancel_check : optional callable -> bool. Polled before bootstrap and
+            every SIMPLE iteration, including the coarse solve. JIT sweeps
+            inside one iteration are not interruptible. True raises
+            CancelledError; a cancelled solve never returns a partial iterate
+            as a completed result.
 
         F2 requires momentum, fresh-density local/global mass and backflow
         gates on consecutive observations. ``tol`` is a retained call argument;
@@ -846,6 +847,9 @@ class SIMPLESolver3D:
         self.outlet_backflow_frac = 0.0
         if not f2_state_is_finite(self, (self.u, self.v, self.w)):
             return f2_nonfinite_exit(self, 0)
+        if cancel_check is not None and cancel_check():
+            self.exit_reason = 'cancelled'
+            raise CancelledError("compute cancelled by user")
 
         # Capture the mass-flux inlet target ONCE, at reference inlet
         # conditions (prescribed v × initial ρ), before any pressure build-up.
@@ -878,6 +882,7 @@ class SIMPLESolver3D:
                     max_iter_coarse=int(getattr(
                         self, 'coarse_bootstrap_max_iter', 200)),
                     verbose=verbose,
+                    cancel_check=cancel_check,
                 )
                 self._coarse_bootstrap_info = _bs_info
                 if verbose and _bs_info.get('applied'):
@@ -885,6 +890,9 @@ class SIMPLESolver3D:
                               f"{_bs_info['coarse_shape']}, iters="
                               f"{_bs_info['coarse_iters']}, "
                               f"res={_bs_info['coarse_residual']:.3e}")
+            except CancelledError:
+                self.exit_reason = 'cancelled'
+                raise
             except Exception as exc:   # robust: never block fine solve
                 self._coarse_bootstrap_info = {
                     'applied': False, 'reason': f'exception:{exc}'}
@@ -930,9 +938,7 @@ class SIMPLESolver3D:
         _f2 = F2Monitor(self, (self.u, self.v, self.w), min_iter=10)
 
         for it in range(1, max_iter + 1):
-            # Cooperative cancel (point 4): poll every 25 iters — cheap, and
-            # fine enough that a water solve aborts in well under a second.
-            if cancel_check is not None and (it % 25 == 0) and cancel_check():
+            if cancel_check is not None and cancel_check():
                 self.exit_reason = 'cancelled'
                 raise CancelledError("compute cancelled by user")
             # Effective density for continuity: ε·ρ. Uniform ε → multiplicative
@@ -1109,11 +1115,10 @@ class SIMPLESolver3D:
                       'num': (nu_, nv_, nw_), 'den': (du_, dv_, dw_)}
 
 
-# ── JIT warmup — pay the compile cost at module-import time, not on first
-#    Run-Calculation click. Every @njit kernel called once on a tiny grid.
+# Optional benchmark prewarm. Production compiles on first kernel use,
+# after cooperative cancellation is reachable.
 def _warmup_simple_3d():
-    """Compile the Numba momentum/mass kernels on import so the first real
-    solve() doesn't pay the JIT cost.
+    """Explicitly compile Numba momentum/mass kernels for warm benchmarks.
 
     Args MUST match the kernel signatures exactly. The previous version
     mis-ordered them (dx/dy/dz fell into the Nx/Ny/Nz int slots, eps into
@@ -1169,6 +1174,3 @@ def _warmup_simple_3d():
             import warnings
             warnings.warn(
                 f"3D JIT warmup failed (kernels compile on first solve): {e!r}")
-
-
-_warmup_simple_3d()
