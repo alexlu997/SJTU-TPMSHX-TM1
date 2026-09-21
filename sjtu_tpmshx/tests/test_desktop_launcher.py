@@ -36,7 +36,7 @@ def test_desktop_build_lock_covers_declared_builder():
     from sjtu_tpmshx.runs.tools.check_locked_environment import read_lock
     root = Path(__file__).resolve().parents[2]
     lock = read_lock(root / 'requirements-lock-desktop.txt')
-    project = tomllib.loads((root / 'pyproject.toml').read_text())['project']
+    project = tomllib.loads((root / 'pyproject.toml').read_text(encoding='utf-8'))['project']
     for raw in project['optional-dependencies']['desktop-build']:
         requirement = Requirement(raw)
         assert lock[canonicalize_name(requirement.name)].specifier == requirement.specifier
@@ -48,7 +48,7 @@ def test_bundle_resource_selection_excludes_user_state_and_jit_cache():
     import ast
     from pathlib import Path, PurePath
     root = Path(__file__).resolve().parents[2]
-    tree = ast.parse((root / 'packaging' / 'desktop.spec').read_text())
+    tree = ast.parse((root / 'packaging' / 'desktop.spec').read_text(encoding='utf-8'))
     calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
              and isinstance(node.func, ast.Name) and node.func.id == 'collect_data_files']
     assert len(calls) == 1
