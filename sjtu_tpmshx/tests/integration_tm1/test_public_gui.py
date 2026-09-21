@@ -165,7 +165,7 @@ def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, di
     monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *args: (str(output), 'CSV'))
     win._export_results()
     assert not errors
-    with output.open() as stream:
+    with output.open(encoding='utf-8', newline='') as stream:
         rows = dict(list(csv.reader(stream))[1:])
     assert float(rows[f'Q [{unit}]']) == pytest.approx(result.Q_W, abs=.0001)
     assert json.loads(rows['metadata'])['metric_definitions']['Q']['definition_version'] == 'native_boundary_v1'
@@ -215,5 +215,7 @@ def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, di
     screenshot = Path(f'.cache/tm1-apps/gui-{dimension}d.png')
     screenshot.parent.mkdir(parents=True, exist_ok=True)
     assert win.grab().save(str(screenshot))
-    Path(f'.cache/tm1-apps/gui-{dimension}d-preflight.txt').write_text('\n'.join(dialogs))
-    Path(f'.cache/tm1-apps/gui-{dimension}d-warnings.txt').write_text(diagnostic_text)
+    Path(f'.cache/tm1-apps/gui-{dimension}d-preflight.txt').write_text(
+        '\n'.join(dialogs), encoding='utf-8')
+    Path(f'.cache/tm1-apps/gui-{dimension}d-warnings.txt').write_text(
+        diagnostic_text, encoding='utf-8')

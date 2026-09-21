@@ -2,8 +2,8 @@
 import pytest
 from PySide6.QtCore import QCoreApplication, QEvent, QPoint
 from PySide6.QtWidgets import (
-    QApplication, QBoxLayout, QHBoxLayout, QLabel, QPushButton, QVBoxLayout,
-    QWidget,
+    QApplication, QBoxLayout, QComboBox, QHBoxLayout, QLabel, QPushButton,
+    QSizePolicy, QSpacerItem, QVBoxLayout, QWidget,
 )
 
 from sjtu_tpmshx.ui.responsive import ResponsiveRow
@@ -101,3 +101,80 @@ def test_native_text_minimum_change_reflows_without_resizing_host():
         assert row.direction == QBoxLayout.Direction.LeftToRight
     finally:
         _close(host)
+
+
+@pytest.mark.parametrize('group_kind', ['layout', 'widget', 'responsive'])
+def test_content_minimum_hint_survives_smaller_explicit_minimum(group_kind):
+    """Qt's item minimum can be smaller than the native content minimum."""
+    host = QWidget()
+    outer = QVBoxLayout(host)
+    outer.setContentsMargins(0, 0, 0, 0)
+    row = ResponsiveRow(threshold=1, spacing=7)
+    outer.addWidget(row)
+    combo = QComboBox()
+    combo.addItem('Temperature A reference field at the selected slice')
+    combo.setMinimumWidth(140)
+    label = QLabel('Z coordinate range (0–182.0 mm), choose the slice position')
+    label.setMinimumWidth(260)
+    controls = (combo, label)
+    for control in controls:
+        group = QHBoxLayout()
+        group.setContentsMargins(0, 0, 0, 0)
+        group.addWidget(control)
+        if group_kind == 'layout':
+            row.layout().addLayout(group)
+        elif group_kind == 'widget':
+            wrapper = QWidget()
+            vertical = QVBoxLayout(wrapper)
+            vertical.setContentsMargins(0, 0, 0, 0)
+            vertical.addLayout(group)
+            row.addWidget(wrapper)
+        else:
+            wrapper = ResponsiveRow(threshold=1)
+            wrapper.layout().addLayout(group)
+            row.addWidget(wrapper)
+    host.ensurePolished()
+    hints = [control.minimumSizeHint().width() for control in controls]
+    assert hints[0] > 140 and hints[1] > 260
+    # Fits either complete group but cannot fit both native content hints.
+    width = max(hints) + min(hints) // 2
+    assert width > 140 + 260 + row.layout().spacing()
+    try:
+        host.resize(width, 200)
+        host.show()
+        _settle_layout()
+        assert host.width() == width
+        assert row.direction == QBoxLayout.Direction.TopToBottom
+        for control in controls:
+            assert control.width() >= control.minimumSizeHint().width()
+            rect = control.rect().translated(control.mapTo(host, QPoint()))
+            assert host.rect().contains(rect)
+    finally:
+        _close(host)
+
+
+def test_content_minimum_respects_hidden_ignored_fixed_and_spacer_items():
+    row = ResponsiveRow(threshold=1, spacing=7)
+    row.addWidget(QLabel('Field'))
+    ignored = QLabel('The ignored label does not constrain horizontal layout')
+    ignored.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+    row.addWidget(ignored)
+    hidden = QLabel('A hidden control must not require width for its content')
+    row.addWidget(hidden)
+    hidden.hide()
+    fixed = QLabel('A fixed control still respects its explicit maximum width')
+    fixed.setFixedWidth(31)
+    row.addWidget(fixed)
+    row.layout().addSpacerItem(QSpacerItem(
+        2000, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
+    try:
+        row.resize(200, 100)
+        row.show()
+        _settle_layout()
+        assert row.width() == 200
+        assert row.direction == QBoxLayout.Direction.LeftToRight
+        assert row.minimumSizeHint().width() <= 200
+        assert hidden.isHidden()
+        assert fixed.width() == 31
+    finally:
+        _close(row)

@@ -9,6 +9,7 @@ from shiboken6 import isValid
 from pyvista.plotting.plotter import BasePlotter
 
 from sjtu_tpmshx.ui.panel_vis_3d import ThreeDVisPanel
+from sjtu_tpmshx.ui.responsive import ResponsiveRow
 
 
 _POSES = {
@@ -308,7 +309,8 @@ def test_fit_toolbar_uses_current_orientation():
 
 
 @pytest.mark.parametrize('width', [500, 650, 1100])
-def test_volume_toolbar_groups_fit_narrow_and_wide_panels(width):
+@pytest.mark.parametrize('wide_hints', [False, True])
+def test_volume_toolbar_groups_fit_narrow_and_wide_panels(width, wide_hints):
     class Toolbar(ThreeDVisPanel):
         def __init__(self):
             QWidget.__init__(self)
@@ -322,10 +324,33 @@ def test_volume_toolbar_groups_fit_narrow_and_wide_panels(width):
     panel.combo_field.blockSignals(True)
     panel.combo_field.addItem('Temperature A')
     panel.lbl_coord.setText('Z coord (0–182.0 mm):')
+    if wide_hints:
+        # A native style can require wider controls even at the same font size.
+        # Each semantic group fits 500 px; the old unbreakable pairs do not.
+        for control, minimum in (
+                (panel.combo_field, 280), (panel.combo_plane, 220),
+                (panel.lbl_coord, 260), (panel.btn_view_top, 62),
+                (panel.btn_view_front, 62), (panel.btn_view_side, 62),
+                (panel.btn_view_iso, 62), (panel.btn_shot, 240)):
+            control.setMinimumWidth(minimum)
     panel.show()
     for _ in range(3):
         QApplication.processEvents()
-    assert panel.width() == width, 'toolbar minimum hints must allow the requested width'
+    group_hints = {
+        row.objectName(): {
+            'direction': row.direction.name,
+            'width': row.width(),
+            'minimum': row.minimumSizeHint().width(),
+            'children': [
+                (row.layout().itemAt(i).minimumSize().width(),
+                 row.layout().itemAt(i).sizeHint().width())
+                for i in range(row.layout().count())
+            ],
+        }
+        for row in panel.findChildren(ResponsiveRow)
+    }
+    assert panel.width() == width, (
+        'toolbar minimum hints must allow the requested width', group_hints)
     controls = [panel.combo_field, panel.combo_plane, panel.le_coord,
                 panel.slider_opacity, panel.btn_apply, panel.btn_clear,
                 panel.btn_clim, panel.btn_view_top, panel.btn_view_front,
@@ -333,8 +358,10 @@ def test_volume_toolbar_groups_fit_narrow_and_wide_panels(width):
                 *panel.findChildren(QLabel)]
     for control in controls:
         rect = control.rect().translated(control.mapTo(panel, QPoint()))
-        assert panel.rect().contains(rect), (width, control, rect)
-        assert control.width() >= control.minimumSizeHint().width(), (width, control)
+        assert panel.rect().contains(rect), (width, control, rect, group_hints)
+        assert control.width() >= control.minimumSizeHint().width(), (
+            width, control, control.width(), control.minimumSizeHint().width(),
+            group_hints)
     panel.close()
     panel.deleteLater()
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)

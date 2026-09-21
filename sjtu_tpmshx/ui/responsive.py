@@ -10,7 +10,7 @@ hard QHBoxLayout used to clip both cards on narrow panels
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QSize
-from PySide6.QtWidgets import QBoxLayout, QLayout, QWidget
+from PySide6.QtWidgets import QBoxLayout, QLayout, QSizePolicy, QWidget
 
 
 class ResponsiveRow(QWidget):
@@ -45,9 +45,41 @@ class ResponsiveRow(QWidget):
     def direction(self) -> QBoxLayout.Direction:
         return self._lay.direction()
 
+    @staticmethod
+    def _content_minimum_width(item) -> int:
+        """Keep native content hints that Qt's explicit minimum can mask."""
+        minimum = item.minimumSize().width()
+        if item.isEmpty():
+            return minimum
+        widget = item.widget()
+        if widget is not None:
+            if widget.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Ignored:
+                return minimum
+            content = widget.minimumSizeHint().width()
+            layout = widget.layout()
+            if layout is not None and not isinstance(widget, ResponsiveRow):
+                # Ordinary widget wrappers inherit their layout's minimum.
+                # ResponsiveRow already reports its own foldable width contract.
+                content += (ResponsiveRow._content_minimum_width(layout)
+                            - layout.minimumSize().width())
+            return max(minimum, min(content, widget.maximumWidth()))
+        if isinstance(item, QBoxLayout):
+            children = [item.itemAt(i) for i in range(item.count())]
+            qt_widths = [child.minimumSize().width() for child in children]
+            content_widths = [ResponsiveRow._content_minimum_width(child)
+                              for child in children]
+            if item.direction() in (QBoxLayout.Direction.LeftToRight,
+                                    QBoxLayout.Direction.RightToLeft):
+                extra = sum(content_widths) - sum(qt_widths)
+            else:
+                extra = max(content_widths, default=0) - max(qt_widths, default=0)
+            # Preserve Qt's spacing and margins rather than reconstructing them.
+            return minimum + extra
+        return minimum
+
     def _minimum_widths(self) -> tuple[int, int]:
         items = [self._lay.itemAt(i) for i in range(self._lay.count())]
-        widths = [item.minimumSize().width() for item in items]
+        widths = [self._content_minimum_width(item) for item in items]
         margins = self._lay.contentsMargins()
         edge = margins.left() + margins.right()
         gaps = max(0, sum(not item.isEmpty() for item in items) - 1)

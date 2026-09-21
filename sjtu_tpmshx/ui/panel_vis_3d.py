@@ -206,10 +206,15 @@ class ThreeDVisPanel(QWidget):
     def _build_parameter_controls(self, toolbar_col):
         """Build field, plane, coordinate, and opacity controls."""
         parameter_row = ResponsiveRow(threshold=900, spacing=6)
+        parameter_row.setObjectName('volumeParameterControls')
         parameter_row.layout().setDirection(QBoxLayout.Direction.TopToBottom)
+        selectors = ResponsiveRow(threshold=0, spacing=12)
+        selectors.setObjectName('volumeFieldPlaneControls')
+        parameter_row.addWidget(selectors)
         params = QHBoxLayout(); params.setSpacing(6)
+        params.setContentsMargins(0, 0, 0, 0)
         params.setAlignment(Qt.AlignmentFlag.AlignVCenter)
-        parameter_row.layout().addLayout(params)
+        selectors.layout().addLayout(params)
 
         # Field combo
         lbl_f = QLabel("Field:"); lbl_f.setStyleSheet(_label_qss())
@@ -223,7 +228,10 @@ class ThreeDVisPanel(QWidget):
         self.combo_field.setEnabled(False)
         params.addWidget(self.combo_field)
 
-        params.addSpacing(6)
+        params = QHBoxLayout(); params.setSpacing(6)
+        params.setContentsMargins(0, 0, 0, 0)
+        params.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        selectors.layout().addLayout(params)
 
         # Plane combo
         lbl_p = QLabel("Plane:"); lbl_p.setStyleSheet(_label_qss())
@@ -238,10 +246,13 @@ class ThreeDVisPanel(QWidget):
         self.combo_plane.currentIndexChanged.connect(self._on_plane_changed)
         params.addWidget(self.combo_plane)
 
-        params.addStretch(1)
+        slice_controls = ResponsiveRow(threshold=0, spacing=16)
+        slice_controls.setObjectName('volumeCoordOpacityControls')
+        parameter_row.addWidget(slice_controls)
         params = QHBoxLayout(); params.setSpacing(6)
+        params.setContentsMargins(0, 0, 0, 0)
         params.setAlignment(Qt.AlignmentFlag.AlignVCenter)
-        parameter_row.layout().addLayout(params)
+        slice_controls.layout().addLayout(params)
 
         # Coord input (mm) with live range-validation
         self.lbl_coord = QLabel("Coord:")
@@ -261,7 +272,11 @@ class ThreeDVisPanel(QWidget):
         self.le_coord.textChanged.connect(self._on_coord_text_changed)
         params.addWidget(self.le_coord)
 
-        params.addSpacing(10)
+        params.addStretch(1)
+        params = QHBoxLayout(); params.setSpacing(6)
+        params.setContentsMargins(0, 0, 0, 0)
+        params.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        slice_controls.layout().addLayout(params)
 
         # Opacity slider — controls volume transparency (0 = invisible, 100 = opaque)
         # Defaults balance "glass cube" feel against cold-end legibility:
@@ -299,6 +314,7 @@ class ThreeDVisPanel(QWidget):
             d.setFixedHeight(_CTRL_HEIGHT)
             return d
         action_row = ResponsiveRow(threshold=640, spacing=6)
+        action_row.setObjectName('volumeActionControls')
         action_row.layout().setDirection(QBoxLayout.Direction.TopToBottom)
         actions = QHBoxLayout(); actions.setSpacing(6)
         actions.setAlignment(Qt.AlignmentFlag.AlignVCenter)
@@ -340,9 +356,13 @@ class ThreeDVisPanel(QWidget):
         actions.addWidget(self.btn_clim)
 
         actions.addStretch(1)
+        view_export = ResponsiveRow(threshold=0, spacing=6)
+        view_export.setObjectName('volumeViewExportControls')
+        action_row.addWidget(view_export)
         actions = QHBoxLayout(); actions.setSpacing(6)
+        actions.setContentsMargins(0, 0, 0, 0)
         actions.setAlignment(Qt.AlignmentFlag.AlignVCenter)
-        action_row.layout().addLayout(actions)
+        view_export.layout().addLayout(actions)
 
         # View preset segmented buttons: Top / Front / Side / Iso
         # QButtonGroup (exclusive) keeps one button visually "active" so the
@@ -377,6 +397,7 @@ class ThreeDVisPanel(QWidget):
             "Camera → isometric (default)", "I")
         self.btn_view_iso.setChecked(True)   # default view on load
         actions.addLayout(view_seg)
+        actions.addStretch(1)
 
         # Keyboard shortcuts — T/F/S/I trigger the same presets.
         # ApplicationShortcut keeps them active regardless of focused widget
@@ -389,6 +410,10 @@ class ThreeDVisPanel(QWidget):
             sc.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
             sc.activated.connect(btn.click)
 
+        actions = QHBoxLayout(); actions.setSpacing(6)
+        actions.setContentsMargins(0, 0, 0, 0)
+        actions.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        view_export.layout().addLayout(actions)
         actions.addWidget(_divider())
 
         self.btn_shot = QPushButton("Save PNG")
