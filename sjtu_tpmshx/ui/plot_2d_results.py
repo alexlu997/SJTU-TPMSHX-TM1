@@ -120,8 +120,9 @@ def plot_temperature_3panel(window, r, _t):
         for b in (getattr(window, '_zone_boundaries_y', None) or []):
             ax.axhline(y=b*1000, color=_t['zone_line'], ls='--', lw=0.8, alpha=0.6)
 
-    window.canvas_temp.fig.subplots_adjust(left=0.11, right=0.96,
-                                            top=0.89, bottom=0.14, hspace=0.34)
+    if not window.canvas_temp.fig.get_constrained_layout():
+        window.canvas_temp.fig.subplots_adjust(left=0.11, right=0.96,
+                                                top=0.89, bottom=0.14, hspace=0.34)
     window.canvas_temp.draw()
     window.canvas_temp._hover_data = {
         'fields': [[Ta, Tb, Ts][i] for i in selected],
@@ -210,7 +211,8 @@ def finalize_plots(window):
         cb = canvas.fig.colorbar(cf, ax=ax, shrink=.9, aspect=25, format='%.0f')
         tag = ('A', 'B')[index]
         _style_workbench_axes(ax, cb, _t, rf'$P_{tag}$ [Pa]', f'Fluid {tag}')
-        canvas.fig.subplots_adjust(left=.11, right=.96, top=.89, bottom=.14)
+        if not canvas.fig.get_constrained_layout():
+            canvas.fig.subplots_adjust(left=.11, right=.96, top=.89, bottom=.14)
         canvas.draw()
     window.canvas_pres._hover_data = {
         'fields': [[P_fA, P_fB][i] for i in selected],
@@ -282,8 +284,9 @@ def finalize_plots(window):
             ax.axvline(x=b*1000, color=_t['zone_line'], ls='--', lw=0.8, alpha=0.6)
         for b in (getattr(window, '_zone_boundaries_y', None) or []):
             ax.axhline(y=b*1000, color=_t['zone_line'], ls='--', lw=0.8, alpha=0.6)
-    window.canvas_vel.fig.subplots_adjust(left=0.11, right=0.96,
-                                           top=0.89, bottom=0.14, hspace=0.32)
+    if not window.canvas_vel.fig.get_constrained_layout():
+        window.canvas_vel.fig.subplots_adjust(left=0.11, right=0.96,
+                                               top=0.89, bottom=0.14, hspace=0.32)
     window.canvas_vel.draw()
     window.canvas_vel._hover_data = {
         'fields': [[UmagA, UmagB][i] for i in selected],
