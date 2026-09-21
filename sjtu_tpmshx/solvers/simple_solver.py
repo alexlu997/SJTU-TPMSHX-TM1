@@ -1213,7 +1213,7 @@ if __name__ == '__main__':
 
 
 def _warmup_jit():
-    """Pre-compile _assemble_pp_data_jit on import.
+    """Explicitly pre-compile _assemble_pp_data_jit for warm benchmarks.
 
     Builds a tiny 4x4 sparsity pattern and runs one assembly to touch the
     compiled path. Failures are silently caught — warmup is best-effort.
@@ -1237,7 +1237,4 @@ def _warmup_jit():
                               _Nx, _Ny, _dx, _dy, _rho,
                               _pat['cell_base'], _pat['cell_kind'])
     except Exception:
-        pass  # warmup is best-effort; never block import
-
-
-_warmup_jit()
+        pass  # Optional benchmark warmup is best-effort.

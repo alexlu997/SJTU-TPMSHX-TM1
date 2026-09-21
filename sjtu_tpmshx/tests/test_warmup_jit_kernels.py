@@ -1,51 +1,41 @@
-"""E1 (full-debug audit 2026-06-28): the module-import JIT warmup must compile
-the DEFAULT-path staggered LTNE kernels, not just the legacy cell-centered one.
-
-conservative_ltne defaults True -> the production 3D LTNE solve dispatches
-_gs_full_chunk_3d_stag (or _stag_rb for >30k cells). _warmup_jit() only called
-the legacy _gs_full_chunk_3d, so the first real 3D run still paid the multi-
-second numba compile of the stag kernel — defeating the warmup's purpose.
-
-Verified in a CLEAN subprocess: a numba dispatcher's `.signatures` is populated
-per-process only when the function is actually specialized. Import alone (which
-runs _warmup_jit) must leave the stag kernels with >=1 signature.
-"""
+"""Imports must remain cancellable setup; explicit warmup still covers LTNE routes."""
 from __future__ import annotations
 
 import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
-def _probe(symbol: str) -> subprocess.CompletedProcess:
+@pytest.mark.parametrize('module,symbol', [
+    ('simple_solver', '_assemble_pp_data_jit'),
+    ('simple_solver_3d', '_sweep_u_jit_df_3d'),
+    ('ltne_energy', '_gs_full_chunk'),
+    ('ltne_energy_3d', '_gs_full_chunk_3d_stag'),
+])
+def test_import_does_not_compile_solver_kernels(module, symbol):
     code = (
-        "from solvers import ltne_energy_3d as M;"
-        f"sig=getattr(M.{symbol}, 'signatures', None);"
-        "print('NSIG', 0 if sig is None else len(sig))"
+        f"from sjtu_tpmshx.solvers import {module} as M;"
+        f"assert not M.{symbol}.signatures"
     )
-    return subprocess.run([sys.executable, '-c', code],
-                          capture_output=True, text=True, cwd=str(ROOT))
+    result = subprocess.run([sys.executable, '-c', code], capture_output=True,
+                            text=True, cwd=ROOT, timeout=120)
+    assert result.returncode == 0, result.stderr[-2000:]
 
 
-def _nsig(symbol: str) -> int:
-    r = _probe(symbol)
-    line = [ln for ln in r.stdout.splitlines() if ln.startswith('NSIG')]
-    assert line, f"probe failed for {symbol}: {r.stderr[-800:]}"
-    return int(line[0].split()[1])
-
-
-def test_warmup_compiles_default_stag_kernel():
-    assert _nsig('_gs_full_chunk_3d_stag') >= 1, \
-        "default-path staggered LTNE kernel not pre-compiled by _warmup_jit"
-
-
-def test_warmup_compiles_stag_rb_kernel():
-    assert _nsig('_gs_full_chunk_3d_stag_rb') >= 1, \
-        "red-black staggered LTNE kernel (>30k cells) not pre-compiled"
-
-
-def test_warmup_still_compiles_legacy_cc_kernel():
-    # Regression: the legacy cc kernel must stay warmed too (fallback path).
-    assert _nsig('_gs_full_chunk_3d') >= 1
+def test_explicit_warmup_compiles_all_3d_ltne_routes():
+    # Retain the earlier missing-signature regression, without causing it on
+    # import before the real solver's cooperative cancellation is reachable.
+    code = (
+        "from sjtu_tpmshx.solvers import ltne_energy_3d as M;"
+        "M._warmup_jit();"
+        "assert M._gs_full_chunk_3d.signatures;"
+        "assert M._gs_full_chunk_3d_stag.signatures;"
+        "assert M._gs_full_chunk_3d_stag_rb.signatures"
+    )
+    result = subprocess.run([sys.executable, '-c', code], capture_output=True,
+                            text=True, cwd=ROOT, timeout=180)
+    assert result.returncode == 0, result.stderr[-2000:]

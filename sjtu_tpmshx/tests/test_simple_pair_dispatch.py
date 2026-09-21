@@ -61,26 +61,34 @@ def test_sequential_pair_preserves_failure_over_cancellation(monkeypatch, failur
 
 
 @pytest.mark.parametrize('threads', [1, 2])
-def test_real_workqueue_sweeps_in_child_process(threads):
+@pytest.mark.parametrize('parallel', [False, True])
+def test_real_workqueue_sweeps_in_child_process(threads, parallel):
     # Force the actual large-grid dispatch on a small physical solver. A native
     # workqueue abort stays in the child and is a test failure on either OS.
     script = '''
 import threading
+import os
 import numba
 import numpy as np
 from sjtu_tpmshx.solvers import simple_solver_3d as simple
 from sjtu_tpmshx.solvers.backends.python.three_d.runtime import _run_two_simple
 
+numba.get_num_threads()  # Initialize the configured pool without compiling kernels.
 assert numba.threading_layer() == 'workqueue'
-assert simple._should_parallelize(8, 12, 4)
+parallel = os.environ['TPMSHX_PARALLEL_THRESHOLD'] == '1'
+assert simple._should_parallelize(8, 12, 4) == parallel
 parent = threading.current_thread()
 calls = []
-original = simple._sweep_u_jit_df_3d_parallel
+kernel = '_sweep_u_jit_df_3d_parallel' if parallel else '_sweep_u_jit_df_3d'
+original = getattr(simple, kernel)
+assert not original.signatures  # First real A/B use must work without import prewarm.
+checking_pair = True
 def sweep(*args):
-    assert threading.current_thread() is parent
+    if checking_pair:
+        assert (threading.current_thread() is parent) == parallel
     calls.append(numba.get_num_threads())
     return original(*args)
-simple._sweep_u_jit_df_3d_parallel = sweep
+setattr(simple, kernel, sweep)
 
 def make(water):
     return simple.SIMPLESolver3D(
@@ -92,6 +100,7 @@ def make(water):
 
 sides = [make(False), make(True)]
 paired = _run_two_simple(*sides, max_iter=3)
+checking_pair = False
 assert len(calls) >= 6
 assert set(calls) == {numba.get_num_threads()}
 for s, water, result in zip(sides, (False, True), paired):
@@ -103,7 +112,8 @@ for s, water, result in zip(sides, (False, True), paired):
 print('workqueue pair and direct sequential fields agree')
 '''
     env = dict(os.environ, NUMBA_THREADING_LAYER='workqueue',
-               NUMBA_NUM_THREADS=str(threads), TPMSHX_PARALLEL_THRESHOLD='1',
+               NUMBA_NUM_THREADS=str(threads),
+               TPMSHX_PARALLEL_THRESHOLD='1' if parallel else '1000000',
                OMP_NUM_THREADS='1', OPENBLAS_NUM_THREADS='1', MKL_NUM_THREADS='1')
     completed = subprocess.run([sys.executable, '-c', script],
                                cwd=Path(__file__).resolve().parents[2], env=env,
