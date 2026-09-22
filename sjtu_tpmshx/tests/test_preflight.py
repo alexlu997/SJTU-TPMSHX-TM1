@@ -1,5 +1,7 @@
 """Tests for the grid-legality preflight (pure-logic layer)."""
 
+import pytest
+
 from sjtu_tpmshx.ui.preflight import FluidCfg, compute_preflight
 
 
@@ -220,3 +222,51 @@ if __name__ == '__main__':
     test_t_in_swap_infos()
     test_t_in_normal_no_warn()
     print("\nAll tests PASS")
+
+
+# Each physical transverse axis matters at both ends, including ±z flow.
+
+
+@pytest.mark.parametrize('direction', range(6))
+@pytest.mark.parametrize('end', ['in', 'out'])
+@pytest.mark.parametrize('second_axis', [False, True])
+@pytest.mark.parametrize('failure', ['outside', 'empty', 'narrow'])
+def test_each_port_span_is_checked(direction, end, second_axis, failure):
+    from sjtu_tpmshx.domain.validator import cross_axes_for_dir
+    axes = [axis.lower() for axis in cross_axes_for_dir(direction)]
+    cfg = FluidCfg(direction, .021, .02, .021, .02,
+                   z_in_ctr=.021, z_in_w=.02, z_out_ctr=.021, z_out_w=.02)
+    prefix = 'z_' if second_axis else ''
+    if failure == 'outside':
+        setattr(cfg, f'{prefix}{end}_ctr', .8)
+    else:
+        setattr(cfg, f'{prefix}{end}_w', 0. if failure == 'empty' else .0001)
+    report = compute_preflight(.182, .042, .042, 30, 30, 30, True, False, cfg)
+    label = 'inlet' if end == 'in' else 'outlet'
+    axis = axes[int(second_axis)]
+    messages = report.warnings if failure == 'narrow' else report.errors
+    assert any(f'Fluid A {label}' in m and
+               (f'exceeds {axis} domain' if failure == 'outside' else f'{axis} axis') in m
+               for m in messages), (report.errors, report.warnings)
+
+
+@pytest.mark.parametrize('direction', [0, 4])
+@pytest.mark.parametrize('end', ['in', 'out'])
+@pytest.mark.parametrize('missing', ['ctr', 'w', 'both'])
+@pytest.mark.parametrize('graded', [False, True])
+def test_second_transverse_span_requires_a_complete_pair(direction, end, missing, graded):
+    cfg = FluidCfg(direction, .021, .02, .021, .02,
+                   z_in_ctr=.021, z_in_w=.02, z_out_ctr=.021, z_out_w=.02)
+    for field in (('ctr', 'w') if missing == 'both' else (missing,)):
+        setattr(cfg, f'z_{end}_{field}', None)
+    report = compute_preflight(.182, .042, .042, 30, 30, 30, True, False, cfg,
+                               port_wall_refine=graded)
+    if missing == 'both':
+        assert not report.errors, report.errors
+    else:
+        label = 'inlet' if end == 'in' else 'outlet'
+        axis = 'y' if direction == 4 else 'z'
+        assert any(f'Fluid A {label} {axis} centre and width must be set together' in error
+                   for error in report.errors)
+        assert not any(f'Fluid A {label} covers' in info and f'{axis} axis' in info
+                       for info in report.info)

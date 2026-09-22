@@ -336,7 +336,7 @@ def _set_summary_banner(window, text: str, *, show: bool = True) -> None:
         pass
 
 
-# ─── P1: qNEHVI parameter dialog (modal, PySide6) ───────────────────
+# ─── P1: qNEHVI inline parameters ───────────────────
 
 
 def _outer_budget_parameter(window, cfg: dict | None = None) -> tuple:
@@ -496,8 +496,8 @@ def run_optimize(window) -> None:
         _set_status(window, 'optimizer already running')
         return
     window._opt_launching = True
-    # Disable the Launch button explicitly so the modal dialog can't be
-    # bypassed by a fast double-click. Worker.start() further down still
+    # Disable Launch while parameters are gathered to prevent a double-click
+    # from starting a second run. Worker.start() further down still
     # calls `_toggle_buttons(running=True)` for the full button matrix.
     _btn_launch = getattr(window, '_opt_btn', None)
     if _btn_launch is not None:

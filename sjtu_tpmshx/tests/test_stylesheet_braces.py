@@ -32,27 +32,27 @@ def test_build_styles_braces_balanced():
     print("test_build_styles_braces_balanced PASS")
 
 
-def test_main_menu_no_qt_parse_warnings():
+def test_main_menu_no_qt_parse_warnings(tmp_path, monkeypatch):
     """Build Main_Menu; assert Qt prints no stylesheet parse failures."""
     from PySide6.QtCore import qInstallMessageHandler
     from PySide6.QtWidgets import QApplication
 
+    from sjtu_tpmshx.controllers import session_manager
+    monkeypatch.setattr(session_manager, 'user_data_dir', lambda: tmp_path)
     captured = []
     def _handler(msg_type, context, message):
         captured.append((msg_type, str(message)))
-    qInstallMessageHandler(_handler)
-
-    _app = QApplication.instance() or QApplication(sys.argv)
-    from sjtu_tpmshx.main import Main_Menu
-    w = Main_Menu()
-    w.close()
-
-    qInstallMessageHandler(None)
+    previous_handler = qInstallMessageHandler(_handler)
+    try:
+        _app = QApplication.instance() or QApplication(sys.argv)
+        from sjtu_tpmshx.main import Main_Menu
+        w = Main_Menu()
+        assert w.sm.base_dir == tmp_path
+        w.close()
+        assert w.sm.session_path(w._active_workspace).is_file()
+        w.deleteLater()
+    finally:
+        qInstallMessageHandler(previous_handler)
     bad = [m for _, m in captured if 'Could not parse stylesheet' in m]
     assert not bad, f"Qt rejected {len(bad)} stylesheet(s); first:\n  {bad[0]}"
     print(f"test_main_menu_no_qt_parse_warnings PASS  ({len(captured)} qt msgs total, 0 stylesheet parse failures)")
-
-
-if __name__ == '__main__':
-    test_build_styles_braces_balanced()
-    test_main_menu_no_qt_parse_warnings()

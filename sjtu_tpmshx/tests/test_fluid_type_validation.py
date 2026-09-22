@@ -53,9 +53,8 @@ def test_water_compute_returns_water_density():
     assert r_w['k_f'] > 10 * r_air['k_f']
 
 
-def test_water_compute_higher_Nu_via_Pr_substitution():
-    """Water Pr ~ 5-7, air Pr ~ 0.72. Pr-substitution lifts water Nu
-    above air Nu at matched-Re-window by factor (Pr_water/Pr_air)^(1/3)."""
+def test_fluid_specific_nu_closures_are_positive():
+    """Air and water use their own fitted closures in this in-domain example."""
     from sjtu_tpmshx.models.tpms_calc import compute
     r_air = compute('Gyroid', 7.0, 0.4, 10.0, 320.0, 200000.0, 16.0,
                     fluid_type='air')
@@ -64,7 +63,6 @@ def test_water_compute_higher_Nu_via_Pr_substitution():
     # Both Re inside fit window
     assert 600 < r_air['Re'] < 30000
     assert 600 < r_w['Re']   < 30000
-    # Pr ratio invariant — Nu_water = Nu_air * (Pr_w/Pr_a)^(1/3) only
-    # captures the Pr scaling; the Re branch differs because u differs.
-    # Sanity: both Nu > 0.
+    # The independent closure forms are checked in test_nu_correlations;
+    # this compute-level check only requires finite positive heat transfer.
     assert r_air['Nu'] > 0 and r_w['Nu'] > 0

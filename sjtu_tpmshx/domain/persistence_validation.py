@@ -42,6 +42,8 @@ def validate_thermal_geometry(data, shape):
             values = np.asarray(values)
             if values.shape != (4,) or not np.all(np.isfinite(values) & (values > 0)):
                 raise ValueError('invalid prepared asymmetric geometry')
+    # Historical cases may contain these unused initial fields. New preparation
+    # omits them; keep validating archived fields when they are present.
     for values in data.get('air_bulk_hv', {}).values():
         values = np.asarray(values)
         if values.shape != shape or not np.all(np.isfinite(values) & (values >= 0)):

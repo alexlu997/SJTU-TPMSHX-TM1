@@ -274,11 +274,12 @@ def bc_to_dict(bc: 'PartialBCConfig', L_dom: float, H_dom: float,
     else:
         d = dict(dir=bc.dir, in_ctr=cross_dim / 2, in_w=cross_dim,
                  out_ctr=cross_dim / 2, out_w=cross_dim)
-    if with_z and bc.in_z_ctr is not None:
-        d['in_z_ctr'] = bc.in_z_ctr
-        d['in_z_w'] = bc.in_z_w
-        d['out_z_ctr'] = bc.out_z_ctr
-        d['out_z_w'] = bc.out_z_w
+    if with_z:
+        for end in ('in', 'out'):
+            center, width = getattr(bc, f'{end}_z_ctr'), getattr(bc, f'{end}_z_w')
+            if center is not None or width is not None:
+                d[f'{end}_z_ctr'] = center
+                d[f'{end}_z_w'] = width
     if not with_z and bc.uniform_inlet_2d:
         d['uniform_inlet_2d'] = True
     return d

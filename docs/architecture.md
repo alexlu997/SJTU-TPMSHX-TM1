@@ -141,6 +141,12 @@ iteration and temperature-delta tracking live in `coupling_skeleton.py`; both
 full-compute drivers track Ta, Tb and Ts, with the existing extra 2D density
 gate. Dimension-specific solve order and native flux capture remain explicit.
 
+The 2D SIMPLE constructor consumes prepared drag arrays for zoned geometry;
+its former `zone_config` row-prediction path is retired. Arguments following
+`P_ref` are keyword-only, so old positional zone arguments cannot be silently
+reinterpreted. Residual callbacks propagate their original exceptions through
+both full compute and screening; they are not best-effort UI notifications.
+
 The 3D outer loop owns one live `_OuterState`, returned after iteration without
 a second synchronized state copy. Its steps prepare local heat transfer and
 transport inputs, run temperature/model-h or the true-h warm start and solve,
@@ -165,6 +171,9 @@ run on separate threads with serial sweeps. This shared rule applies to all
 supported fluid pairs and avoids concurrent launches into Numba workqueue;
 outer property-refresh solves already run in side order. Thread counts and
 numerical convergence gates remain independent of this scheduling decision.
+Opt-in momentum SOU uses serial sweeps: its distance-two stencil reads cells
+of the same red-black color, so the live-field parallel sweep is unsafe.
+FOU retains the existing parallel threshold. Thermal SOU scheduling is separate.
 
 The 2D loop keeps one live `_OuterState2D`. Its flow step rebuilds both SIMPLE
 objects and joins both workers before propagating failures. It then prepares
@@ -174,6 +183,12 @@ the temperatures consumed by that iteration's SIMPLE calls. The post step
 rebinds the four density/capacity fields; Richardson retains the inputs of the
 last main thermal call even when that final post runs. Per-call thermal inputs
 borrow arrays, while display smoothing stays separate from raw evidence.
+Nonfinite thermal returns fail before property refresh or result capture.
+The unreachable NaN-to-inlet replacement and its `energy_nan_hit` state and
+new-result diagnostic are retired. Existing saved diagnostic dictionaries
+remain readable without rewriting their historical values. True-h duty comes
+from recorded face mass/enthalpy fluxes; the old scalar-pressure h(T) option
+is retained only as an independent test reference.
 
 Thermal routes are selected by their present qualification conditions:
 
@@ -442,8 +457,9 @@ explicit numerical-model change with directly relevant validation.
    cell-centered pore-velocity magnitude, sqrt(uc² + vc² [+ wc²]). Do not
    select a fixed inlet-axis component or apply porosity a second time.
    Signed normal components still own face mass/enthalpy fluxes. The existing
-   Re/Nu floors apply to genuinely low speeds; bulk initial coefficients and
-   prescribed-velocity approximate modes retain their existing definitions.
+   Re/Nu floors apply to genuinely low speeds. Initial inlet-range observations
+   remain, but redundant bulk h_v arrays are no longer stored before the first
+   local refresh. Prescribed-velocity approximate modes retain their definitions.
    Using bulk-fitted scalar Nu locally in turning flow remains a modelling
    assumption, distinct from this velocity consistency requirement. See the
    [implementation and paired validation](history/README.md#2026-09-18-历史材料整理).

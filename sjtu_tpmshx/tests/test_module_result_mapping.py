@@ -52,10 +52,12 @@ _AUDIT_DIAGNOSTICS_3D = frozenset('''
     _audit_u_A _audit_u_B
 '''.split())
 _CONVERGENCE_2D = frozenset('''
-    energy_nan_hit enthalpy_balance_ok envelope_ok inlet_pressure
+    enthalpy_balance_ok envelope_ok inlet_pressure
     ltne_iterations ltne_ok ltne_residual model_h_balance_ok outer_converged
     outer_hit_cap outer_iters richardson_ok simple_ok
 '''.split())
+# The unreachable NaN replacement and its energy_nan_hit diagnostic are retired;
+# nonfinite thermal returns raise before producing a result.
 _CONVERGENCE_3D = frozenset('''
     envelope_ok fields_finite inlet_pressure ltne_ok outer_anderson
     outer_converged outer_dT outer_hit_cap outer_iters simple_A simple_B

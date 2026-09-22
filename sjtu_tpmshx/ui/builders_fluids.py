@@ -65,8 +65,8 @@ def _build_fluid_io_rows(window, g, side, t, u_default, T_default, P_default,
                          btn_text):
     """Shared input rows, Auto-fill button and collapsible property preview.
 
-    Row 0 (fluid-type combo) stays per-side — the supported-fluid sets and
-    their tooltips genuinely differ. ``btn_text`` is passed whole so each
+    Row 0 (fluid-type combo) keeps its per-side defaults and tooltips.
+    ``btn_text`` is passed whole so each
     side keeps its original mnemonic (&) position.
     """
     s = side
@@ -79,8 +79,8 @@ def _build_fluid_io_rows(window, g, side, t, u_default, T_default, P_default,
             row(window, g, 3, "入口绝压 <i>P</i><sub>in</sub> [Pa]", P_default))
     btn = QPushButton(btn_text)
     btn.setFixedHeight(28); btn.setStyleSheet(t.style('BTN_SECONDARY'))
-    btn.setToolTip(f"Compute Fluid {s} density / Reynolds / Nusselt / dP·dL "
-                   "from current state")
+    btn.setToolTip(f"Compute Fluid {s} density / Reynolds / Nusselt and inlet "
+                   "dP/dL from the current state and selected D-F model")
     btn.clicked.connect(getattr(window, f'auto_fill_fluid_{s.lower()}'))
     g.addWidget(btn, 4, 0, 1, 2)
     details = QWidget()
@@ -221,6 +221,12 @@ def build_fluid_sections(window, lay):
     _build_fluid_io_rows(window, g2b, 'B', t,
                          u_default="0.133", T_default="300.0",
                          P_default="101973", btn_text="自动填充 B")
+
+    def clear_df_preview():
+        for side in ('A', 'B'):
+            getattr(window, f'_v_dPL{side}').setText('—')
+
+    window.combo_df_mode.currentIndexChanged.connect(clear_df_preview)
 
     # An explicitly selected model stays visible even without sCO2, so an
     # invalid saved model cannot become an invisible validation failure.

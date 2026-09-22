@@ -1,6 +1,6 @@
-"""bc_to_dict (domain.compute_config) must reproduce the three legacy
+"""bc_to_dict (domain.compute_config) retains the supported legacy cases of
 _bc_cfg_to_dict_* functions it replaced (DUP-E / #8), including the
-intentional side-B None asymmetry. Exhaustive over (dir, in_w, out_w, z)."""
+intentional side-B None asymmetry, and independent 3D second-axis ports."""
 import itertools
 
 import pytest
@@ -83,3 +83,99 @@ def test_side_b_mixed_returns_raw_partial():
     bc = _mk(0, 0.5, -1.0, False)
     d = bc_to_dict(bc, L_DOM, H_DOM, side='B', with_z=True)
     assert d['in_w'] == 0.5 and d['out_w'] == -1.0
+
+
+@pytest.mark.parametrize('direction', range(6))
+@pytest.mark.parametrize('side', ['A', 'B'])
+@pytest.mark.parametrize('partial_port', ['in', 'out'])
+def test_independent_cross2_window_reaches_prepared_physical_area(monkeypatch, direction, side, partial_port):
+    import numpy as np
+    from sjtu_tpmshx.preprocess.api import prepare_case
+    from sjtu_tpmshx.tests.test_pipeline_3d_e2e import _small_air_cfg
+    from sjtu_tpmshx.solvers.backends.python.three_d.execution import build_execution_inputs
+    from sjtu_tpmshx.solvers.backends.python.three_d import runtime
+
+    cfg = _small_air_cfg()
+    cross1 = cfg.geometry.H_dom_m if direction < 2 else cfg.geometry.L_dom_m
+    cross2 = cfg.geometry.H_dom_m if direction >= 4 else cfg.geometry.Lz_m
+    width = .6 * cross1
+    port = PartialBCConfig(dir=direction, in_ctr=cross1 / 2, in_w=width,
+                           out_ctr=cross1 / 2, out_w=width)
+    setattr(port, partial_port + '_z_ctr', cross2 / 2)
+    setattr(port, partial_port + '_z_w', .2 * cross2)
+    setattr(cfg, 'bc_' + side, port)
+    case = prepare_case(cfg, case_id='independent-cross2-port')
+    prepared = case.parameters['prepared']
+    axis = prepared['axes'][side]
+    areas = np.asarray(axis['dcross1'])[:, None] * np.asarray(axis['dcross2'])[None, :]
+    for name, prefix in (('inlet', 'in'), ('outlet', 'out')):
+        opening_area = np.sum(prepared['openings'][side][name] * areas)
+        expected = width * cross2 * (.2 if prefix == partial_port else 1.)
+        assert opening_area == pytest.approx(expected, rel=1e-12)
+    # Runtime must carry the same physical rectangles into SIMPLE, including
+    # the full-depth end whose second-axis pair was omitted.
+    monkeypatch.setattr(runtime, '_run_two_simple', lambda *a, **k: None)
+    parameters, data = build_execution_inputs(case)
+    problem = runtime.build_problem(parameters, data)
+    solver = getattr(problem, 's' + side)
+    for name, prefix in (('inlet_frac', 'in'), ('outlet_frac', 'out')):
+        expected = width * cross2 * (.2 if prefix == partial_port else 1.)
+        assert np.sum(getattr(solver, name) * areas) == pytest.approx(expected, rel=1e-12)
+
+
+@pytest.mark.parametrize('side', ['A', 'B'])
+@pytest.mark.parametrize('partial_port', ['in', 'out'])
+@pytest.mark.parametrize('center,width,message', [
+    (None, .006, 'set together'), (.015, None, 'set together'),
+    (.015, -.006, 'must be > 0'), (.3, .006, 'leaves Z-range'),
+])
+def test_independent_cross2_invalid_pair_is_rejected(side, partial_port, center, width, message):
+    from sjtu_tpmshx.tests.test_pipeline_3d_e2e import _small_air_cfg
+
+    cfg = _small_air_cfg()
+    port = PartialBCConfig(dir=0)
+    setattr(port, partial_port + '_z_ctr', center)
+    setattr(port, partial_port + '_z_w', width)
+    setattr(cfg, 'bc_' + side, port)
+    with pytest.raises(ValueError, match=message):
+        cfg.validate()
+
+
+def test_outlet_only_cross2_window_reaches_port_refined_grid():
+    import numpy as np
+    from sjtu_tpmshx.preprocess.api import prepare_case
+    from sjtu_tpmshx.tests.test_pipeline_3d_e2e import _small_air_cfg
+
+    cfg = _small_air_cfg()
+    cfg.solver.Nx, cfg.solver.Ny, cfg.solver.Nz = 12, 12, 32
+    cfg.flags.port_wall_refine = True
+    cfg.bc_A = PartialBCConfig(dir=0, out_z_ctr=.015, out_z_w=.006)
+    case = prepare_case(cfg, case_id='refined-outlet-only')
+    dz = case.grid['dz']
+    assert not np.allclose(dz, np.mean(dz))
+    for edge in (.012, .018):
+        assert np.min(np.abs(case.grid['z_edges'] - edge)) < 1e-14
+    prepared = case.parameters['prepared']
+    axis = prepared['axes']['A']
+    area = axis['dcross1'][:, None] * axis['dcross2'][None, :]
+    assert np.sum(prepared['openings']['A']['inlet'] * area) == pytest.approx(.03 * .03)
+    assert np.sum(prepared['openings']['A']['outlet'] * area) == pytest.approx(.03 * .006)
+
+
+@pytest.mark.parametrize('end', ['in', 'out'])
+@pytest.mark.parametrize('missing', ['ctr', 'w'])
+def test_raw_cross2_half_pair_is_rejected_at_geometry_boundaries(end, missing):
+    import numpy as np
+    from sjtu_tpmshx.models.field_coordinates_3d import _build_partial_masks, _port_rectangles
+    from sjtu_tpmshx.models.grid import port_wall_min_counts
+
+    port = dict(dir=0, in_ctr=.015, in_w=.03, out_ctr=.015, out_w=.03)
+    port.update({end + '_z_ctr': .015, end + '_z_w': .006})
+    port[end + '_z_' + missing] = None
+    widths = np.full(4, .03 / 4)
+    with pytest.raises(ValueError, match='set together'):
+        _build_partial_masks(port, widths, widths, 4)
+    with pytest.raises(ValueError, match='set together'):
+        _port_rectangles(port, .03)
+    with pytest.raises(ValueError, match='set together'):
+        port_wall_min_counts((.03, .03, .03), (port,))

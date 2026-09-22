@@ -38,8 +38,12 @@ def _port_wall_axes(lengths, ports):
         cross_axes = [axis for axis in range(len(lengths)) if axis != port['dir'] // 2]
         for axis, suffix in zip(cross_axes, ('', '_z')):
             for end in ('in', 'out'):
-                centre = port.get(f'{end}{suffix}_ctr', lengths[axis] / 2)
-                width = port.get(f'{end}{suffix}_w', lengths[axis])
+                centre = port.get(f'{end}{suffix}_ctr')
+                width = port.get(f'{end}{suffix}_w')
+                if centre is None and width is None:
+                    centre, width = lengths[axis] / 2, lengths[axis]
+                elif centre is None or width is None:
+                    raise ValueError(f'{end}{suffix} centre and width must be set together')
                 for edge in (centre - width / 2, centre + width / 2):
                     if lengths[axis] * .001 < edge < lengths[axis] * .999:
                         breaks[axis].add(edge)

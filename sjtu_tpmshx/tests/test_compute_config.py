@@ -378,27 +378,26 @@ def test_c4_config_from_window_reads_partial_bc_widgets():
     assert cfg.bc_B.in_z_w is None
 
 
-def test_c4_config_from_window_reads_partial_bc_z_when_visible():
-    """``le_pipe<side>_in_z_*`` honoured when present and not hidden
-    (3D mode)."""
+@pytest.mark.parametrize('hidden', [False, True])
+def test_c4_config_from_window_reads_partial_bc_z_in_3d(hidden):
+    """The selected dimension owns the BC, independent of widget visibility."""
     window = _StubWindow()
     window.combo_dirA = _StubComboBox('+x', index=0)
     window.le_pipeA_in_ctr = _StubLineEdit('0.02')
     window.le_pipeA_in_w = _StubLineEdit('0.02')
     window.le_pipeA_out_ctr = _StubLineEdit('0.02')
     window.le_pipeA_out_w = _StubLineEdit('0.02')
-    # z-fields visible
-    window.le_pipeA_in_z_ctr = _StubLineEdit('0.025', hidden=False)
-    window.le_pipeA_in_z_w = _StubLineEdit('0.020', hidden=False)
-    window.le_pipeA_out_z_ctr = _StubLineEdit('0.025', hidden=False)
-    window.le_pipeA_out_z_w = _StubLineEdit('0.020', hidden=False)
-    cfg = config_from_window(window)
+    window.le_pipeA_in_z_ctr = _StubLineEdit('0.025', hidden=hidden)
+    window.le_pipeA_in_z_w = _StubLineEdit('0.020', hidden=hidden)
+    window.le_pipeA_out_z_ctr = _StubLineEdit('0.025', hidden=hidden)
+    window.le_pipeA_out_z_w = _StubLineEdit('0.020', hidden=hidden)
+    cfg = config_from_window(window, force_3d=True, strict=True)
     assert cfg.bc_A.in_z_ctr == pytest.approx(0.025)
     assert cfg.bc_A.out_z_w == pytest.approx(0.020)
 
 
-def test_c4_config_from_window_skips_partial_bc_z_when_hidden():
-    """Hidden z-widgets fall back to None (2D mode hides them)."""
+def test_c4_config_from_window_skips_partial_bc_z_in_2d():
+    """Explicit 2D ignores hidden drafts even when the saved Nz is 5."""
     window = _StubWindow()
     window.combo_dirA = _StubComboBox('+x', index=0)
     window.le_pipeA_in_ctr = _StubLineEdit('0.02')
@@ -409,7 +408,7 @@ def test_c4_config_from_window_skips_partial_bc_z_when_hidden():
     window.le_pipeA_in_z_w = _StubLineEdit('0.020', hidden=True)
     window.le_pipeA_out_z_ctr = _StubLineEdit('0.025', hidden=True)
     window.le_pipeA_out_z_w = _StubLineEdit('0.020', hidden=True)
-    cfg = config_from_window(window)
+    cfg = config_from_window(window, force_3d=False, strict=True)
     assert cfg.bc_A.in_z_ctr is None
     assert cfg.bc_A.out_z_w is None
 

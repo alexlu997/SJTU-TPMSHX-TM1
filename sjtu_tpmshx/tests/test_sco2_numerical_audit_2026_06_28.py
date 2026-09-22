@@ -1,11 +1,11 @@
-"""sCO2 numerical-path audit fixes (ultracode workflow, 2026-06-28).
+"""Historical sCO2 duty contrast and current local-property regressions.
 
-Three confirmed defects, all sCO2-specific (air/water near-constant cp → the
-old cp·ΔT / scalar-inlet paths stay value-identical and golden-safe):
+The 2026-06-28 audit identified these historical defects:
 
   D1  2D coupled duty used ṁ·cp(T_in)·ΔT instead of the true enthalpy
       ṁ·(⟨h_in⟩ − ⟨h_out⟩); −40 %…+224 % off near the pseudocritical line.
-      (And it is the very path the 3D #9 guard redirects sCO2 users to.)
+      The scalar-pressure correction below is a test-only historical reference;
+      current 2D/3D true-h duty uses recorded face mass flow and enthalpy.
   D2  3D duty evaluated h(⟨T⟩_out) instead of the mass-weighted mean
       enthalpy ⟨h(T)⟩_out — a Jensen error largest exactly at the cp spike.
   D3  3D volumetric h_v froze k/μ/ρ/Pr at the scalar inlet T while the
@@ -26,10 +26,10 @@ _P = 8.0e6  # Pa — CO2 pseudocritical T ≈ 307.7 K at this pressure
 
 
 # ── D1 : 2D true-enthalpy coupled duty ──────────────────────────────────────
-def test_d1_2d_duty_uses_true_enthalpy_for_sco2():
-    """`_enthalpy_balance_2d` with an enthalpy_fn returns ṁ·Δh (= the true
-    duty), not ṁ·cp(T_in)·ΔT, and the two differ materially for sCO2."""
+def test_d1_historical_scalar_pressure_duty_differs_from_inlet_cp():
+    """The retained historical h(T) reference differs materially from inlet cp."""
     from sjtu_tpmshx.solvers.backends.python.two_d.coupling import _enthalpy_balance_2d
+    from sjtu_tpmshx.tests.enthalpy_2d_reference import scalar_pressure_duty
     m = fluid_props.get('sco2')
 
     Nx, Ny = 4, 3
@@ -45,11 +45,11 @@ def test_d1_2d_duty_uses_true_enthalpy_for_sco2():
     rho_cp_in = sco2_props.sco2_prop('D', T_in, _P) * sco2_props.sco2_prop('C', T_in, _P)
     rho_cp = np.full((Nx, Ny), rho_cp_in)
 
-    # current (buggy) ṁ·cp(T_in)·ΔT form (no enthalpy_fn)
+    # Temperature-formulation approximation, not the current sCO2 duty route.
     Q_cp = _enthalpy_balance_2d(Ta, uc, vc, rho_cp, 0, dx, dy)
-    # fixed true-enthalpy form
-    Q_h = _enthalpy_balance_2d(
-        Ta, uc, vc, rho_cp, 0, dx, dy,
+    # Historical scalar-pressure reference.
+    Q_h = scalar_pressure_duty(
+        Ta, uc, vc, 0, dx, dy,
         enthalpy_fn=m.enthalpy, rho_fn=m.rho, P_ref=_P)
 
     # reference ṁ·Δh (uniform inlet/outlet faces → ⟨h⟩ = h(T_face))
@@ -61,8 +61,8 @@ def test_d1_2d_duty_uses_true_enthalpy_for_sco2():
     assert abs(Q_cp - Q_h) / abs(Q_h) > 0.30
 
 
-def test_d1_air_path_unchanged_without_enthalpy_fn():
-    """No enthalpy_fn → byte-identical legacy ρcp·ΔT arithmetic (air/water)."""
+def test_d1_temperature_duty_retains_capacity_weighting():
+    """Temperature-formulation duty retains its independent capacity weighting."""
     from sjtu_tpmshx.solvers.backends.python.two_d.coupling import _enthalpy_balance_2d
     rng = np.random.default_rng(0)
     Ta = 300.0 + rng.random((5, 4)) * 50.0

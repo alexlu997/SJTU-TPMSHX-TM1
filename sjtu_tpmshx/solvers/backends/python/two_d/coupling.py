@@ -54,8 +54,6 @@ class _OuterState2D:
         converged=False, iterations=0, residual=float('inf')))
     mA_rows: np.ndarray | None = None
     mB_rows: np.ndarray | None = None
-    # Sticky even if a later iteration converges on a patched NaN field.
-    _energy_nan_hit: bool = False
     ucA_disp: np.ndarray | None = None
     vcA_disp: np.ndarray | None = None
     ucB_disp: np.ndarray | None = None
@@ -89,7 +87,6 @@ class _ThermalInputs2D:
     inlet_mask_B: np.ndarray
     max_iter: int
     tol: float
-    has_water: bool
 
 
 from sjtu_tpmshx.result_math import _enthalpy_balance_2d  # noqa: F401 - existing public name
@@ -595,18 +592,9 @@ def _compute_Q_richardson(
             _eps_mean_1d = float(np.mean(eps))
             m_dot_A *= _eps_mean_1d * float(split_A)
             m_dot_B *= _eps_mean_1d * (1.0 - float(split_A))
-            # sCO2 (D1): ṁ·Δh even in the last-resort fallback (cp_in·ΔT is
-            # badly wrong near the pseudocritical line). air/water keep cp·ΔT.
-            if _pA.name == 'sco2':
-                Q_A_simple = m_dot_A * abs(float(_pA.enthalpy(T_inA, P_inA_val))
-                                           - float(_pA.enthalpy(T_out_A_mean, P_inA_val)))
-            else:
-                Q_A_simple = m_dot_A * cp_A_in * abs(T_inA - T_out_A_mean)
-            if _pB.name == 'sco2':
-                Q_B_simple = m_dot_B * abs(float(_pB.enthalpy(T_inB, P_inB_val))
-                                           - float(_pB.enthalpy(T_out_B_mean, P_inB_val)))
-            else:
-                Q_B_simple = m_dot_B * cp_B_in * abs(T_inB - T_out_B_mean)
+            # True-h configurations bypass Richardson and this fallback.
+            Q_A_simple = m_dot_A * cp_A_in * abs(T_inA - T_out_A_mean)
+            Q_B_simple = m_dot_B * cp_B_in * abs(T_inB - T_out_B_mean)
             Q_total = max(Q_A_simple, Q_B_simple)
             if np.isfinite(Q_total):
                 warnings_list.append(
@@ -1099,7 +1087,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
             K_ffA=_Kffa_use, K_ffB=_Kffb_use, K_ss=_Kss_src,
             eps=_eps_src, eps_A=_epsA_use, eps_B=_epsB_use,
             inlet_mask_A=_imA, inlet_mask_B=_imB,
-            max_iter=_e_max_iter, tol=_e_tol, has_water=_has_water)
+            max_iter=_e_max_iter, tol=_e_tol)
 
     def _solve_thermal(_coup_it, inputs, P_abs_A, P_abs_B, simple_temperatures):
         """Keep true-h and model-h/temperature route qualifications unchanged."""
@@ -1190,8 +1178,8 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
                 inlet_flux_B=inlet_flux_B,
                 eps_A=_epsA_use, eps_B=_epsB_use, cancel_check=cancel_check, **model_kwargs)
 
-    def _validate_thermal_return(P_abs_A, P_abs_B, simple_temperatures, _has_water):
-        """Validate before refreshing properties; retain the sticky NaN verdict."""
+    def _validate_thermal_return(P_abs_A, P_abs_B, simple_temperatures):
+        """Reject invalid temperatures before refreshing properties or results."""
         if not _enthalpy_mode:
             for side, fluid, temperature in (('A', fluid_A, state.Ta), ('B', fluid_B, state.Tb)):
                 with range_context(side=side, stage='main-return', layout='real-cell(x,y)'):
@@ -1203,36 +1191,6 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
             if any(not np.all(np.isfinite(t)) for t in (state.Ta, state.Tb, state.Ts)):
                 _classify_nonfinite_flow_failure(simple_temperatures)
             fluid_props.check_finite_temperatures(state.Ta, state.Tb, state.Ts, where='2D energy return')
-
-        # 2026-05-09 NaN guard — energy solver may NaN-blow up on water-side
-        # stiffness (rho·cp 4100× + h_v 2-3× vs air). Replace nan with the
-        # per-side inlet T so finalize_plots can render velocity / pressure
-        # canvases (the user still wants those visible) instead of crashing
-        # on contourf(nan). Surface a warning so the user knows Q is unreliable.
-        _has_nan = (np.any(np.isnan(state.Ta)) or np.any(np.isnan(state.Tb))
-                    or np.any(np.isnan(state.Ts)))
-        if _has_nan:
-            # Validity, not just a warning string: the patched field is NOT a
-            # solution. Sticky flag → forced into solver_converged below.
-            state._energy_nan_hit = True
-            n_nan_a = int(np.sum(np.isnan(state.Ta)))
-            n_nan_b = int(np.sum(np.isnan(state.Tb)))
-            n_nan_s = int(np.sum(np.isnan(state.Ts)))
-            n_total = state.Ta.size
-            _cause = ("water-side LTNE stiffness (ρ·cp 4100× air)"
-                      if _has_water
-                      else "energy solver divergence (likely Nu/h_v "
-                           "extrapolation, partial-BC layer, or non-monotonic "
-                           "convection — check log)")
-            warnings_list.append(
-                f"Energy solver produced NaN cells "
-                f"(Ta {n_nan_a}/{n_total}, Tb {n_nan_b}/{n_total}, "
-                f"Ts {n_nan_s}/{n_total}) — replacing with inlet T so "
-                f"the 2D result view can render velocity/pressure. "
-                f"Q value is unreliable. Cause: {_cause}.")
-            state.Ta = np.where(np.isnan(state.Ta), T_inA, state.Ta)
-            state.Tb = np.where(np.isnan(state.Tb), T_inB, state.Tb)
-            state.Ts = np.where(np.isnan(state.Ts), 0.5 * (T_inA + T_inB), state.Ts)
 
     def _refresh_thermal_properties(P_abs_A, P_abs_B):
         """Return new density/capacity fields; viscosity updates immediately."""
@@ -1314,7 +1272,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
         control.report_progress(10 + int(80 * (_coup_it + 0.3) / _MAX_COUPLING))
         inputs = _prepare_thermal_inputs(_coup_it, P_abs_A, P_abs_B)
         _solve_thermal(_coup_it, inputs, P_abs_A, P_abs_B, simple_temperatures)
-        _validate_thermal_return(P_abs_A, P_abs_B, simple_temperatures, inputs.has_water)
+        _validate_thermal_return(P_abs_A, P_abs_B, simple_temperatures)
         new_properties = _refresh_thermal_properties(P_abs_A, P_abs_B)
         return _check_outer_convergence(_coup_it, new_properties), new_properties
 
@@ -1338,9 +1296,8 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
             mass_source='last thermal input: actual signed SIMPLE faces',
             outer_index=int(_last_coup), outer_converged=bool(coupling_converged),
             post_after_last_thermal=bool(not coupling_converged),
-            raw_state_matches_last_thermal=bool(not state._energy_nan_hit))
-        model_balance['passed'] = bool(model_balance['passed'] and coupling_converged
-                                       and not state._energy_nan_hit)
+            raw_state_matches_last_thermal=True)
+        model_balance['passed'] = bool(model_balance['passed'] and coupling_converged)
         state.mA_rows = np.array([model_balance['A']['mass_in_kg_s_per_m']])
         state.mB_rows = np.array([model_balance['B']['mass_in_kg_s_per_m']])
     if cancel_check is not None and cancel_check():
@@ -1547,18 +1504,8 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
         'mass_flow_B_kg_s_per_m': (
             float(np.sum(state.mB_rows)) if state.mB_rows is not None else float('nan')),
         'warnings_list': warnings_list,
-        # ── Convergence verdict — explicit AND over every gate (2026-07-12) ──
-        # robustness-hardening (2026-07-03) ANDed SIMPLE with the outer
-        # coupling only. Three gaps closed here (mirrors the 3D fix):
-        #   (a) the LTNE inner verdict `e_info['converged']` was captured at
-        #       the solve_full_domain call and then NEVER READ — a write-only
-        #       variable;
-        #   (b) a NaN blow-up patched over with inlet T (see _energy_nan_hit)
-        #       left `converged` untouched, so a patched non-solution could
-        #       report success;
-        #   (c) the post-solve compressible envelope verdict was reported on a
-        #       separate key but not ANDed into the headline flag.
-        # Verdict only — no numeric field is touched.
+        # Nonfinite thermal returns already raise before property refresh.
+        # The remaining convergence gates never modify numerical fields.
         'solver_converged': bool(
             coupling_converged                       # outer ΔT+Δρ+inlet-P
             and not simple_warnings                  # every SIMPLE side ok
@@ -1568,7 +1515,6 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
             and (not _enthalpy_mode or energy_rel < 0.05)  # true-h pair balance
             and (not _model_h_mode or (model_balance['passed']
                  and richardson_info['model_h_balance']['passed']))
-            and not state._energy_nan_hit                  # no patched-over NaN
             and bool(_env_valid)),                   # envelope gate
         'convergence_detail': {
             'inlet_pressure': pressure_states,
@@ -1588,7 +1534,6 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
             'enthalpy_balance_ok': bool(not _enthalpy_mode or energy_rel < 0.05),
             'model_h_balance_ok': (bool(model_balance['passed'] and richardson_info['model_h_balance']['passed'])
                                    if _model_h_mode else None),
-            'energy_nan_hit': bool(state._energy_nan_hit),
             'envelope_ok': bool(_env_valid),
         },
         'residuals_A': resid_A, 'residuals_B': resid_B,

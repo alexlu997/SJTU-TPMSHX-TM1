@@ -97,83 +97,52 @@ def draw_layout_rect_3d(window, ax, L, H, Lz):
         face_patches.append(poly)
         drag_artists.append(poly)
 
-    def _rect_face(axis, val, ctr, w, low, high):
-        lo = max(ctr - w / 2, low); hi = min(ctr + w / 2, high)
-        if axis == 'x':
-            return [(val, lo, 0), (val, hi, 0), (val, hi, Lzmm), (val, lo, Lzmm)]
-        if axis == 'z':
-            # 2026-05-20 UI sweep (Tier 24): z-normal face spans the full
-            # x-y plane at z = val. A z-flow inlet/outlet covers the whole
-            # face (the fractional ctr/w convention has no single
-            # cross-axis to map onto for a z-face), so draw the full
-            # rectangle. Prior to this, +z/-z fell through to the y-branch
-            # below and were drawn on the wrong face (and +z/-z degenerated
-            # to the same face).
-            return [(0, 0, val), (Lmm, 0, val), (Lmm, Hmm, val), (0, Hmm, val)]
-        return [(lo, val, 0), (hi, val, 0), (hi, val, Lzmm), (lo, val, Lzmm)]
-
     INLET_COL = _t['inlet_color']
     OUTLET_COL = _t['outlet_color']
     face_alpha = 0.35
 
     def _draw_fluid(cfg, label_tag, label_offset):
-        """Shade inlet (orange) + outlet (blue) faces and place inline labels."""
+        """Both transverse spans use the same axis convention as the inputs."""
+        from sjtu_tpmshx.domain.validator import cross_axes_for_dir
         d = cfg['dir']
-        in_ctr_mm = cfg['in_ctr'] * 1000; in_w_mm = cfg['in_w'] * 1000
-        out_ctr_mm = cfg['out_ctr'] * 1000; out_w_mm = cfg['out_w'] * 1000
-        if d in (0, 1):
-            in_face_val = 0.0 if d == 0 else Lmm
-            out_face_val = Lmm if d == 0 else 0.0
-            _face_patch(_rect_face('x', in_face_val, in_ctr_mm, in_w_mm, 0, Hmm),
-                        INLET_COL, face_alpha)
-            _face_patch(_rect_face('x', out_face_val, out_ctr_mm, out_w_mm, 0, Hmm),
-                        OUTLET_COL, face_alpha)
+        normal = d // 2
+        cross = ['XYZ'.index(axis) for axis in cross_axes_for_dir(d)]
+        extents = [Lmm, Hmm, Lzmm]
+        for end, title, color in (('in', 'Inlet', INLET_COL),
+                                  ('out', 'Outlet', OUTLET_COL)):
+            at_high_face = (d % 2 == 1) if end == 'in' else (d % 2 == 0)
+            face = extents[normal] if at_high_face else 0.
+            ctr = cfg[f'{end}_ctr'] * 1000
+            width = cfg[f'{end}_w'] * 1000
+            ctr2 = cfg.get(f'{end}_z_ctr')
+            width2 = cfg.get(f'{end}_z_w')
+            ctr2 = extents[cross[1]] / 2 if ctr2 is None else ctr2 * 1000
+            width2 = extents[cross[1]] if width2 is None else width2 * 1000
+            lo, hi = max(0., ctr-width/2), min(extents[cross[0]], ctr+width/2)
+            lo2, hi2 = max(0., ctr2-width2/2), min(extents[cross[1]], ctr2+width2/2)
+            verts = []
+            for first, second in ((lo, lo2), (hi, lo2), (hi, hi2), (lo, hi2)):
+                point = [0., 0., 0.]
+                point[normal], point[cross[0]], point[cross[1]] = face, first, second
+                verts.append(point)
+            _face_patch(verts, color, face_alpha)
+            pos = [0., 0., 0.]
+            pos[normal], pos[cross[0]], pos[cross[1]] = face, ctr, ctr2
+            if normal != 2:
+                pos[2] = hi2 + label_offset
             drag_artists.append(ax.text(
-                in_face_val, in_ctr_mm, Lzmm + label_offset,
-                f'Inlet_{label_tag}', color=INLET_COL, fontsize=9,
-                fontweight='bold', ha='center'))
-            drag_artists.append(ax.text(
-                out_face_val, out_ctr_mm, Lzmm + label_offset,
-                f'Outlet_{label_tag}', color=OUTLET_COL, fontsize=9,
-                fontweight='bold', ha='center'))
-        elif d in (4, 5):
-            # 2026-05-20 UI sweep (Tier 24): +z (4) / -z (5) streamwise.
-            # Inlet/outlet are the full x-y faces at z=0 / z=Lzmm.
-            in_face_val = 0.0 if d == 4 else Lzmm
-            out_face_val = Lzmm if d == 4 else 0.0
-            _face_patch(_rect_face('z', in_face_val, 0, 0, 0, 0),
-                        INLET_COL, face_alpha)
-            _face_patch(_rect_face('z', out_face_val, 0, 0, 0, 0),
-                        OUTLET_COL, face_alpha)
-            drag_artists.append(ax.text(
-                Lmm * 0.5, Hmm * 0.5, in_face_val,
-                f'Inlet_{label_tag}', color=INLET_COL, fontsize=9,
-                fontweight='bold', ha='center'))
-            drag_artists.append(ax.text(
-                Lmm * 0.5, Hmm * 0.5, out_face_val,
-                f'Outlet_{label_tag}', color=OUTLET_COL, fontsize=9,
-                fontweight='bold', ha='center'))
-        else:
-            in_face_val = 0.0 if d == 2 else Hmm
-            out_face_val = Hmm if d == 2 else 0.0
-            _face_patch(_rect_face('y', in_face_val, in_ctr_mm, in_w_mm, 0, Lmm),
-                        INLET_COL, face_alpha)
-            _face_patch(_rect_face('y', out_face_val, out_ctr_mm, out_w_mm, 0, Lmm),
-                        OUTLET_COL, face_alpha)
-            drag_artists.append(ax.text(
-                in_ctr_mm, in_face_val, Lzmm + label_offset,
-                f'Inlet_{label_tag}', color=INLET_COL, fontsize=9,
-                fontweight='bold', ha='center'))
-            drag_artists.append(ax.text(
-                out_ctr_mm, out_face_val, Lzmm + label_offset,
-                f'Outlet_{label_tag}', color=OUTLET_COL, fontsize=9,
+                *pos, f'{title}_{label_tag}', color=color, fontsize=9,
                 fontweight='bold', ha='center'))
 
     try:
         fA = window._fluid_config('A')
-    except Exception:
-        fA = dict(dir=0, in_ctr=H / 2, in_w=H, out_ctr=H / 2, out_w=H)
-    _draw_fluid(fA, 'A', Lzmm * 0.15)
+        _draw_fluid(fA, 'A', Lzmm * 0.15)
+    except Exception as _fa_err:
+        try:
+            window.statusBar().showMessage(
+                f"Layout: Fluid A skipped — {_fa_err}", 4000)
+        except Exception:
+            pass
 
     try:
         fB = window._fluid_config('B')

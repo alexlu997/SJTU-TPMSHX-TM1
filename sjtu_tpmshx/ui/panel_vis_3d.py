@@ -863,7 +863,10 @@ class ThreeDVisPanel(QWidget):
         if coord_mm < 0.0 or coord_mm > hi:
             return
         self._slice_info = {'axis': axis, 'coord_mm': coord_mm}
-        self._add_slice_actor(axis, coord_mm)
+        if self._scale_mode == 'local':
+            self._rebuild_volume(render=False)
+        self._add_slice_actor(axis, coord_mm, render=False)
+        self.plotter.render()
         self.btn_clear.setEnabled(True)
         self._update_status()
 
@@ -1114,17 +1117,23 @@ class ThreeDVisPanel(QWidget):
             coord_mm = max(lo, min(coord_mm, hi))
             self.le_coord.setText(f"{coord_mm:.2f}")
         self._slice_info = {'axis': axis, 'coord_mm': coord_mm}
-        self._add_slice_actor(axis, coord_mm)
+        if self._scale_mode == 'local':
+            self._rebuild_volume(render=False)
+        self._add_slice_actor(axis, coord_mm, render=False)
+        self.plotter.render()
         self._show_slice_popup(axis, coord_mm)
         self.btn_clear.setEnabled(True)
 
     def _on_clear_slice(self):
         pl = self.plotter
         try:
-            pl.remove_actor(self._slice_actor_name, render=True)
+            pl.remove_actor(self._slice_actor_name, render=False)
         except Exception:
             pass
         self._slice_info = None
+        if self._scale_mode == 'local':
+            self._rebuild_volume(render=False)
+        pl.render()
         self.btn_clear.setEnabled(False)
         self._update_status()
 
@@ -1275,16 +1284,17 @@ class ThreeDVisPanel(QWidget):
 
         Returns (grid_with_point_data, fine_min_cell_mm). The display-only
         upsample factor is unchanged (up to 3× per axis, targeting ~300k
-        cells). Falls back to the raw grid if SciPy is
-        missing or the factor is 1. Uniform fine edges assume ~uniform compute
-        spacing; slices, hover and color ranges retain the real compute grid.
+        cells). Interpolates original cell-centre values in physical space,
+        holding the nearest centre value across the exterior half cells.
+        Falls back to the raw grid if SciPy is missing or the factor is 1.
+        Slices, hover and color ranges retain the real compute grid.
         """
         if self._field in self._volume_grids:
             return self._volume_grids[self._field]
         raw_min = float(min(self._dx_mm.min(), self._dy_mm.min(),
                             self._dz_mm.min()))
         try:
-            from scipy.ndimage import zoom
+            from scipy.interpolate import RegularGridInterpolator
         except Exception:
             return self._grid, raw_min
         if not self._arrays:
@@ -1301,13 +1311,18 @@ class ThreeDVisPanel(QWidget):
         if f <= 1:
             return self._grid, raw_min
         Lx, Ly, Lz = self._L_mm
-        fine = zoom(field, (f, f, f), order=1)
-        nx, ny, nz = fine.shape
-        gv = pv.RectilinearGrid(np.linspace(0.0, Lx, nx + 1),
-                                np.linspace(0.0, Ly, ny + 1),
-                                np.linspace(0.0, Lz, nz + 1))
-        gv.cell_data[self._field] = fine.flatten(order='F')
-        result = gv.cell_data_to_point_data(), float(min(Lx/nx, Ly/ny, Lz/nz))
+        nx, ny, nz = Nx * f, Ny * f, Nz * f
+        axes = [np.linspace(0.0, length, n + 1)
+                for length, n in zip((Lx, Ly, Lz), (nx, ny, nz))]
+        centres = [np.cumsum(widths) - 0.5 * widths
+                   for widths in (self._dx_mm, self._dy_mm, self._dz_mm)]
+        points = np.stack(np.meshgrid(
+            *(np.clip(axis, centre[0], centre[-1])
+              for axis, centre in zip(axes, centres)), indexing='ij'), axis=-1)
+        fine = RegularGridInterpolator(centres, field)(points)
+        gv = pv.RectilinearGrid(*axes)
+        gv.point_data[self._field] = fine.flatten(order='F')
+        result = gv, float(min(Lx/nx, Ly/ny, Lz/nz))
         self._volume_grids[self._field] = result
         return result
 
@@ -1360,12 +1375,7 @@ class ThreeDVisPanel(QWidget):
                 vol_grid, scalars=self._field,
                 cmap=meta['cmap'], clim=clim,
                 opacity=opacity_list,
-                # shade=True + mild ambient/diffuse/specular gives the
-                # volume real depth cues; without it the ray-cast reads
-                # as a flat 2D projection (especially on dark bg).
-                # ambient=0.45 (up from 0.35) lifts interior samples so
-                # cold voxels read a colour instead of black; diffuse
-                # trimmed to 0.65 to keep overall brightness balanced.
+                # Keep scalar colours independent of scene lighting.
                 shade=False,
                 name='main_volume',
                 render=False,
@@ -1495,6 +1505,7 @@ class ThreeDVisPanel(QWidget):
             clim=self._clim_for(self._field), lighting=False,
             show_edges=False, name=self._slice_actor_name,
             show_scalar_bar=False,     # volume owns the single scalar bar
+            render=False,
         )
         if render:
             pl.render()

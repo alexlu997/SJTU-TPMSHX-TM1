@@ -27,18 +27,16 @@ Velocity convention (IMPORTANT — differs from textbook Brinkman-Forchheimer):
   surrogate are *effective interstitial* coefficients that already absorb the
   eps_f factor — they are not the canonical Darcy/Forchheimer values one would
   cite from a textbook. This is algebraically equivalent to the superficial
-  form when eps_f is spatially uniform (e.g. Shanghai). For spatially varying
-  eps_f (future zoned-TPMS work) the convection and Laplacian operators on
-  interstitial u deviate from the homogenised BFNS derivation — flag before
-  extending to non-uniform porosity (verdict + per-dimension detail: vault
-  research ledger B5, code-verified 2026-07-06).
+  form when eps_f is spatially uniform (e.g. Shanghai). Spatially varying
+  porosity uses the epsilon-face/CV factors in _kernels_simple_2d; prepared
+  per-cell drag and porosity fields carry the current zoned-TPMS geometry.
 """
 
 import os
 
 import numpy as np
 from sjtu_tpmshx.domain.cancellation import CancelledError
-from sjtu_tpmshx.df_surrogate.predict import predict_K_cF, predict_K_cF_vec
+from sjtu_tpmshx.df_surrogate.predict import predict_K_cF
 from sjtu_tpmshx.domain.run_environment import require_f2_mode
 from ._solve_common import (F2Monitor, f2_state_is_finite,
                             f2_nonfinite_exit, momentum_component_residuals,
@@ -148,7 +146,7 @@ class SIMPLESolver:
                  rho, mu, T_in,
                  inlet_lo, inlet_hi, v_inlet,
                  outlet_lo=None, outlet_hi=None,
-                 P_ref=0.0, zone_config=None,
+                 P_ref=0.0, *,
                  y_breakpoints=None,
                  fluid_type='ideal_gas',
                  R_gas=287.05,
@@ -289,33 +287,11 @@ class SIMPLESolver:
             self.mu_field = np.ascontiguousarray(mu, dtype=np.float64)
         self._mu_eff_field = self.mu_field / float(eps)
 
-        # ── ConstDF-v1 surrogate: precompute (K, c_F) per row ──
-        # Broadcast for uniform geometry; per-row predictions for zone_config
-        # graded designs. Prepared row coefficients take precedence.
+        # Prepared row coefficients take precedence over the uniform closure.
 
         if K_arr is not None:
             self._K_arr = np.array(K_arr, dtype=np.float64, copy=True)
             self._cF_arr = np.array(cF_arr, dtype=np.float64, copy=True)
-        elif zone_config is not None:
-            # Per-row (L, t, eps_f) → batched prediction
-            L_row = np.empty(Ny, dtype=np.float64)
-            t_row = np.empty(Ny, dtype=np.float64)
-            eps_f_row = np.empty(Ny, dtype=np.float64)
-            dy_val = H / Ny
-            for j in range(Ny):
-                yc_frac = (j + 0.5) * dy_val / H
-                z = zone_config.zones[-1]
-                for zz in zone_config.zones:
-                    if zz.y_frac_start <= yc_frac < zz.y_frac_end:
-                        z = zz; break
-                L_row[j] = z.L_mm
-                t_row[j] = z.t_mm
-                z_eps = z.props_A['epsilon'] if z.props_A else eps
-                eps_f_row[j] = 0.5 * z_eps  # ε_A: per-stream void fraction
-            K_vec, cF_vec = predict_K_cF_vec(
-                tpms_type, L_row, t_row, eps_f_row, method=df_method)
-            self._K_arr = K_vec.astype(np.float64)
-            self._cF_arr = cF_vec.astype(np.float64)
         else:
             # Uniform: single (K, c_F), broadcast
             K_val, cF_val = predict_K_cF(
@@ -707,10 +683,7 @@ class SIMPLESolver:
             # Live progress hook for UI sparklines — throttled to every
             # 20 iters so a compute with 5000 iters pushes 250 samples max.
             if progress_cb is not None and (it % 20 == 0 or it == 1):
-                try:
-                    progress_cb(it, float(res))
-                except Exception:
-                    pass
+                progress_cb(it, float(res))
 
             if verbose and it % 200 == 0:
                 _log.info(f"  iter {it:5d}  |R| = {res:.3e}")

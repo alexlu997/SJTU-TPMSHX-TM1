@@ -60,3 +60,41 @@ def test_three_d_callback_failure_stops_before_thermal(monkeypatch, callback):
         run_case(prepare_case(_small_air_cfg(), case_id='callback-failure'),
                  RunControl(**{callback: fail}))
     assert caught.value is failure
+
+
+@pytest.mark.parametrize('mode', ['full', 'screening'])
+@pytest.mark.parametrize('error', [RuntimeError, CancelledError])
+def test_two_d_residual_failure_preserves_original_exception(monkeypatch, mode, error):
+    """Both public consumers propagate failures from the real SIMPLE callback."""
+    from dataclasses import replace
+    from sjtu_tpmshx.preprocess.api import prepare_screening_2d
+    from sjtu_tpmshx.solvers.backends.python.two_d import coupling
+    from sjtu_tpmshx.solvers.backends.python.screening import two_d as screening
+    from sjtu_tpmshx.tests.test_pipeline_2d_smoke import _shanghai_like_cfg
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('thermal solve reached after residual callback failure')
+
+    monkeypatch.setattr(coupling, 'solve_full_domain', forbidden)
+    monkeypatch.setattr(screening, 'solve_full_domain', forbidden)
+    if mode == 'full':
+        config = _shanghai_like_cfg()
+        config = replace(config, solver=replace(config.solver, Nx=4, Ny=4,
+                                                max_iter_simple=1))
+        case = prepare_case(config, case_id='residual-failure')
+    else:
+        x = np.r_[np.full(8, 6.), np.full(8, .4)]
+        case = prepare_screening_2d(x, dict(Nx=4, Ny=4, max_iter_simple=1),
+                                   case_id='residual-failure')
+    failure = error('residual callback failure')
+    calls = []
+
+    def fail(*args):
+        calls.append(args)
+        raise failure
+
+    with pytest.raises(error) as caught:
+        run_case(case, RunControl(residual=fail))
+    assert caught.value is failure
+    assert calls and all(side in ('A', 'B') and index == 1
+                         for side, index, residual in calls)

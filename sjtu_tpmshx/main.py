@@ -508,7 +508,10 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         show a modal listing every bad field otherwise. Reuses the
         `inpError` dynamic property set by `_attach_input_validators`."""
         bad = []
+        is_3d = self.combo_dim.currentIndex() == 1
         for name in self._SESSION_LINE_EDITS:
+            if not is_3d and (name in ('le_Lz', 'le_Nz') or '_z_' in name):
+                continue
             le = getattr(self, name, None)
             if le is None:
                 continue

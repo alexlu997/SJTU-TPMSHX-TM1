@@ -112,6 +112,37 @@ def _problem(monkeypatch, pair):
     return prob, stages._build_hv_machinery(prob)
 
 
+@pytest.mark.parametrize('fluid', ['air', 'water'])
+def test_single_fluid_has_zero_b_coupling_at_real_thermal_boundary(monkeypatch, fluid):
+    cfg = _pipeline_cfg((fluid, 'air'))
+    cfg['fluid_B_cfg'] = None
+    monkeypatch.setattr(stages.SIMPLESolver3D, 'solve', lambda *a, **k: (True, 0))
+    prob = _build_3d_problem(cfg)
+    assert prob.sB is None
+    hv = stages._build_hv_machinery(prob)
+    signature = inspect.signature(stages.solve_full_domain_3d)
+
+    class ObservedThermalInputs(Exception):
+        pass
+
+    def thermal(*args, **kwargs):
+        call = signature.bind(*args, **kwargs).arguments
+        shape = prob.Nx, prob.Ny, prob.Nz
+        assert call['h_vA'].shape == shape
+        assert np.all(np.isfinite(call['h_vA']) & (call['h_vA'] > 0.))
+        np.testing.assert_array_equal(call['h_vB'], np.zeros(shape))
+        np.testing.assert_array_equal(call['Tb_prescribed'], np.full(shape, prob.T_inB))
+        # A differing solid temperature must not create a phantom B reservoir.
+        assert np.any(call['Ts_init'] != call['Tb_prescribed'])
+        assert np.sum(call['h_vB'] * (call['Ts_init'] - call['Tb_prescribed'])) == 0.
+        raise ObservedThermalInputs
+
+    monkeypatch.setattr(stages, 'solve_full_domain_3d', thermal)
+    monkeypatch.setattr(stages, 'run_outer_coupling', lambda *, step, **k: step(0))
+    with warning_scope({}), pytest.raises(ObservedThermalInputs):
+        stages._run_outer_coupling_3d(prob, hv)
+
+
 @pytest.mark.parametrize('fluid', ['air', 'water', 'sco2'])
 def test_outer_hv_uses_fresh_full_velocity_on_both_sides(monkeypatch, fluid):
     """Exercise both local-Nu calls and the real B refresh between passes."""
@@ -365,10 +396,9 @@ def test_zoned_bulk_re_has_cell_denominator_and_scalar_source(monkeypatch, fluid
     prob.cfg['thermal_geometry'] = prepare_thermal_geometry(
         prob.tpms_type, prob.Lcell, prob.t_wall, prob.k_s,
         L_field=prob.L_mm_field, t_field=prob.t_field_3d)
-    from sjtu_tpmshx.preprocess.three_d.preparation import _prepare_air_bulk_hv
+    from sjtu_tpmshx.preprocess.three_d.preparation import _record_air_bulk_ranges
     with warning_scope({}) as records:
-        prob.cfg['thermal_geometry']['air_bulk_hv'] = _prepare_air_bulk_hv(
-            prob.cfg, prob.L_mm_field, prob.t_field_3d, shape)
+        _record_air_bulk_ranges(prob.cfg, prob.L_mm_field, prob.t_field_3d, shape)
         stages._build_hv_machinery(prob)
     for side in ('A', 'B'):
         raw = records[('nu_raw', fluid, prob.tpms_type, shape,

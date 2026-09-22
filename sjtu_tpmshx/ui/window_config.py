@@ -125,7 +125,7 @@ CONFIG_FIELDS: tuple = (
               label="TPMS k_s", required_2d=True),
     FieldSpec('geometry', 'Lz_m',      'le_Lz',    'float', 0.042,
               label="Width Lz", required_3d_extra=True,
-              special=True),   # None when the widget is absent (2D flag)
+              special=True),   # None for 2D or an absent widget
     FieldSpec('solver',   'Nz',        'le_Nz',    'int',   1,
               label="Grid Nz", required_3d_extra=True),
     # Non-required scalars — blank keeps the default, but NON-EMPTY text
@@ -137,11 +137,14 @@ CONFIG_FIELDS: tuple = (
 )
 
 
-def _read_section_fields(window, section: str) -> dict:
+def _read_section_fields(window, section: str, *, is_3d: bool = True) -> dict:
     """Table-driven scalar reads for one config section (non-special rows)."""
     out = {}
     for fs in CONFIG_FIELDS:
         if fs.section != section or fs.special:
+            continue
+        if fs.required_3d_extra and not is_3d:
+            out[fs.name] = fs.default
             continue
         w = getattr(window, fs.widget, None)
         if fs.kind == 'float':
@@ -195,7 +198,7 @@ def _validate_required_widgets(window, *, is_3d: bool) -> None:
     # finite. No sign check — downstream validation owns physics bounds.
     _seen = {fs.widget for fs in required}
     for fs in CONFIG_FIELDS:
-        if fs.widget in _seen or fs.special:
+        if fs.widget in _seen or fs.special or (fs.required_3d_extra and not is_3d):
             continue
         widget = getattr(window, fs.widget, None)
         if widget is None:
@@ -217,6 +220,8 @@ def _validate_required_widgets(window, *, is_3d: bool) -> None:
     for side in ('A', 'B'):
         for suffix in ('in_ctr', 'in_w', 'out_ctr', 'out_w',
                        'in_z_ctr', 'in_z_w', 'out_z_ctr', 'out_z_w'):
+            if not is_3d and '_z_' in suffix:
+                continue
             w = getattr(window, f'le_pipe{side}_{suffix}', None)
             if w is None:
                 continue
@@ -268,14 +273,13 @@ def _temp_in_K(window, widget, default_K: float) -> float:
     return _qt_float(widget, default_K)
 
 
-def _read_partial_bc(window, side: Literal['A', 'B']) -> 'PartialBCConfig':
+def _read_partial_bc(window, side: Literal['A', 'B'], *, is_3d: bool) -> 'PartialBCConfig':
     """Snapshot the per-side partial-pipe BC widgets into a dataclass.
 
-    Mirrors ``Main_Menu._fluid_config(side)`` but does not call back into
-    the window once the cfg is built. Optional z-partial widgets are
-    only honoured when the matching ``le_pipe<side>_in_z_*`` widgets
-    exist and are visible (3D mode); otherwise the z-fields stay
-    ``None`` and the solver treats the z-axis as full-face.
+    Shared with ``Main_Menu._fluid_config(side)`` for its second-transverse
+    spans. In 3D, each inlet/outlet pair is independent of the other end
+    and widget visibility. Both fields blank means full extent; half a
+    pair is invalid. In 2D these drafts are ignored and stay ``None``.
 
     ``side='B'`` defaults to ``dir=3`` (-y) when ``combo_dirB`` is
     missing, matching the legacy ``pipelines.stages_2d._parse_inputs``
@@ -298,33 +302,24 @@ def _read_partial_bc(window, side: Literal['A', 'B']) -> 'PartialBCConfig':
         out_w=_qt_float(getattr(window, f'{le_prefix}_out_w', None), 0.0),
         uniform_inlet_2d=True,
     )
-    # 3D z-partial widgets are only present (and visible) in 3D mode.
-    le_in_z_ctr = getattr(window, f'{le_prefix}_in_z_ctr', None)
-    if le_in_z_ctr is not None:
-        try:
-            visible = not le_in_z_ctr.isHidden()
-        except Exception:
-            visible = True
-        if visible:
-            # FIX (2026-06-24 audit): parse all four z-values into locals first,
-            # then commit to bc only if EVERY parse succeeds. The old code mutated
-            # bc field-by-field, so a mid-sequence ValueError/AttributeError (e.g.
-            # one z-widget blank/non-numeric) left a HALF-populated config (some
-            # float, some None). bc_to_dict gates only on in_z_ctr is not None and
-            # then emits all four keys, so a half state writes out_z_w=None, and
-            # _build_partial_masks (stages_3d) crashes on `None / 2`. Atomic
-            # all-or-nothing matches the documented all-None fallback.
+    if is_3d:
+        from math import isfinite
+        for end in ('in', 'out'):
+            center_text = _qt_text(getattr(window, f'{le_prefix}_{end}_z_ctr', None)).strip()
+            width_text = _qt_text(getattr(window, f'{le_prefix}_{end}_z_w', None)).strip()
+            if not center_text and not width_text:
+                continue
+            label = f'Pipe {side} {end} second-transverse centre and width'
+            if not center_text or not width_text:
+                raise ValueError(f'{label} must be set together')
             try:
-                _in_z_ctr  = float(le_in_z_ctr.text())
-                _in_z_w    = float(getattr(window, f'{le_prefix}_in_z_w').text())
-                _out_z_ctr = float(getattr(window, f'{le_prefix}_out_z_ctr').text())
-                _out_z_w   = float(getattr(window, f'{le_prefix}_out_z_w').text())
-            except (AttributeError, ValueError):
-                # Leave z-fields as None — solver treats as full face.
-                pass
-            else:
-                bc.in_z_ctr, bc.in_z_w = _in_z_ctr, _in_z_w
-                bc.out_z_ctr, bc.out_z_w = _out_z_ctr, _out_z_w
+                center, width = float(center_text), float(width_text)
+            except ValueError as error:
+                raise ValueError(f'{label} must be finite numbers') from error
+            if not isfinite(center) or not isfinite(width):
+                raise ValueError(f'{label} must be finite numbers')
+            setattr(bc, f'{end}_z_ctr', center)
+            setattr(bc, f'{end}_z_w', width)
     return bc
 
 
@@ -417,26 +412,27 @@ def config_from_window(window, *, strict: bool = False,
                  else _qt_int(getattr(window, 'le_Nz', None), 1) >= 2)
     if strict:
         _validate_required_widgets(window, is_3d=is_3d)
+    selected_2d = not is_3d and (force_3d is not None or
+                                getattr(window, 'combo_dim', None) is not None)
     # ── table-driven scalar reads (B2 2.4: CONFIG_FIELDS single source;
     # ── special rows keep their bespoke semantics explicit below) ──
-    # geometry — tpms combo parse + Lz None-when-absent are special:
+    # geometry — topology and the active 3D depth are read separately:
     tpms = _qt_text(getattr(window, 'combo_tpms', None)) or 'Gyroid'
     if tpms not in ('Diamond', 'Gyroid'):
         tpms = 'Gyroid'
     geom = GeometryConfig(
         tpms=tpms,
         Lz_m=(_qt_float(getattr(window, 'le_Lz', None), 0.042)
-              if getattr(window, 'le_Lz', None) is not None else None),
+              if is_3d and getattr(window, 'le_Lz', None) is not None else None),
         **_read_section_fields(window, 'geometry'),
     )
 
     solver = SolverConfig(
         # remaining knobs keep dataclass defaults; UI does not surface
         # them yet (audit deferred to a later phase)
-        **_read_section_fields(window, 'solver'),
+        **_read_section_fields(window, 'solver', is_3d=not selected_2d),
     )
-    if not is_3d and (force_3d is not None or
-                      getattr(window, 'combo_dim', None) is not None):
+    if selected_2d:
         solver.Nz = 1
     elif is_3d and solver.Nz < 2:
         raise ValueError('Grid Nz must be >= 2 for 3D compute')
@@ -456,8 +452,8 @@ def config_from_window(window, *, strict: bool = False,
     # Partial-pipe BC + zone state + feature flags + extrap policy.
     # Defaults preserve legacy behaviour when widgets are missing
     # (test stubs, headless scripts).
-    bc_A = _read_partial_bc(window, 'A')
-    bc_B = _read_partial_bc(window, 'B')
+    bc_A = _read_partial_bc(window, 'A', is_3d=is_3d)
+    bc_B = _read_partial_bc(window, 'B', is_3d=is_3d)
     zones = _read_zone_input(window)
     flags = _read_feature_flags(window)
     extrap = _read_extrap_policy(window)

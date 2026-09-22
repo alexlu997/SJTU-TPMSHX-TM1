@@ -135,6 +135,9 @@ def test_autofill_cache_and_draft_warnings_are_isolated_from_worker(win, monkeyp
     from sjtu_tpmshx.domain.run_warnings import current_warnings
 
     _configure(win, monkeypatch, '2d')
+    # These deliberately tiny velocities probe Nu warnings, outside the
+    # experiment-effective D-F application's velocity window.
+    win.combo_df_mode.setCurrentIndex(win.combo_df_mode.findData('cfd_smooth'))
     win.combo_tpms.setCurrentText('Gyroid')
     win.le_Lcell.setText('7')
     win.le_t.setText('0.6')
@@ -727,6 +730,7 @@ def test_geometry_grid_suggestion_uses_selected_scheme_and_preserves_edits(win, 
 @pytest.mark.parametrize('index,fluid_type', [(0, 'air'), (1, 'water'), (2, 'sco2')])
 def test_auto_fill_uses_same_fluid_type_as_config(win, monkeypatch, side, index, fluid_type):
     from sjtu_tpmshx.ui.window_config import config_from_window
+    win.combo_df_mode.setCurrentIndex(win.combo_df_mode.findData('cfd_smooth'))
     getattr(win, f'combo_fluid{side}').setCurrentIndex(index)
     monkeypatch.setattr(win, 'compute_tpms', lambda: True)
     observed = []

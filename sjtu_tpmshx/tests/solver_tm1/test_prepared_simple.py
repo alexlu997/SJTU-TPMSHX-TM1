@@ -19,7 +19,6 @@ def test_prepared_mesh_and_drag_are_consumed_without_rebuilding(monkeypatch):
 
     monkeypatch.setattr(module, '_aligned_grid', forbidden)
     monkeypatch.setattr(module, 'predict_K_cF', forbidden)
-    monkeypatch.setattr(module, 'predict_K_cF_vec', forbidden)
     solver = module.SIMPLESolver(**kwargs, **prepared)
     for key in ('dx_arr', 'dy_arr', '_K_arr', '_cF_arr', 'u', 'v', 'P',
                 'inlet_frac', 'outlet_frac', 'rho_field', '_mu_eff_field'):

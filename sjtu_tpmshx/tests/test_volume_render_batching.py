@@ -63,6 +63,28 @@ def test_volume_builder_defers_intermediate_render(render, field):
     panel.status.setText.assert_not_called()
 
 
+@pytest.mark.parametrize('render', [False, True])
+def test_slice_builder_defers_mesh_render(render):
+    grid = pv.RectilinearGrid([0., 1., 2.], [0., 1.], [0., 1.])
+    grid.point_data['Ta'] = np.linspace(300., 420., grid.n_points)
+    plotter = Mock()
+
+    def mutation(*args, render=True, **kwargs):
+        if render:
+            plotter.render()
+
+    plotter.remove_actor.side_effect = mutation
+    plotter.add_mesh.side_effect = mutation
+    panel = SimpleNamespace(
+        _grid=grid, _field='Ta', _slice_actor_name='slice', plotter=plotter,
+        _clim_for=lambda field: (300., 420.), status=Mock(),
+    )
+    ThreeDVisPanel._add_slice_actor(panel, 'x', .5, render=render)
+    assert plotter.add_mesh.call_args.args[0].n_points > 0
+    assert plotter.render.call_count == int(render)
+    panel.status.setText.assert_not_called()
+
+
 def test_initial_scene_defers_mesh_and_camera_render():
     plotter = Mock()
 
@@ -128,7 +150,7 @@ def test_hover_and_opacity_work_without_vtk_compatibility_aggregator(monkeypatch
 @pytest.mark.parametrize('graded', [False, True])
 def test_volume_fields_are_lazy_cached_and_reset_without_changing_values(monkeypatch, graded):
     """Real VTK data and Qt selection; no graphics context is needed."""
-    from scipy import ndimage
+    from scipy import interpolate
 
     panel = SimpleNamespace(plotter=Mock(window_size=(1000, 800)), status=Mock())
     ThreeDVisPanel._init_state(panel, 30)
@@ -143,9 +165,8 @@ def test_volume_fields_are_lazy_cached_and_reset_without_changing_values(monkeyp
     for name in ('_build_volume_grid', '_build_global_clim', '_rebuild_volume',
                  '_clim_for', '_opacity_ramp'):
         setattr(panel, name, MethodType(getattr(ThreeDVisPanel, name), panel))
-    zoom = ndimage.zoom
-    zoom_calls = Mock(wraps=zoom)
-    monkeypatch.setattr(ndimage, 'zoom', zoom_calls)
+    interpolations = Mock(wraps=interpolate.RegularGridInterpolator)
+    monkeypatch.setattr(interpolate, 'RegularGridInterpolator', interpolations)
     base = np.arange(24., dtype=float).reshape(4, 3, 2)
     fields = {key: base + 100. * i for i, key in enumerate(FIELD_META)}
     widths = [np.linspace(.0002, .001, n) if graded else np.full(n, .001)
@@ -156,30 +177,28 @@ def test_volume_fields_are_lazy_cached_and_reset_without_changing_values(monkeyp
     # fields remain complete for identical shared color limits, hover and slices.
     assert set(panel._volume_grids) == {'Ta'}
     assert set(panel._grid_vol.point_data) == {'Ta'}
-    assert zoom_calls.call_count == 1
+    assert interpolations.call_count == 1
     edges = [np.r_[0., np.cumsum(w * 1000.)] for w in widths]
     raw = pv.RectilinearGrid(*edges)
-    fine = pv.RectilinearGrid(*[np.linspace(0., edge[-1], n * 3 + 1)
-                                for edge, n in zip(edges, base.shape)])
     for key, values in fields.items():
         raw.cell_data[key] = values.flatten(order='F')
-        fine.cell_data[key] = zoom(values, (3, 3, 3), order=1).flatten(order='F')
     raw = raw.cell_data_to_point_data()
-    fine = fine.cell_data_to_point_data()
+    initial_values = panel._grid_vol['Ta'].copy()
+    display_points = panel._grid_vol.points.copy()
     np.testing.assert_array_equal(panel._grid.points, raw.points)
     previous_clim = ThreeDVisPanel._build_global_clim(
         SimpleNamespace(_grid=raw, _arrays=fields))
     assert panel._global_clim == previous_clim
-    for key in fields:
+    for i, key in enumerate(fields):
         np.testing.assert_array_equal(panel._grid[key], raw[key])
         ThreeDVisPanel._on_field_changed(panel, panel.combo_field.findData(key))
-        np.testing.assert_array_equal(panel._grid_vol[key], fine[key])
-        np.testing.assert_array_equal(panel._grid_vol.points, fine.points)
-    assert zoom_calls.call_count == len(fields)
+        np.testing.assert_allclose(panel._grid_vol[key], initial_values + 100. * i)
+        np.testing.assert_array_equal(panel._grid_vol.points, display_points)
+    assert interpolations.call_count == len(fields)
     first_tb = panel._volume_grids['Tb'][0]
     ThreeDVisPanel._on_field_changed(panel, panel.combo_field.findData('Tb'))
     assert panel._grid_vol is first_tb
-    assert zoom_calls.call_count == len(fields)
+    assert interpolations.call_count == len(fields)
     actual_slice = panel._grid.slice(normal='z', origin=panel._grid.center)
     expected_slice = raw.slice(normal='z', origin=raw.center)
     np.testing.assert_array_equal(actual_slice['Tb'], expected_slice['Tb'])
@@ -190,10 +209,87 @@ def test_volume_fields_are_lazy_cached_and_reset_without_changing_values(monkeyp
                              dx=widths[0], dy=widths[1], dz=widths[2])
     assert panel._field == 'Tb' and set(panel._volume_grids) == {'Tb'}
     assert panel._grid_vol is not first_tb
-    np.testing.assert_allclose(panel._grid_vol['Tb'], fine['Tb'] + 1.)
+    np.testing.assert_allclose(panel._grid_vol['Tb'], initial_values + 101.)
     ThreeDVisPanel.set_fields(panel, Ta=base[:2], dx=widths[0][:2],
                              dy=widths[1], dz=widths[2])
     assert panel._field == 'Ta' and set(panel._volume_grids) == {'Ta'}
     assert panel._grid_vol.dimensions == (7, 10, 7)
     assert set(panel._arrays) == {'Ta'}
     panel.combo_field.deleteLater()
+
+
+@pytest.mark.parametrize('widths', [
+    ([1., 9.], [2., 5., 1.], [3., 7.]),
+    ([2., 2.], [3., 3., 3.], [4.]),
+])
+def test_volume_interpolation_preserves_physical_affine_field(widths):
+    """An analytic field supplies an oracle independent of the resampler."""
+    widths = [np.asarray(w) for w in widths]
+    centres = [np.cumsum(w) - w / 2 for w in widths]
+    x, y, z = np.meshgrid(*centres, indexing='ij')
+    panel = SimpleNamespace(
+        _volume_grids={}, _field='Ta', _arrays={'Ta': 5. + 2*x - 3*y + 4*z},
+        _dx_mm=widths[0], _dy_mm=widths[1], _dz_mm=widths[2],
+        _L_mm=tuple(w.sum() for w in widths),
+    )
+    grid, _ = ThreeDVisPanel._build_volume_grid(panel)
+    # Exterior half cells use constant extension; all interior display points
+    # must retain the exact physical linear field, including graded axes.
+    physical = [np.clip(grid.points[:, i], c[0], c[-1])
+                for i, c in enumerate(centres)]
+    expected = 5. + 2*physical[0] - 3*physical[1] + 4*physical[2]
+    np.testing.assert_allclose(grid['Ta'], expected, rtol=0, atol=1e-12)
+
+
+@pytest.mark.parametrize('method', ['_on_apply_slice_realtime', '_on_apply_slice'])
+@pytest.mark.parametrize('scale_mode', ['local', 'global'])
+def test_slice_change_batches_matching_volume_and_slice_ranges(method, scale_mode):
+    events = []
+    panel = SimpleNamespace(
+        _grid=object(), _scale_mode=scale_mode, _field='Ta',
+        _L_mm=(2., 2., 2.), _slice_info={'axis': 'z', 'coord_mm': .25},
+        _arrays={'Ta': np.array([[[1., 10.], [3., 30.]]])},
+        _global_clim={'Ta': (1., 30.)}, _slice_index=lambda axis, coord: int(coord),
+        _current_axis=lambda: 'z', btn_apply=Mock(), btn_clear=Mock(),
+        le_coord=Mock(), combo_plane=Mock(), _coord_debounce=Mock(),
+        _show_slice_popup=Mock(), _update_status=Mock(), plotter=Mock(),
+    )
+    panel.le_coord.text.return_value = '1.5'
+    panel.combo_plane.currentData.return_value = 'xy'
+    panel._clim_for = MethodType(ThreeDVisPanel._clim_for, panel)
+    panel._rebuild_volume = lambda *, render: events.append(('volume', panel._clim_for('Ta'), render))
+    panel._add_slice_actor = lambda axis, coord, *, render: events.append(('slice', panel._clim_for('Ta'), render))
+    getattr(ThreeDVisPanel, method)(panel)
+    expected = (10., 30.) if scale_mode == 'local' else (1., 30.)
+    assert events == ([('volume', expected, False)] if scale_mode == 'local' else []) + [
+        ('slice', expected, False)]
+    panel.plotter.render.assert_called_once_with()
+
+
+def test_volume_without_upsampling_keeps_raw_grid():
+    grid = object()
+    widths = np.linspace(.1, 2., 70)
+    panel = SimpleNamespace(
+        _volume_grids={}, _field='Ta', _grid=grid,
+        _arrays={'Ta': np.broadcast_to(1., (70, 70, 70))},
+        _dx_mm=widths, _dy_mm=widths, _dz_mm=widths,
+    )
+    actual, minimum = ThreeDVisPanel._build_volume_grid(panel)
+    assert actual is grid and minimum == pytest.approx(.1)
+    assert panel._volume_grids == {}
+
+
+def test_clear_local_slice_restores_global_volume_legend_once():
+    panel = SimpleNamespace(
+        _slice_info={'axis': 'z', 'coord_mm': 1.5}, _slice_actor_name='slice',
+        _scale_mode='local', _global_clim={'Ta': (1., 30.)}, _arrays={'Ta': None},
+        btn_clear=Mock(), _update_status=Mock(), plotter=Mock(),
+    )
+    ranges = []
+    panel._rebuild_volume = lambda *, render: ranges.append(
+        (ThreeDVisPanel._clim_for(panel, 'Ta'), render))
+    ThreeDVisPanel._on_clear_slice(panel)
+    assert panel._slice_info is None
+    assert ranges == [((1., 30.), False)]
+    panel.plotter.remove_actor.assert_called_once_with('slice', render=False)
+    panel.plotter.render.assert_called_once_with()

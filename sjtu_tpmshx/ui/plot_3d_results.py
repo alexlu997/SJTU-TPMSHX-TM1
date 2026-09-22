@@ -270,8 +270,7 @@ def _render_2d_slices_from_3d(window, res, field=None):
 
 
 def _begin_canvas_plot(canvas, nrows=1, ncols=1):
-    """Clear canvas + create axes + style spines. Returns (axes_iterable, (X, Y))
-    placeholder None — caller provides xc/yc via a follow-up meshgrid."""
+    """Clear the canvas and return the Axes or array produced by subplots."""
     _T = _get_theme()
     canvas.fig.clear()
     canvas.fig.patch.set_facecolor(_T['fig_bg'])

@@ -12,9 +12,9 @@ Phase-1 "MVP" caveats are superseded):
   * First-order upwind for momentum convective fluxes by default; a
     deferred-correction SOU exists and is opt-in via `use_sou_momentum`
     (default False — benefit never quantified, see research ledger idea pool).
-  * PyAMG smoothed-aggregation for the pressure-Poisson solve; hierarchy
-    rebuilt every `pyamg_rebuild_every` SIMPLE iterations (default 100) to
-    track variable Brinkman coefficient drift.
+  * Sparse LU for smaller pressure-correction systems; PyAMG Ruge-Stuben
+    preconditioning with BiCGStab above `_AMG_GATE`. The hierarchy rebuilds
+    on `pyamg_rebuild_every` (default 100) or coefficient-drift triggers.
   * Non-uniform cell spacings accepted since E1 (2026-06-09); the default
     path remains uniform dx/dy/dz (wall_refine=False).
   * Partial inlet/outlet supported via `inlet_frac` / `outlet_frac`
@@ -66,13 +66,10 @@ Staggered grid:
     v : y-face (Nx, Ny+1, Nz)
     w : z-face (Nx, Ny, Nz+1)
 
-Coordinate convention differs from 2D validate_shanghai axis-swap:
-    physical x → solver i-axis (usually streamwise for Fluid A)
-    physical y → solver j-axis (usually streamwise for Fluid B)
-    physical z → solver k-axis (TPMS channel stacking direction)
-
-Callers should set up fluid-specific orientations via explicit transposes
-outside this class; the solver itself is coordinate-agnostic.
+Solver coordinates always place the stream along j, with cross-stream
+coordinates on i and k. The pipeline permutes each side's physical x/y/z
+axes into that order and reverses the stream orientation where required;
+the solver itself is coordinate-agnostic.
 """
 from __future__ import annotations
 
@@ -626,7 +623,8 @@ class SIMPLESolver3D:
         self.eps_field = np.full((Nx, Ny, Nz), self.eps, dtype=np.float64)
         # T field for ideal-gas rho update (uniform T_in by default)
         self.T_field = np.full((Nx, Ny, Nz), self.T_in, dtype=np.float64)
-        # v_inlet_field is a fixed-velocity BC; density updates do not modify it.
+        # Once the mass-flux target is captured, density refresh updates
+        # v_inlet_field to preserve that target.
 
         # D-F coefficients
         if K_arr is None:
@@ -882,10 +880,12 @@ class SIMPLESolver3D:
             self._pp_sparsity = _build_pp_sparsity_3d(Nx, Ny, Nz,
                                                         self.outlet_mask_ij)
 
-        # Adaptive dispatch: small grids (<200k cells) use serial natural-
-        # ordering GS; large grids use red-black GS on prange. Break-even
-        # ~200k cells where Numba thread-launch overhead no longer dominates.
-        if _should_parallelize(Nx, Ny, Nz):
+        # SOU reads distance-two neighbors, which share a red-black color.
+        # Its live deferred correction therefore needs the serial sweep.
+        _use_sou = 1 if getattr(self, 'use_sou_momentum', False) else 0
+        # FOU uses serial natural-ordering GS below the parallel threshold
+        # and red-black GS on prange for larger grids.
+        if not _use_sou and _should_parallelize(Nx, Ny, Nz):
             # P3.2: one-shot thread-count advisory on the unpinned all-cores
             # default (bandwidth-bound kernels; advisory only, pool untouched).
             _warn_if_default_pool(Nx * Ny * Nz)
@@ -896,11 +896,6 @@ class SIMPLESolver3D:
             _sweep_u = _sweep_u_jit_df_3d
             _sweep_v = _sweep_v_jit_df_3d
             _sweep_w = _sweep_w_jit_df_3d
-
-        # R4 (openspec solver-efficiency-r1-r4): opt-in minmod SOU deferred
-        # correction in the momentum sweeps. 0 (default) = first-order upwind,
-        # numerically identical to the pre-R4 kernels.
-        _use_sou = 1 if getattr(self, 'use_sou_momentum', False) else 0
 
         # M2b (2026-07-09, VANS ∇ε): momentum ε-ratio factors fire only for a
         # genuinely non-uniform eps_field. Uniform (production per-side /

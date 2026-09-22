@@ -62,7 +62,8 @@ def test_sequential_pair_preserves_failure_over_cancellation(monkeypatch, failur
 
 @pytest.mark.parametrize('threads', [1, 2])
 @pytest.mark.parametrize('parallel', [False, True])
-def test_real_workqueue_sweeps_in_child_process(threads, parallel):
+@pytest.mark.parametrize('sou', [False, True])
+def test_real_workqueue_sweeps_in_child_process(threads, parallel, sou):
     # Force the actual large-grid dispatch on a small physical solver. A native
     # workqueue abort stays in the child and is a test failure on either OS.
     script = '''
@@ -76,10 +77,11 @@ from sjtu_tpmshx.solvers.backends.python.three_d.runtime import _run_two_simple
 numba.get_num_threads()  # Initialize the configured pool without compiling kernels.
 assert numba.threading_layer() == 'workqueue'
 parallel = os.environ['TPMSHX_PARALLEL_THRESHOLD'] == '1'
+sou = os.environ['TPMSHX_TEST_SOU'] == '1'
 assert simple._should_parallelize(8, 12, 4) == parallel
 parent = threading.current_thread()
 calls = []
-kernel = '_sweep_u_jit_df_3d_parallel' if parallel else '_sweep_u_jit_df_3d'
+kernel = '_sweep_u_jit_df_3d_parallel' if parallel and not sou else '_sweep_u_jit_df_3d'
 original = getattr(simple, kernel)
 assert not original.signatures  # First real A/B use must work without import prewarm.
 checking_pair = True
@@ -89,14 +91,21 @@ def sweep(*args):
     calls.append(numba.get_num_threads())
     return original(*args)
 setattr(simple, kernel, sweep)
+if sou:
+    def forbidden(*args):
+        raise AssertionError('SOU reached a red-black parallel momentum sweep')
+    for component in ('u', 'v', 'w'):
+        setattr(simple, '_sweep_' + component + '_jit_df_3d_parallel', forbidden)
 
 def make(water):
-    return simple.SIMPLESolver3D(
+    solver = simple.SIMPLESolver3D(
         Lx=.02, Ly=.03, Lz=.01, Nx=8, Ny=12, Nz=4,
         rho=998. if water else 1.18, mu=.001 if water else 1.85e-5,
         T_in=300., v_inlet=.01 if water else 3., eps=.72,
         K_arr=np.full((12, 4), 3e-8), cF_arr=np.full((12, 4), 250.),
         fluid_type='incompressible' if water else 'ideal_gas')
+    solver.use_sou_momentum = sou
+    return solver
 
 sides = [make(False), make(True)]
 paired = _run_two_simple(*sides, max_iter=3)
@@ -109,11 +118,20 @@ for s, water, result in zip(sides, (False, True), paired):
     for name in ('u', 'v', 'w', 'P', 'rho_field'):
         np.testing.assert_allclose(getattr(s, name), getattr(reference, name),
                                    rtol=1e-12, atol=1e-12)
+if sou and numba.get_num_threads() == 2:
+    # The actual serial SOU sweeps must be invariant to the available pool.
+    numba.set_num_threads(1)
+    for s, water in zip(sides, (False, True)):
+        reference = make(water)
+        reference.solve(max_iter=3, verbose=False)
+        for name in ('u', 'v', 'w', 'P', 'rho_field'):
+            np.testing.assert_array_equal(getattr(s, name), getattr(reference, name))
 print('workqueue pair and direct sequential fields agree')
 '''
     env = dict(os.environ, NUMBA_THREADING_LAYER='workqueue',
                NUMBA_NUM_THREADS=str(threads),
                TPMSHX_PARALLEL_THRESHOLD='1' if parallel else '1000000',
+               TPMSHX_TEST_SOU='1' if sou else '0',
                OMP_NUM_THREADS='1', OPENBLAS_NUM_THREADS='1', MKL_NUM_THREADS='1')
     completed = subprocess.run([sys.executable, '-c', script],
                                cwd=Path(__file__).resolve().parents[2], env=env,

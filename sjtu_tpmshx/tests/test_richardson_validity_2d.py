@@ -290,7 +290,6 @@ def test_failed_refinement_preserves_main_fields_and_rejects_overall(monkeypatch
     detail = result.diagnostics['convergence_detail']
     for gate in ('outer_converged', 'simple_ok', 'ltne_ok', 'envelope_ok'):
         assert detail[gate] is True
-    assert detail['energy_nan_hit'] is False
     assert detail['richardson_ok'] is False
     assert result.converged is False
     assert result.Q_W == main['Q']

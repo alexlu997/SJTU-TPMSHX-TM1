@@ -915,21 +915,11 @@ def _build_canvas_content(window, vlay, t):
     window._empty_state_label = _empty_box
     window._empty_state_preset_btn = _btn_preset
 
-    # Canvas widgets (reuse if available from theme switch)
-    _reuse = getattr(window, '_reuse_canvases', None)
-    if _reuse:
-        window.canvas_temp   = _reuse['temp']
-        window.canvas_pres   = _reuse['pres']
-        window.canvas_vel    = _reuse['vel']
-        window.canvas_layout = _reuse['layout']
-        window.canvas_pareto = _reuse['pareto']
-        window.canvas_3d     = _reuse.get('3d')
-    else:
-        window.canvas_temp   = MatplotlibCanvas(1, 1, figsize=(12, 7))
-        window.canvas_pres   = MatplotlibCanvas(1, 1, figsize=(12, 7))
-        window.canvas_vel    = MatplotlibCanvas(1, 1, figsize=(12, 7))
-        window.canvas_layout = MatplotlibCanvas(1, 1, figsize=(10.5, 6.8))
-        window.canvas_pareto = MatplotlibCanvas(1, 1, figsize=(14, 8))
+    window.canvas_temp   = MatplotlibCanvas(1, 1, figsize=(12, 7))
+    window.canvas_pres   = MatplotlibCanvas(1, 1, figsize=(12, 7))
+    window.canvas_vel    = MatplotlibCanvas(1, 1, figsize=(12, 7))
+    window.canvas_layout = MatplotlibCanvas(1, 1, figsize=(10.5, 6.8))
+    window.canvas_pareto = MatplotlibCanvas(1, 1, figsize=(14, 8))
 
     # PyVistaQt init is heavy (~1-2s VTK/OpenGL context setup).
     # Defer until user actually switches to the 3D tab → faster cold start
@@ -1076,21 +1066,18 @@ def _build_canvas_content(window, vlay, t):
     _relayout_canvas_cards(window, 1)
 
     # Initial state: hide all cards (shown after Compute/Preview)
-    if not _reuse:
-        # First launch: clear empty axes (matplotlib only)
-        for key in ('temp', 'pres', 'vel', 'layout', 'pareto'):
-            c = getattr(window, f'canvas_{key}')
-            c.fig.clear()
-            c.fig.patch.set_facecolor(_t['fig_bg'])
-            c.draw()
+    for key in ('temp', 'pres', 'vel', 'layout', 'pareto'):
+        c = getattr(window, f'canvas_{key}')
+        c.fig.clear()
+        c.fig.patch.set_facecolor(_t['fig_bg'])
+        c.draw()
     _hide_keys = ['temp', 'pres', 'vel', 'layout', 'pareto']
     if '3d' in window._canvas_cards:
         _hide_keys.append('3d')
     for key in _hide_keys:
         window._canvas_cards[key].hide()
     window._active_tab = 'layout'
-    if not _reuse:
-        window.cache.clear()
+    window.cache.clear()
 
     window._canvas_scroll.setWidget(canvas_container)
     # Result footer shares the published result labels and diagnostics.

@@ -1,4 +1,4 @@
-"""Tests for solvers.sigmoid_field.build_continuous_arrays — verifies shape
+"""Tests for models.sigmoid_field.build_continuous_arrays — verifies shape
 contract, clip behaviour, and custom dx_arr/dy_arr support.
 """
 import warnings

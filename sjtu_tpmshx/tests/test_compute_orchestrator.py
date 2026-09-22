@@ -7,7 +7,6 @@ not run any real CFD. Covers:
   - error path: worker raises → error signal
   - cancel path: cancel_token observed → cancelled signal
   - re-entrancy: second start() while running returns False
-  - ETA history: median over per-mode rings
 
 Phase 1 of 2026-05-06 main.py refactor (audit fix #4).
 """

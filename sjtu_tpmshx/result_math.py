@@ -15,10 +15,9 @@ def pressure_face_values(pressure, stream_widths):
 
 
 def _enthalpy_balance_2d(T_field, uc, vc, rho_cp_field, dir_code,
-                          dx_arr, dy_arr, inlet_mask=None, outlet_mask=None,
-                          enthalpy_fn=None, rho_fn=None, P_ref=None,
+                          dx_arr, dy_arr, inlet_mask=None, outlet_mask=None, *,
                           eps_side=None, T_in=None):
-    """Inlet-mass-based duty from the inlet/outlet temperature or enthalpy change.
+    """Inlet-capacity-based duty for the temperature formulation.
 
     Uses the inlet plane ρ·|u|·A·mask as ṁ·cp reference so the returned Q
     does not include a heat-duty contribution from unequal inlet/outlet mass
@@ -38,14 +37,9 @@ def _enthalpy_balance_2d(T_field, uc, vc, rho_cp_field, dir_code,
     integral on the golden air-air case). None keeps the legacy ε-less
     arithmetic for callers that pre-scale externally.
 
-    True-enthalpy mode (sCO2, audit 2026-06-28 D1): when ``enthalpy_fn`` /
-    ``rho_fn`` / ``P_ref`` are supplied the duty is the physically correct
-    Q = ṁ·(⟨h_in⟩ − ⟨h_out⟩) with mass-flux-weighted mean enthalpy ⟨h(T)⟩ on
-    each face (not ρcp(T_in)·ΔT, and not h(⟨T⟩) — both bias Q by tens-to-
-    hundreds of percent for sCO2 across the pseudocritical cp spike). The mass
-    flux weight is ρ·|u|·A (true mass flow), NOT ρcp. Air/water pass these as
-    None and keep the legacy ρcp·ΔT arithmetic exactly (constant cp ⇒ value-
-    identical, golden-safe).
+    True-h results use their recorded face mass fluxes and enthalpies through
+    ``_boundary_enthalpy_duty``. The retired scalar-pressure h(T) reconstruction
+    survives only as a historical test reference.
     """
     if dir_code in (0, 1):
         i_in, i_out = (0, -1) if dir_code == 0 else (-1, 0)
@@ -84,23 +78,6 @@ def _enthalpy_balance_2d(T_field, uc, vc, rho_cp_field, dir_code,
 
     if T_in is not None:
         T_in_face = np.asarray(T_in, dtype=np.float64)
-
-    if enthalpy_fn is not None and rho_fn is not None and P_ref is not None:
-        # True-enthalpy duty for strongly variable-cp fluids (sCO2).
-        rho_in  = np.asarray(rho_fn(T_in_face,  P_ref), dtype=np.float64)
-        rho_out = np.asarray(rho_fn(T_out_face, P_ref), dtype=np.float64)
-        w_in  = eps_in  * rho_in  * u_in_face  * A_cell * m_in_arr
-        w_out = eps_out * rho_out * u_out_face * A_cell * m_out_arr
-        m_dot = float(np.sum(w_in))
-        if m_dot < 1e-30:
-            return 0.0
-        h_in  = np.asarray(enthalpy_fn(T_in_face,  P_ref), dtype=np.float64)
-        h_out = np.asarray(enthalpy_fn(T_out_face, P_ref), dtype=np.float64)
-        h_in_avg = float(np.sum(w_in * h_in)) / m_dot
-        m_out_tot = float(np.sum(w_out))
-        h_out_avg = (float(np.sum(w_out * h_out)) / m_out_tot
-                     if m_out_tot > 1e-30 else float(np.mean(h_out)))
-        return m_dot * (h_in_avg - h_out_avg)
 
     m_in_w  = eps_in  * rho_cp_in  * u_in_face  * A_cell * m_in_arr
     m_out_w = eps_out * rho_cp_out * u_out_face * A_cell * m_out_arr
