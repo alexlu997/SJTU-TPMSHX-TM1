@@ -1,13 +1,11 @@
 """runs/run_3d_qnehvi_fast.py — qNEHVI Pareto run on the 3D evaluator.
 
 Wires ``optimization.evaluator_3d.evaluate_design_3d`` into the existing
-qNEHVI loop via the new ``evaluator_fn`` injection. Configuration matches
-the Shanghai Nz=10 validation baseline so the Pareto sits in the same
-operating regime as the published 3D real-data sweep.
-
-Smoke-timed at 13 s / eval on the workstation (12-core, fast-mode SIMPLE
-tolerances). At n_init=32 + n_iter=80 × q_batch=2 = 192 evals, expect
-~ 25 min compute + GP overhead ≈ 50–70 min wall.
+qNEHVI loop via ``evaluator_fn``. This is an air/air screening preset at
+Shanghai-sized geometry, not the full air/water validation calculation.
+Its bounded F2 solve budget does not establish convergence by itself.
+Runtime depends on grid, convergence, compilation and worker resources;
+measure the current configuration rather than reusing pre-F2 timing.
 
 Outputs in opt_runs/qnehvi_3d_<ts>/:
   pareto_final.csv     Pareto-only decisions + (Q_per_m, dP)
@@ -49,7 +47,7 @@ def main() -> None:
         'P_inA':      101325.0,
         'P_inB':      101325.0,
 
-        # 3D production grid (matches Shanghai Nz=10 validation)
+        # Bounded 3D screening grid and outer budget.
         'Nx_3d':      40,
         'Ny_3d':      16,
         'Nz_3d':      10,
@@ -57,7 +55,7 @@ def main() -> None:
         'outer_tol_K':  0.5,
         'alpha_outer':  0.6,
 
-        # Solver tols (3D fast-mode within evaluator)
+        # Screening budgets; tol_simple is a compatibility input, not F2 gates.
         'max_iter_simple': 500,
         'tol_simple':      1e-2,
         'max_iter_energy': 1500,
@@ -70,10 +68,9 @@ def main() -> None:
         'reject_unconverged':  False,
         'penalty_enabled':     True,
 
-        # 2026-05-14 (revised): norris_1a is alias of baseline for friction.
-        # ×1.28 Nu in tpms_calc is the only roughness compensation; c_F is
-        # already SLM-fit, so any f-side multiplier double-counts. See
-        # models/roughness.py docstring.
+        # norris_1a is the baseline friction alias. Air Nu keeps its existing
+        # ×1.28 factor; c_F comes from the fixed CFD table, not an SLM fit.
+        # See models/roughness.py for the separate roughness experiments.
         'roughness_mode':      'norris_1a',
         'roughness_eps_um':    100.0,
     }

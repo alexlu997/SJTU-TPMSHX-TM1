@@ -48,7 +48,6 @@ follow the read timing stated below.
   pre-B2 default was 1.0). When unset, χ_s comes from the B2 unit-cell
   homogenization fit ``chi_s_eff(type, ε)`` (2026-07-06);
   ``models/tpms_props.py`` (``chi_s_eff`` reads the override on each call).
-- ``TPMSHX_DEBUG`` (unset) — debug prints; ``solvers/simple_solver_3d.py``.
 - ``TPMSHX_DISABLE_3D_PANEL`` (0) — skip PyVista panel;
   ``ui/builders_canvas.py``.
 - ``TPMSHX_EAGER_3D_SLICES`` (0) — precompute 3D slices;

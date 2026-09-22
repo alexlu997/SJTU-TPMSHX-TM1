@@ -60,7 +60,6 @@ def build_page_domain(window):
     _T_NEUTRAL = t.style('T_NEUTRAL')
     _F_NEUTRAL = t.style('F_NEUTRAL')
     _COMBO = t.style('COMBO')
-    _BTN_TPMS = t.style('BTN_TPMS')
     _LBL = t.style('LBL')
     _VAL = t.style('VAL')
 
@@ -79,8 +78,8 @@ def build_page_domain(window):
     # first on every (re)build; builders_fluids appends its z-partial rows.
     window._3d_only_widgets = []
     # ui-ia-batch1: section-container registry. The page builders create the
-    # widgets; build_param_tabs re-homes these containers into the four
-    # workflow accordion groups (the page scroll shells are discarded).
+    # widgets; build_param_tabs places these containers in groups on the
+    # geometry/boundary/solver pages (the builder scroll shells are discarded).
     window._ia_sections = {}
 
     # Domain Geometry
@@ -131,10 +130,8 @@ def build_page_domain(window):
     window._v_A0   = res_row(window, gC, 1, "<i>A</i><sub>0</sub> [m<sup>-1</sup>]")
     window._v_Dh   = res_row(window, gC, 2, "<i>D<sub>h</sub></i> [mm]")
     window._v_Kss  = res_row(window, gC, 3, "<i>K</i><sub>ss</sub> [W/(m·K)]")
-    # Material — only rho_s remains (k_s is in the solver/geometry panel).
-    # cp_s and cp_f were removed: no solver path reads them. Solid cp is a
-    # per-material constant hardcoded downstream; fluid cp is computed
-    # per-cell via air_cp(T) inside tpms_calc.
+    # Material density is used for mass; fluid cp comes from the property model.
+    # Steady LTNE has no solid heat-storage term.
     g2, _sec_mat = section(window, lay, "  材料属性", _T_NEUTRAL, _F_NEUTRAL)
     window._ia_sections['material'] = _sec_mat
     window.le_rho_s = row(window, g2, 0, "<i>&rho;</i><sub>s</sub> [kg/m³]", "7900")

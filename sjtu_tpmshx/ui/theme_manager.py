@@ -52,8 +52,7 @@ class ThemeManager(QObject):
     def style(self, key: str, default: Any = '') -> Any:
         """Single-key accessor: ``manager.style('BG')`` ≡ ``_S['BG']``.
 
-        Returns ``default`` if missing rather than raising — keeps optional
-        keys (``TOOLBTN_SPLIT``, future additions) safe.
+        Returns ``default`` when the requested style key is absent.
         """
         return self.current_styles().get(key, default)
 

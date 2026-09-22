@@ -2,15 +2,15 @@
 
 现行版式：「瑞士工程」（用户选定 2026-07-15，试衣间
 reports/design_specimen.html 方案三）——暖白底、黑标尺线/黑框数字带、
-红色单强调、无圆角无投影；标题 Bahnschrift+等线、正文 等线+Corbel、
-数据 Consolas。结构与组件类名沿袭首版 thariqs 模板
+红色单强调、无圆角无投影；标题与正文使用微软雅黑（Segoe UI 回退），
+数据 Consolas、公式 Cambria Math。结构与组件类名沿袭首版 thariqs 模板
 (thariqs.github.io/html-effectiveness)，报告脚本无需随视觉层改动。
 生成自包含离线 HTML 报告时统一 import 本模块，勿在各脚本里复制 CSS。
 
 用法
 ----
     from sjtu_tpmshx.validation.report_template import (
-        BASE_CSS, page, section, mi, mn, mrow, msub, msup, mfrac,
+        BASE_CSS, page, section, mi, mn, mo, mrow, msub, msup, mfrac,
         paren_pow, math_block)
 
     formula = math_block(
@@ -42,8 +42,8 @@ reports/design_specimen.html 方案三）——暖白底、黑标尺线/黑框�
    表格斑马纹 + 行悬停 + 排序方向指示（th 内放 <span class="dir">，
    JS 置 ▲/▼）；筛选空态给指引文案（.empty），不留白屏。
 7. **长表（≳1000 行）必须虚拟滚动**——整体 innerHTML 数千行每次排序重解析
-   几万个单元格，实测明显卡顿（2026-07-15，7000 行表）。做法参照
-   `sco2_cfd/make_error_report.py`：固定行高 + 上下 spacer 行 + 只画视口
+   几万个单元格，实测明显卡顿（2026-07-15，7000 行表）。实现采用
+   固定行高 + 上下 spacer 行 + 只画视口
    ±缓冲、scroll 用 requestAnimationFrame 节流、首帧后 offsetHeight 校准
    行高；斑马纹改绝对行号 `.zr` 类并在 extra_css 里关掉模板的
    nth-child 版（虚拟滚动下 nth-child 奇偶随滚动跳变）。

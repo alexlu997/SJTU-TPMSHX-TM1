@@ -421,31 +421,6 @@ def _build_styles(theme_name=None):
                          f"QPushButton:disabled{{color:rgba(148,163,184,0.35);"
                          f"border-color:rgba(148,163,184,0.15);}}")
 
-    # Legacy aliases (preserve name-compat for any lingering callers)
-    s['BTN_A']    = s['BTN_SECONDARY']
-    s['BTN_B']    = s['BTN_SECONDARY']
-    s['BTN_TPMS'] = s['BTN_SECONDARY']
-    s['BTN_RUN']  = s['BTN_PRIMARY']
-
-    # QToolButton split-button dressing — paints the dropdown arrow zone so
-    # it reads as part of the Primary CTA rather than a raw Qt affordance.
-    s['TOOLBTN_SPLIT'] = (
-        "QToolButton::menu-button{"
-        "  border-left:1px solid rgba(255,255,255,0.28);"
-        "  width:18px; background:transparent;"
-        f"  border-top-right-radius:{RADIUS_CARD}px; border-bottom-right-radius:{RADIUS_CARD}px;}}"
-        "QToolButton::menu-arrow{"
-        "  image:none;"
-        "  border-left:4px solid transparent;"
-        "  border-right:4px solid transparent;"
-        "  border-top:5px solid white;"
-        "  width:0; height:0;}"
-        "QToolButton::menu-indicator{image:none;}"
-        # Keyboard focus ring on the split button: 2px white border matches
-        # the Primary-tier convention (BTN_PRIMARY does the same on :focus).
-        "QToolButton:focus{border:2px solid #FFFFFF; padding:5px 15px;}"
-    )
-
     # Explicit SVGs remain visible when macOS delegates the control to QSS.
     arrow = (Path(__file__).with_name('assets') / 'icons'
              / f'chevron-down-{theme_name}.svg').as_posix()
