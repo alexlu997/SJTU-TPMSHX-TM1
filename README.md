@@ -327,6 +327,14 @@ PowerShell 使用同样的 pytest 参数，并以 `$env:NUMBA_NUM_THREADS='2'` �
 CI 快测固定两个 worker，每个 worker 的 BLAS/OMP 单线程、Numba 上限为 2。
 固定 128 核服务器的并行预算见 `scripts/run_tests_server.ps1`；
 `run_tests_fast.ps1` 只提供开发反馈，其 `not heavy` 子集与 CI 快测不同。
+两份服务器脚本默认严格检查基础锁。已有 Windows BO 环境时，显式使用
+`./scripts/run_tests_server.ps1 -LockFile requirements-lock-server.txt`，或向
+`run_tests_fast.ps1` 传同一参数；所选锁与 `pip check` 都通过后才启动测试。
+脚本不安装依赖，也不因为选择了服务器锁而放行锁外包。
+
+两条 GitHub workflow 使用 Node24 Action（checkout v5、setup-python v6、
+upload-artifact v6）。这是 CI 工具运行时，不改变求解器的 Python 环境；
+`three-module` 继续单独验证完整环境到最小后处理环境的真实文件交接。
 
 `mypy-core-files.txt` 显式列出 17 个类型检查文件：覆盖配置、控制器、CLI、当前
 envelope 实现、三模块数据契约与公共 API、后处理指标入口；已删除的转发模块不再列入。

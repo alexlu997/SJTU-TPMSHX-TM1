@@ -3,7 +3,8 @@
 P3.1 (2026-07-20). The manifest (`sjtu_tpmshx/tests/_fast_tier_manifest.txt`)
 lists test node-ids whose measured `call` duration is >= the threshold;
 `tests/conftest.py` marks them `heavy` at collection time and
-`scripts/run_tests_fast.ps1` excludes them (`-m "not heavy"`).
+`scripts/run_tests_fast.ps1` excludes them (`-m "not heavy"`). CI fast tests
+exclude both slow and heavy and run public-module integration separately.
 
 Census input = a full-suite log produced with `--durations=0
 --durations-min=0.05` under the target environment.
@@ -61,8 +62,8 @@ def main(argv=None) -> int:
         f'{len(heavy)} heavy of {len(rows)} timed tests · '
         f'{hsum:.0f}s of {total:.0f}s call-compute ({100 * hsum / total:.0f}%)',
         '# semantics: conftest marks these nodeids `heavy` at collection; the',
-        '# FULL suite (run_tests_server.ps1) still runs them — only',
-        '# run_tests_fast.ps1 (-m "not heavy") skips them. NOT the gate.',
+        '# full suite still runs them. Local fast excludes heavy; CI fast excludes',
+        '# slow/heavy and runs public-module integration separately. Neither is the full suite.',
     ]
     lines += [n for _, n in heavy]
     Path(args.out).write_text('\n'.join(lines) + '\n', encoding='utf-8')

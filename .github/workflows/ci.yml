@@ -36,8 +36,8 @@ jobs:
       NUMEXPR_NUM_THREADS: "1"
       NUMBA_NUM_THREADS: "2"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
           cache: pip
@@ -80,7 +80,7 @@ jobs:
           --durations=30 --junitxml=.cache/ci/integration.xml
       - name: Save test outcomes and timings
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: test-reports-${{ matrix.os }}-py${{ matrix.python }}
           path: |

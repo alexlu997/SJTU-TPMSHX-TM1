@@ -65,6 +65,16 @@ def test_lock_reader_follows_includes_and_platform_markers(tmp_path):
         'alpha', 'beta', 'colorama'}
 
 
+def test_server_environment_requires_explicit_server_lock():
+    base = read_lock(_ROOT / 'requirements-lock.txt', {'sys_platform': 'win32'})
+    server = read_lock(_ROOT / 'requirements-lock-server.txt', {'sys_platform': 'win32'})
+    installed = {name: {next(iter(req.specifier)).version} for name, req in server.items()}
+    assert environment_issues(server, installed) == []
+    issues = environment_issues(base, installed)
+    assert issues and all(issue.startswith('unexpected package: ') for issue in issues)
+    assert any(issue.startswith('unexpected package: botorch==') for issue in issues)
+
+
 def test_lock_reader_rejects_non_exact_and_duplicate_pins(tmp_path):
     lock = tmp_path / 'lock.txt'
     lock.write_text('alpha>=1\n', encoding='utf-8')
