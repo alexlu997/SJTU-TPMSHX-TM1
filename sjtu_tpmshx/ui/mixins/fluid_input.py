@@ -54,6 +54,15 @@ class FluidInputMixin:
                 float(le_u.text()), T_K,
                 float(le_Pin.text()), float(self.le_ks.text()),
                 fluid_type=_ftype, sco2_nu=sco2_nu_from_window(self))
+            df_combo = getattr(self, 'combo_df_mode', None)
+            if df_combo is not None and df_combo.currentData() == 'experimental':
+                from sjtu_tpmshx.df_surrogate.experimental_correction import apply_correction
+                u = float(le_u.text())
+                K, cF, _ = apply_correction(
+                    self.combo_tpms.currentText(), _ftype,
+                    float(self.le_Lcell.text()), float(self.le_t.text()),
+                    r['K_df'], r['cF_df'], u)
+                r['dP_per_L'] = r['mu'] * u / K + r['rho'] * cF * u * u
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e)); return
 
@@ -281,44 +290,18 @@ class FluidInputMixin:
         return wall_for_dir(d, 'outlet')
 
     def _fluid_config(self, which):
-        """Read config for fluid A or B. Returns dict (optional z-partial keys
-        for fluid A: `in_z_ctr`, `in_z_w`, `out_z_ctr`, `out_z_w`)."""
-        if which == 'A':
-            d = self._dir_int(self.combo_dirA)
-            cfg = dict(dir=d,
-                in_ctr=float(self.le_pipeA_in_ctr.text()),
-                in_w=float(self.le_pipeA_in_w.text()),
-                out_ctr=float(self.le_pipeA_out_ctr.text()),
-                out_w=float(self.le_pipeA_out_w.text()))
-            # z-partial (only when 3D mode shows the fields)
-            if (hasattr(self, 'le_pipeA_in_z_ctr')
-                    and not self.le_pipeA_in_z_ctr.isHidden()):
-                try:
-                    cfg['in_z_ctr']  = float(self.le_pipeA_in_z_ctr.text())
-                    cfg['in_z_w']    = float(self.le_pipeA_in_z_w.text())
-                    cfg['out_z_ctr'] = float(self.le_pipeA_out_z_ctr.text())
-                    cfg['out_z_w']   = float(self.le_pipeA_out_z_w.text())
-                except ValueError:
-                    pass
-            return cfg
-        else:
-            d = self._dir_int(self.combo_dirB)
-            cfg = dict(dir=d,
-                in_ctr=float(self.le_pipeB_in_ctr.text()),
-                in_w=float(self.le_pipeB_in_w.text()),
-                out_ctr=float(self.le_pipeB_out_ctr.text()),
-                out_w=float(self.le_pipeB_out_w.text()))
-            # z-partial (only when 3D mode shows the fields)
-            if (hasattr(self, 'le_pipeB_in_z_ctr')
-                    and not self.le_pipeB_in_z_ctr.isHidden()):
-                try:
-                    cfg['in_z_ctr']  = float(self.le_pipeB_in_z_ctr.text())
-                    cfg['in_z_w']    = float(self.le_pipeB_in_z_w.text())
-                    cfg['out_z_ctr'] = float(self.le_pipeB_out_z_ctr.text())
-                    cfg['out_z_w']   = float(self.le_pipeB_out_z_w.text())
-                except ValueError:
-                    pass
-            return cfg
+        """Read a preview BC using the compute adapter's transverse pairs."""
+        from sjtu_tpmshx.ui.window_config import _read_partial_bc
+        cfg = dict(dir=self._dir_int(getattr(self, f'combo_dir{which}')))
+        # Keep the preview's required first-axis fields strict.
+        for field in ('in_ctr', 'in_w', 'out_ctr', 'out_w'):
+            cfg[field] = float(getattr(self, f'le_pipe{which}_{field}').text())
+        bc = _read_partial_bc(self, which, is_3d=self.combo_dim.currentIndex() == 1)
+        for field in ('in_z_ctr', 'in_z_w', 'out_z_ctr', 'out_z_w'):
+            value = getattr(bc, field)
+            if value is not None:
+                cfg[field] = value
+        return cfg
 
     def _draw_layout(self):
         from sjtu_tpmshx.ui.layout_drawer import draw_layout

@@ -42,15 +42,18 @@ def _real_outlet_slice(T_field, dir_code):
 
 def _port_rectangles(fluid_cfg, cross2_length):
     """Keep the original physical edges; reversing flow never swaps ports."""
-    return {
-        f'{end}let_rect': (
+    result = {}
+    for end in ('in', 'out'):
+        center, width = fluid_cfg.get(f'{end}_z_ctr'), fluid_cfg.get(f'{end}_z_w')
+        if center is None and width is None:
+            center, width = cross2_length / 2, cross2_length
+        elif center is None or width is None:
+            raise ValueError(f'{end} second-cross-axis centre and width must be set together')
+        result[f'{end}let_rect'] = (
             fluid_cfg[f'{end}_ctr'] - fluid_cfg[f'{end}_w'] / 2,
             fluid_cfg[f'{end}_ctr'] + fluid_cfg[f'{end}_w'] / 2,
-            fluid_cfg.get(f'{end}_z_ctr', cross2_length / 2)
-            - fluid_cfg.get(f'{end}_z_w', cross2_length) / 2,
-            fluid_cfg.get(f'{end}_z_ctr', cross2_length / 2)
-            + fluid_cfg.get(f'{end}_z_w', cross2_length) / 2)
-        for end in ('in', 'out')}
+            center - width / 2, center + width / 2)
+    return result
 
 
 def _build_partial_masks(fA, dcross1, dcross2, N_cross2):
@@ -72,20 +75,19 @@ def _build_partial_masks(fA, dcross1, dcross2, N_cross2):
         raise ValueError("Inlet / outlet range (cross1) resolves to zero cells.")
 
     # cross2 (z-partial keys — treated as second cross-axis regardless of label)
-    has_c2_partial = all(k in fA for k in
-                          ('in_z_ctr', 'in_z_w', 'out_z_ctr', 'out_z_w'))
-    if has_c2_partial and dcross2 is not None:
-        in_z_lo = fA['in_z_ctr'] - fA['in_z_w'] / 2
-        in_z_hi = fA['in_z_ctr'] + fA['in_z_w'] / 2
-        out_z_lo = fA['out_z_ctr'] - fA['out_z_w'] / 2
-        out_z_hi = fA['out_z_ctr'] + fA['out_z_w'] / 2
-        in_c2, _ = _port_fractions_1d(dcross2, in_z_lo, in_z_hi)
-        out_c2, _ = _port_fractions_1d(dcross2, out_z_lo, out_z_hi)
-        if not in_c2.any() or not out_c2.any():
-            raise ValueError("Inlet / outlet range (cross2) resolves to zero cells.")
-    else:
-        in_c2 = np.ones(N_cross2, dtype=bool)
-        out_c2 = np.ones(N_cross2, dtype=bool)
+    cross2 = []
+    for end in ('in', 'out'):
+        center, width = fA.get(f'{end}_z_ctr'), fA.get(f'{end}_z_w')
+        if (center is None) != (width is None):
+            raise ValueError(f'{end} second-cross-axis centre and width must be set together')
+        if center is None or dcross2 is None:
+            fractions = np.ones(N_cross2, dtype=bool)
+        else:
+            fractions, _ = _port_fractions_1d(dcross2, center - width / 2, center + width / 2)
+            if not fractions.any():
+                raise ValueError("Inlet / outlet range (cross2) resolves to zero cells.")
+        cross2.append(fractions)
+    in_c2, out_c2 = cross2
     # approach-(a) reverse convention: NO in/out swap. The solver always
     # injects at j=0 with inlet_frac and exhausts at j=-1 with outlet_frac;
     # the reverse-dir spatial flip (in the velocity transforms) maps solver

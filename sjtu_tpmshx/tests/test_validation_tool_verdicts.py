@@ -135,7 +135,7 @@ def test_temperature_change_does_not_excuse_steady_mass_imbalance(direction):
 
 def test_conservation_diagnostic_exception_controls_exit(tmp_path, monkeypatch):
     monkeypatch.setattr(audit, '_run_3d_stack', lambda cfg: dict(solver_converged=True))
-    monkeypatch.setattr(audit, 'compute_phase2a_interior', lambda res: (_ for _ in ()).throw(RuntimeError('bad audit')))
+    monkeypatch.setattr(audit, 'compute_phase2a', lambda res: (_ for _ in ()).throw(RuntimeError('bad audit')))
     monkeypatch.setattr(audit, 'compute_phase2c_h3', lambda res: {})
     monkeypatch.setattr(audit, 'compute_phase3', lambda res: None)
     monkeypatch.setattr(audit, 'compute_phase4', lambda res: None)

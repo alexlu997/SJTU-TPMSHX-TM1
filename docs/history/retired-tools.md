@@ -228,3 +228,23 @@ MMS 误差原表、阶数门槛、GCI 参考、Shanghai 主基准和有效测试
 | [旧 `clear_field_cache`](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/c45d9cb1e57a28809c0250abbd34221211eb2a15/sjtu_tpmshx/models/sco2_props.py) | 没有现行调用者；标量查询继续使用原有 `lru_cache`，场查询继续直接使用向量化 CoolProp |
 
 求解方程、关联式、收敛条件、参考值和正式配置/结果格式未改。
+
+## 全文审计后的旧分支整理（2026-09-22）
+
+以下实现以 `3bd941f00649d39610b51ecebaf80a5a5aad1f10` 保留固定历史。
+退役不改原始数据、当前系数或历史数值；有实际消费者的分区、单流体研究、
+独立数值参考和严格物理检查继续保留。
+
+| 退役项与固定源码 | 当前承接 |
+|---|---|
+| [SIMPLE2D旧zone_config行预测](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/3bd941f00649d39610b51ecebaf80a5a5aad1f10/sjtu_tpmshx/solvers/simple_solver.py) | 前处理准备K/cF，执行直接消费；残差回调失败按RunControl原异常传播 |
+| [2D不可达NaN补值、sticky状态及sCO₂ Richardson回退](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/3bd941f00649d39610b51ecebaf80a5a5aad1f10/sjtu_tpmshx/solvers/backends/python/two_d/coupling.py) | 非有限温度在结果产生前拒绝；true-h不走温度式Richardson；旧已存diagnostics原样可读 |
+| [标量压力h(T)焓流选项](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/3bd941f00649d39610b51ecebaf80a5a5aad1f10/sjtu_tpmshx/result_math.py) | 历史公式放入`tests/enthalpy_2d_reference.py`；生产true-h使用面质量/焓证据，温度式基础函数保留 |
+| [首轮刷新前的bulk h_v数组](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/3bd941f00649d39610b51ecebaf80a5a5aad1f10/sjtu_tpmshx/solvers/backends/python/three_d/runtime.py) | 首轮实际速度产生局部h_v；入口范围观察、旧Case字段读取验证和单流体B零耦合保留 |
+| [构造壁温h/Nu及ok_dT/CLI](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/3bd941f00649d39610b51ecebaf80a5a5aad1f10/sjtu_tpmshx/validation/sco2_exp/load_sco2_exp.py) | 共享loader保留端点焓/Q/HB、均温物性/Re/阻力及原始列；不替换为未经核定的新h分母 |
+| [守恒CLI旧删端层5%门和猜端口表面预算](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/3bd941f00649d39610b51ecebaf80a5a5aad1f10/sjtu_tpmshx/validation/cases/audit_3d_conservation.py) | T1–T6和质量/耦合门保留；当前CLI使用已有full-CV strict全局/逐格1%门，旧CSV仍按原定义解释 |
+| [无生产者的画布复用分支](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/3bd941f00649d39610b51ecebaf80a5a5aad1f10/sjtu_tpmshx/ui/builders_canvas.py) | 当前外观变更保存后重启；正常画布、懒加载3D和缓存保留 |
+
+同时移除未使用的true-h温度常量、自行构造结果的warm-start/零耦合/流体combo测试、
+重复而未使用的direction参数化，以及绕过pytest fixture的失效直接入口。
+对应物理或UI保护由真实生产构造/公共调用回归承接；不是删除这些功能的验收要求。

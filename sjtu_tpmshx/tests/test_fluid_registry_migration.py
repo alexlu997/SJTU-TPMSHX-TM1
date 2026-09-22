@@ -9,7 +9,7 @@ property ladders with registry dispatch. These tests pin:
   3. embeds_roughness flags (roughness double-count guard, see the
      _apply_roughness_* helpers in solvers/backends/python/three_d/flux.py);
   4. nu_water_topo == the retired design/fluids.py inline formula;
-  5. design.fluids thin-adapter outputs == registry primitives.
+  5. models.design_fluids thin-adapter outputs == registry primitives.
 """
 import numpy as np
 import pytest

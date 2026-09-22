@@ -32,7 +32,10 @@ def test_prepared_geometry_and_roughness_are_consumed(monkeypatch, mode):
     monkeypatch.setattr(runtime, '_run_two_simple', lambda *a, **k: None)
     problem = runtime.build_problem(parameters, prepared)
     hv = runtime._build_hv_machinery(problem)
-    assert np.all(np.isfinite(hv.h_vA_field))
+    local_hv = hv._build_hv_local_3d(
+        None, np.full((problem.Nx, problem.Ny, problem.Nz), problem.u_A),
+        problem.T_inA, problem.P_inA, problem.fluid_type_A)
+    assert np.all(np.isfinite(local_hv))
     if mode == 'asymmetric':
         assert hv._hv_ratio_A != 1.
         expected_split = case.parameters['thermal_geometry']['split_A']
@@ -49,3 +52,31 @@ def test_prepared_geometry_and_roughness_are_consumed(monkeypatch, mode):
     bad = replace(case, parameters={**case.parameters, 'thermal_geometry':bad_geometry})
     with pytest.raises(ValueError, match='side split'):
         build_execution_inputs(bad)
+
+
+def test_archived_bulk_hv_loads_but_does_not_set_local_heat_transfer(tmp_path, monkeypatch):
+    from sjtu_tpmshx.io.case_io import save_case, load_case
+
+    case = prepare_case(_small_air_cfg(), case_id='archived-bulk-hv')
+    assert 'air_bulk_hv' not in case.parameters['thermal_geometry']
+    shape = tuple(len(case.grid['d' + axis]) for axis in 'xyz')
+    geometry = {**case.parameters['thermal_geometry'],
+                'air_bulk_hv': {side: np.full(shape, value)
+                                for side, value in (('A', 123.), ('B', 456.))}}
+    archived = replace(case, parameters={**case.parameters, 'thermal_geometry': geometry})
+    save_case(archived, tmp_path / 'case.h5')
+    loaded = load_case(tmp_path / 'case.h5')
+    monkeypatch.setattr(runtime, '_run_two_simple', lambda *a, **k: None)
+    fields = []
+    for prepared_case in (case, loaded):
+        parameters, prepared = build_execution_inputs(prepared_case)
+        problem = runtime.build_problem(parameters, prepared)
+        hv = runtime._build_hv_machinery(problem)
+        fields.append(hv._build_hv_local_3d(
+            None, np.full(shape, problem.u_A), problem.T_inA, problem.P_inA, 'air'))
+    np.testing.assert_array_equal(fields[0], fields[1])
+    assert np.any(fields[1] != 123.)
+    invalid = {**geometry, 'air_bulk_hv': {'A': np.full(shape, np.nan)}}
+    with pytest.raises(ValueError, match='bulk heat transfer'):
+        save_case(replace(case, parameters={**case.parameters, 'thermal_geometry': invalid}),
+                  tmp_path / 'invalid.h5')

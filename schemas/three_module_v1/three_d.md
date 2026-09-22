@@ -59,9 +59,11 @@ Solid mass requires an explicit density; conductivity cannot supply it.
 `parameters.thermal_geometry` records uniform geometry and (for zoned cases)
 A_0 (1/m), D_h (m) and epsilon fields on physical x/y/z cells. It includes the
 asymmetric split and side/reference A_0/D_h values from the existing 128-point
-geometry calculation. Its `air_bulk_hv.A/B` fields preserve the original inlet
-air closure (W/(m3 K)); the solver does not invoke tpms_compute again. Current
-velocity/temperature-dependent Nu and property evaluations remain in execution.
+geometry calculation. Preparation retains inlet-range observations without
+storing redundant initial h_v arrays; current velocity/temperature-dependent
+Nu and property evaluations remain in execution. Older optional
+`air_bulk_hv.A/B` fields are still validated when reading a saved Case but are
+not consumed by execution; the solver does not invoke tpms_compute again.
 Missing prepared execution fields fail explicitly; old intermediate Case files
 must be prepared again rather than silently rebuilt inside the solver.
 

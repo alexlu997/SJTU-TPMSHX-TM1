@@ -405,8 +405,6 @@ class _HvMachinery:
     _build_hv_local_3d: object
     _hv_ratio_A: object
     _hv_ratio_B: object
-    h_vA_field: object
-    h_vB_field: object
     u_B_val: object
 
 
@@ -434,8 +432,8 @@ class _OuterState:
     _outer_dT_hist: list[dict[str, float]]
     _outer_last_iter: int
     _use_outer_and: bool
-    h_vA_field: np.ndarray  # W/(m3 K)
-    h_vB_field: np.ndarray
+    h_vA_field: np.ndarray | None  # W/(m3 K); populated before the first thermal solve
+    h_vB_field: np.ndarray | None
     rho_cp_fA: np.ndarray  # J/(m3 K)
     rho_cp_fB: np.ndarray
     native_evidence: dict[str, object] | None  # detached last thermal state, before post
@@ -934,13 +932,7 @@ def build_problem(cfg, prepared, *, control: RunControl = RunControl()):
 
 
 def _build_hv_machinery(prob: _Problem3D):
-    """Seam-B extraction (P1.5, 2026-07-20): h_v machinery factory --
-    the five h_v/transport closures (now capturing THIS function's
-    read-only params) + the initial bulk h_v fields. Moved VERBATIM
-    from _run_3d_stack; returns callables + fields as the cross-seam
-    bundle. Contract: bit-identical behavior (golden gate).
-    """
-    D_h = prob.D_h
+    """Build local h_v closures and geometry ratios, and record inlet ranges."""
     L_mm_field = prob.L_mm_field
     Lcell = prob.Lcell
     Nx = prob.Nx
@@ -953,21 +945,12 @@ def _build_hv_machinery(prob: _Problem3D):
     eps = prob.eps
     fluid_type_A = prob.fluid_type_A
     fluid_type_B = prob.fluid_type_B
-    mu_A = prob.mu_A
-    mu_B = prob.mu_B
-    rho_A = prob.rho_A
-    rho_B = prob.rho_B
     sB = prob.sB
     tpms_type = prob.tpms_type
     u_A = prob.u_A
     cfg = prob.cfg
-    # Conditionally-bound cross-seam names (surgery tool definite-
-    # assignment pass): None-init so the unconditional return below
-    # cannot raise UnboundLocalError on guarded paths. Downstream
-    # reads keep their original guards.
-    h_vB_field = None
-    # The producer records fixed geometry and the original air bulk closure.
-    # Local Nu and fluid properties still follow the current numerical state.
+    # The producer records fixed geometry and inlet air observations.
+    # Local Nu and fluid properties follow the current numerical state.
     from sjtu_tpmshx.models.nu_correlations import NU_LAM_FLOOR as _NU_LAM_FLOOR  # Hagen-Poiseuille single-tube limit
     cfg['sco2_nu_observations'] = {'A': {}, 'B': {}}
     u_B_val = cfg.get('u_B', u_A)
@@ -996,24 +979,23 @@ def _build_hv_machinery(prob: _Problem3D):
                       float(D_h_mm_val), Pr)
         return max(float(Nu_val), _NU_LAM_FLOOR)
 
-    def _build_hv_field_3d(L_fld, u_side, T_side, P_side, fluid_type='air', *, side):
-        """Bulk h_v = A_0(L,t) × H_sf(Re_bulk) on 3D mesh."""
+    def _record_bulk_ranges(L_fld, u_side, T_side, P_side, fluid_type):
+        """Retain inlet observations; local h_v is built before thermal use."""
         if fluid_type == 'air':
-            return np.array(cfg['thermal_geometry']['air_bulk_hv'][side], copy=True)
+            return  # Already recorded during preparation.
         if L_fld is None:
             g = cfg['thermal_geometry']['uniform']
-            rho, mu, k_f, Pr_f = _fluid_transport_props(fluid_type, T_side, P_side)
+            rho, mu, _, Pr_f = _fluid_transport_props(fluid_type, T_side, P_side)
             D_h_m = max(float(g['D_h']), 1e-12)
             Re_val = rho * max(abs(float(u_side)), 0.0) * D_h_m / max(mu, 1e-30)
             record_raw_nu_range(fluid_type, tpms_type, Re_val)
-            Nu_val = _nu_for_fluid(
+            _nu_for_fluid(
                 fluid_type, Re_val, float(g['epsilon']) / 2.0,
                 Lcell, D_h_m * 1000.0, Pr_f,
             )
-            return np.full((Nx, Ny, Nz), g['A_0'] * Nu_val * k_f / D_h_m, dtype=np.float64)
-        out = np.empty((Nx, Ny, Nz), dtype=np.float64)
-        raw_Re = np.empty_like(out)
-        rho, mu, k_f, Pr_f = _fluid_transport_props(fluid_type, T_side, P_side)
+            return
+        raw_Re = np.empty((Nx, Ny, Nz), dtype=np.float64)
+        rho, mu, _, Pr_f = _fluid_transport_props(fluid_type, T_side, P_side)
         for i in range(Nx):
             for j in range(Ny):
                 for k in range(Nz):
@@ -1023,14 +1005,12 @@ def _build_hv_machinery(prob: _Problem3D):
                     Re_val = rho * max(abs(float(u_side)), 0.0) * D_h_m / max(mu, 1e-30)
                     raw_Re[i, j, k] = Re_val
                     with range_context(layout='scalar-zoned-call'):
-                        Nu_val = _nu_for_fluid(
+                        _nu_for_fluid(
                             fluid_type, Re_val, float(g['epsilon']) / 2.0,
                             Li, D_h_m * 1000.0, Pr_f,
                         )
-                    out[i, j, k] = g['A_0'] * Nu_val * k_f / D_h_m
         with range_context(layout='real-cell(x,y,z)-bulk-Re'):
             record_raw_nu_range(fluid_type, tpms_type, raw_Re)
-        return out
 
     # The caller supplies the full local pore speed, independent of port axis.
     # Retain the existing Re/Nu floors for true low-speed cells. Applying a
@@ -1089,7 +1069,7 @@ def _build_hv_machinery(prob: _Problem3D):
     # taken vs asym_geometry's OWN δ=0 reference (same method) so it is EXACTLY
     # 1.0 at δ=0 → multiplying the existing symmetric h_v is bit-identical
     # (×1.0). k_f cancels; Nu's ε arg is inert (air/water Nu ignore ε); the
-    # inlet-reference ratio is applied to bulk and later local-Re h_v. Re/Nu
+    # inlet-reference ratio is applied to local-Re h_v. Re/Nu
     # floors can put side and reference on different branches; the diameter
     # ratio alone does not prove speed independence. Captures the geometric
     # Nu/area effect. The separate κ CFD registry is a research path and
@@ -1117,37 +1097,17 @@ def _build_hv_machinery(prob: _Problem3D):
     with range_context(side='B', stage='inlet', layout='scalar-geometry-ratio'):
         _hv_ratio_B = _hv_side_geom_ratio(fluid_type_B, u_B_val, T_inB, P_inB, 'B')
 
-    # Initial bulk h_v (used at outer=0 before SIMPLE solves; becomes local
-    # after first outer iter when ucA/B are available).
+    # Keep inlet Nu/property observations independently of the local fields.
     with range_context(side='A', stage='inlet', layout='scalar-hv-bulk'):
-        h_vA_field = _build_hv_field_3d(
-            L_mm_field, u_A, T_inA, P_inA, fluid_type_A, side='A')
-    h_vA_field = _apply_roughness_h_v(
-        h_vA_field, fluid_type_A, rho_A, mu_A, u_A, D_h, resolved=cfg['roughness_resolved'])
-    h_vA_field = h_vA_field * _hv_ratio_A
+        _record_bulk_ranges(L_mm_field, u_A, T_inA, P_inA, fluid_type_A)
     if sB is not None:
         with range_context(side='B', stage='inlet', layout='scalar-hv-bulk'):
-            h_vB_field = _build_hv_field_3d(
-                L_mm_field, u_B_val, T_inB, P_inB, fluid_type_B, side='B')
-        h_vB_field = _apply_roughness_h_v(
-            h_vB_field, fluid_type_B, rho_B, mu_B, u_B_val, D_h, resolved=cfg['roughness_resolved'])
-        h_vB_field = h_vB_field * _hv_ratio_B
-    else:
-        # No B fluid solver → "no B fluid" should mean ZERO B-side coupling,
-        # not "infinite reservoir at T_inB". The previous behaviour kept
-        # h_vB at the bulk Nu·k/D_h value while Tb_prescribed pinned Tb to
-        # T_inB everywhere, so the LTNE source term h_vB·(Ts−Tb) acted as
-        # a phantom infinite heat sink/source on the solid. Setting
-        # h_vB_field=0 makes the solid energy equation degenerate cleanly
-        # to the single-fluid LTNE limit driven only by Q_sA.
-        h_vB_field = np.zeros((Nx, Ny, Nz), dtype=np.float64)
+            _record_bulk_ranges(L_mm_field, u_B_val, T_inB, P_inB, fluid_type_B)
 
     return _HvMachinery(
         _build_hv_local_3d=_build_hv_local_3d,
         _hv_ratio_A=_hv_ratio_A,
         _hv_ratio_B=_hv_ratio_B,
-        h_vA_field=h_vA_field,
-        h_vB_field=h_vB_field,
         u_B_val=u_B_val,
     )
 
@@ -1998,7 +1958,9 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
         _ltne_mask_A=None, _ltne_mask_B=None,
         _outer_converged=False, _outer_dT_hist=[], _outer_last_iter=-1,
         _use_outer_and=False,
-        h_vA_field=hv.h_vA_field, h_vB_field=hv.h_vB_field,
+        h_vA_field=None,
+        # No B solver means zero solid/B coupling, even with prescribed Tb.
+        h_vB_field=np.zeros((Nx, Ny, Nz), dtype=np.float64) if sB is None else None,
         rho_cp_fA=np.full((Nx, Ny, Nz), rho_A * cp_A, dtype=np.float64),
         rho_cp_fB=np.full((Nx, Ny, Nz), rho_B_ltne * cp_B, dtype=np.float64),
         native_evidence=None,

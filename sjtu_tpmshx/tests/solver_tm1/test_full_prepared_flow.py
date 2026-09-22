@@ -16,7 +16,7 @@ def test_full_prepared_flow_consumes_drag_without_prediction(monkeypatch):
     cfg, grid = build_execution_inputs(case)
     def forbidden(*args, **kwargs):
         raise AssertionError('execution rebuilt fixed drag or grid')
-    for module, names in ((simple_solver, ('_aligned_grid','predict_K_cF','predict_K_cF_vec')),
+    for module, names in ((simple_solver, ('_aligned_grid','predict_K_cF')),
                           (predict, ('predict_K_cF','predict_K_cF_vec')),
                           (df_projection, ('project_fields_to_streamwise_K_cF',))):
         for name in names:
@@ -39,7 +39,7 @@ def test_full_prepared_flow_consumes_drag_without_prediction(monkeypatch):
         build_execution_inputs(bad)
 
 
-@pytest.mark.parametrize('unknown', ['closure', 'uniform_intlet'])
+@pytest.mark.parametrize('unknown', ['closure', 'uniform_intlet', 'zone_config'])
 def test_simple_rejects_retired_or_misspelled_keywords(unknown):
     from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
     with pytest.raises(TypeError, match=f"unexpected keyword argument '{unknown}'"):

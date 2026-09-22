@@ -4,9 +4,7 @@ Verifies that the new _solve_pp_sparse_fast produces numerically equivalent
 sparse matrices and solutions to the reference _solve_pp_sparse, across three
 representative grids drawn from the Shanghai Electric validation cases.
 
-Run with:
-    cd D:/Postgraduate/Homogenize/SJTU-TPMSHX/sjtu_tpmshx
-    python test_pp_sparse_assembly.py
+Run from the repository root through pytest with the configured interpreter.
 """
 
 import numpy as np
@@ -36,8 +34,7 @@ def test_singular_pp_records_nonfinite_fact_without_changing_solution():
     assert list(records.values()) == [
         'pressure-Poisson solve returned non-finite corrections']
 
-# Old (reference) implementation — will be removed from simple_solver.py in
-# Task 5 but lives here as a gold standard during migration.
+# The retired production assembler remains an independent test reference.
 def _solve_pp_sparse_reference(Pp, u, v, d_u, d_v, outlet_frac,
                                 Nx, Ny, dx_arr, dy_arr, rho_field):
     """Exact copy of the pre-Task-3 _solve_pp_sparse, kept for regression."""
@@ -122,9 +119,7 @@ def test_169x31_shanghai_grid():
     # rhs must match exactly (same input, same math)
     assert np.allclose(rhs_r, rhs_f, rtol=1e-14, atol=1e-20), \
         f"RHS mismatch: max |d| = {np.max(np.abs(rhs_r - rhs_f)):.3e}"
-    # Sparse matrix A: compare dense form
-    dense_r = A_r.toarray(); dense_f = A_f.toarray()
-    max_A_diff = np.max(np.abs(dense_r - dense_f))
+    max_A_diff = np.max(np.abs((A_r - A_f).data), initial=0.0)
     assert max_A_diff < 1e-12, f"A matrix mismatch: max |d| = {max_A_diff:.3e}"
     # Solution Pp
     max_Pp_diff = np.max(np.abs(Pp_r - Pp_f))

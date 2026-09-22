@@ -17,6 +17,6 @@ def test_air_nu_rough_factor_applied():
     # Diamond air Nu = 1.28 × smooth (default factor)
     nu = fluid_nu("air", "Diamond", Re=5000.0, eps_f=0.36, L_mm=7.0, D_h_mm=2.74)
     assert nu > 0
-    # water Nu via Yan[6] differs from air at same Re
+    # The direct water CFD closure differs from air at the same Re.
     nuw = fluid_nu("water", "Gyroid", Re=2000.0, eps_f=0.42, L_mm=7.0, D_h_mm=2.0)
     assert nuw > 0 and abs(nuw - nu) > 1e-6

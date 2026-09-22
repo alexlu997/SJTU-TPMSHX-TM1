@@ -1,4 +1,4 @@
-"""Historical full-face counterflow reference, used only by its conservation test.
+"""Historical 2D enthalpy references, used only by independent tests.
 
 The production 2D adapter uses the shared face-mass-flow 3D enthalpy kernel.
 This reference retains its original numerical operations and acceptance test.
@@ -8,6 +8,34 @@ from sjtu_tpmshx.models import sco2_props
 
 
 _RELAX = 0.65
+
+
+def scalar_pressure_duty(T_field, uc, vc, dir_code, dx_arr, dy_arr, *,
+                         enthalpy_fn, rho_fn, P_ref, inlet_mask=None,
+                         outlet_mask=None, eps_side=1.0, T_in=None):
+    """Retired cell-velocity/scalar-pressure duty, not the current true-h path."""
+    axis = 0 if dir_code < 2 else 1
+    inlet, outlet = (0, -1) if dir_code in (0, 2) else (-1, 0)
+    widths = np.asarray(dy_arr if axis == 0 else dx_arr)
+    velocity = uc if axis == 0 else vc
+    eps = np.broadcast_to(eps_side, T_field.shape)
+    Ti = np.take(T_field, inlet, axis=axis) if T_in is None else np.asarray(T_in)
+    To = np.take(T_field, outlet, axis=axis)
+    wi = (np.take(eps, inlet, axis=axis) * rho_fn(Ti, P_ref)
+          * np.abs(np.take(velocity, inlet, axis=axis)) * widths
+          * (1.0 if inlet_mask is None else inlet_mask))
+    wo = (np.take(eps, outlet, axis=axis) * rho_fn(To, P_ref)
+          * np.abs(np.take(velocity, outlet, axis=axis)) * widths
+          * (1.0 if outlet_mask is None else outlet_mask))
+    mass_in = float(np.sum(wi))
+    if mass_in < 1e-30:
+        return 0.0
+    hi, ho = enthalpy_fn(Ti, P_ref), enthalpy_fn(To, P_ref)
+    hi_mean = float(np.sum(wi * hi)) / mass_in
+    mass_out = float(np.sum(wo))
+    ho_mean = (float(np.sum(wo * ho)) / mass_out
+               if mass_out > 1e-30 else float(np.mean(ho)))
+    return mass_in * (hi_mean - ho_mean)
 
 
 def _field(value, shape, name):

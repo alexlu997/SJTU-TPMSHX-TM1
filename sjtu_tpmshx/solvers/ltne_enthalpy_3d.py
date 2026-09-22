@@ -25,7 +25,6 @@ from numba import njit
 from sjtu_tpmshx.domain.cancellation import CancelledError
 
 
-_T_LO, _T_HI = 240.0, 420.0
 
 # ── Per-fluid property accessors (#1 mixed kernel) ──────────────────────────
 # The njit kernel is fluid-agnostic (it consumes cp / h / T* arrays). Only this

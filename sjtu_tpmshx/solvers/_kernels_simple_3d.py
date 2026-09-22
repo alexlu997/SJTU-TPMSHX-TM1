@@ -1005,7 +1005,7 @@ def _mass_global_jit_3d(v, Nx, Ny, Nz, dx, dz, rho_eps_field):
 
 
 # ── Momentum residual (ledger C6) ─────────────────────────────────
-# Diagnostic only — never gates the SIMPLE exit. See _mom_res_jit_3d.
+# The F2 monitor uses this residual to gate SIMPLE convergence.
 
 @njit(cache=True, fastmath=True, inline='always')
 def _u_coeffs_df_3d(u, v, w, P, i, j, k,
@@ -1432,8 +1432,8 @@ def _mom_res_jit_3d(u, v, w, P,
         when Pp → 0, i.e. exactly at the SIMPLE fixed point.
 
     So R is a DIRECT test of "are the equations satisfied", not a proxy for
-    "has the field stopped moving" (which is what the LowReExit velocity
-    criterion tests, and which cannot tell convergence from a slow crawl).
+    "has the field stopped moving" (the historical LowReExit velocity
+    criterion, which could not tell convergence from a slow crawl).
 
     Coefficients come from `_{u,v,w}_coeffs_df_3d`, a deliberate parallel
     assembly of the sweep cell bodies (see `_u_coeffs_df_3d` for why they are

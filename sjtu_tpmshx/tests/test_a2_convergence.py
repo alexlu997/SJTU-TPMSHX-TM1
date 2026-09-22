@@ -146,12 +146,3 @@ def test_outer_convergence_gates_all_three_fields():
     conv, d = oc.check({'Ta': Ta, 'Tb': Tb, 'Ts': Ts + 1.0})
     assert not conv and d['Ts'] == 1.0 and d['Ta'] == 0.0, d
     print("test_outer_convergence_gates_all_three_fields PASS")
-
-
-if __name__ == '__main__':
-    test_res_norm_ref_matches_inlet_flux()
-    test_res_norm_fallback_absolute_on_no_flow()
-    test_residual_scale_invariance()
-    test_exit_reason_on_strict_and_max_iter_3d()
-    test_outer_convergence_gates_all_three_fields()
-    print("ALL DIRECT-RUN TESTS PASS (monkeypatch tests need pytest)")

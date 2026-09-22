@@ -62,9 +62,8 @@ class FieldFactory:
     """Builds themed widgets and composite rows.
 
     All constructors return raw Qt widgets — no special wrapper. The
-    style strings come from the bound :class:`ThemeManager`, so a future
-    theme switch (already supported by ThemeManager.set_theme + rebuild)
-    propagates to every newly built widget without code changes.
+    style strings come from the bound :class:`ThemeManager` cache.
+    Appearance changes are applied to the full workbench after restart.
     """
 
     def __init__(self, theme_manager):

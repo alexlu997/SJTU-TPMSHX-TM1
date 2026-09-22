@@ -139,9 +139,7 @@ def test_real_pipeline_heat_builders_share_selected_parameters():
     cfd = _build_hv_machinery(problem)
     problem.cfg={**problem.cfg, 'sco2_nu': SYNTHETIC}
     exp = _build_hv_machinery(problem)
-    assert np.allclose(exp.h_vA_field, .8*cfd.h_vA_field, rtol=1e-14)
-    assert np.allclose(exp.h_vB_field, .8*cfd.h_vB_field, rtol=1e-14)
-    for temperature in (400., np.full((2,3,2),400.)):
+    for temperature in (350., 400., np.full((2,3,2),350.), np.full((2,3,2),400.)):
         args=(None,np.ones((2,3,2)),temperature,10e6,'sco2')
         assert np.allclose(exp._build_hv_local_3d(*args), .8*cfd._build_hv_local_3d(*args), rtol=1e-14)
 

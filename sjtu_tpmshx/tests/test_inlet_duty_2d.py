@@ -4,6 +4,7 @@ import pytest
 
 from sjtu_tpmshx.solvers.backends.python.two_d.coupling import _enthalpy_balance_2d
 from sjtu_tpmshx.models import fluid_props
+from sjtu_tpmshx.tests.enthalpy_2d_reference import scalar_pressure_duty
 
 
 @pytest.mark.parametrize('direction', [0, 1, 2, 3])
@@ -35,8 +36,9 @@ def test_physical_inlet_preserves_existing_partial_port_weights(direction, true_
         co = rcp[outlet] if direction < 2 else rcp[:, outlet]
         wi, wo = eps*ci*velocity*widths*mi, eps*co*velocity*widths*mo
         expected = wi.sum()*(Tin-np.sum(wo*Tout)/wo.sum())
-    got = _enthalpy_balance_2d(T, u, v, rcp, direction, dx, dy, **kw)
+    duty = scalar_pressure_duty if true_h else _enthalpy_balance_2d
+    args = (T, u, v, direction, dx, dy) if true_h else (T, u, v, rcp, direction, dx, dy)
+    got = duty(*args, **kw)
     assert got == pytest.approx(expected, rel=1e-13)
-    old = _enthalpy_balance_2d(T, u, v, rcp, direction, dx, dy,
-                              **{k: value for k, value in kw.items() if k != 'T_in'})
+    old = duty(*args, **{k: value for k, value in kw.items() if k != 'T_in'})
     assert not np.isclose(old, got, rtol=1e-3)

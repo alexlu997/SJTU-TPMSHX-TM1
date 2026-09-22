@@ -307,5 +307,5 @@ def test_2d_verdict_ands_the_ltne_inner_pass():
                             else _s2)
     assert "e_info.get('converged'" in src, (
         "the 2D LTNE inner verdict must be ANDed into solver_converged")
-    assert "_energy_nan_hit" in src, (
-        "a patched-over NaN must force the verdict False")
+    # Nonfinite returns are rejected before result construction; the behavioral
+    # failure/order contract lives in test_2d_warning_callers, not source strings.

@@ -6,7 +6,7 @@ scheme only), air ideal-gas, streamwise y. Prints dP per (grid, scheme);
 the gap between schemes vs its shrink rate under refinement is the
 "is second-order worth promoting" evidence.
 
-    python -u sjtu_tpmshx/runs/benchmark_sou_3d.py
+    python -m sjtu_tpmshx.runs.benchmark_sou_3d
 """
 import time
 
@@ -28,7 +28,7 @@ def run(Nx, Ny, Nz, use_sou):
     t0 = time.perf_counter()
     conv, it = s.solve(max_iter=1500, verbose=False)
     wall = time.perf_counter() - t0
-    dP = float(s.P[:, 0, :].mean() - s.P[:, -1, :].mean())
+    dP = float(SIMPLESolver3D.extract_dP_face_extrap(s))
     return conv, it, wall, dP
 
 

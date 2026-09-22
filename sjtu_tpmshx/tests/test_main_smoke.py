@@ -5,8 +5,7 @@ exceptions. Does NOT check specific widget behavior — just 'doesn't crash'.
 Runs with QT_QPA_PLATFORM=offscreen so it works headless.
 
 Run with:
-    cd D:/Postgraduate/Homogenize/SJTU-TPMSHX/sjtu_tpmshx
-    python test_main_smoke.py
+    python -m pytest sjtu_tpmshx/tests/test_main_smoke.py
 """
 import sys
 import os
@@ -67,9 +66,3 @@ def test_cpu_cores_spinbox_sets_threads():
     w.close()
     th.set_solver_threads(mx)
     print("test_cpu_cores_spinbox_sets_threads PASS")
-
-
-if __name__ == '__main__':
-    test_main_menu_startup()
-    test_cpu_cores_spinbox_sets_threads()
-    print("\nAll smoke tests PASS")

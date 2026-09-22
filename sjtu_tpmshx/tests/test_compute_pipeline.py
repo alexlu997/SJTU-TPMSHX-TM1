@@ -190,8 +190,7 @@ def test_abstract_methods_enforced():
 
 
 def test_pipeline2d_can_be_constructed_with_cfg():
-    """Constructor must not invoke the not-yet-implemented runs helpers;
-    those only fire on ``.run()``."""
+    """Construction stores the config; module execution starts on ``.run()``."""
     cfg = ComputeConfig()
     pipe = Pipeline2D(cfg)
     assert pipe.cfg is cfg

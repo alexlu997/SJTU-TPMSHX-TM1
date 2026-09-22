@@ -15,11 +15,11 @@ Pipeline
 5. UA = 1 / [1/(A_tot·h_A) + t_wall/(k_steel·A_tot) + 1/(A_tot·h_B)].
 6. C_A = m_air·cp_A;  C_B = m_water·cp_B;  C_min, C_max, Cr = C_min/C_max.
 7. NTU = UA / C_min.
-8. Counter-flow (primary) ε-NTU:
+8. Cross-flow both unmixed (primary, Shanghai air⊥water):
+       ε = 1 - exp((1/Cr)·NTU^0.22·(exp(-Cr·NTU^0.78) - 1))
+   Counter-flow (sensitivity check) ε-NTU:
        Cr<0.999: ε = [1 - exp(-NTU(1-Cr))] / [1 - Cr·exp(-NTU(1-Cr))]
        Cr≈1   : ε = NTU/(1+NTU)
-   Cross-flow both unmixed (secondary, for comparison):
-       ε = 1 - exp((1/Cr)·NTU^0.22·(exp(-Cr·NTU^0.78) - 1))
 9. Q_pred = ε · C_min · (T_Ain - T_Bin).
 10. T_Aout_pred / T_Bout_pred from energy balance (post-hoc).
 
@@ -34,20 +34,21 @@ Compare Q_pred against three exp references:
 - Q_avg_exp   = 0.5·(Q_air_exp + Q_water_exp)
 
 Outputs:
-- data/shanghai_lumped_dual_nu.csv
+- shanghai_lumped_dual_nu.csv + provenance in a new .cache/validation/ directory
+  (or the explicit --out-dir)
 - console table per case + summary RMSRE / bias / max|err|
 """
 from __future__ import annotations
 
+import argparse
 import sys
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-_THIS = Path(__file__).resolve()
-_PROJECT_ROOT = _THIS.parent.parent.parent
-_PROJECT = _PROJECT_ROOT.parent
+from sjtu_tpmshx.validation.harness._provenance import (
+    output_directory, write_csv_with_provenance,
+)
 from sjtu_tpmshx.models.tpms_calc import (
     geometry as tpms_geometry, nu_from_Re, nu_water_topo,
     air_density, air_viscosity, air_conductivity, air_cp,
@@ -92,7 +93,14 @@ def epsilon_crossflow_unmixed(NTU: float, Cr: float) -> float:
                         * (np.exp(-Cr * NTU**0.78) - 1.0))
 
 
-def main() -> None:
+def main(argv=None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--out-dir')
+    args = parser.parse_args(argv)
+    try:
+        out_dir = output_directory('shanghai-lumped-dual-nu', args.out_dir)
+    except ValueError as exc:
+        parser.error(str(exc))
     try:
         sys.stdout.reconfigure(encoding='utf-8')
     except Exception:
@@ -252,8 +260,8 @@ def main() -> None:
               f"{err_air_xf:+6.2f} {err_water_xf:+6.2f} it={n_iter}")
 
     out = pd.DataFrame(rows)
-    csv_path = _PROJECT / 'data' / 'shanghai_lumped_dual_nu.csv'
-    out.to_csv(csv_path, index=False, encoding='utf-8-sig')
+    csv_path = out_dir / 'shanghai_lumped_dual_nu.csv'
+    write_csv_with_provenance(out, csv_path, __file__)
 
     # err_stats_pct: shared helper (validation/_metrics.py, L5 fix 2026-05-28)
     from sjtu_tpmshx.validation.harness._metrics import err_stats_pct as stats

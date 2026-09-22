@@ -208,9 +208,10 @@ def set_theme(name):
 
 
 def set_accent_override(hex_color):
-    """Override `accent_primary` for both themes so user's preferred
-    brand colour ripples through all components that read from the
-    token. Pass None to reset to the built-in accents."""
+    """Set a non-empty accent colour for both themes in this process.
+
+    None leaves the current tokens unchanged.
+    """
     for t in _THEMES.values():
         if hex_color:
             t['accent_primary'] = hex_color

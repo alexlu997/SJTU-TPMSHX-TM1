@@ -22,6 +22,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+from sjtu_tpmshx.domain.validator import cross_axes_for_dir
+
 
 # Match df_projection.py / simple_solver.py defaults (2026-04-17).
 _N_REFINE = 8
@@ -31,7 +33,7 @@ _REFINE_SIZES = [_FIRST_CELL * _GROWTH ** k for k in range(_N_REFINE)]
 _REFINE_WIDTH = 2.0 * sum(_REFINE_SIZES)  # ≈ 5.46 mm
 
 _STREAM_MIN_CELLS = 20
-_INLET_MIN_CELLS = 3
+_PORT_MIN_CELLS = 3
 _RICHARDSON_WARN_CELLS = 500_000
 
 
@@ -60,18 +62,6 @@ class Preflight:
 
     def blocking(self) -> bool:
         return bool(self.errors)
-
-
-def _cross_axes(d: int):
-    """Return ((cross1_name, cross1_is_x), (cross2_name, None_if_2D)) for dir d.
-
-    2D SIMPLE only uses cross1; 3D adds cross2 via the z-pipe fields.
-    """
-    if d in (0, 1):
-        return ('y', False), ('z', True)
-    if d in (2, 3):
-        return ('x', True), ('z', True)
-    return ('x', True), ('y', False)
 
 
 def _refined_edges(W: float, N_bulk: int, refine: bool):
@@ -136,7 +126,7 @@ def compute_preflight(
             f"side. Q is reported as the unsigned heat duty of fluid A.")
 
     # 2D wall refine only kicks in when BOTH fluid inlets/outlets are full
-    # width along their cross-axis. Otherwise run_calculation.py falls back
+    # width along their cross-axis. Otherwise the 2D grid preparation falls back
     # to _aligned_grid (uniform with zone breakpoints).
     def _is_full(cfg: Optional[FluidCfg], span: float) -> bool:
         if cfg is None:
@@ -154,10 +144,10 @@ def compute_preflight(
         full_A = True
         full_B = True
         if fluid_A is not None:
-            (c1A, _), _ = _cross_axes(fluid_A.dir)
+            c1A = cross_axes_for_dir(fluid_A.dir)[0].lower()
             full_A = _is_full(fluid_A, _axis_extent(c1A, L, H, Lz))
         if fluid_B is not None:
-            (c1B, _), _ = _cross_axes(fluid_B.dir)
+            c1B = cross_axes_for_dir(fluid_B.dir)[0].lower()
             full_B = _is_full(fluid_B, _axis_extent(c1B, L, H, Lz))
         apply_refine = full_A and full_B
 
@@ -220,7 +210,7 @@ def compute_preflight(
             continue
         d = cfg.dir
         stream = _stream_axis(d)
-        (c1_name, _c1_is_x), (c2_name, c2_is_3d_only) = _cross_axes(d)
+        cross_axes = [axis.lower() for axis in cross_axes_for_dir(d)]
 
         N_stream = {'x': Nx_r, 'y': Ny_r, 'z': Nz_r}[stream]
         if N_stream < _STREAM_MIN_CELLS and not port_wall_refine:
@@ -229,64 +219,45 @@ def compute_preflight(
                 f"refined cells (< {_STREAM_MIN_CELLS}). SIMPLE may be "
                 f"under-resolved.")
 
-        # Cross-axis 1 (always present; the in_ctr / in_w pair).
-        W1 = _axis_extent(c1_name, L, H, Lz)
-        pipe_lo = cfg.in_ctr - cfg.in_w / 2
-        pipe_hi = cfg.in_ctr + cfg.in_w / 2
-        if pipe_lo < -1e-9 or pipe_hi > W1 + 1e-9:
-            out.errors.append(
-                f"Fluid {side} inlet [{pipe_lo * 1e3:.2f}, "
-                f"{pipe_hi * 1e3:.2f}] mm exceeds {c1_name} domain "
-                f"[0, {W1 * 1e3:.2f}] mm.")
-        elif grid_available:
-            # A failed graded grid has no coverage to report; retain the
-            # independent geometric bounds checks without a uniform fallback.
-            N1_bulk = {'x': Nx, 'y': Ny, 'z': Nz}[c1_name]
-            edges1 = (port_edges[c1_name] if c1_name in port_edges
-                      else _refined_edges(W1, N1_bulk, apply_refine))
-            n_cells = _count_cells(edges1, pipe_lo, pipe_hi)
-            if n_cells == 0:
-                out.errors.append(
-                    f"Fluid {side} inlet covers 0 cells on {c1_name} axis "
-                    f"(width {cfg.in_w * 1e3:.2f} mm; smallest cell in "
-                    f"refined grid ≈ {_FIRST_CELL * 1e3:.3f} mm).")
-            elif n_cells < _INLET_MIN_CELLS:
-                out.warnings.append(
-                    f"Fluid {side} inlet covers only {n_cells} cell(s) on "
-                    f"{c1_name} axis (width {cfg.in_w * 1e3:.2f} mm). "
-                    f"< {_INLET_MIN_CELLS} can blur the BC; widen the pipe "
-                    f"or increase N{c1_name}.")
-            else:
-                out.info.append(
-                    f"Fluid {side} inlet covers {n_cells} cells on "
-                    f"{c1_name} axis.")
-
-        # Cross-axis 2 (3D only; z-pipe fields).
-        if is_3d and not c2_is_3d_only:
-            # c2 is a 2D-projectable axis, skip
-            continue
-        if is_3d and cfg.z_in_ctr is not None and cfg.z_in_w is not None:
-            W2 = _axis_extent(c2_name, L, H, Lz)
-            z_lo = cfg.z_in_ctr - cfg.z_in_w / 2
-            z_hi = cfg.z_in_ctr + cfg.z_in_w / 2
-            if z_lo < -1e-9 or z_hi > W2 + 1e-9:
-                out.errors.append(
-                    f"Fluid {side} inlet z-span [{z_lo * 1e3:.2f}, "
-                    f"{z_hi * 1e3:.2f}] mm exceeds {c2_name} domain "
-                    f"[0, {W2 * 1e3:.2f}] mm.")
-            elif grid_available:
-                N2_bulk = {'x': Nx, 'y': Ny, 'z': Nz}[c2_name]
-                edges2 = (port_edges[c2_name] if c2_name in port_edges
-                          else _refined_edges(W2, N2_bulk, apply_refine))
-                n2 = _count_cells(edges2, z_lo, z_hi)
-                if n2 == 0:
+        for cross_index, axis in enumerate(cross_axes[:2 if is_3d else 1]):
+            span = _axis_extent(axis, L, H, Lz)
+            for end, label in (('in', 'inlet'), ('out', 'outlet')):
+                prefix = 'z_' if cross_index else ''
+                ctr = getattr(cfg, f'{prefix}{end}_ctr')
+                width = getattr(cfg, f'{prefix}{end}_w')
+                # An unspecified second transverse span means the full face.
+                if ctr is None and width is None:
+                    ctr, width = span / 2, span
+                elif ctr is None or width is None:
                     out.errors.append(
-                        f"Fluid {side} inlet covers 0 cells on {c2_name} "
-                        f"axis (z-width {cfg.z_in_w * 1e3:.2f} mm).")
-                elif n2 < _INLET_MIN_CELLS:
-                    out.warnings.append(
-                        f"Fluid {side} inlet covers only {n2} cell(s) on "
-                        f"{c2_name} axis.")
+                        f"Fluid {side} {label} {axis} centre and width "
+                        "must be set together.")
+                    continue
+                lo, hi = ctr - width / 2, ctr + width / 2
+                if lo < -1e-9 or hi > span + 1e-9:
+                    out.errors.append(
+                        f"Fluid {side} {label} [{lo * 1e3:.2f}, "
+                        f"{hi * 1e3:.2f}] mm exceeds {axis} domain "
+                        f"[0, {span * 1e3:.2f}] mm.")
+                elif grid_available:
+                    # No coverage claims when the requested graded grid failed.
+                    n_bulk = {'x': Nx, 'y': Ny, 'z': Nz}[axis]
+                    edges = (port_edges[axis] if axis in port_edges else
+                             _refined_edges(span, n_bulk, apply_refine))
+                    cells = _count_cells(edges, lo, hi)
+                    if cells == 0:
+                        out.errors.append(
+                            f"Fluid {side} {label} covers 0 cells on {axis} axis "
+                            f"(width {width * 1e3:.2f} mm).")
+                    elif cells < _PORT_MIN_CELLS:
+                        out.warnings.append(
+                            f"Fluid {side} {label} covers only {cells} cell(s) on "
+                            f"{axis} axis (width {width * 1e3:.2f} mm). "
+                            f"< {_PORT_MIN_CELLS} can blur the BC; widen the pipe "
+                            f"or increase N{axis}.")
+                    else:
+                        out.info.append(
+                            f"Fluid {side} {label} covers {cells} cells on {axis} axis.")
 
     # Richardson doubling — 2D only (3D code path skips Richardson).
     if not is_3d:

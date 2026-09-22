@@ -81,9 +81,9 @@ def test_enthalpy_3d_temperatures_physical():
 def _recuperator_case():
     """V1 recuperator: hot 650 K @ 8.5 MPa, cold 350 K @ 15 MPa,
     counterflow, per-side pressure, high-NTU (h_v ~ 4e6 from the sCO2 Nu).
-    The legacy ρcp·u·T 3D kernel leaves ~41% A/B imbalance here and under-reads
-    the cold outlet to ~515 K; the enthalpy form must recover the energy-balance
-    outlet (~655 K) and close the imbalance."""
+    The legacy ρcp·u·T comparison recorded ~41% A/B imbalance. This independent
+    enthalpy reference checks A/B and LTNE balance plus a broad heating bound;
+    it does not identify a unique cold-outlet temperature."""
     return dict(
         Nx=16, Ny=3, Nz=3, Lx=0.344, Ly=0.860, Lz=0.860,
         eps=0.675, k_s=16.0,
@@ -96,9 +96,7 @@ def _recuperator_case():
 
 
 def test_enthalpy_3d_703_recuperator_conserves():
-    """End-to-end value gate: Option B on the real 703 recuperator envelope
-    closes the A/B imbalance (was ~41% with ρcp·u·T) and recovers the cold
-    outlet (was wrongly ~515 K, energy balance wants ~655 K)."""
+    """Independent reference: A/B and LTNE budgets with a broad heating bound."""
     from sjtu_tpmshx.tests.enthalpy_3d_reference import solve_ltne_enthalpy_3d, enthalpy_metrics_3d
     c = _recuperator_case()
     res = solve_ltne_enthalpy_3d(**c)
@@ -108,8 +106,8 @@ def test_enthalpy_3d_703_recuperator_conserves():
         f"703 recuperator A/B imbalance {m['AB_imbal']*100:.2f}% — Option B "
         f"should be far below the legacy ~41%")
     assert m["e_imb_LTNE"] < 0.02
-    # cold outlet (dir_B=1 → x=0) must land near the energy-balance value,
-    # decisively above the legacy ρcp·u·T under-read of ~515 K.
+    # Broad lower bound only; it does not distinguish the historical ~515 K
+    # comparison from a particular expected outlet temperature.
     cold_out = float(res["Tb"][0, :, :].mean())
     assert cold_out > 500.0, f"cold outlet {cold_out:.0f} K is under-heated"
 

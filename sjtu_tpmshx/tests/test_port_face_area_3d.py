@@ -76,8 +76,7 @@ def test_fractional_outlet_support_and_local_continuity(stage):
     assert s._pp_sparsity is None
 
 
-@pytest.mark.parametrize('direction', range(6))
-def test_actual_flux_uses_area_once_and_matches_true_h(direction):
+def test_actual_flux_uses_area_once_and_matches_true_h():
     f = np.array([[.2, .8], [0., 1.]])
     v = np.zeros((2, 3, 2)); v[:, 0, :] = f * 3.; v[:, -1, :] = -f * 2.
     s = SimpleNamespace(v=v, rho_field=np.full((2, 2, 2), 4.),

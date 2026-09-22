@@ -778,12 +778,13 @@ def build_page_zones(window):
                 window.zone_table.blockSignals(False)
                 txt = item.text().strip()
         bad = False
+        percent_columns = window.zone_table.columnCount() - 2
         try:
             v = float(txt)
-            if col in (0, 1):  # start%, end%
+            if col < percent_columns:
                 if v < 0 or v > 100:
                     bad = True
-            elif col in (2, 3):  # L [mm], t [mm]
+            else:  # final columns: L [mm], t [mm]
                 if v <= 0:
                     bad = True
         except Exception:
@@ -798,7 +799,7 @@ def build_page_zones(window):
             from PySide6.QtGui import QBrush, QColor
             item.setBackground(QBrush(QColor(220, 38, 38, 70)))
             item.setToolTip(
-                "Value out of range" if col in (0, 1)
+                "Value out of range" if col < percent_columns
                 else "Value must be > 0")
         else:
             from PySide6.QtGui import QBrush

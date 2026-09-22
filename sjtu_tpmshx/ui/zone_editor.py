@@ -35,6 +35,7 @@ class ZoneHandleManager:
 
     def draw_handles(self, ax, Lmm, Hmm):
         """Must be called after draw_layout_rect finishes populating `ax`."""
+        self._Lmm, self._Hmm = Lmm, Hmm
         self._handles = []
         w = self._w
         if not getattr(w, 'chk_zones', None) or not w.chk_zones.isChecked():
@@ -126,7 +127,7 @@ class ZoneHandleManager:
         self._drag_pending_next_start = next_start
         # Live preview: just move the handle + guide line, skip full redraw
         # so dragging stays smooth.
-        y_new = new_f * self._Hmm
+        y_new = pct / 100.0 * self._Hmm
         for (rr, art, line, _y0) in self._handles:
             if rr == r:
                 art.set_offsets([[self._Lmm * 0.5, y_new]])

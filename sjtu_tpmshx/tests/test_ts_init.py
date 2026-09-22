@@ -146,41 +146,8 @@ def test_ts_init_3d_changes_first_sweep():
     print(f"test_ts_init_3d_changes_first_sweep PASS (|ΔTs|={diff:.2f} K)")
 
 
-def test_ts_init_3d_user_value_lands_in_initial_field():
-    """When the user provides T_s_init, the very first solver call must
-    receive a Ts array filled with that value — otherwise the warm-start
-    is silently dropped before the energy solve sees it. We assert this
-    by capturing the Ts array passed to the kernel.
-
-    Strategy: monkey-patch `solve_full_domain_3d` with a recorder that
-    snapshots the Ts_init kwarg, then exercise the run_calculation_3d
-    seed-construction logic standalone (no Qt).
-    """
-    Nx, Ny, Nz = 4, 3, 2
-    T_inA = 420.0; T_inB = 300.0
-    user_ts = 333.0   # not 0.5*(420+300) = 360, so confusion impossible
-
-    # Mirror exactly the seed block in run_calculation_3d.py
-    Ta = np.full((Nx, Ny, Nz), float(T_inA), dtype=np.float64)
-    Tb = np.full((Nx, Ny, Nz), float(T_inB), dtype=np.float64)
-    Ts = np.full((Nx, Ny, Nz), float(user_ts), dtype=np.float64)
-
-    assert np.allclose(Ts, user_ts), \
-        "Ts seed array must be filled with the user T_s_init value"
-    # Critically: Ta/Tb seeded at PER-FLUID inlet T, not 0.5-mean
-    # (this is the regression the run_calculation*.py fix prevents).
-    assert np.allclose(Ta, T_inA), (
-        "Ta seed must use T_inA, not 0.5*(T_inA+T_inB) — "
-        "see ltne_energy_3d.py:1442 FV fix rationale")
-    assert np.allclose(Tb, T_inB), "Tb seed must use T_inB"
-    assert not np.allclose(Ta, 0.5 * (T_inA + T_inB)), \
-        "Ta seed regressed to legacy 0.5-mean — re-check run_calculation_3d.py"
-    print("test_ts_init_3d_user_value_lands_in_initial_field PASS")
-
-
 if __name__ == '__main__':
     test_ts_init_changes_first_sweep()
     test_ts_init_none_matches_per_fluid_seed()
     test_ts_init_3d_changes_first_sweep()
-    test_ts_init_3d_user_value_lands_in_initial_field()
     print("\nAll tests PASS")

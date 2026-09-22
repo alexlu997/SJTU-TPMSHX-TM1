@@ -2,14 +2,10 @@
 
 A fully z-symmetric cross-flow setup (air +x, water -y, full-face inlets,
 uniform geometry) has NO z-direction driver, so the temperature field must be
-z-symmetric (mirror-invariant about the z mid-plane). The conservative
-(strict-conservation) kernel currently violates this: a realistic SIMPLE
-velocity field drives the conservative Gauss-Seidel into a non-converged,
-z-asymmetric stalled state (~30% of range), which the Q-based early-exit then
-locks in. Root cause + full diagnostic chain: 2026-06-09 systematic-debug.
-
-This test pins the symmetry the physics requires; it is RED until the
-conservative-scheme convergence defect is fixed.
+z-symmetric (mirror-invariant about the z mid-plane). The 2026-06-09 diagnosis
+recorded a non-converged, z-asymmetric stalled state (~30% of range) locked in
+by the former Q-based early exit. This test retains the required symmetry;
+the historical failure is not a statement of the current run's verdict.
 """
 
 import numpy as np

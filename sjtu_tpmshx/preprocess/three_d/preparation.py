@@ -196,7 +196,7 @@ def _prepare_problem_data(cfg):
     from sjtu_tpmshx.models.roughness import resolve_mode_from_env
     mode, eps_um = resolve_mode_from_env(default='norris_1a')
     cfg['roughness_resolved'] = {'mode': mode, 'eps_m': eps_um * 1e-6}
-    cfg['thermal_geometry']['air_bulk_hv'] = _prepare_air_bulk_hv(
+    _record_air_bulk_ranges(
         cfg, lfield * 1e-3 * 1e3 if cells else None,
         tfield * 1e-3 * 1e3 if cells else None, (nx, ny, nz))
     permeability, forchheimer = predict_K_cF_vec(
@@ -241,34 +241,29 @@ def _prepare_df_application(cfg, axes, permeability, forchheimer):
     return result
 
 
-def _prepare_air_bulk_hv(cfg, lfield, tfield, shape):
-    """Keep the original tpms_compute bulk air convention, before execution."""
+def _record_air_bulk_ranges(cfg, lfield, tfield, shape):
+    """Preserve inlet air observations without storing unused bulk h_v fields."""
     from sjtu_tpmshx.models.tpms_calc import compute
     from sjtu_tpmshx.models.nu_correlations import record_raw_nu_range
     from sjtu_tpmshx.domain.run_warnings import range_context
-    result = {}
     for side in ('A', 'B'):
         if cfg.get('fluid_type_' + side, 'air') != 'air':
             continue
         with range_context(side=side, stage='inlet', layout='scalar-hv-bulk'):
             if lfield is None:
-                g = compute(cfg['tpms_type'], cfg['Lcell'], cfg['t_wall'],
-                            cfg.get('u_' + side, cfg['u_A']), cfg['T_in' + side],
-                            cfg.get('P_in' + side, cfg['P_inA']), cfg['k_s'])
-                result[side] = np.full(shape, g['A_0'] * g['H_sf'], dtype=np.float64)
+                compute(cfg['tpms_type'], cfg['Lcell'], cfg['t_wall'],
+                        cfg.get('u_' + side, cfg['u_A']), cfg['T_in' + side],
+                        cfg.get('P_in' + side, cfg['P_inA']), cfg['k_s'])
             else:
-                out, raw_Re = np.empty(shape), np.empty(shape)
+                raw_Re = np.empty(shape)
                 for index in np.ndindex(shape):
                     with range_context(layout='scalar-zoned-call'):
                         g = compute(cfg['tpms_type'], float(lfield[index]), float(tfield[index]),
                                     cfg.get('u_' + side, cfg['u_A']), cfg['T_in' + side],
                                     cfg.get('P_in' + side, cfg['P_inA']), cfg['k_s'])
                     raw_Re[index] = g['Re']
-                    out[index] = g['A_0'] * g['H_sf']
                 with range_context(layout='real-cell(x,y,z)-bulk-Re'):
                     record_raw_nu_range('air', cfg['tpms_type'], raw_Re)
-                result[side] = out
-    return result
 
 
 def prepare_case(config: ComputeConfig, *, case_id: str):
