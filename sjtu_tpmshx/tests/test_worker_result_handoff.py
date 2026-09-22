@@ -38,7 +38,6 @@ def win(tmp_path, monkeypatch):
                             self, base_dir=tmp_path, parent=parent))
     monkeypatch.setenv('SJTU_TPMSHX_DISABLE_3D_PANEL', '1')
     window = Main_Menu()
-    window._K_ffA = window._K_ffB = 1e-8
     monkeypatch.setattr(window, '_validate_inputs_preflight', lambda: True)
     monkeypatch.setattr(window, '_preflight_grid', lambda: True)
     monkeypatch.setattr(window, '_preflight_3d', lambda: (True, 8, '2×2×2'))
@@ -660,3 +659,62 @@ def test_quick_design_escape_requests_cooperative_cancel(win, monkeypatch):
     _wait_for(lambda: dlg._qd_worker is None)
     assert not dlg.isVisible() and dlg.isEnabled()
     assert '已取消' in dlg._qd_status.text()
+
+
+@pytest.mark.parametrize('dimension,expected', [(0, (84, 24, 1)), (1, (92, 14, 10))])
+def test_field_restore_uses_the_current_case_dimension_and_remains_undoable(win, dimension, expected):
+    from sjtu_tpmshx.ui.field_menu import _revert_field_to_default
+    win.combo_dim.setCurrentIndex(dimension)
+    win._temp_unit = 'C'
+    for attr in ('le_Nx', 'le_Ny', 'le_Nz', 'le_rho_s', 'le_pipeB_in_z_ctr', 'le_TinA'):
+        getattr(win, attr).setText('100')
+    win._resync_undo_baseline()
+    win._undo_stack.clear()
+    for axis in 'xyz':
+        attr = 'le_N' + axis
+        _revert_field_to_default(win, getattr(win, attr), attr)
+    assert tuple(int(getattr(win, 'le_N' + axis).text()) for axis in 'xyz') == expected
+    _revert_field_to_default(win, win.le_TinA, 'le_TinA')
+    assert float(win.le_TinA.text()) == pytest.approx(148.85)
+    win._undo_stack.undo()
+    assert win.le_TinA.text() == '100'
+    win._undo_stack.redo()
+    assert float(win.le_TinA.text()) == pytest.approx(148.85)
+    for attr, expected_value in [('le_rho_s', 7900.), ('le_pipeB_in_z_ctr', .021)]:
+        _revert_field_to_default(win, getattr(win, attr), attr)
+        assert float(getattr(win, attr).text()) == expected_value
+
+
+@pytest.mark.parametrize('typed,expected', [('0.042 / 2', '0.021'), ('5 mm', '0.005')])
+def test_normalized_field_edit_records_undo_and_final_validation(win, typed, expected):
+    win.le_L.setText('0.1')
+    win._resync_undo_baseline()
+    win._undo_stack.clear()
+    win.le_L.setText(typed)
+    win.le_L.editingFinished.emit()
+    assert win.le_L.text() == expected
+    assert win.le_L.property('inpError') == 'false'
+    assert win._field_history['le_L'][0] == expected
+    assert win._undo_stack.count() == 1
+    win._undo_stack.undo()
+    assert win.le_L.text() == '0.1'
+    win._undo_stack.redo()
+    assert win.le_L.text() == expected
+    assert win.le_L.property('inpError') == 'false'
+
+
+@pytest.mark.parametrize('refined,expected', [(False, (36, 17, 17)), (True, (50, 17, 17))])
+def test_geometry_grid_suggestion_uses_selected_scheme_and_preserves_edits(win, monkeypatch, refined, expected):
+    import sjtu_tpmshx.main as main
+    win.combo_dim.setCurrentIndex(1)
+    win.combo_grid.setCurrentIndex(win.combo_grid.findData(refined))
+    monkeypatch.setattr(main, 'tpms_geometry', lambda *a: dict(
+        epsilon=.7, A_0=100., D_h=.005, K_ss=3.))
+    win._user_edited_grid = False
+    assert win.compute_tpms()
+    assert tuple(int(getattr(win, 'le_N' + axis).text()) for axis in 'xyz') == expected
+    for axis, count in zip('xyz', (111, 30, 20)):
+        getattr(win, 'le_N' + axis).setText(str(count))
+    win._mark_grid_edited()
+    assert win.compute_tpms()
+    assert tuple(int(getattr(win, 'le_N' + axis).text()) for axis in 'xyz') == (111, 30, 20)

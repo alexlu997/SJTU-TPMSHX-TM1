@@ -9,7 +9,6 @@ from __future__ import annotations
 import pytest
 
 from sjtu_tpmshx.domain.validator import (
-    suggest_grid_2d,
     suggest_grid_3d,
     validate_geometry,
     compute_volumetric_htc,
@@ -25,62 +24,52 @@ from sjtu_tpmshx.domain.validator import (
 # ---------------------------------------------------------------- grid suggest
 
 
-def test_suggest_grid_2d_basic():
-    Nx, Ny = suggest_grid_2d(L_dom=0.080, H_dom=0.040, D_h=0.005)
-    assert Nx >= 8
-    assert Ny >= 8
-    # alpha=0.4 default → Nx ≈ 0.080 / (0.4 * 0.005) = 40
-    assert 35 <= Nx <= 45
-
-
-def test_suggest_grid_2d_floor_at_8():
-    Nx, Ny = suggest_grid_2d(L_dom=0.001, H_dom=0.001, D_h=0.005)
-    assert Nx == 8
-    assert Ny == 8
-
-
-@pytest.mark.parametrize('bad', [-1.0, 0.0])
-def test_suggest_grid_2d_rejects_nonpos(bad):
-    with pytest.raises(ValueError):
-        suggest_grid_2d(L_dom=bad, H_dom=0.04, D_h=0.005)
-
-
-def test_suggest_grid_3d_under_cap():
-    Nx, Ny, Nz = suggest_grid_3d(0.080, 0.040, 0.020, 0.005)
-    # Wall-refine pad 16 → total <= 50000
-    assert (Nx + 16) * (Ny + 16) * (Nz + 16) <= 50_000
+def test_suggest_grid_3d_uses_total_counts_without_six_wall_padding():
+    assert suggest_grid_3d(.080, .040, .020, .005, max_cells=2050) == (16, 16, 8)
 
 
 def test_suggest_grid_3d_floors():
-    Nx, Ny, Nz = suggest_grid_3d(0.001, 0.001, 0.001, 0.005)
-    assert Nx == 14
-    assert Ny == 8
-    assert Nz == 3
+    assert suggest_grid_3d(.001, .001, .001, .005) == (14, 8, 3)
 
 
-def test_suggest_grid_3d_caps_nx_when_under_pressure():
-    """When Ny+Nz alone are reasonable, Nx is the lever the cap pulls."""
-    # 0.080 m domain × D_h=0.005 → Ny ~ 32, Nz ~ 8 → no cap firing.
-    # With max_cells=10000, Nx must drop from ~16 to satisfy cap.
-    Nx_uncapped, _, _ = suggest_grid_3d(0.080, 0.040, 0.020, 0.005,
-                                          max_cells=50_000)
-    Nx_capped, Ny, Nz = suggest_grid_3d(0.080, 0.040, 0.020, 0.005,
-                                          max_cells=10_000)
-    # Cap loop floors at 14, so Nx_capped <= Nx_uncapped (and >= 14).
-    assert Nx_capped >= 14
-    assert Nx_capped <= Nx_uncapped
+def test_suggest_grid_3d_caps_all_axes_without_cross_axis_budget_escape():
+    import math
+    counts = suggest_grid_3d(1., 1., 1., .001, max_cells=20_000)
+    assert math.prod(counts) <= 20_000
+    assert all(n >= floor for n, floor in zip(counts, (14, 8, 3)))
 
 
-def test_suggest_grid_3d_cap_does_not_infinite_loop_on_huge_domain():
-    """If Ny*Nz alone exceeds the cap, the loop must terminate at Nx=14
-    rather than reduce Nx forever."""
-    Nx, Ny, Nz = suggest_grid_3d(1.0, 1.0, 1.0, 0.001,
-                                   max_cells=20_000)
-    # The cap is unsatisfiable here — Ny ~ 2000, Nz ~ 2000. The function
-    # must still return (no infinite loop, no exception). Nx is at floor.
-    assert Nx == 14
-    assert Ny > 100
-    assert Nz > 100
+def test_suggest_grid_3d_rejects_budget_below_required_minimum():
+    with pytest.raises(ValueError, match='required minimum'):
+        suggest_grid_3d(.1, .1, .1, .005, max_cells=100)
+
+
+@pytest.mark.parametrize('direction', range(6))
+def test_port_wall_suggestion_uses_real_axis_and_opening_minima(direction):
+    import math
+    import numpy as np
+    from sjtu_tpmshx.models.grid import build_port_wall_grid, port_wall_min_counts
+    lengths = (.182, .042, .030)
+    cross = [i for i in range(3) if i != direction // 2]
+    port = {'dir': direction}
+    for axis, suffix in zip(cross, ('', '_z')):
+        for end in ('in', 'out'):
+            port[end + suffix + '_ctr'] = lengths[axis] * .5
+            port[end + suffix + '_w'] = lengths[axis] * .4
+    minimum = port_wall_min_counts(lengths, (port,))
+    assert minimum[direction // 2] == 10
+    assert all(minimum[i] == 30 for i in cross)
+    counts = suggest_grid_3d(*lengths, .02, port_wall_refine=True, ports=(port,))
+    widths = build_port_wall_grid(lengths, counts, (port,))
+    assert tuple(map(len, widths)) == counts
+    assert math.prod(counts) <= 50_000
+    for width, length in zip(widths, lengths):
+        assert np.all(width > 0)
+        assert width.sum() == pytest.approx(length)
+    too_small = list(counts)
+    too_small[cross[0]] = minimum[cross[0]] - 1
+    with pytest.raises(ValueError, match='at least 30'):
+        build_port_wall_grid(lengths, too_small, (port,))
 
 
 # ---------------------------------------------------------------- geometry
@@ -94,20 +83,18 @@ def test_validate_geometry_clean_passes():
     assert warns == []
 
 
-def test_validate_geometry_t_over_L_high_warns():
-    warns = validate_geometry(
-        L_dom=0.080, H_dom=0.040, Lz_dom=None,
-        L_cell_mm=4.0, t_mm=0.6)   # t/L = 0.15
-    codes = [w.code for w in warns]
-    assert 'tL_ratio_high' in codes
+@pytest.mark.parametrize('cell,wall', [(4., .6), (8., .3), (6.5, .55)])
+def test_validate_geometry_uses_current_fixed_cfd_grid_not_obsolete_t_over_L(cell, wall):
+    assert validate_geometry(.08, .04, None, cell, wall) == []
 
 
-def test_validate_geometry_t_over_L_low_warns():
-    warns = validate_geometry(
-        L_dom=0.080, H_dom=0.040, Lz_dom=None,
-        L_cell_mm=8.0, t_mm=0.3)   # t/L = 0.0375
-    codes = [w.code for w in warns]
-    assert 'tL_ratio_low' in codes
+@pytest.mark.parametrize('cell,wall', [(3.9, .4), (8.1, .4), (7., .29), (7., .61)])
+def test_geometry_extrapolation_names_only_the_resource_it_checked(cell, wall):
+    warnings = validate_geometry(.08, .04, None, cell, wall)
+    assert len(warnings) == 1
+    assert warnings[0].code == 'geometry_extrapolation'
+    assert 'geometry/D-F' in warnings[0].message
+    assert 'Nu correlations and experimental corrections have separate' in warnings[0].message
 
 
 def test_validate_geometry_cell_larger_than_domain_errors():

@@ -63,11 +63,6 @@ class FluidInputMixin:
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e)); return
 
-        # Convert face HTC [W/(m2K)] to volumetric HTC [W/(m3K)] —
-        # delegated to domain.compute_volumetric_htc (Phase 4 #4).
-        from sjtu_tpmshx.domain.validator import compute_volumetric_htc
-        h_v_vol = compute_volumetric_htc(r['A_0'], r['H_sf'])
-
         # Use the selected fluid's source range, shared with its Nu model.
         Re = r['Re']
         re_lo, re_hi = nu_re_window(_ftype)
@@ -83,14 +78,12 @@ class FluidInputMixin:
 
         self.statusBar().showMessage(f"Fluid {fluid} filled.  Re={Re:.0f}{re_tag}  Nu={r['Nu']:.2f}  dP/L={r['dP_per_L']:.1f} Pa/m", TOAST_MS_MED)
         if fluid == 'A':
-            self._mu_A, self._h_vA, self._K_ffA, self._rho_A = r['mu'], h_v_vol, r['K_ff'], r['rho']
             self._v_rhoA.setText(f"{r['rho']:.4f}")
             self._v_ReA.setText(f"{Re:.1f}{re_tag}")
             self._v_ReA.setStyleSheet(re_style)
             self._v_NuA.setText(f"{r['Nu']:.4f}")
             self._v_dPLA.setText(f"{r['dP_per_L']:.1f}")
         else:
-            self._mu_B, self._h_vB, self._K_ffB, self._rho_B = r['mu'], h_v_vol, r['K_ff'], r['rho']
             self._v_rhoB.setText(f"{r['rho']:.4f}")
             self._v_ReB.setText(f"{Re:.1f}{re_tag}")
             self._v_ReB.setStyleSheet(re_style)

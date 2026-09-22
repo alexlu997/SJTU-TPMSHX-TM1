@@ -208,7 +208,6 @@ def test_complete_config_menu_roundtrip(tmp_path, monkeypatch, win,
     monkeypatch.setattr(win, '_validate_inputs_preflight', lambda: True)
     monkeypatch.setattr(win, '_preflight_grid', lambda: True)
     monkeypatch.setattr(win, '_preflight_3d', lambda: (True, 8, 'test'))
-    win._K_ffA = win._K_ffB = 1e-8
 
     def capture_start(mode, worker, *, cfg):
         calls.append((mode, worker.keywords['pipeline_cls'], asdict(cfg)))

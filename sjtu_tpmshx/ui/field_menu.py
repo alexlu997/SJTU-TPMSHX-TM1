@@ -18,9 +18,6 @@ def install_field_menus(window):
     """
     window._field_history = {}
 
-    # Map attr → (fluid defaults preset or _apply_shanghai_defaults source).
-    # We don't replicate every default here — instead pull from Shanghai
-    # preset by temporarily applying it to a fresh dict.
     for attr in window._SESSION_LINE_EDITS:
         le = getattr(window, attr, None)
         if le is None:
@@ -97,21 +94,9 @@ def _attach_history_tracker(window, le, attr):
 
 def _revert_field_to_default(window, le, attr):
     """Look up the Shanghai preset default for this attr and write it back."""
-    # `_apply_shanghai_defaults` on the window rewrites every input from a
-    # preset dict. We replicate the preset locally to avoid re-applying it
-    # globally for a single field click.
-    _PRESETS = {
-        'le_L': '0.182', 'le_H': '0.042', 'le_Lz': '0.042',
-        'le_Lcell': '7.0', 'le_t': '0.6', 'le_ks': '16.0',
-        'le_uA': '20.0',  'le_TinA': '422.0', 'le_PinA': '192362',
-        'le_uB': '0.133', 'le_TinB': '300.0', 'le_PinB': '101973',
-        'le_Nx': '30',    'le_Ny': '20',      'le_Nz': '5',
-        'le_pipeA_in_ctr': '0.021', 'le_pipeA_in_w': '0.042',
-        'le_pipeA_out_ctr': '0.021', 'le_pipeA_out_w': '0.042',
-        'le_pipeB_in_ctr': '0.154', 'le_pipeB_in_w': '0.042',
-        'le_pipeB_out_ctr': '0.028', 'le_pipeB_out_w': '0.042',
-    }
-    val = _PRESETS.get(attr)
+    from .mixins.session_presets import shanghai_field_defaults
+    defaults = shanghai_field_defaults(is_3d=window.combo_dim.currentIndex() == 1)
+    val = defaults.get(attr)
     if val is None:
         window.statusBar().showMessage(
             f"No preset default for {attr}.", 3000)

@@ -98,12 +98,6 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         if os.path.exists(_icon_path):
             self.setWindowIcon(QIcon(_icon_path))
 
-        # Stored solver state
-        self._eps_A = self._h_vA = None
-        self._K_ffA = self._K_ffB = self._K_ss = None
-        self._rho_A = self._rho_B = self._h_vB = None
-        self._mu_A  = self._mu_B  = None
-
         # Temperature unit state — toggled through the More menu. All
         # compute paths read temperatures via `_temp_to_K(le)` which honours
         # this flag, so internal physics always runs in Kelvin regardless of
@@ -229,8 +223,6 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         self._zone_handle_mgr.wire()
         from sjtu_tpmshx.ui.field_menu import install_field_menus
         install_field_menus(self)
-        from sjtu_tpmshx.ui.expr_eval import install_expression_eval
-        install_expression_eval(self)
         # Accept file drops on the whole window — users can drag a saved
         # `.json` preset onto the app to load it without going through the
         # preset combo. Only .json with the expected preset/session shape
@@ -314,45 +306,8 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         self._active_preset_name = "Shanghai (3D Gyroid)"
         self._set_shanghai_grid(is_3d=True)
         self.combo_df_mode.setCurrentIndex(self.combo_df_mode.findData('experimental'))
-        presets = {
-            # Shanghai Electric gas-heater experimental log (工况8, Re_air=5000,
-            # Re_water=400) — raw values from `data/raw_data/
-            # 20260401-上海电气天然气加热器实验工况.xlsx` Sheet1 row 9:
-            #   col 24 water_in  = 26.89 °C   → 300.04 K
-            #   col 26 water_P   = 647.60 Pa (gauge)  → 101972.60 abs
-            #   col 28 air_in    = 148.908 °C → 422.06 K
-            #   col 30 air_P     = 91037.40 Pa (gauge) → 192362.40 abs
-            #   col 10 air_SLM   = 1057  → u_A ~20 m/s interstitial (Gyroid L7/t0.6)
-            #   col 11 water_flow= 5193 ml/min → u_B ~0.114 m/s (Re=400, D_h~3 mm)
-            'le_L':     '0.182',  # L domain [m]
-            'le_H':     '0.042',
-            'le_Lz':    '0.042',
-            'le_Lcell': '7.0',
-            'le_t':     '0.6',
-            'le_ks':    '16.0',   # Shanghai SS solid k_s
-            'le_rho_s': '7900',
-            'le_uA':    '20.0',   # Fluid A (air) interstitial, back-calc Re=5000
-            'le_TinA':  '422.0',  # Fluid A inlet (Excel col 28: 148.908 °C)
-            'le_PinA':  '192362', # Fluid A inlet absolute (Excel 91037 Pa gauge + atm)
-            'le_uB':    '0.133',  # Fluid B (water) — Shanghai case 8 Re_water=400
-            'le_TinB':  '300.0',  # Fluid B inlet (Excel col 24: 26.89 °C)
-            'le_PinB':  '101973', # Fluid B inlet absolute (Excel 647.6 Pa gauge + atm)
-            # Shanghai pipe inlet/outlet: A full-width (42 mm strip), B
-            # staggered cross-flow (water enters top-right +x end, exits
-            # bottom-left -x end; inlet/outlet 42 mm strips along real x).
-            # A flows +x: full H=42mm face inlet/outlet.
-            # B flows -y: staggered cross-flow, inlet at x=133mm (w=42mm),
-            # outlet at x=7mm (w=42mm).
-            'le_pipeA_in_ctr':  '0.021', 'le_pipeA_in_w':  '0.042',
-            'le_pipeA_out_ctr': '0.021', 'le_pipeA_out_w': '0.042',
-            'le_pipeB_in_ctr':  '0.154', 'le_pipeB_in_w':  '0.042',
-            'le_pipeB_out_ctr': '0.028', 'le_pipeB_out_w': '0.042',
-            # Both networks span the full thickness; reset prior-case Z ports.
-            'le_pipeA_in_z_ctr':  '0.021', 'le_pipeA_in_z_w':  '0.042',
-            'le_pipeA_out_z_ctr': '0.021', 'le_pipeA_out_z_w': '0.042',
-            'le_pipeB_in_z_ctr':  '0.021', 'le_pipeB_in_z_w':  '0.042',
-            'le_pipeB_out_z_ctr': '0.021', 'le_pipeB_out_z_w': '0.042',
-        }
+        from sjtu_tpmshx.ui.mixins.session_presets import shanghai_field_defaults
+        presets = shanghai_field_defaults(is_3d=True)
         # Temperature fields are authored in Kelvin. If the UI is currently
         # showing °C, convert on write so the displayed digits match the
         # user's current unit (avoids the silent 273.15 bug where a preset
@@ -510,27 +465,17 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             QMessageBox.critical(self, "TPMS Geometry Error", str(e))
             return False
 
-        self._eps_A = r['epsilon']
-        self._K_ss  = r['K_ss']
-
         self._v_eps.setText(f"{r['epsilon']:.5f}")
         self._v_A0.setText(f"{r['A_0']:.2f}")
         self._v_Dh.setText(f"{r['D_h'] * 1000:.4f}")
         self._v_Kss.setText(f"{r['K_ss']:.5f}")
-        # Auto-update suggested grid from D_h.
-        #   2D: alpha=0.4
-        #   3D: alpha=1.0 (streamwise x), 0.5 (cross-stream y, z) — with
-        #       wall-refine adding 16 BL cells/axis, N_user ~ 2-3x Nx_target
-        #       gives a refined grid of roughly 90k cells. This size heuristic
-        #       is not an accuracy estimate for the selected fluid or model.
+        # Suggested counts include every port/wall layer in that mesh scheme.
+        # They are a starting mesh, not a grid-convergence or accuracy claim.
         is_3d = (hasattr(self, 'combo_dim')
                  and self.combo_dim.currentIndex() == 1)
         try:
             L_dom = float(self.le_L.text())
             H_dom = float(self.le_H.text())
-            # Grid suggestion delegated to domain.validator (Phase 4 #4).
-            # 2D path retains adaptive_grid (solver-side, BL-aware); 3D
-            # path matches the legacy heuristic exactly via suggest_grid_3d.
             if is_3d:
                 from sjtu_tpmshx.domain.validator import suggest_grid_3d
                 try:
@@ -538,7 +483,9 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
                 except ValueError:
                     Lz_dom = 0.02
                 Nx_sug, Ny_sug, Nz_sug = suggest_grid_3d(
-                    L_dom, H_dom, Lz_dom, r['D_h'])
+                    L_dom, H_dom, Lz_dom, r['D_h'],
+                    port_wall_refine=bool(self.combo_grid.currentData()),
+                    ports=(self._fluid_config('A'), self._fluid_config('B')))
                 # Only overwrite if user hasn't manually edited grid fields —
                 # otherwise Auto-fill (which calls compute_tpms) would stomp
                 # on user's custom Nx/Ny/Nz between TPMS Compute and Run.
@@ -763,11 +710,8 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             except (TypeError, ValueError):
                 return None
 
-        # robustness-hardening (2026-07-03): wire domain.validator.
-        # validate_geometry into the run path — it was defined + tested but
-        # never called in production (t/L feasibility, cell-larger-than-
-        # domain). Hard nonsense raises
-        # → critical modal; soft findings merge into the preflight report.
+        # Geometry/D-F coverage is separate from Nu and calibration limits.
+        # Hard invalid geometry blocks; soft findings join the grid report.
         _geom_warnings = []
         try:
             from sjtu_tpmshx.domain.validator import validate_geometry as _vg
@@ -1197,7 +1141,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
 
         The unified handler does parse → validate → apply in one slot.
         """
-        all_fields = self._POSITIVE_FIELDS | self._FIELD_UNITS.keys()
+        all_fields = self._POSITIVE_FIELDS | self._FIELD_UNITS.keys() | set(self._SESSION_LINE_EDITS)
         for attr in all_fields:
             le = getattr(self, attr, None)
             if le is None:
@@ -1265,14 +1209,23 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
                             was = le.blockSignals(True)
                             le.setText(fmt)
                             le.blockSignals(was)
-                            # Sync undo baseline (Tier 25).
-                            ul = getattr(self, '_undo_last', None)
-                            if ul is not None:
-                                ul[attr] = fmt
                             self.statusBar().showMessage(
                                 f"Converted {m.group(1)} {unit_txt} → {fmt} "
                                 f"({target or fam})", 4000)
                             txt = fmt
+
+            # Expressions share this commit with unit parsing and validation.
+            # The undo/history slots run afterwards and record the final text.
+            from sjtu_tpmshx.ui.expr_eval import is_expression, eval_expr
+            if is_expression(txt):
+                value = eval_expr(txt)
+                if value is not None:
+                    converted = _domain_format(value, 'number')
+                    was = le.blockSignals(True)
+                    le.setText(converted)
+                    le.blockSignals(was)
+                    self.statusBar().showMessage(f"{attr}: {txt} → {converted}", 3500)
+                    txt = converted
 
             # ── 2. VALIDATE — strictly-positive numeric check for the
             #    positive-set fields. Non-positive fields skip this.
@@ -1281,6 +1234,9 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             if is_positive:
                 try:
                     v = float(txt)
+                    if fam_target is not None and fam_target[0] == 'temp':
+                        if getattr(self, '_temp_unit', 'K') == 'C':
+                            v += 273.15
                     import math as _math
                     # robustness-hardening: float("nan") parses fine and
                     # `nan <= 0` is False — nan/inf sailed through here.
@@ -1289,7 +1245,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
                         reason = "Must be finite"
                     elif v <= 0:
                         bad = True
-                        reason = "Must be > 0"
+                        reason = "Must be above 0 K" if fam_target and fam_target[0] == 'temp' else "Must be > 0"
                 except Exception:
                     bad = True
                     reason = "Must be a number"

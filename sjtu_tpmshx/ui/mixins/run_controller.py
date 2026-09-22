@@ -78,14 +78,6 @@ class RunControllerMixin:
             self._run_calculation_3d()
             return
 
-        # Validate inputs BEFORE launching solver (Qt-safe on main thread)
-        if self._K_ffA is None:
-            QMessageBox.warning(self, "Missing Input",
-                                "Please click 'Auto-fill Fluid A' first."); return
-        if self._K_ffB is None:
-            QMessageBox.warning(self, "Missing Input",
-                                "Please click 'Auto-fill Fluid B' first."); return
-
         # B2 2.1b (2026-06-13): the 2D compute path now drives Pipeline2D —
         # the legacy run_calculation_inner(window) entrypoint is deleted.
         # Qt widgets are read EXACTLY ONCE here on the main thread; the

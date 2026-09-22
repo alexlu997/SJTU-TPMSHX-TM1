@@ -538,3 +538,49 @@ def test_inline_budget_config_error_restores_launch_state():
     assert 'parameter setup failed' in w._opt_status.text()
     assert 'max_outer_ltne' in w._opt_status.text()
     w.close()
+
+
+
+def test_live_trend_separates_Q_from_HV_and_resets_at_next_launch(monkeypatch, tmp_path):
+    from sjtu_tpmshx.ui import optimize_panel as panel
+    w = _optimization_window(inline=True)
+
+    class Signal:
+        def connect(self, callback):
+            self.callback = callback
+        def emit(self, *args):
+            self.callback(*args)
+
+    class Worker:
+        def __init__(self, *args, **kwargs):
+            for name in ('progress_signal', 'hv_signal', 'finished_with_result',
+                         'error_signal', 'finished'):
+                setattr(self, name, Signal())
+        def start(self):
+            pass
+        def wait(self, timeout):
+            return True
+        def deleteLater(self):
+            pass
+
+    monkeypatch.setattr(panel, '_make_worker_class', lambda: Worker)
+    monkeypatch.setattr(panel, 'optimization_output_dir', lambda: tmp_path)
+    panel.run_optimize(w)
+    worker = w._opt_worker
+    try:
+        worker.progress_signal.emit(1, 80, 100.)
+        assert w._opt_sparkline._data == [100.]
+        assert 'W/m' in w._opt_sparkline_caption.text()
+        worker.hv_signal.emit(1, 2000., [2000.])
+        worker.progress_signal.emit(33, 80, 110.)
+        worker.hv_signal.emit(2, 2100., [2000., 2100.])
+        assert w._opt_sparkline._data == [2000., 2100.]
+        assert 'HV' in w._opt_sparkline_caption.text()
+        worker.finished.emit()
+        panel.run_optimize(w)
+        assert w._opt_sparkline._data == []
+        assert w._opt_sl_is_hv is False
+        assert 'W/m' in w._opt_sparkline_caption.text()
+        w._opt_worker.finished.emit()
+    finally:
+        w.close()

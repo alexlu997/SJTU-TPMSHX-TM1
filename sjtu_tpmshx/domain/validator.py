@@ -39,55 +39,34 @@ class Warning:
 # ---------------------------------------------------------------- grid suggestion
 
 
-def suggest_grid_2d(L_dom: float, H_dom: float, D_h: float,
-                    alpha: float = 0.4) -> Tuple[int, int]:
-    """Suggest (Nx, Ny) for a 2D run from domain extents and hydraulic
-    diameter. Mirror of ``models.tpms_calc.adaptive_grid`` interpreted
-    purely in Python.
-
-    The actual ``adaptive_grid`` is preferred when available; this fallback
-    matches its behaviour for the common case ``alpha=0.4`` (~5 % Q
-    accuracy on Shanghai-scale 2D runs).
-    """
-    if L_dom <= 0 or H_dom <= 0 or D_h <= 0:
-        raise ValueError(
-            f"L_dom={L_dom}, H_dom={H_dom}, D_h={D_h} must all be > 0")
-    Nx = max(8, int(round(L_dom / (alpha * D_h))))
-    Ny = max(8, int(round(H_dom / (alpha * D_h))))
-    return Nx, Ny
-
-
 def suggest_grid_3d(L_dom: float, H_dom: float, Lz_dom: float,
-                    D_h: float,
-                    max_cells: int = 50_000,
-                    wall_refine_pad: int = 16) -> Tuple[int, int, int]:
-    """Suggest (Nx, Ny, Nz) from domain + hydraulic diameter.
+                    D_h: float, max_cells: int = 50_000, *,
+                    port_wall_refine: bool = False, ports=()) -> Tuple[int, int, int]:
+    """Suggest total cell counts for the selected desktop mesh scheme.
 
-    Heuristic (matches the inline logic of ``Main_Menu.compute_tpms``):
-
-    * stream axis (x) coarser  — flow is near-1D, ``L_dom / (1.0 * D_h)``
-    * cross axes (y, z) finer  — boundary-layer needs resolution,
-                                 ``H_dom / (0.5 * D_h)``
-    * floor: Nx>=14, Ny>=8, Nz>=3
-    * cap: ``(Nx+pad)(Ny+pad)(Nz+pad) <= max_cells`` so the wall-refined
-           total stays under ~50 k cells (3-5 min wall_refine on laptop).
-
-    ``wall_refine_pad`` is the additional cells the BL-refiner adds per
-    axis when ``wall_refine=True``; default 16 matches current solver.
-
-    Pure: no widget access, no print, deterministic.
+    Hydraulic-diameter spacing is a starting heuristic, not an accuracy
+    guarantee. Port/wall counts already include all refinement layers; their
+    minimum comes from the same port segmentation as the grid builder.
+    The budget applies to Nx * Ny * Nz, without a retired six-wall padding.
     """
-    for name, v in (('L_dom', L_dom), ('H_dom', H_dom),
-                    ('Lz_dom', Lz_dom), ('D_h', D_h)):
-        if v <= 0:
-            raise ValueError(f'{name} must be > 0, got {v}')
-    Nx = max(14, int(round(L_dom / (1.0 * D_h))))
-    Ny = max(8,  int(round(H_dom / (0.5 * D_h))))
-    Nz = max(3,  int(round(Lz_dom / (0.5 * D_h))))
-    p = wall_refine_pad
-    while ((Nx + p) * (Ny + p) * (Nz + p) > max_cells) and Nx > 14:
-        Nx = max(14, int(Nx * 0.8))
-    return Nx, Ny, Nz
+    lengths = (L_dom, H_dom, Lz_dom)
+    for name, v in zip(('L_dom', 'H_dom', 'Lz_dom', 'D_h'), (*lengths, D_h)):
+        if not math.isfinite(v) or v <= 0:
+            raise ValueError(f'{name} must be finite and > 0, got {v}')
+    minimum = (14, 8, 3)
+    if port_wall_refine:
+        from sjtu_tpmshx.models.grid import port_wall_min_counts
+        minimum = tuple(max(base, needed) for base, needed in
+                        zip(minimum, port_wall_min_counts(lengths, ports)))
+    if max_cells < math.prod(minimum):
+        raise ValueError(f'Grid budget {max_cells} is below the required minimum '
+                         f'{minimum} ({math.prod(minimum)} cells)')
+    counts = [max(floor, round(length / (spacing * D_h)))
+              for floor, length, spacing in zip(minimum, lengths, (1., .5, .5))]
+    while math.prod(counts) > max_cells:
+        axis = max(range(3), key=lambda i: counts[i] / minimum[i])
+        counts[axis] = max(minimum[axis], int(counts[axis] * .8))
+    return tuple(counts)
 
 
 # ---------------------------------------------------------------- geometry
@@ -106,8 +85,8 @@ def validate_geometry(L_dom: float, H_dom: float, Lz_dom: Optional[float],
       * 3D mode requires ``Lz_dom > 0``
 
     Soft rules (warn):
-      * ``t/L > 0.10`` (training capped at 0.10)
-      * ``t/L < 0.05`` (extrapolation below tested range)
+      * ``(L_cell_mm, t_mm)`` outside the current fixed geometry/D-F grid.
+        Nu and experimental-calibration applicability remain separate checks.
       * ``L_cell_mm > min(L_dom, H_dom) * 1000`` — cell larger than a
         domain dimension means single-cell HX, results untrustworthy.
     """
@@ -122,17 +101,9 @@ def validate_geometry(L_dom: float, H_dom: float, Lz_dom: Optional[float],
                 f'3D mode requires Lz_dom > 0, got {Lz_dom}')
 
     out: List[Warning] = []
-    ratio = t_mm / L_cell_mm
-    if ratio > 0.10:
-        out.append(Warning(
-            'tL_ratio_high',
-            f't/L = {ratio:.3f} > 0.10 — outside training range '
-            f'{{0.05, 0.067, 0.10}}, results extrapolated.'))
-    elif ratio < 0.05:
-        out.append(Warning(
-            'tL_ratio_low',
-            f't/L = {ratio:.3f} < 0.05 — outside training range, '
-            f'results extrapolated.'))
+    geometry_warning = geometry_extrapolation_warning(L_cell_mm, t_mm)
+    if geometry_warning is not None:
+        out.append(geometry_warning)
 
     L_min_mm = min(L_dom, H_dom) * 1000.0
     if is_3d and Lz_dom is not None:
@@ -150,8 +121,10 @@ def validate_geometry(L_dom: float, H_dom: float, Lz_dom: Optional[float],
 
 def geometry_extrapolation_warning(L_cell_mm: float,
                                     t_mm: float) -> Optional[Warning]:
-    """Return a warning if (L, t) lies outside the training Diamond +
-    Gyroid CFD grid, including its interpolated interior; else None.
+    """Check the fixed geometry/D-F grid, including interpolated points.
+
+    This is not the applicability envelope of a Nu correlation or an
+    experimental correction; those are checked by their selected models.
 
     Lighter-weight than full ``validate_geometry`` — used by the live
     UI to flash an inline tip without recomputing every check.
@@ -164,8 +137,9 @@ def geometry_extrapolation_warning(L_cell_mm: float,
         return None
     return Warning(
         'geometry_extrapolation',
-        f'(L={L_cell_mm}, t={t_mm}) outside training grid '
-        f'[{L_train[0]}, {L_train[-1]}] × [{t_train[0]}, {t_train[-1]}] mm.')
+        f'Fixed geometry/D-F: (L={L_cell_mm}, t={t_mm}) outside CFD grid '
+        f'[{L_train[0]}, {L_train[-1]}] × [{t_train[0]}, {t_train[-1]}] mm. '
+        'Nu correlations and experimental corrections have separate applicability limits.')
 
 
 # ---------------------------------------------------------------- physics
@@ -383,7 +357,7 @@ def parse_unit_value(value: float, unit_text: str,
     (``temp_unit``): if ``temp_unit='K'`` the return is Kelvin even if
     the user typed 25 °C. ``target_unit`` is ignored for temp.
     """
-    u = unit_text.strip().lower().replace('·', '').replace('·', '')
+    u = unit_text.strip().lower().replace('·', '')
     if family == 'length':
         if u not in _UNIT_LENGTH:
             return None
@@ -435,7 +409,7 @@ FIELD_UNITS = {
     'le_TinA': ('temp', None), 'le_TinB': ('temp', None),
     # counts (no unit allowed)
     'le_Nx': ('count', None), 'le_Ny': ('count', None),
-    'le_Nz': ('count', None), 'le_mesh_density': ('count', None),
+    'le_Nz': ('count', None),
 }
 
 

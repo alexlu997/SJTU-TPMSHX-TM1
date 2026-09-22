@@ -297,15 +297,7 @@ def _push_sparkline(window, value: float) -> None:
     sl = getattr(window, '_opt_sparkline', None)
     if sl is None:
         return
-    # ui/sparkline.py:Sparkline.push(float) — exact API
-    for method in ('push', 'append', 'add'):
-        fn = getattr(sl, method, None)
-        if callable(fn):
-            try:
-                fn(float(value))
-                return
-            except Exception:
-                pass
+    sl.push(value)
 
 
 def _set_stage_pill(window, key: str, state: str) -> None:
@@ -720,9 +712,15 @@ def run_optimize(window) -> None:
         return
     window._opt_t_start = time.time()
     window._opt_total_evals = n_init + n_iter * q_batch
-    # Phase 2 — reset sparkline mode flag so each launch begins by tracking
-    # best_Q during Sobol init, then flips to HV mode on first BO iter.
+    # Each run and each quantity own a separate history: Q and HV cannot
+    # share an axis because they have different units and scales.
     window._opt_sl_is_hv = False
+    sparkline = getattr(window, '_opt_sparkline', None)
+    caption = getattr(window, '_opt_sparkline_caption', None)
+    if sparkline is not None:
+        sparkline.clear_data()
+    if caption is not None:
+        caption.setText(f"初始采样 · 最优 Q [{'W' if is_3d else 'W/m'}]")
 
     def _on_progress(count, total, best_Q):
         if getattr(window, '_close_pending', False):
@@ -819,28 +817,13 @@ def run_optimize(window) -> None:
     def _on_hv(iter_idx, hv, hv_hist):
         if getattr(window, '_close_pending', False):
             return
-        # Phase 2 — push HV trace to the sparkline (preferred) or surface as
-        # status text. We push individual HV values so the sparkline's
-        # internal ring buffer renders the trace incrementally.
-        try:
-            sl = getattr(window, '_opt_sparkline', None)
-            if sl is not None:
-                # Switch sparkline mode the first time HV arrives so the
-                # user sees the HV trend, not the best_Q sparkline (which
-                # plateaus quickly and is less informative).
-                fn = (getattr(sl, 'set_mode', None)
-                      or getattr(sl, 'set_title', None))
-                if callable(fn) and not getattr(window, '_opt_sl_is_hv', False):
-                    try:
-                        fn('HV')
-                    except TypeError:
-                        pass
-                    window._opt_sl_is_hv = True
-                # The sparkline already has a push() API; the existing
-                # _push_sparkline helper handles it generically.
-                _push_sparkline(window, float(hv))
-        except Exception:
-            pass
+        if not window._opt_sl_is_hv:
+            window._opt_sl_is_hv = True
+            if sparkline is not None:
+                sparkline.clear_data()
+            if caption is not None:
+                caption.setText("贝叶斯优化 · 超体积 HV")
+        _push_sparkline(window, hv)
         # Also surface as status snippet so the user sees the HV value
         # even if the sparkline is hidden.
         try:

@@ -775,7 +775,8 @@ def _build_optimize_panel(window, card_lay, t, theme):
     spark_card.setMinimumWidth(220)
     scl = _VBop(spark_card)
     scl.setContentsMargins(14, 8, 14, 8); scl.setSpacing(2)
-    spark_cap = QLabel("收敛 · 最优 Q / 超体积")
+    spark_cap = QLabel("初始采样 · 最优 Q")
+    window._opt_sparkline_caption = spark_cap
     spark_cap.setStyleSheet(
         f"color:{_sub_fg}; font-size:8pt; font-weight:700;"
         "letter-spacing:1.4px; background:transparent; border:none;"
