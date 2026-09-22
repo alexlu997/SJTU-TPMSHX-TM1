@@ -3,7 +3,7 @@
 逐拓扑独立拟合（与产线 WATER_NU_COEFFS / SCO2_NU_COEFFS 的分拓扑惯例一致）。
 
 用法:
-    python sjtu_tpmshx/validation/sco2_cfd/fit_nu_sco2.py
+    python -m sjtu_tpmshx.validation.sco2_cfd.fit_nu_sco2
 
 数据基底：分段文件第 2/3 周期（入口段剔除），局部体物性由 CoolProp 在
 (P, T_b_local) 重取（`df_surrogate.load_sco2_cfd.load_segments`）。
@@ -40,8 +40,6 @@ b=−0.9 病态）；mu_w/mu_b（corr −0.69）是唯一有独立信息的壁�
 - 各变体在 远临界 / 近临界(|dT_pc|<=2) / 全数据 上的 RMSRE、medAPE
 - LOGO（逐几何留一, V0b 形式）: 几何外推稳健性
 - 压力留一（8/10/12 → 15 MPa, V0b 形式）: 压力外推稳健性
-- 与产线实验拟合 SCO2_NU_COEFFS (0.28·Re^0.75·Pr^(1/3), D-7-6 粗糙件,
-  Re 9k–41k, 远临界) 在重叠窗对照 —— 比值应 ~ SLM 粗糙度增强量级
 
 输出
 ----
@@ -61,7 +59,6 @@ _THIS = Path(__file__).resolve()
 _PKG_ROOT = _THIS.parent.parent.parent          # .../sjtu_tpmshx
 
 from sjtu_tpmshx.df_surrogate.load_sco2_cfd import LATTICES, load_segments  # noqa: E402
-from sjtu_tpmshx.models.nu_correlations import SCO2_NU_COEFFS              # noqa: E402
 
 from sjtu_tpmshx.preprocess.offline.nu_fit import fit_nu_sco2 as _fit
 
@@ -158,19 +155,6 @@ def _run_lattice(tpms: str) -> tuple[pd.DataFrame, pd.DataFrame]:
           f"p95APE {p_hold['p95ape']:.1%}  (训练集系数 a={cf_p['a']:.4f} "
           f"d={cf_p['d']:.4f})")
 
-    # ---- overlap check vs production experimental fit (Diamond only) --
-    if tpms in SCO2_NU_COEFFS:
-        exp = SCO2_NU_COEFFS[tpms]                      # rough, D-7-6 实验
-        ov = far[(far["Re_b"] >= 9000) & (far["Re_b"] <= 41000)]
-        nu_exp = exp["c"] * ov["Re_b"] ** exp["a"] * ov["Pr_b"] ** (1 / 3)
-        ratio = nu_exp / _predict(ov, variants["V0b_all_b13"])
-        print()
-        print("=== 与产线实验拟合对照 (远临界, Re_b 9k–41k 重叠窗, n=%d) ==="
-              % len(ov))
-        print(f"Nu_exp(粗糙,D-7-6) / Nu_CFD拟合(光滑): "
-              f"中位 {ratio.median():.3f}  p05–p95 "
-              f"[{ratio.quantile(.05):.3f}, {ratio.quantile(.95):.3f}]")
-        print("(参考: 空气侧 SLM 粗糙度 Nu 增强因子 = 1.28)")
     return coeffs, logo
 
 

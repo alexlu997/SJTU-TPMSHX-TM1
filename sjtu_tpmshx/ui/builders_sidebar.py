@@ -121,16 +121,14 @@ def refresh_result_sidebar(window):
     if not labels:
         return
     _t = get_theme()
-    chips = getattr(window, '_res_chips', {})
-
-    def _chip(key):
-        w = chips.get(key)
+    def _value(attr):
+        w = getattr(window, attr, None)
         s = w.text().strip() if w is not None else ''
         return s if s and s != '—' else '—'
-    labels['q'].setText(f"{_chip('Q')} {getattr(window, '_result_Q_unit', '')}".strip())
-    labels['dpa'].setText(_chip('dPA'))
-    labels['dpb'].setText(_chip('dPB'))
-    labels['tout'].setText(f"{_chip('ToutA')} / {_chip('ToutB')}")
+    labels['q'].setText(f"{_value('_r_Q')} {getattr(window, '_result_Q_unit', '')}".strip())
+    labels['dpa'].setText(_value('_r_dP_A'))
+    labels['dpb'].setText(_value('_r_dP_B'))
+    labels['tout'].setText(f"{_value('_r_ToutA')} / {_value('_r_ToutB')}")
 
     d = getattr(window, '_diag_summary', None) or {}
     mode = d.get('mode')

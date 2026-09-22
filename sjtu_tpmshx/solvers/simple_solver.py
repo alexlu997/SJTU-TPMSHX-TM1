@@ -11,7 +11,7 @@ All inner loops are Numba-compiled for speed (~50-100x vs pure Python).
 Physics (velocity; header re-verified against kernels 2026-07-06 — the old
 friction-factor resistance form and its kernel no longer exist, D-F is the
 only closure):
-  du/dx + dv/dy = 0                                         (continuity)
+  div(eps rho U) = 0                              (mass continuity)
   rho(u du/dx + v du/dy) = -dP/dx + mu_eff nabla^2 u - Rx  (x-momentum)
   rho(u dv/dx + v dv/dy) = -dP/dy + mu_eff nabla^2 v - Ry  (y-momentum)
   Rx = (mu/K + rho c_F |U|) u,  Ry = (mu/K + rho c_F |U|) v
@@ -225,11 +225,7 @@ class SIMPLESolver:
                  wall_first_cell=0.02e-3,
                  df_method=None,
                  dx_arr=None, dy_arr=None, K_arr=None, cF_arr=None,
-                 uniform_inlet=False,
-                 **_legacy_kw):
-        # Historical 'closure' kwarg is accepted but ignored; ConstDF-v1 D-F
-        # is the only closure since 2026-04-19 f-Re cleanup.
-        _legacy_kw.pop('closure', None)
+                 uniform_inlet=False):
         # Mass-flux inlet reference density (kg/m³): the physical inlet density
         # ρ(T_in, P_in) the caller used to convert ṁ → v_inlet. With the
         # mass-flux inlet on, the pinned inlet mass flux is G = v_inlet ·

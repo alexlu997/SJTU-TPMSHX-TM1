@@ -243,16 +243,16 @@ def test_started_signal_edits_happen_after_config_and_snapshot(run_window, monke
     assert len(win._recent_runs) == 1
 
 
-def test_summary_compares_immediately_previous_success(run_window, monkeypatch):
+def test_footer_and_history_follow_each_successful_result(run_window, monkeypatch):
     win = run_window
     win.combo_dim.setCurrentIndex(0)
-    for value, delta in ((100, ''), (120, '↑20.0%'), (180, '↑50.0%')):
+    for value in (100, 120, 180):
         win.auto_fill_fluid_a()
         win.auto_fill_fluid_b()
         monkeypatch.setattr(Pipeline2D, 'run', lambda pipe: ComputeResult(Q_W=value))
         win.run_calculation()
         _wait_for(win.compute.is_idle)
-        assert win._res_chips['Q']._delta_label.text() == delta
+        assert win._sb_labels['q'].text() == f'{value} W/m'
     assert [entry['Q'] for entry in win._recent_runs] == ['180', '120', '100']
 
 

@@ -657,7 +657,7 @@ class RunControllerMixin:
     def _end_compute_ui(self, success):
         """Restore Compute button and either fade out progress (success) or
         hide immediately (failure). On success also refreshes the headline
-        result summary bar from the detail-value labels.
+        result footer from the published detail-value labels.
 
         Called after terminal publication; stops the UI tickers and restores
         the Compute action. The orchestrator stays busy until its slots return.
@@ -730,17 +730,10 @@ class RunControllerMixin:
             # D8 — stamp provenance tooltip on every result label so users
             # can trace "where did this number come from" without guessing.
             self._stamp_result_provenance(elapsed)
-            # Stop the live-residual sparkline timer + hide widget.
-            # Micro-anim polish: pulse the result chips + floating toast.
+            # Notify completion; result values are published in the footer.
             try:
                 from sjtu_tpmshx.ui.microanim import pulse_glow, toast
                 from sjtu_tpmshx.ui.theme import get_theme as _gt
-                for key in ('Q', 'dPA', 'dPB'):
-                    chip = self._res_chips.get(key) if hasattr(
-                        self, '_res_chips') else None
-                    if chip is not None:
-                        pulse_glow(chip,
-                                    blur_peak=20, duration_ms=550)
                 toast(self, f"Compute done · {_fmt_dur(elapsed)}", kind='success')
                 # If the user is still on Geometry, pulse the visible result tab.
                 if getattr(self, '_active_tab', None) == 'layout':

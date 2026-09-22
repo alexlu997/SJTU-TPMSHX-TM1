@@ -61,7 +61,7 @@ class RunResultsMixin:
         # indistinguishably from a good one.
         if not getattr(result, 'converged', True):
             _nc_msg = ("求解未收敛 — Q/ΔP 来自未收敛场，仅供参考"
-                       "（提高 max_iter、放宽 tol 或加密网格后重算）。")
+                       "（请查看诊断，核对工况、网格与迭代预算后重算）。")
             if _nc_msg not in result.warnings:
                 result.warnings.insert(0, _nc_msg)
         from copy import deepcopy
@@ -171,102 +171,12 @@ class RunResultsMixin:
             self._zone_boundaries_y = None
 
     def _update_result_summary(self):
-        """Mirror the headline numbers from the detail result labels into the
-        prominent canvas-top summary bar. No-op if the bar was not built.
-
-        Pro-Max upgrade: each chip compares against the previous successful
-        run (stored in `_recent_runs[1]` — index 0 is the run just pushed
-        by `_end_compute_ui`). Positive deltas green for Q (more heat is
-        better), negative deltas green for ΔP (lower drop is better).
-        Neutral gray when no prior run exists or values are identical.
-        """
-        if not hasattr(self, '_res_chips') or not hasattr(self, '_result_summary_bar'):
-            return
-        chips = self._res_chips
-        def _get(attr):
-            w = getattr(self, attr, None)
-            if w is None:
-                return None
-            t = w.text().strip()
-            return t if t and t != '—' else None
-
-        # Direction: which way is "good"?  "up" → green when increased.
-        pairs = [
-            ('Q',     '_r_Q',     'up',      'Q'),
-            ('dPA',   '_r_dP_A',  'down',    'dP_A'),
-            ('dPB',   '_r_dP_B',  'down',    'dP_B'),
-            ('ToutA', '_r_ToutA', 'neutral', 'ToutA'),
-            ('ToutB', '_r_ToutB', 'neutral', 'ToutB'),
-        ]
-
-        prev = None
-        recents = getattr(self, '_recent_runs', None)
-        if recents is not None and len(recents) >= 2:
-            prev = recents[1]  # index 0 is the run we just finalised
-
-        from sjtu_tpmshx.ui.theme import get_theme as _gt
-        _t = _gt()
-        _up_good = _t.get('accent_green', '#22C55E')
-        _bad = _gt().get('err_soft', '#F87171')
-        _neutral = _t.get('sub_fg', '#94A3B8')
-
-        for key, attr, direction, rec_key in pairs:
-            chip = chips.get(key)
-            if chip is None:
-                continue
-            v = _get(attr)
-            if not v:
-                chip.setText('—')
-                # Clear any previously rendered delta label.
-                _dl = getattr(chip, '_delta_label', None)
-                if _dl is not None:
-                    _dl.setText('')
-                continue
-            chip.setText(v)
-            _dl = getattr(chip, '_delta_label', None)
-            if key == 'Q' and prev is not None and prev.get('Q_unit') != getattr(self, '_result_Q_unit', None):
-                if _dl is not None:
-                    _dl.setText('')
-                continue
-            if _dl is None or prev is None or direction == 'neutral':
-                if _dl is not None:
-                    _dl.setText('')
-                continue
-            try:
-                cur_f = float(v)
-                prev_txt = (prev.get(rec_key) or '').strip()
-                prev_f = float(prev_txt)
-                if abs(prev_f) < 1e-12:
-                    _dl.setText('')
-                    continue
-                pct = (cur_f - prev_f) / abs(prev_f) * 100.0
-                arrow = '↑' if pct > 0 else ('↓' if pct < 0 else '·')
-                good = (direction == 'up' and pct > 0) or \
-                       (direction == 'down' and pct < 0)
-                col = _up_good if good else (_bad if abs(pct) > 1e-3 else _neutral)
-                _dl.setText(f"{arrow}{abs(pct):.1f}%")
-                _dl.setStyleSheet(
-                    f"color:{col}; font-size:8pt; font-weight:bold;"
-                    "background:transparent; border:none; padding-left:4px;")
-            except Exception:
-                _dl.setText('')
-        # UI report 2026-05-07 issue #5: the headline summary chips (Q /
-        # ΔP A / ΔP B / T_out A / T_out B) are redundant with the detail
-        # result frame on the Geometry page (build_page_domain). Suppress
-        # the chip strip when the user is on the Geometry tab — it adds
-        # value as a persistent reminder on Temperature/Pressure/Velocity/
-        # 3D tabs where the inputs aren't visible.
-        # ui-plan3-workbench T2: the horizontal chip strip is RETIRED — the
-        # sidebar's 本次结果 card shows the same data next to the field.
-        # Chips stay alive as the data carriers this method writes.
-        self._result_summary_bar.setVisible(False)
-        try:
-            from sjtu_tpmshx.ui.builders_canvas import (refresh_result_sidebar,
-                                            update_result_sidebar_visibility)
-            refresh_result_sidebar(self)
-            update_result_sidebar_visibility(self)
-        except Exception:
-            pass
+        """Refresh the visible footer from the published result labels."""
+        from sjtu_tpmshx.ui.builders_sidebar import (
+            refresh_result_sidebar, update_result_sidebar_visibility,
+        )
+        refresh_result_sidebar(self)
+        update_result_sidebar_visibility(self)
 
     def _diag_summary_text(self):
         """Plain-text diagnostics block (ui-plan3-workbench T3) — pasteable
