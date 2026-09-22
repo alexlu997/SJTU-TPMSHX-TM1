@@ -140,7 +140,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         # First-run guidance. Deferred 1.2 s after showMaximized so the window
         # is already on screen when the overlay appears.
         from PySide6.QtCore import QTimer as _QT
-        _QT.singleShot(1200, self._maybe_show_onboarding)
+        _QT.singleShot(1200, self, self._maybe_show_onboarding)
         self._apply_shanghai_defaults()
         # Restore the last-used field state on top of the Shanghai baseline
         # so returning users see exactly what they had, while the Reset
@@ -332,7 +332,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
                     5000)
                 return
             self.statusBar().showMessage("3D viewer ready.", TOAST_MS_BRIEF)
-        QTimer.singleShot(500, _preinit)
+        QTimer.singleShot(500, self, _preinit)
 
     def _schedule_tpms_geometry_prewarm(self):
         """Warm the current TPMS geometry cache off the UI thread.
@@ -376,7 +376,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
                 target=_worker, name="tpms-geometry-prewarm",
                 daemon=True).start()
 
-        QTimer.singleShot(900, _start)
+        QTimer.singleShot(900, self, _start)
 
 
     # ─────────────────────────────────────────────────────────

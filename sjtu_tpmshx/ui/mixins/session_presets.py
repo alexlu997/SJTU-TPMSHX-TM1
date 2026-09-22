@@ -605,7 +605,7 @@ class SessionPresetsMixin:
             self._validate_preset(payload)
         except (TypeError, ValueError) as error:
             message = f"{error}\n已保留当前工况。"
-            QTimer.singleShot(0, lambda: QMessageBox.warning(
+            QTimer.singleShot(0, self, lambda: QMessageBox.warning(
                 self, "会话未恢复", message))
             return
 
@@ -639,7 +639,7 @@ class SessionPresetsMixin:
         restored['temp_unit'] = 'K'
         self._apply_user_preset(restored, show_notice=False)
         if notice:
-            QTimer.singleShot(0, lambda: QMessageBox.information(
+            QTimer.singleShot(0, self, lambda: QMessageBox.information(
                 self, "工况设置已更新", notice))
         # Restore window geometry / dock state last so it doesn't fight the
         # `showMaximized()` the constructor already called. Pass-through:

@@ -258,7 +258,7 @@ def test_polygon_session_does_not_partially_restore(win, monkeypatch, shape):
     old['line_edits']['le_L'] = '0.333'
     monkeypatch.setattr(win.sm, 'load_session', lambda *args: old)
     callbacks, notices = [], []
-    monkeypatch.setattr(QTimer, 'singleShot', lambda interval, callback: callbacks.append(callback))
+    monkeypatch.setattr(QTimer, 'singleShot', lambda interval, owner, callback: callbacks.append(callback))
     monkeypatch.setattr(QMessageBox, 'warning', lambda *args: notices.append(args[2]))
     win._restore_session()
     assert win._capture_current_preset('current') == before
@@ -266,6 +266,45 @@ def test_polygon_session_does_not_partially_restore(win, monkeypatch, shape):
     callbacks[0]()
     assert len(notices) == 1 and DOMAIN_SHAPE_NOTICE in notices[0]
     assert '保留当前' in notices[0]
+
+
+@pytest.mark.parametrize('notice', ['information', 'warning'])
+@pytest.mark.parametrize('delete_before_delivery', [False, True])
+def test_deferred_session_notice_follows_window_lifetime(
+        tmp_path, monkeypatch, notice, delete_before_delivery):
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from PySide6.QtWidgets import QApplication, QMessageBox
+    from shiboken6 import isValid
+    from sjtu_tpmshx.controllers import session_manager
+    from sjtu_tpmshx.main import Main_Menu
+
+    original_init = session_manager.SessionManager.__init__
+    monkeypatch.setattr(session_manager.SessionManager, '__init__',
+                        lambda self, parent=None: original_init(
+                            self, base_dir=tmp_path, parent=parent))
+    window = Main_Menu()
+    assert window.sm.base_dir == tmp_path
+    payload = {'checks': {'chk_var_rhocp': False}}
+    if notice == 'warning':
+        payload = {'combos': {'combo_shape': 1}}
+    monkeypatch.setattr(window.sm, 'load_session', lambda *_: payload)
+    messages = []
+    monkeypatch.setattr(QMessageBox, notice, lambda *args: messages.append(args[1:]))
+    try:
+        window._restore_session()
+        assert not messages  # The notification is deferred, not synchronous.
+        if delete_before_delivery:
+            window.close()
+            window.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+            assert not isValid(window)
+        QApplication.processEvents()
+        assert len(messages) == (0 if delete_before_delivery else 1)
+    finally:
+        if isValid(window):
+            window.close()
+            window.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 def test_old_rectangular_file_with_unused_mesh_field_remains_loadable(
@@ -637,7 +676,7 @@ def test_legacy_session_without_zone_data_disables_and_clears_stale_zones(win, m
     old['combos'].pop('combo_zone_axis')
     callbacks, messages = [], []
     monkeypatch.setattr(win.sm, 'load_session', lambda ws: old)
-    monkeypatch.setattr(QTimer, 'singleShot', lambda interval, callback: callbacks.append(callback))
+    monkeypatch.setattr(QTimer, 'singleShot', lambda interval, owner, callback: callbacks.append(callback))
     monkeypatch.setattr(QMessageBox, 'information', lambda *args: messages.append(args[2]))
     win._restore_session()
     assert not win.chk_zones.isChecked() and win.zone_table.rowCount() == 0
@@ -953,7 +992,7 @@ def test_session_restore_reports_solver_update_and_resave_removes_repeat(win, mo
     old['checks']['chk_uniform_inletB_2d'] = False
     monkeypatch.setattr(win.sm, 'load_session', lambda *args: old)
     callbacks = []
-    monkeypatch.setattr(QTimer, 'singleShot', lambda interval, callback: callbacks.append((interval, callback)))
+    monkeypatch.setattr(QTimer, 'singleShot', lambda interval, owner, callback: callbacks.append((interval, callback)))
     messages = []
     monkeypatch.setattr(QMessageBox, 'information', lambda *args: messages.append(args[2]))
     win._restore_session()
