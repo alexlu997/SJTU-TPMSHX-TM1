@@ -65,6 +65,8 @@ def test_discrete_geometry_uses_final_physical_cell_centres(mode):
 
 def test_continuous_geometry_is_resampled_on_nonuniform_cells(monkeypatch, tmp_path):
     from sjtu_tpmshx.models import sigmoid_field
+    from sjtu_tpmshx.models.tpms_props import geometry
+    from sjtu_tpmshx.df_surrogate.predict import predict_K_cF_vec
     # A small real LUT is sufficient to test coordinate transport, not LUT accuracy.
     lut = sigmoid_field.GeometryLUT('Gyroid', n_L=2, n_t=2, N=16, cache_dir=tmp_path)
     monkeypatch.setattr(sigmoid_field, 'get_geometry_lut', lambda *a, **k: lut)
@@ -83,6 +85,29 @@ def test_continuous_geometry_is_resampled_on_nonuniform_cells(monkeypatch, tmp_p
     indexed = sigmoid_field.sigmoid_field_2d(U, V, ctrl[0], ctrl[1], 7., .2, .2, .05, .02)
     assert np.max(np.abs(expected - indexed)) > .01
     assert case.parameters['thermal_geometry']['fields'] is not None
+
+    # The same physical cells also feed SIMPLE's streamwise drag. Derive the
+    # expected rows directly: transverse length-weighted means, then reverse
+    # B's rows because its inlet is at real y=H. Source and solver cells match,
+    # so a second uniform-index resampling must not move these row values.
+    t_ctrl = decision[1::2].reshape(2, 3, 3)
+    expected_t = sigmoid_field.sigmoid_field_2d(
+        XF, YF, t_ctrl[0], t_ctrl[1], .4, .2, .2, .05, .02)
+    np.testing.assert_allclose(case.design_fields['t_field_m'], expected_t * 1e-3)
+    for side, axis, widths in (('A', 1, case.grid['dy']),
+                               ('B', 0, case.grid['dx'])):
+        row_L = np.average(expected, axis=axis, weights=widths)
+        row_t = np.average(expected_t, axis=axis, weights=widths)
+        if side == 'B':
+            row_L, row_t = row_L[::-1], row_t[::-1]
+        row_eps_f = np.array([
+            geometry('Gyroid', cell, wall, 16.)['epsilon'] / 2.
+            for cell, wall in zip(row_L, row_t)])
+        expected_K, expected_cF = predict_K_cF_vec(
+            'Gyroid', row_L, row_t, row_eps_f)
+        flow = case.parameters['flow_inputs'][side]
+        np.testing.assert_allclose(flow['K_m2'], expected_K, rtol=1e-12, atol=0.)
+        np.testing.assert_allclose(flow['cF_per_m'], expected_cF, rtol=1e-12, atol=0.)
 
 
 def test_zoned_si_handoff_feeds_local_thermal_kernel(monkeypatch, tmp_path):

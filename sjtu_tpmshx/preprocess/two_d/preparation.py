@@ -314,7 +314,9 @@ def _prepare_flow_inputs(cfg, dx, dy):
         elif za is not None:
             fluid = 'A' if is_x else 'B'
             if za['axis'] == 'continuous':
-                K, cF = project_fields_to_streamwise_K_cF(za['L_field'], za['t_field'], tpms, cfg['k_s'], count, fluid, streamwise_dx=stream)
+                K, cF = project_fields_to_streamwise_K_cF(
+                    za['L_field'], za['t_field'], tpms, cfg['k_s'], count,
+                    fluid, streamwise_dx=stream, source_grid=(dx, dy))
             elif za.get('grid_cells'):
                 K, cF = project_cells_to_streamwise_K_cF(
                     za['grid_cells'], tpms, cfg['k_s'], count, fluid, streamwise_dx=stream)
