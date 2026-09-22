@@ -25,6 +25,17 @@ GCI 当前使用 T2 和 T4（偏置局部开口、无 B 侧实验修正）。历
 不可验收，不代入假定二阶。C.3 容差敏感性失败也使工具返回非零。
 守恒审计的 T1 使用两侧同向流，旧交叉流 T1 表不作为该工况参考；质量偏差按
 实际入口/出口通量报告，不以温度变化抵扣。诊断失败保留在输出中并返回非零。
+当前守恒判定使用所有控制体和物理入口面的 strict 全局/逐格残差门（均<1%），
+缺失或非有限证书判失败；源项耦合与质量检查分别保留。旧的删首末层5%启发式门
+和用单元温度猜端口的表面预算已退役；历史CSV与原失败保持原样。
+这些数值守恒判据不等同于实验精度验收。
+
+上海独立lumped双Nu比较仍以crossflow为主、counterflow为敏感性对照。
+`python -m sjtu_tpmshx.validation.cases.validate_shanghai_lumped_dual_nu`
+默认将CSV及来源元数据写入新的`.cache/validation/shanghai-lumped-dual-nu-*`，
+也可用`--out-dir`指定目录，不再覆盖`data/shanghai_lumped_dual_nu.csv`。
+`benchmark_sou_3d`的压降使用当前`pressure_face_v1`物理面外推定义，
+旧单元中心压降输出只保留其历史口径。
 
 | 工具 | 输入 → 输出 | 运行方式与状态 |
 | --- | --- | --- |
@@ -35,7 +46,7 @@ GCI 当前使用 T2 和 T4（偏置局部开口、无 B 侧实验修正）。历
 | [CFD 工况清单](../sjtu_tpmshx/runs/tools/asym_build_cfd_worklist_xlsx.py) → [nTop 表达式](../sjtu_tpmshx/runs/cfd_asym/asym_ntop_expressions_html.py) | 内置几何/流体 + 可选私有 `water_DG_cfd_results_legacy.xlsx` → XLSX → HTML | 顺序运行下方两条命令；两个工具共用输出目录。旧工作簿由本地数据目录提供；缺文件时 `r1_water_ref` 页保留跳过说明，不补造锚点 |
 | [asym CFD/诊断工具](../sjtu_tpmshx/runs/cfd_asym/)、[diagnostics/](../sjtu_tpmshx/runs/diagnostics/) | 脚本声明的几何、场/CFD 文件 → 研究结果 | `python -m sjtu_tpmshx.runs.<子目录>.<模块名>`；Fluent/vault 等外部依赖按各工具声明，未作为默认安装或本轮运行能力 |
 | [scripts/](../scripts/) | 已配置环境/测试选择 → 测试日志 | 两个 PowerShell 测试入口；仓库路径取脚本位置，解释器读取 `.venv-path`，`-LockFile` 选择依赖锁，不自动安装依赖 |
-| [D76 Nu 验证](../sjtu_tpmshx/validation/cases/validate_sco2_d76.py) | 6 个固定 D-7-6 工况/私有 Excel → Q 对照 | `python -m sjtu_tpmshx.validation.cases.validate_sco2_d76`；保留原 15% 最大误差门槛，退出码 0 通过、1 未通过 |
+| [D76 Nu/ε-NTU 历史Q比较](../sjtu_tpmshx/validation/cases/validate_sco2_d76.py) | 6 个固定 D-7-6 工况/私有 Excel → smooth-CFD Nu + lumped Q 对照 | `python -m sjtu_tpmshx.validation.cases.validate_sco2_d76`；保留原15%最大绝对相对Q误差门，退出码0通过、1未通过；不验证当前有效Nu系数 |
 | [水 Nu 现存表验证](../sjtu_tpmshx/validation/cases/validate_water_nu_excel.py) | 1879 条 legacy 水 CFD 结果 → 逐行、拓扑、几何、Re 分段误差 | `python -m sjtu_tpmshx.validation.cases.validate_water_nu_excel --out .cache/water-nu-validation`；固定现行关联式，退出码 0 通过、2 精度未通过，数据错误直接报错 |
 | [现行实验修正](../sjtu_tpmshx/validation/df_refit/fit_experimental_effective.py)、[跨数据集 cF 对照](../sjtu_tpmshx/validation/df_refit/cf_cross_fluid.py) | 实验原表 + 当前固定 CFD 基线 → `.cache/reports/df_refit/` 审查 CSV | `python -m sjtu_tpmshx.validation.df_refit.<模块名>`；共享 `validation/hx_experiments.py` 读取，不依赖旧 γ/RBF 拟合或六张旧系数表，不更新生产系数 |
 | [sCO2 CFD 基础 Nu 拟合](../sjtu_tpmshx/validation/sco2_cfd/fit_nu_sco2.py) | 原 CFD 表 → 基础式研究拟合、几何/压力留一结果 | `python -m sjtu_tpmshx.validation.sco2_cfd.fit_nu_sco2`；保留原数据清洗与验证，不自动覆盖现行有效系数；旧实验锚定工具已移至[历史入口](history/legacy-models.md#sco2-nu-旧锚定路线2026-09-20) |
@@ -79,6 +90,10 @@ python -m sjtu_tpmshx.runs.smokes.smoke_ui_screenshots --output .cache/ui-smoke-
 新的 sCO₂ 有效系数通过 `sco2_effective_nu_config()` 或 GUI 显式选择，原
 `fit_nu_correction`/`nu_bytemp_report` 不再作为现行重算入口；仅换 Nu JSON
 不会自动重建严格求解设置或旧固定 manifest。
+
+`validation.sco2_exp.load_sco2_exp`共享加载器仅保留实测端点焓/Q、热平衡与质量标记、
+均温物性/Re及阻力约化量。用两流均温中点构造壁温的h/Nu、`ok_dT`及其旧CLI汇总
+已退役；原始测量没有改变，也没有把该历史分母替换为另一种换热系数定义。
 
 上海生产验证的端口/壁面网格由同一构造函数生成，网格数包含所有加密单元。
 二维入口采用 `84×24`；三维无显式网格参数时采用 `92×14×10`。

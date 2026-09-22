@@ -47,6 +47,7 @@ def test_gauge_conversion_endpoint_reference_and_cached_fields(
     monkeypatch.setattr(loader, "tpms_geometry", lambda *args: {"D_h": .002})
 
     result = loader.load_exp(topology).set_index("side")
+    assert not {'h', 'Nu', 'T_wall_K', 'T_other_K', 'dT_streams_K', 'ok_dT'} & set(result)
     assert len(result) == 2  # A reversed stream remains visible and flagged.
     for side, pressure, mdot, cached_q in (
             ("hot", 9., .1, 1.25), ("cold", 10., .12, 1.3)):
@@ -58,6 +59,9 @@ def test_gauge_conversion_endpoint_reference_and_cached_fields(
         assert row.P_mean_Pa == pytest.approx((pressure - .05) * 1e6 + 101325)
         assert row.Pin_abs_Pa - row.Pout_abs_Pa == pytest.approx(row.dP_MPa * 1e6)
         assert row.mdot == mdot
+        assert row.T_mean_K == pytest.approx((row.Tin_C + row.Tout_C) / 2 + 273.15)
+        assert row.Re == pytest.approx(row.rho * row.u * .002 / row.mu)
+        assert row.f == pytest.approx(.1e6 * .002 / (.182 * .5 * row.rho * row.u**2))
         assert row.hin_cached_kJ_kg == 500.
         assert row.hout_cached_kJ_kg == 510.
         assert row.Q_cached_kW == cached_q

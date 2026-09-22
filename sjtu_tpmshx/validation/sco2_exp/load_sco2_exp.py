@@ -18,20 +18,17 @@
     u           间隙流速 = ṁ / (ρ̄ · A_flow)（A_flow = 表内硬件流通面积）
     Re          ρ̄·u·Dh/μ̄
     f (Darcy)   ΔP·Dh / (L·ρ̄·u²/2)
-    壁温        T_w = (T̄_hot + T̄_cold)/2（与 D-7-6 历史分析同款构造 ——
-                Nu ∝ 1/ΔT_streams, ΔT 小时爆伪影, 拟合前须过滤）
-    h           Q_side / (A_heat · |T̄_side − T_w|),  Nu = h·Dh/k̄
+
+不从两流均温构造壁温或派生 h/Nu；测量列不足以确定该换热系数分母。
 
 加载先按 mdot、Tin_C、Tout_C、Q_kW、dP_MPa 关键列执行 dropna。
 对完成前置清洗的行只添加以下质量旗标，不再据旗标删行；下游按用途选：
     ok_dp   ΔP > 0（负压差 = 坏点, 用户裁决 2026-07-15 剔除）
-    ok_dT   ΔT_streams = |T̄_h − T̄_c| > 10 K（Nu 构造伪影阈, 历史惯例）
     ok_hb   |热平衡| ≤ 0.15
     ok_done 完成情况列非 作废/重做（含“需重做”）
 """
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -79,7 +76,6 @@ _MAPS = {
     ),
 }
 
-_DT_MIN_K = 10.0        # Nu 伪影过滤阈（历史 D-7-6 惯例）
 _HB_MAX = 0.15
 _K_S_DEFAULT = 16.0
 
@@ -142,7 +138,7 @@ def load_exp(topo: str = "Diamond") -> pd.DataFrame:
         return out
 
     hot, cold = side_frame("hot"), side_frame("cold")
-    # 壁温构造需要对侧均温 → 先算两侧均温再并
+    # 各侧实测端点用于焓差；该侧均温均压仅用于约化物性。
     for s in (hot, cold):
         s["T_mean_K"] = (s["Tin_C"] + s["Tout_C"]) / 2 + 273.15
         s["Pin_abs_Pa"] = s["Pin_MPa"] * 1e6 + P_atm
@@ -155,8 +151,6 @@ def load_exp(topo: str = "Diamond") -> pd.DataFrame:
     hot["Q_kW"] = hot["mdot"] * (hot["hin_J_kg"] - hot["hout_J_kg"]) / 1e3
     cold["Q_kW"] = cold["mdot"] * (cold["hout_J_kg"] - cold["hin_J_kg"]) / 1e3
     hot["HB"] = cold["HB"] = (cold["Q_kW"] - hot["Q_kW"]) / hot["Q_kW"]
-    hot["T_other_K"], cold["T_other_K"] = (cold["T_mean_K"].values,
-                                           hot["T_mean_K"].values)
     df = pd.concat([hot, cold], ignore_index=True)
     df = df.dropna(subset=["mdot", "Tin_C", "Tout_C", "Q_kW", "dP_MPa"])
     df = df.reset_index(drop=True)
@@ -172,14 +166,8 @@ def load_exp(topo: str = "Diamond") -> pd.DataFrame:
     df["Re"] = df["rho"] * df["u"] * Dh / df["mu"]
     df["f"] = (df["dP_MPa"] * 1e6) * Dh / (L_ch * 0.5 * df["rho"]
                                            * df["u"] ** 2)
-    df["T_wall_K"] = 0.5 * (df["T_mean_K"] + df["T_other_K"])
-    df["dT_streams_K"] = (df["T_mean_K"] - df["T_other_K"]).abs()
-    dT_wall = (df["T_mean_K"] - df["T_wall_K"]).abs()      # = ΔT_streams/2
-    df["h"] = df["Q_kW"].abs() * 1e3 / (A_heat * dT_wall)
-    df["Nu"] = df["h"] * Dh / df["k"]
 
     df["ok_dp"] = df["dP_MPa"] > 0
-    df["ok_dT"] = df["dT_streams_K"] > _DT_MIN_K
     df["ok_hb"] = df["HB"].abs() <= _HB_MAX
     df["ok_hb_cached"] = df["HB_cached"].abs() <= _HB_MAX
     df["ok_heat_flow"] = np.isfinite(df["Q_kW"]) & (df["Q_kW"] > 0)
@@ -203,21 +191,7 @@ def load_exp(topo: str = "Diamond") -> pd.DataFrame:
     _log.info(
         f"load_exp[{topo}]: {len(df)} 行 ({df['case'].nunique()} 工况×2 侧), "
         f"Dh repo {Dh*1e3:.3f} mm vs 表内 {Dh_sheet*1e3:.3f} mm; "
-        f"过滤旗标 dp/dT/hb/done 通过率 "
-        f"{df['ok_dp'].mean():.0%}/{df['ok_dT'].mean():.0%}/"
+        f"过滤旗标 dp/hb/done 通过率 "
+        f"{df['ok_dp'].mean():.0%}/"
         f"{df['ok_hb'].mean():.0%}/{df['ok_done'].mean():.0%}")
     return df
-
-
-if __name__ == "__main__":
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-    except AttributeError:
-        pass
-    for topo in ("Diamond", "Gyroid"):
-        df = load_exp(topo)
-        ok = df[df.ok_dp & df.ok_dT & df.ok_hb & df.ok_done]
-        print(f"[{topo}] 全 {len(df)} 行 → 全过滤后 {len(ok)} 行")
-        print(ok.groupby("side")[["Re", "Pr", "Nu", "f", "dT_streams_K"]]
-              .agg(["min", "median", "max"]).round(3).to_string())
-        print()

@@ -1,19 +1,19 @@
 """3D LTNE conservation audit of the current model on synthetic T1–T6 cases.
 
-Verifies the 3D solver against the conservation contract spec at
-`vault/reports/3d-solver/2026-05-04-3d-conservation-spec-CN.md`.
+Checks the existing strict discrete certificate and retains the other audit
+diagnostics. Historical reports keep their original conservation definitions.
 
 Conservation diagnostic blocks:
 
-  Phase 2a — volumetric ε_α                  (per-phase 1st-law residual)
-      LHS_α = ∮_∂Ω F_α·n dA       (advective + diffusive surface integral)
-      RHS_α = ∫_Ω S_α dV          (LTNE source volume integral)
-      ε_α   = |LHS − RHS| / max(|LHS|, |RHS|)
-      Historical full-surface specification: ε_α < 1.0 % per phase,
-      ε_total < 0.5 % for LTNE 3-phase sum. These surface quantities are
-      distinct from the interior kernel diagnostic implemented below.
-      The existing implemented interior gates remain ε_A/B_kernel < 5 %
-      and ε_LTNE < 1 %; passing them does not certify the surface spec.
+  Phase 2a — current full-control-volume discrete energy certificate
+      Reuses the solver's global and maximum-cell residuals, including
+      physical inlet face advection and half-cell Dirichlet diffusion.
+      Both residuals must be < 1 % per active fluid, as in the retained
+      strict-conservation tests. The full-volume LTNE source balance keeps
+      its < 1 % gate. Missing/nonfinite certificates fail.
+      The former 5 % interior-layer heuristic and guessed-temperature-mask
+      surface budget are retired; old reports retain their original meaning.
+      This is a numerical certificate, not independent experimental validation.
 
   Phase 2c — per-cell mass-imbalance audit (H3 test)
       Computes per-cell NET_OUT_α = Σ_face F_face_advective_α and the
@@ -179,219 +179,50 @@ CASES = {
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# Phase 2a — volumetric ε_α (LHS surface integral vs RHS volume integral)
+# Phase 2a — full-CV discrete energy certificate
 # ──────────────────────────────────────────────────────────────────────────
 
-def _real_inlet_dir_face_index(dir_real, shape):
-    """Return (axis, idx) for the REAL inlet boundary cell layer."""
-    Nx, Ny, Nz = shape
-    return {0: (0, 0), 1: (0, Nx-1), 2: (1, 0),
-            3: (1, Ny-1), 4: (2, 0), 5: (2, Nz-1)}[dir_real]
+def compute_phase2a(res):
+    """Consume the existing strict certificate and actual model-h face ledger.
 
-
-def _real_outlet_dir_face_index(dir_real, shape):
-    Nx, Ny, Nz = shape
-    return {0: (0, Nx-1), 1: (0, 0), 2: (1, Ny-1),
-            3: (1, 0), 4: (2, Nz-1), 5: (2, 0)}[dir_real]
-
-
-def _slice_at(axis, idx, shape):
-    """Return a slice tuple for cells on the boundary face."""
-    Nx, Ny, Nz = shape
-    s = [slice(None), slice(None), slice(None)]
-    s[axis] = slice(idx, idx+1)
-    return tuple(s)
-
-
-def compute_phase2a_interior(res):
-    """Phase 2a — interior 1st-law residual ε_α using BC-excluded volume.
-
-    The FVM equation `ε·ρ·cp·u·∇T − ∇·(K·∇T) = h_v·(Ts−T)` is solved on
-    cells where T is NOT pinned. At inlet-mask cells T = T_in (Dirichlet,
-    no FVM update); at outlet 1-cell layer T = T_neighbor (Neumann pinning).
-    Including those cells in the volume integral over-counts by the "fake
-    BC source" h_v·(Ts−T_pinned)·V. The fair conservation check is over
-    INTERIOR cells only.
-
-    Metric:
-      ε_A_kernel = |Q_enth_A − |Q_sA_interior|| / max(...)
-      ε_B_kernel = |Q_enth_B − Q_sB_interior|     / max(...)
-      ε_LTNE     = |Q_sA + Q_sB|                  / max(|Q_sA|, |Q_sB|)
-
-    Q_enth uses the LTNE-effective face flux (`m_dot_α_simple`) and the
-    flux-weighted T_α_out — i.e. the kernel's own "what mass carried out"
-    integral. Q_s_interior is the existing pre-computed BC-excluded sum.
+    The thermal operator owns its final-state face masks, advective fluxes and
+    half-cell inlet diffusion. T5 uses the capacity-temperature operator and
+    has no model-h ledger; its active-fluid strict certificate still applies.
+    Rebuilding a budget from cell-centred velocities or guessed masks is not
+    equivalent to either discrete operator.
     """
-    Q_enth_A = abs(float(res.get('Q_enthalpy_A', 0.0)))
-    Q_enth_B = abs(float(res.get('Q_enthalpy_B', 0.0)))
-    Q_sA = float(res.get('Q_sA', 0.0))
-    Q_sB = float(res.get('Q_sB', 0.0))
-    Q_sA_int = float(res.get('Q_sA_interior', 0.0))
-    Q_sB_int = float(res.get('Q_sB_interior', 0.0))
-
-    eps_A = abs(Q_enth_A - abs(Q_sA_int)) / max(Q_enth_A, abs(Q_sA_int), 1e-30)
-    if Q_enth_B > 1e-30:
-        eps_B = abs(Q_enth_B - Q_sB_int) / max(Q_enth_B, abs(Q_sB_int), 1e-30)
-    else:
-        eps_B = 0.0
-    eps_LTNE = abs(Q_sA + Q_sB) / max(abs(Q_sA), abs(Q_sB), 1e-30)
-
-    # Optional surface-integral cross-check (advection + Dirichlet diffusion)
-    surf = compute_phase2a_surface(res)
-
-    return dict(
-        Q_enth_A=Q_enth_A, Q_sA=Q_sA, Q_sA_interior=Q_sA_int,
-        Q_enth_B=Q_enth_B, Q_sB=Q_sB, Q_sB_interior=Q_sB_int,
-        eps_A_kernel=eps_A, eps_B_kernel=eps_B, eps_LTNE=eps_LTNE,
-        # Surface-integral diagnostic (cross-check):
-        LHS_A_surf=surf['LHS_A'], LHS_B_surf=surf['LHS_B'],
-        # BC pinning fraction:
-        BC_frac_A=abs(Q_sA - Q_sA_int) / max(abs(Q_sA), 1e-30),
-        BC_frac_B=abs(Q_sB - Q_sB_int) / max(abs(Q_sB), 1e-30),
-    )
-
-
-def compute_phase2a_surface(res):
-    """Surface-integral version (cross-check via 6-face advective + Dirichlet diff)."""
-    Ta = res['Ta']; Tb = res['Tb']; Ts = res['Ts']
-    h_vA = res['h_vA_field']; h_vB = res['h_vB_field']
-    K_ffA = res['_audit_K_ffA']; K_ffB = res['_audit_K_ffB']
-    eps_arr = res['_audit_eps_arr']
-    rho_cp_A = res['_audit_rho_cp_fA']; rho_cp_B = res['_audit_rho_cp_fB']
-    uc_A = res['uc_real']; vc_A = res['vc_real']; wc_A = res['wc_real']
-    uc_B = res.get('uc_real_B'); vc_B = res.get('vc_real_B'); wc_B = res.get('wc_real_B')
-    dx = res['dx']; dy = res['dy']; dz = res['dz']
-    T_inA = res['_audit_T_inA']; T_inB = res.get('_audit_T_inB')
-    fA = res['_audit_fA']; fB = res.get('_audit_fB')
-    eps_per_phase = 0.5 * eps_arr
-
-    Nx, Ny, Nz = Ta.shape
-    cell_vol = dx[:, None, None] * dy[None, :, None] * dz[None, None, :]
-
-    # ── RHS volume integrals ──
-    # Fluid A FVM equation:  ε·ρ_cp·u·∇T − ∇·(K∇T) = h_vA·(Ts−Ta)
-    # Integrating gives LHS = ∫ h_vA·(Ts−Ta) dV ← THIS is what should equal LHS_α
-    RHS_A = float(np.sum(h_vA * (Ts - Ta) * cell_vol))
-    if fB is not None:
-        RHS_B = float(np.sum(h_vB * (Ts - Tb) * cell_vol))
-    else:
-        RHS_B = 0.0
-    # Solid: 0 = ∇·(K_ss·∇T_s) + h_vA·(Ta−Ts) + h_vB·(Tb−Ts)
-    # ⇒ ∮ −K_ss·∇T_s·n dA = ∫ [h_vA(Ts−Ta) + h_vB(Ts−Tb)] dV (sign-corrected)
-    # Solid RHS_s = -RHS_A - RHS_B (negative of sum, by LTNE coupling)
-    RHS_s = -(RHS_A + RHS_B)
-
-    def _face_LHS(T_field, K_ff_field, rho_cp_field, uc, vc, wc, T_in, fcfg):
-        """Build LHS = ∮ (ε·ρ_cp·u·n·T − K·∇T·n) dA for one fluid phase."""
-        if fcfg is None or T_in is None:
-            return 0.0
-        adv = 0.0
-        diff_dirichlet = 0.0
-        dir_real = int(fcfg['dir'])
-        # ── Inlet face contribution ──
-        ax_in, idx_in = _real_inlet_dir_face_index(dir_real, T_field.shape)
-        sl_in = _slice_at(ax_in, idx_in, T_field.shape)
-        # Face area per cell on inlet face
-        if ax_in == 0:
-            A_2d = dy[:, None] * dz[None, :]
-            u_n = (-uc if dir_real == 0 else uc)
-            dh_in = dx[idx_in]
-        elif ax_in == 1:
-            A_2d = dx[:, None] * dz[None, :]
-            u_n = (-vc if dir_real == 2 else vc)
-            dh_in = dy[idx_in]
-        else:
-            A_2d = dx[:, None] * dy[None, :]
-            u_n = (-wc if dir_real == 4 else wc)
-            dh_in = dz[idx_in]
-        # u_n at the inlet boundary cell layer (cell-center value)
-        u_n_in = u_n[sl_in].squeeze()
-        T_cell_in = T_field[sl_in].squeeze()
-        rho_cp_in = rho_cp_field[sl_in].squeeze()
-        eps_in = eps_per_phase[sl_in].squeeze()
-        K_in = K_ff_field[sl_in].squeeze()
-        # Outward normal at inlet for the various dirs:
-        #   dir 0 (+x in, outlet at +x): real_inlet at i=0, n_outward=(-1,0,0)
-        #     ∴ u·n = -u_x; for inflow u_x>0, u·n<0 (flux entering = negative outward)
-        #   dir 1 (-x in, ...): n_outward=(+1,0,0), u·n=+u_x; inflow has u_x<0 → u·n<0 ✓
-        # So u_n_in computed above already carries the correct sign for outward ·.
-        # T_face for advection at inlet: the FVM kernel uses pinned T_in only on
-        # mask cells; non-mask cells use neighbor (zero-grad). Both cases reduce
-        # to "T at the boundary cell as set by BC application" — which is exactly
-        # T_field[sl_in]. Use that.
-        adv_in = float(np.sum(eps_in * rho_cp_in * u_n_in * T_cell_in * A_2d))
-        adv += adv_in
-        # Diffusive at inlet: only the mask cells have Dirichlet → ∂T/∂n ≠ 0.
-        # For mask cells T_face ≈ T_in (pinned), gradient = (T_in − T_interior_adj) / (0.5·dh).
-        # Since the boundary cell IS pinned to T_in (frac=1 case) or blend (0<frac<1),
-        # the discrete diffusion stencil already absorbed this into the kernel.
-        # For surface integral diagnostic, use: T_face=T_cell, T_outside=T_in, dh=cell.
-        # Outward gradient = (T_in − T_cell) / (0.5·dh) projected onto n.
-        # Sign: n outward; ∇T·n = ∂T/∂n_outward = (T_outside − T_inside) / (0.5·dh)
-        #                       = (T_in − T_cell) / (0.5·dh)
-        # Diffusive flux contribution: −K·∇T·n_outward (so − sign in F·n integral)
-        T_in_2d = (np.full_like(T_cell_in, T_in)
-                    if np.isscalar(T_in) else np.asarray(T_in))
-        # Apply diffusive only where T is pinned (mask cells). For partial-B,
-        # only mask>0.5 cells have T=T_in. But we don't have direct access to the
-        # mask here — approximate: only contribute when |T_cell − T_in| < small
-        # (cell IS pinned). Simpler: contribute everywhere — non-mask cells have
-        # T_cell = neighbor ≈ ~T_in for inlet layer → gradient small. So OK.
-        # Actually simpler still: at non-mask cells T_cell may be far from T_in
-        # (zero-grad neighbor in heated region) → gradient large but FAKE.
-        # To avoid double-counting fake at non-mask cells, restrict diffusive to
-        # cells where |T_cell − T_in| < 0.5K (essentially pinned).
-        pinned_mask_2d = (np.abs(T_cell_in - T_in_2d) < 0.5).astype(np.float64)
-        grad = (T_in_2d - T_cell_in) / (0.5 * dh_in)
-        diff_in = float(np.sum(-K_in * grad * pinned_mask_2d * A_2d))
-        diff_dirichlet += diff_in
-
-        # ── Outlet face contribution ──
-        ax_out, idx_out = _real_outlet_dir_face_index(dir_real, T_field.shape)
-        sl_out = _slice_at(ax_out, idx_out, T_field.shape)
-        if ax_out == 0:
-            A_2d_out = dy[:, None] * dz[None, :]
-            u_n_out_arr = (uc if dir_real == 0 else -uc)
-        elif ax_out == 1:
-            A_2d_out = dx[:, None] * dz[None, :]
-            u_n_out_arr = (vc if dir_real == 2 else -vc)
-        else:
-            A_2d_out = dx[:, None] * dy[None, :]
-            u_n_out_arr = (wc if dir_real == 4 else -wc)
-        u_n_out = u_n_out_arr[sl_out].squeeze()
-        T_cell_out = T_field[sl_out].squeeze()
-        rho_cp_out = rho_cp_field[sl_out].squeeze()
-        eps_out = eps_per_phase[sl_out].squeeze()
-        adv_out = float(np.sum(eps_out * rho_cp_out * u_n_out * T_cell_out * A_2d_out))
-        adv += adv_out
-        # Outlet diffusive: zero-grad ⇒ contribution 0
-        return adv + diff_dirichlet
-
-    LHS_A = _face_LHS(Ta, K_ffA, rho_cp_A, uc_A, vc_A, wc_A, T_inA, fA)
-    if fB is not None:
-        LHS_B = _face_LHS(Tb, K_ffB, rho_cp_B, uc_B, vc_B, wc_B, T_inB, fB)
-    else:
-        LHS_B = 0.0
-    # Solid LHS — solid only has diffusive flux at boundaries (no advection)
-    # Lateral walls: zero-grad ⇒ 0. Streamwise inlet/outlet of fluids: also
-    # zero-grad in code (`_apply_outlet_3d` does Ts → cell value; inlet via
-    # `_apply_inlet_3d` only acts on Ta/Tb, not Ts). So LHS_s ≈ 0.
-    LHS_s = 0.0
-
-    # ── Residuals ──
-    eps_A = abs(LHS_A - RHS_A) / max(abs(LHS_A), abs(RHS_A), 1e-30)
-    eps_B = abs(LHS_B - RHS_B) / max(abs(LHS_B), abs(RHS_B), 1e-30)
-    eps_s = abs(LHS_s - RHS_s) / max(abs(LHS_s), abs(RHS_s), 1e-30)
-    LHS_total = LHS_A + LHS_B + LHS_s
-    RHS_total = RHS_A + RHS_B + RHS_s   # = 0 by LTNE coupling
-    eps_total = abs(LHS_total - RHS_total) / max(abs(LHS_A), abs(LHS_B), abs(LHS_s), 1e-30)
-
-    return dict(
-        LHS_A=LHS_A, RHS_A=RHS_A, eps_A=eps_A,
-        LHS_B=LHS_B, RHS_B=RHS_B, eps_B=eps_B,
-        LHS_s=LHS_s, RHS_s=RHS_s, eps_s=eps_s,
-        LHS_total=LHS_total, RHS_total=RHS_total, eps_total=eps_total,
-    )
+    balance = res['model_h_balance']
+    active_b = res['_audit_fB'] is not None
+    phases, gates = {}, []
+    for side in ('A', 'B'):
+        if side == 'B' and not active_b:
+            phases[side] = None
+            gates.append(('B disabled: no certificate and zero coupling',
+                          res['eps_B_strict'] is None
+                          and res['eps_B_strict_cellmax'] is None
+                          and res['Q_sB'] == 0.0
+                          and np.all(np.asarray(res['h_vB_field']) == 0.0)))
+            continue
+        phase = {}
+        for metric, key in (('global', f'eps_{side}_strict'),
+                            ('cellmax', f'eps_{side}_strict_cellmax')):
+            value = res.get(key)
+            phase[metric] = value = float(value) if value is not None else float('nan')
+            gates.append((f'{side} strict {metric} < 1 %',
+                          bool(np.isfinite(value) and 0.0 <= value < 0.01)))
+        phase['boundary'] = balance['sides'][side] if balance is not None else None
+        phases[side] = phase
+    qa, qb = float(res['Q_sA']), float(res['Q_sB'])
+    eps_ltne = abs(qa + qb) / max(abs(qa), abs(qb), 1e-30)
+    gates.append(('full-volume LTNE source balance < 1 %',
+                  bool(np.isfinite(eps_ltne) and eps_ltne < 0.01)))
+    if balance is not None:
+        gates.append(('physical boundary data complete',
+                      balance['physical_boundary_complete'] is True))
+    elif active_b:
+        gates.append(('two-fluid model-h boundary ledger available', False))
+    return dict(sides=phases, eps_LTNE=eps_ltne, gates=gates,
+                boundary=balance)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -882,31 +713,38 @@ def render_case(label, res, p2a, p2c, p3=None, p4=None, p5=None):
     lines.append(f'- Q_enthalpy_B = {_fmt(res.get("Q_enthalpy_B", float("nan")), 2)} W')
     lines.append(f'- Q_solid_A (∫h_vA(Ts−Ta)dV) = {_fmt(res.get("Q_sA", float("nan")), 2)} W')
     lines.append(f'- Q_solid_B (∫h_vB(Ts−Tb)dV) = {_fmt(res.get("Q_sB", float("nan")), 2)} W')
-    lines.append(f'- Q_sA_interior (BC excluded) = {_fmt(res.get("Q_sA_interior", float("nan")), 2)} W')
-    lines.append(f'- Q_sB_interior (BC excluded) = {_fmt(res.get("Q_sB_interior", float("nan")), 2)} W\n')
-
-    lines.append('### Phase 2a — interior 1st-law residual\n')
-    lines.append('Compares Q_enth (LTNE m·cp·ΔT) against |Q_s_interior| (BC layer excluded).')
-    lines.append('Includes all-cells LHS_surf (surface integral) as an independent check.\n')
-    lines.append('| metric | A | B |')
-    lines.append('|--------|---|---|')
-    lines.append(f'| Q_enth | {_fmt(p2a["Q_enth_A"], 2)} W | {_fmt(p2a["Q_enth_B"], 2)} W |')
-    lines.append(f'| \\|Q_s_interior\\| | {_fmt(abs(p2a["Q_sA_interior"]), 2)} W | {_fmt(abs(p2a["Q_sB_interior"]), 2)} W |')
-    lines.append(f'| ε_α (kernel, interior) | {_fmt(p2a["eps_A_kernel"]*100, 3)} % | {_fmt(p2a["eps_B_kernel"]*100, 3)} % |')
-    lines.append(f'| BC pinning frac (Q_s_BC / \\|Q_s_all\\|) | {_fmt(p2a["BC_frac_A"]*100, 2)} % | {_fmt(p2a["BC_frac_B"]*100, 2)} % |')
-    lines.append(f'| LHS_surf (∮F·n dA, all cells) | {_fmt(p2a["LHS_A_surf"], 2)} W | {_fmt(p2a["LHS_B_surf"], 2)} W |')
-    lines.append('')
-    lines.append(f'- LTNE 3-phase coupling: ε_LTNE = |Q_sA + Q_sB| / max = {_fmt(p2a["eps_LTNE"]*100, 3)} %')
-    lines.append('')
-    gates = []
-    gates.append(('ε_A_kernel < 5 %', p2a['eps_A_kernel'] < 0.05))
-    gates.append(('ε_B_kernel < 5 %', p2a['eps_B_kernel'] < 0.05))
-    gates.append(('ε_LTNE < 1 %',     p2a['eps_LTNE']    < 0.01))
-    for name, ok in gates:
-        lines.append(f'- {name}: **{"PASS" if ok else "FAIL"}**')
-    all_gates.extend(gates)
-    lines.append('The historical full-surface 1 % / 0.5 % specification uses '
-                 'different quantities and is not certified by these interior gates.')
+    lines.append('### Phase 2a — full-CV discrete energy certificate\n')
+    lines.append('All actual control volumes are included. The existing thermal '
+                 'operator supplies physical-face advection and half-cell inlet '
+                 'diffusion; no temperature-based port mask is inferred.')
+    if p2a is None:
+        lines.append('- Current energy certificate unavailable: **FAIL**')
+        all_gates.append(('current energy certificate available', False))
+    else:
+        lines.append('| fluid | strict global | strict cell-max | boundary inward W | inlet diffusion inward W |')
+        lines.append('|-------|---------------|-----------------|-------------------|---------------------------|')
+        for side, phase in p2a['sides'].items():
+            if phase is None:
+                lines.append(f'| {side} | N/A (disabled) | N/A | N/A | N/A |')
+                continue
+            boundary = phase['boundary']
+            external = boundary['physical_external_inward_W'] if boundary else 'N/A'
+            diffusion = boundary['inlet_diffusion_inward_W'] if boundary else 'N/A'
+            lines.append(f'| {side} | {_fmt(phase["global"]*100, 3)} % | '
+                         f'{_fmt(phase["cellmax"]*100, 3)} % | '
+                         f'{_fmt(external, 2)} | {_fmt(diffusion, 2)} |')
+        if p2a['boundary'] is None:
+            lines.append('T5 capacity-temperature path: model-h face ledger N/A; '
+                         'the active-fluid full-CV strict certificate is still required.')
+        lines.append(f'- Full-volume LTNE source balance: {_fmt(p2a["eps_LTNE"]*100, 3)} %')
+        for name, ok in p2a['gates']:
+            lines.append(f'- {name}: **{"PASS" if ok else "FAIL"}**')
+        all_gates.extend(p2a['gates'])
+    lines.append('Definition update: the old 5 % BC-excluded heuristic and '
+                 'guessed-mask surface budget are retired. The global/cell-max '
+                 '1 % limits reuse the strict-conservation regression contract; '
+                 'historical reports and failures are unchanged. This is not '
+                 'an independent experiment or a new physical validation.')
     lines.append('')
 
     lines.append('### Phase 2c — H3 per-cell mass-imbalance audit\n')
@@ -940,7 +778,7 @@ def render_case(label, res, p2a, p2c, p3=None, p4=None, p5=None):
         lines.append(f'| Q_NTU_max = C_min·ΔT_max | {_fmt(p3["Q_NTU_max"], 1)} W |')
         lines.append(f'| Q_LTNE_A = C_A·\\|T_inA−T_A_out\\| | {_fmt(p3["Q_phys_A"], 1)} W |')
         lines.append(f'| Q_LTNE_B = C_B·\\|T_B_out−T_inB\\| | {_fmt(p3["Q_phys_B"], 1)} W |')
-        lines.append(f'| \\|Q_sB_interior\\| (volumetric source) | {_fmt(p3["Q_volumetric_phys"], 1)} W |')
+        lines.append(f'| \\|Q_sB_interior\\| (historical subvolume, not physical duty) | {_fmt(p3["Q_volumetric_phys"], 1)} W |')
         lines.append(f'| NTU_int = ∫h_vB·dV / C_min | {_fmt(p3["NTU_int"], 3)} |')
         lines.append(f'| ε_max(C_r, NTU) cross-flow | {_fmt(p3["eps_max_NTU"], 4)} |')
         lines.append(f'| ε_obs = Q_LTNE / Q_NTU_max | {_fmt(p3["eps_obs"], 4)} |')
@@ -1038,10 +876,10 @@ def write_report(out_path, sections, header_meta):
     lines = []
     lines.append('# Phase 2 — 3D LTNE Conservation Audit\n')
     lines.append(f'- Date: {header_meta["date"]}')
-    lines.append('- Spec: `vault/reports/3d-solver/2026-05-04-3d-conservation-spec-CN.md`')
+    lines.append('- Discrete gate: existing full-CV strict-conservation global/cell-max < 1 %; historical surface specification is not inferred.')
     lines.append('- Audit script: `sjtu_tpmshx/validation/cases/audit_3d_conservation.py`\n')
     lines.append('## Scope\n')
-    lines.append('- Hybrid path: Phase 2a volumetric ε_α + Phase 2c per-cell mass-imbal audit (H3).')
+    lines.append('- Phase 2a current full-CV strict certificate + Phase 2c per-cell mass-imbalance audit (H3).')
     lines.append('- Read-only. No solver / closure / momentum changes.')
     lines.append('- Test matrix: T1 full-face parallel, T2 full-face cross, T3 partial-aligned, T4 partial-offset (Shanghai-like), T5 B-isolated, T6 equi-temperature.\n')
     for sec in sections:
@@ -1092,15 +930,25 @@ def main():
                 cfg = CASES[cid](g)
                 cfg['_emit_audit'] = True   # C1: reads r['_audit_*'] keys
                 t0 = time.time()
-                res = _run_3d_stack(cfg)
-                failed = failed or not res['solver_converged']
+                Q_enth = eps_strict = float('nan')
+                try:
+                    res = _run_3d_stack(cfg)
+                    failed = failed or not res['solver_converged']
+                    Q_enth = float(res.get('Q_enthalpy_B', float('nan')))
+                    certificate = compute_phase2a(res)
+                    passed = all(ok for _, ok in certificate['gates'])
+                    row[f'certificate_pass_g{g}'] = passed
+                    failed = failed or not passed
+                    phase_b = certificate['sides']['B']
+                    eps_strict = phase_b['global'] if phase_b else float('nan')
+                except Exception as exc:
+                    failed = True
+                    row[f'certificate_pass_g{g}'] = False
+                    row[f'error_g{g}'] = f'{type(exc).__name__}: {exc}'
                 dt = time.time() - t0
-                Q_enth = float(res.get('Q_enthalpy_B', float('nan')))
-                Q_sB_int = float(res.get('Q_sB_interior', float('nan')))
-                eps_kern = abs(Q_enth - abs(Q_sB_int)) / max(Q_enth, abs(Q_sB_int), 1e-30)
                 row[f'Q_g{g}'] = Q_enth
-                row[f'eps_g{g}'] = eps_kern * 100
-                print(f'    grid={g}: Q={Q_enth:.1f}W ε_B={eps_kern*100:.2f}% [{dt:.0f}s]')
+                row[f'eps_B_strict_g{g}'] = eps_strict * 100
+                print(f'    grid={g}: Q={Q_enth:.1f}W ε_B_strict={eps_strict*100:.2f}% [{dt:.0f}s]')
             from sjtu_tpmshx.validation.cases.phase_c_gci import _richardson_triplet
             Qs = [row[f'Q_g{g}'] for g in grids]
             order, extrapolate = _richardson_triplet(grids, Qs)
@@ -1141,21 +989,11 @@ def main():
         dt = time.time() - t0
         print(f'  solved in {dt:.1f}s')
         try:
-            p2a = compute_phase2a_interior(res)
+            p2a = compute_phase2a(res)
         except Exception as e:
             failed = True
             print(f'  Phase 2a failed: {e}')
-            p2a = dict(Q_enth_A=float('nan'), Q_sA=float('nan'),
-                       Q_sA_interior=float('nan'),
-                       Q_enth_B=float('nan'), Q_sB=float('nan'),
-                       Q_sB_interior=float('nan'),
-                       eps_A_kernel=float('nan'),
-                       eps_B_kernel=float('nan'),
-                       eps_LTNE=float('nan'),
-                       LHS_A_surf=float('nan'),
-                       LHS_B_surf=float('nan'),
-                       BC_frac_A=float('nan'),
-                       BC_frac_B=float('nan'))
+            p2a = None
         try:
             p2c = compute_phase2c_h3(res)
         except Exception as e:
@@ -1206,9 +1044,9 @@ def main():
         latA = p5["A"]["lateral_frac"]*100 if (p5 and p5.get("A")) else float('nan')
         latB = p5["B"]["lateral_frac"]*100 if (p5 and p5.get("B")) else float('nan')
         print(f'{cid:<14s} '
-              f'{p2a["eps_A_kernel"]*100:>6.2f} '
-              f'{p2a["eps_B_kernel"]*100:>6.2f} '
-              f'{p2a["eps_LTNE"]*100:>7.2f} '
+              f'{(p2a["sides"]["A"]["global"]*100 if p2a else float("nan")):>6.2f} '
+              f'{(p2a["sides"]["B"]["global"]*100 if p2a and p2a["sides"]["B"] else float("nan")):>6.2f} '
+              f'{(p2a["eps_LTNE"]*100 if p2a else float("nan")):>7.2f} '
               f'{s_gen:>+8.4f} '
               f'{eo:>7.4f} '
               f'{mA:>+7.3f} '

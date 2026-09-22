@@ -7,7 +7,7 @@ Conservation contract (vault: 2026-06-03-3d-strict-energy-conservation-B-plan-CN
   (T5) and equi-temperature (T6).
 
 Metrics — emitted by the solver when cfg['conservative_ltne']=True:
-  eps_{A,B}_strict          global balance |Σ_interior r| / max(|∫_interior S|, floor)
+  eps_{A,B}_strict          global balance |Σ_CV r| / max(|∫_CV S|, floor)
   eps_{A,B}_strict_cellmax  per-cell      max|r[c]|·N / max(|∫S|, floor)
   where r[c] = a_P·T_c − Σ a_nb·T_nb − h_v·V·Ts is the residual of the
   *conservative* discretisation (a_P carries the (F_e−F_w+…) net-out term) on
@@ -23,8 +23,8 @@ This supersedes the earlier compute_phase2a_interior heuristic (advective
 enthalpy m·cp·ΔT vs interior source), which dropped the boundary-diffusion
 term and so read ~8.5 % for a cold fluid even when the scheme conserved.
 
-The legacy cell-local-|u_c| upwind kernel (cfg default) does NOT satisfy this
-balance. The face-centered Patankar rewrite (SIMPLE staggered fluxes,
+The legacy cell-local-|u_c| upwind diagnostic does NOT satisfy this balance.
+The current default face-centered Patankar path (SIMPLE staggered fluxes,
 (F_e−F_w) telescoping in a_P, MAC projection to discrete solenoidality) drives
 all six cases < 1 % on BOTH the global and per-cell certificate AND keeps mass
 conservation intact.
