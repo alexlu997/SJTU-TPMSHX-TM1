@@ -47,10 +47,6 @@ def _mms_result(case, *, Nx, **kwargs):
     result = dict(case=case, converged=True, outer_iters=1, last_chg=1e-12)
     for phase, field in [('A', 'Ta'), ('B', 'Tb'), ('s', 'Ts')]:
         num = exact + 1 / Nx**2
-        if phase == 'A':
-            num[0, :, :] = exact[0, :, :]
-        if phase == 'B':
-            num[:, 0, :] = exact[:, 0, :]
         result.update({f'L2_{phase}': 1 / Nx**2, f'Linf_{phase}': 1 / Nx**2,
                        f'{field}_num': num, f'{field}_exact': exact})
     return result
@@ -92,6 +88,9 @@ def test_sweep_requires_every_grid_converged_and_finite(
                 result['Ta_num'][1, 1, 1] = np.nan
         return result
     monkeypatch.setattr(module, 'run_mms', run)
+    if name == 'mms_phase_a4_boundary':
+        monkeypatch.setattr(module, '_inlet_face_response_errors',
+                            lambda *a: dict(A=0., B=0.))
     if damage == 'missing':
         original = _mms_driver.run_grid_sequence
         def drop_grid(*args, **kwargs):

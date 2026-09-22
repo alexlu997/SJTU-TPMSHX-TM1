@@ -5,12 +5,13 @@ the MMS error: separates L2/Linf per region (inlet, outlet, lateral walls,
 interior) to verify each BC stencil's discretization consistency.
 
 Background:
-- Phase A.3 showed L2 ~ 2.1 order globally with manufactured cosines that
+- The recorded Phase A.3 showed L2 ~ 2.1 order with manufactured cosines that
   trivially satisfy Neumann zero-grad at all walls (sin(pi)=0).
 - A.4 extracts per-region error so we can confirm:
-  * Inlet (Dirichlet pin)  → L2 ~ machine-eps (cell-center exactly pinned)
-  * Outlet (Neumann via copy-neighbor) → L2 ~ 1st-order (one-sided stencil)
-  * Lateral walls (adiabatic via same-cell fallback) → L2 matches interior
+  * Physical inlet Dirichlet → the first corner's actual kernel response
+    agrees with an independent finite-volume balance to machine precision
+  * Outlet (zero exterior diffusion, advective outflow) → local cell error
+  * Lateral walls (zero normal flow and exterior diffusion) → local cell error
   * Interior → ~2nd-order (matches A.3 global)
 
 The Phase A.3 driver returns full Ta/Tb/Ts arrays; this module runs the
@@ -18,12 +19,17 @@ same MMS-3D problem at 3 grids (20, 30, 40) and slices the result into
 boundary-stratified L2/Linf metrics.
 
 Hard gates:
-- Inlet L2 < 1e-12 (Dirichlet exactness, dimensionless)
-- Outlet L2 order_obs >= 0.8 (one-sided 1st-order stencil; allow modest)
-- Lateral L2 order_obs >= 1.5 (cosine BC compatible with adiabatic)
+- Inlet first-corner one-sweep response relative error < 1e-12, defined as
+  abs(T_kernel - T_independent) / abs(T_independent), with temperatures in K
+- Outlet L2 order_obs >= 0.8 (original boundary-error gate)
+- Lateral solid L2 order_obs >= 1.5 (cosine BC compatible with adiabatic)
 - Interior L2 order_obs >= 1.8 (matches global A.3)
 - Interior L2 on the final requested grid < 1.0%
 - Every requested grid converged, with finite regional L2/Linf errors
+
+Inlet-adjacent cell L2/Linf remain discretization diagnostics, not pinned
+values. The recorded CSVs describe the former cell-pinned boundary and keep
+their original historical 1e-12 gate; they are not current face-BC evidence.
 
 Each run writes mms_phase_a4_boundary.csv and mms_phase_a4_orders.csv in a
 new .cache/validation/mms_phase_a4-*/ directory (or --out-dir). Explicit file
@@ -44,6 +50,7 @@ except Exception:
 warnings.filterwarnings('ignore')
 
 from sjtu_tpmshx.validation.cases.mms_3d_air_air import run_mms, L_DOM
+from sjtu_tpmshx.validation.cases import mms_3d_air_air as mms
 from sjtu_tpmshx.validation.harness._provenance import (
     write_csv_with_provenance, output_directory, output_path,
 )
@@ -89,6 +96,43 @@ def _l2_linf_masked(num, exact, mask):
     return l2, linf
 
 
+def _inlet_face_response_errors(case, grid, alpha_f):
+    """Check the real kernel, independently of its inlet assembly helper.
+
+    From a constant initial field, the first corner has zero SOU increment.
+    One actual sweep therefore has a closed finite-volume update using the
+    physical-face Tin, half-cell diffusion, source and fluid/solid exchange.
+    A updates before solid, then B uses the updated solid corner. This checks
+    the first corner's applied boundary response, not every inlet node and
+    not an analytic Tin compared with itself. The error is dimensionless:
+    abs(T_kernel - T_independent) / abs(T_independent), temperatures in K.
+    """
+    response = run_mms(case, Nx=grid, Ny=grid, Nz=grid,
+                       max_outer=1, inner=1, alpha_f=alpha_f, alpha_s=1., verbose=False)
+    dx, dy, dz = mms.L_DOM / grid, mms.H_DOM / grid, mms.LZ / grid
+    volume = dx * dy * dz
+    domain = (mms.L_DOM, mms.H_DOM, mms.LZ)
+    exact = mms._build_mms(case)
+    errors = {}
+    for phase, K, rcp, velocity, hv, area, distance, face, solid in (
+        ('A', mms.K_FFA, mms.RHO_CP_A, mms.U_A, mms.H_VA,
+         dy * dz, dx, (0., dy / 2, dz / 2), mms.T0),
+        ('B', mms.K_FFB, mms.RHO_CP_B, mms.U_B, mms.H_VB,
+         dx * dz, dy, (dx / 2, 0., dz / 2), response['Ts_num'][0, 0, 0]),
+    ):
+        tin = float(exact[f'T{phase.lower()}_fn'](*face, *domain))
+        source = float(exact[f'S{phase}_fn'](dx / 2, dy / 2, dz / 2, *domain))
+        internal = K * (dy * dz / dx + dx * dz / dy + dx * dy / dz)
+        inlet = mms.EPS_F * rcp * velocity * area + K * area / (distance / 2)
+        expected = mms.T0 + alpha_f * (
+            inlet * (tin - mms.T0) + hv * volume * (solid - mms.T0)
+            + source * volume
+        ) / (internal + inlet + hv * volume)
+        actual = float(response[f'T{phase.lower()}_num'][0, 0, 0])
+        errors[phase] = abs(actual - expected) / abs(expected)
+    return errors
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--case', default='3d', choices=['1d', '2d', '3d'])
@@ -124,6 +168,9 @@ def main():
         result = dict(N=g, h=L_DOM/g, elapsed=dt,
                       outer_iters=r['outer_iters'], last_chg=r['last_chg'],
                       converged=bool(r['converged']))
+        response_errors = _inlet_face_response_errors(args.case, g, args.alpha_f)
+        for phase, error in response_errors.items():
+            result[f'inlet_face_response_rel_{phase}'] = error
         for region, mask in masks.items():
             for phase, num, exact in [
                 ('A', r['Ta_num'], r['Ta_exact']),
@@ -186,22 +233,22 @@ def main():
     print(f"\n{'='*72}")
     print("  Hard gates")
     print(f"{'='*72}")
+    print("  Inlet response: first corner only; |T_kernel-T_FV|/|T_FV|, T in K.")
     fail = []
     metric_columns = [col for col in df if col.startswith(('L2_', 'Linf_'))]
     if (df['N'].tolist() != grids or not df['converged'].all()
             or not np.isfinite(df[metric_columns].to_numpy()).all()):
         fail.append('all_requested_grids_converged_finite')
 
-    # Inlet machine-eps check (use last grid)
-    last = df.iloc[-1]
+    # Strict physical-face response check; inlet cell L2 remains a diagnostic.
     for ph in ['A', 'B']:
-        col = f'L2_{ph}_inlet_{ph}'
-        v = float(last[col])
-        ok = (v < 1e-12)
-        print(f"  inlet_{ph} L2_{ph} (g={int(last['N'])}): {v:.3e}  "
+        values = df[f'inlet_face_response_rel_{ph}'].to_numpy()
+        v = float(np.max(values))
+        ok = bool(np.isfinite(values).all() and (values < 1e-12).all())
+        print(f"  inlet_{ph} first-corner physical-face response (all grids): {v:.3e}  "
               f"{'PASS' if ok else 'FAIL'}  (gate <1e-12)")
         if not ok:
-            fail.append(f"inlet_{ph}_machine_eps")
+            fail.append(f"inlet_{ph}_face_response")
 
     # Outlet order >= 0.8
     for ph in ['A', 'B']:

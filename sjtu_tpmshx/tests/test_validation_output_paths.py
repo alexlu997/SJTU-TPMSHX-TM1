@@ -43,6 +43,9 @@ def test_default_driver_runs_write_separately(monkeypatch, tmp_path, name, args,
                             [{'Q_enth_A': 1.0, 'converged': True}] * 3)
     else:
         monkeypatch.setattr(module, 'run_mms', _fake_mms)
+        if name == 'mms_phase_a4_boundary':
+            monkeypatch.setattr(module, '_inlet_face_response_errors',
+                                lambda *a: dict(A=0., B=0.))
     monkeypatch.setattr(sys, 'argv', [name, *args])
     for _ in range(2):
         result = module.main()

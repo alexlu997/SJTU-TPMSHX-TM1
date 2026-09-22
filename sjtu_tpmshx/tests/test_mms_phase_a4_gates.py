@@ -1,10 +1,13 @@
-"""Pytest gate-check for MMS Phase A.4 — boundary stencil order.
+"""Historical CSV integrity for MMS Phase A.4 — former cell-pinned inlet.
 
 Locks in V&V Standard Tier Phase A.4 results: per-region order analysis
 (inlet Dirichlet / outlet Neumann / lateral wall / interior). The
 expensive 3-grid {16, 20, 30} sweep is **not** re-run here; this test
 reads the persisted CSVs and asserts the same hard gates as the
-script's console output.
+historical script's console output. Current production puts Tin on the physical
+face and solves the neighboring cell; its strict boundary-response check is in
+test_mms_physical_face_boundary.py. Do not apply this historical cell-pin
+definition to new runs or replace these recorded numbers with current output.
 
 Hard gates (per script):
     inlet machine-eps:   L2 (g=30) < 1e-12   for own-phase Dirichlet BC
@@ -57,7 +60,7 @@ def h_refine():
 
 @pytest.mark.parametrize('phase', ['A', 'B'])
 def test_inlet_own_phase_machine_eps(h_refine, phase):
-    """At inlet of phase X, exact Dirichlet → L2_X must be machine zero."""
+    """The recorded former cell-pinned inlet retains its original gate."""
     last = h_refine.iloc[-1]
     col = f'L2_{phase}_inlet_{phase}'
     assert col in h_refine.columns, f"missing {col}"

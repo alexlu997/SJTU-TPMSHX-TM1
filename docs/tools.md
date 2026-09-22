@@ -12,6 +12,13 @@ MMS A3/A4/B4 和 GCI 每次默认创建独立的 `.cache/validation/<工具>-<�
 阶数与历史元数据保留，工具在求解前拒绝向该目录写入，也拒绝指向它的符号链接。
 显式指定的其他输出目录可以复用；需要保留每次结果时使用默认独立目录。
 
+A4 当前把入口温度施加在物理面，入口相邻单元温度继续作为待求未知量。
+入口层 L2/Linf 保留作离散误差诊断；严格入口门槛使用真实内核一次 sweep 的
+首角单元响应与独立有限体积余额比较，归一化误差
+`abs(T_kernel-T_FV)/abs(T_FV) < 1e-12`，并不代表所有入口单元误差均为零。
+原收敛、有限性和各区域阶数门槛仍执行；旧固定 CSV 的单元温度钉定判据
+仅用于核对历史结果，不作为当前物理面边界证据。
+
 GCI 当前使用 T2 和 T4（偏置局部开口、无 B 侧实验修正）。历史 T4_H8 等实验入口
 已退役，不能用旧 H8 表证明当前 T4 的精度；详见[退役说明](history/retired-tools.md#b-侧局部开口实验修正退役2026-09-22)。
 表观阶数由实际网格比和三个结果求解；振荡、非有限或无法确定正阶数时记为
@@ -25,7 +32,7 @@ GCI 当前使用 T2 和 T4（偏置局部开口、无 B 侧实验修正）。历
 | [runs/smokes/](../sjtu_tpmshx/runs/smokes/) | 内置样例 → 控制台及脚本声明的诊断文件 | `python -m sjtu_tpmshx.runs.smokes.<模块名>`；GUI 无显示运行须用 `QT_QPA_PLATFORM=offscreen` |
 | [runs/demos/](../sjtu_tpmshx/runs/demos/) | 内置 3D 工况 → 控制台/可视化 | `python -m sjtu_tpmshx.runs.demos.<模块名>`；交互图形依赖桌面，示例不扩大支持域 |
 | [profile_compute](../benchmarks/profiling/profile_compute.py)、[profile_evaluator](../benchmarks/profiling/profile_evaluator.py) | 内置 nominal design → 每次独立 `.cache/profiling/compute-*` 或 `eval-*` 下的 `*_baseline.prof` / 文本 | `python -m benchmarks.profiling.profile_compute` 或 `profile_evaluator`；均测现有 2D screening evaluator，不是 GUI/full 模型或完整 BO |
-| [CFD 工况清单](../sjtu_tpmshx/runs/tools/asym_build_cfd_worklist_xlsx.py) → [nTop 表达式](../sjtu_tpmshx/runs/cfd_asym/asym_ntop_expressions_html.py) | 内置几何/流体 + 可选旧 `water-cfd-raw.xlsx` → XLSX → HTML | 顺序运行下方两条命令；两个工具共用输出目录。该旧工作簿目前存在；缺文件时 `r1_water_ref` 页保留跳过说明，不补造锚点 |
+| [CFD 工况清单](../sjtu_tpmshx/runs/tools/asym_build_cfd_worklist_xlsx.py) → [nTop 表达式](../sjtu_tpmshx/runs/cfd_asym/asym_ntop_expressions_html.py) | 内置几何/流体 + 可选私有 `water_DG_cfd_results_legacy.xlsx` → XLSX → HTML | 顺序运行下方两条命令；两个工具共用输出目录。旧工作簿由本地数据目录提供；缺文件时 `r1_water_ref` 页保留跳过说明，不补造锚点 |
 | [asym CFD/诊断工具](../sjtu_tpmshx/runs/cfd_asym/)、[diagnostics/](../sjtu_tpmshx/runs/diagnostics/) | 脚本声明的几何、场/CFD 文件 → 研究结果 | `python -m sjtu_tpmshx.runs.<子目录>.<模块名>`；Fluent/vault 等外部依赖按各工具声明，未作为默认安装或本轮运行能力 |
 | [scripts/](../scripts/) | 已配置环境/测试选择 → 测试日志 | 两个 PowerShell 测试入口；仓库路径取脚本位置，解释器读取 `.venv-path`，`-LockFile` 选择依赖锁，不自动安装依赖 |
 | [D76 Nu 验证](../sjtu_tpmshx/validation/cases/validate_sco2_d76.py) | 6 个固定 D-7-6 工况/私有 Excel → Q 对照 | `python -m sjtu_tpmshx.validation.cases.validate_sco2_d76`；保留原 15% 最大误差门槛，退出码 0 通过、1 未通过 |

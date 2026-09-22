@@ -33,7 +33,8 @@
 
 ### Requirement: Main_Menu UI ownership
 `Main_Menu` 的快捷键与 IO 动作分别由 `ui/mixins/shortcuts.py`、
-`io_actions.py` 维护。图表和导出直接读取 `ResultCache`，不使用旧属性桥。
+`io_actions.py` 维护。场结果图表和导出直接读取 `ResultCache`，不使用旧属性桥；
+Pareto 图像依据自身画布和优化结果就绪，不依赖单点计算的场缓存。
 底部结果摘要在 `ui/builders_sidebar.py`，读取已发布的本次标量结果；
 使用方直接从所属模块导入，不维护旧兼容重导出。
 画布和 3D 面板的组装按当前[架构说明](../../../docs/architecture.md#ui-structure)

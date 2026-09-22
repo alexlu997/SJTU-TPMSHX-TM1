@@ -607,6 +607,11 @@ def build_problem(cfg, prepared, *, control: RunControl = RunControl()):
         cF_A_arr = np.ascontiguousarray(cF_sol.mean(axis=0))
         K_pred = float(K_A_arr.mean())
         cF_pred = float(cF_A_arr.mean())
+        # SIMPLE always advances from local j=0. Reflect the projected rows
+        # for negative real flow, after preserving the existing global mean.
+        if is_reverse:
+            K_A_arr = np.ascontiguousarray(K_A_arr[::-1])
+            cF_A_arr = np.ascontiguousarray(cF_A_arr[::-1])
         _log.info(f"[3D zones] using {len(zone_cells)} zone cells; "
                   f"K range [{K_field_3d.min():.2e}, {K_field_3d.max():.2e}]")
         # Zoned path is a uniform-only-δ exception: no asymmetric split here.
@@ -654,6 +659,8 @@ def build_problem(cfg, prepared, *, control: RunControl = RunControl()):
     # ── SIMPLE A (3D, compressible) — BUILD ONLY ──
     # Consume the physical Case grid in solver coordinates for every mode.
     _sdxA, _sdyA, _sdzA = _solver_spacings(dx, dy, dz, solver_to_real_perm)
+    if is_reverse:
+        _sdyA = np.ascontiguousarray(_sdyA[::-1])
     with range_context(side='A', stage='inlet', layout='solver-initial'):
         sA = SIMPLESolver3D(
             **solver_init,
@@ -674,10 +681,10 @@ def build_problem(cfg, prepared, *, control: RunControl = RunControl()):
     # Zoned ε → push to SIMPLE so its continuity ∇·(ε·ρ·u)=0 picks up the
     # ∇ε contribution. Uniform ε leaves the default unchanged.
     if eps_field_3d is not None:
-        eps_sol = np.ascontiguousarray(
-            eps_field_3d.transpose(axis_map['solver_to_real_perm'])
-            if axis_map['solver_to_real_perm'] != (0, 1, 2)
-            else eps_field_3d, dtype=np.float64)
+        eps_sol = eps_field_3d.transpose(solver_to_real_perm)
+        if is_reverse:
+            eps_sol = eps_sol[:, ::-1, :]
+        eps_sol = np.ascontiguousarray(eps_sol, dtype=np.float64)
         if eps_sol.shape == sA.eps_field.shape:
             sA.eps_field = eps_sol
             sA._mu_eff_field = np.ascontiguousarray(
@@ -732,6 +739,8 @@ def build_problem(cfg, prepared, *, control: RunControl = RunControl()):
         # Zoned ε for sB: same eps_field but transposed via B's perm (built
         # below after sB construction).
         _sdxB, _sdyB, _sdzB = _solver_spacings(dx, dy, dz, perm_B)
+        if axis_map_B['is_reverse']:
+            _sdyB = np.ascontiguousarray(_sdyB[::-1])
         with range_context(side='B', stage='inlet', layout='solver-initial'):
             sB = SIMPLESolver3D(
                 **axis_map_B['solver_init'],
@@ -749,10 +758,10 @@ def build_problem(cfg, prepared, *, control: RunControl = RunControl()):
             sB._massflux_target = (v_inlet_B * rho_B).copy()
         # Zoned ε for sB.
         if eps_field_3d is not None:
-            eps_sol_B = np.ascontiguousarray(
-                eps_field_3d.transpose(axis_map_B['solver_to_real_perm'])
-                if axis_map_B['solver_to_real_perm'] != (0, 1, 2)
-                else eps_field_3d, dtype=np.float64)
+            eps_sol_B = eps_field_3d.transpose(perm_B)
+            if axis_map_B['is_reverse']:
+                eps_sol_B = eps_sol_B[:, ::-1, :]
+            eps_sol_B = np.ascontiguousarray(eps_sol_B, dtype=np.float64)
             if eps_sol_B.shape == sB.eps_field.shape:
                 sB.eps_field = eps_sol_B
                 sB._mu_eff_field = np.ascontiguousarray(
@@ -1327,17 +1336,10 @@ def _extract_3d_metrics(prob: _Problem3D, outer: _OuterState):
     uc_real, vc_real, wc_real = _assemble_real_velocity()
     vmag = np.sqrt(uc_real ** 2 + vc_real ** 2 + wc_real ** 2)
 
-    # P field → real coords via solver perm. DISPLAY ABSOLUTE pressure anchored
-    # so the INLET reads exactly the user-input P_in — identical convention to
-    # the 2D-native path (run_calculation.py:821, P_fA = P_inA + (P_g - P_ref
-    # _inlet)). SIMPLE's self.P is the gauge field (outlet pinned ~0, inlet ≈
-    # dP); abs = (P_in - dP) + gauge ⇒ inlet=P_in, outlet=P_in-dP. Pure baseline
-    # shift, physics-free — dP itself is reported via extract_dP_face_extrap
-    # (line above), and this anchor does NOT depend on the P_ref_abs
-    # reconstruction (which for
-    # water is a fixed 1D seed, not loop-converged → would over-shoot the inlet).
-    P_disp_A = (P_inA - dP) + sA.P
-    P_real = np.ascontiguousarray(P_disp_A.transpose(solver_to_real_perm))
+    # Display pressure retains the P_in - dP constant baseline. Mapping this
+    # scalar back to physical axes reflects reverse flow without a sign change;
+    # the reported dP remains the independent physical-face extrapolation.
+    P_real = _pressure_real_3d(sA, prob.axis_map, P_inA - dP)
     P_kPa = P_real / 1000.0
     L_mm = (L_mm_field.copy() if L_mm_field is not None
             else np.full((Nx, Ny, Nz), Lcell, dtype=np.float64))
@@ -1345,25 +1347,8 @@ def _extract_3d_metrics(prob: _Problem3D, outer: _OuterState):
     # Fluid B fields (if sB solved): real-coord P + velocity magnitude
     if sB is not None:
         axis_map_B = sB_info['axis_map']
-        perm_B = axis_map_B['solver_to_real_perm']
         dP_B = float(SIMPLESolver3D.extract_dP_face_extrap(sB))
-        # ABSOLUTE pressure anchored so inlet == input P_inB (same convention as
-        # fluid A and the 2D path). Works for both water (incompressible) and
-        # air B without depending on the P_ref_abs reconstruction.
-        P_disp_B = (P_inB - dP_B) + sB.P
-        P_real_B = np.ascontiguousarray(P_disp_B.transpose(perm_B))
-        # approach-(a) reverse convention: sB.P is in SOLVER coords (inlet at
-        # solver y=0, high P). For a reverse-dir fluid the real inlet is at the
-        # OPPOSITE stream end, so the pressure must be spatially flipped along
-        # the real stream axis — exactly like _solver_velocity_to_real and the
-        # LTNE temperature solve. Pressure is a scalar, so NO sign change
-        # (unlike the stream velocity component). Without this flip the
-        # displayed P_B put the inlet's high pressure at the real OUTLET end.
-        # The constant baseline shift commutes with transpose+flip.
-        # Display-only field (feeds the vis panels; no physics consumes it).
-        if axis_map_B.get('is_reverse'):
-            P_real_B = np.ascontiguousarray(
-                np.flip(P_real_B, axis=axis_map_B['stream_real_axis']))
+        P_real_B = _pressure_real_3d(sB, axis_map_B, P_inB - dP_B)
         vmag_B = np.sqrt(ucB ** 2 + vcB ** 2 + wcB ** 2)
     else:
         P_real_B = None
