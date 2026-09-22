@@ -24,7 +24,9 @@ def test_export_and_verifier_restore_the_same_named_decisions(tmp_path, monkeypa
     captured = []
     monkeypatch.setattr(ntop, 'export_decision_vector',
                         lambda x, *a, **kw: captured.append(x))
-    ntop.export_pareto_row(str(path), 0, str(tmp_path / 'out'), config=DEFAULT_CONFIG)
+    cfg = {**DEFAULT_CONFIG, 'n_ctrl_x': 6 if dimension == 36 else 4,
+           'n_ctrl_y': 6 if dimension == 36 else 4}
+    ntop.export_pareto_row(str(path), 0, str(tmp_path / 'out'), config=cfg)
     expected, q, dp = verify._load_pareto_row(str(path), 0, dimension)
     np.testing.assert_array_equal(captured[0], expected)
     assert (q, dp) == (1234., 567.)
@@ -34,6 +36,17 @@ def test_verification_requires_original_configuration(tmp_path, monkeypatch):
     monkeypatch.setattr(verify, 'evaluate_3d', lambda *a, **kw: pytest.fail('solver launched'))
     with pytest.raises(ValueError, match='original config.json'):
         verify.main(['--pareto', str(tmp_path / 'pareto.csv')])
+
+
+@pytest.mark.parametrize('config', [{}, [], {k: v for k, v in DEFAULT_CONFIG.items() if k != 'L_domain'}])
+def test_export_rejects_incomplete_geometry_metadata(tmp_path, monkeypatch, config):
+    path = tmp_path / 'pareto.csv'
+    path.write_text(','.join([*(f'x{i}' for i in range(16)), 'Q_W_per_m', 'dP_Pa'])
+                    + '\n' + ','.join(['1'] * 18) + '\n')
+    monkeypatch.setattr(ntop, 'export_decision_vector', lambda *a, **kw: pytest.fail('invalid metadata exported'))
+    with pytest.raises(ValueError, match='configuration'):
+        ntop.export_pareto_row(str(path), 0, str(tmp_path / 'out'), config=config)
+    assert not (tmp_path / 'out').exists()
 
 
 @pytest.mark.parametrize('failed_seeds', [{43}, {42, 43}, set()])

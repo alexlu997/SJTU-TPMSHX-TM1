@@ -210,6 +210,8 @@ def export_pareto_row(pareto_csv_path: str,
                 config = json.load(source)
         except FileNotFoundError as exc:
             raise ValueError('original config.json is required to restore this Pareto design') from exc
+    if not isinstance(config, dict):
+        raise ValueError('original Pareto configuration must be a configuration mapping')
     missing = [key for key in FIELD_CONFIG_KEYS if key not in config]
     if missing:
         raise ValueError(f'original geometry configuration is incomplete: {missing}')
