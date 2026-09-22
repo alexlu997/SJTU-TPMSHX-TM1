@@ -53,20 +53,12 @@ def test_backend_uses_last_main_raw_and_mass_for_reported_scalars(monkeypatch, m
     from sjtu_tpmshx.domain.run_warnings import warning_scope
     from sjtu_tpmshx.solvers import ltne_enthalpy_2d
 
-    pipe, fields = _prepare(monkeypatch, legacy=mode == 'offset',
+    pipe, fields = _prepare(monkeypatch, legacy=mode == 'offset', zoned=mode == 'zones',
                             pair=('sco2', 'sco2') if mode == 'true_h' else ('air', 'air'))
     shape = pipe._parsed['N_x'], pipe._parsed['N_y']
     if mode == 'zones':
-        eps = .6 + np.arange(np.prod(shape)).reshape(shape) * .001
-        pipe._parsed['zone_config'] = object()
-        pipe._parsed['za'] = dict(L_mm_arr=np.full(shape, 7.), t_arr=np.full(shape, .6),
-            K_ffA_arr=np.ones(shape), K_ffB_arr=np.ones(shape),
-            K_ss_arr=np.ones(shape), eps_arr=eps)
-        from sjtu_tpmshx.preprocess.thermal_geometry import prepare_thermal_geometry
-        parsed = pipe._parsed
-        parsed['thermal_geometry'] = prepare_thermal_geometry(
-            parsed['tpms_type'], parsed['Lcell'], parsed['t_wall'], parsed['k_s'],
-            L_field=parsed['za']['L_mm_arr'], t_field=parsed['za']['t_arr'])
+        eps = pipe._parsed['za']['eps_arr']
+        assert np.ptp(eps) > 0.  # Real prepared zones retain varying face weights.
         monkeypatch.setattr(solve_2d, '_zone_statistics_2d', lambda *a: None)
     else:
         eps = pipe._parsed['eps']

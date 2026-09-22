@@ -39,10 +39,10 @@ run's numerical or physical status. Stage exceptions propagate as failures.
 `results.vtk` is a legacy ASCII rectilinear grid: physical coordinates in m,
 cell data in native order and an embedded UTF-8 JSON field-data array storing
 units, axes, states and run status. 2D uses a single z coordinate, without
-inventing an extrusion depth. Plots select a named field and, for 3D, require
-an explicit z-cell index. HTML reports read only archived field/metric data.
+inventing an extrusion depth. Field and metric interchange uses HDF5, VTK and
+JSON; visualization reads the recorded fields and their physical axes.
 
-Prepared `_environment` records the active SIMPLE tolerance/convergence,
+Prepared `_environment` records the active SIMPLE convergence mode,
 pressure shooting, variable rho-cp, sCO2 compressibility, acceleration flags
 and solid-tortuosity override provenance. Runtime reads frozen overrides rather
 than the receiver's environment. The prepared solid conductivity owns its

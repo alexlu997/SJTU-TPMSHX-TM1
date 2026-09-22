@@ -32,16 +32,17 @@
 - **THEN** 0 failed
 
 ### Requirement: Main_Menu UI ownership
-`Main_Menu` 的快捷键、IO 动作与 ResultCache 属性桥分别由
-`ui/mixins/shortcuts.py`、`io_actions.py`、`result_bridge.py` 维护。
-底部结果摘要在 `ui/builders_sidebar.py`，`builders_canvas` 保留其现有导出。
+`Main_Menu` 的快捷键与 IO 动作分别由 `ui/mixins/shortcuts.py`、
+`io_actions.py` 维护。图表和导出直接读取 `ResultCache`，不使用旧属性桥。
+底部结果摘要在 `ui/builders_sidebar.py`，读取已发布的本次标量结果；
+使用方直接从所属模块导入，不维护旧兼容重导出。
 画布和 3D 面板的组装按当前[架构说明](../../../docs/architecture.md#ui-structure)
 组织；旧拆分方案的逐字迁移和“不拆分”决定属于历史，不限制后续已验证的维护。
 
 #### Scenario: Window constructs with the extended MRO
 - **WHEN** 离屏构造 Main_Menu（test_main_smoke）
-- **THEN** 构造成功，快捷键/属性桥行为与拆分前一致（hygiene 锁全绿）
+- **THEN** 构造成功，快捷键、结果显示与导出读取本次已发布结果
 
-#### Scenario: Sidebar import surface unchanged
-- **WHEN** 通过 `sjtu_tpmshx.ui.builders_canvas` 导入 `refresh_result_sidebar`
-- **THEN** import 成功并解析到迁移后的实现
+#### Scenario: Sidebar uses the published result
+- **WHEN** 完成计算后刷新底部结果摘要
+- **THEN** `builders_sidebar.refresh_result_sidebar` 使用本次标量快照，单位与导出一致

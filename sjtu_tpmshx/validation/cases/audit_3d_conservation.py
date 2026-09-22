@@ -9,7 +9,11 @@ Conservation diagnostic blocks:
       LHS_α = ∮_∂Ω F_α·n dA       (advective + diffusive surface integral)
       RHS_α = ∫_Ω S_α dV          (LTNE source volume integral)
       ε_α   = |LHS − RHS| / max(|LHS|, |RHS|)
-      Hard gate: ε_α < 1.0 % per phase, ε_total < 0.5 % for LTNE 3-phase sum.
+      Historical full-surface specification: ε_α < 1.0 % per phase,
+      ε_total < 0.5 % for LTNE 3-phase sum. These surface quantities are
+      distinct from the interior kernel diagnostic implemented below.
+      The existing implemented interior gates remain ε_A/B_kernel < 5 %
+      and ε_LTNE < 1 %; passing them does not certify the surface spec.
 
   Phase 2c — per-cell mass-imbalance audit (H3 test)
       Computes per-cell NET_OUT_α = Σ_face F_face_advective_α and the
@@ -43,6 +47,7 @@ except Exception:
 warnings.filterwarnings('ignore')
 
 from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
+from sjtu_tpmshx.validation.harness._provenance import output_directory, output_path
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -70,8 +75,8 @@ def make_T1(grid):  # full-face parallel A,B both +x
                           out_ctr=H_DOM/2, out_w=H_DOM,
                           in_z_ctr=LZ/2, in_z_w=LZ,
                           out_z_ctr=LZ/2, out_z_w=LZ),
-        fluid_B_cfg=dict(dir=2, in_ctr=L_DOM/2, in_w=L_DOM,
-                          out_ctr=L_DOM/2, out_w=L_DOM,
+        fluid_B_cfg=dict(dir=0, in_ctr=H_DOM/2, in_w=H_DOM,
+                          out_ctr=H_DOM/2, out_w=H_DOM,
                           in_z_ctr=LZ/2, in_z_w=LZ,
                           out_z_ctr=LZ/2, out_z_w=LZ),
         _case_label='T1_full_parallel',
@@ -393,6 +398,20 @@ def compute_phase2a_surface(res):
 # Phase 2c — H3 per-cell mass-imbalance audit
 # ──────────────────────────────────────────────────────────────────────────
 
+def _audit_scalar_to_solver(field, face):
+    """Undo the real-coordinate map before combining with raw SIMPLE faces.
+
+    Exported solver arrays always enter at j=0. Negative real flow directions
+    reflect scalar fields along the stream axis as well as permuting axes.
+    Scalars change location under that reflection, never sign.
+    """
+    inverse = tuple(np.argsort(face['solver_to_real_perm']))
+    mapped = np.transpose(field, inverse)
+    if face['dir_real'] in (1, 3, 5):
+        mapped = np.flip(mapped, axis=1)
+    return np.ascontiguousarray(mapped)
+
+
 def compute_phase2c_h3(res):
     """Per-cell mass NET_OUT and associated spurious enthalpy.
 
@@ -408,11 +427,9 @@ def compute_phase2c_h3(res):
     sA = res['_audit_sA_face']
     sB = res.get('_audit_sB_face')
     eps_arr = res['_audit_eps_arr']
-    rho_cp_A = res['_audit_rho_cp_fA']
-    rho_cp_B = res['_audit_rho_cp_fB']
     Ta = res['Ta']; Tb = res['Tb']
 
-    def _per_cell_net_out(face, rho_cp_field, T_field):
+    def _per_cell_net_out(face):
         """Per-cell mass NET_OUT = Σ_face ρ·u·n·A (signed by outward normal)."""
         u = face['u']; v = face['v']; w = face['w']
         rho = face['rho']
@@ -484,18 +501,11 @@ def compute_phase2c_h3(res):
         return flux_x_out + flux_y_out + flux_z_out
 
     # Compute per-cell NET_OUT for both fluids
-    net_A = _per_cell_net_out(sA, rho_cp_A, Ta)
-    # Reshape Ta from real coords to solver coords for matching with sA
-    perm_A = sA['solver_to_real_perm']
-    inv_A = tuple(np.argsort(perm_A))
-    Ta_solver = np.ascontiguousarray(np.transpose(Ta, inv_A))
+    net_A = _per_cell_net_out(sA)
+    Ta_solver = _audit_scalar_to_solver(Ta, sA)
 
-    # Spurious enthalpy contamination
-    # Per cell α: ΔE_cell = T_cell · NET_OUT · ε_α · cp
-    # But NET_OUT already includes ρ — so ΔE_cell = T_cell · NET_OUT · cp
-    # Wait — net_out has units kg/s (rho·v·A). For energy contamination:
-    # ΔE_cell ≈ T_cell · cp · net_out · ε_per_phase    units: K · J/kg/K · kg/s = W
-    eps_per_phase_solver = 0.5 * np.transpose(eps_arr, inv_A)
+    # NET_OUT already includes rho; T * cp * NET_OUT * eps_per_phase is W.
+    eps_per_phase_solver = 0.5 * _audit_scalar_to_solver(eps_arr, sA)
     cp_A = res['_audit_cp_A']
     spur_A_per_cell = Ta_solver * cp_A * net_A * eps_per_phase_solver
     spur_A_total = float(np.sum(spur_A_per_cell))
@@ -513,11 +523,9 @@ def compute_phase2c_h3(res):
         B=None,
     )
     if sB is not None:
-        net_B = _per_cell_net_out(sB, rho_cp_B, Tb)
-        perm_B = sB['solver_to_real_perm']
-        inv_B = tuple(np.argsort(perm_B))
-        Tb_solver = np.ascontiguousarray(np.transpose(Tb, inv_B))
-        eps_per_phase_solver_B = 0.5 * np.transpose(eps_arr, inv_B)
+        net_B = _per_cell_net_out(sB)
+        Tb_solver = _audit_scalar_to_solver(Tb, sB)
+        eps_per_phase_solver_B = 0.5 * _audit_scalar_to_solver(eps_arr, sB)
         cp_B = res['_audit_cp_B']
         spur_B_per_cell = Tb_solver * cp_B * net_B * eps_per_phase_solver_B
         spur_B_total = float(np.sum(spur_B_per_cell))
@@ -709,31 +717,24 @@ def compute_phase3(res):
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# Phase 4 — mass conservation + compressible drift
+# Phase 4 — mass conservation and thermal variation
 # ──────────────────────────────────────────────────────────────────────────
 
 def compute_phase4(res):
-    """Phase 4 — mass-cons audit per fluid; attribute imbal to compressible drift.
+    """Integrate steady mass conservation across all six outer faces.
 
-    For each fluid α, integrate ρ·u·n·dA across 6 outer faces. For steady
-    incompressible: imbal = 0. For compressible (ideal gas): imbal expected
-    ~ |Δρ/ρ| ≈ |ΔP/P| + |ΔT/T|.
-
-    If actual imbal exceeds expected drift, residual is numerical.
+    Density variation changes velocity; it never excuses a net mass source.
+    Relative temperature change is reported separately, not subtracted.
     """
     sA = res['_audit_sA_face']
     sB = res.get('_audit_sB_face')
-    P_inA = res.get('_audit_P_inA')
-    P_inB = res.get('_audit_P_inB')
     T_inA = res['_audit_T_inA']
     T_inB = res.get('_audit_T_inB')
 
-    def _per_fluid(face, T_in, P_in, T_out):
+    def _per_fluid(face, T_in, T_out):
         u = face['u']; v = face['v']; w = face['w']
         rho = face['rho']
         dx = face['dx']; dy = face['dy']; dz = face['dz']
-        dir_real = face['dir_real']
-        Nx_s, Ny_s, Nz_s = rho.shape
 
         # Solver j=0 face (south boundary)
         A_solver_y = dx[:, None] * dz[None, :]
@@ -751,46 +752,33 @@ def compute_phase4(res):
         # outward at +x = +u_east·A; outward at -x = -u_west·A; etc.
         net_out_solver = (m_east - m_west) + (m_north - m_south) + (m_top - m_bot)
 
-        # SIMPLE conv: forward streams enter at solver j=0 (south, v>0); the
-        # streamwise "out" face is j=Ny. FIX (2026-06-24 audit): reverse-direction
-        # fluids (dir_real in {1,3,5}, e.g. fluid B with dir=3 in the T2 case)
-        # physically enter at solver j=-1 (north), so swap in/out — otherwise the
-        # imbalance is normalized on the OUTLET flux. net_out_solver above is
-        # signed/direction-independent and stays unchanged.
-        is_reverse = dir_real in (1, 3, 5)
-        if is_reverse:
-            m_in_face = m_north    # signed positive entering
-            m_out_face = m_south   # signed positive leaving
-        else:
-            m_in_face = m_south
-            m_out_face = m_north
-        imbal = (m_in_face - m_out_face) / max(abs(m_in_face), 1e-30)
+        # Runtime exports raw solver arrays: every physical direction enters
+        # at solver j=0 with positive v. dir_real affects real-space mapping,
+        # not these face arrays, so reverse physical streams need no swap.
+        m_in_face = m_south
+        m_out_face = m_north
+        imbal = -net_out_solver / max(abs(m_in_face), abs(m_out_face), 1e-30)
 
-        # Compressible drift expectation: |ΔT/T_in| + |ΔP/P_in|
-        # For ideal gas: ρ ∝ P/T. Without P/T data inside, use only T drift.
+        # Thermal variation is informational and independent of continuity.
         if T_in is not None and T_in > 0 and T_out is not None:
             dT_rel = abs(T_out - T_in) / T_in
         else:
             dT_rel = 0.0
-        # Pressure drift small for typical Shanghai cases; ignore for now.
-        drift_expected = dT_rel
-        residual_numerical = abs(imbal) - drift_expected
 
         return dict(
             m_in=m_in_face, m_out=m_out_face,
             net_out_total=net_out_solver,
             imbal_rel=float(imbal),
-            drift_expected=float(drift_expected),
-            residual=float(residual_numerical),
+            temperature_change_rel=float(dT_rel),
         )
 
     out = dict(A=None, B=None)
     if sA is not None:
         T_A_out = float(res.get('T_A_out', T_inA))
-        out['A'] = _per_fluid(sA, T_inA, P_inA, T_A_out)
+        out['A'] = _per_fluid(sA, T_inA, T_A_out)
     if sB is not None and T_inB is not None:
         T_B_out = float(res.get('T_B_out', T_inB))
-        out['B'] = _per_fluid(sB, T_inB, P_inB, T_B_out)
+        out['B'] = _per_fluid(sB, T_inB, T_B_out)
     return out
 
 
@@ -826,11 +814,9 @@ def compute_phase5(res):
         dx = face['dx']; dy = face['dy']; dz = face['dz']
         Nx_s, Ny_s, Nz_s = rho.shape
 
-        perm = face['solver_to_real_perm']
-        inv = tuple(np.argsort(perm))
-        T_solver = np.ascontiguousarray(np.transpose(T_field, inv))
-        rho_cp_solver = np.ascontiguousarray(np.transpose(rho_cp_field, inv))
-        eps_solver = np.ascontiguousarray(np.transpose(eps_per_phase, inv))
+        T_solver = _audit_scalar_to_solver(T_field, face)
+        rho_cp_solver = _audit_scalar_to_solver(rho_cp_field, face)
+        eps_solver = _audit_scalar_to_solver(eps_per_phase, face)
 
         A_x = dy[:, None] * dz[None, :]   # shape (Ny, Nz) — for x-faces
         A_y = dx[:, None] * dz[None, :]   # for y-faces
@@ -889,6 +875,7 @@ def _fmt(x, p=4):
 
 def render_case(label, res, p2a, p2c, p3=None, p4=None, p5=None):
     lines = []
+    all_gates = []
     lines.append(f'\n## Case: {label}\n')
     lines.append(f'- grid: {res["Ta"].shape}')
     lines.append(f'- Q_enthalpy_A = {_fmt(res.get("Q_enthalpy_A", float("nan")), 2)} W')
@@ -917,6 +904,9 @@ def render_case(label, res, p2a, p2c, p3=None, p4=None, p5=None):
     gates.append(('ε_LTNE < 1 %',     p2a['eps_LTNE']    < 0.01))
     for name, ok in gates:
         lines.append(f'- {name}: **{"PASS" if ok else "FAIL"}**')
+    all_gates.extend(gates)
+    lines.append('The historical full-surface 1 % / 0.5 % specification uses '
+                 'different quantities and is not certified by these interior gates.')
     lines.append('')
 
     lines.append('### Phase 2c — H3 per-cell mass-imbalance audit\n')
@@ -986,20 +976,20 @@ def render_case(label, res, p2a, p2c, p3=None, p4=None, p5=None):
             gates3.append(('cold ≯ hot', p3['cold_lt_hot']))
         for name, ok in gates3:
             lines.append(f'- {name}: **{"PASS" if ok else "FAIL"}**')
+        all_gates.extend(gates3)
         lines.append('')
 
     if p4 is not None:
-        lines.append('### Phase 4 — mass conservation + compressible drift\n')
-        lines.append('| fluid | m_in (kg/s) | m_out (kg/s) | imbal % | expected drift % | numerical residual % |')
-        lines.append('|-------|-------------|--------------|---------|------------------|----------------------|')
+        lines.append('### Phase 4 — steady mass conservation\n')
+        lines.append('| fluid | m_in (kg/s) | m_out (kg/s) | six-face imbal % | temperature change % (informational) |')
+        lines.append('|-------|-------------|--------------|------------------|--------------------------------------|')
         for tag in ('A', 'B'):
             d = p4.get(tag)
             if d is None:
                 continue
             lines.append(
                 f'| {tag} | {_fmt(d["m_in"], 6)} | {_fmt(d["m_out"], 6)} | '
-                f'{_fmt(d["imbal_rel"]*100, 3)} | {_fmt(d["drift_expected"]*100, 3)} | '
-                f'{_fmt(d["residual"]*100, 3)} |')
+                f'{_fmt(d["imbal_rel"]*100, 3)} | {_fmt(d["temperature_change_rel"]*100, 3)} |')
         lines.append('')
         gates4 = []
         for tag in ('A', 'B'):
@@ -1010,6 +1000,7 @@ def render_case(label, res, p2a, p2c, p3=None, p4=None, p5=None):
             gates4.append((f'{tag} mass imbal < 1 % (physical scale)', ok))
         for name, ok in gates4:
             lines.append(f'- {name}: **{"PASS" if ok else "FAIL"}**')
+        all_gates.extend(gates4)
         lines.append('')
 
     if p5 is not None:
@@ -1037,16 +1028,18 @@ def render_case(label, res, p2a, p2c, p3=None, p4=None, p5=None):
             gates5.append((f'{tag} lateral wall flux < 0.5 % of streamwise', ok))
         for name, ok in gates5:
             lines.append(f'- {name}: **{"PASS" if ok else "FAIL"}**')
+        all_gates.extend(gates5)
         lines.append('')
-    return '\n'.join(lines)
+    return '\n'.join(lines), all(ok for _, ok in all_gates)
 
 
 def write_report(out_path, sections, header_meta):
+    out_path = output_path(out_path)
     lines = []
     lines.append('# Phase 2 — 3D LTNE Conservation Audit\n')
     lines.append(f'- Date: {header_meta["date"]}')
     lines.append('- Spec: `vault/reports/3d-solver/2026-05-04-3d-conservation-spec-CN.md`')
-    lines.append('- Audit script: `sjtu_tpmshx/validation/audit_3d_conservation.py`\n')
+    lines.append('- Audit script: `sjtu_tpmshx/validation/cases/audit_3d_conservation.py`\n')
     lines.append('## Scope\n')
     lines.append('- Hybrid path: Phase 2a volumetric ε_α + Phase 2c per-cell mass-imbal audit (H3).')
     lines.append('- Read-only. No solver / closure / momentum changes.')
@@ -1072,23 +1065,13 @@ def main():
                          'grids 12, 20, 30 and reports Richardson convergence.')
     args = ap.parse_args()
 
-    if args.out is None:
-        # The vault sits at a different depth per machine (laptop:
-        # D:\Postgraduate\vault with the repo two levels down; server:
-        # E:\LWH\vault beside the repo). A fixed parents[N] therefore
-        # resolved to a stray root (E:\vault) after the 2026-07 migration —
-        # walk up until an actual vault/reports directory is found instead.
-        # Filename carries the RUN date so a regeneration can never clobber
-        # a historical dated report in the vault.
-        vault_root = next((c for c in ROOT.parents
-                           if (c / 'vault' / 'reports').is_dir()), None)
-        fname = time.strftime('%Y-%m-%d') + '-phase2-conservation-CN.md'
-        if vault_root is None:
-            out_path = ROOT / 'validation' / fname
-        else:
-            out_path = vault_root / 'vault' / 'reports' / '3d-solver' / fname
-    else:
-        out_path = Path(args.out).resolve()
+    try:
+        out_path = (output_path(args.out) if args.out else
+                    output_directory('conservation') / 'report.md')
+    except ValueError as exc:
+        ap.error(str(exc))
+    if args.grid < 1:
+        ap.error('--grid must be positive')
 
     selected = [c.strip() for c in args.cases.split(',') if c.strip()]
     unsupported = sorted(set(selected) - CASES.keys())
@@ -1101,6 +1084,7 @@ def main():
         print('\n══════ PHASE 6 — Grid convergence ══════')
         grids = [12, 20, 30]
         gc_rows = []
+        failed = False
         for cid in selected:
             print(f'\n  case {cid}:')
             row = {'case': cid}
@@ -1109,6 +1093,7 @@ def main():
                 cfg['_emit_audit'] = True   # C1: reads r['_audit_*'] keys
                 t0 = time.time()
                 res = _run_3d_stack(cfg)
+                failed = failed or not res['solver_converged']
                 dt = time.time() - t0
                 Q_enth = float(res.get('Q_enthalpy_B', float('nan')))
                 Q_sB_int = float(res.get('Q_sB_interior', float('nan')))
@@ -1116,22 +1101,14 @@ def main():
                 row[f'Q_g{g}'] = Q_enth
                 row[f'eps_g{g}'] = eps_kern * 100
                 print(f'    grid={g}: Q={Q_enth:.1f}W ε_B={eps_kern*100:.2f}% [{dt:.0f}s]')
-            # Richardson
-            if all(f'Q_g{g}' in row for g in grids):
-                Qc, Qm, Qf = row['Q_g12'], row['Q_g20'], row['Q_g30']
-                rel_med_fine = abs(Qm - Qf) / max(abs(Qf), 1e-30)
-                row['rel_med_fine'] = rel_med_fine * 100
-                if abs(Qm - Qf) > 1e-30 and abs(Qc - Qm) > 1e-30:
-                    try:
-                        order = float(np.log(abs(Qc - Qf) / abs(Qm - Qf))
-                                      / np.log(20 / 12))
-                    except Exception:
-                        order = float('nan')
-                else:
-                    order = float('nan')
-                row['order_obs'] = order
-                print(f'    Richardson: |med−fine|/fine = {rel_med_fine*100:.2f}%  '
-                      f'order_obs ≈ {order:.2f}')
+            from sjtu_tpmshx.validation.cases.phase_c_gci import _richardson_triplet
+            Qs = [row[f'Q_g{g}'] for g in grids]
+            order, extrapolate = _richardson_triplet(grids, Qs)
+            rel_med_fine = abs(Qs[-2] - Qs[-1]) / max(abs(Qs[-1]), 1e-30)
+            row.update(rel_med_fine=rel_med_fine * 100, order_obs=order,
+                       Q_extrapolated=extrapolate)
+            print(f'    |med−fine|/fine = {rel_med_fine*100:.2f}%; '
+                  f'Richardson order = {order:.2f} (NaN means undetermined)')
             gc_rows.append(row)
         print('\n  grid-convergence summary:')
         print(f'    {"case":<10}{"Q@12":>8}{"Q@20":>8}{"Q@30":>8}{"|m-f|%":>8}{"order":>7}')
@@ -1142,21 +1119,31 @@ def main():
                   f'{r.get("Q_g30", float("nan")):>8.1f}'
                   f'{r.get("rel_med_fine", float("nan")):>8.2f}'
                   f'{r.get("order_obs", float("nan")):>7.2f}')
-        return 0
+        write_report(out_path, [str(row) for row in gc_rows],
+                     dict(date=time.strftime('%Y-%m-%d')))
+        return 0 if not failed and all(np.isfinite(row['order_obs']) for row in gc_rows) else 1
 
     sections = []
     summary_rows = []
+    failed = False
     for cid in selected:
         print(f'\n══════ Phase 2 case: {cid} ══════')
         cfg = CASES[cid](args.grid)
         cfg['_emit_audit'] = True   # C1: reads r['_audit_*'] keys
         t0 = time.time()
-        res = _run_3d_stack(cfg)
+        try:
+            res = _run_3d_stack(cfg)
+        except Exception as exc:
+            failed = True
+            sections.append(f'\n## Case: {cid}\n\n**FAIL**: {type(exc).__name__}: {exc}')
+            continue
+        failed = failed or not res['solver_converged']
         dt = time.time() - t0
         print(f'  solved in {dt:.1f}s')
         try:
             p2a = compute_phase2a_interior(res)
         except Exception as e:
+            failed = True
             print(f'  Phase 2a failed: {e}')
             p2a = dict(Q_enth_A=float('nan'), Q_sA=float('nan'),
                        Q_sA_interior=float('nan'),
@@ -1172,6 +1159,7 @@ def main():
         try:
             p2c = compute_phase2c_h3(res)
         except Exception as e:
+            failed = True
             print(f'  Phase 2c failed: {e}')
             p2c = dict(A=dict(net_out_total=float('nan'),
                                net_out_abs=float('nan'),
@@ -1182,23 +1170,29 @@ def main():
         try:
             p3 = compute_phase3(res)
         except Exception as e:
+            failed = True
             print(f'  Phase 3 failed: {e}')
             p3 = None
         try:
             p4 = compute_phase4(res)
         except Exception as e:
+            failed = True
             print(f'  Phase 4 failed: {e}')
             p4 = None
         try:
             p5 = compute_phase5(res)
         except Exception as e:
+            failed = True
             print(f'  Phase 5 failed: {e}')
             p5 = None
-        sec = render_case(cid, res, p2a, p2c, p3, p4, p5)
+        sec, passed = render_case(cid, res, p2a, p2c, p3, p4, p5)
+        if not res['solver_converged']:
+            sec += '\n- Solver convergence: **FAIL**\n'
+        failed = failed or not passed
         sections.append(sec)
         summary_rows.append((cid, p2a, p2c, p3, p4, p5))
 
-    write_report(out_path, sections, dict(date='2026-05-04'))
+    write_report(out_path, sections, dict(date=time.strftime('%Y-%m-%d')))
     print(f'\nReport: {out_path}')
     print('\n══════ SUMMARY ══════')
     print(f'{"case":<14s} {"ε_A%":>6s} {"ε_B%":>6s} {"ε_LTNE%":>8s} '
@@ -1221,7 +1215,7 @@ def main():
               f'{mB:>+7.3f} '
               f'{latA:>6.2f} '
               f'{latB:>6.2f}')
-    return 0
+    return 1 if failed else 0
 
 
 if __name__ == '__main__':

@@ -1,9 +1,6 @@
-"""Tiny inline sparkline widget — big-stat companion for the Optimize tab.
+"""Theme-aware inline chart for optimization progress and recent run values.
 
-Draws a filled-area line chart of arbitrary numeric history. Theme-aware
-so it fits both glassmorphism dark and crisp light palettes. Deliberately
-lightweight — no matplotlib — to stay < 1 ms per repaint while NSGA-II
-polls at 2 Hz.
+Each caller owns the history's meaning and clears it before changing quantity.
 """
 from __future__ import annotations
 

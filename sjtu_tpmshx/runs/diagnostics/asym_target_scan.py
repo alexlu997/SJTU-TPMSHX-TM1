@@ -8,7 +8,7 @@ Phase 0.5：指定配比 (A%, B%, solid%) 反解 (C, δ) + 出每侧 ε/A0/D_h +
 体积配比按构造恒精确命中；唯一问号 = 连通性（两侧是否还贯穿）。
 壁厚 = 2C（φ-单位常数，物理壁厚延后 STL）。
 
-用法：python -u runs/asym_target_scan.py
+用法：python -m sjtu_tpmshx.runs.diagnostics.asym_target_scan
 """
 import numpy as np
 

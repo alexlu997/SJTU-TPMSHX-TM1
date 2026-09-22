@@ -1,6 +1,7 @@
 """Real public-result mapping retains the GUI/export and diagnostic contract."""
 from dataclasses import replace
 from types import SimpleNamespace
+from sjtu_tpmshx.controllers.result_cache import ResultCache
 import importlib
 
 import numpy as np
@@ -402,7 +403,7 @@ def test_native_result_reaches_gui_diagnostics_and_display_cache(native_result):
     from sjtu_tpmshx.ui.mixins.run_results import RunResultsMixin
     fields, _ = native_result
     result = to_compute_result(fields, evaluate(fields))
-    window = SimpleNamespace()
+    window = SimpleNamespace(cache=ResultCache())
     RunResultsMixin.write_result(window, result)
     if fields.grid['dimension'] == 3:
         for side in ('A', 'B'):
@@ -413,8 +414,8 @@ def test_native_result_reaches_gui_diagnostics_and_display_cache(native_result):
         assert '两侧焓流: Q_A' in text and '能量闭合（主网格两侧有符号焓流）' in text
     else:
         for name in ('ucA', 'vcA', 'ucB', 'vcB'):
-            np.testing.assert_array_equal(window._compute_results[name], fields.fields[name])
-            np.testing.assert_array_equal(window._compute_results[name + '_disp'],
+            np.testing.assert_array_equal(window.cache.get_result('2d')[name], fields.fields[name])
+            np.testing.assert_array_equal(window.cache.get_result('2d')[name + '_disp'],
                                           fields.fields.get(name + '_display'))
 
 

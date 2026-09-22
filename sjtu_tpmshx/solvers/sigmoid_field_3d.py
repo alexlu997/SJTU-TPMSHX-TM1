@@ -170,23 +170,3 @@ def build_continuous_arrays_3d(x, L0, t0,
         L_field, t_field, tpms_type, k_s, u_A, u_B, T_inA, T_inB, lut,
         P_in=P_in, P_inB=P_inB, allow_extrap=allow_extrap,
         fluid_type=fluid_type, axis='continuous_3d')
-
-
-if __name__ == '__main__':
-    from sjtu_tpmshx.models.sigmoid_field import get_geometry_lut
-    print("=== sigmoid_field_3d smoke test ===")
-    lut = get_geometry_lut('Diamond')
-    x = np.array([6.0, 0.3] * 54)
-    x[0:2] = [4.0, 0.4]  # one inlet zone
-    x[106:108] = [8.0, 0.5]  # one outlet zone
-    out = build_continuous_arrays_3d(
-        x, 6.0, 0.3, 0.2, 0.2,
-        Nx=20, Ny=15, Nz=8,
-        L_domain=0.10, H_domain=0.05, D_domain=0.02,
-        tpms_type='Diamond', k_s=17.0,
-        u_A=10.0, u_B=10.0, T_inA=400.0, T_inB=300.0,
-        lut=lut)
-    print(f"  L_field shape={out['L_field'].shape} range=[{out['L_field'].min():.2f}, {out['L_field'].max():.2f}]")
-    print(f"  eps range=[{out['eps_arr'].min():.4f}, {out['eps_arr'].max():.4f}]")
-    print(f"  h_vA range=[{out['h_vA_arr'].min():.0f}, {out['h_vA_arr'].max():.0f}]")
-    print("OK")

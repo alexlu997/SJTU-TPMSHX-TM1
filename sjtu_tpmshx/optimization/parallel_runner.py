@@ -29,6 +29,7 @@ Implementation note:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -40,20 +41,6 @@ from sjtu_tpmshx.logutil import get_logger
 from sjtu_tpmshx.optimization._thread_caps import set_worker_thread_caps
 
 _log = get_logger(__name__)
-
-
-def _set_thread_caps() -> None:
-    """Belt-and-braces re-pin inside the worker body.
-
-    The REAL guard is the executor's ``initializer=set_worker_thread_caps``
-    (light-module timing — see _thread_caps.py: a spawned child imports this
-    module, numpy included, just to UNPICKLE the worker fn, so an in-body cap
-    ran after OpenBLAS already sized its pool, and the old list was missing
-    NUMBA_NUM_THREADS — HANDOFF §6b, fixed 2026-07-21). This call remains for
-    the dynamic readers (MKL/OMP re-read at parallel regions) and for callers
-    invoking _seed_subprocess_main outside the pool.
-    """
-    set_worker_thread_caps()
 
 
 def _seed_subprocess_main(seed: int,
@@ -72,7 +59,7 @@ def _seed_subprocess_main(seed: int,
     importing optimizer_qnehvi to keep MKL from launching N threads per
     process which would oversubscribe the 12-core budget.
     """
-    _set_thread_caps()
+    set_worker_thread_caps()
     # Heavy import deferred until after thread caps are set
     from sjtu_tpmshx.optimization.optimizer_qnehvi import run_qnehvi
 
@@ -100,6 +87,8 @@ def _seed_subprocess_main(seed: int,
         'history_errors': out['history_errors'],
         'n_evals':    int(out['n_evals']),
         'save_dir':   out['save_dir'],
+        'config': out['config'],
+        'termination_reason': out['termination_reason'],
     }
 
 
@@ -179,10 +168,19 @@ def run_qnehvi_multiseed(config: Optional[dict] = None,
         seeds = [42 + i for i in range(n_seeds)]
     else:
         n_seeds = len(seeds)
+    if not seeds or len(set(seeds)) != len(seeds):
+        raise ValueError('Specify at least one seed, with no duplicate seeds')
+
+    from sjtu_tpmshx.models.screening import DEFAULT_CONFIG
+    from sjtu_tpmshx.models.continuous_field import decision_dim
+    config = {**DEFAULT_CONFIG, **(config or {})}
+    dimension = decision_dim(config['n_ctrl_x'], config['n_ctrl_y'], config['symmetric_y'])
 
     if save_dir_base is None:
         save_dir_base = f"opt_qnehvi_multiseed_{time.strftime('%Y%m%d_%H%M%S')}"
     os.makedirs(save_dir_base, exist_ok=True)
+    with open(os.path.join(save_dir_base, 'config.json'), 'w', encoding='utf-8') as target:
+        json.dump(config, target, indent=2)
 
     if verbose:
         _log.info(f"[multiseed] {n_seeds} seeds × q_batch={q_batch} inner = "
@@ -199,27 +197,41 @@ def run_qnehvi_multiseed(config: Optional[dict] = None,
     ctx = mp.get_context('spawn')
 
     per_seed_results: List[dict] = []
+    failed_seeds = {}
     # initializer from the LIGHT module: unpickling it imports os only, so
     # the caps land BEFORE the child's numpy/numba load (candidate C fix —
     # see optimization/_thread_caps.py for the spawn-timing rationale).
     with ProcessPoolExecutor(max_workers=n_seeds, mp_context=ctx,
                              initializer=set_worker_thread_caps) as ex:
-        futs = [
+        futs = {
             ex.submit(_seed_subprocess_main,
                       seed, config, n_init, n_iter, q_batch,
                       n_jobs_inner, save_dir_base,
-                      hv_tol, hv_window, verbose)
+                      hv_tol, hv_window, verbose): seed
             for seed in seeds
-        ]
+        }
         for fut in as_completed(futs):
             try:
-                per_seed_results.append(fut.result())
+                result = fut.result()
+                per_seed_results.append(result)
+                if result['termination_reason'] not in ('completed', 'plateau') or not len(result['X']):
+                    failed_seeds[futs[fut]] = (result['termination_reason'] if len(result['X'])
+                                              else 'no valid Pareto solutions')
             except Exception as e:
+                failed_seeds[futs[fut]] = repr(e)
                 _log.warning(f"[multiseed] seed worker FAILED: {e!r}")
 
     wall = time.perf_counter() - t0
 
     X_m, F_m, X_h, F_h, n_evals_total = _merge_paretos(per_seed_results)
+    if not per_seed_results:
+        X_m = np.empty((0, dimension))
+        X_h = np.empty((0, dimension))
+    status = dict(seeds_requested=list(seeds),
+                  seeds_used=[result['seed'] for result in per_seed_results],
+                  failed_seeds=failed_seeds, complete=not failed_seeds)
+    with open(os.path.join(save_dir_base, 'multiseed_status.json'), 'w', encoding='utf-8') as target:
+        json.dump(status, target, indent=2)
 
     if verbose:
         _log.info(f"\n[multiseed] DONE in {wall:.0f}s")
@@ -246,7 +258,8 @@ def run_qnehvi_multiseed(config: Optional[dict] = None,
         'history_F':         F_h,
         'history_errors':    history_errors,
         'n_evals':           n_evals_total,
-        'seeds_used':        list(seeds),
+        **status,
+        'config':           config,
         'per_seed_results':  per_seed_results,
         'wall_time_s':       wall,
         'save_dir':          save_dir_base,
@@ -285,7 +298,7 @@ def main(argv: Optional[list] = None) -> int:
     )
     print(f"\nMerged: {len(out['X'])} Pareto points / {out['n_evals']} evals "
           f"in {out['wall_time_s']:.0f}s")
-    return 0
+    return 0 if out['complete'] else 1
 
 
 if __name__ == '__main__':

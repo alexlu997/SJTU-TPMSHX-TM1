@@ -7,6 +7,6 @@ Feather-derived icons' MIT notice. Colors are applied at render time by
 `ui/icons.py`; the SVG geometry remains unchanged.
 
 `chevron-down-light.svg` and `chevron-down-dark.svg` reuse the same Lucide
-geometry with the corresponding `combo_arrow` theme color. These two assets
+geometry with fixed colors selected for the corresponding light/dark theme. These two assets
 let Qt stylesheets load a colored arrow without depending on native menu
 painting or generating files at runtime. The other SVGs are unmodified.

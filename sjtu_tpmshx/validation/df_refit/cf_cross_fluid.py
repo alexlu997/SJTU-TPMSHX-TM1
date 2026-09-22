@@ -23,7 +23,7 @@ water 与 air 使用相同的单侧有效 A_flow，不按通道数
 28/34 缩放，也不使用 42×42 mm 几何端面或简单除以 2。
 
 用法（从仓库根）:
-    python -u sjtu_tpmshx/validation/df_refit/cf_cross_fluid.py
+    python -m sjtu_tpmshx.validation.df_refit.cf_cross_fluid
 
 输出: stdout 记分板 + .cache/reports/df_refit/cf_cross_fluid.csv。生产零改动。
 """

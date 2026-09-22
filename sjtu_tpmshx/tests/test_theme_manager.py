@@ -57,29 +57,8 @@ def test_palette_is_dict():
 # ---------------------------------------------------------------- signal
 
 
-def test_set_theme_emits_signal_on_success():
-    _app()
-    tm = ThemeManager()
-    received = []
-    tm.theme_changed.connect(lambda name: received.append(name))
-    # Switching to current theme is fine — set_theme accepts both names.
-    cur = tm.current_theme_name()
-    target = 'light' if cur == 'dark' else 'dark'
-    ok = tm.set_theme(target)
-    assert ok
-    assert received == [target]
-    # Restore so the test doesn't leak state across runs.
-    tm.set_theme(cur)
 
 
-def test_set_theme_rejects_garbage_name_and_no_signal():
-    _app()
-    tm = ThemeManager()
-    received = []
-    tm.theme_changed.connect(lambda name: received.append(name))
-    ok = tm.set_theme('not-a-real-theme-name-xyz')
-    assert ok is False
-    assert received == []
 
 
 # ---------------------------------------------------------------- repr

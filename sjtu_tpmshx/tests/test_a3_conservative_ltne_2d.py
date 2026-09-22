@@ -117,7 +117,7 @@ def test_fine_grid_outer_coupling_stability():
     from sjtu_tpmshx.models.continuous_field import uniform_field
     from sjtu_tpmshx.optimization.evaluator import evaluate_design
     cfg = {'Nx': 40, 'Ny': 80,
-           'max_iter_simple': 800, 'tol_simple': 1e-3,
+           'max_iter_simple': 800,
            'max_iter_energy': 3000, 'tol_energy': 0.5, 'n_rho_loops': 1}
     fc = uniform_field(6.0, 0.4, 'Diamond', 17.0, L_domain=0.10, H_domain=0.05)
     got = evaluate_design(x=None, cfg=cfg, fc=fc)

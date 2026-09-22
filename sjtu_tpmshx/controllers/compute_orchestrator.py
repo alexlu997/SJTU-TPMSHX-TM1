@@ -57,8 +57,6 @@ class CancelToken:
     def cancel(self) -> None:
         self._evt.set()
 
-    def reset(self) -> None:
-        self._evt.clear()
 
 
 # ---------------------------------------------------------------- runnable
@@ -246,14 +244,8 @@ class ComputeOrchestrator(QObject):
         self._is_running = False
         # Latest run snapshot — populated when worker finishes / errors.
         self._last_result: object = None
-        self._last_error: Optional[str] = None
         self._last_log: str = ""
         self._last_elapsed: float = 0.0
-        # Per-mode wall-clock history for ETA prediction.
-        self._eta_history = {
-            '2d': deque(maxlen=10),
-            '3d': deque(maxlen=10),
-        }
 
     # ---- introspection -----------------------------------------------------
 
@@ -266,8 +258,6 @@ class ComputeOrchestrator(QObject):
     def last_result(self) -> object:
         return self._last_result
 
-    def last_error(self) -> Optional[str]:
-        return self._last_error
 
     def last_log(self) -> str:
         return self._last_log
@@ -275,14 +265,6 @@ class ComputeOrchestrator(QObject):
     def last_elapsed(self) -> float:
         return self._last_elapsed
 
-    def eta_seconds(self, mode: str) -> Optional[float]:
-        """Median wall-clock for `mode` from history, or None if no samples."""
-        hist = self._eta_history.get(mode)
-        if not hist:
-            return None
-        srt = sorted(hist)
-        n = len(srt)
-        return srt[n // 2] if n % 2 == 1 else 0.5 * (srt[n // 2 - 1] + srt[n // 2])
 
     # ---- control -----------------------------------------------------------
 
@@ -308,7 +290,6 @@ class ComputeOrchestrator(QObject):
         self._cancel_token = CancelToken()
         self._is_running = True
         self._last_result = None
-        self._last_error = None
         self._last_log = ""
 
         runnable = _ComputeRunnable(self, worker_fn, cfg, self._cancel_token)
@@ -341,8 +322,6 @@ class ComputeOrchestrator(QObject):
         self._last_result = result
         self._last_log = log
         self._last_elapsed = elapsed
-        if self._mode is not None:
-            self._eta_history[self._mode].append(elapsed)
         try:
             self.finished.emit(result)
         finally:
@@ -350,7 +329,6 @@ class ComputeOrchestrator(QObject):
 
     @Slot(str, str)
     def _on_worker_error(self, message: str, log: str):
-        self._last_error = message
         self._last_log = log
         try:
             self.error.emit(message, log)

@@ -44,9 +44,9 @@ def test_first_plot_lazy_switch_and_export_use_current_selection(win, monkeypatc
         assert finalize_plots_3d(win)
     else:
         win._finalize_plots()
-    assert win._drawn_tabs == {'temp'}
+    assert win.cache.get_drawn_tabs() == {'temp'}
     win._switch_tab('pres')
-    assert win._drawn_tabs == {'temp', 'pres'}
+    assert win.cache.get_drawn_tabs() == {'temp', 'pres'}
     pressure_axis = win.canvas_pres.fig.axes[0]
     win._switch_tab('temp')
     win._switch_tab('pres')
@@ -57,7 +57,7 @@ def test_first_plot_lazy_switch_and_export_use_current_selection(win, monkeypatc
     if mode == '3d':
         win._slice_index = 0
     redraw_result_fields(win)
-    assert win._drawn_tabs == {'pres'}
+    assert win.cache.get_drawn_tabs() == {'pres'}
     expected = result.fields['P_fB']
     if mode == '3d':
         expected = expected[:, :, 0] / 1000.
@@ -80,7 +80,7 @@ def test_first_plot_lazy_switch_and_export_use_current_selection(win, monkeypatc
     win._export_figure()
     assert {'温度', '压力', '速度'} <= set(options)
     assert path.exists()
-    assert win._drawn_tabs == {'pres', 'vel'}
+    assert win.cache.get_drawn_tabs() == {'pres', 'vel'}
     velocity = np.sqrt(result.fields['ucB']**2 + result.fields['vcB']**2
                        + (result.fields['wcB']**2 if mode == '3d' else 0.))
     if mode == '3d':
@@ -107,7 +107,7 @@ def test_first_plot_lazy_switch_and_export_use_current_selection(win, monkeypatc
     win._export_figure()
     assert errors
     assert not failed_path.exists()
-    assert 'vel' not in win._drawn_tabs
+    assert 'vel' not in win.cache.get_drawn_tabs()
 
 
 def test_split_and_detached_fields_refresh_but_hidden_fields_stay_deferred(win):
@@ -115,17 +115,17 @@ def test_split_and_detached_fields_refresh_but_hidden_fields_stay_deferred(win):
     win._finalize_plots()
     win._switch_tab('temp')
     win._split_with_current('pres')
-    assert win._drawn_tabs == {'temp', 'pres'}
+    assert win.cache.get_drawn_tabs() == {'temp', 'pres'}
     win._field_phase = 1
     redraw_result_fields(win)
-    assert win._drawn_tabs == {'temp', 'pres'}
+    assert win.cache.get_drawn_tabs() == {'temp', 'pres'}
     assert win.canvas_temp._hover_data['names'] == ['T_fB']
     assert win.canvas_pres._hover_data['names'] == ['P_B']
     win._switch_tab('temp')
     win._detach_canvas('pres')
     win._field_phase = 0
     redraw_result_fields(win)
-    assert win._drawn_tabs == {'temp', 'pres'}
+    assert win.cache.get_drawn_tabs() == {'temp', 'pres'}
     assert win.canvas_pres._hover_data['names'] == ['P_A']
     win._reattach_canvas('pres')
 
@@ -152,9 +152,9 @@ def test_failed_visible_redraw_clears_old_plot_and_same_tab_retries(win, monkeyp
     redraw_result_fields(win)
     assert not win.canvas_temp.fig.axes
     assert win.canvas_temp._hover_data is None
-    assert 'temp' not in win._drawn_tabs
+    assert 'temp' not in win.cache.get_drawn_tabs()
     assert '场图显示失败' in win.statusBar().currentMessage()
     win._switch_tab('temp')
     assert attempts == ['temp', 'temp']
-    assert 'temp' in win._drawn_tabs
+    assert 'temp' in win.cache.get_drawn_tabs()
     assert win.canvas_temp._hover_data['names'] == ['T_fB']

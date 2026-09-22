@@ -282,7 +282,7 @@ def test_simple_profiles_follow_final_shared_coordinates(monkeypatch, directions
         with pytest.raises(BeforeIteration):
             fields['_run_simple'](parsed[f'cfg{side}'], rho, mu,
                                   300.0, 0.2, side, fluid_type='incompressible',
-                                  fluid_name='water', T_field_real=temperature)
+                                  T_field_real=temperature)
         solver = captured[-1]
         widths = fields['energy_dy' if bc.dir in (0, 1) else 'energy_dx']
         np.testing.assert_array_equal(solver.dx_arr, widths)
@@ -325,7 +325,7 @@ def test_refreshed_taper_sets_first_massflux_target():
             pytest.approx(0.2 * 0.05, rel=1e-12))
     scale = solver._inlet_taper_flux_scale
     assert not hasattr(solver, '_massflux_target')
-    solver.solve(max_iter=2, tol=0.0, verbose=False)
+    solver.solve(max_iter=2, verbose=False)
     assert solver._massflux_target == pytest.approx(0.2 * 1000.0 * scale, rel=1e-12)
 
 

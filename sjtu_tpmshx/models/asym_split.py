@@ -7,11 +7,10 @@ consumer can import the geometry split without importing a numerical backend.
 
 Single source of truth for:
   - ``_asym_split_A``        — fraction of total ε assigned to side A;
-  - ``_per_side_eps_override`` — per-side single-channel void for ṁ / Q weighting;
   - ``_eps_sides_for_run``   — per-cell (ε_A, ε_B) void arrays for the LTNE kernel.
 
-δ=0 is the symmetric path: ``_asym_split_A`` returns 0.5, the override returns
-``(None, None)``, and ``_eps_sides_for_run`` returns the SAME ``eps_f_arr``
+δ=0 is the symmetric path: ``_asym_split_A`` returns 0.5, and
+``_eps_sides_for_run`` returns the SAME ``eps_f_arr``
 object for both sides → bit-identical to the legacy symmetric run.
 """
 
@@ -34,22 +33,6 @@ def _asym_split_A(cfg, tpms_type, Lcell, t_wall):
     C = _C_from_tL(tpms_type, float(t_wall) / float(Lcell))
     eA, eB, _etot = _ag.eps_sides(phi, C, delta)
     return eA / (eA + eB)
-
-
-def _per_side_eps_override(cfg, tpms_type, Lcell, t_wall, eps):
-    """Per-side single-channel void overrides for the LTNE m_dot / Q weighting
-    under an offset-isosurface δ.
-
-    Returns ``(None, None)`` at δ=0 → the symmetric 0.5·ε path (bit-identical);
-    δ≠0 → ``(ε·split_A, ε·(1−split_A))`` so ṁ_A/ṁ_B weight by the actual channel
-    void fraction, not 0.5·ε. ONE definition shared by the main duty extraction
-    and the enthalpy-mode ṁ build, so both stay consistent (N4 audit 2026-06-28
-    — the enthalpy block previously omitted the override and mis-scaled ṁ by
-    split/0.5 on the asymmetric geometry)."""
-    if float(cfg.get('delta_levelset', 0.0)) == 0.0:
-        return None, None
-    split_A = _asym_split_A(cfg, tpms_type, Lcell, t_wall)
-    return float(eps) * split_A, float(eps) * (1.0 - split_A)
 
 
 def _eps_sides_for_run(cfg, tpms_type, Lcell, t_wall, eps_arr, eps_f_arr):

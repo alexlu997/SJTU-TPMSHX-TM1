@@ -47,13 +47,13 @@ from .tpms_geometry import compute_geometry as _tpms_geom
 # Geometry and property primitives live in tpms_props. Current consumers may
 # also import the explicitly re-exported names from models.tpms_calc.
 from .tpms_props import (  # noqa: F401 — re-exports
-    CHI_S, chi_s_eff, M_air, P_atm, R,
+    chi_s_eff, M_air, P_atm, R,
     air_conductivity, air_cp, air_density, air_viscosity,
     geometry,
     water_conductivity, water_cp, water_density, water_viscosity,
     _warn_range_once,
 )
-from sjtu_tpmshx.df_surrogate.predict import predict_K_cF
+from sjtu_tpmshx.df_surrogate.predict import predict_K_cF, SCO2_DF_METHOD
 
 from sjtu_tpmshx.logutil import get_logger
 
@@ -61,9 +61,6 @@ _log = get_logger(__name__)
 
 # ── Physical constants ────────────────────────────────────────
 Pr    = 0.72       # Prandtl number (air, approximately constant)
-Sa_mm = 0.031      # Surface roughness Sa [mm]  (= 31 μm, constant for both TPMS types)
-
-
 
 
 # ── Fluid type validation ─────────────────────────────────────
@@ -73,17 +70,6 @@ Sa_mm = 0.031      # Surface roughness Sa [mm]  (= 31 μm, constant for both TPM
 _SUPPORTED_FLUIDS = {'air', 'water', 'sco2'}
 
 
-def parse_fluid_type(combo):
-    """Normalise a QComboBox current text to an internal fluid_type key.
-
-    Returns one of: 'air', 'water', 'sco2'.
-    """
-    t = combo.currentText().lower().replace('₂', '2')
-    if 'co2' in t or 'sco' in t:
-        return 'sco2'
-    if 'water' in t:
-        return 'water'
-    return 'air'
 
 
 def validate_fluid_type(fluid_type: str, side: str) -> None:
@@ -107,7 +93,7 @@ def validate_fluid_type(fluid_type: str, side: str) -> None:
         raise NotImplementedError(
             f"Fluid {side} = {label} is not supported yet — no fitted "
             f"correlations (Nu / f-Re / D-F surrogate) for this fluid. "
-            f"Select Air for now."
+            f"Supported fluids: air, water, sco2."
         )
 
 
@@ -121,7 +107,6 @@ from .nu_correlations import (  # noqa: F401 - existing public re-exports
     nu_vec,
     nu_water_topo,
     nu_sco2_topo,
-    NU_ROUGHNESS_FACTOR as _NU_ROUGHNESS_FACTOR,  # back-compat re-export
     NU_RE_FIT_RANGE,
     WATER_NU_RE_RANGE,
     NU_COEFFS,
@@ -141,22 +126,9 @@ _RE_FIT_RANGE_BY_FLUID = {
 
 
 # ── Geometry-only interface ────────────────────────────────────
-# geometry() + CHI_S moved to tpms_props (leaf; re-exported above).
+# Geometry and solid conductivity live in tpms_props (re-exported above).
 
-# Fluid-phase thermal dispersion coefficient. K_ff = ε·k_f + C_DISP·ρcp·|u|·D_h.
-# Zero default = pure molecular conduction. Literature range 0.05-0.3 for TPMS.
-#
-# B4 step-0 sensitivity verdict (2026-07-06) — KEEP 0.0 BY EVIDENCE:
-# sweeping C ∈ {0.05, 0.1, 0.3} (bounding value) moved the Shanghai gates by
-# sub-percent amounts and consistently DEGRADED the Q agreement (3D gate
-# RMSRE_Q 3.21→3.54%, fine 64-grid 2.94→3.20%; 2D evaluator Q +1.8% at
-# C=0.3, dP unchanged; sweep knob: validate_shanghai_3d_real --disp-c).
-# Interpretation: the fitted Nu (h_v) already absorbs the mixing the
-# experiments contain, so adding dispersion on top DOUBLE-COUNTS (boundary
-# rule R1). Do not set C_DISP > 0 unless the Nu correlations are refit
-# simultaneously against data that separates interfacial exchange from
-# macroscopic dispersion (e.g. axial-profile fits, not integral duty).
-C_DISP = 0.0
+# No uncalibrated thermal dispersion is added to the molecular conductivity.
 
 
 def adaptive_grid(L_domain: float, H_domain: float,
@@ -189,7 +161,7 @@ def _compute_cached(tpms_type: str,
                     P_in_Pa: float,
                     k_s: float,
                     fluid_type: str = 'air',
-                    _df_env: tuple = ('', ''), sco2_nu=None) -> tuple[dict, dict]:
+                    sco2_nu=None) -> tuple[dict, dict]:
     """
     Compute all TPMS heat-transfer and fluid properties.
 
@@ -280,19 +252,8 @@ def _compute_cached(tpms_type: str,
         # Single-stream convention (post-refit 2026-04-26): pass ε_A (per-stream
         # void fraction; sheet HX splits ε equally between two fluid channels).
         eps_A = 0.5 * eps
-        # 2026-05-09 — route air through nu_from_Re() (not _nu_diamond / _nu_gyroid
-        # directly). nu_from_Re applies the ×1.28 _NU_ROUGHNESS_FACTOR
-        # (production, see memory project_nu_v3_cfd4_s8 — Shanghai Q RMSRE 2.02%
-        # only with ×1.28 applied). Direct calls to _nu_diamond / _nu_gyroid
-        # returned the smooth-wall Nu, which under-displayed Nu in the UI by 28%
-        # while the SIMPLE/LTNE runtime correctly used ×1.28 via nu_from_Re —
-        # cosmetic mismatch that confused users sanity-checking Nu vs Q.
-        # Water path routes through nu_water_topo (per-topology direct water-CFD
-        # fit, no ×1.28); the ×1.28 _NU_ROUGHNESS_FACTOR is AIR-only. Only the
-        # air branch was ever buggy on the ×1.28 display.
-        # B1 1.1: Nu via the registry's per-fluid dispatch — water forwards the
-        # caller-computed Pr to nu_water_topo; the air adapter ignores Pr and
-        # uses nu_from_Re's built-in Pr_AIR.
+        # The registry applies the existing 1.28 roughness factor only to air.
+        # Water/sCO2 use their own smooth-wall correlations and supplied Pr.
         Pr_f = mu * cp_f / k_f
         Nu = _m.nu(tpms_type, Re, eps_A, L_cell_mm, D_h_mm, Pr_f)
 
@@ -304,18 +265,12 @@ def _compute_cached(tpms_type: str,
         # arch-b-c-e batch B (tpms_props leaf broke the old two-way coupling).
         K_df, cF_df = predict_K_cF(
             tpms_type, float(L_cell_mm), float(t_mm), float(eps) / 2.0,
-            method=_df_env[0] or None,
+            method=SCO2_DF_METHOD,
         )
         dP_per_L = mu * u / K_df + rho * cF_df * u * u
 
         # ── Effective thermal conductivities (volume-averaged) ────
-        # Fluid phase: molecular only by default. Optional thermal dispersion
-        # K_disp = C_DISP * ρ·cp·|u|·D_h captures tortuous-channel mixing at
-        # high Pe. Zero default preserves prior behaviour; calibrate per TPMS
-        # from experimental Nu vs Pe data and expose via compute_ext if needed.
         K_ff = eps * k_f
-        if C_DISP > 0.0:
-            K_ff = K_ff + C_DISP * rho * cp_f * abs(u) * D_h_m
         K_ss = chi_s_eff(tpms_type, eps) * (1.0 - eps) * k_s
 
         return {
@@ -338,7 +293,7 @@ def _compute_cached(tpms_type: str,
         }, records
 
 
-# ── Quick verification ────────────────────────────────────────
+# ── Public cached property calculation ────────────────────────
 def compute(tpms_type: str,
             L_cell_mm: float,
             t_mm: float,
@@ -357,34 +312,16 @@ def compute(tpms_type: str,
        mutating its result would silently poison every later hit. The
        wrapper returns a shallow copy (values are scalars).
     """
-    from sjtu_tpmshx.df_surrogate.predict import SCO2_DF_METHOD
     from .fluid_props import check_water_state
     check_water_state(fluid_type, T_in_K, P_in_Pa, where='compute inlet')
     # Production V2 closure is fluid-independent and fixed for a TPMS/L/t
     # geometry.
-    _df_method = SCO2_DF_METHOD
-    _df_env = (_df_method, '')
     result, records = _compute_cached(tpms_type, L_cell_mm, t_mm, u, T_in_K,
-                                     P_in_Pa, k_s, fluid_type, _df_env, sco2_nu)
+                                     P_in_Pa, k_s, fluid_type, sco2_nu)
     merge_warnings(current_warnings(), [records], bind_context=True)
     return dict(result)
 
 
-# Back-compat: tests/sweeps clear the props cache via compute.cache_clear()
-# (per-process sweep trap, see ledger CDISP notes).
+# Tests and property sweeps explicitly inspect or clear this process-local cache.
 compute.cache_clear = _compute_cached.cache_clear
 compute.cache_info = _compute_cached.cache_info
-
-
-if __name__ == '__main__':
-    print("=" * 60)
-    for name in ('Diamond', 'Gyroid'):
-        print(f"{name}  L=8mm  t=0.3mm  u=3m/s  T=300K  P=101325Pa")
-        r = compute(name, 8.0, 0.3, 3.0, 300.0, 101325.0, k_s=17.0)
-        for k, v in r.items():
-            print(f"  {k:10s} = {v:.6g}")
-        L_domain = 0.10  # m
-        dP = r['dP_per_L'] * L_domain
-        print(f"  {'dP':10s} = {dP:.1f} Pa  (L_domain={L_domain}m)")
-        print()
-    print("=" * 60)

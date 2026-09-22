@@ -36,9 +36,8 @@ def win(tmp_path, monkeypatch):
     monkeypatch.setattr(SessionManager, '__init__',
                         lambda self, parent=None: original_init(
                             self, base_dir=tmp_path, parent=parent))
-    monkeypatch.setenv('SJTU_TPMSHX_DISABLE_3D_PANEL', '1')
+    monkeypatch.setenv('TPMSHX_DISABLE_3D_PANEL', '1')
     window = Main_Menu()
-    window._K_ffA = window._K_ffB = 1e-8
     monkeypatch.setattr(window, '_validate_inputs_preflight', lambda: True)
     monkeypatch.setattr(window, '_preflight_grid', lambda: True)
     monkeypatch.setattr(window, '_preflight_3d', lambda: (True, 8, '2×2×2'))
@@ -77,20 +76,20 @@ def test_2d_tout_displays_result_scalars_across_units_and_direction_drafts(win):
         win.combo_dirA.setCurrentIndex(direction)
         win.combo_dirB.setCurrentIndex(3-direction)
         win._update_tout(-1)
-        assert float(win._r_ToutA.text()) == 341.25
-        assert float(win._r_ToutB.text()) == 312.75
+        assert float(win._sb_labels['tout'].text().split(' / ')[0]) == 341.25
+        assert float(win._sb_labels['tout'].text().split(' / ')[1]) == 312.75
     win._toggle_temp_unit()
     assert '[°C]' in win._lbl_sidebar_tout_unit.text()
     assert win._sb_labels['tout'].text() == '68.10 / 39.60'
     win._update_tout(0)
-    assert float(win._r_ToutA.text()) == pytest.approx(68.10)
-    assert float(win._r_ToutB.text()) == pytest.approx(39.60)
+    assert float(win._sb_labels['tout'].text().split(' / ')[0]) == pytest.approx(68.10)
+    assert float(win._sb_labels['tout'].text().split(' / ')[1]) == pytest.approx(39.60)
     win._toggle_temp_unit()
     assert '[K]' in win._lbl_sidebar_tout_unit.text()
     assert win._sb_labels['tout'].text() == '341.25 / 312.75'
-    assert float(win._r_ToutA.text()) == 341.25
-    assert float(win._r_ToutB.text()) == 312.75
-    assert win._compute_results['Q_total'] == result.Q_W == 123.
+    assert float(win._sb_labels['tout'].text().split(' / ')[0]) == 341.25
+    assert float(win._sb_labels['tout'].text().split(' / ')[1]) == 312.75
+    assert win.cache.get_result('2d')['Q_total'] == result.Q_W == 123.
 
 
 @pytest.mark.parametrize('mode', ['2d', '3d'])
@@ -347,7 +346,7 @@ def test_worker_publishes_payload_on_gui_thread_without_reentry(win, monkeypatch
         original_write(payload)
 
     def cache_write(*args):
-        cache_writes.append(threading.get_ident())
+        cache_writes.append((threading.get_ident(), args[0], args[1] is None))
         original_cache(*args)
 
     def render():
@@ -377,7 +376,10 @@ def test_worker_publishes_payload_on_gui_thread_without_reentry(win, monkeypatch
     assert worker_seen[0][1] is cfg
     assert worker_seen[0][2] == (2 if mode == '3d' else 1)
     assert writes == [(gui_thread, result, True)]
-    assert cache_writes == [gui_thread]
+    assert cache_writes == [
+        (gui_thread, '3d' if mode == '2d' else '2d', True),
+        (gui_thread, mode, False),
+    ]
     assert payloads == [result] and payloads[0] is result
     assert win.compute.last_result() is result
     assert (gui_thread, 37) in progress
@@ -387,8 +389,8 @@ def test_worker_publishes_payload_on_gui_thread_without_reentry(win, monkeypatch
     if mode == '3d':
         assert win.cache.get_result(mode) is result
     else:
-        assert win._compute_results['Ta'] is result.fields['Ta']
-        assert win._compute_results['Q_total'] == result.Q_W
+        assert win.cache.get_result('2d')['Ta'] is result.fields['Ta']
+        assert win.cache.get_result('2d')['Q_total'] == result.Q_W
     assert not win._compute_running
     assert win.btn_compute.isEnabled()
     assert win._compute_btn_handler == win.run_calculation
@@ -660,3 +662,79 @@ def test_quick_design_escape_requests_cooperative_cancel(win, monkeypatch):
     _wait_for(lambda: dlg._qd_worker is None)
     assert not dlg.isVisible() and dlg.isEnabled()
     assert '已取消' in dlg._qd_status.text()
+
+
+@pytest.mark.parametrize('dimension,expected', [(0, (84, 24, 1)), (1, (92, 14, 10))])
+def test_field_restore_uses_the_current_case_dimension_and_remains_undoable(win, dimension, expected):
+    from sjtu_tpmshx.ui.field_menu import _revert_field_to_default
+    win.combo_dim.setCurrentIndex(dimension)
+    win._temp_unit = 'C'
+    for attr in ('le_Nx', 'le_Ny', 'le_Nz', 'le_rho_s', 'le_pipeB_in_z_ctr', 'le_TinA'):
+        getattr(win, attr).setText('100')
+    win._resync_undo_baseline()
+    win._undo_stack.clear()
+    for axis in 'xyz':
+        attr = 'le_N' + axis
+        _revert_field_to_default(win, getattr(win, attr), attr)
+    assert tuple(int(getattr(win, 'le_N' + axis).text()) for axis in 'xyz') == expected
+    _revert_field_to_default(win, win.le_TinA, 'le_TinA')
+    assert float(win.le_TinA.text()) == pytest.approx(148.85)
+    win._undo_stack.undo()
+    assert win.le_TinA.text() == '100'
+    win._undo_stack.redo()
+    assert float(win.le_TinA.text()) == pytest.approx(148.85)
+    for attr, expected_value in [('le_rho_s', 7900.), ('le_pipeB_in_z_ctr', .021)]:
+        _revert_field_to_default(win, getattr(win, attr), attr)
+        assert float(getattr(win, attr).text()) == expected_value
+
+
+@pytest.mark.parametrize('typed,expected', [('0.042 / 2', '0.021'), ('5 mm', '0.005')])
+def test_normalized_field_edit_records_undo_and_final_validation(win, typed, expected):
+    win.le_L.setText('0.1')
+    win._resync_undo_baseline()
+    win._undo_stack.clear()
+    win.le_L.setText(typed)
+    win.le_L.editingFinished.emit()
+    assert win.le_L.text() == expected
+    assert win.le_L.property('inpError') == 'false'
+    assert win._field_history['le_L'][0] == expected
+    assert win._undo_stack.count() == 1
+    win._undo_stack.undo()
+    assert win.le_L.text() == '0.1'
+    win._undo_stack.redo()
+    assert win.le_L.text() == expected
+    assert win.le_L.property('inpError') == 'false'
+
+
+@pytest.mark.parametrize('refined,expected', [(False, (36, 17, 17)), (True, (50, 17, 17))])
+def test_geometry_grid_suggestion_uses_selected_scheme_and_preserves_edits(win, monkeypatch, refined, expected):
+    import sjtu_tpmshx.main as main
+    win.combo_dim.setCurrentIndex(1)
+    win.combo_grid.setCurrentIndex(win.combo_grid.findData(refined))
+    monkeypatch.setattr(main, 'tpms_geometry', lambda *a: dict(
+        epsilon=.7, A_0=100., D_h=.005, K_ss=3.))
+    win._user_edited_grid = False
+    assert win.compute_tpms()
+    assert tuple(int(getattr(win, 'le_N' + axis).text()) for axis in 'xyz') == expected
+    for axis, count in zip('xyz', (111, 30, 20)):
+        getattr(win, 'le_N' + axis).setText(str(count))
+    win._mark_grid_edited()
+    assert win.compute_tpms()
+    assert tuple(int(getattr(win, 'le_N' + axis).text()) for axis in 'xyz') == (111, 30, 20)
+
+
+@pytest.mark.parametrize('side', ['A', 'B'])
+@pytest.mark.parametrize('index,fluid_type', [(0, 'air'), (1, 'water'), (2, 'sco2')])
+def test_auto_fill_uses_same_fluid_type_as_config(win, monkeypatch, side, index, fluid_type):
+    from sjtu_tpmshx.ui.window_config import config_from_window
+    getattr(win, f'combo_fluid{side}').setCurrentIndex(index)
+    monkeypatch.setattr(win, 'compute_tpms', lambda: True)
+    observed = []
+    def compute(*args, **kwargs):
+        observed.append(kwargs['fluid_type'])
+        return dict(Re=1000., Nu=30., rho=10., dP_per_L=5.)
+    monkeypatch.setattr('sjtu_tpmshx.ui.mixins.fluid_input.tpms_compute', compute)
+    win._auto_fill_fluid(side)
+    cfg = config_from_window(win)
+    assert observed == [fluid_type]
+    assert getattr(cfg, f'fluid_{side}').type == fluid_type

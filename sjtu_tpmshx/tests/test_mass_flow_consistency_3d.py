@@ -59,7 +59,7 @@ def test_uniform_box_mass_conservation():
     the pressure correction is asymmetric and inlet/outlet integrals diverge.
     """
     sol = _build_uniform_box()
-    conv, it = sol.solve(max_iter=500, tol=1e-6)
+    conv, it = sol.solve(max_iter=500)
     print(f"[conservation] converged={conv} iters={it}")
 
     dx = sol.dx[:, None]   # (Nx, 1)
@@ -99,7 +99,7 @@ def test_uniform_box_bc_matches_inlet_integral():
         Lx=Lx, Ly=Ly, Lz=Lz,
         eps=eps, rho=rho, U_super=U_super,
     )
-    conv, it = sol.solve(max_iter=500, tol=1e-6)
+    conv, it = sol.solve(max_iter=500)
     print(f"[bc-integral] converged={conv} iters={it}")
 
     A_face = Lx * Lz
@@ -168,7 +168,7 @@ def test_partial_mask_mass_flow_match_inlet_BC():
     )
     sol.set_ports((Lx / 2, Lx, 0., Lz), (0., Lx / 2, 0., Lz))
 
-    conv, it = sol.solve(max_iter=2000, tol=1e-6)
+    conv, it = sol.solve(max_iter=2000)
     print(f"\n[partial-mask] converged={conv} iters={it}")
 
     dx = sol.dx[:, None]

@@ -64,25 +64,7 @@ def _valid_appearance(name: str, value: str) -> bool:
 
 
 def _appearance_dir() -> Path:
-    path = _directory(QStandardPaths.StandardLocation.GenericConfigLocation)
-    for name in ('theme', 'density', 'accent'):
-        destination = path / f'.{name}'
-        if destination.exists():
-            continue
-        # Before the fix startup read the package root, while the menu wrote
-        # ui/mixins. Recover the newest valid choice from these two real paths.
-        sources = [_LEGACY_PACKAGE_DIR / f'.{name}',
-                   _LEGACY_PACKAGE_DIR / 'ui' / 'mixins' / f'.{name}']
-        try:
-            sources = sorted((p for p in sources if p.is_file()),
-                             key=lambda p: p.stat().st_mtime, reverse=True)
-            for source in sources:
-                if _valid_appearance(name, source.read_text(encoding='utf-8').strip()):
-                    _copy_missing(source, destination)
-                    break
-        except (OSError, UnicodeError) as exc:
-            _LOG.warning('Could not import %s preference: %s', name, exc)
-    return path
+    return _directory(QStandardPaths.StandardLocation.GenericConfigLocation)
 
 
 def load_appearance_settings() -> dict[str, str]:

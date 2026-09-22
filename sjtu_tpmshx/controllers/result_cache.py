@@ -1,13 +1,15 @@
 """Current 2D/3D results and rendered-tab state for the GUI.
 
-ResultBridgeMixin exposes window attributes through this store. Recent-run
-snapshots and their menu belong to RunHistoryMixin.
+Window consumers use this store directly. RunHistoryMixin owns recent-run
+snapshots and their menu.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
-from PySide6.QtCore import QObject, Signal
+from sjtu_tpmshx.domain.compute_result import ComputeResult
+
+from PySide6.QtCore import QObject
 
 
 class ResultCache(QObject):
@@ -15,12 +17,10 @@ class ResultCache(QObject):
 
     MODES = ('2d', '3d')
 
-    # Signals (auto-marshal to GUI thread when emitted from worker)
-    results_changed = Signal(str)
 
     def __init__(self, parent: Optional[QObject] = None):
         super().__init__(parent)
-        self._results: Dict[str, Optional[Dict[str, Any]]] = {
+        self._results: dict[str, dict[str, Any] | ComputeResult | None] = {
             m: None for m in self.MODES
         }
         # Which tabs have been drawn for the current result snapshot.
@@ -34,7 +34,7 @@ class ResultCache(QObject):
             raise ValueError(
                 f"unknown mode: {mode!r} (expected one of {self.MODES})")
 
-    def set_result(self, mode: str, payload: Optional[Dict[str, Any]]) -> None:
+    def set_result(self, mode: str, payload: dict[str, Any] | ComputeResult | None) -> None:
         """Store a fresh result for `mode`. Pass None to clear.
 
         A non-None payload clears the drawn-tabs set for repainting.
@@ -44,9 +44,8 @@ class ResultCache(QObject):
         if payload is not None:
             # New result invalidates all prior tab renders.
             self._drawn_tabs.clear()
-        self.results_changed.emit(mode)
 
-    def get_result(self, mode: str) -> Optional[Dict[str, Any]]:
+    def get_result(self, mode: str) -> dict[str, Any] | ComputeResult | None:
         self._check_mode(mode)
         return self._results[mode]
 
@@ -56,8 +55,6 @@ class ResultCache(QObject):
             for m in self.MODES:
                 self._results[m] = None
             self._drawn_tabs.clear()
-            for m in self.MODES:
-                self.results_changed.emit(m)
         else:
             self.set_result(mode, None)
 
@@ -85,7 +82,7 @@ class ResultCache(QObject):
         return set(self._drawn_tabs)
 
     def replace_drawn_tabs(self, tabs: set) -> None:
-        """Replace the drawn-tabs set wholesale (legacy `_drawn_tabs = ...`)."""
+        """Replace the set after invalidating or rebuilding selected views."""
         self._drawn_tabs = set(tabs)
 
     def clear_drawn(self) -> None:

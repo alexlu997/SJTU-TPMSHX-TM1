@@ -20,7 +20,8 @@ Usage::
         --Nx 40 --Ny 16 --Nz 16 \\
         --Lz 0.042
 
-Defaults reuse the run's config.json so the 3D run sees the same
+The run's complete geometry and operating point are required in config.json
+so the 3D run sees the same
 (tpms_type, L_domain, H_domain, fluid operating point) as the 2D
 optimization. ``Lz`` defaults to 0.042 m (Shanghai depth), but is the only
 parameter the 2D run cannot supply since the optimizer has no z dimension.
@@ -35,8 +36,8 @@ gate to pass before returning success; F2 alone does not remove the screening
 physics approximations. LTNE convective ρcp uses SIMPLE's local ρ(P_local, T).
 
 Remaining gaps vs the full-compute pipeline: fluid B is
-solved once cold (frozen velocities, no var-ρ re-solve) and there is no
-post-solve Mach/positive-pressure gate. The printout labels the path so
+solved once cold (frozen velocities, no var-ρ re-solve). Screening checks its
+pressure/Mach envelope, but this does not establish physical validity. The printout labels the path so
 these numbers are never mistaken for production-pipeline output.
 
 Exit codes
@@ -50,13 +51,10 @@ Exit codes
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import time
 import warnings
 from pathlib import Path
-
-import numpy as np
 
 warnings.filterwarnings('ignore')
 
@@ -64,36 +62,36 @@ from sjtu_tpmshx.core.evaluators import (
     evaluate_3d,
 )
 from sjtu_tpmshx.models.continuous_field import decision_dim
-from sjtu_tpmshx.models.screening import DEFAULT_CONFIG
+from sjtu_tpmshx.models.screening import FIELD_CONFIG_KEYS
+from sjtu_tpmshx.optimization.pareto_io import read_pareto_csv
 
 def _load_pareto_row(pareto_csv: str, row_index: int,
                      decision_dim_expected: int) -> tuple:
     """Read named decision/objective columns for the original field layout."""
-    columns = [f'x{i}' for i in range(decision_dim_expected)] + ['Q_W_per_m', 'dP_Pa']
-    with open(pareto_csv, newline='', encoding='utf-8') as source:
-        reader = csv.DictReader(source)
-        header = reader.fieldnames or []
-        if len(header) != len(columns) or set(header) != set(columns):
-            raise ValueError(f'Pareto CSV must contain x0..x{decision_dim_expected - 1}, '
-                             'Q_W_per_m and dP_Pa for the configured field layout')
-        rows = list(reader)
+    rows = read_pareto_csv(pareto_csv, decision_dim_expected)
     if row_index < 0 or row_index >= len(rows):
         raise IndexError(f"row {row_index} out of range [0, {len(rows)})")
-    row = rows[row_index]
-    if None in row or any(value is None for value in row.values()):
-        raise ValueError(f'Pareto row {row_index} does not match the CSV columns')
-    values = np.asarray([row[name] for name in columns], dtype=float)
-    if not np.all(np.isfinite(values)):
-        raise ValueError(f'Pareto row {row_index} contains nonfinite values')
+    values = rows[row_index]
     return values[:-2], float(values[-2]), float(values[-1])
 
 
 def _load_run_cfg(pareto_csv: str) -> dict:
     cfg_path = Path(pareto_csv).parent / 'config.json'
-    if cfg_path.exists():
-        with open(cfg_path) as f:
-            return json.load(f)
-    return {}
+    try:
+        with open(cfg_path, encoding='utf-8') as f:
+            cfg = json.load(f)
+    except FileNotFoundError as exc:
+        raise ValueError('Pareto verification requires the original config.json') from exc
+    if not isinstance(cfg, dict):
+        raise ValueError('Pareto config.json must be a configuration mapping')
+    required = FIELD_CONFIG_KEYS + (
+        'rho_s', 'u_A', 'u_B', 'T_inA', 'T_inB', 'P_inA', 'P_inB',
+        'fluid_type_A', 'fluid_type_B', 'dir_A', 'dir_B', 'ports_A', 'ports_B',
+    )
+    missing = [key for key in required if key not in cfg]
+    if missing:
+        raise ValueError(f'Original Pareto configuration is incomplete: {missing}')
+    return cfg
 
 
 # ─── CLI ────────────────────────────────────────────────────────────
@@ -122,7 +120,7 @@ def main(argv=None) -> int:
     cfg = _load_run_cfg(args.pareto)
     if args.cfg_override:
         cfg.update(json.loads(args.cfg_override))
-    layout = {key: cfg.get(key, DEFAULT_CONFIG[key])
+    layout = {key: cfg[key]
               for key in ('n_ctrl_x', 'n_ctrl_y', 'symmetric_y')}
     x_decision, Q_2D_W_per_m, dP_2D_Pa = _load_pareto_row(
         args.pareto, args.row, decision_dim(**layout))
@@ -169,7 +167,7 @@ def main(argv=None) -> int:
     print("  [path] core.evaluators.evaluate_3d @ convergence_mode='f2', "
           "local-ρ LTNE ρcp (ledger C10);")
     print("  [path] NOT the production run_stack_3d pipeline — fluid B frozen "
-          "(cold single solve), no post-solve Mach gate (ledger O2).")
+          "(cold single solve); screening envelope checks do not establish physical validity.")
     Q_2D_W_total = Q_2D_W_per_m * args.Lz
     Q_3D = out['Q_3D_W']; dP_3D = out['dP_total_Pa']
     print(f"  Q_2D × Lz   = {Q_2D_W_total:8.1f} W   ({Q_2D_W_per_m:.0f} W/m × {args.Lz} m)")

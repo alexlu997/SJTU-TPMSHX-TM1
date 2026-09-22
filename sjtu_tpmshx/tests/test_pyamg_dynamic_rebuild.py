@@ -103,7 +103,7 @@ def _make_solver(drift_thresh=0.05, rebuild_every=100,
 def test_fixed_drag_rebuilds_during_startup_then_reuses():
     """Fixed K/cF still has evolving momentum coefficients at startup."""
     s = _make_solver(drift_thresh=0.05)
-    s.solve(max_iter=20, tol=1e-6)
+    s.solve(max_iter=20)
     c = s._ml_cache
     assert 1 < c['rebuild_count'] < c['bcg_calls']
     assert c.get('skip_count', 0) >= 5, (
@@ -124,7 +124,7 @@ def test_canonicalized_amg_runs_bicgstab_from_first_iter():
     a non-canonical-CSR artifact, not zero-velocity diagonal heterogeneity).
     """
     s = _make_solver(drift_thresh=0.05)
-    s.solve(max_iter=5, tol=1e-6)
+    s.solve(max_iter=5)
     c = s._ml_cache
     # Cold-start bypass removed → its counters are never set.
     assert c.get('cold_start_count', 0) == 0, (
@@ -147,7 +147,7 @@ def test_aggressive_thresh_triggers_drift_rebuilds():
     can fire, not exact counts (depends on how many SIMPLE iters converge).
     """
     s = _make_solver(drift_thresh=1e-12)
-    s.solve(max_iter=10, tol=1e-6)
+    s.solve(max_iter=10)
     c = s._ml_cache
     assert c.get('rebuild_count', 0) >= 2, (
         f"expected cold + drift rebuilds (>=2), "
@@ -165,7 +165,7 @@ def test_legacy_mode_disable_drift_check():
     skip_count never gets set).
     """
     s = _make_solver(drift_thresh=0.0)
-    s.solve(max_iter=20, tol=1e-6)
+    s.solve(max_iter=20)
     c = s._ml_cache
     assert c.get('rebuild_count', 0) == 1
     assert c.get('skip_count', 0) == 0
@@ -178,7 +178,7 @@ def test_legacy_mode_disable_drift_check():
 def test_instrumentation_keys_populated():
     """Verify the _ml_cache contains the documented diagnostic keys."""
     s = _make_solver(drift_thresh=0.05)
-    s.solve(max_iter=5, tol=1e-6)
+    s.solve(max_iter=5)
     c = s._ml_cache
     for key in ('rebuild_count', 'rebuild_time', 'bcg_time', 'bcg_calls'):
         assert key in c, f"missing instrumentation key {key!r}"
@@ -197,10 +197,10 @@ def test_warm_restart_reuses_cached_hierarchy():
     force gated to a cold cache, a warm restart whose drift is below the 5 %
     threshold must NOT rebuild."""
     s = _make_solver(drift_thresh=0.05)        # static K -> sub-threshold drift
-    s.solve(max_iter=5, tol=1e-6)
+    s.solve(max_iter=5)
     first = s._ml_cache.get('rebuild_count', 0)
     assert 'ml' in s._ml_cache and first >= 1   # cold build happened
-    s.solve(max_iter=5, tol=1e-6)              # WARM restart (cache persists)
+    s.solve(max_iter=5)              # WARM restart (cache persists)
     second = s._ml_cache.get('rebuild_count', 0)
     assert second == first, (
         f"warm restart force-rebuilt the still-valid AMG hierarchy "
@@ -244,7 +244,7 @@ def test_coarse_bootstrap_auto_enables_on_large_grid():
     N>30 k grids. Asserts `_coarse_bootstrap_info['applied']` True after solve."""
     # 36 k cells: above AMG gate, auto-enable expected
     s = _make_solver(use_coarse_bootstrap=None)  # None → auto
-    s.solve(max_iter=5, tol=1e-6)
+    s.solve(max_iter=5)
     bs_info = getattr(s, '_coarse_bootstrap_info', {})
     assert bs_info.get('applied', False) is True, (
         f"bootstrap should auto-enable on 36 k grid, info={bs_info}")
@@ -255,7 +255,7 @@ def test_coarse_bootstrap_explicit_false_disables_auto():
     """Option B: Explicit `use_coarse_bootstrap=False` overrides auto-enable
     even on large grids."""
     s = _make_solver(use_coarse_bootstrap=False)
-    s.solve(max_iter=5, tol=1e-6)
+    s.solve(max_iter=5)
     # _coarse_bootstrap_info either missing or applied=False
     bs_info = getattr(s, '_coarse_bootstrap_info', {})
     assert bs_info.get('applied', False) is False

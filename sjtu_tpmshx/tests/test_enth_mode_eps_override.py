@@ -13,20 +13,22 @@ sCO2/water enthalpy-mode case is run.
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.models.asym_split import _per_side_eps_override
+from sjtu_tpmshx.preprocess.thermal_geometry import prepare_thermal_geometry
+from sjtu_tpmshx.solvers.backends.python.three_d.runtime import _prepared_eps_overrides
 from sjtu_tpmshx.solvers.backends.python.three_d.flux import _simple_mass_flow
 
 
 def test_per_side_eps_override_none_at_delta0():
-    cfg = {'delta_levelset': 0.0}
-    ovA, ovB = _per_side_eps_override(cfg, 'Diamond', 7.0, 0.6, 0.7)
+    cfg = {'thermal_geometry': prepare_thermal_geometry('Diamond', 7., .6, 16.)}
+    ovA, ovB = _prepared_eps_overrides(cfg, .7)
     assert ovA is None and ovB is None
 
 
 def test_per_side_eps_override_splits_at_delta_nonzero():
-    cfg = {'delta_levelset': 0.3}
+    cfg = {'delta_levelset': .3, 'thermal_geometry':
+           prepare_thermal_geometry('Diamond', 7., .6, 16., delta=.3)}
     eps = 0.7
-    ovA, ovB = _per_side_eps_override(cfg, 'Diamond', 7.0, 0.6, eps)
+    ovA, ovB = _prepared_eps_overrides(cfg, eps)
     assert ovA is not None and ovB is not None
     # the two single-channel voids sum to the total ε
     assert ovA + ovB == pytest.approx(eps)

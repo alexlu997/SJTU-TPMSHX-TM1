@@ -11,6 +11,8 @@ Covers:
      combo disables only sCO₂ (Water-B is wired). Verified by inspecting the
      QStandardItemModel flags. Skipped when PySide6 / Qt unavailable.
 """
+from sjtu_tpmshx.models.nu_correlations import NU_ROUGHNESS_FACTOR
+
 
 import numpy as np
 import pytest
@@ -120,8 +122,8 @@ def test_nu_roughness_factor_locked_at_1p28():
     (which would silently push every Shanghai bias by ~+10% relative).
     """
     from sjtu_tpmshx.models import tpms_calc
-    assert abs(tpms_calc._NU_ROUGHNESS_FACTOR - 1.28) < 1e-9, (
-        f"_NU_ROUGHNESS_FACTOR={tpms_calc._NU_ROUGHNESS_FACTOR} != 1.28. "
+    assert abs(NU_ROUGHNESS_FACTOR - 1.28) < 1e-9, (
+        f"NU_ROUGHNESS_FACTOR={NU_ROUGHNESS_FACTOR} != 1.28. "
         "If you intentionally re-tuned it, update this test with the new "
         "value AND the docstring rationale in tpms_calc.py.")
 

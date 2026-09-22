@@ -998,58 +998,6 @@ def _gs_full_chunk_3d_stag_rb(Ta, Tb, Ts, Nx, Ny, Nz,
 # (2026-04-26 strict-conservation refactor; PoC validated AB imbal < 0.1% in 1D)
 # ---------------------------------------------------------------------------
 
-@njit(cache=True, fastmath=True)
-def _is_bc_face_inlet(face_dir, dir_code):
-    """Return 1 if the given face direction (0=W, 1=E, 2=S, 3=N, 4=B, 5=T)
-    matches the inlet face for this fluid's flow direction (dir_code), else 0.
-
-    dir_code: 0=+x→inlet at W (face 0), 1=-x→inlet at E (face 1),
-              2=+y→inlet at S (face 2), 3=-y→inlet at N (face 3),
-              4=+z→inlet at B (face 4), 5=-z→inlet at T (face 5).
-    """
-    return 1 if face_dir == dir_code else 0
-
-
-@njit(cache=True, fastmath=True)
-def _is_bc_face_outlet(face_dir, dir_code):
-    """Return 1 if face is outlet for this fluid. Outlet is opposite face of
-    inlet: dir 0↔1, 2↔3, 4↔5."""
-    if dir_code == 0 and face_dir == 1: return 1
-    if dir_code == 1 and face_dir == 0: return 1
-    if dir_code == 2 and face_dir == 3: return 1
-    if dir_code == 3 and face_dir == 2: return 1
-    if dir_code == 4 and face_dir == 5: return 1
-    if dir_code == 5 and face_dir == 4: return 1
-    return 0
-
-
-@njit(cache=True, fastmath=True)
-def _ifrac_at_face(ifrac, dir_code, i, j, k, Nx, Ny, Nz):
-    """Lookup partial-inlet fraction at the inlet face for cell (i,j,k).
-
-    Returns 0 if cell is not on the inlet face. ifrac shape depends on dir_code:
-    dir 0/1 → (Ny,Nz); 2/3 → (Nx,Nz); 4/5 → (Nx,Ny).
-    """
-    if dir_code == 0 and i == 0:    return ifrac[j, k]
-    if dir_code == 1 and i == Nx-1: return ifrac[j, k]
-    if dir_code == 2 and j == 0:    return ifrac[i, k]
-    if dir_code == 3 and j == Ny-1: return ifrac[i, k]
-    if dir_code == 4 and k == 0:    return ifrac[i, j]
-    if dir_code == 5 and k == Nz-1: return ifrac[i, j]
-    return 0.0
-
-
-@njit(cache=True, fastmath=True)
-def _Tin_at_face(T_in_arr, dir_code, i, j, k, Nx, Ny, Nz):
-    """Lookup inlet temperature at face for cell (i,j,k)."""
-    if dir_code == 0 and i == 0:    return T_in_arr[j, k]
-    if dir_code == 1 and i == Nx-1: return T_in_arr[j, k]
-    if dir_code == 2 and j == 0:    return T_in_arr[i, k]
-    if dir_code == 3 and j == Ny-1: return T_in_arr[i, k]
-    if dir_code == 4 and k == 0:    return T_in_arr[i, j]
-    if dir_code == 5 and k == Nz-1: return T_in_arr[i, j]
-    return 0.0
-
 
 # ---------------------------------------------------------------------------
 # Gauss-Seidel chunk — 7-point + SOU + coupled Ta/Ts/Tb  (cell-centered u)

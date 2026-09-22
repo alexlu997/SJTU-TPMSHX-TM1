@@ -36,7 +36,7 @@ def test_explicit_reference_keeps_variable_density_inlet_mass_flux():
         wall_refine=False, fluid_type="incompressible",
         rho_inlet_ref=125.0, df_method=SCO2_DF_METHOD,
     )
-    solver.solve(max_iter=1, tol=0.0, verbose=False)
+    solver.solve(max_iter=1, verbose=False)
 
     assert np.allclose(solver.rho_field[:, 0] * solver.v[:, 0], 62.5)
 

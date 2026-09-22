@@ -30,6 +30,87 @@ def _check_zoned_fluid_support(compute_cfg: ComputeConfig) -> None:
             "(non-zoned) case for water.")
 
 
+def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None):
+    """Sample the requested design at the supplied physical cell centres."""
+    geometry = compute_cfg.geometry
+    L, H = geometry.L_dom_m, geometry.H_dom_m
+    tpms_type, Lcell, t_wall = geometry.tpms, geometry.L_cell_mm, geometry.t_wall_mm
+    k_s = geometry.k_s_W_mK
+    u_A, u_B = compute_cfg.fluid_A.u_mps, compute_cfg.fluid_B.u_mps
+    T_inA, T_inB = compute_cfg.fluid_A.T_in_K, compute_cfg.fluid_B.T_in_K
+    fluid_A = compute_cfg.fluid_A.type
+    _allow_extrap = bool(compute_cfg.extrap.allow)
+    zone_config = None
+    za = None
+    z_axis = 'y'
+    if compute_cfg.zones.enabled:
+        compute_cfg.zones.validate()
+        _check_zoned_fluid_support(compute_cfg)
+        z_axis = compute_cfg.zones.axis
+        P_in_val = compute_cfg.fluid_A.P_in_Pa
+        P_inB = compute_cfg.fluid_B.P_in_Pa
+        if z_axis == 'grid':
+            grid = compute_cfg.zones.grid
+            _x_dec = compute_cfg.zones.pareto_x_decision
+            if _x_dec is not None:
+                from sjtu_tpmshx.models.sigmoid_field import (
+                    build_continuous_arrays, get_geometry_lut,
+                )
+                _lut = get_geometry_lut(tpms_type)
+                za = build_continuous_arrays(
+                    _x_dec, Lcell, t_wall,
+                    compute_cfg.zones.pareto_y_trans_inlet,
+                    compute_cfg.zones.pareto_y_trans_outlet,
+                    N_x, N_y, L, H,
+                    tpms_type, k_s,
+                    u_A, u_B, T_inA, T_inB, _lut,
+                    P_in=P_in_val, P_inB=P_inB,
+                    allow_extrap=_allow_extrap,
+                    fluid_type=fluid_A, dx_arr=dx_arr, dy_arr=dy_arr)
+                _log.info(f"[ZONE] Continuous Sigmoid field ({N_x}x{N_y})")
+            else:
+                from sjtu_tpmshx.models.zone_config import ZoneConfig
+                za = ZoneConfig.build_grid_arrays(
+                    N_x, N_y, L, H,
+                    grid['cells'],
+                    grid['tpms_type'], grid['k_s'],
+                    u_A, u_B, T_inA, T_inB, P_in_val, P_inB=P_inB,
+                    dx_arr=dx_arr, dy_arr=dy_arr)
+                _log.info(f"[ZONE] Grid {len(grid['cells'])} cells (discrete)")
+            zone_config = 'grid'
+        else:
+            # The UI supplies an object; canonical JSON retains its data shape.
+            if compute_cfg.zones.config is None:
+                raise ValueError('Enabled 1D zones require a ZoneConfig')
+            zone_config = compute_cfg.zones.config
+            if isinstance(zone_config, dict):
+                from copy import deepcopy
+                from sjtu_tpmshx.models.zone_config import Zone, ZoneConfig
+
+                zone_data = deepcopy(zone_config)
+                zone_data['zones'] = [Zone(**zone) for zone in zone_data['zones']]
+                zone_config = ZoneConfig(**zone_data)
+            zone_config.compute_properties(
+                u_A=u_A, u_B=u_B, T_inA=T_inA, T_inB=T_inB,
+                P_in=P_in_val, P_inB=P_inB)
+            z_dim = H if z_axis == 'y' else L
+            za = zone_config.build_structured_arrays(
+                N_x, N_y, z_dim, axis=z_axis, dx_arr=dx_arr, dy_arr=dy_arr)
+            _log.info(f"[ZONE] {len(zone_config.zones)} zones along "
+                      f"{z_axis}")
+
+    # Smooth zone property arrays at boundaries (skip continuous mode).
+    if za is not None and zone_config is not None and za.get('axis') != 'continuous':
+        from scipy.ndimage import gaussian_filter
+        _sigma = 2.0
+        for _key in ('K_ffA_arr', 'K_ffB_arr', 'K_ss_arr',
+                     'h_vA_arr', 'h_vB_arr', 'eps_arr'):
+            if _key in za:
+                za[_key] = gaussian_filter(za[_key], sigma=_sigma)
+
+    return zone_config, za, z_axis
+
+
 def _parse_inputs_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
     """Phase 1 (Qt-free): assemble the parsed-config dict from a
     :class:`ComputeConfig`.
@@ -97,73 +178,7 @@ def _parse_inputs_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
     eps = g['epsilon']
     r_h = g['D_h'] / 2.0
 
-    # ── zone config from cfg.zones (pre-resolved at UI boundary) ──
-    zone_config = None
-    za = None
-    z_axis = 'y'
-    if compute_cfg.zones.enabled:
-        compute_cfg.zones.validate()
-        _check_zoned_fluid_support(compute_cfg)
-        z_axis = compute_cfg.zones.axis
-        P_in_val = compute_cfg.fluid_A.P_in_Pa
-        P_inB = compute_cfg.fluid_B.P_in_Pa
-        if z_axis == 'grid':
-            grid = compute_cfg.zones.grid
-            _x_dec = compute_cfg.zones.pareto_x_decision
-            if _x_dec is not None:
-                from sjtu_tpmshx.models.sigmoid_field import (
-                    build_continuous_arrays, get_geometry_lut,
-                )
-                _lut = get_geometry_lut(tpms_type)
-                za = build_continuous_arrays(
-                    _x_dec, Lcell, t_wall,
-                    compute_cfg.zones.pareto_y_trans_inlet,
-                    compute_cfg.zones.pareto_y_trans_outlet,
-                    N_x, N_y, L, H,
-                    tpms_type, k_s,
-                    u_A, u_B, T_inA, T_inB, _lut,
-                    P_in=P_in_val, P_inB=P_inB,
-                    allow_extrap=_allow_extrap,
-                    fluid_type=fluid_A)  # air-only builder; non-air raises
-                _log.info(f"[ZONE] Continuous Sigmoid field ({N_x}x{N_y})")
-            else:
-                from sjtu_tpmshx.models.zone_config import ZoneConfig
-                za = ZoneConfig.build_grid_arrays(
-                    N_x, N_y, L, H,
-                    grid['cells'],
-                    grid['tpms_type'], grid['k_s'],
-                    u_A, u_B, T_inA, T_inB, P_in_val, P_inB=P_inB)
-                _log.info(f"[ZONE] Grid {len(grid['cells'])} cells (discrete)")
-            zone_config = 'grid'
-        else:
-            # The UI supplies an object; canonical JSON retains its data shape.
-            if compute_cfg.zones.config is None:
-                raise ValueError('Enabled 1D zones require a ZoneConfig')
-            zone_config = compute_cfg.zones.config
-            if isinstance(zone_config, dict):
-                from copy import deepcopy
-                from sjtu_tpmshx.models.zone_config import Zone, ZoneConfig
-
-                zone_data = deepcopy(zone_config)
-                zone_data['zones'] = [Zone(**zone) for zone in zone_data['zones']]
-                zone_config = ZoneConfig(**zone_data)
-            zone_config.compute_properties(
-                u_A=u_A, u_B=u_B, T_inA=T_inA, T_inB=T_inB,
-                P_in=P_in_val, P_inB=P_inB)
-            z_dim = H if z_axis == 'y' else L
-            za = zone_config.build_structured_arrays(
-                N_x, N_y, z_dim, axis=z_axis)
-            _log.info(f"[ZONE] {len(zone_config.zones)} zones along "
-                      f"{z_axis}")
-
-    # Smooth zone property arrays at boundaries (skip continuous mode).
-    if za is not None and zone_config is not None and za.get('axis') != 'continuous':
-        from scipy.ndimage import gaussian_filter
-        _sigma = 2.0
-        for _key in ('K_ffA_arr', 'K_ffB_arr', 'K_ss_arr',
-                     'h_vA_arr', 'h_vB_arr', 'eps_arr'):
-            if _key in za:
-                za[_key] = gaussian_filter(za[_key], sigma=_sigma)
+    zone_config, za, z_axis = _build_zone_arrays(compute_cfg, N_x, N_y)
 
     return {
         'L': L, 'H': H,
@@ -241,55 +256,20 @@ def _prepare_grid(cfg):
     cfg['N_x'] = N_x
     cfg['N_y'] = N_y
 
-    def _resize_zone_arrays_to_effective_grid(za_dict, shape):
-        if za_dict is None:
-            return
-
-        def _nearest(arr):
-            sx, sy = arr.shape
-            ix = np.clip(((np.arange(shape[0]) + 0.5) * sx / shape[0]).astype(int),
-                         0, sx - 1)
-            iy = np.clip(((np.arange(shape[1]) + 0.5) * sy / shape[1]).astype(int),
-                         0, sy - 1)
-            return arr[np.ix_(ix, iy)]
-
-        def _linear(arr):
-            sx, sy = arr.shape
-            x_old = (np.arange(sx) + 0.5) / sx
-            y_old = (np.arange(sy) + 0.5) / sy
-            x_new = (np.arange(shape[0]) + 0.5) / shape[0]
-            y_new = (np.arange(shape[1]) + 0.5) / shape[1]
-            tmp = np.empty((shape[0], sy), dtype=np.float64)
-            for j in range(sy):
-                tmp[:, j] = np.interp(x_new, x_old, arr[:, j])
-            out = np.empty(shape, dtype=np.float64)
-            for i in range(shape[0]):
-                out[i, :] = np.interp(y_new, y_old, tmp[i, :])
-            return out
-
-        for key, value in list(za_dict.items()):
-            arr = np.asarray(value)
-            if arr.ndim != 2 or arr.shape == shape:
-                continue
-            if arr.shape[0] == 0 or arr.shape[1] == 0:
-                continue
-            if key == 'zone_id' or not np.issubdtype(arr.dtype, np.floating):
-                za_dict[key] = _nearest(arr)
-            else:
-                za_dict[key] = _linear(arr.astype(np.float64, copy=False))
-
-        if 'eps_arr' in za_dict:
-            za_dict['eps_f_arr'] = np.asarray(za_dict['eps_arr'],
-                                              dtype=np.float64) / 2.0
-
-    _resize_zone_arrays_to_effective_grid(za, (N_x, N_y))
+    # Re-evaluate the design on the final physical mesh. Matching array shapes
+    # alone do not establish matching cell centres on a port-aligned grid.
+    if zone_config is not None:
+        zone_config, za, _ = _build_zone_arrays(
+            cfg['compute_cfg'], N_x, N_y, dx_arr=energy_dx, dy_arr=energy_dy)
+        za['eps_f_arr'] = np.asarray(za['eps_arr'], dtype=np.float64) / 2.0
+        cfg['zone_config'], cfg['za'] = zone_config, za
 
     cfg['flow_inputs'] = _prepare_flow_inputs(cfg, energy_dx, energy_dy)
     from sjtu_tpmshx.preprocess.thermal_geometry import prepare_thermal_geometry
     cfg['thermal_geometry'] = prepare_thermal_geometry(
         cfg['tpms_type'], cfg['Lcell'], cfg['t_wall'], cfg['k_s'],
-        L_field=None if za is None else za.get('L_mm_arr'),
-        t_field=None if za is None else za.get('t_arr'),
+        L_field=None if za is None else za['L_field'],
+        t_field=None if za is None else za['t_field'],
         delta=float(cfg['compute_cfg'].geometry.delta_levelset))
     cfg['boundary_openings'] = _prepare_openings(cfg, energy_dx, energy_dy)
     return {'energy_dx': energy_dx, 'energy_dy': energy_dy,
@@ -333,10 +313,10 @@ def _prepare_flow_inputs(cfg, dx, dy):
             K, cF = predict_K_cF_vec(tpms, Lrow, trow, erow, method=SCO2_DF_METHOD)
         elif za is not None:
             fluid = 'A' if is_x else 'B'
-            if 'L_field' in za and 't_field' in za:
+            if za['axis'] == 'continuous':
                 K, cF = project_fields_to_streamwise_K_cF(
-                    za['L_field'], za['t_field'], tpms, cfg['k_s'],
-                    *za['L_field'].shape, count, fluid, streamwise_dx=stream)
+                    za['L_field'], za['t_field'], tpms, cfg['k_s'], count,
+                    fluid, streamwise_dx=stream, source_grid=(dx, dy))
             elif za.get('grid_cells'):
                 K, cF = project_cells_to_streamwise_K_cF(
                     za['grid_cells'], tpms, cfg['k_s'], count, fluid, streamwise_dx=stream)

@@ -17,7 +17,7 @@ _log = get_logger(__name__)
 def prepare_screening_3d(x_decision, cfg, *, case_id,
                          Nx=40, Ny=16, Nz=16, Lz=.042, max_outer=3,
                          outer_tol_K=.5, alpha_outer=.6, max_iter_simple=800,
-                         tol_simple=1e-2, max_iter_energy=2000, tol_energy=.5,
+                         max_iter_energy=2000, tol_energy=.5,
                          roughness_mode=None, roughness_eps_um=None,
                          convergence_mode='f2', verbose=True):
     cfg = {**DEFAULT_CONFIG, **cfg}
@@ -119,7 +119,7 @@ def prepare_screening_3d(x_decision, cfg, *, case_id,
 
     rejection = None
     if P_out_sq_A <= 0. or P_out_sq_B <= 0.:
-        rejection = ('P_out² ≤ 0 on the 1D D-F seed — operating point is choked '
+        rejection = ('P_out² ≤ 0 on the 1D D-F seed — screening approximation rejected '
                      f'(A={P_out_sq_A:.3e}, B={P_out_sq_B:.3e}).')
     flows = {}
     if rejection is None:
@@ -146,7 +146,7 @@ def prepare_screening_3d(x_decision, cfg, *, case_id,
                    rho_A0=rho_A0, rho_B0=rho_B0, G_A=G_A,
                    K_mean_A=K_mean_A, cF_mean_A=cF_mean_A, dir_A=0, dir_B=3,
                    max_outer=max_outer, outer_tol_K=outer_tol_K, alpha_outer=alpha_outer,
-                   max_iter_simple=max_iter_simple, tol_simple=tol_simple,
+                   max_iter_simple=max_iter_simple,
                    max_iter_energy=max_iter_energy, tol_energy=tol_energy,
                    convergence_mode=convergence_mode, verbose=verbose)
     return CaseData(case_id=case_id, config_snapshot=cfg, grid=grid, design_fields=fields,

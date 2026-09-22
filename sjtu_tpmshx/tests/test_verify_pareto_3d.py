@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.models.continuous_field import decision_dim
+from sjtu_tpmshx.models.screening import DEFAULT_CONFIG, FIELD_CONFIG_KEYS
 from sjtu_tpmshx.validation.cases import verify_pareto_3d as verify
 
 
@@ -23,7 +24,8 @@ def _write_pareto(path, dimension):
 @pytest.mark.parametrize('nx,ny,symmetric', [(4, 4, True), (4, 4, False), (6, 6, True)])
 def test_configured_layout_and_override_reach_verification(tmp_path, monkeypatch,
                                                          nx, ny, symmetric, capsys):
-    cfg = dict(n_ctrl_x=4, n_ctrl_y=4, symmetric_y=True, u_A=10.)
+    cfg = {**DEFAULT_CONFIG, 'n_ctrl_x': 4, 'n_ctrl_y': 4, 'symmetric_y': True, 'u_A': 10.}
+    cfg = json.loads(json.dumps(cfg))
     (tmp_path / 'config.json').write_text(json.dumps(cfg))
     layout = dict(n_ctrl_x=nx, n_ctrl_y=ny, symmetric_y=symmetric)
     path = tmp_path / 'pareto_final.csv'
@@ -47,6 +49,7 @@ def test_configured_layout_and_override_reach_verification(tmp_path, monkeypatch
 
 @pytest.mark.parametrize('damage', ['dimension', 'duplicate', 'missing', 'extra', 'nonfinite'])
 def test_bad_pareto_is_rejected_before_solver(tmp_path, monkeypatch, damage):
+    (tmp_path / 'config.json').write_text(json.dumps(DEFAULT_CONFIG))
     path = tmp_path / 'pareto_final.csv'
     _write_pareto(path, 36 if damage == 'dimension' else 16)
     with path.open(newline='') as source:
@@ -63,6 +66,24 @@ def test_bad_pareto_is_rejected_before_solver(tmp_path, monkeypatch, damage):
         csv.writer(target).writerows([header, row])
     monkeypatch.setattr(verify, 'evaluate_3d', lambda *a, **k: pytest.fail('invalid CSV launched'))
     with pytest.raises(ValueError, match='Pareto'):
+        verify.main(['--pareto', str(path)])
+
+
+@pytest.mark.parametrize('missing', [None, *FIELD_CONFIG_KEYS, 'rho_s', 'u_A', 'u_B',
+                                     'T_inA', 'T_inB', 'P_inA', 'P_inB',
+                                     'fluid_type_A', 'fluid_type_B', 'dir_A', 'dir_B',
+                                     'ports_A', 'ports_B'])
+def test_missing_original_metadata_cannot_fall_back_to_default_case(tmp_path, monkeypatch, missing):
+    cfg = DEFAULT_CONFIG.copy()
+    if missing is None:
+        cfg.clear()
+    else:
+        del cfg[missing]
+    (tmp_path / 'config.json').write_text(json.dumps(cfg))
+    path = tmp_path / 'pareto_final.csv'
+    _write_pareto(path, 16)
+    monkeypatch.setattr(verify, 'evaluate_3d', lambda *a, **k: pytest.fail('invalid metadata launched'))
+    with pytest.raises(ValueError, match='configuration is incomplete'):
         verify.main(['--pareto', str(path)])
 
 

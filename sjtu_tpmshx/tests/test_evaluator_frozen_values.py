@@ -50,7 +50,7 @@ _REL = 1e-12
 # Lighter solver settings (mirror tests/test_evaluator_sanity.py:_FAST_CFG).
 # Preserve the resolved geometry bounds used to capture these references.
 # New searches use 0.3..0.6 mm; these historical vectors were clipped at 0.5.
-_FAST_CFG = {'max_iter_simple': 800, 'tol_simple': 1e-3,
+_FAST_CFG = {'max_iter_simple': 800,
              'max_iter_energy': 1500, 'tol_energy': 0.5, 'n_rho_loops': 1,
              't_bounds': (0.3, 0.5)}
 

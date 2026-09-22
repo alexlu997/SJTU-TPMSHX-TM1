@@ -12,7 +12,6 @@ from __future__ import annotations
 import os
 import time
 from copy import deepcopy
-from typing import Optional
 
 import numpy as np
 
@@ -22,7 +21,6 @@ from sjtu_tpmshx.controllers.user_storage import optimization_output_dir
 _log = get_logger(__name__)
 
 # Time module already imported above; alias for the closures below
-_time = time
 
 # Qt imports are kept lazy so this module can be imported by non-GUI tools
 # (CLI scripts, headless tests) without forcing a Qt dependency.
@@ -86,11 +84,7 @@ def _make_worker_class():
                             list(prog.get('hv_hist', [])),
                         )
 
-                # 2026-05-09 Phase 1 wiring fix — pass n_jobs so the BO
-                # inner-loop uses joblib q_batch parallel (≈ 2×–4× wall
-                # speedup on 12-core box). The UI worker had been calling
-                # run_qnehvi without n_jobs, defaulting to sequential 1.
-                # Cap at q_batch (joblib auto-clamps if smaller batch).
+                # Parallel candidates are capped by the current BO batch size.
                 n_jobs_inner = max(1, min(int(self.q_batch),
                                           int(self.cfg.get('n_jobs', 4))))
                 res = run_qnehvi(
@@ -134,7 +128,6 @@ def _gather_cfg(window, base: dict | None = None) -> dict:
     if _oc is not None:
         try:
             cfg['max_iter_simple'] = int(_oc.max_iter_simple)
-            cfg['tol_simple']      = float(_oc.tol_simple)
             cfg['tol_energy']      = float(_oc.outer_tol_K)
             # 3D-only keys — harmless extras on the 2D path.
             cfg['max_outer_3d']    = int(_oc.max_outer_ltne)
@@ -297,15 +290,7 @@ def _push_sparkline(window, value: float) -> None:
     sl = getattr(window, '_opt_sparkline', None)
     if sl is None:
         return
-    # ui/sparkline.py:Sparkline.push(float) — exact API
-    for method in ('push', 'append', 'add'):
-        fn = getattr(sl, method, None)
-        if callable(fn):
-            try:
-                fn(float(value))
-                return
-            except Exception:
-                pass
+    sl.push(value)
 
 
 def _set_stage_pill(window, key: str, state: str) -> None:
@@ -393,133 +378,8 @@ def _sync_outer_budget(window) -> None:
     window._opt_outer_label.setText(label)
 
 
-def _show_qnehvi_param_dialog(window, cfg: dict) -> Optional[dict]:
-    """Modal dialog asking for qNEHVI BO parameters before launch.
-
-    Cached on the window: the second call within a session reuses the
-    previous user values, so the dialog isn't a nuisance after the first
-    click. Returns None if the user clicks Cancel; otherwise a dict with
-    ``n_init, n_iter, q_batch, seed`` and the current dimension's budget key.
-    """
-    try:
-        from PySide6.QtWidgets import (
-            QDialog, QVBoxLayout, QFormLayout, QSpinBox, QDialogButtonBox,
-            QLabel, QFrame,
-        )
-    except Exception as e:
-        _log.warning(f"[optimize] dialog unavailable ({e}); using defaults")
-        return _qnehvi_param_defaults(window, cfg)
-
-    cached = getattr(window, '_opt_param_cache', None) or {}
-    n_init_init  = int(cached.get('n_init',  32))
-    n_iter_init  = int(cached.get('n_iter',  24))
-    q_batch_init = int(cached.get('q_batch', 2))
-    seed_init    = int(cached.get('seed',    42))
-    budget_key, budget_value, budget_label, budget_tip = _outer_budget_parameter(window, cfg)
-
-    dlg = QDialog(window)
-    dlg.setWindowTitle("qNEHVI — Bayesian optimization parameters")
-    dlg.setModal(True)
-    # Theme the dialog (previously raw Qt defaults — light-grey on dark theme).
-    from sjtu_tpmshx.ui.theme import get_theme as _gt_opt
-    _t = _gt_opt()
-    dlg.setStyleSheet(
-        f"QDialog{{background:{_t['bg']};}}"
-        f"QLabel{{color:{_t['fg']}; background:transparent;}}"
-        f"QSpinBox{{background:{_t['inp_bg']}; color:{_t['inp_fg']};"
-        f" border:1px solid {_t['inp_border']}; border-radius:6px; padding:3px 6px;}}"
-        f"QSpinBox:focus{{border:1px solid {_t['inp_focus']};}}"
-        f"QSpinBox::up-button, QSpinBox::down-button{{"
-        f" background:{_t['surface_elevated']}; border:none; width:16px;}}"
-        f"QFrame{{color:{_t['card_border']};}}"
-        f"QPushButton{{background:transparent; color:{_t['btn_sec_fg']};"
-        f" border:1px solid {_t['btn_sec_border']}; border-radius:6px;"
-        f" padding:5px 16px; font-weight:600;}}"
-        f"QPushButton:hover{{background:{_t['btn_sec_hover_bg']};}}"
-    )
-    lay = QVBoxLayout(dlg)
-
-    summary = QLabel(
-        f"Domain {cfg.get('L_domain'):.3f} × {cfg.get('H_domain'):.3f} m   "
-        f"TPMS {cfg.get('tpms_type', '?')}   "
-        f"u_A={cfg.get('u_A')}, u_B={cfg.get('u_B')}   "
-        f"T_inA={cfg.get('T_inA'):.0f} K, T_inB={cfg.get('T_inB'):.0f} K"
-    )
-    summary.setWordWrap(True)
-    summary.setStyleSheet(f"color:{_t['sub_fg']}; font-size:9pt; padding:2px;")
-    lay.addWidget(summary)
-
-    line = QFrame(); line.setFrameShape(QFrame.Shape.HLine)
-    lay.addWidget(line)
-
-    form = QFormLayout()
-    form.setHorizontalSpacing(14); form.setVerticalSpacing(6)
-
-    sp_init = QSpinBox(); sp_init.setRange(4, 256); sp_init.setValue(n_init_init)
-    sp_init.setToolTip("Sobol initial samples (~2 × decision_dim recommended; 16-D → 32)")
-    form.addRow(QLabel("<i>n</i><sub>init</sub> (Sobol)"), sp_init)
-
-    sp_iter = QSpinBox(); sp_iter.setRange(0, 200); sp_iter.setValue(n_iter_init)
-    sp_iter.setToolTip("BO iterations after init. HV-plateau early-stop may shorten this.")
-    form.addRow(QLabel("<i>n</i><sub>iter</sub> (BO)"), sp_iter)
-
-    sp_batch = QSpinBox(); sp_batch.setRange(1, 8); sp_batch.setValue(q_batch_init)
-    sp_batch.setToolTip("Parallel candidates per BO iter; q=2 is a good Pareto-coverage default")
-    form.addRow(QLabel("<i>q</i><sub>batch</sub>"), sp_batch)
-
-    sp_seed = QSpinBox(); sp_seed.setRange(0, 9999); sp_seed.setValue(seed_init)
-    sp_seed.setToolTip("Random seed for Sobol + BoTorch (paper reproducibility)")
-    form.addRow(QLabel("随机种子"), sp_seed)
-
-    sp_rho = QSpinBox(); sp_rho.setRange(1, max(8, budget_value)); sp_rho.setValue(budget_value)
-    sp_rho.setToolTip(budget_tip)
-    form.addRow(QLabel(budget_label), sp_rho)
-
-    lay.addLayout(form)
-
-    # Eval count preview — recomputed on any spinbox change
-    preview = QLabel("")
-    preview.setStyleSheet(f"color:{_t['sub_fg']}; font-size:9pt; font-style:italic;")
-    def _refresh_preview(*_):
-        total = sp_init.value() + sp_iter.value() * sp_batch.value()
-        dimension = '3D' if _is_3d_mode(window) else '2D'
-        preview.setText(f"计划 {total} 次 {dimension} 求解（提前停止时减少）")
-    for sp in (sp_init, sp_iter, sp_batch, sp_rho):
-        sp.valueChanged.connect(_refresh_preview)
-    _refresh_preview()
-    lay.addWidget(preview)
-
-    btns = QDialogButtonBox(
-        QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-    )
-    btns.accepted.connect(dlg.accept)
-    btns.rejected.connect(dlg.reject)
-    lay.addWidget(btns)
-
-    if dlg.exec() != QDialog.DialogCode.Accepted:
-        return None
-
-    out = {
-        'n_init':       sp_init.value(),
-        'n_iter':       sp_iter.value(),
-        'q_batch':      sp_batch.value(),
-        'seed':         sp_seed.value(),
-        budget_key:    sp_rho.value(),
-    }
-    window._opt_param_cache = {**cached, **{k: v for k, v in out.items() if k != budget_key}}
-    if sp_rho.value() != budget_value:
-        window._opt_param_cache[budget_key] = sp_rho.value()
-    return out
 
 
-def _qnehvi_param_defaults(window, cfg: dict) -> dict:
-    """Headless fallback when the dialog can't be constructed (no Qt). Used
-    by tests + CLI-driven UI paths."""
-    cached = getattr(window, '_opt_param_cache', None) or {}
-    params = {key: int(cached.get(key, default)) for key, default in
-              (('n_init', 32), ('n_iter', 24), ('q_batch', 2), ('seed', 42))}
-    key, value, _label, _tip = _outer_budget_parameter(window, cfg)
-    return {**params, key: value}
 
 
 # ─── Dimension detection (M0, 2026-07-09) ───────────────────────────
@@ -615,13 +475,7 @@ def run_optimize(window) -> None:
     injects ``evaluate_design_3d`` + the 3D fast-mode default budget;
     otherwise the 2D ``evaluate_design`` default path runs unchanged.
     """
-    # 2026-05-20 UI sweep: atomic reentrance guard. The modal qNEHVI
-    # parameter dialog at `_show_qnehvi_param_dialog` runs a nested Qt
-    # event loop, during which the Launch button stays enabled (its
-    # `_toggle_buttons(running=True)` happens later, after worker.start).
-    # A fast double-click could therefore spawn two dialogs / two
-    # workers. `_opt_launching` is set synchronously on entry and cleared
-    # in `finally`, blocking the second click during the dialog window.
+    # Reserve launch before gathering inputs and starting the worker.
     if getattr(window, '_close_pending', False):
         return
     if getattr(window, '_opt_launching', False):
@@ -681,22 +535,12 @@ def run_optimize(window) -> None:
         _abort_launch(f"launch aborted — _gather_cfg failed: {_e}")
         return
 
-    # BO parameters: the wizard's page-1 inline spinboxes are the primary
-    # source (ui-plan-b-wizard); the modal dialog survives as the fallback
-    # for hosts built without the wizard (tests / legacy embeds).
-    inline = getattr(window, '_opt_inline_params', None)
+    # The main window owns one inline optimization configuration.
     try:
-        if inline:
-            _sync_outer_budget(window)
-            params = {k: sp.value() for k, sp in inline.items()}
-        else:
-            params = _show_qnehvi_param_dialog(window, cfg)
+        _sync_outer_budget(window)
+        params = {k: sp.value() for k, sp in window._opt_inline_params.items()}
     except Exception as _e:
         _abort_launch(f"launch aborted — parameter setup failed: {_e}")
-        return
-    if params is None:
-        _set_status(window, 'launch cancelled')
-        _abort_launch()
         return
     try:
         n_init  = int(params['n_init'])
@@ -720,9 +564,15 @@ def run_optimize(window) -> None:
         return
     window._opt_t_start = time.time()
     window._opt_total_evals = n_init + n_iter * q_batch
-    # Phase 2 — reset sparkline mode flag so each launch begins by tracking
-    # best_Q during Sobol init, then flips to HV mode on first BO iter.
+    # Each run and each quantity own a separate history: Q and HV cannot
+    # share an axis because they have different units and scales.
     window._opt_sl_is_hv = False
+    sparkline = getattr(window, '_opt_sparkline', None)
+    caption = getattr(window, '_opt_sparkline_caption', None)
+    if sparkline is not None:
+        sparkline.clear_data()
+    if caption is not None:
+        caption.setText(f"初始采样 · 最优 Q [{'W' if is_3d else 'W/m'}]")
 
     def _on_progress(count, total, best_Q):
         if getattr(window, '_close_pending', False):
@@ -756,7 +606,6 @@ def run_optimize(window) -> None:
     def _on_done(res):
         if getattr(window, '_close_pending', False):
             return
-        window._last_opt_result = res
         window._last_opt_cfg = deepcopy(res.get('config', cfg))
         window._selected_pareto_x = None
         label = _termination_label(res)
@@ -819,28 +668,13 @@ def run_optimize(window) -> None:
     def _on_hv(iter_idx, hv, hv_hist):
         if getattr(window, '_close_pending', False):
             return
-        # Phase 2 — push HV trace to the sparkline (preferred) or surface as
-        # status text. We push individual HV values so the sparkline's
-        # internal ring buffer renders the trace incrementally.
-        try:
-            sl = getattr(window, '_opt_sparkline', None)
-            if sl is not None:
-                # Switch sparkline mode the first time HV arrives so the
-                # user sees the HV trend, not the best_Q sparkline (which
-                # plateaus quickly and is less informative).
-                fn = (getattr(sl, 'set_mode', None)
-                      or getattr(sl, 'set_title', None))
-                if callable(fn) and not getattr(window, '_opt_sl_is_hv', False):
-                    try:
-                        fn('HV')
-                    except TypeError:
-                        pass
-                    window._opt_sl_is_hv = True
-                # The sparkline already has a push() API; the existing
-                # _push_sparkline helper handles it generically.
-                _push_sparkline(window, float(hv))
-        except Exception:
-            pass
+        if not window._opt_sl_is_hv:
+            window._opt_sl_is_hv = True
+            if sparkline is not None:
+                sparkline.clear_data()
+            if caption is not None:
+                caption.setText("贝叶斯优化 · 超体积 HV")
+        _push_sparkline(window, hv)
         # Also surface as status snippet so the user sees the HV value
         # even if the sparkline is hidden.
         try:

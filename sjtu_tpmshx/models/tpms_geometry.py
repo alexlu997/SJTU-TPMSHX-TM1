@@ -271,29 +271,3 @@ def compute_geometry(tpms_type: str, L_mm: float, t_mm: float,
 # Cache management re-exposed (the wrapper hides the lru_cache attributes).
 compute_geometry.cache_clear = _compute_geometry_cached.cache_clear
 compute_geometry.cache_info = _compute_geometry_cached.cache_info
-
-
-# ── Verification against lookup table data ───────────────────────
-
-if __name__ == '__main__':
-    print("=" * 80)
-    print("Verification: numerical computation vs Excel lookup table")
-    print("=" * 80)
-
-    for tpms in ['Diamond', 'Gyroid']:
-        table = _DIAMOND_TABLE if tpms == 'Diamond' else _GYROID_TABLE
-        print(f"\n  {tpms}")
-        print(f"  {'(L,t)':10s}  {'eps_table':>9s} {'eps_calc':>9s} {'err%':>6s}  "
-              f"{'A0_table':>8s} {'A0_calc':>8s} {'err%':>6s}")
-        print(f"  {'-'*65}")
-
-        a0_table = _DIAMOND_A0_TABLE if tpms == 'Diamond' else _GYROID_A0_TABLE
-        for (L, t), eps_tbl in sorted(table.items()):
-            A0_tbl = a0_table[(L, t)]
-            r = compute_geometry(tpms, L, t)
-            eps_err = abs(r['epsilon'] - eps_tbl) / eps_tbl * 100
-            A0_err = abs(r['A_0'] - A0_tbl) / A0_tbl * 100
-            print(f"  L={L} t={t}    {eps_tbl:9.3f} {r['epsilon']:9.3f} {eps_err:5.1f}%  "
-                  f"{A0_tbl:8.1f} {r['A_0']:8.1f} {A0_err:5.1f}%")
-
-    print(f"\n{'=' * 80}")

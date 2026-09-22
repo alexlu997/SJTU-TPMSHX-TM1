@@ -1,60 +1,39 @@
-"""ε contract guard — Option A: caller passes FULL porosity, kernel halves once.
+"""The current Shanghai preparation→thermal path passes full porosity once."""
+import inspect
 
-Bug (pre-2026-05-19): callers passed 0.5*eps (pre-halved ε_A) AND the kernel
-`solve_full_domain_3d` internally does `eps_f = 0.5*epsilon` → ε double-halved
-to ε_full/4, halving LTNE fluid convective heat capacity.
-
-Option A fix: kernel keeps its single internal halving; every production
-caller must pass the FULL porosity ε_full (≈0.7368 for Shanghai Gyroid),
-NOT the pre-halved ε_A (≈0.368).
-
-These tests pin the contract end-to-end so a caller can never silently
-re-introduce the pre-halving.
-"""
 import numpy as np
 import pandas as pd
 import pytest
 
 
-def _shanghai_df():
-    # Use the canonical data anchor (resilient to where the runner module lives)
-    # instead of recomputing the path from V.__file__ depth.
-    from sjtu_tpmshx.validation.harness._case_sets import SHANGHAI_XLSX
-    import pathlib
-    if not pathlib.Path(str(SHANGHAI_XLSX)).exists():
-        pytest.skip('Shanghai experiment Excel (gitignored data/) not present')
-    return pd.read_excel(str(SHANGHAI_XLSX), engine="openpyxl",
-                         sheet_name="Sheet1", header=None, skiprows=2)
-
-
 def test_validate_shanghai_passes_full_epsilon(monkeypatch):
-    """validate_shanghai_3d_real must hand the kernel FULL ε, not ε_A."""
-    import sjtu_tpmshx.validation.cases.validate_shanghai_3d_real as V
+    from sjtu_tpmshx.validation.cases.validate_shanghai_3d_real import _pipeline_config
+    from sjtu_tpmshx.validation.harness._case_sets import shanghai_spec
+    from sjtu_tpmshx.preprocess.api import prepare_case
+    from sjtu_tpmshx.solvers.api import run_case
+    from sjtu_tpmshx.solvers.backends.python.three_d import runtime
 
+    row = {i: 0. for i in range(34)}
+    row.update({5: .0023, 7: .0108, 24: 20., 28: 120., 30: 1500.})
+    df = pd.DataFrame([row])
+    df['water_P_in_abs_Pa'] = 101500.
+    case = prepare_case(_pipeline_config(0, df, 4, 4, 2, max_outer=2),
+                        case_id='shanghai-full-porosity')
+    signature = inspect.signature(runtime.solve_full_domain_3d)
     captured = {}
 
-    def spy(*a, **kw):
-        # kernel signature positional order:
-        # 0L 1H 2D 3Nx 4Ny 5Nz 6T_inA 7T_inB 8K_ffA 9K_ffB 10K_ss
-        # 11h_vA 12h_vB 13rho_cp_fA 14rho_cp_fB 15epsilon ...
-        eps = a[15] if len(a) > 15 else kw.get("epsilon")
-        captured["eps"] = float(np.asarray(eps, dtype=float).max())
-        Nx, Ny, Nz = a[3], a[4], a[5]
-        z = np.full((Nx, Ny, Nz), 300.0, dtype=np.float64)
-        return z, z.copy(), z.copy()
+    class Captured(Exception):
+        pass
 
-    monkeypatch.setattr(V, "solve_full_domain_3d", spy)
-    monkeypatch.setattr(V.SIMPLESolver3D, "solve",
-                        lambda self, *a, **k: None)
+    def observe_thermal(*args, **kwargs):
+        captured['epsilon'] = signature.bind(*args, **kwargs).arguments['epsilon']
+        raise Captured
 
-    df = _shanghai_df()
-    V._run_one_case(0, df, 4, 4, 2, max_outer=1)
-
-    assert "eps" in captured, "kernel was never called"
-    # Shanghai Gyroid L=7,t=0.6 full porosity ≈ 0.7368; ε_A ≈ 0.3684.
-    assert captured["eps"] == pytest.approx(V.EPS, rel=1e-3), (
-        f"caller passed epsilon.max()={captured['eps']:.4f}; "
-        f"expected FULL ε={V.EPS:.4f} (Option A: kernel halves once). "
-        f"Pre-halved value (~{V.EPS/2:.4f}) means the ε double-halving "
-        f"regression is back."
-    )
+    monkeypatch.setattr(runtime.SIMPLESolver3D, 'solve', lambda *a, **k: (False, 0))
+    monkeypatch.setattr(runtime, 'solve_full_domain_3d', observe_thermal)
+    with pytest.raises(Captured):
+        run_case(case)
+    np.testing.assert_array_equal(captured['epsilon'], case.design_fields['eps_arr'])
+    # The thermal kernel applies the phase split; pre-halving here would
+    # make symmetric fluid fractions epsilon_full/4 rather than epsilon_full/2.
+    np.testing.assert_allclose(captured['epsilon'], shanghai_spec().eps, rtol=1e-12)

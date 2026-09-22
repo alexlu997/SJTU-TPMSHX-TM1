@@ -18,12 +18,12 @@ def _enthalpy_balance_2d(T_field, uc, vc, rho_cp_field, dir_code,
                           dx_arr, dy_arr, inlet_mask=None, outlet_mask=None,
                           enthalpy_fn=None, rho_fn=None, P_ref=None,
                           eps_side=None, T_in=None):
-    """Mass-conserving enthalpy balance Q = ṁ_in · (T_in_avg − T_out_avg).
+    """Inlet-mass-based duty from the inlet/outlet temperature or enthalpy change.
 
     Uses the inlet plane ρ·|u|·A·mask as ṁ·cp reference so the returned Q
-    is robust to partial SIMPLE mass-conservation convergence (B-1 refactor
-    2026-04-24). The earlier H_in − H_out form gave spurious non-zero Q
-    when ṁ_inlet ≠ ṁ_outlet, which in fast-mode NSGA-II inflated Q by 3×.
+    does not include a heat-duty contribution from unequal inlet/outlet mass
+    flows. This diagnostic does not replace the independent mass-conservation
+    check or certify convergence.
 
     Positive = fluid gives up heat (T_in > T_out).
     Optional 1D masks (length = cross-axis) gate the integral to partial

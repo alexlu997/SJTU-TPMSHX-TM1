@@ -93,20 +93,17 @@ class OverviewDialog(QDialog):
             v.addWidget(cap); v.addWidget(val, 1); v.addWidget(un)
             return card
 
-        def _g(attr):
-            w = getattr(window, attr, None)
-            if w is None: return '—'
-            txt = w.text().strip()
-            return txt or '—'
+        from .builders_sidebar import result_metric_texts
+        values = result_metric_texts(window)
 
         kpi_row.addWidget(_kpi("HEAT TRANSFER  Q",
-                                 _g('_r_Q'), getattr(window, '_result_Q_unit', 'W/m'),
+                                 values['Q'], getattr(window, '_result_Q_unit', 'W/m'),
                                  t.get('accent_primary', '#3B82F6')))
         kpi_row.addWidget(_kpi("PRESSURE DROP  ΔP_A",
-                                 _g('_r_dP_A'), "Pa",
+                                 values['dP_A'], "Pa",
                                  t.get('accent_orange', '#F97316')))
         kpi_row.addWidget(_kpi("PRESSURE DROP  ΔP_B",
-                                 _g('_r_dP_B'), "Pa",
+                                 values['dP_B'], "Pa",
                                  t.get('accent_orange', '#F97316')))
         root.addLayout(kpi_row)
 
@@ -144,7 +141,8 @@ class OverviewDialog(QDialog):
 
         pr_row = QHBoxLayout(); pr_row.setSpacing(8)
         for name in getattr(window, '_BUILTIN_PRESETS', ()):
-            btn = QPushButton(name)
+            from .fmt import preset_display
+            btn = QPushButton(preset_display(name))
             btn.setFixedHeight(34)
             btn.setStyleSheet(_tm.style('BTN_SECONDARY'))
             btn.clicked.connect(

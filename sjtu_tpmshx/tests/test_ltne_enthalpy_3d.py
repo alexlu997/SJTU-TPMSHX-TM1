@@ -38,7 +38,7 @@ def test_enthalpy_3d_uniform_field_preserved_no_phantom_boundary_diffusion():
     (inter-phase decoupled) and BOTH inlets at the same T, h ≡ h_in is the exact
     solution; one full-update sweep from the uniform start must leave it uniform.
     Before the fix the boundary cells dipped; after, the field stays uniform."""
-    from sjtu_tpmshx.solvers.ltne_enthalpy_3d import solve_ltne_enthalpy_3d
+    from sjtu_tpmshx.tests.enthalpy_3d_reference import solve_ltne_enthalpy_3d
     res = solve_ltne_enthalpy_3d(
         Nx=6, Ny=3, Nz=3, Lx=0.08, Ly=0.04, Lz=0.04, eps=0.6, k_s=16.0,
         m_dot_A=0.02, m_dot_B=-0.02, h_vA=0.0, h_vB=0.0,  # dir_B=1 -> ṁ_B < 0
@@ -52,7 +52,7 @@ def test_enthalpy_3d_uniform_field_preserved_no_phantom_boundary_diffusion():
 
 
 def test_enthalpy_3d_conserves_on_variable_cp_counterflow():
-    from sjtu_tpmshx.solvers.ltne_enthalpy_3d import solve_ltne_enthalpy_3d, enthalpy_metrics_3d
+    from sjtu_tpmshx.tests.enthalpy_3d_reference import solve_ltne_enthalpy_3d, enthalpy_metrics_3d
     res = solve_ltne_enthalpy_3d(**_case())
     m = enthalpy_metrics_3d(res, _case())
 
@@ -67,7 +67,7 @@ def test_enthalpy_3d_conserves_on_variable_cp_counterflow():
 
 def test_enthalpy_3d_temperatures_physical():
     """Counterflow: hot A cools, cold B warms; both stay in a sane range."""
-    from sjtu_tpmshx.solvers.ltne_enthalpy_3d import solve_ltne_enthalpy_3d
+    from sjtu_tpmshx.tests.enthalpy_3d_reference import solve_ltne_enthalpy_3d
     c = _case()
     res = solve_ltne_enthalpy_3d(**c)
     Ta, Tb = res["Ta"], res["Tb"]
@@ -99,7 +99,7 @@ def test_enthalpy_3d_703_recuperator_conserves():
     """End-to-end value gate: Option B on the real 703 recuperator envelope
     closes the A/B imbalance (was ~41% with ρcp·u·T) and recovers the cold
     outlet (was wrongly ~515 K, energy balance wants ~655 K)."""
-    from sjtu_tpmshx.solvers.ltne_enthalpy_3d import solve_ltne_enthalpy_3d, enthalpy_metrics_3d
+    from sjtu_tpmshx.tests.enthalpy_3d_reference import solve_ltne_enthalpy_3d, enthalpy_metrics_3d
     c = _recuperator_case()
     res = solve_ltne_enthalpy_3d(**c)
     m = enthalpy_metrics_3d(res, c)
@@ -120,7 +120,7 @@ def test_enthalpy_3d_near_critical_cp_spike_robust():
     only in the denominator of the inter-phase linearisation and none in the
     convection, so the ×56 jump cannot destabilise it — the reason it was
     chosen over the in-T deferred-correction form (Option A)."""
-    from sjtu_tpmshx.solvers.ltne_enthalpy_3d import solve_ltne_enthalpy_3d, enthalpy_metrics_3d
+    from sjtu_tpmshx.tests.enthalpy_3d_reference import solve_ltne_enthalpy_3d, enthalpy_metrics_3d
     # hot A = large reservoir at ~322 K, cold B small → dragged up across Tpc.
     c = dict(Nx=40, Ny=3, Nz=3, Lx=0.20, Ly=0.5, Lz=0.5, eps=0.675, k_s=16.0,
              m_dot_A=+250.0, m_dot_B=-7.0, h_vA=2.5e6, h_vB=2.5e6,
@@ -147,7 +147,7 @@ def test_enthalpy_3d_mixed_sco2_water_precooler():
     (cold). The mixed kernel runs the sCO2 side in enthalpy form and the water
     side via its own (near-constant-cp) enthalpy — both duties must balance and
     the solve stays robust through the sCO2-side spike."""
-    from sjtu_tpmshx.solvers.ltne_enthalpy_3d import solve_ltne_enthalpy_3d, enthalpy_metrics_3d
+    from sjtu_tpmshx.tests.enthalpy_3d_reference import solve_ltne_enthalpy_3d, enthalpy_metrics_3d
     c = dict(Nx=24, Ny=3, Nz=3, Lx=0.127, Ly=0.5, Lz=0.5, eps=0.675, k_s=16.0,
              m_dot_A=+10.0, m_dot_B=-30.0,        # sCO2 hot / water cold
              h_vA=8e5, h_vB=8e5,
@@ -196,7 +196,7 @@ def test_enthalpy_3d_custom_cross_ports_use_face_mass_flow():
 def test_enthalpy_3d_offset_porosity_conserves():
     """#3: offset-isosurface (δ≠0) per-side void fractions ε_A≠ε_B. The kernel
     consumes per-side ε fields; conservation holds with an asymmetric split."""
-    from sjtu_tpmshx.solvers.ltne_enthalpy_3d import solve_ltne_enthalpy_3d, enthalpy_metrics_3d
+    from sjtu_tpmshx.tests.enthalpy_3d_reference import solve_ltne_enthalpy_3d, enthalpy_metrics_3d
     c = _case()
     c.pop("eps")  # provide per-side ε directly instead
     Nx, Ny, Nz = c["Nx"], c["Ny"], c["Nz"]

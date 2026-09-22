@@ -156,7 +156,7 @@ def test_empty_state_has_three_steps_and_preset(win):
     assert box is not None
     assert not box.isVisibleTo(win)
     assert win._canvas_cards['layout'].isVisibleTo(win)
-    assert 'layout' in win._drawn_tabs
+    assert 'layout' in win.cache.get_drawn_tabs()
     txt = " ".join(l.text() for l in box.findChildren(QLabel))
     for marker in (">1<", ">2<", ">3<", "计算"):
         assert marker in txt, f"empty state missing {marker!r}"
@@ -348,7 +348,7 @@ def test_2d_field_segment_drives_combo(win):
 def test_copy_figure_clipboard_no_data_safe(win):
     """No drawn canvas → status message, no exception, clipboard untouched."""
     win._active_tab = 'layout'
-    win._drawn_tabs = set()
+    win.cache.replace_drawn_tabs(set())
     win._copy_figure_clipboard()                # must not raise
 
 
@@ -373,14 +373,14 @@ def test_legacy_switch_lights_result_button(win):
     earlier preset test leaves the window in 3D mode."""
     win.combo_dim.setCurrentIndex(0)
     win.cache.set_result('2d', {'stub': True})
-    win._drawn_tabs = {'temp', 'pres', 'vel'}  # These layout stubs represent rendered fields.
+    win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})  # These layout stubs represent rendered fields.
     win._update_tab_visibility()
     win._switch_tab('temp')
     assert win._active_tab == 'temp'
     assert win._result_view == '2d'
     assert win.btn_tab_result.styleSheet() == win._PTAB_ON
     win._switch_tab('layout')
-    win._has_results_2d = False       # setter clears the cached result
+    win.cache.clear('2d')       # setter clears the cached result
     win._update_tab_visibility()
 
 
@@ -389,7 +389,7 @@ def test_result_view_toggle_gating(win):
     3D view. In 2D mode with results: 2D enabled, 3D disabled."""
     win.combo_dim.setCurrentIndex(0)
     win.cache.set_result('2d', {'stub': True})
-    win._drawn_tabs = {'temp', 'pres', 'vel'}  # These layout stubs represent rendered fields.
+    win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})  # These layout stubs represent rendered fields.
     win._update_tab_visibility()
     assert win._result_view_btns['2d'].isEnabled()
     assert not win._result_view_btns['3d'].isEnabled()
@@ -398,7 +398,7 @@ def test_result_view_toggle_gating(win):
         win._result_view_btns['2d'].click()
         assert win._result_view_btns['2d'].isChecked()
         assert not win._result_view_btns['3d'].isChecked()
-    win._has_results_2d = False
+    win.cache.clear('2d')
     win._update_tab_visibility()
     assert not win.btn_tab_result.isEnabled()
 
@@ -407,8 +407,7 @@ def test_result_summary_toggle_keeps_values_and_tab_choice(win):
     win.combo_dim.setCurrentIndex(0)
     result = {'stub': True}
     win.cache.set_result('2d', result)
-    win._drawn_tabs = {'temp', 'pres', 'vel'}
-    win._has_results = True
+    win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})
     win._update_tab_visibility()
     win._switch_tab('temp')
     assert win.btn_result_summary.isVisibleTo(win)
@@ -434,8 +433,7 @@ def test_field_toolbar_wraps_without_truncating_button_text(win):
     old_size = win.size()
     win.combo_dim.setCurrentIndex(0)
     win.cache.set_result('2d', {'stub': True})
-    win._drawn_tabs = {'temp', 'pres', 'vel'}  # These layout stubs represent rendered fields.
-    win._has_results = True
+    win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})  # These layout stubs represent rendered fields.
     win._update_tab_visibility()
     win._switch_tab('temp')
     try:
@@ -454,8 +452,8 @@ def test_field_toolbar_wraps_without_truncating_button_text(win):
                 assert button.width() >= button.sizeHint().width(), button.text()
     finally:
         win._switch_tab('layout')
-        win._has_results_2d = False
-        win._has_results = False
+        win.cache.clear('2d')
+        win.cache.clear()
         win.resize(old_size)
         win._update_tab_visibility()
 
@@ -469,16 +467,13 @@ def test_result_footer_wraps_full_diagnostics_and_long_kpis(win):
     old_size = win.size()
     win.combo_dim.setCurrentIndex(0)
     win.cache.set_result('2d', {'stub': True})
-    win._drawn_tabs = {'temp', 'pres', 'vel'}  # These layout stubs represent rendered fields.
-    win._has_results = True
+    win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})  # These layout stubs represent rendered fields.
     win._update_tab_visibility()
     win._switch_tab('temp')
-    values = {'_r_Q': '31124.6', '_r_dP_A': '1626.3', '_r_dP_B': '1189.0',
-              '_r_ToutA': '303.34', '_r_ToutB': '334.79'}
-    for key, value in values.items():
-        getattr(win, key).setText(value)
+    win._tout_K_cache = (303.34, 334.79)
     win._result_Q_unit = 'W/m'
     win._diag_summary = {'mode': '2d', 'closure_rel': .012,
+                         'Q_W': 31124.6, 'dP_A': 1626.3, 'dP_B': 1189.0,
                          'envelope_valid': True, 'extrap': ['outside fit'],
                          'iters': {'iter_outer': 12}, 'wall_s': 123.4}
     refresh_result_sidebar(win)
@@ -610,10 +605,10 @@ def test_no_stray_card_radii():
 
 def test_no_raw_hex_outside_theme():
     """UI colors flow through theme tokens. Allowed: token fallbacks in
-    `t.get('x', '#…')`, glass_panel's dark-art gradient, microanim's deep
+    `t.get('x', '#…')`, microanim's deep
     glow hints, docstrings/comments."""
     import re
-    allow_files = {"theme.py", "glass_panel.py"}
+    allow_files = {"theme.py"}
     bad = []
     for p, src in _ui_sources():
         name = os.path.basename(p)
@@ -792,14 +787,14 @@ def test_cycle_tab_skips_hidden_legacy(win):
     maps to 'result' so cycling never lands on hidden legacy buttons."""
     win.combo_dim.setCurrentIndex(0)
     win.cache.set_result('2d', {'stub': True})
-    win._drawn_tabs = {'temp', 'pres', 'vel'}  # These layout stubs represent rendered fields.
+    win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})  # These layout stubs represent rendered fields.
     win._update_tab_visibility()
     win._switch_tab('temp')               # result family
     win._cycle_tab(+1)
     assert win._active_tab == 'pareto'
     win._cycle_tab(+1)
     assert win._active_tab == 'layout'
-    win._has_results_2d = False
+    win.cache.clear('2d')
     win._update_tab_visibility()
 
 
@@ -808,14 +803,14 @@ def test_toggle_result_view_gated(win):
     toggling from a 2D field view is a no-op (stays 2D)."""
     win.combo_dim.setCurrentIndex(0)
     win.cache.set_result('2d', {'stub': True})
-    win._drawn_tabs = {'temp', 'pres', 'vel'}  # These layout stubs represent rendered fields.
+    win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})  # These layout stubs represent rendered fields.
     win._update_tab_visibility()
     win._switch_tab('temp')
     assert win._result_view == '2d'
     win._toggle_result_view()
     assert win._result_view == '2d'       # 3D gated → no flip
     win._switch_tab('layout')
-    win._has_results_2d = False
+    win.cache.clear('2d')
     win._update_tab_visibility()
 
 
@@ -834,7 +829,7 @@ def test_session_ui_state_round_trip(win):
     _restore_session re-applies result_view + active_tab."""
     win.combo_dim.setCurrentIndex(0)
     win.cache.set_result('2d', {'stub': True})
-    win._drawn_tabs = {'temp', 'pres', 'vel'}  # These layout stubs represent rendered fields.
+    win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})  # These layout stubs represent rendered fields.
     win._update_tab_visibility()
     win._switch_tab('temp')               # result family, view '2d'
 
@@ -863,5 +858,5 @@ def test_session_ui_state_round_trip(win):
     assert win._active_tab == 'layout'
     assert not win.cache.has_results('2d')
     win._switch_tab('layout')
-    win._has_results_2d = False
+    win.cache.clear('2d')
     win._update_tab_visibility()

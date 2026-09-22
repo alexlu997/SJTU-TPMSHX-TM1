@@ -21,7 +21,6 @@ class ZoneHandleManager:
         self._connected = False
         self._Lmm = 1.0
         self._Hmm = 1.0
-        self._ax = None
 
     def wire(self):
         if self._connected:
@@ -37,7 +36,6 @@ class ZoneHandleManager:
     def draw_handles(self, ax, Lmm, Hmm):
         """Must be called after draw_layout_rect finishes populating `ax`."""
         self._handles = []
-        self._ax = ax; self._Lmm = Lmm; self._Hmm = Hmm
         w = self._w
         if not getattr(w, 'chk_zones', None) or not w.chk_zones.isChecked():
             return

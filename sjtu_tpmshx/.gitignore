@@ -8,5 +8,5 @@ runs/production_output/
 # Test-run artefact: regenerated every `pytest tests/test_shanghai_regression.py`
 validation/shanghai_3d_baseline_pytest_h3.csv
 
-# 3D solver profiler trigger (opt-in; see pipelines/run_stack_3d.py _prof_3d_enabled)
+# Retired local profiler flag; use TPMSHX_PROFILE_3D=1.
 .profile_3d

@@ -20,8 +20,7 @@
     "a_flow_per_unit_m2": 1.80565e-5
   },
   "_excluded": {
-    "boundary_conditions": "此旧格式只定义样机几何；完整上海验证入口使用 validation/harness/_case_sets.py 的 shanghai_pipeline_config。2026-09-13 用户确认沿用 GUI 错位局部水口；历史 kernel 边界保留。",
-    "surrogate_v3_helper": "df_fit/surrogate_v3.eval_shanghai 用同一 0.182 (2026-05-28 fixed)",
-    "diag_scripts": "runs/diag_shanghai_* 历史诊断, 不规范化"
+    "boundary_conditions": "此旧格式只定义样机几何；完整上海验证入口使用 validation/harness/_case_sets.py 的 shanghai_pipeline_config，沿用已确认的 GUI 错位局部水口。",
+    "historical_sources": "原 surrogate_v3、diag_shanghai、二维/三维 frozen-Tb 循环及其 D76 压降验证入口已退役；固定源码及原结果见 docs/history/retired-tools.md。"
   }
 }

@@ -31,9 +31,9 @@ Both use recorded `screening@v2-5f1cafb` and `fluid@v2-5f1cafb` (air) resources.
   optional cell drag, and the environment-resolved convergence mode. The
   numerical constructor receives converted legacy length keywords only after
   geometry/drag prediction has been bypassed. A maps physical x onto SIMPLE y;
-  B reverses physical y. The flow mesh can have port-aligned transverse widths
-  even where the original thermal screening mesh is uniform. This inherited
-  distinction is preserved explicitly.
+  B reverses physical y. Flow and thermal execution share the prepared physical
+  cell widths, including port-aligned widths when partial openings are supplied.
+  Execution checks the corresponding axis swaps and reversals before solving.
 - `parameters.rejection`: null, or the original cold 1D choke reason. A rejected
   preparation still contains real geometry and coefficients and can cross a
   file boundary; execution does not invent a thermal state for it.

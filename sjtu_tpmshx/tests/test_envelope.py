@@ -40,7 +40,7 @@ def test_check_envelope_raises_when_choked():
 
 def test_check_envelope_warn_returns_message_no_raise():
     msg = check_compressible_envelope(-2.0e10, 192362.0, mode='warn')
-    assert isinstance(msg, str) and 'choked' in msg.lower()
+    assert isinstance(msg, str) and 'pressure-seed rejection' in msg.lower()
 
 
 def test_check_envelope_off_returns_none_no_raise():

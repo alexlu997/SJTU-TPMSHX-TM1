@@ -29,7 +29,7 @@ jobs:
       MPLCONFIGDIR: .cache/matplotlib
       XDG_CACHE_HOME: .cache/xdg
       QT_QPA_PLATFORM: offscreen
-      SJTU_TPMSHX_DISABLE_3D_PANEL: "1"
+      TPMSHX_DISABLE_3D_PANEL: "1"
       OPENBLAS_NUM_THREADS: "1"
       OMP_NUM_THREADS: "1"
       MKL_NUM_THREADS: "1"

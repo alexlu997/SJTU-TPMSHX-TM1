@@ -11,7 +11,7 @@ They are intentionally separate implementations (zone replication vs
 unique-pair scatter); this module only pins their OUTPUT contract so a
 key added to one builder cannot silently go missing from the other
 (refactor B1 1.6, 2026-06-12). Extra builder-specific keys
-(``zone_params``, ``L_field`` …) are allowed and not validated.
+(``zone_params``, ``cache_size`` …) are allowed and not validated.
 """
 from __future__ import annotations
 
@@ -24,6 +24,7 @@ GRID_ARRAY_KEYS = (
     'K_ffA_arr', 'K_ffB_arr', 'K_ss_arr',
     'h_vA_arr', 'h_vB_arr',
     'r_h_arr', 'A_0_arr',
+    'L_field', 't_field',  # physical cell geometry, in millimetres
 )
 
 

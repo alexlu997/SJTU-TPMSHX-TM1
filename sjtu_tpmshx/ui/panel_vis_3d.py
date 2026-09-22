@@ -18,7 +18,6 @@ actually provides):
     L_mm     : design zoning L-field [mm]
 
 Data entry points:
-    panel.load_shanghai_demo(Nx=30, Ny=15, Nz=5)
     panel.set_fields(Ta=..., Tb=..., Ts=..., vmag=..., vmag_B=...,
                      P_kPa=..., P_B_kPa=..., L_mm=...,
                      dx=..., dy=..., dz=..., real_dims=(Lx, Ly, Lz))
@@ -475,7 +474,6 @@ class ThreeDVisPanel(QWidget):
         self._global_clim: dict = {}
         self._field = None                           # currently selected field key
         self._scale_mode = 'global'
-        self._real_dims = None                       # (Lx, Ly, Lz) metres
         self._volume_actor = None
         self._slice_actor_name = 'user_slice'
         self._slice_info = None                      # {'axis': 'x', 'coord_mm': 10.0}
@@ -519,9 +517,7 @@ class ThreeDVisPanel(QWidget):
                    flow_dir='+x', flow_dir_B=None):
         """Attach 3D fields to the panel. Shape of every field: (Nx, Ny, Nz).
 
-        Positional args preserved for backward compatibility with
-        `load_shanghai_demo`; new fields (Tb/Ts/vmag_B/P_B_kPa) are
-        keyword-only. Pass `None` for any field that is unavailable
+        Pass `None` for any field that is unavailable
         (e.g. cross-flow fluid B when not solved) — the combo will skip it.
 
         dx, dy, dz : 1-D grid spacings in metres.
@@ -584,7 +580,6 @@ class ThreeDVisPanel(QWidget):
         self._grid_vol = None
 
         self._global_clim = self._build_global_clim()
-        self._real_dims = tuple(real_dims)
 
         # Populate combo with available fields only (preserves FIELD_ORDER).
         # Block signals across BOTH clear()+addItem AND setCurrentIndex below
@@ -633,31 +628,6 @@ class ThreeDVisPanel(QWidget):
         self._validate_coord_input()
         self._update_status()
 
-    def load_shanghai_demo(self, Nx=30, Ny=15, Nz=5, max_outer=3):
-        """Run Shanghai case 8 on coarse grid and push fields in."""
-        from sjtu_tpmshx.ui.demo_vis_3d import run_case_8_fields, build_demo_zoning_field
-        self.status.setText("Running Shanghai case 8 …")
-        self.repaint()
-        sA, Ta, dx, dy, dz, nx, ny, nz, u_A, T_in = run_case_8_fields(
-            Nx=Nx, Ny=Ny, Nz=Nz, max_outer=max_outer)
-
-        vA_cc = 0.5 * (sA.v[:, :-1, :] + sA.v[:, 1:, :])
-        uc_real = vA_cc.transpose(1, 0, 2).copy()
-        uA_cc = 0.5 * (sA.u[:-1, :, :] + sA.u[1:, :, :])
-        vc_real = uA_cc.transpose(1, 0, 2).copy()
-        wA_cc = 0.5 * (sA.w[:, :, :-1] + sA.w[:, :, 1:])
-        wc_real = wA_cc.transpose(1, 0, 2).copy()
-        vmag = np.sqrt(uc_real**2 + vc_real**2 + wc_real**2)
-        # Absolute pressure (P_ref_abs + gauge), matching the production
-        # run_calculation_3d path so the inlet reads ~ the input P_in.
-        P_kPa = (sA.P_ref_abs + sA.P).transpose(1, 0, 2).copy() / 1000.0
-
-        L_mm = build_demo_zoning_field(nx, ny, nz, dx, dy, dz)
-
-        from sjtu_tpmshx.ui.demo_vis_3d import L_DOM, H_DOM, LZ
-        self.set_fields(Ta=Ta, vmag=vmag, P_kPa=P_kPa, L_mm=L_mm,
-                        dx=dx, dy=dy, dz=dz,
-                        real_dims=(L_DOM, H_DOM, LZ))
 
     def set_watermark(self, text):
         """Place a warning watermark on the viewport (lower-left).

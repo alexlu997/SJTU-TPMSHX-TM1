@@ -46,13 +46,10 @@ class FluidInputMixin:
         }[fluid]
         try:
             T_K = self._temp_to_K(le_Tin)
-            # 2026-05-09 (option B) — route per-side fluid type through to
-            # tpms_compute so water side picks up water properties + the
-            # Pr-substitution Nu correlation. Falls back to 'air' if combo
-            # not present (legacy compute path).
-            from sjtu_tpmshx.models.tpms_calc import parse_fluid_type
+            # Share the same fluid normalization used for solver inputs.
+            from sjtu_tpmshx.ui.window_config import _parse_fluid_label
             _combo = getattr(self, f'combo_fluid{fluid}', None)
-            _ftype = parse_fluid_type(_combo) if _combo is not None else 'air'
+            _ftype = _parse_fluid_label(_combo)
             from sjtu_tpmshx.ui.window_config import sco2_nu_from_window
             r = tpms_compute(
                 self.combo_tpms.currentText(),
@@ -62,11 +59,6 @@ class FluidInputMixin:
                 fluid_type=_ftype, sco2_nu=sco2_nu_from_window(self))
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e)); return
-
-        # Convert face HTC [W/(m2K)] to volumetric HTC [W/(m3K)] —
-        # delegated to domain.compute_volumetric_htc (Phase 4 #4).
-        from sjtu_tpmshx.domain.validator import compute_volumetric_htc
-        h_v_vol = compute_volumetric_htc(r['A_0'], r['H_sf'])
 
         # Use the selected fluid's source range, shared with its Nu model.
         Re = r['Re']
@@ -83,14 +75,12 @@ class FluidInputMixin:
 
         self.statusBar().showMessage(f"Fluid {fluid} filled.  Re={Re:.0f}{re_tag}  Nu={r['Nu']:.2f}  dP/L={r['dP_per_L']:.1f} Pa/m", TOAST_MS_MED)
         if fluid == 'A':
-            self._mu_A, self._h_vA, self._K_ffA, self._rho_A = r['mu'], h_v_vol, r['K_ff'], r['rho']
             self._v_rhoA.setText(f"{r['rho']:.4f}")
             self._v_ReA.setText(f"{Re:.1f}{re_tag}")
             self._v_ReA.setStyleSheet(re_style)
             self._v_NuA.setText(f"{r['Nu']:.4f}")
             self._v_dPLA.setText(f"{r['dP_per_L']:.1f}")
         else:
-            self._mu_B, self._h_vB, self._K_ffB, self._rho_B = r['mu'], h_v_vol, r['K_ff'], r['rho']
             self._v_rhoB.setText(f"{r['rho']:.4f}")
             self._v_ReB.setText(f"{Re:.1f}{re_tag}")
             self._v_ReB.setStyleSheet(re_style)
@@ -197,8 +187,7 @@ class FluidInputMixin:
         # outlet temperature labels (`_lbl_ToutA_unit`, `_lbl_ToutB_unit`)
         # captured by ui_builders. Previously these stayed `[K]` after a
         # K/°C toggle, mismatching the converted value.
-        for attr in ('_lbl_TinA_unit', '_lbl_TinB_unit', '_lbl_TsInit_unit',
-                     '_lbl_ToutA_unit', '_lbl_ToutB_unit', '_lbl_sidebar_tout_unit'):
+        for attr in ('_lbl_TinA_unit', '_lbl_TinB_unit', '_lbl_sidebar_tout_unit'):
             lbl = getattr(self, attr, None)
             if lbl is None:
                 continue
@@ -211,7 +200,7 @@ class FluidInputMixin:
                 pass
 
     def _toggle_temp_unit(self):
-        """Flip between Kelvin and Celsius display for the three main
+        """Flip between Kelvin and Celsius display for the inlet
         temperature fields. Converts the displayed text AND rewrites the
         label suffixes (`[K]` ↔ `[°C]`) so the UI is self-consistent.
         """
@@ -219,7 +208,6 @@ class FluidInputMixin:
         fields = [
             getattr(self, 'le_TinA', None),
             getattr(self, 'le_TinB', None),
-            getattr(self, 'le_TsInit', None),
         ]
         def _fmt(v):
             return f"{v:.2f}"
@@ -246,19 +234,7 @@ class FluidInputMixin:
                     pass
             self._temp_unit = 'K'
         self._sync_temp_unit_labels()
-        # 2026-05-20 UI sweep: re-render the cached outlet temperature
-        # results in the new unit so the result-row value follows the
-        # label suffix instead of staying as raw Kelvin from the last
-        # solve.
-        _tout_cache = getattr(self, '_tout_K_cache', None)
-        if _tout_cache is not None:
-            try:
-                ta_K, tb_K = _tout_cache
-                self._set_temp_K(self._r_ToutA, ta_K)
-                self._set_temp_K(self._r_ToutB, tb_K)
-            except Exception:
-                pass
-            self._update_result_summary()
+        self._update_result_summary()
         from sjtu_tpmshx.ui.plot_2d_results import redraw_result_fields
         redraw_result_fields(self)
         self.statusBar().showMessage(
@@ -266,10 +242,7 @@ class FluidInputMixin:
 
     def _update_tout(self, t_idx: int):
         """Render this run's result scalars in the selected temperature unit."""
-        cached = getattr(self, '_tout_K_cache', None)
-        if cached is not None:
-            self._set_temp_K(self._r_ToutA, cached[0])
-            self._set_temp_K(self._r_ToutB, cached[1])
+        self._update_result_summary()
 
     def _on_dir_changed(self):
         """Relabel inlet/outlet fields to match selected flow-axis.

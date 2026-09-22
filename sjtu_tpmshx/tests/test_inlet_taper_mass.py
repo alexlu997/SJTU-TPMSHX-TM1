@@ -71,6 +71,6 @@ def test_massflux_target_carries_taper_scale():
     # The target is captured at solve() entry from the INITIAL inlet
     # density — record it before the density field evolves.
     rho0 = float(s.rho_field[:, 0].mean())
-    s.solve(max_iter=2, tol=0.0, verbose=False)
+    s.solve(max_iter=2, verbose=False)
     expected = 8.0 * rho0 * s._inlet_taper_flux_scale
     assert s._massflux_target == pytest.approx(expected, rel=1e-12)

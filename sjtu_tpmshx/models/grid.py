@@ -1,4 +1,6 @@
 """Physical grid construction, independent of numerical kernels."""
+import math
+
 import numpy as np
 
 SHANGHAI_GRID_2D = (84, 24, 1)
@@ -27,13 +29,8 @@ def split_cells(widths):
     return np.asarray(result)
 
 
-def build_port_wall_grid(lengths, counts, ports):
-    """Port-aligned, graded cells; counts include all wall and port layers.
-
-    The Shanghai mesh study uses 0.2 mm first cells at port edges, and
-    20 um (2D) / 56 um (3D) first cells at uninterrupted housing walls.
-    Other geometries require their own mesh-convergence assessment.
-    """
+def _port_wall_axes(lengths, ports):
+    """Per-axis knots and layer settings used by construction and suggestions."""
     breaks = [set() for _ in lengths]
     for port in ports:
         if port is None:  # Prepared 3D side B uses None for a full-face opening.
@@ -46,8 +43,7 @@ def build_port_wall_grid(lengths, counts, ports):
                 for edge in (centre - width / 2, centre + width / 2):
                     if lengths[axis] * .001 < edge < lengths[axis] * .999:
                         breaks[axis].add(edge)
-    result = []
-    for axis, length, count, knots in zip('xyz', lengths, counts, breaks):
+    for knots in breaks:
         knots = sorted(knots)
         if knots:
             layers, first, growth = 4, .2e-3, 1.8
@@ -55,10 +51,58 @@ def build_port_wall_grid(lengths, counts, ports):
             layers, first, growth = 8, .02e-3, 1.8
         else:
             layers, first, growth = 4, .02e-3 * (1 + 1.8), 1.8**2
+        minimum = 2 * (layers + 1) * (len(knots) + 1)
+        yield knots, layers, first, growth, minimum
+
+
+def port_wall_min_counts(lengths, ports):
+    """Minimum total counts required by the actual port/wall construction."""
+    return tuple(spec[-1] for spec in _port_wall_axes(lengths, ports))
+
+
+def suggest_grid_3d(L_dom: float, H_dom: float, Lz_dom: float,
+                    D_h: float, max_cells: int = 50_000, *,
+                    port_wall_refine: bool = False, ports=()) -> tuple[int, int, int]:
+    """Suggest total cell counts for the selected desktop mesh scheme.
+
+    Hydraulic-diameter spacing is a starting heuristic, not an accuracy
+    guarantee. Port/wall counts already include all refinement layers; their
+    minimum comes from the same port segmentation as the grid builder.
+    The budget applies to Nx * Ny * Nz, without a retired six-wall padding.
+    """
+    lengths = (L_dom, H_dom, Lz_dom)
+    for name, v in zip(('L_dom', 'H_dom', 'Lz_dom', 'D_h'), (*lengths, D_h)):
+        if not math.isfinite(v) or v <= 0:
+            raise ValueError(f'{name} must be finite and > 0, got {v}')
+    minimum = (14, 8, 3)
+    if port_wall_refine:
+        minimum = tuple(max(base, needed) for base, needed in
+                        zip(minimum, port_wall_min_counts(lengths, ports)))
+    if max_cells < math.prod(minimum):
+        raise ValueError(f'Grid budget {max_cells} is below the required minimum '
+                         f'{minimum} ({math.prod(minimum)} cells)')
+    counts = [max(floor, round(length / (spacing * D_h)))
+              for floor, length, spacing in zip(minimum, lengths, (1., .5, .5))]
+    while math.prod(counts) > max_cells:
+        axis = max(range(3), key=lambda i: counts[i] / minimum[i])
+        counts[axis] = max(minimum[axis], int(counts[axis] * .8))
+    return tuple(counts)
+
+
+def build_port_wall_grid(lengths, counts, ports):
+    """Port-aligned, graded cells; counts include all wall and port layers.
+
+    The Shanghai mesh study uses 0.2 mm first cells at port edges, and
+    20 um (2D) / 56 um (3D) first cells at uninterrupted housing walls.
+    Other geometries require their own mesh-convergence assessment.
+    """
+    result = []
+    axes = _port_wall_axes(lengths, ports)
+    for axis, length, count, spec in zip('xyz', lengths, counts, axes):
+        knots, layers, first, growth, minimum = spec
         segments = len(knots) + 1
         bulk_count = count - 2 * layers * segments
         if bulk_count < 2 * segments:
-            minimum = 2 * (layers + 1) * segments
             edges_mm = ', '.join(f'{edge * 1000:g}' for edge in knots) or 'none'
             raise ValueError(
                 f'Port/wall grid needs at least {minimum} cells on {axis} axis; '

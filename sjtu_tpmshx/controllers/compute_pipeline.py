@@ -51,9 +51,7 @@ class ComputePipeline(ABC):
         self.cfg = cfg
         self.progress_cb: ProgressFn = progress_cb or (lambda _pct: None)
         self.cancel = cancel_token
-        # B2 2.1a: optional UI side channels the legacy window path wired
-        # directly (live residual sparkline buffer, outer-iteration label).
-        # Keys: 'live_residuals' (2D), 'iter_label_cb' (2D), 'iter_cb' (3D).
+        # Optional GUI iteration callbacks; solver residuals stay in RunControl.
         self.ui_hooks: Dict[str, Any] = ui_hooks or {}
 
     def _check_cancel(self) -> None:
@@ -128,16 +126,12 @@ class Pipeline2D(ComputePipeline):
     def run_solvers(self, fields: CaseData) -> FieldResult:
         from sjtu_tpmshx.domain.module_ports import RunControl
         from sjtu_tpmshx.solvers.api import run_case
-        buffer = self.ui_hooks.get('live_residuals')
-        def residual(side, index, value):
-            if buffer is not None:
-                buffer.setdefault(side, []).append((index, value))
         control = RunControl(
             progress=lambda percent: self.progress_cb(20 + int(.7 * percent)),
             cancel_check=(None if self.cancel is None else
                           lambda: bool(getattr(self.cancel, 'cancelled', False))),
             iteration=self.ui_hooks.get('iter_label_cb'),
-            outer_iteration=self.ui_hooks.get('iter_cb'), residual=residual)
+            outer_iteration=self.ui_hooks.get('iter_cb'))
         return run_case(fields, control)
 
     def finalize(self, raw: FieldResult, fields: CaseData) -> ComputeResult:

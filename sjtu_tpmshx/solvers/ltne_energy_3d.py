@@ -337,7 +337,7 @@ def _conservation_residual_sum(T, Ts, uf, vf, wf, eps_f, K, rcp, hv,
 # split-solver-kernels, 2026-07-03); bit-identical, epsilon-split contract
 # untouched. Re-exported here so existing imports keep working (e.g.
 # `from solvers.ltne_energy_3d import _gs_full_chunk_3d_stag` in
-# validation/cases/mms_3d_air_air.py, and _warmup_jit below).
+# validation/cases/mms_3d_air_air.py and explicit test compilation).
 # ---------------------------------------------------------------------------
 from ._kernels_ltne_3d import (  # noqa: F401
     _va_limit,
@@ -356,10 +356,6 @@ from ._kernels_ltne_3d import (  # noqa: F401
     _inlet_val,
     _gs_full_chunk_3d_stag,
     _gs_full_chunk_3d_stag_rb,
-    _is_bc_face_inlet,
-    _is_bc_face_outlet,
-    _ifrac_at_face,
-    _Tin_at_face,
     _gs_full_chunk_3d,
 )
 
@@ -1087,57 +1083,3 @@ def mass_balance_3d(u, v, w, rho_field, dy_arr, dx_arr, dz_arr, dir_code):
 
     denom = abs(m_in) + 1e-30
     return {'m_in': m_in, 'm_out': m_out, 'rel': abs(m_in - m_out) / denom}
-
-
-# ---------------------------------------------------------------------------
-# JIT warmup
-# ---------------------------------------------------------------------------
-
-def _warmup_jit():
-    """Explicitly pre-compile LTNE GS kernels for warm benchmarks.
-
-    Production imports do not invoke this: actual solves compile only the
-    selected kernel, after reaching their cancellation checkpoints.
-
-    E1 (audit 2026-06-28): must warm the DEFAULT-path STAGGERED kernels
-    (_gs_full_chunk_3d_stag + the >30k-cell red-black _stag_rb), not just the
-    legacy cell-centered kernel. PRODUCTION runs conservative_ltne=True (injected
-    by the pipeline cfg.get('conservative_ltne', True) and core.evaluators —
-    solve_full_domain_3d's OWN signature default is False), so the stag kernel is
-    what production dispatches (the cc kernel is unreachable once
-    conservative_ltne=True). The prior warmup also passed one too few `eps`
-    args (34 vs 35), so its TypeError was swallowed and it compiled NOTHING.
-    """
-    try:
-        Nx = Ny = Nz = 4
-        Ta = np.full((Nx, Ny, Nz), 300.0)
-        Tb = np.full((Nx, Ny, Nz), 290.0)
-        Ts = np.full((Nx, Ny, Nz), 295.0)
-        dx = np.full(Nx, 0.01); dy = np.full(Ny, 0.01); dz = np.full(Nz, 0.01)
-        K = np.full((Nx, Ny, Nz), 0.1); hv = np.full((Nx, Ny, Nz), 100.0)
-        ef = np.full((Nx, Ny, Nz), 0.5); rcp = np.full((Nx, Ny, Nz), 1000.0)
-        uc = np.full((Nx, Ny, Nz), 0.5); v0 = np.zeros((Nx, Ny, Nz))
-        TinA = np.full((Ny, Nz), 300.0); TinB = np.full((Nx, Nz), 290.0)
-        fA = np.ones((Ny, Nz)); fB = np.ones((Nx, Nz))
-        mms = np.zeros((Nx, Ny, Nz))
-        # staggered face velocities for the conservative default path
-        ufA = np.full((Nx + 1, Ny, Nz), 0.5)
-        vfA = np.zeros((Nx, Ny + 1, Nz)); wfA = np.zeros((Nx, Ny, Nz + 1))
-        ufB = np.full((Nx + 1, Ny, Nz), 0.5)
-        vfB = np.zeros((Nx, Ny + 1, Nz)); wfB = np.zeros((Nx, Ny, Nz + 1))
-        # legacy cell-centered kernel (force_cc_ltne fallback path)
-        _gs_full_chunk_3d(
-            Ta.copy(), Tb.copy(), Ts.copy(), Nx, Ny, Nz, dx, dy, dz,
-            K, K, K, hv, hv, ef, ef, rcp, rcp,
-            uc, v0, v0, uc, v0, v0,
-            0, 3, TinA, TinB, fA, fB, 1, 0, 0.7, 0.7, 0.7)
-        # default-path staggered kernels (serial + red-black), conservative form
-        for _stag in (_gs_full_chunk_3d_stag, _gs_full_chunk_3d_stag_rb):
-            _stag(
-                Ta.copy(), Tb.copy(), Ts.copy(), Nx, Ny, Nz, dx, dy, dz,
-                K, K, K, hv, hv, ef, ef, rcp, rcp,
-                ufA, vfA, wfA, ufB, vfB, wfB,
-                0, 3, TinA, TinB, fA, fB, 1, 0, 0.7, 0.7, 0.7,
-                mms, mms, mms, 1)
-    except Exception:
-        pass  # Optional benchmark warmup is best-effort.

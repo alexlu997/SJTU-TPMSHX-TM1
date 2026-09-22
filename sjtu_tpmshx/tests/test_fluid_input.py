@@ -26,22 +26,31 @@ def test_autofill_re_label_and_status_follow_selected_fluid(
         setattr(window, 'le_' + key, Mock(text=lambda value=value: value))
     for which in ('A', 'B'):
         setattr(window, 'combo_fluid' + which, Mock(currentText=lambda: label))
+        setattr(window, '_fluid_computed_' + which, Mock())
         for name in ('rho', 'Re', 'Nu', 'dPL'):
             setattr(window, '_v_' + name + which, QLabel())
     styles = {'VAL': 'color: black;', 'VAL_WARN': 'color: red;'}
     monkeypatch.setattr(fluid_input, '_fluid_styles', lambda: styles)
-    properties = dict(A_0=2., H_sf=3., Nu=4., dP_per_L=5.,
-                      mu=1e-5, K_ff=6., rho=7.)
+    properties = dict(Nu=4., dP_per_L=5., rho=7.)
     compute = Mock()
     monkeypatch.setattr(fluid_input, 'tpms_compute', compute)
     lo, hi = bounds
     for re, tag in ((lo - 1, f'  (< {lo:g}!)'), (lo, ''),
                     (hi, ''), (hi + 1, f'  (> {hi:g}!)')):
         compute.return_value = dict(properties, Re=re)
+        details = getattr(window, '_fluid_computed_' + side)
+        details.reset_mock()
         fluid_input.FluidInputMixin._auto_fill_fluid(window, side)
         shown = getattr(window, '_v_Re' + side)
         assert shown.text() == f'{re:.1f}{tag}'
         assert shown.styleSheet() == styles['VAL_WARN' if tag else 'VAL']
-        assert f'Re={re:.0f}{tag}  Nu=' in status.showMessage.call_args.args[0]
+        assert status.showMessage.call_args.args[0] == (
+            f'Fluid {side} filled.  Re={re:.0f}{tag}  Nu=4.00  dP/L=5.0 Pa/m')
         assert compute.call_args.kwargs['fluid_type'] == fluid
-        assert getattr(window, '_h_v' + side) == 6.
+        for name, expected in (('rho', '7.0000'), ('Nu', '4.0000'), ('dPL', '5.0')):
+            assert getattr(window, '_v_' + name + side).text() == expected
+        details._set_expanded.assert_called_once_with(True)
+        other_side = 'B' if side == 'A' else 'A'
+        for name in ('rho', 'Re', 'Nu', 'dPL'):
+            assert getattr(window, '_v_' + name + other_side).text() == ''
+        getattr(window, '_fluid_computed_' + other_side)._set_expanded.assert_not_called()

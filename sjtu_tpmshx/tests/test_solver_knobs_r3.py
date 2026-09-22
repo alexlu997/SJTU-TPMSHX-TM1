@@ -1,17 +1,6 @@
-"""R3 (2026-07-07): SolverConfig/OptimizerConfig split + knob wiring.
-
-Contract under test:
-1. SolverConfig's four production knobs default to None (= dim-specific
-   auto) so the default path is bit-identical to the old hardcodes; the
-   goldens are the authoritative guard for that half.
-2. OptimizerConfig carries the cheap-eval budget with the exact values
-   the optimizer used to read from SolverConfig.
-3. Legacy JSONs with the retired solver.alpha_T / solver.rough_mode keys
-   still load (dropped with a warning, not TypeError).
-4. The outer-iteration budget changes solver behaviour in both dims.
-   tol_simple is retained for file/call compatibility; F2 has separate gates.
-"""
+"""Production and screening budgets stay separate; old case files remain readable."""
 import json
+from dataclasses import asdict
 import warnings as _warnings
 
 import numpy as np
@@ -24,7 +13,6 @@ from sjtu_tpmshx.domain.compute_config import (ComputeConfig, ExtrapPolicy, Feat
 
 def test_solver_knobs_default_to_auto():
     s = SolverConfig()
-    assert s.tol_simple is None
     assert s.max_iter_simple is None
     assert s.max_outer_ltne is None
     assert s.outer_tol_K is None
@@ -38,18 +26,15 @@ def test_optimizer_budget_matches_old_solver_defaults():
     assert o.max_outer_ltne == 4
     assert o.outer_tol_K == 0.5
     assert o.max_iter_simple == 800
-    assert o.tol_simple == 1e-2
     assert o.alpha_T == 0.7
 
 
 def test_evaluator_mapping_reads_optimizer_block():
     from sjtu_tpmshx.optimization.evaluator import _compute_cfg_to_evaluator_dict
     cfg = ComputeConfig()
-    cfg.optimizer.tol_simple = 0.123
     cfg.optimizer.max_iter_simple = 77
-    cfg.solver.tol_simple = 1e-9        # must NOT leak into the evaluator
+    cfg.solver.max_iter_simple = 9999  # must not leak into the evaluator
     d = _compute_cfg_to_evaluator_dict(cfg)
-    assert d['tol_simple'] == 0.123
     assert d['max_iter_simple'] == 77
 
 
@@ -58,7 +43,8 @@ def test_legacy_json_with_retired_keys_loads(tmp_path):
     blob = {
         'fluid_A': {'type': 'air', 'u_mps': 5.0},
         'solver': {'Nx': 12, 'Ny': 10, 'alpha_T': 0.7,
-                   'rough_mode': 'norris_1a'},
+                   'rough_mode': 'norris_1a', 'tol_simple': 1e-5},
+        'optimizer': {'tol_simple': 1e-2, 'max_iter_simple': 512},
     }
     p = tmp_path / 'legacy.json'
     p.write_text(json.dumps(blob), encoding='utf-8')
@@ -67,17 +53,21 @@ def test_legacy_json_with_retired_keys_loads(tmp_path):
         cfg = ComputeConfig.from_json(p)
     assert cfg.solver.Nx == 12
     assert any('retired' in str(w.message) for w in caught)
+    assert any('optimizer.tol_simple' in str(w.message) for w in caught)
+    assert cfg.optimizer.max_iter_simple == 512
+    assert 'tol_simple' not in asdict(cfg)['solver']
+    assert 'tol_simple' not in asdict(cfg)['optimizer']
 
 
 def test_roundtrip_carries_optimizer_section(tmp_path):
     cfg = ComputeConfig()
     cfg.optimizer.max_iter_simple = 512
-    cfg.solver.tol_simple = 3e-6
+    cfg.solver.mom_tol = 3e-6
     p = tmp_path / 'cfg.json'
     cfg.to_json(p)
     back = ComputeConfig.from_json(p)
     assert back.optimizer.max_iter_simple == 512
-    assert back.solver.tol_simple == 3e-6
+    assert back.solver.mom_tol == 3e-6
     assert back == cfg
 
 
@@ -105,8 +95,7 @@ def test_2d_max_outer_knob_turns():
     1: `Pipeline.run()` now enforces `ComputeConfig.validate()` (codex
     review 2026-07-13), whose deliberate rule is max_outer_ltne >= 2 (a
     single pass cannot even measure a dT change — the truth-table tests
-    pin that rule). tol_simple is a compatibility field and does not set
-    F2 tolerances, so its effectiveness is not asserted here."""
+    pin that rule)."""
     from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
     Ta_def = Pipeline2D(_small_2d_cfg()).run().fields['Ta']
     Ta_capped = Pipeline2D(_small_2d_cfg(max_outer_ltne=2)).run().fields['Ta']
@@ -120,13 +109,12 @@ def test_2d_max_outer_knob_turns():
 
 @pytest.mark.slow
 def test_3d_knobs_turn():
-    """max_outer_ltne must cap the 3D outer loop. tol_simple is also passed
-    for compatibility, but does not control F2 convergence."""
+    """max_outer_ltne must cap the 3D outer loop."""
     from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
     from test_partial_bc_ghost_b import _partial_bc_air_air_cfg
     base = _partial_bc_air_air_cfg(Nx=8, Ny=6, Nz=6)
     r_def = _run_3d_stack(dict(base))
-    r_knob = _run_3d_stack(dict(base, max_outer_ltne=1, tol_simple=5e-2))
+    r_knob = _run_3d_stack(dict(base, max_outer_ltne=1))
     outer_def = len(r_def['convergence_detail']['outer_dT'])
     outer_knob = len(r_knob['convergence_detail']['outer_dT'])
     assert outer_knob == 1, \

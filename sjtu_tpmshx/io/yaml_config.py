@@ -15,4 +15,4 @@ def load_config(path):
         data = yaml.safe_load(text)
     if not isinstance(data, dict):
         raise ValueError('configuration must be a mapping')
-    return ComputeConfig.from_dict(data).validate()
+    return ComputeConfig.from_dict(data)

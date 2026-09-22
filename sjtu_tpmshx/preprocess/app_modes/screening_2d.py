@@ -51,7 +51,6 @@ def prepare_flow(cfg, fc, arrays, grid, side):
     W, H = ((float(cfg['H_domain']), float(cfg['L_domain'])) if is_a
             else (float(cfg['L_domain']), float(cfg['H_domain'])))
     real_dx, real_dy = grid['dx'], grid['dy']
-    Nx, Ny = len(real_dx), len(real_dy)
     dx, dy = (real_dy, real_dx) if is_a else (real_dx, real_dy[::-1])
     nx, ny = len(dx), len(dy)
     Tin, Pin, velocity = (float(cfg['T_in' + side]), float(cfg['P_in' + side]),
@@ -68,14 +67,10 @@ def prepare_flow(cfg, fc, arrays, grid, side):
     C = float(mu) * G / max(K0, 1e-16) + cF0 * G * G
     psq = predict_outlet_p_sq(Pin, Tin, C, H)
     if psq <= 0.:
-        raise ChokedFlowError(f'fluid {side} chokes on the 1D D-F seed: P_out^2 = {psq:.3e} Pa^2 '
+        raise ChokedFlowError(f'fluid {side} rejected by the 1D D-F screening seed: P_out^2 = {psq:.3e} Pa^2 '
                               f'(P_in = {Pin:.0f} Pa, C = {C:.3e}, L = {H} m)')
     pref = float(np.sqrt(max(psq, 1.0e4)))
-    K, cF = project_fields_to_streamwise_K_cF(
-        arrays['L_field'], arrays['t_field'], cfg['tpms_type'], cfg['k_s'],
-        Nx, Ny, ny, side, streamwise_dx=dy,
-        source_grid=((real_dx, real_dy) if any(cfg.get('ports_' + s) is not None
-                                             for s in ('A', 'B')) else None))
+    K, cF = project_fields_to_streamwise_K_cF(arrays['L_field'], arrays['t_field'], cfg['tpms_type'], cfg['k_s'], ny, side, streamwise_dx=dy, source_grid=(real_dx, real_dy) if any((cfg.get('ports_' + s) is not None for s in ('A', 'B'))) else None)
     Kfield = cFfield = None
     if cfg.get('per_cell_K', False):
         kr, cr = _percell_K_cF(cfg, arrays)

@@ -38,7 +38,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject
 
 from sjtu_tpmshx.controllers.user_storage import user_data_dir
 
@@ -56,25 +56,11 @@ class SessionManager(QObject):
     Or override base_dir for isolated sessions and testing:
         sm = SessionManager(base_dir=tmp_path)
 
-    Signals
-    -------
-    session_loaded(str workspace, dict payload)
-        Emitted on successful load_session.
-    session_saved(str workspace)
-        Emitted on successful save_session.
-    presets_changed()
-        Emitted on save_user_presets (caller should rebuild combo).
-    workspace_changed(str new_ws)
-        Emitted on set_active_workspace.
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
     VALID_WORKSPACES = ('A', 'B', 'C')
 
-    session_loaded = Signal(str, dict)
-    session_saved = Signal(str)
-    presets_changed = Signal()
-    workspace_changed = Signal(str)
 
     def __init__(self, base_dir: Optional[os.PathLike] = None,
                  parent: Optional[QObject] = None):
@@ -133,7 +119,6 @@ class SessionManager(QObject):
         # Schema migration: legacy files missing the field → v0
         payload.setdefault('schema_version', 0)
         # Future: payload = self._migrate(payload) ...
-        self.session_loaded.emit(workspace, payload)
         return payload
 
     def _quarantine_corrupt(self, path: Path) -> None:
@@ -191,7 +176,6 @@ class SessionManager(QObject):
         out['schema_version'] = SCHEMA_VERSION
         path = self.session_path(workspace)
         if self._atomic_write_json(path, out):
-            self.session_saved.emit(workspace)
             return True
         return False
 
@@ -229,7 +213,6 @@ class SessionManager(QObject):
         if self._atomic_write_json(
                 self.presets_path(),
                 {'schema_version': SCHEMA_VERSION, 'presets': presets}):
-            self.presets_changed.emit()
             return True
         return False
 
@@ -268,7 +251,6 @@ class SessionManager(QObject):
                 except (OSError, AttributeError):
                     pass
             os.replace(tmp, path)
-            self.workspace_changed.emit(workspace)
             return True
         except OSError:
             try:

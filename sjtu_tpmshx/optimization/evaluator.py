@@ -59,7 +59,6 @@ def _compute_cfg_to_evaluator_dict(compute_cfg) -> dict:
         # SolverConfig now carries the production pipeline knobs (None=auto)
         # and no longer describes the cheap screening solves.
         'max_iter_simple': compute_cfg.optimizer.max_iter_simple,
-        'tol_simple': compute_cfg.optimizer.tol_simple,
         'tol_energy': compute_cfg.optimizer.outer_tol_K,
     }
 
@@ -115,7 +114,7 @@ if __name__ == '__main__':
     t0 = time.perf_counter()
     Q_neg, dP, mass = evaluate_design(
         x=None, cfg={'fast_mode': False, 'max_iter_simple': 800,
-                     'tol_simple': 1e-3, 'max_iter_energy': 1500,
+                     'max_iter_energy': 1500,
                      'tol_energy': 0.5},
         fc=fc, verbose=False)
     dt = time.perf_counter() - t0

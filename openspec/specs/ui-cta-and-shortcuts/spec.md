@@ -1,7 +1,7 @@
 # Spec: ui-cta-and-shortcuts
 
 ## Purpose
-计算 CTA、空状态预设入口与键盘/页签快捷键层的行为约定。来自 openspec archive `ui-batch2`（结构修复于 2026-07-03：早期归档误把 delta 头 "## ADDED Requirements" 留在主 spec，本文件重整为标准 `## Requirements` 结构，内容不变）。
+计算 CTA、空状态预设入口与键盘/页签快捷键层的行为约定。
 ## Requirements
 ### Requirement: Sticky always-visible Compute CTA
 Compute 主按钮 SHALL 常驻左面板底部固定条（不随参数滚动消失）；SHALL 是与原顶栏按钮同一 widget 对象（`window.btn_compute`），ticker 状态机、Ctrl+R、信号连接 SHALL 零改动；顶栏 SHALL 不再出现 Compute 按钮。
@@ -21,12 +21,12 @@ Compute 主按钮 SHALL 常驻左面板底部固定条（不随参数滚动消�
 - **WHEN** 点击空状态 preset 按钮
 - **THEN** 输入字段被算例工况预设改写（`_active_preset_name` 置位）
 
-### Requirement: KPI primary tier
-KPI 条 Q/ΔP_A/ΔP_B 数值 SHALL 高于 T_out 次要项一档（字号/颜色），caption 与 delta 徽标结构不变。
+### Requirement: Result summary
+结果摘要 SHALL 显示当前已接受结果的 Q、ΔP_A、ΔP_B 和出口温度，使用一致的标签、单位及数值层级；不依赖隐藏的旧 KPI chip 或 delta 徽标。
 
 #### Scenario: Hierarchy present
-- **WHEN** 检查 KPI chips QSS
-- **THEN** Q/dPA/dPB 数值 chip 含主层标记（10pt/val 色），Tout 为次层
+- **WHEN** 完成计算后显示结果摘要
+- **THEN** 数值和单位来自本次结果，未收敛和诊断状态保持可见
 
 ### Requirement: Workbench-aligned tab shortcuts
 键盘层 SHALL 与可见三页签工作台一致：Ctrl+1 → 几何布局，Ctrl+2 → 结果（经 `_result_view` 解析到 2D 场/3D），Ctrl+3 → 优化，Ctrl+4 → 结果页内 2D|3D 切换（无结果侧可切时为 no-op）。退役的 Ctrl+5 与直达 temp/pres/vel 的绑定 SHALL NOT 存在。`_cycle_tab`（Ctrl+↑/↓）SHALL 按 ('layout','result','pareto') 走，当前页签属结果家族（temp/pres/vel/3d）时视为 'result'。

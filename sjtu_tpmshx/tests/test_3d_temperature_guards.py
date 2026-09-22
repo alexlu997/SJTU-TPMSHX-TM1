@@ -143,7 +143,7 @@ def test_outer_hv_uses_fresh_full_velocity_on_both_sides(monkeypatch, fluid):
     original = hv._build_hv_local_3d
 
     def observe(*args, **kwargs):
-        seen.append(args[2].copy())
+        seen.append(args[1].copy())
         return original(*args, **kwargs)
 
     hv._build_hv_local_3d = observe
@@ -183,7 +183,7 @@ def test_local_hv_records_full_raw_field_and_preserves_values(monkeypatch, fluid
             L_field=length, t_field=thickness)
     velocity = np.zeros(shape)
     velocity[-1] = .001
-    args = (length, thickness, velocity, prob.T_inA, prob.P_inA, fluid)
+    args = (length, velocity, prob.T_inA, prob.P_inA, fluid)
     with warning_scope({}):
         expected = hv._build_hv_local_3d(*args)
     labels = ('A', 'main', 'real-cell(x,y,z)-hv-speed')
@@ -268,10 +268,10 @@ def test_zoned_sco2_notice_uses_successful_local_hv_fields(monkeypatch):
     events = []
 
     def local(*args, **kwargs):
-        assert args[0] is prob.L_mm_field and args[1] is prob.t_field_3d
-        assert np.ndim(args[3]) == 0
+        assert args[0] is prob.L_mm_field
+        assert np.ndim(args[2]) == 0
         value = original_hv(*args, **kwargs)
-        events.append(('hv', args[4]))
+        events.append(('hv', args[3]))
         return value
 
     def notice(**kwargs):
@@ -324,7 +324,7 @@ def test_sco2_evidence_once_per_side_after_first_local_refresh_with_cached_prope
         before = sco2_props._prop.cache_info()
         value = original_hv(*args, **kwargs)
         after = sco2_props._prop.cache_info()
-        ndim = np.ndim(args[3])
+        ndim = np.ndim(args[2])
         if ndim == 0:
             assert after.hits > before.hits and after.misses == before.misses
         events.append(('hv', ndim))

@@ -85,7 +85,7 @@ def test_screening_retains_1d_rejection_while_full_flow_can_initialize():
         tpms_type='Gyroid', k_s=16., L_domain=.7, H_domain=.042,
         Nx=4, Ny=4, u_A=40., u_B=5., T_inA=400., T_inB=300.,
         P_inA=101325., P_inB=101325.), fc=field, case_id='screening-rejection')
-    assert '1D D-F seed' in case.parameters['rejection']
+    assert '1D D-F screening seed' in case.parameters['rejection']
     assert pressure_initial_reference(-1., 101325., history=[]) == 101325.
 
 

@@ -106,20 +106,8 @@ def test_save_stamps_schema_version(sm):
     assert raw['schema_version'] == SCHEMA_VERSION
 
 
-def test_save_session_signal_emits(sm):
-    received = []
-    sm.session_saved.connect(lambda ws: received.append(ws))
-    sm.save_session({'x': 1}, 'B')
-    assert received == ['B']
 
 
-def test_load_session_signal_emits(sm):
-    sm.save_session({'x': 1}, 'A')
-    received = []
-    sm.session_loaded.connect(lambda ws, p: received.append((ws, p)))
-    sm.load_session('A')
-    assert len(received) == 1
-    assert received[0][0] == 'A'
 
 
 def test_save_session_rejects_non_dict(sm):
@@ -159,11 +147,6 @@ def test_load_presets_malformed_returns_empty(sm):
     assert sm.load_user_presets() == []
 
 
-def test_presets_changed_signal_emits(sm):
-    received = []
-    sm.presets_changed.connect(lambda: received.append(True))
-    sm.save_user_presets([{'name': 'p1'}])
-    assert received == [True]
 
 
 def test_save_presets_rejects_non_list(sm):
@@ -181,13 +164,6 @@ def test_get_active_workspace_default_a(sm):
 def test_set_get_active_workspace_round_trip(sm):
     assert sm.set_active_workspace('B')
     assert sm.get_active_workspace() == 'B'
-
-
-def test_set_active_workspace_signal_emits(sm):
-    received = []
-    sm.workspace_changed.connect(lambda ws: received.append(ws))
-    sm.set_active_workspace('C')
-    assert received == ['C']
 
 
 def test_set_active_workspace_invalid_raises(sm):

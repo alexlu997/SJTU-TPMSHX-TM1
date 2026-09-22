@@ -25,20 +25,16 @@ Two artefacts per CSV:
 API
 ---
 ``write_csv_with_provenance(df, path, script)`` — preferred entry
-``backfill_provenance(path, script, when=None)`` — retrofit existing
-                                                  CSV without the data
-                                                  (uses HEAD sha + now)
 ``read_csv_with_provenance(path)`` — returns ``(df, meta_dict)``
 """
 from __future__ import annotations
 
 import datetime as _dt
 import json as _json
-import os as _os
 import subprocess as _sp
 import tempfile
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, Tuple
 
 import pandas as pd
 
@@ -143,45 +139,6 @@ def write_csv_with_provenance(df: pd.DataFrame, path,
         date=when,
         rows=int(len(df)),
         columns=list(map(str, df.columns)),
-    )
-    if sidecar:
-        with open(path.with_suffix(path.suffix + '.meta.json'),
-                  'w', encoding='utf-8') as f:
-            _json.dump(meta, f, indent=2, ensure_ascii=False)
-    return meta
-
-
-def backfill_provenance(path, script: str,
-                        when: Optional[str] = None,
-                        sha: Optional[str] = None,
-                        sidecar: bool = True) -> Dict[str, str]:
-    """Retrofit a comment header onto an *existing* CSV.
-
-    Used once during the C.4 migration to stamp every CSV in
-    ``validation/`` with provenance without re-running the (sometimes
-    multi-hour) producers. ``when`` defaults to the file's mtime; ``sha``
-    defaults to the current HEAD short SHA.
-    """
-    path = Path(path)
-    if when is None:
-        ts = _dt.datetime.fromtimestamp(_os.path.getmtime(path)).astimezone()
-        when = ts.isoformat(timespec='seconds')
-    if sha is None:
-        sha = _git_sha(short=True)
-    # Read existing content, skip any pre-existing # lines
-    with open(path, 'r', encoding='utf-8', newline='') as f:
-        lines = f.readlines()
-    body = [ln for ln in lines if not ln.startswith('#')]
-    header = _build_header_lines(script, sha, when)
-    with open(path, 'w', encoding='utf-8', newline='') as f:
-        f.write(header)
-        f.writelines(body)
-
-    meta = dict(
-        script=_normalise_script(script),
-        commit=sha,
-        date=when,
-        backfilled=True,
     )
     if sidecar:
         with open(path.with_suffix(path.suffix + '.meta.json'),

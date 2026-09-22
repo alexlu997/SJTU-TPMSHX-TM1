@@ -21,6 +21,5 @@ from sjtu_tpmshx.ui.mixins.appearance import AppearanceMixin
 from sjtu_tpmshx.ui.mixins.session_presets import SessionPresetsMixin
 from sjtu_tpmshx.ui.mixins.shortcuts import ShortcutsMixin
 from sjtu_tpmshx.ui.mixins.io_actions import IOActionsMixin
-from sjtu_tpmshx.ui.mixins.result_bridge import ResultBridgeMixin
 
-__all__ = ["RunHistoryMixin", "DialogsMixin", "ZonePanelMixin", "OptimizeUIMixin", "TabViewMixin", "UIBuilderMixin", "FluidInputMixin", "RunControllerMixin", "RunResultsMixin", "AppearanceMixin", "SessionPresetsMixin", "ShortcutsMixin", "IOActionsMixin", "ResultBridgeMixin"]
+__all__ = ["RunHistoryMixin", "DialogsMixin", "ZonePanelMixin", "OptimizeUIMixin", "TabViewMixin", "UIBuilderMixin", "FluidInputMixin", "RunControllerMixin", "RunResultsMixin", "AppearanceMixin", "SessionPresetsMixin", "ShortcutsMixin", "IOActionsMixin"]

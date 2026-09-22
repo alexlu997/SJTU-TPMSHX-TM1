@@ -40,7 +40,8 @@ class ThermalBoundary(Exception):
     pass
 
 
-def _prepare(monkeypatch, *, legacy=False, pair=('air', 'air'), temperatures=(400., 300.)):
+def _prepare(monkeypatch, *, legacy=False, zoned=False, pair=('air', 'air'),
+             temperatures=(400., 300.)):
     cfg = _cfg()
     cfg.extrap.allow = True  # Deliberate low-Re warning probe; no physical acceptance.
     cfg.fluid_A.type, cfg.fluid_B.type = pair
@@ -49,6 +50,12 @@ def _prepare(monkeypatch, *, legacy=False, pair=('air', 'air'), temperatures=(40
         fluid.u_mps = .001
         if fluid.type == 'sco2':
             fluid.P_in_Pa = 9e6 if side == 'A' else 16e6
+    if zoned:
+        from sjtu_tpmshx.domain.compute_config import ZoneInputConfig
+        cfg.zones = ZoneInputConfig(enabled=True, axis='grid', grid={
+            'tpms_type': cfg.geometry.tpms, 'k_s': cfg.geometry.k_s_W_mK,
+            'cells': [dict(x0=0., x1=1., y0=0., y1=.5, L=7., t=.6),
+                      dict(x0=0., x1=1., y0=.5, y1=1., L=6.5, t=.4)]})
     from sjtu_tpmshx.solvers.backends.python.two_d.execution import build_execution_inputs
     from sjtu_tpmshx.solvers.backends.python.two_d.runtime import build_runtime
     with warning_scope({}):
@@ -119,7 +126,7 @@ def test_shared_fluid_model_keeps_each_sides_asymmetric_geometry(monkeypatch):
 @pytest.mark.parametrize('zoned', [False, True])
 def test_actual_workers_and_local_re_snapshots(monkeypatch, zoned):
     from sjtu_tpmshx.domain import run_warnings as rw
-    pipe, fields = _prepare(monkeypatch)
+    pipe, fields = _prepare(monkeypatch, zoned=zoned)
     seen = []
     original = fields['_run_simple']
 
@@ -131,17 +138,6 @@ def test_actual_workers_and_local_re_snapshots(monkeypatch, zoned):
         return original(*args, **kwargs)
 
     fields['_run_simple'] = worker
-    if zoned:
-        shape = pipe._parsed['N_x'], pipe._parsed['N_y']
-        pipe._parsed['zone_config'] = object()
-        pipe._parsed['za'] = dict(L_mm_arr=np.full(shape, 7.), t_arr=np.full(shape, .6),
-            K_ffA_arr=np.ones(shape), K_ffB_arr=np.ones(shape),
-            K_ss_arr=np.ones(shape), eps_arr=np.full(shape, .7))
-        from sjtu_tpmshx.preprocess.thermal_geometry import prepare_thermal_geometry
-        parsed = pipe._parsed
-        parsed['thermal_geometry'] = prepare_thermal_geometry(
-            parsed['tpms_type'], parsed['Lcell'], parsed['t_wall'], parsed['k_s'],
-            L_field=parsed['za']['L_mm_arr'], t_field=parsed['za']['t_arr'])
     monkeypatch.setattr(solve_2d, 'solve_full_domain', _stop)
 
     def drive(*, step, **kwargs):
@@ -162,9 +158,9 @@ def test_actual_workers_and_local_re_snapshots(monkeypatch, zoned):
         labels = (side, 'main-hv', 'real-cell(x,y)')
         shape = pipe._parsed['N_x'], pipe._parsed['N_y']
         raw = records[('nu_raw', 'air', 'Gyroid', shape, labels)]
-        source = records[('nu', 'air', 'Gyroid', () if zoned else shape, labels)]
+        source = records[('nu', 'air', 'Gyroid', shape, labels)]
         assert raw.size == np.prod(shape) and 0 < raw.minimum[0] < 1.
-        assert source.size == (1 if zoned else np.prod(shape))
+        assert source.size == np.prod(shape)
         assert source.minimum[0] == 1.
 
 

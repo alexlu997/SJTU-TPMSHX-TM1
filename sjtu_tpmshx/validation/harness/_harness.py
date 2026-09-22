@@ -1,12 +1,7 @@
-"""Shared validation-harness primitives (refactor B1 1.3).
+"""Shared experimental workbook loading and Shanghai specimen geometry.
 
-Replaces the per-script pattern of module-global specimen geometry +
-hand-rolled Excel parsing. Before this module, switching specimen meant
-monkey-patching another runner's globals, which failed to reach
-helper-function default arguments frozen
-at import time (``_compute_h_vA_field_3d(eps=EPS, ...)`` kept Shanghai
-geometry under the D_7_6 patch). A ``SpecimenSpec`` is passed explicitly
-instead, so there is nothing left to patch and nothing left to freeze.
+The former D76 global-patching workaround is retired with the frozen-water
+runner. Current callers use the canonical baseline specimen explicitly.
 """
 from __future__ import annotations
 
@@ -22,7 +17,7 @@ from sjtu_tpmshx.models.tpms_calc import geometry as _tpms_geometry
 class SpecimenSpec:
     """One physical HX specimen: input geometry + derived TPMS properties.
 
-    Derived fields (eps … A_0) are computed once from
+    Derived full and A-side porosities are computed once from
     ``tpms_calc.geometry`` at construction; they exist so validation
     runners never re-derive (or worse, freeze) them locally.
     """
@@ -38,18 +33,12 @@ class SpecimenSpec:
     # ── derived (filled in __post_init__) ──
     eps: float = field(init=False)
     eps_A: float = field(init=False)
-    D_h: float = field(init=False)
-    r_h: float = field(init=False)
-    A_0: float = field(init=False)
 
     def __post_init__(self):
         g = _tpms_geometry(self.tpms, self.L_cell_mm, self.t_wall_mm,
                            self.k_s_W_mK)
         object.__setattr__(self, 'eps', g['epsilon'])
         object.__setattr__(self, 'eps_A', g['epsilon_A'])
-        object.__setattr__(self, 'D_h', g['D_h'])
-        object.__setattr__(self, 'r_h', g['D_h'] / 2.0)
-        object.__setattr__(self, 'A_0', g['A_0'])
 
 
 def load_cases_df(xlsx_path: Path) -> pd.DataFrame:

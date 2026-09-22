@@ -6,7 +6,8 @@
 import math
 
 from sjtu_tpmshx.design.cases import DesignCase
-from sjtu_tpmshx.design.forward import forward, dP_fracs
+from sjtu_tpmshx.design.forward import forward
+from sjtu_tpmshx.models.quick_design import dP_fracs
 
 
 def _case():

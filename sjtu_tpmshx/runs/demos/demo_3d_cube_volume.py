@@ -9,6 +9,7 @@ Output PNGs (per field):
   3. Iso — isosurface of the median value
 """
 import os
+from pathlib import Path
 import numpy as np
 
 # Force offscreen before any pyvista import
@@ -174,7 +175,7 @@ def render_iso(grid, scalar, title, outpath, n_iso=5):
     p.close()
 
 
-if __name__ == '__main__':
+def main():
     cfg = build_cube_cfg()
     print("Running 50x50x50 mm cube case...")
     import time
@@ -183,7 +184,7 @@ if __name__ == '__main__':
     print(f"Solver: {time.time()-t0:.1f}s")
     grid = make_grid(res)
 
-    outdir = os.path.join(os.path.dirname(__file__), 'demo_output', 'cube_3d')
+    outdir = str(Path(__file__).resolve().parents[3] / '.cache' / 'demos' / 'cube_3d')
     os.makedirs(outdir, exist_ok=True)
 
     fields = [
@@ -194,6 +195,7 @@ if __name__ == '__main__':
         ('P_kPa', 'P_A abs [kPa]'),
     ]
     print("\nRendering 3D scenes...")
+    failures = 0
     for fkey, fname in fields:
         # 3 render styles per field
         p_vol = os.path.join(outdir, f'cube_{fkey}_volume.png')
@@ -203,15 +205,23 @@ if __name__ == '__main__':
             render_volume(grid, fkey, fname + ' — volume rendering', p_vol)
             print(f"  vol  {p_vol}")
         except Exception as e:
+            failures += 1
             print(f"  vol  FAILED ({fkey}): {e}")
         try:
             render_triple_slice(grid, fkey, fname + ' — 3 orthogonal slices', p_slc)
             print(f"  slc  {p_slc}")
         except Exception as e:
+            failures += 1
             print(f"  slc  FAILED ({fkey}): {e}")
         try:
             render_iso(grid, fkey, fname + ' — isosurfaces', p_iso, n_iso=5)
             print(f"  iso  {p_iso}")
         except Exception as e:
+            failures += 1
             print(f"  iso  FAILED ({fkey}): {e}")
-    print("\nDone.")
+    print(f"\nRendering finished: {failures} failures.")
+    return 1 if failures else 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

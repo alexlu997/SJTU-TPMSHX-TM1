@@ -478,8 +478,7 @@ def test_application_coefficients_precede_real_seed_and_solver_setup(monkeypatch
                     uc, vc, s = fields['_run_simple'](
                         parsed['cfg' + side], model.rho(fc.T_in_K, fc.P_in_Pa),
                         model.mu(fc.T_in_K, fc.P_in_Pa), fc.T_in_K, fc.u_mps, side,
-                        P_in_abs=fc.P_in_Pa, fluid_type=fluid_props.flow_model(fc.type),
-                        fluid_name=fc.type)
+                        P_in_abs=fc.P_in_Pa, fluid_type=fluid_props.flow_model(fc.type))
                 solvers.append(s)
                 np.testing.assert_allclose(abs(vc), .7)
                 np.testing.assert_allclose(uc, .5 * (s.u[:-1] + s.u[1:]))

@@ -69,8 +69,6 @@ DEFAULT_CONFIG: dict = {
 
     # Solver knobs
     'max_iter_simple': 5000,
-    'tol_simple':      1e-3,        # Retained call/config compatibility only;
-                                    # SIMPLE uses the shared F2 gates.
     'max_iter_energy': 5000,
     'tol_energy':      0.5,        # K
     'n_rho_loops':     3,          # 1 = isothermal-ρ fast path; >1 enables
@@ -104,7 +102,7 @@ DEFAULT_CONFIG: dict = {
                                     # destroying GP lengthscale estimates).
     'reject_unconverged':   False,  # Opt-in screening rejection of a failed
                                     # SIMPLE F2 verdict; independent of the
-                                    # final dp_cap_pa guard and tol_simple.
+                                    # final dp_cap_pa guard and F2 convergence gates.
 }
 
 

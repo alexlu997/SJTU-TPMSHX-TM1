@@ -124,6 +124,9 @@ def test_compute_pins_fixed_df_backend(monkeypatch):
     assert info_after_switch.hits == info_after_first.hits + 1
     assert r_rbf['K_df'] == r_default['K_df']
     assert r_rbf['cF_df'] == r_default['cF_df']
+    # A cold cache must pin the same model; a warm hit alone cannot prove it.
+    tpms_calc.compute.cache_clear()
+    assert tpms_calc.compute(*args) == r_default
 
 
 def test_compute_hit_returns_unpoisonable_copy():

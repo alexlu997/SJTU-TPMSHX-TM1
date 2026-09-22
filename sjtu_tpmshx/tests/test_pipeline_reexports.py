@@ -14,11 +14,10 @@ import pytest
 _SURFACE = {
     'sjtu_tpmshx.solvers.simple_solver': [
         'SIMPLESolver', '_aligned_grid', 'build_wall_refined_1d',
-        'build_inlet_stretched_1d',
         '_sweep_u_jit_df', '_sweep_v_jit_df', '_porous_src_df', '_umag_u', '_umag_v',
         '_sou_corr_u_x', '_sou_corr_u_y', '_sou_corr_v_x', '_sou_corr_v_y',
         '_solve_pp_sparse_fast', '_build_pp_sparsity_pattern',
-        '_correct_jit', '_mass_res_jit', '_solve_temp_jit',
+        '_correct_jit', '_mass_res_jit',
         '_assemble_pp_data_jit',
     ],
     'sjtu_tpmshx.solvers.simple_solver_3d': [
@@ -33,7 +32,7 @@ _SURFACE = {
         '_gs_full_chunk_3d_stag_rb',
     ],
     'sjtu_tpmshx.ui.builders_canvas': [
-        '_build_result_sidebar', 'refresh_result_sidebar',
+        '_build_result_sidebar',
         'update_result_sidebar_visibility', 'build_canvas_area',
     ],
 }

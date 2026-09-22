@@ -28,7 +28,7 @@ def _build_solver(Nx=24, Ny=80, wall_refine=False, v_in=4.0, T_in=450.0,
 def test_no_slip_at_side_walls():
     """u-velocity at x=0 and x=W must be exactly 0 (wall BC enforced)."""
     s = _build_solver(wall_refine=False)
-    s.solve(max_iter=300, tol=1e-4, verbose=False)
+    s.solve(max_iter=300, verbose=False)
     u_left = s.u[0, :]
     u_right = s.u[s.Nx, :]
     assert np.allclose(u_left, 0.0), \
@@ -41,7 +41,7 @@ def test_no_slip_at_side_walls():
 def test_outlet_pinning_uniform_pressure():
     """Full-width outlet: all cells at j=Ny-1 must have equal P (pinned to 0)."""
     s = _build_solver()
-    s.solve(max_iter=300, tol=1e-4, verbose=False)
+    s.solve(max_iter=300, verbose=False)
     p_out = s.P[:, s.Ny - 1]
     assert p_out.std() < 1e-6, \
         f"outlet P std = {p_out.std():.3e} (expected ~0 for pinned cells)"
@@ -53,7 +53,7 @@ def test_outlet_pinning_uniform_pressure():
 def test_dP_positive_and_monotone():
     """dP = P_inlet - P_outlet > 0; pressure decreases along stream (v-direction)."""
     s = _build_solver()
-    s.solve(max_iter=300, tol=1e-4, verbose=False)
+    s.solve(max_iter=300, verbose=False)
     p_profile = s.P.mean(axis=0)  # (Ny,), along stream
     dP = p_profile[0] - p_profile[-1]
     assert dP > 0, f"dP not positive: {dP:.3e}"

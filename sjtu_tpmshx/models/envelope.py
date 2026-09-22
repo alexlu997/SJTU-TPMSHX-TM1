@@ -61,10 +61,10 @@ def check_compressible_envelope(P_out_sq: float, P_in: float, *,
     if P_out_sq > 0.0:
         return None
     msg = (
-        f"Choked/supersonic flow: the 1D Forchheimer drag predicts a pressure "
+        f"1D pressure-seed rejection: the Forchheimer approximation predicts a pressure "
         f"drop >= the inlet absolute pressure (P_in={float(P_in):.0f} Pa, "
         f"predicted outlet P^2={float(P_out_sq):.3e} < 0). No steady subsonic "
-        f"solution exists for this isothermal 1D approximation. Reduce the inlet velocity, shorten the streamwise "
+        f"solution exists within this isothermal 1D approximation; this does not prove physical choking. Reduce the inlet velocity, shorten the streamwise "
         f"domain, or raise the inlet pressure."
     )
     if context:

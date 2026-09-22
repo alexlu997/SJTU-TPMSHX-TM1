@@ -1,7 +1,7 @@
 """枚举选型: 遍历 {拓扑×l×t}, 各跑 size_fixed_cell, Pareto-tag。"""
 from __future__ import annotations
 from .sizing import size_fixed_cell, RHO_S
-from .forward import K_STEEL
+from sjtu_tpmshx.models.quick_design import K_STEEL
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.cancellation import CancelledError
 

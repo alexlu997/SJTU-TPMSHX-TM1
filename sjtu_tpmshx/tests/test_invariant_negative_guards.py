@@ -114,7 +114,7 @@ def test_massflux_inlet_default_on_2d():
         inlet_lo=0.0, inlet_hi=0.06, v_inlet=5.0, wall_refine=False)
     assert not hasattr(s, 'massflux_inlet') or s.massflux_inlet, \
         "massflux_inlet default flipped OFF (hard invariant)"
-    s.solve(max_iter=1, tol=0.0, verbose=False)
+    s.solve(max_iter=1, verbose=False)
     assert hasattr(s, '_massflux_target'), (
         "2D mass-flux target was never captured — the massflux-inlet "
         "default (velocity-inlet regression, grid-dependent Δp) is off")
@@ -129,7 +129,7 @@ def test_massflux_inlet_default_on_3d():
                        K_arr=K_arr, cF_arr=cF_arr)
     assert not hasattr(s, 'massflux_inlet') or s.massflux_inlet, \
         "massflux_inlet default flipped OFF (hard invariant)"
-    s.solve(max_iter=1, tol=0.0, verbose=False)
+    s.solve(max_iter=1, verbose=False)
     assert hasattr(s, '_massflux_target'), (
         "3D mass-flux target was never captured — the massflux-inlet "
         "default is off")

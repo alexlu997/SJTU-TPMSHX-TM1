@@ -12,7 +12,8 @@ from sjtu_tpmshx.domain.module_ports import RunControl
 
 from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry
 from sjtu_tpmshx.models.design_fluids import fluid_props, nu_re_window
-from .forward import forward, dP_fracs, K_STEEL, GEOM_N, LTNE_TOL
+from .forward import forward
+from sjtu_tpmshx.models.quick_design import dP_fracs, K_STEEL, GEOM_N, LTNE_TOL
 
 DP_DEGEN_FRAC = 0.30      # 单侧归一化压损 > 此 = 压降近进口压 → 退化 (超音速/迎风缩崩)
 

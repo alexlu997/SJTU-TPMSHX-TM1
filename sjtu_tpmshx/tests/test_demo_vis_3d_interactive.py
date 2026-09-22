@@ -14,7 +14,7 @@ from sjtu_tpmshx.runs.demos import demo_vis_3d_interactive as demo
 def test_demo_field_cycle_and_export_use_only_supplied_fields(monkeypatch, tmp_path, off_screen):
     values = np.arange(8, dtype=float).reshape(2, 2, 2)
     widths = np.full(2, 0.01)
-    grid = demo.build_data_grid(2, 2, 2, widths, widths, widths,
+    grid = demo.build_data_grid(widths, widths, widths,
                                 300 + values, values, 101325 + values, 4 + values)
     plotter = Mock(plane_widgets=[])
     plotter.add_mesh_slice.side_effect = lambda mesh, **kw: mesh[kw['scalars']]

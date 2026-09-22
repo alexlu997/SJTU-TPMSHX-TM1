@@ -78,14 +78,6 @@ class RunControllerMixin:
             self._run_calculation_3d()
             return
 
-        # Validate inputs BEFORE launching solver (Qt-safe on main thread)
-        if self._K_ffA is None:
-            QMessageBox.warning(self, "Missing Input",
-                                "Please click 'Auto-fill Fluid A' first."); return
-        if self._K_ffB is None:
-            QMessageBox.warning(self, "Missing Input",
-                                "Please click 'Auto-fill Fluid B' first."); return
-
         # B2 2.1b (2026-06-13): the 2D compute path now drives Pipeline2D —
         # the legacy run_calculation_inner(window) entrypoint is deleted.
         # Qt widgets are read EXACTLY ONCE here on the main thread; the
@@ -364,7 +356,8 @@ class RunControllerMixin:
         except Exception as exc:
             import traceback
             traceback.print_exc()
-            self.statusBar().showMessage(f"Result publication failed: {exc}", 12000)
+            stage = 'display' if published else 'publication'
+            self.statusBar().showMessage(f"Result {stage} failed: {exc}", 12000)
         finally:
             timings = result.metadata.setdefault('timings_s', {})
             timings['display'] = perf_counter() - display_started
@@ -372,42 +365,43 @@ class RunControllerMixin:
                 self._diag_summary['timings_s'] = dict(timings)
             if published and result.diagnostics.get('mode') != '3d':
                 # The 2D presentation/export cache owns a metadata snapshot.
-                self._compute_results['metadata']['timings_s'] = dict(timings)
+                self.cache.get_result('2d')['metadata']['timings_s'] = dict(timings)
             try:
-                self._end_compute_ui(success=success)
+                if published:
+                    # Numerical publication survives a renderer error. All
+                    # accepted-result surfaces must advance together.
+                    if not success:
+                        for field in ('temp', 'pres', 'vel'):
+                            canvas = getattr(self, f'canvas_{field}', None)
+                            if canvas is not None and not self.cache.is_drawn(field):
+                                # A failed redraw cannot stand in for this run
+                                # with the preceding run's pixels or probe data.
+                                canvas.fig.clear()
+                                canvas._hover_data = None
+                                canvas.draw_idle()
+                    self._update_result_summary()
+                    self._update_tab_visibility()
+                    self.btn_export.setEnabled(True)
+                    elapsed = self.compute.last_elapsed() + timings['display']
+                    self._last_elapsed_s = elapsed
+                    self._refresh_status_bar()
+                    self._stamp_result_provenance(elapsed)
             finally:
-                self._run_provenance = None
+                try:
+                    self._end_compute_ui(success=success)
+                finally:
+                    self._run_provenance = None
 
     def _render_compute_result(self):
         """Render the published result and report presentation success."""
         mode = self.compute.current_mode()
         if mode == '3d':
             from sjtu_tpmshx.ui.plot_3d_results import finalize_plots_3d
-            # 2026-06-02 fix: do NOT pre-clear ``_has_results_3d`` here. In the
-            # live window that flag is a ResultCache bridge whose setter
-            # (main.Main_Menu._has_results_3d) DELETES ``_result_3d`` — which
-            # finalize_plots_3d must read to render the panel. The old C5 H5
-            # line ``self._has_results_3d = False`` destroyed the freshly-
-            # computed result *before* finalize ran, so finalize saw
-            # ``_result_3d is None`` and every 3D run rendered nothing. The
-            # GUI slot writes a fresh result before rendering, so
-            # there is no "stale True from a prior run" to guard against here;
-            # the H5 invariant (no stale flag after a finalize *crash*) is now
-            # enforced in the except branch below. (The H5 unit test passed
-            # despite the prod bug because its DummyWindow used plain attrs,
-            # decoupling the flag from the result — the real bridge couples
-            # them.)
+            # Keep accepted solver data exportable even if rendering fails.
             _finalize_ok = False
             _3d_vis_ok = False
             try:
-                # 2026-05-20 UI sweep: finalize_plots_3d now returns a bool
-                # indicating whether the embedded PyVistaQt panel was
-                # populated. Previously it returned None and all visualisation
-                # failures were silently swallowed inside the function,
-                # producing a "status bar says done but canvas is blank"
-                # mismatch. We gate `_has_results_3d` + tab auto-switch on
-                # the returned flag so the user is no longer routed to an
-                # empty 3D tab.
+                # A successful solve does not imply a populated 3D panel.
                 _3d_vis_ok = bool(finalize_plots_3d(self))
                 _finalize_ok = True
             except Exception as _fe3d:
@@ -418,42 +412,28 @@ class RunControllerMixin:
                 # console clue — matches the 2D path's diagnostics now).
                 import traceback
                 traceback.print_exc()
-                # H5 invariant: a finalize crash must not leave the 3D View tab
-                # enabled (which would auto-switch the next run to a blank tab).
-                # U1 (2026-06-28): gate the tab off via the dedicated readiness
-                # flag — do NOT null _has_results_3d, whose bridge setter would
-                # DESTROY the valid solver result. The ComputeResult was written
-                # by the GUI slot before finalize and stays exportable even though
-                # the PyVista panel never populated.
+                # Renderer failure leaves the valid result available for export.
                 self._3d_view_ready = False
                 self.statusBar().showMessage(
                     f"3D visualisation failed: {_fe3d!r} — solver finished, "
                     f"render crashed; check console.", 12000)
             if not _finalize_ok:
                 return False
-            self._has_results = True
-            # Only mark the 3D View tab as ready if the PyVistaQt panel
-            # actually populated; otherwise the tab stays disabled and the user
-            # is not silently switched to a blank canvas.
-            # U1 (2026-06-28): tab-readiness is its OWN flag — do NOT route it
-            # through the result-nulling _has_results_3d bridge setter, which on
-            # a soft viz failure (headless/offscreen/GL/TPMSHX_DISABLE_3D_PANEL)
-            # destroyed the valid solve's result, defeating the status branch
-            # below and the Export data-presence gate. The result stays cached.
+            # View readiness belongs to the panel, not the result cache.
             self._3d_view_ready = bool(_3d_vis_ok)
             for _bname in ('btn_export',):
                 if hasattr(self, _bname):
                     getattr(self, _bname).setEnabled(True)
-            drawn = getattr(self, '_drawn_tabs', set())
+            drawn = self.cache.get_drawn_tabs()
             if _3d_vis_ok:
                 drawn.add('3d')
-            self._drawn_tabs = drawn
+            self.cache.replace_drawn_tabs(drawn)
             self._update_tab_visibility()
             if getattr(self, '_rendered_3d_slices', False):
                 self._switch_tab('temp')
             elif _3d_vis_ok:
                 self._switch_tab('3d')
-            res = getattr(self, '_result_3d', None)
+            res = self.cache.get_result('3d')
             # Outer-coupling convergence note: the SIMPLE↔LTNE loop exits
             # early once max|ΔTa| < tol, so it usually stops before the cap
             # (e.g. "3/5"). Surface that as "converged after k/N" instead of a
@@ -513,8 +493,6 @@ class RunControllerMixin:
             self.statusBar().showMessage(
                 f"Plot finalize failed: {_fe!r} — partial 2D results available.",
                 8000)
-        self._has_results = True
-        self._has_results_2d = True
         self._update_tab_visibility()
         for _bname in ('btn_export',):
             if hasattr(self, _bname):
@@ -525,7 +503,7 @@ class RunControllerMixin:
         return _finalize_ok
 
     def _on_orch_error(self, message, log_text):
-        """Compute raised. Show error + drop stale results (mode-aware)."""
+        """Report a failed attempt without replacing the accepted result."""
         self._run_provenance = None
         if getattr(self, '_close_pending', False):
             return
@@ -541,14 +519,6 @@ class RunControllerMixin:
 
         mode = self.compute.current_mode()
         if mode == '3d':
-            self._result_3d = None
-            self._has_results_3d = False
-            self._3d_view_ready = False
-            if not getattr(self, '_has_results_2d', False):
-                self._has_results = False
-            for _bname in ('btn_export',):
-                if hasattr(self, _bname):
-                    getattr(self, _bname).setEnabled(False)
             self._update_tab_visibility()
             self._end_compute_ui(success=False)
             # User-cancel or timeout already surfaced as cancelled signal —
@@ -556,14 +526,6 @@ class RunControllerMixin:
             QMessageBox.critical(self, "3D Compute Error", message)
             return
 
-        # 2D / poly fallback
-        self._compute_results = {}
-        self._has_results_2d = False
-        if not getattr(self, '_has_results_3d', False):
-            self._has_results = False
-        for _bname in ('btn_export',):
-            if hasattr(self, _bname):
-                getattr(self, _bname).setEnabled(False)
         self._update_tab_visibility()
         self._end_compute_ui(success=False)
         QMessageBox.critical(self, "Compute Error", message)
@@ -576,7 +538,7 @@ class RunControllerMixin:
             pass
 
     def _on_orch_cancelled(self, log_text):
-        """Worker observed cancel_token. Treat as soft completion (mode-aware)."""
+        """Cancel the pending attempt; retain the complete accepted snapshot."""
         self._run_provenance = None
         if getattr(self, '_close_pending', False):
             return
@@ -592,10 +554,6 @@ class RunControllerMixin:
 
         mode = self.compute.current_mode()
         if mode == '3d':
-            # 3D-specific: drop result + status message
-            self._result_3d = None
-            self._has_results_3d = False
-            self._3d_view_ready = False
             self._update_tab_visibility()
             self._end_compute_ui(success=False)
             self.statusBar().showMessage(
@@ -656,8 +614,7 @@ class RunControllerMixin:
 
     def _end_compute_ui(self, success):
         """Restore Compute button and either fade out progress (success) or
-        hide immediately (failure). On success also refreshes the headline
-        result footer from the published detail-value labels.
+        hide immediately (failure). Successful presentation records history.
 
         Called after terminal publication; stops the UI tickers and restores
         the Compute action. The orchestrator stays busy until its slots return.
@@ -690,6 +647,8 @@ class RunControllerMixin:
                 state, message = 'cancelled', '求解器已响应取消请求。'
             else:
                 state, message = 'error', '计算结束，但结果显示未完成。请查看诊断与日志。'
+            if not success and self.cache.has_any_results():
+                message += ' 已保留最近完成的计算结果，摘要与导出仍对应该结果。'
             card.finish(state, elapsed,
                         log_available=bool(getattr(self, '_last_solve_log', '').strip()),
                         message=message)
@@ -724,12 +683,6 @@ class RunControllerMixin:
             from PySide6.QtCore import QTimer as _QT
             _QT.singleShot(500, self.progress.hide)
             self._push_recent_run()
-            self._update_result_summary()
-            self._last_elapsed_s = elapsed
-            self._refresh_status_bar()
-            # D8 — stamp provenance tooltip on every result label so users
-            # can trace "where did this number come from" without guessing.
-            self._stamp_result_provenance(elapsed)
             # Notify completion; result values are published in the footer.
             try:
                 from sjtu_tpmshx.ui.microanim import pulse_glow, toast

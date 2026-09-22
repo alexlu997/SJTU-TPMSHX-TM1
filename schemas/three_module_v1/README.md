@@ -101,17 +101,18 @@ definition; re-evaluate the native result for the current GUI mapping.
 
 ## RunControl and module ports
 
-`Preprocessor.build(config) -> CaseData`, `Solver.run(case, control) ->
-FieldResult`, and `Postprocessor.evaluate(result, metric_spec) ->
-PerformanceResult` are independent ports. Runtime progress/cancellation
+The public function ports are `preprocess.api.prepare_case(config, case_id=...)
+-> CaseData`, `solvers.api.run_case(case, control) -> FieldResult`, and
+`postprocess.api.evaluate(result, metric_spec) -> PerformanceResult`.
+Runtime progress/cancellation
 callbacks are passed separately. Explicit cancellation raises the existing
 `CancelledError`; unrelated callback failures remain their original errors.
 `iteration(label: str)` carries the existing outer-iteration label;
 `residual(side: str, index: int, value: float)` carries 2D SIMPLE observations.
-The GUI adapter owns its display buffer. These observations do not alter
+Consumers may observe residuals through RunControl. These observations do not alter
 stopping criteria and are never persisted into CaseData or FieldResult.
-Formal codecs and per-mode capability/field tables remain required before
-G10 consumers and D/I/V nodes can be accepted.
+The formal HDF5 codecs and per-mode capability/field tables define the
+supported file handoff; see the current architecture and acceptance records.
 
 ## Application payload (current v1 draft)
 

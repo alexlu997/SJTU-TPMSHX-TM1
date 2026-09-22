@@ -91,6 +91,17 @@ def build_execution_inputs(case: CaseData):
         cfg['static_properties']['geometry']['K_ss'] = float(solid[0, 0])
         cfg['za'] = None
     else:
+        for field in ('L_field', 't_field'):
+            values = np.asarray(design.get(field))
+            if (values.shape != (len(dx), len(dy))
+                    or not np.all(np.isfinite(values) & (values > 0))):
+                raise ValueError(
+                    f'prepared zoned 2D case requires a positive {field}; '
+                    'prepare the original configuration again')
+        if cfg['thermal_geometry']['fields'] is None:
+            raise ValueError(
+                'prepared zoned 2D case requires per-cell thermal geometry; '
+                'prepare the original configuration again')
         cfg['za'] = design
     zone = _legacy_zone_units(cfg['zone_config'])
     if isinstance(zone, dict):

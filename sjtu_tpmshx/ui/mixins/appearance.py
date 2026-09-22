@@ -135,7 +135,7 @@ class AppearanceMixin:
         total = self._splitter.width() - self._splitter.handleWidth()
         self._splitter.setSizes([width, max(0, total - width)])
         self._refresh_workbench_navigation()
-        self.btn_toggle_left.setToolTip('展开参数栏' if collapsed else '收起参数栏')
+        self.btn_collapse_parameters.setToolTip('展开参数栏' if collapsed else '收起参数栏')
         if previous != collapsed and not collapsed:
             from sjtu_tpmshx.ui.microanim import reveal
             # Keep the canvas at its final size throughout the transition.

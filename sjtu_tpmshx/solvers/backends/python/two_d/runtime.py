@@ -32,8 +32,8 @@ def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
 
     def _run_simple(cfg_fluid, rho_f, mu_f, T_in_f, u_f, label, P_in_abs=101325.0,
                     T_field_real=None, fluid_type='ideal_gas',
-                    p_shoot_prev=None, df_method=None,
-                    rho_inlet_ref=None, fluid_name='air', cancel_check=None):
+                    p_shoot_prev=None,
+                    rho_inlet_ref=None, cancel_check=None):
         """Build + solve SIMPLE for one fluid.
 
         T_field_real : optional 2D array (Nx, Ny) of cell-centered T. When
@@ -161,23 +161,10 @@ def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
                 pressure_history.clear()
                 s.P_ref_abs = pressure_initial_reference(
                     _P_out_sq_g, P_in_abs, history=pressure_history)
-        _has_partial = np.any(s.outlet_frac < 0.99) and np.any(s.outlet_frac > 0.5)
-        # R3 (2026-07-07): production solver knobs, precedence
-        # env > SolverConfig > dim-specific auto. The autos are the
-        # long-standing hardcodes (partial 5e-4 / full 1e-5, cap 10000);
-        # a None config keeps them bit-identically. TPMSHX_SIMPLE_TOL
-        # used to be honoured by 3D only — the asymmetry is gone.
-        _tol = 5e-4 if _has_partial else 1e-5
         _max_it = 10000
         _sol_knobs = getattr(cfg.get('compute_cfg'), 'solver', None)
-        if _sol_knobs is not None:
-            if _sol_knobs.tol_simple is not None:
-                _tol = float(_sol_knobs.tol_simple)
-            if _sol_knobs.max_iter_simple is not None:
-                _max_it = int(_sol_knobs.max_iter_simple)
-        _env_tol = run_environment(cfg, 'TPMSHX_SIMPLE_TOL')
-        if _env_tol is not None:
-            _tol = float(_env_tol)
+        if _sol_knobs is not None and _sol_knobs.max_iter_simple is not None:
+            _max_it = int(_sol_knobs.max_iter_simple)
         # Propagate Ta/Tb to SIMPLE.T_field if available (compressible coupling
         # fix; without this _update_density uses stale scalar T_in inside SIMPLE)
         if T_field_real is not None:
@@ -195,7 +182,7 @@ def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
         # below tol. 5000 left B at res~3e-3 with target 1e-3.
         configure_convergence(s, cfg, _sol_knobs)
 
-        conv, n_it = s.solve(max_iter=_max_it, tol=_tol, verbose=False,
+        conv, n_it = s.solve(max_iter=_max_it, verbose=False,
                                progress_cb=_progress_cb, cancel_check=cancel_check)
         if not conv:
             simple_warnings[label] = (

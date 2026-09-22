@@ -23,10 +23,6 @@ def run_window(win, monkeypatch, tmp_path):
     win.auto_fill_fluid_b()
 
     def render(window):
-        result = win.compute.last_result()
-        for attr, value in (('_r_Q', result.Q_W), ('_r_dP_A', result.dP_A_Pa),
-                            ('_r_dP_B', result.dP_B_Pa)):
-            getattr(win, attr).setText(str(value))
         return False  # Offscreen 3D panel; scalar publication still succeeds.
 
     monkeypatch.setattr(win, '_finalize_plots',
@@ -88,14 +84,14 @@ def test_running_edits_recent_restore_and_consecutive_dimensions(run_window, mon
         restored = deepcopy(entry['preset'])
         restored['name'] = 'Run inputs'
         assert restored == expected
-        assert entry['Q'] == str(100 + dim)
+        assert float(entry['Q']) == 100 + dim
         assert entry['preset_source'] == f'start-{dim}'
         assert entry['mode'] == ('3d' if dim else '2d')
         assert entry['input_grid'] == (['24', '18', '5'] if dim else ['24', '18'])
         assert entry['actual_grid'] == list(sizes)
         provenance = result.metadata['run_provenance']
         assert provenance['preset'] == expected
-        tip_fields = win._r_Q.toolTip().split('  ·  ')
+        tip_fields = win._sb_labels['q'].toolTip().split('  ·  ')
         assert f'preset: start-{dim}' in tip_fields
         input_grid = '24×18×5' if dim else '24×18'
         assert f'input grid {input_grid} (before refinement)' in tip_fields
@@ -252,8 +248,8 @@ def test_footer_and_history_follow_each_successful_result(run_window, monkeypatc
         monkeypatch.setattr(Pipeline2D, 'run', lambda pipe: ComputeResult(Q_W=value))
         win.run_calculation()
         _wait_for(win.compute.is_idle)
-        assert win._sb_labels['q'].text() == f'{value} W/m'
-    assert [entry['Q'] for entry in win._recent_runs] == ['180', '120', '100']
+        assert win._sb_labels['q'].text() == f'{value:.1f} W/m'
+    assert [entry['Q'] for entry in win._recent_runs] == ['180.0', '120.0', '100.0']
 
 
 @pytest.mark.parametrize('dim', [0, 1])

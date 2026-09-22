@@ -139,7 +139,7 @@ def test_3d_missing_view_reports_warning_without_discarding_result(win, monkeypa
     _wait_for(win.compute.is_idle)
     assert win._run_status_card.state == 'warning'
     assert '三维视图不可用' in win._run_status_card.note.text()
-    assert win._result_3d.Q_W == 42
+    assert win.cache.get_result('3d').Q_W == 42
     assert win.btn_export.isEnabled()
 
 

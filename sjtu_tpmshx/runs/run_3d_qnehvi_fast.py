@@ -55,9 +55,8 @@ def main() -> None:
         'outer_tol_K':  0.5,
         'alpha_outer':  0.6,
 
-        # Screening budgets; tol_simple is a compatibility input, not F2 gates.
+        # Screening iteration budgets; convergence uses the shared F2 gates.
         'max_iter_simple': 500,
-        'tol_simple':      1e-2,
         'max_iter_energy': 1500,
         'tol_energy':      0.5,
         # Outer ρ via 3D evaluator's max_outer_3d, not 2D n_rho_loops

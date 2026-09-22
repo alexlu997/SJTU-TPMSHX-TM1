@@ -99,9 +99,6 @@ class MatplotlibCanvas(FigureCanvas):
         self.fig.patch.set_facecolor(_t['fig_bg'])
 
         # 2 pressure cloud plots only. The "Pressure Drop Summary" card and the
-        # SIMPLE convergence mini-plot were removed for the 2D view: dP is
-        # already shown in the top KPI strip and the residual trace was clutter.
-        # dP_A/B + residuals_A/B stay in the signature for call-site stability.
         gs = GridSpec(2, 1, figure=self.fig, height_ratios=[1, 1],
                       hspace=0.32, left=0.08, right=0.93, top=0.94, bottom=0.08)
 
@@ -109,7 +106,6 @@ class MatplotlibCanvas(FigureCanvas):
         _dy = dy_arr if dy_arr is not None else np.full(N_y, H / N_y)
         x = (np.cumsum(_dx) - _dx / 2) * 1000
         y = (np.cumsum(_dy) - _dy / 2) * 1000
-        Y, X = np.meshgrid(y, x)
 
         axes_p = [self.fig.add_subplot(gs[0]), self.fig.add_subplot(gs[1])]
         self.axes = [axes_p]
@@ -127,10 +123,7 @@ class MatplotlibCanvas(FigureCanvas):
             cb = self.fig.colorbar(cf, ax=ax, shrink=0.9, aspect=25, format="%.0f")
             style_field_axes(ax, cb, _t, main_title, subtitle)
 
-        # (Pressure Drop Summary card + SIMPLE convergence mini-plot deleted
-        # from the 2D pressure view. dP is shown in the top KPI strip; SIMPLE
-        # residuals are still tracked by the solver for convergence/bootstrap,
-        # just no longer plotted here.)
+        # Scalar pressure drop lives in the result footer.
         _ = mode
 
         self.draw()

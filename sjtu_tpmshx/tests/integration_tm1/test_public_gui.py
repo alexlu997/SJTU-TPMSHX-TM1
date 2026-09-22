@@ -103,7 +103,7 @@ def test_saved_polygon_cannot_replace_the_current_compute_case(win, monkeypatch,
 @pytest.mark.slow
 @pytest.mark.parametrize('dimension', [2, 3])
 def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, dimension):
-    monkeypatch.setenv('SJTU_TPMSHX_DISABLE_3D_PANEL', '1')
+    monkeypatch.setenv('TPMSHX_DISABLE_3D_PANEL', '1')
     monkeypatch.delenv('TPMSHX_EAGER_3D_SLICES', raising=False)
     errors = []
     dialogs = []
@@ -148,9 +148,9 @@ def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, di
     unit = 'W/m' if dimension == 2 else 'W'
     assert result.metadata['source_result_id']
     assert result.metadata['units']['Q'] == win._result_Q_unit == unit
-    assert f'[{unit}]' in win._lbl_Q_unit.text()
+    assert win._sb_labels['q'].text().endswith(' ' + unit)
     assert win._tout_K_cache == (result.T_out_A_K, result.T_out_B_K)
-    assert float(win._r_ToutA.text()) == pytest.approx(result.T_out_A_K - 273.15, abs=.051)
+    assert float(win._sb_labels['tout'].text().split(' / ')[0]) == pytest.approx(result.T_out_A_K - 273.15, abs=.051)
     assert result.fields['dir_A'] == config.bc_A.dir
     assert result.fields['Ta'].shape[0] != 99
     np.testing.assert_allclose(
@@ -200,7 +200,8 @@ def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, di
     assert all(f'⚠ {warning}' in diagnostic_text for warning in result.warnings)
     assert win._active_tab == 'temp'
     assert unit in win._sb_labels['q'].text()
-    assert f'{dimension}D' in win._sb_result_heading.text()
+    assert win._result_heading.isVisible()
+    assert f'{dimension}D' in win._result_heading.text()
     assert '[°C]' in win._lbl_sidebar_tout_unit.text()
     for width in (900, 1440):
         win.resize(width, 720 if width == 900 else 900)

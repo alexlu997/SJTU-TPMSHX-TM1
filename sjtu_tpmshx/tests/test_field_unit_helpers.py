@@ -37,7 +37,7 @@ def test_field_units_lcell_and_t_are_mm():
 
 
 def test_field_units_counts_have_no_target_unit():
-    for attr in ('le_Nx', 'le_Ny', 'le_Nz', 'le_mesh_density'):
+    for attr in ('le_Nx', 'le_Ny', 'le_Nz'):
         fam, target = FIELD_UNITS[attr]
         assert fam == 'count'
         assert target is None

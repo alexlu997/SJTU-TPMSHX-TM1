@@ -1,13 +1,7 @@
-"""Fluids-page builder (Boundary Conditions accordion group).
-
-Split out of ui_builders.py (Batch-2, 2026-06-10). Builds the Fluid A /
-Fluid B input cards, the per-fluid inlet/outlet (partial-pipe BC)
-sections.
-"""
-from PySide6.QtCore import Qt
+"""Build fluid, model and inlet/outlet sections in the parameter inspector."""
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton,
-    QComboBox, QScrollArea,
+    QComboBox,
 )
 
 from .builders_base import (section, collapsible_section, row, res_row, add_row, right_align_combo)
@@ -103,13 +97,12 @@ def _build_fluid_io_rows(window, g, side, t, u_default, T_default, P_default,
     g.addWidget(details, 5, 0, 1, 2)
 
 
-def build_page_fluids(window):
-    """Ex-Main_Menu._build_page_fluids(self) -> QScrollArea."""
+def build_fluid_sections(window, lay):
+    """Build and register sections in the existing parameter container."""
     # Phase 5 follow-up: styles via FieldFactory + ThemeManager DI.
     from .field_factory import default_factory
     f = default_factory()
     t = f.theme
-    _BG = t.style('BG')
     _T_A = t.style('T_A')
     _F_A = t.style('F_A')
     _T_B = t.style('T_B')
@@ -118,15 +111,6 @@ def build_page_fluids(window):
     _F_NEUTRAL = t.style('F_NEUTRAL')
     _COMBO = t.style('COMBO')
 
-    scroll = QScrollArea()
-    scroll.setWidgetResizable(True)
-    # ui-layout-fixes: no horizontal scroll — labels wrap, cards stack.
-    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-    scroll.setStyleSheet("border:none; background:transparent;")
-
-    w = QWidget(); w.setStyleSheet(f"background:{_BG};")
-    lay = QVBoxLayout(w)
-    lay.setSpacing(12); lay.setContentsMargins(8, 4, 6, 6)
 
     g_method, method_section = section(window, lay, "Darcy–Forchheimer 求解方法",
                                        _T_NEUTRAL, _F_NEUTRAL)
@@ -264,11 +248,8 @@ def build_page_fluids(window):
     lay.addWidget(btn_preview)
     window._ia_sections['preview_btn'] = btn_preview
 
-    lay.addStretch()
     # Initial dir-aware label sync (cross1 axis name per current combo_dirA/B)
     try:
         window._on_dir_changed()
     except Exception:
         pass
-    scroll.setWidget(w)
-    return scroll

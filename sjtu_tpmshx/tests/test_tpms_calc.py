@@ -22,7 +22,7 @@ from sjtu_tpmshx.models.tpms_calc import (
     air_density, air_viscosity, air_cp,
     water_density, water_viscosity, water_cp, water_conductivity,
     geometry, adaptive_grid, compute,
-    parse_fluid_type, validate_fluid_type,
+    validate_fluid_type,
 )
 
 
@@ -222,10 +222,6 @@ def test_compute_air_out_of_range_still_warns():
 # ─── Fluid type parsing ────────────────────────────────────────────
 
 
-def test_parse_fluid_type_air():
-    class FakeCombo:
-        def currentText(self): return 'Air'
-    assert parse_fluid_type(FakeCombo()) == 'air'
 
 
 def test_validate_fluid_type_unknown_raises():

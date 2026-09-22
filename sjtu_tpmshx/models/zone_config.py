@@ -1,18 +1,10 @@
 """
 zone_config.py — Zone-based domain partitioning for SJTU-TPMSHX
 
-DEPRECATED FOR OPTIMIZER USE
-============================
-The optimizer (`optimization/optimizer_qnehvi.py` + `evaluator.py`) now
-uses `models.continuous_field.ContinuousFieldConfig` (4×4 + Y-mirror = 16-D
-bicubic B-spline) for continuous-field optimization, which superseded
-the old patch-zoning NSGA-II workflow (2026-05-08 rewrite).
-
-This module is RETAINED ONLY for the UI Compute path's "Define zones"
-tab (`preprocess/two_d/preparation.py` consumes the ZoneInputConfig snapshot that
-`ui/window_config.py` builds from window._zone_grid / the zone table).
-New optimization code MUST NOT import ZoneConfig — use
-ContinuousFieldConfig instead.
+Discrete zones belong to the full Compute path: preparation consumes a
+ZoneInputConfig from the GUI or saved configuration. The optimizer uses
+models.continuous_field.ContinuousFieldConfig for its continuous search space;
+the GUI's single-point zone card does not participate in that search.
 
 Defines discrete zones along the y-axis, each with independent TPMS
 parameters (L, t). Computes per-zone properties and builds per-cell
@@ -111,7 +103,7 @@ class ZoneConfig:
     # ── Structured grid arrays ──────────────────────────────────
 
     def build_structured_arrays(self, Nx: int, Ny: int, H: float,
-                                axis: str = 'y') -> dict:
+                                axis: str = 'y', *, dx_arr=None, dy_arr=None) -> dict:
         """Build 2D per-cell property arrays for structured rectangular grid.
 
         Parameters
@@ -119,6 +111,7 @@ class ZoneConfig:
         Nx, Ny : grid cells in x and y
         H      : domain size along partition axis [m]
         axis   : 'y' or 'x' — which axis zones are defined along
+        dx_arr, dy_arr : actual cell widths [m]; None uses uniform centres.
 
         Returns
         -------
@@ -128,8 +121,13 @@ class ZoneConfig:
             raise RuntimeError("Call compute_properties() before building arrays.")
 
         N_ax = Ny if axis == 'y' else Nx
-        d_ax = H / N_ax
-        fc = np.array([(k + 0.5) * d_ax / H for k in range(N_ax)])
+        widths = dy_arr if axis == 'y' else dx_arr
+        if widths is None:
+            d_ax = H / N_ax
+            fc = np.array([(k + 0.5) * d_ax / H for k in range(N_ax)])
+        else:
+            widths = np.asarray(widths, dtype=np.float64)
+            fc = (np.cumsum(widths) - 0.5 * widths) / H
 
         zone_id_1d = np.zeros(N_ax, dtype=np.int32)
         for k in range(N_ax):
@@ -150,6 +148,8 @@ class ZoneConfig:
         h_vB_arr  = np.empty((Nx, Ny), dtype=np.float64)
         r_h_arr   = np.empty((Nx, Ny), dtype=np.float64)
         A_0_arr   = np.empty((Nx, Ny), dtype=np.float64)
+        L_field   = np.empty((Nx, Ny), dtype=np.float64)
+        t_field   = np.empty((Nx, Ny), dtype=np.float64)
 
         for k in range(N_ax):
             z = self.zones[zone_id_1d[k]]
@@ -157,9 +157,9 @@ class ZoneConfig:
             eps = pA['epsilon']
             v = (zone_id_1d[k], eps, pA['epsilon_A'], pA['K_ff'], pB['K_ff'],
                  pA['K_ss'], pA['H_sf']*pA['A_0'], pB['H_sf']*pB['A_0'],
-                 pA['D_h']/2.0, pA['A_0'])
+                 pA['D_h']/2.0, pA['A_0'], z.L_mm, z.t_mm)
             arrs = (zone_id, eps_arr, eps_f_arr, K_ffA_arr, K_ffB_arr,
-                    K_ss_arr, h_vA_arr, h_vB_arr, r_h_arr, A_0_arr)
+                    K_ss_arr, h_vA_arr, h_vB_arr, r_h_arr, A_0_arr, L_field, t_field)
             for arr, val in zip(arrs, v):
                 if axis == 'y':
                     arr[:, k] = val
@@ -178,6 +178,8 @@ class ZoneConfig:
             'h_vB_arr':  h_vB_arr,
             'r_h_arr':   r_h_arr,
             'A_0_arr':   A_0_arr,
+            'L_field':   L_field,
+            't_field':   t_field,
             'axis': axis,
             'zone_params': [
                 {
@@ -244,6 +246,8 @@ class ZoneConfig:
         h_vB_arr  = np.empty((Nx, Ny), dtype=np.float64)
         r_h_arr   = np.empty((Nx, Ny), dtype=np.float64)
         A_0_arr   = np.empty((Nx, Ny), dtype=np.float64)
+        L_field   = np.empty((Nx, Ny), dtype=np.float64)
+        t_field   = np.empty((Nx, Ny), dtype=np.float64)
 
         # Cell-centre fractional positions for non-uniform grid support
         if dx_arr is not None:
@@ -287,6 +291,8 @@ class ZoneConfig:
                         eps_f_arr[i, j] = pA['epsilon_A']
                         r_h_arr[i, j]   = pA['D_h'] / 2.0
                         A_0_arr[i, j]   = pA['A_0']
+                        L_field[i, j] = gc['L']
+                        t_field[i, j] = gc['t']
                         break
                 else:
                     # Cell not covered: use first grid cell as fallback
@@ -303,6 +309,8 @@ class ZoneConfig:
                     eps_f_arr[i, j] = pA['epsilon_A']
                     r_h_arr[i, j]   = pA['D_h'] / 2.0
                     A_0_arr[i, j]   = pA['A_0']
+                    L_field[i, j] = gc0['L']
+                    t_field[i, j] = gc0['t']
 
         return {
             'zone_id':   zone_id,
@@ -315,6 +323,8 @@ class ZoneConfig:
             'h_vB_arr':  h_vB_arr,
             'r_h_arr':   r_h_arr,
             'A_0_arr':   A_0_arr,
+            'L_field':   L_field,
+            't_field':   t_field,
             'axis':      'grid',
             'y_bounds':  sorted(y_bounds - {0.0, 1.0}),
             'x_bounds':  sorted(x_bounds - {0.0, 1.0}),
@@ -323,86 +333,6 @@ class ZoneConfig:
 
     # ── Unstructured mesh arrays ────────────────────────────────
 
-    def build_unstructured_arrays(self, cell_centers_y: np.ndarray,
-                                  n_cells: int, H: float) -> dict:
-        """Build 1D per-cell property arrays for unstructured FVM mesh.
-
-        Parameters
-        ----------
-        cell_centers_y : 1D array of cell centre y-coordinates [m]
-        n_cells : number of cells
-        H : domain height [m]
-
-        Returns
-        -------
-        dict with 1D arrays [n_cells]: same keys as structured version.
-        """
-        if not self.zones or not self.zones[0].props_A:
-            raise RuntimeError("Call compute_properties() before building arrays.")
-
-        yc_frac = cell_centers_y / H
-
-        zone_id   = np.zeros(n_cells, dtype=np.int32)
-        eps_arr   = np.empty(n_cells, dtype=np.float64)
-        eps_f_arr = np.empty(n_cells, dtype=np.float64)
-        K_ffA_arr = np.empty(n_cells, dtype=np.float64)
-        K_ffB_arr = np.empty(n_cells, dtype=np.float64)
-        K_ss_arr  = np.empty(n_cells, dtype=np.float64)
-        h_vA_arr  = np.empty(n_cells, dtype=np.float64)
-        h_vB_arr  = np.empty(n_cells, dtype=np.float64)
-        r_h_arr   = np.empty(n_cells, dtype=np.float64)
-        A_0_arr   = np.empty(n_cells, dtype=np.float64)
-
-        for ci in range(n_cells):
-            yf = yc_frac[ci]
-            zi = len(self.zones) - 1
-            for k, z in enumerate(self.zones):
-                if z.y_frac_start <= yf < z.y_frac_end:
-                    zi = k
-                    break
-
-            zone_id[ci] = zi
-            z = self.zones[zi]
-            pA, pB = z.props_A, z.props_B
-            eps = pA['epsilon']
-
-            eps_arr[ci]   = eps
-            eps_f_arr[ci] = pA['epsilon_A']
-            K_ffA_arr[ci] = pA['K_ff']
-            K_ffB_arr[ci] = pB['K_ff']
-            K_ss_arr[ci]  = pA['K_ss']
-            h_vA_arr[ci]  = pA['H_sf'] * pA['A_0']
-            h_vB_arr[ci]  = pB['H_sf'] * pB['A_0']
-            r_h_arr[ci]   = pA['D_h'] / 2.0
-            A_0_arr[ci]   = pA['A_0']
-
-        return {
-            'zone_id':   zone_id,
-            'eps_arr':   eps_arr,
-            'eps_f_arr': eps_f_arr,
-            'K_ffA_arr': K_ffA_arr,
-            'K_ffB_arr': K_ffB_arr,
-            'K_ss_arr':  K_ss_arr,
-            'h_vA_arr':  h_vA_arr,
-            'h_vB_arr':  h_vB_arr,
-            'r_h_arr':   r_h_arr,
-            'A_0_arr':   A_0_arr,
-            'zone_params': [
-                {
-                    'name': z.name,
-                    'y_frac_start': z.y_frac_start,
-                    'y_frac_end': z.y_frac_end,
-                    'L_mm': z.L_mm, 't_mm': z.t_mm,
-                    'epsilon': z.props_A['epsilon'],
-                    'D_h': z.props_A['D_h'],
-                    'r_h': z.props_A['D_h'] / 2.0,
-                    'A_0': z.props_A['A_0'],
-                    'mu': z.props_A['mu'],
-                    'rho': z.props_A['rho'],
-                }
-                for z in self.zones
-            ],
-        }
 
     # ── Factory: single-zone (backward compatible) ──────────────
 
@@ -523,67 +453,3 @@ def format_zone_report(stats):
         if 'P_spread' in s:
             lines.append(f"    P spread: {s['P_spread']:.1f} Pa")
     return '\n'.join(lines)
-
-
-# ── Standalone test ─────────────────────────────────────────────
-
-if __name__ == '__main__':
-    print("=== ZoneConfig standalone test ===\n")
-
-    # Test 1: single zone
-    zc1 = ZoneConfig.single_zone(6.0, 0.3, 'Diamond', 15.0)
-    zc1.compute_properties(u_A=5.0, u_B=3.0, T_inA=400, T_inB=300)
-    a1 = zc1.build_structured_arrays(Nx=10, Ny=20, H=0.1)
-    print(f"Single zone: eps = {a1['eps_arr'][0,0]:.4f}, "
-          f"K_ffA = {a1['K_ffA_arr'][0,0]:.6f}, "
-          f"h_vA = {a1['h_vA_arr'][0,0]:.1f}")
-    assert np.all(a1['zone_id'] == 0), "Single zone: all zone_id should be 0"
-    assert np.allclose(a1['eps_arr'], a1['eps_arr'][0, 0]), "Single zone: eps should be uniform"
-    print("  PASS: single zone uniform\n")
-
-    # Test 2: 3-zone config
-    zc3 = ZoneConfig(
-        zones=[
-            Zone('inlet',  0.0, 0.2, L_mm=4.0, t_mm=0.4),
-            Zone('middle', 0.2, 0.8, L_mm=6.0, t_mm=0.3),
-            Zone('outlet', 0.8, 1.0, L_mm=4.0, t_mm=0.4),
-        ],
-        tpms_type='Diamond', k_s=15.0,
-    )
-    zc3.compute_properties(u_A=5.0, u_B=3.0, T_inA=400, T_inB=300)
-    a3 = zc3.build_structured_arrays(Nx=10, Ny=100, H=0.1)
-
-    # Check zone assignment
-    n_zone0 = np.sum(a3['zone_id'][0, :] == 0)
-    n_zone1 = np.sum(a3['zone_id'][0, :] == 1)
-    n_zone2 = np.sum(a3['zone_id'][0, :] == 2)
-    print(f"3-zone: cells per zone = [{n_zone0}, {n_zone1}, {n_zone2}]")
-    assert n_zone0 == 20 and n_zone1 == 60 and n_zone2 == 20, "Zone counts wrong"
-
-    # Check different properties per zone
-    eps_inlet  = a3['eps_arr'][0, 5]
-    eps_middle = a3['eps_arr'][0, 50]
-    print(f"  eps(inlet zone) = {eps_inlet:.4f}")
-    print(f"  eps(middle zone) = {eps_middle:.4f}")
-    assert eps_inlet != eps_middle, "Different zones should have different eps"
-    print("  PASS: 3-zone property variation\n")
-
-    # Test 3: unstructured arrays
-    cell_y = np.linspace(0.005, 0.095, 50)  # 50 cells over H=0.1
-    a3u = zc3.build_unstructured_arrays(cell_y, 50, H=0.1)
-    print(f"Unstructured: zone_id range = [{a3u['zone_id'].min()}, {a3u['zone_id'].max()}]")
-    assert a3u['zone_id'].min() == 0 and a3u['zone_id'].max() == 2
-    print("  PASS: unstructured arrays\n")
-
-    # Test 4: validation errors
-    try:
-        bad = ZoneConfig(
-            zones=[Zone('a', 0.0, 0.5, 6.0, 0.3), Zone('b', 0.6, 1.0, 6.0, 0.3)],
-            tpms_type='Diamond', k_s=15.0
-        )
-        bad.validate()
-        print("  FAIL: should have caught gap")
-    except ValueError as e:
-        print(f"  PASS: caught gap error: {e}\n")
-
-    print("=== All tests passed ===")

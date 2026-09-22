@@ -242,9 +242,8 @@ def _compute_Q_richardson(
 
     Re-solves the coupled energy field on a 2x-refined grid, applies
     per-side Richardson extrapolation to |Q_A|/|Q_B|, and falls back to
-    a 1D plate-average when the refined solve is unavailable. Extracted
-    verbatim from ``_run_solvers`` (#9-2D god-function split);
-    ``warnings_list`` is appended in place on fallback paths.
+    user-grid duty when the refined solve is unavailable.
+    ``warnings_list`` records unavailable-refinement diagnostics.
 
     ``split_A`` (offset-isosurface δ): fraction of total ε on side A. 0.5 →
     symmetric (bit-identical). δ≠0 → the refined solve uses the per-side
@@ -269,7 +268,7 @@ def _compute_Q_richardson(
     _cell_area = energy_dx[:, None] * energy_dy[None, :]  # (Nx, Ny)
     Q_solid_100 = float(np.sum(h_vB_coarse * (Ts - Tb) * _cell_area))
 
-    # Richardson: run energy at 200×100 for Q extrapolation
+    # Double each physical grid count for the energy-only refinement.
     Nx2, Ny2 = N_x * 2, N_y * 2
     if port_wall_refine:
         from sjtu_tpmshx.models.grid import split_cells
@@ -277,12 +276,7 @@ def _compute_Q_richardson(
     else:
         energy_dx2 = _aligned_grid(Nx2, L, list(_x_breaks))
         energy_dy2 = _aligned_grid(Ny2, H, list(_y_breaks))
-    # 2026-05-07: `_aligned_grid` silently expands the cell count when
-    # `min(2, ...)` per segment forces total > N (case: B partial pipe
-    # with 4 break points on x). Read back the actual length so Nx2/Ny2
-    # match the returned dx/dy arrays — otherwise solve_full_domain
-    # receives mismatched (Nx2, Ny2) vs dx_arr/dy_arr shapes and
-    # `h_vB_arr * (Ts - Tb)` broadcasts the wrong way.
+    # Grid constructors enforce the requested counts and physical coverage.
     Nx2 = int(len(energy_dx2))
     Ny2 = int(len(energy_dy2))
 
@@ -436,10 +430,7 @@ def _compute_Q_richardson(
                                        and not model_balance['post_after_last_thermal'])
         refined_ok = bool(refined_ok and fine_balance['passed'] and model_balance['passed'])
     _area2 = energy_dx2[:, None] * energy_dy2[None, :]
-    if za is not None and 'h_vB_arr' in za:
-        Q_solid_200 = float(np.sum(h_vB2 * (Ts2 - Tb2) * _area2))
-    else:
-        Q_solid_200 = float(np.sum(h_vB2 * (Ts2 - Tb2) * _area2))
+    Q_solid_200 = float(np.sum(h_vB2 * (Ts2 - Tb2) * _area2))
     # Diagnostic only — solid-side Richardson retains the old signed
     # convention and lets us track grid convergence on ∑h_vB·(Ts−Tb).
     Q_solid_richardson = ((4.0 * Q_solid_200 - Q_solid_100) / 3.0
@@ -454,12 +445,6 @@ def _compute_Q_richardson(
                     else np.full((N_x, N_y), rho_cp_A))
     rho_cp_B_fld = (rho_cp_B if np.ndim(rho_cp_B) > 0
                     else np.full((N_x, N_y), rho_cp_B))
-
-    # sCO2 (audit 2026-06-28 D1): true mass-weighted enthalpy duty ṁ·(⟨h_in⟩−
-    # ⟨h_out⟩); cp(T_in)·ΔT is −40 %…+224 % wrong across the pseudocritical cp
-    # spike. air/water pass None → byte-identical legacy ρcp·ΔT (golden-safe).
-    _enth_A = _pA.enthalpy if _pA.name == 'sco2' else None
-    _enth_B = _pB.enthalpy if _pB.name == 'sco2' else None
 
     # Per-side void fraction ε_side = ε·s (N1 fix, 2026-07-07): velocities are
     # interstitial, so the physical face mass flux is ε_side·ρ·|u|·A. The old
@@ -482,26 +467,26 @@ def _compute_Q_richardson(
                 Q_A_fine = _enthalpy_balance_2d(
                     Ta, ucA, vcA, rho_cp_A_fld, dir_A, energy_dx, energy_dy,
                     inlet_mask=mA_in, outlet_mask=mA_out,
-                    enthalpy_fn=_enth_A, rho_fn=_pA.rho, P_ref=P_inA_val,
+
                     eps_side=eps * _sA_Q, T_in=T_inA)
             with range_context(side='B', stage='main-duty', layout='duty-source'):
                 Q_B_fine = _enthalpy_balance_2d(
                     Tb, ucB, vcB, rho_cp_B_fld, dir_B, energy_dx, energy_dy,
                     inlet_mask=mB_in, outlet_mask=mB_out,
-                    enthalpy_fn=_enth_B, rho_fn=_pB.rho, P_ref=P_inB_val,
+
                     eps_side=eps * _sB_Q, T_in=T_inB)
             if refined_ok:
                 with range_context(side='A', stage='richardson-duty', layout='duty-source'):
                     Q_A_coarse = _enthalpy_balance_2d(
                         Ta2, ucA2, vcA2, rcp_A2, dir_A, energy_dx2, energy_dy2,
                         inlet_mask=mA_in2, outlet_mask=mA_out2,
-                        enthalpy_fn=_enth_A, rho_fn=_pA.rho, P_ref=P_inA_val,
+
                         eps_side=eps2 * _sA_Q, T_in=T_inA)
                 with range_context(side='B', stage='richardson-duty', layout='duty-source'):
                     Q_B_coarse = _enthalpy_balance_2d(
                         Tb2, ucB2, vcB2, rcp_B2, dir_B, energy_dx2, energy_dy2,
                         inlet_mask=mB_in2, outlet_mask=mB_out2,
-                        enthalpy_fn=_enth_B, rho_fn=_pB.rho, P_ref=P_inB_val,
+
                         eps_side=eps2 * _sB_Q, T_in=T_inB)
             else:
                 Q_A_coarse = Q_B_coarse = float('nan')
@@ -743,38 +728,24 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
         return m.nu(tpms_type, Re, eps_f, L_mm, D_h_mm, Pr)
 
     def _build_hv_local_2d(rho_scalar, mu_scalar, k_f_scalar,
-                            u_mag_field, L_mm_field, t_mm_field,
+                            u_mag_field, L_mm_field,
                             *, side_props, side_T_for_Pr, side_P):
         """Per-cell h_v = A_0 · max(Nu(Re_local), Nu_lam) · k_f / D_h.
-        L_mm_field, t_mm_field None → uniform Lcell, t_wall.
+        L_mm_field None selects the prepared uniform geometry.
         The supplied FluidModel and scalar T/P determine the Nu correlation."""
-        Nx_l, Ny_l = u_mag_field.shape
         if L_mm_field is None:
-            g_u = cfg['thermal_geometry']['uniform']
-            A0 = g_u['A_0']; D_h = g_u['D_h']; eps_g = g_u['epsilon']
-            Re_loc = rho_scalar * (np.abs(u_mag_field) + 1e-12) * D_h / mu_scalar
-            record_raw_nu_range(side_props.name, tpms_type, Re_loc)
-            m, Pr = _nu_inputs(side_props, side_T_for_Pr, side_P)
-            Nu_arr = local_nusselt(m, tpms_type, Re_loc,
-                                  eps_g / 2.0, Lcell, D_h * 1000.0, Pr)
-            return A0 * Nu_arr * k_f_scalar / D_h
-        out = np.empty((Nx_l, Ny_l), dtype=np.float64)
-        raw_Re = np.empty_like(out)
-        for i in range(Nx_l):
-            for j in range(Ny_l):
-                L_ij = float(L_mm_field[i, j])
-                g = {key: value[i, j] for key, value in cfg['thermal_geometry']['fields'].items()}
-                D_h_l = g['D_h']
-                Re_l = rho_scalar * (abs(float(u_mag_field[i, j])) + 1e-12) * D_h_l / mu_scalar
-                raw_Re[i, j] = Re_l
-                Re_ij = max(Re_l, 1.0)
-                nu_corr = _nu_dispatch(side_props, side_T_for_Pr,
-                                        Re_ij, g['epsilon'] / 2.0,
-                                        L_ij, D_h_l * 1000.0, side_P)
-                Nu_l = max(nu_corr, _NU_LAM_FLOOR_2D)
-                out[i, j] = g['A_0'] * Nu_l * k_f_scalar / D_h_l
-        record_raw_nu_range(side_props.name, tpms_type, raw_Re)
-        return out
+            g = cfg['thermal_geometry']['uniform']
+            lengths = Lcell
+        else:
+            g = cfg['thermal_geometry']['fields']
+            lengths = L_mm_field
+        A0, D_h, eps_g = g['A_0'], g['D_h'], g['epsilon']
+        Re_loc = rho_scalar * (np.abs(u_mag_field) + 1e-12) * D_h / mu_scalar
+        record_raw_nu_range(side_props.name, tpms_type, Re_loc)
+        m, Pr = _nu_inputs(side_props, side_T_for_Pr, side_P)
+        Nu_arr = local_nusselt(m, tpms_type, Re_loc,
+                              eps_g / 2.0, lengths, D_h * 1000.0, Pr)
+        return A0 * Nu_arr * k_f_scalar / D_h
 
     tpms_type = cfg['tpms_type']
     Lcell = cfg['Lcell']; t_wall = cfg['t_wall']
@@ -895,7 +866,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
         mean_T = cell_average(T_field, energy_dx, energy_dy)
         return _build_hv_local_2d(
             rho, mu, float(props.k(mean_T, P_in)),
-            u_mag, None, None, side_props=props,
+            u_mag, None, side_props=props,
             side_T_for_Pr=mean_T, side_P=P_in)
 
     def _solve_flow(_coup_it):
@@ -910,10 +881,6 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
         # the registry's flow_model() instead of a per-site string check.
         _ftA = fluid_props.flow_model(_pA.name)
         _ftB = fluid_props.flow_model(_pB.name)
-        from sjtu_tpmshx.df_surrogate.predict import SCO2_DF_METHOD
-        # V2 uses one water+sCO2 CFD-only closure for every fluid. K and
-        # cF depend on TPMS/L/t only and stay fixed through the solve.
-        _dfA = _dfB = SCO2_DF_METHOD
         # perf-wave1 (2026-07-03): run the two independent SIMPLE solves
         # on two OS threads. The solvers share no mutable state (separate instances,
         # per-side live-residual lists, per-label simple_warnings keys),
@@ -950,8 +917,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
                 args=(0, (cfgA, state.rho_A_field, state.mu_A, T_inA, u_A,
                           'Fluid A', P_inA_val),
                       dict(T_field_real=_Ta_for_simpA,
-                           fluid_type=_ftA, df_method=_dfA,
-                           fluid_name=_pA.name,
+                           fluid_type=_ftA,
                            rho_inlet_ref=float(_pA.rho(T_inA, P_inA_val)),
                            p_shoot_prev=_psA)),
                 daemon=True)
@@ -961,8 +927,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
                 args=(1, (cfgB, state.rho_B_field, state.mu_B, T_inB, u_B,
                           'Fluid B', P_inB_val),
                       dict(T_field_real=_Tb_for_simpB,
-                           fluid_type=_ftB, df_method=_dfB,
-                           fluid_name=_pB.name,
+                           fluid_type=_ftB,
                            rho_inlet_ref=float(_pB.rho(T_inB, P_inB_val)),
                            p_shoot_prev=_psB)),
                 daemon=True)
@@ -1038,11 +1003,10 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
         # Build local-Re per-cell h_v fields (#1 fix). Use cell-center magnitude.
         u_mag_A = local_speed(state.ucA, state.vcA)
         u_mag_B = local_speed(state.ucB, state.vcB)
-        # Zoned L/t fields (only if zone_config and grid mode); otherwise None
-        L_field_2d = None; t_field_2d = None
+        # Every zoned design carries L/t at the physical thermal cell centres.
+        L_field_2d = None
         if zone_config is not None and za is not None:
-            L_field_2d = za.get('L_mm_arr')
-            t_field_2d = za.get('t_arr')
+            L_field_2d = za['L_field']
         if _enthalpy_mode:
             _g_hv = cfg['thermal_geometry']['uniform']
             _Ta_hv = (state.Ta if state.Ta is not None
@@ -1074,12 +1038,12 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
             with range_context(side='A', stage='main-hv', layout='real-cell(x,y)'):
                 h_vA_local = _build_hv_local_2d(
                     rho_A_scalar, mu_A_scalar, k_fA,
-                    u_mag_A, L_field_2d, t_field_2d,
+                    u_mag_A, L_field_2d,
                     side_props=_pA, side_T_for_Pr=T_inA, side_P=P_inA_val)
             with range_context(side='B', stage='main-hv', layout='real-cell(x,y)'):
                 h_vB_local = _build_hv_local_2d(
                     rho_B_scalar, mu_B_scalar, k_fB,
-                    u_mag_B, L_field_2d, t_field_2d,
+                    u_mag_B, L_field_2d,
                     side_props=_pB, side_T_for_Pr=T_inB, side_P=P_inB_val)
         # Per-side interfacial geometry under δ (1.0 at δ=0 → bit-identical).
         if _asym_2d:

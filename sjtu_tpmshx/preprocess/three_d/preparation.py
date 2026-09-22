@@ -10,12 +10,7 @@ from sjtu_tpmshx.models.grid_3d import _build_grid_3d, _resolve_axis_map, _build
 from sjtu_tpmshx.models.field_coordinates_3d import _build_partial_masks
 
 def _parse_inputs_3d_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
-    """Phase 1 (Qt-free) 3D mirror of ``_parse_inputs(window, compute_cfg)``.
-
-    Audit C4 (L-a-2): reads only :class:`ComputeConfig`. Returns the
-    same parsed dict ``_run_3d_stack`` expects plus an
-    ``extrap_reasons`` key (the legacy version mutated this onto
-    ``window._extrap_reasons``).
+    """Read typed physical input and prepare the numerical parameter mapping.
     """
     # ── scalar geometry + grid + fluids ─────────────────────────────
     L = compute_cfg.geometry.L_dom_m
@@ -124,7 +119,6 @@ def _parse_inputs_3d_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
         variable_rho_cp=bool(compute_cfg.flags.variable_rho_cp),
         # R3 (2026-07-07): production solver knobs (None = run_stack's
         # dim-specific autos; see SolverConfig docstring).
-        tol_simple=compute_cfg.solver.tol_simple,
         max_iter_simple=compute_cfg.solver.max_iter_simple,
         max_outer_ltne=compute_cfg.solver.max_outer_ltne,
         outer_tol_K=compute_cfg.solver.outer_tol_K,
@@ -215,8 +209,7 @@ def _prepare_problem_data(cfg):
         if port is not None:
             axis = _resolve_axis_map(port, nx, ny, nz, L, H, Lz, dx, dy, dz)
             axes[side] = axis
-            inlet, outlet = _build_partial_masks(port, axis['dcross1'], axis['dcross2'],
-                                                 axis['N_cross1'], axis['N_cross2'], axis['is_reverse'])
+            inlet, outlet = _build_partial_masks(port, axis['dcross1'], axis['dcross2'], axis['N_cross2'])
             openings[side] = {'inlet': inlet, 'outlet': outlet}
         fluid = cfg.get('fluid_type_' + side, 'air')
         model = fluid_props.get(fluid)

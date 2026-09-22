@@ -31,7 +31,8 @@ def test_explicit_warmup_compiles_all_3d_ltne_routes():
     # import before the real solver's cooperative cancellation is reachable.
     code = (
         "from sjtu_tpmshx.solvers import ltne_energy_3d as M;"
-        "M._warmup_jit();"
+        "from sjtu_tpmshx.tests.ltne_kernel_compile_reference import compile_routes;"
+        "compile_routes();"
         "assert M._gs_full_chunk_3d.signatures;"
         "assert M._gs_full_chunk_3d_stag.signatures;"
         "assert M._gs_full_chunk_3d_stag_rb.signatures"

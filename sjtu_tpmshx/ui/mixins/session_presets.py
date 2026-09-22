@@ -13,6 +13,53 @@ from PySide6.QtWidgets import QInputDialog, QMessageBox, QTableWidgetItem
 from sjtu_tpmshx.ui.window_config import DOMAIN_SHAPE_NOTICE, validate_domain_shape
 
 
+def shanghai_field_defaults(*, is_3d: bool) -> dict[str, str]:
+    """Canonical input-field values for the shipped case, authored in K."""
+    from sjtu_tpmshx.models.grid import SHANGHAI_GRID_2D, SHANGHAI_GRID_3D
+    values = {
+        # Shanghai Electric gas-heater experimental log (工况8, Re_air=5000,
+        # Re_water=400) — raw values from `data/raw_data/
+        # 20260401-上海电气天然气加热器实验工况.xlsx` Sheet1 row 9:
+        #   col 24 water_in  = 26.89 °C   → 300.04 K
+        #   col 26 water_P   = 647.60 Pa (gauge)  → 101972.60 abs
+        #   col 28 air_in    = 148.908 °C → 422.06 K
+        #   col 30 air_P     = 91037.40 Pa (gauge) → 192362.40 abs
+        #   col 10 air_SLM   = 1057  → u_A ~20 m/s interstitial (Gyroid L7/t0.6)
+        #   col 11 water_flow= 5193 ml/min → u_B ~0.133 m/s interstitial
+        'le_L':     '0.182',  # L domain [m]
+        'le_H':     '0.042',
+        'le_Lz':    '0.042',
+        'le_Lcell': '7.0',
+        'le_t':     '0.6',
+        'le_ks':    '16.0',   # Shanghai SS solid k_s
+        'le_rho_s': '7900',
+        'le_uA':    '20.0',   # Fluid A (air) interstitial, back-calc Re=5000
+        'le_TinA':  '422.0',  # Fluid A inlet (Excel col 28: 148.908 °C)
+        'le_PinA':  '192362', # Fluid A inlet absolute (Excel 91037 Pa gauge + atm)
+        'le_uB':    '0.133',  # Fluid B (water) — Shanghai case 8 Re_water=400
+        'le_TinB':  '300.0',  # Fluid B inlet (Excel col 24: 26.89 °C)
+        'le_PinB':  '101973', # Fluid B inlet absolute (Excel 647.6 Pa gauge + atm)
+        # Shanghai pipe inlet/outlet: A full-width (42 mm strip), B
+        # staggered cross-flow (water enters top-right +x end, exits
+        # bottom-left -x end; inlet/outlet 42 mm strips along real x).
+        # A flows +x: full H=42mm face inlet/outlet.
+        # B flows -y: staggered cross-flow, inlet at x=154mm (w=42mm),
+        # outlet at x=28mm (w=42mm).
+        'le_pipeA_in_ctr':  '0.021', 'le_pipeA_in_w':  '0.042',
+        'le_pipeA_out_ctr': '0.021', 'le_pipeA_out_w': '0.042',
+        'le_pipeB_in_ctr':  '0.154', 'le_pipeB_in_w':  '0.042',
+        'le_pipeB_out_ctr': '0.028', 'le_pipeB_out_w': '0.042',
+        # Both networks span the full thickness; reset prior-case Z ports.
+        'le_pipeA_in_z_ctr':  '0.021', 'le_pipeA_in_z_w':  '0.042',
+        'le_pipeA_out_z_ctr': '0.021', 'le_pipeA_out_z_w': '0.042',
+        'le_pipeB_in_z_ctr':  '0.021', 'le_pipeB_in_z_w':  '0.042',
+        'le_pipeB_out_z_ctr': '0.021', 'le_pipeB_out_z_w': '0.042',
+    }
+    counts = SHANGHAI_GRID_3D if is_3d else SHANGHAI_GRID_2D
+    values.update({f'le_N{axis}': str(count) for axis, count in zip('xyz', counts)})
+    return values
+
+
 class SessionPresetsMixin:
     def _set_shanghai_grid(self, *, is_3d):
         from sjtu_tpmshx.models.grid import SHANGHAI_GRID_2D, SHANGHAI_GRID_3D
@@ -97,30 +144,11 @@ class SessionPresetsMixin:
         path and the Recent-run click path (which routes through the
         same helper).
         """
-        # 2D-mode result flags + cached fields.
-        self._has_results_2d = False
-        self._compute_results = None
-        # 3D-mode result flags + cached fields.
-        self._has_results_3d = False
-        # U1 (2026-06-28): 3D View tab readiness (PyVista panel populated) is a
-        # SEPARATE flag from result-presence (_has_results_3d). A soft viz-fail
-        # keeps the result (exportable) but leaves this False (tab disabled).
+        self.cache.clear()
         self._3d_view_ready = False
-        self._result_3d = None
         self._tout_K_cache = None
-        # Aggregate flag + draw tracker — keep in lock-step with the two
-        # mode-specific flags above.
-        self._has_results = False
-        self._drawn_tabs = set()
-        # Reset the outlet temperature display so a stale value can't be
-        # mistaken for the post-preset result.
-        for attr in ('_r_ToutA', '_r_ToutB', '_r_dP_A', '_r_dP_B', '_r_Q'):
-            w = getattr(self, attr, None)
-            if w is not None:
-                try:
-                    w.setText("—")  # em dash
-                except Exception:
-                    pass
+        self._diag_summary = {}
+        self._update_result_summary()
         # Refresh tab visibility so the result tabs (Temp/Pres/Vel/3D)
         # disable now that there are no results to show.
         try:
@@ -440,7 +468,6 @@ class SessionPresetsMixin:
     _SESSION_LINE_EDITS = (
         'le_L', 'le_H', 'le_Lz', 'le_Lcell', 'le_t', 'le_ks',
         'le_uA', 'le_TinA', 'le_PinA', 'le_uB', 'le_TinB', 'le_PinB',
-        # le_TsInit removed 2026-04-29 (numerical seed only, not physical)
         'le_Nx', 'le_Ny', 'le_Nz',
         'le_rho_s',
         'le_pipeA_in_ctr', 'le_pipeA_in_w',

@@ -30,7 +30,6 @@ from sjtu_tpmshx.optimization.evaluator import evaluate_design
 # Lighter solver settings so the test suite stays fast (~10 s total)
 _FAST_CFG = {
     'max_iter_simple': 800,
-    'tol_simple':      1e-3,
     'max_iter_energy': 1500,
     'tol_energy':      0.5,
     'n_rho_loops':     1,

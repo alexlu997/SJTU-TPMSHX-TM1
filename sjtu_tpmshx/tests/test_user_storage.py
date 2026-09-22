@@ -48,14 +48,14 @@ def test_existing_inputs_move_to_user_data_without_overwriting_either_source(use
     assert json.loads((legacy / '.last_session.json').read_text()) == saved_input
 
 
-def test_appearance_recovers_latest_menu_choice_and_uses_one_read_write_location(user_locations):
+def test_appearance_uses_user_read_write_location_without_legacy_scan(user_locations):
     legacy, _ = user_locations
     (legacy / '.theme').write_text('dark')
     old_menu = legacy / 'ui' / 'mixins' / '.theme'
     old_menu.write_text('light')
     os.utime(legacy / '.theme', (100, 100))
     os.utime(old_menu, (200, 200))
-    assert user_storage.load_appearance_settings() == {'theme': 'light'}
+    assert user_storage.load_appearance_settings() == {}
     for name, value in {'theme': 'dark', 'density': 'cozy', 'accent': '#A1b2c3'}.items():
         assert user_storage.save_appearance_setting(name, value)
     assert user_storage.load_appearance_settings() == {

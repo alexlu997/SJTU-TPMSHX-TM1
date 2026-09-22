@@ -7,7 +7,7 @@ import numpy as np
 from scipy.optimize import minimize
 
 from .sizing import size_fixed_cell, Design, RHO_S
-from .forward import K_STEEL
+from sjtu_tpmshx.models.quick_design import K_STEEL
 from sjtu_tpmshx.domain.module_ports import RunControl
 
 # 训练凸包 [mm] — single source in df_surrogate/_domain.py.

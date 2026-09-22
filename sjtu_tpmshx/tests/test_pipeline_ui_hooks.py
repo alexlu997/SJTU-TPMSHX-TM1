@@ -17,8 +17,6 @@ def test_cancel_token_cancelled_property():
     assert tok.cancelled is False and tok.is_set() is False
     tok.cancel()
     assert tok.cancelled is True and tok.is_set() is True
-    tok.reset()
-    assert tok.cancelled is False
 
 
 def test_cancelled_token_aborts_pipeline_before_first_phase():
@@ -60,7 +58,7 @@ def test_pipeline_forwards_runtime_controls(monkeypatch, pipeline_cls):
     from sjtu_tpmshx.solvers import api
 
     token = CancelToken()
-    progress, labels, outer, residuals = [], [], [], {}
+    progress, labels, outer = [], [], []
     fields, result = object(), object()
 
     def run_case(case, control):
@@ -69,7 +67,7 @@ def test_pipeline_forwards_runtime_controls(monkeypatch, pipeline_cls):
         control.progress(50)
         control.iteration('iter 2/10')
         control.outer_iteration(2, 10)
-        control.residual('A', 3, .01)
+        assert control.residual is None
         token.cancel()
         assert control.cancel_check()
         return result
@@ -79,10 +77,8 @@ def test_pipeline_forwards_runtime_controls(monkeypatch, pipeline_cls):
                         cancel_token=token, ui_hooks={
                             'iter_label_cb': labels.append,
                             'iter_cb': lambda k, n: outer.append((k, n)),
-                            'live_residuals': residuals,
                         })
     assert pipe.run_solvers(fields) is result
     assert progress == [55]
     assert labels == ['iter 2/10']
     assert outer == [(2, 10)]
-    assert residuals == {'A': [(3, .01)]}

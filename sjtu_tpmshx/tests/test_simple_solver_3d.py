@@ -41,7 +41,7 @@ def test_shapes():
 def test_uniform_darcy_converges():
     """Uniform D-F channel: converges, dP has right sign + order of magnitude."""
     s = _uniform_darcy_config(Nx=20, Ny=15, Nz=5)
-    conv, it = s.solve(max_iter=200, tol=1e-5)
+    conv, it = s.solve(max_iter=200)
     assert conv, f"solver did not converge in {it} iters"
 
     # v stays close to v_inlet in uniform D-F (mass conservation)
@@ -65,7 +65,7 @@ def test_uniform_darcy_converges():
 def test_nz1_flow_stays_2d():
     """Nz=1 run: w should stay at zero everywhere; u should stay ~0."""
     s = _uniform_darcy_config(Nx=20, Ny=15, Nz=1)
-    s.solve(max_iter=100, tol=1e-5)
+    s.solve(max_iter=100)
 
     # w is identically zero by construction: Nz=1 means w[..., 0] and w[..., 1]
     # are the only faces, both walls. Solver never updates them.
@@ -82,11 +82,11 @@ def test_nz1_matches_nz5_uniform():
     """Uniform z-extrusion: Nz=5 run's middle slice equals Nz=1 run
     to within grid tolerance."""
     s1 = _uniform_darcy_config(Nx=16, Ny=10, Nz=1)
-    s1.solve(max_iter=150, tol=1e-5)
+    s1.solve(max_iter=150)
     dP_1 = s1.P[:, 0, :].mean() - s1.P[:, -1, :].mean()
 
     s5 = _uniform_darcy_config(Nx=16, Ny=10, Nz=5)
-    s5.solve(max_iter=150, tol=1e-5)
+    s5.solve(max_iter=150)
     dP_5 = s5.P[:, 0, :].mean() - s5.P[:, -1, :].mean()
 
     # In pure D-F with uniform z-extrude and full-width inlet, 3D result

@@ -35,7 +35,7 @@ def test_connect_records_and_invokes_slot():
     router = SignalRouter()
     received = []
     ok = router.connect(em.fired, lambda i: received.append(i),
-                        tag='primary', sender=em)
+                        sender=em)
     assert ok
     em.fired.emit(7)
     assert received == [7]
@@ -48,18 +48,8 @@ def test_connect_records_no_tag_anonymous():
     router = SignalRouter()
     router.connect(em.fired, lambda i: None)
     assert router.count() == 1
-    assert router.tags() == []   # no tag → empty
 
 
-def test_connect_added_signal_emits_for_tagged():
-    _app()
-    em = _Emitter()
-    router = SignalRouter()
-    received = []
-    router.connection_added.connect(lambda t: received.append(t))
-    router.connect(em.fired, lambda i: None, tag='alpha', sender=em)
-    router.connect(em.fired, lambda i: None)   # untagged — no emit
-    assert received == ['alpha']
 
 
 # ---------------------------------------------------------------- disconnect
@@ -88,29 +78,8 @@ def test_disconnect_all_idempotent():
     assert router.disconnect_all() == 0
 
 
-def test_disconnect_one_only_targets_matching_tag():
-    _app()
-    em = _Emitter()
-    router = SignalRouter()
-    a, b = [], []
-    router.connect(em.fired, lambda i: a.append(i), tag='A', sender=em)
-    router.connect(em.fired, lambda i: b.append(i), tag='B', sender=em)
-    n = router.disconnect_one('A')
-    assert n == 1
-    em.fired.emit(99)
-    assert a == []
-    assert b == [99]
 
 
-def test_disconnect_signal_emits_removed():
-    _app()
-    em = _Emitter()
-    router = SignalRouter()
-    seen = []
-    router.connection_removed.connect(lambda t: seen.append(t))
-    router.connect(em.fired, lambda i: None, tag='x', sender=em)
-    router.disconnect_all()
-    assert seen == ['x']
 
 
 # ---------------------------------------------------------------- adopt
@@ -127,7 +96,7 @@ def test_adopt_existing_connection_then_disconnect_all():
         received.append(i)
 
     em.fired.connect(slot)
-    router.adopt(em.fired, slot, tag='legacy', sender=em)
+    router.adopt(em.fired, slot, sender=em)
 
     em.fired.emit(1)
     n = router.disconnect_all()
@@ -143,7 +112,7 @@ def test_weakref_skips_destroyed_sender():
     _app()
     em = _Emitter()
     router = SignalRouter()
-    router.connect(em.fired, lambda i: None, tag='ephemeral', sender=em)
+    router.connect(em.fired, lambda i: None, sender=em)
     # Drop the sender. weakref should now be dead.
     em.deleteLater()
     em = None
@@ -173,17 +142,6 @@ def test_count_alive_vs_total():
     assert router.count(alive_only=False) == 2
 
 
-def test_clear_drops_registry_without_disconnect():
-    _app()
-    em = _Emitter()
-    router = SignalRouter()
-    received = []
-    router.connect(em.fired, lambda i: received.append(i), sender=em)
-    router.clear()
-    em.fired.emit(5)
-    # Connection still active at the Qt level since we only cleared the
-    # registry — slot still fires.
-    assert received == [5]
 
 
 def test_repr_safe():

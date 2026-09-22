@@ -8,10 +8,7 @@ from __future__ import annotations
 from uuid import uuid4
 import numpy as np
 
-from sjtu_tpmshx.models.envelope import R_AIR_DEFAULT as R_AIR
-from sjtu_tpmshx.models.screening import _build_3d_arrays as _build_3d_arrays
-
-__all__ = ['evaluate_3d', '_build_3d_arrays', 'R_AIR']
+__all__ = ['evaluate_3d']
 
 
 def evaluate_3d(x_decision: np.ndarray,
@@ -23,7 +20,6 @@ def evaluate_3d(x_decision: np.ndarray,
                 outer_tol_K: float = 0.5,
                 alpha_outer: float = 0.6,
                 max_iter_simple: int = 800,
-                tol_simple: float = 1e-2,
                 max_iter_energy: int = 2000,
                 tol_energy: float = 0.5,
                 roughness_mode: str | None = None,
@@ -36,7 +32,7 @@ def evaluate_3d(x_decision: np.ndarray,
     case = prepare_screening_3d(
         x_decision, cfg, case_id=str(uuid4()), Nx=Nx, Ny=Ny, Nz=Nz, Lz=Lz,
         max_outer=max_outer, outer_tol_K=outer_tol_K, alpha_outer=alpha_outer,
-        max_iter_simple=max_iter_simple, tol_simple=tol_simple,
+        max_iter_simple=max_iter_simple,
         max_iter_energy=max_iter_energy, tol_energy=tol_energy,
         roughness_mode=roughness_mode, roughness_eps_um=roughness_eps_um,
         convergence_mode=convergence_mode, verbose=verbose)

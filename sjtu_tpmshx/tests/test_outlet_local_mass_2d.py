@@ -34,7 +34,7 @@ def test_pressure_outlet_includes_transverse_flux(east_factor):
         dx_arr=np.array([.2, .3, .5]), dy_arr=np.array([.4, .6]),
         outlet_geom_frac=np.array([0., 1., 0.]))
     assert not np.isclose(expected_flux, 2.86)
-    SIMPLESolver._enforce_mass_conservation(solver, verbose=False)
+    SIMPLESolver._enforce_mass_conservation(solver)
     assert solver.v[1, -1] * 4.8 * .3 == pytest.approx(expected_flux, rel=1e-13)
     assert solver.v[0, -1] == solver.v[2, -1] == 0.
 

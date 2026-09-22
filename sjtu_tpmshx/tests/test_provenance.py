@@ -13,7 +13,6 @@ import pandas as pd
 
 from sjtu_tpmshx.validation.harness._provenance import (
     write_csv_with_provenance,
-    backfill_provenance,
     read_csv_with_provenance,
 )
 
@@ -52,35 +51,6 @@ def test_write_csv_pandas_can_still_read_with_comment(tmp_path):
     write_csv_with_provenance(df, out, 'tests/fake.py')
     re = pd.read_csv(out, comment='#')
     assert list(re['x']) == [10, 20]
-
-
-# ---------------------------------------------------------------- backfill
-
-
-def test_backfill_prepends_header_to_existing_csv(tmp_path):
-    out = tmp_path / 'legacy.csv'
-    out.write_text('a,b\n1,2\n3,4\n', encoding='utf-8')
-    backfill_provenance(out, 'tests/legacy.py')
-    lines = out.read_text(encoding='utf-8').splitlines()
-    assert lines[0].startswith('# script:')
-    assert lines[3] == 'a,b'
-    assert lines[4] == '1,2'
-
-    side = out.with_suffix(out.suffix + '.meta.json')
-    assert side.exists()
-    side_data = json.loads(side.read_text(encoding='utf-8'))
-    assert side_data.get('backfilled') is True
-
-
-def test_backfill_idempotent_does_not_double_header(tmp_path):
-    out = tmp_path / 'twice.csv'
-    out.write_text('a\n1\n', encoding='utf-8')
-    backfill_provenance(out, 'tests/twice.py')
-    backfill_provenance(out, 'tests/twice.py')
-    lines = out.read_text(encoding='utf-8').splitlines()
-    # Exactly 3 comment lines (not 6) and 1 column header + 1 row.
-    n_comment = sum(1 for ln in lines if ln.startswith('#'))
-    assert n_comment == 3, f"expected 3 # lines, found {n_comment}"
 
 
 # ---------------------------------------------------------------- read

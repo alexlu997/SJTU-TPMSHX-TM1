@@ -19,10 +19,8 @@ from .theme import (
 )
 from .icons import icon
 
-# Re-exports — run_controller/tab_view import these from ui.builders_canvas.
-from .builders_sidebar import (  # noqa: F401
-    _build_result_sidebar, refresh_result_sidebar,
-    update_result_sidebar_visibility,
+from .builders_sidebar import (
+    _build_result_sidebar, update_result_sidebar_visibility,
 )
 
 
@@ -65,12 +63,6 @@ def _build_canvas_toolbar(window, vlay, t, theme):
     toolbar_host.addWidget(view_controls)
     window._field_toolbar = toolbar_host
 
-    # Kept for existing shortcut/accessibility callers; the parameter header
-    # and collapsed rail now own the visible control.
-    btn_toggle_left = QPushButton("收起参数", window)
-    btn_toggle_left.clicked.connect(window._toggle_left_panel)
-    window.btn_toggle_left = btn_toggle_left
-    btn_toggle_left.hide()
     window.btn_update_geometry = QPushButton("更新几何")
     window.btn_update_geometry.setFixedHeight(28)
     window.btn_update_geometry.setStyleSheet(t.style('BTN_TERTIARY'))
@@ -308,7 +300,6 @@ def _build_canvas_toolbar(window, vlay, t, theme):
     toolbar.addWidget(window.btn_tab_pareto)
     toolbar.addStretch()
     view_toolbar.addWidget(_rv_seg)
-    window._result_render_seg = _rv_seg
     view_toolbar.addSpacing(8)
 
     window.btn_result_summary = QPushButton("摘要")
@@ -376,7 +367,7 @@ def refresh_field_controls(window):
     tab = getattr(window, '_active_tab', None)
     is_field = tab in ('temp', 'pres', 'vel')
     window.btn_update_geometry.setVisible(tab == 'layout')
-    result = getattr(window, '_result_3d', None)
+    result = window.cache.get_result('3d')
     b_source = 'dir_B' if tab in ('pres', 'vel') else 'Tb'
     has_b = result is None or result.fields.get(b_source) is not None
     phase = getattr(window, '_field_phase', 0)
@@ -522,7 +513,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
         fl.addWidget(cap)
         return fr, fl
 
-    # Inline and modal hosts share the dimension-specific budget definition.
+    # Inline controls use the dimension-specific budget definition.
     from .optimize_panel import _outer_budget_parameter, _sync_outer_budget, _is_3d_mode
 
     par_card, par_lay = _opt_card("优化参数 (qNEHVI)", 260)
@@ -775,7 +766,8 @@ def _build_optimize_panel(window, card_lay, t, theme):
     spark_card.setMinimumWidth(220)
     scl = _VBop(spark_card)
     scl.setContentsMargins(14, 8, 14, 8); scl.setSpacing(2)
-    spark_cap = QLabel("收敛 · 最优 Q / 超体积")
+    spark_cap = QLabel("初始采样 · 最优 Q")
+    window._opt_sparkline_caption = spark_cap
     spark_cap.setStyleSheet(
         f"color:{_sub_fg}; font-size:8pt; font-weight:700;"
         "letter-spacing:1.4px; background:transparent; border:none;"
@@ -1055,7 +1047,7 @@ def _build_canvas_content(window, vlay, t):
         if key == '3d':
             try:
                 from .skeleton import Skeleton as _Sk
-                skel = _Sk('3d', parent=c)
+                skel = _Sk( parent=c)
                 skel.setGeometry(0, 0, max(1, c.width()), max(1, c.height()))
                 _prev_resize = c.resizeEvent
                 def _on_resize(ev, s=skel, cv=c, prev=_prev_resize):
@@ -1099,8 +1091,7 @@ def _build_canvas_content(window, vlay, t):
         window._canvas_cards[key].hide()
     window._active_tab = 'layout'
     if not _reuse:
-        window._has_results = False
-        window._drawn_tabs = set()
+        window.cache.clear()
 
     window._canvas_scroll.setWidget(canvas_container)
     # Result footer shares the published result labels and diagnostics.

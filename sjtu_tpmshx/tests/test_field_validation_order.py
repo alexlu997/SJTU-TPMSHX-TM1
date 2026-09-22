@@ -17,6 +17,8 @@ no QApplication needed.
 """
 from __future__ import annotations
 
+import pytest
+
 
 
 
@@ -187,15 +189,13 @@ def test_empty_input_no_callback_action():
     assert le.set_property_calls == []
 
 
-def test_undo_baseline_updates_with_converted_text():
-    """``_undo_last`` must track the post-conversion text so the
-    user's next manual undo restores "0.005", not "5 mm"."""
+def test_parse_leaves_previous_undo_value_for_the_undo_slot():
     win = _MockWindow()
-    win._undo_last = {'le_L': '5 mm'}
+    win._undo_last = {'le_L': '0.01'}
     le = _MockLE("5 mm")
-    cb = _bind_handler(win, le, 'le_L')
-    cb()
-    assert win._undo_last['le_L'] == "0.005"
+    _bind_handler(win, le, 'le_L')()
+    assert le.text() == '0.005'
+    assert win._undo_last['le_L'] == '0.01'
 
 
 def test_bare_number_validates_without_parse():
@@ -217,3 +217,31 @@ def test_non_numeric_bare_text_flags_inperror():
     cb = _bind_handler(win, le, 'le_L')
     cb()
     assert le.property('inpError') == 'true'
+
+
+@pytest.mark.parametrize('text,expected', [('0.042 / 2', '0.021'), ('sqrt(4) * 3', '6')])
+def test_expression_is_evaluated_before_positive_validation(text, expected):
+    win, le = _MockWindow(), _MockLE(text)
+    _bind_handler(win, le, 'le_L')()
+    assert le.text() == expected
+    assert le.property('inpError') == 'false'
+
+
+@pytest.mark.parametrize('text', ['1/0', 'sqrt(-1)', '-1 * 2', 'float(1)', 'nan', 'inf'])
+def test_invalid_expression_or_nonpositive_value_stays_invalid(text):
+    win, le = _MockWindow(), _MockLE(text)
+    _bind_handler(win, le, 'le_L')()
+    assert le.property('inpError') == 'true'
+
+
+@pytest.mark.parametrize('unit,text,valid', [
+    ('C', '0', True), ('C', '-5', True), ('C', '273.15 K', True),
+    ('K', '268.15', True), ('K', '0', False), ('C', '-273.15', False),
+    ('C', '-274', False), ('C', 'nan', False), ('C', 'inf', False),
+])
+def test_temperature_validates_absolute_value_without_changing_display_unit(unit, text, valid):
+    win, le = _MockWindow(temp_unit=unit), _MockLE(text)
+    _bind_handler(win, le, 'le_TinA')()
+    assert le.property('inpError') == ('false' if valid else 'true')
+    if text == '273.15 K':
+        assert le.text() == '0'

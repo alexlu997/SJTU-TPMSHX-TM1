@@ -50,17 +50,7 @@ def draw_layout(window):
             sp.set_edgecolor(_t['ax_spine'])
 
     window.canvas_layout.fig.set_facecolor(_t['fig_bg'])
-    # Mark the layout tab drawn. The window's ``_drawn_tabs`` property returns
-    # a COPY (C5 Phase-5 bridge), so an in-place ``.add`` is lost — go through
-    # ``cache.mark_drawn`` when present (the documented migration path), else
-    # fall back to a real attribute set for cache-less / headless windows.
-    _cache = getattr(window, 'cache', None)
-    if _cache is not None and hasattr(_cache, 'mark_drawn'):
-        _cache.mark_drawn('layout')
-    else:
-        if not hasattr(window, '_drawn_tabs'):
-            window._drawn_tabs = set()
-        window._drawn_tabs.add('layout')
+    window.cache.mark_drawn('layout')
     if hasattr(window, 'btn_export'):
         window.btn_export.setEnabled(True)
     # Let Qt finish showing/layout of the card before Matplotlib paints.

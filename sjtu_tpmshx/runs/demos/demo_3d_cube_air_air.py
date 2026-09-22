@@ -5,11 +5,9 @@ domain is literally cubic (1:1:1). Compare against the 4.3:1:1 brick to see
 how cross-flow LTNE looks when both fluids have equal stream length.
 """
 import os
-import numpy as np
+from pathlib import Path
 
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
+from sjtu_tpmshx.runs.demos.demo_3d_air_air import plot_orthogonal_3d_slices
 
 from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
 
@@ -18,68 +16,6 @@ def build_cube_cfg():
     # B2 2.6: canonical template; cube deltas = 50 mm cube, 20^3 grid.
     from sjtu_tpmshx.runs._case_template import build_cfg as _template_cfg
     return _template_cfg(L=0.050, H=0.050, Lz=0.050, Nx=20, Ny=20, Nz=20)
-
-
-def plot_cube_ortho(res, cfg, outdir):
-    Nx, Ny, Nz = res['Ta'].shape
-    dx, dy, dz = res['dx'], res['dy'], res['dz']
-    xc = (np.cumsum(dx) - dx / 2) * 1000.0
-    yc = (np.cumsum(dy) - dy / 2) * 1000.0
-    zc = (np.cumsum(dz) - dz / 2) * 1000.0
-    Lx_mm, Ly_mm, Lz_mm = res['Lx']*1000, res['Ly']*1000, res['Lz']*1000
-    i_mid, j_mid, k_mid = Nx // 2, Ny // 2, Nz // 2
-
-    fields = [
-        ('Ta',  res['Ta'],  '[K]', 'Ta — Fluid A (hot, +x)'),
-        ('Tb',  res['Tb'],  '[K]', 'Tb — Fluid B (cold, -y)'),
-        ('Ts',  res['Ts'],  '[K]', 'Ts — Solid (LTNE coupling)'),
-        ('vmag', res['vmag'], '[m/s]', '|v|_A — Fluid A speed'),
-        ('P_kPa', res['P_kPa'], '[kPa]', 'P_A — Fluid A abs'),
-    ]
-    paths = []
-    for fkey, F, unit, title in fields:
-        fig, axes = plt.subplots(1, 3, figsize=(13, 4))
-        vmin = float(F.min()); vmax = float(F.max())
-        if vmax - vmin < 1e-12:
-            vmax = vmin + 1.0
-        levels = np.linspace(vmin, vmax, 80)
-
-        ax = axes[0]
-        Y2, X2 = np.meshgrid(yc, xc)
-        cf = ax.contourf(X2, Y2, F[:, :, k_mid], levels=levels, cmap='turbo',
-                          vmin=vmin, vmax=vmax, extend='both')
-        ax.set_title(f'TOP — XY @ z={zc[k_mid]:.1f} mm', fontweight='bold')
-        ax.set_xlabel('x [mm]'); ax.set_ylabel('y [mm]')
-        ax.set_aspect('equal')
-
-        ax = axes[1]
-        Z2, X2 = np.meshgrid(zc, xc)
-        cf = ax.contourf(X2, Z2, F[:, j_mid, :], levels=levels, cmap='turbo',
-                          vmin=vmin, vmax=vmax, extend='both')
-        ax.set_title(f'FRONT — XZ @ y={yc[j_mid]:.1f} mm', fontweight='bold')
-        ax.set_xlabel('x [mm]'); ax.set_ylabel('z [mm]')
-        ax.set_aspect('equal')
-
-        ax = axes[2]
-        Z2, Y2 = np.meshgrid(zc, yc)
-        cf = ax.contourf(Y2, Z2, F[i_mid, :, :], levels=levels, cmap='turbo',
-                          vmin=vmin, vmax=vmax, extend='both')
-        ax.set_title(f'SIDE — YZ @ x={xc[i_mid]:.1f} mm', fontweight='bold')
-        ax.set_xlabel('y [mm]'); ax.set_ylabel('z [mm]')
-        ax.set_aspect('equal')
-
-        cb = fig.colorbar(cf, ax=axes.ravel().tolist(), shrink=0.8,
-                           pad=0.02, label=unit, format='%.2f')
-        cb.mappable.set_clim(vmin, vmax)
-        fig.suptitle(
-            f'{title}   |   CUBE {Lx_mm:.0f}×{Ly_mm:.0f}×{Lz_mm:.0f} mm '
-            f'(1:1:1)',
-            fontweight='bold', y=1.02)
-        p = os.path.join(outdir, f'3d_cube_air_air_{fkey}.png')
-        fig.savefig(p, dpi=120, bbox_inches='tight')
-        plt.close(fig)
-        paths.append(p)
-    return paths
 
 
 if __name__ == '__main__':
@@ -128,9 +64,9 @@ if __name__ == '__main__':
     print(f"    |v|_A    : [{vmag.min():.3f}, {vmag.max():.3f}] m/s")
     print(f"    P_A      : [{P_kPa.min():.2f}, {P_kPa.max():.2f}] kPa")
     print()
-    outdir = os.path.join(os.path.dirname(__file__), 'demo_output')
+    outdir = str(Path(__file__).resolve().parents[3] / '.cache' / 'demos' / 'cube_air_air')
     os.makedirs(outdir, exist_ok=True)
-    paths = plot_cube_ortho(res, cfg, outdir)
+    paths = plot_orthogonal_3d_slices(res, outdir, filename_prefix='3d_cube_air_air')
     print("CUBE ORTHO PLOTS WRITTEN")
     for p in paths:
         print(f"  {p}")

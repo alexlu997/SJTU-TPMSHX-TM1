@@ -1,15 +1,7 @@
-"""Result-presentation slice of ``Main_Menu`` (P2.5a, 2026-07-20).
+"""Publish finished compute data, render fields and expose result diagnostics.
 
-Moved verbatim from ``ui/mixins/run_controller.py`` — the ComputeResult →
-window adapter (write_result), the plot finalizer (_finalize_plots), and
-the summary/diagnostics surface (_update_result_summary /
-_diag_summary_text / _show_diag_dialog). 5 methods.
-
-Presentation only: consumes a finished
-:class:`domain.compute_result.ComputeResult`; never launches or cancels
-compute (that stays in RunControllerMixin, which calls into this slice
-via ``self`` through the ``Main_Menu`` MRO). Deps are function-local
-imports plus the TOAST constant — no main.py module state.
+RunControllerMixin owns worker dispatch and cancellation; this mixin only
+consumes ComputeResult and writes the GUI's result cache and scalar snapshot.
 """
 
 from __future__ import annotations
@@ -34,25 +26,7 @@ class RunResultsMixin:
         return out
 
     def write_result(self, result):
-        """Copy a :class:`domain.compute_result.ComputeResult`
-        onto the legacy window attributes (``_compute_results`` dict,
-        ``_compute_warnings``, ``_extrap_reasons``, ``_K_ff*``,
-        ``_rho_*``, ``_mu_*``, ``_h_v*``, ``_zone_*``) so the existing
-        finalize_plots / redraw_temperature_panel renderers keep
-        working when the compute path runs via
-        :class:`controllers.compute_pipeline.Pipeline2D` instead of
-        the legacy ``pipelines.stages_2d.run_calculation_inner``.
-
-        Audit C4 (L-a-2, 2026-05-28). This is the *UI adapter*
-        counterpart to ``controllers.module_adapter.to_compute_result`` — together they replace the
-        pre-C4 ``pipelines.stages_2d._store_results(window, cfg, raw)``
-        which conflated UI writes with result assembly. Since B2 2.1b/c
-        (2026-06-13) this is the ONLY ComputeResult→window copy: the GUI
-        worker returns Pipeline2D/3D's result, the GUI finished slot calls
-        this adapter, and the legacy
-        ``run_calculation_inner`` / ``run_calculation_3d_inner`` paths
-        are deleted.
-        """
+        """Publish one ComputeResult for rendering, diagnostics and export."""
         # ui-plan3-workbench T2: one diagnostics snapshot per run, consumed
         # by the result sidebar + the 诊断详情 dialog. Built BEFORE the 3D
         # early-return so both modes fill it.
@@ -68,9 +42,6 @@ class RunResultsMixin:
         self._tout_K_cache = (result.T_out_A_K, result.T_out_B_K)
         self._result_Q_unit = result.metadata.get('units', {}).get(
             'Q', 'W' if result.diagnostics.get('mode') == '3d' else 'W/m')
-        label = getattr(self, '_lbl_Q_unit', None)
-        if label is not None:
-            label.setText(f'<i>Q</i><sub>total</sub> [{self._result_Q_unit}]')
         self._result_model_metadata = {key: deepcopy(result.metadata[key])
                                        for key in ('darcy_forchheimer', 'sco2_nu', 'sco2_enthalpy_eos')
                                        if key in result.metadata}
@@ -98,20 +69,21 @@ class RunResultsMixin:
                        ('K_ffA', 'K_ffB', 'K_ss', 'h_vA', 'h_vB')},
         }
 
-        # ── 3D branch: the renderer (ui/plot_3d_results) now consumes the
-        # ComputeResult directly (B3 C5 — raw_3d dict carrier retired).
-        # Publish the dataclass as window._result_3d and stop.
+        # Only the latest published run owns the summary, plots and exports.
+        # A new accepted result also invalidates readiness of the old 3D views.
+        self._3d_view_ready = False
+        self._rendered_3d_slices = False
+        # 3D renderers consume ComputeResult directly.
         if result.diagnostics.get('mode') == '3d':
-            self._result_3d = result
+            self.cache.clear('2d')
+            self.cache.set_result('3d', result)
             self._extrap_reasons = list(result.extrap_reasons)
             self._has_extrap = bool(result.extrap_reasons)
             return
 
-        # Export must select this newly published 2D run, not a prior 3D run.
-        if getattr(self, '_result_3d', None) is not None:
-            self._result_3d = None
+        self.cache.clear('3d')
         f = result.fields
-        self._compute_results = {
+        self.cache.set_result('2d', {
             'metadata': deepcopy(result.metadata),
             'converged': result.converged,
             'warnings': list(result.warnings),
@@ -139,39 +111,25 @@ class RunResultsMixin:
             'Q_net': result.residuals.get('Q_net', float('nan')),
             'energy_imbalance_rel': result.residuals.get(
                 'energy_imbalance_rel', float('nan')),
-        }
+        })
         self._compute_warnings = list(result.warnings)
         self._extrap_reasons = list(result.extrap_reasons)
         self._has_extrap = bool(result.extrap_reasons)
 
-        # Fluid + porous coefficients — UI Fluids panel reads these
-        # after Auto-Fill; Pipeline path recomputes them from cfg, so
-        # forward to keep the read-out panel consistent.
-        for _key in ('K_ffA', 'K_ffB', 'K_ss', 'h_vA', 'h_vB'):
-            _val = result.coeffs.get(_key)
-            if _val is not None:
-                setattr(self, f'_{_key}', _val)
-        for _key in ('rho_A', 'rho_B', 'mu_A', 'mu_B'):
-            _val = result.props.get(_key)
-            if _val is not None:
-                setattr(self, f'_{_key}', _val)
-
-        # Zone stats (None when zones disabled).
+        # Boundaries used by the zone overlays.
         if result.zones is not None:
             self._zone_axis_dir = result.zones.get('axis_dir')
-            self._zone_stats = result.zones.get('stats')
             self._zone_boundaries = result.zones.get('boundaries')
             self._zone_boundaries_x = result.zones.get('boundaries_x')
             self._zone_boundaries_y = result.zones.get('boundaries_y')
         else:
-            self._zone_stats = None
             self._zone_axis_dir = None
             self._zone_boundaries = None
             self._zone_boundaries_x = None
             self._zone_boundaries_y = None
 
     def _update_result_summary(self):
-        """Refresh the visible footer from the published result labels."""
+        """Refresh the visible footer from the published scalar snapshot."""
         from sjtu_tpmshx.ui.builders_sidebar import (
             refresh_result_sidebar, update_result_sidebar_visibility,
         )

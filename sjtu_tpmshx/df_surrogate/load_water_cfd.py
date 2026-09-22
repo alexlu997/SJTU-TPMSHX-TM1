@@ -29,13 +29,12 @@ Conventions (repo, NOT the sheet's own) — identical to load_sco2_cfd:
 ⚠ FLOW-DATA CAVEAT — Diamond D_7_3 / D_7_4 / D_7_5 carry the SAME mdot/Um
 mass-balance inconsistency as the sCO2 export (mdot/(ρ·Um·L²) exceeds the true
 geometry porosity by +3.9/+5.4/+7.3%; geometry itself is correct — verified by
-the wetted-area A_0 check). Nu is velocity-free so it is UNAFFECTED on these;
-Re-position and f depend on Um and may be off by ~5%/~10% there. They are
+the wetted-area A_0 check). The Nu ordinate has no direct velocity term, but
+Nu(Re) inherits the uncertain Re-position. Re and f may be off by ~5%/~10%. They are
 flagged via the ``flow_suspect`` column. See load_sco2_cfd module doc.
 """
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import pandas as pd
@@ -102,15 +101,3 @@ def load_water(lattice: str = "Diamond", *, source=None) -> pd.DataFrame:
               + (f", {int(df['flow_suspect'].sum())} flow-suspect rows"
                  if df["flow_suspect"].any() else ""))
     return df
-
-
-if __name__ == "__main__":
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-    except AttributeError:
-        pass
-    for lat in LATTICES:
-        d = load_water(lat)
-        print(f"\n{lat}: {len(d)} cases / {d['geometry_id'].nunique()} geoms")
-        print(d.groupby("geometry_id")[["Re", "Nu", "Nu_dev", "f"]]
-              .median().round(3).to_string())

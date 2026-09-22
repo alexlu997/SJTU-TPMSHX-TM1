@@ -1,9 +1,12 @@
-"""Measure the F2 tolerance cost/accuracy curve on the 16 Shanghai cases.
+"""Measure F2 tolerance cost on the historical full-face pricing workload.
 
 Run as a module with --mom-tol 1e-3,1e-4,1e-5 --cases 1,8,16.
 The retired legacy comparison remains in Git history at ec1c73e; its original
 reports/f2_pricing_3d.csv is indexed in docs/history/retired-tools.md.
-New runs default to a separate v2 CSV.
+The full-face ports and velocity convention intentionally retain the pricing
+workload; they differ from the confirmed Shanghai validation ports. These
+errors are workload comparisons, not current specimen accuracy acceptance.
+New runs default to separate .cache/validation/f2_pricing-*/ CSVs.
 """
 from __future__ import annotations
 
@@ -11,13 +14,9 @@ import argparse
 import os
 import sys
 import time
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
-
-_HERE = Path(__file__).resolve()
-_PKG = _HERE.parents[2]                       # sjtu_tpmshx/
 
 from sjtu_tpmshx.domain.compute_config import (ComputeConfig, FluidConfig,   # noqa: E402
                                    GeometryConfig, SolverConfig,
@@ -28,8 +27,11 @@ from sjtu_tpmshx.models.tpms_calc import (air_density, water_density,       # no
 from sjtu_tpmshx.validation.harness._case_sets import shanghai_spec, SHANGHAI_XLSX  # noqa: E402
 from sjtu_tpmshx.validation.harness._harness import load_cases_df            # noqa: E402
 
+from sjtu_tpmshx.validation.harness._provenance import (
+    output_directory, output_path, write_csv_with_provenance,
+)
+
 SPEC = shanghai_spec()
-_REPORTS = _PKG.parent / 'reports'
 
 
 def _build_cfg(ci, df, Nx, Ny, Nz, *, mom_tol, mass_local_tol,
@@ -114,6 +116,11 @@ def main():
     ap.add_argument('--max-outer', type=int, default=None)
     ap.add_argument('--out', default=None)
     args = ap.parse_args()
+    try:
+        dest = (output_path(args.out) if args.out else
+                output_directory('f2_pricing') / 'f2_pricing_3d_v2.csv')
+    except ValueError as exc:
+        ap.error(str(exc))
 
     if os.environ.get('PYTHONHASHSEED') != '0':
         print("[WARN] PYTHONHASHSEED != 0 — the 3D pipeline is hash-seed "
@@ -145,9 +152,7 @@ def main():
                   flush=True)
 
     out = pd.DataFrame(runs)
-    dest = Path(args.out) if args.out else (_REPORTS / 'f2_pricing_3d_v2.csv')
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    out.to_csv(dest, index=False)
+    write_csv_with_provenance(out, dest, __file__)
 
     print("\n" + "=" * 96)
     print(f"{'mode':10s} {'RMSRE dP%':>10s} {'RMSRE Q%':>9s} "

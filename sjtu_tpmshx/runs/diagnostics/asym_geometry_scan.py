@@ -1,15 +1,13 @@
 """
 Phase 0 驱动：扫偏移 δ，量 ε_A/ε_B/A0/D_h/t/连通性，出 CSV + 闸门判定。
 
-纯几何，无 CFD。用法：python -u runs/asym_geometry_scan.py
+纯几何，无 CFD。用法：python -m sjtu_tpmshx.runs.diagnostics.asym_geometry_scan
 计划：vault/reports/engineering/2026-06-05-asym-porosity-phase0-PLAN-CN.md
 """
 import csv
 from pathlib import Path
 
 import numpy as np
-
-# 包根入 sys.path（runs/ 脚本惯例）：parents[2] = sjtu_tpmshx/ (script now under runs/<role>/)
 
 from sjtu_tpmshx.models.tpms_geometry import _phi_grid, _C_from_tL, compute_geometry
 from sjtu_tpmshx.models.asym_geometry import (
@@ -21,7 +19,6 @@ CASES = [
     ('Diamond', 5.0, 0.4),
     ('Gyroid', 5.0, 0.4),
 ]
-WALL_FLOOR_M = 0.3e-3   # 本项目水密壁厚地板
 OUT_CSV = (Path(__file__).resolve().parents[2] / "runs" / "_out"
            / "asym_geom_scan_2026-06-05.csv")
 

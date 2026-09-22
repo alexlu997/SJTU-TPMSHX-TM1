@@ -92,7 +92,8 @@ def test_real_eos_return_and_end_of_iteration_reject(monkeypatch):
 
     monkeypatch.setattr(ent, '_gs_enthalpy_sweeps_3d', vapor_after_sweep)
     with pytest.raises(WaterStateError, match='EOS return'):
-        ent.solve_ltne_enthalpy_3d(
+        from sjtu_tpmshx.tests.enthalpy_3d_reference import solve_ltne_enthalpy_3d
+        solve_ltne_enthalpy_3d(
             1, 1, 1, .01, .01, .01, .7, 16., .01, .01, 100., 100.,
             300., 320., 200000., fluid_A='water', fluid_B='water', n_outer=1)
 
