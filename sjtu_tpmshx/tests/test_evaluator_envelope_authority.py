@@ -37,14 +37,6 @@ def test_evaluate_3d_has_no_local_seed_algebra():
         "(P1.3 regression)")
 
 
-def test_evaluators_R_AIR_is_envelope_value():
-    """R_AIR stays exported (verify_pareto_3d imports it) but its value is
-    the envelope authority's constant."""
-    import sjtu_tpmshx.core.evaluators as ev
-    from sjtu_tpmshx.models.envelope import R_AIR_DEFAULT
-    assert ev.R_AIR == R_AIR_DEFAULT
-
-
 class _FakeSolver3D:
     """Minimal staggered-field stand-in for the post-solve gate unit tests.
 

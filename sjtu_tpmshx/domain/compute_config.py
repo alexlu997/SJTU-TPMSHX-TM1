@@ -117,7 +117,6 @@ from typing import Any, Dict, Literal, Optional, Tuple, Union
 FluidType = Literal['air', 'water', 'sco2']
 DFMode = Literal['cfd_smooth', 'experimental']
 TPMSType = Literal['Diamond', 'Gyroid']
-RoughMode = Literal['baseline', 'norris_1a', 'bhatti_shah_1b']
 ZoneAxis = Literal['x', 'y', 'grid']
 
 SCO2_P_RANGE_PA = (7.9e6, 16.0e6)
@@ -810,7 +809,7 @@ class ComputeConfig:
 
 
 __all__ = [
-    'FluidType', 'DFMode', 'TPMSType', 'RoughMode', 'ZoneAxis',
+    'FluidType', 'DFMode', 'TPMSType', 'ZoneAxis',
     'FluidConfig', 'GeometryConfig', 'SolverConfig', 'OptimizerConfig',
     'PartialBCConfig', 'ZoneInputConfig',
     'ExtrapPolicy', 'FeatureFlags',

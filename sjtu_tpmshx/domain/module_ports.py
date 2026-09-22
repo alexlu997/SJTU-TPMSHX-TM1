@@ -1,16 +1,10 @@
-"""Ports joining preprocess, solver and postprocess without cross-imports."""
+"""Non-persistent controls shared by numerical execution entry points."""
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Protocol
+from typing import Callable
 
 from sjtu_tpmshx.domain.cancellation import CancelledError
-
-from sjtu_tpmshx.domain.case_data import CaseData
-from sjtu_tpmshx.domain.field_result import FieldResult
-from sjtu_tpmshx.domain.metric_spec import MetricSpec
-from sjtu_tpmshx.domain.performance_result import PerformanceResult
-
 
 @dataclass(frozen=True)
 class RunControl:
@@ -30,15 +24,3 @@ class RunControl:
     def report_progress(self, percent: int) -> None:
         if self.progress is not None:
             self.progress(percent)
-
-
-class Preprocessor(Protocol):
-    def build(self, config: object) -> CaseData: ...
-
-
-class Solver(Protocol):
-    def run(self, case: CaseData, control: RunControl) -> FieldResult: ...
-
-
-class Postprocessor(Protocol):
-    def evaluate(self, result: FieldResult, metric_spec: MetricSpec) -> PerformanceResult: ...

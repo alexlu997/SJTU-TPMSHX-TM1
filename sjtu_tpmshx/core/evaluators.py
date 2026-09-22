@@ -8,10 +8,7 @@ from __future__ import annotations
 from uuid import uuid4
 import numpy as np
 
-from sjtu_tpmshx.models.envelope import R_AIR_DEFAULT as R_AIR
-from sjtu_tpmshx.models.screening import _build_3d_arrays as _build_3d_arrays
-
-__all__ = ['evaluate_3d', '_build_3d_arrays', 'R_AIR']
+__all__ = ['evaluate_3d']
 
 
 def evaluate_3d(x_decision: np.ndarray,
