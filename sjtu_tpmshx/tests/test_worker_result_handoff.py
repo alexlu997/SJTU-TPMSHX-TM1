@@ -346,7 +346,7 @@ def test_worker_publishes_payload_on_gui_thread_without_reentry(win, monkeypatch
         original_write(payload)
 
     def cache_write(*args):
-        cache_writes.append(threading.get_ident())
+        cache_writes.append((threading.get_ident(), args[0], args[1] is None))
         original_cache(*args)
 
     def render():
@@ -376,7 +376,10 @@ def test_worker_publishes_payload_on_gui_thread_without_reentry(win, monkeypatch
     assert worker_seen[0][1] is cfg
     assert worker_seen[0][2] == (2 if mode == '3d' else 1)
     assert writes == [(gui_thread, result, True)]
-    assert cache_writes == [gui_thread]
+    assert cache_writes == [
+        (gui_thread, '3d' if mode == '2d' else '2d', True),
+        (gui_thread, mode, False),
+    ]
     assert payloads == [result] and payloads[0] is result
     assert win.compute.last_result() is result
     assert (gui_thread, 37) in progress

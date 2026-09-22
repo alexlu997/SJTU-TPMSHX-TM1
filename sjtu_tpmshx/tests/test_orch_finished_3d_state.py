@@ -27,6 +27,9 @@ class _ComputeStub:
     def last_log(self):
         return ''
 
+    def last_elapsed(self):
+        return 0.
+
 
 class _StatusBarStub:
     def showMessage(self, *_a, **_kw):
@@ -40,6 +43,7 @@ class _DummyWindow(RunControllerMixin, RunResultsMixin):
     def __init__(self):
         self.compute = _ComputeStub()
         self.btn_compute = MagicMock()
+        self.btn_export = MagicMock()
         from sjtu_tpmshx.domain.compute_result import ComputeResult
         self.cache = ResultCache()
         self.cache.set_result('3d', ComputeResult(Q_W=100.0, dP_A_Pa=50.0,
@@ -60,6 +64,12 @@ class _DummyWindow(RunControllerMixin, RunResultsMixin):
         pass
 
     def _switch_tab(self, _name):
+        pass
+
+    def _refresh_status_bar(self):
+        pass
+
+    def _stamp_result_provenance(self, _elapsed):
         pass
 
     def statusBar(self):

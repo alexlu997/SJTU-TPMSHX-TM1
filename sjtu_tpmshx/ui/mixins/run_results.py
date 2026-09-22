@@ -69,16 +69,19 @@ class RunResultsMixin:
                        ('K_ffA', 'K_ffB', 'K_ss', 'h_vA', 'h_vB')},
         }
 
+        # Only the latest published run owns the summary, plots and exports.
+        # A new accepted result also invalidates readiness of the old 3D views.
+        self._3d_view_ready = False
+        self._rendered_3d_slices = False
         # 3D renderers consume ComputeResult directly.
         if result.diagnostics.get('mode') == '3d':
+            self.cache.clear('2d')
             self.cache.set_result('3d', result)
             self._extrap_reasons = list(result.extrap_reasons)
             self._has_extrap = bool(result.extrap_reasons)
             return
 
-        # Export must select this newly published 2D run, not a prior 3D run.
-        if self.cache.get_result('3d') is not None:
-            self.cache.clear('3d')
+        self.cache.clear('3d')
         f = result.fields
         self.cache.set_result('2d', {
             'metadata': deepcopy(result.metadata),

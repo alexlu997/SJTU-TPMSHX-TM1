@@ -372,6 +372,10 @@ format is distinct from the public module's `ComputeConfig` input.
 The result footer and history format the published scalar snapshot directly;
 there are no hidden result labels, duplicate chip strip or percentage-delta calculation.
 Changing draft inputs does not replace the accepted run or its recorded units.
+Only the latest published result owns the field cache, scalar summary and export.
+Failed or cancelled attempts retain that complete snapshot. A rendering failure
+after publication retains the new numerical result and its provenance, while
+unavailable views and stale plot/probe contents are invalidated.
 Optimization budgets are dimension-specific: 2D uses `n_rho_loops`, while 3D
 uses `max_outer_3d`. Inline controls show the effective
 default until edited, then preserve explicit choices separately per dimension.
