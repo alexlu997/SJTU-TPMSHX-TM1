@@ -496,9 +496,7 @@ def apply_mpl_theme():
 
 
 def _btn_styles() -> dict:
-    """Resolve button stylesheets from the *current* theme at call time, so a
-    dialog respects a live ``ThemeManager.rebuild()`` instead of the stale
-    module-global ``_BTN_*`` snapshot the original main.py read once at import."""
+    """Resolve dialog button styles from the current theme at call time."""
     try:
         s = _build_styles()
         return {"tertiary": s.get("BTN_TERTIARY", ""),

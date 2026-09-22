@@ -14,8 +14,10 @@ input. `static_properties` contains the evaluated inlet material properties
 and geometry so runtime does not re-read the solid homogenization environment.
 `flow_inputs.A/B` records the actual SIMPLE cross/stream widths in m,
 `K_m2/cF_per_m` row coefficients, scalar `seed_K_m2/seed_cF_per_m`, and D-F
-applicability metadata. The producer preserves the existing zone sampling and
-projection conventions, including reverse-flow ordering. The executor validates
+applicability metadata. All zoned designs project the same physical L/t fields
+used for thermal geometry: average across the stream with physical cell-width
+weights, then evaluate the fixed D-F model and order rows in the actual flow
+direction. This retains mean-L/t-before-D-F evaluation. The executor validates
 these grids against the physical grid and consumes these coefficients directly;
 receiver D-F environment settings cannot replace them. Temperature-dependent
 properties, graded pressure re-seeding and inlet shooting remain numerical
@@ -42,8 +44,8 @@ designs, cell/wall geometry is sampled at the final physical cell centres,
 including nonuniform meshes. Their per-cell `thermal_geometry` is required and
 consumed by the local heat-transfer calculation. A zoned prepared archive
 missing these fields is rejected: prepare its original configuration again.
-Continuous-field row drag uses the same physical source-cell widths for
-transverse averaging and streamwise projection.
+Continuous, one-dimensional and discrete-grid row drag use the same physical
+source-cell widths for transverse averaging and streamwise projection.
 Uniform arrays must agree with their scalar geometry inputs.
 
 Four `ModelRef` records identify fluid A, fluid B, geometry and the fixed CFD

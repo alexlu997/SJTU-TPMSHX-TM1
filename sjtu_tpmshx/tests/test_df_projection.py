@@ -2,7 +2,6 @@
 
 Covers:
   * extract_dP_from_simple from a faked SIMPLE state
-  * extract_dP_mass_flux_from_simple weighting + zero-mass fallback
   * build_master_refined_grid returns sensible Nx_refined / Ny_refined
   * project_fields_to_streamwise_K_cF: shape, dtype, monotonicity-in-eps_f
 
@@ -14,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.solvers.df_projection import extract_dP_from_simple, extract_dP_mass_flux_from_simple
+from sjtu_tpmshx.solvers.df_projection import extract_dP_from_simple
 from sjtu_tpmshx.models.grid import build_master_refined_grid
 from sjtu_tpmshx.models.df_projection import project_fields_to_streamwise_K_cF
 
@@ -59,40 +58,13 @@ def test_extract_dP_zero_inlet_returns_zero():
     assert dP == 0.0
 
 
-# ─── extract_dP_mass_flux_from_simple ──────────────────────────────
 
 
-def test_extract_dP_mass_flux_falls_back_to_geom_when_v_zero():
-    """When v is zero (cold start), should not divide-by-zero."""
-    s = _FakeSim()
-    s.v = np.zeros_like(s.v)
-    dP_mf = extract_dP_mass_flux_from_simple(s)
-    dP_geom = extract_dP_from_simple(s)
-    assert dP_mf == pytest.approx(dP_geom, rel=1e-6)
 
 
-def test_extract_dP_mass_flux_matches_geom_for_uniform_v():
-    """Uniform v, uniform ρ → mass-flux weighted == geometric weighted."""
-    s = _FakeSim()
-    dP_mf = extract_dP_mass_flux_from_simple(s)
-    dP_geom = extract_dP_from_simple(s)
-    assert dP_mf == pytest.approx(dP_geom, rel=1e-6)
 
 
-def test_extract_dP_mass_flux_skews_toward_high_v_cells():
-    """If v is concentrated in some cells, dP_mf weights those cells more.
-    Build a P field where high-v cells have a different inlet pressure."""
-    s = _FakeSim(Nx=10, P_in=1.0e5, P_out=9.5e4)
-    # Put higher pressure at low-v cells; high-v cells stay at P_in baseline
-    s.P[0:5, 0] = 1.05e5
-    s.P[5:10, 0] = 1.0e5
-    s.v[:, 0] = 0.1
-    s.v[5:10, 0] = 5.0   # high-flux cells dominate mass weighting
-    dP_mf = extract_dP_mass_flux_from_simple(s)
-    dP_geom = extract_dP_from_simple(s)
-    # Geometric (open-area) average: roughly ((1.05+1.0)/2)e5 - 0.95e5 ≈ 7500
-    # Mass-flux weighted: dominated by high-v half: 1.0e5 - 0.95e5 = 5000
-    assert dP_mf < dP_geom
+
 
 
 # ─── build_master_refined_grid ────────────────────────────────────
@@ -130,8 +102,8 @@ def test_project_fields_returns_correct_shape():
     Nx, Ny = 20, 10
     L_field = np.full((Nx, Ny), 6.0)
     t_field = np.full((Nx, Ny), 0.4)
-    K_a, cF_a = project_fields_to_streamwise_K_cF(L_field, t_field, 'Diamond', 16.0, Ny_sim=12, fluid='A')
-    K_b, cF_b = project_fields_to_streamwise_K_cF(L_field, t_field, 'Diamond', 16.0, Ny_sim=12, fluid='B')
+    K_a, cF_a = project_fields_to_streamwise_K_cF(L_field, t_field, 'Diamond', 16.0, Ny_sim=12, direction=0)
+    K_b, cF_b = project_fields_to_streamwise_K_cF(L_field, t_field, 'Diamond', 16.0, Ny_sim=12, direction=3)
     assert K_a.shape == (12,) and cF_a.shape == (12,)
     assert K_b.shape == (12,) and cF_b.shape == (12,)
     assert K_a.dtype == np.float64
@@ -143,14 +115,14 @@ def test_project_fields_uniform_input_returns_uniform_output():
     Nx, Ny = 20, 10
     L_field = np.full((Nx, Ny), 6.0)
     t_field = np.full((Nx, Ny), 0.4)
-    K_a, _ = project_fields_to_streamwise_K_cF(L_field, t_field, 'Diamond', 16.0, Ny_sim=8, fluid='A')
+    K_a, _ = project_fields_to_streamwise_K_cF(L_field, t_field, 'Diamond', 16.0, Ny_sim=8, direction=0)
     rel_var = (K_a.max() - K_a.min()) / max(abs(K_a.mean()), 1e-30)
     assert rel_var < 0.05, f"K should be ~uniform; got rel_var={rel_var}"
 
 
-def test_project_fields_invalid_fluid_raises():
+def test_project_fields_invalid_direction_raises():
     Nx, Ny = 20, 10
     L_field = np.full((Nx, Ny), 6.0)
     t_field = np.full((Nx, Ny), 0.4)
     with pytest.raises(ValueError):
-        project_fields_to_streamwise_K_cF(L_field, t_field, 'Diamond', 16.0, Ny_sim=8, fluid='C')
+        project_fields_to_streamwise_K_cF(L_field, t_field, 'Diamond', 16.0, Ny_sim=8, direction=4)

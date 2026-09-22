@@ -174,11 +174,9 @@ def _assert_no_shanghai_leakage(df: pd.DataFrame, *, source=None) -> None:
     3. No row with ``L_mm == 7.0`` (Shanghai's unique cell size;
        training uses {4, 5, 6, 8} only).
 
-    The Nu/D-F surrogates are the *prediction model* for the Shanghai
-    16-case validation; if Shanghai data ever leaks into the fit set the
-    reported errors become circular and the lumped 1.71 % RMSRE
-    headline number is no longer a true out-of-sample test. C.5 of the
-    2026-05-06 audit fix campaign added this guard.
+    Keep the air specimen training set independent of Shanghai HX validation.
+    Leakage would turn the comparison into an in-sample fit; historical
+    validation scores are not acceptance evidence for the current model.
     """
     source = DATA_XLSX if source is None else source
     src = str(source).lower()

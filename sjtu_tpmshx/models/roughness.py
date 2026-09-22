@@ -80,13 +80,6 @@ def nu_extra_factor(Re, mode='baseline', eps_um=None, D_h_mm=None):
     raise ValueError(f"unknown roughness mode {mode!r}")
 
 
-def apply_to_K_cF(K, cF, f_gain):
-    """Apply friction enhancement to Darcy-Forchheimer K, cF arrays.
-
-    Brinkman term μ/K scales linearly with f → K_new = K / f_gain.
-    Forchheimer term cF ρ |v| v scales linearly with f → cF_new = cF × f_gain.
-    """
-    return K / float(f_gain), cF * float(f_gain)
 
 
 def resolve_mode_from_env(default='baseline'):

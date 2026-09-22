@@ -72,7 +72,7 @@ def observe_solver(dimension, calls):
             if simple:
                 solver = args[0]
                 record.update(side=sides.get(id(solver), getattr(labels, 'side', None)), max_iter=kwargs.get('max_iter'),
-                              tol=kwargs.get('tol'), settings={key: getattr(solver, key, None)
+                              settings={key: getattr(solver, key, None)
                               for key in ('convergence_mode', 'mom_tol', 'mass_local_tol', 'mass_global_tol')})
             try:
                 result = original(*args, **kwargs)

@@ -823,8 +823,8 @@ def build_problem(cfg, prepared, *, control: RunControl = RunControl()):
     # (molecular only); at high Pe the effective fluid conductivity is larger
     # due to tortuous-channel mixing. Turn on by setting disp_C_A / disp_C_B
     # in the config (typical values 0.05-0.3 depending on TPMS type). D_h
-    # here uses the uniform cell geometry; once zoned K-field support lands,
-    # promote this to per-cell using local D_h and |u|.
+    # here still uses uniform reference geometry and inlet speed, including
+    # zoned designs; this optional dispersion term is not a local closure.
     disp_C_A = float(cfg.get('disp_C_A', 0.0))
     disp_C_B = float(cfg.get('disp_C_B', 0.0))
     if disp_C_A > 0.0:
@@ -1083,8 +1083,8 @@ def _build_hv_machinery(prob: _Problem3D):
     # inlet-reference ratio is applied to bulk and later local-Re h_v. Re/Nu
     # floors can put side and reference on different branches; the diameter
     # ratio alone does not prove speed independence. Captures the geometric
-    # Nu/area effect; the residual (κ_Nu) is a CFD calibration left to
-    # ingest_cfd_kappa (Nu is secondary per the Phase-1 plan; dP is primary).
+    # Nu/area effect. The separate κ CFD registry is a research path and
+    # does not add a residual correction to this production calculation.
     def _hv_side_geom_ratio(fluid_type, u_side, T_side, P_side, side):
         if float(cfg.get('delta_levelset', 0.0)) == 0.0:
             return 1.0
@@ -1234,10 +1234,10 @@ def _extract_3d_metrics(prob: _Problem3D, outer: _OuterState):
     _eps_ov_A, _eps_ov_B = _prepared_eps_overrides(cfg, eps)
 
     # Fluid A — unified face-flux weights for T_out and m_dot consistency
-    m_dot_A_simple = _simple_mass_flow(sA, fA['dir'], eps_f_per_side=eps_f_per_side,
+    m_dot_A_simple = _simple_mass_flow(sA, eps_f_per_side=eps_f_per_side,
                                        eps_side_override=_eps_ov_A)
     T_A_out_face = _real_outlet_slice(Ta, fA['dir'])
-    T_A_out = _mass_weighted_T_out(T_A_out_face, sA, fA['dir'], eps_f_per_side,
+    T_A_out = _mass_weighted_T_out(T_A_out_face, sA, eps_f_per_side,
                                    eps_side_override=_eps_ov_A)
     # A pair containing sCO2 is solved in true enthalpy for BOTH streams, so
     # report the same boundary-face quantity for both fluids. Other routes
@@ -1252,8 +1252,7 @@ def _extract_3d_metrics(prob: _Problem3D, outer: _OuterState):
         with range_context(side='A', stage='final', layout='outlet-cell-face(real-transverse-axes)'):
             h_A_out = _mass_weighted_h_out(
                 T_A_out_face, _P_A_out,
-                lambda T, P: _prop_field('H', T, P, fluid_type_A), sA, fA['dir'],
-                eps_f_per_side, eps_side_override=_eps_ov_A)
+                lambda T, P: _prop_field('H', T, P, fluid_type_A), sA, eps_f_per_side, eps_side_override=_eps_ov_A)
         with range_context(side='A', stage='final', layout='scalar-inlet-reference'):
             Q_enthalpy_A = abs(m_dot_A_simple * (
                 _h_scalar(float(T_inA), P_inA, fluid_type_A) - h_A_out))
@@ -1265,10 +1264,10 @@ def _extract_3d_metrics(prob: _Problem3D, outer: _OuterState):
     # Fluid B
     Q_enthalpy_B = 0.0
     if sB is not None:
-        m_dot_B_simple = _simple_mass_flow(sB, fB['dir'], eps_f_per_side=eps_f_per_side,
+        m_dot_B_simple = _simple_mass_flow(sB, eps_f_per_side=eps_f_per_side,
                                            eps_side_override=_eps_ov_B)
         T_B_out_face = _real_outlet_slice(Tb, fB['dir'])
-        T_B_out = _mass_weighted_T_out(T_B_out_face, sB, fB['dir'], eps_f_per_side,
+        T_B_out = _mass_weighted_T_out(T_B_out_face, sB, eps_f_per_side,
                                         eps_side_override=_eps_ov_B)
         # m_dot variants for diagnostic
         m_dot_B_phys_in = float(np.sum(_face_flux_weights(sB, face='real_inlet', eps_mode='physical')))
@@ -1283,8 +1282,7 @@ def _extract_3d_metrics(prob: _Problem3D, outer: _OuterState):
             with range_context(side='B', stage='final', layout='outlet-cell-face(real-transverse-axes)'):
                 h_B_out = _mass_weighted_h_out(
                     T_B_out_face, _P_B_out,
-                    lambda T, P: _prop_field('H', T, P, fluid_type_B), sB, fB['dir'],
-                    eps_f_per_side,
+                    lambda T, P: _prop_field('H', T, P, fluid_type_B), sB, eps_f_per_side,
                     eps_side_override=_eps_ov_B)
             with range_context(side='B', stage='final', layout='scalar-inlet-reference'):
                 Q_enthalpy_B = abs(m_dot_B_simple * (
@@ -1948,7 +1946,6 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
     dx = prob.dx
     dy = prob.dy
     dz = prob.dz
-    eps = prob.eps
     eps_arr = prob.eps_arr
     eps_fA_arr = prob.eps_fA_arr
     eps_fB_arr = prob.eps_fB_arr
@@ -2343,18 +2340,6 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
             face_mass_fluxes, solve_ltne_enthalpy_3d_pipeline,
         )
         from sjtu_tpmshx.solvers.ltne_energy_3d import _project_faces_div_free
-        _epsps = 0.5 * float(eps)
-        # N4 (2026-06-28): under δ≠0 the per-side ṁ must weight by the actual
-        # channel void (ε·split), matching the duty-extraction path and the
-        # asymmetric eps_A/eps_B fields handed to the kernel. None at δ=0 →
-        # symmetric 0.5·ε (every 703/production config; bit-identical).
-        _ov_A_e, _ov_B_e = _prepared_eps_overrides(cfg, eps)
-        _mdA = (1.0 if fA['dir'] % 2 == 0 else -1.0) * abs(
-            _simple_mass_flow(sA, fA['dir'], eps_f_per_side=_epsps,
-                              eps_side_override=_ov_A_e))
-        _mdB = (1.0 if fB['dir'] % 2 == 0 else -1.0) * abs(
-            _simple_mass_flow(sB, fB['dir'], eps_f_per_side=_epsps,
-                              eps_side_override=_ov_B_e))
         _dPA = float(SIMPLESolver3D.extract_dP_face_extrap(sA))
         _P_A_local = _pressure_real_3d(sA, axis_map, P_inA - _dPA)
         _dPB = float(SIMPLESolver3D.extract_dP_face_extrap(sB))
@@ -2378,8 +2363,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
             *_faces_B, _rho_B_real, eps_fB_arr, dx, dy, dz)
         state.Ta, state.Tb, state.Ts, _ltne_info_d = solve_ltne_enthalpy_3d_pipeline(
             Nx, Ny, Nz, dx, dy, dz, eps_arr, K_ss,
-            state.h_vA_field, state.h_vB_field, _mdA, _mdB,
-            T_inA, T_inB, P_inA, P_inB, fA['dir'], fB['dir'],
+            state.h_vA_field, state.h_vB_field, T_inA, T_inB, P_inA, P_inB,
             fluid_A=fluid_type_A, fluid_B=fluid_type_B,
             pressure_A_field=_P_A_local,
             pressure_B_field=_P_B_local,

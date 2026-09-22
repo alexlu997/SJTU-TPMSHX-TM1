@@ -1,8 +1,8 @@
 """Pytest gate-check for MMS Phase A.3 — 5-grid h-refinement order.
 
-Locks in V&V Standard Tier Phase A.3 results so that any future change
-to the SOU/MINMOD discretisation, MMS source generator, or boundary
-stencil that drops the observed order below 2nd-order will fail CI.
+Checks the recorded V&V Standard Tier Phase A.3 evidence against its
+original thresholds. It does not recompute the current discretisation;
+the CLI applies these gates to each new sweep separately.
 
 The expensive 5-grid sweep itself (~5 hr wall on a laptop) is **not**
 re-run here. This test reads the persisted CSV produced by

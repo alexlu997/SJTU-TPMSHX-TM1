@@ -126,7 +126,6 @@ progress: dict = {
     'total': 0,
     'best_Q': -float('inf'),
     'phase': 'idle',                    # init / optimize / completed / cancelled / plateau
-    'cancel_requested': False,
     # Hypervolume tracking (Phase 2 — live HV plot in optimize panel)
     'hv':     0.0,                       # current iter HV
     'hv_iter': 0,                        # iter index of last HV update
@@ -148,15 +147,6 @@ def _reset_warn_registries() -> None:
     from sjtu_tpmshx.df_surrogate.predict import reset_choke_warn_registry
     reset_extrap_warn_registry()
     reset_choke_warn_registry()
-
-
-def request_cancel() -> None:
-    """UI button → set this; the BO loop checks before each candidate wave."""
-    progress['cancel_requested'] = True
-
-
-def clear_cancel() -> None:
-    progress['cancel_requested'] = False
 
 
 # ─── Pareto utilities ───────────────────────────────────────────────
@@ -346,12 +336,11 @@ def run_qnehvi(config: Optional[dict] = None,
     with open(os.path.join(save_dir, 'config.json'), 'w') as f:
         json.dump(cfg, f, indent=2, allow_nan=False)
 
-    # 2. Reset progress + cancel
+    # 2. Reset progress
     progress['count'] = 0
     progress['total'] = n_init + n_iter * q_batch
     progress['best_Q'] = -float('inf')
     progress['phase']  = 'init'
-    progress['cancel_requested'] = False
     progress['hv'] = 0.0
     progress['hv_iter'] = 0
     progress['hv_hist'] = []
@@ -361,7 +350,7 @@ def run_qnehvi(config: Optional[dict] = None,
     termination_reason = 'completed'
 
     def _cancelled():
-        return bool(progress['cancel_requested'] or (cancel_check and cancel_check()))
+        return bool(cancel_check and cancel_check())
 
     def _evaluate_batch(X_np: np.ndarray) -> np.ndarray:
         """Evaluate a batch of decision vectors.

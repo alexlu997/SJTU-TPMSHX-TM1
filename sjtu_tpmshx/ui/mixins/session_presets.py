@@ -155,14 +155,8 @@ class SessionPresetsMixin:
             self._update_tab_visibility()
         except Exception:
             pass
-        # Disable the export button — there is nothing to export.
-        for _bname in ('btn_export',):
-            _b = getattr(self, _bname, None)
-            if _b is not None:
-                try:
-                    _b.setEnabled(False)
-                except Exception:
-                    pass
+        # The separate optimization figure can remain available for export.
+        self._refresh_export_button()
 
     def _apply_user_preset(self, preset, *, show_notice=True):
         """Apply a saved preset payload (shape matches _save_session output).

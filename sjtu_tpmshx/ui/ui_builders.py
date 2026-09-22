@@ -95,7 +95,6 @@ def build_ui(window):
     quick.setIcon(icon('activity', theme['sub_fg']))
     quick.setIconSize(QSize(18, 18))
     quick.clicked.connect(window._open_quick_design)
-    window.btn_quick_design = quick
     row.addWidget(quick)
     row.addStretch(1)
     header.addWidget(navigation)

@@ -1,4 +1,6 @@
 """Actual water T/P boundaries; no solver or temporary-sweep acceptance."""
+
+from sjtu_tpmshx.tests.enthalpy_3d_reference import uniform_face_mass_flux
 import numpy as np
 import pytest
 import CoolProp.CoolProp as CP
@@ -104,7 +106,8 @@ def test_enthalpy_warm_start_uses_local_pressure():
     with pytest.raises(WaterStateError, match='warm start A'):
         solve_ltne_enthalpy_3d_pipeline(
             1, 1, 1, [1.], [1.], [1.], cell * .7, cell * 5.,
-            cell * 100., cell * 100., .01, .01, 300., 320., 2e5, 2e5, 0, 1,
+            cell * 100., cell * 100., 300., 320., 2e5, 2e5, mass_flux_A=uniform_face_mass_flux((1, 1, 1), 0.01, 0),
+            mass_flux_B=uniform_face_mass_flux((1, 1, 1), 0.01, 1),
             fluid_A='water', fluid_B='water', Ta_init=cell * 380.,
             pressure_A_field=cell * 1e5, n_outer=1)
 
@@ -155,7 +158,8 @@ def test_shared_driver_final_water_eos_rejection(monkeypatch, adapter, side, eos
         else:
             ent.solve_ltne_enthalpy_3d_pipeline(
                 1, 1, 1, [1.], [1.], [1.], cell * .7, cell * 5.,
-                cell * 100., cell * 100., 0., 0., 300., 320., 2e5, 2e5, 0, 1,
+                cell * 100., cell * 100., 300., 320., 2e5, 2e5, mass_flux_A=uniform_face_mass_flux((1, 1, 1), 0.0, 0),
+                mass_flux_B=uniform_face_mass_flux((1, 1, 1), 0.0, 1),
                 fluid_A='water', fluid_B='water', n_outer=1)
     assert sweeps == [1]
     assert 'index=(0, 0, 0)' in str(error.value)

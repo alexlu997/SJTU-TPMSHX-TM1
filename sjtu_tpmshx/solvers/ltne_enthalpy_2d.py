@@ -32,9 +32,8 @@ def solve_enthalpy_2d(
     result = solve_ltne_enthalpy_3d_pipeline(
         shape[0], shape[1], 1, dx, dy, np.ones(1),
         cell3(eps_A) + cell3(eps_B), cell3(k_s),
-        cell3(h_vA), cell3(h_vB), 0.0, 0.0,
-        T_inA, T_inB, P_inA, P_inB,
-        0, 0, fluid_A=fluid_A, fluid_B=fluid_B,
+        cell3(h_vA), cell3(h_vB), T_inA, T_inB, P_inA, P_inB,
+        fluid_A=fluid_A, fluid_B=fluid_B,
         eps_A_field=cell3(eps_A), eps_B_field=cell3(eps_B),
         pressure_A_field=cell3(pressure_A),
         pressure_B_field=cell3(pressure_B),

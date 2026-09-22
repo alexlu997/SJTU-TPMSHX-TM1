@@ -22,7 +22,7 @@ def test_all_bundled_icons_and_aliases_have_visible_content():
     assets = Path(__file__).parents[1] / 'ui' / 'assets' / 'icons'
     names = [path.stem for path in assets.glob('*.svg')]
     assert names
-    for name in names + ['sliders', 'more-horizontal', 'fit-view', 'help-circle']:
+    for name in names + ['sliders', 'more-horizontal', 'fit-view']:
         image = icon(name, '#497ced').pixmap(QSize(20, 20)).toImage()
         assert not image.isNull(), name
         assert _opaque_pixels(image), name

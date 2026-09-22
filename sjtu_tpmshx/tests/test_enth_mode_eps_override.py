@@ -53,8 +53,8 @@ def test_simple_mass_flow_eps_side_override_scales_mdot():
     relies on when it passes eps_side_override in the enthalpy block."""
     Nx, Nz, eps, split = 2, 2, 0.8, 0.6
     s = _stub_solver(Nx, Nz, eps)
-    m_sym = _simple_mass_flow(s, 0, eps_f_per_side=0.5 * eps)
-    m_ov = _simple_mass_flow(s, 0, eps_f_per_side=0.5 * eps,
+    m_sym = _simple_mass_flow(s, eps_f_per_side=0.5 * eps)
+    m_ov = _simple_mass_flow(s, eps_f_per_side=0.5 * eps,
                              eps_side_override=eps * split)
     assert m_sym > 0.0
     assert m_ov == pytest.approx(m_sym * (eps * split) / (0.5 * eps))

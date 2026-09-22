@@ -7,8 +7,8 @@ the requested operating point.
 
 The 1D Forchheimer estimate describes straight, isothermal flow. Its failure
 is not proof that a turning, non-isothermal coupled flow has no solution.
-``check_compressible_envelope`` retains that limited 1D diagnostic; full 2D/3D
-startup and bounded pressure updates live in ``solvers._solve_common``.
+``predict_outlet_p_sq`` retains that limited estimate; full 2D/3D startup
+and bounded pressure updates live in ``solvers._solve_common``.
 The final-field floor, nonfinite and Mach gates below remain unchanged.
 """
 from __future__ import annotations
@@ -46,34 +46,6 @@ def predict_outlet_p_sq(P_in: float, T_in: float, C_est: float, L: float,
             - 2.0 * float(R) * float(T_in) * float(C_est) * float(L))
 
 
-def check_compressible_envelope(P_out_sq: float, P_in: float, *,
-                                mode: str = 'raise', context: str = '') -> str | None:
-    """Validity diagnostic for the straight, isothermal 1D approximation.
-
-    ``P_out_sq > 0`` → in envelope → return ``None`` (never raises). Otherwise
-    the 1D drag predicts dP >= P_in (outlet vacuum): with ``mode='raise'``
-    raise :class:`ChokedFlowError`; ``'warn'`` return the message string for the
-    caller to surface; ``'off'`` return ``None``.
-    """
-    if mode not in ENVELOPE_MODES:
-        raise ValueError(f"unknown envelope mode {mode!r}; "
-                         f"expected one of {ENVELOPE_MODES}")
-    if P_out_sq > 0.0:
-        return None
-    msg = (
-        f"1D pressure-seed rejection: the Forchheimer approximation predicts a pressure "
-        f"drop >= the inlet absolute pressure (P_in={float(P_in):.0f} Pa, "
-        f"predicted outlet P^2={float(P_out_sq):.3e} < 0). No steady subsonic "
-        f"solution exists within this isothermal 1D approximation; this does not prove physical choking. Reduce the inlet velocity, shorten the streamwise "
-        f"domain, or raise the inlet pressure."
-    )
-    if context:
-        msg += f" [{context}]"
-    if mode == 'raise':
-        raise ChokedFlowError(msg)
-    if mode == 'warn':
-        return msg
-    return None      # mode == 'off'
 
 
 def mach(vmax: float, T_ref: float, *, R: float = R_AIR_DEFAULT,
@@ -152,8 +124,7 @@ def gate_solution(P_abs_min: float, vmax: float, T_ref: float, *,
     non-physical, otherwise just return ``(valid, reasons)``. ``'warn'`` /
     ``'off'`` never raise.
 
-    ``mode`` is validated against :data:`ENVELOPE_MODES` (like the pre-solve
-    :func:`check_compressible_envelope`), so a typo'd / mis-configured mode fails
+    ``mode`` is validated against :data:`ENVELOPE_MODES`, so an unknown mode fails
     loudly instead of silently degrading a ``'raise'`` intent into ``'off'``
     (audit 2026-06-28).
     """

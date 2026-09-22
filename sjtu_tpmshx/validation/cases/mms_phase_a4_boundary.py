@@ -22,7 +22,8 @@ Hard gates:
 - Outlet L2 order_obs >= 0.8 (one-sided 1st-order stencil; allow modest)
 - Lateral L2 order_obs >= 1.5 (cosine BC compatible with adiabatic)
 - Interior L2 order_obs >= 1.8 (matches global A.3)
-- All L2 (g30) < 1.0%
+- Interior L2 on the final requested grid < 1.0%
+- Every requested grid converged, with finite regional L2/Linf errors
 
 Each run writes mms_phase_a4_boundary.csv and mms_phase_a4_orders.csv in a
 new .cache/validation/mms_phase_a4-*/ directory (or --out-dir). Explicit file
@@ -121,7 +122,8 @@ def main():
     def _row(g, r, dt):
         masks = _region_masks(g, g, g)
         result = dict(N=g, h=L_DOM/g, elapsed=dt,
-                      outer_iters=r['outer_iters'], last_chg=r['last_chg'])
+                      outer_iters=r['outer_iters'], last_chg=r['last_chg'],
+                      converged=bool(r['converged']))
         for region, mask in masks.items():
             for phase, num, exact in [
                 ('A', r['Ta_num'], r['Ta_exact']),
@@ -185,6 +187,10 @@ def main():
     print("  Hard gates")
     print(f"{'='*72}")
     fail = []
+    metric_columns = [col for col in df if col.startswith(('L2_', 'Linf_'))]
+    if (df['N'].tolist() != grids or not df['converged'].all()
+            or not np.isfinite(df[metric_columns].to_numpy()).all()):
+        fail.append('all_requested_grids_converged_finite')
 
     # Inlet machine-eps check (use last grid)
     last = df.iloc[-1]

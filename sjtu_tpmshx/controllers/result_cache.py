@@ -85,9 +85,6 @@ class ResultCache(QObject):
         """Replace the set after invalidating or rebuilding selected views."""
         self._drawn_tabs = set(tabs)
 
-    def clear_drawn(self) -> None:
-        self._drawn_tabs.clear()
-
     # ------------------------------------------------------------------ misc
 
     def __repr__(self) -> str:

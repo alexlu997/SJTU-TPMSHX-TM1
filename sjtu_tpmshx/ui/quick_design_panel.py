@@ -46,24 +46,28 @@ def _gather_inputs(window) -> dict:
     height = None
     if chk("chk_qd_rect"):
         height = positive("le_qd_height", 750) / 1e3
-    return {
+    mode = cur("combo_qd_mode", "auto")
+    params = {
         "file": txt("le_qd_file"),
-        "mode": cur("combo_qd_mode", "auto"),
+        "mode": mode,
         "arrangement": cur("combo_qd_arr", "counter"),
         "rho_s": rho_s,
         "k_s": k_s,
         "prop_model": prop_model,
         "height": height,
         "refine": chk("chk_qd_refine"),
-        "nodes": {
+    }
+    if mode == "fixed":
+        params["cell"] = (cur("combo_qd_cell_topo", "Diamond"),
+                          positive("le_qd_cell_l", 7),
+                          positive("le_qd_cell_t", 0.5))
+    else:
+        params["nodes"] = {
             "topo": [s.strip() for s in txt("le_qd_topo", "Diamond,Gyroid").split(",") if s.strip()],
             "l": _flist(txt("le_qd_l", "4,5,6,7,8")),
             "t": _flist(txt("le_qd_t", "0.3,0.4,0.5,0.6")),
-        },
-        "cell": (cur("combo_qd_cell_topo", "Diamond"),
-                 positive("le_qd_cell_l", 7),
-                 positive("le_qd_cell_t", 0.5)),
-    }
+        }
+    return params
 
 def _make_worker_class():
     """lazy QThread worker (Qt import 延迟, 非 GUI 工具可 import 本模块)。"""
@@ -144,7 +148,7 @@ def _set_status(window, text):
         except Exception: pass
     _log.info(f"[quick-design] {text}")
 
-def _fill_table(window, feasible, best, *, partial=False):
+def _fill_table(window, feasible, *, partial=False):
     """把可行件按 V 排序填进 window._qd_table (QTableWidget)。无表则打印。"""
     rows = sorted(feasible, key=lambda d: d.V)
     from sjtu_tpmshx.design.select import pareto_tags
@@ -216,7 +220,7 @@ def run_quick_design(window) -> None:
         feas, best = res["feasible"], res["best"]
         partial = res.get('partial', False)
         window._qd_last = res
-        _fill_table(window, feas, best, partial=partial)
+        _fill_table(window, feas, partial=partial)
         if partial:
             _set_status(window, f"已取消 · 保留 {len(res['all'])} 个已完成候选，"
                         f"其中 {len(feas)} 个可行 · 部分结果，不代表完整搜索最优")

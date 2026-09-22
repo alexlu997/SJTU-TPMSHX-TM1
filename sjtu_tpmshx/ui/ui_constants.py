@@ -12,7 +12,6 @@ TOAST_MS_BRIEF = 2000  # one-shot acknowledgements ("3D ready")
 TOAST_MS_SHORT = 3000  # quick state changes ("Cancelled", "Cleared")
 TOAST_MS_MED = 5000    # standard results / config confirmations
 
-# V&V Standard Tier validated velocity limit (m/s). Above this, SIMPLE
-# outer iterations slow 5-10× on the Forchheimer branch. Drives the
-# off-domain status-bar notice at compute start.
-VV_VELOCITY_LIMIT_MS = 10.0
+# Non-blocking reminder threshold (m/s), not a physical applicability limit
+# or a runtime predictor. Model-specific validation remains in the compute path.
+HIGH_VELOCITY_NOTICE_MS = 10.0

@@ -20,7 +20,7 @@ actually provides):
 Data entry points:
     panel.set_fields(Ta=..., Tb=..., Ts=..., vmag=..., vmag_B=...,
                      P_kPa=..., P_B_kPa=..., L_mm=...,
-                     dx=..., dy=..., dz=..., real_dims=(Lx, Ly, Lz))
+                     dx=..., dy=..., dz=...)
 
 The caller can hand real 3D SIMPLE+LTNE results in via `set_fields`.
 """
@@ -477,7 +477,6 @@ class ThreeDVisPanel(QWidget):
         self._volume_actor = None
         self._slice_actor_name = 'user_slice'
         self._slice_info = None                      # {'axis': 'x', 'coord_mm': 10.0}
-        self._hover_obs_id = None
         self._last_hover_text = ''
         self._base_status_text = ''
         self._popup_dialogs: list = []               # keep refs so they aren't GC'd
@@ -512,7 +511,7 @@ class ThreeDVisPanel(QWidget):
     # ─────────────────────────── public API ───────────────────────────
 
     def set_fields(self, Ta=None, vmag=None, P_kPa=None, L_mm=None,
-                   dx=None, dy=None, dz=None, real_dims=(0.182, 0.042, 0.042),
+                   dx=None, dy=None, dz=None,
                    *, Tb=None, Ts=None, vmag_B=None, P_B_kPa=None,
                    flow_dir='+x', flow_dir_B=None):
         """Attach 3D fields to the panel. Shape of every field: (Nx, Ny, Nz).
@@ -521,7 +520,6 @@ class ThreeDVisPanel(QWidget):
         (e.g. cross-flow fluid B when not solved) — the combo will skip it.
 
         dx, dy, dz : 1-D grid spacings in metres.
-        real_dims  : (Lx, Ly, Lz) metres — used for status + bounds labels.
         """
         if dx is None or dy is None or dz is None:
             raise ValueError("set_fields: dx/dy/dz are required")
@@ -760,10 +758,9 @@ class ThreeDVisPanel(QWidget):
         except Exception:
             return
         try:
-            self._hover_obs_id = iren.AddObserver(
-                'MouseMoveEvent', self._on_mouse_move, 1.0)
+            iren.AddObserver('MouseMoveEvent', self._on_mouse_move, 1.0)
         except Exception:
-            self._hover_obs_id = None
+            pass
 
     def _on_mouse_move(self, obj, event):
         """Probe scalar values at cursor position on the slice (if present)."""

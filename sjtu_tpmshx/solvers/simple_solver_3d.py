@@ -530,27 +530,6 @@ class SIMPLESolver3D:
         return float(np.average(P_in_face[mI], weights=wI[mI])
                      - np.average(P_out_face[mO], weights=wO[mO]))
 
-    @staticmethod
-    def extract_dP_mass_flux_weighted(s):
-        """Pipe-weighted inlet-outlet dP using ρ·|v| mass-flux weights.
-
-        Matches the physical inlet/outlet energy reduction more closely than
-        geometric open-area weights when the velocity profile is skewed (e.g.
-        partial-width inlets or stratified flow). Uses y-face streamwise
-        velocity v at the first and last y-layers, density from rho_field.
-        """
-        v_inlet_face = s.v[:, 0, :]
-        v_outlet_face = s.v[:, -1, :]
-        rho_in = s.rho_field[:, 0, :]
-        rho_out = s.rho_field[:, -1, :]
-        area = s.dx[:, None] * s.dz[None, :]
-        wI = rho_in * np.abs(v_inlet_face) * area
-        wO = rho_out * np.abs(v_outlet_face) * area
-        mI = wI > 0.0; mO = wO > 0.0
-        if not (mI.any() and mO.any()):
-            return SIMPLESolver3D.extract_dP_weighted(s)
-        return float(np.average(s.P[:, 0, :][mI], weights=wI[mI])
-                     - np.average(s.P[:, -1, :][mO], weights=wO[mO]))
 
     def __init__(self, Lx, Ly, Lz, Nx, Ny, Nz,
                  rho, mu, T_in, v_inlet,

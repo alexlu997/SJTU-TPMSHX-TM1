@@ -144,8 +144,8 @@ def nu_vec(tpms_type, Re, L_mm, D_h_mm, *, Re_floor=10.0, Pr=Pr_AIR):
 # retired water-cfd-raw.xlsx, kept in git). Adding a (D_h/L)^d geometry term
 # does NOT help water (d≈0 Diamond / +0.08 Gyroid, RMSRE unchanged) — the
 # 2-parameter form is kept. Accuracy: RMSRE ~10%, LOGO (leave-one-geometry-out)
-# medAPE Diamond 6.8% / Gyroid 8.2%. D_7_3/4/5 share the sCO2 flow-data quirk
-# but Nu is velocity-free so they stay in the fit.
+# medAPE Diamond 6.8% / Gyroid 8.2%. D_7_3/4/5 share the sCO2 flow-data quirk;
+# the retained fit includes them; uncertain flow data can affect Re and the fit.
 WATER_NU_RE_RANGE = (90.0, 51000.0)
 WATER_NU_COEFFS = {
     'Diamond': {'c': 0.3201, 'a': 0.6679},
@@ -211,9 +211,9 @@ def nu_water_topo(tpms_type, Re, Pr_water):
 # form (no wall-ratio — ΔT≡50K makes those exponents non-general, user
 # decision 2026-07-15). Fit + validation: validation/sco2_cfd/fit_nu_sco2.py,
 # local .cache/reports/sco2_cfd/; archived outputs: docs/history/README.md.
-#   ⚠ Diamond D_7_3/4/5 carry a flow-data (mdot/Um) inconsistency, but Nu is
-#     velocity-free so their Nu is sound and they are kept in the fit; see
-#     df_surrogate/load_sco2_cfd.py module doc.
+# Diamond D_7_3/4/5 remain in the stored fit despite a documented mdot/Um
+# inconsistency. Nu not explicitly using velocity does not validate Re or
+# remove its effect on Nu(Re) fitting; see df_surrogate/load_sco2_cfd.py.
 #
 # Form  Nu = c·Re^a·Pr_b^(1/3)·(D_h/L)^d      [bulk properties at (T_b, P)]
 # Accuracy (2026-07-26): far-critical RMSRE Diamond 9.3% / Gyroid 7.4%,

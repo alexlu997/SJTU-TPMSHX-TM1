@@ -153,8 +153,6 @@ def _gather_cfg(window, base: dict | None = None) -> dict:
     _get('le_H',      float, 'H_domain')
     _get('le_Lz',     float, 'Lz')
 
-    _get('le_Lcell',  float, 'L_avg_init')   # not used directly but useful seed
-    _get('le_t',      float, 't_avg_init')
     _get('le_ks',     float, 'k_s')
     _get('le_uA',     float, 'u_A')
     _get('le_uB',     float, 'u_B')
@@ -572,7 +570,7 @@ def run_optimize(window) -> None:
     if sparkline is not None:
         sparkline.clear_data()
     if caption is not None:
-        caption.setText(f"初始采样 · 最优 Q [{'W' if is_3d else 'W/m'}]")
+        caption.setText("初始采样 · 最优 Q [W/m]")
 
     def _on_progress(count, total, best_Q):
         if getattr(window, '_close_pending', False):
@@ -797,6 +795,8 @@ def show_pareto(window, res: dict) -> None:
                 window._pareto_pick_cid = None
         window._pareto_X = None
         window._pareto_F = None
+        if hasattr(window, '_refresh_export_button'):
+            window._refresh_export_button()
         return
 
     Q  = -F_min[:, 0]
@@ -812,6 +812,8 @@ def show_pareto(window, res: dict) -> None:
         return
 
     fig = canvas.figure
+    window._pareto_X = None
+    window._pareto_F = None
     fig.clear()
     ax = fig.add_subplot(111)
     if F_hist is not None and F_hist.size:
@@ -835,6 +837,8 @@ def show_pareto(window, res: dict) -> None:
     # Cache the Pareto data on the window for click-pick decoding
     window._pareto_X = res['X']
     window._pareto_F = F_min
+    if hasattr(window, '_refresh_export_button'):
+        window._refresh_export_button()
 
     # Wire the pick_event to window._on_pareto_pick. mpl supports multiple
     # cid registrations; if we already registered one previously, drop it

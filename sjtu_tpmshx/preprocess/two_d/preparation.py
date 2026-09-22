@@ -71,8 +71,7 @@ def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None):
             else:
                 from sjtu_tpmshx.models.zone_config import ZoneConfig
                 za = ZoneConfig.build_grid_arrays(
-                    N_x, N_y, L, H,
-                    grid['cells'],
+                    N_x, N_y, grid['cells'],
                     grid['tpms_type'], grid['k_s'],
                     u_A, u_B, T_inA, T_inB, P_in_val, P_inB=P_inB,
                     dx_arr=dx_arr, dy_arr=dy_arr)
@@ -112,17 +111,7 @@ def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None):
 
 
 def _parse_inputs_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
-    """Phase 1 (Qt-free): assemble the parsed-config dict from a
-    :class:`ComputeConfig`.
-
-    Audit C4 (L-a-2): cfg-only mirror of ``_parse_inputs``. The legacy
-    function now wraps this and propagates ``extrap_reasons`` back onto
-    ``window._extrap_reasons`` so the UI watermark keeps working.
-
-    Returns the same parsed dict as ``_parse_inputs`` plus an
-    ``extrap_reasons`` key (the legacy version mutated this onto the
-    window directly; the cfg-pure version returns it instead).
-    """
+    """Assemble physical inputs and applicability notices from typed config."""
     warnings_list = []
     extrap_reasons = []
 
@@ -157,7 +146,7 @@ def _parse_inputs_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
     # 0.5*(T_inA+T_inB) inside solve_full_domain. Not a prescribed Ts.
     T_s_init = compute_cfg.solver.T_s_init_K
 
-    # Defensive unit firewall — shared with the 3D parse (_stage_common).
+    # Domain-unit validation is shared with 3D preparation.
     validate_domain_dims([('L', L), ('H', H)])
 
     dx = L / N_x
@@ -167,9 +156,7 @@ def _parse_inputs_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
     dir_A = cfgA['dir']
     dir_B = cfgB['dir']
 
-    # TPMS geometry derives porosity + hydraulic radius purely from cfg.
-    # The legacy version cached this in ``window._eps_A``; we re-derive
-    # because tpms_geometry is cheap (closed-form per Cheng 2021).
+    # TPMS porosity and hydraulic radius come from the configured geometry.
     tpms_type = compute_cfg.geometry.tpms
     Lcell = compute_cfg.geometry.L_cell_mm
     t_wall = compute_cfg.geometry.t_wall_mm
@@ -197,9 +184,8 @@ def _parse_inputs_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
         'fluid_A': fluid_A, 'fluid_B': fluid_B,
         'warnings_list': warnings_list,
         'extrap_reasons': extrap_reasons,
-        # Stash the strict ComputeConfig so downstream phases
-        # (_build_fields / _run_solvers / _store_results) can reach
-        # P_inA / P_inB etc. without re-reading ``le_*`` widget.
+        # Preparation consumes typed input only; runtime receives its frozen
+        # run_settings and physical fields through CaseData.
         'compute_cfg': compute_cfg,
     }
 
@@ -279,14 +265,12 @@ def _prepare_grid(cfg):
 
 def _prepare_flow_inputs(cfg, dx, dy):
     """Resolve the existing full-mode row drag once on the physical grid."""
-    from sjtu_tpmshx.df_surrogate.predict import predict_K_cF, predict_K_cF_vec, SCO2_DF_METHOD
+    from sjtu_tpmshx.df_surrogate.predict import predict_K_cF, SCO2_DF_METHOD
     from sjtu_tpmshx.df_surrogate.experimental_correction import apply_correction, cfd_metadata
-    from sjtu_tpmshx.models.df_projection import (
-        project_cells_to_streamwise_K_cF, project_fields_to_streamwise_K_cF)
-    from sjtu_tpmshx.models.zone_config import ZoneConfig
+    from sjtu_tpmshx.models.df_projection import project_fields_to_streamwise_K_cF
     tpms, cell, wall, eps = (cfg[k] for k in ('tpms_type', 'Lcell', 't_wall', 'eps'))
     base_K, base_cF = predict_K_cF(tpms, cell, wall, .5 * eps, method=SCO2_DF_METHOD)
-    za, zone = cfg['za'], cfg['zone_config']
+    za = cfg['za']
     result = {}
     for side in ('A', 'B'):
         direction = cfg['cfg' + side]['dir']
@@ -295,31 +279,13 @@ def _prepare_flow_inputs(cfg, dx, dy):
         stream = stream[::-1].copy() if direction in (1, 3) else stream.copy()
         count = len(stream)
         K, cF = np.full(count, base_K), np.full(count, base_cF)
-        zc = zone if not is_x and isinstance(zone, ZoneConfig) else None
-        if zc is not None:
-            rows = []
-            for j in range(count):
-                # Preserve the source constructor's uniform row sampling,
-                # including its order for reverse flow.
-                fraction = (j + .5) * (cfg['H'] / count) / cfg['H']
-                selected = zc.zones[-1]
-                for candidate in zc.zones:
-                    if candidate.y_frac_start <= fraction < candidate.y_frac_end:
-                        selected = candidate
-                        break
-                rows.append((selected.L_mm, selected.t_mm,
-                             .5 * (selected.props_A['epsilon'] if selected.props_A else eps)))
-            Lrow, trow, erow = np.asarray(rows).T
-            K, cF = predict_K_cF_vec(tpms, Lrow, trow, erow, method=SCO2_DF_METHOD)
-        elif za is not None:
-            fluid = 'A' if is_x else 'B'
-            if za['axis'] == 'continuous':
-                K, cF = project_fields_to_streamwise_K_cF(
-                    za['L_field'], za['t_field'], tpms, cfg['k_s'], count,
-                    fluid, streamwise_dx=stream, source_grid=(dx, dy))
-            elif za.get('grid_cells'):
-                K, cF = project_cells_to_streamwise_K_cF(
-                    za['grid_cells'], tpms, cfg['k_s'], count, fluid, streamwise_dx=stream)
+        if za is not None:
+            # Discrete rectangles, stripes and continuous designs share the
+            # same physical L/t cells used by thermal preparation. Preserve
+            # the row model: transverse length-average L/t, then predict drag.
+            K, cF = project_fields_to_streamwise_K_cF(
+                za['L_field'], za['t_field'], tpms, cfg['k_s'], count,
+                direction, streamwise_dx=stream, source_grid=(dx, dy))
         seed_K, seed_cF = base_K, base_cF
         if cfg['compute_cfg'].df_mode == 'experimental':
             from sjtu_tpmshx.domain.run_warnings import range_context

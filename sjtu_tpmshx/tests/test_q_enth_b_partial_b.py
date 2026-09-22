@@ -39,7 +39,7 @@ def test_q_enth_b_excludes_stagnant_corners():
     sol = _mock_solver(NX=NX, NZ=NZ)
 
     # dir_code=3 (-y): approach-(a) real_outlet -> solver j=-1 + outlet_frac.
-    T_bulk = _mass_weighted_T_out(T_face, sol, dir_code=3, eps_f_scalar=0.5)
+    T_bulk = _mass_weighted_T_out(T_face, sol, eps_f_scalar=0.5)
 
     assert abs(T_bulk - 350.0) < 0.1, f"bulk T_b leaked stagnant: {T_bulk:.2f}"
 
@@ -55,5 +55,5 @@ def test_q_enth_b_no_active_flow_falls_back():
     sol = _mock_solver(NX=NX, NZ=NZ)
     sol.outlet_frac = np.zeros((NX, NZ))   # no active outlet
     sol.v[:] = 0.0                          # no flow anywhere
-    T_bulk = _mass_weighted_T_out(T_face, sol, dir_code=3, eps_f_scalar=0.5)
+    T_bulk = _mass_weighted_T_out(T_face, sol, eps_f_scalar=0.5)
     assert T_bulk == pytest.approx(355.0, abs=1e-6)

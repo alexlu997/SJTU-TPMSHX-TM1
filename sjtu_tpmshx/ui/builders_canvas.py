@@ -864,7 +864,6 @@ def _build_canvas_content(window, vlay, t):
     canvas_lay.setHorizontalSpacing(12)
     canvas_lay.setVerticalSpacing(16)
     window._canvas_lay = canvas_lay
-    window._canvas_cols = 1
 
     # Empty state: visible until a Compute or Preview populates any card.
     # Structured three-step guidance (ui-layout-fixes) instead of a text
@@ -1070,7 +1069,7 @@ def _build_canvas_content(window, vlay, t):
         window._canvas_cards[key] = card
         # Matplotlib canvases get custom wheel-zoom; 3D PyVistaQt keeps its own
         if key != '3d':
-            c.wheelEvent = lambda evt, cv=c, k=key: canvas_wheel_zoom(window, evt, cv, k)
+            c.wheelEvent = lambda evt, k=key: canvas_wheel_zoom(window, evt, k)
 
     # Register card ordering + initial single-column placement.
     window._canvas_card_order = [k for k, _ in _card_row_order]
@@ -1253,7 +1252,6 @@ def _layout_split_cards(window, keys):
             continue
         lay.addWidget(card, 0, i)
         card.show()
-    window._canvas_cols = 2
     window._split_tabs = list(keys)
 
 
@@ -1277,7 +1275,6 @@ def _relayout_canvas_cards(window, cols):
             continue
         r, c = divmod(i, cols)
         lay.addWidget(card, r, c)
-    window._canvas_cols = cols
 
 
 def canvas_zoom_reset(window):
@@ -1297,8 +1294,8 @@ def canvas_zoom_reset(window):
         card.setFixedHeight(window._canvas_default_h[tab])
 
 
-def canvas_wheel_zoom(window, event, canvas, key):
-    """Ex-Main_Menu._canvas_wheel_zoom(self, event, canvas, key).
+def canvas_wheel_zoom(window, event, key):
+    """Scroll the active canvas stack from a wheel event.
     Ctrl + mouse wheel zoom. Without Ctrl, pass to ScrollArea for scrolling.
     """
     if not (event.modifiers() & Qt.KeyboardModifier.ControlModifier):

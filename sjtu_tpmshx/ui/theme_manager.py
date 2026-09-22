@@ -46,22 +46,6 @@ class ThemeManager(QObject):
         """
         return self.current_styles().get(key, default)
 
-    # ------------------------------------------------------------------ rebuild
-
-    def rebuild(self) -> Dict[str, Any]:
-        """Re-evaluate Qt styles and the Matplotlib palette.
-
-        Called after font/density changes or during startup.
-        """
-        self._styles = self._theme_module()._build_styles()
-        # mpl theme follows palette
-        try:
-            self._theme_module().apply_mpl_theme()
-        except Exception:
-            pass
-        return self._styles
-
-
     # ------------------------------------------------------------------ misc
 
     def __repr__(self) -> str:

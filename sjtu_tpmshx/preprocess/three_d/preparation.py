@@ -78,9 +78,8 @@ def _parse_inputs_3d_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
         # bc_to_dict's documented side-B None asymmetry — are unaffected.
         fluid_B_cfg = bc_to_dict(compute_cfg.bc_B, L, H, side='A', with_z=True)
 
-    # Surrogate-domain extrap guard — cfg.extrap.allow drives it
-    # (shared both-side check in _stage_common; ImportError → skip,
-    # ValueError propagates).
+    # Both-side applicability checks are required; import and validation
+    # failures propagate rather than becoming an empty warning list.
     from sjtu_tpmshx.models.fluid_props import check_water_state
     for side, config in (('A', compute_cfg.fluid_A), ('B', compute_cfg.fluid_B)):
         check_water_state(config.type, config.T_in_K, config.P_in_Pa,
@@ -183,7 +182,7 @@ def _prepare_problem_data(cfg):
         raise ValueError('experimental calibration currently requires uniform L/t')
     if cells:
         lfield, tfield, eps = _build_zone_fields_3d(
-            cells, nx, ny, nz, L, H, cfg['tpms_type'], cfg['k_s'], cfg['Lcell'], cfg['t_wall'])
+            cells, dx, dy, nz, cfg['tpms_type'], cfg['k_s'], cfg['Lcell'], cfg['t_wall'])
     else:
         lfield = np.full((nx, ny, nz), cfg['Lcell'])
         tfield = np.full((nx, ny, nz), cfg['t_wall'])

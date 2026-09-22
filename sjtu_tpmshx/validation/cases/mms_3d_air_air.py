@@ -135,8 +135,6 @@ def _build_mms(case='3d'):
         SA_fn=sp.lambdify(args, S_A, 'numpy'),
         SB_fn=sp.lambdify(args, S_B, 'numpy'),
         SS_fn=sp.lambdify(args, S_s, 'numpy'),
-        sym_Ta=Ta, sym_Tb=Tb, sym_Ts=Ts,
-        sym_SA=S_A, sym_SB=S_B, sym_Ss=S_s,
     )
 
 
@@ -207,11 +205,11 @@ def run_mms(case='3d', Nx=20, Ny=20, Nz=20,
     # Inlet profiles live on the physical faces; end cells remain unknowns.
     Yi_grid, Zi_grid = np.meshgrid(yc, zc, indexing='ij')   # (Ny, Nz)
     x_inlet = np.zeros_like(Yi_grid)
-    T_inA_arr = _eval_grid_2d(mms['Ta_fn'], x_inlet, Yi_grid, Zi_grid)
+    T_inA_arr = _eval_grid(mms['Ta_fn'], x_inlet, Yi_grid, Zi_grid)
 
     Xi_grid, Zii_grid = np.meshgrid(xc, zc, indexing='ij')   # (Nx, Nz)
     y_inlet = np.zeros_like(Xi_grid)
-    T_inB_arr = _eval_grid_2d(mms['Tb_fn'], Xi_grid, y_inlet, Zii_grid)
+    T_inB_arr = _eval_grid(mms['Tb_fn'], Xi_grid, y_inlet, Zii_grid)
 
     # Inlet fraction = 1 (full-face inlet, no partial mask)
     ifrac_A = np.ones((Ny, Nz), dtype=np.float64)
@@ -275,15 +273,6 @@ def run_mms(case='3d', Nx=20, Ny=20, Nz=20,
     )
 
 
-def _eval_grid_2d(fn, X, Y, Z):
-    """Eval lambdified on 2D grids (for inlet profiles)."""
-    val = fn(X, Y, Z, L_DOM, H_DOM, LZ)
-    val = np.asarray(val, dtype=np.float64)
-    if val.shape != X.shape:
-        val = np.broadcast_to(val, X.shape).copy()
-    return np.ascontiguousarray(val)
-
-
 # ─────────────────────────────────────────────────────────────────────────
 # CLI driver
 # ─────────────────────────────────────────────────────────────────────────
@@ -321,10 +310,13 @@ def main():
                     max_outer=args.max_outer, inner=args.inner, tol=args.tol,
                     alpha_f=args.alpha_f, alpha_s=args.alpha_s)
         results.append(r)
-        ok = (r['L2_A'] < 0.020 and r['L2_B'] < 0.020 and r['L2_s'] < 0.020
+        errors = [r[key] for key in ('L2_A', 'L2_B', 'L2_s',
+                                      'Linf_A', 'Linf_B', 'Linf_s')]
+        ok = (r['converged'] and np.isfinite(errors).all()
+              and r['L2_A'] < 0.020 and r['L2_B'] < 0.020 and r['L2_s'] < 0.020
               and r['Linf_A'] < 3.0 and r['Linf_B'] < 3.0 and r['Linf_s'] < 3.0)
         gate_str = 'PASS' if ok else 'FAIL'
-        print(f"  GATES (L2<2.0%, Linf<3K): {gate_str}\n")
+        print(f"  GATES (converged, finite, L2<2.0%, Linf<3K): {gate_str}\n")
         if not ok:
             fail_cases.append(c)
 

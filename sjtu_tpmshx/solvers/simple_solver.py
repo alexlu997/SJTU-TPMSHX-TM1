@@ -701,7 +701,7 @@ class SIMPLESolver:
             if not f2_state_is_finite(self, (self.u, self.v)):
                 return f2_nonfinite_exit(self, it)
 
-            res = _mass_res_jit(self.u, self.v, Nx, Ny, dx_a, dy_a, rho_eps_field)
+            res = _mass_res_jit(self.v, Nx, Ny, dx_a, rho_eps_field)
             self.residuals.append(res)
 
             # Live progress hook for UI sparklines — throttled to every

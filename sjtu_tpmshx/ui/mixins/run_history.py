@@ -295,7 +295,7 @@ class RunHistoryMixin:
         from sjtu_tpmshx.ui.fmt import preset_display as _pd
         preset = _pd(provenance['preset_source'])
         tip = (f"Computed @ {ts}  ·  {dur}  ·  {provenance['mode'].upper()}"
-               f"  ·  input grid {grid} (before refinement)"
+               f"  ·  input grid {grid}"
                f"  ·  actual result grid {actual_grid}  ·  preset: {preset}"
                + (f"  ·  commit: {commit}" if commit else ""))
         for key in ('q', 'dpa', 'dpb', 'tout'):

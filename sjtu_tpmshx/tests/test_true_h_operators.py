@@ -1,4 +1,6 @@
 """Controlled physical solutions for the production true-enthalpy operators."""
+
+from sjtu_tpmshx.tests.enthalpy_3d_reference import uniform_face_mass_flux
 import numpy as np
 import pytest
 
@@ -19,7 +21,7 @@ def test_isothermal_pressure_gradient_has_no_fourier_heat():
     cp, k = ent._prop_field(('C', 'L'), t, pressure, 'sco2')
     initial = h.copy()
     assert abs(h[0,0,0] - h[1,0,0]) > 50.
-    faces = ent._uniform_face_mass_flux(t.shape, 0., 0)
+    faces = uniform_face_mass_flux(t.shape, 0., 0)
     for _ in range(4):
         sweep(h, t, t, cp, .337265*k/cp, np.zeros_like(t), faces,
               float(h[0,0,0]), (np.full(2,.0035), np.ones(1), np.ones(1)))
@@ -33,7 +35,7 @@ def test_constant_property_fixed_solid_matches_exponential_and_energy():
         t = np.full(shape, 400.)
         h = 1000.*t
         widths = (np.full(n, .1/n), np.array([.1]), np.array([.1]))
-        faces = ent._uniform_face_mass_flux(shape, .01, 0)
+        faces = uniform_face_mass_flux(shape, .01, 0)
         sweep(h, t, np.full(shape, 300.), np.full(shape, 1000.),
               np.zeros(shape), np.full(shape, 20000.), faces, 400000., widths)
         tout = h[-1,0,0]/1000.
@@ -51,7 +53,7 @@ def test_sweep_reports_actual_limited_updates():
     h=1000.*t
     clips=ent._fluid_enthalpy_sweep(h,t,np.full_like(t,500.),np.full_like(t,1000.),
         h.copy(),np.zeros_like(t),np.ones_like(t),
-        *ent._uniform_face_mass_flux(t.shape,0.,0),300000.,
+        *uniform_face_mass_flux(t.shape,0.,0),300000.,
         np.ones(2),np.ones(1),np.ones(1),1.,200000.,400000.)
     assert clips == 2
     np.testing.assert_array_equal(h,np.full_like(h,400000.))
@@ -64,7 +66,7 @@ def test_adiabatic_variable_pressure_transports_constant_h(direction):
     hin = ent._h_scalar(400., 9e6, 'sco2')
     h = np.full(shape, hin+5000.)
     cp = np.full(shape, 1400.)
-    faces = ent._uniform_face_mass_flux(shape, .01, direction)
+    faces = uniform_face_mass_flux(shape, .01, direction)
     widths = tuple(np.full(n,.01) for n in shape)
     for _ in range(5):
         sweep(h, np.full(shape,400.), np.full(shape,300.), cp,
@@ -79,13 +81,12 @@ def test_2d_extrusion_preserves_fields_and_scales_duty():
     shape = (4,3,1)
     thickness = .04
     dx,dy=np.full(4,.01),np.full(3,.01)
-    fa=ent._uniform_face_mass_flux(shape,.01,0)
-    fb=ent._uniform_face_mass_flux(shape,.01,1)
+    fa=uniform_face_mass_flux(shape,.01,0)
+    fb=uniform_face_mass_flux(shape,.01,1)
     cell=np.ones(shape)
     a=ent.solve_ltne_enthalpy_3d_pipeline(
         *shape,dx,dy,np.array([thickness]),cell*.7,cell*3.5,
-        cell*1e5,cell*1e5,.01,.01,380.,340.,12e6,12e6,0,1,
-        mass_flux_A=fa,mass_flux_B=fb,n_sweep=3,tol=1e-5,
+        cell*1e5,cell*1e5,380.,340.,12e6,12e6,mass_flux_A=fa,mass_flux_B=fb,n_sweep=3,tol=1e-5,
         coupled_energy_tol=.001, equation_energy_tol=.001)
     b=solve_enthalpy_2d(
         380.,340.,12e6,12e6,
@@ -114,8 +115,9 @@ def test_exact_energy_failure_finishes_on_heos_without_table_cycle(monkeypatch):
     cell=np.ones((3,1,1))
     *_,info=ent.solve_ltne_enthalpy_3d_pipeline(
         3,1,1,np.full(3,.01),np.array([.01]),np.array([.01]),
-        cell*.7,cell*3.5,cell*1e5,cell*1e5,.01,.01,
-        380.,340.,12e6,12e6,0,1,n_sweep=25,n_outer=200,
+        cell*.7,cell*3.5,cell*1e5,cell*1e5,380.,340.,12e6,12e6,mass_flux_A=uniform_face_mass_flux((3, 1, 1), 0.01, 0),
+                                mass_flux_B=uniform_face_mass_flux((3, 1, 1), 0.01, 1),
+                                n_sweep=25,n_outer=200,
         tol=1e-8,coupled_energy_tol=1e-6,equation_energy_tol=1e-6)
     assert info['converged'] and info['equation_energy_balance']['ratio'] <= 1e-6
     assert info['_native_state']['sco2_enthalpy_eos']['heos_polish']

@@ -21,8 +21,8 @@ def _asym_split_A(cfg, tpms_type, Lcell, t_wall):
     Returns 0.5 at δ=0 (symmetric). δ≠0 → the geometry split ratio
     εA/(εA+εB) from ``asym_geometry.eps_sides`` at C = C(t/L).
     δ = ``cfg['delta_levelset']`` (φ-units). Shared by ``_eps_sides_for_run``
-    (per-cell void arrays) and the per-side D-F κ closure so both consume one
-    split definition.
+    (per-cell void arrays). The separate CFD κ registry is a research query
+    path, not part of the production D-F closure.
     """
     delta = float(cfg.get('delta_levelset', 0.0))
     if delta == 0.0:

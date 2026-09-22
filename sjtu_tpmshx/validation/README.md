@@ -10,5 +10,8 @@
 - [原 CSV 状态说明](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/5c517b415be0adbfc7bbfd205a3dba07fe8792a8/sjtu_tpmshx/validation/_CSV_STATUS.md)：历史数值和版本语境，全文按固定 Git 保存；MMS/GCI 原表、Shanghai 主基准及有效测试保留，已退役的旧诊断表见[退役索引](../../docs/history/retired-tools.md)。
 
 验证保留原成员、门槛和失败；导入成功、收敛、守恒与实验精度分别判断。
+MMS 的新运行要求全部请求网格收敛、误差有限；A3/B4 同时使用已记录的阶数与
+拟合质量门槛判定退出码。B4 的新输出包含逐网格收敛记录和阶数表。读取仓内
+冻结 CSV 的测试只检查历史证据，不代表当前代码已重新完成数值 sweep。
 旧 2026-05 索引的原文保留在
 [固定历史](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/b1af7edcea5796aa955aa8fae1785be3c1b57e1d/sjtu_tpmshx/validation/README.md)。

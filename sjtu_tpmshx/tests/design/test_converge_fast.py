@@ -23,8 +23,8 @@ def _ref_Tout(arrangement):
     arr = _ARR[arrangement]; Ny, Nz = arr["ny"], arr["nz"]
     shp = (NX, Ny, Nz); z = np.zeros(shp)
     spanc = Lx if arrangement == "cross" else s
-    hA, _, uh, pA = _hvol("air", topo, l, t, A0, Dh, EPS_A, 0.05, s, s, 900., 4e5)
-    hB, _, uc, pB = _hvol("air", topo, l, t, A0, Dh, EPS_A, 0.05, spanc, s, 300., 4e5)
+    hA, _, uh, pA = _hvol("air", topo, l, A0, Dh, EPS_A, 0.05, s, s, 900., 4e5)
+    hB, _, uc, pB = _hvol("air", topo, l, A0, Dh, EPS_A, 0.05, spanc, s, 300., 4e5)
     ucB, vcB = (z, np.full(shp, uc)) if arrangement == "cross" else (np.full(shp, -uc), z)
     Ta, _, _ = solve_full_domain_3d(
         Lx, s, s, NX, Ny, Nz, 900., 300.,

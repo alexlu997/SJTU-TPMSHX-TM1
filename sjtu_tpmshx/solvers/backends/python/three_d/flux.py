@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from sjtu_tpmshx.solvers.simple_solver_3d import SIMPLESolver3D
 
 from sjtu_tpmshx.models import fluid_props
-from sjtu_tpmshx.models.roughness import (f_enhancement, nu_extra_factor,
+from sjtu_tpmshx.models.roughness import (nu_extra_factor,
                                  resolve_mode_from_env)
 
 
@@ -89,7 +89,7 @@ def _face_flux_weights(solver: SIMPLESolver3D,
 
 
 def _mass_weighted_T_out(T_face: np.ndarray, solver: SIMPLESolver3D,
-                          dir_code: int, eps_f_scalar: float | None,
+                          eps_f_scalar: float | None,
                           *,
                           eps_side_override: float | None = None) -> float:
     """Mass-flux-weighted T average at the REAL outlet face.
@@ -118,8 +118,7 @@ def _mass_weighted_T_out(T_face: np.ndarray, solver: SIMPLESolver3D,
 
 def _mass_weighted_h_out(T_face: np.ndarray, P_ref: float,
                           enthalpy_fn: Callable[[np.ndarray, float], np.ndarray],
-                          solver: SIMPLESolver3D, dir_code: int,
-                          eps_f_scalar: float | None,
+                          solver: SIMPLESolver3D, eps_f_scalar: float | None,
                           *,
                           eps_side_override: float | None = None) -> float:
     """Mass-flux-weighted mean ENTHALPY at the real outlet face: ⟨h(T)⟩_w.
@@ -151,15 +150,8 @@ def _mass_weighted_h_out(T_face: np.ndarray, P_ref: float,
 
 
 
-# ── Direction → axis single source ──────────────────────────────────────────
-# dir_code: 0=+x 1=-x 2=+y 3=-y 4=+z 5=-z (matches the 2D _dir_int convention).
-# These helpers are the ONE place the dir→axis/index mapping is encoded; every
-# face-slice / BC-mask / streamwise-component dispatch derives from them, so a
-# direction cannot go inconsistent across call sites (the failure mode the
-# reverse-dir saga kept reintroducing). Forward dirs (even) inject at stream
-# index 0 and exhaust at -1; reverse dirs (odd) mirror that. 2026-06-09 A3.
-def _simple_mass_flow(solver: SIMPLESolver3D, dir_code: int,
-                      eps_f_per_side: float | None = None,
+# Solver-local inlet is j=0; physical direction mapping belongs to field_coordinates.
+def _simple_mass_flow(solver: SIMPLESolver3D, eps_f_per_side: float | None = None,
                       eps_side_override: float | None = None) -> float:
     """LTNE-effective m_dot at REAL inlet face via _face_flux_weights."""
     try:
@@ -175,24 +167,6 @@ def _simple_mass_flow(solver: SIMPLESolver3D, dir_code: int,
         return 0.0
 
 
-def _apply_roughness_KcF(K_arr: np.ndarray, cF_arr: np.ndarray,
-                         fluid_type: str, rho: float, mu: float, u: float,
-                         D_h_m: float) -> tuple[np.ndarray, np.ndarray]:
-    """Apply the selected air-specific friction multiplier to K/cF arrays.
-
-    The registry flag excludes other fluids; it does not assert that their
-    base CFD closure contains roughness.
-    """
-    if fluid_props.get(fluid_type).embeds_roughness:
-        return K_arr, cF_arr
-    mode, eps_um = _resolve_ui_roughness()
-    if mode == 'baseline':
-        return K_arr, cF_arr
-    Re_loc = float(rho * abs(u) * D_h_m / max(mu, 1.0e-12))
-    f_gain = float(f_enhancement(Re_loc, mode,
-                                  eps_um=eps_um, D_h_mm=D_h_m * 1000.0))
-    return (K_arr / f_gain).astype(np.float64, copy=False), \
-           (cF_arr * f_gain).astype(np.float64, copy=False)
 
 
 def _apply_roughness_h_v(h_v_field: np.ndarray, fluid_type: str,
