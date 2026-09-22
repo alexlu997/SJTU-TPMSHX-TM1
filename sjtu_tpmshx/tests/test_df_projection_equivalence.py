@@ -17,7 +17,7 @@ def test_projection_coordinates(fluid, dimension, nonuniform, monkeypatch):
 
     # Coefficients expose projected L/t directly; no calibration is involved.
     monkeypatch.setattr(df_projection, 'predict_K_cF_vec',
-                        lambda topo, L, t, eps: (L * 1e-8, t * 1000.))
+                        lambda topo, L, t, eps, **kwargs: (L * 1e-8, t * 1000.))
     L = np.array([[4., 5., 6.], [5., 6., 7.], [6., 7., 8.]])
     t = .1 + L / 20.
     widths = np.array([1., 3.]) if nonuniform else None
@@ -26,7 +26,7 @@ def test_projection_coordinates(fluid, dimension, nonuniform, monkeypatch):
     else:
         expected = np.array([7., 6. if nonuniform else 5.])
     if dimension == 2:
-        K, cF = p2d(L, t, 'Gyroid', 16., 2, fluid,
+        K, cF = p2d(L, t, 'Gyroid', 16., 2, 0 if fluid == 'A' else 3,
                      streamwise_dx=widths)
     else:
         L3 = np.stack([L, L + .5, L + 1.], axis=2)
@@ -51,7 +51,7 @@ def test_helper_semantics():
 
 
 
-def test_invalid_fluid_raises():
-    with pytest.raises(ValueError, match="fluid must be"):
+def test_invalid_direction_raises():
+    with pytest.raises(ValueError, match="direction must be"):
         p2d(np.ones((2, 2)) * 5., np.ones((2, 2)) * .4,
-            'Gyroid', 16., 2, 'C')
+            'Gyroid', 16., 2, 4)

@@ -11,6 +11,9 @@ Design fields have `(Nx,Ny,Nz)` shape: `L_field_m/t_field_m` in m, `K_m2` in
 m², `cF_per_m` in 1/m, `K_ss` in W/(m K), and dimensionless total/per-side
 porosity. Existing uniform and xy-extruded zoning are supported. Uniform
 geometry must agree with scalar inputs; xy zoning cannot introduce z variation.
+Discrete zone bounds select physical x/y cell centres on the prepared mesh,
+including refined grids, rather than a fraction of cell indices. Existing
+default values, later-zone overwrite order and sigma=2 smoothing are retained.
 The existing B-side uniform D-F closure remains unchanged. This contract does
 not introduce arbitrary spatial D-F behavior for that side.
 

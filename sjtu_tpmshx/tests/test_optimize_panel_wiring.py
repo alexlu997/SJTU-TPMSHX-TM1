@@ -494,9 +494,11 @@ def test_inline_budget_config_error_restores_launch_state():
 
 
 
-def test_live_trend_separates_Q_from_HV_and_resets_at_next_launch(monkeypatch, tmp_path):
+@pytest.mark.parametrize("dimension", [0, 1])
+def test_live_trend_separates_Q_from_HV_and_resets_at_next_launch(monkeypatch, tmp_path, dimension):
     from sjtu_tpmshx.ui import optimize_panel as panel
     w = _optimization_window()
+    w.combo_dim.setCurrentIndex(dimension)
 
     class Signal:
         def connect(self, callback):
@@ -537,3 +539,13 @@ def test_live_trend_separates_Q_from_HV_and_resets_at_next_launch(monkeypatch, t
         w._opt_worker.finished.emit()
     finally:
         w.close()
+
+
+def test_continuous_optimization_uses_bounds_not_uniform_compute_seed():
+    w = _make_window()
+    w.le_Lcell.setText('invalid')
+    w.le_t.setText('invalid')
+    cfg = _gather_cfg(w)
+    assert 'L_avg_init' not in cfg and 't_avg_init' not in cfg
+    assert cfg['L_bounds'][0] < cfg['L_bounds'][1]
+    assert cfg['t_bounds'][0] < cfg['t_bounds'][1]

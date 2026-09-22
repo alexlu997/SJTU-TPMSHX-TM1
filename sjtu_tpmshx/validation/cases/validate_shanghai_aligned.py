@@ -72,7 +72,6 @@ def _run_one_case_pipeline(ci, df):
         'Q_legacy_definition': 'measured m_air * cp(T_in) * (T_in - T_out)',
         **{'grid_n' + axis: len(res.fields['d' + axis + '_arr']) for axis in 'xy'},
         'err_Q%': round(err_Q, 1),
-        'Q_enthalpy_A': round(Q_sim, 1), 'Q_total_max': round(abs(Q_sim), 1),
         'outer_iters': int(cd.get('outer_iters', -1)),
         'converged': bool(res.converged),
         # 2D water-side outputs the frozen runner could not produce at all.

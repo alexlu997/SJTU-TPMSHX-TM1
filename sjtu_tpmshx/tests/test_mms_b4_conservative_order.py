@@ -1,8 +1,9 @@
 """Pytest gate — MMS Phase B4: conservative HO kernel is 2nd-order.
 
-Locks in that the strict-conservation kernel branch (cfg['conservative_ltne']
-=True, face-shared SOU + telescoping a_P) keeps 2nd-order accuracy — i.e.
-conservation does NOT cost order. Reads the persisted CSV from
+Checks recorded evidence that the strict-conservation kernel branch
+(cfg['conservative_ltne']=True, face-shared SOU + telescoping a_P) kept
+2nd-order accuracy. Current-code order is checked by the new-run CLI gates,
+not by rereading this historical table. Reads the persisted CSV from
 ``validation/cases/mms_phase_b4_order.py`` (the h-refinement sweep is not re-run in
 CI; new comparisons use ``python -m sjtu_tpmshx.validation.cases.mms_phase_b4_order``
 and write separately under .cache/validation/mms_phase_b4-*/).

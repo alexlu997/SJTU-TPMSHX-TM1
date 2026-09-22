@@ -94,7 +94,7 @@ def test_running_edits_recent_restore_and_consecutive_dimensions(run_window, mon
         tip_fields = win._sb_labels['q'].toolTip().split('  ·  ')
         assert f'preset: start-{dim}' in tip_fields
         input_grid = '24×18×5' if dim else '24×18'
-        assert f'input grid {input_grid} (before refinement)' in tip_fields
+        assert f'input grid {input_grid}' in tip_fields
         assert 'actual result grid ' + '×'.join(map(str, sizes)) in tip_fields
         assert win._run_provenance is None
         win._on_orch_finished(result)  # duplicate terminal delivery is ignored

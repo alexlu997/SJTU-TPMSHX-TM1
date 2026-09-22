@@ -377,28 +377,23 @@ def _inlet_transport_3d(faces, eps_f, rho, cp_in, dx, dy, dz, direction):
         * area * (1.0 if direction % 2 == 0 else -1.0))
 
 
-def _delegate_to_2d(L, H, D, Nx, Ny, Nz,
-                    T_inA, T_inB,
+def _delegate_to_2d(L, H, D, Nx, Ny, T_inA, T_inB,
                     K_ffA, K_ffB, K_ss,
                     h_vA, h_vB,
                     rho_cp_fA, rho_cp_fB,
                     epsilon,
-                    ucA, vcA, wcA, ucB, vcB, wcB,
-                    dir_A, dir_B,
+                    ucA, vcA, ucB, vcB, dir_A, dir_B,
                     T_inA_profile, T_inB_profile,
                     max_iter, tol,
                     progress_cb, return_info,
                     Ta_init, Tb_init, Ts_init,
-                    dx_arr, dy_arr, dz_arr,
-                    inlet_mask_A, inlet_mask_B,
+                    dx_arr, dy_arr, inlet_mask_A, inlet_mask_B,
                     Tb_prescribed,
-                    alpha_T,
                     q_rel_tol=None, conv_chunk=None,
                     eps_A=None, eps_B=None,
                     mms_S_A_field=None, mms_S_B_field=None,
                     mms_S_s_field=None, cancel_check=None, inlet_flux_A=None, inlet_flux_B=None):
     """Nz == 1 shortcut: squeeze z axis and call 2D solver for bitwise equivalence.
-    alpha_T is accepted but ignored (2D uses Q-chunk convergence).
     q_rel_tol / conv_chunk passed through to the 2D solver (None = legacy).
 
     Kwarg contract (2026-07-13 audit — these used to be dropped SILENTLY):
@@ -426,13 +421,11 @@ def _delegate_to_2d(L, H, D, Nx, Ny, Nz,
             return np.ascontiguousarray(a[..., 0])
         return a
 
-    def _sq_mask(m, dir_code):
+    def _sq_mask(m):
         if m is None:
             return None
         m = np.asarray(m)
-        # 2D (n,1) collapsed to 1D when dir_code <= 3 and z extent is 1
-        if m.ndim == 2 and m.shape[1] == 1:
-            return np.ascontiguousarray(m[:, 0])
+        # Nz=1 boundary arrays collapse to their only z column.
         if m.ndim == 2:
             return np.ascontiguousarray(m[:, 0])
         return m
@@ -461,13 +454,13 @@ def _delegate_to_2d(L, H, D, Nx, Ny, Nz,
         progress_cb=progress_cb, return_info=return_info,
         Ta_init=_sq3(Ta_init), Tb_init=_sq3(Tb_init), Ts_init=_sq3(Ts_init),
         dx_arr=dx_arr, dy_arr=dy_arr,
-        inlet_mask_A=_sq_mask(inlet_mask_A, dir_A),
-        inlet_mask_B=_sq_mask(inlet_mask_B, dir_B),
+        inlet_mask_A=_sq_mask(inlet_mask_A),
+        inlet_mask_B=_sq_mask(inlet_mask_B),
         Tb_prescribed=_sq3(Tb_prescribed),
         eps_A=_sq3(eps_A), eps_B=_sq3(eps_B),
         q_rel_tol=q_rel_tol, conv_chunk=conv_chunk, cancel_check=cancel_check,
-        inlet_flux_A=None if inlet_flux_A is None else _sq_mask(inlet_flux_A, dir_A) / D,
-        inlet_flux_B=None if inlet_flux_B is None else _sq_mask(inlet_flux_B, dir_B) / D)
+        inlet_flux_A=None if inlet_flux_A is None else _sq_mask(inlet_flux_A) / D,
+        inlet_flux_B=None if inlet_flux_B is None else _sq_mask(inlet_flux_B) / D)
 
     if return_info:
         Ta2, Tb2, Ts2, _info2 = _d2
@@ -675,16 +668,14 @@ def solve_full_domain_3d(L, H, D, Nx, Ny, Nz,
 
     if Nz == 1:
         return _delegate_to_2d(
-            L, H, D, Nx, Ny, Nz, T_inA, T_inB,
+            L, H, D, Nx, Ny, T_inA, T_inB,
             K_ffA, K_ffB, K_ss, h_vA, h_vB,
             rho_cp_fA, rho_cp_fB, epsilon,
-            ucA, vcA, wcA, ucB, vcB, wcB,
-            dir_A, dir_B,
+            ucA, vcA, ucB, vcB, dir_A, dir_B,
             T_inA_profile, T_inB_profile,
             max_iter, tol, progress_cb, return_info,
             Ta_init, Tb_init, Ts_init,
-            dx_arr, dy_arr, dz_arr,
-            inlet_mask_A, inlet_mask_B, Tb_prescribed, alpha_T,
+            dx_arr, dy_arr, inlet_mask_A, inlet_mask_B, Tb_prescribed,
             q_rel_tol=q_rel_tol, conv_chunk=conv_chunk,
             eps_A=eps_A, eps_B=eps_B,
             mms_S_A_field=mms_S_A_field, mms_S_B_field=mms_S_B_field,

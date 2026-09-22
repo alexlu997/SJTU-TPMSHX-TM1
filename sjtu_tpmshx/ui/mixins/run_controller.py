@@ -33,7 +33,7 @@ from PySide6.QtWidgets import QMessageBox
 
 from sjtu_tpmshx.ui.fmt import duration as _fmt_dur
 from sjtu_tpmshx.ui.icons import icon
-from sjtu_tpmshx.ui.ui_constants import VV_VELOCITY_LIMIT_MS, TOAST_MS_MED, TOAST_MS_SHORT
+from sjtu_tpmshx.ui.ui_constants import HIGH_VELOCITY_NOTICE_MS, TOAST_MS_MED, TOAST_MS_SHORT
 
 
 from sjtu_tpmshx.ui.compute_api_adapter import run as _run_pipeline
@@ -108,18 +108,9 @@ class RunControllerMixin:
         return
 
     def _maybe_highvel_notice(self):
-        """Non-modal V&V off-domain velocity notice (UI report 2, 2026-05-07).
+        """Advisory only; model applicability is checked by the compute path.
 
-        The V&V Standard Tier domain sweep validated u ≤ 10 m/s; above that the
-        SIMPLE outer loop needs ~5-10× the converge time on the Forchheimer
-        branch. Demoted from a blocking dialog to a status-bar message on
-        2026-05-14 (the modal interrupted every off-domain run).
-
-        U5 (2026-06-28): parse each velocity independently and let a blank u_B
-        inherit u_A — the solver contract (ComputeConfig defaults fluid_B.u_mps
-        to fluid_A.u_mps). The old single try-block zeroed BOTH on the blank-u_B
-        ValueError, so a high-throughput run (u_A=20, u_B blank) silently lost
-        this notice.
+        A blank u_B inherits u_A, as it does in ComputeConfig.
         """
         def _vel(attr, dflt):
             le = getattr(self, attr, None)
@@ -129,14 +120,10 @@ class RunControllerMixin:
                 return dflt
         uA = _vel('le_uA', 0.0)
         uB = _vel('le_uB', uA)          # blank u_B inherits u_A
-        if uA > VV_VELOCITY_LIMIT_MS or uB > VV_VELOCITY_LIMIT_MS:
-            slow = max(uA, uB)
-            lo = int(5 * (slow / VV_VELOCITY_LIMIT_MS) ** 2)
-            hi = int(10 * (slow / VV_VELOCITY_LIMIT_MS) ** 2)
+        if uA > HIGH_VELOCITY_NOTICE_MS or uB > HIGH_VELOCITY_NOTICE_MS:
             self.statusBar().showMessage(
-                f"u_A={uA:.1f}, u_B={uB:.1f} m/s outside V&V domain "
-                f"(u≤{VV_VELOCITY_LIMIT_MS:.0f} m/s validated). "
-                f"Forchheimer-dominated; expect {lo}–{hi}× runtime.",
+                f"入口速度较高：u_A={uA:.1f}, u_B={uB:.1f} m/s。"
+                "请关注收敛与压降；适用范围以当前模型检查为准。",
                 15000)
 
     def _preflight_3d(self):
@@ -168,7 +155,8 @@ class RunControllerMixin:
                 f"Grid Nz = {Nz_u} is too small for 3D compute — the solver "
                 f"degenerates to a z-uniform slab and fields look flat.\n\n"
                 "Options:\n"
-                "  • Increase Nz to 5 or more for a real 3D run (recommended).\n"
+                "  • Increase Nz to at least 2; the selected mesh scheme and "
+                "port positions may require more cells (see Grid preflight).\n"
                 "  • Switch Dimensionality to 2D for single-layer homogeneous cases.")
             return False, 0, ''
         if est_cells > 100_000:
@@ -183,7 +171,8 @@ class RunControllerMixin:
                 f"Estimated cells: ~{est_cells:,}"
                 f"  (≈ {_ram_gb:.1f} GB working memory)\n\n"
                 f"{_expand}This can take many minutes.\n\n"
-                "Suggested 3D defaults: Nx=30, Ny=20, Nz=5 (~30 s).\n\n"
+                "Mesh requirements depend on the selected scheme and port "
+                "positions; review Grid preflight before reducing counts.\n\n"
                 "Proceed anyway?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No)

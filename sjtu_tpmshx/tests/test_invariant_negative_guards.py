@@ -142,11 +142,8 @@ def test_norris_1a_friction_is_exactly_noop():
     """norris_1a remains a friction no-op. The original ROUGH-X guard prevented
     double-counting roughness in the historical gamma_df calibration; that
     model is now retired, while the no-op contract remains unchanged."""
-    from sjtu_tpmshx.models.roughness import f_enhancement, nu_extra_factor, apply_to_K_cF
+    from sjtu_tpmshx.models.roughness import f_enhancement, nu_extra_factor
     for Re in (500.0, 2000.0, 8000.0, 16000.0):
         assert f_enhancement(Re, mode='norris_1a') == 1.0
         assert f_enhancement(Re, mode='baseline') == 1.0
         assert nu_extra_factor(Re, mode='norris_1a') == 1.0
-    K, cF = np.array([5e-8]), np.array([500.0])
-    K2, cF2 = apply_to_K_cF(K, cF, f_enhancement(5000.0, mode='norris_1a'))
-    assert np.array_equal(K2, K) and np.array_equal(cF2, cF)

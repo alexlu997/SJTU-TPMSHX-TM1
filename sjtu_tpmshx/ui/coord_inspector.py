@@ -196,7 +196,6 @@ class CoordInspector(QDockWidget):
             f"color:white; border-color:{_t.get('accent_primary', '#3B82F6')};}}"
             f"QPushButton:hover{{border-color:{_t.get('combo_hover_border', _border)};}}")
         btn_pin.toggled.connect(self._on_pin_toggled)
-        self._btn_pin = btn_pin
         header.addWidget(btn_pin)
         v.addLayout(header)
 

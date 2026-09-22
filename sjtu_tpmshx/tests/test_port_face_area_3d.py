@@ -106,12 +106,6 @@ def test_pressure_reductions_use_nonuniform_face_area():
     expected = (10. * .4 + 20. * 4. + 40. * 15.) / (.4 + 4. + 15.)
     assert SIMPLESolver3D.extract_dP_weighted(s) == pytest.approx(expected)
     assert SIMPLESolver3D.extract_dP_face_extrap(s) == pytest.approx(2. * expected)
-    assert SIMPLESolver3D.extract_dP_mass_flux_weighted(s) == pytest.approx(expected)
-    s.v[0, 0, 0] *= 10.
-    expected_mass = (10. * 4. + 20. * 4. + 40. * 15.) / (4. + 4. + 15.)
-    assert expected_mass != pytest.approx(expected)
-    s.dx *= 1e-12
-    assert SIMPLESolver3D.extract_dP_mass_flux_weighted(s) == pytest.approx(expected_mass)
     # A nonuniform outlet pressure separates historical taper and geometry.
     s.P[:, -1, :] = pin / 4.
     s.outlet_coeff = f * np.array([[.7, .8], [.9, 1.]])

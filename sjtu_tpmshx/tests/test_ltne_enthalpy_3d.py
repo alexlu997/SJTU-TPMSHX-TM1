@@ -183,9 +183,7 @@ def test_enthalpy_3d_custom_cross_ports_use_face_mass_flow():
     eps = np.full(shape, 0.65)
     Ta, Tb, _, info = solve_ltne_enthalpy_3d_pipeline(
         nx, ny, nz, dx, dy, dz, eps, np.full(shape, 5.0),
-        np.full(shape, 1e5), np.full(shape, 1e5), 0.0, 0.0,
-        500.0, 300.0, 12e6, 2e6, 2, 1,
-        fluid_A='sco2', fluid_B='water', eps_A_field=eps / 2,
+        np.full(shape, 1e5), np.full(shape, 1e5), 500.0, 300.0, 12e6, 2e6, fluid_A='sco2', fluid_B='water', eps_A_field=eps / 2,
         eps_B_field=eps / 2, mass_flux_A=flux_a, mass_flux_B=flux_b,
         n_outer=1000, n_sweep=5, tol=1e-3)
     assert info['converged']

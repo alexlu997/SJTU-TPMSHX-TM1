@@ -62,8 +62,7 @@ def _phi_grid(tpms_type: str, N: int):
 
     The cached ndarray is SHARED across all callers, so it is frozen
     (writeable=False): a caller mutating it would poison every later cache
-    hit silently (W7b hazard family; same hardening as sco2_props
-    _FIELD_CACHE). Callers needing a scratch copy must .copy().
+    hit silently. Callers needing a scratch copy must .copy().
     """
     phi_func = _PHI_FUNCS[tpms_type]
     h = 2 * np.pi / N
@@ -112,31 +111,6 @@ def _find_C_for_eps(phi: np.ndarray, target_eps: float) -> float:
 #   1. For each known (L, t, eps), find C that gives eps on the phi grid.
 #   2. Since phi is L-independent, C depends only on t/L.
 #   3. Fit C(t/L) → use for arbitrary (L, t).
-
-_DIAMOND_TABLE = {
-    (4, 0.3): 0.713, (4, 0.4): 0.621, (4, 0.5): 0.532,
-    (5, 0.3): 0.770, (5, 0.4): 0.695, (5, 0.5): 0.621,
-    (6, 0.3): 0.808, (6, 0.4): 0.745, (6, 0.5): 0.682,
-    (8, 0.3): 0.855, (8, 0.4): 0.808, (8, 0.5): 0.760,
-}
-_GYROID_TABLE = {
-    (4, 0.3): 0.769, (4, 0.4): 0.694, (4, 0.5): 0.620,
-    (5, 0.3): 0.815, (5, 0.4): 0.754, (5, 0.5): 0.694,
-    (6, 0.3): 0.845, (6, 0.4): 0.794, (6, 0.5): 0.744,
-    (8, 0.3): 0.884, (8, 0.4): 0.845, (8, 0.5): 0.807,
-}
-_DIAMOND_A0_TABLE = {
-    (4, 0.3): 925, (4, 0.4): 897, (4, 0.5): 858,
-    (5, 0.3): 751, (5, 0.4): 736, (5, 0.5): 717,
-    (6, 0.3): 631, (6, 0.4): 622, (6, 0.5): 611,
-    (8, 0.3): 476, (8, 0.4): 473, (8, 0.5): 468,
-}
-_GYROID_A0_TABLE = {
-    (4, 0.3): 755, (4, 0.4): 740, (4, 0.5): 721,
-    (5, 0.3): 609, (5, 0.4): 602, (5, 0.5): 592,
-    (6, 0.3): 510, (6, 0.4): 506, (6, 0.5): 500,
-    (8, 0.3): 385, (8, 0.4): 383, (8, 0.5): 380,
-}
 
 # Pre-computed calibration coefficients for C(t/L) = a*(t/L) + b*(t/L)^2.
 # Calibrated against 12 CAD data points per TPMS type (N=256 grid).
@@ -232,8 +206,7 @@ def _compute_geometry_cached(tpms_type: str, L_mm: float, t_mm: float,
     # D_h = 4·V_void_single / A_wet_single = 4·ε_A / A_0
     # (Same coefficient 4 as the textbook D_h definition; the per-stream void
     # fraction ε_A already absorbs the bicontinuous sheet split. Equivalent to
-    # the legacy form 2·ε/A_0 used before 2026-04-29. See memory
-    # `reference_dh_convention.md`.)
+    # the old 2·ε/A_0 convention.) See docs/architecture.md for geometry units.
     D_h = 4.0 * eps_A / A0 if A0 > 0 else 0.0
 
     # Robustness (2026-06-25): the 2t>=L guard above leaves a near-degenerate

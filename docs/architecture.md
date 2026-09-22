@@ -306,6 +306,13 @@ the same cell widths, including the B-side coordinate reversal. GUI probes
 locate cells from those widths; display velocity copies stay separate from
 the raw transport fields.
 
+Full-compute zoning also uses the prepared physical cell centres. In 2D, every
+zoned mode projects its thermal L/t fields into flow rows using transverse
+cell-width weights and the actual direction, including reversal. D-F is still
+evaluated after averaging L/t. In 3D, discrete xy zones select cells by physical
+coordinates, with their existing overwrite and smoothing rules; the B-side
+uniform D-F closure is unchanged.
+
 Quick sizing accepts a candidate only after every final case converges and
 meets its duty/temperature and pressure limits with finite results. BO keeps
 bounded penalty objectives for training, but excludes failed evaluations
@@ -373,6 +380,9 @@ The result footer and history format the published scalar snapshot directly;
 there are no hidden result labels, duplicate chip strip or percentage-delta calculation.
 Changing draft inputs does not replace the accepted run or its recorded units.
 Only the latest published result owns the field cache, scalar summary and export.
+Pareto image readiness belongs to its own canvas: copying/exporting that image
+does not require a single-point field result. Saved-input menu loading and JSON
+drag-and-drop share one decoder for current and supported old GUI files.
 Failed or cancelled attempts retain that complete snapshot. A rendering failure
 after publication retains the new numerical result and its provenance, while
 unavailable views and stale plot/probe contents are invalidated.
@@ -472,6 +482,8 @@ explicit numerical-model change with directly relevant validation.
     the conservative enthalpy kernel. It consumes SIMPLE's signed staggered
     face mass flows and computes duty from boundary enthalpy fluxes; it must
     not reconstruct a full-face x-flow from a scalar mass rate.
+    The shared kernel requires both face-flow tuples explicitly. Uniform-flow
+    construction for numerical reference tests lives only in the test helpers.
     Every sCO2 side in 2D/3D uses the shared property-wrapper range
     **280–700 K, 7.9–16 MPa absolute**, at inlets and actual local states.
     The 2026-09-09 pressure-floor extension leaves the EOS backend and the

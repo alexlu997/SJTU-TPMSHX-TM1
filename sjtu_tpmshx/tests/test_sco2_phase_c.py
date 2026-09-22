@@ -3,7 +3,7 @@
 Covers the property-backend additions that Phase C needs over Phase A:
   * sco2_temperature(h, P) — the enthalpy->T inverse used to carry the energy
     balance in enthalpy across the pseudocritical cp spike;
-  * vectorised field queries (sco2_rho_cp_field etc.) for per-cell property
+  * vectorised sco2_prop queries for per-cell property
     refresh through the spike.
 
 The historical project field-solver cross-check is indexed in
@@ -21,7 +21,7 @@ def test_sco2_temperature_round_trips_enthalpy():
     """T -> h -> T recovers the temperature (Span-Wagner monotone in h at P)."""
     P = 8.0e6
     for T in (320.0, 340.0, 371.0, 450.0):
-        h = S.sco2_enthalpy(T, P)
+        h = S.sco2_prop('H', T, P)
         assert S.sco2_temperature(h, P) == pytest.approx(T, abs=1e-3)
 
 
@@ -30,7 +30,7 @@ def test_sco2_temperature_through_pseudocritical():
     and monotone (no branch flip where cp peaks)."""
     P = 8.0e6
     Ts = np.linspace(307.5, 371.0, 25)
-    hs = np.array([S.sco2_enthalpy(T, P) for T in Ts])
+    hs = np.array([S.sco2_prop('H', T, P) for T in Ts])
     assert np.all(np.diff(hs) > 0)                      # h strictly increasing
     back = np.array([S.sco2_temperature(h, P) for h in hs])
     assert np.allclose(back, Ts, atol=1e-2)
@@ -40,28 +40,21 @@ def test_sco2_temperature_through_pseudocritical():
 def test_sco2_field_helpers_match_scalar():
     P = 8.0e6
     T = np.array([[320.0, 340.0], [360.0, 371.0]])
-    rho = S.sco2_density_field(T, P)
-    cp = S.sco2_cp_field(T, P)
+    rho = S.sco2_prop('D', T, P)
+    cp = S.sco2_prop('C', T, P)
     assert rho.shape == T.shape and cp.shape == T.shape
     # match the cached scalar primitives cell-by-cell
-    assert rho[0, 0] == pytest.approx(S.sco2_density(320.0, P), rel=1e-9)
-    assert cp[1, 1] == pytest.approx(S.sco2_cp(371.0, P), rel=1e-9)
+    assert rho[0, 0] == pytest.approx(S.sco2_prop('D', 320.0, P), rel=1e-9)
+    assert cp[1, 1] == pytest.approx(S.sco2_prop('C', 371.0, P), rel=1e-9)
 
 
-def test_sco2_rho_cp_field_is_density_times_cp():
-    P = 8.0e6
-    T = np.linspace(310.0, 371.0, 8)
-    rc = S.sco2_rho_cp_field(T, P)
-    ref = S.sco2_density_field(T, P) * S.sco2_cp_field(T, P)
-    assert np.allclose(rc, ref, rtol=1e-12)
-    assert np.all(rc > 0)
 
 
 def test_sco2_rho_cp_spikes_near_pseudocritical():
     """The whole point of Phase C: rho*cp swings strongly toward Tpc(7.7)~306 K."""
     P = 8.0e6
-    rc_far = S.sco2_rho_cp_field(np.array([371.0]), P)[0]
-    rc_near = S.sco2_rho_cp_field(np.array([308.0]), P)[0]
+    rc_far = np.prod(S.sco2_prop(('D', 'C'), 371., P))
+    rc_near = np.prod(S.sco2_prop(('D', 'C'), 308., P))
     assert rc_near > 5.0 * rc_far                       # order-of-magnitude swing
 
 

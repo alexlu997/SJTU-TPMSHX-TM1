@@ -3,7 +3,6 @@
 Covers:
   * _pareto_mask_max — Pareto front extraction under maximization
   * hv_plateau_detected — early-stop trigger logic
-  * request_cancel / clear_cancel — global flag
   * _save_pareto_csv — round-trip via numpy load
 
 These are the parts of the BO loop that don't require BoTorch/Sobol bootstrapping
@@ -18,9 +17,6 @@ import pytest
 from sjtu_tpmshx.optimization.optimizer_qnehvi import (
     _pareto_mask_max,
     hv_plateau_detected,
-    request_cancel,
-    clear_cancel,
-    progress,
     _save_pareto_csv,
 )
 
@@ -110,18 +106,6 @@ def test_hv_plateau_zero_tol_only_plateaus_on_no_change():
     """tol=0 means ANY positive delta breaks plateau."""
     hist = [1.0, 1.0, 1.0, 1.0001]
     assert hv_plateau_detected(hist, hv_tol=0.0, hv_window=3) is False
-
-
-# ─── request_cancel / clear_cancel ─────────────────────────────────
-
-
-def test_request_cancel_sets_flag():
-    clear_cancel()
-    assert progress['cancel_requested'] is False
-    request_cancel()
-    assert progress['cancel_requested'] is True
-    clear_cancel()
-    assert progress['cancel_requested'] is False
 
 
 # ─── _save_pareto_csv ──────────────────────────────────────────────

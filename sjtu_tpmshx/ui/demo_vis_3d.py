@@ -182,7 +182,7 @@ def build_demo_zoning_field(Nx, Ny, Nz, dx, dy, dz):
     return za['L_field']
 
 
-def build_pv_grid(Nx, Ny, Nz, dx, dy, dz):
+def build_pv_grid(dx, dy, dz):
     """Build pyvista.RectilinearGrid from edge-coord 1D arrays."""
     x_edges = np.concatenate([[0.0], np.cumsum(dx)])
     y_edges = np.concatenate([[0.0], np.cumsum(dy)])
@@ -206,7 +206,7 @@ def main():
     print(f"[3/3] Rendering 2×2 PyVista panel → {out_path.name}…")
 
     # Build PyVista grids — cell data attached
-    grid_T = build_pv_grid(Nx, Ny, Nz, dx, dy, dz)
+    grid_T = build_pv_grid(dx, dy, dz)
     grid_T.cell_data['Ta'] = Ta.flatten(order='F')
 
     # Velocity cell-centred: SIMPLE A internal is (Ny, Nx, Nz) streamwise y
@@ -217,12 +217,12 @@ def main():
     vel[..., 0] = uc_real
     vmag = np.linalg.norm(vel, axis=-1)
 
-    grid_V = build_pv_grid(Nx, Ny, Nz, dx, dy, dz)
+    grid_V = build_pv_grid(dx, dy, dz)
     grid_V.cell_data['velocity'] = vel.reshape(-1, 3, order='F')
     grid_V.cell_data['vmag'] = vmag.flatten(order='F')
     grid_Vp = grid_V.cell_data_to_point_data()
 
-    grid_L = build_pv_grid(Nx, Ny, Nz, dx, dy, dz)
+    grid_L = build_pv_grid(dx, dy, dz)
     grid_L.cell_data['L_mm'] = L_field.flatten(order='F')
 
     # ── PyVista 2×2 panel ──

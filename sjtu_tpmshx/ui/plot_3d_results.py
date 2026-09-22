@@ -94,7 +94,6 @@ def finalize_plots_3d(window) -> bool:
                 P_B_kPa=_P_B_for_panel,
                 L_mm=f['L_mm'],
                 dx=f['dx'], dy=f['dy'], dz=f['dz'],
-                real_dims=(f['Lx'], f['Ly'], f['Lz']),
                 flow_dir=_dir_str,
                 flow_dir_B=_dir_str_B if _has_B else None,
             )

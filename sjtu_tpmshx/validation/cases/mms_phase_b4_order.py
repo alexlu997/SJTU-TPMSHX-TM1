@@ -6,6 +6,8 @@ B-plan B4 certifies that the strict-conservation kernel branch
 NOT bought at the cost of order. This drives run_mms(..., conservative=1) on
 an h-refinement sweep and least-squares-fits the observed order p_obs from the
 relative-L2 errors.
+All requested grids must converge with finite errors. The current run uses
+the recorded B4 gates p_obs >= 1.8 and R^2 >= 0.99 for all three phases.
 
 Note: for the MMS verification setup (uniform velocity + uniform material) the
 per-cell mass divergence is identically zero and the face-shared SOU increment
@@ -15,13 +17,17 @@ over. The conservation gain itself lives in NON-uniform/reverse flow and is
 certified separately by tests/test_conservation_3d_energy.py (T1-T6).
 
 Run:  python -m sjtu_tpmshx.validation.cases.mms_phase_b4_order
-Writes mms_phase_b4_orders.csv in a new .cache/validation/mms_phase_b4-*/
+Writes mms_phase_b4_raw.csv and mms_phase_b4_orders.csv in a new .cache/validation/mms_phase_b4-*/
 directory, or --out-dir. Tests retain the separately recorded reference CSV;
 new runs never replace it automatically.
 """
 from __future__ import annotations
 
 import argparse
+import sys
+
+import numpy as np
+import pandas as pd
 
 from sjtu_tpmshx.validation.cases.mms_3d_air_air import run_mms
 from sjtu_tpmshx.validation.harness._order_fit import fit_order_loglog
@@ -50,11 +56,19 @@ def main():
         lambda N: run_mms('3d', Nx=N, Ny=N, Nz=N, max_outer=8000, inner=50,
                           tol=1e-10, alpha_f=0.7, alpha_s=1.0, verbose=False,
                           conservative=1),
-        lambda N, r, dt: dict(h=1.0 / N, L2_A=r['L2_A'],
-                              L2_B=r['L2_B'], L2_s=r['L2_s']),
+        lambda N, r, dt: dict(N=N, h=1.0 / N, converged=bool(r['converged']),
+                              L2_A=r['L2_A'], L2_B=r['L2_B'], L2_s=r['L2_s']),
         on_grid=lambda N, r, row, dt: print(
             f"N={N:>3}  L2_A={r['L2_A']:.4e}  L2_B={r['L2_B']:.4e}  "
-            f"L2_s={r['L2_s']:.4e}"))
+            f"L2_s={r['L2_s']:.4e}  converged={r['converged']}"))
+    _prov.write_csv_with_provenance(
+        pd.DataFrame(rows_raw), out_dir / 'mms_phase_b4_raw.csv', __file__)
+    failed = ([row['N'] for row in rows_raw] != GRIDS
+              or not all(row['converged'] for row in rows_raw)
+              or not np.isfinite([[row[m] for m in ('L2_A', 'L2_B', 'L2_s')]
+                                  for row in rows_raw]).all())
+    if failed:
+        print('FAIL: all requested grids must be present, converged and finite')
     hs = [row['h'] for row in rows_raw]
     errs = {m: [row[m] for row in rows_raw] for m in ('L2_A', 'L2_B', 'L2_s')}
     rows = []
@@ -63,6 +77,9 @@ def main():
         p, r2 = _fit.p, _fit.r2
         rows.append((m, p, r2, errs[m][-1]))
         print(f"  {m}: p_obs={p:.3f}  R2={r2:.5f}  val_gfine={errs[m][-1]:.3e}")
+        if not (np.isfinite([p, r2, errs[m][-1]]).all() and p >= 1.8 and r2 >= 0.99):
+            failed = True
+            print(f'  FAIL {m}: requires finite p_obs >= 1.8 and R2 >= 0.99')
     # encoding='utf-8' is load-bearing: without it Windows writes the em-dash
     # below in the console codepage (GBK) and the utf-8 reader in
     # tests/test_mms_b4_conservative_order.py dies with UnicodeDecodeError
@@ -77,7 +94,9 @@ def main():
         for m, p, r2, v in rows:
             f.write(f"3d,{m},{p:.4f},{r2:.5f},{v:.4e}\n")
     print(f"wrote {out_csv}")
+    print(f"GATE {'FAIL' if failed else 'PASS'}")
+    return 1 if failed else 0
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

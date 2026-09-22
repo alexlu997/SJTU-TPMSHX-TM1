@@ -1,16 +1,13 @@
-"""Compressible validity-envelope guards (robustness pass, 2026-06-25).
+"""Physical pressure/Mach gates and the separate 1D pressure-seed estimate.
 
-The steady low-Mach SIMPLE solver has no valid solution once the Forchheimer
-dP approaches the inlet absolute pressure (outlet -> vacuum -> rho<0 ->
-mass-flux inlet drives v supersonic). These guards turn that silent blow-up
-(which used to return converged=True with garbage fields) into either a clear
-ChokedFlowError (pre-solve) or a flagged-invalid result (post-solve).
+A rejected isothermal 1D estimate does not diagnose physical choking in a
+turning coupled flow. Actual field failures must remain invalid.
 """
 
 import pytest
 
 from sjtu_tpmshx.models.envelope import (
-    ChokedFlowError, predict_outlet_p_sq, check_compressible_envelope,
+    ChokedFlowError, predict_outlet_p_sq,
     mach, assess_solution_validity, gate_solution,
 )
 
@@ -27,34 +24,19 @@ def test_predict_outlet_p_sq_goes_negative_when_overdriven():
     assert predict_outlet_p_sq(192362.0, 800.0, C_est=1.0e6, L=0.7) < 0.0
 
 
-# ── pre-solve envelope check ───────────────────────────────────────────────
-def test_check_envelope_passes_in_envelope():
-    # P_out_sq > 0 -> in envelope -> returns None, never raises.
-    assert check_compressible_envelope(9.0e9, 192362.0, mode='raise') is None
 
 
-def test_check_envelope_raises_when_choked():
-    with pytest.raises(ChokedFlowError):
-        check_compressible_envelope(-2.0e10, 192362.0, mode='raise')
 
 
-def test_check_envelope_warn_returns_message_no_raise():
-    msg = check_compressible_envelope(-2.0e10, 192362.0, mode='warn')
-    assert isinstance(msg, str) and 'pressure-seed rejection' in msg.lower()
 
 
-def test_check_envelope_off_returns_none_no_raise():
-    assert check_compressible_envelope(-2.0e10, 192362.0, mode='off') is None
+
 
 
 def test_choked_error_is_runtimeerror_subclass():
     assert issubclass(ChokedFlowError, RuntimeError)
 
 
-def test_check_envelope_message_names_the_fixes():
-    msg = check_compressible_envelope(-1.0, 192362.0, mode='warn')
-    low = msg.lower()
-    assert 'velocity' in low and ('shorten' in low or 'domain' in low)
 
 
 # ── Mach + post-solve validity ─────────────────────────────────────────────

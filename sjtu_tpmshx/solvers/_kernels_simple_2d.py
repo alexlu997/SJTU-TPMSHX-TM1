@@ -111,7 +111,7 @@ def _porous_src_df(umag, K, cF, mu, rho):
 
 
 @njit(cache=True)
-def _umag_u(u, v, i, j, Nx, Ny):
+def _umag_u(u, v, i, j, Nx):
     """Speed at u-face (i,j)."""
     il = max(i - 1, 0); ir = min(i, Nx - 1)
     va = 0.25 * (v[il, j] + v[ir, j] + v[il, j + 1] + v[ir, j + 1])
@@ -119,7 +119,7 @@ def _umag_u(u, v, i, j, Nx, Ny):
 
 
 @njit(cache=True)
-def _umag_v(u, v, i, j, Nx, Ny):
+def _umag_v(u, v, i, j, Ny):
     """Speed at v-face (i,j)."""
     jb = max(j - 1, 0); jt = min(j, Ny - 1)
     ua = 0.25 * (u[i, jb] + u[i + 1, jb] + u[i, jt] + u[i + 1, jt])
@@ -207,7 +207,7 @@ def _sweep_u_jit_df(u, v, P, d_u, outlet_u_frac,
                 aN = Dn + max(-Fn, 0.0)
                 aS = Ds + max(Fs, 0.0)
 
-                umag = _umag_u(u, v, i, j, Nx, Ny)
+                umag = _umag_u(u, v, i, j, Nx)
                 # 2026-07-10 lateral-K: K/cF are 2D (Nx, Ny) SIMPLE-coord
                 # fields. u-node straddles cells il_r/ir_r laterally → arith
                 # mean. Laterally-uniform fields give 0.5*(a+a) = a exactly
@@ -350,7 +350,7 @@ def _sweep_v_jit_df(u, v, P, d_v, inlet_frac, v_inlet_field, outlet_frac,
                 aN = Dn + max(-Fn, 0.0)
                 aS = Ds + max(Fs, 0.0)
 
-                umag = _umag_v(u, v, i, j, Nx, Ny)
+                umag = _umag_v(u, v, i, j, Ny)
                 # 2026-07-10 lateral-K: K/cF are 2D (Nx, Ny). v-node keeps the
                 # legacy streamwise pick K[jc] (a jb/jt mean would move
                 # streamwise-graded cases), extended laterally to column i.
@@ -448,8 +448,7 @@ def _build_pp_sparsity_pattern(Nx, Ny, outlet_frac):
 
 
 @njit(cache=True)
-def _assemble_pp_data_jit(data, rhs, u, v, d_u, d_v, outlet_frac,
-                          Nx, Ny, dx_arr, dy_arr, rho_field,
+def _assemble_pp_data_jit(data, rhs, u, v, d_u, d_v, Nx, Ny, dx_arr, dy_arr, rho_field,
                           cell_base, cell_kind):
     """Fill CSR `data` array and `rhs` vector for the pressure-Poisson operator.
 
@@ -531,8 +530,7 @@ def _solve_pp_sparse_fast(Pp, u, v, d_u, d_v, outlet_frac,
     data = np.zeros(nnz, dtype=np.float64)
     rhs = np.zeros(N, dtype=np.float64)
 
-    _assemble_pp_data_jit(data, rhs, u, v, d_u, d_v, outlet_frac,
-                          Nx, Ny, dx_arr, dy_arr, rho_field,
+    _assemble_pp_data_jit(data, rhs, u, v, d_u, d_v, Nx, Ny, dx_arr, dy_arr, rho_field,
                           sparsity['cell_base'], sparsity['cell_kind'])
 
     # NOTE: scipy csr_matrix takes ownership of indptr without copying, and
@@ -579,7 +577,7 @@ def _correct_jit(u, v, P, Pp, d_u, d_v, inlet_frac, v_inlet_field, outlet_frac,
 
 # ── SIMPLE Step 6: convergence ────────────────────────────────────
 @njit(cache=True)
-def _mass_res_jit(u, v, Nx, Ny, dx_arr, dy_arr, rho_field):
+def _mass_res_jit(v, Nx, Ny, dx_arr, rho_field):
     """Global mass conservation residual for variable-density flow.
 
     Returns max |Q(j) - Q_inlet| / Q_inlet where Q(j) = Σ_i ρ_face·v[i,j]·dx[i]
@@ -717,7 +715,7 @@ def _u_coeffs_df_2d(u, v, P, i, j, Nx, Ny, dx_arr, dy_arr,
     aN = Dn + max(-Fn, 0.0)
     aS = Ds + max(Fs, 0.0)
 
-    umag = _umag_u(u, v, i, j, Nx, Ny)
+    umag = _umag_u(u, v, i, j, Nx)
     K_u = 0.5 * (K_arr[il_r, j] + K_arr[ir_r, j])
     cF_u = 0.5 * (cF_arr[il_r, j] + cF_arr[ir_r, j])
     if cf_aniso != 0.0 and umag > 1e-10:
@@ -793,7 +791,7 @@ def _v_coeffs_df_2d(u, v, P, i, j, Nx, Ny, dx_arr, dy_arr,
     aN = Dn + max(-Fn, 0.0)
     aS = Ds + max(Fs, 0.0)
 
-    umag = _umag_v(u, v, i, j, Nx, Ny)
+    umag = _umag_v(u, v, i, j, Ny)
     cF_v = cF_arr[i, jc]
     if cf_aniso != 0.0 and umag > 1e-10:
         ua_c = 0.25 * (u[i, jb] + u[i + 1, jb]

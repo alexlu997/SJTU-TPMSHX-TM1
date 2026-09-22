@@ -1,6 +1,7 @@
 """A requested zoned problem must fail instead of solving a uniform one."""
 from unittest.mock import Mock
 
+import numpy as np
 import pytest
 
 from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D, Pipeline3D
@@ -135,7 +136,8 @@ def test_supported_3d_grid_is_consumed():
     parsed = _parse_inputs_3d_cfg(cfg)
     assert parsed['zone_grid_cells'] == cells
     lengths, thickness, eps = _build_zone_fields_3d(
-        parsed['zone_grid_cells'], 4, 4, 2, 0.182, 0.042, 'Diamond', 16, 7, 0.6)
+        parsed['zone_grid_cells'], np.full(4, .182 / 4), np.full(4, .042 / 4),
+        2, 'Diamond', 16, 7, 0.6)
     assert lengths.shape == thickness.shape == eps.shape == (4, 4, 2)
     assert lengths == pytest.approx(6)
     assert thickness == pytest.approx(0.3)

@@ -116,7 +116,14 @@ def run_validation() -> dict:
     print(f"  2D/3D parity: Q={parity['Q']:.2%}, "
           f"dP_A={parity['dP_A']:.2%}, dP_B={parity['dP_B']:.2%}")
 
-    failed = any(
+    gated_values = [
+        fixed_point_error, q_definition_error,
+        *cold_dp_errors.values(), *parity.values(),
+        *(value for metric in cfd.values()
+          for value in (metric["rmsre"], metric["bias"])),
+    ]
+    failed = not np.isfinite(gated_values).all()
+    failed |= any(
         metric["rmsre"] > metric["limit"] or abs(metric["bias"]) > 0.02
         for metric in cfd.values()
     )

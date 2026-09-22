@@ -11,8 +11,8 @@ def test_fullface_counterflow_conserves_true_enthalpy():
     dy = np.full(ny, 0.03 / ny)
     PA = np.linspace(12.0e6, 11.99e6, nx)[:, None]
     PB = np.linspace(11.99e6, 12.0e6, nx)[:, None]
-    rho_A = sco2_props.sco2_density(500.0, 12.0e6)
-    rho_B = sco2_props.sco2_density(330.0, 12.0e6)
+    rho_A = sco2_props.sco2_prop('D', 500.0, 12.0e6)
+    rho_B = sco2_props.sco2_prop('D', 330.0, 12.0e6)
     mA = np.full(ny, 0.35 * rho_A * 0.8 * dy[0])
     mB = np.full(ny, 0.35 * rho_B * 0.5 * dy[0])
     Ta, Tb, Ts, info = solve_sco2_enthalpy_2d(
@@ -61,7 +61,7 @@ def test_adapter_preserves_inlet_pressures_and_local_fields(monkeypatch):
     pressure_b = np.linspace(8.6e6, 8.8e6, 6).reshape(shape)
 
     def capture(*args, **kwargs):
-        assert args[14:16] == (12e6, 9e6)
+        assert args[12:14] == (12e6, 9e6)
         np.testing.assert_array_equal(
             kwargs['pressure_A_field'], pressure_a[..., None])
         np.testing.assert_array_equal(

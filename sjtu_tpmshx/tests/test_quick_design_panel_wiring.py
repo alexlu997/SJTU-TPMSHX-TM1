@@ -165,9 +165,8 @@ def test_run_quick_design_malformed_node_list_gives_feedback_not_crash():
 
 
 def test_run_quick_design_malformed_fixed_cell_gives_feedback():
-    """U3: the fixed-cell tuple is parsed unconditionally (even in auto mode),
-    so bad le_qd_cell_l text must also be caught, not crash the slot."""
-    w = _make_window("auto")
+    """Bad active fixed-cell input is reported before launching a worker."""
+    w = _make_window("fixed")
     w.le_qd_cell_l = _le("7mm")        # malformed fixed-cell length
     w._qd_status = QLabel()
     w._qd_worker = None
@@ -192,7 +191,7 @@ def test_thread_result_warnings_reach_table_and_fallback(monkeypatch):
     assert received[0]['best'] is d
     assert received[0]['all'][0].percase == d.percase
     w = types.SimpleNamespace(_qd_table=QTableWidget())
-    panel._fill_table(w, received[0]['feasible'], received[0]['best'])
+    panel._fill_table(w, received[0]['feasible'])
     cell = w._qd_table.item(0, 11)
     assert cell.text() == '有警告'
     assert cell.toolTip() == '[工况 2] final-source'
@@ -200,5 +199,24 @@ def test_thread_result_warnings_reach_table_and_fallback(monkeypatch):
     assert cell.foreground().color().name() == get_theme()['warn'].lower()
     logs = []
     monkeypatch.setattr(panel._log, 'info', logs.append)
-    panel._fill_table(types.SimpleNamespace(), [d], d)
+    panel._fill_table(types.SimpleNamespace(), [d])
     assert '[工况 2] final-source' in logs
+
+
+@pytest.mark.parametrize('mode,hidden,active', [
+    ('auto', 'le_qd_cell_l', 'le_qd_l'),
+    ('fixed', 'le_qd_l', 'le_qd_cell_l'),
+])
+def test_only_active_design_parameters_are_parsed(mode, hidden, active):
+    w = _make_window(mode)
+    getattr(w, hidden).setText('invalid')
+    params = _gather_inputs(w)
+    if mode == 'auto':
+        assert params['nodes']['l'] == [5., 6., 7., 8.]
+        assert 'cell' not in params
+    else:
+        assert params['cell'] == ('Diamond', 7., .5)
+        assert 'nodes' not in params
+    getattr(w, active).setText('invalid')
+    with pytest.raises(ValueError):
+        _gather_inputs(w)

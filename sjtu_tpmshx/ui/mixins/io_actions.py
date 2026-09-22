@@ -162,21 +162,35 @@ class IOActionsMixin:
             self, "Load Config", "", "JSON Files (*.json)")
         if not path:
             return False
+        return self._load_config_path(path)
+
+    def _load_config_path(self, path):
+        """Apply one configuration file through the same menu/drop validation."""
         try:
             with open(path, "r", encoding="utf-8") as f:
                 payload = json.load(f)
             if not isinstance(payload, dict):
                 raise ValueError("Configuration must be a JSON object.")
-            legacy = 'config_format' not in payload
-            if legacy:
-                preset = self._legacy_config_preset(payload)
-            else:
+            legacy = False
+            if 'config_format' in payload:
                 if (type(payload['config_format']) is not int or
                         payload['config_format'] != 1 or
                         set(payload) != {'config_format', 'preset'}):
                     raise ValueError("Unsupported configuration format.")
                 preset = payload['preset']
                 self._validate_preset(preset, complete=True)
+            elif 'line_edits' in payload:
+                preset = payload
+                self._validate_preset(preset)
+            elif 'presets' in payload:
+                presets = payload['presets']
+                if not isinstance(presets, list) or not presets:
+                    raise ValueError("Preset library must contain at least one preset.")
+                preset = presets[0]
+                self._validate_preset(preset)
+            else:
+                legacy = True
+                preset = self._legacy_config_preset(payload)
             self._apply_user_preset(preset)
         except Exception as e:
             QMessageBox.critical(self, "Load Error", str(e))
@@ -230,6 +244,19 @@ class IOActionsMixin:
         self._validate_preset(preset)
         return preset
 
+    def _pareto_figure_ready(self):
+        """Optimization figures belong to their own run, not the field cache."""
+        front = getattr(self, '_pareto_F', None)
+        return (getattr(self, 'canvas_pareto', None) is not None
+                and front is not None and len(front) > 0)
+
+    def _refresh_export_button(self):
+        button = getattr(self, 'btn_export', None)
+        if button is not None:
+            button.setEnabled(self.cache.has_any_results()
+                              or bool(self.cache.get_drawn_tabs())
+                              or self._pareto_figure_ready())
+
     def _copy_figure_clipboard(self):
         """Copy the currently active canvas image to the system clipboard
         (ui-batch4 ③) — one click from result plot to WeChat / PPT.
@@ -247,7 +274,9 @@ class IOActionsMixin:
                   'vel': getattr(self, 'canvas_vel', None),
                   'layout': getattr(self, 'canvas_layout', None),
                   'pareto': getattr(self, 'canvas_pareto', None)}.get(tab)
-        if canvas is None or tab not in self.cache.get_drawn_tabs():
+        ready = (self._pareto_figure_ready() if tab == 'pareto'
+                 else tab in self.cache.get_drawn_tabs())
+        if canvas is None or not ready:
             self.statusBar().showMessage("当前无可复制的图像 — 请先计算或预览。",
                                          TOAST_MS_SHORT)
             return
@@ -267,6 +296,8 @@ class IOActionsMixin:
                       'pareto': self.canvas_pareto}
         drawn = self.cache.get_drawn_tabs()
         available = set(drawn)
+        if self._pareto_figure_ready():
+            available.add('pareto')
         if (self.cache.get_result('2d') is not None
                 or self.cache.get_result('3d') is not None):
             available.update(('temp', 'pres', 'vel'))

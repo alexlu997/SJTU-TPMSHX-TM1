@@ -1,8 +1,4 @@
-"""models/grid_3d.py — shared 3D grid / axis-map / zone-field builders.
-
-Moved verbatim from stages_3d.py (openspec split-pipelines, 2026-07-03);
-behavior bit-identical.
-"""
+"""Shared physical 3D grid, axis-map and extruded zone-field builders."""
 
 from __future__ import annotations
 import numpy as np
@@ -73,8 +69,8 @@ def _resolve_axis_map(fA: dict, Nx: int, Ny: int, Nz: int,
     )
 
 
-def _build_zone_fields_3d(cells: list[dict], Nx: int, Ny: int, Nz: int,
-                           L: float, H: float, tpms_type: str, k_s: float,
+def _build_zone_fields_3d(cells: list[dict], dx: np.ndarray, dy: np.ndarray, Nz: int,
+                           tpms_type: str, k_s: float,
                            default_L: float, default_t: float,
                            ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Map 2D grid zones to 3D (Nx, Ny, Nz) L/t/eps fields (z-uniform).
@@ -86,20 +82,26 @@ def _build_zone_fields_3d(cells: list[dict], Nx: int, Ny: int, Nz: int,
     require an Nz-dimensional decision vector in the optimiser and a
     different cell list shape — not wired in yet.
 
-    cells: list of dicts {y0, y1, x0, x1, L, t} with 0-1 normalised x/y.
+    cells: list of dicts {y0, y1, x0, x1, L, t} with physical x/y fractions.
+    dx/dy: actual physical cell widths. Uncovered cells retain the defaults;
+    later rectangles override earlier ones where they overlap. The existing
+    sigma=2 Gaussian smoothing remains in grid-index units, including on a
+    nonuniform mesh; this function does not change its smoothing length rule.
     Returns L_field / t_field / eps_field (mm, mm, 0-1).
     """
     from scipy.ndimage import gaussian_filter
     from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry
+    dx, dy = np.asarray(dx), np.asarray(dy)
+    Nx, Ny = len(dx), len(dy)
+    xf = (np.cumsum(dx) - dx / 2.) / dx.sum()
+    yf = (np.cumsum(dy) - dy / 2.) / dy.sum()
     L_2d = np.full((Nx, Ny), float(default_L), dtype=np.float64)
     t_2d = np.full((Nx, Ny), float(default_t), dtype=np.float64)
     for cell in cells:
-        x_lo = int(round(cell['x0'] * Nx)); x_hi = int(round(cell['x1'] * Nx))
-        y_lo = int(round(cell['y0'] * Ny)); y_hi = int(round(cell['y1'] * Ny))
-        x_lo = max(0, min(x_lo, Nx)); x_hi = max(0, min(x_hi, Nx))
-        y_lo = max(0, min(y_lo, Ny)); y_hi = max(0, min(y_hi, Ny))
-        L_2d[x_lo:x_hi, y_lo:y_hi] = float(cell['L'])
-        t_2d[x_lo:x_hi, y_lo:y_hi] = float(cell['t'])
+        selected = np.ix_((cell['x0'] <= xf) & (xf < cell['x1']),
+                          (cell['y0'] <= yf) & (yf < cell['y1']))
+        L_2d[selected] = float(cell['L'])
+        t_2d[selected] = float(cell['t'])
     L_2d = gaussian_filter(L_2d, sigma=2.0)
     t_2d = gaussian_filter(t_2d, sigma=2.0)
     eps_2d = np.empty_like(L_2d)

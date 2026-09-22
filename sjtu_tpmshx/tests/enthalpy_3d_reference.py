@@ -6,6 +6,21 @@ import numpy as np
 from sjtu_tpmshx.solvers import ltne_enthalpy_3d as ent
 
 
+
+def uniform_face_mass_flux(shape, m_dot, direction):
+    """Prescribed uniform-flow fixture for independent kernel tests."""
+    Nx, Ny, Nz = shape
+    Fx = np.zeros((Nx + 1, Ny, Nz), dtype=np.float64)
+    Fy = np.zeros((Nx, Ny + 1, Nz), dtype=np.float64)
+    Fz = np.zeros((Nx, Ny, Nz + 1), dtype=np.float64)
+    fluxes = (Fx, Fy, Fz)
+    axis = int(direction) // 2
+    sign = 1.0 if int(direction) % 2 == 0 else -1.0
+    cross_cells = shape[(axis + 1) % 3] * shape[(axis + 2) % 3]
+    fluxes[axis][...] = sign * abs(float(m_dot)) / cross_cells
+    return fluxes
+
+
 def solve_ltne_enthalpy_3d(Nx, Ny, Nz, Lx, Ly, Lz, eps, k_s,
                            m_dot_A, m_dot_B, h_vA, h_vB,
                            T_inA, T_inB, P, P_B=None, dir_A=0, dir_B=1,
@@ -35,8 +50,8 @@ def solve_ltne_enthalpy_3d(Nx, Ny, Nz, Lx, Ly, Lz, eps, k_s,
             if eps_A_field is not None else np.full(shape, 0.5 * eps))
     epsB = (np.ascontiguousarray(eps_B_field, dtype=np.float64)
             if eps_B_field is not None else np.full(shape, 0.5 * eps))
-    flux_A = ent._uniform_face_mass_flux(shape, m_dot_A, dir_A)
-    flux_B = ent._uniform_face_mass_flux(shape, m_dot_B, dir_B)
+    flux_A = uniform_face_mass_flux(shape, m_dot_A, dir_A)
+    flux_B = uniform_face_mass_flux(shape, m_dot_B, dir_B)
     hvA_fld = np.full(shape, float(h_vA))
     hvB_fld = np.full(shape, float(h_vB))
     Kss = (1.0 - epsA - epsB) * float(k_s)

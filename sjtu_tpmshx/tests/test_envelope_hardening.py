@@ -121,8 +121,7 @@ def test_assess_finite_clean_still_valid():
 
 
 # ── A2: gate_solution must validate envelope_mode (audit 2026-06-28) ────────
-# check_compressible_envelope rejects an unknown mode; gate_solution did not, so
-# a typo'd mode ('raises'/'Raise') silently degraded a 'raise' intent into 'off'.
+# A typo'd mode ('raises'/'Raise') must not silently degrade 'raise' into 'off'.
 def test_gate_solution_rejects_unknown_mode():
     with pytest.raises(ValueError):
         gate_solution(150e3, 5.0, 800.0, mode='raises')  # typo of 'raise'

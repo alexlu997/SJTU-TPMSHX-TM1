@@ -1,73 +1,8 @@
-"""Pure geometry-to-drag projection shared by preparation and legacy callers."""
-from typing import List, Optional, Tuple
+"""Pure geometry-to-drag projection on physical source and solver grids."""
+from typing import Optional, Tuple
 import numpy as np
-from sjtu_tpmshx.df_surrogate.predict import predict_K_cF_vec
+from sjtu_tpmshx.df_surrogate.predict import predict_K_cF_vec, SCO2_DF_METHOD
 from .tpms_calc import geometry as tpms_geometry
-
-
-def project_cells_to_streamwise_K_cF(grid_cells: List[dict],
-                                       tpms_type: str,
-                                       k_s: float,
-                                       Ny_sim: int,
-                                       fluid: str,
-                                       streamwise_dx: Optional[np.ndarray] = None
-                                       ) -> Tuple[np.ndarray, np.ndarray]:
-    """Project 2D grid_cells onto streamwise axis for SIMPLE's 1D K/c_F arrays.
-
-    For fluid A (+x streamwise): SIMPLE's y-axis maps to real x. For each SIMPLE
-    row j, find grid_cells at real x_frac (streamwise cell-centre position) and
-    average (L, t) weighted by cross-stream (y) overlap.
-
-    For fluid B (-y streamwise): SIMPLE's y-axis is flipped relative to real y
-    (SIMPLE y=0 is fluid B's inlet = real y_frac=1). Real y_frac = 1 - s_frac.
-
-    streamwise_dx : 1D array of shape (Ny_sim,), cell widths along SIMPLE's y
-        (streamwise). If None, assume uniform spacing. Pass for non-uniform
-        (wall-refined) streamwise grid so s_frac reflects actual cell centre
-        positions, not uniform (j+0.5)/Ny_sim.
-
-    Returns (K_arr, cF_arr) both shape (Ny_sim,) float64.
-
-    This loses cross-stream variation but is the best 1D projection available
-    under SIMPLE's current K/c_F array shape limitation.
-    """
-
-    # Cell-centre s_frac: uniform or from streamwise_dx (B2 2.3 helper)
-    s_fracs = _cell_centre_fracs(Ny_sim, streamwise_dx)
-
-    L_row = np.empty(Ny_sim, dtype=np.float64)
-    t_row = np.empty(Ny_sim, dtype=np.float64)
-    eps_f_row = np.empty(Ny_sim, dtype=np.float64)
-
-    for j in range(Ny_sim):
-        s_frac = float(s_fracs[j])
-        if fluid == 'A':
-            real_x = s_frac
-            cells_at = [gc for gc in grid_cells if gc['x0'] <= real_x < gc['x1']]
-            cs_key_lo = 'y0'; cs_key_hi = 'y1'
-        elif fluid == 'B':
-            real_y = 1.0 - s_frac   # flip
-            cells_at = [gc for gc in grid_cells if gc['y0'] <= real_y < gc['y1']]
-            cs_key_lo = 'x0'; cs_key_hi = 'x1'
-        else:
-            raise ValueError(f"fluid must be 'A' or 'B', got {fluid!r}")
-
-        if not cells_at:
-            cells_at = [grid_cells[0]]
-
-        total_w = 0.0; L_sum = 0.0; t_sum = 0.0
-        for gc in cells_at:
-            w = gc[cs_key_hi] - gc[cs_key_lo]
-            L_sum += gc['L'] * w; t_sum += gc['t'] * w
-            total_w += w
-        L_avg = L_sum / total_w if total_w > 0 else cells_at[0]['L']
-        t_avg = t_sum / total_w if total_w > 0 else cells_at[0]['t']
-
-        g = tpms_geometry(tpms_type, L_avg, t_avg, k_s)
-        L_row[j] = L_avg; t_row[j] = t_avg; eps_f_row[j] = g['epsilon'] / 2.0
-
-    K_arr, cF_arr = predict_K_cF_vec(tpms_type, L_row, t_row, eps_f_row)
-    return K_arr.astype(np.float64), cF_arr.astype(np.float64)
 
 
 def _cell_centre_fracs(n_target: int,
@@ -107,35 +42,41 @@ def project_fields_to_streamwise_K_cF(L_field: np.ndarray,
                                        tpms_type: str,
                                        k_s: float,
                                        Ny_sim: int,
-                                       fluid: str,
+                                       direction: int,
                                        streamwise_dx: Optional[np.ndarray] = None,
                                        *, source_grid=None
                                        ) -> Tuple[np.ndarray, np.ndarray]:
-    """Project 2D sigmoid fields onto streamwise axis for SIMPLE's K/c_F arrays.
+    """Project real XY L/t cells onto SIMPLE's inlet-to-outlet drag rows.
 
-    L_field, t_field shape: (Nx, Ny) in real coordinates.
-    For fluid A: average along real y at each real x, then resample to Ny_sim.
-    For fluid B: average along real x at each real y, flip, then resample.
-    source_grid=(dx, dy) supplies actual source cell widths when nonuniform;
-    lateral averages and source lookup then use physical lengths.
-
-    Returns (K_arr, cF_arr) both shape (Ny_sim,) float64.
+    direction is 0=+x, 1=-x, 2=+y or 3=-y. L/t are averaged across the
+    physical transverse width before predicting K/cF; this retains the 1D
+    row approximation rather than averaging the nonlinear drag coefficients.
+    source_grid=(dx, dy) gives actual source widths. Omission means a uniform
+    source mesh. streamwise_dx describes target rows in inlet-to-outlet order.
     """
-
-    (L_1d, t_1d), _src_n = _stream_profile((L_field, t_field), fluid)
-    src_n = _src_n
+    if direction not in (0, 1, 2, 3):
+        raise ValueError(f"direction must be 0, 1, 2 or 3, got {direction!r}")
+    stream_axis = 0 if direction in (0, 1) else 1
+    cross_axis = 1 - stream_axis
+    reverse = direction in (1, 3)
+    src_n = L_field.shape[stream_axis]
+    if source_grid is None:
+        L_1d, t_1d = (f.mean(axis=cross_axis) for f in (L_field, t_field))
+        stream_widths = None
+    else:
+        widths = tuple(np.asarray(w) for w in source_grid)
+        L_1d, t_1d = (np.average(f, axis=cross_axis, weights=widths[cross_axis])
+                       for f in (L_field, t_field))
+        stream_widths = widths[stream_axis]
+    if reverse:
+        L_1d, t_1d = L_1d[::-1], t_1d[::-1]
+        if stream_widths is not None:
+            stream_widths = stream_widths[::-1]
 
     s_fracs = _cell_centre_fracs(Ny_sim, streamwise_dx)
-    if source_grid is None:
+    if stream_widths is None:
         src_idx = _nearest_src_idx(s_fracs, src_n)
     else:
-        dx, dy = (np.asarray(widths) for widths in source_grid)
-        if fluid == 'A':
-            L_1d, t_1d = (np.average(f, axis=1, weights=dy) for f in (L_field, t_field))
-            stream_widths = dx
-        else:
-            L_1d, t_1d = (np.average(f, axis=0, weights=dx)[::-1] for f in (L_field, t_field))
-            stream_widths = dy[::-1]
         src_idx = np.minimum(np.searchsorted(np.cumsum(stream_widths),
                                              s_fracs * stream_widths.sum(), side='right'), src_n - 1)
 
@@ -149,7 +90,8 @@ def project_fields_to_streamwise_K_cF(L_field: np.ndarray,
         g = tpms_geometry(tpms_type, L_avg, t_avg, k_s)
         L_row[j] = L_avg; t_row[j] = t_avg; eps_f_row[j] = g['epsilon'] / 2.0
 
-    K_arr, cF_arr = predict_K_cF_vec(tpms_type, L_row, t_row, eps_f_row)
+    K_arr, cF_arr = predict_K_cF_vec(
+        tpms_type, L_row, t_row, eps_f_row, method=SCO2_DF_METHOD)
     return K_arr.astype(np.float64), cF_arr.astype(np.float64)
 
 

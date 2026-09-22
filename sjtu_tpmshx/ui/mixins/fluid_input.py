@@ -7,10 +7,7 @@ the layout drawers. UI-only -- no solver / numeric path. Adopted via
 ``class Main_Menu(..., FluidInputMixin, ..., QMainWindow)``; external
 wiring resolves on the live window through the MRO.
 
-_auto_fill_fluid originally read the module-level _VAL / _VAL_WARN style
-globals from main.py; those went stale after a theme switch. It now
-resolves them at call time via _fluid_styles(), so the Re label respects
-a live ThemeManager.rebuild(). Behaviour-identical at first paint.
+Fluid status labels resolve their styles from the current theme at call time.
 """
 
 from __future__ import annotations

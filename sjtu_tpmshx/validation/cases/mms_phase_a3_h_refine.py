@@ -10,6 +10,7 @@ Hard gates (per plan):
   p_obs_B >= 1.5
   p_obs_s >= 1.8       (pure diffusion expects 2nd order)
   L2 (grid 30) < 1.0% per phase
+  R^2 >= 0.999 for each L2 fit; every requested grid converged and finite
 
 Each run writes raw/order CSVs, a report and an optional plot into a new
 .cache/validation/mms_phase_a3-*/ directory. --out-dir selects another output
@@ -23,6 +24,7 @@ import time
 import warnings
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 try:
@@ -98,7 +100,7 @@ def main():
                 L2_A=r['L2_A'], L2_B=r['L2_B'], L2_s=r['L2_s'],
                 Linf_A=r['Linf_A'], Linf_B=r['Linf_B'], Linf_s=r['Linf_s'],
                 outer_iters=r['outer_iters'], last_chg=r['last_chg'],
-                elapsed=dt),
+                elapsed=dt, converged=bool(r['converged'])),
             on_grid=lambda g, r, row, dt: print(
                 f"  N={g:>3d}  L2_A={r['L2_A']:.4%}  L2_B={r['L2_B']:.4%}  "
                 f"L2_s={r['L2_s']:.4%}  Linf_A={r['Linf_A']:.3f}K  "
@@ -142,6 +144,10 @@ def main():
     print(f"{'='*72}")
     fail = []
     for c in cases:
+        raw = df[df['case'] == c]
+        metrics = ['L2_A', 'L2_B', 'L2_s', 'Linf_A', 'Linf_B', 'Linf_s']
+        complete = raw['N'].tolist() == grids
+        valid = raw['converged'].all() and np.isfinite(raw[metrics].to_numpy()).all()
         sub = order_df[order_df['case'] == c]
         pA = sub[sub['metric'] == 'L2_A']['p_obs'].iloc[0]
         pB = sub[sub['metric'] == 'L2_B']['p_obs'].iloc[0]
@@ -150,12 +156,16 @@ def main():
         L2B_g30 = sub[sub['metric'] == 'L2_B']['val_g30'].iloc[0]
         L2s_g30 = sub[sub['metric'] == 'L2_s']['val_g30'].iloc[0]
         gates = dict(
+            all_requested_grids=(complete and valid),
             p_A_ge_1p5=(pA >= 1.5),
             p_B_ge_1p5=(pB >= 1.5),
             p_s_ge_1p8=(ps >= 1.8),
             L2A_g30_lt_1pct=(L2A_g30 < 0.010),
             L2B_g30_lt_1pct=(L2B_g30 < 0.010),
             L2s_g30_lt_1pct=(L2s_g30 < 0.010),
+            L2_R2_ge_0p999=all(
+                np.isfinite(row.R2) and row.R2 >= 0.999
+                for row in sub[sub['metric'].isin(['L2_A', 'L2_B', 'L2_s'])].itertuples()),
         )
         all_ok = all(gates.values())
         print(f"  MMS-{c}: p_obs (A={pA:.2f}, B={pB:.2f}, s={ps:.2f})  "
@@ -214,8 +224,8 @@ def _write_report(path, cases, grids, df, order_df, args, plot_path):
         "",
         "## 目标",
         "",
-        "Standard Tier ASME V&V 20 框架 Phase A.3. 5-grid sequence "
-        f"{grids} 跑 MMS 1D/2D/3D, log-log fit 提取观测阶 p_obs.",
+        "Standard Tier ASME V&V 20 框架 Phase A.3. Grid sequence "
+        f"{grids} 跑 MMS {cases}, log-log fit 提取观测阶 p_obs.",
         "",
         "## Hard gates",
         "",
@@ -223,6 +233,8 @@ def _write_report(path, cases, grids, df, order_df, args, plot_path):
         "- p_obs (L2_B) >= 1.5",
         "- p_obs (L2_s) >= 1.8 (pure diffusion 期望 2nd order)",
         "- L2 (grid 30) < 1.0% per phase",
+        "- 各相 L2 拟合 R^2 >= 0.999",
+        "- 全部请求网格成员齐全、收敛，且 L2/Linf 有限",
         "",
         "## 配置",
         "",
@@ -235,16 +247,17 @@ def _write_report(path, cases, grids, df, order_df, args, plot_path):
     ]
     for c in cases:
         lines += [f"### MMS-{c}", "", "| N | h | L2_A | L2_B | L2_s | "
-                  "Linf_A | Linf_B | Linf_s | iters |", "|--:|--:|--:|--:|--:|--:|--:|--:|--:|"]
+                  "Linf_A | Linf_B | Linf_s | iters | converged |",
+                  "|--:|--:|--:|--:|--:|--:|--:|--:|--:|:--|"]
         sub = df[df['case'] == c].sort_values('N')
         for _, r in sub.iterrows():
             lines.append(
                 f"| {int(r['N'])} | {r['h']:.5f} | {r['L2_A']:.4%} | "
                 f"{r['L2_B']:.4%} | {r['L2_s']:.4%} | {r['Linf_A']:.3f} | "
-                f"{r['Linf_B']:.3f} | {r['Linf_s']:.3f} | {int(r['outer_iters'])} |")
+                f"{r['Linf_B']:.3f} | {r['Linf_s']:.3f} | {int(r['outer_iters'])} | {r['converged']} |")
         lines += ["", ""]
 
-    lines += ["## 观测阶 (log-log fit, 全 5 grid)", "",
+    lines += ["## 观测阶 (log-log fit, 请求的全部网格)", "",
               "| case | metric | p_obs | R^2 | L2 @ grid 30 |",
               "|------|--------|------:|----:|-------------:|"]
     for _, r in order_df.iterrows():

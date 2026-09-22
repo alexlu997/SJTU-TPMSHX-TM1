@@ -35,7 +35,7 @@ _ARR = {
                     qtol=None, chunk=None),
 }
 
-def _hvol(fluid, topo, l, t, A0, D_h, eps_A, mdot, span1, span2, T, P):
+def _hvol(fluid, topo, l, A0, D_h, eps_A, mdot, span1, span2, T, P):
     """span1, span2: the two cross-sectional dimensions of the inlet face [m]."""
     p = fluid_props(fluid, T, P)
     A_flow = eps_A * span1 * span2

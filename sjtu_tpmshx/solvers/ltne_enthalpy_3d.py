@@ -128,20 +128,6 @@ def face_mass_fluxes(uf, vf, wf, rho, eps_side, dx, dy, dz):
     return tuple(np.ascontiguousarray(f) for f in (Fx, Fy, Fz))
 
 
-def _uniform_face_mass_flux(shape, m_dot, direction):
-    """Compatibility flux field for standalone uniform-flow kernel tests."""
-    Nx, Ny, Nz = shape
-    Fx = np.zeros((Nx + 1, Ny, Nz), dtype=np.float64)
-    Fy = np.zeros((Nx, Ny + 1, Nz), dtype=np.float64)
-    Fz = np.zeros((Nx, Ny, Nz + 1), dtype=np.float64)
-    fluxes = (Fx, Fy, Fz)
-    axis = int(direction) // 2
-    sign = 1.0 if int(direction) % 2 == 0 else -1.0
-    cross_cells = shape[(axis + 1) % 3] * shape[(axis + 2) % 3]
-    fluxes[axis][...] = sign * abs(float(m_dot)) / cross_cells
-    return fluxes
-
-
 from sjtu_tpmshx.result_math import _boundary_enthalpy_duty  # noqa: F401 - existing public name
 
 
@@ -359,12 +345,11 @@ def _coupled_energy_balance(Ta, Tb, Ts, hvA, hvB, Kss, dx, dy, dz, q_A, q_B):
 
 
 def solve_ltne_enthalpy_3d_pipeline(Nx, Ny, Nz, dx, dy, dz, eps_arr, K_ss,
-                                    h_vA_field, h_vB_field, m_dot_A, m_dot_B,
-                                    T_inA, T_inB, P_A, P_B, dir_A, dir_B,
+                                    h_vA_field, h_vB_field, T_inA, T_inB, P_A, P_B,
+                                    *, mass_flux_A, mass_flux_B,
                                     fluid_A='sco2', fluid_B='sco2',
                                     eps_A_field=None, eps_B_field=None,
                                     pressure_A_field=None, pressure_B_field=None,
-                                    mass_flux_A=None, mass_flux_B=None,
                                     Ta_init=None, Tb_init=None, Ts_init=None,
                                     n_outer=3000, n_sweep=5, omega=0.6, tol=2e-5,
                                     cancel_check=None, coupled_energy_tol=None,
@@ -379,8 +364,7 @@ def solve_ltne_enthalpy_3d_pipeline(Nx, Ny, Nz, dx, dy, dz, eps_arr, K_ss,
 
     ``mass_flux_A/B`` are signed real-coordinate ``(Fx,Fy,Fz)`` arrays. Their
     boundary faces encode arbitrary inlet/outlet patches; zero faces are walls.
-    Scalar ``m_dot`` remains only as a compatibility fallback for standalone
-    uniform-flow tests. ``coupled_energy_tol`` adds an EOS solid/boundary
+    ``coupled_energy_tol`` adds an EOS solid/boundary
     balance gate; ``equation_energy_tol`` also checks each fluid equation.
     Both production adapters enable them (W in 3D, unit-depth W/m in 2D)."""
     for name, limit in (('coupled_energy_tol', coupled_energy_tol),
@@ -410,14 +394,8 @@ def solve_ltne_enthalpy_3d_pipeline(Nx, Ny, Nz, dx, dy, dz, eps_arr, K_ss,
                  else np.ascontiguousarray(pressure_B_field, dtype=np.float64))
     if P_A_field.shape != shape or P_B_field.shape != shape:
         raise ValueError("local pressure fields must match the 3D LTNE grid")
-    flux_A = (_uniform_face_mass_flux(shape, m_dot_A, dir_A)
-              if mass_flux_A is None else
-              tuple(np.ascontiguousarray(f, dtype=np.float64)
-                    for f in mass_flux_A))
-    flux_B = (_uniform_face_mass_flux(shape, m_dot_B, dir_B)
-              if mass_flux_B is None else
-              tuple(np.ascontiguousarray(f, dtype=np.float64)
-                    for f in mass_flux_B))
+    flux_A = tuple(np.ascontiguousarray(f, dtype=np.float64) for f in mass_flux_A)
+    flux_B = tuple(np.ascontiguousarray(f, dtype=np.float64) for f in mass_flux_B)
     expected_shapes = ((Nx + 1, Ny, Nz), (Nx, Ny + 1, Nz),
                        (Nx, Ny, Nz + 1))
     if tuple(f.shape for f in flux_A) != expected_shapes \

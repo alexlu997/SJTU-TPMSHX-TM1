@@ -201,7 +201,7 @@ class ZoneConfig:
     # ── Grid (2D) structured arrays ──────────────────────────────
 
     @staticmethod
-    def build_grid_arrays(Nx, Ny, L, H, grid_cells,
+    def build_grid_arrays(Nx, Ny, grid_cells,
                           tpms_type, k_s,
                           u_A, u_B, T_inA, T_inB, P_in=101325.0,
                           dx_arr=None, dy_arr=None, *, P_inB=None):
@@ -210,7 +210,6 @@ class ZoneConfig:
         Parameters
         ----------
         Nx, Ny      : grid cells
-        L, H        : domain size [m]
         grid_cells  : list of dict, each with keys:
                       y0, y1 (frac 0~1), x0, x1 (frac 0~1), L (mm), t (mm)
         tpms_type, k_s, u_A, u_B, T_inA, T_inB, P_in : physics params
@@ -331,10 +330,7 @@ class ZoneConfig:
             'grid_cells': grid_cells,
         }
 
-    # ── Unstructured mesh arrays ────────────────────────────────
-
-
-    # ── Factory: single-zone (backward compatible) ──────────────
+    # ── Factory: uniform zone ──────────────────────────────────
 
     @staticmethod
     def single_zone(L_mm: float, t_mm: float,

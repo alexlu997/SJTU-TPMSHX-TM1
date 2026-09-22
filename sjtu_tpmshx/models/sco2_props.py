@@ -91,30 +91,14 @@ def sco2_prop(key: str | tuple[str, ...], T_K, P_Pa):
     return _np.asarray(out, dtype=float).reshape(shape)
 
 
-def sco2_density(T_K: float, P_Pa: float) -> float:
-    """ρ [kg/m³] = ρ(T, P) — real-gas, NOT ideal."""
-    return _prop("D", T_K, P_Pa)
 
 
-def sco2_cp(T_K: float, P_Pa: float) -> float:
-    """Isobaric specific heat cp [J/(kg·K)] = cp(T, P)."""
-    return _prop("C", T_K, P_Pa)
 
 
-def sco2_viscosity(T_K: float, P_Pa: float) -> float:
-    """Dynamic viscosity μ [Pa·s] = μ(T, P)."""
-    return _prop("V", T_K, P_Pa)
 
 
-def sco2_conductivity(T_K: float, P_Pa: float) -> float:
-    """Thermal conductivity k [W/(m·K)] = k(T, P)."""
-    return _prop("L", T_K, P_Pa)
 
 
-def sco2_enthalpy(T_K: float, P_Pa: float) -> float:
-    """Specific enthalpy h [J/kg] = h(T, P). Used for enthalpy-based duty
-    Q = ṁ·Δh (sCO2 cp is not constant across a HX temperature span)."""
-    return _prop("H", T_K, P_Pa)
 
 
 @lru_cache(maxsize=4096)
@@ -147,41 +131,3 @@ def sco2_temperature_from_enthalpy(h_Jkg, P_Pa):
     T = T.reshape(shape)
     _validate_state(T, _np.broadcast_to(P, shape))
     return T
-
-
-# ── Vectorised field queries ─────────────────────────────────────────────
-# sco2_prop broadcasts supplied T/P states before querying CoolProp.
-
-def sco2_field(key: str, T_K, P_Pa: float):
-    """CoolProp query over a T field with scalar or broadcastable absolute P."""
-    return sco2_prop(key, T_K, P_Pa)
-
-
-def sco2_density_field(T_K, P_Pa: float):
-    """ρ field [kg/m³] at the supplied T/P states."""
-    return sco2_field("D", T_K, P_Pa)
-
-
-def sco2_cp_field(T_K, P_Pa: float):
-    """cp field [J/(kg·K)] at the supplied T/P states."""
-    return sco2_field("C", T_K, P_Pa)
-
-
-def sco2_rho_cp_field(T_K, P_Pa: float):
-    """ρ·cp field [J/(m³·K)] at the supplied T/P states."""
-    return sco2_density_field(T_K, P_Pa) * sco2_cp_field(T_K, P_Pa)
-
-
-def sco2_enthalpy_field(T_K, P_Pa: float):
-    """h field [J/kg] at supplied T/P states, e.g. for mass-weighted outlet
-    enthalpy in duty extraction. Vectorised counterpart of ``sco2_enthalpy``.
-    """
-    return sco2_field("H", T_K, P_Pa)
-
-
-def sco2_temperature_field(h_Jkg, P_Pa: float):
-    """T field [K] = T(h, P) using direct CoolProp at supplied absolute P.
-
-    Vectorised inverse of ``sco2_enthalpy_field``; h and P are broadcast.
-    """
-    return sco2_temperature_from_enthalpy(h_Jkg, P_Pa)

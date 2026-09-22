@@ -968,3 +968,115 @@ def test_session_restore_reports_solver_update_and_resave_removes_repeat(win, mo
     monkeypatch.setattr(win.sm, 'save_session', lambda payload, *args: saved.append(payload) or True)
     assert win._save_session()
     assert win._solver_settings_notice(saved[0]) == ''
+
+
+def _drop_json(window, path):
+    from PySide6.QtCore import QMimeData, QPointF, Qt, QUrl
+    from PySide6.QtGui import QDropEvent
+    mime = QMimeData()
+    mime.setUrls([QUrl.fromLocalFile(str(path))])
+    event = QDropEvent(QPointF(0, 0), Qt.DropAction.CopyAction, mime,
+                       Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+    window.dropEvent(event)
+    return event.isAccepted()
+
+
+@pytest.mark.parametrize('file_format', ['current', 'preset', 'library', 'flat'])
+@pytest.mark.parametrize('entry', ['menu', 'drop'])
+def test_current_and_old_configs_use_the_same_import_path(
+        tmp_path, monkeypatch, win, file_format, entry):
+    from sjtu_tpmshx.ui.mixins import io_actions
+    win._apply_shanghai_defaults()
+    win.le_uA.setText('20.0')
+    path = tmp_path / 'config.json'
+    monkeypatch.setattr(io_actions.QFileDialog, 'getSaveFileName',
+                        lambda *a: (str(path), ''))
+    assert win.save_config()
+    payload = json.loads(path.read_text())
+    if file_format == 'preset':
+        payload = payload['preset']
+    elif file_format == 'library':
+        payload = {'presets': [payload['preset']]}
+    elif file_format == 'flat':
+        payload = {'u_A': '20.0'}
+    path.write_text(json.dumps(payload))
+    win.le_uA.setText('99')
+    warnings = []
+    monkeypatch.setattr(io_actions.QMessageBox, 'warning',
+                        lambda *a: warnings.append(a))
+    monkeypatch.setattr(io_actions.QMessageBox, 'critical',
+                        lambda *a: pytest.fail(str(a)))
+    monkeypatch.setattr(io_actions.QFileDialog, 'getOpenFileName',
+                        lambda *a: (str(path), ''))
+    assert win.load_config() if entry == 'menu' else _drop_json(win, path)
+    assert win.le_uA.text() == '20.0'
+    assert bool(warnings) == (file_format == 'flat')
+
+
+@pytest.mark.parametrize('entry', ['menu', 'drop'])
+def test_both_import_entries_reject_unknown_format_without_changing_input(
+        tmp_path, monkeypatch, win, entry):
+    from sjtu_tpmshx.ui.mixins import io_actions
+    path = tmp_path / 'bad.json'
+    path.write_text(json.dumps({'config_format': 999, 'preset':
+                                {'line_edits': {'le_uA': '1'}}}))
+    win.le_uA.setText('99')
+    errors = []
+    monkeypatch.setattr(io_actions.QMessageBox, 'critical', lambda *a: errors.append(a))
+    monkeypatch.setattr(io_actions.QFileDialog, 'getOpenFileName',
+                        lambda *a: (str(path), ''))
+    result = win.load_config() if entry == 'menu' else _drop_json(win, path)
+    assert not result and win.le_uA.text() == '99'
+    assert len(errors) == 1 and 'Unsupported configuration format' in errors[0][2]
+
+
+def test_pareto_figure_copy_export_survives_field_result_then_clears_on_empty(
+        tmp_path, monkeypatch, win):
+    from PySide6.QtGui import QGuiApplication
+    from sjtu_tpmshx.ui import optimize_panel
+    from sjtu_tpmshx.ui.mixins import io_actions
+    front = {'X': np.array([[.5, .6], [.3, .7]]),
+             'F': np.array([[-8000., 12000.], [-9000., 15000.]]),
+             'n_evals': 2}
+    win.cache.clear()
+    win.btn_export.setEnabled(False)
+    optimize_panel.show_pareto(win, front)
+    monkeypatch.setattr(win, '_active_tab', 'pareto')
+    menu_actions = {action.text(): action for action in win.btn_export.menu().actions()}
+    try:
+        for state in ('pareto', 'preset-load', 'later-field-result'):
+            if state == 'preset-load':
+                win._invalidate_results_for_preset_load()
+            if state == 'later-field-result':
+                # Publishing a field snapshot clears its own rendered-tab flags.
+                win.cache.set_result('2d', {'Q_total': 1.})
+            QGuiApplication.clipboard().clear()
+            assert win.btn_export.isEnabled()
+            menu_actions['复制当前图像'].trigger()
+            assert not QGuiApplication.clipboard().image().isNull()
+            assert '已复制 pareto' in win.statusBar().currentMessage()
+            calls = []
+            def choose(*args):
+                calls.append(args[3])
+                return ('Pareto / 优化', True) if len(calls) == 1 else ('150 (screen)', True)
+            monkeypatch.setattr(io_actions.QInputDialog, 'getItem', choose)
+            path = tmp_path / f'{state}.png'
+            monkeypatch.setattr(io_actions.QFileDialog, 'getSaveFileName',
+                                lambda *a, **kw: (str(path), 'PNG (*.png)'))
+            menu_actions['导出图像 — PNG / SVG / PDF'].trigger()
+            assert 'Pareto / 优化' in calls[0] and path.is_file()
+        optimize_panel.show_pareto(win, dict(front, F=np.empty((0, 2)), X=np.empty((0, 2))))
+        win._copy_figure_clipboard()
+        assert '当前无可复制' in win.statusBar().currentMessage()
+        choices = []
+        monkeypatch.setattr(io_actions.QInputDialog, 'getItem',
+                            lambda *a: (choices.append(a[3]) or ('', False)))
+        win._export_figure()
+        assert choices and 'Pareto / 优化' not in choices[0]
+        assert win.btn_export.isEnabled()  # Field results remain exportable.
+        win.cache.clear()
+        optimize_panel.show_pareto(win, dict(front, F=np.empty((0, 2)), X=np.empty((0, 2))))
+        assert not win.btn_export.isEnabled()
+    finally:
+        win.cache.clear()
+        win._pareto_X = win._pareto_F = None

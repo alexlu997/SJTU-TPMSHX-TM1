@@ -42,7 +42,7 @@ def test_d1_2d_duty_uses_true_enthalpy_for_sco2():
     vc = np.zeros((Nx, Ny))
     dx = np.ones(Nx)
     dy = np.ones(Ny)
-    rho_cp_in = sco2_props.sco2_density(T_in, _P) * sco2_props.sco2_cp(T_in, _P)
+    rho_cp_in = sco2_props.sco2_prop('D', T_in, _P) * sco2_props.sco2_prop('C', T_in, _P)
     rho_cp = np.full((Nx, Ny), rho_cp_in)
 
     # current (buggy) ṁ·cp(T_in)·ΔT form (no enthalpy_fn)
@@ -53,9 +53,9 @@ def test_d1_2d_duty_uses_true_enthalpy_for_sco2():
         enthalpy_fn=m.enthalpy, rho_fn=m.rho, P_ref=_P)
 
     # reference ṁ·Δh (uniform inlet/outlet faces → ⟨h⟩ = h(T_face))
-    m_dot = sco2_props.sco2_density(T_in, _P) * 2.0 * dy.sum()
-    Q_ref = m_dot * (sco2_props.sco2_enthalpy(T_in, _P)
-                     - sco2_props.sco2_enthalpy(T_out, _P))
+    m_dot = sco2_props.sco2_prop('D', T_in, _P) * 2.0 * dy.sum()
+    Q_ref = m_dot * (sco2_props.sco2_prop('H', T_in, _P)
+                     - sco2_props.sco2_prop('H', T_out, _P))
     assert Q_h == pytest.approx(Q_ref, rel=1e-9)
     # the inlet-cp approximation is wrong by tens of percent
     assert abs(Q_cp - Q_h) / abs(Q_h) > 0.30
@@ -96,18 +96,18 @@ def test_d2_mass_weighted_outlet_enthalpy_not_h_of_mean():
     solver = _fake_outlet_solver(Nx, Nz)
     eps_f = 0.5
 
-    h_avg = _mass_weighted_h_out(T_face, _P, sco2_props.sco2_enthalpy_field,
-                                 solver, 0, eps_f)
-    T_avg = _mass_weighted_T_out(T_face, solver, 0, eps_f)
+    h_avg = _mass_weighted_h_out(T_face, _P, lambda T, P: sco2_props.sco2_prop("H", T, P),
+                                 solver, eps_f)
+    T_avg = _mass_weighted_T_out(T_face, solver, eps_f)
 
     # equal weights → ⟨h(T)⟩ = mean of per-cell enthalpy
-    h_mean_ref = float(np.mean(sco2_props.sco2_enthalpy_field(T_face, _P)))
+    h_mean_ref = float(np.mean(sco2_props.sco2_prop('H', T_face, _P)))
     assert h_avg == pytest.approx(h_mean_ref, rel=1e-9)
 
     # Jensen: ⟨h(T)⟩ ≠ h(⟨T⟩) — non-trivial relative to the face enthalpy span
-    h_of_mean = float(sco2_props.sco2_enthalpy(T_avg, _P))
-    span = abs(sco2_props.sco2_enthalpy(300.0, _P)
-               - sco2_props.sco2_enthalpy(315.0, _P))
+    h_of_mean = float(sco2_props.sco2_prop('H', T_avg, _P))
+    span = abs(sco2_props.sco2_prop('H', 300.0, _P)
+               - sco2_props.sco2_prop('H', 315.0, _P))
     assert abs(h_avg - h_of_mean) / span > 0.02
 
 
@@ -126,10 +126,10 @@ def test_d3_sco2_hv_uses_local_temperature_props():
     hv = _sco2_hv_local_field(T_field, _P, u_abs, A_0, D_h_m, 'Diamond', 7.0)
 
     # frozen-at-inlet h_v (what the buggy scalar path applies to EVERY cell)
-    rho_i = sco2_props.sco2_density(T_in, _P)
-    mu_i = sco2_props.sco2_viscosity(T_in, _P)
-    k_i = sco2_props.sco2_conductivity(T_in, _P)
-    Pr_i = sco2_props.sco2_cp(T_in, _P) * mu_i / k_i
+    rho_i = sco2_props.sco2_prop('D', T_in, _P)
+    mu_i = sco2_props.sco2_prop('V', T_in, _P)
+    k_i = sco2_props.sco2_prop('L', T_in, _P)
+    Pr_i = sco2_props.sco2_prop('C', T_in, _P) * mu_i / k_i
     Re_i = rho_i * 1.5 * D_h_m / mu_i
     Nu_i = nu_sco2_topo('Diamond', max(Re_i, 1.0), Pr_i, 7.0, D_h_m * 1000.0)
     hv_frozen = A_0 * Nu_i * k_i / D_h_m

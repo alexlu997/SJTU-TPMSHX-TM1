@@ -14,7 +14,7 @@ DRIVERS = [
      ['mms_phase_a3_h_refine.csv', 'mms_phase_a3_orders.csv', 'mms_phase_a3_report.md']),
     ('mms_phase_a4_boundary', ['--grids', '4,8,30'],
      ['mms_phase_a4_boundary.csv', 'mms_phase_a4_orders.csv']),
-    ('mms_phase_b4_order', [], ['mms_phase_b4_orders.csv']),
+    ('mms_phase_b4_order', [], ['mms_phase_b4_raw.csv', 'mms_phase_b4_orders.csv']),
     ('phase_c_gci', [], ['phase_c_gci.csv', 'phase_c_gci_summary.csv',
                         'phase_c_f2_tol_sweep.csv']),
 ]

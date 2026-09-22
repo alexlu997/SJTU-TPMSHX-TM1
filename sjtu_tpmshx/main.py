@@ -37,37 +37,6 @@ from sjtu_tpmshx.ui.theme import (
 from sjtu_tpmshx._version import __version__  # noqa: E402
 from sjtu_tpmshx.domain.provenance import SOURCE_ROOT, repository_revision
 
-def _rebuild_styles(theme_name=None):
-    """Refresh styles after a theme switch.
-
-    Batch-3 (2026-06-10): the module-level style globals (``_BG``,
-    ``_LBL``, ``_COMBO``, …) are retired — every consumer reads styles
-    through :class:`ui.theme_manager.ThemeManager` (via
-    ``ui.field_factory.default_factory().theme``). This hook persists
-    the theme choice, refreshes the live window's manager when one
-    exists, and re-applies the matplotlib theme.
-    """
-    if theme_name is not None:
-        try:
-            from sjtu_tpmshx.ui.theme import set_theme as _st
-            _st(theme_name)
-        except Exception:
-            pass
-    # Refresh the live window's ThemeManager if one exists.
-    try:
-        from PySide6.QtWidgets import QApplication
-        app = QApplication.instance()
-        if app is not None:
-            for w in app.topLevelWidgets():
-                if (w.__class__.__name__ == 'Main_Menu'
-                        and getattr(w, 'theme', None) is not None):
-                    w.theme.rebuild()
-                    break
-    except Exception:
-        pass
-    apply_mpl_theme()
-
-
 # ── Auto-select delegate for zone table editing ─────────────
 class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
                 TabViewMixin, UIBuilderMixin, FluidInputMixin,
@@ -239,34 +208,9 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         if not paths:
             event.ignore()
             return
-        import json as _j_dnd
-        loaded = 0
-        for p in paths[:1]:  # only the first dropped file is applied
-            try:
-                with open(p, 'r', encoding='utf-8') as f:
-                    data = _j_dnd.load(f)
-                if isinstance(data, dict) and 'line_edits' in data:
-                    self._apply_user_preset(data)
-                    loaded += 1
-                elif isinstance(data, dict) and 'presets' in data:
-                    # Full user-preset file — pick the first entry.
-                    presets = list(data.get('presets') or [])
-                    if presets:
-                        self._apply_user_preset(presets[0])
-                        loaded += 1
-            except Exception as e:
-                QMessageBox.warning(
-                    self, "Preset Load Failed",
-                    f"Could not load {p}:\n{e}")
-                event.ignore()
-                return
-        if loaded:
-            self.statusBar().showMessage(
-                f"Loaded preset from {paths[0]}.", 5000)
+        if self._load_config_path(paths[0]):
             event.acceptProposedAction()
         else:
-            self.statusBar().showMessage(
-                "Dropped file did not contain a recognizable preset.", 5000)
             event.ignore()
 
     def _mark_grid_edited(self, _txt=None):
@@ -1319,12 +1263,6 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
 
 
 # ── Entry point ───────────────────────────────────────────────
-def _apply_app_font(app):
-    """Use the platform's native sans-serif interface fonts."""
-    from sjtu_tpmshx.ui.typography import apply_app_font
-    return apply_app_font(app)
-
-
 def main():
     """Start the desktop interface from source or an installed launcher."""
     # High-DPI + font smoothing before QApplication instantiation
@@ -1348,9 +1286,9 @@ def main():
     font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
     font.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
     app.setFont(font)
-    _apply_app_font(app)
+    from sjtu_tpmshx.ui.typography import apply_app_font
+    apply_app_font(app)
     apply_mpl_theme()
-    _rebuild_styles()
     window = Main_Menu()
     window.showMaximized()
     return app.exec()

@@ -2,9 +2,11 @@
 
 The conservative enthalpy kernel keeps h as the primary fluid unknown; the
 3D Python backend must invert T = T(h,P) each outer iteration to feed the
-diffusion/inter-phase coupling. sco2_temperature_field is the field counterpart
-of the scalar sco2_temperature (the per-cell array form the kernel refresh needs).
+diffusion/inter-phase coupling. sco2_temperature_from_enthalpy supports scalar
+and field queries through the same validated EOS boundary.
 """
+
+from sjtu_tpmshx.tests.enthalpy_3d_reference import uniform_face_mass_flux
 import numpy as np
 import pytest
 
@@ -17,8 +19,8 @@ pytestmark = pytest.mark.skipif(
 def test_temperature_field_round_trips_enthalpy_field(pressure):
     """T(h(T)) == T over a field spanning the pseudocritical line."""
     T = np.array([[290.0, 307.0], [312.0, 360.0]])
-    h = sco2_props.sco2_enthalpy_field(T, pressure)
-    T_back = sco2_props.sco2_temperature_field(h, pressure)
+    h = sco2_props.sco2_prop('H', T, pressure)
+    T_back = sco2_props.sco2_temperature_from_enthalpy(h, pressure)
     assert T_back.shape == T.shape
     assert np.allclose(T_back, T, atol=1e-3)
 
@@ -26,9 +28,9 @@ def test_temperature_field_round_trips_enthalpy_field(pressure):
 @pytest.mark.parametrize('pressure', [7.9e6, 8e6, 16e6])
 def test_temperature_field_matches_scalar(pressure):
     """Field query agrees with the scalar sco2_temperature element-wise."""
-    h = np.array([sco2_props.sco2_enthalpy(300.0, pressure),
-                  sco2_props.sco2_enthalpy(330.0, pressure)])
-    Tf = sco2_props.sco2_temperature_field(h, pressure)
+    h = np.array([sco2_props.sco2_prop('H', 300.0, pressure),
+                  sco2_props.sco2_prop('H', 330.0, pressure)])
+    Tf = sco2_props.sco2_temperature_from_enthalpy(h, pressure)
     assert Tf[0] == pytest.approx(sco2_props.sco2_temperature(float(h[0]), pressure), rel=1e-9)
     assert Tf[1] == pytest.approx(sco2_props.sco2_temperature(float(h[1]), pressure), rel=1e-9)
 
@@ -82,9 +84,11 @@ def _guard_pipeline(**kwargs):
     cell = np.ones((1, 1, 1))
     values = dict(Nx=1, Ny=1, Nz=1, dx=[.01], dy=[.01], dz=[.01],
                   eps_arr=cell*.7, K_ss=cell*5., h_vA_field=cell*100.,
-                  h_vB_field=cell*100., m_dot_A=.01, m_dot_B=.01,
+                  h_vB_field=cell*100.,
+                  mass_flux_A=uniform_face_mass_flux(cell.shape, .01, 0),
+                  mass_flux_B=uniform_face_mass_flux(cell.shape, .01, 1),
                   T_inA=330., T_inB=320., P_A=12e6, P_B=12e6,
-                  dir_A=0, dir_B=1, n_outer=1)
+                  n_outer=1)
     values.update(kwargs)
     return ent.solve_ltne_enthalpy_3d_pipeline(**values)
 

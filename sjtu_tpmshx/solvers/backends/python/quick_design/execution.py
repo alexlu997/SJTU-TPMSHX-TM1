@@ -75,12 +75,10 @@ def run_case(case, control=RunControl()):
         stage = 'design-inlet-pass' if index == 0 else 'design-mean-pass'
         with range_context(side='A', stage=stage, layout='scalar'):
             hv_a, re_a, u_a, props_a = model._hvol(
-                op.hot_fluid, p['topology'], p['L_cell_m'] * 1e3, p['t_wall_m'] * 1e3,
-                p['A_0'], p['D_h'], eps_a, op.mdot_h, p['s'], p['height'], evaluation[0], op.P_in_h)
+                op.hot_fluid, p['topology'], p['L_cell_m'] * 1e3, p['A_0'], p['D_h'], eps_a, op.mdot_h, p['s'], p['height'], evaluation[0], op.P_in_h)
         with range_context(side='B', stage=stage, layout='scalar'):
             hv_b, re_b, u_b, props_b = model._hvol(
-                op.cold_fluid, p['topology'], p['L_cell_m'] * 1e3, p['t_wall_m'] * 1e3,
-                p['A_0'], p['D_h'], eps_a, op.mdot_c,
+                op.cold_fluid, p['topology'], p['L_cell_m'] * 1e3, p['A_0'], p['D_h'], eps_a, op.mdot_c,
                 p['Lx'] if p['arrangement'] == 'cross' else p['s'], p['height'], evaluation[1], op.P_in_c)
         uc_a = np.full(shape, u_a)
         uc_b, vc_b = ((zero, np.full(shape, u_b)) if p['arrangement'] == 'cross'

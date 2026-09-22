@@ -13,7 +13,7 @@ from ._kernels_2d import minmod
 # ── Face-averaged velocity magnitudes (needed for the Forchheimer source) ──
 
 @njit(cache=True, fastmath=True)
-def _umag_u_3d(u, v, w, i, j, k, Nx, Ny, Nz):
+def _umag_u_3d(u, v, w, i, j, k, Nx, ):
     """Speed at u-face (i, j, k): |U| = sqrt(u² + <v>² + <w>²)."""
     il = max(i - 1, 0); ir = min(i, Nx - 1)
     va = 0.25 * (v[il, j, k] + v[ir, j, k]
@@ -24,7 +24,7 @@ def _umag_u_3d(u, v, w, i, j, k, Nx, Ny, Nz):
 
 
 @njit(cache=True, fastmath=True)
-def _umag_v_3d(u, v, w, i, j, k, Nx, Ny, Nz):
+def _umag_v_3d(u, v, w, i, j, k, Ny):
     """Speed at v-face (i, j, k)."""
     jb = max(j - 1, 0); jt = min(j, Ny - 1)
     ua = 0.25 * (u[i, jb, k] + u[i + 1, jb, k]
@@ -35,7 +35,7 @@ def _umag_v_3d(u, v, w, i, j, k, Nx, Ny, Nz):
 
 
 @njit(cache=True, fastmath=True)
-def _umag_w_3d(u, v, w, i, j, k, Nx, Ny, Nz):
+def _umag_w_3d(u, v, w, i, j, k, Nz):
     """Speed at w-face (i, j, k)."""
     kb = max(k - 1, 0); kt = min(k, Nz - 1)
     ua = 0.25 * (u[i, j, kb] + u[i + 1, j, kb]
@@ -195,7 +195,7 @@ def _u_cell_df_3d(u, v, w, P, d_u, i, j, k,
     aB = Db + max(Fb, 0.0)
 
     # Brinkman / Forchheimer drag (linearised)
-    umag = _umag_u_3d(u, v, w, i, j, k, Nx, Ny, Nz)
+    umag = _umag_u_3d(u, v, w, i, j, k, Nx, )
     Sp = _porous_src_df_3d(umag, K_arr[j, k], cF_arr[j, k],
                              mu_loc, rho_loc) * vol
 
@@ -382,7 +382,7 @@ def _v_cell_df_3d(u, v, w, P, d_v, i, j, k,
     aT = Dt + max(-Ft, 0.0)
     aB = Db + max(Fb, 0.0)
 
-    umag = _umag_v_3d(u, v, w, i, j, k, Nx, Ny, Nz)
+    umag = _umag_v_3d(u, v, w, i, j, k, Ny)
     Sp = _porous_src_df_3d(umag, K_arr[jc, k], cF_arr[jc, k],
                              mu_loc, rho_loc) * vol
 
@@ -588,7 +588,7 @@ def _w_cell_df_3d(u, v, w, P, d_w, i, j, k,
     aT = Dt + max(-Ft, 0.0)
     aB = Db + max(Fb, 0.0)
 
-    umag = _umag_w_3d(u, v, w, i, j, k, Nx, Ny, Nz)
+    umag = _umag_w_3d(u, v, w, i, j, k, Nz)
     Sp = _porous_src_df_3d(umag, K_arr[j, kc], cF_arr[j, kc],
                              mu_loc, rho_loc) * vol
 
@@ -1130,7 +1130,7 @@ def _u_coeffs_df_3d(u, v, w, P, i, j, k,
     aB = Db + max(Fb, 0.0)
 
     # Brinkman / Forchheimer drag (linearised)
-    umag = _umag_u_3d(u, v, w, i, j, k, Nx, Ny, Nz)
+    umag = _umag_u_3d(u, v, w, i, j, k, Nx, )
     Sp = _porous_src_df_3d(umag, K_arr[j, k], cF_arr[j, k],
                              mu_loc, rho_loc) * vol
 
@@ -1252,7 +1252,7 @@ def _v_coeffs_df_3d(u, v, w, P, i, j, k,
     aT = Dt + max(-Ft, 0.0)
     aB = Db + max(Fb, 0.0)
 
-    umag = _umag_v_3d(u, v, w, i, j, k, Nx, Ny, Nz)
+    umag = _umag_v_3d(u, v, w, i, j, k, Ny)
     Sp = _porous_src_df_3d(umag, K_arr[jc, k], cF_arr[jc, k],
                              mu_loc, rho_loc) * vol
 
@@ -1374,7 +1374,7 @@ def _w_coeffs_df_3d(u, v, w, P, i, j, k,
     aT = Dt + max(-Ft, 0.0)
     aB = Db + max(Fb, 0.0)
 
-    umag = _umag_w_3d(u, v, w, i, j, k, Nx, Ny, Nz)
+    umag = _umag_w_3d(u, v, w, i, j, k, Nz)
     Sp = _porous_src_df_3d(umag, K_arr[j, kc], cF_arr[j, kc],
                              mu_loc, rho_loc) * vol
 

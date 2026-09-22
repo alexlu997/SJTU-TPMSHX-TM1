@@ -18,7 +18,7 @@ def test_full_prepared_flow_consumes_drag_without_prediction(monkeypatch):
         raise AssertionError('execution rebuilt fixed drag or grid')
     for module, names in ((simple_solver, ('_aligned_grid','predict_K_cF','predict_K_cF_vec')),
                           (predict, ('predict_K_cF','predict_K_cF_vec')),
-                          (df_projection, ('project_fields_to_streamwise_K_cF','project_cells_to_streamwise_K_cF'))):
+                          (df_projection, ('project_fields_to_streamwise_K_cF',))):
         for name in names:
             monkeypatch.setattr(module, name, forbidden)
     def solved(solver, **kwargs):

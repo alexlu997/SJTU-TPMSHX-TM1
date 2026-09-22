@@ -24,7 +24,7 @@ def test_diamond_redo_cases_are_rejected():
 def test_gauge_conversion_endpoint_reference_and_cached_fields(
         monkeypatch, topology, reverse_hot):
     import pandas as pd
-    from sjtu_tpmshx.models.sco2_props import sco2_enthalpy
+    from sjtu_tpmshx.models.sco2_props import sco2_prop
     from sjtu_tpmshx.validation.sco2_exp import load_sco2_exp as loader
 
     mapping = loader._MAPS[topology]
@@ -62,8 +62,8 @@ def test_gauge_conversion_endpoint_reference_and_cached_fields(
         assert row.hout_cached_kJ_kg == 510.
         assert row.Q_cached_kW == cached_q
         assert row.HB_cached == .04 and row.ok_hb_cached
-        hin = sco2_enthalpy(row.Tin_C + 273.15, pressure * 1e6 + 101325)
-        hout = sco2_enthalpy(row.Tout_C + 273.15, (pressure - .1) * 1e6 + 101325)
+        hin = sco2_prop('H', row.Tin_C + 273.15, pressure * 1e6 + 101325)
+        hout = sco2_prop('H', row.Tout_C + 273.15, (pressure - .1) * 1e6 + 101325)
         assert row.hin_J_kg == pytest.approx(hin)
         assert row.hout_J_kg == pytest.approx(hout)
         sign = 1 if side == "hot" else -1

@@ -4,6 +4,8 @@ Tolerances are fixed before port comparison, allowing LLVM fastmath roundoff:
 rtol=2e-13; atol=2e-8 J/kg for h and 2e-11 K for Ts. Clips must match exactly.
 They are not solver convergence tolerances or experimental accuracy claims.
 """
+
+from sjtu_tpmshx.tests.enthalpy_3d_reference import uniform_face_mass_flux
 import ctypes
 import os
 from pathlib import Path
@@ -140,7 +142,7 @@ def test_all_face_directions_transport_inlet_enthalpy(native, direction):
         aa = fluid["arrays"]
         aa[0].fill(0.)
         aa[4].fill(0.)
-        aa[5:] = list(reference._uniform_face_mass_flux(case["shape"], .01, direction))
+        aa[5:] = list(uniform_face_mass_flux(case["shape"], .01, direction))
         h.fill(fluid["hin"] + 5000.)
     code, clips, error = native(case, sweeps=5, omega=1.)
     assert code == 0 and clips == (0, 0) and not error
@@ -214,7 +216,7 @@ def test_fixed_solid_exponential_solution_and_energy(native):
             aa[2].fill(400.)
             aa[3].fill(400000.)
             aa[4].fill(20000.)
-            aa[5:] = list(reference._uniform_face_mass_flux(case["shape"], .01, 0))
+            aa[5:] = list(uniform_face_mass_flux(case["shape"], .01, 0))
             fluid["hin"] = 400000.
             h.fill(400000.)
         code, clips, error = native(case, sweeps=1, omega=1.)
@@ -396,7 +398,7 @@ def test_energy_audit_signed_boundary_duty(native_audit, direction):
     for fluid, h in zip((case["a"], case["b"]), case["state"]):
         fluid["arrays"][0].fill(0.)
         fluid["arrays"][4].fill(0.)
-        fluid["arrays"][5:] = list(reference._uniform_face_mass_flux(case["shape"], .01, direction))
+        fluid["arrays"][5:] = list(uniform_face_mass_flux(case["shape"], .01, direction))
         h.fill(fluid["hin"] - 5000.)
     case["kss"].fill(0.)
     code, residuals, metrics = native_audit(case)
@@ -438,7 +440,7 @@ def test_energy_audit_independent_one_cell_exchange(native_audit):
         f[2].fill(tout)
         f[3].fill(hout)
         f[4].fill(hv)
-        f[5:] = list(reference._uniform_face_mass_flux(case["shape"], .001, 0))
+        f[5:] = list(uniform_face_mass_flux(case["shape"], .001, 0))
         fluid["hin"] = hin
         h.fill(hout)
     code, residuals, metrics = native_audit(case)

@@ -63,7 +63,8 @@ def test_discrete_geometry_uses_final_physical_cell_centres(mode):
                 np.full(mask.sum(), expected[key]))
 
 
-def test_continuous_geometry_is_resampled_on_nonuniform_cells(monkeypatch, tmp_path):
+@pytest.mark.parametrize('directions', [(0, 3), (1, 2), (2, 1), (3, 0)])
+def test_continuous_geometry_is_resampled_on_nonuniform_cells(monkeypatch, tmp_path, directions):
     from sjtu_tpmshx.models import sigmoid_field
     from sjtu_tpmshx.models.tpms_props import geometry
     from sjtu_tpmshx.df_surrogate.predict import predict_K_cF_vec
@@ -72,7 +73,12 @@ def test_continuous_geometry_is_resampled_on_nonuniform_cells(monkeypatch, tmp_p
     monkeypatch.setattr(sigmoid_field, 'get_geometry_lut', lambda *a, **k: lut)
     decision = np.column_stack((np.linspace(5., 8., 18), np.linspace(.3, .6, 18))).ravel()
     config = _config('grid')
-    config = replace(config, zones=replace(config.zones, pareto_x_decision=decision))
+    config = replace(config,
+        bc_A=replace(config.bc_A, dir=directions[0], in_ctr=.015, in_w=.012,
+                     out_ctr=.015, out_w=.012),
+        bc_B=replace(config.bc_B, dir=directions[1], in_ctr=.015, in_w=.012,
+                     out_ctr=.015, out_w=.012),
+        zones=replace(config.zones, pareto_x_decision=decision))
     case = prepare_case(config, case_id='continuous-physical-grid')
     xf = (np.cumsum(case.grid['dx']) - case.grid['dx'] / 2.) / .06
     yf = (np.cumsum(case.grid['dy']) - case.grid['dy'] / 2.) / .03
@@ -88,17 +94,18 @@ def test_continuous_geometry_is_resampled_on_nonuniform_cells(monkeypatch, tmp_p
 
     # The same physical cells also feed SIMPLE's streamwise drag. Derive the
     # expected rows directly: transverse length-weighted means, then reverse
-    # B's rows because its inlet is at real y=H. Source and solver cells match,
+    # each negative-direction stream. Source and solver cells match,
     # so a second uniform-index resampling must not move these row values.
     t_ctrl = decision[1::2].reshape(2, 3, 3)
     expected_t = sigmoid_field.sigmoid_field_2d(
         XF, YF, t_ctrl[0], t_ctrl[1], .4, .2, .2, .05, .02)
     np.testing.assert_allclose(case.design_fields['t_field_m'], expected_t * 1e-3)
-    for side, axis, widths in (('A', 1, case.grid['dy']),
-                               ('B', 0, case.grid['dx'])):
+    for side, direction in zip(('A', 'B'), directions):
+        axis = 1 if direction in (0, 1) else 0
+        widths = case.grid['dy' if axis == 1 else 'dx']
         row_L = np.average(expected, axis=axis, weights=widths)
         row_t = np.average(expected_t, axis=axis, weights=widths)
-        if side == 'B':
+        if direction in (1, 3):
             row_L, row_t = row_L[::-1], row_t[::-1]
         row_eps_f = np.array([
             geometry('Gyroid', cell, wall, 16.)['epsilon'] / 2.

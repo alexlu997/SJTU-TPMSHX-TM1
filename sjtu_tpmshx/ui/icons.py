@@ -11,7 +11,6 @@ _ALIASES = {
     'sliders': 'sliders-horizontal',
     'more-horizontal': 'ellipsis',
     'fit-view': 'maximize',
-    'help-circle': 'circle-question-mark',
 }
 
 

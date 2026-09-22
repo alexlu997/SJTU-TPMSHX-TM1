@@ -198,9 +198,8 @@ def run_qnehvi_multiseed(config: Optional[dict] = None,
 
     per_seed_results: List[dict] = []
     failed_seeds = {}
-    # initializer from the LIGHT module: unpickling it imports os only, so
-    # the caps land BEFORE the child's numpy/numba load (candidate C fix —
-    # see optimization/_thread_caps.py for the spawn-timing rationale).
+    # Set thread environment defaults before seed jobs. Spawn can import
+    # libraries while restoring __main__, so this is not an import-time cap.
     with ProcessPoolExecutor(max_workers=n_seeds, mp_context=ctx,
                              initializer=set_worker_thread_caps) as ex:
         futs = {

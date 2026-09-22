@@ -137,8 +137,3 @@ def predict_dP_compressible(tpms_type: str, L_mm: float, t_mm: float,
             warnings.warn(message, stacklevel=2)
         return float('nan') if strict else P_in
     return P_in - sqrt(P_out_sq)
-
-
-# ==================================================================
-# Smoke test
-# ==================================================================

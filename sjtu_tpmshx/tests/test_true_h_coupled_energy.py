@@ -1,4 +1,6 @@
 """The 2D EOS balance gate must supplement, not replace, the h/Q stop."""
+
+from sjtu_tpmshx.tests.enthalpy_3d_reference import uniform_face_mass_flux
 import numpy as np
 import pytest
 
@@ -12,7 +14,9 @@ def run_driver(**kwargs):
     options.update(kwargs)
     return ent.solve_ltne_enthalpy_3d_pipeline(
         2, 1, 1, [1., 1.], [1.], [1.], cell * .7, cell * 0.,
-        cell, cell, 0., 0., 350., 300., 2e5, 2e5, 0, 1, **options)
+        cell, cell, 350., 300., 2e5, 2e5, mass_flux_A=uniform_face_mass_flux((2, 1, 1), 0.0, 0),
+                                                        mass_flux_B=uniform_face_mass_flux((2, 1, 1), 0.0, 1),
+                                                        **options)
 
 
 @pytest.mark.parametrize('name', ['coupled_energy_tol', 'equation_energy_tol'])
