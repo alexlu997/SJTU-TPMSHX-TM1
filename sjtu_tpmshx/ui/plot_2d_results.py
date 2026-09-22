@@ -7,7 +7,7 @@ temperature / pressure / velocity tabs so the compute stage module
 
 Public entry points (consumed by ``ui.mixins.run_controller`` and ``main``):
     finalize_plots(window, field)   — render one 2D result canvas (main thread)
-    redraw_temperature_panel(window)— re-render temperature tab from cache
+    redraw_result_fields(window) — invalidate and redraw visible cached fields
     plot_temperature_3panel(window, r, _t) — the shared T_fA/T_fB/T_s helper
 """
 import numpy as np
@@ -32,10 +32,10 @@ def _style_workbench_axes(ax, cb, theme, title, subtitle):
 
 def ensure_result_plot(window, field):
     """Populate a result canvas once per result/display selection."""
-    if field in getattr(window, '_drawn_tabs', ()):
+    if field in window.cache.get_drawn_tabs():
         return True
-    result_3d = getattr(window, '_result_3d', None)
-    if result_3d is None and getattr(window, '_compute_results', None) is None:
+    result_3d = window.cache.get_result('3d')
+    if result_3d is None and window.cache.get_result('2d') is None:
         return False
     detail = '请查看计算日志。'
     try:
@@ -49,10 +49,10 @@ def ensure_result_plot(window, field):
         logging.getLogger(__name__).exception("Could not render %s", field)
         detail = str(exc)
     else:
-        if field in getattr(window, '_drawn_tabs', ()):
+        if field in window.cache.get_drawn_tabs():
             return True
     # A failed selection must not leave the preceding field/probe visible.
-    window._drawn_tabs = set(getattr(window, '_drawn_tabs', ())) - {field}
+    window.cache.replace_drawn_tabs(set(window.cache.get_drawn_tabs()) - {field})
     canvas = getattr(window, f'canvas_{field}', None)
     if canvas is not None:
         canvas.fig.clear()
@@ -66,7 +66,7 @@ def ensure_result_plot(window, field):
 def redraw_result_fields(window):
     """Invalidate hidden fields; redraw only visible or detached result plots."""
     fields = {'temp', 'pres', 'vel'}
-    window._drawn_tabs = set(getattr(window, '_drawn_tabs', ())) - fields
+    window.cache.replace_drawn_tabs(set(window.cache.get_drawn_tabs()) - fields)
     visible = set(getattr(window, '_split_tabs', None) or
                   (getattr(window, '_active_tab', None),))
     visible.update(key for key, dialog in
@@ -167,14 +167,6 @@ def plot_temperature_3panel(window, r, _t):
     }
 
 
-def redraw_temperature_panel(window):
-    """Re-render the temperature tab using the last stored compute result.
-    No-op if nothing has been computed yet."""
-    r = getattr(window, '_compute_results', None)
-    if r is None:
-        return
-    from sjtu_tpmshx.ui.theme import get_theme
-    plot_temperature_3panel(window, r, get_theme())
 
 
 def finalize_plots(window, field="temp"):
@@ -182,7 +174,7 @@ def finalize_plots(window, field="temp"):
     from sjtu_tpmshx.ui.theme import get_theme
     _t = get_theme()
 
-    r = window._compute_results
+    r = window.cache.get_result('2d')
     # N5 (2026-07-07): prefer the display-smoothed copies on partial-BC runs;
     # the physics keys ('ucA' …) now stay raw / mass-conserving.
     def _vel(key):
@@ -190,16 +182,12 @@ def finalize_plots(window, field="temp"):
         return disp if disp is not None else r[key]
     ucA, vcA, ucB, vcB = _vel('ucA'), _vel('vcA'), _vel('ucB'), _vel('vcB')
     P_fA, P_fB = r['P_fA'], r['P_fB']
-    dP_A, dP_B = r['dP_A'], r['dP_B']
     N_x, N_y, L, H = r['N_x'], r['N_y'], r['L'], r['H']
     dir_A, dir_B = r['dir_A'], r['dir_B']
 
     dir_flow_A = window._DIR_MAP[dir_A]
     dir_flow_B = window._DIR_MAP[dir_B]
 
-    window._r_dP_A.setText(f"{dP_A:.1f}")
-    window._r_dP_B.setText(f"{dP_B:.1f}")
-    window._r_Q.setText(f"{r.get('Q_total', 0):.1f}")
 
     mode_label = f"A:{dir_flow_A} B:{dir_flow_B}"
 
@@ -345,4 +333,4 @@ def finalize_plots(window, field="temp"):
         except Exception:
             pass
 
-    window._drawn_tabs = set(getattr(window, '_drawn_tabs', ())) | {field}
+    window.cache.replace_drawn_tabs(set(window.cache.get_drawn_tabs()) | {field})

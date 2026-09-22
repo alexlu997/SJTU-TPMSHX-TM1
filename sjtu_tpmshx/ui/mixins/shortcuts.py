@@ -8,7 +8,7 @@ from __future__ import annotations
 
 
 class ShortcutsMixin:
-    def _track_shortcut(self, key, slot, tag):
+    def _track_shortcut(self, key, slot):
         """QShortcut + connect + SignalRouter.adopt — one call.
 
         Phase 5 follow-up (Plan #4 connect-migration). Builds a
@@ -20,7 +20,7 @@ class ShortcutsMixin:
         from PySide6.QtGui import QShortcut, QKeySequence
         sc = QShortcut(QKeySequence(key), self)
         sc.activated.connect(slot)
-        self.signals.adopt(sc.activated, slot, tag=tag, sender=sc)
+        self.signals.adopt(sc.activated, slot, sender=sc)
         return sc
 
     def _setup_shortcuts(self):
@@ -29,49 +29,40 @@ class ShortcutsMixin:
         # are bound to local names (not inline) so adopt() can hold them
         # for later disconnect.
         ts = self._track_shortcut
-        ts("Ctrl+R", self.run_calculation, tag='sc-run')
-        ts("Ctrl+Shift+R", self._reset_defaults, tag='sc-reset')
+        ts("Ctrl+R", self.run_calculation)
+        ts("Ctrl+Shift+R", self._reset_defaults)
         # ui-shortcuts-persist: bindings match the visible 3-tab workbench
         # (几何布局|结果|优化); 'result' resolves via _result_view. Ctrl+4
         # flips 2D|3D inside 结果; the retired direct temp/pres/vel/3d
         # binds are gone.
         for key, name in (('Ctrl+1', 'layout'), ('Ctrl+2', 'result'),
                           ('Ctrl+3', 'pareto')):
-            ts(key, (lambda n=name: self._switch_tab(n)),
-                tag=f'sc-tab-{name}')
-        ts("Ctrl+4", self._toggle_result_view, tag='sc-result-view')
-        ts("Ctrl+\\", self._toggle_left_panel, tag='sc-parameter-panel')
-        ts("F", self._toggle_3d_immersive, tag='sc-immersive')
-        ts("Ctrl+?", self._show_shortcuts, tag='sc-help-q')
-        ts("Ctrl+/", self._show_shortcuts, tag='sc-help-s')
+            ts(key, (lambda n=name: self._switch_tab(n)))
+        ts("Ctrl+4", self._toggle_result_view)
+        ts("Ctrl+\\", self._toggle_left_panel)
+        ts("F", self._toggle_3d_immersive)
+        ts("Ctrl+?", self._show_shortcuts)
+        ts("Ctrl+/", self._show_shortcuts)
         # D12 — fluid quick-presets
         for digit, fluid in ((1, 'Air'), (2, 'Water'), (3, 'sCO₂')):
             ts(f"Alt+{digit}",
-                (lambda f=fluid: self._keyboard_set_fluid('A', f)),
-                tag=f'sc-fluid-A-{digit}')
+                (lambda f=fluid: self._keyboard_set_fluid('A', f)))
             ts(f"Alt+Shift+{digit}",
-                (lambda f=fluid: self._keyboard_set_fluid('B', f)),
-                tag=f'sc-fluid-B-{digit}')
+                (lambda f=fluid: self._keyboard_set_fluid('B', f)))
         # D13 — density cycle
-        ts("[", (lambda: self._cycle_density(-1)),
-            tag='sc-density-prev')
-        ts("]", (lambda: self._cycle_density(+1)),
-            tag='sc-density-next')
+        ts("[", (lambda: self._cycle_density(-1)))
+        ts("]", (lambda: self._cycle_density(+1)))
         # D14 — Alt+↑/↓ scrub recent runs
-        ts("Alt+Up", (lambda: self._scrub_recent(-1)),
-            tag='sc-scrub-prev')
-        ts("Alt+Down", (lambda: self._scrub_recent(+1)),
-            tag='sc-scrub-next')
+        ts("Alt+Up", (lambda: self._scrub_recent(-1)))
+        ts("Alt+Down", (lambda: self._scrub_recent(+1)))
         # D7 — Ctrl+D overview dashboard
-        ts("Ctrl+D", self._show_overview, tag='sc-overview')
+        ts("Ctrl+D", self._show_overview)
         # qNEHVI launch
-        ts("Ctrl+Return", self._run_optimize, tag='sc-opt-return')
-        ts("Ctrl+Enter", self._run_optimize, tag='sc-opt-enter')
+        ts("Ctrl+Return", self._run_optimize)
+        ts("Ctrl+Enter", self._run_optimize)
         # E18 — Ctrl+↑/↓ cycle tabs
-        ts("Ctrl+Up", (lambda: self._cycle_tab(-1)),
-            tag='sc-cycle-tab-prev')
-        ts("Ctrl+Down", (lambda: self._cycle_tab(+1)),
-            tag='sc-cycle-tab-next')
+        ts("Ctrl+Up", (lambda: self._cycle_tab(-1)))
+        ts("Ctrl+Down", (lambda: self._cycle_tab(+1)))
 
     def _keyboard_set_fluid(self, side, fluid_name):
         """Alt+digit quick-switch. Reuses `_apply_fluid_defaults` side-effect."""

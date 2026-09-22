@@ -34,8 +34,8 @@ from .icons import icon
 # refactor B1 (2026-06-12); import page builders from their source
 # modules (builders_base / builders_domain / builders_fluids /
 # builders_canvas) directly.
-from .builders_domain import build_page_domain
-from .builders_fluids import build_page_fluids
+from .builders_domain import build_domain_sections
+from .builders_fluids import build_fluid_sections
 from .builders_canvas import build_canvas_area
 
 
@@ -105,7 +105,6 @@ def build_ui(window):
     action_row.setSpacing(6)
     action_row.addStretch(1)
     header.addWidget(actions)
-    window._workbench_header = header
 
     menu_style = (
         f"QMenu{{{glass_surface(theme)} color:{theme['fg']}; padding:5px;}}"
@@ -376,16 +375,16 @@ def build_param_tabs(window):
         "QGroupBox::indicator:unchecked { image:none; }"
     )
 
-    # Build the pages for their WIDGET SIDE EFFECTS (every input widget +
-    # the window._ia_sections registry); the page scroll shells themselves
-    # are discarded — sections re-home into the four workflow groups below
-    # (ui-ia-batch1), killing the old nested-scroll-area layout.
-    # KEEP the shell references alive until after the re-homing addWidget
-    # calls: dropping them immediately lets shiboken delete the C++ scroll
-    # (no Qt parent) and its whole child tree — including the sections we
-    # are about to re-parent.
-    _shell_domain = build_page_domain(window)
-    _shell_fluids = build_page_fluids(window)
+    container = QWidget()
+    container.setStyleSheet(f"background:{_BG};")
+    vlay = QVBoxLayout(container)
+    # Accordion: 8px outer padding + 12px gap between top-level groups.
+    # Group's own margin-top:12px pushes total inter-group spacing to ~24px.
+    vlay.setContentsMargins(6, 4, 6, 4)
+    vlay.setSpacing(8)
+
+    build_domain_sections(window, vlay)
+    build_fluid_sections(window, vlay)
     # Zone configuration now lives inside the Optimize tab (QSplitter on
     # the left side). The builder still runs here so the attached widgets
     # (zone_table, chk_zones, +Row/-Row, combo_zone_axis, etc.) exist on
@@ -396,14 +395,6 @@ def build_param_tabs(window):
     # Optimization UI now lives in its own top canvas tab (Plan D).
 
     from PySide6.QtWidgets import QGroupBox
-
-    container = QWidget()
-    container.setStyleSheet(f"background:{_BG};")
-    vlay = QVBoxLayout(container)
-    # Accordion: 8px outer padding + 12px gap between top-level groups.
-    # Group's own margin-top:12px pushes total inter-group spacing to ~24px.
-    vlay.setContentsMargins(6, 4, 6, 4)
-    vlay.setSpacing(8)
 
     # Each group belongs to one geometry/boundary/solver page. Ordinary
     # groups start expanded; boundary details remain individually collapsible.
@@ -463,20 +454,9 @@ def build_param_tabs(window):
     # validators attach later in Main_Menu.__init__ and re-trigger).
     refresh_group_badges(window)
 
-    # Keep the legacy result-label carriers; visible results live under the plot.
-    if sec.get('results') is not None:
-        vlay.addWidget(sec['results'])
-        sec['results'].hide()
-
-    # Every registered section is re-parented now — the empty page shells
-    # can go (deleteLater: safe teardown after the event loop resumes).
-    _shell_domain.deleteLater()
-    _shell_fluids.deleteLater()
-
     vlay.addStretch(1)
     scroll.setWidget(container)
 
-    window._param_stack = None
     window._param_btns = []
 
     # ── Sticky Compute CTA (ui-batch2 IA-3) ──────────────────────────

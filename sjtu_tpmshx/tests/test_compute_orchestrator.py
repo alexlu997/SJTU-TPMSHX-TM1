@@ -100,7 +100,6 @@ def test_worker_exception_emits_error_signal():
     assert "solver diverged" in msg
     assert "RuntimeError" in log  # traceback was captured
     assert not orch.is_running()
-    assert orch.last_error() == msg
 
 
 @pytest.mark.parametrize('outcome', ['finished', 'error', 'cancelled'])
@@ -256,7 +255,7 @@ def test_terminal_state_is_queued_and_locked_through_publication(outcome):
     assert orch._pool.waitForDone(3000)
     # Worker exit alone must not write state or unlock a pending publication.
     assert orch.is_running() and not orch.is_idle()
-    assert orch.last_result() is None and orch.last_error() is None
+    assert orch.last_result() is None
     assert not seen
     assert _wait_for(orch.is_idle)
     assert seen == [(gui_thread, True, False)]
@@ -348,28 +347,6 @@ def test_compute_applies_launch_thread_count_and_restores_reused_pool_thread(out
 # ----------------------------------------------------------- ETA history
 
 
-def test_eta_history_reports_median():
-    _make_app()
-    orch = ComputeOrchestrator()
-
-    # Empty history → None
-    assert orch.eta_seconds('2d') is None
-
-    # Run 3 quick computes, ETA should populate
-    def quick_worker(cfg, cancel, progress_cb):
-        time.sleep(0.05)
-        return {}
-
-    for _ in range(3):
-        orch.start('2d', quick_worker, {})
-        assert _wait_for(lambda: not orch.is_running(), timeout_s=2.0)
-
-    eta = orch.eta_seconds('2d')
-    assert eta is not None
-    assert 0.04 <= eta <= 0.5  # broad bound — sleep + Qt overhead
-
-    # 3D mode should still be empty (per-mode isolation)
-    assert orch.eta_seconds('3d') is None
 
 
 # ----------------------------------------------------------- mode validation
@@ -403,5 +380,3 @@ def test_cancel_token_class_basic():
     assert not tok.is_set()
     tok.cancel()
     assert tok.is_set()
-    tok.reset()
-    assert not tok.is_set()

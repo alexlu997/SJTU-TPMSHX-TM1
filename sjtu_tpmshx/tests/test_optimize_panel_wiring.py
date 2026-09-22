@@ -236,8 +236,9 @@ def test_terminal_state_and_progress_survive_until_thread_exit(monkeypatch, tmp_
     from PySide6.QtWidgets import QLabel, QPushButton, QProgressBar
     from sjtu_tpmshx.ui import optimize_panel as panel
     from sjtu_tpmshx.tests.test_worker_result_handoff import _wait_for
-    w = _make_window()
-    w.combo_fluidB.setCurrentIndex(0)  # Current screening supports air/air.
+    w = _optimization_window()
+    for name, value in dict(n_init=4, n_iter=0, q_batch=2, seed=1, n_rho_loops=3).items():
+        w._opt_inline_params[name].setValue(value)
     w._opt_status, w._opt_kpi_gen = QLabel(), QLabel()
     w._opt_btn, w._opt_cancel_btn = QPushButton(), QPushButton()
     w._opt_progress = QProgressBar()
@@ -249,8 +250,6 @@ def test_terminal_state_and_progress_survive_until_thread_exit(monkeypatch, tmp_
         assert release.wait(10)
     monkeypatch.setattr(Worker, 'run', held_run)
     monkeypatch.setattr(panel, '_make_worker_class', lambda: Worker)
-    monkeypatch.setattr(panel, '_show_qnehvi_param_dialog', lambda *a: dict(
-        n_init=4, n_iter=0, q_batch=2, seed=1, n_rho_loops=3))
     monkeypatch.setattr(panel, 'optimization_output_dir', lambda: tmp_path)
     def result(**kwargs):
         if reason == 'error':
@@ -334,14 +333,12 @@ def test_gather_cfg_optimizer_config_hook():
     w = _make_window()
     cfg_plain = _gather_cfg(w)
     assert cfg_plain['max_iter_simple'] == EVAL_DEFAULT['max_iter_simple']
-    assert cfg_plain['tol_simple'] == EVAL_DEFAULT['tol_simple']
 
-    w._optimizer_cfg = OptimizerConfig(max_iter_simple=1234, tol_simple=5e-3,
+    w._optimizer_cfg = OptimizerConfig(max_iter_simple=1234,
                                        outer_tol_K=0.25, max_outer_ltne=6,
                                        alpha_T=0.5)
     cfg = _gather_cfg(w)
     assert cfg['max_iter_simple'] == 1234
-    assert cfg['tol_simple'] == pytest.approx(5e-3)
     assert cfg['tol_energy'] == pytest.approx(0.25)
     assert cfg['max_outer_3d'] == 6
     assert cfg['alpha_outer'] == pytest.approx(0.5)
@@ -349,13 +346,11 @@ def test_gather_cfg_optimizer_config_hook():
 
 def test_gather_cfg_3d_base_keeps_fast_mode_budget():
     """3D launch passes DEFAULT_CONFIG_3D as base — the 3D fast-mode budget
-    (max_iter_simple 300 / tol 1e-2) must survive, not be stomped by the 2D
-    defaults (5000 / 1e-3)."""
+    iteration budget must survive, not be overwritten by the 2D defaults."""
     from sjtu_tpmshx.optimization.evaluator_3d import DEFAULT_CONFIG_3D
     w = _make_window()
     cfg = _gather_cfg(w, base=DEFAULT_CONFIG_3D)
     assert cfg['max_iter_simple'] == DEFAULT_CONFIG_3D['max_iter_simple']
-    assert cfg['tol_simple'] == pytest.approx(DEFAULT_CONFIG_3D['tol_simple'])
     assert 'Nx_3d' in cfg and 'Lz' in cfg
     # widget reads still win: geometry came from the line-edits
     assert cfg['L_domain'] == pytest.approx(0.182)
@@ -398,7 +393,7 @@ def test_worker_passes_evaluator_fn_to_run_qnehvi():
     assert captured.get('evaluator_fn') is _sentinel
 
 
-def _optimization_window(*, inline):
+def _optimization_window():
     from PySide6.QtWidgets import QWidget, QVBoxLayout
     from sjtu_tpmshx.ui.builders_canvas import _build_optimize_panel
     from sjtu_tpmshx.ui.field_factory import default_factory
@@ -411,40 +406,26 @@ def _optimization_window(*, inline):
     w.combo_dim = _combo(['2D', '3D'])
     w._run_optimize = lambda: panel.run_optimize(w)
     w._cancel_optimize = lambda: panel.cancel_optimize(w)
-    if inline:
-        _build_optimize_panel(w, QVBoxLayout(w), default_factory().theme, get_theme())
+    _build_optimize_panel(w, QVBoxLayout(w), default_factory().theme, get_theme())
     return w
 
 
-@pytest.mark.parametrize('inline', [True, False])
 @pytest.mark.parametrize('budget', [1, 8])
 def test_launch_passes_visible_dimension_budget_to_3d_evaluator(monkeypatch, tmp_path,
-                                                              inline, budget):
+                                                              budget):
     """Actual launch -> worker -> evaluator, without executing a BO search."""
-    from PySide6.QtWidgets import QDialog, QSpinBox
     from sjtu_tpmshx.domain.compute_config import OptimizerConfig
     from sjtu_tpmshx.ui import optimize_panel as panel
     from sjtu_tpmshx.optimization import evaluator_3d
 
-    w = _optimization_window(inline=inline)
+    w = _optimization_window()
     w._optimizer_cfg = OptimizerConfig(max_outer_ltne=12)
-    if inline:
-        w._opt_inline_params['n_rho_loops'].setValue(7)
-    else:
-        w._opt_param_cache = {'n_rho_loops': 7}
+    w._opt_inline_params['n_rho_loops'].setValue(7)
     w.combo_dim.setCurrentIndex(1)
-    if inline:
-        spin = w._opt_inline_params['max_outer_3d']
-        assert spin.value() == 12  # typed config must be visible, not clamped to 8
-        assert '最大耦合' in w._opt_outer_label.text()
-        spin.setValue(budget)
-    else:
-        def accept_dialog(dialog):
-            spin = dialog.findChildren(QSpinBox)[-1]
-            assert spin.value() == 12
-            spin.setValue(budget)
-            return QDialog.DialogCode.Accepted
-        monkeypatch.setattr(QDialog, 'exec', accept_dialog)
+    spin = w._opt_inline_params['max_outer_3d']
+    assert spin.value() == 12  # typed config must be visible, not clamped to 8
+    assert '最大耦合' in w._opt_outer_label.text()
+    spin.setValue(budget)
 
     captured = {}
     def fake_core(_x, cfg, **kwargs):
@@ -462,38 +443,25 @@ def test_launch_passes_visible_dimension_budget_to_3d_evaluator(monkeypatch, tmp
     monkeypatch.setattr(Worker, 'start', lambda self: self.run())
     monkeypatch.setattr(panel, '_make_worker_class', lambda: Worker)
     monkeypatch.setattr(panel, 'optimization_output_dir', lambda: tmp_path)
-    if inline:
-        w._opt_btn.click()
-    else:
-        panel.run_optimize(w)
+    w._opt_btn.click()
     assert captured['max_outer'] == budget
     assert captured['config']['max_outer_3d'] == budget
     assert captured['outer_tol_K'] == 0.5
 
     w.combo_dim.setCurrentIndex(0)
-    if inline:
-        assert w._opt_inline_params['n_rho_loops'].value() == 7
-    else:
-        assert panel._qnehvi_param_defaults(w, panel._gather_cfg(w))['n_rho_loops'] == 7
-        def accept_2d_dialog(dialog):
-            assert dialog.findChildren(QSpinBox)[-1].value() == 7
-            return QDialog.DialogCode.Accepted
-        monkeypatch.setattr(QDialog, 'exec', accept_2d_dialog)
+    assert w._opt_inline_params['n_rho_loops'].value() == 7
     w._opt_worker = None
     panel.run_optimize(w)
     assert captured['config']['n_rho_loops'] == 7
     w.combo_dim.setCurrentIndex(1)
-    if inline:
-        assert w._opt_inline_params['max_outer_3d'].value() == budget
-    else:
-        assert panel._qnehvi_param_defaults(w, panel._gather_cfg(w))['max_outer_3d'] == budget
+    assert w._opt_inline_params['max_outer_3d'].value() == budget
     w.close()
 
 
 def test_inline_budget_shows_updated_typed_config_until_explicit_edit():
     from PySide6.QtWidgets import QApplication
     from sjtu_tpmshx.domain.compute_config import OptimizerConfig
-    w = _optimization_window(inline=True)
+    w = _optimization_window()
     w.combo_dim.setCurrentIndex(1)
     assert w._opt_inline_params['max_outer_3d'].value() == 2
     w._optimizer_cfg = OptimizerConfig(max_outer_ltne=6)
@@ -509,26 +477,11 @@ def test_inline_budget_shows_updated_typed_config_until_explicit_edit():
     w.close()
 
 
-def test_dialog_unedited_budget_follows_new_typed_config(monkeypatch):
-    from PySide6.QtWidgets import QDialog
-    from sjtu_tpmshx.domain.compute_config import OptimizerConfig
-    from sjtu_tpmshx.ui import optimize_panel as panel
-    from sjtu_tpmshx.optimization.evaluator_3d import DEFAULT_CONFIG_3D
-    w = _optimization_window(inline=False)
-    w.combo_dim.setCurrentIndex(1)
-    monkeypatch.setattr(QDialog, 'exec', lambda _dialog: QDialog.DialogCode.Accepted)
-    for budget in (4, 7):
-        w._optimizer_cfg = OptimizerConfig(max_outer_ltne=budget)
-        cfg = panel._gather_cfg(w, base=DEFAULT_CONFIG_3D)
-        params = panel._show_qnehvi_param_dialog(w, cfg)
-        assert params['max_outer_3d'] == budget
-        assert 'max_outer_3d' not in w._opt_param_cache
-    w.close()
 
 
 def test_inline_budget_config_error_restores_launch_state():
     from sjtu_tpmshx.ui import optimize_panel as panel
-    w = _optimization_window(inline=True)
+    w = _optimization_window()
     w.combo_dim.setCurrentIndex(1)
     w._optimizer_cfg = types.SimpleNamespace()
     panel.run_optimize(w)
@@ -543,7 +496,7 @@ def test_inline_budget_config_error_restores_launch_state():
 
 def test_live_trend_separates_Q_from_HV_and_resets_at_next_launch(monkeypatch, tmp_path):
     from sjtu_tpmshx.ui import optimize_panel as panel
-    w = _optimization_window(inline=True)
+    w = _optimization_window()
 
     class Signal:
         def connect(self, callback):

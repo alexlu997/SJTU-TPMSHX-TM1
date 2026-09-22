@@ -81,79 +81,6 @@ def test_ts_init_none_matches_per_fluid_seed():
     print(f"test_ts_init_none_matches_per_fluid_seed PASS (|ΔTs|={diff:.2e} K)")
 
 
-class _FakeLineEdit:
-    def __init__(self, text=''):
-        self._t = text
-
-    def text(self):
-        return self._t
-
-
-class _FakeWindow:
-    """Minimal stub for run_calculation._parse_inputs' T_s_init parsing.
-
-    Honours the K/°C toggle via _temp_to_K so we can verify unit conversion.
-    """
-    def __init__(self, ts_text='', unit='K'):
-        self.le_TsInit = _FakeLineEdit(ts_text)
-        self._temp_unit = unit
-
-    def _temp_to_K(self, le):
-        v = float(le.text())
-        if self._temp_unit == 'C':
-            v += 273.15
-        return v
-
-
-def _parse_ts_init(window):
-    """Mirror of the run_calculation.py logic (single source of truth
-    would require importing Qt; this duplication is acceptable because the
-    parse step is tiny and change-detectors for it are cheap)."""
-    le = getattr(window, 'le_TsInit', None)
-    if le is None or not le.text().strip():
-        return None
-    if hasattr(window, '_temp_to_K'):
-        return window._temp_to_K(le)
-    return float(le.text())
-
-
-def test_parse_empty_returns_none():
-    w = _FakeWindow(ts_text='', unit='K')
-    assert _parse_ts_init(w) is None
-    print("test_parse_empty_returns_none PASS")
-
-
-def test_parse_kelvin_numeric():
-    w = _FakeWindow(ts_text='350', unit='K')
-    v = _parse_ts_init(w)
-    assert abs(v - 350.0) < 1e-9, f"expected 350.0, got {v}"
-    print("test_parse_kelvin_numeric PASS")
-
-
-def test_parse_celsius_converts_to_kelvin():
-    w = _FakeWindow(ts_text='80', unit='C')
-    v = _parse_ts_init(w)
-    assert abs(v - 353.15) < 1e-9, f"expected 353.15, got {v}"
-    print("test_parse_celsius_converts_to_kelvin PASS")
-
-
-def test_parse_default_gui_value_is_empty_and_falls_through():
-    """The GUI ships an EMPTY default for T_s_init because the value is a
-    numerical iteration seed, not a physical material parameter. The
-    converged solid temperature field is independent of this seed (within
-    solver tolerance), so a hard-coded default would mislead users into
-    treating it as a physics input. Empty → parser returns None → solver
-    auto-seeds Ts = 0.5*(T_inA+T_inB) inside solve_full_domain_3d.
-    """
-    w = _FakeWindow(ts_text='', unit='K')
-    v = _parse_ts_init(w)
-    assert v is None, (
-        "Empty GUI default must parse to None so the solver fallback "
-        "(auto 0.5*(T_inA+T_inB) seed) takes over. Hard-coding a default "
-        "would imply T_s_init is a physical parameter — it is not.")
-    print("test_parse_default_gui_value_is_empty_and_falls_through PASS")
-
-
 # ── 3D coverage ──────────────────────────────────────────────────────────
 
 
@@ -254,10 +181,6 @@ def test_ts_init_3d_user_value_lands_in_initial_field():
 if __name__ == '__main__':
     test_ts_init_changes_first_sweep()
     test_ts_init_none_matches_per_fluid_seed()
-    test_parse_empty_returns_none()
-    test_parse_kelvin_numeric()
-    test_parse_celsius_converts_to_kelvin()
-    test_parse_default_gui_value_is_empty_and_falls_through()
     test_ts_init_3d_changes_first_sweep()
     test_ts_init_3d_user_value_lands_in_initial_field()
     print("\nAll tests PASS")

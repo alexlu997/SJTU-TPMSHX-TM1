@@ -159,7 +159,7 @@ def toast(parent, text, kind="success", duration_ms=2200, copy_payload=None):
     # Toast pill colors resolve from theme tokens at call time (ui-plan3a)
     # so light theme gets its darker semantic pair. The glyph is the third
     # element; the second (deep glow hint) is a dark-design asset kept
-    # literal like glass_panel's gradient.
+    # literal color instead of the theme token.
     from .theme import get_theme
     _tk = get_theme()
     _PALETTE = {

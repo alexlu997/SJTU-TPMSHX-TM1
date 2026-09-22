@@ -364,7 +364,7 @@ class RunControllerMixin:
                 self._diag_summary['timings_s'] = dict(timings)
             if published and result.diagnostics.get('mode') != '3d':
                 # The 2D presentation/export cache owns a metadata snapshot.
-                self._compute_results['metadata']['timings_s'] = dict(timings)
+                self.cache.get_result('2d')['metadata']['timings_s'] = dict(timings)
             try:
                 self._end_compute_ui(success=success)
             finally:
@@ -375,31 +375,11 @@ class RunControllerMixin:
         mode = self.compute.current_mode()
         if mode == '3d':
             from sjtu_tpmshx.ui.plot_3d_results import finalize_plots_3d
-            # 2026-06-02 fix: do NOT pre-clear ``_has_results_3d`` here. In the
-            # live window that flag is a ResultCache bridge whose setter
-            # (main.Main_Menu._has_results_3d) DELETES ``_result_3d`` — which
-            # finalize_plots_3d must read to render the panel. The old C5 H5
-            # line ``self._has_results_3d = False`` destroyed the freshly-
-            # computed result *before* finalize ran, so finalize saw
-            # ``_result_3d is None`` and every 3D run rendered nothing. The
-            # GUI slot writes a fresh result before rendering, so
-            # there is no "stale True from a prior run" to guard against here;
-            # the H5 invariant (no stale flag after a finalize *crash*) is now
-            # enforced in the except branch below. (The H5 unit test passed
-            # despite the prod bug because its DummyWindow used plain attrs,
-            # decoupling the flag from the result — the real bridge couples
-            # them.)
+            # Keep accepted solver data exportable even if rendering fails.
             _finalize_ok = False
             _3d_vis_ok = False
             try:
-                # 2026-05-20 UI sweep: finalize_plots_3d now returns a bool
-                # indicating whether the embedded PyVistaQt panel was
-                # populated. Previously it returned None and all visualisation
-                # failures were silently swallowed inside the function,
-                # producing a "status bar says done but canvas is blank"
-                # mismatch. We gate `_has_results_3d` + tab auto-switch on
-                # the returned flag so the user is no longer routed to an
-                # empty 3D tab.
+                # A successful solve does not imply a populated 3D panel.
                 _3d_vis_ok = bool(finalize_plots_3d(self))
                 _finalize_ok = True
             except Exception as _fe3d:
@@ -410,42 +390,28 @@ class RunControllerMixin:
                 # console clue — matches the 2D path's diagnostics now).
                 import traceback
                 traceback.print_exc()
-                # H5 invariant: a finalize crash must not leave the 3D View tab
-                # enabled (which would auto-switch the next run to a blank tab).
-                # U1 (2026-06-28): gate the tab off via the dedicated readiness
-                # flag — do NOT null _has_results_3d, whose bridge setter would
-                # DESTROY the valid solver result. The ComputeResult was written
-                # by the GUI slot before finalize and stays exportable even though
-                # the PyVista panel never populated.
+                # Renderer failure leaves the valid result available for export.
                 self._3d_view_ready = False
                 self.statusBar().showMessage(
                     f"3D visualisation failed: {_fe3d!r} — solver finished, "
                     f"render crashed; check console.", 12000)
             if not _finalize_ok:
                 return False
-            self._has_results = True
-            # Only mark the 3D View tab as ready if the PyVistaQt panel
-            # actually populated; otherwise the tab stays disabled and the user
-            # is not silently switched to a blank canvas.
-            # U1 (2026-06-28): tab-readiness is its OWN flag — do NOT route it
-            # through the result-nulling _has_results_3d bridge setter, which on
-            # a soft viz failure (headless/offscreen/GL/TPMSHX_DISABLE_3D_PANEL)
-            # destroyed the valid solve's result, defeating the status branch
-            # below and the Export data-presence gate. The result stays cached.
+            # View readiness belongs to the panel, not the result cache.
             self._3d_view_ready = bool(_3d_vis_ok)
             for _bname in ('btn_export',):
                 if hasattr(self, _bname):
                     getattr(self, _bname).setEnabled(True)
-            drawn = getattr(self, '_drawn_tabs', set())
+            drawn = self.cache.get_drawn_tabs()
             if _3d_vis_ok:
                 drawn.add('3d')
-            self._drawn_tabs = drawn
+            self.cache.replace_drawn_tabs(drawn)
             self._update_tab_visibility()
             if getattr(self, '_rendered_3d_slices', False):
                 self._switch_tab('temp')
             elif _3d_vis_ok:
                 self._switch_tab('3d')
-            res = getattr(self, '_result_3d', None)
+            res = self.cache.get_result('3d')
             # Outer-coupling convergence note: the SIMPLE↔LTNE loop exits
             # early once max|ΔTa| < tol, so it usually stops before the cap
             # (e.g. "3/5"). Surface that as "converged after k/N" instead of a
@@ -505,8 +471,6 @@ class RunControllerMixin:
             self.statusBar().showMessage(
                 f"Plot finalize failed: {_fe!r} — partial 2D results available.",
                 8000)
-        self._has_results = True
-        self._has_results_2d = True
         self._update_tab_visibility()
         for _bname in ('btn_export',):
             if hasattr(self, _bname):
@@ -533,11 +497,10 @@ class RunControllerMixin:
 
         mode = self.compute.current_mode()
         if mode == '3d':
-            self._result_3d = None
-            self._has_results_3d = False
+            self.cache.clear('3d')
             self._3d_view_ready = False
-            if not getattr(self, '_has_results_2d', False):
-                self._has_results = False
+            if not self.cache.has_results('2d'):
+                self.cache.clear()
             for _bname in ('btn_export',):
                 if hasattr(self, _bname):
                     getattr(self, _bname).setEnabled(False)
@@ -548,11 +511,10 @@ class RunControllerMixin:
             QMessageBox.critical(self, "3D Compute Error", message)
             return
 
-        # 2D / poly fallback
-        self._compute_results = {}
-        self._has_results_2d = False
-        if not getattr(self, '_has_results_3d', False):
-            self._has_results = False
+        # 2D result failure
+        self.cache.clear('2d')
+        if not self.cache.has_results('3d'):
+            self.cache.clear()
         for _bname in ('btn_export',):
             if hasattr(self, _bname):
                 getattr(self, _bname).setEnabled(False)
@@ -585,8 +547,7 @@ class RunControllerMixin:
         mode = self.compute.current_mode()
         if mode == '3d':
             # 3D-specific: drop result + status message
-            self._result_3d = None
-            self._has_results_3d = False
+            self.cache.clear('3d')
             self._3d_view_ready = False
             self._update_tab_visibility()
             self._end_compute_ui(success=False)

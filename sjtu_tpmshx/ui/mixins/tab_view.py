@@ -25,7 +25,7 @@ class TabViewMixin:
         is_3d = (mode == '3d' if mode is not None else
                  hasattr(self, 'combo_dim') and self.combo_dim.currentIndex() == 1)
         has_2d = (getattr(self, '_rendered_3d_slices', False) if is_3d else
-                  getattr(self, '_has_results_2d', False))
+                  self.cache.has_results('2d'))
         has_3d = is_3d and getattr(self, '_3d_view_ready', False)
         return {
             'layout': True,
@@ -41,13 +41,8 @@ class TabViewMixin:
     def _update_tab_visibility(self):
         """Show/hide tab buttons based on available results and current mode.
 
-        Rules (finalized 2026-04-21):
-          - Layout : always
-          - Temp/Pres/Vel : 2D mode AND _has_results_2d
-          - 3D View : 3D mode AND _3d_view_ready (panel populated; U1 2026-06-28
-            — was _has_results_3d, but that is now result-presence and stays
-            True after a soft viz-fail to keep the result exportable)
-          - Pareto  : _has_pareto (independent of mode)
+        Fields require a cached 2D result or rendered 3D slices; the volume
+        view additionally requires a populated 3D panel.
 
         If the currently active tab disappears, fall back to Layout.
         Safe to call before ui_builders finishes — returns if buttons absent.
@@ -229,7 +224,7 @@ class TabViewMixin:
                 and not getattr(self, '_split_tabs', None):
             card = getattr(self, '_canvas_cards', {}).get(tab)
             if card is not None and card.isVisible() and (
-                    tab not in ('temp', 'pres', 'vel') or tab in self._drawn_tabs):
+                    tab not in ('temp', 'pres', 'vel') or tab in self.cache.get_drawn_tabs()):
                 return
 
         self._active_tab = tab
@@ -243,7 +238,7 @@ class TabViewMixin:
                 self._switch_tab('layout')
                 return
         tabs = ('temp', 'pres', 'vel', 'layout', 'pareto', '3d')
-        drawn = getattr(self, '_drawn_tabs', set())
+        drawn = self.cache.get_drawn_tabs()
         # Publish the complete tab state in one repaint batch. Dispatching
         # processEvents between hide/show let a newer click run inside this
         # call, then the older call showed its stale target over the new one.
@@ -283,7 +278,7 @@ class TabViewMixin:
             target_card = self._canvas_cards.get(tab)
             showed_any = False
             if target_card and (tab == 'pareto'
-                                or getattr(self, '_has_results', False)
+                                or self.cache.has_any_results()
                                 or tab in drawn):
                 target_card.show()
                 # A widget showEvent can synchronously choose another tab.
@@ -298,14 +293,14 @@ class TabViewMixin:
 
             if hasattr(self, '_empty_state_label'):
                 self._empty_state_label.setVisible(not showed_any)
-            if getattr(self, '_has_results', False):
+            if self.cache.has_any_results():
                 try:
                     self._update_result_summary()
                 except Exception:
                     pass
             # Footer follows the result family.
             try:
-                from sjtu_tpmshx.ui.builders_canvas import update_result_sidebar_visibility
+                from sjtu_tpmshx.ui.builders_sidebar import update_result_sidebar_visibility
                 update_result_sidebar_visibility(self)
             except Exception:
                 pass
@@ -413,7 +408,6 @@ class TabViewMixin:
         lay.setContentsMargins(4, 4, 4, 4); lay.setSpacing(0)
         # Remember previous parent & layout position so re-docking restores
         # the widget to exactly where it came from.
-        self._3d_prev_parent = panel.parentWidget()
         self._3d_prev_parent_layout = None
         card = self._canvas_cards.get('3d') if hasattr(self, '_canvas_cards') else None
         if card is not None:

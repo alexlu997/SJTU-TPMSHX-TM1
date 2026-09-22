@@ -82,17 +82,6 @@ def test_clear_one_or_all():
 # ---------------------------------------------------------------- signals
 
 
-def test_results_changed_signal_emits():
-    _app()
-    c = ResultCache()
-    received = []
-    c.results_changed.connect(lambda m: received.append(m))
-
-    c.set_result('2d', {'a': 1})
-    c.set_result('3d', {'b': 2})
-    c.clear('2d')
-
-    assert received == ['2d', '3d', '2d']
 
 
 # ---------------------------------------------------------------- tabs

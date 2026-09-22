@@ -61,7 +61,7 @@ def test_figure_export_records_current_source_and_version(tmp_path, monkeypatch,
         roots.append(root)
         return {'revision': 'example-revision'}
     monkeypatch.setattr(io_actions, 'repository_revision', revision)
-    monkeypatch.setattr(win, '_drawn_tabs', {'temp'})
+    win.cache.replace_drawn_tabs({'temp'})
     monkeypatch.chdir(tmp_path)
     win._export_figure()
     with Image.open(path) as figure:
@@ -189,8 +189,7 @@ def test_complete_config_menu_roundtrip(tmp_path, monkeypatch, win,
     win._grid_nx = 3
     win.zone_table.setRowCount(1)
     win._pareto_x_decision = [8.0, 0.6] * 18
-    win._compute_results = {'stale': True}
-    win._has_results_2d = win._has_results_3d = True
+    win.cache.set_result('2d', {'stale': True})
     win._undo_last = {'le_L': 'old'}
     actions['加载配置文件…'].trigger()
     assert not errors
@@ -198,8 +197,8 @@ def test_complete_config_menu_roundtrip(tmp_path, monkeypatch, win,
     assert win.le_pipeA_in_z_ctr.isHidden() == (dim == 0)
     assert asdict(config_from_window(win)) == before
     assert win._capture_current_preset('test') == saved
-    assert not win._compute_results
-    assert not win._has_results_2d and not win._has_results_3d
+    assert not win.cache.get_result('2d')
+    assert not win.cache.has_results('2d') and not win.cache.has_results('3d')
     assert win._undo_last['le_L'] == '0.182'
     assert win._user_edited_grid
     # Exercise the real Compute entry point without starting numerical work.
@@ -235,14 +234,14 @@ def test_polygon_file_is_rejected_without_changing_inputs_or_results(
     original = json.dumps({'config_format': 1, 'preset': old})
     path.write_text(original)
     result = {'already computed': True}
-    win._compute_results = result
+    win.cache.set_result('2d', result)
     errors = []
     monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *args: (str(path), ''))
     monkeypatch.setattr(QMessageBox, 'critical', lambda *args: errors.append(args[2]))
     assert not win.load_config()
     assert errors == [DOMAIN_SHAPE_NOTICE]
     assert win._capture_current_preset('current') == before
-    assert win._compute_results is result
+    assert win.cache.get_result('2d') is result
     assert path.read_text() == original
 
 
@@ -366,12 +365,12 @@ def test_bad_config_does_not_partially_apply(tmp_path, monkeypatch, win, damage)
     monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *a: (str(path), ''))
     errors = []
     monkeypatch.setattr(QMessageBox, 'critical', lambda *a: errors.append(a))
-    win._compute_results = {'old': 123}
+    win.cache.set_result('2d', {'old': 123})
     assert win.load_config() is False
     assert errors
     assert win._capture_current_preset('test') == before
-    assert win._compute_results == {'old': 123}
-    win._compute_results = None
+    assert win.cache.get_result('2d') == {'old': 123}
+    win.cache.clear('2d')
 
 
 def test_config_io_failures_and_cancel(tmp_path, monkeypatch, win):
@@ -562,12 +561,12 @@ def test_session_restores_complete_physical_case_in_kelvin(win, monkeypatch, uni
     monkeypatch.setattr(win.sm, 'save_session', lambda payload, ws: saved.update(payload) or True)
     assert win._save_session()
     win._apply_shanghai_defaults()
-    win._compute_results = {'stale': True}
+    win.cache.set_result('2d', {'stale': True})
     monkeypatch.setattr(win.sm, 'load_session', lambda ws: saved)
     win._restore_session()
     assert win._temp_unit == 'K'
     assert asdict(config_from_window(win)) == before
-    assert not win._compute_results
+    assert not win.cache.get_result('2d')
     assert saved['temp_unit'] == unit  # loading did not rewrite the source payload
 
 
@@ -694,11 +693,7 @@ def test_export_results_writes_2d_values(tmp_path, monkeypatch, win):
     from PySide6.QtWidgets import QFileDialog
 
     out = tmp_path / 'results.csv'
-    win._compute_results = {
-        'Q_total': 123.5, 'dP_A': 45.0, 'dP_B': 6.0,
-        'Ta': np.array([[300.0, 301.0], [302.0, 303.0]]),
-        'L': 0.2, 'H': 0.1,
-    }
+    win.cache.set_result('2d', {'Q_total': 123.5, 'dP_A': 45.0, 'dP_B': 6.0, 'Ta': np.array([[300.0, 301.0], [302.0, 303.0]]), 'L': 0.2, 'H': 0.1})
     monkeypatch.setattr(
         QFileDialog, 'getSaveFileName',
         staticmethod(lambda *a, **k: (str(out), 'CSV')),
@@ -723,13 +718,7 @@ def test_export_results_writes_3d_values_and_fields(tmp_path, monkeypatch, win):
 
     out = tmp_path / 'results.csv'
     field = np.arange(8.0).reshape(2, 2, 2)
-    win._result_3d = ComputeResult(
-        Q_W=321.0,
-        dP_A_Pa=54.0,
-        dP_B_Pa=7.0,
-        fields={'Ta': field, 'Tb': field, 'Ts': field, 'vmag_A': field,
-                'P_fA': field, 'Lx': 0.2, 'Ly': 0.1, 'Lz': 0.05},
-    )
+    win.cache.set_result('3d', ComputeResult(Q_W=321.0, dP_A_Pa=54.0, dP_B_Pa=7.0, fields={'Ta': field, 'Tb': field, 'Ts': field, 'vmag_A': field, 'P_fA': field, 'Lx': 0.2, 'Ly': 0.1, 'Lz': 0.05}))
     monkeypatch.setattr(
         QFileDialog, 'getSaveFileName',
         staticmethod(lambda *a, **k: (str(out), 'CSV')),
@@ -756,7 +745,7 @@ def test_export_failure_preserves_old_pair_and_memory_then_retries(tmp_path, mon
     npz_path.write_bytes(b'previous successful NPZ')
     result = ComputeResult(Q_W=321., fields={'Ta': np.ones((2, 2, 2))},
                            metadata={'source_result_id': 'next-run'})
-    win._result_3d = result
+    win.cache.set_result('3d', result)
     monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(csv_path), 'CSV'))
     errors = []
     monkeypatch.setattr(QMessageBox, 'critical', lambda *a: errors.append(a[-1]))
@@ -772,7 +761,7 @@ def test_export_failure_preserves_old_pair_and_memory_then_retries(tmp_path, mon
     assert errors and 'full disk' in errors[-1]
     assert csv_path.read_text() == 'previous successful CSV'
     assert npz_path.read_bytes() == b'previous successful NPZ'
-    assert win._result_3d is result
+    assert win.cache.get_result('3d') is result
     monkeypatch.setattr(np, 'savez_compressed', original)
     win._export_results()
     assert 'next-run' in csv_path.read_text()
@@ -819,7 +808,7 @@ def test_result_status_survives_notification_and_mode_switch(
             assert win._compute_warnings == expected_warnings
             assert not notices, 'completed solves must not wait for a warning popup'
             assert win._diag_summary['converged'] == converged
-            assert win._compute_results['warnings'] == expected_warnings
+            assert win.cache.get_result('2d')['warnings'] == expected_warnings
             # Result owns copies; a later notification/draft must not replace it.
             result.warnings.clear()
             result.extrap_reasons.clear()

@@ -8,7 +8,7 @@ Host contract — the live window MUST provide (all remain on ``Main_Menu``):
     methods : _capture_current_preset(label) -> dict
               _apply_user_preset(dict) -> None
     widgets : btn_recent (QToolButton), statusBar()
-              _r_Q / _r_dP_A / _r_dP_B / _r_ToutA / _r_ToutB (result QLabels)
+              _sb_labels (visible result footer)
     run     : _run_provenance (accepted inputs and returned grid)
     state   : _active_preset_name (str, optional)
               _MAX_RECENT_RUNS (int, optional — defaults to 5)
@@ -48,12 +48,8 @@ class RunHistoryMixin:
             maxlen = getattr(self, "_MAX_RECENT_RUNS", 5)
             self._recent_runs = collections.deque(maxlen=maxlen)
 
-        def _txt(attr):
-            lbl = getattr(self, attr, None)
-            try:
-                return lbl.text() if lbl is not None else "—"
-            except Exception:
-                return "—"
+        from sjtu_tpmshx.ui.builders_sidebar import result_metric_texts
+        values = result_metric_texts(self)
 
         now = datetime.datetime.now()
         snap = deepcopy(provenance['preset'])
@@ -61,12 +57,12 @@ class RunHistoryMixin:
         entry = {
             "ts": now.isoformat(timespec="seconds"),
             "label": now.strftime("%H:%M:%S"),
-            "Q": _txt("_r_Q"),
+            "Q": values["Q"],
             "Q_unit": getattr(self, '_result_Q_unit', '?'),
-            "dP_A": _txt("_r_dP_A"),
-            "dP_B": _txt("_r_dP_B"),
-            "ToutA": _txt("_r_ToutA"),
-            "ToutB": _txt("_r_ToutB"),
+            "dP_A": values["dP_A"],
+            "dP_B": values["dP_B"],
+            "ToutA": values["ToutA"],
+            "ToutB": values["ToutB"],
             "preset": snap,
             "preset_source": provenance['preset_source'],
             "mode": provenance['mode'],
@@ -302,13 +298,8 @@ class RunHistoryMixin:
                f"  ·  input grid {grid} (before refinement)"
                f"  ·  actual result grid {actual_grid}  ·  preset: {preset}"
                + (f"  ·  commit: {commit}" if commit else ""))
-        for attr in ("_r_Q", "_r_dP_A", "_r_dP_B", "_r_ToutA", "_r_ToutB"):
-            lbl = getattr(self, attr, None)
-            if lbl is not None:
-                try:
-                    lbl.setToolTip(tip)
-                except Exception:
-                    pass
+        for key in ('q', 'dpa', 'dpb', 'tout'):
+            self._sb_labels[key].setToolTip(tip)
 
     def _copy_inputs_as_python(self):
         """Copy a complete GUI preset and its window restore call as Python."""

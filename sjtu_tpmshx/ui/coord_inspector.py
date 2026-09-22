@@ -4,7 +4,7 @@ field's value at the cursor point on contour canvases.
 Fills the gap left by the transient bottom-of-canvas `_hover_label`:
 engineers frequently need to cross-check multiple fields (Ta, Tb, Ts, u,
 v, P, ε) at the same (x, y) without toggling tabs. This panel resolves
-the point against the latest `_compute_results` on every motion event
+the point against the latest cached fields on every motion event
 and lets users **pin** a reading so they can sweep the cursor to a
 second point for comparison.
 
@@ -26,10 +26,10 @@ from .matplotlib_canvas import cell_index_mm
 
 
 # ────────────────────────────────────────────────────────────────────
-#  Catalogue of fields the inspector can read out of _compute_results
+#  Catalogue of cached fields the inspector can read
 # ────────────────────────────────────────────────────────────────────
 
-# (key in _compute_results, display label, unit, fmt)
+# (key in cached 2D fields, display label, unit, fmt)
 # `eps` / zone L,t come from `za`, handled specially in `_resolve_fields`.
 _FIELD_TABLE = [
     ('Ta',   'T_fA',  'K',   '{:.2f}'),
@@ -47,7 +47,7 @@ _FIELD_TABLE = [
 def _resolve_fields(window, x_mm, y_mm):
     """Return list of (label, value_str, unit) at the (x_mm, y_mm) point.
 
-    Reads directly from `window._compute_results`. If results haven't
+    Reads directly from `window.cache.get_result('2d')`. If results haven't
     been computed yet, returns an empty list (caller displays "— no
     compute yet —" in that case).
     """
@@ -65,7 +65,7 @@ def _resolve_fields(window, x_mm, y_mm):
     out = [('x', f"{x_mm:.2f}", 'mm'),
            ('y', f"{y_mm:.2f}", 'mm'),
            ('(i,j)', f"({i},{j})", '')]
-    if getattr(window, '_result_3d', None) is not None:
+    if window.cache.get_result('3d') is not None:
         dz = np.asarray(r['dz'])
         k = min(getattr(window, '_slice_index', len(dz) // 2), len(dz) - 1)
         z_mm = (np.cumsum(dz) - dz / 2)[k] * 1000.
@@ -123,9 +123,9 @@ def _resolve_fields(window, x_mm, y_mm):
 
 def _display_fields(window):
     """Read the same immutable result source as the active field canvas."""
-    result_3d = getattr(window, '_result_3d', None)
+    result_3d = window.cache.get_result('3d')
     if result_3d is None:
-        return getattr(window, '_compute_results', None)
+        return window.cache.get_result('2d')
     f = result_3d.fields
     nx, ny, _ = f['Ta'].shape
     return {**f, 'N_x': nx, 'N_y': ny, 'L': f['Lx'], 'H': f['Ly'],
@@ -264,7 +264,7 @@ class CoordInspector(QDockWidget):
         if N_x > 0 and N_y > 0 and L > 0 and H > 0:
             i = cell_index_mm(event.xdata, r.get('dx_arr', np.full(N_x, L / N_x)))
             j = cell_index_mm(event.ydata, r.get('dy_arr', np.full(N_y, H / N_y)))
-            source = getattr(self._window, '_result_3d', None)
+            source = self._window.cache.get_result('3d')
             ij = (id(source) if source is not None else id(r),
                   getattr(self._window, '_slice_index', None),
                   getattr(self._window, '_temp_unit', 'K'), i, j)

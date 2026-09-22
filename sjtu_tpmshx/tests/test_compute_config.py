@@ -6,7 +6,7 @@ Covers:
 - JSON round-trip (canonical schema)
 - JSON load from legacy ``configs/shanghai_baseline.json`` layout
 - ``config_from_window`` adapter with a minimal mock window
-- Optional-widget tolerance (le_Lz / le_TsInit / combo_fluidB missing)
+- Optional-widget tolerance (le_Lz / combo_fluidB missing)
 - K/°C toggle honoured via ``window._temp_to_K``
 """
 from __future__ import annotations
@@ -85,8 +85,6 @@ class _StubWindow:
         self.le_Nx = _StubLineEdit(fields.get('Nx', '40'))
         self.le_Ny = _StubLineEdit(fields.get('Ny', '80'))
         self.le_Nz = _StubLineEdit(fields.get('Nz', '5'))
-        if 'TsInit' in fields:
-            self.le_TsInit = _StubLineEdit(fields['TsInit'])
         # fluids
         self.combo_fluidA = _StubComboBox(fields.get('fluidA', 'Air'))
         if 'fluidB' in fields:
@@ -204,14 +202,13 @@ def test_config_from_window_full_smoke():
         uA='10.0', uB='2.0',
         TinA='400.0', TinB='300.0',
         PinA='200000.0', PinB='101325.0',
-        TsInit='350.0',
     )
     cfg = config_from_window(window)
     assert cfg.geometry.tpms == 'Diamond'
     assert cfg.geometry.L_cell_mm == pytest.approx(8.0)
     assert cfg.geometry.Lz_m == pytest.approx(0.05)
     assert cfg.solver.Nz == 5
-    assert cfg.solver.T_s_init_K == pytest.approx(350.0)
+    assert cfg.solver.T_s_init_K is None
     assert cfg.fluid_A.type == 'air'
     assert cfg.fluid_B.type == 'water'
     assert cfg.fluid_A.u_mps == pytest.approx(10.0)
@@ -220,13 +217,13 @@ def test_config_from_window_full_smoke():
 
 
 def test_config_from_window_optional_widgets_missing():
-    """No le_Lz, no le_TsInit, no combo_fluidB → falls back to defaults
+    """No le_Lz or combo_fluidB → falls back to defaults
     without raising."""
     window = _StubWindow(
         tpms='Gyroid', Nx='30', Ny='60', Nz='1',
         fluidA='Air',  # combo_fluidB intentionally absent
     )
-    # Remove le_Lz / le_TsInit / combo_fluidB to simulate stripped-down UI
+    # Remove le_Lz / combo_fluidB to simulate stripped-down UI
     if hasattr(window, 'le_Lz'):
         del window.le_Lz
     cfg = config_from_window(window)

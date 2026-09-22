@@ -32,7 +32,7 @@ def _qt_text(widget) -> str:
     """Return ``widget.text()`` (QLineEdit) or ``widget.currentText()``
     (QComboBox) or ``''`` for any AttributeError/None.
 
-    Optional widgets (le_TsInit, le_PinB, combo_fluidB, …) are guarded
+    Optional widgets (le_PinB, combo_fluidB, …) are guarded
     by ``hasattr`` upstream; mirror that here so the adapter never
     raises on a stripped-down test stub.
     """
@@ -235,7 +235,7 @@ def _validate_required_widgets(window, *, is_3d: bool) -> None:
 
 
 def _parse_fluid_label(combo) -> FluidType:
-    """Map GUI labels using the aliases in ``models.tpms_calc.parse_fluid_type``."""
+    """Map supported GUI fluid labels to their configuration keys."""
     if combo is None:
         return 'air'
     try:
@@ -430,19 +430,7 @@ def config_from_window(window, *, strict: bool = False,
         **_read_section_fields(window, 'geometry'),
     )
 
-    # solver — optional Ts init (empty / None → solver default seed):
-    T_s_init: Optional[float] = None
-    le_ts = getattr(window, 'le_TsInit', None)
-    if le_ts is not None and _qt_text(le_ts).strip():
-        # robustness-hardening: the old `... or None` coerced a legit
-        # 0.0 K parse to None AND let absurd seeds through. Explicit
-        # None-compare + a loose physical range (anything outside is a
-        # typo, not a use case).
-        _ts = _temp_in_K(window, le_ts, default_K=0.0)
-        T_s_init = _ts if (_ts is not None and 150.0 <= _ts <= 2000.0) \
-            else None
     solver = SolverConfig(
-        T_s_init_K=T_s_init,
         # remaining knobs keep dataclass defaults; UI does not surface
         # them yet (audit deferred to a later phase)
         **_read_section_fields(window, 'solver'),

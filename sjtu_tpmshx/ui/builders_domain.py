@@ -1,43 +1,25 @@
-"""Domain-page builder (Geometry accordion group) + dimensionality toggle.
+"""Build geometry, TPMS, material, grid and compute-resource input sections.
 
-Split out of ui_builders.py (Batch-2, 2026-06-10). Builds the Domain
-Geometry / TPMS Structure / Material / Grid Settings / Results sections
-and owns ``_on_dim_changed`` — the 2D↔3D visibility toggle for the
-3D-only widgets created here and in builders_fluids.
+The dimensionality toggle controls the shared registry of 3D-only widgets.
 """
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QGridLayout, QLabel, QPushButton, QComboBox,
-    QScrollArea, QFrame, QCheckBox,
+    QLabel, QPushButton, QComboBox,
+    QFrame, QCheckBox,
 )
 
 from .theme import get_theme
 from .builders_base import (section, row, res_row, add_row, right_align_combo)
 
 
-def _res_ab_row(window, rg, r, label, attr_a, attr_b, *, unit_lbl_attrs=None):
-    """One A/B result-row pair in the results grid (B1 1.4): same label,
-    column 0 for Fluid A and column 2 for Fluid B. ``unit_lbl_attrs``
-    optionally captures the two label widgets (for the K/°C unit toggle).
-    """
-    setattr(window, attr_a, res_row(window, rg, r, label, 0))
-    setattr(window, attr_b, res_row(window, rg, r, label, 2))
-    if unit_lbl_attrs is not None:
-        try:
-            for col, lbl_attr in zip((0, 2), unit_lbl_attrs):
-                item = rg.itemAtPosition(r, col)
-                if item is not None:
-                    setattr(window, lbl_attr, item.widget())
-        except Exception:
-            pass
 
 
 def _on_dim_changed(window):
     """Toggle visibility of 3D-only inputs based on Dimensionality combo.
 
     Iterates the ``window._3d_only_widgets`` registry — populated by
-    ``build_page_domain`` (Lz/Nz rows + 3D checkboxes) and
-    ``builders_fluids.build_page_fluids`` (z-partial BC rows) as the
+    ``build_domain_sections`` (Lz/Nz rows + 3D checkboxes) and
+    ``builders_fluids.build_fluid_sections`` (z-partial BC rows) as the
     widgets are created. New 3D-only widgets just register themselves;
     no hardcoded attribute list to keep in sync.
     """
@@ -50,36 +32,23 @@ def _on_dim_changed(window):
         window._update_tab_visibility()
 
 
-def build_page_domain(window):
-    """Ex-Main_Menu._build_page_domain(self) -> QScrollArea."""
+def build_domain_sections(window, lay):
+    """Build and register sections in the existing parameter container."""
     # Phase 5 follow-up: styles via FieldFactory + ThemeManager DI.
     from .field_factory import default_factory
     f = default_factory()
     t = f.theme
-    _BG = t.style('BG')
     _T_NEUTRAL = t.style('T_NEUTRAL')
     _F_NEUTRAL = t.style('F_NEUTRAL')
     _COMBO = t.style('COMBO')
     _LBL = t.style('LBL')
     _VAL = t.style('VAL')
 
-    scroll = QScrollArea()
-    scroll.setWidgetResizable(True)
-    # ui-layout-fixes: labels word-wrap instead of widening the card, so a
-    # horizontal scrollbar can only mean clipped inputs — forbid it.
-    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-    scroll.setStyleSheet("border:none; background:transparent;")
-
-    w = QWidget(); w.setStyleSheet(f"background:{_BG};")
-    lay = QVBoxLayout(w)
-    lay.setSpacing(12); lay.setContentsMargins(6, 4, 8, 6)
 
     # 3D-only widget registry — reset here because the domain page builds
     # first on every (re)build; builders_fluids appends its z-partial rows.
     window._3d_only_widgets = []
-    # ui-ia-batch1: section-container registry. The page builders create the
-    # widgets; build_param_tabs places these containers in groups on the
-    # geometry/boundary/solver pages (the builder scroll shells are discarded).
+    # build_param_tabs groups these parent-owned sections by workflow.
     window._ia_sections = {}
 
     # Domain Geometry
@@ -96,7 +65,7 @@ def build_page_domain(window):
     window.lbl_domain_shape.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
     add_row(window, g, 3, "计算域形状", window.lbl_domain_shape)
 
-    # Dimensionality (2D / 3D MVP) — dispatch in run_calculation
+    # Dimensionality (2D / 3D) — dispatch in run_calculation
     window.combo_dim = QComboBox()
     window.combo_dim.addItems(["2D", "3D"])
     window.combo_dim.setStyleSheet(_COMBO)
@@ -139,12 +108,6 @@ def build_page_domain(window):
     window.le_rho_s.setToolTip(
         "固体密度：用于优化设计的质量计算，并随工况保存。"
         "当前稳态 LTNE 固体能量方程没有储热项，不直接使用该密度。")
-    # T_s_init removed from UI (2026-04-29) -- was numerical iteration seed
-    # only, not a physical parameter. Solver auto-seeds at 0.5*(T_inA+T_inB);
-    # converged Ts is independent of seed within solver tolerance. Removed to
-    # avoid user confusion. _parse_inputs falls back to None when le_TsInit
-    # absent via getattr().
-
     # ── Grid Settings (rect mode) ──
     g4, sec_solver_rect = section(window, lay, "  网格设置", _T_NEUTRAL, _F_NEUTRAL)
     window._ia_sections['grid_rect'] = sec_solver_rect
@@ -252,7 +215,6 @@ def build_page_domain(window):
         f"QPushButton:pressed {{ background:{_tc['inp_bg']}; }}")
     _btn_dn = QPushButton("−")            # U+2212 MINUS SIGN
     _btn_up = QPushButton("+")
-    window._spin_cpu_btns = (_btn_dn, _btn_up)
     for _b, _fn, _tip in ((_btn_dn, window.spin_cpu_cores.stepDown, "减少线程数"),
                           (_btn_up, window.spin_cpu_cores.stepUp,   "增加线程数")):
         _b.setFixedSize(24, 24)
@@ -272,36 +234,3 @@ def build_page_domain(window):
 
     # Hide 3D-only inputs by default (2D mode)
     _on_dim_changed(window)
-
-    # ── Results ──
-    res_frame = QFrame()
-    res_frame.setStyleSheet(_F_NEUTRAL)
-    rg = QGridLayout(res_frame)
-    rg.setContentsMargins(14, 8, 14, 8)
-    rg.setHorizontalSpacing(20); rg.setVerticalSpacing(6)
-    rg.setColumnStretch(0, 2); rg.setColumnStretch(1, 1)
-    rg.setColumnStretch(2, 2); rg.setColumnStretch(3, 1)
-    for c, txt in enumerate(["── Fluid A ──", "── Fluid B ──"]):
-        h = QLabel(txt)
-        h.setStyleSheet(_LBL)
-        h.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        rg.addWidget(h, 0, c * 2, 1, 2)
-    # A/B result rows via the shared mirror helper (B1 1.4).
-    # 2026-05-20 UI sweep: the T_out unit labels are captured so the K/°C
-    # toggle (`_sync_temp_unit_labels` in main.py) can rewrite the `[K]`
-    # suffix when the user flips the header unit button.
-    _res_ab_row(window, rg, 1, "<i>T</i><sub>out</sub> [K]",
-                '_r_ToutA', '_r_ToutB',
-                unit_lbl_attrs=('_lbl_ToutA_unit', '_lbl_ToutB_unit'))
-    _res_ab_row(window, rg, 2, "Δ<i>P</i><sub>total</sub> [Pa]",
-                '_r_dP_A', '_r_dP_B')
-    window._r_Q     = res_row(window, rg, 3, "<i>Q</i><sub>total</sub> [W/m]", 0)
-    window._lbl_Q_unit = rg.itemAtPosition(3, 0).widget()
-    window._r_Q.setToolTip(
-        '换热量来自本次运行的工程指标。二维按单位深度展示（W/m），三维展示总量（W）。')
-    lay.addWidget(res_frame, 0)
-    window._ia_sections['results'] = res_frame
-
-    lay.addStretch()
-    scroll.setWidget(w)
-    return scroll

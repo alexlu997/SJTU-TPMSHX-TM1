@@ -181,7 +181,7 @@ def test_focus_restores_preferences_and_does_not_persist_transient_hiding(
         win, monkeypatch, collapsed, summary):
     win.combo_dim.setCurrentIndex(0)
     win.cache.set_result('2d', {'stub': True})
-    win._drawn_tabs = {'temp', 'pres', 'vel'}  # These layout stubs represent rendered fields.
+    win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})  # These layout stubs represent rendered fields.
     win._update_tab_visibility()
     win._switch_tab('temp')
     win._set_parameter_panel_collapsed(collapsed)

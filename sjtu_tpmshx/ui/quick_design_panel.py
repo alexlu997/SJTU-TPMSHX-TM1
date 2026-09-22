@@ -418,7 +418,7 @@ def build_quick_design_dialog(parent=None):
     le_rho = QLineEdit("7900"); le_rho.setFixedWidth(80)
     le_ks = QLineEdit("16"); le_ks.setFixedWidth(60)
     le_ks.setToolTip("固体热导率: 304SS=16, AlSi10Mg≈150, Cu≈300。"
-                     "钢系内 Q 影响<1%; k_s↑ 经轴向寄生导热略降 Q。")
+                     "影响固体导热与两侧换热耦合，具体影响随工况和芯体尺寸变化。")
     combo_prop = QComboBox()
     combo_prop.addItem("均温物性", "mean")
     combo_prop.addItem("入口定物性", "const")
@@ -468,10 +468,10 @@ def build_quick_design_dialog(parent=None):
     auto_form.addRow("t 列表 (mm):", le_t)
 
     chk_refine = QCheckBox("连续 l、t 精修（warm-start）")
-    chk_refine.setChecked(False)                 # 默认关: 串行 NM, 耗时≈枚举一遍, 增益通常 <1%
+    chk_refine.setChecked(False)
     chk_refine.setToolTip("可选: 对枚举最优件再做连续 (l,t) Nelder-Mead 精修。"
-                          "串行不并行, 耗时约等于整轮枚举; 相对密集离散网格增益通常 <1%。"
-                          "快速扫无需勾选, 需榨最后 1% 体积时再开。")
+                          "使用串行局部搜索，可能增加计算时间；改善幅度取决于当前搜索网格。"
+                          "需要进一步比较连续尺寸候选时可开启。")
     auto_form.addRow("精细化:", chk_refine)
 
     root.addWidget(auto_group)

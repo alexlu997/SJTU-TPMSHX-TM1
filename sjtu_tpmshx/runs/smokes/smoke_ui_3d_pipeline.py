@@ -32,7 +32,7 @@ def main():
         app.processEvents()
         assert not win.compute.is_running(), '3D smoke timed out'
         assert win._compute_error is None, f'worker error: {win._compute_error}'
-        res = win._result_3d
+        res = win.cache.get_result('3d')
         assert res is not None, 'ComputeResult was not retained after publication'
         assert res.diagnostics.get('mode') == '3d'
         fields = res.fields
@@ -47,9 +47,9 @@ def main():
         from sjtu_tpmshx.ui.plot_2d_results import ensure_result_plot
         for name in ('temp', 'pres', 'vel'):
             assert ensure_result_plot(win, name), f'{name} slice failed'
-            assert name in win._drawn_tabs
+            assert name in win.cache.get_drawn_tabs()
             assert getattr(win, 'canvas_' + name)._hover_data
-        assert win._result_3d is res, 'slice rendering replaced the export source'
+        assert win.cache.get_result('3d') is res, 'slice rendering replaced the export source'
         summary = (f"[3/3] PASS in {time.monotonic()-t0:.0f}s — "
                    f"Q={res.Q_W:.1f} W  dP_A={res.dP_A_Pa:.0f} Pa  "
                    f"Ta{fields['Ta'].shape}  extrap={bool(res.extrap_reasons)}")

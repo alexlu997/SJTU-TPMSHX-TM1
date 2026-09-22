@@ -3,21 +3,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject
 
 
 class ThemeManager(QObject):
-    """Centralised theme state with change notification.
-
-    Pass the manager to FieldFactory so newly built widgets share its styles.
-
-    Signals
-    -------
-    theme_changed(str name)
-        Emitted when ``set_theme`` succeeds. Payload = new theme name.
-    """
-
-    theme_changed = Signal(str)
+    """Shared style cache for FieldFactory and GUI builders."""
 
     def __init__(self, parent: Optional[QObject] = None):
         super().__init__(parent)
@@ -61,10 +51,7 @@ class ThemeManager(QObject):
     def rebuild(self) -> Dict[str, Any]:
         """Re-evaluate Qt styles and the Matplotlib palette.
 
-        Called after a theme switch or font/density change. Does **not**
-        emit ``theme_changed`` by itself — that's reserved for explicit
-        ``set_theme`` calls so that swap-and-restart prompts don't fire on
-        every density tweak.
+        Called after font/density changes or during startup.
         """
         self._styles = self._theme_module()._build_styles()
         # mpl theme follows palette
@@ -74,22 +61,6 @@ class ThemeManager(QObject):
             pass
         return self._styles
 
-    def set_theme(self, name: str) -> bool:
-        """Activate the named theme. Returns True on success.
-
-        On success: rebuilds the style dict and fires
-        ``theme_changed``. The actual GUI repaint is *not* automatic —
-        callers must restart or rebuild widgets (Qt cannot live-swap QSS
-        across all already-constructed widgets cleanly). AppearanceMixin
-        owns saved preferences and the restart action.
-        """
-        try:
-            self._theme_module().set_theme(name)
-        except Exception:
-            return False
-        self.rebuild()
-        self.theme_changed.emit(name)
-        return True
 
     # ------------------------------------------------------------------ misc
 

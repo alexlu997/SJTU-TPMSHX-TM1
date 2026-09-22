@@ -13,17 +13,10 @@ from .theme import get_theme
 
 
 class Skeleton(QWidget):
-    """Shimmer placeholder with stylised axes + legend blocks.
+    """3D loading placeholder; the animation timer stops while hidden."""
 
-    Animates a highlight band left→right at ~40 FPS while visible; stops
-    the timer on hide so idle tabs cost nothing. `kind` chooses the layout:
-      'pareto' — scatter axes + legend row
-      '3d'     — a cube wireframe + floor + side bars
-    """
-
-    def __init__(self, kind='pareto', parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self._kind = kind
         self._phase = 0.0
         self._should_run = False
         self._timer = QTimer(self)
@@ -33,8 +26,7 @@ class Skeleton(QWidget):
     def start(self):
         self._should_run = True
         if not self._timer.isActive() and self.isVisible():
-            # 14 ms ≈ 70 Hz — buttery on a 144 Hz display without burning
-            # CPU when the user's not looking at the skeleton tab.
+            # Timer interval is a target, not a measured display frame rate.
             self._timer.start(14)
         self.show()
         self.raise_()
@@ -78,43 +70,29 @@ class Skeleton(QWidget):
         if w < 40 or h < 40:
             p.end(); return
 
-        def _block(x, y, bw, bh, radius=6, alpha=255):
+        def _block(x, y, bw, bh, alpha=255):
             col = QColor(_base); col.setAlpha(alpha)
             p.fillRect(QRect(int(x), int(y), int(bw), int(bh)), col)
 
-        # Draw the structural blocks based on kind
-        if self._kind == 'pareto':
-            # Title row + sub row
-            _block(40, 40, w * 0.25, 20, alpha=200)
-            _block(40, 68, w * 0.15, 14, alpha=140)
-            # Axes area
-            ax_x = 80; ax_y = 110
-            ax_w = w - 160; ax_h = h - 200
-            _block(ax_x, ax_y, ax_w, ax_h, radius=8, alpha=180)
-            # Legend strip bottom
-            _block(40, h - 60, w * 0.45, 18, alpha=150)
-            # Colour bar sliver right
-            _block(w - 60, ax_y, 20, ax_h, alpha=200)
-        else:  # 3d
-            # Outline wireframe cube
-            pen = QPen(_edge); pen.setWidthF(1.2)
-            p.setPen(pen); p.setBrush(Qt.BrushStyle.NoBrush)
-            cx, cy = w / 2, h / 2
-            s = min(w, h) * 0.42
-            dx, dy = s * 0.25, -s * 0.16
-            front = QRect(int(cx - s/2), int(cy - s/2), int(s), int(s))
-            back_x = int(cx - s/2 + dx); back_y = int(cy - s/2 + dy)
-            back = QRect(back_x, back_y, int(s), int(s))
-            p.drawRect(front); p.drawRect(back)
-            # Connect corners
-            for (fx, fy), (bx, by) in (
-                    (front.topLeft().toTuple(), back.topLeft().toTuple()),
-                    (front.topRight().toTuple(), back.topRight().toTuple()),
-                    (front.bottomLeft().toTuple(), back.bottomLeft().toTuple()),
-                    (front.bottomRight().toTuple(), back.bottomRight().toTuple())):
-                p.drawLine(fx, fy, bx, by)
-            # Caption strip
-            _block(40, h - 60, w * 0.35, 18, alpha=160)
+        # Outline wireframe cube
+        pen = QPen(_edge); pen.setWidthF(1.2)
+        p.setPen(pen); p.setBrush(Qt.BrushStyle.NoBrush)
+        cx, cy = w / 2, h / 2
+        s = min(w, h) * 0.42
+        dx, dy = s * 0.25, -s * 0.16
+        front = QRect(int(cx - s/2), int(cy - s/2), int(s), int(s))
+        back_x = int(cx - s/2 + dx); back_y = int(cy - s/2 + dy)
+        back = QRect(back_x, back_y, int(s), int(s))
+        p.drawRect(front); p.drawRect(back)
+        # Connect corners
+        for (fx, fy), (bx, by) in (
+                (front.topLeft().toTuple(), back.topLeft().toTuple()),
+                (front.topRight().toTuple(), back.topRight().toTuple()),
+                (front.bottomLeft().toTuple(), back.bottomLeft().toTuple()),
+                (front.bottomRight().toTuple(), back.bottomRight().toTuple())):
+            p.drawLine(fx, fy, bx, by)
+        # Caption strip
+        _block(40, h - 60, w * 0.35, 18, alpha=160)
 
         # Shimmer sweep — a diagonal gradient that moves phase → 1 across width
         shimmer_x = int(-w * 0.3 + self._phase * (w * 1.3))
@@ -128,9 +106,7 @@ class Skeleton(QWidget):
         p.fillRect(self.rect(), QBrush(grad))
 
         # Caption hint text
-        msg = ("Pareto scatter will appear here after NSGA-II finishes."
-               if self._kind == 'pareto' else
-               "Volumetric view loads after the first 3D compute.")
+        msg = "Volumetric view loads after the first 3D compute."
         pen = QPen(QColor(t.get('sub_fg', '#94A3B8')))
         p.setPen(pen)
         f = p.font(); f.setPointSize(9); f.setItalic(True); p.setFont(f)

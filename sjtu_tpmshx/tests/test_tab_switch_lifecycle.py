@@ -26,7 +26,7 @@ def test_queued_tab_request_runs_after_the_current_switch(win):
 
 
 def test_show_event_reentry_keeps_the_latest_empty_state(win, monkeypatch):
-    win._drawn_tabs = win._drawn_tabs - {'layout'}
+    win.cache.replace_drawn_tabs(win.cache.get_drawn_tabs() - {'layout'})
     win._canvas_cards['layout'].hide()
     card = win._canvas_cards['pareto']
     original_show = card.showEvent

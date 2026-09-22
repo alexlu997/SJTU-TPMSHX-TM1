@@ -36,7 +36,7 @@ def win(tmp_path, monkeypatch):
     monkeypatch.setattr(SessionManager, '__init__',
                         lambda self, parent=None: original_init(
                             self, base_dir=tmp_path, parent=parent))
-    monkeypatch.setenv('SJTU_TPMSHX_DISABLE_3D_PANEL', '1')
+    monkeypatch.setenv('TPMSHX_DISABLE_3D_PANEL', '1')
     window = Main_Menu()
     monkeypatch.setattr(window, '_validate_inputs_preflight', lambda: True)
     monkeypatch.setattr(window, '_preflight_grid', lambda: True)
@@ -76,20 +76,20 @@ def test_2d_tout_displays_result_scalars_across_units_and_direction_drafts(win):
         win.combo_dirA.setCurrentIndex(direction)
         win.combo_dirB.setCurrentIndex(3-direction)
         win._update_tout(-1)
-        assert float(win._r_ToutA.text()) == 341.25
-        assert float(win._r_ToutB.text()) == 312.75
+        assert float(win._sb_labels['tout'].text().split(' / ')[0]) == 341.25
+        assert float(win._sb_labels['tout'].text().split(' / ')[1]) == 312.75
     win._toggle_temp_unit()
     assert '[°C]' in win._lbl_sidebar_tout_unit.text()
     assert win._sb_labels['tout'].text() == '68.10 / 39.60'
     win._update_tout(0)
-    assert float(win._r_ToutA.text()) == pytest.approx(68.10)
-    assert float(win._r_ToutB.text()) == pytest.approx(39.60)
+    assert float(win._sb_labels['tout'].text().split(' / ')[0]) == pytest.approx(68.10)
+    assert float(win._sb_labels['tout'].text().split(' / ')[1]) == pytest.approx(39.60)
     win._toggle_temp_unit()
     assert '[K]' in win._lbl_sidebar_tout_unit.text()
     assert win._sb_labels['tout'].text() == '341.25 / 312.75'
-    assert float(win._r_ToutA.text()) == 341.25
-    assert float(win._r_ToutB.text()) == 312.75
-    assert win._compute_results['Q_total'] == result.Q_W == 123.
+    assert float(win._sb_labels['tout'].text().split(' / ')[0]) == 341.25
+    assert float(win._sb_labels['tout'].text().split(' / ')[1]) == 312.75
+    assert win.cache.get_result('2d')['Q_total'] == result.Q_W == 123.
 
 
 @pytest.mark.parametrize('mode', ['2d', '3d'])
@@ -386,8 +386,8 @@ def test_worker_publishes_payload_on_gui_thread_without_reentry(win, monkeypatch
     if mode == '3d':
         assert win.cache.get_result(mode) is result
     else:
-        assert win._compute_results['Ta'] is result.fields['Ta']
-        assert win._compute_results['Q_total'] == result.Q_W
+        assert win.cache.get_result('2d')['Ta'] is result.fields['Ta']
+        assert win.cache.get_result('2d')['Q_total'] == result.Q_W
     assert not win._compute_running
     assert win.btn_compute.isEnabled()
     assert win._compute_btn_handler == win.run_calculation
@@ -718,3 +718,20 @@ def test_geometry_grid_suggestion_uses_selected_scheme_and_preserves_edits(win, 
     win._mark_grid_edited()
     assert win.compute_tpms()
     assert tuple(int(getattr(win, 'le_N' + axis).text()) for axis in 'xyz') == (111, 30, 20)
+
+
+@pytest.mark.parametrize('side', ['A', 'B'])
+@pytest.mark.parametrize('index,fluid_type', [(0, 'air'), (1, 'water'), (2, 'sco2')])
+def test_auto_fill_uses_same_fluid_type_as_config(win, monkeypatch, side, index, fluid_type):
+    from sjtu_tpmshx.ui.window_config import config_from_window
+    getattr(win, f'combo_fluid{side}').setCurrentIndex(index)
+    monkeypatch.setattr(win, 'compute_tpms', lambda: True)
+    observed = []
+    def compute(*args, **kwargs):
+        observed.append(kwargs['fluid_type'])
+        return dict(Re=1000., Nu=30., rho=10., dP_per_L=5.)
+    monkeypatch.setattr('sjtu_tpmshx.ui.mixins.fluid_input.tpms_compute', compute)
+    win._auto_fill_fluid(side)
+    cfg = config_from_window(win)
+    assert observed == [fluid_type]
+    assert getattr(cfg, f'fluid_{side}').type == fluid_type

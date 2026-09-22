@@ -132,16 +132,16 @@ class UIBuilderMixin:
                         _FieldEditCmd(le, prev, cur, self._undo_last, name))
             le.editingFinished.connect(_on_finished)
             self.signals.adopt(le.editingFinished, _on_finished,
-                                tag=f'undo-edit-{name}', sender=le)
+                                sender=le)
 
         sc_u = QShortcut(QKeySequence.StandardKey.Undo, self)
         sc_u.activated.connect(self._undo_stack.undo)
         self.signals.adopt(sc_u.activated, self._undo_stack.undo,
-                            tag='sc-undo', sender=sc_u)
+                            sender=sc_u)
         sc_r = QShortcut(QKeySequence.StandardKey.Redo, self)
         sc_r.activated.connect(self._undo_stack.redo)
         self.signals.adopt(sc_r.activated, self._undo_stack.redo,
-                            tag='sc-redo', sender=sc_r)
+                            sender=sc_r)
 
     def _install_field_help(self):
         """Attach rich HTML tooltips to physics inputs. Tooltips include the
@@ -178,7 +178,7 @@ class UIBuilderMixin:
 
         self.statusBar().messageChanged.connect(_on_msg)
         self.signals.adopt(self.statusBar().messageChanged, _on_msg,
-                            tag='statusbar-msg', sender=self.statusBar())
+                            sender=self.statusBar())
 
         btn = QPushButton("▲  Log")
         btn.setFixedHeight(18)
@@ -191,6 +191,5 @@ class UIBuilderMixin:
         btn.setToolTip("Show recent status messages")
         btn.clicked.connect(self._show_status_log)
         self.signals.adopt(btn.clicked, self._show_status_log,
-                            tag='btn-status-log', sender=btn)
+                            sender=btn)
         self.statusBar().addPermanentWidget(btn)
-        self._btn_status_log = btn

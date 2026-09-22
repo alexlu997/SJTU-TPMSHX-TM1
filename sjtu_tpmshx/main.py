@@ -25,12 +25,12 @@ from sjtu_tpmshx.ui.mixins import (RunHistoryMixin, DialogsMixin, ZonePanelMixin
                        OptimizeUIMixin, TabViewMixin, UIBuilderMixin,
                        FluidInputMixin, RunControllerMixin, RunResultsMixin,
                        AppearanceMixin, SessionPresetsMixin,
-                       ShortcutsMixin, IOActionsMixin, ResultBridgeMixin)
+                       ShortcutsMixin, IOActionsMixin)
 from sjtu_tpmshx.ui.ui_constants import (
     TOAST_MS_BRIEF, TOAST_MS_MED,
 )
 from sjtu_tpmshx.ui.theme import (
-    get_theme_name, set_theme,
+    set_theme,
     apply_mpl_theme, set_density,
 )
 
@@ -73,7 +73,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
                 TabViewMixin, UIBuilderMixin, FluidInputMixin,
                 RunControllerMixin, RunResultsMixin,
                 AppearanceMixin, SessionPresetsMixin,
-                ShortcutsMixin, IOActionsMixin, ResultBridgeMixin,
+                ShortcutsMixin, IOActionsMixin,
                 QMainWindow):
     def __init__(self):
         super().__init__()
@@ -131,24 +131,19 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         # Phase 1: solver lifecycle (refactor-p1-done).
         self.compute = ComputeOrchestrator(self)
         self.signals.connect(self.compute.started, self._on_orch_started,
-                             tag='compute.started', sender=self.compute)
+                             sender=self.compute)
         self.signals.connect(self.compute.progress, self._on_orch_progress,
-                             tag='compute.progress', sender=self.compute)
+                             sender=self.compute)
         self.signals.connect(self.compute.iteration, self._on_orch_iteration,
-                             tag='compute.iteration', sender=self.compute)
+                             sender=self.compute)
         self.signals.connect(self.compute.finished, self._on_orch_finished,
-                             tag='compute.finished', sender=self.compute)
+                             sender=self.compute)
         self.signals.connect(self.compute.error, self._on_orch_error,
-                             tag='compute.error', sender=self.compute)
+                             sender=self.compute)
         self.signals.connect(self.compute.cancelled, self._on_orch_cancelled,
-                             tag='compute.cancelled', sender=self.compute)
+                             sender=self.compute)
 
-        # Phase 2: result + session aggregation. SessionManager now owns
-        # all .last_session_*.json / .user_presets.json / .workspace IO.
-        # ResultCache is instantiated for new code; legacy result attrs
-        # (_compute_results / _recent_runs / _has_results_*) stay in place
-        # and will migrate incrementally in later phases to avoid touching
-        # the compute-path call sites (now pipelines/stages_*.py).
+        # Persist user sessions separately from current renderable results.
         self.sm = SessionManager(parent=self)
         self.cache = ResultCache(self)
 
@@ -177,14 +172,6 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         # is already on screen when the overlay appears.
         from PySide6.QtCore import QTimer as _QT
         _QT.singleShot(1200, self._maybe_show_onboarding)
-        if get_theme_name() == 'dark':
-            from sjtu_tpmshx.ui.glass_panel import generate_blurred_bg
-            from PySide6.QtGui import QPalette, QBrush
-            _bg_pix = generate_blurred_bg(1920, 1080)
-            pal = self.palette()
-            pal.setBrush(QPalette.ColorRole.Window, QBrush(_bg_pix))
-            self.setPalette(pal)
-            self.setAutoFillBackground(True)
         self._apply_shanghai_defaults()
         # Restore the last-used field state on top of the Shanghai baseline
         # so returning users see exactly what they had, while the Reset
@@ -200,7 +187,6 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         for le in (self.le_Nx, self.le_Ny, self.le_Nz):
             le.textEdited.connect(self._mark_grid_edited)
             self.signals.adopt(le.textEdited, self._mark_grid_edited,
-                                tag=f'grid-edited-{le.objectName() or id(le)}',
                                 sender=le)
         self._setup_shortcuts()
         # PyVista/VTK context creation costs 1-2 s and was running 500 ms
@@ -510,10 +496,6 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
     #  Inlet / Outlet helpers (unified)
     # ─────────────────────────────────────────────────────────
     _DIR_MAP = {0: '+x', 1: '-x', 2: '+y', 3: '-y', 4: '+z', 5: '-z'}
-
-
-    # Wall mapping moved to domain.validator.wall_for_dir (Phase 4 #4).
-    # These shims keep call sites in main.py + ui/* working unchanged.
 
 
     # Auto-defaults applied when the user swaps the fluid type for a given
@@ -931,7 +913,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
              "Run heat-transfer and pressure-drop solve for current parameters"),
             ('btn_more', "更多",
              "切换主题、温度单位和工作区，查看诊断、帮助与快捷键"),
-            ('btn_toggle_left', "Parameter panel",
+            ('btn_collapse_parameters', "Parameter panel",
              "Collapse or expand the left parameter panel"),
             ('combo_tpms', "TPMS type",
              "Triply-Periodic Minimal Surface lattice type"),
@@ -1151,7 +1133,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             cb = self._make_field_handler(le, attr, fam_target, is_positive)
             le.editingFinished.connect(cb)
             self.signals.adopt(le.editingFinished, cb,
-                                tag=f'field-{attr}', sender=le)
+                                sender=le)
 
     def _make_field_handler(self, le, attr, fam_target, is_positive):
         """Build the per-field blur callback: parse → validate → apply.
@@ -1284,23 +1266,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         timer.start()
 
 
-    # -------------------------------------------------------------------
-    # ComputeOrchestrator signal handlers (Plan #4 Phase 1.2 — A.2 wiring).
-    # Replace the raw threading.Thread + QTimer poll pattern in
-    # run_calculation. orchestrator's signals auto-marshal to the GUI thread,
-    # so these handlers run on the main thread (Qt-safe).
-    # -------------------------------------------------------------------
-
-
     _MAX_RECENT_RUNS = 5
-
-    # ─────────────────────────────────────────────────────────
-    #  3D compute pipeline (uniform MVP)
-    # ─────────────────────────────────────────────────────────
-    # NB: the duplicate `closeEvent` that used to live here (silently
-    # shadowing the canonical handler at L2755 above) was merged into the
-    # single handler on 2026-05-20. The PyVistaQt GL-context teardown
-    # logic now sits in step (2) of that handler.
 
     def _lazy_init_3d_panel(self):
         """Create PyVistaQt panel on first 3D tab click. ~1-2 s hit amortised.

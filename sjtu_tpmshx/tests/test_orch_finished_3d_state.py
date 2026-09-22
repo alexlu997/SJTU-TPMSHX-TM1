@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+from sjtu_tpmshx.controllers.result_cache import ResultCache
 from sjtu_tpmshx.ui.mixins.run_controller import RunControllerMixin
 from sjtu_tpmshx.ui.mixins.run_results import RunResultsMixin
 
@@ -39,16 +40,11 @@ class _DummyWindow(RunControllerMixin, RunResultsMixin):
     def __init__(self):
         self.compute = _ComputeStub()
         self.btn_compute = MagicMock()
-        # Stale prior 3D state we want to see reset.
-        self._has_results_3d = True
-        self._has_results = False
-        # B3 C5: window._result_3d is the ComputeResult (raw_3d dict retired);
-        # _on_orch_finished reads res.Q_W / res.dP_A_Pa / res.diagnostics.
         from sjtu_tpmshx.domain.compute_result import ComputeResult
-        self._result_3d = ComputeResult(Q_W=100.0, dP_A_Pa=50.0,
-                                        diagnostics={'mode': '3d'})
+        self.cache = ResultCache()
+        self.cache.set_result('3d', ComputeResult(Q_W=100.0, dP_A_Pa=50.0,
+                                                diagnostics={'mode': '3d'}))
         self._rendered_3d_slices = False
-        self._drawn_tabs = set()
         self._compute_running = True
         self._last_solve_log = ''
         self._compute_3d_watchdog = None
@@ -70,35 +66,6 @@ class _DummyWindow(RunControllerMixin, RunResultsMixin):
         return _StatusBarStub()
 
 
-class _CacheBridgeWindow(_DummyWindow):
-    """Models the REAL ``main.Main_Menu`` ResultCache bridge instead of plain
-    attrs: ``_result_3d`` is property-backed, and the ``_has_results_3d`` setter
-    NULLS ``_result_3d`` when set False (getter = result-present). The plain-attr
-    ``_DummyWindow`` decoupled the flag from the result, which HID the U1 bug
-    where a soft viz-fail destroyed a valid solve's result (audit 2026-06-28)."""
-
-    def __init__(self):
-        self._cache_3d = None          # backing store, must exist before setters
-        super().__init__()
-
-    @property
-    def _result_3d(self):
-        return self._cache_3d
-
-    @_result_3d.setter
-    def _result_3d(self, v):
-        self._cache_3d = v
-
-    @property
-    def _has_results_3d(self):
-        return self._cache_3d is not None
-
-    @_has_results_3d.setter
-    def _has_results_3d(self, v):
-        if not v:                       # the result-nulling coupling (real bridge)
-            self._cache_3d = None
-
-
 # ── tests ───────────────────────────────────────────────────────────
 
 
@@ -113,7 +80,7 @@ def _run_finished(win, finalize_behavior):
         patch_fin = patch('sjtu_tpmshx.ui.plot_3d_results.finalize_plots_3d',
                           return_value=finalize_behavior)
     with patch_fin:
-        main.Main_Menu._on_orch_finished(win, win._result_3d)
+        main.Main_Menu._on_orch_finished(win, win.cache.get_result('3d'))
     assert not win._compute_running
 
 
@@ -121,8 +88,8 @@ def test_3d_finalize_crash_gates_tab_off_but_keeps_result():
     """When ``finalize_plots_3d`` raises, the 3D View tab must be gated off
     (``_3d_view_ready`` False) — but the valid solver result must SURVIVE so it
     stays exportable (U1: was destroyed via the result-nulling bridge)."""
-    win = _CacheBridgeWindow()
-    assert win._result_3d is not None and win._has_results_3d is True
+    win = _DummyWindow()
+    assert win.cache.get_result('3d') is not None and win.cache.has_results('3d') is True
 
     _run_finished(win, RuntimeError("PyVista context lost"))
 
@@ -130,17 +97,17 @@ def test_3d_finalize_crash_gates_tab_off_but_keeps_result():
     # the dedicated flag instead of the result-nulling _has_results_3d.
     assert getattr(win, '_3d_view_ready', False) is False
     # U1: result preserved — Export / status read _result_3d.
-    assert win._result_3d is not None, "finalize crash destroyed the 3D result"
+    assert win.cache.get_result('3d') is not None, "finalize crash destroyed the 3D result"
 
 
 def test_3d_finalize_success_marks_view_ready_and_keeps_result():
     """Happy path: finalize returns True → tab ready + result present."""
-    win = _CacheBridgeWindow()
+    win = _DummyWindow()
 
     _run_finished(win, True)
 
     assert getattr(win, '_3d_view_ready', False) is True
-    assert win._result_3d is not None
+    assert win.cache.get_result('3d') is not None
 
 
 def test_3d_soft_vis_fail_preserves_result_for_export():
@@ -149,12 +116,12 @@ def test_3d_soft_vis_fail_preserves_result_for_export():
     must NOT destroy the freshly-computed 3D result. The valid Q/dP must survive
     so the 'visualisation failed' status branch + Export work; tab-readiness is
     carried by ``_3d_view_ready`` instead of the result-nulling flag."""
-    win = _CacheBridgeWindow()
-    assert win._result_3d is not None
+    win = _DummyWindow()
+    assert win.cache.get_result('3d') is not None
 
     _run_finished(win, False)
 
     # The bug: line 566 wrote _has_results_3d=False -> bridge nulled _result_3d.
-    assert win._result_3d is not None, "soft viz-fail destroyed the 3D result"
+    assert win.cache.get_result('3d') is not None, "soft viz-fail destroyed the 3D result"
     # Tab gated off so the user is not routed to a blank canvas.
     assert getattr(win, '_3d_view_ready', False) is False

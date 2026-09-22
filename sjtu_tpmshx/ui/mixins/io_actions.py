@@ -16,16 +16,9 @@ class IOActionsMixin:
         import csv
         from pathlib import Path
         from sjtu_tpmshx.io.file_set import staged_files
-        res_3d = getattr(self, '_result_3d', None)
-        has_2d = getattr(self, '_has_results_2d', False)
-        # 2026-05-20 UI sweep (Tier 14, user re-audit): previously this
-        # gate used `_has_results_3d`, which only goes True if the 3D
-        # PyVistaQt panel rendered successfully. When the solver
-        # succeeded but visualisation failed, the export button was
-        # enabled (gated on `_has_results`) yet clicking it landed on
-        # the "No Results" dialog because both `has_2d` and `has_3d`
-        # were False. Switch to a data-presence check: numerical results
-        # are exportable independent of whether the 3D scene rendered.
+        res_3d = self.cache.get_result('3d')
+        has_2d = self.cache.has_results('2d')
+        # Export accepted numerical data independently of renderer readiness.
         has_3d = res_3d is not None
         if not has_2d and not has_3d:
             QMessageBox.information(self, "No Results",
@@ -70,7 +63,7 @@ class IOActionsMixin:
                 rows.append(["Ly [m]", f"{_rf.get('Ly', 0) or 0:.6f}"])
                 rows.append(["Lz [m]", f"{_rf.get('Lz', 0) or 0:.6f}"])
             else:
-                res_2d = self._compute_results
+                res_2d = self.cache.get_result('2d')
                 status = {key: res_2d.get(key) for key in
                           ('converged', 'envelope_valid', 'outer_converged',
                            'warnings', 'extrap_reasons', 'metadata')}
@@ -254,7 +247,7 @@ class IOActionsMixin:
                   'vel': getattr(self, 'canvas_vel', None),
                   'layout': getattr(self, 'canvas_layout', None),
                   'pareto': getattr(self, 'canvas_pareto', None)}.get(tab)
-        if canvas is None or tab not in getattr(self, '_drawn_tabs', set()):
+        if canvas is None or tab not in self.cache.get_drawn_tabs():
             self.statusBar().showMessage("当前无可复制的图像 — 请先计算或预览。",
                                          TOAST_MS_SHORT)
             return
@@ -272,10 +265,10 @@ class IOActionsMixin:
         tab_canvas = {'temp': self.canvas_temp, 'pres': self.canvas_pres,
                       'vel': self.canvas_vel, 'layout': self.canvas_layout,
                       'pareto': self.canvas_pareto}
-        drawn = getattr(self, '_drawn_tabs', set())
+        drawn = self.cache.get_drawn_tabs()
         available = set(drawn)
-        if (getattr(self, '_compute_results', None) is not None
-                or getattr(self, '_result_3d', None) is not None):
+        if (self.cache.get_result('2d') is not None
+                or self.cache.get_result('3d') is not None):
             available.update(('temp', 'pres', 'vel'))
         items = [name for name, key in all_items if key in available]
         tab_keys = [key for name, key in all_items if key in available]

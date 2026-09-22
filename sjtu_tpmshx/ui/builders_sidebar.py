@@ -18,8 +18,6 @@ def _build_result_sidebar(window, _t, t):
     slay.setSpacing(6)
 
     _card_qss = f"QWidget#resultDiagnostics{{{glass_surface(_t)}}}"
-    _h_qss = (f"color:{_t.get('sub_fg', _t['fg'])}; background:transparent;"
-              " border:none; font-size:9pt; font-weight:600;")
     _lbl_qss = (f"color:{_t.get('sub_fg', _t['fg'])}; background:transparent;"
                 " border:none; font-size:9pt;")
     _val_qss = (f"color:{_t['fg']}; background:transparent; border:none;"
@@ -41,10 +39,6 @@ def _build_result_sidebar(window, _t, t):
         window._sb_labels[key] = v
         return l
 
-    window._sb_result_heading = QLabel("本次结果")
-    window._sb_result_heading.setStyleSheet(_h_qss)
-    slay.addWidget(window._sb_result_heading)
-    window._sb_result_heading.hide()  # The workbench header shows the run mode.
     headline = ResponsiveRow(threshold=640, spacing=8)
     window._result_kpi_row = headline
     heat_pressure = QWidget()
@@ -115,25 +109,36 @@ def _build_result_sidebar(window, _t, t):
     return scroll
 
 
+def result_metric_texts(window):
+    """Format the published scalar snapshot for the footer and run history."""
+    from math import isfinite
+    d = getattr(window, '_diag_summary', None) or {}
+    is_3d = d.get('mode') == '3d'
+    def value(number, digits):
+        return f"{number:.{digits}f}" if number is not None and isfinite(number) else '—'
+    offset = 273.15 if getattr(window, '_temp_unit', 'K') == 'C' else 0.0
+    temperatures = getattr(window, '_tout_K_cache', None) or (None, None)
+    return {
+        'Q': value(d.get('Q_W'), 2 if is_3d else 1),
+        'dP_A': value(d.get('dP_A'), 0 if is_3d else 1),
+        'dP_B': value(d.get('dP_B'), 0 if is_3d else 1),
+        'ToutA': value(None if temperatures[0] is None else temperatures[0] - offset, 2),
+        'ToutB': value(None if temperatures[1] is None else temperatures[1] - offset, 2),
+    }
+
+
 def refresh_result_sidebar(window):
     """Refresh result metrics and diagnostics after publication or tab changes."""
     labels = getattr(window, '_sb_labels', None)
     if not labels:
         return
     _t = get_theme()
-    def _value(attr):
-        w = getattr(window, attr, None)
-        s = w.text().strip() if w is not None else ''
-        return s if s and s != '—' else '—'
-    labels['q'].setText(f"{_value('_r_Q')} {getattr(window, '_result_Q_unit', '')}".strip())
-    labels['dpa'].setText(_value('_r_dP_A'))
-    labels['dpb'].setText(_value('_r_dP_B'))
-    labels['tout'].setText(f"{_value('_r_ToutA')} / {_value('_r_ToutB')}")
-
+    values = result_metric_texts(window)
+    labels['q'].setText(f"{values['Q']} {getattr(window, '_result_Q_unit', '')}".strip())
+    labels['dpa'].setText(values['dP_A'])
+    labels['dpb'].setText(values['dP_B'])
+    labels['tout'].setText(f"{values['ToutA']} / {values['ToutB']}")
     d = getattr(window, '_diag_summary', None) or {}
-    mode = d.get('mode')
-    window._sb_result_heading.setText(
-        f"本次结果 · {mode.upper()}" if mode in ('2d', '3d') else "本次结果")
     _good = _t.get('accent_green', '#22C55E')
     _warn = _t.get('warn', '#FBBF24')
 
@@ -170,7 +175,7 @@ def update_result_sidebar_visibility(window):
     if side is None:
         return
     show = (getattr(window, '_active_tab', None) in ('temp', 'pres', 'vel', '3d')
-            and getattr(window, '_has_results', False))
+            and window.cache.has_any_results())
     toggle = window.btn_result_summary
     toggle.setVisible(bool(show))
     side.setVisible(bool(show) and toggle.isChecked()

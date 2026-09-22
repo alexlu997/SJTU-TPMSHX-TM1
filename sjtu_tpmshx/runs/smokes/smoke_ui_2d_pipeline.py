@@ -33,14 +33,14 @@ def main():
         assert not win.compute.is_running(), '2D smoke timed out'
         assert win._compute_error is None, f'worker error: {win._compute_error}'
 
-        result = win._compute_results
+        result = win.cache.get_result('2d')
         assert result and result.get('Ta') is not None, 'no results written'
         shape = (result['N_x'], result['N_y'])
         for name in ('Ta', 'Tb', 'Ts'):
             values = result[name]
             assert values.shape == shape and np.isfinite(values).all(), name
         assert result['Q_total'] > 0, f"non-physical Q_total {result['Q_total']!r}"
-        assert 'temp' in win._drawn_tabs and win.canvas_temp._hover_data
+        assert 'temp' in win.cache.get_drawn_tabs() and win.canvas_temp._hover_data
         summary = (f"[3/3] PASS in {time.monotonic()-t0:.0f}s — "
                    f"Q={result['Q_total']:.1f} W/m  dP_A={result['dP_A']:.0f} Pa  "
                    f"dP_B={result['dP_B']:.0f} Pa  Ta{shape}")

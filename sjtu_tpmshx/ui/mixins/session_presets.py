@@ -144,30 +144,11 @@ class SessionPresetsMixin:
         path and the Recent-run click path (which routes through the
         same helper).
         """
-        # 2D-mode result flags + cached fields.
-        self._has_results_2d = False
-        self._compute_results = None
-        # 3D-mode result flags + cached fields.
-        self._has_results_3d = False
-        # U1 (2026-06-28): 3D View tab readiness (PyVista panel populated) is a
-        # SEPARATE flag from result-presence (_has_results_3d). A soft viz-fail
-        # keeps the result (exportable) but leaves this False (tab disabled).
+        self.cache.clear()
         self._3d_view_ready = False
-        self._result_3d = None
         self._tout_K_cache = None
-        # Aggregate flag + draw tracker — keep in lock-step with the two
-        # mode-specific flags above.
-        self._has_results = False
-        self._drawn_tabs = set()
-        # Reset the outlet temperature display so a stale value can't be
-        # mistaken for the post-preset result.
-        for attr in ('_r_ToutA', '_r_ToutB', '_r_dP_A', '_r_dP_B', '_r_Q'):
-            w = getattr(self, attr, None)
-            if w is not None:
-                try:
-                    w.setText("—")  # em dash
-                except Exception:
-                    pass
+        self._diag_summary = {}
+        self._update_result_summary()
         # Refresh tab visibility so the result tabs (Temp/Pres/Vel/3D)
         # disable now that there are no results to show.
         try:
@@ -487,7 +468,6 @@ class SessionPresetsMixin:
     _SESSION_LINE_EDITS = (
         'le_L', 'le_H', 'le_Lz', 'le_Lcell', 'le_t', 'le_ks',
         'le_uA', 'le_TinA', 'le_PinA', 'le_uB', 'le_TinB', 'le_PinB',
-        # le_TsInit removed 2026-04-29 (numerical seed only, not physical)
         'le_Nx', 'le_Ny', 'le_Nz',
         'le_rho_s',
         'le_pipeA_in_ctr', 'le_pipeA_in_w',

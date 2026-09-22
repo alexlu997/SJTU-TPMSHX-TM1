@@ -1,18 +1,7 @@
-"""plot_3d_results.py — visualisation layer for the 3D compute results.
+"""Render cached 3D ComputeResult fields in PyVistaQt and 2D slice canvases.
 
-Extracted from ``runs/run_calculation_3d.py`` (2026-06-09 refactor Group-4
-slice A2/A1): this is the Qt + matplotlib + ui.theme side of the 3D path —
-pushing a finished ``window._result_3d`` dict into the embedded PyVistaQt panel
-and the mid-z 2D slice canvases. Keeping it here makes ``run_calculation_3d``
-genuinely compute-only (no ui.theme / matplotlib import), which is what the C4
-``ComputePipeline`` "Qt-free" contract wants.
-
-Behaviour is byte-for-byte the original — functions moved verbatim, only the
-``from ui.theme import get_theme`` import was hoisted to module top.
-
-Entry:
-    finalize_plots_3d(window) -> bool   — push fields into ThreeDVisPanel +
-                                          (optionally) the mid-z 2D slices.
+The display layer consumes SI fields and derives kPa/temperature display units
+without modifying solver output. Panel readiness is separate from data presence.
 """
 from __future__ import annotations
 import numpy as np
@@ -26,42 +15,8 @@ from sjtu_tpmshx.logutil import get_logger
 _log = get_logger(__name__)
 
 
-def _fmt_metric(value, fmt, dash='-'):
-    try:
-        if value is None or not np.isfinite(float(value)):
-            return dash
-        return fmt.format(float(value))
-    except Exception:
-        return dash
 
 
-def _store_3d_result_labels(window, result):
-    """Mirror 3D scalar metrics into the legacy left-panel labels.
-
-    The canvas-top summary strip reads these same labels, so keeping this
-    centralised prevents the 3D path from showing partial KPI state.
-
-    ``result`` is the :class:`ComputeResult` published on
-    ``window._result_3d`` (B3 C5 — the raw_3d dict carrier was retired).
-    """
-    values = {
-        '_r_Q': _fmt_metric(result.Q_W, '{:.2f}'),
-        '_r_dP_A': _fmt_metric(result.dP_A_Pa, '{:.0f}'),
-        '_r_dP_B': _fmt_metric(result.dP_B_Pa, '{:.0f}'),
-        '_r_ToutA': _fmt_metric(result.T_out_A_K, '{:.1f}'),
-        '_r_ToutB': _fmt_metric(result.T_out_B_K, '{:.1f}'),
-    }
-    for attr, text in values.items():
-        label = getattr(window, attr, None)
-        if label is not None:
-            try:
-                label.setText(text)
-            except Exception:
-                pass
-    for attr, value in (('_r_ToutA', result.T_out_A_K), ('_r_ToutB', result.T_out_B_K)):
-        label = getattr(window, attr, None)
-        if label is not None and _fmt_metric(value, '{:.1f}') != '-':
-            window._set_temp_K(label, value, fmt='{:.1f}')
 
 
 def finalize_plots_3d(window) -> bool:
@@ -76,22 +31,14 @@ def finalize_plots_3d(window) -> bool:
         mode without a panel). The caller should NOT auto-switch to the
         3D tab in that case.
 
-        Added 2026-05-20 UI sweep: prior to this, the function swallowed
-        all visualisation exceptions (only ``print`` + ``traceback``),
-        and ``main.py`` unconditionally marked ``_has_results_3d=True``
-        and switched to the 3D tab, leading to the "status bar says
-        done but canvas is blank" failure mode.
     """
-    res = getattr(window, '_result_3d', None)
+    res = window.cache.get_result('3d')
     if res is None:
-        _log.warning("[3D vis] window._result_3d is None — solver produced no "
+        _log.warning("[3D vis] no cached 3D result — solver produced no "
                      "stashed ComputeResult; nothing to visualise.")
         return False
-    # B3 C5: res is the ComputeResult (raw_3d dict carrier retired). The
-    # renderer reads arrays from res.fields and headline scalars from the
-    # dataclass attributes; P_kPa is derived P_fA/1000.0 at render time.
+    # Arrays stay in SI units; display pressure is converted to kPa here.
     f = res.fields
-    _store_3d_result_labels(window, res)
     # Skeleton placeholder retires once real 3D data lands.
     sk = getattr(window, '_3d_skeleton', None)
     if sk is not None:
@@ -182,7 +129,7 @@ def finalize_plots_3d(window) -> bool:
     if (hasattr(window, '_field_phase')
             or _os_3d_fin.environ.get('TPMSHX_EAGER_3D_SLICES', '0') == '1'):
         _render_2d_slices_from_3d(window, res, field='temp')
-        window._rendered_3d_slices = 'temp' in getattr(window, '_drawn_tabs', ())
+        window._rendered_3d_slices = 'temp' in window.cache.get_drawn_tabs()
         from .plot_2d_results import ensure_result_plot
         for field, dialog in getattr(window, '_detached_canvases', {}).items():
             if field in ('temp', 'pres', 'vel') and dialog.isVisible():
@@ -293,7 +240,7 @@ def _render_2d_slices_from_3d(window, res, field=None):
                 'Nx': Nx, 'Ny': Ny, 'L': float(np.sum(dx)), 'H': float(np.sum(dy)),
                 'dx_arr': dx, 'dy_arr': dy, 'slice_index': k_mid,
             }
-            window._drawn_tabs = set(getattr(window, '_drawn_tabs', ())) | {key}
+            window.cache.replace_drawn_tabs(set(window.cache.get_drawn_tabs()) | {key})
         except Exception as e:
             import traceback; traceback.print_exc()
             _log.warning(f"[3D->2D {attr}] {e}")
