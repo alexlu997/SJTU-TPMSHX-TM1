@@ -1,4 +1,6 @@
 """Physical grid construction, independent of numerical kernels."""
+import math
+
 import numpy as np
 
 SHANGHAI_GRID_2D = (84, 24, 1)
@@ -56,6 +58,35 @@ def _port_wall_axes(lengths, ports):
 def port_wall_min_counts(lengths, ports):
     """Minimum total counts required by the actual port/wall construction."""
     return tuple(spec[-1] for spec in _port_wall_axes(lengths, ports))
+
+
+def suggest_grid_3d(L_dom: float, H_dom: float, Lz_dom: float,
+                    D_h: float, max_cells: int = 50_000, *,
+                    port_wall_refine: bool = False, ports=()) -> tuple[int, int, int]:
+    """Suggest total cell counts for the selected desktop mesh scheme.
+
+    Hydraulic-diameter spacing is a starting heuristic, not an accuracy
+    guarantee. Port/wall counts already include all refinement layers; their
+    minimum comes from the same port segmentation as the grid builder.
+    The budget applies to Nx * Ny * Nz, without a retired six-wall padding.
+    """
+    lengths = (L_dom, H_dom, Lz_dom)
+    for name, v in zip(('L_dom', 'H_dom', 'Lz_dom', 'D_h'), (*lengths, D_h)):
+        if not math.isfinite(v) or v <= 0:
+            raise ValueError(f'{name} must be finite and > 0, got {v}')
+    minimum = (14, 8, 3)
+    if port_wall_refine:
+        minimum = tuple(max(base, needed) for base, needed in
+                        zip(minimum, port_wall_min_counts(lengths, ports)))
+    if max_cells < math.prod(minimum):
+        raise ValueError(f'Grid budget {max_cells} is below the required minimum '
+                         f'{minimum} ({math.prod(minimum)} cells)')
+    counts = [max(floor, round(length / (spacing * D_h)))
+              for floor, length, spacing in zip(minimum, lengths, (1., .5, .5))]
+    while math.prod(counts) > max_cells:
+        axis = max(range(3), key=lambda i: counts[i] / minimum[i])
+        counts[axis] = max(minimum[axis], int(counts[axis] * .8))
+    return tuple(counts)
 
 
 def build_port_wall_grid(lengths, counts, ports):

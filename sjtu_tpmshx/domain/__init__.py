@@ -4,14 +4,12 @@ Case/result contracts, runtime controls, units and physical-input validation
 live in this package. UI code supplies scalar/dict values and presents the
 returned findings; domain helpers never read widgets or decide GUI behavior.
 
-This module exports the current geometry, port, unit-conversion and 3D mesh
-suggestion helpers. Fixed geometry/D-F coverage is distinct from the selected
+This module exports the current geometry, port and unit-conversion helpers. Fixed geometry/D-F coverage is distinct from the selected
 Nu correlation, experimental correction and property-envelope checks.
 """
 from __future__ import annotations
 
 from .validator import (
-    suggest_grid_3d,
     validate_geometry,
     compute_volumetric_htc,
     wall_for_dir,
@@ -23,7 +21,6 @@ from .validator import (
 )
 
 __all__ = [
-    'suggest_grid_3d',
     'validate_geometry',
     'compute_volumetric_htc',
     'wall_for_dir',

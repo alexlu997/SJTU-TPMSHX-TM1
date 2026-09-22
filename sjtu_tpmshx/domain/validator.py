@@ -36,39 +36,6 @@ class Warning:
         return f'[{self.severity}] {self.code}: {self.message}'
 
 
-# ---------------------------------------------------------------- grid suggestion
-
-
-def suggest_grid_3d(L_dom: float, H_dom: float, Lz_dom: float,
-                    D_h: float, max_cells: int = 50_000, *,
-                    port_wall_refine: bool = False, ports=()) -> Tuple[int, int, int]:
-    """Suggest total cell counts for the selected desktop mesh scheme.
-
-    Hydraulic-diameter spacing is a starting heuristic, not an accuracy
-    guarantee. Port/wall counts already include all refinement layers; their
-    minimum comes from the same port segmentation as the grid builder.
-    The budget applies to Nx * Ny * Nz, without a retired six-wall padding.
-    """
-    lengths = (L_dom, H_dom, Lz_dom)
-    for name, v in zip(('L_dom', 'H_dom', 'Lz_dom', 'D_h'), (*lengths, D_h)):
-        if not math.isfinite(v) or v <= 0:
-            raise ValueError(f'{name} must be finite and > 0, got {v}')
-    minimum = (14, 8, 3)
-    if port_wall_refine:
-        from sjtu_tpmshx.models.grid import port_wall_min_counts
-        minimum = tuple(max(base, needed) for base, needed in
-                        zip(minimum, port_wall_min_counts(lengths, ports)))
-    if max_cells < math.prod(minimum):
-        raise ValueError(f'Grid budget {max_cells} is below the required minimum '
-                         f'{minimum} ({math.prod(minimum)} cells)')
-    counts = [max(floor, round(length / (spacing * D_h)))
-              for floor, length, spacing in zip(minimum, lengths, (1., .5, .5))]
-    while math.prod(counts) > max_cells:
-        axis = max(range(3), key=lambda i: counts[i] / minimum[i])
-        counts[axis] = max(minimum[axis], int(counts[axis] * .8))
-    return tuple(counts)
-
-
 # ---------------------------------------------------------------- geometry
 
 

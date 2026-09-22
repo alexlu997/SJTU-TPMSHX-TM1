@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
+from sjtu_tpmshx.models.grid import suggest_grid_3d
 from sjtu_tpmshx.domain.validator import (
-    suggest_grid_3d,
     validate_geometry,
     compute_volumetric_htc,
     wall_for_dir,

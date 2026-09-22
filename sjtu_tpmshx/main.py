@@ -463,7 +463,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             L_dom = float(self.le_L.text())
             H_dom = float(self.le_H.text())
             if is_3d:
-                from sjtu_tpmshx.domain.validator import suggest_grid_3d
+                from sjtu_tpmshx.models.grid import suggest_grid_3d
                 try:
                     Lz_dom = float(self.le_Lz.text())
                 except ValueError:
