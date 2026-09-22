@@ -53,7 +53,7 @@ raise SystemExit(status)
     assert prepared.grid['dimension'] == dimension
     # These receiver overrides would change physical/numerical execution if
     # the frozen prepared Case were reinterpreted in the receiving process.
-    receiver = dict(clean_env, TPMSHX_CHI_S='0.99', TPMSHX_SIMPLE_TOL='0.9',
+    receiver = dict(clean_env, TPMSHX_CHI_S='0.99',
                     TPMSHX_CONV_MODE='legacy', TPMSHX_VAR_RHOCP='0',
                     TPMSHX_ROUGH_MODE='bhatti_shah_1b', TPMSHX_ROUGH_EPS_UM='300')
     result_path = downstream / 'results.h5'

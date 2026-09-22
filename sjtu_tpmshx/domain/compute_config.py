@@ -1,18 +1,8 @@
-"""Strict-typed compute configuration dataclasses.
+"""Qt-free production configuration and physical input validation.
 
-Audit followup C3 (L-a-1, 2026-05-28): replace the implicit "window
-object holds all settings" contract with explicit dataclasses. The
-solver / runs / optimization / validation layers all accept
-``ComputeConfig`` instead of the Qt window. The UI layer is the *only*
-place that reads ``QLineEdit`` / ``QComboBox`` values — everything
-below this module is Qt-free.
-
-The schema and validation are Qt-free. Validation imports the shared
-physical and model checks at their call sites.
-
-Schema (per
-``vault/reports/engineering/2026-05-28-sjtu-tpmshx-4-perspective-audit-CN.html``
-§视角2 §2.2 with minor extensions noted inline):
+The GUI converts widget values once through ``ui.window_config``.
+Preprocessing consumes these dataclasses, while execution consumes prepared
+CaseData. Shared physical checks are imported at their validation call sites.
 
 - ``FluidConfig``     — per-side fluid (type + u + T_in + P_in)
 - ``GeometryConfig``  — domain + TPMS unit-cell + solid k_s
@@ -25,16 +15,15 @@ Adapters
 
 - ``ui.window_config.config_from_window(window)`` — read ``window.le_*`` /
   ``window.combo_*`` once at the UI boundary; downstream callers no
-  longer touch ``window``. (Moved out of this module in the contracts-layer
-  split, 2026-07-02 — this module is now import-clean of any UI concern.)
+  longer touch ``window``.
 - ``ComputeConfig.from_json(path)`` / ``to_json(path)`` — JSON
   serialisation for production validation scripts and tests.
 
 Port, zone and extrapolation settings are explicit inputs. Runtime callbacks
 and cancellation belong to ``RunControl``; emitted warnings belong to results.
 
-Runtime env-flag registry (Batch-4, 2026-06-10)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Runtime environment switches
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Runtime overrides and diagnostic switches. Production run overrides are
 captured by ``domain.run_environment.capture_environment``; remaining flags
@@ -44,9 +33,9 @@ follow the read timing stated below.
   check. In production this allows inlet Nu/Re checks to proceed; it does not
   relax D-F geometry or fluid-property hard limits. Read by
   ``df_surrogate/surrogate_domain.py`` and continuous-field preparation.
-- ``TPMSHX_CHI_S`` (unset) — CONSTANT χ_s override (legacy escape hatch,
-  pre-B2 default was 1.0). When unset, χ_s comes from the B2 unit-cell
-  homogenization fit ``chi_s_eff(type, ε)`` (2026-07-06);
+- ``TPMSHX_CHI_S`` (unset) — constant χ_s research override.
+  When unset, χ_s comes from the unit-cell homogenization fit
+  ``chi_s_eff(type, ε)``;
   ``models/tpms_props.py`` (``chi_s_eff`` reads the override on each call).
 - ``TPMSHX_DISABLE_3D_PANEL`` (0) — skip PyVista panel;
   ``ui/builders_canvas.py``.
@@ -59,22 +48,15 @@ follow the read timing stated below.
   Phase B / inner SIMPLE Anderson is retired; explicit enablement raises.
 - ``TPMSHX_PREINIT_3D`` (0) — prewarm 3D panel at startup; ``main.py``.
 - ``TPMSHX_PROFILE_3D`` (0) — per-outer wall-clock profiler;
-  ``solvers/backends/python/three_d/runtime.py`` (``_prof_3d_enabled``; ``.profile_3d``
-  flag file works too).
+  ``solvers/backends/python/three_d/runtime.py`` (``_prof_3d_enabled``).
 - ``TPMSHX_ROUGH_MODE`` (baseline; UI path defaults norris_1a) +
   ``TPMSHX_ROUGH_EPS_UM`` (100) — roughness model; single helper
   ``models.roughness.resolve_mode_from_env``.
 - ``TPMSHX_RUN_SHANGHAI_REGRESSION`` (0) — opt-in long validation gate;
   ``tests/test_shanghai_regression.py``.
-- ``TPMSHX_SIMPLE_TOL`` (1e-5 in 3D) — retained ``tol`` call argument;
-  it does not control F2 convergence. Use ``mom_tol``, ``mass_local_tol`` and
-  ``mass_global_tol``. Read by the 2D/3D Python runtimes.
 - ``TPMSHX_VAR_RHOCP`` (unset) — overrides the 3D local-density thermal
   transport setting; defaults ON. The desktop fixes its config ON, while
   an explicit captured environment override still takes precedence.
-
-Registry sync 2026-07-03 (maintainability-closeout) — flags that existed
-but were missing above:
 
 - ``TPMSHX_DF_METHOD`` — explicit method for direct ``df_surrogate.predict``
   calls. Only ``cfd_full_core_3cell_fixed_v2`` is supported; retired method
@@ -100,8 +82,6 @@ but were missing above:
   ``preprocess/three_d/preparation.py``.
 - ``TPMSHX_BUILD_S_MAX`` / ``TPMSHX_BUILD_LX_MAX`` — sizing-tool build
   envelope caps; ``design/sizing.py``.
-- ``TPMSHX_2D_MASSFLUX`` (1) — validation-only toggle;
-  ``validation/cases/validate_shanghai_aligned.py``.
 - ``TPMSHX_LOG_LEVEL`` (INFO) / ``TPMSHX_LOG_TS`` (0) — central logging
   level / timestamp prefix; ``logutil.py``.
 """
@@ -183,8 +163,6 @@ class SolverConfig:
       Auto = 1.0 (2D) / 0.5 (3D).
     - ``max_iter_simple``: SIMPLE inner iteration cap.
       Auto = 10000 (2D) / per-stage 600–2000 (3D).
-    - ``tol_simple``: retained for configuration/call compatibility;
-      it does not control the F2 gates described below.
 
     ``alpha_T`` (numerics-internal relaxation) and ``rough_mode`` (the
     bhatti_shah_1b option is the ledger-ROUGH-X double-count trap) were
@@ -204,14 +182,12 @@ class SolverConfig:
       momentum / solved-cell continuity / boundary mass gates, confirmed
       consecutively, with a separate outlet-backflow gate.
 
-    ``tol_simple`` remains a serialized setting and ``solve(tol=...)`` remains
-    callable; neither sets F2 tolerances. The pressure-subproblem residual
-    history still drives adaptive AMG, independently of these exit gates.
+    The pressure-subproblem residual history drives adaptive AMG,
+    independently of these exit gates.
     """
     max_outer_ltne: Optional[int] = None
     outer_tol_K: Optional[float] = None
     max_iter_simple: Optional[int] = None
-    tol_simple: Optional[float] = None
     Nx: int = 30
     Ny: int = 60
     Nz: int = 1
@@ -231,12 +207,10 @@ class OptimizerConfig:
     picks must be re-solved through the production pipeline (which obeys
     :class:`SolverConfig`). Defaults are byte-identical to the values the
     optimizer consumed from the old SolverConfig fields.
-    ``tol_simple`` remains serialized but does not control F2 convergence.
     """
     max_outer_ltne: int = 4
     outer_tol_K: float = 0.5
     max_iter_simple: int = 800
-    tol_simple: float = 1e-2
     alpha_T: float = 0.7
 
 
@@ -601,13 +575,10 @@ class ComputeConfig:
                 raise ValueError(
                     f"ComputeConfig.bc_{side} is invalid: " + "; ".join(errors))
 
-        # These were previously UNVALIDATED: a JSON with max_outer_ltne=0,
-        # outer_tol_K=-1 or tol_simple=1e9 loaded clean and produced a result
-        # that looked like a solve. None = "use the dimension built-in" and
-        # stays legal.
+        # None selects the dimension-specific default; explicit gates must
+        # be finite and positive.
         _gate_checks: Tuple[Tuple[str, Optional[float]], ...] = (
             ('solver.outer_tol_K', self.solver.outer_tol_K),
-            ('solver.tol_simple', self.solver.tol_simple),
             # F2 gates (ledger C7). Same rule: positive and finite.
             # A zero or negative gate is strictly unreachable (all
             # three residuals are >= 0), so the solve could only ever
@@ -752,13 +723,20 @@ class ComputeConfig:
             # R3 legacy tolerance: alpha_T / rough_mode left SolverConfig
             # (2026-07-07) — old JSONs still carry them; drop with a notice
             # instead of TypeError-ing every archived config.
-            _dropped = [k for k in ('alpha_T', 'rough_mode') if so_d.pop(k, None) is not None]
+            _dropped = [k for k in ('alpha_T', 'rough_mode', 'tol_simple') if k in so_d]
+            for key in _dropped:
+                del so_d[key]
             if _dropped:
                 warnings.warn(
-                    f"solver config keys {_dropped} are retired (R3 split, "
-                    f"2026-07-07) and were ignored; optimizer budget lives "
-                    f"under the 'optimizer' section now.", stacklevel=2)
-            op_d = data.get('optimizer', {}) or {}
+                    f"solver config keys {_dropped} are retired and were ignored; "
+                    "F2 uses mom_tol, mass_local_tol and mass_global_tol. "
+                    "Optimizer budgets live under 'optimizer'.", stacklevel=2)
+            op_d = dict(data.get('optimizer', {}) or {})
+            if 'tol_simple' in op_d:
+                del op_d['tol_simple']
+                warnings.warn(
+                    "optimizer.tol_simple is retired and was ignored; "
+                    "it did not control F2 convergence.", stacklevel=2)
             # audit C4 additions — all optional, default-constructed
             # when absent so old JSON files keep round-tripping.
             bcA_d = data.get('bc_A', {}) or {}

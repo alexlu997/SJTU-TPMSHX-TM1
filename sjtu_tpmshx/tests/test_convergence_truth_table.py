@@ -177,13 +177,7 @@ def test_typed_config_requires_explicit_lz_for_3d():
 
 
 def test_3d_initial_dual_fluid_simple_obeys_solver_config():
-    """The initial dual-side SIMPLE solve used to ignore SolverConfig.
-
-    `_run_two_simple` was called with neither max_iter nor tol, so it
-    fell back to its signature defaults — a user-set max_iter_simple /
-    tol_simple governed every SIMPLE solve EXCEPT the initial one. Assert the
-    call site now forwards both.
-    """
+    """The initial dual-side SIMPLE solve consumes the configured iteration cap."""
     import inspect
     from sjtu_tpmshx.solvers.backends.python.three_d import runtime as _r3
     # Seam-A extraction (P1.5, 2026-07-20): the initial dual-fluid solve now
@@ -197,9 +191,6 @@ def test_3d_initial_dual_fluid_simple_obeys_solver_config():
     assert 'max_iter=_simple_max_iter(cfg' in call, (
         "the initial dual-fluid SIMPLE solve must forward SolverConfig's "
         f"max_iter_simple (got: {call!r})")
-    assert 'tol=_simple_tol_default(cfg' in call, (
-        "the initial dual-fluid SIMPLE solve must forward SolverConfig's "
-        f"tol_simple (got: {call!r})")
 
 
 def test_typed_config_rejects_nonsense_numeric_settings():
@@ -219,11 +210,11 @@ def test_typed_config_rejects_nonsense_numeric_settings():
             solver=SolverConfig(Nx=8, Ny=6, Nz=3, **sk))
 
     for bad in (dict(outer_tol_K=-1.0), dict(outer_tol_K=0.0),
-                dict(tol_simple=-1e-5), dict(tol_simple=0.0),
+                dict(mom_tol=-1e-5), dict(mass_global_tol=0.0),
                 dict(max_iter_simple=0)):
         with pytest.raises(ValueError):
             _cc(**bad).validate()
-    _cc(outer_tol_K=0.5, tol_simple=1e-5, max_iter_simple=800).validate()
+    _cc(outer_tol_K=0.5, mom_tol=1e-5, max_iter_simple=800).validate()
 
 
 def test_3d_nz1_delegation_reports_the_real_ltne_verdict():
