@@ -29,8 +29,9 @@ data/
 
 # sCO2 实验对标产出 —— 含不宜公开的逐工况实验数据（Alex 2026-07-27 决定）
 # exp_points.csv 是 302 行逐工况原始测量值（mdot/Tin/Pin/Tout/Pout/Q）；
-# 两份 sco2_exp_vs_cfd*.html 各含 6 个逐工况数据表。全部可由
-# validation/sco2_exp/ 下的脚本从 data/ 重新生成，故不入库无损失。
+# 两份历史 sco2_exp_vs_cfd*.html 各含 6 个逐工况数据表。
+# 原生成器已退役并保留在 Git 历史；现行实验 Q 检查入口为
+# sjtu_tpmshx/validation/cases/validate_sco2_exp_q.py。
 # 目录级忽略：这里的产出默认都带实验数据，逐个列举迟早会漏。
 reports/sco2_exp/
 

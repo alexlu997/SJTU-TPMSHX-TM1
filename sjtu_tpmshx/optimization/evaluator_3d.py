@@ -11,7 +11,7 @@ Design choices:
   * Q is normalized to W per metre of HX depth (Q_3D / Lz) so the 3D Pareto
     sits in the same axis as the 2D Pareto — direct comparison.
   * ``DEFAULT_CONFIG_3D`` inherits ``optimization.evaluator.DEFAULT_CONFIG``
-    plus four 3D-only knobs: ``Nx_3d``, ``Ny_3d``, ``Nz_3d``, ``Lz``,
+    plus 3D-only knobs: ``Nx_3d``, ``Ny_3d``, ``Nz_3d``, ``Lz``,
     ``max_outer_3d``, ``outer_tol_K``, ``alpha_outer``. Solver-tol overrides
     (``max_iter_simple``, ``tol_simple``, ``max_iter_energy``, ``tol_energy``)
     flow through unchanged.
@@ -42,13 +42,12 @@ from sjtu_tpmshx.core.evaluators import evaluate_3d as _evaluate_3d_dict
 DEFAULT_CONFIG_3D: dict = {
     **_EVAL_DEFAULT_CONFIG,
 
-    # 3D-only knobs (fast-mode preset — calibrated for ~3-5 min/eval at
-    # workstation 12-core; full-mode would be Nx=40 Ny=16 Nz=16 max_outer=3).
+    # Screening grid and coupling budget; these do not certify convergence.
     'Nx_3d':         30,
     'Ny_3d':         12,
     'Nz_3d':         6,
     'Lz':            0.042,    # m  (Shanghai HX depth default)
-    'max_outer_3d':  2,        # outer ρ(T) iterations; 2 is fast-mode minimum
+    'max_outer_3d':  2,        # maximum coupling iterations; 1 is also a valid budget
     'outer_tol_K':   0.5,
     'alpha_outer':   0.6,
 

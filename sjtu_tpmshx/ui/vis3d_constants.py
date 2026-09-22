@@ -2,16 +2,15 @@
 
 Consolidates `FIELD_META` / `FIELD_ORDER` and the `vtkImplicitPlaneRepresentation`
 cosmetic toning used by both the embedded `ui/panel_vis_3d.py` and the
-standalone `ui/demo_vis_3d_interactive.py` so they stay in sync.
+standalone `runs/demos/demo_vis_3d_interactive.py` so they stay in sync.
 """
 from __future__ import annotations
 
 
 # Display order + per-field rendering metadata.
 # Cmap policy:
-#   All physical fields (T / v / P) → turbo (Google 2019 "modern rainbow",
-#     perceptually-uniform replacement for jet; colorblind-improved).
-#     Uniform rainbow across T/v/P keeps the 3D/2D scalar bars visually
+#   All physical fields (T / v / P) → turbo (non-uniform rainbow).
+#     The same palette across T/v/P keeps the 3D/2D scalar bars visually
 #     consistent so the user can cross-compare without re-learning a
 #     new LUT per field.
 #   L_mm (design zones, ordinal) → cividis (colorblind-safe sequential,

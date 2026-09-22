@@ -1,22 +1,10 @@
 """
 ui/optimize_panel.py — UI bindings for the continuous-field qNEHVI optimizer.
 
-Replaces the retired patch-zoning panel. Main window callbacks delegate
-run/cancel and Pareto picking here; plotting, saving and loading use the
-module functions directly.
-
-This is a minimal but functional first cut:
-
-  * background QThread runs ``run_qnehvi`` so the UI stays responsive;
-  * progress callback updates a status string + the live history scatter;
-  * Pareto front is rendered on whichever matplotlib canvas is available
-    on the window (``window.canvas_pareto`` if present, otherwise printed);
-  * picking a Pareto point pushes its decoded ``L_ctrl`` / ``t_ctrl`` back
-    as mean scalar parameters for a uniform Compute seed.
-
-Heavier polish (rich Pareto interactions, design-preview heatmaps, side-by-
-side L(x,y)/t(x,y) panels) is deliberately deferred — first prove the
-end-to-end loop works, then make it pretty.
+Main window callbacks delegate run/cancel and Pareto picking here. The
+worker reports progress and hypervolume while the UI previews the design
+fields and saves results. Picking a design restores its mean scalar
+parameters as a uniform Compute seed, not the full graded geometry.
 """
 
 from __future__ import annotations
@@ -233,17 +221,6 @@ def _gather_cfg(window, base: dict | None = None) -> dict:
         except Exception as _e:
             raise ValueError(f"invalid search-space settings: {_e}") from _e
 
-    # Surrogate extrapolation toggle — the Compute path's UI checkbox. When
-    # ticked the surrogate domain guard downgrades out-of-window inputs from
-    # ValueError to a warning (env var TPMSHX_ALLOW_EXTRAP=1 has the same
-    # effect). For optimization the bounds are pinned to the surrogate window
-    # so this rarely matters, but we propagate it for diagnostic consistency.
-    if hasattr(window, 'chk_allow_extrap'):
-        try:
-            cfg['allow_extrap'] = bool(window.chk_allow_extrap.isChecked())
-        except Exception:
-            pass
-
     return cfg
 
 
@@ -376,13 +353,53 @@ def _set_summary_banner(window, text: str, *, show: bool = True) -> None:
 # ─── P1: qNEHVI parameter dialog (modal, PySide6) ───────────────────
 
 
+def _outer_budget_parameter(window, cfg: dict | None = None) -> tuple:
+    """Current dimension's budget, with explicit edits ahead of typed defaults."""
+    from sjtu_tpmshx.optimization.evaluator import DEFAULT_CONFIG
+    from sjtu_tpmshx.optimization.evaluator_3d import DEFAULT_CONFIG_3D
+
+    if _is_3d_mode(window):
+        key = 'max_outer_3d'
+        default = DEFAULT_CONFIG_3D[key]
+        typed = getattr(window, '_optimizer_cfg', None)
+        if typed is not None:
+            default = typed.max_outer_ltne
+        label = '最大耦合迭代次数'
+        tip = '三维 SIMPLE 与热量方程的最大耦合迭代预算；1 可用于筛选，但不保证收敛。'
+    else:
+        key = 'n_rho_loops'
+        default = DEFAULT_CONFIG[key]
+        label = '<i>ρ</i>(<i>T</i>) 外循环'
+        tip = '二维密度与温度更新的循环预算；增加次数不保证收敛或实验精度。'
+    cached = getattr(window, '_opt_param_cache', None) or {}
+    value = int(cached.get(key, (cfg or {}).get(key, default)))
+    return key, value, label, tip
+
+
+def _sync_outer_budget(window) -> None:
+    """Refresh the visible budget without treating defaults as user edits."""
+    spin = getattr(window, '_opt_outer_budget', None)
+    if spin is None:
+        return
+    key, value, label, tip = _outer_budget_parameter(window)
+    for old_key in ('n_rho_loops', 'max_outer_3d'):
+        window._opt_inline_params.pop(old_key, None)
+    window._opt_inline_params[key] = spin
+    blocked = spin.blockSignals(True)
+    spin.setRange(1, max(8, value))
+    spin.setValue(value)
+    spin.blockSignals(blocked)
+    spin.setToolTip(tip)
+    window._opt_outer_label.setText(label)
+
+
 def _show_qnehvi_param_dialog(window, cfg: dict) -> Optional[dict]:
     """Modal dialog asking for qNEHVI BO parameters before launch.
 
     Cached on the window: the second call within a session reuses the
     previous user values, so the dialog isn't a nuisance after the first
     click. Returns None if the user clicks Cancel; otherwise a dict with
-    ``n_init, n_iter, q_batch, seed, n_rho_loops``.
+    ``n_init, n_iter, q_batch, seed`` and the current dimension's budget key.
     """
     try:
         from PySide6.QtWidgets import (
@@ -398,7 +415,7 @@ def _show_qnehvi_param_dialog(window, cfg: dict) -> Optional[dict]:
     n_iter_init  = int(cached.get('n_iter',  24))
     q_batch_init = int(cached.get('q_batch', 2))
     seed_init    = int(cached.get('seed',    42))
-    n_rho_init   = int(cfg.get('n_rho_loops', cached.get('n_rho_loops', 3)))
+    budget_key, budget_value, budget_label, budget_tip = _outer_budget_parameter(window, cfg)
 
     dlg = QDialog(window)
     dlg.setWindowTitle("qNEHVI — Bayesian optimization parameters")
@@ -454,13 +471,9 @@ def _show_qnehvi_param_dialog(window, cfg: dict) -> Optional[dict]:
     sp_seed.setToolTip("Random seed for Sobol + BoTorch (paper reproducibility)")
     form.addRow(QLabel("随机种子"), sp_seed)
 
-    sp_rho = QSpinBox(); sp_rho.setRange(1, 8); sp_rho.setValue(n_rho_init)
-    sp_rho.setToolTip(
-        "Compressible ρ(T) outer loop iterations.\n"
-        "1 = isothermal-ρ fast path (Q/dP ~10 % off)\n"
-        "3 = 与算例工况验证基线一致 (default)\n"
-        "≥4 = tighter ρ convergence; not usually worth the cost")
-    form.addRow(QLabel("<i>ρ</i>(<i>T</i>) 外循环"), sp_rho)
+    sp_rho = QSpinBox(); sp_rho.setRange(1, max(8, budget_value)); sp_rho.setValue(budget_value)
+    sp_rho.setToolTip(budget_tip)
+    form.addRow(QLabel(budget_label), sp_rho)
 
     lay.addLayout(form)
 
@@ -469,10 +482,8 @@ def _show_qnehvi_param_dialog(window, cfg: dict) -> Optional[dict]:
     preview.setStyleSheet(f"color:{_t['sub_fg']}; font-size:9pt; font-style:italic;")
     def _refresh_preview(*_):
         total = sp_init.value() + sp_iter.value() * sp_batch.value()
-        # ~10 s per eval at n_rho=3 (warm; first eval ~30 s cold)
-        sec_est = total * (3 + 3 * sp_rho.value())
-        mn, sc = sec_est // 60, sec_est % 60
-        preview.setText(f"≈ {total} evals total · est. {mn} min {sc} s wall (varies with design)")
+        dimension = '3D' if _is_3d_mode(window) else '2D'
+        preview.setText(f"计划 {total} 次 {dimension} 求解（提前停止时减少）")
     for sp in (sp_init, sp_iter, sp_batch, sp_rho):
         sp.valueChanged.connect(_refresh_preview)
     _refresh_preview()
@@ -493,20 +504,22 @@ def _show_qnehvi_param_dialog(window, cfg: dict) -> Optional[dict]:
         'n_iter':       sp_iter.value(),
         'q_batch':      sp_batch.value(),
         'seed':         sp_seed.value(),
-        'n_rho_loops':  sp_rho.value(),
+        budget_key:    sp_rho.value(),
     }
-    window._opt_param_cache = dict(out)
+    window._opt_param_cache = {**cached, **{k: v for k, v in out.items() if k != budget_key}}
+    if sp_rho.value() != budget_value:
+        window._opt_param_cache[budget_key] = sp_rho.value()
     return out
 
 
 def _qnehvi_param_defaults(window, cfg: dict) -> dict:
     """Headless fallback when the dialog can't be constructed (no Qt). Used
     by tests + CLI-driven UI paths."""
-    return {
-        'n_init':      32, 'n_iter':  24, 'q_batch': 2,
-        'seed':        42,
-        'n_rho_loops': int(cfg.get('n_rho_loops', 3)),
-    }
+    cached = getattr(window, '_opt_param_cache', None) or {}
+    params = {key: int(cached.get(key, default)) for key, default in
+              (('n_init', 32), ('n_iter', 24), ('q_batch', 2), ('seed', 42))}
+    key, value, _label, _tip = _outer_budget_parameter(window, cfg)
+    return {**params, key: value}
 
 
 # ─── Dimension detection (M0, 2026-07-09) ───────────────────────────
@@ -672,24 +685,26 @@ def run_optimize(window) -> None:
     # source (ui-plan-b-wizard); the modal dialog survives as the fallback
     # for hosts built without the wizard (tests / legacy embeds).
     inline = getattr(window, '_opt_inline_params', None)
-    if inline:
-        params = {k: sp.value() for k, sp in inline.items()}
-    else:
-        try:
+    try:
+        if inline:
+            _sync_outer_budget(window)
+            params = {k: sp.value() for k, sp in inline.items()}
+        else:
             params = _show_qnehvi_param_dialog(window, cfg)
-        except Exception as _e:
-            _abort_launch(f"launch aborted — param dialog failed: {_e}")
-            return
-        if params is None:
-            _set_status(window, 'launch cancelled')
-            _abort_launch()
-            return
+    except Exception as _e:
+        _abort_launch(f"launch aborted — parameter setup failed: {_e}")
+        return
+    if params is None:
+        _set_status(window, 'launch cancelled')
+        _abort_launch()
+        return
     try:
         n_init  = int(params['n_init'])
         n_iter  = int(params['n_iter'])
         q_batch = int(params['q_batch'])
         seed    = int(params['seed'])
-        cfg['n_rho_loops'] = int(params['n_rho_loops'])
+        budget_key = 'max_outer_3d' if is_3d else 'n_rho_loops'
+        cfg[budget_key] = int(params[budget_key])
     except (KeyError, ValueError, TypeError) as _e:
         _abort_launch(f"launch aborted — bad params payload: {_e}")
         return
@@ -862,8 +877,7 @@ def run_optimize(window) -> None:
         _set_summary_banner(window, "", show=False)
         _set_status(window,
                     f"qNEHVI ({'3D' if is_3d else '2D'}) running … "
-                    f"{n_init} Sobol + {n_iter}×{q_batch} BO"
-                    + ("  [3D 单次评估约 3–5 分钟]" if is_3d else ""))
+                    f"{n_init} Sobol + {n_iter}×{q_batch} BO")
         worker.start()
     except Exception as _e:
         # Signal wiring / start failure — restore launch latch + button so
@@ -1071,12 +1085,12 @@ def _result_field_config(window):
 
 
 def load_pareto_solution(window, x_decision: np.ndarray) -> None:
-    """Decode a 16-D decision vector and apply its average L / t back onto
+    """Decode using the saved control grid and apply average L / t back onto
     the window's Compute fields (``le_Lcell`` / ``le_t``).
 
     The continuous-field design is heterogeneous; only the spatial average is
     pushed back to scalar Compute inputs. The full graded geometry lives in
-    the Pareto CSV under ``opt_runs/.../pareto_final.csv``.
+    the saved Pareto CSV and its accompanying configuration.
     """
     from sjtu_tpmshx.models.continuous_field import decode_decision_vector
 

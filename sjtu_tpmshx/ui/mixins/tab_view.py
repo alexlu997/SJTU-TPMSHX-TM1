@@ -298,13 +298,12 @@ class TabViewMixin:
 
             if hasattr(self, '_empty_state_label'):
                 self._empty_state_label.setVisible(not showed_any)
-            if hasattr(self, '_result_summary_bar') \
-                    and getattr(self, '_has_results', False):
+            if getattr(self, '_has_results', False):
                 try:
                     self._update_result_summary()
                 except Exception:
                     pass
-            # Sidebar follows the result family.
+            # Footer follows the result family.
             try:
                 from sjtu_tpmshx.ui.builders_canvas import update_result_sidebar_visibility
                 update_result_sidebar_visibility(self)
