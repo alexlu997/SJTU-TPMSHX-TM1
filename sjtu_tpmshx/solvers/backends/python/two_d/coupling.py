@@ -748,33 +748,19 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
         """Per-cell h_v = A_0 · max(Nu(Re_local), Nu_lam) · k_f / D_h.
         L_mm_field, t_mm_field None → uniform Lcell, t_wall.
         The supplied FluidModel and scalar T/P determine the Nu correlation."""
-        Nx_l, Ny_l = u_mag_field.shape
         if L_mm_field is None:
-            g_u = cfg['thermal_geometry']['uniform']
-            A0 = g_u['A_0']; D_h = g_u['D_h']; eps_g = g_u['epsilon']
-            Re_loc = rho_scalar * (np.abs(u_mag_field) + 1e-12) * D_h / mu_scalar
-            record_raw_nu_range(side_props.name, tpms_type, Re_loc)
-            m, Pr = _nu_inputs(side_props, side_T_for_Pr, side_P)
-            Nu_arr = local_nusselt(m, tpms_type, Re_loc,
-                                  eps_g / 2.0, Lcell, D_h * 1000.0, Pr)
-            return A0 * Nu_arr * k_f_scalar / D_h
-        out = np.empty((Nx_l, Ny_l), dtype=np.float64)
-        raw_Re = np.empty_like(out)
-        for i in range(Nx_l):
-            for j in range(Ny_l):
-                L_ij = float(L_mm_field[i, j])
-                g = {key: value[i, j] for key, value in cfg['thermal_geometry']['fields'].items()}
-                D_h_l = g['D_h']
-                Re_l = rho_scalar * (abs(float(u_mag_field[i, j])) + 1e-12) * D_h_l / mu_scalar
-                raw_Re[i, j] = Re_l
-                Re_ij = max(Re_l, 1.0)
-                nu_corr = _nu_dispatch(side_props, side_T_for_Pr,
-                                        Re_ij, g['epsilon'] / 2.0,
-                                        L_ij, D_h_l * 1000.0, side_P)
-                Nu_l = max(nu_corr, _NU_LAM_FLOOR_2D)
-                out[i, j] = g['A_0'] * Nu_l * k_f_scalar / D_h_l
-        record_raw_nu_range(side_props.name, tpms_type, raw_Re)
-        return out
+            g = cfg['thermal_geometry']['uniform']
+            lengths = Lcell
+        else:
+            g = cfg['thermal_geometry']['fields']
+            lengths = L_mm_field
+        A0, D_h, eps_g = g['A_0'], g['D_h'], g['epsilon']
+        Re_loc = rho_scalar * (np.abs(u_mag_field) + 1e-12) * D_h / mu_scalar
+        record_raw_nu_range(side_props.name, tpms_type, Re_loc)
+        m, Pr = _nu_inputs(side_props, side_T_for_Pr, side_P)
+        Nu_arr = local_nusselt(m, tpms_type, Re_loc,
+                              eps_g / 2.0, lengths, D_h * 1000.0, Pr)
+        return A0 * Nu_arr * k_f_scalar / D_h
 
     tpms_type = cfg['tpms_type']
     Lcell = cfg['Lcell']; t_wall = cfg['t_wall']
@@ -1038,11 +1024,11 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
         # Build local-Re per-cell h_v fields (#1 fix). Use cell-center magnitude.
         u_mag_A = local_speed(state.ucA, state.vcA)
         u_mag_B = local_speed(state.ucB, state.vcB)
-        # Zoned L/t fields (only if zone_config and grid mode); otherwise None
+        # Every zoned design carries L/t at the physical thermal cell centres.
         L_field_2d = None; t_field_2d = None
         if zone_config is not None and za is not None:
-            L_field_2d = za.get('L_mm_arr')
-            t_field_2d = za.get('t_arr')
+            L_field_2d = za['L_field']
+            t_field_2d = za['t_field']
         if _enthalpy_mode:
             _g_hv = cfg['thermal_geometry']['uniform']
             _Ta_hv = (state.Ta if state.Ta is not None

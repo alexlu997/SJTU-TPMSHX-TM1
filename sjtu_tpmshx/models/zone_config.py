@@ -111,7 +111,7 @@ class ZoneConfig:
     # ── Structured grid arrays ──────────────────────────────────
 
     def build_structured_arrays(self, Nx: int, Ny: int, H: float,
-                                axis: str = 'y') -> dict:
+                                axis: str = 'y', *, dx_arr=None, dy_arr=None) -> dict:
         """Build 2D per-cell property arrays for structured rectangular grid.
 
         Parameters
@@ -119,6 +119,7 @@ class ZoneConfig:
         Nx, Ny : grid cells in x and y
         H      : domain size along partition axis [m]
         axis   : 'y' or 'x' — which axis zones are defined along
+        dx_arr, dy_arr : actual cell widths [m]; None uses uniform centres.
 
         Returns
         -------
@@ -128,8 +129,13 @@ class ZoneConfig:
             raise RuntimeError("Call compute_properties() before building arrays.")
 
         N_ax = Ny if axis == 'y' else Nx
-        d_ax = H / N_ax
-        fc = np.array([(k + 0.5) * d_ax / H for k in range(N_ax)])
+        widths = dy_arr if axis == 'y' else dx_arr
+        if widths is None:
+            d_ax = H / N_ax
+            fc = np.array([(k + 0.5) * d_ax / H for k in range(N_ax)])
+        else:
+            widths = np.asarray(widths, dtype=np.float64)
+            fc = (np.cumsum(widths) - 0.5 * widths) / H
 
         zone_id_1d = np.zeros(N_ax, dtype=np.int32)
         for k in range(N_ax):
@@ -150,6 +156,8 @@ class ZoneConfig:
         h_vB_arr  = np.empty((Nx, Ny), dtype=np.float64)
         r_h_arr   = np.empty((Nx, Ny), dtype=np.float64)
         A_0_arr   = np.empty((Nx, Ny), dtype=np.float64)
+        L_field   = np.empty((Nx, Ny), dtype=np.float64)
+        t_field   = np.empty((Nx, Ny), dtype=np.float64)
 
         for k in range(N_ax):
             z = self.zones[zone_id_1d[k]]
@@ -157,9 +165,9 @@ class ZoneConfig:
             eps = pA['epsilon']
             v = (zone_id_1d[k], eps, pA['epsilon_A'], pA['K_ff'], pB['K_ff'],
                  pA['K_ss'], pA['H_sf']*pA['A_0'], pB['H_sf']*pB['A_0'],
-                 pA['D_h']/2.0, pA['A_0'])
+                 pA['D_h']/2.0, pA['A_0'], z.L_mm, z.t_mm)
             arrs = (zone_id, eps_arr, eps_f_arr, K_ffA_arr, K_ffB_arr,
-                    K_ss_arr, h_vA_arr, h_vB_arr, r_h_arr, A_0_arr)
+                    K_ss_arr, h_vA_arr, h_vB_arr, r_h_arr, A_0_arr, L_field, t_field)
             for arr, val in zip(arrs, v):
                 if axis == 'y':
                     arr[:, k] = val
@@ -178,6 +186,8 @@ class ZoneConfig:
             'h_vB_arr':  h_vB_arr,
             'r_h_arr':   r_h_arr,
             'A_0_arr':   A_0_arr,
+            'L_field':   L_field,
+            't_field':   t_field,
             'axis': axis,
             'zone_params': [
                 {
@@ -244,6 +254,8 @@ class ZoneConfig:
         h_vB_arr  = np.empty((Nx, Ny), dtype=np.float64)
         r_h_arr   = np.empty((Nx, Ny), dtype=np.float64)
         A_0_arr   = np.empty((Nx, Ny), dtype=np.float64)
+        L_field   = np.empty((Nx, Ny), dtype=np.float64)
+        t_field   = np.empty((Nx, Ny), dtype=np.float64)
 
         # Cell-centre fractional positions for non-uniform grid support
         if dx_arr is not None:
@@ -287,6 +299,8 @@ class ZoneConfig:
                         eps_f_arr[i, j] = pA['epsilon_A']
                         r_h_arr[i, j]   = pA['D_h'] / 2.0
                         A_0_arr[i, j]   = pA['A_0']
+                        L_field[i, j] = gc['L']
+                        t_field[i, j] = gc['t']
                         break
                 else:
                     # Cell not covered: use first grid cell as fallback
@@ -303,6 +317,8 @@ class ZoneConfig:
                     eps_f_arr[i, j] = pA['epsilon_A']
                     r_h_arr[i, j]   = pA['D_h'] / 2.0
                     A_0_arr[i, j]   = pA['A_0']
+                    L_field[i, j] = gc0['L']
+                    t_field[i, j] = gc0['t']
 
         return {
             'zone_id':   zone_id,
@@ -315,6 +331,8 @@ class ZoneConfig:
             'h_vB_arr':  h_vB_arr,
             'r_h_arr':   r_h_arr,
             'A_0_arr':   A_0_arr,
+            'L_field':   L_field,
+            't_field':   t_field,
             'axis':      'grid',
             'y_bounds':  sorted(y_bounds - {0.0, 1.0}),
             'x_bounds':  sorted(x_bounds - {0.0, 1.0}),

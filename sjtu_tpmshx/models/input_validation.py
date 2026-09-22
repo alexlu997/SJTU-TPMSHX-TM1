@@ -28,16 +28,9 @@ def surrogate_extrap_reasons(compute_cfg: ComputeConfig,
                              allow_extrap: bool) -> list[str]:
     """Validate both sides; return D-F geometry reasons and record Nu warnings.
 
-    ImportError (surrogate_domain unavailable) → skip, return []. A
-    ValueError from the check is a real domain violation and must propagate,
-    so it is intentionally not caught. (The pre-dedup 2D copy swallowed
-    AttributeError instead — a broken guard silently disabled extrapolation
-    warnings; that hush is gone.)
+    Required model imports and physical-domain failures propagate to the caller.
     """
-    try:
-        from sjtu_tpmshx.df_surrogate.surrogate_domain import check_surrogate_domain_at_point
-    except ImportError:
-        return []
+    from sjtu_tpmshx.df_surrogate.surrogate_domain import check_surrogate_domain_at_point
     geo = compute_cfg.geometry
     reasons = []
     for side, fl in (('A', compute_cfg.fluid_A), ('B', compute_cfg.fluid_B)):
