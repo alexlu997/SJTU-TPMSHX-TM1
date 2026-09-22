@@ -1,7 +1,7 @@
 # fast-tier heavy manifest — generated census, retired test nodes removed.
-# regen: python sjtu_tpmshx/runs/tools/build_fast_tier_manifest.py --log <census.log> --threshold 30
+# regen: python -m sjtu_tpmshx.runs.tools.build_fast_tier_manifest --log <census.log> --threshold 30
 # census: 2026-07-20 server run (historical log not retained) · threshold 30s · 21 heavy of 265 timed tests · 4096s of 4620s call-compute (89%)
-# Current list: 20 nodes; retired test_eta_B_field_bounds removed (2026-09-22).
+# Retired nodes are removed from the list below.
 # semantics: conftest marks these nodeids `heavy` at collection; the
 # full suite still runs them. Local fast excludes heavy; CI fast excludes
 # slow/heavy and runs public-module integration separately. Neither is the full suite.

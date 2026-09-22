@@ -949,7 +949,6 @@ def _build_hv_machinery(prob: _Problem3D):
     rho_A = prob.rho_A
     rho_B = prob.rho_B
     sB = prob.sB
-    t_field_3d = prob.t_field_3d
     tpms_type = prob.tpms_type
     u_A = prob.u_A
     cfg = prob.cfg

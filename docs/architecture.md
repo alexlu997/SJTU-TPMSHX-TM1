@@ -123,13 +123,14 @@ use this same criterion. `convergence_mode=None` resolves to `f2`; explicit
 convergence alone. The mass-only/velocity exit and its inner SIMPLE Anderson
 implementation are retired. Thermal and outer-coupling Anderson remain active.
 
-The public `tol_simple` field and `solve(tol=...)` signature are retained for
-file/call compatibility; they do not set F2 tolerances. Use `mom_tol`,
-`mass_local_tol` and `mass_global_tol` for those gates. The pressure-subproblem
-residual history retains its definition because adaptive AMG consumes it.
-Changing `tol_simple` does not explain a runtime or accuracy difference between
-full compute and screening. Their actual inputs, approximation modes, grids,
-iteration budgets and F2 settings must be compared instead.
+`tol_simple`, SIMPLE's `solve(tol=...)` argument and `TPMSHX_SIMPLE_TOL` are
+retired: they did not set F2 tolerances. Old configuration-file import discards
+`solver.tol_simple` and `optimizer.tol_simple` with an explicit notice; new
+configurations omit them. Use `mom_tol`, `mass_local_tol` and `mass_global_tol`
+for the independent F2 gates. The pressure-subproblem residual history retains
+its definition because adaptive AMG consumes it. Runtime/accuracy comparisons
+between full compute and screening must compare actual inputs, approximation
+modes, grids, iteration budgets and F2 settings.
 Coarse bootstrap supplies a bounded initial guess, not a convergence certificate.
 Old result files remain readable; rerunning an explicit legacy configuration
 requires selecting F2 and accepting the independently measured result.
@@ -338,8 +339,9 @@ or fixed wall-time cancellation guarantee. Cancelled runs do not publish results
 ### UI structure
 
 Desktop preferences and session/history files use platform user directories,
-not the installed package. `controllers/user_storage.py` owns these paths and
-imports only missing, known legacy user files without deleting their originals.
+not the installed package. `controllers/user_storage.py` owns these paths.
+It imports missing known session/input files without deleting their originals;
+appearance settings are read only from the current user configuration directory.
 `desktop.py` configures writable caches before loading the GUI and supplies the
 installed entry point; standalone packaging is described in [desktop builds](desktop.md).
 
@@ -367,11 +369,11 @@ format is distinct from the public module's `ComputeConfig` input.
   toolbar, controls, viewport, state, and timer setup to focused methods while
   rendering behavior stays in the same widget class.
 
-The result footer reads the existing published result labels and diagnostics;
-there is no hidden duplicate chip strip or hidden percentage-delta calculation.
+The result footer and history format the published scalar snapshot directly;
+there are no hidden result labels, duplicate chip strip or percentage-delta calculation.
 Changing draft inputs does not replace the accepted run or its recorded units.
 Optimization budgets are dimension-specific: 2D uses `n_rho_loops`, while 3D
-uses `max_outer_3d`. Inline controls and the parameter dialog show the effective
+uses `max_outer_3d`. Inline controls show the effective
 default until edited, then preserve explicit choices separately per dimension.
 These are iteration budgets, not convergence certificates; the solver retains
 its existing convergence and physical checks.

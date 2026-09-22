@@ -43,7 +43,7 @@ from sjtu_tpmshx.domain.run_environment import require_f2_mode
 from ._solve_common import (F2Monitor, f2_state_is_finite,
                             f2_nonfinite_exit, momentum_component_residuals,
                             global_mass_residual)
-from sjtu_tpmshx.models.tpms_calc import (air_density, air_viscosity, P_atm)
+from sjtu_tpmshx.models.tpms_calc import P_atm
 from sjtu_tpmshx.logutil import get_logger
 
 _log = get_logger(__name__)

@@ -13,7 +13,7 @@ import os
 import numpy as np
 from scipy.interpolate import RegularGridInterpolator
 
-from .tpms_geometry import compute_geometry, _phi_grid, _C_from_tL, _eps_from_C, _A0_from_C
+from .tpms_geometry import _phi_grid, _C_from_tL, _eps_from_C, _A0_from_C
 from .tpms_calc import (air_density, air_viscosity, air_conductivity)
 from sjtu_tpmshx.df_surrogate._domain import TRAIN_L, TRAIN_T
 

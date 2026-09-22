@@ -14,6 +14,10 @@ MMS A3/A4/B4 和 GCI 每次默认创建独立的 `.cache/validation/<工具>-<�
 
 GCI 当前使用 T2 和 T4（偏置局部开口、无 B 侧实验修正）。历史 T4_H8 等实验入口
 已退役，不能用旧 H8 表证明当前 T4 的精度；详见[退役说明](history/retired-tools.md#b-侧局部开口实验修正退役2026-09-22)。
+表观阶数由实际网格比和三个结果求解；振荡、非有限或无法确定正阶数时记为
+不可验收，不代入假定二阶。C.3 容差敏感性失败也使工具返回非零。
+守恒审计的 T1 使用两侧同向流，旧交叉流 T1 表不作为该工况参考；质量偏差按
+实际入口/出口通量报告，不以温度变化抵扣。诊断失败保留在输出中并返回非零。
 
 | 工具 | 输入 → 输出 | 运行方式与状态 |
 | --- | --- | --- |
@@ -29,7 +33,7 @@ GCI 当前使用 T2 和 T4（偏置局部开口、无 B 侧实验修正）。历
 | [现行实验修正](../sjtu_tpmshx/validation/df_refit/fit_experimental_effective.py)、[跨数据集 cF 对照](../sjtu_tpmshx/validation/df_refit/cf_cross_fluid.py) | 实验原表 + 当前固定 CFD 基线 → `.cache/reports/df_refit/` 审查 CSV | `python -m sjtu_tpmshx.validation.df_refit.<模块名>`；共享 `validation/hx_experiments.py` 读取，不依赖旧 γ/RBF 拟合或六张旧系数表，不更新生产系数 |
 | [sCO2 CFD 基础 Nu 拟合](../sjtu_tpmshx/validation/sco2_cfd/fit_nu_sco2.py) | 原 CFD 表 → 基础式研究拟合、几何/压力留一结果 | `python -m sjtu_tpmshx.validation.sco2_cfd.fit_nu_sco2`；保留原数据清洗与验证，不自动覆盖现行有效系数；旧实验锚定工具已移至[历史入口](history/legacy-models.md#sco2-nu-旧锚定路线2026-09-20) |
 | [主计算测量](../sjtu_tpmshx/runs/tools/benchmark_main_compute.py) | 本地固定 `jobs` 清单（每项 `id/config`，可含 `reference/depth_m`）→ 每次运行独立的 Case/Result/metrics、日志和分段测量 | `python -m sjtu_tpmshx.runs.tools.benchmark_main_compute MANIFEST NEW_OUTPUT --warmup --repeat 5`；0=执行、状态及已声明流量检查通过，2=存在未合格结果，1=执行异常；不代表实验精度通过 |
-| [F2 容差计价](../sjtu_tpmshx/validation/cases/price_f2_convergence_3d.py) | 上海实验工况 → `reports/f2_pricing_3d_v2.csv` | `python -m sjtu_tpmshx.validation.cases.price_f2_convergence_3d --mom-tol 1e-3,1e-4,1e-5 --cases 1,8,16`；扫描 F2，输出仅本地保留；该工具使用其声明的全侧端口，不能代替局部端口主计算证据 |
+| [F2 容差计价](../sjtu_tpmshx/validation/cases/price_f2_convergence_3d.py) | 历史计价工况 → 独立 `.cache/validation/f2_pricing-*/` CSV | `python -m sjtu_tpmshx.validation.cases.price_f2_convergence_3d --mom-tol 1e-3,1e-4,1e-5 --cases 1,8,16`；扫描 F2，`--out` 可指定受冻结路径保护的输出；该工具使用其声明的全侧端口，不能代替局部端口主计算证据 |
 
 无求解 GUI 检查分别运行：
 
@@ -76,13 +80,20 @@ python -m sjtu_tpmshx.runs.smokes.smoke_ui_screenshots --output .cache/ui-smoke-
 旧 `--wall-refine` 为另一种六面壁面加密，两者不能同时启用。
 实际网格始终来自本次结果的准备网格。
 当前共同 F2 和物理边界见[架构说明](architecture.md)；旧架构回归和实验误差见历史索引。
-`tol_simple`/旧 `--tol` 仅保留配置与调用兼容，不再调节 F2 收敛。
+无效的 `tol_simple` 和优化启动器旧 `--tol` 已退役；旧工况文件导入时明确提示
+忽略该字段，实际 F2 动量和质量收敛门槛继续保留。MMS 的能量求解 `--tol`
+是独立的有效参数，不在此次退役范围内。
 两维完整上海验证共用 4 月 1 日批次已确认的局部水口：上侧入口
 `x=133–175 mm`，下侧出口 `x=7–49 mm`，贯穿 `42 mm` 深度。
 速度按实验总质量流量、当前模型单侧孔隙面积和入口密度换算。
 显式 `--profile/--eta/--disp-c` 仅适用于历史 kernel，生产分支在读取数据前拒绝。
 上海二维 CSV 的 `Q_sim` 仍为原实验质量流量/入口比热口径，新列 `Q_native`
 保留主计算 W/m；三维原生 Q 为 W。不同定义分别比较，不覆盖旧实验门槛。
+二维验证只运行当前生产链，报告精度但不设新的实验误差门槛；非有限或未收敛
+返回非零。三维生产验证默认保留全部请求成员，缺失、失败、非有限、未收敛或
+最终压力状态无效均不能通过；原 RMSRE 压降 12%、换热量 6% 门槛不变。
+迭代期间的压力裁剪计数只作诊断，不因早期裁剪而拒绝最终已恢复有效的状态。
+显式 `--no-gate` 仅生成报告，不表示验收通过。
 
 正式文件和 GUI 导出先写暂存文件组，再发布；写入或发布异常时恢复上次成功文件。
 二维覆盖同名三维 CSV 时也移除旧 NPZ，避免串用。单目标只允许一个写入者；突然
@@ -130,6 +141,9 @@ BO 的 `history.csv` 保留全部评估的数值，包括训练所用惩罚值�
 API 的 `history_errors` 与 `history_X/history_F` 逐行对应，成功行为 `None`。
 `pareto_*.csv` 仅含未被拒绝的候选；全失败时文件仅有表头。显式从历史行导出几何时，
 导出元数据保留该行的评估状态。筛选通过不代表通过实验验证或生产求解验收。
+多种子根目录保存实际共同 `config.json` 和成功/失败种子状态；请求的种子未全部
+完成时命令返回非零。Pareto 验证与 nTop 导出共用具名 CSV 列约定，缺少配置、
+缺列、重复列或非有限值直接拒绝，不能回退默认工况后继续验证。
 
 ## 数据与研究工具
 

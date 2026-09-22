@@ -1,10 +1,4 @@
-"""ComputeResult — the output half of the compute contracts.
-
-Moved out of ``controllers/compute_pipeline.py`` (openspec contracts-layer,
-2026-07-02) so ``pipelines/`` can import it downward instead of reaching up
-into controllers (the deferred imports at stages_2d/stages_3d marked that
-cycle). Pure dataclass, stdlib-only.
-"""
+"""Qt-free application result populated by the public-module GUI adapter."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field

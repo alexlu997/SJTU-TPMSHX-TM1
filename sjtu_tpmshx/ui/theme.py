@@ -467,7 +467,7 @@ def apply_mpl_theme():
     mpl.rcParams['path.simplify'] = True
     mpl.rcParams['path.simplify_threshold'] = 1.0
     mpl.rcParams['agg.path.chunksize'] = 10000
-    # Use the shared native UI font preferences and scientific glyph fallback.
+    # Chart/export font families are independent of the interface font.
     families = list(matplotlib_font_families())
     mpl.rcParams['font.family'] = families
     mpl.rcParams['font.sans-serif'] = families

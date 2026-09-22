@@ -37,8 +37,11 @@ extra factor. Existing numerical constructors retain their physical port rules.
 `r_h_arr` is m; `K_ffA_arr/K_ffB_arr/K_ss_arr` are W/(m K);
 `h_vA_arr/h_vB_arr` are W/(m3 K); `A_0_arr` is interface area per volume (1/m).
 `L_field_m/t_field_m`, zone `L_m/t_m` and grid-cell `L_m/t_m` are metres.
-`zone_id` is a dimensionless integer. The existing uniform, 1D-zone, discrete
-2D-grid and sigmoid conventions remain; no new design family is introduced.
+`zone_id` is a dimensionless integer. For 1D-zone, discrete 2D-grid and sigmoid
+designs, cell/wall geometry is sampled at the final physical cell centres,
+including nonuniform meshes. Their per-cell `thermal_geometry` is required and
+consumed by the local heat-transfer calculation. A zoned prepared archive
+missing these fields is rejected: prepare its original configuration again.
 Uniform arrays must agree with their scalar geometry inputs.
 
 Four `ModelRef` records identify fluid A, fluid B, geometry and the fixed CFD

@@ -51,7 +51,6 @@ def prepare_flow(cfg, fc, arrays, grid, side):
     W, H = ((float(cfg['H_domain']), float(cfg['L_domain'])) if is_a
             else (float(cfg['L_domain']), float(cfg['H_domain'])))
     real_dx, real_dy = grid['dx'], grid['dy']
-    Nx, Ny = len(real_dx), len(real_dy)
     dx, dy = (real_dy, real_dx) if is_a else (real_dx, real_dy[::-1])
     nx, ny = len(dx), len(dy)
     Tin, Pin, velocity = (float(cfg['T_in' + side]), float(cfg['P_in' + side]),

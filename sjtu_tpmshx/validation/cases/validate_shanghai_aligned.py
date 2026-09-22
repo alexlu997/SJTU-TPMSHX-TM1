@@ -44,16 +44,9 @@ def _run_one_case_pipeline(ci, df):
 
     dP_A_sim = float(res.dP_A_Pa)
 
-    # Q via the AIR-SIDE ENTHALPY BALANCE, using measured total mass flow. This legacy comparison definition
-    # remains separate from native boundary Q per metre.
-    #
-    # Do NOT use `res.Q_W` here. The 2D pipeline's Q is a domain integral over a
-    # 2D cell AREA (`solve_2d.py`: `cell_area = dx * dy`, and h_v is W/(m³·K)),
-    # so it is **W per metre of depth**, not watts — the 2D model has no third
-    # dimension. Converting it would need the machine depth (for Shanghai,
-    # Lz = 0.042 m: 60 737 W/m x 0.042 m = 2551 W vs the measured 2514 W, which
-    # is how this was diagnosed). The enthalpy balance sidesteps the whole
-    # question because `m_air` is the measured TOTAL mass flow.
+    # Historical comparison in W: measured total mass flow and inlet cp.
+    # This is distinct from the current native boundary duty in W/m; retain
+    # both definitions instead of relabelling the old comparison as native Q.
     cp_A0 = float(air_cp(T_Ain_K))
     Q_sim = float(m_air * cp_A0 * (T_Ain_K - float(res.T_out_A_K)))
 

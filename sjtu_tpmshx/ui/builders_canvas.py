@@ -513,7 +513,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
         fl.addWidget(cap)
         return fr, fl
 
-    # Inline and modal hosts share the dimension-specific budget definition.
+    # Inline controls use the dimension-specific budget definition.
     from .optimize_panel import _outer_budget_parameter, _sync_outer_budget, _is_3d_mode
 
     par_card, par_lay = _opt_card("优化参数 (qNEHVI)", 260)
