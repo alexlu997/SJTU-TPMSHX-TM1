@@ -398,6 +398,20 @@ def compute_phase2a_surface(res):
 # Phase 2c — H3 per-cell mass-imbalance audit
 # ──────────────────────────────────────────────────────────────────────────
 
+def _audit_scalar_to_solver(field, face):
+    """Undo the real-coordinate map before combining with raw SIMPLE faces.
+
+    Exported solver arrays always enter at j=0. Negative real flow directions
+    reflect scalar fields along the stream axis as well as permuting axes.
+    Scalars change location under that reflection, never sign.
+    """
+    inverse = tuple(np.argsort(face['solver_to_real_perm']))
+    mapped = np.transpose(field, inverse)
+    if face['dir_real'] in (1, 3, 5):
+        mapped = np.flip(mapped, axis=1)
+    return np.ascontiguousarray(mapped)
+
+
 def compute_phase2c_h3(res):
     """Per-cell mass NET_OUT and associated spurious enthalpy.
 
@@ -488,17 +502,10 @@ def compute_phase2c_h3(res):
 
     # Compute per-cell NET_OUT for both fluids
     net_A = _per_cell_net_out(sA)
-    # Reshape Ta from real coords to solver coords for matching with sA
-    perm_A = sA['solver_to_real_perm']
-    inv_A = tuple(np.argsort(perm_A))
-    Ta_solver = np.ascontiguousarray(np.transpose(Ta, inv_A))
+    Ta_solver = _audit_scalar_to_solver(Ta, sA)
 
-    # Spurious enthalpy contamination
-    # Per cell α: ΔE_cell = T_cell · NET_OUT · ε_α · cp
-    # But NET_OUT already includes ρ — so ΔE_cell = T_cell · NET_OUT · cp
-    # Wait — net_out has units kg/s (rho·v·A). For energy contamination:
-    # ΔE_cell ≈ T_cell · cp · net_out · ε_per_phase    units: K · J/kg/K · kg/s = W
-    eps_per_phase_solver = 0.5 * np.transpose(eps_arr, inv_A)
+    # NET_OUT already includes rho; T * cp * NET_OUT * eps_per_phase is W.
+    eps_per_phase_solver = 0.5 * _audit_scalar_to_solver(eps_arr, sA)
     cp_A = res['_audit_cp_A']
     spur_A_per_cell = Ta_solver * cp_A * net_A * eps_per_phase_solver
     spur_A_total = float(np.sum(spur_A_per_cell))
@@ -517,10 +524,8 @@ def compute_phase2c_h3(res):
     )
     if sB is not None:
         net_B = _per_cell_net_out(sB)
-        perm_B = sB['solver_to_real_perm']
-        inv_B = tuple(np.argsort(perm_B))
-        Tb_solver = np.ascontiguousarray(np.transpose(Tb, inv_B))
-        eps_per_phase_solver_B = 0.5 * np.transpose(eps_arr, inv_B)
+        Tb_solver = _audit_scalar_to_solver(Tb, sB)
+        eps_per_phase_solver_B = 0.5 * _audit_scalar_to_solver(eps_arr, sB)
         cp_B = res['_audit_cp_B']
         spur_B_per_cell = Tb_solver * cp_B * net_B * eps_per_phase_solver_B
         spur_B_total = float(np.sum(spur_B_per_cell))
@@ -809,11 +814,9 @@ def compute_phase5(res):
         dx = face['dx']; dy = face['dy']; dz = face['dz']
         Nx_s, Ny_s, Nz_s = rho.shape
 
-        perm = face['solver_to_real_perm']
-        inv = tuple(np.argsort(perm))
-        T_solver = np.ascontiguousarray(np.transpose(T_field, inv))
-        rho_cp_solver = np.ascontiguousarray(np.transpose(rho_cp_field, inv))
-        eps_solver = np.ascontiguousarray(np.transpose(eps_per_phase, inv))
+        T_solver = _audit_scalar_to_solver(T_field, face)
+        rho_cp_solver = _audit_scalar_to_solver(rho_cp_field, face)
+        eps_solver = _audit_scalar_to_solver(eps_per_phase, face)
 
         A_x = dy[:, None] * dz[None, :]   # shape (Ny, Nz) — for x-faces
         A_y = dx[:, None] * dz[None, :]   # for y-faces
