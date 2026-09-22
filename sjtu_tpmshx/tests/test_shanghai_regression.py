@@ -55,8 +55,8 @@ def test_shanghai_3d_historical_evidence():
     # dP 9.82% / Q 3.20% (rbf: 7.19% / 3.22%; the +2.6pp is entirely the
     # smooth-trend K — cF is gate-identical 534.8 by construction).
     # Traded for sane extrapolation outside the gate geometry (D7-class:
-    # 454 vs rbf 745, end-to-end 67.4%). Old numbers reproducible with
-    # TPMSHX_DF_METHOD=rbf.
+    # 454 vs rbf 745, end-to-end 67.4%). Reproducing those old numbers requires the matching
+    # historical code/data/environment, not only TPMSHX_DF_METHOD=rbf.
     # 2026-06-30 — dP now extracted with the 2nd-order face-extrapolation
     # (SIMPLESolver3D.extract_dP_face_extrap): the cell-centre method sampled P
     # ~h/2 inside the inlet/outlet faces (O(h) offset → ~1st-order, and it
@@ -72,7 +72,7 @@ def test_shanghai_3d_historical_evidence():
     # 2026-07-12 — GATE RUNNER SWITCHED: frozen-B kernel → production Pipeline3D
     # (the water side is now SOLVED, not prescribed). RMSRE_dP 5.28% → 4.93%,
     # RMSRE_Q 3.21% → 2.12%. Three reasons, fully written up in the
-    # validate_shanghai_3d_real module docstring:
+    # historical validate_shanghai_3d_real docstring at Git a32b975638aaa7df0ab154e438b40130c4df4906:
     #   (1) more accurate — Q error cut 34%, and 2.12% finally beats the 2D
     #       aligned kernel gate's Q RMSRE (2.51%; the ε-NTU LUMPED baseline is
     #       a different number, 1.71% — the two were conflated in early notes);
@@ -83,10 +83,11 @@ def test_shanghai_3d_historical_evidence():
     #       information produces a BETTER answer;
     #   (3) the old gate validated a code path production never runs — the GUI,
     #       the optimizer and the server batches all drive Pipeline3D.
-    # All 16 cases converge the outer coupling in 3 iterations, none truncated.
+    # In that recorded run all 16 cases converged in 3 outer iterations.
     # (The `A@init[stall]` on the high-u cases is a benign cold-start artifact;
-    # every warm re-solve converges. See the module docstring.)
-    # The old frozen-B numbers stay reproducible with `--runner kernel`.
+    # every warm re-solve converged; see the historical module docstring.)
+    # The frozen-B runner is now retired. Its source remains at Git a32b975638aaa7df0ab154e438b40130c4df4906;
+    # historical scores are not current-solver acceptance.
     # 2026-07-13 — RE-BASELINED for the F2 pipeline default (ledger C6/C7):
     # the gate script inherits convergence_mode='f2' (RMSRE_dP 4.93% → 4.88%,
     # Q unchanged at 2.12%). The 4.93 value was still passing only by eating
