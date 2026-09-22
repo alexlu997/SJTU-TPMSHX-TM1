@@ -866,7 +866,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
         mean_T = cell_average(T_field, energy_dx, energy_dy)
         return _build_hv_local_2d(
             rho, mu, float(props.k(mean_T, P_in)),
-            u_mag, None, None, side_props=props,
+            u_mag, None, side_props=props,
             side_T_for_Pr=mean_T, side_P=P_in)
 
     def _solve_flow(_coup_it):

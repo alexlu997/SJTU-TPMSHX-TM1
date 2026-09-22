@@ -282,7 +282,7 @@ def test_simple_profiles_follow_final_shared_coordinates(monkeypatch, directions
         with pytest.raises(BeforeIteration):
             fields['_run_simple'](parsed[f'cfg{side}'], rho, mu,
                                   300.0, 0.2, side, fluid_type='incompressible',
-                                  fluid_name='water', T_field_real=temperature)
+                                  T_field_real=temperature)
         solver = captured[-1]
         widths = fields['energy_dy' if bc.dir in (0, 1) else 'energy_dx']
         np.testing.assert_array_equal(solver.dx_arr, widths)

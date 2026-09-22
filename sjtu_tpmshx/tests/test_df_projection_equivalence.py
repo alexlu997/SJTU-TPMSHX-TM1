@@ -26,7 +26,7 @@ def test_projection_coordinates(fluid, dimension, nonuniform, monkeypatch):
     else:
         expected = np.array([7., 6. if nonuniform else 5.])
     if dimension == 2:
-        K, cF = p2d(L, t, 'Gyroid', 16., 3, 3, 2, fluid,
+        K, cF = p2d(L, t, 'Gyroid', 16., 2, fluid,
                      streamwise_dx=widths)
     else:
         L3 = np.stack([L, L + .5, L + 1.], axis=2)
@@ -54,4 +54,4 @@ def test_helper_semantics():
 def test_invalid_fluid_raises():
     with pytest.raises(ValueError, match="fluid must be"):
         p2d(np.ones((2, 2)) * 5., np.ones((2, 2)) * .4,
-            'Gyroid', 16., 2, 2, 2, 'C')
+            'Gyroid', 16., 2, 'C')
