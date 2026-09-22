@@ -469,11 +469,10 @@ class SIMPLESolver3D:
     def extract_dP_weighted(s, *, numerical_taper=False):
         """Pipe-weighted inlet-outlet dP — geometric open-area weights.
 
-        Uses `s.inlet_frac` / `s.outlet_frac` only (per-cell open-area
-        fractions). Fine when density and velocity are nearly uniform across
-        the inlet face; under-represents high-speed regions on non-uniform
-        profiles. For physically-rigorous reduction use
-        `extract_dP_mass_flux_weighted`.
+        Uses `s.inlet_frac` / `s.outlet_frac` and physical face area to average
+        the first/last cell-centre pressures. The current `pressure_face_v1`
+        metric instead uses `extract_dP_face_extrap` to evaluate pressure at
+        the physical port faces with the same geometric area weighting.
 
         ``numerical_taper=True`` retains the historical corner-weighted
         report functional; it is not a geometric open-area average.

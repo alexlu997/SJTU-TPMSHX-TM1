@@ -1,14 +1,10 @@
-"""N4 (full-debug audit 2026-06-28): under an offset-isosurface δ≠0 the
-enthalpy-mode LTNE m_dot was built with the SYMMETRIC 0.5·ε per side (no
-eps_side_override), while the kernel simultaneously received the asymmetric
-eps_A/eps_B fields — an internally inconsistent ṁ·h duty (ṁ mis-scaled by
-split_A/0.5, ~20% at split_A=0.6). The main extraction path already passes the
-per-side override; the enthalpy block must use the SAME override.
+"""Per-side porosity must agree between thermal transport and mass reporting.
 
-These cover the shared override helper and the _simple_mass_flow scaling
-mechanism it relies on. δ=0 (every production / 703 / golden config) -> None ->
-symmetric 0.5·ε (bit-identical), so the fix is latent until an asymmetric-porosity
-sCO2/water enthalpy-mode case is run.
+True-enthalpy transport consumes native face mass fluxes with the prepared
+single-channel void fractions. These tests cover the shared porosity override
+and scalar inlet reporting reduction; the thermal kernel does not consume that
+scalar reduction. At δ=0 the override is None and reporting uses 0.5·ε; an
+offset-isosurface split must instead use the corresponding ε_A or ε_B.
 """
 import numpy as np
 import pytest
@@ -48,9 +44,7 @@ def _stub_solver(Nx, Nz, eps, v_in=3.0, rho=1.2, d=0.01):
 
 
 def test_simple_mass_flow_eps_side_override_scales_mdot():
-    """ṁ ∝ per-side void: the override replaces the symmetric 0.5·ε with the
-    asymmetric ε·split, so ṁ scales by split/0.5 — the mechanism the N4 fix
-    relies on when it passes eps_side_override in the enthalpy block."""
+    """Scalar inlet reporting replaces 0.5·ε with the prepared ε·split."""
     Nx, Nz, eps, split = 2, 2, 0.8, 0.6
     s = _stub_solver(Nx, Nz, eps)
     m_sym = _simple_mass_flow(s, eps_f_per_side=0.5 * eps)

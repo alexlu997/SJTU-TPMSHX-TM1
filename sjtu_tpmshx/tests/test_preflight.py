@@ -85,7 +85,7 @@ def test_full_width_2d_activates_refine():
 
 
 def test_3d_wall_refine_fits():
-    """Shanghai 3D default (30/20/5) with refine should pass cleanly."""
+    """Explicit 30/20/5 input plus six-wall refinement yields 46/36/21."""
     r = compute_preflight(
         L=0.182, H=0.042, Lz=0.042,
         Nx=30, Ny=20, Nz=5, is_3d=True,

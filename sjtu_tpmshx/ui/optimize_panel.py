@@ -151,7 +151,10 @@ def _gather_cfg(window, base: dict | None = None) -> dict:
     # case regardless of what the user typed in the Compute fields.
     _get('le_L',      float, 'L_domain')
     _get('le_H',      float, 'H_domain')
-    _get('le_Lz',     float, 'Lz')
+    if _is_3d_mode(window):
+        _get('le_Lz', float, 'Lz')
+        if cfg['Lz'] <= 0:
+            raise ValueError('le_Lz: enter a positive depth')
 
     _get('le_ks',     float, 'k_s')
     _get('le_uA',     float, 'u_A')
@@ -455,8 +458,18 @@ def show_field_preview(window, x_decision=None) -> None:
     ax_t.set_xlabel("x [mm]"); ax_t.set_ylabel("y [mm]")
     fig.colorbar(im_t, ax=ax_t, fraction=0.046, pad=0.04)
 
+    canvas.axes = [[ax_L, ax_t]]
+    if hasattr(canvas, '_orig_wheel_event'):
+        canvas.wheelEvent = canvas._orig_wheel_event
     fig.tight_layout()
     canvas.draw()
+    if canvas is getattr(window, 'canvas_layout', None):
+        if hasattr(window, 'cache'):
+            window.cache.mark_drawn('layout')
+        if hasattr(window, '_refresh_export_button'):
+            window._refresh_export_button()
+        if hasattr(window, '_switch_tab'):
+            window._switch_tab('layout')
     _set_status(
         window,
         f"field preview: L ∈ [{L_field.min():.2f}, {L_field.max():.2f}] mm, "

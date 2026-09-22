@@ -71,13 +71,18 @@ def _make_window():
 # ─── Tests ─────────────────────────────────────────────────────────
 
 
-def test_gather_cfg_reads_geometry_from_UI():
-    """_gather_cfg must read le_L/le_H/le_Lz into L_domain/H_domain/Lz."""
+@pytest.mark.parametrize('dimension', [0, 1])
+def test_gather_cfg_reads_geometry_from_UI(dimension):
+    """Depth belongs to 3D; both dimensions use the current in-plane extents."""
     w = _make_window()
+    w.combo_dim = _combo(['2D', '3D'], default_idx=dimension)
     cfg = _gather_cfg(w)
     assert cfg['L_domain'] == pytest.approx(0.182)
     assert cfg['H_domain'] == pytest.approx(0.042)
-    assert cfg['Lz']       == pytest.approx(0.042)
+    if dimension:
+        assert cfg['Lz'] == pytest.approx(0.042)
+    else:
+        assert 'Lz' not in cfg
 
 
 def test_gather_cfg_reads_velocities_and_pressures():

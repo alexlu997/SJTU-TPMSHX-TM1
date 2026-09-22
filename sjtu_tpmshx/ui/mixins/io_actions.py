@@ -349,7 +349,9 @@ class IOActionsMixin:
             if commit:
                 meta['Keywords'] = f"commit={commit}"
             preset = getattr(self, '_active_preset_name', None)
-            if preset:
+            # The retained optimization figure can precede the current Compute
+            # preset. Its original numerical configuration is in cfg_used.json.
+            if preset and key != 'pareto':
                 meta['Subject'] = f"Preset: {preset}"
 
             ext = path.lower().rsplit('.', 1)[-1] if '.' in path else 'png'

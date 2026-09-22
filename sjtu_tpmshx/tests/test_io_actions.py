@@ -1080,3 +1080,74 @@ def test_pareto_figure_copy_export_survives_field_result_then_clears_on_empty(
     finally:
         win.cache.clear()
         win._pareto_X = win._pareto_F = None
+
+
+def test_continuous_field_preview_button_shows_and_exports_after_preset_load(
+        win, monkeypatch, tmp_path):
+    from PySide6.QtWidgets import QPushButton
+    from PySide6.QtGui import QGuiApplication
+    from sjtu_tpmshx.ui.mixins import io_actions
+    win._load_named_preset('Shanghai (2D Gyroid)')
+    win.show()
+    try:
+        win._switch_tab('pareto')
+        preview = next(button for button in win.findChildren(QPushButton)
+                       if '预览连续场' in button.text())
+        preview.click()
+        assert win._active_tab == 'layout'
+        assert win._canvas_cards['layout'].isVisible()
+        assert not win._empty_state_label.isVisible()
+        assert win.cache.is_drawn('layout') and win.btn_export.isEnabled()
+        images = [image for axis in win.canvas_layout.figure.axes for image in axis.images]
+        assert len(images) == 2 and all(np.isfinite(im.get_array()).all() for im in images)
+        QGuiApplication.clipboard().clear()
+        win._copy_figure_clipboard()
+        assert not QGuiApplication.clipboard().image().isNull()
+        path = tmp_path / 'continuous-field-preview.png'
+        choices = iter([('几何布局', True), ('150 (screen)', True)])
+        monkeypatch.setattr(io_actions.QInputDialog, 'getItem', lambda *a: next(choices))
+        monkeypatch.setattr(io_actions.QFileDialog, 'getSaveFileName',
+                            lambda *a: (str(path), 'PNG (*.png)'))
+        win._export_figure()
+        assert path.is_file()
+    finally:
+        win.hide()
+
+
+@pytest.mark.parametrize('depth', ['invalid', '0', '-0.01'])
+def test_optimization_only_validates_depth_in_3d(win, depth):
+    from sjtu_tpmshx.ui.optimize_panel import _gather_cfg
+    from sjtu_tpmshx.optimization.evaluator_3d import DEFAULT_CONFIG_3D
+    win._load_named_preset('Shanghai (2D Gyroid)')
+    win.le_Lz.setText(depth)
+    assert win.le_Lz.isHidden()
+    cfg = _gather_cfg(win)
+    assert 'Lz' not in cfg
+    win.combo_dim.setCurrentIndex(1)
+    with pytest.raises(ValueError, match='le_Lz'):
+        _gather_cfg(win, base=DEFAULT_CONFIG_3D)
+    win.le_Lz.setText('0.063')
+    assert _gather_cfg(win, base=DEFAULT_CONFIG_3D)['Lz'] == .063
+
+
+def test_retained_pareto_export_does_not_take_new_compute_preset_name(
+        win, monkeypatch, tmp_path):
+    from PIL import Image
+    from sjtu_tpmshx.ui import optimize_panel
+    from sjtu_tpmshx.ui.mixins import io_actions
+    win._load_named_preset('Shanghai (2D Gyroid)')
+    front = {'X': np.ones((2, 16)), 'F': np.array([[-100., 10.], [-200., 20.]]),
+             'n_evals': 2}
+    optimize_panel.show_pareto(win, front)
+    win._load_named_preset('Shanghai (3D Diamond)')
+    np.testing.assert_array_equal(win._pareto_F, front['F'])
+    path = tmp_path / 'retained-pareto.png'
+    choices = iter([('Pareto / 优化', True), ('150 (screen)', True)])
+    monkeypatch.setattr(io_actions.QInputDialog, 'getItem', lambda *a: next(choices))
+    monkeypatch.setattr(io_actions.QFileDialog, 'getSaveFileName',
+                        lambda *a: (str(path), 'PNG (*.png)'))
+    win._export_figure()
+    with Image.open(path) as picture:
+        assert 'Subject' not in picture.info
+        assert picture.info['Title'] == 'SJTU-TPMSHX pareto'
+    optimize_panel.show_pareto(win, dict(front, F=np.empty((0, 2)), X=np.empty((0, 16))))

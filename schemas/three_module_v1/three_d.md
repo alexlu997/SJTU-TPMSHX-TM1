@@ -73,4 +73,7 @@ those fixed factors to the supplied K/cF fields and reports the actual base and
 applied coefficients; it does not reselect or reevaluate calibration. Changing a
 valid K field remains an effective numerical input. The original A projection
 and scalar-mean B convention are preserved. All SIMPLE grids receive the actual
-prepared widths, including uniform grids.
+prepared widths, including uniform grids. Physical fields are permuted into
+each side's solver axes; negative flow also reverses the streamwise widths,
+porosity and A-side projected K/cF rows so local inlet index zero corresponds
+to the physical inlet face.
