@@ -42,6 +42,8 @@ designs, cell/wall geometry is sampled at the final physical cell centres,
 including nonuniform meshes. Their per-cell `thermal_geometry` is required and
 consumed by the local heat-transfer calculation. A zoned prepared archive
 missing these fields is rejected: prepare its original configuration again.
+Continuous-field row drag uses the same physical source-cell widths for
+transverse averaging and streamwise projection.
 Uniform arrays must agree with their scalar geometry inputs.
 
 Four `ModelRef` records identify fluid A, fluid B, geometry and the fixed CFD

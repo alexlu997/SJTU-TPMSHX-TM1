@@ -21,6 +21,6 @@
   },
   "_excluded": {
     "boundary_conditions": "此旧格式只定义样机几何；完整上海验证入口使用 validation/harness/_case_sets.py 的 shanghai_pipeline_config，沿用已确认的 GUI 错位局部水口。",
-    "historical_sources": "原 surrogate_v3、diag_shanghai 与二维 frozen-Tb 循环已退役；三维旧 kernel 的 D76 消费边界及固定源码、原结果见 docs/history/retired-tools.md。"
+    "historical_sources": "原 surrogate_v3、diag_shanghai、二维/三维 frozen-Tb 循环及其 D76 压降验证入口已退役；固定源码及原结果见 docs/history/retired-tools.md。"
   }
 }

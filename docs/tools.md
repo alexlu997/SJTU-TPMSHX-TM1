@@ -86,7 +86,9 @@ python -m sjtu_tpmshx.runs.smokes.smoke_ui_screenshots --output .cache/ui-smoke-
 两维完整上海验证共用 4 月 1 日批次已确认的局部水口：上侧入口
 `x=133–175 mm`，下侧出口 `x=7–49 mm`，贯穿 `42 mm` 深度。
 速度按实验总质量流量、当前模型单侧孔隙面积和入口密度换算。
-显式 `--profile/--eta/--disp-c` 仅适用于历史 kernel，生产分支在读取数据前拒绝。
+二维/三维均使用当前生产链；旧 kernel 及其 `--runner/--profile/--eta/--disp-c`
+选项已退役。依赖旧 kernel 的 D76 三维压降入口也已退役，历史结果保留在
+[退役索引](history/retired-tools.md#剩余历史入口整理2026-09-22)；它与保留的 D76 Nu 六工况验证不同。
 上海二维 CSV 的 `Q_sim` 仍为原实验质量流量/入口比热口径，新列 `Q_native`
 保留主计算 W/m；三维原生 Q 为 W。不同定义分别比较，不覆盖旧实验门槛。
 二维验证只运行当前生产链，报告精度但不设新的实验误差门槛；非有限或未收敛

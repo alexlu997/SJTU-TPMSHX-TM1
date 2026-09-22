@@ -5,11 +5,9 @@ for the continuous-field TPMS HX design.
 Algorithm choice
 ----------------
 qNEHVI = q-Noisy Expected Hypervolume Improvement (Daulton et al., NeurIPS 2021).
-Sample-efficient on 2-objective problems with ~tens of evaluations: typically
-50–100 calls to ``evaluate_design`` produce a usable Pareto front, vs the
-~5000 needed by NSGA-II under the same population/generation heuristic.
-For 16-D the vanilla SingleTaskGP with ARD lengthscales is sufficient — SAAS
-prior is reserved for d ≥ 30 where active-dimension identification matters.
+The current implementation uses SingleTaskGP with ARD lengthscales for the
+two screening objectives. The explicit evaluation budget controls cost;
+it does not guarantee a converged or experimentally validated Pareto front.
 
 Public API
 ----------
