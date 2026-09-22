@@ -146,7 +146,7 @@ def test_initial_single_fluid_profile_reports_effective_simple_cap(monkeypatch):
         return True, 0
 
     monkeypatch.setattr(runtime.SIMPLESolver3D, 'solve', solve)
-    monkeypatch.setattr(runtime, '_prof_3d_enabled', lambda: True)
+    monkeypatch.setenv('TPMSHX_PROFILE_3D', '1')
     monkeypatch.setattr(runtime._log, 'info', lambda message, *a, **k: messages.append(message))
     cfg = _cheap_3d(max_iter_simple=37)
     cfg['fluid_B_cfg'] = None

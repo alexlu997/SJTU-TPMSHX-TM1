@@ -106,49 +106,9 @@ def _apply_accel_flags(solver, cfg):
             "convergence; disable TPMSHX_PHASE_B/use_anderson")
 
 
-# ─────────────────────────────────────────────────────────────────────────
-#  3D solver profiler (opt-in, zero-cost when off)
-# ─────────────────────────────────────────────────────────────────────────
-#  WHY: 3D runtime is dominated by the SIMPLE↔LTNE coupling. When a run is
-#  slow, you need per-solve attribution to know whether SIMPLE-A, SIMPLE-B,
-#  or the LTNE solve is the bottleneck — and whether a solve is genuinely
-#  converging or burning iterations on a residual plateau. This profiler
-#  emits exactly that.
-#
-#  This is the instrument that diagnosed the low-Re water bottleneck
-#  (2026-06-02): it showed SIMPLE_B hitting its iteration cap (2000/600,
-#  conv=False) while its velocity field was already settled — i.e. the
-#  absolute mass residual plateaus above the air-tuned tol for slow water.
-#  That historical finding predates the current shared F2 exit gates.
-#
-#  OUTPUT (stdout, grep-friendly):
-#    [PROF]     <stage>: <wall>s  iters=<n>  conv=<bool>  (cap=<n>)
-#    [PROF-RES] <stage>: n=<N> first=[..] last=[..] min=<r>@<it> final=<r>
-#               — the pressure-subproblem residual history (head/tail/min), to
-#               distinguish a slow-but-monotone descent from a plateau.
-#
-#  COST: gated behind _prof_3d_enabled(); when off, no perf_counter call, no
-#  array copy, no print — pure `if False:`. Safe to leave in production.
-#
-#  ENABLE: TPMSHX_PROFILE_3D=1  (or drop an empty `.profile_3d` file at the
-#  package root for GUI / IDE launches that carry no shell env).
 def _prof_3d_enabled():
-    """B1 profiler gate. Prints per-outer wall-clock + iteration counts for
-    each SIMPLE / LTNE solve so the 3D runtime can be attributed to a specific
-    solver. Zero cost when off. Enable by EITHER:
-      - env var:  TPMSHX_PROFILE_3D=1   (PowerShell: $env:TPMSHX_PROFILE_3D=1)
-      - flag file: drop an empty file named ``.profile_3d`` in the package root
-        (same dir as main.py) — handy when the GUI is launched without a shell
-        env (double-click, IDE run config, etc.)."""
-    if os.environ.get('TPMSHX_PROFILE_3D', '0') == '1':
-        return True
-    try:
-        _flag = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            '.profile_3d')
-        return os.path.exists(_flag)
-    except Exception:
-        return False
+    """Enable per-solve timings and residual summaries with TPMSHX_PROFILE_3D=1."""
+    return os.environ.get('TPMSHX_PROFILE_3D', '0') == '1'
 
 
 def _prof_res_trace(tag, solver):
@@ -1598,8 +1558,8 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D) 
     # Run diagnostics (Q-DIAG) — OPT-IN, skipped in production.
     # None of these locals feed the return dict; gating avoids the extra
     # _face_flux_weights recompute and extra lines of
-    # console spam on every run. Enable via the 3D profiler (.profile_3d /
-    # TPMSHX_PROFILE_3D=1) or cfg['_verbose_diag']=True. 2026-06-09 perf B2.
+    # console spam on every run. Enable via TPMSHX_PROFILE_3D=1
+    # or cfg['_verbose_diag']=True.
     if _prof_3d_enabled() or bool(cfg.get('_verbose_diag', False)):
         _dbg = np
         Q_solid_A_val = float(_dbg.sum(h_vA_field * (Ts - Ta) * cell_vol))
