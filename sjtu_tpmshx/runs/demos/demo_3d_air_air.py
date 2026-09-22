@@ -1,16 +1,17 @@
-"""demo_3d_air_air.py — fire a 3D air-air run with the new GUI defaults.
+"""demo_3d_air_air.py — fixed air/air demonstration workload.
 
 Drives `_run_3d_stack` directly (no Qt) so we can inspect numerical results
 and dump mid-z cloud plots without a display server.
 
-Defaults mirror ui_builders.py:
+Fixed demonstration inputs:
     Geometry: L=0.182 m, H=0.042 m, Lz=0.042 m, Nx=30, Ny=20, Nz=5
-    TPMS    : Gyroid, L_cell=7 mm, t=0.5 mm (in-range for ConstDF-v1)
+    TPMS    : Gyroid, L_cell=7 mm, t=0.5 mm
     Solid   : k_s = 16 W/(m·K)
     Fluid A : Air, u_A=20 m/s, T_inA=422 K, P_inA=192362 Pa, +x stream
     Fluid B : Air, u_B=10 m/s, T_inB=293.15 K, P_inB=101325 Pa, -y stream
 """
 import os
+from pathlib import Path
 import numpy as np
 
 import matplotlib
@@ -29,7 +30,7 @@ def build_cfg():
 
 def print_metrics(res, cfg):
     print("=" * 70)
-    print(" 3D AIR-AIR DEMO — current defaults (Gyroid 0.182×0.042×0.042 m)")
+    print(" 3D AIR-AIR DEMO — fixed workload (Gyroid 0.182×0.042×0.042 m)")
     print("=" * 70)
     print(f"  Driving ΔT     : {cfg['T_inA'] - cfg['T_inB']:.1f} K  "
           f"(T_inA={cfg['T_inA']:.1f}, T_inB={cfg['T_inB']:.2f})")
@@ -81,7 +82,7 @@ def print_metrics(res, cfg):
     print()
 
 
-def plot_clouds(res, cfg, outdir):
+def plot_clouds(res, outdir):
     os.makedirs(outdir, exist_ok=True)
     Nx, Ny, Nz = res['Ta'].shape
     k_mid = Nz // 2
@@ -182,7 +183,7 @@ def plot_clouds(res, cfg, outdir):
     return p1, p2, p3
 
 
-def plot_orthogonal_3d_slices(res, cfg, outdir):
+def plot_orthogonal_3d_slices(res, outdir, *, filename_prefix='3d_air_air_orthoslices'):
     """Three-view orthogonal slice plots for each scalar field — show the
     full 3D structure on 2D paper. Top (XY at mid-z), Front (XZ at mid-y),
     Side (YZ at mid-x). Uses real domain aspect ratio so the user reads
@@ -248,7 +249,7 @@ def plot_orthogonal_3d_slices(res, cfg, outdir):
             f'{title}   |   domain {Lx_mm:.0f}×{Ly_mm:.0f}×{Lz_mm:.0f} mm '
             f'({Lx_mm/Lz_mm:.1f}:{Ly_mm/Lz_mm:.1f}:1)',
             fontweight='bold', y=1.02)
-        p = os.path.join(outdir, f'3d_air_air_orthoslices_{fkey}.png')
+        p = os.path.join(outdir, f'{filename_prefix}_{fkey}.png')
         fig.savefig(p, dpi=120, bbox_inches='tight')
         plt.close(fig)
         paths.append(p)
@@ -272,12 +273,12 @@ if __name__ == '__main__':
     print(f"Solver wall-clock: {elapsed:.1f} s")
     print()
     print_metrics(res, cfg)
-    outdir = os.path.join(os.path.dirname(__file__), 'demo_output')
-    p1, p2, p3 = plot_clouds(res, cfg, outdir)
+    outdir = str(Path(__file__).resolve().parents[3] / '.cache' / 'demos' / 'air_air')
+    p1, p2, p3 = plot_clouds(res, outdir)
     print("MID-Z CLOUD PLOTS WRITTEN")
     print(f"  {p1}\n  {p2}\n  {p3}")
     print()
-    paths = plot_orthogonal_3d_slices(res, cfg, outdir)
+    paths = plot_orthogonal_3d_slices(res, outdir)
     print("3D ORTHOGONAL-SLICE PLOTS WRITTEN")
     for p in paths:
         print(f"  {p}")

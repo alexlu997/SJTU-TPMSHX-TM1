@@ -96,7 +96,8 @@ def _gci_table(Ns, Qs):
     Ns = np.asarray(Ns); Qs = np.asarray(Qs, dtype=np.float64)
     p_obs, Q_inf = _richardson_triplet(Ns, Qs)
 
-    out = dict(order_obs=p_obs, Q_inf=Q_inf, Q_finest=float(Qs[-1]))
+    out = dict(order_obs=p_obs, Q_inf=Q_inf, Q_finest=float(Qs[-1]),
+               order_status='determined' if np.isfinite(p_obs) else 'undetermined')
     # GCI between successive pairs: for each pair (Ns[i], Ns[i+1])
     # treat finer (larger N) as Q_fine
     for i in range(len(Ns) - 1):
@@ -197,7 +198,14 @@ def run_c3_tol(case_id='T2', grid=20, tols=(1e-3, 1e-5, 1e-7)):
             cfg['convergence_mode'] = 'f2'
             cfg['mom_tol'] = tol
             t0 = time.time()
-            res = _run_3d_stack(cfg)
+            try:
+                res = _run_3d_stack(cfg)
+            except Exception as exc:
+                rows.append(dict(case=case_id, grid=grid, tol=tol, Q_enth_A=float('nan'),
+                                 T_A_out=float('nan'), elapsed=time.time() - t0,
+                                 converged=False, error=f'{type(exc).__name__}: {exc}'))
+                print(f'  tol={tol:.0e}: FAILED ({type(exc).__name__}: {exc})')
+                continue
             dt = time.time() - t0
             Q = float(res.get('Q_enthalpy_A', float('nan')))
             T_A_out = float(res.get('T_A_out', float('nan')))

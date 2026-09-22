@@ -43,20 +43,6 @@ from sjtu_tpmshx.optimization._thread_caps import set_worker_thread_caps
 _log = get_logger(__name__)
 
 
-def _set_thread_caps() -> None:
-    """Belt-and-braces re-pin inside the worker body.
-
-    The REAL guard is the executor's ``initializer=set_worker_thread_caps``
-    (light-module timing — see _thread_caps.py: a spawned child imports this
-    module, numpy included, just to UNPICKLE the worker fn, so an in-body cap
-    ran after OpenBLAS already sized its pool, and the old list was missing
-    NUMBA_NUM_THREADS — HANDOFF §6b, fixed 2026-07-21). This call remains for
-    the dynamic readers (MKL/OMP re-read at parallel regions) and for callers
-    invoking _seed_subprocess_main outside the pool.
-    """
-    set_worker_thread_caps()
-
-
 def _seed_subprocess_main(seed: int,
                           config: Optional[dict],
                           n_init: int,
@@ -73,7 +59,7 @@ def _seed_subprocess_main(seed: int,
     importing optimizer_qnehvi to keep MKL from launching N threads per
     process which would oversubscribe the 12-core budget.
     """
-    _set_thread_caps()
+    set_worker_thread_caps()
     # Heavy import deferred until after thread caps are set
     from sjtu_tpmshx.optimization.optimizer_qnehvi import run_qnehvi
 

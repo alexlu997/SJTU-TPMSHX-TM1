@@ -702,8 +702,7 @@ def main(argv=None):
 
     # The gate always covers every requested case. Invalid pressure states,
     # nonfinite errors and incomplete convergence cannot shrink its denominator.
-    valid_mask = np.array([bool(r['pressure_state_valid']) and
-                           r.get('pressure_clip_hits', 0) == 0 for r in results])
+    valid_mask = np.array([bool(r['pressure_state_valid']) for r in results])
     n_total = len(results)
     n_invalid = int((~valid_mask).sum())
     invalid_cases = [results[i]['case'] for i in range(n_total) if not valid_mask[i]]

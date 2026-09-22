@@ -9,6 +9,7 @@ Output PNGs (per field):
   3. Iso — isosurface of the median value
 """
 import os
+from pathlib import Path
 import numpy as np
 
 # Force offscreen before any pyvista import
@@ -183,7 +184,7 @@ def main():
     print(f"Solver: {time.time()-t0:.1f}s")
     grid = make_grid(res)
 
-    outdir = os.path.join(os.path.dirname(__file__), 'demo_output', 'cube_3d')
+    outdir = str(Path(__file__).resolve().parents[3] / '.cache' / 'demos' / 'cube_3d')
     os.makedirs(outdir, exist_ok=True)
 
     fields = [

@@ -1,11 +1,11 @@
 """render_3d_styles.py — 3D output style showcase.
 
-Per-field outputs (5 styles):
+Per-field outputs (6 styles):
   1. publication_4panel.png — 3D triple-slice + 3 ortho 2D in 4-panel grid
   2. presentation_large.png — single large triple-slice (1600×1400)
   3. volume_tuned.png       — ray-cast volume with sharper opacity ramp
   4. iso_3level.png         — 3 cleaner isosurfaces
-  5. rotate.mp4             — 120-frame rotation video (Ts only, ~3 MB)
+  5. rotate.mp4             — rotation video (Ts only)
   6. interactive.html       — PyVista HTML export (Ts only)
 
 Field selection:
@@ -13,6 +13,7 @@ Field selection:
   - Ta, Tb, vmag, P_kPa → outputs 1 + 2 only (lighter)
 """
 import os
+from pathlib import Path
 import numpy as np
 
 os.environ['PYVISTA_OFF_SCREEN'] = 'true'
@@ -28,44 +29,8 @@ pv.OFF_SCREEN = True
 pv.global_theme.background = 'white'
 pv.global_theme.font.color = 'black'
 
-from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry
+from sjtu_tpmshx.runs.demos.demo_3d_cube_volume import build_cube_cfg, make_grid
 from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
-
-
-def build_cube_cfg():
-    L = H = Lz = 0.050
-    Nx = Ny = Nz = 20
-    Lcell, t_wall, k_s = 7.0, 0.5, 16.0
-    tpms_type = 'Gyroid'
-    g = tpms_geometry(tpms_type, Lcell, t_wall, k_s)
-    return dict(
-        L=L, H=H, Lz=Lz, Nx=Nx, Ny=Ny, Nz=Nz,
-        u_A=20.0, u_B=10.0,
-        T_inA=422.0, T_inB=293.15,
-        P_inA=192362.0, P_inB=101325.0,
-        T_s_init=None,
-        Lcell=Lcell, t_wall=t_wall, k_s=k_s,
-        tpms_type=tpms_type,
-        eps=g['epsilon'], D_h=g['D_h'],
-        fluid_A_cfg=dict(dir=0, in_ctr=H/2, in_w=H, out_ctr=H/2, out_w=H),
-        fluid_B_cfg=dict(dir=3, in_ctr=L/2, in_w=L, out_ctr=L/2, out_w=L),
-        wall_refine_3d=False,
-        zone_grid_cells=None,
-        fluid_type_A='air', fluid_type_B='air',
-    )
-
-
-def make_grid(res):
-    Nx, Ny, Nz = res['Ta'].shape
-    dx, dy, dz = res['dx'], res['dy'], res['dz']
-    xe = np.concatenate([[0.0], np.cumsum(dx)]) * 1000.0
-    ye = np.concatenate([[0.0], np.cumsum(dy)]) * 1000.0
-    ze = np.concatenate([[0.0], np.cumsum(dz)]) * 1000.0
-    grid = pv.RectilinearGrid(xe, ye, ze)
-    for k, arr in [('Ta', res['Ta']), ('Tb', res['Tb']), ('Ts', res['Ts']),
-                   ('vmag', res['vmag']), ('P_kPa', res['P_kPa'])]:
-        grid.cell_data[k] = arr.flatten(order='F')
-    return grid.cell_data_to_point_data()
 
 
 def _add_axes_show_bounds(p):
@@ -391,7 +356,7 @@ def main():
     dy_mm = res['dy'] * 1000.0
     dz_mm = res['dz'] * 1000.0
 
-    outdir = os.path.join(os.path.dirname(__file__), 'demo_output', 'cube_3d_styles')
+    outdir = str(Path(__file__).resolve().parents[3] / '.cache' / 'demos' / 'cube_3d_styles')
     os.makedirs(outdir, exist_ok=True)
 
     fields = [

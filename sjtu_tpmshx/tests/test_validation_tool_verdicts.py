@@ -8,6 +8,7 @@ import pytest
 from sjtu_tpmshx.validation.cases import phase_c_gci as gci
 from sjtu_tpmshx.validation.cases import audit_3d_conservation as audit
 from sjtu_tpmshx.validation.cases import validate_shanghai_3d_real as shanghai
+from sjtu_tpmshx.validation.cases import validate_shanghai_aligned as shanghai_2d
 from sjtu_tpmshx.validation.harness._provenance import REFERENCE_DIR
 
 
@@ -24,6 +25,22 @@ def test_undetermined_order_does_not_assume_second_order(values):
     table = gci._gci_table([12, 20, 30], values)
     assert np.isnan(table['order_obs']) and np.isnan(table['Q_inf'])
     assert np.isnan(table['GCI_g20_pct'])
+    assert table['order_status'] == 'undetermined'
+
+
+def test_gci_solve_exceptions_preserve_grid_and_tolerance_members(monkeypatch):
+    def fail(cfg):
+        raise RuntimeError('injected solve failure')
+
+    monkeypatch.setattr(gci, '_run_3d_stack', fail)
+    rows, table = gci.run_c1('T2', grids=(12, 20, 30))
+    assert [row['N'] for row in rows] == [12, 20, 30]
+    assert all('injected solve failure' in row['error'] for row in rows)
+    assert not table['all_grids_converged']
+    assert table['order_status'] == 'undetermined'
+    rows = gci.run_c3_tol()
+    assert [row['tol'] for row in rows] == [1e-3, 1e-5, 1e-7]
+    assert all(not row['converged'] and np.isnan(row['Q_enth_A']) for row in rows)
 
 
 @pytest.mark.parametrize('values,converged', [([1., 1., 2.], True),
@@ -46,7 +63,7 @@ def _shanghai_row(index):
                 **{'err_dP%': 1., 'err_Q%': 1.})
 
 
-@pytest.mark.parametrize('damage', ['nonfinite', 'invalid', 'unconverged', 'exception', 'none'])
+@pytest.mark.parametrize('damage', ['nonfinite', 'invalid', 'unconverged', 'exception', 'recovered_clip', 'none'])
 def test_shanghai_failed_members_remain_in_separate_output(tmp_path, monkeypatch, damage):
     monkeypatch.setattr(shanghai, 'load_cases_df', lambda *a: pd.DataFrame([{}, {}]))
 
@@ -56,15 +73,33 @@ def test_shanghai_failed_members_remain_in_separate_output(tmp_path, monkeypatch
             if damage == 'nonfinite': row['err_Q%'] = np.nan
             if damage == 'invalid': row['pressure_state_valid'] = 0
             if damage == 'unconverged': row['converged'] = False
+            if damage == 'recovered_clip': row['pressure_clip_hits'] = 7
             if damage == 'exception': raise RuntimeError('injected solve failure')
         return row
 
     monkeypatch.setattr(shanghai, '_run_one_case_pipeline', run)
     code = shanghai.main(['--cases', '2', '--out-dir', str(tmp_path)])
-    assert code == (0 if damage == 'none' else 1)
+    assert code == (0 if damage in ('none', 'recovered_clip') else 1)
     rows = pd.read_csv(tmp_path / 'shanghai_3d_baseline.csv', comment='#')
     assert rows['case'].tolist() == [1, 2]
     if damage == 'exception': assert 'injected solve failure' in rows.loc[1, 'error']
+    if damage == 'recovered_clip': assert rows.loc[1, 'pressure_clip_hits'] == 7
+
+
+def test_shanghai_2d_keeps_failed_member_and_returns_failure(tmp_path, monkeypatch):
+    monkeypatch.setattr(shanghai_2d, 'load_cases_df', lambda *a: pd.DataFrame([{}, {}]))
+    monkeypatch.setattr(shanghai_2d, 'SHANGHAI_N_CASES', 2)
+
+    def run(index, df):
+        if index == 1:
+            raise RuntimeError('injected 2D failure')
+        return dict(Case=1, converged=True, **{'err_dP%': 1., 'err_Q%': 1.})
+
+    monkeypatch.setattr(shanghai_2d, '_run_one_case_pipeline', run)
+    assert shanghai_2d.main(['--out-dir', str(tmp_path)]) == 1
+    rows = pd.read_csv(tmp_path / 'shanghai_validation_aligned.csv', comment='#')
+    assert rows['Case'].tolist() == [1, 2]
+    assert 'injected 2D failure' in rows.loc[1, 'error']
 
 
 @pytest.mark.parametrize('module,args', [(shanghai, ['--out-dir']), (audit, ['--out'])])
@@ -81,17 +116,20 @@ def test_t1_really_is_parallel_full_face():
     assert cfg['fluid_B_cfg']['in_w'] == cfg['H']
 
 
-@pytest.mark.parametrize('reverse', [False, True])
-def test_temperature_change_does_not_excuse_steady_mass_imbalance(reverse):
-    v = np.full((2, 3, 2), -2. if reverse else 2.)
-    v[:, 0 if reverse else -1, :] *= .9
+@pytest.mark.parametrize('direction', range(6))
+def test_temperature_change_does_not_excuse_steady_mass_imbalance(direction):
+    # Production telemetry always exports raw solver coordinates, including
+    # reverse real-space directions: positive inlet v at j=0.
+    v = np.full((2, 3, 2), 2.)
+    v[:, -1, :] *= .9
     face = dict(u=np.zeros((3, 2, 2)), v=v, w=np.zeros((2, 2, 3)),
                 rho=np.ones((2, 2, 2)), dx=np.ones(2), dy=np.ones(2), dz=np.ones(2),
-                dir_real=1 if reverse else 0)
+                dir_real=direction)
     result = audit.compute_phase4(dict(_audit_sA_face=face, _audit_T_inA=300., T_A_out=600.))
     assert result['A']['imbal_rel'] == pytest.approx(.1)
     assert result['A']['temperature_change_rel'] == 1.
     assert result['A']['m_in'] == 8.
+    assert result['A']['m_out'] == pytest.approx(7.2)
     assert 'drift_expected' not in result['A']
 
 

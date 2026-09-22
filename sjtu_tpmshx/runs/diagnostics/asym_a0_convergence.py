@@ -9,7 +9,7 @@ A0 网格收敛诊断（非对称孔隙率，极端 δ）。
      N=128 低 ~3%，N≥200 <1%（与壁厚无关，纯分辨率）。
   4. Richardson 3-网格外推（a0_sides_richardson）：从便宜网格 (96,144,216) 即 <1%。
 
-用法: python -u runs/asym_a0_convergence.py
+用法: python -m sjtu_tpmshx.runs.diagnostics.asym_a0_convergence
 """
 import sys
 

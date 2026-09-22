@@ -23,8 +23,8 @@ isotropy at the Shanghai point, N-refinement drift.
 
 Usage
 -----
-    python -u runs/tools/homogenize_chi_s.py --selftest
-    python -u runs/tools/homogenize_chi_s.py --sweep   # -> CSV + fit coeffs
+    python -m sjtu_tpmshx.runs.tools.homogenize_chi_s --selftest
+    python -m sjtu_tpmshx.runs.tools.homogenize_chi_s --sweep   # -> CSV + fit coeffs
 """
 from __future__ import annotations
 

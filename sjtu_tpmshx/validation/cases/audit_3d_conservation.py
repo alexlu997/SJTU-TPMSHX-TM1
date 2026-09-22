@@ -413,11 +413,9 @@ def compute_phase2c_h3(res):
     sA = res['_audit_sA_face']
     sB = res.get('_audit_sB_face')
     eps_arr = res['_audit_eps_arr']
-    rho_cp_A = res['_audit_rho_cp_fA']
-    rho_cp_B = res['_audit_rho_cp_fB']
     Ta = res['Ta']; Tb = res['Tb']
 
-    def _per_cell_net_out(face, rho_cp_field, T_field):
+    def _per_cell_net_out(face):
         """Per-cell mass NET_OUT = Σ_face ρ·u·n·A (signed by outward normal)."""
         u = face['u']; v = face['v']; w = face['w']
         rho = face['rho']
@@ -489,7 +487,7 @@ def compute_phase2c_h3(res):
         return flux_x_out + flux_y_out + flux_z_out
 
     # Compute per-cell NET_OUT for both fluids
-    net_A = _per_cell_net_out(sA, rho_cp_A, Ta)
+    net_A = _per_cell_net_out(sA)
     # Reshape Ta from real coords to solver coords for matching with sA
     perm_A = sA['solver_to_real_perm']
     inv_A = tuple(np.argsort(perm_A))
@@ -518,7 +516,7 @@ def compute_phase2c_h3(res):
         B=None,
     )
     if sB is not None:
-        net_B = _per_cell_net_out(sB, rho_cp_B, Tb)
+        net_B = _per_cell_net_out(sB)
         perm_B = sB['solver_to_real_perm']
         inv_B = tuple(np.argsort(perm_B))
         Tb_solver = np.ascontiguousarray(np.transpose(Tb, inv_B))
@@ -714,7 +712,7 @@ def compute_phase3(res):
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# Phase 4 — mass conservation + compressible drift
+# Phase 4 — mass conservation and thermal variation
 # ──────────────────────────────────────────────────────────────────────────
 
 def compute_phase4(res):
@@ -732,8 +730,6 @@ def compute_phase4(res):
         u = face['u']; v = face['v']; w = face['w']
         rho = face['rho']
         dx = face['dx']; dy = face['dy']; dz = face['dz']
-        dir_real = face['dir_real']
-        Nx_s, Ny_s, Nz_s = rho.shape
 
         # Solver j=0 face (south boundary)
         A_solver_y = dx[:, None] * dz[None, :]
@@ -751,19 +747,11 @@ def compute_phase4(res):
         # outward at +x = +u_east·A; outward at -x = -u_west·A; etc.
         net_out_solver = (m_east - m_west) + (m_north - m_south) + (m_top - m_bot)
 
-        # SIMPLE conv: forward streams enter at solver j=0 (south, v>0); the
-        # streamwise "out" face is j=Ny. FIX (2026-06-24 audit): reverse-direction
-        # fluids (dir_real in {1,3,5}, e.g. fluid B with dir=3 in the T2 case)
-        # physically enter at solver j=-1 (north), so swap in/out — otherwise the
-        # imbalance is normalized on the OUTLET flux. net_out_solver above is
-        # signed/direction-independent and stays unchanged.
-        is_reverse = dir_real in (1, 3, 5)
-        if is_reverse:
-            m_in_face = -m_north
-            m_out_face = -m_south
-        else:
-            m_in_face = m_south
-            m_out_face = m_north
+        # Runtime exports raw solver arrays: every physical direction enters
+        # at solver j=0 with positive v. dir_real affects real-space mapping,
+        # not these face arrays, so reverse physical streams need no swap.
+        m_in_face = m_south
+        m_out_face = m_north
         imbal = -net_out_solver / max(abs(m_in_face), abs(m_out_face), 1e-30)
 
         # Thermal variation is informational and independent of continuity.

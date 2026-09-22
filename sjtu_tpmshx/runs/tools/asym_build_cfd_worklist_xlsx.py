@@ -54,8 +54,8 @@ RE_B = [30, 80, 250, 700, 1800, 3000]        # liquid side
 N_LOW = 2                                    # first N_LOW per side = Darcy-pin (low Re)
 
 # ── fluid props (A=air ideal-gas @300K, B=water @325K reuse prior table) ──
-# air @300K (denser than @350K → keeps Re12000 subsonic Mach<0.3); κ is geometry-
-# only so the absolute Tref is immaterial to the calibration.
+# air @300K targets subsonic Re12000; fitted κ belongs to these fluid/property
+# conditions. Transfer across reference temperatures or properties requires validation.
 AIR = dict(name="air", Tref=300.0, P_MPa=0.101325, rho=1.1774, mu=1.846e-5,
            cp=1006.4, k=0.02624, Pr=0.708, Twall=400.0)
 WATER = dict(name="water", Tref=325.0, P_MPa=0.101325, rho=987.11, mu=5.33e-4,

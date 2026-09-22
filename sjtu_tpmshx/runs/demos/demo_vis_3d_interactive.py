@@ -45,7 +45,7 @@ from sjtu_tpmshx.ui.demo_vis_3d import (
 from sjtu_tpmshx.ui.vis3d_constants import FIELD_ORDER, FIELD_META, tone_down_plane_widget
 
 
-def build_data_grid(Nx, Ny, Nz, dx, dy, dz, Ta, vmag, P, L_field,
+def build_data_grid(dx, dy, dz, Ta, vmag, P, L_field,
                     stretch_to_cube=False):
     """Build pv.RectilinearGrid with all 4 fields in real mm coords.
 
@@ -82,8 +82,9 @@ def launch_interactive(grid, *, off_screen=False, out_dir=None,
                 Only affects the info-text annotation.
     """
     if out_dir is None:
-        out_dir = Path(__file__).parent
+        out_dir = Path(__file__).resolve().parents[3] / '.cache' / 'demos' / 'interactive'
     out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     # This A-side demo supplies a subset of the embedded panel's fields.
     field_order = [field for field in FIELD_ORDER if field in grid.point_data]
@@ -318,7 +319,7 @@ def main():
     print(f"[3/3] Launching PyVista "
           f"{'(off-screen)' if args.test else 'interactive'} window "
           f"{'[cube-stretched]' if args.cube else '[true aspect]'}…")
-    grid = build_data_grid(Nx, Ny, Nz, dx, dy, dz, Ta, vmag, P_real, L_field,
+    grid = build_data_grid(dx, dy, dz, Ta, vmag, P_real, L_field,
                             stretch_to_cube=args.cube)
     launch_interactive(grid, off_screen=args.test, stretched=args.cube)
     return 0

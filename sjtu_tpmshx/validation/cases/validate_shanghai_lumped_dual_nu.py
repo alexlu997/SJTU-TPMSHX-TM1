@@ -10,7 +10,7 @@ Pipeline
 1. Inlet props per side — ρ, μ, k, cp, Pr at T_in (then iterate with T_avg).
 2. Re_A = ρ_A·u_A·D_h/μ_A;  Re_B = ρ_B·u_B·D_h/μ_B  (single-stream).
 3. Nu_A = nu_from_Re(Gyroid, Re_A, ε_A, L, D_h_mm)        [v4.1 ×1.28].
-   Nu_B = nu_water_topo('Gyroid', Re_B, Pr_B) = 0.4445·Re^0.6361·Pr^(1/3).
+   Nu_B = nu_water_topo('Gyroid', Re_B, Pr_B) = c·Re^a·Pr^(1/3), using current WATER_NU_COEFFS.
 4. h_A = Nu_A·k_A/D_h;   h_B = Nu_B·k_B/D_h.
 5. UA = 1 / [1/(A_tot·h_A) + t_wall/(k_steel·A_tot) + 1/(A_tot·h_B)].
 6. C_A = m_air·cp_A;  C_B = m_water·cp_B;  C_min, C_max, Cr = C_min/C_max.
@@ -72,10 +72,6 @@ K_STEEL = _SH_CC.geometry.k_s_W_mK                 # W/(m·K), 304 SS
 L_AIR   = _SH_CC.geometry.L_dom_m                  # m, x  (air flow length)
 L_WATER = _SH_CC.geometry.H_dom_m                  # m, y  (water flow length)
 L_Z     = _SH_CC.geometry.Lz_m                     # m, z  (spanwise)
-# Aliases retained for legacy variable names elsewhere in script
-L_DOM = L_AIR
-H_DOM = L_WATER
-LZ    = L_Z
 
 
 def epsilon_counterflow(NTU: float, Cr: float) -> float:
@@ -146,7 +142,10 @@ def main() -> None:
     print(f"  A_0={A_0:.1f} 1/m  V_HX_total={V_HX_TOTAL*1e6:.1f}cm³  "
           f"A_tot={A_TOT:.4f}m² (full sheet HX gyroid wall)")
     print("  Air Nu: nu_from_Re (Gyroid v4.1 ×1.28 roughness)")
-    print("  Water Nu: nu_water_topo(Gyroid)  Nu = 0.4445·Re^0.6361·Pr^(1/3)\n")
+    from sjtu_tpmshx.models.nu_correlations import WATER_NU_COEFFS
+    water_fit = WATER_NU_COEFFS[TPMS]
+    print(f"  Water Nu: nu_water_topo({TPMS})  "
+          f"Nu = {water_fit['c']}·Re^{water_fit['a']}·Pr^(1/3)\n")
 
     from sjtu_tpmshx.validation.harness._harness import load_cases_df
     from sjtu_tpmshx.validation.harness._case_sets import SHANGHAI_XLSX
