@@ -272,14 +272,6 @@ class ContinuousFieldConfig:
 
     # ─── Field evaluation ────────────────────────────────────────────
 
-    def L_at(self, x: float, y: float) -> float:
-        """Evaluate L(x,y) at one point [m] → mm. Clamped to L_bounds."""
-        v = float(self._L_spline(x, y, grid=False))
-        return float(np.clip(v, self.L_bounds[0], self.L_bounds[1]))
-
-    def t_at(self, x: float, y: float) -> float:
-        v = float(self._t_spline(x, y, grid=False))
-        return float(np.clip(v, self.t_bounds[0], self.t_bounds[1]))
 
     def evaluate_grid(self, Nx: int, Ny: int,
                       dx_arr: Optional[np.ndarray] = None,
@@ -448,73 +440,3 @@ def uniform_field(L_mm: float, t_mm: float,
         tpms_type=tpms_type, k_s=k_s,
         L_domain=L_domain, H_domain=H_domain,
     )
-
-
-# ─── Standalone smoke test ──────────────────────────────────────────
-
-if __name__ == '__main__':
-    print("=== continuous_field.py smoke test ===\n")
-
-    # Test 1: decode/encode round-trip (symmetric)
-    n_ctrl_x = 4
-    n_ctrl_y = 4
-    sym = True
-    L_seed = np.array([[5.0, 6.0, 6.0, 5.0],
-                       [5.5, 6.5, 6.5, 5.5],
-                       [6.0, 7.0, 7.0, 6.0],
-                       [5.5, 6.5, 6.5, 5.5]], dtype=np.float64)
-    t_seed = np.full((4, 4), 0.4)
-    x = encode_decision_vector(L_seed, t_seed, symmetric_y=sym)
-    print(f"  decision_dim = {decision_dim(n_ctrl_x, n_ctrl_y, sym)} "
-          f"(actual x.size = {x.size})")
-    assert x.size == decision_dim(n_ctrl_x, n_ctrl_y, sym)
-
-    L_dec, t_dec = decode_decision_vector(x, n_ctrl_x, n_ctrl_y, sym)
-    assert np.allclose(L_dec, L_seed), f"L round-trip failed:\n{L_dec}\nvs\n{L_seed}"
-    assert np.allclose(t_dec, t_seed)
-    print("  PASS round-trip encode/decode (symmetric)\n")
-
-    # Test 2: uniform field returns uniform
-    fc = uniform_field(6.0, 0.4, 'Diamond', 15.0, 0.1, 0.1)
-    L_field, t_field = fc.evaluate_grid(20, 20)
-    assert np.allclose(L_field, 6.0, atol=1e-9)
-    assert np.allclose(t_field, 0.4, atol=1e-9)
-    print(f"  uniform field eval: L_mean={L_field.mean():.4f}, "
-          f"t_mean={t_field.mean():.4f}")
-    print("  PASS uniform field\n")
-
-    # Test 3: build_grid_arrays returns expected dict keys
-    arrays = fc.build_grid_arrays(20, 20, u_A=5.0, u_B=3.0,
-                                   T_inA=400.0, T_inB=300.0)
-    from sjtu_tpmshx.models.grid_schema import GRID_ARRAY_KEYS
-    expected_keys = set(GRID_ARRAY_KEYS) | {'L_field', 't_field', 'axis',
-                                            'cache_size', 'zone_id'}
-    assert expected_keys.issubset(set(arrays.keys()))
-    print(f"  arrays keys OK; cache_size = {arrays['cache_size']} "
-          f"(uniform field → expect 1)")
-    assert arrays['cache_size'] == 1
-    print("  PASS build_grid_arrays\n")
-
-    # Test 4: penalty zero on smooth config
-    pen = fc.manufacturability_penalty()
-    assert pen == 0.0
-    print(f"  penalty(uniform) = {pen}  PASS\n")
-
-    # Test 5: penalty fires on steep gradient
-    L_steep = np.array([[3.0, 3.0, 3.0, 3.0],
-                        [10.0, 10.0, 10.0, 10.0],
-                        [3.0, 3.0, 3.0, 3.0],
-                        [10.0, 10.0, 10.0, 10.0]], dtype=np.float64)
-    fc_steep = ContinuousFieldConfig(
-        ctrl_x=np.linspace(0, 0.1, 4),
-        ctrl_y=np.linspace(0, 0.1, 4),
-        L_ctrl=L_steep, t_ctrl=t_seed,
-        tpms_type='Diamond', k_s=15.0,
-        L_domain=0.1, H_domain=0.1,
-    )
-    pen_steep = fc_steep.manufacturability_penalty()
-    print(f"  penalty(steep) = {pen_steep:.2f}")
-    assert pen_steep > 0.0
-    print("  PASS smoothness penalty\n")
-
-    print("=== All smoke tests passed ===")

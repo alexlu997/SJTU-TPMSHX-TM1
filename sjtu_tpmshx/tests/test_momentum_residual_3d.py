@@ -196,7 +196,7 @@ def test_balanced_denominator_has_no_false_zero():
 
 def test_f2_does_not_evaluate_momentum_before_its_iteration_floor():
     s = _make_solver()
-    s.solve(max_iter=5, tol=1e-12)
+    s.solve(max_iter=5)
     assert s.mom_residuals == [] and s.final_res_mom is None
 
 
@@ -204,11 +204,11 @@ def test_tracking_records_a_history_and_does_not_change_the_result():
     """Enabling the diagnostic must not perturb ANY solver output — it is
     recorded after the fields are final and never gates the exit."""
     s0 = _make_solver()
-    c0, n0 = s0.solve(max_iter=60, tol=1e-12)
+    c0, n0 = s0.solve(max_iter=60)
 
     s1 = _make_solver()
     s1.track_momentum_residual = True
-    c1, n1 = s1.solve(max_iter=60, tol=1e-12)
+    c1, n1 = s1.solve(max_iter=60)
 
     assert (c0, n0) == (c1, n1)
     assert s0.exit_reason == s1.exit_reason
@@ -237,7 +237,7 @@ def test_momentum_residual_decays_over_a_solve():
     s.track_momentum_residual = True
     s.convergence_mode = 'f2'
     s.mom_tol = 1e-4
-    converged, n = s.solve(max_iter=400, tol=1e-14)
+    converged, n = s.solve(max_iter=400)
 
     mom = [r['max'] for r in s.mom_residuals]
     assert converged and s.exit_reason == 'tol'

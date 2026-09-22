@@ -49,12 +49,12 @@ Conventions (repo, NOT the CSV's own):
                from the CSV alone (the Re and energy-balance cross-checks
                are circular — Re_nominal and Q_core are derived from Um and
                mdot respectively). CONSEQUENCE for fits:
-                 Nu = h·Dh/k          — NO velocity term → SAFE on all 20.
+                 Nu = h·Dh/k          — ordinate has no direct velocity term.
                  Re = rho·Um·Dh/mu    — uses Um → these 3 shift ~±5% along
                  f  = dpdl·Dh/(ρU²/2)   the Re axis / f by ~10% IF Um (not
                                         mdot) is the wrong one.
-               Fit Nu on all 20 freely; for f, flag D_7_3/4/5 as pending a
-               provider answer on which of mdot/Um is authoritative.
+               Nu(Re) still inherits the uncertain Re coordinate. Flag
+               D_7_3/4/5 for both Nu(Re) and f pending confirmation of mdot/Um.
     Re / Nu / f  recomputed from raw physical quantities (Um, h, dp) with
                the repo Dh. CSV's own Re kept as ``Re_nominal`` (case-matrix
                label) — do not fit against it.
@@ -70,7 +70,6 @@ so a future upload with a new pressure level cannot be silently mis-tagged.
 """
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -290,24 +289,3 @@ def load_segments(lattice: str = "Diamond",
               f"Re_b [{seg['Re_b'].min():.0f}, {seg['Re_b'].max():.0f}], "
               f"Pr_b [{seg['Pr_b'].min():.2f}, {seg['Pr_b'].max():.2f}]")
     return seg
-
-
-if __name__ == "__main__":
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-    except AttributeError:
-        pass
-
-    for _lat in LATTICES:
-        core = load_core(_lat)
-        print(f"[{_lat}] core: {len(core)} cases")
-        print(core.groupby("geometry_id")
-              .agg(n=("Re", "size"), Re_min=("Re", "min"),
-                   Re_max=("Re", "max"),
-                   f_med=("f", "median"), Nu_med=("Nu", "median"),
-                   eps=("eps", "first"),
-                   Dh_mm=("Dh_m", lambda s: s.iloc[0] * 1e3))
-              .round(3).to_string())
-        segs = load_segments(_lat)
-        print(f"[{_lat}] segments (periods 2-3): {len(segs)} rows")
-        print()

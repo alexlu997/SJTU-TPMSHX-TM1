@@ -2,10 +2,12 @@
 
 Future Nu refits should show up as clear deltas in this test.
 Backward-compat note: existing test_review_fixes.py asserts the same numerical
-contract through tpms_calc._NU_ROUGHNESS_FACTOR and sigmoid_field._nu_vec.
+contract through NU_ROUGHNESS_FACTOR and sigmoid_field._nu_vec.
 
 Per audit finding H1 (2026-05-28 4-perspective audit, plan Item 1).
 """
+from sjtu_tpmshx.models.nu_correlations import NU_ROUGHNESS_FACTOR
+
 import numpy as np
 import pytest
 
@@ -72,10 +74,10 @@ def test_nu_water_pr_substitution():
     np.testing.assert_allclose(water, expected, rtol=1e-15)
 
 
-def test_legacy_tpms_calc_api_still_works():
-    """Backward compat: tpms_calc.nu_from_Re + _NU_ROUGHNESS_FACTOR re-exported."""
+def test_calculator_matches_canonical_nu():
+    """Calculator and canonical Nu correlation return the same physical value."""
     from sjtu_tpmshx.models import tpms_calc
-    assert abs(tpms_calc._NU_ROUGHNESS_FACTOR - 1.28) < 1e-15
+    assert abs(NU_ROUGHNESS_FACTOR - 1.28) < 1e-15
     Nu = tpms_calc.nu_from_Re('Diamond', 1000.0, 0.4, 7.0, 1.5)
     from sjtu_tpmshx.models.nu_correlations import nu_from_Re
     assert abs(Nu - nu_from_Re('Diamond', 1000.0, 0.4, 7.0, 1.5)) < 1e-15

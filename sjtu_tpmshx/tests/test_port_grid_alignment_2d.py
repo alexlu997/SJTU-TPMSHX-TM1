@@ -325,7 +325,7 @@ def test_refreshed_taper_sets_first_massflux_target():
             pytest.approx(0.2 * 0.05, rel=1e-12))
     scale = solver._inlet_taper_flux_scale
     assert not hasattr(solver, '_massflux_target')
-    solver.solve(max_iter=2, tol=0.0, verbose=False)
+    solver.solve(max_iter=2, verbose=False)
     assert solver._massflux_target == pytest.approx(0.2 * 1000.0 * scale, rel=1e-12)
 
 

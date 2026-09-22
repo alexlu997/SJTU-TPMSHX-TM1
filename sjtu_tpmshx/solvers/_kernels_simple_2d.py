@@ -93,7 +93,6 @@ def _sou_corr_v_y(v, i, j, Ny, Fn, Fs):
     return 0.5 * (Fs * low - Fn * high)
 
 
-
 @njit(cache=True)
 def _porous_src_df(umag, K, cF, mu, rho):
     """Linearised Darcy-Forchheimer resistance coefficient [kg/(m3 s)].
@@ -552,7 +551,6 @@ def _solve_pp_sparse_fast(Pp, u, v, d_u, d_v, outlet_frac,
     return A, rhs
 
 
-
 # ── SIMPLE Step 5: correction ─────────────────────────────────────
 @njit(cache=True)
 def _correct_jit(u, v, P, Pp, d_u, d_v, inlet_frac, v_inlet_field, outlet_frac,
@@ -628,90 +626,6 @@ def _mass_res_jit(u, v, Nx, Ny, dx_arr, dy_arr, rho_field):
 
 
 # ── Temperature solver (frozen velocity) ──────────────────────────
-@njit(cache=True)
-def _solve_temp_jit(Tf, Ts, u, v, inlet_mask,
-                    Nx, Ny, dx_arr, dy_arr, eps,
-                    K_ff, K_ss, h_v, h_v2, rho_cp_f,
-                    T_in, T_other,
-                    max_iter, tol):
-    """
-    Iterate fluid + solid temperature to steady state.
-    dx_arr: 1D [Nx], dy_arr: 1D [Ny] — non-uniform cell widths.
-    """
-    for it in range(max_iter):
-        max_chg = 0.0
-
-        # ── Fluid temperature ──
-        for i in range(Nx):
-            for j in range(Ny):
-                dxi = dx_arr[i]; dyj = dy_arr[j]
-                vol = dxi * dyj
-                Df_e = K_ff * dyj / dxi; Df_n = K_ff * dxi / dyj
-                hv  = h_v * vol
-
-                # Diffusion coefficients (0 at boundaries = adiabatic)
-                dE = Df_e if i < Nx - 1 else 0.0
-                dW = Df_e if i > 0      else 0.0
-                dN = Df_n if j < Ny - 1 else 0.0
-                dS = Df_n if j > 0      else 0.0
-
-                # Convective fluxes (staggered velocities at cell faces)
-                Fe = eps * rho_cp_f * u[i + 1, j] * dyj
-                Fw = eps * rho_cp_f * u[i, j]     * dyj
-                Fn = eps * rho_cp_f * v[i, j + 1] * dxi
-                Fs = eps * rho_cp_f * v[i, j]     * dxi
-
-                aE = dE + max(-Fe, 0.0)
-                aW = dW + max(Fw, 0.0)
-                aN = dN + max(-Fn, 0.0)
-                aS = dS + max(Fs, 0.0)
-
-                # Neighbours (adiabatic = zero-grad at boundaries)
-                tE = Tf[i + 1, j] if i < Nx - 1 else Tf[i, j]
-                tW = Tf[i - 1, j] if i > 0      else Tf[i, j]
-                tN = Tf[i, j + 1] if j < Ny - 1 else Tf[i, j]
-                if j > 0:
-                    tS = Tf[i, j - 1]
-                else:
-                    tS = T_in if inlet_mask[i] else Tf[i, j]
-
-                aP = aE + aW + aN + aS + hv
-                rhs = aE * tE + aW * tW + aN * tN + aS * tS + hv * Ts[i, j]
-                # Note: hv and hv2_loc computed per-cell above
-
-                Tf_new = rhs / aP
-                chg = abs(Tf_new - Tf[i, j])
-                if chg > max_chg:
-                    max_chg = chg
-                Tf[i, j] = Tf_new
-
-        # ── Solid temperature ──
-        for i in range(Nx):
-            for j in range(Ny):
-                dxi = dx_arr[i]; dyj = dy_arr[j]
-                Ds_e_loc = K_ss * dyj / dxi; Ds_n_loc = K_ss * dxi / dyj
-                hv_loc = h_v * dxi * dyj
-                hv2_loc2 = h_v2 * dxi * dyj
-
-                sE = Ts[i + 1, j] if i < Nx - 1 else Ts[i, j]
-                sW = Ts[i - 1, j] if i > 0      else Ts[i, j]
-                sN = Ts[i, j + 1] if j < Ny - 1 else Ts[i, j]
-                sS = Ts[i, j - 1] if j > 0      else Ts[i, j]
-
-                aP_s = 2.0 * Ds_e_loc + 2.0 * Ds_n_loc + hv_loc + hv2_loc2
-                rhs_s = (Ds_e_loc * (sE + sW) + Ds_n_loc * (sN + sS)
-                         + hv_loc * Tf[i, j] + hv2_loc2 * T_other)
-
-                Ts_new = rhs_s / aP_s
-                chg = abs(Ts_new - Ts[i, j])
-                if chg > max_chg:
-                    max_chg = chg
-                Ts[i, j] = Ts_new
-
-        if max_chg < tol:
-            return it + 1
-
-    return max_iter
 
 
 # ═══════════════════════════════════════════════════════════════════════

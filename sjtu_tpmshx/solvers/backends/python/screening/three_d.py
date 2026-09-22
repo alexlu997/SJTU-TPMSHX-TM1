@@ -82,7 +82,7 @@ def run_case(case, control=RunControl()):
     rho_A0, rho_B0 = cfg['rho_A0'], cfg['rho_B0']
     G_A, K_mean_A, cF_mean_A = cfg['G_A'], cfg['K_mean_A'], cfg['cF_mean_A']
     max_outer, outer_tol_K, alpha_outer = cfg['max_outer'], cfg['outer_tol_K'], cfg['alpha_outer']
-    max_iter_simple, tol_simple = cfg['max_iter_simple'], cfg['tol_simple']
+    max_iter_simple = cfg['max_iter_simple']
     max_iter_energy, tol_energy = cfg['max_iter_energy'], cfg['tol_energy']
     verbose = cfg['verbose']
     if max_outer < 1:
@@ -117,7 +117,7 @@ def run_case(case, control=RunControl()):
         control.check_cancelled()
         if control.iteration is not None:
             control.iteration('SIMPLE ' + side)
-        answer = s.solve(max_iter=max_iter_simple, tol=tol_simple, verbose=False,
+        answer = s.solve(max_iter=max_iter_simple, verbose=False,
                          cancel_check=control.cancel_check)
         control.check_cancelled()
         return answer
@@ -265,19 +265,14 @@ def run_case(case, control=RunControl()):
         C_avg = mu_avg * G_A / max(K_mean_A, 1e-16) + cF_mean_A * G_A * G_A
         P_out_sq_new = predict_outlet_p_sq(P_inA, T_avg, C_avg, L_dom)
         if P_out_sq_new <= 0.0:
-            # Hot-state choke (2026-07-13 audit): the COLD seed above passed,
-            # but the heated T_avg raised 2RT·C·L past P_in². This used to be
-            # `sqrt(max(..., 1e4))` — a silent 100 Pa outlet anchor that let
-            # the run continue in a region with NO steady solution and return
-            # numbers (the exact failure mode the envelope invariant exists to
-            # stop, and `verify_pareto_3d` REPORTS these numbers). Same strict
-            # contract as the cold seed: NaN + invalid, never a floored anchor.
+            # Retain strict screening rejection when its heated 1D seed fails.
+            # This is not a physical choking verdict for the full flow model.
             if verbose:
                 _log.warning(f"[3D verify] INFEASIBLE at outer {outer_it+1} -- "
                              f"P_out^2={P_out_sq_new:.3e} Pa^2 after var-rho "
-                             "reseed (hot-state choke). Returning NaN per "
+                             "reseed (screening seed failure). Returning NaN per "
                              "strict validation contract.")
-            reason = ('P_out² ≤ 0 on the var-ρ outer reseed — operating point chokes once heated '
+            reason = ('P_out² ≤ 0 on the var-ρ outer reseed — heated screening approximation rejected '
                       f'(outer {outer_it+1}, T_avg={T_avg:.1f} K, P_out²={P_out_sq_new:.3e}).')
             return capture(case, dict(execution='rejected', converged=False, screening=True,
                                       rejection_stage='hot_reseed', reason=reason,

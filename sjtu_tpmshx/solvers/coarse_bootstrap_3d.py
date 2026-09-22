@@ -155,12 +155,10 @@ def bootstrap_simple_3d(solver_fine, max_iter_coarse: int = 200,
     solver_coarse.v_inlet = float(solver_coarse.v_inlet_field.mean())
     solver_coarse.v[:, 0, :] = solver_coarse.v_inlet_field
 
-    # Inherit Phase A adaptive AMG; do NOT enable Phase B Anderson on coarse
-    # (less benefit, more risk for short solve).
+    # Inherit the supported adaptive pressure tolerance policy.
     solver_coarse.use_adaptive_amg_tol = getattr(
         solver_fine, 'use_adaptive_amg_tol', True)
     solver_coarse.convergence_mode = 'f2'  # Parent already validated its captured choice.
-    solver_coarse.use_anderson = False
 
     converged, iters = solver_coarse.solve(
         max_iter=max_iter_coarse, verbose=verbose, cancel_check=cancel_check)

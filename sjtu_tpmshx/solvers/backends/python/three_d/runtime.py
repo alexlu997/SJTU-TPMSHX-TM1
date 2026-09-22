@@ -74,17 +74,6 @@ def _pressure_real_3d(solver, axis_map, offset):
     return np.ascontiguousarray(field)
 
 
-# Retained call argument: captured environment > config > 1e-5.
-# SIMPLE's F2 gates use mom_tol/mass_local_tol/mass_global_tol, not this value.
-def _simple_tol_default(cfg=None):
-    env = run_environment(cfg, 'TPMSHX_SIMPLE_TOL')
-    if env is not None:
-        return float(env)
-    if cfg is not None and cfg.get('tol_simple') is not None:
-        return float(cfg['tol_simple'])
-    return 1e-5
-
-
 def _simple_max_iter(cfg, default):
     """R3: SolverConfig.max_iter_simple overrides the per-stage auto."""
     v = cfg.get('max_iter_simple') if cfg is not None else None
@@ -133,7 +122,7 @@ def _prof_res_trace(tag, solver):
         _log.warning(f"[PROF-RES] {tag}: trace failed: {_e}")
 
 
-def _run_two_simple(sA, sB, *, max_iter=2000, tol=None,
+def _run_two_simple(sA, sB, *, max_iter=2000,
                     cancel_check=None):
     """Use parallelism across sides or inside sweeps, never both at once.
 
@@ -153,8 +142,6 @@ def _run_two_simple(sA, sB, *, max_iter=2000, tol=None,
     from sjtu_tpmshx.domain.run_warnings import (
         current_warnings, merge_warnings, warning_scope,
     )
-    if tol is None:
-        tol = _simple_tol_default()
     parallel_sweeps = any(_should_parallelize(s.Nx, s.Ny, s.Nz) for s in (sA, sB))
 
     err = [None, None]
@@ -168,7 +155,7 @@ def _run_two_simple(sA, sB, *, max_iter=2000, tol=None,
         try:
             with output_scope(parent_output), warning_scope(side_warnings[index]), range_context(
                     side=('A', 'B')[index], stage='initial', layout='solver-cell(cross1,stream,cross2)'):
-                res[index] = solver.solve(max_iter=max_iter, tol=tol, verbose=False,
+                res[index] = solver.solve(max_iter=max_iter, verbose=False,
                                           cancel_check=cancel_check)
         except Exception as e:
             err[index] = e
@@ -780,19 +767,10 @@ def build_problem(cfg, prepared, *, control: RunControl = RunControl()):
             G_B=G_B, T_inB=T_inB,
         )
         # ── Dual-side SIMPLE: parallel sides or parallel sweeps ──
-        # SolverConfig propagation (2026-07-12): this call used to pass NEITHER
-        # max_iter NOR tol, so the dual-fluid INITIAL solve silently fell back
-        # to the helper's signature defaults (max_iter=2000, tol=None →
-        # _simple_tol_default() with cfg=None, which skips the cfg['tol_simple']
-        # branch). Only the A-alone branch below and the `post` re-solves obeyed
-        # SolverConfig — i.e. a user-set max_iter_simple / tol_simple governed
-        # every SIMPLE solve EXCEPT the first one. Same resolution helpers as
-        # the A-alone branch, so a config leaving both knobs at None (and no
-        # TPMSHX_SIMPLE_TOL) is bit-identical to before.
+        # Apply the same configured iteration cap to initial and later solves.
         _init_res = _run_two_simple(
             sA, sB,
             max_iter=_simple_max_iter(cfg, 2000),
-            tol=_simple_tol_default(cfg),
             cancel_check=control.cancel_check)
         if _init_res and _init_res[0] is not None and not _init_res[0][0]:
             _simple_nonconv.append(
@@ -809,7 +787,6 @@ def build_problem(cfg, prepared, *, control: RunControl = RunControl()):
         _prof_t_a0 = _time.perf_counter() if _prof_3d_enabled() else None
         with range_context(side='A', stage='initial', layout='solver-cell(cross1,stream,cross2)'):
             _a0_conv, _a0_it = sA.solve(max_iter=_simple_max_iter(cfg, 2000),
-                                        tol=_simple_tol_default(cfg),
                                         verbose=False,
                                         cancel_check=control.cancel_check)
         if not _a0_conv:
@@ -1011,7 +988,7 @@ def _build_hv_machinery(prob: _Problem3D):
                       float(D_h_mm_val), Pr)
         return max(float(Nu_val), _NU_LAM_FLOOR)
 
-    def _build_hv_field_3d(L_fld, t_fld, u_side, T_side, P_side, fluid_type='air', *, side):
+    def _build_hv_field_3d(L_fld, u_side, T_side, P_side, fluid_type='air', *, side):
         """Bulk h_v = A_0(L,t) × H_sf(Re_bulk) on 3D mesh."""
         if fluid_type == 'air':
             return np.array(cfg['thermal_geometry']['air_bulk_hv'][side], copy=True)
@@ -1051,8 +1028,8 @@ def _build_hv_machinery(prob: _Problem3D):
     # Retain the existing Re/Nu floors for true low-speed cells. Applying a
     # bulk-fitted scalar correlation locally remains a closure assumption.
     def _build_hv_local_3d(
-        L_fld, t_fld, speed_field, T_side, P_side, fluid_type='air',
-        A_0_scalar=None, observation=None,
+        L_fld, speed_field, T_side, P_side, fluid_type='air',
+        observation=None,
     ):
         """Per-cell h_v from Re = ρ |U| D_h / μ and the existing Nu floor."""
         u_abs = np.abs(speed_field) + 1e-12
@@ -1136,14 +1113,14 @@ def _build_hv_machinery(prob: _Problem3D):
     # after first outer iter when ucA/B are available).
     with range_context(side='A', stage='inlet', layout='scalar-hv-bulk'):
         h_vA_field = _build_hv_field_3d(
-            L_mm_field, t_field_3d, u_A, T_inA, P_inA, fluid_type_A, side='A')
+            L_mm_field, u_A, T_inA, P_inA, fluid_type_A, side='A')
     h_vA_field = _apply_roughness_h_v(
         h_vA_field, fluid_type_A, rho_A, mu_A, u_A, D_h, resolved=cfg['roughness_resolved'])
     h_vA_field = h_vA_field * _hv_ratio_A
     if sB is not None:
         with range_context(side='B', stage='inlet', layout='scalar-hv-bulk'):
             h_vB_field = _build_hv_field_3d(
-                L_mm_field, t_field_3d, u_B_val, T_inB, P_inB, fluid_type_B, side='B')
+                L_mm_field, u_B_val, T_inB, P_inB, fluid_type_B, side='B')
         h_vB_field = _apply_roughness_h_v(
             h_vB_field, fluid_type_B, rho_B, mu_B, u_B_val, D_h, resolved=cfg['roughness_resolved'])
         h_vB_field = h_vB_field * _hv_ratio_B
@@ -1295,10 +1272,8 @@ def _extract_3d_metrics(prob: _Problem3D, outer: _OuterState):
         T_B_out = _mass_weighted_T_out(T_B_out_face, sB, fB['dir'], eps_f_per_side,
                                         eps_side_override=_eps_ov_B)
         # m_dot variants for diagnostic
-        m_dot_B_phys_in = float(np.sum(_face_flux_weights(
-            sB, fB['dir'], face='real_inlet', eps_mode='physical')))
-        m_dot_B_phys_out = float(np.sum(_face_flux_weights(
-            sB, fB['dir'], face='real_outlet', eps_mode='physical')))
+        m_dot_B_phys_in = float(np.sum(_face_flux_weights(sB, face='real_inlet', eps_mode='physical')))
+        m_dot_B_phys_out = float(np.sum(_face_flux_weights(sB, face='real_outlet', eps_mode='physical')))
         if _true_h_pair:
             _P_B_real_h = (sB.P_ref_abs + sB.P).transpose(
                 sB_info['axis_map']['solver_to_real_perm'])
@@ -1570,8 +1545,7 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D) 
         Q_enth_B_ltne = abs(m_dot_B_simple * cp_B * (T_inB - T_B_out)) if sB is not None else 0.0
 
         # Group 2: Physical-boundary Q (no eps_f, physical m_dot at inlet)
-        m_A_phys_in = float(_dbg.sum(_face_flux_weights(
-            sA, fA['dir'], face='real_inlet', eps_mode='physical')))
+        m_A_phys_in = float(_dbg.sum(_face_flux_weights(sA, face='real_inlet', eps_mode='physical')))
         Q_enth_A_phys = abs(m_A_phys_in * cp_A * (T_inA - T_A_out))
         if sB is not None:
             Q_enth_B_phys = abs(m_dot_B_phys_in * cp_B * (T_inB - T_B_out))
@@ -2135,7 +2109,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
         _T_hvA = state.Ta if (fluid_type_A == 'sco2' and state.Ta is not None) else T_inA
         with range_context(side='A', stage='main', layout='real-cell(x,y,z)-hv-speed'):
             state.h_vA_field = _build_hv_local_3d(
-                L_mm_field, t_field_3d, speed_A, _T_hvA, P_inA, fluid_type_A,
+                L_mm_field, speed_A, _T_hvA, P_inA, fluid_type_A,
                     observation=cfg['sco2_nu_observations']['A'])
         if outer == 0 and fluid_type_A == 'sco2':
             warn_sco2_nu_evidence(
@@ -2160,7 +2134,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
             _T_hvB = state.Tb if (fluid_type_B == 'sco2' and state.Tb is not None) else T_inB
             with range_context(side='B', stage='main', layout='real-cell(x,y,z)-hv-speed'):
                 state.h_vB_field = _build_hv_local_3d(
-                    L_mm_field, t_field_3d, speed_B, _T_hvB, P_inB, fluid_type_B,
+                    L_mm_field, speed_B, _T_hvB, P_inB, fluid_type_B,
                     observation=cfg['sco2_nu_observations']['B'])
             if outer == 0 and fluid_type_B == 'sco2':
                 warn_sco2_nu_evidence(
@@ -2624,7 +2598,6 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
         _prof_t_sa = _time.perf_counter() if _prof_3d_enabled() else None
         with range_context(side='A', stage='main', layout='solver-cell(cross1,stream,cross2)'):
             _sa_conv, _sa_it = sA.solve(max_iter=_simple_max_iter(cfg, 600),
-                                        tol=_simple_tol_default(cfg),
                                         verbose=False, cancel_check=_cancel_check)
         if not _sa_conv:
             _simple_nonconv.append(
@@ -2755,7 +2728,6 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
         _prof_t_sb = _time.perf_counter() if _prof_3d_enabled() else None
         with range_context(side='B', stage='main', layout='solver-cell(cross1,stream,cross2)'):
             _sb_conv, _sb_it = sB.solve(max_iter=_simple_max_iter(cfg, 600),
-                                        tol=_simple_tol_default(cfg),
                                         verbose=False, cancel_check=_cancel_check)
         if not _sb_conv:
             _simple_nonconv.append(

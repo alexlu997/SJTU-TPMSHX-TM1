@@ -210,7 +210,8 @@ def test_standalone_rejects_nonfinite_solid_before_dict(monkeypatch):
         Ts[-1] = np.inf
     monkeypatch.setattr(ent, '_gs_enthalpy_sweeps_3d', sweep)
     with pytest.raises(ValueError, match='enthalpy final return: solid temperature'):
-        ent.solve_ltne_enthalpy_3d(
+        from sjtu_tpmshx.tests.enthalpy_3d_reference import solve_ltne_enthalpy_3d
+        solve_ltne_enthalpy_3d(
             2, 1, 1, 2., 1., 1., .7, 0., 0., 0., 1., 1.,
             350., 300., 2e5, fluid_A='air', fluid_B='air', n_outer=1)
 

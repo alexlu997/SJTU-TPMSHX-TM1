@@ -30,7 +30,7 @@ def _resolve_ui_roughness() -> tuple[str, float]:
 # ---------------------------------------------------------------------------
 # Face-flux helpers (module-level so they can be unit-tested independently)
 # ---------------------------------------------------------------------------
-def _face_flux_weights(solver: SIMPLESolver3D, dir_code: int,
+def _face_flux_weights(solver: SIMPLESolver3D,
                        face: str = 'real_outlet',
                        eps_mode: str = 'ltne',
                        *,
@@ -41,7 +41,6 @@ def _face_flux_weights(solver: SIMPLESolver3D, dir_code: int,
     Parameters
     ----------
     solver : SIMPLESolver3D
-    dir_code : int — 0=+x,1=-x,2=+y,3=-y,4=+z,5=-z
     face : 'real_inlet' or 'real_outlet'
     eps_mode : 'ltne' (× eps_f) or 'physical' (no eps_f)
     eps_f_per_side : optional scalar fallback when solver has no eps_field
@@ -101,10 +100,7 @@ def _mass_weighted_T_out(T_face: np.ndarray, solver: SIMPLESolver3D,
     naturally suppress stagnant warm cells where ρ·|v| ≈ 0.
     """
     try:
-        w = _face_flux_weights(solver, dir_code, face='real_outlet',
-                               eps_mode='ltne',
-                               eps_f_per_side=eps_f_scalar,
-                               eps_side_override=eps_side_override)
+        w = _face_flux_weights(solver, face='real_outlet', eps_mode='ltne', eps_f_per_side=eps_f_scalar, eps_side_override=eps_side_override)
         tot = float(np.sum(w))
         if tot < 1e-30:
             return float(np.mean(T_face))
@@ -139,10 +135,7 @@ def _mass_weighted_h_out(T_face: np.ndarray, P_ref: float,
     h_face = np.asarray(enthalpy_fn(np.asarray(T_face, dtype=np.float64), P_ref),
                         dtype=np.float64)
     try:
-        w = _face_flux_weights(solver, dir_code, face='real_outlet',
-                               eps_mode='ltne',
-                               eps_f_per_side=eps_f_scalar,
-                               eps_side_override=eps_side_override)
+        w = _face_flux_weights(solver, face='real_outlet', eps_mode='ltne', eps_f_per_side=eps_f_scalar, eps_side_override=eps_side_override)
         tot = float(np.sum(w))
         if tot < 1e-30:
             return float(np.mean(h_face))
@@ -170,10 +163,7 @@ def _simple_mass_flow(solver: SIMPLESolver3D, dir_code: int,
                       eps_side_override: float | None = None) -> float:
     """LTNE-effective m_dot at REAL inlet face via _face_flux_weights."""
     try:
-        w = _face_flux_weights(solver, dir_code, face='real_inlet',
-                               eps_mode='ltne',
-                               eps_f_per_side=eps_f_per_side,
-                               eps_side_override=eps_side_override)
+        w = _face_flux_weights(solver, face='real_inlet', eps_mode='ltne', eps_f_per_side=eps_f_per_side, eps_side_override=eps_side_override)
         return float(np.sum(w))
     except Exception as _e:
         # except-audit 2026-07-03: a silent 0.0 here zeroes the duty of the

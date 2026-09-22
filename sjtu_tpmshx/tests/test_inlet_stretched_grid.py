@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.solvers.simple_solver import build_inlet_stretched_1d
+from sjtu_tpmshx.tests.inlet_stretched_reference import build_inlet_stretched_1d
 
 
 def test_sum_exact_and_shape():

@@ -7,7 +7,6 @@ Production pipelines pin the fixed model regardless of environment state.
 from __future__ import annotations
 
 import os
-import sys
 import warnings
 from math import sqrt
 
@@ -143,19 +142,3 @@ def predict_dP_compressible(tpms_type: str, L_mm: float, t_mm: float,
 # ==================================================================
 # Smoke test
 # ==================================================================
-
-def smoke_test() -> None:
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-    except AttributeError:
-        pass
-
-    # Quick Shanghai check
-    from sjtu_tpmshx.models.tpms_props import geometry as tpms_geometry
-    g = tpms_geometry("Gyroid", 7.0, 0.6, 16.0)
-    K, cF = predict_K_cF("Gyroid", 7.0, 0.6, g["epsilon"] / 2)
-    print(f"\nL=7 t=0.6: K={K:.4e}, c_F={cF:.2f}")
-
-
-if __name__ == "__main__":
-    smoke_test()

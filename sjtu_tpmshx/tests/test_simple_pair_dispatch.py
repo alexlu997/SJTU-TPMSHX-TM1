@@ -24,7 +24,7 @@ def test_pair_uses_one_parallel_level(monkeypatch, sizes):
 
     def solve(side, **kwargs):
         visits.append((side, threading.current_thread()))
-        assert kwargs == dict(max_iter=7, tol=0.02, verbose=False, cancel_check=cancel)
+        assert kwargs == dict(max_iter=7, verbose=False, cancel_check=cancel)
         if not sequential:
             barrier.wait(timeout=5)
         return True, side + 1
@@ -32,7 +32,7 @@ def test_pair_uses_one_parallel_level(monkeypatch, sizes):
     sides = [SimpleNamespace(Nx=n, Ny=1, Nz=1,
                              solve=lambda side=i, **kw: solve(side, **kw))
              for i, n in enumerate(sizes)]
-    assert runtime._run_two_simple(*sides, max_iter=7, tol=0.02,
+    assert runtime._run_two_simple(*sides, max_iter=7,
                                    cancel_check=cancel) == [(True, 1), (True, 2)]
     if sequential:
         assert visits == [(0, parent), (1, parent)]

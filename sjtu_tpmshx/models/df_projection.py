@@ -106,8 +106,6 @@ def project_fields_to_streamwise_K_cF(L_field: np.ndarray,
                                        t_field: np.ndarray,
                                        tpms_type: str,
                                        k_s: float,
-                                       Nx_field: int,
-                                       Ny_field: int,
                                        Ny_sim: int,
                                        fluid: str,
                                        streamwise_dx: Optional[np.ndarray] = None,
@@ -115,7 +113,7 @@ def project_fields_to_streamwise_K_cF(L_field: np.ndarray,
                                        ) -> Tuple[np.ndarray, np.ndarray]:
     """Project 2D sigmoid fields onto streamwise axis for SIMPLE's K/c_F arrays.
 
-    L_field, t_field shape: (Nx_field, Ny_field) in real coords.
+    L_field, t_field shape: (Nx, Ny) in real coordinates.
     For fluid A: average along real y at each real x, then resample to Ny_sim.
     For fluid B: average along real x at each real y, flip, then resample.
     source_grid=(dx, dy) supplies actual source cell widths when nonuniform;
@@ -125,7 +123,6 @@ def project_fields_to_streamwise_K_cF(L_field: np.ndarray,
     """
 
     (L_1d, t_1d), _src_n = _stream_profile((L_field, t_field), fluid)
-    del Nx_field, Ny_field   # kept in the signature for call-site compat
     src_n = _src_n
 
     s_fracs = _cell_centre_fracs(Ny_sim, streamwise_dx)

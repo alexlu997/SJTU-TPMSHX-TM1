@@ -1,5 +1,5 @@
 """
-Load per-geometry f-Re training data from 试验记录表_整理版.xlsx.
+Load the air experiment reference used for experimental correction.
 
 Output DataFrame schema:
     tpms    : 'Diamond' | 'Gyroid'
@@ -27,7 +27,6 @@ Only the training Excel is used; Shanghai data is deliberately excluded.
 """
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -210,44 +209,11 @@ def _assert_no_shanghai_leakage(df: pd.DataFrame, *, source=None) -> None:
 def load_all(*, source=None) -> pd.DataFrame:
     """Load and combine Diamond + Gyroid training data with geometry attached.
 
-    Includes an explicit Shanghai-leakage guard (C.5 audit fix). The
-    surrogate trained on this DataFrame is the prediction model for the
-    Shanghai 16-case validation; any Shanghai row in the training set
-    invalidates the out-of-sample RMSRE headline.
+    Preserve the independent Shanghai holdout boundary when deriving air
+    experimental corrections from these records. The production base D-F
+    model uses the separate fixed water+sCO2 CFD table.
     """
     frames = [_attach_geometry(_load_sheet(tpms, source=source)) for tpms in _SHEETS]
     df = pd.concat(frames, ignore_index=True)
     _assert_no_shanghai_leakage(df, source=source)
     return df
-
-
-def summarize(df: pd.DataFrame) -> pd.DataFrame:
-    """Per-geometry summary: n_points, Re range, mean u / dP, ε, ε_f, r_h."""
-    grouped = df.groupby(["tpms", "L_mm", "t_mm"], as_index=False)
-    summary = grouped.agg(
-        n=("Re", "size"),
-        Re_min=("Re", "min"),
-        Re_max=("Re", "max"),
-        u_mean=("u_mps", "mean"),
-        dP_mean=("dP_Pa", "mean"),
-        eps=("eps", "first"),
-        eps_f=("eps_f", "first"),
-        r_h_m=("r_h_m", "first"),
-    )
-    return summary.sort_values(["tpms", "L_mm", "t_mm"]).reset_index(drop=True)
-
-
-if __name__ == "__main__":
-    # Encoding fix for Windows consoles
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-    except AttributeError:
-        pass
-
-    df = load_all()
-    print(f"Loaded {len(df)} rows from {DATA_XLSX.name}")
-    print(f"  tpms types : {sorted(df['tpms'].unique())}")
-    print(f"  (L, t) geos: {df.groupby('tpms').apply(lambda g: g[['L_mm','t_mm']].drop_duplicates().shape[0]).to_dict()}")
-    print()
-    print("Per-geometry summary:")
-    print(summarize(df).to_string(index=False))

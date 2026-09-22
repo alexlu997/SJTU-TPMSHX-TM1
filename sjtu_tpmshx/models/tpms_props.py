@@ -189,10 +189,6 @@ _CHI_S_FIT = {
     'Diamond': (0.5446, 0.3765),
     'Gyroid':  (0.5630, 0.3292),
 }
-_CHI_S_ENV = os.environ.get('TPMSHX_CHI_S')
-# Legacy module constant: env value when set, else the pre-B2 default 1.0.
-# Kept for import back-compat; production K_ss paths use chi_s_eff below.
-CHI_S = float(_CHI_S_ENV) if _CHI_S_ENV is not None else 1.0
 
 
 def chi_s_eff(tpms_type: str, eps):
@@ -204,8 +200,6 @@ def chi_s_eff(tpms_type: str, eps):
     The env var is read PER CALL (P1.6, audit §5d): the old import-time
     snapshot silently ignored TPMSHX_CHI_S set after the first import —
     monkeypatch.setenv in tests and runtime overrides both hit that trap.
-    (The module constant CHI_S above keeps its documented import-time
-    snapshot semantics for back-compat.)
     """
     env = os.environ.get('TPMSHX_CHI_S')
     if env is not None:

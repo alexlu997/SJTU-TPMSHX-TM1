@@ -86,7 +86,7 @@ def run_case(case, control=RunControl()):
     def solve_flow(s, side):
         control.check_cancelled()
         callback = None if control.residual is None else lambda i, r: control.residual(side, i, r)
-        answer = s.solve(max_iter=cfg_full['max_iter_simple'], tol=cfg_full['tol_simple'],
+        answer = s.solve(max_iter=cfg_full['max_iter_simple'],
                          verbose=verbose, cancel_check=control.cancel_check, progress_cb=callback)
         control.check_cancelled()
         return answer

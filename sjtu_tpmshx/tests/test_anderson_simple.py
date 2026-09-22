@@ -66,7 +66,7 @@ def test_anderson_accelerates_linear_fixed_point():
         pic_iters = 2000
 
     # Anderson
-    acc = AndersonSIMPLE(m=5, K=1)
+    acc = AndersonSIMPLE(m=5)
     x = np.zeros(n)
     and_iters = 0
     for k in range(2000):
@@ -92,7 +92,7 @@ def test_anderson_accelerates_linear_fixed_point():
 
 def test_anderson_skips_rank_deficient():
     """When ΔR is rank-deficient the cond gate must skip Anderson cleanly."""
-    acc = AndersonSIMPLE(m=3, K=1, cond_max=1e10)
+    acc = AndersonSIMPLE(m=3, cond_max=1e10)
     n = 10
     # Push identical (x, gx) pairs so all residuals are equal → ΔR = 0.
     x = np.zeros(n)

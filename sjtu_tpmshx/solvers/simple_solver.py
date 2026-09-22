@@ -2,7 +2,7 @@
 simple_solver.py — 2D SIMPLE solver for porous-media transition zone
 
 Solves steady-state Navier-Stokes + Brinkman porous resistance,
-then frozen-velocity temperature field (LTNE: fluid + solid).
+The coupled LTNE/enthalpy drivers own the temperature equations.
 Production default is COMPRESSIBLE ideal-gas rho=rho(P,T) with a mass-flux
 inlet (`massflux_inlet=True`) — repo hard invariants.
 
@@ -16,10 +16,6 @@ only closure):
   rho(u dv/dx + v dv/dy) = -dP/dy + mu_eff nabla^2 v - Ry  (y-momentum)
   Rx = (mu/K + rho c_F |U|) u,  Ry = (mu/K + rho c_F |U|) v
   (Darcy-Forchheimer ConstDF-v1, interstitial form; _porous_src_df)
-
-Physics (temperature, frozen velocity):
-  eps rho_cp (u dTf/dx + v dTf/dy) = K_ff nabla^2 Tf + h_v(Ts - Tf)
-  0 = K_ss nabla^2 Ts + h_v(Tf - Ts) + h_v2(T_other - Ts)
 
 Staggered grid:  P[i,j] cell centre (Nx,Ny)
                  u[i,j] x-face (Nx+1,Ny)    v[i,j] y-face (Nx,Ny+1)
@@ -71,7 +67,6 @@ from ._kernels_simple_2d import (  # noqa: F401
     _correct_jit,
     _close_outlet_mass,
     _mass_res_jit,
-    _solve_temp_jit,
     # F2 convergence gates (ledger C6 / C7 / C9)
     _u_coeffs_df_2d,
     _v_coeffs_df_2d,
@@ -120,65 +115,6 @@ def _prolong_mass_faces_2d(mass, dx, dy, fine_dx, fine_dy):
 from sjtu_tpmshx.models.grid import build_wall_refined_1d  # noqa: F401
 
 
-def build_inlet_stretched_1d(L, N, first_cell, end='lo'):
-    """One-sided geometric STREAMWISE grid: fine at the inlet end, coarsening
-    smoothly downstream (no cell-size jump). ``cell[0]=first_cell``,
-    ``cell[k]=first_cell·r**k``; the growth ratio ``r>1`` is solved so the N
-    cells sum exactly to ``L``.
-
-    Purpose: resolve a steep inlet thermal-entry without a globally fine grid.
-    This is the OPT-IN streamwise counterpart of :func:`build_wall_refined_1d`
-    (which refines the two CROSS-STREAM walls). It is NOT wired into the default
-    solver path — ``_aligned_grid`` (uniform) remains the default. The per-cell
-    ``dx_arr`` kernels (``ltne_energy._gs_full_chunk``, ``simple_solver``'s
-    momentum sweep) already consume a non-uniform 1-D array, so a graded
-    ``dx_arr`` from here plugs in with no kernel change.
-
-    Parameters
-    ----------
-    L : float — domain length along this (streamwise) axis [m]
-    N : int — number of cells
-    first_cell : float — width of the cell at the inlet end [m]. Must be < L/N
-        to actually refine; otherwise the function returns a uniform grid.
-    end : {'lo', 'hi'} — 'lo' puts the fine cells at x=0 (dir 0/2 inlet),
-        'hi' mirrors them to x=L (dir 1/3 inlet).
-
-    Returns
-    -------
-    dx_arr : (N,) float64 array, ``sum == L`` (renormalised to machine
-        precision), geometrically graded from ``first_cell``.
-
-    Notes
-    -----
-    The growth ratio is whatever the (L, N, first_cell) triple implies; a very
-    small ``first_cell`` forces a steep ratio. For low truncation error on the
-    second-order-upwind convection term, keep the implied ratio modest
-    (≈≤1.2–1.3 per cell) — i.e. choose ``first_cell`` not far below ``L/N``.
-    """
-    N = int(N)
-    if N < 2 or first_cell <= 0 or first_cell * N >= L:
-        # Cannot refine (first cell already ≥ the uniform width) → uniform.
-        return np.full(N, L / float(N), dtype=np.float64)
-    # Solve first_cell·(r**N − 1)/(r − 1) = L for r>1 by bisection. The
-    # geometric-sum S(r)=(r**N−1)/(r−1) is monotonic increasing in r with
-    # S(1+)=N < L/first_cell (guaranteed by the guard above), so a root r>1
-    # exists; cap the bracket at a steep r=8 (renormalisation absorbs any
-    # residual so the sum is always exact even if the root is clamped).
-    target = L / first_cell
-    lo, hi = 1.0 + 1e-12, 8.0
-    for _ in range(200):
-        mid = 0.5 * (lo + hi)
-        s = (mid ** N - 1.0) / (mid - 1.0)
-        if s < target:
-            lo = mid
-        else:
-            hi = mid
-    r = 0.5 * (lo + hi)
-    dx = first_cell * r ** np.arange(N, dtype=np.float64)
-    dx *= L / dx.sum()                      # renormalise → exact sum == L
-    return dx[::-1].copy() if end == 'hi' else dx
-
-
 # ===================================================================
 #  SIMPLESolver class
 # ===================================================================
@@ -212,7 +148,7 @@ class SIMPLESolver:
                  rho, mu, T_in,
                  inlet_lo, inlet_hi, v_inlet,
                  outlet_lo=None, outlet_hi=None,
-                 P_ref=0.0, zone_config=None, zone_arrays=None,
+                 P_ref=0.0, zone_config=None,
                  y_breakpoints=None,
                  fluid_type='ideal_gas',
                  R_gas=287.05,
@@ -306,7 +242,7 @@ class SIMPLESolver:
         self.dy_arr = (_aligned_grid(Ny, H, y_breakpoints or []) if dy_arr is None
                        else np.array(dy_arr, dtype=np.float64, copy=True))
 
-        # Porous medium (scalar, kept for temperature solver & backward compat)
+        # Scalar reference geometry; prepared fields carry spatial variation.
         self.eps = eps
         self.r_h = r_h
         self.mu_eff = mu / eps
@@ -355,8 +291,7 @@ class SIMPLESolver:
 
         # ── ConstDF-v1 surrogate: precompute (K, c_F) per row ──
         # Broadcast for uniform geometry; per-row predictions for zone_config
-        # graded designs. zone_arrays path doesn't carry L/t/eps metadata, so
-        # it falls back to the uniform (scalar) prediction.
+        # graded designs. Prepared row coefficients take precedence.
 
         if K_arr is not None:
             self._K_arr = np.array(K_arr, dtype=np.float64, copy=True)
@@ -382,7 +317,7 @@ class SIMPLESolver:
             self._K_arr = K_vec.astype(np.float64)
             self._cF_arr = cF_vec.astype(np.float64)
         else:
-            # Uniform (or zone_arrays fallback): single (K, c_F), broadcast
+            # Uniform: single (K, c_F), broadcast
             K_val, cF_val = predict_K_cF(
                 tpms_type, float(L_cell_mm), float(t_mm), 0.5 * float(eps),
                 method=df_method,
@@ -426,10 +361,6 @@ class SIMPLESolver:
         self.Pp = np.zeros((Nx, Ny))
         self.d_u = np.zeros((Nx + 1, Ny))
         self.d_v = np.zeros((Nx, Ny + 1))
-
-        # Temperature (allocated on demand)
-        self.Tf = None
-        self.Ts = None
 
         self._pp_sparsity = None  # lazily built on first solve() call
         self.uniform_inlet = uniform_inlet
@@ -491,10 +422,6 @@ class SIMPLESolver:
             self.v[i, 0] = self.v_inlet_field[i] * self.inlet_frac[i]
             self.v[i, Ny] = self.v[i, Ny - 1] if self.outlet_mask[i] else 0.0
 
-    def update_rho_field(self, rho_field):
-        """Update density field for variable-density coupling iterations."""
-        self.rho_field = np.ascontiguousarray(rho_field, dtype=np.float64)
-        self.rho = float(self.rho_field.mean())
 
     def _update_density(self):
         """Update rho_field from pressure field (ideal gas: rho = P_abs / (R*T)).
@@ -659,7 +586,7 @@ class SIMPLESolver:
         self._K_field2d = K2d
         self._cF_field2d = cF2d
 
-    def solve(self, max_iter=3000, tol=1e-6,
+    def solve(self, max_iter=3000,
               alpha_u=0.7, alpha_p=0.3,
               n_inner=2,
               verbose=True, progress_cb=None, cancel_check=None):
@@ -816,7 +743,7 @@ class SIMPLESolver:
                 if _reason == 'nonfinite':
                     return f2_nonfinite_exit(self, it)
                 if _reason is not None:
-                    self._enforce_mass_conservation(verbose=verbose)
+                    self._enforce_mass_conservation()
                     if not f2_state_is_finite(self, (self.u, self.v)):
                         return f2_nonfinite_exit(self, it)
                     # Re-measure the returned field after local outlet closure.
@@ -858,7 +785,7 @@ class SIMPLESolver:
             _log.warning(f"  [!!] NOT converged after {max_iter} iters, |R| = {res:.3e}")
 
         # Post-solve: enforce mass conservation at partial outlet
-        self._enforce_mass_conservation(verbose=verbose)
+        self._enforce_mass_conservation()
         if not f2_state_is_finite(self, (self.u, self.v)):
             return f2_nonfinite_exit(self, max_iter)
 
@@ -893,7 +820,7 @@ class SIMPLESolver:
         return rmax, {'u': ru, 'v': rv, 'max': rmax,
                       'num': (nu_, nv_), 'den': (du_, dv_)}
 
-    def _enforce_mass_conservation(self, verbose=True):
+    def _enforce_mass_conservation(self):
         """Close outlet CV mass with the current density and porosity.
 
         The final density update may change the face fluxes. Reapply the local
@@ -905,332 +832,3 @@ class SIMPLESolver:
             return
         _close_outlet_mass(self.u, self.v, self.outlet_geom_frac, self.Nx, self.Ny,
                            self.dx_arr, self.dy_arr, self.rho_field, self.eps_field)
-
-    # ──────────────── temperature solve ───────────────────────────
-    def solve_temperature(self, K_ff, K_ss, h_v, rho_cp_f,
-                          T_in, T_other=None, h_v2=0.0,
-                          max_iter=5000, tol=1e-4, verbose=True):
-        """
-        Solve LTNE temperature with frozen velocity field.
-
-        Parameters
-        ----------
-        K_ff      : fluid effective conductivity [W/(m K)]   (= eps * k_f)
-        K_ss      : solid effective conductivity [W/(m K)]   (= (1-eps) * k_s)
-        h_v       : volumetric HTC, fluid <-> solid [W/(m3 K)]  (= H_sf * A_0)
-        rho_cp_f  : fluid volumetric heat capacity [J/(m3 K)]
-        T_in      : fluid inlet temperature [K]
-        T_other   : other-fluid temperature [K] (scalar).
-                    If None, solid is adiabatic (h_v2 forced to 0).
-        h_v2      : volumetric HTC, other-fluid <-> solid [W/(m3 K)]
-        """
-        Nx, Ny = self.Nx, self.Ny
-        if T_other is None:
-            T_other = T_in
-            h_v2 = 0.0
-
-        # Initialise temperature fields
-        self.Tf = np.full((Nx, Ny), T_in)
-        self.Ts = np.full((Nx, Ny), 0.5 * (T_in + T_other))
-
-        iters = _solve_temp_jit(
-            self.Tf, self.Ts, self.u, self.v, self.inlet_mask,
-            Nx, Ny, self.dx_arr, self.dy_arr, self.eps,
-            K_ff, K_ss, h_v, h_v2, rho_cp_f,
-            T_in, T_other, max_iter, tol)
-
-        if verbose:
-            tag = "[OK]" if iters < max_iter else "[!!]"
-            _log.info(f"  {tag} Temperature: {iters} iters, "
-                      f"Tf=[{self.Tf.min():.2f}, {self.Tf.max():.2f}], "
-                      f"Ts=[{self.Ts.min():.2f}, {self.Ts.max():.2f}]")
-        return iters < max_iter, iters
-
-    # ──────────────── output for coupling ─────────────────────────
-    def _check_uniform(self, j, threshold):
-        """Check if cross-section j has uniform flow.
-
-        Two conditions must BOTH be met:
-        1. Main flow (v) uniformity:  std(v) / mean(v) < threshold
-        2. Transverse flow (u) negligible: mean(|u|) / mean(v) < threshold
-
-        References:
-          - Mueller & Chiou (1988): 5% CV = significant maldistribution
-          - Lalot et al. (1999): relative std dev for HX flow distribution
-          - ~5% is the standard HX threshold; the code default is 0.045 (4.5%)
-        """
-        Nx = self.Nx
-        v_row = self.v[:, j]
-        v_mean = v_row.mean()
-        if v_mean < 1e-10:
-            return False
-
-        # Condition 1: main flow uniformity (coefficient of variation)
-        cv_v = v_row.std() / v_mean
-        if cv_v >= threshold:
-            return False
-
-        # Condition 2: transverse velocity negligible
-        # u lives on x-faces: u[0..Nx, j]. Average |u| at internal faces.
-        u_at_j = self.u[1:Nx, j]   # internal x-face velocities at row j
-        u_ratio = np.abs(u_at_j).mean() / v_mean
-        if u_ratio >= threshold:
-            return False
-
-        return True
-
-    def detect_uniform_boundary(self, threshold=0.045):
-        """Find the first cross-section (from pipe side) where flow is uniform.
-
-        Scans from j=1 (near pipe) toward j=Ny-1 (far from pipe).
-        Checks both v-uniformity AND u-negligibility.
-
-        Parameters
-        ----------
-        threshold : float, default 0.045 (4.5%; ~5% is the textbook HX standard)
-
-        Returns
-        -------
-        j_uniform : int   (row index where flow becomes uniform, or Ny-1)
-        depth     : float (transition zone depth in metres)
-        """
-        for j in range(1, self.Ny):
-            if self._check_uniform(j, threshold):
-                return j, j * self.dy
-        return self.Ny - 1, (self.Ny - 1) * self.dy
-
-    def detect_nonuniform_boundary(self, threshold=0.045):
-        """Scan from the UNIFORM side (top, j=Ny-1) toward the pipe (j=0).
-
-        Find the first cross-section that is NOT uniform (where converging
-        effects begin). Uses same dual check as detect_uniform_boundary.
-
-        Returns
-        -------
-        j_start : int   (last uniform row, counting from top)
-        depth   : float (outlet transition zone depth in metres)
-        """
-        for j in range(self.Ny - 1, 0, -1):
-            if not self._check_uniform(j, threshold):
-                depth = (self.Ny - 1 - j) * self.dy
-                return j + 1, depth
-        return 0, (self.Ny - 1) * self.dy
-
-    def get_profile_at(self, j_row):
-        """Extract velocity + temperature profiles at a specific row j."""
-        Nx, Ny = self.Nx, self.Ny
-        j = min(max(j_row, 0), Ny - 1)
-        out = {
-            'v_exit': self.v[:, j].copy(),
-            'u_exit': self.u[1:Nx, j].copy(),
-            # cell-center / face x-coords from per-cell dx_arr (correct on
-            # non-uniform grids; == arange*dx on uniform grids).
-            'x_v':   np.cumsum(self.dx_arr) - 0.5 * self.dx_arr,
-            'x_u':   np.cumsum(self.dx_arr)[:Nx - 1],
-            'j_row':  j,
-            'depth':  float(np.sum(self.dy_arr[:j])),
-        }
-        if self.Tf is not None:
-            out['Tf_exit'] = self.Tf[:, j].copy()
-            out['Ts_exit'] = self.Ts[:, j].copy()
-        return out
-
-    def get_exit_profile(self):
-        """Velocity + temperature at exit (top boundary) for uniform-zone BC."""
-        Nx, Ny = self.Nx, self.Ny
-        out = {
-            'v_exit': self.v[:, Ny - 1].copy(),
-            'u_exit': self.u[1:Nx, Ny - 1].copy(),
-            'x_v':   np.cumsum(self.dx_arr) - 0.5 * self.dx_arr,
-            'x_u':   np.cumsum(self.dx_arr)[:Nx - 1],
-        }
-        if self.Tf is not None:
-            out['Tf_exit'] = self.Tf[:, Ny - 1].copy()
-            out['Ts_exit'] = self.Ts[:, Ny - 1].copy()
-        return out
-
-    def get_fields_trimmed(self, j_start=0, j_end=None):
-        """Return 2D fields trimmed to rows [j_start, j_end).
-
-        Useful for extracting just the transition zone portion for plotting.
-        """
-        if j_end is None:
-            j_end = self.Ny
-        out = {'v': self.v[:, j_start:j_end+1].copy(),
-               'u': self.u[:, j_start:j_end].copy(),
-               'P': self.P[:, j_start:j_end].copy()}
-        if self.Tf is not None:
-            out['Tf'] = self.Tf[:, j_start:j_end].copy()
-            out['Ts'] = self.Ts[:, j_start:j_end].copy()
-        return out
-
-    @staticmethod
-    def solve_outlet_transition(W, H_search, Nx, Ny,
-                                tpms_type, L_cell_mm, t_mm, eps, r_h,
-                                rho, mu, T_uni_exit,
-                                pipe_lo, pipe_hi, u_exit,
-                                K_ff, K_ss, h_v, rho_cp_f,
-                                T_other=None, h_v2=0.0,
-                                threshold=0.02):
-        """Solve outlet transition zone (uniform flow → converging to pipe).
-
-        Uses the flip trick: solve bottom-inlet SIMPLE (spreading flow),
-        then flip the domain vertically. The velocity field is approximately
-        correct (porous media ≈ reversible). Temperature is solved with
-        the flipped velocity and proper outlet BCs.
-
-        Returns
-        -------
-        dict with keys: depth, dP, j_boundary, Tf_field, Ts_field, v_field, solver
-        """
-        # Step 1: Solve spreading flow (pipe at bottom) on oversized domain
-        s = SIMPLESolver(W, H_search, Nx, Ny,
-                         tpms_type, L_cell_mm, t_mm, eps, r_h,
-                         rho, mu, T_uni_exit,
-                         pipe_lo, pipe_hi, u_exit)
-        s.solve(max_iter=3000, tol=1e-6, verbose=False)
-
-        # Step 2: Detect where spreading flow becomes uniform
-        j_uni, depth = s.detect_uniform_boundary(threshold)
-
-        # Step 3: Solve temperature with correct BCs
-        # The "inlet" of the outlet trans zone is the uniform zone exit (T_uni_exit)
-        # which is already set as T_in for this solver.
-        s.solve_temperature(K_ff, K_ss, h_v, rho_cp_f,
-                            T_in=T_uni_exit, T_other=T_other,
-                            h_v2=h_v2, verbose=False)
-
-        # Step 4: Detect the outlet boundary from the uniform side
-        j_start, depth_out = s.detect_nonuniform_boundary(threshold)
-
-        # Pressure drop in the transition zone portion only
-        if j_uni > 0:
-            dP = abs(s.P[:, :j_uni+1].max() - s.P[:, :j_uni+1].min())
-        else:
-            dP = 0.0
-
-        return {
-            'depth': depth_out,
-            'depth_spreading': depth,   # from inlet-like detection
-            'dP': dP,
-            'j_boundary': j_start,
-            'solver': s,
-        }
-
-    def mass_flow_in(self):
-        # Weight by per-cell dx_arr (== scalar dx on uniform grids).
-        return self.rho * np.sum(self.v[self.inlet_mask, 0]
-                                 * self.dx_arr[self.inlet_mask])
-
-    def mass_flow_out(self):
-        return self.rho * np.sum(self.v[:, self.Ny] * self.dx_arr)
-
-
-# ===================================================================
-#  Verification
-# ===================================================================
-
-if __name__ == '__main__':
-    import time
-    import warnings; warnings.filterwarnings('ignore')
-    from sjtu_tpmshx.models.tpms_calc import compute as tpms_compute
-
-    tpms = 'Diamond';  L_mm = 6.0;  t_mm = 0.4
-    props = tpms_compute(tpms, L_mm, t_mm, 3.0, 300.0, 101325.0, 17.0)
-    eps = props['epsilon'];  r_h = props['D_h'] / 2.0
-
-    W, H = 0.03, 0.02;  Nx, Ny = 30, 20;  v_in = 3.0
-
-    # ── Test 1: full-width inlet (uniform flow check) ──
-    print("=" * 60)
-    print("Test 1: full-width inlet")
-    print("=" * 60)
-    rho = air_density(300.0, 101325.0);  mu = air_viscosity(300.0)
-    s = SIMPLESolver(W, H, Nx, Ny,
-                     tpms, L_mm, t_mm, eps, r_h, rho, mu, 300.0,
-                     0.0, W, v_in)
-
-    print("  (first call includes Numba JIT compilation...)")
-    t0 = time.time()
-    ok, it = s.solve(max_iter=500, tol=1e-7, verbose=False)
-    t1 = time.time()
-    v_int = s.v[:, 1:-1];  u_int = s.u[1:-1, :]
-    print(f"  time = {t1-t0:.2f}s  (includes JIT)")
-    print(f"  converged={ok}, iters={it}")
-    print(f"  v: mean={v_int.mean():.4f} std={v_int.std():.2e} (expect {v_in})")
-    print(f"  u: mean={u_int.mean():.2e} (expect 0)")
-
-    # Re-run to measure pure execution time
-    s2 = SIMPLESolver(W, H, Nx, Ny,
-                      tpms, L_mm, t_mm, eps, r_h, rho, mu, 300.0,
-                      0.0, W, v_in)
-    t0 = time.time()
-    s2.solve(max_iter=500, tol=1e-7, verbose=False)
-    t1 = time.time()
-    print(f"  pure solve time (no JIT) = {t1-t0:.2f}s")
-    print()
-
-    # ── Test 2: half-width inlet + temperature ──
-    print("=" * 60)
-    print("Test 2: half-width inlet + temperature (T_other=400K)")
-    print("=" * 60)
-    inlet_lo = 0.25 * W;  inlet_hi = 0.75 * W
-    s3 = SIMPLESolver(W, H, Nx, Ny,
-                      tpms, L_mm, t_mm, eps, r_h, rho, mu, 300.0,
-                      inlet_lo, inlet_hi, v_in)
-    t0 = time.time()
-    ok_v, it_v = s3.solve(max_iter=3000, tol=1e-6, verbose=False)
-    t1 = time.time()
-    print(f"  Velocity: converged={ok_v}, iters={it_v}, time={t1-t0:.2f}s")
-    print(f"  m_in={s3.mass_flow_in():.6f}  m_out={s3.mass_flow_out():.6f}")
-
-    # Temperature: Fluid B enters at 300K, Fluid A (other side) at 400K
-    K_ff = eps * props['k_f']
-    K_ss = (1.0 - eps) * 17.0
-    A_0  = props['A_0']
-    H_sf = props['H_sf']      # face HTC [W/(m2 K)]
-    h_v  = H_sf * A_0         # volumetric HTC [W/(m3 K)]
-    cp_air = 1005.0
-    rho_cp = rho * cp_air
-
-    t0 = time.time()
-    ok_t, it_t = s3.solve_temperature(
-        K_ff, K_ss, h_v, rho_cp,
-        T_in=300.0, T_other=400.0, h_v2=h_v * 0.5)
-    t1 = time.time()
-    print(f"  Temperature: time={t1-t0:.2f}s")
-
-    ex = s3.get_exit_profile()
-    print(f"  Exit v: mean={ex['v_exit'].mean():.3f}")
-    if 'Tf_exit' in ex:
-        print(f"  Exit Tf: mean={ex['Tf_exit'].mean():.2f}K "
-              f"(entered at 300K, other=400K)")
-    print("=" * 60)
-
-
-def _warmup_jit():
-    """Explicitly pre-compile _assemble_pp_data_jit for warm benchmarks.
-
-    Builds a tiny 4x4 sparsity pattern and runs one assembly to touch the
-    compiled path. Failures are silently caught — warmup is best-effort.
-    """
-    try:
-        import numpy as _np
-        _Nx, _Ny = 4, 4
-        _u = _np.zeros((_Nx + 1, _Ny), dtype=_np.float64)
-        _v = _np.zeros((_Nx, _Ny + 1), dtype=_np.float64)
-        _d_u = _np.full((_Nx + 1, _Ny), 0.05, dtype=_np.float64)
-        _d_v = _np.full((_Nx, _Ny + 1), 0.05, dtype=_np.float64)
-        _rho = _np.full((_Nx, _Ny), 1.0, dtype=_np.float64)
-        _outlet = _np.zeros(_Nx, dtype=_np.float64)
-        _outlet[_Nx // 2] = 1.0
-        _dx = _np.full(_Nx, 0.01, dtype=_np.float64)
-        _dy = _np.full(_Ny, 0.01, dtype=_np.float64)
-        _pat = _build_pp_sparsity_pattern(_Nx, _Ny, _outlet)
-        _data = _np.zeros(_pat['nnz'], dtype=_np.float64)
-        _rhs = _np.zeros(_Nx * _Ny, dtype=_np.float64)
-        _assemble_pp_data_jit(_data, _rhs, _u, _v, _d_u, _d_v, _outlet,
-                              _Nx, _Ny, _dx, _dy, _rho,
-                              _pat['cell_base'], _pat['cell_kind'])
-    except Exception:
-        pass  # Optional benchmark warmup is best-effort.

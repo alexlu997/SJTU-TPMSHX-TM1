@@ -36,7 +36,7 @@ def test_impossible_momentum_gate_reaches_iteration_cap():
 def test_default_f2_matches_tighter_momentum_solution():
     """Default stopping error remains below 0.5% of the tighter solution."""
     sA = _make_solver()
-    convA, itA = sA.solve(max_iter=2000, tol=1e-30, verbose=False)
+    convA, itA = sA.solve(max_iter=2000, verbose=False)
     sB = _make_solver()
     sB.mom_tol = 1e-6
     convB, _ = sB.solve(max_iter=2000, verbose=False)
@@ -67,10 +67,10 @@ def _make_solver_3d(**kw):
 
 def test_sou_flag_off_bit_identical_3d():
     sA = _make_solver_3d()
-    sA.solve(max_iter=40, tol=1e-30, verbose=False)
+    sA.solve(max_iter=40, verbose=False)
     sB = _make_solver_3d()
     sB.use_sou_momentum = False   # explicit off == unset default
-    sB.solve(max_iter=40, tol=1e-30, verbose=False)
+    sB.solve(max_iter=40, verbose=False)
     assert np.array_equal(sA.u, sB.u)
     assert np.array_equal(sA.v, sB.v)
     assert np.array_equal(sA.w, sB.w)
@@ -110,10 +110,10 @@ def test_sou_flag_on_runs_and_differs_3d():
     """SOU on: solver runs, stays finite, and actually changes the interior
     solution (deferred correction is live, not dead code)."""
     sA = _make_solver_3d()
-    sA.solve(max_iter=60, tol=1e-30, verbose=False)
+    sA.solve(max_iter=60, verbose=False)
     sB = _make_solver_3d()
     sB.use_sou_momentum = True
-    convB, _ = sB.solve(max_iter=60, tol=1e-30, verbose=False)
+    convB, _ = sB.solve(max_iter=60, verbose=False)
     assert np.all(np.isfinite(sB.v))
     assert not np.array_equal(sA.v, sB.v)
     # same physics to leading order: fields stay close

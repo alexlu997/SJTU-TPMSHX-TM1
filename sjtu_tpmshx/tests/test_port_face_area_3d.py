@@ -24,8 +24,7 @@ def test_exact_rectangular_intersection_in_every_direction(direction):
              out_ctr=.029, out_w=.006,
              in_z_ctr=.014, in_z_w=.013, out_z_ctr=.001, out_z_w=.004)
     a = _resolve_axis_map(f, 4, 3, 2, .03, .03, .03, *widths)
-    fi, fo = _build_partial_masks(f, a['dcross1'], a['dcross2'],
-                                 a['N_cross1'], a['N_cross2'], a['is_reverse'])
+    fi, fo = _build_partial_masks(f, a['dcross1'], a['dcross2'], a['N_cross2'])
     area = a['dcross1'][:, None] * a['dcross2'][None, :]
     assert np.sum(fi * area) == pytest.approx(.010 * .013, rel=1e-13)
     assert np.sum(fo * area) == pytest.approx(.004 * .003, rel=1e-13)
@@ -35,15 +34,15 @@ def test_exact_rectangular_intersection_in_every_direction(direction):
 def test_narrow_full_and_zero_overlap_ports():
     d = np.full(4, .03 / 4)
     f = dict(in_ctr=.015, in_w=.01, out_ctr=.015, out_w=.03)
-    fi, fo = _build_partial_masks(f, d, d, 4, 4, False)
+    fi, fo = _build_partial_masks(f, d, d, 4)
     assert np.sum(fi * d[:, None] * d[None, :]) == pytest.approx(.00030)
     np.testing.assert_allclose(fo, 1., rtol=0, atol=1e-15)
     f.update(in_ctr=.002, in_w=1e-8)
-    fi, _ = _build_partial_masks(f, d, d, 4, 4, False)
+    fi, _ = _build_partial_masks(f, d, d, 4)
     assert np.sum(fi * d[:, None] * d[None, :]) == pytest.approx(1e-8 * .03)
     f.update(in_ctr=.04, in_w=.001)
     with pytest.raises(ValueError, match='zero cells'):
-        _build_partial_masks(f, d, d, 4, 4, False)
+        _build_partial_masks(f, d, d, 4)
 
 
 @pytest.mark.parametrize('stage', ['serial', 'parallel', 'correct'])
@@ -89,11 +88,10 @@ def test_actual_flux_uses_area_once_and_matches_true_h(direction):
                           s.rho_field, .5 * s.eps_field,
                           s.dx, np.ones(2), s.dz)[1]
     for face, j in [('real_inlet', 0), ('real_outlet', -1)]:
-        w = _face_flux_weights(s, direction, face)
+        w = _face_flux_weights(s, face)
         np.testing.assert_allclose(w, np.abs(fy[:, j, :]))
-        np.testing.assert_allclose(_face_flux_weights(s, direction, face, 'physical'), w / .3)
-        np.testing.assert_allclose(_face_flux_weights(s, direction, face,
-                                  eps_side_override=.2),
+        np.testing.assert_allclose(_face_flux_weights(s, face, 'physical'), w / .3)
+        np.testing.assert_allclose(_face_flux_weights(s, face, eps_side_override=0.2),
                                   w * (.2 / .3))
 
 

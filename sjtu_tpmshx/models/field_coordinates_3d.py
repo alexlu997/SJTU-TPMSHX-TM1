@@ -53,7 +53,7 @@ def _port_rectangles(fluid_cfg, cross2_length):
         for end in ('in', 'out')}
 
 
-def _build_partial_masks(fA, dcross1, dcross2, N_cross1, N_cross2, is_reverse):
+def _build_partial_masks(fA, dcross1, dcross2, N_cross2):
     """Build inlet/outlet exact open-area fractions on the 2-axis inlet face.
 
     Solver's inlet_frac shape is (Nx_sol, Nz_sol) = (N_cross1, N_cross2).

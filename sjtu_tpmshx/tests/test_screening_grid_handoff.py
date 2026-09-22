@@ -58,8 +58,7 @@ def test_drag_projection_uses_physical_source_cells(side):
     L = np.array([[4., 5., 6.], [5., 6., 7.], [6., 7., 8.]])
     t = np.full((3, 3), .4)
     stream = dx if side == 'A' else dy[::-1]
-    K, cF = project_fields_to_streamwise_K_cF(L, t, 'Diamond', 17., 3, 3, 3, side,
-                                            streamwise_dx=stream, source_grid=(dx, dy))
+    K, cF = project_fields_to_streamwise_K_cF(L, t, 'Diamond', 17.0, 3, side, streamwise_dx=stream, source_grid=(dx, dy))
     mean_l = (L @ dy / dy.sum()) if side == 'A' else (dx @ L / dx.sum())[::-1]
     expected = np.array([predict_K_cF('Diamond', length, .4,
                                      geometry('Diamond', length, .4, 17.)['epsilon'] / 2.)

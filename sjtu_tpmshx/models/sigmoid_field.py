@@ -246,7 +246,7 @@ def build_continuous_arrays(x, L0, t0, y_trans_inlet, y_trans_outlet,
                             u_A, u_B, T_inA, T_inB,
                             lut, P_in=101325.0,
                             sigmoid_width_y=0.02, sigmoid_width_x=0.05,
-                            fix_L=False, fix_t=False, opt_axis='y',
+                            fix_L=False, fix_t=False,
                             dx_arr=None, dy_arr=None,
                             allow_extrap=None, fluid_type='air', P_inB=None):
     """Build per-cell property arrays from sigmoid-interpolated L(x,y), t(x,y).
@@ -371,8 +371,6 @@ def _arrays_from_fields(L_field, t_field, tpms_type, k_s, u_A, u_B,
     # (run_stack_3d: K_ss = chi_s_eff(type, ε)·(1−ε)·k_s) and tpms_calc.
     # B2 (2026-07-06): per-cell fitted χ_s(type, ε) from unit-cell
     # homogenization; env TPMSHX_CHI_S constant still overrides.
-    # (Thermal dispersion C_DISP is velocity-dependent and added downstream in
-    #  the outer loop, not here; default C_DISP=0.0.)
     from sjtu_tpmshx.models.tpms_calc import chi_s_eff as _chi_s_eff
     K_ss_arr = _chi_s_eff(tpms_type, eps_arr) * (1.0 - eps_arr) * k_s
 
@@ -398,35 +396,3 @@ def _arrays_from_fields(L_field, t_field, tpms_type, k_s, u_A, u_B,
 # extraction now goes through df_projection.extract_dP_from_simple() which
 # uses SIMPLE's converged pressure field. See
 # vault/reports/2026-04-17-shanghai-dP-error-analysis-CN.md §11.
-
-
-# ── Standalone test ──────────────────────────────────────────
-
-if __name__ == '__main__':
-    print("=== GeometryLUT Test ===")
-    lut = get_geometry_lut('Diamond')
-    print(f"LUT shape: {lut.eps_table.shape}")
-
-    # Verify against direct computation
-    for L, t in [(4.0, 0.3), (6.0, 0.4), (8.0, 0.5)]:
-        g = compute_geometry('Diamond', L, t)
-        L_a = np.array([[L]]); t_a = np.array([[t]])
-        eps_lut, A0_lut = lut.query(L_a, t_a)
-        print(f"  L={L}, t={t}: eps_direct={g['epsilon']:.4f} eps_LUT={eps_lut[0,0]:.4f} "
-              f"A0_direct={g['A_0']:.1f} A0_LUT={A0_lut[0,0]:.1f}")
-
-    print("\n=== Sigmoid Field Test ===")
-    Nx, Ny = 30, 15
-    x = np.array([6.0, 0.3] * 18)  # uniform
-    x[0:2] = [4.0, 0.4]  # make one inlet zone different
-    za = build_continuous_arrays(
-        x, 6.0, 0.3, 0.2, 0.2,
-        Nx, Ny, 0.1, 0.05,
-        'Diamond', 15.0,
-        10.0, 10.0, 400.0, 300.0,
-        lut)
-    print(f"  L_field range: [{za['L_field'].min():.2f}, {za['L_field'].max():.2f}]")
-    print(f"  t_field range: [{za['t_field'].min():.3f}, {za['t_field'].max():.3f}]")
-    print(f"  eps range: [{za['eps_arr'].min():.4f}, {za['eps_arr'].max():.4f}]")
-    print(f"  h_vA range: [{za['h_vA_arr'].min():.0f}, {za['h_vA_arr'].max():.0f}]")
-    print("=== All tests passed ===")

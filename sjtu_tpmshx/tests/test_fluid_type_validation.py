@@ -1,37 +1,17 @@
-"""Guard: sCO2 fluid selection must still raise NotImplementedError.
-
-2026-05-09 (option B): water unblocked for the 2D Compute path. Properties
-(rho/mu/k via NIST-grade correlations) and heat transfer (Pr-substitution
-Nu) are physical; D-F closure (predict_K_cF) reuses the air-fit surrogate,
-so water-side dP is engineering placeholder — flagged in code, but no
-longer hard-blocked at validate time.
-
-sCO2 stays blocked pending its own Nu / D-F correlations.
-"""
+"""Supported fluid identifiers and independent material-property checks."""
 from sjtu_tpmshx.models.tpms_calc import (
-    parse_fluid_type, validate_fluid_type, _SUPPORTED_FLUIDS,
+    validate_fluid_type, _SUPPORTED_FLUIDS,
 )
 
 
-class _FakeCombo:
-    def __init__(self, text): self._text = text
-    def currentText(self): return self._text
 
 
-def test_parse_fluid_type_air():
-    assert parse_fluid_type(_FakeCombo("Air")) == 'air'
 
 
-def test_parse_fluid_type_water():
-    assert parse_fluid_type(_FakeCombo("Water")) == 'water'
 
 
-def test_parse_fluid_type_sco2_subscript():
-    assert parse_fluid_type(_FakeCombo("sCO₂")) == 'sco2'
 
 
-def test_parse_fluid_type_sco2_plain():
-    assert parse_fluid_type(_FakeCombo("sCO2")) == 'sco2'
 
 
 def test_validate_air_passes():
@@ -40,17 +20,13 @@ def test_validate_air_passes():
 
 
 def test_validate_water_passes():
-    """2026-05-09 option B — water now allowed (Pr-substitution Nu +
-    NIST-grade properties; dP is engineering placeholder)."""
+    """Water has registered physical properties and a water-CFD Nu fit."""
     validate_fluid_type('water', 'A')
     validate_fluid_type('water', 'B')
 
 
 def test_validate_sco2_passes():
-    """Phase A (2026-06-26): sCO2 unblocked. Diamond Nu fit from D-7-6
-    experiment (SCO2_NU_COEFFS), CoolProp properties, incompressible flow.
-    Far-from-critical only; near-pseudocritical needs a property-ratio
-    correction (Phase C), not gated here."""
+    """sCO2 has registered properties and the current CFD Nu model."""
     validate_fluid_type('sco2', 'A')
     validate_fluid_type('sco2', 'B')
 

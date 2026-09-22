@@ -44,7 +44,7 @@ def _mom(s):
 
 def test_small_mass_diagnostic_does_not_certify_momentum():
     s = _make()
-    conv, n = s.solve(max_iter=20, tol=1e-5, verbose=False)
+    conv, n = s.solve(max_iter=20, verbose=False)
     assert not conv and n == 20 and s.exit_reason == 'max_iter'
     assert s.residuals[-1] < 1e-12
     assert s.final_res_mom > 1e-4
@@ -53,7 +53,7 @@ def test_small_mass_diagnostic_does_not_certify_momentum():
 def test_f2_improves_momentum_beyond_the_old_iteration_floor():
     """F2 must improve the equation residual beyond the legacy false exit."""
     s_leg = _make()
-    s_leg.solve(max_iter=20, tol=1e-5, verbose=False)
+    s_leg.solve(max_iter=20, verbose=False)
     dP_leg = float(np.mean(s_leg.P[:, 0]) - np.mean(s_leg.P[:, -1]))
 
     s_f2 = _make(convergence_mode='f2', mom_tol=1e-4,

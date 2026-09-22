@@ -96,7 +96,7 @@ def test_graded_channel_mass_conservation_and_acceleration():
     s = _make_solver()
     eps_grad = np.tile(np.linspace(0.6, 0.4, s.Ny)[None, :], (s.Nx, 1))
     s.eps_field = np.ascontiguousarray(eps_grad, dtype=np.float64)
-    conv, _ = s.solve(max_iter=4000, tol=1e-7, verbose=False)
+    conv, _ = s.solve(max_iter=4000, verbose=False)
 
     # ε·ρ·v mass flux per cross-section (v faces j=0..Ny; use interior faces,
     # face ε/ρ = mean of adjacent cells)

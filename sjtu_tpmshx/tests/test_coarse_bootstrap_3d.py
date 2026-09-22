@@ -79,13 +79,13 @@ def test_bootstrap_solver_matches_baseline_converged_state():
     """Bootstrapped solver must reach the same converged state as the
     cold-start baseline (zero precision loss)."""
     s_cold = _build_solver()
-    conv_c, it_c = s_cold.solve(max_iter=400, tol=1e-4)
+    conv_c, it_c = s_cold.solve(max_iter=400)
     assert conv_c, "Cold-start baseline did not converge"
 
     s_warm = _build_solver()
     s_warm.use_coarse_bootstrap = True
     s_warm.coarse_bootstrap_max_iter = 80
-    conv_w, it_w = s_warm.solve(max_iter=400, tol=1e-4)
+    conv_w, it_w = s_warm.solve(max_iter=400)
     assert conv_w, "Bootstrap-warmed solver did not converge"
 
     # Coarse bootstrap should at minimum not slow cold-start; ideally faster.

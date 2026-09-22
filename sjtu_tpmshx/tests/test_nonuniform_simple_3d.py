@@ -33,13 +33,13 @@ def _cfg(**kw):
 def test_uniform_dx_arr_matches_default():
     """A uniform dx_arr/dy_arr/dz_arr == the hard-coded uniform default."""
     base = SIMPLESolver3D(**_cfg())
-    base.solve(max_iter=250, tol=1e-5, verbose=False)
+    base.solve(max_iter=250, verbose=False)
 
     arr = SIMPLESolver3D(**_cfg(
         dx_arr=np.full(_NX, _LX / _NX),
         dy_arr=np.full(_NY, _LY / _NY),
         dz_arr=np.full(_NZ, _LZ / _NZ)))
-    arr.solve(max_iter=250, tol=1e-5, verbose=False)
+    arr.solve(max_iter=250, verbose=False)
 
     np.testing.assert_array_equal(base.u, arr.u)
     np.testing.assert_array_equal(base.v, arr.v)
@@ -54,7 +54,7 @@ def test_nonuniform_grid_solves_physical():
     dy = np.linspace(0.6, 1.4, _NY); dy *= _LY / dy.sum()   # graded streamwise
     dx = np.linspace(1.3, 0.7, _NX); dx *= _LX / dx.sum()   # graded cross
     s = SIMPLESolver3D(**_cfg(dx_arr=dx, dy_arr=dy))
-    conv, it = s.solve(max_iter=500, tol=1e-5, verbose=False)
+    conv, it = s.solve(max_iter=500, verbose=False)
 
     # spacing actually stored (not overwritten by uniform)
     assert abs(s.dy.sum() - _LY) < 1e-12

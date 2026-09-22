@@ -1,22 +1,7 @@
-"""Anderson acceleration for SIMPLE outer Picard iteration.
+"""Anderson mixing for thermal sweeps and outer property coupling.
 
-Treats the SIMPLE step as a fixed-point map G: x → x' where
-``x = stack(u, v, w, P)``. Anderson Type-II uses a window of m past residuals
-to extrapolate a better next state via a least-squares mixing of recent steps.
-
-Mass conservation note
-----------------------
-Anderson on raw (u,v,w,P) does NOT inherently preserve ∇·(ρu)=0. The caller
-MUST run one extra pressure correction (`_solve_pp_amg` + `_correct_jit_3d`)
-after every Anderson step so the projected velocity is divergence-free again.
-The Anderson step is therefore a candidate; the projection makes it admissible.
-
-Safety gates
-------------
-- Apply only every K outer iterations (default 3) — pure Picard between to
-  let SIMPLE re-establish self-consistency.
-- Skip if ΔR is rank-deficient (cond > 1e10).
-- Roll back to Picard if the Anderson candidate increases the residual norm.
+Callers validate candidates and restore rejected states. The inner SIMPLE
+momentum iteration does not use Anderson acceleration.
 """
 from __future__ import annotations
 import numpy as np
@@ -31,7 +16,7 @@ def advance_energy(step, fields, sweeps, snapshots=()):
     are the 2D deferred-flux temperatures, restored with a rejected trial.
     The caller retains its original convergence and conservation checks.
     """
-    accelerator = AndersonSIMPLE(m=5, K=1)
+    accelerator = AndersonSIMPLE(m=5)
     size = fields[0].size
 
     def pack():
@@ -70,25 +55,22 @@ def advance_energy(step, fields, sweeps, snapshots=()):
 
 
 class AndersonSIMPLE:
-    """Type-II Anderson acceleration for SIMPLE outer loop.
+    """Type-II Anderson candidate generator for an externally validated map.
 
     Parameters
     ----------
     m : int
-        History depth. m=5 is a robust default for SIMPLE.
-    K : int
-        Apply Anderson every K outer iterations; pure Picard between.
+        History depth.
     beta : float
         Damping factor. 1.0 = full Anderson; <1.0 mixes with Picard. Default
-        1.0 — SIMPLE under-relaxation already provides damping.
+        1.0; the caller retains its own acceptance and damping policy.
     cond_max : float
         Skip Anderson if cond(ΔR) exceeds this. Default 1e10.
     """
 
-    def __init__(self, m: int = 5, K: int = 3, beta: float = 1.0,
+    def __init__(self, m: int = 5, beta: float = 1.0,
                  cond_max: float = 1e10):
         self.m = int(m)
-        self.K = int(K)
         self.beta = float(beta)
         self.cond_max = float(cond_max)
         # ring buffers of past states x_k and residuals r_k = G(x_k) - x_k
@@ -96,14 +78,12 @@ class AndersonSIMPLE:
         self._R: deque = deque(maxlen=self.m + 1)
         self.applied_count: int = 0
         self.skipped_count: int = 0
-        self.rolled_back_count: int = 0
 
     def reset(self) -> None:
         self._X.clear()
         self._R.clear()
         self.applied_count = 0
         self.skipped_count = 0
-        self.rolled_back_count = 0
 
     def push(self, x: np.ndarray, gx: np.ndarray) -> None:
         """Record an iterate ``x`` and its image ``gx = G(x)``."""
@@ -162,14 +142,6 @@ class AndersonSIMPLE:
         self.applied_count += 1
         return x_anderson, True
 
-    def maybe_rollback(self, x_anderson: np.ndarray, gx_picard: np.ndarray,
-                        res_anderson: float, res_picard: float) -> np.ndarray:
-        """Roll back to Picard if Anderson candidate increased residual."""
-        if not np.isfinite(res_anderson) or res_anderson > res_picard:
-            self.rolled_back_count += 1
-            return gx_picard
-        return x_anderson
-
 
 class AndersonOuterCoupling:
     """Anderson acceleration for the SIMPLE↔LTNE **outer** coupling map.
@@ -190,9 +162,8 @@ class AndersonOuterCoupling:
 
     Why acceleration is SAFE on this map (and needs care on the inner one)
     ---------------------------------------------------------------------
-    :class:`AndersonSIMPLE`'s docstring warns that mixing raw ``(u,v,w,P)``
-    breaks ``div(rho*u)=0`` and the caller must re-project. On the OUTER map
-    that requirement is satisfied **for free**: the extrapolated quantity is a
+    Mixing raw ``(u,v,w,P)`` would require a new mass-balance projection.
+    This OUTER map instead mixes properties: the extrapolated quantity is a
     *property field* (rho, mu), and the very next thing the loop does is
     re-solve SIMPLE from it — which re-establishes the discrete mass balance by
     construction. Anderson can move rho; it cannot make the velocity field
@@ -223,7 +194,7 @@ class AndersonOuterCoupling:
 
     def __init__(self, m: int = 3, trust: float = 5.0, patience: int = 3,
                  cond_max: float = 1e10):
-        self._and = AndersonSIMPLE(m=m, K=1, beta=1.0, cond_max=cond_max)
+        self._and = AndersonSIMPLE(m=m, beta=1.0, cond_max=cond_max)
         self.trust = float(trust)
         self.patience = int(patience)
         self._scales: np.ndarray | None = None

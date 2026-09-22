@@ -1,12 +1,12 @@
 """
-asym_geometry.py — 非对称孔隙率 PoC 核心（Phase 0）。
+asym_geometry.py — 非对称孔隙率研究模型。
 
 偏移等值面分相：固体带 solid = {δ−C ≤ φ ≤ δ+C}，δ 为中心偏移。
   void_A (得益, 气侧) = {φ < δ−C};  void_B (挤压, 液侧) = {φ > δ+C}
 δ=0 退化为 tpms_geometry 的对称 50/50（见 tests）。
 
-只读复用 tpms_geometry；不修改任何生产路径（Phase 2 才集成）。
-计划：vault/reports/engineering/2026-06-05-asym-porosity-phase0-PLAN-CN.md
+预处理复用这里的分相面积、水力直径和孔隙率；δ=0 保持对称几何。
+非对称模型的适用性仍由对应 CFD 与守恒证据限定。
 """
 import numpy as np
 from scipy import ndimage

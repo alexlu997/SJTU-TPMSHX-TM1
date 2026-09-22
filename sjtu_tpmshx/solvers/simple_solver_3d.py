@@ -805,7 +805,7 @@ class SIMPLESolver3D:
             eps_eff = self.eps_field if hasattr(self, 'eps_field') else self.eps
             self._mu_eff_field = np.ascontiguousarray(mu_new / eps_eff)
 
-    def solve(self, max_iter=3000, tol=1e-6,
+    def solve(self, max_iter=3000,
               n_inner=1, verbose=False, cancel_check=None):
         """Run the SIMPLE iterative loop.
 
@@ -816,8 +816,7 @@ class SIMPLESolver3D:
             as a completed result.
 
         F2 requires momentum, fresh-density local/global mass and backflow
-        gates on consecutive observations. ``tol`` is a retained call argument;
-        set ``mom_tol``, ``mass_local_tol`` and ``mass_global_tol`` explicitly
+        gates on consecutive observations. Set ``mom_tol``, ``mass_local_tol`` and ``mass_global_tol`` explicitly
         to tune those gates. ``self.residuals`` keeps the pressure-subproblem
         diagnostic because adaptive AMG consumes its history.
 

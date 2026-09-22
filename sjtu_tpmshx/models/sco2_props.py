@@ -185,13 +185,3 @@ def sco2_temperature_field(h_Jkg, P_Pa: float):
     Vectorised inverse of ``sco2_enthalpy_field``; h and P are broadcast.
     """
     return sco2_temperature_from_enthalpy(h_Jkg, P_Pa)
-
-
-def sco2_viscosity_field(T_K, P_Pa: float):
-    """μ field [Pa·s] over a T field at fixed P."""
-    return sco2_field("V", T_K, P_Pa)
-
-
-def sco2_conductivity_field(T_K, P_Pa: float):
-    """k field [W/(m·K)] over a T field at fixed P."""
-    return sco2_field("L", T_K, P_Pa)
