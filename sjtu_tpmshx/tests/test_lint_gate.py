@@ -1,6 +1,6 @@
 """P2.1 standing gate: ruff lint (config in pyproject [tool.ruff]) is clean.
 
-Rule set is the deliberate minimum (F + E9, F841 deferred to P2.1b); the
+Rule set is F + E9, including unused-local rule F841; the
 config file documents why `ruff format` is NOT part of the gate (line-number
 churn vs atlas/file:line citations and source-marker tests). A new finding
 either gets fixed or gets a per-file-ignore/noqa WITH rationale — never a

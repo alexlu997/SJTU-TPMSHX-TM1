@@ -57,8 +57,9 @@ except Exception:
 # measured >= 30s in the durations census (regen via
 # runs/tools/build_fast_tier_manifest.py). They get the `heavy` marker at
 # collection time — zero test-file churn, and scripts/run_tests_fast.ps1
-# excludes them with -m "not heavy". The FULL suite still runs them; the
-# fast tier is dev feedback, NOT the verification gate. Distinct from the
+# excludes them with -m "not heavy". CI fast excludes slow/heavy and runs
+# public-module integration separately; the full suite still runs all of them.
+# Neither subset alone is the full verification gate. Distinct from the
 # `slow` marker (CI skip-list — semantic, hand-curated; v1 lesson: do not
 # conflate) and the legacy `fast` marker (opt-in smoke subset).
 _FAST_TIER_MANIFEST = Path(__file__).with_name('_fast_tier_manifest.txt')

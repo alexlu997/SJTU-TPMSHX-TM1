@@ -22,8 +22,8 @@ jobs:
       NUMBA_NUM_THREADS: "1"
       TM1_REAL_HANDOFF_DIR: .cache/real-file-handoff
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
       - name: Prepare locked producer environment

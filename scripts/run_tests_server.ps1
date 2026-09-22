@@ -1,14 +1,14 @@
 # Full-suite runner for the 128-core EPYC server (E:\LWH).
 #
 # Strategy (v2, 2026-07-13): single phase, `-n 64 --dist worksteal`.
-#   * `pytest.ini` recommends `--dist loadscope`, but that pins whole modules
+#   * README.md recommends `--dist loadscope`, but that pins whole modules
 #     to one worker. The duration outliers cluster in a few modules
 #     (test_conservation_3d_energy: 1291s+1103s serialized = 40-min tail;
 #     test_partial_bc_ghost_b: 1576s; test_asym_porosity_3d: 1607s), so
 #     loadscope's wall-clock floor is the biggest module sum (~40 min).
 #     worksteal distributes per-test and rebalances stragglers → floor is
 #     the slowest single TEST (~21.5 min on this 2.25 GHz Zen 3).
-#   * loadscope's purpose (per pytest.ini) is fixture EFFICIENCY — keeping
+#   * loadscope's purpose (per README.md) is fixture EFFICIENCY — keeping
 #     module-scoped surrogate/MMS fixtures on one worker. Under worksteal
 #     they rebuild on several workers: redundant compute, not a correctness
 #     issue, and 128 cores absorb it.
@@ -23,6 +23,11 @@
 #
 # The venv MUST be built from C:\Python312 (python.org CPython), never
 # Anaconda — PySide6's abi3 forwarder crashes (0xc0000139) otherwise.
+
+param(
+    [ValidateSet('requirements-lock.txt', 'requirements-lock-server.txt')]
+    [string]$LockFile = 'requirements-lock.txt'
+)
 
 $ErrorActionPreference = "Stop"
 $repo = Split-Path $PSScriptRoot -Parent
@@ -55,8 +60,8 @@ New-Item -ItemType Directory -Force $env:MPLCONFIGDIR, $env:XDG_CACHE_HOME | Out
 
 Set-Location $repo
 
-& $py -m sjtu_tpmshx.runs.tools.check_locked_environment requirements-lock.txt
-if ($LASTEXITCODE -ne 0) { throw "Shared environment differs from requirements-lock.txt" }
+& $py -m sjtu_tpmshx.runs.tools.check_locked_environment $LockFile
+if ($LASTEXITCODE -ne 0) { throw "Shared environment differs from $LockFile" }
 & $py -m pip check
 if ($LASTEXITCODE -ne 0) { throw "Shared environment failed pip check" }
 

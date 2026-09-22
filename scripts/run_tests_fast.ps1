@@ -6,12 +6,17 @@
 # applied by tests/conftest.py at collection). Everything else is identical
 # to run_tests_server.ps1. Measured wall ~1 min vs ~19 min full.
 #
-# "Before claiming done" remains the FULL suite (run_tests_server.ps1) —
-# the heavy set is exactly the 3D conservation/BC/asym integration tests
-# that catch real physics regressions. Fast green means "keep typing",
-# never "ship".
+# The full suite (run_tests_server.ps1) retains all collected tests; heavy
+# includes conservation, boundaries, asymmetric geometry and design checks.
+# CI separately excludes slow/heavy and runs public-module integration.
+# This local fast subset alone does not establish full-suite acceptance.
 #
 # `slow` marker semantics untouched (CI skip-list, hand-curated).
+
+param(
+    [ValidateSet('requirements-lock.txt', 'requirements-lock-server.txt')]
+    [string]$LockFile = 'requirements-lock.txt'
+)
 
 $ErrorActionPreference = "Stop"
 $repo = Split-Path $PSScriptRoot -Parent
@@ -44,8 +49,8 @@ New-Item -ItemType Directory -Force $env:MPLCONFIGDIR, $env:XDG_CACHE_HOME | Out
 
 Set-Location $repo
 
-& $py -m sjtu_tpmshx.runs.tools.check_locked_environment requirements-lock.txt
-if ($LASTEXITCODE -ne 0) { throw "Shared environment differs from requirements-lock.txt" }
+& $py -m sjtu_tpmshx.runs.tools.check_locked_environment $LockFile
+if ($LASTEXITCODE -ne 0) { throw "Shared environment differs from $LockFile" }
 & $py -m pip check
 if ($LASTEXITCODE -ne 0) { throw "Shared environment failed pip check" }
 

@@ -1,16 +1,16 @@
-# fast-tier heavy manifest — GENERATED, do not hand-edit.
+# fast-tier heavy manifest — generated census, retired test nodes removed.
 # regen: python sjtu_tpmshx/runs/tools/build_fast_tier_manifest.py --log <census.log> --threshold 30
 # census: 2026-07-20 server run (historical log not retained) · threshold 30s · 21 heavy of 265 timed tests · 4096s of 4620s call-compute (89%)
+# Current list: 20 nodes; retired test_eta_B_field_bounds removed (2026-09-22).
 # semantics: conftest marks these nodeids `heavy` at collection; the
-# FULL suite (run_tests_server.ps1) still runs them — only
-# run_tests_fast.ps1 (-m "not heavy") skips them. NOT the gate.
+# full suite still runs them. Local fast excludes heavy; CI fast excludes
+# slow/heavy and runs public-module integration separately. Neither is the full suite.
 sjtu_tpmshx/tests/test_conservation_3d_energy.py::test_strict_energy_conservation[T4_partial_offset]
 sjtu_tpmshx/tests/test_conservation_3d_energy.py::test_strict_energy_conservation[T3_partial_aligned]
 sjtu_tpmshx/tests/test_wall_refine_3d.py::test_wall_refine_3d_solves_and_matches_uniform
 sjtu_tpmshx/tests/test_asym_porosity_3d.py::test_asym_delta_runs_and_changes_result[True]
 sjtu_tpmshx/tests/test_asym_porosity_3d.py::test_delta0_explicit_matches_baseline_bit_identical
 sjtu_tpmshx/tests/test_asym_porosity_3d.py::test_asym_delta_runs_and_changes_result[False]
-sjtu_tpmshx/tests/test_partial_bc_ghost_b.py::test_eta_B_field_bounds
 sjtu_tpmshx/tests/test_partial_bc_ghost_b.py::test_epsilon_ntu_bound
 sjtu_tpmshx/tests/test_partial_bc_ghost_b.py::test_epsilon_ntu_bound_varrhocp
 sjtu_tpmshx/tests/test_partial_bc_ghost_b.py::test_solid_energy_balance
