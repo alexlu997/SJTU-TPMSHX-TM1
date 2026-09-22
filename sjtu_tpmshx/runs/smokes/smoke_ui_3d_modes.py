@@ -7,6 +7,7 @@ roughness skipped on water side.
 """
 from __future__ import annotations
 import os, warnings
+import math
 
 warnings.filterwarnings('ignore')
 
@@ -36,6 +37,8 @@ def build_cfg(tpms='Gyroid', Lcell=7.0, t_wall=0.6, k_s=16.0,
 
 
 def run_with_mode(label, mode, eps_um=100, **kw):
+    old_env = {name: os.environ.get(name) for name in
+               ('TPMSHX_ROUGH_MODE', 'TPMSHX_ROUGH_EPS_UM')}
     os.environ['TPMSHX_ROUGH_MODE'] = mode
     os.environ['TPMSHX_ROUGH_EPS_UM'] = str(eps_um)
     cfg = build_cfg(**kw)
@@ -46,14 +49,23 @@ def run_with_mode(label, mode, eps_um=100, **kw):
     except Exception as e:
         print(f"  CRASH: {type(e).__name__}: {e}", flush=True)
         return None
+    finally:
+        for name, value in old_env.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
     Q = float(res.get('Q_total', float('nan')))
     dP_A = float(res.get('dP_A', float('nan')))
     dP_B = float(res.get('dP_B', float('nan')))
+    if not all(math.isfinite(value) for value in (Q, dP_A, dP_B)):
+        print('  FAIL: nonfinite Q or pressure drop', flush=True)
+        return None
     print(f"  Q_total = {Q:.1f} W   dP_A = {dP_A:.0f} Pa   dP_B = {dP_B:.0f} Pa", flush=True)
     return {'Q': Q, 'dP_A': dP_A, 'dP_B': dP_B}
 
 
-if __name__ == '__main__':
+def main():
     print("=== Phase B: 3D UI Compute path × 4 modes ===", flush=True)
     print("Shanghai-style: Gyroid L=7 t=0.6, u_A=12 air @ 422K, u_B=8 air @ 302K, 20×10×8\n", flush=True)
 
@@ -69,6 +81,7 @@ if __name__ == '__main__':
                                 T_inB=290.0, u_B=0.5)
     res_w_norr = run_with_mode('water B norris_1a', 'norris_1a', fluid_type_B='water',
                                 T_inB=290.0, u_B=0.5)
+    failed = any(value is None for value in [*results.values(), res_w_base, res_w_norr])
 
     # Summary table
     print("\n=== SUMMARY ===", flush=True)
@@ -85,6 +98,7 @@ if __name__ == '__main__':
         if dPB_diff < 1.0:
             print(f"\n  [OK] water-B dP_B unchanged ({dPB_diff:.2f} Pa diff) - water Nu (`nu_water_topo`) protected", flush=True)
         else:
+            failed = True
             print(f"\n  [WARN] water-B dP_B differs by {dPB_diff:.0f} Pa - leak?", flush=True)
 
     # Verification (2026-05-14 revised): norris_1a is now alias of
@@ -95,4 +109,11 @@ if __name__ == '__main__':
         if 0.97 < ratio < 1.03:
             print("  [OK] norris_1a == baseline for friction (as designed)", flush=True)
         else:
+            failed = True
             print("  [WARN] unexpected drift between norris_1a and baseline", flush=True)
+    print('Smoke comparisons only; fast_sweep does not certify solver convergence.')
+    return 1 if failed else 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

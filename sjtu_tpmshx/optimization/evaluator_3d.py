@@ -13,7 +13,7 @@ Design choices:
   * ``DEFAULT_CONFIG_3D`` inherits ``optimization.evaluator.DEFAULT_CONFIG``
     plus 3D-only knobs: ``Nx_3d``, ``Ny_3d``, ``Nz_3d``, ``Lz``,
     ``max_outer_3d``, ``outer_tol_K``, ``alpha_outer``. Solver-tol overrides
-    (``max_iter_simple``, ``tol_simple``, ``max_iter_energy``, ``tol_energy``)
+    (``max_iter_simple``, ``max_iter_energy``, ``tol_energy``)
     flow through unchanged.
   * Errors caught in BO worker (_eval_worker) — this function raises on
     pathology so the worker tags it with the dp_cap fallback.
@@ -53,7 +53,6 @@ DEFAULT_CONFIG_3D: dict = {
 
     # Override 2D defaults to match 3D fast-mode budget
     'max_iter_simple': 300,
-    'tol_simple':      1e-2,
     'max_iter_energy': 1000,
     'tol_energy':      0.5,
 
@@ -139,7 +138,6 @@ def evaluate_design_3d(x: np.ndarray,
         outer_tol_K=float(cfg_full['outer_tol_K']),
         alpha_outer=float(cfg_full['alpha_outer']),
         max_iter_simple=int(cfg_full['max_iter_simple']),
-        tol_simple=float(cfg_full['tol_simple']),
         max_iter_energy=int(cfg_full['max_iter_energy']),
         tol_energy=float(cfg_full['tol_energy']),
         roughness_mode=str(cfg_full.get('roughness_mode', 'norris_1a')),

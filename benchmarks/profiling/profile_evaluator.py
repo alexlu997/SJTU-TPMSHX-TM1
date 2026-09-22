@@ -14,7 +14,6 @@ Methodology:
   * Single 16-D decision vector at the fixed historical nominal geometry → "nominal design"
   * Uniform L = 6 mm, t = 0.4 mm (fixed historical workload)
   * Air/air screening domain 0.10 × 0.05 m, adaptive grid
-  * Historical tol_simple=1e-2 is retained but does not control F2 gates
   * n_rho_loops=2 (screening density-coupling budget)
   * One warm-up, three profiled calls, then three wall-time calls
 """
@@ -43,7 +42,7 @@ def _build_nominal_x() -> np.ndarray:
 
 
 def _build_cfg() -> dict:
-    return {**DEFAULT_CONFIG, 'tol_simple': 1e-2, 'n_rho_loops': 2,
+    return {**DEFAULT_CONFIG, 'n_rho_loops': 2,
             'penalty_enabled': False}
 
 

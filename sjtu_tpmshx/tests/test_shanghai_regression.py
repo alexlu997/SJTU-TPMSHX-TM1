@@ -1,123 +1,42 @@
-"""Shanghai 16-case validation regression tests (opt-in, slow).
+"""Integrity of the frozen Shanghai 16-case evidence, not a current solver test.
 
-Two historical validation comparisons remain: the 3D driver and the
-cross-flow lumped model. The retired 2D test placeholder is indexed in
-``docs/history/retired-tools.md``. Historical reference numbers below retain
-their original version and thresholds; they are not current accuracy claims.
+The stored 2026-07-13 F2 pipeline table reported RMSRE_dP=4.88% and
+RMSRE_Q=2.12%, with relative tolerances 5% and 10% respectively. These values
+and thresholds remain historical. The current validation driver uses its
+own 12% / 6% gates, convergence status and separately attributed output.
 
-These tests are SLOW (~6 min each) and OPT-IN. Default pytest run skips
-them. To enable:
+The former opt-in test launched a current module from the package directory
+(instead of repository root), causing ModuleNotFoundError, and its output
+path could overwrite the frozen table. Removing that invocation does not
+claim that today's solver reproduces the historical scores.
 
-    # Shell (env var)
-    TPMSHX_RUN_SHANGHAI_REGRESSION=1 python -m pytest sjtu_tpmshx/tests/test_shanghai_regression.py -v
-
-    # PowerShell
-    $env:TPMSHX_RUN_SHANGHAI_REGRESSION = '1'
-    python -m pytest sjtu_tpmshx/tests/test_shanghai_regression.py -v
-
-Baseline values are pinned per the audit report (vault/reports/engineering/
-2026-05-28-validation-correctness-audit-CN.html §H3). If a deliberate
-solver change shifts numbers, record a separately attributable comparison.
-Do not overwrite these historical references to make the checks pass.
+The former lumped paper oracle was cross-flow Q_air RMSRE=1.71%, relative
+tolerance 10% (2026-04-29). No frozen lumped CSV is tracked here; its old test
+executed changing current physics and read a mutable data/ file. That number
+is retained as a historical record, not a current executable acceptance.
+The complete former test and chronology remain at Git 1f86da1.
 """
-from __future__ import annotations
-
-import os
-import subprocess
-import sys
 from pathlib import Path
 
 import numpy as np
-import pytest
-
-_ROOT = Path(__file__).resolve().parents[1]
-_DATA_ROOT = _ROOT.parent / 'data'
-
-# Skip all tests in this module unless explicitly opted in.
-_RUN_REG = os.environ.get(
-    'TPMSHX_RUN_SHANGHAI_REGRESSION', '0').lower() in ('1', 'true', 'yes')
-
-pytestmark = pytest.mark.skipif(
-    not _RUN_REG,
-    reason=("Slow Shanghai regression — set "
-            "TPMSHX_RUN_SHANGHAI_REGRESSION=1 to enable"),
-)
+import pandas as pd
 
 
-# ── Helpers ──────────────────────────────────────────────────────────
-
-def _run_subprocess(module: str, *args, timeout: int = 1200) -> tuple:
-    """Run module via subprocess, return (returncode, stdout, stderr)."""
-    cmd = [sys.executable, '-u', '-m', module, *args]
-    proc = subprocess.run(
-        cmd, cwd=str(_ROOT), capture_output=True, text=True,
-        timeout=timeout, encoding='utf-8', errors='replace',
-    )
-    return proc.returncode, proc.stdout, proc.stderr
-
-
-def _rmsre_from_pct(arr) -> float:
-    """RMSRE from a pre-computed percent-error array (sqrt(mean(e^2)))."""
-    arr = np.asarray(arr, dtype=np.float64)
-    arr = arr[np.isfinite(arr)]
-    return float(np.sqrt(np.mean(arr ** 2)))
-
-
-# ── 2. Production 3D Shanghai validation ─────────────────────────────
-
-def test_shanghai_3d_baseline():
-    """Production 3D Shanghai validation (Nz=3 default grid).
-
-    Baselines (2026-05-29, post G-fix + RBF cubic/smoothing=0.1):
-      RMSRE_dP = 17.32%
-      RMSRE_Q  =  3.74%
-
-    History:
-      * pre G-fix (col 48 G, thin_plate s=0):   dP 97.11% / Q 2.51%
-      * post G-fix (cols 12·13, thin_plate s=0): dP 29.58% / Q 3.06%
-      * **post G-fix + cubic s=0.1**:           **dP 17.32% / Q 3.74%**
-      * pre-incident memory baseline (Nz=3):    dP 41.19% / Q 2.85%
-      * doc method spec 2D (lost xlsx):         dP 10.07%
-
-    Two stacked surrogate fixes:
-
-    1. **G convention** (commit f6146db): v3.1 xlsx col 48 G carries
-       interstitial-throat mass flux (~20×ρv) that does not match the
-       method spec
-       (vault/reports/_archive/methodology/2026-04-16-surrogate-v3-dP-Q-method-CN.md
-       §1.2-1.3). ``_build`` now reads ``G = col 12 (ρ) × col 13 (v)``.
-
-    2. **RBF kernel + smoothing**: switched from thin_plate_spline,
-       smoothing=0 (exact interp, prone to extrapolation wiggle) to
-       ``cubic`` kernel with ``smoothing=0.1`` (Tikhonov reg). Sweep
-       found smoothing < 0.01 collapses 6 high-Re cases into
-       pressure-INVALID (c_F extrapolated too aggressive → P_out²≤0).
-       0.1 is the safest production sweet spot — 12 pp better than
-       thin_plate baseline, 16/16 valid, 6× margin to choke. See
-       ``vault/reports/method/2026-05-29-surrogate-rbf-cubic-smoothing-CN.md``.
-
-    Q tolerance ±10 % relative. dP tolerance ±5 %.
-
-    Note: this test uses Nz=3 default for speed (each case ~25 s vs
-    ~3 min on Nz=10). If you want Nz=10 in CI, pass ``--nz 10`` and
-    update baselines.
-    """
-    import pandas as pd
-    rc, stdout, stderr = _run_subprocess(
-        'sjtu_tpmshx.validation.cases.validate_shanghai_3d_real',
-        '--suffix', '_pytest_h3',
-        timeout=1500)
-    assert rc == 0, (
-        f"validate_shanghai_3d_real failed (rc={rc}):\n"
-        f"STDERR:\n{stderr[-2000:]}")
-
-    csv_path = _ROOT / 'validation' / 'shanghai_3d_baseline_pytest_h3.csv'
-    assert csv_path.exists(), f"output CSV not found: {csv_path}"
-    df = pd.read_csv(csv_path)
-
-    rmsre_dP = _rmsre_from_pct(df['err_dP%'])
-    rmsre_Q = _rmsre_from_pct(df['err_Q%'])
-
+def test_shanghai_3d_historical_evidence():
+    """Check recorded membership, arithmetic and original score bounds only."""
+    path = Path(__file__).resolve().parents[1] / 'validation' / 'shanghai_3d_baseline.csv'
+    df = pd.read_csv(path, comment='#')
+    assert df['case'].tolist() == list(range(1, 17))
+    assert df['pressure_state_valid'].eq(1).all()
+    assert df['pressure_clip_hits'].eq(0).all()
+    assert df['outer_converged'].all()
+    for quantity in ('dP', 'Q'):
+        values = df[[f'{quantity}_exp', f'{quantity}_sim', f'err_{quantity}%']].to_numpy()
+        assert np.isfinite(values).all()
+        np.testing.assert_allclose((values[:, 1] - values[:, 0]) / values[:, 0] * 100,
+                                   values[:, 2], rtol=1e-12, atol=1e-12)
+    rmsre_dP = float(np.sqrt(np.mean(df['err_dP%'].to_numpy() ** 2)))
+    rmsre_Q = float(np.sqrt(np.mean(df['err_Q%'].to_numpy() ** 2)))
     # 2026-06-04 — MASS-FLUX inlet BC fix. The Shanghai experiment fixes the
     # air MASS FLOW (m_air; u_A = m_air/(ρ_A·A_FLOW) is derived). The legacy
     # velocity-inlet held v constant but let ρ_inlet float, so at high-dP
@@ -173,48 +92,7 @@ def test_shanghai_3d_baseline():
     # Q unchanged at 2.12%). The 4.93 value was still passing only by eating
     # half the ±5% drift budget — pin the number the default actually
     # produces, keep the budget for real drift.
-    BASELINE_DP = 4.88
-    BASELINE_Q = 2.12
-    tol_dp = 0.05
-    tol_q = 0.10
-    assert abs(rmsre_dP - BASELINE_DP) < BASELINE_DP * tol_dp, (
-        f"3D RMSRE_dP drift: {rmsre_dP:.2f}% vs baseline "
-        f"{BASELINE_DP}% (tol ±{tol_dp*100:.0f}%)")
-    assert abs(rmsre_Q - BASELINE_Q) < BASELINE_Q * tol_q, (
-        f"3D RMSRE_Q drift: {rmsre_Q:.2f}% vs baseline "
-        f"{BASELINE_Q}% (tol ±{tol_q*100:.0f}%)")
-
-
-# ── 3. Paper baseline ε-NTU lumped ───────────────────────────────────
-
-def test_shanghai_lumped_paper():
-    """Paper baseline ε-NTU lumped Q_air prediction (cross-flow primary).
-
-    Baseline (memory project_lumped_dual_nu_baseline, 2026-04-29):
-      Q_air RMSRE cross-flow ≈ 1.71%
-
-    Cross-flow is the primary Shanghai topology (air ⊥ water). The
-    `err_air_xf` CSV column is the matching error per case.
-
-    Tolerance: ±10% relative on RMSRE.
-    """
-    import pandas as pd
-    rc, stdout, stderr = _run_subprocess(
-        'sjtu_tpmshx.validation.cases.validate_shanghai_lumped_dual_nu', timeout=600)
-    assert rc == 0, (
-        f"validate_shanghai_lumped_dual_nu failed (rc={rc}):\n"
-        f"STDERR:\n{stderr[-2000:]}")
-
-    csv_path = _DATA_ROOT / 'shanghai_lumped_dual_nu.csv'
-    assert csv_path.exists(), f"output CSV not found: {csv_path}"
-    df = pd.read_csv(csv_path)
-
-    assert 'err_air_xf' in df.columns, (
-        f"Expected 'err_air_xf' column missing. Got: {list(df.columns)}")
-    rmsre = _rmsre_from_pct(df['err_air_xf'])
-
-    BASELINE = 1.71
-    tol = 0.10
-    assert abs(rmsre - BASELINE) < BASELINE * tol, (
-        f"Lumped Q_air RMSRE drift: {rmsre:.2f}% vs baseline "
-        f"{BASELINE}% (tol ±{tol*100:.0f}%)")
+    BASELINE_DP, BASELINE_Q = 4.88, 2.12
+    tol_dp, tol_q = .05, .10
+    assert abs(rmsre_dP - BASELINE_DP) < BASELINE_DP * tol_dp
+    assert abs(rmsre_Q - BASELINE_Q) < BASELINE_Q * tol_q

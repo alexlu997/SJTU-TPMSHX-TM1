@@ -278,6 +278,8 @@ def render_html(grid, scalar, title, outpath):
     except Exception as e:
         print(f"  (html export failed: {e})")
         return False
+    finally:
+        p.close()
 
 
 def render_publication_4panel(grid, scalar, title, outpath, unit,
@@ -372,7 +374,7 @@ def render_presentation_large(grid, scalar, title, outpath):
                           window=(1600, 1400), zoom=1.3)
 
 
-if __name__ == '__main__':
+def main():
     cfg = build_cube_cfg()
     print("Solving 50x50x50 mm cube case...")
     import time
@@ -400,6 +402,7 @@ if __name__ == '__main__':
         ('P_kPa', 'P_A abs [kPa]', '[kPa]', False),
     ]
     print("\nGenerating publication-quality outputs:")
+    failed = False
     for fkey, fname, unit, full_set in fields:
         print(f"\n--- {fkey} ---")
         # 1. publication 4-panel
@@ -424,11 +427,18 @@ if __name__ == '__main__':
             # 5. rotation mp4
             p_mp4 = os.path.join(outdir, f'{fkey}_rotate.mp4')
             ok = render_rotation_mp4(grid, fkey, fname, p_mp4, n_frames=90)
+            failed = failed or not ok
             if ok:
                 print(f"  [5] rotation mp4        : {p_mp4}")
             # 6. interactive HTML
             p_html = os.path.join(outdir, f'{fkey}_interactive.html')
             ok = render_html(grid, fkey, fname, p_html)
+            failed = failed or not ok
             if ok:
                 print(f"  [6] interactive HTML    : {p_html}")
-    print("\nDone.")
+    print(f"\nRendering finished: {'FAIL' if failed else 'PASS'}")
+    return 1 if failed else 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

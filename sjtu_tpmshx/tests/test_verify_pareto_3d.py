@@ -47,6 +47,7 @@ def test_configured_layout_and_override_reach_verification(tmp_path, monkeypatch
 
 @pytest.mark.parametrize('damage', ['dimension', 'duplicate', 'missing', 'extra', 'nonfinite'])
 def test_bad_pareto_is_rejected_before_solver(tmp_path, monkeypatch, damage):
+    (tmp_path / 'config.json').write_text('{}')
     path = tmp_path / 'pareto_final.csv'
     _write_pareto(path, 36 if damage == 'dimension' else 16)
     with path.open(newline='') as source:

@@ -31,8 +31,6 @@ def _parse_args(argv: Optional[list] = None) -> argparse.Namespace:
     p.add_argument('--q_batch',  type=int, default=4)
     p.add_argument('--n_jobs',   type=int, default=4)
     p.add_argument('--save_dir', type=str, default=None)
-    p.add_argument('--tol',      type=float, default=1e-2,
-                   help='Retained compatibility value; does not set F2 tolerances')
     p.add_argument('--rho_loops', type=int, default=2,
                    help='Compressible Picard outer iterations')
     p.add_argument('--quiet',    action='store_true')
@@ -44,7 +42,6 @@ def main(argv: Optional[list] = None) -> int:
 
     # Config for evaluator (per-design SIMPLE settings)
     config = {
-        'tol_simple':       args.tol,
         'n_rho_loops':      args.rho_loops,
         'penalty_enabled':  True,
         # Operating point: leave defaults for Shanghai-like (DEFAULT_CONFIG)
@@ -83,7 +80,7 @@ def main(argv: Optional[list] = None) -> int:
         Q = -out['F'][:, 0]; dP = out['F'][:, 1]
         print(f"  Q range  [{Q.min():.0f}, {Q.max():.0f}] W/m")
         print(f"  dP range [{dP.min():.0f}, {dP.max():.0f}] Pa")
-    return 0
+    return 0 if out['complete'] else 1
 
 
 if __name__ == '__main__':

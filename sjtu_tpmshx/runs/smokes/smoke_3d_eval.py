@@ -39,7 +39,7 @@ def main() -> None:
            # Bounded 3D screening preset; not a full-compute qualification.
            'Nx_3d': 40, 'Ny_3d': 16, 'Nz_3d': 10,
            'max_outer_3d': 3,
-           'max_iter_simple': 500, 'tol_simple': 1e-2,
+           'max_iter_simple': 500,
            'max_iter_energy': 1500, 'tol_energy': 0.5,
            'n_rho_loops': 1,           # outer ρ done by 3D evaluator's max_outer
            }

@@ -637,13 +637,12 @@ if __name__ == '__main__':
       * dp_cap rejects blowups → no 17-MPa Pareto outliers
       * log10-dP transform feeds the GP a bounded objective
       * HV-plateau early-stop short-circuits when the front stops advancing
-      * SIMPLE 2000 iter @ tol 1e-4 lets unconverged designs honestly fail
-        rather than emit residual-dominated dP estimates
+      * SIMPLE uses the shared F2 momentum and mass gates
     """
     warnings.filterwarnings('ignore')
     out = run_qnehvi(
         config={'fast_mode': False,
-                'max_iter_simple': 800, 'tol_simple': 1e-2,
+                'max_iter_simple': 800,
                 'max_iter_energy': 1500, 'tol_energy': 0.5,
                 'dp_cap_pa': 1.0e6, 'reject_unconverged': False},
         n_init=16, n_iter=8, q_batch=2, seed=0,

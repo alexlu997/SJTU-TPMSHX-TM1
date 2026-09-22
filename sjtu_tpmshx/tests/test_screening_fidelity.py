@@ -127,7 +127,8 @@ def test_original_config_roundtrip_preview_export_and_load(tmp_path):
     show_field_preview(window)
     np.testing.assert_allclose(window.canvas_layout.figure.axes[2].images[0].get_array(), expected.T)
     path = tmp_path / 'pareto_final.csv'
-    np.savetxt(path, np.r_[x, 100., 200.][None, :], delimiter=',', header='synthetic', comments='')
+    header = ','.join([*(f'x{i}' for i in range(len(x))), 'Q_W_per_m', 'dP_Pa'])
+    np.savetxt(path, np.r_[x, 100., 200.][None, :], delimiter=',', header=header, comments='')
     export_pareto_row(str(path), 0, str(tmp_path / 'export'), config=restored,
                       Nx_export=80, Ny_export=40)
     exported = np.loadtxt(tmp_path / 'export/tfield.csv', delimiter=',', skiprows=1)

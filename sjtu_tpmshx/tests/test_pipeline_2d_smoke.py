@@ -3,7 +3,7 @@
 Drives :class:`controllers.compute_pipeline.Pipeline2D` on a small
 in-domain Shanghai-like case and asserts the ComputeResult slots
 populate with physically plausible numbers.  Not a regression test —
-the canonical Shanghai numbers live in ``test_shanghai_regression.py``
+historical Shanghai evidence is checked in ``test_shanghai_regression.py``
 (opt-in subprocess test).  This test exists so a CI run catches
 ``Pipeline2D`` breakage without the 13-minute lumped-dual-nu cost.
 

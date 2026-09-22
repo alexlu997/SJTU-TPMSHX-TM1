@@ -15,7 +15,6 @@ Uses optimization.evaluator.evaluate_design through the public screening mode.
 The historical filename does not imply a GUI/full-model profile. Workload:
   * Shanghai geometry: L=0.182, H=0.042 m
   * Fluid pair and remaining settings from evaluator.DEFAULT_CONFIG
-  * Historical tol_simple=1e-3 is retained but does not control F2 gates
   * n_rho_loops=3 (screening density-coupling budget)
   * Uniform L=6 mm, t=0.4 mm (fixed historical workload)
   * One warm-up, then one profiled call
@@ -28,8 +27,7 @@ from benchmarks.profiling.profile_evaluator import profile_workload
 
 
 def _build_cfg() -> dict:
-    return {**DEFAULT_CONFIG, 'L_domain': .182, 'H_domain': .042,
-            'tol_simple': 1e-3, 'n_rho_loops': 3, 'penalty_enabled': True}
+    return {**DEFAULT_CONFIG, 'L_domain': .182, 'H_domain': .042, 'n_rho_loops': 3, 'penalty_enabled': True}
 
 
 def main() -> None:

@@ -37,9 +37,10 @@ def test_default_driver_runs_write_separately(monkeypatch, tmp_path, name, args,
     references = {p: p.read_bytes() for p in provenance.REFERENCE_DIR.glob('*.csv')}
     if name == 'phase_c_gci':
         monkeypatch.setattr(module, 'run_c1', lambda cid, **kw:
-                            ([{'case': cid, 'Q_enth_A': 1.0}], {'GCI_g20_pct': 6.0}))
+                            ([{'case': cid, 'Q_enth_A': 1.0}],
+                             {'GCI_g20_pct': 6.0, 'all_grids_converged': True}))
         monkeypatch.setattr(module, 'run_c3_tol', lambda *a, **kw:
-                            [{'Q_enth_A': 1.0}, {'Q_enth_A': 1.0}])
+                            [{'Q_enth_A': 1.0, 'converged': True}] * 3)
     else:
         monkeypatch.setattr(module, 'run_mms', _fake_mms)
     monkeypatch.setattr(sys, 'argv', [name, *args])

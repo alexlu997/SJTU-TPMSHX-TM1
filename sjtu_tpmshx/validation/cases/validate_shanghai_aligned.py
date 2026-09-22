@@ -174,7 +174,7 @@ def _run_simple_A(rho_field, mu_field, u_in, T_in, P_ref_abs_seed,
         s.update_T_field(np.ascontiguousarray(T_field, dtype=np.float64))
     if Re_case is not None:
         _apply_rough_to_simple(s, Re_case)
-    s.solve(max_iter=3000, tol=1e-4, verbose=False)
+    s.solve(max_iter=3000, verbose=False)
     # Cell-centre velocity in real-coord (N_X, N_Y) shape
     v_cell = 0.5 * (s.v[:, :-1] + s.v[:, 1:])   # (N_Y, N_X)
     ucA_real = np.ascontiguousarray(v_cell.T, dtype=np.float64)  # (N_X, N_Y)

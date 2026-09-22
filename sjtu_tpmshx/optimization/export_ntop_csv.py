@@ -178,30 +178,14 @@ def export_pareto_row(pareto_csv_path: str,
     ``optimizer_qnehvi._save_pareto_csv``: columns x0..x{D-1}, Q_W_per_m,
     dP_Pa.
     """
-    data = np.loadtxt(pareto_csv_path, delimiter=',', skiprows=1)
-    if data.ndim == 1:
-        data = data.reshape(1, -1)
+    from .pareto_io import read_pareto_csv
+    data = read_pareto_csv(pareto_csv_path, decision_dim_expected)
     if row_index < 0 or row_index >= data.shape[0]:
         raise IndexError(
             f"row_index {row_index} out of range [0, {data.shape[0]})")
     row = data[row_index]
-    # FIX (2026-06-24 audit): infer the decision dimension instead of hardcoding
-    # 16. The writer (optimizer_qnehvi._save_pareto_csv) ALWAYS appends exactly
-    # Q + dP after the D decision columns, so D = row.size - 2. The old fixed
-    # decision_dim_expected=16 only matched the (n_ctrl_x,n_ctrl_y,symmetric_y)
-    # = (4,4,True) default grid; a non-default grid (e.g. D=24) passed the
-    # `>=18` guard and then mis-sliced columns 16/17 as Q/dP and exported a
-    # truncated (wrong) decision vector. decision_dim_expected is now an
-    # optional assertion (default None = infer).
-    if row.size < 3:
-        raise ValueError(
-            f"CSV row has {row.size} columns; need ≥3 (≥1 decision col + Q + dP)")
+    # The reader restores x0..xN order and places the named objectives last.
     decision_dim = row.size - 2
-    if (decision_dim_expected is not None
-            and decision_dim != decision_dim_expected):
-        raise ValueError(
-            f"CSV row has {row.size} columns ⇒ decision_dim={decision_dim}, "
-            f"but decision_dim_expected={decision_dim_expected}")
 
     x_decision = row[:decision_dim]
     Q   = float(row[decision_dim])

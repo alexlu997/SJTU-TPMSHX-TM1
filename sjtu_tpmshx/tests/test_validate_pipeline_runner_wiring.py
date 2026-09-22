@@ -53,6 +53,7 @@ def test_pipeline_branch_wires_max_outer_into_solver_config():
 
         def run(self):
             class _R:
+                converged = True
                 dP_A_Pa = 1.0
                 Q_W = 1.0
                 fields = {'dx': [1.] * 8, 'dy': [1.] * 4, 'dz': [1.] * 3}
@@ -105,6 +106,7 @@ def test_pipeline_branch_reports_real_pressure_diagnostics():
 
         def run(self):
             class _R:
+                converged = False
                 dP_A_Pa = 2000.0
                 Q_W = 5000.0
                 fields = {'dx': [1.] * 8, 'dy': [1.] * 4, 'dz': [1.] * 3}

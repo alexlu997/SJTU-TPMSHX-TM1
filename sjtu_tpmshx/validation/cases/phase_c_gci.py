@@ -52,14 +52,34 @@ CASES_C = {
 }
 
 
-def _fit_order_loglog(Ns, Qs):
-    """Slope of log|Q-Q_inf| vs log(h), Q_inf = finest-grid proxy."""
-    from sjtu_tpmshx.validation.harness._order_fit import fit_order_loglog
-    Qs = np.asarray(Qs, dtype=np.float64)
-    Q_inf = Qs[-1]   # finest as proxy
-    h = 1.0 / np.asarray(Ns, dtype=np.float64)
-    e = np.abs(Qs - Q_inf)
-    return fit_order_loglog(h, e, err_floor=1e-6).p
+def _richardson_triplet(Ns, Qs):
+    """Positive order and extrapolate from the last three, possibly unequal grids.
+
+    Oscillatory, identical, nonfinite or non-asymptotic values do not determine
+    an order. No assumed second order is substituted for those cases.
+    """
+    from scipy.optimize import brentq
+    Ns = np.asarray(Ns, dtype=float)
+    Qs = np.asarray(Qs, dtype=float)
+    if len(Ns) < 3 or len(Ns) != len(Qs) or not np.all(np.isfinite(Qs)):
+        return float('nan'), float('nan')
+    if not np.all(np.isfinite(Ns)) or np.any(Ns <= 0) or np.any(np.diff(Ns) <= 0):
+        raise ValueError('GCI grids must be finite, positive and strictly increasing')
+    coarse, medium, fine = Qs[-3:]
+    d_cm, d_mf = coarse - medium, medium - fine
+    if d_cm * d_mf <= 0:
+        return float('nan'), float('nan')
+    r_cm, r_mf = Ns[-2] / Ns[-3], Ns[-1] / Ns[-2]
+    ratio = d_cm / d_mf
+
+    def residual(p):
+        return np.expm1(p * np.log(r_cm)) / -np.expm1(-p * np.log(r_mf)) - ratio
+
+    try:
+        p = brentq(residual, 1e-8, 100.)
+    except ValueError:
+        return float('nan'), float('nan')
+    return p, fine + (fine - medium) / np.expm1(p * np.log(r_mf))
 
 
 def _gci_roache(Q_fine, Q_med, h_fine, h_med, p):
@@ -72,20 +92,18 @@ def _gci_roache(Q_fine, Q_med, h_fine, h_med, p):
 
 def _gci_table(Ns, Qs):
     """Full GCI report from a sequence of grids.
-    Returns dict with order_obs (5-pt log-log), per-pair GCI."""
+    Returns the Richardson-triplet order, extrapolate and per-pair GCI."""
     Ns = np.asarray(Ns); Qs = np.asarray(Qs, dtype=np.float64)
-    p_obs = _fit_order_loglog(Ns, Qs)
+    p_obs, Q_inf = _richardson_triplet(Ns, Qs)
 
-    out = dict(order_obs=p_obs, Q_inf=float(Qs[-1]))
+    out = dict(order_obs=p_obs, Q_inf=Q_inf, Q_finest=float(Qs[-1]))
     # GCI between successive pairs: for each pair (Ns[i], Ns[i+1])
     # treat finer (larger N) as Q_fine
     for i in range(len(Ns) - 1):
         Nc, Nf = Ns[i], Ns[i + 1]
         Qc, Qf = Qs[i], Qs[i + 1]
         h_c = 1.0 / Nc; h_f = 1.0 / Nf
-        # Use 5-pt p_obs for stability
-        p = p_obs if np.isfinite(p_obs) and p_obs > 0 else 2.0
-        gci = _gci_roache(Qf, Qc, h_f, h_c, p)
+        gci = _gci_roache(Qf, Qc, h_f, h_c, p_obs)
         out[f'GCI_g{Nf}_pct'] = gci * 100.0
         out[f'rel_diff_g{Nc}_g{Nf}'] = abs(Qf - Qc) / max(abs(Qf), 1e-30) * 100.0
     return out
@@ -93,6 +111,8 @@ def _gci_table(Ns, Qs):
 
 def run_c1(case_id, grids=(12, 16, 20, 30), out_csv=None):
     """C.1 — 4-grid GCI on `case_id`."""
+    if out_csv is not None:
+        out_csv = output_path(out_csv)
     print(f"\n--- C.1 GCI: case={case_id}, grids={list(grids)} ---")
     rows = []
     Q_list = []
@@ -111,7 +131,8 @@ def run_c1(case_id, grids=(12, 16, 20, 30), out_csv=None):
             rows.append(dict(case=case_id, N=g, h=1.0/g,
                              Q_enth_A=Q_enth_A, Q_enth_B=Q_enth_B,
                              Q_sB_interior=Q_sB_int, T_A_out=T_A_out,
-                             T_B_out=T_B_out, dP=dP, elapsed=dt))
+                             T_B_out=T_B_out, dP=dP, elapsed=dt,
+                             converged=bool(res['solver_converged'])))
             Q_list.append(Q_enth_A)
             print(f"  N={g:>3}: Q_A={Q_enth_A:>8.2f}W  Q_B={Q_enth_B:>8.2f}W  "
                   f"T_A_out={T_A_out:.2f}K  dP={dP:.1f}Pa  [{dt:.0f}s]")
@@ -122,9 +143,12 @@ def run_c1(case_id, grids=(12, 16, 20, 30), out_csv=None):
 
     # GCI analysis
     gci = _gci_table(grids, Q_list)
+    gci['all_grids_converged'] = all(row.get('converged', False) for row in rows)
     print("\n  GCI analysis (Q_enthalpy_A as QoI):")
-    print(f"    Q_inf (finest):  {gci['Q_inf']:.2f} W")
-    print(f"    order_obs (5pt): {gci['order_obs']:.3f}")
+    print(f"    Q_inf (Richardson): {gci['Q_inf']:.2f} W")
+    print(f"    order_obs (triplet): {gci['order_obs']:.3f}")
+    if not np.isfinite(gci['order_obs']):
+        print('    Order and GCI undetermined; grid differences remain available.')
     for g_pair_key in [k for k in gci if k.startswith('GCI_')]:
         print(f"    {g_pair_key}: {gci[g_pair_key]:.2f}%")
     for d_key in [k for k in gci if k.startswith('rel_diff_')]:
@@ -133,7 +157,7 @@ def run_c1(case_id, grids=(12, 16, 20, 30), out_csv=None):
     # Save
     df = pd.DataFrame(rows)
     if out_csv:
-        df.to_csv(out_csv, index=False)
+        write_csv_with_provenance(df, out_csv, __file__)
         print(f"  CSV: {out_csv}")
 
     return rows, gci
@@ -178,7 +202,8 @@ def run_c3_tol(case_id='T2', grid=20, tols=(1e-3, 1e-5, 1e-7)):
             Q = float(res.get('Q_enthalpy_A', float('nan')))
             T_A_out = float(res.get('T_A_out', float('nan')))
             rows.append(dict(case=case_id, grid=grid, tol=tol,
-                             Q_enth_A=Q, T_A_out=T_A_out, elapsed=dt))
+                             Q_enth_A=Q, T_A_out=T_A_out, elapsed=dt,
+                             converged=bool(res['solver_converged'])))
             print(f"  tol={tol:.0e}: Q={Q:.4f}W  T_A_out={T_A_out:.4f}K  [{dt:.0f}s]")
     return rows
 
@@ -194,6 +219,8 @@ def main():
     args = ap.parse_args()
     cases = [c.strip() for c in args.cases.split(',') if c.strip()]
     unknown = [case for case in cases if case not in CASES_C]
+    if not cases:
+        ap.error('Specify at least one case')
     if unknown:
         ap.error(f'Unsupported cases: {", ".join(unknown)}. Use T2 or T4; '
                  'historical T4_H8 used retired experimental corrections and '
@@ -208,6 +235,8 @@ def main():
     print(f'Output directory: {out_dir}')
 
     grids = [int(g) for g in args.grids.split(',')]
+    if len(grids) < 3 or min(grids) <= 0 or any(b <= a for a, b in zip(grids, grids[1:])):
+        ap.error('Specify at least three positive, strictly increasing grids')
 
     print(f"{'='*72}")
     print("  Phase C — Roache GCI + tol audit")
@@ -238,7 +267,7 @@ def main():
     fail = []
     for s in summary:
         gci20 = s.get('GCI_g20_pct', float('nan'))
-        ok = gci20 < 5.0 if np.isfinite(gci20) else False
+        ok = np.isfinite(gci20) and gci20 < 5.0 and s['all_grids_converged']
         print(f"    {s['case']}: GCI_g20={gci20:.2f}%  "
               f"{'PASS' if ok else 'FAIL'}")
         if not ok: fail.append(s['case'])
@@ -247,11 +276,15 @@ def main():
         tol_rows = run_c3_tol('T2', grid=20)
         tdf = pd.DataFrame(tol_rows)
         write_csv_with_provenance(tdf, tol_csv, __file__)
-        Qs = [r['Q_enth_A'] for r in tol_rows]
-        rng = max(Qs) - min(Qs)
-        rel = rng / max(abs(Qs[-1]), 1e-30)
+        Qs = np.asarray([r['Q_enth_A'] for r in tol_rows])
+        rng = float(np.ptp(Qs)) if len(Qs) and np.all(np.isfinite(Qs)) else float('nan')
+        rel = rng / max(abs(Qs[-1]), 1e-30) if len(Qs) else float('nan')
+        passed = (np.isfinite(rel) and rel < 0.01 and
+                  len(tol_rows) == 3 and all(row['converged'] for row in tol_rows))
         print(f"\n  C.3 tol sweep range: {rng:.4f}W ({rel:.2%}) — "
-              f"{'PASS' if rel < 0.01 else 'FAIL'} (gate <1%)")
+              f"{'PASS' if passed else 'FAIL'} (gate <1%; all solves converged)")
+        if not passed:
+            fail.append('C.3 tolerance sensitivity')
 
     return 0 if not fail else 1
 

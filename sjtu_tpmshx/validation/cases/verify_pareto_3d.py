@@ -50,7 +50,6 @@ Exit codes
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import time
 import warnings
@@ -65,35 +64,28 @@ from sjtu_tpmshx.core.evaluators import (
 )
 from sjtu_tpmshx.models.continuous_field import decision_dim
 from sjtu_tpmshx.models.screening import DEFAULT_CONFIG
+from sjtu_tpmshx.optimization.pareto_io import read_pareto_csv
 
 def _load_pareto_row(pareto_csv: str, row_index: int,
                      decision_dim_expected: int) -> tuple:
     """Read named decision/objective columns for the original field layout."""
-    columns = [f'x{i}' for i in range(decision_dim_expected)] + ['Q_W_per_m', 'dP_Pa']
-    with open(pareto_csv, newline='', encoding='utf-8') as source:
-        reader = csv.DictReader(source)
-        header = reader.fieldnames or []
-        if len(header) != len(columns) or set(header) != set(columns):
-            raise ValueError(f'Pareto CSV must contain x0..x{decision_dim_expected - 1}, '
-                             'Q_W_per_m and dP_Pa for the configured field layout')
-        rows = list(reader)
+    rows = read_pareto_csv(pareto_csv, decision_dim_expected)
     if row_index < 0 or row_index >= len(rows):
         raise IndexError(f"row {row_index} out of range [0, {len(rows)})")
-    row = rows[row_index]
-    if None in row or any(value is None for value in row.values()):
-        raise ValueError(f'Pareto row {row_index} does not match the CSV columns')
-    values = np.asarray([row[name] for name in columns], dtype=float)
-    if not np.all(np.isfinite(values)):
-        raise ValueError(f'Pareto row {row_index} contains nonfinite values')
+    values = rows[row_index]
     return values[:-2], float(values[-2]), float(values[-1])
 
 
 def _load_run_cfg(pareto_csv: str) -> dict:
     cfg_path = Path(pareto_csv).parent / 'config.json'
-    if cfg_path.exists():
-        with open(cfg_path) as f:
-            return json.load(f)
-    return {}
+    try:
+        with open(cfg_path, encoding='utf-8') as f:
+            cfg = json.load(f)
+    except FileNotFoundError as exc:
+        raise ValueError('Pareto verification requires the original config.json') from exc
+    if not isinstance(cfg, dict):
+        raise ValueError('Pareto config.json must be a configuration mapping')
+    return cfg
 
 
 # ─── CLI ────────────────────────────────────────────────────────────

@@ -5,8 +5,7 @@ Settings vs the smoke (`python -m sjtu_tpmshx.optimization.optimizer_qnehvi`):
   * n_init   16 → 32  (≈ 2 × decision_dim, escapes Sobol-init basin)
   * n_iter    8 → 24  (BO has room to converge before HV plateau early-stop)
   * n_rho_loops uses the new DEFAULT (3) → compressible ρ(T) coupling on
-  * tol_simple=1e-2 is retained for configuration compatibility;
-    screening now uses the shared F2 convergence gates
+  * screening uses the shared F2 convergence gates
 
 Historical timing estimates predate F2 screening; measure this workload
 again before assigning a current runtime budget.
@@ -34,7 +33,6 @@ def main() -> None:
             'fast_mode':           False,
             # Solver knobs
             'max_iter_simple':     800,
-            'tol_simple':          1e-2,
             'max_iter_energy':     1500,
             'tol_energy':          0.5,
             # Compressibility (D feature) — 3 outer iterations + 1 % Δρ tol

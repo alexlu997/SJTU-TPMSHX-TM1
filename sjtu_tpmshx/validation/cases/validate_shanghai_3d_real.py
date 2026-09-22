@@ -317,7 +317,7 @@ def _run_one_case(ci, df, Nx_u, Ny_u, Nz_u, wall_refine=False, verbose=False,
     # v-momentum kernel near outlet corners. Shanghai full-width air → corner
     # taper reduces artificial pressure spikes at wall-outlet corners.
     sA.apply_outlet_taper(n_taper=8, min_frac=0.2)
-    sA.solve(max_iter=400, tol=1e-3, verbose=False)
+    sA.solve(max_iter=400, verbose=False)
 
     # Water side is frozen → no SIMPLE B
     ucB_real = np.zeros((Nx, Ny, Nz))
@@ -417,7 +417,7 @@ def _run_one_case(ci, df, Nx_u, Ny_u, Nz_u, wall_refine=False, verbose=False,
         sA.P_ref_abs = float(np.sqrt(max(P_out_sq_new, 1.0e4)))
 
         # Re-solve SIMPLE A
-        sA.solve(max_iter=400, tol=1e-3, verbose=False)
+        sA.solve(max_iter=400, verbose=False)
 
     # ── Extract Q and dP ──
     #   2026-05-19 (Codex #4): mass-flux-weighted outlet T (down-weights
@@ -563,6 +563,7 @@ def _run_one_case_pipeline(ci, df, Nx_u, Ny_u, Nz_u, spec=None,
         'Q_sim_am': float('nan'), 'Q_mw_am_rel%': float('nan'),
         'outer_iters': _outer_done,
         'outer_converged': _outer_conv,
+        'converged': bool(result.converged),
         'Qs_A': float('nan'), 'Qs_B': float('nan'),
         'Q_net_rel': float('nan'), 'mass_rel_A': float('nan'),
         'pressure_clip_hits': _clip_hits,
@@ -594,6 +595,7 @@ def main(argv=None):
     ap.add_argument('--nz', type=int)
     ap.add_argument('--cases', type=int, default=16, help='Run first N cases (default 16)')
     ap.add_argument('--suffix', type=str, default='', help='CSV output suffix')
+    ap.add_argument('--out-dir', help='New result directory (default: separate .cache/validation run)')
     ap.add_argument('--profile', choices=['uniform', 'parabolic', 'edge'],
                     default=None, help='Kernel-only inlet profile shape (default uniform)')
     ap.add_argument('--eta', type=float, default=None,
@@ -617,6 +619,21 @@ def main(argv=None):
     ap.add_argument('--no-gate', action='store_true',
                     help='Report only; always exit 0 (legacy behaviour)')
     args = ap.parse_args(argv)
+    from sjtu_tpmshx.validation.harness._provenance import (
+        output_directory, output_path, write_csv_with_provenance,
+    )
+    if args.cases < 1:
+        ap.error('--cases must be positive')
+    if any(not np.isfinite(gate) or gate < 0 for gate in (args.gate_dp, args.gate_q)):
+        ap.error('RMSRE gates must be finite and nonnegative')
+    if Path(args.suffix).name != args.suffix and args.suffix:
+        ap.error('--suffix must be a filename suffix, not a path')
+    try:
+        out_dir = output_directory('shanghai_3d', args.out_dir)
+        suffix = args.suffix + ('_kernel' if args.runner == 'kernel' else '')
+        out_path = output_path(out_dir / f'shanghai_3d_baseline{suffix}.csv')
+    except ValueError as exc:
+        ap.error(str(exc))
     if args.port_wall_refine and (args.wall_refine or args.runner == 'kernel'):
         ap.error('--port-wall-refine requires the pipeline and cannot combine with --wall-refine')
     explicit_grid = any(n is not None for n in (args.nx, args.ny, args.nz))
@@ -634,6 +651,8 @@ def main(argv=None):
     args.disp_c = 0.0 if args.disp_c is None else args.disp_c
 
     df = load_cases_df(SHANGHAI_XLSX)
+    if args.cases > len(df):
+        ap.error(f'--cases requests {args.cases} rows but the source has {len(df)}')
 
     print(f"Shanghai 3D validation (Gyroid L={L_CELL} t={T_WALL} eps={EPS:.4f})")
     print(f"Domain: {L_DOM*1000:.0f}x{H_DOM*1000:.0f}x{LZ*1000:.0f} mm")
@@ -650,18 +669,25 @@ def main(argv=None):
              if args.runner == 'pipeline' else "") + "\n")
     results = []
     for ci in range(args.cases):
-        if args.runner == 'pipeline':
-            r = _run_one_case_pipeline(ci, df, Nx_u, Ny_u, Nz_u,
-                                       max_outer=args.max_outer, wall_refine=args.wall_refine,
-                                       port_wall_refine=port_refine)
-            print(f"Actual prepared grid: {r['grid_nx']} x {r['grid_ny']} x {r['grid_nz']}")
-        else:
-            r = _run_one_case(ci, df, Nx_u, Ny_u, Nz_u,
-                              wall_refine=args.wall_refine,
-                              profile_kind=args.profile,
-                              profile_eta=args.eta,
-                              max_outer=args.max_outer,
-                              disp_c=args.disp_c)
+        try:
+            if args.runner == 'pipeline':
+                r = _run_one_case_pipeline(ci, df, Nx_u, Ny_u, Nz_u,
+                                           max_outer=args.max_outer, wall_refine=args.wall_refine,
+                                           port_wall_refine=port_refine)
+                print(f"Actual prepared grid: {r['grid_nx']} x {r['grid_ny']} x {r['grid_nz']}")
+            else:
+                r = _run_one_case(ci, df, Nx_u, Ny_u, Nz_u,
+                                  wall_refine=args.wall_refine,
+                                  profile_kind=args.profile,
+                                  profile_eta=args.eta,
+                                  max_outer=args.max_outer,
+                                  disp_c=args.disp_c)
+        except Exception as exc:
+            results.append(dict(case=ci + 1, error=f'{type(exc).__name__}: {exc}',
+                                pressure_state_valid=0, converged=False,
+                                **{'err_dP%': float('nan'), 'err_Q%': float('nan')}))
+            print(f'Case {ci + 1}: FAILED ({type(exc).__name__}: {exc})')
+            continue
         results.append(r)
         # `outer=N` is the count of outer iterations ACTUALLY run. `!` marks a
         # run that exhausted the cap without meeting the coupling criterion —
@@ -674,31 +700,19 @@ def main(argv=None):
               f"({r['err_Q%']:+.1f}%)  outer={r['outer_iters']}{_omark}  "
               f"[Qnet_rel={r['Q_net_rel']:.2e} mA_rel={r['mass_rel_A']:.2e}]")
 
-    # Summary statistics
-    # Codex #6 follow-up: RMSRE口径 must exclude pressure-invalid cases
-    # (compressible P_abs-clip fired → solution leaned on the clamp, the
-    # reported dP/Q is not a faithful prediction). Count + list them so the
-    # exclusion is auditable, never silent.
-    valid_mask = np.array([bool(r['pressure_state_valid']) for r in results])
+    # The gate always covers every requested case. Invalid pressure states,
+    # nonfinite errors and incomplete convergence cannot shrink its denominator.
+    valid_mask = np.array([bool(r['pressure_state_valid']) and
+                           r.get('pressure_clip_hits', 0) == 0 for r in results])
     n_total = len(results)
     n_invalid = int((~valid_mask).sum())
     invalid_cases = [results[i]['case'] for i in range(n_total) if not valid_mask[i]]
 
     err_dP_all = np.array([r['err_dP%'] for r in results])
     err_Q_all = np.array([r['err_Q%'] for r in results])
-    # Re>600 filter via u_air (matches 2D convention)
-
-    if valid_mask.any():
-        err_dP = err_dP_all[valid_mask]
-        err_Q = err_Q_all[valid_mask]
-    else:
-        # Degenerate: every case clipped. Fall back to all so the run still
-        # prints a number, but the n_invalid banner makes it un-trustable.
-        err_dP, err_Q = err_dP_all, err_Q_all
-
-    from sjtu_tpmshx.validation.harness._metrics import rmsre_from_pct
-    rmsre_dP = rmsre_from_pct(err_dP)
-    rmsre_Q = rmsre_from_pct(err_Q)
+    err_dP, err_Q = err_dP_all, err_Q_all
+    rmsre_dP = float(np.sqrt(np.mean(err_dP ** 2)))
+    rmsre_Q = float(np.sqrt(np.mean(err_Q ** 2)))
     max_err_Q = float(np.max(np.abs(err_Q)))
     max_err_dP = float(np.max(np.abs(err_dP)))
 
@@ -707,38 +721,37 @@ def main(argv=None):
     print(f"  cases         : {n_total} total, {n_total - n_invalid} valid, "
           f"{n_invalid} pressure-INVALID (clip fired)")
     if n_invalid:
-        print(f"  invalid cases : {invalid_cases}  (EXCLUDED from RMSRE below)")
+        print(f"  invalid cases : {invalid_cases}  (gate fails; rows retained)")
     # 2D baseline = validate_shanghai_aligned.py headline. Updated 2026-07-13:
     # the 2D gate is now the production Pipeline2D with solved water + F2
     # (8.62% / 2.49%, ledger C8/C9); the older kernel-runner numbers
     # (8.35/2.51 after the 2026-06-25 mass-flux inlet port) stay reproducible
     # there via --runner kernel.
     print(f"  RMSRE_dP      : {rmsre_dP:.2f}%  (2D baseline 8.62%)  "
-          f"[over {len(err_dP)} valid]")
+          f"[over all {len(err_dP)} requested]")
     print(f"  max|err_dP|   : {max_err_dP:.2f}%")
     print(f"  RMSRE_Q       : {rmsre_Q:.2f}%  (2D baseline 2.49%)  "
-          f"[over {len(err_Q)} valid]")
+          f"[over all {len(err_Q)} requested]")
     print(f"  max|err_Q|    : {max_err_Q:.2f}%")
     print("=" * 70)
 
-    # Save CSV (pipeline runner auto-suffixes — must never overwrite the
-    # kernel gate baseline CSV)
-    # The DEFAULT runner writes the canonical filename; the non-default one is
-    # marked. This flipped with the default on 2026-07-12 (was `_pipeline` when
-    # pipeline was the opt-in) so that `shanghai_3d_baseline*.csv` keeps meaning
-    # "the gate's output" rather than silently becoming the legacy runner's.
-    _suffix = args.suffix + ('_kernel' if args.runner == 'kernel' else '')
-    csv_name = f"shanghai_3d_baseline{_suffix}.csv"
-    out_path = Path(__file__).parent.parent / csv_name
-    pd.DataFrame(results).to_csv(out_path, index=False, encoding='utf-8-sig')
+    write_csv_with_provenance(pd.DataFrame(results), out_path, __file__)
     print(f"\nSaved: {out_path}")
 
     if args.no_gate:
+        print('Report only: no accuracy or convergence acceptance claimed.')
         return 0
-    gate_fail = (rmsre_dP > args.gate_dp) or (rmsre_Q > args.gate_q)
+    incomplete = (args.runner == 'pipeline' and
+                  any(not r['converged'] for r in results))
+    gate_fail = (n_total != args.cases or n_invalid > 0 or incomplete or
+                 not np.all(np.isfinite(err_dP_all)) or
+                 not np.all(np.isfinite(err_Q_all)) or
+                 rmsre_dP > args.gate_dp or rmsre_Q > args.gate_q)
     verdict = 'FAIL' if gate_fail else 'PASS'
     print(f"\nGATE {verdict}: RMSRE_dP {rmsre_dP:.2f}% (limit {args.gate_dp:.1f}%), "
           f"RMSRE_Q {rmsre_Q:.2f}% (limit {args.gate_q:.1f}%)")
+    if incomplete:
+        print('  At least one production case did not converge.')
     return 1 if gate_fail else 0
 
 

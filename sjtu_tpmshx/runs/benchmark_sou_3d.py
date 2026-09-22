@@ -26,7 +26,7 @@ def run(Nx, Ny, Nz, use_sou):
                        P_ref_abs=192362.0)
     s.use_sou_momentum = use_sou
     t0 = time.perf_counter()
-    conv, it = s.solve(max_iter=1500, tol=1e-6, verbose=False)
+    conv, it = s.solve(max_iter=1500, verbose=False)
     wall = time.perf_counter() - t0
     dP = float(s.P[:, 0, :].mean() - s.P[:, -1, :].mean())
     return conv, it, wall, dP
