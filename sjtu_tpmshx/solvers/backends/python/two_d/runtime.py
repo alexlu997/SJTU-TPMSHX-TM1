@@ -13,20 +13,8 @@ from sjtu_tpmshx.logutil import get_logger
 _log = get_logger(__name__)
 
 def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
-                      live_residuals: dict | None = None, residual_cb=None) -> dict[str, Any]:
-    """Phase 2 (Qt-free): construct aligned grid arrays and SIMPLE
-    helper closures.
-
-    Audit C4 (L-a-2): renamed from ``_build_fields(window, cfg)``. The
-    two window touches were:
-
-    1. ``window._is_x_dir(d)`` — inlined as ``d in (0, 1)`` per the
-       original ``Main_Menu._is_x_dir`` body.
-    2. ``window._live_residuals`` (UI sparkline buffer) — now passed
-       explicitly via the ``live_residuals`` keyword.  Pipeline2D
-       leaves it at ``None`` (no UI); the legacy UI adapter
-       :func:`_build_fields` extracts it from the window.
-    """
+                  residual_cb=None) -> dict[str, Any]:
+    """Construct SIMPLE helpers on the prepared grid; report via RunControl."""
     L = cfg['L']; H = cfg['H']
     N_x = cfg['N_x']; N_y = cfg['N_y']
     tpms_type = cfg['tpms_type']
@@ -196,16 +184,9 @@ def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
             T_simple = _to_simple_coords(T_field_real)
             if T_simple.shape == s.T_field.shape:
                 s.update_T_field(np.ascontiguousarray(T_simple))
-        # Live residual hook — push (iter, residual) onto the shared
-        # buffer (captured from the enclosing _build_fields_cfg
-        # ``live_residuals`` parameter) so the UI sparkline can render
-        # during the solve instead of only after it returns. ``None``
-        # disables the hook for headless pipeline runs.
-        _buf = live_residuals
+        # Forward the pressure residual through the caller's RunControl hook.
         _side = 'A' if 'A' in label else 'B'
         def _progress_cb(it, res, _s=_side):
-            if _buf is not None:
-                _buf.setdefault(_s, []).append((int(it), float(res)))
             if residual_cb is not None:
                 residual_cb(_s, int(it), float(res))
         # 2026-05-07: 2D SIMPLE max_iter 5000 → 10000. Crossflow with

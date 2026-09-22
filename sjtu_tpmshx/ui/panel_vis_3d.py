@@ -18,7 +18,7 @@ actually provides):
     L_mm     : design zoning L-field [mm]
 
 Data entry points:
-    panel.load_shanghai_demo(case=8, Nx=30, Ny=15, Nz=5)
+    panel.load_shanghai_demo(Nx=30, Ny=15, Nz=5)
     panel.set_fields(Ta=..., Tb=..., Ts=..., vmag=..., vmag_B=...,
                      P_kPa=..., P_B_kPa=..., L_mm=...,
                      dx=..., dy=..., dz=..., real_dims=(Lx, Ly, Lz))
@@ -636,7 +636,7 @@ class ThreeDVisPanel(QWidget):
     def load_shanghai_demo(self, Nx=30, Ny=15, Nz=5, max_outer=3):
         """Run Shanghai case 8 on coarse grid and push fields in."""
         from sjtu_tpmshx.ui.demo_vis_3d import run_case_8_fields, build_demo_zoning_field
-        self.status.setText("Running Shanghai case 8 … (~15 s)")
+        self.status.setText("Running Shanghai case 8 …")
         self.repaint()
         sA, Ta, dx, dy, dz, nx, ny, nz, u_A, T_in = run_case_8_fields(
             Nx=Nx, Ny=Ny, Nz=Nz, max_outer=max_outer)

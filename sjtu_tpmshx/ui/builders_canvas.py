@@ -401,74 +401,9 @@ def refresh_field_controls(window):
             else {"layout": "几何与工况", "pareto": "优化设计"}.get(tab, "场图工作台"))
 
 
-def _build_result_summary(window, vlay, theme):
-    """Build the latest-result strip and compute progress line."""
+def _build_compute_progress(window, vlay, theme):
+    """Build the progress line; result values live in the existing footer."""
     _t = theme
-    # Result summary strip — a thin bar showing the headline numbers from the
-    # most recent compute. Hidden until data lands; populated by
-    # `_update_result_summary` on Main_Menu. Lives above the progress line
-    # so a running compute shows its progress directly below the last
-    # solved summary, making the sequence visually obvious.
-    _res_bar = QWidget()
-    _res_bar.setStyleSheet(
-        f"background:{_t['card_bg']};"
-        f"border:1px solid {_t['card_border']}; border-radius:6px;")
-    _res_lay = QHBoxLayout(_res_bar)
-    _res_lay.setContentsMargins(12, 4, 12, 4); _res_lay.setSpacing(18)
-    _cap_qss = (
-        f"color:{_t.get('sub_fg', _t['fg'])}; background:transparent;"
-        "border:none; font-size:8pt; font-weight:600; letter-spacing:0.8px;")
-    # Monospace stack so chip numerics line up decimal-to-decimal across
-    # runs — key for quick visual scanning of delta chips next to values.
-    _chip_num_qss = (
-        f"color:{_t['fg']}; background:transparent; border:none;"
-        f"font-family:{_t['mono_family']};"
-        f"font-size:9pt; font-weight:600;")
-    # Primary tier (ui-batch2 RS-2): the engineering headline numbers
-    # (Q, ΔP_A, ΔP_B) read one step above the secondary T_out chips.
-    _chip_num_primary_qss = (
-        f"color:{_t['val']}; background:transparent; border:none;"
-        f"font-family:{_t['mono_family']};"
-        f"font-size:10pt; font-weight:700;")
-    _PRIMARY_KEYS = ('Q', 'dPA', 'dPB')
-    window._res_chips = {}
-    # HTML captions render real subscripts (no literal underscores): ΔP_A,
-    # T_out,A → Δ<i>P</i><sub>A</sub>, <i>T</i><sub>out,A</sub>. unit kept
-    # lowercase so "[Pa]"/"[K]" read right; Q carries no caption unit (W/m in
-    # 2D vs W in 3D — mode-dependent, a fixed unit would mislabel one mode).
-    for cap_html, unit, key in [
-            ("<i>Q</i>", '', 'Q'),
-            ("Δ<i>P</i><sub>A</sub>", 'Pa', 'dPA'),
-            ("Δ<i>P</i><sub>B</sub>", 'Pa', 'dPB'),
-            ("<i>T</i><sub>out,A</sub>", 'K', 'ToutA'),
-            ("<i>T</i><sub>out,B</sub>", 'K', 'ToutB')]:
-        _cap = QLabel(cap_html + (f" [{unit}]" if unit else ""))
-        _cap.setTextFormat(Qt.TextFormat.RichText)
-        _cap.setStyleSheet(_cap_qss)
-        _val = QLabel("—")
-        _val.setStyleSheet(_chip_num_primary_qss if key in _PRIMARY_KEYS
-                           else _chip_num_qss)
-        # Delta badge beside the numeric chip — populated by
-        # `_update_result_summary` with "↑5.1%" style annotations relative
-        # to the previous run. Starts empty so the first compute just
-        # shows the plain number without a misleading delta.
-        _delta = QLabel("")
-        _delta.setStyleSheet(
-            f"color:{_t.get('sub_fg', _t['fg'])}; font-size:8pt;"
-            "font-weight:bold; background:transparent; border:none;"
-            "padding-left:4px;")
-        _val._delta_label = _delta
-        _res_lay.addWidget(_cap)
-        _res_lay.addWidget(_val)
-        _res_lay.addWidget(_delta)
-        window._res_chips[key] = _val
-    _res_lay.addStretch(1)
-    _res_bar.setFixedHeight(26)
-    _res_bar.hide()
-    window._result_summary_bar = _res_bar
-    vlay.addWidget(_res_bar)
-
-    # ── Thin progress line (2px, auto-hides) ──
     window.progress = QProgressBar()
     window.progress.setFixedHeight(3)
     window.progress.setTextVisible(False)
@@ -587,8 +522,9 @@ def _build_optimize_panel(window, card_lay, t, theme):
         fl.addWidget(cap)
         return fr, fl
 
-    # 优化参数 — the four BO knobs + rho loop, inline (the modal
-    # dialog stays as the headless fallback; _launch prefers these).
+    # Inline and modal hosts share the dimension-specific budget definition.
+    from .optimize_panel import _outer_budget_parameter, _sync_outer_budget, _is_3d_mode
+
     par_card, par_lay = _opt_card("优化参数 (qNEHVI)", 260)
     _spin_qss = (
         f"QSpinBox{{background:{_t['inp_bg']}; color:{_t['inp_fg']};"
@@ -596,6 +532,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
         f" padding:4px 8px; font-family:{_mono}; font-size:{FONT_INPUT}pt;}}"
         f"QSpinBox:focus{{border-color:{_t['inp_focus']};}}")
     window._opt_inline_params = {}
+    budget_key, budget_value, budget_label, budget_tip = _outer_budget_parameter(window)
     _param_specs = [
         ('n_init',      "初始样本 <i>n</i><sub>init</sub>", 4, 256, 32,
          "Sobol 初始采样数（约 2×决策维度）"),
@@ -605,8 +542,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
          "每次 BO 迭代的并行候选数"),
         ('seed',        "随机种子", 0, 9999, 42,
          "Sobol + BoTorch 随机种子（复现实验用）"),
-        ('n_rho_loops', "<i>ρ</i>(<i>T</i>) 外循环", 1, 8, 3,
-         "压缩性密度外循环次数；3 = 上海基准"),
+        (budget_key, budget_label, 1, max(8, budget_value), budget_value, budget_tip),
     ]
     for pkey, plabel, lo, hi, dflt, tip in _param_specs:
         prow = _HBop(); prow.setSpacing(8)
@@ -623,6 +559,17 @@ def _build_optimize_panel(window, card_lay, t, theme):
         prow.addWidget(pl); prow.addStretch(1); prow.addWidget(sp)
         par_lay.addLayout(prow)
         window._opt_inline_params[pkey] = sp
+        if pkey == budget_key:
+            window._opt_outer_budget = sp
+            window._opt_outer_label = pl
+
+    def _remember_budget(value):
+        key = 'max_outer_3d' if _is_3d_mode(window) else 'n_rho_loops'
+        window._opt_param_cache = {**getattr(window, '_opt_param_cache', {}), key: value}
+
+    window._opt_outer_budget.valueChanged.connect(_remember_budget)
+    # Typed/script configuration may be applied after constructing the panel.
+    op_host.showEvent = lambda _event: _sync_outer_budget(window)
     _eval_preview = QLabel("")
     _eval_preview.setWordWrap(True)
     _eval_preview.setStyleSheet(
@@ -633,29 +580,15 @@ def _build_optimize_panel(window, card_lay, t, theme):
         ps = window._opt_inline_params
         total = (ps['n_init'].value()
                  + ps['n_iter'].value() * ps['q_batch'].value())
-        # M0 (2026-07-09): dimension-aware wall estimate. 3D fast-mode
-        # evals run ~3–5 min each vs seconds for 2D.
-        _cd = getattr(window, 'combo_dim', None)
-        _is3 = False
-        try:
-            _is3 = _cd is not None and _cd.currentIndex() == 1
-        except Exception:
-            pass
-        if _is3:
-            sec = total * 240
-            _eval_preview.setText(
-                f"≈ {total} 次 3D 求解 · 约 {sec // 3600} 时 "
-                f"{(sec % 3600) // 60} 分（3D 评估单次 ~3–5 分钟）")
-        else:
-            sec = total * (3 + 3 * ps['n_rho_loops'].value())
-            _eval_preview.setText(
-                f"≈ {total} 次求解 · 约 {sec // 60} 分 {sec % 60} 秒")
+        dimension = '3D' if _is_3d_mode(window) else '2D'
+        _eval_preview.setText(f"计划 {total} 次 {dimension} 求解（提前停止时减少）")
     for _sp in window._opt_inline_params.values():
         _sp.valueChanged.connect(_refresh_eval_preview)
     _cd0 = getattr(window, 'combo_dim', None)
     if _cd0 is not None:
         try:
             _cd0.currentIndexChanged.connect(_refresh_eval_preview)
+            _cd0.currentIndexChanged.connect(lambda _: _sync_outer_budget(window))
         except Exception:
             pass
     _refresh_eval_preview()
@@ -860,7 +793,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
     btn_opt.setFixedHeight(36)
     btn_opt.setStyleSheet(t.style('BTN_LONG'))
     btn_opt.setToolTip(
-        "启动 qNEHVI 多目标搜索（数分钟到数小时）。"
+        "启动 qNEHVI 多目标搜索。"
         "进度与收敛在「2 运行」页实时显示。")
     btn_opt.clicked.connect(window._run_optimize)
     window._opt_btn = btn_opt
@@ -1170,12 +1103,8 @@ def _build_canvas_content(window, vlay, t):
         window._drawn_tabs = set()
 
     window._canvas_scroll.setWidget(canvas_container)
-    # ── Diagnostics sidebar (ui-plan3-workbench T2) ────────────────────
-    # Collapsible companion for the 结果 tab: headline KPIs (mirrors
-    # the _res_chips data), credibility card (energy closure / envelope /
-    # extrapolation) and convergence sparkline. Hidden on non-result tabs
-    # and before the first compute; the retired _res_bar stays as the
-    # data carrier only.
+    # Result footer shares the published result labels and diagnostics.
+    # It is hidden before the first result and on non-result tabs.
     _body = QVBoxLayout()
     _body.setContentsMargins(0, 0, 0, 0)
     _body.setSpacing(6)
@@ -1298,7 +1227,7 @@ def build_canvas_area(window):
     vlay.setContentsMargins(0, 0, 0, 0); vlay.setSpacing(4)
 
     _build_canvas_toolbar(window, vlay, t, _t)
-    _build_result_summary(window, vlay, _t)
+    _build_compute_progress(window, vlay, _t)
     _build_canvas_content(window, vlay, t)
     _connect_canvas_interactions(window, vlay, _t)
 

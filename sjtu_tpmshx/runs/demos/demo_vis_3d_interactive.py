@@ -52,7 +52,7 @@ def build_data_grid(Nx, Ny, Nz, dx, dy, dz, Ta, vmag, P, L_field,
     stretch_to_cube=True distorts the grid to a unit cube (visual only).
     Default False = physically accurate aspect.
     Fields are cell-centred then promoted to point data for smooth slicing.
-    P is converted to kPa for display friendliness.
+    P is absolute pressure in Pa, converted to kPa for display.
     """
     # Real-world coords in mm (easier on the eye than SI metres)
     x_edges = np.concatenate([[0.0], np.cumsum(dx)]) * 1000.0   # mm
@@ -85,20 +85,24 @@ def launch_interactive(grid, *, off_screen=False, out_dir=None,
         out_dir = Path(__file__).parent
     out_dir = Path(out_dir)
 
+    # This A-side demo supplies a subset of the embedded panel's fields.
+    field_order = [field for field in FIELD_ORDER if field in grid.point_data]
+    if not field_order:
+        raise ValueError('The grid has no supported point fields to display')
     pv.set_plot_theme('document')
     pl = pv.Plotter(window_size=(1280, 900), off_screen=off_screen,
                     title='SJTU-TPMSHX 3D Interactive Slice')
 
-    # Pre-compute global clim for every field (for 'global' mode)
+    # Pre-compute global clim for each available field (for 'global' mode).
     global_clim = {f: (float(grid[f].min()), float(grid[f].max()))
-                   for f in FIELD_ORDER}
+                   for f in field_order}
 
     # Mutable state
     state = {'field_idx': 0, 'normal': 'x', 'scale_mode': 'global'}
     slice_holder = {'actor': None, 'widget_on': False, 'slice_mesh': None}
 
     def current_field():
-        return FIELD_ORDER[state['field_idx']]
+        return field_order[state['field_idx']]
 
     def header_text():
         f = current_field()
@@ -141,7 +145,7 @@ def launch_interactive(grid, *, off_screen=False, out_dir=None,
             except Exception:
                 pass
             slice_holder['actor'] = None
-        for fkey in FIELD_ORDER:
+        for fkey in field_order:
             try:
                 pl.remove_scalar_bar(FIELD_META[fkey]['title'])
             except Exception:
@@ -209,7 +213,7 @@ def launch_interactive(grid, *, off_screen=False, out_dir=None,
                     color='#606870', name='info_footer')
 
     def cycle_field():
-        state['field_idx'] = (state['field_idx'] + 1) % len(FIELD_ORDER)
+        state['field_idx'] = (state['field_idx'] + 1) % len(field_order)
         rebuild_slice()
         pl.render()
 
@@ -248,7 +252,7 @@ def launch_interactive(grid, *, off_screen=False, out_dir=None,
     if off_screen:
         # Emit preview sweep: field × normal × (global|local)
         from itertools import product
-        for f_idx, normal, mode in product(range(len(FIELD_ORDER)),
+        for f_idx, normal, mode in product(range(len(field_order)),
                                             ['x', 'y', 'z'],
                                             ['global', 'local']):
             state['field_idx'] = f_idx
@@ -257,7 +261,7 @@ def launch_interactive(grid, *, off_screen=False, out_dir=None,
             rebuild_slice()
             pl.view_isometric()
             pl.camera.zoom(1.1)
-            fn = FIELD_ORDER[f_idx]
+            fn = field_order[f_idx]
             fname = out_dir / f"preview_{fn}_{normal}_{mode}.png"
             pl.screenshot(str(fname))
             print(f"[preview] {fname.name}")
@@ -303,10 +307,10 @@ def main():
     wc_real = wA_cc.transpose(1, 0, 2).copy()
     vmag = np.sqrt(uc_real**2 + vc_real**2 + wc_real**2)
 
-    P_real = sA.P.transpose(1, 0, 2).copy()               # (Nx, Ny, Nz)
+    P_real = (sA.P_ref_abs + sA.P).transpose(1, 0, 2).copy()  # absolute Pa
 
     print(f"      |v| range: [{vmag.min():.1f}, {vmag.max():.1f}] m/s")
-    print(f"      P range: [{P_real.min():.0f}, {P_real.max():.0f}] Pa")
+    print(f"      Absolute P range: [{P_real.min():.0f}, {P_real.max():.0f}] Pa")
 
     print("[2/3] Building demo zoning L-field…")
     L_field = build_demo_zoning_field(Nx, Ny, Nz, dx, dy, dz)

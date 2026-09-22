@@ -271,8 +271,8 @@ def refresh_group_badges(window):
     group titles (ui-batch3 IA-4).
 
     Bad = same criterion as `_validate_inputs_preflight`: `inpError` set by
-    the field validator, or empty text. Fields hidden by a 2D/3D or
-    rect/poly mode gate are skipped via `isVisibleTo(content)` — that check
+    the field validator, or empty text. Fields hidden by the 2D/3D
+    mode gate are skipped via `isVisibleTo(content)` — that check
     ignores the ancestors' own visibility, so fields inside a COLLAPSED
     group still count (the badge's whole point) while gate-hidden ones
     don't.
@@ -300,7 +300,7 @@ def refresh_group_badges(window):
 
 
 def build_param_tabs(window):
-    """Right inspector, with three pages sharing the original input widgets."""
+    """Left inspector, with three pages sharing the original input widgets."""
     # Phase 5 follow-up: styles via FieldFactory + ThemeManager DI.
     from .field_factory import default_factory
     f = default_factory()
@@ -405,9 +405,8 @@ def build_param_tabs(window):
     vlay.setContentsMargins(6, 4, 6, 4)
     vlay.setSpacing(8)
 
-    # Workflow-ordered groups (ui-ia-batch1): the two everyday groups open,
-    # grid/solver + boundary-details collapsed (sane defaults cover the
-    # standard full-face cross-flow case; flow-direction combos live in ④).
+    # Each group belongs to one geometry/boundary/solver page. Ordinary
+    # groups start expanded; boundary details remain individually collapsible.
     sec = window._ia_sections
     _GROUPS = [
         ("几何与结构", True,

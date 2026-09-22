@@ -367,6 +367,15 @@ format is distinct from the public module's `ComputeConfig` input.
   toolbar, controls, viewport, state, and timer setup to focused methods while
   rendering behavior stays in the same widget class.
 
+The result footer reads the existing published result labels and diagnostics;
+there is no hidden duplicate chip strip or hidden percentage-delta calculation.
+Changing draft inputs does not replace the accepted run or its recorded units.
+Optimization budgets are dimension-specific: 2D uses `n_rho_loops`, while 3D
+uses `max_outer_3d`. Inline controls and the parameter dialog show the effective
+default until edited, then preserve explicit choices separately per dimension.
+These are iteration budgets, not convergence certificates; the solver retains
+its existing convergence and physical checks.
+
 ## Physical invariants
 
 These constraints protect demonstrated solver behavior. Change them only as an

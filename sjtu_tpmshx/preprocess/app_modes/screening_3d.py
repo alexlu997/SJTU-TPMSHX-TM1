@@ -55,10 +55,9 @@ def prepare_screening_3d(x_decision, cfg, *, case_id,
         tpms_type, Ny_sim=Ny, Nz_sim=Nz, fluid='B',
         streamwise_dx=dy_arr, z_dx=dz_arr)
 
-    # 2026-05-13 — air-side wall-roughness correction (Norris 1971 or
-    # Bhatti-Shah-Haaland). Resolve mode + ε from env if not passed in.
-    # Water side untouched (the per-topology water fit (`nu_water_topo`)
-    # embeds AM roughness already).
+    # Air/air screening roughness experiment (Norris or Bhatti-Shah-Haaland).
+    # Resolve mode + ε from env if not passed in. This mode does not support
+    # water; the separate water Nu model is a smooth CFD closure.
     if roughness_mode is None or roughness_eps_um is None:
         from sjtu_tpmshx.models.roughness import resolve_mode_from_env as _resolve
         _env_mode, _env_eps = _resolve(default='baseline')

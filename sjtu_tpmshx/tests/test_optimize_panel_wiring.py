@@ -396,3 +396,145 @@ def test_worker_passes_evaluator_fn_to_run_qnehvi():
         worker.run()
 
     assert captured.get('evaluator_fn') is _sentinel
+
+
+def _optimization_window(*, inline):
+    from PySide6.QtWidgets import QWidget, QVBoxLayout
+    from sjtu_tpmshx.ui.builders_canvas import _build_optimize_panel
+    from sjtu_tpmshx.ui.field_factory import default_factory
+    from sjtu_tpmshx.ui.theme import get_theme
+    from sjtu_tpmshx.ui import optimize_panel as panel
+    w = QWidget()
+    for key, value in vars(_make_window()).items():
+        setattr(w, key, value)
+    w.combo_fluidB.setCurrentIndex(0)
+    w.combo_dim = _combo(['2D', '3D'])
+    w._run_optimize = lambda: panel.run_optimize(w)
+    w._cancel_optimize = lambda: panel.cancel_optimize(w)
+    if inline:
+        _build_optimize_panel(w, QVBoxLayout(w), default_factory().theme, get_theme())
+    return w
+
+
+@pytest.mark.parametrize('inline', [True, False])
+@pytest.mark.parametrize('budget', [1, 8])
+def test_launch_passes_visible_dimension_budget_to_3d_evaluator(monkeypatch, tmp_path,
+                                                              inline, budget):
+    """Actual launch -> worker -> evaluator, without executing a BO search."""
+    from PySide6.QtWidgets import QDialog, QSpinBox
+    from sjtu_tpmshx.domain.compute_config import OptimizerConfig
+    from sjtu_tpmshx.ui import optimize_panel as panel
+    from sjtu_tpmshx.optimization import evaluator_3d
+
+    w = _optimization_window(inline=inline)
+    w._optimizer_cfg = OptimizerConfig(max_outer_ltne=12)
+    if inline:
+        w._opt_inline_params['n_rho_loops'].setValue(7)
+    else:
+        w._opt_param_cache = {'n_rho_loops': 7}
+    w.combo_dim.setCurrentIndex(1)
+    if inline:
+        spin = w._opt_inline_params['max_outer_3d']
+        assert spin.value() == 12  # typed config must be visible, not clamped to 8
+        assert '最大耦合' in w._opt_outer_label.text()
+        spin.setValue(budget)
+    else:
+        def accept_dialog(dialog):
+            spin = dialog.findChildren(QSpinBox)[-1]
+            assert spin.value() == 12
+            spin.setValue(budget)
+            return QDialog.DialogCode.Accepted
+        monkeypatch.setattr(QDialog, 'exec', accept_dialog)
+
+    captured = {}
+    def fake_core(_x, cfg, **kwargs):
+        captured.update(kwargs)
+        return dict(Q_3D_W=10., dP_total_Pa=20., mass_kg=1.)
+    monkeypatch.setattr(evaluator_3d, '_evaluate_3d_dict', fake_core)
+    def fake_bo(**kwargs):
+        captured['config'] = kwargs['config']
+        if kwargs['evaluator_fn'] is not None:
+            kwargs['evaluator_fn'](np.zeros(16), kwargs['config'])
+        return dict(X=np.zeros((0, 16)), F=np.zeros((0, 2)), n_evals=0,
+                    save_dir=str(tmp_path), config=kwargs['config'])
+    monkeypatch.setattr('sjtu_tpmshx.optimization.optimizer_qnehvi.run_qnehvi', fake_bo)
+    Worker = panel._make_worker_class()
+    monkeypatch.setattr(Worker, 'start', lambda self: self.run())
+    monkeypatch.setattr(panel, '_make_worker_class', lambda: Worker)
+    monkeypatch.setattr(panel, 'optimization_output_dir', lambda: tmp_path)
+    if inline:
+        w._opt_btn.click()
+    else:
+        panel.run_optimize(w)
+    assert captured['max_outer'] == budget
+    assert captured['config']['max_outer_3d'] == budget
+    assert captured['outer_tol_K'] == 0.5
+
+    w.combo_dim.setCurrentIndex(0)
+    if inline:
+        assert w._opt_inline_params['n_rho_loops'].value() == 7
+    else:
+        assert panel._qnehvi_param_defaults(w, panel._gather_cfg(w))['n_rho_loops'] == 7
+        def accept_2d_dialog(dialog):
+            assert dialog.findChildren(QSpinBox)[-1].value() == 7
+            return QDialog.DialogCode.Accepted
+        monkeypatch.setattr(QDialog, 'exec', accept_2d_dialog)
+    w._opt_worker = None
+    panel.run_optimize(w)
+    assert captured['config']['n_rho_loops'] == 7
+    w.combo_dim.setCurrentIndex(1)
+    if inline:
+        assert w._opt_inline_params['max_outer_3d'].value() == budget
+    else:
+        assert panel._qnehvi_param_defaults(w, panel._gather_cfg(w))['max_outer_3d'] == budget
+    w.close()
+
+
+def test_inline_budget_shows_updated_typed_config_until_explicit_edit():
+    from PySide6.QtWidgets import QApplication
+    from sjtu_tpmshx.domain.compute_config import OptimizerConfig
+    w = _optimization_window(inline=True)
+    w.combo_dim.setCurrentIndex(1)
+    assert w._opt_inline_params['max_outer_3d'].value() == 2
+    w._optimizer_cfg = OptimizerConfig(max_outer_ltne=6)
+    w.show()
+    QApplication.instance().processEvents()
+    assert w._opt_inline_params['max_outer_3d'].value() == 6
+    w._opt_inline_params['max_outer_3d'].setValue(4)
+    w.hide()
+    w._optimizer_cfg = OptimizerConfig(max_outer_ltne=7)
+    w.show()
+    QApplication.instance().processEvents()
+    assert w._opt_inline_params['max_outer_3d'].value() == 4
+    w.close()
+
+
+def test_dialog_unedited_budget_follows_new_typed_config(monkeypatch):
+    from PySide6.QtWidgets import QDialog
+    from sjtu_tpmshx.domain.compute_config import OptimizerConfig
+    from sjtu_tpmshx.ui import optimize_panel as panel
+    from sjtu_tpmshx.optimization.evaluator_3d import DEFAULT_CONFIG_3D
+    w = _optimization_window(inline=False)
+    w.combo_dim.setCurrentIndex(1)
+    monkeypatch.setattr(QDialog, 'exec', lambda _dialog: QDialog.DialogCode.Accepted)
+    for budget in (4, 7):
+        w._optimizer_cfg = OptimizerConfig(max_outer_ltne=budget)
+        cfg = panel._gather_cfg(w, base=DEFAULT_CONFIG_3D)
+        params = panel._show_qnehvi_param_dialog(w, cfg)
+        assert params['max_outer_3d'] == budget
+        assert 'max_outer_3d' not in w._opt_param_cache
+    w.close()
+
+
+def test_inline_budget_config_error_restores_launch_state():
+    from sjtu_tpmshx.ui import optimize_panel as panel
+    w = _optimization_window(inline=True)
+    w.combo_dim.setCurrentIndex(1)
+    w._optimizer_cfg = types.SimpleNamespace()
+    panel.run_optimize(w)
+    assert w._opt_launching is False
+    assert w._opt_btn.isEnabled()
+    assert getattr(w, '_opt_worker', None) is None
+    assert 'parameter setup failed' in w._opt_status.text()
+    assert 'max_outer_ltne' in w._opt_status.text()
+    w.close()

@@ -473,10 +473,10 @@ def test_result_footer_wraps_full_diagnostics_and_long_kpis(win):
     win._has_results = True
     win._update_tab_visibility()
     win._switch_tab('temp')
-    values = {'Q': '31124.6', 'dPA': '1626.3', 'dPB': '1189.0',
-              'ToutA': '303.34', 'ToutB': '334.79'}
+    values = {'_r_Q': '31124.6', '_r_dP_A': '1626.3', '_r_dP_B': '1189.0',
+              '_r_ToutA': '303.34', '_r_ToutB': '334.79'}
     for key, value in values.items():
-        win._res_chips[key].setText(value)
+        getattr(win, key).setText(value)
     win._result_Q_unit = 'W/m'
     win._diag_summary = {'mode': '2d', 'closure_rel': .012,
                          'envelope_valid': True, 'extrap': ['outside fit'],
@@ -537,7 +537,8 @@ def test_optimize_inline_params_complete(win):
     """Page-1 inline params carry every key the launch path consumes —
     the modal dialog is only the fallback for hosts without the wizard."""
     keys = set(win._opt_inline_params)
-    assert keys == {'n_init', 'n_iter', 'q_batch', 'seed', 'n_rho_loops'}
+    budget = 'max_outer_3d' if win.combo_dim.currentIndex() == 1 else 'n_rho_loops'
+    assert keys == {'n_init', 'n_iter', 'q_batch', 'seed', budget}
     for sp in win._opt_inline_params.values():
         assert sp.value() > 0 or sp.value() == 0   # constructed + in range
 
