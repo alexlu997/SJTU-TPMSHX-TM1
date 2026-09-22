@@ -1,8 +1,8 @@
-"""Zone-table editor helpers (the "Define zones" tab's table/grid logic).
+"""Zone-table editor helpers for the single-computation zoning section.
 
-DEPRECATED for optimizer use — see solvers/zone_config.py for context.
-This module backs the UI's "Define zones" tab only. New code uses
-solvers.continuous_field.ContinuousFieldConfig.
+The table builds ``models.zone_config.ZoneConfig`` for a single computation.
+Optimizer searches use ``models.continuous_field.ContinuousFieldConfig``
+independently; changing this table does not change their search space.
 
 Extracted from main.py (Task B.5); moved from solvers/zone_editor.py to
 ui/ (it is pure Qt table manipulation — solvers/ stays Qt-free). Distinct

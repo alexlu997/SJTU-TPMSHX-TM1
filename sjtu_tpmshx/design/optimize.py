@@ -1,6 +1,7 @@
 """warm-start 联合精修 (单模块): 从枚举/baseline 最优出发, 对连续 (l,t)
 求 min-V (外形由 size_fixed_cell 确定性内定)。= ZONED-OPT Stage B 的单模块退化
-(无分区梯度)。连续 l,t 内插训练节点 → 置信低于节点, 以节点最优为下界对照。"""
+(无分区梯度)。已知可行 baseline 给出最小体积的上界；各流体 Nu 与阻力的
+适用范围由现行模型分别检查，不按旧 RBF 训练节点推定置信度。"""
 from __future__ import annotations
 import numpy as np
 from scipy.optimize import minimize

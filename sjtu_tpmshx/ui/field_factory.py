@@ -1,44 +1,21 @@
-"""FieldFactory — composable widget builders with theme dependency injection.
+"""Themed widget builders shared by the parameter pages.
 
-Phase 5 of 2026-05-06 main.py refactor (audit fix #4). Today
-``ui_builders.py`` (2270 LOC) does roughly the same dance hundreds of
-times:
-
-    m = _m()                                        # back-import main.py
-    _LBL = m._LBL; _INP = m._INP                    # pull module globals
-    lbl = QLabel(text); lbl.setStyleSheet(_LBL)     # build label
-    le = QLineEdit(default); le.setStyleSheet(_INP) # build line-edit
-    g.addWidget(lbl, row, 0); g.addWidget(le, row, 1)
-
-The repetition couples ``ui_builders`` to ``main`` (circular import dodge)
-and means a style change touches dozens of places. ``FieldFactory`` owns
-a :class:`ui.theme_manager.ThemeManager` reference and exposes
-single-call constructors:
+``FieldFactory`` owns a :class:`ui.theme_manager.ThemeManager` reference;
+``builders_base`` delegates its row and section helpers to the installed
+process-wide factory. Neither layer back-imports ``main``.
 
     f = FieldFactory(theme_manager)
     le = f.row(grid, row_idx, "L [m]", "0.080")
     val = f.res_row(grid, row_idx, "ε [-]")
     f.section(parent_lay, title="Geometry", title_style=..., frame_style=...)
 
-This commit ships the factory + migrates the four legacy helpers in
-``ui_builders`` (``section`` / ``row`` / ``res_row`` / ``add_row``) to
-delegate to a process-singleton factory, while keeping the public
-function signatures identical so the 100+ call sites in ``build_page_*``
-need no changes.
-
-Future passes (incremental, post-P5) can:
-
-  * Replace each ``setStyleSheet(m._BTN_PRIMARY)`` with
-    ``f.button(label, role='primary')``.
-  * Drop the ``import main as _m`` shim once every helper is on the
-    factory.
 """
 from __future__ import annotations
 
 from typing import Optional, Tuple, TYPE_CHECKING
 
-if TYPE_CHECKING:                      # annotation-only; runtime import stays
-    from .builders_base import _ResultLabel   # local to avoid P5-era cycles
+if TYPE_CHECKING:
+    from .builders_base import _ResultLabel
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPalette
@@ -51,9 +28,7 @@ from PySide6.QtWidgets import (
 __all__ = ['FieldFactory', 'default_factory', 'set_default_factory']
 
 
-# Process singleton — mirrors the legacy module-global pattern in main.py
-# (``_S/_BG/_LBL``) but routes everything through ThemeManager. Lazy:
-# created on first ``default_factory()`` call.
+# Created lazily or installed by Main_Menu with its active ThemeManager.
 _FACTORY: Optional['FieldFactory'] = None
 
 
@@ -133,9 +108,7 @@ class FieldFactory:
         """Build a themed QLineEdit. Style key default = 'INP'."""
         le = QLineEdit(default)
         le.setStyleSheet(self._style(style_key))
-        # ui-plan3a: numeric parameters read right-aligned (mono font is in
-        # the INP style already) so decimals and magnitudes line up down a
-        # card. Typing is unaffected — only the resting position changes.
+        # Numeric inputs share the same right edge within each card.
         le.setAlignment(Qt.AlignmentFlag.AlignRight |
                         Qt.AlignmentFlag.AlignVCenter)
         if placeholder is not None:
@@ -147,8 +120,7 @@ class FieldFactory:
     def result_label(self, *, unit_hint: str = '',
                      quantity_name: str = '') -> '_ResultLabel':
         """Build a result label that flips empty/filled style on text set."""
-        # Local import: _ResultLabel lives in ui_builders to avoid circular
-        # imports during the gradual P5 migration.
+        # Local import: builders_base also consumes this factory.
         from .builders_base import _ResultLabel
         val = _ResultLabel('—', unit_hint=unit_hint,
                             quantity_name=quantity_name)

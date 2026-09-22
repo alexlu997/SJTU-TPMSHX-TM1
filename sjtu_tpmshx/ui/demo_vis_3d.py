@@ -11,7 +11,7 @@ Panel layout:
                                      applied to uniform Shanghai geometry)
 
 Writes PNG to sjtu_tpmshx/ui/demo_vis_3d.png
-Run: python -u ui/demo_vis_3d.py
+Run from the repository root: python -u -m sjtu_tpmshx.ui.demo_vis_3d
 """
 
 from __future__ import annotations

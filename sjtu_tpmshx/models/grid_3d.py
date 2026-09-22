@@ -47,7 +47,6 @@ def _resolve_axis_map(fA: dict, Nx: int, Ny: int, Nz: int,
             dstream=dx, dcross1=dy, dcross2=dz,
             stream_real_axis=0, cross1_real_axis=1, cross2_real_axis=2,
             solver_to_real_perm=(1, 0, 2),   # solver (Ny,Nx,Nz) → real (Nx,Ny,Nz)
-            N_cross=Ny, L_cross=H, dcross=dy,  # back-compat aliases
         )
     if d in (2, 3):
         # Streamwise real y.  Solver Ly=H(y), Lx=L(x), Lz=Lz(z).
@@ -60,7 +59,6 @@ def _resolve_axis_map(fA: dict, Nx: int, Ny: int, Nz: int,
             dstream=dy, dcross1=dx, dcross2=dz,
             stream_real_axis=1, cross1_real_axis=0, cross2_real_axis=2,
             solver_to_real_perm=(0, 1, 2),   # solver (Nx,Ny,Nz) = real (Nx,Ny,Nz)
-            N_cross=Nx, L_cross=L, dcross=dx,
         )
     # d in (4, 5): streamwise real z.  Solver Ly=Lz(z), Lx=L(x), Lz=H(y).
     return dict(
@@ -72,7 +70,6 @@ def _resolve_axis_map(fA: dict, Nx: int, Ny: int, Nz: int,
         dstream=dz, dcross1=dx, dcross2=dy,
         stream_real_axis=2, cross1_real_axis=0, cross2_real_axis=1,
         solver_to_real_perm=(0, 2, 1),   # solver (Nx,Nz,Ny) → real (Nx,Ny,Nz)
-        N_cross=Nx, L_cross=L, dcross=dx,
     )
 
 

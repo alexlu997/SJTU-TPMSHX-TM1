@@ -1,8 +1,9 @@
-"""runs/smoke_3d_eval.py — Time one 3D design eval to calibrate BO budget.
+"""Time one 3D design evaluation to estimate a serial BO budget.
 
-Times evaluate_design_3d on a midrange Sobol point at the fast-mode preset
-(Nx=30, Ny=12, Nz=6, max_outer=2). If wall ≤ 5 min/eval the full BO
-(n_init=24 + n_iter=40 × q_batch=2 = 104 evals serial, ~ 5-9 h) is feasible.
+Times evaluate_design_3d near the midpoint of the search bounds, with
+Nx=40, Ny=16, Nz=10 and max_outer=3. The measured time includes this run's
+compilation/cache state. The serial estimate excludes GP overhead and cannot
+predict parallel speedup or certify convergence of the screening result.
 
 Usage::
     python -u -m sjtu_tpmshx.runs.smokes.smoke_3d_eval
@@ -35,7 +36,7 @@ def main() -> None:
            'P_inA': 101325.0, 'P_inB': 101325.0,
            'L_domain': 0.182, 'H_domain': 0.042,
            'Lz': 0.042,
-           # Production-grade 3D preset (Shanghai Nz=10 baseline)
+           # Bounded 3D screening preset; not a full-compute qualification.
            'Nx_3d': 40, 'Ny_3d': 16, 'Nz_3d': 10,
            'max_outer_3d': 3,
            'max_iter_simple': 500, 'tol_simple': 1e-2,
@@ -70,10 +71,8 @@ def main() -> None:
     n_init, n_iter, q = 24, 40, 2
     n_evals = n_init + n_iter * q
     est_serial = wall * n_evals / 3600.0
-    est_q2     = est_serial / 2.0
-    print(f"\n[smoke3D] Budget estimate ({n_evals} evals at {wall:.0f}s/eval):", flush=True)
-    print(f"          serial      = {est_serial:.1f} h", flush=True)
-    print(f"          q_batch=2   = {est_q2:.1f} h (BO 2 candidates / iter)", flush=True)
+    print(f"\n[smoke3D] Serial compute estimate ({n_evals} evals at {wall:.0f}s/eval):"
+          f" {est_serial:.1f} h; excludes GP overhead and parallel speedup.", flush=True)
 
 
 if __name__ == '__main__':
