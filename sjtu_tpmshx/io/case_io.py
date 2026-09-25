@@ -34,10 +34,8 @@ def save_case(case, path):
     return path
 
 
-def load_case(path):
-    path = Path(path)
-    if path.suffix == '.h5':
-        return validate_case(read_record(path, CaseData, 'CaseData'))
+def _read_case_manifest(path):
+    """Read the validated manifest used by loading and CLI input protection."""
     import yaml
     manifest = yaml.safe_load(path.read_text(encoding='utf-8'))
     if not isinstance(manifest, dict) or set(manifest) != {'schema_version', 'record_kind', 'case_id', 'hdf5'}:
@@ -47,7 +45,15 @@ def load_case(path):
     name = manifest['hdf5']
     if not isinstance(name, str) or Path(name).name != name or not name.endswith('.h5'):
         raise ValueError('Case payload must be a sibling HDF5 file')
-    case = read_record(path.parent / name, CaseData, 'CaseData')
+    return manifest
+
+
+def load_case(path):
+    path = Path(path)
+    if path.suffix == '.h5':
+        return validate_case(read_record(path, CaseData, 'CaseData'))
+    manifest = _read_case_manifest(path)
+    case = read_record(path.parent / manifest['hdf5'], CaseData, 'CaseData')
     if case.case_id != manifest['case_id']:
         raise ValueError('Case YAML and HDF5 identifiers disagree')
     return validate_case(case)

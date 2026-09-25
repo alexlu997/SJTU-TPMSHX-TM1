@@ -288,7 +288,9 @@ PowerShell 使用相同参数，将 `"$PYTHON"` 改为 `& $tm1Python`，目录�
 各阶段参数可用 `"$PYTHON" -m sjtu_tpmshx.cli prepare --help` 等查看，PowerShell 同样使用 `& $tm1Python`。
 
 Case YAML 引用伴随 HDF5；result/VTK 导出和严格指标 JSON 的限制见
-[schema](schemas/three_module_v1/)。取消与失败不伪装成完成结果；已完成但未收敛的
+[schema](schemas/three_module_v1/)。CLI 输出必须与本次输入文件及 Case 的伴随 HDF5
+分开，路径重合会在执行阶段前拒绝；独立的既有输出仍可更新。
+取消与失败不伪装成完成结果；已完成但未收敛的
 结果保留原状态。指标有限不等于数值、能量或实验精度验收通过。
 
 ## 已接线能力与边界

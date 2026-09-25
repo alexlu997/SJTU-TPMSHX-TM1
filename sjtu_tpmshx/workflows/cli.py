@@ -5,6 +5,22 @@ from pathlib import Path
 from sjtu_tpmshx.domain.cancellation import CancelledError
 
 
+def _check_input_outputs(parser, args):
+    inputs, outputs = [args.input], [args.output]
+    if args.stage == 'prepare' and args.output.suffix in ('.yaml', '.yml'):
+        outputs.append(args.output.with_suffix('.h5'))
+    elif args.stage == 'solve' and args.input.suffix != '.h5':
+        from sjtu_tpmshx.io.case_io import _read_case_manifest
+        inputs.append(args.input.parent / _read_case_manifest(args.input)['hdf5'])
+    elif args.stage == 'run':
+        outputs = [args.output / name for name in
+                   ('case.h5', 'case.yaml', 'results.h5', 'metrics.json')]
+    source_paths = {path.resolve() for path in inputs}
+    for output in outputs:
+        if output.resolve() in source_paths:
+            parser.error(f'output overlaps input: {output}')
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog='python -m sjtu_tpmshx.workflows.cli')
     commands = parser.add_subparsers(dest='stage', required=True)
@@ -15,6 +31,7 @@ def main(argv=None):
         if stage in ('prepare', 'run'):
             command.add_argument('--case-id', required=True)
     args = parser.parse_args(argv)
+    _check_input_outputs(parser, args)
     try:
         if args.stage == 'prepare':
             from sjtu_tpmshx.io.yaml_config import load_config
