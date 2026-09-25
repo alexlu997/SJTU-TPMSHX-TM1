@@ -406,7 +406,13 @@ coordinates, with their existing overwrite and smoothing rules; the B-side
 uniform D-F closure is unchanged.
 
 Quick sizing accepts a candidate only after every final case converges and
-meets its duty/temperature and pressure limits with finite results. BO keeps
+meets its duty/temperature and pressure limits with finite results. Design
+property lookups apply the shared liquid-water state guard to the inlet and,
+for the second mean-property pass, the representative temperature paired with
+the existing inlet pressure. Invalid pairs raise `WaterStateError` before
+liquid properties are used. This scalar check does not certify phase stability
+throughout the quick-design field: the approximation has no local pressure
+field, and its analytical pressure drop retains its existing meaning. BO keeps
 bounded penalty objectives for training, but excludes failed evaluations
 from reported Pareto fronts and hypervolume. History rows retain their status
 and failure reason; a completed screening run is not experimental validation.
