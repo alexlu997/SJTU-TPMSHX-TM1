@@ -261,7 +261,8 @@ def run_qnehvi(config: Optional[dict] = None,
     q_batch : int — parallel candidates per iteration (qNEHVI batch size).
     seed : int — random seed for Sobol + BoTorch.
     verbose : bool — print per-iteration HV, best Q, runtime.
-    save_dir : str — directory for CSV / config.json. Auto-named if None.
+    save_dir : str — new directory for CSV / config.json. Auto-named if None;
+        an existing directory is rejected before writing or evaluating.
     progress_cb : callable(int, int, dict) — optional UI hook called as
         ``progress_cb(count, total, progress_dict)`` every q_batch evals.
     hv_tol : float — relative HV change threshold for early-stop (default 0.01).
@@ -324,7 +325,7 @@ def run_qnehvi(config: Optional[dict] = None,
 
     if save_dir is None:
         save_dir = f"opt_qnehvi_{time.strftime('%Y%m%d_%H%M%S')}"
-    os.makedirs(save_dir, exist_ok=True)
+    os.makedirs(save_dir, exist_ok=False)
 
     if verbose:
         _log.info(f"[qNEHVI] D = {D} (n_ctrl=({cfg['n_ctrl_x']},{cfg['n_ctrl_y']}), "

@@ -163,7 +163,15 @@ PowerShell 读取 `.venv-path` 后使用 `& $tm1Python` 和相同参数，环境
 快速定尺以最终重算逐工况判定可行性；失败工况仍保留在明细中，`终验` 列说明
 未收敛、非有限值、温度/热量未达标或压降超限。只有通过终验的候选参与最优选择。
 
-BO 的 `history.csv` 保留全部评估的数值，包括训练所用惩罚值；配套
+当前 GUI 使用 `multi_condition_optimizer` 的 qLogNEHVI、qLogNParEGO 或 Sobol，
+优化多工况平均换热百分比改善与双侧相对压降；两个目标分别保留。`optimization.json`
+记录完整控制场、工况、从 0 开始的候选索引、失败原因和原生批次目录，只有完整通过
+数值准入的候选进入训练和 Pareto 集。默认初始候选数为 16，可在界面设置 1–256；
+总候选预算为 `n_init + n_iter*q_batch`，另有一次均匀基准批次，每批包含全部工况。
+二维使用 XY 控制场，三维使用独立 XYZ 控制场；加载选择的设计会保留完整场。
+
+保留的旧 `optimizer_qnehvi` / `parallel_runner` 是独立的 air/air screening 入口。
+它们的 `history.csv` 保留全部评估的数值，包括训练所用惩罚值；配套
 `history_status.json` 按同一行序记录从 1 开始的评估序号、`valid/failed` 和原因。
 多种子输出对应 `history_merged.csv` 与 `history_merged_status.json`。
 API 的 `history_errors` 与 `history_X/history_F` 逐行对应，成功行为 `None`。
@@ -172,6 +180,10 @@ API 的 `history_errors` 与 `history_X/history_F` 逐行对应，成功行为 `
 多种子根目录保存实际共同 `config.json` 和成功/失败种子状态；请求的种子未全部
 完成时命令返回非零。Pareto 验证与 nTop 导出共用具名 CSV 列约定，缺少配置、
 缺列、重复列或非有限值直接拒绝，不能回退默认工况后继续验证。
+这两个旧入口和当前多工况优化器均要求新的运行目录；已有目录会被拒绝，不覆盖
+先前的配置或评估记录。多种子运行由各 seed 创建自己的新子目录。
+nTop 公开 API／CLI 将 `Lfield.csv`、`tfield.csv`、`provenance.json` 成组暂存并发布；
+写入失败保留上一组完整几何。数值精度、坐标和原控制场来源保持不变。
 
 ## 数据与研究工具
 

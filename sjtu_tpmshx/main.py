@@ -840,7 +840,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
                 "快速上手\n\n"
                 "1.  左侧工况参数 — 在几何、边界、求解三个页签填写参数。\n"
                 "2.  开始计算 — 使用面板底部蓝色按钮；"
-                "优化设计页面可运行 qNEHVI 多目标优化。\n"
+                "优化设计页面可选择 qLogNEHVI、qLogNParEGO 或 Sobol 多工况搜索。\n"
                 "3.  场图结果 — 选择温度、压力或速度，"
                 "三维计算还可切换到三维视图；提示可在诊断详情中查看。\n\n"
                 "顶栏“载入”可打开工况和预设；"
@@ -889,7 +889,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             ('btn_tab_pareto', "Pareto tab",
              "Show Pareto-front optimisation results"),
             ('_opt_btn', "Optimize",
-             "Start qNEHVI Bayesian multi-objective search — runs for minutes to hours"),
+             "Start multi-condition continuous-field search with the selected optimization method"),
             ('progress', "Computation progress",
              "Current solve progress as a percentage"),
             ('zone_table', "Zone table",
@@ -946,7 +946,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         lines.append("")
         lines.append("TPMS heat-exchanger homogenised solver for SJTU.")
         lines.append(
-            "2D/3D compressible D-F + SIMPLE with qNEHVI Bayesian zoning search.")
+            "2D/3D D-F + SIMPLE with qLogNEHVI / qLogNParEGO / Sobol continuous-field search.")
         lines.append("")
         import sys as _sys_ab, platform as _plat
         try:

@@ -64,7 +64,6 @@ def _seed_subprocess_main(seed: int,
     from sjtu_tpmshx.optimization.optimizer_qnehvi import run_qnehvi
 
     save_dir = os.path.join(save_dir_base, f"seed_{seed:03d}")
-    os.makedirs(save_dir, exist_ok=True)
 
     out = run_qnehvi(
         config=config,
@@ -152,8 +151,9 @@ def run_qnehvi_multiseed(config: Optional[dict] = None,
     seeds          explicit seed list; defaults to [42, 43, ..., 42+n_seeds-1].
     n_init, n_iter, q_batch, hv_tol, hv_window  forwarded to run_qnehvi.
     n_jobs_inner   joblib workers inside each BO seed (default q_batch=4).
-    save_dir_base  directory under which `seed_NNN/` per-seed checkpoint
-                   directories are created. Auto-named if None.
+    save_dir_base  new directory under which `seed_NNN/` per-seed checkpoint
+                   directories are created. Auto-named if None; existing
+                   directories are rejected before writing or launching seeds.
 
     Returns
     -------
@@ -178,7 +178,7 @@ def run_qnehvi_multiseed(config: Optional[dict] = None,
 
     if save_dir_base is None:
         save_dir_base = f"opt_qnehvi_multiseed_{time.strftime('%Y%m%d_%H%M%S')}"
-    os.makedirs(save_dir_base, exist_ok=True)
+    os.makedirs(save_dir_base, exist_ok=False)
     with open(os.path.join(save_dir_base, 'config.json'), 'w', encoding='utf-8') as target:
         json.dump(config, target, indent=2)
 

@@ -60,14 +60,15 @@ def test_full_bo_initial_batch_publishes_no_front_on_failure(tmp_path):
     pytest.importorskip('botorch', reason='BO execution requires the optional server lock')
     def failed(*args):
         raise RuntimeError('all initial evaluations failed')
+    output = tmp_path / 'run'
     result = bo.run_qnehvi(n_init=2, n_iter=0, evaluator_fn=failed,
-                           save_dir=str(tmp_path), verbose=True)
+                           save_dir=str(output), verbose=True)
     assert result['X'].shape == (0, 16) and result['F'].shape == (0, 2)
     assert result['history_X'].shape == (2, 16)
     assert len(result['history_errors']) == 2 and all(result['history_errors'])
     assert bo.progress['best_Q'] == -float('inf')
-    assert len((tmp_path / 'pareto_final.csv').read_text().splitlines()) == 1
-    assert len(json.loads((tmp_path / 'history_status.json').read_text())) == 2
+    assert len((output / 'pareto_final.csv').read_text().splitlines()) == 1
+    assert len(json.loads((output / 'history_status.json').read_text())) == 2
 
 
 @pytest.mark.parametrize('cancel_before_start', [False, True])
@@ -78,13 +79,37 @@ def test_bo_cancel_during_initial_sampling_retains_only_evaluated_rows(tmp_path,
         nonlocal cancelled
         cancelled = True
         return -10., 10., 1.
+    output = tmp_path / 'run'
     result = bo.run_qnehvi(n_init=4, n_iter=3, evaluator_fn=evaluate,
-                           cancel_check=lambda: cancelled, save_dir=str(tmp_path),
+                           cancel_check=lambda: cancelled, save_dir=str(output),
                            verbose=False)
     count = 0 if cancel_before_start else 1
     assert result['termination_reason'] == bo.progress['phase'] == 'cancelled'
     assert result['n_evals'] == count
     assert result['history_X'].shape == (count, 16)
     assert result['history_F'].shape == (count, 2)
-    status = json.loads((tmp_path / 'run_status.json').read_text())
+    status = json.loads((output / 'run_status.json').read_text())
     assert status['termination_reason'] == 'cancelled' and status['n_evals'] == count
+
+
+@pytest.mark.parametrize('default_name', [False, True])
+def test_existing_run_archive_rejected_before_evaluation(tmp_path, monkeypatch, default_name):
+    pytest.importorskip('botorch', reason='BO execution requires the optional server lock')
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(bo.time, 'strftime', lambda *a: 'fixed-time')
+    output = tmp_path / ('opt_qnehvi_fixed-time' if default_name else 'existing')
+    output.mkdir()
+    original = {'config.json': b'{"original": true}', 'history.csv': b'previous observations\n'}
+    for name, content in original.items():
+        (output / name).write_bytes(content)
+    calls = []
+
+    def evaluate(*args):
+        calls.append(args)
+        return -10., 20., 1.
+
+    with pytest.raises(FileExistsError):
+        bo.run_qnehvi(n_init=1, n_iter=0, evaluator_fn=evaluate,
+                       save_dir=None if default_name else str(output), verbose=False)
+    assert not calls
+    assert {path.name: path.read_bytes() for path in output.iterdir()} == original
