@@ -59,8 +59,13 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   Its canvas workbench reuses the existing parameter widgets in a left-hand
   geometry/boundary/solver inspector. Field phase and 3D z-slice selections
   read the accepted result snapshot; draft edits do not replace that source.
-  Figure exports follow the selected view, while CSV/NPZ exports retain the
-  complete result. `ui/typography.py` uses native sans-serif fonts for Qt and
+  Figure exports follow the selected view. CSV exports retain the summary;
+  3D NPZ exports retain available full physical-XYZ display fields: temperatures
+  (K), both sides' velocity components and magnitudes (m/s), display pressures
+  `P_fA/P_fB` (Pa), `L_mm/t_mm` (mm), and `dx/dy/dz` widths (m).
+  Legacy `vmag/P_kPa` keys remain aliases for A-side magnitude and pressure in
+  kPa. The display pressure reference is unchanged; full native thermal states
+  and flux evidence belong to `results.h5`. `ui/typography.py` uses native sans-serif fonts for Qt and
   keeps publication fonts for Matplotlib/VTK, without bundling font files or
   importing Qt into lower layers. Ordinary GUI computations capture the
   launch thread's Numba mask and apply/restore it in the reused Qt worker;

@@ -87,6 +87,9 @@ class IOActionsMixin:
             # Optional: save 3D fields as NPZ alongside. Keep the legacy
             # NPZ schema (vmag, P_kPa) stable: map from ComputeResult.fields
             # (vmag_A → vmag; P_fA/1000 → P_kPa).
+            # All arrays retain physical XYZ order. Velocities are m/s,
+            # P_fA/B are the existing display pressures in Pa, L/t are mm,
+            # and dx/dy/dz are the actual cell widths in m.
             path = Path(path)
             npz_path = path.with_name(path.stem + '_fields.npz')
             if res_3d is not None:
@@ -94,7 +97,11 @@ class IOActionsMixin:
                 save_dict = dict(status)
                 for npz_key, src in (('Ta', 'Ta'), ('Tb', 'Tb'),
                                      ('Ts', 'Ts'), ('vmag', 'vmag_A'),
-                                     ('L_mm', 'L_mm'), ('dx', 'dx'),
+                                     ('ucA', 'ucA'), ('vcA', 'vcA'), ('wcA', 'wcA'),
+                                     ('ucB', 'ucB'), ('vcB', 'vcB'), ('wcB', 'wcB'),
+                                     ('vmag_A', 'vmag_A'), ('vmag_B', 'vmag_B'),
+                                     ('P_fA', 'P_fA'), ('P_fB', 'P_fB'),
+                                     ('L_mm', 'L_mm'), ('t_mm', 't_mm'), ('dx', 'dx'),
                                      ('dy', 'dy'), ('dz', 'dz')):
                     v = _rf.get(src)
                     if v is not None:
