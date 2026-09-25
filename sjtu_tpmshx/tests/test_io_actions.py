@@ -756,8 +756,15 @@ def test_export_results_writes_3d_values_and_fields(tmp_path, monkeypatch, win):
     from sjtu_tpmshx.domain.compute_result import ComputeResult
 
     out = tmp_path / 'results.csv'
-    field = np.arange(8.0).reshape(2, 2, 2)
-    win.cache.set_result('3d', ComputeResult(Q_W=321.0, dP_A_Pa=54.0, dP_B_Pa=7.0, fields={'Ta': field, 'Tb': field, 'Ts': field, 'vmag_A': field, 'P_fA': field, 'Lx': 0.2, 'Ly': 0.1, 'Lz': 0.05}))
+    field = np.arange(24.0).reshape(2, 3, 4)
+    expected = {name: field + offset for offset, name in enumerate(
+        ('Ta', 'Tb', 'Ts', 'ucA', 'vcA', 'wcA', 'ucB', 'vcB', 'wcB', 'vmag_A', 'vmag_B'))}
+    expected.update(P_fA=101325. + field, P_fB=202650. + field,
+                    L_mm=4. + field / 10., t_mm=.3 + field / 100.,
+                    dx=np.array([.05, .15]), dy=np.array([.01, .03, .06]),
+                    dz=np.array([.005, .01, .015, .02]))
+    win.cache.set_result('3d', ComputeResult(Q_W=321.0, dP_A_Pa=54.0, dP_B_Pa=7.0,
+        fields={**expected, 'Lx': .2, 'Ly': .1, 'Lz': .05}))
     monkeypatch.setattr(
         QFileDialog, 'getSaveFileName',
         staticmethod(lambda *a, **k: (str(out), 'CSV')),
@@ -767,7 +774,11 @@ def test_export_results_writes_3d_values_and_fields(tmp_path, monkeypatch, win):
 
     assert 'Q [W],321.0000' in out.read_text()
     with np.load(tmp_path / 'results_fields.npz', allow_pickle=False) as fields:
-        assert fields['Ta'].shape == (2, 2, 2)
+        for name, values in expected.items():
+            np.testing.assert_array_equal(fields[name], values, err_msg=name)
+        np.testing.assert_array_equal(fields['vmag'], expected['vmag_A'])
+        np.testing.assert_array_equal(fields['P_kPa'], expected['P_fA'] / 1000.)
+        assert all(fields[name].dtype.kind != 'O' for name in fields.files)
         assert fields['converged'].item() == 'true'
         assert fields['warnings'].item() == '[]'
         assert fields['extrap_reasons'].item() == '[]'

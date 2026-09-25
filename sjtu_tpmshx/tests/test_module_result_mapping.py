@@ -21,6 +21,51 @@ from sjtu_tpmshx.tests.integration_tm1.test_2d_real import baseline_config
 from sjtu_tpmshx.tests.integration_tm1.test_public_api import assert_slots
 
 
+def test_synthetic_3d_mapping_preserves_full_geometry_and_display_pressure():
+    """Mapping only: distinguish original geometry and all pressure states."""
+    from sjtu_tpmshx.domain.field_result import FieldResult
+    from sjtu_tpmshx.domain.metric_spec import MetricSpec
+    from sjtu_tpmshx.domain.performance_result import MetricValue, PerformanceResult
+
+    cell = np.arange(24.).reshape(2, 3, 4)
+    L_m, t_m = .004 + cell * .0001, .0003 + cell * .00001
+    grid = dict(dimension=3, axis_order=('x', 'y', 'z'), length_unit='m',
+                dx=np.array([.05, .15]), dy=np.array([.01, .03, .06]),
+                dz=np.array([.005, .01, .015, .02]))
+    native_fields = {name: cell + offset for offset, name in enumerate(
+        ('Ta_display', 'Tb_display', 'Ts_display', 'ucA', 'vcA', 'wcA',
+         'ucB', 'vcB', 'wcB', 'vmag_A', 'vmag_B', 'h_vA', 'h_vB'))}
+    for side, pressure in (('A', 101325.), ('B', 202650.)):
+        native_fields['P_f' + side + '_display'] = pressure + cell
+        native_fields['P_gauge_' + side] = cell
+        native_fields['P_report_' + side] = pressure + cell + 500.
+    native = FieldResult('synthetic-result', 'synthetic-case', 'test', grid=grid,
+        fields=native_fields, run_status=dict(execution='completed', converged=True),
+        metadata=dict(parameters=dict(L=.2, H=.1, Lz=.05, extrap_reasons=[],
+                          prepared=dict(geometry=dict(epsilon=.8, D_h=.003, A_0=.01))),
+                      design_fields=dict(L_field_m=L_m, t_field_m=t_m),
+                      diagnostics=dict(dir_A=1, dir_B=4),
+                      application=dict(coeffs={}, props={}),
+                      model_metadata={}, df_metadata={}, quantity_basis='total', notices=[]))
+    performance = PerformanceResult('synthetic-metrics', native.result_id, {
+        name: MetricValue(value, MetricSpec(name, unit,
+            'pressure_face_v1' if name.startswith('dP') else 'native_boundary_v1'))
+        for name, value, unit in (('Q', 100., 'W'), ('Q_A', 100., 'W'), ('Q_B', -100., 'W'),
+                                 ('dP_A', 10., 'Pa'), ('dP_B', 20., 'Pa'),
+                                 ('T_out_A', 330., 'K'), ('T_out_B', 310., 'K'))})
+
+    result = to_compute_result(native, performance)
+    np.testing.assert_array_equal(result.fields['L_mm'], L_m * 1e3)
+    np.testing.assert_array_equal(result.fields['t_mm'], t_m * 1e3)
+    for name in ('ucA', 'vcA', 'wcA', 'ucB', 'vcB', 'wcB', 'vmag_A', 'vmag_B'):
+        np.testing.assert_array_equal(result.fields[name], native_fields[name])
+    for side in ('A', 'B'):
+        np.testing.assert_array_equal(result.fields['P_f' + side],
+                                      native_fields['P_f' + side + '_display'])
+    for name in ('dx', 'dy', 'dz'):
+        np.testing.assert_array_equal(result.fields[name], grid[name])
+
+
 # Fixed from the real scenarios below on pre-producer-refactor main 736c0a8.
 # Keep these expectations independent of the current raw/diagnostic mappings.
 _DIAGNOSTICS_2D = frozenset('''
@@ -327,6 +372,8 @@ def test_application_fields_and_scalars_match_native_solve(native_result):
     np.testing.assert_array_equal(
         np.asarray(result.fields['L_mm']), np.asarray(raw['L_mm']),
         err_msg="fields['L_mm'] != raw['L_mm']")
+    np.testing.assert_array_equal(result.fields['t_mm'],
+                                  fields.metadata['design_fields']['t_field_m'] * 1e3)
     assert result.props['u_A_in_mps'] == pytest.approx(raw['u_A'])
     assert result.props['T_in_A_K'] == pytest.approx(raw['T_in'])
     assert result.diagnostics['_max_outer'] == raw['_max_outer']
@@ -347,7 +394,7 @@ def test_application_fields_and_scalars_match_native_solve(native_result):
         "raw_3d carrier must be retired (B3 C5)")
     _fields_consumed = {
         'Ta', 'Tb', 'Ts', 'vmag_A', 'vmag_B',
-        'P_fA', 'P_fB', 'L_mm',
+        'P_fA', 'P_fB', 'L_mm', 't_mm',
         'dx', 'dy', 'dz', 'Lx', 'Ly', 'Lz', 'dir_A', 'dir_B',
         'ucA', 'vcA', 'wcA', 'ucB', 'vcB', 'wcB',
     }

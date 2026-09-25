@@ -54,6 +54,7 @@ def to_compute_result(result, performance):
         fields.update({axis: result.grid[axis] for axis in ('dx', 'dy', 'dz')})
         fields.update(Lx=parameters['L'], Ly=parameters['H'], Lz=parameters['Lz'],
                       L_mm=result.metadata['design_fields']['L_field_m'] * 1e3,
+                      t_mm=result.metadata['design_fields']['t_field_m'] * 1e3,
                       dir_A=diagnostics['dir_A'], dir_B=diagnostics['dir_B'],
                       h_vA_field=f['h_vA'], h_vB_field=f['h_vB'])
         residuals = {name: diagnostics.get(name) for name in (
