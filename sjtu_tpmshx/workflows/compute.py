@@ -15,4 +15,5 @@ def compute(config, *, case_id, control=RunControl(), prepare=None, solve=None, 
     result = solve(case, control)
     control.check_cancelled()
     performance = evaluate(result)
+    control.check_cancelled()
     return case, result, performance
