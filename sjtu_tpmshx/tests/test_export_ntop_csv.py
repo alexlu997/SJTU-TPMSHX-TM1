@@ -36,6 +36,25 @@ def _uniform_decision_vector():
 # ─── export_decision_vector basics ──────────────────────────────────
 
 
+def test_xyz_export_keeps_depth_variation_and_full_precision(tmp_path):
+    x, y, z = np.meshgrid(*([np.linspace(0., 1., 3)] * 3), indexing='ij')
+    controls = np.r_[(6.5 + .2*x + .3*y + .7*z).ravel(),
+                      (.4 + .03*x + .05*z).ravel()]
+    info = export_decision_vector(controls, str(tmp_path), n_ctrl_x=3, n_ctrl_y=3,
+        n_ctrl_z=3, symmetric_y=False, spline_order=2, L_domain_m=.182,
+        H_domain_m=.042, Lz_domain_m=.042, Nx_export=5, Ny_export=4, Nz_export=6)
+    assert info['dimension'] == 3 and info['decision_vector'] == controls.tolist()
+    for name, formula in [('L', lambda a, b, c: 6.5+.2*a+.3*b+.7*c),
+                          ('t', lambda a, b, c: .4+.03*a+.05*c)]:
+        path = tmp_path / f'{name}field.csv'
+        assert path.read_text().splitlines()[0] == f'x_mm,y_mm,z_mm,{name}_mm'
+        rows = np.loadtxt(path, delimiter=',', skiprows=1)
+        assert rows.shape == (5*4*6, 4)
+        expected = formula(rows[:, 0]/182., rows[:, 1]/42., rows[:, 2]/42.)
+        np.testing.assert_allclose(rows[:, 3], expected, rtol=2e-14, atol=2e-14)
+        assert len(np.unique(rows[:, 2])) == 6
+
+
 def test_uniform_field_export_writes_three_files(tmp_path):
     x = _uniform_decision_vector()
     out = tmp_path / 'export'

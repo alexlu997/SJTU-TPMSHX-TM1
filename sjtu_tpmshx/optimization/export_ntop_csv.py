@@ -4,14 +4,13 @@ ScalarField CSVs for graded-TPMS body construction.
 
 nTop's "Scalar Field from Grid Data" block ingests a CSV with one column for
 each spatial coordinate plus one column for the scalar value. We emit two
-CSV files per Pareto pick — one for the cell-size scalar field L(x, y), one
-for the wall-thickness field t(x, y) — sampled on a dense regular grid that
-covers the HX's (L_domain × H_domain) footprint.
+CSV files per Pareto pick for cell size and wall thickness, sampled on a
+regular grid covering the full XY footprint or XYZ volume.
 
 Geometric assumptions (must match the optimizer cfg):
-  * (x, y) origin at HX corner; +x = fluid A streamwise, +y = fluid B
-    streamwise; depth (z) is uniform — nTop replicates the (x, y) field along
-    z when building the lattice
+  * Coordinates use the solver's physical Cartesian frame with the origin
+    at the HX corner. XY designs have no depth variation; XYZ designs retain
+    their independently varying z controls and export all three coordinates.
   * Output coordinates in **millimeters** so nTop's default mm units consume
     them natively
   * L_field, t_field values are clamped to [4, 8] mm × [0.3, 0.6] mm — the
@@ -53,8 +52,9 @@ from sjtu_tpmshx.models.continuous_field import (
     DEFAULT_N_CTRL_Y,
     DEFAULT_SYMMETRIC_Y,
     DEFAULT_T_BOUNDS,
+    from_decision_vector,
 )
-from sjtu_tpmshx.models.screening import build_field, FIELD_CONFIG_KEYS
+from sjtu_tpmshx.models.screening import FIELD_CONFIG_KEYS
 from sjtu_tpmshx.logutil import get_logger
 
 _log = get_logger(__name__)
@@ -78,23 +78,16 @@ def _write_scalar_field_csv(path: str,
                              xc_mm: np.ndarray,
                              yc_mm: np.ndarray,
                              field: np.ndarray,
-                             value_name: str) -> None:
-    """Write a (Nx · Ny, 3) CSV with columns [x_mm, y_mm, value].
-
-    Row order: outer loop on y, inner loop on x. nTop's ScalarField from
-    Grid Data block accepts this ordering when both axes are listed
-    monotonically — empirically robust across nTop 4.x and 5.x.
-    """
-    Nx = xc_mm.size; Ny = yc_mm.size
-    assert field.shape == (Nx, Ny), \
-        f"field shape {field.shape} != ({Nx}, {Ny})"
-    rows = []
-    for j in range(Ny):
-        for i in range(Nx):
-            rows.append([xc_mm[i], yc_mm[j], field[i, j]])
-    arr = np.asarray(rows, dtype=np.float64)
+                             value_name: str, *, zc_mm: np.ndarray | None = None) -> None:
+    """Write coordinates and scalar value, with x varying fastest, then y/z."""
+    axes = (xc_mm, yc_mm) if zc_mm is None else (xc_mm, yc_mm, zc_mm)
+    if field.shape != tuple(axis.size for axis in axes):
+        raise ValueError('field shape must match its physical export coordinates')
+    coordinates = np.meshgrid(*axes, indexing='ij')
+    arr = np.column_stack([value.ravel(order='F') for value in (*coordinates, field)])
+    header = 'x_mm,y_mm,' if zc_mm is None else 'x_mm,y_mm,z_mm,'
     np.savetxt(path, arr, delimiter=',',
-               header=f"x_mm,y_mm,{value_name}", comments='', fmt='%.6f')
+               header=header + value_name, comments='', fmt='%.17g')
 
 
 # ─── Public API ─────────────────────────────────────────────────────
@@ -115,26 +108,38 @@ def export_decision_vector(x_decision: np.ndarray,
                            L_bounds: tuple = DEFAULT_L_BOUNDS,
                            t_bounds: tuple = DEFAULT_T_BOUNDS,
                            spline_order: int = 3,
+                           n_ctrl_z: int | None = None,
+                           Lz_domain_m: float | None = None,
+                           Nz_export: int | None = None,
                            extra_metadata: Optional[dict] = None) -> dict:
-    """Export L(x, y) + t(x, y) CSVs + provenance JSON for one Pareto pick.
+    """Export full XY or XYZ L/t scalar fields and their original controls.
 
     Returns a dict with the field summary statistics + paths so callers
     (UI, batch scripts) can log the export back to the user.
     """
-    os.makedirs(out_dir, exist_ok=True)
-
     cfg = dict(tpms_type=tpms_type, k_s=k_s, L_domain=L_domain_m, H_domain=H_domain_m,
                n_ctrl_x=n_ctrl_x, n_ctrl_y=n_ctrl_y, symmetric_y=symmetric_y,
                L_bounds=L_bounds, t_bounds=t_bounds, spline_order=spline_order)
-    fc = build_field(x_decision, cfg)
-    L_field, t_field = fc.evaluate_grid(Nx_export, Ny_export)
+    if n_ctrl_z is None and (Lz_domain_m is not None or Nz_export is not None):
+        raise ValueError('XYZ export requires n_ctrl_z, Lz_domain_m and Nz_export together')
+    if n_ctrl_z is not None:
+        if Lz_domain_m is None or not np.isfinite(Lz_domain_m) or Lz_domain_m <= 0:
+            raise ValueError('XYZ export requires positive Lz_domain_m')
+        if type(Nz_export) is not int or Nz_export < 1:
+            raise ValueError('XYZ export requires positive integer Nz_export')
+        cfg.update(n_ctrl_z=n_ctrl_z, Lz_domain=Lz_domain_m)
+    fc = from_decision_vector(x_decision, **cfg)
+    L_field, t_field = (fc.evaluate_grid(Nx_export, Ny_export) if n_ctrl_z is None else
+                        fc.evaluate_volume(Nx_export, Ny_export, Nz_export))
+    os.makedirs(out_dir, exist_ok=True)
     xc_mm = (np.arange(Nx_export) + .5) * L_domain_m / Nx_export * 1000.
     yc_mm = (np.arange(Ny_export) + .5) * H_domain_m / Ny_export * 1000.
+    zc_mm = None if n_ctrl_z is None else (np.arange(Nz_export) + .5) * Lz_domain_m / Nz_export * 1000.
 
     L_path = os.path.join(out_dir, 'Lfield.csv')
     t_path = os.path.join(out_dir, 'tfield.csv')
-    _write_scalar_field_csv(L_path, xc_mm, yc_mm, L_field, value_name='L_mm')
-    _write_scalar_field_csv(t_path, xc_mm, yc_mm, t_field, value_name='t_mm')
+    _write_scalar_field_csv(L_path, xc_mm, yc_mm, L_field, value_name='L_mm', zc_mm=zc_mm)
+    _write_scalar_field_csv(t_path, xc_mm, yc_mm, t_field, value_name='t_mm', zc_mm=zc_mm)
 
     summary = {
         'Nx_export':   int(Nx_export),
@@ -157,6 +162,9 @@ def export_decision_vector(x_decision: np.ndarray,
     }
     if extra_metadata:
         summary['source'] = extra_metadata
+    summary['dimension'] = 2 if n_ctrl_z is None else 3
+    if n_ctrl_z is not None:
+        summary.update(Nz_export=Nz_export, Lz_domain_mm=Lz_domain_m*1000.)
 
     with open(os.path.join(out_dir, 'provenance.json'), 'w') as f:
         json.dump(summary, f, indent=2)

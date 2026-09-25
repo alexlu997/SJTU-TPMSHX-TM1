@@ -196,7 +196,7 @@ def _save_pareto_csv(path: str, X: np.ndarray, F_min: np.ndarray) -> None:
     header = (','.join(f"x{i}" for i in range(X.shape[1])) +
               ',Q_W_per_m,dP_Pa')
     data = np.hstack([X, F_pos])
-    np.savetxt(path, data, delimiter=',', header=header, comments='', fmt='%.6e')
+    np.savetxt(path, data, delimiter=',', header=header, comments='', fmt='%.17g')
 
 
 def _save_history(save_dir, X, F_min, errors, *, stem='history'):
