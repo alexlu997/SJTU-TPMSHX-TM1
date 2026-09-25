@@ -181,3 +181,25 @@ def test_active_workspace_case_insensitive(sm):
     """Marker file with lowercase 'b' should resolve to 'B'."""
     sm.workspace_marker_path().write_text('b', encoding='utf-8')
     assert sm.get_active_workspace() == 'B'
+
+
+@pytest.mark.parametrize('path_method, load_method, save_method, replacement, fallback', [
+    ('session_path', 'load_session', 'save_session', {'temp_unit': 'K'}, None),
+    ('presets_path', 'load_user_presets', 'save_user_presets', [{'name': 'new preset'}], []),
+    ('workspace_marker_path', 'get_active_workspace', 'set_active_workspace', 'B', 'A'),
+])
+def test_invalid_utf8_falls_back_and_preserves_bytes_after_save(
+        sm, path_method, load_method, save_method, replacement, fallback):
+    path = getattr(sm, path_method)()
+    original = b'\xff\xfebroken user file'
+    path.write_bytes(original)
+
+    assert getattr(sm, load_method)() == fallback
+    quarantined = list(sm.base_dir.glob(path.name + '.corrupt-*'))
+    assert len(quarantined) == 1
+    assert quarantined[0].read_bytes() == original
+    assert not path.exists()
+
+    assert getattr(sm, save_method)(replacement)
+    assert path.exists()
+    assert quarantined[0].read_bytes() == original

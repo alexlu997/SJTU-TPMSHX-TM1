@@ -495,12 +495,77 @@ def test_terminal_paths_restore_ui(win, monkeypatch, mode, outcome):
     assert bool(win._test_error_dialogs) == (outcome == 'error')
 
 
+@pytest.mark.parametrize('failure', ['false', 'exception'])
+@pytest.mark.parametrize('discard', [False, True])
+def test_close_requires_choice_when_session_save_fails(win, monkeypatch, failure, discard):
+    dialogs, disconnected = [], []
+
+    def save():
+        if failure == 'exception':
+            raise OSError('disk full')
+        return False
+
+    def warning(*args):
+        dialogs.append(args)
+        return (QMessageBox.StandardButton.Discard if discard
+                else QMessageBox.StandardButton.Cancel)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(win, '_save_session', save)
+        patch.setattr(QMessageBox, 'warning', warning)
+        patch.setattr(win.signals, 'disconnect_all', lambda: disconnected.append(True))
+        win.le_Lcell.setText('6.5')
+        assert win.close() is discard
+        assert len(dialogs) == 1
+        assert dialogs[0][-1] == QMessageBox.StandardButton.Cancel
+        assert dialogs[0][-2] == (QMessageBox.StandardButton.Cancel
+                                  | QMessageBox.StandardButton.Discard)
+        assert bool(disconnected) is discard
+        if not discard:
+            assert win.isEnabled()
+            assert not getattr(win, '_close_pending', False)
+            assert win.le_Lcell.text() == '6.5'
+    if not discard:
+        assert win.close(), 'saving successfully must allow a later close'
+        assert win.sm.load_session() is not None
+
+
+def test_cancel_close_on_save_failure_keeps_live_compute(win, monkeypatch):
+    release, entered = threading.Event(), threading.Event()
+
+    def worker(cfg, cancel, progress_cb):
+        entered.set()
+        assert release.wait(10)
+        assert not cancel.is_set(), 'cancelled closing must not cancel the computation'
+        return ComputeResult(Q_W=123)
+
+    monkeypatch.setattr(win, '_render_compute_result', lambda: True)
+    try:
+        win.compute.start('2d', worker, ComputeConfig())
+        _wait_for(entered.is_set)
+        with monkeypatch.context() as patch:
+            patch.setattr(win, '_save_session', lambda: False)
+            patch.setattr(QMessageBox, 'warning',
+                          lambda *args: QMessageBox.StandardButton.Cancel)
+            assert not win.close()
+            assert win.isEnabled() and not getattr(win, '_close_pending', False)
+            assert win.compute.is_running()
+    finally:
+        release.set()
+    _wait_for(win.compute.is_idle)
+    assert win.cache.get_result('2d')['Q_total'] == 123
+    assert win.btn_compute.isEnabled() and not win._compute_running
+    assert win.close()
+
+
 @pytest.mark.parametrize('outcome', ['success', 'error', 'cancel'])
-def test_close_waits_for_terminal_delivery_and_runnable_exit(win, monkeypatch, outcome):
+@pytest.mark.parametrize('save_ok', [True, False])
+def test_close_waits_for_terminal_delivery_and_runnable_exit(win, monkeypatch, outcome, save_ok):
     from sjtu_tpmshx.controllers.compute_orchestrator import _ComputeRunnable
 
     release, terminal_sent = threading.Event(), threading.Event()
     tail_errors, writes = [], []
+    saves, dialogs = [], []
     original_run = _ComputeRunnable.run
 
     def held_run(runnable):
@@ -522,6 +587,9 @@ def test_close_waits_for_terminal_delivery_and_runnable_exit(win, monkeypatch, o
 
     monkeypatch.setattr(_ComputeRunnable, 'run', held_run)
     monkeypatch.setattr(win, 'write_result', writes.append)
+    monkeypatch.setattr(win, '_save_session', lambda: saves.append(True) or save_ok)
+    monkeypatch.setattr(QMessageBox, 'warning',
+                        lambda *args: dialogs.append(args) or QMessageBox.StandardButton.Discard)
     win.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
     orch, cache = win.compute, win.cache
     try:
@@ -542,6 +610,7 @@ def test_close_waits_for_terminal_delivery_and_runnable_exit(win, monkeypatch, o
     _wait_for(lambda: not isValid(win))
     assert not isValid(orch) and not isValid(cache)
     assert not tail_errors, 'worker accessed a deleted QObject'
+    assert len(saves) == 1 and len(dialogs) == (0 if save_ok else 1)
 
 
 @pytest.mark.parametrize('mode', ['2d', '3d'])
