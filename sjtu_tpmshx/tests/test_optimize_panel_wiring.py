@@ -502,11 +502,31 @@ def test_missing_or_mismatched_archive_keeps_current_design(window, tmp_path, mo
         assert asdict(panel._gather_cfg(window)) == original
 
 
-@pytest.mark.parametrize('field', ['le_L', 'le_TinB', 'le_PinB'])
-@pytest.mark.parametrize('value', ['', 'oops', 'nan', 'inf'])
-def test_bad_case_input_cannot_launch(window, field, value, monkeypatch):
+@pytest.mark.parametrize('field,label,value', [
+    (field, label, value)
+    for field, label in [('le_L', 'Domain Length'), ('le_TinB', 'Inlet Temp B'),
+                         ('le_PinB', 'Inlet Pressure B')]
+    for value in ['', 'oops', 'nan', 'inf']
+    if value or field != 'le_PinB'  # Optional pressure blank retains its default.
+])
+def test_bad_case_input_cannot_launch(window, field, label, value, monkeypatch, tmp_path):
+    from unittest.mock import Mock
+    panel._gather_cfg(window)  # Establish that only this test's edit is invalid.
     getattr(window, field).setText(value)
-    monkeypatch.setattr(panel, '_make_worker_class', lambda: pytest.fail('invalid input launched'))
+    monkeypatch.setattr(panel, 'optimization_output_dir', lambda: tmp_path)
+    factory = Mock(side_effect=RuntimeError('invalid input launched'))
+    monkeypatch.setattr(panel, '_make_worker_class', factory)
     panel.run_optimize(window)
+    factory.assert_not_called()
     assert '启动失败' in window._opt_status.text()
+    assert label in window._opt_status.text()
     assert window._opt_launching is False and window._opt_btn.isEnabled()
+
+
+@pytest.mark.parametrize('side', ['A', 'B'])
+def test_blank_optional_pressure_keeps_default(window, side):
+    widget = getattr(window, f'le_Pin{side}')
+    widget.setText('')
+    cfg = panel._gather_cfg(window)
+    assert getattr(cfg, f'fluid_{side}').P_in_Pa == 101325.0
+    assert widget.text() == ''

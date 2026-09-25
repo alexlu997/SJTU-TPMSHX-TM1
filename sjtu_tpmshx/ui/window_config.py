@@ -159,10 +159,11 @@ def _read_section_fields(window, section: str, *, is_3d: bool = True) -> dict:
 def _validate_required_widgets(window, *, is_3d: bool) -> None:
     """Raise ``ValueError`` listing every invalid input widget.
 
-    Existing numeric widgets reject blank, malformed and nonfinite text.
-    Missing optional widgets use their declared defaults; a blank widget is
-    not a missing widget. Temperature input is interpreted in the selected
-    display unit before ComputeConfig checks positive Kelvin values.
+    Required numeric widgets reject blank, malformed and nonfinite text.
+    Optional pressure and pipe widgets retain their defaults when missing or
+    blank, but reject malformed or nonfinite non-empty text. Temperature input
+    is interpreted in the selected display unit before ComputeConfig checks
+    positive Kelvin values.
     """
     import math as _math
     required = [fs for fs in CONFIG_FIELDS if fs.required_2d]
