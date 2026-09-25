@@ -28,7 +28,7 @@ def _state(dim):
         a['d_' + c] = np.zeros(size)
         a['N' + 'xyz'[axis]] = shape[axis]
         a['d' + 'xyz'[axis] + ('_arr' if dim == 2 else '')] = widths[axis]
-    a['K_arr'] = np.ones(shape if dim == 2 else shape[1:])
+    a['K_arr'] = np.ones(shape)
     a['cF_arr'] = np.zeros_like(a['K_arr'])
     a['outlet_u_frac'] = np.zeros((shape[0] + 1,) + shape[2:])
     if dim == 3:
@@ -138,7 +138,7 @@ def test_single_layer_3d_retains_both_z_walls():
         a[key] = np.ascontiguousarray(a[key][:, :, :1])
     a['w'] = np.zeros((shape[0], shape[1], 2))
     a['Nz'], a['dz'] = 1, np.array([1.])
-    a['K_arr'], a['cF_arr'] = np.ones((shape[1], 1)), np.zeros((shape[1], 1))
+    a['K_arr'], a['cF_arr'] = np.ones((shape[0], shape[1], 1)), np.zeros((shape[0], shape[1], 1))
     a['outlet_u_frac'] = np.ones((shape[0] + 1, 1))
     a.update(i=2, j=2, k=0)
     for c in 'uv':
@@ -168,7 +168,7 @@ def test_brinkman_square_duct_finer_triplet_keeps_original_order_gate():
                  w=np.zeros((n, 3, n+1)), P=np.zeros(shape),
                  rho_field=np.zeros(shape), mu_eff_field=np.ones(shape),
                  mu_field=np.ones(shape), eps_field=np.ones(shape),
-                 K_arr=np.full((3, n), .03), cF_arr=np.zeros((3, n)),
+                 K_arr=np.full(shape, .03), cF_arr=np.zeros(shape),
                  use_sou=0, use_eps=0, j=1)
         a['P'][:] = np.array([2/3, 1/3, 0.])[None, :, None]
         matrix = lil_matrix((n*n, n*n)); b = np.zeros(n*n)

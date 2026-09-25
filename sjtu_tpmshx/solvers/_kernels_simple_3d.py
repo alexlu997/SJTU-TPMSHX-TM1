@@ -196,7 +196,12 @@ def _u_cell_df_3d(u, v, w, P, d_u, i, j, k,
 
     # Brinkman / Forchheimer drag (linearised)
     umag = _umag_u_3d(u, v, w, i, j, k, Nx, )
-    Sp = _porous_src_df_3d(umag, K_arr[j, k], cF_arr[j, k],
+    # Extend the existing row convention: average adjacent x cells at u;
+    # v/w retain their downstream j/k samples. This is a discrete sampling
+    # convention, not a qualification of strongly graded TPMS physics.
+    K_u = 0.5 * (K_arr[il_r, j, k] + K_arr[ir_r, j, k])
+    cF_u = 0.5 * (cF_arr[il_r, j, k] + cF_arr[ir_r, j, k])
+    Sp = _porous_src_df_3d(umag, K_u, cF_u,
                              mu_loc, rho_loc) * vol
 
     # Pressure gradient source
@@ -242,7 +247,7 @@ def _sweep_u_jit_df_3d(u, v, w, P, d_u,
     """Solve the x-momentum equation on the u-staggered face.
 
     u : (Nx+1, Ny, Nz) — updated in place.
-    K_arr, cF_arr : (Ny, Nz) — interstitial D-F coefficients per streamwise row.
+    K_arr, cF_arr : (Nx, Ny, Nz) — local interstitial D-F coefficients.
     Internal walls (i=0, i=Nx) are no-slip (u=0).
     Cell body shared with the parallel variant via `_u_cell_df_3d`.
     """
@@ -383,7 +388,7 @@ def _v_cell_df_3d(u, v, w, P, d_v, i, j, k,
     aB = Db + max(Fb, 0.0)
 
     umag = _umag_v_3d(u, v, w, i, j, k, Ny)
-    Sp = _porous_src_df_3d(umag, K_arr[jc, k], cF_arr[jc, k],
+    Sp = _porous_src_df_3d(umag, K_arr[i, jc, k], cF_arr[i, jc, k],
                              mu_loc, rho_loc) * vol
 
     p_src = (P[i, j - 1, k] - P[i, j, k]) * dxi * dzk
@@ -589,7 +594,7 @@ def _w_cell_df_3d(u, v, w, P, d_w, i, j, k,
     aB = Db + max(Fb, 0.0)
 
     umag = _umag_w_3d(u, v, w, i, j, k, Nz)
-    Sp = _porous_src_df_3d(umag, K_arr[j, kc], cF_arr[j, kc],
+    Sp = _porous_src_df_3d(umag, K_arr[i, j, kc], cF_arr[i, j, kc],
                              mu_loc, rho_loc) * vol
 
     p_src = (P[i, j, k - 1] - P[i, j, k]) * dxi * dyj
@@ -1131,7 +1136,9 @@ def _u_coeffs_df_3d(u, v, w, P, i, j, k,
 
     # Brinkman / Forchheimer drag (linearised)
     umag = _umag_u_3d(u, v, w, i, j, k, Nx, )
-    Sp = _porous_src_df_3d(umag, K_arr[j, k], cF_arr[j, k],
+    K_u = 0.5 * (K_arr[il_r, j, k] + K_arr[ir_r, j, k])
+    cF_u = 0.5 * (cF_arr[il_r, j, k] + cF_arr[ir_r, j, k])
+    Sp = _porous_src_df_3d(umag, K_u, cF_u,
                              mu_loc, rho_loc) * vol
 
     # Pressure gradient source
@@ -1253,7 +1260,7 @@ def _v_coeffs_df_3d(u, v, w, P, i, j, k,
     aB = Db + max(Fb, 0.0)
 
     umag = _umag_v_3d(u, v, w, i, j, k, Ny)
-    Sp = _porous_src_df_3d(umag, K_arr[jc, k], cF_arr[jc, k],
+    Sp = _porous_src_df_3d(umag, K_arr[i, jc, k], cF_arr[i, jc, k],
                              mu_loc, rho_loc) * vol
 
     p_src = (P[i, j - 1, k] - P[i, j, k]) * dxi * dzk
@@ -1375,7 +1382,7 @@ def _w_coeffs_df_3d(u, v, w, P, i, j, k,
     aB = Db + max(Fb, 0.0)
 
     umag = _umag_w_3d(u, v, w, i, j, k, Nz)
-    Sp = _porous_src_df_3d(umag, K_arr[j, kc], cF_arr[j, kc],
+    Sp = _porous_src_df_3d(umag, K_arr[i, j, kc], cF_arr[i, j, kc],
                              mu_loc, rho_loc) * vol
 
     p_src = (P[i, j, k - 1] - P[i, j, k]) * dxi * dyj

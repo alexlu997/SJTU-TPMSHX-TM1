@@ -34,7 +34,7 @@ def test_shapes():
     assert s.v.shape == (12, 9, 3), s.v.shape
     assert s.w.shape == (12, 8, 4), s.w.shape
     assert s.P.shape == (12, 8, 3), s.P.shape
-    assert s.K_arr.shape == (8, 3), s.K_arr.shape
+    assert s.K_arr.shape == (12, 8, 3), s.K_arr.shape
     print("test_shapes PASS")
 
 

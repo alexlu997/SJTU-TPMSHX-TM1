@@ -37,7 +37,11 @@ def shanghai_spec() -> SpecimenSpec:
 
 
 def shanghai_pipeline_config(ci, df, solver, *, wall_refine=False, port_wall_refine=False):
-    """April 1 experiment: measured total flows and confirmed staggered ports.
+    """April 1 experiment: original F/H mass flows and confirmed staggered ports.
+
+    Use the workbook's nominal total mass-flow columns F/H, as confirmed for
+    the optimization benchmark. Do not apply the K/I or L/J volume-flow
+    corrections used in the workbook's experimental heat-duty formulas.
 
     The user confirmed the GUI geometry on 2026-09-13: water enters the
     top face at x=133..175 mm and exits the bottom at x=7..49 mm, both

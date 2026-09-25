@@ -8,6 +8,24 @@ import pytest
 from sjtu_tpmshx.validation.cases import audit_3d_conservation as audit
 
 
+def test_production_conservation_import_keeps_warning_policy_and_avoids_audit():
+    import subprocess
+    import sys
+    from sjtu_tpmshx.postprocess.conservation import compute_phase2a
+
+    assert audit.compute_phase2a is compute_phase2a
+    subprocess.run([sys.executable, '-c', '''
+import sys, warnings
+import numpy
+import sjtu_tpmshx.postprocess
+before = warnings.filters[:]
+from sjtu_tpmshx.postprocess.conservation import compute_phase2a
+assert warnings.filters == before
+assert not any(name.startswith(('sjtu_tpmshx.solvers', 'sjtu_tpmshx.validation'))
+               for name in sys.modules)
+'''], check=True)
+
+
 def _certificate_result(active_b=True):
     boundary = dict(physical_external_inward_W=-40., inlet_diffusion_inward_W=40.)
     return dict(

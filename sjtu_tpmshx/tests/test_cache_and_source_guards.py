@@ -20,7 +20,7 @@ def test_compute_geometry_returns_unpoisonable_copy():
 def test_compute_geometry_cache_management_reexposed():
     from sjtu_tpmshx.models.tpms_geometry import compute_geometry
     assert callable(compute_geometry.cache_clear)
-    assert compute_geometry.cache_info().maxsize == 4096
+    assert compute_geometry.cache_info().maxsize == 32768
 
 
 def test_phi_grid_cache_is_frozen():

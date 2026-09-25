@@ -95,7 +95,7 @@ from typing import Any, Dict, Literal, Optional, Tuple, Union
 FluidType = Literal['air', 'water', 'sco2']
 DFMode = Literal['cfd_smooth', 'experimental']
 TPMSType = Literal['Diamond', 'Gyroid']
-ZoneAxis = Literal['x', 'y', 'grid']
+ZoneAxis = Literal['x', 'y', 'grid', 'continuous']
 
 SCO2_P_RANGE_PA = (7.9e6, 16.0e6)
 
@@ -287,7 +287,7 @@ def bc_to_dict(bc: 'PartialBCConfig', L_dom: float, H_dom: float,
 
 @dataclass
 class ZoneInputConfig:
-    """Zone / sigmoid-field control state.
+    """Zone / continuous-field control state.
 
     ``config`` is the pre-resolved ``models.zone_config.ZoneConfig``
     instance (1D zone mode), or its JSON-shaped dictionary for canonical
@@ -297,20 +297,69 @@ class ZoneInputConfig:
     ``ui.zone_table.build_zone_config(window)`` at the boundary so the Pipeline
     layer never has to touch the Qt zone-table widget.
 
+    For ``axis='continuous'``, ``config`` is a JSON dictionary with
+    ``x_decision`` (L controls then t controls, both in mm), ``n_ctrl_x``,
+    ``n_ctrl_y``, ``symmetric_y``, ``spline_order``, ``L_bounds`` and
+    ``t_bounds``, plus optional ``n_ctrl_z`` for a true XYZ field. Omitting
+    ``n_ctrl_z`` retains the XY layout for older inputs. Topology, conductivity
+    and domain come only from the main GeometryConfig. These are parameter fields, not manufactured
+    TPMS geometry or evidence of gradient-model applicability.
+
     """
     enabled: bool = False
     axis: ZoneAxis = 'y'
     grid: Optional[Dict[str, Any]] = None  # cells / tpms_type / k_s
-    config: Optional[Any] = None  # 1D ZoneConfig or its canonical JSON dictionary
+    config: Optional[Any] = None  # 1D ZoneConfig or canonical 1D/continuous dictionary
     pareto_x_decision: Optional[Any] = None
     pareto_y_trans_inlet: float = 0.2
     pareto_y_trans_outlet: float = 0.2
 
     def validate(self) -> 'ZoneInputConfig':
-        """Reject invalid rectangles; partial coverage keeps its existing meaning."""
+        """Validate active spatial input without altering the supplied design."""
         import math
 
-        if not self.enabled or self.axis != 'grid':
+        if not self.enabled:
+            return self
+        if self.axis == 'continuous':
+            from sjtu_tpmshx.df_surrogate._domain import TRAIN_L, TRAIN_T
+            required = {'x_decision', 'n_ctrl_x', 'n_ctrl_y', 'symmetric_y',
+                        'spline_order', 'L_bounds', 't_bounds'}
+            spec = self.config
+            if (not isinstance(spec, dict) or not required <= set(spec)
+                    or set(spec) - required - {'n_ctrl_z'}):
+                raise ValueError(f'Continuous field config requires {sorted(required)} and optional n_ctrl_z')
+            if self.grid is not None or self.pareto_x_decision is not None:
+                raise ValueError('Continuous field cannot also supply grid or sigmoid decisions')
+            control_keys = ('n_ctrl_x', 'n_ctrl_y') + (('n_ctrl_z',) if 'n_ctrl_z' in spec else ())
+            for name in (*control_keys, 'spline_order'):
+                if type(spec[name]) is not int:
+                    raise ValueError(f'Continuous field {name} must be an integer')
+            order = spec['spline_order']
+            if not 1 <= order <= 3:
+                raise ValueError('Continuous field spline_order must be 1..3')
+            if any(spec[name] < 2 or spec[name] <= order for name in control_keys):
+                raise ValueError('Continuous field needs >=2 controls per axis and more controls than spline_order')
+            if type(spec['symmetric_y']) is not bool:
+                raise ValueError('Continuous field symmetric_y must be boolean')
+            for name in ('x_decision', 'L_bounds', 't_bounds'):
+                values = spec[name]
+                if not isinstance(values, list) or any(
+                        type(value) not in (int, float) or not math.isfinite(value) for value in values):
+                    raise ValueError(f'Continuous field {name} must be a list of finite numbers')
+            for name, resource in (('L_bounds', TRAIN_L), ('t_bounds', TRAIN_T)):
+                bounds = spec[name]
+                if len(bounds) != 2 or not resource[0] <= bounds[0] < bounds[1] <= resource[1]:
+                    raise ValueError(f'Continuous field {name} must be increasing within {resource} mm')
+            ny = (spec['n_ctrl_y'] + 1) // 2 if spec['symmetric_y'] else spec['n_ctrl_y']
+            count = spec['n_ctrl_x'] * ny * spec.get('n_ctrl_z', 1)
+            if len(spec['x_decision']) != 2 * count:
+                raise ValueError(f'Continuous field x_decision must contain {2 * count} values')
+            for values, bounds in ((spec['x_decision'][:count], spec['L_bounds']),
+                                   (spec['x_decision'][count:], spec['t_bounds'])):
+                if any(not bounds[0] <= value <= bounds[1] for value in values):
+                    raise ValueError('Continuous field control values must lie within their L/t bounds')
+            return self
+        if self.axis != 'grid':
             return self
         if not isinstance(self.grid, dict) or not self.grid.get('cells'):
             raise ValueError('Enabled grid zones require non-empty grid cells')
@@ -480,6 +529,12 @@ class ComputeConfig:
 
         self.zones.validate()
         self.sco2_nu.validate()
+        if self.zones.enabled and self.zones.axis == 'continuous':
+            assert self.zones.config is not None  # Required by zones.validate().
+            if self.geometry.delta_levelset != 0.0:
+                raise ValueError('Continuous spatial fields require delta_levelset=0')
+            if not self.is_3d and 'n_ctrl_z' in self.zones.config:
+                raise ValueError('2D continuous fields cannot supply n_ctrl_z')
         if self.flags.port_wall_refine and self.flags.wall_refine_3d:
             raise ValueError('Select either port/wall refinement or six-wall 3D refinement')
         if self.df_mode not in ('cfd_smooth', 'experimental'):
@@ -652,17 +707,23 @@ class ComputeConfig:
         if self.df_mode == 'experimental':
             from sjtu_tpmshx.df_surrogate.experimental_correction import (
                 correction_scale)
-            if self.zones.enabled:
+            continuous_hx = (self.zones.axis == 'continuous'
+                             and ge.tpms == 'Gyroid'
+                             and self.fluid_A.type == 'air' and self.fluid_B.type == 'water'
+                             and math.isclose(ge.L_cell_mm, 7., rel_tol=0., abs_tol=1e-12)
+                             and math.isclose(ge.t_wall_mm, .6, rel_tol=0., abs_tol=1e-12))
+            if self.zones.enabled and not continuous_hx:
                 raise ValueError(
                     "experimental calibration currently requires uniform L/t; "
-                    "zoned geometry remains available in CFD smooth-wall mode")
+                    "continuous Shanghai Gyroid air/water fields may use "
+                    "the 7/0.6 calibration as an exploratory extrapolation")
             for side, fl in (('A', self.fluid_A),
                              ('B', self.fluid_B)):
                 try:
                     _, _, _, scope = correction_scale(
                         self.geometry.tpms, fl.type,
                         self.geometry.L_cell_mm, self.geometry.t_wall_mm,
-                        fl.u_mps)
+                        fl.u_mps, allow_hx_extrapolation=continuous_hx and self.zones.enabled)
                 except ValueError as exc:
                     raise ValueError(
                         f"experimental calibration unavailable for active side "

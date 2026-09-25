@@ -119,6 +119,8 @@ def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
                          uniform_inlet=cfg_fluid.get('uniform_inlet_2d', False),
                          dx_arr=flow['dx'], dy_arr=flow['dy'],
                          K_arr=flow['K_m2'], cF_arr=flow['cF_per_m'])
+        if cfg['z_axis'] == 'continuous' and za is not None:
+            s.set_K_cF_field(flow['K_field_m2'], flow['cF_field_per_m'])
         if 'boundary_openings' in cfg:
             openings = cfg['boundary_openings'][label[-1]]
             for key, actual in (('in_geom_frac', s.inlet_geom_frac),

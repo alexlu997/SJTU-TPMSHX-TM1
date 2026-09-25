@@ -192,6 +192,8 @@ def _zone_statistics_2d(z_axis, zone_config, za, L, H,
     """Return area-weighted zone statistics and physical boundary positions."""
     if zone_config is not None and za is not None:
         zones = dict(axis_dir=z_axis)
+        if z_axis == 'continuous':
+            return dict(axis_dir=z_axis, boundaries=[], boundaries_x=[], boundaries_y=[], stats=[])
         if z_axis == 'grid':
             # Grid mode: boundaries from zone_config
             zones['boundaries'] = []
@@ -317,7 +319,7 @@ def _compute_Q_richardson(
         rcp_B2 = _interp2(rho_cp_B if np.ndim(rho_cp_B) > 0 else
                            np.full((N_x, N_y),
                                    _pB.rho(T_inB, P_inB_val) * _pB.cp(T_inB, P_inB_val)))
-    if za is not None and 'h_vB_arr' in za:
+    if za is not None and 'eps_arr' in za:
         K_ffA2 = _interp2(za['K_ffA_arr'])
         K_ffB2 = _interp2(za['K_ffB_arr'])
         K_ss2 = _interp2(za['K_ss_arr'])
@@ -757,7 +759,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
     # See design add-2d-asym-porosity D2(b).
     _delta_2d = float(cfg['compute_cfg'].geometry.delta_levelset)
     _asym_2d = (_delta_2d != 0.0)
-    _model_h_mode = (not _enthalpy_mode and zone_config is None and not _asym_2d
+    _model_h_mode = (not _enthalpy_mode and (zone_config is None or cfg['z_axis'] == 'continuous') and not _asym_2d
                      and _pA.name in ('air', 'water') and _pB.name in ('air', 'water'))
     _split_A_2d = cfg['thermal_geometry']['split_A']
     _epsfac_A = 2.0 * _split_A_2d            # ε_A / (ε/2)

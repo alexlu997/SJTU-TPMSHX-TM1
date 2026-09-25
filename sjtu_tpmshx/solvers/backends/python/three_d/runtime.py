@@ -580,37 +580,33 @@ def build_problem(cfg, prepared, *, control: RunControl = RunControl()):
         cp_A = prepared['properties']['A']['cp']
         k_A = prepared['properties']['A']['k']
 
-    # D-F surrogate. SIMPLE3D K_arr/cF_arr shape = (Ny_sA, Nz) where Ny_sA
-    # is the solver streamwise axis = N_stream in real coords.
-    # If zones enabled: per-cell K/cF via 2D grid zones broadcast over z.
+    # Spatial designs retain every prepared coefficient in each side's
+    # SIMPLE coordinates. Means below are pressure-startup hints only.
     zone_cells = cfg.get('zone_grid_cells')
+    spatial_design = bool(zone_cells or cfg.get('continuous_field'))
     _df_mode = cfg.get('df_mode', 'cfd_smooth')
-    if _df_mode == 'experimental' and zone_cells:
+    if _df_mode == 'experimental' and spatial_design and not cfg.get('continuous_field'):
         raise ValueError(
             "experimental calibration currently requires uniform L/t; zoned "
             "geometry remains available in CFD smooth-wall mode")
     L_mm_field = None      # (Nx, Ny, Nz) for vis; None → uniform Lcell later
     t_field_3d = None      # per-cell wall thickness
     eps_field_3d = None    # per-cell porosity if zoned
-    if zone_cells:
+    if spatial_design:
         L_mm_field = prepared['design']['L_field_m'] * 1e3
         t_field_3d = prepared['design']['t_field_m'] * 1e3
         eps_field_3d = prepared['design']['eps_arr']
         K_field_3d, cF_field_3d = prepared['design']['K_m2'], prepared['design']['cF_per_m']
-        # Real → solver coord permutation (inverse equals same tuple for 2-swaps),
-        # then mean over solver Nx axis (cross1) → (N_stream, N_cross2) for K_arr.
+        # Real → solver coordinates; SIMPLE always advances from local j=0.
         K_sol = K_field_3d.transpose(solver_to_real_perm)
         cF_sol = cF_field_3d.transpose(solver_to_real_perm)
-        K_A_arr = np.ascontiguousarray(K_sol.mean(axis=0))
-        cF_A_arr = np.ascontiguousarray(cF_sol.mean(axis=0))
-        K_pred = float(K_A_arr.mean())
-        cF_pred = float(cF_A_arr.mean())
-        # SIMPLE always advances from local j=0. Reflect the projected rows
-        # for negative real flow, after preserving the existing global mean.
+        K_pred = float(K_field_3d.mean())
+        cF_pred = float(cF_field_3d.mean())
         if is_reverse:
-            K_A_arr = np.ascontiguousarray(K_A_arr[::-1])
-            cF_A_arr = np.ascontiguousarray(cF_A_arr[::-1])
-        _log.info(f"[3D zones] using {len(zone_cells)} zone cells; "
+            K_sol, cF_sol = K_sol[:, ::-1, :], cF_sol[:, ::-1, :]
+        K_A_arr = np.ascontiguousarray(K_sol)
+        cF_A_arr = np.ascontiguousarray(cF_sol)
+        _log.info("[3D spatial design] using full local fields; "
                   f"K range [{K_field_3d.min():.2e}, {K_field_3d.max():.2e}]")
         # Zoned path is a uniform-only-δ exception: no asymmetric split here.
         K_pred_B, cF_pred_B = K_pred, cF_pred
@@ -712,8 +708,16 @@ def build_problem(cfg, prepared, *, control: RunControl = RunControl()):
         L_stream_B = axis_map_B['L_stream']
         dcross2_B = axis_map_B['dcross2']
         perm_B = axis_map_B['solver_to_real_perm']
-        K_B_arr = np.full((N_stream_B, N_cross2_B), K_pred_B)
-        cF_B_arr = np.full((N_stream_B, N_cross2_B), cF_pred_B)
+        if spatial_design:
+            K_B_arr = K_field_3d.transpose(perm_B)
+            cF_B_arr = cF_field_3d.transpose(perm_B)
+            if axis_map_B['is_reverse']:
+                K_B_arr, cF_B_arr = K_B_arr[:, ::-1, :], cF_B_arr[:, ::-1, :]
+            K_B_arr = np.ascontiguousarray(K_B_arr)
+            cF_B_arr = np.ascontiguousarray(cF_B_arr)
+        else:
+            K_B_arr = np.full((N_stream_B, N_cross2_B), K_pred_B)
+            cF_B_arr = np.full((N_stream_B, N_cross2_B), cF_pred_B)
         if _df_mode == 'experimental':
             with range_context(side='B', stage='df-application', layout='scalar'):
                 K_B_arr, cF_B_arr, _df_meta_B = apply_prepared_correction(
@@ -1030,39 +1034,21 @@ def _build_hv_machinery(prob: _Problem3D):
                                         g['A_0'], g['D_h'], tpms_type, Lcell,
                                         sco2_nu=cfg.get('sco2_nu'), observation=observation)
         rho, mu, k_f, Pr_f = _fluid_transport_props(fluid_type, T_side, P_side)
-        if L_fld is None:
-            g = cfg['thermal_geometry']['uniform']
-            A_0 = g['A_0']; D_h_m = g['D_h']
-            D_h_mm = D_h_m * 1000.0
-            Re_loc = rho * u_abs * D_h_m / mu
-            record_raw_nu_range(fluid_type, tpms_type, Re_loc)
-            _m = fluid_props.get(fluid_type, sco2_nu=cfg.get('sco2_nu'))
-            _Pr = (None if _m.compressible
-                   else float(Pr_f if Pr_f is not None else 7.0))
-            Nu_loc = local_nusselt(_m, tpms_type, Re_loc,
-                                   g['epsilon'] / 2.0, Lcell, D_h_mm, _Pr)
-            H_sf_loc = Nu_loc * k_f / D_h_m
-            return A_0 * H_sf_loc
-        # Zoned (L,t): consume the prepared per-cell geometry.
-        out = np.empty((Nx, Ny, Nz), dtype=np.float64)
-        raw_Re = np.empty_like(out)
-        for i in range(Nx):
-            for j in range(Ny):
-                for k in range(Nz):
-                    L_ij = float(L_fld[i, j, k])
-                    g = {key: value[i, j, k] for key, value in cfg['thermal_geometry']['fields'].items()}
-                    D_h_m_l = g['D_h']
-                    Re_l = rho * float(u_abs[i,j,k]) * D_h_m_l / mu
-                    raw_Re[i, j, k] = Re_l
-                    # single-stream: ε_f = ε/2
-                    with range_context(layout='scalar-zoned-call'):
-                        Nu_l = _nu_for_fluid(
-                            fluid_type, Re_l, g['epsilon'] / 2.0,
-                            L_ij, D_h_m_l * 1000.0, Pr_f,
-                        )
-                    out[i,j,k] = g['A_0'] * Nu_l * k_f / D_h_m_l
-        record_raw_nu_range(fluid_type, tpms_type, raw_Re)
-        return out
+        # Use the same vectorized closure and arithmetic order for uniform
+        # and spatial geometry; only the prepared geometry's shape differs.
+        g = cfg['thermal_geometry']['uniform' if L_fld is None else 'fields']
+        A_0 = g['A_0']; D_h_m = g['D_h']
+        D_h_mm = D_h_m * 1000.0
+        Re_loc = rho * u_abs * D_h_m / mu
+        record_raw_nu_range(fluid_type, tpms_type, Re_loc)
+        _m = fluid_props.get(fluid_type, sco2_nu=cfg.get('sco2_nu'))
+        _Pr = (None if _m.compressible
+               else float(Pr_f if Pr_f is not None else 7.0))
+        Nu_loc = local_nusselt(_m, tpms_type, Re_loc,
+                               g['epsilon'] / 2.0,
+                               Lcell if L_fld is None else L_fld, D_h_mm, _Pr)
+        H_sf_loc = Nu_loc * k_f / D_h_m
+        return A_0 * H_sf_loc
 
     # Per-side h_v geometric multiplier for asymmetric offset-isosurface δ.
     # h_v = A_0·Nu·k/D_h; for δ≠0 each side's (A_0, D_h) shifts. The ratio is

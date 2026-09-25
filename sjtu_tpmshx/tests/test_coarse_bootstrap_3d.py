@@ -166,3 +166,25 @@ def test_bootstrap_rebuilds_rectangles_and_conserves_inlet_mass(monkeypatch):
     assert np.all(fine.v[:, -1, :][~fine.outlet_mask_ij] == 0.)
     np.testing.assert_allclose(np.sum(fine.rho_field[:, 0, :] * fine.eps_field[:, 0, :]
                                * fine.v[:, 0, :] * fine.dx[:, None] * fine.dz[None, :]), target)
+
+
+def test_bootstrap_preserves_local_three_dimensional_drag(monkeypatch):
+    fine = _build_solver()
+    i, j, k = np.indices(fine.P.shape)
+    fine.K_arr = np.ascontiguousarray(1e-7 * (1.0 + 0.1 * i + 0.02 * j + 0.03 * k))
+    fine.cF_arr = np.ascontiguousarray(100.0 + 10.0 * i + 2.0 * j + 3.0 * k)
+    seen = []
+
+    def solve(coarse, **kwargs):
+        seen.append(coarse)
+        for local in np.ndindex(coarse.P.shape):
+            block = tuple(slice(2 * n, 2 * n + 2) for n in local)
+            assert coarse.K_arr[local] == pytest.approx(fine.K_arr[block].mean())
+            assert coarse.cF_arr[local] == pytest.approx(fine.cF_arr[block].mean())
+        assert np.ptp(coarse.K_arr[:, 0, 0]) > 0.0
+        coarse.residuals = [0.01]
+        return False, 1
+
+    monkeypatch.setattr(SIMPLESolver3D, 'solve', solve)
+    info = bootstrap_simple_3d(fine, max_iter_coarse=1)
+    assert len(seen) == 1 and info['applied'] and not info['coarse_converged']

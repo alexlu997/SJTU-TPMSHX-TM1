@@ -225,10 +225,8 @@ def test_local_hv_records_full_raw_field_and_preserves_values(monkeypatch, fluid
     raw = records[('nu_raw', fluid, prob.tpms_type, shape, labels)]
     assert raw.size == velocity.size
     assert raw.minimum[1] == (0, 0, 0) and 0 < raw.minimum[0] < 1.
-    source_shape = () if zoned else shape
-    source_labels = ('A', 'main', 'scalar-zoned-call') if zoned else labels
-    source = records[('nu', fluid, prob.tpms_type, source_shape, source_labels)]
-    assert source.size == (1 if zoned else velocity.size)
+    source = records[('nu', fluid, prob.tpms_type, shape, labels)]
+    assert source.size == velocity.size
     assert source.minimum[0] == 1.
 
 

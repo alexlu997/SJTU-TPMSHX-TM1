@@ -20,6 +20,10 @@ def _check_zoned_fluid_support(compute_cfg: ComputeConfig) -> None:
     """
     if not getattr(compute_cfg.zones, 'enabled', False):
         return
+    if compute_cfg.zones.axis == 'continuous':
+        # The spline path builds geometry and fluid conductivity separately.
+        # Legacy rectangles/stripes below still use air-only property builders.
+        return
     fA = compute_cfg.fluid_A.type
     fB = compute_cfg.fluid_B.type
     if fA != 'air' or fB != 'air':
@@ -49,7 +53,22 @@ def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None):
         z_axis = compute_cfg.zones.axis
         P_in_val = compute_cfg.fluid_A.P_in_Pa
         P_inB = compute_cfg.fluid_B.P_in_Pa
-        if z_axis == 'grid':
+        if z_axis == 'continuous':
+            from sjtu_tpmshx.models.continuous_field import from_decision_vector
+            from sjtu_tpmshx.models import fluid_props
+            spec = dict(compute_cfg.zones.config)
+            field = from_decision_vector(spec.pop('x_decision'), tpms_type, k_s, L, H, **spec)
+            lfield, tfield = field.evaluate_grid(N_x, N_y, dx_arr, dy_arr)
+            eps, solid, radius = (np.empty((N_x, N_y)) for _ in range(3))
+            for index in np.ndindex(eps.shape):
+                local = tpms_geometry(tpms_type, float(lfield[index]), float(tfield[index]), k_s)
+                eps[index], solid[index], radius[index] = local['epsilon'], local['K_ss'], local['D_h'] / 2.
+            za = dict(axis='continuous', L_field=lfield, t_field=tfield,
+                      eps_arr=eps, eps_f_arr=eps / 2., K_ss_arr=solid, r_h_arr=radius)
+            for side, fluid in (('A', compute_cfg.fluid_A), ('B', compute_cfg.fluid_B)):
+                za['K_ff' + side + '_arr'] = eps * float(fluid_props.get(fluid.type).k(fluid.T_in_K, fluid.P_in_Pa))
+            zone_config = 'continuous'
+        elif z_axis == 'grid':
             grid = compute_cfg.zones.grid
             _x_dec = compute_cfg.zones.pareto_x_decision
             if _x_dec is not None:
@@ -181,6 +200,8 @@ def _parse_inputs_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
         'Lcell': Lcell, 't_wall': t_wall, 'k_s': k_s,
         'eps': eps, 'r_h': r_h,
         'zone_config': zone_config, 'za': za, 'z_axis': z_axis,
+        'continuous_field': (dict(compute_cfg.zones.config)
+                             if compute_cfg.zones.enabled and z_axis == 'continuous' else None),
         'fluid_A': fluid_A, 'fluid_B': fluid_B,
         'warnings_list': warnings_list,
         'extrap_reasons': extrap_reasons,
@@ -215,7 +236,7 @@ def _prepare_grid(cfg):
     # refinement would conflict with inlet/outlet boundary alignment.
     _wall_refine_gui = (
         len(_x_breaks) == 0 and len(_y_breaks) == 0
-        and zone_config is None and za is None
+        and (zone_config is None or cfg['z_axis'] == 'continuous')
     )
     if cfg['compute_cfg'].flags.port_wall_refine:
         from sjtu_tpmshx.models.grid import build_port_wall_grid
@@ -264,13 +285,17 @@ def _prepare_grid(cfg):
 
 
 def _prepare_flow_inputs(cfg, dx, dy):
-    """Resolve the existing full-mode row drag once on the physical grid."""
-    from sjtu_tpmshx.df_surrogate.predict import predict_K_cF, SCO2_DF_METHOD
+    """Freeze full local spline drag or the existing legacy row model."""
+    from sjtu_tpmshx.df_surrogate.predict import predict_K_cF, predict_K_cF_vec, SCO2_DF_METHOD
     from sjtu_tpmshx.df_surrogate.experimental_correction import apply_correction, cfd_metadata
     from sjtu_tpmshx.models.df_projection import project_fields_to_streamwise_K_cF
     tpms, cell, wall, eps = (cfg[k] for k in ('tpms_type', 'Lcell', 't_wall', 'eps'))
     base_K, base_cF = predict_K_cF(tpms, cell, wall, .5 * eps, method=SCO2_DF_METHOD)
     za = cfg['za']
+    continuous = cfg['z_axis'] == 'continuous' and za is not None
+    if continuous:
+        local_K, local_cF = predict_K_cF_vec(
+            tpms, za['L_field'], za['t_field'], za['eps_f_arr'], method=SCO2_DF_METHOD)
     result = {}
     for side in ('A', 'B'):
         direction = cfg['cfg' + side]['dir']
@@ -279,7 +304,15 @@ def _prepare_flow_inputs(cfg, dx, dy):
         stream = stream[::-1].copy() if direction in (1, 3) else stream.copy()
         count = len(stream)
         K, cF = np.full(count, base_K), np.full(count, base_cF)
-        if za is not None:
+        if continuous:
+            K_field, cF_field = ((value.T.copy() if is_x else value.copy())
+                                for value in (local_K, local_cF))
+            if direction in (1, 3):
+                K_field, cF_field = K_field[:, ::-1].copy(), cF_field[:, ::-1].copy()
+            # Rows only seed the initial pressure estimate; momentum consumes
+            # the complete fields through SIMPLE's existing local override.
+            K, cF = K_field.mean(axis=0), cF_field.mean(axis=0)
+        elif za is not None:
             # Discrete rectangles, stripes and continuous designs share the
             # same physical L/t cells used by thermal preparation. Preserve
             # the row model: transverse length-average L/t, then predict drag.
@@ -292,12 +325,24 @@ def _prepare_flow_inputs(cfg, dx, dy):
             with range_context(side=side, stage='prepared-df', layout='solver-row'):
                 seed_K, seed_cF, metadata = apply_correction(
                     tpms, cfg['fluid_' + side], cell, wall, base_K, base_cF,
-                    u_mps=abs(float(cfg['u_' + side])))
-            K[:], cF[:] = seed_K, seed_cF
+                    u_mps=abs(float(cfg['u_' + side])), allow_hx_extrapolation=continuous)
+            if continuous:
+                from sjtu_tpmshx.df_surrogate.experimental_correction import apply_prepared_correction
+                K_field, cF_field, metadata = apply_prepared_correction(K_field, cF_field, metadata)
+                K, cF = K_field.mean(axis=0), cF_field.mean(axis=0)
+                metadata.update(
+                    geometry_application='continuous-field-extrapolation',
+                    reference_geometry_mm={'L': cell, 't': wall},
+                    application_scope='Exploratory continuous L/t trend prediction using '
+                                      'frozen uniform-HX factors; gradient accuracy unvalidated')
+            else:
+                K[:], cF[:] = seed_K, seed_cF
         else:
-            metadata = cfd_metadata(K, cF)
+            metadata = cfd_metadata(K_field, cF_field) if continuous else cfd_metadata(K, cF)
         result[side] = dict(dx=cross.copy(), dy=stream, K_m2=K, cF_per_m=cF,
                             seed_K_m2=seed_K, seed_cF_per_m=seed_cF, metadata=metadata)
+        if continuous:
+            result[side].update(K_field_m2=K_field, cF_field_per_m=cF_field)
     return result
 
 

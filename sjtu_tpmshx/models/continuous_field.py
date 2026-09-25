@@ -1,23 +1,24 @@
 """
-continuous_field.py — Continuous L(x,y), t(x,y) field parametrization for
+continuous_field.py — Continuous L/t field parametrization in two or three dimensions for
 optimization-friendly TPMS heat-exchanger design.
 
 Replaces the discrete patch-zoning representation (18 patches × {L, t} = 36-D)
 with a low-dimensional control-point representation (4×4 × {L, t} with optional
 Y-mirror = 16-D) interpolated via bicubic B-spline tensor products. Gives:
 
-  * smooth, manufacturable graded-TPMS fields by construction (no patch
-    boundaries, no geometric jumps);
+  * continuous L/t parameter fields without patch jumps; smooth before
+    clipping, which can introduce derivative discontinuities;
   * substantially smaller search space for the optimizer (16-D vs 36-D)
     while remaining expressive enough to describe the physically meaningful
     inlet-dense / outlet-coarse and lateral-graded patterns.
 
-Per-cell TPMS properties (ε, K, h_v, …) are then assembled by querying
-``tpms_calc.compute`` at quantized (L, t) values for caching, and packed into
-the same 2-D-array dict that the SIMPLE solver consumes via
-``ZoneConfig.build_grid_arrays``. This makes ContinuousFieldConfig a drop-in
-substitute on the consumer side — only the producer (the optimizer's decision
-encoding) changes.
+Parameter continuity does not establish explicit TPMS surface connectivity,
+minimum geometric wall thickness, or manufacturability.
+
+The legacy ``build_grid_arrays`` helper assembles quantized per-cell TPMS
+properties in the same two-dimensional format as ``ZoneConfig``. Full-volume
+preparation instead samples explicit XYZ controls with ``evaluate_volume``;
+omitting z controls retains the existing XY representation.
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ import numpy as np
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
-from scipy.interpolate import RectBivariateSpline
+from scipy.interpolate import RectBivariateSpline, make_interp_spline
 
 from . import tpms_calc
 
@@ -50,25 +51,30 @@ DEFAULT_RATIO_BOUNDS = (0.035, 0.20)   # t / L
 
 def decision_dim(n_ctrl_x: int = DEFAULT_N_CTRL_X,
                  n_ctrl_y: int = DEFAULT_N_CTRL_Y,
-                 symmetric_y: bool = DEFAULT_SYMMETRIC_Y) -> int:
+                 symmetric_y: bool = DEFAULT_SYMMETRIC_Y,
+                 *, n_ctrl_z: int | None = None) -> int:
     """Return number of optimizer decision variables for the given layout.
 
     With symmetric_y, only the lower half of the y-axis is stored (rounded
-    up for odd My); the upper half is mirrored at decode time.
+    up for odd My); the upper half is mirrored at decode time. Supplying
+    n_ctrl_z adds that many independently controlled planes in z.
     """
+    for count in (n_ctrl_x, n_ctrl_y) + (() if n_ctrl_z is None else (n_ctrl_z,)):
+        if isinstance(count, (bool, np.bool_)) or not isinstance(count, (int, np.integer)) or count < 2:
+            raise ValueError('Need integer control counts >=2 per axis')
     My_eff = (n_ctrl_y + 1) // 2 if symmetric_y else n_ctrl_y
-    return 2 * n_ctrl_x * My_eff   # ×2 for {L, t}
+    return 2 * n_ctrl_x * My_eff * (1 if n_ctrl_z is None else n_ctrl_z)
 
 
 def decision_bounds(n_ctrl_x: int = DEFAULT_N_CTRL_X,
                     n_ctrl_y: int = DEFAULT_N_CTRL_Y,
                     symmetric_y: bool = DEFAULT_SYMMETRIC_Y,
                     L_bounds: Tuple[float, float] = DEFAULT_L_BOUNDS,
-                    t_bounds: Tuple[float, float] = DEFAULT_T_BOUNDS
+                    t_bounds: Tuple[float, float] = DEFAULT_T_BOUNDS,
+                    *, n_ctrl_z: int | None = None
                     ) -> Tuple[np.ndarray, np.ndarray]:
     """Return (lb, ub) numpy arrays of length decision_dim(...)."""
-    My_eff = (n_ctrl_y + 1) // 2 if symmetric_y else n_ctrl_y
-    n_per_field = n_ctrl_x * My_eff
+    n_per_field = decision_dim(n_ctrl_x, n_ctrl_y, symmetric_y, n_ctrl_z=n_ctrl_z) // 2
     lb = np.concatenate([np.full(n_per_field, L_bounds[0]),
                          np.full(n_per_field, t_bounds[0])])
     ub = np.concatenate([np.full(n_per_field, L_bounds[1]),
@@ -79,17 +85,20 @@ def decision_bounds(n_ctrl_x: int = DEFAULT_N_CTRL_X,
 def decode_decision_vector(x: np.ndarray,
                            n_ctrl_x: int = DEFAULT_N_CTRL_X,
                            n_ctrl_y: int = DEFAULT_N_CTRL_Y,
-                           symmetric_y: bool = DEFAULT_SYMMETRIC_Y
+                           symmetric_y: bool = DEFAULT_SYMMETRIC_Y,
+                           *, n_ctrl_z: int | None = None
                            ) -> Tuple[np.ndarray, np.ndarray]:
-    """Decode flat decision vector → full (Mx, My) control grids for L and t.
+    """Decode flat decisions to (Mx, My) or (Mx, My, Mz) control grids.
 
     Layout: x = [L_unique_flat, t_unique_flat]. Under symmetric_y, the unique
     half is the first ⌈My/2⌉ rows along y; the remaining rows are mirrored
     in place from the half (excluding the seam row when My is odd).
     """
     x = np.asarray(x, dtype=np.float64)
+    if x.ndim != 1 or not np.all(np.isfinite(x)):
+        raise ValueError('decision vector must be one-dimensional and finite')
     My_eff = (n_ctrl_y + 1) // 2 if symmetric_y else n_ctrl_y
-    n_per_field = n_ctrl_x * My_eff
+    n_per_field = decision_dim(n_ctrl_x, n_ctrl_y, symmetric_y, n_ctrl_z=n_ctrl_z) // 2
     expected = 2 * n_per_field
     if x.size != expected:
         raise ValueError(
@@ -97,8 +106,9 @@ def decode_decision_vector(x: np.ndarray,
             f"for layout n_ctrl=({n_ctrl_x},{n_ctrl_y}) symmetric_y={symmetric_y}"
         )
 
-    L_half = x[:n_per_field].reshape(n_ctrl_x, My_eff)
-    t_half = x[n_per_field:].reshape(n_ctrl_x, My_eff)
+    shape = (n_ctrl_x, My_eff) + (() if n_ctrl_z is None else (n_ctrl_z,))
+    L_half = x[:n_per_field].reshape(shape)
+    t_half = x[n_per_field:].reshape(shape)
 
     if symmetric_y:
         # Mirror along y: drop the seam (centre row) when My is odd
@@ -111,14 +121,13 @@ def decode_decision_vector(x: np.ndarray,
         L_full = L_half
         t_full = t_half
 
-    assert L_full.shape == (n_ctrl_x, n_ctrl_y), \
-        f"decode: L_full shape {L_full.shape} != ({n_ctrl_x},{n_ctrl_y})"
     return L_full, t_full
 
 
 def encode_decision_vector(L_ctrl: np.ndarray,
                            t_ctrl: np.ndarray,
-                           symmetric_y: bool = DEFAULT_SYMMETRIC_Y) -> np.ndarray:
+                           symmetric_y: bool = DEFAULT_SYMMETRIC_Y,
+                           *, n_ctrl_z: int | None = None) -> np.ndarray:
     """Inverse of decode_decision_vector — useful for warm-starts / tests.
 
     With symmetric_y, only the lower half is taken; the function does NOT
@@ -127,8 +136,16 @@ def encode_decision_vector(L_ctrl: np.ndarray,
     """
     L_ctrl = np.asarray(L_ctrl, dtype=np.float64)
     t_ctrl = np.asarray(t_ctrl, dtype=np.float64)
+    if (L_ctrl.ndim not in (2, 3) or L_ctrl.shape != t_ctrl.shape
+            or not np.all(np.isfinite(L_ctrl)) or not np.all(np.isfinite(t_ctrl))):
+        raise ValueError('L/t controls must be finite, matching two- or three-dimensional grids')
+    if n_ctrl_z is not None and (L_ctrl.ndim != 3 or L_ctrl.shape[2] != n_ctrl_z):
+        raise ValueError('n_ctrl_z does not match the control grid')
+    decision_dim(*L_ctrl.shape[:2], symmetric_y,
+                 n_ctrl_z=n_ctrl_z if n_ctrl_z is not None else
+                 (L_ctrl.shape[2] if L_ctrl.ndim == 3 else None))
     if symmetric_y:
-        Mx, My = L_ctrl.shape
+        My = L_ctrl.shape[1]
         My_eff = (My + 1) // 2
         return np.concatenate([L_ctrl[:, :My_eff].ravel(),
                                t_ctrl[:, :My_eff].ravel()])
@@ -213,6 +230,19 @@ def props_from_Lt_fields(L_field: np.ndarray, t_field: np.ndarray,
 # ─── ContinuousFieldConfig ──────────────────────────────────────────
 
 
+def _cell_centres(count, length, widths):
+    if isinstance(count, (bool, np.bool_)) or not isinstance(count, (int, np.integer)) or count < 1:
+        raise ValueError('grid counts must be positive integers')
+    if widths is None:
+        return (np.arange(count) + 0.5) * (length / count)
+    widths = np.asarray(widths, dtype=np.float64)
+    if (widths.shape != (count,) or not np.all(np.isfinite(widths) & (widths > 0))
+            or not np.isclose(widths.sum(), length, rtol=1e-12, atol=0.)):
+        raise ValueError('cell widths must be finite, positive and cover the field domain')
+    edges = np.r_[0., np.cumsum(widths)]
+    return 0.5 * (edges[:-1] + edges[1:])
+
+
 @dataclass
 class ContinuousFieldConfig:
     """Continuous spatial field of (L, t) parameters via B-spline interpolation
@@ -222,12 +252,12 @@ class ContinuousFieldConfig:
     ----------
     ctrl_x : (Mx,) array — control x positions [m] sorted, in [0, L_domain]
     ctrl_y : (My,) array — control y positions [m] sorted, in [0, H_domain]
-    L_ctrl : (Mx, My) array — L value at each control point [mm]
-    t_ctrl : (Mx, My) array — t value at each control point [mm]
+    L_ctrl, t_ctrl : (Mx, My) or (Mx, My, Mz) arrays, values in mm
     tpms_type : 'Diamond' | 'Gyroid'
     k_s : solid conductivity [W/(m K)]
     L_domain, H_domain : HX domain size [m]
-    spline_order : 3 = bicubic (default), 1 = bilinear (degenerate fallback)
+    ctrl_z, Lz_domain : optional z controls and domain depth for XYZ fields
+    spline_order : tensor-product degree 1, 2 or 3 (default)
     L_bounds, t_bounds : physical clamps applied after spline evaluation
                          (defensive — splines can overshoot near boundaries)
     """
@@ -243,6 +273,8 @@ class ContinuousFieldConfig:
     spline_order: int = 3
     L_bounds: Tuple[float, float] = DEFAULT_L_BOUNDS
     t_bounds: Tuple[float, float] = DEFAULT_T_BOUNDS
+    ctrl_z: np.ndarray | None = None
+    Lz_domain: float | None = None
 
     def __post_init__(self):
         self.ctrl_x = np.asarray(self.ctrl_x, dtype=np.float64)
@@ -250,25 +282,41 @@ class ContinuousFieldConfig:
         self.L_ctrl = np.asarray(self.L_ctrl, dtype=np.float64)
         self.t_ctrl = np.asarray(self.t_ctrl, dtype=np.float64)
 
-        Mx = self.ctrl_x.size
-        My = self.ctrl_y.size
-        if self.L_ctrl.shape != (Mx, My):
-            raise ValueError(
-                f"L_ctrl shape {self.L_ctrl.shape} != ({Mx},{My})")
-        if self.t_ctrl.shape != (Mx, My):
-            raise ValueError(
-                f"t_ctrl shape {self.t_ctrl.shape} != ({Mx},{My})")
-        if Mx < 2 or My < 2:
-            raise ValueError(
-                f"Need ≥2 control points per axis; got Mx={Mx}, My={My}")
-
-        kx = min(self.spline_order, Mx - 1)
-        ky = min(self.spline_order, My - 1)
-        # RectBivariateSpline requires Mx > kx and My > ky
-        self._L_spline = RectBivariateSpline(
-            self.ctrl_x, self.ctrl_y, self.L_ctrl, kx=kx, ky=ky)
-        self._t_spline = RectBivariateSpline(
-            self.ctrl_x, self.ctrl_y, self.t_ctrl, kx=kx, ky=ky)
+        if (self.ctrl_z is None) != (self.Lz_domain is None):
+            raise ValueError('ctrl_z and Lz_domain must be supplied together')
+        if (isinstance(self.spline_order, (bool, np.bool_))
+                or not isinstance(self.spline_order, (int, np.integer))
+                or self.spline_order not in (1, 2, 3)):
+            raise ValueError('spline_order must be 1, 2 or 3')
+        axes = [(self.ctrl_x, self.L_domain), (self.ctrl_y, self.H_domain)]
+        if self.ctrl_z is not None:
+            self.ctrl_z = np.asarray(self.ctrl_z, dtype=np.float64)
+            axes.append((self.ctrl_z, self.Lz_domain))
+        for nodes, length in axes:
+            if not np.isfinite(length) or length <= 0:
+                raise ValueError('field domain lengths must be finite and positive')
+            if (nodes.ndim != 1 or nodes.size < 2 or not np.all(np.isfinite(nodes))
+                    or not np.all(np.diff(nodes) > 0)
+                    or nodes[0] != 0.0 or nodes[-1] != length):
+                raise ValueError('control axes must increase from zero to the full domain length')
+            if self.ctrl_z is not None and nodes.size <= self.spline_order:
+                raise ValueError('3D fields need more controls per axis than spline_order')
+        shape = tuple(nodes.size for nodes, _ in axes)
+        for values in (self.L_ctrl, self.t_ctrl):
+            if values.shape != shape or not np.all(np.isfinite(values)):
+                raise ValueError(f'L/t controls must be finite arrays of shape {shape}')
+        for bounds in (self.L_bounds, self.t_bounds):
+            if len(bounds) != 2 or not np.all(np.isfinite(bounds)) or not 0 < bounds[0] < bounds[1]:
+                raise ValueError('L/t bounds must be finite, positive and increasing')
+        if self.ctrl_z is None:
+            # Preserve the historical 2D spline, including its lower-order
+            # fallback for small direct-call control grids.
+            kx = min(self.spline_order, self.ctrl_x.size - 1)
+            ky = min(self.spline_order, self.ctrl_y.size - 1)
+            self._L_spline = RectBivariateSpline(
+                self.ctrl_x, self.ctrl_y, self.L_ctrl, kx=kx, ky=ky)
+            self._t_spline = RectBivariateSpline(
+                self.ctrl_x, self.ctrl_y, self.t_ctrl, kx=kx, ky=ky)
 
     # ─── Field evaluation ────────────────────────────────────────────
 
@@ -280,24 +328,51 @@ class ContinuousFieldConfig:
         """Evaluate L, t at cell centers of (Nx, Ny) grid. Returns
         (L_field, t_field) each shape (Nx, Ny), values in mm, clamped.
         """
-        if dx_arr is not None:
-            dx = np.asarray(dx_arr, dtype=np.float64)
-            x_cum = np.concatenate([[0.0], np.cumsum(dx)])
-            xc = 0.5 * (x_cum[:-1] + x_cum[1:])
-        else:
-            xc = (np.arange(Nx) + 0.5) * (self.L_domain / Nx)
-        if dy_arr is not None:
-            dy = np.asarray(dy_arr, dtype=np.float64)
-            y_cum = np.concatenate([[0.0], np.cumsum(dy)])
-            yc = 0.5 * (y_cum[:-1] + y_cum[1:])
-        else:
-            yc = (np.arange(Ny) + 0.5) * (self.H_domain / Ny)
+        if self.ctrl_z is not None:
+            raise ValueError('use evaluate_volume for a three-dimensional control field')
+        xc = _cell_centres(Nx, self.L_domain, dx_arr)
+        yc = _cell_centres(Ny, self.H_domain, dy_arr)
 
         L_field = self._L_spline(xc, yc, grid=True)   # shape (Nx, Ny)
         t_field = self._t_spline(xc, yc, grid=True)
+        # Preserve the exact constant polynomial; spline roundoff must not
+        # turn a uniform reference into a weakly varying coefficient field.
+        if np.all(self.L_ctrl == self.L_ctrl.flat[0]):
+            L_field.fill(self.L_ctrl.flat[0])
+        if np.all(self.t_ctrl == self.t_ctrl.flat[0]):
+            t_field.fill(self.t_ctrl.flat[0])
         np.clip(L_field, self.L_bounds[0], self.L_bounds[1], out=L_field)
         np.clip(t_field, self.t_bounds[0], self.t_bounds[1], out=t_field)
         return L_field, t_field
+
+    def evaluate_volume(self, Nx: int, Ny: int, Nz: int,
+                        dx_arr: Optional[np.ndarray] = None,
+                        dy_arr: Optional[np.ndarray] = None,
+                        dz_arr: Optional[np.ndarray] = None
+                        ) -> Tuple[np.ndarray, np.ndarray]:
+        """Sample true XYZ fields at physical cell centres; return mm arrays.
+
+        Tensor-product interpolation supports linear, quadratic and cubic
+        orders. Old XY inputs continue to use evaluate_grid explicitly.
+        """
+        if self.ctrl_z is None:
+            raise ValueError('evaluate_volume requires ctrl_z and Lz_domain')
+        centres = (_cell_centres(Nx, self.L_domain, dx_arr),
+                   _cell_centres(Ny, self.H_domain, dy_arr),
+                   _cell_centres(Nz, self.Lz_domain, dz_arr))
+        fields = []
+        for values, bounds in ((self.L_ctrl, self.L_bounds), (self.t_ctrl, self.t_bounds)):
+            if np.all(values == values.flat[0]):
+                sampled = np.full((Nx, Ny, Nz), values.flat[0], dtype=np.float64)
+            else:
+                sampled = values
+                for axis, (nodes, points) in enumerate(zip(
+                        (self.ctrl_x, self.ctrl_y, self.ctrl_z), centres)):
+                    sampled = make_interp_spline(nodes, sampled, k=self.spline_order,
+                                                  axis=axis)(points)
+            np.clip(sampled, *bounds, out=sampled)
+            fields.append(np.ascontiguousarray(sampled))
+        return tuple(fields)
 
     # ─── Per-cell property assembly ──────────────────────────────────
 
@@ -366,15 +441,7 @@ class ContinuousFieldConfig:
 
         L = self.L_ctrl
         L_avg = float(L.mean())
-        if L.shape[0] > 1:
-            dLx = np.abs(np.diff(L, axis=0)).max()
-        else:
-            dLx = 0.0
-        if L.shape[1] > 1:
-            dLy = np.abs(np.diff(L, axis=1)).max()
-        else:
-            dLy = 0.0
-        grad_max = max(dLx, dLy)
+        grad_max = max(np.abs(np.diff(L, axis=axis)).max() for axis in range(L.ndim))
         if grad_max > grad_threshold * L_avg:
             pen += weight_grad * (grad_max - grad_threshold * L_avg)
 
@@ -401,14 +468,21 @@ def from_decision_vector(x: np.ndarray,
                          symmetric_y: bool = DEFAULT_SYMMETRIC_Y,
                          spline_order: int = 3,
                          L_bounds: Tuple[float, float] = DEFAULT_L_BOUNDS,
-                         t_bounds: Tuple[float, float] = DEFAULT_T_BOUNDS
+                         t_bounds: Tuple[float, float] = DEFAULT_T_BOUNDS,
+                         *, Lz_domain: float | None = None,
+                         n_ctrl_z: int | None = None
                          ) -> ContinuousFieldConfig:
     """Build a ContinuousFieldConfig from a flat optimizer decision vector.
 
     Control point positions are equispaced along each axis covering the full
-    [0, L_domain] × [0, H_domain] domain.
+    [0, L_domain] × [0, H_domain] domain, with [0, Lz_domain] when n_ctrl_z
+    is supplied. Decisions flatten each control grid in C order: z varies
+    fastest for XYZ grids, followed by y and x.
     """
-    L_ctrl, t_ctrl = decode_decision_vector(x, n_ctrl_x, n_ctrl_y, symmetric_y)
+    if (n_ctrl_z is None) != (Lz_domain is None):
+        raise ValueError('n_ctrl_z and Lz_domain must be supplied together')
+    L_ctrl, t_ctrl = decode_decision_vector(x, n_ctrl_x, n_ctrl_y, symmetric_y,
+                                           n_ctrl_z=n_ctrl_z)
     ctrl_x = np.linspace(0.0, L_domain, n_ctrl_x)
     ctrl_y = np.linspace(0.0, H_domain, n_ctrl_y)
     return ContinuousFieldConfig(
@@ -418,6 +492,8 @@ def from_decision_vector(x: np.ndarray,
         L_domain=L_domain, H_domain=H_domain,
         spline_order=spline_order,
         L_bounds=L_bounds, t_bounds=t_bounds,
+        ctrl_z=None if n_ctrl_z is None else np.linspace(0.0, Lz_domain, n_ctrl_z),
+        Lz_domain=Lz_domain,
     )
 
 

@@ -57,10 +57,13 @@ def test_gci_tolerance_failures_control_exit(tmp_path, monkeypatch, values, conv
 
 def _shanghai_row(index):
     return dict(case=index + 1, pressure_state_valid=1, pressure_clip_hits=0,
+                df_mode='experimental',
                 converged=True, grid_nx=8, grid_ny=4, grid_nz=3,
                 outer_converged=True, outer_iters=1, Q_net_rel=0., mass_rel_A=0.,
                 dP_exp=100., dP_sim=101., Q_exp=100., Q_sim=101.,
-                **{'err_dP%': 1., 'err_Q%': 1.})
+                dP_water_exp=10., dP_water_sim=20., Q_water_exp=90., Q_water_sim=99.,
+                Q_status='available', dP_A_status='available', dP_B_status='available',
+                **{'err_dP%': 1., 'err_Q%': 1., 'err_dP_water%': 100., 'err_Q_water%': 10.})
 
 
 @pytest.mark.parametrize('damage', ['nonfinite', 'invalid', 'unconverged', 'exception', 'recovered_clip', 'none'])
@@ -68,6 +71,7 @@ def test_shanghai_failed_members_remain_in_separate_output(tmp_path, monkeypatch
     monkeypatch.setattr(shanghai, 'load_cases_df', lambda *a: pd.DataFrame([{}, {}]))
 
     def run(index, *args, **kw):
+        assert kw['df_mode'] == 'experimental'
         row = _shanghai_row(index)
         if index == 1:
             if damage == 'nonfinite': row['err_Q%'] = np.nan
@@ -78,10 +82,13 @@ def test_shanghai_failed_members_remain_in_separate_output(tmp_path, monkeypatch
         return row
 
     monkeypatch.setattr(shanghai, '_run_one_case_pipeline', run)
-    code = shanghai.main(['--cases', '2', '--out-dir', str(tmp_path)])
+    code = shanghai.main(['--cases', '2', '--df-mode', 'experimental', '--out-dir', str(tmp_path)])
     assert code == (0 if damage in ('none', 'recovered_clip') else 1)
     rows = pd.read_csv(tmp_path / 'shanghai_3d_baseline.csv', comment='#')
     assert rows['case'].tolist() == [1, 2]
+    assert rows.loc[0, 'err_dP_water%'] == 100.  # Additional diagnostics do not change old gates.
+    assert rows.loc[0, 'Q_water_exp'] == 90.
+    assert rows.loc[0, 'df_mode'] == 'experimental'
     if damage == 'exception': assert 'injected solve failure' in rows.loc[1, 'error']
     if damage == 'recovered_clip': assert rows.loc[1, 'pressure_clip_hits'] == 7
 
