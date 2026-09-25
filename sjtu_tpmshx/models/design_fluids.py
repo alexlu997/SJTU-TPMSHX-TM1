@@ -40,6 +40,7 @@ def fluid_props(fluid: str, T_K: float, P_Pa: float) -> Props:
     # Absolute pressure enters air density and sCO2 properties. Current water
     # property primitives and the other air correlations depend on T only.
     m = _registry.get(fluid)            # raises ValueError on unknown
+    _registry.check_water_state(m.name, T_K, P_Pa, where='quick-design properties')
     rho = m.rho(T_K, P_Pa); mu = m.mu(T_K, P_Pa)
     k = m.k(T_K, P_Pa); cp = m.cp(T_K, P_Pa)
     return Props(rho, mu, k, cp, mu * cp / k)

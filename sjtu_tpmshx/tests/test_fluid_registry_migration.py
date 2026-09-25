@@ -77,8 +77,8 @@ def test_nu_water_topo_matches_retired_formula(topo, Re):
 
 def test_design_fluids_adapter_equivalence():
     from sjtu_tpmshx.models.design_fluids import fluid_props as design_props, fluid_nu, nu_re_window
-    for f in ('air', 'water'):
-        for T in _TEMPS:
+    for f, temperatures in (('air', _TEMPS), ('water', (300.0, 370.0))):
+        for T in temperatures:
             p = design_props(f, T, 192362.0)
             m = fluid_props.get(f)
             rho_ref = m.rho(T, 192362.0) if m.compressible else m.rho(T)
@@ -87,6 +87,8 @@ def test_design_fluids_adapter_equivalence():
             assert p.k == m.k(T)
             assert p.cp == m.cp(T)
             assert p.Pr == p.mu * p.cp / p.k
+    with pytest.raises(fluid_props.WaterStateError):
+        design_props('water', 422.0, 192362.0)
     assert nu_re_window('water') == WATER_NU_RE_RANGE
     # water fluid_nu: design Pr convention (320 K, 2e5 Pa) preserved
     pw = design_props('water', 320.0, 2e5)
