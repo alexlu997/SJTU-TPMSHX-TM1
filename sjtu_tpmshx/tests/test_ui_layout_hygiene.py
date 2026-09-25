@@ -532,8 +532,7 @@ def test_optimize_inline_params_complete(win):
     """Page-1 inline params carry every key the launch path consumes —
     the modal dialog is only the fallback for hosts without the wizard."""
     keys = set(win._opt_inline_params)
-    budget = 'max_outer_3d' if win.combo_dim.currentIndex() == 1 else 'n_rho_loops'
-    assert keys == {'n_init', 'n_iter', 'q_batch', 'seed', budget}
+    assert keys == {'n_init', 'n_iter', 'q_batch', 'seed'}
     for sp in win._opt_inline_params.values():
         assert sp.value() > 0 or sp.value() == 0   # constructed + in range
 

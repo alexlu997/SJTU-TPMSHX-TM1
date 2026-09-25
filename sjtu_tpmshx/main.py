@@ -795,12 +795,13 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             pass
         # 3. PyVistaQt GL context teardown — must happen before Qt
         #    destroys child widgets, otherwise vtkRenderWindow leaks.
-        panel = getattr(self, 'canvas_3d', None)
-        if panel is not None:
-            try:
-                panel.cleanup()
-            except Exception:
-                pass
+        for name in ('canvas_3d', 'canvas_opt_3d'):
+            panel = getattr(self, name, None)
+            if panel is not None:
+                try:
+                    panel.cleanup()
+                except Exception:
+                    pass
         # 5. Bulk-disconnect router-tracked signal connections.
         try:
             if getattr(self, 'signals', None) is not None:

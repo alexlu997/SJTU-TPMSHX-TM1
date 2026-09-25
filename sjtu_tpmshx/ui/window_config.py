@@ -338,6 +338,10 @@ def _read_zone_input(window) -> 'ZoneInputConfig':
     """
     chk = getattr(window, 'chk_zones', None)
     enabled = bool(chk is not None and getattr(chk, 'isChecked', lambda: False)())
+    continuous = getattr(window, '_continuous_field_spec', None)
+    if enabled and continuous is not None:
+        return ZoneInputConfig(enabled=True, axis='continuous',
+                               config=deepcopy(continuous)).validate()
     axis: ZoneAxis = 'y'
     combo = getattr(window, 'combo_zone_axis', None)
     if combo is not None:
@@ -455,6 +459,8 @@ def config_from_window(window, *, strict: bool = False,
     bc_A = _read_partial_bc(window, 'A', is_3d=is_3d)
     bc_B = _read_partial_bc(window, 'B', is_3d=is_3d)
     zones = _read_zone_input(window)
+    if zones.enabled and zones.axis == 'continuous' and ('n_ctrl_z' in zones.config) != is_3d:
+        raise ValueError('Continuous field dimension differs from the current case; restore the original dimension or clear the field')
     flags = _read_feature_flags(window)
     extrap = _read_extrap_policy(window)
 

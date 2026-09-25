@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
 )
 
-from .theme import get_theme
+from .theme import FIELD_CMAP, get_theme
 from .matplotlib_canvas import MatplotlibCanvas
 
 
@@ -308,7 +308,7 @@ class SensitivityDialog(QDialog):
         self._grid_axes = ax
         ax.set_facecolor(t['ax_bg'])
 
-        im = ax.pcolormesh(xs, ys, grid, shading='nearest', cmap='viridis')
+        im = ax.pcolormesh(xs, ys, grid, shading='nearest', cmap=FIELD_CMAP)
         try:
             levels = np.linspace(np.nanmin(grid), np.nanmax(grid), 8)
             ax.contour(xs, ys, grid, levels=levels, colors='white',

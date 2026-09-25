@@ -1069,14 +1069,20 @@ def test_both_import_entries_reject_unknown_format_without_changing_input(
     assert len(errors) == 1 and 'Unsupported configuration format' in errors[0][2]
 
 
+def _study_front(X, F):
+    return dict(status='completed', reason=None, method='qlognehvi',
+        history=[dict(x_decision=list(x), status='completed',
+                      objectives=dict(heat_gain_percent=-f[0], pressure_ratio=f[1]))
+                 for x, f in zip(X, F)], pareto_indices=list(range(len(X))),
+        n_evaluated=len(X), n_usable=len(X))
+
+
 def test_pareto_figure_copy_export_survives_field_result_then_clears_on_empty(
         tmp_path, monkeypatch, win):
     from PySide6.QtGui import QGuiApplication
     from sjtu_tpmshx.ui import optimize_panel
     from sjtu_tpmshx.ui.mixins import io_actions
-    front = {'X': np.array([[.5, .6], [.3, .7]]),
-             'F': np.array([[-8000., 12000.], [-9000., 15000.]]),
-             'n_evals': 2}
+    front = _study_front([[.5, .6], [.3, .7]], [[-8., .8], [-9., 1.1]])
     win.cache.clear()
     win.btn_export.setEnabled(False)
     optimize_panel.show_pareto(win, front)
@@ -1104,7 +1110,7 @@ def test_pareto_figure_copy_export_survives_field_result_then_clears_on_empty(
                                 lambda *a, **kw: (str(path), 'PNG (*.png)'))
             menu_actions['导出图像 — PNG / SVG / PDF'].trigger()
             assert 'Pareto / 优化' in calls[0] and path.is_file()
-        optimize_panel.show_pareto(win, dict(front, F=np.empty((0, 2)), X=np.empty((0, 2))))
+        optimize_panel.show_pareto(win, dict(front, pareto_indices=[]))
         win._copy_figure_clipboard()
         assert '当前无可复制' in win.statusBar().currentMessage()
         choices = []
@@ -1114,7 +1120,7 @@ def test_pareto_figure_copy_export_survives_field_result_then_clears_on_empty(
         assert choices and 'Pareto / 优化' not in choices[0]
         assert win.btn_export.isEnabled()  # Field results remain exportable.
         win.cache.clear()
-        optimize_panel.show_pareto(win, dict(front, F=np.empty((0, 2)), X=np.empty((0, 2))))
+        optimize_panel.show_pareto(win, dict(front, pareto_indices=[]))
         assert not win.btn_export.isEnabled()
     finally:
         win.cache.clear()
@@ -1123,50 +1129,108 @@ def test_pareto_figure_copy_export_survives_field_result_then_clears_on_empty(
 
 def test_continuous_field_preview_button_shows_and_exports_after_preset_load(
         win, monkeypatch, tmp_path):
+    from PIL import Image
     from PySide6.QtWidgets import QPushButton
     from PySide6.QtGui import QGuiApplication
     from sjtu_tpmshx.ui.mixins import io_actions
     win._load_named_preset('Shanghai (2D Gyroid)')
+    win.cache.clear()
+    win._pareto_X = win._pareto_F = None
+    win.canvas_opt_field.figure.clear()
+    geometry_axes = tuple(win.canvas_layout.figure.axes)
     win.show()
     try:
         win._switch_tab('pareto')
         preview = next(button for button in win.findChildren(QPushButton)
                        if '预览连续场' in button.text())
         preview.click()
-        assert win._active_tab == 'layout'
-        assert win._canvas_cards['layout'].isVisible()
-        assert not win._empty_state_label.isVisible()
-        assert win.cache.is_drawn('layout') and win.btn_export.isEnabled()
-        images = [image for axis in win.canvas_layout.figure.axes for image in axis.images]
+        assert win._active_tab == 'pareto'
+        assert win._opt_result_tabs.currentWidget() is win.canvas_opt_field
+        assert win.canvas_opt_field.isVisible()
+        assert not win.cache.is_drawn('layout') and win.btn_export.isEnabled()
+        assert tuple(win.canvas_layout.figure.axes) == geometry_axes
+        assert not win._pareto_figure_ready() and win._opt_field_figure_ready()
+        images = [image for axis in win.canvas_opt_field.figure.axes for image in axis.images]
         assert len(images) == 2 and all(np.isfinite(im.get_array()).all() for im in images)
         QGuiApplication.clipboard().clear()
         win._copy_figure_clipboard()
         assert not QGuiApplication.clipboard().image().isNull()
+        assert '已复制 opt_field' in win.statusBar().currentMessage()
+        # A later Compute preset is not the source of this retained field figure.
+        win._load_named_preset('Shanghai (3D Diamond)')
+        assert win._opt_field_figure_ready()
         path = tmp_path / 'continuous-field-preview.png'
-        choices = iter([('几何布局', True), ('150 (screen)', True)])
-        monkeypatch.setattr(io_actions.QInputDialog, 'getItem', lambda *a: next(choices))
+        options = []
+        def choose(*args):
+            options.append(args[3])
+            return ('优化尺寸/壁厚场', True) if len(options) == 1 else ('150 (screen)', True)
+        monkeypatch.setattr(io_actions.QInputDialog, 'getItem', choose)
         monkeypatch.setattr(io_actions.QFileDialog, 'getSaveFileName',
                             lambda *a: (str(path), 'PNG (*.png)'))
         win._export_figure()
         assert path.is_file()
+        assert options[0] == ['优化尺寸/壁厚场']
+        with Image.open(path) as picture:
+            assert picture.info['Title'] == 'SJTU-TPMSHX opt_field'
+            assert 'Subject' not in picture.info
     finally:
+        win.canvas_opt_field.figure.clear()
+        win.cache.clear()
+        win._refresh_export_button()
         win.hide()
 
 
+def test_optimization_copy_uses_selected_result_tab_and_rejects_empty_field(win, monkeypatch):
+    from PySide6.QtGui import QColor, QGuiApplication, QPixmap
+    from sjtu_tpmshx.ui import optimize_panel
+    from sjtu_tpmshx.ui.mixins import io_actions
+    win._load_named_preset('Shanghai (2D Gyroid)')
+    win.cache.clear()
+    front = _study_front([[.5, .6]], [[-1., .8]])
+    optimize_panel.show_pareto(win, front)
+    optimize_panel.show_field_preview(win)
+    monkeypatch.setattr(win, '_active_tab', 'pareto')
+    clipboard = QGuiApplication.clipboard()
+    try:
+        for canvas, color in ((win.canvas_pareto, '#4488cc'), (win.canvas_opt_field, '#dd6633')):
+            pixmap = QPixmap(8, 8)
+            pixmap.fill(QColor(color))
+            monkeypatch.setattr(canvas, 'grab', lambda p=pixmap: p)
+            win._opt_result_tabs.setCurrentWidget(canvas)
+            clipboard.clear()
+            win._copy_figure_clipboard()
+            assert clipboard.image().pixelColor(0, 0).name() == color
+        win.canvas_opt_field.figure.clear()
+        clipboard.clear()
+        win._copy_figure_clipboard()
+        assert clipboard.image().isNull()
+        assert '当前无可复制' in win.statusBar().currentMessage()
+        choices = []
+        monkeypatch.setattr(io_actions.QInputDialog, 'getItem',
+                            lambda *a: (choices.append(a[3]) or ('', False)))
+        win._export_figure()
+        assert choices == [['Pareto / 优化']]
+        win._pareto_X = win._pareto_F = None
+        win._refresh_export_button()
+        assert not win.btn_export.isEnabled()
+    finally:
+        win._pareto_X = win._pareto_F = None
+        win.canvas_opt_field.figure.clear()
+        win._opt_result_tabs.setCurrentWidget(win.canvas_pareto)
+        win._refresh_export_button()
+
+
 @pytest.mark.parametrize('depth', ['invalid', '0', '-0.01'])
-def test_optimization_only_validates_depth_in_3d(win, depth):
+def test_optimization_validates_explicit_2d_flow_conversion_depth(win, depth):
     from sjtu_tpmshx.ui.optimize_panel import _gather_cfg
-    from sjtu_tpmshx.optimization.evaluator_3d import DEFAULT_CONFIG_3D
     win._load_named_preset('Shanghai (2D Gyroid)')
     win.le_Lz.setText(depth)
     assert win.le_Lz.isHidden()
-    cfg = _gather_cfg(win)
-    assert 'Lz' not in cfg
-    win.combo_dim.setCurrentIndex(1)
-    with pytest.raises(ValueError, match='le_Lz'):
-        _gather_cfg(win, base=DEFAULT_CONFIG_3D)
-    win.le_Lz.setText('0.063')
-    assert _gather_cfg(win, base=DEFAULT_CONFIG_3D)['Lz'] == .063
+    assert win._opt_depth.text() == depth
+    with pytest.raises(ValueError, match='2D total-flow depth'):
+        _gather_cfg(win)
+    win.le_Lz.setText('0.042')
+    assert _gather_cfg(win).geometry.Lz_m == .042
 
 
 def test_retained_pareto_export_does_not_take_new_compute_preset_name(
@@ -1175,11 +1239,10 @@ def test_retained_pareto_export_does_not_take_new_compute_preset_name(
     from sjtu_tpmshx.ui import optimize_panel
     from sjtu_tpmshx.ui.mixins import io_actions
     win._load_named_preset('Shanghai (2D Gyroid)')
-    front = {'X': np.ones((2, 16)), 'F': np.array([[-100., 10.], [-200., 20.]]),
-             'n_evals': 2}
+    front = _study_front(np.ones((2, 18)), [[-1., .8], [-2., 1.1]])
     optimize_panel.show_pareto(win, front)
     win._load_named_preset('Shanghai (3D Diamond)')
-    np.testing.assert_array_equal(win._pareto_F, front['F'])
+    np.testing.assert_array_equal(win._pareto_F, [[-1., .8], [-2., 1.1]])
     path = tmp_path / 'retained-pareto.png'
     choices = iter([('Pareto / 优化', True), ('150 (screen)', True)])
     monkeypatch.setattr(io_actions.QInputDialog, 'getItem', lambda *a: next(choices))
@@ -1189,4 +1252,102 @@ def test_retained_pareto_export_does_not_take_new_compute_preset_name(
     with Image.open(path) as picture:
         assert 'Subject' not in picture.info
         assert picture.info['Title'] == 'SJTU-TPMSHX pareto'
-    optimize_panel.show_pareto(win, dict(front, F=np.empty((0, 2)), X=np.empty((0, 16))))
+    optimize_panel.show_pareto(win, dict(front, pareto_indices=[]))
+
+
+@pytest.mark.parametrize('channels', [3, 4])
+def test_optimization_volume_copy_and_export_require_current_render(
+        win, monkeypatch, tmp_path, channels):
+    from types import MethodType, SimpleNamespace
+    from unittest.mock import Mock
+    from PySide6.QtGui import QGuiApplication
+    from sjtu_tpmshx.ui.mixins import io_actions
+    from sjtu_tpmshx.ui.panel_vis_3d import ThreeDVisPanel
+
+    win.cache.clear()
+    win._pareto_X = win._pareto_F = None
+    win.canvas_opt_field.figure.clear()
+    monkeypatch.setattr(win, '_active_tab', 'pareto')
+    monkeypatch.setattr(win, '_opt_3d_data', None)
+    win._opt_result_tabs.setCurrentWidget(win._opt_3d_host)
+    pixels = np.array([[[17, 119, 68, 255], [230, 40, 10, 128], [5, 60, 180, 255]],
+                       [[25, 70, 130, 64], [90, 40, 220, 255], [240, 210, 20, 255]]],
+                      dtype=np.uint8)[:, :, :channels].copy()
+    expected = pixels.copy()
+    panel = SimpleNamespace(_grid=object(), _field='L_mm', _volume_actor=object(), _scale_mode='global',
+                            plotter=Mock(), status=Mock(), grab=Mock())
+    panel.plotter.screenshot.return_value = pixels
+    panel._on_screenshot = MethodType(ThreeDVisPanel._on_screenshot, panel)
+    monkeypatch.setattr(win, 'canvas_opt_3d', panel)
+    monkeypatch.setattr(win, '_opt_3d_data', {'new-design': True})
+    monkeypatch.setattr(win, '_opt_3d_ready', False)
+    clipboard = QGuiApplication.clipboard()
+    try:
+        # A previous grid must not count as the newly requested design.
+        win._refresh_export_button()
+        assert not win.btn_export.isEnabled()
+        clipboard.clear()
+        win._copy_figure_clipboard()
+        assert clipboard.image().isNull()
+        panel.grab.assert_not_called()
+        picker = Mock(return_value=('优化三维场', True))
+        monkeypatch.setattr(io_actions.QInputDialog, 'getItem', picker)
+        win._export_figure()
+        picker.assert_not_called()
+
+        win._opt_3d_ready = True
+        win._refresh_export_button()
+        assert win.btn_export.isEnabled()
+        win._copy_figure_clipboard()
+        panel.grab.assert_not_called()
+        panel.plotter.screenshot.assert_called_once_with(return_img=True)
+        pixels[:] = 0
+        image = clipboard.image()
+        assert (image.width(), image.height()) == (3, 2)
+        for y in range(2):
+            for x in range(3):
+                assert image.pixelColor(x, y).getRgb()[:channels] == tuple(expected[y, x])
+        panel.plotter.screenshot.reset_mock()
+        path = tmp_path / 'optimization-volume.png'
+        save_dialog = Mock(return_value=(str(path), 'PNG images (*.png)'))
+        monkeypatch.setattr(io_actions.QFileDialog, 'getSaveFileName', save_dialog)
+        win._export_figure()
+        picker.assert_called_once()
+        assert picker.call_args.args[3] == ['优化三维场']
+        assert save_dialog.call_args.args[3] == 'PNG images (*.png)'
+        panel.plotter.screenshot.assert_called_once_with(str(path))
+        panel.plotter.screenshot.side_effect = RuntimeError('screenshot failed')
+        warning = Mock()
+        monkeypatch.setattr(io_actions.QMessageBox, 'warning', warning)
+        win._export_figure()
+        assert warning.call_args.args[1:] == ('Export failed', 'screenshot failed')
+
+        # The real L/t callback clears its actor if the next VTK volume fails,
+        # even though the study's initial set_fields call already succeeded.
+        panel.combo_field = SimpleNamespace(itemData=lambda index: 't_mm')
+        panel._arrays = {'L_mm': object(), 't_mm': object()}
+        panel._slice_info = None
+        panel._clim_for = lambda field: (.3, .6)
+        panel._opacity_ramp = lambda: (.2, .5)
+        panel._build_volume_grid = lambda: (panel._grid, 1.)
+        panel._update_status = Mock()
+        panel._rebuild_volume = MethodType(ThreeDVisPanel._rebuild_volume, panel)
+        panel.plotter.add_volume.side_effect = RuntimeError('field switch failed')
+        ThreeDVisPanel._on_field_changed(panel, 1)
+        assert panel._field == 't_mm' and panel._volume_actor is None
+        assert win._opt_3d_ready  # This flag describes the earlier successful load.
+        assert not win._opt_3d_figure_ready()
+        win._refresh_export_button()
+        assert not win.btn_export.isEnabled()
+        panel.plotter.screenshot.reset_mock()
+        picker.reset_mock()
+        clipboard.clear()
+        win._copy_figure_clipboard()
+        win._export_figure()
+        assert clipboard.image().isNull()
+        panel.plotter.screenshot.assert_not_called()
+        picker.assert_not_called()
+    finally:
+        win._opt_result_tabs.setCurrentWidget(win.canvas_pareto)
+        win._opt_3d_ready = False
+        win._refresh_export_button()

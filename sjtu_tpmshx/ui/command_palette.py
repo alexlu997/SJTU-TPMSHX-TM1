@@ -309,8 +309,8 @@ def build_actions(w) -> list[Action]:
             shortcut="Ctrl+D",
             keywords=("dashboard", "overview", "summary", "home"))
     if hasattr(w, '_run_optimize'):
-        add("Optimize (qNEHVI BO)", "Compute", w._run_optimize,
-            keywords=("pareto", "qnehvi", "bayesian", "optimise", "search"))
+        add("Optimize (continuous field)", "Compute", w._run_optimize,
+            keywords=("pareto", "qlognehvi", "bayesian", "optimise", "search"))
     def _open_sens():
         from sjtu_tpmshx.ui.sensitivity import open_sensitivity
         open_sensitivity(w)

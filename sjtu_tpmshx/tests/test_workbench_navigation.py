@@ -34,6 +34,51 @@ def test_layout_preview_follows_both_port_sections(win):
         sections['pipe_a'], sections['pipe_b'], sections['preview_btn']]
 
 
+def test_fit_view_targets_the_active_optimization_volume(win, monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    from sjtu_tpmshx.ui.builders_canvas import canvas_zoom_reset
+
+    main_panel, optimization_panel = SimpleNamespace(fit_view=Mock()), SimpleNamespace(fit_view=Mock())
+    monkeypatch.setattr(win, 'canvas_3d', main_panel)
+    monkeypatch.setattr(win, 'canvas_opt_3d', optimization_panel)
+    win._opt_result_tabs.setCurrentWidget(win._opt_3d_host)
+    win._active_tab = 'pareto'
+    canvas_zoom_reset(win)
+    optimization_panel.fit_view.assert_called_once_with()
+    main_panel.fit_view.assert_not_called()
+    win._opt_result_tabs.setCurrentWidget(win.canvas_pareto)
+    canvas_zoom_reset(win)
+    optimization_panel.fit_view.assert_called_once_with()
+    win._active_tab = '3d'
+    canvas_zoom_reset(win)
+    main_panel.fit_view.assert_called_once_with()
+
+
+def test_window_close_cleans_both_volume_plotters_and_their_popups(win):
+    from types import MethodType, SimpleNamespace
+    from unittest.mock import Mock
+    from PySide6.QtWidgets import QDialog
+    from sjtu_tpmshx.ui.panel_vis_3d import ThreeDVisPanel
+
+    panels = []
+    popups = []
+    for name in ('canvas_3d', 'canvas_opt_3d'):
+        popup = QDialog(win)
+        popup.show()
+        panel = SimpleNamespace(_popup_dialogs=[popup], _stop_camera_tween=Mock(),
+                                plotter=Mock())
+        panel.cleanup = MethodType(ThreeDVisPanel.cleanup, panel)
+        setattr(win, name, panel)
+        panels.append(panel)
+        popups.append(popup)
+    win.close()
+    for panel, popup in zip(panels, popups):
+        panel.plotter.close.assert_called_once_with()
+        panel._stop_camera_tween.assert_called_once_with()
+        assert panel._popup_dialogs == [] and not popup.isVisible()
+
+
 def test_more_menu_commands_use_current_units_theme_and_help(win, monkeypatch):
     from sjtu_tpmshx.ui.theme import get_theme_name, set_theme
 

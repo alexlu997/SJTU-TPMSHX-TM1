@@ -88,3 +88,81 @@ jobs:
             .cache/ci/integration.xml
           include-hidden-files: true
           retention-days: 7
+
+  bo-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            python: "3.13"
+            lock: requirements-lock-bo-macos.txt
+          - os: windows-2022
+            python: "3.12"
+            lock: requirements-lock-server.txt
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      PYTHONHASHSEED: "0"
+      MPLCONFIGDIR: .cache/matplotlib
+      XDG_CACHE_HOME: .cache/xdg
+      QT_QPA_PLATFORM: offscreen
+      TPMSHX_DISABLE_3D_PANEL: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      NUMBA_NUM_THREADS: "2"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: |
+            requirements-lock.txt
+            ${{ matrix.lock }}
+      - name: Create isolated BO environment
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/sjtu-bo-ci-venv"
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'sjtu-bo-ci-venv'
+          interpreter = root / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as output:
+              output.write(f'CI_PYTHON={interpreter.as_posix()}\n')
+          PY
+      - name: Install locked BO dependencies
+        shell: bash
+        run: '"$CI_PYTHON" -m pip install -r "${{ matrix.lock }}"'
+      - name: Check exact BO dependency lock
+        shell: bash
+        run: '"$CI_PYTHON" -m sjtu_tpmshx.runs.tools.check_locked_environment "${{ matrix.lock }}"'
+      - name: Check dependency compatibility
+        shell: bash
+        run: '"$CI_PYTHON" -m pip check'
+      - name: Require real BO imports
+        shell: bash
+        run: |
+          "$CI_PYTHON" - <<'PY'
+          import torch
+          import botorch
+          import gpytorch
+          print(f'torch={torch.__version__} botorch={botorch.__version__} gpytorch={gpytorch.__version__}')
+          PY
+      - name: Run optimizer and real acquisition tests
+        shell: bash
+        run: >-
+          "$CI_PYTHON" -m pytest sjtu_tpmshx/tests/test_multi_condition_optimizer.py -q -ra
+          --timeout=600 --timeout-method=thread
+          --durations=10 --junitxml=.cache/ci/bo.xml
+      - name: Save BO test outcomes and timings
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: bo-test-reports-${{ matrix.os }}-py${{ matrix.python }}
+          path: .cache/ci/bo.xml
+          include-hidden-files: true
+          retention-days: 7

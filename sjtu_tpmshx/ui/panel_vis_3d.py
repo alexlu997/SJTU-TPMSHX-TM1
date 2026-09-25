@@ -16,10 +16,11 @@ actually provides):
     P_kPa    : fluid A absolute pressure [kPa]   (P_ref_abs + gauge)
     P_B_kPa  : fluid B absolute pressure [kPa]   (cross-flow only)
     L_mm     : design zoning L-field [mm]
+    t_mm     : wall-thickness field [mm]
 
 Data entry points:
     panel.set_fields(Ta=..., Tb=..., Ts=..., vmag=..., vmag_B=...,
-                     P_kPa=..., P_B_kPa=..., L_mm=...,
+                     P_kPa=..., P_B_kPa=..., L_mm=..., t_mm=...,
                      dx=..., dy=..., dz=...)
 
 The caller can hand real 3D SIMPLE+LTNE results in via `set_fields`.
@@ -512,7 +513,7 @@ class ThreeDVisPanel(QWidget):
 
     def set_fields(self, Ta=None, vmag=None, P_kPa=None, L_mm=None,
                    dx=None, dy=None, dz=None,
-                   *, Tb=None, Ts=None, vmag_B=None, P_B_kPa=None,
+                   *, t_mm=None, Tb=None, Ts=None, vmag_B=None, P_B_kPa=None,
                    flow_dir='+x', flow_dir_B=None):
         """Attach 3D fields to the panel. Shape of every field: (Nx, Ny, Nz).
 
@@ -520,18 +521,20 @@ class ThreeDVisPanel(QWidget):
         (e.g. cross-flow fluid B when not solved) — the combo will skip it.
 
         dx, dy, dz : 1-D grid spacings in metres.
+        L_mm and t_mm : independent design fields, each with its own color range.
+        flow_dir=None hides the A flow arrows; omitting it retains +x arrows.
         """
         if dx is None or dy is None or dz is None:
             raise ValueError("set_fields: dx/dy/dz are required")
 
-        self._flow_dir = str(flow_dir) if flow_dir else '+x'
+        self._flow_dir = None if flow_dir is None else str(flow_dir or '+x')
         self._flow_dir_B = str(flow_dir_B) if flow_dir_B else None
 
         candidate = {
             'Ta': Ta, 'Tb': Tb, 'Ts': Ts,
             'vmag': vmag, 'vmag_B': vmag_B,
             'P_kPa': P_kPa, 'P_B_kPa': P_B_kPa,
-            'L_mm': L_mm,
+            'L_mm': L_mm, 't_mm': t_mm,
         }
         self._arrays = {k: np.ascontiguousarray(v, dtype=np.float64)
                         for k, v in candidate.items() if v is not None}
@@ -1248,8 +1251,9 @@ class ThreeDVisPanel(QWidget):
                 name=f'_flow_outlet_{tag}', show_scalar_bar=False, lighting=True, render=False)
 
         try:
-            _add_pair(self._flow_dir, 'A',
-                      t['inlet_color'], t['outlet_color'], 0.55)
+            if self._flow_dir is not None:
+                _add_pair(self._flow_dir, 'A',
+                          t['inlet_color'], t['outlet_color'], 0.55)
             if self._flow_dir_B and any(f in self._arrays for f in ('Tb', 'vmag_B', 'P_B_kPa')):
                 _add_pair(self._flow_dir_B, 'B',
                           t.get('accent_green', t['inlet_color']),

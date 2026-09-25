@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 import pyvista as pv
 
+from sjtu_tpmshx.ui.theme import FIELD_CMAP
 ROOT = Path(__file__).resolve().parents[1]
 
 try:
@@ -234,7 +235,7 @@ def main():
     p.subplot(0, 0)
     centre = grid_T.center
     slices = grid_T.slice_orthogonal(x=centre[0], y=centre[1], z=centre[2])
-    p.add_mesh(slices, scalars='Ta', cmap='hot',
+    p.add_mesh(slices, scalars='Ta', cmap=FIELD_CMAP,
                scalar_bar_args={'title': 'T_a [K]'})
     p.add_mesh(grid_T.outline(), color='black')
     p.add_text('(a) T_a orthogonal slices', font_size=10, position='upper_edge')
@@ -252,7 +253,7 @@ def main():
             integration_direction='forward', max_steps=200)
         if streams.n_points > 0:
             tubes = streams.tube(radius=L_DOM * 0.004)
-            p.add_mesh(tubes, scalars='vmag', cmap='viridis',
+            p.add_mesh(tubes, scalars='vmag', cmap=FIELD_CMAP,
                        scalar_bar_args={'title': '|v| [m/s]'})
     except Exception as e:
         print(f"      streamline skip: {e}")
@@ -278,7 +279,7 @@ def main():
     # (1,1) L-field volume render (design zoning)
     p.subplot(1, 1)
     slices_L = grid_L.slice_orthogonal(x=centre[0], y=centre[1], z=centre[2])
-    p.add_mesh(slices_L, scalars='L_mm', cmap='viridis',
+    p.add_mesh(slices_L, scalars='L_mm', cmap=FIELD_CMAP,
                scalar_bar_args={'title': 'L [mm]'})
     p.add_mesh(grid_L.outline(), color='black')
     p.add_text('(d) L-field design zoning', font_size=10, position='upper_edge')
