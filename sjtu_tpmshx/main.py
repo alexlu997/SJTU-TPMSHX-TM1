@@ -734,6 +734,23 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
            2026-05-06 #4 — belt-and-braces against bound-method slots
            that close over ``self`` and outlive C++ widget destruction).
         """
+        # Ask before cancelling workers: declining the close must leave live
+        # work and its terminal callbacks intact. Timer retries reuse this choice.
+        if not getattr(self, '_close_pending', False):
+            try:
+                saved = bool(self._save_session())
+            except Exception:
+                saved = False
+            if not saved:
+                choice = QMessageBox.warning(
+                    self, "会话未保存",
+                    "当前输入保存失败。取消关闭可继续编辑或另存配置；"
+                    "放弃将关闭软件，未保存的输入会丢失。",
+                    QMessageBox.StandardButton.Cancel | QMessageBox.StandardButton.Discard,
+                    QMessageBox.StandardButton.Cancel)
+                if choice != QMessageBox.StandardButton.Discard:
+                    event.ignore()
+                    return
         # Keep every task owner alive until terminal delivery and worker exit.
         # A JIT sweep/candidate batch may exceed any fixed timeout.
         opt_worker = getattr(self, '_opt_worker', None)
@@ -758,16 +775,6 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             return
         if hasattr(self, '_close_retry_timer'):
             self._close_retry_timer.stop()
-        # 1. Persist session first — `_save_session` failure used to be a
-        #    silent pass; now surface to statusBar so users know.
-        try:
-            self._save_session()
-        except Exception as _e_save:
-            try:
-                self.statusBar().showMessage(
-                    f"Warning: session save failed — {_e_save}", 6000)
-            except Exception:
-                pass
         # 2b. Neutralise any floating/detached canvas windows BEFORE Qt
         #     tears them down. Each was given a closeEvent override that
         #     calls _reattach_* → self.statusBar(); firing that during

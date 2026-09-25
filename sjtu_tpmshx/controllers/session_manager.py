@@ -105,7 +105,7 @@ class SessionManager(QObject):
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 payload = json.load(f)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, UnicodeDecodeError):
             # robustness-hardening (2026-07-03): a corrupt session used to
             # silently revert the workspace to defaults AND be destroyed by
             # the next save. Quarantine it so the user's data stays
@@ -122,7 +122,7 @@ class SessionManager(QObject):
         return payload
 
     def _quarantine_corrupt(self, path: Path) -> None:
-        """Rename an unparseable JSON file to ``<name>.corrupt-<ts>`` —
+        """Rename an unreadable user file to ``<name>.corrupt-<ts>`` —
         best-effort, never raises (a locked file just stays in place)."""
         try:
             import time as _t
@@ -193,7 +193,7 @@ class SessionManager(QObject):
                 return []
             presets = data.get('presets', [])
             return list(presets) if isinstance(presets, list) else []
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, UnicodeDecodeError):
             # Same quarantine rationale as load_session — a corrupt preset
             # library must not be silently clobbered by the next save.
             self._quarantine_corrupt(path)
@@ -225,6 +225,9 @@ class SessionManager(QObject):
             return 'A'
         try:
             content = path.read_text(encoding='utf-8').strip().upper()
+        except UnicodeDecodeError:
+            self._quarantine_corrupt(path)
+            return 'A'
         except OSError:
             return 'A'
         return content if content in self.VALID_WORKSPACES else 'A'
