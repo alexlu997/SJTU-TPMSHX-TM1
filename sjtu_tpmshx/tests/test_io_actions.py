@@ -412,6 +412,36 @@ def test_bad_config_does_not_partially_apply(tmp_path, monkeypatch, win, damage)
     win.cache.clear('2d')
 
 
+@pytest.mark.parametrize('checks', [None, [], 'invalid'])
+def test_continuous_session_rejects_invalid_checks_without_losing_state(
+        win, monkeypatch, checks):
+    from copy import deepcopy
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QMessageBox
+
+    before = win._capture_current_preset('current')
+    payload = deepcopy(before)
+    payload['line_edits']['le_L'] = '0.333'
+    payload['combos']['combo_dim'] = 0
+    payload['continuous_field'] = dict(
+        n_ctrl_x=3, n_ctrl_y=3, symmetric_y=False, spline_order=2,
+        L_bounds=[4., 8.], t_bounds=[.3, .6],
+        x_decision=[6.] * 9 + [.4] * 9)
+    payload['checks'] = checks
+    monkeypatch.setattr(win.sm, 'load_session', lambda *args: payload)
+    callbacks, messages = [], []
+    monkeypatch.setattr(QTimer, 'singleShot', lambda delay, owner, callback: callbacks.append(callback))
+    monkeypatch.setattr(QMessageBox, 'warning', lambda *args: messages.append(args[2]))
+    win.cache.set_result('2d', {'old': 123})
+    win._restore_session()
+    for callback in callbacks:
+        callback()
+    assert len(messages) == 1 and 'Invalid checks' in messages[0]
+    assert win._capture_current_preset('current') == before
+    assert win.cache.get_result('2d') == {'old': 123}
+    win.cache.clear('2d')
+
+
 def test_config_io_failures_and_cancel(tmp_path, monkeypatch, win):
     from PySide6.QtWidgets import QFileDialog, QMessageBox
     import sjtu_tpmshx.controllers.session_manager as sm_mod
