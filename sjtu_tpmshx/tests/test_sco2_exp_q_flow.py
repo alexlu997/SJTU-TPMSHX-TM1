@@ -222,6 +222,59 @@ def test_q_cli_requires_fixed_selection_before_loading(monkeypatch, args):
     assert exc.value.code == 2
 
 
+@pytest.mark.parametrize('destination', ['direct', 'csv_symlink', 'meta_symlink'])
+def test_q_cli_rejects_frozen_outputs_before_running(monkeypatch, tmp_path, capsys, destination):
+    from sjtu_tpmshx.validation.cases import validate_sco2_exp_q as runner
+    from sjtu_tpmshx.validation.harness import _provenance
+
+    reference_dir = tmp_path / 'references'
+    reference_dir.mkdir()
+    reference = reference_dir / 'frozen.csv'
+    reference.write_bytes(b'original reference')
+    monkeypatch.setattr(_provenance, 'REFERENCE_DIR', reference_dir)
+    output = tmp_path / 'q.csv'
+    if destination == 'direct':
+        output = reference
+    else:
+        link = output if destination == 'csv_symlink' else output.with_suffix('.csv.meta.json')
+        link.symlink_to(reference)
+    monkeypatch.setattr('sys.argv', ['runner', '--csv', str(output)])
+    monkeypatch.setattr(runner, 'run', lambda *a, **kw: pytest.fail('started solver'))
+
+    with pytest.raises(SystemExit) as exc:
+        runner.main()
+    assert exc.value.code == 2
+    assert 'reference directory is read-only' in capsys.readouterr().err
+    assert reference.read_bytes() == b'original reference'
+
+
+@pytest.mark.parametrize('failure', ['csv', 'metadata'])
+def test_q_cli_preserves_previous_output_pair_on_write_failure(monkeypatch, tmp_path, failure):
+    from pathlib import Path
+    import pandas as pd
+    from sjtu_tpmshx.validation.cases import validate_sco2_exp_q as runner
+
+    output = tmp_path / 'q.csv'
+    metadata = output.with_suffix('.csv.meta.json')
+    output.write_bytes(b'old csv')
+    metadata.write_bytes(b'old metadata')
+    monkeypatch.setattr('sys.argv', ['runner', '--csv', str(output)])
+    monkeypatch.setattr(runner, 'run', lambda *a, **kw: _q_results())
+
+    def fail(*args, **kwargs):
+        raise OSError('disk full')
+
+    if failure == 'csv':
+        monkeypatch.setattr(pd.DataFrame, 'to_csv', fail)
+    else:
+        monkeypatch.setattr(Path, 'write_text', fail)
+    with pytest.raises(OSError, match='disk full'):
+        runner.main()
+    assert output.read_bytes() == b'old csv'
+    assert metadata.read_bytes() == b'old metadata'
+    assert not list(tmp_path.glob('.tm1-publish-*'))
+
+
 @pytest.mark.parametrize("accept,over_limit,exit_code", [
     (False, True, 0), (True, True, 1), (True, False, 0),
 ])

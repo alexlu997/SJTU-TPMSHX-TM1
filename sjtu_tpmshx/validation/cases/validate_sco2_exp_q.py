@@ -31,10 +31,11 @@ from sjtu_tpmshx.domain.compute_config import (
     SolverConfig,
 )
 from sjtu_tpmshx.models import fluid_props
+from sjtu_tpmshx.io.file_set import staged_files
 from sjtu_tpmshx.models.sco2_props import P_RANGE_PA
 from sjtu_tpmshx.models.tpms_props import geometry as tpms_geometry
 from sjtu_tpmshx.validation.sco2_exp.load_sco2_exp import load_exp
-from sjtu_tpmshx.validation.harness._provenance import _git_sha, _iso_now
+from sjtu_tpmshx.validation.harness._provenance import _git_sha, _iso_now, output_path
 
 
 CELL_M = 7.0e-3
@@ -404,6 +405,13 @@ def main() -> int:
         parser.error("--case requires --topology")
     if args.accept_q and args.case_manifest is None:
         parser.error("--accept-q requires --case-manifest; --all-valid is diagnostic only")
+    if args.csv is not None:
+        try:
+            args.csv = output_path(args.csv)
+            meta_path = args.csv.with_suffix(args.csv.suffix + ".meta.json")
+            output_path(meta_path)
+        except ValueError as exc:
+            parser.error(str(exc))
 
     topologies = [args.topology] if args.topology else ["Diamond", "Gyroid"]
     dimensions = (["2d", "3d"] if args.dimension == "both"
@@ -450,9 +458,10 @@ def main() -> int:
                     exit_ok=accepted)
     if args.csv is not None:
         args.csv.parent.mkdir(parents=True, exist_ok=True)
-        result.to_csv(args.csv, index=False, encoding="utf-8-sig")
-        args.csv.with_suffix(args.csv.suffix + ".meta.json").write_text(
-            json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
+        with staged_files([args.csv, meta_path]) as stage:
+            result.to_csv(stage / args.csv.name, index=False, encoding="utf-8-sig")
+            (stage / meta_path.name).write_text(
+                json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
         print(f"Saved: {args.csv.resolve()}")
     return int(not accepted)
 
