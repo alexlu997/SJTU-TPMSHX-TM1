@@ -98,34 +98,12 @@ def test_ordinary_zones_preserve_b_pressure(axis):
                                    expected['H_sf'] * expected['A_0'], rtol=1e-14)
 
 
-def test_original_config_roundtrip_preview_export_and_load(tmp_path):
-    from matplotlib.figure import Figure
-    from matplotlib.backends.backend_agg import FigureCanvasAgg
-    from PySide6.QtWidgets import QLineEdit
-    from sjtu_tpmshx.ui.optimize_panel import save_opt_results, show_field_preview, on_pareto_pick
+def test_legacy_pareto_export_keeps_original_geometry_config(tmp_path):
     from sjtu_tpmshx.optimization.export_ntop_csv import export_pareto_row
     cfg = {**DEFAULT_CONFIG, 't_bounds': (.35, .45), 'ports_A': (.01, .03, .01, .03)}
-    window = SimpleNamespace(canvas_layout=FigureCanvasAgg(Figure()),
-                             le_Lcell=QLineEdit('8'), le_t=QLineEdit('.6'))
-    save_opt_results(window, {'save_dir': str(tmp_path)}, cfg)
-    restored = json.loads((tmp_path / 'cfg_used.json').read_text())
-    assert restored['t_bounds'] == [.35, .45]
-    assert restored['ports_A'] == [.01, .03, .01, .03]
-    window._last_opt_cfg = restored
-    # These invalid current inputs must never be consulted to restore an old result.
-    window.le_L = QLineEdit('')
-    window.le_TinB = QLineEdit('')
+    restored = json.loads(json.dumps(cfg))
     x = _decision()
-    show_field_preview(window, x)
     expected = build_field(x, cfg).evaluate_grid(80, 40)[1]
-    np.testing.assert_allclose(window.canvas_layout.figure.axes[2].images[0].get_array(), expected.T)
-    window._pareto_X, window._pareto_F = x[None, :], np.array([[-100., 200.]])
-    on_pareto_pick(window, SimpleNamespace(ind=[0]))
-    assert float(window.le_Lcell.text()) == pytest.approx(6.)
-    assert float(window.le_t.text()) == pytest.approx(.4)
-    # The real Preview button calls without an explicit vector after a pick.
-    show_field_preview(window)
-    np.testing.assert_allclose(window.canvas_layout.figure.axes[2].images[0].get_array(), expected.T)
     path = tmp_path / 'pareto_final.csv'
     header = ','.join([*(f'x{i}' for i in range(len(x))), 'Q_W_per_m', 'dP_Pa'])
     np.savetxt(path, np.r_[x, 100., 200.][None, :], delimiter=',', header=header, comments='')
@@ -149,35 +127,6 @@ def test_typed_configuration_preserves_fluid_and_direction():
         assert cfg['fluid_type_B'] == 'water'
 
 
-@pytest.mark.parametrize('field', ['le_L', 'le_TinB', 'le_PinB'])
-@pytest.mark.parametrize('value', ['', 'oops', 'nan', 'inf'])
-def test_bad_optimizer_input_does_not_launch(field, value, monkeypatch):
-    from PySide6.QtWidgets import QLineEdit, QLabel
-    from sjtu_tpmshx.ui import optimize_panel
-    window = SimpleNamespace(**{field: QLineEdit(value)}, _opt_status=QLabel())
-    monkeypatch.setattr(optimize_panel, '_make_worker_class', lambda: pytest.fail('invalid request launched'))
-    optimize_panel.run_optimize(window)
-    assert 'aborted' in window._opt_status.text()
-    assert field in window._opt_status.text()
-    assert window._opt_launching is False
-
-
-def test_ui_flow_and_fluid_selection_are_rejected_before_launch():
-    from PySide6.QtWidgets import QComboBox, QLabel
-    from sjtu_tpmshx.ui.optimize_panel import _gather_cfg, run_optimize
-    window = SimpleNamespace(combo_fluidB=QComboBox(), combo_dirA=QComboBox(), _opt_status=QLabel())
-    window.combo_dirA.addItems(['+x', '-x'])
-    window.combo_fluidB.addItems(['Air', 'Water'])
-    window.combo_fluidB.setCurrentIndex(1)
-    run_optimize(window)
-    assert 'air only' in window._opt_status.text()
-    window.combo_fluidB.setCurrentIndex(0)
-    window.combo_dirA.setCurrentIndex(1)
-    assert _gather_cfg(window)['dir_A'] == 1
-    run_optimize(window)
-    assert 'flow mapping' in window._opt_status.text()
-
-
 @pytest.mark.parametrize('field', ['le_qd_rho', 'le_qd_ks', 'le_qd_height'])
 @pytest.mark.parametrize('value', ['', 'oops', 'nan', 'inf'])
 def test_bad_quick_design_input_does_not_launch(field, value, monkeypatch):
@@ -194,6 +143,7 @@ def test_heatmap_only_loads_valid_plot_cells():
     from matplotlib.backend_bases import MouseEvent
     from PySide6.QtWidgets import QMainWindow, QLineEdit
     from sjtu_tpmshx.ui.sensitivity import SensitivityDialog
+    from sjtu_tpmshx.ui.theme import FIELD_CMAP
     window = QMainWindow()
     window.le_Lcell = QLineEdit('8')
     window.le_t = QLineEdit('.6')
@@ -202,6 +152,7 @@ def test_heatmap_only_loads_valid_plot_cells():
                                grid=np.array([[10., np.nan], [20., 30.]]),
                                key_x='L_cell', key_y='t', key_m='ratio', fixed={})
     dialog._plot()
+    assert dialog._grid_axes.collections[0].get_cmap().name == FIELD_CMAP
 
     def click(axes, x, y):
         px, py = axes.transData.transform((x, y))

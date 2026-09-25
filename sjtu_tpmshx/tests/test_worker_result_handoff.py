@@ -585,6 +585,7 @@ def test_auxiliary_task_close_keeps_thread_until_run_returns(win, monkeypatch, t
     from sjtu_tpmshx.ui.background_tasks import has_active_tasks
 
     release, terminal_sent = threading.Event(), threading.Event()
+    backend_called = threading.Event()
     panel = optimize_panel if kind == 'optimize' else quick_design_panel
     Worker = panel._make_worker_class()
     original_run = Worker.run
@@ -597,22 +598,27 @@ def test_auxiliary_task_close_keeps_thread_until_run_returns(win, monkeypatch, t
     monkeypatch.setattr(Worker, 'run', held_run)
     monkeypatch.setattr(panel, '_make_worker_class', lambda: Worker)
     def fail_or_result(*args, **kwargs):
+        if kind == 'optimize':
+            assert isinstance(args[0][0][1], ComputeConfig)
+        backend_called.set()
         if outcome == 'error':
             raise RuntimeError('terminal error before thread exit')
         if kind == 'quick_design':
             return Design(False)
-        return dict(X=np.zeros((0, 16)), F=np.zeros((0, 2)), n_evals=0,
-                    save_dir=str(tmp_path), termination_reason='cancelled')
+        return dict(status='completed', reason=None, method=kwargs['method'],
+                    history=[], pareto_indices=[], n_evaluated=0, n_usable=0)
 
-    monkeypatch.setattr('sjtu_tpmshx.optimization.optimizer_qnehvi.run_qnehvi', fail_or_result)
+    monkeypatch.setattr('sjtu_tpmshx.optimization.multi_condition_optimizer.run_multi_condition_optimization',
+                        fail_or_result)
     monkeypatch.setattr(optimize_panel, 'optimization_output_dir', lambda: tmp_path)
     monkeypatch.setattr('sjtu_tpmshx.design.cases.load_cases', lambda p: ['case'])
     monkeypatch.setattr('sjtu_tpmshx.design.sizing.size_fixed_cell', fail_or_result)
     if kind == 'optimize':
         owner, attr = win, '_opt_worker'
-        from sjtu_tpmshx.models.screening import DEFAULT_CONFIG
         win.combo_dim.setCurrentIndex(0)
-        monkeypatch.setattr(optimize_panel, '_gather_cfg', lambda *a, **kw: dict(DEFAULT_CONFIG))
+        win._opt_conditions = [dict(condition_id='close-test',
+            T_in_A_K=400., P_in_A_Pa=130000., mass_flow_A_kg_s=.003,
+            T_in_B_K=295., P_in_B_Pa=120000., mass_flow_B_kg_s=.015)]
         optimize_panel.run_optimize(win)
     else:
         owner = quick_design_panel.build_quick_design_dialog(win)
@@ -625,6 +631,7 @@ def test_auxiliary_task_close_keeps_thread_until_run_returns(win, monkeypatch, t
     win.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
     try:
         assert terminal_sent.wait(5)
+        assert backend_called.is_set()
         assert not win.close()
         assert has_active_tasks(win)
         _wait_for(lambda: worker.isInterruptionRequested())

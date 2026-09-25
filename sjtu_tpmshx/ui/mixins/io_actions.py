@@ -250,21 +250,39 @@ class IOActionsMixin:
         return (getattr(self, 'canvas_pareto', None) is not None
                 and front is not None and len(front) > 0)
 
+    def _opt_field_figure_ready(self):
+        canvas = getattr(self, 'canvas_opt_field', None)
+        return (canvas is not None
+                and sum(bool(axis.images) for axis in canvas.figure.axes) == 2)
+
+    def _opt_3d_figure_ready(self):
+        panel = getattr(self, 'canvas_opt_3d', None)
+        return (panel is not None and bool(getattr(self, '_opt_3d_ready', False))
+                and panel._volume_actor is not None)
+
     def _refresh_export_button(self):
         button = getattr(self, 'btn_export', None)
         if button is not None:
             button.setEnabled(self.cache.has_any_results()
                               or bool(self.cache.get_drawn_tabs())
-                              or self._pareto_figure_ready())
+                              or self._pareto_figure_ready()
+                              or self._opt_field_figure_ready()
+                              or self._opt_3d_figure_ready())
 
     def _copy_figure_clipboard(self):
         """Copy the currently active canvas image to the system clipboard
         (ui-batch4 ③) — one click from result plot to WeChat / PPT.
-        widget.grab() = what's on screen (theme background included); the
-        high-fidelity path stays the PNG export."""
+        Matplotlib canvases use widget.grab(); VTK needs its own screenshot
+        because Qt grabs do not reliably capture the OpenGL surface."""
         tab = getattr(self, '_active_tab', None)
         if tab == '2d_view':
             tab = self._resolve_2d_view_card()
+        if tab == 'pareto':
+            current = self._opt_result_tabs.currentWidget()
+            if current is self.canvas_opt_field:
+                tab = 'opt_field'
+            elif current is getattr(self, '_opt_3d_host', None):
+                tab = 'opt_3d'
         if tab in ('temp', 'pres', 'vel'):
             from sjtu_tpmshx.ui.plot_2d_results import ensure_result_plot
             if not ensure_result_plot(self, tab):
@@ -273,31 +291,54 @@ class IOActionsMixin:
                   'pres': getattr(self, 'canvas_pres', None),
                   'vel': getattr(self, 'canvas_vel', None),
                   'layout': getattr(self, 'canvas_layout', None),
-                  'pareto': getattr(self, 'canvas_pareto', None)}.get(tab)
+                  'pareto': getattr(self, 'canvas_pareto', None),
+                  'opt_field': getattr(self, 'canvas_opt_field', None),
+                  'opt_3d': getattr(self, 'canvas_opt_3d', None)}.get(tab)
         ready = (self._pareto_figure_ready() if tab == 'pareto'
+                 else self._opt_field_figure_ready() if tab == 'opt_field'
+                 else self._opt_3d_figure_ready() if tab == 'opt_3d'
                  else tab in self.cache.get_drawn_tabs())
         if canvas is None or not ready:
             self.statusBar().showMessage("当前无可复制的图像 — 请先计算或预览。",
                                          TOAST_MS_SHORT)
             return
         from PySide6.QtGui import QGuiApplication
-        QGuiApplication.clipboard().setImage(canvas.grab().toImage())
+        if tab == 'opt_3d':
+            import numpy as np
+            from PySide6.QtGui import QImage
+            try:
+                pixels = np.ascontiguousarray(canvas.plotter.screenshot(return_img=True))
+                image_format = (QImage.Format.Format_RGBA8888 if pixels.shape[2] == 4
+                                else QImage.Format.Format_RGB888)
+                # Own the pixels after this local NumPy buffer is released.
+                image = QImage(pixels.data, pixels.shape[1], pixels.shape[0],
+                               pixels.strides[0], image_format).copy()
+            except Exception as e:
+                QMessageBox.warning(self, "Copy failed", str(e))
+                return
+        else:
+            image = canvas.grab().toImage()
+        QGuiApplication.clipboard().setImage(image)
         self.statusBar().showMessage(f"已复制 {tab} 图像到剪贴板。", TOAST_MS_SHORT)
 
     def _export_figure(self):
-        """Export a chosen figure to PNG/SVG/PDF with user-selected DPI
-        and embedded reproducibility metadata (preset, commit, timestamp,
-        grid). Pops a 2-step picker: figure → format/DPI → save path."""
+        """Export a 2D figure with DPI/metadata, or a native 3D PNG screenshot."""
         all_items = [("温度", 'temp'), ("压力", 'pres'),
                      ("速度", 'vel'), ("几何布局", 'layout'),
-                     ("Pareto / 优化", 'pareto')]
+                     ("Pareto / 优化", 'pareto'), ("优化尺寸/壁厚场", 'opt_field'),
+                     ("优化三维场", 'opt_3d')]
         tab_canvas = {'temp': self.canvas_temp, 'pres': self.canvas_pres,
                       'vel': self.canvas_vel, 'layout': self.canvas_layout,
-                      'pareto': self.canvas_pareto}
+                      'pareto': self.canvas_pareto, 'opt_field': self.canvas_opt_field,
+                      'opt_3d': getattr(self, 'canvas_opt_3d', None)}
         drawn = self.cache.get_drawn_tabs()
         available = set(drawn)
         if self._pareto_figure_ready():
             available.add('pareto')
+        if self._opt_field_figure_ready():
+            available.add('opt_field')
+        if self._opt_3d_figure_ready():
+            available.add('opt_3d')
         if (self.cache.get_result('2d') is not None
                 or self.cache.get_result('3d') is not None):
             available.update(('temp', 'pres', 'vel'))
@@ -313,6 +354,12 @@ class IOActionsMixin:
             return
         key = tab_keys[items.index(choice)]
         canvas = tab_canvas[key]
+        if key == 'opt_3d':
+            try:
+                canvas._on_screenshot()
+            except Exception as e:
+                QMessageBox.warning(self, "Export failed", str(e))
+            return
 
         # DPI picker — common research-paper presets.
         dpi_items = ["150 (screen)", "300 (print)",
@@ -350,8 +397,8 @@ class IOActionsMixin:
                 meta['Keywords'] = f"commit={commit}"
             preset = getattr(self, '_active_preset_name', None)
             # The retained optimization figure can precede the current Compute
-            # preset. Its original numerical configuration is in cfg_used.json.
-            if preset and key != 'pareto':
+            # preset. Their originating study / field configuration is separate.
+            if preset and key not in ('pareto', 'opt_field'):
                 meta['Subject'] = f"Preset: {preset}"
 
             ext = path.lower().rsplit('.', 1)[-1] if '.' in path else 'png'

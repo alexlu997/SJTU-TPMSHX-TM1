@@ -1,556 +1,532 @@
-"""End-to-end UI wiring smoke for the Optimize tab.
-
-Verifies the path:
-  user clicks Optimize button
-    → window._run_optimize(self)
-    → ui.optimize_panel.run_optimize(window)
-    → _gather_cfg(window) reads UI line-edits
-    → _make_worker_class()(cfg, n_init, n_iter, q_batch, seed, save_dir)
-    → worker.run() invokes run_qnehvi(..., n_jobs=q_batch)
-
-We don't launch a real Qt window; we build a minimal duck-typed `window`
-with the line-edits + combos that _gather_cfg reads. The actual BO is
-NOT executed — we instead patch run_qnehvi to capture its kwargs and
-return a synthetic Pareto, so the test runs in <1 s.
-"""
-from __future__ import annotations
-
+"""Native multi-condition GUI handoff, without running an optimization."""
+from copy import deepcopy
+from dataclasses import asdict, replace
+import json
 import types
-from unittest.mock import patch
 
 import numpy as np
 import pytest
 
-from PySide6.QtWidgets import QLineEdit, QComboBox
-
-from sjtu_tpmshx.ui.optimize_panel import _gather_cfg, _make_worker_class
-
-
-# ─── Fake window builder ───────────────────────────────────────────
+from sjtu_tpmshx.ui import optimize_panel as panel
+from sjtu_tpmshx.ui.theme import FIELD_CMAP
+from sjtu_tpmshx.tests.test_io_actions import win as win
 
 
-def _le(text: str) -> QLineEdit:
-    le = QLineEdit()
-    le.setText(text)
-    return le
+@pytest.fixture
+def window(win):
+    win._load_named_preset('Shanghai (3D Gyroid)')
+    win._continuous_field_spec = None
+    win._opt_conditions = None
+    win._selected_pareto_x = None
+    win.le_Nx.setText('12'); win.le_Ny.setText('8'); win.le_Nz.setText('6')
+    win.combo_grid.setCurrentIndex(win.combo_grid.findData(False))
+    for key, value in (('L_min', 4.), ('L_max', 8.), ('t_min', .3), ('t_max', .6)):
+        win._opt_space_params[key].setValue(value)
+    return win
 
 
-def _combo(items, default_idx=0) -> QComboBox:
-    c = QComboBox()
-    c.addItems(items)
-    c.setCurrentIndex(default_idx)
-    return c
+def condition(name='one'):
+    return dict(condition_id=name, T_in_A_K=400., P_in_A_Pa=130000., mass_flow_A_kg_s=.003,
+                T_in_B_K=295., P_in_B_Pa=120000., mass_flow_B_kg_s=.015)
 
 
-def _make_window():
-    """Minimal duck-typed window mirroring the keys _gather_cfg expects."""
-    w = types.SimpleNamespace()
-    # Geometry (Shanghai HX)
-    w.le_L     = _le('0.182')
-    w.le_H     = _le('0.042')
-    w.le_Lz    = _le('0.042')
-    # TPMS seed values (not directly used as cfg keys; informational)
-    w.le_Lcell = _le('6.0')
-    w.le_t     = _le('0.4')
-    w.le_ks    = _le('16.0')
-    w.le_uA    = _le('5.0')
-    w.le_uB    = _le('5.0')
-    w.le_PinA  = _le('192362.0')
-    w.le_PinB  = _le('101325.0')
-    w.le_TinA  = _le('422.0')
-    w.le_TinB  = _le('322.0')
-    w.le_rho_s = _le('7900.0')
-    w.combo_tpms = _combo(['Diamond', 'Gyroid'], default_idx=0)
-    # Fluid combos read by _gather_cfg
-    w.combo_fluidA = _combo(['Air', 'Water'], default_idx=0)
-    w.combo_fluidB = _combo(['Air', 'Water'], default_idx=1)
-    # Optional checkbox + temp converter (skip — _gather_cfg has guards)
-    return w
+def report(window, *, status='completed'):
+    cfg = panel._gather_cfg(window)
+    spec = panel._field_spec(window)
+    count = 27 if cfg.is_3d else 9
+    # Different z controls ensure flattening or mean backfill cannot pass.
+    x = np.r_[np.linspace(5., 7., count), np.linspace(.35, .55, count)].tolist()
+    return dict(status=status, reason=None, dimension=3 if cfg.is_3d else 2,
+        method='qlognehvi', field_spec=spec,
+        conditions=[dict(condition_id='one', config=asdict(cfg), mass_flow_A_kg_s=.003,
+                         mass_flow_B_kg_s=.015)],
+        history=[dict(index=0, x_decision=x, directory='design_0000', status='completed',
+                      objectives=dict(heat_gain_percent=-2., pressure_ratio=.25))],
+        pareto_indices=[0], n_evaluated=1, n_usable=1, design_budget=4)
 
 
-# ─── Tests ─────────────────────────────────────────────────────────
+def archive_candidate(window, study, output_dir):
+    from sjtu_tpmshx.domain.compute_config import ComputeConfig, ZoneInputConfig
+    from sjtu_tpmshx.io.case_io import save_case
+    from sjtu_tpmshx.optimization.multi_condition import prepare_fixed_mass_flow_case
+    candidate = study['history'][0]
+    row = study['conditions'][0]
+    cfg = replace(ComputeConfig.from_dict(row['config']), zones=ZoneInputConfig(
+        enabled=True, axis='continuous',
+        config={**study['field_spec'], 'x_decision': candidate['x_decision']}))
+    case = prepare_fixed_mass_flow_case(cfg, case_id='saved:one',
+        mass_flow_A_kg_s=row['mass_flow_A_kg_s'], mass_flow_B_kg_s=row['mass_flow_B_kg_s'])
+    directory = output_dir / candidate['directory']
+    (directory / 'condition_001').mkdir(parents=True)
+    save_case(case, directory / 'condition_001/case.yaml')
+    batch = dict(status='completed', conditions=[dict(condition_id=row['condition_id'],
+        status='completed', case_id=case.case_id, case_file='condition_001/case.yaml',
+        mass_flow_A_kg_s=row['mass_flow_A_kg_s'], mass_flow_B_kg_s=row['mass_flow_B_kg_s'])])
+    (directory / 'batch.json').write_text(json.dumps(batch))
+    window._last_opt_output_dir = str(output_dir)
+    return case, batch
 
 
 @pytest.mark.parametrize('dimension', [0, 1])
-def test_gather_cfg_reads_geometry_from_UI(dimension):
-    """Depth belongs to 3D; both dimensions use the current in-plane extents."""
-    w = _make_window()
-    w.combo_dim = _combo(['2D', '3D'], default_idx=dimension)
-    cfg = _gather_cfg(w)
-    assert cfg['L_domain'] == pytest.approx(0.182)
-    assert cfg['H_domain'] == pytest.approx(0.042)
-    if dimension:
-        assert cfg['Lz'] == pytest.approx(0.042)
-    else:
-        assert 'Lz' not in cfg
+def test_complete_case_and_field_dimension_reach_optimizer(window, dimension):
+    from sjtu_tpmshx.ui.window_config import config_from_window
+    window.combo_dim.setCurrentIndex(dimension)
+    depth = .042 if dimension else .063
+    window.le_Lz.setText(str(depth))
+    cfg = panel._gather_cfg(window)
+    ordinary = config_from_window(window, strict=True)
+    assert cfg.bc_A == ordinary.bc_A and cfg.bc_B == ordinary.bc_B
+    assert cfg.solver == ordinary.solver and cfg.df_mode == 'experimental'
+    assert cfg.geometry.Lz_m == depth
+    assert cfg.is_3d == bool(dimension)
+    if not dimension:
+        assert ordinary.geometry.Lz_m is None
+    spec = panel._field_spec(window)
+    assert spec['symmetric_y'] is False and spec['spline_order'] == 2
+    assert ('n_ctrl_z' in spec) == bool(dimension)
+    assert str(54 if dimension else 18) in window._opt_field_layout.text()
 
 
-def test_gather_cfg_reads_velocities_and_pressures():
-    w = _make_window()
-    cfg = _gather_cfg(w)
-    assert cfg['u_A']  == pytest.approx(5.0)
-    assert cfg['u_B']  == pytest.approx(5.0)
-    assert cfg['P_inA'] == pytest.approx(192362.0)
-    assert cfg['P_inB'] == pytest.approx(101325.0)
+@pytest.mark.parametrize('bad', ['bad', '0', '-1', 'nan'])
+def test_2d_total_flow_depth_is_explicit_and_strict(window, bad):
+    window.combo_dim.setCurrentIndex(0)
+    window._opt_depth.setText(bad)
+    assert window.le_Lz.text() == bad
+    with pytest.raises(ValueError, match='2D total-flow depth'):
+        panel._gather_cfg(window)
 
 
-def test_gather_cfg_reads_solid_density_not_default():
-    """Regression for the v1 bug where rho_s was silently dropped and
-    optimizer used 2700 (Al) regardless of UI input."""
-    w = _make_window()
-    cfg = _gather_cfg(w)
-    assert cfg['rho_s'] == pytest.approx(7900.0)
+@pytest.mark.parametrize('damage', ['extra', 'missing', 'duplicate', 'bool', 'nonfinite', 'empty'])
+def test_import_contract_rejects_ambiguous_or_invalid_operating_inputs(damage):
+    payload = {'conditions': [condition()]}
+    if damage == 'extra': payload['conditions'][0]['df_mode'] = 'experimental'
+    if damage == 'missing': del payload['conditions'][0]['P_in_A_Pa']
+    if damage == 'duplicate': payload['conditions'].append(condition())
+    if damage == 'bool': payload['conditions'][0]['mass_flow_A_kg_s'] = True
+    if damage == 'nonfinite': payload['conditions'][0]['T_in_A_K'] = float('nan')
+    if damage == 'empty': payload['conditions'] = []
+    with pytest.raises(ValueError):
+        panel.validate_condition_table(payload)
 
 
-def test_gather_cfg_reads_tpms_type():
-    w = _make_window()
-    cfg = _gather_cfg(w)
-    assert cfg['tpms_type'] == 'Diamond'
+def test_import_changes_only_operating_conditions(window, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+    before = asdict(panel._gather_cfg(window))
+    path = tmp_path / 'conditions.json'
+    path.write_text(json.dumps({'conditions': [condition('a'), condition('b')]}))
+    monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *a: (str(path), ''))
+    panel.import_conditions(window)
+    current = panel._gather_cfg(window)
+    rows = panel._condition_inputs(current, window._opt_conditions)
+    assert [r[0] for r in rows] == ['a', 'b']
+    for _, cfg, flow_a, flow_b in rows:
+        assert cfg.geometry == current.geometry and cfg.bc_B == current.bc_B
+        assert cfg.solver == current.solver and cfg.df_mode == current.df_mode
+        assert cfg.fluid_A.T_in_K == 400. and cfg.fluid_B.P_in_Pa == 120000.
+        assert (flow_a, flow_b) == (.003, .015)
+    assert asdict(panel._gather_cfg(window)) == before
+    path.write_text('{"conditions": []}')
+    panel.import_conditions(window)
+    assert len(window._opt_conditions) == 2
+    panel.use_current_condition(window)
+    assert window._opt_conditions is None and '单工况' in window._opt_condition_summary.text()
 
 
-def test_worker_class_constructible_with_cfg():
-    """Worker must instantiate without exception given the gathered cfg."""
-    w = _make_window()
-    cfg = _gather_cfg(w)
-    Worker = _make_worker_class()
-    worker = Worker(cfg=cfg, n_init=4, n_iter=1, q_batch=2,
-                    seed=42, save_dir='opt_runs/_test_worker_smoke')
-    assert worker.cfg is cfg
-    assert worker.n_init == 4
-    assert worker.n_iter == 1
-    assert worker.q_batch == 2
+@pytest.mark.parametrize('dimension', [0, 1])
+def test_current_condition_flow_uses_prepared_fractional_pore_area(window, dimension):
+    from sjtu_tpmshx.preprocess.api import prepare_case
+    window.combo_dim.setCurrentIndex(dimension)
+    cfg = panel._gather_cfg(window)
+    rows = panel._condition_inputs(cfg, None)
+    case = prepare_case(cfg, case_id='independent-inlet-check')
+    for side, flow in zip('AB', rows[0][2:]):
+        if dimension:
+            prepared = case.parameters['prepared']
+            axis = prepared['axes'][side]
+            eps = np.take(case.design_fields['eps_'+side], -1 if axis['is_reverse'] else 0,
+                          axis=axis['stream_real_axis'])
+            area = np.asarray(axis['dcross1'])[:, None]*np.asarray(axis['dcross2'])[None, :]
+            pore_area = np.sum(eps * prepared['openings'][side]['inlet'] * area)
+            rho = prepared['properties'][side]['rho']
+        else:
+            direction = case.parameters['cfg'+side]['dir']
+            eps = np.take(case.design_fields['eps_arr'], -1 if direction % 2 else 0,
+                          axis=direction//2)/2
+            widths = case.grid['dy' if direction < 2 else 'dx']
+            pore_area = np.sum(eps*widths*case.parameters['boundary_openings'][side]['in_profile_frac'])*.042
+            rho = case.parameters['static_properties'][side]['rho']
+        assert flow == pytest.approx(rho*pore_area*getattr(cfg, 'fluid_'+side).u_mps, rel=1e-14)
 
 
-def test_worker_passes_n_jobs_to_run_qnehvi():
-    """Phase 1 wiring fix — worker.run() must pass n_jobs to enable inner
-    joblib parallelism (was missing pre-2026-05-09; UI ran sequentially)."""
-    w = _make_window()
-    cfg = _gather_cfg(w)
-    Worker = _make_worker_class()
-    worker = Worker(cfg=cfg, n_init=2, n_iter=0, q_batch=4,
-                    seed=0, save_dir='opt_runs/_test_n_jobs_smoke')
-
-    captured: dict = {}
-
-    def _fake_run_qnehvi(**kwargs):
-        captured.update(kwargs)
-        # Synthetic 1-pt Pareto so finished_with_result has something
-        return {
-            'X':         np.zeros((1, 16)),
-            'F':         np.array([[-8000.0, 12000.0]]),
-            'history_X': np.zeros((1, 16)),
-            'history_F': np.array([[-8000.0, 12000.0]]),
-            'n_evals':   2,
-            'save_dir':  worker.save_dir,
-        }
-
-    with patch('sjtu_tpmshx.optimization.optimizer_qnehvi.run_qnehvi', _fake_run_qnehvi):
-        worker.run()
-
-    assert 'n_jobs' in captured, \
-        "Worker did not pass n_jobs to run_qnehvi — UI inner parallel disabled"
-    assert captured['n_jobs'] >= 1
-    assert captured['n_jobs'] <= captured['q_batch']
-    assert captured['q_batch'] == 4
+def test_worker_passes_native_contract_and_reports_cancellation(window, tmp_path, monkeypatch):
+    from sjtu_tpmshx.domain.cancellation import CancelledError
+    from sjtu_tpmshx.optimization import multi_condition_optimizer as native
+    cfg = panel._gather_cfg(window)
+    rows = [condition()]
+    conditions = panel._condition_inputs(cfg, rows)
+    Worker = panel._make_worker_class()
+    worker = Worker(cfg, rows, panel._field_spec(window), 'sobol', 2, 0, 1, 3, str(tmp_path))
+    rows[0]['T_in_A_K'] = 500.
+    outputs, progress = [], []
+    worker.finished_with_result.connect(outputs.append)
+    worker.progress_signal.connect(progress.append)
+    expected = report(window, status='cancelled')
+    def run(actual, **kwargs):
+        assert actual == conditions and actual is not conditions
+        assert kwargs['method'] == 'sobol' and kwargs['field_spec']['n_ctrl_z'] == 3
+        assert kwargs['control'].cancel_check() is False
+        kwargs['control'].report_progress(17)
+        (tmp_path/'optimization.json').write_text(json.dumps(expected))
+        raise CancelledError('cancelled')
+    monkeypatch.setattr(native, 'run_multi_condition_optimization', run)
+    worker.run()
+    assert progress == [17] and outputs == [expected]
 
 
-def test_worker_n_jobs_capped_at_q_batch():
-    """If cfg sets n_jobs > q_batch, the worker must clamp down (joblib
-    can't usefully parallelize more than the batch size)."""
-    w = _make_window()
-    cfg = _gather_cfg(w)
-    cfg['n_jobs'] = 32  # absurdly high
-    Worker = _make_worker_class()
-    worker = Worker(cfg=cfg, n_init=2, n_iter=0, q_batch=2,
-                    seed=0, save_dir='opt_runs/_test_n_jobs_cap')
-
-    captured: dict = {}
-
-    def _fake_run_qnehvi(**kwargs):
-        captured.update(kwargs)
-        return {
-            'X': np.zeros((0, 16)), 'F': np.zeros((0, 2)),
-            'history_X': np.zeros((0, 16)), 'history_F': np.zeros((0, 2)),
-            'n_evals': 0, 'save_dir': worker.save_dir,
-        }
-
-    with patch('sjtu_tpmshx.optimization.optimizer_qnehvi.run_qnehvi', _fake_run_qnehvi):
-        worker.run()
-
-    assert captured['n_jobs'] == 2  # capped to q_batch
-
-
-def test_worker_emits_finished_signal_on_success():
-    """Run() must emit finished_with_result on the synthetic Pareto."""
-    w = _make_window()
-    cfg = _gather_cfg(w)
-    Worker = _make_worker_class()
-    worker = Worker(cfg=cfg, n_init=2, n_iter=0, q_batch=2,
-                    seed=0, save_dir='opt_runs/_test_finish_smoke')
-
-    received: list = []
-    worker.finished_with_result.connect(lambda res: received.append(res))
-
-    def _fake_run_qnehvi(**_kw):
-        return {
-            'X':         np.array([[6.0]*16]),
-            'F':         np.array([[-7500.0, 11000.0]]),
-            'history_X': np.array([[6.0]*16]),
-            'history_F': np.array([[-7500.0, 11000.0]]),
-            'n_evals':   2,
-            'save_dir':  worker.save_dir,
-        }
-
-    with patch('sjtu_tpmshx.optimization.optimizer_qnehvi.run_qnehvi', _fake_run_qnehvi):
-        worker.run()
-
-    assert len(received) == 1
-    assert received[0]['n_evals'] == 2
-    assert len(received[0]['X']) == 1
-
-
-def test_worker_emits_error_signal_on_exception():
-    """run_qnehvi raising must NOT crash the worker — must emit error_signal."""
-    w = _make_window()
-    cfg = _gather_cfg(w)
-    Worker = _make_worker_class()
-    worker = Worker(cfg=cfg, n_init=2, n_iter=0, q_batch=2,
-                    seed=0, save_dir='opt_runs/_test_error_smoke')
-
-    errors: list = []
-    worker.error_signal.connect(lambda msg: errors.append(msg))
-
-    def _fake_raise(**_kw):
-        raise RuntimeError("synthetic BO crash")
-
-    with patch('sjtu_tpmshx.optimization.optimizer_qnehvi.run_qnehvi', _fake_raise):
-        worker.run()
-
-    assert len(errors) == 1
-    assert "RuntimeError" in errors[0]
-    assert "synthetic BO crash" in errors[0]
-
-
-@pytest.mark.parametrize('reason,label,count', [
-    ('completed', '完成', 4), ('cancelled', '已取消', 1),
-    ('plateau', '平台期提前结束', 2), ('error', 'ERROR', 0),
-])
-def test_terminal_state_and_progress_survive_until_thread_exit(monkeypatch, tmp_path,
-                                                              reason, label, count):
+@pytest.mark.parametrize('cancel_during_prepare', [False, True])
+def test_single_condition_prepares_in_worker_and_can_cancel_before_checkpoint(
+        window, tmp_path, monkeypatch, cancel_during_prepare):
     import threading
-    from PySide6.QtWidgets import QLabel, QPushButton, QProgressBar
-    from sjtu_tpmshx.ui import optimize_panel as panel
+    from PySide6.QtCore import QThread, QTimer
+    from PySide6.QtWidgets import QApplication
+    from sjtu_tpmshx.preprocess import api
+    from sjtu_tpmshx.optimization import multi_condition_optimizer as native
     from sjtu_tpmshx.tests.test_worker_result_handoff import _wait_for
-    w = _optimization_window()
-    for name, value in dict(n_init=4, n_iter=0, q_batch=2, seed=1, n_rho_loops=3).items():
-        w._opt_inline_params[name].setValue(value)
-    w._opt_status, w._opt_kpi_gen = QLabel(), QLabel()
-    w._opt_btn, w._opt_cancel_btn = QPushButton(), QPushButton()
-    w._opt_progress = QProgressBar()
-    release = threading.Event()
-    Worker = _make_worker_class()
-    original_run = Worker.run
-    def held_run(worker):
-        original_run(worker)
-        assert release.wait(10)
-    monkeypatch.setattr(Worker, 'run', held_run)
-    monkeypatch.setattr(panel, '_make_worker_class', lambda: Worker)
+    entered, release = threading.Event(), threading.Event()
+    prepare = api.prepare_case
+    cfg = panel._gather_cfg(window)
+    expected = report(window)
+    received, ticks = [], []
+
+    def held_prepare(actual, **kwargs):
+        assert QThread.currentThread() != QApplication.instance().thread()
+        assert actual == cfg and actual is not cfg
+        entered.set()
+        assert release.wait(5)
+        return prepare(actual, **kwargs)
+
+    def run(conditions, **kwargs):
+        assert conditions[0][0] == 'current'
+        assert conditions[0][1] == cfg
+        assert all(flow > 0 for flow in conditions[0][2:])
+        received.append(conditions)
+        return expected
+
+    monkeypatch.setattr(api, 'prepare_case', held_prepare)
+    monkeypatch.setattr(native, 'run_multi_condition_optimization', run)
     monkeypatch.setattr(panel, 'optimization_output_dir', lambda: tmp_path)
-    def result(**kwargs):
-        if reason == 'error':
-            raise RuntimeError('test failure')
-        return dict(X=np.zeros((0, 16)), F=np.zeros((0, 2)), n_evals=count,
-                    save_dir=str(tmp_path), termination_reason=reason)
-    monkeypatch.setattr('sjtu_tpmshx.optimization.optimizer_qnehvi.run_qnehvi', result)
-    panel.run_optimize(w)
-    worker = w._opt_worker
+    panel.run_optimize(window)
+    QTimer.singleShot(0, lambda: ticks.append(True))
     try:
-        _wait_for(lambda: label in w._opt_status.text())
-        assert label in w._opt_kpi_gen.text()
-        assert w._opt_progress.value() == count * 25
-        assert w._opt_worker is worker and worker.isRunning()
-        assert not w._opt_btn.isEnabled()
+        _wait_for(lambda: entered.is_set() and bool(ticks))
+        assert '1 个工况' in window._opt_status.text()
+        assert not window._opt_btn.isEnabled()
+        # Editing the live widgets cannot alter the worker's captured input.
+        window.le_TinA.setText('450')
+        if cancel_during_prepare:
+            panel.cancel_optimize(window)
     finally:
         release.set()
-    _wait_for(lambda: w._opt_worker is None)
-    assert w._opt_btn.isEnabled() and not w._opt_cancel_btn.isEnabled()
+    _wait_for(lambda: window._opt_worker is None)
+    assert window._opt_btn.isEnabled()
+    if cancel_during_prepare:
+        assert not received
+        assert '尚未启动优化搜索' in window._opt_status.text()
+        assert not list(tmp_path.glob('*/optimization.json'))
+    else:
+        assert len(received) == 1
+        assert '完成' in window._opt_status.text()
 
 
-# ─── M0 (2026-07-09): search space, optimizer-budget hook, 3D routing ─
-
-
-def _add_space_widgets(w, L_min=4.0, L_max=8.0, t_min=0.3, t_max=0.5,
-                       grid=(4, 4), sym=True):
-    """Attach the 搜索空间 card's widget dict as _gather_cfg reads it."""
-    from PySide6.QtWidgets import QDoubleSpinBox, QCheckBox
-
-    def _ds(lo, hi, val):
-        d = QDoubleSpinBox()
-        d.setRange(lo, hi); d.setDecimals(2); d.setValue(val)
-        return d
-
-    cb = QComboBox()
-    cb.addItem("4 × 4（16 维）", (4, 4))
-    cb.addItem("6 × 6（36 维）", (6, 6))
-    cb.setCurrentIndex(0 if grid == (4, 4) else 1)
-    chk = QCheckBox(); chk.setChecked(sym)
-    w._opt_space_params = {
-        'L_min': _ds(0.0, 100.0, L_min), 'L_max': _ds(0.0, 100.0, L_max),
-        't_min': _ds(0.0, 100.0, t_min), 't_max': _ds(0.0, 100.0, t_max),
-        'ctrl_grid': cb, 'symmetric_y': chk,
-    }
-    return w
-
-
-def test_gather_cfg_reads_search_space_widgets():
-    w = _add_space_widgets(_make_window(), L_min=5.0, L_max=7.0,
-                           t_min=0.35, t_max=0.45, grid=(6, 6), sym=False)
-    cfg = _gather_cfg(w)
-    assert cfg['L_bounds'] == pytest.approx((5.0, 7.0))
-    assert cfg['t_bounds'] == pytest.approx((0.35, 0.45))
-    assert (cfg['n_ctrl_x'], cfg['n_ctrl_y']) == (6, 6)
-    assert cfg['symmetric_y'] is False
-
-
-def test_gather_cfg_clamps_bounds_to_training_hull():
-    """User-entered bounds outside the DF/Nu hull must be clamped — out-of-
-    hull rankings are extrapolation."""
-    from sjtu_tpmshx.df_surrogate._domain import TRAIN_L, TRAIN_T
-    w = _add_space_widgets(_make_window(), L_min=1.0, L_max=50.0,
-                           t_min=0.01, t_max=5.0)
-    cfg = _gather_cfg(w)
-    assert cfg['L_bounds'] == pytest.approx(tuple(TRAIN_L))
-    assert cfg['t_bounds'] == pytest.approx(tuple(TRAIN_T))
-
-
-def test_gather_cfg_degenerate_range_is_rejected():
-    w = _add_space_widgets(_make_window(), L_min=6.0, L_max=6.0)
-    with pytest.raises(ValueError, match='lower < upper'):
-        _gather_cfg(w)
-
-
-def test_gather_cfg_optimizer_config_hook():
-    """R3 wiring: a typed OptimizerConfig on window._optimizer_cfg must reach
-    the evaluator dict; absent → dimension defaults unchanged."""
-    from sjtu_tpmshx.domain.compute_config import OptimizerConfig
-    from sjtu_tpmshx.optimization.evaluator import DEFAULT_CONFIG as EVAL_DEFAULT
-
-    w = _make_window()
-    cfg_plain = _gather_cfg(w)
-    assert cfg_plain['max_iter_simple'] == EVAL_DEFAULT['max_iter_simple']
-
-    w._optimizer_cfg = OptimizerConfig(max_iter_simple=1234,
-                                       outer_tol_K=0.25, max_outer_ltne=6,
-                                       alpha_T=0.5)
-    cfg = _gather_cfg(w)
-    assert cfg['max_iter_simple'] == 1234
-    assert cfg['tol_energy'] == pytest.approx(0.25)
-    assert cfg['max_outer_3d'] == 6
-    assert cfg['alpha_outer'] == pytest.approx(0.5)
-
-
-def test_gather_cfg_3d_base_keeps_fast_mode_budget():
-    """3D launch passes DEFAULT_CONFIG_3D as base — the 3D fast-mode budget
-    iteration budget must survive, not be overwritten by the 2D defaults."""
-    from sjtu_tpmshx.optimization.evaluator_3d import DEFAULT_CONFIG_3D
-    w = _make_window()
-    cfg = _gather_cfg(w, base=DEFAULT_CONFIG_3D)
-    assert cfg['max_iter_simple'] == DEFAULT_CONFIG_3D['max_iter_simple']
-    assert 'Nx_3d' in cfg and 'Lz' in cfg
-    # widget reads still win: geometry came from the line-edits
-    assert cfg['L_domain'] == pytest.approx(0.182)
-
-
-def test_is_3d_mode_follows_combo_dim():
-    from sjtu_tpmshx.ui.optimize_panel import _is_3d_mode
-    w = _make_window()
-    assert _is_3d_mode(w) is False            # no combo at all
-    w.combo_dim = _combo(['2D', '3D'], default_idx=0)
-    assert _is_3d_mode(w) is False
-    w.combo_dim.setCurrentIndex(1)
-    assert _is_3d_mode(w) is True
-
-
-def test_worker_passes_evaluator_fn_to_run_qnehvi():
-    """3D routing: the worker must forward evaluator_fn so run_qnehvi drives
-    evaluate_design_3d instead of the 2D default."""
-    w = _make_window()
-    cfg = _gather_cfg(w)
-    Worker = _make_worker_class()
-    _sentinel = object()
-    worker = Worker(cfg=cfg, n_init=2, n_iter=0, q_batch=2,
-                    seed=0, save_dir='opt_runs/_test_evalfn_smoke',
-                    evaluator_fn=_sentinel)
-
-    captured: dict = {}
-
-    def _fake_run_qnehvi(**kwargs):
-        captured.update(kwargs)
-        return {
-            'X': np.zeros((0, 16)), 'F': np.zeros((0, 2)),
-            'history_X': np.zeros((0, 16)), 'history_F': np.zeros((0, 2)),
-            'n_evals': 0, 'save_dir': worker.save_dir,
-        }
-
-    with patch('sjtu_tpmshx.optimization.optimizer_qnehvi.run_qnehvi', _fake_run_qnehvi):
-        worker.run()
-
-    assert captured.get('evaluator_fn') is _sentinel
-
-
-def _optimization_window():
-    from PySide6.QtWidgets import QWidget, QVBoxLayout
-    from sjtu_tpmshx.ui.builders_canvas import _build_optimize_panel
-    from sjtu_tpmshx.ui.field_factory import default_factory
-    from sjtu_tpmshx.ui.theme import get_theme
-    from sjtu_tpmshx.ui import optimize_panel as panel
-    w = QWidget()
-    for key, value in vars(_make_window()).items():
-        setattr(w, key, value)
-    w.combo_fluidB.setCurrentIndex(0)
-    w.combo_dim = _combo(['2D', '3D'])
-    w._run_optimize = lambda: panel.run_optimize(w)
-    w._cancel_optimize = lambda: panel.cancel_optimize(w)
-    _build_optimize_panel(w, QVBoxLayout(w), default_factory().theme, get_theme())
-    return w
-
-
-@pytest.mark.parametrize('budget', [1, 8])
-def test_launch_passes_visible_dimension_budget_to_3d_evaluator(monkeypatch, tmp_path,
-                                                              budget):
-    """Actual launch -> worker -> evaluator, without executing a BO search."""
-    from sjtu_tpmshx.domain.compute_config import OptimizerConfig
-    from sjtu_tpmshx.ui import optimize_panel as panel
-    from sjtu_tpmshx.optimization import evaluator_3d
-
-    w = _optimization_window()
-    w._optimizer_cfg = OptimizerConfig(max_outer_ltne=12)
-    w._opt_inline_params['n_rho_loops'].setValue(7)
-    w.combo_dim.setCurrentIndex(1)
-    spin = w._opt_inline_params['max_outer_3d']
-    assert spin.value() == 12  # typed config must be visible, not clamped to 8
-    assert '最大耦合' in w._opt_outer_label.text()
-    spin.setValue(budget)
-
-    captured = {}
-    def fake_core(_x, cfg, **kwargs):
-        captured.update(kwargs)
-        return dict(Q_3D_W=10., dP_total_Pa=20., mass_kg=1.)
-    monkeypatch.setattr(evaluator_3d, '_evaluate_3d_dict', fake_core)
-    def fake_bo(**kwargs):
-        captured['config'] = kwargs['config']
-        if kwargs['evaluator_fn'] is not None:
-            kwargs['evaluator_fn'](np.zeros(16), kwargs['config'])
-        return dict(X=np.zeros((0, 16)), F=np.zeros((0, 2)), n_evals=0,
-                    save_dir=str(tmp_path), config=kwargs['config'])
-    monkeypatch.setattr('sjtu_tpmshx.optimization.optimizer_qnehvi.run_qnehvi', fake_bo)
+@pytest.mark.parametrize('status', ['completed', 'failed', 'cancelled', 'error'])
+def test_thread_terminal_state_retained_until_actual_exit(window, tmp_path, monkeypatch, status):
+    import threading
+    from sjtu_tpmshx.optimization import multi_condition_optimizer as native
+    from sjtu_tpmshx.tests.test_worker_result_handoff import _wait_for
+    window._opt_conditions = [condition()]
+    release = threading.Event()
     Worker = panel._make_worker_class()
-    monkeypatch.setattr(Worker, 'start', lambda self: self.run())
+    original = Worker.run
+    def held(worker):
+        original(worker)
+        assert release.wait(10)
+    monkeypatch.setattr(Worker, 'run', held)
     monkeypatch.setattr(panel, '_make_worker_class', lambda: Worker)
     monkeypatch.setattr(panel, 'optimization_output_dir', lambda: tmp_path)
-    w._opt_btn.click()
-    assert captured['max_outer'] == budget
-    assert captured['config']['max_outer_3d'] == budget
-    assert captured['outer_tol_K'] == 0.5
-
-    w.combo_dim.setCurrentIndex(0)
-    assert w._opt_inline_params['n_rho_loops'].value() == 7
-    w._opt_worker = None
-    panel.run_optimize(w)
-    assert captured['config']['n_rho_loops'] == 7
-    w.combo_dim.setCurrentIndex(1)
-    assert w._opt_inline_params['max_outer_3d'].value() == budget
-    w.close()
-
-
-def test_inline_budget_shows_updated_typed_config_until_explicit_edit():
-    from PySide6.QtWidgets import QApplication
-    from sjtu_tpmshx.domain.compute_config import OptimizerConfig
-    w = _optimization_window()
-    w.combo_dim.setCurrentIndex(1)
-    assert w._opt_inline_params['max_outer_3d'].value() == 2
-    w._optimizer_cfg = OptimizerConfig(max_outer_ltne=6)
-    w.show()
-    QApplication.instance().processEvents()
-    assert w._opt_inline_params['max_outer_3d'].value() == 6
-    w._opt_inline_params['max_outer_3d'].setValue(4)
-    w.hide()
-    w._optimizer_cfg = OptimizerConfig(max_outer_ltne=7)
-    w.show()
-    QApplication.instance().processEvents()
-    assert w._opt_inline_params['max_outer_3d'].value() == 4
-    w.close()
-
-
-
-
-def test_inline_budget_config_error_restores_launch_state():
-    from sjtu_tpmshx.ui import optimize_panel as panel
-    w = _optimization_window()
-    w.combo_dim.setCurrentIndex(1)
-    w._optimizer_cfg = types.SimpleNamespace()
-    panel.run_optimize(w)
-    assert w._opt_launching is False
-    assert w._opt_btn.isEnabled()
-    assert getattr(w, '_opt_worker', None) is None
-    assert 'parameter setup failed' in w._opt_status.text()
-    assert 'max_outer_ltne' in w._opt_status.text()
-    w.close()
-
-
-
-@pytest.mark.parametrize("dimension", [0, 1])
-def test_live_trend_separates_Q_from_HV_and_resets_at_next_launch(monkeypatch, tmp_path, dimension):
-    from sjtu_tpmshx.ui import optimize_panel as panel
-    w = _optimization_window()
-    w.combo_dim.setCurrentIndex(dimension)
-
-    class Signal:
-        def connect(self, callback):
-            self.callback = callback
-        def emit(self, *args):
-            self.callback(*args)
-
-    class Worker:
-        def __init__(self, *args, **kwargs):
-            for name in ('progress_signal', 'hv_signal', 'finished_with_result',
-                         'error_signal', 'finished'):
-                setattr(self, name, Signal())
-        def start(self):
-            pass
-        def wait(self, timeout):
-            return True
-        def deleteLater(self):
-            pass
-
-    monkeypatch.setattr(panel, '_make_worker_class', lambda: Worker)
-    monkeypatch.setattr(panel, 'optimization_output_dir', lambda: tmp_path)
-    panel.run_optimize(w)
-    worker = w._opt_worker
+    expected = report(window, status=status)
+    def run(*args, **kwargs):
+        kwargs['control'].report_progress(25)
+        if status == 'error': raise RuntimeError('test failure')
+        return expected
+    monkeypatch.setattr(native, 'run_multi_condition_optimization', run)
+    panel.run_optimize(window)
+    worker = window._opt_worker
+    label = 'ERROR' if status == 'error' else panel._termination_label(expected)
     try:
-        worker.progress_signal.emit(1, 80, 100.)
-        assert w._opt_sparkline._data == [100.]
-        assert 'W/m' in w._opt_sparkline_caption.text()
-        worker.hv_signal.emit(1, 2000., [2000.])
-        worker.progress_signal.emit(33, 80, 110.)
-        worker.hv_signal.emit(2, 2100., [2000., 2100.])
-        assert w._opt_sparkline._data == [2000., 2100.]
-        assert 'HV' in w._opt_sparkline_caption.text()
-        worker.finished.emit()
-        panel.run_optimize(w)
-        assert w._opt_sparkline._data == []
-        assert w._opt_sl_is_hv is False
-        assert 'W/m' in w._opt_sparkline_caption.text()
-        w._opt_worker.finished.emit()
+        _wait_for(lambda: label in window._opt_status.text())
+        assert window._opt_worker is worker and worker.isRunning()
+        assert not window._opt_btn.isEnabled()
+        assert window._opt_progress.value() == 25
     finally:
-        w.close()
+        release.set()
+    _wait_for(lambda: window._opt_worker is None)
+    assert window._opt_btn.isEnabled()
 
 
-def test_continuous_optimization_uses_bounds_not_uniform_compute_seed():
-    w = _make_window()
-    w.le_Lcell.setText('invalid')
-    w.le_t.setText('invalid')
-    cfg = _gather_cfg(w)
-    assert 'L_avg_init' not in cfg and 't_avg_init' not in cfg
-    assert cfg['L_bounds'][0] < cfg['L_bounds'][1]
-    assert cfg['t_bounds'][0] < cfg['t_bounds'][1]
+@pytest.mark.parametrize('dimension', [0, 1])
+def test_pareto_keeps_relative_objectives_and_full_field_through_save_replay(window, dimension, tmp_path, monkeypatch):
+    from sjtu_tpmshx.ui.window_config import config_from_window
+    from sjtu_tpmshx.preprocess.api import prepare_case
+    window.combo_dim.setCurrentIndex(dimension)
+    study = report(window)
+    archived_case, _ = archive_candidate(window, study, tmp_path)
+    window._last_opt_report = deepcopy(study)
+    panel.show_pareto(window, study)
+    ax = window.canvas_pareto.figure.axes[0]
+    assert ax.get_xlabel() == 'Mean relative pressure drop [1]'
+    assert ax.get_ylabel() == 'Mean useful heat gain [%]'
+    np.testing.assert_array_equal(ax.lines[0].get_xdata(), [.25])
+    np.testing.assert_array_equal(ax.lines[0].get_ydata(), [-2.])
+    anchor = (window.le_Lcell.text(), window.le_t.text())
+    with monkeypatch.context() as click:
+        click.setattr('sjtu_tpmshx.preprocess.api.prepare_case',
+                      lambda *args, **kwargs: pytest.fail('Pareto click recomputed preparation'))
+        panel.on_pareto_pick(window, types.SimpleNamespace(ind=np.array([0])))
+    cfg = config_from_window(window, strict=True).validate()
+    assert cfg.zones.axis == 'continuous', window._opt_status.text()
+    assert cfg.zones.config['x_decision'] == study['history'][0]['x_decision']
+    assert ('n_ctrl_z' in cfg.zones.config) == bool(dimension)
+    assert (window.le_Lcell.text(), window.le_t.text()) == anchor
+    for side in 'AB':
+        assert getattr(cfg, 'fluid_'+side).u_mps == archived_case.config_snapshot['fluid_'+side]['u_mps']
+    preset = window._capture_current_preset('full-continuous')
+    window._validate_preset(preset, complete=True)
+    panel.clear_continuous_field(window)
+    window._apply_user_preset(preset, show_notice=False)
+    replay = config_from_window(window, strict=True).validate()
+    assert replay.zones.config == cfg.zones.config
+    actual_flows = panel._condition_inputs(panel._gather_cfg(window), window._opt_conditions)[0][2:]
+    np.testing.assert_allclose(actual_flows, [.003, .015], rtol=2e-14)
+    case = prepare_case(replay, case_id='replayed-field')
+    if dimension:
+        assert np.any(case.design_fields['L_field_m'][:, :, 0] != case.design_fields['L_field_m'][:, :, -1])
+    panel.show_field_preview(window, study['history'][0]['x_decision'])
+    previous_preview = window.canvas_opt_field.figure.axes[0].images[0].get_array().copy()
+    if dimension:
+        assert 'z =' in window.canvas_opt_field.figure.axes[0].get_title(loc='left')
+    # A saved design must preview after reopening, without the optimizer's history.
+    window._last_opt_report = None
+    panel.show_field_preview(window)
+    np.testing.assert_array_equal(window.canvas_opt_field.figure.axes[0].images[0].get_array(), previous_preview)
+    bad = deepcopy(preset)
+    bad['combos']['combo_dim'] = 1-dimension
+    with pytest.raises(ValueError, match='dimension'):
+        window._validate_preset(bad, complete=True)
+
+
+def test_stale_result_cannot_be_loaded_into_other_geometry(window):
+    window._last_opt_report = report(window)
+    window.le_Nx.setText('16')
+    panel.load_pareto_solution(window, window._last_opt_report['history'][0]['x_decision'])
+    assert window._continuous_field_spec is None
+
+
+@pytest.mark.parametrize('dimension', [0, 1])
+def test_field_preview_belongs_to_optimization_and_keeps_other_figures(window, dimension):
+    from PySide6.QtWidgets import QApplication
+    window.combo_dim.setCurrentIndex(dimension)
+    window._last_opt_report = study = report(window)
+    panel.show_pareto(window, study)
+    pareto_line = window.canvas_pareto.figure.axes[0].lines[0]
+    geometry_axes = window.canvas_layout.figure.axes.copy()
+    window._switch_tab('layout')
+    drawn = window.cache.get_drawn_tabs().copy()
+
+    panel.show_field_preview(window, study['history'][0]['x_decision'])
+
+    assert window._active_tab == 'pareto'
+    assert window._opt_stack.currentIndex() == 2
+    assert window._opt_result_tabs.currentWidget() is window.canvas_opt_field
+    assert window.canvas_layout.figure.axes == geometry_axes
+    assert window.cache.get_drawn_tabs() == drawn
+    assert window.canvas_pareto.figure.axes[0].lines[0] is pareto_line
+    assert all(ax.images[0].get_cmap().name == FIELD_CMAP
+               for ax in window.canvas_opt_field.figure.axes if ax.images)
+    assert window._opt_result_tabs.isTabEnabled(2) == bool(dimension)
+    volume = window._opt_3d_data
+    if dimension:
+        assert volume['L_mm'].shape == volume['t_mm'].shape == (80, 40, 41)
+        for name in ('L_mm', 't_mm'):
+            for axis in range(3):
+                assert np.any(np.diff(volume[name], axis=axis) != 0.)
+        geom = window._last_opt_report['conditions'][0]['config']['geometry']
+        for spacing, length in (('dx', 'L_dom_m'), ('dy', 'H_dom_m'), ('dz', 'Lz_m')):
+            assert volume[spacing].sum() == pytest.approx(geom[length])
+        assert volume['flow_dir'] is None
+    else:
+        assert volume is None
+    window._opt_result_tabs.setCurrentIndex(0)
+    assert window._opt_result_tabs.currentWidget() is window.canvas_pareto
+    window.resize(1280, 900)
+    window.show()
+    heights = []
+    try:
+        for _ in range(3):
+            panel.show_field_preview(window, study['history'][0]['x_decision'])
+            QApplication.processEvents()
+            canvas = window.canvas_opt_field
+            canvas.draw()
+            for ax in canvas.figure.axes:
+                if not ax.images:
+                    continue
+                # Two fields must use the available width without stretching
+                # the physical x/y aspect ratio to fill the canvas.
+                assert ax.get_position().width > .65
+                x0, x1, y0, y1 = ax.images[0].get_extent()
+                box = ax.get_window_extent()
+                assert box.width / box.height == pytest.approx((x1-x0)/(y1-y0))
+            heights.append(window._opt_result_tabs.height())
+            window._opt_result_tabs.setCurrentIndex(0)
+            QApplication.processEvents()
+        # Figure pixel sizes must not feed back into ever-growing Qt tab hints.
+        assert max(heights) - min(heights) <= 2
+        assert max(heights) < window.height()
+    finally:
+        window.hide()
+    assert '当前算例' in window._opt_status.text()
+
+
+@pytest.mark.parametrize('failure', ['raised', 'no_actor'])
+@pytest.mark.parametrize('update', ['field_switch', 'new_design'])
+def test_volume_tab_is_lazy_reuses_panel_and_keeps_failed_updates_unavailable(window, monkeypatch, failure, update):
+    from PySide6.QtWidgets import QWidget
+    from unittest.mock import Mock
+    from sjtu_tpmshx.ui import panel_vis_3d
+
+    created = []
+
+    class VolumePanel(QWidget):
+        def __init__(self, parent):
+            super().__init__(parent)
+            self.set_fields = Mock()
+            self.cleanup = Mock()
+            self._volume_actor = object()
+            created.append(self)
+
+    monkeypatch.setattr(panel_vis_3d, 'ThreeDVisPanel', VolumePanel)
+    monkeypatch.setattr(window, '_vis3d_import_error', None)
+    study = report(window)
+    window._last_opt_report = study
+    panel.show_field_preview(window, study['history'][0]['x_decision'])
+    assert not created
+    try:
+        window._opt_result_tabs.setCurrentIndex(2)
+        assert len(created) == 1 and window._opt_3d_ready
+        renderer = created[0]
+        assert set(renderer.set_fields.call_args.kwargs) == {
+            'L_mm', 't_mm', 'dx', 'dy', 'dz', 'flow_dir'}
+        window._opt_result_tabs.setCurrentIndex(1)
+        window._opt_result_tabs.setCurrentIndex(2)
+        renderer.set_fields.assert_called_once()
+
+        # A field switch can lose the actor after the initial load succeeded.
+        # Reopening must retry despite the cached flag, and reset it on failure.
+        renderer._volume_actor = None
+        assert window._opt_3d_ready
+        if failure == 'raised':
+            renderer.set_fields.side_effect = RuntimeError('render failed')
+        if update == 'new_design':
+            panel.show_field_preview(window, study['history'][0]['x_decision'])
+        else:
+            window._opt_result_tabs.setCurrentIndex(1)
+        window._opt_result_tabs.setCurrentIndex(2)
+        assert renderer.set_fields.call_count == 2
+        assert len(created) == 1
+        assert not window._opt_3d_ready and renderer.isHidden()
+        message = 'render failed' if failure == 'raised' else '未能生成三维体图'
+        assert message in window._opt_3d_placeholder.text()
+
+        renderer.set_fields.side_effect = lambda **kwargs: setattr(renderer, '_volume_actor', object())
+        window._opt_result_tabs.setCurrentIndex(1)
+        window._opt_result_tabs.setCurrentIndex(2)
+        assert renderer.set_fields.call_count == 3
+        assert window._opt_3d_ready and window._opt_3d_figure_ready()
+        panel.show_field_preview(window, [1.])  # invalid new candidate
+        assert window._opt_3d_data is None and not window._opt_3d_ready
+        assert not window._opt_result_tabs.isTabEnabled(2) and renderer.isHidden()
+
+        panel.show_pareto(window, study)
+        assert window._opt_3d_data is None and not window._opt_3d_ready
+        assert not window._opt_result_tabs.isTabEnabled(2)
+    finally:
+        window._opt_result_tabs.setCurrentIndex(0)
+        window.canvas_opt_3d = None
+        for widget in created:
+            window._opt_3d_host.layout().removeWidget(widget)
+            widget.deleteLater()
+
+
+def test_missing_or_mismatched_archive_keeps_current_design(window, tmp_path, monkeypatch):
+    from sjtu_tpmshx.io.case_io import save_case
+    study = report(window)
+    case, batch = archive_candidate(window, study, tmp_path)
+    window._last_opt_report = study
+    directory = tmp_path / study['history'][0]['directory']
+    original = asdict(panel._gather_cfg(window))
+    x = study['history'][0]['x_decision']
+    monkeypatch.setattr('sjtu_tpmshx.preprocess.api.prepare_case',
+                        lambda *args, **kwargs: pytest.fail('Missing archive caused new preparation'))
+    for damage in ('missing', 'condition', 'flow', 'case_id', 'config', 'vector', 'speed'):
+        changed = deepcopy(batch)
+        changed_case = case
+        selected = list(x)
+        if damage == 'missing': changed['conditions'][0]['case_file'] = 'missing.yaml'
+        if damage == 'condition': changed['conditions'][0]['condition_id'] = 'other'
+        if damage == 'flow': changed['conditions'][0]['mass_flow_A_kg_s'] *= 2
+        if damage == 'case_id': changed['conditions'][0]['case_id'] = 'other'
+        if damage in ('config', 'speed'):
+            from sjtu_tpmshx.domain.portable_data import mutable_data
+            snapshot = mutable_data(case.config_snapshot)
+            if damage == 'config': snapshot['df_mode'] = 'cfd_smooth'
+            else: snapshot['fluid_A']['u_mps'] *= 2
+            changed_case = replace(case, config_snapshot=snapshot)
+        if damage == 'vector': selected[0] += .1
+        save_case(changed_case, directory / 'condition_001/case.yaml')
+        (directory / 'batch.json').write_text(json.dumps(changed))
+        panel.load_pareto_solution(window, selected)
+        assert '载入失败' in window._opt_status.text(), damage
+        expected_reason = dict(missing='No such file', condition='归档工况', flow='归档工况',
+                               case_id='归档算例', config='归档算例', vector='Pareto', speed='归档入口速度')
+        assert expected_reason[damage] in window._opt_status.text(), window._opt_status.text()
+        assert window._continuous_field_spec is None
+        assert asdict(panel._gather_cfg(window)) == original
+
+
+@pytest.mark.parametrize('field,label,value', [
+    (field, label, value)
+    for field, label in [('le_L', 'Domain Length'), ('le_TinB', 'Inlet Temp B'),
+                         ('le_PinB', 'Inlet Pressure B')]
+    for value in ['', 'oops', 'nan', 'inf']
+    if value or field != 'le_PinB'  # Optional pressure blank retains its default.
+])
+def test_bad_case_input_cannot_launch(window, field, label, value, monkeypatch, tmp_path):
+    from unittest.mock import Mock
+    panel._gather_cfg(window)  # Establish that only this test's edit is invalid.
+    getattr(window, field).setText(value)
+    monkeypatch.setattr(panel, 'optimization_output_dir', lambda: tmp_path)
+    factory = Mock(side_effect=RuntimeError('invalid input launched'))
+    monkeypatch.setattr(panel, '_make_worker_class', factory)
+    panel.run_optimize(window)
+    factory.assert_not_called()
+    assert '启动失败' in window._opt_status.text()
+    assert label in window._opt_status.text()
+    assert window._opt_launching is False and window._opt_btn.isEnabled()
+
+
+@pytest.mark.parametrize('side', ['A', 'B'])
+def test_blank_optional_pressure_keeps_default(window, side):
+    widget = getattr(window, f'le_Pin{side}')
+    widget.setText('')
+    cfg = panel._gather_cfg(window)
+    assert getattr(cfg, f'fluid_{side}').P_in_Pa == 101325.0
+    assert widget.text() == ''

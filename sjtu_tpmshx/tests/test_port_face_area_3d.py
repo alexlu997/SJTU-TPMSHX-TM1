@@ -68,7 +68,7 @@ def test_fractional_outlet_support_and_local_continuity(stage):
         sweep = _sweep_v_jit_df_3d if stage == 'serial' else _sweep_v_jit_df_3d_parallel
         sweep(s.u, s.v, s.w, s.P, s.d_v, s.v_inlet_field, 3, 2, 3,
               s.dx, s.dy, s.dz, s.rho_field, s.eps_field, s._mu_eff_field,
-              s.mu_field, np.ones((2, 3)), np.ones((2, 3)), .5, 0, 0, 1, s.outlet_mask_ij)
+              s.mu_field, np.ones((3, 2, 3)), np.ones((3, 2, 3)), .5, 0, 0, 1, s.outlet_mask_ij)
     # South face rho*eps=1.4, north=1.6; f must not rescale the closed flux.
     np.testing.assert_allclose(s.v[:, -1, :][f > 0], 2. * 1.4 / 1.6)
     np.testing.assert_array_equal(s.v[:, -1, :][f == 0], 0.)

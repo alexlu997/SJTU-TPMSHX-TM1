@@ -147,6 +147,83 @@ its former `zone_config` row-prediction path is retired. Arguments following
 reinterpreted. Residual callbacks propagate their original exceptions through
 both full compute and screening; they are not best-effort UI notifications.
 
+Full 2D and 3D preparation accept `zones.axis="continuous"` with a JSON `config`
+containing `x_decision` (L controls followed by t controls, in mm),
+`n_ctrl_x`, `n_ctrl_y`, `symmetric_y`, `spline_order`, `L_bounds`, and
+`t_bounds`. The main geometry owns topology, material and domain dimensions.
+Two-dimensional controls describe L(x,y)/t(x,y). Adding `n_ctrl_z` describes
+true L(x,y,z)/t(x,y,z) controls; they are rejected by the 2D backend. The
+spline is sampled at final physical cell centres, including nonuniform grids,
+without quantization or the discrete zone mode's Gaussian filter. Historical
+XY controls in 3D still mean extrusion along z. CaseData retains
+both the original controls and SI fields; execution consumes those fields.
+Both fluid sides retain complete local K/cF arrays in their own SIMPLE
+coordinates. This also applies to existing 3D grid zones: side A no longer
+averages transverse drag and side B no longer replaces it with uniform drag.
+Recomputing an old nonuniform grid-zone case can therefore change its results;
+saved historical results are not rewritten. The 3D constructor also accepts row arrays and broadcasts them
+along its first axis. Its existing momentum sampling remains: adjacent-x
+averages at u faces, downstream-cell samples at v/w faces. Geometry gradients
+still require independent physical validation; parameter smoothness does not
+establish TPMS surface connectivity or manufacturability. Continuous fields
+require symmetric channels. For Shanghai Gyroid air-A/water-B,
+`df_mode="experimental"` also supports continuous fields with the original
+7/0.6 mm reference geometry and campaign domain. It transfers the frozen
+uniform-HX factors to every cell's local CFD K/cF, using the same factors for
+baseline and candidate. Result metadata marks this as
+`continuous-field-extrapolation`, for exploratory trend prediction; no gradient
+accuracy is implied. This explicitly enabled transfer also permits the inlet
+velocity to leave the old uniform-HX window when changing porosity at fixed
+mass flow; the original window and extrapolation status remain in metadata.
+Uniform calibration requests retain their velocity limits. Other spatial
+calibration restrictions and the sCO2 spatial restriction remain.
+
+`optimization.multi_condition.prepare_fixed_mass_flow_case` prepares a candidate,
+sets each inlet velocity using the prescribed total mass flow divided by its
+inlet density and the integral of local single-channel porosity over the actual
+opening, then prepares the final case. Its snapshot therefore records the
+candidate's correct velocity. A 2D study must supply its physical depth for
+total-mass-flow conversion; native results retain their per-unit-depth units.
+`aggregate_multi_condition` compares useful water
+uptake (`-Q_B`) and both relative pressure drops with paired baseline conditions;
+it requires complete converged results and keeps heat and pressure as separate
+objectives. Each condition has equal weight, with 50/50 pressure-side weights.
+These helpers do not qualify a closure or start an optimization run.
+
+`evaluate_condition_batch` runs a fixed design's air-A/water-B conditions
+serially into a new directory. Each member keeps its input, prepared Case,
+native result and metrics as soon as that stage succeeds. `batch.json` retains
+all requested members, failure stages and reasons, unrun members after
+cancellation, and the baseline metric values/definitions and source IDs.
+Cancellation propagates; ordinary condition failures continue without fabricated
+penalties. Baseline comparison checks the uniform reference, paired conditions,
+ports, model resources, D-F mode, frozen run overrides, resolved roughness,
+prescribed total flows, grids and solver settings. The raw conditions must
+share geometry and numerical settings.
+Only a complete numerically accepted batch can publish the two objectives.
+In addition to native convergence, 3D reuses the existing full-control-volume
+certificate from `postprocess.conservation.compute_phase2a`: each fluid's
+global/cellmax residual and the LTNE source imbalance must remain below 1%,
+and the physical boundary ledger must be complete. The conservation audit
+imports this same pure function. The 2D branch requires the native main/fine
+model-h balances, complete physical boundaries and Richardson acceptance.
+This is separate from experimental accuracy,
+the formal convective `energy_imbalance_rel` metric and gradient applicability;
+these remain evidence needed for physical predictions. They do not prevent
+an explicitly labeled exploratory search using frozen reference corrections.
+
+`optimization.multi_condition_optimizer.run_multi_condition_optimization`
+compares qLogNEHVI, qLogNParEGO and Sobol using the same seeded initial
+designs and evaluation budget. It fits only complete accepted batches, maximizes
+`(heat_gain_percent, -pressure_ratio)` and stores the full decision vector,
+field specification, conditions, failures and native batch paths. BO dependencies
+are optional and checked before physical evaluations. The desktop inherits the
+current ComputeConfig, accepts a fixed-mass-flow condition table and restores
+selected full fields without averaging. A finite-budget Pareto set is a model
+trend result; final candidates need all-condition and grid verification with
+objectives recomputed on those results. The nTop CSV API exports XY or XYZ
+coordinates and full control provenance with round-trip float precision.
+
 The 3D outer loop owns one live `_OuterState`, returned after iteration without
 a second synchronized state copy. Its steps prepare local heat transfer and
 transport inputs, run temperature/model-h or the true-h warm start and solve,
@@ -255,7 +332,7 @@ remain separate from the detached last-thermal snapshot; reporting references
 do not replace formal reductions from native evidence.
 
 Full 2D heat duty is W/m with no fabricated thickness or z-wall loss. Full 3D
-is W before any application normalization. The optimizer divides 3D duty/mass
+is W before any application normalization. The screening optimizer divides 3D duty/mass
 by actual Lz once at its boundary. Quick design is a prescribed-flow LTNE
 model with prepared analytical inlet-pressure fractions, not a SIMPLE solve.
 Its offline metrics need no EOS or calibration call. Screening retains its
@@ -401,11 +478,13 @@ drag-and-drop share one decoder for current and supported old GUI files.
 Failed or cancelled attempts retain that complete snapshot. A rendering failure
 after publication retains the new numerical result and its provenance, while
 unavailable views and stale plot/probe contents are invalidated.
-Optimization budgets are dimension-specific: 2D uses `n_rho_loops`, while 3D
-uses `max_outer_3d`. Inline controls show the effective
-default until edited, then preserve explicit choices separately per dimension.
-These are iteration budgets, not convergence certificates; the solver retains
-its existing convergence and physical checks.
+The current multi-condition optimizer preserves each dimension's full
+ComputeConfig solver settings. Its initial and subsequent design counts are
+search budgets, not convergence certificates. The former screening API's
+`n_rho_loops` / `max_outer_3d` controls are not the current GUI optimizer.
+The solver retains its existing convergence and physical checks. External CLI
+studies with settings not represented by GUI controls cannot be silently
+restored into a different GUI case; the handoff rejects that mismatch.
 
 ## Physical invariants
 

@@ -159,10 +159,11 @@ def _read_section_fields(window, section: str, *, is_3d: bool = True) -> dict:
 def _validate_required_widgets(window, *, is_3d: bool) -> None:
     """Raise ``ValueError`` listing every invalid input widget.
 
-    Existing numeric widgets reject blank, malformed and nonfinite text.
-    Missing optional widgets use their declared defaults; a blank widget is
-    not a missing widget. Temperature input is interpreted in the selected
-    display unit before ComputeConfig checks positive Kelvin values.
+    Required numeric widgets reject blank, malformed and nonfinite text.
+    Optional pressure and pipe widgets retain their defaults when missing or
+    blank, but reject malformed or nonfinite non-empty text. Temperature input
+    is interpreted in the selected display unit before ComputeConfig checks
+    positive Kelvin values.
     """
     import math as _math
     required = [fs for fs in CONFIG_FIELDS if fs.required_2d]
@@ -338,6 +339,10 @@ def _read_zone_input(window) -> 'ZoneInputConfig':
     """
     chk = getattr(window, 'chk_zones', None)
     enabled = bool(chk is not None and getattr(chk, 'isChecked', lambda: False)())
+    continuous = getattr(window, '_continuous_field_spec', None)
+    if enabled and continuous is not None:
+        return ZoneInputConfig(enabled=True, axis='continuous',
+                               config=deepcopy(continuous)).validate()
     axis: ZoneAxis = 'y'
     combo = getattr(window, 'combo_zone_axis', None)
     if combo is not None:
@@ -455,6 +460,8 @@ def config_from_window(window, *, strict: bool = False,
     bc_A = _read_partial_bc(window, 'A', is_3d=is_3d)
     bc_B = _read_partial_bc(window, 'B', is_3d=is_3d)
     zones = _read_zone_input(window)
+    if zones.enabled and zones.axis == 'continuous' and ('n_ctrl_z' in zones.config) != is_3d:
+        raise ValueError('Continuous field dimension differs from the current case; restore the original dimension or clear the field')
     flags = _read_feature_flags(window)
     extrap = _read_extrap_policy(window)
 

@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from .theme import get_theme
+from .theme import FIELD_CMAP, get_theme
 
 
 def cell_index_mm(position_mm, widths_m):
@@ -118,7 +118,7 @@ class MatplotlibCanvas(FigureCanvas):
         for ax, (field, main_title, subtitle) in zip(axes_p, p_data):
             ax.set_facecolor(_t['ax_bg'])
             _Xp, _Yp, _Fp = pad_field_to_edges(x, y, field, _Lmm, _Hmm)
-            cf = ax.contourf(_Xp, _Yp, _Fp, levels=256, cmap="turbo")
+            cf = ax.contourf(_Xp, _Yp, _Fp, levels=256, cmap=FIELD_CMAP)
             ax.set_xlim(0, _Lmm); ax.set_ylim(0, _Hmm)
             cb = self.fig.colorbar(cf, ax=ax, shrink=0.9, aspect=25, format="%.0f")
             style_field_axes(ax, cb, _t, main_title, subtitle)

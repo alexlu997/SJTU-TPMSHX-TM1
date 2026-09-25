@@ -168,7 +168,10 @@ def _compute_raw(tpms_type: str, L_mm: float, t_mm: float,
     return {'epsilon': eps, 'A_0': A0}
 
 
-@lru_cache(maxsize=4096)   # perf-wave1: 1024 → 4096, same rationale as above
+# One 92x14x10 continuous design has 12,880 cells and can retain both its
+# original and SI-roundtripped L/t keys. Keep these scalar-only results across
+# fixed-flow preparation and operating conditions; the phi-grid cache is separate.
+@lru_cache(maxsize=32768)
 def _compute_geometry_cached(tpms_type: str, L_mm: float, t_mm: float,
                              N: int = 128) -> dict:
     """

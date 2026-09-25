@@ -13,6 +13,7 @@ Public entry points (consumed by ``ui.mixins.run_controller`` and ``main``):
 import numpy as np
 import matplotlib.pyplot as plt
 
+from .theme import FIELD_CMAP
 
 def _phase_indices(window, count):
     """Direct renderer callers keep all panels; the workbench selects one."""
@@ -130,11 +131,11 @@ def plot_temperature_3panel(window, r, _t):
             # levels=128 (was 512): see 2026-05-20 UI sweep note in
             # run_calculation_3d.py — 512 over-samples turbo's 256-colour
             # LUT and quadruples contour triangulation cost.
-            kw = dict(levels=128, cmap='turbo')
+            kw = dict(levels=128, cmap=FIELD_CMAP)
             if vmin_s is not None:
                 kw.update(vmin=vmin_s, vmax=vmax_s)
         else:
-            kw = dict(levels=128, cmap='turbo', vmin=vmin_f, vmax=vmax_f)
+            kw = dict(levels=128, cmap=FIELD_CMAP, vmin=vmin_f, vmax=vmax_f)
         from sjtu_tpmshx.ui.matplotlib_canvas import pad_field_to_edges
         _Xp, _Yp, _Fp = pad_field_to_edges(x, y, field, L * 1000.0, H * 1000.0)
         cf = ax.contourf(_Xp, _Yp, _Fp, **kw)
@@ -221,7 +222,7 @@ def finalize_plots(window, field="temp"):
             index = selected[0]
             values = (P_fA, P_fB)[index]
             Xp, Yp, Fp = pad_field_to_edges(x, y, values, L * 1000, H * 1000)
-            cf = ax.contourf(Xp, Yp, Fp, levels=256, cmap='turbo')
+            cf = ax.contourf(Xp, Yp, Fp, levels=256, cmap=FIELD_CMAP)
             ax.set_xlim(0, L * 1000); ax.set_ylim(0, H * 1000)
             cb = canvas.fig.colorbar(cf, ax=ax, shrink=.9, aspect=25, format='%.0f')
             tag = ('A', 'B')[index]
@@ -269,7 +270,7 @@ def finalize_plots(window, field="temp"):
             ax.set_facecolor(_t['ax_bg'])
             from sjtu_tpmshx.ui.matplotlib_canvas import pad_field_to_edges
             _Xp, _Yp, _Fp = pad_field_to_edges(x, y, values, L * 1000.0, H * 1000.0)
-            cf = ax.contourf(_Xp, _Yp, _Fp, levels=128, cmap='turbo',
+            cf = ax.contourf(_Xp, _Yp, _Fp, levels=128, cmap=FIELD_CMAP,
                              vmin=0.0, vmax=_vmax_v)
             ax.set_xlim(0, L * 1000.0); ax.set_ylim(0, H * 1000.0)
             cb = window.canvas_vel.fig.colorbar(cf, ax=ax, shrink=0.9,

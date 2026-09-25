@@ -91,10 +91,13 @@ def build_execution_inputs(case):
         for key in ('K_m2', 'cF_per_m'):
             if not np.all(design[key] == design[key].flat[0]):
                 raise ValueError(f'uniform design field {key} must be uniform')
-    elif case.metadata['design_mode'] == 'xy_extruded':
+    elif case.metadata['design_mode'] in ('xy_extruded', 'continuous_xy_extruded'):
         for key in ('L_field_m', 't_field_m', 'eps_arr', 'K_m2', 'cF_per_m'):
             if not np.all(design[key] == design[key][:, :, :1]):
                 raise ValueError(f'3D design field {key} must be an xy extrusion')
+    elif case.metadata['design_mode'] == 'continuous_xyz':
+        if 'n_ctrl_z' not in (cfg.get('continuous_field') or {}):
+            raise ValueError('continuous_xyz requires recorded 3D control inputs')
     else:
         raise ValueError('unsupported prepared 3D design mode')
     prepared['design'] = design

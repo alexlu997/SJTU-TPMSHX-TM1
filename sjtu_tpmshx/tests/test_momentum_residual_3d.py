@@ -65,7 +65,8 @@ def _mom_res(s, use_sou=0, use_eps=0):
 
 @pytest.mark.parametrize('use_sou', [0, 1])
 @pytest.mark.parametrize('use_eps', [0, 1])
-def test_residual_vanishes_at_momentum_fixed_point(use_sou, use_eps):
+@pytest.mark.parametrize('local_drag', [False, True])
+def test_residual_vanishes_at_momentum_fixed_point(use_sou, use_eps, local_drag):
     """THE sync guard, on every branch. Sweep momentum alone (P, rho frozen) to
     its own fixed point; the residual kernel must then read ~0. It can only do
     so if `_{u,v,w}_coeffs_df_3d` assembles exactly the aP0/rhs that
@@ -77,17 +78,22 @@ def test_residual_vanishes_at_momentum_fixed_point(use_sou, use_eps):
     # A non-trivial frozen pressure field so p_src is not identically zero.
     ii = np.arange(s.Nx)[:, None, None]
     jj = np.arange(s.Ny)[None, :, None]
+    if local_drag:
+        kk = np.arange(s.Nz)[None, None, :]
+        s.K_arr *= 1.0 + 0.1 * ii + 0.03 * jj + 0.02 * kk
+        s.cF_arr *= 1.0 + 0.02 * ii + 0.04 * jj + 0.03 * kk
     s.P[:, :, :] = 50.0 * (s.Ny - 1 - jj) + 3.0 * ii
 
     kw = dict(Nx=s.Nx, Ny=s.Ny, Nz=s.Nz, dx=s.dx, dy=s.dy, dz=s.dz,
               rho_field=s.rho_field, mu_eff_field=s._mu_eff_field,
               mu_field=s.mu_field, eps_field=s.eps_field,
               K_arr=s.K_arr, cF_arr=s.cF_arr,
-              alpha_u=1.0, use_sou=use_sou, use_eps=use_eps)
+              alpha_u=0.7 if local_drag else 1.0, use_sou=use_sou, use_eps=use_eps)
 
     # Momentum-only Picard: sweep u/v/w with P frozen until the field stops
-    # moving. alpha_u = 1.0 -> the sweep's fixed point IS the unrelaxed
-    # equation aP0*phi = rhs, which is exactly what the residual measures.
+    # moving. Under-relax the local-drag Picard iteration to suppress roundoff
+    # oscillation; at its fixed point it still solves the unrelaxed equation
+    # aP0*phi = rhs, which is exactly what the residual measures.
     for _ in range(600):
         prev = (s.u.copy(), s.v.copy(), s.w.copy())
         _sweep_u_jit_df_3d(s.u, s.v, s.w, s.P, s.d_u, outlet_u_frac=s.outlet_u_frac, n_sweeps=1, **kw)

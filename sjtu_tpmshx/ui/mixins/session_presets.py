@@ -241,6 +241,12 @@ class SessionPresetsMixin:
             self._pareto_x_decision = zones['pareto_x_decision']
             self._pareto_y_trans_inlet = zones['pareto_y_trans_inlet']
             self._pareto_y_trans_outlet = zones['pareto_y_trans_outlet']
+        from copy import deepcopy
+        self._continuous_field_spec = deepcopy(preset.get('continuous_field'))
+        self._selected_pareto_x = None
+        self._opt_conditions = deepcopy(preset.get('optimization_conditions'))
+        from sjtu_tpmshx.ui.optimize_panel import refresh_setup
+        refresh_setup(self)
         self._user_edited_grid = True
         self._resync_undo_baseline()
         # Fluid signals are blocked above to preserve the preset's inputs.
@@ -279,7 +285,7 @@ class SessionPresetsMixin:
 
         if not isinstance(preset, dict):
             raise ValueError('Preset must be a JSON object.')
-        if complete and set(preset) - {'sco2_nu_parameters'} != {'name', 'temp_unit', 'line_edits',
+        if complete and set(preset) - {'sco2_nu_parameters', 'continuous_field', 'optimization_conditions'} != {'name', 'temp_unit', 'line_edits',
                                        'combos', 'checks', 'zone_inputs'}:
             raise ValueError('Incomplete or unsupported preset fields.')
         from sjtu_tpmshx.domain.compute_config import Sco2NuConfig
@@ -290,6 +296,18 @@ class SessionPresetsMixin:
         combos = preset.get('combos', {})
         if not isinstance(combos, dict):
             raise ValueError('Invalid combos.')
+        continuous = preset.get('continuous_field')
+        if continuous is not None:
+            from sjtu_tpmshx.domain.compute_config import ZoneInputConfig
+            ZoneInputConfig(enabled=True, axis='continuous', config=continuous).validate()
+            if ('n_ctrl_z' in continuous) != (combos.get('combo_dim') == 1):
+                raise ValueError('Continuous field dimension must match the saved case')
+            if not preset.get('checks', {}).get('chk_zones'):
+                raise ValueError('Continuous field requires enabled spatial design')
+        conditions = preset.get('optimization_conditions')
+        if conditions is not None:
+            from sjtu_tpmshx.ui.optimize_panel import validate_condition_table
+            validate_condition_table({'conditions': conditions})
         if combos.get('combo_sco2_nu_mode', 0) == 1:
             replace(parameters, mode='experimental').validate()
         validate_domain_shape(combos.get('combo_shape', 0))
@@ -362,7 +380,7 @@ class SessionPresetsMixin:
         if any(not isinstance(row, list) or len(row) != (6 if axis == 2 else 4)
                or any(not isinstance(v, str) for v in row) for row in rows):
             raise ValueError('Invalid zone table.')
-        if preset.get('checks', {}).get('chk_zones'):
+        if preset.get('checks', {}).get('chk_zones') and continuous is None:
             try:
                 if not rows or any(not math.isfinite(float(v))
                                    for row in rows for v in row):
@@ -384,6 +402,11 @@ class SessionPresetsMixin:
                    'temp_unit': getattr(self, '_temp_unit', 'K'),
                    'line_edits': {}, 'combos': {'combo_shape': 0}, 'checks': {},
                    'sco2_nu_parameters': dict(getattr(self, '_sco2_nu_parameters', {}))}
+        from copy import deepcopy
+        if getattr(self, '_continuous_field_spec', None) is not None and self.chk_zones.isChecked():
+            payload['continuous_field'] = deepcopy(self._continuous_field_spec)
+        if getattr(self, '_opt_conditions', None) is not None:
+            payload['optimization_conditions'] = deepcopy(self._opt_conditions)
         for n in self._SESSION_LINE_EDITS:
             w = getattr(self, n, None)
             if w is not None:

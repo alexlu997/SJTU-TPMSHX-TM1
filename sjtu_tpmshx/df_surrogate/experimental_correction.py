@@ -127,7 +127,7 @@ def hx_application_velocity_bounds(fluid: str, tpms: str) -> tuple[float, float]
 
 
 def _hx_scale(tpms: str, fluid: str, L_mm: Any, t_mm: Any,
-              u_mps: Any | None) -> tuple[Any, Any, str, str]:
+              u_mps: Any | None, *, allow_hx_extrapolation: bool = False) -> tuple[Any, Any, str, str]:
     if not _is_hx_76(L_mm, t_mm):
         raise ValueError(
             f"{fluid} HX experiment calibration is valid only for the "
@@ -136,8 +136,10 @@ def _hx_scale(tpms: str, fluid: str, L_mm: Any, t_mm: Any,
         raise ValueError(
             f"{fluid} HX experiment calibration requires inlet velocity")
     u = np.asarray(u_mps, dtype=float)
+    if not np.all(np.isfinite(u) & (u > 0)):
+        raise ValueError('HX experiment calibration requires finite positive inlet velocity')
     lo, hi = hx_application_velocity_bounds(fluid, tpms)
-    if np.any((u < lo - 1e-12) | (u > hi + 1e-12)):
+    if not allow_hx_extrapolation and np.any((u < lo - 1e-12) | (u > hi + 1e-12)):
         raise ValueError(
             f"{fluid} HX experiment calibration requires {lo:.6g}<=u<="
             f"{hi:.6g} m/s for {tpms}; got {_summary(u)}")
@@ -151,9 +153,14 @@ def _hx_scale(tpms: str, fluid: str, L_mm: Any, t_mm: Any,
 
 
 def correction_scale(tpms: str, fluid: str, L_mm: Any,
-                     t_mm: Any, u_mps: Any | None = None
+                     t_mm: Any, u_mps: Any | None = None, *,
+                     allow_hx_extrapolation: bool = False,
                      ) -> tuple[Any, Any, str, str]:
     """Return ``(sK, sF, campaign, scope)`` for one matched dataset."""
+    if allow_hx_extrapolation:
+        if tpms != 'Gyroid' or fluid not in ('air', 'water'):
+            raise ValueError('HX trend extrapolation is limited to Gyroid air/water')
+        return _hx_scale(tpms, fluid, L_mm, t_mm, u_mps, allow_hx_extrapolation=True)
     if fluid in ("water", "sco2"):
         return _hx_scale(tpms, fluid, L_mm, t_mm, u_mps)
     if fluid == "air":
@@ -165,11 +172,12 @@ def correction_scale(tpms: str, fluid: str, L_mm: Any,
 
 
 def apply_correction(tpms: str, fluid: str, L_mm: Any, t_mm: Any,
-                     K_base: Any, cF_base: Any, u_mps: Any | None = None
+                     K_base: Any, cF_base: Any, u_mps: Any | None = None, *,
+                     allow_hx_extrapolation: bool = False,
                      ) -> tuple[Any, Any, dict[str, Any]]:
     """Apply one approved fixed correction and return audit metadata."""
     sK, sF, campaign, scope = correction_scale(
-        tpms, fluid, L_mm, t_mm, u_mps)
+        tpms, fluid, L_mm, t_mm, u_mps, allow_hx_extrapolation=allow_hx_extrapolation)
     K0 = np.asarray(K_base, dtype=float)
     cF0 = np.asarray(cF_base, dtype=float)
     K = K0 * sK
@@ -197,10 +205,15 @@ def apply_correction(tpms: str, fluid: str, L_mm: Any, t_mm: Any,
                         calibration_runtime_velocity_window_mps={"min": runtime_lo, "max": runtime_hi},
                         application_scope=_HX_APPLICATION_SCOPE,
                         extrapolated=bool(np.any((u < runtime_lo) | (u > runtime_hi))))
+        if allow_hx_extrapolation:
+            metadata.update(transfer_policy='frozen-hx-7-0.6-trend',
+                            application_scope='Exploratory Gyroid air/water geometry transfer of '
+                                              'frozen 7/0.6 HX factors; accuracy unvalidated')
         record_range(
             ('df-experimental', fluid, tpms), u, (runtime_lo, runtime_hi),
-            label=(f"[D-F extrap] {fluid}/{tpms}; frozen sF; approved application "
-                   f"window [{lo}, {hi}] m/s; {_HX_APPLICATION_SCOPE}"),
+            label=(f"[D-F extrap] {fluid}/{tpms}; frozen sF; "
+                   f"{'research transfer' if allow_hx_extrapolation else 'approved application'}; "
+                   f"reference window [{lo}, {hi}] m/s; {metadata['application_scope']}"),
             quantity='inlet u', unit='m/s')
     return K_out, cF_out, metadata
 

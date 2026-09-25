@@ -20,7 +20,7 @@ Phase-1 "MVP" caveats are superseded):
   * Partial inlet/outlet supported via `inlet_frac` / `outlet_frac`
     (Nx, Nz) face fractions, with optional 8-cell corner taper
     (`apply_outlet_taper`); offset-outlet asym configs rely on this.
-  * D-F closure: K, c_F supplied as (Ny, Nz) arrays; uniform-geometry case
+  * D-F closure: K, c_F supplied as (Nx, Ny, Nz) or broadcast (Ny, Nz) arrays; uniform-geometry case
     broadcasts a single (K, c_F) pair.
 
 Physics (velocity, interstitial convention — matches 2D). Production default
@@ -385,7 +385,7 @@ class SIMPLESolver3D:
     `use_sou_momentum`); non-uniform spacings accepted since E1 (2026-06-09),
     uniform grid remains the default path. Compressible ideal-gas ρ=ρ(P,T)
     with mass-flux inlet is the production default.
-    Callers supply Darcy-Forchheimer (K, c_F) as (Ny, Nz) arrays and the
+    Callers supply Darcy-Forchheimer (K, c_F) as cell arrays or (Ny, Nz) rows and the
     solver never queries the surrogate directly — matches the 2D pattern.
 
     Parameters
@@ -402,9 +402,10 @@ class SIMPLESolver3D:
         Inlet face-normal velocity magnitude (y-face, j=0).
     eps : float
         Uniform porosity (ε). Used to build μ_eff = μ/ε.
-    K_arr, cF_arr : (Ny, Nz) arrays, optional
-        Per-row D-F coefficients. If None, the caller must set them via
-        `self.K_arr = ...` before calling solve().
+    K_arr, cF_arr : (Nx, Ny, Nz) or (Ny, Nz) arrays, optional
+        Cell D-F coefficients in solver coordinates. Row arrays are broadcast
+        along x; stored arrays are always three-dimensional. Both must be
+        provided together. If omitted, K=1e-7 m² and cF=0 are used.
     P_ref_abs : float, optional
         Outlet absolute pressure anchor [Pa]. Default: atmospheric.
 
@@ -627,16 +628,18 @@ class SIMPLESolver3D:
         # v_inlet_field to preserve that target.
 
         # D-F coefficients
+        if (K_arr is None) != (cF_arr is None):
+            raise ValueError('SIMPLE3D drag requires both K_arr and cF_arr')
         if K_arr is None:
-            # caller should set after __init__; give dummy to keep kernels happy
-            self.K_arr = np.full((Ny, Nz), 1e-7, dtype=np.float64)
-            self.cF_arr = np.zeros((Ny, Nz), dtype=np.float64)
-        else:
-            self.K_arr = np.ascontiguousarray(K_arr, dtype=np.float64)
-            self.cF_arr = np.ascontiguousarray(cF_arr, dtype=np.float64)
-            if self.K_arr.shape != (Ny, Nz):
-                raise ValueError(
-                    f"K_arr shape {self.K_arr.shape} != (Ny={Ny}, Nz={Nz})")
+            K_arr = np.full((Ny, Nz), 1e-7, dtype=np.float64)
+            cF_arr = np.zeros((Ny, Nz), dtype=np.float64)
+        for name, values, positive in (('K_arr', K_arr, True), ('cF_arr', cF_arr, False)):
+            values = np.asarray(values, dtype=np.float64)
+            if values.shape not in ((Ny, Nz), (Nx, Ny, Nz)):
+                raise ValueError(f'{name} shape {values.shape} must be {(Ny, Nz)} or {(Nx, Ny, Nz)}')
+            if not np.all(np.isfinite(values)) or np.any(values <= 0 if positive else values < 0):
+                raise ValueError(f'{name} must be finite and {"positive" if positive else "nonnegative"}')
+            setattr(self, name, np.array(np.broadcast_to(values, (Nx, Ny, Nz)), order='C', copy=True))
 
         # Fields
         self.u = np.zeros((Nx + 1, Ny, Nz), dtype=np.float64)

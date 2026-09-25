@@ -8,6 +8,7 @@ import pytest
 from PySide6.QtWidgets import QComboBox
 
 from sjtu_tpmshx.ui.panel_vis_3d import FIELD_META, ThreeDVisPanel
+from sjtu_tpmshx.ui.theme import FIELD_CMAP
 
 
 @pytest.mark.parametrize('render', [True, False])
@@ -53,7 +54,7 @@ def test_volume_builder_defers_intermediate_render(render, field):
     assert kwargs['scalars'] == 'Ta'
     assert kwargs['clim'] == (300., 420.)
     assert kwargs['opacity'] == [.2, .5]
-    assert kwargs['cmap'] == FIELD_META['Ta']['cmap']
+    assert kwargs['cmap'] == FIELD_CMAP
     assert kwargs['name'] == 'main_volume' and not kwargs['show_scalar_bar']
     assert plotter.add_scalar_bar.call_count == 1
     assert plotter.add_scalar_bar.call_args.kwargs['title'] == FIELD_META['Ta']['title']
@@ -81,6 +82,7 @@ def test_slice_builder_defers_mesh_render(render):
     )
     ThreeDVisPanel._add_slice_actor(panel, 'x', .5, render=render)
     assert plotter.add_mesh.call_args.args[0].n_points > 0
+    assert plotter.add_mesh.call_args.kwargs['cmap'] == FIELD_CMAP
     assert plotter.render.call_count == int(render)
     panel.status.setText.assert_not_called()
 
@@ -192,6 +194,7 @@ def test_volume_fields_are_lazy_cached_and_reset_without_changing_values(monkeyp
     for i, key in enumerate(fields):
         np.testing.assert_array_equal(panel._grid[key], raw[key])
         ThreeDVisPanel._on_field_changed(panel, panel.combo_field.findData(key))
+        assert panel.plotter.add_volume.call_args.kwargs['cmap'] == FIELD_CMAP
         np.testing.assert_allclose(panel._grid_vol[key], initial_values + 100. * i)
         np.testing.assert_array_equal(panel._grid_vol.points, display_points)
     assert interpolations.call_count == len(fields)
@@ -215,6 +218,55 @@ def test_volume_fields_are_lazy_cached_and_reset_without_changing_values(monkeyp
     assert panel._field == 'Ta' and set(panel._volume_grids) == {'Ta'}
     assert panel._grid_vol.dimensions == (7, 10, 7)
     assert set(panel._arrays) == {'Ta'}
+    panel.combo_field.deleteLater()
+
+
+@pytest.mark.parametrize('flow_options', [{}, {'flow_dir': None}])
+def test_design_volume_and_slice_keep_independent_ranges_and_optional_arrows(flow_options):
+    """A real nonuniform L/t grid needs no solved fields or OpenGL context."""
+    panel = SimpleNamespace(plotter=Mock(window_size=(1000, 800)), status=Mock())
+    ThreeDVisPanel._init_state(panel, 30)
+    panel.combo_field = QComboBox()
+    for name in ('combo_plane', 'le_coord', 'btn_apply', 'btn_clim', 'btn_shot',
+                 'slider_opacity', 'btn_view_top', 'btn_view_front',
+                 'btn_view_side', 'btn_view_iso', 'btn_clear'):
+        setattr(panel, name, Mock())
+    for name in ('fit_view', '_update_coord_label', '_validate_coord_input', '_update_status'):
+        setattr(panel, name, Mock())
+    for name in ('_render_initial_scene', '_add_flow_glyph', '_build_volume_grid',
+                 '_build_global_clim', '_rebuild_volume', '_clim_for', '_opacity_ramp'):
+        setattr(panel, name, MethodType(getattr(ThreeDVisPanel, name), panel))
+    widths = [np.array(values) for values in
+              ([.003, .006, .004, .009], [.002, .005, .008], [.004, .007])]
+    centres = [1000. * (np.cumsum(values) - values / 2) for values in widths]
+    x, y, z = np.meshgrid(*centres, indexing='ij')
+    fields = {'L_mm': 4. + .06*x + .04*y + .03*z,
+              't_mm': .3 + .004*x + .002*y + .001*z}
+    ThreeDVisPanel.set_fields(panel, **fields, dx=widths[0], dy=widths[1], dz=widths[2],
+                             **flow_options)
+
+    assert [panel.combo_field.itemData(i) for i in range(panel.combo_field.count())] == ['L_mm', 't_mm']
+    assert panel._field == 'L_mm'
+    arrows = [call.kwargs['name'] for call in panel.plotter.add_mesh.call_args_list
+              if call.kwargs.get('name', '').startswith('_flow_')]
+    assert arrows == ([] if flow_options else ['_flow_inlet_A', '_flow_outlet_A'])
+    assert panel._flow_dir == (None if flow_options else '+x')
+    for key, values in fields.items():
+        np.testing.assert_array_equal(panel._arrays[key], values)
+        expected_range = (float(values.min()), float(values.max()))
+        assert panel._global_clim[key] == pytest.approx(expected_range)
+        ThreeDVisPanel._on_field_changed(panel, panel.combo_field.findData(key))
+        volume = panel.plotter.add_volume.call_args
+        assert volume.kwargs['scalars'] == key
+        assert volume.kwargs['cmap'] == FIELD_CMAP
+        assert volume.kwargs['clim'] == pytest.approx(expected_range)
+        assert np.ptp(panel._grid_vol[key]) > 0.
+        ThreeDVisPanel._add_slice_actor(panel, 'z', centres[2][0], render=False)
+        sliced = panel.plotter.add_mesh.call_args
+        assert sliced.kwargs['scalars'] == key
+        assert sliced.kwargs['clim'] == pytest.approx(expected_range)
+        assert sliced.kwargs['cmap'] == FIELD_CMAP
+        assert sliced.args[0].n_points > 0 and key in sliced.args[0].point_data
     panel.combo_field.deleteLater()
 
 

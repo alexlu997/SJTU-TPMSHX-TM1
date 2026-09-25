@@ -96,11 +96,16 @@ def _parse_inputs_3d_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
     # Feature flags — sourced from cfg.flags + cfg.zones.
     wall_refine = bool(compute_cfg.flags.wall_refine_3d)
     zone_grid_cells = None
+    continuous_field = None
     if compute_cfg.zones.enabled:
         compute_cfg.zones.validate()
-        if compute_cfg.zones.axis != 'grid':
-            raise NotImplementedError('3D zones support grid mode only')
-        zone_grid_cells = compute_cfg.zones.grid['cells']
+        if compute_cfg.zones.axis == 'continuous':
+            from copy import deepcopy
+            continuous_field = deepcopy(compute_cfg.zones.config)
+        elif compute_cfg.zones.axis == 'grid':
+            zone_grid_cells = compute_cfg.zones.grid['cells']
+        else:
+            raise NotImplementedError('3D zones support grid or continuous mode only')
 
     return dict(
         L=L, H=H, Lz=Lz, Nx=Nx, Ny=Ny, Nz=Nz,
@@ -130,6 +135,7 @@ def _parse_inputs_3d_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
             ('mass_global_tol', compute_cfg.solver.mass_global_tol),
         ) if v is not None},
         zone_grid_cells=zone_grid_cells,
+        continuous_field=continuous_field,
         fluid_type_A=fluid_type_A,
         fluid_type_B=fluid_type_B,
         df_mode=compute_cfg.df_mode,
@@ -178,9 +184,50 @@ def _prepare_problem_data(cfg):
         raise ValueError(f'3D grid {nx}x{ny}x{nz} exceeds the {cap}-cell cap')
     geometry = tpms_geometry(cfg['tpms_type'], cfg['Lcell'], cfg['t_wall'], cfg['k_s'])
     cells = cfg.get('zone_grid_cells')
-    if cfg.get('df_mode', 'cfd_smooth') == 'experimental' and cells:
+    continuous = cfg.get('continuous_field')
+    continuous_geometry = None
+    spatial = bool(cells) or continuous is not None
+    if cfg.get('df_mode', 'cfd_smooth') == 'experimental' and spatial and continuous is None:
         raise ValueError('experimental calibration currently requires uniform L/t')
-    if cells:
+    if continuous is not None:
+        from sjtu_tpmshx.domain.compute_config import ZoneInputConfig
+        from sjtu_tpmshx.models.continuous_field import from_decision_vector
+        ZoneInputConfig(enabled=True, axis='continuous', config=continuous).validate()
+        if cells:
+            raise ValueError('Continuous field cannot also supply zone_grid_cells')
+        if cfg.get('delta_levelset', 0.) != 0.:
+            raise ValueError('Continuous spatial fields require delta_levelset=0')
+        if any(cfg.get('fluid_type_' + side) == 'sco2' for side in ('A', 'B')):
+            raise ValueError('sCO2 V2 does not support zones')
+        spec = dict(continuous)
+        volume = 'n_ctrl_z' in spec
+        field = from_decision_vector(spec.pop('x_decision'), cfg['tpms_type'], cfg['k_s'],
+                                     L, H, **({'Lz_domain': Lz} if volume else {}), **spec)
+        local_L, local_t = (field.evaluate_volume(nx, ny, nz, dx, dy, dz) if volume
+                            else field.evaluate_grid(nx, ny, dx, dy))
+        local_eps = np.empty(local_L.shape)
+        continuous_geometry = {key: np.empty(local_L.shape) for key in ('A_0', 'D_h', 'epsilon')}
+        # Thermal geometry consumes the recorded SI field converted back to mm.
+        # Keep that exact rounding and evaluate any distinct pair immediately,
+        # while the original cell geometry is still in the existing leaf cache.
+        thermal_L, thermal_t = local_L * 1e-3 * 1e3, local_t * 1e-3 * 1e3
+        for index in np.ndindex(local_eps.shape):
+            local = tpms_geometry(
+                cfg['tpms_type'], float(local_L[index]), float(local_t[index]), cfg['k_s'])
+            local_eps[index] = local['epsilon']
+            if thermal_L[index] != local_L[index] or thermal_t[index] != local_t[index]:
+                local = tpms_geometry(
+                    cfg['tpms_type'], float(thermal_L[index]), float(thermal_t[index]), cfg['k_s'])
+            for key in continuous_geometry:
+                continuous_geometry[key][index] = local[key]
+        if volume:
+            lfield, tfield, eps = local_L, local_t, local_eps
+        else:
+            lfield, tfield, eps = (np.repeat(values[:, :, None], nz, axis=2)
+                                  for values in (local_L, local_t, local_eps))
+            continuous_geometry = {key: np.repeat(values[:, :, None], nz, axis=2)
+                                   for key, values in continuous_geometry.items()}
+    elif cells:
         lfield, tfield, eps = _build_zone_fields_3d(
             cells, dx, dy, nz, cfg['tpms_type'], cfg['k_s'], cfg['Lcell'], cfg['t_wall'])
     else:
@@ -190,15 +237,17 @@ def _prepare_problem_data(cfg):
     from sjtu_tpmshx.preprocess.thermal_geometry import prepare_thermal_geometry
     cfg['thermal_geometry'] = prepare_thermal_geometry(
         cfg['tpms_type'], cfg['Lcell'], cfg['t_wall'], cfg['k_s'],
-        L_field=lfield * 1e-3 * 1e3 if cells else None,
-        t_field=tfield * 1e-3 * 1e3 if cells else None,
+        L_field=lfield * 1e-3 * 1e3 if spatial and continuous_geometry is None else None,
+        t_field=tfield * 1e-3 * 1e3 if spatial and continuous_geometry is None else None,
         delta=float(cfg.get('delta_levelset', 0.)))
+    if continuous_geometry is not None:
+        cfg['thermal_geometry']['fields'] = continuous_geometry
     from sjtu_tpmshx.models.roughness import resolve_mode_from_env
     mode, eps_um = resolve_mode_from_env(default='norris_1a')
     cfg['roughness_resolved'] = {'mode': mode, 'eps_m': eps_um * 1e-6}
     _record_air_bulk_ranges(
-        cfg, lfield * 1e-3 * 1e3 if cells else None,
-        tfield * 1e-3 * 1e3 if cells else None, (nx, ny, nz))
+        cfg, lfield * 1e-3 * 1e3 if spatial else None,
+        tfield * 1e-3 * 1e3 if spatial else None, (nx, ny, nz))
     permeability, forchheimer = predict_K_cF_vec(
         cfg['tpms_type'], lfield, tfield, eps / 2., method=SCO2_DF_METHOD)
     eps_A, eps_B = _eps_sides_for_run(cfg, cfg['tpms_type'], cfg['Lcell'], cfg['t_wall'], eps, eps / 2.)
@@ -237,7 +286,15 @@ def _prepare_df_application(cfg, axes, permeability, forchheimer):
             _, _, result[side] = apply_correction(
                 cfg['tpms_type'], cfg['fluid_type_' + side], cfg['Lcell'], cfg['t_wall'],
                 float(permeability.flat[0]), float(forchheimer.flat[0]),
-                u_mps=abs(float(cfg.get('u_' + side, cfg['u_A']))))
+                u_mps=abs(float(cfg.get('u_' + side, cfg['u_A']))),
+                allow_hx_extrapolation=cfg.get('continuous_field') is not None)
+        if cfg.get('continuous_field') is not None:
+            # Frozen specimen factors are transferred to each local CFD cell.
+            result[side].update(
+                geometry_application='continuous-field-extrapolation',
+                reference_geometry_mm={'L': cfg['Lcell'], 't': cfg['t_wall']},
+                application_scope='Exploratory continuous L/t trend prediction using '
+                                  'frozen uniform-HX factors; gradient accuracy unvalidated')
     return result
 
 
@@ -255,13 +312,22 @@ def _record_air_bulk_ranges(cfg, lfield, tfield, shape):
                         cfg.get('u_' + side, cfg['u_A']), cfg['T_in' + side],
                         cfg.get('P_in' + side, cfg['P_inA']), cfg['k_s'])
             else:
-                raw_Re = np.empty(shape)
+                from sjtu_tpmshx.models import fluid_props
+                model = fluid_props.get('air')
+                geometry = cfg['thermal_geometry']['fields']
+                temperature = cfg['T_in' + side]
+                pressure = cfg.get('P_in' + side, cfg['P_inA'])
+                with range_context(layout='scalar-zoned-call'):
+                    mu, k, rho, cp = (float(getattr(model, key)(temperature, pressure))
+                                      for key in ('mu', 'k', 'rho', 'cp'))
+                raw_Re = rho * cfg.get('u_' + side, cfg['u_A']) * geometry['D_h'] / mu
+                # Keep scalar correlation observations and the full-cell raw-Re
+                # denominator unchanged. The former compute() calls also rebuilt
+                # geometry and drag, although only these notices were retained.
                 for index in np.ndindex(shape):
                     with range_context(layout='scalar-zoned-call'):
-                        g = compute(cfg['tpms_type'], float(lfield[index]), float(tfield[index]),
-                                    cfg.get('u_' + side, cfg['u_A']), cfg['T_in' + side],
-                                    cfg.get('P_in' + side, cfg['P_inA']), cfg['k_s'])
-                    raw_Re[index] = g['Re']
+                        model.nu(cfg['tpms_type'], float(raw_Re[index]), .5 * geometry['epsilon'][index],
+                                 float(lfield[index]), geometry['D_h'][index] * 1e3, mu * cp / k)
                 with range_context(layout='real-cell(x,y,z)-bulk-Re'):
                     record_raw_nu_range('air', cfg['tpms_type'], raw_Re)
 
@@ -304,10 +370,15 @@ def prepare_case(config: ComputeConfig, *, case_id: str):
                  for side, fluid in (('A', config.fluid_A), ('B', config.fluid_B)))
     refs += (ModelRef('geometry', MODEL_VERSIONS['geometry']),
              ModelRef('darcy_forchheimer', MODEL_VERSIONS['darcy_forchheimer'], {'topology': config.geometry.tpms}))
+    continuous = parameters.get('continuous_field')
+    if continuous is not None:
+        design_mode = 'continuous_xyz' if 'n_ctrl_z' in continuous else 'continuous_xy_extruded'
+    else:
+        design_mode = 'xy_extruded' if cells else 'uniform'
     return CaseData.from_compute_config(case_id, config, grid=grid,
         design_fields=prepared['design'], parameters=parameters, model_refs=refs,
         metadata={'preprocessor': 'three_d_v1', 'quantity_basis': 'total',
                   'model_metadata': {'sco2_nu': sco2_nu_metadata(config.sco2_nu)},
                   'notices': sco2_nu_notices(config),
-                  'design_mode': 'xy_extruded' if cells else 'uniform',
+                  'design_mode': design_mode,
                   'model_roles': {'fluid_A': 0, 'fluid_B': 1, 'geometry': 2, 'darcy_forchheimer': 3}})

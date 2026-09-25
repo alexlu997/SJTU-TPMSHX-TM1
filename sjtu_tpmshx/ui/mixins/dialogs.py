@@ -74,7 +74,7 @@ class DialogsMixin:
         ("Command palette",        "Ctrl+K"),
         ("Overview dashboard",     "Ctrl+D"),
         ("Coordinate inspector",   "Ctrl+I"),
-        ("Launch qNEHVI optimize", "Ctrl+Enter"),
+        ("Launch continuous-field optimize", "Ctrl+Enter"),
         ("Cycle tabs",             "Ctrl+↑ / Ctrl+↓"),
         ("Quick fluid (A / B)",    "Alt+1/2/3  ·  Alt+Shift+1/2/3"),
         ("Cycle density",          "[  /  ]"),

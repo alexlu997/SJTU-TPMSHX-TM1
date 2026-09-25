@@ -30,8 +30,8 @@ def _solver_indices(shape, direction):
 
 
 @pytest.mark.parametrize('direction', range(6))
-@pytest.mark.parametrize('zoned', [False, True])
-def test_initial_geometry_and_returned_faces_share_physical_frame(monkeypatch, direction, zoned):
+@pytest.mark.parametrize('design_mode', ['uniform', 'grid', 'continuous', 'continuous_xyz'])
+def test_initial_geometry_and_returned_faces_share_physical_frame(monkeypatch, direction, design_mode):
     shape, lengths = (8, 7, 6), (.04, .05, .06)
     # Every axis is asymmetric, so a missing stream reflection cannot hide
     # behind equal widths. Only mesh generation and numerical sweeps are
@@ -50,9 +50,25 @@ def test_initial_geometry_and_returned_faces_share_physical_frame(monkeypatch, d
         solver=SolverConfig(Nx=shape[0], Ny=shape[1], Nz=shape[2]),
         bc_A=PartialBCConfig(dir=direction), bc_B=PartialBCConfig(dir=direction),
         extrap=ExtrapPolicy(allow=True))
-    if zoned:
+    if design_mode == 'grid':
         config = replace(config, zones=ZoneInputConfig(enabled=True, axis='grid', grid={'cells': cells}))
+    elif design_mode == 'continuous':
+        config = replace(config, zones=ZoneInputConfig(enabled=True, axis='continuous', config={
+            'x_decision': [5., 5.4, 5.8, 5.3, 5.7, 6.1, 5.6, 6., 6.4] +
+                          [.4, .42, .44, .41, .43, .45, .42, .44, .46],
+            'n_ctrl_x': 3, 'n_ctrl_y': 3, 'symmetric_y': False,
+            'spline_order': 2, 'L_bounds': [4., 8.], 't_bounds': [.3, .6]}))
+    elif design_mode == 'continuous_xyz':
+        x, y, z = np.meshgrid(*([np.linspace(0., 1., 3)] * 3), indexing='ij')
+        config = replace(config, zones=ZoneInputConfig(enabled=True, axis='continuous', config={
+            'x_decision': np.r_[(5. + .3*x + .4*y + .5*z).ravel(),
+                                (.35 + .04*x + .02*y + .06*z).ravel()].tolist(),
+            'n_ctrl_x': 3, 'n_ctrl_y': 3, 'n_ctrl_z': 3, 'symmetric_y': False,
+            'spline_order': 2, 'L_bounds': [4., 8.], 't_bounds': [.3, .6]}))
     case = prepare_case(config, case_id='initial-direction-frame')
+    if design_mode == 'continuous_xyz':
+        for values in case.design_fields.values():
+            assert np.any(values[:, :, 0] != values[:, :, -1])
     params, prepared = build_execution_inputs(case)
     problem = runtime.build_problem(params, prepared)
     for side, solver, axes in (('A', problem.sA, problem.axis_map),
@@ -74,17 +90,11 @@ def test_initial_geometry_and_returned_faces_share_physical_frame(monkeypatch, d
             expected_pressure[real] = solver.P_ref_abs + solver.P[local]
         np.testing.assert_array_equal(solver.eps_field, mapped['eps_arr'])
         np.testing.assert_array_equal(solver._mu_eff_field, solver.mu_field / mapped['eps_arr'])
-        # Preserve prediction-before-arithmetic-mean for A and uniform B.
+        # Both sides consume the full field; a mean is only a pressure seed.
         for key, actual, scalar in (('K_m2', solver.K_arr, problem.K_pred_B),
                                     ('cF_per_m', solver.cF_arr, problem.cF_pred_B)):
-            if side == 'A' and zoned:
-                wanted = mapped[key].mean(axis=0)
-            else:
-                wanted = np.full_like(actual, scalar)
-            np.testing.assert_array_equal(actual, wanted)
-            if zoned:
-                physical_order = mapped[key][:, ::-1, :] if direction % 2 else mapped[key]
-                assert scalar == float(physical_order.mean(axis=0).mean())
+            np.testing.assert_array_equal(actual, mapped[key])
+            assert scalar == pytest.approx(float(case.design_fields[key].mean()), rel=1e-15)
         np.testing.assert_array_equal(runtime._pressure_real_3d(solver, axes, solver.P_ref_abs),
                                       expected_pressure)
         # A native staggered velocity contains the opening fraction already.

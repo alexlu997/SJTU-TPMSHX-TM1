@@ -9,7 +9,7 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
     QComboBox, QScrollArea, QFrame, QSizePolicy, QSlider,
-    QProgressBar, QCheckBox,
+    QProgressBar, QCheckBox, QLineEdit, QTabWidget,
 )
 
 from .matplotlib_canvas import MatplotlibCanvas
@@ -498,8 +498,9 @@ def _build_optimize_panel(window, card_lay, t, theme):
 
     def _opt_card(title, min_w=0):
         fr = _QFop()
+        fr.setObjectName('optimizationCard')
         fr.setStyleSheet(
-            f"QFrame{{background:{_surface_ra};"
+            f"QFrame#optimizationCard{{background:{_surface_ra};"
             f"border:1px solid {_border_sub}; border-radius:{RADIUS_CARD}px;}}")
         if min_w:
             fr.setMinimumWidth(min_w)
@@ -513,81 +514,64 @@ def _build_optimize_panel(window, card_lay, t, theme):
         fl.addWidget(cap)
         return fr, fl
 
-    # Inline controls use the dimension-specific budget definition.
-    from .optimize_panel import _outer_budget_parameter, _sync_outer_budget, _is_3d_mode
-
-    par_card, par_lay = _opt_card("优化参数 (qNEHVI)", 260)
+    from .optimize_panel import (refresh_setup, import_conditions, use_current_condition,
+                                 clear_continuous_field)
+    par_card, par_lay = _opt_card("优化参数", 260)
     _spin_qss = (
-        f"QSpinBox{{background:{_t['inp_bg']}; color:{_t['inp_fg']};"
-        f" border:1px solid {_t['inp_border']}; border-radius:6px;"
-        f" padding:4px 8px; font-family:{_mono}; font-size:{FONT_INPUT}pt;}}"
-        f"QSpinBox:focus{{border-color:{_t['inp_focus']};}}")
+        f"QAbstractSpinBox{{background:{_t['inp_bg']};"
+        f" color:{_t['inp_fg']}; border:1px solid {_t['inp_border']};"
+        f" border-radius:6px; padding:3px 8px;"
+        f" font-family:{_mono}; font-size:{FONT_INPUT}pt;}}"
+        f"QAbstractSpinBox:focus{{border-color:{_t['inp_focus']};}}")
+    window._opt_method = QComboBox()
+    for label, key in (("qLogNEHVI", "qlognehvi"), ("qLogNParEGO", "qlognparego"), ("Sobol", "sobol")):
+        window._opt_method.addItem(label, key)
+    window._opt_method.setStyleSheet(t.style('COMBO'))
+    par_lay.addWidget(window._opt_method)
     window._opt_inline_params = {}
-    budget_key, budget_value, budget_label, budget_tip = _outer_budget_parameter(window)
-    _param_specs = [
-        ('n_init',      "初始样本 <i>n</i><sub>init</sub>", 4, 256, 32,
-         "Sobol 初始采样数（约 2×决策维度）"),
-        ('n_iter',      "迭代数 <i>n</i><sub>iter</sub>", 0, 200, 24,
-         "BO 迭代次数（HV 平台早停可能提前结束）"),
-        ('q_batch',     "每代批量 <i>q</i><sub>batch</sub>", 1, 8, 2,
-         "每次 BO 迭代的并行候选数"),
-        ('seed',        "随机种子", 0, 9999, 42,
-         "Sobol + BoTorch 随机种子（复现实验用）"),
-        (budget_key, budget_label, 1, max(8, budget_value), budget_value, budget_tip),
-    ]
-    for pkey, plabel, lo, hi, dflt, tip in _param_specs:
-        prow = _HBop(); prow.setSpacing(8)
-        pl = QLabel(plabel)
-        pl.setTextFormat(Qt.TextFormat.RichText)
-        pl.setStyleSheet(f"color:{_t['fg']}; font-size:{FONT_LABEL}pt;"
-                         " background:transparent; border:none;")
-        sp = _QSBop(); sp.setRange(lo, hi); sp.setValue(dflt)
-        sp.setToolTip(tip)
-        sp.setStyleSheet(_spin_qss)
-        sp.setAlignment(Qt.AlignmentFlag.AlignRight)
-        sp.setFixedWidth(92)
-        sp.setMinimumHeight(30)
-        prow.addWidget(pl); prow.addStretch(1); prow.addWidget(sp)
-        par_lay.addLayout(prow)
-        window._opt_inline_params[pkey] = sp
-        if pkey == budget_key:
-            window._opt_outer_budget = sp
-            window._opt_outer_label = pl
-
-    def _remember_budget(value):
-        key = 'max_outer_3d' if _is_3d_mode(window) else 'n_rho_loops'
-        window._opt_param_cache = {**getattr(window, '_opt_param_cache', {}), key: value}
-
-    window._opt_outer_budget.valueChanged.connect(_remember_budget)
-    # Typed/script configuration may be applied after constructing the panel.
-    op_host.showEvent = lambda _event: _sync_outer_budget(window)
-    _eval_preview = QLabel("")
-    _eval_preview.setWordWrap(True)
-    _eval_preview.setStyleSheet(
-        f"color:{_sub_fg}; font-size:9pt;"
-        " background:transparent; border:none;")
-
-    def _refresh_eval_preview(*_):
-        ps = window._opt_inline_params
-        total = (ps['n_init'].value()
-                 + ps['n_iter'].value() * ps['q_batch'].value())
-        dimension = '3D' if _is_3d_mode(window) else '2D'
-        _eval_preview.setText(f"计划 {total} 次 {dimension} 求解（提前停止时减少）")
-    for _sp in window._opt_inline_params.values():
-        _sp.valueChanged.connect(_refresh_eval_preview)
-    _cd0 = getattr(window, 'combo_dim', None)
-    if _cd0 is not None:
-        try:
-            _cd0.currentIndexChanged.connect(_refresh_eval_preview)
-            _cd0.currentIndexChanged.connect(lambda _: _sync_outer_budget(window))
-        except Exception:
-            pass
-    _refresh_eval_preview()
-    par_lay.addWidget(_eval_preview)
-    _scope = QLabel("空气/空气 · A:+x、B:−y · 整面开口筛选")
-    _scope.setWordWrap(True)
-    _scope.setStyleSheet(t.style('LBL'))
-    par_lay.addWidget(_scope)
+    for key, label, low, high, default in (
+            ('n_init', '初始候选数', 1, 256, 16), ('n_iter', '迭代数', 0, 200, 8),
+            ('q_batch', '每轮候选数', 1, 8, 1), ('seed', '随机种子', 0, 9999, 0)):
+        row = _HBop()
+        row.addWidget(QLabel(label)); row.addStretch(1)
+        spin = _QSBop(); spin.setRange(low, high); spin.setValue(default)
+        spin.setStyleSheet(_spin_qss)
+        spin.setFixedWidth(80)
+        spin.setAlignment(Qt.AlignmentFlag.AlignRight)
+        spin.setMinimumHeight(30)
+        row.addWidget(spin); par_lay.addLayout(row)
+        window._opt_inline_params[key] = spin
+        spin.valueChanged.connect(lambda *_: refresh_setup(window))
+    window._opt_eval_preview = QLabel()
+    window._opt_eval_preview.setWordWrap(True)
+    par_lay.addWidget(window._opt_eval_preview)
+    condition_row = _HBop()
+    import_button = QPushButton('导入工况 JSON')
+    import_button.clicked.connect(lambda: import_conditions(window))
+    current_button = QPushButton('使用当前单工况')
+    current_button.clicked.connect(lambda: use_current_condition(window))
+    for button in (import_button, current_button):
+        button.setStyleSheet(t.style('BTN_SECONDARY'))
+        button.setMinimumHeight(30)
+    condition_row.addWidget(import_button); condition_row.addWidget(current_button)
+    par_lay.addLayout(condition_row)
+    window._opt_condition_summary = QLabel()
+    window._opt_condition_summary.setWordWrap(True)
+    window._opt_condition_summary.setToolTip(
+        'JSON: {"conditions": [{"condition_id": "1", "T_in_A_K": 400, '
+        '"P_in_A_Pa": 120000, "mass_flow_A_kg_s": 0.005, '
+        '"T_in_B_K": 300, "P_in_B_Pa": 110000, "mass_flow_B_kg_s": 0.02}]}')
+    par_lay.addWidget(window._opt_condition_summary)
+    window._opt_depth_label = QLabel('2D 总质量流量换算厚度 [m]')
+    window._opt_depth = QLineEdit(window.le_Lz.text())
+    window._opt_depth.setStyleSheet(t.style('INP'))
+    window._opt_depth.setToolTip('物理厚度用于 kg/s 与二维单位深度流量换算；不改变二维网格。')
+    window.le_Lz.textChanged.connect(window._opt_depth.setText)
+    window._opt_depth.textChanged.connect(window.le_Lz.setText)
+    par_lay.addWidget(window._opt_depth_label); par_lay.addWidget(window._opt_depth)
+    scope = QLabel('继承当前算例的几何、材料、端口和完整求解设置；空气 A / 水 B。')
+    scope.setWordWrap(True); par_lay.addWidget(scope)
+    window.combo_dim.currentIndexChanged.connect(lambda *_: refresh_setup(window))
     par_lay.addStretch(1)
     p1row.addWidget(par_card)
 
@@ -602,12 +586,6 @@ def _build_optimize_panel(window, card_lay, t, theme):
     from sjtu_tpmshx.df_surrogate._domain import (
         TRAIN_L as _hull_L, TRAIN_T as _hull_T,
     )
-    _dspin_qss = (
-        f"QDoubleSpinBox{{background:{_t['inp_bg']};"
-        f" color:{_t['inp_fg']}; border:1px solid {_t['inp_border']};"
-        f" border-radius:6px; padding:3px 8px;"
-        f" font-family:{_mono}; font-size:{FONT_INPUT}pt;}}"
-        f"QDoubleSpinBox:focus{{border-color:{_t['inp_focus']};}}")
     window._opt_space_params = {}
 
     def _space_row(label, tip, widgets):
@@ -625,7 +603,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
         ds = _QDSBop()
         ds.setRange(lo, hi); ds.setValue(val)
         ds.setSingleStep(step); ds.setDecimals(dec)
-        ds.setStyleSheet(_dspin_qss)
+        ds.setStyleSheet(_spin_qss)
         ds.setAlignment(Qt.AlignmentFlag.AlignRight)
         ds.setFixedWidth(80)
         ds.setMinimumHeight(30)
@@ -648,34 +626,30 @@ def _build_optimize_panel(window, card_lay, t, theme):
     window._opt_space_params['t_min'] = _sp_tmin
     window._opt_space_params['t_max'] = _sp_tmax
 
-    _cb_grid = QComboBox()
-    _cb_grid.addItem("4 × 4（16 维）", (4, 4))
-    _cb_grid.addItem("6 × 6（36 维）", (6, 6))
-    _cb_grid.setToolTip(
-        "B-spline 控制点网格。6×6 提高空间自由度但 GP 建模更难，"
-        "建议同时加大 n_init（约 2×维数）")
-    _cb_grid.setStyleSheet(t.style('COMBO'))
-    _cb_grid.setMinimumHeight(30)
-    _space_row("控制点网格", "决策向量维数 = 控制点数 × 2（L、t 两场）",
-               [_cb_grid])
-    window._opt_space_params['ctrl_grid'] = _cb_grid
+    window._opt_field_layout = QLabel()
+    window._opt_field_layout.setWordWrap(True)
+    space_lay.addWidget(window._opt_field_layout)
+    window._opt_selected_field = QLabel()
+    window._opt_selected_field.setWordWrap(True)
+    space_lay.addWidget(window._opt_selected_field)
+    clear_field = QPushButton('恢复均匀设计')
+    clear_field.setStyleSheet(t.style('BTN_SECONDARY'))
+    clear_field.setMinimumHeight(30)
+    clear_field.clicked.connect(lambda: clear_continuous_field(window))
+    space_lay.addWidget(clear_field)
 
-    _chk_sym = QCheckBox("Y 镜像对称")
-    _chk_sym.setChecked(True)
-    _chk_sym.setToolTip(
-        "沿 y 中线镜像控制点（对称工况减半维数）；"
-        "非对称工况（两侧流体/边界不同）可关闭")
-    _chk_sym.setStyleSheet(
-        f"QCheckBox{{color:{_sub_fg}; font-size:9pt;"
-        f" background:transparent; border:none;}}")
-    space_lay.addWidget(_chk_sym)
-    window._opt_space_params['symmetric_y'] = _chk_sym
+    def _zone_state(enabled):
+        if not enabled:
+            window._continuous_field_spec = None
+        refresh_setup(window)
+    window.chk_zones.toggled.connect(_zone_state)
+    refresh_setup(window)
 
-    btn_field_prev = QPushButton("预览连续场  ↗")
+    btn_field_prev = QPushButton("预览连续场")
     btn_field_prev.setFixedHeight(26)
     btn_field_prev.setStyleSheet(t.style('BTN_SECONDARY'))
     btn_field_prev.setToolTip(
-        "渲染当前 L(x,y)、t(x,y) 场热图"
+        "预览二维连续场；三维可查看中面切片与交互体视图"
         "（未选 Pareto 解时显示界中值均匀场）")
 
     def _preview_field(*_):
@@ -744,9 +718,9 @@ def _build_optimize_panel(window, card_lay, t, theme):
 
     kpi_row = QGridLayout()
     kpi_row.setSpacing(16)
-    card_gen, val_gen = _mk_kpi("阶段 · 代数", "—", 130)
-    card_q,   val_q   = _mk_kpi("最优 Q [W/m]", "—", 180)
-    card_dp,  val_dp  = _mk_kpi("最优 ΔP [Pa]", "—", 180)
+    card_gen, val_gen = _mk_kpi("阶段 · 轮数", "—", 130)
+    card_q,   val_q   = _mk_kpi("最大换热提升 [%]", "—", 180)
+    card_dp,  val_dp  = _mk_kpi("最小相对压降 [1]", "—", 180)
     card_eta, val_eta = _mk_kpi("剩余时间", "—", 120)
     window._opt_kpi_gen = val_gen
     window._opt_kpi_q = val_q
@@ -766,7 +740,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
     spark_card.setMinimumWidth(220)
     scl = _VBop(spark_card)
     scl.setContentsMargins(14, 8, 14, 8); scl.setSpacing(2)
-    spark_cap = QLabel("初始采样 · 最优 Q")
+    spark_cap = QLabel("总预算进度 [%]（含均匀基准）")
     window._opt_sparkline_caption = spark_cap
     spark_cap.setStyleSheet(
         f"color:{_sub_fg}; font-size:8pt; font-weight:700;"
@@ -785,7 +759,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
     btn_opt.setFixedHeight(36)
     btn_opt.setStyleSheet(t.style('BTN_LONG'))
     btn_opt.setToolTip(
-        "启动 qNEHVI 多目标搜索。"
+        "启动多工况连续场搜索。"
         "进度与收敛在「2 运行」页实时显示。")
     btn_opt.clicked.connect(window._run_optimize)
     window._opt_btn = btn_opt
@@ -920,6 +894,12 @@ def _build_canvas_content(window, vlay, t):
     window.canvas_vel    = MatplotlibCanvas(1, 1, figsize=(12, 7))
     window.canvas_layout = MatplotlibCanvas(1, 1, figsize=(10.5, 6.8))
     window.canvas_pareto = MatplotlibCanvas(1, 1, figsize=(14, 8))
+    window.canvas_opt_field = MatplotlibCanvas(1, 1, figsize=(10.5, 6.8))
+    window.canvas_opt_field.fig.clear()
+    window.canvas_opt_field.fig.set_layout_engine('compressed')
+    window.canvas_opt_3d = None
+    window._opt_3d_data = None
+    window._opt_3d_ready = False
 
     # PyVistaQt init is heavy (~1-2s VTK/OpenGL context setup).
     # Defer until user actually switches to the 3D tab → faster cold start
@@ -1027,7 +1007,40 @@ def _build_canvas_content(window, vlay, t):
                         QSizePolicy.Policy.Expanding)
         c.setStyleSheet("border-radius:6px;")
         if key == 'pareto':
-            window._opt_page3_lay.addWidget(c, 1)
+            tabs = QTabWidget()
+            # The result viewport follows the workbench, not either figure's
+            # print-size hint, which otherwise pushes the fields below the fold.
+            tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored)
+            tabs.setMinimumHeight(360)
+            tabs.setStyleSheet(
+                f"QTabWidget::pane{{border:none; background:{_t['fig_bg']};}}"
+                f"QTabBar::tab{{background:{_t['surface_raised']}; color:{_t['sub_fg']};"
+                "padding:8px 16px; border:none;}"
+                f"QTabBar::tab:selected{{color:{_t['fg']};"
+                f"border-bottom:2px solid {_t['accent_primary']};}}")
+            tabs.addTab(c, 'Pareto 前沿')
+            tabs.addTab(window.canvas_opt_field, '尺寸 / 壁厚场')
+            tabs.setTabEnabled(1, False)
+            tabs.setTabToolTip(1, '点击 Pareto 方案查看其连续场，或在配置页预览当前场')
+            window._opt_3d_host = QWidget()
+            volume_layout = QVBoxLayout(window._opt_3d_host)
+            volume_layout.setContentsMargins(0, 0, 0, 0)
+            volume_layout.setSpacing(4)
+            note = QLabel('连续设计场预览 · 可旋转、缩放和切片 · L / t 参数分布')
+            note.setWordWrap(True)
+            note.setStyleSheet(f"color:{_t['sub_fg']}; padding:4px 8px;")
+            volume_layout.addWidget(note)
+            window._opt_3d_placeholder = QLabel('选择三维连续场后可查看体视图')
+            window._opt_3d_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            window._opt_3d_placeholder.setWordWrap(True)
+            volume_layout.addWidget(window._opt_3d_placeholder, 1)
+            tabs.addTab(window._opt_3d_host, '三维尺寸 / 壁厚场')
+            tabs.setTabEnabled(2, False)
+            tabs.setTabToolTip(2, '显示三维连续场；选择 L 或 t，旋转或按物理坐标切片')
+            window._opt_result_tabs = tabs
+            from .optimize_panel import show_field_volume
+            tabs.currentChanged.connect(lambda _index: show_field_volume(window))
+            window._opt_page3_lay.addWidget(tabs, 1)
         else:
             card_lay.addWidget(c)
 
@@ -1267,14 +1280,18 @@ def _relayout_canvas_cards(window, cols):
 def canvas_zoom_reset(window):
     """Ex-Main_Menu._canvas_zoom_reset(self). Reset current canvas card to default height."""
     tab = window._active_tab
+    panel = None
     if tab == '3d':
         panel = getattr(window, 'canvas_3d', None)
-        if panel is not None:
-            try:
-                panel.fit_view()
-                return
-            except Exception:
-                pass
+    elif (tab == 'pareto'
+          and window._opt_result_tabs.currentWidget() is window._opt_3d_host):
+        panel = window.canvas_opt_3d
+    if panel is not None:
+        try:
+            panel.fit_view()
+            return
+        except Exception:
+            pass
     card = window._canvas_cards.get(tab)
     if card and tab in window._canvas_default_h:
         getattr(window, '_canvas_zoom_factors', {}).pop(tab, None)

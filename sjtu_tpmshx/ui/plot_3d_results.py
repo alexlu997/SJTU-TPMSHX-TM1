@@ -9,6 +9,7 @@ from matplotlib.ticker import MaxNLocator
 
 # Theme — resolved at call time via get_theme()
 from sjtu_tpmshx.ui.theme import get_theme as _get_theme
+from sjtu_tpmshx.ui.theme import FIELD_CMAP
 
 from sjtu_tpmshx.logutil import get_logger
 
@@ -327,7 +328,7 @@ def _plot_3d_temperature(canvas, Ta_slice, Tb_slice, Ts_slice, xc, yc, z_info,
             vmax = float(max(a.max() for a in scale_fields))
             if vmax - vmin < 1e-12:
                 vmax = vmin + 1.
-        cf = ax.contourf(X, Y, field, levels=256, cmap='turbo',
+        cf = ax.contourf(X, Y, field, levels=256, cmap=FIELD_CMAP,
                           vmin=vmin, vmax=vmax)
         cb = canvas.fig.colorbar(cf, ax=ax, shrink=0.85, aspect=18, format='%.1f')
         cb.ax.tick_params(labelsize=11, colors=_T['ax_text'])
@@ -356,7 +357,7 @@ def _plot_3d_pressure(canvas, P_slice_A, P_slice_B, xc, yc, dP_A, dP_B, z_info,
     A/B panels share one (vmin, vmax) so the same color reads as the same
     pressure across panels. Independent autoscale (matplotlib default) makes
     a 1 kPa B field look as red as a 100 kPa A field, which is misleading
-    when both panels share the 'turbo' cmap.
+    when both panels share the GUI colormap.
     """
     _T = _get_theme()
     if P_slice_B is None:
@@ -379,7 +380,7 @@ def _plot_3d_pressure(canvas, P_slice_A, P_slice_B, xc, yc, dP_A, dP_B, z_info,
         # levels=256 matches turbo's 256 distinct colours exactly — finer
         # banding than the prior 128 (which under-sampled the cmap by half),
         # still well below the wasteful 512 (2026-05-20 perf note).
-        cf = ax.contourf(X, Y, p / 1000.0, levels=256, cmap='turbo',
+        cf = ax.contourf(X, Y, p / 1000.0, levels=256, cmap=FIELD_CMAP,
                           vmin=p_min_kpa, vmax=p_max_kpa)
         cb = canvas.fig.colorbar(cf, ax=ax, shrink=0.9, aspect=25, format='%.1f')
         cb.ax.tick_params(labelsize=11, colors=_T['ax_text'])
@@ -404,7 +405,7 @@ def _plot_3d_velocity_slice(canvas, uA, vA, wA, uB, vB, wB, xc, yc, z_info,
 
     A/B panels share one vmax (vmin pinned at 0) so cross-flow B running
     at 0.5 m/s does not look as bright as A running at 5 m/s under the
-    same 'turbo' cmap. Mirrors the panel's `_share(('vmag','vmag_B'))`
+    same GUI colormap. Mirrors the panel's `_share(('vmag','vmag_B'))`
     clim convention.
     """
     _T = _get_theme()
@@ -426,7 +427,7 @@ def _plot_3d_velocity_slice(canvas, uA, vA, wA, uB, vB, wB, xc, yc, z_info,
     for ax, index in zip(axes, indices):
         vmag = vmags[index]
         u, v, w, tag = V_data[index]
-        cf = ax.contourf(X, Y, vmag, levels=256, cmap='turbo',
+        cf = ax.contourf(X, Y, vmag, levels=256, cmap=FIELD_CMAP,
                           vmin=0.0, vmax=vmax_v)
         cb = canvas.fig.colorbar(cf, ax=ax, shrink=0.9, aspect=25, format='%.2f')
         cb.ax.tick_params(labelsize=11, colors=_T['ax_text'])

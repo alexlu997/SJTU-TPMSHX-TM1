@@ -100,8 +100,8 @@ def bootstrap_simple_3d(solver_fine, max_iter_coarse: int = 200,
     fz = solver_fine.Nz // Nz_c
 
     # Block-average geometry coefficients onto coarse grid.
-    K_arr_c = _block_average_2d(solver_fine.K_arr, fy, fz)
-    cF_arr_c = _block_average_2d(solver_fine.cF_arr, fy, fz)
+    K_arr_c = _block_average_3d(solver_fine.K_arr, fx, fy, fz)
+    cF_arr_c = _block_average_3d(solver_fine.cF_arr, fx, fy, fz)
 
     # eps may be uniform (scalar) or zoned (3D array).
     eps_uniform = float(solver_fine.eps)
