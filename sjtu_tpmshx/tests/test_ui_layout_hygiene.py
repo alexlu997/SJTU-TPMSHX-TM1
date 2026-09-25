@@ -181,21 +181,27 @@ def test_initial_geometry_skips_invalid_draft(win, monkeypatch):
 
 
 def test_geometry_labels_fit_narrow_workbench(win):
-    from PySide6.QtTest import QTest
-    win.resize(900, 800)
-    win._draw_layout()
-    QTest.qWait(100)
-    canvas = win.canvas_layout
-    canvas.draw()
-    renderer = canvas.get_renderer()
-    bounds = canvas.fig.bbox
-    for ax in canvas.fig.axes:
-        for label in (ax.xaxis.label, ax.yaxis.label, ax.zaxis.label, ax.title):
-            box = label.get_window_extent(renderer)
-            assert box.x0 >= bounds.x0 and box.x1 <= bounds.x1
-            assert box.y0 >= bounds.y0 and box.y1 <= bounds.y1
-    assert win._canvas_scroll.verticalScrollBar().maximum() == 0
-    win.resize(1600, 1000)
+    from sjtu_tpmshx.tests.test_worker_result_handoff import _wait_for
+    old_size = win.size()
+    try:
+        win.resize(900, 800)
+        win._draw_layout()
+        # A slow draw can leave container reflow pending after a timed wait.
+        QApplication.processEvents()
+        _wait_for(lambda: win._canvas_scroll.verticalScrollBar().maximum() == 0,
+                  timeout=1)
+        canvas = win.canvas_layout
+        canvas.draw()
+        renderer = canvas.get_renderer()
+        bounds = canvas.fig.bbox
+        for ax in canvas.fig.axes:
+            for label in (ax.xaxis.label, ax.yaxis.label, ax.zaxis.label, ax.title):
+                box = label.get_window_extent(renderer)
+                assert box.x0 >= bounds.x0 and box.x1 <= bounds.x1
+                assert box.y0 >= bounds.y0 and box.y1 <= bounds.y1
+        assert win._canvas_scroll.verticalScrollBar().maximum() == 0
+    finally:
+        win.resize(old_size)
 
 
 def test_empty_state_preset_button_applies_shanghai(win):
