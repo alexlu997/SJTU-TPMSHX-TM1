@@ -41,6 +41,7 @@ def test_runner_uses_selected_lock_and_stops_before_tests(tmp_path, script, lock
         path.write_text(
             'import json, sys\n'
             'from pathlib import Path\n'
+            f'print({name!r}, flush=True)\n'
             'with Path("calls.jsonl").open("a", encoding="utf-8") as output:\n'
             f'    output.write(json.dumps([{name!r}, sys.argv[1:]]) + "\\n")\n'
             f'raise SystemExit({2 if name == failed_step else 0})\n',
@@ -49,8 +50,16 @@ def test_runner_uses_selected_lock_and_stops_before_tests(tmp_path, script, lock
     command = [_PWSH, '-NoProfile', '-File', str(scripts / script)]
     if lock is not None:
         command += ['-LockFile', lock]
-    result = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, timeout=30)
     calls_path = tmp_path / 'calls.jsonl'
+    try:
+        result = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, timeout=30)
+    except subprocess.TimeoutExpired as error:
+        calls = calls_path.read_text(encoding='utf-8') if calls_path.exists() else '(none)'
+        pytest.fail(
+            f'Runner timed out after {error.timeout}s: {command!r}\n'
+            f'Completed module calls:\n{calls}\n'
+            f'stdout: {error.stdout!r}\nstderr: {error.stderr!r}',
+        )
     assert calls_path.exists(), result.stdout + result.stderr
     calls = [json.loads(line) for line in calls_path.read_text(encoding='utf-8').splitlines()]
     assert calls[0] == ['lock', [lock or 'requirements-lock.txt']]

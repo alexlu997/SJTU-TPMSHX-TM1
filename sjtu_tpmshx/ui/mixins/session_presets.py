@@ -296,14 +296,6 @@ class SessionPresetsMixin:
         combos = preset.get('combos', {})
         if not isinstance(combos, dict):
             raise ValueError('Invalid combos.')
-        continuous = preset.get('continuous_field')
-        if continuous is not None:
-            from sjtu_tpmshx.domain.compute_config import ZoneInputConfig
-            ZoneInputConfig(enabled=True, axis='continuous', config=continuous).validate()
-            if ('n_ctrl_z' in continuous) != (combos.get('combo_dim') == 1):
-                raise ValueError('Continuous field dimension must match the saved case')
-            if not preset.get('checks', {}).get('chk_zones'):
-                raise ValueError('Continuous field requires enabled spatial design')
         conditions = preset.get('optimization_conditions')
         if conditions is not None:
             from sjtu_tpmshx.ui.optimize_panel import validate_condition_table
@@ -360,6 +352,14 @@ class SessionPresetsMixin:
                         raise ValueError(f'Unsupported selection: {name}')
                 if section == 'checks' and type(value) is not bool:
                     raise ValueError(f'Invalid checkbox: {name}')
+        continuous = preset.get('continuous_field')
+        if continuous is not None:
+            from sjtu_tpmshx.domain.compute_config import ZoneInputConfig
+            ZoneInputConfig(enabled=True, axis='continuous', config=continuous).validate()
+            if ('n_ctrl_z' in continuous) != (combos.get('combo_dim') == 1):
+                raise ValueError('Continuous field dimension must match the saved case')
+            if not preset.get('checks', {}).get('chk_zones'):
+                raise ValueError('Continuous field requires enabled spatial design')
         zones = preset.get('zone_inputs')
         if complete and ('temp_unit' not in preset or zones is None):
             raise ValueError('Incomplete configuration: missing unit or zone inputs.')
