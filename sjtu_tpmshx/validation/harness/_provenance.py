@@ -38,6 +38,8 @@ from typing import Dict, Tuple
 
 import pandas as pd
 
+from sjtu_tpmshx.io.file_set import staged_files
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REFERENCE_DIR = REPO_ROOT / 'validation'
@@ -117,22 +119,19 @@ def write_csv_with_provenance(df: pd.DataFrame, path,
     Default behaviour matches ``df.to_csv(path, index=False)``.
     The package validation directory holds recorded references and cannot be
     used as a destination, including through a resolved symbolic link.
+    CSV and sidecar are published together; disabling the sidecar removes
+    any previous companion so readers use the new inline provenance.
 
-    Returns the metadata dict that was also written to the sidecar.
+    Returns the metadata dict, also written when sidecar is enabled.
     """
     path = output_path(path)
-    if sidecar:
-        output_path(path.with_suffix(path.suffix + '.meta.json'))
+    meta_path = path.with_suffix(path.suffix + '.meta.json')
+    output_path(meta_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     sha = _git_sha(short=True)
     when = _iso_now()
     header = _build_header_lines(script, sha, when)
     to_csv_kw.setdefault('index', False)
-    # Two-step write: comment lines first, then the dataframe appended.
-    with open(path, 'w', encoding='utf-8', newline='') as f:
-        f.write(header)
-    df.to_csv(path, mode='a', **to_csv_kw)
-
     meta = dict(
         script=_normalise_script(script),
         commit=sha,
@@ -140,10 +139,15 @@ def write_csv_with_provenance(df: pd.DataFrame, path,
         rows=int(len(df)),
         columns=list(map(str, df.columns)),
     )
-    if sidecar:
-        with open(path.with_suffix(path.suffix + '.meta.json'),
-                  'w', encoding='utf-8') as f:
-            _json.dump(meta, f, indent=2, ensure_ascii=False)
+    with staged_files([path, meta_path] if sidecar else [path],
+                      remove=() if sidecar else [meta_path]) as stage:
+        staged_csv = stage / path.name
+        with open(staged_csv, 'w', encoding='utf-8', newline='') as f:
+            f.write(header)
+        df.to_csv(staged_csv, mode='a', **to_csv_kw)
+        if sidecar:
+            with open(stage / meta_path.name, 'w', encoding='utf-8') as f:
+                _json.dump(meta, f, indent=2, ensure_ascii=False)
     return meta
 
 
