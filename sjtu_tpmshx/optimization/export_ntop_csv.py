@@ -46,6 +46,7 @@ from typing import Optional
 
 import numpy as np
 
+from sjtu_tpmshx.io.file_set import staged_files
 from sjtu_tpmshx.models.continuous_field import (
     DEFAULT_L_BOUNDS,
     DEFAULT_N_CTRL_X,
@@ -138,8 +139,7 @@ def export_decision_vector(x_decision: np.ndarray,
 
     L_path = os.path.join(out_dir, 'Lfield.csv')
     t_path = os.path.join(out_dir, 'tfield.csv')
-    _write_scalar_field_csv(L_path, xc_mm, yc_mm, L_field, value_name='L_mm', zc_mm=zc_mm)
-    _write_scalar_field_csv(t_path, xc_mm, yc_mm, t_field, value_name='t_mm', zc_mm=zc_mm)
+    provenance_path = os.path.join(out_dir, 'provenance.json')
 
     summary = {
         'Nx_export':   int(Nx_export),
@@ -166,8 +166,13 @@ def export_decision_vector(x_decision: np.ndarray,
     if n_ctrl_z is not None:
         summary.update(Nz_export=Nz_export, Lz_domain_mm=Lz_domain_m*1000.)
 
-    with open(os.path.join(out_dir, 'provenance.json'), 'w') as f:
-        json.dump(summary, f, indent=2)
+    with staged_files([L_path, t_path, provenance_path]) as stage:
+        _write_scalar_field_csv(stage / 'Lfield.csv', xc_mm, yc_mm, L_field,
+                                value_name='L_mm', zc_mm=zc_mm)
+        _write_scalar_field_csv(stage / 'tfield.csv', xc_mm, yc_mm, t_field,
+                                value_name='t_mm', zc_mm=zc_mm)
+        with open(stage / 'provenance.json', 'w') as f:
+            json.dump(summary, f, indent=2)
 
     return summary
 

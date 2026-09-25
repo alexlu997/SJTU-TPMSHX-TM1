@@ -83,7 +83,7 @@ def _build_canvas_toolbar(window, vlay, t, theme):
     for b in (window.btn_tab_layout, window.btn_tab_pareto):
         b.setFixedHeight(28)
     window.btn_tab_layout.setStyleSheet(window._PTAB_ON)
-    # Optimize tab is the entry point for the qNEHVI optimizer — always enabled so the
+    # Optimize tab is the entry point for continuous-field search — always enabled so the
     # user can click through to the Launch button without first running a
     # single-point compute. The Pareto plot stays empty until a search
     # completes.

@@ -392,10 +392,11 @@ Continuous screening uses `models.screening.build_field` for preparation,
 preview and export. Saved decision vectors must be decoded with their original
 bounds, control grid, symmetry and spline order. The current geometry window
 is L=4..8 mm, t=0.3..0.6 mm; this does not extend any Nu correlation's evidence.
-Screening accepts air/air with A:+x and B:-y only. Its GUI uses full-face ports;
+The retained screening API accepts air/air with A:+x and B:-y only,
+using full-face ports by default;
 explicit 2D API port intervals remain supported, while 3D screening rejects
-partial ports. Pareto-to-Compute loading supplies only mean L/t as a uniform
-seed, not a complete graded-design recomputation.
+partial ports. This API is separate from the current multi-condition desktop
+optimizer, which restores selected full XY/XYZ fields for recomputation.
 
 For 2D partial-port screening, preparation owns a shared physical mesh:
 geometry sampling, flow, thermal transport and pressure-face averages use
@@ -408,7 +409,7 @@ zoned mode projects its thermal L/t fields into flow rows using transverse
 cell-width weights and the actual direction, including reversal. D-F is still
 evaluated after averaging L/t. In 3D, discrete xy zones select cells by physical
 coordinates, with their existing overwrite and smoothing rules; the B-side
-uniform D-F closure is unchanged.
+and A-side momentum solvers both consume their local D-F arrays.
 
 Quick sizing accepts a candidate only after every final case converges and
 meets its duty/temperature and pressure limits with finite results. Design
@@ -417,8 +418,8 @@ for the second mean-property pass, the representative temperature paired with
 the existing inlet pressure. Invalid pairs raise `WaterStateError` before
 liquid properties are used. This scalar check does not certify phase stability
 throughout the quick-design field: the approximation has no local pressure
-field, and its analytical pressure drop retains its existing meaning. BO keeps
-bounded penalty objectives for training, but excludes failed evaluations
+field, and its analytical pressure drop retains its existing meaning. Retained
+screening BO keeps bounded penalty objectives for training, but excludes failed evaluations
 from reported Pareto fronts and hypervolume. History rows retain their status
 and failure reason; a completed screening run is not experimental validation.
 

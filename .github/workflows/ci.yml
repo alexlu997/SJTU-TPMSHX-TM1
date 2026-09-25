@@ -155,7 +155,9 @@ jobs:
       - name: Run optimizer and real acquisition tests
         shell: bash
         run: >-
-          "$CI_PYTHON" -m pytest sjtu_tpmshx/tests/test_multi_condition_optimizer.py -q -ra
+          "$CI_PYTHON" -m pytest sjtu_tpmshx/tests/test_multi_condition_optimizer.py
+          sjtu_tpmshx/tests/test_optimizer_failure_history.py
+          sjtu_tpmshx/tests/test_tool_handoffs.py -q -ra
           --timeout=600 --timeout-method=thread
           --durations=10 --junitxml=.cache/ci/bo.xml
       - name: Save BO test outcomes and timings

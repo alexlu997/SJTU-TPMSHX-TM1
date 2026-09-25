@@ -73,18 +73,58 @@ def test_multiseed_config_actual_members_and_failed_members(tmp_path, monkeypatc
             return future
 
     monkeypatch.setattr(parallel, 'ProcessPoolExecutor', Executor)
+    output = tmp_path / 'multiseed'
     result = parallel.run_qnehvi_multiseed(seeds=[42, 43], config={'u_A': 7.},
-                                          save_dir_base=str(tmp_path), verbose=False)
+                                          save_dir_base=str(output), verbose=False)
     assert set(result['seeds_used']) == {42, 43} - failed_seeds
     assert set(result['failed_seeds']) == failed_seeds
     assert result['complete'] is (not failed_seeds)
     assert result['seeds_requested'] == [42, 43]
-    assert json.loads((tmp_path / 'config.json').read_text())['u_A'] == 7.
-    status = json.loads((tmp_path / 'multiseed_status.json').read_text())
+    assert json.loads((output / 'config.json').read_text())['u_A'] == 7.
+    status = json.loads((output / 'multiseed_status.json').read_text())
     assert set(map(int, status['failed_seeds'])) == failed_seeds
-    assert verify._load_run_cfg(str(tmp_path / 'pareto_merged.csv'))['u_A'] == 7.
+    assert verify._load_run_cfg(str(output / 'pareto_merged.csv'))['u_A'] == 7.
     assert result['X'].shape[1] == 16
-    assert len(next(csv.reader((tmp_path / 'pareto_merged.csv').open()))) == 18
+    assert len(next(csv.reader((output / 'pareto_merged.csv').open()))) == 18
+
+
+@pytest.mark.parametrize('default_name', [False, True])
+def test_existing_multiseed_archive_rejected_before_process_launch(tmp_path, monkeypatch, default_name):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(parallel.time, 'strftime', lambda *a: 'fixed-time')
+    output = tmp_path / ('opt_qnehvi_multiseed_fixed-time' if default_name else 'existing')
+    output.mkdir()
+    original = {'config.json': b'{"original": true}', 'pareto_merged.csv': b'previous front\n'}
+    for name, content in original.items():
+        (output / name).write_bytes(content)
+    monkeypatch.setattr(parallel, 'ProcessPoolExecutor',
+                        lambda **kwargs: pytest.fail('existing archive launched processes'))
+    with pytest.raises(FileExistsError):
+        parallel.run_qnehvi_multiseed(seeds=[42],
+            save_dir_base=None if default_name else str(output), verbose=False)
+    assert {path.name: path.read_bytes() for path in output.iterdir()} == original
+
+
+def test_seed_helper_leaves_new_output_directory_to_optimizer(tmp_path, monkeypatch):
+    pytest.importorskip('botorch', reason='BO execution requires the optional server lock')
+    from sjtu_tpmshx.optimization import optimizer_qnehvi as bo
+    # Exercise the real helper and optimizer; only numerical evaluation and
+    # process-local thread caps are replaced in this in-process handoff test.
+    monkeypatch.setattr(parallel, 'set_worker_thread_caps', lambda: None)
+    calls = []
+
+    def evaluate(x, cfg):
+        calls.append(x.copy())
+        return -10., 20., 1.
+
+    monkeypatch.setattr(bo, 'evaluate_design', evaluate)
+    result = parallel._seed_subprocess_main(42, None, 2, 0, 1, 1, str(tmp_path), .01, 3, False)
+    output = tmp_path / 'seed_042'
+    assert result['save_dir'] == str(output)
+    assert result['termination_reason'] == 'completed' and result['n_evals'] == len(calls) == 2
+    assert json.loads((output / 'config.json').read_text()) == json.loads(json.dumps(result['config']))
+    assert len((output / 'history.csv').read_text().splitlines()) == 3
+    assert len((output / 'pareto_final.csv').read_text().splitlines()) == 3
 
 
 @pytest.mark.parametrize('seeds', [[], [42, 42]])

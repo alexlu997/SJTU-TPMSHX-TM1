@@ -13,14 +13,18 @@
 - **THEN** 栈当前页 = 1（运行）
 
 ### Requirement: Inline BO parameters
-qNEHVI 参数（n_init/n_iter/q_batch/seed）SHALL 内联于配置页；二维显示 n_rho_loops，三维显示 max_outer_3d。`_launch` SHALL 读取内联值，不提供旧模态参数对话框；启动前可说明计划求解次数，剩余时间仅依据本次已完成样本的实测耗时估算。
+优化方法（qLogNEHVI/qLogNParEGO/Sobol）及 n_init/n_iter/q_batch/seed SHALL 内联于配置页。
+n_init 默认16，允许1–256；优化器 SHALL 继承当前计算配置的数值设置。启动 SHALL
+读取内联值，不提供旧模态参数对话框；计划求解次数 SHALL 包含均匀基准和每个候选的
+全部工况，剩余时间仅依据本次已完成样本的实测耗时估算。
 
 #### Scenario: Launch consumes inline values
 - **WHEN** 点击启动
 - **THEN** worker 以内联 spinbox 值构造，无弹窗
 
 ### Requirement: Search space on page 1
-配置页「搜索空间」卡 SHALL 提供连续场优化的 L/t 范围、控制网格与对称设置。
+配置页「搜索空间」卡 SHALL 提供连续场优化的 L/t 范围，并显示当前控制网格。
+二维使用3×3控制点，三维使用3×3×3独立控制点；当前GUI不施加y对称约束。
 单点计算的分区面板 SHALL 独立置于「单点计算分区（不参与优化搜索）」折叠卡；
 旧 zones|canvas splitter SHALL 退役；Pareto 画布 SHALL 独占结果页。
 

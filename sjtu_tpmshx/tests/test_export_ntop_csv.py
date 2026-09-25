@@ -9,11 +9,13 @@ on synthetic decision vectors and parsed CSVs.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 from sjtu_tpmshx.models.screening import DEFAULT_CONFIG
+from sjtu_tpmshx.optimization import export_ntop_csv
 from sjtu_tpmshx.optimization.export_ntop_csv import (
     DEFAULT_GRID_NX,
     DEFAULT_GRID_NY,
@@ -83,7 +85,7 @@ def test_uniform_field_csv_values_are_constant(tmp_path):
 def test_provenance_records_decision_and_summary(tmp_path):
     x = _uniform_decision_vector()
     out = tmp_path / 'prov'
-    export_decision_vector(x, str(out), Nx_export=10, Ny_export=10)
+    summary = export_decision_vector(x, str(out), Nx_export=10, Ny_export=10)
     with open(out / 'provenance.json') as f:
         data = json.load(f)
     assert data['Nx_export'] == 10
@@ -91,7 +93,41 @@ def test_provenance_records_decision_and_summary(tmp_path):
     assert data['tpms_type'] == 'Diamond'
     assert abs(data['L_avg_mm'] - 6.0) < 1e-6
     assert abs(data['t_avg_mm'] - 0.4) < 1e-6
-    assert len(data['decision_vector']) == x.size
+    assert data['decision_vector'] == x.tolist()
+    assert data['csv_L'] == summary['csv_L'] == str(out / 'Lfield.csv')
+    assert data['csv_t'] == summary['csv_t'] == str(out / 'tfield.csv')
+
+
+@pytest.mark.parametrize('failed_file', ['tfield.csv', 'provenance.json'])
+def test_failed_reexport_preserves_complete_previous_export(tmp_path, monkeypatch, failed_file):
+    options = dict(n_ctrl_x=3, n_ctrl_y=3, symmetric_y=False, spline_order=2,
+                   Nx_export=3, Ny_export=2)
+    original = np.r_[np.full(9, 6.), np.full(9, .4)]
+    replacement = np.r_[np.full(9, 7.5), np.full(9, .55)]
+    export_decision_vector(original, str(tmp_path), **options)
+    before = {path.name: path.read_bytes() for path in tmp_path.iterdir()}
+    message = f'injected partial write: {failed_file}'
+
+    if failed_file == 'tfield.csv':
+        write_csv = export_ntop_csv._write_scalar_field_csv
+
+        def fail_second_csv(path, *args, **kwargs):
+            if Path(path).name == failed_file:
+                Path(path).write_text('x_mm,y_mm,t_mm\npartial')
+                raise OSError(message)
+            return write_csv(path, *args, **kwargs)
+
+        monkeypatch.setattr(export_ntop_csv, '_write_scalar_field_csv', fail_second_csv)
+    else:
+        def fail_json(_summary, stream, **_kwargs):
+            stream.write('{"partial":')
+            raise OSError(message)
+
+        monkeypatch.setattr(export_ntop_csv.json, 'dump', fail_json)
+
+    with pytest.raises(OSError, match=message):
+        export_decision_vector(replacement, str(tmp_path), **options)
+    assert {path.name: path.read_bytes() for path in tmp_path.iterdir()} == before
 
 
 def test_export_clamps_to_surrogate_window(tmp_path):
