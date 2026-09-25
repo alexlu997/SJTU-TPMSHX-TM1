@@ -52,12 +52,15 @@ def _make_worker_class():
                 self.finished_with_result.emit(report)
             except CancelledError:
                 checkpoint = Path(self.save_dir) / 'optimization.json'
-                if checkpoint.exists():
-                    # Native search checkpoints before raising; preparation has no study yet.
-                    with checkpoint.open(encoding='utf-8') as source:
-                        self.finished_with_result.emit(json.load(source))
-                else:
-                    self.cancelled_before_search.emit()
+                try:
+                    if checkpoint.exists():
+                        # Native search checkpoints before raising; preparation has no study yet.
+                        with checkpoint.open(encoding='utf-8') as source:
+                            self.finished_with_result.emit(json.load(source))
+                    else:
+                        self.cancelled_before_search.emit()
+                except (OSError, ValueError) as exc:
+                    self.error_signal.emit(f'{type(exc).__name__}: {exc}')
             except Exception as exc:
                 self.error_signal.emit(f'{type(exc).__name__}: {exc}')
 
@@ -355,8 +358,9 @@ def run_optimize(window):
         window._last_opt_report = deepcopy(report)
         window._last_opt_output_dir = save_dir
         window._selected_pareto_x = None
-        show_pareto(window, report)
-        _set_status(window, f'{_termination_label(report)} · {report["n_evaluated"]} 个候选 · {save_dir}')
+        render_error = show_pareto(window, report)
+        _set_status(window, f'{_termination_label(report)} · {report["n_evaluated"]} 个候选 · {save_dir}'
+                    + (f' · Pareto 绘图失败：{render_error}' if render_error else ''))
 
     def error(message):
         if getattr(window, '_close_pending', False):
@@ -418,13 +422,14 @@ def _termination_label(report):
 
 
 def show_pareto(window, report):
-    """Render native study objectives; this input is not the legacy screening CSV."""
+    """Render native objectives, returning a display error without changing the report."""
     history = report['history']
     rows = [history[index] for index in report['pareto_indices']]
     window._pareto_X = np.asarray([row['x_decision'] for row in rows]) if rows else None
     # Keep the existing figure-export readiness contract, with explicit G/C meaning.
     window._pareto_F = np.asarray([[-row['objectives']['heat_gain_percent'],
                                     row['objectives']['pressure_ratio']] for row in rows]) if rows else None
+    render_error = None
     canvas = getattr(window, 'canvas_pareto', None)
     if canvas is not None:
         window._opt_3d_data = None
@@ -437,41 +442,56 @@ def show_pareto(window, report):
         if previous is not None:
             canvas.mpl_disconnect(previous)
         window._pareto_pick_cid = None
-        canvas.figure.clear()
-        theme = get_theme()
-        canvas.figure.set_facecolor(theme['fig_bg'])
-        ax = canvas.figure.add_subplot(111)
-        ax.set_facecolor(theme['ax_bg'])
-        usable = [row for row in history if row['status'] == 'completed']
-        if usable:
-            ax.scatter([r['objectives']['pressure_ratio'] for r in usable],
-                       [r['objectives']['heat_gain_percent'] for r in usable],
-                       color=theme['mpl_subtitle'], label=f'usable ({len(usable)})')
-        if rows:
-            order = np.argsort(window._pareto_F[:, 1])
-            ax.plot(window._pareto_F[order, 1], -window._pareto_F[order, 0], 'o-',
-                    color=theme['accent_orange'], picker=True, pickradius=6, label=f'Pareto ({len(rows)})')
-            window._pareto_pick_cid = canvas.mpl_connect('pick_event', lambda event: on_pareto_pick(window, event))
-            ax.legend(facecolor=theme['ax_bg'], edgecolor=theme['ax_spine'],
-                      labelcolor=theme['ax_text'])
-        ax.set_xlabel('Mean relative pressure drop [1]', color=theme['ax_text'])
-        ax.set_ylabel('Mean useful heat gain [%]', color=theme['ax_text'])
-        ax.set_title(f'{report["method"]} · {report["n_evaluated"]} designs', color=theme['ax_text'])
-        ax.tick_params(colors=theme['ax_text'])
-        for spine in ax.spines.values():
-            spine.set_edgecolor(theme['ax_spine'])
-        ax.grid(True, alpha=.15, color=theme['ax_text'])
-        canvas.draw()
+        try:
+            canvas.figure.clear()
+            theme = get_theme()
+            canvas.figure.set_facecolor(theme['fig_bg'])
+            ax = canvas.figure.add_subplot(111)
+            ax.set_facecolor(theme['ax_bg'])
+            usable = [row for row in history if row['status'] == 'completed']
+            if usable:
+                ax.scatter([r['objectives']['pressure_ratio'] for r in usable],
+                           [r['objectives']['heat_gain_percent'] for r in usable],
+                           color=theme['mpl_subtitle'], label=f'usable ({len(usable)})')
+            if rows:
+                order = np.argsort(window._pareto_F[:, 1])
+                ax.plot(window._pareto_F[order, 1], -window._pareto_F[order, 0], 'o-',
+                        color=theme['accent_orange'], picker=True, pickradius=6, label=f'Pareto ({len(rows)})')
+                window._pareto_pick_cid = canvas.mpl_connect('pick_event', lambda event: on_pareto_pick(window, event))
+                ax.legend(facecolor=theme['ax_bg'], edgecolor=theme['ax_spine'],
+                          labelcolor=theme['ax_text'])
+            ax.set_xlabel('Mean relative pressure drop [1]', color=theme['ax_text'])
+            ax.set_ylabel('Mean useful heat gain [%]', color=theme['ax_text'])
+            ax.set_title(f'{report["method"]} · {report["n_evaluated"]} designs', color=theme['ax_text'])
+            ax.tick_params(colors=theme['ax_text'])
+            for spine in ax.spines.values():
+                spine.set_edgecolor(theme['ax_spine'])
+            ax.grid(True, alpha=.15, color=theme['ax_text'])
+            canvas.draw()
+            canvas.show()
+        except Exception as exc:
+            _log.exception('Could not render optimization Pareto figure')
+            render_error = f'{type(exc).__name__}: {exc}'
+            window._pareto_X = window._pareto_F = None
+            if window._pareto_pick_cid is not None:
+                canvas.mpl_disconnect(window._pareto_pick_cid)
+            window._pareto_pick_cid = None
+            canvas.figure.clear()
+            canvas.hide()
     label = _termination_label(report)
     _set_kpi(window, gen=label, best_q=max((r['objectives']['heat_gain_percent'] for r in rows), default='—'),
              best_dp=min((r['objectives']['pressure_ratio'] for r in rows), default='—'), eta='—')
     _set_stage_pill(window, 'running', 'done')
     _set_stage_pill(window, 'result', 'active')
-    _set_summary_banner(window, f'{label} · {len(rows)} 个 Pareto 方案 · '
-        f'{report["n_usable"]}/{report["n_evaluated"]} 个候选数值合格'
-        + (f' · {report["reason"]}' if report.get('reason') else ''))
+    summary = (f'{label} · {len(rows)} 个 Pareto 方案 · '
+               f'{report["n_usable"]}/{report["n_evaluated"]} 个候选数值合格')
+    summary += f' · {report["reason"]}' if report.get('reason') else ''
+    summary += f' · Pareto 绘图失败：{render_error}' if render_error else ''
+    _set_summary_banner(window, summary)
+    _set_status(window, summary)
     if hasattr(window, '_refresh_export_button'):
         window._refresh_export_button()
+    return render_error
 
 
 def on_pareto_pick(window, event):

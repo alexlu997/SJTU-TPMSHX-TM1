@@ -273,6 +273,110 @@ def test_thread_terminal_state_retained_until_actual_exit(window, tmp_path, monk
     assert window._opt_btn.isEnabled()
 
 
+@pytest.mark.parametrize('entry,status', [('direct', 'completed'), ('worker', 'completed'),
+                                         ('worker', 'cancelled'), ('worker', 'failed')])
+def test_pareto_render_failure_keeps_numerical_terminal_and_disables_half_plot(
+        window, tmp_path, monkeypatch, entry, status):
+    import sys
+    from pathlib import Path
+    from sjtu_tpmshx.optimization import multi_condition_optimizer as native
+    from sjtu_tpmshx.tests.test_worker_result_handoff import _wait_for
+    study = report(window, status=status)
+    window._last_opt_report = deepcopy(study)
+    window._opt_conditions = [condition()]
+    panel.show_pareto(window, study)
+    caught = []
+    monkeypatch.setattr(sys, 'excepthook', lambda cls, exc, tb: caught.append(exc))
+    monkeypatch.setattr(panel, 'optimization_output_dir', lambda: tmp_path)
+
+    def result(*args, **kwargs):
+        directory = Path(kwargs['output_dir'])
+        directory.mkdir()
+        (directory / 'optimization.json').write_text(json.dumps(study))
+        return study
+
+    def fail_draw():
+        raise RuntimeError('injected Pareto rendering failure')
+
+    monkeypatch.setattr(native, 'run_multi_condition_optimization', result)
+    with monkeypatch.context() as draw:
+        draw.setattr(window.canvas_pareto, 'draw', fail_draw)
+        if entry == 'worker':
+            panel.run_optimize(window)
+            _wait_for(lambda: window._opt_worker is None)
+            assert window._opt_btn.isEnabled() and not window._opt_cancel_btn.isEnabled()
+            directory = Path(window._last_opt_output_dir)
+            assert json.loads((directory / 'optimization.json').read_text()) == study
+        else:
+            try:
+                panel.show_pareto(window, study)
+            except RuntimeError as exc:
+                caught.append(exc)
+    assert not caught
+    assert window._last_opt_report == study
+    label = panel._termination_label(study)
+    assert window._opt_kpi_gen.text() == label
+    assert label in window._opt_status.text() and '绘图失败' in window._opt_status.text()
+    assert 'injected Pareto rendering failure' in window._opt_status.text()
+    assert '绘图失败' in window._opt_summary_banner.text()
+    assert window._opt_stack.currentIndex() == 2
+    assert not window._pareto_figure_ready()
+    assert window._pareto_X is None and window._pareto_pick_cid is None
+    assert not window.canvas_pareto.figure.axes and window.canvas_pareto.isHidden()
+    assert not window._opt_field_figure_ready() and not window._opt_3d_figure_ready()
+    # The retained numerical report can be drawn again after a display failure.
+    panel.show_pareto(window, study)
+    assert window._pareto_figure_ready() and not window.canvas_pareto.isHidden()
+    assert label in window._opt_status.text()
+    assert '1/1 个候选数值合格' in window._opt_status.text()
+    assert '绘图失败' not in window._opt_status.text()
+    assert '绘图失败' not in window._opt_summary_banner.text()
+
+
+@pytest.mark.parametrize('failure', ['invalid_json', 'unreadable'])
+def test_cancel_checkpoint_read_failure_reaches_error_terminal(window, tmp_path, monkeypatch, failure):
+    import sys
+    from pathlib import Path
+    from sjtu_tpmshx.domain.cancellation import CancelledError
+    from sjtu_tpmshx.optimization import multi_condition_optimizer as native
+    from sjtu_tpmshx.tests.test_worker_result_handoff import _wait_for
+    previous = report(window)
+    cancelled = report(window, status='cancelled')
+    window._last_opt_report = deepcopy(previous)
+    window._opt_conditions = [condition()]
+    caught, checkpoint = [], []
+    monkeypatch.setattr(sys, 'excepthook', lambda cls, exc, tb: caught.append(exc))
+    monkeypatch.setattr(panel, 'optimization_output_dir', lambda: tmp_path)
+
+    def cancel(*args, **kwargs):
+        directory = Path(kwargs['output_dir'])
+        directory.mkdir()
+        path = directory / 'optimization.json'
+        path.write_text('{"truncated":' if failure == 'invalid_json'
+                        else json.dumps(cancelled))
+        checkpoint.append(path)
+        raise CancelledError('cancelled')
+
+    original_open = Path.open
+    if failure == 'unreadable':
+        def deny_checkpoint_read(path, mode='r', *args, **kwargs):
+            if path in checkpoint and mode == 'r':
+                raise PermissionError('injected checkpoint read failure')
+            return original_open(path, mode, *args, **kwargs)
+        monkeypatch.setattr(Path, 'open', deny_checkpoint_read)
+    monkeypatch.setattr(native, 'run_multi_condition_optimization', cancel)
+    panel.run_optimize(window)
+    _wait_for(lambda: window._opt_worker is None)
+    assert not caught
+    assert window._opt_btn.isEnabled() and not window._opt_cancel_btn.isEnabled()
+    assert window._opt_kpi_gen.text() == 'ERROR'
+    assert 'ERROR' in window._opt_status.text()
+    assert ('JSONDecodeError' if failure == 'invalid_json' else 'PermissionError') in window._opt_status.text()
+    assert str(checkpoint[0].parent) in window._opt_status.text()
+    assert window._last_opt_report == previous
+    assert checkpoint[0].exists()
+
+
 @pytest.mark.parametrize('dimension', [0, 1])
 def test_pareto_keeps_relative_objectives_and_full_field_through_save_replay(window, dimension, tmp_path, monkeypatch):
     from sjtu_tpmshx.ui.window_config import config_from_window
@@ -337,6 +441,9 @@ def test_field_preview_belongs_to_optimization_and_keeps_other_figures(window, d
     window.combo_dim.setCurrentIndex(dimension)
     window._last_opt_report = study = report(window)
     panel.show_pareto(window, study)
+    status_before_preview = window._opt_status.text()
+    assert panel._termination_label(study) in status_before_preview
+    assert '1/1 个候选数值合格' in status_before_preview
     pareto_line = window.canvas_pareto.figure.axes[0].lines[0]
     geometry_axes = window.canvas_layout.figure.axes.copy()
     window._switch_tab('layout')
@@ -393,7 +500,7 @@ def test_field_preview_belongs_to_optimization_and_keeps_other_figures(window, d
         assert max(heights) < window.height()
     finally:
         window.hide()
-    assert '当前算例' in window._opt_status.text()
+    assert window._opt_status.text() == status_before_preview
 
 
 @pytest.mark.parametrize('failure', ['raised', 'no_actor'])
