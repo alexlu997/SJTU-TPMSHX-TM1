@@ -1,12 +1,14 @@
 """Execute the Windows runners with recorded, non-computing Python modules."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -15,23 +17,56 @@ _ROOT = Path(__file__).resolve().parents[2]
 _PWSH = shutil.which('pwsh')
 
 
+def _copy_runners(tmp_path, *, trace_missing=False):
+    scripts = tmp_path / 'scripts'
+    scripts.mkdir()
+    for runner in ('run_tests_fast.ps1', 'run_tests_server.ps1'):
+        target = scripts / runner
+        shutil.copyfile(_ROOT / 'scripts' / runner, target)
+        if trace_missing:
+            trace_path = str(tmp_path / 'runner-stages.tsv').replace("'", "''")
+
+            def marker(stage):
+                return (f"[System.IO.File]::AppendAllText('{trace_path}', "
+                        f'[DateTime]::UtcNow.ToString("O") + "`t{stage}`n")\n')
+
+            source = target.read_text(encoding='utf-8')
+            entry = '$ErrorActionPreference = "Stop"\n'
+            assert source.count(entry) == 1
+            source = source.replace(entry, entry + marker(runner + '.enter'), 1)
+            if runner == 'run_tests_server.ps1':
+                missing = '    throw "Missing .venv-path.'
+                assert source.count(missing) == 1
+                source = source.replace(missing, '    ' + marker('missing.before_throw') + missing, 1)
+            target.write_text(source, encoding='utf-8')
+
+
 def _run_runner(tmp_path, script, lock=None):
     command = [_PWSH, '-NoProfile', '-File', str(tmp_path / 'scripts' / script)]
     if lock is not None:
         command += ['-LockFile', lock]
+    started_utc = datetime.now(timezone.utc).isoformat()
+    started = time.monotonic()
     with subprocess.Popen(command, cwd=tmp_path, stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE, text=True) as process:
         try:
             stdout, stderr = process.communicate(timeout=30)
         except subprocess.TimeoutExpired as error:
+            timed_out_utc = datetime.now(timezone.utc).isoformat()
+            elapsed = time.monotonic() - started
             returncode = process.poll()
             process.kill()
             stdout, stderr = process.communicate()
             calls_path = tmp_path / 'calls.jsonl'
             calls = calls_path.read_text(encoding='utf-8') if calls_path.exists() else '(none)'
+            stages_path = tmp_path / 'runner-stages.tsv'
+            stages = stages_path.read_text(encoding='utf-8') if stages_path.exists() else '(none)'
             pytest.fail(
                 f'Runner timed out after {error.timeout}s: {command!r}\n'
+                f'UTC start / timeout: {started_utc} / {timed_out_utc}\n'
+                f'Elapsed including process creation: {elapsed:.3f}s\n'
                 f'Return code before forced cleanup: {returncode!r}\n'
+                f'Temporary script stages (UTC, diagnostic I/O included):\n{stages}\n'
                 f'Completed module calls:\n{calls}\n'
                 f'stdout: {stdout!r}\nstderr: {stderr!r}',
             )
@@ -41,10 +76,8 @@ def _run_runner(tmp_path, script, lock=None):
 @pytest.mark.skipif(os.name != 'nt' or not _PWSH, reason='Windows PowerShell runner')
 @pytest.mark.parametrize('script', ['run_tests_fast.ps1', 'run_tests_server.ps1'])
 def test_runner_missing_environment_fails_before_python(tmp_path, script):
-    scripts = tmp_path / 'scripts'
-    scripts.mkdir()
-    for runner in ('run_tests_fast.ps1', 'run_tests_server.ps1'):
-        shutil.copyfile(_ROOT / 'scripts' / runner, scripts / runner)
+    # Instrument only the temporary copies, preserving param/throw/exit behavior.
+    _copy_runners(tmp_path, trace_missing=True)
     result = _run_runner(tmp_path, script)
     assert result.returncode != 0, result.stdout + result.stderr
     assert 'Missing .venv-path.' in result.stdout + result.stderr
@@ -60,10 +93,7 @@ def test_runner_missing_environment_fails_before_python(tmp_path, script):
     ('requirements-lock.txt', 'pytest'),
 ])
 def test_runner_uses_selected_lock_and_stops_before_tests(tmp_path, script, lock, failed_step):
-    scripts = tmp_path / 'scripts'
-    scripts.mkdir()
-    for runner in ('run_tests_fast.ps1', 'run_tests_server.ps1'):
-        shutil.copyfile(_ROOT / 'scripts' / runner, scripts / runner)
+    _copy_runners(tmp_path)
     (tmp_path / '.venv-path').write_text(sys.executable, encoding='utf-8')
     package = tmp_path / 'sjtu_tpmshx' / 'runs' / 'tools'
     package.mkdir(parents=True)
