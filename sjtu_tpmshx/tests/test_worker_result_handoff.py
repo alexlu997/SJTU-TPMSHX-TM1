@@ -818,3 +818,16 @@ def test_auto_fill_uses_same_fluid_type_as_config(win, monkeypatch, side, index,
     cfg = config_from_window(win)
     assert observed == [fluid_type]
     assert getattr(cfg, f'fluid_{side}').type == fluid_type
+
+
+@pytest.mark.parametrize('expression,expected,invalid', [
+    ('10^1000', '=10^1000', True),
+    ('(10^1000)/(10^1000)', '1', False),
+])
+def test_zone_expression_float_boundary_preserves_cell_validation(
+        win, expression, expected, invalid):
+    item = win.zone_table.item(0, win.zone_table.columnCount() - 2)
+    item.setText('=' + expression)
+    assert item.text() == expected
+    assert item.data(Qt.ItemDataRole.UserRole + 1) == ('true' if invalid else 'false')
+    assert item.toolTip() == ('Value must be > 0' if invalid else '')
