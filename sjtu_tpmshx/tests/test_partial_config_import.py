@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from sjtu_tpmshx.tests.test_io_actions import win  # shared real Main_Menu fixture
+from sjtu_tpmshx.tests.test_io_actions import win as win  # shared real Main_Menu fixture
 
 
 @pytest.mark.parametrize('payload', [
