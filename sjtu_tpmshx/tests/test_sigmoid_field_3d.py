@@ -6,6 +6,8 @@ Four tests:
   2. test_clip_bounds        — extreme x → L, t strictly in clip range
   3. test_zone_count         — 108 vector 放出 3×3×3 zones (non-zero ranges)
   4. test_z_uniform_degrade  — 108 with z-invariant values degrades to 2D
+
+A small real LUT suffices here; voxel accuracy is tested in test_tpms_geometry_n128.
 """
 
 import numpy as np
@@ -24,7 +26,7 @@ def _common_kwargs():
 
 
 def test_output_shapes():
-    lut = get_geometry_lut('Diamond')
+    lut = get_geometry_lut('Diamond', n_L=3, n_t=2, N=32)
     Nx, Ny, Nz = 12, 10, 6
     x = np.array([6.0, 0.3] * 54)
     out = build_continuous_arrays_3d(x, 6.0, 0.3,
@@ -40,7 +42,7 @@ def test_output_shapes():
 
 
 def test_clip_bounds():
-    lut = get_geometry_lut('Diamond')
+    lut = get_geometry_lut('Diamond', n_L=3, n_t=2, N=32)
     Nx, Ny, Nz = 10, 10, 6
     # Extreme: all inlets L=20 (above 8), all outlets L=1 (below 4); t similarly pushed out
     x = np.empty(108, dtype=np.float64)
@@ -65,7 +67,7 @@ def test_clip_bounds():
 
 def test_zone_count():
     """108-vec producing a distinguishable inlet vs outlet region."""
-    lut = get_geometry_lut('Diamond')
+    lut = get_geometry_lut('Diamond', n_L=3, n_t=2, N=32)
     Nx, Ny, Nz = 20, 30, 10
     x = np.array([6.0, 0.3] * 54)
     # Inlet all to L=5, t=0.4
@@ -90,7 +92,7 @@ def test_zone_count():
 
 def test_z_uniform_degrade():
     """108-vec with same values across z axis → field equal to 2D result."""
-    lut = get_geometry_lut('Diamond')
+    lut = get_geometry_lut('Diamond', n_L=3, n_t=2, N=32)
     Nx, Ny, Nz = 15, 12, 5
 
     # Build 2D 36-vec: uniform random-ish values
