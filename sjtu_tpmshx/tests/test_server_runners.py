@@ -15,6 +15,29 @@ _ROOT = Path(__file__).resolve().parents[2]
 _PWSH = shutil.which('pwsh')
 
 
+def _run_runner(tmp_path, script, lock=None):
+    command = [_PWSH, '-NoProfile', '-File', str(tmp_path / 'scripts' / script)]
+    if lock is not None:
+        command += ['-LockFile', lock]
+    with subprocess.Popen(command, cwd=tmp_path, stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE, text=True) as process:
+        try:
+            stdout, stderr = process.communicate(timeout=30)
+        except subprocess.TimeoutExpired as error:
+            returncode = process.poll()
+            process.kill()
+            stdout, stderr = process.communicate()
+            calls_path = tmp_path / 'calls.jsonl'
+            calls = calls_path.read_text(encoding='utf-8') if calls_path.exists() else '(none)'
+            pytest.fail(
+                f'Runner timed out after {error.timeout}s: {command!r}\n'
+                f'Return code before forced cleanup: {returncode!r}\n'
+                f'Completed module calls:\n{calls}\n'
+                f'stdout: {stdout!r}\nstderr: {stderr!r}',
+            )
+        return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+
 @pytest.mark.skipif(os.name != 'nt' or not _PWSH, reason='Windows PowerShell runner')
 @pytest.mark.parametrize('script', ['run_tests_fast.ps1', 'run_tests_server.ps1'])
 def test_runner_missing_environment_fails_before_python(tmp_path, script):
@@ -22,10 +45,7 @@ def test_runner_missing_environment_fails_before_python(tmp_path, script):
     scripts.mkdir()
     for runner in ('run_tests_fast.ps1', 'run_tests_server.ps1'):
         shutil.copyfile(_ROOT / 'scripts' / runner, scripts / runner)
-    result = subprocess.run(
-        [_PWSH, '-NoProfile', '-File', str(scripts / script)],
-        cwd=tmp_path, capture_output=True, text=True, timeout=30,
-    )
+    result = _run_runner(tmp_path, script)
     assert result.returncode != 0, result.stdout + result.stderr
     assert 'Missing .venv-path.' in result.stdout + result.stderr
 
@@ -64,19 +84,8 @@ def test_runner_uses_selected_lock_and_stops_before_tests(tmp_path, script, lock
             f'raise SystemExit({2 if name == failed_step else 0})\n',
             encoding='utf-8',
         )
-    command = [_PWSH, '-NoProfile', '-File', str(scripts / script)]
-    if lock is not None:
-        command += ['-LockFile', lock]
     calls_path = tmp_path / 'calls.jsonl'
-    try:
-        result = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, timeout=30)
-    except subprocess.TimeoutExpired as error:
-        calls = calls_path.read_text(encoding='utf-8') if calls_path.exists() else '(none)'
-        pytest.fail(
-            f'Runner timed out after {error.timeout}s: {command!r}\n'
-            f'Completed module calls:\n{calls}\n'
-            f'stdout: {error.stdout!r}\nstderr: {error.stderr!r}',
-        )
+    result = _run_runner(tmp_path, script, lock)
     assert calls_path.exists(), result.stdout + result.stderr
     calls = [json.loads(line) for line in calls_path.read_text(encoding='utf-8').splitlines()]
     assert calls[0] == ['lock', [lock or 'requirements-lock.txt']]
