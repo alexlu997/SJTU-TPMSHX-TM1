@@ -25,6 +25,47 @@ def test_solve_Lx_hits_target():
     assert Lx is None or (0.001 < Lx <= 0.450 and r is not None)
 
 
+@pytest.mark.parametrize('prop_model', ['const', 'mean'])
+def test_duty_search_meets_actual_heat_duty_after_cold_start(prop_model):
+    from sjtu_tpmshx.design.forward import forward
+    case = replace(_case(), Q=70000.)
+    length, result = solve_Lx(case, 'Diamond', 7., .5, .15, 'cross',
+                              prop_model=prop_model)
+    assert length is not None and result.Q_hot >= case.Q
+    cold = forward(case, 'Diamond', 7., .5, .15, length, 'cross',
+                   prop_model=prop_model)
+    assert cold.run_status['converged']
+    assert cold.Q_hot >= case.Q
+    assert cold.dP_hot_frac <= case.dPlim_h
+    assert cold.dP_cold_frac <= case.dPlim_c
+
+
+@pytest.mark.parametrize('dT,target,expected', [
+    (None, None, .15), (10., None, .10), (10., 380., .20),
+])
+def test_length_search_respects_duty_temperature_and_explicit_target(
+        monkeypatch, dT, target, expected):
+    from sjtu_tpmshx.design import sizing
+    from sjtu_tpmshx.design.forward import ForwardResult
+    case = DesignCase(1, 'air', 400., 2e5, .01, 'air', 300., 2e5, .01,
+                      150., .05, .05, dT=dT)
+
+    def thermal(case, topo, l, t, s, length, arrangement, **kwargs):
+        # Controlled response separates actual duty from inlet-cp conversion.
+        return ForwardResult(400. - 100. * length, 310., 1000. * length,
+                             1000. * length, .001, .001, 1000., 1000.,
+                             run_status={'converged': True})
+
+    monkeypatch.setattr(sizing, 'forward', thermal)
+    length, result = sizing.solve_Lx(case, 'Diamond', 7., .5, .15, 'cross',
+                                     target=target, prop_model='mean')
+    assert length == pytest.approx(expected + sizing.TOL, abs=1e-12)
+    if dT is None and target is None:
+        assert result.Q_hot >= case.Q
+    else:
+        assert result.T_out_hot <= (target if target is not None else 400. - dT)
+
+
 @pytest.mark.parametrize('arrangement,floor,cold_boundary,expected', [
     ('cross', .014, .015, .015),
     ('cross', .0155, .015, .0155),
