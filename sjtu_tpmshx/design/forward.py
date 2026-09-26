@@ -1,6 +1,7 @@
 """Quick design through public preparation, solver and postprocessing APIs."""
 from dataclasses import dataclass, field
 from uuid import uuid4
+from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.portable_data import mutable_data
 from sjtu_tpmshx.domain.run_warnings import record_warning
 from sjtu_tpmshx.models.quick_design import K_STEEL, LTNE_TOL
@@ -19,14 +20,16 @@ class ForwardResult:
 def forward(case, topo: str, l: float, t: float, s: float, Lx: float,
             arrangement: str = "cross", init=None, k_s: float = K_STEEL,
             prop_model: str = "const", tol: float = LTNE_TOL,
-            height=None) -> ForwardResult:
+            height=None, *, control: RunControl | None = None) -> ForwardResult:
     from sjtu_tpmshx.preprocess.api import prepare_quick_design
     from sjtu_tpmshx.solvers.api import run_case
     from sjtu_tpmshx.postprocess.api import evaluate
+    control = control or RunControl()
+    control.check_cancelled()
     prepared = prepare_quick_design(
         case, topo, l, t, s, Lx, arrangement, case_id=str(uuid4()), init=init,
         k_s=k_s, prop_model=prop_model, tol=tol, height=height)
-    result = run_case(prepared)
+    result = run_case(prepared, control=control)
     performance = evaluate(result)
     names = ('T_out_A', 'T_out_B', 'Q', 'Q_cold', 'dP_A', 'dP_B', 'Re_A', 'Re_B')
     values = []
