@@ -1,5 +1,6 @@
 """Tests for models.sigmoid_field.build_continuous_arrays — verifies shape
 contract, clip behaviour, and custom dx_arr/dy_arr support.
+A small real LUT suffices here; voxel accuracy is tested in test_tpms_geometry_n128.
 """
 import warnings
 
@@ -14,7 +15,7 @@ def _call(Nx=40, Ny=20, L=0.08, H=0.04, x=None, L0=6.0, t0=0.4,
           tpms='Gyroid', dx_arr=None, dy_arr=None):
     if x is None:
         x = np.tile([L0, t0], 18)
-    lut = get_geometry_lut(tpms)
+    lut = get_geometry_lut(tpms, n_L=3, n_t=2, N=32)
     return build_continuous_arrays(
         x, L0, t0, 0.2, 0.2, Nx, Ny, L, H, tpms, 17.0,
         5.0, 4.0, 500.0, 350.0, lut,

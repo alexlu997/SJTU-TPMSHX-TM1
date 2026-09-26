@@ -15,12 +15,9 @@ from sjtu_tpmshx.tests.test_worker_result_handoff import win as win, _wait_for
 @pytest.fixture
 def run_window(win, monkeypatch, tmp_path):
     monkeypatch.setattr(QMessageBox, 'information', lambda *args: None)
-    win._apply_shanghai_defaults()
     win.le_Nx.setText('24')
     win.le_Ny.setText('18')
     win.le_Nz.setText('5')
-    win.auto_fill_fluid_a()
-    win.auto_fill_fluid_b()
 
     def render(window):
         return False  # Offscreen 3D panel; scalar publication still succeeds.
