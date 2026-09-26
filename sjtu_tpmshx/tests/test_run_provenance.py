@@ -76,6 +76,8 @@ def test_running_edits_recent_restore_and_consecutive_dimensions(run_window, mon
         finally:
             release.set()
         _wait_for(win.compute.is_idle)
+        assert win.compute.last_result() is result, (
+            f"{win.compute.last_log()}\nGUI errors: {win._test_error_dialogs!r}")
         assert original_capture('draft') == draft, 'completion overwrote editable inputs'
         entry = win._recent_runs[0]
         restored = deepcopy(entry['preset'])
