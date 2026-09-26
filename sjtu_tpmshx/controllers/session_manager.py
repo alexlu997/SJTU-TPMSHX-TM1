@@ -37,10 +37,15 @@ import json
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 from PySide6.QtCore import QObject
 
 from sjtu_tpmshx.controllers.user_storage import user_data_dir
+from sjtu_tpmshx.logutil import get_logger
+
+
+_log = get_logger(__name__)
 
 
 SCHEMA_VERSION = 1
@@ -68,6 +73,7 @@ class SessionManager(QObject):
         if base_dir is None:
             base_dir = user_data_dir()
         self._base = Path(base_dir)
+        self._unrestored_sessions: set[Path] = set()
 
     # ------------------------------------------------------------------ paths
 
@@ -110,26 +116,42 @@ class SessionManager(QObject):
             # silently revert the workspace to defaults AND be destroyed by
             # the next save. Quarantine it so the user's data stays
             # recoverable and the corruption is visible on disk.
-            self._quarantine_corrupt(path)
+            self.quarantine_session(workspace)
             return None
-        except OSError:
+        except OSError as error:
+            self._unrestored_sessions.add(path)
+            _log.warning("Could not read session %s: %s", path, error)
             return None
         if not isinstance(payload, dict):
+            self.quarantine_session(workspace)
             return None
+        self._unrestored_sessions.discard(path)
         # Schema migration: legacy files missing the field → v0
         payload.setdefault('schema_version', 0)
         # Future: payload = self._migrate(payload) ...
         return payload
 
-    def _quarantine_corrupt(self, path: Path) -> None:
-        """Rename an unreadable user file to ``<name>.corrupt-<ts>`` —
-        best-effort, never raises (a locked file just stays in place)."""
+    def quarantine_session(self, workspace: str = 'A') -> Optional[Path]:
+        """Preserve an unrestored session; failed preservation prevents overwriting it."""
+        path = self.session_path(workspace)
+        self._unrestored_sessions.add(path)
+        if not path.exists():
+            self._unrestored_sessions.discard(path)
+            return None
+        backup = self._quarantine_corrupt(path)
+        if backup is not None:
+            self._unrestored_sessions.discard(path)
+        return backup
+
+    def _quarantine_corrupt(self, path: Path) -> Optional[Path]:
+        """Move an unreadable/rejected file to a unique sibling; retain it on failure."""
+        backup = path.with_name(f"{path.name}.corrupt-{uuid4().hex}")
         try:
-            import time as _t
-            path.rename(path.with_name(
-                f"{path.name}.corrupt-{int(_t.time())}"))
-        except OSError:
-            pass
+            path.rename(backup)
+        except OSError as error:
+            _log.warning("Could not preserve user file %s: %s", path, error)
+            return None
+        return backup
 
     def _atomic_write_json(self, path: Path, data: Any) -> bool:
         """Write JSON to ``path`` atomically.
@@ -175,6 +197,10 @@ class SessionManager(QObject):
         out = dict(payload)
         out['schema_version'] = SCHEMA_VERSION
         path = self.session_path(workspace)
+        if path in self._unrestored_sessions:
+            self.quarantine_session(workspace)
+            if path in self._unrestored_sessions:
+                return False
         if self._atomic_write_json(path, out):
             return True
         return False

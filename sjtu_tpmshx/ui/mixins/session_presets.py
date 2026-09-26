@@ -627,7 +627,13 @@ class SessionPresetsMixin:
         try:
             self._validate_preset(payload)
         except (TypeError, ValueError) as error:
+            backup = self.sm.quarantine_session(ws)
             message = f"{error}\n已保留当前工况。"
+            if backup is not None:
+                message += f"\n原会话已保存在：{backup}"
+            elif self.sm.session_path(ws).exists():
+                message += ("\n原会话备份失败，已阻止覆盖。"
+                            "请检查用户数据目录的写入权限后重试保存。")
             QTimer.singleShot(0, self, lambda: QMessageBox.warning(
                 self, "会话未恢复", message))
             return
