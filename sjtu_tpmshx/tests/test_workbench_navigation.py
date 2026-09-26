@@ -1,6 +1,8 @@
 """Real Qt checks for parameter storage and reversible canvas focus."""
 import pytest
 
+from sjtu_tpmshx.domain.compute_result import ComputeResult
+
 pytest.importorskip('PySide6')
 
 from PySide6.QtGui import QKeySequence, QShortcut  # noqa: E402
@@ -225,7 +227,7 @@ def test_short_3d_card_keeps_controls_and_viewport_reachable(win, monkeypatch):
 def test_focus_restores_preferences_and_does_not_persist_transient_hiding(
         win, monkeypatch, collapsed, summary):
     win.combo_dim.setCurrentIndex(0)
-    win.cache.set_result('2d', {'stub': True})
+    win.cache.set_result('2d', ComputeResult())
     win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})  # These layout stubs represent rendered fields.
     win._update_tab_visibility()
     win._switch_tab('temp')

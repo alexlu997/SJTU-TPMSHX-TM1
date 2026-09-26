@@ -89,7 +89,7 @@ def test_2d_tout_displays_result_scalars_across_units_and_direction_drafts(win):
     assert win._sb_labels['tout'].text() == '341.25 / 312.75'
     assert float(win._sb_labels['tout'].text().split(' / ')[0]) == 341.25
     assert float(win._sb_labels['tout'].text().split(' / ')[1]) == 312.75
-    assert win.cache.get_result('2d')['Q_total'] == result.Q_W == 123.
+    assert win.cache.get_result('2d').Q_W == result.Q_W == 123.
 
 
 @pytest.mark.parametrize('mode', ['2d', '3d'])
@@ -392,8 +392,8 @@ def test_worker_publishes_payload_on_gui_thread_without_reentry(win, monkeypatch
     if mode == '3d':
         assert win.cache.get_result(mode) is result
     else:
-        assert win.cache.get_result('2d')['Ta'] is result.fields['Ta']
-        assert win.cache.get_result('2d')['Q_total'] == result.Q_W
+        assert win.cache.get_result('2d').fields['Ta'] is result.fields['Ta']
+        assert win.cache.get_result('2d').Q_W == result.Q_W
     assert not win._compute_running
     assert win.btn_compute.isEnabled()
     assert win._compute_btn_handler == win.run_calculation
@@ -445,8 +445,7 @@ def test_display_timing_reaches_result_and_export_cache(win, monkeypatch, mode):
     expected = {'prepare': 1.0, 'solve': 2.0, 'postprocess': 3.0, 'display': 5.0}
     assert result.metadata['timings_s'] == expected
     cached = win.cache.get_result(mode)
-    metadata = cached.metadata if mode == '3d' else cached['metadata']
-    assert metadata['timings_s'] == expected
+    assert cached.metadata['timings_s'] == expected
     assert win._diag_summary['timings_s'] == expected
     assert card_elapsed == provenance_elapsed == [25.0]
     assert win._last_elapsed_s == 25.0
@@ -553,7 +552,7 @@ def test_cancel_close_on_save_failure_keeps_live_compute(win, monkeypatch):
     finally:
         release.set()
     _wait_for(win.compute.is_idle)
-    assert win.cache.get_result('2d')['Q_total'] == 123
+    assert win.cache.get_result('2d').Q_W == 123
     assert win.btn_compute.isEnabled() and not win._compute_running
     assert win.close()
 

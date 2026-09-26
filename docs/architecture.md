@@ -56,6 +56,10 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   It is the sole production result mapper. The old 2D/3D mappings remain only
   as frozen test oracles for the real native-result integration comparison.
 - `ui/` owns PySide6 and PyVista presentation only.
+  Both dimensions use `ComputeResult` in the result cache. The 2D publication
+  snapshots scalars, metadata, warnings and exported status while sharing field
+  arrays; 3D retains the published object. A failed or cancelled attempt preserves
+  the last accepted result for display and export, independently of current inputs.
   Its canvas workbench reuses the existing parameter widgets in a left-hand
   geometry/boundary/solver inspector. Field phase and 3D z-slice selections
   read the accepted result snapshot; draft edits do not replace that source.

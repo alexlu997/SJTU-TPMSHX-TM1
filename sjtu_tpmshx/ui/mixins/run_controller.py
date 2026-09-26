@@ -354,7 +354,7 @@ class RunControllerMixin:
                 self._diag_summary['timings_s'] = dict(timings)
             if published and result.diagnostics.get('mode') != '3d':
                 # The 2D presentation/export cache owns a metadata snapshot.
-                self.cache.get_result('2d')['metadata']['timings_s'] = dict(timings)
+                self.cache.get_result('2d').metadata['timings_s'] = dict(timings)
             try:
                 if published:
                     # Numerical publication survives a renderer error. All

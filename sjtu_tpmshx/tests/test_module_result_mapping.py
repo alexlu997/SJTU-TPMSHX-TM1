@@ -463,8 +463,8 @@ def test_native_result_reaches_gui_diagnostics_and_display_cache(native_result):
         assert '两侧焓流: Q_A' in text and '能量闭合（主网格两侧有符号焓流）' in text
     else:
         for name in ('ucA', 'vcA', 'ucB', 'vcB'):
-            np.testing.assert_array_equal(window.cache.get_result('2d')[name], fields.fields[name])
-            np.testing.assert_array_equal(window.cache.get_result('2d')[name + '_disp'],
+            np.testing.assert_array_equal(window.cache.get_result('2d').fields[name], fields.fields[name])
+            np.testing.assert_array_equal(window.cache.get_result('2d').fields[name + '_disp'],
                                           fields.fields.get(name + '_display'))
 
 
