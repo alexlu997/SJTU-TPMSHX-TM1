@@ -231,6 +231,10 @@ class ContinuousFieldConfig:
     """Continuous spatial field of (L, t) parameters via B-spline interpolation
     over a coarse control grid. Drop-in producer for ZoneConfig.build_grid_arrays.
 
+    Input control axes and values are copied at construction. To change a
+    field's control axes or values, construct a new instance so its controls
+    and interpolation state continue to describe the same geometry.
+
     Parameters
     ----------
     ctrl_x : (Mx,) array — control x positions [m] sorted, in [0, L_domain]
@@ -260,10 +264,10 @@ class ContinuousFieldConfig:
     Lz_domain: float | None = None
 
     def __post_init__(self):
-        self.ctrl_x = np.asarray(self.ctrl_x, dtype=np.float64)
-        self.ctrl_y = np.asarray(self.ctrl_y, dtype=np.float64)
-        self.L_ctrl = np.asarray(self.L_ctrl, dtype=np.float64)
-        self.t_ctrl = np.asarray(self.t_ctrl, dtype=np.float64)
+        self.ctrl_x = np.array(self.ctrl_x, dtype=np.float64, copy=True)
+        self.ctrl_y = np.array(self.ctrl_y, dtype=np.float64, copy=True)
+        self.L_ctrl = np.array(self.L_ctrl, dtype=np.float64, copy=True)
+        self.t_ctrl = np.array(self.t_ctrl, dtype=np.float64, copy=True)
 
         if (self.ctrl_z is None) != (self.Lz_domain is None):
             raise ValueError('ctrl_z and Lz_domain must be supplied together')
@@ -273,7 +277,7 @@ class ContinuousFieldConfig:
             raise ValueError('spline_order must be 1, 2 or 3')
         axes = [(self.ctrl_x, self.L_domain), (self.ctrl_y, self.H_domain)]
         if self.ctrl_z is not None:
-            self.ctrl_z = np.asarray(self.ctrl_z, dtype=np.float64)
+            self.ctrl_z = np.array(self.ctrl_z, dtype=np.float64, copy=True)
             axes.append((self.ctrl_z, self.Lz_domain))
         for nodes, length in axes:
             if not np.isfinite(length) or length <= 0:
