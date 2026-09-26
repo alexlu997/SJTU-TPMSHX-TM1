@@ -21,8 +21,8 @@ from sjtu_tpmshx.tests.integration_tm1.test_2d_real import baseline_config
 from sjtu_tpmshx.tests.integration_tm1.test_public_api import assert_slots
 
 
-def test_synthetic_3d_mapping_preserves_full_geometry_and_display_pressure():
-    """Mapping only: distinguish original geometry and all pressure states."""
+def _synthetic_3d_results():
+    """Mapping inputs with distinct original geometry and pressure states."""
     from sjtu_tpmshx.domain.field_result import FieldResult
     from sjtu_tpmshx.domain.metric_spec import MetricSpec
     from sjtu_tpmshx.domain.performance_result import MetricValue, PerformanceResult
@@ -54,6 +54,14 @@ def test_synthetic_3d_mapping_preserves_full_geometry_and_display_pressure():
                                  ('dP_A', 10., 'Pa'), ('dP_B', 20., 'Pa'),
                                  ('T_out_A', 330., 'K'), ('T_out_B', 310., 'K'))})
 
+    return native, performance
+
+
+def test_synthetic_3d_mapping_preserves_full_geometry_and_display_pressure():
+    native, performance = _synthetic_3d_results()
+    native_fields, grid = native.fields, native.grid
+    L_m = native.metadata['design_fields']['L_field_m']
+    t_m = native.metadata['design_fields']['t_field_m']
     result = to_compute_result(native, performance)
     np.testing.assert_array_equal(result.fields['L_mm'], L_m * 1e3)
     np.testing.assert_array_equal(result.fields['t_mm'], t_m * 1e3)
