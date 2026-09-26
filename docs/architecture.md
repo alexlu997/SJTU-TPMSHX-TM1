@@ -518,6 +518,16 @@ continuous-field inputs and custom model parameters. The Python snippet expects
 an existing `window`; it restores inputs without launching a solve. This preset
 format is distinct from the public module's `ComputeConfig` input.
 
+Unwrapped `line_edits` JSON and legacy flat configuration files are partial
+imports: the common preset application path merges only supplied fields into
+the captured current inputs. An explicit temperature-unit change converts
+omitted inlet temperatures while preserving their physical values. Omitted
+model choices, controls and optimization conditions remain in the snapshot.
+Cross-field validation uses the merged input before changing widgets or cached
+results; an incompatible field dimension or zone-table layout rejects the patch.
+Versioned complete files, preset libraries and startup sessions retain their
+full-restore/historical-default rules; partial import does not redefine them.
+
 - `ui/builders_canvas.py` assembles the visible geometry, result, and
   optimization workbench. `build_canvas_area()` only coordinates its named
   same-file builders.
