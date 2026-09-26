@@ -26,7 +26,8 @@
 
 param(
     [ValidateSet('requirements-lock.txt', 'requirements-lock-server.txt')]
-    [string]$LockFile = 'requirements-lock.txt'
+    [string]$LockFile = 'requirements-lock.txt',
+    [switch]$Fast
 )
 
 $ErrorActionPreference = "Stop"
@@ -65,12 +66,22 @@ if ($LASTEXITCODE -ne 0) { throw "Shared environment differs from $LockFile" }
 & $py -m pip check
 if ($LASTEXITCODE -ne 0) { throw "Shared environment failed pip check" }
 
-Write-Host "=== Full suite (-n 64 worksteal) ===" -ForegroundColor Cyan
-& $py -u -m pytest sjtu_tpmshx/tests/ -q -n 64 --dist worksteal --durations=15
+if ($Fast) {
+    Write-Host "=== FAST TIER (-m 'not heavy') — dev feedback, NOT the gate ===" -ForegroundColor Yellow
+    $pytestArgs = @('-n', '32', '--dist', 'worksteal', '-m', 'not heavy')
+    $successMessage = "FAST TIER green — run scripts/run_tests_server.ps1 before claiming done."
+    $failurePrefix = 'FAST TIER FAILED'
+} else {
+    Write-Host "=== Full suite (-n 64 worksteal) ===" -ForegroundColor Cyan
+    $pytestArgs = @('-n', '64', '--dist', 'worksteal', '--durations=15')
+    $successMessage = 'READY — suite green.'
+    $failurePrefix = 'FAILED'
+}
+& $py -u -m pytest sjtu_tpmshx/tests/ -q @pytestArgs
 
 if ($LASTEXITCODE -eq 0) {
-    Write-Host "READY — suite green." -ForegroundColor Green
+    Write-Host $successMessage -ForegroundColor Green
 } else {
-    Write-Host "FAILED — pytest exit=$LASTEXITCODE" -ForegroundColor Red
+    Write-Host "$failurePrefix — pytest exit=$LASTEXITCODE" -ForegroundColor Red
     exit 1
 }
