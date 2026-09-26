@@ -126,6 +126,9 @@ def test_actual_pipeline_gate_and_prebalance_mass(monkeypatch, pair, var, nz, en
     for solver in (prob.sA, prob.sB):
         solver.v[:] = .02
         solver.rho_field[:] *= 1.3
+    simple_faces = [face for solver in (prob.sA, prob.sB)
+                    for face in (solver.u, solver.v, solver.w)]
+    original_faces = [face.copy() for face in simple_faces]
     balances = []
     def balance(faces, *args):
         balances.append(True)
@@ -156,6 +159,8 @@ def test_actual_pipeline_gate_and_prebalance_mass(monkeypatch, pair, var, nz, en
     monkeypatch.setattr(stages, 'run_outer_coupling', lambda *, step, **kwargs: step(0))
     with pytest.raises(Observed):
         stages._run_outer_coupling_3d(prob, hv)
+    for current, original in zip(simple_faces, original_faces):
+        np.testing.assert_array_equal(current, original)
 
 
 def _pipeline_cfg(pair=('air', 'air'), nz=4):
