@@ -9,13 +9,19 @@ versioned resources as 2D; unknown versions fail before execution.
 
 Design fields have `(Nx,Ny,Nz)` shape: `L_field_m/t_field_m` in m, `K_m2` in
 m², `cF_per_m` in 1/m, `K_ss` in W/(m K), and dimensionless total/per-side
-porosity. Existing uniform and xy-extruded zoning are supported. Uniform
-geometry must agree with scalar inputs; xy zoning cannot introduce z variation.
+porosity. Uniform geometry must agree with scalar inputs. Discrete grid zones
+use `design_mode="xy_extruded"` and cannot introduce z variation.
 Discrete zone bounds select physical x/y cell centres on the prepared mesh,
 including refined grids, rather than a fraction of cell indices. Existing
 default values, later-zone overwrite order and sigma=2 smoothing are retained.
-The existing B-side uniform D-F closure remains unchanged. This contract does
-not introduce arbitrary spatial D-F behavior for that side.
+For `zones.axis="continuous"`, the original spline controls remain in
+`parameters.continuous_field`. XY controls produce
+`design_mode="continuous_xy_extruded"`; adding `n_ctrl_z` produces true
+L(x,y,z)/t(x,y,z) with `design_mode="continuous_xyz"`. The spline is sampled at
+final physical cell centres, including refined grids, without the discrete-zone
+Gaussian filter. The executor rejects z variation in XY-extruded geometry and
+requires recorded `n_ctrl_z` for XYZ mode. Continuous-field applicability and
+calibration limits remain those in the [architecture](../../docs/architecture.md).
 
 FieldResult contains the last raw thermal temperatures and input heat-transfer
 coefficients, with field units, physical axes and state. True-h thermal
@@ -73,9 +79,13 @@ metres. Receiver environment settings cannot replace it. Experimental
 and campaign/applicability metadata, or is null in CFD mode. Runtime applies
 those fixed factors to the supplied K/cF fields and reports the actual base and
 applied coefficients; it does not reselect or reevaluate calibration. Changing a
-valid K field remains an effective numerical input. The original A projection
-and scalar-mean B convention are preserved. All SIMPLE grids receive the actual
-prepared widths, including uniform grids. Physical fields are permuted into
-each side's solver axes; negative flow also reverses the streamwise widths,
-porosity and A-side projected K/cF rows so local inlet index zero corresponds
-to the physical inlet face.
+valid K field remains an effective numerical input. Both existing grid zones
+and continuous designs retain complete local K/cF arrays for both fluid sides;
+coefficient means are used only for pressure initialization. All SIMPLE grids
+receive the actual prepared widths, including uniform grids. Physical fields
+are permuted into each side's solver axes; negative flow also reverses the
+streamwise widths, porosity and local K/cF arrays so local inlet index zero
+corresponds to the physical inlet face. Supported experimental continuous-field
+transfer applies each side's fixed factors to its local CFD arrays and records
+`continuous-field-extrapolation`; this remains exploratory trend prediction,
+not established gradient accuracy. Saved historical results are not rewritten.

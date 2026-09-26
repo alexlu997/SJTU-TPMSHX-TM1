@@ -26,7 +26,8 @@ n_init 默认16，允许1–256；优化器 SHALL 继承当前计算配置的数
 配置页「搜索空间」卡 SHALL 提供连续场优化的 L/t 范围，并显示当前控制网格。
 二维使用3×3控制点，三维使用3×3×3独立控制点；当前GUI不施加y对称约束。
 单点计算的分区面板 SHALL 独立置于「单点计算分区（不参与优化搜索）」折叠卡；
-旧 zones|canvas splitter SHALL 退役；Pareto 画布 SHALL 独占结果页。
+旧 zones|canvas splitter SHALL 退役；结果页 SHALL 提供「Pareto 前沿」、「尺寸 / 壁厚场」
+和「三维尺寸 / 壁厚场」页签，参数场页签 SHALL 在相应场数据可用时启用。
 
 #### Scenario: Zone panel relocated
 - **WHEN** 检查配置页
