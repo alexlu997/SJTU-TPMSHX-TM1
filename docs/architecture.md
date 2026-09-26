@@ -144,8 +144,11 @@ Coarse bootstrap supplies a bounded initial guess, not a convergence certificate
 Old result files remain readable; rerunning an explicit legacy configuration
 requires selecting F2 and accepting the independently measured result.
 
-Both backends consume `models/fluid_props.FluidModel`. Correlations, property
-sources and validity checks stay in their owning model modules. Shared outer
+Both backends consume `models/fluid_props.FluidModel`. The registry imports
+air/water primitives from `tpms_props` and Nu functions from `nu_correlations`
+directly; `tpms_calc` retains its public re-exports without a return dependency
+from the registry. Correlations, property sources and validity checks stay in
+their owning model modules. Shared outer
 iteration and temperature-delta tracking live in `coupling_skeleton.py`; both
 full-compute drivers track Ta, Tb and Ts, with the existing extra 2D density
 gate. Dimension-specific solve order and native flux capture remain explicit.

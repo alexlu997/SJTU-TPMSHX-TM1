@@ -212,7 +212,6 @@ def _compute_cached(tpms_type: str,
         # ── Fluid properties at inlet conditions ──────────────────
         # B1 1.1 (2026-06-12): property primitives via the fluid_props
         # registry (water rho ignores P — incompressible; air ideal-gas).
-        # Function-level import: fluid_props imports tpms_calc at module level.
         from sjtu_tpmshx.models import fluid_props as _fluids
         _m = _fluids.get(fluid_type, sco2_nu=sco2_nu)
         # Pass absolute P to all primitives: air density and all sCO2
