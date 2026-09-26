@@ -130,7 +130,7 @@ def _solver_velocity_to_real(solver, axis_map, real_shape):
 def _solver_staggered_to_real(solver, axis_map, real_shape):
     """Map SIMPLE3D staggered face velocities to REAL-coord face arrays.
 
-    Returns (uf_real, vf_real, wf_real) of shapes:
+    Returns independently writable (uf_real, vf_real, wf_real) of shapes:
       uf_real : (Nx+1, Ny, Nz)  — face velocities at real x-faces (+x signed)
       vf_real : (Nx, Ny+1, Nz)  — face velocities at real y-faces (+y signed)
       wf_real : (Nx, Ny, Nz+1)  — face velocities at real z-faces (+z signed)
@@ -156,9 +156,10 @@ def _solver_staggered_to_real(solver, axis_map, real_shape):
 
     # Transpose mirrors cell-centred components' perm. The extra +1
     # dimension survives the transpose automatically.
-    u_real = np.ascontiguousarray(u_sol.transpose(perm))
-    v_real = np.ascontiguousarray(v_sol.transpose(perm))
-    w_real = np.ascontiguousarray(w_sol.transpose(perm))
+    # Thermal outflow balancing must not modify the completed SIMPLE state.
+    u_real = u_sol.transpose(perm).copy(order='C')
+    v_real = v_sol.transpose(perm).copy(order='C')
+    w_real = w_sol.transpose(perm).copy(order='C')
 
     # Classify each transposed array into (x-staggered, y-staggered, z-staggered).
     # The original array is staggered along ONE solver axis; perm maps that axis
