@@ -118,7 +118,7 @@ def test_qnehvi_campaign_resets_warn_registries(monkeypatch):
 
 
 def _core_temperature_case(monkeypatch, *, max_outer, bad_side=None, bad_value=None,
-                           bad_call=1):
+                           bad_call=1, simple_solvers=None):
     import numpy as np
     from sjtu_tpmshx.core import evaluators as ev
     from sjtu_tpmshx.solvers.backends.python.screening import three_d as execution
@@ -128,6 +128,8 @@ def _core_temperature_case(monkeypatch, *, max_outer, bad_side=None, bad_value=N
 
     def unsolved(s, **kwargs):
         calls.append('simple')
+        if simple_solvers is not None:
+            simple_solvers.append(s)
         return False, kwargs['max_iter']
 
     def forbidden(*args, **kwargs):

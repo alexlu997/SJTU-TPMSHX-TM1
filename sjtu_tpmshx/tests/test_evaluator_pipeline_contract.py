@@ -4,8 +4,8 @@ The BO evaluators (optimization/evaluator.py 2D, core/evaluators.py 3D) are a
 CHEAP SCREENING TIER, deliberately not routed through ComputePipeline — their
 throughput budget is why BO is affordable. The master rule this file encodes:
 
-    **Pareto picks must be re-solved through the production Pipeline
-    (verify_pareto_3d / stages_*) before any number is quoted.**
+    **Full-model Pareto validation must re-solve through the production
+    Pipeline. verify_pareto_3d remains a frozen-B screening check.**
 
 Each test below pins a current difference between screening and full compute.
 Current numerical ownership and validity requirements live in
@@ -29,19 +29,18 @@ def test_3d_evaluator_and_pipeline_share_f2_default():
     assert solver.convergence_mode == 'f2' and solver.mom_tol == 1e-4
 
 
-def test_3d_evaluator_keeps_b_side_frozen():
+def test_3d_evaluator_keeps_b_side_frozen(monkeypatch):
     """DELIBERATE (BO throughput): the var-rho outer loop re-solves SIMPLE-A
     only; fluid B stays the cold solve (frozen-B tier, core/evaluators
     rationale at the rho_B_ltne block). The pipeline reseeds B too."""
-    from sjtu_tpmshx.solvers.backends.python.screening import three_d as execution
-    src = inspect.getsource(execution.run_case)
-    assert 're-solving SIMPLE A' in src, (
-        "lost the A-side re-solve marker — if the loop structure changed, "
-        "re-read the frozen-B rationale before updating this contract")
-    assert 're-solving SIMPLE B' not in src, (
-        "a B-side re-solve appeared: that is a Pipeline-tier feature; adding "
-        "it to the evaluator changes the BO cost model — conscious decision "
-        "required (openspec evaluator-envelope-authority)")
+    from sjtu_tpmshx.tests.test_evaluator_envelope_authority import _core_temperature_case
+
+    solvers = []
+    _core_temperature_case(monkeypatch, max_outer=3, simple_solvers=solvers)
+    # Actual screening: cold A, cold B, hot A, then the temperature delta exits.
+    assert len(solvers) == 3
+    assert solvers[0] is not solvers[1]
+    assert solvers[2] is solvers[0]
 
 
 def test_objective_shaping_is_evaluator_only():
@@ -62,7 +61,7 @@ def test_evaluators_do_not_route_through_pipeline():
     """DELIBERATE (audit §2 verdict): full routing would destroy the BO
     throughput budget. The convergence path is shared AUTHORITIES (envelope,
     df_surrogate, extract_dP), not shared orchestration. Pareto numbers go
-    through verify_pareto_3d / the Pipeline instead."""
+    through the production Pipeline; verify_pareto_3d retains screening physics."""
     import sjtu_tpmshx.core.evaluators as ev3d
     import sjtu_tpmshx.optimization.evaluator as ev2d
     for mod in (ev3d, ev2d):

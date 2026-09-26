@@ -36,20 +36,10 @@ def _cfg(**over):
 
 # ── the invariant that matters: OFF must not touch the solver ────────────────
 
-def test_default_off_and_production_blend_is_untouched():
-    """The knob is off by default and the original blend runs verbatim."""
+def test_default_off_reports_no_acceleration():
+    """The knob is off by default; property-frame tests cover the Picard blend."""
     r = _run_3d_stack(_cfg())
     assert r['convergence_detail']['outer_anderson'] is None
-
-    import inspect
-    from sjtu_tpmshx.pipelines import run_stack_3d as _r3
-    # Seam-C extraction (P1.5, 2026-07-20): the outer-loop closures (and the
-    # production Picard blend inside _outer_post_3d) now live in
-    # _run_outer_coupling_3d, not _run_3d_stack.
-    src = inspect.getsource(_r3._run_outer_coupling_3d)
-    # The damped-Picard expression must still be present as the fallback.
-    assert '_ALPHA_T * rho_new + (1.0 - _ALPHA_T) * sA.rho_field' in src
-    assert "_use_outer_and = bool(cfg.get('outer_anderson', False))" in src
 
 
 def test_enabled_converges_to_the_same_fixed_point():
