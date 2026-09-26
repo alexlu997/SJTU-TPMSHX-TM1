@@ -17,16 +17,33 @@ _PWSH = shutil.which('pwsh')
 
 @pytest.mark.skipif(os.name != 'nt' or not _PWSH, reason='Windows PowerShell runner')
 @pytest.mark.parametrize('script', ['run_tests_fast.ps1', 'run_tests_server.ps1'])
+def test_runner_missing_environment_fails_before_python(tmp_path, script):
+    scripts = tmp_path / 'scripts'
+    scripts.mkdir()
+    for runner in ('run_tests_fast.ps1', 'run_tests_server.ps1'):
+        shutil.copyfile(_ROOT / 'scripts' / runner, scripts / runner)
+    result = subprocess.run(
+        [_PWSH, '-NoProfile', '-File', str(scripts / script)],
+        cwd=tmp_path, capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert 'Missing .venv-path.' in result.stdout + result.stderr
+
+
+@pytest.mark.skipif(os.name != 'nt' or not _PWSH, reason='Windows PowerShell runner')
+@pytest.mark.parametrize('script', ['run_tests_fast.ps1', 'run_tests_server.ps1'])
 @pytest.mark.parametrize('lock,failed_step', [
     (None, None),
     ('requirements-lock-server.txt', None),
     ('requirements-lock-server.txt', 'lock'),
     ('requirements-lock.txt', 'pip'),
+    ('requirements-lock.txt', 'pytest'),
 ])
 def test_runner_uses_selected_lock_and_stops_before_tests(tmp_path, script, lock, failed_step):
     scripts = tmp_path / 'scripts'
     scripts.mkdir()
-    shutil.copyfile(_ROOT / 'scripts' / script, scripts / script)
+    for runner in ('run_tests_fast.ps1', 'run_tests_server.ps1'):
+        shutil.copyfile(_ROOT / 'scripts' / runner, scripts / runner)
     (tmp_path / '.venv-path').write_text(sys.executable, encoding='utf-8')
     package = tmp_path / 'sjtu_tpmshx' / 'runs' / 'tools'
     package.mkdir(parents=True)
@@ -64,9 +81,17 @@ def test_runner_uses_selected_lock_and_stops_before_tests(tmp_path, script, lock
     calls = [json.loads(line) for line in calls_path.read_text(encoding='utf-8').splitlines()]
     assert calls[0] == ['lock', [lock or 'requirements-lock.txt']]
     expected = ['lock'] if failed_step == 'lock' else ['lock', 'pip']
-    if failed_step is None:
+    if failed_step in (None, 'pytest'):
         expected.append('pytest')
     assert [call[0] for call in calls] == expected
     assert (result.returncode == 0) == (failed_step is None), result.stdout + result.stderr
     if len(calls) > 1:
         assert calls[1] == ['pip', ['check']]
+    if calls[-1][0] == 'pytest':
+        arguments = ['sjtu_tpmshx/tests/', '-q', '-n']
+        arguments += (['32', '--dist', 'worksteal', '-m', 'not heavy']
+                      if script == 'run_tests_fast.ps1' else
+                      ['64', '--dist', 'worksteal', '--durations=15'])
+        assert calls[-1] == ['pytest', arguments]
+    if failed_step == 'pytest':
+        assert result.returncode == 1, result.stdout + result.stderr
