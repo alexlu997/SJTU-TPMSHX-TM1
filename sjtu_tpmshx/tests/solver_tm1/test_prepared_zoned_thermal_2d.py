@@ -36,6 +36,27 @@ def _config(mode='y'):
 
 
 @pytest.mark.parametrize('mode', ['x', 'y', 'grid'])
+def test_new_zoned_preparation_uses_current_chi_s(monkeypatch, mode):
+    from sjtu_tpmshx.models.tpms_calc import compute
+    compute.cache_clear()
+    try:
+        monkeypatch.setenv('TPMSHX_CHI_S', '.5')
+        first = prepare_case(_config(mode), case_id='chi-half')
+        monkeypatch.setenv('TPMSHX_CHI_S', '1.0')
+        second = prepare_case(_config(mode), case_id='chi-one')
+        np.testing.assert_allclose(second.design_fields['K_ss_arr'],
+                                   2. * first.design_fields['K_ss_arr'], rtol=1e-14)
+        # Later settings must not reinterpret either immutable prepared Case.
+        monkeypatch.setenv('TPMSHX_CHI_S', '.25')
+        for case in (first, second):
+            inputs, _ = build_execution_inputs(case)
+            np.testing.assert_array_equal(inputs['za']['K_ss_arr'],
+                                          case.design_fields['K_ss_arr'])
+    finally:
+        compute.cache_clear()
+
+
+@pytest.mark.parametrize('mode', ['x', 'y', 'grid'])
 def test_discrete_geometry_uses_final_physical_cell_centres(mode):
     from sjtu_tpmshx.models.tpms_props import geometry
     case = prepare_case(_config(mode), case_id='zoned-' + mode)
