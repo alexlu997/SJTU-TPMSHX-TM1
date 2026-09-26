@@ -61,10 +61,13 @@ def validate_case(case):
 
 
 def validate_result_declarations(result):
-    """Reject contradictory declared physics, including direct metric inputs."""
+    """Reject contradictory declarations and return the known physical dimension."""
     dimension = result.grid.get('dimension', result.metadata.get('dimension'))
     if result.metadata.get('dimension', dimension) != dimension:
         raise ValueError('result metadata dimension disagrees with grid')
+    if (dimension in (2, 3) and 'quantity_basis' in result.metadata
+            and result.metadata['quantity_basis'] != {2: 'per_unit_depth', 3: 'total'}[dimension]):
+        raise ValueError('result quantity_basis disagrees with physical dimension')
     mode_dimension = {'screening_2d': 2, 'screening_3d': 3, 'quick_design': 3}
     if mode_dimension.get(result.metadata.get('mode'), dimension) != dimension:
         raise ValueError('result mode dimension disagrees with grid')
@@ -78,6 +81,7 @@ def validate_result_declarations(result):
                  ('1',) if name == 'eps_arr' else None)
         if units is not None and metadata.get('unit') not in units:
             raise ValueError(f'field {key} unit must be one of {units}')
+    return dimension
 
 
 def validate_result(result):
