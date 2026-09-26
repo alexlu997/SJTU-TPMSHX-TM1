@@ -412,8 +412,11 @@ coordinates, with their existing overwrite and smoothing rules; the B-side
 and A-side momentum solvers both consume their local D-F arrays.
 
 Quick sizing accepts a candidate only after every final case converges and
-meets its duty/temperature and pressure limits with finite results. Design
-property lookups apply the shared liquid-water state guard to the inlet and,
+meets its duty/temperature and pressure limits with finite results. Final-case
+records, GUI diagnostics and Excel also retain hot/cold duties and the existing
+energy-imbalance metric with its availability and reason. This diagnostic does
+not participate in feasibility filtering; unavailable values are not zero.
+Design property lookups apply the shared liquid-water state guard to the inlet and,
 for the second mean-property pass, the representative temperature paired with
 the existing inlet pressure. Invalid pairs raise `WaterStateError` before
 liquid properties are used. This scalar check does not certify phase stability

@@ -11,6 +11,9 @@ from sjtu_tpmshx.logutil import get_logger
 
 _log = get_logger(__name__)
 
+_ENERGY_COLUMNS = ['构型', '工况', '热侧 Q [W]', '冷侧 Q [W]', '能量不平衡 [%]',
+                   '诊断状态', '诊断原因', '数值收敛', '构型可行', '终验原因']
+
 def _flist(text, cast=float):
     """'5, 6, 7' → [5.0,6.0,7.0]; 空 → []。"""
     return [cast(x) for x in str(text).replace("|", ",").split(",") if x.strip()]
@@ -199,6 +202,38 @@ def _fill_table(window, feasible, *, partial=False):
                 it.setForeground(QColor(get_theme()['warn']))
             tbl.setItem(i, j, it)
 
+
+def _fill_energy_table(window, results):
+    """Show existing final-case diagnostics for all completed candidates."""
+    from sjtu_tpmshx.design.report import cid
+    rows = []
+    for design in results:
+        for pc in getattr(design, 'percase', []):
+            values = [pc.get('Q_W'), pc.get('Q_cold_W'), pc.get('energy_imbalance_rel')]
+            numbers = ['—' if value is None else f'{value * scale:.6g}'
+                       for value, scale in zip(values, (1, 1, 100))]
+            rows.append([cid(design), str(pc['case']), *numbers,
+                         pc.get('energy_imbalance_status', '未提供'),
+                         pc.get('energy_imbalance_reason', '未提供能量不平衡诊断'),
+                         str((pc.get('run_status') or {}).get('converged', 'unknown')),
+                         '是' if design.feasible else '否',
+                         '; '.join(pc.get('acceptance_reasons', []))])
+    table = getattr(window, '_qd_energy_table', None)
+    if table is None:
+        for row in rows:
+            _log.info(' · '.join(f'{label}={value}' for label, value in zip(_ENERGY_COLUMNS, row)))
+        return
+    from PySide6.QtWidgets import QTableWidgetItem
+    table.setColumnCount(len(_ENERGY_COLUMNS))
+    table.setHorizontalHeaderLabels(_ENERGY_COLUMNS)
+    table.setRowCount(len(rows))
+    for i, row in enumerate(rows):
+        for j, value in enumerate(row):
+            item = QTableWidgetItem(value)
+            item.setToolTip(value)
+            table.setItem(i, j, item)
+
+
 def run_quick_design(window) -> None:
     """点「运行设计」入口: 后台 worker 跑后端, 完成回填表。"""
     if getattr(window, '_close_pending', False):
@@ -224,6 +259,7 @@ def run_quick_design(window) -> None:
         partial = res.get('partial', False)
         window._qd_last = res
         _fill_table(window, feas, partial=partial)
+        _fill_energy_table(window, res['all'])
         if partial:
             state = '失败中止' if res.get('termination_reason') == 'failed' else '已取消'
             _set_status(window, f"{state} · 保留 {len(res['all'])} 个已完成候选，"
@@ -263,9 +299,10 @@ def run_quick_design(window) -> None:
     worker.finished.connect(_on_finished)
     window._qd_worker = worker
     window._qd_last = None
-    table = getattr(window, '_qd_table', None)
-    if table is not None:
-        table.setRowCount(0)
+    for attr in ('_qd_table', '_qd_energy_table'):
+        table = getattr(window, attr, None)
+        if table is not None:
+            table.setRowCount(0)
     for attr, enabled in (('_qd_run_btn', False), ('_qd_cancel_btn', True)):
         button = getattr(window, attr, None)
         if button is not None:
@@ -301,7 +338,7 @@ def build_quick_design_dialog(parent=None):
         QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGridLayout,
         QGroupBox, QLabel, QLineEdit, QPushButton,
         QComboBox, QCheckBox, QTableWidget, QFileDialog,
-        QSizePolicy, QFrame, QWidget,
+        QSizePolicy, QFrame, QWidget, QTabWidget,
     )
     from PySide6.QtCore import Qt
 
@@ -369,6 +406,12 @@ def build_quick_design_dialog(parent=None):
         f" gridline-color:{_t['card_border']}; border:1px solid {_t['card_border']};"
         f" border-radius:6px;}}"
         f"QTableWidget::item:selected{{background:{_t['combo_sel']};}}"
+        f"QTabWidget::pane{{border:none;}}"
+        f"QTabBar::tab{{background:{_t['surface_raised']}; color:{_t['sub_fg']};"
+        f" padding:6px 12px; border-bottom:2px solid transparent;}}"
+        f"QTabBar::tab:selected{{color:{_t['fg']}; border-bottom:2px solid {_t['accent_primary']};}}"
+        f"QHeaderView{{background:{_t['surface_elevated']};}}"
+        f"QTableCornerButton::section{{background:{_t['surface_elevated']}; border:none;}}"
         f"QHeaderView::section{{background:{_t['surface_elevated']}; color:{_t['fg']};"
         f" border:none; border-right:1px solid {_t['card_border']};"
         f" border-bottom:1px solid {_t['card_border']}; padding:5px 8px; font-weight:600;}}"
@@ -574,8 +617,7 @@ def build_quick_design_dialog(parent=None):
     sep.setFrameShadow(QFrame.Shadow.Sunken)
     root.addWidget(sep)
 
-    lbl_results = QLabel("可行设计列表:")
-    root.addWidget(lbl_results)
+    result_tabs = QTabWidget()
 
     tbl = QTableWidget(0, 13)
     tbl.setHorizontalHeaderLabels(
@@ -592,7 +634,24 @@ def build_quick_design_dialog(parent=None):
     tbl.setColumnWidth(5, 88)
     tbl.setSizePolicy(
         QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-    root.addWidget(tbl, 1)
+    result_tabs.addTab(tbl, '可行设计')
+
+    energy_page = QWidget()
+    energy_layout = QVBoxLayout(energy_page)
+    energy_layout.setContentsMargins(0, 6, 0, 0)
+    energy_note = QLabel('已完成候选的逐工况诊断（含不可行构型）；能量诊断不参与当前可行性筛选。')
+    energy_note.setWordWrap(True)
+    energy_note.setStyleSheet(_qd_styles['SUB'])
+    energy_layout.addWidget(energy_note)
+    energy_table = QTableWidget(0, len(_ENERGY_COLUMNS))
+    energy_table.setHorizontalHeaderLabels(_ENERGY_COLUMNS)
+    energy_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+    energy_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+    for index, width in enumerate((155, 65, 105, 105, 130, 130, 180, 85, 85, 180)):
+        energy_table.setColumnWidth(index, width)
+    energy_layout.addWidget(energy_table, 1)
+    result_tabs.addTab(energy_page, '工况能量诊断')
+    root.addWidget(result_tabs, 1)
 
     # ── 状态标签 ─────────────────────────────────────────────
     lbl_status = QLabel("就绪")
@@ -616,6 +675,7 @@ def build_quick_design_dialog(parent=None):
     dlg.le_qd_cell_l       = le_cell_l
     dlg.le_qd_cell_t       = le_cell_t
     dlg._qd_table          = tbl
+    dlg._qd_energy_table   = energy_table
     dlg._qd_status         = lbl_status
 
     # ── 测试钩子属性 ─────────────────────────────────────────

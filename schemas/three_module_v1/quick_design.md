@@ -65,6 +65,12 @@ states for dP in Pa and computes Re from recorded properties/velocity/geometry.
 The design application divides dP by each original absolute inlet pressure to
 retain its fraction output. No model/EOS/solver call is needed offline.
 The energy comparison is |Q_hot−Q_cold| / max(|Q_hot|, |Q_cold|, 1e-30).
+ForwardResult carries this diagnostic's value, status and reason separately
+from the required forward metrics. Final per-case records, the GUI diagnostic
+tab and Excel retain both duties and the diagnostic, including cases that
+fail final acceptance. Missing diagnostics stay unavailable, not zero. This
+display does not add an energy-balance acceptance threshold or change sizing
+feasibility; numerical convergence and physical validation remain separate.
 Mass and full boundary mass-imbalance metrics are explicitly unsupported here.
 
 Execution/convergence, each pass's native info and unestablished physical

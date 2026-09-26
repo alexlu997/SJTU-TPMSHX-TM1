@@ -61,7 +61,11 @@ def detail_rows(results) -> list:
         Re热=_round_re(pc["Re_hot"]), Re冷=_round_re(pc["Re_cold"]),
         数值收敛=(pc.get('run_status') or {}).get('converged', 'unknown'),
         终验='; '.join(pc.get('acceptance_reasons', [])),
-        警告='\n'.join(pc.get('warnings', [])))
+        警告='\n'.join(pc.get('warnings', [])),
+        热侧换热量_W=pc['Q_W'], 冷侧换热量_W=pc.get('Q_cold_W'),
+        能量不平衡_rel=pc.get('energy_imbalance_rel'),
+        能量诊断状态=pc.get('energy_imbalance_status', 'insufficient_data'),
+        能量诊断原因=pc.get('energy_imbalance_reason', '未提供能量不平衡诊断'))
         for d in results for pc in d.percase]
 
 
