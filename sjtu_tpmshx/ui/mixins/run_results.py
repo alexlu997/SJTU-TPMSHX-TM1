@@ -6,6 +6,8 @@ consumes ComputeResult and writes the GUI's result cache and scalar snapshot.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from sjtu_tpmshx.ui.ui_constants import TOAST_MS_SHORT
 
 
@@ -82,36 +84,15 @@ class RunResultsMixin:
             return
 
         self.cache.clear('3d')
-        f = result.fields
-        self.cache.set_result('2d', {
-            'metadata': deepcopy(result.metadata),
-            'converged': result.converged,
-            'warnings': list(result.warnings),
-            'extrap_reasons': list(result.extrap_reasons),
-            'envelope_valid': result.diagnostics.get('envelope_valid'),
-            'outer_converged': (result.diagnostics.get('convergence_detail') or {}
-                                ).get('outer_converged'),
-            'Ta': f.get('Ta'), 'Tb': f.get('Tb'), 'Ts': f.get('Ts'),
-            'ucA': f.get('ucA'), 'vcA': f.get('vcA'),
-            'ucB': f.get('ucB'), 'vcB': f.get('vcB'),
-            **{name + '_disp': f.get(name + '_disp') for name in ('ucA', 'vcA', 'ucB', 'vcB')},
-            'P_fA': f.get('P_fA'), 'P_fB': f.get('P_fB'),
-            'dP_A': result.dP_A_Pa, 'dP_B': result.dP_B_Pa,
-            'Q_total': result.Q_W,
-            'N_x': f.get('N_x'), 'N_y': f.get('N_y'),
-            'L': f.get('L'), 'H': f.get('H'),
-            'dir_A': f.get('dir_A'), 'dir_B': f.get('dir_B'),
-            'zone_config': f.get('zone_config'),
-            'za': f.get('za'),
-            'dx_arr': f.get('dx_arr'), 'dy_arr': f.get('dy_arr'),
-            # (residuals_A/B snapshots dropped — they only fed the removed 2D
-            # convergence plot; the solver still tracks residuals internally.)
-            'Q_A': result.residuals.get('Q_A', float('nan')),
-            'Q_B': result.residuals.get('Q_B', float('nan')),
-            'Q_net': result.residuals.get('Q_net', float('nan')),
-            'energy_imbalance_rel': result.residuals.get(
-                'energy_imbalance_rel', float('nan')),
-        })
+        # Keep the 2D publication snapshot isolated from later edits to the
+        # source containers, while retaining the existing field-array sharing.
+        self.cache.set_result('2d', replace(
+            result, fields=dict(result.fields), residuals=dict(result.residuals),
+            metadata=deepcopy(result.metadata), warnings=list(result.warnings),
+            extrap_reasons=list(result.extrap_reasons),
+            diagnostics={**result.diagnostics, 'convergence_detail': dict(
+                result.diagnostics.get('convergence_detail') or {})},
+        ))
         self._compute_warnings = list(result.warnings)
         self._extrap_reasons = list(result.extrap_reasons)
         self._has_extrap = bool(result.extrap_reasons)

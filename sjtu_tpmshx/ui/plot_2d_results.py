@@ -175,7 +175,7 @@ def finalize_plots(window, field="temp"):
     from sjtu_tpmshx.ui.theme import get_theme
     _t = get_theme()
 
-    r = window.cache.get_result('2d')
+    r = window.cache.get_result('2d').fields
     # N5 (2026-07-07): prefer the display-smoothed copies on partial-BC runs;
     # the physics keys ('ucA' …) now stay raw / mass-conserving.
     def _vel(key):

@@ -13,6 +13,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtCore import QCoreApplication
 
 from sjtu_tpmshx.controllers.result_cache import ResultCache
+from sjtu_tpmshx.domain.compute_result import ComputeResult
 
 
 def _app():
@@ -29,7 +30,7 @@ def test_set_get_result_per_mode():
     _app()
     c = ResultCache()
     assert c.get_result('2d') is None
-    payload = {'Q': 1234.5, 'dP': 6789.0}
+    payload = ComputeResult(Q_W=1234.5, dP_A_Pa=6789.0)
     c.set_result('2d', payload)
     assert c.get_result('2d') == payload
     assert c.get_result('3d') is None   # mode isolation
@@ -38,7 +39,7 @@ def test_set_get_result_per_mode():
 def test_set_result_with_none_clears():
     _app()
     c = ResultCache()
-    c.set_result('2d', {'a': 1})
+    c.set_result('2d', ComputeResult(Q_W=1))
     assert c.has_results('2d')
     c.set_result('2d', None)
     assert not c.has_results('2d')
@@ -49,7 +50,7 @@ def test_invalid_mode_raises(mode):
     _app()
     c = ResultCache()
     with pytest.raises(ValueError, match='unknown mode'):
-        c.set_result(mode, {})
+        c.set_result(mode, ComputeResult())
     with pytest.raises(ValueError, match='unknown mode'):
         c.get_result(mode)
 
@@ -59,7 +60,7 @@ def test_has_results_aggregate():
     c = ResultCache()
     assert not c.has_any_results()
     assert not c.has_results()
-    c.set_result('3d', {'x': 1})
+    c.set_result('3d', ComputeResult(Q_W=1))
     assert c.has_any_results()
     assert c.has_results('3d')
     assert not c.has_results('2d')
@@ -68,8 +69,8 @@ def test_has_results_aggregate():
 def test_clear_one_or_all():
     _app()
     c = ResultCache()
-    c.set_result('2d', {'a': 1})
-    c.set_result('3d', {'b': 2})
+    c.set_result('2d', ComputeResult(Q_W=1))
+    c.set_result('3d', ComputeResult(Q_W=2))
 
     c.clear('2d')
     assert not c.has_results('2d')
@@ -90,7 +91,7 @@ def test_clear_one_or_all():
 def test_drawn_tabs_tracking():
     _app()
     c = ResultCache()
-    c.set_result('2d', {'a': 1})
+    c.set_result('2d', ComputeResult(Q_W=1))
 
     assert c.get_drawn_tabs() == set()
     assert not c.is_drawn('temp')
@@ -105,12 +106,12 @@ def test_set_result_clears_drawn_tabs():
     """New results invalidate prior tab renders."""
     _app()
     c = ResultCache()
-    c.set_result('2d', {'a': 1})
+    c.set_result('2d', ComputeResult(Q_W=1))
     c.mark_drawn('temp')
     c.mark_drawn('vel')
     assert c.get_drawn_tabs() == {'temp', 'vel'}
 
-    c.set_result('2d', {'a': 2})
+    c.set_result('2d', ComputeResult(Q_W=2))
     assert c.get_drawn_tabs() == set()
 
 
@@ -130,6 +131,6 @@ def test_repr_shows_state():
     c = ResultCache()
     s = repr(c)
     assert '2d=-' in s and '3d=-' in s
-    c.set_result('2d', {'x': 1})
+    c.set_result('2d', ComputeResult(Q_W=1))
     s = repr(c)
     assert '2d=+' in s and '3d=-' in s

@@ -11,6 +11,8 @@ import os
 
 import pytest
 
+from sjtu_tpmshx.domain.compute_result import ComputeResult
+
 pytest.importorskip("PySide6")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -378,7 +380,7 @@ def test_legacy_switch_lights_result_button(win):
     no-op) — seed the cache instead. combo_dim is forced to 2D because the
     earlier preset test leaves the window in 3D mode."""
     win.combo_dim.setCurrentIndex(0)
-    win.cache.set_result('2d', {'stub': True})
+    win.cache.set_result('2d', ComputeResult())
     win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})  # These layout stubs represent rendered fields.
     win._update_tab_visibility()
     win._switch_tab('temp')
@@ -394,7 +396,7 @@ def test_result_view_toggle_gating(win):
     """2D side of the toggle follows the 2D rule; 3D side needs a ready
     3D view. In 2D mode with results: 2D enabled, 3D disabled."""
     win.combo_dim.setCurrentIndex(0)
-    win.cache.set_result('2d', {'stub': True})
+    win.cache.set_result('2d', ComputeResult())
     win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})  # These layout stubs represent rendered fields.
     win._update_tab_visibility()
     assert win._result_view_btns['2d'].isEnabled()
@@ -411,7 +413,7 @@ def test_result_view_toggle_gating(win):
 
 def test_result_summary_toggle_keeps_values_and_tab_choice(win):
     win.combo_dim.setCurrentIndex(0)
-    result = {'stub': True}
+    result = ComputeResult()
     win.cache.set_result('2d', result)
     win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})
     win._update_tab_visibility()
@@ -438,7 +440,7 @@ def test_field_toolbar_wraps_without_truncating_button_text(win):
     app = QApplication.instance()
     old_size = win.size()
     win.combo_dim.setCurrentIndex(0)
-    win.cache.set_result('2d', {'stub': True})
+    win.cache.set_result('2d', ComputeResult())
     win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})  # These layout stubs represent rendered fields.
     win._update_tab_visibility()
     win._switch_tab('temp')
@@ -472,7 +474,7 @@ def test_result_footer_wraps_full_diagnostics_and_long_kpis(win):
     app = QApplication.instance()
     old_size = win.size()
     win.combo_dim.setCurrentIndex(0)
-    win.cache.set_result('2d', {'stub': True})
+    win.cache.set_result('2d', ComputeResult())
     win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})  # These layout stubs represent rendered fields.
     win._update_tab_visibility()
     win._switch_tab('temp')
@@ -791,7 +793,7 @@ def test_cycle_tab_skips_hidden_legacy(win):
     """Ctrl+↑/↓ walks layout→result→pareto; a result-family current tab
     maps to 'result' so cycling never lands on hidden legacy buttons."""
     win.combo_dim.setCurrentIndex(0)
-    win.cache.set_result('2d', {'stub': True})
+    win.cache.set_result('2d', ComputeResult())
     win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})  # These layout stubs represent rendered fields.
     win._update_tab_visibility()
     win._switch_tab('temp')               # result family
@@ -807,7 +809,7 @@ def test_toggle_result_view_gated(win):
     """Ctrl+4: in 2D mode with only-2D results the 3D side is gated —
     toggling from a 2D field view is a no-op (stays 2D)."""
     win.combo_dim.setCurrentIndex(0)
-    win.cache.set_result('2d', {'stub': True})
+    win.cache.set_result('2d', ComputeResult())
     win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})  # These layout stubs represent rendered fields.
     win._update_tab_visibility()
     win._switch_tab('temp')
@@ -833,7 +835,7 @@ def test_session_ui_state_round_trip(win):
     """_save_session stores ui_state (family key collapsed to 'result');
     _restore_session re-applies result_view + active_tab."""
     win.combo_dim.setCurrentIndex(0)
-    win.cache.set_result('2d', {'stub': True})
+    win.cache.set_result('2d', ComputeResult())
     win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})  # These layout stubs represent rendered fields.
     win._update_tab_visibility()
     win._switch_tab('temp')               # result family, view '2d'
