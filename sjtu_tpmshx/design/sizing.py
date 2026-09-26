@@ -55,7 +55,8 @@ def solve_Lx(case, topo, l, t, s, arrangement, target=None, k_s=K_STEEL,
         control.check_cancelled()
         try:
             r = forward(case, topo, l, t, s, Lx, arrangement, init=prev["f"],
-                        k_s=k_s, prop_model=prop_model, tol=tol, height=height)
+                        k_s=k_s, prop_model=prop_model, tol=tol, height=height,
+                        control=control)
         except ValueError:
             forward_failed = True
             raise
@@ -285,7 +286,7 @@ def size_fixed_cell(cases, topo, l, t, arrangement="cross", rho_s=RHO_S,
         control.check_cancelled()
         with warning_scope({}) as records:
             r = forward(c, topo, l, t, s_star, Lx_star, arrangement, k_s=k_s,
-                        prop_model=prop_model, height=height)
+                        prop_model=prop_model, height=height, control=control)
         reasons = []
         if not r.run_status.get('converged', False):
             reasons.append('not-converged@final')
