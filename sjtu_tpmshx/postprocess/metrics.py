@@ -95,17 +95,17 @@ def _pressure_drop_2d(result, side):
                     outlet_frac=np.asarray(openings['out_geom_frac'])[:, None]))
 
 
-def _evaluate_metric(result, name, *, duty, mass_flow):
+def _evaluate_metric(result, name, *, dimension, duty, mass_flow):
     if result.metadata.get('mode') in ('screening_2d', 'screening_3d'):
         from .screening import evaluate_metric as evaluate_screening_metric
         return evaluate_screening_metric(result, name)
     if result.metadata.get('mode') == 'quick_design':
         from .quick_design import evaluate_metric as evaluate_quick_design_metric
         return evaluate_quick_design_metric(result, name)
-    if result.metadata['dimension'] == 3:
+    if dimension == 3:
         from .three_d import evaluate_metric as evaluate_3d_metric
         return evaluate_3d_metric(result, name, duty=duty, mass_flow=mass_flow)
-    if result.metadata['dimension'] != 2:
+    if dimension != 2:
         raise NotImplementedError('unsupported physical dimension')
     if name == 'Q':
         return abs(duty('A'))
@@ -140,7 +140,12 @@ def _evaluate_metric(result, name, *, duty, mass_flow):
 
 def evaluate(result: FieldResult, metric_spec: MetricSpec | None = None) -> PerformanceResult:
     """Compute core metrics; missing evidence stays explicitly unavailable."""
-    validate_result_declarations(result)
+    dimension = validate_result_declarations(result)
+    if dimension not in (2, 3):
+        raise ValueError('postprocessing requires physical dimension 2 or 3')
+    mode = result.metadata.get('mode', 'full')
+    if mode not in ('full', 'quick_design', 'screening_2d', 'screening_3d'):
+        raise ValueError(f'unsupported postprocessing mode: {mode!r}')
     definitions = {
         'Q': ('Q', 'W/m'), 'dP_A': ('dP', 'Pa'), 'dP_B': ('dP', 'Pa'),
         'T_out_A': ('T_out', 'K'), 'T_out_B': ('T_out', 'K'),
@@ -149,18 +154,18 @@ def evaluate(result: FieldResult, metric_spec: MetricSpec | None = None) -> Perf
         'mass_imbalance_rel_B': ('mass_imbalance_rel', '1'),
         'energy_imbalance_rel': ('energy_imbalance_rel', '1'), 'mass': ('mass', 'kg/m'),
     }
-    if result.metadata['dimension'] == 3:
+    if dimension == 3:
         definitions.update(Q=('Q', 'W'), mass=('mass', 'kg'),
                            mass_flow_A=('mass_flow', 'kg/s'), mass_flow_B=('mass_flow', 'kg/s'))
     if result.metadata.get('mode') == 'quick_design':
         from .quick_design import DEFINITIONS
         definitions.update(DEFINITIONS)
-    full_compute = result.metadata.get('mode') not in ('quick_design', 'screening_2d', 'screening_3d')
+    full_compute = mode == 'full'
     duty = mass_flow = None
     if full_compute:
         # One evaluation owns these lazy reductions. A/B and coarse/fine stay
         # separate; failed reductions still reach each metric's error handling.
-        if result.metadata['dimension'] == 3:
+        if dimension == 3:
             from .three_d import thermal_duty, _mass_flow as mass_flow_3d
             duty = cache(partial(thermal_duty, result))
             mass_flow = cache(partial(mass_flow_3d, result))
@@ -169,7 +174,7 @@ def evaluate(result: FieldResult, metric_spec: MetricSpec | None = None) -> Perf
             mass_flow = cache(partial(_mass_flow, result))
         unit = definitions['Q'][1]
         definitions.update({name: (name, unit) for name in ('Q_A', 'Q_B')})
-        if result.metadata['dimension'] == 2:
+        if dimension == 2:
             definitions.update({name: (name, unit) for name in ('Q_richardson_A', 'Q_richardson_B')})
     descriptions = {
         'Q': 'Absolute A-side heat loss from the native main thermal boundary state; no side selection or extrapolation.',
@@ -196,7 +201,7 @@ def evaluate(result: FieldResult, metric_spec: MetricSpec | None = None) -> Perf
         try:
             if spec.unit != unit or spec.definition_version != version:
                 raise NotImplementedError(f'unsupported requested definition: {spec}')
-            value = float(_evaluate_metric(result, name, duty=duty, mass_flow=mass_flow))
+            value = float(_evaluate_metric(result, name, dimension=dimension, duty=duty, mass_flow=mass_flow))
             if not np.isfinite(value):
                 raise ValueError('native evidence produced a non-finite metric')
             metrics[name] = MetricValue(value, spec)
