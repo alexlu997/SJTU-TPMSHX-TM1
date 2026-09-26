@@ -52,7 +52,7 @@ def test_worker_auto_calls_backend_and_emits(monkeypatch, frozen):
         T_out_hot_max=560.0; arrangement="counter"; reason=""
     def _fake_load(path): captured["path"]=path; return ["case1"]
     def _fake_enum(cases, arrangement, nodes, rho_s, n_jobs=1, k_s=16.0,
-                   prop_model="const", height=None, control=None):
+                   prop_model="const", height=None, control=None, *, completed=None):
         captured.update(arr=arrangement, nodes=nodes, rho=rho_s, jobs=n_jobs,
                         ks=k_s, pm=prop_model, height=height)
         d=_D(); return [d], d
@@ -220,3 +220,120 @@ def test_only_active_design_parameters_are_parsed(mode, hidden, active):
     getattr(w, active).setText('invalid')
     with pytest.raises(ValueError):
         _gather_inputs(w)
+
+
+@pytest.mark.parametrize('stage', ['enumeration', 'refinement'])
+def test_failure_keeps_completed_candidates_error_and_export(monkeypatch, tmp_path, stage):
+    from dataclasses import replace
+    from openpyxl import load_workbook
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QFileDialog, QPushButton
+    from sjtu_tpmshx.design import optimize, select
+    from sjtu_tpmshx.design.sizing import Design
+    from sjtu_tpmshx.tests.test_worker_result_handoff import _wait_for
+    from sjtu_tpmshx.ui import quick_design_panel as panel
+    inputs = tmp_path / 'cases.csv'
+    inputs.write_text(
+        'case,hot_fluid,T_in_h_K,P_in_h_kPa,mdot_h,cold_fluid,T_in_c_K,P_in_c_kPa,mdot_c,Q_kW,dPlim_h,dPlim_c\n'
+        '1,air,500,200,0.1,water,300,200,0.1,10,0.1,0.1\n', encoding='utf-8')
+    case_result = dict(case=1, hot_fluid='air', cold_fluid='water',
+        T_air_out=400., T_cold_out=350., Q_W=10000.,
+        dP_hot_frac=.01, dP_hot_pa=2000., dP_cold_frac=.02, dP_cold_pa=4000.,
+        Re_hot=1000., Re_cold=2000., warnings=['retained source warning'],
+        run_status={'converged': True}, acceptance_reasons=[])
+    feasible = Design(True, topo='Diamond', l=4., t=.4, s=.1, Lx=.1,
+                      V=.001, weight=1., percase=[case_result])
+    infeasible = replace(feasible, feasible=False, l=5., V=.0005,
+                         reason='not-converged@final', percase=[dict(case_result,
+                         run_status={'converged': False},
+                         acceptance_reasons=['not-converged@final'])])
+    completed = [feasible, infeasible]
+    error = ValueError(f'injected {stage} failure')
+    calls, events = [], []
+
+    def candidate(cases, topo, length, wall, *args, **kwargs):
+        calls.append(length)
+        if length == 6.:
+            raise error
+        return completed[int(length) - 4]
+
+    def refinement(*args, **kwargs):
+        raise error
+
+    # Enumeration, file loading, QThread.run, result/table delivery and Excel
+    # remain real. Only individual candidate work/refinement is controlled.
+    monkeypatch.setattr(select, 'size_fixed_cell', candidate)
+    monkeypatch.setattr(optimize, 'warm_start_joint', refinement)
+    worker_class = panel._make_worker_class()
+
+    def make_worker(params):
+        worker = worker_class(params)
+        worker.n_jobs = 1
+        # Attach before start(), including when a controlled candidate is fast.
+        worker.finished_with_result.connect(lambda value: events.append(('result', value)))
+        worker.error_signal.connect(lambda value: events.append(('error', value)))
+        worker.cancelled.connect(lambda: events.append(('cancelled', None)))
+        return worker
+
+    monkeypatch.setattr(panel, '_make_worker_class', lambda: make_worker)
+    dialog = panel.build_quick_design_dialog()
+    try:
+        dialog.le_qd_file.setText(str(inputs))
+        dialog.le_qd_topo.setText('Diamond')
+        dialog.le_qd_l.setText('4,5,6,7' if stage == 'enumeration' else '4,5')
+        dialog.le_qd_t.setText('0.4')
+        dialog.chk_qd_refine.setChecked(stage == 'refinement')
+        dialog._qd_last = {'old': True}
+        dialog._qd_table.setRowCount(1)
+        QTest.mouseClick(dialog._qd_run_btn, Qt.MouseButton.LeftButton)
+        assert dialog._qd_last is None and dialog._qd_table.rowCount() == 0
+        _wait_for(lambda: dialog._qd_worker is None)
+        assert calls == ([4., 5., 6.] if stage == 'enumeration' else [4., 5.])
+        assert [value for kind, value in events if kind == 'error'] == [
+            f'ValueError: injected {stage} failure']
+        assert [kind for kind, _ in events] == ['result', 'error'], events
+        result = dialog._qd_last
+        assert result['all'] == completed and result['feasible'] == [feasible]
+        assert result['best'] is feasible
+        assert result['partial'] and result['termination_reason'] == 'failed'
+        status = dialog._qd_status.text()
+        assert str(error) in status and '保留 2' in status
+        assert '不代表完整搜索最优' in status and '已取消' not in status
+        assert dialog._qd_table.rowCount() == 1
+        assert dialog._qd_table.item(0, 12).text().startswith('已完成候选内')
+        assert dialog._qd_run_btn.isEnabled() and not dialog._qd_cancel_btn.isEnabled()
+
+        output = tmp_path / 'failed-partial.xlsx'
+        monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a, **k: (str(output), ''))
+        export = next(button for button in dialog.findChildren(QPushButton)
+                      if button.text() == '导出 xlsx')
+        QTest.mouseClick(export, Qt.MouseButton.LeftButton)
+        assert output.exists(), dialog._qd_status.text()
+        assert '失败' in dialog._qd_status.text() and '已取消' not in dialog._qd_status.text()
+        workbook = load_workbook(output)
+        try:
+            rows = {}
+            for sheet in workbook:
+                cells = list(sheet.values)
+                rows[sheet.title] = [dict(zip(cells[0], row)) for row in cells[1:]]
+                assert len(rows[sheet.title]) == 2
+                for row in rows[sheet.title]:
+                    state = row['任务状态']
+                    assert '失败' in state and '部分' in state and '不代表完整搜索最优' in state
+                    assert '取消' not in state
+            summary = {row['l_mm']: row for row in rows['构型汇总']}
+            assert summary[4]['可行'] == '是' and summary[5]['可行'] == '否'
+            assert summary[4]['标记'].startswith('已完成候选内')
+            assert summary[5]['备注'] == 'not-converged@final'
+            for row in rows['工况明细']:
+                assert row['热侧出口_K'] == 400. and row['换热量_kW'] == 10.
+                assert row['警告'] == 'retained source warning'
+            assert {row['数值收敛'] for row in rows['工况明细']} == {True, False}
+        finally:
+            workbook.close()
+    finally:
+        if getattr(dialog, '_qd_worker', None) is not None:
+            dialog._qd_worker.requestInterruption()
+            _wait_for(lambda: dialog._qd_worker is None)
+        dialog.close()
