@@ -399,6 +399,11 @@ Continuous screening uses `models.screening.build_field` for preparation,
 preview and export. Saved decision vectors must be decoded with their original
 bounds, control grid, symmetry and spline order. The current geometry window
 is L=4..8 mm, t=0.3..0.6 mm; this does not extend any Nu correlation's evidence.
+For a prebuilt 2D screening field (`fc`), topology, solid conductivity and
+physical domain lengths must match the effective configuration, including its
+defaults. A conflict is rejected before property or flow preparation. The field
+retains its own control grid, spline order and bounds; decision-vector decoder
+settings apply only when constructing a field from `x`.
 The retained screening API accepts air/air with A:+x and B:-y only,
 using full-face ports by default;
 explicit 2D API port intervals remain supported, while 3D screening rejects
