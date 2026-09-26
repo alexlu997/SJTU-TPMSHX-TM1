@@ -1,4 +1,5 @@
 import importlib
+from dataclasses import replace
 import numpy as np
 import pytest
 
@@ -22,6 +23,60 @@ def test_solve_Lx_hits_target():
     c = _case()
     Lx, r = solve_Lx(c, "Diamond", 7.0, 0.5, s=0.084, arrangement="cross")
     assert Lx is None or (0.001 < Lx <= 0.450 and r is not None)
+
+
+@pytest.mark.parametrize('arrangement,floor,cold_boundary,expected', [
+    ('cross', .014, .015, .015),
+    ('cross', .0155, .015, .0155),
+    ('cross', .015 * (1. - 5e-7), .015, .015),
+    ('cross', .017, .015, None),
+    ('cross', .451, .015, None),
+    ('cross', .014, .451, None),
+    ('counter', .014, .015, .014),
+    ('counter', .016, .015, None),
+])
+def test_pressure_search_intersects_all_case_limits(
+        monkeypatch, arrangement, floor, cold_boundary, expected):
+    from sjtu_tpmshx.design import sizing
+    cases = [_case(), replace(_case(), case=2)]
+
+    def pressure(case, topo, l, t, s, length, arrangement, height=None):
+        assert height == .06
+        # Different cases govern the hot upper bound and cold lower bound.
+        hot = length / .016 if case.case == 1 else .5
+        cold = (cold_boundary / length if arrangement == 'cross'
+                else length / cold_boundary) if case.case == 2 else .5
+        return hot * case.dPlim_h, cold * case.dPlim_c
+
+    monkeypatch.setattr(sizing, 'dP_fracs', pressure)
+    length = sizing._min_Lx_for_dP(cases, 'Diamond', 7., .5, .084,
+                                   arrangement, floor, height=.06)
+    if expected is None:
+        assert length is None
+    else:
+        assert length == pytest.approx(expected, abs=1e-12, rel=0.)
+        assert length >= floor
+        for case in cases:
+            hot, cold = pressure(case, 'Diamond', 7., .5, .084, length,
+                                 arrangement, height=.06)
+            assert hot <= case.dPlim_h and cold <= case.dPlim_c
+
+
+@pytest.mark.parametrize('height', [None, .06])
+def test_pressure_search_finds_real_df_narrow_interval(height):
+    from sjtu_tpmshx.design.sizing import _min_Lx_for_dP
+    from sjtu_tpmshx.models.quick_design import dP_fracs
+    case = _case()
+    # Use actual geometry, fluid properties and D-F; only the limits are chosen.
+    hot_limit = dP_fracs(case, 'Diamond', 7., .5, .084, .016, height=height)[0]
+    cold_limit = dP_fracs(case, 'Diamond', 7., .5, .084, .015, height=height)[1]
+    case = replace(case, dPlim_h=float(hot_limit), dPlim_c=float(cold_limit))
+    length = _min_Lx_for_dP([case], 'Diamond', 7., .5, .084, 'cross', .014,
+                            height=height)
+    assert length is not None and .014 <= length <= .016
+    assert length == pytest.approx(.015, abs=1e-12, rel=0.)
+    hot, cold = dP_fracs(case, 'Diamond', 7., .5, .084, length, height=height)
+    assert hot <= case.dPlim_h and cold <= case.dPlim_c
 
 
 def _controlled_forward(monkeypatch, mode):
