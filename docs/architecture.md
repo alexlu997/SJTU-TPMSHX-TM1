@@ -428,7 +428,12 @@ for the second mean-property pass, the representative temperature paired with
 the existing inlet pressure. Invalid pairs raise `WaterStateError` before
 liquid properties are used. This scalar check does not certify phase stability
 throughout the quick-design field: the approximation has no local pressure
-field, and its analytical pressure drop retains its existing meaning. Retained
+field, and its analytical pressure drop retains its existing meaning. In both
+const and mean modes, water Nu retains Pr at 320 K / 0.2 MPa. The mean pass
+updates the other water properties, Re and conductivity used in volumetric heat
+transfer; `metadata.properties.Pr` records the actual pass state, not Nu's
+representative Pr. The separate sCO2 reference-Pr convention remains unchanged.
+Retained
 screening BO keeps bounded penalty objectives for training, but excludes failed evaluations
 from reported Pareto fronts and hypervolume. History rows retain their status
 and failure reason; a completed screening run is not experimental validation.
