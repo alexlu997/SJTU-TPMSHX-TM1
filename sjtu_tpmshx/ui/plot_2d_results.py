@@ -33,7 +33,7 @@ def _style_workbench_axes(ax, cb, theme, title, subtitle):
 
 def ensure_result_plot(window, field):
     """Populate a result canvas once per result/display selection."""
-    if field in window.cache.get_drawn_tabs():
+    if window.cache.is_drawn(field):
         return True
     result_3d = window.cache.get_result('3d')
     if result_3d is None and window.cache.get_result('2d') is None:
@@ -50,7 +50,7 @@ def ensure_result_plot(window, field):
         logging.getLogger(__name__).exception("Could not render %s", field)
         detail = str(exc)
     else:
-        if field in window.cache.get_drawn_tabs():
+        if window.cache.is_drawn(field):
             return True
     # A failed selection must not leave the preceding field/probe visible.
     window.cache.replace_drawn_tabs(set(window.cache.get_drawn_tabs()) - {field})
@@ -275,21 +275,9 @@ def finalize_plots(window, field="temp"):
             ax.set_xlim(0, L * 1000.0); ax.set_ylim(0, H * 1000.0)
             cb = window.canvas_vel.fig.colorbar(cf, ax=ax, shrink=0.9,
                                                  aspect=25, format="%.1f")
-            cb.ax.tick_params(labelsize=11, colors=_t['ax_text'], length=3)
+            _style_workbench_axes(ax, cb, _t, main_title, subtitle)
             cb.ax.yaxis.set_major_locator(plt.MaxNLocator(nbins=7))
-            cb.outline.set_edgecolor(_t['ax_spine'])
-            ax.set_title(main_title, fontsize=13, fontweight="bold",
-                         color=_t['ax_text'], loc='left', pad=6)
-            ax.text(0.99, 1.02, subtitle, transform=ax.transAxes,
-                    fontsize=9, color=_t['mpl_subtitle'], ha='right', va='bottom',
-                    fontstyle='italic')
-            ax.set_xlabel("x [mm]", fontsize=11, color=_t['ax_text'])
-            ax.set_ylabel("y [mm]", fontsize=11, color=_t['ax_text'])
-            ax.tick_params(labelsize=11, colors=_t['ax_text'], length=4, width=0.8)
-            ax.set_aspect('auto')
             ax.grid(True, alpha=0.15, linewidth=0.5, color=_t['ax_text'])
-            for sp in ax.spines.values():
-                sp.set_edgecolor(_t['ax_spine']); sp.set_linewidth(0.8)
             if hasattr(window, '_zone_boundaries') and window._zone_boundaries:
                 z_dir = getattr(window, '_zone_axis_dir', 'y')
                 for b in window._zone_boundaries:
@@ -334,4 +322,4 @@ def finalize_plots(window, field="temp"):
         except Exception:
             pass
 
-    window.cache.replace_drawn_tabs(set(window.cache.get_drawn_tabs()) | {field})
+    window.cache.mark_drawn(field)
