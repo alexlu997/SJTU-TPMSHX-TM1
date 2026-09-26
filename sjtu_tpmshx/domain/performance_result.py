@@ -6,7 +6,7 @@ import math
 from types import MappingProxyType
 from typing import Mapping
 
-from sjtu_tpmshx.domain.metric_spec import MetricSpec
+from sjtu_tpmshx.domain.metric_spec import METRIC_KINDS, MetricSpec
 
 
 @dataclass(frozen=True)
@@ -40,4 +40,7 @@ class PerformanceResult:
         if any(not isinstance(key, str) or not isinstance(value, MetricValue)
                for key, value in self.metrics.items()):
             raise TypeError("metrics must map names to MetricValue records")
+        for key, value in self.metrics.items():
+            if value.spec.name not in (key, METRIC_KINDS.get(key, key)):
+                raise ValueError(f"metric {key!r} disagrees with spec name {value.spec.name!r}")
         object.__setattr__(self, "metrics", MappingProxyType(dict(self.metrics)))

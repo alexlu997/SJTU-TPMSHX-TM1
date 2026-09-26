@@ -389,6 +389,14 @@ recorded state. Metric definitions survive JSON and GUI export metadata.
 Old metrics files retain their definitions; re-evaluate their native result
 before mapping it to the current GUI contract. Frozen backend reporting
 references are historical numerical oracles, not the current metric contract.
+`domain.metric_spec` owns explicit metric families, units and full-compute
+definition versions. `PerformanceResult` requires each key to match its spec's
+side-specific name or family; JSON loading uses the same check. The GUI checks
+all consumed metric definitions and dimension-dependent heat units before
+assigning values to its Pa/K/duty fields. Multi-condition aggregation requires
+current signed heat and pressure definitions rather than merely accepting two
+identically mislabeled records. These boundaries reject incompatible meaning
+without unit conversion or modification of historical files.
 
 `PartialBCConfig.uniform_inlet_2d` selects geometric overlap without the
 historical four-cell inlet taper. Preparation records the selected profile,

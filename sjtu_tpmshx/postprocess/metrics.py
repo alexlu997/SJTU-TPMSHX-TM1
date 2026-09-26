@@ -5,7 +5,7 @@ from uuid import uuid4
 import numpy as np
 
 from sjtu_tpmshx.domain.field_result import FieldResult
-from sjtu_tpmshx.domain.metric_spec import MetricSpec
+from sjtu_tpmshx.domain.metric_spec import MetricSpec, full_metric_version
 from sjtu_tpmshx.domain.performance_result import MetricValue, PerformanceResult
 from sjtu_tpmshx.domain.persistence_validation import validate_result_declarations
 from sjtu_tpmshx.result_math import (
@@ -189,9 +189,7 @@ def evaluate(result: FieldResult, metric_spec: MetricSpec | None = None) -> Perf
     for name, (kind, unit) in definitions.items():
         if metric_spec is not None and metric_spec.name not in (kind, name):
             continue
-        version = ('pressure_face_v1' if full_compute and name in ('dP_A', 'dP_B')
-                   else 'native_boundary_v1' if full_compute and name in descriptions
-                   else 'three_module_v1')
+        version = full_metric_version(name) if full_compute else 'three_module_v1'
         spec = metric_spec or MetricSpec(kind, unit, version, descriptions.get(name, '') if full_compute else '')
         try:
             if spec.unit != unit or spec.definition_version != version:
