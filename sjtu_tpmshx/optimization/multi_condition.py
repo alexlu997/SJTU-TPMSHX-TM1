@@ -14,8 +14,11 @@ from sjtu_tpmshx.domain.compute_config import ComputeConfig
 from sjtu_tpmshx.domain.field_result import FieldResult
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.performance_result import PerformanceResult
+from sjtu_tpmshx.logutil import get_logger
 from sjtu_tpmshx.preprocess.api import prepare_case
 
+
+_log = get_logger(__name__)
 
 ConditionResult = tuple[str, FieldResult, PerformanceResult]
 ConditionInput = tuple[str, ComputeConfig, float, float]
@@ -245,17 +248,26 @@ def evaluate_condition_batch(
                   conditions=history, objectives=None)
     results = []
 
-    def publish():
-        write_text(root / 'batch.json',
-                   json.dumps(record, ensure_ascii=False, allow_nan=False, indent=2) + '\n')
+    def publish(primary_error=None):
+        try:
+            write_text(root / 'batch.json',
+                       json.dumps(record, ensure_ascii=False, allow_nan=False, indent=2) + '\n')
+        except Exception as save_error:
+            if primary_error is None:
+                raise
+            primary_error.add_note(f'Could not save {root / "batch.json"}: {save_error!r}')
+            _log.exception('Could not save condition batch checkpoint')
+            raise primary_error
 
     publish()
+    primary_error = None
     try:
         for index, ((condition_id, config, flow_a, flow_b), row) in enumerate(zip(inputs, history)):
             control.check_cancelled()
             directory = root / row['directory']
             row.update(status='running', stage='input')
             publish()
+            condition_error = None
             try:
                 directory.mkdir()
                 write_text(directory / 'input.json', json.dumps(asdict(config),
@@ -311,12 +323,14 @@ def evaluate_condition_batch(
                     raise ValueError('Energy certificate failed: ' + '; '.join(failed_gates))
                 row.update(status='completed', reason=None)
             except CancelledError as exc:
+                condition_error = exc
                 row.update(status='cancelled', reason=str(exc))
                 raise
             except Exception as exc:
+                condition_error = exc
                 row.update(status='failed', reason=f'{type(exc).__name__}: {exc}')
             finally:
-                publish()
+                publish(condition_error)
             control.report_progress(int(100 * (index + 1) / len(inputs)))
         control.check_cancelled()
         if any(row['status'] != 'completed' for row in history):
@@ -331,13 +345,15 @@ def evaluate_condition_batch(
         else:
             record['status'] = 'completed'
     except CancelledError as exc:
+        primary_error = exc
         record.update(status='cancelled', reason=str(exc), objectives=None)
         raise
     except Exception as exc:
+        primary_error = exc
         record.update(status='failed', reason=f'{type(exc).__name__}: {exc}', objectives=None)
         raise
     finally:
-        publish()
+        publish(primary_error)
     return {**record, 'results': results}
 
 

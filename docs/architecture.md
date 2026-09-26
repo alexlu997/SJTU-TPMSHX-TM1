@@ -208,7 +208,11 @@ native result and metrics as soon as that stage succeeds. `batch.json` retains
 all requested members, failure stages and reasons, unrun members after
 cancellation, and the baseline metric values/definitions and source IDs.
 Cancellation propagates; ordinary condition failures continue without fabricated
-penalties. Baseline comparison checks the uniform reference, paired conditions,
+penalties. If saving a failure/cancellation checkpoint also fails, the original
+exception propagates with the saving error attached as a note; existing files
+remain the last successfully written evidence, not a completed final archive.
+A saving error without an active exception remains an error. The desktop exposes
+these notes and does not present a stale running checkpoint as a cancelled result. Baseline comparison checks the uniform reference, paired conditions,
 ports, model resources, D-F mode, frozen run overrides, resolved roughness,
 prescribed total flows, grids and solver settings. The raw conditions must
 share geometry and numerical settings.
