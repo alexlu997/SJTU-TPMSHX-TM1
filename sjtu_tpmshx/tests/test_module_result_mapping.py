@@ -493,3 +493,101 @@ def test_mapping_keeps_recorded_state_after_producer_drafts_change(native_result
     finally:
         raw.clear()
         raw.update(original)
+
+
+def test_mapped_results_own_mutable_fields_and_nested_data(native_result):
+    from copy import deepcopy
+
+    native, _ = native_result
+    performance = evaluate(native)
+    first = to_compute_result(native, performance)
+    second = to_compute_result(native, performance)
+    expected = deepcopy(second)
+    native_before = mutable_data(dict(fields=native.fields, metadata=native.metadata))
+    source_arrays = [value for group in (native.fields, native.metadata['design_fields'])
+                     for value in group.values() if isinstance(value, np.ndarray)]
+    grid_keys = (dict(dx_arr='dx', dy_arr='dy') if native.grid['dimension'] == 2
+                 else dict(dx='dx', dy='dy', dz='dz'))
+    for name, value in first.fields.items():
+        if name in grid_keys:
+            # Grid widths were already shared immutable evidence before mapping.
+            assert value is second.fields[name] is native.grid[grid_keys[name]]
+            assert not value.flags.writeable
+            with pytest.raises(ValueError):
+                value.setflags(write=True)
+        elif isinstance(value, np.ndarray):
+            assert value.flags.writeable
+            assert value.shape == second.fields[name].shape
+            assert value.dtype == second.fields[name].dtype
+            np.testing.assert_array_equal(value, second.fields[name])
+            assert not np.shares_memory(value, second.fields[name])
+            assert all(not np.shares_memory(value, source) for source in source_arrays)
+            value.flat[0] = -9999.
+        elif value is None:
+            assert second.fields[name] is None
+
+    first.diagnostics['convergence_detail']['inlet_pressure']['A']['definition'] = 'changed'
+    first.props['D_h_m'] = -1.
+    first.coeffs['K_ss'] = -1.
+    first.metadata['darcy_forchheimer']['mode'] = 'changed'
+    first.metadata['model_refs'][0]['parameters']['fluid'] = 'changed'
+    first.warnings.append('first mapping only')
+    first.extrap_reasons.append('first mapping only')
+    for name, value in second.fields.items():
+        if isinstance(value, np.ndarray):
+            np.testing.assert_array_equal(value, expected.fields[name])
+    assert_slots(vars(second), vars(expected))
+    assert_slots(native.fields, native_before['fields'])
+    assert_slots(native.metadata, native_before['metadata'])
+
+
+@pytest.mark.parametrize('native_result', [2], indirect=True)
+def test_nonuniform_zone_mapping_preserves_units_types_and_isolation(native_result, tmp_path):
+    """Controlled nonuniform archive exercises mapping, without another solve."""
+    from sjtu_tpmshx.io.result_io import load_result, save_result
+    from sjtu_tpmshx.models.zone_config import Zone, ZoneConfig
+
+    native, _ = native_result
+    metadata = mutable_data(native.metadata)
+    metadata['design_mode'] = 'y'
+    metadata['parameters']['zone_config'] = dict(tpms_type='Gyroid', k_s=16., zones=[
+        dict(name='lower', y_frac_start=0., y_frac_end=.5, L_m=.004, t_m=.0003,
+             props_A={'K_ff': 2e-9}, props_B={'K_ff': 3e-9}),
+        dict(name='upper', y_frac_start=.5, y_frac_end=1., L_m=.007, t_m=.0006,
+             props_A={'K_ff': 4e-9}, props_B={'K_ff': 5e-9}),
+    ])
+    design = metadata['design_fields']
+    split = design['L_field_m'].shape[1] // 2
+    for key, lower, upper in (('L_field_m', .004, .007), ('t_field_m', .0003, .0006)):
+        design[key][:, :split] = lower
+        design[key][:, split:] = upper
+    design['axis'] = 'y'
+    # Native archive trust-boundary validation and readback remain real.
+    path = tmp_path / 'controlled-zones.h5'
+    save_result(replace(native, metadata=metadata), path)
+    native = load_result(path)
+    performance = evaluate(native)
+    first = to_compute_result(native, performance)
+    second = to_compute_result(native, performance)
+    zone = first.fields['zone_config']
+    assert isinstance(zone, ZoneConfig) and all(isinstance(item, Zone) for item in zone.zones)
+    zone.validate()
+    assert [(item.L_mm, item.t_mm) for item in zone.zones] == [(4., .3), (7., .6)]
+    assert isinstance(first.fields['za'], dict) and first.fields['za']['axis'] == 'y'
+    for source, output in (('L_field_m', 'L_field'), ('t_field_m', 't_field')):
+        np.testing.assert_array_equal(first.fields['za'][output], design[source] * 1e3)
+        assert not np.shares_memory(first.fields['za'][output], second.fields['za'][output])
+    assert not np.shares_memory(first.fields['za']['eps_arr'], native.metadata['design_fields']['eps_arr'])
+    zone.zones[0].L_mm = 19.
+    zone.zones[0].props_A['K_ff'] = -1.
+    first.fields['za']['L_field'][0, 0] = 19.
+    first.fields['za']['eps_arr'][0, 0] = -1.
+    other_zone = second.fields['zone_config']
+    assert other_zone.zones[0].L_mm == 4. and other_zone.zones[0].props_A['K_ff'] == 2e-9
+    assert native.metadata['parameters']['zone_config']['zones'][0]['L_m'] == .004
+    assert native.metadata['parameters']['zone_config']['zones'][0]['props_A']['K_ff'] == 2e-9
+    for source, output in (('L_field_m', 'L_field'), ('t_field_m', 't_field')):
+        np.testing.assert_array_equal(second.fields['za'][output], design[source] * 1e3)
+        np.testing.assert_array_equal(native.metadata['design_fields'][source], design[source])
+    np.testing.assert_array_equal(second.fields['za']['eps_arr'], design['eps_arr'])
+    np.testing.assert_array_equal(native.metadata['design_fields']['eps_arr'], design['eps_arr'])
