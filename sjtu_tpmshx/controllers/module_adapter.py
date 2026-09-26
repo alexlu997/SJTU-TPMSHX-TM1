@@ -21,17 +21,18 @@ def to_compute_result(result, performance):
     if any(performance.metrics[name].spec.definition_version != 'pressure_face_v1'
            for name in ('dP_A', 'dP_B')):
         raise ValueError('re-evaluate native results before displaying the current pressure-drop definition')
-    f = mutable_data(result.fields)
-    parameters = mutable_data(result.metadata['parameters'])
+    f = result.fields
+    parameters = result.metadata['parameters']
     diagnostics = mutable_data(result.metadata['diagnostics'])
     application = mutable_data(result.metadata['application'])
-    fields = {name: f[name + '_display'] for name in ('Ta', 'Tb', 'Ts')}
-    fields.update({name: f.get(name + '_display') for name in ('P_fA', 'P_fB')})
-    fields.update({name: f.get(name) for name in ('ucA', 'vcA', 'ucB', 'vcB')})
+    fields = {name: mutable_data(f[name + '_display']) for name in ('Ta', 'Tb', 'Ts')}
+    fields.update({name: mutable_data(f.get(name + '_display')) for name in ('P_fA', 'P_fB')})
+    fields.update({name: mutable_data(f.get(name)) for name in ('ucA', 'vcA', 'ucB', 'vcB')})
     if dimension == 2:
         geometry = parameters['static_properties']['geometry']
-        fields.update({name + '_disp': f.get(name + '_display') for name in ('ucA', 'vcA', 'ucB', 'vcB')})
-        zone = _legacy_zone_units(parameters['zone_config'])
+        fields.update({name + '_disp': mutable_data(f.get(name + '_display'))
+                       for name in ('ucA', 'vcA', 'ucB', 'vcB')})
+        zone = _legacy_zone_units(mutable_data(parameters['zone_config']))
         if isinstance(zone, dict):
             from sjtu_tpmshx.models.zone_config import Zone, ZoneConfig
             zone['zones'] = [Zone(**item) for item in zone['zones']]
@@ -50,13 +51,13 @@ def to_compute_result(result, performance):
         zones = application['zones']
     elif dimension == 3:
         geometry = parameters['prepared']['geometry']
-        fields.update({name: f.get(name) for name in ('wcA', 'wcB', 'vmag_A', 'vmag_B')})
+        fields.update({name: mutable_data(f.get(name)) for name in ('wcA', 'wcB', 'vmag_A', 'vmag_B')})
         fields.update({axis: result.grid[axis] for axis in ('dx', 'dy', 'dz')})
         fields.update(Lx=parameters['L'], Ly=parameters['H'], Lz=parameters['Lz'],
                       L_mm=result.metadata['design_fields']['L_field_m'] * 1e3,
                       t_mm=result.metadata['design_fields']['t_field_m'] * 1e3,
                       dir_A=diagnostics['dir_A'], dir_B=diagnostics['dir_B'],
-                      h_vA_field=f['h_vA'], h_vB_field=f['h_vB'])
+                      h_vA_field=mutable_data(f['h_vA']), h_vB_field=mutable_data(f['h_vB']))
         residuals = {name: diagnostics.get(name) for name in (
             'Q_enthalpy_A', 'Q_enthalpy_B', 'Q_solid_B', 'Q_sA', 'Q_sB', 'Q_interior',
             'energy_imbalance_rel', 'mass_imbalance_rel_A', 'mass_imbalance_rel_B')}
