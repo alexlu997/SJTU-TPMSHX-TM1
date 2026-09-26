@@ -31,7 +31,7 @@ GOLDEN_IT = 10         # min-V over s 黄金分割步数 (~12 解, s 分辨率 <
 S_REFINE_TOL = 0.004   # s 区间收敛阈 [m] (4mm)
 
 def t_target(case) -> float:
-    """热侧出口温目标: 优先用温降 ΔT, 否则由换热量 Q 反推。"""
+    """ΔT 的出口温目标；Q 的入口 cp 等效温度仅用于 governing 预选。"""
     if case.dT is not None:
         return case.T_in_h - case.dT
     cp_h = fluid_props(case.hot_fluid, case.T_in_h, case.P_in_h).cp
@@ -39,13 +39,18 @@ def t_target(case) -> float:
 
 def solve_Lx(case, topo, l, t, s, arrangement, target=None, k_s=K_STEEL,
              prop_model="const", seed=None, height=None, control=None):
-    """求 Lx ∈ (0, LX_MAX] 使 T_out_hot = target (T_out 随 Lx 单调↓)。
+    """求 Lx ∈ (0, LX_MAX] 满足实际 Q 或 ΔT 目标。
+    显式 target 始终覆盖为出口温目标 [K]；否则 ΔT 优先于 Q。
     B: 用 brentq (超线性) 代替二分 → ~3× 少解。
     A: seed=(Ta,Tb,Ts) 跨-s 续解种子 (s 平滑变, 场近似); ev 内每步续解。
     D: 搜索用 SIZING_TOL (松), 终点用 LTNE_TOL (紧) → 渐进收紧。
     height: 矩形迎风高 (None=方形); 透传 forward。
     返回 (Lx, ForwardResult)。不可达 (LX_MAX 仍欠冷) → (None, None)。"""
-    tgt = target if target is not None else t_target(case)
+    tgt = target if target is not None else (
+        t_target(case) if case.dT is not None else None)
+    def deficit(result):
+        # Use the same quantity as final acceptance, including mean-property cp.
+        return result.T_out_hot - tgt if tgt is not None else case.Q - result.Q_hot
     control = control or RunControl()
     prev = {"f": seed, "last": None}
     forward_failed = False
@@ -63,26 +68,26 @@ def solve_Lx(case, topo, l, t, s, arrangement, target=None, k_s=K_STEEL,
         prev["last"] = r
         return r
     lo, hi = max(2.0 * l / 1000.0, 1e-3), LX_MAX
-    f_hi = ev(hi, SIZING_TOL).T_out_hot - tgt
+    f_hi = deficit(ev(hi, SIZING_TOL))
     if f_hi > 0:                             # 最长也欠冷
         return None, None
-    f_lo = ev(lo, SIZING_TOL).T_out_hot - tgt
+    f_lo = deficit(ev(lo, SIZING_TOL))
     if f_lo <= 0:                            # 最短已够
         return lo, ev(lo, LTNE_TOL)          # 终点收紧
-    # f_lo>0>f_hi 已 bracket → brentq 超线性求根 (T_out 单调)
+    # f_lo>0>f_hi 已 bracket → brentq 求冷却不足量的零点。
     try:
-        Lx_root = brentq(lambda Lx: ev(Lx, SIZING_TOL).T_out_hot - tgt,
+        Lx_root = brentq(lambda Lx: deficit(ev(Lx, SIZING_TOL)),
                          lo, hi, xtol=TOL, maxiter=BISECT_IT)
     except ValueError:
         if forward_failed:
             raise  # A forward failure is not SciPy's changed-bracket condition.
         # 冷却临界点 (小 LMTD): ev() 改 warm-start 种子 → 松容差 LTNE 解非确定,
-        # brentq 复评端点可能同号而崩。退回稳健二分 (不校验端点号; T_out 随 Lx 单调
-        # 递减的假设下照常收敛), 取上界 = 满足 T_out≤tgt 的最小 Lx。
+        # brentq 复评端点可能同号而崩。保留原二分退路：冷却不足量随 Lx
+        # 单调递减，取满足同一 Q/温度目标的上界。
         a, b = lo, hi
         for _ in range(BISECT_IT):
             m = 0.5 * (a + b)
-            if ev(m, SIZING_TOL).T_out_hot - tgt > 0:
+            if deficit(ev(m, SIZING_TOL)) > 0:
                 a = m              # 仍欠冷 → 需更长 Lx
             else:
                 b = m
