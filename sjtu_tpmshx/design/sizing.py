@@ -322,9 +322,14 @@ def size_fixed_cell(cases, topo, l, t, arrangement="cross", rho_s=RHO_S,
             if r.dP_hot_frac > c.dPlim_h or r.dP_cold_frac > c.dPlim_c:
                 reasons.append('dP>lim@final')
         failures.extend(f'case {c.case}: {reason}' for reason in reasons)
+        energy = r.energy_imbalance
         percase.append(dict(
             case=c.case, hot_fluid=c.hot_fluid, cold_fluid=c.cold_fluid,
             T_air_out=r.T_out_hot, T_cold_out=r.T_out_cold, Q_W=r.Q_hot,
+            Q_cold_W=r.Q_cold,
+            energy_imbalance_rel=energy.value if energy is not None else None,
+            energy_imbalance_status=energy.status if energy is not None else 'insufficient_data',
+            energy_imbalance_reason=energy.reason if energy is not None else '未提供能量不平衡诊断',
             dP_hot_frac=r.dP_hot_frac, dP_hot_pa=r.dP_hot_frac * c.P_in_h,
             dP_cold_frac=r.dP_cold_frac, dP_cold_pa=r.dP_cold_frac * c.P_in_c,
             Re_hot=r.Re_hot, Re_cold=r.Re_cold,
