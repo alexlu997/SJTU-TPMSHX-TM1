@@ -34,15 +34,17 @@ _METRICS = [
 ]
 
 _SCOPE_NOTE = (
-    "Fluid A only: air correlations. Pressure loss uses the CFD baseline "
+    "Fluid A only: air correlations. Blank Fluid A pressure uses 101325 Pa. "
+    "Pressure loss uses the CFD baseline "
     "without experimental correction. Q/volume = h_v × 40 K is a ranking "
     "estimate. Click a valid cell to load parameters into the main inputs.")
 
 
-def _eval_surrogate(tpms, L_cell_mm, t_mm, u, T_in_K, P_in_Pa, k_s):
+def _eval_surrogate(tpms, L_cell_mm, t_mm, u, T_in_K, P_in_Pa):
     """One air-only surrogate evaluation; not a two-stream heat-duty solve."""
     from sjtu_tpmshx.models.tpms_calc import compute as _tpms_compute
-    r = _tpms_compute(tpms, L_cell_mm, t_mm, u, T_in_K, P_in_Pa, k_s)
+    # k_s only affects the unused K_ss output; solid conduction is not ranked.
+    r = _tpms_compute(tpms, L_cell_mm, t_mm, u, T_in_K, P_in_Pa, 16.0)
     h_v = r.get('h_v') or (
         r['H_sf'] * r.get('A_0', 0.0))
     dT = 40.0  # heuristic fluid→solid ΔT for ranking (cancels out for ratio)
@@ -150,8 +152,6 @@ class SensitivityDialog(QDialog):
         """Drop the cached sweep grid + clear the heatmap. Called when an
         axis/metric combo changes so a stale grid cannot be clicked.
         Added 2026-05-20 UI sweep (Tier 21)."""
-        if getattr(self, '_grid_params', None) is None:
-            return
         self._grid_params = None
         try:
             fig = self._canvas.fig
@@ -167,44 +167,37 @@ class SensitivityDialog(QDialog):
         except Exception:
             pass
 
-    def _collect_fixed_params(self):
+    def _collect_fixed_params(self, swept_keys):
+        """Read only the effective fixed inputs to this single-side estimate."""
+        from .window_config import CONFIG_FIELDS
         w = self._window
-        try:
-            tpms_idx = w.combo_tpms.currentIndex()
-            tpms = "Gyroid" if tpms_idx == 1 else "Diamond"
-        except Exception:
-            tpms = "Gyroid"
-        def _read(attr, default):
-            wid = getattr(w, attr, None)
-            if wid is None:
-                return default
+        pressure_default = next(field.default for field in CONFIG_FIELDS
+                                if field.widget == 'le_PinA')
+
+        def read(attr, label, *, default=None):
+            widget = getattr(w, attr)
             try:
-                return float(wid.text())
-            except Exception:
-                return default
-        # 2026-05-20 UI sweep (Tier 24): T_in MUST go through the main
-        # window's `_temp_to_K` so the K/°C header toggle is honoured.
-        # Previously it was read as a raw float — when the UI was in °C
-        # mode, a value like 148.85 °C was passed to the surrogate as
-        # 148.85 K, producing badly wrong thermophysical properties and
-        # dP across the whole sweep.
-        _le_tin = getattr(w, 'le_TinA', None)
-        if _le_tin is not None and hasattr(w, '_temp_to_K'):
-            try:
-                T_in = float(w._temp_to_K(_le_tin))
-            except Exception:
-                T_in = 422.0
-        else:
-            T_in = _read('le_TinA', 422.0)
-        return {
-            'tpms': tpms,
-            'L_cell': _read('le_Lcell', 7.0),
-            't':     _read('le_t', 0.5),
-            'u_A':   _read('le_uA', 20.0),
-            'T_in':  T_in,
-            'P_in':  _read('le_PinA', 192362.0),
-            'k_s':   _read('le_ks', 16.0),
+                if attr == 'le_TinA':
+                    value = w._temp_to_K(widget)
+                else:
+                    text = widget.text().strip()
+                    value = float(text) if text or default is None else default
+            except (ValueError, OverflowError):
+                raise ValueError(f"{label} must be a finite number greater than zero.") from None
+            if not np.isfinite(value) or value <= 0:
+                raise ValueError(f"{label} must be a finite number greater than zero.")
+            return value
+
+        fixed = {
+            'tpms': "Gyroid" if w.combo_tpms.currentIndex() == 1 else "Diamond",
+            'T_in': read('le_TinA', 'Fluid A inlet temperature (absolute K)'),
+            'P_in': read('le_PinA', 'Fluid A inlet pressure (Pa)', default=pressure_default),
         }
+        attrs = {'L_cell': 'le_Lcell', 't': 'le_t', 'u_A': 'le_uA'}
+        for key, label, unit, *_ in _SWEEP_PARAMS:
+            if key not in swept_keys:
+                fixed[key] = read(attrs[key], f"{label} ({unit})")
+        return fixed
 
     def _range_for(self, key):
         for k, lbl, unit, lo, hi in _SWEEP_PARAMS:
@@ -236,24 +229,19 @@ class SensitivityDialog(QDialog):
         lo_y, hi_y = self._range_for(key_y)
         xs = np.linspace(lo_x, hi_x, n)
         ys = np.linspace(lo_y, hi_y, n)
-        fixed = self._collect_fixed_params()
+        try:
+            fixed = self._collect_fixed_params((key_x, key_y))
+        except ValueError as exc:
+            self._invalidate_grid(message=str(exc))
+            self._hint.setText(f"Cannot run: {exc} " + _SCOPE_NOTE)
+            return
         grid = np.zeros((n, n))
-        # 2026-05-20 UI sweep (Tier 24):
-        #  (#5) disable the Run button + show a busy status while the
-        #       synchronous sweep runs, and pump the event loop once per
-        #       row so the window does not look frozen during the up-to
-        #       625 surrogate calls. (A full worker-thread port is the
-        #       longer-term fix; this keeps the UI responsive cheaply.)
-        #  (#4) collect failures so a swept grid full of NaN is not
-        #       presented as if it were valid — surface the count + the
-        #       first error message instead of silently plotting blanks.
+        # The per-row event pump must not let visible selectors get ahead of
+        # the input snapshot being evaluated.
         from PySide6.QtWidgets import QApplication as _QApp
-        _btn = getattr(self, '_btn_run', None)
-        if _btn is not None:
-            try:
-                _btn.setEnabled(False)
-            except Exception:
-                pass
+        controls = (self._btn_run, self._combo_x, self._combo_y, self._combo_m)
+        for control in controls:
+            control.setEnabled(False)
         _fail_n = 0
         _fail_msg = ""
         try:
@@ -265,8 +253,7 @@ class SensitivityDialog(QDialog):
                     try:
                         out = _eval_surrogate(
                             args['tpms'], args['L_cell'], args['t'],
-                            args['u_A'], args['T_in'], args['P_in'],
-                            args['k_s'])
+                            args['u_A'], args['T_in'], args['P_in'])
                         grid[j, i] = out.get(key_m, 0.0)
                     except Exception as _e:
                         grid[j, i] = np.nan
@@ -282,11 +269,14 @@ class SensitivityDialog(QDialog):
                 except Exception:
                     pass
         finally:
-            if _btn is not None:
-                try:
-                    _btn.setEnabled(True)
-                except Exception:
-                    pass
+            for control in controls:
+                control.setEnabled(True)
+
+        # Programmatic updates can still change a disabled combo.
+        if (key_x, key_y, key_m) != (self._combo_x.currentData(),
+                                    self._combo_y.currentData(), self._combo_m.currentData()):
+            self._invalidate_grid()
+            return
 
         self._grid_params = {
             'xs': xs, 'ys': ys, 'grid': grid,
@@ -360,6 +350,16 @@ class SensitivityDialog(QDialog):
         i = int(np.argmin(np.abs(xs - x_click)))
         j = int(np.argmin(np.abs(ys - y_click)))
         if not np.isfinite(gp['grid'][j, i]):
+            return
+        from .window_config import _parse_fluid_label
+        try:
+            if _parse_fluid_label(self._window.combo_fluidA) != 'air':
+                raise ValueError("Fluid A must be Air.")
+            if self._collect_fixed_params((gp['key_x'], gp['key_y'])) != gp['fixed']:
+                raise ValueError("Fixed inputs changed — click ‘Run sweep’.")
+        except ValueError as exc:
+            self._invalidate_grid(message=str(exc))
+            self._hint.setText(f"Cannot load: {exc} " + _SCOPE_NOTE)
             return
         vx = float(xs[i]); vy = float(ys[j])
         # 2026-05-20 UI sweep (Tier 24): a picked design changes the input

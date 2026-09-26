@@ -139,17 +139,34 @@ def test_bad_quick_design_input_does_not_launch(field, value, monkeypatch):
     assert '输入解析失败' in window._qd_status.text()
 
 
-@pytest.mark.parametrize('fluid', ['Water', 'sCO₂'])
-def test_sensitivity_rejects_non_air_a_and_clears_previous_grid(monkeypatch, fluid):
+@pytest.fixture
+def sensitivity_dialog():
     from PySide6.QtWidgets import QComboBox, QLineEdit, QMainWindow
-    from sjtu_tpmshx.ui import sensitivity
+    from sjtu_tpmshx.ui.mixins.fluid_input import FluidInputMixin
+    from sjtu_tpmshx.ui.sensitivity import SensitivityDialog
     window = QMainWindow()
+    window.combo_tpms = QComboBox()
+    window.combo_tpms.addItems(['Diamond', 'Gyroid'])
+    window.combo_tpms.setCurrentIndex(1)
     window.combo_fluidA = QComboBox()
     window.combo_fluidA.addItems(['Air', 'Water', 'sCO₂'])
     window.combo_fluidB = QComboBox()
     window.combo_fluidB.addItem('Water')
-    window.le_Lcell = QLineEdit('7')
-    window.le_t = QLineEdit('.5')
+    window._temp_unit = 'K'
+    window._temp_to_K = lambda widget: FluidInputMixin._temp_to_K(window, widget)
+    for name, value in dict(le_Lcell='7', le_t='.5', le_uA='20',
+                            le_TinA='422', le_PinA='192362', le_ks='16').items():
+        setattr(window, name, QLineEdit(value))
+    dialog = SensitivityDialog(window)
+    dialog._le_steps.setText('3')
+    yield window, dialog
+    dialog.close()
+    window.close()
+
+
+@pytest.mark.parametrize('fluid', ['Water', 'sCO₂'])
+def test_sensitivity_rejects_non_air_a_and_clears_previous_grid(monkeypatch, fluid, sensitivity_dialog):
+    window, dialog = sensitivity_dialog
     calls = []
 
     def compute(*args, **kwargs):
@@ -157,44 +174,43 @@ def test_sensitivity_rejects_non_air_a_and_clears_previous_grid(monkeypatch, flu
         return dict(H_sf=2., A_0=3., dP_per_L=2., Re=10., Nu=5.)
 
     monkeypatch.setattr('sjtu_tpmshx.models.tpms_calc.compute', compute)
-    dialog = sensitivity.SensitivityDialog(window)
-    try:
-        dialog._le_steps.setText('3')
-        dialog._run_sweep()
-        assert len(calls) == 9  # Air A / Water B remains a valid A-side estimate.
-        np.testing.assert_array_equal(dialog._grid_params['grid'], np.full((3, 3), 3.))
-        old_axes = dialog._grid_axes
-        window.combo_fluidA.setCurrentText(fluid)
-        dialog._run_sweep()
-        assert len(calls) == 9
-        assert dialog._grid_params is None
-        assert 'Fluid A must be Air' in dialog._hint.text()
-        assert dialog._btn_run.isEnabled()
-        window.combo_fluidA.setCurrentIndex(2 if fluid == 'Water' else 1)
-        dialog._run_sweep()
-        assert len(calls) == 9
-        assert dialog._canvas.fig.axes[0].texts[0].get_text() == 'Fluid A must be Air.'
-        dialog._on_click(SimpleNamespace(inaxes=old_axes, xdata=4., ydata=.3))
-        assert window.le_Lcell.text() == '7' and window.le_t.text() == '.5'
-    finally:
-        dialog.close()
-        window.close()
+    dialog._le_steps.setText('3')
+    dialog._run_sweep()
+    assert len(calls) == 9  # Air A / Water B remains a valid A-side estimate.
+    np.testing.assert_array_equal(dialog._grid_params['grid'], np.full((3, 3), 3.))
+    old_axes = dialog._grid_axes
+    window.combo_fluidA.setCurrentText(fluid)
+    dialog._run_sweep()
+    assert len(calls) == 9
+    assert dialog._grid_params is None
+    assert 'Fluid A must be Air' in dialog._hint.text()
+    assert dialog._btn_run.isEnabled()
+    window.combo_fluidA.setCurrentIndex(2 if fluid == 'Water' else 1)
+    dialog._run_sweep()
+    assert len(calls) == 9
+    assert dialog._canvas.fig.axes[0].texts[0].get_text() == 'Fluid A must be Air.'
+    dialog._on_click(SimpleNamespace(inaxes=old_axes, xdata=4., ydata=.3))
+    assert window.le_Lcell.text() == '7' and window.le_t.text() == '.5'
 
 
-def test_heatmap_only_loads_valid_plot_cells():
+def test_heatmap_only_loads_valid_plot_cells(sensitivity_dialog):
     from matplotlib.backend_bases import MouseEvent
-    from PySide6.QtWidgets import QMainWindow, QLineEdit
-    from sjtu_tpmshx.ui.sensitivity import SensitivityDialog
     from sjtu_tpmshx.ui.theme import FIELD_CMAP
-    window = QMainWindow()
-    window.le_Lcell = QLineEdit('8')
-    window.le_t = QLineEdit('.6')
-    dialog = SensitivityDialog(window)
+    window, dialog = sensitivity_dialog
+    window.le_Lcell.setText('8')
+    window.le_t.setText('.6')
+    dialog._run_sweep()
+    fixed = dialog._grid_params['fixed']
     dialog._grid_params = dict(xs=np.array([5., 6.]), ys=np.array([.35, .45]),
                                grid=np.array([[10., np.nan], [20., 30.]]),
-                               key_x='L_cell', key_y='t', key_m='ratio', fixed={})
+                               key_x='L_cell', key_y='t', key_m='ratio', fixed=fixed)
     dialog._plot()
     assert dialog._grid_axes.collections[0].get_cmap().name == FIELD_CMAP
+    invalidated = []
+    edited = []
+    window._invalidate_results_for_preset_load = lambda: invalidated.append(True)
+    window.le_Lcell.editingFinished.connect(lambda: edited.append('L'))
+    window.le_t.editingFinished.connect(lambda: edited.append('t'))
 
     def click(axes, x, y):
         px, py = axes.transData.transform((x, y))
@@ -204,7 +220,136 @@ def test_heatmap_only_loads_valid_plot_cells():
     click(dialog._canvas.fig.axes[1], .5, 20.)
     click(dialog._grid_axes, 6., .35)
     assert window.le_Lcell.text() == '8' and window.le_t.text() == '.6'
+    assert not invalidated and not edited
     click(dialog._grid_axes, 5., .45)
     assert float(window.le_Lcell.text()) == 5. and float(window.le_t.text()) == .45
-    dialog.close()
-    window.close()
+    assert invalidated == [True] and edited == ['L', 't']
+    # Equivalent units and a previous pick change no effective fixed inputs.
+    window._temp_unit = 'C'
+    window.le_TinA.setText('148.85')
+    click(dialog._grid_axes, 6., .45)
+    assert float(window.le_Lcell.text()) == 6. and float(window.le_t.text()) == .45
+    assert invalidated == [True, True] and edited == ['L', 't', 'L', 't']
+
+
+@pytest.mark.parametrize('field,value,axes', [
+    ('le_TinA', 'oops', ('L_cell', 't')),
+    ('le_TinA', '', ('L_cell', 't')),
+    ('le_TinA', 'nan', ('L_cell', 't')),
+    ('le_TinA', 'inf', ('L_cell', 't')),
+    ('le_TinA', '0', ('L_cell', 't')),
+    ('le_PinA', 'not-a-pressure', ('L_cell', 't')),
+    ('le_PinA', 'nan', ('L_cell', 't')),
+    ('le_PinA', '0', ('L_cell', 't')),
+    ('le_PinA', '-1', ('L_cell', 't')),
+    ('le_uA', 'oops', ('L_cell', 't')),
+    ('le_uA', '0', ('L_cell', 't')),
+    ('le_Lcell', 'oops', ('t', 'u_A')),
+    ('le_t', 'oops', ('L_cell', 'u_A')),
+])
+def test_sensitivity_invalid_fixed_input_clears_old_pick(
+        monkeypatch, sensitivity_dialog, field, value, axes):
+    window, dialog = sensitivity_dialog
+    dialog._combo_x.setCurrentIndex(dialog._combo_x.findData(axes[0]))
+    dialog._combo_y.setCurrentIndex(dialog._combo_y.findData(axes[1]))
+    dialog._run_sweep()
+    old_axes = dialog._grid_axes
+    getattr(window, field).setText(value)
+    before = (window.le_Lcell.text(), window.le_t.text(), window.le_uA.text())
+    calls = []
+    monkeypatch.setattr('sjtu_tpmshx.models.tpms_calc.compute',
+                        lambda *args: calls.append(args))
+    dialog._run_sweep()
+    assert not calls
+    assert dialog._grid_params is None
+    assert 'Cannot run' in dialog._hint.text()
+    assert 'finite' in dialog._hint.text()
+    assert dialog._btn_run.isEnabled()
+    dialog._on_click(SimpleNamespace(inaxes=old_axes, xdata=4., ydata=.3))
+    assert (window.le_Lcell.text(), window.le_t.text(), window.le_uA.text()) == before
+
+
+@pytest.mark.parametrize('axes,ignored', [
+    (('L_cell', 't'), ('le_Lcell', 'le_t')),
+    (('L_cell', 'u_A'), ('le_Lcell', 'le_uA')),
+    (('t', 'u_A'), ('le_t', 'le_uA')),
+])
+def test_sensitivity_ignores_swept_and_unused_inputs(sensitivity_dialog, axes, ignored):
+    from PySide6.QtWidgets import QLineEdit
+    window, dialog = sensitivity_dialog
+    dialog._combo_x.setCurrentIndex(dialog._combo_x.findData(axes[0]))
+    dialog._combo_y.setCurrentIndex(dialog._combo_y.findData(axes[1]))
+    dialog._run_sweep()
+    expected = dialog._grid_params['grid'].copy()
+    for name in ignored + ('le_ks',):
+        getattr(window, name).setText('oops')
+    window.le_TinB = QLineEdit('oops')
+    window.le_PinB = QLineEdit('oops')
+    window.le_Nx = QLineEdit('oops')
+    dialog._run_sweep()
+    np.testing.assert_array_equal(dialog._grid_params['grid'], expected)
+
+
+@pytest.mark.parametrize('display,kelvin', [('148.85', 422.), ('-10', 263.15)])
+def test_sensitivity_converts_temperature_and_uses_gui_blank_pressure(
+        sensitivity_dialog, display, kelvin):
+    window, dialog = sensitivity_dialog
+    window.le_TinA.setText(str(kelvin))
+    window.le_PinA.setText('101325')
+    dialog._run_sweep()
+    expected = dialog._grid_params['grid'].copy()
+    window._temp_unit = 'C'
+    window.le_TinA.setText(display)
+    window.le_PinA.setText('  ')
+    dialog._run_sweep()
+    assert dialog._grid_params['fixed']['T_in'] == kelvin
+    assert dialog._grid_params['fixed']['P_in'] == 101325.
+    assert '101325 Pa' in dialog._hint.text()
+    np.testing.assert_array_equal(dialog._grid_params['grid'], expected)
+
+
+@pytest.mark.parametrize('field,value', [
+    ('le_TinA', '500'), ('le_PinA', 'oops'), ('le_uA', '21'),
+    ('combo_fluidA', 'Water'), ('combo_tpms', 'Diamond'),
+])
+def test_sensitivity_changed_fixed_context_refuses_pick(sensitivity_dialog, field, value):
+    window, dialog = sensitivity_dialog
+    dialog._run_sweep()
+    axes = dialog._grid_axes
+    widget = getattr(window, field)
+    if field.startswith('combo_'):
+        widget.setCurrentText(value)
+    else:
+        widget.setText(value)
+    before = (window.le_Lcell.text(), window.le_t.text())
+    invalidated = []
+    window._invalidate_results_for_preset_load = lambda: invalidated.append(True)
+    dialog._on_click(SimpleNamespace(inaxes=axes, xdata=4., ydata=.3))
+    assert dialog._grid_params is None
+    assert not invalidated  # A rejected pick does not modify the compute state.
+    assert (window.le_Lcell.text(), window.le_t.text()) == before
+    assert 'Cannot load' in dialog._hint.text()
+
+
+def test_sensitivity_sweep_restores_controls_and_discards_changed_selection(
+        sensitivity_dialog, monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    window, dialog = sensitivity_dialog
+    controls = (dialog._btn_run, dialog._combo_x, dialog._combo_y, dialog._combo_m)
+    calls = []
+    observed = []
+
+    def compute(*args):
+        calls.append(args)
+        observed.append(tuple(widget.isEnabled() for widget in controls))
+        if len(calls) == 1:
+            # Programmatic updates may still emit signals on a disabled combo.
+            dialog._combo_y.setCurrentIndex(dialog._combo_y.findData('u_A'))
+            QApplication.processEvents()
+        return dict(H_sf=2., A_0=3., dP_per_L=2., Re=10., Nu=5.)
+
+    monkeypatch.setattr('sjtu_tpmshx.models.tpms_calc.compute', compute)
+    dialog._run_sweep()
+    assert calls and all(state == (False, False, False, False) for state in observed)
+    assert all(widget.isEnabled() for widget in controls)
+    assert dialog._grid_params is None
