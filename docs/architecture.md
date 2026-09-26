@@ -495,6 +495,11 @@ Desktop preferences and session/history files use platform user directories,
 not the installed package. `controllers/user_storage.py` owns these paths.
 It imports missing known session/input files without deleting their originals;
 appearance settings are read only from the current user configuration directory.
+Session, preset/configuration and workspace-marker saves use a unique temporary
+file in the destination directory before atomic replacement. Concurrent saves
+are last-successful-replacement-wins; a failed write preserves the previous
+complete target and cleans up only its own temporary file. This does not merge
+simultaneous edits or provide a transaction across separate files.
 `desktop.py` configures writable caches before loading the GUI and supplies the
 installed entry point; standalone packaging is described in [desktop builds](desktop.md).
 
