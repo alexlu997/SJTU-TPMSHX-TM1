@@ -21,8 +21,7 @@ from typing import Callable
 import numpy as np
 import CoolProp.CoolProp as CP
 
-from . import tpms_calc
-from . import sco2_props
+from . import nu_correlations, sco2_props, tpms_props
 
 
 class WaterStateError(ValueError):
@@ -93,7 +92,7 @@ def check_finite_temperatures(Ta, Tb, Ts, *, where):
 def _nu_air(tpms_type, Re, eps_f, L_mm, D_h_mm, Pr=None):
     # Air uses nu_from_Re's built-in Pr default (Pr_AIR); any Pr passed in is
     # ignored, matching the air branch in run_calculation{,_3d}.
-    return tpms_calc.nu_from_Re(tpms_type, Re, eps_f, L_mm, D_h_mm)
+    return nu_correlations.nu_from_Re(tpms_type, Re, eps_f, L_mm, D_h_mm)
 
 
 def _nu_water(tpms_type, Re, eps_f, L_mm, D_h_mm, Pr):
@@ -101,7 +100,7 @@ def _nu_water(tpms_type, Re, eps_f, L_mm, D_h_mm, Pr):
     # smooth-wall water CFD, no air x1.28). eps_f / L_mm / D_h_mm unused —
     # kept for the FluidModel.nu signature contract.
     del eps_f, L_mm, D_h_mm
-    return tpms_calc.nu_water_topo(tpms_type, Re, Pr)
+    return nu_correlations.nu_water_topo(tpms_type, Re, Pr)
 
 
 def _nu_sco2(tpms_type, Re, eps_f, L_mm, D_h_mm, Pr, *, settings=None):
@@ -109,9 +108,9 @@ def _nu_sco2(tpms_type, Re, eps_f, L_mm, D_h_mm, Pr, *, settings=None):
     # total effective coefficient in nu_sco2_selected, applied once.
     del eps_f
     if settings is not None:
-        from .nu_correlations import nu_sco2_selected
-        return nu_sco2_selected(tpms_type, Re, Pr, L_mm, D_h_mm, settings=settings)
-    return tpms_calc.nu_sco2_topo(tpms_type, Re, Pr, L_mm, D_h_mm)
+        return nu_correlations.nu_sco2_selected(
+            tpms_type, Re, Pr, L_mm, D_h_mm, settings=settings)
+    return nu_correlations.nu_sco2_topo(tpms_type, Re, Pr, L_mm, D_h_mm)
 
 
 def _sco2_prop(key):
@@ -156,19 +155,19 @@ class FluidModel:
 FLUIDS = {
     'air': FluidModel(
         name='air', compressible=True,
-        rho=tpms_calc.air_density,        # (T, P=101325) -> rho
-        cp=lambda T, P=None: tpms_calc.air_cp(T),           # T-only; P ignored
-        mu=lambda T, P=None: tpms_calc.air_viscosity(T),
-        k=lambda T, P=None: tpms_calc.air_conductivity(T),
+        rho=tpms_props.air_density,        # (T, P=101325) -> rho
+        cp=lambda T, P=None: tpms_props.air_cp(T),           # T-only; P ignored
+        mu=lambda T, P=None: tpms_props.air_viscosity(T),
+        k=lambda T, P=None: tpms_props.air_conductivity(T),
         nu=_nu_air,
         embeds_roughness=False,
     ),
     'water': FluidModel(
         name='water', compressible=False,
-        rho=lambda T, P=None: tpms_calc.water_density(T),   # incompressible: P ignored
-        cp=lambda T, P=None: tpms_calc.water_cp(T),
-        mu=lambda T, P=None: tpms_calc.water_viscosity(T),
-        k=lambda T, P=None: tpms_calc.water_conductivity(T),
+        rho=lambda T, P=None: tpms_props.water_density(T),   # incompressible: P ignored
+        cp=lambda T, P=None: tpms_props.water_cp(T),
+        mu=lambda T, P=None: tpms_props.water_viscosity(T),
+        k=lambda T, P=None: tpms_props.water_conductivity(T),
         nu=_nu_water,
         embeds_roughness=True,
     ),
