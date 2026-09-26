@@ -1,6 +1,8 @@
 """设计工况 schema 与多行多列 loader (xlsx / csv)。"""
 from __future__ import annotations
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
+import math
 import os
 import csv as _csv
 import openpyxl
@@ -13,6 +15,20 @@ class DesignCase:
     Q: float | None            # 换热量 [W] (Q 与 dT 至少一)
     dPlim_h: float; dPlim_c: float   # 分数 (ΔP/P_in)
     dT: float | None = None    # 热侧温降 [K] (与 Q 二选一, 优先)
+
+    def __post_init__(self):
+        if type(self.case) is not int:
+            raise ValueError('DesignCase.case must be an integer')
+        for name in ('Q', 'dT', 'dPlim_h', 'dPlim_c'):
+            value = getattr(self, name)
+            if value is None and name in ('Q', 'dT'):
+                continue
+            try:
+                valid = type(value) in (int, float) and math.isfinite(value)
+            except OverflowError:
+                valid = False
+            if not valid:
+                raise ValueError(f'工况 {self.case}: {name} must be a finite number')
 
 # 必备基础列; duty 列 (Q_kW / dT_h_K) 至少出现一个
 _BASE = ["case","hot_fluid","T_in_h_K","P_in_h_kPa","mdot_h",
@@ -30,12 +46,18 @@ def _row_to_case(get) -> "DesignCase | None":
     """get(name) -> raw value (None means absent/empty). case 空 → 返回 None(跳过)。"""
     if _blank(get("case")) is None:
         return None
+    try:
+        case_id = Decimal(str(get('case')))
+    except InvalidOperation:
+        raise ValueError('case must be a finite integer') from None
+    if not case_id.is_finite() or case_id != case_id.to_integral_value():
+        raise ValueError('case must be a finite integer')
     Qv  = _blank(get("Q_kW"))
     dTv = _blank(get("dT_h_K"))
     if Qv is None and dTv is None:
         raise ValueError(f"工况 {get('case')}: Q 与 dT 均空")
     return DesignCase(
-        case=int(float(get("case"))),
+        case=int(case_id),
         hot_fluid=str(get("hot_fluid")).strip().lower(),
         T_in_h=float(get("T_in_h_K")), P_in_h=float(get("P_in_h_kPa"))*1e3,
         mdot_h=float(get("mdot_h")),
