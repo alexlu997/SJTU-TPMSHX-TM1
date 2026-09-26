@@ -113,3 +113,117 @@ def test_existing_run_archive_rejected_before_evaluation(tmp_path, monkeypatch, 
                        save_dir=None if default_name else str(output), verbose=False)
     assert not calls
     assert {path.name: path.read_bytes() for path in output.iterdir()} == original
+
+
+def _fault_at_bo_boundary(monkeypatch, error, stage, fail_at=1):
+    pytest.importorskip('botorch', reason='BO execution requires the optional server lock')
+    import torch
+    import botorch.fit
+    import botorch.optim.optimize
+    import botorch.acquisition.multi_objective.monte_carlo
+
+    calls = dict(evaluations=[], fit=0, acquisition=0, proposal=0, cancel=False)
+
+    def evaluate(x, cfg):
+        calls['evaluations'].append(x.copy())
+        count = len(calls['evaluations'])
+        return -float(100 + count), float(20 + count), 1.
+
+    def fit(*args, **kwargs):
+        calls['fit'] += 1
+        if stage == 'fit':
+            raise error
+
+    def acquisition(*args, **kwargs):
+        calls['acquisition'] += 1
+        if stage == 'fit':
+            raise AssertionError('acquisition reached after failed fit')
+        if stage == 'acquisition':
+            raise error
+        return object()
+
+    def propose(*args, **kwargs):
+        calls['proposal'] += 1
+        if stage == 'proposal' and calls['proposal'] == fail_at:
+            # A concurrent cancellation cannot overwrite a real failure.
+            calls['cancel'] = fail_at > 1
+            raise error
+        bounds = kwargs['bounds']
+        fraction = .1 + .05 * calls['proposal']
+        return (bounds[0] + fraction * (bounds[1] - bounds[0])).unsqueeze(0), torch.tensor(0.)
+
+    monkeypatch.setattr(botorch.fit, 'fit_gpytorch_mll', fit)
+    monkeypatch.setattr(botorch.fit, 'fit_fully_bayesian_model_nuts', fit)
+    monkeypatch.setattr(botorch.acquisition.multi_objective.monte_carlo,
+                        'qNoisyExpectedHypervolumeImprovement', acquisition)
+    monkeypatch.setattr(botorch.optim.optimize, 'optimize_acqf', propose)
+    return evaluate, calls
+
+
+@pytest.mark.parametrize('stage,gp_model,fail_at,completed', [
+    ('fit', 'single_task', 1, 0),
+    ('fit', 'saas', 1, 0),
+    ('acquisition', 'single_task', 1, 0),
+    ('proposal', 'single_task', 1, 0),
+    ('proposal', 'single_task', 7, 6),
+])
+def test_optimizer_failure_keeps_completed_history_and_original_error(
+        tmp_path, monkeypatch, stage, gp_model, fail_at, completed):
+    error = RuntimeError(f'injected {gp_model} {stage} failure')
+    evaluate, calls = _fault_at_bo_boundary(monkeypatch, error, stage, fail_at)
+    output = tmp_path / 'run'
+    with pytest.raises(Exception) as caught:
+        bo.run_qnehvi(config={'gp_model': gp_model}, n_init=2, n_iter=fail_at,
+            q_batch=1, seed=42, hv_tol=0., evaluator_fn=evaluate,
+            cancel_check=lambda: calls['cancel'], save_dir=str(output), verbose=False)
+    assert caught.value is error
+    count = 2 + completed
+    assert len(calls['evaluations']) == bo.progress['count'] == count
+    assert bo.progress['phase'] == 'failed'
+    if stage == 'fit':
+        assert (calls['fit'], calls['acquisition'], calls['proposal']) == (1, 0, 0)
+
+    status = json.loads((output / 'run_status.json').read_text())
+    assert status['termination_reason'] == 'failed'
+    assert status['stage'] == ('fit' if stage == 'fit' else 'proposal')
+    assert status['n_evals'] == count and status['planned_evals'] == 2 + fail_at
+    assert type(error).__name__ in status['reason'] and str(error) in status['reason']
+    history = np.loadtxt(output / 'history.csv', delimiter=',', skiprows=1, ndmin=2)
+    assert history.shape == (count, 18)
+    np.testing.assert_array_equal(history[:, :16], np.asarray(calls['evaluations']))
+    np.testing.assert_array_equal(history[:, 16], 100 + np.arange(1, count + 1))
+    np.testing.assert_allclose(history[:, 17], 20 + np.arange(1, count + 1), rtol=1e-12, atol=0.)
+    statuses = json.loads((output / 'history_status.json').read_text())
+    assert statuses == [dict(evaluation=i, status='valid', reason=None) for i in range(1, count + 1)]
+    # Every controlled observation trades increasing Q against increasing dP.
+    latest = np.loadtxt(output / 'pareto_latest.csv', delimiter=',', skiprows=1, ndmin=2)
+    np.testing.assert_array_equal(latest, history)
+    checkpoint = output / f'pareto_iter{completed:04d}.csv'
+    np.testing.assert_array_equal(np.loadtxt(checkpoint, delimiter=',', skiprows=1, ndmin=2), latest)
+    assert not (output / 'pareto_final.csv').exists()
+    if completed == 6:
+        assert (output / 'pareto_iter0005.csv').exists()
+        assert len((output / 'pareto_iter0005.csv').read_text().splitlines()) == 8
+
+
+def test_optimizer_checkpoint_failure_does_not_replace_original_error(tmp_path, monkeypatch, caplog):
+    error = RuntimeError('injected proposal failure')
+    evaluate, calls = _fault_at_bo_boundary(monkeypatch, error, 'proposal')
+    saved = []
+
+    def failed_save(train_X, train_Y, save_dir, step, errors):
+        saved.append((len(train_X), len(train_Y), step, list(errors)))
+        raise OSError('injected checkpoint failure')
+
+    monkeypatch.setattr(bo, '_save_current_pareto', failed_save)
+    output = tmp_path / 'run'
+    with pytest.raises(Exception) as caught:
+        bo.run_qnehvi(n_init=2, n_iter=1, q_batch=1, seed=42, hv_tol=0.,
+            evaluator_fn=evaluate, save_dir=str(output), verbose=False)
+    assert caught.value is error
+    assert saved == [(2, 2, 0, [None, None])]
+    assert len(calls['evaluations']) == bo.progress['count'] == 2
+    assert bo.progress['phase'] == 'failed'
+    diagnostic = '\n'.join(getattr(error, '__notes__', [])) + caplog.text
+    assert 'injected checkpoint failure' in diagnostic
+    assert not (output / 'pareto_final.csv').exists()

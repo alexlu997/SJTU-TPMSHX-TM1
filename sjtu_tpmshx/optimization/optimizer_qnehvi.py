@@ -125,7 +125,7 @@ progress: dict = {
     'count': 0,
     'total': 0,
     'best_Q': -float('inf'),
-    'phase': 'idle',                    # init / optimize / completed / cancelled / plateau
+    'phase': 'idle',                    # init / optimize / completed / cancelled / plateau / failed
     # Hypervolume tracking (Phase 2 — live HV plot in optimize panel)
     'hv':     0.0,                       # current iter HV
     'hv_iter': 0,                        # iter index of last HV update
@@ -292,6 +292,8 @@ def run_qnehvi(config: Optional[dict] = None,
 
     Cancellation is cooperative between candidates (parallel: active wave).
     ``cancel_check`` stays in the coordinator; it is never sent to loky.
+    Model fitting or candidate-selection errors stop the run, checkpoint the
+    completed evaluations with a failed run status, and propagate unchanged.
     """
     # Lazy-import torch / botorch so importing this module is cheap when the
     # optimizer isn't actually invoked (e.g. UI startup).
@@ -421,26 +423,27 @@ def run_qnehvi(config: Optional[dict] = None,
 
         t_iter = time.perf_counter()
 
-        # 5a. Fit one GP per objective (independent ARD lengthscales).
-        # M3 (2026-07-09): cfg['gp_model']='saas' switches to the sparse-
-        # axis-aligned-subspace fully-Bayesian GP (NUTS) — the d≥30 option
-        # this module's docstring reserved. Slow per fit (~minutes) but
-        # sample-efficient in high-D where vanilla ARD lengthscale MLE
-        # degenerates (measured: 36-D vanilla front WORSE than 16-D).
-        _gp_kind = str(cfg.get('gp_model', 'single_task')).lower()
-        models = []
-        for j in range(2):
-            if _gp_kind == 'saas':
-                from botorch.models.fully_bayesian import (
-                    SaasFullyBayesianSingleTaskGP,
-                )
-                from botorch.fit import fit_fully_bayesian_model_nuts
-                m = SaasFullyBayesianSingleTaskGP(
-                    train_X, train_Y[:, j:j+1],
-                    input_transform=Normalize(d=D, bounds=bounds),
-                    outcome_transform=Standardize(m=1),
-                )
-                try:
+        stage = 'fit'
+        try:
+            # 5a. Fit one GP per objective (independent ARD lengthscales).
+            # M3 (2026-07-09): cfg['gp_model']='saas' switches to the sparse-
+            # axis-aligned-subspace fully-Bayesian GP (NUTS) — the d≥30 option
+            # this module's docstring reserved. Slow per fit (~minutes) but
+            # sample-efficient in high-D where vanilla ARD lengthscale MLE
+            # degenerates (measured: 36-D vanilla front WORSE than 16-D).
+            _gp_kind = str(cfg.get('gp_model', 'single_task')).lower()
+            models = []
+            for j in range(2):
+                if _gp_kind == 'saas':
+                    from botorch.models.fully_bayesian import (
+                        SaasFullyBayesianSingleTaskGP,
+                    )
+                    from botorch.fit import fit_fully_bayesian_model_nuts
+                    m = SaasFullyBayesianSingleTaskGP(
+                        train_X, train_Y[:, j:j+1],
+                        input_transform=Normalize(d=D, bounds=bounds),
+                        outcome_transform=Standardize(m=1),
+                    )
                     fit_fully_bayesian_model_nuts(
                         m,
                         warmup_steps=int(cfg.get('saas_warmup', 128)),
@@ -448,47 +451,50 @@ def run_qnehvi(config: Optional[dict] = None,
                         thinning=int(cfg.get('saas_thin', 16)),
                         disable_progbar=True,
                     )
-                except Exception as e:
-                    import warnings as _w
-                    _w.warn(f"SAAS NUTS fit failed for objective {j} "
-                            f"({e!r}); continuing with prior samples.")
-            else:
-                m = SingleTaskGP(
-                    train_X, train_Y[:, j:j+1],
-                    input_transform=Normalize(d=D, bounds=bounds),
-                    outcome_transform=Standardize(m=1),
-                )
-                mll = ExactMarginalLogLikelihood(m.likelihood, m)
-                try:
+                else:
+                    m = SingleTaskGP(
+                        train_X, train_Y[:, j:j+1],
+                        input_transform=Normalize(d=D, bounds=bounds),
+                        outcome_transform=Standardize(m=1),
+                    )
+                    mll = ExactMarginalLogLikelihood(m.likelihood, m)
                     fit_gpytorch_mll(mll)
-                except Exception as e:
-                    # except-audit 2026-07-03: was verbose-gated — a production
-                    # (verbose=False) run silently continued on an UN-FIT GP
-                    # (prior hyperparameters), degrading acquisition quality
-                    # with no trace. Always warn; the run still continues.
-                    import warnings as _w
-                    _w.warn(f"GP fit failed for objective {j} ({e!r}); "
-                            f"continuing with unfit hyperparameters this iter.")
-            models.append(m)
-        model = ModelListGP(*models)
+                models.append(m)
+            model = ModelListGP(*models)
 
-        # 5b. Acquisition + candidate selection
-        sampler = SobolQMCNormalSampler(sample_shape=torch.Size([128]))
-        acq = qNoisyExpectedHypervolumeImprovement(
-            model=model,
-            ref_point=ref_point,
-            X_baseline=train_X,
-            sampler=sampler,
-            prune_baseline=True,
-        )
-        candidates, _ = optimize_acqf(
-            acq_function=acq,
-            bounds=bounds,
-            q=q_batch,
-            num_restarts=10,
-            raw_samples=256,
-            options={"batch_limit": 5, "maxiter": 200},
-        )
+            # 5b. Acquisition + candidate selection
+            stage = 'proposal'
+            sampler = SobolQMCNormalSampler(sample_shape=torch.Size([128]))
+            acq = qNoisyExpectedHypervolumeImprovement(
+                model=model,
+                ref_point=ref_point,
+                X_baseline=train_X,
+                sampler=sampler,
+                prune_baseline=True,
+            )
+            candidates, _ = optimize_acqf(
+                acq_function=acq,
+                bounds=bounds,
+                q=q_batch,
+                num_restarts=10,
+                raw_samples=256,
+                options={"batch_limit": 5, "maxiter": 200},
+            )
+        except Exception as exc:
+            progress['phase'] = 'failed'
+            try:
+                with open(os.path.join(save_dir, 'run_status.json'), 'w') as stream:
+                    json.dump({'termination_reason': 'failed', 'stage': stage,
+                               'reason': f'{type(exc).__name__}: {exc}',
+                               'n_evals': len(train_X),
+                               'planned_evals': progress['total']}, stream)
+                # it is the number of completed iterations; zero keeps the
+                # initial observations when the first model/proposal fails.
+                _save_current_pareto(train_X, train_Y, save_dir, it, history_errors)
+            except Exception as save_exc:
+                exc.add_note(f'Could not save failed BO campaign: {save_exc!r}')
+                _log.exception('Could not save failed BO campaign')
+            raise
 
         # 5c. Evaluate candidates
         new_X_np = candidates.detach().numpy()
