@@ -6,8 +6,10 @@
 """
 from __future__ import annotations
 import math
+from pathlib import Path
 import pandas as pd
 
+from sjtu_tpmshx.io.file_set import staged_files
 from .select import pareto_tags
 
 
@@ -64,7 +66,7 @@ def detail_rows(results) -> list:
 
 
 def write_xlsx(path, results, *, partial=False) -> tuple:
-    """写双 sheet。返回 (构型数, 可行数, 明细行数)。"""
+    """完整写好双 sheet 后发布，失败保留原报告；返回 (构型数, 可行数, 明细行数)。"""
     tags = pareto_tags(results)
     if partial:
         tags = {key: [f'已完成候选内 {tag}' for tag in value] for key, value in tags.items()}
@@ -76,7 +78,9 @@ def write_xlsx(path, results, *, partial=False) -> tuple:
     if partial:
         for frame in (df_s, df_d):
             frame['任务状态'] = '已取消：部分候选，不代表完整搜索最优'
-    with pd.ExcelWriter(path, engine="openpyxl") as xw:
-        df_s.to_excel(xw, sheet_name="构型汇总", index=False)
-        df_d.to_excel(xw, sheet_name="工况明细", index=False)
+    path = Path(path)
+    with staged_files([path]) as stage:
+        with pd.ExcelWriter(stage / path.name, engine="openpyxl") as xw:
+            df_s.to_excel(xw, sheet_name="构型汇总", index=False)
+            df_d.to_excel(xw, sheet_name="工况明细", index=False)
     return len(results), sum(d.feasible for d in results), len(det)
