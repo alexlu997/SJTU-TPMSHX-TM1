@@ -253,6 +253,9 @@ def size_fixed_cell(cases, topo, l, t, arrangement="cross", rho_s=RHO_S,
         if b - a < S_REFINE_TOL:
             break
 
+    # Golden-section samples are interior; the upper endpoint can be the only
+    # feasible width or lie in a feasible interval narrower than its resolution.
+    _upd(s_hi, *_eval_s(s_hi))
     if best is None:
         return Design(False, topo, l, t, arrangement=arrangement,
                       reason="cooling-unreachable" if not state["cooled"]
@@ -286,10 +289,15 @@ def size_fixed_cell(cases, topo, l, t, arrangement="cross", rho_s=RHO_S,
             lo_inf = s
             if s >= s_hi - 1e-9:
                 break
-        if s_feas is None:                               # 连最大迎风也不行 → 真不可行
-            cooled = _allK(s_hi)[0] is not None
-            return Design(False, topo, l, t, arrangement=arrangement,
-                          reason="dP>lim@final" if cooled else "cooling-unreachable")
+        if s_feas is None:
+            # The expansion budget need not reach s_hi. Retain its feasible
+            # solution as the bracket endpoint instead of only reading a reason.
+            Lx_floor, Lx_star = _allK(s_hi)
+            if Lx_star is None:
+                return Design(False, topo, l, t, arrangement=arrangement,
+                              reason="dP>lim@final" if Lx_floor is not None
+                              else "cooling-unreachable")
+            s_feas = s_hi
         lo, hi = lo_inf, s_feas                          # 小区间二分边界 (~1.5mm 够)
         for _ in range(12):
             m = 0.5 * (lo + hi)
