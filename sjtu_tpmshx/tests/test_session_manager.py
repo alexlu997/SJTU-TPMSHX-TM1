@@ -203,3 +203,102 @@ def test_invalid_utf8_falls_back_and_preserves_bytes_after_save(
     assert getattr(sm, save_method)(replacement)
     assert path.exists()
     assert quarantined[0].read_bytes() == original
+
+
+@pytest.mark.parametrize('save_method,path_method,first,second', [
+    ('save_session', 'session_path', {'value': 'first'}, {'value': 'second' * 100}),
+    ('save_user_presets', 'presets_path', [{'name': 'first'}], [{'name': 'second' * 100}]),
+])
+@pytest.mark.parametrize('first_fails', [False, True])
+def test_interleaved_json_saves_never_damage_completed_save(
+        sm, monkeypatch, save_method, path_method, first, second, first_fails):
+    """Pause A after opening its file; complete B, then finish or fail A."""
+    from sjtu_tpmshx.controllers import session_manager
+
+    save = getattr(sm, save_method)
+    path = getattr(sm, path_method)()
+    foreign = sm.base_dir / 'another-writer.tmp'
+    foreign.write_text('leave this file alone', encoding='utf-8')
+    original_dump = session_manager.json.dump
+    nested = False
+    completed = None
+
+    def interleave(data, stream, **kwargs):
+        nonlocal nested, completed
+        if not nested:
+            nested = True
+            assert save(second)
+            completed = json.loads(path.read_text(encoding='utf-8'))
+            original_dump(data, stream, **kwargs)
+            if first_fails:
+                raise OSError('first writer failed after writing')
+        else:
+            original_dump(data, stream, **kwargs)
+
+    monkeypatch.setattr(session_manager.json, 'dump', interleave)
+    saved = save(first)
+    actual = json.loads(path.read_text(encoding='utf-8'))
+    assert saved is (not first_fails)
+    if first_fails:
+        assert actual == completed
+    elif save_method == 'save_session':
+        assert actual == dict(first, schema_version=SCHEMA_VERSION)
+    else:
+        assert actual == {'schema_version': SCHEMA_VERSION, 'presets': first}
+    assert foreign.read_text(encoding='utf-8') == 'leave this file alone'
+    assert set(sm.base_dir.glob('*.tmp')) == {foreign}
+
+
+def test_interleaved_workspace_saves_last_complete_replacement_wins(sm, monkeypatch):
+    from sjtu_tpmshx.controllers import session_manager
+
+    original_fsync = session_manager.os.fsync
+    nested = False
+
+    def interleave(fd):
+        nonlocal nested
+        if not nested:
+            nested = True
+            assert sm.set_active_workspace('C')
+            assert sm.get_active_workspace() == 'C'
+        original_fsync(fd)
+
+    monkeypatch.setattr(session_manager.os, 'fsync', interleave)
+    assert sm.set_active_workspace('B')
+    assert sm.get_active_workspace() == 'B'
+    assert list(sm.base_dir.glob('*.tmp')) == []
+
+
+@pytest.mark.parametrize('save_method,path_method,first,second', [
+    ('save_session', 'session_path', {'value': 'old'}, {'value': 'new'}),
+    ('save_user_presets', 'presets_path', [{'name': 'old'}], [{'name': 'new'}]),
+    ('set_active_workspace', 'workspace_marker_path', 'B', 'C'),
+])
+def test_failed_replacement_keeps_target_and_removes_only_own_temporary(
+        sm, monkeypatch, save_method, path_method, first, second):
+    from sjtu_tpmshx.controllers import session_manager
+
+    save = getattr(sm, save_method)
+    path = getattr(sm, path_method)()
+    assert save(first)
+    original = path.read_bytes()
+    foreign = sm.base_dir / 'another-writer.tmp'
+    foreign.write_text('other writer', encoding='utf-8')
+
+    def fail_replace(*args):
+        raise OSError('target locked')
+
+    monkeypatch.setattr(session_manager.os, 'replace', fail_replace)
+    assert not save(second)
+    assert path.read_bytes() == original
+    assert set(sm.base_dir.glob('*.tmp')) == {foreign}
+    assert foreign.read_text(encoding='utf-8') == 'other writer'
+
+
+def test_serialization_failure_preserves_session_and_cleans_temporary(sm):
+    assert sm.save_session({'value': 'old'})
+    original = sm.session_path().read_bytes()
+    with pytest.raises(TypeError, match='not JSON serializable'):
+        sm.save_session({'value': object()})
+    assert sm.session_path().read_bytes() == original
+    assert list(sm.base_dir.glob('*.tmp')) == []

@@ -389,6 +389,14 @@ recorded state. Metric definitions survive JSON and GUI export metadata.
 Old metrics files retain their definitions; re-evaluate their native result
 before mapping it to the current GUI contract. Frozen backend reporting
 references are historical numerical oracles, not the current metric contract.
+`domain.metric_spec` owns explicit metric families, units and full-compute
+definition versions. `PerformanceResult` requires each key to match its spec's
+side-specific name or family; JSON loading uses the same check. The GUI checks
+all consumed metric definitions and dimension-dependent heat units before
+assigning values to its Pa/K/duty fields. Multi-condition aggregation requires
+current signed heat and pressure definitions rather than merely accepting two
+identically mislabeled records. These boundaries reject incompatible meaning
+without unit conversion or modification of historical files.
 
 `PartialBCConfig.uniform_inlet_2d` selects geometric overlap without the
 historical four-cell inlet taper. Preparation records the selected profile,
@@ -487,6 +495,11 @@ Desktop preferences and session/history files use platform user directories,
 not the installed package. `controllers/user_storage.py` owns these paths.
 It imports missing known session/input files without deleting their originals;
 appearance settings are read only from the current user configuration directory.
+Session, preset/configuration and workspace-marker saves use a unique temporary
+file in the destination directory before atomic replacement. Concurrent saves
+are last-successful-replacement-wins; a failed write preserves the previous
+complete target and cleans up only its own temporary file. This does not merge
+simultaneous edits or provide a transaction across separate files.
 `desktop.py` configures writable caches before loading the GUI and supplies the
 installed entry point; standalone packaging is described in [desktop builds](desktop.md).
 
@@ -504,6 +517,16 @@ and restore path as saved inputs, including temperature units, partition rows,
 continuous-field inputs and custom model parameters. The Python snippet expects
 an existing `window`; it restores inputs without launching a solve. This preset
 format is distinct from the public module's `ComputeConfig` input.
+
+Unwrapped `line_edits` JSON and legacy flat configuration files are partial
+imports: the common preset application path merges only supplied fields into
+the captured current inputs. An explicit temperature-unit change converts
+omitted inlet temperatures while preserving their physical values. Omitted
+model choices, controls and optimization conditions remain in the snapshot.
+Cross-field validation uses the merged input before changing widgets or cached
+results; an incompatible field dimension or zone-table layout rejects the patch.
+Versioned complete files, preset libraries and startup sessions retain their
+full-restore/historical-default rules; partial import does not redefine them.
 
 - `ui/builders_canvas.py` assembles the visible geometry, result, and
   optimization workbench. `build_canvas_area()` only coordinates its named

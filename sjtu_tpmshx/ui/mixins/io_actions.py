@@ -174,6 +174,7 @@ class IOActionsMixin:
             if not isinstance(payload, dict):
                 raise ValueError("Configuration must be a JSON object.")
             legacy = False
+            partial = False
             if 'config_format' in payload:
                 if (type(payload['config_format']) is not int or
                         payload['config_format'] != 1 or
@@ -183,7 +184,7 @@ class IOActionsMixin:
                 self._validate_preset(preset, complete=True)
             elif 'line_edits' in payload:
                 preset = payload
-                self._validate_preset(preset)
+                partial = True
             elif 'presets' in payload:
                 presets = payload['presets']
                 if not isinstance(presets, list) or not presets:
@@ -192,8 +193,9 @@ class IOActionsMixin:
                 self._validate_preset(preset)
             else:
                 legacy = True
+                partial = True
                 preset = self._legacy_config_preset(payload)
-            self._apply_user_preset(preset)
+            self._apply_user_preset(preset, partial=partial)
         except Exception as e:
             QMessageBox.critical(self, "Load Error", str(e))
             return False

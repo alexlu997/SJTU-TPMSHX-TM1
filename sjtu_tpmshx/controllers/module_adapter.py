@@ -2,8 +2,14 @@
 from dataclasses import asdict
 
 from sjtu_tpmshx.domain.compute_result import ComputeResult
+from sjtu_tpmshx.domain.metric_spec import METRIC_KINDS, full_metric_version
 from sjtu_tpmshx.domain.portable_data import mutable_data
 from sjtu_tpmshx.models.zone_units import _legacy_zone_units
+
+_SUMMARY_METRICS = ('Q', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B')
+_RESIDUAL_METRICS = ('Q_A', 'Q_B', 'energy_imbalance_rel',
+                     'mass_imbalance_rel_A', 'mass_imbalance_rel_B',
+                     'Q_richardson_A', 'Q_richardson_B')
 
 
 def to_compute_result(result, performance):
@@ -14,13 +20,14 @@ def to_compute_result(result, performance):
         raise ValueError('application display requires a completed result')
     dimension = result.grid['dimension']
     unit = 'W/m' if dimension == 2 else 'W'
-    if performance.metrics['Q'].spec.unit != unit:
-        raise ValueError('heat-duty unit disagrees with the result dimension')
-    if performance.metrics['Q'].spec.definition_version != 'native_boundary_v1':
-        raise ValueError('re-evaluate native results before displaying the current heat-duty definition')
-    if any(performance.metrics[name].spec.definition_version != 'pressure_face_v1'
-           for name in ('dP_A', 'dP_B')):
-        raise ValueError('re-evaluate native results before displaying the current pressure-drop definition')
+    consumed = _SUMMARY_METRICS + tuple(name for name in _RESIDUAL_METRICS
+                                       if name in performance.metrics)
+    for name in consumed:
+        spec = performance.metrics[name].spec
+        if METRIC_KINDS.get(name, name) == 'Q' and spec.unit != unit:
+            raise ValueError(f'{name} heat-duty unit disagrees with the result dimension')
+        if spec.definition_version != full_metric_version(name):
+            raise ValueError(f're-evaluate native results before displaying the current {name} definition')
     f = result.fields
     parameters = result.metadata['parameters']
     diagnostics = mutable_data(result.metadata['diagnostics'])
@@ -78,7 +85,7 @@ def to_compute_result(result, performance):
     warnings = list(dict.fromkeys((*diagnostics.get('warnings_list', ()),
                                   *diagnostics.get('envelope_warnings', ()), *result.metadata['notices'])))
     values = {}
-    for name in ('Q', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B'):
+    for name in _SUMMARY_METRICS:
         metric = performance.metrics[name]
         values[name] = metric.value if metric.status == 'available' else float('nan')
         if metric.status != 'available':
@@ -88,8 +95,7 @@ def to_compute_result(result, performance):
                                   if performance.metrics[name].status != 'available'}
     metadata['metric_definitions'] = {name: asdict(metric.spec)
                                       for name, metric in performance.metrics.items()}
-    for name in ('Q_A', 'Q_B', 'energy_imbalance_rel', 'mass_imbalance_rel_A', 'mass_imbalance_rel_B',
-                 'Q_richardson_A', 'Q_richardson_B'):
+    for name in _RESIDUAL_METRICS:
         if name in performance.metrics:
             metric = performance.metrics[name]
             residuals[name] = metric.value if metric.status == 'available' else float('nan')
