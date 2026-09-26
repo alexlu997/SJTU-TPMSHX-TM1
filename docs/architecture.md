@@ -429,6 +429,11 @@ field, and its analytical pressure drop retains its existing meaning. Retained
 screening BO keeps bounded penalty objectives for training, but excludes failed evaluations
 from reported Pareto fronts and hypervolume. History rows retain their status
 and failure reason; a completed screening run is not experimental validation.
+GP fitting or candidate-selection errors stop the affected screening seed,
+save its completed history and latest front with a failed run status, and
+propagate the original exception. They no longer continue with an unfitted
+model. A failed seed does not write a final front or enter the multiseed merge;
+other successful seeds retain the existing partial-campaign behavior.
 
 Separate processes use case.yaml + case.h5, results.h5, VTK views and
 metrics.json. Exact contracts and mode-specific restrictions are in
