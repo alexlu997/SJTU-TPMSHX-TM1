@@ -6,6 +6,7 @@ from dataclasses import asdict, replace
 import json
 from pathlib import Path
 import time
+from traceback import format_exception_only
 
 import numpy as np
 
@@ -50,19 +51,24 @@ def _make_worker_class():
                     n_init=self.n_init, n_iter=self.n_iter, q_batch=self.q_batch,
                     seed=self.seed, field_spec=self.field_spec, control=control)
                 self.finished_with_result.emit(report)
-            except CancelledError:
+            except CancelledError as exc:
+                if getattr(exc, '__notes__', None):
+                    self.error_signal.emit(''.join(format_exception_only(exc)).strip())
+                    return
                 checkpoint = Path(self.save_dir) / 'optimization.json'
                 try:
                     if checkpoint.exists():
-                        # Native search checkpoints before raising; preparation has no study yet.
                         with checkpoint.open(encoding='utf-8') as source:
-                            self.finished_with_result.emit(json.load(source))
+                            report = json.load(source)
+                        if not isinstance(report, dict) or report.get('status') != 'cancelled':
+                            raise ValueError('Cancellation checkpoint does not record cancelled status')
+                        self.finished_with_result.emit(report)
                     else:
                         self.cancelled_before_search.emit()
                 except (OSError, ValueError) as exc:
-                    self.error_signal.emit(f'{type(exc).__name__}: {exc}')
+                    self.error_signal.emit(''.join(format_exception_only(exc)).strip())
             except Exception as exc:
-                self.error_signal.emit(f'{type(exc).__name__}: {exc}')
+                self.error_signal.emit(''.join(format_exception_only(exc)).strip())
 
     return _OptimizeWorker
 
@@ -365,7 +371,7 @@ def run_optimize(window):
     def error(message):
         if getattr(window, '_close_pending', False):
             return
-        _set_status(window, f'ERROR: {message} · 已产生的记录保留于 {save_dir}')
+        _set_status(window, f'ERROR: {message} · 输出目录：{save_dir}')
         _set_kpi(window, gen='ERROR', best_q='—', best_dp='—', eta='—')
         _set_stage_pill(window, 'running', 'idle')
         _set_stage_pill(window, 'config', 'active')
