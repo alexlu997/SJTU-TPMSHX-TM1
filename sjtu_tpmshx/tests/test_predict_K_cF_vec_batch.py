@@ -74,3 +74,108 @@ def test_diamond_path_also_works():
     assert cF.shape == (2,)
     assert np.all(K > 0)
     assert np.all(cF > 0)
+
+
+@pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
+def test_batch_preserves_nodes_and_asymmetric_tolerance(topology):
+    from sjtu_tpmshx.df_surrogate._domain import TRAIN_L_NODES, TRAIN_T_NODES
+    from sjtu_tpmshx.df_surrogate.full_core_3cell_fixed_v2 import FullCore3CellFixedDFV2, METHOD
+    from sjtu_tpmshx.df_surrogate.predict import predict_K_cF_vec
+
+    pairs = [(L, t) for L in TRAIN_L_NODES for t in TRAIN_T_NODES]
+    for axis, nodes in enumerate((TRAIN_L_NODES, TRAIN_T_NODES)):
+        for node in nodes:
+            for offset in (-2., -.5, .5, 2.):
+                if ((node == nodes[0] and offset < -1)
+                        or (node == nodes[-1] and offset > 1)):
+                    continue  # Out-of-domain errors are checked separately.
+                pair = [6.25, .45]
+                pair[axis] = node + offset * 1e-12 * max(1., abs(node))
+                pairs.append(pair)
+    L, t = np.asarray(pairs).T
+    expected = _loop_reference(FullCore3CellFixedDFV2(topology), L, t, .35)
+    actual = predict_K_cF_vec(topology, L, t, .35, method=METHOD)
+    for result, reference in zip(actual, expected):
+        np.testing.assert_array_equal(result, reference)
+
+
+@pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
+def test_batch_preserves_existing_nonfinite_behavior(topology):
+    """Compatibility only: nonfinite inputs do not gain physical validity."""
+    from sjtu_tpmshx.df_surrogate.full_core_3cell_fixed_v2 import FullCore3CellFixedDFV2, METHOD
+    from sjtu_tpmshx.df_surrogate.predict import predict_K_cF_vec
+
+    L = np.array([np.nan, np.inf, -np.inf, 6., 6., 6., 6.])
+    t = np.array([.4, .4, .4, np.nan, np.inf, -np.inf, .4])
+    eps = np.array([.35, .35, .35, .35, np.nan, np.inf, -np.inf])
+    expected = _loop_reference(FullCore3CellFixedDFV2(topology), L, t, eps)
+    actual = predict_K_cF_vec(topology, L, t, eps, method=METHOD)
+    for result, reference in zip(actual, expected):
+        np.testing.assert_array_equal(result, reference)
+
+
+@pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
+@pytest.mark.parametrize('L,t,eps', [
+    pytest.param(6., .4, .35, id='scalar'),
+    pytest.param(np.array(6.), np.array(.4), np.array(.35), id='zero-dimensional'),
+    pytest.param(np.empty((0, 3)), .4, .35, id='empty'),
+    pytest.param(8.1, np.empty((0, 3)), .35, id='empty-unused-outside'),
+    pytest.param(np.array([[4.], [8.]], dtype=np.float32),
+                 np.array([.3, .4, .6]), np.ones((4, 1, 1), dtype=int),
+                 id='broadcast-and-dtypes'),
+    pytest.param(np.linspace(4., 8., 9)[::-2], np.linspace(.3, .6, 10)[::2],
+                 .35, id='noncontiguous'),
+])
+def test_batch_shapes_and_independent_writable_outputs(topology, L, t, eps):
+    from sjtu_tpmshx.df_surrogate.full_core_3cell_fixed_v2 import FullCore3CellFixedDFV2, METHOD
+    from sjtu_tpmshx.df_surrogate.predict import predict_K_cF_vec
+
+    inputs = [value for value in (L, t, eps) if isinstance(value, np.ndarray)]
+    originals = [value.copy() for value in inputs]
+    expected = _loop_reference(FullCore3CellFixedDFV2(topology), L, t, eps)
+    K, cF = predict_K_cF_vec(topology, L, t, eps, method=METHOD)
+    for result, reference in zip((K, cF), expected):
+        assert result.shape == np.broadcast(L, t, eps).shape
+        assert result.dtype == np.float64
+        assert result.flags.writeable
+        assert all(not np.shares_memory(result, value) for value in inputs)
+        np.testing.assert_array_equal(result, reference)
+    assert not np.shares_memory(K, cF)
+    K[...] = -1.
+    np.testing.assert_array_equal(cF, expected[1])
+    cF[...] = -2.
+    for value, original in zip(inputs, originals):
+        np.testing.assert_array_equal(value, original)
+    for result, reference in zip(
+            predict_K_cF_vec(topology, L, t, eps, method=METHOD), expected):
+        np.testing.assert_array_equal(result, reference)
+
+
+@pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
+@pytest.mark.parametrize('L,t', [
+    (4. - 8e-12, .4), (8. + 16e-12, .4),
+    (6., .3 - 2e-12), (6., .6 + 2e-12),
+])
+def test_batch_outside_tolerance_preserves_scalar_error(topology, L, t):
+    from sjtu_tpmshx.df_surrogate.full_core_3cell_fixed_v2 import FullCore3CellFixedDFV2, METHOD
+    from sjtu_tpmshx.df_surrogate.predict import predict_K_cF_vec
+
+    lengths, thicknesses = np.array([6., L]), np.array([.4, t])
+    with pytest.raises(ValueError) as scalar_error:
+        _loop_reference(FullCore3CellFixedDFV2(topology), lengths, thicknesses, .35)
+    with pytest.raises(ValueError) as batch_error:
+        predict_K_cF_vec(topology, lengths, thicknesses, .35, method=METHOD)
+    assert str(batch_error.value) == str(scalar_error.value)
+
+
+@pytest.mark.parametrize('topology,L,t,method,message', [
+    ('Gyroid', [6.], .4, 'retired', "unknown DF method 'retired'"),
+    ('Other', [6.], .4, 'cfd_full_core_3cell_fixed_v2', 'support Diamond/Gyroid only'),
+    ('Gyroid', np.ones(2), np.ones(3), 'retired', 'shape mismatch'),
+    ('Gyroid', ['invalid'], .4, 'retired', 'could not convert string to float'),
+])
+def test_batch_errors_preserve_validation_order(topology, L, t, method, message):
+    from sjtu_tpmshx.df_surrogate.predict import predict_K_cF_vec
+
+    with pytest.raises(ValueError, match=message):
+        predict_K_cF_vec(topology, L, t, .35, method=method)

@@ -77,12 +77,7 @@ def predict_K_cF_vec(tpms_type: str, L_mm: np.ndarray, t_mm: np.ndarray,
     model = _get_model(tpms_type, method)
     L_flat = np.broadcast_to(L_arr, shape).ravel()
     t_flat = np.broadcast_to(t_arr, shape).ravel()
-    e_flat = np.broadcast_to(e_arr, shape).ravel()
-    K = np.empty(L_flat.size)
-    cF = np.empty(L_flat.size)
-    for i in range(L_flat.size):
-        K[i], cF[i] = model.predict(float(L_flat[i]), float(t_flat[i]),
-                                   float(e_flat[i]))
+    K, cF = model.predict_batch(L_flat, t_flat)
     return K.reshape(shape), cF.reshape(shape)
 
 
