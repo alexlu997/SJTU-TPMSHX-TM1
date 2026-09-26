@@ -245,3 +245,17 @@ def test_temperature_validates_absolute_value_without_changing_display_unit(unit
     assert le.property('inpError') == ('false' if valid else 'true')
     if text == '273.15 K':
         assert le.text() == '0'
+
+
+@pytest.mark.parametrize('text,expected,invalid', [
+    ('10^1000', '10^1000', True),
+    ('(10^1000)/(10^1000)', '1', False),
+])
+def test_expression_float_boundary_preserves_input_semantics(text, expected, invalid):
+    win, le = _MockWindow(), _MockLE(text)
+    _bind_handler(win, le, 'le_L')()
+    assert le.text() == expected
+    assert le.property('inpError') == ('true' if invalid else 'false')
+    if invalid:
+        assert 'Must be a number' in le.toolTip()
+        assert any('Invalid input' in message for message in win._sb.messages)
