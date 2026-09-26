@@ -166,7 +166,7 @@ def props_from_Lt_fields(L_field: np.ndarray, t_field: np.ndarray,
 
     Quantise (L, t) to the (quant_L, quant_t) mm grid, evaluate
     ``tpms_calc.compute`` once per UNIQUE (L, t) pair (A + B side), and
-    scatter into output arrays via boolean masks — calls compute()
+    gather the unique values into output arrays — calls compute()
     n_unique times instead of L_field.size. Shared by
     :meth:`ContinuousFieldConfig.build_grid_arrays` (2D) and
     ``models.screening._build_3d_arrays`` (3D, which z-broadcasts the result),
@@ -181,50 +181,33 @@ def props_from_Lt_fields(L_field: np.ndarray, t_field: np.ndarray,
     t_q = np.round(t_field / quant_t) * quant_t
 
     shp = L_field.shape
-    eps_arr   = np.empty(shp, dtype=np.float64)
-    eps_f_arr = np.empty(shp, dtype=np.float64)
-    K_ffA_arr = np.empty(shp, dtype=np.float64)
-    K_ffB_arr = np.empty(shp, dtype=np.float64)
-    K_ss_arr  = np.empty(shp, dtype=np.float64)
-    h_vA_arr  = np.empty(shp, dtype=np.float64)
-    h_vB_arr  = np.empty(shp, dtype=np.float64)
-    r_h_arr   = np.empty(shp, dtype=np.float64)
-    A_0_arr   = np.empty(shp, dtype=np.float64)
-
-    # Vectorised scatter: evaluate each unique quantised (L, t) once, then
-    # broadcast into the output arrays via a boolean mask. compute() runs
-    # n_unique times instead of L_field.size — the quantised field has only
-    # a few hundred unique pairs.
+    # Evaluate each unique quantised pair once per side, then use the inverse
+    # index to recover cell order without scanning the full grid per pair.
     L_key = np.round(L_q, 4)
     t_key = np.round(t_q, 4)
     pairs = np.stack([L_key.ravel(), t_key.ravel()], axis=1)
     uniq, inv = np.unique(pairs, axis=0, return_inverse=True)
     inv = inv.reshape(-1)
-    # ravel() returns views of the C-contiguous output arrays.
-    f_eps  = eps_arr.ravel();   f_epsf = eps_f_arr.ravel()
-    f_KffA = K_ffA_arr.ravel(); f_KffB = K_ffB_arr.ravel()
-    f_Kss  = K_ss_arr.ravel()
-    f_hvA  = h_vA_arr.ravel();  f_hvB  = h_vB_arr.ravel()
-    f_rh   = r_h_arr.ravel();   f_A0   = A_0_arr.ravel()
+    values = {name: np.empty(uniq.shape[0], dtype=np.float64) for name in (
+        'eps_arr', 'eps_f_arr', 'K_ffA_arr', 'K_ffB_arr', 'K_ss_arr',
+        'h_vA_arr', 'h_vB_arr', 'r_h_arr', 'A_0_arr')}
     for u_idx in range(uniq.shape[0]):
         L_u = float(uniq[u_idx, 0]); t_u = float(uniq[u_idx, 1])
         pA = tpms_calc.compute(tpms_type, L_u, t_u, u_A, T_inA, P_in, k_s)
         pB = tpms_calc.compute(tpms_type, L_u, t_u, u_B, T_inB, P_inB, k_s)
-        m = (inv == u_idx)
-        f_eps[m]  = pA['epsilon'];   f_epsf[m] = pA['epsilon_A']
-        f_KffA[m] = pA['K_ff'];      f_KffB[m] = pB['K_ff']
-        f_Kss[m]  = pA['K_ss']
-        f_hvA[m]  = pA['H_sf'] * pA['A_0']
-        f_hvB[m]  = pB['H_sf'] * pB['A_0']
-        f_rh[m]   = pA['D_h'] / 2.0; f_A0[m]   = pA['A_0']
+        values['eps_arr'][u_idx] = pA['epsilon']
+        values['eps_f_arr'][u_idx] = pA['epsilon_A']
+        values['K_ffA_arr'][u_idx] = pA['K_ff']
+        values['K_ffB_arr'][u_idx] = pB['K_ff']
+        values['K_ss_arr'][u_idx] = pA['K_ss']
+        values['h_vA_arr'][u_idx] = pA['H_sf'] * pA['A_0']
+        values['h_vB_arr'][u_idx] = pB['H_sf'] * pB['A_0']
+        values['r_h_arr'][u_idx] = pA['D_h'] / 2.0
+        values['A_0_arr'][u_idx] = pA['A_0']
 
-    return {
-        'eps_arr': eps_arr, 'eps_f_arr': eps_f_arr,
-        'K_ffA_arr': K_ffA_arr, 'K_ffB_arr': K_ffB_arr,
-        'K_ss_arr': K_ss_arr, 'h_vA_arr': h_vA_arr, 'h_vB_arr': h_vB_arr,
-        'r_h_arr': r_h_arr, 'A_0_arr': A_0_arr,
-        'n_unique': int(uniq.shape[0]),
-    }
+    result = {name: table[inv].reshape(shp) for name, table in values.items()}
+    result['n_unique'] = int(uniq.shape[0])
+    return result
 
 
 # ─── ContinuousFieldConfig ──────────────────────────────────────────
