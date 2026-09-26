@@ -176,21 +176,23 @@ def test_typed_config_requires_explicit_lz_for_3d():
         _parse_inputs_3d_cfg(_cc(Nz=3, Lz=None))
 
 
-def test_3d_initial_dual_fluid_simple_obeys_solver_config():
+def test_3d_initial_dual_fluid_simple_obeys_solver_config(monkeypatch):
     """The initial dual-side SIMPLE solve consumes the configured iteration cap."""
-    import inspect
-    from sjtu_tpmshx.solvers.backends.python.three_d import runtime as _r3
-    # Seam-A extraction (P1.5, 2026-07-20): the initial dual-fluid solve now
-    # lives in _build_3d_problem (problem setup/build), not _run_3d_stack.
-    src = inspect.getsource(_r3.build_problem)
-    assert '_run_two_simple(' in src
-    # Take the call's argument region up to the terminating `cancel_check=`
-    # kwarg (the inner _simple_max_iter(...) call has its own parens, so a
-    # naive split on ')' truncates).
-    call = src.split('_run_two_simple(')[1].split('cancel_check=')[0]
-    assert 'max_iter=_simple_max_iter(cfg' in call, (
-        "the initial dual-fluid SIMPLE solve must forward SolverConfig's "
-        f"max_iter_simple (got: {call!r})")
+    from sjtu_tpmshx.pipelines.run_stack_3d import _build_3d_problem
+    from sjtu_tpmshx.solvers.backends.python.three_d import runtime
+
+    calls = []
+
+    def solve(solver, **kwargs):
+        calls.append((solver, kwargs['max_iter']))
+        return True, 0
+
+    monkeypatch.setattr(runtime.SIMPLESolver3D, 'solve', solve)
+    prob = _build_3d_problem(_cheap_3d(max_iter_simple=37))
+    # The two sides may run in either thread order.
+    assert len(calls) == 2
+    assert {id(solver) for solver, _ in calls} == {id(prob.sA), id(prob.sB)}
+    assert [budget for _, budget in calls] == [37, 37]
 
 
 def test_typed_config_rejects_nonsense_numeric_settings():
@@ -280,32 +282,76 @@ def test_3d_verdict_judges_the_final_simple_solve_not_the_warmup():
                    for t in cd['simple_nonconv_final'])
 
 
-def test_2d_converged_resolve_supersedes_an_earlier_failure():
+def test_2d_converged_resolve_supersedes_an_earlier_failure(monkeypatch):
     """2D's `simple_warnings` dict was written on failure and never cleared.
 
     Keyed by side label, so a stalled warm-up solve stuck for the whole run.
     A later converged solve on the same side must clear it.
     """
-    import inspect
-    from sjtu_tpmshx.solvers.backends.python.two_d import runtime as _s2
-    src = inspect.getsource(_s2)
-    assert 'simple_warnings.pop(label, None)' in src, (
-        "a converged re-solve must supersede an earlier failure on that side")
+    from sjtu_tpmshx.domain.run_warnings import warning_scope
+    from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
+    from sjtu_tpmshx.tests.test_2d_warning_callers import _prepare
 
+    pipe, fields = _prepare(monkeypatch)
+    cfg = pipe._parsed
+    outcomes = iter((False, False, True, True))
+    monkeypatch.setattr(SIMPLESolver, 'solve', lambda *a, **k: (next(outcomes), 3))
 
+    def solve(side):
+        props = cfg['static_properties'][side]
+        fields['_run_simple'](
+            cfg['cfg' + side], props['rho'], props['mu'],
+            cfg['T_in' + side], cfg['u_' + side], 'Fluid ' + side,
+            getattr(pipe.cfg, 'fluid_' + side).P_in_Pa)
+
+    warnings = fields['simple_warnings']
+    with warning_scope({}):
+        solve('A')
+        assert set(warnings) == {'Fluid A'}
+        solve('B')
+        assert set(warnings) == {'Fluid A', 'Fluid B'}
+        warning_B = warnings['Fluid B']
+        solve('A')
+        assert warnings == {'Fluid B': warning_B}
+        solve('B')
+        assert warnings == {}
 
 
 # ── 2D: same contract ────────────────────────────────────────────────────────
 
 
 
-def test_2d_verdict_ands_the_ltne_inner_pass():
+@pytest.mark.parametrize('inner_converged', [False, True])
+def test_2d_verdict_ands_the_ltne_inner_pass(monkeypatch, inner_converged):
     """`e_info['converged']` must reach the 2D verdict (it was write-only)."""
-    import inspect
-    from sjtu_tpmshx.solvers.backends.python.two_d import coupling as _s2
-    src = inspect.getsource(_s2.solve_2d_cfg if hasattr(_s2, 'solve_2d_cfg')
-                            else _s2)
-    assert "e_info.get('converged'" in src, (
-        "the 2D LTNE inner verdict must be ANDed into solver_converged")
-    # Nonfinite returns are rejected before result construction; the behavioral
-    # failure/order contract lives in test_2d_warning_callers, not source strings.
+    from sjtu_tpmshx.domain.run_warnings import warning_scope
+    from sjtu_tpmshx.solvers.backends.python.two_d import coupling
+    from sjtu_tpmshx.tests.test_2d_warning_callers import _prepare
+
+    pipe, fields = _prepare(monkeypatch, legacy=True)
+    shape = pipe._parsed['N_x'], pipe._parsed['N_y']
+    verdicts = iter((not inner_converged, inner_converged))
+
+    def thermal(*args, **kwargs):
+        return (*(np.full(shape, t) for t in (340., 310., 325.)),
+                dict(converged=next(verdicts), iterations=1, residual=0.))
+
+    def drive(*, step, post, **kwargs):
+        _, carry = step(0)
+        post(0, carry)
+        step(1)
+        # Isolate the final LTNE gate from the independent outer predicate.
+        return 1, True
+
+    monkeypatch.setattr(coupling, 'solve_full_domain', thermal)
+    monkeypatch.setattr(coupling, 'run_outer_coupling', drive)
+    monkeypatch.setattr(coupling, '_compute_Q_richardson', lambda *a, **k:
+        (10., 10., -10., 10., False, dict(converged=True, extrapolated=True)))
+    with warning_scope({}):
+        result = pipe.run_solvers(fields)
+    detail = result['convergence_detail']
+    for gate in ('outer_converged', 'simple_ok', 'richardson_ok',
+                 'enthalpy_balance_ok', 'envelope_ok'):
+        assert detail[gate] is True, (gate, detail)
+    assert detail['ltne_ok'] is inner_converged
+    assert result['solver_converged'] is inner_converged
