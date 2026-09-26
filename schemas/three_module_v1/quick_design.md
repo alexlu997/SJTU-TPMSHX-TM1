@@ -41,6 +41,16 @@ and is not used by execution. The prepared data has:
   evaluated at inlet/outlet mean temperatures). Runtime property evaluation is
   part of the model's execution. No geometry or grid is rebuilt at execution.
 
+In both property modes, the water Nu correlation uses Pr at **320 K / 0.2 MPa**.
+The mean pass updates rho, mu, k and cp at each stream's mean temperature and
+original inlet pressure; Re and volumetric heat transfer change accordingly,
+but Nu's representative water Pr does not. Each pass uses spatially uniform
+properties; mean is a two-pass approximation, not a locally varying or
+iteratively converged property field. Result `metadata.properties.Pr` describes
+the actual pass property state, not the representative Pr used by water Nu.
+The separate sCO2 Nu convention remains 480 K / 9 MPa. These conventions do not
+establish experimental accuracy or extend the fluid/correlation validity limits.
+
 The quick-design ModelRef version `v2-5f1cafb` identifies the extracted composite
 closure and numerical-budget conventions. Separate fluid ModelRefs identify
 both actual fluid providers. Unknown versions and mismatching fluid identities

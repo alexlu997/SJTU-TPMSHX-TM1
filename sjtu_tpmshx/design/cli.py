@@ -32,7 +32,8 @@ def run(argv=None) -> int:
     ap.add_argument("--k-s", type=float, default=16.0,
                     help="固体热导率 W/(m·K) (默认 16 = 304SS; 铝~150 铜~300)")
     ap.add_argument("--prop-model", choices=["const", "mean"], default="const",
-                    help="物性取值温: const=入口(快,默认) / mean=均温(消大-ΔT偏置,~1.5×)")
+                    help="const=入口物性求解一次(默认)；mean=再按入口/出口均温更新物性求解一次。"
+                         "压降均用入口物性；水侧 Nu 的 Pr 均固定取 320 K / 0.2 MPa")
     ap.add_argument("--jobs", type=int, default=-1,
                     help="auto 枚举并行核数 (-1=全核, 1=串行; joblib loky)")
     ap.add_argument("--out", required=True)

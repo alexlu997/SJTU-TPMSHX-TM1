@@ -49,6 +49,7 @@ def fluid_props(fluid: str, T_K: float, P_Pa: float) -> Props:
 def fluid_nu(fluid: str, topo: str, Re: float, eps_f: float,
              L_mm: float, D_h_mm: float) -> float:
     """单股 Nu。air: 项目幂律×f_rough; water: 拓扑专属 c·Re^a·Pr^(1/3);
+    water 的 Pr 固定取 320 K / 0.2 MPa，const/mean 均如此；不是各工况物性态的 Pr。
     sco2: nu_sco2_topo (光滑壁 CFD, c·Re^a·Pr^⅓·(Dh/L)^d, Diamond+Gyroid).
     ⚠ design 工具是 plug LTNE，对 sco2 变-cp/近临界本就粗糙——sco2 正式定尺
     的旧焓基工程见 docs/history/retired-tools.md。此处 Pr 取代表性远离临界态。
