@@ -170,6 +170,10 @@ def test_sensitivity_rejects_non_air_a_and_clears_previous_grid(monkeypatch, flu
         assert dialog._grid_params is None
         assert 'Fluid A must be Air' in dialog._hint.text()
         assert dialog._btn_run.isEnabled()
+        window.combo_fluidA.setCurrentIndex(2 if fluid == 'Water' else 1)
+        dialog._run_sweep()
+        assert len(calls) == 9
+        assert dialog._canvas.fig.axes[0].texts[0].get_text() == 'Fluid A must be Air.'
         dialog._on_click(SimpleNamespace(inaxes=old_axes, xdata=4., ydata=.3))
         assert window.le_Lcell.text() == '7' and window.le_t.text() == '.5'
     finally:

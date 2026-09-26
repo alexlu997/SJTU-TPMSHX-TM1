@@ -216,7 +216,7 @@ class SensitivityDialog(QDialog):
         from .window_config import _parse_fluid_label
         fluid = _parse_fluid_label(getattr(self._window, 'combo_fluidA', None))
         if fluid != 'air':
-            self._invalidate_grid(message=f"Fluid A must be Air (selected: {fluid}).")
+            self._invalidate_grid(message="Fluid A must be Air.")
             self._hint.setText(
                 f"Cannot run: Fluid A must be Air (selected: {fluid}). " + _SCOPE_NOTE)
             return
