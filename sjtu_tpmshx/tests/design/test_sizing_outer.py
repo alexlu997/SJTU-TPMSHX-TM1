@@ -1,5 +1,47 @@
 from sjtu_tpmshx.design.cases import DesignCase
 from sjtu_tpmshx.design.sizing import size_fixed_cell
+import pytest
+
+
+@pytest.mark.parametrize('arrangement', ['cross', 'counter'])
+@pytest.mark.parametrize('n_cases,boundary', [
+    (1, .4498), (1, .45), (1, .46),
+    (2, .3), (2, .45), (2, .46),
+])
+def test_width_endpoint_feasibility(monkeypatch, arrangement, n_cases, boundary):
+    """Controlled thermal response, real length and width search; no PDE claim."""
+    from sjtu_tpmshx.design import sizing
+    from sjtu_tpmshx.design.forward import ForwardResult
+    cases = [DesignCase(i, 'air', 400., 2e5, .01, 'air', 300., 2e5, .01,
+                        None, .05, .05, dT=50. if i == 1 else 10.)
+             for i in range(1, n_cases + 1)]
+    calls = []
+
+    def thermal(case, topo, l, t, s, length, arrangement, **kwargs):
+        calls.append((case.case, s, length, kwargs.get('init')))
+        drop = (50. * length / .03 if n_cases == 2 and case.case == 1
+                else case.dT * (s / boundary) * (length / sizing.LX_MAX))
+        return ForwardResult(400. - drop, 310., 100., 100., .001, .001,
+                             1000., 1000., run_status={'converged': True})
+
+    monkeypatch.setattr(sizing, 'forward', thermal)
+    monkeypatch.setattr(sizing, 'tpms_geometry', lambda *a, **kw: {'epsilon': .8})
+    monkeypatch.setattr(sizing, 'dP_fracs', lambda *a, **kw: (.001, .001))
+    design = sizing.size_fixed_cell(cases, 'Diamond', 7., .5,
+                                    arrangement=arrangement)
+    if boundary > sizing.S_MAX:
+        assert not design.feasible and design.reason == 'cooling-unreachable'
+    else:
+        assert design.feasible, design.reason
+        assert boundary <= design.s <= sizing.S_MAX
+        assert 0. < design.Lx <= sizing.LX_MAX
+        assert len(design.percase) == n_cases
+        for case, row, final_call in zip(cases, design.percase, calls[-n_cases:]):
+            assert row['T_air_out'] <= case.T_in_h - case.dT
+            assert row['dP_hot_frac'] <= case.dPlim_h
+            assert row['dP_cold_frac'] <= case.dPlim_c
+            assert row['run_status']['converged']
+            assert final_call == (case.case, design.s, design.Lx, None)
 
 def _cases():
     return [DesignCase(1,"air",688.23,1_088_700.0,0.2855,
