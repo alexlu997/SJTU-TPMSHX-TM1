@@ -158,7 +158,7 @@ class SessionPresetsMixin:
         # The separate optimization figure can remain available for export.
         self._refresh_export_button()
 
-    def _apply_user_preset(self, preset, *, show_notice=True):
+    def _apply_user_preset(self, preset, *, show_notice=True, partial=False):
         """Apply a saved preset payload (shape matches _save_session output).
 
         Widget names are filtered through the SESSION allow-lists so a tampered
@@ -175,6 +175,32 @@ class SessionPresetsMixin:
         miss that the visible result is stale, then quote a number from
         the old compute as if it were the new design's.
         """
+        if partial:
+            # File patches own only the supplied fields. Full saved presets
+            # and sessions retain their existing historical-default policy.
+            if not isinstance(preset, dict):
+                raise ValueError('Preset must be a JSON object.')
+            for section in ('line_edits', 'combos', 'checks'):
+                if not isinstance(preset.get(section, {}), dict):
+                    raise ValueError(f'Invalid {section}.')
+            merged = self._capture_current_preset('Imported parameters')
+            unit = preset.get('temp_unit', self._temp_unit)
+            if unit != self._temp_unit:
+                for name in ('le_TinA', 'le_TinB'):
+                    if name not in preset.get('line_edits', {}) and getattr(self, name).text().strip():
+                        kelvin = self._temp_to_K(getattr(self, name))
+                        merged['line_edits'][name] = str(kelvin - 273.15 if unit == 'C' else kelvin)
+            for name, value in preset.items():
+                if name in ('line_edits', 'combos', 'checks'):
+                    merged[name].update(value)
+                else:
+                    merged[name] = value
+            if ('chk_port_wall_refine' in preset.get('checks', {})
+                    and 'combo_grid' not in preset.get('combos', {})):
+                merged['combos']['combo_grid'] = int(preset['checks']['chk_port_wall_refine'])
+            preset = merged
+        # Cross-field requirements belong to the effective input, before any
+        # widget signal or result invalidation can change the current state.
         self._validate_preset(preset)
         self._invalidate_results_for_preset_load()
         unit = preset.get('temp_unit', 'K')
@@ -627,7 +653,13 @@ class SessionPresetsMixin:
         try:
             self._validate_preset(payload)
         except (TypeError, ValueError) as error:
+            backup = self.sm.quarantine_session(ws)
             message = f"{error}\n已保留当前工况。"
+            if backup is not None:
+                message += f"\n原会话已保存在：{backup}"
+            elif self.sm.session_path(ws).exists():
+                message += ("\n原会话备份失败，已阻止覆盖。"
+                            "请检查用户数据目录的写入权限后重试保存。")
             QTimer.singleShot(0, self, lambda: QMessageBox.warning(
                 self, "会话未恢复", message))
             return

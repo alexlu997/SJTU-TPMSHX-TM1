@@ -36,11 +36,17 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import tempfile
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 from PySide6.QtCore import QObject
 
 from sjtu_tpmshx.controllers.user_storage import user_data_dir
+from sjtu_tpmshx.logutil import get_logger
+
+
+_log = get_logger(__name__)
 
 
 SCHEMA_VERSION = 1
@@ -68,6 +74,7 @@ class SessionManager(QObject):
         if base_dir is None:
             base_dir = user_data_dir()
         self._base = Path(base_dir)
+        self._unrestored_sessions: set[Path] = set()
 
     # ------------------------------------------------------------------ paths
 
@@ -110,40 +117,53 @@ class SessionManager(QObject):
             # silently revert the workspace to defaults AND be destroyed by
             # the next save. Quarantine it so the user's data stays
             # recoverable and the corruption is visible on disk.
-            self._quarantine_corrupt(path)
+            self.quarantine_session(workspace)
             return None
-        except OSError:
+        except OSError as error:
+            self._unrestored_sessions.add(path)
+            _log.warning("Could not read session %s: %s", path, error)
             return None
         if not isinstance(payload, dict):
+            self.quarantine_session(workspace)
             return None
+        self._unrestored_sessions.discard(path)
         # Schema migration: legacy files missing the field → v0
         payload.setdefault('schema_version', 0)
         # Future: payload = self._migrate(payload) ...
         return payload
 
-    def _quarantine_corrupt(self, path: Path) -> None:
-        """Rename an unreadable user file to ``<name>.corrupt-<ts>`` —
-        best-effort, never raises (a locked file just stays in place)."""
+    def quarantine_session(self, workspace: str = 'A') -> Optional[Path]:
+        """Preserve an unrestored session; failed preservation prevents overwriting it."""
+        path = self.session_path(workspace)
+        self._unrestored_sessions.add(path)
+        if not path.exists():
+            self._unrestored_sessions.discard(path)
+            return None
+        backup = self._quarantine_corrupt(path)
+        if backup is not None:
+            self._unrestored_sessions.discard(path)
+        return backup
+
+    def _quarantine_corrupt(self, path: Path) -> Optional[Path]:
+        """Move an unreadable/rejected file to a unique sibling; retain it on failure."""
+        backup = path.with_name(f"{path.name}.corrupt-{uuid4().hex}")
         try:
-            import time as _t
-            path.rename(path.with_name(
-                f"{path.name}.corrupt-{int(_t.time())}"))
-        except OSError:
-            pass
+            path.rename(backup)
+        except OSError as error:
+            _log.warning("Could not preserve user file %s: %s", path, error)
+            return None
+        return backup
 
     def _atomic_write_json(self, path: Path, data: Any) -> bool:
-        """Write JSON to ``path`` atomically.
+        """Atomically replace JSON; the last successful replacement wins.
 
-        2026-05-20 UI sweep: previously the JSON dump went straight to the
-        final path; a process crash mid-write (Qt segfault during compute
-        teardown, power loss, or OOM kill) left the file half-written and
-        unparseable on next launch — workspaces silently reverted to the
-        baked-in defaults. Now we write to ``<path>.tmp`` first, fsync the
-        bytes, then ``os.replace`` for a same-filesystem atomic swap.
+        Each writer owns its temporary file, following ``io.text_file``.
+        A failed writer cannot overwrite or delete another writer's data.
         """
-        tmp = path.with_suffix(path.suffix + '.tmp')
+        tmp = None
         try:
-            with open(tmp, 'w', encoding='utf-8') as f:
+            fd, tmp = tempfile.mkstemp(prefix=path.name + '.', suffix='.tmp', dir=path.parent)
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2)
                 f.flush()
                 try:
@@ -155,12 +175,13 @@ class SessionManager(QObject):
             os.replace(tmp, path)
             return True
         except OSError:
-            try:
-                if tmp.exists():
-                    tmp.unlink()
-            except OSError:
-                pass
             return False
+        finally:
+            if tmp is not None:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
 
     def save_session(self, payload: Dict[str, Any],
                      workspace: str = 'A') -> bool:
@@ -175,6 +196,10 @@ class SessionManager(QObject):
         out = dict(payload)
         out['schema_version'] = SCHEMA_VERSION
         path = self.session_path(workspace)
+        if path in self._unrestored_sessions:
+            self.quarantine_session(workspace)
+            if path in self._unrestored_sessions:
+                return False
         if self._atomic_write_json(path, out):
             return True
         return False
@@ -235,18 +260,18 @@ class SessionManager(QObject):
     def set_active_workspace(self, workspace: str) -> bool:
         """Persist active workspace marker. Returns True on success.
 
-        2026-05-20 UI sweep: single-char marker now also uses
-        write-tmp-then-rename so a power loss does not strand the
-        workspace at the legacy 'A' default.
+        Like session JSON, each writer owns its temporary file and the last
+        successful atomic replacement wins.
         """
         if workspace not in self.VALID_WORKSPACES:
             raise ValueError(
                 f"unknown workspace: {workspace!r} "
                 f"(expected one of {self.VALID_WORKSPACES})")
         path = self.workspace_marker_path()
-        tmp = path.with_suffix(path.suffix + '.tmp')
+        tmp = None
         try:
-            with open(tmp, 'w', encoding='utf-8') as f:
+            fd, tmp = tempfile.mkstemp(prefix=path.name + '.', suffix='.tmp', dir=path.parent)
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
                 f.write(workspace)
                 f.flush()
                 try:
@@ -256,12 +281,13 @@ class SessionManager(QObject):
             os.replace(tmp, path)
             return True
         except OSError:
-            try:
-                if tmp.exists():
-                    tmp.unlink()
-            except OSError:
-                pass
             return False
+        finally:
+            if tmp is not None:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
 
     # ------------------------------------------------------------------ misc
 

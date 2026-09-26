@@ -12,6 +12,7 @@ from sjtu_tpmshx.domain.case_data import CaseData
 from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.domain.compute_config import ComputeConfig
 from sjtu_tpmshx.domain.field_result import FieldResult
+from sjtu_tpmshx.domain.metric_spec import full_metric_version
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.performance_result import PerformanceResult
 from sjtu_tpmshx.logutil import get_logger
@@ -369,6 +370,7 @@ def _condition_metrics(rows: Sequence[ConditionResult], condition_ids: tuple[str
         if (field.run_status.get('execution') != 'completed'
                 or field.run_status.get('converged') is not True):
             raise ValueError(f'{prefix}: run must be completed and converged')
+        dimension = field.grid.get('dimension', field.metadata.get('dimension'))
         for name in _METRICS:
             metric = performance.metrics.get(name)
             if metric is None or metric.status != 'available':
@@ -376,6 +378,9 @@ def _condition_metrics(rows: Sequence[ConditionResult], condition_ids: tuple[str
                 raise ValueError(f'{prefix}: {name} unavailable: {reason}')
             if metric.value is None or not isfinite(metric.value):
                 raise ValueError(f'{prefix}: {name} must be finite')
+            if (name == 'Q_B' and dimension in (2, 3)
+                    and metric.spec.unit != ('W/m' if dimension == 2 else 'W')):
+                raise ValueError(f'{prefix}: Q_B unit disagrees with the result dimension')
         results[condition_id] = performance
     if set(results) != set(condition_ids):
         missing = sorted(set(condition_ids) - set(results))
@@ -423,9 +428,12 @@ def aggregate_multi_condition(
             if base_value <= 0:
                 denominator = '-Q_B' if name == 'Q_B' else name
                 raise ValueError(f'baseline condition {condition_id}: {denominator} must be positive')
-            if ((base.spec.name, base.spec.unit, base.spec.definition_version)
-                    != (current.spec.name, current.spec.unit, current.spec.definition_version)):
+            if ((base.spec.unit, base.spec.definition_version)
+                    != (current.spec.unit, current.spec.definition_version)):
                 raise ValueError(f'condition {condition_id}: {name} metric definitions differ')
+            if base.spec.definition_version != full_metric_version(name):
+                raise ValueError(f'condition {condition_id}: re-evaluate native results '
+                                 f'before comparing the current {name} definition')
             ratio = current_value / base_value
             if not isfinite(ratio):
                 raise ValueError(f'condition {condition_id}: {name} ratio is not finite')
