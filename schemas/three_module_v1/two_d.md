@@ -14,14 +14,22 @@ input. `static_properties` contains the evaluated inlet material properties
 and geometry so runtime does not re-read the solid homogenization environment.
 `flow_inputs.A/B` records the actual SIMPLE cross/stream widths in m,
 `K_m2/cF_per_m` row coefficients, scalar `seed_K_m2/seed_cF_per_m`, and D-F
-applicability metadata. All zoned designs project the same physical L/t fields
-used for thermal geometry: average across the stream with physical cell-width
-weights, then evaluate the fixed D-F model and order rows in the actual flow
-direction. This retains mean-L/t-before-D-F evaluation. The executor validates
-these grids against the physical grid and consumes these coefficients directly;
-receiver D-F environment settings cannot replace them. Temperature-dependent
-properties, graded pressure re-seeding and inlet shooting remain numerical
-execution steps.
+applicability metadata. Non-continuous zones (1D, discrete grid and the legacy
+grid sigmoid path) retain the row model: average the physical L/t fields across
+the transverse width with physical cell-width weights, then evaluate the fixed
+D-F model and order rows in the actual flow direction.
+For `zones.axis="continuous"`, each side additionally records complete local
+`K_field_m2/cF_field_per_m` arrays in its SIMPLE `(cross, stream)` coordinates.
+These are evaluated from each physical L/t cell, with streamwise reversal for
+negative flow. Their crosswise means populate the row arrays for pressure
+initialization only; momentum consumes the complete local arrays. Where
+experimental continuous-field transfer is supported, preparation applies the
+resolved fixed correction factors to the local CFD arrays and records
+`continuous-field-extrapolation`; execution consumes those corrected arrays.
+The executor validates the grids and coefficients, including required local
+arrays for continuous cases, against the physical grid; receiver D-F
+environment settings cannot replace them. Temperature-dependent properties,
+graded pressure re-seeding and inlet shooting remain numerical execution steps.
 `thermal_geometry` contains the fixed scalar or cell-wise A_0 (1/m), D_h
 (m), epsilon, the asymmetric side split and each side's area/diameter versus
 its symmetric reference. These are explicit prepared inputs; geometry changes
@@ -44,9 +52,13 @@ designs, cell/wall geometry is sampled at the final physical cell centres,
 including nonuniform meshes. Their per-cell `thermal_geometry` is required and
 consumed by the local heat-transfer calculation. A zoned prepared archive
 missing these fields is rejected: prepare its original configuration again.
-Continuous, one-dimensional and discrete-grid row drag use the same physical
-source-cell widths for transverse averaging and streamwise projection.
-Uniform arrays must agree with their scalar geometry inputs.
+`zones.axis="continuous"` samples L(x,y)/t(x,y) at those physical centres
+without the discrete-zone Gaussian filter. The original spline controls remain
+in `parameters.continuous_field`, alongside the prepared SI fields; the 2D
+backend rejects `n_ctrl_z`. Uniform arrays must agree with their scalar geometry
+inputs. Continuous-field applicability and calibration limits remain those in
+the [architecture](../../docs/architecture.md); smooth controls alone do not
+establish gradient accuracy or manufacturability.
 
 Four `ModelRef` records identify fluid A, fluid B, geometry and the fixed CFD
 D-F table, with indices in `metadata.model_roles`. Fluid references retain the
