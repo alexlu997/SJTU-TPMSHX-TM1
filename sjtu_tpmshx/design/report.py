@@ -65,7 +65,7 @@ def detail_rows(results) -> list:
         for d in results for pc in d.percase]
 
 
-def write_xlsx(path, results, *, partial=False) -> tuple:
+def write_xlsx(path, results, *, partial=False, termination_reason='cancelled') -> tuple:
     """完整写好双 sheet 后发布，失败保留原报告；返回 (构型数, 可行数, 明细行数)。"""
     tags = pareto_tags(results)
     if partial:
@@ -76,8 +76,9 @@ def write_xlsx(path, results, *, partial=False) -> tuple:
     det = detail_rows(results)
     df_d = pd.DataFrame(det) if det else pd.DataFrame([{"提示": "无可行构型"}])
     if partial:
+        state = {'cancelled': '已取消', 'failed': '失败中止'}[termination_reason]
         for frame in (df_s, df_d):
-            frame['任务状态'] = '已取消：部分候选，不代表完整搜索最优'
+            frame['任务状态'] = f'{state}：部分候选，不代表完整搜索最优'
     path = Path(path)
     with staged_files([path]) as stage:
         with pd.ExcelWriter(stage / path.name, engine="openpyxl") as xw:

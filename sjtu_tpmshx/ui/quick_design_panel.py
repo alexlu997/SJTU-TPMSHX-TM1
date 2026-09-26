@@ -92,13 +92,13 @@ def _make_worker_class():
             results = []
             p = self.params
 
-            def publish(partial=False):
+            def publish(termination_reason='completed'):
                 feasible = [d for d in results if d.feasible]
                 best = min(feasible, key=lambda d: d.V) if feasible else None
                 self.finished_with_result.emit({
                     'feasible': feasible, 'all': results, 'best': best, 'params': p,
-                    'termination_reason': 'cancelled' if partial else 'completed',
-                    'partial': partial,
+                    'termination_reason': termination_reason,
+                    'partial': termination_reason != 'completed',
                 })
 
             try:
@@ -119,7 +119,8 @@ def _make_worker_class():
                 else:
                     results, best = enumerate_select(cases, p["arrangement"], p["nodes"],
                                                      rho_s=p["rho_s"], n_jobs=self.n_jobs, k_s=ks,
-                                                     prop_model=pm, height=ht, control=control)
+                                                     prop_model=pm, height=ht, control=control,
+                                                     completed=results)
                     if p["refine"] and best is not None:
                         from sjtu_tpmshx.design.optimize import warm_start_joint
                         ref = warm_start_joint(cases, best, p["arrangement"],
@@ -134,9 +135,11 @@ def _make_worker_class():
             except CancelledError as exc:
                 if isinstance(exc, SelectionCancelled):
                     results = exc.results
-                publish(partial=True)
+                publish('cancelled')
                 self.cancelled.emit()
             except Exception as e:
+                if results:
+                    publish('failed')
                 self.error_signal.emit(f"{type(e).__name__}: {e}")
 
     return _QDWorker
@@ -222,7 +225,8 @@ def run_quick_design(window) -> None:
         window._qd_last = res
         _fill_table(window, feas, partial=partial)
         if partial:
-            _set_status(window, f"已取消 · 保留 {len(res['all'])} 个已完成候选，"
+            state = '失败中止' if res.get('termination_reason') == 'failed' else '已取消'
+            _set_status(window, f"{state} · 保留 {len(res['all'])} 个已完成候选，"
                         f"其中 {len(feas)} 个可行 · 部分结果，不代表完整搜索最优")
         elif not feas:
             _set_status(window, "无可行件 (≤450mm)")
@@ -233,7 +237,10 @@ def run_quick_design(window) -> None:
     def _on_err(msg):
         if getattr(window, '_close_pending', False):
             return
-        _set_status(window, f"错误: {msg}")
+        last = getattr(window, '_qd_last', None)
+        retained = (f" · 保留 {len(last['all'])} 个已完成候选 · 部分结果，不代表完整搜索最优"
+                    if last and last.get('termination_reason') == 'failed' else '')
+        _set_status(window, f"错误: {msg}{retained}")
 
     def _on_finished():
         if not worker.wait(0):
@@ -546,9 +553,12 @@ def build_quick_design_dialog(parent=None):
         try:
             from sjtu_tpmshx.design.report import write_xlsx          # CLI/UI 共用双 sheet
             partial = last.get('partial', False)
-            n_total, n_feas, n_det = write_xlsx(path, results, partial=partial)
+            reason = last.get('termination_reason', 'cancelled')
+            n_total, n_feas, n_det = write_xlsx(path, results, partial=partial,
+                                               termination_reason=reason)
+            state = '失败中止' if reason == 'failed' else '已取消'
             dlg._qd_status.setText(
-                f"{'已导出部分结果（已取消）' if partial else '已导出'} → {path}  (构型汇总 {n_total}/可行 {n_feas} · "
+                f"{f'已导出部分结果（{state}）' if partial else '已导出'} → {path}  (构型汇总 {n_total}/可行 {n_feas} · "
                 f"工况明细 {n_det} 行)")
         except Exception as exc:
             dlg._qd_status.setText(f"导出失败: {exc}")
