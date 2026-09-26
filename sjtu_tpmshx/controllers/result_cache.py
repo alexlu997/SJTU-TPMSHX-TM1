@@ -5,7 +5,7 @@ snapshots and their menu.
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Optional
 
 from sjtu_tpmshx.domain.compute_result import ComputeResult
 
@@ -20,7 +20,7 @@ class ResultCache(QObject):
 
     def __init__(self, parent: Optional[QObject] = None):
         super().__init__(parent)
-        self._results: dict[str, dict[str, Any] | ComputeResult | None] = {
+        self._results: dict[str, ComputeResult | None] = {
             m: None for m in self.MODES
         }
         # Which tabs have been drawn for the current result snapshot.
@@ -34,7 +34,7 @@ class ResultCache(QObject):
             raise ValueError(
                 f"unknown mode: {mode!r} (expected one of {self.MODES})")
 
-    def set_result(self, mode: str, payload: dict[str, Any] | ComputeResult | None) -> None:
+    def set_result(self, mode: str, payload: ComputeResult | None) -> None:
         """Store a fresh result for `mode`. Pass None to clear.
 
         A non-None payload clears the drawn-tabs set for repainting.
@@ -45,7 +45,7 @@ class ResultCache(QObject):
             # New result invalidates all prior tab renders.
             self._drawn_tabs.clear()
 
-    def get_result(self, mode: str) -> dict[str, Any] | ComputeResult | None:
+    def get_result(self, mode: str) -> ComputeResult | None:
         self._check_mode(mode)
         return self._results[mode]
 

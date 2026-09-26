@@ -50,6 +50,32 @@ def test_chi_s_env_is_read_per_call(monkeypatch):
     assert chi_s_eff('Diamond', 0.6) == fit_val
 
 
+def test_compute_cache_hits_use_current_chi_s(monkeypatch):
+    from sjtu_tpmshx.models import tpms_calc
+    monkeypatch.setattr(tpms_calc, '_tpms_geom', lambda *args: {
+        'epsilon': .7, 'A_0': 1000., 'D_h': .002})
+    monkeypatch.delenv('TPMSHX_CHI_S', raising=False)
+    args = ('Gyroid', 6., .4, 10., 300., 200000., 16.)
+    tpms_calc.compute.cache_clear()
+    try:
+        fitted = tpms_calc.compute(*args)
+        monkeypatch.setenv('TPMSHX_CHI_S', '.5')
+        half = tpms_calc.compute(*args)
+        assert half['K_ss'] == pytest.approx(2.4)
+        monkeypatch.setenv('TPMSHX_CHI_S', '1.0')
+        assert tpms_calc.compute(*args)['K_ss'] == pytest.approx(4.8)
+        assert half['K_ss'] == pytest.approx(2.4)
+        monkeypatch.delenv('TPMSHX_CHI_S')
+        assert tpms_calc.compute(*args) == fitted
+        assert tpms_calc.compute.cache_info().misses == 1
+        assert tpms_calc.compute.cache_info().hits == 3
+        monkeypatch.setenv('TPMSHX_CHI_S', 'invalid')
+        with pytest.raises(ValueError):
+            tpms_calc.compute(*args)
+    finally:
+        tpms_calc.compute.cache_clear()
+
+
 def test_laplacian_amg_cache_reset_hook():
     from sjtu_tpmshx.solvers.ltne_energy_3d import (_LAPLACIAN_AMG_CACHE,
                                         clear_laplacian_amg_cache)

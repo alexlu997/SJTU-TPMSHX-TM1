@@ -119,7 +119,7 @@ def eval_expr(text):
         return None
     try:
         val = float(result)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     # 2026-05-20 UI sweep: block NaN / ±Inf from leaking into the
     # LineEdit (e.g. user types `1/0`, `0**-1`, or `log(0)`). Without

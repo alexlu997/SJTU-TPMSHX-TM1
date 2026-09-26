@@ -6,6 +6,7 @@ from collections import Counter
 from .cases import load_cases
 from .sizing import size_fixed_cell
 from .select import enumerate_select
+from sjtu_tpmshx.domain.cancellation import CancelledError
 
 def _parse_cell(s):           # "Diamond,7,0.5"
     topo, l, t = s.split(","); return topo, float(l), float(t)
@@ -38,24 +39,38 @@ def run(argv=None) -> int:
     a = ap.parse_args(argv)
     cases = load_cases(a.xlsx)
 
-    if a.mode == "fixed":
-        topo, l, t = _parse_cell(a.cell)
-        d = size_fixed_cell(cases, topo, l, t, a.arrangement,
-                            rho_s=a.rho_s, k_s=a.k_s, prop_model=a.prop_model)
-        results, best = [d], (d if d.feasible else None)
-    else:
-        nodes = _parse_nodes(a.nodes) if a.nodes else None
-        results, best = enumerate_select(cases, a.arrangement, nodes,
-                                         rho_s=a.rho_s, n_jobs=a.jobs, k_s=a.k_s,
-                                         prop_model=a.prop_model)
-        if a.refine and best is not None:           # Stage B warm-start 精修
-            from .optimize import warm_start_joint
-            ref = warm_start_joint(cases, best, a.arrangement,
-                                   rho_s=a.rho_s, k_s=a.k_s,
-                                   prop_model=a.prop_model)
-            if ref is not best:
-                results = results + [ref]
-                best = ref
+    results = []
+    try:
+        if a.mode == "fixed":
+            topo, l, t = _parse_cell(a.cell)
+            d = size_fixed_cell(cases, topo, l, t, a.arrangement,
+                                rho_s=a.rho_s, k_s=a.k_s, prop_model=a.prop_model)
+            results, best = [d], (d if d.feasible else None)
+        else:
+            nodes = _parse_nodes(a.nodes) if a.nodes else None
+            results, best = enumerate_select(cases, a.arrangement, nodes,
+                                             rho_s=a.rho_s, n_jobs=a.jobs, k_s=a.k_s,
+                                             prop_model=a.prop_model, completed=results)
+            if a.refine and best is not None:           # Stage B warm-start 精修
+                from .optimize import warm_start_joint
+                ref = warm_start_joint(cases, best, a.arrangement,
+                                       rho_s=a.rho_s, k_s=a.k_s,
+                                       prop_model=a.prop_model)
+                if ref is not best:
+                    results = results + [ref]
+                    best = ref
+    except CancelledError:
+        raise
+    except Exception:
+        if results:
+            try:
+                from .report import write_xlsx
+                write_xlsx(a.out, results, partial=True, termination_reason='failed')
+                print(f"[partial written] {a.out} · 失败前 {len(results)} 个已完成候选，"
+                      "不代表完整搜索最优", file=sys.stderr)
+            except Exception as report_error:
+                print(f"部分结果导出失败: {report_error}", file=sys.stderr)
+        raise
     from .report import write_xlsx, cid, warning_text  # CLI/UI 共用
     n_total, n_feas, n_det = write_xlsx(a.out, results)
     print(f"[written] {a.out}  构型 {n_total} (可行 {n_feas}) × 工况 {len(cases)} "

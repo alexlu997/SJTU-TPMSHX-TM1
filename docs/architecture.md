@@ -56,6 +56,10 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   It is the sole production result mapper. The old 2D/3D mappings remain only
   as frozen test oracles for the real native-result integration comparison.
 - `ui/` owns PySide6 and PyVista presentation only.
+  Both dimensions use `ComputeResult` in the result cache. The 2D publication
+  snapshots scalars, metadata, warnings and exported status while sharing field
+  arrays; 3D retains the published object. A failed or cancelled attempt preserves
+  the last accepted result for display and export, independently of current inputs.
   Its canvas workbench reuses the existing parameter widgets in a left-hand
   geometry/boundary/solver inspector. Field phase and 3D z-slice selections
   read the accepted result snapshot; draft edits do not replace that source.
@@ -140,8 +144,11 @@ Coarse bootstrap supplies a bounded initial guess, not a convergence certificate
 Old result files remain readable; rerunning an explicit legacy configuration
 requires selecting F2 and accepting the independently measured result.
 
-Both backends consume `models/fluid_props.FluidModel`. Correlations, property
-sources and validity checks stay in their owning model modules. Shared outer
+Both backends consume `models/fluid_props.FluidModel`. The registry imports
+air/water primitives from `tpms_props` and Nu functions from `nu_correlations`
+directly; `tpms_calc` retains its public re-exports without a return dependency
+from the registry. Correlations, property sources and validity checks stay in
+their owning model modules. Shared outer
 iteration and temperature-delta tracking live in `coupling_skeleton.py`; both
 full-compute drivers track Ta, Tb and Ts, with the existing extra 2D density
 gate. Dimension-specific solve order and native flux capture remain explicit.
@@ -412,8 +419,11 @@ coordinates, with their existing overwrite and smoothing rules; the B-side
 and A-side momentum solvers both consume their local D-F arrays.
 
 Quick sizing accepts a candidate only after every final case converges and
-meets its duty/temperature and pressure limits with finite results. Design
-property lookups apply the shared liquid-water state guard to the inlet and,
+meets its duty/temperature and pressure limits with finite results. Final-case
+records, GUI diagnostics and Excel also retain hot/cold duties and the existing
+energy-imbalance metric with its availability and reason. This diagnostic does
+not participate in feasibility filtering; unavailable values are not zero.
+Design property lookups apply the shared liquid-water state guard to the inlet and,
 for the second mean-property pass, the representative temperature paired with
 the existing inlet pressure. Invalid pairs raise `WaterStateError` before
 liquid properties are used. This scalar check does not certify phase stability
@@ -422,6 +432,11 @@ field, and its analytical pressure drop retains its existing meaning. Retained
 screening BO keeps bounded penalty objectives for training, but excludes failed evaluations
 from reported Pareto fronts and hypervolume. History rows retain their status
 and failure reason; a completed screening run is not experimental validation.
+GP fitting or candidate-selection errors stop the affected screening seed,
+save its completed history and latest front with a failed run status, and
+propagate the original exception. They no longer continue with an unfitted
+model. A failed seed does not write a final front or enter the multiseed merge;
+other successful seeds retain the existing partial-campaign behavior.
 
 Separate processes use case.yaml + case.h5, results.h5, VTK views and
 metrics.json. Exact contracts and mode-specific restrictions are in

@@ -13,6 +13,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from sjtu_tpmshx.domain.compute_result import ComputeResult
+
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 @pytest.fixture(scope="module")
@@ -189,7 +191,7 @@ def test_complete_config_menu_roundtrip(tmp_path, monkeypatch, win,
     win._grid_nx = 3
     win.zone_table.setRowCount(1)
     win._pareto_x_decision = [8.0, 0.6] * 18
-    win.cache.set_result('2d', {'stale': True})
+    win.cache.set_result('2d', ComputeResult())
     win._undo_last = {'le_L': 'old'}
     actions['加载配置文件…'].trigger()
     assert not errors
@@ -233,7 +235,7 @@ def test_polygon_file_is_rejected_without_changing_inputs_or_results(
     path = tmp_path / 'polygon.json'
     original = json.dumps({'config_format': 1, 'preset': old})
     path.write_text(original)
-    result = {'already computed': True}
+    result = ComputeResult()
     win.cache.set_result('2d', result)
     errors = []
     monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *args: (str(path), ''))
@@ -404,11 +406,12 @@ def test_bad_config_does_not_partially_apply(tmp_path, monkeypatch, win, damage)
     monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *a: (str(path), ''))
     errors = []
     monkeypatch.setattr(QMessageBox, 'critical', lambda *a: errors.append(a))
-    win.cache.set_result('2d', {'old': 123})
+    accepted = ComputeResult(Q_W=123.)
+    win.cache.set_result('2d', accepted)
     assert win.load_config() is False
     assert errors
     assert win._capture_current_preset('test') == before
-    assert win.cache.get_result('2d') == {'old': 123}
+    assert win.cache.get_result('2d') is accepted
     win.cache.clear('2d')
 
 
@@ -432,13 +435,14 @@ def test_continuous_session_rejects_invalid_checks_without_losing_state(
     callbacks, messages = [], []
     monkeypatch.setattr(QTimer, 'singleShot', lambda delay, owner, callback: callbacks.append(callback))
     monkeypatch.setattr(QMessageBox, 'warning', lambda *args: messages.append(args[2]))
-    win.cache.set_result('2d', {'old': 123})
+    accepted = ComputeResult(Q_W=123.)
+    win.cache.set_result('2d', accepted)
     win._restore_session()
     for callback in callbacks:
         callback()
     assert len(messages) == 1 and 'Invalid checks' in messages[0]
     assert win._capture_current_preset('current') == before
-    assert win.cache.get_result('2d') == {'old': 123}
+    assert win.cache.get_result('2d') is accepted
     win.cache.clear('2d')
 
 
@@ -630,7 +634,7 @@ def test_session_restores_complete_physical_case_in_kelvin(win, monkeypatch, uni
     monkeypatch.setattr(win.sm, 'save_session', lambda payload, ws: saved.update(payload) or True)
     assert win._save_session()
     win._apply_shanghai_defaults()
-    win.cache.set_result('2d', {'stale': True})
+    win.cache.set_result('2d', ComputeResult())
     monkeypatch.setattr(win.sm, 'load_session', lambda ws: saved)
     win._restore_session()
     assert win._temp_unit == 'K'
@@ -762,7 +766,11 @@ def test_export_results_writes_2d_values(tmp_path, monkeypatch, win):
     from PySide6.QtWidgets import QFileDialog
 
     out = tmp_path / 'results.csv'
-    win.cache.set_result('2d', {'Q_total': 123.5, 'dP_A': 45.0, 'dP_B': 6.0, 'Ta': np.array([[300.0, 301.0], [302.0, 303.0]]), 'L': 0.2, 'H': 0.1})
+    # Explicitly absent status must remain unknown in the exported file.
+    win.cache.set_result('2d', ComputeResult(
+        Q_W=123.5, dP_A_Pa=45., dP_B_Pa=6., converged=None,
+        warnings=None, extrap_reasons=None, metadata=None,
+        fields={'Ta': np.array([[300., 301.], [302., 303.]]), 'L': .2, 'H': .1}))
     monkeypatch.setattr(
         QFileDialog, 'getSaveFileName',
         staticmethod(lambda *a, **k: (str(out), 'CSV')),
@@ -875,6 +883,9 @@ def test_result_status_survives_notification_and_mode_switch(
             extrap_reasons=reasons.copy(),
             diagnostics={'mode': mode, 'envelope_valid': envelope,
                          'convergence_detail': {'outer_converged': outer}},
+            metadata={'source': {'name': f'accepted-{index}'}},
+            residuals={'Q_A': 10., 'Q_B': -9., 'Q_net': 1.,
+                       'energy_imbalance_rel': .1},
             fields={key: field for key in
                     ('Ta', 'Tb', 'Ts', 'ucA', 'vcA', 'ucB', 'vcB', 'P_fA',
                      'P_fB', 'vmag_A')},
@@ -888,10 +899,25 @@ def test_result_status_survives_notification_and_mode_switch(
             assert win._compute_warnings == expected_warnings
             assert not notices, 'completed solves must not wait for a warning popup'
             assert win._diag_summary['converged'] == converged
-            assert win.cache.get_result('2d')['warnings'] == expected_warnings
+            assert win.cache.get_result('2d').warnings == expected_warnings
             # Result owns copies; a later notification/draft must not replace it.
             result.warnings.clear()
             result.extrap_reasons.clear()
+            result.Q_W, result.dP_A_Pa, result.dP_B_Pa = -1., -2., -3.
+            result.converged = not converged
+            result.fields.update(Ta=np.full_like(field, -1.), L=9., H=8.)
+            result.metadata['source']['name'] = 'changed-after-publication'
+            result.diagnostics['envelope_valid'] = not envelope
+            result.diagnostics['convergence_detail']['outer_converged'] = not outer
+            result.residuals.update(Q_A=-100., Q_B=-200., Q_net=-300.,
+                                    energy_imbalance_rel=99.)
+            cached = win.cache.get_result('2d')
+            assert cached.fields['Ta'] is field  # Preserve arrays, not the input mapping.
+            for key, expected in (('Q_A', 10.), ('Q_B', -9.), ('Q_net', 1.),
+                                  ('energy_imbalance_rel', .1)):
+                assert cached.residuals[key] == expected
+            assert win._diag_summary['Q_A'] == 10.
+            assert win._diag_summary['closure_rel'] == .1
         win._compute_warnings = ['下一工况通知']
         win._extrap_reasons = ['下一工况外推']
         out = tmp_path / f'{index}.csv'
@@ -902,6 +928,11 @@ def test_result_status_survives_notification_and_mode_switch(
             rows = dict(csv.reader(stream))
         q_unit = 'W' if mode == '3d' else 'W/m'
         assert rows[f'Q [{q_unit}]'] == f'{123 + index:.4f}'
+        assert rows['dP_A [Pa]'] == '45.00'
+        assert rows['dP_B [Pa]'] == '6.00'
+        assert rows['Ta_min [K]'] == '300.00'
+        assert rows['Ta_max [K]'] == '307.00'
+        assert json.loads(rows['metadata']) == {'source': {'name': f'accepted-{index}'}}
         for key, value in (('converged', converged), ('envelope_valid', envelope),
                            ('outer_converged', outer), ('warnings', expected_warnings),
                            ('extrap_reasons', reasons)):
@@ -918,6 +949,8 @@ def test_result_status_survives_notification_and_mode_switch(
                 np.testing.assert_array_equal(saved['P_kPa'], field / 1000)
         else:
             assert not npz.exists()
+            assert rows['Lx [m]'] == '0.200000'
+            assert rows['Ly [m]'] == '0.100000'
 
 
 def test_current_nu_button_explicit_selection_and_saved_parameter_restore(win):
@@ -1135,7 +1168,7 @@ def test_pareto_figure_copy_export_survives_field_result_then_clears_on_empty(
                 win._invalidate_results_for_preset_load()
             if state == 'later-field-result':
                 # Publishing a field snapshot clears its own rendered-tab flags.
-                win.cache.set_result('2d', {'Q_total': 1.})
+                win.cache.set_result('2d', ComputeResult(Q_W=1.))
             QGuiApplication.clipboard().clear()
             assert win.btn_export.isEnabled()
             menu_actions['复制当前图像'].trigger()

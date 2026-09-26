@@ -7,6 +7,8 @@ from bisect import bisect_left
 from math import isfinite
 from pathlib import Path
 
+import numpy as np
+
 
 METHOD = "cfd_full_core_3cell_fixed_v2"
 TABLE_PATH = Path(__file__).parent / "_prebuilt" / f"{METHOD}.csv"
@@ -58,6 +60,22 @@ def _bracket(value: float, nodes: tuple[float, ...]) -> tuple[float, float, floa
     return lo, hi, (value - lo) / (hi - lo)
 
 
+def _bracket_batch(values, nodes):
+    nodes = np.asarray(nodes, dtype=np.float64)
+    tol = 1e-12 * np.maximum(1.0, np.abs(values))
+    if np.any((values < nodes[0] - tol) | (values > nodes[-1] + tol)):
+        raise ValueError
+    values = np.clip(values, nodes[0], nodes[-1])
+    # Match bisect_left, including its NaN insertion point and lower-side snap.
+    upper = np.searchsorted(nodes, np.where(np.isnan(values), nodes[0], values))
+    snapped = np.abs(values - nodes[upper]) <= tol
+    lower = np.where(snapped, upper, upper - 1)
+    weight = np.zeros(values.shape, dtype=np.float64)
+    np.divide(values - nodes[lower], nodes[upper] - nodes[lower],
+              out=weight, where=~snapped)
+    return lower, upper, weight
+
+
 class FullCore3CellFixedDFV2:
     """Return node values or bilinear ``(L, t)`` interpolation within the CFD grid."""
 
@@ -86,6 +104,26 @@ class FullCore3CellFixedDFV2:
                      + wL * table[L1, t0][index])
             at_t1 = ((1.0 - wL) * table[L0, t1][index]
                      + wL * table[L1, t1][index])
+            result.append((1.0 - wt) * at_t0 + wt * at_t1)
+        return result[0], result[1]
+
+    def predict_batch(self, L_mm, t_mm):
+        """Evaluate matching arrays in the scalar interpolation's operation order."""
+        try:
+            L0, L1, wL = _bracket_batch(L_mm, _L_NODES)
+            t0, t1, wt = _bracket_batch(t_mm, _T_NODES)
+        except ValueError as exc:
+            raise ValueError(
+                "geometry is outside the fixed sCO2 CFD grid: "
+                "4 <= L <= 8 mm and 0.3 <= t <= 0.6 mm"
+            ) from exc
+        values = np.asarray([[_TABLE[self.tpms][L, t] for t in _T_NODES]
+                             for L in _L_NODES], dtype=np.float64)
+        result = []
+        for index in (0, 1):
+            table = values[:, :, index]
+            at_t0 = (1.0 - wL) * table[L0, t0] + wL * table[L1, t0]
+            at_t1 = (1.0 - wL) * table[L0, t1] + wL * table[L1, t1]
             result.append((1.0 - wt) * at_t0 + wt * at_t1)
         return result[0], result[1]
 

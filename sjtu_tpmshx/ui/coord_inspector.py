@@ -47,7 +47,7 @@ _FIELD_TABLE = [
 def _resolve_fields(window, x_mm, y_mm):
     """Return list of (label, value_str, unit) at the (x_mm, y_mm) point.
 
-    Reads directly from `window.cache.get_result('2d')`. If results haven't
+    Reads fields from the accepted 2D/3D ComputeResult. If results haven't
     been computed yet, returns an empty list (caller displays "— no
     compute yet —" in that case).
     """
@@ -122,10 +122,11 @@ def _resolve_fields(window, x_mm, y_mm):
 
 
 def _display_fields(window):
-    """Read the same immutable result source as the active field canvas."""
+    """Read the same accepted result source as the active field canvas."""
     result_3d = window.cache.get_result('3d')
     if result_3d is None:
-        return window.cache.get_result('2d')
+        result_2d = window.cache.get_result('2d')
+        return result_2d.fields if result_2d is not None else None
     f = result_3d.fields
     nx, ny, _ = f['Ta'].shape
     return {**f, 'N_x': nx, 'N_y': ny, 'L': f['Lx'], 'H': f['Ly'],

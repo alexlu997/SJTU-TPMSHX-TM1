@@ -527,6 +527,21 @@ class ComputeConfig:
         """
         import math
 
+        for name, value in (
+                ('zones.enabled', self.zones.enabled),
+                ('extrap.allow', self.extrap.allow),
+                ('flags.wall_refine_3d', self.flags.wall_refine_3d),
+                ('flags.port_wall_refine', self.flags.port_wall_refine),
+                ('flags.variable_rho_cp', self.flags.variable_rho_cp)):
+            if type(value) is not bool:
+                raise ValueError(f'ComputeConfig.{name} must be boolean')
+        for name in ('Nx', 'Ny', 'Nz', 'max_iter_simple', 'max_outer_ltne'):
+            value = getattr(self.solver, name)
+            if value is None and name in ('max_iter_simple', 'max_outer_ltne'):
+                continue
+            if type(value) is not int:
+                raise ValueError(f'ComputeConfig.solver.{name}={value!r} must be an integer')
+
         self.zones.validate()
         self.sco2_nu.validate()
         if self.zones.enabled and self.zones.axis == 'continuous':
@@ -572,12 +587,7 @@ class ComputeConfig:
         for name, n in (('solver.Nx', self.solver.Nx),
                         ('solver.Ny', self.solver.Ny),
                         ('solver.Nz', self.solver.Nz)):
-            try:
-                iv = int(n)
-            except (TypeError, ValueError):
-                raise ValueError(
-                    f"ComputeConfig.{name}={n!r} — must be an int >= 1")
-            if iv < 1:
+            if n < 1:
                 raise ValueError(
                     f"ComputeConfig.{name}={n} — must be >= 1")
 
@@ -645,22 +655,12 @@ class ComputeConfig:
         require_f2_mode(self.solver.convergence_mode)
 
         if self.solver.max_iter_simple is not None:
-            try:
-                mi = int(self.solver.max_iter_simple)
-            except (TypeError, ValueError):
-                raise ValueError(
-                    f"ComputeConfig.solver.max_iter_simple="
-                    f"{self.solver.max_iter_simple!r} — must be an int >= 1")
+            mi = self.solver.max_iter_simple
             if mi < 1:
                 raise ValueError(
                     f"ComputeConfig.solver.max_iter_simple={mi} — must be >= 1")
         if self.solver.max_outer_ltne is not None:
-            try:
-                mo = int(self.solver.max_outer_ltne)
-            except (TypeError, ValueError):
-                raise ValueError(
-                    f"ComputeConfig.solver.max_outer_ltne="
-                    f"{self.solver.max_outer_ltne!r} — must be an int >= 2")
+            mo = self.solver.max_outer_ltne
             # < 2 CANNOT converge: OuterConvergence needs a previous field to
             # diff against, so the first outer iteration is never 'converged'
             # by construction — the loop always exits on the cap and the run

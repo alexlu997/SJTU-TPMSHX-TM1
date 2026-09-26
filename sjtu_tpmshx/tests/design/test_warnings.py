@@ -87,16 +87,32 @@ def test_cli_refined_best_and_both_export_sheets(monkeypatch, tmp_path, capsys, 
 
 
 @pytest.mark.parametrize('model,passes', [('const', 1), ('mean', 2)])
-def test_forward_labels_without_extra_property_or_thermal_calls(monkeypatch, model, passes):
+@pytest.mark.parametrize('diagnostic_state', ['available', 'unsupported', 'missing'])
+def test_forward_labels_without_extra_property_or_thermal_calls(
+        monkeypatch, model, passes, diagnostic_state):
     import importlib
     import numpy as np
     f = importlib.import_module('sjtu_tpmshx.design.forward')
     model_source = importlib.import_module('sjtu_tpmshx.models.quick_design')
     preparation = importlib.import_module('sjtu_tpmshx.preprocess.app_modes.quick_design')
     execution = importlib.import_module('sjtu_tpmshx.solvers.backends.python.quick_design.execution')
+    postprocess = importlib.import_module('sjtu_tpmshx.postprocess.api')
     from sjtu_tpmshx.models import design_fluids as fluids
     from sjtu_tpmshx.domain.run_warnings import record_range, warning_messages
-    calls, solves = [], []
+    calls, solves, diagnostics = [], [], []
+    evaluate = postprocess.evaluate
+    def evaluated(*args, **kwargs):
+        performance = evaluate(*args, **kwargs)
+        metrics = dict(performance.metrics)
+        metric = metrics['energy_imbalance_rel']
+        assert metric.value == .5 and metric.status == 'available'
+        if diagnostic_state == 'unsupported':
+            metrics['energy_imbalance_rel'] = replace(
+                metric, value=None, status='unsupported', reason='diagnostic unavailable')
+        elif diagnostic_state == 'missing':
+            del metrics['energy_imbalance_rel']
+        diagnostics.append(metrics.get('energy_imbalance_rel'))
+        return replace(performance, metrics=metrics)
     def props(fluid, T, P):
         calls.append((fluid, T, P))
         record_range(('property', fluid), T, (0., 1.), label=fluid, quantity='T', unit='K')
@@ -111,6 +127,7 @@ def test_forward_labels_without_extra_property_or_thermal_calls(monkeypatch, mod
         epsilon=.5, epsilon_A=.25, A_0=100., D_h=.001))
     monkeypatch.setattr(execution, 'solve_full_domain_3d', thermal)
     monkeypatch.setattr(model_source, '_dp_one', lambda *a, **kw: 100.)
+    monkeypatch.setattr(postprocess, 'evaluate', evaluated)
     c = replace(_case(), hot_fluid='water', cold_fluid='sco2')
     with warning_scope({}) as records:
         result = f.forward(c, 'Diamond', 7., .5, .1, .1, prop_model=model)
@@ -122,6 +139,7 @@ def test_forward_labels_without_extra_property_or_thermal_calls(monkeypatch, mod
                      ('sco2', 325., 2e5), ('sco2', 480., 9e6)]
     assert calls == expected and len(solves) == passes
     assert result.Q_hot == 10000. and result.Q_cold == 5000.
+    assert len(diagnostics) == 1 and result.energy_imbalance is diagnostics[0]
     messages = '\n'.join(warning_messages(records))
     for side in ('A', 'B'):
         assert f'side={side}, stage=design-inlet-pass' in messages

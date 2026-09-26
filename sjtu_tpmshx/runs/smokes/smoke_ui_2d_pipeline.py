@@ -34,16 +34,16 @@ def main():
         assert win._compute_error is None, f'worker error: {win._compute_error}'
 
         result = win.cache.get_result('2d')
-        assert result and result.get('Ta') is not None, 'no results written'
-        shape = (result['N_x'], result['N_y'])
+        assert result is not None and result.fields.get('Ta') is not None, 'no results written'
+        shape = (result.fields['N_x'], result.fields['N_y'])
         for name in ('Ta', 'Tb', 'Ts'):
-            values = result[name]
+            values = result.fields[name]
             assert values.shape == shape and np.isfinite(values).all(), name
-        assert result['Q_total'] > 0, f"non-physical Q_total {result['Q_total']!r}"
+        assert result.Q_W > 0, f"non-physical Q_W {result.Q_W!r}"
         assert 'temp' in win.cache.get_drawn_tabs() and win.canvas_temp._hover_data
         summary = (f"[3/3] PASS in {time.monotonic()-t0:.0f}s — "
-                   f"Q={result['Q_total']:.1f} W/m  dP_A={result['dP_A']:.0f} Pa  "
-                   f"dP_B={result['dP_B']:.0f} Pa  Ta{shape}")
+                   f"Q={result.Q_W:.1f} W/m  dP_A={result.dP_A_Pa:.0f} Pa  "
+                   f"dP_B={result.dP_B_Pa:.0f} Pa  Ta{shape}")
     print(summary, flush=True)
 
 

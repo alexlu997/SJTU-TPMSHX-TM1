@@ -16,7 +16,7 @@ CONTRACT = [
     "le_qd_file", "combo_qd_mode", "combo_qd_arr", "le_qd_rho",
     "le_qd_topo", "le_qd_l", "le_qd_t", "chk_qd_refine",
     "combo_qd_cell_topo", "le_qd_cell_l", "le_qd_cell_t",
-    "_qd_table", "_qd_status",
+    "_qd_table", "_qd_energy_table", "_qd_status",
 ]
 
 
@@ -26,6 +26,11 @@ def test_dialog_builds_with_contract_attrs():
         assert hasattr(dlg, a), f"missing contract attr {a}"
     assert dlg.combo_qd_mode.currentData() in ("auto", "fixed")
     assert dlg.combo_qd_arr.currentData() in ("counter", "cross")
+    from PySide6.QtWidgets import QTabWidget, QTableWidget
+    tabs = dlg.findChild(QTabWidget)
+    assert [tabs.tabText(i) for i in range(tabs.count())] == ['可行设计', '工况能量诊断']
+    assert dlg._qd_table.columnCount() == 13
+    assert dlg._qd_energy_table.editTriggers() == QTableWidget.EditTrigger.NoEditTriggers
     dlg.deleteLater()
 
 

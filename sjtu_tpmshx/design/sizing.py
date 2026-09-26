@@ -29,7 +29,6 @@ BISECT_IT, TOL = 28, 1e-4
 SIZING_TOL = 1e-4      # 定尺搜索期放松 LTNE 残差 (终点再用 LTNE_TOL 收紧)
 GOLDEN_IT = 10         # min-V over s 黄金分割步数 (~12 解, s 分辨率 <5mm; 优于旧 20 网格 22mm)
 S_REFINE_TOL = 0.004   # s 区间收敛阈 [m] (4mm)
-N_DP = 40              # 内定 Lx 的解析 dP 扫描点数
 
 def t_target(case) -> float:
     """热侧出口温目标: 优先用温降 ΔT, 否则由换热量 Q 反推。"""
@@ -55,7 +54,8 @@ def solve_Lx(case, topo, l, t, s, arrangement, target=None, k_s=K_STEEL,
         control.check_cancelled()
         try:
             r = forward(case, topo, l, t, s, Lx, arrangement, init=prev["f"],
-                        k_s=k_s, prop_model=prop_model, tol=tol, height=height)
+                        k_s=k_s, prop_model=prop_model, tol=tol, height=height,
+                        control=control)
         except ValueError:
             forward_failed = True
             raise
@@ -114,13 +114,14 @@ def _cool_proxy(case) -> float:
     eps_req = (case.T_in_h - t_target(case)) / denom if abs(denom) > 1e-9 else 0.0
     return eps_req * case.mdot_h
 
-def _maxnorm_dP(cases, topo, l, t, s, Lx, arrangement, height=None) -> float:
-    """全 K 工况两侧归一化 dP 的最大值 (纯解析, 无 LTNE 解)。"""
-    w = 0.0
+def _maxnorm_dP_sides(cases, topo, l, t, s, Lx, arrangement, height=None) -> tuple[float, float]:
+    """全 K 工况分别取热/冷侧归一化 dP 最大值 (纯解析, 无 LTNE 解)。"""
+    hot = cold = 0.0
     for c in cases:
         dh, dc = dP_fracs(c, topo, l, t, s, Lx, arrangement, height=height)
-        w = max(w, dh / c.dPlim_h, dc / c.dPlim_c)
-    return w
+        hot = max(hot, dh / c.dPlim_h)
+        cold = max(cold, dc / c.dPlim_c)
+    return hot, cold
 
 def _Lx_all(cases, topo, l, t, s, arrangement, k_s=K_STEEL, prop_model="const",
             seed=None, height=None, control=None):
@@ -140,13 +141,32 @@ def _Lx_all(cases, topo, l, t, s, arrangement, k_s=K_STEEL, prop_model="const",
 def _min_Lx_for_dP(cases, topo, l, t, s, arrangement, Lx_floor, height=None):
     """返回 ≥ Lx_floor 的最小 Lx ∈ [Lx_floor, LX_MAX] 使全K两侧归一化 dP ≤ 1
     (纯解析, 无 LTNE 解)。叉流: 冷侧 dP 随 Lx↓ (迎风 Lx·s 变大), 热侧 dP 随 Lx↑
-    (流程变长) → 升序扫描取首个达标点 = 该 s 下 min-V 的 Lx。无可行 → None。"""
+    (流程变长)。对冷侧单独二分，再检查热侧，避免漏过窄交集。
+    逆流两侧均随 Lx↑，只需检查 floor。无可行 → None。"""
     if Lx_floor > LX_MAX:
         return None
-    for i in range(N_DP + 1):
-        Lx = Lx_floor + (LX_MAX - Lx_floor) * i / N_DP
-        if _maxnorm_dP(cases, topo, l, t, s, Lx, arrangement, height=height) <= 1.0 + 1e-6:
-            return Lx
+    hot, cold = _maxnorm_dP_sides(cases, topo, l, t, s, Lx_floor, arrangement, height)
+    if hot > 1.0:
+        return None
+    if cold <= 1.0:
+        return Lx_floor
+    if arrangement != 'cross':
+        return None
+    lo, hi = Lx_floor, LX_MAX
+    if _maxnorm_dP_sides(cases, topo, l, t, s, hi, arrangement, height)[1] > 1.0:
+        return None
+    # Keep the cold-side feasible endpoint; final sizing uses the actual limit,
+    # not a relaxed pressure ratio. Stop at adjacent floating-point lengths.
+    while True:
+        mid = (lo + hi) / 2.0
+        if mid == lo or mid == hi:
+            break
+        if _maxnorm_dP_sides(cases, topo, l, t, s, mid, arrangement, height)[1] > 1.0:
+            lo = mid
+        else:
+            hi = mid
+    if _maxnorm_dP_sides(cases, topo, l, t, s, hi, arrangement, height)[0] <= 1.0:
+        return hi
     return None
 
 def size_fixed_cell(cases, topo, l, t, arrangement="cross", rho_s=RHO_S,
@@ -285,7 +305,7 @@ def size_fixed_cell(cases, topo, l, t, arrangement="cross", rho_s=RHO_S,
         control.check_cancelled()
         with warning_scope({}) as records:
             r = forward(c, topo, l, t, s_star, Lx_star, arrangement, k_s=k_s,
-                        prop_model=prop_model, height=height)
+                        prop_model=prop_model, height=height, control=control)
         reasons = []
         if not r.run_status.get('converged', False):
             reasons.append('not-converged@final')
@@ -302,9 +322,14 @@ def size_fixed_cell(cases, topo, l, t, arrangement="cross", rho_s=RHO_S,
             if r.dP_hot_frac > c.dPlim_h or r.dP_cold_frac > c.dPlim_c:
                 reasons.append('dP>lim@final')
         failures.extend(f'case {c.case}: {reason}' for reason in reasons)
+        energy = r.energy_imbalance
         percase.append(dict(
             case=c.case, hot_fluid=c.hot_fluid, cold_fluid=c.cold_fluid,
             T_air_out=r.T_out_hot, T_cold_out=r.T_out_cold, Q_W=r.Q_hot,
+            Q_cold_W=r.Q_cold,
+            energy_imbalance_rel=energy.value if energy is not None else None,
+            energy_imbalance_status=energy.status if energy is not None else 'insufficient_data',
+            energy_imbalance_reason=energy.reason if energy is not None else '未提供能量不平衡诊断',
             dP_hot_frac=r.dP_hot_frac, dP_hot_pa=r.dP_hot_frac * c.P_in_h,
             dP_cold_frac=r.dP_cold_frac, dP_cold_pa=r.dP_cold_frac * c.P_in_c,
             Re_hot=r.Re_hot, Re_cold=r.Re_cold,

@@ -163,7 +163,7 @@ def _compute_cached(tpms_type: str,
                     fluid_type: str = 'air',
                     sco2_nu=None) -> tuple[dict, dict]:
     """
-    Compute all TPMS heat-transfer and fluid properties.
+    Cache TPMS geometry and fluid properties.
 
     Parameters
     ----------
@@ -197,7 +197,6 @@ def _compute_cached(tpms_type: str,
         dP_per_L  – pressure drop per unit length [Pa/m]
         H_sf      – face heat transfer coefficient [W/(m²·K)]
         K_ff      – fluid effective thermal conductivity [W/(m·K)]
-        K_ss      – solid effective thermal conductivity [W/(m·K)]
         rho       – selected fluid density [kg/m³]
         mu        – selected fluid dynamic viscosity [Pa·s]
         k_f       – selected fluid thermal conductivity [W/(m·K)]
@@ -213,7 +212,6 @@ def _compute_cached(tpms_type: str,
         # ── Fluid properties at inlet conditions ──────────────────
         # B1 1.1 (2026-06-12): property primitives via the fluid_props
         # registry (water rho ignores P — incompressible; air ideal-gas).
-        # Function-level import: fluid_props imports tpms_calc at module level.
         from sjtu_tpmshx.models import fluid_props as _fluids
         _m = _fluids.get(fluid_type, sco2_nu=sco2_nu)
         # Pass absolute P to all primitives: air density and all sCO2
@@ -271,7 +269,6 @@ def _compute_cached(tpms_type: str,
 
         # ── Effective thermal conductivities (volume-averaged) ────
         K_ff = eps * k_f
-        K_ss = chi_s_eff(tpms_type, eps) * (1.0 - eps) * k_s
 
         return {
             'epsilon':   eps,
@@ -286,7 +283,6 @@ def _compute_cached(tpms_type: str,
             'dP_per_L':  dP_per_L,
             'H_sf':      H_sf,
             'K_ff':      K_ff,
-            'K_ss':      K_ss,
             'rho':       rho,
             'mu':        mu,
             'k_f':       k_f,
@@ -302,7 +298,10 @@ def compute(tpms_type: str,
             P_in_Pa: float,
             k_s: float,
             fluid_type: str = 'air', *, sco2_nu=None) -> dict:
-    """Public entry — see ``_compute_cached`` for the full docstring.
+    """Return cached properties plus solid conductivity ``K_ss`` [W/(m·K)].
+
+    See ``_compute_cached`` for the other fields. ``K_ss`` uses the current
+    CHI_S setting and ``k_s`` on every call, including cache hits.
 
     Production uses the fixed water+sCO2 CFD closure; environment state does
     not select a different backend. Experimental correction, when requested,
@@ -318,8 +317,11 @@ def compute(tpms_type: str,
     # geometry.
     result, records = _compute_cached(tpms_type, L_cell_mm, t_mm, u, T_in_K,
                                      P_in_Pa, k_s, fluid_type, sco2_nu)
+    result = dict(result)
+    eps = result['epsilon']
+    result['K_ss'] = chi_s_eff(tpms_type, eps) * (1.0 - eps) * k_s
     merge_warnings(current_warnings(), [records], bind_context=True)
-    return dict(result)
+    return result
 
 
 # Tests and property sweeps explicitly inspect or clear this process-local cache.

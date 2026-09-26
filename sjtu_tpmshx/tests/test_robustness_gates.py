@@ -44,6 +44,40 @@ def test_from_dict_valid_passes():
     assert cfg.geometry.L_dom_m == 0.182
 
 
+@pytest.mark.parametrize('section,name', [
+    ('extrap', 'allow'), ('zones', 'enabled'),
+    ('flags', 'variable_rho_cp'), ('flags', 'port_wall_refine'),
+    ('flags', 'wall_refine_3d'),
+])
+def test_control_booleans_reject_text_false(section, name):
+    data = _canonical()
+    data[section] = {name: 'false'}
+    with pytest.raises(ValueError, match=rf'{section}\.{name}.*boolean'):
+        ComputeConfig.from_dict(data)
+
+
+@pytest.mark.parametrize('name,value', [
+    ('Nx', 20.5), ('Ny', True), ('Nz', 1.9), ('Nz', '2'),
+    ('max_iter_simple', 10.5), ('max_outer_ltne', 2.9),
+])
+def test_solver_integers_are_not_coerced(name, value):
+    data = _canonical()
+    data['solver'][name] = value
+    with pytest.raises(ValueError, match=name):
+        ComputeConfig.from_dict(data)
+
+
+def test_fractional_nz_is_rejected_before_geometry_preparation(monkeypatch):
+    from sjtu_tpmshx.domain.compute_config import SolverConfig
+    from sjtu_tpmshx.preprocess.api import prepare_case
+    from sjtu_tpmshx.preprocess.two_d import preparation
+    monkeypatch.setattr(preparation, 'tpms_geometry',
+                        lambda *a, **kw: pytest.fail('invalid grid reached geometry'))
+    config = ComputeConfig(solver=SolverConfig(Nz=1.9))
+    with pytest.raises(ValueError, match='Nz'):
+        prepare_case(config, case_id='fractional-grid')
+
+
 def test_from_dict_rejects_nan():
     d = _canonical(L_dom_m=float('nan'))
     with pytest.raises(ValueError, match='L_dom_m'):

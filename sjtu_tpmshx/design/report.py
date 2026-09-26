@@ -6,8 +6,10 @@
 """
 from __future__ import annotations
 import math
+from pathlib import Path
 import pandas as pd
 
+from sjtu_tpmshx.io.file_set import staged_files
 from .select import pareto_tags
 
 
@@ -59,12 +61,16 @@ def detail_rows(results) -> list:
         Re热=_round_re(pc["Re_hot"]), Re冷=_round_re(pc["Re_cold"]),
         数值收敛=(pc.get('run_status') or {}).get('converged', 'unknown'),
         终验='; '.join(pc.get('acceptance_reasons', [])),
-        警告='\n'.join(pc.get('warnings', [])))
+        警告='\n'.join(pc.get('warnings', [])),
+        热侧换热量_W=pc['Q_W'], 冷侧换热量_W=pc.get('Q_cold_W'),
+        能量不平衡_rel=pc.get('energy_imbalance_rel'),
+        能量诊断状态=pc.get('energy_imbalance_status', 'insufficient_data'),
+        能量诊断原因=pc.get('energy_imbalance_reason', '未提供能量不平衡诊断'))
         for d in results for pc in d.percase]
 
 
-def write_xlsx(path, results, *, partial=False) -> tuple:
-    """写双 sheet。返回 (构型数, 可行数, 明细行数)。"""
+def write_xlsx(path, results, *, partial=False, termination_reason='cancelled') -> tuple:
+    """完整写好双 sheet 后发布，失败保留原报告；返回 (构型数, 可行数, 明细行数)。"""
     tags = pareto_tags(results)
     if partial:
         tags = {key: [f'已完成候选内 {tag}' for tag in value] for key, value in tags.items()}
@@ -74,9 +80,12 @@ def write_xlsx(path, results, *, partial=False) -> tuple:
     det = detail_rows(results)
     df_d = pd.DataFrame(det) if det else pd.DataFrame([{"提示": "无可行构型"}])
     if partial:
+        state = {'cancelled': '已取消', 'failed': '失败中止'}[termination_reason]
         for frame in (df_s, df_d):
-            frame['任务状态'] = '已取消：部分候选，不代表完整搜索最优'
-    with pd.ExcelWriter(path, engine="openpyxl") as xw:
-        df_s.to_excel(xw, sheet_name="构型汇总", index=False)
-        df_d.to_excel(xw, sheet_name="工况明细", index=False)
+            frame['任务状态'] = f'{state}：部分候选，不代表完整搜索最优'
+    path = Path(path)
+    with staged_files([path]) as stage:
+        with pd.ExcelWriter(stage / path.name, engine="openpyxl") as xw:
+            df_s.to_excel(xw, sheet_name="构型汇总", index=False)
+            df_d.to_excel(xw, sheet_name="工况明细", index=False)
     return len(results), sum(d.feasible for d in results), len(det)

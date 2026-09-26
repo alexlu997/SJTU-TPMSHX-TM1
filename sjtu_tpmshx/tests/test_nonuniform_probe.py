@@ -1,6 +1,7 @@
 """Cursor readouts use the same physical mesh as the displayed fields."""
 from types import SimpleNamespace
 from sjtu_tpmshx.controllers.result_cache import ResultCache
+from sjtu_tpmshx.domain.compute_result import ComputeResult
 
 import numpy as np
 from matplotlib.figure import Figure
@@ -21,7 +22,7 @@ def test_plot_hover_and_inspector_locate_nonuniform_cells():
     canvas = SimpleNamespace(fig=Figure(), draw=lambda: None)
     window = SimpleNamespace(cache=ResultCache(), _temp_unit='K', canvas_temp=canvas,
                              _hover_label=QLabel())
-    window.cache.set_result('2d', result)
+    window.cache.set_result('2d', ComputeResult(fields=result))
     plot_temperature_3panel(window, result, get_theme())
     np.testing.assert_array_equal(canvas._hover_data['dx_arr'], result['dx_arr'])
     rows = _resolve_fields(window, 20., 10.)
@@ -42,7 +43,7 @@ def test_plot_hover_and_inspector_locate_nonuniform_cells():
     window._temp_unit = 'C'
     CoordInspector.update_from_event(inspector, event)
     assert ('T_fA', '126.85', '°C') in rendered[-1]
-    window.cache.set_result('2d', {**result, 'Ta': temperature + 10.0})
+    window.cache.set_result('2d', ComputeResult(fields={**result, 'Ta': temperature + 10.0}))
     CoordInspector.update_from_event(inspector, event)
     assert ('T_fA', '136.85', '°C') in rendered[-1]
 

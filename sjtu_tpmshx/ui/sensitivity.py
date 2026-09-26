@@ -1,9 +1,9 @@
 """Sensitivity sweep — N×N surrogate evaluation of two parameters.
 
-Uses the 0-D `tpms_calc.compute` correlation (fast — microseconds each)
-instead of the SIMPLE solver so users can rapidly see how Q and Δp respond
-to L_cell, wall thickness, and velocity. Click any cell in the heatmap
-to load that configuration into the main input fields.
+Uses the air-only 0-D `tpms_calc.compute` correlation for Fluid A to rank
+cell size, wall thickness and velocity. Pressure loss uses the fixed CFD
+baseline; Q/volume uses an assumed 40 K difference. Click a valid heatmap
+cell to load that configuration into the main input fields.
 """
 from __future__ import annotations
 
@@ -33,9 +33,14 @@ _METRICS = [
     ('ratio',       'h_v / (ΔP/L)',     'W/(m²·K·Pa)'),
 ]
 
+_SCOPE_NOTE = (
+    "Fluid A only: air correlations. Pressure loss uses the CFD baseline "
+    "without experimental correction. Q/volume = h_v × 40 K is a ranking "
+    "estimate. Click a valid cell to load parameters into the main inputs.")
+
 
 def _eval_surrogate(tpms, L_cell_mm, t_mm, u, T_in_K, P_in_Pa, k_s):
-    """One surrogate evaluation. Returns dict of derived quantities."""
+    """One air-only surrogate evaluation; not a two-stream heat-duty solve."""
     from sjtu_tpmshx.models.tpms_calc import compute as _tpms_compute
     r = _tpms_compute(tpms, L_cell_mm, t_mm, u, T_in_K, P_in_Pa, k_s)
     h_v = r.get('h_v') or (
@@ -131,10 +136,7 @@ class SensitivityDialog(QDialog):
         root.addWidget(self._canvas, 1)
 
         # Hint footer
-        hint = QLabel(
-            "Surrogate-based sweep — uses the 0-D TPMS correlation "
-            "(air only; Q/volume assumes ΔT=40 K). Click a valid cell to load parameters "
-            "into the main inputs.")
+        hint = self._hint = QLabel(_SCOPE_NOTE)
         hint.setWordWrap(True)
         hint.setStyleSheet(
             f"color:{_sub}; font-size:9pt; font-style:italic;"
@@ -144,7 +146,7 @@ class SensitivityDialog(QDialog):
         self._grid_params = None  # (X, Y, key_x, key_y, key_m)
         self._canvas.mpl_connect('button_press_event', self._on_click)
 
-    def _invalidate_grid(self, *_):
+    def _invalidate_grid(self, *_, message="Selection changed — click ‘Run sweep’."):
         """Drop the cached sweep grid + clear the heatmap. Called when an
         axis/metric combo changes so a stale grid cannot be clicked.
         Added 2026-05-20 UI sweep (Tier 21)."""
@@ -157,7 +159,7 @@ class SensitivityDialog(QDialog):
             ax = fig.add_subplot(111)
             t = get_theme()
             ax.set_facecolor(t.get('ax_bg', '#fff'))
-            ax.text(0.5, 0.5, "Selection changed — click ‘Run sweep’.",
+            ax.text(0.5, 0.5, message,
                     ha='center', va='center', color=t.get('sub_fg', '#888'),
                     fontsize=10, transform=ax.transAxes)
             ax.set_xticks([]); ax.set_yticks([])
@@ -211,6 +213,14 @@ class SensitivityDialog(QDialog):
         return 1.0, 10.0
 
     def _run_sweep(self):
+        from .window_config import _parse_fluid_label
+        fluid = _parse_fluid_label(getattr(self._window, 'combo_fluidA', None))
+        if fluid != 'air':
+            self._invalidate_grid(message="Fluid A must be Air.")
+            self._hint.setText(
+                f"Cannot run: Fluid A must be Air (selected: {fluid}). " + _SCOPE_NOTE)
+            return
+        self._hint.setText(_SCOPE_NOTE)
         key_x = self._combo_x.currentData()
         key_y = self._combo_y.currentData()
         key_m = self._combo_m.currentData()
@@ -325,7 +335,7 @@ class SensitivityDialog(QDialog):
                       color=t['ax_text'])
         ax.set_ylabel(f"{y_lbl}  [{y_unit}]", fontsize=10,
                       color=t['ax_text'])
-        ax.set_title(f"Sensitivity — {m_lbl}", fontsize=12,
+        ax.set_title(f"Air sensitivity — {m_lbl}\nPressure loss: CFD baseline", fontsize=12,
                      color=t['ax_text'], loc='left', pad=6)
         ax.tick_params(colors=t['ax_text'], labelsize=9)
         for sp in ax.spines.values():
