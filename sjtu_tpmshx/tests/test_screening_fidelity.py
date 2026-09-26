@@ -139,6 +139,44 @@ def test_bad_quick_design_input_does_not_launch(field, value, monkeypatch):
     assert '输入解析失败' in window._qd_status.text()
 
 
+@pytest.mark.parametrize('fluid', ['Water', 'sCO₂'])
+def test_sensitivity_rejects_non_air_a_and_clears_previous_grid(monkeypatch, fluid):
+    from PySide6.QtWidgets import QComboBox, QLineEdit, QMainWindow
+    from sjtu_tpmshx.ui import sensitivity
+    window = QMainWindow()
+    window.combo_fluidA = QComboBox()
+    window.combo_fluidA.addItems(['Air', 'Water', 'sCO₂'])
+    window.combo_fluidB = QComboBox()
+    window.combo_fluidB.addItem('Water')
+    window.le_Lcell = QLineEdit('7')
+    window.le_t = QLineEdit('.5')
+    calls = []
+
+    def compute(*args, **kwargs):
+        calls.append((args, kwargs))
+        return dict(H_sf=2., A_0=3., dP_per_L=2., Re=10., Nu=5.)
+
+    monkeypatch.setattr('sjtu_tpmshx.models.tpms_calc.compute', compute)
+    dialog = sensitivity.SensitivityDialog(window)
+    try:
+        dialog._le_steps.setText('3')
+        dialog._run_sweep()
+        assert len(calls) == 9  # Air A / Water B remains a valid A-side estimate.
+        np.testing.assert_array_equal(dialog._grid_params['grid'], np.full((3, 3), 3.))
+        old_axes = dialog._grid_axes
+        window.combo_fluidA.setCurrentText(fluid)
+        dialog._run_sweep()
+        assert len(calls) == 9
+        assert dialog._grid_params is None
+        assert 'Fluid A must be Air' in dialog._hint.text()
+        assert dialog._btn_run.isEnabled()
+        dialog._on_click(SimpleNamespace(inaxes=old_axes, xdata=4., ydata=.3))
+        assert window.le_Lcell.text() == '7' and window.le_t.text() == '.5'
+    finally:
+        dialog.close()
+        window.close()
+
+
 def test_heatmap_only_loads_valid_plot_cells():
     from matplotlib.backend_bases import MouseEvent
     from PySide6.QtWidgets import QMainWindow, QLineEdit
