@@ -208,7 +208,11 @@ native result and metrics as soon as that stage succeeds. `batch.json` retains
 all requested members, failure stages and reasons, unrun members after
 cancellation, and the baseline metric values/definitions and source IDs.
 Cancellation propagates; ordinary condition failures continue without fabricated
-penalties. Baseline comparison checks the uniform reference, paired conditions,
+penalties. If saving a failure/cancellation checkpoint also fails, the original
+exception propagates with the saving error attached as a note; existing files
+remain the last successfully written evidence, not a completed final archive.
+A saving error without an active exception remains an error. The desktop exposes
+these notes and does not present a stale running checkpoint as a cancelled result. Baseline comparison checks the uniform reference, paired conditions,
 ports, model resources, D-F mode, frozen run overrides, resolved roughness,
 prescribed total flows, grids and solver settings. The raw conditions must
 share geometry and numerical settings.
@@ -399,6 +403,11 @@ Continuous screening uses `models.screening.build_field` for preparation,
 preview and export. Saved decision vectors must be decoded with their original
 bounds, control grid, symmetry and spline order. The current geometry window
 is L=4..8 mm, t=0.3..0.6 mm; this does not extend any Nu correlation's evidence.
+For a prebuilt 2D screening field (`fc`), topology, solid conductivity and
+physical domain lengths must match the effective configuration, including its
+defaults. A conflict is rejected before property or flow preparation. The field
+retains its own control grid, spline order and bounds; decision-vector decoder
+settings apply only when constructing a field from `x`.
 The retained screening API accepts air/air with A:+x and B:-y only,
 using full-face ports by default;
 explicit 2D API port intervals remain supported, while 3D screening rejects
@@ -419,7 +428,12 @@ coordinates, with their existing overwrite and smoothing rules; the B-side
 and A-side momentum solvers both consume their local D-F arrays.
 
 Quick sizing accepts a candidate only after every final case converges and
-meets its duty/temperature and pressure limits with finite results. Final-case
+meets its duty/temperature and pressure limits with finite results. Length
+search uses the returned heat duty for a Q requirement, including mean-property
+passes; a temperature-drop requirement uses the outlet temperature. An explicit
+`solve_Lx(target=...)` remains an outlet-temperature override in kelvin.
+The inlet-cp temperature estimate only ranks the preliminary governing case;
+the independent final cold-start evaluation still determines feasibility. Final-case
 records, GUI diagnostics and Excel also retain hot/cold duties and the existing
 energy-imbalance metric with its availability and reason. This diagnostic does
 not participate in feasibility filtering; unavailable values are not zero.
@@ -428,7 +442,12 @@ for the second mean-property pass, the representative temperature paired with
 the existing inlet pressure. Invalid pairs raise `WaterStateError` before
 liquid properties are used. This scalar check does not certify phase stability
 throughout the quick-design field: the approximation has no local pressure
-field, and its analytical pressure drop retains its existing meaning. Retained
+field, and its analytical pressure drop retains its existing meaning. In both
+const and mean modes, water Nu retains Pr at 320 K / 0.2 MPa. The mean pass
+updates the other water properties, Re and conductivity used in volumetric heat
+transfer; `metadata.properties.Pr` records the actual pass state, not Nu's
+representative Pr. The separate sCO2 reference-Pr convention remains unchanged.
+Retained
 screening BO keeps bounded penalty objectives for training, but excludes failed evaluations
 from reported Pareto fronts and hypervolume. History rows retain their status
 and failure reason; a completed screening run is not experimental validation.

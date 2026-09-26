@@ -18,9 +18,13 @@ from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.domain.compute_config import ComputeConfig, ZoneInputConfig
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.io.text_file import write_text
+from sjtu_tpmshx.logutil import get_logger
 from sjtu_tpmshx.models.continuous_field import decision_bounds
 from sjtu_tpmshx.optimization.multi_condition import evaluate_condition_batch
 from sjtu_tpmshx.optimization.optimizer_qnehvi import _pareto_mask_max
+
+
+_log = get_logger(__name__)
 
 
 def _bo_versions():
@@ -164,13 +168,20 @@ def run_multi_condition_optimization(
         return (np.asarray([row['x_decision'] for row in rows]).reshape(-1, len(lower)),
                 np.asarray([row['model_y'] for row in rows]).reshape(-1, 2), rows)
 
-    def publish():
-        _, values, rows = observations()
-        record['pareto_indices'] = [row['index'] for row, keep in zip(rows, _pareto_mask_max(values)) if keep]
-        record['n_evaluated'] = sum(row['status'] in ('completed', 'failed') for row in history)
-        record['n_usable'] = len(rows)
-        write_text(root / 'optimization.json',
-            json.dumps(record, ensure_ascii=False, allow_nan=False, indent=2) + '\n')
+    def publish(primary_error=None):
+        try:
+            _, values, rows = observations()
+            record['pareto_indices'] = [row['index'] for row, keep in zip(rows, _pareto_mask_max(values)) if keep]
+            record['n_evaluated'] = sum(row['status'] in ('completed', 'failed') for row in history)
+            record['n_usable'] = len(rows)
+            write_text(root / 'optimization.json',
+                json.dumps(record, ensure_ascii=False, allow_nan=False, indent=2) + '\n')
+        except Exception as save_error:
+            if primary_error is None:
+                raise
+            primary_error.add_note(f'Could not save {root / "optimization.json"}: {save_error!r}')
+            _log.exception('Could not save optimization checkpoint')
+            raise primary_error
 
     def batch_control(unit):
         progress = (None if control.progress is None else
@@ -184,6 +195,7 @@ def run_multi_condition_optimization(
                    status='running', reason=None, objectives=None, model_y=None)
         history.append(row)
         publish()
+        primary_error = None
         try:
             control.check_cancelled()
             zones = ZoneInputConfig(enabled=True, axis='continuous',
@@ -201,15 +213,18 @@ def run_multi_condition_optimization(
             row.update(status='completed', objectives=dict(heat_gain_percent=y[0], pressure_ratio=-y[1]),
                        model_y=y)
         except CancelledError as exc:
+            primary_error = exc
             row.update(status='cancelled', reason=str(exc))
             raise
         except Exception as exc:
+            primary_error = exc
             row.update(status='failed', reason=f'{type(exc).__name__}: {exc}')
             raise
         finally:
-            publish()
+            publish(primary_error)
 
     publish()
+    primary_error = None
     try:
         control.check_cancelled()
         record['baseline']['status'] = 'running'
@@ -255,15 +270,17 @@ def run_multi_condition_optimization(
         record.update(status='completed' if observations()[2] else 'failed', stage='finished',
                       reason=None if observations()[2] else 'No usable design observations')
     except CancelledError as exc:
+        primary_error = exc
         if record['baseline']['status'] == 'running':
             record['baseline'].update(status='cancelled', reason=str(exc))
         record.update(status='cancelled', reason=str(exc))
         raise
     except Exception as exc:
+        primary_error = exc
         if record['baseline']['status'] == 'running':
             record['baseline'].update(status='failed', reason=f'{type(exc).__name__}: {exc}')
         record.update(status='failed', reason=f'{type(exc).__name__}: {exc}')
         raise
     finally:
-        publish()
+        publish(primary_error)
     return record

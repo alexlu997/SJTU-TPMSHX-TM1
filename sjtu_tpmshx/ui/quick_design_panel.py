@@ -478,7 +478,8 @@ def build_quick_design_dialog(parent=None):
     combo_prop.addItem("入口定物性", "const")
     combo_prop.setToolTip("均温物性：先按入口温度求解，再按各股流体的入口与出口平均温度更新物性并求解一次。\n"
                           "入口定物性：按入口温度取物性，只求解一次。\n"
-                          "两种方案均在每次求解中保持各股物性均匀；压降均使用入口物性。")
+                          "两种方案均在每次求解中保持各股物性均匀；压降均使用入口物性。\n"
+                          "水侧 Nu 中的 Pr 均固定取 320 K / 0.2 MPa，未随入口或均温物性更新。")
     # 矩形迎风 (固定高度) opt-in — 默认关 = 方形 s×s (UI 现状不变)
     chk_rect = QCheckBox("固定高度迎风")
     chk_rect.setChecked(False)

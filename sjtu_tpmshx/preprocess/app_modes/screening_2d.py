@@ -99,7 +99,15 @@ def prepare_flow(cfg, fc, arrays, grid, side):
 def prepare_screening_2d(x, cfg=None, fc=None, *, case_id):
     cfg = {**DEFAULT_CONFIG, **(cfg or {})}
     validate_screening_config(cfg)
-    fc = build_field(x, cfg) if fc is None else fc
+    if fc is None:
+        fc = build_field(x, cfg)
+    else:
+        # A prebuilt field owns its controls, but cannot change the physical
+        # configuration used by the grid and both momentum preparations.
+        for key in ('tpms_type', 'k_s', 'L_domain', 'H_domain'):
+            if getattr(fc, key) != cfg[key]:
+                raise ValueError(f'screening field {key}={getattr(fc, key)!r} '
+                                 f'conflicts with configured {key}={cfg[key]!r}')
     Nx, Ny = _resolve_grid(cfg, fc)
     if min(Nx, Ny) < 2:
         raise ValueError('screening mesh requires at least two cells per axis')

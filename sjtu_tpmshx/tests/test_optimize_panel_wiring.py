@@ -641,3 +641,44 @@ def test_blank_optional_pressure_keeps_default(window, side):
     cfg = panel._gather_cfg(window)
     assert getattr(cfg, f'fluid_{side}').P_in_Pa == 101325.0
     assert widget.text() == ''
+
+
+@pytest.mark.parametrize('failure', ['primary_error', 'stale_cancel', 'missing_cancel', 'stale_without_note'])
+def test_worker_checkpoint_error_keeps_cause_and_rejects_stale_results(
+        window, tmp_path, monkeypatch, failure):
+    from pathlib import Path
+    from sjtu_tpmshx.domain.cancellation import CancelledError
+    from sjtu_tpmshx.optimization import multi_condition_optimizer as native
+    from sjtu_tpmshx.tests.test_worker_result_handoff import _wait_for
+    previous = report(window)
+    window._last_opt_report = deepcopy(previous)
+    window._opt_conditions = [condition()]
+    monkeypatch.setattr(panel, 'optimization_output_dir', lambda: tmp_path)
+    paths = []
+    def fail(*args, **kwargs):
+        directory = Path(kwargs['output_dir'])
+        directory.mkdir()
+        paths.append(directory)
+        if failure.startswith('stale'):
+            (directory/'optimization.json').write_text(json.dumps(report(window, status='running')))
+        error = (RuntimeError('original solver failure') if failure == 'primary_error'
+                 else CancelledError('original cancellation'))
+        if failure != 'stale_without_note':
+            error.add_note("Could not save checkpoint: OSError('checkpoint write failed')")
+        raise error
+    monkeypatch.setattr(native, 'run_multi_condition_optimization', fail)
+    panel.run_optimize(window)
+    _wait_for(lambda: window._opt_worker is None)
+    assert window._opt_kpi_gen.text() == 'ERROR'
+    text = window._opt_status.text()
+    assert str(paths[0]) in text
+    if failure == 'stale_without_note':
+        assert 'cancelled' in text
+    else:
+        assert ('original solver failure' if failure == 'primary_error' else 'original cancellation') in text
+        assert 'checkpoint write failed' in text
+    assert window._last_opt_report == previous
+    if failure.startswith('stale'):
+        assert json.loads((paths[0]/'optimization.json').read_text())['status'] == 'running'
+    else:
+        assert not (paths[0]/'optimization.json').exists()
