@@ -437,6 +437,7 @@ def test_stale_result_cannot_be_loaded_into_other_geometry(window):
 
 @pytest.mark.parametrize('dimension', [0, 1])
 def test_field_preview_belongs_to_optimization_and_keeps_other_figures(window, dimension):
+    from PySide6.QtCore import QEventLoop
     from PySide6.QtWidgets import QApplication
     window.combo_dim.setCurrentIndex(dimension)
     window._last_opt_report = study = report(window)
@@ -476,6 +477,9 @@ def test_field_preview_belongs_to_optimization_and_keeps_other_figures(window, d
     assert window._opt_result_tabs.currentWidget() is window.canvas_pareto
     window.resize(1280, 900)
     window.show()
+    # Initial layout posts further resize/layout events; drain that chain
+    # before measuring repeated previews rather than the first-show transition.
+    QApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 1000)
     heights = []
     try:
         for _ in range(3):

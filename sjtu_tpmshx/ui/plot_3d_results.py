@@ -129,7 +129,7 @@ def finalize_plots_3d(window) -> bool:
     if (hasattr(window, '_field_phase')
             or _os_3d_fin.environ.get('TPMSHX_EAGER_3D_SLICES', '0') == '1'):
         _render_2d_slices_from_3d(window, res, field='temp')
-        window._rendered_3d_slices = 'temp' in window.cache.get_drawn_tabs()
+        window._rendered_3d_slices = window.cache.is_drawn('temp')
         from .plot_2d_results import ensure_result_plot
         for field, dialog in getattr(window, '_detached_canvases', {}).items():
             if field in ('temp', 'pres', 'vel') and dialog.isVisible():
@@ -240,7 +240,7 @@ def _render_2d_slices_from_3d(window, res, field=None):
                 'Nx': Nx, 'Ny': Ny, 'L': float(np.sum(dx)), 'H': float(np.sum(dy)),
                 'dx_arr': dx, 'dy_arr': dy, 'slice_index': k_mid,
             }
-            window.cache.replace_drawn_tabs(set(window.cache.get_drawn_tabs()) | {key})
+            window.cache.mark_drawn(key)
         except Exception as e:
             import traceback; traceback.print_exc()
             _log.warning(f"[3D->2D {attr}] {e}")

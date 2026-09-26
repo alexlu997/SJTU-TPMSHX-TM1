@@ -1,7 +1,7 @@
 """Multi-objective optimization + quick-design launchers for ``Main_Menu``.
 
-Run/cancel and Pareto-pick callbacks delegate to ``ui.optimize_panel``;
-the quick-design callback opens its dialog. Plotting, saving and loading
+Run/cancel callbacks delegate to ``ui.optimize_panel``; the quick-design
+callback opens its dialog. Plotting, Pareto selection, saving and loading
 call the owning module functions directly.
 
 Pure UI glue, no solver / numeric path. Adopted via
@@ -28,10 +28,6 @@ class OptimizeUIMixin:
     def _cancel_optimize(self):
         from sjtu_tpmshx.ui.optimize_panel import cancel_optimize
         return cancel_optimize(self)
-
-    def _on_pareto_pick(self, event):
-        from sjtu_tpmshx.ui.optimize_panel import on_pareto_pick
-        return on_pareto_pick(self, event)
 
     # ── quick-design tool (Phase 2 Task 4) ───────────────────────────────
     def _open_quick_design(self):

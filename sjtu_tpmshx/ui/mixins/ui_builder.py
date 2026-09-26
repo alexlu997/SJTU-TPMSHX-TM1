@@ -1,7 +1,7 @@
 """UI construction + install/setup handlers for ``Main_Menu``.
 
-The main UI builder and row callback delegate to their owning modules;
-page/tab/canvas assembly calls those module functions directly. This mixin
+The main UI builder delegates to its owning module; page/tab/canvas
+assembly calls the builder module functions directly. This mixin
 also installs the status bar, undo stack and field help. UI-only -- no solver
 or numeric path. Adopted via
 ``class Main_Menu(..., UIBuilderMixin, ..., QMainWindow)``; methods
@@ -12,7 +12,7 @@ imports needed are PySide6 widgets and ui.theme.get_theme.
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QLabel, QLineEdit
+from PySide6.QtWidgets import QLabel
 
 from sjtu_tpmshx.ui.theme import get_theme
 
@@ -23,10 +23,6 @@ class UIBuilderMixin:
     def _build_ui(self):
         from sjtu_tpmshx.ui.ui_builders import build_ui
         return build_ui(self)
-
-    def _row(self, g, row, text, default) -> QLineEdit:
-        from sjtu_tpmshx.ui.builders_base import row as _row_impl
-        return _row_impl(self, g, row, text, default)
 
     def _install_status_bar_widgets(self):
         """Mount permanent status-bar widgets on the right edge of the
