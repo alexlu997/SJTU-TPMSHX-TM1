@@ -91,6 +91,14 @@ Pa and K retain their usual meaning. Unit choice is explicit in each metric.
 physical depth in metres. 3D totals are divided by actual Lz only when an
 application requests per-depth values. There is no default specimen thickness.
 
+Known side-specific names use the same unit contract as their family:
+`dP_A/B` require Pa, `T_out_A/B` require K, and heat duties require W or W/m.
+Each metrics mapping key must match its spec name or its explicit family name
+(for example, `dP_A` accepts `dP_A` or `dP`, never `dP_B` or `T_out`).
+Unknown extension metrics keep their own matching key/spec name. These checks
+apply to in-memory results and JSON input; incompatible units are rejected,
+not converted or relabeled. Historical definition versions remain readable.
+
 Metric definition versions must also identify the reported side/sign,
 pressure measurement rule and thermal time point. A finite result from an
 unconverged run does not become a validated metric merely because evaluation
@@ -109,6 +117,12 @@ difference between extrapolated physical inlet and outlet face pressures.
 An explicit request for the former full-compute metric definition is unsupported
 by current evaluation. Old saved metrics remain readable with their original
 definition; re-evaluate the native result for the current GUI mapping.
+This consumption check includes side duties, temperatures and displayed
+balance metrics. Multi-condition aggregation also requires the current signed
+`Q_B` and physical-face pressure definitions, even when both compared records
+share the same old definition. Equivalent family/side names do not change
+the metric's meaning. Declared result dimensions constrain native heat units;
+aggregation never infers a missing physical thickness.
 
 ## RunControl and module ports
 
