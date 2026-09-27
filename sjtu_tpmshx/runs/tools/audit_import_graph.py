@@ -18,6 +18,7 @@ from __future__ import annotations
 import ast
 import sys
 from collections import Counter, defaultdict
+from importlib.util import resolve_name
 from pathlib import Path
 
 PKG = Path(__file__).resolve().parents[2]          # .../sjtu_tpmshx
@@ -68,21 +69,25 @@ def unit_of(py: Path) -> str:
     return rel.parts[0] if len(rel.parts) > 1 else rel.stem
 
 
-def resolve_relative(py: Path, level: int, module: str | None) -> str | None:
-    """Return the target top-level unit of a relative import, or None."""
-    pkg_parts = list(py.relative_to(PKG).parts[:-1])       # package path of the file
-    if level - 1 > len(pkg_parts):
-        return None                                        # climbs out of the package
-    base = pkg_parts[: len(pkg_parts) - (level - 1)]
-    tail = module.split(".") if module else []
-    full = base + tail
-    return full[0] if full else None
+def import_targets(node: ast.AST, package: str) -> list[str]:
+    """Resolve import spellings without importing or evaluating source."""
+    if isinstance(node, ast.Import):
+        return [item.name for item in node.names]
+    if isinstance(node, ast.ImportFrom):
+        module = node.module or ''
+        if node.level:
+            module = resolve_name('.' * node.level + module, package)
+        return [module, *(module + '.' + item.name for item in node.names
+                          if item.name != '*')]
+    return []
 
 
 def target_unit(name: str, units: set[str]) -> str | None:
     parts = name.split(".")
     if parts[0] == "sjtu_tpmshx":
         parts = parts[1:]
+    elif parts[0] in sys.stdlib_module_names:
+        return None
     if parts and parts[0] in units:
         return parts[0]
     return None
@@ -103,15 +108,9 @@ def main() -> int:
         except SyntaxError as exc:                          # pragma: no cover
             parse_errors.append(f"{py}: {exc}")
             continue
+        package = '.'.join(('sjtu_tpmshx', *py.relative_to(PKG).parts[:-1]))
         for node in ast.walk(tree):
-            targets: list[str | None] = []
-            if isinstance(node, ast.Import):
-                targets = [target_unit(a.name, units) for a in node.names]
-            elif isinstance(node, ast.ImportFrom):
-                if node.level:
-                    targets = [resolve_relative(py, node.level, node.module)]
-                elif node.module:
-                    targets = [target_unit(node.module, units)]
+            targets = {target_unit(name, units) for name in import_targets(node, package)}
             for dst in targets:
                 if dst and dst != src_unit and dst in units:
                     edges[(src_unit, dst)] += 1
