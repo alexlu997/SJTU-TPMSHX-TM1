@@ -50,6 +50,11 @@ from sjtu_tpmshx.logutil import get_logger
 _log = get_logger(__name__)
 
 
+def _completed_with_pareto(result: dict) -> bool:
+    """A finished screening campaign with results, not physical acceptance."""
+    return result['termination_reason'] in ('completed', 'plateau') and len(result['X']) > 0
+
+
 # ─── Module-level worker for joblib (must be top-level for pickle) ─
 
 
@@ -624,7 +629,7 @@ def _save_current_pareto(train_X: 'torch.Tensor', train_Y: 'torch.Tensor',
 # ─── Standalone smoke test ──────────────────────────────────────────
 
 
-if __name__ == '__main__':
+def main() -> int:
     """Smoke run: 16 init + 8 iter × 2 = 32 evals (~10–20 min wall).
 
     Verifies (relative to the v1 smoke):
@@ -644,8 +649,15 @@ if __name__ == '__main__':
         save_dir=os.path.join('opt_runs', 'smoke_qnehvi_v3'),
         hv_tol=0.01, hv_window=3,
     )
-    print(f"\nFinal Pareto: {len(out['X'])} points across {out['n_evals']} evals")
+    print(f"\nFinal Pareto ({out['termination_reason']}): {len(out['X'])} points across {out['n_evals']} evals")
     if len(out['X']) > 0:
         Q  = -out['F'][:, 0]; dP = out['F'][:, 1]
         print(f"  Q range  [{Q.min():.0f}, {Q.max():.0f}] W/m")
         print(f"  dP range [{dP.min():.0f}, {dP.max():.0f}] Pa")
+    else:
+        print("  no valid Pareto solutions")
+    return 0 if _completed_with_pareto(out) else 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

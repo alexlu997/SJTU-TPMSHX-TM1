@@ -173,6 +173,7 @@ def run_qnehvi_multiseed(config: Optional[dict] = None,
 
     from sjtu_tpmshx.models.screening import DEFAULT_CONFIG
     from sjtu_tpmshx.models.continuous_field import decision_dim
+    from sjtu_tpmshx.optimization.optimizer_qnehvi import _completed_with_pareto
     config = {**DEFAULT_CONFIG, **(config or {})}
     dimension = decision_dim(config['n_ctrl_x'], config['n_ctrl_y'], config['symmetric_y'])
 
@@ -213,7 +214,7 @@ def run_qnehvi_multiseed(config: Optional[dict] = None,
             try:
                 result = fut.result()
                 per_seed_results.append(result)
-                if result['termination_reason'] not in ('completed', 'plateau') or not len(result['X']):
+                if not _completed_with_pareto(result):
                     failed_seeds[futs[fut]] = (result['termination_reason'] if len(result['X'])
                                               else 'no valid Pareto solutions')
             except Exception as e:
