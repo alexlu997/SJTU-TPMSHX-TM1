@@ -20,7 +20,9 @@ from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.io.text_file import write_text
 from sjtu_tpmshx.logutil import get_logger
 from sjtu_tpmshx.models.continuous_field import decision_bounds
-from sjtu_tpmshx.optimization.multi_condition import evaluate_condition_batch
+from sjtu_tpmshx.optimization.multi_condition import (
+    evaluate_condition_batch, resolve_fixed_mass_flow_config,
+)
 from sjtu_tpmshx.optimization.optimizer_qnehvi import _pareto_mask_max
 
 
@@ -140,7 +142,7 @@ def run_multi_condition_optimization(
     # Validates dimensionality, controls, resource bounds and the reference
     # design's inclusion in the requested search interval before making files.
     for _, current, _, _ in inputs:
-        replace(current, zones=seed_zones).validate()
+        replace(current, zones=seed_zones).validate_static_inputs()
     versions = {'scipy': scipy_version}
     if method != 'sobol':
         versions.update(_bo_versions())
@@ -235,6 +237,12 @@ def run_multi_condition_optimization(
         if baseline['status'] != 'completed':
             record.update(status='failed', reason='Uniform baseline batch failed')
             return record
+        # Resolve replayable speeds only after the baseline has retained each
+        # condition's preparation/solve outcome, including invalid target flows.
+        inputs = tuple((name, resolve_fixed_mass_flow_config(
+            cfg, mass_flow_A_kg_s=a, mass_flow_B_kg_s=b), a, b) for name, cfg, a, b in uniform)
+        for archived, (_, cfg, _, _) in zip(record['conditions'], inputs):
+            archived['config'] = asdict(cfg)
         record['stage'] = 'initial'
         for x in designs[:n_init]:
             evaluate_design(x, 0)
@@ -280,6 +288,9 @@ def run_multi_condition_optimization(
         if record['baseline']['status'] == 'running':
             record['baseline'].update(status='failed', reason=f'{type(exc).__name__}: {exc}')
         record.update(status='failed', reason=f'{type(exc).__name__}: {exc}')
+        for row in history:
+            if row['status'] == 'running':
+                row.update(status='failed', reason=record['reason'])
         raise
     finally:
         publish(primary_error)

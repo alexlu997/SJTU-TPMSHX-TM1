@@ -1,5 +1,6 @@
 """Fixed-flow preparation and equal-weight multi-condition objectives."""
 from collections.abc import Sequence
+from copy import deepcopy
 from dataclasses import asdict, replace
 import json
 from math import fsum, isfinite
@@ -16,7 +17,8 @@ from sjtu_tpmshx.domain.metric_spec import full_metric_version
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.performance_result import PerformanceResult
 from sjtu_tpmshx.logutil import get_logger
-from sjtu_tpmshx.preprocess.api import prepare_case
+from sjtu_tpmshx.preprocess.api import prepare_case, prepare_inlet_mass_capacities
+from sjtu_tpmshx.preprocess.inlet_flow import total_inlet_mass_capacity
 
 
 _log = get_logger(__name__)
@@ -24,38 +26,6 @@ _log = get_logger(__name__)
 ConditionResult = tuple[str, FieldResult, PerformanceResult]
 ConditionInput = tuple[str, ComputeConfig, float, float]
 _METRICS = ('Q_B', 'dP_A', 'dP_B')
-
-
-def _inlet_mass_capacity(design_fields, prepared, side):
-    axis = prepared['axes'][side]
-    eps_in = np.take(design_fields['eps_' + side],
-                     -1 if axis['is_reverse'] else 0, axis=axis['stream_real_axis'])
-    area = np.asarray(axis['dcross1'])[:, None] * np.asarray(axis['dcross2'])[None, :]
-    pore_area = float(np.sum(eps_in * prepared['openings'][side]['inlet'] * area))
-    capacity = prepared['properties'][side]['rho'] * pore_area
-    if not isfinite(capacity) or capacity <= 0:
-        raise ValueError(f'side {side}: inlet density times open pore area must be finite and positive')
-    return capacity
-
-
-def _total_inlet_mass_capacity(design, parameters, grid, side):
-    if grid['dimension'] == 3:
-        return _inlet_mass_capacity(design, parameters['prepared'], side)
-    geometry = parameters['run_settings']['geometry']
-    depth = geometry['Lz_m']
-    if depth is None or not isfinite(depth) or depth <= 0:
-        raise ValueError('2D total mass flow requires a positive physical Lz_m')
-    if geometry['delta_levelset'] != 0:
-        raise ValueError('2D fixed-flow optimization currently requires delta_levelset=0')
-    direction = parameters['cfg' + side]['dir']
-    axis = direction // 2
-    eps_in = np.take(design['eps_arr'], -1 if direction % 2 else 0, axis=axis) / 2.
-    widths = grid['dy' if axis == 0 else 'dx']
-    opening = parameters['boundary_openings'][side]['in_profile_frac']
-    capacity = parameters['static_properties'][side]['rho'] * float(np.sum(eps_in * opening * widths)) * depth
-    if not isfinite(capacity) or capacity <= 0:
-        raise ValueError(f'side {side}: inlet density times open pore area must be finite and positive')
-    return capacity
 
 
 def prepare_fixed_mass_flow_case(
@@ -72,11 +42,22 @@ def prepare_fixed_mass_flow_case(
     total flow to the solver's per-unit-depth flow; its symmetric channel
     porosity is half the prepared total porosity.
 
-    Prepare twice so the returned immutable snapshot and all speed-dependent
-    preparation use the adjusted velocities. The caller's configuration and
-    its geometry, inlet temperature/pressure, and model choices stay intact.
+    Resolve geometry and inlet density before checking inlet velocities, so
+    the immutable snapshot and all speed-dependent preparation use the targets.
+    The caller's configuration, geometry, inlet temperature/pressure and model
+    choices stay intact.
     No numerical solve is performed.
     """
+    resolved = resolve_fixed_mass_flow_config(config, mass_flow_A_kg_s=mass_flow_A_kg_s,
+                                             mass_flow_B_kg_s=mass_flow_B_kg_s)
+    return prepare_case(resolved, case_id=case_id)
+
+
+def resolve_fixed_mass_flow_config(
+    config: ComputeConfig, *, mass_flow_A_kg_s: float, mass_flow_B_kg_s: float,
+) -> ComputeConfig:
+    """Resolve inlet velocities from the actual geometry, then validate them."""
+    config = deepcopy(config)
     if config.fluid_A is None or config.fluid_B is None:
         raise ValueError('fixed mass flow requires a dual-fluid ComputeConfig')
     if not config.is_3d and (config.geometry.Lz_m is None or not isfinite(config.geometry.Lz_m)
@@ -86,14 +67,11 @@ def prepare_fixed_mass_flow_case(
     for side, target in targets.items():
         if not isfinite(target) or target <= 0:
             raise ValueError(f'mass_flow_{side}_kg_s must be finite and positive')
-    provisional = prepare_case(config, case_id=case_id)
-    fluids = {}
-    for side, target in targets.items():
-        capacity = _total_inlet_mass_capacity(
-            provisional.design_fields, provisional.parameters, provisional.grid, side)
-        fluids['fluid_' + side] = replace(getattr(config, 'fluid_' + side),
-                                          u_mps=target / capacity)
-    return prepare_case(replace(config, **fluids), case_id=case_id)
+    capacities = prepare_inlet_mass_capacities(config)
+    fluids = {'fluid_' + side: replace(getattr(config, 'fluid_' + side),
+                                       u_mps=target / capacities[side])
+              for side, target in targets.items()}
+    return replace(config, **fluids).validate()
 
 
 def _full_result_metadata(field):
@@ -169,7 +147,7 @@ def _check_baseline_case(reference, case, flow_a, flow_b):
         if not np.all(metadata['design_fields'][name] == case.parameters[parameter]):
             raise ValueError(f'baseline {name} differs from original uniform geometry')
     for side, target in (('A', flow_a), ('B', flow_b)):
-        prescribed = parameters['u_' + side] * _total_inlet_mass_capacity(
+        prescribed = parameters['u_' + side] * total_inlet_mass_capacity(
             metadata['design_fields'], parameters, reference.grid, side)
         # This checks serialized input arithmetic, not measured flow accuracy.
         if not np.isclose(prescribed, target, rtol=1e-12, atol=0.):
@@ -352,6 +330,9 @@ def evaluate_condition_batch(
     except Exception as exc:
         primary_error = exc
         record.update(status='failed', reason=f'{type(exc).__name__}: {exc}', objectives=None)
+        for row in history:
+            if row['status'] == 'running':
+                row.update(status='failed', reason=record['reason'])
         raise
     finally:
         publish(primary_error)

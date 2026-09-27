@@ -10,6 +10,13 @@ from sjtu_tpmshx.models.grid_3d import _build_grid_3d, _resolve_axis_map, _build
 from sjtu_tpmshx.models.field_coordinates_3d import _build_partial_masks
 
 def _parse_inputs_3d_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
+    cfg = _parse_geometry_inputs_3d_cfg(compute_cfg)
+    cfg['extrap_reasons'] = surrogate_extrap_reasons(
+        compute_cfg, bool(compute_cfg.extrap.allow))
+    return cfg
+
+
+def _parse_geometry_inputs_3d_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
     """Read typed physical input and prepare the numerical parameter mapping.
     """
     # ── scalar geometry + grid + fluids ─────────────────────────────
@@ -84,8 +91,6 @@ def _parse_inputs_3d_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
     for side, config in (('A', compute_cfg.fluid_A), ('B', compute_cfg.fluid_B)):
         check_water_state(config.type, config.T_in_K, config.P_in_Pa,
                           where=f'pipeline inlet {side}')
-    extrap_reasons = surrogate_extrap_reasons(
-        compute_cfg, bool(compute_cfg.extrap.allow))
 
     from sjtu_tpmshx.models.tpms_calc import validate_fluid_type
     fluid_type_A = compute_cfg.fluid_A.type
@@ -140,7 +145,6 @@ def _parse_inputs_3d_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
         fluid_type_B=fluid_type_B,
         df_mode=compute_cfg.df_mode,
         sco2_nu=compute_cfg.sco2_nu,
-        extrap_reasons=extrap_reasons,
         compute_cfg=compute_cfg,
     )
 
@@ -148,6 +152,20 @@ def _parse_inputs_3d_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
 
 
 def _prepare_problem_data(cfg):
+    prepared = _prepare_geometry_data(cfg)
+    cfg = prepared['cfg']
+    spatial = bool(cfg.get('zone_grid_cells')) or cfg.get('continuous_field') is not None
+    design = prepared['design']
+    _record_air_bulk_ranges(
+        cfg, design['L_field_m'] * 1e3 if spatial else None,
+        design['t_field_m'] * 1e3 if spatial else None,
+        (prepared['Nx'], prepared['Ny'], prepared['Nz']))
+    cfg['df_application'] = _prepare_df_application(
+        cfg, prepared['axes'], design['K_m2'], design['cF_per_m'])
+    return prepared
+
+
+def _prepare_geometry_data(cfg):
     """Resolve physical data for the existing low-level 3D input convention."""
     reject_retired_boundary_options(cfg)
     from sjtu_tpmshx.models import fluid_props
@@ -245,9 +263,6 @@ def _prepare_problem_data(cfg):
     from sjtu_tpmshx.models.roughness import resolve_mode_from_env
     mode, eps_um = resolve_mode_from_env(default='norris_1a')
     cfg['roughness_resolved'] = {'mode': mode, 'eps_m': eps_um * 1e-6}
-    _record_air_bulk_ranges(
-        cfg, lfield * 1e-3 * 1e3 if spatial else None,
-        tfield * 1e-3 * 1e3 if spatial else None, (nx, ny, nz))
     permeability, forchheimer = predict_K_cF_vec(
         cfg['tpms_type'], lfield, tfield, eps / 2., method=SCO2_DF_METHOD)
     eps_A, eps_B = _eps_sides_for_run(cfg, cfg['tpms_type'], cfg['Lcell'], cfg['t_wall'], eps, eps / 2.)
@@ -264,7 +279,6 @@ def _prepare_problem_data(cfg):
         temperature, pressure = cfg['T_in' + side], cfg.get('P_in' + side, cfg['P_inA'])
         fluid_props.check_water_state(fluid, temperature, pressure, where=f'3D prepared inlet {side}')
         properties[side] = {key: float(getattr(model, key)(temperature, pressure)) for key in ('rho', 'mu', 'cp', 'k')}
-    cfg['df_application'] = _prepare_df_application(cfg, axes, permeability, forchheimer)
     return dict(cfg=cfg, dx=dx, dy=dy, dz=dz, Nx=nx, Ny=ny, Nz=nz,
                 max_outer=max_outer, ltne_max_iter=ltne_max_iter, compact=compact,
                 geometry=geometry, axes=axes, openings=openings, properties=properties,

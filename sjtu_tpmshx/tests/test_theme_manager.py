@@ -54,6 +54,40 @@ def test_palette_is_dict():
     assert 'bg' in p
 
 
+def test_dialog_theme_applies_first_and_changed_styles_only(monkeypatch):
+    from unittest.mock import Mock
+    from PySide6.QtWidgets import QApplication
+    from sjtu_tpmshx.ui.mixins.dialogs import DialogsMixin
+    from sjtu_tpmshx.ui.theme import get_theme, get_theme_name, set_theme
+
+    app = QApplication.instance()
+    previous_style, previous_theme = app.styleSheet(), get_theme_name()
+    dialogs = DialogsMixin()
+    try:
+        app.setStyleSheet('')
+        set_theme('light')
+        with monkeypatch.context() as patch:
+            setter = Mock(wraps=app.setStyleSheet)
+            patch.setattr(app, 'setStyleSheet', setter)
+            dialogs._install_dialog_theme()
+            assert setter.call_count == 1
+            assert f"QMessageBox{{background:{get_theme()['bg']};}}" in app.styleSheet()
+            light_style = app.styleSheet()
+            dialogs._install_dialog_theme()
+            assert setter.call_count == 1
+
+            set_theme('dark')
+            dialogs._install_dialog_theme()
+            assert setter.call_count == 2
+            assert app.styleSheet() != light_style
+            assert f"QMessageBox{{background:{get_theme()['bg']};}}" in app.styleSheet()
+            dialogs._install_dialog_theme()
+            assert setter.call_count == 2
+    finally:
+        set_theme(previous_theme)
+        app.setStyleSheet(previous_style)
+
+
 # ---------------------------------------------------------------- signal
 
 

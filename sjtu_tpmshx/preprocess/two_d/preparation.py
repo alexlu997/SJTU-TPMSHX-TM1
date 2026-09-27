@@ -34,7 +34,7 @@ def _check_zoned_fluid_support(compute_cfg: ComputeConfig) -> None:
             "(non-zoned) case for water.")
 
 
-def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None):
+def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None, geometry_only=False):
     """Sample the requested design at the supplied physical cell centres."""
     geometry = compute_cfg.geometry
     L, H = geometry.L_dom_m, geometry.H_dom_m
@@ -65,35 +65,40 @@ def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None):
                 eps[index], solid[index], radius[index] = local['epsilon'], local['K_ss'], local['D_h'] / 2.
             za = dict(axis='continuous', L_field=lfield, t_field=tfield,
                       eps_arr=eps, eps_f_arr=eps / 2., K_ss_arr=solid, r_h_arr=radius)
-            for side, fluid in (('A', compute_cfg.fluid_A), ('B', compute_cfg.fluid_B)):
-                za['K_ff' + side + '_arr'] = eps * float(fluid_props.get(fluid.type).k(fluid.T_in_K, fluid.P_in_Pa))
+            if not geometry_only:
+                for side, fluid in (('A', compute_cfg.fluid_A), ('B', compute_cfg.fluid_B)):
+                    za['K_ff' + side + '_arr'] = eps * float(fluid_props.get(fluid.type).k(fluid.T_in_K, fluid.P_in_Pa))
             zone_config = 'continuous'
         elif z_axis == 'grid':
             grid = compute_cfg.zones.grid
             _x_dec = compute_cfg.zones.pareto_x_decision
             if _x_dec is not None:
                 from sjtu_tpmshx.models.sigmoid_field import (
-                    build_continuous_arrays, get_geometry_lut,
+                    build_continuous_arrays, build_continuous_geometry, get_geometry_lut,
                 )
                 _lut = get_geometry_lut(tpms_type)
-                za = build_continuous_arrays(
+                builder = build_continuous_geometry if geometry_only else build_continuous_arrays
+                kwargs = dict(lut=_lut, allow_extrap=_allow_extrap, dx_arr=dx_arr, dy_arr=dy_arr)
+                if not geometry_only:
+                    kwargs.update(u_A=u_A, u_B=u_B, T_inA=T_inA, T_inB=T_inB,
+                                  P_in=P_in_val, P_inB=P_inB, fluid_type=fluid_A)
+                za = builder(
                     _x_dec, Lcell, t_wall,
                     compute_cfg.zones.pareto_y_trans_inlet,
                     compute_cfg.zones.pareto_y_trans_outlet,
                     N_x, N_y, L, H,
-                    tpms_type, k_s,
-                    u_A, u_B, T_inA, T_inB, _lut,
-                    P_in=P_in_val, P_inB=P_inB,
-                    allow_extrap=_allow_extrap,
-                    fluid_type=fluid_A, dx_arr=dx_arr, dy_arr=dy_arr)
+                    tpms_type, k_s, **kwargs)
                 _log.info(f"[ZONE] Continuous Sigmoid field ({N_x}x{N_y})")
             else:
                 from sjtu_tpmshx.models.zone_config import ZoneConfig
-                za = ZoneConfig.build_grid_arrays(
+                builder = ZoneConfig.build_grid_geometry if geometry_only else ZoneConfig.build_grid_arrays
+                kwargs = dict(dx_arr=dx_arr, dy_arr=dy_arr)
+                if not geometry_only:
+                    kwargs.update(u_A=u_A, u_B=u_B, T_inA=T_inA, T_inB=T_inB,
+                                  P_in=P_in_val, P_inB=P_inB)
+                za = builder(
                     N_x, N_y, grid['cells'],
-                    grid['tpms_type'], grid['k_s'],
-                    u_A, u_B, T_inA, T_inB, P_in_val, P_inB=P_inB,
-                    dx_arr=dx_arr, dy_arr=dy_arr)
+                    grid['tpms_type'], grid['k_s'], **kwargs)
                 _log.info(f"[ZONE] Grid {len(grid['cells'])} cells (discrete)")
             zone_config = 'grid'
         else:
@@ -108,11 +113,14 @@ def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None):
                 zone_data = deepcopy(zone_config)
                 zone_data['zones'] = [Zone(**zone) for zone in zone_data['zones']]
                 zone_config = ZoneConfig(**zone_data)
-            zone_config.compute_properties(
-                u_A=u_A, u_B=u_B, T_inA=T_inA, T_inB=T_inB,
-                P_in=P_in_val, P_inB=P_inB)
+            if not geometry_only:
+                zone_config.compute_properties(
+                    u_A=u_A, u_B=u_B, T_inA=T_inA, T_inB=T_inB,
+                    P_in=P_in_val, P_inB=P_inB)
             z_dim = H if z_axis == 'y' else L
-            za = zone_config.build_structured_arrays(
+            builder = (zone_config.build_structured_geometry if geometry_only
+                       else zone_config.build_structured_arrays)
+            za = builder(
                 N_x, N_y, z_dim, axis=z_axis, dx_arr=dx_arr, dy_arr=dy_arr)
             _log.info(f"[ZONE] {len(zone_config.zones)} zones along "
                       f"{z_axis}")
@@ -130,9 +138,16 @@ def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None):
 
 
 def _parse_inputs_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
+    cfg = _parse_geometry_inputs_cfg(compute_cfg)
+    cfg['extrap_reasons'] = surrogate_extrap_reasons(compute_cfg, bool(compute_cfg.extrap.allow))
+    cfg['zone_config'], cfg['za'], _ = _build_zone_arrays(
+        compute_cfg, cfg['N_x'], cfg['N_y'])
+    return cfg
+
+
+def _parse_geometry_inputs_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
     """Assemble physical inputs and applicability notices from typed config."""
     warnings_list = []
-    extrap_reasons = []
 
     # Air, water and sCO2 use the per-side property registry. Zoned geometry
     # retains its separate air/air-only guard below.
@@ -145,11 +160,6 @@ def _parse_inputs_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
     for side, config in (('A', compute_cfg.fluid_A), ('B', compute_cfg.fluid_B)):
         check_water_state(config.type, config.T_in_K, config.P_in_Pa,
                           where=f'pipeline inlet {side}')
-
-    # Inlet Nu/Re applicability warnings may be allowed here. D-F geometry
-    # and property hard limits still apply; local field ranges are separate.
-    _allow_extrap = bool(compute_cfg.extrap.allow)
-    extrap_reasons += surrogate_extrap_reasons(compute_cfg, _allow_extrap)
 
     # Scalar parameters (already cfg-sourced).
     L = compute_cfg.geometry.L_dom_m
@@ -184,7 +194,7 @@ def _parse_inputs_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
     eps = g['epsilon']
     r_h = g['D_h'] / 2.0
 
-    zone_config, za, z_axis = _build_zone_arrays(compute_cfg, N_x, N_y)
+    z_axis = compute_cfg.zones.axis if compute_cfg.zones.enabled else 'y'
 
     return {
         'L': L, 'H': H,
@@ -199,23 +209,21 @@ def _parse_inputs_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
         'tpms_type': tpms_type,
         'Lcell': Lcell, 't_wall': t_wall, 'k_s': k_s,
         'eps': eps, 'r_h': r_h,
-        'zone_config': zone_config, 'za': za, 'z_axis': z_axis,
+        'z_axis': z_axis,
         'continuous_field': (dict(compute_cfg.zones.config)
                              if compute_cfg.zones.enabled and z_axis == 'continuous' else None),
         'fluid_A': fluid_A, 'fluid_B': fluid_B,
         'warnings_list': warnings_list,
-        'extrap_reasons': extrap_reasons,
         # Preparation consumes typed input only; runtime receives its frozen
         # run_settings and physical fields through CaseData.
         'compute_cfg': compute_cfg,
     }
 
 
-def _prepare_grid(cfg):
+def _prepare_mesh(cfg):
     L, H = cfg['L'], cfg['H']
     N_x, N_y = cfg['N_x'], cfg['N_y']
     cfgA, cfgB = cfg['cfgA'], cfg['cfgB']
-    zone_config, za = cfg['zone_config'], cfg['za']
     # Build aligned grid arrays for energy solver
     from sjtu_tpmshx.models.grid import _aligned_grid
     _x_breaks = set()
@@ -236,7 +244,7 @@ def _prepare_grid(cfg):
     # refinement would conflict with inlet/outlet boundary alignment.
     _wall_refine_gui = (
         len(_x_breaks) == 0 and len(_y_breaks) == 0
-        and (zone_config is None or cfg['z_axis'] == 'continuous')
+        and (not cfg['compute_cfg'].zones.enabled or cfg['z_axis'] == 'continuous')
     )
     if cfg['compute_cfg'].flags.port_wall_refine:
         from sjtu_tpmshx.models.grid import build_port_wall_grid
@@ -262,6 +270,15 @@ def _prepare_grid(cfg):
     N_y = int(len(energy_dy))
     cfg['N_x'] = N_x
     cfg['N_y'] = N_y
+    return {'energy_dx': energy_dx, 'energy_dy': energy_dy,
+            '_x_breaks': tuple(sorted(_x_breaks)), '_y_breaks': tuple(sorted(_y_breaks))}
+
+
+def _prepare_grid(cfg):
+    physical_grid = _prepare_mesh(cfg)
+    energy_dx, energy_dy = physical_grid['energy_dx'], physical_grid['energy_dy']
+    N_x, N_y = cfg['N_x'], cfg['N_y']
+    zone_config, za = cfg['zone_config'], cfg['za']
 
     # Re-evaluate the design on the final physical mesh. Matching array shapes
     # alone do not establish matching cell centres on a port-aligned grid.
@@ -279,8 +296,7 @@ def _prepare_grid(cfg):
         t_field=None if za is None else za['t_field'],
         delta=float(cfg['compute_cfg'].geometry.delta_levelset))
     cfg['boundary_openings'] = _prepare_openings(cfg, energy_dx, energy_dy)
-    return {'energy_dx': energy_dx, 'energy_dy': energy_dy,
-            '_x_breaks': tuple(sorted(_x_breaks)), '_y_breaks': tuple(sorted(_y_breaks))}
+    return physical_grid
 
 
 
@@ -362,6 +378,25 @@ def _prepare_openings(cfg, dx, dy):
             openings[end + '_profile_frac'] = profile
         boundaries[side] = openings
     return boundaries
+
+
+def _prepare_inlet_data(config):
+    """Prepare the same mesh, porosity and openings without thermal closures."""
+    from dataclasses import asdict
+    from sjtu_tpmshx.models import fluid_props
+
+    cfg = _parse_geometry_inputs_cfg(config)
+    physical_grid = _prepare_mesh(cfg)
+    dx, dy = physical_grid['energy_dx'], physical_grid['energy_dy']
+    _, za, _ = _build_zone_arrays(
+        config, len(dx), len(dy), dx_arr=dx, dy_arr=dy, geometry_only=True)
+    design = {'eps_arr': np.full((len(dx), len(dy)), cfg['eps'])} if za is None else za
+    cfg['boundary_openings'] = _prepare_openings(cfg, dx, dy)
+    cfg['run_settings'] = {'geometry': asdict(config.geometry)}
+    cfg['static_properties'] = {
+        side: {'rho': float(fluid_props.get(fluid.type).rho(fluid.T_in_K, fluid.P_in_Pa))}
+        for side, fluid in (('A', config.fluid_A), ('B', config.fluid_B))}
+    return design, cfg, {'dimension': 2, 'dx': dx, 'dy': dy}
 
 
 def prepare_case(config: ComputeConfig, *, case_id: str):

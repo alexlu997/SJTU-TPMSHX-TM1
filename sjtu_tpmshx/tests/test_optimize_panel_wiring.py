@@ -643,6 +643,23 @@ def test_blank_optional_pressure_keeps_default(window, side):
     assert widget.text() == ''
 
 
+@pytest.mark.parametrize('imported', [False, True])
+def test_imported_flows_defer_speed_validation_to_worker(window, monkeypatch, tmp_path, imported):
+    from unittest.mock import Mock
+    window.le_uA.setText('0.001')  # Outside the active experimental velocity window.
+    window._opt_conditions = [condition()] if imported else None
+    factory = Mock(side_effect=RuntimeError('reached worker construction'))
+    monkeypatch.setattr(panel, '_make_worker_class', factory)
+    monkeypatch.setattr(panel, 'optimization_output_dir', lambda: tmp_path)
+    panel.run_optimize(window)
+    if imported:
+        factory.assert_called_once()
+        assert 'reached worker construction' in window._opt_status.text()
+    else:
+        factory.assert_not_called()
+        assert '启动失败' in window._opt_status.text()
+
+
 @pytest.mark.parametrize('failure', ['primary_error', 'stale_cancel', 'missing_cancel', 'stale_without_note'])
 def test_worker_checkpoint_error_keeps_cause_and_rejects_stale_results(
         window, tmp_path, monkeypatch, failure):
