@@ -269,6 +269,20 @@ def build_continuous_arrays(x, L0, t0, y_trans_inlet, y_trans_outlet,
     -------
     dict with same keys as ZoneConfig.build_grid_arrays(), plus L_field, t_field
     """
+    geometry = build_continuous_geometry(
+        x, L0, t0, y_trans_inlet, y_trans_outlet, Nx, Ny, L_domain, H_domain,
+        tpms_type, k_s, lut, sigmoid_width_y, sigmoid_width_x, fix_L, fix_t,
+        dx_arr, dy_arr, allow_extrap)
+    return _fluid_arrays_from_geometry(geometry, tpms_type, u_A, u_B, T_inA, T_inB,
+                                      P_in=P_in, P_inB=P_inB, fluid_type=fluid_type)
+
+
+def build_continuous_geometry(x, L0, t0, y_trans_inlet, y_trans_outlet,
+                              Nx, Ny, L_domain, H_domain, tpms_type, k_s, lut,
+                              sigmoid_width_y=0.02, sigmoid_width_x=0.05,
+                              fix_L=False, fix_t=False, dx_arr=None, dy_arr=None,
+                              allow_extrap=None):
+    """Sample sigmoid geometry through the same LUT and clipping policy."""
     # 1. Extract control point arrays from decision variables
     ctrl_L_in = np.empty((3, 3))
     ctrl_t_in = np.empty((3, 3))
@@ -302,16 +316,21 @@ def build_continuous_arrays(x, L0, t0, y_trans_inlet, y_trans_outlet,
                                y_trans_inlet, y_trans_outlet,
                                sigmoid_width_x, sigmoid_width_y)
 
-    return _arrays_from_fields(
-        L_field, t_field, tpms_type, k_s, u_A, u_B, T_inA, T_inB, lut,
-        P_in=P_in, P_inB=P_inB, allow_extrap=allow_extrap,
-        fluid_type=fluid_type, axis='continuous')
+    return _geometry_from_fields(L_field, t_field, tpms_type, k_s, lut,
+                                 allow_extrap=allow_extrap, axis='continuous')
 
 
 def _arrays_from_fields(L_field, t_field, tpms_type, k_s, u_A, u_B,
                         T_inA, T_inB, lut, *, P_in=101325., P_inB=None,
                         allow_extrap=None, fluid_type='air', axis):
     """Shared property assembly for the 2D and 3D sigmoid fields."""
+    geometry = _geometry_from_fields(L_field, t_field, tpms_type, k_s, lut,
+                                     allow_extrap=allow_extrap, axis=axis)
+    return _fluid_arrays_from_geometry(geometry, tpms_type, u_A, u_B, T_inA, T_inB,
+                                      P_in=P_in, P_inB=P_inB, fluid_type=fluid_type)
+
+
+def _geometry_from_fields(L_field, t_field, tpms_type, k_s, lut, *, allow_extrap, axis):
     # Clip to fit range — bypassed under allow_extrap so user can sweep
     # outside the current CFD geometry grid.
     # Env var TPMSHX_ALLOW_EXTRAP=1 also triggers bypass for non-UI callers.
@@ -337,6 +356,22 @@ def _arrays_from_fields(L_field, t_field, tpms_type, k_s, u_A, u_B,
     eps_arr, A0_arr = lut.query(L_field, t_field)
     D_h_arr = 2.0 * eps_arr / (A0_arr + 1e-30)  # [m]
 
+    from .tpms_calc import chi_s_eff
+    return {
+        'zone_id': np.zeros(L_field.shape, dtype=np.int32),
+        'eps_arr': eps_arr,
+        'eps_f_arr': eps_arr / 2.0,
+        'K_ss_arr': chi_s_eff(tpms_type, eps_arr) * (1.0 - eps_arr) * k_s,
+        'r_h_arr': D_h_arr / 2.0,
+        'A_0_arr': A0_arr,
+        'L_field': L_field,
+        't_field': t_field,
+        'axis': axis,
+    }
+
+
+def _fluid_arrays_from_geometry(geometry, tpms_type, u_A, u_B, T_inA, T_inB, *,
+                                P_in, P_inB, fluid_type):
     # 5. Compute fluid properties (vectorized) — AIR ONLY (guarded above-call by
     # _check_zoned_fluid_support; this is the in-builder backstop so no caller
     # can silently get air props for a non-air fluid).
@@ -345,6 +380,8 @@ def _arrays_from_fields(L_field, t_field, tpms_type, k_s, u_A, u_B,
             f"build_continuous_arrays hardcodes air properties; fluid_type="
             f"{fluid_type!r} would silently use air (h_v/K_ff off 10-100x). "
             "Zoned/graded non-air support is deferred — use uniform geometry.")
+    eps_arr, A0_arr = geometry['eps_arr'], geometry['A_0_arr']
+    L_field, D_h_arr = geometry['L_field'], geometry['r_h_arr'] * 2.0
     k_fA = air_conductivity(T_inA)
     mu_A = air_viscosity(T_inA)
     rho_ref_A = air_density(T_inA, P_in)  # FIX (2026-06-24 audit): use actual P_in, not P_atm — Re scales with rho(P), matching tpms_calc.compute
@@ -367,27 +404,12 @@ def _arrays_from_fields(L_field, t_field, tpms_type, k_s, u_A, u_B,
 
     K_ffA_arr = eps_arr * k_fA
     K_ffB_arr = eps_arr * k_fB
-    # Apply the solid-conductivity factor χ_s to match the main field path
-    # (run_stack_3d: K_ss = chi_s_eff(type, ε)·(1−ε)·k_s) and tpms_calc.
-    # B2 (2026-07-06): per-cell fitted χ_s(type, ε) from unit-cell
-    # homogenization; env TPMSHX_CHI_S constant still overrides.
-    from sjtu_tpmshx.models.tpms_calc import chi_s_eff as _chi_s_eff
-    K_ss_arr = _chi_s_eff(tpms_type, eps_arr) * (1.0 - eps_arr) * k_s
-
     return {
-        'zone_id': np.zeros(L_field.shape, dtype=np.int32),  # continuous = single zone
-        'eps_arr': eps_arr,
-        'eps_f_arr': eps_arr / 2.0,
+        **geometry,
         'K_ffA_arr': K_ffA_arr,
         'K_ffB_arr': K_ffB_arr,
-        'K_ss_arr': K_ss_arr,
         'h_vA_arr': h_vA_arr,
         'h_vB_arr': h_vB_arr,
-        'r_h_arr': D_h_arr / 2.0,
-        'A_0_arr': A0_arr,
-        'L_field': L_field,
-        't_field': t_field,
-        'axis': axis,
     }
 
 

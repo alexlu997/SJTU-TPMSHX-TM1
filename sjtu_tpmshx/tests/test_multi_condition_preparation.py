@@ -11,6 +11,8 @@ from sjtu_tpmshx.domain.compute_config import (
 from sjtu_tpmshx.models.field_coordinates_3d import _solver_staggered_to_real
 from sjtu_tpmshx.optimization.multi_condition import prepare_fixed_mass_flow_case
 from sjtu_tpmshx.preprocess.three_d import preparation
+from sjtu_tpmshx.preprocess.api import prepare_case, prepare_inlet_mass_capacities
+from sjtu_tpmshx.preprocess.inlet_flow import total_inlet_mass_capacity
 from sjtu_tpmshx.solvers.backends.python.three_d import runtime
 from sjtu_tpmshx.solvers.backends.python.three_d.execution import build_execution_inputs
 from sjtu_tpmshx.solvers.ltne_enthalpy_3d import face_mass_fluxes
@@ -108,3 +110,108 @@ def test_fixed_flow_requires_dual_fluid_and_explicit_2d_depth(config, message):
     with pytest.raises(ValueError, match=message):
         prepare_fixed_mass_flow_case(
             config, mass_flow_A_kg_s=.01, mass_flow_B_kg_s=.02, case_id='invalid-config')
+
+
+@pytest.mark.parametrize('dimension', [2, 3])
+@pytest.mark.parametrize('design_mode', ['uniform', 'continuous'])
+@pytest.mark.parametrize('df_mode', ['cfd_smooth', 'experimental'])
+def test_fixed_flow_uses_only_resolved_velocities(monkeypatch, dimension, design_mode, df_mode):
+    monkeypatch.delenv('TPMSHX_ALLOW_EXTRAP', raising=False)
+    config = ComputeConfig(
+        geometry=GeometryConfig(L_dom_m=.182, H_dom_m=.042, Lz_m=.042),
+        solver=SolverConfig(Nx=4, Ny=4, Nz=2 if dimension == 3 else 1),
+        fluid_A=FluidConfig(type='air', u_mps=6., T_in_K=380., P_in_Pa=160000.),
+        fluid_B=FluidConfig(type='water', u_mps=.05, T_in_K=300., P_in_Pa=200000.),
+        df_mode=df_mode)
+    if design_mode == 'continuous':
+        count = 4 if dimension == 2 else 8
+        config.zones = ZoneInputConfig(enabled=True, axis='continuous', config={
+            'x_decision': np.linspace(6.8, 7.2, count).tolist()
+                          + np.linspace(.5, .58, count).tolist(),
+            'n_ctrl_x': 2, 'n_ctrl_y': 2, 'symmetric_y': False,
+            'spline_order': 1, 'L_bounds': [4., 8.], 't_bounds': [.3, .6],
+            **({'n_ctrl_z': 2} if dimension == 3 else {})})
+    reference = prepare_case(config, case_id='reference')
+    targets = {'mass_flow_' + side + '_kg_s': getattr(config, 'fluid_' + side).u_mps
+               * total_inlet_mass_capacity(reference.design_fields, reference.parameters,
+                                          reference.grid, side) for side in ('A', 'B')}
+    expected = prepare_fixed_mass_flow_case(config, **targets, case_id='fixed')
+    old = replace(config, fluid_A=replace(config.fluid_A, u_mps=.001),
+                  fluid_B=replace(config.fluid_B, u_mps=.00001))
+    snapshot = asdict(old)
+    actual = prepare_fixed_mass_flow_case(old, **targets, case_id='fixed')
+    assert asdict(old) == snapshot
+    assert actual.config_snapshot == expected.config_snapshot
+    assert actual.metadata['warnings'] == expected.metadata['warnings']
+    assert actual.parameters['extrap_reasons'] == expected.parameters['extrap_reasons']
+    for key in expected.design_fields:
+        np.testing.assert_equal(actual.design_fields[key], expected.design_fields[key])
+    for side in ('A', 'B'):
+        assert actual.parameters['u_' + side] == pytest.approx(getattr(config, 'fluid_' + side).u_mps)
+    # The resolved velocity still passes through both original physical gates.
+    invalid = {**targets, 'mass_flow_A_kg_s': targets['mass_flow_A_kg_s'] * 1e-6}
+    message = 'HX experiment calibration' if df_mode == 'experimental' and design_mode == 'uniform' else 'outside air Nu window'
+    with pytest.raises(ValueError, match=message):
+        prepare_fixed_mass_flow_case(old, **invalid, case_id='invalid-final-speed')
+
+
+@pytest.mark.parametrize('design_mode', ['x', 'y', 'grid', 'sigmoid'])
+def test_fixed_flow_preserves_legacy_2d_geometry_and_input(monkeypatch, tmp_path, design_mode):
+    from sjtu_tpmshx.models.zone_config import Zone, ZoneConfig
+
+    config = ComputeConfig(
+        geometry=GeometryConfig(L_dom_m=.04, H_dom_m=.05, Lz_m=.02),
+        solver=SolverConfig(Nx=12, Ny=12),
+        fluid_A=FluidConfig(u_mps=5., T_in_K=380., P_in_Pa=160000.),
+        fluid_B=FluidConfig(u_mps=5., T_in_K=300., P_in_Pa=200000.),
+        bc_A=PartialBCConfig(dir=1, in_ctr=.023, in_w=.021, out_ctr=.025, out_w=.019),
+        bc_B=PartialBCConfig(dir=3, in_ctr=.018, in_w=.027, out_ctr=.023, out_w=.021))
+    config.zones = ZoneInputConfig(enabled=True, axis='grid' if design_mode == 'sigmoid' else design_mode)
+    if design_mode in ('x', 'y'):
+        config.zones.config = ZoneConfig([
+            Zone('outlet', .5, 1., 7., .5), Zone('inlet', 0., .5, 6., .4)], 'Gyroid', 16.)
+    else:
+        config.zones.grid = {'cells': [
+            dict(x0=0., x1=.5, y0=0., y1=1., L=6., t=.4),
+            dict(x0=.5, x1=1., y0=0., y1=1., L=7., t=.5)],
+            'tpms_type': 'Gyroid', 'k_s': 16.}
+    if design_mode == 'sigmoid':
+        from sjtu_tpmshx.models import sigmoid_field
+        lut = sigmoid_field.GeometryLUT('Gyroid', n_L=3, n_t=3, N=16, cache_dir=str(tmp_path))
+        monkeypatch.setattr(sigmoid_field, 'get_geometry_lut', lambda *_: lut)
+        config.zones.pareto_x_decision = [value for cell in np.linspace(6., 7., 18)
+                                        for value in (float(cell), .4)]
+    snapshot = asdict(config)
+    reference = prepare_case(config, case_id='legacy-reference')
+    targets = {'mass_flow_' + side + '_kg_s': getattr(config, 'fluid_' + side).u_mps
+               * total_inlet_mass_capacity(reference.design_fields, reference.parameters,
+                                          reference.grid, side) for side in ('A', 'B')}
+    old = replace(config, fluid_A=replace(config.fluid_A, u_mps=.001))
+    actual = prepare_fixed_mass_flow_case(old, **targets, case_id='legacy-fixed')
+    assert asdict(config) == snapshot
+    assert old.fluid_A.u_mps == .001
+    for key in reference.design_fields:
+        np.testing.assert_equal(actual.design_fields[key], reference.design_fields[key])
+    for side in ('A', 'B'):
+        assert actual.parameters['u_' + side] == pytest.approx(5.)
+
+
+def test_capacity_preparation_validates_static_inputs_before_building_fields(monkeypatch):
+    from sjtu_tpmshx.preprocess.two_d import preparation as preparation_2d
+
+    def forbidden(*args):
+        raise AssertionError('invalid static input reached field construction')
+
+    monkeypatch.setattr(preparation_2d, '_prepare_inlet_data', forbidden)
+    monkeypatch.setattr(preparation, '_prepare_geometry_data', forbidden)
+    for dimension in (2, 3):
+        config = ComputeConfig(geometry=GeometryConfig(Lz_m=.042),
+                               solver=SolverConfig(Nz=dimension - 1))
+        invalid = (
+            (replace(config, solver=replace(config.solver, Nx=True)), 'must be an integer'),
+            (replace(config, geometry=replace(config.geometry, L_cell_mm=9.)), 'V2 geometry'),
+            (replace(config, fluid_B=replace(config.fluid_B, T_in_K=np.nan)), 'T_in_K'),
+        )
+        for candidate, message in invalid:
+            with pytest.raises(ValueError, match=message):
+                prepare_inlet_mass_capacities(candidate)

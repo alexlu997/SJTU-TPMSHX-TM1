@@ -33,17 +33,66 @@ def _input_row():
 
 
 def _write_row(path, row):
+    _write_columns(path, list(row), list(row.values()))
+
+
+def _write_columns(path, header, values):
     if path.suffix == '.csv':
         with path.open('w', newline='', encoding='utf-8') as stream:
-            writer = csv.DictWriter(stream, fieldnames=list(row))
-            writer.writeheader()
-            writer.writerow(row)
+            writer = csv.writer(stream)
+            writer.writerow(header)
+            writer.writerow(values)
     else:
         workbook = openpyxl.Workbook()
-        workbook.active.append(list(row))
-        workbook.active.append(list(row.values()))
+        workbook.active.append(header)
+        workbook.active.append(values)
         workbook.save(path)
         workbook.close()
+
+
+@pytest.mark.parametrize('suffix', ['.csv', '.xlsx'])
+@pytest.mark.parametrize('field,value', [
+    ('Q_kW', 1.), ('Q_kW', 10.), ('dT_h_K', 80.), ('mdot_h', .2),
+    (' Q_kW ', 10.),
+])
+def test_load_cases_rejects_duplicate_input_columns(tmp_path, suffix, field, value):
+    row = _input_row()
+    path = tmp_path / ('duplicate' + suffix)
+    _write_columns(path, [*row, field], [*row.values(), value])
+    with pytest.raises(ValueError, match=f'重复列: {field.strip()}'):
+        load_cases(str(path))
+
+
+@pytest.mark.parametrize('suffix', ['.csv', '.xlsx'])
+def test_load_cases_trims_headers_before_reading_values(tmp_path, suffix):
+    row = _input_row()
+    path = tmp_path / ('spaces' + suffix)
+    _write_columns(path, [f' {name} ' for name in row], list(row.values()))
+    case, = load_cases(str(path))
+    assert case.Q == 1000. and case.mdot_h == .02
+
+
+@pytest.mark.parametrize('suffix', ['.csv', '.xlsx'])
+def test_load_cases_ignores_extra_and_blank_columns(tmp_path, suffix):
+    row = _input_row()
+    path = tmp_path / ('extras' + suffix)
+    _write_columns(path, [*row, 'note', 'note', '', ''],
+                   [*row.values(), 'first', 'second', 'unused', 'unused'])
+    case, = load_cases(str(path))
+    assert case.Q == 1000. and case.mdot_h == .02
+
+
+def test_duplicate_duty_does_not_reach_sizing(tmp_path, monkeypatch):
+    from sjtu_tpmshx.design import cli
+
+    row = _input_row()
+    source = tmp_path / 'duplicate.csv'
+    _write_columns(source, [*row, 'Q_kW'], [*row.values(), 10.])
+    monkeypatch.setattr(cli, 'size_fixed_cell',
+                        lambda *a, **kw: pytest.fail('ambiguous duty reached sizing'))
+    with pytest.raises(ValueError, match='重复列: Q_kW'):
+        cli.run(['--xlsx', str(source), '--mode', 'fixed',
+                 '--cell', 'Diamond,7,0.5', '--out', str(tmp_path / 'out.xlsx')])
 
 
 @pytest.mark.parametrize('suffix', ['.csv', '.xlsx'])

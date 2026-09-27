@@ -88,12 +88,13 @@ def _positive(value, label):
 
 
 def _gather_cfg(window):
+    """Capture widget inputs; the consumer validates its actual operating state."""
     from sjtu_tpmshx.ui.window_config import config_from_window
     cfg = config_from_window(window, strict=True)
     if not cfg.is_3d:
         depth = _positive(window._opt_depth.text(), '2D total-flow depth [m]')
         cfg = replace(cfg, geometry=replace(cfg.geometry, Lz_m=depth))
-    return cfg.validate()
+    return cfg
 
 
 def _field_spec(window):
@@ -195,9 +196,9 @@ def _condition_inputs(cfg, rows):
                 T_in_K=row[f'T_in_{side}_K'], P_in_Pa=row[f'P_in_{side}_Pa'])
             for side in 'AB'}), row['mass_flow_A_kg_s'], row['mass_flow_B_kg_s']) for row in rows]
     from sjtu_tpmshx.preprocess.api import prepare_case
-    from sjtu_tpmshx.optimization.multi_condition import _total_inlet_mass_capacity
+    from sjtu_tpmshx.preprocess.inlet_flow import total_inlet_mass_capacity
     case = prepare_case(cfg, case_id='gui-current-condition')
-    flows = [_total_inlet_mass_capacity(case.design_fields, case.parameters, case.grid, side)
+    flows = [total_inlet_mass_capacity(case.design_fields, case.parameters, case.grid, side)
              * getattr(cfg, f'fluid_{side}').u_mps for side in 'AB']
     return [('current', cfg, *flows)]
 
@@ -330,6 +331,8 @@ def run_optimize(window):
         cfg = _gather_cfg(window)
         rows = getattr(window, '_opt_conditions', None)
         rows = validate_condition_table({'conditions': rows}) if rows is not None else None
+        if rows is None:
+            cfg.validate()
         spec = _field_spec(window)
         params = {key: spin.value() for key, spin in window._opt_inline_params.items()}
         method = window._opt_method.currentData()
@@ -529,7 +532,7 @@ def clear_continuous_field(window):
 def load_pareto_solution(window, x_decision):
     from sjtu_tpmshx.io.case_io import load_case
     from sjtu_tpmshx.domain.portable_data import mutable_data
-    from sjtu_tpmshx.optimization.multi_condition import _total_inlet_mass_capacity
+    from sjtu_tpmshx.preprocess.inlet_flow import total_inlet_mass_capacity
     try:
         source, spec = _result_field_config(window)
         current = _gather_cfg(window)
@@ -568,7 +571,7 @@ def load_pareto_solution(window, x_decision):
         if case.case_id != archived['case_id'] or asdict(cfg) != asdict(expected):
             raise ValueError('归档算例的完整连续场或固定设置与优化 study 不一致')
         for side in 'AB':
-            prescribed = getattr(cfg, f'fluid_{side}').u_mps * _total_inlet_mass_capacity(
+            prescribed = getattr(cfg, f'fluid_{side}').u_mps * total_inlet_mass_capacity(
                 case.design_fields, case.parameters, case.grid, side)
             # Same serialized-input arithmetic tolerance as the batch baseline check.
             if not np.isclose(prescribed, row[f'mass_flow_{side}_kg_s'], rtol=1e-12, atol=0.):
@@ -600,10 +603,10 @@ def show_field_preview(window, x_decision=None):
     try:
         current_spec = getattr(window, '_continuous_field_spec', None)
         if x_decision is None and current_spec is not None and window.chk_zones.isChecked():
-            cfg, spec = _gather_cfg(window), deepcopy(current_spec)
+            cfg, spec = _gather_cfg(window).validate(), deepcopy(current_spec)
             x_decision = spec.pop('x_decision')
         elif x_decision is None:
-            cfg, spec = _gather_cfg(window), _field_spec(window)
+            cfg, spec = _gather_cfg(window).validate(), _field_spec(window)
             low, high = decision_bounds(spec['n_ctrl_x'], spec['n_ctrl_y'], spec['symmetric_y'],
                 spec['L_bounds'], spec['t_bounds'], n_ctrl_z=spec.get('n_ctrl_z'))
             x_decision = (low+high)/2

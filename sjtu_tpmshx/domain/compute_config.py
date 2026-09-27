@@ -515,15 +515,12 @@ class ComputeConfig:
             encoding='utf-8',
         )
 
-    def validate(self) -> 'ComputeConfig':
-        """Reject non-finite / non-physical scalars at the SCRIPT boundary
-        (robustness-hardening, 2026-07-03).
+    def validate_static_inputs(self) -> 'ComputeConfig':
+        """Validate before prescribed mass flow has resolved inlet velocities.
 
-        `json.loads` happily produces NaN/Infinity and negative values, and
-        the script/optimizer path bypasses every UI widget gate — so
-        ``from_dict``/``from_json`` call this. Direct dataclass construction
-        stays permissive on purpose (tests build deliberately-odd configs).
-        Returns self so call sites can chain.
+        This preparation stage checks geometry, thermodynamic inputs, ports
+        and numerical settings. It does not qualify an executable case:
+        ``validate()`` must still check the resolved speeds and calibration.
         """
         import math
 
@@ -573,7 +570,6 @@ class ComputeConfig:
             checks.append(('geometry.Lz_m', ge.Lz_m))
         for side, fl in (('A', self.fluid_A), ('B', self.fluid_B)):
             checks += [
-                (f'fluid_{side}.u_mps', fl.u_mps),
                 (f'fluid_{side}.T_in_K', fl.T_in_K),
                 (f'fluid_{side}.P_in_Pa', fl.P_in_Pa),
             ]
@@ -704,6 +700,26 @@ class ComputeConfig:
                 raise ValueError("sCO2 V2 does not support zones")
             if self.geometry.delta_levelset != 0.0:
                 raise ValueError("sCO2 V2 requires delta_levelset=0")
+        return self
+
+    def validate(self) -> 'ComputeConfig':
+        """Reject non-physical inputs at the script and preparation boundary.
+
+        ``from_dict``/``from_json`` call this; direct dataclass construction
+        stays permissive for callers assembling a configuration in stages.
+        """
+        import math
+
+        self.validate_static_inputs()
+        for side, fluid in (('A', self.fluid_A), ('B', self.fluid_B)):
+            try:
+                speed = float(fluid.u_mps)
+            except (TypeError, ValueError):
+                speed = math.nan
+            if not math.isfinite(speed) or speed <= 0:
+                raise ValueError(
+                    f'ComputeConfig.fluid_{side}.u_mps={fluid.u_mps!r} — must be finite and > 0')
+        ge = self.geometry
         if self.df_mode == 'experimental':
             from sjtu_tpmshx.df_surrogate.experimental_correction import (
                 correction_scale)
