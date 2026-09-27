@@ -68,7 +68,13 @@ def _row_to_case(get) -> "DesignCase | None":
         dPlim_h=float(get("dPlim_h")), dPlim_c=float(get("dPlim_c")),
         dT=(float(dTv) if dTv is not None else None))
 
-def _check_duty_cols(header):
+def _check_headers(header):
+    for col in _BASE + ["Q_kW", "dT_h_K"]:
+        if header.count(col) > 1:
+            raise ValueError(f"重复列: {col}")
+    for col in _BASE:
+        if col not in header:
+            raise ValueError(f"缺列: {col}")
     if "Q_kW" not in header and "dT_h_K" not in header:
         raise ValueError("缺 duty 列: 需 Q_kW 或 dT_h_K 至少一个")
 
@@ -76,7 +82,7 @@ def _load_xlsx(path):
     wb = openpyxl.load_workbook(path, data_only=True)
     ws = wb[wb.sheetnames[0]]
     header = [str(c.value).strip() if c.value is not None else "" for c in ws[1]]
-    _check_duty_cols(header)
+    _check_headers(header)
     idx = {name: header.index(name) for name in _BASE}
     pos = {**idx,
            "Q_kW":   header.index("Q_kW")   if "Q_kW"   in header else None,
@@ -92,14 +98,12 @@ def _load_xlsx(path):
 
 def _load_csv(path):
     with open(path, newline="", encoding="utf-8-sig") as f:
-        rows = list(_csv.DictReader(f))
-    if not rows:
-        return []
-    header = list(rows[0].keys())
-    for col in _BASE:
-        if col not in header:
-            raise ValueError(f"缺列: {col}")
-    _check_duty_cols(header)
+        reader = _csv.DictReader(f)
+        if reader.fieldnames is None:
+            return []
+        reader.fieldnames = [name.strip() for name in reader.fieldnames]
+        _check_headers(reader.fieldnames)
+        rows = list(reader)
     out = []
     for r in rows:
         def get(n, _r=r): return _r.get(n)

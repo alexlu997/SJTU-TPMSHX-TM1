@@ -33,6 +33,20 @@ from sjtu_tpmshx.logutil import get_logger
 _log = get_logger(__name__)
 
 
+def _geometry_fields(zone_id, cells, tpms_type, k_s):
+    """Scatter geometry-only zone values through the existing cell assignment."""
+    values = [tpms_calc.geometry(tpms_type, cell, wall, k_s) for cell, wall in cells]
+    fields = {
+        key: np.asarray([item[prop] for item in values], dtype=np.float64)[zone_id]
+        for key, prop in (('eps_arr', 'epsilon'), ('eps_f_arr', 'epsilon_A'),
+                          ('K_ss_arr', 'K_ss'), ('A_0_arr', 'A_0'))
+    }
+    fields['r_h_arr'] = np.asarray([item['D_h'] / 2. for item in values])[zone_id]
+    for index, key in enumerate(('L_field', 't_field')):
+        fields[key] = np.asarray([pair[index] for pair in cells], dtype=np.float64)[zone_id]
+    return {'zone_id': zone_id, **fields}
+
+
 @dataclass
 class Zone:
     """A single zone with its own TPMS geometry."""
@@ -120,6 +134,27 @@ class ZoneConfig:
         if not self.zones or not self.zones[0].props_A:
             raise RuntimeError("Call compute_properties() before building arrays.")
 
+        arrays = self.build_structured_geometry(Nx, Ny, H, axis, dx_arr=dx_arr, dy_arr=dy_arr)
+        zone_id = arrays['zone_id']
+        for side in ('A', 'B'):
+            properties = [getattr(zone, 'props_' + side) for zone in self.zones]
+            arrays['K_ff' + side + '_arr'] = np.asarray(
+                [props['K_ff'] for props in properties], dtype=np.float64)[zone_id]
+            arrays['h_v' + side + '_arr'] = np.asarray(
+                [props['H_sf'] * props['A_0'] for props in properties], dtype=np.float64)[zone_id]
+        arrays['zone_params'] = [
+            dict(name=z.name, y_frac_start=z.y_frac_start, y_frac_end=z.y_frac_end,
+                 L_mm=z.L_mm, t_mm=z.t_mm, epsilon=z.props_A['epsilon'],
+                 D_h=z.props_A['D_h'], r_h=z.props_A['D_h'] / 2., A_0=z.props_A['A_0'],
+                 mu=z.props_A['mu'], rho=z.props_A['rho'])
+            for z in self.zones]
+        from .grid_schema import validate_grid_arrays
+        return validate_grid_arrays(arrays, Nx, Ny, where='ZoneConfig.build_structured_arrays')
+
+    def build_structured_geometry(self, Nx: int, Ny: int, H: float,
+                                  axis: str = 'y', *, dx_arr=None, dy_arr=None) -> dict:
+        """Sample stripe geometry without evaluating velocity-dependent properties."""
+        self.validate()
         N_ax = Ny if axis == 'y' else Nx
         widths = dy_arr if axis == 'y' else dx_arr
         if widths is None:
@@ -138,65 +173,10 @@ class ZoneConfig:
             else:
                 zone_id_1d[k] = len(self.zones) - 1
 
-        zone_id   = np.empty((Nx, Ny), dtype=np.int32)
-        eps_arr   = np.empty((Nx, Ny), dtype=np.float64)
-        eps_f_arr = np.empty((Nx, Ny), dtype=np.float64)
-        K_ffA_arr = np.empty((Nx, Ny), dtype=np.float64)
-        K_ffB_arr = np.empty((Nx, Ny), dtype=np.float64)
-        K_ss_arr  = np.empty((Nx, Ny), dtype=np.float64)
-        h_vA_arr  = np.empty((Nx, Ny), dtype=np.float64)
-        h_vB_arr  = np.empty((Nx, Ny), dtype=np.float64)
-        r_h_arr   = np.empty((Nx, Ny), dtype=np.float64)
-        A_0_arr   = np.empty((Nx, Ny), dtype=np.float64)
-        L_field   = np.empty((Nx, Ny), dtype=np.float64)
-        t_field   = np.empty((Nx, Ny), dtype=np.float64)
-
-        for k in range(N_ax):
-            z = self.zones[zone_id_1d[k]]
-            pA, pB = z.props_A, z.props_B
-            eps = pA['epsilon']
-            v = (zone_id_1d[k], eps, pA['epsilon_A'], pA['K_ff'], pB['K_ff'],
-                 pA['K_ss'], pA['H_sf']*pA['A_0'], pB['H_sf']*pB['A_0'],
-                 pA['D_h']/2.0, pA['A_0'], z.L_mm, z.t_mm)
-            arrs = (zone_id, eps_arr, eps_f_arr, K_ffA_arr, K_ffB_arr,
-                    K_ss_arr, h_vA_arr, h_vB_arr, r_h_arr, A_0_arr, L_field, t_field)
-            for arr, val in zip(arrs, v):
-                if axis == 'y':
-                    arr[:, k] = val
-                else:
-                    arr[k, :] = val
-
-        from .grid_schema import validate_grid_arrays
-        return validate_grid_arrays({
-            'zone_id':   zone_id,
-            'eps_arr':   eps_arr,
-            'eps_f_arr': eps_f_arr,
-            'K_ffA_arr': K_ffA_arr,
-            'K_ffB_arr': K_ffB_arr,
-            'K_ss_arr':  K_ss_arr,
-            'h_vA_arr':  h_vA_arr,
-            'h_vB_arr':  h_vB_arr,
-            'r_h_arr':   r_h_arr,
-            'A_0_arr':   A_0_arr,
-            'L_field':   L_field,
-            't_field':   t_field,
-            'axis': axis,
-            'zone_params': [
-                {
-                    'name': z.name,
-                    'y_frac_start': z.y_frac_start,
-                    'y_frac_end': z.y_frac_end,
-                    'L_mm': z.L_mm, 't_mm': z.t_mm,
-                    'epsilon': z.props_A['epsilon'],
-                    'D_h': z.props_A['D_h'],
-                    'r_h': z.props_A['D_h'] / 2.0,
-                    'A_0': z.props_A['A_0'],
-                    'mu': z.props_A['mu'],
-                    'rho': z.props_A['rho'],
-                }
-                for z in self.zones
-            ],
-        }, Nx, Ny, where='ZoneConfig.build_structured_arrays')
+        zone_id = np.broadcast_to(zone_id_1d if axis == 'y' else zone_id_1d[:, None],
+                                  (Nx, Ny)).copy()
+        return {**_geometry_fields(zone_id, [(z.L_mm, z.t_mm) for z in self.zones],
+                                   self.tpms_type, self.k_s), 'axis': axis}
 
     # ── Grid (2D) structured arrays ──────────────────────────────
 
@@ -235,19 +215,21 @@ class ZoneConfig:
                                        u_B, T_inB, P_inB, k_s)
                 props_cache[key] = (pA, pB)
 
-        zone_id   = np.full((Nx, Ny), -1, dtype=np.int32)
-        eps_arr   = np.empty((Nx, Ny), dtype=np.float64)
-        eps_f_arr = np.empty((Nx, Ny), dtype=np.float64)
-        K_ffA_arr = np.empty((Nx, Ny), dtype=np.float64)
-        K_ffB_arr = np.empty((Nx, Ny), dtype=np.float64)
-        K_ss_arr  = np.empty((Nx, Ny), dtype=np.float64)
-        h_vA_arr  = np.empty((Nx, Ny), dtype=np.float64)
-        h_vB_arr  = np.empty((Nx, Ny), dtype=np.float64)
-        r_h_arr   = np.empty((Nx, Ny), dtype=np.float64)
-        A_0_arr   = np.empty((Nx, Ny), dtype=np.float64)
-        L_field   = np.empty((Nx, Ny), dtype=np.float64)
-        t_field   = np.empty((Nx, Ny), dtype=np.float64)
+        arrays = ZoneConfig.build_grid_geometry(
+            Nx, Ny, grid_cells, tpms_type, k_s, dx_arr, dy_arr)
+        zone_id = arrays['zone_id']
+        for side, index in (('A', 0), ('B', 1)):
+            properties = [props_cache[(cell['L'], cell['t'])][index] for cell in grid_cells]
+            arrays['K_ff' + side + '_arr'] = np.asarray(
+                [props['K_ff'] for props in properties], dtype=np.float64)[zone_id]
+            arrays['h_v' + side + '_arr'] = np.asarray(
+                [props['H_sf'] * props['A_0'] for props in properties], dtype=np.float64)[zone_id]
+        return arrays
 
+    @staticmethod
+    def build_grid_geometry(Nx, Ny, grid_cells, tpms_type, k_s,
+                            dx_arr=None, dy_arr=None):
+        """Sample rectangle geometry with the normal builder's first-cell fallback."""
         # Cell-centre fractional positions for non-uniform grid support
         if dx_arr is not None:
             dx = np.asarray(dx_arr, dtype=np.float64)
@@ -271,6 +253,7 @@ class ZoneConfig:
             y_bounds.update([gc['y0'], gc['y1']])
             x_bounds.update([gc['x0'], gc['x1']])
 
+        zone_id = np.zeros((Nx, Ny), dtype=np.int32)
         for i in range(Nx):
             xf = float(xf_centres[i])
             for j in range(Ny):
@@ -279,51 +262,11 @@ class ZoneConfig:
                 for gi, gc in enumerate(grid_cells):
                     if gc['x0'] <= xf < gc['x1'] and gc['y0'] <= yf < gc['y1']:
                         zone_id[i, j] = gi
-                        pA, pB = props_cache[(gc['L'], gc['t'])]
-                        eps = pA['epsilon']
-                        eps_arr[i, j]   = eps
-                        K_ffA_arr[i, j] = pA['K_ff']
-                        K_ffB_arr[i, j] = pB['K_ff']
-                        K_ss_arr[i, j]  = pA['K_ss']
-                        h_vA_arr[i, j]  = pA['H_sf'] * pA['A_0']
-                        h_vB_arr[i, j]  = pB['H_sf'] * pB['A_0']
-                        eps_f_arr[i, j] = pA['epsilon_A']
-                        r_h_arr[i, j]   = pA['D_h'] / 2.0
-                        A_0_arr[i, j]   = pA['A_0']
-                        L_field[i, j] = gc['L']
-                        t_field[i, j] = gc['t']
                         break
-                else:
-                    # Cell not covered: use first grid cell as fallback
-                    gc0 = grid_cells[0]
-                    zone_id[i, j] = 0
-                    pA, pB = props_cache[(gc0['L'], gc0['t'])]
-                    eps = pA['epsilon']
-                    eps_arr[i, j]   = eps
-                    K_ffA_arr[i, j] = pA['K_ff']
-                    K_ffB_arr[i, j] = pB['K_ff']
-                    K_ss_arr[i, j]  = pA['K_ss']
-                    h_vA_arr[i, j]  = pA['H_sf'] * pA['A_0']
-                    h_vB_arr[i, j]  = pB['H_sf'] * pB['A_0']
-                    eps_f_arr[i, j] = pA['epsilon_A']
-                    r_h_arr[i, j]   = pA['D_h'] / 2.0
-                    A_0_arr[i, j]   = pA['A_0']
-                    L_field[i, j] = gc0['L']
-                    t_field[i, j] = gc0['t']
 
         return {
-            'zone_id':   zone_id,
-            'eps_arr':   eps_arr,
-            'eps_f_arr': eps_f_arr,
-            'K_ffA_arr': K_ffA_arr,
-            'K_ffB_arr': K_ffB_arr,
-            'K_ss_arr':  K_ss_arr,
-            'h_vA_arr':  h_vA_arr,
-            'h_vB_arr':  h_vB_arr,
-            'r_h_arr':   r_h_arr,
-            'A_0_arr':   A_0_arr,
-            'L_field':   L_field,
-            't_field':   t_field,
+            **_geometry_fields(zone_id, [(cell['L'], cell['t']) for cell in grid_cells],
+                               tpms_type, k_s),
             'axis':      'grid',
             'y_bounds':  sorted(y_bounds - {0.0, 1.0}),
             'x_bounds':  sorted(x_bounds - {0.0, 1.0}),

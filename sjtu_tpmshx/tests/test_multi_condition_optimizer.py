@@ -1,5 +1,5 @@
 """Search orchestration uses complete native batches; physics is not mocked as valid evidence."""
-from dataclasses import asdict
+from dataclasses import asdict, replace
 import json
 from pathlib import Path
 import subprocess
@@ -58,6 +58,51 @@ def _fake_batches(monkeypatch, *, fail_indices=(), baseline_failure=False, cance
 
     monkeypatch.setattr(search, 'evaluate_condition_batch', evaluate)
     return calls
+
+
+@pytest.mark.parametrize('dimension', [2, 3])
+def test_prescribed_flow_replaces_stale_speed_before_validation_and_archive(tmp_path, monkeypatch, dimension):
+    from sjtu_tpmshx.preprocess.api import prepare_case
+    from sjtu_tpmshx.preprocess.inlet_flow import total_inlet_mass_capacity
+
+    cfg = replace(_conditions(dimension)[0][1], df_mode='experimental',
+                  solver=SolverConfig(Nx=6, Ny=5, Nz=3 if dimension == 3 else 1))
+    case = prepare_case(cfg, case_id='valid-reference')
+    targets = [total_inlet_mass_capacity(case.design_fields, case.parameters, case.grid, side)
+               * getattr(cfg, f'fluid_{side}').u_mps for side in 'AB']
+    stale = replace(cfg, fluid_A=replace(cfg.fluid_A, u_mps=.001))
+    before = asdict(stale)
+    with pytest.raises(ValueError):
+        stale.validate()
+    calls = _fake_batches(monkeypatch)
+    result = search.run_multi_condition_optimization([('fixed-flow', stale, *targets)],
+        output_dir=tmp_path / 'study', method='sobol', n_init=1, n_iter=0)
+    archived = result['conditions'][0]
+    restored = ComputeConfig.from_dict(archived['config'])
+    assert [restored.fluid_A.u_mps, restored.fluid_B.u_mps] == pytest.approx([10., .1])
+    assert [archived['mass_flow_A_kg_s'], archived['mass_flow_B_kg_s']] == targets
+    for conditions, _, _ in calls:
+        assert conditions[0][2:] == tuple(targets)
+    for conditions, _, _ in calls[1:]:
+        assert conditions[0][1].fluid_A.u_mps == pytest.approx(10.)
+    assert asdict(stale) == before
+
+
+def test_invalid_resolved_speed_keeps_failed_baseline_evidence(tmp_path, monkeypatch):
+    from sjtu_tpmshx.solvers import api
+    monkeypatch.setattr(api, 'run_case', lambda *a, **k: pytest.fail('invalid flow reached solve'))
+    cfg = replace(_conditions()[0][1], df_mode='experimental',
+                  solver=SolverConfig(Nx=6, Ny=5))
+    output = tmp_path / 'study'
+    result = search.run_multi_condition_optimization([('too-low', cfg, 1e-8, .03)],
+        output_dir=output, method='sobol', n_init=1, n_iter=0)
+    assert result == _manifest(output)
+    assert result['status'] == result['baseline']['status'] == 'failed'
+    assert result['n_evaluated'] == 0
+    batch = json.loads((output / 'baseline/batch.json').read_text())
+    assert batch['conditions'][0]['stage'] == 'prepare'
+    assert 'experimental calibration' in batch['conditions'][0]['reason']
+    assert (output / 'baseline/condition_001/input.json').exists()
 
 
 @pytest.mark.parametrize('dimension', [2, 3])

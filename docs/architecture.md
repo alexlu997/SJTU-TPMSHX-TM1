@@ -196,6 +196,13 @@ inlet density and the integral of local single-channel porosity over the actual
 opening, then prepares the final case. Its snapshot therefore records the
 candidate's correct velocity. A 2D study must supply its physical depth for
 total-mass-flow conversion; native results retain their per-unit-depth units.
+`preprocess.api.prepare_inlet_mass_capacities` reuses the native geometry,
+mesh and port construction without evaluating speed-dependent closures. Its
+static-input validation does not qualify an executable case: the resolved
+speeds must pass full configuration and case preparation checks. Ordinary
+preparation keeps those same full checks. Imported-flow optimization records
+the resolved uniform-reference configuration for replay, and each candidate
+resolves its own inlet speeds again using its local porosity field.
 `aggregate_multi_condition` compares useful water
 uptake (`-Q_B`) and both relative pressure drops with paired baseline conditions;
 it requires complete converged results and keeps heat and pressure as separate
