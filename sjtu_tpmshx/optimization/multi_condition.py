@@ -352,6 +352,9 @@ def evaluate_condition_batch(
     except Exception as exc:
         primary_error = exc
         record.update(status='failed', reason=f'{type(exc).__name__}: {exc}', objectives=None)
+        for row in history:
+            if row['status'] == 'running':
+                row.update(status='failed', reason=record['reason'])
         raise
     finally:
         publish(primary_error)

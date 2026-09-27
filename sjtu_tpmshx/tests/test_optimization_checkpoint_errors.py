@@ -191,3 +191,53 @@ def test_final_io_does_not_resurrect_an_already_handled_condition_error(
         batch.evaluate_condition_batch(_conditions(1), output_dir=tmp_path/'batch')
     assert caught.value is error
     assert attempts[-2][0]['conditions'][0]['reason'] == 'RuntimeError: handled condition failure'
+
+
+@pytest.mark.parametrize('kind', ['search', 'batch'])
+def test_member_start_checkpoint_failure_finalizes_only_active_member(
+        tmp_path, monkeypatch, prepared_native_case, kind):
+    calls = (_search_batches(monkeypatch) if kind == 'search'
+             else _batch_solver(monkeypatch, prepared_native_case))
+    filename = 'optimization.json' if kind == 'search' else 'batch.json'
+    rows_key = 'history' if kind == 'search' else 'conditions'
+
+    def when(record, index):
+        rows = record[rows_key]
+        return len(rows) >= 2 and rows[1]['status'] == 'running'
+
+    error, attempts = _checkpoint_fault(monkeypatch, search if kind == 'search' else text_file,
+                                         filename, when)
+    output = tmp_path / kind
+    with pytest.raises(OSError) as caught:
+        if kind == 'search':
+            search.run_multi_condition_optimization(search_conditions()[:1],
+                output_dir=output, method='sobol', n_init=3, n_iter=0)
+        else:
+            batch.evaluate_condition_batch(_conditions(3), output_dir=output)
+    assert caught.value is error
+    saved = json.loads((output / filename).read_text())
+    failed_writes = [record for record, failed in attempts if failed]
+    assert len(failed_writes) == 1
+    assert saved == [record for record, failed in attempts if not failed][-1]
+    assert saved['status'] == 'failed'
+    assert saved['reason'] == 'OSError: checkpoint write failed'
+    rows = saved[rows_key]
+    assert rows[0] == failed_writes[0][rows_key][0]
+    assert rows[0]['status'] == 'completed'
+    assert rows[1]['status'] == 'failed'
+    assert rows[1]['reason'] == saved['reason']
+    assert not (output / rows[1]['directory']).exists()
+    if kind == 'search':
+        assert calls == ['baseline', 'candidate']
+        assert len(rows) == 2  # The third planned candidate was never started.
+        assert saved['n_evaluated'] == 2 and saved['n_usable'] == 1
+        assert saved['pareto_indices'] == [0]
+        assert rows[1]['objectives'] is rows[1]['model_y'] is None
+    else:
+        assert calls == ['prepare', 'solve']
+        assert rows[1]['stage'] == 'input'
+        assert rows[2] == failed_writes[0][rows_key][2]
+        assert rows[2]['status'] == 'not_run'
+        assert saved['objectives'] is None
+        assert all((output / rows[0][key]).is_file()
+                   for key in ('case_file', 'result_file', 'metrics_file'))

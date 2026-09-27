@@ -280,6 +280,9 @@ def run_multi_condition_optimization(
         if record['baseline']['status'] == 'running':
             record['baseline'].update(status='failed', reason=f'{type(exc).__name__}: {exc}')
         record.update(status='failed', reason=f'{type(exc).__name__}: {exc}')
+        for row in history:
+            if row['status'] == 'running':
+                row.update(status='failed', reason=record['reason'])
         raise
     finally:
         publish(primary_error)
