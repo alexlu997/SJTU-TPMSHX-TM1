@@ -568,6 +568,77 @@ def test_close_waits_for_terminal_delivery_and_runnable_exit(win, monkeypatch, o
 
 
 @pytest.mark.parametrize('mode', ['2d', '3d'])
+def test_workspace_switch_waits_for_worker_publication_and_exit(win, monkeypatch, mode):
+    from sjtu_tpmshx.controllers.compute_orchestrator import _ComputeRunnable
+    from sjtu_tpmshx.tests.gui_workbench_support import _result
+
+    _configure(win, monkeypatch, mode)
+    accepted, result = _result(mode), _result(mode)
+    accepted.Q_W, result.Q_W = 123., 456.
+    win.write_result(accepted)
+    cached = win.cache.get_result(mode)
+    entered, release = threading.Event(), threading.Event()
+    terminal_sent, exit_worker = threading.Event(), threading.Event()
+    original_run, original_save = _ComputeRunnable.run, win._save_session
+    saves, notices = [], []
+
+    def run(pipe):
+        entered.set()
+        assert release.wait(10)
+        return result
+
+    def held_run(runnable):
+        original_run(runnable)
+        terminal_sent.set()
+        assert exit_worker.wait(10)
+
+    def save():
+        saves.append(True)
+        return original_save()
+
+    monkeypatch.setattr(Pipeline2D if mode == '2d' else Pipeline3D, 'run', run)
+    monkeypatch.setattr(_ComputeRunnable, 'run', held_run)
+    monkeypatch.setattr(win, '_render_compute_result', lambda: True)
+    monkeypatch.setattr(win, '_save_session', save)
+    monkeypatch.setattr(QMessageBox, 'information', lambda *args: notices.append(args[-1]))
+    try:
+        win.run_calculation()
+        assert entered.wait(5)
+        win.le_Nx.setText('37')  # Ordinary draft edits remain available.
+        draft = win._capture_current_preset('Current draft')
+        win._workspace_menu.actions()[1].trigger()
+        assert win._active_workspace == 'A'
+        assert win._capture_current_preset('Current draft') == draft
+        assert win.cache.get_result(mode) is cached
+
+        release.set()
+        assert terminal_sent.wait(5)  # Result is queued; Qt has not delivered it.
+        win._switch_workspace('B')  # The command-palette path uses this same method.
+        assert win._active_workspace == 'A'
+        assert win.cache.get_result(mode) is cached
+
+        _wait_for(lambda: not win.compute.is_running())
+        assert not win.compute.is_idle(), 'terminal delivery is not worker exit'
+        published = win.cache.get_result(mode)
+        assert published.Q_W == 456.
+        win._workspace_menu.actions()[1].trigger()
+        assert win._active_workspace == 'A'
+        assert win._capture_current_preset('Current draft') == draft
+        assert win.cache.get_result(mode) is published
+        assert not saves and len(notices) == 3
+    finally:
+        release.set()
+        exit_worker.set()
+        _wait_for(win.compute.is_idle)
+
+    win._workspace_menu.actions()[1].trigger()
+    assert win._active_workspace == 'B'
+    assert saves == [True]
+    assert not win.cache.has_any_results()
+    assert not win._test_error_dialogs
+
+
+@pytest.mark.parametrize('mode', ['2d', '3d'])
 def test_close_cancels_live_pipeline_without_destroying_its_callbacks(win, monkeypatch, mode):
     _configure(win, monkeypatch, mode)
     release, entered = threading.Event(), threading.Event()
