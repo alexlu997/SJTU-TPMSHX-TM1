@@ -21,7 +21,7 @@
 # enthalpy-transport tests explicitly exercise two Numba threads, so each
 # worker must allow two. Keep BLAS/OMP at one to avoid nested oversubscription.
 #
-# The venv MUST be built from C:\Python312 (python.org CPython), never
+# The venv MUST be built from python.org CPython 3.13, never
 # Anaconda — PySide6's abi3 forwarder crashes (0xc0000139) otherwise.
 
 param(
@@ -46,7 +46,7 @@ if ([string]::IsNullOrWhiteSpace($py) -or
 $venvRoot = Split-Path (Split-Path $py -Parent) -Parent
 $venvHome = (Select-String -Path (Join-Path $venvRoot "pyvenv.cfg") -Pattern '^home = (.+)$').Matches[0].Groups[1].Value
 if ($venvHome -match 'Anaconda') {
-    throw "venv is built from Anaconda ($venvHome) — PySide6 will crash (0xc0000139). Rebuild it from C:\Python312\python.exe"
+    throw "venv is built from Anaconda ($venvHome) — PySide6 will crash (0xc0000139). Rebuild it with python.org CPython 3.13 as documented in README.md"
 }
 
 $env:PYTHONHASHSEED = "0"

@@ -1,4 +1,4 @@
-# Shared reproducible environment: macOS/Python 3.13 and Windows/Python 3.12.
+# Shared reproducible environment: macOS/Python 3.13 and Windows/Python 3.13.
 # Keep common package versions identical on both platforms. The optional BO
 # stack is in requirements-lock-server.txt; PyFluent is provisioned separately.
 ast_serialize==0.6.0

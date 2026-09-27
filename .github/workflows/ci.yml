@@ -21,7 +21,7 @@ jobs:
           - os: macos-14
             python: "3.13"
           - os: windows-2022
-            python: "3.12"
+            python: "3.13"
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
@@ -98,7 +98,7 @@ jobs:
             python: "3.13"
             lock: requirements-lock-bo-macos.txt
           - os: windows-2022
-            python: "3.12"
+            python: "3.13"
             lock: requirements-lock-server.txt
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30

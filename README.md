@@ -30,7 +30,7 @@ TM1 将 TPMS 换热器的前处理、求解和后处理拆为独立维护的模�
 ## 首次运行（macOS / Windows）
 
 这是 Python 源码项目，下载后需要安装锁定依赖。首次运行使用 macOS + Python 3.13，
-或 Windows x64 + Python 3.12，与[平台 CI](.github/workflows/ci.yml)一致。
+或 Windows x64 + Python 3.13，与[平台 CI](.github/workflows/ci.yml)一致。
 先安装对应版本的 [Python](https://www.python.org/downloads/)，克隆方式还需要 Git。
 也可在仓库页面选择 **Code → Download ZIP** 并解压；ZIP 用户直接进入解压后的
 仓库根目录，跳过下面的 `git clone` / `cd`，其余命令相同。
@@ -57,7 +57,7 @@ PYTHON="$(head -n 1 .venv-path)"
 ```powershell
 git clone https://github.com/alexlu997/SJTU-TPMSHX-TM1.git
 cd SJTU-TPMSHX-TM1
-py -3.12 -m venv .venv
+py -3.13 -m venv .venv
 $tm1Python = (Resolve-Path .venv\Scripts\python.exe).Path
 [System.IO.File]::WriteAllText((Join-Path $PWD '.venv-path'), $tm1Python + [Environment]::NewLine)
 $tm1Python = Get-Content .venv-path -TotalCount 1
@@ -408,6 +408,10 @@ GUI 和调度留在 `ui/`、`controllers/`，模型资源保持共享。每个 P
 `tests (macos-14, 3.13)`、`tests (windows-2022, 3.12)`、`minimal-postprocess`
 三项 GitHub Actions 检查；管理员同样受约束，禁止强推和删除。多人正式参与后
 再启用至少一位非作者批准；目前平台所需批准人数为 0。实际状态以 GitHub 为准。
+
+Windows 基线迁移至 Python 3.13 时，先确认新的平台检查成功，再将 main 保护中的
+`tests (windows-2022, 3.12)` 替换为 `tests (windows-2022, 3.13)`；其他保护保持不变。
+工作流更新不会自动修改 GitHub 保护设置，合并前须核实必需检查已同步。
 
 现行能力与待完成事项见[能力范围](docs/capabilities.md)，
 测量工具和复现边界见[工具说明](docs/tools.md)。
