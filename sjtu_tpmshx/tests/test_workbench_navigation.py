@@ -10,6 +10,52 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 from sjtu_tpmshx.tests.gui_workbench_support import win as win  # noqa: E402
 
 
+def test_workbench_teardown_destroys_window_and_hidden_field_selector(tmp_path, monkeypatch):
+    import weakref
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from shiboken6 import isValid
+
+    lifecycle = win.__wrapped__(tmp_path, monkeypatch)
+    window = next(lifecycle)
+    field = weakref.ref(window.combo_2d_field)
+    try:
+        with pytest.raises(StopIteration):
+            next(lifecycle)
+        assert (isValid(window), field() is not None and isValid(field())) == (False, False)
+    finally:
+        if isValid(window):
+            assert window.close()
+            window.deleteLater()
+        if field() is not None and isValid(field()) and field().parent() is None:
+            field().deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+
+def test_workbench_teardown_preserves_window_if_close_is_declined(tmp_path, monkeypatch):
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from PySide6.QtWidgets import QMessageBox
+    from shiboken6 import isValid
+
+    lifecycle = win.__wrapped__(tmp_path, monkeypatch)
+    window = next(lifecycle)
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(window, '_save_session', lambda: False)
+            patch.setattr(QMessageBox, 'warning', lambda *a: QMessageBox.StandardButton.Cancel)
+            with pytest.raises(AssertionError, match='workbench window refused to close'):
+                next(lifecycle)
+            assert isValid(window) and isValid(window.combo_2d_field)
+            assert window.isEnabled()
+    finally:
+        if isValid(window):
+            assert window.close()
+            field = window.combo_2d_field
+            window.deleteLater()
+            if field.parent() is None:
+                field.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+
 def test_layout_preview_follows_both_port_sections(win):
     content = win._accordion_contents['进出口边界']
     sections = win._ia_sections

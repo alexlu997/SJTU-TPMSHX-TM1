@@ -5,6 +5,7 @@ import pytest
 from sjtu_tpmshx.domain.compute_result import ComputeResult
 
 pytest.importorskip('PySide6')
+from PySide6.QtCore import QCoreApplication, QEvent  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 
@@ -24,8 +25,9 @@ def win(tmp_path, monkeypatch):
     window.resize(1300, 760)
     QApplication.processEvents()
     yield window
-    window.close()
-    QApplication.processEvents()
+    assert window.close(), 'workbench window refused to close'
+    window.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 def _result(mode):

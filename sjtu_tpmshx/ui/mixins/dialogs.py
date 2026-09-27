@@ -163,7 +163,7 @@ class DialogsMixin:
         if app is None:
             return
         t = get_theme()
-        app.setStyleSheet(
+        stylesheet = (
             f"QMessageBox{{background:{t['bg']};}}"
             f"QMessageBox QLabel{{color:{t['fg']}; background:transparent;}}"
             f"QInputDialog{{background:{t['bg']};}}"
@@ -180,6 +180,8 @@ class DialogsMixin:
             f"QMessageBox QPushButton:hover, QInputDialog QPushButton:hover{{"
             f" background:{t['btn_sec_hover_bg']};}}"
         )
+        if app.styleSheet() != stylesheet:
+            app.setStyleSheet(stylesheet)
 
     def _show_status_log(self):
         """Pop up the last 50 status-bar messages in a read-only dialog."""
