@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QApplication, QBoxLayout
 
 from sjtu_tpmshx.controllers.compute_pipeline import CancelledError, Pipeline2D, Pipeline3D
 from sjtu_tpmshx.domain.compute_result import ComputeResult
-from sjtu_tpmshx.tests.test_worker_result_handoff import (
+from sjtu_tpmshx.tests.gui_worker_support import (
     _configure, _wait_for, win as win,
 )
 from sjtu_tpmshx.ui.responsive import ResponsiveRow

@@ -7,26 +7,7 @@ pytest.importorskip('PySide6')
 
 from PySide6.QtGui import QKeySequence, QShortcut  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
-
-
-@pytest.fixture
-def win(tmp_path, monkeypatch):
-    from sjtu_tpmshx.controllers.session_manager import SessionManager
-    from sjtu_tpmshx.main import Main_Menu
-
-    original_init = SessionManager.__init__
-
-    def local_session(self, base_dir=None, parent=None):
-        original_init(self, base_dir=base_dir or tmp_path, parent=parent)
-
-    monkeypatch.setattr(SessionManager, '__init__', local_session)
-    window = Main_Menu()
-    window.showNormal()
-    window.resize(1300, 760)
-    QApplication.processEvents()
-    yield window
-    window.close()
-    QApplication.processEvents()
+from sjtu_tpmshx.tests.gui_workbench_support import win as win  # noqa: E402
 
 
 def test_layout_preview_follows_both_port_sections(win):
@@ -332,7 +313,6 @@ def test_current_solver_controls_are_visible_and_roundtrip(win):
     after = config_from_window(win)
     assert after.flags == before.flags
     assert after.extrap == before.extrap
-
 
 
 @pytest.mark.parametrize('width', [900, 1440])

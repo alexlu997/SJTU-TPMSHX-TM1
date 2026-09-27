@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox, QTableWidgetItem
 from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D, Pipeline3D, CancelledError
 from sjtu_tpmshx.domain.compute_result import ComputeResult
 from sjtu_tpmshx.ui.mixins.run_results import RunResultsMixin
-from sjtu_tpmshx.tests.test_worker_result_handoff import win as win, _wait_for
+from sjtu_tpmshx.tests.gui_worker_support import win as win, _wait_for
 
 
 @pytest.fixture

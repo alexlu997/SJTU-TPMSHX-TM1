@@ -183,7 +183,7 @@ def test_initial_geometry_skips_invalid_draft(win, monkeypatch):
 
 
 def test_geometry_labels_fit_narrow_workbench(win):
-    from sjtu_tpmshx.tests.test_worker_result_handoff import _wait_for
+    from sjtu_tpmshx.tests.gui_worker_support import _wait_for
     old_size = win.size()
     try:
         win.resize(900, 800)
@@ -436,7 +436,7 @@ def test_result_summary_toggle_keeps_values_and_tab_choice(win):
 
 
 def test_field_toolbar_wraps_without_truncating_button_text(win):
-    from sjtu_tpmshx.tests.test_worker_result_handoff import _wait_for
+    from sjtu_tpmshx.tests.gui_worker_support import _wait_for
     app = QApplication.instance()
     old_size = win.size()
     win.combo_dim.setCurrentIndex(0)
@@ -467,7 +467,7 @@ def test_field_toolbar_wraps_without_truncating_button_text(win):
 
 
 def test_result_footer_wraps_full_diagnostics_and_long_kpis(win):
-    from sjtu_tpmshx.tests.test_worker_result_handoff import _wait_for
+    from sjtu_tpmshx.tests.gui_worker_support import _wait_for
     from PySide6.QtWidgets import QLabel
     from sjtu_tpmshx.ui.builders_sidebar import refresh_result_sidebar
 

@@ -53,7 +53,8 @@ def test_export_rejects_incomplete_geometry_metadata(tmp_path, monkeypatch, conf
 def test_multiseed_config_actual_members_and_failed_members(tmp_path, monkeypatch, failed_seeds):
     class Executor:
         def __init__(self, **kwargs):
-            pass
+            assert kwargs['initializer'] is parallel.set_worker_thread_caps
+            assert kwargs['mp_context'].get_start_method() == 'spawn'
 
         def __enter__(self):
             return self

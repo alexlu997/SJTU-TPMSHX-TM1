@@ -10,7 +10,7 @@ from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D, Pipeline3D
 from sjtu_tpmshx.domain.compute_result import ComputeResult
 from sjtu_tpmshx.models.tpms_calc import compute
 from sjtu_tpmshx.models.nu_correlations import warn_sco2_nu_evidence
-from sjtu_tpmshx.tests.test_worker_result_handoff import (
+from sjtu_tpmshx.tests.gui_worker_support import (
     _configure, _wait_for, win as win,
 )
 

@@ -9,8 +9,8 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D, Pipeline3D
-from sjtu_tpmshx.tests.test_lazy_result_plots import _result
-from sjtu_tpmshx.tests.test_worker_result_handoff import (
+from sjtu_tpmshx.tests.gui_workbench_support import _result
+from sjtu_tpmshx.tests.gui_worker_support import (
     _configure, _wait_for, win as win,
 )
 from sjtu_tpmshx.ui.mixins.run_results import RunResultsMixin

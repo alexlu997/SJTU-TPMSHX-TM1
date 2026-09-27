@@ -2,7 +2,7 @@
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
-from sjtu_tpmshx.tests.test_workbench_navigation import win as win
+from sjtu_tpmshx.tests.gui_workbench_support import win as win
 
 
 def test_queued_tab_request_runs_after_the_current_switch(win):

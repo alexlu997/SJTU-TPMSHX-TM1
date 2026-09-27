@@ -11,7 +11,7 @@ from sjtu_tpmshx.models import nu_correlations as nu
 from sjtu_tpmshx.models.tpms_calc import compute
 from sjtu_tpmshx.tests.test_pipeline_2d_smoke import _shanghai_like_cfg
 from sjtu_tpmshx.tests.test_pipeline_3d_e2e import _small_air_cfg
-from sjtu_tpmshx.tests.test_worker_result_handoff import win as win
+from sjtu_tpmshx.tests.gui_worker_support import win as win
 
 
 @pytest.mark.slow

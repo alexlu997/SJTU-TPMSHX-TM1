@@ -480,12 +480,14 @@ to each invocation, and arrays crossing contracts are detached and immutable.
 
 ### Cooperative cancellation
 
-Pipelines and solvers share `domain.cancellation.CancelledError`, an
-`InterruptedError` subclass re-exported by `controllers.compute_pipeline`.
+Pipelines, solvers and the GUI orchestrator share `domain.cancellation.CancelledError`,
+an `InterruptedError` subclass re-exported by `controllers.compute_pipeline`
+and `ComputeOrchestrator.CancelledError`.
 Only explicit cancellation checkpoints raise it; unrelated exceptions remain
 errors even when a cancellation request is pending. Both SIMPLE workers are
 joined before propagation, with real failures taking precedence over cancellation.
-The GUI adapter maps this exception to the orchestrator's cancelled terminal state.
+The orchestrator handles this exception directly as its cancelled terminal state;
+the GUI adapter only binds pipeline arguments and preserves the original exception.
 
 2D polls each SIMPLE iteration and at the existing LTNE chunk boundaries,
 including the Richardson refined solve. 3D retains its 25-iteration SIMPLE

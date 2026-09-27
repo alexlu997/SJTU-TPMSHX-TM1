@@ -9,8 +9,8 @@ import pytest
 from PySide6.QtWidgets import QDialog, QFileDialog, QMessageBox, QPlainTextEdit
 from PySide6.QtCore import QTimer
 
-from sjtu_tpmshx.tests.test_io_actions import win as win
-from sjtu_tpmshx.tests.test_worker_result_handoff import _wait_for
+from sjtu_tpmshx.tests.gui_io_support import win as win
+from sjtu_tpmshx.tests.gui_worker_support import _wait_for
 from sjtu_tpmshx.tests.integration_tm1.test_2d_real import baseline_config, AIR_PUBLIC_METRICS
 from sjtu_tpmshx.tests.test_pipeline_3d_e2e import _small_air_cfg
 from sjtu_tpmshx.ui.window_config import CONFIG_FIELDS

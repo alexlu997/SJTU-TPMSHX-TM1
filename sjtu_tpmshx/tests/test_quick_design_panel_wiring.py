@@ -104,7 +104,7 @@ def test_new_run_clears_stale_results_then_publishes_partial_current_result(monk
     from PySide6.QtWidgets import QTableWidget
     from sjtu_tpmshx.design.sizing import Design
     from sjtu_tpmshx.design.select import SelectionCancelled
-    from sjtu_tpmshx.tests.test_worker_result_handoff import _wait_for
+    from sjtu_tpmshx.tests.gui_worker_support import _wait_for
     from sjtu_tpmshx.ui import quick_design_panel as panel
     monkeypatch.setattr('sys.frozen', True, raising=False)
     release = threading.Event()
@@ -214,7 +214,7 @@ def test_thread_result_warnings_reach_table_and_fallback(monkeypatch):
 def test_completed_energy_diagnostics_include_all_cases_without_changing_feasibility(monkeypatch):
     from PySide6.QtWidgets import QTableWidget
     from sjtu_tpmshx.design.sizing import Design
-    from sjtu_tpmshx.tests.test_worker_result_handoff import _wait_for
+    from sjtu_tpmshx.tests.gui_worker_support import _wait_for
     from sjtu_tpmshx.ui import quick_design_panel as panel
 
     feasible = Design(True, topo='Diamond', l=5., t=.5, V=.002, percase=[
@@ -293,7 +293,7 @@ def test_failure_keeps_completed_candidates_error_and_export(monkeypatch, tmp_pa
     from PySide6.QtWidgets import QFileDialog, QPushButton
     from sjtu_tpmshx.design import optimize, select
     from sjtu_tpmshx.design.sizing import Design
-    from sjtu_tpmshx.tests.test_worker_result_handoff import _wait_for
+    from sjtu_tpmshx.tests.gui_worker_support import _wait_for
     from sjtu_tpmshx.ui import quick_design_panel as panel
     inputs = tmp_path / 'cases.csv'
     inputs.write_text(

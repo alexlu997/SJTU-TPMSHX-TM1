@@ -3,7 +3,7 @@ import threading
 
 import pytest
 
-from sjtu_tpmshx.controllers.compute_orchestrator import CancelToken, ComputeOrchestrator
+from sjtu_tpmshx.controllers.compute_orchestrator import CancelToken
 from sjtu_tpmshx.controllers.compute_pipeline import CancelledError, Pipeline2D, Pipeline3D
 from sjtu_tpmshx.domain.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, SolverConfig,
@@ -196,12 +196,10 @@ def test_ui_adapter_only_classifies_explicit_cancellation(monkeypatch, error_typ
         raise failure
 
     monkeypatch.setattr(pipe, 'run', run)
-    expected = ComputeOrchestrator.CancelledError if error_type is CancelledError else error_type
-    with pytest.raises(expected) as caught:
+    with pytest.raises(error_type) as caught:
         run_controller._run_pipeline(_cfg(3), token, lambda *a: None,
                                      pipeline_cls=lambda *a, **k: pipe, ui_hooks={})
-    if error_type is not CancelledError:
-        assert caught.value is failure
+    assert caught.value is failure
 
 
 @pytest.mark.parametrize('nz', [1, 2])
