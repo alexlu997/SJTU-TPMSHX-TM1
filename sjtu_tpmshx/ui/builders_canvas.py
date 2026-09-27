@@ -114,7 +114,7 @@ def _build_canvas_toolbar(window, vlay, t, theme):
         _attach_canvas_menu(_btn, _key)
     # The hidden combo remains the shared 2D-field state source for the
     # visible segmented buttons and tab routing.
-    window.combo_2d_field = QComboBox()
+    window.combo_2d_field = QComboBox(window)
     window.combo_2d_field.addItems(["Temperature", "Velocity |U|", "Pressure"])
     window.combo_2d_field.setFixedHeight(28)
     window.combo_2d_field.setFixedWidth(120)            # ★ fix #4 (cap width)
