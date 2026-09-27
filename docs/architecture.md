@@ -331,6 +331,9 @@ fixed thermal/flow geometry, model versions and resolved settings. A config
 snapshot is provenance, not instructions for rebuilding the case in a receiver.
 Runtime controls (progress/cancellation callbacks) are separate and never
 serialized. Unknown modes/resources and incomplete prepared inputs fail.
+Full 2D/3D execution and file interchange use the same physical grid checks:
+canonical XY/XYZ axis order, SI widths and consistent cell edges. Backend
+domain lengths and flow-coordinate checks remain additional execution constraints.
 
 FieldResult contains native field locations/units, original flux and pressure
 evidence, execution/convergence status and diagnostic metadata. Display
@@ -353,6 +356,9 @@ by actual Lz once at its boundary. Quick design is a prescribed-flow LTNE
 model with prepared analytical inlet-pressure fractions, not a SIMPLE solve.
 Its offline metrics need no EOS or calibration call. Screening retains its
 own frozen-B/nonconvergence and unsupported-metric limits.
+Screening pressure drops require effective inlet and outlet measurement faces;
+an empty face is an invalid metric with a reason, not an available zero pressure
+drop. Other independently computable metrics remain available.
 
 Full-compute thermal metrics use definition `native_boundary_v1`: `Q` is
 the absolute A-side main-grid boundary heat loss, and `Q_A`/`Q_B` retain
