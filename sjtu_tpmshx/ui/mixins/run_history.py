@@ -10,6 +10,7 @@ Host contract — the live window MUST provide (all remain on ``Main_Menu``):
     widgets : btn_recent (QToolButton), statusBar()
               _sb_labels (visible result footer)
     run     : _run_provenance (accepted inputs and returned grid)
+    results : cache.get_result(mode) (accepted result)
     state   : _active_preset_name (str, optional)
               _MAX_RECENT_RUNS (int, optional — defaults to 5)
 
@@ -33,6 +34,33 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from sjtu_tpmshx.domain.provenance import SOURCE_ROOT, repository_revision
 from sjtu_tpmshx.ui.ui_constants import TOAST_MS_SHORT
 
+
+def _history_status(entry):
+    """Describe recorded evidence without inferring success for older rows."""
+    converged = entry.get('converged')
+    statuses = entry.get('metric_status', {})
+    reasons = entry.get('metric_reasons', {})
+    metrics = ('Q', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B')
+    unavailable = [key for key in metrics
+                   if key in statuses and statuses[key] != 'available']
+    if converged is True:
+        label = '已收敛'
+    elif converged is False:
+        label = '未收敛'
+    else:
+        label = '收敛状态未知'
+    if unavailable:
+        label += ' · 指标不可用'
+    elif not all(key in statuses for key in metrics):
+        label = ('状态未知' if converged is None and not statuses
+                 else label + ' · 指标状态未知')
+    details = [label, f"结果 ID：{entry.get('source_result_id') or '未知'}"]
+    for key in unavailable:
+        reason = reasons.get(key)
+        details.append(f"{key}: {statuses[key]}" + (f" — {reason}" if reason else ''))
+    return label, '\n'.join(details)
+
+
 class RunHistoryMixin:
     """Recent-runs menu, session timeline, reproducible links, provenance."""
 
@@ -43,6 +71,9 @@ class RunHistoryMixin:
         to the persistent JSONL timeline."""
         provenance = getattr(self, '_run_provenance', None)
         if provenance is None:
+            return
+        result = self.cache.get_result(provenance['mode'])
+        if result is None:
             return
         if not hasattr(self, "_recent_runs"):
             maxlen = getattr(self, "_MAX_RECENT_RUNS", 5)
@@ -68,6 +99,10 @@ class RunHistoryMixin:
             "mode": provenance['mode'],
             "input_grid": list(provenance['input_grid']),
             "actual_grid": list(provenance['actual_grid']),
+            "converged": result.converged,
+            "source_result_id": result.metadata.get('source_result_id'),
+            "metric_status": dict(result.metadata.get('metric_status', {})),
+            "metric_reasons": dict(result.metadata.get('metric_reasons', {})),
             "model_metadata": deepcopy(getattr(self, '_result_model_metadata', {})),
         }
         self._recent_runs.appendleft(entry)
@@ -101,6 +136,7 @@ class RunHistoryMixin:
             menu = QMenu(self)
         else:
             menu.clear()
+        menu.setToolTipsVisible(True)
 
         # — User-saved presets —
         try:
@@ -128,9 +164,11 @@ class RunHistoryMixin:
             e0.setEnabled(False)
         else:
             for i, e in enumerate(entries):
-                label = (f"   #{i + 1}  {e['label']}   "
+                status, details = _history_status(e)
+                label = (f"   #{i + 1}  {e['label']}   {status}   "
                          f"Q={e['Q']} {e.get('Q_unit', '?')} · ΔP(A)={e['dP_A']}")
                 act = menu.addAction(label)
+                act.setToolTip(details)
                 act.triggered.connect(
                     lambda _checked=False, entry=e: self._load_recent_run(entry))
 
@@ -213,16 +251,23 @@ class RunHistoryMixin:
             f" min-height:24px; min-width:24px;}}"
         )
         v = QVBoxLayout(dlg)
-        table = QTableWidget(len(entries), 4)
+        table = QTableWidget(len(entries), 5)
         table.setHorizontalHeaderLabels(
-            ["Timestamp", "Q", "ΔP_A [Pa]", "ΔP_B [Pa]"])
+            ["Timestamp", "状态", "Q", "ΔP_A [Pa]", "ΔP_B [Pa]"])
         table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch)
+        for column in (0, 1):
+            table.horizontalHeader().setSectionResizeMode(
+                column, QHeaderView.ResizeMode.ResizeToContents)
         for r, e in enumerate(reversed(entries)):
+            status, details = _history_status(e)
+            status_item = QTableWidgetItem(status)
+            status_item.setToolTip(details)
             table.setItem(r, 0, QTableWidgetItem(str(e.get("ts", "—"))))
-            table.setItem(r, 1, QTableWidgetItem(f"{e.get('Q', '—')} {e.get('Q_unit', '?')}"))
-            table.setItem(r, 2, QTableWidgetItem(str(e.get("dP_A", "—"))))
-            table.setItem(r, 3, QTableWidgetItem(str(e.get("dP_B", "—"))))
+            table.setItem(r, 1, status_item)
+            table.setItem(r, 2, QTableWidgetItem(f"{e.get('Q', '—')} {e.get('Q_unit', '?')}"))
+            table.setItem(r, 3, QTableWidgetItem(str(e.get("dP_A", "—"))))
+            table.setItem(r, 4, QTableWidgetItem(str(e.get("dP_B", "—"))))
         v.addWidget(table)
         btn_row = QHBoxLayout(); btn_row.addStretch(1)
         btn_clear = QPushButton("Clear timeline")

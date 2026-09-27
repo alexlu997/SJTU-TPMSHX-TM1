@@ -142,3 +142,75 @@ def test_both_multiseed_cli_exits_reflect_partial_failure(monkeypatch, complete)
     monkeypatch.setattr(parallel, 'run_qnehvi_multiseed', lambda **kw: result)
     assert parallel.main(['--quiet']) == (0 if complete else 1)
     assert production.main(['--quiet']) == (0 if complete else 1)
+
+
+_SINGLE_SEED_CLI_MODULES = [
+    'sjtu_tpmshx.runs.run_production_qnehvi',
+    'sjtu_tpmshx.runs.run_3d_qnehvi_fast',
+    'sjtu_tpmshx.optimization.optimizer_qnehvi',
+]
+
+
+@pytest.mark.parametrize('module', _SINGLE_SEED_CLI_MODULES)
+@pytest.mark.parametrize('reason,count,exit_code', [
+    ('completed', 1, 0), ('plateau', 1, 0),
+    ('completed', 0, 1), ('plateau', 0, 1),
+    ('cancelled', 1, 1), ('cancelled', 0, 1),
+])
+def test_single_seed_cli_uses_optimizer_outcome(module, reason, count, exit_code, capsys):
+    import importlib
+    import runpy
+    import sys
+    import warnings
+
+    entry = importlib.import_module(module)
+    assert callable(entry.main)
+    result = dict(X=np.ones((count, 16)), F=np.tile([-10., 20.], (count, 1)),
+                  n_evals=2, save_dir='unused', termination_reason=reason)
+    calls = []
+
+    def optimizer(**kwargs):
+        calls.append(kwargs)
+        assert 'cancel_check' not in kwargs  # These CLI presets do not add a cancellation source.
+        return result
+
+    def enter_main(frame, event, arg):
+        if (event == 'call' and frame.f_globals.get('__name__') == '__main__'
+                and frame.f_code.co_name == 'main'):
+            # Patch only the costly boundary after runpy loads the unmodified
+            # command, including the optimizer module's own function definition.
+            frame.f_globals['run_qnehvi'] = optimizer
+
+    previous = sys.getprofile()
+    try:
+        sys.setprofile(enter_main)
+        # Each real main changes the global warning filter; restore it after this command.
+        with warnings.catch_warnings(), pytest.raises(SystemExit) as caught:
+            runpy.run_path(entry.__file__, run_name='__main__')
+    finally:
+        sys.setprofile(previous)
+    assert caught.value.code == exit_code
+    assert len(calls) == 1
+    output = capsys.readouterr().out
+    assert reason in output
+    if not count:
+        assert 'no valid Pareto solutions' in output
+
+
+@pytest.mark.parametrize('module', _SINGLE_SEED_CLI_MODULES)
+@pytest.mark.parametrize('error_type', [RuntimeError, KeyboardInterrupt])
+def test_single_seed_cli_propagates_optimizer_errors(module, error_type, monkeypatch):
+    import importlib
+    import warnings
+
+    entry = importlib.import_module(module)
+    error = error_type('injected optimizer interruption')
+
+    def fail(**kwargs):
+        raise error
+
+    monkeypatch.setattr(entry, 'run_qnehvi', fail)
+    # Restore the warning filter changed by the real main even on interruption.
+    with warnings.catch_warnings(), pytest.raises(error_type) as caught:
+        entry.main()
+    assert caught.value is error

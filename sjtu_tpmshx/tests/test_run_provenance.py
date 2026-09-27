@@ -1,5 +1,6 @@
 """Accepted-run inputs survive GUI edits until result publication."""
 from copy import deepcopy
+import json
 import threading
 
 import numpy as np
@@ -39,6 +40,7 @@ def test_recent_menu_rebuild_releases_evicted_entries_and_keeps_restore(win):
         """Keep the normal entry payload while observing its lifetime."""
 
     menu_count = len(win.findChildren(QMenu))
+    win.write_result(ComputeResult())
     for index in range(8):
         preset = win._capture_current_preset('Run inputs')
         preset['line_edits']['le_Nx'] = str(20 + index)
@@ -65,6 +67,108 @@ def test_recent_menu_rebuild_releases_evicted_entries_and_keeps_restore(win):
     assert len(win.findChildren(QMenu)) == menu_count
     assert not isValid(current_action)
     assert any('暂无' in action.text() for action in menu.actions())
+
+
+def _timeline_cells(window, monkeypatch):
+    from PySide6.QtWidgets import QDialog, QTableWidget
+    observed = []
+
+    def inspect(dialog):
+        table = dialog.findChild(QTableWidget)
+        observed.append((
+            [table.horizontalHeaderItem(c).text() for c in range(table.columnCount())],
+            [[(table.item(r, c).text(), table.item(r, c).toolTip())
+              for c in range(table.columnCount())] for r in range(table.rowCount())]))
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(QDialog, 'exec', inspect)
+    window._show_full_timeline()
+    return observed[0]
+
+
+@pytest.mark.parametrize('mode', ['2d', '3d'])
+@pytest.mark.parametrize('converged, q_status, label', [
+    (True, 'available', '已收敛'),
+    (False, 'available', '未收敛'),
+    (True, 'invalid', '已收敛 · 指标不可用'),
+    (False, 'invalid', '未收敛 · 指标不可用'),
+])
+def test_accepted_state_reaches_recent_menu_and_persisted_timeline(
+        win, monkeypatch, mode, converged, q_status, label):
+    from sjtu_tpmshx.tests.gui_worker_support import _configure
+    from sjtu_tpmshx.tests.gui_workbench_support import _result
+
+    _configure(win, monkeypatch, mode)
+    result = _result(mode)
+    result.converged = converged
+    result.Q_W = 123. if q_status == 'available' else float('nan')
+    statuses = dict.fromkeys(('Q', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B'), 'available')
+    statuses['Q'] = q_status
+    reasons = {} if q_status == 'available' else {'Q': 'native heat evidence missing'}
+    expected = dict(converged=converged, source_result_id='accepted-' + mode,
+                    metric_status=dict(statuses), metric_reasons=dict(reasons))
+    result.metadata.update(source_result_id=expected['source_result_id'],
+                           metric_status=statuses, metric_reasons=reasons)
+    monkeypatch.setattr(Pipeline2D if mode == '2d' else Pipeline3D, 'run', lambda pipe: result)
+    monkeypatch.setattr(win, '_render_compute_result', lambda: True)
+    win.run_calculation()
+    _wait_for(win.compute.is_idle)
+
+    entry = win._recent_runs[0]
+    timeline = win.sm.base_dir / '.session_timeline.jsonl'
+    persisted = json.loads(timeline.read_text().splitlines()[-1])
+    # History owns only a small snapshot, independent of mutable GUI results.
+    cached = win.cache.get_result(mode)
+    cached.converged = not converged
+    cached.metadata['source_result_id'] = 'later-result'
+    cached.metadata['metric_status']['Q'] = 'unsupported'
+    cached.metadata['metric_reasons']['Q'] = 'later reason'
+    for record in (entry, persisted):
+        assert {key: record[key] for key in expected} == expected
+        assert record['Q'] == (f'{123.:.{2 if mode == "3d" else 1}f}'
+                               if q_status == 'available' else '—')
+    menu = win.btn_recent.menu()
+    action = next(a for a in menu.actions() if a.text().strip().startswith('#1'))
+    assert label in action.text()
+    assert expected['source_result_id'] in action.toolTip()
+    assert menu.toolTipsVisible()
+    headers, rows = _timeline_cells(win, monkeypatch)
+    status_text, tooltip = rows[0][headers.index('状态')]
+    assert status_text == label
+    assert tooltip == action.toolTip()
+    if expected['metric_reasons']:
+        assert 'Q: invalid' in tooltip
+        assert expected['metric_reasons']['Q'] in tooltip
+    assert not win._test_error_dialogs
+
+
+def test_legacy_history_keeps_unknown_state_without_rewriting_or_blocking_restore(win, monkeypatch):
+    from collections import deque
+
+    metrics = dict.fromkeys(('Q', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B'), 'available')
+    preset = win._capture_current_preset('Historical input')
+    preset['line_edits']['le_Nx'] = '37'
+    base = dict(ts='2000-01-01T00:00:00', label='00:00:00', Q='123.0',
+                Q_unit='W/m', dP_A='10.0', dP_B='8.0', preset=preset)
+    entries = [dict(base), dict(base, converged=True), dict(base, metric_status=metrics)]
+    labels = ['状态未知', '已收敛 · 指标状态未知', '收敛状态未知']
+    win._recent_runs = deque(entries, maxlen=5)
+    timeline = win.sm.base_dir / '.session_timeline.jsonl'
+    original = '\n'.join(json.dumps({k: v for k, v in e.items() if k != 'preset'})
+                         for e in entries) + '\n'
+    timeline.write_text(original, encoding='utf-8')
+    win._rebuild_recent_menu()
+    actions = [a for a in win.btn_recent.menu().actions() if a.text().strip().startswith('#')]
+    for action, label in zip(actions, labels):
+        assert label in action.text()
+        assert '结果 ID：未知' in action.toolTip()
+    headers, rows = _timeline_cells(win, monkeypatch)
+    assert [row[headers.index('状态')][0] for row in rows] == labels[::-1]
+    assert timeline.read_text(encoding='utf-8') == original
+    actions[0].trigger()
+    assert win.le_Nx.text() == '37'
+    assert not win.cache.has_any_results()
+    assert not win.compute.is_running()
 
 
 def test_running_edits_recent_restore_and_consecutive_dimensions(run_window, monkeypatch):

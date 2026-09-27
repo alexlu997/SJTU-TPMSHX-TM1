@@ -72,9 +72,13 @@ def _native(case, *, q=100., dp_a=20., dp_b=40., index=0):
             mass.append(value)
         faces['mass_' + side] = tuple(mass)
         report[side] = {'direction': case.parameters['fluid_' + side + '_cfg']['dir']}
-    faces.update(report=report, model_h={
-        'A': {'x-': np.array([-2*q]), 'x+': np.array([q])},
-        'B': {'y+': np.array([-q]), 'y-': np.array([2*q])}})
+    ledger = {side: {axis + sign: np.zeros(tuple(n for i, n in enumerate(shape) if i != a))
+                     for a, axis in enumerate('xyz') for sign in ('-', '+')}
+              for side in ('A', 'B')}
+    for side, name, value in (('A', 'x-', -2*q), ('A', 'x+', q),
+                              ('B', 'y+', -q), ('B', 'y-', 2*q)):
+        ledger[side][name].flat[0] = value
+    faces.update(report=report, model_h=ledger)
     fields = {'Ta': np.full(shape, 350.), 'Tb': np.full(shape, 320.), 'Ts': np.full(shape, 335.)}
     return FieldResult(
         str(uuid4()), case.case_id, 'analytic-native-test', grid=case.grid, fields=fields,

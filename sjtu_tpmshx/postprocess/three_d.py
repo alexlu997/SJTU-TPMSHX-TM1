@@ -1,7 +1,9 @@
 """3D engineering reductions over portable fields and boundary evidence."""
 import numpy as np
 
-from sjtu_tpmshx.result_math import _boundary_enthalpy_duty, pressure_face_values
+from sjtu_tpmshx.result_math import (
+    _boundary_enthalpy_duty, _boundary_face_shape, pressure_face_values,
+)
 
 
 def _outlet(field, direction):
@@ -30,18 +32,26 @@ def thermal_duty(result, side):
     if result.metadata['thermal_mode'] == 'model_h':
         if not result.metadata['diagnostics']['model_h_balance']['sides'][side]['physical_boundary_complete']:
             raise ValueError('unknown inflow prevents a complete heat duty')
-        return -sum(float(np.sum(face)) for face in flux['model_h'][side].values())
+        ledger = flux['model_h'][side]
+        keys = ('x-', 'x+', 'y-', 'y+', 'z-', 'z+')
+        if set(ledger) != set(keys):
+            raise ValueError('3D model-h requires all six physical boundary faces')
+        faces = tuple(ledger[key] for key in keys)
+        _boundary_face_shape(faces, 3, result.grid, planes=True)
+        return -sum(float(np.sum(face)) for face in faces)
     if result.metadata['thermal_mode'] == 'true_h':
         native = flux['true_h']
-        return _boundary_enthalpy_duty(native['h_' + side], native['h_in_' + side],
-                                      native['mass_flux_' + side])
+        mass = native['mass_flux_' + side]
+        enthalpy = native['h_' + side]
+        if _boundary_face_shape(mass, 3, result.grid) != np.shape(enthalpy):
+            raise ValueError('native enthalpy cells disagree with mass faces')
+        return _boundary_enthalpy_duty(enthalpy, native['h_in_' + side], mass)
     raise NotImplementedError('legacy temperature route has no captured complete enthalpy transport')
 
 
 def _mass_flow(result, side):
     faces = result.boundary_fluxes['mass_' + side]
-    if faces is None:
-        raise KeyError('last thermal mass faces')
+    _boundary_face_shape(faces, 3, result.grid)
     outward = [sign * np.take(face, end, axis=axis) for axis, face in enumerate(faces)
                for end, sign in ((0, -1), (-1, 1))]
     return tuple(sum(float(np.maximum(sign * face, 0).sum()) for face in outward)
@@ -59,12 +69,15 @@ def evaluate_metric(result, name, *, duty, mass_flow):
         side = name[-1]
         direction = result.boundary_fluxes['report'][side]['direction']
         mass = result.boundary_fluxes['mass_' + side]
+        temperature = result.fields['Ta' if side == 'A' else 'Tb']
+        if _boundary_face_shape(mass, 3, result.grid) != np.shape(temperature):
+            raise ValueError('outlet temperature cells disagree with native mass faces')
         outward = _outlet(mass[direction // 2], direction) * (1 if direction % 2 == 0 else -1)
         if not np.all(np.isfinite(outward)):
             raise ValueError('outlet temperature requires finite native mass flux')
         weights = np.maximum(outward, 0.)
         flowing = weights > 0.
-        temperature = _outlet(result.fields['Ta' if side == 'A' else 'Tb'], direction)
+        temperature = _outlet(temperature, direction)
         return _weighted(temperature[flowing], weights[flowing])
     if name.startswith('mass_flow_'):
         return mass_flow(name[-1])[0]

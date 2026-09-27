@@ -24,10 +24,10 @@ from sjtu_tpmshx.optimization.evaluator_3d import (
     DEFAULT_CONFIG_3D,
     evaluate_design_3d,
 )
-from sjtu_tpmshx.optimization.optimizer_qnehvi import run_qnehvi
+from sjtu_tpmshx.optimization.optimizer_qnehvi import _completed_with_pareto, run_qnehvi
 
 
-def main() -> None:
+def main() -> int:
     warnings.filterwarnings('ignore')
 
     cfg = {
@@ -92,10 +92,14 @@ def main() -> None:
         evaluator_fn=evaluate_design_3d,
     )
 
-    print(f"\n[run_3d_qnehvi_fast] DONE — {len(out['X'])} Pareto points / "
+    print(f"\n[run_3d_qnehvi_fast] {out['termination_reason']} — {len(out['X'])} Pareto points / "
           f"{out['n_evals']} evals", flush=True)
+    if not len(out['X']):
+        print("  no valid Pareto solutions")
     print(f"  save_dir = {out['save_dir']}", flush=True)
+
+    return 0 if _completed_with_pareto(out) else 1
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())
