@@ -46,6 +46,10 @@ def build_execution_inputs(case):
             continue
         if cfg['fluid_' + side + '_cfg']['dir'] // 2 != axis['stream_real_axis']:
             raise ValueError(f'prepared fluid {side} direction and axis map disagree')
+        solver_axes = (axis['cross1_real_axis'], axis['stream_real_axis'], axis['cross2_real_axis'])
+        if (sorted(solver_axes) != [0, 1, 2]
+                or tuple(axis['solver_to_real_perm']) != tuple(solver_axes.index(i) for i in range(3))):
+            raise ValueError(f'prepared fluid {side} axis permutation disagrees with physical axes')
         for prefix, index_key in (('stream', 'stream_real_axis'), ('cross1', 'cross1_real_axis'), ('cross2', 'cross2_real_axis')):
             physical_axis = 'xyz'[axis[index_key]]
             if not np.array_equal(axis['d' + prefix], prepared['d' + physical_axis]):

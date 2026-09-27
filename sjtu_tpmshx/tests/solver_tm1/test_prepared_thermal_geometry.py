@@ -80,3 +80,39 @@ def test_archived_bulk_hv_loads_but_does_not_set_local_heat_transfer(tmp_path, m
     with pytest.raises(ValueError, match='bulk heat transfer'):
         save_case(replace(case, parameters={**case.parameters, 'thermal_geometry': invalid}),
                   tmp_path / 'invalid.h5')
+
+
+@pytest.mark.parametrize('side', ['A', 'B'])
+@pytest.mark.parametrize('end', ['inlet', 'outlet'])
+def test_prepared_openings_match_actual_solver_geometry_before_solving(side, end, tmp_path, monkeypatch):
+    from sjtu_tpmshx.domain.portable_data import mutable_data
+    from sjtu_tpmshx.io.case_io import save_case, load_case
+    from sjtu_tpmshx.solvers.api import run_case
+
+    config = _small_air_cfg()
+    config.solver = replace(config.solver, Nx=4, Ny=4, Nz=4)
+    full = prepare_case(config, case_id='full-opening')
+    port = getattr(config, 'bc_' + side)
+    width = 'in_w' if end == 'inlet' else 'out_w'
+    partial = prepare_case(replace(config, **{'bc_' + side: replace(
+        port, **{width: getattr(port, width) / 2.})}), case_id='partial-opening')
+    monkeypatch.setattr(runtime, '_run_two_simple', lambda *a, **k: None)
+    monkeypatch.setattr(runtime.SIMPLESolver3D, 'solve',
+                        lambda *a, **k: pytest.fail('construction control ran a PDE'))
+    # Both coherent full and partial cases remain supported, without replacing
+    # the supplied masks. The constructor supplies independent geometry evidence.
+    for case in (full, partial):
+        problem = runtime.build_problem(*build_execution_inputs(case))
+        for name, solver in (('A', problem.sA), ('B', problem.sB)):
+            for boundary in ('inlet', 'outlet'):
+                np.testing.assert_allclose(
+                    case.parameters['prepared']['openings'][name][boundary],
+                    getattr(solver, boundary + '_frac'), rtol=1e-12, atol=1e-15)
+    parameters = mutable_data(full.parameters)
+    parameters['prepared']['openings'][side][end] = partial.parameters['prepared']['openings'][side][end]
+    save_case(replace(full, parameters=parameters), tmp_path / 'case.h5')
+    restored = load_case(tmp_path / 'case.h5')
+    monkeypatch.setattr(runtime, '_run_two_simple',
+                        lambda *a, **k: pytest.fail('conflicting opening reached a PDE'))
+    with pytest.raises(ValueError, match=f'fluid {side} {end} opening'):
+        run_case(restored)
