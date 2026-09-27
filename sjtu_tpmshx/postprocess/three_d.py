@@ -42,6 +42,8 @@ def _mass_flow(result, side):
     faces = result.boundary_fluxes['mass_' + side]
     if faces is None:
         raise KeyError('last thermal mass faces')
+    if len(faces) != 3:
+        raise ValueError('3D mass balance requires all three axis face arrays')
     outward = [sign * np.take(face, end, axis=axis) for axis, face in enumerate(faces)
                for end, sign in ((0, -1), (-1, 1))]
     return tuple(sum(float(np.maximum(sign * face, 0).sum()) for face in outward)
