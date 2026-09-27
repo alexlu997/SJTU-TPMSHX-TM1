@@ -100,7 +100,12 @@ def read_record(path, record_type, kind):
             raise ValueError('unsupported file schema or record kind')
         if not isinstance(source.get('descriptor', getlink=True), h5py.HardLink):
             raise ValueError('descriptor must be a local HDF5 dataset')
-        descriptor = json.loads(source['descriptor'].asstr()[()])
+        dataset = source['descriptor']
+        if not isinstance(dataset, h5py.Dataset):
+            raise ValueError('descriptor must be a local HDF5 dataset')
+        if dataset.is_virtual or dataset.external:
+            raise ValueError('external dataset storage is unsupported')
+        descriptor = json.loads(dataset.asstr()[()])
         data = _decode(descriptor, source)
     expected = {item.name for item in fields(record_type)}
     if not isinstance(data, dict) or set(data) != expected:
