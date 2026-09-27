@@ -1,4 +1,6 @@
 """Physical schema checks at portable file trust boundaries."""
+from collections.abc import Mapping
+
 import numpy as np
 
 
@@ -71,6 +73,13 @@ def validate_result_declarations(result):
     mode_dimension = {'screening_2d': 2, 'screening_3d': 3, 'quick_design': 3}
     if mode_dimension.get(result.metadata.get('mode'), dimension) != dimension:
         raise ValueError('result mode dimension disagrees with grid')
+    for side, evidence in result.pressure_evidence.items():
+        if isinstance(evidence, Mapping) and 'unit' in evidence and evidence['unit'] != 'Pa':
+            raise ValueError(f'pressure evidence {side} unit must be Pa')
+    mass_units = {2: ('kg/(s m)', 'kg/(m s)'), 3: ('kg/s',)}.get(dimension)
+    if (mass_units is not None and 'mass_unit' in result.boundary_fluxes
+            and result.boundary_fluxes['mass_unit'] not in mass_units):
+        raise ValueError(f'mass evidence unit must be one of {mass_units}')
     for key, metadata in result.field_metadata.items():
         name = key.removesuffix('_display')
         units = (('K',) if name in ('Ta', 'Tb', 'Ts') else
