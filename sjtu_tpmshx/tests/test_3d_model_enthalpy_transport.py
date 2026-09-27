@@ -40,12 +40,14 @@ def test_two_cell_model_h_balance(direction, fraction, rb):
     threads = get_num_threads()
     try:
         set_num_threads(2)
+        # Match the driver's explicit None types to reuse its Numba specialization.
         fn(*fields, 2, 2, 2, *widths, one*.5, one*0, one*0,
            1/vol, 1/vol, one*.5, one*.5, one*10, one*10,
            *zero_faces, *zero_faces, direction, direction,
            np.full((2, 2), 320.), np.full((2, 2), 300.),
            np.full((2, 2), fraction), np.ones((2, 2)),
            2000, 0, .7, .7, .7, one*0, source_B, source_S, 1,
+           inlet_flux_A=None, inlet_flux_B=None,
            model_mass_A=mass, model_mass_B=zero_faces,
            model_cp_A=coeff, model_cp_B=constant)
     finally:
@@ -391,6 +393,7 @@ def test_picard_coefficients_frozen_for_entire_sweep(rb):
            one*0, one*0, one*0, one, one*0, one*.5, one*.5, one, one,
            *zero, *zero, 0, 0, one[0]*320, one[0]*300, one[0], one[0],
            1, 0, .7, .7, .7, one*0, one*0, one*0, 1,
+           inlet_flux_A=None, inlet_flux_B=None,
            model_mass_A=mass, model_mass_B=zero,
            model_cp_A=(2., .02, 0., 300., 300.), model_cp_B=(2., 0., 0., 300., 300.))
     finally:
