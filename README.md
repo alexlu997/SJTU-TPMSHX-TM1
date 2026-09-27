@@ -30,7 +30,7 @@ TM1 将 TPMS 换热器的前处理、求解和后处理拆为独立维护的模�
 ## 首次运行（macOS / Windows）
 
 这是 Python 源码项目，下载后需要安装锁定依赖。首次运行使用 macOS + Python 3.13，
-或 Windows x64 + Python 3.13，与[平台 CI](.github/workflows/ci.yml)一致。
+或 Windows x64 + Python 3.12 / 3.13，与[平台 CI](.github/workflows/ci.yml)一致。
 先安装对应版本的 [Python](https://www.python.org/downloads/)，克隆方式还需要 Git。
 也可在仓库页面选择 **Code → Download ZIP** 并解压；ZIP 用户直接进入解压后的
 仓库根目录，跳过下面的 `git clone` / `cd`，其余命令相同。
@@ -53,6 +53,9 @@ PYTHON="$(head -n 1 .venv-path)"
 ```
 
 **Windows（PowerShell）**
+
+Python 3.12 和 3.13 使用相同的依赖锁。以下以 3.13 为例；选择 3.12 时，
+将创建环境命令中的 `-3.13` 改为 `-3.12`，其余步骤相同。
 
 ```powershell
 git clone https://github.com/alexlu997/SJTU-TPMSHX-TM1.git
@@ -376,7 +379,8 @@ CI 快测固定两个 worker，每个 worker 的 BLAS/OMP 单线程、Numba 上�
 两条 GitHub workflow 使用 Node24 Action（checkout v5、setup-python v6、
 upload-artifact v6）。这是 CI 工具运行时，不改变求解器的 Python 环境；
 `three-module` 继续单独验证完整环境到最小后处理环境的真实文件交接。
-`ci` 另设 macOS / Windows 独立 BO 作业，分别安装对应 BO 锁，严格检查环境后
+`ci` 的基础和独立 BO 作业均覆盖 macOS / Python 3.13，以及 Windows / Python
+3.12、3.13；BO 作业分别安装对应平台的 BO 锁，严格检查环境后
 显式导入 Torch / BoTorch / GPyTorch，并运行多工况优化器测试（含两种真实 Log
 采集函数）。基础作业仍使用不含 BO 的锁，覆盖可选依赖缺失时的行为。
 BO 作业只上传 JUnit 测试报告，保留 7 天，不上传求解数据或虚拟环境。
@@ -409,8 +413,8 @@ GUI 和调度留在 `ui/`、`controllers/`，模型资源保持共享。每个 P
 三项 GitHub Actions 检查；管理员同样受约束，禁止强推和删除。多人正式参与后
 再启用至少一位非作者批准；目前平台所需批准人数为 0。实际状态以 GitHub 为准。
 
-Windows 基线迁移至 Python 3.13 时，先确认新的平台检查成功，再将 main 保护中的
-`tests (windows-2022, 3.12)` 替换为 `tests (windows-2022, 3.13)`；其他保护保持不变。
+Windows 同时支持 Python 3.12 和 3.13：main 保护保留上述三项，并新增
+`tests (windows-2022, 3.13)`，共四项必需检查；其他保护保持不变。
 工作流更新不会自动修改 GitHub 保护设置，合并前须核实必需检查已同步。
 
 现行能力与待完成事项见[能力范围](docs/capabilities.md)，

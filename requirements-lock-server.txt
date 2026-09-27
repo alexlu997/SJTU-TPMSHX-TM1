@@ -1,4 +1,4 @@
-# Windows x64 / Python 3.13 optional BO environment. The shared solver, GUI, test, and
+# Windows x64 / Python 3.12 and 3.13 optional BO environment. The shared solver, GUI, test, and
 # development environment, including TM1 YAML/HDF5, is pinned once in requirements-lock.txt.
 -r requirements-lock.txt
 
