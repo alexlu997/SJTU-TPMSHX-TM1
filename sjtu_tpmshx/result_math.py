@@ -2,6 +2,40 @@
 import numpy as np
 
 
+def _boundary_face_shape(faces, dimension, grid=None, *, planes=False):
+    """Check native face topology without copying arrays; return its cell shape.
+
+    Staggered arrays have one extra cell on their own axis. Boundary planes
+    are ordered x-/x+, y-/y+, z-/z+. Partial in-memory evidence still has to
+    describe a coherent positive cell shape, even when no grid is recorded.
+    """
+    if faces is None:
+        raise KeyError('native boundary faces')
+    shapes = tuple(np.shape(face) for face in faces)
+    if len(shapes) != dimension * (2 if planes else 1):
+        if planes:
+            raise ValueError('native boundary requires all boundary face planes')
+        axes = 'three' if dimension == 3 else 'two'
+        raise ValueError(f'native boundary requires all {axes} axis face arrays')
+    if any(len(shape) != dimension - int(planes) for shape in shapes):
+        raise ValueError('native boundary face rank disagrees with physical dimension')
+    if planes:
+        shape = (shapes[2][0], *shapes[0])
+        expected = tuple(tuple(n for i, n in enumerate(shape) if i != axis)
+                         for axis in range(dimension) for _ in range(2))
+    else:
+        shape = (shapes[0][0] - 1, *shapes[0][1:])
+        expected = tuple(tuple(n + (i == axis) for i, n in enumerate(shape))
+                         for axis in range(dimension))
+    if any(n <= 0 for n in shape) or shapes != expected:
+        raise ValueError('native boundary faces do not share a consistent cell shape')
+    for axis, size in zip('xyz', shape):
+        key = 'd' + axis
+        if key in (grid or {}) and np.shape(grid[key]) != (size,):
+            raise ValueError(f'native boundary faces disagree with {axis} grid')
+    return shape
+
+
 def pressure_face_values(pressure, stream_widths):
     """Extrapolate a +axis-1 pressure field to its physical end faces."""
     p = np.asarray(pressure)

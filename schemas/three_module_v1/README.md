@@ -77,6 +77,12 @@ postprocessing rejects them before reducing any metrics. Archiving a partial
 or unconverged result does not establish that it is executable or validated;
 missing evidence for individual metrics retains its existing explicit status.
 
+Native staggered faces must describe one coherent positive cell shape and
+match every recorded grid axis; 3D model-h requires all six shaped boundary
+planes, including zero faces. Structural defects invalidate only metrics that
+consume that evidence. Missing whole evidence remains insufficient data;
+coherent partial in-memory evidence and complete zero transport remain valid.
+
 The full 2D/3D outlet temperature uses last-main raw temperature and positive outward
 signed mass over true openings. Backflow stays in the stored signed flux for
 conservation. Never multiply by heat capacity or face area again. Pressure

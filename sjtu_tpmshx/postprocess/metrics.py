@@ -9,19 +9,21 @@ from sjtu_tpmshx.domain.metric_spec import MetricSpec, full_metric_version
 from sjtu_tpmshx.domain.performance_result import MetricValue, PerformanceResult
 from sjtu_tpmshx.domain.persistence_validation import validate_result_declarations
 from sjtu_tpmshx.result_math import (
-    _boundary_enthalpy_duty, _enthalpy_balance_2d, _outlet_temperature_2d,
+    _boundary_enthalpy_duty, _boundary_face_shape,
+    _enthalpy_balance_2d, _outlet_temperature_2d,
 )
 
 
-def _outward_faces(mass):
+def _outward_faces(mass, grid=None):
+    _boundary_face_shape(mass, 2, grid)
     fx, fy = (np.asarray(face) for face in mass)
     return (-fx[0], fx[-1], -fy[:, 0], fy[:, -1])
 
 
-def _model_duty(balance, side):
+def _model_duty(balance, side, grid):
     if not balance[side]['physical_boundary_complete']:
         raise ValueError('unknown inflow prevents a complete heat duty')
-    return -sum(float(face.sum()) for face in _outward_faces(balance[side]['h_faces_W_per_m']))
+    return -sum(float(face.sum()) for face in _outward_faces(balance[side]['h_faces_W_per_m'], grid))
 
 
 def _side_duty(result, side, *, fine=False):
@@ -31,12 +33,15 @@ def _side_duty(result, side, *, fine=False):
         if fine:
             raise NotImplementedError('true enthalpy has no Richardson thermal solve')
         native = fluxes['true_h']
-        return _boundary_enthalpy_duty(
-            np.asarray(native['h_' + side]), native['h_in_' + side],
-            tuple(np.asarray(face) for face in native['mass_flux_' + side]))
+        enthalpy = np.asarray(native['h_' + side])
+        mass = tuple(np.asarray(face) for face in native['mass_flux_' + side])
+        shape = _boundary_face_shape(mass, 3, result.grid)
+        if shape != enthalpy.shape or shape[2] != 1:
+            raise ValueError('2D true-h evidence requires matching singleton-z cells and mass faces')
+        return _boundary_enthalpy_duty(enthalpy, native['h_in_' + side], mass)
     if mode == 'model_h':
         balance = fluxes['fine']['model_h_balance'] if fine else fluxes['model_h']
-        return _model_duty(balance, side)
+        return _model_duty(balance, side, fluxes['fine'] if fine else result.grid)
     if mode != 'temperature':
         raise NotImplementedError(f'unsupported thermal mode: {mode}')
     return _temperature_duty(result, side, fine=fine)
@@ -70,7 +75,7 @@ def _richardson_duty(result, side, duty):
 
 
 def _mass_flow(result, side):
-    faces = _outward_faces(result.boundary_fluxes['mass_' + side])
+    faces = _outward_faces(result.boundary_fluxes['mass_' + side], result.grid)
     inflow = sum(float(np.maximum(-face, 0.).sum()) for face in faces)
     outflow = sum(float(np.maximum(face, 0.).sum()) for face in faces)
     return inflow, outflow
@@ -117,9 +122,11 @@ def _evaluate_metric(result, name, *, dimension, duty, mass_flow):
         return _pressure_drop_2d(result, name[-1])
     if name.startswith('T_out_'):
         side = name[-1]
-        return _outlet_temperature_2d(
-            np.asarray(result.fields['Ta' if side == 'A' else 'Tb']),
-            tuple(np.asarray(face) for face in result.boundary_fluxes['mass_' + side]),
+        temperature = np.asarray(result.fields['Ta' if side == 'A' else 'Tb'])
+        mass = tuple(np.asarray(face) for face in result.boundary_fluxes['mass_' + side])
+        if _boundary_face_shape(mass, 2, result.grid) != temperature.shape:
+            raise ValueError('outlet temperature cells disagree with native mass faces')
+        return _outlet_temperature_2d(temperature, mass,
             result.metadata['parameters']['dir_' + side],
             result.pressure_evidence[side]['outlet_geom_frac'])
     if name.startswith('mass_flow_'):
