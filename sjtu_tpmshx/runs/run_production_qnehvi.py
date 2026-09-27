@@ -22,10 +22,10 @@ from __future__ import annotations
 import os
 import warnings
 
-from sjtu_tpmshx.optimization.optimizer_qnehvi import run_qnehvi
+from sjtu_tpmshx.optimization.optimizer_qnehvi import _completed_with_pareto, run_qnehvi
 
 
-def main() -> None:
+def main() -> int:
     warnings.filterwarnings('ignore')
 
     out = run_qnehvi(
@@ -49,10 +49,14 @@ def main() -> None:
         save_dir=os.path.join('opt_runs', 'production_v1'),
         hv_tol=0.01, hv_window=3,
     )
-    print(f"\nProduction run complete: {len(out['X'])} Pareto points / "
+    print(f"\nProduction run {out['termination_reason']}: {len(out['X'])} Pareto points / "
           f"{out['n_evals']} total evaluations")
+    if not len(out['X']):
+        print("  no valid Pareto solutions")
     print(f"  save_dir = {out['save_dir']}")
+
+    return 0 if _completed_with_pareto(out) else 1
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())

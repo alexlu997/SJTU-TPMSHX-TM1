@@ -188,6 +188,10 @@ API 的 `history_errors` 与 `history_X/history_F` 逐行对应，成功行为 `
 缺列、重复列或非有限值直接拒绝，不能回退默认工况后继续验证。
 这两个旧入口和当前多工况优化器均要求新的运行目录；已有目录会被拒绝，不覆盖
 先前的配置或评估记录。多种子运行由各 seed 创建自己的新子目录。
+单种子命令 `run_production_qnehvi`、`run_3d_qnehvi_fast` 与
+`optimizer_qnehvi` 的模块入口采用相同完成条件：正常预算结束或平台期结束
+（`completed` / `plateau`）且 Pareto 非空时返回 0，否则返回 1。
+空 Pareto 会明确提示；这些终止状态不代表数值收敛或物理验收，异常继续原样报错。
 nTop 公开 API／CLI 将 `Lfield.csv`、`tfield.csv`、`provenance.json` 成组暂存并发布；
 写入失败保留上一组完整几何。数值精度、坐标和原控制场来源保持不变。
 

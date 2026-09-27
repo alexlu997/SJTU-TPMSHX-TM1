@@ -144,3 +144,33 @@ def test_canonical_evidence_units_preserve_partial_metrics(tmp_path, dimension, 
         for name in ('Q', 'mass_flow_A', 'mass_flow_B'):
             assert actual[name] == expected[name]
         assert actual['dP_A'].status == actual['dP_B'].status == 'insufficient_data'
+
+
+@pytest.mark.parametrize('axis_count', [0, 1, 2, 4])
+def test_incomplete_3d_mass_faces_do_not_claim_available_balance(tmp_path, axis_count):
+    result = archived_native_result(3)
+    faces = result.boundary_fluxes['mass_A']
+    malformed = (faces + faces[:1])[:axis_count]
+    result = replace(result, boundary_fluxes={**result.boundary_fluxes, 'mass_A': malformed})
+    loaded = load_result(save_result(result, tmp_path / 'incomplete-mass.h5'))
+    for source in (result, loaded):
+        values = evaluate(source).metrics
+        for name in ('mass_flow_A', 'mass_imbalance_rel_A'):
+            assert values[name].status == 'invalid'
+            assert values[name].value is None
+            assert 'three axis' in values[name].reason
+        assert values['Q'].value == 10.
+        assert values['mass_flow_B'].value == 2.
+        assert values['mass_imbalance_rel_B'].value == 0.
+
+
+def test_complete_zero_3d_mass_faces_remain_available(tmp_path):
+    result = archived_native_result(3)
+    result = replace(result, boundary_fluxes={**result.boundary_fluxes,
+        'mass_A': tuple(np.zeros_like(face) for face in result.boundary_fluxes['mass_A'])})
+    loaded = load_result(save_result(result, tmp_path / 'zero-mass.h5'))
+    for source in (result, loaded):
+        values = evaluate(source).metrics
+        for name in ('mass_flow_A', 'mass_imbalance_rel_A'):
+            assert values[name].status == 'available'
+            assert values[name].value == 0.

@@ -547,6 +547,11 @@ class SessionPresetsMixin:
         cur = getattr(self, '_active_workspace', 'A')
         if cur == new:
             return
+        from sjtu_tpmshx.ui.background_tasks import has_active_tasks
+        if has_active_tasks(self):
+            QMessageBox.information(
+                self, "任务仍在运行", "请等待计算、优化或快速设计结束后再切换工作区。")
+            return
         try:
             saved = bool(self._save_session())
         except Exception:
