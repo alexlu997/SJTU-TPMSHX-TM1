@@ -14,8 +14,9 @@ def test_three_d_native_faces_and_pressure():
     result = FieldResult(result_id='3d-native', case_id='case', backend_id='fixture',
         grid={'dx': np.ones(2), 'dy': np.ones(1), 'dz': np.ones(1)},
         fields={'Ta': np.array([[[350.]], [[320.]]]), 'Tb': np.array([[[310.]], [[330.]]])},
-        boundary_fluxes={'model_h': {'A': {'x-': np.array([-20.]), 'x+': np.array([10.])},
-                                    'B': {'x-': np.array([-10.]), 'x+': np.array([20.])}},
+        boundary_fluxes={'model_h': {side: {'x-': np.array([[inlet]]), 'x+': np.array([[outlet]]),
+                **{name: np.zeros((2, 1)) for name in ('y-', 'y+', 'z-', 'z+')}}
+                for side, inlet, outlet in (('A', -20., 10.), ('B', -10., 20.))},
                          'mass_A': mass, 'mass_B': tuple(-face for face in mass),
                          'report': {'A': report, 'B': {**report, 'direction': 1}}},
         pressure_evidence={'A': pressure, 'B': pressure},

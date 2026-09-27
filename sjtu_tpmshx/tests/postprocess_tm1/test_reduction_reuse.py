@@ -22,7 +22,10 @@ def native_result(dimension):
         flux = dict(model_h=balance(10.), fine=dict(model_h_balance=balance(13.)))
     else:
         mass = (*[face[:, :, None] for face in mass], np.zeros((2, 2, 2)))
-        flux = dict(model_h={side: {'x-': np.array([-sign*10.]), 'x+': np.array([0.])}
+        flux = dict(model_h={side: {'x-': np.array([[-sign*10.], [0.]]), 'x+': np.zeros((2, 1)),
+                                  **{name: np.zeros(shape) for name, shape in (
+                                      ('y-', (2, 1)), ('y+', (2, 1)),
+                                      ('z-', (2, 2)), ('z+', (2, 2)))}}
                              for side, sign in (('A', 1), ('B', -1))})
     return FieldResult(result_id='reductions', case_id='case', backend_id='fixture',
         boundary_fluxes=dict(flux, mass_A=mass, mass_B=mass),

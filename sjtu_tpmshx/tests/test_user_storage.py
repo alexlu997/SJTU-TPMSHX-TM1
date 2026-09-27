@@ -123,6 +123,24 @@ def test_restart_aborts_when_inputs_cannot_be_saved(monkeypatch):
     assert len(messages) == 1
 
 
+@pytest.mark.parametrize('active_task', ['compute', 'optimization', 'quick_design'])
+def test_workspace_switch_waits_for_active_tasks(active_task, monkeypatch):
+    messages = []
+    monkeypatch.setattr(QMessageBox, 'information', lambda *args: messages.append(args[-1]))
+    window = SimpleNamespace(
+        _WORKSPACES=('A', 'B', 'C'), _active_workspace='A',
+        _save_session=lambda: pytest.fail('workspace switch must wait for tasks'))
+    if active_task == 'compute':
+        window.compute = SimpleNamespace(is_idle=lambda: False)
+    elif active_task == 'optimization':
+        window._opt_worker = object()
+    else:
+        window._qd_dialog = SimpleNamespace(_qd_worker=object())
+    SessionPresetsMixin._switch_workspace(window, 'B')
+    assert window._active_workspace == 'A'
+    assert len(messages) == 1
+
+
 def test_workspace_switch_keeps_unsaved_inputs_on_write_failure(monkeypatch):
     messages = []
     monkeypatch.setattr(QMessageBox, 'warning', lambda *args: messages.append(args[-1]))
