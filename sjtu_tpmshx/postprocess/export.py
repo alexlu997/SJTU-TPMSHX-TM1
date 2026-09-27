@@ -33,6 +33,9 @@ def export_vtk(result, path):
     for key, values in result.fields.items():
         if re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', key) is None:
             raise ValueError(f'field name cannot be represented in legacy VTK: {key}')
+        values = np.asarray(values)
+        if not np.all(np.isfinite(values)):
+            raise ValueError(f'field {key} must contain finite values for ASCII VTK export')
         stream.write(f'SCALARS {key} double 1\nLOOKUP_TABLE default\n')
-        np.savetxt(stream, np.asarray(values).ravel(order='F'), fmt='%.17g')
+        np.savetxt(stream, values.ravel(order='F'), fmt='%.17g')
     return write_text(Path(path), stream.getvalue())

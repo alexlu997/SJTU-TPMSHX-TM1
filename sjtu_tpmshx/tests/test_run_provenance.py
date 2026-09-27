@@ -29,6 +29,44 @@ def run_window(win, monkeypatch, tmp_path):
     return win
 
 
+def test_recent_menu_rebuild_releases_evicted_entries_and_keeps_restore(win):
+    import gc
+    import weakref
+    from PySide6.QtWidgets import QMenu
+    from shiboken6 import isValid
+
+    class TrackedEntry(dict):
+        """Keep the normal entry payload while observing its lifetime."""
+
+    menu_count = len(win.findChildren(QMenu))
+    for index in range(8):
+        preset = win._capture_current_preset('Run inputs')
+        preset['line_edits']['le_Nx'] = str(20 + index)
+        win._run_provenance = dict(preset=preset, preset_source='test', mode='2d',
+                                   input_grid=[20 + index, 10], actual_grid=[20 + index, 10])
+        win._push_recent_run()
+        if index == 0:
+            win._recent_runs[0] = TrackedEntry(win._recent_runs[0])
+            evicted_entry = weakref.ref(win._recent_runs[0])
+            win._rebuild_recent_menu()
+            old_action = next(a for a in win.btn_recent.menu().actions()
+                              if a.text().strip().startswith('#1'))
+    gc.collect()
+    assert len(win._recent_runs) == 5
+    assert (len(win.findChildren(QMenu)), isValid(old_action), evicted_entry() is None) == (
+        menu_count, False, True)
+
+    menu = win.btn_recent.menu()
+    current_action = next(a for a in menu.actions() if a.text().strip().startswith('#1'))
+    current_action.trigger()
+    assert win.le_Nx.text() == '27'
+    next(a for a in menu.actions() if a.text() == '清除最近').trigger()
+    assert len(win._recent_runs) == 0
+    assert len(win.findChildren(QMenu)) == menu_count
+    assert not isValid(current_action)
+    assert any('暂无' in action.text() for action in menu.actions())
+
+
 def test_running_edits_recent_restore_and_consecutive_dimensions(run_window, monkeypatch):
     win = run_window
     gui_thread = threading.get_ident()

@@ -483,7 +483,11 @@ metrics.json. Exact contracts and mode-specific restrictions are in
 `schemas/three_module_v1/`. Minimal postprocessing has a distinct dependency
 lock and actual import/runtime checks; the full environment is not evidence
 of minimal installation. Parallel run warnings and control state are local
-to each invocation, and arrays crossing contracts are detached and immutable.
+to each invocation. Arrays crossing contracts are detached from mutable input
+storage and immutable. A metadata-only case or result update may reuse a complete,
+contiguous immutable bytes buffer with a separate array header; changing the new
+array's shape or dtype cannot change the original. Sliced fields that would retain
+a larger parent buffer are copied into compact storage.
 
 ### Cooperative cancellation
 

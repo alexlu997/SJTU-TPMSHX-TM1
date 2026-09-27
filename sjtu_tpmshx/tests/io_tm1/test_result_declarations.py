@@ -102,3 +102,45 @@ def test_missing_dimension_is_not_inferred_from_a_container():
     result = FieldResult('result', 'case', 'fixture')
     with pytest.raises(ValueError, match='physical dimension'):
         evaluate(result)
+
+
+@pytest.mark.parametrize('dimension,evidence,unit', [
+    (2, 'pressure', 'kPa'), (3, 'pressure', 'kPa'),
+    (2, 'mass', 'kg/s'), (2, 'mass', 'kg/h'),
+    (3, 'mass', 'kg/(s m)'), (3, 'mass', 'kg/h'),
+])
+@pytest.mark.parametrize('boundary', ['memory', 'save', 'load'])
+def test_conflicting_native_evidence_units_rejected(tmp_path, dimension, evidence, unit, boundary):
+    result = archived_native_result(dimension)
+    path = tmp_path / 'native-units.h5'
+    save_result(result, path)
+    original = path.read_bytes()
+    if evidence == 'pressure':
+        result = replace(result, pressure_evidence={'A': {'unit': unit}})
+    else:
+        result = replace(result, boundary_fluxes={**result.boundary_fluxes, 'mass_unit': unit})
+    if boundary == 'load':
+        write_record(path, result, 'FieldResult')
+    with pytest.raises(ValueError, match=f'{evidence}.*unit'):
+        if boundary == 'memory':
+            evaluate(result)
+        elif boundary == 'save':
+            save_result(result, path)
+        else:
+            load_result(path)
+    if boundary == 'save':
+        assert path.read_bytes() == original
+
+
+@pytest.mark.parametrize('dimension,unit', [(2, 'kg/(s m)'), (2, 'kg/(m s)'), (3, 'kg/s')])
+def test_canonical_evidence_units_preserve_partial_metrics(tmp_path, dimension, unit):
+    result = archived_native_result(dimension)
+    expected = evaluate(result).metrics
+    result = replace(result, boundary_fluxes={**result.boundary_fluxes, 'mass_unit': unit},
+                     pressure_evidence={'A': {'unit': 'Pa'}, 'B': None})
+    loaded = load_result(save_result(result, tmp_path / 'native-units.h5'))
+    for source in (result, loaded):
+        actual = evaluate(source).metrics
+        for name in ('Q', 'mass_flow_A', 'mass_flow_B'):
+            assert actual[name] == expected[name]
+        assert actual['dP_A'].status == actual['dP_B'].status == 'insufficient_data'

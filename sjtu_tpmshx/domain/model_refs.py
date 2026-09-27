@@ -11,8 +11,9 @@ import numpy as np
 def freeze_value(value: Any) -> Any:
     """Detach portable data; reject runtime objects at every nesting level.
 
-    Arrays own an immutable bytes buffer, so consumers cannot re-enable
-    writes to a shared case or result. NaN remains legal diagnostic data.
+    Arrays use an immutable bytes buffer, so consumers cannot re-enable
+    writes. Complete frozen buffers can be shared with independent array
+    headers; external mutable storage is detached. NaN remains legal data.
     """
     if value is None or isinstance(value, (bool, int, float, str, bytes)):
         return value
@@ -27,6 +28,13 @@ def freeze_value(value: Any) -> Any:
     if isinstance(value, np.ndarray):
         if value.dtype.kind not in "biuf":
             raise TypeError("contract arrays must contain real numbers or booleans, not objects")
+        if type(value) is np.ndarray and value.flags.c_contiguous:
+            owner: object = value
+            while type(owner) is np.ndarray:
+                owner = owner.base
+            # Do not retain a large parent buffer for a small sliced field.
+            if type(owner) is bytes and len(owner) == value.nbytes:
+                return value.view()
         return np.frombuffer(value.tobytes(), dtype=value.dtype).reshape(value.shape)
     raise TypeError("contract data cannot contain callables or runtime objects")
 

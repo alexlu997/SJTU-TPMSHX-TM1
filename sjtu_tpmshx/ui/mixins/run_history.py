@@ -96,7 +96,11 @@ class RunHistoryMixin:
         from PySide6.QtWidgets import QMenu
         if not hasattr(self, "btn_recent"):
             return
-        menu = QMenu(self)
+        menu = self.btn_recent.menu()
+        if menu is None:
+            menu = QMenu(self)
+        else:
+            menu.clear()
 
         # — User-saved presets —
         try:

@@ -169,9 +169,6 @@ def _render_2d_slices_from_3d(window, res, field=None):
     phase = getattr(window, '_field_phase', None)
     unit = '°C' if getattr(window, '_temp_unit', 'K') == 'C' else 'K'
 
-    window.P_fA = P_Pa[:, :, k_mid]
-    window.P_fB = f['P_fB'][:, :, k_mid] if f.get('P_fB') is not None else None
-
     # Shared cumsum coord grid (mm) — handles non-uniform dx/dy
     xc = (np.cumsum(dx) - dx / 2) * 1000.0
     yc = (np.cumsum(dy) - dy / 2) * 1000.0

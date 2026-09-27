@@ -9,6 +9,26 @@ from sjtu_tpmshx.ui.plot_2d_results import redraw_result_fields
 from sjtu_tpmshx.ui.plot_3d_results import finalize_plots_3d
 
 
+@pytest.mark.parametrize('transition', ['preset', '2d_result'])
+def test_temperature_slice_does_not_retain_replaced_3d_pressure_fields(win, transition):
+    import gc
+    import weakref
+    from sjtu_tpmshx.ui.plot_3d_results import _render_2d_slices_from_3d
+
+    result = _result('3d')
+    pressure = {name: weakref.ref(result.fields[name]) for name in ('P_fA', 'P_fB')}
+    win.write_result(result)
+    _render_2d_slices_from_3d(win, result, field='temp')
+    del result
+    if transition == 'preset':
+        win._invalidate_results_for_preset_load()
+    else:
+        win.write_result(_result('2d'))
+    gc.collect()
+    assert win.cache.get_result('3d') is None
+    assert [name for name, reference in pressure.items() if reference() is not None] == []
+
+
 @pytest.mark.parametrize('mode', ['2d', '3d'])
 def test_first_plot_lazy_switch_and_export_use_current_selection(win, monkeypatch, tmp_path, mode):
     from sjtu_tpmshx.ui.mixins import io_actions

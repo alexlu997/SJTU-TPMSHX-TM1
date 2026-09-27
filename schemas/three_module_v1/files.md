@@ -14,6 +14,9 @@ Unknown versions, missing record fields, changed dtype/shape, object arrays,
 external links and virtual/external datasets are rejected. Restored arrays
 have immutable backing buffers. Physical grid axes, SI widths/edges and field
 metadata are checked at the file boundary.
+Explicit native pressure units must be `Pa`; native mass-flux units must be
+`kg/(s m)` (or `kg/(m s)`) in 2D and `kg/s` in 3D. These declarations are also
+checked before in-memory postprocessing; contradictory units are not converted.
 
 `results.h5` archives completed execution, including `converged=False`; failed
 or cancelled partial data cannot be saved as a normal completed result.
@@ -39,7 +42,8 @@ run's numerical or physical status. Stage exceptions propagate as failures.
 `results.vtk` is a legacy ASCII rectilinear grid: physical coordinates in m,
 cell data in native order and an embedded UTF-8 JSON field-data array storing
 units, axes, states and run status. 2D uses a single z coordinate, without
-inventing an extrusion depth. Field and metric interchange uses HDF5, VTK and
+inventing an extrusion depth. ASCII VTK requires finite field values; retain
+NaN/Inf diagnostic fields in HDF5. Field and metric interchange uses HDF5, VTK and
 JSON; visualization reads the recorded fields and their physical axes.
 
 Prepared `_environment` records the active SIMPLE convergence mode,
