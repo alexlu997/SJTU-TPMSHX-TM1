@@ -22,7 +22,8 @@ def test_three_d_execution_consumes_design_and_rejects_inconsistent_data():
     prepared['design']['K_ss'][0, 0, 0] = 1
     assert updated.design_fields['K_ss'][0, 0, 0] != 1
     with pytest.raises(ValueError, match='grid does not cover'):
-        build_execution_inputs(replace(case, grid={**case.grid, 'dx': case.grid['dx'] * 2}))
+        build_execution_inputs(replace(case, grid={**case.grid,
+            'dx': case.grid['dx'] * 2, 'x_edges': case.grid['x_edges'] * 2}))
     with pytest.raises(ValueError, match='unknown model resource'):
         build_execution_inputs(replace(case, model_refs=(ModelRef('fluid', 'unknown'), *case.model_refs[1:])))
     with pytest.raises(ValueError, match='does not match the grid'):

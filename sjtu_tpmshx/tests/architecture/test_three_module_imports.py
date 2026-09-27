@@ -1,7 +1,8 @@
 """Explicit one-way module boundaries, including imports inside functions."""
 import ast
-from importlib.util import resolve_name
 from pathlib import Path
+
+from sjtu_tpmshx.runs.tools.audit_import_graph import import_targets
 
 ROOT = Path(__file__).resolve().parents[2]
 RULES = {
@@ -16,14 +17,7 @@ RULES = {
 def forbidden_imports(source, forbidden, package='sjtu_tpmshx'):
     violations = []
     for node in ast.walk(ast.parse(source)):
-        modules = ([node.module or ''] if isinstance(node, ast.ImportFrom) else
-                   [item.name for item in node.names] if isinstance(node, ast.Import) else [])
-        if isinstance(node, ast.ImportFrom) and node.level:
-            modules = [resolve_name('.' * node.level + (node.module or ''), package)]
-        if isinstance(node, ast.ImportFrom):
-            modules += [module + '.' + item.name for module in modules[:]
-                        for item in node.names if item.name != '*']
-        for module in modules:
+        for module in import_targets(node, package):
             if any(module == 'sjtu_tpmshx.' + name or module.startswith('sjtu_tpmshx.' + name + '.')
                    for name in forbidden):
                 violations.append((node.lineno, module))
