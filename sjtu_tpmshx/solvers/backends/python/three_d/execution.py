@@ -3,35 +3,29 @@ import numpy as np
 
 from sjtu_tpmshx.domain.compute_config import Sco2NuConfig, reject_retired_boundary_options
 from sjtu_tpmshx.domain.module_ports import RunControl
+from sjtu_tpmshx.domain.persistence_validation import validate_grid, validate_thermal_geometry
 from sjtu_tpmshx.domain.portable_data import mutable_data
 from sjtu_tpmshx.models.catalog import resolve_model
 
 
 def build_execution_inputs(case):
-    if case.grid.get('dimension') != 3 or case.grid.get('length_unit') != 'm':
-        raise ValueError('3D execution requires a prepared SI grid')
+    if case.grid.get('dimension') != 3:
+        raise ValueError('3D execution requires a prepared 3D grid')
     cfg = mutable_data(case.parameters)
     reject_retired_boundary_options(cfg)
     missing = set(('thermal_geometry', 'roughness_resolved', 'df_application')) - cfg.keys()
     if missing:
         raise ValueError(f'incomplete prepared 3D execution data: {sorted(missing)}')
-    from sjtu_tpmshx.domain.persistence_validation import validate_thermal_geometry
-    validate_thermal_geometry(cfg['thermal_geometry'],
-                              tuple(len(case.grid['d' + axis]) for axis in 'xyz'[:case.grid['dimension']]))
+    shape = validate_grid(case.grid)
+    validate_thermal_geometry(cfg['thermal_geometry'], shape)
     prepared = cfg.pop('prepared')
     for axis, length_key in zip('xyz', ('L', 'H', 'Lz')):
         widths = np.asarray(case.grid['d' + axis], dtype=float).copy()
-        if widths.ndim != 1 or not len(widths) or not np.all(np.isfinite(widths) & (widths > 0)):
-            raise ValueError(f'invalid prepared {axis} cell widths')
-        edges = np.r_[0., np.cumsum(widths)]
-        if not np.isclose(edges[-1], cfg[length_key], rtol=1e-12, atol=1e-15):
+        if not np.isclose(np.cumsum(widths)[-1], cfg[length_key], rtol=1e-12, atol=1e-15):
             raise ValueError(f'prepared {axis} grid does not cover the physical domain')
-        if not np.array_equal(edges, case.grid[axis + '_edges']):
-            raise ValueError(f'prepared {axis} widths and edges disagree')
         if prepared['N' + axis] != len(widths):
             raise ValueError(f'prepared {axis} count and grid disagree')
         prepared['d' + axis] = widths
-    shape = tuple(prepared['N' + axis] for axis in 'xyz')
     prepared['custom_grid'] = any(
         not np.all(prepared['d' + axis] == cfg[length] / count)
         for axis, length, count in zip('xyz', ('L', 'H', 'Lz'), shape))

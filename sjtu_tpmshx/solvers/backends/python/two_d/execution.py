@@ -6,6 +6,7 @@ from sjtu_tpmshx.domain.case_data import CaseData
 from sjtu_tpmshx.domain.portable_data import mutable_data as _mutable_data
 from sjtu_tpmshx.domain.compute_config import ComputeConfig
 from sjtu_tpmshx.domain.module_ports import RunControl
+from sjtu_tpmshx.domain.persistence_validation import validate_grid, validate_thermal_geometry
 from sjtu_tpmshx.models.catalog import resolve_model
 from sjtu_tpmshx.models.zone_config import Zone, ZoneConfig
 from .runtime import build_runtime
@@ -17,24 +18,18 @@ from sjtu_tpmshx.models.zone_units import _legacy_zone_units
 
 def build_execution_inputs(case: CaseData):
     """Validate and detach the supplied data, without rebuilding a grid."""
-    if case.grid.get('dimension') != 2 or case.grid.get('length_unit') != 'm':
-        raise ValueError('2D execution requires a prepared SI grid')
+    if case.grid.get('dimension') != 2:
+        raise ValueError('2D execution requires a prepared 2D grid')
     cfg = _mutable_data(case.parameters)
     missing = set(('thermal_geometry', 'flow_inputs')) - cfg.keys()
     if missing:
         raise ValueError(f'incomplete prepared 2D execution data: {sorted(missing)}')
-    from sjtu_tpmshx.domain.persistence_validation import validate_thermal_geometry
-    validate_thermal_geometry(cfg['thermal_geometry'],
-                              tuple(len(case.grid['d' + axis]) for axis in 'xyz'[:case.grid['dimension']]))
+    shape = validate_grid(case.grid)
+    validate_thermal_geometry(cfg['thermal_geometry'], shape)
     dx, dy = (np.asarray(case.grid[key], dtype=float).copy() for key in ('dx', 'dy'))
     for widths, axis, length in ((dx, 'x', cfg['L']), (dy, 'y', cfg['H'])):
-        if widths.ndim != 1 or not len(widths) or not np.all(np.isfinite(widths) & (widths > 0)):
-            raise ValueError(f'invalid prepared {axis} cell widths')
-        expected = np.r_[0., np.cumsum(widths)]
-        if not np.isclose(expected[-1], length, rtol=1e-12, atol=1e-15):
+        if not np.isclose(np.cumsum(widths)[-1], length, rtol=1e-12, atol=1e-15):
             raise ValueError(f'prepared {axis} grid does not cover the physical domain')
-        if not np.array_equal(expected, case.grid[axis + '_edges']):
-            raise ValueError(f'prepared {axis} widths and edges disagree')
     if set(cfg['flow_inputs']) != {'A', 'B'}:
         raise ValueError('prepared flow inputs require both physical sides')
     for side, flow in cfg['flow_inputs'].items():
