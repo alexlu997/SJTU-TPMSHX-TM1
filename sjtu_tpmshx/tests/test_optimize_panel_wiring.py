@@ -9,7 +9,7 @@ import pytest
 
 from sjtu_tpmshx.ui import optimize_panel as panel
 from sjtu_tpmshx.ui.theme import FIELD_CMAP
-from sjtu_tpmshx.tests.test_io_actions import win as win
+from sjtu_tpmshx.tests.gui_io_support import win as win
 
 
 @pytest.fixture
@@ -191,7 +191,7 @@ def test_single_condition_prepares_in_worker_and_can_cancel_before_checkpoint(
     from PySide6.QtWidgets import QApplication
     from sjtu_tpmshx.preprocess import api
     from sjtu_tpmshx.optimization import multi_condition_optimizer as native
-    from sjtu_tpmshx.tests.test_worker_result_handoff import _wait_for
+    from sjtu_tpmshx.tests.gui_worker_support import _wait_for
     entered, release = threading.Event(), threading.Event()
     prepare = api.prepare_case
     cfg = panel._gather_cfg(window)
@@ -242,7 +242,7 @@ def test_single_condition_prepares_in_worker_and_can_cancel_before_checkpoint(
 def test_thread_terminal_state_retained_until_actual_exit(window, tmp_path, monkeypatch, status):
     import threading
     from sjtu_tpmshx.optimization import multi_condition_optimizer as native
-    from sjtu_tpmshx.tests.test_worker_result_handoff import _wait_for
+    from sjtu_tpmshx.tests.gui_worker_support import _wait_for
     window._opt_conditions = [condition()]
     release = threading.Event()
     Worker = panel._make_worker_class()
@@ -280,7 +280,7 @@ def test_pareto_render_failure_keeps_numerical_terminal_and_disables_half_plot(
     import sys
     from pathlib import Path
     from sjtu_tpmshx.optimization import multi_condition_optimizer as native
-    from sjtu_tpmshx.tests.test_worker_result_handoff import _wait_for
+    from sjtu_tpmshx.tests.gui_worker_support import _wait_for
     study = report(window, status=status)
     window._last_opt_report = deepcopy(study)
     window._opt_conditions = [condition()]
@@ -339,7 +339,7 @@ def test_cancel_checkpoint_read_failure_reaches_error_terminal(window, tmp_path,
     from pathlib import Path
     from sjtu_tpmshx.domain.cancellation import CancelledError
     from sjtu_tpmshx.optimization import multi_condition_optimizer as native
-    from sjtu_tpmshx.tests.test_worker_result_handoff import _wait_for
+    from sjtu_tpmshx.tests.gui_worker_support import _wait_for
     previous = report(window)
     cancelled = report(window, status='cancelled')
     window._last_opt_report = deepcopy(previous)
@@ -649,7 +649,7 @@ def test_worker_checkpoint_error_keeps_cause_and_rejects_stale_results(
     from pathlib import Path
     from sjtu_tpmshx.domain.cancellation import CancelledError
     from sjtu_tpmshx.optimization import multi_condition_optimizer as native
-    from sjtu_tpmshx.tests.test_worker_result_handoff import _wait_for
+    from sjtu_tpmshx.tests.gui_worker_support import _wait_for
     previous = report(window)
     window._last_opt_report = deepcopy(previous)
     window._opt_conditions = [condition()]
