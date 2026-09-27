@@ -48,7 +48,7 @@ def _run_runner(tmp_path, script, lock=None):
     started_utc = datetime.now(timezone.utc).isoformat()
     started = time.monotonic()
     with subprocess.Popen(command, cwd=tmp_path, stdout=subprocess.PIPE,
-                          stderr=subprocess.PIPE, text=True) as process:
+                          stderr=subprocess.PIPE, encoding='utf-8') as process:
         try:
             stdout, stderr = process.communicate(timeout=30)
         except subprocess.TimeoutExpired as error:
