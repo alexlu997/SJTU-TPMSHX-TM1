@@ -47,7 +47,10 @@ def test_nonuniform_3d_preparation_samples_exact_polynomial_and_replays_case(tmp
     from sjtu_tpmshx.preprocess.three_d import preparation
     cfg = _config(volume)
     cfg.flags = FeatureFlags(port_wall_refine=True)
-    cfg.solver = SolverConfig(Nx=50, Ny=10, Nz=10)
+    # Wall-adjacent partial ports need three refined x segments instead of five.
+    cfg.bc_B = replace(cfg.bc_B, in_ctr=cfg.geometry.L_dom_m - cfg.bc_B.in_w/2,
+                       out_ctr=cfg.bc_B.out_w/2)
+    cfg.solver = SolverConfig(Nx=30, Ny=10, Nz=10)
     observations = []
     original = preparation._record_air_bulk_ranges
 
