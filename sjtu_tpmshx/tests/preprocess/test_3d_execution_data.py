@@ -28,3 +28,30 @@ def test_three_d_execution_consumes_design_and_rejects_inconsistent_data():
         build_execution_inputs(replace(case, model_refs=(ModelRef('fluid', 'unknown'), *case.model_refs[1:])))
     with pytest.raises(ValueError, match='does not match the grid'):
         build_execution_inputs(replace(case, design_fields={**case.design_fields, 'K_ss': np.ones((2, 3))}))
+
+
+@pytest.mark.parametrize('side', ['A', 'B'])
+@pytest.mark.parametrize('entry', ['builder', 'public'])
+def test_prepared_axis_permutation_must_match_declared_physical_axes(side, entry, tmp_path, monkeypatch):
+    from sjtu_tpmshx.domain.portable_data import mutable_data
+    from sjtu_tpmshx.io.case_io import save_case, load_case
+    from sjtu_tpmshx.solvers.api import run_case
+    from sjtu_tpmshx.solvers.backends.python.three_d import runtime
+    from sjtu_tpmshx.tests.solver_tm1.test_prepared_continuous_field import _config
+
+    config = _config(volume=True)
+    config.geometry = replace(config.geometry, L_dom_m=.06, H_dom_m=.06, Lz_m=.06)
+    config.solver = replace(config.solver, Nx=4, Ny=4, Nz=4)
+    case = prepare_case(config, case_id='permutation-conflict')
+    build_execution_inputs(case)
+    parameters = mutable_data(case.parameters)
+    axes = parameters['prepared']['axes']
+    # Both maps are valid on their own, but equal cell counts cannot justify
+    # applying the other side's permutation to this side's declared axes.
+    axes[side]['solver_to_real_perm'] = axes['B' if side == 'A' else 'A']['solver_to_real_perm']
+    save_case(replace(case, parameters=parameters), tmp_path / 'case.h5')
+    restored = load_case(tmp_path / 'case.h5')
+    monkeypatch.setattr(runtime, 'build_problem',
+                        lambda *a, **k: pytest.fail('conflicting axes reached runtime'))
+    with pytest.raises(ValueError, match=f'fluid {side} axis permutation'):
+        (run_case if entry == 'public' else build_execution_inputs)(restored)

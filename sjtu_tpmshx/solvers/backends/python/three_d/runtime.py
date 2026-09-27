@@ -59,6 +59,15 @@ if TYPE_CHECKING:
 _log = get_logger(__name__)
 
 
+def _validate_prepared_openings(solver, openings, side):
+    """Prepared fractions describe the same physical ports as SIMPLE and LTNE."""
+    for end in ('inlet', 'outlet'):
+        supplied = np.asarray(openings[end])
+        actual = getattr(solver, end + '_frac')
+        if supplied.shape != actual.shape or not np.allclose(supplied, actual, rtol=1e-12, atol=1e-15):
+            raise ValueError(f'prepared fluid {side} {end} opening disagrees with its grid and port geometry')
+
+
 def _prepared_eps_overrides(cfg, eps):
     if float(cfg.get('delta_levelset', 0.)) == 0.:
         return None, None
@@ -664,6 +673,7 @@ def build_problem(cfg, prepared, *, control: RunControl = RunControl()):
             dx_arr=_sdxA, dy_arr=_sdyA, dz_arr=_sdzA,
             **_port_rectangles(fA, float(np.sum(dcross2))),
         )
+    _validate_prepared_openings(sA, prepared['openings']['A'], 'A')
     sA._df_metadata = _df_meta_A
     sA.pressure_iterations = pressure_history_A
     # Phase A/B/C acceleration flags (Phase A on by default; B/C opt-in).
@@ -752,6 +762,7 @@ def build_problem(cfg, prepared, *, control: RunControl = RunControl()):
                 dx_arr=_sdxB, dy_arr=_sdyB, dz_arr=_sdzB,
                 **_port_rectangles(fB, float(np.sum(dcross2_B))),
             )
+        _validate_prepared_openings(sB, prepared['openings']['B'], 'B')
         sB._df_metadata = _df_meta_B
         sB.pressure_iterations = pressure_history_B
         # Mirror Phase A/B/C flags onto sB (sweep config consistent with sA).
