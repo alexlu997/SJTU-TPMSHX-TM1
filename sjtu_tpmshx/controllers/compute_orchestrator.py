@@ -26,6 +26,7 @@ from collections import deque
 from typing import Callable, Optional
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Qt, Signal, Slot
+from sjtu_tpmshx.domain.cancellation import CancelledError as _CancelledError
 from sjtu_tpmshx.logutil import capture_output
 from sjtu_tpmshx.solvers.threads import get_solver_threads, set_solver_threads
 
@@ -169,14 +170,6 @@ class _ComputeRunnable(QRunnable):
             orch._worker_error.emit(str(e), log_buf.getvalue())
         finally:
             set_solver_threads(previous_threads)
-
-
-class _CancelledError(Exception):
-    """Raised from inside worker_fn when cancel_token observed.
-
-    Workers should `if cancel_token.is_set(): raise CancelledError` at epoch
-    boundaries. Re-exported as `ComputeOrchestrator.CancelledError`.
-    """
 
 
 # ---------------------------------------------------------------- orchestrator

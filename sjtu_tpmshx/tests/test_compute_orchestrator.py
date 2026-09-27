@@ -24,6 +24,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtCore import QCoreApplication, QEventLoop, QRunnable
 
 from sjtu_tpmshx.controllers.compute_orchestrator import ComputeOrchestrator, CancelToken
+from sjtu_tpmshx.domain.cancellation import CancelledError
 
 
 # ----------------------------------------------------------- helpers
@@ -174,6 +175,36 @@ def test_gui_output_does_not_enter_the_active_solver_log(monkeypatch):
 
 
 # ----------------------------------------------------------- cancel path
+
+
+def test_cancellation_alias_is_shared_with_domain():
+    assert ComputeOrchestrator.CancelledError is CancelledError
+
+
+@pytest.mark.parametrize('error_type', [CancelledError, InterruptedError, ValueError])
+@pytest.mark.parametrize('requested', [False, True])
+def test_only_shared_cancellation_exception_emits_cancelled(error_type, requested):
+    _make_app()
+    orch = ComputeOrchestrator()
+    events = []
+    orch.finished.connect(lambda result: events.append(('finished', result)))
+    orch.cancelled.connect(lambda log: events.append(('cancelled', log)))
+    orch.error.connect(lambda message, log: events.append(('error', message, log)))
+    failure = error_type('worker checkpoint')
+
+    def worker(cfg, cancel, progress_cb):
+        if requested:
+            cancel.cancel()
+        raise failure
+
+    assert orch.start('2d', worker, {})
+    assert _wait_for(orch.is_idle)
+    expected = 'cancelled' if error_type is CancelledError else 'error'
+    assert [event[0] for event in events] == [expected]
+    assert orch.last_result() is None
+    if expected == 'error':
+        assert events[0][1] == str(failure)
+        assert error_type.__name__ in events[0][2]
 
 
 def test_cancel_token_triggers_cancelled_signal():
