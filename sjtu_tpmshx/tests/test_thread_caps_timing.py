@@ -1,10 +1,9 @@
-"""Candidate C fix (HANDOFF §6b): worker thread-cap TIMING contract.
+"""Thread-cap helper behavior and a lightweight spawn entry point.
 
-The whole point of optimization/_thread_caps.py is that the caps land in a
-spawned worker BEFORE numpy/numba load (OpenBLAS sizes its pool at library
-load). These tests pin: (1) the cap module stays light, (2) a real spawn
-pool with the initializer really does cap before numpy arrives, (3) the
-orchestrator actually wires the initializer, (4) the hard-set semantics.
+The cap module stays light and the synthetic spawn script applies its caps
+before importing NumPy. A production entry point may import NumPy while the
+spawned process loads its main module, before the initializer runs.
+test_tool_handoffs checks the production executor's initializer and context.
 """
 import os
 import subprocess
@@ -28,9 +27,10 @@ def test_cap_module_is_light():
 
 
 def test_initializer_caps_before_numpy_in_real_spawn_pool(tmp_path):
-    """End-to-end: in a spawn worker, the initializer must see a numpy-free
-    interpreter (proving it runs before the heavy unpickle imports) and the
-    task must observe the caps already exported."""
+    """The lightweight script defers NumPy until after its initializer.
+
+    This checks the helper in a real child, not production-entry import order.
+    """
     script = tmp_path / "spawn_probe.py"
     script.write_text(textwrap.dedent("""
         import os
@@ -69,15 +69,6 @@ def test_initializer_caps_before_numpy_in_real_spawn_pool(tmp_path):
     assert line == "RESULT pre=0 blas=1 numba=1", (
         f"timing contract broken: {line!r} (pre=1 means numpy beat the "
         "initializer into the child; blas/numba != 1 means caps not set)")
-
-
-def test_orchestrator_wires_the_initializer():
-    import inspect
-    import sjtu_tpmshx.optimization.parallel_runner as pr
-    src = inspect.getsource(pr.run_qnehvi_multiseed)
-    assert 'initializer=set_worker_thread_caps' in src, (
-        "run_qnehvi_multiseed lost the executor initializer — the in-body "
-        "cap alone is a timing no-op for OpenBLAS (HANDOFF §6b)")
 
 
 def test_caps_hard_set_and_escape_hatch(monkeypatch):
