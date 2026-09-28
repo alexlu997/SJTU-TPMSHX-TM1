@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
+from numbers import Integral
 from typing import Dict, List, Optional, Tuple
 
 from sjtu_tpmshx.df_surrogate._domain import TRAIN_L_NODES, TRAIN_T_NODES
@@ -184,9 +185,8 @@ def validate_pipe_config(cfg: Dict[str, object],
       * 2D accepts only x/y directions; 3D also accepts z directions
     """
     out: List[Warning] = []
-    try:
-        d = int(cfg.get('dir', 0))
-    except (TypeError, ValueError, OverflowError):
+    d = cfg.get('dir', 0)
+    if isinstance(d, bool) or not isinstance(d, Integral):
         out.append(Warning(
             'pipe_bad_dir',
             f"pipe direction {cfg.get('dir')!r} is not an integer",

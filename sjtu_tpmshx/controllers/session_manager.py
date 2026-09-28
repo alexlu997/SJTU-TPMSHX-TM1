@@ -74,7 +74,7 @@ class SessionManager(QObject):
         if base_dir is None:
             base_dir = user_data_dir()
         self._base = Path(base_dir)
-        self._unrestored_sessions: set[Path] = set()
+        self._unrestored_files: set[Path] = set()
 
     # ------------------------------------------------------------------ paths
 
@@ -120,13 +120,13 @@ class SessionManager(QObject):
             self.quarantine_session(workspace)
             return None
         except OSError as error:
-            self._unrestored_sessions.add(path)
+            self._unrestored_files.add(path)
             _log.warning("Could not read session %s: %s", path, error)
             return None
         if not isinstance(payload, dict):
             self.quarantine_session(workspace)
             return None
-        self._unrestored_sessions.discard(path)
+        self._unrestored_files.discard(path)
         # Schema migration: legacy files missing the field → v0
         payload.setdefault('schema_version', 0)
         # Future: payload = self._migrate(payload) ...
@@ -134,14 +134,17 @@ class SessionManager(QObject):
 
     def quarantine_session(self, workspace: str = 'A') -> Optional[Path]:
         """Preserve an unrestored session; failed preservation prevents overwriting it."""
-        path = self.session_path(workspace)
-        self._unrestored_sessions.add(path)
+        return self._preserve_unrestored(self.session_path(workspace))
+
+    def _preserve_unrestored(self, path: Path) -> Optional[Path]:
+        """Protect a rejected user file before allowing a later replacement."""
+        self._unrestored_files.add(path)
         if not path.exists():
-            self._unrestored_sessions.discard(path)
+            self._unrestored_files.discard(path)
             return None
         backup = self._quarantine_corrupt(path)
         if backup is not None:
-            self._unrestored_sessions.discard(path)
+            self._unrestored_files.discard(path)
         return backup
 
     def _quarantine_corrupt(self, path: Path) -> Optional[Path]:
@@ -196,9 +199,9 @@ class SessionManager(QObject):
         out = dict(payload)
         out['schema_version'] = SCHEMA_VERSION
         path = self.session_path(workspace)
-        if path in self._unrestored_sessions:
+        if path in self._unrestored_files:
             self.quarantine_session(workspace)
-            if path in self._unrestored_sessions:
+            if path in self._unrestored_files:
                 return False
         if self._atomic_write_json(path, out):
             return True
@@ -214,16 +217,19 @@ class SessionManager(QObject):
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            if not isinstance(data, dict):
+            presets = data.get('presets', []) if isinstance(data, dict) else None
+            if not isinstance(presets, list) or any(not isinstance(p, dict) for p in presets):
+                self._preserve_unrestored(path)
                 return []
-            presets = data.get('presets', [])
-            return list(presets) if isinstance(presets, list) else []
+            self._unrestored_files.discard(path)
+            return list(presets)
         except (json.JSONDecodeError, UnicodeDecodeError):
             # Same quarantine rationale as load_session — a corrupt preset
             # library must not be silently clobbered by the next save.
-            self._quarantine_corrupt(path)
+            self._preserve_unrestored(path)
             return []
         except OSError:
+            self._unrestored_files.add(path)
             return []
 
     def save_user_presets(self, presets: List[Dict[str, Any]]) -> bool:
@@ -235,8 +241,13 @@ class SessionManager(QObject):
         if not isinstance(presets, list):
             raise TypeError(
                 f"presets must be list, got {type(presets).__name__}")
+        path = self.presets_path()
+        if path in self._unrestored_files:
+            self._preserve_unrestored(path)
+            if path in self._unrestored_files:
+                return False
         if self._atomic_write_json(
-                self.presets_path(),
+                path,
                 {'schema_version': SCHEMA_VERSION, 'presets': presets}):
             return True
         return False

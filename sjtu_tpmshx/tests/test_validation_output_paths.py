@@ -95,6 +95,73 @@ def test_shared_writer_rejects_reference_symlink(tmp_path):
     assert reference.read_bytes() == content
 
 
+@pytest.mark.parametrize('name,options', [
+    ('mms_phase_a3_h_refine', ['--out_csv', 'raw.csv', '--orders_csv', 'raw.csv']),
+    ('mms_phase_a4_boundary', ['--out_csv', 'raw.csv', '--orders_csv', 'raw.csv']),
+    ('mms_phase_b4_order', ['--out_csv', 'mms_phase_b4_raw.csv']),
+    ('mms_phase_a3_h_refine', ['--out_csv', 'raw.csv', '--report', 'raw.csv.meta.json']),
+    ('mms_phase_a4_boundary', ['--out_csv', 'raw.csv', '--orders_csv', 'raw.csv.meta.json']),
+    ('mms_phase_b4_order', ['--out_csv', 'mms_phase_b4_raw.csv.meta.json']),
+    ('mms_phase_a3_h_refine', ['--plot', '--report', 'mms_phase_a3_loglog.png']),
+])
+def test_mms_output_collisions_rejected_before_solve(monkeypatch, tmp_path, capsys, name, options):
+    module = importlib.import_module(f'sjtu_tpmshx.validation.cases.{name}')
+    original = {}
+    args = []
+    for option in options:
+        if option.startswith('--'):
+            args.append(option)
+        else:
+            path = tmp_path / option
+            path.write_bytes(b'previous evidence')
+            original[path] = path.read_bytes()
+            args.append(str(path))
+    monkeypatch.setattr(module, 'run_mms', lambda *a, **kw: pytest.fail('solver ran before path check'))
+    monkeypatch.setattr(sys, 'argv', [name, '--out-dir', str(tmp_path), *args])
+    with pytest.raises(SystemExit) as caught:
+        module.main()
+    assert caught.value.code == 2
+    assert 'output paths overlap' in capsys.readouterr().err
+    assert all(path.read_bytes() == content for path, content in original.items())
+
+
+def test_mms_output_alias_rejected_before_solve(monkeypatch, tmp_path, capsys):
+    from sjtu_tpmshx.validation.cases import mms_phase_a3_h_refine as module
+
+    raw, alias = tmp_path / 'raw.csv', tmp_path / 'alias.csv'
+    raw.write_bytes(b'previous evidence')
+    try:
+        alias.symlink_to(raw)
+    except OSError:
+        pytest.skip('symlinks unavailable')
+    monkeypatch.setattr(module, 'run_mms', lambda *a, **kw: pytest.fail('solver ran before path check'))
+    monkeypatch.setattr(sys, 'argv', ['a3', '--out-dir', str(tmp_path),
+                                   '--out_csv', str(raw), '--orders_csv', str(alias)])
+    with pytest.raises(SystemExit) as caught:
+        module.main()
+    assert caught.value.code == 2
+    assert 'output paths overlap' in capsys.readouterr().err
+    assert raw.read_bytes() == b'previous evidence'
+
+
+def test_b4_orders_publish_current_inline_provenance_and_remove_old_sidecar(monkeypatch, tmp_path):
+    from sjtu_tpmshx.validation.cases import mms_phase_b4_order as module
+
+    output = tmp_path / 'orders.csv'
+    companion = output.with_suffix('.csv.meta.json')
+    companion.write_text('{"rows": 999, "commit": "old"}')
+    monkeypatch.setattr(module, 'run_mms', _fake_mms)
+    monkeypatch.setattr(sys, 'argv', ['b4', '--out-dir', str(tmp_path), '--out_csv', str(output)])
+    assert module.main() == 0
+    assert not companion.exists()
+    frame, metadata = provenance.read_csv_with_provenance(output)
+    assert list(frame.columns) == ['case', 'metric', 'p_obs', 'R2', 'val_gfine']
+    assert len(frame) == 3 and set(frame.metric) == {'L2_A', 'L2_B', 'L2_s'}
+    assert metadata['script'].endswith('mms_phase_b4_order.py')
+    assert metadata['commit'] != 'old'
+    assert f'# grids={module.GRIDS}' in output.read_text(encoding='utf-8')
+
+
 def test_gci_rejects_retired_case_before_starting_any_case(monkeypatch, capsys):
     from sjtu_tpmshx.validation.cases import phase_c_gci
 

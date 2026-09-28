@@ -82,6 +82,28 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 - `validation/` and `runs/` are executable research and verification tools,
   not alternative production implementations.
 
+The experimental-Q runner (`validation.cases.validate_sco2_exp_q`) freezes
+all selected topology/case/dimension members before the first solve. Its CLI
+writes `partial.csv` and `state.json` after each member using the existing
+staged sibling-file publisher. Failed, cancelled and numerically unqualified
+members remain recorded; execution completion is separate from Q acceptance.
+The state keeps prior attempts and their exact CSV records so a mismatched
+or incomplete pair cannot silently supply resumed results. The publisher's
+single-writer and Python-exception recovery limits still apply.
+
+`--out-dir` requires a new/empty directory; the default is a new directory
+under `.cache/validation`. `--csv` remains the optional final summary export.
+To continue, repeat the original selection and `--csv` arguments and replace `--out-dir`
+with `--resume-run` pointing at the prior directory. Resume requires the same
+clean identified code, actual Python/dependency versions, model environment,
+settings, full member list and exact selected reference-data snapshot. An
+unverified external data revision stays labelled unverified; the stored input
+snapshot establishes only equality of the inputs actually used. Only completed
+numerically/reference-qualified members are skipped. All other members rerun,
+and the final Q verdict uses the original denominator and thresholds. A
+programmatic `run()` without `checkpoint_dir` retains its in-memory interface
+and does not create files. Cancellation keeps evidence and returns CLI status 130.
+
 The GUI entry point is `python -m sjtu_tpmshx.main`; source-based headless
 work uses `python -m sjtu_tpmshx.cli`. Parameter optimization and design use
 the same public contracts with their explicitly named approximation modes.

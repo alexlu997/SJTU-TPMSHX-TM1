@@ -18,8 +18,9 @@ Jacobi-preconditioned CG on the periodic stencil.
     k_eff_a = <k * (G - dT_tilde/dx_a)> / G      (volume average)
     chi_a   = k_eff_a / (1 - eps)                (K_ss = chi*(1-eps)*k_s)
 
-Self-checks: full-solid chi=1, laminate series/parallel bounds, 3-axis
-isotropy at the Shanghai point, N-refinement drift.
+Self-checks: full-solid chi=1, laminate series/parallel bounds, and finite,
+converged TPMS solves. Three-axis isotropy at the Shanghai point and
+N-refinement drift are reported as diagnostics without additional gates.
 
 Usage
 -----
@@ -127,11 +128,17 @@ def chi_s(tpms_type: str, t_over_L: float, N: int = 96, axes=(1,)):
     """chi per requested axis. Returns (eps, {axis: chi}, iters)."""
     solid = solid_mask(tpms_type, t_over_L, N)
     frac_solid = float(np.mean(solid))
+    if not np.isfinite(frac_solid) or frac_solid <= 0.:
+        raise ValueError('homogenization requires a nonempty solid phase')
     eps = 1.0 - frac_solid
     out = {}
     its = {}
     for a in axes:
         k_eff, it, relres = _solve_chi(solid, a)
+        if not np.isfinite([k_eff, relres]).all() or not 0. <= relres < CG_TOL:
+            raise RuntimeError(
+                f'{tpms_type} N={N} axis={a}: invalid or unconverged homogenization '
+                f'(iterations={it}, residual={relres}, tolerance={CG_TOL}, k_eff={k_eff})')
         out[a] = k_eff / frac_solid
         its[a] = it
     return eps, out, its
@@ -145,31 +152,41 @@ def selftest():
 
     # 1. full solid -> chi = 1
     solid = np.ones((N, N, N), dtype=bool)
-    k_eff, *_ = _solve_chi(solid, 0)
+    k_eff, _, relres = _solve_chi(solid, 0)
     print(f"full solid: k_eff = {k_eff:.6f} (expect 1)")
-    ok &= abs(k_eff - 1.0) < 1e-6
+    ok &= np.isfinite(relres) and 0. <= relres < CG_TOL and abs(k_eff - 1.0) < 1e-6
 
     # 2. laminate slabs PERPENDICULAR to x (series) -> k_eff ~ K_VOID scale
     solid = np.zeros((N, N, N), dtype=bool)
     solid[: N // 2] = True                     # half-space slab, normal = x
-    k_series, *_ = _solve_chi(solid, 0)
+    k_series, _, relres = _solve_chi(solid, 0)
     k_series_exact = 1.0 / (0.5 / 1.0 + 0.5 / K_VOID)
     print(f"laminate series : k_eff = {k_series:.3e} (exact {k_series_exact:.3e})")
-    ok &= abs(k_series - k_series_exact) / k_series_exact < 0.05
+    ok &= (np.isfinite(relres) and 0. <= relres < CG_TOL
+           and abs(k_series - k_series_exact) / k_series_exact < 0.05)
 
     # 3. same laminate ALONG y (parallel) -> k_eff = 0.5*(1 + K_VOID)
-    k_par, *_ = _solve_chi(solid, 1)
+    k_par, _, relres = _solve_chi(solid, 1)
     k_par_exact = 0.5 * (1.0 + K_VOID)
     print(f"laminate parallel: k_eff = {k_par:.6f} (exact {k_par_exact:.6f})")
-    ok &= abs(k_par - k_par_exact) / k_par_exact < 1e-4
+    ok &= (np.isfinite(relres) and 0. <= relres < CG_TOL
+           and abs(k_par - k_par_exact) / k_par_exact < 1e-4)
 
     # 4. isotropy + refinement at the Shanghai point (Gyroid t/L=0.6/7)
     tL = 0.6 / 7.0
     for N_ in (64, 96, 128):
         t0 = time.time()
-        eps, chis, its = chi_s('Gyroid', tL, N=N_, axes=(0, 1, 2))
+        try:
+            eps, chis, its = chi_s('Gyroid', tL, N=N_, axes=(0, 1, 2))
+        except (RuntimeError, ValueError) as exc:
+            print(f'Gyroid t/L={tL:.4f} N={N_}: FAIL {exc}')
+            ok = False
+            continue
         v = list(chis.values())
-        aniso = (max(v) - min(v)) / np.mean(v) * 100
+        finite = bool(np.isfinite([eps, *v]).all())
+        ok &= finite
+        aniso = ((max(v) - min(v)) / np.mean(v) * 100
+                 if finite and np.mean(v) != 0. else float('nan'))
         print(f"Gyroid t/L={tL:.4f} N={N_}: eps={eps:.4f} "
               f"chi=({v[0]:.4f},{v[1]:.4f},{v[2]:.4f}) aniso={aniso:.2f}% "
               f"[{time.time()-t0:.0f}s, cg its {list(its.values())}]")

@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 from math import isfinite
+from pathlib import Path
 import sys
 
 from sjtu_tpmshx.logutil import get_logger
@@ -595,6 +596,8 @@ def build_quick_design_dialog(parent=None):
         if not path:
             return
         try:
+            if Path(path).resolve() == Path(last['params']['file']).resolve():
+                raise ValueError('导出文件不能覆盖输入工况文件')
             from sjtu_tpmshx.design.report import write_xlsx          # CLI/UI 共用双 sheet
             partial = last.get('partial', False)
             reason = last.get('termination_reason', 'cancelled')

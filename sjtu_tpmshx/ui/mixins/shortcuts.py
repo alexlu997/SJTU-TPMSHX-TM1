@@ -122,7 +122,8 @@ class ShortcutsMixin:
         self._scrub_idx = idx
         entry = recents[idx]
         try:
-            self._apply_user_preset(entry.get('preset') or {})
+            self._apply_user_preset(entry.get('preset') or {},
+                                    source_name=entry.get('preset_source') or '')
             self.statusBar().showMessage(
                 f"Recent #{idx + 1}/{len(recents)} — {entry.get('label','?')}"
                 f"  ·  Q={entry.get('Q','?')}", 4000)

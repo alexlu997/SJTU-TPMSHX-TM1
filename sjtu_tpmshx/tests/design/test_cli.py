@@ -10,6 +10,28 @@ def _spec(path):
     ws.append([1,"air",688.23,1088.7,0.2855,"water",320.0,200.0,0.5,30.0,0.075,0.05])
     wb.save(path)
 
+
+@pytest.mark.parametrize('alias', [False, True])
+def test_output_cannot_replace_input_workbook(tmp_path, monkeypatch, capsys, alias):
+    from sjtu_tpmshx.design import cli
+
+    source = tmp_path / 'spec.xlsx'
+    _spec(source)
+    previous = source.read_bytes()
+    output = source
+    if alias:
+        output = tmp_path / 'alias.xlsx'
+        try:
+            output.symlink_to(source)
+        except OSError:
+            pytest.skip('symlinks unavailable')
+    monkeypatch.setattr(cli, 'load_cases', lambda *a: pytest.fail('input loaded before path check'))
+    with pytest.raises(SystemExit) as caught:
+        cli.run(['--xlsx', str(source), '--out', str(output)])
+    assert caught.value.code == 2
+    assert 'overlaps input' in capsys.readouterr().err
+    assert source.read_bytes() == previous
+
 def test_run_fixed_mode(tmp_path):
     f = tmp_path / "spec.xlsx"; _spec(f); out = tmp_path / "out.xlsx"
     rc = run(["--xlsx", str(f), "--mode", "fixed",

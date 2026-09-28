@@ -152,6 +152,12 @@ def run_case(case, control=RunControl()):
         sB.update_T_field(np.ascontiguousarray(Tb[:, ::-1], dtype=np.float64))
         sA_converged, sA_iters = solve_flow(sA, 'A')
         sB_converged, sB_iters = solve_flow(sB, 'B')
+        if cfg_full.get('reject_unconverged', False) and not (sA_converged and sB_converged):
+            return capture(case, dict(execution='rejected', converged=False, screening=True,
+                                      rejection_stage='outer_flow', reason='outer SIMPLE did not converge',
+                                      simple_A_converged=bool(sA_converged), simple_B_converged=bool(sB_converged),
+                                      outer_iterations=outer_it + 1,
+                                      physical_validation='unestablished'), (sA, sB), (Ta, Tb, Ts))
         rcp_A = rho_relax * np.ascontiguousarray(sA.rho_field.T) * air_cp(Ta) + (1. - rho_relax) * rcp_A
         rcp_B = rho_relax * np.ascontiguousarray(sB.rho_field[:, ::-1]) * air_cp(Tb) + (1. - rho_relax) * rcp_B
     thermal_ok = bool(info['converged'])

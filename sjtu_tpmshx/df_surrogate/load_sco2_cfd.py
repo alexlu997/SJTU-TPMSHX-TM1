@@ -152,14 +152,17 @@ def _verify_rho_guard(df: pd.DataFrame) -> None:
     """CoolProp rho(Tref, P) must reproduce the CSV reference density."""
     from CoolProp.CoolProp import PropsSI
 
-    states = df[["Tref", "P_Pa", "rho_kg_m3"]].drop_duplicates(
-        subset=["Tref", "P_Pa"])
-    rho_cp = PropsSI("D", "T", states["Tref"].to_numpy(),
-                     "P", states["P_Pa"].to_numpy(), "CO2")
-    rel = np.abs(rho_cp - states["rho_kg_m3"].to_numpy()) \
-        / states["rho_kg_m3"].to_numpy()
+    rho_csv = df["rho_kg_m3"].to_numpy()
+    if not np.all(np.isfinite(rho_csv) & (rho_csv > 0)):
+        raise ValueError('CSV reference density must be finite and positive')
+    states, inverse = np.unique(df[["Tref", "P_Pa"]].to_numpy(),
+                                axis=0, return_inverse=True)
+    rho_cp = np.atleast_1d(PropsSI("D", "T", states[:, 0],
+                                 "P", states[:, 1], "CO2"))
+    # Reuse each EOS state, but compare every row that will enter Re/f.
+    rel = np.abs(rho_cp[inverse.reshape(-1)] - rho_csv) / rho_csv
     if rel.max() > _RHO_GUARD_RTOL:
-        bad = states.iloc[int(np.argmax(rel))]
+        bad = df.iloc[int(np.argmax(rel))]
         raise ValueError(
             f"Pressure-map guard tripped: CoolProp rho({bad.Tref} K, "
             f"{bad.P_Pa / 1e6:g} MPa) deviates {rel.max():.2%} from the CSV "

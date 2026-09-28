@@ -295,7 +295,9 @@ def test_q_cli_verdict_and_legacy_csv(monkeypatch, tmp_path, capsys,
         args += ["--case-manifest", str(manifest), "--accept-q"]
     monkeypatch.setattr("sys.argv", args)
 
-    def fake_run(topologies, dimensions, *, case, all_valid, fixed_cases):
+    def fake_run(topologies, dimensions, *, case, all_valid, fixed_cases,
+                 checkpoint_dir, resume, output_paths):
+        assert checkpoint_dir.is_dir() and not resume
         assert topologies == ["Diamond"] and dimensions == ["2d"]
         assert case is None and not all_valid
         assert fixed_cases == ({"Diamond": [1, 2]} if accept else None)
@@ -397,7 +399,9 @@ def test_q_cli_uses_explicit_manifest(monkeypatch, tmp_path):
                                    "--dimension", "2d", "--accept-q",
                                    "--case-manifest", str(path)])
 
-    def fake_run(topologies, dimensions, *, case, all_valid, fixed_cases):
+    def fake_run(topologies, dimensions, *, case, all_valid, fixed_cases,
+                 checkpoint_dir, resume, output_paths):
+        assert checkpoint_dir.is_dir() and not resume
         assert topologies == ["Diamond"] and dimensions == ["2d"]
         assert case is None and not all_valid
         assert fixed_cases == {"Diamond": [1, 2]}
@@ -407,3 +411,28 @@ def test_q_cli_uses_explicit_manifest(monkeypatch, tmp_path):
 
     monkeypatch.setattr(runner, "run", fake_run)
     assert runner.main() == 0
+
+
+@pytest.mark.parametrize('target', ['csv', 'metadata', 'alias'])
+def test_q_cli_preserves_source_manifest_on_output_overlap(monkeypatch, tmp_path, capsys, target):
+    import json
+    from sjtu_tpmshx.validation.cases import validate_sco2_exp_q as runner
+
+    output = tmp_path / 'results.csv'
+    manifest = output.with_suffix('.csv.meta.json') if target == 'metadata' else output
+    previous = json.dumps({'expected_cases': {'Diamond': [1]}})
+    manifest.write_text(previous)
+    if target == 'alias':
+        output = tmp_path / 'alias.csv'
+        try:
+            output.symlink_to(manifest)
+        except OSError:
+            pytest.skip('symlinks unavailable')
+    monkeypatch.setattr('sys.argv', ['runner', '--topology', 'Diamond',
+                                   '--case-manifest', str(manifest), '--csv', str(output)])
+    monkeypatch.setattr(runner, 'run', lambda *a, **kw: pytest.fail('solver ran before path check'))
+    with pytest.raises(SystemExit) as caught:
+        runner.main()
+    assert caught.value.code == 2
+    assert 'overlaps input' in capsys.readouterr().err
+    assert manifest.read_text() == previous

@@ -54,6 +54,16 @@ def output_path(path) -> Path:
     return path
 
 
+def check_distinct_outputs(paths) -> None:
+    """Reject collisions between a run's reports, CSVs and companions."""
+    seen = set()
+    for path in paths:
+        resolved = output_path(path)
+        if resolved in seen:
+            raise ValueError(f'output paths overlap: {resolved}')
+        seen.add(resolved)
+
+
 def output_directory(name: str, path=None) -> Path:
     """Use an explicit output directory or create a separate local run directory."""
     if path is not None:

@@ -2,6 +2,7 @@
 from __future__ import annotations
 import argparse, sys
 from collections import Counter
+from pathlib import Path
 
 from .cases import load_cases
 from .sizing import size_fixed_cell
@@ -38,6 +39,8 @@ def run(argv=None) -> int:
                     help="auto 枚举并行核数 (-1=全核, 1=串行; joblib loky)")
     ap.add_argument("--out", required=True)
     a = ap.parse_args(argv)
+    if Path(a.xlsx).resolve() == Path(a.out).resolve():
+        ap.error(f'output overlaps input: {a.out}')
     cases = load_cases(a.xlsx)
 
     results = []

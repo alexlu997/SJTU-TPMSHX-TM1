@@ -18,6 +18,7 @@ import json
 import math
 from pathlib import Path
 import subprocess
+import time
 
 import numpy as np
 import pandas as pd
@@ -33,9 +34,13 @@ from sjtu_tpmshx.domain.compute_config import (
 from sjtu_tpmshx.models import fluid_props
 from sjtu_tpmshx.io.file_set import staged_files
 from sjtu_tpmshx.models.sco2_props import P_RANGE_PA
+from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.models.tpms_props import geometry as tpms_geometry
 from sjtu_tpmshx.validation.sco2_exp.load_sco2_exp import load_exp
-from sjtu_tpmshx.validation.harness._provenance import _git_sha, _iso_now, output_path
+from sjtu_tpmshx.validation.harness._provenance import (
+    _git_sha, _iso_now, output_path, output_directory, check_distinct_outputs,
+)
+from . import _sco2_checkpoints as checkpoints
 
 
 CELL_M = 7.0e-3
@@ -325,11 +330,21 @@ def _accept_q(results: pd.DataFrame, expected_cases: dict[str, list[int]],
 
 def run(topologies: list[str], dimensions: list[str], *, case: int | None,
         all_valid: bool,
-        fixed_cases: dict[str, list[int]] | None = None) -> pd.DataFrame:
-    rows: list[dict[str, object]] = []
+        fixed_cases: dict[str, list[int]] | None = None,
+        checkpoint_dir: Path | None = None, resume: bool = False,
+        output_paths: tuple[Path, ...] = ()) -> pd.DataFrame:
+    if resume and checkpoint_dir is None:
+        raise ValueError('resume requires a checkpoint directory')
+    if (not topologies or len(set(topologies)) != len(topologies)
+            or not dimensions or len(set(dimensions)) != len(dimensions)):
+        raise ValueError('expected nonempty unique topologies and dimensions')
+    rows: dict[str, dict] = {}
     expected_cases: dict[str, list[int]] = {}
     ranges = {}
     references = {}
+    frames = {}
+    members = []
+    # Freeze the complete denominator and all inputs before starting any solver.
     for topology in topologies:
         df = load_exp(topology)
         _print_geometry(topology, df)
@@ -337,8 +352,17 @@ def run(topologies: list[str], dimensions: list[str], *, case: int | None,
                  _valid_case_numbers(df) if all_valid else
                  [case if case is not None else SMOKE_CASES[topology]])
         expected_cases[topology] = cases
+        if not cases or any(type(value) is not int or value <= 0 for value in cases) or len(set(cases)) != len(cases):
+            raise ValueError(f'{topology}: expected unique positive integer case IDs')
         references[topology] = df.attrs["reference"]
         selected = df[df["case"].isin(cases)]
+        for case_no in cases:
+            pair = selected[selected['case'] == case_no]
+            if len(pair) != 2 or set(pair['side']) != {'hot', 'cold'}:
+                raise ValueError(f'{topology} case {case_no}: expected one hot and one cold row')
+            members.extend(dict(topology=topology, case=case_no, dimension=dim)
+                           for dim in dimensions)
+        frames[topology] = selected.copy()
         ranges[topology] = {
             column: [float(selected[column].min()), float(selected[column].max())]
             for column in ("Tin_C", "Tout_C", "Pin_MPa", "Pout_MPa",
@@ -346,11 +370,59 @@ def run(topologies: list[str], dimensions: list[str], *, case: int | None,
         } if cases else {}
         print(f"SELECTION {topology}: dimensions={dimensions}, cases={cases}, "
               f"ranges={ranges[topology]}")
-        for case_no in cases:
-            for dimension in dimensions:
-                row = _run_case(topology, int(case_no), dimension, df)
-                rows.append(row)
-                print(
+    state = None
+    if checkpoint_dir is not None:
+        checkpoint_dir = output_path(checkpoint_dir)
+        snapshot = dict(runtime=checkpoints.runtime_identity(
+                            REPO_ROOT, generated=(*output_paths, checkpoint_dir / 'partial.csv',
+                                                  checkpoint_dir / 'state.json')),
+                        topologies=topologies, dimensions=dimensions,
+                        expected_cases=expected_cases,
+                        settings=dict(N_STREAM=N_STREAM, N_CROSS=N_CROSS,
+                                      FLOW_REL_TOL=FLOW_REL_TOL, Q_RMSRE_LIMITS=Q_RMSRE_LIMITS),
+                        inputs={topology: dict(csv=frame.to_csv(index=False, lineterminator='\n'),
+                                               attrs=frame.attrs)
+                                for topology, frame in frames.items()})
+        # Normalize tuples/numpy scalar-free loader metadata exactly as JSON stores it.
+        snapshot = json.loads(json.dumps(snapshot, allow_nan=False))
+        state, rows = checkpoints.open_checkpoint(checkpoint_dir, snapshot, members, resume=resume)
+    for member in members:
+        topology, case_no, dimension = (member[key] for key in ('topology', 'case', 'dimension'))
+        key = checkpoints.member_key(member)
+        record = None if state is None else state['members'][key]
+        if (resume and record['status'] == 'completed' and key in rows
+                and checkpoints.reusable(rows[key])):
+            print(f'RESUME {key}: using completed qualified result')
+            continue
+        started = time.perf_counter()
+        if record is not None:
+            attempt = dict(status='running', started=_iso_now())
+            record['attempts'].append(attempt)
+            record['status'] = state['status'] = 'running'
+            checkpoints.publish(checkpoint_dir, state, rows)
+        try:
+            row = _run_case(topology, case_no, dimension, frames[topology])
+            if checkpoints.member_key(row) != key:
+                raise ValueError('solver returned a different checkpoint member')
+        except (Exception, KeyboardInterrupt) as exc:
+            if record is not None:
+                status = 'cancelled' if isinstance(exc, (CancelledError, KeyboardInterrupt)) else 'failed'
+                attempt.update(status=status, finished=_iso_now(),
+                               seconds=time.perf_counter()-started, error=repr(exc))
+                record['status'] = state['status'] = status
+                try:
+                    checkpoints.publish(checkpoint_dir, state, rows)
+                except Exception as save_error:
+                    exc.add_note(f'Checkpoint publication also failed: {save_error}')
+            raise
+        rows[key] = row
+        if record is not None:
+            attempt.update(status='completed', finished=_iso_now(),
+                           seconds=time.perf_counter()-started,
+                           result_csv=pd.DataFrame([row]).to_csv(index=False, lineterminator='\n'))
+            record['status'] = 'completed'
+            checkpoints.publish(checkpoint_dir, state, rows)
+        print(
                     f"{topology} case {case_no:02d} {dimension}: "
                     f"mdot hot/cold err=({row['flow_err_hot_rel']:.2e}, "
                     f"{row['flow_err_cold_rel']:.2e}), "
@@ -361,7 +433,10 @@ def run(topologies: list[str], dimensions: list[str], *, case: int | None,
                     f"enthalpy={row['enthalpy_imbalance_rel']:.2%}, "
                     f"ok={row['numerical_ok']}, df_mode={row['df_mode']}"
                 )
-    result = pd.DataFrame(rows)
+    if state is not None:
+        state['status'] = 'completed'
+        checkpoints.publish(checkpoint_dir, state, rows)
+    result = pd.DataFrame([rows[checkpoints.member_key(member)] for member in members])
     result.attrs.update(expected_cases=expected_cases, ranges=ranges,
                         references=references)
     _print_summary(result)
@@ -400,6 +475,11 @@ def main() -> int:
     parser.add_argument("--accept-q", action="store_true",
                         help="require a fixed case manifest and per-group Q RMSRE limits")
     parser.add_argument("--csv", type=Path)
+    destination = parser.add_mutually_exclusive_group()
+    destination.add_argument('--out-dir', type=Path,
+                             help='new or empty directory for per-case checkpoints')
+    destination.add_argument('--resume-run', type=Path,
+                             help='resume this checkpoint; repeat the original selection and --csv arguments')
     args = parser.parse_args()
     if args.case is not None and args.topology is None:
         parser.error("--case requires --topology")
@@ -410,6 +490,9 @@ def main() -> int:
             args.csv = output_path(args.csv)
             meta_path = args.csv.with_suffix(args.csv.suffix + ".meta.json")
             output_path(meta_path)
+            if args.case_manifest is not None and args.case_manifest.resolve() in (
+                    args.csv.resolve(), meta_path.resolve()):
+                parser.error('output overlaps input case manifest')
         except ValueError as exc:
             parser.error(str(exc))
 
@@ -422,6 +505,19 @@ def main() -> int:
             fixed_cases = _read_manifest(args.case_manifest, topologies)
         except (OSError, ValueError, KeyError) as exc:
             parser.error(str(exc))
+    try:
+        checkpoint_dir = (output_path(args.resume_run) if args.resume_run is not None else
+                          output_directory('sco2_exp_q', args.out_dir))
+        if args.resume_run is None and any(checkpoint_dir.iterdir()):
+            raise ValueError('checkpoint output directory must be new or empty')
+        destinations = [checkpoint_dir / 'partial.csv', checkpoint_dir / 'state.json']
+        if args.csv is not None:
+            destinations.extend([args.csv, meta_path])
+        check_distinct_outputs(destinations)
+        if args.case_manifest is not None and args.case_manifest.resolve() in destinations:
+            parser.error('checkpoint output overlaps input case manifest')
+    except (OSError, ValueError) as exc:
+        parser.error(str(exc))
     pin_path = REPO_ROOT / "data-revision.txt"
     metadata = {
         "script": str(Path(__file__).relative_to(REPO_ROOT)),
@@ -445,10 +541,17 @@ def main() -> int:
         "metrics": "e=Qsolver/Qref-1; RMSRE=sqrt(mean(e^2)); bias=mean(e)",
         "model": "production sCO2 Nu and D-F; no refit in this run; not a blind validation claim",
         "accept_q": args.accept_q,
+        "checkpoint_directory": str(checkpoint_dir),
+        "resume": args.resume_run is not None,
     }
     print("RUN " + json.dumps(metadata))
-    result = run(topologies, dimensions, case=args.case,
-                 all_valid=args.all_valid, fixed_cases=fixed_cases)
+    try:
+        result = run(topologies, dimensions, case=args.case,
+                     all_valid=args.all_valid, fixed_cases=fixed_cases,
+                     checkpoint_dir=checkpoint_dir, resume=args.resume_run is not None,
+                     output_paths=() if args.csv is None else (args.csv, meta_path))
+    except (CancelledError, KeyboardInterrupt):
+        return 130
     accepted = (_accept_q(result, result.attrs["expected_cases"], dimensions)
                 if args.accept_q else
                 not result.empty and bool(

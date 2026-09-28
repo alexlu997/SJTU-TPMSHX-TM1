@@ -141,6 +141,7 @@ def build():
         ("  2. cfd_runs: 每 (case, side, Re) 一行, Um 已给 → Fluent 跑 → 填黄色 dP_Pa 列。", None),
         ("  3. 每 (tpms, split, side) 对其 Re 的 (u, dP) 拟 DF → 得 (K_cfd, c_F_cfd)。", None),
         ("  4. 填 results_template 黄色 K_cfd/cF_cfd 列 → 另存 CSV → python -m sjtu_tpmshx.df_surrogate.ingest_cfd_kappa <csv>。", None),
+        ("     results_template 首行为标准 7 列表头，保留列名；对称 r=1 行的 K_cfd/cF_cfd 应与 baseline 比较以验证 CFD setup。", None),
         ("  5. ingest 仅当前进程注册；研究代码可显式调用 kappa_KcF(..., enabled=True) 求值，尚未接入正式求解准备。", None),
         ("  后续接入验收: 固定代码版本、输入及网格，配对比较 κ 关闭/开启时 δ=0 的结果，保留差异及原验收门槛。", None),
         ("  历史记录: 9.82/3.20 属 2026-06-12 gamma_df 上海 3D 记录，见 tests/test_shanghai_regression.py；不是当前固定精度目标。", None),
@@ -204,12 +205,9 @@ def build():
 
     # ── Sheet 4: results_template (ingest CSV format) ────────────
     ws = wb.create_sheet("results_template")
-    note = ws.cell(row=1, column=1,
-                   value="拟合 DF 后填黄色 K_cfd / cF_cfd → 另存为 CSV (仅这 7 列) → ingest_cfd_kappa。对称 r=1 行: K_cfd/cF_cfd 应 ≈ baseline → κ≈1 (验证 CFD setup)。")
-    note.font = Font(italic=True, color="7F7F7F")
-    cols = ["tpms", "L_mm", "t_mm", "eps_side", "eps_sym", "K_cfd (FILL)", "cF_cfd (FILL)"]
-    _write_header(ws, cols, row=2)
-    rr = 3
+    cols = ["tpms", "L_mm", "t_mm", "eps_side", "eps_sym", "K_cfd", "cF_cfd"]
+    _write_header(ws, cols)
+    rr = 2
     for g in geom:
         for side, eps_side in (("A", g["eps_A"]), ("B", g["eps_B"])):
             vals = [g["tpms"], g["L_mm"], g["t_mm"], eps_side, g["eps_sym"], None, None]
@@ -222,7 +220,7 @@ def build():
                     c.fill = ANCHOR_FILL
             rr += 1
     _autosize(ws, [9, 7, 6, 9, 9, 14, 14])
-    ws.freeze_panes = "A3"
+    ws.freeze_panes = "A2"
 
     wb.save(XLSX)
     n_geom = len(geom)

@@ -32,6 +32,7 @@ import pandas as pd
 from sjtu_tpmshx.validation.cases.mms_3d_air_air import run_mms
 from sjtu_tpmshx.validation.harness._order_fit import fit_order_loglog
 from sjtu_tpmshx.validation.harness import _provenance as _prov
+from sjtu_tpmshx.io.file_set import staged_files
 
 GRIDS = [10, 16, 24, 32]
 
@@ -46,6 +47,11 @@ def main():
             _prov.output_path(args.out_csv)
         out_dir = _prov.output_directory('mms_phase_b4', args.out_dir)
         out_csv = _prov.output_path(args.out_csv or out_dir / 'mms_phase_b4_orders.csv')
+        raw_csv = out_dir / 'mms_phase_b4_raw.csv'
+        orders_meta = out_csv.with_suffix(out_csv.suffix + '.meta.json')
+        _prov.check_distinct_outputs([
+            raw_csv, raw_csv.with_suffix('.csv.meta.json'), out_csv, orders_meta,
+        ])
     except ValueError as exc:
         ap.error(str(exc))
     out_csv.parent.mkdir(parents=True, exist_ok=True)
@@ -62,7 +68,7 @@ def main():
             f"N={N:>3}  L2_A={r['L2_A']:.4e}  L2_B={r['L2_B']:.4e}  "
             f"L2_s={r['L2_s']:.4e}  converged={r['converged']}"))
     _prov.write_csv_with_provenance(
-        pd.DataFrame(rows_raw), out_dir / 'mms_phase_b4_raw.csv', __file__)
+        pd.DataFrame(rows_raw), raw_csv, __file__)
     failed = ([row['N'] for row in rows_raw] != GRIDS
               or not all(row['converged'] for row in rows_raw)
               or not np.isfinite([[row[m] for m in ('L2_A', 'L2_B', 'L2_s')]
@@ -84,15 +90,18 @@ def main():
     # below in the console codepage (GBK) and the utf-8 reader in
     # tests/test_mms_b4_conservative_order.py dies with UnicodeDecodeError
     # (found 2026-07-14). Provenance trio per the C.4 convention.
-    with open(out_csv, 'w', encoding='utf-8', newline='') as f:
-        f.write("# MMS Phase B4 — conservative HO path observed order\n")
-        f.write(f"# grids={GRIDS}  case=3d  conservative=1\n")
-        f.write(f"# script: {_prov._normalise_script(__file__)}\n")
-        f.write(f"# commit: {_prov._git_sha() or '<no-git>'}\n")
-        f.write(f"# date:   {_prov._iso_now()}\n")
-        f.write("case,metric,p_obs,R2,val_gfine\n")
-        for m, p, r2, v in rows:
-            f.write(f"3d,{m},{p:.4f},{r2:.5f},{v:.4e}\n")
+    # Keep the grid/header format and remove any old companion in the same
+    # publication, so readers use the current inline provenance.
+    with staged_files([out_csv], remove=[orders_meta]) as stage:
+        with open(stage / out_csv.name, 'w', encoding='utf-8', newline='') as f:
+            f.write("# MMS Phase B4 — conservative HO path observed order\n")
+            f.write(f"# grids={GRIDS}  case=3d  conservative=1\n")
+            f.write(f"# script: {_prov._normalise_script(__file__)}\n")
+            f.write(f"# commit: {_prov._git_sha() or '<no-git>'}\n")
+            f.write(f"# date:   {_prov._iso_now()}\n")
+            f.write("case,metric,p_obs,R2,val_gfine\n")
+            for m, p, r2, v in rows:
+                f.write(f"3d,{m},{p:.4f},{r2:.5f},{v:.4e}\n")
     print(f"wrote {out_csv}")
     print(f"GATE {'FAIL' if failed else 'PASS'}")
     return 1 if failed else 0

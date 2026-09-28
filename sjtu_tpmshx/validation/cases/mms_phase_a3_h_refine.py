@@ -35,7 +35,7 @@ warnings.filterwarnings('ignore')
 
 from sjtu_tpmshx.validation.cases.mms_3d_air_air import run_mms, L_DOM
 from sjtu_tpmshx.validation.harness._provenance import (
-    write_csv_with_provenance, output_directory, output_path,
+    write_csv_with_provenance, output_directory, output_path, check_distinct_outputs,
 )
 from sjtu_tpmshx.validation.harness._order_fit import fit_order_loglog
 from sjtu_tpmshx.validation.harness._mms_driver import run_grid_sequence
@@ -68,6 +68,11 @@ def main():
         args.orders_csv = output_path(args.orders_csv or out_dir / 'mms_phase_a3_orders.csv')
         args.report = output_path(args.report or out_dir / 'mms_phase_a3_report.md')
         plot_path = output_path(out_dir / 'mms_phase_a3_loglog.png')
+        csv_paths = [args.out_csv, args.orders_csv]
+        check_distinct_outputs([
+            *csv_paths, *(path.with_suffix(path.suffix + '.meta.json') for path in csv_paths),
+            args.report, *([plot_path] if args.plot else []),
+        ])
     except ValueError as exc:
         ap.error(str(exc))
     print(f'Output directory: {out_dir}')

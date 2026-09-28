@@ -23,6 +23,11 @@ Both use recorded `screening@v2-5f1cafb` and `fluid@v2-5f1cafb` (air) resources.
   and the original density/temperature relaxation settings. 3D also records
   the cold A seed's mass flux and mean drag for its hot-state reseed. Optimizer
   penalties/caps are not numerical backend controls.
+  Both dimensions record the opt-in `reject_unconverged` screening control
+  (default false). When enabled, a failed initial or subsequent SIMPLE verdict
+  returns an explicit rejected result; the optimizer maps it to its existing
+  bounded penalty. This does not change the F2 gates or add a thermal/outer
+  convergence requirement to the default screening behavior.
 - `parameters.flow.A/B`: resolved SIMPLE constructor data: physical lengths
   and grid widths m, initial density kg/m³, viscosity Pa s, temperatures K,
   pressure reference Pa, velocities m/s, full porosity, K in m² and cF in 1/m.

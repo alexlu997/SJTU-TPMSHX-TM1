@@ -156,3 +156,77 @@ def test_new_publication_replaces_snapshot_even_if_renderer_raises(
     assert not win.canvas_temp.fig.axes
     assert win.canvas_temp._hover_data is None
     _assert_export(win, monkeypatch, tmp_path / 'render_failed.csv', accepted)
+
+
+@pytest.mark.parametrize('accepted_mode,new_mode', [('2d', '3d'), ('2d', '2d'), ('3d', '2d')])
+def test_export_keeps_clicked_snapshot_while_dialog_delivers_new_result(
+        snapshot_window, monkeypatch, tmp_path, accepted_mode, new_mode):
+    from sjtu_tpmshx.ui.mixins import io_actions
+    win = snapshot_window
+    accepted = _publish(win, monkeypatch, accepted_mode, 111)
+    _configure(win, monkeypatch, new_mode)
+    entered, release = threading.Event(), threading.Event()
+    newer = _result(new_mode)
+    newer.Q_W = 222.
+    newer.metadata['snapshot_marker'] = 222
+    def finish_later(pipe):
+        entered.set()
+        assert release.wait(10)
+        return newer
+    monkeypatch.setattr(Pipeline2D if new_mode == '2d' else Pipeline3D, 'run', finish_later)
+    win.run_calculation()
+    _wait_for(entered.is_set)
+    path = tmp_path / 'clicked.csv'
+    def file_dialog(*args):
+        release.set()
+        _wait_for(win.compute.is_idle)
+        return str(path), 'CSV (*.csv)'
+    monkeypatch.setattr(io_actions.QFileDialog, 'getSaveFileName', file_dialog)
+    try:
+        win._export_results()
+    finally:
+        release.set()
+        _wait_for(win.compute.is_idle)
+    with path.open(newline='', encoding='utf-8') as stream:
+        rows = dict(csv.reader(stream))
+    assert float(rows['Q [W]' if accepted_mode == '3d' else 'Q [W/m]']) == 111.
+    assert json.loads(rows['metadata'])['snapshot_marker'] == 111
+    assert win.cache.get_result(new_mode).Q_W == 222.
+    archive = path.with_name(path.stem + '_fields.npz')
+    if accepted_mode == '3d':
+        with np.load(archive, allow_pickle=False) as data:
+            np.testing.assert_array_equal(data['Ta'], accepted.fields['Ta'])
+            assert json.loads(str(data['metadata']))['snapshot_marker'] == 111
+    else:
+        assert not archive.exists()
+
+
+def test_named_preset_source_reaches_accepted_result_and_export(snapshot_window, monkeypatch, tmp_path):
+    win = snapshot_window
+    _configure(win, monkeypatch, '2d')
+    preset = win._capture_current_preset('custom user design')
+    win._load_user_preset(preset)
+    result = _result('2d')
+    result.metadata['snapshot_marker'] = 444
+    monkeypatch.setattr(Pipeline2D, 'run', lambda pipe: result)
+    win.run_calculation()
+    _wait_for(win.compute.is_idle)
+    assert result.metadata['run_provenance']['preset_source'] == 'custom user design'
+    _assert_export(win, monkeypatch, tmp_path / 'custom.csv', result)
+
+
+def test_field_figure_metadata_uses_accepted_source_after_draft_changes(
+        snapshot_window, monkeypatch, tmp_path):
+    from sjtu_tpmshx.ui.mixins import io_actions
+    win = snapshot_window
+    _publish(win, monkeypatch, '2d', 111)
+    win._active_preset_name = 'new draft'
+    monkeypatch.setattr(io_actions.QInputDialog, 'getItem',
+        lambda *args: (args[3][0], True))
+    monkeypatch.setattr(io_actions.QFileDialog, 'getSaveFileName',
+        lambda *args: (str(tmp_path / 'field.png'), 'PNG (*.png)'))
+    exported = {}
+    monkeypatch.setattr(win.canvas_temp.fig, 'savefig',
+        lambda path, **kwargs: exported.update(kwargs))
+    win._export_figure()
+    assert exported['metadata']['Subject'] == 'Preset: accepted-111'
