@@ -60,9 +60,6 @@ class Preflight:
     def ok(self) -> bool:
         return not self.errors and not self.warnings
 
-    def blocking(self) -> bool:
-        return bool(self.errors)
-
 
 def _refined_edges(W: float, N_bulk: int, refine: bool):
     """1D cell edges (len N+1) for a wall-refined or uniform axis."""

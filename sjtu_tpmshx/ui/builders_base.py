@@ -83,21 +83,9 @@ def right_align_combo(combo):
     return combo
 
 
-def section(window, parent_lay, title, title_style, frame_style):
-    """Ex-Main_Menu._section. Phase 5: delegates to FieldFactory.
-
-    The ``window`` argument is unused — kept for backward compatibility
-    with every existing call site in ``build_page_*``. Returns
-    ``(grid_layout, container_widget)``.
-    """
-    from .field_factory import default_factory
-    return default_factory().section(parent_lay, title,
-                                       title_style, frame_style)
-
-
 def collapsible_section(window, parent_lay, title, title_style, frame_style,
                         expanded=False, on_toggle=None):
-    """Collapsible variant of :func:`section`.
+    """Collapsible variant of ``FieldFactory.section``.
 
     Same ``(grid, container)`` return and the same visual card, but the
     title becomes a keyboard-accessible button that shows / hides the body.
@@ -151,28 +139,6 @@ def collapsible_section(window, parent_lay, title, title_style, frame_style,
     # auto-fill opens the property details).
     container._set_expanded = header.setChecked
     return grid, container
-
-
-def row(window, g, row_idx, text, default):
-    """Ex-Main_Menu._row -> QLineEdit. Phase 5: delegates to FieldFactory.
-
-    Note: parameter `row` renamed to `row_idx` to avoid shadowing the
-    function name. ``window`` retained for call-site compatibility.
-    """
-    from .field_factory import default_factory
-    return default_factory().row(g, row_idx, text, default)
-
-
-def res_row(window, g, row_idx, text, col=0):
-    """Label + computed-value row. Phase 5: delegates to FieldFactory."""
-    from .field_factory import default_factory
-    return default_factory().res_row(g, row_idx, text, col=col)
-
-
-def add_row(window, g, row_idx, text, widget):
-    """Ex-Main_Menu._add_row. Phase 5: delegates to FieldFactory."""
-    from .field_factory import default_factory
-    return default_factory().add_row(g, row_idx, text, widget)
 
 
 class _ResultLabel(QLabel):
