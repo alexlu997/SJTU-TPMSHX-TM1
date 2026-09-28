@@ -6,6 +6,7 @@ Offscreen Main_Menu fixture mirrors test_ui_layout_hygiene.
 """
 from __future__ import annotations
 
+import csv
 import json
 import os
 from pathlib import Path
@@ -749,12 +750,17 @@ def test_export_results_writes_2d_values(tmp_path, monkeypatch, win):
 
     win._export_results()
 
-    text = out.read_text()
-    assert 'Q [W/m],123.5000' in text
-    assert 'Grid Nx,2' in text
-    import csv
     with out.open(encoding='utf-8', newline='') as stream:
-        rows = dict(csv.reader(stream))
+        records = list(csv.reader(stream))
+    assert records[:11] == [
+        ['Parameter', 'Value'], ['Q [W/m]', '123.5000'],
+        ['dP_A [Pa]', '45.00'], ['dP_B [Pa]', '6.00'],
+        ['Ta_min [K]', '300.00'], ['Ta_max [K]', '303.00'],
+        ['Grid Nx', '2'], ['Grid Ny', '2'],
+        ['Lx [m]', '0.200000'], ['Ly [m]', '0.100000'],
+        ['converged', 'unknown'],
+    ]
+    rows = dict(records)
     for key in ('converged', 'envelope_valid', 'outer_converged',
                 'warnings', 'extrap_reasons'):
         assert rows[key] == 'unknown'
@@ -781,7 +787,17 @@ def test_export_results_writes_3d_values_and_fields(tmp_path, monkeypatch, win):
 
     win._export_results()
 
-    assert 'Q [W],321.0000' in out.read_text()
+    with out.open(encoding='utf-8', newline='') as stream:
+        records = list(csv.reader(stream))
+    assert records[:15] == [
+        ['Parameter', 'Value'], ['Q [W]', '321.0000'],
+        ['dP_A [Pa]', '54.00'], ['dP_B [Pa]', '7.00'],
+        ['T_inA [K]', '0.00'], ['u_A [m/s]', '0.0000'],
+        ['Ta_min [K]', '0.00'], ['Ta_max [K]', '23.00'],
+        ['Grid Nx', '2'], ['Grid Ny', '3'], ['Grid Nz', '4'],
+        ['Lx [m]', '0.200000'], ['Ly [m]', '0.100000'], ['Lz [m]', '0.050000'],
+        ['converged', 'true'],
+    ]
     with np.load(tmp_path / 'results_fields.npz', allow_pickle=False) as fields:
         for name, values in expected.items():
             np.testing.assert_array_equal(fields[name], values, err_msg=name)
