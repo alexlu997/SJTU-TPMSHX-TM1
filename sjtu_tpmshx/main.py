@@ -299,6 +299,9 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         self._zone_grid = None
         self._pareto_x_decision = None
         self._pareto_y_trans_inlet = self._pareto_y_trans_outlet = 0.2
+        self._opt_conditions = None
+        from sjtu_tpmshx.ui.optimize_panel import refresh_setup
+        refresh_setup(self)
         # Treat preset Nx/Ny/Nz as authoritative — without this flag the next
         # `compute_tpms` call would auto-overwrite the preset values with
         # D_h-derived suggestions (e.g. 20/20/20 → 14/25/25).
@@ -307,6 +310,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         # so a later manual edit's Ctrl+Z stops at the preset state, not
         # the values that preceded the preset load. Safe at init (the
         # helper no-ops when `_undo_last` is not yet built).
+        self._refresh_field_validation()
         self._resync_undo_baseline()
         from sjtu_tpmshx.ui.builders_fluids import refresh_fluid_model_visibility
         refresh_fluid_model_visibility(self)
@@ -1078,6 +1082,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
 
         The unified handler does parse → validate → apply in one slot.
         """
+        self._field_validators = {}
         all_fields = self._POSITIVE_FIELDS | self._FIELD_UNITS.keys() | set(self._SESSION_LINE_EDITS)
         for attr in all_fields:
             le = getattr(self, attr, None)
@@ -1086,9 +1091,15 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             fam_target = self._FIELD_UNITS.get(attr)
             is_positive = attr in self._POSITIVE_FIELDS
             cb = self._make_field_handler(le, attr, fam_target, is_positive)
+            self._field_validators[attr] = cb
             le.editingFinished.connect(cb)
             self.signals.adopt(le.editingFinished, cb,
                                 sender=le)
+
+    def _refresh_field_validation(self):
+        """Commit/validate current text without recording an undo or recent edit."""
+        for callback in self._field_validators.values():
+            callback()
 
     def _make_field_handler(self, le, attr, fam_target, is_positive):
         """Build the per-field blur callback: parse → validate → apply.
