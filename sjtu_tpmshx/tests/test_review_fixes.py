@@ -70,14 +70,13 @@ def test_nu_roughness_factor_locked_at_1p28():
         f"nu_from_Re did not apply the ×1.28 factor: got {Nu_with:.4f} "
         f"vs expected {expected:.4f} (smooth-wall Nu={Nu_smooth:.4f}).")
 
-    # sigmoid_field._nu_vec must use the same constant (single source of truth)
-    from sjtu_tpmshx.models.sigmoid_field import _nu_vec
+    # The canonical vector path must use the same roughness constant.
+    from sjtu_tpmshx.models.nu_correlations import nu_vec
     Re_arr = np.array([[Re_test]])
-    eps_arr = np.array([[eps_f * 2.0]])      # _nu_vec consumes ε_full
     L_arr = np.array([[L_mm]])
-    Nu_vec = _nu_vec('Gyroid', Re_arr, eps_arr, L_arr, D_h_mm)
+    Nu_vec = nu_vec('Gyroid', Re_arr, L_arr, D_h_mm)
     assert abs(float(Nu_vec[0, 0]) - expected) / expected < 1e-6, (
-        f"_nu_vec drift from nu_from_Re — single-source-of-truth broken. "
+        f"nu_vec drift from nu_from_Re — single-source-of-truth broken. "
         f"Got {float(Nu_vec[0,0]):.4f} vs expected {expected:.4f}.")
     print("test_nu_roughness_factor_locked_at_1p28 PASS")
 

@@ -435,3 +435,49 @@ def test_worker_merge_keeps_single_snapshot_counts_and_does_not_mutate_source():
     value, = merged.values()
     assert (value.low, value.high, value.size) == (1, 1, 2)
     assert sources[0] == before
+
+
+def test_sigmoid_nu_warning_origin_and_run_scope(standalone_registries):
+    from inspect import getsourcelines
+    from pathlib import Path
+    from sjtu_tpmshx.models import sigmoid_field
+
+    shape = (2, 2)
+    geometry = dict(eps_arr=np.full(shape, .8), A_0_arr=np.full(shape, 1000.),
+                    L_field=np.full(shape, 7.), r_h_arr=np.full(shape, .00075))
+
+    def evaluate():
+        return sigmoid_field._fluid_arrays_from_geometry(
+            geometry, 'Gyroid', 0., 1000., 300., 310.,
+            P_in=1e5, P_inB=1e5, fluid_type='air')
+
+    with warnings.catch_warnings(record=True) as notices:
+        warnings.simplefilter('always')
+        expected = evaluate()
+        evaluate()
+    assert len(notices) == 2  # one low-Re and one high-Re notice, not per call
+    lines, first = getsourcelines(sigmoid_field._fluid_arrays_from_geometry)
+    for notice in notices:
+        assert notice.category is UserWarning
+        assert '[Nu extrap] Gyroid:' in str(notice.message)
+        assert 'outside fit window [400,16000]' in str(notice.message)
+        assert Path(notice.filename) == Path(sigmoid_field.__file__)
+        assert first <= notice.lineno < first + len(lines)
+    assert nu._EXTRAP_WARNED == {('Gyroid', 'lo'), ('Gyroid', 'hi')}
+
+    previous = None
+    for _ in range(2):
+        with warning_scope({}) as records, range_context(side='A', stage='fluid-build', layout='cell'):
+            with warnings.catch_warnings(record=True) as notices:
+                warnings.simplefilter('always')
+                actual = evaluate()
+        assert not notices
+        for key in ('h_vA_arr', 'h_vB_arr', 'K_ffA_arr', 'K_ffB_arr'):
+            np.testing.assert_array_equal(actual[key], expected[key])
+        key = ('nu', 'air', 'Gyroid', shape, ('A', 'fluid-build', 'cell'))
+        value = records[key]
+        assert all(record_key[-1] == key[-1] for record_key in records)
+        assert value.minimum[0] == 10. and value.maximum[0] > 16000.
+        if previous is not None:
+            assert records == previous
+        previous = records

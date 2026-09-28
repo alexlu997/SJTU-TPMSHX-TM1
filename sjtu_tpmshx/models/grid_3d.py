@@ -141,17 +141,13 @@ def _build_grid_3d(wall_refine: bool, L: float, H: float, Lz: float,
                 n_refine=8, first_cell=0.02e-3, growth=1.8)
             _log.info(f"[3D grid] wall-refine: user {Nx_u}x{Ny_u}x{Nz_u} -> "
                       f"actual {Nx}x{Ny}x{Nz}")
+            return dx, dy, dz, Nx, Ny, Nz
         except ValueError as e:
             _log.warning(f"[3D grid] wall-refine skipped ({e}); using uniform")
-            dx = np.full(Nx_u, L / Nx_u, dtype=np.float64)
-            dy = np.full(Ny_u, H / Ny_u, dtype=np.float64)
-            dz = np.full(Nz_u, Lz / Nz_u, dtype=np.float64)
-            Nx, Ny, Nz = Nx_u, Ny_u, Nz_u
-    else:
-        dx = np.full(Nx_u, L / Nx_u, dtype=np.float64)
-        dy = np.full(Ny_u, H / Ny_u, dtype=np.float64)
-        dz = np.full(Nz_u, Lz / Nz_u, dtype=np.float64)
-        Nx, Ny, Nz = Nx_u, Ny_u, Nz_u
+    dx = np.full(Nx_u, L / Nx_u, dtype=np.float64)
+    dy = np.full(Ny_u, H / Ny_u, dtype=np.float64)
+    dz = np.full(Nz_u, Lz / Nz_u, dtype=np.float64)
+    Nx, Ny, Nz = Nx_u, Ny_u, Nz_u
     return dx, dy, dz, Nx, Ny, Nz
 
 
