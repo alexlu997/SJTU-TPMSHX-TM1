@@ -410,6 +410,9 @@ def main() -> int:
             args.csv = output_path(args.csv)
             meta_path = args.csv.with_suffix(args.csv.suffix + ".meta.json")
             output_path(meta_path)
+            if args.case_manifest is not None and args.case_manifest.resolve() in (
+                    args.csv.resolve(), meta_path.resolve()):
+                parser.error('output overlaps input case manifest')
         except ValueError as exc:
             parser.error(str(exc))
 

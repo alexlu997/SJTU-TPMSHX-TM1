@@ -52,7 +52,7 @@ warnings.filterwarnings('ignore')
 from sjtu_tpmshx.validation.cases.mms_3d_air_air import run_mms, L_DOM
 from sjtu_tpmshx.validation.cases import mms_3d_air_air as mms
 from sjtu_tpmshx.validation.harness._provenance import (
-    write_csv_with_provenance, output_directory, output_path,
+    write_csv_with_provenance, output_directory, output_path, check_distinct_outputs,
 )
 from sjtu_tpmshx.validation.harness._order_fit import fit_order_loglog
 from sjtu_tpmshx.validation.harness._mms_driver import run_grid_sequence
@@ -151,6 +151,10 @@ def main():
         out_dir = output_directory('mms_phase_a4', args.out_dir)
         args.out_csv = output_path(args.out_csv or out_dir / 'mms_phase_a4_boundary.csv')
         args.orders_csv = output_path(args.orders_csv or out_dir / 'mms_phase_a4_orders.csv')
+        csv_paths = [args.out_csv, args.orders_csv]
+        check_distinct_outputs([
+            *csv_paths, *(path.with_suffix(path.suffix + '.meta.json') for path in csv_paths),
+        ])
     except ValueError as exc:
         ap.error(str(exc))
     print(f'Output directory: {out_dir}')
