@@ -46,23 +46,31 @@ def solve_Lx(case, topo, l, t, s, arrangement, target=None, k_s=K_STEEL,
     D: 搜索用 SIZING_TOL (松), 终点用 LTNE_TOL (紧) → 渐进收紧。
     height: 矩形迎风高 (None=方形); 透传 forward。
     返回 (Lx, ForwardResult)。不可达 (LX_MAX 仍欠冷) → (None, None)。"""
+    if target is not None and not math.isfinite(target):
+        raise ValueError('solve_Lx target must be finite')
     tgt = target if target is not None else (
         t_target(case) if case.dT is not None else None)
+    evaluation_failed = False
     def deficit(result):
+        nonlocal evaluation_failed
         # Use the same quantity as final acceptance, including mean-property cp.
-        return result.T_out_hot - tgt if tgt is not None else case.Q - result.Q_hot
+        value = result.T_out_hot - tgt if tgt is not None else case.Q - result.Q_hot
+        if not math.isfinite(value):
+            evaluation_failed = True
+            raise ValueError('solve_Lx residual must be finite')
+        return value
     control = control or RunControl()
     prev = {"f": seed, "last": None}
-    forward_failed = False
     def ev(Lx, tol):
-        nonlocal forward_failed
+        nonlocal evaluation_failed
         control.check_cancelled()
         try:
             r = forward(case, topo, l, t, s, Lx, arrangement, init=prev["f"],
                         k_s=k_s, prop_model=prop_model, tol=tol, height=height,
                         control=control)
+            deficit(r)  # Includes the final tightened solve, outside brentq.
         except ValueError:
-            forward_failed = True
+            evaluation_failed = True
             raise
         prev["f"] = r.fields                # 续解种子 (链式)
         prev["last"] = r
@@ -79,8 +87,8 @@ def solve_Lx(case, topo, l, t, s, arrangement, target=None, k_s=K_STEEL,
         Lx_root = brentq(lambda Lx: deficit(ev(Lx, SIZING_TOL)),
                          lo, hi, xtol=TOL, maxiter=BISECT_IT)
     except ValueError:
-        if forward_failed:
-            raise  # A forward failure is not SciPy's changed-bracket condition.
+        if evaluation_failed:
+            raise  # Invalid evaluations are not SciPy's changed-bracket condition.
         # 冷却临界点 (小 LMTD): ev() 改 warm-start 种子 → 松容差 LTNE 解非确定,
         # brentq 复评端点可能同号而崩。保留原二分退路：冷却不足量随 Lx
         # 单调递减，取满足同一 Q/温度目标的上界。
@@ -184,6 +192,8 @@ def size_fixed_cell(cases, topo, l, t, arrangement="cross", rho_s=RHO_S,
     k_s: 固体热导率 [W/(m·K)], 默认 16 (304SS); 入 LTNE 固体能量 K_ss=(1-ε)·k_s。"""
     control = control or RunControl()
     control.check_cancelled()
+    if not math.isfinite(rho_s) or rho_s <= 0:
+        raise ValueError('rho_s must be finite and positive')
     geo = tpms_geometry(topo, l, t, k_s, N=GEOM_N); EPS = geo["epsilon"]
     def _sz(sv):
         return sv if height is None else height        # z(高)向跨度 (方形=s)
