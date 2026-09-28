@@ -1,0 +1,134 @@
+"""Exercise opt-in collection hooks in fresh pytest/xdist processes."""
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+import pytest
+
+_ROOT = Path(__file__).resolve().parents[2]
+_CHECKER = _ROOT / 'scripts' / 'check_ci_shards.py'
+
+
+@pytest.fixture(scope='module')
+def suite(tmp_path_factory):
+    root = tmp_path_factory.mktemp('ci-shard-suite')
+    shutil.copyfile(Path(__file__).with_name('ci_shard.py'), root / 'ci_shard.py')
+    (root / '_ci_shard0.txt').write_text('test_packed.py\n', encoding='utf-8')
+    (root / 'pytest.ini').write_text(
+        '[pytest]\naddopts = --strict-markers\nmarkers =\n    heavy\n    slow\n', encoding='utf-8')
+    # Use the project's existing heavy-marker hook, pointed at a tiny manifest.
+    (root / 'conftest.py').write_text(
+        'from pathlib import Path\n'
+        'import sjtu_tpmshx.tests.conftest as project\n'
+        'project._FAST_TIER_MANIFEST = Path(__file__).with_name("_fast_tier_manifest.txt")\n'
+        'pytest_collection_modifyitems = project.pytest_collection_modifyitems\n', encoding='utf-8')
+    (root / '_fast_tier_manifest.txt').write_text('test_packed.py::test_heavy\n', encoding='utf-8')
+    (root / 'test_packed.py').write_text(
+        'import pytest\n'
+        '@pytest.mark.parametrize("value", [1, 2])\n'
+        'def test_keep(value): assert value > 0\n'
+        'def test_heavy(): assert False\n'
+        '@pytest.mark.slow\n'
+        'def test_slow(): assert False\n'
+        'def test_keyword_filtered(): assert False\n', encoding='utf-8')
+    (root / 'test_rest.py').write_text('def test_keep_rest(): pass\n', encoding='utf-8')
+    (root / 'test_new.py').write_text('def test_keep_new(): pass\n', encoding='utf-8')
+    return root
+
+
+def run_pytest(root, *options):
+    env = dict(os.environ, PYTEST_DISABLE_PLUGIN_AUTOLOAD='1',
+               PYTHONPATH=os.pathsep.join([str(root), str(_ROOT), os.environ.get('PYTHONPATH', '')]))
+    return subprocess.run(
+        [sys.executable, '-m', 'pytest', '-p', 'xdist.plugin', '-p', 'ci_shard',
+         '-n', '2', '--dist=loadscope', '-q', '-m', 'not heavy and not slow',
+         '-k', 'keep or heavy or slow', *options], cwd=root, env=env,
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=45)
+
+
+def run_checker(zero, one, baseline=None):
+    args = [sys.executable, '-S', str(_CHECKER), str(zero), str(one)]
+    if baseline is not None:
+        args += ['--baseline', str(baseline)]
+    return subprocess.run(args, text=True, stdout=subprocess.PIPE,
+                          stderr=subprocess.STDOUT, timeout=10)
+
+
+@pytest.fixture(scope='module')
+def manifests(suite):
+    directories = {label: suite / label for label in ('baseline', 'zero', 'one')}
+    for label, shard in (('baseline', None), ('zero', 0), ('one', 1)):
+        options = ['--ci-manifest', str(directories[label])]
+        if shard is not None:
+            options += [f'--ci-shard={shard}']
+        result = run_pytest(suite, *options)
+        assert result.returncode == 0, result.stdout
+    return directories
+
+
+def test_filters_module_partition_new_files_and_baseline(manifests):
+    expected = {'test_packed.py::test_keep[1]', 'test_packed.py::test_keep[2]',
+                'test_rest.py::test_keep_rest', 'test_new.py::test_keep_new'}
+    for label in ('zero', 'one', 'baseline'):
+        records = [json.loads((manifests[label] / f'gw{i}.json').read_text()) for i in (0, 1)]
+        assert records[0]['full_nodeids'] == records[1]['full_nodeids']
+        assert set(records[0]['full_nodeids']) == expected
+        selected = set(records[0]['selected_nodeids'])
+        if label == 'zero':
+            assert selected == {n for n in expected if n.startswith('test_packed.py::')}
+        elif label == 'one':
+            assert selected == {n for n in expected if not n.startswith('test_packed.py::')}
+        else:
+            assert selected == expected
+    checked = run_checker(manifests['zero'], manifests['one'], manifests['baseline'])
+    assert checked.returncode == 0, checked.stdout
+
+
+@pytest.mark.parametrize('damage', ['missing', 'worker_disagreement', 'overlap', 'incomplete',
+                                   'different_full', 'empty', 'collection_error', 'test_failure'])
+def test_gate_rejects_incomplete_or_invalid_records(manifests, tmp_path, damage):
+    zero, one = tmp_path / 'zero', tmp_path / 'one'
+    shutil.copytree(manifests['zero'], zero)
+    shutil.copytree(manifests['one'], one)
+    if damage == 'missing':
+        (zero / 'gw1.json').unlink()
+    else:
+        for worker in ('gw0', 'gw1'):
+            path = one / f'{worker}.json'
+            record = json.loads(path.read_text())
+            if damage == 'worker_disagreement' and worker == 'gw0':
+                continue
+            if damage in ('worker_disagreement', 'incomplete'):
+                record['selected_nodeids'].pop()
+            elif damage == 'overlap':
+                record['selected_nodeids'].append('test_packed.py::test_keep[1]')
+            elif damage == 'different_full':
+                record['full_nodeids'].append('test_extra.py::test_keep')
+            elif damage == 'empty':
+                record['selected_nodeids'] = []
+            elif damage == 'collection_error':
+                record['testsfailed'] = 1
+            elif damage == 'test_failure':
+                record['exitstatus'] = 1
+            path.write_text(json.dumps(record), encoding='utf-8')
+    assert run_checker(zero, one).returncode != 0
+
+
+@pytest.mark.parametrize('failure', ['missing_option', 'empty', 'collection_error'])
+def test_real_pytest_failure_cannot_pass_manifest_gate(suite, manifests, tmp_path, failure):
+    isolated = tmp_path / 'suite'
+    shutil.copytree(suite, isolated)
+    output = tmp_path / 'manifest'
+    args = ['--ci-shard=0']
+    if failure != 'missing_option':
+        args += ['--ci-manifest', str(output)]
+    if failure == 'empty':
+        (isolated / '_ci_shard0.txt').write_text('nonexistent.py\n', encoding='utf-8')
+    if failure == 'collection_error':
+        (isolated / 'test_broken.py').write_text('raise RuntimeError("collection failed")\n', encoding='utf-8')
+    result = run_pytest(isolated, *args)
+    assert result.returncode != 0, result.stdout
+    assert run_checker(output, manifests['one']).returncode != 0
