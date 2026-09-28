@@ -509,9 +509,19 @@ class SessionPresetsMixin:
         if not ok or not name.strip():
             return
         name = name.strip()
+        try:
+            self._refresh_field_validation()
+            preset = self._capture_current_preset(name)
+            for field in self._SESSION_LINE_EDITS:
+                if getattr(self, field).property('inpError') == 'true':
+                    raise ValueError(f'Invalid numeric field: {field}')
+            self._validate_preset(preset, complete=True)
+        except (TypeError, ValueError) as exc:
+            QMessageBox.warning(self, "预设未保存", str(exc))
+            return
         presets = self._load_user_presets()
         presets = [p for p in presets if p.get('name') != name]  # overwrite
-        presets.append(self._capture_current_preset(name))
+        presets.append(preset)
         if not self._save_user_presets(presets):
             QMessageBox.warning(self, "预设未保存", "无法写入用户预设，当前输入保持不变。请检查用户数据目录。")
             return

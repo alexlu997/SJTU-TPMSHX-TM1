@@ -368,7 +368,8 @@ NUMBA_NUM_THREADS=1 "$PYTHON" -m pytest sjtu_tpmshx/tests/integration_tm1 -q -ra
 PowerShell 使用同样的 pytest 参数，并以 `$env:NUMBA_NUM_THREADS='2'` 等设置
 上述环境变量，以 `& $tm1Python` 调用解释器。Numba 上限至少为 2，因为焓输运测试
 显式运行双线程检查；独立集成步骤使用 1，运行全量前恢复为 2。
-CI 快测固定两个 worker，每个 worker 的 BLAS/OMP 单线程、Numba 上限为 2。
+CI 快测按完整模块分到两个独立 runner，每片固定两个 worker，
+每个 worker 的 BLAS/OMP 单线程、Numba 上限为 2；完整 integration 使用第三个 runner 并行执行。
 固定 128 核服务器的并行预算见 `scripts/run_tests_server.ps1`；
 `run_tests_fast.ps1` 只提供开发反馈，其 `not heavy` 子集与 CI 快测不同。
 两份服务器脚本默认严格检查基础锁。已有 Windows BO 环境时，显式使用
@@ -376,8 +377,8 @@ CI 快测固定两个 worker，每个 worker 的 BLAS/OMP 单线程、Numba 上�
 `run_tests_fast.ps1` 传同一参数；所选锁与 `pip check` 都通过后才启动测试。
 脚本不安装依赖，也不因为选择了服务器锁而放行锁外包。
 
-两条 GitHub workflow 使用 Node24 Action（checkout v5、setup-python v6、
-upload-artifact v6）。这是 CI 工具运行时，不改变求解器的 Python 环境；
+GitHub workflow 使用 checkout v5、setup-python v6、upload-artifact v6，
+分片门使用 download-artifact v8。这些 Action 的运行时不改变求解器的 Python 环境；
 `three-module` 继续单独验证完整环境到最小后处理环境的真实文件交接。
 `ci` 的基础和独立 BO 作业均覆盖 macOS / Python 3.13，以及 Windows / Python
 3.12、3.13；BO 作业分别安装对应平台的 BO 锁，严格检查环境后
@@ -393,8 +394,21 @@ envelope 实现、三模块数据契约与公共 API、后处理指标入口；�
 
 第一条 pytest 排除了 slow/heavy 和 `integration_tm1`，第二条单独完整执行该集成目录，
 避免重复执行其中的快测成员；两者不能代替第三条完整本地验收。
-CI 日志保留最慢 30 项和 skip 原因，并将两份 JUnit 测试状态/逐项耗时 XML 保存为
-`test-reports-<平台>-py<版本>` artifact，保留 7 天；上传范围只包含这两份测试报告。
+本地上述命令仍执行未分片的完整子集。复现某片时，在第一条 pytest 命令追加
+`-p sjtu_tpmshx.tests.ci_shard --ci-shard=0 --ci-manifest=.cache/ci/fast-0`，
+另一片改为 `--ci-shard=1` 并使用独立 manifest 目录。
+分片 0 的完整模块列在 `sjtu_tpmshx/tests/_ci_shard0.txt`，其余模块自动进入分片 1；
+分片在原 heavy 标记及 pytest 过滤之后执行，不改变测试选择或断言。
+`"$PYTHON" scripts/check_ci_shards.py .cache/ci/fast-0 .cache/ci/fast-1`
+核对两个 worker 的集合一致、两片互斥且完整覆盖原子集。
+
+CI 日志保留最慢 30 项和 skip 原因。每片将 JUnit 与 collection manifest 保存为
+`test-reports-<平台>-py<版本>-<fast-0|fast-1|integration>` artifact，保留 7 天。
+manifest 附带各 pytest 进程的独立 RSS 峰值与已加载 Numba dispatcher 的缓存计数；
+进程峰值不能相加当作同期总峰值，统计不覆盖普通子进程或已经销毁的 dispatcher。
+三个原名 `tests (<平台>, <版本>)` 必需检查共同等待全部平台的测试片和 BO，
+只接受全部成功及分片集合校验通过；失败、取消、跳过或缺失分片不能放行。
+`minimal-postprocess` 继续作为独立必需检查。
 比较速度时区分快测、集成和整个 job，并使用相同平台的基准，不据本地耗时承诺 CI 提速。
 完整验收的 skip 须保留具体原因，不能当作被跳过能力已经通过。最小后处理 CI 使用独立的
 `requirements-lock-postprocess.txt` 环境，并消费另一完整环境生成的真实 2D/3D
