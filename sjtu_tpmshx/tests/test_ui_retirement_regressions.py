@@ -21,7 +21,12 @@ def win(tmp_path, monkeypatch):
     from sjtu_tpmshx.main import Main_Menu
     window = Main_Menu()
     yield window
-    window.close()
+    # Input rejection tests intentionally leave invalid drafts. Keep the real
+    # save attempt, but discard those drafts only during fixture cleanup.
+    with monkeypatch.context() as cleanup:
+        cleanup.setattr(QMessageBox, 'warning',
+                        lambda *args: QMessageBox.StandardButton.Discard)
+        window.close()
     window.deleteLater()
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
