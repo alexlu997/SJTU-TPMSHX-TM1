@@ -74,7 +74,8 @@ def test_canonical_1d_json_does_not_swallow_invalid_zones(tmp_path, invalid):
     import json
     from sjtu_tpmshx.preprocess.two_d.preparation import _parse_inputs_cfg
 
-    cfg = ComputeConfig(zones=ZoneInputConfig(enabled=True,
+    cfg = ComputeConfig(geometry=GeometryConfig(tpms='Diamond'),
+        zones=ZoneInputConfig(enabled=True,
         config=ZoneConfig.single_zone(6, 0.3, 'Diamond', 16)))
     path = tmp_path / 'invalid-zone.json'
     cfg.to_json(path)
@@ -177,7 +178,8 @@ def test_zone_builder_error_propagates(builder, monkeypatch):
     monkeypatch.setattr(ZoneConfig, builder, Mock(side_effect=failure))
     if builder == 'build_structured_arrays':
         monkeypatch.setattr(ZoneConfig, 'compute_properties', lambda *a, **kw: None)
-    pipe = Pipeline2D(ComputeConfig(zones=zones, extrap=ExtrapPolicy(allow=True)))
+    pipe = Pipeline2D(ComputeConfig(geometry=GeometryConfig(tpms='Diamond'),
+        zones=zones, extrap=ExtrapPolicy(allow=True)))
     solve, finalize = Mock(), Mock()
     monkeypatch.setattr(pipe, 'run_solvers', solve)
     monkeypatch.setattr(pipe, 'finalize', finalize)

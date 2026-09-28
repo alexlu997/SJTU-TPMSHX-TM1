@@ -88,6 +88,7 @@ from __future__ import annotations
 import json
 import warnings
 from dataclasses import asdict, dataclass, field
+from math import isfinite
 from pathlib import Path
 from typing import Any, Dict, Literal, Optional, Tuple, Union
 
@@ -261,6 +262,13 @@ def bc_to_dict(bc: 'PartialBCConfig', L_dom: float, H_dom: float,
     * ``with_z=True`` — append the ``in_z_*``/``out_z_*`` overlay when the cfg
       captured 3D z-partial fields (``None`` = full face along z).
     """
+    for width in (bc.in_w, bc.out_w):
+        try:
+            finite = isfinite(width)
+        except (TypeError, ValueError, OverflowError):
+            finite = False
+        if not finite:
+            raise ValueError('port width must be finite before full-face normalization')
     is_x_flow = bc.dir in (0, 1)
     cross_dim = H_dom if is_x_flow else L_dom
     if side == 'B' and bc.in_w <= 0 and bc.out_w <= 0:
@@ -296,6 +304,9 @@ class ZoneInputConfig:
     The UI adapter snapshots ``config`` via
     ``ui.zone_table.build_zone_config(window)`` at the boundary so the Pipeline
     layer never has to touch the Qt zone-table widget.
+    Discrete zones vary L/t only. Their optional ``tpms_type`` and ``k_s``
+    copies must agree with the main GeometryConfig; they do not select an
+    independent topology or material.
 
     For ``axis='continuous'``, ``config`` is a JSON dictionary with
     ``x_decision`` (L controls then t controls, both in mm), ``n_ctrl_x``,
@@ -540,6 +551,15 @@ class ComputeConfig:
                 raise ValueError(f'ComputeConfig.solver.{name}={value!r} must be an integer')
 
         self.zones.validate()
+        if self.zones.enabled and self.zones.axis in ('x', 'y', 'grid'):
+            zone_source = self.zones.grid if self.zones.axis == 'grid' else self.zones.config
+            for key, expected in (('tpms_type', self.geometry.tpms),
+                                  ('k_s', self.geometry.k_s_W_mK)):
+                actual = (zone_source.get(key, expected) if isinstance(zone_source, dict)
+                          else getattr(zone_source, key, expected))
+                if actual != expected:
+                    raise ValueError(f'ComputeConfig.zones.{key}={actual!r} conflicts '
+                                     f'with main geometry value {expected!r}')
         self.sco2_nu.validate()
         if self.zones.enabled and self.zones.axis == 'continuous':
             assert self.zones.config is not None  # Required by zones.validate().
@@ -837,6 +857,12 @@ class ComputeConfig:
         unknown = set(geom_raw) - {'tpms', 'L_cell_mm', 't_wall_mm', 'k_s_W_mK'}
         if unknown:
             raise ValueError(f'legacy geometry has canonical or unknown fields: {sorted(unknown)}')
+        # The checked-in Shanghai input also records the experiment's flow
+        # area; its validation harness consumes these two legacy fields.
+        unknown = set(domain_raw) - {'L_dom_m', 'H_dom_m', 'Lz_m',
+                                     'n_units', 'a_flow_per_unit_m2'}
+        if unknown:
+            raise ValueError(f'legacy domain has unknown fields: {sorted(unknown)}')
         geom = GeometryConfig(
             tpms=geom_raw.get('tpms', 'Gyroid'),
             L_cell_mm=float(geom_raw.get('L_cell_mm', 7.0)),
