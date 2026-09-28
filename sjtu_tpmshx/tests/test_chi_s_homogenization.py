@@ -12,6 +12,7 @@ import importlib.util
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 _HERE = Path(__file__).resolve()
 _PROJECT_ROOT = _HERE.parent.parent
@@ -51,6 +52,37 @@ def test_gyroid_isotropy_small_grid():
     v = list(chis.values())
     assert max(v) - min(v) < 1e-6 * max(v), v
     assert 0.4 < v[0] < 0.9
+
+
+def test_chi_rejects_exhausted_cg_budget(monkeypatch):
+    monkeypatch.setattr(hom, 'CG_MAXIT', 1)
+    with pytest.raises(RuntimeError, match='residual'):
+        hom.chi_s('Gyroid', .6 / 7., N=12)
+
+
+@pytest.mark.parametrize('keff,residual', [(.5, np.nan), (.5, np.inf),
+                                         (.5, hom.CG_TOL), (np.nan, 0.)])
+def test_chi_rejects_invalid_solve_evidence(monkeypatch, keff, residual):
+    monkeypatch.setattr(hom, '_solve_chi', lambda *a: (keff, 1, residual))
+    with pytest.raises(RuntimeError, match='residual'):
+        hom.chi_s('Gyroid', .6 / 7., N=12)
+
+
+@pytest.mark.parametrize('failure', ['nonfinite_chi', 'cg_failure', 'analytic_residual'])
+def test_selftest_does_not_pass_failed_solver_evidence(monkeypatch, capsys, failure):
+    values = iter([1., 1. / (.5 + .5 / hom.K_VOID), .5 * (1. + hom.K_VOID)])
+    residual = np.nan if failure == 'analytic_residual' else 0.
+    monkeypatch.setattr(hom, '_solve_chi', lambda *a: (next(values), 0, residual))
+
+    def chi(*args, **kwargs):
+        if failure == 'cg_failure':
+            raise RuntimeError('injected residual failure')
+        value = np.nan if failure == 'nonfinite_chi' else .65
+        return .7, {axis: value for axis in (0, 1, 2)}, {axis: 1 for axis in (0, 1, 2)}
+
+    monkeypatch.setattr(hom, 'chi_s', chi)
+    assert not hom.selftest()
+    assert 'SELFTEST FAIL' in capsys.readouterr().out
 
 
 # ── baked fit ────────────────────────────────────────────────────

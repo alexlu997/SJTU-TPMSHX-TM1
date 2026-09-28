@@ -19,10 +19,19 @@ def _weighted(values, weights):
 
 def _dp(pressure):
     p = np.asarray(pressure['P'])
-    dy = np.asarray(pressure['dy'])
-    area = np.asarray(pressure['dx'])[:, None] * np.asarray(pressure['dz'])[None, :]
-    inlet = np.asarray(pressure['inlet_frac']) * area
-    outlet = np.asarray(pressure['outlet_frac']) * area
+    if p.ndim != 3 or any(size == 0 for size in p.shape):
+        raise ValueError('pressure evidence requires nonempty three-dimensional cells')
+    widths = [np.asarray(pressure['d' + axis]) for axis in 'xyz']
+    for axis, values, size in zip('xyz', widths, p.shape):
+        if values.shape != (size,) or not np.all(np.isfinite(values) & (values > 0.)):
+            raise ValueError(f'pressure {axis} widths must be positive, finite and match cells')
+    openings = [np.asarray(pressure[name + '_frac']) for name in ('inlet', 'outlet')]
+    for name, values in zip(('inlet', 'outlet'), openings):
+        if values.shape != (p.shape[0], p.shape[2]) or not np.all(np.isfinite(values) & (values >= 0.)):
+            raise ValueError(f'pressure {name} fractions must be nonnegative, finite and match faces')
+    dx, dy, dz = widths
+    area = dx[:, None] * dz[None, :]
+    inlet, outlet = (values * area for values in openings)
     pin, pout = pressure_face_values(p, dy)
     return _weighted(pin, inlet) - _weighted(pout, outlet)
 

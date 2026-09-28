@@ -94,6 +94,12 @@ def _load_run_cfg(pareto_csv: str) -> dict:
     return cfg
 
 
+def _relative_change(current: float, reference: float) -> str:
+    if reference == 0.:
+        return 'undefined (zero 2D reference)'
+    return f'{(current - reference) / reference * 100:+6.2f} %'
+
+
 # ─── CLI ────────────────────────────────────────────────────────────
 
 
@@ -172,13 +178,13 @@ def main(argv=None) -> int:
     Q_3D = out['Q_3D_W']; dP_3D = out['dP_total_Pa']
     print(f"  Q_2D × Lz   = {Q_2D_W_total:8.1f} W   ({Q_2D_W_per_m:.0f} W/m × {args.Lz} m)")
     print(f"  Q_3D        = {Q_3D:8.1f} W")
-    print(f"  ΔQ rel      = {(Q_3D - Q_2D_W_total)/Q_2D_W_total*100:+6.2f} %")
+    print(f"  ΔQ rel      = {_relative_change(Q_3D, Q_2D_W_total)}")
     print()
     print(f"  dP_2D       = {dP_2D_Pa:8.0f} Pa  (sum of A + B in 2D evaluator)")
     print(f"  dP_A_3D     = {out['dP_A_Pa']:8.0f} Pa")
     print(f"  dP_B_3D     = {out['dP_B_Pa']:8.0f} Pa")
     print(f"  dP_total_3D = {dP_3D:8.0f} Pa")
-    print(f"  ΔdP rel     = {(dP_3D - dP_2D_Pa)/max(dP_2D_Pa,1)*100:+6.2f} %")
+    print(f"  ΔdP rel     = {_relative_change(dP_3D, dP_2D_Pa)}")
     print()
     print(f"  mass        = {out['mass_kg']:8.4f} kg")
     return 0

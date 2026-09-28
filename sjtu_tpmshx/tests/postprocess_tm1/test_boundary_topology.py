@@ -34,6 +34,52 @@ def _sources(result, tmp_path):
     return result, load_result(save_result(result, tmp_path / 'result.h5'))
 
 
+@pytest.mark.parametrize('defect', ['broadcast', 'pressure_rank', 'empty', 'dx', 'dy', 'dz',
+                                   'width_zero', 'width_nan', 'inlet', 'outlet',
+                                   'opening_negative', 'opening_nan'])
+def test_pressure_evidence_cannot_broadcast_into_available_drop(tmp_path, defect):
+    result = _result(3)
+    expected = evaluate(result).metrics
+    pressure = mutable_data(result.pressure_evidence)
+    side = pressure['A']
+    if defect == 'broadcast':
+        side.update(dx=np.ones(1), inlet_frac=np.ones((1, 1)), outlet_frac=np.ones((1, 1)))
+    elif defect == 'pressure_rank':
+        side['P'] = side['P'][:, :, 0]
+    elif defect == 'empty':
+        side['P'] = side['P'][:, :0, :]
+    elif defect in ('dx', 'dy', 'dz'):
+        side[defect] = np.ones(3)
+    elif defect.startswith('width_'):
+        side['dx'][0] = 0. if defect == 'width_zero' else np.nan
+    elif defect in ('inlet', 'outlet'):
+        side[defect + '_frac'] = np.ones((1, 1))
+    else:
+        side['inlet_frac'][0, 0] = -1. if defect == 'opening_negative' else np.nan
+    for source in _sources(replace(result, pressure_evidence=pressure), tmp_path):
+        actual = evaluate(source).metrics
+        assert actual['dP_A'].status == 'invalid'
+        assert actual['dP_A'].value is None and actual['dP_A'].reason
+        for name in ('Q', 'Q_A', 'Q_B', 'T_out_A', 'T_out_B', 'mass_flow_A', 'dP_B'):
+            assert actual[name] == expected[name]
+            assert actual[name].status == 'available'
+
+
+def test_postprocess_cli_reports_invalid_pressure_without_losing_other_metrics(tmp_path):
+    from sjtu_tpmshx.io.metrics_io import load_metrics
+    from sjtu_tpmshx.workflows.cli import main
+
+    result = _result(3)
+    pressure = mutable_data(result.pressure_evidence)
+    pressure['A'].update(dx=np.ones(1), inlet_frac=np.ones((1, 1)), outlet_frac=np.ones((1, 1)))
+    source, output = tmp_path / 'result.h5', tmp_path / 'metrics.json'
+    save_result(replace(result, pressure_evidence=pressure), source)
+    assert main(['postprocess', str(source), str(output)]) == 2
+    metrics = load_metrics(output).metrics
+    assert metrics['dP_A'].status == 'invalid'
+    assert metrics['Q'].value == 10. and metrics['dP_B'].value == 160.
+
+
 def _bad_faces(faces, defect):
     faces = list(faces)
     dimension = faces[0].ndim
