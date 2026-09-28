@@ -14,6 +14,7 @@ def repository_revision(root):
         return dict(revision=None, tracked_changes=None, status='unavailable')
     env = {k:v for k,v in os.environ.items()
            if k not in ('GIT_DIR','GIT_COMMON_DIR','GIT_WORK_TREE')}
+    env['GIT_CEILING_DIRECTORIES'] = str(root.parent)
     try:
         lines = subprocess.check_output(
             ['git','status','--porcelain=v2','--branch','--no-ahead-behind','--untracked-files=no'],
