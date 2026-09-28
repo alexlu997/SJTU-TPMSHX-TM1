@@ -45,34 +45,28 @@ class IOActionsMixin:
                 'warnings': result.warnings,
                 'extrap_reasons': result.extrap_reasons,
             }
+            q_unit = 'W' if res_3d is not None else 'W/m'
+            rows.append([f"Q [{q_unit}]", f"{result.Q_W:.4f}"])
+            rows.append(["dP_A [Pa]", f"{result.dP_A_Pa:.2f}"])
+            rows.append(["dP_B [Pa]", f"{result.dP_B_Pa:.2f}"])
             if res_3d is not None:
-                rows.append(["Q [W]", f"{res_3d.Q_W:.4f}"])
-                rows.append(["dP_A [Pa]", f"{res_3d.dP_A_Pa:.2f}"])
-                rows.append(["dP_B [Pa]", f"{res_3d.dP_B_Pa:.2f}"])
                 rows.append(["T_inA [K]",
                              f"{res_3d.props.get('T_in_A_K', 0) or 0:.2f}"])
                 rows.append(["u_A [m/s]",
                              f"{res_3d.props.get('u_A_in_mps', 0) or 0:.4f}"])
-                Ta = _rf.get('Ta')
-                if Ta is not None:
-                    rows.append(["Ta_min [K]", f"{float(Ta.min()):.2f}"])
-                    rows.append(["Ta_max [K]", f"{float(Ta.max()):.2f}"])
-                    rows.append(["Grid Nx", str(Ta.shape[0])])
-                    rows.append(["Grid Ny", str(Ta.shape[1])])
+            Ta = _rf.get('Ta')
+            if Ta is not None:
+                rows.append(["Ta_min [K]", f"{float(Ta.min()):.2f}"])
+                rows.append(["Ta_max [K]", f"{float(Ta.max()):.2f}"])
+                rows.append(["Grid Nx", str(Ta.shape[0])])
+                rows.append(["Grid Ny", str(Ta.shape[1])])
+                if res_3d is not None:
                     rows.append(["Grid Nz", str(Ta.shape[2])])
+            if res_3d is not None:
                 rows.append(["Lx [m]", f"{_rf.get('Lx', 0) or 0:.6f}"])
                 rows.append(["Ly [m]", f"{_rf.get('Ly', 0) or 0:.6f}"])
                 rows.append(["Lz [m]", f"{_rf.get('Lz', 0) or 0:.6f}"])
             else:
-                rows.append(["Q [W/m]", f"{result.Q_W:.4f}"])
-                rows.append(["dP_A [Pa]", f"{result.dP_A_Pa:.2f}"])
-                rows.append(["dP_B [Pa]", f"{result.dP_B_Pa:.2f}"])
-                Ta = _rf.get('Ta')
-                if Ta is not None:
-                    rows.append(["Ta_min [K]", f"{float(Ta.min()):.2f}"])
-                    rows.append(["Ta_max [K]", f"{float(Ta.max()):.2f}"])
-                    rows.append(["Grid Nx", str(Ta.shape[0])])
-                    rows.append(["Grid Ny", str(Ta.shape[1])])
                 rows.append(["Lx [m]", f"{_rf.get('L', 0) or 0:.6f}"])
                 rows.append(["Ly [m]", f"{_rf.get('H', 0) or 0:.6f}"])
             # Same UTF-8 JSON values in CSV and Unicode NPZ scalars. Missing

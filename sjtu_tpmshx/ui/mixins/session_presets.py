@@ -97,17 +97,6 @@ class SessionPresetsMixin:
                           if settings.parameter_version else "未导入标定参数")
             label.setToolTip(f"{settings.source}\n{settings.applicability}")
 
-    def _load_user_presets(self):
-        """Return the list of user-defined preset dicts (possibly empty).
-
-        Delegates to SessionManager (Plan #4 P2.3).
-        """
-        return self.sm.load_user_presets()
-
-    def _save_user_presets(self, presets):
-        """Persist user preset list. Delegates to SessionManager (P2.3)."""
-        return self.sm.save_user_presets(presets)
-
     def _resync_undo_baseline(self):
         """Start an undo checkpoint at the final restored/displayed values."""
         stack = getattr(self, '_undo_stack', None)
@@ -519,10 +508,10 @@ class SessionPresetsMixin:
         except (TypeError, ValueError) as exc:
             QMessageBox.warning(self, "预设未保存", str(exc))
             return
-        presets = self._load_user_presets()
+        presets = self.sm.load_user_presets()
         presets = [p for p in presets if p.get('name') != name]  # overwrite
         presets.append(preset)
-        if not self._save_user_presets(presets):
+        if not self.sm.save_user_presets(presets):
             QMessageBox.warning(self, "预设未保存", "无法写入用户预设，当前输入保持不变。请检查用户数据目录。")
             return
         self._rebuild_recent_menu()

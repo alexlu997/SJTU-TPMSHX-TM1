@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QComboBox,
 )
 
-from .builders_base import (section, collapsible_section, row, res_row, add_row, right_align_combo)
+from .builders_base import collapsible_section, right_align_combo
 
 _DIR_ITEMS = ["+x  (left → right)", "-x  (right → left)",
               "+y  (bottom → top)", "-y  (top → bottom)",
@@ -40,7 +40,9 @@ def _build_pipe_section(window, lay, side, *, title_style, frame_style,
     ``window._3d_only_widgets`` in (le, lbl) pairs, preserving the
     original ordering.
     """
-    gio, sec = section(window, lay, f"流体 {side} 进/出口",
+    from .field_factory import default_factory
+
+    gio, sec = default_factory().section(lay, f"流体 {side} 进/出口",
                        title_style, frame_style)
     window._ia_sections[f'pipe_{side.lower()}'] = sec
     combo = QComboBox(); combo.addItems(_DIR_ITEMS)
@@ -48,10 +50,10 @@ def _build_pipe_section(window, lay, side, *, title_style, frame_style,
     combo.setStyleSheet(combo_style)
     combo.currentIndexChanged.connect(window._on_dir_changed)
     setattr(window, f'combo_dir{side}', combo)
-    add_row(window, gio, 0, "流动方向", right_align_combo(combo))
+    default_factory().add_row(gio, 0, "流动方向", right_align_combo(combo))
     per_side = {'in_ctr': in_ctr, 'out_ctr': out_ctr}
     for r, (suffix, label, default) in enumerate(_PIPE_ROWS, start=1):
-        le = row(window, gio, r, label, per_side.get(suffix, default))
+        le = default_factory().row(gio, r, label, per_side.get(suffix, default))
         lbl = gio.itemAtPosition(r, 0).widget()
         setattr(window, f'le_pipe{side}_{suffix}', le)
         setattr(window, f'_lbl_pipe{side}_{suffix}', lbl)
@@ -69,14 +71,16 @@ def _build_fluid_io_rows(window, g, side, t, u_default, T_default, P_default,
     ``btn_text`` is passed whole so each
     side keeps its original mnemonic (&) position.
     """
+    from .field_factory import default_factory
+
     s = side
     setattr(window, f'le_u{s}',
-            row(window, g, 1, f"入口速度 <i>u</i><sub>{s}</sub> [m/s]", u_default))
+            default_factory().row(g, 1, f"入口速度 <i>u</i><sub>{s}</sub> [m/s]", u_default))
     setattr(window, f'le_Tin{s}',
-            row(window, g, 2, "入口温度 <i>T</i><sub>in</sub> [K]", T_default))
+            default_factory().row(g, 2, "入口温度 <i>T</i><sub>in</sub> [K]", T_default))
     setattr(window, f'_lbl_Tin{s}_unit', g.itemAtPosition(2, 0).widget())
     setattr(window, f'le_Pin{s}',
-            row(window, g, 3, "入口绝压 <i>P</i><sub>in</sub> [Pa]", P_default))
+            default_factory().row(g, 3, "入口绝压 <i>P</i><sub>in</sub> [Pa]", P_default))
     btn = QPushButton(btn_text)
     btn.setFixedHeight(28); btn.setStyleSheet(t.style('BTN_SECONDARY'))
     btn.setToolTip(f"Compute Fluid {s} density / Reynolds / Nusselt and inlet "
@@ -90,10 +94,10 @@ def _build_fluid_io_rows(window, g, side, t, u_default, T_default, P_default,
         window, details_lay, "物性预览", t.style('T_NEUTRAL'),
         t.style('F_NEUTRAL'), expanded=False)
     setattr(window, f'_fluid_computed_{s}', computed)
-    setattr(window, f'_v_rho{s}', res_row(window, gd, 0, "<i>&rho;</i> [kg/m³]"))
-    setattr(window, f'_v_Re{s}', res_row(window, gd, 1, "Re"))
-    setattr(window, f'_v_Nu{s}', res_row(window, gd, 2, "Nu"))
-    setattr(window, f'_v_dPL{s}', res_row(window, gd, 3, "d<i>P</i>/d<i>L</i> [Pa/m]"))
+    setattr(window, f'_v_rho{s}', default_factory().res_row(gd, 0, "<i>&rho;</i> [kg/m³]"))
+    setattr(window, f'_v_Re{s}', default_factory().res_row(gd, 1, "Re"))
+    setattr(window, f'_v_Nu{s}', default_factory().res_row(gd, 2, "Nu"))
+    setattr(window, f'_v_dPL{s}', default_factory().res_row(gd, 3, "d<i>P</i>/d<i>L</i> [Pa/m]"))
     g.addWidget(details, 5, 0, 1, 2)
 
 
@@ -112,7 +116,7 @@ def build_fluid_sections(window, lay):
     _COMBO = t.style('COMBO')
 
 
-    g_method, method_section = section(window, lay, "Darcy–Forchheimer 求解方法",
+    g_method, method_section = default_factory().section(lay, "Darcy–Forchheimer 求解方法",
                                        _T_NEUTRAL, _F_NEUTRAL)
     window._ia_sections['df_method'] = method_section
     window.combo_df_mode = QComboBox()
@@ -123,29 +127,29 @@ def build_fluid_sections(window, lay):
         "内置上海预设默认使用实验标定。"
         "实验标定使用与具体实验 campaign、边界和压降定义绑定的有效修正；"
         "数据集选择不代表已证实的工质本征效应。")
-    add_row(window, g_method, 0, "方法", right_align_combo(window.combo_df_mode))
+    default_factory().add_row(g_method, 0, "方法", right_align_combo(window.combo_df_mode))
 
-    g_nu, nu_section = section(window, lay, "sCO₂ Nu 换热模型", _T_NEUTRAL, _F_NEUTRAL)
+    g_nu, nu_section = default_factory().section(lay, "sCO₂ Nu 换热模型", _T_NEUTRAL, _F_NEUTRAL)
     window._ia_sections['sco2_nu'] = nu_section
     window.combo_sco2_nu_mode = QComboBox()
     window.combo_sco2_nu_mode.addItem("CFD 光滑壁面（默认）", "cfd_smooth")
     window.combo_sco2_nu_mode.addItem("有效系数标定", "experimental")
     window.combo_sco2_nu_mode.setStyleSheet(_COMBO)
     window.combo_sco2_nu_mode.setToolTip("独立于 D-F；选择现行有效系数，或导入带来源的参数。")
-    add_row(window, g_nu, 0, "方法", right_align_combo(window.combo_sco2_nu_mode))
+    default_factory().add_row(g_nu, 0, "方法", right_align_combo(window.combo_sco2_nu_mode))
     window.btn_sco2_nu_current = QPushButton("使用现行有效系数")
     window.btn_sco2_nu_current.setStyleSheet(t.style('BTN_SECONDARY'))
     window.btn_sco2_nu_current.setToolTip("Gyroid 为换热量标定；Diamond 为同倍率迁移。适用范围见参数来源。")
     window.btn_sco2_nu_current.clicked.connect(window._use_current_sco2_nu_parameters)
-    add_row(window, g_nu, 1, "现行参数", window.btn_sco2_nu_current)
+    default_factory().add_row(g_nu, 1, "现行参数", window.btn_sco2_nu_current)
     window.btn_sco2_nu_parameters = QPushButton("导入标定参数…")
     window.btn_sco2_nu_parameters.setStyleSheet(t.style('BTN_SECONDARY'))
     window.btn_sco2_nu_parameters.clicked.connect(window._load_sco2_nu_parameters)
-    add_row(window, g_nu, 2, "其他参数", window.btn_sco2_nu_parameters)
+    default_factory().add_row(g_nu, 2, "其他参数", window.btn_sco2_nu_parameters)
     window.lbl_sco2_nu_parameters = QLabel("未导入标定参数")
     window.lbl_sco2_nu_parameters.setStyleSheet(t.style('LBL'))
     window.lbl_sco2_nu_parameters.setWordWrap(True)
-    add_row(window, g_nu, 3, "来源", window.lbl_sco2_nu_parameters)
+    default_factory().add_row(g_nu, 3, "来源", window.lbl_sco2_nu_parameters)
 
     # Pack Fluid A and Fluid B side-by-side when the panel is wide enough
     # (≥ 520 px), stacked vertically when narrower — ResponsiveRow flips the
@@ -162,7 +166,7 @@ def build_fluid_sections(window, lay):
     window._ia_sections['fluids_row'] = _fluids_row
 
     # ── Fluid A (input + computed) ────────────────────────
-    g1, _ = section(window, _fluids_row_lay, "流体 A", _T_A, _F_A)
+    g1, _ = default_factory().section(_fluids_row_lay, "流体 A", _T_A, _F_A)
     _FLUID_TYPES = ["Air", "Water", "sCO₂"]
     window.combo_fluidA = QComboBox()
     window.combo_fluidA.addItems(_FLUID_TYPES)
@@ -185,13 +189,13 @@ def build_fluid_sections(window, lay):
                 "custom ports and all directions inside the CFD L/t grid.")
     except Exception:
         pass
-    add_row(window, g1, 0, "流体类型", right_align_combo(window.combo_fluidA))
+    default_factory().add_row(g1, 0, "流体类型", right_align_combo(window.combo_fluidA))
     _build_fluid_io_rows(window, g1, 'A', t,
                          u_default="20.0", T_default="422.0",
                          P_default="192362", btn_text="自动填充 A")
 
     # ── Fluid B (input + computed) — sits to the right of Fluid A ─────
-    g2b, _ = section(window, _fluids_row_lay, "流体 B", _T_B, _F_B)
+    g2b, _ = default_factory().section(_fluids_row_lay, "流体 B", _T_B, _F_B)
     # Both sides expose the same three-fluid capability.
     window.combo_fluidB = QComboBox()
     window.combo_fluidB.addItems(_FLUID_TYPES)
@@ -210,7 +214,7 @@ def build_fluid_sections(window, lay):
                 "and all directions inside the CFD L/t grid.")
     except Exception:
         pass
-    add_row(window, g2b, 0, "流体类型", right_align_combo(window.combo_fluidB))
+    default_factory().add_row(g2b, 0, "流体类型", right_align_combo(window.combo_fluidB))
     # Fluid B defaults: Shanghai Electric cold side = Water (case 8,
     # Re_water≈400). Raw values from data/raw_data/20260401-上海电气天然气
     # 加热器实验工况.xlsx Sheet1 row 9: water_in 26.89 °C → 300.0 K (col 24),
