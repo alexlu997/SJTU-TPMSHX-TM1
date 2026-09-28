@@ -70,6 +70,7 @@ jobs:
           "$CI_PYTHON" -m pytest sjtu_tpmshx/tests/ -q -ra
           -m "not slow and not heavy" --ignore=sjtu_tpmshx/tests/integration_tm1
           -n 2 --dist loadscope --max-worker-restart=0
+          -p sjtu_tpmshx.tests.ci_shard --ci-manifest=.cache/ci/fast-manifest
           --timeout=600 --timeout-method=thread
           --durations=30 --junitxml=.cache/ci/fast.xml
       - name: Run real public module integration
@@ -78,6 +79,7 @@ jobs:
           NUMBA_NUM_THREADS: "1"
         run: >-
           "$CI_PYTHON" -m pytest sjtu_tpmshx/tests/integration_tm1 -q -ra
+          -p sjtu_tpmshx.tests.ci_shard --ci-manifest=.cache/ci/integration-manifest
           --timeout=600 --timeout-method=thread
           --durations=30 --junitxml=.cache/ci/integration.xml
       - name: Save test outcomes and timings
@@ -88,6 +90,8 @@ jobs:
           path: |
             .cache/ci/fast.xml
             .cache/ci/integration.xml
+            .cache/ci/fast-manifest
+            .cache/ci/integration-manifest
           include-hidden-files: true
           retention-days: 7
 
