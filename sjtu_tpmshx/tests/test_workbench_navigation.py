@@ -323,6 +323,28 @@ def test_session_restores_width_page_and_legacy_defaults(win, monkeypatch):
     assert win.btn_result_summary.isChecked()
 
 
+def test_palette_field_selection_updates_visible_buttons(win):
+    from sjtu_tpmshx.tests.gui_workbench_support import _result
+    from sjtu_tpmshx.ui.command_palette import build_actions
+
+    win.combo_dim.setCurrentIndex(0)
+    win.cache.set_result('2d', _result('2d'))
+    win._update_tab_visibility()
+    win._switch_tab('temp')
+    buttons = win._2d_field_btns
+    selected, unselected = buttons[0].styleSheet(), buttons[1].styleSheet()
+    assert selected != unselected
+    actions = {action.keywords[0]: action for action in build_actions(win)
+               if action.category == 'Tabs'}
+
+    for field, index in (('pres', 2), ('vel', 1), ('temp', 0)):
+        actions[field].callback()
+        assert win._active_tab == field
+        assert win.combo_2d_field.currentIndex() == index
+        assert win._canvas_cards[field].isVisibleTo(win)
+        assert [button.styleSheet() for button in buttons] == [
+            selected if i == index else unselected for i in range(3)]
+
 def test_parameter_shortcut_is_bound_to_the_same_toggle(win):
     shortcut = next(item for item in win.findChildren(QShortcut)
                     if item.key() == QKeySequence('Ctrl+\\'))
