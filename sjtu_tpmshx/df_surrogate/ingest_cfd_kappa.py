@@ -65,7 +65,7 @@ def ingest(path: str) -> dict:
     """Divide fitted CFD coefficients by the symmetric predictor and register
     interpolation tables in this process. Return {tpms: n_points}."""
     by_tpms: dict = {}
-    with open(path, newline="", encoding="utf-8") as f:
+    with open(path, newline="", encoding="utf-8-sig") as f:
         for row in csv.DictReader(f):
             tpms = row["tpms"].strip()
             L = float(row["L_mm"]); t = float(row["t_mm"])

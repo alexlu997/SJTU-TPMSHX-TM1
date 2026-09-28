@@ -209,6 +209,7 @@ def build():
         ("  导出逐 (tpms,split,side,Re) 压降 CSV → python -m sjtu_tpmshx.runs.cfd_asym.asym_postproc_kappa <csv>。", None),
         ("  后处理拟合 (K,c_F)，按每拓扑 split_r≈1 的 CFD 拟合均值归一化；CSV 字段见该模块帮助，不能直接传 results sheet。", None),
         ("  ingest_cfd_kappa 是另一条研究路径，分母为对称模型预测，不等同于本工单的 CFD 自比。", None),
+        ("  results_template：每 (lattice,split,side) 拟 |ΔP|/L=(μ/K)Um+c_F·ρ·Um² 后填黄色 K_cfd/cF_cfd；保留首行标准 7 列表头，另存 CSV 交给 ingest。", None),
         ("  --register 仅当前进程注册；研究代码可调用 kappa_KcF(..., enabled=True)，完整3D/GUI求解准备尚不读取此表。", None),
         ("", None),
         ("黄列 = 待 Fluent 填。绿行 = 对称锚 r=1。', '主拟合'=操作 Re 区(4 点); 低 Re 钉 Darcy K。", None),
@@ -289,12 +290,9 @@ def build():
 
     # ── results_template (DF fit → ingest CSV) ───────────────────
     ws = wb.create_sheet("results_template")
-    note = ws.cell(row=1, column=1,
-                   value="每 (lattice,split,side) 对其 Re 的 (Um, dp_core/core_len) 拟 |ΔP|/L=(μ/K)Um+c_F·ρ·Um² → 填黄列 → 另存 CSV → ingest。")
-    note.font = Font(italic=True, color="7F7F7F")
-    cols = ["tpms", "L_mm", "t_mm", "eps_side", "eps_sym", "K_cfd(FILL)", "cF_cfd(FILL)"]
-    _hdr(ws, cols, row=2)
-    rr = 3
+    cols = ["tpms", "L_mm", "t_mm", "eps_side", "eps_sym", "K_cfd", "cF_cfd"]
+    _hdr(ws, cols)
+    rr = 2
     for g in geom:
         for side, eps_side in (("A", g["eps_A"]), ("B", g["eps_B"])):
             vals = [g["tpms"], L_mm, t_mm, eps_side, g["eps_sym"], None, None]
@@ -306,7 +304,7 @@ def build():
                     c.fill = ANCHOR_FILL
             rr += 1
     _widths(ws, [9, 7, 6, 9, 9, 13, 13])
-    ws.freeze_panes = "A3"
+    ws.freeze_panes = "A2"
 
     # ── r1_water_ref (water-side r=1 anchor pre-fit from water-cfd-raw) ──
     ref = _water_r1_ref()
