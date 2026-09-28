@@ -209,6 +209,7 @@ class TabViewMixin:
                 _combo.blockSignals(True)
                 _combo.setCurrentText(target)
                 _combo.blockSignals(False)
+                self._paint_2d_seg()
         # Exiting split view — a plain tab click means "back to single".
         if getattr(self, '_split_tabs', None):
             self._split_tabs = None
