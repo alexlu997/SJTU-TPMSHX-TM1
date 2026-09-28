@@ -148,6 +148,7 @@ def prepare_screening_3d(x_decision, cfg, *, case_id,
                    max_outer=max_outer, outer_tol_K=outer_tol_K, alpha_outer=alpha_outer,
                    max_iter_simple=max_iter_simple,
                    max_iter_energy=max_iter_energy, tol_energy=tol_energy,
+                   reject_unconverged=cfg['reject_unconverged'],
                    convergence_mode=convergence_mode, verbose=verbose)
     return CaseData(case_id=case_id, config_snapshot=cfg, grid=grid, design_fields=fields,
                     parameters=dict(compute=compute, flow=flows, rejection=rejection,

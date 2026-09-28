@@ -139,6 +139,11 @@ def run_case(case, control=RunControl()):
         _log.info("[3D] Solving SIMPLE B (cold) … ")
     t0 = time.perf_counter()
     simple_B_ok, _itB = solve_flow(sB, 'B')
+    if cfg.get('reject_unconverged', False) and not (simple_A_ok and simple_B_ok):
+        return capture(case, dict(execution='rejected', converged=False, screening=True,
+                                  rejection_stage='initial_flow', reason='initial SIMPLE did not converge',
+                                  simple_A_converged=bool(simple_A_ok), simple_B_converged=bool(simple_B_ok),
+                                  physical_validation='unestablished'), (sA, sB))
     if verbose:
         _log.info(f"{time.perf_counter()-t0:.0f}s")
     # Last LTNE inner pass's verdict (the returned fields ARE that pass's) and
@@ -290,6 +295,12 @@ def run_case(case, control=RunControl()):
         # Last re-solve's verdict overwrites the cold one (the fields returned
         # are the last solve's).
         simple_A_ok, _itA = solve_flow(sA, 'A')
+        if cfg.get('reject_unconverged', False) and not (simple_A_ok and simple_B_ok):
+            return capture(case, dict(execution='rejected', converged=False, screening=True,
+                                      rejection_stage='outer_flow', reason='outer SIMPLE did not converge',
+                                      simple_A_converged=bool(simple_A_ok), simple_B_converged=bool(simple_B_ok),
+                                      outer_iterations=outer_it + 1,
+                                      physical_validation='unestablished'), (sA, sB), (Ta, Tb, Ts))
         if verbose:
             _log.info(f"{time.perf_counter()-t0:.0f}s")
 
