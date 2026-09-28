@@ -17,8 +17,11 @@ import pandas as pd
 from sjtu_tpmshx.df_surrogate.load_water_cfd import (
     FLOW_SUSPECT, LATTICES)
 from sjtu_tpmshx.df_surrogate.cfd_geometry import attach_geometry
+from sjtu_tpmshx.io.file_set import staged_files
 from sjtu_tpmshx.models.nu_correlations import (
     WATER_NU_COEFFS, WATER_NU_RE_RANGE, nu_water_topo)
+from sjtu_tpmshx.validation.harness._provenance import (
+    check_distinct_outputs, output_path)
 
 ROOT = Path(__file__).resolve().parents[3]
 SOURCE = ROOT / "data/raw_data/cfd/water/water_DG_cfd_results_legacy.xlsx"
@@ -82,6 +85,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path,
                         default=ROOT / ".cache/water-nu-validation-20260912")
     args = parser.parse_args(argv)
+    try:
+        args.out = output_path(args.out)
+        outputs = [args.out / name for name in (
+            'rows.csv', 'by_geometry.csv', 'by_Re.csv', 'worst_20.csv',
+            'summary.json', 'report.md')]
+        check_distinct_outputs(outputs)
+        if args.source.resolve() in {path.resolve() for path in outputs}:
+            parser.error('output overlaps input workbook')
+    except ValueError as exc:
+        parser.error(str(exc))
     sheets = pd.read_excel(args.source, sheet_name=None)
     raw = pd.concat([d.assign(source_sheet=name, source_excel_row=np.arange(len(d)) + 2)
                      for name, d in sheets.items()], ignore_index=True)
@@ -107,11 +120,6 @@ def main(argv: list[str] | None = None) -> int:
     d["Re_bin"] = pd.cut(d.Re_current, [0, 500, 1000, 3000, 10000, 30000, np.inf], right=False)
     bins = pd.DataFrame([dict(topology=tp, Re_bin=str(b), **metrics(g))
                          for (tp, b), g in d.groupby(["topology", "Re_bin"], observed=True)])
-    args.out.mkdir(parents=True, exist_ok=True)
-    for name, frame in (("rows", d), ("by_geometry", geometry), ("by_Re", bins),
-                        ("worst_20", d.nlargest(20, "abs_relative_error"))):
-        frame.to_csv(args.out / f"{name}.csv", index=False)
-    (args.out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     lines = ["# 水 Nu 现存 Excel 验证", "", f"结果：{'通过' if passed else '未通过'}；原生退出码 {summary['native_exit']}。",
              "", "固定关联式；每个拓扑 RMSRE ≤ 10%，|平均有符号相对误差| ≤ 5%。",
              "全部 1879/1880 条实有记录、40 个几何进入统计；W01600 按缺测结案。",
@@ -132,7 +140,13 @@ def main(argv: list[str] | None = None) -> int:
     lines += ["", "逐行见 rows.csv，几何分组见 by_geometry.csv，Re 分段见 by_Re.csv，最差 20 行见 worst_20.csv。",
               "本报告检验现有关联式与现存数据的一致性，不构成独立实验验证或原 CFD 网格质量证明。",
               "未重新拟合，未改变生产系数、原始数据、成员或阈值。", ""]
-    (args.out / "report.md").write_text("\n".join(lines))
+    args.out.mkdir(parents=True, exist_ok=True)
+    with staged_files(outputs) as stage:
+        for name, frame in (("rows", d), ("by_geometry", geometry), ("by_Re", bins),
+                            ("worst_20", d.nlargest(20, "abs_relative_error"))):
+            frame.to_csv(stage / f"{name}.csv", index=False)
+        (stage / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding='utf-8')
+        (stage / "report.md").write_text("\n".join(lines), encoding='utf-8')
     print(json.dumps(summary, indent=2))
     return summary["native_exit"]
 
