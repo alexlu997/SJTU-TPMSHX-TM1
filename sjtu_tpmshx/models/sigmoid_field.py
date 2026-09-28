@@ -222,22 +222,6 @@ def get_geometry_lut(tpms_type, **kwargs):
     return _lut_cache[key]
 
 
-# ── Vectorized property computation ──────────────────────────
-
-def _nu_vec(tpms_type, Re, eps, L_mm, D_h_mm):
-    """Back-compat thin wrapper. Delegates to ``nu_correlations.nu_vec``.
-
-    The ``eps`` argument is kept for the legacy 5-arg signature (used by
-    sigmoid_field_3d.py and tests/test_review_fixes.py) but unused since
-    the 2026-05-28 audit Item 1 refactor (H1).
-
-    Re_floor=10 preserves the legacy Re=np.maximum(Re, 10.0) behaviour.
-    """
-    del eps
-    from .nu_correlations import nu_vec
-    return nu_vec(tpms_type, Re, L_mm, D_h_mm)
-
-
 # ── Main entry point ─────────────────────────────────────────
 
 def build_continuous_arrays(x, L0, t0, y_trans_inlet, y_trans_outlet,
@@ -372,6 +356,8 @@ def _geometry_from_fields(L_field, t_field, tpms_type, k_s, lut, *, allow_extrap
 
 def _fluid_arrays_from_geometry(geometry, tpms_type, u_A, u_B, T_inA, T_inB, *,
                                 P_in, P_inB, fluid_type):
+    from .nu_correlations import nu_vec
+
     # 5. Compute fluid properties (vectorized) — AIR ONLY (guarded above-call by
     # _check_zoned_fluid_support; this is the in-builder backstop so no caller
     # can silently get air props for a non-air fluid).
@@ -394,8 +380,8 @@ def _fluid_arrays_from_geometry(geometry, tpms_type, u_A, u_B, T_inA, T_inB, *,
     Re_B = np.maximum(rho_ref_B * u_B * D_h_arr / mu_B, 10.0)
 
     D_h_mm = D_h_arr * 1000.0
-    Nu_A = _nu_vec(tpms_type, Re_A, eps_arr, L_field, D_h_mm)
-    Nu_B = _nu_vec(tpms_type, Re_B, eps_arr, L_field, D_h_mm)
+    Nu_A = nu_vec(tpms_type, Re_A, L_field, D_h_mm)
+    Nu_B = nu_vec(tpms_type, Re_B, L_field, D_h_mm)
 
     H_sf_A = Nu_A * k_fA / D_h_arr
     H_sf_B = Nu_B * k_fB / D_h_arr

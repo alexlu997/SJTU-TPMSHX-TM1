@@ -4,7 +4,7 @@ from functools import partial
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.models import sigmoid_field, tpms_calc
+from sjtu_tpmshx.models import nu_correlations, sigmoid_field, tpms_calc
 from sjtu_tpmshx.models.zone_config import Zone, ZoneConfig
 
 
@@ -45,10 +45,15 @@ def test_geometry_matches_full_builder_without_evaluating_flow_properties(mode, 
         pytest.fail('Geometry preparation must not evaluate a velocity-dependent closure')
 
     monkeypatch.setattr(tpms_calc, 'compute', forbidden)
-    monkeypatch.setattr(sigmoid_field, '_nu_vec', forbidden)
+    monkeypatch.setattr(nu_correlations, 'nu_vec', forbidden)
     actual = geometry()
     assert not {'K_ffA_arr', 'K_ffB_arr', 'h_vA_arr', 'h_vB_arr'} & actual.keys()
     for key in ('zone_id', 'L_field', 't_field', 'eps_arr', 'eps_f_arr',
                 'K_ss_arr', 'r_h_arr', 'A_0_arr'):
         np.testing.assert_array_equal(actual[key], full[key])
     assert actual['axis'] == full['axis']
+    if mode == 'sigmoid':
+        # Prove that the guard patches the symbol consumed by the full builder.
+        with pytest.raises(pytest.fail.Exception, match='velocity-dependent closure'):
+            sigmoid_field.build_continuous_arrays(
+                *args, 5., 3., 380., 310., lut, allow_extrap=False, **widths)

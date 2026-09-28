@@ -1,8 +1,8 @@
 """Characterization test pinning nu_correlations to the legacy formulae bit-exact.
 
 Future Nu refits should show up as clear deltas in this test.
-Backward-compat note: existing test_review_fixes.py asserts the same numerical
-contract through NU_ROUGHNESS_FACTOR and sigmoid_field._nu_vec.
+Existing test_review_fixes.py also checks the shared roughness factor in
+the scalar and canonical vector paths.
 
 Per audit finding H1 (2026-05-28 4-perspective audit, plan Item 1).
 """
@@ -53,7 +53,7 @@ def test_nu_vec_matches_scalar_path():
 
 
 def test_nu_vec_applies_re_floor_at_10():
-    """Re_floor=10 matches legacy sigmoid_field._nu_vec behavior."""
+    """The vector closure retains its Re=10 lower bound."""
     from sjtu_tpmshx.models.nu_correlations import nu_vec
     Re_below = np.array([5.0, 1.0, 0.0])
     Re_at_10 = np.array([10.0, 10.0, 10.0])
@@ -83,20 +83,16 @@ def test_calculator_matches_canonical_nu():
     assert abs(Nu - nu_from_Re('Diamond', 1000.0, 0.4, 7.0, 1.5)) < 1e-15
 
 
-def test_legacy_sigmoid_field_nu_vec_still_works():
-    """Backward compat: sigmoid_field._nu_vec 5-arg signature unchanged.
-
-    Existing test_review_fixes.py:194 also exercises this contract; this is
-    a duplicate guard since the 5-arg signature is load-bearing.
-    """
-    from sjtu_tpmshx.models.sigmoid_field import _nu_vec
-    Re_arr = np.array([1000.0, 2000.0])
-    eps_arr = np.array([0.8, 0.8])   # unused but signature requires it
-    L_arr = np.array([7.0, 7.0])
-    D_h_arr = np.array([1.5, 1.5])
-    Nu = _nu_vec('Gyroid', Re_arr, eps_arr, L_arr, D_h_arr)
-    assert Nu.shape == (2,)
+def test_nu_vec_broadcasts_geometry_arrays():
+    from sjtu_tpmshx.models.nu_correlations import nu_vec
+    Re_arr = np.array([[1000.0], [2000.0]])
+    L_arr = np.array([7.0, 8.0])
+    D_h_arr = np.array([1.5, 2.0])
+    Nu = nu_vec('Gyroid', Re_arr, L_arr, D_h_arr)
+    assert Nu.shape == (2, 2)
     assert np.all(Nu > 0)
+    expected = NU_ROUGHNESS_FACTOR * _ref_gyroid_smooth(Re_arr, L_arr, D_h_arr)
+    np.testing.assert_allclose(Nu, expected, rtol=1e-15)
 
 
 @pytest.mark.parametrize('fluid', ['air', 'water', 'sco2'])
