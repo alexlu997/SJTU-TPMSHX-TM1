@@ -295,7 +295,9 @@ def test_q_cli_verdict_and_legacy_csv(monkeypatch, tmp_path, capsys,
         args += ["--case-manifest", str(manifest), "--accept-q"]
     monkeypatch.setattr("sys.argv", args)
 
-    def fake_run(topologies, dimensions, *, case, all_valid, fixed_cases):
+    def fake_run(topologies, dimensions, *, case, all_valid, fixed_cases,
+                 checkpoint_dir, resume, output_paths):
+        assert checkpoint_dir.is_dir() and not resume
         assert topologies == ["Diamond"] and dimensions == ["2d"]
         assert case is None and not all_valid
         assert fixed_cases == ({"Diamond": [1, 2]} if accept else None)
@@ -397,7 +399,9 @@ def test_q_cli_uses_explicit_manifest(monkeypatch, tmp_path):
                                    "--dimension", "2d", "--accept-q",
                                    "--case-manifest", str(path)])
 
-    def fake_run(topologies, dimensions, *, case, all_valid, fixed_cases):
+    def fake_run(topologies, dimensions, *, case, all_valid, fixed_cases,
+                 checkpoint_dir, resume, output_paths):
+        assert checkpoint_dir.is_dir() and not resume
         assert topologies == ["Diamond"] and dimensions == ["2d"]
         assert case is None and not all_valid
         assert fixed_cases == {"Diamond": [1, 2]}

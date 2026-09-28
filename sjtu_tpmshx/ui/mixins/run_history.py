@@ -199,7 +199,8 @@ class RunHistoryMixin:
         """Restore inputs from a recent-run snapshot. User hits Compute to
         re-run (same pattern as preset load)."""
         try:
-            self._apply_user_preset(entry.get("preset") or {})
+            self._apply_user_preset(entry.get("preset") or {},
+                                    source_name=entry.get('preset_source') or '')
             self.statusBar().showMessage(
                 f"Restored run from {entry.get('ts', '?')}.", 5000)
         except Exception as e:

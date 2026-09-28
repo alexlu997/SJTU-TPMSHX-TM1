@@ -109,21 +109,10 @@ class SessionPresetsMixin:
         return self.sm.save_user_presets(presets)
 
     def _resync_undo_baseline(self):
-        """Reset the undo baseline (`_undo_last`) to the CURRENT text of
-        every session line-edit.
-
-        2026-05-20 UI sweep (Tier 25). The global undo stack records a
-        field edit by comparing `editingFinished` text against
-        `_undo_last`. A programmatic batch-write (preset / Reset /
-        workspace switch / Shanghai defaults / session restore) rewrites
-        many fields via `setText` WITHOUT emitting `editingFinished`, so
-        `_undo_last` stayed at the pre-write values. The next manual edit
-        then pushed an undo command whose "old" value was the
-        pre-programmatic text — Ctrl+Z would jump back across the entire
-        preset load to a stale value. Treat these batch writes as undo
-        checkpoints: after the write, snap the baseline to the new text
-        so undo reverts to the post-preset state, not before it.
-        """
+        """Start an undo checkpoint at the final restored/displayed values."""
+        stack = getattr(self, '_undo_stack', None)
+        if stack is not None:
+            stack.clear()
         ul = getattr(self, '_undo_last', None)
         if ul is None:
             return
@@ -158,7 +147,8 @@ class SessionPresetsMixin:
         # The separate optimization figure can remain available for export.
         self._refresh_export_button()
 
-    def _apply_user_preset(self, preset, *, show_notice=True, partial=False):
+    def _apply_user_preset(self, preset, *, show_notice=True, partial=False,
+                           source_name=None):
         """Apply a saved preset payload (shape matches _save_session output).
 
         Widget names are filtered through the SESSION allow-lists so a tampered
@@ -202,9 +192,29 @@ class SessionPresetsMixin:
         # Cross-field requirements belong to the effective input, before any
         # widget signal or result invalidation can change the current state.
         self._validate_preset(preset)
+        notice = self._solver_settings_notice(preset)
+        if not partial and preset.get('zone_inputs') is None:
+            # Historical full saves did not own a zone table. Never inherit
+            # the previous window's table or Pareto decision in any load route.
+            from copy import deepcopy
+            preset = deepcopy(preset)
+            checks = preset.setdefault('checks', {})
+            if preset.get('continuous_field') is None:
+                if checks.get('chk_zones'):
+                    notice += ("\n" if notice else "") + (
+                        "旧会话未保存分区数据，已关闭分区并清空分区表；"
+                        "请重新载入完整分区配置或设置分区后再计算。")
+                checks['chk_zones'] = False
+            preset.setdefault('combos', {})['combo_zone_axis'] = 0
+            preset['zone_inputs'] = {
+                'rows': [], 'grid_nx': 2, 'pareto_x_decision': None,
+                'pareto_y_trans_inlet': 0.2, 'pareto_y_trans_outlet': 0.2,
+            }
         self._invalidate_results_for_preset_load()
         unit = preset.get('temp_unit', 'K')
         if unit in ('K', 'C'):
+            if unit != self._temp_unit:
+                self._discard_temperature_history()
             self._temp_unit = unit
             if hasattr(self, '_sync_temp_unit_labels'):
                 self._sync_temp_unit_labels()
@@ -274,15 +284,18 @@ class SessionPresetsMixin:
         from sjtu_tpmshx.ui.optimize_panel import refresh_setup
         refresh_setup(self)
         self._user_edited_grid = True
+        self._refresh_field_validation()
         self._resync_undo_baseline()
+        self._active_preset_name = (source_name if source_name is not None
+                                    else preset.get('name')) or None
         # Fluid signals are blocked above to preserve the preset's inputs.
         from sjtu_tpmshx.ui.builders_fluids import refresh_fluid_model_visibility
         refresh_fluid_model_visibility(self)
         if hasattr(self, '_refresh_status_bar'):
             self._refresh_status_bar()
-        notice = self._solver_settings_notice(preset)
         if notice and show_notice:
             QMessageBox.information(self, "工况设置已更新", notice)
+        return notice
 
     def _solver_settings_notice(self, payload):
         """Explain changed historical settings without restoring retired controls."""
@@ -482,6 +495,7 @@ class SessionPresetsMixin:
         elif name == "Shanghai (3D Diamond)":
             self.combo_tpms.setCurrentIndex(0)
         self._active_preset_name = name
+        self._resync_undo_baseline()
         if hasattr(self, '_refresh_status_bar'):
             self._refresh_status_bar()
         self.statusBar().showMessage(f"Preset: {name}.", 5000)
@@ -495,9 +509,19 @@ class SessionPresetsMixin:
         if not ok or not name.strip():
             return
         name = name.strip()
+        try:
+            self._refresh_field_validation()
+            preset = self._capture_current_preset(name)
+            for field in self._SESSION_LINE_EDITS:
+                if getattr(self, field).property('inpError') == 'true':
+                    raise ValueError(f'Invalid numeric field: {field}')
+            self._validate_preset(preset, complete=True)
+        except (TypeError, ValueError) as exc:
+            QMessageBox.warning(self, "预设未保存", str(exc))
+            return
         presets = self._load_user_presets()
         presets = [p for p in presets if p.get('name') != name]  # overwrite
-        presets.append(self._capture_current_preset(name))
+        presets.append(preset)
         if not self._save_user_presets(presets):
             QMessageBox.warning(self, "预设未保存", "无法写入用户预设，当前输入保持不变。请检查用户数据目录。")
             return
@@ -608,7 +632,18 @@ class SessionPresetsMixin:
 
     def _save_session(self):
         """Save the complete preset inputs plus window state for this workspace."""
+        # Closing need not blur the focused line edit before this callback.
+        # Keep capture pure: partial-import validation also reads that snapshot.
+        self._refresh_field_validation()
         payload = self._capture_current_preset('Last session')
+        if any(getattr(self, name).property('inpError') == 'true'
+               for name in self._SESSION_LINE_EDITS):
+            return False
+        try:
+            self._validate_preset(payload)
+        except (TypeError, ValueError):
+            return False
+        payload['preset_source'] = getattr(self, '_active_preset_name', None)
         # Workbench UI state (ui-shortcuts-persist): last tab (result-family
         # keys collapse to 'result' so restore re-resolves via _result_view),
         # left-panel collapse, 2D|3D result-view choice.
@@ -670,22 +705,6 @@ class SessionPresetsMixin:
             return
 
         restored = deepcopy(payload)
-        notice = self._solver_settings_notice(payload)
-        if restored.get('zone_inputs') is None:
-            # Older sessions saved the enabled flag without the table. Never
-            # apply it to a table/Pareto field left over from another workspace.
-            checks = restored.setdefault('checks', {})
-            if checks.get('chk_zones'):
-                notice += ("\n" if notice else "") + (
-                    "旧会话未保存分区数据，已关闭分区并清空分区表；"
-                    "请重新载入完整分区配置或设置分区后再计算。")
-            checks['chk_zones'] = False
-            restored.setdefault('combos', {})['combo_zone_axis'] = 0
-            restored['zone_inputs'] = {
-                'rows': [], 'grid_nx': 2, 'pareto_x_decision': None,
-                'pareto_y_trans_inlet': 0.2, 'pareto_y_trans_outlet': 0.2,
-            }
-
         # Open in Kelvin without changing either inlet's physical temperature.
         # Convert only saved C values; missing fields already have a known
         # physical value in the seeded defaults/current display unit.
@@ -697,7 +716,8 @@ class SessionPresetsMixin:
             elif saved_unit == 'C' and str(edits[name]).strip():
                 edits[name] = str(float(edits[name]) + 273.15)
         restored['temp_unit'] = 'K'
-        self._apply_user_preset(restored, show_notice=False)
+        notice = self._apply_user_preset(
+            restored, show_notice=False, source_name=payload.get('preset_source') or '')
         if notice:
             QTimer.singleShot(0, self, lambda: QMessageBox.information(
                 self, "工况设置已更新", notice))
