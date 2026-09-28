@@ -104,6 +104,49 @@ def test_failed_preset_library_backup_blocks_gui_overwrite(win, monkeypatch):
     assert [p.read_bytes() for p in path.parent.glob(path.name + '.corrupt-*')] == [raw]
 
 
+@pytest.mark.parametrize('route', ['save_menu', 'recent_menu'])
+@pytest.mark.parametrize('invalid', ['not a number', '-1'])
+def test_named_preset_rejects_invalid_draft_before_replacing_saved_entry(
+        win, monkeypatch, route, invalid):
+    from PySide6.QtWidgets import QInputDialog, QMessageBox
+    messages = []
+    monkeypatch.setattr(QInputDialog, 'getText', lambda *a, **k: ('saved design', True))
+    monkeypatch.setattr(QMessageBox, 'warning', lambda *a: messages.append(a[1:3]))
+    button, label = ((win.btn_save, '保存为预设…') if route == 'save_menu'
+                     else (win.btn_recent, '保存当前为预设…'))
+    next(a for a in button.menu().actions() if a.text() == label).trigger()
+    path = win.sm.presets_path()
+    previous = path.read_bytes()
+    win.le_L.setText(invalid)
+    win.le_L.editingFinished.emit()
+    assert win.le_L.property('inpError') == 'true'
+    # Saving rebuilds the recent menu, so resolve its current QAction again.
+    next(a for a in button.menu().actions() if a.text() == label).trigger()
+    assert path.read_bytes() == previous
+    assert messages == [('预设未保存', 'Invalid numeric field: le_L')]
+    next(a for a in win.btn_recent.menu().actions() if '★ saved design' in a.text()).trigger()
+    assert win.le_L.text() == '0.182'
+    assert win.le_L.property('inpError') == 'false'
+    assert len(messages) == 1
+
+
+@pytest.mark.parametrize('text', ['200 mm', '1/5'])
+def test_named_preset_commits_expression_and_replaces_valid_entry(win, monkeypatch, text):
+    from PySide6.QtWidgets import QInputDialog
+    monkeypatch.setattr(QInputDialog, 'getText', lambda *a, **k: ('saved design', True))
+    action = next(a for a in win.btn_save.menu().actions() if a.text() == '保存为预设…')
+    action.trigger()
+    win.le_L.setText(text)
+    action.trigger()
+    presets = json.loads(win.sm.presets_path().read_text())['presets']
+    assert len(presets) == 1
+    assert presets[0]['line_edits']['le_L'] == '0.2'
+    assert win.statusBar().currentMessage() == 'Saved preset: saved design.'
+    win.le_L.setText('0.3')
+    next(a for a in win.btn_recent.menu().actions() if '★ saved design' in a.text()).trigger()
+    assert win.le_L.text() == '0.2'
+
+
 @pytest.mark.parametrize('text', ['200 mm', '1/5'])
 def test_session_save_commits_valid_expression_before_capture(win, text):
     win.le_L.setText(text)

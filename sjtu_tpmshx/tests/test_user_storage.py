@@ -163,6 +163,13 @@ def test_preset_write_failure_is_reported_without_success_toast(tmp_path, monkey
     monkeypatch.setattr(QMessageBox, 'warning', lambda *args: messages.append(args[-1]))
     class Window(SessionPresetsMixin):
         sm = manager
+        _SESSION_LINE_EDITS = ()
+
+        def _refresh_field_validation(self):
+            pass
+
+        def _validate_preset(self, preset, *, complete=False):
+            pass
 
         def _capture_current_preset(self, name):
             return {'name': name, 'line_edits': {'le_TinA': '450'}}
