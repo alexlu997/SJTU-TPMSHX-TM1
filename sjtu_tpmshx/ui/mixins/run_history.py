@@ -140,7 +140,7 @@ class RunHistoryMixin:
 
         # — User-saved presets —
         try:
-            user = self._load_user_presets()
+            user = self.sm.load_user_presets()
         except Exception:
             user = []
         if user:

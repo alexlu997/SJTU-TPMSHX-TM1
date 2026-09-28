@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
 )
 
 from .theme import get_theme
-from .builders_base import (section, row, res_row, add_row, right_align_combo)
+from .builders_base import right_align_combo
 
 
 
@@ -52,18 +52,18 @@ def build_domain_sections(window, lay):
     window._ia_sections = {}
 
     # Domain Geometry
-    g, _sec_dg = section(window, lay, "  域几何", _T_NEUTRAL, _F_NEUTRAL)
+    g, _sec_dg = default_factory().section(lay, "  域几何", _T_NEUTRAL, _F_NEUTRAL)
     window._ia_sections['domain_geometry'] = _sec_dg
-    window.le_L        = row(window, g, 0, "长度 <i>L</i> [m]", "0.182")
-    window.le_H        = row(window, g, 1, "横向尺寸 <i>H</i> [m]", "0.042")
-    window.le_Lz       = row(window, g, 2, "厚度 <i>L<sub>z</sub></i> [m]", "0.042")
+    window.le_L        = default_factory().row(g, 0, "长度 <i>L</i> [m]", "0.182")
+    window.le_H        = default_factory().row(g, 1, "横向尺寸 <i>H</i> [m]", "0.042")
+    window.le_Lz       = default_factory().row(g, 2, "厚度 <i>L<sub>z</sub></i> [m]", "0.042")
     window._lbl_Lz     = g.itemAtPosition(2, 0).widget()
     window._3d_only_widgets += [window.le_Lz, window._lbl_Lz]
 
     window.lbl_domain_shape = QLabel("矩形")
     window.lbl_domain_shape.setStyleSheet(_LBL)
     window.lbl_domain_shape.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-    add_row(window, g, 3, "计算域形状", window.lbl_domain_shape)
+    default_factory().add_row(g, 3, "计算域形状", window.lbl_domain_shape)
 
     # Dimensionality (2D / 3D) — dispatch in run_calculation
     window.combo_dim = QComboBox()
@@ -72,48 +72,48 @@ def build_domain_sections(window, lay):
     window.combo_dim.currentIndexChanged.connect(
         lambda *_: _on_dim_changed(window))
     window.combo_dim.setToolTip("选择求解器的计算维度；结果中的场图 / 三维只切换显示方式。")
-    add_row(window, g, 4, "计算维度", right_align_combo(window.combo_dim))
+    default_factory().add_row(g, 4, "计算维度", right_align_combo(window.combo_dim))
 
     # ── TPMS Structure ──
-    g0, _sec_tp = section(window, lay, "  TPMS 结构", _T_NEUTRAL, _F_NEUTRAL)
+    g0, _sec_tp = default_factory().section(lay, "  TPMS 结构", _T_NEUTRAL, _F_NEUTRAL)
     window._ia_sections['tpms_structure'] = _sec_tp
     window.combo_tpms = QComboBox()
     window.combo_tpms.addItems(["Diamond", "Gyroid"])
     window.combo_tpms.setCurrentIndex(1)  # default Gyroid
     window.combo_tpms.setStyleSheet(_COMBO)
-    add_row(window, g0, 0, "拓扑类型", right_align_combo(window.combo_tpms))
-    window.le_Lcell = row(window, g0, 1, "胞元 <i>L</i><sub>cell</sub> [mm]", "7.0")
+    default_factory().add_row(g0, 0, "拓扑类型", right_align_combo(window.combo_tpms))
+    window.le_Lcell = default_factory().row(g0, 1, "胞元 <i>L</i><sub>cell</sub> [mm]", "7.0")
     # t=0.6 mm is the Shanghai specimen and a supported fixed-CFD node.
-    window.le_t     = row(window, g0, 2, "壁厚 <i>t</i> [mm]", "0.6")
-    window.le_ks    = row(window, g0, 3, "热导率 <i>k</i><sub>s</sub> [W/(m·K)]", "16.0")
+    window.le_t     = default_factory().row(g0, 2, "壁厚 <i>t</i> [mm]", "0.6")
+    window.le_ks    = default_factory().row(g0, 3, "热导率 <i>k</i><sub>s</sub> [W/(m·K)]", "16.0")
     btn_tpms = QPushButton("计算 TPMS 几何")
     btn_tpms.setFixedHeight(28); btn_tpms.setStyleSheet(t.style('BTN_SECONDARY'))
     btn_tpms.setToolTip("Compute porosity, specific area, hydraulic diameter, k_ss from current L_cell / t")
     btn_tpms.clicked.connect(window.compute_tpms)
     g0.addWidget(btn_tpms, 4, 0, 1, 2)
     # Computed outputs use the same always-visible card as the geometry inputs.
-    gC, _sec_tc = section(
-        window, lay, "  几何计算值", _T_NEUTRAL, _F_NEUTRAL)
+    gC, _sec_tc = default_factory().section(
+        lay, "  几何计算值", _T_NEUTRAL, _F_NEUTRAL)
     window._ia_sections['tpms_computed'] = _sec_tc
-    window._v_eps  = res_row(window, gC, 0, "<i>&epsilon;</i>")
-    window._v_A0   = res_row(window, gC, 1, "<i>A</i><sub>0</sub> [m<sup>-1</sup>]")
-    window._v_Dh   = res_row(window, gC, 2, "<i>D<sub>h</sub></i> [mm]")
-    window._v_Kss  = res_row(window, gC, 3, "<i>K</i><sub>ss</sub> [W/(m·K)]")
+    window._v_eps  = default_factory().res_row(gC, 0, "<i>&epsilon;</i>")
+    window._v_A0   = default_factory().res_row(gC, 1, "<i>A</i><sub>0</sub> [m<sup>-1</sup>]")
+    window._v_Dh   = default_factory().res_row(gC, 2, "<i>D<sub>h</sub></i> [mm]")
+    window._v_Kss  = default_factory().res_row(gC, 3, "<i>K</i><sub>ss</sub> [W/(m·K)]")
     # Material density is used for mass; fluid cp comes from the property model.
     # Steady LTNE has no solid heat-storage term.
-    g2, _sec_mat = section(window, lay, "  材料属性", _T_NEUTRAL, _F_NEUTRAL)
+    g2, _sec_mat = default_factory().section(lay, "  材料属性", _T_NEUTRAL, _F_NEUTRAL)
     window._ia_sections['material'] = _sec_mat
-    window.le_rho_s = row(window, g2, 0, "<i>&rho;</i><sub>s</sub> [kg/m³]", "7900")
+    window.le_rho_s = default_factory().row(g2, 0, "<i>&rho;</i><sub>s</sub> [kg/m³]", "7900")
     # Optimization uses rho_s for solid mass; steady LTNE has no solid storage term.
     window.le_rho_s.setToolTip(
         "固体密度：用于优化设计的质量计算，并随工况保存。"
         "当前稳态 LTNE 固体能量方程没有储热项，不直接使用该密度。")
     # ── Grid Settings (rect mode) ──
-    g4, sec_solver_rect = section(window, lay, "  网格设置", _T_NEUTRAL, _F_NEUTRAL)
+    g4, sec_solver_rect = default_factory().section(lay, "  网格设置", _T_NEUTRAL, _F_NEUTRAL)
     window._ia_sections['grid_rect'] = sec_solver_rect
-    window.le_Nx = row(window, g4, 0, "网格 <i>N<sub>x</sub></i>", "30")
-    window.le_Ny = row(window, g4, 1, "网格 <i>N<sub>y</sub></i>", "20")
-    window.le_Nz = row(window, g4, 2, "网格 <i>N<sub>z</sub></i>（三维）", "5")
+    window.le_Nx = default_factory().row(g4, 0, "网格 <i>N<sub>x</sub></i>", "30")
+    window.le_Ny = default_factory().row(g4, 1, "网格 <i>N<sub>y</sub></i>", "20")
+    window.le_Nz = default_factory().row(g4, 2, "网格 <i>N<sub>z</sub></i>（三维）", "5")
     window._lbl_Nz = g4.itemAtPosition(2, 0).widget()
     window._3d_only_widgets += [window.le_Nz, window._lbl_Nz]
 
@@ -124,9 +124,9 @@ def build_domain_sections(window, lay):
     window.combo_grid.setToolTip(
         "端口与壁面加密在开口边缘和壁面集中布置网格，Nx/Ny/Nz 包含全部加密单元。\n"
         "上海水—空气预设使用端口加密；修改几何后需重新检查网格精度。")
-    add_row(window, g4, 3, "网格方案", right_align_combo(window.combo_grid))
+    default_factory().add_row(g4, 3, "网格方案", right_align_combo(window.combo_grid))
 
-    g_policy, sec_policy = section(window, lay, "关联式适用范围", _T_NEUTRAL, _F_NEUTRAL)
+    g_policy, sec_policy = default_factory().section(lay, "关联式适用范围", _T_NEUTRAL, _F_NEUTRAL)
     window._ia_sections['correlation_policy'] = sec_policy
 
     # Keep the applicability gate visible alongside the solver settings.
@@ -169,7 +169,7 @@ def build_domain_sections(window, lay):
                                  get_solver_threads as _get_threads,
                                  set_solver_threads as _set_threads)
     _mx_cores = _max_threads()
-    g_cpu, sec_cpu = section(window, lay, "计算资源", _T_NEUTRAL, _F_NEUTRAL)
+    g_cpu, sec_cpu = default_factory().section(lay, "计算资源", _T_NEUTRAL, _F_NEUTRAL)
     window._ia_sections['compute_resources'] = sec_cpu
     # Separate the resource control from numerical switches. The spinbox
     # supports both keyboard entry and the −/+ buttons below.
