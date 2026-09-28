@@ -205,11 +205,18 @@ class FluidInputMixin:
             except Exception:
                 pass
 
+    def _discard_temperature_history(self):
+        """Recent values are display text, so they cannot cross unit changes."""
+        history = getattr(self, '_field_history', {})
+        for name in ('le_TinA', 'le_TinB'):
+            history.pop(name, None)
+
     def _toggle_temp_unit(self):
         """Flip between Kelvin and Celsius display for the inlet
         temperature fields. Converts the displayed text AND rewrites the
         label suffixes (`[K]` ↔ `[°C]`) so the UI is self-consistent.
         """
+        self._refresh_field_validation()
         cur = getattr(self, '_temp_unit', 'K')
         fields = [
             getattr(self, 'le_TinA', None),
@@ -240,6 +247,9 @@ class FluidInputMixin:
                     pass
             self._temp_unit = 'K'
         self._sync_temp_unit_labels()
+        self._refresh_field_validation()
+        self._discard_temperature_history()
+        self._resync_undo_baseline()
         self._update_result_summary()
         from sjtu_tpmshx.ui.plot_2d_results import redraw_result_fields
         redraw_result_fields(self)

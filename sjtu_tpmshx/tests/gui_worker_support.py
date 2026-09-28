@@ -42,7 +42,13 @@ def win(tmp_path, monkeypatch):
     if isValid(window):
         window.compute.cancel()
         _wait_for(window.compute.is_idle)
-        window.close()
+        # Some tests intentionally leave invalid drafts (e.g. a short Pareto
+        # vector). Exercise saving, but discard those drafts during cleanup;
+        # close-confirmation behavior itself is asserted inside the tests.
+        with monkeypatch.context() as cleanup:
+            cleanup.setattr(QMessageBox, 'warning',
+                            lambda *args: QMessageBox.StandardButton.Discard)
+            window.close()
         window.deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 

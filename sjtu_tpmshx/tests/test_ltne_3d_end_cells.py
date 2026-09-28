@@ -111,15 +111,19 @@ def _check_two_cells(direction, fraction, mode, unequal, inlet_scale=None):
             args += (np.full((2,2),fa[0]),np.full((2,2),fb[0]))
         elif inlet_fluxes is not None:
             args += tuple(np.full((2,2), flux) for flux in inlet_fluxes)
+        else:
+            args += (None, None)
         kernels._gs_full_chunk_3d(*args)
     else:
         fn = kernels._gs_full_chunk_3d_stag_rb if mode.startswith('rb') else kernels._gs_full_chunk_3d_stag
         old_threads = get_num_threads()
         try:
             set_num_threads(2)
-            extra = () if inlet_fluxes is None else tuple(
+            extra = (None, None) if inlet_fluxes is None else tuple(
                 np.full((2,2), flux) for flux in inlet_fluxes)
-            fn(*args, one*0,one*0,one*0,int(conservative), *extra)
+            # Match the driver's optional types instead of compiling omitted defaults.
+            fn(*args, one*0,one*0,one*0,int(conservative), *extra,
+               None, None, None, None)
         finally:
             set_num_threads(old_threads)
     for actual, pair in zip(fields, expected.reshape(3,2)):

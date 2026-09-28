@@ -43,7 +43,9 @@ def _attach_context_menu(window, le, attr):
         # Copy as expression — pairs value with the stored unit from
         # _FIELD_UNITS so a user pasting into a notebook gets context.
         unit_family = window._FIELD_UNITS.get(attr, ('', ''))
-        unit_txt = unit_family[1] if unit_family else ''
+        family, target = unit_family
+        unit_txt = (('°C' if window._temp_unit == 'C' else 'K')
+                    if family == 'temp' else target or '')
         unit_label = f" [{unit_txt}]" if unit_txt else ""
         act_expr = menu.addAction(f"Copy with unit{unit_label}")
         act_expr.triggered.connect(

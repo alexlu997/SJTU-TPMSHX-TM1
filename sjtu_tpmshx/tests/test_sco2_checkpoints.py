@@ -1,6 +1,8 @@
 """Keep the full denominator and completed evidence across interrupted Q runs."""
 import copy
 import json
+import os
+import subprocess
 
 import pandas as pd
 import pytest
@@ -8,6 +10,7 @@ import pytest
 from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.validation.cases import validate_sco2_exp_q as runner
 from sjtu_tpmshx.validation.cases import _sco2_checkpoints as checkpoints
+from sjtu_tpmshx.validation.cases._sco2_checkpoints import runtime_identity
 
 
 @pytest.fixture
@@ -204,3 +207,85 @@ def test_runtime_identity_excludes_only_known_untracked_outputs(tmp_path, monkey
     unknown.unlink()
     source.write_text('value = 3\n')
     assert checkpoints.runtime_identity(tmp_path, generated=[report, source])['dirty']
+
+
+def _git(root, *args):
+    return subprocess.check_output(
+        ['git', '-C', str(root), '-c', 'user.name=Checkpoint Test',
+         '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', *args],
+        text=True, stderr=subprocess.DEVNULL).strip()
+
+
+@pytest.mark.parametrize('metadata', ['absent', 'empty'])
+def test_resume_rejects_unidentified_copy_inside_parent_repo(batch, tmp_path, monkeypatch,
+                                                           metadata):
+    repo = tmp_path / 'parent'
+    repo.mkdir()
+    _git(repo, 'init')
+    (repo / '.gitignore').write_text('installed/\n')
+    _git(repo, 'add', '.gitignore')
+    _git(repo, 'commit', '-m', 'parent repository')
+    installed = repo / 'installed'
+    installed.mkdir()
+    source = installed / 'solver.py'
+    source.write_text('value = 1\n')
+    if metadata == 'empty':
+        (installed / '.git').mkdir()
+    monkeypatch.setattr(checkpoints, 'runtime_identity', runtime_identity)
+    monkeypatch.setattr(checkpoints, 'installed_versions', lambda: {})
+    monkeypatch.setattr(runner, 'REPO_ROOT', installed)
+    output = installed / 'checkpoint'
+    run(output)
+    before = {path.name: path.read_bytes() for path in output.iterdir()}
+    source.write_text('value = 2\n')
+    monkeypatch.setattr(runner, '_run_case', lambda *a: pytest.fail('unidentified copy resumed'))
+    with pytest.raises(ValueError, match='identified clean code checkout'):
+        run(output, resume=True)
+    identity = json.loads((output / 'state.json').read_text())['snapshot']['runtime']
+    assert identity['commit'] == '' and identity['dirty'] is True
+    assert {path.name: path.read_bytes() for path in output.iterdir()} == before
+
+
+@pytest.mark.parametrize('linked', [False, True])
+@pytest.mark.parametrize('override', [None, 'GIT_DIR', 'GIT_COMMON_DIR', 'GIT_WORK_TREE'])
+def test_resume_uses_own_checkout_despite_external_git_environment(
+        batch, tmp_path, monkeypatch, linked, override):
+    repo = tmp_path / 'repo'
+    repo.mkdir()
+    _git(repo, 'init')
+    (repo / 'solver.py').write_text('value = 1\n')
+    _git(repo, 'add', 'solver.py')
+    _git(repo, 'commit', '-m', 'first source')
+    worktree = tmp_path / 'worktree'
+    _git(repo, 'worktree', 'add', '--detach', str(worktree), 'HEAD')
+    (repo / 'solver.py').write_text('value = 2\n')
+    _git(repo, 'commit', '-am', 'second source')
+    root = worktree if linked else repo
+    revision = _git(root, 'rev-parse', 'HEAD')
+    foreign = tmp_path / 'foreign'
+    foreign.mkdir()
+    _git(foreign, 'init')
+    (foreign / 'solver.py').write_text('foreign = True\n')
+    _git(foreign, 'add', 'solver.py')
+    _git(foreign, 'commit', '-m', 'foreign source')
+    monkeypatch.setattr(checkpoints, 'runtime_identity', runtime_identity)
+    monkeypatch.setattr(checkpoints, 'installed_versions', lambda: {})
+    monkeypatch.setattr(runner, 'REPO_ROOT', root)
+    output = root / 'checkpoint'
+    expected = run(output)
+    identity = json.loads((output / 'state.json').read_text())['snapshot']['runtime']
+    assert identity['commit'] == revision and identity['dirty'] is False
+    if override:
+        target = {'GIT_DIR': foreign / '.git',
+                  'GIT_COMMON_DIR': foreign / 'missing-metadata',
+                  'GIT_WORK_TREE': foreign}[override]
+        monkeypatch.setenv(override, str(target))
+    inherited = os.environ.copy()
+    monkeypatch.setattr(runner, '_run_case', lambda *a: pytest.fail('completed member reran'))
+    pd.testing.assert_frame_equal(run(output, resume=True), expected, check_dtype=False)
+    # Known untracked checkpoint outputs are excluded; modified tracked code never is.
+    source = root / 'solver.py'
+    source.write_text('value = 3\n')
+    with pytest.raises(ValueError, match='identified clean code checkout'):
+        run(output, resume=True, output_paths=(source,))
+    assert os.environ == inherited

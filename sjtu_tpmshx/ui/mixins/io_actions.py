@@ -17,13 +17,16 @@ class IOActionsMixin:
         from pathlib import Path
         from sjtu_tpmshx.io.file_set import staged_files
         res_3d = self.cache.get_result('3d')
-        has_2d = self.cache.has_results('2d')
+        res_2d = self.cache.get_result('2d')
         # Export accepted numerical data independently of renderer readiness.
         has_3d = res_3d is not None
-        if not has_2d and not has_3d:
+        if res_2d is None and not has_3d:
             QMessageBox.information(self, "No Results",
                 "Run Compute first to generate exportable results.")
             return
+        # File dialogs process worker completion signals. Keep the accepted
+        # object selected at click time even if another result is published.
+        result = res_3d if res_3d is not None else res_2d
         path, _ = QFileDialog.getSaveFileName(
             self, "Export Results", "results.csv",
             "CSV (*.csv);;All Files (*)")
@@ -31,7 +34,6 @@ class IOActionsMixin:
             return
         try:
             rows = []
-            result = res_3d if res_3d is not None else self.cache.get_result('2d')
             _rf = result.fields
             diag = result.diagnostics or {}
             status = {
@@ -400,6 +402,10 @@ class IOActionsMixin:
             if commit:
                 meta['Keywords'] = f"commit={commit}"
             preset = getattr(self, '_active_preset_name', None)
+            if key in ('temp', 'pres', 'vel'):
+                result = self.cache.get_result('3d') or self.cache.get_result('2d')
+                preset = (result.metadata.get('run_provenance', {}).get('preset_source')
+                          if result is not None else None)
             # The retained optimization figure can precede the current Compute
             # preset. Their originating study / field configuration is separate.
             if preset and key not in ('pareto', 'opt_field'):
