@@ -46,6 +46,8 @@ def test_source_checkout_worktree_and_no_metadata(tmp_path, monkeypatch, overrid
 
         # An installed/frozen layout inside another repo must not inherit its HEAD.
         assert repository_revision(repo / 'installed')['revision'] is None
+        (repo / 'installed' / '.git').mkdir(parents=True)
+        assert repository_revision(repo / 'installed')['revision'] is None
         assert os.environ == inherited
 
     # Read source semantics after restoring the intentionally overridden environment.

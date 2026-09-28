@@ -8,12 +8,22 @@ from sjtu_tpmshx._version import __version__
 SOURCE_ROOT = Path(__file__).resolve().parents[2]
 
 
-def repository_revision(root):
+def repository_environment(root):
+    """Keep Git discovery local to this checkout, including linked worktrees."""
     root = Path(root).resolve()
     if not (root / '.git').exists():
-        return dict(revision=None, tracked_changes=None, status='unavailable')
+        return None
     env = {k:v for k,v in os.environ.items()
            if k not in ('GIT_DIR','GIT_COMMON_DIR','GIT_WORK_TREE')}
+    env['GIT_CEILING_DIRECTORIES'] = str(root.parent)
+    return env
+
+
+def repository_revision(root):
+    root = Path(root).resolve()
+    env = repository_environment(root)
+    if env is None:
+        return dict(revision=None, tracked_changes=None, status='unavailable')
     try:
         lines = subprocess.check_output(
             ['git','status','--porcelain=v2','--branch','--no-ahead-behind','--untracked-files=no'],

@@ -10,26 +10,32 @@ import sys
 
 import pandas as pd
 
+from sjtu_tpmshx.domain.provenance import repository_environment
 from sjtu_tpmshx.io.file_set import staged_files
 from sjtu_tpmshx.runs.tools.check_locked_environment import installed_versions
 
 
 def runtime_identity(root, *, generated=()):
     """Record actual code/environment; only clean identified code can resume."""
-    try:
-        commit = subprocess.check_output(
-            ['git', 'rev-parse', 'HEAD'], cwd=root, text=True,
-            stderr=subprocess.DEVNULL).strip()
-        tracked = subprocess.check_output(
-            ['git', 'diff', '--name-only', '-z', 'HEAD'], cwd=root).split(b'\0')
-        untracked = subprocess.check_output(
-            ['git', 'ls-files', '--others', '--exclude-standard', '-z'], cwd=root).split(b'\0')
-        outputs = {Path(path).resolve() for path in generated}
-        dirty = any(tracked) or any(
-            path and (Path(root) / os.fsdecode(path)).resolve() not in outputs
-            for path in untracked)
-    except (OSError, subprocess.CalledProcessError):
-        commit, dirty = '', True
+    root = Path(root).resolve()
+    env = repository_environment(root)
+    commit, dirty = '', True
+    if env is not None:
+        try:
+            commit = subprocess.check_output(
+                ['git', 'rev-parse', 'HEAD'], cwd=root, env=env, text=True,
+                stderr=subprocess.DEVNULL).strip()
+            tracked = subprocess.check_output(
+                ['git', 'diff', '--name-only', '-z', 'HEAD'], cwd=root, env=env).split(b'\0')
+            untracked = subprocess.check_output(
+                ['git', 'ls-files', '--others', '--exclude-standard', '-z'],
+                cwd=root, env=env).split(b'\0')
+            outputs = {Path(path).resolve() for path in generated}
+            dirty = any(tracked) or any(
+                path and (root / os.fsdecode(path)).resolve() not in outputs
+                for path in untracked)
+        except (OSError, subprocess.CalledProcessError):
+            commit, dirty = '', True
     return dict(commit=commit, dirty=dirty, python=sys.version,
                 interpreter=sys.executable, platform=platform.platform(),
                 packages={key: sorted(value) for key, value in installed_versions().items()
