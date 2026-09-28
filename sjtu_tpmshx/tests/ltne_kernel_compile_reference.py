@@ -23,16 +23,27 @@ def compile_routes():
     ufB = np.full((Nx + 1, Ny, Nz), 0.5)
     vfB = np.zeros((Nx, Ny + 1, Nz)); wfB = np.zeros((Nx, Ny, Nz + 1))
     # legacy cell-centered kernel (force_cc_ltne fallback path)
-    _gs_full_chunk_3d(
-        Ta.copy(), Tb.copy(), Ts.copy(), Nx, Ny, Nz, dx, dy, dz,
+    common = (Nx, Ny, Nz, dx, dy, dz,
         K, K, K, hv, hv, ef, ef, rcp, rcp,
+    )
+    cell_args = (*common,
         uc, v0, v0, uc, v0, v0,
         0, 3, TinA, TinB, fA, fB, 1, 0, 0.7, 0.7, 0.7)
+    compiled = [field.copy() for field in (Ta, Tb, Ts)]
+    defaults = [field.copy() for field in (Ta, Tb, Ts)]
+    _gs_full_chunk_3d(*compiled, *cell_args, None, None)
+    _gs_full_chunk_3d.py_func(*defaults, *cell_args)
+    for actual, expected in zip(compiled, defaults):
+        np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12)
     # default-path staggered kernels (serial + red-black), conservative form
     for _stag in (_gs_full_chunk_3d_stag, _gs_full_chunk_3d_stag_rb):
-        _stag(
-            Ta.copy(), Tb.copy(), Ts.copy(), Nx, Ny, Nz, dx, dy, dz,
-            K, K, K, hv, hv, ef, ef, rcp, rcp,
+        face_args = (*common,
             ufA, vfA, wfA, ufB, vfB, wfB,
             0, 3, TinA, TinB, fA, fB, 1, 0, 0.7, 0.7, 0.7,
             mms, mms, mms, 1)
+        compiled = [field.copy() for field in (Ta, Tb, Ts)]
+        defaults = [field.copy() for field in (Ta, Tb, Ts)]
+        _stag(*compiled, *face_args, None, None, None, None, None, None)
+        _stag.py_func(*defaults, *face_args)
+        for actual, expected in zip(compiled, defaults):
+            np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12)
