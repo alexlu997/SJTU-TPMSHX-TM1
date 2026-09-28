@@ -64,3 +64,64 @@ def test_wall_refine_3d_solves_and_matches_uniform():
     Qu = abs(ru['Q_enthalpy_A'])
     assert abs(Qa - Qu) / Qu < 0.10, \
         f"refined Q {Qa:.0f} vs uniform {Qu:.0f} (>10%)"
+
+
+@pytest.mark.parametrize('wall_refine', [False, True])
+def test_uniform_grid_when_disabled_or_refinement_rejected(wall_refine, monkeypatch):
+    from unittest.mock import Mock
+    from sjtu_tpmshx.models import grid, grid_3d
+
+    refine = Mock(side_effect=ValueError('small domain'))
+    logger = Mock()
+    monkeypatch.setattr(grid, 'build_master_refined_grid_3d', refine)
+    monkeypatch.setattr(grid_3d, '_log', logger)
+    dx, dy, dz, nx, ny, nz = grid_3d._build_grid_3d(
+        wall_refine, .12, .08, .06, 3, 4, 2)
+    assert (nx, ny, nz) == (3, 4, 2)
+    for actual, n, width in ((dx, 3, .12 / 3), (dy, 4, .08 / 4), (dz, 2, .06 / 2)):
+        np.testing.assert_array_equal(actual, np.full(n, width, dtype=np.float64))
+        assert actual.dtype == np.float64
+    logger.info.assert_not_called()
+    if wall_refine:
+        refine.assert_called_once_with(.12, .08, .06, 3, 4, 2,
+                                       n_refine=8, first_cell=0.02e-3, growth=1.8)
+        logger.warning.assert_called_once_with(
+            '[3D grid] wall-refine skipped (small domain); using uniform')
+    else:
+        refine.assert_not_called()
+        logger.warning.assert_not_called()
+
+
+def test_refined_grid_keeps_arrays_without_uniform_allocation(monkeypatch):
+    from unittest.mock import Mock
+    from sjtu_tpmshx.models import grid, grid_3d
+
+    widths = (np.array([.02, .08, .02]), np.array([.01, .06, .01]),
+              np.array([.01, .04, .01]))
+    refine = Mock(return_value=(*widths, 3, 3, 3))
+    logger = Mock()
+    monkeypatch.setattr(grid, 'build_master_refined_grid_3d', refine)
+    monkeypatch.setattr(grid_3d, '_log', logger)
+    monkeypatch.setattr(grid_3d.np, 'full', Mock(side_effect=AssertionError('uniform allocation')))
+    actual = grid_3d._build_grid_3d(True, .12, .08, .06, 3, 4, 2)
+    assert actual[3:] == (3, 3, 3)
+    assert all(actual[i] is widths[i] for i in range(3))
+    refine.assert_called_once_with(.12, .08, .06, 3, 4, 2,
+                                   n_refine=8, first_cell=0.02e-3, growth=1.8)
+    logger.info.assert_called_once_with('[3D grid] wall-refine: user 3x4x2 -> actual 3x3x3')
+    logger.warning.assert_not_called()
+
+
+@pytest.mark.parametrize('error_type', [RuntimeError, ImportError])
+def test_refinement_unexpected_errors_propagate(error_type, monkeypatch):
+    from unittest.mock import Mock
+    from sjtu_tpmshx.models import grid, grid_3d
+
+    error = error_type('refinement failed')
+    monkeypatch.setattr(grid, 'build_master_refined_grid_3d', Mock(side_effect=error))
+    logger = Mock()
+    monkeypatch.setattr(grid_3d, '_log', logger)
+    with pytest.raises(error_type) as caught:
+        grid_3d._build_grid_3d(True, .12, .08, .06, 3, 4, 2)
+    assert caught.value is error
+    logger.warning.assert_not_called()
