@@ -37,7 +37,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, TextIO
 from uuid import uuid4
 
 from PySide6.QtCore import QObject
@@ -158,7 +158,11 @@ class SessionManager(QObject):
         return backup
 
     def _atomic_write_json(self, path: Path, data: Any) -> bool:
-        """Atomically replace JSON; the last successful replacement wins.
+        """Stream JSON through the shared atomic replacement protocol."""
+        return self._atomic_write(path, lambda f: json.dump(data, f, indent=2))
+
+    def _atomic_write(self, path: Path, write: Callable[[TextIO], Any]) -> bool:
+        """Atomically replace a file; the last successful replacement wins.
 
         Each writer owns its temporary file, following ``io.text_file``.
         A failed writer cannot overwrite or delete another writer's data.
@@ -167,7 +171,7 @@ class SessionManager(QObject):
         try:
             fd, tmp = tempfile.mkstemp(prefix=path.name + '.', suffix='.tmp', dir=path.parent)
             with os.fdopen(fd, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2)
+                write(f)
                 f.flush()
                 try:
                     os.fsync(f.fileno())
@@ -278,27 +282,7 @@ class SessionManager(QObject):
             raise ValueError(
                 f"unknown workspace: {workspace!r} "
                 f"(expected one of {self.VALID_WORKSPACES})")
-        path = self.workspace_marker_path()
-        tmp = None
-        try:
-            fd, tmp = tempfile.mkstemp(prefix=path.name + '.', suffix='.tmp', dir=path.parent)
-            with os.fdopen(fd, 'w', encoding='utf-8') as f:
-                f.write(workspace)
-                f.flush()
-                try:
-                    os.fsync(f.fileno())
-                except (OSError, AttributeError):
-                    pass
-            os.replace(tmp, path)
-            return True
-        except OSError:
-            return False
-        finally:
-            if tmp is not None:
-                try:
-                    os.unlink(tmp)
-                except OSError:
-                    pass
+        return self._atomic_write(self.workspace_marker_path(), lambda f: f.write(workspace))
 
     # ------------------------------------------------------------------ misc
 
