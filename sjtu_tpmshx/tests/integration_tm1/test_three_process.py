@@ -67,8 +67,8 @@ raise SystemExit(status)
     # Actual inlet-pressure reference; old values and native evidence are
     # preserved in docs/history/README.md.
     expected = (AIR_PUBLIC_METRICS if dimension == 2 else
-                [338.325949393, 1944.010935833327, 3038.067091602703,
-                 359.22541117456143, 344.9327731893514])
+                [338.32597986464316, 1944.171058451597, 3038.3756313666836,
+                 359.2254054660597, 344.9327746483012])
     names = ('Q', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B')
     for name, value in zip(names, expected):
         assert metrics[name].status == 'available', metrics[name].reason

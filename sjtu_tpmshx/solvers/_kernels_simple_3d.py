@@ -1,9 +1,280 @@
-"""3D SIMPLE numba kernels, moved verbatim from simple_solver_3d.py
-(openspec split-solver-kernels, 2026-07-03); bit-identical."""
+"""3D SIMPLE momentum, continuity and pressure-correction kernels."""
 import numpy as np
 from numba import njit, prange
 
-from ._kernels_2d import minmod
+from ._kernels_2d import diffusion_conductance
+from ._kernels_simple_2d import _sou_axis, _sou_diagonal_bound
+
+
+@njit(cache=True, inline='always')
+def _eps_ratio(value, centre, use_eps):
+    if use_eps == 0 or value == centre:
+        return 1.0
+    return value / centre
+
+
+@njit(cache=True, inline='always')
+def _mass_x_3d(velocity, rho, eps, i, j, k, eps_cv, use_eps=1):
+    """The continuity mass-flux density, divided by this momentum CV epsilon."""
+    if i == 0 or i == rho.shape[0]:
+        return 0.0
+    left = rho[i - 1, j, k] * _eps_ratio(eps[i - 1, j, k], eps_cv, use_eps)
+    right = rho[i, j, k] * _eps_ratio(eps[i, j, k], eps_cv, use_eps)
+    return 0.5 * (left + right) * velocity[i, j, k]
+
+
+@njit(cache=True, inline='always')
+def _mass_y_3d(velocity, rho, eps, i, j, k, eps_cv, use_eps=1):
+    """The continuity mass-flux density, divided by this momentum CV epsilon."""
+    left = rho[i, max(j - 1, 0), k] * _eps_ratio(eps[i, max(j - 1, 0), k], eps_cv, use_eps)
+    right = rho[i, min(j, rho.shape[1] - 1), k] * _eps_ratio(eps[i, min(j, rho.shape[1] - 1), k], eps_cv, use_eps)
+    return 0.5 * (left + right) * velocity[i, j, k]
+
+
+@njit(cache=True, inline='always')
+def _mass_z_3d(velocity, rho, eps, i, j, k, eps_cv, use_eps=1):
+    """The continuity mass-flux density, divided by this momentum CV epsilon."""
+    if k == 0 or k == rho.shape[2]:
+        return 0.0
+    left = rho[i, j, k - 1] * _eps_ratio(eps[i, j, k - 1], eps_cv, use_eps)
+    right = rho[i, j, k] * _eps_ratio(eps[i, j, k], eps_cv, use_eps)
+    return 0.5 * (left + right) * velocity[i, j, k]
+
+
+@njit(cache=True, inline='always')
+def _u_transport_3d(u, v, w, rho_field, mu_eff_field, eps_field,
+                    dx, dy, dz, i, j, k, outlet_u_frac, use_eps=1):
+    """Shared viscous subfaces and half-cell continuity mass fluxes.
+
+    Axial faces lie at primary cell centres. Transverse faces consist
+    of two parallel half-cell strips, each with its own series resistance.
+    Epsilon division belongs to this momentum equation, after the shared
+    physical flux; ratios preserve the uniform-epsilon cancellation.
+    """
+    eps_cv = 0.5 * (eps_field[i - 1, j, k] + eps_field[i, j, k]) if use_eps == 1 else 1.0
+    wl = 0.5 * dx[i - 1]
+    wr = 0.5 * dx[i]
+    De = (mu_eff_field[i, j, k] * _eps_ratio(eps_field[i, j, k], eps_cv, use_eps)) * (dy[j] * dz[k]) / dx[i]
+    Fe = 0.5 * (_mass_x_3d(u, rho_field, eps_field, i, j, k, eps_cv, use_eps)
+                           + _mass_x_3d(u, rho_field, eps_field, i + 1, j, k, eps_cv, use_eps)) * (dy[j] * dz[k])
+    Dw = (mu_eff_field[i - 1, j, k] * _eps_ratio(eps_field[i - 1, j, k], eps_cv, use_eps)) * (dy[j] * dz[k]) / dx[i - 1]
+    Fw = 0.5 * (_mass_x_3d(u, rho_field, eps_field, i, j, k, eps_cv, use_eps)
+                           + _mass_x_3d(u, rho_field, eps_field, i - 1, j, k, eps_cv, use_eps)) * (dy[j] * dz[k])
+    if j < rho_field.shape[1] - 1:
+        Dn = (wl * diffusion_conductance(
+            mu_eff_field[i - 1, j, k] * _eps_ratio(eps_field[i - 1, j, k], eps_cv, use_eps),
+            mu_eff_field[i - 1, j + 1, k] * _eps_ratio(eps_field[i - 1, j + 1, k], eps_cv, use_eps),
+            0.5 * dy[j], 0.5 * dy[j + 1])
+            + wr * diffusion_conductance(
+            mu_eff_field[i, j, k] * _eps_ratio(eps_field[i, j, k], eps_cv, use_eps),
+            mu_eff_field[i, j + 1, k] * _eps_ratio(eps_field[i, j + 1, k], eps_cv, use_eps),
+            0.5 * dy[j], 0.5 * dy[j + 1])) * dz[k]
+    else:
+        Dn = 2.0 * (wl * (mu_eff_field[i - 1, j, k] * _eps_ratio(eps_field[i - 1, j, k], eps_cv, use_eps))
+                      + wr * (mu_eff_field[i, j, k] * _eps_ratio(eps_field[i, j, k], eps_cv, use_eps))) * dz[k] / dy[j]
+        Dn *= 1.0 - outlet_u_frac[i, k]
+    Fn = (wl * _mass_y_3d(v, rho_field, eps_field, i - 1, j + 1, k, eps_cv, use_eps)
+           + wr * _mass_y_3d(v, rho_field, eps_field, i, j + 1, k, eps_cv, use_eps)) * dz[k]
+    if j > 0:
+        Ds = (wl * diffusion_conductance(
+            mu_eff_field[i - 1, j, k] * _eps_ratio(eps_field[i - 1, j, k], eps_cv, use_eps),
+            mu_eff_field[i - 1, j - 1, k] * _eps_ratio(eps_field[i - 1, j - 1, k], eps_cv, use_eps),
+            0.5 * dy[j], 0.5 * dy[j - 1])
+            + wr * diffusion_conductance(
+            mu_eff_field[i, j, k] * _eps_ratio(eps_field[i, j, k], eps_cv, use_eps),
+            mu_eff_field[i, j - 1, k] * _eps_ratio(eps_field[i, j - 1, k], eps_cv, use_eps),
+            0.5 * dy[j], 0.5 * dy[j - 1])) * dz[k]
+    else:
+        Ds = 2.0 * (wl * (mu_eff_field[i - 1, j, k] * _eps_ratio(eps_field[i - 1, j, k], eps_cv, use_eps))
+                      + wr * (mu_eff_field[i, j, k] * _eps_ratio(eps_field[i, j, k], eps_cv, use_eps))) * dz[k] / dy[j]
+    Fs = (wl * _mass_y_3d(v, rho_field, eps_field, i - 1, j, k, eps_cv, use_eps)
+           + wr * _mass_y_3d(v, rho_field, eps_field, i, j, k, eps_cv, use_eps)) * dz[k]
+    if k < rho_field.shape[2] - 1:
+        Dt = (wl * diffusion_conductance(
+            mu_eff_field[i - 1, j, k] * _eps_ratio(eps_field[i - 1, j, k], eps_cv, use_eps),
+            mu_eff_field[i - 1, j, k + 1] * _eps_ratio(eps_field[i - 1, j, k + 1], eps_cv, use_eps),
+            0.5 * dz[k], 0.5 * dz[k + 1])
+            + wr * diffusion_conductance(
+            mu_eff_field[i, j, k] * _eps_ratio(eps_field[i, j, k], eps_cv, use_eps),
+            mu_eff_field[i, j, k + 1] * _eps_ratio(eps_field[i, j, k + 1], eps_cv, use_eps),
+            0.5 * dz[k], 0.5 * dz[k + 1])) * dy[j]
+    else:
+        Dt = 2.0 * (wl * (mu_eff_field[i - 1, j, k] * _eps_ratio(eps_field[i - 1, j, k], eps_cv, use_eps))
+                      + wr * (mu_eff_field[i, j, k] * _eps_ratio(eps_field[i, j, k], eps_cv, use_eps))) * dy[j] / dz[k]
+    Ft = (wl * _mass_z_3d(w, rho_field, eps_field, i - 1, j, k + 1, eps_cv, use_eps)
+           + wr * _mass_z_3d(w, rho_field, eps_field, i, j, k + 1, eps_cv, use_eps)) * dy[j]
+    if k > 0:
+        Db = (wl * diffusion_conductance(
+            mu_eff_field[i - 1, j, k] * _eps_ratio(eps_field[i - 1, j, k], eps_cv, use_eps),
+            mu_eff_field[i - 1, j, k - 1] * _eps_ratio(eps_field[i - 1, j, k - 1], eps_cv, use_eps),
+            0.5 * dz[k], 0.5 * dz[k - 1])
+            + wr * diffusion_conductance(
+            mu_eff_field[i, j, k] * _eps_ratio(eps_field[i, j, k], eps_cv, use_eps),
+            mu_eff_field[i, j, k - 1] * _eps_ratio(eps_field[i, j, k - 1], eps_cv, use_eps),
+            0.5 * dz[k], 0.5 * dz[k - 1])) * dy[j]
+    else:
+        Db = 2.0 * (wl * (mu_eff_field[i - 1, j, k] * _eps_ratio(eps_field[i - 1, j, k], eps_cv, use_eps))
+                      + wr * (mu_eff_field[i, j, k] * _eps_ratio(eps_field[i, j, k], eps_cv, use_eps))) * dy[j] / dz[k]
+    Fb = (wl * _mass_z_3d(w, rho_field, eps_field, i - 1, j, k, eps_cv, use_eps)
+           + wr * _mass_z_3d(w, rho_field, eps_field, i, j, k, eps_cv, use_eps)) * dy[j]
+    return De, Dw, Dn, Ds, Dt, Db, Fe, Fw, Fn, Fs, Ft, Fb
+
+
+@njit(cache=True, inline='always')
+def _v_transport_3d(u, v, w, rho_field, mu_eff_field, eps_field,
+                    dx, dy, dz, i, j, k, use_eps=1):
+    """Shared viscous subfaces and half-cell continuity mass fluxes.
+
+    Axial faces lie at primary cell centres. Transverse faces consist
+    of two parallel half-cell strips, each with its own series resistance.
+    Epsilon division belongs to this momentum equation, after the shared
+    physical flux; ratios preserve the uniform-epsilon cancellation.
+    """
+    eps_cv = 0.5 * (eps_field[i, j - 1, k] + eps_field[i, j, k]) if use_eps == 1 else 1.0
+    wl = 0.5 * dy[j - 1]
+    wr = 0.5 * dy[j]
+    if i < rho_field.shape[0] - 1:
+        De = (wl * diffusion_conductance(
+            mu_eff_field[i, j - 1, k] * _eps_ratio(eps_field[i, j - 1, k], eps_cv, use_eps),
+            mu_eff_field[i + 1, j - 1, k] * _eps_ratio(eps_field[i + 1, j - 1, k], eps_cv, use_eps),
+            0.5 * dx[i], 0.5 * dx[i + 1])
+            + wr * diffusion_conductance(
+            mu_eff_field[i, j, k] * _eps_ratio(eps_field[i, j, k], eps_cv, use_eps),
+            mu_eff_field[i + 1, j, k] * _eps_ratio(eps_field[i + 1, j, k], eps_cv, use_eps),
+            0.5 * dx[i], 0.5 * dx[i + 1])) * dz[k]
+    else:
+        De = 2.0 * (wl * (mu_eff_field[i, j - 1, k] * _eps_ratio(eps_field[i, j - 1, k], eps_cv, use_eps))
+                      + wr * (mu_eff_field[i, j, k] * _eps_ratio(eps_field[i, j, k], eps_cv, use_eps))) * dz[k] / dx[i]
+    Fe = (wl * _mass_x_3d(u, rho_field, eps_field, i + 1, j - 1, k, eps_cv, use_eps)
+           + wr * _mass_x_3d(u, rho_field, eps_field, i + 1, j, k, eps_cv, use_eps)) * dz[k]
+    if i > 0:
+        Dw = (wl * diffusion_conductance(
+            mu_eff_field[i, j - 1, k] * _eps_ratio(eps_field[i, j - 1, k], eps_cv, use_eps),
+            mu_eff_field[i - 1, j - 1, k] * _eps_ratio(eps_field[i - 1, j - 1, k], eps_cv, use_eps),
+            0.5 * dx[i], 0.5 * dx[i - 1])
+            + wr * diffusion_conductance(
+            mu_eff_field[i, j, k] * _eps_ratio(eps_field[i, j, k], eps_cv, use_eps),
+            mu_eff_field[i - 1, j, k] * _eps_ratio(eps_field[i - 1, j, k], eps_cv, use_eps),
+            0.5 * dx[i], 0.5 * dx[i - 1])) * dz[k]
+    else:
+        Dw = 2.0 * (wl * (mu_eff_field[i, j - 1, k] * _eps_ratio(eps_field[i, j - 1, k], eps_cv, use_eps))
+                      + wr * (mu_eff_field[i, j, k] * _eps_ratio(eps_field[i, j, k], eps_cv, use_eps))) * dz[k] / dx[i]
+    Fw = (wl * _mass_x_3d(u, rho_field, eps_field, i, j - 1, k, eps_cv, use_eps)
+           + wr * _mass_x_3d(u, rho_field, eps_field, i, j, k, eps_cv, use_eps)) * dz[k]
+    Dn = (mu_eff_field[i, j, k] * _eps_ratio(eps_field[i, j, k], eps_cv, use_eps)) * (dx[i] * dz[k]) / dy[j]
+    Fn = 0.5 * (_mass_y_3d(v, rho_field, eps_field, i, j, k, eps_cv, use_eps)
+                           + _mass_y_3d(v, rho_field, eps_field, i, j + 1, k, eps_cv, use_eps)) * (dx[i] * dz[k])
+    Ds = (mu_eff_field[i, j - 1, k] * _eps_ratio(eps_field[i, j - 1, k], eps_cv, use_eps)) * (dx[i] * dz[k]) / dy[j - 1]
+    Fs = 0.5 * (_mass_y_3d(v, rho_field, eps_field, i, j, k, eps_cv, use_eps)
+                           + _mass_y_3d(v, rho_field, eps_field, i, j - 1, k, eps_cv, use_eps)) * (dx[i] * dz[k])
+    if k < rho_field.shape[2] - 1:
+        Dt = (wl * diffusion_conductance(
+            mu_eff_field[i, j - 1, k] * _eps_ratio(eps_field[i, j - 1, k], eps_cv, use_eps),
+            mu_eff_field[i, j - 1, k + 1] * _eps_ratio(eps_field[i, j - 1, k + 1], eps_cv, use_eps),
+            0.5 * dz[k], 0.5 * dz[k + 1])
+            + wr * diffusion_conductance(
+            mu_eff_field[i, j, k] * _eps_ratio(eps_field[i, j, k], eps_cv, use_eps),
+            mu_eff_field[i, j, k + 1] * _eps_ratio(eps_field[i, j, k + 1], eps_cv, use_eps),
+            0.5 * dz[k], 0.5 * dz[k + 1])) * dx[i]
+    else:
+        Dt = 2.0 * (wl * (mu_eff_field[i, j - 1, k] * _eps_ratio(eps_field[i, j - 1, k], eps_cv, use_eps))
+                      + wr * (mu_eff_field[i, j, k] * _eps_ratio(eps_field[i, j, k], eps_cv, use_eps))) * dx[i] / dz[k]
+    Ft = (wl * _mass_z_3d(w, rho_field, eps_field, i, j - 1, k + 1, eps_cv, use_eps)
+           + wr * _mass_z_3d(w, rho_field, eps_field, i, j, k + 1, eps_cv, use_eps)) * dx[i]
+    if k > 0:
+        Db = (wl * diffusion_conductance(
+            mu_eff_field[i, j - 1, k] * _eps_ratio(eps_field[i, j - 1, k], eps_cv, use_eps),
+            mu_eff_field[i, j - 1, k - 1] * _eps_ratio(eps_field[i, j - 1, k - 1], eps_cv, use_eps),
+            0.5 * dz[k], 0.5 * dz[k - 1])
+            + wr * diffusion_conductance(
+            mu_eff_field[i, j, k] * _eps_ratio(eps_field[i, j, k], eps_cv, use_eps),
+            mu_eff_field[i, j, k - 1] * _eps_ratio(eps_field[i, j, k - 1], eps_cv, use_eps),
+            0.5 * dz[k], 0.5 * dz[k - 1])) * dx[i]
+    else:
+        Db = 2.0 * (wl * (mu_eff_field[i, j - 1, k] * _eps_ratio(eps_field[i, j - 1, k], eps_cv, use_eps))
+                      + wr * (mu_eff_field[i, j, k] * _eps_ratio(eps_field[i, j, k], eps_cv, use_eps))) * dx[i] / dz[k]
+    Fb = (wl * _mass_z_3d(w, rho_field, eps_field, i, j - 1, k, eps_cv, use_eps)
+           + wr * _mass_z_3d(w, rho_field, eps_field, i, j, k, eps_cv, use_eps)) * dx[i]
+    return De, Dw, Dn, Ds, Dt, Db, Fe, Fw, Fn, Fs, Ft, Fb
+
+
+@njit(cache=True, inline='always')
+def _w_transport_3d(u, v, w, rho_field, mu_eff_field, eps_field,
+                    dx, dy, dz, i, j, k, outlet_w_frac, use_eps=1):
+    """Shared viscous subfaces and half-cell continuity mass fluxes.
+
+    Axial faces lie at primary cell centres. Transverse faces consist
+    of two parallel half-cell strips, each with its own series resistance.
+    Epsilon division belongs to this momentum equation, after the shared
+    physical flux; ratios preserve the uniform-epsilon cancellation.
+    """
+    eps_cv = 0.5 * (eps_field[i, j, k - 1] + eps_field[i, j, k]) if use_eps == 1 else 1.0
+    wl = 0.5 * dz[k - 1]
+    wr = 0.5 * dz[k]
+    if i < rho_field.shape[0] - 1:
+        De = (wl * diffusion_conductance(
+            mu_eff_field[i, j, k - 1] * _eps_ratio(eps_field[i, j, k - 1], eps_cv, use_eps),
+            mu_eff_field[i + 1, j, k - 1] * _eps_ratio(eps_field[i + 1, j, k - 1], eps_cv, use_eps),
+            0.5 * dx[i], 0.5 * dx[i + 1])
+            + wr * diffusion_conductance(
+            mu_eff_field[i, j, k] * _eps_ratio(eps_field[i, j, k], eps_cv, use_eps),
+            mu_eff_field[i + 1, j, k] * _eps_ratio(eps_field[i + 1, j, k], eps_cv, use_eps),
+            0.5 * dx[i], 0.5 * dx[i + 1])) * dy[j]
+    else:
+        De = 2.0 * (wl * (mu_eff_field[i, j, k - 1] * _eps_ratio(eps_field[i, j, k - 1], eps_cv, use_eps))
+                      + wr * (mu_eff_field[i, j, k] * _eps_ratio(eps_field[i, j, k], eps_cv, use_eps))) * dy[j] / dx[i]
+    Fe = (wl * _mass_x_3d(u, rho_field, eps_field, i + 1, j, k - 1, eps_cv, use_eps)
+           + wr * _mass_x_3d(u, rho_field, eps_field, i + 1, j, k, eps_cv, use_eps)) * dy[j]
+    if i > 0:
+        Dw = (wl * diffusion_conductance(
+            mu_eff_field[i, j, k - 1] * _eps_ratio(eps_field[i, j, k - 1], eps_cv, use_eps),
+            mu_eff_field[i - 1, j, k - 1] * _eps_ratio(eps_field[i - 1, j, k - 1], eps_cv, use_eps),
+            0.5 * dx[i], 0.5 * dx[i - 1])
+            + wr * diffusion_conductance(
+            mu_eff_field[i, j, k] * _eps_ratio(eps_field[i, j, k], eps_cv, use_eps),
+            mu_eff_field[i - 1, j, k] * _eps_ratio(eps_field[i - 1, j, k], eps_cv, use_eps),
+            0.5 * dx[i], 0.5 * dx[i - 1])) * dy[j]
+    else:
+        Dw = 2.0 * (wl * (mu_eff_field[i, j, k - 1] * _eps_ratio(eps_field[i, j, k - 1], eps_cv, use_eps))
+                      + wr * (mu_eff_field[i, j, k] * _eps_ratio(eps_field[i, j, k], eps_cv, use_eps))) * dy[j] / dx[i]
+    Fw = (wl * _mass_x_3d(u, rho_field, eps_field, i, j, k - 1, eps_cv, use_eps)
+           + wr * _mass_x_3d(u, rho_field, eps_field, i, j, k, eps_cv, use_eps)) * dy[j]
+    if j < rho_field.shape[1] - 1:
+        Dn = (wl * diffusion_conductance(
+            mu_eff_field[i, j, k - 1] * _eps_ratio(eps_field[i, j, k - 1], eps_cv, use_eps),
+            mu_eff_field[i, j + 1, k - 1] * _eps_ratio(eps_field[i, j + 1, k - 1], eps_cv, use_eps),
+            0.5 * dy[j], 0.5 * dy[j + 1])
+            + wr * diffusion_conductance(
+            mu_eff_field[i, j, k] * _eps_ratio(eps_field[i, j, k], eps_cv, use_eps),
+            mu_eff_field[i, j + 1, k] * _eps_ratio(eps_field[i, j + 1, k], eps_cv, use_eps),
+            0.5 * dy[j], 0.5 * dy[j + 1])) * dx[i]
+    else:
+        Dn = 2.0 * (wl * (mu_eff_field[i, j, k - 1] * _eps_ratio(eps_field[i, j, k - 1], eps_cv, use_eps))
+                      + wr * (mu_eff_field[i, j, k] * _eps_ratio(eps_field[i, j, k], eps_cv, use_eps))) * dx[i] / dy[j]
+        Dn *= 1.0 - outlet_w_frac[i, k]
+    Fn = (wl * _mass_y_3d(v, rho_field, eps_field, i, j + 1, k - 1, eps_cv, use_eps)
+           + wr * _mass_y_3d(v, rho_field, eps_field, i, j + 1, k, eps_cv, use_eps)) * dx[i]
+    if j > 0:
+        Ds = (wl * diffusion_conductance(
+            mu_eff_field[i, j, k - 1] * _eps_ratio(eps_field[i, j, k - 1], eps_cv, use_eps),
+            mu_eff_field[i, j - 1, k - 1] * _eps_ratio(eps_field[i, j - 1, k - 1], eps_cv, use_eps),
+            0.5 * dy[j], 0.5 * dy[j - 1])
+            + wr * diffusion_conductance(
+            mu_eff_field[i, j, k] * _eps_ratio(eps_field[i, j, k], eps_cv, use_eps),
+            mu_eff_field[i, j - 1, k] * _eps_ratio(eps_field[i, j - 1, k], eps_cv, use_eps),
+            0.5 * dy[j], 0.5 * dy[j - 1])) * dx[i]
+    else:
+        Ds = 2.0 * (wl * (mu_eff_field[i, j, k - 1] * _eps_ratio(eps_field[i, j, k - 1], eps_cv, use_eps))
+                      + wr * (mu_eff_field[i, j, k] * _eps_ratio(eps_field[i, j, k], eps_cv, use_eps))) * dx[i] / dy[j]
+    Fs = (wl * _mass_y_3d(v, rho_field, eps_field, i, j, k - 1, eps_cv, use_eps)
+           + wr * _mass_y_3d(v, rho_field, eps_field, i, j, k, eps_cv, use_eps)) * dx[i]
+    Dt = (mu_eff_field[i, j, k] * _eps_ratio(eps_field[i, j, k], eps_cv, use_eps)) * (dx[i] * dy[j]) / dz[k]
+    Ft = 0.5 * (_mass_z_3d(w, rho_field, eps_field, i, j, k, eps_cv, use_eps)
+                           + _mass_z_3d(w, rho_field, eps_field, i, j, k + 1, eps_cv, use_eps)) * (dx[i] * dy[j])
+    Db = (mu_eff_field[i, j, k - 1] * _eps_ratio(eps_field[i, j, k - 1], eps_cv, use_eps)) * (dx[i] * dy[j]) / dz[k - 1]
+    Fb = 0.5 * (_mass_z_3d(w, rho_field, eps_field, i, j, k, eps_cv, use_eps)
+                           + _mass_z_3d(w, rho_field, eps_field, i, j, k - 1, eps_cv, use_eps)) * (dx[i] * dy[j])
+    return De, Dw, Dn, Ds, Dt, Db, Fe, Fw, Fn, Fs, Ft, Fb
 
 
 # ===================================================================
@@ -66,24 +337,6 @@ def _porous_src_df_3d(umag, K, cF, mu, rho):
 # that mirror simple_solver.py's _sou_corr_* index conditions. Enabled per
 # solve via `use_sou_momentum` (default False → term is exactly 0.0).
 
-@njit(cache=True, fastmath=True, inline='always')
-def _sou_axis(p_mm, p_m, p_c, p_p, p_pp,
-              lo_pos, hi_pos, hi_neg, lo_neg,
-              Flo, Fhi):
-    """SOU correction along ONE axis. p_c = this face's value; p_m/p_p the
-    axis neighbours (lo/hi side); p_mm/p_pp the second neighbours. Values at
-    clamped indices are ignored when the matching flag is False. Each face
-    selects its own upwind branch from its signed convective flux."""
-    if Flo >= 0.0:
-        lo = minmod(p_m - p_mm, p_c - p_m) if lo_pos else 0.0
-    else:
-        lo = -minmod(p_c - p_p, p_m - p_c) if lo_neg else 0.0
-    if Fhi >= 0.0:
-        hi = minmod(p_c - p_m, p_p - p_c) if hi_pos else 0.0
-    else:
-        hi = -minmod(p_p - p_pp, p_c - p_p) if hi_neg else 0.0
-    return 0.5 * (Flo * lo - Fhi * hi)
-
 
 # ── SIMPLE Step 1: u-momentum (x-direction), 7-point first-order upwind ──
 
@@ -93,99 +346,31 @@ def _u_cell_df_3d(u, v, w, P, d_u, i, j, k,
                   rho_field, mu_eff_field, mu_field, eps_field,
                   K_arr, cF_arr, outlet_u_frac, alpha_u, use_sou,
                   use_eps):
-    """One Gauss-Seidel update of the u-face (i, j, k) — shared cell body
-    for the serial and parallel sweeps (B6 dedup; previously duplicated
-    verbatim). ``inline='always'`` so Numba fuses it into each loop.
+    """One u-face Gauss-Seidel update, shared by serial and parallel sweeps.
 
-    M2b (2026-07-09, VANS ∇ε): with ``use_eps == 1`` every flux face carries
-    the ratio r_f = ε_f/ε_CV on both F and D (ε-divided VANS momentum; see
-    the 2D kernels' docstring). Guarded like ``use_sou`` so the use_eps=0
-    (uniform ε) expression tree is UNTOUCHED — these kernels are fastmath
-    and an inline ×1.0 could be re-associated, breaking golden bit-identity.
-    The solver sets use_eps=1 only when eps_field is actually non-uniform."""
+    Transport uses the epsilon-divided VANS convention documented in the
+    2D kernels. use_eps=0 omits ratios for uniform porosity; use_sou=1 adds
+    physical-distance deferred reconstruction. The deferred diagonal
+    compensation stabilizes iteration and cancels at the fixed point.
+    """
     # Volume + face areas
     dxi = 0.5 * (dx[i - 1] + dx[min(i, Nx - 1)])
     dyj = dy[j]
     dzk = dz[k]
     vol = dxi * dyj * dzk
 
-    # Face viscosity (average cells i-1 and i)
-    il_r = max(i - 1, 0); ir_r = min(i, Nx - 1)
-    mu_e = 0.5 * (mu_eff_field[il_r, j, k]
-                  + mu_eff_field[ir_r, j, k])
-
-    # Diffusion coefficients (6 faces). 2× at domain walls
-    # (half-cell distance to wall, no-slip image point).
-    # N4 (2026-07-07): interior conductances use the ACTUAL neighbour-node
-    # distance, not the CV width — u-nodes sit on x-interfaces (E neighbour
-    # at dx[i], W at dx[i-1]); cross-stream neighbours at 0.5*(dy[j]+dy[j±1])
-    # / 0.5*(dz[k]+dz[k±1]). Uniform grids reduce bit-identically.
-    De = mu_e * dyj * dzk / dx[ir_r]
-    Dw = mu_e * dyj * dzk / dx[il_r]
-    Dn = (mu_e * dxi * dzk / (0.5 * (dy[j] + dy[j + 1]))
-          if j < Ny - 1 else 2.0 * mu_e * dxi * dzk / dyj)
-    Ds = (mu_e * dxi * dzk / (0.5 * (dy[j] + dy[j - 1]))
-          if j > 0 else 2.0 * mu_e * dxi * dzk / dyj)
-    Dt = (mu_e * dxi * dyj / (0.5 * (dz[k] + dz[k + 1]))
-          if k < Nz - 1 else 2.0 * mu_e * dxi * dyj / dzk)
-    Db = (mu_e * dxi * dyj / (0.5 * (dz[k] + dz[k - 1]))
-          if k > 0 else 2.0 * mu_e * dxi * dyj / dzk)
-
-    # Only the closed part of the physical outlet has wall diffusion.
-    if j == Ny - 1:
-        Dn *= 1.0 - outlet_u_frac[i, k]
-
-    # Neighbour values (with wall-BC zero outside domain)
+    il_r = i - 1; ir_r = i
+    (De, Dw, Dn, Ds, Dt, Db, Fe, Fw, Fn, Fs, Ft, Fb) = _u_transport_3d(
+        u, v, w, rho_field, mu_eff_field, eps_field,
+        dx, dy, dz, i, j, k, outlet_u_frac, use_eps)
     uE = u[i + 1, j, k] if i + 1 < Nx else 0.0
     uW = u[i - 1, j, k] if i > 0 else 0.0
     uN = u[i, j + 1, k] if j < Ny - 1 else 0.0
     uS = u[i, j - 1, k] if j > 0 else 0.0
     uT = u[i, j, k + 1] if k < Nz - 1 else 0.0
     uB = u[i, j, k - 1] if k > 0 else 0.0
-
-    # Face-centred fluxes (upwind, first order)
-    ue = 0.5 * (u[i, j, k] + u[min(i + 1, Nx), j, k])
-    uw = 0.5 * (u[max(i - 1, 0), j, k] + u[i, j, k])
-    il = max(i - 1, 0); ir = min(i, Nx - 1)
-    vn = 0.5 * (v[il, j + 1, k] + v[ir, j + 1, k])
-    vs = 0.5 * (v[il, j, k] + v[ir, j, k])
-    wn = 0.5 * (w[il, j, k + 1] + w[ir, j, k + 1]) \
-        if k < Nz - 1 else 0.0
-    wb = 0.5 * (w[il, j, k] + w[ir, j, k])
-
-    rho_loc = 0.5 * (rho_field[il_r, j, k]
-                     + rho_field[ir_r, j, k])
-    mu_loc = 0.5 * (mu_field[il_r, j, k]
-                    + mu_field[ir_r, j, k])
-
-    Fe = rho_loc * ue * dyj * dzk
-    Fw = rho_loc * uw * dyj * dzk
-    Fn = rho_loc * vn * dxi * dzk
-    Fs = rho_loc * vs * dxi * dzk
-    Ft = rho_loc * wn * dxi * dyj
-    Fb = rho_loc * wb * dxi * dyj
-
-    # M2b: VANS ε-ratio factors (guarded — see docstring). u-node sits on
-    # the x-interface between cells il_r/ir_r: E/W flux faces are the cell
-    # centres, N/S/T/B faces the 4-cell corners; wall faces keep ratio 1.
-    if use_eps == 1:
-        eps_u = 0.5 * (eps_field[il_r, j, k] + eps_field[ir_r, j, k])
-        r_e = eps_field[ir_r, j, k] / eps_u
-        r_w = eps_field[il_r, j, k] / eps_u
-        r_n = (0.25 * (eps_field[il_r, j, k] + eps_field[ir_r, j, k]
-                       + eps_field[il_r, j + 1, k] + eps_field[ir_r, j + 1, k])
-               / eps_u if j < Ny - 1 else 1.0)
-        r_s = (0.25 * (eps_field[il_r, j, k] + eps_field[ir_r, j, k]
-                       + eps_field[il_r, j - 1, k] + eps_field[ir_r, j - 1, k])
-               / eps_u if j > 0 else 1.0)
-        r_t = (0.25 * (eps_field[il_r, j, k] + eps_field[ir_r, j, k]
-                       + eps_field[il_r, j, k + 1] + eps_field[ir_r, j, k + 1])
-               / eps_u if k < Nz - 1 else 1.0)
-        r_b = (0.25 * (eps_field[il_r, j, k] + eps_field[ir_r, j, k]
-                       + eps_field[il_r, j, k - 1] + eps_field[ir_r, j, k - 1])
-               / eps_u if k > 0 else 1.0)
-        De *= r_e; Dw *= r_w; Dn *= r_n; Ds *= r_s; Dt *= r_t; Db *= r_b
-        Fe *= r_e; Fw *= r_w; Fn *= r_n; Fs *= r_s; Ft *= r_t; Fb *= r_b
+    rho_loc = 0.5 * (rho_field[i - 1, j, k] + rho_field[i, j, k])
+    mu_loc = 0.5 * (mu_field[i - 1, j, k] + mu_field[i, j, k])
 
     aE = De + max(-Fe, 0.0)
     aW = Dw + max(Fw, 0.0)
@@ -207,7 +392,9 @@ def _u_cell_df_3d(u, v, w, P, d_u, i, j, k,
     # Pressure gradient source
     p_src = (P[i - 1, j, k] - P[i, j, k]) * dyj * dzk
 
-    aP0 = aE + aW + aN + aS + aT + aB + Sp
+    aP0 = (De + Dw + Dn + Ds + Dt + Db + Sp
+           + max(Fe, 0.0) + max(-Fw, 0.0)
+           + max(Fn, 0.0) + max(-Fs, 0.0) + max(Ft, 0.0) + max(-Fb, 0.0))
     rhs = (aE * uE + aW * uW + aN * uN + aS * uS
            + aT * uT + aB * uB + p_src)
     # R4: minmod SOU deferred correction (flags mirror 2D _sou_corr_u_x/_y).
@@ -218,28 +405,43 @@ def _u_cell_df_3d(u, v, w, P, d_u, i, j, k,
                           u[i, j, k], u[min(i + 1, Nx), j, k],
                           u[min(i + 2, Nx), j, k],
                           i > 2, i > 1 and i + 1 < Nx, i + 2 <= Nx, i > 1,
-                          Fw, Fe)
+                          Fw, Fe, dx, i, True)
                 + _sou_axis(u[i, max(j - 2, 0), k], u[i, max(j - 1, 0), k],
                             u[i, j, k], u[i, min(j + 1, Ny - 1), k],
                             u[i, min(j + 2, Ny - 1), k],
                             j > 1, j > 0 and j < Ny - 1, j < Ny - 2,
-                            j > 0 and j < Ny - 1, Fs, Fn)
+                            j > 0 and j < Ny - 1, Fs, Fn, dy, j, False)
                 + _sou_axis(u[i, j, max(k - 2, 0)], u[i, j, max(k - 1, 0)],
                             u[i, j, k], u[i, j, min(k + 1, Nz - 1)],
                             u[i, j, min(k + 2, Nz - 1)],
                             k > 1, k > 0 and k < Nz - 1, k < Nz - 2,
-                            k > 0 and k < Nz - 1, Fb, Ft))
-    aP = aP0 / alpha_u
-    rhs += (1.0 - alpha_u) / alpha_u * aP0 * u[i, j, k]
+                            k > 0 and k < Nz - 1, Fb, Ft, dz, k, False))
+    # Deferred diagonal compensation stabilizes a mass-deficit iterate.
+    # It cancels at the fixed point: this is no physical source.
+    compensation = max(-(Fe - Fw + Fn - Fs + Ft - Fb), 0.0)
+    if use_sou == 1:
+        compensation += (_sou_diagonal_bound(
+            u[i - 1, j, k], u[i, j, k], u[i + 1, j, k],
+            i > 1, i > 1 and i + 1 < Nx, Fw, Fe, dx, i, True)
+            + _sou_diagonal_bound(
+            u[i, max(j - 1, 0), k], u[i, j, k], u[i, min(j + 1, Ny - 1), k],
+            j > 0 and j < Ny - 1, j > 0 and j < Ny - 1, Fs, Fn, dy, j, False)
+            + _sou_diagonal_bound(
+            u[i, j, max(k - 1, 0)], u[i, j, k], u[i, j, min(k + 1, Nz - 1)],
+            k > 0 and k < Nz - 1, k > 0 and k < Nz - 1, Fb, Ft, dz, k, False))
+    aP_predict = aP0 + compensation
+    rhs += compensation * u[i, j, k]
+    aP = aP_predict / alpha_u
+    rhs += (1.0 - alpha_u) / alpha_u * aP_predict * u[i, j, k]
 
     u[i, j, k] = rhs / aP
-    d_u[i, j, k] = dyj * dzk / aP0
+    d_u[i, j, k] = dyj * dzk / aP_predict
 
 
 @njit(cache=True, fastmath=True)
 def _sweep_u_jit_df_3d(u, v, w, P, d_u,
                         Nx, Ny, Nz,
-                        dx, dy, dz,
+                     dx, dy, dz,
                         rho_field, mu_eff_field, mu_field, eps_field,
                         K_arr, cF_arr,
                         outlet_u_frac,
@@ -276,7 +478,7 @@ def _sweep_u_jit_df_3d(u, v, w, P, d_u,
 @njit(cache=True, fastmath=True, parallel=True)
 def _sweep_u_jit_df_3d_parallel(u, v, w, P, d_u,
                                  Nx, Ny, Nz,
-                                 dx, dy, dz,
+                              dx, dy, dz,
                                  rho_field, mu_eff_field, mu_field, eps_field,
                                  K_arr, cF_arr,
                                  outlet_u_frac,
@@ -316,69 +518,17 @@ def _v_cell_df_3d(u, v, w, P, d_v, i, j, k,
     dzk = dz[k]
     vol = dxi * dyj * dzk
 
-    jb = max(j - 1, 0); jt = min(j, Ny - 1)
-    mu_e = 0.5 * (mu_eff_field[i, jb, k]
-                  + mu_eff_field[i, jt, k])
-
-    # N4 (2026-07-07): actual neighbour-node distances — E/W v-neighbours at
-    # 0.5*(dx[i]+dx[i±1]); N/S at dy[jt]/dy[jb] (v-nodes on y-interfaces);
-    # T/B at 0.5*(dz[k]+dz[k±1]). Walls keep the half-cell 2× form.
-    De = (mu_e * dyj * dzk / (0.5 * (dx[i] + dx[i + 1]))
-          if i < Nx - 1 else 2.0 * mu_e * dyj * dzk / dxi)
-    Dw = (mu_e * dyj * dzk / (0.5 * (dx[i] + dx[i - 1]))
-          if i > 0 else 2.0 * mu_e * dyj * dzk / dxi)
-    Dn = mu_e * dxi * dzk / dy[jt]
-    Ds = mu_e * dxi * dzk / dy[jb]
-    Dt = (mu_e * dxi * dyj / (0.5 * (dz[k] + dz[k + 1]))
-          if k < Nz - 1 else 2.0 * mu_e * dxi * dyj / dzk)
-    Db = (mu_e * dxi * dyj / (0.5 * (dz[k] + dz[k - 1]))
-          if k > 0 else 2.0 * mu_e * dxi * dyj / dzk)
-
+    (De, Dw, Dn, Ds, Dt, Db, Fe, Fw, Fn, Fs, Ft, Fb) = _v_transport_3d(
+        u, v, w, rho_field, mu_eff_field, eps_field,
+        dx, dy, dz, i, j, k, use_eps)
     vE = v[i + 1, j, k] if i < Nx - 1 else 0.0
     vW = v[i - 1, j, k] if i > 0 else 0.0
     vN = v[i, j + 1, k]
     vS = v[i, j - 1, k]
     vT = v[i, j, k + 1] if k < Nz - 1 else 0.0
     vB = v[i, j, k - 1] if k > 0 else 0.0
-
-    ue = 0.5 * (u[i + 1, jb, k] + u[i + 1, jt, k]) \
-        if i < Nx - 1 else 0.0
-    uw = 0.5 * (u[i, jb, k] + u[i, jt, k]) if i > 0 else 0.0
-    vn = 0.5 * (v[i, j, k] + v[i, min(j + 1, Ny), k])
-    vs = 0.5 * (v[i, max(j - 1, 0), k] + v[i, j, k])
-    wn = 0.5 * (w[i, jb, k + 1] + w[i, jt, k + 1]) \
-        if k < Nz - 1 else 0.0
-    wb = 0.5 * (w[i, jb, k] + w[i, jt, k])
-
-    rho_loc = 0.5 * (rho_field[i, jb, k] + rho_field[i, jt, k])
-    mu_loc = 0.5 * (mu_field[i, jb, k] + mu_field[i, jt, k])
-
-    Fe = rho_loc * ue * dyj * dzk
-    Fw = rho_loc * uw * dyj * dzk
-    Fn = rho_loc * vn * dxi * dzk
-    Fs = rho_loc * vs * dxi * dzk
-    Ft = rho_loc * wn * dxi * dyj
-    Fb = rho_loc * wb * dxi * dyj
-
-    # M2b: VANS ε-ratio factors (guarded — see _u_cell_df_3d).
-    if use_eps == 1:
-        eps_v = 0.5 * (eps_field[i, jb, k] + eps_field[i, jt, k])
-        r_n = eps_field[i, jt, k] / eps_v
-        r_s = eps_field[i, jb, k] / eps_v
-        r_e = (0.25 * (eps_field[i, jb, k] + eps_field[i, jt, k]
-                       + eps_field[i + 1, jb, k] + eps_field[i + 1, jt, k])
-               / eps_v if i < Nx - 1 else 1.0)
-        r_w = (0.25 * (eps_field[i, jb, k] + eps_field[i, jt, k]
-                       + eps_field[i - 1, jb, k] + eps_field[i - 1, jt, k])
-               / eps_v if i > 0 else 1.0)
-        r_t = (0.25 * (eps_field[i, jb, k] + eps_field[i, jt, k]
-                       + eps_field[i, jb, k + 1] + eps_field[i, jt, k + 1])
-               / eps_v if k < Nz - 1 else 1.0)
-        r_b = (0.25 * (eps_field[i, jb, k] + eps_field[i, jt, k]
-                       + eps_field[i, jb, k - 1] + eps_field[i, jt, k - 1])
-               / eps_v if k > 0 else 1.0)
-        De *= r_e; Dw *= r_w; Dn *= r_n; Ds *= r_s; Dt *= r_t; Db *= r_b
-        Fe *= r_e; Fw *= r_w; Fn *= r_n; Fs *= r_s; Ft *= r_t; Fb *= r_b
+    rho_loc = 0.5 * (rho_field[i, j - 1, k] + rho_field[i, j, k])
+    mu_loc = 0.5 * (mu_field[i, j - 1, k] + mu_field[i, j, k])
 
     aE = De + max(-Fe, 0.0)
     aW = Dw + max(Fw, 0.0)
@@ -393,7 +543,9 @@ def _v_cell_df_3d(u, v, w, P, d_v, i, j, k,
 
     p_src = (P[i, j - 1, k] - P[i, j, k]) * dxi * dzk
 
-    aP0 = aE + aW + aN + aS + aT + aB + Sp
+    aP0 = (De + Dw + Dn + Ds + Dt + Db + Sp
+           + max(Fe, 0.0) + max(-Fw, 0.0)
+           + max(Fn, 0.0) + max(-Fs, 0.0) + max(Ft, 0.0) + max(-Fb, 0.0))
     rhs = (aE * vE + aW * vW + aN * vN + aS * vS
            + aT * vT + aB * vB + p_src)
     # R4: minmod SOU deferred correction (flags mirror 2D _sou_corr_v_x/_y).
@@ -403,22 +555,37 @@ def _v_cell_df_3d(u, v, w, P, d_v, i, j, k,
                           v[i, j, k], v[min(i + 1, Nx - 1), j, k],
                           v[min(i + 2, Nx - 1), j, k],
                           i > 1, i > 0 and i < Nx - 1, i < Nx - 2,
-                          i > 0 and i < Nx - 1, Fw, Fe)
+                          i > 0 and i < Nx - 1, Fw, Fe, dx, i, False)
                 + _sou_axis(v[i, max(j - 2, 0), k], v[i, max(j - 1, 0), k],
                             v[i, j, k], v[i, min(j + 1, Ny), k],
                             v[i, min(j + 2, Ny), k],
                             j > 2, j > 1, j + 2 <= Ny, j > 1,
-                            Fs, Fn)
+                            Fs, Fn, dy, j, True)
                 + _sou_axis(v[i, j, max(k - 2, 0)], v[i, j, max(k - 1, 0)],
                             v[i, j, k], v[i, j, min(k + 1, Nz - 1)],
                             v[i, j, min(k + 2, Nz - 1)],
                             k > 1, k > 0 and k < Nz - 1, k < Nz - 2,
-                            k > 0 and k < Nz - 1, Fb, Ft))
-    aP = aP0 / alpha_u
-    rhs += (1.0 - alpha_u) / alpha_u * aP0 * v[i, j, k]
+                            k > 0 and k < Nz - 1, Fb, Ft, dz, k, False))
+    # Deferred diagonal compensation stabilizes a mass-deficit iterate.
+    # It cancels at the fixed point: this is no physical source.
+    compensation = max(-(Fe - Fw + Fn - Fs + Ft - Fb), 0.0)
+    if use_sou == 1:
+        compensation += (_sou_diagonal_bound(
+            v[max(i - 1, 0), j, k], v[i, j, k], v[min(i + 1, Nx - 1), j, k],
+            i > 0 and i < Nx - 1, i > 0 and i < Nx - 1, Fw, Fe, dx, i, False)
+            + _sou_diagonal_bound(
+            v[i, j - 1, k], v[i, j, k], v[i, j + 1, k],
+            j > 1, j > 1, Fs, Fn, dy, j, True)
+            + _sou_diagonal_bound(
+            v[i, j, max(k - 1, 0)], v[i, j, k], v[i, j, min(k + 1, Nz - 1)],
+            k > 0 and k < Nz - 1, k > 0 and k < Nz - 1, Fb, Ft, dz, k, False))
+    aP_predict = aP0 + compensation
+    rhs += compensation * v[i, j, k]
+    aP = aP_predict / alpha_u
+    rhs += (1.0 - alpha_u) / alpha_u * aP_predict * v[i, j, k]
 
     v[i, j, k] = rhs / aP
-    d_v[i, j, k] = dxi * dzk / aP0
+    d_v[i, j, k] = dxi * dzk / aP_predict
 
 
 @njit(cache=True, fastmath=True, inline='always')
@@ -453,7 +620,7 @@ def _v_bc_3d(u, v, w, v_inlet_field, rho_field, eps_field, outlet_mask_ij,
 def _sweep_v_jit_df_3d(u, v, w, P, d_v,
                         v_inlet_field,
                         Nx, Ny, Nz,
-                        dx, dy, dz,
+                     dx, dy, dz,
                         rho_field, eps_field, mu_eff_field, mu_field,
                         K_arr, cF_arr,
                         alpha_u, n_sweeps, use_sou, use_eps, outlet_mask_ij):
@@ -483,7 +650,7 @@ def _sweep_v_jit_df_3d(u, v, w, P, d_v,
 def _sweep_v_jit_df_3d_parallel(u, v, w, P, d_v,
                                  v_inlet_field,
                                  Nx, Ny, Nz,
-                                 dx, dy, dz,
+                              dx, dy, dz,
                                  rho_field, eps_field, mu_eff_field, mu_field,
                                  K_arr, cF_arr,
                                  alpha_u, n_sweeps, use_sou, use_eps, outlet_mask_ij):
@@ -520,74 +687,20 @@ def _w_cell_df_3d(u, v, w, P, d_w, i, j, k,
     dzk = 0.5 * (dz[k - 1] + dz[min(k, Nz - 1)])
     vol = dxi * dyj * dzk
 
-    kb = max(k - 1, 0); kt = min(k, Nz - 1)
-    mu_e = 0.5 * (mu_eff_field[i, j, kb]
-                  + mu_eff_field[i, j, kt])
-
-    # N4 (2026-07-07): actual neighbour-node distances — E/W w-neighbours at
-    # 0.5*(dx[i]+dx[i±1]), N/S at 0.5*(dy[j]+dy[j±1]); T/B at dz[kt]/dz[kb]
-    # (w-nodes on z-interfaces). Walls keep the half-cell 2× form.
-    De = (mu_e * dyj * dzk / (0.5 * (dx[i] + dx[i + 1]))
-          if i < Nx - 1 else 2.0 * mu_e * dyj * dzk / dxi)
-    Dw_ = (mu_e * dyj * dzk / (0.5 * (dx[i] + dx[i - 1]))
-           if i > 0 else 2.0 * mu_e * dyj * dzk / dxi)
-    Dn = (mu_e * dxi * dzk / (0.5 * (dy[j] + dy[j + 1]))
-          if j < Ny - 1 else 2.0 * mu_e * dxi * dzk / dyj)
-    Ds = (mu_e * dxi * dzk / (0.5 * (dy[j] + dy[j - 1]))
-          if j > 0 else 2.0 * mu_e * dxi * dzk / dyj)
-    Dt = mu_e * dxi * dyj / dz[kt]
-    Db = mu_e * dxi * dyj / dz[kb]
-
-    if j == Ny - 1:
-        Dn *= 1.0 - outlet_w_frac[i, k]
-
+    (De, Dw, Dn, Ds, Dt, Db, Fe, Fw_, Fn, Fs, Ft, Fb) = _w_transport_3d(
+        u, v, w, rho_field, mu_eff_field, eps_field,
+        dx, dy, dz, i, j, k, outlet_w_frac, use_eps)
     wE = w[i + 1, j, k] if i < Nx - 1 else 0.0
     wW = w[i - 1, j, k] if i > 0 else 0.0
     wN = w[i, j + 1, k] if j < Ny - 1 else 0.0
     wS = w[i, j - 1, k] if j > 0 else 0.0
     wT = w[i, j, k + 1]
     wB = w[i, j, k - 1]
-
-    ue = 0.5 * (u[i + 1, j, kb] + u[i + 1, j, kt]) \
-        if i < Nx - 1 else 0.0
-    uw = 0.5 * (u[i, j, kb] + u[i, j, kt]) if i > 0 else 0.0
-    vn = 0.5 * (v[i, j + 1, kb] + v[i, j + 1, kt])
-    vs = 0.5 * (v[i, j, kb] + v[i, j, kt])
-    wn = 0.5 * (w[i, j, k] + w[i, j, min(k + 1, Nz)])
-    wb = 0.5 * (w[i, j, max(k - 1, 0)] + w[i, j, k])
-
-    rho_loc = 0.5 * (rho_field[i, j, kb] + rho_field[i, j, kt])
-    mu_loc = 0.5 * (mu_field[i, j, kb] + mu_field[i, j, kt])
-
-    Fe = rho_loc * ue * dyj * dzk
-    Fw_ = rho_loc * uw * dyj * dzk
-    Fn = rho_loc * vn * dxi * dzk
-    Fs = rho_loc * vs * dxi * dzk
-    Ft = rho_loc * wn * dxi * dyj
-    Fb = rho_loc * wb * dxi * dyj
-
-    # M2b: VANS ε-ratio factors (guarded — see _u_cell_df_3d).
-    if use_eps == 1:
-        eps_w = 0.5 * (eps_field[i, j, kb] + eps_field[i, j, kt])
-        r_t = eps_field[i, j, kt] / eps_w
-        r_b = eps_field[i, j, kb] / eps_w
-        r_e = (0.25 * (eps_field[i, j, kb] + eps_field[i, j, kt]
-                       + eps_field[i + 1, j, kb] + eps_field[i + 1, j, kt])
-               / eps_w if i < Nx - 1 else 1.0)
-        r_w = (0.25 * (eps_field[i, j, kb] + eps_field[i, j, kt]
-                       + eps_field[i - 1, j, kb] + eps_field[i - 1, j, kt])
-               / eps_w if i > 0 else 1.0)
-        r_n = (0.25 * (eps_field[i, j, kb] + eps_field[i, j, kt]
-                       + eps_field[i, j + 1, kb] + eps_field[i, j + 1, kt])
-               / eps_w if j < Ny - 1 else 1.0)
-        r_s = (0.25 * (eps_field[i, j, kb] + eps_field[i, j, kt]
-                       + eps_field[i, j - 1, kb] + eps_field[i, j - 1, kt])
-               / eps_w if j > 0 else 1.0)
-        De *= r_e; Dw_ *= r_w; Dn *= r_n; Ds *= r_s; Dt *= r_t; Db *= r_b
-        Fe *= r_e; Fw_ *= r_w; Fn *= r_n; Fs *= r_s; Ft *= r_t; Fb *= r_b
+    rho_loc = 0.5 * (rho_field[i, j, k - 1] + rho_field[i, j, k])
+    mu_loc = 0.5 * (mu_field[i, j, k - 1] + mu_field[i, j, k])
 
     aE = De + max(-Fe, 0.0)
-    aW = Dw_ + max(Fw_, 0.0)
+    aW = Dw + max(Fw_, 0.0)
     aN = Dn + max(-Fn, 0.0)
     aS = Ds + max(Fs, 0.0)
     aT = Dt + max(-Ft, 0.0)
@@ -599,7 +712,9 @@ def _w_cell_df_3d(u, v, w, P, d_w, i, j, k,
 
     p_src = (P[i, j, k - 1] - P[i, j, k]) * dxi * dyj
 
-    aP0 = aE + aW + aN + aS + aT + aB + Sp
+    aP0 = (De + Dw + Dn + Ds + Dt + Db + Sp
+           + max(Fe, 0.0) + max(-Fw_, 0.0)
+           + max(Fn, 0.0) + max(-Fs, 0.0) + max(Ft, 0.0) + max(-Fb, 0.0))
     rhs = (aE * wE + aW * wW + aN * wN + aS * wS
            + aT * wT + aB * wB + p_src)
     # R4: minmod SOU deferred correction (cross axes mirror v; parallel = z).
@@ -609,28 +724,43 @@ def _w_cell_df_3d(u, v, w, P, d_w, i, j, k,
                           w[i, j, k], w[min(i + 1, Nx - 1), j, k],
                           w[min(i + 2, Nx - 1), j, k],
                           i > 1, i > 0 and i < Nx - 1, i < Nx - 2,
-                          i > 0 and i < Nx - 1, Fw_, Fe)
+                          i > 0 and i < Nx - 1, Fw_, Fe, dx, i, False)
                 + _sou_axis(w[i, max(j - 2, 0), k], w[i, max(j - 1, 0), k],
                             w[i, j, k], w[i, min(j + 1, Ny - 1), k],
                             w[i, min(j + 2, Ny - 1), k],
                             j > 1, j > 0 and j < Ny - 1, j < Ny - 2,
-                            j > 0 and j < Ny - 1, Fs, Fn)
+                            j > 0 and j < Ny - 1, Fs, Fn, dy, j, False)
                 + _sou_axis(w[i, j, max(k - 2, 0)], w[i, j, max(k - 1, 0)],
                             w[i, j, k], w[i, j, min(k + 1, Nz)],
                             w[i, j, min(k + 2, Nz)],
                             k > 2, k > 1, k + 2 <= Nz, k > 1,
-                            Fb, Ft))
-    aP = aP0 / alpha_u
-    rhs += (1.0 - alpha_u) / alpha_u * aP0 * w[i, j, k]
+                            Fb, Ft, dz, k, True))
+    # Deferred diagonal compensation stabilizes a mass-deficit iterate.
+    # It cancels at the fixed point: this is no physical source.
+    compensation = max(-(Fe - Fw_ + Fn - Fs + Ft - Fb), 0.0)
+    if use_sou == 1:
+        compensation += (_sou_diagonal_bound(
+            w[max(i - 1, 0), j, k], w[i, j, k], w[min(i + 1, Nx - 1), j, k],
+            i > 0 and i < Nx - 1, i > 0 and i < Nx - 1, Fw_, Fe, dx, i, False)
+            + _sou_diagonal_bound(
+            w[i, max(j - 1, 0), k], w[i, j, k], w[i, min(j + 1, Ny - 1), k],
+            j > 0 and j < Ny - 1, j > 0 and j < Ny - 1, Fs, Fn, dy, j, False)
+            + _sou_diagonal_bound(
+            w[i, j, k - 1], w[i, j, k], w[i, j, k + 1],
+            k > 1, k > 1, Fb, Ft, dz, k, True))
+    aP_predict = aP0 + compensation
+    rhs += compensation * w[i, j, k]
+    aP = aP_predict / alpha_u
+    rhs += (1.0 - alpha_u) / alpha_u * aP_predict * w[i, j, k]
 
     w[i, j, k] = rhs / aP
-    d_w[i, j, k] = dxi * dyj / aP0
+    d_w[i, j, k] = dxi * dyj / aP_predict
 
 
 @njit(cache=True, fastmath=True)
 def _sweep_w_jit_df_3d(u, v, w, P, d_w,
                         Nx, Ny, Nz,
-                        dx, dy, dz,
+                     dx, dy, dz,
                         rho_field, mu_eff_field, mu_field, eps_field,
                         K_arr, cF_arr,
                         outlet_w_frac,
@@ -661,7 +791,7 @@ def _sweep_w_jit_df_3d(u, v, w, P, d_w,
 @njit(cache=True, fastmath=True, parallel=True)
 def _sweep_w_jit_df_3d_parallel(u, v, w, P, d_w,
                                  Nx, Ny, Nz,
-                                 dx, dy, dz,
+                              dx, dy, dz,
                                  rho_field, mu_eff_field, mu_field, eps_field,
                                  K_arr, cF_arr,
                                  outlet_w_frac,
@@ -1018,114 +1148,30 @@ def _u_coeffs_df_3d(u, v, w, P, i, j, k,
                     rho_field, mu_eff_field, mu_field, eps_field,
                     K_arr, cF_arr, outlet_u_frac, use_sou,
                     use_eps):
-    """Assemble (aP0, rhs) for the u-face (i, j, k): the UNRELAXED discrete
-    x-momentum equation ``aP0 * u = rhs``, with
-    ``rhs = Σ a_nb·u_nb + p_src [+ SOU deferred correction]``.
+    """Unrelaxed conservative u-momentum equation for F2 residuals.
 
-    ⚠️ DELIBERATE PARALLEL ASSEMBLY of `_u_cell_df_3d`'s coefficients, for the
-    momentum residual ONLY (`_mom_res_jit_3d`). It is NOT shared with the sweep.
-
-    Why not shared: factoring the coefficients out of `_u_cell_df_3d` and having
-    both call the same helper was tried first (the obviously better design) and
-    it MOVED golden-3D — pure fastmath re-association at the inline boundary,
-    ≤1e-14 relative, but not bit-identical. A diagnostic must not cost a
-    re-baseline, so the sweep body was left verbatim and this copy added instead.
-
-    The duplication is guarded, not trusted: `_mom_res_jit_3d` must return ~0 at
-    the SWEEP's own momentum fixed point, on every (use_sou, use_eps) branch.
-    That is what `tests/test_momentum_residual_3d.py` asserts — if you edit
-    `_u_cell_df_3d` and not this function, that test fails loudly. KEEP THEM IN
-    LOCKSTEP, or take the ULP re-baseline and merge them.
-
-    M2b (2026-07-09, VANS ∇ε): with ``use_eps == 1`` every flux face carries
-    the ratio r_f = ε_f/ε_CV on both F and D (ε-divided VANS momentum; see
-    the 2D kernels' docstring). Guarded like ``use_sou`` so the use_eps=0
-    (uniform ε) expression tree is UNTOUCHED — these kernels are fastmath
-    and an inline ×1.0 could be re-associated, breaking golden bit-identity.
-    The solver sets use_eps=1 only when eps_field is actually non-uniform."""
+    Transport is shared with the sweep, while this assembly excludes its
+    under-relaxation and deferred diagonal compensation. The fixed-point
+    tests cover equality on every use_sou/use_eps branch.
+    """
     # Volume + face areas
     dxi = 0.5 * (dx[i - 1] + dx[min(i, Nx - 1)])
     dyj = dy[j]
     dzk = dz[k]
     vol = dxi * dyj * dzk
 
-    # Face viscosity (average cells i-1 and i)
-    il_r = max(i - 1, 0); ir_r = min(i, Nx - 1)
-    mu_e = 0.5 * (mu_eff_field[il_r, j, k]
-                  + mu_eff_field[ir_r, j, k])
-
-    # Diffusion coefficients (6 faces). 2× at domain walls
-    # (half-cell distance to wall, no-slip image point).
-    # N4 (2026-07-07): interior conductances use the ACTUAL neighbour-node
-    # distance, not the CV width — u-nodes sit on x-interfaces (E neighbour
-    # at dx[i], W at dx[i-1]); cross-stream neighbours at 0.5*(dy[j]+dy[j±1])
-    # / 0.5*(dz[k]+dz[k±1]). Uniform grids reduce bit-identically.
-    De = mu_e * dyj * dzk / dx[ir_r]
-    Dw = mu_e * dyj * dzk / dx[il_r]
-    Dn = (mu_e * dxi * dzk / (0.5 * (dy[j] + dy[j + 1]))
-          if j < Ny - 1 else 2.0 * mu_e * dxi * dzk / dyj)
-    Ds = (mu_e * dxi * dzk / (0.5 * (dy[j] + dy[j - 1]))
-          if j > 0 else 2.0 * mu_e * dxi * dzk / dyj)
-    Dt = (mu_e * dxi * dyj / (0.5 * (dz[k] + dz[k + 1]))
-          if k < Nz - 1 else 2.0 * mu_e * dxi * dyj / dzk)
-    Db = (mu_e * dxi * dyj / (0.5 * (dz[k] + dz[k - 1]))
-          if k > 0 else 2.0 * mu_e * dxi * dyj / dzk)
-
-    # Only the closed part of the physical outlet has wall diffusion.
-    if j == Ny - 1:
-        Dn *= 1.0 - outlet_u_frac[i, k]
-
-    # Neighbour values (with wall-BC zero outside domain)
+    il_r = i - 1; ir_r = i
+    (De, Dw, Dn, Ds, Dt, Db, Fe, Fw, Fn, Fs, Ft, Fb) = _u_transport_3d(
+        u, v, w, rho_field, mu_eff_field, eps_field,
+        dx, dy, dz, i, j, k, outlet_u_frac, use_eps)
     uE = u[i + 1, j, k] if i + 1 < Nx else 0.0
     uW = u[i - 1, j, k] if i > 0 else 0.0
     uN = u[i, j + 1, k] if j < Ny - 1 else 0.0
     uS = u[i, j - 1, k] if j > 0 else 0.0
     uT = u[i, j, k + 1] if k < Nz - 1 else 0.0
     uB = u[i, j, k - 1] if k > 0 else 0.0
-
-    # Face-centred fluxes (upwind, first order)
-    ue = 0.5 * (u[i, j, k] + u[min(i + 1, Nx), j, k])
-    uw = 0.5 * (u[max(i - 1, 0), j, k] + u[i, j, k])
-    il = max(i - 1, 0); ir = min(i, Nx - 1)
-    vn = 0.5 * (v[il, j + 1, k] + v[ir, j + 1, k])
-    vs = 0.5 * (v[il, j, k] + v[ir, j, k])
-    wn = 0.5 * (w[il, j, k + 1] + w[ir, j, k + 1]) \
-        if k < Nz - 1 else 0.0
-    wb = 0.5 * (w[il, j, k] + w[ir, j, k])
-
-    rho_loc = 0.5 * (rho_field[il_r, j, k]
-                     + rho_field[ir_r, j, k])
-    mu_loc = 0.5 * (mu_field[il_r, j, k]
-                    + mu_field[ir_r, j, k])
-
-    Fe = rho_loc * ue * dyj * dzk
-    Fw = rho_loc * uw * dyj * dzk
-    Fn = rho_loc * vn * dxi * dzk
-    Fs = rho_loc * vs * dxi * dzk
-    Ft = rho_loc * wn * dxi * dyj
-    Fb = rho_loc * wb * dxi * dyj
-
-    # M2b: VANS ε-ratio factors (guarded — see docstring). u-node sits on
-    # the x-interface between cells il_r/ir_r: E/W flux faces are the cell
-    # centres, N/S/T/B faces the 4-cell corners; wall faces keep ratio 1.
-    if use_eps == 1:
-        eps_u = 0.5 * (eps_field[il_r, j, k] + eps_field[ir_r, j, k])
-        r_e = eps_field[ir_r, j, k] / eps_u
-        r_w = eps_field[il_r, j, k] / eps_u
-        r_n = (0.25 * (eps_field[il_r, j, k] + eps_field[ir_r, j, k]
-                       + eps_field[il_r, j + 1, k] + eps_field[ir_r, j + 1, k])
-               / eps_u if j < Ny - 1 else 1.0)
-        r_s = (0.25 * (eps_field[il_r, j, k] + eps_field[ir_r, j, k]
-                       + eps_field[il_r, j - 1, k] + eps_field[ir_r, j - 1, k])
-               / eps_u if j > 0 else 1.0)
-        r_t = (0.25 * (eps_field[il_r, j, k] + eps_field[ir_r, j, k]
-                       + eps_field[il_r, j, k + 1] + eps_field[ir_r, j, k + 1])
-               / eps_u if k < Nz - 1 else 1.0)
-        r_b = (0.25 * (eps_field[il_r, j, k] + eps_field[ir_r, j, k]
-                       + eps_field[il_r, j, k - 1] + eps_field[ir_r, j, k - 1])
-               / eps_u if k > 0 else 1.0)
-        De *= r_e; Dw *= r_w; Dn *= r_n; Ds *= r_s; Dt *= r_t; Db *= r_b
-        Fe *= r_e; Fw *= r_w; Fn *= r_n; Fs *= r_s; Ft *= r_t; Fb *= r_b
+    rho_loc = 0.5 * (rho_field[i - 1, j, k] + rho_field[i, j, k])
+    mu_loc = 0.5 * (mu_field[i - 1, j, k] + mu_field[i, j, k])
 
     aE = De + max(-Fe, 0.0)
     aW = Dw + max(Fw, 0.0)
@@ -1144,7 +1190,9 @@ def _u_coeffs_df_3d(u, v, w, P, i, j, k,
     # Pressure gradient source
     p_src = (P[i - 1, j, k] - P[i, j, k]) * dyj * dzk
 
-    aP0 = aE + aW + aN + aS + aT + aB + Sp
+    aP0 = (De + Dw + Dn + Ds + Dt + Db + Sp
+           + max(Fe, 0.0) + max(-Fw, 0.0)
+           + max(Fn, 0.0) + max(-Fs, 0.0) + max(Ft, 0.0) + max(-Fb, 0.0))
     rhs = (aE * uE + aW * uW + aN * uN + aS * uS
            + aT * uT + aB * uB + p_src)
     # R4: minmod SOU deferred correction (flags mirror 2D _sou_corr_u_x/_y).
@@ -1155,17 +1203,17 @@ def _u_coeffs_df_3d(u, v, w, P, i, j, k,
                           u[i, j, k], u[min(i + 1, Nx), j, k],
                           u[min(i + 2, Nx), j, k],
                           i > 2, i > 1 and i + 1 < Nx, i + 2 <= Nx, i > 1,
-                          Fw, Fe)
+                          Fw, Fe, dx, i, True)
                 + _sou_axis(u[i, max(j - 2, 0), k], u[i, max(j - 1, 0), k],
                             u[i, j, k], u[i, min(j + 1, Ny - 1), k],
                             u[i, min(j + 2, Ny - 1), k],
                             j > 1, j > 0 and j < Ny - 1, j < Ny - 2,
-                            j > 0 and j < Ny - 1, Fs, Fn)
+                            j > 0 and j < Ny - 1, Fs, Fn, dy, j, False)
                 + _sou_axis(u[i, j, max(k - 2, 0)], u[i, j, max(k - 1, 0)],
                             u[i, j, k], u[i, j, min(k + 1, Nz - 1)],
                             u[i, j, min(k + 2, Nz - 1)],
                             k > 1, k > 0 and k < Nz - 1, k < Nz - 2,
-                            k > 0 and k < Nz - 1, Fb, Ft))
+                            k > 0 and k < Nz - 1, Fb, Ft, dz, k, False))
     return aP0, rhs
 
 
@@ -1175,82 +1223,29 @@ def _v_coeffs_df_3d(u, v, w, P, i, j, k,
                     rho_field, mu_eff_field, mu_field, eps_field,
                     K_arr, cF_arr, use_sou,
                     use_eps):
-    """Assemble (aP0, rhs) for the v-face — UNRELAXED discrete y-momentum
-    `aP0 * v = rhs`. DELIBERATE PARALLEL ASSEMBLY of `_v_cell_df_3d`'s
-    coefficients, for `_mom_res_jit_3d` only — NOT shared with the sweep (a
-    shared helper moved golden-3D by fastmath ULP). Guarded by the fixed-point
-    test, not trusted. See `_u_coeffs_df_3d`.
-    M2b: guarded VANS ε-ratio factors; v-node on the y-interface, so N/S flux
-    faces are cell centres, E/W/T/B the 4-cell corners."""
+    """Unrelaxed conservative v-momentum equation for F2 residuals.
+
+    Transport is shared with the sweep, while this assembly excludes its
+    under-relaxation and deferred diagonal compensation. The fixed-point
+    tests cover equality on every use_sou/use_eps branch.
+    """
     jc = min(j, Ny - 1)
     dxi = dx[i]
     dyj = 0.5 * (dy[j - 1] + dy[min(j, Ny - 1)])
     dzk = dz[k]
     vol = dxi * dyj * dzk
 
-    jb = max(j - 1, 0); jt = min(j, Ny - 1)
-    mu_e = 0.5 * (mu_eff_field[i, jb, k]
-                  + mu_eff_field[i, jt, k])
-
-    # N4 (2026-07-07): actual neighbour-node distances — E/W v-neighbours at
-    # 0.5*(dx[i]+dx[i±1]); N/S at dy[jt]/dy[jb] (v-nodes on y-interfaces);
-    # T/B at 0.5*(dz[k]+dz[k±1]). Walls keep the half-cell 2× form.
-    De = (mu_e * dyj * dzk / (0.5 * (dx[i] + dx[i + 1]))
-          if i < Nx - 1 else 2.0 * mu_e * dyj * dzk / dxi)
-    Dw = (mu_e * dyj * dzk / (0.5 * (dx[i] + dx[i - 1]))
-          if i > 0 else 2.0 * mu_e * dyj * dzk / dxi)
-    Dn = mu_e * dxi * dzk / dy[jt]
-    Ds = mu_e * dxi * dzk / dy[jb]
-    Dt = (mu_e * dxi * dyj / (0.5 * (dz[k] + dz[k + 1]))
-          if k < Nz - 1 else 2.0 * mu_e * dxi * dyj / dzk)
-    Db = (mu_e * dxi * dyj / (0.5 * (dz[k] + dz[k - 1]))
-          if k > 0 else 2.0 * mu_e * dxi * dyj / dzk)
-
+    (De, Dw, Dn, Ds, Dt, Db, Fe, Fw, Fn, Fs, Ft, Fb) = _v_transport_3d(
+        u, v, w, rho_field, mu_eff_field, eps_field,
+        dx, dy, dz, i, j, k, use_eps)
     vE = v[i + 1, j, k] if i < Nx - 1 else 0.0
     vW = v[i - 1, j, k] if i > 0 else 0.0
     vN = v[i, j + 1, k]
     vS = v[i, j - 1, k]
     vT = v[i, j, k + 1] if k < Nz - 1 else 0.0
     vB = v[i, j, k - 1] if k > 0 else 0.0
-
-    ue = 0.5 * (u[i + 1, jb, k] + u[i + 1, jt, k]) \
-        if i < Nx - 1 else 0.0
-    uw = 0.5 * (u[i, jb, k] + u[i, jt, k]) if i > 0 else 0.0
-    vn = 0.5 * (v[i, j, k] + v[i, min(j + 1, Ny), k])
-    vs = 0.5 * (v[i, max(j - 1, 0), k] + v[i, j, k])
-    wn = 0.5 * (w[i, jb, k + 1] + w[i, jt, k + 1]) \
-        if k < Nz - 1 else 0.0
-    wb = 0.5 * (w[i, jb, k] + w[i, jt, k])
-
-    rho_loc = 0.5 * (rho_field[i, jb, k] + rho_field[i, jt, k])
-    mu_loc = 0.5 * (mu_field[i, jb, k] + mu_field[i, jt, k])
-
-    Fe = rho_loc * ue * dyj * dzk
-    Fw = rho_loc * uw * dyj * dzk
-    Fn = rho_loc * vn * dxi * dzk
-    Fs = rho_loc * vs * dxi * dzk
-    Ft = rho_loc * wn * dxi * dyj
-    Fb = rho_loc * wb * dxi * dyj
-
-    # M2b: VANS ε-ratio factors (guarded — see _u_cell_df_3d).
-    if use_eps == 1:
-        eps_v = 0.5 * (eps_field[i, jb, k] + eps_field[i, jt, k])
-        r_n = eps_field[i, jt, k] / eps_v
-        r_s = eps_field[i, jb, k] / eps_v
-        r_e = (0.25 * (eps_field[i, jb, k] + eps_field[i, jt, k]
-                       + eps_field[i + 1, jb, k] + eps_field[i + 1, jt, k])
-               / eps_v if i < Nx - 1 else 1.0)
-        r_w = (0.25 * (eps_field[i, jb, k] + eps_field[i, jt, k]
-                       + eps_field[i - 1, jb, k] + eps_field[i - 1, jt, k])
-               / eps_v if i > 0 else 1.0)
-        r_t = (0.25 * (eps_field[i, jb, k] + eps_field[i, jt, k]
-                       + eps_field[i, jb, k + 1] + eps_field[i, jt, k + 1])
-               / eps_v if k < Nz - 1 else 1.0)
-        r_b = (0.25 * (eps_field[i, jb, k] + eps_field[i, jt, k]
-                       + eps_field[i, jb, k - 1] + eps_field[i, jt, k - 1])
-               / eps_v if k > 0 else 1.0)
-        De *= r_e; Dw *= r_w; Dn *= r_n; Ds *= r_s; Dt *= r_t; Db *= r_b
-        Fe *= r_e; Fw *= r_w; Fn *= r_n; Fs *= r_s; Ft *= r_t; Fb *= r_b
+    rho_loc = 0.5 * (rho_field[i, j - 1, k] + rho_field[i, j, k])
+    mu_loc = 0.5 * (mu_field[i, j - 1, k] + mu_field[i, j, k])
 
     aE = De + max(-Fe, 0.0)
     aW = Dw + max(Fw, 0.0)
@@ -1265,7 +1260,9 @@ def _v_coeffs_df_3d(u, v, w, P, i, j, k,
 
     p_src = (P[i, j - 1, k] - P[i, j, k]) * dxi * dzk
 
-    aP0 = aE + aW + aN + aS + aT + aB + Sp
+    aP0 = (De + Dw + Dn + Ds + Dt + Db + Sp
+           + max(Fe, 0.0) + max(-Fw, 0.0)
+           + max(Fn, 0.0) + max(-Fs, 0.0) + max(Ft, 0.0) + max(-Fb, 0.0))
     rhs = (aE * vE + aW * vW + aN * vN + aS * vS
            + aT * vT + aB * vB + p_src)
     # R4: minmod SOU deferred correction (flags mirror 2D _sou_corr_v_x/_y).
@@ -1275,17 +1272,17 @@ def _v_coeffs_df_3d(u, v, w, P, i, j, k,
                           v[i, j, k], v[min(i + 1, Nx - 1), j, k],
                           v[min(i + 2, Nx - 1), j, k],
                           i > 1, i > 0 and i < Nx - 1, i < Nx - 2,
-                          i > 0 and i < Nx - 1, Fw, Fe)
+                          i > 0 and i < Nx - 1, Fw, Fe, dx, i, False)
                 + _sou_axis(v[i, max(j - 2, 0), k], v[i, max(j - 1, 0), k],
                             v[i, j, k], v[i, min(j + 1, Ny), k],
                             v[i, min(j + 2, Ny), k],
                             j > 2, j > 1, j + 2 <= Ny, j > 1,
-                            Fs, Fn)
+                            Fs, Fn, dy, j, True)
                 + _sou_axis(v[i, j, max(k - 2, 0)], v[i, j, max(k - 1, 0)],
                             v[i, j, k], v[i, j, min(k + 1, Nz - 1)],
                             v[i, j, min(k + 2, Nz - 1)],
                             k > 1, k > 0 and k < Nz - 1, k < Nz - 2,
-                            k > 0 and k < Nz - 1, Fb, Ft))
+                            k > 0 and k < Nz - 1, Fb, Ft, dz, k, False))
     return aP0, rhs
 
 
@@ -1295,87 +1292,32 @@ def _w_coeffs_df_3d(u, v, w, P, i, j, k,
                     rho_field, mu_eff_field, mu_field, eps_field,
                     K_arr, cF_arr, outlet_w_frac, use_sou,
                     use_eps):
-    """Assemble (aP0, rhs) for the w-face — UNRELAXED discrete z-momentum
-    `aP0 * w = rhs`. DELIBERATE PARALLEL ASSEMBLY of `_w_cell_df_3d`'s
-    coefficients, for `_mom_res_jit_3d` only — NOT shared with the sweep (a
-    shared helper moved golden-3D by fastmath ULP). Guarded by the fixed-point
-    test, not trusted. See `_u_coeffs_df_3d`.
-    M2b: guarded VANS ε-ratio factors; w-node on the z-interface, so T/B flux
-    faces are cell centres, E/W/N/S the 4-cell corners."""
+    """Unrelaxed conservative w-momentum equation for F2 residuals.
+
+    Transport is shared with the sweep, while this assembly excludes its
+    under-relaxation and deferred diagonal compensation. The fixed-point
+    tests cover equality on every use_sou/use_eps branch.
+    """
     kc = min(k, Nz - 1)
     dxi = dx[i]
     dyj = dy[j]
     dzk = 0.5 * (dz[k - 1] + dz[min(k, Nz - 1)])
     vol = dxi * dyj * dzk
 
-    kb = max(k - 1, 0); kt = min(k, Nz - 1)
-    mu_e = 0.5 * (mu_eff_field[i, j, kb]
-                  + mu_eff_field[i, j, kt])
-
-    # N4 (2026-07-07): actual neighbour-node distances — E/W w-neighbours at
-    # 0.5*(dx[i]+dx[i±1]), N/S at 0.5*(dy[j]+dy[j±1]); T/B at dz[kt]/dz[kb]
-    # (w-nodes on z-interfaces). Walls keep the half-cell 2× form.
-    De = (mu_e * dyj * dzk / (0.5 * (dx[i] + dx[i + 1]))
-          if i < Nx - 1 else 2.0 * mu_e * dyj * dzk / dxi)
-    Dw_ = (mu_e * dyj * dzk / (0.5 * (dx[i] + dx[i - 1]))
-           if i > 0 else 2.0 * mu_e * dyj * dzk / dxi)
-    Dn = (mu_e * dxi * dzk / (0.5 * (dy[j] + dy[j + 1]))
-          if j < Ny - 1 else 2.0 * mu_e * dxi * dzk / dyj)
-    Ds = (mu_e * dxi * dzk / (0.5 * (dy[j] + dy[j - 1]))
-          if j > 0 else 2.0 * mu_e * dxi * dzk / dyj)
-    Dt = mu_e * dxi * dyj / dz[kt]
-    Db = mu_e * dxi * dyj / dz[kb]
-
-    if j == Ny - 1:
-        Dn *= 1.0 - outlet_w_frac[i, k]
-
+    (De, Dw, Dn, Ds, Dt, Db, Fe, Fw_, Fn, Fs, Ft, Fb) = _w_transport_3d(
+        u, v, w, rho_field, mu_eff_field, eps_field,
+        dx, dy, dz, i, j, k, outlet_w_frac, use_eps)
     wE = w[i + 1, j, k] if i < Nx - 1 else 0.0
     wW = w[i - 1, j, k] if i > 0 else 0.0
     wN = w[i, j + 1, k] if j < Ny - 1 else 0.0
     wS = w[i, j - 1, k] if j > 0 else 0.0
     wT = w[i, j, k + 1]
     wB = w[i, j, k - 1]
-
-    ue = 0.5 * (u[i + 1, j, kb] + u[i + 1, j, kt]) \
-        if i < Nx - 1 else 0.0
-    uw = 0.5 * (u[i, j, kb] + u[i, j, kt]) if i > 0 else 0.0
-    vn = 0.5 * (v[i, j + 1, kb] + v[i, j + 1, kt])
-    vs = 0.5 * (v[i, j, kb] + v[i, j, kt])
-    wn = 0.5 * (w[i, j, k] + w[i, j, min(k + 1, Nz)])
-    wb = 0.5 * (w[i, j, max(k - 1, 0)] + w[i, j, k])
-
-    rho_loc = 0.5 * (rho_field[i, j, kb] + rho_field[i, j, kt])
-    mu_loc = 0.5 * (mu_field[i, j, kb] + mu_field[i, j, kt])
-
-    Fe = rho_loc * ue * dyj * dzk
-    Fw_ = rho_loc * uw * dyj * dzk
-    Fn = rho_loc * vn * dxi * dzk
-    Fs = rho_loc * vs * dxi * dzk
-    Ft = rho_loc * wn * dxi * dyj
-    Fb = rho_loc * wb * dxi * dyj
-
-    # M2b: VANS ε-ratio factors (guarded — see _u_cell_df_3d).
-    if use_eps == 1:
-        eps_w = 0.5 * (eps_field[i, j, kb] + eps_field[i, j, kt])
-        r_t = eps_field[i, j, kt] / eps_w
-        r_b = eps_field[i, j, kb] / eps_w
-        r_e = (0.25 * (eps_field[i, j, kb] + eps_field[i, j, kt]
-                       + eps_field[i + 1, j, kb] + eps_field[i + 1, j, kt])
-               / eps_w if i < Nx - 1 else 1.0)
-        r_w = (0.25 * (eps_field[i, j, kb] + eps_field[i, j, kt]
-                       + eps_field[i - 1, j, kb] + eps_field[i - 1, j, kt])
-               / eps_w if i > 0 else 1.0)
-        r_n = (0.25 * (eps_field[i, j, kb] + eps_field[i, j, kt]
-                       + eps_field[i, j + 1, kb] + eps_field[i, j + 1, kt])
-               / eps_w if j < Ny - 1 else 1.0)
-        r_s = (0.25 * (eps_field[i, j, kb] + eps_field[i, j, kt]
-                       + eps_field[i, j - 1, kb] + eps_field[i, j - 1, kt])
-               / eps_w if j > 0 else 1.0)
-        De *= r_e; Dw_ *= r_w; Dn *= r_n; Ds *= r_s; Dt *= r_t; Db *= r_b
-        Fe *= r_e; Fw_ *= r_w; Fn *= r_n; Fs *= r_s; Ft *= r_t; Fb *= r_b
+    rho_loc = 0.5 * (rho_field[i, j, k - 1] + rho_field[i, j, k])
+    mu_loc = 0.5 * (mu_field[i, j, k - 1] + mu_field[i, j, k])
 
     aE = De + max(-Fe, 0.0)
-    aW = Dw_ + max(Fw_, 0.0)
+    aW = Dw + max(Fw_, 0.0)
     aN = Dn + max(-Fn, 0.0)
     aS = Ds + max(Fs, 0.0)
     aT = Dt + max(-Ft, 0.0)
@@ -1387,7 +1329,9 @@ def _w_coeffs_df_3d(u, v, w, P, i, j, k,
 
     p_src = (P[i, j, k - 1] - P[i, j, k]) * dxi * dyj
 
-    aP0 = aE + aW + aN + aS + aT + aB + Sp
+    aP0 = (De + Dw + Dn + Ds + Dt + Db + Sp
+           + max(Fe, 0.0) + max(-Fw_, 0.0)
+           + max(Fn, 0.0) + max(-Fs, 0.0) + max(Ft, 0.0) + max(-Fb, 0.0))
     rhs = (aE * wE + aW * wW + aN * wN + aS * wS
            + aT * wT + aB * wB + p_src)
     # R4: minmod SOU deferred correction (cross axes mirror v; parallel = z).
@@ -1397,17 +1341,17 @@ def _w_coeffs_df_3d(u, v, w, P, i, j, k,
                           w[i, j, k], w[min(i + 1, Nx - 1), j, k],
                           w[min(i + 2, Nx - 1), j, k],
                           i > 1, i > 0 and i < Nx - 1, i < Nx - 2,
-                          i > 0 and i < Nx - 1, Fw_, Fe)
+                          i > 0 and i < Nx - 1, Fw_, Fe, dx, i, False)
                 + _sou_axis(w[i, max(j - 2, 0), k], w[i, max(j - 1, 0), k],
                             w[i, j, k], w[i, min(j + 1, Ny - 1), k],
                             w[i, min(j + 2, Ny - 1), k],
                             j > 1, j > 0 and j < Ny - 1, j < Ny - 2,
-                            j > 0 and j < Ny - 1, Fs, Fn)
+                            j > 0 and j < Ny - 1, Fs, Fn, dy, j, False)
                 + _sou_axis(w[i, j, max(k - 2, 0)], w[i, j, max(k - 1, 0)],
                             w[i, j, k], w[i, j, min(k + 1, Nz)],
                             w[i, j, min(k + 2, Nz)],
                             k > 2, k > 1, k + 2 <= Nz, k > 1,
-                            Fb, Ft))
+                            Fb, Ft, dz, k, True))
     return aP0, rhs
 
 

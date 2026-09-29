@@ -502,3 +502,34 @@ def test_sweeps_reject_finite_input_arithmetic_overflow(native, overflow):
                 "fluid_update": "nonfinite fluid sweep update"}
     assert error == expected[overflow]
     assert clips == (99, 99)  # no success result returned; state is unusable
+
+
+@pytest.mark.parametrize('axis', range(3))
+def test_two_layer_resistance_has_independent_native_oracle(native, native_audit, axis):
+    shape = [1, 1, 1]; shape[axis] = 2
+    case = case_data(tuple(shape))
+    widths = [np.ones(n) for n in shape]; widths[axis] = np.array([1., 3.])
+    case['widths'] = tuple(widths)
+    temperature = np.array([300., 301.]).reshape(shape)
+    conductivity = np.array([1., 3.]).reshape(shape)
+    for fluid, h in zip((case['a'], case['b']), case['state']):
+        fluid['arrays'][:5] = [conductivity.copy(), np.ones(shape), temperature.copy(),
+                               temperature.copy(), np.ones(shape)]
+        for face in fluid['arrays'][5:]:
+            face.fill(0.)
+        fluid['hin'], fluid['bounds'] = 300., (0., 1e6)
+        h[:] = temperature
+    case['state'][2].fill(300.)
+    case['kss'][:] = conductivity
+    # G = 1 / (.5/1 + 1.5/3) = 1 W/K, plus local h_v V = 1 W/K.
+    code, clips, error = native(case, sweeps=1, omega=1.)
+    assert code == 0 and clips == (0, 0) and not error
+    assert case['state'][0].flat[0] == pytest.approx(300.5, abs=1e-12)
+    assert case['state'][1].flat[0] == pytest.approx(300.5, abs=1e-12)
+    for fluid in (case['a'], case['b']):
+        fluid['arrays'][4].fill(0.)
+    case['state'][2][:] = temperature
+    code, residuals, _ = native_audit(case, [temperature]*2, [conductivity]*2)
+    assert code == 0
+    for residual in residuals:
+        np.testing.assert_allclose(residual, np.array([1., -1.]).reshape(shape), rtol=0., atol=1e-12)

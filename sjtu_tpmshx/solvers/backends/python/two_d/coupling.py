@@ -262,20 +262,15 @@ def _compute_Q_richardson(
     _asymQ = (float(split_A) != 0.5)
     _fAQ = 2.0 * float(split_A)
     _fBQ = 2.0 * (1.0 - float(split_A))
-    from sjtu_tpmshx.solvers.simple_solver import _aligned_grid, _port_fractions_1d
+    from sjtu_tpmshx.solvers.simple_solver import _port_fractions_1d
+    from sjtu_tpmshx.models.grid import split_cells
     # Compute Q with Richardson extrapolation (N_x×N_y + 2N_x×2N_y)
     _cell_area = energy_dx[:, None] * energy_dy[None, :]  # (Nx, Ny)
     Q_solid_100 = float(np.sum(h_vB_coarse * (Ts - Tb) * _cell_area))
 
-    # Double each physical grid count for the energy-only refinement.
-    Nx2, Ny2 = N_x * 2, N_y * 2
-    if port_wall_refine:
-        from sjtu_tpmshx.models.grid import split_cells
-        energy_dx2, energy_dy2 = split_cells(energy_dx), split_cells(energy_dy)
-    else:
-        energy_dx2 = _aligned_grid(Nx2, L, list(_x_breaks))
-        energy_dy2 = _aligned_grid(Ny2, H, list(_y_breaks))
-    # Grid constructors enforce the requested counts and physical coverage.
+    # Richardson r=2 must bisect the actual main cells, including automatic
+    # wall grading and aligned port segments, instead of rebuilding by count.
+    energy_dx2, energy_dy2 = split_cells(energy_dx), split_cells(energy_dy)
     Nx2 = int(len(energy_dx2))
     Ny2 = int(len(energy_dy2))
 

@@ -823,6 +823,7 @@ class SIMPLESolver3D:
         self.final_res_mass_local = None
         self.final_res_mass_global = None
         self.outlet_backflow_frac = 0.0
+        self.f2_cert_post_rescale_ok = False
         if not f2_state_is_finite(self, (self.u, self.v, self.w)):
             return f2_nonfinite_exit(self, 0)
         if cancel_check is not None and cancel_check():
@@ -911,6 +912,42 @@ class SIMPLESolver3D:
         _track_mom = bool(getattr(self, 'track_momentum_residual', False)
                           or os.environ.get('TPMSHX_MOM_RES', '') == '1')
         _f2 = F2Monitor(self, (self.u, self.v, self.w), min_iter=10)
+
+        def finish(reason, iterations):
+            # Pressure correction closed the outlet using the previous rho.
+            # Close again with the returned density, then certify that same
+            # velocity/pressure/density state, including pressure-pinned cells.
+            _v_bc_3d(self.u, self.v, self.w, self.v_inlet_field,
+                     self.rho_field, self.eps_field, self.outlet_mask_ij,
+                     Nx, Ny, Nz, dx, dy, dz)
+            if not f2_state_is_finite(self, (self.u, self.v, self.w)):
+                return f2_nonfinite_exit(self, iterations)
+            rho_eps = np.ascontiguousarray(self.rho_field*self.eps_field)
+            local, _ = _mass_res_solved_jit_3d(
+                self.u, self.v, self.w, Nx, Ny, Nz, dx, dy, dz, rho_eps,
+                np.zeros_like(self._pp_sparsity['cell_kind']))
+            mi, mo, backflow = _mass_global_jit_3d(
+                self.v, Nx, Ny, Nz, dx, dz, rho_eps)
+            global_mass = global_mass_residual(mi, mo)
+            momentum, _ = self._momentum_residual(
+                Nx, Ny, Nz, dx, dy, dz, _use_sou, _use_eps)
+            self.final_res_mass_local = local
+            self.final_res_mass_global = global_mass
+            self.final_res_mom = momentum
+            self.outlet_backflow_frac = backflow
+            if not np.isfinite((momentum, local, global_mass, backflow)).all():
+                return f2_nonfinite_exit(self, iterations)
+            self.f2_cert_post_rescale_ok = bool(
+                momentum < _f2.mom_tol and local < _f2.mass_local_tol
+                and global_mass < _f2.mass_global_tol
+                and backflow <= _f2.backflow_max)
+            # The outer coupling consumes exit_reason, so a rejected final
+            # certificate must not retain its provisional 'tol' verdict.
+            self.exit_reason = ('post_closure' if reason == 'tol'
+                                and not self.f2_cert_post_rescale_ok else reason)
+            # A post-check can reject convergence, never upgrade an exhausted
+            # budget or a stalled solve whose original gates failed.
+            return self.exit_reason == 'tol', iterations
 
         for it in range(1, max_iter + 1):
             if cancel_check is not None and cancel_check():
@@ -1051,10 +1088,14 @@ class SIMPLESolver3D:
                 if _reason == 'nonfinite':
                     return f2_nonfinite_exit(self, it)
                 if _reason is not None:
-                    self.exit_reason = _reason
-                    return (_reason == 'tol'), it
-        self.exit_reason = 'max_iter'
-        return False, max_iter
+                    outcome = finish(_reason, it)
+                    if self.exit_reason != 'post_closure' or it == max_iter:
+                        return outcome
+                    # Restart confirmation within the original budget. The
+                    # next normal observation includes the closure's velocity
+                    # change; reusing this iteration's _vd could falsely stall.
+                    _f2._streak = 0
+        return finish('max_iter', max_iter)
 
     # ── ledger C7 — momentum residual, balanced normalisation ─────────
     _MOM_FLOOR_FRAC = 1e-3

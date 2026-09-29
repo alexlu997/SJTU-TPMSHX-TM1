@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import numpy as np
 from numba import njit
+from ._kernels_2d import diffusion_conductance
 from sjtu_tpmshx.domain.cancellation import CancelledError
 
 
@@ -131,11 +132,6 @@ from sjtu_tpmshx.result_math import _boundary_enthalpy_duty  # noqa: F401 - exis
 
 
 @njit(cache=True, fastmath=True)
-def _harmonic(a, b):
-    return 0.0 if a + b <= 0.0 else 2.0 * a * b / (a + b)
-
-
-@njit(cache=True, fastmath=True)
 def _fluid_enthalpy_sweep(h, T_star, Ts, cp, h_star, dh, hv, Fx, Fy, Fz,
                           h_in, dx, dy, dz, omega, h_lo, h_hi):
     """Signed mass transport and Fourier conduction, linearized in enthalpy.
@@ -153,18 +149,12 @@ def _fluid_enthalpy_sweep(h, T_star, Ts, cp, h_star, dh, hv, Fx, Fy, Fz,
                 Ax = dyj * dzk; Ay = dxi * dzk; Az = dxi * dyj
                 vol = dxi * dyj * dzk
                 ki = dh[i, j, k] * cp[i, j, k]
-                dW = (_harmonic(ki, dh[i - 1, j, k] * cp[i - 1, j, k]) * Ax
-                      / (0.5 * (dx[i - 1] + dxi))) if i > 0 else 0.0
-                dE = (_harmonic(ki, dh[i + 1, j, k] * cp[i + 1, j, k]) * Ax
-                      / (0.5 * (dx[i + 1] + dxi))) if i + 1 < Nx else 0.0
-                dS = (_harmonic(ki, dh[i, j - 1, k] * cp[i, j - 1, k]) * Ay
-                      / (0.5 * (dy[j - 1] + dyj))) if j > 0 else 0.0
-                dN = (_harmonic(ki, dh[i, j + 1, k] * cp[i, j + 1, k]) * Ay
-                      / (0.5 * (dy[j + 1] + dyj))) if j + 1 < Ny else 0.0
-                dB = (_harmonic(ki, dh[i, j, k - 1] * cp[i, j, k - 1]) * Az
-                      / (0.5 * (dz[k - 1] + dzk))) if k > 0 else 0.0
-                dT = (_harmonic(ki, dh[i, j, k + 1] * cp[i, j, k + 1]) * Az
-                      / (0.5 * (dz[k + 1] + dzk))) if k + 1 < Nz else 0.0
+                dW = (diffusion_conductance(ki, dh[i - 1, j, k] * cp[i - 1, j, k], 0.5*dxi, 0.5*dx[i - 1]) * Ax) if i > 0 else 0.0
+                dE = (diffusion_conductance(ki, dh[i + 1, j, k] * cp[i + 1, j, k], 0.5*dxi, 0.5*dx[i + 1]) * Ax) if i + 1 < Nx else 0.0
+                dS = (diffusion_conductance(ki, dh[i, j - 1, k] * cp[i, j - 1, k], 0.5*dyj, 0.5*dy[j - 1]) * Ay) if j > 0 else 0.0
+                dN = (diffusion_conductance(ki, dh[i, j + 1, k] * cp[i, j + 1, k], 0.5*dyj, 0.5*dy[j + 1]) * Ay) if j + 1 < Ny else 0.0
+                dB = (diffusion_conductance(ki, dh[i, j, k - 1] * cp[i, j, k - 1], 0.5*dzk, 0.5*dz[k - 1]) * Az) if k > 0 else 0.0
+                dT = (diffusion_conductance(ki, dh[i, j, k + 1] * cp[i, j, k + 1], 0.5*dzk, 0.5*dz[k + 1]) * Az) if k + 1 < Nz else 0.0
 
                 fw = Fx[i, j, k]; fe = Fx[i + 1, j, k]
                 fs = Fy[i, j, k]; fn = Fy[i, j + 1, k]
@@ -233,18 +223,12 @@ def _solid_temperature_sweep(Ts, hA, hB, cpA, cpB, TA_star, TB_star,
                 dxi = dx[i]; dyj = dy[j]; dzk = dz[k]
                 Ax = dyj * dzk; Ay = dxi * dzk; Az = dxi * dyj
                 vol = dxi * dyj * dzk
-                dW = (_harmonic(Kss[i, j, k], Kss[i - 1, j, k]) * Ax
-                      / (0.5 * (dx[i - 1] + dxi))) if i > 0 else 0.0
-                dE = (_harmonic(Kss[i, j, k], Kss[i + 1, j, k]) * Ax
-                      / (0.5 * (dx[i + 1] + dxi))) if i + 1 < Nx else 0.0
-                dS = (_harmonic(Kss[i, j, k], Kss[i, j - 1, k]) * Ay
-                      / (0.5 * (dy[j - 1] + dyj))) if j > 0 else 0.0
-                dN = (_harmonic(Kss[i, j, k], Kss[i, j + 1, k]) * Ay
-                      / (0.5 * (dy[j + 1] + dyj))) if j + 1 < Ny else 0.0
-                dB = (_harmonic(Kss[i, j, k], Kss[i, j, k - 1]) * Az
-                      / (0.5 * (dz[k - 1] + dzk))) if k > 0 else 0.0
-                dT = (_harmonic(Kss[i, j, k], Kss[i, j, k + 1]) * Az
-                      / (0.5 * (dz[k + 1] + dzk))) if k + 1 < Nz else 0.0
+                dW = (diffusion_conductance(Kss[i, j, k], Kss[i - 1, j, k], 0.5*dxi, 0.5*dx[i - 1]) * Ax) if i > 0 else 0.0
+                dE = (diffusion_conductance(Kss[i, j, k], Kss[i + 1, j, k], 0.5*dxi, 0.5*dx[i + 1]) * Ax) if i + 1 < Nx else 0.0
+                dS = (diffusion_conductance(Kss[i, j, k], Kss[i, j - 1, k], 0.5*dyj, 0.5*dy[j - 1]) * Ay) if j > 0 else 0.0
+                dN = (diffusion_conductance(Kss[i, j, k], Kss[i, j + 1, k], 0.5*dyj, 0.5*dy[j + 1]) * Ay) if j + 1 < Ny else 0.0
+                dB = (diffusion_conductance(Kss[i, j, k], Kss[i, j, k - 1], 0.5*dzk, 0.5*dz[k - 1]) * Az) if k > 0 else 0.0
+                dT = (diffusion_conductance(Kss[i, j, k], Kss[i, j, k + 1], 0.5*dzk, 0.5*dz[k + 1]) * Az) if k + 1 < Nz else 0.0
                 ta = TA_star[i, j, k] + (
                     hA[i, j, k] - hA_star[i, j, k]) / max(cpA[i, j, k], 1e-30)
                 tb = TB_star[i, j, k] + (
@@ -295,12 +279,14 @@ def _conduction_source(T, conductivity, dx, dy, dz):
         lo[axis] = slice(None, -1); hi[axis] = slice(1, None)
         lo, hi = tuple(lo), tuple(hi)
         kl, kh = conductivity[lo], conductivity[hi]
-        harmonic = np.zeros_like(kl)
-        np.divide(2 * kl * kh, kl + kh, out=harmonic, where=kl + kh > 0)
         shape = [1, 1, 1]; shape[axis] = -1
-        distance = (0.5 * (width[:-1] + width[1:])).reshape(shape)
+        dl = (0.5 * width[:-1]).reshape(shape)
+        dr = (0.5 * width[1:]).reshape(shape)
+        conductance = np.zeros_like(kl)
+        np.divide(kl * kh, dl * kh + dr * kl, out=conductance,
+                  where=(kl > 0.) & (kh > 0.))
         area = volume / width.reshape(shape)
-        flux = harmonic * area[lo] / distance * (T[hi] - T[lo])
+        flux = conductance * area[lo] * (T[hi] - T[lo])
         residual[lo] += flux; residual[hi] -= flux
     return residual
 
@@ -429,6 +415,14 @@ def solve_ltne_enthalpy_3d_pipeline(Nx, Ny, Nz, dx, dy, dz, eps_arr, K_ss,
           if Ts_init is not None else np.full(shape, 0.5 * (T_inA + T_inB)))
     hA = np.ascontiguousarray(hA, dtype=np.float64)
     hB = np.ascontiguousarray(hB, dtype=np.float64)
+    # Numerical clipping must not exclude already validated inlet/warm states.
+    # In particular stable liquid water below 274 K is legal. Keep the existing
+    # mathematical brackets, extending them only to the accepted EOS enthalpies;
+    # local phase/domain guards and final clipping/energy certificates still apply.
+    h_lo_A = min(h_lo_A, h_in_A, float(hA.min()))
+    h_hi_A = max(h_hi_A, h_in_A, float(hA.max()))
+    h_lo_B = min(h_lo_B, h_in_B, float(hB.min()))
+    h_hi_B = max(h_hi_B, h_in_B, float(hB.max()))
 
     lookup_A = lookup_B = None
     n_done = 0

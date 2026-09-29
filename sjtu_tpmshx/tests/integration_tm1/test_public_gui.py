@@ -159,7 +159,7 @@ def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, di
          if dimension == 2 else
          # Physical inlet-pressure reference; previous values and native
          # evidence: docs/history/README.md.
-         [338.325949393, 1944.010935833327, 3038.067091602703, 359.22541117456143, 344.9327731893514]),
+         [338.32597986464316, 1944.171058451597, 3038.3756313666836, 359.2254054660597, 344.9327746483012]),
         rtol=1e-10, atol=1e-10)
     output = tmp_path / 'results.csv'
     monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *args: (str(output), 'CSV'))

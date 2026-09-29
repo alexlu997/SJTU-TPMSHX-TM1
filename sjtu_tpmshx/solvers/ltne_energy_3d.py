@@ -269,29 +269,27 @@ def _conservation_residual_sum(T, Ts, uf, vf, wf, eps_f, K, rcp, hv,
             ifrac > 0.0, inlet_flux * (1.0 if dir_code % 2 == 0 else -1.0), inlet_face)
     if model_mass is not None:
         (Fx, Fy, Fz), deferred = _model_h_faces(
-            T, model_mass, model_cp, dir_code, Tin, ifrac)
+            T, model_mass, model_cp, dir_code, Tin, ifrac, dx, dy, dz)
     Fe = Fx[1:]; Fw = Fx[:-1]; Fn = Fy[:, 1:]; Fs = Fy[:, :-1]
     Ft = Fz[:, :, 1:]; Fb = Fz[:, :, :-1]
     net_out = (Fe - Fw) + (Fn - Fs) + (Ft - Fb)
 
-    # Harmonic-mean diffusion conductances, shared faces (matches kernel).
-    dxe = 0.5 * (dx[:-1] + dx[1:]); dyn = 0.5 * (dy[:-1] + dy[1:])
-    dzt = 0.5 * (dz[:-1] + dz[1:])
+    # Two physical half-cell thermal resistances in series on every shared face.
     dE = np.zeros_like(T); dW = np.zeros_like(T)
     dN = np.zeros_like(T); dS = np.zeros_like(T)
     dT_ = np.zeros_like(T); dB = np.zeros_like(T)
-    if Nx > 1:
-        h = 2.0 * K[:-1] * K[1:] / (K[:-1] + K[1:] + 1e-30) \
-            * np.broadcast_to(Ax, (Nx - 1, Ny, Nz)) / dxe[:, None, None]
-        dE[:-1] = h; dW[1:] = h
-    if Ny > 1:
-        h = 2.0 * K[:, :-1] * K[:, 1:] / (K[:, :-1] + K[:, 1:] + 1e-30) \
-            * np.broadcast_to(Ay, (Nx, Ny - 1, Nz)) / dyn[None, :, None]
-        dN[:, :-1] = h; dS[:, 1:] = h
-    if Nz > 1:
-        h = 2.0 * K[:, :, :-1] * K[:, :, 1:] / (K[:, :, :-1] + K[:, :, 1:] + 1e-30) \
-            * np.broadcast_to(Az, (Nx, Ny, Nz - 1)) / dzt[None, None, :]
-        dT_[:, :, :-1] = h; dB[:, :, 1:] = h
+    for axis, (width, area, forward, backward) in enumerate((
+            (dx, Ax, dE, dW), (dy, Ay, dN, dS), (dz, Az, dT_, dB))):
+        lo = [slice(None)] * 3; hi = lo.copy()
+        lo[axis] = slice(None, -1); hi[axis] = slice(1, None)
+        lo, hi = tuple(lo), tuple(hi)
+        shape = [1, 1, 1]; shape[axis] = -1
+        kl, kr = K[lo], K[hi]
+        denominator = .5*width[:-1].reshape(shape)*kr + .5*width[1:].reshape(shape)*kl
+        conductance = np.zeros_like(kl)
+        np.divide(kl*kr, denominator, out=conductance, where=(kl > 0.) & (kr > 0.))
+        shared = conductance * np.broadcast_to(area, T.shape)[lo]
+        forward[lo] = shared; backward[hi] = shared
 
     aE = dE + np.maximum(-Fe, 0.0); aW = dW + np.maximum(Fw, 0.0)
     aN = dN + np.maximum(-Fn, 0.0); aS = dS + np.maximum(Fs, 0.0)
@@ -312,7 +310,7 @@ def _conservation_residual_sum(T, Ts, uf, vf, wf, eps_f, K, rcp, hv,
     # The sou itself telescopes, so conservation is preserved; r → 0 at
     # convergence. (For pure-upwind it is identically 0 ⇒ no-op.)
     r = (r + _face_divergence(deferred) if model_mass is not None
-         else r - _sou_field_cons(T, Fx, Fy, Fz))
+         else r - _sou_field_cons(T, Fx, Fy, Fz, dx, dy, dz))
 
     axis = dir_code // 2
     sl = [slice(None)] * 3
@@ -507,7 +505,7 @@ def _model_h_balance(temperatures, Ts, masses, coefficients, directions, inlets,
     for side, T, mass, coeff, direction, Tin, mask, K, hv, eps, source in zip(
             ('A', 'B'), temperatures, masses, coefficients, directions, inlets,
             masks, conductivities, exchanges, porosities, sources):
-        capacity, deferred = _model_h_faces(T, mass, coeff, direction, Tin, mask)
+        capacity, deferred = _model_h_faces(T, mass, coeff, direction, Tin, mask, dx, dy, dz)
         r, exchange, inlet_diffusion = _conservation_residual_sum(
             T, Ts, *zero_faces, eps, K, zeros, hv, dx, dy, dz, direction, Tin,
             mask, source, model_mass=mass, model_cp=coeff, return_field=True)
@@ -631,7 +629,9 @@ def solve_full_domain_3d(L, H, D, Nx, Ny, Nz,
                                  damping; smaller explicit values are retained.
 
     Nz == 1 fast path: delegates to solvers.ltne_energy.solve_full_domain
-    (bitwise-identical Nz=1 regression).
+    (bitwise-identical Nz=1 regression). Nondefault alpha_T or explicit
+    per-phase relaxation is rejected because the delegate cannot honor it.
+    Nonzero MMS sources require staggered velocities for Nz>1.
     """
     Nx, Ny, Nz = int(Nx), int(Ny), int(Nz)
     model_enabled = any(x is not None for x in (model_mass_A, model_mass_B, model_fluids))
@@ -667,6 +667,8 @@ def solve_full_domain_3d(L, H, D, Nx, Ny, Nz,
             raise ValueError(f"inlet_flux_{name} must be finite with shape {_inlet_shape(direction)}")
 
     if Nz == 1:
+        if alpha_T != 0.7 or any(v is not None for v in (alpha_T_s, alpha_T_fA, alpha_T_fB)):
+            raise ValueError('Nz==1 delegates to 2D and does not support explicit thermal relaxation')
         return _delegate_to_2d(
             L, H, D, Nx, Ny, T_inA, T_inB,
             K_ffA, K_ffB, K_ss, h_vA, h_vB,
@@ -818,7 +820,7 @@ def solve_full_domain_3d(L, H, D, Nx, Ny, Nz,
 
     # Chunk iterate, convergence = (Q stable) AND (field stable per chunk).
     # chunk=250 (2026-06-24): the old chunk=500 forced >=2 chunks (=1000 sweeps)
-    # because the first Q-delta check is skipped (Q_prev starts at 0), so a
+    # because the first Q-delta check is skipped (Q_prev starts unset), so a
     # field that converged within the first chunk still ran a second, fully
     # redundant one (measured: the 2nd 500-sweep chunk changed the 40^3 field by
     # 1.7e-13 — pure waste; halving energy time at identical Q/dP). A finer
@@ -828,7 +830,7 @@ def solve_full_domain_3d(L, H, D, Nx, Ny, Nz,
     # Q-stable AND field-stable cannot), so 250 is safe on small grids too.
     chunk = 250 if conv_chunk is None else int(conv_chunk); done = 0
     cell_vol = dx_arr[:, None, None] * dy_arr[None, :, None] * dz_arr[None, None, :]
-    Q_prev = 0.0
+    Q_prev = None
     Ta_prev = Ta.copy(); Tb_prev = Tb.copy(); Ts_prev = Ts.copy()
     converged = False
     q_tol = max(tol * 10.0, 1e-4) if q_rel_tol is None else float(q_rel_tol)
@@ -875,6 +877,9 @@ def solve_full_domain_3d(L, H, D, Nx, Ny, Nz,
     mms_S_A_arr = _mms_arr(mms_S_A_field)
     mms_S_B_arr = _mms_arr(mms_S_B_field)
     mms_S_s_arr = _mms_arr(mms_S_s_field)
+    if not use_stag and any(np.any(source != 0.) for source in (
+            mms_S_A_arr, mms_S_B_arr, mms_S_s_arr)):
+        raise ValueError('nonzero MMS sources require staggered 3D thermal velocities')
 
     # Project the original internal capacity faces. The specified physical
     # inlet F is applied afterwards and may change the boundary-CV divergence;
@@ -941,14 +946,14 @@ def solve_full_domain_3d(L, H, D, Nx, Ny, Nz,
         dTb_max = float(np.max(np.abs(Tb - Tb_prev)))
         dTs_max = float(np.max(np.abs(Ts - Ts_prev)))
         if _CONV_TRACE is not None:
-            _rc = (abs(Q_cur - Q_prev) / (abs(Q_cur) + 1e-30)
-                   if (done >= chunk and Q_prev != 0.0) else float('nan'))
+            _rc = (abs(Q_cur - Q_prev) / max(abs(Q_cur), abs(Q_prev), 1.0)
+                   if (Q_prev is not None) else float('nan'))
             _CONV_TRACE.append((done, _rc,
                                 max(dTa_max, dTb_max, dTs_max),
                                 float(np.mean(np.abs(Tb - Tb_prev))),
                                 Q_cur))
-        if done >= chunk and Q_prev != 0.0:
-            rel_chg = abs(Q_cur - Q_prev) / (abs(Q_cur) + 1e-30)
+        if Q_prev is not None:
+            rel_chg = abs(Q_cur - Q_prev) / max(abs(Q_cur), abs(Q_prev), 1.0)
             # Converge on BOTH Q-stable AND field-stable (max per-chunk ΔT below
             # T_abs_tol). Q-alone can false-exit while Ta/Ts still drift (10-15%
             # Q error — 2026-04-24 FV finding); field-stable alone can false-exit

@@ -12,15 +12,16 @@ from sjtu_tpmshx.preprocess.two_d.preparation import prepare_case
 from sjtu_tpmshx.solvers.backends.python.two_d.execution import run_case
 from sjtu_tpmshx.postprocess.metrics import evaluate
 
-# 2026-09-15: both model-h fluids use SOU with shared stable damping.
+# 2026-09-29: shared conservative transport and physical-distance SOU;
+# Richardson uses actual cell bisection. Original gates/budgets are unchanged.
 # Prior references remain in docs/history/README.md.
 # Backend Richardson/centre-pressure and public native/face-pressure metrics
 # have separate references; all comparison tolerances remain unchanged.
-AIR_BASELINE_METRICS = [31169.14975139894, 1631.5681439590921, 1212.8087976193476,
-                        303.3434292362961, 334.7910498494355]
-AIR_NATIVE_Q = 31124.61165761201
-AIR_PUBLIC_METRICS = [AIR_NATIVE_Q, 1626.34436863444, 1188.9738258369762,
-                      303.3434292362961, 334.7910498494355]
+AIR_BASELINE_METRICS = [31156.7524902476, 1631.1903772393234, 1212.5918103948036,
+                        303.281741994655, 334.7957041980853]
+AIR_NATIVE_Q = 31130.94175144736
+AIR_PUBLIC_METRICS = [AIR_NATIVE_Q, 1626.1295067141764, 1188.8348821008549,
+                      303.281741994655, 334.7957041980853]
 
 
 def baseline_config():
@@ -85,10 +86,10 @@ def _assert_postprocessing(result):
 
 @pytest.mark.slow
 @pytest.mark.parametrize('fluid_A,u_A,P_A,fluid_B,P_B,expected_Q', [
-    # Fresh fluid-equation checks require additional inner iterations at this
-    # fixed outer-iteration budget. Comparison tolerances are unchanged.
-    ('sco2', .3, 12e6, 'water', 2e6, 45628.22458923646),
-    ('air', 3., 2e5, 'sco2', 12e6, 4416.1880296567215),
+    # Shared physical-distance transport; the deliberately short fixed outer
+    # budget still reports nonconvergence. Comparison tolerances are unchanged.
+    ('sco2', .3, 12e6, 'water', 2e6, 45624.58456665004),
+    ('air', 3., 2e5, 'sco2', 12e6, 4416.181405481553),
 ])
 def test_mixed_partial_native_and_postprocessing(fluid_A,u_A,P_A,fluid_B,P_B,expected_Q):
     from sjtu_tpmshx.domain.compute_config import ExtrapPolicy

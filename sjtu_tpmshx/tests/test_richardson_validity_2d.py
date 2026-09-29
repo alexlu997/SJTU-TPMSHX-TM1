@@ -61,6 +61,29 @@ def _finite_refined(args, kwargs, converged):
     return (*fields, info) if kwargs.get('return_info') else fields
 
 
+@pytest.mark.parametrize('full', [False, True])
+@pytest.mark.parametrize('port_wall_refine', [False, True])
+def test_refinement_bisects_actual_cells_and_preserves_old_edges(
+        monkeypatch, full, port_wall_refine):
+    _, arguments = _arguments(monkeypatch, full=full)
+    observed = {}
+
+    def refined(*args, **kwargs):
+        observed.update(kwargs)
+        return _finite_refined(args, kwargs, True)
+
+    monkeypatch.setattr(solve_2d, 'solve_full_domain', refined)
+    solve_2d._compute_Q_richardson(**arguments, port_wall_refine=port_wall_refine)
+    for axis in ('x', 'y'):
+        coarse = arguments['energy_d' + axis]
+        fine = observed['d' + axis + '_arr']
+        assert len(fine) == 2 * len(coarse)
+        np.testing.assert_allclose(fine[::2], coarse / 2., rtol=0., atol=1e-16)
+        np.testing.assert_allclose(fine[1::2], coarse / 2., rtol=0., atol=1e-16)
+        np.testing.assert_allclose(np.cumsum(fine)[1::2], np.cumsum(coarse),
+                                   rtol=0., atol=1e-16)
+
+
 @pytest.mark.parametrize('model', [False, True])
 @pytest.mark.parametrize('side,bad', [(0, np.inf), (1, -np.inf), (2, np.nan), ('water', np.nan)])
 def test_refined_nonfinite_return_precedes_duty_and_fallback(monkeypatch, model, side, bad):
@@ -289,7 +312,7 @@ def test_failed_refinement_preserves_main_fields_and_rejects_overall(monkeypatch
     result = Pipeline2D(_cfg()).run()
     detail = result.diagnostics['convergence_detail']
     for gate in ('outer_converged', 'simple_ok', 'ltne_ok', 'envelope_ok'):
-        assert detail[gate] is True
+        assert detail[gate] is True, (gate, detail)
     assert detail['richardson_ok'] is False
     assert result.converged is False
     assert result.Q_W == main['Q']

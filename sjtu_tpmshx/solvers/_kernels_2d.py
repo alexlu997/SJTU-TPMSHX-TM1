@@ -39,3 +39,17 @@ def minmod(gu, gd):
             phi = -phi
         return phi
     return 0.0
+
+
+@njit(inline='always', cache=True)
+def limited_face_increment(tm, t0, tp, dm, dp, offset):
+    """Limited physical gradient times the signed centre-to-face distance."""
+    return minmod((t0 - tm) / dm, (tp - t0) / dp) * offset
+
+
+@njit(inline='always', cache=True)
+def diffusion_conductance(kl, kr, dl, dr):
+    """Unit-area conductance of the two centre-to-face resistances in series."""
+    if kl <= 0.0 or kr <= 0.0:
+        return 0.0
+    return kl * kr / (dl * kr + dr * kl)

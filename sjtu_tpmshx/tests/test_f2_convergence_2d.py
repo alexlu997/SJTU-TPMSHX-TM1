@@ -68,7 +68,16 @@ def test_f2_improves_momentum_beyond_the_old_iteration_floor():
     f2_mom = max(_mom(s_f2)[0] / _mom(s_f2)[1],
                  _mom(s_f2)[2] / _mom(s_f2)[3])
     assert f2_mom < legacy_mom / 3.0
-    assert abs(dP_leg - dP_f2) / dP_f2 > 0.003
+    # Iteration stabilization can improve the 20-step pressure transient too.
+    # Compare accuracy against a separately converged tighter reference instead
+    # of requiring the truncated run to remain at least 0.3% wrong.
+    s_ref = _make(convergence_mode='f2', mom_tol=1e-7,
+                  mass_local_tol=1e-6, mass_global_tol=1e-6)
+    ref_converged, _ = s_ref.solve(max_iter=3000, verbose=False)
+    assert ref_converged and s_ref.exit_reason == 'tol'
+    assert s_ref.final_res_mom < 1e-7
+    dP_ref = float(np.mean(s_ref.P[:, 0]) - np.mean(s_ref.P[:, -1]))
+    assert abs(dP_f2 - dP_ref) < abs(dP_leg - dP_ref) / 3.0
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -78,7 +87,7 @@ def test_f2_improves_momentum_beyond_the_old_iteration_floor():
 def test_momentum_residual_vanishes_at_the_sweep_fixed_point():
     """THE sync guard. `_{u,v}_coeffs_df_2d` is a deliberate PARALLEL ASSEMBLY of
     `_sweep_{u,v}_jit_df`'s coefficient block, not a shared helper. Sweep the
-    momentum equations alone (P, rho frozen, alpha_u = 1) to their own fixed
+    momentum equations alone (P, rho frozen, production alpha_u = .7) to their own fixed
     point; the residual kernel must then read ~0. It can only do so if it
     assembles exactly the aP0/rhs the sweeps do — including the ALWAYS-ON SOU
     correction and the ALWAYS-ON VANS eps ratios (2D has no use_sou / use_eps
@@ -93,7 +102,10 @@ def test_momentum_residual_vanishes_at_the_sweep_fixed_point():
     kw = dict(Nx=s.Nx, Ny=s.Ny, dx_arr=s.dx_arr, dy_arr=s.dy_arr,
               rho_field=s.rho_field, mu_eff_field=s._mu_eff_field,
               K_arr=K2, cF_arr=cF2, mu_field=s.mu_field,
-              eps_field=s.eps_field, alpha_u=1.0, n_sweeps=1,
+              # Frozen arbitrary P is not continuity-balanced. Use production
+              # relaxation to find the new conservative fixed point; the
+              # independent 1e-12 equation tolerance below is unchanged.
+              eps_field=s.eps_field, alpha_u=0.7, n_sweeps=1,
               cf_aniso=s.cf_aniso)
 
     for _ in range(3000):

@@ -154,6 +154,27 @@ use this same criterion. `convergence_mode=None` resolves to `f2`; explicit
 convergence alone. The mass-only/velocity exit and its inner SIMPLE Anderson
 implementation are retired. Thermal and outer-coupling Anderson remain active.
 
+The 3D return path closes outlet fluxes again after the last density update and
+remeasures all four gates on that returned state. Its local mass check includes
+the pressure-pinned outlet cells. If a provisional `tol` fails this certificate,
+the solver discards its passing streak and continues within the original budget.
+The next ordinary iteration measures the velocity change including outlet closure
+before applying the existing stall rule. A rejected final-step certificate is
+`post_closure`; stalled or exhausted solves remain failures.
+
+Momentum faces use the continuity equation's signed mass fluxes integrated over
+the staggered control-volume faces. Viscous transverse faces sum the two
+half-cell strips, each using its own series resistance. The existing division
+by control-volume porosity and D-F drag convention remain. A mass-deficit
+iteration adds the same deferred diagonal term to both sides of the predictor
+equation; it cancels at the fixed point and is excluded from the physical F2
+residual. Pressure correction uses the actual predictor diagonal.
+For active SOU limiters the predictor also bounds their negative local source
+derivative on a monotone stencil with fixed face mass fluxes, using physical
+grid distances; this is not a bound on the full nonlinear Jacobian. The term prevents
+two-sweep oscillation on stretched grids; it likewise cancels at the fixed
+point without changing the requested relaxation or F2 tolerances.
+
 `tol_simple`, SIMPLE's `solve(tol=...)` argument and `TPMSHX_SIMPLE_TOL` are
 retired: they did not set F2 tolerances. Old configuration-file import discards
 `solver.tol_simple` and `optimizer.tol_simple` with an explicit notice; new
@@ -319,6 +340,34 @@ Thermal routes are selected by their present qualification conditions:
 | True enthalpy | Pairs containing sCO2 use signed mass/enthalpy transport; the 2D adapter calls the shared 3D enthalpy kernel. Existing zone/route constraints remain. |
 | Model enthalpy | Existing air/water h(T) transport; 2D includes water/water when unzoned and symmetric. 3D currently includes air/air, air/water and water/air with its Nz, variable-property, dual-flow, conservative and mask conditions. |
 | Temperature | Existing remaining cases and approximation modes keep their current discretization and property sampling. |
+
+The sCO2 restriction is on geometry combinations, not on the other stream's
+fluid: sCO2/water, sCO2/air and sCO2/sCO2 pairs can use the true-enthalpy route,
+with either stream in A or B. Public configuration currently rejects enabled
+zones and nonzero level-set offset when either stream is sCO2. Each stream
+still has to satisfy its own property and correlation applicability checks.
+
+Internal thermal face conductance uses the two actual centre-to-face
+resistances in series, `G = area / (distance_left/K_left + distance_right/K_right)`.
+SOU reconstruction limits gradients in physical coordinates and extrapolates
+from the upwind centre to the shared face. On stretched grids, a half index
+step is not a half physical cell width. The sweep and its energy ledger use
+the same face definitions; an independently computed analytic flux remains
+necessary to validate them.
+
+The 2D GS and red-black thermal kernels prepare diffusion conductances,
+volume-weighted fluid-solid exchange and the solid diagonal once per chunk.
+These arrays remain local to that call; a subsequent chunk sees any changed
+coefficients. Model-h capacities and deferred fluxes still refresh each sweep,
+and the cell order remains A, solid, B. The model-h cell row is inlined into
+the strict-math kernels; unused temperature-form SOU work is skipped only on
+that route. Its own signed model-h SOU reconstruction remains active.
+
+Temperature/model-h stopping compares two observed heat duties, including
+zero duty. A scale of one native heat unit (W/m in 2D, W in 3D) bounds the
+relative-change denominator near zero; the existing duty tolerance and
+temperature-stability test are both required. Zero duty alone cannot certify
+a drifting temperature field.
 
 The true-enthalpy fluid diffusion term is Fourier conduction on temperature,
 linearized consistently in the enthalpy unknown on each shared internal face.

@@ -88,8 +88,11 @@ def test_residual_vanishes_at_momentum_fixed_point(use_sou, use_eps, local_drag)
               rho_field=s.rho_field, mu_eff_field=s._mu_eff_field,
               mu_field=s.mu_field, eps_field=s.eps_field,
               K_arr=s.K_arr, cF_arr=s.cF_arr,
-              alpha_u=0.7 if local_drag else 1.0, use_sou=use_sou, use_eps=use_eps)
+              alpha_u=0.7, use_sou=use_sou, use_eps=use_eps)
 
+    # Arbitrary frozen P is not continuity-balanced; use production .7
+    # relaxation for this conservative Picard solve, retaining the 1e-12
+    # physical-equation oracle. Single-step tests also cover alpha=1.
     # Momentum-only Picard: sweep u/v/w with P frozen until the field stops
     # moving. Under-relax the local-drag Picard iteration to suppress roundoff
     # oscillation; at its fixed point it still solves the unrelaxed equation
@@ -120,7 +123,7 @@ def _sweep_to_momentum_fixed_point(s, use_sou=0, use_eps=0, n=600):
               rho_field=s.rho_field, mu_eff_field=s._mu_eff_field,
               mu_field=s.mu_field, eps_field=s.eps_field,
               K_arr=s.K_arr, cF_arr=s.cF_arr,
-              alpha_u=1.0, use_sou=use_sou, use_eps=use_eps)
+              alpha_u=0.7, use_sou=use_sou, use_eps=use_eps)
     for _ in range(n):
         prev = (s.u.copy(), s.v.copy(), s.w.copy())
         _sweep_u_jit_df_3d(s.u, s.v, s.w, s.P, s.d_u, outlet_u_frac=s.outlet_u_frac, n_sweeps=1, **kw)
@@ -200,10 +203,22 @@ def test_balanced_denominator_has_no_false_zero():
         "raw num/den must be preserved in the record for post-hoc re-normalisation"
 
 
-def test_f2_does_not_evaluate_momentum_before_its_iteration_floor():
+def test_f2_skips_early_iteration_checks_but_certifies_returned_state(monkeypatch):
     s = _make_solver()
-    s.solve(max_iter=5)
-    assert s.mom_residuals == [] and s.final_res_mom is None
+    calls = []
+    residual = s._momentum_residual
+
+    def observe(*args):
+        value = residual(*args)
+        calls.append(value[0])
+        return value
+
+    monkeypatch.setattr(s, '_momentum_residual', observe)
+    assert s.solve(max_iter=5) == (False, 5)
+    assert s.mom_residuals == []
+    assert len(calls) == 1  # Only the final post-closure certificate.
+    assert np.isfinite(s.final_res_mom) and s.final_res_mom == calls[0]
+    assert s.exit_reason == 'max_iter'
 
 
 def test_tracking_records_a_history_and_does_not_change_the_result():

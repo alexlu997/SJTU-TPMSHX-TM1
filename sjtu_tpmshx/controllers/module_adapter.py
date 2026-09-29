@@ -84,6 +84,11 @@ def to_compute_result(result, performance):
                                 for ref in result.model_refs])
     warnings = list(dict.fromkeys((*diagnostics.get('warnings_list', ()),
                                   *diagnostics.get('envelope_warnings', ()), *result.metadata['notices'])))
+    if (dimension == 2 and diagnostics.get('Q_richardson_warn')
+            and (diagnostics.get('richardson_info') or {}).get('extrapolated')):
+        notice = '主网格与 Richardson 细网格换热量差异超过 10%，请做网格精度检查。'
+        if notice not in warnings:
+            warnings.append(notice)
     values = {}
     for name in _SUMMARY_METRICS:
         metric = performance.metrics[name]
