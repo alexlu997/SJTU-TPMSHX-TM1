@@ -73,12 +73,45 @@ def _model_h_faces(T, mass, coefficients, direction, Tin, ifrac, sou, dx=None, d
 
 
 @njit(cache=True)
+def _thermal_diffusion_rows(K, dx, dy, direction=-1, ifrac=None, solid=False):
+    """Fixed W/E/S/N conductances for one chunk, retaining directed row order."""
+    nx, ny = K.shape
+    rows = np.empty((nx, ny, 4))
+    for i in range(nx):
+        for j in range(ny):
+            for face in range(4):
+                axis = face // 2
+                sign = -1 if face % 2 == 0 else 1
+                ni = i + (sign if axis == 0 else 0)
+                nj = j + (sign if axis == 1 else 0)
+                area = dy[j] if axis == 0 else dx[i]
+                width = dx[i] if axis == 0 else dy[j]
+                value = 0.0
+                if 0 <= ni < nx and 0 <= nj < ny:
+                    dl = .5*dx[i] if axis == 0 else .5*dy[j]
+                    dr = .5*dx[ni] if axis == 0 else .5*dy[nj]
+                    value = diffusion_conductance(K[i, j], K[ni, nj], dl, dr)*area
+                elif solid:
+                    # Keep the adiabatic self-neighbor term: it affects GS,
+                    # although its two sides cancel in the converged row.
+                    value = K[i, j]*area/width
+                elif face == direction and ifrac is not None:
+                    patch = j if axis == 0 else i
+                    value = 2*K[i, j]*area*ifrac[patch]/width
+                rows[i, j, face] = value
+    return rows
+
+
+@njit(cache=True, inline='always')
 def _model_h_cell(T, Ts, K, hv, i, j, dx, dy, direction, Tin, ifrac,
-                  mass, capacity, deferred):
+                  mass, capacity, deferred, fixed_conductance=None, fixed_hv=None):
     """Damped conservative row; no temperature-form minus T div(capacity)."""
     nx, ny = T.shape
-    volume = dx[i] * dy[j]
-    diagonal = hv[i, j] * volume
+    if fixed_hv is None:
+        volume = dx[i] * dy[j]
+        diagonal = hv[i, j] * volume
+    else:
+        diagonal = fixed_hv[i, j]
     rhs = diagonal * Ts[i, j]
     for face in range(4):
         axis = face // 2
@@ -94,15 +127,21 @@ def _model_h_cell(T, Ts, K, hv, i, j, dx, dy, direction, Tin, ifrac,
         neighbor = T[ni, nj] if inside else T[i, j]
         conductance = 0.0
         if inside:
-            area = dy[j] if axis == 0 else dx[i]
-            dl = .5*dx[i] if axis == 0 else .5*dy[j]
-            dr = .5*dx[ni] if axis == 0 else .5*dy[nj]
-            conductance = diffusion_conductance(K[i,j], K[ni,nj], dl, dr)*area
+            if fixed_conductance is None:
+                area = dy[j] if axis == 0 else dx[i]
+                dl = .5*dx[i] if axis == 0 else .5*dy[j]
+                dr = .5*dx[ni] if axis == 0 else .5*dy[nj]
+                conductance = diffusion_conductance(K[i,j], K[ni,nj], dl, dr)*area
+            else:
+                conductance = fixed_conductance[i, j, face]
         elif axis == direction // 2 and face % 2 == direction % 2:
             patch = j if axis == 0 else i
-            area = dy[j] if axis == 0 else dx[i]
-            width = dx[i] if axis == 0 else dy[j]
-            conductance = 2*K[i,j]*area*ifrac[patch]/width
+            if fixed_conductance is None:
+                area = dy[j] if axis == 0 else dx[i]
+                width = dx[i] if axis == 0 else dy[j]
+                conductance = 2*K[i,j]*area*ifrac[patch]/width
+            else:
+                conductance = fixed_conductance[i, j, face]
             rhs += conductance * Tin[patch]
             diagonal += conductance
             conductance = 0.0
@@ -206,6 +245,12 @@ def _gs_full_chunk(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
     # across the GS sweep). FOU and SOU share the same signed face fluxes.
     FxAs = np.empty((Nx, Ny)); FyAs = np.empty((Nx, Ny))
     FxBs = np.empty((Nx, Ny)); FyBs = np.empty((Nx, Ny))
+    # Rebuild at chunk boundaries: progress callbacks may update coefficients.
+    diff_A = _thermal_diffusion_rows(K_ffA_arr, dx_arr, dy_arr, bc_A, ifrac_A)
+    diff_B = _thermal_diffusion_rows(K_ffB_arr, dx_arr, dy_arr, bc_B, ifrac_B)
+    diff_s = _thermal_diffusion_rows(K_ss_arr, dx_arr, dy_arr, solid=True)
+    hvA_vol = np.empty((Nx, Ny)); hvB_vol = np.empty((Nx, Ny))
+    diagonal_s = np.empty((Nx, Ny))
     for _i in range(Nx):
         for _j in range(Ny):
             _efr = eps_fA_arr[_i, _j] * rho_cp_fA[_i, _j]
@@ -214,6 +259,12 @@ def _gs_full_chunk(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
             _efrB = eps_fB_arr[_i, _j] * rho_cp_fB[_i, _j]
             FxBs[_i, _j] = _efrB * ucB[_i, _j] * dy_arr[_j]
             FyBs[_i, _j] = _efrB * vcB[_i, _j] * dx_arr[_i]
+            volume = dx_arr[_i] * dy_arr[_j]
+            hvA_vol[_i, _j] = h_vA_arr[_i, _j] * volume
+            hvB_vol[_i, _j] = h_vB_arr[_i, _j] * volume
+            diagonal_s[_i, _j] = (diff_s[_i, _j, 1] + diff_s[_i, _j, 0]
+                                       + diff_s[_i, _j, 3] + diff_s[_i, _j, 2]
+                                       + hvA_vol[_i, _j] + hvB_vol[_i, _j])
 
     for _it in range(n_iters):
         max_chg = 0.0
@@ -227,19 +278,16 @@ def _gs_full_chunk(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
             for j in range(j0, j1, dj):
 
                 # ── Update Fluid A ──
-                dxi = dx_arr[i]; dyj = dy_arr[j]
-                vol = dxi * dyj
-                K = K_ffA_arr[i, j]
-                hvA = h_vA_arr[i, j] * vol
+                hvA = hvA_vol[i, j]
 
                 # Face spacing δx_e = 0.5·(dx_P + dx_E) ensures conservative
                 # diffusion stencil — same value used by cell P (as east-flux)
                 # and cell E (as west-flux) at shared face. Old /dxi used cell
                 # P width only; non-uniform grids broke face-flux symmetry.
-                dE = diffusion_conductance(K, K_ffA_arr[i+1,j], .5*dxi, .5*dx_arr[i+1])*dyj if i < Nx-1 else 0.0
-                dW = diffusion_conductance(K, K_ffA_arr[i-1,j], .5*dxi, .5*dx_arr[i-1])*dyj if i > 0 else 0.0
-                dN = diffusion_conductance(K, K_ffA_arr[i,j+1], .5*dyj, .5*dy_arr[j+1])*dxi if j < Ny-1 else 0.0
-                dS = diffusion_conductance(K, K_ffA_arr[i,j-1], .5*dyj, .5*dy_arr[j-1])*dxi if j > 0 else 0.0
+                dE = diff_A[i, j, 1]
+                dW = diff_A[i, j, 0]
+                dN = diff_A[i, j, 3]
+                dS = diff_A[i, j, 2]
 
                 u_loc = ucA[i,j]; v_loc = vcA[i,j]
                 # A3: signed shared-face fluxes (arithmetic mean of the
@@ -266,9 +314,7 @@ def _gs_full_chunk(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
                    (bc_A == 2 and j == 0) or (bc_A == 3 and j == Ny-1):
                     idx_in = j if bc_A <= 1 else i
                     frac = ifrac_A[idx_in]
-                    area = dyj if bc_A <= 1 else dxi
-                    width = dxi if bc_A <= 1 else dyj
-                    d_in = 2.0 * K * area * frac / width
+                    d_in = diff_A[i, j, bc_A]
                     f_in = Fw if bc_A == 0 else (-Fe if bc_A == 1 else
                             (Fs if bc_A == 2 else -Fn))
                     if inlet_flux_A is not None:
@@ -287,13 +333,14 @@ def _gs_full_chunk(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
                         aN = a_in
                         tN = T_inA_arr[idx_in]
 
+                # Model-h uses its own frozen-face SOU, computed above.
                 sou = (_sou_corr_x(Ta, i, j, Nx, u_loc, FxAs, dx_arr)
-                       + _sou_corr_y(Ta, i, j, Ny, v_loc, FyAs, dy_arr))
+                       + _sou_corr_y(Ta, i, j, Ny, v_loc, FyAs, dy_arr)) if mass_A is None else 0.0
 
                 aP = aE + aW + aN + aS + hvA
                 if mass_A is not None:
                     new = _model_h_cell(Ta, Ts, K_ffA_arr, h_vA_arr, i, j,
-                                        dx_arr, dy_arr, bc_A, T_inA_arr, ifrac_A, mass_A, cap_A, def_A)
+                                        dx_arr, dy_arr, bc_A, T_inA_arr, ifrac_A, mass_A, cap_A, def_A, diff_A, hvA_vol)
                 else:
                     new = (aE*tE + aW*tW + aN*tN + aS*tS + hvA*Ts[i,j] + sou) / aP
                 # Model-h already damps both fluids, including outlet cells.
@@ -306,24 +353,21 @@ def _gs_full_chunk(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
                 Ta[i,j] = new
 
                 # ── Update Solid (using just-updated Ta, old Tb) ──
-                dxi = dx_arr[i]; dyj = dy_arr[j]
-                vol_s = dxi * dyj
-                Ks_loc = K_ss_arr[i, j]
-                hvA_s = h_vA_arr[i, j] * vol_s
-                hvB_s = h_vB_arr[i, j] * vol_s
+                hvA_s = hvA_vol[i, j]
+                hvB_s = hvB_vol[i, j]
 
                 # Face spacing for solid diffusion stencil (conservative)
-                Ds_e = diffusion_conductance(Ks_loc, K_ss_arr[i+1,j], .5*dxi, .5*dx_arr[i+1])*dyj if i < Nx-1 else Ks_loc*dyj/dxi
-                Ds_w = diffusion_conductance(Ks_loc, K_ss_arr[i-1,j], .5*dxi, .5*dx_arr[i-1])*dyj if i > 0    else Ks_loc*dyj/dxi
-                Ds_n = diffusion_conductance(Ks_loc, K_ss_arr[i,j+1], .5*dyj, .5*dy_arr[j+1])*dxi if j < Ny-1 else Ks_loc*dxi/dyj
-                Ds_s = diffusion_conductance(Ks_loc, K_ss_arr[i,j-1], .5*dyj, .5*dy_arr[j-1])*dxi if j > 0    else Ks_loc*dxi/dyj
+                Ds_e = diff_s[i, j, 1]
+                Ds_w = diff_s[i, j, 0]
+                Ds_n = diff_s[i, j, 3]
+                Ds_s = diff_s[i, j, 2]
 
                 sE = Ts[i+1,j] if i < Nx-1 else Ts[i,j]
                 sW = Ts[i-1,j] if i > 0    else Ts[i,j]
                 sN = Ts[i,j+1] if j < Ny-1 else Ts[i,j]
                 sS = Ts[i,j-1] if j > 0    else Ts[i,j]
 
-                aP_s = Ds_e + Ds_w + Ds_n + Ds_s + hvA_s + hvB_s
+                aP_s = diagonal_s[i, j]
                 new_s = (Ds_e*sE + Ds_w*sW + Ds_n*sN + Ds_s*sS + hvA_s*Ta[i,j] + hvB_s*Tb[i,j]) / aP_s
                 chg = abs(new_s - Ts[i,j])
                 if chg > max_chg: max_chg = chg
@@ -335,16 +379,13 @@ def _gs_full_chunk(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
                 # Tb via hvB_s*Tb[i,j] above, so the air→solid→water coupling
                 # remains intact.
                 if freeze_Tb == 0:
-                    dxi = dx_arr[i]; dyj = dy_arr[j]
-                    vol_b = dxi * dyj
-                    K = K_ffB_arr[i, j]
-                    hvB = h_vB_arr[i, j] * vol_b
+                    hvB = hvB_vol[i, j]
 
                     # Face spacing for B diffusion stencil (conservative)
-                    dE = diffusion_conductance(K, K_ffB_arr[i+1,j], .5*dxi, .5*dx_arr[i+1])*dyj if i < Nx-1 else 0.0
-                    dW = diffusion_conductance(K, K_ffB_arr[i-1,j], .5*dxi, .5*dx_arr[i-1])*dyj if i > 0 else 0.0
-                    dN = diffusion_conductance(K, K_ffB_arr[i,j+1], .5*dyj, .5*dy_arr[j+1])*dxi if j < Ny-1 else 0.0
-                    dS = diffusion_conductance(K, K_ffB_arr[i,j-1], .5*dyj, .5*dy_arr[j-1])*dxi if j > 0 else 0.0
+                    dE = diff_B[i, j, 1]
+                    dW = diff_B[i, j, 0]
+                    dN = diff_B[i, j, 3]
+                    dS = diff_B[i, j, 2]
 
                     u_loc = ucB[i,j]; v_loc = vcB[i,j]
                     # A3: conservative signed shared-face fluxes (see the
@@ -369,9 +410,7 @@ def _gs_full_chunk(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
                        (bc_B == 2 and j == 0) or (bc_B == 3 and j == Ny-1):
                         idx_in = j if bc_B <= 1 else i
                         frac = ifrac_B[idx_in]
-                        area = dyj if bc_B <= 1 else dxi
-                        width = dxi if bc_B <= 1 else dyj
-                        d_in = 2.0 * K * area * frac / width
+                        d_in = diff_B[i, j, bc_B]
                         f_in = Fw if bc_B == 0 else (-Fe if bc_B == 1 else
                                 (Fs if bc_B == 2 else -Fn))
                         if inlet_flux_B is not None:
@@ -398,7 +437,7 @@ def _gs_full_chunk(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
                     # N=80). A3 (2026-07-06) re-enables it in the
                     # face-consistent telescoping form, gated by sou_B
                     # (kill switch: solve_full_domain(use_sou_B=False)).
-                    if sou_B == 1:
+                    if sou_B == 1 and mass_A is None:
                         sou = (_sou_corr_x(Tb, i, j, Nx, u_loc, FxBs, dx_arr)
                                + _sou_corr_y(Tb, i, j, Ny, v_loc, FyBs, dy_arr))
                     else:
@@ -407,7 +446,7 @@ def _gs_full_chunk(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
                     aP = aE + aW + aN + aS + hvB
                     if mass_A is not None:
                         new = _model_h_cell(Tb, Ts, K_ffB_arr, h_vB_arr, i, j,
-                                            dx_arr, dy_arr, bc_B, T_inB_arr, ifrac_B, mass_B, cap_B, def_B)
+                                            dx_arr, dy_arr, bc_B, T_inB_arr, ifrac_B, mass_B, cap_B, def_B, diff_B, hvB_vol)
                     else:
                         new = (aE*tE + aW*tW + aN*tN + aS*tS + hvB*Ts[i,j] + sou) / aP
                     chg = abs(new - Tb[i,j])
@@ -444,6 +483,12 @@ def _gs_full_chunk_rb(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
     # Per-cell signed convective flux fields, shared by FOU and SOU.
     FxAs = np.empty((Nx, Ny)); FyAs = np.empty((Nx, Ny))
     FxBs = np.empty((Nx, Ny)); FyBs = np.empty((Nx, Ny))
+    # Rebuild at chunk boundaries: progress callbacks may update coefficients.
+    diff_A = _thermal_diffusion_rows(K_ffA_arr, dx_arr, dy_arr, bc_A, ifrac_A)
+    diff_B = _thermal_diffusion_rows(K_ffB_arr, dx_arr, dy_arr, bc_B, ifrac_B)
+    diff_s = _thermal_diffusion_rows(K_ss_arr, dx_arr, dy_arr, solid=True)
+    hvA_vol = np.empty((Nx, Ny)); hvB_vol = np.empty((Nx, Ny))
+    diagonal_s = np.empty((Nx, Ny))
     for _ii in range(Nx):
         for _jj in range(Ny):
             _efr = eps_fA_arr[_ii, _jj] * rho_cp_fA[_ii, _jj]
@@ -452,6 +497,12 @@ def _gs_full_chunk_rb(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
             _efrB = eps_fB_arr[_ii, _jj] * rho_cp_fB[_ii, _jj]
             FxBs[_ii, _jj] = _efrB * ucB[_ii, _jj] * dy_arr[_jj]
             FyBs[_ii, _jj] = _efrB * vcB[_ii, _jj] * dx_arr[_ii]
+            volume = dx_arr[_ii] * dy_arr[_jj]
+            hvA_vol[_ii, _jj] = h_vA_arr[_ii, _jj] * volume
+            hvB_vol[_ii, _jj] = h_vB_arr[_ii, _jj] * volume
+            diagonal_s[_ii, _jj] = (diff_s[_ii, _jj, 1] + diff_s[_ii, _jj, 0]
+                                       + diff_s[_ii, _jj, 3] + diff_s[_ii, _jj, 2]
+                                       + hvA_vol[_ii, _jj] + hvB_vol[_ii, _jj])
     for _it in range(n_iters):
         Ta_snap = Ta.copy()
         Tb_snap = Tb.copy()
@@ -471,14 +522,11 @@ def _gs_full_chunk_rb(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
                 cell_chg = 0.0
 
                 # ── Fluid A ──
-                dxi = dx_arr[i]; dyj = dy_arr[j]
-                vol = dxi * dyj
-                K = K_ffA_arr[i, j]
-                hvA = h_vA_arr[i, j] * vol
-                dE = diffusion_conductance(K, K_ffA_arr[i+1,j], .5*dxi, .5*dx_arr[i+1])*dyj if i < Nx-1 else 0.0
-                dW = diffusion_conductance(K, K_ffA_arr[i-1,j], .5*dxi, .5*dx_arr[i-1])*dyj if i > 0 else 0.0
-                dN = diffusion_conductance(K, K_ffA_arr[i,j+1], .5*dyj, .5*dy_arr[j+1])*dxi if j < Ny-1 else 0.0
-                dS = diffusion_conductance(K, K_ffA_arr[i,j-1], .5*dyj, .5*dy_arr[j-1])*dxi if j > 0 else 0.0
+                hvA = hvA_vol[i, j]
+                dE = diff_A[i, j, 1]
+                dW = diff_A[i, j, 0]
+                dN = diff_A[i, j, 3]
+                dS = diff_A[i, j, 2]
                 u_loc = ucA[i,j]; v_loc = vcA[i,j]
                 # A3: conservative signed shared-face fluxes (serial twin).
                 FxP = FxAs[i, j]; FyP = FyAs[i, j]
@@ -500,9 +548,7 @@ def _gs_full_chunk_rb(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
                    (bc_A == 2 and j == 0) or (bc_A == 3 and j == Ny-1):
                     idx_in = j if bc_A <= 1 else i
                     frac = ifrac_A[idx_in]
-                    area = dyj if bc_A <= 1 else dxi
-                    width = dxi if bc_A <= 1 else dyj
-                    d_in = 2.0 * K * area * frac / width
+                    d_in = diff_A[i, j, bc_A]
                     f_in = Fw if bc_A == 0 else (-Fe if bc_A == 1 else
                             (Fs if bc_A == 2 else -Fn))
                     if inlet_flux_A is not None:
@@ -521,12 +567,13 @@ def _gs_full_chunk_rb(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
                         aN = a_in
                         tN = T_inA_arr[idx_in]
 
+                # Model-h uses its own frozen-face SOU, computed above.
                 sou = (_sou_corr_x(Ta_snap, i, j, Nx, u_loc, FxAs, dx_arr)
-                       + _sou_corr_y(Ta_snap, i, j, Ny, v_loc, FyAs, dy_arr))
+                       + _sou_corr_y(Ta_snap, i, j, Ny, v_loc, FyAs, dy_arr)) if mass_A is None else 0.0
                 aP = aE + aW + aN + aS + hvA
                 if mass_A is not None:
                     new = _model_h_cell(Ta, Ts, K_ffA_arr, h_vA_arr, i, j,
-                                        dx_arr, dy_arr, bc_A, T_inA_arr, ifrac_A, mass_A, cap_A, def_A)
+                                        dx_arr, dy_arr, bc_A, T_inA_arr, ifrac_A, mass_A, cap_A, def_A, diff_A, hvA_vol)
                 else:
                     new = (aE*tE + aW*tW + aN*tN + aS*tS + hvA*Ts[i,j] + sou) / aP
                 # Retain the serial policy; model-h is damped in its row.
@@ -539,20 +586,17 @@ def _gs_full_chunk_rb(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
                 Ta[i,j] = new
 
                 # ── Solid ──
-                dxi = dx_arr[i]; dyj = dy_arr[j]
-                vol_s = dxi * dyj
-                Ks_loc = K_ss_arr[i, j]
-                hvA_s = h_vA_arr[i, j] * vol_s
-                hvB_s = h_vB_arr[i, j] * vol_s
-                Ds_e = diffusion_conductance(Ks_loc, K_ss_arr[i+1,j], .5*dxi, .5*dx_arr[i+1])*dyj if i < Nx-1 else Ks_loc*dyj/dxi
-                Ds_w = diffusion_conductance(Ks_loc, K_ss_arr[i-1,j], .5*dxi, .5*dx_arr[i-1])*dyj if i > 0    else Ks_loc*dyj/dxi
-                Ds_n = diffusion_conductance(Ks_loc, K_ss_arr[i,j+1], .5*dyj, .5*dy_arr[j+1])*dxi if j < Ny-1 else Ks_loc*dxi/dyj
-                Ds_s = diffusion_conductance(Ks_loc, K_ss_arr[i,j-1], .5*dyj, .5*dy_arr[j-1])*dxi if j > 0    else Ks_loc*dxi/dyj
+                hvA_s = hvA_vol[i, j]
+                hvB_s = hvB_vol[i, j]
+                Ds_e = diff_s[i, j, 1]
+                Ds_w = diff_s[i, j, 0]
+                Ds_n = diff_s[i, j, 3]
+                Ds_s = diff_s[i, j, 2]
                 sE = Ts[i+1,j] if i < Nx-1 else Ts[i,j]
                 sW = Ts[i-1,j] if i > 0    else Ts[i,j]
                 sN = Ts[i,j+1] if j < Ny-1 else Ts[i,j]
                 sS = Ts[i,j-1] if j > 0    else Ts[i,j]
-                aP_s = Ds_e + Ds_w + Ds_n + Ds_s + hvA_s + hvB_s
+                aP_s = diagonal_s[i, j]
                 new_s = (Ds_e*sE + Ds_w*sW + Ds_n*sN + Ds_s*sS + hvA_s*Ta[i,j] + hvB_s*Tb[i,j]) / aP_s
                 c = abs(new_s - Ts[i,j])
                 if c > cell_chg: cell_chg = c
@@ -560,14 +604,11 @@ def _gs_full_chunk_rb(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
 
                 # ── Fluid B ──
                 if freeze_Tb == 0:
-                    dxi = dx_arr[i]; dyj = dy_arr[j]
-                    vol_b = dxi * dyj
-                    K = K_ffB_arr[i, j]
-                    hvB = h_vB_arr[i, j] * vol_b
-                    dE = diffusion_conductance(K, K_ffB_arr[i+1,j], .5*dxi, .5*dx_arr[i+1])*dyj if i < Nx-1 else 0.0
-                    dW = diffusion_conductance(K, K_ffB_arr[i-1,j], .5*dxi, .5*dx_arr[i-1])*dyj if i > 0 else 0.0
-                    dN = diffusion_conductance(K, K_ffB_arr[i,j+1], .5*dyj, .5*dy_arr[j+1])*dxi if j < Ny-1 else 0.0
-                    dS = diffusion_conductance(K, K_ffB_arr[i,j-1], .5*dyj, .5*dy_arr[j-1])*dxi if j > 0 else 0.0
+                    hvB = hvB_vol[i, j]
+                    dE = diff_B[i, j, 1]
+                    dW = diff_B[i, j, 0]
+                    dN = diff_B[i, j, 3]
+                    dS = diff_B[i, j, 2]
                     u_loc = ucB[i,j]; v_loc = vcB[i,j]
                     # A3: conservative signed shared-face fluxes; SOU
                     # re-enabled in face-consistent form, gated by sou_B
@@ -591,9 +632,7 @@ def _gs_full_chunk_rb(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
                        (bc_B == 2 and j == 0) or (bc_B == 3 and j == Ny-1):
                         idx_in = j if bc_B <= 1 else i
                         frac = ifrac_B[idx_in]
-                        area = dyj if bc_B <= 1 else dxi
-                        width = dxi if bc_B <= 1 else dyj
-                        d_in = 2.0 * K * area * frac / width
+                        d_in = diff_B[i, j, bc_B]
                         f_in = Fw if bc_B == 0 else (-Fe if bc_B == 1 else
                                 (Fs if bc_B == 2 else -Fn))
                         if inlet_flux_B is not None:
@@ -612,7 +651,7 @@ def _gs_full_chunk_rb(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
                             aN = a_in
                             tN = T_inB_arr[idx_in]
 
-                    if sou_B == 1:
+                    if sou_B == 1 and mass_A is None:
                         sou = (_sou_corr_x(Tb_snap, i, j, Nx, u_loc, FxBs, dx_arr)
                                + _sou_corr_y(Tb_snap, i, j, Ny, v_loc, FyBs, dy_arr))
                     else:
@@ -620,7 +659,7 @@ def _gs_full_chunk_rb(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
                     aP = aE + aW + aN + aS + hvB
                     if mass_A is not None:
                         new = _model_h_cell(Tb, Ts, K_ffB_arr, h_vB_arr, i, j,
-                                            dx_arr, dy_arr, bc_B, T_inB_arr, ifrac_B, mass_B, cap_B, def_B)
+                                            dx_arr, dy_arr, bc_B, T_inB_arr, ifrac_B, mass_B, cap_B, def_B, diff_B, hvB_vol)
                     else:
                         new = (aE*tE + aW*tW + aN*tN + aS*tS + hvB*Ts[i,j] + sou) / aP
                     c = abs(new - Tb[i,j])

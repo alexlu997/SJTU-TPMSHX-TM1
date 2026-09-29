@@ -355,6 +355,14 @@ step is not a half physical cell width. The sweep and its energy ledger use
 the same face definitions; an independently computed analytic flux remains
 necessary to validate them.
 
+The 2D GS and red-black thermal kernels prepare diffusion conductances,
+volume-weighted fluid-solid exchange and the solid diagonal once per chunk.
+These arrays remain local to that call; a subsequent chunk sees any changed
+coefficients. Model-h capacities and deferred fluxes still refresh each sweep,
+and the cell order remains A, solid, B. The model-h cell row is inlined into
+the strict-math kernels; unused temperature-form SOU work is skipped only on
+that route. Its own signed model-h SOU reconstruction remains active.
+
 Temperature/model-h stopping compares two observed heat duties, including
 zero duty. A scale of one native heat unit (W/m in 2D, W in 3D) bounds the
 relative-change denominator near zero; the existing duty tolerance and
