@@ -3,26 +3,28 @@
 Opt-in (`cfg['outer_anderson']`, default OFF). The old inner SIMPLE
 `use_anderson` option is retired; this outer accelerator remains supported.
 
-The load-bearing requirement is NEGATIVE: with the knob off, the production
-outer loop must run the original damped-Picard blend verbatim, so the golden
-gates stay bit-identical. Everything else is a safety property — a bad
-extrapolation must cost at most one Picard iteration, never a corrupted field.
+With the knob off, the production outer loop keeps its original update order.
+With it on, both property blocks returned by Anderson must reach SIMPLE, and
+the accelerator must receive the previous flow state before temperature setters
+refresh air viscosity. A rejected candidate uses the Picard fallback.
 
 Measured behaviour on air (2026-07-12, three cases spanning ΔT 50→500 K and
-u 2→20 m/s): the accelerator engages (candidates accepted, none rejected) and
+u 2→20 m/s, before the property-consumption repair): the accelerator engages and
 converges to the SAME fixed point (Q/dP agree to <0.02%), but does NOT reduce
-the outer iteration count — the ρ/μ relaxation is not the loop's limiter. The
-same is shown independently by sweeping `_ALPHA_T` from 0.3 to 1.0, which moves
-the outer count by zero. Kept because the stiff-ρ(T) case it was designed for
-(sCO2 near pseudo-critical) is not covered by these air cases.
+the outer iteration count. Those historical timings do not establish the
+repaired loop's bottleneck or any speedup. The stiff-ρ(T) case the accelerator
+was designed for (sCO2 near pseudo-critical) is not covered by those air cases.
 """
+
+import inspect
 
 import numpy as np
 import pytest
 
 from sjtu_tpmshx.solvers.anderson_acceleration import AndersonOuterCoupling  # noqa: E402
 from sjtu_tpmshx.runs._case_template import build_cfg                        # noqa: E402
-from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
+from sjtu_tpmshx.pipelines.run_stack_3d import _build_3d_problem, _run_3d_stack
+from sjtu_tpmshx.solvers.backends.python.three_d import runtime
 
 
 def _cfg(**over):
@@ -55,11 +57,78 @@ def test_enabled_converges_to_the_same_fixed_point():
     assert r_off['convergence_detail']['outer_converged'], \
         "baseline must converge for this comparison to mean anything"
     assert r_on['convergence_detail']['outer_converged']
-    for key in ('Q', 'dP'):
+    for key in ('Q', 'dP', 'dP_A', 'dP_B', 'Q_sA', 'Q_sB'):
         a, b = float(r_off[key]), float(r_on[key])
         assert abs(b - a) <= 2e-3 * max(abs(a), 1e-12), (
             f"{key}: Anderson moved the converged answer "
             f"({a:.6g} -> {b:.6g}); it must only change the path")
+
+
+@pytest.mark.parametrize('fluids', [('air', 'air'), ('air', 'water')])
+@pytest.mark.parametrize('mode', ['off', 'fallback', 'accepted'])
+def test_outer_property_blocks_reach_simple(monkeypatch, fluids, mode):
+    """Exercise real post/setter wiring; replace only sweeps and candidate choice."""
+    monkeypatch.delenv('TPMSHX_VAR_RHOCP', raising=False)
+    observations, calls = {}, []
+
+    def solve(solver, **kwargs):
+        if id(solver) in observations:
+            observations[id(solver)].append(tuple(getattr(solver, key).copy()
+                for key in ('T_field', 'rho_field', 'mu_field', '_mu_eff_field')))
+        return True, 0
+
+    original_step = AndersonOuterCoupling.step
+
+    def observe_step(accelerator, x, g, alpha):
+        if mode == 'accepted':
+            # Distinct, positive outputs expose a subsequent setter overwrite.
+            out, applied = [1.02 * g[0], 1.2 * g[1]], True
+        else:
+            out, applied = original_step(accelerator, x, g, alpha)
+            assert applied is False  # First real step has insufficient history.
+        calls.append(([block.copy() for block in x], out))
+        return out, applied
+
+    monkeypatch.setattr(runtime.SIMPLESolver3D, 'solve', solve)
+    monkeypatch.setattr(AndersonOuterCoupling, 'step', observe_step)
+    prob = _build_3d_problem(_cfg(
+        Nx=4, Ny=5, Nz=3, u_A=.02, u_B=.02, T_inA=350., T_s_init=325.,
+        P_inA=2e6, P_inB=2e6, fluid_type_A=fluids[0], fluid_type_B=fluids[1],
+        wall_refine_3d=False, outer_anderson=mode != 'off', p_in_shooting=False))
+    solvers = (prob.sA, prob.sB)
+
+    def drive(*, step, post, **kwargs):
+        state = inspect.getclosurevars(post).nonlocals['state']
+        for solver in solvers:
+            observations[id(solver)] = []
+        state.Ta[:] = 335.
+        state.Tb[:] = 310.
+        post(0, None)
+        previous = [(solver.rho_field.copy(), solver.mu_field.copy())
+                    for solver in solvers]
+        state.Ta[:] = 325.
+        state.Tb[:] = 330.
+        post(1, None)
+        assert len(calls) == (0 if mode == 'off' else 2)
+        for index, (fluid, solver) in enumerate(zip(fluids, solvers)):
+            temperature, rho, mu, effective_mu = observations[id(solver)][1]
+            if mode == 'off':
+                fresh_mu = runtime.fluid_props.get(fluid).mu(temperature, 2e6)
+                expected_mu = (fresh_mu if fluid == 'air' else
+                    runtime._ALPHA_T * fresh_mu + (1-runtime._ALPHA_T) * previous[index][1])
+                np.testing.assert_allclose(mu, expected_mu, rtol=2e-15, atol=0.)
+            else:
+                inputs, outputs = calls[index]
+                for actual, expected in zip(inputs, previous[index]):
+                    np.testing.assert_array_equal(actual, expected)
+                for actual, expected in zip((rho, mu), outputs):
+                    np.testing.assert_array_equal(actual, expected)
+            np.testing.assert_allclose(effective_mu, mu/solver.eps_field,
+                                       rtol=2e-15, atol=0.)
+        return 1, False
+
+    monkeypatch.setattr(runtime, 'run_outer_coupling', drive)
+    runtime._run_outer_coupling_3d(prob, runtime._build_hv_machinery(prob))
 
 
 def test_enabled_never_emits_non_physical_properties():

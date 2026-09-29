@@ -2422,6 +2422,9 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
             Ta_sA = np.ascontiguousarray(np.flip(Ta_sA, axis=_ssax_A))
         # Critical: propagate Ta to T_field so SIMPLE inner _update_density()
         # uses local cell T, not stale T_in. (Mirror sB.update_T_field below.)
+        if outer > 0 and state._and_A is not None:
+            # The air temperature setter rebinds mu; Anderson needs the old flow state.
+            mu_previous_A = sA.mu_field
         with range_context(side='A', stage='property-refresh', layout='solver-cell(cross1,stream,cross2)'):
             sA.update_T_field(Ta_sA)
             P_abs = sA.P_ref_abs + sA.P
@@ -2447,12 +2450,11 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
             # Damped-Picard property update — the outer coupling's relaxation.
             # `_and_A` (opt-in, cfg['outer_anderson'], default OFF) replaces the
             # fixed _ALPHA_T with an Anderson least-squares mix over the last m
-            # (x, G(x)) pairs; it falls back to EXACTLY this blend whenever the
-            # candidate is inadmissible or history is short, so the disabled
-            # path — and the golden gates — are bit-identical.
+            # previous-flow/target pairs. The disabled path retains its existing
+            # temperature-setter and viscosity-update order.
             if state._and_A is not None:
                 (sA.rho_field, sA.mu_field), _ok_A = state._and_A.step(
-                    [sA.rho_field, sA.mu_field], [rho_new, mu_new_A],
+                    [sA.rho_field, mu_previous_A], [rho_new, mu_new_A],
                     _ALPHA_T)
             else:
                 sA.rho_field = np.ascontiguousarray(
@@ -2650,8 +2652,13 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
                 sB.P_ref_abs = pressure_initial_reference(
                     P_out_sq_B_new, P_inB, history=sB.pressure_iterations)
 
+        if outer > 0 and state._and_B is not None:
+            # Preserve both selected viscosity fields across the air temperature setter.
+            mu_selected_B, mu_eff_selected_B = sB.mu_field, sB._mu_eff_field
         with range_context(side='B', stage='property-refresh', layout='solver-cell(cross1,stream,cross2)'):
             sB.update_T_field(Tb_sB)
+        if outer > 0 and state._and_B is not None:
+            sB.mu_field, sB._mu_eff_field = mu_selected_B, mu_eff_selected_B
         _prof_t_sb = _time.perf_counter() if _prof_3d_enabled() else None
         with range_context(side='B', stage='main', layout='solver-cell(cross1,stream,cross2)'):
             _sb_conv, _sb_it = sB.solve(max_iter=_simple_max_iter(cfg, 600),
