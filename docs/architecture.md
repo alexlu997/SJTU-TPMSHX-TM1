@@ -156,8 +156,11 @@ implementation are retired. Thermal and outer-coupling Anderson remain active.
 
 The 3D return path closes outlet fluxes again after the last density update and
 remeasures all four gates on that returned state. Its local mass check includes
-the pressure-pinned outlet cells. A provisional `tol` exit that fails this
-certificate becomes `post_closure`; stalled or exhausted solves remain failures.
+the pressure-pinned outlet cells. If a provisional `tol` fails this certificate,
+the solver discards its passing streak and continues within the original budget.
+The next ordinary iteration measures the velocity change including outlet closure
+before applying the existing stall rule. A rejected final-step certificate is
+`post_closure`; stalled or exhausted solves remain failures.
 
 Momentum faces use the continuity equation's signed mass fluxes integrated over
 the staggered control-volume faces. Viscous transverse faces sum the two

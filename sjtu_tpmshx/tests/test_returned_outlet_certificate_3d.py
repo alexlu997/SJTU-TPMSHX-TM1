@@ -77,3 +77,86 @@ def test_nonfinite_post_closure_observation_is_not_success(monkeypatch, metric):
     assert s.solve(max_iter=1, verbose=False) == (False, 1)
     assert s.exit_reason == 'nonfinite'
     assert s.f2_cert_post_rescale_ok is False
+
+
+def _observe_rejected_confirmation(monkeypatch, s):
+    """Drive the actual monitor through a failed first return certificate."""
+    s.mass_global_tol = 1e-6
+    monkeypatch.setattr(module.F2Monitor, 'should_eval_momentum', lambda *a: True)
+    monkeypatch.setattr(s, '_momentum_residual', lambda *a: (0., {}))
+    monkeypatch.setattr(module, '_mass_res_solved_jit_3d', lambda *a: (0., 0))
+    flux_calls = 0
+
+    def flux(*args):
+        nonlocal flux_calls
+        flux_calls += 1
+        # Iterations 10/11 confirm provisionally. The next observation is
+        # finish() at 11, whose changed outlet fails the original global gate.
+        return 1., 1. + (2e-6 if flux_calls == 12 else 0.), 0.
+
+    monkeypatch.setattr(module, '_mass_global_jit_3d', flux)
+    original = module.F2Monitor.submit
+    observed = []
+
+    def submit(self, it, momentum, local, global_mass, vd, backflow):
+        reason = original(self, it, momentum, local, global_mass, vd, backflow)
+        observed.append((it, global_mass, reason, self._streak))
+        return reason
+
+    monkeypatch.setattr(module.F2Monitor, 'submit', submit)
+    return observed
+
+
+@pytest.mark.parametrize('budget,converged,reason', [
+    (11, False, 'post_closure'), (12, False, 'max_iter'), (13, True, 'tol'),
+])
+def test_rejected_certificate_reconfirms_within_original_budget(
+        monkeypatch, budget, converged, reason):
+    s = _small_f2(3)
+    observed = _observe_rejected_confirmation(monkeypatch, s)
+    assert s.solve(max_iter=budget, verbose=False) == (converged, budget)
+    assert s.exit_reason == reason
+    if budget == 11:
+        assert observed[-1][2:] == ('tol', 2)
+        assert not s.f2_cert_post_rescale_ok
+    else:
+        assert len({r[0] for r in observed}) == len(observed)
+        assert next(r for r in observed if r[0] == 12)[2:] == (None, 1)
+        if converged:
+            assert observed[-1][2:] == ('tol', 2)
+        assert s.f2_cert_post_rescale_ok
+
+
+def test_rejected_certificate_waits_for_fresh_velocity_before_stall(monkeypatch):
+    s = _small_f2(3)
+    _observe_rejected_confirmation(monkeypatch, s)
+    monkeypatch.setattr(s, '_momentum_residual', lambda *a: (9e-5, {}))
+    events = []
+    delta = module.F2Monitor.velocity_delta
+    submit = module.F2Monitor.submit
+    close = module._v_bc_3d
+
+    def observe_delta(self, velocities):
+        delta(self, velocities)  # Preserve the real per-iteration snapshot.
+        events.append('velocity')
+        return 0.  # Controlled near-static provisional observation.
+
+    def observe_submit(self, *args):
+        events.append('submit')
+        # A repeated call with the stale zero velocity change would stall.
+        self._mom_at_window_start = 8e-5
+        self._window_start_it = 0
+        self.stall_window = 1
+        return submit(self, *args)
+
+    def closing_jump(*args):
+        close(*args)
+        s.v[:, -1, :] += 1.
+        events.append('closure')
+
+    monkeypatch.setattr(module.F2Monitor, 'velocity_delta', observe_delta)
+    monkeypatch.setattr(module.F2Monitor, 'submit', observe_submit)
+    monkeypatch.setattr(module, '_v_bc_3d', closing_jump)
+    assert s.solve(max_iter=12, verbose=False) == (False, 12)
+    assert s.exit_reason == 'max_iter'
+    assert events[events.index('closure') + 1] == 'velocity'

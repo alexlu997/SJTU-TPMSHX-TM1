@@ -1088,7 +1088,13 @@ class SIMPLESolver3D:
                 if _reason == 'nonfinite':
                     return f2_nonfinite_exit(self, it)
                 if _reason is not None:
-                    return finish(_reason, it)
+                    outcome = finish(_reason, it)
+                    if self.exit_reason != 'post_closure' or it == max_iter:
+                        return outcome
+                    # Restart confirmation within the original budget. The
+                    # next normal observation includes the closure's velocity
+                    # change; reusing this iteration's _vd could falsely stall.
+                    _f2._streak = 0
         return finish('max_iter', max_iter)
 
     # ── ledger C7 — momentum residual, balanced normalisation ─────────
