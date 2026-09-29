@@ -456,6 +456,33 @@ def test_unavailable_metrics_and_incomplete_execution_stay_visible(native_result
             to_compute_result(incomplete, evaluate(fields))
 
 
+@pytest.mark.parametrize('native_result', [2], indirect=True)
+@pytest.mark.parametrize('state', ['accepted_warning', 'accepted', 'failed', 'no_richardson'])
+def test_richardson_grid_warning_reaches_gui_without_changing_verdict(native_result, state):
+    from sjtu_tpmshx.ui.mixins.run_results import RunResultsMixin
+    fields, _ = native_result
+    performance = evaluate(fields)
+    diagnostics = mutable_data(fields.metadata['diagnostics'])
+    diagnostics['warnings_list'] = []
+    diagnostics['Q_richardson_warn'] = state in ('accepted_warning', 'failed')
+    diagnostics['richardson_info'] = (None if state == 'no_richardson' else
+        {**diagnostics['richardson_info'], 'extrapolated': state != 'failed'})
+    if state == 'failed':
+        diagnostics['warnings_list'] = ['Richardson 细解或外推未通过，未外推']
+    source = replace(fields, metadata={**fields.metadata, 'diagnostics': diagnostics})
+    result = to_compute_result(source, performance)
+    warning = '主网格与 Richardson 细网格换热量差异超过 10%'
+    assert sum(warning in item for item in result.warnings) == (state == 'accepted_warning')
+    assert result.converged == fields.run_status['converged']
+    assert result.Q_W == performance.metrics['Q'].value
+    assert result.diagnostics['Q_richardson_warn'] == diagnostics['Q_richardson_warn']
+    if state == 'failed':
+        assert sum('未外推' in item for item in result.warnings) == 1
+    window = SimpleNamespace(cache=ResultCache())
+    RunResultsMixin.write_result(window, result)
+    assert (warning in RunResultsMixin._diag_summary_text(window)) == (state == 'accepted_warning')
+
+
 def test_native_result_reaches_gui_diagnostics_and_display_cache(native_result):
     from sjtu_tpmshx.ui.mixins.run_results import RunResultsMixin
     fields, _ = native_result

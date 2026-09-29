@@ -63,7 +63,7 @@ def _check_two_cells(direction, fraction, mode, unequal, inlet_scale=None):
     for base, kval, exchange, flux, tin, frac in (
         (0, ka, ha, balance_fa, 360.0, fraction), (2, kb, hb, balance_fb, 300.0, 1.0)
     ):
-        diffusion = 2*kval[0]*kval[1]/kval.sum()*area/(lengths.sum()/2)
+        diffusion = area/(lengths[0]/(2*kval[0]) + lengths[1]/(2*kval[1]))
         inlet_d = 2*kval[0]*area*frac/lengths[0]
         f0, fm, f2 = flux
         # CC uses its own local coefficient in each row, including the end CV.
@@ -77,7 +77,7 @@ def _check_two_cells(direction, fraction, mode, unequal, inlet_scale=None):
             matrix[base+1, base+1] += f2-fm
         matrix[base, 4] = -exchange[0]; matrix[base+1, 5] = -exchange[1]
         rhs[base] = (inlet_d+f0)*tin
-    ds = 2*ks[0]*ks[1]/ks.sum()*area/(lengths.sum()/2)
+    ds = area/(lengths[0]/(2*ks[0]) + lengths[1]/(2*ks[1]))
     for cell in range(2):
         matrix[4+cell, 4+cell] = ds+ha[cell]+hb[cell]
         matrix[4+cell, 5-cell] = -ds

@@ -1,10 +1,11 @@
-"""3D LTNE numba kernels, moved verbatim from ltne_energy_3d.py (openspec
-split-solver-kernels, 2026-07-03); bit-identical. Epsilon-split contract
-untouched — see ltne_energy_3d.py / docs/architecture.md."""
+"""3D LTNE kernels with physical face geometry and per-side porosity.
+
+See ltne_energy_3d.py / docs/architecture.md for the epsilon-split contract.
+"""
 
 import numpy as np
 from numba import njit, prange
-from ._kernels_2d import _model_h  # Shared explicit strict-math enthalpy policy.
+from ._kernels_2d import _model_h, diffusion_conductance, limited_face_increment
 
 
 # ---------------------------------------------------------------------------
@@ -24,174 +25,83 @@ def _va_limit(gu, gd):
 
 
 @njit(cache=True, fastmath=True)
-def _sou_corr_x_3d(T, i, j, k, Nx, u_loc, Fx):
-    if u_loc >= 0:
-        phi_w = 0.0
-        if i > 1:
-            phi_w = _va_limit(T[i-1, j, k] - T[i-2, j, k],
-                              T[i, j, k] - T[i-1, j, k])
-        phi_e = 0.0
-        if i < Nx - 1 and i > 0:
-            phi_e = _va_limit(T[i, j, k] - T[i-1, j, k],
-                              T[i+1, j, k] - T[i, j, k])
-        return 0.5 * Fx * (phi_w - phi_e)
-    else:
-        phi_e = 0.0
-        if i < Nx - 2:
-            phi_e = _va_limit(T[i+1, j, k] - T[i+2, j, k],
-                              T[i, j, k] - T[i+1, j, k])
-        phi_w = 0.0
-        if i > 0 and i < Nx - 1:
-            phi_w = _va_limit(T[i, j, k] - T[i+1, j, k],
-                              T[i-1, j, k] - T[i, j, k])
-        return 0.5 * Fx * (phi_e - phi_w)
+def _sou_face_x_cons(T, i, j, k, Nx, Fw, Fe, widths=None):
+    """Shared-face minmod reconstruction using physical centre distances."""
+    result = 0.0
+    for face, flux, sign in ((i, Fw, 1.0), (i+1, Fe, -1.0)):
+        up = face-1 if flux >= 0.0 else face
+        if 0 < face < Nx and 0 < up < Nx-1:
+            dm = 1.0 if widths is None else 0.5*(widths[up-1]+widths[up])
+            dp = 1.0 if widths is None else 0.5*(widths[up]+widths[up+1])
+            half = 0.5 if widths is None else 0.5*widths[up]
+            inc = limited_face_increment(T[up-1, j, k], T[up, j, k], T[up+1, j, k],
+                                         dm, dp, half if flux >= 0.0 else -half)
+            result += sign*flux*inc
+    return result
 
 
 @njit(cache=True, fastmath=True)
-def _sou_corr_y_3d(T, i, j, k, Ny, v_loc, Fy):
-    if v_loc >= 0:
-        phi_s = 0.0
-        if j > 1:
-            phi_s = _va_limit(T[i, j-1, k] - T[i, j-2, k],
-                              T[i, j, k] - T[i, j-1, k])
-        phi_n = 0.0
-        if j < Ny - 1 and j > 0:
-            phi_n = _va_limit(T[i, j, k] - T[i, j-1, k],
-                              T[i, j+1, k] - T[i, j, k])
-        return 0.5 * Fy * (phi_s - phi_n)
-    else:
-        phi_n = 0.0
-        if j < Ny - 2:
-            phi_n = _va_limit(T[i, j+1, k] - T[i, j+2, k],
-                              T[i, j, k] - T[i, j+1, k])
-        phi_s = 0.0
-        if j > 0 and j < Ny - 1:
-            phi_s = _va_limit(T[i, j, k] - T[i, j+1, k],
-                              T[i, j-1, k] - T[i, j, k])
-        return 0.5 * Fy * (phi_n - phi_s)
+def _sou_corr_x_3d(T, i, j, k, Nx, u_loc, Fx, widths=None):
+    signed = Fx if u_loc >= 0.0 else -Fx
+    return _sou_face_x_cons(T, i, j, k, Nx, signed, signed, widths)
 
 
 @njit(cache=True, fastmath=True)
-def _sou_corr_z_3d(T, i, j, k, Nz, w_loc, Fz):
-    if w_loc >= 0:
-        phi_b = 0.0
-        if k > 1:
-            phi_b = _va_limit(T[i, j, k-1] - T[i, j, k-2],
-                              T[i, j, k] - T[i, j, k-1])
-        phi_t = 0.0
-        if k < Nz - 1 and k > 0:
-            phi_t = _va_limit(T[i, j, k] - T[i, j, k-1],
-                              T[i, j, k+1] - T[i, j, k])
-        return 0.5 * Fz * (phi_b - phi_t)
-    else:
-        phi_t = 0.0
-        if k < Nz - 2:
-            phi_t = _va_limit(T[i, j, k+1] - T[i, j, k+2],
-                              T[i, j, k] - T[i, j, k+1])
-        phi_b = 0.0
-        if k > 0 and k < Nz - 1:
-            phi_b = _va_limit(T[i, j, k] - T[i, j, k+1],
-                              T[i, j, k-1] - T[i, j, k])
-        return 0.5 * Fz * (phi_t - phi_b)
-
-
-# ---------------------------------------------------------------------------
-# Conservative (telescoping) SOU deferred correction — face-shared.
-#
-# Unlike _sou_corr_*_3d (cell-local: each cell uses its own |u_c| magnitude, so
-# the correction at a shared face differs between the two adjacent cells and
-# breaks conservation), these use the SIGNED shared face flux to pick the
-# upwind side. The HO increment (T_HO_face − T_up_face) = 0.5·minmod(...) is a
-# pure function of the face + neighbour T values, identical from both cells'
-# view, so the deferred source Σ_faces ∓F_face·inc telescopes ⇒ strictly
-# conservative AND 2nd-order. Source convention matches the kernel:
-#   sou = −Σ_faces F_face·(T_HO−T_up)·(outward sign)
-# ---------------------------------------------------------------------------
-
-@njit(cache=True, fastmath=True)
-def _sou_face_x_cons(T, i, j, k, Nx, Fw, Fe):
-    inc_e = 0.0
-    if Fe >= 0.0:                      # east face upwind = cell i
-        if 0 < i < Nx - 1:
-            inc_e = 0.5 * _va_limit(T[i, j, k] - T[i-1, j, k],
-                                    T[i+1, j, k] - T[i, j, k])
-    else:                              # east face upwind = cell i+1
-        if i < Nx - 2:
-            inc_e = 0.5 * _va_limit(T[i+1, j, k] - T[i+2, j, k],
-                                    T[i, j, k] - T[i+1, j, k])
-    inc_w = 0.0
-    if Fw >= 0.0:                      # west face upwind = cell i-1
-        if i > 1:
-            inc_w = 0.5 * _va_limit(T[i-1, j, k] - T[i-2, j, k],
-                                    T[i, j, k] - T[i-1, j, k])
-    else:                              # west face upwind = cell i
-        if 0 < i < Nx - 1:
-            inc_w = 0.5 * _va_limit(T[i, j, k] - T[i+1, j, k],
-                                    T[i-1, j, k] - T[i, j, k])
-    return -Fe * inc_e + Fw * inc_w
+def _sou_face_y_cons(T, i, j, k, Ny, Fs, Fn, widths=None):
+    """Shared-face minmod reconstruction using physical centre distances."""
+    result = 0.0
+    for face, flux, sign in ((j, Fs, 1.0), (j+1, Fn, -1.0)):
+        up = face-1 if flux >= 0.0 else face
+        if 0 < face < Ny and 0 < up < Ny-1:
+            dm = 1.0 if widths is None else 0.5*(widths[up-1]+widths[up])
+            dp = 1.0 if widths is None else 0.5*(widths[up]+widths[up+1])
+            half = 0.5 if widths is None else 0.5*widths[up]
+            inc = limited_face_increment(T[i, up-1, k], T[i, up, k], T[i, up+1, k],
+                                         dm, dp, half if flux >= 0.0 else -half)
+            result += sign*flux*inc
+    return result
 
 
 @njit(cache=True, fastmath=True)
-def _sou_face_y_cons(T, i, j, k, Ny, Fs, Fn):
-    inc_n = 0.0
-    if Fn >= 0.0:
-        if 0 < j < Ny - 1:
-            inc_n = 0.5 * _va_limit(T[i, j, k] - T[i, j-1, k],
-                                    T[i, j+1, k] - T[i, j, k])
-    else:
-        if j < Ny - 2:
-            inc_n = 0.5 * _va_limit(T[i, j+1, k] - T[i, j+2, k],
-                                    T[i, j, k] - T[i, j+1, k])
-    inc_s = 0.0
-    if Fs >= 0.0:
-        if j > 1:
-            inc_s = 0.5 * _va_limit(T[i, j-1, k] - T[i, j-2, k],
-                                    T[i, j, k] - T[i, j-1, k])
-    else:
-        if 0 < j < Ny - 1:
-            inc_s = 0.5 * _va_limit(T[i, j, k] - T[i, j+1, k],
-                                    T[i, j-1, k] - T[i, j, k])
-    return -Fn * inc_n + Fs * inc_s
+def _sou_corr_y_3d(T, i, j, k, Ny, v_loc, Fy, widths=None):
+    signed = Fy if v_loc >= 0.0 else -Fy
+    return _sou_face_y_cons(T, i, j, k, Ny, signed, signed, widths)
 
 
 @njit(cache=True, fastmath=True)
-def _sou_face_z_cons(T, i, j, k, Nz, Fb, Ft):
-    inc_t = 0.0
-    if Ft >= 0.0:
-        if 0 < k < Nz - 1:
-            inc_t = 0.5 * _va_limit(T[i, j, k] - T[i, j, k-1],
-                                    T[i, j, k+1] - T[i, j, k])
-    else:
-        if k < Nz - 2:
-            inc_t = 0.5 * _va_limit(T[i, j, k+1] - T[i, j, k+2],
-                                    T[i, j, k] - T[i, j, k+1])
-    inc_b = 0.0
-    if Fb >= 0.0:
-        if k > 1:
-            inc_b = 0.5 * _va_limit(T[i, j, k-1] - T[i, j, k-2],
-                                    T[i, j, k] - T[i, j, k-1])
-    else:
-        if 0 < k < Nz - 1:
-            inc_b = 0.5 * _va_limit(T[i, j, k] - T[i, j, k+1],
-                                    T[i, j, k-1] - T[i, j, k])
-    return -Ft * inc_t + Fb * inc_b
+def _sou_face_z_cons(T, i, j, k, Nz, Fb, Ft, widths=None):
+    """Shared-face minmod reconstruction using physical centre distances."""
+    result = 0.0
+    for face, flux, sign in ((k, Fb, 1.0), (k+1, Ft, -1.0)):
+        up = face-1 if flux >= 0.0 else face
+        if 0 < face < Nz and 0 < up < Nz-1:
+            dm = 1.0 if widths is None else 0.5*(widths[up-1]+widths[up])
+            dp = 1.0 if widths is None else 0.5*(widths[up]+widths[up+1])
+            half = 0.5 if widths is None else 0.5*widths[up]
+            inc = limited_face_increment(T[i, j, up-1], T[i, j, up], T[i, j, up+1],
+                                         dm, dp, half if flux >= 0.0 else -half)
+            result += sign*flux*inc
+    return result
 
 
 @njit(cache=True, fastmath=True)
-def _sou_field_cons(T, Fx, Fy, Fz):
-    """Per-cell face-shared SOU deferred-correction field, using the SAME
-    helpers as the conservative kernel. Lets the strict-conservation metric
-    subtract the exact deferred source so the certificate stays valid with HO
-    active (converged: r_FO = sou ⇒ true residual r_FO − sou → 0)."""
+def _sou_corr_z_3d(T, i, j, k, Nz, w_loc, Fz, widths=None):
+    signed = Fz if w_loc >= 0.0 else -Fz
+    return _sou_face_z_cons(T, i, j, k, Nz, signed, signed, widths)
+
+
+@njit(cache=True, fastmath=True)
+def _sou_field_cons(T, Fx, Fy, Fz, dx=None, dy=None, dz=None):
+    """Use the same shared physical face reconstruction as the sweep."""
     Nx, Ny, Nz = T.shape
     sou = np.zeros_like(T)
     for i in range(Nx):
         for j in range(Ny):
             for k in range(Nz):
                 sou[i, j, k] = (
-                    _sou_face_x_cons(T, i, j, k, Nx, Fx[i, j, k], Fx[i+1, j, k])
-                    + _sou_face_y_cons(T, i, j, k, Ny, Fy[i, j, k], Fy[i, j+1, k])
-                    + _sou_face_z_cons(T, i, j, k, Nz, Fz[i, j, k], Fz[i, j, k+1]))
+                    _sou_face_x_cons(T, i, j, k, Nx, Fx[i, j, k], Fx[i+1, j, k], dx)
+                    + _sou_face_y_cons(T, i, j, k, Ny, Fy[i, j, k], Fy[i, j+1, k], dy)
+                    + _sou_face_z_cons(T, i, j, k, Nz, Fz[i, j, k], Fz[i, j, k+1], dz))
     return sou
 
 
@@ -200,7 +110,7 @@ def _sou_field_cons(T, Fx, Fy, Fz):
 # ---------------------------------------------------------------------------
 
 @njit(cache=True)
-def _model_h_faces(T, mass, coefficients, direction, Tin, ifrac):
+def _model_h_faces(T, mass, coefficients, direction, Tin, ifrac, dx=None, dy=None, dz=None):
     """Shared Picard faces: flux = capacity*T_up + deferred.
 
     Freeze once per sweep, including both RB colours. Retain the temperature
@@ -227,10 +137,15 @@ def _model_h_faces(T, mass, coefficients, direction, Tin, ifrac):
                     if 0 < pos < count and 0 < u < count - 1:
                         prev = (u-1, j, k) if axis == 0 else ((i, u-1, k) if axis == 1 else (i, j, u-1))
                         nxt = (u+1, j, k) if axis == 0 else ((i, u+1, k) if axis == 1 else (i, j, u+1))
-                        if m >= 0.0:
-                            inc = 0.5 * _va_limit(t-T[prev], T[nxt]-t)
-                        else:
-                            inc = 0.5 * _va_limit(t-T[nxt], T[prev]-t)
+                        dm = dp = 1.0
+                        half = 0.5
+                        if dx is not None:
+                            width = (dx, dy, dz)[axis]
+                            dm = 0.5*(width[u-1]+width[u])
+                            dp = 0.5*(width[u]+width[u+1])
+                            half = 0.5*width[u]
+                        inc = limited_face_increment(T[prev], t, T[nxt], dm, dp,
+                                                     half if m >= 0.0 else -half)
                     if axis == direction // 2 and pos == (0 if direction % 2 == 0 else count):
                         patch = (j, k) if axis == 0 else ((i, k) if axis == 1 else (i, j))
                         inward = m if direction % 2 == 0 else -m
@@ -381,9 +296,9 @@ def _gs_full_chunk_3d_stag(Ta, Tb, Ts, Nx, Ny, Nz,
         model_source_B = Tb
         if model_mass_A is not None:
             model_FA, deferred_A = _model_h_faces(
-                Ta, model_mass_A, model_cp_A, bc_A, T_inA_arr, ifrac_A)
+                Ta, model_mass_A, model_cp_A, bc_A, T_inA_arr, ifrac_A, dx_arr, dy_arr, dz_arr)
             model_FB, deferred_B = _model_h_faces(
-                Tb, model_mass_B, model_cp_B, bc_B, T_inB_arr, ifrac_B)
+                Tb, model_mass_B, model_cp_B, bc_B, T_inB_arr, ifrac_B, dx_arr, dy_arr, dz_arr)
             model_source_A = -_face_divergence(deferred_A)
             model_source_B = -_face_divergence(deferred_B)
         max_chg = 0.0
@@ -398,21 +313,14 @@ def _gs_full_chunk_3d_stag(Ta, Tb, Ts, Nx, Ny, Nz,
                     hvA = h_vA_arr[i, j, k] * vol
 
                     Ax = dyj * dzk; Ay = dxi * dzk; Az = dxi * dyj
-                    # Face spacing δx_e = 0.5(dx_P+dx_E) for conservative
-                    # diffusion stencil (#3D-7 fix). Same value used by both
-                    # adjacent cells; old /dxi broke symmetry on non-uniform.
-                    dxe = 0.5 * (dxi + dx_arr[i+1]) if i < Nx-1 else dxi
-                    dxw = 0.5 * (dx_arr[i-1] + dxi) if i > 0    else dxi
-                    dyn = 0.5 * (dyj + dy_arr[j+1]) if j < Ny-1 else dyj
-                    dys = 0.5 * (dy_arr[j-1] + dyj) if j > 0    else dyj
-                    dzt = 0.5 * (dzk + dz_arr[k+1]) if k < Nz-1 else dzk
-                    dzb = 0.5 * (dz_arr[k-1] + dzk) if k > 0    else dzk
-                    dE = 2.0 * Kc * K_ffA_arr[i+1, j, k] / (Kc + K_ffA_arr[i+1, j, k] + 1e-30) * Ax / dxe if i < Nx-1 else 0.0
-                    dW = 2.0 * Kc * K_ffA_arr[i-1, j, k] / (Kc + K_ffA_arr[i-1, j, k] + 1e-30) * Ax / dxw if i > 0 else 0.0
-                    dN = 2.0 * Kc * K_ffA_arr[i, j+1, k] / (Kc + K_ffA_arr[i, j+1, k] + 1e-30) * Ay / dyn if j < Ny-1 else 0.0
-                    dS = 2.0 * Kc * K_ffA_arr[i, j-1, k] / (Kc + K_ffA_arr[i, j-1, k] + 1e-30) * Ay / dys if j > 0 else 0.0
-                    dT_ = 2.0 * Kc * K_ffA_arr[i, j, k+1] / (Kc + K_ffA_arr[i, j, k+1] + 1e-30) * Az / dzt if k < Nz-1 else 0.0
-                    dB = 2.0 * Kc * K_ffA_arr[i, j, k-1] / (Kc + K_ffA_arr[i, j, k-1] + 1e-30) * Az / dzb if k > 0 else 0.0
+                    # Series resistance uses both physical half-cell widths;
+                    # the shared conductance is identical in adjacent rows.
+                    dE = diffusion_conductance(Kc, K_ffA_arr[i+1, j, k], 0.5*dx_arr[i], 0.5*dx_arr[i+1]) * Ax if i < Nx-1 else 0.0
+                    dW = diffusion_conductance(Kc, K_ffA_arr[i-1, j, k], 0.5*dx_arr[i], 0.5*dx_arr[i-1]) * Ax if i > 0 else 0.0
+                    dN = diffusion_conductance(Kc, K_ffA_arr[i, j+1, k], 0.5*dy_arr[j], 0.5*dy_arr[j+1]) * Ay if j < Ny-1 else 0.0
+                    dS = diffusion_conductance(Kc, K_ffA_arr[i, j-1, k], 0.5*dy_arr[j], 0.5*dy_arr[j-1]) * Ay if j > 0 else 0.0
+                    dT_ = diffusion_conductance(Kc, K_ffA_arr[i, j, k+1], 0.5*dz_arr[k], 0.5*dz_arr[k+1]) * Az if k < Nz-1 else 0.0
+                    dB = diffusion_conductance(Kc, K_ffA_arr[i, j, k-1], 0.5*dz_arr[k], 0.5*dz_arr[k-1]) * Az if k > 0 else 0.0
 
                     # Face-centered staggered velocities (directly from SIMPLE).
                     # u_face_x at (i, i+1), v_face_y at (j, j+1), w_face_z at (k, k+1).
@@ -490,9 +398,9 @@ def _gs_full_chunk_3d_stag(Ta, Tb, Ts, Nx, Ny, Nz,
                         # signed shared face flux to pick the upwind side,
                         # so it telescopes ⇒ conservation preserved AND
                         # 2nd-order. (cell-local _sou_corr_* would break it.)
-                        sou = (_sou_face_x_cons(Ta, i, j, k, Nx, F_w, F_e)
-                               + _sou_face_y_cons(Ta, i, j, k, Ny, F_s, F_n)
-                               + _sou_face_z_cons(Ta, i, j, k, Nz, F_b, F_t))
+                        sou = (_sou_face_x_cons(Ta, i, j, k, Nx, F_w, F_e, dx_arr)
+                               + _sou_face_y_cons(Ta, i, j, k, Ny, F_s, F_n, dy_arr)
+                               + _sou_face_z_cons(Ta, i, j, k, Nz, F_b, F_t, dz_arr))
                         if model_mass_A is not None:
                             sou = model_source_A[i, j, k]
                         net_out = (F_e - F_w) + (F_n - F_s) + (F_t - F_b)
@@ -505,9 +413,9 @@ def _gs_full_chunk_3d_stag(Ta, Tb, Ts, Nx, Ny, Nz,
                         Fx_mag = ef_c * rcpA_c * abs(u_c_sou) * Ax
                         Fy_mag = ef_c * rcpA_c * abs(v_c_sou) * Ay
                         Fz_mag = ef_c * rcpA_c * abs(w_c_sou) * Az
-                        sou = (_sou_corr_x_3d(Ta, i, j, k, Nx, u_c_sou, Fx_mag)
-                               + _sou_corr_y_3d(Ta, i, j, k, Ny, v_c_sou, Fy_mag)
-                               + _sou_corr_z_3d(Ta, i, j, k, Nz, w_c_sou, Fz_mag))
+                        sou = (_sou_corr_x_3d(Ta, i, j, k, Nx, u_c_sou, Fx_mag, dx_arr)
+                               + _sou_corr_y_3d(Ta, i, j, k, Ny, v_c_sou, Fy_mag, dy_arr)
+                               + _sou_corr_z_3d(Ta, i, j, k, Nz, w_c_sou, Fz_mag, dz_arr))
                         # aP = Σa_nb + hvA. NET_OUT (mass-imbal) tried in
                         # multiple variants (full, interior-only, BC pin
                         # penalty, source split): all destabilise because BC
@@ -537,18 +445,18 @@ def _gs_full_chunk_3d_stag(Ta, Tb, Ts, Nx, Ny, Nz,
 
                     Ax = dyj * dzk; Ay = dxi * dzk; Az = dxi * dyj
                     # Face spacing for solid (stag) — same as A
-                    dxe_s = 0.5 * (dxi + dx_arr[i+1]) if i < Nx-1 else dxi
-                    dxw_s = 0.5 * (dx_arr[i-1] + dxi) if i > 0    else dxi
-                    dyn_s = 0.5 * (dyj + dy_arr[j+1]) if j < Ny-1 else dyj
-                    dys_s = 0.5 * (dy_arr[j-1] + dyj) if j > 0    else dyj
-                    dzt_s = 0.5 * (dzk + dz_arr[k+1]) if k < Nz-1 else dzk
-                    dzb_s = 0.5 * (dz_arr[k-1] + dzk) if k > 0    else dzk
-                    De = 2.0*Ks*K_ss_arr[i+1, j, k]/(Ks+K_ss_arr[i+1, j, k]+1e-30)*Ax/dxe_s if i < Nx-1 else Ks*Ax/dxi
-                    Dw = 2.0*Ks*K_ss_arr[i-1, j, k]/(Ks+K_ss_arr[i-1, j, k]+1e-30)*Ax/dxw_s if i > 0    else Ks*Ax/dxi
-                    Dn = 2.0*Ks*K_ss_arr[i, j+1, k]/(Ks+K_ss_arr[i, j+1, k]+1e-30)*Ay/dyn_s if j < Ny-1 else Ks*Ay/dyj
-                    Ds = 2.0*Ks*K_ss_arr[i, j-1, k]/(Ks+K_ss_arr[i, j-1, k]+1e-30)*Ay/dys_s if j > 0    else Ks*Ay/dyj
-                    Dt = 2.0*Ks*K_ss_arr[i, j, k+1]/(Ks+K_ss_arr[i, j, k+1]+1e-30)*Az/dzt_s if k < Nz-1 else Ks*Az/dzk
-                    Db = 2.0*Ks*K_ss_arr[i, j, k-1]/(Ks+K_ss_arr[i, j, k-1]+1e-30)*Az/dzb_s if k > 0    else Ks*Az/dzk
+
+
+
+
+
+
+                    De = diffusion_conductance(Ks, K_ss_arr[i+1, j, k], 0.5*dx_arr[i], 0.5*dx_arr[i+1]) * Ax if i < Nx-1 else Ks*Ax/dxi
+                    Dw = diffusion_conductance(Ks, K_ss_arr[i-1, j, k], 0.5*dx_arr[i], 0.5*dx_arr[i-1]) * Ax if i > 0    else Ks*Ax/dxi
+                    Dn = diffusion_conductance(Ks, K_ss_arr[i, j+1, k], 0.5*dy_arr[j], 0.5*dy_arr[j+1]) * Ay if j < Ny-1 else Ks*Ay/dyj
+                    Ds = diffusion_conductance(Ks, K_ss_arr[i, j-1, k], 0.5*dy_arr[j], 0.5*dy_arr[j-1]) * Ay if j > 0    else Ks*Ay/dyj
+                    Dt = diffusion_conductance(Ks, K_ss_arr[i, j, k+1], 0.5*dz_arr[k], 0.5*dz_arr[k+1]) * Az if k < Nz-1 else Ks*Az/dzk
+                    Db = diffusion_conductance(Ks, K_ss_arr[i, j, k-1], 0.5*dz_arr[k], 0.5*dz_arr[k-1]) * Az if k > 0    else Ks*Az/dzk
 
                     sE = Ts[i+1, j, k] if i < Nx-1 else Ts[i, j, k]
                     sW = Ts[i-1, j, k] if i > 0    else Ts[i, j, k]
@@ -576,18 +484,12 @@ def _gs_full_chunk_3d_stag(Ta, Tb, Ts, Nx, Ny, Nz,
                         hvB = h_vB_arr[i, j, k] * vol_b
 
                         # Face spacing for B (stag) — same as A
-                        dxe_b = 0.5 * (dxi + dx_arr[i+1]) if i < Nx-1 else dxi
-                        dxw_b = 0.5 * (dx_arr[i-1] + dxi) if i > 0    else dxi
-                        dyn_b = 0.5 * (dyj + dy_arr[j+1]) if j < Ny-1 else dyj
-                        dys_b = 0.5 * (dy_arr[j-1] + dyj) if j > 0    else dyj
-                        dzt_b = 0.5 * (dzk + dz_arr[k+1]) if k < Nz-1 else dzk
-                        dzb_b = 0.5 * (dz_arr[k-1] + dzk) if k > 0    else dzk
-                        dEb = 2.0*Kc_b*K_ffB_arr[i+1, j, k]/(Kc_b+K_ffB_arr[i+1, j, k]+1e-30)*Ax/dxe_b if i < Nx-1 else 0.0
-                        dWb = 2.0*Kc_b*K_ffB_arr[i-1, j, k]/(Kc_b+K_ffB_arr[i-1, j, k]+1e-30)*Ax/dxw_b if i > 0 else 0.0
-                        dNb = 2.0*Kc_b*K_ffB_arr[i, j+1, k]/(Kc_b+K_ffB_arr[i, j+1, k]+1e-30)*Ay/dyn_b if j < Ny-1 else 0.0
-                        dSb = 2.0*Kc_b*K_ffB_arr[i, j-1, k]/(Kc_b+K_ffB_arr[i, j-1, k]+1e-30)*Ay/dys_b if j > 0 else 0.0
-                        dTb_ = 2.0*Kc_b*K_ffB_arr[i, j, k+1]/(Kc_b+K_ffB_arr[i, j, k+1]+1e-30)*Az/dzt_b if k < Nz-1 else 0.0
-                        dBb = 2.0*Kc_b*K_ffB_arr[i, j, k-1]/(Kc_b+K_ffB_arr[i, j, k-1]+1e-30)*Az/dzb_b if k > 0 else 0.0
+                        dEb = diffusion_conductance(Kc_b, K_ffB_arr[i+1, j, k], 0.5*dx_arr[i], 0.5*dx_arr[i+1]) * Ax if i < Nx-1 else 0.0
+                        dWb = diffusion_conductance(Kc_b, K_ffB_arr[i-1, j, k], 0.5*dx_arr[i], 0.5*dx_arr[i-1]) * Ax if i > 0 else 0.0
+                        dNb = diffusion_conductance(Kc_b, K_ffB_arr[i, j+1, k], 0.5*dy_arr[j], 0.5*dy_arr[j+1]) * Ay if j < Ny-1 else 0.0
+                        dSb = diffusion_conductance(Kc_b, K_ffB_arr[i, j-1, k], 0.5*dy_arr[j], 0.5*dy_arr[j-1]) * Ay if j > 0 else 0.0
+                        dTb_ = diffusion_conductance(Kc_b, K_ffB_arr[i, j, k+1], 0.5*dz_arr[k], 0.5*dz_arr[k+1]) * Az if k < Nz-1 else 0.0
+                        dBb = diffusion_conductance(Kc_b, K_ffB_arr[i, j, k-1], 0.5*dz_arr[k], 0.5*dz_arr[k-1]) * Az if k > 0 else 0.0
 
                         uB_e = ufB[i+1, j, k]
                         uB_w = ufB[i, j, k]
@@ -649,9 +551,9 @@ def _gs_full_chunk_3d_stag(Ta, Tb, Ts, Nx, Ny, Nz,
                         if conservative == 1:
                             # Strict-conservation B side (mirror of A):
                             # face-shared SOU deferred correction (HO + telescoping).
-                            soub = (_sou_face_x_cons(Tb, i, j, k, Nx, FB_w, FB_e)
-                                    + _sou_face_y_cons(Tb, i, j, k, Ny, FB_s, FB_n)
-                                    + _sou_face_z_cons(Tb, i, j, k, Nz, FB_b, FB_t))
+                            soub = (_sou_face_x_cons(Tb, i, j, k, Nx, FB_w, FB_e, dx_arr)
+                                    + _sou_face_y_cons(Tb, i, j, k, Ny, FB_s, FB_n, dy_arr)
+                                    + _sou_face_z_cons(Tb, i, j, k, Nz, FB_b, FB_t, dz_arr))
                             if model_mass_A is not None:
                                 soub = model_source_B[i, j, k]
                             net_outB = ((FB_e - FB_w) + (FB_n - FB_s)
@@ -665,9 +567,9 @@ def _gs_full_chunk_3d_stag(Ta, Tb, Ts, Nx, Ny, Nz,
                             FxB_mag = efB_c * rcpB_c * abs(uBc_sou) * Ax
                             FyB_mag = efB_c * rcpB_c * abs(vBc_sou) * Ay
                             FzB_mag = efB_c * rcpB_c * abs(wBc_sou) * Az
-                            soub = (_sou_corr_x_3d(Tb, i, j, k, Nx, uBc_sou, FxB_mag)
-                                    + _sou_corr_y_3d(Tb, i, j, k, Ny, vBc_sou, FyB_mag)
-                                    + _sou_corr_z_3d(Tb, i, j, k, Nz, wBc_sou, FzB_mag))
+                            soub = (_sou_corr_x_3d(Tb, i, j, k, Nx, uBc_sou, FxB_mag, dx_arr)
+                                    + _sou_corr_y_3d(Tb, i, j, k, Ny, vBc_sou, FyB_mag, dy_arr)
+                                    + _sou_corr_z_3d(Tb, i, j, k, Nz, wBc_sou, FzB_mag, dz_arr))
                             aPb = aEb + aWb + aNb + aSb + aTb + aBb + hvB
                         if aPb < 1e-30:
                             aPb = 1e-30
@@ -732,9 +634,9 @@ def _gs_full_chunk_3d_stag_rb(Ta, Tb, Ts, Nx, Ny, Nz,
         model_source_B = Tb
         if model_mass_A is not None:
             model_FA, deferred_A = _model_h_faces(
-                Ta, model_mass_A, model_cp_A, bc_A, T_inA_arr, ifrac_A)
+                Ta, model_mass_A, model_cp_A, bc_A, T_inA_arr, ifrac_A, dx_arr, dy_arr, dz_arr)
             model_FB, deferred_B = _model_h_faces(
-                Tb, model_mass_B, model_cp_B, bc_B, T_inB_arr, ifrac_B)
+                Tb, model_mass_B, model_cp_B, bc_B, T_inB_arr, ifrac_B, dx_arr, dy_arr, dz_arr)
             model_source_A = -_face_divergence(deferred_A)
             model_source_B = -_face_divergence(deferred_B)
         # Start-of-sweep snapshot for the (2-away, same-colour) deferred SOU.
@@ -759,18 +661,12 @@ def _gs_full_chunk_3d_stag_rb(Ta, Tb, Ts, Nx, Ny, Nz,
                 hvA = h_vA_arr[i, j, k] * vol
 
                 Ax = dyj * dzk; Ay = dxi * dzk; Az = dxi * dyj
-                dxe = 0.5 * (dxi + dx_arr[i+1]) if i < Nx-1 else dxi
-                dxw = 0.5 * (dx_arr[i-1] + dxi) if i > 0    else dxi
-                dyn = 0.5 * (dyj + dy_arr[j+1]) if j < Ny-1 else dyj
-                dys = 0.5 * (dy_arr[j-1] + dyj) if j > 0    else dyj
-                dzt = 0.5 * (dzk + dz_arr[k+1]) if k < Nz-1 else dzk
-                dzb = 0.5 * (dz_arr[k-1] + dzk) if k > 0    else dzk
-                dE = 2.0 * Kc * K_ffA_arr[i+1, j, k] / (Kc + K_ffA_arr[i+1, j, k] + 1e-30) * Ax / dxe if i < Nx-1 else 0.0
-                dW = 2.0 * Kc * K_ffA_arr[i-1, j, k] / (Kc + K_ffA_arr[i-1, j, k] + 1e-30) * Ax / dxw if i > 0 else 0.0
-                dN = 2.0 * Kc * K_ffA_arr[i, j+1, k] / (Kc + K_ffA_arr[i, j+1, k] + 1e-30) * Ay / dyn if j < Ny-1 else 0.0
-                dS = 2.0 * Kc * K_ffA_arr[i, j-1, k] / (Kc + K_ffA_arr[i, j-1, k] + 1e-30) * Ay / dys if j > 0 else 0.0
-                dT_ = 2.0 * Kc * K_ffA_arr[i, j, k+1] / (Kc + K_ffA_arr[i, j, k+1] + 1e-30) * Az / dzt if k < Nz-1 else 0.0
-                dB = 2.0 * Kc * K_ffA_arr[i, j, k-1] / (Kc + K_ffA_arr[i, j, k-1] + 1e-30) * Az / dzb if k > 0 else 0.0
+                dE = diffusion_conductance(Kc, K_ffA_arr[i+1, j, k], 0.5*dx_arr[i], 0.5*dx_arr[i+1]) * Ax if i < Nx-1 else 0.0
+                dW = diffusion_conductance(Kc, K_ffA_arr[i-1, j, k], 0.5*dx_arr[i], 0.5*dx_arr[i-1]) * Ax if i > 0 else 0.0
+                dN = diffusion_conductance(Kc, K_ffA_arr[i, j+1, k], 0.5*dy_arr[j], 0.5*dy_arr[j+1]) * Ay if j < Ny-1 else 0.0
+                dS = diffusion_conductance(Kc, K_ffA_arr[i, j-1, k], 0.5*dy_arr[j], 0.5*dy_arr[j-1]) * Ay if j > 0 else 0.0
+                dT_ = diffusion_conductance(Kc, K_ffA_arr[i, j, k+1], 0.5*dz_arr[k], 0.5*dz_arr[k+1]) * Az if k < Nz-1 else 0.0
+                dB = diffusion_conductance(Kc, K_ffA_arr[i, j, k-1], 0.5*dz_arr[k], 0.5*dz_arr[k-1]) * Az if k > 0 else 0.0
 
                 u_e = ufA[i+1, j, k]; u_w = ufA[i, j, k]
                 v_n = vfA[i, j+1, k]; v_s = vfA[i, j, k]
@@ -824,9 +720,9 @@ def _gs_full_chunk_3d_stag_rb(Ta, Tb, Ts, Nx, Ny, Nz,
                     Kc, dxi, dyj, dzk, aE, aW, aN, aS, aT, aB, tE, tW, tN, tS, tT, tB)
 
                 if conservative == 1:
-                    sou = (_sou_face_x_cons(Ta_snap, i, j, k, Nx, F_w, F_e)
-                           + _sou_face_y_cons(Ta_snap, i, j, k, Ny, F_s, F_n)
-                           + _sou_face_z_cons(Ta_snap, i, j, k, Nz, F_b, F_t))
+                    sou = (_sou_face_x_cons(Ta_snap, i, j, k, Nx, F_w, F_e, dx_arr)
+                           + _sou_face_y_cons(Ta_snap, i, j, k, Ny, F_s, F_n, dy_arr)
+                           + _sou_face_z_cons(Ta_snap, i, j, k, Nz, F_b, F_t, dz_arr))
                     if model_mass_A is not None:
                         sou = model_source_A[i, j, k]
                     net_out = (F_e - F_w) + (F_n - F_s) + (F_t - F_b)
@@ -837,9 +733,9 @@ def _gs_full_chunk_3d_stag_rb(Ta, Tb, Ts, Nx, Ny, Nz,
                     Fx_mag = ef_c * rcpA_c * abs(u_c_sou) * Ax
                     Fy_mag = ef_c * rcpA_c * abs(v_c_sou) * Ay
                     Fz_mag = ef_c * rcpA_c * abs(w_c_sou) * Az
-                    sou = (_sou_corr_x_3d(Ta_snap, i, j, k, Nx, u_c_sou, Fx_mag)
-                           + _sou_corr_y_3d(Ta_snap, i, j, k, Ny, v_c_sou, Fy_mag)
-                           + _sou_corr_z_3d(Ta_snap, i, j, k, Nz, w_c_sou, Fz_mag))
+                    sou = (_sou_corr_x_3d(Ta_snap, i, j, k, Nx, u_c_sou, Fx_mag, dx_arr)
+                           + _sou_corr_y_3d(Ta_snap, i, j, k, Ny, v_c_sou, Fy_mag, dy_arr)
+                           + _sou_corr_z_3d(Ta_snap, i, j, k, Nz, w_c_sou, Fz_mag, dz_arr))
                     aP = aE + aW + aN + aS + aT + aB + hvA
                 if aP < 1e-30:
                     aP = 1e-30
@@ -859,18 +755,18 @@ def _gs_full_chunk_3d_stag_rb(Ta, Tb, Ts, Nx, Ny, Nz,
                 hvA_s = h_vA_arr[i, j, k] * vol_s
                 hvB_s = h_vB_arr[i, j, k] * vol_s
                 Ax = dyj * dzk; Ay = dxi * dzk; Az = dxi * dyj
-                dxe_s = 0.5 * (dxi + dx_arr[i+1]) if i < Nx-1 else dxi
-                dxw_s = 0.5 * (dx_arr[i-1] + dxi) if i > 0    else dxi
-                dyn_s = 0.5 * (dyj + dy_arr[j+1]) if j < Ny-1 else dyj
-                dys_s = 0.5 * (dy_arr[j-1] + dyj) if j > 0    else dyj
-                dzt_s = 0.5 * (dzk + dz_arr[k+1]) if k < Nz-1 else dzk
-                dzb_s = 0.5 * (dz_arr[k-1] + dzk) if k > 0    else dzk
-                De = 2.0*Ks*K_ss_arr[i+1, j, k]/(Ks+K_ss_arr[i+1, j, k]+1e-30)*Ax/dxe_s if i < Nx-1 else Ks*Ax/dxi
-                Dw = 2.0*Ks*K_ss_arr[i-1, j, k]/(Ks+K_ss_arr[i-1, j, k]+1e-30)*Ax/dxw_s if i > 0    else Ks*Ax/dxi
-                Dn = 2.0*Ks*K_ss_arr[i, j+1, k]/(Ks+K_ss_arr[i, j+1, k]+1e-30)*Ay/dyn_s if j < Ny-1 else Ks*Ay/dyj
-                Ds = 2.0*Ks*K_ss_arr[i, j-1, k]/(Ks+K_ss_arr[i, j-1, k]+1e-30)*Ay/dys_s if j > 0    else Ks*Ay/dyj
-                Dt = 2.0*Ks*K_ss_arr[i, j, k+1]/(Ks+K_ss_arr[i, j, k+1]+1e-30)*Az/dzt_s if k < Nz-1 else Ks*Az/dzk
-                Db = 2.0*Ks*K_ss_arr[i, j, k-1]/(Ks+K_ss_arr[i, j, k-1]+1e-30)*Az/dzb_s if k > 0    else Ks*Az/dzk
+
+
+
+
+
+
+                De = diffusion_conductance(Ks, K_ss_arr[i+1, j, k], 0.5*dx_arr[i], 0.5*dx_arr[i+1]) * Ax if i < Nx-1 else Ks*Ax/dxi
+                Dw = diffusion_conductance(Ks, K_ss_arr[i-1, j, k], 0.5*dx_arr[i], 0.5*dx_arr[i-1]) * Ax if i > 0    else Ks*Ax/dxi
+                Dn = diffusion_conductance(Ks, K_ss_arr[i, j+1, k], 0.5*dy_arr[j], 0.5*dy_arr[j+1]) * Ay if j < Ny-1 else Ks*Ay/dyj
+                Ds = diffusion_conductance(Ks, K_ss_arr[i, j-1, k], 0.5*dy_arr[j], 0.5*dy_arr[j-1]) * Ay if j > 0    else Ks*Ay/dyj
+                Dt = diffusion_conductance(Ks, K_ss_arr[i, j, k+1], 0.5*dz_arr[k], 0.5*dz_arr[k+1]) * Az if k < Nz-1 else Ks*Az/dzk
+                Db = diffusion_conductance(Ks, K_ss_arr[i, j, k-1], 0.5*dz_arr[k], 0.5*dz_arr[k-1]) * Az if k > 0    else Ks*Az/dzk
                 sE = Ts[i+1, j, k] if i < Nx-1 else Ts[i, j, k]
                 sW = Ts[i-1, j, k] if i > 0    else Ts[i, j, k]
                 sN = Ts[i, j+1, k] if j < Ny-1 else Ts[i, j, k]
@@ -893,18 +789,12 @@ def _gs_full_chunk_3d_stag_rb(Ta, Tb, Ts, Nx, Ny, Nz,
                     vol_b = dxi * dyj * dzk
                     Kc_b = K_ffB_arr[i, j, k]
                     hvB = h_vB_arr[i, j, k] * vol_b
-                    dxe_b = 0.5 * (dxi + dx_arr[i+1]) if i < Nx-1 else dxi
-                    dxw_b = 0.5 * (dx_arr[i-1] + dxi) if i > 0    else dxi
-                    dyn_b = 0.5 * (dyj + dy_arr[j+1]) if j < Ny-1 else dyj
-                    dys_b = 0.5 * (dy_arr[j-1] + dyj) if j > 0    else dyj
-                    dzt_b = 0.5 * (dzk + dz_arr[k+1]) if k < Nz-1 else dzk
-                    dzb_b = 0.5 * (dz_arr[k-1] + dzk) if k > 0    else dzk
-                    dEb = 2.0*Kc_b*K_ffB_arr[i+1, j, k]/(Kc_b+K_ffB_arr[i+1, j, k]+1e-30)*Ax/dxe_b if i < Nx-1 else 0.0
-                    dWb = 2.0*Kc_b*K_ffB_arr[i-1, j, k]/(Kc_b+K_ffB_arr[i-1, j, k]+1e-30)*Ax/dxw_b if i > 0 else 0.0
-                    dNb = 2.0*Kc_b*K_ffB_arr[i, j+1, k]/(Kc_b+K_ffB_arr[i, j+1, k]+1e-30)*Ay/dyn_b if j < Ny-1 else 0.0
-                    dSb = 2.0*Kc_b*K_ffB_arr[i, j-1, k]/(Kc_b+K_ffB_arr[i, j-1, k]+1e-30)*Ay/dys_b if j > 0 else 0.0
-                    dTb_ = 2.0*Kc_b*K_ffB_arr[i, j, k+1]/(Kc_b+K_ffB_arr[i, j, k+1]+1e-30)*Az/dzt_b if k < Nz-1 else 0.0
-                    dBb = 2.0*Kc_b*K_ffB_arr[i, j, k-1]/(Kc_b+K_ffB_arr[i, j, k-1]+1e-30)*Az/dzb_b if k > 0 else 0.0
+                    dEb = diffusion_conductance(Kc_b, K_ffB_arr[i+1, j, k], 0.5*dx_arr[i], 0.5*dx_arr[i+1]) * Ax if i < Nx-1 else 0.0
+                    dWb = diffusion_conductance(Kc_b, K_ffB_arr[i-1, j, k], 0.5*dx_arr[i], 0.5*dx_arr[i-1]) * Ax if i > 0 else 0.0
+                    dNb = diffusion_conductance(Kc_b, K_ffB_arr[i, j+1, k], 0.5*dy_arr[j], 0.5*dy_arr[j+1]) * Ay if j < Ny-1 else 0.0
+                    dSb = diffusion_conductance(Kc_b, K_ffB_arr[i, j-1, k], 0.5*dy_arr[j], 0.5*dy_arr[j-1]) * Ay if j > 0 else 0.0
+                    dTb_ = diffusion_conductance(Kc_b, K_ffB_arr[i, j, k+1], 0.5*dz_arr[k], 0.5*dz_arr[k+1]) * Az if k < Nz-1 else 0.0
+                    dBb = diffusion_conductance(Kc_b, K_ffB_arr[i, j, k-1], 0.5*dz_arr[k], 0.5*dz_arr[k-1]) * Az if k > 0 else 0.0
                     uB_e = ufB[i+1, j, k]; uB_w = ufB[i, j, k]
                     vB_n = vfB[i, j+1, k]; vB_s = vfB[i, j, k]
                     wB_t = wfB[i, j, k+1]; wB_b = wfB[i, j, k]
@@ -951,9 +841,9 @@ def _gs_full_chunk_3d_stag_rb(Ta, Tb, Ts, Nx, Ny, Nz,
                         bc_B, i, j, k, Nx, Ny, Nz, ifrac_B, T_inB_arr,
                         Kc_b, dxi, dyj, dzk, aEb, aWb, aNb, aSb, aTb, aBb, tEb, tWb, tNb, tSb, tTb, tBb)
                     if conservative == 1:
-                        soub = (_sou_face_x_cons(Tb_snap, i, j, k, Nx, FB_w, FB_e)
-                                + _sou_face_y_cons(Tb_snap, i, j, k, Ny, FB_s, FB_n)
-                                + _sou_face_z_cons(Tb_snap, i, j, k, Nz, FB_b, FB_t))
+                        soub = (_sou_face_x_cons(Tb_snap, i, j, k, Nx, FB_w, FB_e, dx_arr)
+                                + _sou_face_y_cons(Tb_snap, i, j, k, Ny, FB_s, FB_n, dy_arr)
+                                + _sou_face_z_cons(Tb_snap, i, j, k, Nz, FB_b, FB_t, dz_arr))
                         if model_mass_A is not None:
                             soub = model_source_B[i, j, k]
                         net_outB = ((FB_e - FB_w) + (FB_n - FB_s)
@@ -966,9 +856,9 @@ def _gs_full_chunk_3d_stag_rb(Ta, Tb, Ts, Nx, Ny, Nz,
                         FxB_mag = efB_c * rcpB_c * abs(uBc_sou) * Ax
                         FyB_mag = efB_c * rcpB_c * abs(vBc_sou) * Ay
                         FzB_mag = efB_c * rcpB_c * abs(wBc_sou) * Az
-                        soub = (_sou_corr_x_3d(Tb_snap, i, j, k, Nx, uBc_sou, FxB_mag)
-                                + _sou_corr_y_3d(Tb_snap, i, j, k, Ny, vBc_sou, FyB_mag)
-                                + _sou_corr_z_3d(Tb_snap, i, j, k, Nz, wBc_sou, FzB_mag))
+                        soub = (_sou_corr_x_3d(Tb_snap, i, j, k, Nx, uBc_sou, FxB_mag, dx_arr)
+                                + _sou_corr_y_3d(Tb_snap, i, j, k, Ny, vBc_sou, FyB_mag, dy_arr)
+                                + _sou_corr_z_3d(Tb_snap, i, j, k, Nz, wBc_sou, FzB_mag, dz_arr))
                         aPb = aEb + aWb + aNb + aSb + aTb + aBb + hvB
                     if aPb < 1e-30:
                         aPb = 1e-30
@@ -1045,18 +935,12 @@ def _gs_full_chunk_3d(Ta, Tb, Ts, Nx, Ny, Nz,
 
                     Ax = dyj * dzk; Ay = dxi * dzk; Az = dxi * dyj
                     # Face spacing δx_e (#3D-7 fix) — conservative diffusion
-                    dxe = 0.5 * (dxi + dx_arr[i+1]) if i < Nx-1 else dxi
-                    dxw = 0.5 * (dx_arr[i-1] + dxi) if i > 0    else dxi
-                    dyn = 0.5 * (dyj + dy_arr[j+1]) if j < Ny-1 else dyj
-                    dys = 0.5 * (dy_arr[j-1] + dyj) if j > 0    else dyj
-                    dzt = 0.5 * (dzk + dz_arr[k+1]) if k < Nz-1 else dzk
-                    dzb = 0.5 * (dz_arr[k-1] + dzk) if k > 0    else dzk
-                    dE = 2.0 * Kc * K_ffA_arr[i+1, j, k] / (Kc + K_ffA_arr[i+1, j, k] + 1e-30) * Ax / dxe if i < Nx-1 else 0.0
-                    dW = 2.0 * Kc * K_ffA_arr[i-1, j, k] / (Kc + K_ffA_arr[i-1, j, k] + 1e-30) * Ax / dxw if i > 0 else 0.0
-                    dN = 2.0 * Kc * K_ffA_arr[i, j+1, k] / (Kc + K_ffA_arr[i, j+1, k] + 1e-30) * Ay / dyn if j < Ny-1 else 0.0
-                    dS = 2.0 * Kc * K_ffA_arr[i, j-1, k] / (Kc + K_ffA_arr[i, j-1, k] + 1e-30) * Ay / dys if j > 0 else 0.0
-                    dT_ = 2.0 * Kc * K_ffA_arr[i, j, k+1] / (Kc + K_ffA_arr[i, j, k+1] + 1e-30) * Az / dzt if k < Nz-1 else 0.0
-                    dB = 2.0 * Kc * K_ffA_arr[i, j, k-1] / (Kc + K_ffA_arr[i, j, k-1] + 1e-30) * Az / dzb if k > 0 else 0.0
+                    dE = diffusion_conductance(Kc, K_ffA_arr[i+1, j, k], 0.5*dx_arr[i], 0.5*dx_arr[i+1]) * Ax if i < Nx-1 else 0.0
+                    dW = diffusion_conductance(Kc, K_ffA_arr[i-1, j, k], 0.5*dx_arr[i], 0.5*dx_arr[i-1]) * Ax if i > 0 else 0.0
+                    dN = diffusion_conductance(Kc, K_ffA_arr[i, j+1, k], 0.5*dy_arr[j], 0.5*dy_arr[j+1]) * Ay if j < Ny-1 else 0.0
+                    dS = diffusion_conductance(Kc, K_ffA_arr[i, j-1, k], 0.5*dy_arr[j], 0.5*dy_arr[j-1]) * Ay if j > 0 else 0.0
+                    dT_ = diffusion_conductance(Kc, K_ffA_arr[i, j, k+1], 0.5*dz_arr[k], 0.5*dz_arr[k+1]) * Az if k < Nz-1 else 0.0
+                    dB = diffusion_conductance(Kc, K_ffA_arr[i, j, k-1], 0.5*dz_arr[k], 0.5*dz_arr[k-1]) * Az if k > 0 else 0.0
 
                     # Cell-local upwind (2026-04-25 FV#5): match 2D scheme.
                     # Each cell uses its own |u_c| for face flux magnitudes.
@@ -1092,9 +976,9 @@ def _gs_full_chunk_3d(Ta, Tb, Ts, Nx, Ny, Nz,
                         bc_A, i, j, k, Nx, Ny, Nz, ifrac_A, T_inA_arr,
                         Kc, dxi, dyj, dzk, aE, aW, aN, aS, aT, aB, tE, tW, tN, tS, tT, tB, inlet_flux_A)
 
-                    sou = (_sou_corr_x_3d(Ta, i, j, k, Nx, u_c, Fx)
-                           + _sou_corr_y_3d(Ta, i, j, k, Ny, v_c, Fy)
-                           + _sou_corr_z_3d(Ta, i, j, k, Nz, w_c, Fz))
+                    sou = (_sou_corr_x_3d(Ta, i, j, k, Nx, u_c, Fx, dx_arr)
+                           + _sou_corr_y_3d(Ta, i, j, k, Ny, v_c, Fy, dy_arr)
+                           + _sou_corr_z_3d(Ta, i, j, k, Nz, w_c, Fz, dz_arr))
 
                     aP = aE + aW + aN + aS + aT + aB + hvA
                     new = (aE*tE + aW*tW + aN*tN + aS*tS + aT*tT + aB*tB
@@ -1114,18 +998,18 @@ def _gs_full_chunk_3d(Ta, Tb, Ts, Nx, Ny, Nz,
 
                     Ax = dyj * dzk; Ay = dxi * dzk; Az = dxi * dyj
                     # Face spacing for solid (cell-local kernel)
-                    dxe_s = 0.5 * (dxi + dx_arr[i+1]) if i < Nx-1 else dxi
-                    dxw_s = 0.5 * (dx_arr[i-1] + dxi) if i > 0    else dxi
-                    dyn_s = 0.5 * (dyj + dy_arr[j+1]) if j < Ny-1 else dyj
-                    dys_s = 0.5 * (dy_arr[j-1] + dyj) if j > 0    else dyj
-                    dzt_s = 0.5 * (dzk + dz_arr[k+1]) if k < Nz-1 else dzk
-                    dzb_s = 0.5 * (dz_arr[k-1] + dzk) if k > 0    else dzk
-                    De = 2.0*Ks*K_ss_arr[i+1, j, k]/(Ks+K_ss_arr[i+1, j, k]+1e-30)*Ax/dxe_s if i < Nx-1 else Ks*Ax/dxi
-                    Dw = 2.0*Ks*K_ss_arr[i-1, j, k]/(Ks+K_ss_arr[i-1, j, k]+1e-30)*Ax/dxw_s if i > 0    else Ks*Ax/dxi
-                    Dn = 2.0*Ks*K_ss_arr[i, j+1, k]/(Ks+K_ss_arr[i, j+1, k]+1e-30)*Ay/dyn_s if j < Ny-1 else Ks*Ay/dyj
-                    Ds = 2.0*Ks*K_ss_arr[i, j-1, k]/(Ks+K_ss_arr[i, j-1, k]+1e-30)*Ay/dys_s if j > 0    else Ks*Ay/dyj
-                    Dt = 2.0*Ks*K_ss_arr[i, j, k+1]/(Ks+K_ss_arr[i, j, k+1]+1e-30)*Az/dzt_s if k < Nz-1 else Ks*Az/dzk
-                    Db = 2.0*Ks*K_ss_arr[i, j, k-1]/(Ks+K_ss_arr[i, j, k-1]+1e-30)*Az/dzb_s if k > 0    else Ks*Az/dzk
+
+
+
+
+
+
+                    De = diffusion_conductance(Ks, K_ss_arr[i+1, j, k], 0.5*dx_arr[i], 0.5*dx_arr[i+1]) * Ax if i < Nx-1 else Ks*Ax/dxi
+                    Dw = diffusion_conductance(Ks, K_ss_arr[i-1, j, k], 0.5*dx_arr[i], 0.5*dx_arr[i-1]) * Ax if i > 0    else Ks*Ax/dxi
+                    Dn = diffusion_conductance(Ks, K_ss_arr[i, j+1, k], 0.5*dy_arr[j], 0.5*dy_arr[j+1]) * Ay if j < Ny-1 else Ks*Ay/dyj
+                    Ds = diffusion_conductance(Ks, K_ss_arr[i, j-1, k], 0.5*dy_arr[j], 0.5*dy_arr[j-1]) * Ay if j > 0    else Ks*Ay/dyj
+                    Dt = diffusion_conductance(Ks, K_ss_arr[i, j, k+1], 0.5*dz_arr[k], 0.5*dz_arr[k+1]) * Az if k < Nz-1 else Ks*Az/dzk
+                    Db = diffusion_conductance(Ks, K_ss_arr[i, j, k-1], 0.5*dz_arr[k], 0.5*dz_arr[k-1]) * Az if k > 0    else Ks*Az/dzk
 
                     sE = Ts[i+1, j, k] if i < Nx-1 else Ts[i, j, k]
                     sW = Ts[i-1, j, k] if i > 0    else Ts[i, j, k]
@@ -1150,18 +1034,12 @@ def _gs_full_chunk_3d(Ta, Tb, Ts, Nx, Ny, Nz,
                         hvB = h_vB_arr[i, j, k] * vol_b
 
                         # Face spacing for B (cell-local kernel)
-                        dxe_b = 0.5 * (dxi + dx_arr[i+1]) if i < Nx-1 else dxi
-                        dxw_b = 0.5 * (dx_arr[i-1] + dxi) if i > 0    else dxi
-                        dyn_b = 0.5 * (dyj + dy_arr[j+1]) if j < Ny-1 else dyj
-                        dys_b = 0.5 * (dy_arr[j-1] + dyj) if j > 0    else dyj
-                        dzt_b = 0.5 * (dzk + dz_arr[k+1]) if k < Nz-1 else dzk
-                        dzb_b = 0.5 * (dz_arr[k-1] + dzk) if k > 0    else dzk
-                        dEb = 2.0*Kc_b*K_ffB_arr[i+1, j, k]/(Kc_b+K_ffB_arr[i+1, j, k]+1e-30)*Ax/dxe_b if i < Nx-1 else 0.0
-                        dWb = 2.0*Kc_b*K_ffB_arr[i-1, j, k]/(Kc_b+K_ffB_arr[i-1, j, k]+1e-30)*Ax/dxw_b if i > 0 else 0.0
-                        dNb = 2.0*Kc_b*K_ffB_arr[i, j+1, k]/(Kc_b+K_ffB_arr[i, j+1, k]+1e-30)*Ay/dyn_b if j < Ny-1 else 0.0
-                        dSb = 2.0*Kc_b*K_ffB_arr[i, j-1, k]/(Kc_b+K_ffB_arr[i, j-1, k]+1e-30)*Ay/dys_b if j > 0 else 0.0
-                        dTb_ = 2.0*Kc_b*K_ffB_arr[i, j, k+1]/(Kc_b+K_ffB_arr[i, j, k+1]+1e-30)*Az/dzt_b if k < Nz-1 else 0.0
-                        dBb = 2.0*Kc_b*K_ffB_arr[i, j, k-1]/(Kc_b+K_ffB_arr[i, j, k-1]+1e-30)*Az/dzb_b if k > 0 else 0.0
+                        dEb = diffusion_conductance(Kc_b, K_ffB_arr[i+1, j, k], 0.5*dx_arr[i], 0.5*dx_arr[i+1]) * Ax if i < Nx-1 else 0.0
+                        dWb = diffusion_conductance(Kc_b, K_ffB_arr[i-1, j, k], 0.5*dx_arr[i], 0.5*dx_arr[i-1]) * Ax if i > 0 else 0.0
+                        dNb = diffusion_conductance(Kc_b, K_ffB_arr[i, j+1, k], 0.5*dy_arr[j], 0.5*dy_arr[j+1]) * Ay if j < Ny-1 else 0.0
+                        dSb = diffusion_conductance(Kc_b, K_ffB_arr[i, j-1, k], 0.5*dy_arr[j], 0.5*dy_arr[j-1]) * Ay if j > 0 else 0.0
+                        dTb_ = diffusion_conductance(Kc_b, K_ffB_arr[i, j, k+1], 0.5*dz_arr[k], 0.5*dz_arr[k+1]) * Az if k < Nz-1 else 0.0
+                        dBb = diffusion_conductance(Kc_b, K_ffB_arr[i, j, k-1], 0.5*dz_arr[k], 0.5*dz_arr[k-1]) * Az if k > 0 else 0.0
 
                         # Cell-local upwind (2026-04-25 FV#5): match A branch + 2D.
                         uBc = ucB[i,j,k]; vBc = vcB[i,j,k]; wBc = wcB[i,j,k]
@@ -1188,9 +1066,9 @@ def _gs_full_chunk_3d(Ta, Tb, Ts, Nx, Ny, Nz,
                             bc_B, i, j, k, Nx, Ny, Nz, ifrac_B, T_inB_arr,
                             Kc_b, dxi, dyj, dzk, aEb, aWb, aNb, aSb, aTb, aBb, tEb, tWb, tNb, tSb, tTb, tBb, inlet_flux_B)
 
-                        soub = (_sou_corr_x_3d(Tb, i, j, k, Nx, uBc, FxB)
-                                + _sou_corr_y_3d(Tb, i, j, k, Ny, vBc, FyB)
-                                + _sou_corr_z_3d(Tb, i, j, k, Nz, wBc, FzB))
+                        soub = (_sou_corr_x_3d(Tb, i, j, k, Nx, uBc, FxB, dx_arr)
+                                + _sou_corr_y_3d(Tb, i, j, k, Ny, vBc, FyB, dy_arr)
+                                + _sou_corr_z_3d(Tb, i, j, k, Nz, wBc, FzB, dz_arr))
 
                         aPb = aEb + aWb + aNb + aSb + aTb + aBb + hvB
                         new_b = (aEb*tEb + aWb*tWb + aNb*tNb + aSb*tSb

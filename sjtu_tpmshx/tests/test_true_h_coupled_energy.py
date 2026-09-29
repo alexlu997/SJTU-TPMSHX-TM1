@@ -130,13 +130,16 @@ def test_driver_rejects_nan_before_max_can_hide_it(monkeypatch, bad_state):
 
 
 def test_residual_uses_nonuniform_face_conduction_and_absolute_sum():
-    # Two cells: harmonic(2,6)=3; distance=1.5; area=3; flux=12.
+    # Series resistance of the actual half cells: .5/2 + 1/6 K m²/W.
+    # Area=3 m², deltaT=2 K gives flux=14.4 W, with opposite cell signs.
     Ts = np.array([0., 2.]).reshape(2, 1, 1)
     Kss = np.array([2., 6.]).reshape(2, 1, 1)
     balance = ent._coupled_energy_balance(
         Ts, Ts, Ts, np.ones_like(Ts), np.ones_like(Ts), Kss,
         np.array([1., 2.]), np.array([3.]), np.ones(1), 100., -100.)
-    assert balance == dict(net=0., solid_abs_sum=24., denominator=100., ratio=.24)
+    assert balance == pytest.approx(
+        dict(net=0., solid_abs_sum=28.8, denominator=100., ratio=.288),
+        rel=1e-14, abs=1e-14)
     for bad in [np.nan, np.inf]:
         with pytest.raises(FloatingPointError):
             ent._coupled_energy_balance(

@@ -78,8 +78,91 @@ def test_normal_outlet_neighbour_uses_actual_boundary_value(dim):
     assert rhs - rhs0 == pytest.approx(2. * area / widths[1][-1])
 
 
+def _mass_deficit(a, dim, component, location):
+    """Half the two primary CV balances, divided by momentum CV epsilon."""
+    widths = [a['d' + x + ('_arr' if dim == 2 else '')] for x in 'xyz'[:dim]]
+    eps = (a['eps_field'] if dim == 2 or a['use_eps']
+           else np.ones_like(a['eps_field']))
+    er = a['rho_field'] * eps
+    previous = list(location)
+    previous[component] -= 1
+    net = 0.
+    for cell in (previous, list(location)):
+        for axis, c in enumerate('uvw'[:dim]):
+            area = np.prod([widths[q][cell[q]] for q in range(dim) if q != axis])
+            for step in (-1, 1):
+                face, neighbour = cell.copy(), cell.copy()
+                face[axis] += int(step == 1)
+                neighbour[axis] += step
+                density = er[tuple(cell)]
+                if 0 <= neighbour[axis] < er.shape[axis]:
+                    density = .5 * (density + er[tuple(neighbour)])
+                net += step * density * a[c][tuple(face)] * area
+    eps_cv = .5 * (eps[tuple(previous)] + eps[tuple(location)])
+    return max(-.5 * net / eps_cv, 0.)
+
+
+def _sou_compensation(a, dim, component, location):
+    """Outgoing primary half-faces and physical-coordinate slope bounds."""
+    if dim == 3 and not a['use_sou']:
+        return 0.
+    widths = [a['d' + x + ('_arr' if dim == 2 else '')] for x in 'xyz'[:dim]]
+    eps = (a['eps_field'] if dim == 2 or a['use_eps']
+           else np.ones_like(a['eps_field']))
+    er = eps * a['rho_field']
+    low_cell = list(location)
+    low_cell[component] -= 1
+    eps_cv = .5 * (eps[tuple(low_cell)] + eps[location])
+
+    def primary_mass(axis, face):
+        cells = []
+        for offset in (-1, 0):
+            cell = face.copy()
+            cell[axis] += offset
+            if 0 <= cell[axis] < er.shape[axis]:
+                cells.append(er[tuple(cell)])
+        area = np.prod([widths[q][face[q]] for q in range(dim) if q != axis])
+        return np.mean(cells) * a['uvw'[axis]][tuple(face)] * area
+
+    field = a['uvw'[component]]
+    bound = 0.
+    for axis in range(dim):
+        i = location[axis]
+        if axis == component:
+            lo_enabled = i > 1
+            hi_enabled = lo_enabled and (component != 0 or i + 1 < len(widths[axis]))
+        else:
+            lo_enabled = hi_enabled = 0 < i < len(widths[axis]) - 1
+        prev, after = list(location), list(location)
+        prev[axis] = max(i - 1, 0)
+        after[axis] = min(i + 1, field.shape[axis] - 1)
+        if (field[location] - field[tuple(prev)]) * (field[tuple(after)] - field[location]) <= 0.:
+            continue
+        edges = np.r_[0., np.cumsum(widths[axis])]
+        nodes = edges if axis == component else .5 * (edges[:-1] + edges[1:])
+        for high, enabled in ((False, lo_enabled), (True, hi_enabled)):
+            if not enabled:
+                continue
+            left, right = list(location), list(location)
+            if axis == component:
+                left[axis] += 0 if high else -1
+                right[axis] += 1 if high else 0
+                face_position = .5 * (nodes[i] + nodes[i + (1 if high else -1)])
+            else:
+                left[component] -= 1
+                left[axis] += int(high)
+                right[axis] += int(high)
+                face_position = edges[i + int(high)]
+            flux = .5 * (primary_mass(axis, left) + primary_mass(axis, right)) / eps_cv
+            outgoing = max(flux if high else -flux, 0.)
+            opposite_distance = nodes[i] - nodes[i-1] if high else nodes[i+1] - nodes[i]
+            bound += outgoing * abs(face_position - nodes[i]) / opposite_distance
+    return bound
+
+
+@pytest.mark.parametrize('alpha', [.7, 1.])
 @pytest.mark.parametrize('use_eps,use_sou', product((0, 1), repeat=2))
-def test_3d_cell_update_matches_independent_equation_at_every_face(use_eps, use_sou):
+def test_3d_cell_update_matches_independent_equation_at_every_face(use_eps, use_sou, alpha):
     a, _, shape = _state(3)
     rng = np.random.default_rng(82)
     for key in ('u', 'v', 'w', 'P'):
@@ -92,7 +175,7 @@ def test_3d_cell_update_matches_independent_equation_at_every_face(use_eps, use_
     a['eps_field'][:] = rng.uniform(.4, .8, shape)
     a['outlet_u_frac'][:] = rng.uniform(0., 1., a['outlet_u_frac'].shape)
     a['outlet_w_frac'][:] = rng.uniform(0., 1., a['outlet_w_frac'].shape)
-    a.update(use_eps=use_eps, use_sou=use_sou)
+    a.update(use_eps=use_eps, use_sou=use_sou, alpha_u=alpha)
     for axis, c in enumerate('uvw'):
         indices = [range(n) for n in shape]
         indices[axis] = range(1, shape[axis])
@@ -100,12 +183,17 @@ def test_3d_cell_update_matches_independent_equation_at_every_face(use_eps, use_
             a.update(zip('ijk', ijk))
             ap, rhs = _call(getattr(k3, f'_{c}_coeffs_df_3d'), a)
             old = a[c][ijk]
+            b = _mass_deficit(a, 3, axis, ijk) + _sou_compensation(a, 3, axis, ijk)
             _call(getattr(k3, f'_{c}_cell_df_3d'), a)
-            assert a[c][ijk] == pytest.approx(.7 * rhs / ap + .3 * old, rel=2e-12, abs=1e-14)
+            expected = alpha * (rhs + b * old) / (ap + b) + (1. - alpha) * old
+            assert a[c][ijk] == pytest.approx(expected, rel=2e-12, abs=1e-14)
+            area = np.prod([a['d' + 'xyz'[q]][ijk[q]] for q in range(3) if q != axis])
+            assert a['d_' + c][ijk] == pytest.approx(area / (ap + b), rel=2e-12)
             a[c][ijk] = old
 
 
-def test_2d_sweep_matches_independent_equations_on_nonuniform_grid():
+@pytest.mark.parametrize('alpha', [.7, 1.])
+def test_2d_sweep_matches_independent_equations_on_nonuniform_grid(alpha):
     a, _, shape = _state(2)
     rng = np.random.default_rng(83)
     for key in ('u', 'v', 'P'):
@@ -115,6 +203,7 @@ def test_2d_sweep_matches_independent_equations_on_nonuniform_grid():
     a['mu_field'][:] = .1
     a['eps_field'][:] = rng.uniform(.4, .8, shape)
     a['outlet_u_frac'][:] = rng.uniform(0., 1., a['outlet_u_frac'].shape)
+    a['alpha_u'] = alpha
     for axis, c in enumerate('uv'):
         indices = [range(n) for n in shape]
         indices[axis] = range(1, shape[axis])
@@ -124,12 +213,33 @@ def test_2d_sweep_matches_independent_equations_on_nonuniform_grid():
         for i, j in product(*indices):
             a.update(i=i, j=j)
             ap, rhs = _call(coeff, a)
-            a[c][i, j] = .7 * rhs / ap + .3 * a[c][i, j]
+            old = a[c][i, j]
+            b = _mass_deficit(a, 2, axis, (i, j)) + _sou_compensation(a, 2, axis, (i, j))
+            a[c][i, j] = alpha * (rhs + b * old) / (ap + b) + (1. - alpha) * old
         expected = a[c].copy()
         a[c][:] = frozen
         _call(getattr(k2, f'_sweep_{c}_jit_df'), a)
         interior = (slice(1, -1), slice(None)) if c == 'u' else (slice(None), slice(1, -1))
         np.testing.assert_allclose(a[c][interior], expected[interior], rtol=2e-12, atol=1e-14)
+
+
+def test_w_sou_compensation_retains_the_last_internal_high_face():
+    a, _, shape = _state(3)
+    a['rho_field'].fill(1.)
+    a['w'][:] = np.array([0., 1.7, 1.3, 1., 0.])[None, None, :]
+    location = (2, 2, shape[2] - 1)
+    a.update(zip('ijk', location))
+    a['use_sou'] = 1
+    ap, rhs = _call(k3._w_coeffs_df_3d, a)
+    old = a['w'][location]
+    # The decreasing minmod stencil still reconstructs at this high face;
+    # w's existing boundary switch differs from u's and must stay enabled.
+    sou_bound = _sou_compensation(a, 3, 2, location)
+    assert sou_bound > 0.
+    b = _mass_deficit(a, 3, 2, location) + sou_bound
+    _call(k3._w_cell_df_3d, a)
+    expected = .7 * (rhs + b * old) / (ap + b) + .3 * old
+    assert a['w'][location] == pytest.approx(expected, rel=2e-12, abs=1e-14)
 
 
 def test_single_layer_3d_retains_both_z_walls():

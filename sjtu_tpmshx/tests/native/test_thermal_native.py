@@ -135,3 +135,16 @@ def test_cpp_exception_keeps_original_message_and_does_not_fallback(kernel, monk
         for actual, target in zip(case['state'], initial):
             np.testing.assert_array_equal(actual, target)
     # Arithmetic failure may leave partially updated state; do not consume or retry it.
+
+
+@pytest.mark.parametrize('swap', [False, True])
+def test_native_driver_keeps_legal_cold_water_inside_bounds(kernel, swap):
+    from sjtu_tpmshx.solvers.ltne_enthalpy_3d import solve_ltne_enthalpy_3d_pipeline
+    from sjtu_tpmshx.tests.test_thermal_3d_correctness import cold_water_case
+    expected = solve_ltne_enthalpy_3d_pipeline(**cold_water_case(swap))
+    actual = solve_ltne_enthalpy_3d_pipeline(**cold_water_case(swap), native_sweeps=kernel)
+    assert actual[3]['converged']
+    assert actual[3]['enthalpy_clip_counts'] == expected[3]['enthalpy_clip_counts']
+    assert sum(actual[3]['enthalpy_clip_counts']['total']) == 0
+    for measured, target in zip(actual[:3], expected[:3]):
+        np.testing.assert_allclose(measured, target, rtol=0., atol=2e-9)

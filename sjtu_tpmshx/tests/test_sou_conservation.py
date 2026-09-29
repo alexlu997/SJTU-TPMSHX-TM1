@@ -38,7 +38,7 @@ def test_sou_corr_x_telescopes_with_nonuniform_flux_uminus():
     T = _smooth_T(Nx)
     Fx = np.zeros((Nx, 1))
     for i in range(Nx):
-        Fx[i, 0] = 2.0 - 0.15 * i
+        Fx[i, 0] = -(2.0 - 0.15 * i)
     total = sum(_sou_corr_x(T, i, 0, Nx, -1.0, Fx) for i in range(Nx))
     assert abs(total) < 1e-9, f"x-SOU (u<0) not conservative (sum={total})"
 

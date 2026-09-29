@@ -56,8 +56,8 @@ void check_fluid(const FluidView& f, const GridView& g, std::size_t cells) {
         throw std::invalid_argument("invalid enthalpy boundary or bounds");
 }
 
-double harmonic(double a, double b) {
-    return a + b <= 0.0 ? 0.0 : 2.0 * a * b / (a + b);
+double diffusion_conductance(double a, double b, double dl, double dr) {
+    return a <= 0.0 || b <= 0.0 ? 0.0 : a * b / (dl * b + dr * a);
 }
 
 std::uint64_t fluid_sweep(const GridView& g, const FluidView& f,
@@ -73,18 +73,12 @@ std::uint64_t fluid_sweep(const GridView& g, const FluidView& f,
                 const double ax = dyj * dzk, ay = dxi * dzk, az = dxi * dyj;
                 const double vol = dxi * dyj * dzk;
                 const double ki = f.dh[p] * f.cp[p];
-                const double dw = i > 0 ? harmonic(ki, f.dh[p-sx] * f.cp[p-sx]) * ax
-                    / (0.5 * (g.dx[i-1] + dxi)) : 0.0;
-                const double de = i+1 < g.nx ? harmonic(ki, f.dh[p+sx] * f.cp[p+sx]) * ax
-                    / (0.5 * (g.dx[i+1] + dxi)) : 0.0;
-                const double ds = j > 0 ? harmonic(ki, f.dh[p-sy] * f.cp[p-sy]) * ay
-                    / (0.5 * (g.dy[j-1] + dyj)) : 0.0;
-                const double dn = j+1 < g.ny ? harmonic(ki, f.dh[p+sy] * f.cp[p+sy]) * ay
-                    / (0.5 * (g.dy[j+1] + dyj)) : 0.0;
-                const double db = k > 0 ? harmonic(ki, f.dh[p-1] * f.cp[p-1]) * az
-                    / (0.5 * (g.dz[k-1] + dzk)) : 0.0;
-                const double dt = k+1 < g.nz ? harmonic(ki, f.dh[p+1] * f.cp[p+1]) * az
-                    / (0.5 * (g.dz[k+1] + dzk)) : 0.0;
+                const double dw = i > 0 ? diffusion_conductance(ki, f.dh[p-sx] * f.cp[p-sx], 0.5*dxi, 0.5*g.dx[i-1]) * ax : 0.0;
+                const double de = i+1 < g.nx ? diffusion_conductance(ki, f.dh[p+sx] * f.cp[p+sx], 0.5*dxi, 0.5*g.dx[i+1]) * ax : 0.0;
+                const double ds = j > 0 ? diffusion_conductance(ki, f.dh[p-sy] * f.cp[p-sy], 0.5*dyj, 0.5*g.dy[j-1]) * ay : 0.0;
+                const double dn = j+1 < g.ny ? diffusion_conductance(ki, f.dh[p+sy] * f.cp[p+sy], 0.5*dyj, 0.5*g.dy[j+1]) * ay : 0.0;
+                const double db = k > 0 ? diffusion_conductance(ki, f.dh[p-1] * f.cp[p-1], 0.5*dzk, 0.5*g.dz[k-1]) * az : 0.0;
+                const double dt = k+1 < g.nz ? diffusion_conductance(ki, f.dh[p+1] * f.cp[p+1], 0.5*dzk, 0.5*g.dz[k+1]) * az : 0.0;
 
                 const auto py = (i * (g.ny + 1) + j) * g.nz + k;
                 const auto pz = (i * g.ny + j) * (g.nz + 1) + k;
@@ -153,18 +147,12 @@ void solid_sweep(const GridView& g, const FluidView& a, const FluidView& b,
                 const double dxi = g.dx[i], dyj = g.dy[j], dzk = g.dz[k];
                 const double ax = dyj * dzk, ay = dxi * dzk, az = dxi * dyj;
                 const double vol = dxi * dyj * dzk;
-                const double dw = i > 0 ? harmonic(ks[p], ks[p-sx]) * ax
-                    / (0.5 * (g.dx[i-1] + dxi)) : 0.0;
-                const double de = i+1 < g.nx ? harmonic(ks[p], ks[p+sx]) * ax
-                    / (0.5 * (g.dx[i+1] + dxi)) : 0.0;
-                const double ds = j > 0 ? harmonic(ks[p], ks[p-sy]) * ay
-                    / (0.5 * (g.dy[j-1] + dyj)) : 0.0;
-                const double dn = j+1 < g.ny ? harmonic(ks[p], ks[p+sy]) * ay
-                    / (0.5 * (g.dy[j+1] + dyj)) : 0.0;
-                const double db = k > 0 ? harmonic(ks[p], ks[p-1]) * az
-                    / (0.5 * (g.dz[k-1] + dzk)) : 0.0;
-                const double dt = k+1 < g.nz ? harmonic(ks[p], ks[p+1]) * az
-                    / (0.5 * (g.dz[k+1] + dzk)) : 0.0;
+                const double dw = i > 0 ? diffusion_conductance(ks[p], ks[p-sx], 0.5*dxi, 0.5*g.dx[i-1]) * ax : 0.0;
+                const double de = i+1 < g.nx ? diffusion_conductance(ks[p], ks[p+sx], 0.5*dxi, 0.5*g.dx[i+1]) * ax : 0.0;
+                const double ds = j > 0 ? diffusion_conductance(ks[p], ks[p-sy], 0.5*dyj, 0.5*g.dy[j-1]) * ay : 0.0;
+                const double dn = j+1 < g.ny ? diffusion_conductance(ks[p], ks[p+sy], 0.5*dyj, 0.5*g.dy[j+1]) * ay : 0.0;
+                const double db = k > 0 ? diffusion_conductance(ks[p], ks[p-1], 0.5*dzk, 0.5*g.dz[k-1]) * az : 0.0;
+                const double dt = k+1 < g.nz ? diffusion_conductance(ks[p], ks[p+1], 0.5*dzk, 0.5*g.dz[k+1]) * az : 0.0;
                 const double ta = a.t_star[p]
                     + (state.h_a[p] - a.h_star[p]) / std::max(a.cp[p], 1e-30);
                 const double tb = b.t_star[p]
@@ -242,9 +230,9 @@ void conduction_source(const GridView& g, ArrayView<const double> t,
                     const auto c = coord[axis];
                     if (c + 1 == extent[axis]) continue;
                     const auto q = p + stride[axis];
-                    const double flux = harmonic(conductivity[p], conductivity[q])
-                        * (volume / width[axis][c])
-                        / (0.5 * (width[axis][c] + width[axis][c+1])) * (t[q] - t[p]);
+                    const double flux = diffusion_conductance(conductivity[p], conductivity[q],
+                        0.5 * width[axis][c], 0.5 * width[axis][c+1])
+                        * (volume / width[axis][c]) * (t[q] - t[p]);
                     r[p] += flux;
                     r[q] -= flux;
                 }

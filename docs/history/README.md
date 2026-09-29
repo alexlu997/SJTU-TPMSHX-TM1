@@ -48,3 +48,21 @@
 原始 B40 失败、未采纳候选、冻结数值和状态不变。M-A 完成及后续修复不将
 原失败记录改成通过；M-B 仍需分别实现并验收。当前标定公式、数据列和范围见
 [模型资源](../model-resources.md)，不再从日期报告推定现行参数。
+
+## 2026-09-29 求解器软件参考修订
+
+非均匀网格现在按实际半格热阻和物理距离重构热流；动量使用共享黏性与
+连续性质量通量，Richardson 细网格按实际单元二分。修复后的 Q、压降和
+出口温度软件参考随这些离散变化更新，配置、迭代预算、收敛门及比较容差
+保持不变。原实验数据、模型系数与实验精度门不作修订。
+
+修订前的完整软件数值和测试固定在
+[66f523b](https://github.com/alexlu997/SJTU-TPMSHX-TM1/commit/66f523b5157672079923bfbdc997873a2369cda8)：
+
+| 软件参考 | 原始入口 | 保留的验证含义 |
+| --- | --- | --- |
+| B20 二维空气、两组混合流体 | [test_2d_real.py](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/66f523b5157672079923bfbdc997873a2369cda8/sjtu_tpmshx/tests/integration_tm1/test_2d_real.py) | backend Richardson Q 与公共 native Q 分列；两组短预算混合流体仍要求返回未收敛 |
+| 二维/三维均匀与非均匀筛选 | [test_evaluator_frozen_values.py](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/66f523b5157672079923bfbdc997873a2369cda8/sjtu_tpmshx/tests/test_evaluator_frozen_values.py) | Q/压降独立重算，质量逐位不变；二维单次密度筛选不视为全耦合验证 |
+| 公共三维空气与文件/GUI 接口 | [test_three_process.py](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/66f523b5157672079923bfbdc997873a2369cda8/sjtu_tpmshx/tests/integration_tm1/test_three_process.py)、[test_public_gui.py](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/66f523b5157672079923bfbdc997873a2369cda8/sjtu_tpmshx/tests/integration_tm1/test_public_gui.py) | 三进程与 GUI 使用同一公共指标定义，保存回读保留状态与数值 |
+
+这些是软件行为参考；数值复现、守恒/网格资格及实验误差分别验证。

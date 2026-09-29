@@ -198,8 +198,12 @@ _X_NONUNIF = np.array([5.0, 6.0, 7.0, 8.0, 5.5, 6.5, 7.5, 6.0,
 # Independent evaluator captures and three-process comparisons use unchanged
 # inputs/budgets/_REL. Prior tuples and failures are retained in
 # docs/history/README.md; no historical B40 gate is revised.
-_FROZEN_2D_UNIFORM = (-8060.095418774442, 4675.0113541092605, 3.446685791015626)
-_FROZEN_2D_NONUNIF = (-7546.534378624765, 4051.9767509675603, 3.6729327392578126)
+# 2026-09-29: distance-aware thermal faces and consistent momentum SOU/
+# residual repairs. Independent captures retain these exact inputs, budgets,
+# masses and _REL; all four native screening runs are converged. Prior values
+# and the numerical-only scope are retained in docs/history/README.md.
+_FROZEN_2D_UNIFORM = (-8060.095349112194, 4675.006087366994, 3.446685791015626)
+_FROZEN_2D_NONUNIF = (-7546.534399135165, 4051.976119943127, 3.6729327392578126)
 # re-baselined 2026-07-09 (M2b): evaluate_3d now installs the PER-CELL
 # eps_field (xmod-eps-field-3d-evaluator closed) + 3D momentum carries the
 # guarded VANS ε-ratio factors. ONLY the NONUNIFORM 3D tuple moves — and by
@@ -241,8 +245,8 @@ _FROZEN_2D_NONUNIF = (-7546.534378624765, 4051.9767509675603, 3.6729327392578126
 # Original inputs/budgets, masses and tolerance remain unchanged. New legacy
 # convergence does not establish F2 or experimental accuracy. Old failures
 # and boundary evidence remain in B40/3d-model-h-validation.md.
-_FROZEN_3D_UNIFORM = (-6226.343494178779, 9173.850936483974, 6.323593139648438)
-_FROZEN_3D_NONUNIF = (-7464.2909880375955, 3441.8758132098023, 3.675970458984375)
+_FROZEN_3D_UNIFORM = (-6226.3440488450315, 9173.90847224394, 6.323593139648438)
+_FROZEN_3D_NONUNIF = (-7464.291916401071, 3441.943535684006, 3.675970458984375)
 
 
 def _assert_tuple(got, frozen, label):
