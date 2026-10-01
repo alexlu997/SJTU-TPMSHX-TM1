@@ -15,8 +15,6 @@ from sjtu_tpmshx.preprocess import api
     ('prepare_case', 'two_d.preparation', False),
     ('prepare_case', 'three_d.preparation', True),
     ('prepare_quick_design', 'app_modes.quick_design', False),
-    ('prepare_screening_2d', 'app_modes.screening_2d', False),
-    ('prepare_screening_3d', 'app_modes.screening_3d', True),
 ])
 def test_public_preparation_keeps_metadata_and_warning_ownership(monkeypatch, entry, module, is_3d):
     # Stub only physical preparation; exercise each real public boundary.

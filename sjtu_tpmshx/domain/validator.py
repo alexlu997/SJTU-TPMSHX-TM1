@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 from numbers import Integral
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 from sjtu_tpmshx.df_surrogate._domain import TRAIN_L_NODES, TRAIN_T_NODES
 
@@ -192,6 +192,7 @@ def validate_pipe_config(cfg: Dict[str, object],
             f"pipe direction {cfg.get('dir')!r} is not an integer",
             severity='error'))
         return out
+    d = cast(int, d)  # Integral includes NumPy integer keys; no runtime coercion.
     if d not in _CROSS_AXES:
         out.append(Warning(
             'pipe_bad_dir',
@@ -214,8 +215,9 @@ def validate_pipe_config(cfg: Dict[str, object],
 
     for io in ('in', 'out'):
         try:
-            ctr = float(cfg.get(f'{io}_ctr', 0.0))
-            w = float(cfg.get(f'{io}_w', 0.0))
+            # float itself validates arbitrary external values in this try block.
+            ctr = float(cast(Any, cfg.get(f'{io}_ctr', 0.0)))
+            w = float(cast(Any, cfg.get(f'{io}_w', 0.0)))
         except (TypeError, ValueError):
             out.append(Warning(
                 f'pipe_{io}_invalid',
@@ -264,7 +266,7 @@ def validate_pipe_config(cfg: Dict[str, object],
                     severity='error'))
                 continue
             try:
-                zc, zw = float(zc), float(zw)
+                zc, zw = float(cast(Any, zc)), float(cast(Any, zw))
             except (TypeError, ValueError):
                 out.append(Warning(
                     f'pipe_{io}_z_invalid',

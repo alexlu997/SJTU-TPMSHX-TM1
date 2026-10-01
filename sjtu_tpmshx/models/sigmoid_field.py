@@ -397,10 +397,3 @@ def _fluid_arrays_from_geometry(geometry, tpms_type, u_A, u_B, T_inA, T_inB, *,
         'h_vA_arr': h_vA_arr,
         'h_vB_arr': h_vB_arr,
     }
-
-
-# compute_dP_continuous: REMOVED 2026-04-17.
-# Legacy f-Re path that bypassed SIMPLE's D-F closure. All production dP
-# extraction now goes through df_projection.extract_dP_from_simple() which
-# uses SIMPLE's converged pressure field. See
-# vault/reports/2026-04-17-shanghai-dP-error-analysis-CN.md §11.

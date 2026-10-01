@@ -1,70 +1,11 @@
-"""Sanity tests for solvers.df_projection — extract_dP + grid build.
-
-Covers:
-  * extract_dP_from_simple from a faked SIMPLE state
-  * build_master_refined_grid returns sensible Nx_refined / Ny_refined
-  * project_fields_to_streamwise_K_cF: shape, dtype, monotonicity-in-eps_f
-
-We use a dataclass-style fake `s` instead of building a full SIMPLESolver
-because the public interface is just .P, .v, .rho_field, .inlet_frac, .outlet_frac.
-"""
+"""Current refined-grid and 2D streamwise drag projection contracts."""
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.solvers.df_projection import extract_dP_from_simple
 from sjtu_tpmshx.models.grid import build_master_refined_grid
 from sjtu_tpmshx.models.df_projection import project_fields_to_streamwise_K_cF
-
-
-class _FakeSim:
-    """Minimal duck-typed SIMPLE-like instance for extract_dP tests."""
-    def __init__(self, Nx=8, Ny=10, P_in=1.0e5, P_out=9.5e4):
-        self.P = np.empty((Nx, Ny), dtype=np.float64)
-        self.P[:, 0] = P_in
-        self.P[:, -1] = P_out
-        self.P[:, 1:-1] = np.linspace(P_in, P_out, Ny - 2)[None, :]
-        self.v = np.full((Nx, Ny + 1), 2.5, dtype=np.float64)
-        self.rho_field = np.full((Nx, Ny), 1.0, dtype=np.float64)
-        self.inlet_frac = np.ones(Nx, dtype=np.float64)
-        self.outlet_frac = np.ones(Nx, dtype=np.float64)
-
-
-# ─── extract_dP_from_simple ────────────────────────────────────────
-
-
-def test_extract_dP_uniform_inlet_outlet_returns_difference():
-    s = _FakeSim(P_in=1.0e5, P_out=9.5e4)
-    dP = extract_dP_from_simple(s)
-    assert dP == pytest.approx(5.0e3, rel=1e-6)
-
-
-def test_extract_dP_partial_inlet_only_uses_inlet_cells():
-    s = _FakeSim(Nx=10)
-    s.inlet_frac = np.zeros(10)
-    s.inlet_frac[2:8] = 1.0
-    s.P[0:2, 0] = 1.5e5     # tampered "wall" cells should be excluded
-    s.P[8:10, 0] = 1.5e5
-    dP = extract_dP_from_simple(s)
-    # Should ignore the high-P wall cells and return ~5000 Pa
-    assert 4_000.0 < dP < 6_000.0
-
-
-def test_extract_dP_zero_inlet_returns_zero():
-    s = _FakeSim(Nx=8)
-    s.inlet_frac = np.zeros(8)
-    dP = extract_dP_from_simple(s)
-    assert dP == 0.0
-
-
-
-
-
-
-
-
-
 
 
 # ─── build_master_refined_grid ────────────────────────────────────

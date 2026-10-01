@@ -765,11 +765,9 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
     # offset; the ratio vs the δ=0 reference is EXACTLY 1.0 at δ=0 (bit-
     # identical ×1.0). The inlet-reference scalar is also applied to local h_v;
     # Re/Nu floors can put the side and reference on different branches, so
-    # their diameter ratio alone does not prove speed independence. k_f cancels. Captures
-    # the geometric Nu/area effect; the residual κ_Nu is CFD calibration (P1-CFD,
-    # out of scope). Per-side dP (Darcy-Forchheimer κ) is likewise the opt-in
-    # CFD κ layer — 3D's default kappa_KcF returns (1,1) with no table, so the
-    # symmetric K_df/cF here matches the 3D default. See design D2(b) / Risks.
+    # their diameter ratio alone does not prove speed independence. k_f cancels.
+    # This captures only the geometric Nu/area effect. The research CFD κ
+    # registry is not consumed by either production preparation path.
     def _hv_side_geom_ratio_2d(side_props, u_side, T_side, P_side, side):
         if not _asym_2d:
             return 1.0

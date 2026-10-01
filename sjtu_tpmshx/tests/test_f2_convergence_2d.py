@@ -254,7 +254,6 @@ def test_max_iter_closes_outlet_with_fresh_density(monkeypatch, closeout):
     assert not np.allclose(snapshot['v'], expected, rtol=1e-8, atol=1e-12)
     np.testing.assert_allclose(s.v[:, -1], expected if closeout else snapshot['v'],
                                rtol=1e-13, atol=1e-13)
-    assert s._last_outlet_mass_scale == 1.0
 
 
 @pytest.mark.parametrize('reason,post_ok,expected', [

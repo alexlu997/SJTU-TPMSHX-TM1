@@ -23,8 +23,9 @@ def test_quick_mode_controls_and_native_unconverged_status(monkeypatch):
         run_case(replace(case, parameters=invalid))
     with pytest.raises(CancelledError):
         run_case(case, RunControl(cancel_check=lambda: True))
-    with pytest.raises(ValueError, match='unsupported solver mode'):
-        run_case(replace(case, metadata={**case.metadata, 'mode': 'unknown'}))
+    for mode in ('unknown', 'screening_2d', 'screening_3d'):
+        with pytest.raises(ValueError, match='unsupported solver mode'):
+            run_case(replace(case, metadata={**case.metadata, 'mode': mode}))
     with pytest.raises(ValueError, match='unsupported quick-design fields'):
         run_case(replace(case, design_fields={**case.design_fields, 'unconsumed': 1.}))
     nonuniform = np.array(case.design_fields['eps'])

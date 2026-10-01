@@ -6,13 +6,14 @@ docs/history/README.md links its original file and numerical values.
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.models.df_projection import _cell_centre_fracs, _nearest_src_idx, project_fields_to_streamwise_K_cF as p2d, project_fields_to_streamwise_K_cF_3d as p3d
+from sjtu_tpmshx.models.df_projection import (
+    _cell_centre_fracs, _nearest_src_idx, project_fields_to_streamwise_K_cF as p2d,
+)
 
 
 @pytest.mark.parametrize('fluid', ['A', 'B'])
-@pytest.mark.parametrize('dimension', [2, 3])
 @pytest.mark.parametrize('nonuniform', [False, True])
-def test_projection_coordinates(fluid, dimension, nonuniform, monkeypatch):
+def test_projection_coordinates(fluid, nonuniform, monkeypatch):
     from sjtu_tpmshx.models import df_projection
 
     # Coefficients expose projected L/t directly; no calibration is involved.
@@ -25,16 +26,8 @@ def test_projection_coordinates(fluid, dimension, nonuniform, monkeypatch):
         expected = np.array([5., 6. if nonuniform else 7.])
     else:
         expected = np.array([7., 6. if nonuniform else 5.])
-    if dimension == 2:
-        K, cF = p2d(L, t, 'Gyroid', 16., 2, 0 if fluid == 'A' else 3,
-                     streamwise_dx=widths)
-    else:
-        L3 = np.stack([L, L + .5, L + 1.], axis=2)
-        t3 = .1 + L3 / 20.
-        K, cF = p3d(L3, t3, np.full_like(L3, .4), 'Gyroid', 2, 2, fluid,
-                     streamwise_dx=widths,
-                     z_dx=widths)
-        expected = np.stack([expected, expected + (.5 if nonuniform else 1.)], axis=1)
+    K, cF = p2d(L, t, 'Gyroid', 16., 2, 0 if fluid == 'A' else 3,
+                 streamwise_dx=widths)
     np.testing.assert_allclose(K, expected * 1e-8, rtol=1e-12, atol=0.)
     np.testing.assert_allclose(cF, 100. + expected * 50., rtol=1e-12, atol=0.)
 

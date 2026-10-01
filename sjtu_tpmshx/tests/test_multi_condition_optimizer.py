@@ -273,3 +273,50 @@ def test_real_log_acquisition_selects_then_evaluates_complete_design(tmp_path, m
     assert result['proposals'][0]['x_decisions'] == [chosen]
     assert calls[-1][0][0][1].zones.config['x_decision'] == chosen
     assert np.isfinite(result['history'][-1]['model_y']).all()
+
+
+def test_pareto_max_single_point():
+    Y = np.array([[1.0, 2.0]])
+    mask = search._pareto_mask_max(Y)
+    assert mask.tolist() == [True]
+
+
+def test_pareto_excludes_invalid_and_nonfinite_rows_before_dominance():
+    Y = np.array([[100., 100.], [np.inf, 20.], [30., np.nan], [1., 2.], [2., 1.]])
+    mask = search._pareto_mask_max(Y, valid=np.array([False, True, True, True, True]))
+    assert mask.tolist() == [False, False, False, True, True]
+
+
+def test_pareto_max_clearly_dominated_filtered():
+    """Row 1 dominates row 0 on both axes → row 0 should be removed."""
+    Y = np.array([[1.0, 1.0],
+                  [2.0, 2.0]])
+    mask = search._pareto_mask_max(Y)
+    assert mask.tolist() == [False, True]
+
+
+def test_pareto_max_anti_correlated_kept_both():
+    """Two anti-correlated rows (high-Q low-other vs low-Q high-other) both
+    stay on the front."""
+    Y = np.array([[10.0, 1.0],
+                  [1.0, 10.0]])
+    mask = search._pareto_mask_max(Y)
+    assert mask.tolist() == [True, True]
+
+
+def test_pareto_max_three_points_one_dominated():
+    """Tie-break case: middle point dominated by extremes."""
+    Y = np.array([[10.0, 1.0],
+                  [1.0, 10.0],
+                  [0.5, 0.5]])
+    mask = search._pareto_mask_max(Y)
+    assert mask.tolist() == [True, True, False]
+
+
+def test_pareto_max_duplicate_rows_at_least_one_kept():
+    """Duplicate non-dominated rows: at least one survives."""
+    Y = np.array([[5.0, 5.0],
+                  [5.0, 5.0]])
+    mask = search._pareto_mask_max(Y)
+    # Implementation may keep first or both — key invariant: ≥1 kept.
+    assert mask.sum() >= 1

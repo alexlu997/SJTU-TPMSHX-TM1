@@ -2,6 +2,23 @@
 
 各节注明各自的历史提交与现行承接。
 
+## 空气／空气优化筛选退役（2026-10-01）
+
+经用户明确确认，旧筛选链正式退役。删除前源码与数值参考固定在
+[266211e](https://github.com/alexlu997/SJTU-TPMSHX-TM1/tree/266211ed283a63e812acda8c7097387dde3469e1)。
+
+| 退役项 | 现行承接或读取边界 |
+|---|---|
+| `optimization/evaluator*.py`、`optimizer_qnehvi.py`、`parallel_runner.py` 及专用运行、profiling、`verify_pareto_3d` 入口 | 多工况优化使用 `multi_condition_optimizer`，逐候选执行完整原生批次；不沿用旧惩罚目标或冻结 B 侧模型 |
+| `models/screening.py`、`core/evaluators.py`、前处理/求解/后处理 screening 分支 | 当前公开执行模式为 full 与 quick_design；旧 screening 模式明确拒绝执行和指标重算 |
+| 连续场的量化物性装配、旧制造惩罚函数及专用测试 | 保留完整 XY/XYZ 插值、全模型局部物性准备、Pareto 筛选和 nTop 导出；参数平滑不代表实体几何可制造性 |
+| 筛选专用测试及 CI 清单条目 | 完整求解、共享内核、连续场和新优化测试保留；跨模块回调、来源记录及孔隙率接线覆盖迁到完整求解路径 |
+
+历史 case/result、CSV、失败状态、原始实验和 CFD 数据不删除或改写。
+`ComputeConfig.optimizer` 仅用于旧配置加载与保存；现行优化使用 `solver` 设置。
+历史 Pareto CSV 按原配置恢复几何并保留失败标记，不重新运行退役模型。
+参数扫描与有效导热场示例改用公开完整求解 API。
+
 ## 剩余历史入口整理（2026-09-22）
 
 本批原实现固定在 [a32b975](https://github.com/alexlu997/SJTU-TPMSHX-TM1/tree/a32b975638aaa7df0ab154e438b40130c4df4906)。
@@ -224,7 +241,7 @@ MMS 误差原表、阶数门槛、GCI 参考、Shanghai 主基准和有效测试
 |---|---|
 | [UI mixins](https://github.com/alexlu997/SJTU-TPMSHX-TM1/tree/c45d9cb1e57a28809c0250abbd34221211eb2a15/sjtu_tpmshx/ui/mixins) 中的 19 个私有转发/判向方法 | 页面组装、布局绘制、画布缩放、Pareto 展示/保存和分区配置直接调用所属模块函数；实际按钮与信号仍使用的窗口回调保留 |
 | [快速设计 `_FlowLayout`](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/c45d9cb1e57a28809c0250abbd34221211eb2a15/sjtu_tpmshx/ui/quick_design_panel.py) | 该局部类从未实例化；对话框继续使用原有 Qt 布局 |
-| [旧 `override_simple_K_cF`](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/c45d9cb1e57a28809c0250abbd34221211eb2a15/sjtu_tpmshx/solvers/df_projection.py) | 当前前处理准备 K/cF，筛选求解侧消费准备字段；现行投影函数和仍有验证调用者的压降诊断保留 |
+| [旧 `override_simple_K_cF`](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/c45d9cb1e57a28809c0250abbd34221211eb2a15/sjtu_tpmshx/solvers/df_projection.py) | 当前前处理准备 K/cF，求解侧消费准备字段；现行 2D 投影保留。后续调用链复核确认旧单元中心压降提取仅有自身单测引用，已随无调用者的 3D 横向平均投影退役；正式压降使用原生端口面证据，3D 使用完整局部 L/t 场 |
 | [旧 `clear_field_cache`](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/c45d9cb1e57a28809c0250abbd34221211eb2a15/sjtu_tpmshx/models/sco2_props.py) | 没有现行调用者；标量查询继续使用原有 `lru_cache`，场查询继续直接使用向量化 CoolProp |
 
 求解方程、关联式、收敛条件、参考值和正式配置/结果格式未改。

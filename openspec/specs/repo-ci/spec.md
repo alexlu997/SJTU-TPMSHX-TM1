@@ -4,16 +4,17 @@
 仓库 CI 门（GitHub Actions，headless pytest 子集）及其安装/排除约定。来自 openspec archive `2026-07-02-cleanup-ci`（架构扫描批次 D+F）。
 ## Requirements
 ### Requirement: Headless CI gate on push/PR
-仓库 SHALL 提供 GitHub Actions workflow（`.github/workflows/ci.yml`），在 push 到 main 与 PR 时分别使用 macOS/Python 3.13 和 Windows/Python 3.12、3.13，从 `requirements.txt` 引用的共同精确锁安装，并在 `PYTHONHASHSEED=0` 下运行 `pytest sjtu_tpmshx/tests/ -m "not slow and not heavy" --ignore=sjtu_tpmshx/tests/integration_tm1 -n 2 --dist loadscope`。随后串行完整运行 `tests/integration_tm1/` 的真实模块交接与数值检查，不加 marker 过滤。Qt SHALL 使用 offscreen 模式，3D 面板 SHALL 在该快速门中禁用。CI SHALL NOT 依赖 gitignored 的本地数据资产。
+仓库 SHALL 提供 GitHub Actions workflow（`.github/workflows/ci.yml`），在 push 到 main 与 PR 时分别使用 macOS/Python 3.13 和 Windows/Python 3.12、3.13，从 `requirements.txt` 引用的共同精确锁安装，并在 `PYTHONHASHSEED=0` 下运行 `pytest sjtu_tpmshx/tests/ -m "not slow and not heavy" --ignore=sjtu_tpmshx/tests/integration_tm1 -n 2 --dist loadscope`。快测通过现有 `ci_shard` 插件分为两个独立作业；真实模块交接与数值检查在第三个独立作业中完整运行 `tests/integration_tm1/`，不加 marker 过滤。Qt SHALL 使用 offscreen 模式，3D 面板 SHALL 在该快速门中禁用。CI SHALL NOT 依赖 gitignored 的本地数据资产。
 
 快测 SHALL 固定两个 worker，BLAS/OMP/MKL/NumExpr 单线程、Numba 上限为 2；
-独立集成步骤的 Numba 上限为 1。两个步骤 SHALL 输出最慢 30 项与 skip 原因，并保存
-逐项状态及耗时的 JUnit XML，测试报告 artifact 保留 7 天。上传范围 SHALL 仅为
-`.cache/ci/fast.xml`、`.cache/ci/integration.xml`，不包含原生求解结果或本地数据。
+独立集成作业的 Numba 上限为 1。各作业 SHALL 输出最慢 30 项与 skip 原因，并保存
+逐项状态及耗时的 JUnit XML，测试报告 artifact 保留 7 天。上传范围为
+`.cache/ci/` 的测试报告、收集/分片清单及资源记录，不包含原生求解结果或本地数据。
+平台汇总门 SHALL 验证两个快测分片完整且互斥，并要求测试分片、集成及对应 BO 作业成功。
 平台快测、真实集成和最小后处理门均保留；macOS 3.13、Windows 3.12、Windows 3.13 和 minimal-postprocess 四项检查均为必需门，数值断言/容差不因提速改变。基础与 BO 作业 SHALL 使用相同的平台/Python 版本矩阵；两个 Windows 版本共用 requirements-lock-server.txt。
 
-#### Scenario: Integration is executed once per platform job
-- **WHEN** 合并快测和独立集成步骤的测试集合
+#### Scenario: Integration is executed once per platform
+- **WHEN** 合并两个快测分片和独立集成作业的测试集合
 - **THEN** 既有用例仍被覆盖，集成目录不在快测中重复执行；新增测试单独记录
 
 #### Scenario: CI green on a clean main

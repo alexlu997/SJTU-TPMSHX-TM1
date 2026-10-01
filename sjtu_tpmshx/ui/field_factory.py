@@ -75,9 +75,6 @@ class FieldFactory:
     def theme(self):
         return self._tm
 
-    def _style(self, key: str, default: str = '') -> str:
-        return self._tm.style(key, default)
-
     # ------------------------------------------------------------------ atoms
 
     def label(self, text: str, *, style_key: str = 'LBL',
@@ -96,7 +93,7 @@ class FieldFactory:
         lbl = QLabel(text)
         if rich:
             lbl.setTextFormat(Qt.TextFormat.RichText)
-        lbl.setStyleSheet(self._style(style_key))
+        lbl.setStyleSheet(self._tm.style(style_key))
         lbl.setWordWrap(word_wrap)
         return lbl
 
@@ -106,7 +103,7 @@ class FieldFactory:
                   tooltip: Optional[str] = None) -> QLineEdit:
         """Build a themed QLineEdit. Style key default = 'INP'."""
         le = QLineEdit(default)
-        le.setStyleSheet(self._style(style_key))
+        le.setStyleSheet(self._tm.style(style_key))
         # Numeric inputs share the same right edge within each card.
         le.setAlignment(Qt.AlignmentFlag.AlignRight |
                         Qt.AlignmentFlag.AlignVCenter)
@@ -124,7 +121,7 @@ class FieldFactory:
         val = _ResultLabel('—', unit_hint=unit_hint,
                             quantity_name=quantity_name)
         val.setProperty('valState', 'empty')
-        val.setStyleSheet(self._style('VAL'))
+        val.setStyleSheet(self._tm.style('VAL'))
         return val
 
     # ------------------------------------------------------------------ rows

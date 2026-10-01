@@ -345,6 +345,42 @@ def test_palette_field_selection_updates_visible_buttons(win):
         assert [button.styleSheet() for button in buttons] == [
             selected if i == index else unselected for i in range(3)]
 
+
+def test_palette_enter_runs_selected_command_once(win, monkeypatch):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    from sjtu_tpmshx.ui.command_palette import CommandPalette
+
+    calls = []
+    monkeypatch.setattr(win, '_export_results', lambda: calls.append('export'))
+    palette = CommandPalette(win)
+    palette.open_palette()
+    palette._input.setText('Export results to CSV')
+    QApplication.processEvents()
+    QTest.keyClick(palette._input, Qt.Key.Key_Return)
+    assert calls == ['export']
+
+
+def test_same_field_refreshes_result_dimension_and_slice_controls(win):
+    from sjtu_tpmshx.tests.gui_workbench_support import _result
+    from sjtu_tpmshx.ui.plot_2d_results import finalize_plots
+    from sjtu_tpmshx.ui.plot_3d_results import _render_2d_slices_from_3d
+
+    for mode in ('2d', '3d', '2d'):
+        result = _result(mode)
+        win.write_result(result)
+        if mode == '3d':
+            _render_2d_slices_from_3d(win, result, field='temp')
+            win._rendered_3d_slices = win.cache.is_drawn('temp')
+        else:
+            finalize_plots(win, field='temp')
+        win._update_tab_visibility()
+        win._switch_tab('temp')
+        QApplication.processEvents()
+        assert win._result_heading.text() == f'本次结果 · {mode.upper()}'
+        assert win._slice_controls.isVisibleTo(win) == (mode == '3d')
+
+
 def test_parameter_shortcut_is_bound_to_the_same_toggle(win):
     shortcut = next(item for item in win.findChildren(QShortcut)
                     if item.key() == QKeySequence('Ctrl+\\'))

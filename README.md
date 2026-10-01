@@ -105,12 +105,12 @@ $env:NUMBA_CACHE_DIR = Join-Path $PWD '.cache/numba'
 前两条计算命令分别输出 `case.yaml`、伴随 `case.h5`、`results.h5` 和
 `metrics.json`；最后一条启动图形界面。CLI 输入文件与 GUI 会话文件格式不同，
 上述 JSON 用于命令行。打开对应 `metrics.json`，五项基本指标应为 `available`，
-参考值如下（近似值用于核对运行结果）：
+参考值如下（2026-09-30 在 main `266211ed` 复核，近似值用于核对运行结果）：
 
 | 算例 | Q | Δp A / B（Pa） | 出口温度 A / B（K） |
 | --- | --- | --- | --- |
-| air_2d | 31124.61 W/m | 1626.34 / 1188.97 | 303.34 / 334.79 |
-| air_3d | 338.33 W | 1944.01 / 3038.07 | 359.23 / 344.93 |
+| air_2d | 31130.94 W/m | 1626.13 / 1188.83 | 303.28 / 334.80 |
+| air_3d | 338.33 W | 1944.17 / 3038.38 | 359.23 / 344.93 |
 
 空气现按真实端口面的面积平均值校准入口绝压，误差低于0.01%才满足该项收敛条件；
 压力和热量收敛定义见[架构说明](docs/architecture.md)。
@@ -315,7 +315,6 @@ Case YAML 引用伴随 HDF5；result/VTK 导出和严格指标 JSON 的限制见
 | --- | --- | --- |
 | 矩形全模型 2D/3D | `prepare_case`，随后 `run_case` / `evaluate` | 2D Q 为 W/m；3D Q 为 W |
 | 连续场多工况优化 2D/3D | `run_multi_condition_optimization`，经完整 Case 求解及数值检查 | 换热百分比改善与两侧相对压降；2D 总流量按明确厚度换算 |
-| 旧空气/空气筛选 API | `prepare_screening_2d/3d`，随后相同求解和后处理 API | 核心 3D 为总量；旧目标在应用层按真实 Lz 归一 |
 | 快速设计 | `prepare_quick_design`，随后相同 API | 规定速度 LTNE 与解析入口压损，非完整 SIMPLE；Q 为 W |
 | 参数扫描与有效场输入 | [公开示例](examples/) | 不改求解器私有成员 |
 | 离线清洗与 Nu 拟合 | `preprocess.offline` | 显式选择数据来源，不自动替换生产模型；旧 RBF 发布入口已退役 |
@@ -327,8 +326,9 @@ Case YAML 引用伴随 HDF5；result/VTK 导出和严格指标 JSON 的限制见
 当前几何、端口或求解设置与来源不同则拒绝载入。任意外部 CLI 配置不等于 GUI 预设。
 设计评估次数是搜索预算，不保证算法收敛或实验精度。
 
-保留的旧 screening API 限于空气/空气、A 沿 +x、B 沿 −y；2D 可显式给出
-`ports_A/B`，3D 仅支持整面开口。它不承担当前 GUI 水—空气多工况优化。
+旧空气／空气优化筛选及其 2D、冻结 B 侧的 3D 求解入口已退役，见
+[历史索引](docs/history/retired-tools.md)。旧结果归档仍可读取，原配置对应的
+Pareto CSV 仍可导出几何；旧筛选模式不能再执行或重新计算指标。
 
 当前计算域仅支持 **矩形二维／长方体三维**，界面直接显示形状，不提供只有一个有效选项的下拉菜单。
 六边形／八边形计算路线已退役，旧多边形配置在载入前明确拒绝，保留当前输入与结果；
@@ -386,7 +386,7 @@ GitHub workflow 使用 checkout v5、setup-python v6、upload-artifact v6，
 采集函数）。基础作业仍使用不含 BO 的锁，覆盖可选依赖缺失时的行为。
 BO 作业只上传 JUnit 测试报告，保留 7 天，不上传求解数据或虚拟环境。
 
-`mypy-core-files.txt` 显式列出 17 个类型检查文件：覆盖配置、控制器、CLI、当前
+`mypy-core-files.txt` 显式列出 18 个类型检查文件：覆盖配置、控制器、CLI、当前
 envelope 实现、三模块数据契约与公共 API、后处理指标入口；已删除的转发模块不再列入。
 `pyproject.toml` 还对四个边界实现模块启用无注解函数体检查；这不等于全求解器严格类型覆盖。
 `test_type_gate.py` 在 pytest 快测中执行同一清单，并确认错误类型不能传入三个公共 API；

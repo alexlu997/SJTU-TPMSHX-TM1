@@ -193,6 +193,9 @@ def test_compute_caches_repeated_call():
     assert compute.cache_info().hits >= 1
     assert a is not b          # poison guard: copies, not the same object
     assert a == b              # same values
+    c = compute('Diamond', 6.0, 0.4, 5.0, 350.0, 101325.0, 32.0)
+    assert c == {**a, 'K_ss': 2.0 * a['K_ss']}
+    assert compute.cache_info().misses == misses_after_first
 
 
 # ─── N5: compute() Re-range warning must be fluid-aware (audit 2026-06-28) ──

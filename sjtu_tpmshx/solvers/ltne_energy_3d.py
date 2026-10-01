@@ -29,6 +29,7 @@ from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.solvers.ltne_energy import solve_full_domain as _solve_full_2d
 from sjtu_tpmshx.solvers._kernels_2d import MODEL_H_RELAXATION
 from sjtu_tpmshx.models.tpms_props import model_h_coefficients
+from sjtu_tpmshx.result_math import compute_phase2a
 
 
 # ---------------------------------------------------------------------------
@@ -477,6 +478,7 @@ def _delegate_to_2d(L, H, D, Nx, Ny, T_inA, T_inB,
 # Q_B) so a caller can tell slow-but-converging from stalled/oscillating.
 # None in production → zero overhead, no behaviour change.
 _CONV_TRACE = None
+DEFAULT_CONV_CHUNK = 250
 
 # Energy GS kernel selector. The red-black `prange`-parallel twin
 # (`_gs_full_chunk_3d_stag_rb`) converges to the same solution as the serial
@@ -828,7 +830,7 @@ def solve_full_domain_3d(L, H, D, Nx, Ny, Nz,
     # comment guarded against is now prevented by the `max ΔT < T_abs_tol`
     # AND-guard in the convergence test below (Q-stable alone could false-exit;
     # Q-stable AND field-stable cannot), so 250 is safe on small grids too.
-    chunk = 250 if conv_chunk is None else int(conv_chunk); done = 0
+    chunk = DEFAULT_CONV_CHUNK if conv_chunk is None else int(conv_chunk); done = 0
     cell_vol = dx_arr[:, None, None] * dy_arr[None, :, None] * dz_arr[None, None, :]
     Q_prev = None
     Ta_prev = Ta.copy(); Tb_prev = Tb.copy(); Ts_prev = Ts.copy()
@@ -877,9 +879,28 @@ def solve_full_domain_3d(L, H, D, Nx, Ny, Nz,
     mms_S_A_arr = _mms_arr(mms_S_A_field)
     mms_S_B_arr = _mms_arr(mms_S_B_field)
     mms_S_s_arr = _mms_arr(mms_S_s_field)
-    if not use_stag and any(np.any(source != 0.) for source in (
-            mms_S_A_arr, mms_S_B_arr, mms_S_s_arr)):
+    has_sources = any(np.any(source != 0.) for source in (
+        mms_S_A_arr, mms_S_B_arr, mms_S_s_arr))
+    if not use_stag and has_sources:
         raise ValueError('nonzero MMS sources require staggered 3D thermal velocities')
+
+    def model_h_info():
+        balance = _model_h_balance(
+            (Ta, Tb), Ts, (model_mass_A, model_mass_B), (model_cp_A, model_cp_B),
+            (dir_A, dir_B), (T_inA_arr, T_inB_arr), (ifrac_A, ifrac_B),
+            (K_ffA_arr, K_ffB_arr), K_ss_arr, (h_vA_arr, h_vB_arr),
+            (eps_fA_arr, eps_fB_arr), (mms_S_A_arr, mms_S_B_arr), mms_S_s_arr,
+            dx_arr, dy_arr, dz_arr)
+        result = dict(model_h_balance=balance)
+        for side, data in balance['sides'].items():
+            scale = data['strict_normalization_W']
+            result[f'eps_{side}_strict'] = abs(data['residual_sum_W']) / scale
+            result[f'eps_{side}_strict_cellmax'] = data['residual_max_abs_W'] * Ta.size / scale
+            result[f'Q_s{side}'] = data['fluid_solid_exchange_to_fluid_W']
+        return result
+
+    model_info = None
+    energy_checks = []
 
     # Project the original internal capacity faces. The specified physical
     # inlet F is applied afterwards and may change the boundary-CV divergence;
@@ -921,6 +942,7 @@ def solve_full_domain_3d(L, H, D, Nx, Ny, Nz,
                 n, freeze_Tb, a_fA, a_s, a_fB, inlet_flux_A, inlet_flux_B)
 
     while done < max_iter:
+        model_info = None
         if cancel_check is not None and cancel_check():
             raise CancelledError("compute cancelled by user")
         n = min(chunk, max_iter - done)
@@ -962,8 +984,19 @@ def solve_full_domain_3d(L, H, D, Nx, Ny, Nz,
             # overshooting to max_iter (2026-06-24 — with chunk=250 this halves
             # energy sweeps at bit-identical Q/dP on the 40^3 benchmark).
             if rel_chg < q_tol and max(dTa_max, dTb_max, dTs_max) < T_abs_tol:
-                converged = True
-                break
+                if model_enabled and not has_sources:
+                    model_info = model_h_info()
+                    certificate = compute_phase2a(dict(model_info, _audit_fB=True))
+                    energy_checks.append(dict(iterations=done, gates=certificate['gates']))
+                    converged = all(passed for _, passed in certificate['gates'])
+                    # Thermal sweeps cannot supply missing inflow data on
+                    # these fixed mass faces. Return for the next flow update.
+                    if not model_info['model_h_balance']['physical_boundary_complete']:
+                        break
+                else:
+                    converged = True
+                if converged:
+                    break
         Q_prev = Q_cur
         Ta_prev = Ta.copy(); Tb_prev = Tb.copy(); Ts_prev = Ts.copy()
 
@@ -973,7 +1006,7 @@ def solve_full_domain_3d(L, H, D, Nx, Ny, Nz,
         'residual': float(chg),
         'delegated_to_2d': False,
     }
-    if _cons == 1:
+    if _cons == 1 and not model_enabled:
         # Strict-conservation certificate: residual of the conservative
         # discretisation on the converged field. The summed form is the global
         # balance over all actual CVs; the cell-max form (normalised by
@@ -996,12 +1029,8 @@ def solve_full_domain_3d(L, H, D, Nx, Ny, Nz,
             info['eps_B_strict'] = None
             info['eps_B_strict_cellmax'] = None
     if model_enabled:
-        info['model_h_balance'] = _model_h_balance(
-            (Ta, Tb), Ts, (model_mass_A, model_mass_B), (model_cp_A, model_cp_B),
-            (dir_A, dir_B), (T_inA_arr, T_inB_arr), (ifrac_A, ifrac_B),
-            (K_ffA_arr, K_ffB_arr), K_ss_arr, (h_vA_arr, h_vB_arr),
-            (eps_fA_arr, eps_fB_arr), (mms_S_A_arr, mms_S_B_arr), mms_S_s_arr,
-            dx_arr, dy_arr, dz_arr)
+        info.update(model_info if model_info is not None else model_h_info())
+        info['energy_finishing_checks'] = energy_checks
         info['_native_model_h'] = info['model_h_balance'].pop('_native_faces')
     if return_info:
         return Ta, Tb, Ts, info

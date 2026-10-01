@@ -70,9 +70,7 @@ def _qt_int(widget, default: int) -> int:
         return default
 
 
-# Required widget attributes for strict-mode validation. The labels mirror
-# the human-friendly names that the legacy ``pipelines.stages_2d._parse``
-# helper surfaced in its ``ValueError`` payload.
+# Required widget attributes and human-readable labels for strict validation.
 @dataclass(frozen=True)
 class FieldSpec:
     """One scalar ComputeConfig field's wiring: dataclass slot ↔ Qt widget
@@ -282,9 +280,7 @@ def _read_partial_bc(window, side: Literal['A', 'B'], *, is_3d: bool) -> 'Partia
     and widget visibility. Both fields blank means full extent; half a
     pair is invalid. In 2D these drafts are ignored and stay ``None``.
 
-    ``side='B'`` defaults to ``dir=3`` (-y) when ``combo_dirB`` is
-    missing, matching the legacy ``pipelines.stages_2d._parse_inputs``
-    fall-through (``cfgB = dict(dir=3, …)``).
+    ``side='B'`` defaults to ``dir=3`` (-y) when ``combo_dirB`` is missing.
     """
     le_prefix = f'le_pipe{side}'
     combo_dir = getattr(window, f'combo_dir{side}', None)
@@ -327,12 +323,11 @@ def _read_partial_bc(window, side: Literal['A', 'B'], *, is_3d: bool) -> 'Partia
 def _read_zone_input(window) -> 'ZoneInputConfig':
     """Snapshot zone / sigmoid-field control state.
 
-    Reads ``chk_zones``, ``combo_zone_axis``, ``_zone_grid``, and the
-    ``_pareto_*`` attributes. When ``chk_zones`` is checked, also
-    pre-resolves the ``ZoneConfig`` instance via
-    ``ui.zone_table.build_zone_config(window)`` so the downstream
-    Pipeline2D / Pipeline3D layer never touches the Qt zone-table
-    widget.
+    Reads ``chk_zones`` and the saved continuous-field state first. An
+    enabled continuous field is captured directly as ``ZoneInputConfig``;
+    other enabled zone modes pre-resolve ``ZoneConfig`` via
+    ``ui.zone_table.build_zone_config(window)`` so downstream pipelines
+    never touch the Qt zone-table widget.
 
     Invalid enabled zones propagate through the existing input-error channel.
     Mutable grid and Pareto inputs belong to this snapshot after capture.

@@ -181,7 +181,6 @@ class F2Monitor:
         self._streak = 0
         self._mom_at_window_start = None
         self._window_start_it = 0
-        self.last_vd = float('inf')
         for name in ('mom_residuals', 'mass_local_residuals', 'mass_global_residuals'):
             if not hasattr(solver, name):
                 setattr(solver, name, [])
@@ -193,7 +192,6 @@ class F2Monitor:
         vd = max(deltas) / scale
         for p, v in zip(self._prev, vels):
             p[:] = v
-        self.last_vd = vd
         return vd
 
     def should_eval_momentum(self, it: int, vd: float) -> bool:

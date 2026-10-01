@@ -8,7 +8,7 @@ import pytest
 warnings.filterwarnings('ignore')
 
 from sjtu_tpmshx.solvers.coarse_bootstrap_3d import (
-    bootstrap_simple_3d, _block_average_2d, _block_average_3d,
+    bootstrap_simple_3d, _block_average_3d,
     _trilinear_zoom)
 from sjtu_tpmshx.solvers.simple_solver_3d import SIMPLESolver3D
 
@@ -24,13 +24,6 @@ def _build_solver():
         rho=1.0, mu=2e-5, T_in=350.0, v_inlet=3.0,
         eps=0.78, K_arr=K_arr, cF_arr=cF_arr,
         P_ref_abs=101325.0)
-
-
-def test_block_average_2d_shape_and_value():
-    arr = np.ones((8, 6))
-    out = _block_average_2d(arr, 2, 2)
-    assert out.shape == (4, 3)
-    np.testing.assert_allclose(out, 1.0)
 
 
 def test_block_average_3d_shape():

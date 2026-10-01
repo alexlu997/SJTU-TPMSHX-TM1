@@ -7,9 +7,7 @@ from .tpms_calc import geometry as tpms_geometry
 
 def _cell_centre_fracs(n_target: int,
                        widths: Optional[np.ndarray]) -> np.ndarray:
-    """Cell-centre fractional coordinates of a target axis (B2 2.3 —
-    single source for the block previously copy-pasted in the 2D
-    projector, the 3D streamwise axis and the 3D z axis). ``widths``
+    """Cell-centre fractional coordinates of a target axis. ``widths``
     None → uniform; else non-uniform cell widths (wall-refined grids)."""
     if widths is None:
         return (np.arange(n_target) + 0.5) / n_target
@@ -21,20 +19,6 @@ def _cell_centre_fracs(n_target: int,
 def _nearest_src_idx(fracs: np.ndarray, src_n: int) -> np.ndarray:
     """Nearest-neighbour source indices for fractional probe points."""
     return np.clip((fracs * src_n).astype(int), 0, src_n - 1)
-
-
-def _stream_profile(fields: Tuple[np.ndarray, ...], fluid: str
-                    ) -> Tuple[Tuple[np.ndarray, ...], int]:
-    """Streamwise 1-lower-dim profiles of ``fields`` for one fluid:
-    A = mean over real y (axis 1); B = mean over real x (axis 0) then
-    flip (B flows -y). Returns (profiles, src_stream_n)."""
-    if fluid == 'A':
-        prof = tuple(f.mean(axis=1) for f in fields)
-        return prof, fields[0].shape[0]
-    if fluid == 'B':
-        prof = tuple(f.mean(axis=0)[::-1].copy() for f in fields)
-        return prof, fields[0].shape[1]
-    raise ValueError(f"fluid must be 'A' or 'B', got {fluid!r}")
 
 
 def project_fields_to_streamwise_K_cF(L_field: np.ndarray,
@@ -93,47 +77,3 @@ def project_fields_to_streamwise_K_cF(L_field: np.ndarray,
     K_arr, cF_arr = predict_K_cF_vec(
         tpms_type, L_row, t_row, eps_f_row, method=SCO2_DF_METHOD)
     return K_arr.astype(np.float64), cF_arr.astype(np.float64)
-
-
-def project_fields_to_streamwise_K_cF_3d(L_field: np.ndarray,
-                                          t_field: np.ndarray,
-                                          eps_f_field: np.ndarray,
-                                          tpms_type: str,
-                                          Ny_sim: int,
-                                          Nz_sim: int,
-                                          fluid: str,
-                                          streamwise_dx: Optional[np.ndarray] = None,
-                                          z_dx: Optional[np.ndarray] = None
-                                          ) -> Tuple[np.ndarray, np.ndarray]:
-    """Project 3D sigmoid fields onto SIMPLE 3D (Ny_sim, Nz_sim) K / c_F arrays.
-
-    Fluid A: +x streamwise. Mean over real y (axis 1) → (Nx, Nz) then resample to
-             (Ny_sim, Nz_sim).
-    Fluid B: -y streamwise. Mean over real x (axis 0) → (Ny, Nz), flip along 0,
-             resample to (Ny_sim, Nz_sim).
-
-    L_field, t_field, eps_f_field shape: (Nx, Ny, Nz).
-    streamwise_dx, z_dx: optional 1D arrays of SIMPLE-internal cell widths along
-        the SIMPLE y (streamwise) and SIMPLE z axes respectively. Used to place
-        resample probe points.
-
-    Returns (K_arr, cF_arr) both shape (Ny_sim, Nz_sim) float64.
-    """
-
-    (L2, t2, e2), src_stream = _stream_profile(
-        (L_field, t_field, eps_f_field), fluid)
-    src_z = L_field.shape[2]
-
-    # Nearest-neighbor resample on (stream, z) probe indices (B2 2.3:
-    # fraction + index blocks via the shared helpers)
-    s_idx = _nearest_src_idx(_cell_centre_fracs(Ny_sim, streamwise_dx),
-                             src_stream)
-    z_idx = _nearest_src_idx(_cell_centre_fracs(Nz_sim, z_dx), src_z)
-
-    L_proj = L2[np.ix_(s_idx, z_idx)]
-    t_proj = t2[np.ix_(s_idx, z_idx)]
-    eps_proj = e2[np.ix_(s_idx, z_idx)]
-
-    K_arr, cF_arr = predict_K_cF_vec(tpms_type, L_proj, t_proj, eps_proj)
-    return K_arr.astype(np.float64), cF_arr.astype(np.float64)
-

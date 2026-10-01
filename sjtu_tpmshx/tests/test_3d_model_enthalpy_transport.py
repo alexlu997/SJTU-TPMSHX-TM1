@@ -358,7 +358,9 @@ def test_driver_skips_capacity_projection_and_keeps_sweep_budget(monkeypatch):
         conservative_ltne=True, max_iter=3, conv_chunk=2, return_info=True)
     assert calls == [2, 1]
     assert info['iterations'] == 3
-    assert info['converged']  # Stable second chunk may qualify on the last allowed sweep.
+    # The stub freezes temperatures without solving their equations. Stable
+    # fields alone cannot certify the native energy residuals at the cap.
+    assert not info['converged']
     ledger = info['model_h_balance']
     assert ledger['sides']['A']['temperature_range_K'] == [315., 315.]
     expected = .04*(kernels._model_h(320., model_h_coefficients('air'))
@@ -366,6 +368,46 @@ def test_driver_skips_capacity_projection_and_keeps_sweep_budget(monkeypatch):
     assert ledger['sides']['A']['convective_inward_W'] == pytest.approx(expected)
     assert ledger['sides']['B']['convective_inward_W'] == pytest.approx(.04*4182*(300.-305.))
     assert abs(ledger['telescoping_error_W']) < 1e-8
+
+
+@pytest.mark.parametrize('mode,iterations,converged', [
+    ('clean', 2, True), ('recover', 3, True), ('cell_stall', 4, False),
+    ('source_stall', 4, False), ('boundary', 2, False), ('mms', 2, True),
+])
+def test_model_h_finishing_uses_existing_energy_gates_within_budget(
+        monkeypatch, mode, iterations, converged):
+    one = np.ones((2, 2, 2))
+    faces = (np.zeros((3, 2, 2)), np.zeros((2, 3, 2)), np.zeros((2, 2, 3)))
+    calls = []
+
+    def chunk(*args):
+        calls.append(True)
+        return 0.  # Stable temperatures; the independent ledger controls acceptance.
+
+    def balance(*args):
+        fail_cell = mode in ('cell_stall', 'mms') or (mode == 'recover' and len(calls) == 2)
+        return dict(physical_boundary_complete=mode != 'boundary', _native_faces={}, sides={
+            side: dict(residual_sum_W=0., residual_max_abs_W=1. if fail_cell else 0.,
+                       strict_normalization_W=100.,
+                       fluid_solid_exchange_to_fluid_W=value)
+            for side, value in (('A', -100.), ('B', 90. if mode == 'source_stall' else 100.))})
+
+    monkeypatch.setattr(energy, '_gs_full_chunk_3d_stag', chunk)
+    monkeypatch.setattr(energy, '_model_h_balance', balance)
+    *_, info = energy.solve_full_domain_3d(
+        2., 2., 2., 2, 2, 2, 320., 300., one*.1, one*.1, one*.1,
+        one, one, one, one, one, *([one*0]*6), dir_A=0, dir_B=0,
+        ufA=faces[0], vfA=faces[1], wfA=faces[2],
+        ufB=faces[0], vfB=faces[1], wfB=faces[2],
+        model_mass_A=faces, model_mass_B=faces, model_fluids=('air', 'water'),
+        mms_S_s_field=one if mode == 'mms' else None,
+        conservative_ltne=True, max_iter=4, conv_chunk=1, return_info=True)
+    assert info['iterations'] == len(calls) == iterations
+    assert info['converged'] is converged
+    checks = info['energy_finishing_checks']
+    assert [item['iterations'] for item in checks] == ([] if mode == 'mms' else list(range(2, iterations+1)))
+    if checks:
+        assert all(passed for _, passed in checks[-1]['gates']) is converged
 
 
 @pytest.mark.parametrize('rb', [False, True])

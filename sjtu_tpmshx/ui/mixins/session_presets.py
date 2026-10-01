@@ -268,7 +268,6 @@ class SessionPresetsMixin:
             self._pareto_y_trans_outlet = zones['pareto_y_trans_outlet']
         from copy import deepcopy
         self._continuous_field_spec = deepcopy(preset.get('continuous_field'))
-        self._selected_pareto_x = None
         self._opt_conditions = deepcopy(preset.get('optimization_conditions'))
         from sjtu_tpmshx.ui.optimize_panel import refresh_setup
         refresh_setup(self)

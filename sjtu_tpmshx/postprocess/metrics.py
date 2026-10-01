@@ -101,9 +101,6 @@ def _pressure_drop_2d(result, side):
 
 
 def _evaluate_metric(result, name, *, dimension, duty, mass_flow):
-    if result.metadata.get('mode') in ('screening_2d', 'screening_3d'):
-        from .screening import evaluate_metric as evaluate_screening_metric
-        return evaluate_screening_metric(result, name)
     if result.metadata.get('mode') == 'quick_design':
         from .quick_design import evaluate_metric as evaluate_quick_design_metric
         return evaluate_quick_design_metric(result, name)
@@ -151,7 +148,7 @@ def evaluate(result: FieldResult, metric_spec: MetricSpec | None = None) -> Perf
     if dimension not in (2, 3):
         raise ValueError('postprocessing requires physical dimension 2 or 3')
     mode = result.metadata.get('mode', 'full')
-    if mode not in ('full', 'quick_design', 'screening_2d', 'screening_3d'):
+    if mode not in ('full', 'quick_design'):
         raise ValueError(f'unsupported postprocessing mode: {mode!r}')
     definitions = {
         'Q': ('Q', 'W/m'), 'dP_A': ('dP', 'Pa'), 'dP_B': ('dP', 'Pa'),

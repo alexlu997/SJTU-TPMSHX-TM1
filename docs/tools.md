@@ -46,7 +46,6 @@ GCI 当前使用 T2 和 T4（偏置局部开口、无 B 侧实验修正）。历
 | [examples/](../examples/) | 公开 JSON/YAML 配置 → Case/Result/metrics | README 真实 2D/3D CLI 示例；当前支持范围内的首次运行入口 |
 | [runs/smokes/](../sjtu_tpmshx/runs/smokes/) | 内置样例 → 控制台及脚本声明的诊断文件 | `python -m sjtu_tpmshx.runs.smokes.<模块名>`；GUI 无显示运行须用 `QT_QPA_PLATFORM=offscreen` |
 | [runs/demos/](../sjtu_tpmshx/runs/demos/) | 内置 3D 工况 → 控制台/可视化 | `python -m sjtu_tpmshx.runs.demos.<模块名>`；交互图形依赖桌面，示例不扩大支持域 |
-| [profile_compute](../benchmarks/profiling/profile_compute.py)、[profile_evaluator](../benchmarks/profiling/profile_evaluator.py) | 内置 nominal design → 每次独立 `.cache/profiling/compute-*` 或 `eval-*` 下的 `*_baseline.prof` / 文本 | `python -m benchmarks.profiling.profile_compute` 或 `profile_evaluator`；均测现有 2D screening evaluator，不是 GUI/full 模型或完整 BO |
 | [CFD 工况清单](../sjtu_tpmshx/runs/tools/asym_build_cfd_worklist_xlsx.py) → [nTop 表达式](../sjtu_tpmshx/runs/cfd_asym/asym_ntop_expressions_html.py) | 内置几何/流体 + 可选私有 `water_DG_cfd_results_legacy.xlsx` → XLSX → HTML | 顺序运行下方两条命令；两个工具共用输出目录。旧工作簿由本地数据目录提供；缺文件时 `r1_water_ref` 页保留跳过说明，不补造锚点 |
 | [asym CFD/诊断工具](../sjtu_tpmshx/runs/cfd_asym/)、[diagnostics/](../sjtu_tpmshx/runs/diagnostics/) | 脚本声明的几何、场/CFD 文件 → 研究结果 | `python -m sjtu_tpmshx.runs.<子目录>.<模块名>`；Fluent/vault 等外部依赖按各工具声明，未作为默认安装或本轮运行能力 |
 | [scripts/](../scripts/) | 已配置环境/测试选择 → 测试日志 | 两个 PowerShell 测试入口；仓库路径取脚本位置，解释器读取 `.venv-path`，`-LockFile` 选择依赖锁，不自动安装依赖 |
@@ -155,8 +154,8 @@ PowerShell 读取 `.venv-path` 后使用 `& $tm1Python` 和相同参数，环境
   修改的有效固体导热场，按工况保存相同文件并确认 Q 随输入变化；没有伴随或梯度计算。
 
 各工况都有 `case.yaml` 与伴随 `case.h5`、`results.h5`、`metrics.json`。
-后两个示例的 Q 为 W/m，收敛与物理状态看 `summary.json` 和结果文件；
-脚本退出 0 不代表每个筛选工况均收敛。示例不扩大模型适用域。
+后两个示例复用 `air_2d.json`，Q 为 W/m，收敛与适用域状态看 `summary.json` 和结果文件；
+脚本退出 0 不代表每个工况均收敛。两个示例使用完整求解 API，不扩大模型适用域。
 
 ## 定尺与优化结果
 
@@ -176,22 +175,12 @@ PowerShell 读取 `.venv-path` 后使用 `& $tm1Python` 和相同参数，环境
 均匀基准通过后，归档工况保存其换算速度，各候选仍按自己的完整场重新换算速度；
 基准失败时保留原始输入与逐工况失败原因。
 
-保留的旧 `optimizer_qnehvi` / `parallel_runner` 是独立的 air/air screening 入口。
-它们的 `history.csv` 保留全部评估的数值，包括训练所用惩罚值；配套
-`history_status.json` 按同一行序记录从 1 开始的评估序号、`valid/failed` 和原因。
-多种子输出对应 `history_merged.csv` 与 `history_merged_status.json`。
-API 的 `history_errors` 与 `history_X/history_F` 逐行对应，成功行为 `None`。
-`pareto_*.csv` 仅含未被拒绝的候选；全失败时文件仅有表头。显式从历史行导出几何时，
-导出元数据保留该行的评估状态。筛选通过不代表通过实验验证或生产求解验收。
-多种子根目录保存实际共同 `config.json` 和成功/失败种子状态；请求的种子未全部
-完成时命令返回非零。Pareto 验证与 nTop 导出共用具名 CSV 列约定，缺少配置、
-缺列、重复列或非有限值直接拒绝，不能回退默认工况后继续验证。
-这两个旧入口和当前多工况优化器均要求新的运行目录；已有目录会被拒绝，不覆盖
-先前的配置或评估记录。多种子运行由各 seed 创建自己的新子目录。
-单种子命令 `run_production_qnehvi`、`run_3d_qnehvi_fast` 与
-`optimizer_qnehvi` 的模块入口采用相同完成条件：正常预算结束或平台期结束
-（`completed` / `plateau`）且 Pareto 非空时返回 0，否则返回 1。
-空 Pareto 会明确提示；这些终止状态不代表数值收敛或物理验收，异常继续原样报错。
+旧空气／空气 `optimizer_qnehvi`、多种子 runner、3D 冻结 B 侧复算与专用 profiling
+入口已退役，固定源码见[历史索引](history/retired-tools.md)。当前多工况优化器要求
+新的运行目录；已有目录会被拒绝，保留先前的配置与评估记录。
+历史 `pareto_*.csv` / `history*.csv` 仍可通过 `export_ntop_csv` 导出几何：
+必须提供原 `config.json`，具名决策列按数值编号恢复；缺列、重复列或非有限值直接拒绝。
+配套 `*_status.json` 中的失败状态继续写入导出元数据，导出几何不重新评估旧模型。
 nTop 公开 API／CLI 将 `Lfield.csv`、`tfield.csv`、`provenance.json` 成组暂存并发布；
 写入失败保留上一组完整几何。数值精度、坐标和原控制场来源保持不变。
 

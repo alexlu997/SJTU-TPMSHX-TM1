@@ -159,7 +159,6 @@ def _compute_cached(tpms_type: str,
                     u: float,
                     T_in_K: float,
                     P_in_Pa: float,
-                    k_s: float,
                     fluid_type: str = 'air',
                     sco2_nu=None) -> tuple[dict, dict]:
     """
@@ -175,7 +174,6 @@ def _compute_cached(tpms_type: str,
     u         : selected fluid's interstitial velocity [m/s]
     T_in_K    : inlet temperature [K]
     P_in_Pa   : inlet pressure [Pa]
-    k_s       : solid thermal conductivity [W/(m·K)]
 
     Returns
     -------
@@ -316,7 +314,7 @@ def compute(tpms_type: str,
     # Production V2 closure is fluid-independent and fixed for a TPMS/L/t
     # geometry.
     result, records = _compute_cached(tpms_type, L_cell_mm, t_mm, u, T_in_K,
-                                     P_in_Pa, k_s, fluid_type, sco2_nu)
+                                     P_in_Pa, fluid_type, sco2_nu)
     result = dict(result)
     eps = result['epsilon']
     result['K_ss'] = chi_s_eff(tpms_type, eps) * (1.0 - eps) * k_s

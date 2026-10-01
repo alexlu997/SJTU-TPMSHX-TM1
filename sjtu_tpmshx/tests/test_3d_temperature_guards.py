@@ -112,6 +112,107 @@ def _problem(monkeypatch, pair):
     return prob, stages._build_hv_machinery(prob)
 
 
+@pytest.mark.parametrize('pair', [('air', 'water'), ('water', 'air'), ('air', 'air')])
+@pytest.mark.parametrize('budget', [80, 2000])
+def test_water_startup_yields_to_flow_before_full_thermal_budget(monkeypatch, pair, budget):
+    from sjtu_tpmshx.solvers import ltne_energy_3d as energy
+
+    prob = _build_3d_problem(_pipeline_cfg(pair))
+    hv = stages._build_hv_machinery(prob)
+    prob._ltne_max_iter = budget
+    thermal = stages.solve_full_domain_3d
+    calls = []
+
+    def observe(*args, **kwargs):
+        result = thermal(*args, **kwargs)
+        calls.append((kwargs['max_iter'], result[3]['converged']))
+        return result
+
+    def drive(*, step, post, **kwargs):
+        step(0)
+        post(0, None)
+        step(1)
+        return 1, False
+
+    monkeypatch.setattr(stages, 'solve_full_domain_3d', observe)
+    monkeypatch.setattr(stages, 'run_outer_coupling', drive)
+    with warning_scope({}):
+        outer = stages._run_outer_coupling_3d(prob, hv, capture_native=True)
+    first_budget = min(budget, energy.DEFAULT_CONV_CHUNK) if 'water' in pair else budget
+    assert [call[0] for call in calls] == [first_budget, budget]
+    if 'water' in pair:
+        assert calls[0][1] is False
+    assert outer.native_evidence['outer_index'] == 1
+
+
+@pytest.mark.parametrize('failure', [None, 'budget', 'always', 'later'])
+def test_water_startup_retries_valid_initial_state_within_budget(monkeypatch, failure):
+    prob, hv = _problem(monkeypatch, ('air', 'water'))
+    prob._ltne_max_iter = 200 if failure == 'budget' else 2000
+    shape = prob.Nx, prob.Ny, prob.Nz
+    attempts = []
+    epoch = 0
+
+    def thermal(*args, **kwargs):
+        budget = kwargs['max_iter']
+        attempts.append((epoch, budget))
+        if epoch == 0:
+            for key, value in (('Ta_init', 350.), ('Tb_init', 300.), ('Ts_init', 325.)):
+                np.testing.assert_array_equal(kwargs[key], np.full(shape, value))
+        invalid = (failure == 'always' or (epoch == 0 and budget > 100)
+                   or (epoch > 0 and failure == 'later'))
+        fields = [np.full(shape, t) for t in (340., 420. if invalid else 310., 325.)]
+        return (*fields, dict(iterations=budget, converged=epoch > 0, residual=0.))
+
+    def drive(*, step, post, **kwargs):
+        nonlocal epoch
+        step(0)
+        post(0, None)
+        epoch = 1
+        step(1)
+        return 1, False
+
+    monkeypatch.setattr(stages, 'solve_full_domain_3d', thermal)
+    monkeypatch.setattr(stages, 'run_outer_coupling', drive)
+    if failure is not None:
+        with pytest.raises(fluid_props.WaterStateError, match='only stable single-phase'):
+            stages._run_outer_coupling_3d(prob, hv)
+        if failure == 'budget':
+            assert attempts == [(0, 200)]
+        elif failure == 'always':
+            assert attempts[-1] == (0, 1)
+        else:
+            assert attempts[-1] == (1, 2000)
+            assert sum(epoch == 1 for epoch, _ in attempts) == 1
+    else:
+        stages._run_outer_coupling_3d(prob, hv)
+        assert attempts == [(0, 250), (0, 125), (0, 62), (1, 2000)]
+        startup = prob._ltne_info[0]['coupling_startup']
+        assert startup['total_iterations'] == 437
+        assert len(startup['rejected_attempts']) == 2
+        assert not prob._ltne_info[0]['converged']
+    assert sum(budget for epoch, budget in attempts if epoch == 0) <= prob._ltne_max_iter
+
+
+def test_stable_outer_fields_do_not_stop_unconverged_thermal_pass(monkeypatch):
+    prob, hv = _problem(monkeypatch, ('air', 'air'))
+    shape = prob.Nx, prob.Ny, prob.Nz
+    fields = [np.full(shape, t) for t in (340., 310., 325.)]
+    monkeypatch.setattr(stages, 'solve_full_domain_3d', lambda *a, **k: (
+        *fields, dict(iterations=2000, converged=False, residual=0.)))
+
+    def drive(*, step, post, **kwargs):
+        for epoch in range(2):
+            converged, _ = step(epoch)
+            assert not converged
+            post(epoch, None)
+        return 1, False
+
+    monkeypatch.setattr(stages, 'run_outer_coupling', drive)
+    outer = stages._run_outer_coupling_3d(prob, hv)
+    assert not outer._outer_converged
+
+
 @pytest.mark.parametrize('fluid', ['air', 'water'])
 def test_single_fluid_has_zero_b_coupling_at_real_thermal_boundary(monkeypatch, fluid):
     cfg = _pipeline_cfg((fluid, 'air'))
@@ -396,7 +497,7 @@ def test_zoned_bulk_re_has_cell_denominator_and_scalar_source(monkeypatch, fluid
         L_field=prob.L_mm_field, t_field=prob.t_field_3d)
     from sjtu_tpmshx.preprocess.three_d.preparation import _record_air_bulk_ranges
     with warning_scope({}) as records:
-        _record_air_bulk_ranges(prob.cfg, prob.L_mm_field, prob.t_field_3d, shape)
+        _record_air_bulk_ranges(prob.cfg, prob.L_mm_field, shape)
         stages._build_hv_machinery(prob)
     for side in ('A', 'B'):
         raw = records[('nu_raw', fluid, prob.tpms_type, shape,
