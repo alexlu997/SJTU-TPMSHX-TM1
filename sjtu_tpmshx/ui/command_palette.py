@@ -24,18 +24,15 @@ from .theme import get_theme
 
 class Action:
     """One row in the palette — cheap pure-data holder."""
-    __slots__ = ('title', 'category', 'keywords', 'shortcut', 'callback',
-                 'score', 'match_spans')
+    __slots__ = ('title', 'category', 'keywords', 'callback', 'score')
 
     def __init__(self, title: str, category: str, callback: Callable,
-                 keywords: Iterable[str] = (), shortcut: str = ""):
+                 keywords: Iterable[str] = ()):
         self.title = title
         self.category = category
         self.keywords = tuple(k.lower() for k in keywords)
-        self.shortcut = shortcut
         self.callback = callback
         self.score = 0.0
-        self.match_spans: list[tuple[int, int]] = []
 
 
 def _fuzzy_score(query: str, action: Action) -> float:
@@ -188,7 +185,6 @@ class CommandPalette(QDialog):
         self._all_actions: list[Action] = []
 
         self._input.textChanged.connect(self._on_query_changed)
-        self._input.returnPressed.connect(self._accept_current)
         self._list.doubleClicked.connect(lambda _i: self._accept_current())
 
     # ── Public API ──────────────────────────────────────────────────
@@ -279,9 +275,9 @@ def build_actions(w) -> list[Action]:
 
     # Compute & export
     add("Run Compute", "Compute", w.run_calculation,
-        shortcut="Ctrl+R", keywords=("solve", "simulate", "run"))
+        keywords=("solve", "simulate", "run"))
     add("Reset parameters to preset", "Compute", w._reset_defaults,
-        shortcut="Ctrl+Shift+R", keywords=("reset", "default", "clear"))
+        keywords=("reset", "default", "clear"))
     if hasattr(w, '_export_results'):
         add("Export results to CSV…", "Compute", w._export_results,
             keywords=("save", "csv", "export"))
@@ -306,7 +302,6 @@ def build_actions(w) -> list[Action]:
             keywords=("log", "residual", "stdout", "debug"))
     if hasattr(w, '_show_overview'):
         add("Overview dashboard…", "Compute", w._show_overview,
-            shortcut="Ctrl+D",
             keywords=("dashboard", "overview", "summary", "home"))
     if hasattr(w, '_run_optimize'):
         add("Optimize (continuous field)", "Compute", w._run_optimize,
@@ -334,7 +329,6 @@ def build_actions(w) -> list[Action]:
     if hasattr(w, '_toggle_coord_inspector'):
         add("Toggle coordinate inspector", "Appearance",
             w._toggle_coord_inspector,
-            shortcut="Ctrl+I",
             keywords=("inspector", "probe", "hover", "values"))
 
     # Tabs: list only views backed by currently available result state.
@@ -392,13 +386,13 @@ def build_actions(w) -> list[Action]:
             keywords=("version", "credits", "info"))
     if hasattr(w, '_show_shortcuts'):
         add("Keyboard shortcuts cheat sheet", "Help", w._show_shortcuts,
-            shortcut="Ctrl+?", keywords=("keys", "shortcut", "hotkey"))
+            keywords=("keys", "shortcut", "hotkey"))
     if hasattr(w, '_show_quick_tour'):
         add("Show quick tour", "Help", w._show_quick_tour,
             keywords=("onboarding", "guide"))
 
     add("Toggle canvas focus", "View", w._toggle_3d_immersive,
-        shortcut="F", keywords=("focus", "immersive", "专注"))
+        keywords=("focus", "immersive", "专注"))
     # 3D commands require both an available result and an initialized panel.
     _3d_tab_ready = _available_tabs.get('3d', False)
     _3d_panel_ready = getattr(w, 'canvas_3d', None) is not None

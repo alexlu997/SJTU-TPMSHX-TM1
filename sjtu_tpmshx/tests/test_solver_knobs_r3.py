@@ -1,4 +1,4 @@
-"""Production and screening budgets stay separate; old case files remain readable."""
+"""Production controls remain effective; retired settings round-trip in archives."""
 import json
 from dataclasses import asdict
 import warnings as _warnings
@@ -20,22 +20,13 @@ def test_solver_knobs_default_to_auto():
     assert not hasattr(s, 'rough_mode')
 
 
-def test_optimizer_budget_matches_old_solver_defaults():
-    """The optimizer must keep reading EXACTLY the values it always got."""
+def test_archived_optimizer_budget_keeps_its_original_defaults():
+    """Loading old files must not reinterpret their retired settings."""
     o = OptimizerConfig()
     assert o.max_outer_ltne == 4
     assert o.outer_tol_K == 0.5
     assert o.max_iter_simple == 800
     assert o.alpha_T == 0.7
-
-
-def test_evaluator_mapping_reads_optimizer_block():
-    from sjtu_tpmshx.optimization.evaluator import _compute_cfg_to_evaluator_dict
-    cfg = ComputeConfig()
-    cfg.optimizer.max_iter_simple = 77
-    cfg.solver.max_iter_simple = 9999  # must not leak into the evaluator
-    d = _compute_cfg_to_evaluator_dict(cfg)
-    assert d['max_iter_simple'] == 77
 
 
 def test_legacy_json_with_retired_keys_loads(tmp_path):

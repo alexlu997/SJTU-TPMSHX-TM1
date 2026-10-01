@@ -17,7 +17,6 @@ def window(win):
     win._load_named_preset('Shanghai (3D Gyroid)')
     win._continuous_field_spec = None
     win._opt_conditions = None
-    win._selected_pareto_x = None
     win.le_Nx.setText('12'); win.le_Ny.setText('8'); win.le_Nz.setText('6')
     win.combo_grid.setCurrentIndex(win.combo_grid.findData(False))
     for key, value in (('L_min', 4.), ('L_max', 8.), ('t_min', .3), ('t_max', .6)):

@@ -5,7 +5,7 @@ from sjtu_tpmshx.io.result_io import load_result, save_result
 from sjtu_tpmshx.preprocess import api as preparation
 from sjtu_tpmshx.solvers import api as execution
 from sjtu_tpmshx.domain.provenance import repository_revision, source_context
-from sjtu_tpmshx.tests.test_evaluator_frozen_values import _FAST_CFG, _X_NONUNIF
+from sjtu_tpmshx.tests.integration_tm1.test_2d_real import baseline_config
 
 
 @pytest.mark.slow
@@ -14,7 +14,7 @@ def test_provenance_survives_case_and_result(tmp_path, monkeypatch):
     solved = {'code':{'revision':'solver-revision'}, 'data':{'declared_revision':'solver-data-revision'}}
     monkeypatch.setattr(preparation, 'source_context', lambda: prepared)
     monkeypatch.setattr(execution, 'source_context', lambda: solved)
-    case = preparation.prepare_screening_2d(_X_NONUNIF.copy(),dict(_FAST_CFG),case_id='provenance')
+    case = preparation.prepare_case(baseline_config(), case_id='provenance')
     save_case(case,tmp_path/'case.yaml')
     result = execution.run_case(load_case(tmp_path/'case.yaml'))
     save_result(result,tmp_path/'result.h5')

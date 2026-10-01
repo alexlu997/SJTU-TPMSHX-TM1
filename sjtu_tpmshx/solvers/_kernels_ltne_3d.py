@@ -639,9 +639,10 @@ def _gs_full_chunk_3d_stag_rb(Ta, Tb, Ts, Nx, Ny, Nz,
                 Tb, model_mass_B, model_cp_B, bc_B, T_inB_arr, ifrac_B, dx_arr, dy_arr, dz_arr)
             model_source_A = -_face_divergence(deferred_A)
             model_source_B = -_face_divergence(deferred_B)
-        # Start-of-sweep snapshot for the (2-away, same-colour) deferred SOU.
-        Ta_snap = Ta.copy()
-        Tb_snap = Tb.copy()
+        # Temperature SOU needs a start-of-sweep snapshot for same-colour
+        # dependencies; model-h already captured its deferred face sources.
+        Ta_snap = Ta if model_mass_A is not None else Ta.copy()
+        Tb_snap = Tb if model_mass_A is not None else Tb.copy()
         sweep_chg = 0.0
         for color in range(2):
             color_chg = 0.0
@@ -720,11 +721,12 @@ def _gs_full_chunk_3d_stag_rb(Ta, Tb, Ts, Nx, Ny, Nz,
                     Kc, dxi, dyj, dzk, aE, aW, aN, aS, aT, aB, tE, tW, tN, tS, tT, tB)
 
                 if conservative == 1:
-                    sou = (_sou_face_x_cons(Ta_snap, i, j, k, Nx, F_w, F_e, dx_arr)
-                           + _sou_face_y_cons(Ta_snap, i, j, k, Ny, F_s, F_n, dy_arr)
-                           + _sou_face_z_cons(Ta_snap, i, j, k, Nz, F_b, F_t, dz_arr))
                     if model_mass_A is not None:
                         sou = model_source_A[i, j, k]
+                    else:
+                        sou = (_sou_face_x_cons(Ta_snap, i, j, k, Nx, F_w, F_e, dx_arr)
+                               + _sou_face_y_cons(Ta_snap, i, j, k, Ny, F_s, F_n, dy_arr)
+                               + _sou_face_z_cons(Ta_snap, i, j, k, Nz, F_b, F_t, dz_arr))
                     net_out = (F_e - F_w) + (F_n - F_s) + (F_t - F_b)
                     aP = aE + aW + aN + aS + aT + aB + net_out + hvA
                 else:
@@ -841,11 +843,12 @@ def _gs_full_chunk_3d_stag_rb(Ta, Tb, Ts, Nx, Ny, Nz,
                         bc_B, i, j, k, Nx, Ny, Nz, ifrac_B, T_inB_arr,
                         Kc_b, dxi, dyj, dzk, aEb, aWb, aNb, aSb, aTb, aBb, tEb, tWb, tNb, tSb, tTb, tBb)
                     if conservative == 1:
-                        soub = (_sou_face_x_cons(Tb_snap, i, j, k, Nx, FB_w, FB_e, dx_arr)
-                                + _sou_face_y_cons(Tb_snap, i, j, k, Ny, FB_s, FB_n, dy_arr)
-                                + _sou_face_z_cons(Tb_snap, i, j, k, Nz, FB_b, FB_t, dz_arr))
                         if model_mass_A is not None:
                             soub = model_source_B[i, j, k]
+                        else:
+                            soub = (_sou_face_x_cons(Tb_snap, i, j, k, Nx, FB_w, FB_e, dx_arr)
+                                    + _sou_face_y_cons(Tb_snap, i, j, k, Ny, FB_s, FB_n, dy_arr)
+                                    + _sou_face_z_cons(Tb_snap, i, j, k, Nz, FB_b, FB_t, dz_arr))
                         net_outB = ((FB_e - FB_w) + (FB_n - FB_s)
                                     + (FB_t - FB_b))
                         aPb = (aEb + aWb + aNb + aSb + aTb + aBb

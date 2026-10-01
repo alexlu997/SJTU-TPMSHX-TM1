@@ -73,7 +73,8 @@ class RunControllerMixin:
         # Mark compute start so `_end_compute_ui` records elapsed for the
         # status bar clock. 3D branch overwrites with its own clock.
         self._compute_t0 = _time.time()
-        # 3D dispatch: uniform MVP path (no zoning, Shanghai-style uniform TPMS)
+        # 3D dispatch uses Pipeline3D; the captured config may include a
+        # continuous XYZ field loaded from the optimization Pareto archive.
         if hasattr(self, 'combo_dim') and self.combo_dim.currentIndex() == 1:
             self._run_calculation_3d()
             return

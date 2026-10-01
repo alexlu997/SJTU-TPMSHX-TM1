@@ -1011,7 +1011,7 @@ def _mass_res_jit_3d(u, v, w, Nx, Ny, Nz, dx, dy, dz, rho_field):
 @njit(cache=True, fastmath=True)
 def _mass_res_solved_jit_3d(u, v, w, Nx, Ny, Nz, dx, dy, dz,
                             rho_eps_field, cell_kind):
-    """LOCAL continuity residual over the cells the pp equation ACTUALLY SOLVES.
+    """LOCAL continuity residual over the caller-selected ``cell_kind == 0`` cells.
 
     Two deliberate differences from `_mass_res_jit_3d`, both required for the
     number to mean anything (ledger C6/C7):
@@ -1019,8 +1019,10 @@ def _mass_res_solved_jit_3d(u, v, w, Nx, Ny, Nz, dx, dy, dz,
       1. `cell_kind` (from `_pp_sparsity`) selects `== 0` cells. The outlet row
          is `cell_kind == 1`: its continuity equation was REPLACED by `Pp = 0`
          (a Dirichlet pressure outlet), so it has no continuity residual to
-         converge and must not be counted. Select by cell_kind, NOT by row index
-         — a partial / tapered outlet pins only some cells of the row.
+         converge in that PPE diagnostic. Select by cell_kind, NOT by row index
+         — a partial / tapered outlet pins only some cells of the row. The final
+         returned-state certificate instead passes an all-zero selection to
+         check continuity in every physical cell, including outlet cells.
       2. The CALLER must pass a rho_eps rebuilt from the CURRENT (post-
          `_update_density`) rho. `_mass_res_jit_3d` is handed the pre-update
          array the pp solve already zeroed itself against, which is why it reads

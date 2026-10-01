@@ -23,10 +23,31 @@ from sjtu_tpmshx.models.continuous_field import decision_bounds
 from sjtu_tpmshx.optimization.multi_condition import (
     evaluate_condition_batch, resolve_fixed_mass_flow_config,
 )
-from sjtu_tpmshx.optimization.optimizer_qnehvi import _pareto_mask_max
 
 
 _log = get_logger(__name__)
+
+
+def _pareto_mask_max(Y: np.ndarray, *, valid=None) -> np.ndarray:
+    """Boolean mask of non-dominated rows under MAXIMIZATION semantics.
+
+    Y shape: (N, M). A row is non-dominated when no other row weakly dominates
+    it on every objective AND strictly dominates on at least one.
+    """
+    N = Y.shape[0]
+    mask = np.isfinite(Y).all(axis=1)
+    if valid is not None:
+        mask &= valid
+    for i in range(N):
+        if not mask[i]:
+            continue
+        for j in range(N):
+            if i == j or not mask[j]:
+                continue
+            if np.all(Y[j] >= Y[i]) and np.any(Y[j] > Y[i]):
+                mask[i] = False
+                break
+    return mask
 
 
 def _bo_versions():

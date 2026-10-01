@@ -9,12 +9,12 @@ on synthetic decision vectors and parsed CSVs.
 from __future__ import annotations
 
 import json
+import csv
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.models.screening import DEFAULT_CONFIG
 from sjtu_tpmshx.optimization import export_ntop_csv
 from sjtu_tpmshx.optimization.export_ntop_csv import (
     DEFAULT_GRID_NX,
@@ -28,6 +28,11 @@ from sjtu_tpmshx.models.continuous_field import (
     encode_decision_vector,
     uniform_field,
 )
+
+
+ARCHIVED_GEOMETRY = dict(tpms_type='Diamond', k_s=17., L_domain=.1, H_domain=.05,
+    n_ctrl_x=4, n_ctrl_y=4, symmetric_y=True, spline_order=3,
+    L_bounds=DEFAULT_L_BOUNDS, t_bounds=DEFAULT_T_BOUNDS)
 
 
 def _uniform_decision_vector():
@@ -166,7 +171,7 @@ def test_pareto_row_loads_decision_vector(tmp_path):
     out = tmp_path / 'export'
     summary = export_pareto_row(str(csv_path), 0, str(out),
                                  Nx_export=10, Ny_export=8,
-                                 config=DEFAULT_CONFIG)
+                                 config=ARCHIVED_GEOMETRY)
     assert summary['source']['pareto_Q_W_m'] == Q_dummy
     assert summary['source']['pareto_dP_Pa'] == dP_dummy
     assert summary['Nx_export'] == 10
@@ -180,3 +185,48 @@ def test_pareto_row_invalid_index_raises(tmp_path):
     csv_path.write_text(header + '\n' + ','.join(row) + '\n')
     with pytest.raises(IndexError):
         export_pareto_row(str(csv_path), 5, str(tmp_path / 'nope'))
+
+
+@pytest.mark.parametrize('dimension', [16, 36])
+def test_historical_export_restores_named_decisions(tmp_path, monkeypatch, dimension):
+    values = {f'x{i}': float(i + 1) for i in range(dimension)}
+    values.update(Q_W_per_m=1234., dP_Pa=567.)
+    path = tmp_path / 'pareto.csv'
+    with path.open('w', newline='') as target:
+        writer = csv.DictWriter(target, list(reversed(values)))
+        writer.writeheader()
+        writer.writerow(values)
+    captured = []
+    monkeypatch.setattr(export_ntop_csv, 'export_decision_vector',
+                        lambda x, *a, **kw: captured.append((x, kw['extra_metadata'])))
+    cfg = {**ARCHIVED_GEOMETRY, 'n_ctrl_x': 6 if dimension == 36 else 4,
+           'n_ctrl_y': 6 if dimension == 36 else 4}
+    export_pareto_row(str(path), 0, str(tmp_path / 'out'), config=cfg)
+    np.testing.assert_array_equal(captured[0][0], np.arange(1., dimension + 1.))
+    assert captured[0][1]['pareto_Q_W_m'] == 1234.
+    assert captured[0][1]['pareto_dP_Pa'] == 567.
+
+
+@pytest.mark.parametrize('config', [{}, [], {k: v for k, v in ARCHIVED_GEOMETRY.items() if k != 'L_domain'}])
+def test_export_rejects_incomplete_geometry_metadata(tmp_path, monkeypatch, config):
+    path = tmp_path / 'pareto.csv'
+    path.write_text(','.join([*(f'x{i}' for i in range(16)), 'Q_W_per_m', 'dP_Pa'])
+                    + '\n' + ','.join(['1'] * 18) + '\n')
+    monkeypatch.setattr(export_ntop_csv, 'export_decision_vector',
+                        lambda *a, **kw: pytest.fail('invalid metadata exported'))
+    with pytest.raises(ValueError, match='configuration'):
+        export_pareto_row(str(path), 0, str(tmp_path / 'out'), config=config)
+    assert not (tmp_path / 'out').exists()
+
+
+def test_historical_geometry_export_keeps_failure_verdict(tmp_path):
+    path = tmp_path / 'history.csv'
+    x = _uniform_decision_vector()
+    np.savetxt(path, np.r_[x, 10., 20.][None, :], delimiter=',',
+               header=','.join([*(f'x{i}' for i in range(x.size)), 'Q_W_per_m', 'dP_Pa']),
+               comments='')
+    status = dict(evaluation=1, status='failed', reason='original solve failure')
+    path.with_name('history_status.json').write_text(json.dumps([status]))
+    result = export_pareto_row(str(path), 0, str(tmp_path / 'geometry'),
+        config=ARCHIVED_GEOMETRY, Nx_export=4, Ny_export=4)
+    assert result['source']['evaluation_status'] == status

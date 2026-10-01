@@ -70,9 +70,10 @@ Result declarations must agree: `grid.dimension` is authoritative when present,
 with `metadata.dimension` usable for partial in-memory evidence. If both are
 present they must match. An explicit `quantity_basis` must be `per_unit_depth`
 for 2D or `total` for 3D; omitted declarations are not added to archived data.
-Postprocessing requires a known 2D/3D dimension and supports `full`,
-`screening_2d`, `screening_3d` and `quick_design`. Only an omitted `mode` defaults
-to `full`. Unknown explicit modes may be archived unchanged, but current
+Postprocessing requires a known 2D/3D dimension and supports `full` and
+`quick_design`. The retired `screening_2d` and `screening_3d` modes remain
+readable in archives but cannot execute or recompute metrics.
+Only an omitted `mode` defaults to `full`. Unknown explicit modes may be archived unchanged, but current
 postprocessing rejects them before reducing any metrics. Archiving a partial
 or unconverged result does not establish that it is executable or validated;
 missing evidence for individual metrics retains its existing explicit status.

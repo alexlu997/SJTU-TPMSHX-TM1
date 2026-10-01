@@ -26,12 +26,10 @@ sjtu_tpmshx/tests/preprocess/test_3d_execution_data.py
 sjtu_tpmshx/tests/preprocess/test_3d_tm1.py
 sjtu_tpmshx/tests/preprocess/test_api_metadata.py
 sjtu_tpmshx/tests/preprocess/test_offline_tm1.py
-sjtu_tpmshx/tests/preprocess/test_screening_field_consistency.py
 sjtu_tpmshx/tests/solver_tm1/test_execution_2d.py
 sjtu_tpmshx/tests/solver_tm1/test_prepared_continuous_2d.py
 sjtu_tpmshx/tests/solver_tm1/test_prepared_grid_contract.py
 sjtu_tpmshx/tests/solver_tm1/test_quick_design_controls.py
-sjtu_tpmshx/tests/solver_tm1/test_screening_convergence_rejection.py
 sjtu_tpmshx/tests/test_2d_warning_callers.py
 sjtu_tpmshx/tests/test_3d_reverse_mirror.py
 sjtu_tpmshx/tests/test_3d_thermal_face_ownership.py
@@ -97,11 +95,9 @@ sjtu_tpmshx/tests/test_outlet_temperature_2d.py
 sjtu_tpmshx/tests/test_p_in_shooting.py
 sjtu_tpmshx/tests/test_partial_config_import.py
 sjtu_tpmshx/tests/test_pipeline_ui_hooks.py
-sjtu_tpmshx/tests/test_port_evaluator.py
 sjtu_tpmshx/tests/test_pp_sparse_assembly.py
 sjtu_tpmshx/tests/test_pressure_floor.py
 sjtu_tpmshx/tests/test_pressure_invalid_flag.py
-sjtu_tpmshx/tests/test_profile_output_paths.py
 sjtu_tpmshx/tests/test_pyamg_dynamic_rebuild.py
 sjtu_tpmshx/tests/test_quick_design_dialog.py
 sjtu_tpmshx/tests/test_re_convention.py
@@ -116,7 +112,6 @@ sjtu_tpmshx/tests/test_sco2_checkpoints.py
 sjtu_tpmshx/tests/test_sco2_exp_loader.py
 sjtu_tpmshx/tests/test_sco2_phase_a.py
 sjtu_tpmshx/tests/test_sco2_temperature_field.py
-sjtu_tpmshx/tests/test_screening_fidelity.py
 sjtu_tpmshx/tests/test_shanghai_regression.py
 sjtu_tpmshx/tests/test_shared_input_contracts.py
 sjtu_tpmshx/tests/test_simple_pair_dispatch.py
@@ -126,7 +121,6 @@ sjtu_tpmshx/tests/test_solver_knobs_r3.py
 sjtu_tpmshx/tests/test_stylesheet_braces.py
 sjtu_tpmshx/tests/test_surrogate_domain.py
 sjtu_tpmshx/tests/test_theme_manager.py
-sjtu_tpmshx/tests/test_tool_handoffs.py
 sjtu_tpmshx/tests/test_tpms_calc.py
 sjtu_tpmshx/tests/test_tpms_geometry_n128.py
 sjtu_tpmshx/tests/test_true_h_coupled_energy.py
@@ -139,7 +133,6 @@ sjtu_tpmshx/tests/test_user_storage.py
 sjtu_tpmshx/tests/test_validate_pipeline_runner_wiring.py
 sjtu_tpmshx/tests/test_validation_output_paths.py
 sjtu_tpmshx/tests/test_validation_tool_verdicts.py
-sjtu_tpmshx/tests/test_verify_pareto_3d.py
 sjtu_tpmshx/tests/test_wall_port_geometry.py
 sjtu_tpmshx/tests/test_water_pipeline_states.py
 sjtu_tpmshx/tests/test_water_states.py

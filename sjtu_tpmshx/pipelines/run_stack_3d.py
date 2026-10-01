@@ -37,7 +37,7 @@ def _run_3d_stack(cfg, *, control: RunControl = RunControl()):
 
     Both sides support ±x, ±y and ±z with partial openings in both
     cross-stream coordinates. An explicit ``fluid_B_cfg=None`` selects the
-    single-fluid path; it is distinct from the frozen-B screening model.
+    single-fluid research path.
 
     Sweep profiles (cfg['sweep_profile']):
       'fast_sweep'    — 15³ grid, outer cap 3 (BELOW the converging count —

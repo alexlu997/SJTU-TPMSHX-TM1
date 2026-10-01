@@ -1,10 +1,11 @@
-"""Run two screening parameter cases using only public module/file APIs."""
+"""Run two full-solver parameter cases using public module/file APIs."""
 import argparse
+from dataclasses import replace
 import json
 from pathlib import Path
-import numpy as np
 
-from sjtu_tpmshx.preprocess.api import prepare_screening_2d
+from sjtu_tpmshx.domain.compute_config import ComputeConfig
+from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.postprocess.api import evaluate
 from sjtu_tpmshx.io.case_io import save_case
@@ -16,15 +17,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('output', type=Path)
     args = parser.parse_args()
+    baseline = ComputeConfig.from_json(Path(__file__).with_name('air_2d.json'))
     reports = []
-    for velocity in (1., 2.):
+    for factor in (1., 1.2):
+        velocity = baseline.fluid_A.u_mps * factor
         name = f'u-{velocity:g}'
         folder = args.output / name
         folder.mkdir(parents=True, exist_ok=True)
-        case = prepare_screening_2d(
-            np.r_[np.full(8, 6.), np.full(8, .4)],
-            dict(Nx=8, Ny=6, u_A=velocity, u_B=1., max_iter_simple=800,
-                 max_iter_energy=1500, n_rho_loops=1), case_id=name)
+        config = replace(baseline, fluid_A=replace(baseline.fluid_A, u_mps=velocity))
+        case = prepare_case(config, case_id=name)
         result = run_case(case)
         metrics = evaluate(result)
         save_case(case, folder / 'case.yaml')
@@ -33,7 +34,7 @@ def main():
         reports.append(dict(case_id=name, Q=metrics.metrics['Q'].value,
                             Q_unit=metrics.metrics['Q'].spec.unit,
                             converged=result.run_status['converged'],
-                            physical_validation=result.run_status['physical_validation']))
+                            envelope_valid=result.run_status['envelope_valid']))
     (args.output / 'summary.json').write_text(json.dumps(reports, indent=2))
     print(json.dumps(reports))
 

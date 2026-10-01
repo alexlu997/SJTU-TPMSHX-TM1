@@ -17,7 +17,7 @@ Geometric assumptions (must match the optimizer cfg):
     configured geometry window, which also bounds the optimizer (path A in
     the planning history)
 
-CLI usage::
+Historical Pareto CSV export (the former screening optimizer is retired)::
 
     python -m sjtu_tpmshx.optimization.export_ntop_csv \\
         --pareto opt_runs/production_v1/pareto_final.csv \\
@@ -55,7 +55,6 @@ from sjtu_tpmshx.models.continuous_field import (
     DEFAULT_T_BOUNDS,
     from_decision_vector,
 )
-from sjtu_tpmshx.models.screening import FIELD_CONFIG_KEYS
 from sjtu_tpmshx.logutil import get_logger
 
 _log = get_logger(__name__)
@@ -70,6 +69,8 @@ DEFAULT_L_DOMAIN_M = 0.10    # m
 DEFAULT_H_DOMAIN_M = 0.05    # m
 DEFAULT_TPMS = 'Diamond'
 DEFAULT_KS = 17.0
+FIELD_CONFIG_KEYS = ('tpms_type', 'k_s', 'L_domain', 'H_domain', 'n_ctrl_x',
+                     'n_ctrl_y', 'symmetric_y', 'spline_order', 'L_bounds', 't_bounds')
 
 
 # ─── Core conversion ────────────────────────────────────────────────
@@ -187,9 +188,9 @@ def export_pareto_row(pareto_csv_path: str,
     """Pull one row from a pareto_final.csv (or history.csv), strip the
     trailing (Q, dP) columns, and route through export_decision_vector.
 
-    Both CSV formats follow the convention written by
-    ``optimizer_qnehvi._save_pareto_csv``: columns x0..x{D-1}, Q_W_per_m,
-    dP_Pa.
+    Both historical CSV formats contain named columns x0..x{D-1},
+    Q_W_per_m and dP_Pa. This restores geometry without rerunning the
+    retired screening model.
     """
     from .pareto_io import read_pareto_csv
     data = read_pareto_csv(pareto_csv_path, decision_dim_expected)

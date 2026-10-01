@@ -1,17 +1,7 @@
-"""Shared output-schema contract for structured grid-array builders.
+"""Output-schema contract for ZoneConfig's structured grid-array builders.
 
-Two builders emit the same per-cell property dict consumed by the 2D
-preparation path (``preprocess/two_d/``) and the optimizer:
-
-  * ``zone_config.ZoneConfig.build_structured_arrays``  (UI zone table)
-  * ``continuous_field.ContinuousFieldConfig.build_grid_arrays``
-    (optimizer decision vector)
-
-They are intentionally separate implementations (zone replication vs
-unique-pair scatter); this module only pins their OUTPUT contract so a
-key added to one builder cannot silently go missing from the other
-(refactor B1 1.6, 2026-06-12). Extra builder-specific keys
-(``zone_params``, ``cache_size`` …) are allowed and not validated.
+The 2D preparation path consumes these per-cell property dictionaries.
+Extra builder-specific keys such as ``zone_params`` are allowed.
 """
 from __future__ import annotations
 

@@ -60,6 +60,8 @@ def to_compute_result(result, performance):
         geometry = parameters['prepared']['geometry']
         fields.update({name: mutable_data(f.get(name)) for name in ('wcA', 'wcB', 'vmag_A', 'vmag_B')})
         fields.update({axis: result.grid[axis] for axis in ('dx', 'dy', 'dz')})
+        fields.update({f'ports_{side}': mutable_data(parameters[f'fluid_{side}_cfg'])
+                       for side in ('A', 'B')})
         fields.update(Lx=parameters['L'], Ly=parameters['H'], Lz=parameters['Lz'],
                       L_mm=result.metadata['design_fields']['L_field_m'] * 1e3,
                       t_mm=result.metadata['design_fields']['t_field_m'] * 1e3,

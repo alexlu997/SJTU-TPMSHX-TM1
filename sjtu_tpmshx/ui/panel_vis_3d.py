@@ -484,6 +484,7 @@ class ThreeDVisPanel(QWidget):
         self._opacity = opacity_default / 100.0       # 0..1, mirrors slider/100
         self._flow_dir = '+x'                        # Fluid A arrow direction
         self._flow_dir_B = None                      # Fluid B arrow direction
+        self._ports = {}
         self._tween_animation: Optional[QVariantAnimation] = None
         self._tween_end_pose = None
         self._tween_previous_update_rate = None
@@ -514,7 +515,7 @@ class ThreeDVisPanel(QWidget):
     def set_fields(self, Ta=None, vmag=None, P_kPa=None, L_mm=None,
                    dx=None, dy=None, dz=None,
                    *, t_mm=None, Tb=None, Ts=None, vmag_B=None, P_B_kPa=None,
-                   flow_dir='+x', flow_dir_B=None):
+                   flow_dir='+x', flow_dir_B=None, ports_A=None, ports_B=None):
         """Attach 3D fields to the panel. Shape of every field: (Nx, Ny, Nz).
 
         Pass `None` for any field that is unavailable
@@ -523,12 +524,14 @@ class ThreeDVisPanel(QWidget):
         dx, dy, dz : 1-D grid spacings in metres.
         L_mm and t_mm : independent design fields, each with its own color range.
         flow_dir=None hides the A flow arrows; omitting it retains +x arrows.
+        ports_A/B are this result's prepared inlet/outlet geometry in metres.
         """
         if dx is None or dy is None or dz is None:
             raise ValueError("set_fields: dx/dy/dz are required")
 
         self._flow_dir = None if flow_dir is None else str(flow_dir or '+x')
         self._flow_dir_B = str(flow_dir_B) if flow_dir_B else None
+        self._ports = {'A': ports_A, 'B': ports_B}
 
         candidate = {
             'Ta': Ta, 'Tb': Tb, 'Ts': Ts,
@@ -1207,12 +1210,7 @@ class ThreeDVisPanel(QWidget):
         # Keep the native fit for any core aspect and viewport height.
 
     def _add_flow_glyph(self):
-        """Place faint inlet/outlet cone arrows on domain faces per flow_dir.
-
-        Keeps the 3D view self-orienting — user can tell the inlet face at a
-        glance without reading status text. Cones are thin + semi-opaque so
-        they never compete with the volume data for visual weight.
-        """
+        """Outline the solved openings and place arrows at their centres."""
         if self._grid is None:
             return
         t = get_theme()
@@ -1220,35 +1218,36 @@ class ThreeDVisPanel(QWidget):
         tip_len = max(1.5, 0.12 * min(Lx, Ly, Lz))
         radius = tip_len * 0.35
 
-        def _centres(flow_dir):
-            axis = flow_dir.lstrip('+-')
-            sign = -1.0 if flow_dir.startswith('-') else 1.0
-            if axis == 'x':
-                inlet = (0.0, Ly * 0.5, Lz * 0.5) if sign > 0 else (Lx, Ly * 0.5, Lz * 0.5)
-                outlet = (Lx, Ly * 0.5, Lz * 0.5) if sign > 0 else (0.0, Ly * 0.5, Lz * 0.5)
-                direction = (sign, 0, 0)
-            elif axis == 'y':
-                inlet = (Lx * 0.5, 0.0, Lz * 0.5) if sign > 0 else (Lx * 0.5, Ly, Lz * 0.5)
-                outlet = (Lx * 0.5, Ly, Lz * 0.5) if sign > 0 else (Lx * 0.5, 0.0, Lz * 0.5)
-                direction = (0, sign, 0)
-            else:
-                inlet = (Lx * 0.5, Ly * 0.5, 0.0) if sign > 0 else (Lx * 0.5, Ly * 0.5, Lz)
-                outlet = (Lx * 0.5, Ly * 0.5, Lz) if sign > 0 else (Lx * 0.5, Ly * 0.5, 0.0)
-                direction = (0, 0, sign)
-            return inlet, outlet, direction
-
         def _add_pair(flow_dir, tag, inlet_color, outlet_color, opacity):
-            inlet_center, outlet_center, direction = _centres(flow_dir)
-            inlet_cone = pv.Cone(center=inlet_center, direction=direction,
-                                 height=tip_len, radius=radius, resolution=32)
-            outlet_cone = pv.Cone(center=outlet_center, direction=direction,
-                                  height=tip_len, radius=radius, resolution=32)
-            self.plotter.add_mesh(
-                inlet_cone, color=inlet_color, opacity=opacity,
-                name=f'_flow_inlet_{tag}', show_scalar_bar=False, lighting=True, render=False)
-            self.plotter.add_mesh(
-                outlet_cone, color=outlet_color, opacity=opacity,
-                name=f'_flow_outlet_{tag}', show_scalar_bar=False, lighting=True, render=False)
+            from sjtu_tpmshx.models.field_coordinates_3d import _port_rectangles
+
+            axis = 'xyz'.index(flow_dir[-1])
+            cross = [i for i in range(3) if i != axis]
+            sign = -1.0 if flow_dir.startswith('-') else 1.0
+            direction = np.zeros(3)
+            direction[axis] = sign
+            ports = self._ports.get(tag)
+            rectangles = (_port_rectangles(ports, self._L_mm[cross[1]] * 1e-3)
+                          if ports is not None else None)
+            for end, color, upper in (('inlet', inlet_color, sign < 0),
+                                      ('outlet', outlet_color, sign > 0)):
+                center = np.array(self._L_mm) * 0.5
+                center[axis] = self._L_mm[axis] if upper else 0.0
+                if rectangles is not None:
+                    bounds = np.asarray(rectangles[end + '_rect']).reshape(2, 2) * 1000.
+                    bounds = np.clip(bounds, 0., np.asarray(self._L_mm)[cross, None])
+                    center[cross] = bounds.mean(axis=1)
+                    corners = np.tile(center, (5, 1))
+                    corners[:, cross[0]] = bounds[0, [0, 1, 1, 0, 0]]
+                    corners[:, cross[1]] = bounds[1, [0, 0, 1, 1, 0]]
+                    self.plotter.add_mesh(
+                        pv.lines_from_points(corners), color=color, line_width=3,
+                        name=f'_port_{end}_{tag}', show_scalar_bar=False, render=False)
+                cone = pv.Cone(center=center, direction=direction,
+                               height=tip_len, radius=radius, resolution=32)
+                self.plotter.add_mesh(
+                    cone, color=color, opacity=opacity, name=f'_flow_{end}_{tag}',
+                    show_scalar_bar=False, lighting=True, render=False)
 
         try:
             if self._flow_dir is not None:

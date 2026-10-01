@@ -18,8 +18,7 @@ stay dimension-specific — they differ in solve order (2D SIMPLE→LTNE;
 3D LTNE→SIMPLE), in the physics one side carries (conservative
 staggered-face LTNE, per-outer P_ref recompute), in their
 progress budgets and RunControl callbacks, and numerical duty diagnostics
-(2D Richardson vs 3D enthalpy). Frozen-B belongs to the separate 3D screening
-path. Formal reporting consumes the captured result.
+(2D Richardson vs 3D enthalpy). Formal reporting consumes the captured result.
 The driver owns only the control flow; the ``step``/``post`` closures keep
 each body's arithmetic and copy timing verbatim, so behaviour stays
 equivalent to the prior inline loops; compare native fields, convergence and

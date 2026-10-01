@@ -218,20 +218,22 @@ class TabViewMixin:
         if not self._canvas_tab_availability().get(tab, False):
             tab = 'layout'
 
+        same_tab = tab == getattr(self, '_active_tab', None)
+        self._active_tab = tab
+        from sjtu_tpmshx.ui.builders_canvas import refresh_field_controls
+        if hasattr(self, '_field_phase_seg'):
+            refresh_field_controls(self)
+
+        # Refresh result controls even when the same canvas stays visible.
         # Tab-switch fast path: no-op only when the active card is visible.
         # Preview can draw layout while the startup-hidden layout card is
         # still marked active, so visibility must be part of the guard.
-        if tab == getattr(self, '_active_tab', None) \
-                and not getattr(self, '_split_tabs', None):
+        if same_tab and not getattr(self, '_split_tabs', None):
             card = getattr(self, '_canvas_cards', {}).get(tab)
             if card is not None and card.isVisible() and (
                     tab not in ('temp', 'pres', 'vel') or tab in self.cache.get_drawn_tabs()):
                 return
 
-        self._active_tab = tab
-        from sjtu_tpmshx.ui.builders_canvas import refresh_field_controls
-        if hasattr(self, '_field_phase_seg'):
-            refresh_field_controls(self)
         if tab in ('temp', 'pres', 'vel'):
             from sjtu_tpmshx.ui.plot_2d_results import ensure_result_plot
             if not ensure_result_plot(self, tab):

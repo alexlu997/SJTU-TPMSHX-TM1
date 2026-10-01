@@ -28,7 +28,9 @@ from sjtu_tpmshx.solvers._solve_common import (
     configure_convergence, inlet_pressure_state, pressure_shooting_reference,
     pressure_initial_reference,
 )
-from sjtu_tpmshx.solvers.ltne_energy_3d import solve_full_domain_3d, _inlet_transport_3d
+from sjtu_tpmshx.solvers.ltne_energy_3d import (
+    DEFAULT_CONV_CHUNK, solve_full_domain_3d, _inlet_transport_3d,
+)
 from sjtu_tpmshx.models.tpms_calc import (
     air_density, air_viscosity,
     air_conductivity, air_cp,
@@ -2009,12 +2011,13 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
 
     # 3D remains thermal-first. The last nonconverged iteration still runs post;
     # its native thermal evidence must be detached before those working updates.
-    def _check_property_water(where):
+    def _check_property_water(where, temperatures=None):
         # The temperature path refreshes properties at frozen inlet pressure.
         # It does not consume the separate true-h kernel pressure offset.
-        fluid_props.check_water_state(fluid_type_A, T_inA if state.Ta is None else state.Ta,
+        Ta, Tb = (state.Ta, state.Tb) if temperatures is None else temperatures
+        fluid_props.check_water_state(fluid_type_A, T_inA if Ta is None else Ta,
                                       P_inA, where=f'{where} A')
-        fluid_props.check_water_state(fluid_type_B, T_inB if state.Tb is None else state.Tb,
+        fluid_props.check_water_state(fluid_type_B, T_inB if Tb is None else Tb,
                                       P_inB, where=f'{where} B')
 
     def _record_temperature_state(stage, layout):
@@ -2221,57 +2224,90 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
         # ρcp·u·T solve for only a couple of sweeps (a cheap warm-start) rather
         # than to full convergence. Its returned temperatures seed true-h.
         _eff_ltne_max_iter = 2 if _enth_gate else _ltne_max_iter
+        _water_startup = (
+            _model_h_gate and 'water' in (fluid_type_A, fluid_type_B) and not _ltne_info)
+        if _water_startup:
+            # Refresh the inlet-temperature flow after one thermal interval.
+            # Fully converging this stale flow can spuriously boil stagnant
+            # water cells. This initial iterate remains unconverged.
+            _eff_ltne_max_iter = min(_ltne_max_iter, DEFAULT_CONV_CHUNK)
         _refined_thermal = {}
         if cfg.get('port_wall_refine', False) and _model_h_gate:
             _refined_thermal = dict(accelerate=True, alpha_T_s=1.)
-        _ltne_result = solve_full_domain_3d(
-            L, H, Lz, Nx, Ny, Nz, T_inA, T_inB,
-            K_ffA, state.K_ffB, K_ss, state.h_vA_field, state.h_vB_field,
-            state.rho_cp_fA, state.rho_cp_fB, eps_arr,
-            ucA, vcA, wcA, ucB, vcB, wcB,
-            dir_A=fA['dir'],
-            dir_B=(fB['dir'] if fB is not None else 3),
-            dx_arr=dx, dy_arr=dy, dz_arr=dz,
-            inlet_flux_A=inlet_flux_A,
-            inlet_flux_B=inlet_flux_B,
-            inlet_mask_A=state._ltne_mask_A,
-            inlet_mask_B=state._ltne_mask_B,
-            Tb_prescribed=Tb_presc, max_iter=_eff_ltne_max_iter, tol=1e-5,
-            Ta_init=state.Ta, Tb_init=state.Tb, Ts_init=state.Ts,
-            alpha_T=float(cfg.get('ltne_alpha_T', 0.7)),
-            **_refined_thermal,
-            # force_cc_ltne: drop face velocities so the LTNE uses the cc
-            # (non-stag) advection chunk — same scheme as the V&V'd 2D solver.
-            # The face (stag) chunk's SOU uses a cc-reconstructed flux magnitude
-            # inconsistent with its face base fluxes, which limit-cycles the
-            # deferred correction for stiff low-Re water (point-0 root cause).
-            # conservative_ltne (B-plan B2) overrides force_cc_ltne: the strict
-            # face-centered conservation form lives in the stag kernel, so the
-            # SIMPLE face velocities MUST flow through regardless.
-            ufA=(ufA if _conservative_ltne or not cfg.get('force_cc_ltne', True) else None),
-            vfA=(vfA if _conservative_ltne or not cfg.get('force_cc_ltne', True) else None),
-            wfA=(wfA if _conservative_ltne or not cfg.get('force_cc_ltne', True) else None),
-            ufB=ufB, vfB=vfB, wfB=wfB,
-            mms_S_A_field=_mms_S_A,
-            mms_S_B_field=_mms_S_B,
-            mms_S_s_field=_mms_S_s,
-            conservative_ltne=_conservative_ltne,
-            # Asymmetric per-side ε (offset-isosurface δ). Passed ONLY when δ≠0
-            # → δ=0 omits the kwargs → kernel's symmetric 0.5·ε default path →
-            # bit-identical. eps_fA/eps_fB are single-channel (already-split)
-            # fractions in the same real axes as eps_arr; kernel consumes them
-            # without further halving.
-            eps_A=(eps_fA_arr if float(cfg.get('delta_levelset', 0.0)) != 0.0
-                   else None),
-            eps_B=(eps_fB_arr if float(cfg.get('delta_levelset', 0.0)) != 0.0
-                   else None),
-            cancel_check=_cancel_check,
-            return_info=True, **_model_kwargs)
+        _remaining = _ltne_max_iter
+        _startup_attempts = []
+        while True:
+            _ltne_result = solve_full_domain_3d(
+                L, H, Lz, Nx, Ny, Nz, T_inA, T_inB,
+                K_ffA, state.K_ffB, K_ss, state.h_vA_field, state.h_vB_field,
+                state.rho_cp_fA, state.rho_cp_fB, eps_arr,
+                ucA, vcA, wcA, ucB, vcB, wcB,
+                dir_A=fA['dir'],
+                dir_B=(fB['dir'] if fB is not None else 3),
+                dx_arr=dx, dy_arr=dy, dz_arr=dz,
+                inlet_flux_A=inlet_flux_A,
+                inlet_flux_B=inlet_flux_B,
+                inlet_mask_A=state._ltne_mask_A,
+                inlet_mask_B=state._ltne_mask_B,
+                Tb_prescribed=Tb_presc, max_iter=_eff_ltne_max_iter, tol=1e-5,
+                Ta_init=state.Ta, Tb_init=state.Tb, Ts_init=state.Ts,
+                alpha_T=float(cfg.get('ltne_alpha_T', 0.7)),
+                **_refined_thermal,
+                # force_cc_ltne: drop face velocities so the LTNE uses the cc
+                # (non-stag) advection chunk — same scheme as the V&V'd 2D solver.
+                # The face (stag) chunk's SOU uses a cc-reconstructed flux magnitude
+                # inconsistent with its face base fluxes, which limit-cycles the
+                # deferred correction for stiff low-Re water (point-0 root cause).
+                # conservative_ltne (B-plan B2) overrides force_cc_ltne: the strict
+                # face-centered conservation form lives in the stag kernel, so the
+                # SIMPLE face velocities MUST flow through regardless.
+                ufA=(ufA if _conservative_ltne or not cfg.get('force_cc_ltne', True) else None),
+                vfA=(vfA if _conservative_ltne or not cfg.get('force_cc_ltne', True) else None),
+                wfA=(wfA if _conservative_ltne or not cfg.get('force_cc_ltne', True) else None),
+                ufB=ufB, vfB=vfB, wfB=wfB,
+                mms_S_A_field=_mms_S_A,
+                mms_S_B_field=_mms_S_B,
+                mms_S_s_field=_mms_S_s,
+                conservative_ltne=_conservative_ltne,
+                # Asymmetric per-side ε (offset-isosurface δ). Passed ONLY when δ≠0
+                # → δ=0 omits the kwargs → kernel's symmetric 0.5·ε default path →
+                # bit-identical. eps_fA/eps_fB are single-channel (already-split)
+                # fractions in the same real axes as eps_arr; kernel consumes them
+                # without further halving.
+                eps_A=(eps_fA_arr if float(cfg.get('delta_levelset', 0.0)) != 0.0
+                       else None),
+                eps_B=(eps_fB_arr if float(cfg.get('delta_levelset', 0.0)) != 0.0
+                       else None),
+                cancel_check=_cancel_check,
+                return_info=True, **_model_kwargs)
+            try:
+                if not _enth_gate:
+                    _check_property_water('3D temperature return', _ltne_result[:2])
+                    fluid_props.check_finite_temperatures(
+                        *_ltne_result[:3], where='3D temperature return')
+            except fluid_props.WaterStateError as exc:
+                if (not _water_startup or _eff_ltne_max_iter <= 1
+                        or not all(np.all(np.isfinite(t)) for t in _ltne_result[:3])):
+                    raise
+                _remaining -= int(_ltne_result[3]['iterations'])
+                if _remaining <= 0:
+                    raise
+                # Restart from the unchanged valid initial temperatures. No
+                # invalid field reaches property evaluation or the next flow.
+                _startup_attempts.append(dict(
+                    iterations=int(_ltne_result[3]['iterations']), reason=str(exc)))
+                _eff_ltne_max_iter = min(_eff_ltne_max_iter // 2, _remaining)
+                continue
+            if _water_startup:
+                _remaining -= int(_ltne_result[3]['iterations'])
+            break
         state.Ta, state.Tb, state.Ts, _ltne_info_d = _ltne_result
+        if _water_startup:
+            _ltne_info_d['coupling_startup'] = dict(
+                rejected_attempts=_startup_attempts,
+                total_iterations=_ltne_max_iter - _remaining,
+                iteration_budget=_ltne_max_iter)
         if not _enth_gate:
-            _check_property_water('3D temperature return')
-            fluid_props.check_finite_temperatures(
-                state.Ta, state.Tb, state.Ts, where='3D temperature return')
             _record_temperature_state('main', 'real-cell(x,y,z)-return')
 
         return _ltne_info_d
@@ -2346,6 +2382,10 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
         _ltne_info.append(dict(outer=outer, iters=_ltne_info_d.get('iterations',0),
                                converged=_ltne_info_d.get('converged',False),
                                residual=_ltne_info_d.get('residual',0.0)))
+        if 'coupling_startup' in _ltne_info_d:
+            _ltne_info[-1]['coupling_startup'] = _ltne_info_d['coupling_startup']
+        if 'energy_finishing_checks' in _ltne_info_d:
+            _ltne_info[-1]['energy_finishing_checks'] = _ltne_info_d['energy_finishing_checks']
         if 'model_h_balance' in _ltne_info_d:
             _ltne_info[-1]['model_h_balance'] = dict(
                 _ltne_info_d['model_h_balance'], outer_index=outer,
@@ -2409,7 +2449,8 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
         _record_thermal_diagnostics(
             outer, info, inputs.mode, _P_A_local=pressure_A, _P_B_local=pressure_B,
             _dPA=dP_A, _dPB=dP_B, _prof_t_ltne=_prof_t_ltne)
-        return _check_outer_convergence(), None
+        outer_converged = _check_outer_convergence()
+        return outer_converged and bool(info.get('converged', False)), None
 
     def _refresh_flow_A(outer, _pressure_A):
         """A updates its temperature before density/viscosity and SIMPLE."""

@@ -24,15 +24,6 @@ import numpy as np
 from ._solve_common import f2_state_is_finite
 
 
-def _block_average_2d(arr: np.ndarray, fy: int, fz: int) -> np.ndarray:
-    """Average non-overlapping (fy × fz) blocks of a 2-D array."""
-    Ny, Nz = arr.shape
-    Ny_c = Ny // fy
-    Nz_c = Nz // fz
-    trim = arr[:Ny_c * fy, :Nz_c * fz]
-    return trim.reshape(Ny_c, fy, Nz_c, fz).mean(axis=(1, 3))
-
-
 def _block_average_3d(arr: np.ndarray, fx: int, fy: int, fz: int) -> np.ndarray:
     """Average non-overlapping (fx × fy × fz) blocks of a 3-D array."""
     Nx, Ny, Nz = arr.shape

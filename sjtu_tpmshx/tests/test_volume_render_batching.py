@@ -99,6 +99,7 @@ def test_initial_scene_defers_mesh_and_camera_render():
     panel = SimpleNamespace(
         plotter=plotter, _grid=Mock(), _L_mm=(182., 42., 42.),
         _flow_dir='+x', _flow_dir_B='+y', _arrays={'Ta': object(), 'Tb': object()},
+        _ports={},
     )
     panel._add_flow_glyph = lambda: ThreeDVisPanel._add_flow_glyph(panel)
     ThreeDVisPanel._render_initial_scene(panel)
@@ -119,6 +120,33 @@ def test_initial_scene_defers_mesh_and_camera_render():
     plotter.view_isometric.assert_called_once_with(render=False)
     plotter.camera.zoom.assert_not_called()
     plotter.render.assert_not_called()
+
+
+@pytest.mark.parametrize('direction, expected_in, expected_out', [
+    ('+x', (0., 30., 15.), (182., 12., 28.)),
+    ('-x', (182., 30., 15.), (0., 12., 28.)),
+    ('+y', (30., 0., 15.), (12., 42., 28.)),
+    ('-y', (30., 42., 15.), (12., 0., 28.)),
+    ('+z', (30., 15., 0.), (12., 28., 42.)),
+    ('-z', (30., 15., 42.), (12., 28., 0.)),
+])
+def test_flow_glyphs_use_independent_physical_port_locations(direction, expected_in, expected_out):
+    ports = dict(in_ctr=.030, in_w=.010, out_ctr=.012, out_w=.006,
+                 in_z_ctr=.015, in_z_w=.008, out_z_ctr=.028, out_z_w=.004)
+    panel = SimpleNamespace(plotter=Mock(), _grid=object(), _L_mm=(182., 42., 42.),
+        _flow_dir=None, _flow_dir_B=direction, _arrays={'Tb': object()}, _ports={'B': ports})
+    ThreeDVisPanel._add_flow_glyph(panel)
+    meshes = {call.kwargs['name']: call.args[0] for call in panel.plotter.add_mesh.call_args_list}
+    axis = 'xyz'.index(direction[-1])
+    cross = [i for i in range(3) if i != axis]
+    for end, expected, span in (('inlet', expected_in, (10., 8.)),
+                                 ('outlet', expected_out, (6., 4.))):
+        np.testing.assert_allclose(meshes[f'_flow_{end}_B'].center, expected, atol=1e-5)
+        rectangle = meshes[f'_port_{end}_B']
+        np.testing.assert_allclose(rectangle.center, expected, atol=1e-5)
+        np.testing.assert_allclose(np.ptp(rectangle.points, axis=0)[cross], span)
+        assert np.ptp(rectangle.points[:, axis]) == 0.
+    assert all(call.kwargs['render'] is False for call in panel.plotter.add_mesh.call_args_list)
 
 
 def test_hover_and_opacity_work_without_vtk_compatibility_aggregator(monkeypatch):

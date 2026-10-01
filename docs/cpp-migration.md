@@ -26,7 +26,7 @@ The first connection (2026-09-22) follows full-budget Python reference checks.
 It supports full two-fluid 2D/3D true-enthalpy runs containing sCO2, including
 signed partial ports. Python still owns EOS, property updates, convergence,
 independent energy checks and cancellation between sweep chunks. Model-h,
-single-fluid, screening and quick-design execution reject an explicit native
+single-fluid and quick-design execution reject an explicit native
 request; they never silently fall back to Numba.
 
 ## First implemented slice

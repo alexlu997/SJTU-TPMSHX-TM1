@@ -15,10 +15,8 @@ Y-mirror = 16-D) interpolated via bicubic B-spline tensor products. Gives:
 Parameter continuity does not establish explicit TPMS surface connectivity,
 minimum geometric wall thickness, or manufacturability.
 
-The legacy ``build_grid_arrays`` helper assembles quantized per-cell TPMS
-properties in the same two-dimensional format as ``ZoneConfig``. Full-volume
-preparation instead samples explicit XYZ controls with ``evaluate_volume``;
-omitting z controls retains the existing XY representation.
+Full preparation samples XY controls with ``evaluate_grid`` or explicit XYZ
+controls with ``evaluate_volume`` before resolving local material properties.
 """
 
 from __future__ import annotations
@@ -29,13 +27,6 @@ from typing import Optional, Tuple
 
 from scipy.interpolate import RectBivariateSpline, make_interp_spline
 
-from . import tpms_calc
-
-from sjtu_tpmshx.logutil import get_logger
-
-_log = get_logger(__name__)
-
-
 # ─── Default decision-vector layout ─────────────────────────────────
 
 DEFAULT_N_CTRL_X = 4
@@ -44,9 +35,6 @@ DEFAULT_SYMMETRIC_Y = True
 
 # Geometry bounds [mm]; independent of per-fluid Nu applicability.
 from sjtu_tpmshx.df_surrogate._domain import TRAIN_L as DEFAULT_L_BOUNDS, TRAIN_T as DEFAULT_T_BOUNDS
-# Manufacturability ratio: lower-bounded slightly below 0.3/8 = 0.0375 so
-# the corner (L=8, t=0.3) does not trip the penalty; upper-bounded loose.
-DEFAULT_RATIO_BOUNDS = (0.035, 0.20)   # t / L
 
 
 def decision_dim(n_ctrl_x: int = DEFAULT_N_CTRL_X,
@@ -152,64 +140,6 @@ def encode_decision_vector(L_ctrl: np.ndarray,
     return np.concatenate([L_ctrl.ravel(), t_ctrl.ravel()])
 
 
-# ─── shared quantized TPMS-property scatter ─────────────────────────
-
-
-def props_from_Lt_fields(L_field: np.ndarray, t_field: np.ndarray,
-                         tpms_type: str, k_s: float,
-                         u_A: float, u_B: float,
-                         T_inA: float, T_inB: float,
-                         P_in: float = 101325.0,
-                         *, P_inB: float | None = None, quant_L: float = 0.05,
-                         quant_t: float = 0.01) -> dict:
-    """Per-cell TPMS property arrays from (L, t) fields via quantized scatter.
-
-    Quantise (L, t) to the (quant_L, quant_t) mm grid, evaluate
-    ``tpms_calc.compute`` once per UNIQUE (L, t) pair (A + B side), and
-    gather the unique values into output arrays — calls compute()
-    n_unique times instead of L_field.size. Shared by
-    :meth:`ContinuousFieldConfig.build_grid_arrays` (2D) and
-    ``models.screening._build_3d_arrays`` (3D, which z-broadcasts the result),
-    so both dimensions use one quantisation + scatter (B3 C7).
-
-    Returns a dict of nine ``L_field.shape`` arrays — ``eps_arr``,
-    ``eps_f_arr``, ``K_ffA_arr``, ``K_ffB_arr``, ``K_ss_arr``, ``h_vA_arr``,
-    ``h_vB_arr``, ``r_h_arr``, ``A_0_arr`` — plus ``n_unique``.
-    """
-    P_inB = P_in if P_inB is None else P_inB
-    L_q = np.round(L_field / quant_L) * quant_L
-    t_q = np.round(t_field / quant_t) * quant_t
-
-    shp = L_field.shape
-    # Evaluate each unique quantised pair once per side, then use the inverse
-    # index to recover cell order without scanning the full grid per pair.
-    L_key = np.round(L_q, 4)
-    t_key = np.round(t_q, 4)
-    pairs = np.stack([L_key.ravel(), t_key.ravel()], axis=1)
-    uniq, inv = np.unique(pairs, axis=0, return_inverse=True)
-    inv = inv.reshape(-1)
-    values = {name: np.empty(uniq.shape[0], dtype=np.float64) for name in (
-        'eps_arr', 'eps_f_arr', 'K_ffA_arr', 'K_ffB_arr', 'K_ss_arr',
-        'h_vA_arr', 'h_vB_arr', 'r_h_arr', 'A_0_arr')}
-    for u_idx in range(uniq.shape[0]):
-        L_u = float(uniq[u_idx, 0]); t_u = float(uniq[u_idx, 1])
-        pA = tpms_calc.compute(tpms_type, L_u, t_u, u_A, T_inA, P_in, k_s)
-        pB = tpms_calc.compute(tpms_type, L_u, t_u, u_B, T_inB, P_inB, k_s)
-        values['eps_arr'][u_idx] = pA['epsilon']
-        values['eps_f_arr'][u_idx] = pA['epsilon_A']
-        values['K_ffA_arr'][u_idx] = pA['K_ff']
-        values['K_ffB_arr'][u_idx] = pB['K_ff']
-        values['K_ss_arr'][u_idx] = pA['K_ss']
-        values['h_vA_arr'][u_idx] = pA['H_sf'] * pA['A_0']
-        values['h_vB_arr'][u_idx] = pB['H_sf'] * pB['A_0']
-        values['r_h_arr'][u_idx] = pA['D_h'] / 2.0
-        values['A_0_arr'][u_idx] = pA['A_0']
-
-    result = {name: table[inv].reshape(shp) for name, table in values.items()}
-    result['n_unique'] = int(uniq.shape[0])
-    return result
-
-
 # ─── ContinuousFieldConfig ──────────────────────────────────────────
 
 
@@ -229,7 +159,7 @@ def _cell_centres(count, length, widths):
 @dataclass
 class ContinuousFieldConfig:
     """Continuous spatial field of (L, t) parameters via B-spline interpolation
-    over a coarse control grid. Drop-in producer for ZoneConfig.build_grid_arrays.
+    over a coarse control grid for full preparation and geometry export.
 
     Input control axes and values are copied at construction. To change a
     field's control axes or values, construct a new instance so its controls
@@ -360,86 +290,6 @@ class ContinuousFieldConfig:
             np.clip(sampled, *bounds, out=sampled)
             fields.append(np.ascontiguousarray(sampled))
         return tuple(fields)
-
-    # ─── Per-cell property assembly ──────────────────────────────────
-
-    def build_grid_arrays(self, Nx: int, Ny: int,
-                          u_A: float, u_B: float,
-                          T_inA: float, T_inB: float,
-                          P_in: float = 101325.0,
-                          dx_arr: Optional[np.ndarray] = None,
-                          dy_arr: Optional[np.ndarray] = None,
-                          quant_L: float = 0.05,
-                          quant_t: float = 0.01, *, P_inB: float | None = None) -> dict:
-        """Build per-cell property arrays. Drop-in for ZoneConfig.build_grid_arrays.
-
-        Strategy
-        --------
-        1. Evaluate (L, t) at every cell center via spline → (Nx, Ny) field.
-        2. Quantize to (quant_L, quant_t) mm grid so we don't call
-           ``tpms_calc.compute`` Nx·Ny times — typically a few hundred unique
-           (L, t) combos at most.
-        3. Pull props from the cache and pack into the standard dict shape.
-        """
-        L_field, t_field = self.evaluate_grid(Nx, Ny, dx_arr, dy_arr)
-        # Quantized scatter shared with the 3D builder (B3 C7) — same ops,
-        # same order, so bit-identical to the prior inline loop.
-        p = props_from_Lt_fields(L_field, t_field, self.tpms_type, self.k_s,
-                                 u_A, u_B, T_inA, T_inB, P_in,
-                                 P_inB=P_inB, quant_L=quant_L, quant_t=quant_t)
-
-        from .grid_schema import validate_grid_arrays
-        return validate_grid_arrays({
-            'zone_id':   np.zeros((Nx, Ny), dtype=np.int32),  # not used downstream
-            'eps_arr':   p['eps_arr'],
-            'eps_f_arr': p['eps_f_arr'],
-            'K_ffA_arr': p['K_ffA_arr'],
-            'K_ffB_arr': p['K_ffB_arr'],
-            'K_ss_arr':  p['K_ss_arr'],
-            'h_vA_arr':  p['h_vA_arr'],
-            'h_vB_arr':  p['h_vB_arr'],
-            'r_h_arr':   p['r_h_arr'],
-            'A_0_arr':   p['A_0_arr'],
-            'axis': 'continuous',
-            'L_field': L_field,
-            't_field': t_field,
-            'cache_size': p['n_unique'],
-        }, Nx, Ny, where='ContinuousFieldConfig.build_grid_arrays')
-
-    # ─── Manufacturability checks ────────────────────────────────────
-
-    def manufacturability_penalty(self,
-                                  grad_threshold: float = 0.5,
-                                  ratio_bounds: Tuple[float, float] = DEFAULT_RATIO_BOUNDS,
-                                  weight_grad: float = 100.0,
-                                  weight_ratio: float = 1000.0) -> float:
-        """Soft penalty (≥ 0) for manufacturability hazards.
-
-        Penalizes:
-          * inter-control-point gradient |ΔL| > grad_threshold · L_avg
-            (graded TPMS surface tearing risk per Yang 2018);
-          * t/L ratio outside ratio_bounds (physically implausible aspect).
-
-        Returns 0.0 when clean. Caller adds this to the dP objective so the
-        optimizer learns to avoid hazards rather than the optimizer-side
-        constraint machinery rejecting samples (which destabilizes BO).
-        """
-        pen = 0.0
-
-        L = self.L_ctrl
-        L_avg = float(L.mean())
-        grad_max = max(np.abs(np.diff(L, axis=axis)).max() for axis in range(L.ndim))
-        if grad_max > grad_threshold * L_avg:
-            pen += weight_grad * (grad_max - grad_threshold * L_avg)
-
-        ratio = self.t_ctrl / np.maximum(self.L_ctrl, 1e-9)
-        rmin, rmax = ratio_bounds
-        if ratio.max() > rmax:
-            pen += weight_ratio * (float(ratio.max()) - rmax)
-        if ratio.min() < rmin:
-            pen += weight_ratio * (rmin - float(ratio.min()))
-
-        return float(pen)
 
 
 # ─── Constructor for the optimizer ──────────────────────────────────

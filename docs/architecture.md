@@ -4,6 +4,42 @@ This is the current architectural and physical contract for the repository.
 Historical audits and reports explain how the project reached this state, but
 they do not override the running code or this document.
 
+## Result qualification by route
+
+Execution completion, solver convergence, metric availability and optimization
+eligibility are distinct. `run_case` records the native convergence verdict;
+`evaluate` reports whether each metric has sufficient recorded evidence. An
+available metric is not an experimental accuracy certificate.
+
+| Route | Native convergence and final evidence | Additional consumer requirements |
+| --- | --- | --- |
+| 2D model-h | SIMPLE, outer coupling, main/fine thermal convergence and energy certificates, Richardson eligibility and pressure envelope | Multi-condition batches require both physical-boundary ledgers and the existing main/fine gates; Q is W/m and total-flow studies need an explicit depth |
+| 3D model-h | Final SIMPLE checks, thermal/outer convergence, finite fields and pressure envelope; source-free thermal passes also require the existing strict energy gates | Multi-condition batches independently check the archived `compute_phase2a` global/cell, source and boundary certificates, including results produced before energy finishing was added |
+| 2D/3D true-h | Native enthalpy solve with final-state equation/boundary budgets and property checks; returned thermal evidence is captured before any failed final post-update | Inspect the route's `true_h_balance` and convergence detail; this route is outside the air/water model-h optimizer contract |
+| Temperature and low-level research routes | Existing route-specific stopping rules and captured state | 2D temperature Q uses its recorded capacity-temperature reduction; 3D legacy-temperature Q is unavailable without complete enthalpy evidence. Neither asserts model-h optimization qualification |
+| Quick design | Explicit prescribed-flow approximate mode | Its metrics and feasibility checks do not certify a full SIMPLE solve |
+
+GUI and CLI retain their native convergence meaning. Failed/cancelled GUI
+attempts preserve the previous accepted result. Batch optimization rejects a
+failed member or energy gate and retains its failure row. Saving and reopening
+preserves evidence and status; it does not promote an unqualified result.
+The first water model-h thermal pass yields to the flow update after at most
+one existing 250-sweep interval. If that initial trial leaves the liquid-water
+range, it retries from the unchanged valid input with a halved interval, within
+the original thermal iteration budget. Nonfinite states, later phase violations,
+and invalid final-pressure states still fail their original checks.
+
+For source-free 3D model-h, stable heat and temperature changes trigger the
+shared energy certificate. A failed residual or source-balance gate continues
+thermal sweeps within the existing budget. Missing physical inflow data returns
+an unconverged thermal pass for a flow update; more sweeps cannot repair its
+fixed mass faces. An unconverged thermal pass cannot end the outer iteration as
+converged. Final certificate data are reused without another numerical solve.
+Manufactured-source tests retain their stopping rule because their external
+sources do not obey the source-free LTNE exchange balance.
+See [capabilities](capabilities.md), [model applicability](model-resources.md)
+and [data provenance](data-catalog.md) for the separate physical scope.
+
 ## Runtime flow
 
 ```text
@@ -50,7 +86,7 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   preparation and shared helpers are imported from their owning modules.
   The former `solvers.envelope` and `solvers.roughness` facades are also retired.
   Grid and projection helpers come from `models.grid` and `models.df_projection`;
-  `solvers.df_projection` retains its active pressure reductions only.
+  Formal pressure reductions use the recorded physical port faces in postprocessing.
 - `controllers/compute_pipeline.py` sequences the public modules; the module
   adapter maps their results to the historical GUI ComputeResult contract.
   It is the sole production result mapper. The old 2D/3D mappings remain only
@@ -148,7 +184,7 @@ retired; public evaluation, recorded-field plots and exports remain supported.
 All supported fluids use `SIMPLESolver` in 2D and `SIMPLESolver3D` in 3D.
 `solvers/_solve_common.py` owns F2 configuration and the common convergence
 monitor: momentum, fresh-density local/global mass and outlet backflow must
-pass consecutive checks. Full compute, screening and raw solver calls now
+pass consecutive checks. Full compute and raw solver calls
 use this same criterion. `convergence_mode=None` resolves to `f2`; explicit
 `legacy` is rejected. A static field triggers a check and never certifies
 convergence alone. The mass-only/velocity exit and its inner SIMPLE Anderson
@@ -181,7 +217,7 @@ retired: they did not set F2 tolerances. Old configuration-file import discards
 configurations omit them. Use `mom_tol`, `mass_local_tol` and `mass_global_tol`
 for the independent F2 gates. The pressure-subproblem residual history retains
 its definition because adaptive AMG consumes it. Runtime/accuracy comparisons
-between full compute and screening must compare actual inputs, approximation
+between runs must compare actual inputs, approximation
 modes, grids, iteration budgets and F2 settings.
 Coarse bootstrap supplies a bounded initial guess, not a convergence certificate.
 Old result files remain readable; rerunning an explicit legacy configuration
@@ -200,7 +236,7 @@ The 2D SIMPLE constructor consumes prepared drag arrays for zoned geometry;
 its former `zone_config` row-prediction path is retired. Arguments following
 `P_ref` are keyword-only, so old positional zone arguments cannot be silently
 reinterpreted. Residual callbacks propagate their original exceptions through
-both full compute and screening; they are not best-effort UI notifications.
+full compute; they are not best-effort UI notifications.
 
 Full 2D and 3D preparation accept `zones.axis="continuous"` with a JSON `config`
 containing `x_decision` (L controls followed by t controls, in mm),
@@ -270,8 +306,9 @@ Only a complete numerically accepted batch can publish the two objectives.
 In addition to native convergence, 3D reuses the existing full-control-volume
 certificate from `postprocess.conservation.compute_phase2a`: each fluid's
 global/cellmax residual and the LTNE source imbalance must remain below 1%,
-and the physical boundary ledger must be complete. The conservation audit
-imports this same pure function. The 2D branch requires the native main/fine
+and the physical boundary ledger must be complete. Native 3D finishing and the
+conservation audit use this same pure function, owned by `result_math` and
+re-exported through the existing postprocessing entry. The 2D branch requires the native main/fine
 model-h balances, complete physical boundaries and Richardson acceptance.
 This is separate from experimental accuracy,
 the formal convective `energy_imbalance_rel` metric and gradient applicability;
@@ -429,14 +466,9 @@ remain separate from the detached last-thermal snapshot; reporting references
 do not replace formal reductions from native evidence.
 
 Full 2D heat duty is W/m with no fabricated thickness or z-wall loss. Full 3D
-is W before any application normalization. The screening optimizer divides 3D duty/mass
-by actual Lz once at its boundary. Quick design is a prescribed-flow LTNE
+is W before any application normalization. Quick design is a prescribed-flow LTNE
 model with prepared analytical inlet-pressure fractions, not a SIMPLE solve.
-Its offline metrics need no EOS or calibration call. Screening retains its
-own frozen-B/nonconvergence and unsupported-metric limits.
-Screening pressure drops require effective inlet and outlet measurement faces;
-an empty face is an invalid metric with a reason, not an available zero pressure
-drop. Other independently computable metrics remain available.
+Its offline metrics need no EOS or calibration call.
 
 Full-compute thermal metrics use definition `native_boundary_v1`: `Q` is
 the absolute A-side main-grid boundary heat loss, and `Q_A`/`Q_B` retain
@@ -491,26 +523,19 @@ retains the historical profile for scripted configurations with the flag
 false. Total mass flow and port geometry are unchanged by profile selection,
 and the flag does not alter 3D flow.
 
-Continuous screening uses `models.screening.build_field` for preparation,
-preview and export. Saved decision vectors must be decoded with their original
-bounds, control grid, symmetry and spline order. The current geometry window
-is L=4..8 mm, t=0.3..0.6 mm; this does not extend any Nu correlation's evidence.
-For a prebuilt 2D screening field (`fc`), topology, solid conductivity and
-physical domain lengths must match the effective configuration, including its
-defaults. A conflict is rejected before property or flow preparation. The field
-retains its own control grid, spline order and bounds; decision-vector decoder
-settings apply only when constructing a field from `x`.
-The retained screening API accepts air/air with A:+x and B:-y only,
-using full-face ports by default;
-explicit 2D API port intervals remain supported, while 3D screening rejects
-partial ports. This API is separate from the current multi-condition desktop
-optimizer, which restores selected full XY/XYZ fields for recomputation.
-
-For 2D partial-port screening, preparation owns a shared physical mesh:
-geometry sampling, flow, thermal transport and pressure-face averages use
-the same cell widths, including the B-side coordinate reversal. GUI probes
-locate cells from those widths; display velocity copies stay separate from
-the raw transport fields.
+The old air/air screening optimizer, preparation, frozen-B backend and metric
+reducers are retired; the [history index](history/retired-tools.md) identifies
+their original code and numerical references. Current multi-condition search
+uses full preparation and execution. `models.continuous_field` retains XY/XYZ
+interpolation for this path, preview and nTop export. Saved decisions must be
+decoded with their original bounds, control grid, symmetry and spline order.
+The current geometry window is L=4..8 mm, t=0.3..0.6 mm; this does not extend
+any Nu correlation's evidence or establish explicit graded-surface connectivity.
+Historical screening result files remain readable with their original units
+and status, but current execution and metric evaluation reject their modes.
+`ComputeConfig.optimizer` only preserves retired settings in existing files;
+current optimization uses `ComputeConfig.solver`. Historical Pareto CSV geometry
+export still requires its original configuration and preserves failure status.
 
 Full-compute zoning also uses the prepared physical cell centres. In 2D, every
 zoned mode projects its thermal L/t fields into flow rows using transverse
@@ -539,15 +564,6 @@ const and mean modes, water Nu retains Pr at 320 K / 0.2 MPa. The mean pass
 updates the other water properties, Re and conductivity used in volumetric heat
 transfer; `metadata.properties.Pr` records the actual pass state, not Nu's
 representative Pr. The separate sCO2 reference-Pr convention remains unchanged.
-Retained
-screening BO keeps bounded penalty objectives for training, but excludes failed evaluations
-from reported Pareto fronts and hypervolume. History rows retain their status
-and failure reason; a completed screening run is not experimental validation.
-GP fitting or candidate-selection errors stop the affected screening seed,
-save its completed history and latest front with a failed run status, and
-propagate the original exception. They no longer continue with an unfitted
-model. A failed seed does not write a final front or enter the multiseed merge;
-other successful seeds retain the existing partial-campaign behavior.
 
 Separate processes use case.yaml + case.h5, results.h5, VTK views and
 metrics.json. Exact contracts and mode-specific restrictions are in
@@ -639,8 +655,7 @@ after publication retains the new numerical result and its provenance, while
 unavailable views and stale plot/probe contents are invalidated.
 The current multi-condition optimizer preserves each dimension's full
 ComputeConfig solver settings. Its initial and subsequent design counts are
-search budgets, not convergence certificates. The former screening API's
-`n_rho_loops` / `max_outer_3d` controls are not the current GUI optimizer.
+search budgets, not convergence certificates.
 The solver retains its existing convergence and physical checks. External CLI
 studies with settings not represented by GUI controls cannot be silently
 restored into a different GUI case; the handoff rejects that mismatch.

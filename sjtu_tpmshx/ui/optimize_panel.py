@@ -344,7 +344,6 @@ def run_optimize(window):
         _set_status(window, f'启动失败：{exc}')
         return
     window._opt_t_start = time.monotonic()
-    window._opt_total_evals = params['n_init'] + params['n_iter']*params['q_batch']
     sparkline = getattr(window, '_opt_sparkline', None)
     if sparkline is not None:
         sparkline.clear_data()
@@ -366,7 +365,6 @@ def run_optimize(window):
             return
         window._last_opt_report = deepcopy(report)
         window._last_opt_output_dir = save_dir
-        window._selected_pareto_x = None
         render_error = show_pareto(window, report)
         _set_status(window, f'{_termination_label(report)} · {report["n_evaluated"]} 个候选 · {save_dir}'
                     + (f' · Pareto 绘图失败：{render_error}' if render_error else ''))
@@ -524,7 +522,6 @@ def _result_field_config(window):
 
 def clear_continuous_field(window):
     window._continuous_field_spec = None
-    window._selected_pareto_x = None
     window.chk_zones.setChecked(False)
     refresh_setup(window)
 
@@ -580,7 +577,6 @@ def load_pareto_solution(window, x_decision):
         _set_status(window, f'连续场载入失败：{exc}')
         return
     window._continuous_field_spec = deepcopy(spec)
-    window._selected_pareto_x = np.asarray(x_decision).copy()
     window._pareto_x_decision = None
     window.chk_zones.setChecked(True)
     for side in 'AB':

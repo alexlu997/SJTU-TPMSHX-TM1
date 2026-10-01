@@ -23,7 +23,6 @@ synthetic fronts — a pre-existing A-SOU live-vs-snapshot limit cycle
 import warnings
 
 import numpy as np
-import pytest
 
 warnings.filterwarnings('ignore')
 
@@ -110,23 +109,6 @@ def test_serial_and_redblack_agree_on_b_and_solid():
     assert float(np.max(np.abs(Ta1 - Ta2))) < 1.0    # pre-existing SOU cycle
 
 
-@pytest.mark.slow
-def test_fine_grid_outer_coupling_stability():
-    """Fine-grid air-water coupled eval with the conservative base (default
-    config) must stay finite and produce a sane duty."""
-    from sjtu_tpmshx.models.continuous_field import uniform_field
-    from sjtu_tpmshx.optimization.evaluator import evaluate_design
-    cfg = {'Nx': 40, 'Ny': 80,
-           'max_iter_simple': 800,
-           'max_iter_energy': 3000, 'tol_energy': 0.5, 'n_rho_loops': 1}
-    fc = uniform_field(6.0, 0.4, 'Diamond', 17.0, L_domain=0.10, H_domain=0.05)
-    got = evaluate_design(x=None, cfg=cfg, fc=fc)
-    assert np.all(np.isfinite(np.asarray(got, dtype=float))), got
-    # T6 tightened (2026-07-07): measured |Q| = 8199 W on this exact config;
-    # the old 2000..50000 band (25x) passed a 2x duty regression. +/-33%.
-    assert 5500.0 < abs(float(got[0])) < 11000.0, got
-
-
 if __name__ == '__main__':
     # P2.1 lint (F821): the old first entry referenced a test renamed/removed
     # long ago — this direct-run convenience block had gone stale. Now lists
@@ -134,5 +116,4 @@ if __name__ == '__main__':
     test_uniform_temperature_is_fixed_point()
     test_sou_b_default_off_and_switch_runs()
     test_serial_and_redblack_agree_on_b_and_solid()
-    test_fine_grid_outer_coupling_stability()
     print("ALL DIRECT-RUN TESTS PASS")

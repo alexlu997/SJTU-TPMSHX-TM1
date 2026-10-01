@@ -1,6 +1,6 @@
 """Change a prepared effective-conductivity field; no private solver mutation.
 
-This is a forward screening example. Gradients/adjoints are not implemented.
+This uses the full forward solver. Gradients/adjoints are not implemented.
 """
 import argparse
 from dataclasses import replace
@@ -8,7 +8,8 @@ import json
 from pathlib import Path
 import numpy as np
 
-from sjtu_tpmshx.preprocess.api import prepare_screening_2d
+from sjtu_tpmshx.domain.compute_config import ComputeConfig, ZoneInputConfig
+from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.postprocess.api import evaluate
 from sjtu_tpmshx.io.case_io import save_case
@@ -20,11 +21,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('output', type=Path)
     args = parser.parse_args()
-    base = prepare_screening_2d(
-        np.r_[np.full(8, 6.), np.full(8, .4)],
-        dict(Nx=8, Ny=6, u_A=1., u_B=1., max_iter_simple=800,
-             max_iter_energy=1500, n_rho_loops=1), case_id='uniform-effective-field')
-    conductivity = np.asarray(base.design_fields['K_ss_arr']) * np.linspace(.5, 1., 8)[:, None]
+    config = ComputeConfig.from_json(Path(__file__).with_name('air_2d.json'))
+    config = replace(config, zones=ZoneInputConfig(enabled=True, axis='continuous', config=dict(
+        x_decision=[config.geometry.L_cell_mm]*4 + [config.geometry.t_wall_mm]*4,
+        n_ctrl_x=2, n_ctrl_y=2, symmetric_y=False, spline_order=1,
+        L_bounds=[4., 8.], t_bounds=[.3, .6])))
+    base = prepare_case(config, case_id='uniform-effective-field')
+    dx = np.asarray(base.grid['dx'])
+    x_fraction = (np.cumsum(dx) - dx/2) / dx.sum()
+    conductivity = np.asarray(base.design_fields['K_ss_arr']) * (.5 + .5*x_fraction[:, None])
     changed = replace(base, case_id='graded-effective-field',
                       design_fields={**base.design_fields, 'K_ss_arr': conductivity},
                       metadata={**base.metadata, 'field_update': 'supplied effective solid conductivity, W/(m K)'})
@@ -40,7 +45,7 @@ def main():
         reports.append(dict(case_id=case.case_id, Q=metrics.metrics['Q'].value,
                             Q_unit=metrics.metrics['Q'].spec.unit,
                             converged=result.run_status['converged'],
-                            physical_validation=result.run_status['physical_validation']))
+                            envelope_valid=result.run_status['envelope_valid']))
     assert reports[0]['Q'] != reports[1]['Q'], 'the supplied field must affect the forward solve'
     (args.output / 'summary.json').write_text(json.dumps(reports, indent=2))
     print(json.dumps(reports))

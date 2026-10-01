@@ -49,15 +49,3 @@ def prepare_quick_design(*args, **kwargs) -> CaseData:
     """Explicit prescribed-velocity design mode; no SIMPLE substitution."""
     from .app_modes.quick_design import prepare_quick_design as prepare
     return _prepare_with_metadata(prepare, *args, **kwargs)
-
-
-def prepare_screening_2d(*args, **kwargs) -> CaseData:
-    """Prepare the existing air/air continuous-field optimization model."""
-    from .app_modes.screening_2d import prepare_screening_2d as prepare
-    return _prepare_with_metadata(prepare, *args, **kwargs)
-
-
-def prepare_screening_3d(*args, **kwargs) -> CaseData:
-    """Prepare the existing frozen-B 3D screening model."""
-    from .app_modes.screening_3d import prepare_screening_3d as prepare
-    return _prepare_with_metadata(prepare, *args, **kwargs)

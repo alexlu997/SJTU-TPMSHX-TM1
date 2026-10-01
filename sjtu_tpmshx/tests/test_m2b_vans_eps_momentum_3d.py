@@ -109,16 +109,17 @@ def test_solver_selects_use_eps_from_field():
     assert float(s.eps_field.max()) != float(s.eps_field.min())
 
 
-def test_evaluate_3d_installs_per_cell_eps_field(monkeypatch):
+def test_full_3d_installs_per_cell_eps_field(monkeypatch):
     """The real prepared asymmetric field reaches both numerical solvers."""
     import pytest
-    from sjtu_tpmshx.preprocess.api import prepare_screening_3d
+    from sjtu_tpmshx.domain.compute_config import PartialBCConfig
+    from sjtu_tpmshx.preprocess.api import prepare_case
     from sjtu_tpmshx.solvers.api import run_case
-    from sjtu_tpmshx.solvers.backends.python.screening import three_d as execution
-    x = np.r_[np.linspace(5., 7., 16), np.full(16, .4)]
-    cfg = dict(L_domain=.1, H_domain=.05, u_A=1., u_B=1., T_inA=350., T_inB=300., symmetric_y=False)
-    case = prepare_screening_3d(x, cfg, case_id='graded', Nx=4, Ny=3, Nz=2,
-                                roughness_mode='baseline', roughness_eps_um=0., verbose=False)
+    from sjtu_tpmshx.solvers.backends.python.three_d import runtime as execution
+    from sjtu_tpmshx.tests.solver_tm1.test_prepared_continuous_field import _config
+    cfg = _config(volume=True)
+    cfg.bc_B = PartialBCConfig(dir=3)
+    case = prepare_case(cfg, case_id='graded')
     fields = []
 
     def flow(s, **kwargs):

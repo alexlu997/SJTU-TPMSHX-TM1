@@ -800,7 +800,6 @@ class SIMPLESolver:
         closure without hiding interior mass defects with a global rescale.
         Set enforce_outlet_mass_balance=False to disable this exit closeout.
         """
-        self._last_outlet_mass_scale = 1.0  # No global velocity scaling.
         if not getattr(self, 'enforce_outlet_mass_balance', True):
             return
         _close_outlet_mass(self.u, self.v, self.outlet_geom_frac, self.Nx, self.Ny,

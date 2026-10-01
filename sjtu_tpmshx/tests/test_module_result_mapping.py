@@ -42,6 +42,9 @@ def _synthetic_3d_results():
     native = FieldResult('synthetic-result', 'synthetic-case', 'test', grid=grid,
         fields=native_fields, run_status=dict(execution='completed', converged=True),
         metadata=dict(parameters=dict(L=.2, H=.1, Lz=.05, extrap_reasons=[],
+                          fluid_A_cfg=dict(dir=1, in_ctr=.05, in_w=.1, out_ctr=.05, out_w=.1),
+                          fluid_B_cfg=dict(dir=4, in_ctr=.16, in_w=.04, out_ctr=.03, out_w=.02,
+                                           in_z_ctr=.025, in_z_w=.01, out_z_ctr=.07, out_z_w=.02),
                           prepared=dict(geometry=dict(epsilon=.8, D_h=.003, A_0=.01))),
                       design_fields=dict(L_field_m=L_m, t_field_m=t_m),
                       diagnostics=dict(dir_A=1, dir_B=4),
@@ -72,6 +75,17 @@ def test_synthetic_3d_mapping_preserves_full_geometry_and_display_pressure():
                                       native_fields['P_f' + side + '_display'])
     for name in ('dx', 'dy', 'dz'):
         np.testing.assert_array_equal(result.fields[name], grid[name])
+    # The plot must use the accepted result's ports, independently of draft inputs.
+    from sjtu_tpmshx.ui.plot_3d_results import finalize_plots_3d
+    shown = {}
+    window = SimpleNamespace(cache=SimpleNamespace(get_result=lambda mode: result),
+        canvas_3d=SimpleNamespace(set_fields=lambda **kw: shown.update(kw),
+                                  set_watermark=lambda text: None))
+    assert finalize_plots_3d(window)
+    for side in ('A', 'B'):
+        expected = native.metadata['parameters'][f'fluid_{side}_cfg']
+        assert shown[f'ports_{side}'] == expected
+        assert shown[f'ports_{side}'] is not expected
 
 
 # Fixed from the real scenarios below on pre-producer-refactor main 736c0a8.

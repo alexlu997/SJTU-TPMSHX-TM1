@@ -97,6 +97,7 @@ def finalize_plots_3d(window) -> bool:
                 dx=f['dx'], dy=f['dy'], dz=f['dz'],
                 flow_dir=_dir_str,
                 flow_dir_B=_dir_str_B if _has_B else None,
+                ports_A=f.get('ports_A'), ports_B=f.get('ports_B'),
             )
             # Surrogate-extrapolation watermark — lower-left viewport.
             if res.extrap_reasons:

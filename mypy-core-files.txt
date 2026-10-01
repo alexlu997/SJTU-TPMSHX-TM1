@@ -1,5 +1,6 @@
 sjtu_tpmshx/controllers/compute_pipeline.py
 sjtu_tpmshx/domain/compute_config.py
+sjtu_tpmshx/domain/validator.py
 sjtu_tpmshx/domain/compute_result.py
 sjtu_tpmshx/configs/__init__.py
 sjtu_tpmshx/_version.py

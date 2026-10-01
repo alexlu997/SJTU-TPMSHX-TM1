@@ -158,7 +158,6 @@ def _prepare_problem_data(cfg):
     design = prepared['design']
     _record_air_bulk_ranges(
         cfg, design['L_field_m'] * 1e3 if spatial else None,
-        design['t_field_m'] * 1e3 if spatial else None,
         (prepared['Nx'], prepared['Ny'], prepared['Nz']))
     cfg['df_application'] = _prepare_df_application(
         cfg, prepared['axes'], design['K_m2'], design['cF_per_m'])
@@ -312,7 +311,7 @@ def _prepare_df_application(cfg, axes, permeability, forchheimer):
     return result
 
 
-def _record_air_bulk_ranges(cfg, lfield, tfield, shape):
+def _record_air_bulk_ranges(cfg, lfield, shape):
     """Preserve inlet air observations without storing unused bulk h_v fields."""
     from sjtu_tpmshx.models.tpms_calc import compute
     from sjtu_tpmshx.models.nu_correlations import record_raw_nu_range

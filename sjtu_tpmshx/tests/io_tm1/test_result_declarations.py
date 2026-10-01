@@ -45,8 +45,10 @@ def test_conflicting_quantity_basis_rejected(tmp_path, dimension, basis, boundar
 
 
 @pytest.mark.parametrize('dimension', [2, 3])
-@pytest.mark.parametrize('mode', ['unexpected_new_mode', None, ''])
+@pytest.mark.parametrize('mode', ['unexpected_new_mode', None, '', 'screening'])
 def test_unknown_explicit_mode_can_archive_but_not_evaluate(tmp_path, dimension, mode):
+    if mode == 'screening':
+        mode = f'screening_{dimension}d'
     result = archived_native_result(dimension)
     result = replace(result, metadata={**result.metadata, 'mode': mode})
     path = tmp_path / 'unsupported.h5'

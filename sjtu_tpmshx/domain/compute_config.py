@@ -67,10 +67,6 @@ follow the read timing stated below.
   many-core box + grid ≥ TPMSHX_PARALLEL_THRESHOLD → one-shot advisory log
   recommends ``recommend_solver_threads()`` (≈ min(64, physical cores);
   bandwidth-bound kernels; P3.2 — advisory only, pool never auto-changed).
-- ``TPMSHX_BO_CORE_BUDGET`` (unset → whole machine) — this BO process's
-  core share for the joblib workers×inner split; multi-arm launchers set
-  it per arm (``optimization/optimizer_qnehvi.py::_resolve_core_budget``,
-  engage-time INFO logs the resolved split).
 - ``TPMSHX_SCO2_COMPRESSIBLE`` (0, experimental) — A-side sCO2 local-pressure
   density/viscosity update and pressure-seed envelope check in the 3D Python
   runtime. B is unchanged; this is not full compressible continuity. Its
@@ -147,7 +143,7 @@ class GeometryConfig:
 
 @dataclass
 class SolverConfig:
-    """Grid and production solver controls, separate from OptimizerConfig.
+    """Grid and solver controls for full compute and multi-condition optimization.
 
     For the production controls below, ``None``
     means "use the dimension-specific built-in":
@@ -195,12 +191,10 @@ class SolverConfig:
 
 @dataclass
 class OptimizerConfig:
-    """Screening budget for the design optimizer.
+    """Retired screening settings retained for existing configuration files.
 
-    These values control the evaluators' fast screening solves only —
-    they produce design RANKINGS, not quotable numbers. Final Pareto
-    picks must be re-solved through the production pipeline (which obeys
-    :class:`SolverConfig`).
+    Current full solves and multi-condition optimization use SolverConfig.
+    These archived values are preserved on load/save and are not executed.
     """
     max_outer_ltne: int = 4
     outer_tol_K: float = 0.5
@@ -469,10 +463,7 @@ class ComputeConfig:
     fluid_B: FluidConfig = field(default_factory=FluidConfig)
     geometry: GeometryConfig = field(default_factory=GeometryConfig)
     solver: SolverConfig = field(default_factory=SolverConfig)
-    # R3 (2026-07-07): optimizer budget split out of SolverConfig — the two
-    # consumers (production pipelines vs optimizer screening) need
-    # different values for the same-named knobs; sharing fields is what
-    # made them decorative for years.
+    # Preserve the retired screening block in existing configuration archives.
     optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
     # ── audit C4 additions: cover the non-le_* window state that the
     # ── pipeline needs but C3 deliberately punted on.
