@@ -806,7 +806,8 @@ class ComputeConfig:
                 warnings.warn(
                     f"solver config keys {_dropped} are retired and were ignored; "
                     "F2 uses mom_tol, mass_local_tol and mass_global_tol. "
-                    "Optimizer budgets live under 'optimizer'.", stacklevel=2)
+                    "Full-compute and multi-condition solve budgets use 'solver'; "
+                    "'optimizer' is archive-only.", stacklevel=2)
             op_d = dict(data.get('optimizer', {}) or {})
             if 'tol_simple' in op_d:
                 del op_d['tol_simple']

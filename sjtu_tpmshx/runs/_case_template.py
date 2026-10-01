@@ -1,9 +1,7 @@
 """Canonical `_run_3d_stack` cfg template (B2 2.6, 2026-06-13).
 
-Five runs/ scripts each hand-rolled the same cfg dict (demo_3d_air_air,
-demo_3d_cube_air_air, demo_3d_cube_volume, diag_ab_imbal,
-smoke_ui_3d_modes) — a changed default geometry never reached the demos.
-This is the single template; scripts pass only their deltas.
+The air/air demos and roughness smoke share this template and pass only
+their overrides, so changes to the default geometry reach every caller.
 
 Current 3D regression configurations live in tests.cases_3d independently
 of this demo template.

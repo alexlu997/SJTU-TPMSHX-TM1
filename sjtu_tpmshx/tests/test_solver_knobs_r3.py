@@ -44,6 +44,8 @@ def test_legacy_json_with_retired_keys_loads(tmp_path):
         cfg = ComputeConfig.from_json(p)
     assert cfg.solver.Nx == 12
     assert any('retired' in str(w.message) for w in caught)
+    assert any("budgets use 'solver'" in str(w.message) for w in caught)
+    assert any("'optimizer' is archive-only" in str(w.message) for w in caught)
     assert any('optimizer.tol_simple' in str(w.message) for w in caught)
     assert cfg.optimizer.max_iter_simple == 512
     assert 'tol_simple' not in asdict(cfg)['solver']

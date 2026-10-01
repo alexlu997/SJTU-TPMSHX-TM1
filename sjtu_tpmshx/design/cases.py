@@ -106,8 +106,7 @@ def _load_csv(path):
         rows = list(reader)
     out = []
     for r in rows:
-        def get(n, _r=r): return _r.get(n)
-        c = _row_to_case(get)
+        c = _row_to_case(r.get)
         if c is not None:
             out.append(c)
     return out

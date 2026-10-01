@@ -32,7 +32,6 @@
 | [main.py](main.py)、[ui/](ui/)、[controllers/](controllers/) | GUI 入口、显示和界面控制；通过公开模块组织计算 |
 | [cli.py](cli.py) | 命令行的准备、求解、后处理及完整运行入口 |
 | [design/](design/)、[optimization/](optimization/) | 快速设计和参数优化应用 |
-| [core/](core/) | 优化与验证共用的评估入口；它只是主体包的一部分 |
 | [runs/](runs/) | 演示、诊断和研究工具 |
 | [tests/](tests/)、[validation/](validation/) | 自动测试、数值与实验验证及相关证据 |
 

@@ -70,9 +70,7 @@ def _qt_int(widget, default: int) -> int:
         return default
 
 
-# Required widget attributes for strict-mode validation. The labels mirror
-# the human-friendly names that the legacy ``pipelines.stages_2d._parse``
-# helper surfaced in its ``ValueError`` payload.
+# Required widget attributes and human-readable labels for strict validation.
 @dataclass(frozen=True)
 class FieldSpec:
     """One scalar ComputeConfig field's wiring: dataclass slot ↔ Qt widget
@@ -282,9 +280,7 @@ def _read_partial_bc(window, side: Literal['A', 'B'], *, is_3d: bool) -> 'Partia
     and widget visibility. Both fields blank means full extent; half a
     pair is invalid. In 2D these drafts are ignored and stay ``None``.
 
-    ``side='B'`` defaults to ``dir=3`` (-y) when ``combo_dirB`` is
-    missing, matching the legacy ``pipelines.stages_2d._parse_inputs``
-    fall-through (``cfgB = dict(dir=3, …)``).
+    ``side='B'`` defaults to ``dir=3`` (-y) when ``combo_dirB`` is missing.
     """
     le_prefix = f'le_pipe{side}'
     combo_dir = getattr(window, f'combo_dir{side}', None)

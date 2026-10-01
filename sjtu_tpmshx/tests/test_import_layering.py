@@ -27,6 +27,16 @@ def test_no_unsanctioned_layering_violations():
         "unsanctioned import-layering violations:\n" + r.stdout[-2000:])
 
 
+def test_discovery_ignores_retired_cache_and_data_only_directories(tmp_path, monkeypatch):
+    for name in ('active/__init__.py', 'namespace/nested/module.py', 'flat.py',
+                 'retired/__pycache__/old.pyc', 'resources/coefficients.csv'):
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    monkeypatch.setattr(audit, 'PKG', tmp_path)
+    assert audit.discover_units() == {'active', 'namespace', 'flat'}
+
+
 @pytest.mark.parametrize('filename,source,edge,exit_code', [
     ('domain/probe.py', 'import sjtu_tpmshx.ui as widgets', 'domain -> ui', 1),
     ('domain/probe.py', 'from sjtu_tpmshx.ui import theme as appearance', 'domain -> ui', 1),
@@ -49,6 +59,7 @@ def test_import_spelling_preserves_layer_policy(tmp_path, monkeypatch, capsys,
     package = tmp_path / 'sjtu_tpmshx'
     for unit in ('domain', 'models', 'ui', 'tests', 'io', 'df_surrogate'):
         (package / unit).mkdir(parents=True)
+        (package / unit / '__init__.py').touch()
     path = package / filename
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(source, encoding='utf-8')
