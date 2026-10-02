@@ -189,7 +189,7 @@ def run_one(job, output, *, sample_kind):
         with (target / 'solver.log').open('w') as log, redirect_stdout(log), redirect_stderr(log), sample_rss(row['rss_samples']):
             cfg = timed('config', ComputeConfig.from_dict, job['config'])
             case = timed('prepare', prepare_case, cfg, case_id=run_id)
-            row.update(config=asdict(cfg), actual_grid=case.grid,
+            row.update(config=cfg.to_dict(), actual_grid=case.grid,
                        model_refs=[dict(name=ref.name, version=ref.version,
                                         parameters=ref.parameters, applicability=ref.applicability)
                                    for ref in case.model_refs])

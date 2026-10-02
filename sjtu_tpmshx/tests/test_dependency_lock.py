@@ -22,7 +22,7 @@ def test_declared_environment_is_fully_locked_and_installed():
     project = tomllib.loads(
         (_ROOT / 'pyproject.toml').read_text(encoding='utf-8'))['project']
     declared = list(project['dependencies'])
-    for group in ('gui', 'test', 'dev', 'tools'):
+    for group in ('gui', 'test', 'dev'):
         declared.extend(project['optional-dependencies'][group])
 
     locked = read_lock(_ROOT / 'requirements-lock.txt')

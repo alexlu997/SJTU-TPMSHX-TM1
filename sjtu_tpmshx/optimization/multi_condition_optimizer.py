@@ -180,7 +180,7 @@ def run_multi_condition_optimization(
         design_budget=budget, baseline_batches=1, status='running', stage='baseline', reason=None,
         objective_directions={'heat_gain_percent': 'maximize', 'pressure_ratio': 'minimize'},
         model_objectives=['heat_gain_percent', '-pressure_ratio'], ref_point=None,
-        conditions=[dict(condition_id=name, config=asdict(cfg), mass_flow_A_kg_s=a,
+        conditions=[dict(condition_id=name, config=cfg.to_dict(), mass_flow_A_kg_s=a,
                          mass_flow_B_kg_s=b) for name, cfg, a, b in inputs],
         baseline=dict(directory='baseline', status='not_run', reason=None),
         initial_designs=designs[:n_init].tolist(), proposals=[],
@@ -263,7 +263,7 @@ def run_multi_condition_optimization(
         inputs = tuple((name, resolve_fixed_mass_flow_config(
             cfg, mass_flow_A_kg_s=a, mass_flow_B_kg_s=b), a, b) for name, cfg, a, b in uniform)
         for archived, (_, cfg, _, _) in zip(record['conditions'], inputs):
-            archived['config'] = asdict(cfg)
+            archived['config'] = cfg.to_dict()
         record['stage'] = 'initial'
         for x in designs[:n_init]:
             evaluate_design(x, 0)

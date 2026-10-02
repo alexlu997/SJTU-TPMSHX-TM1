@@ -25,6 +25,7 @@ def test_case_snapshot_and_result_fields_are_detached_and_read_only():
     source_grid["x_m"][0] = 7.0
 
     assert case.config_snapshot["geometry"]["L_dom_m"] == 0.182
+    assert 'optimizer' not in case.config_snapshot
     assert case.grid["x_m"][0] == result.fields["x_m"][0] == 0.0
     with pytest.raises(ValueError):
         result.fields["x_m"][0] = 2.0

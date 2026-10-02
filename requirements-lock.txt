@@ -24,7 +24,6 @@ kiwisolver==1.5.0
 lazy-loader==0.5
 librt==0.13.0
 llvmlite==0.46.0
-Markdown==3.10.2
 markdown-it-py==4.0.0
 matplotlib==3.10.8
 mdurl==0.1.2

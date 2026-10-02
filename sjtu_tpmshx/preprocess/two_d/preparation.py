@@ -421,7 +421,7 @@ def prepare_case(config: ComputeConfig, *, case_id: str):
     parsed['L_cell_m'] = parsed.pop('Lcell') * 1e-3
     parsed['t_wall_m'] = parsed.pop('t_wall') * 1e-3
     # Runtime controls are input data. The solver never reparses config_snapshot.
-    parsed['run_settings'] = _zone_data_si(asdict(config))
+    parsed['run_settings'] = _zone_data_si(config.to_dict())
     parsed['run_settings'].pop('zones')
     from sjtu_tpmshx.models.tpms_calc import compute
     from sjtu_tpmshx.domain.run_warnings import range_context

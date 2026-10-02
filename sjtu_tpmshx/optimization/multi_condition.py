@@ -249,7 +249,7 @@ def evaluate_condition_batch(
             condition_error = None
             try:
                 directory.mkdir()
-                write_text(directory / 'input.json', json.dumps(asdict(config),
+                write_text(directory / 'input.json', json.dumps(config.to_dict(),
                     ensure_ascii=False, allow_nan=False, indent=2) + '\n')
                 row['stage'] = 'prepare'
                 case = prepare_fixed_mass_flow_case(config, mass_flow_A_kg_s=flow_a,
