@@ -126,6 +126,7 @@ def test_equal_design_budgets_initial_data_and_full_field_handoff(tmp_path, monk
             method=method, n_init=3, n_iter=2, q_batch=2, seed=17,
             control=RunControl(progress=progress.append))
         assert result == _manifest(directory)
+        assert all('optimizer' not in row['config'] for row in result['conditions'])
         assert result['status'] == 'completed'
         assert result['design_budget'] == result['n_evaluated'] == 7
         assert result['n_usable'] == 6 and len(calls) == 8

@@ -1,7 +1,7 @@
 """Prepared, immutable solver input for the three-module boundary."""
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
 from sjtu_tpmshx.domain.compute_config import ComputeConfig
@@ -37,4 +37,4 @@ class CaseData:
     @classmethod
     def from_compute_config(cls, case_id: str, config: ComputeConfig, **kwargs: Any) -> "CaseData":
         """Capture the existing input authority as a detached case snapshot."""
-        return cls(case_id=case_id, config_snapshot=asdict(config), **kwargs)
+        return cls(case_id=case_id, config_snapshot=config.to_dict(), **kwargs)

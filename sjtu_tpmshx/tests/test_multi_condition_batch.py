@@ -148,12 +148,15 @@ def test_success_keeps_independent_case_native_and_metric_files(tmp_path, monkey
     assert 20 in progress and 70 in progress  # 40% within each of two conditions.
     for index, (row, case, memory) in enumerate(zip(manifest['conditions'], prepared, result['results']), 1):
         subdir = directory / f'condition_{index:03d}'
-        assert isinstance(json.loads((subdir / 'input.json').read_text()), dict)
+        saved_input = json.loads((subdir / 'input.json').read_text())
+        assert isinstance(saved_input, dict)
+        assert 'optimizer' not in saved_input
         for name, filename in (('case_file', 'case.yaml'), ('result_file', 'result.h5'), ('metrics_file', 'metrics.json')):
             assert not Path(row[name]).is_absolute()
             assert directory / row[name] == subdir / filename
         assert (subdir / 'case.h5').is_file()
         archived_case = load_case(directory / row['case_file'])
+        assert 'optimizer' not in archived_case.config_snapshot
         native = load_result(directory / row['result_file'])
         performance = load_metrics(directory / row['metrics_file'])
         assert archived_case.case_id == native.case_id == row['case_id'] == case.case_id

@@ -45,4 +45,5 @@ def test_file_failure_disqualifies_sample_but_preserves_solve_status(tmp_path, m
     assert row['software_qualified'] is True
     assert row['execution'] == 'failed'
     saved = json.loads((tmp_path / row['run_id'] / 'measurement.json').read_text())
+    assert 'optimizer' not in saved['config']
     assert saved['qualified_for_performance'] is False

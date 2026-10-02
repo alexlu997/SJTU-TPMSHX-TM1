@@ -533,9 +533,11 @@ The current geometry window is L=4..8 mm, t=0.3..0.6 mm; this does not extend
 any Nu correlation's evidence or establish explicit graded-surface connectivity.
 Historical screening result files remain readable with their original units
 and status, but current execution and metric evaluation reject their modes.
-`ComputeConfig.optimizer` remains serialized, including in newly saved configs,
-to preserve the existing round-trip format. Its values are archive-only;
-current optimization solve budgets use `ComputeConfig.solver`. Candidate counts
+New configurations omit `optimizer`. `ComputeConfig.to_dict()` and `to_json()`
+preserve this retired section only when it was explicitly provided or loaded
+from an existing archive; case snapshots and optimization records use the same
+serialization. Its values are archive-only; current optimization solve budgets
+use `ComputeConfig.solver`. Candidate counts
 are the optimizer's separate `n_init`, `n_iter` and `q_batch` arguments.
 Historical Pareto CSV geometry
 export still requires its original configuration and preserves failure status.

@@ -464,7 +464,7 @@ class ComputeConfig:
     geometry: GeometryConfig = field(default_factory=GeometryConfig)
     solver: SolverConfig = field(default_factory=SolverConfig)
     # Preserve the retired screening block in existing configuration archives.
-    optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
+    optimizer: Optional[OptimizerConfig] = None
     # ── audit C4 additions: cover the non-le_* window state that the
     # ── pipeline needs but C3 deliberately punted on.
     bc_A: PartialBCConfig = field(default_factory=PartialBCConfig)
@@ -509,11 +509,17 @@ class ComputeConfig:
         data = json.loads(Path(path).read_text(encoding='utf-8'))
         return cls.from_dict(data)
 
+    def to_dict(self) -> dict[str, Any]:
+        """Return a detached archive, omitting unused retired settings."""
+        data = asdict(self)
+        if self.optimizer is None:
+            data.pop('optimizer')
+        return data
+
     def to_json(self, path: Union[str, Path]) -> None:
-        """Write the config as JSON. Unknown / Path-typed fields
-        round-trip through ``asdict`` (all-stdlib types)."""
+        """Write the configuration archive as JSON."""
         Path(path).write_text(
-            json.dumps(asdict(self), indent=2, ensure_ascii=False),
+            json.dumps(self.to_dict(), indent=2, ensure_ascii=False),
             encoding='utf-8',
         )
 
@@ -827,8 +833,8 @@ class ComputeConfig:
                 fluid_B=FluidConfig(**fB_d) if fB_d else FluidConfig(),
                 geometry=GeometryConfig(**ge_d) if ge_d else GeometryConfig(),
                 solver=SolverConfig(**so_d) if so_d else SolverConfig(),
-                optimizer=(OptimizerConfig(**op_d) if op_d
-                           else OptimizerConfig()),
+                optimizer=(OptimizerConfig(**op_d)
+                           if data.get('optimizer') is not None else None),
                 bc_A=PartialBCConfig(**bcA_d) if bcA_d else PartialBCConfig(),
                 bc_B=PartialBCConfig(**bcB_d) if bcB_d else PartialBCConfig(),
                 zones=ZoneInputConfig(**zn_d) if zn_d else ZoneInputConfig(),

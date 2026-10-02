@@ -22,7 +22,8 @@ def test_solver_knobs_default_to_auto():
 
 def test_archived_optimizer_budget_keeps_its_original_defaults():
     """Loading old files must not reinterpret their retired settings."""
-    o = OptimizerConfig()
+    o = ComputeConfig.from_dict({'optimizer': {}}).optimizer
+    assert o is not None
     assert o.max_outer_ltne == 4
     assert o.outer_tol_K == 0.5
     assert o.max_iter_simple == 800
@@ -53,8 +54,8 @@ def test_legacy_json_with_retired_keys_loads(tmp_path):
 
 
 def test_roundtrip_carries_optimizer_section(tmp_path):
-    cfg = ComputeConfig()
-    cfg.optimizer.max_iter_simple = 512
+    cfg = ComputeConfig(optimizer=OptimizerConfig(
+        max_iter_simple=512, max_outer_ltne=7, outer_tol_K=0.25, alpha_T=0.6))
     cfg.solver.mom_tol = 3e-6
     p = tmp_path / 'cfg.json'
     cfg.to_json(p)
@@ -62,6 +63,19 @@ def test_roundtrip_carries_optimizer_section(tmp_path):
     assert back.optimizer.max_iter_simple == 512
     assert back.solver.mom_tol == 3e-6
     assert back == cfg
+
+
+@pytest.mark.parametrize('data', [{}, {'optimizer': None}])
+def test_new_config_roundtrip_omits_retired_optimizer(tmp_path, data):
+    assert ComputeConfig().optimizer is None
+    cfg = ComputeConfig.from_dict(data)
+    p = tmp_path / 'cfg.json'
+    for _ in range(2):
+        cfg.to_json(p)
+        saved = json.loads(p.read_text(encoding='utf-8'))
+        assert 'optimizer' not in saved
+        cfg = ComputeConfig.from_json(p)
+        assert cfg.optimizer is None
 
 
 # ── effectiveness: the knobs must actually turn ─────────────────────

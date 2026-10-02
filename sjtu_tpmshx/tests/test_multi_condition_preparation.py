@@ -183,6 +183,8 @@ def test_fixed_flow_preserves_legacy_2d_geometry_and_input(monkeypatch, tmp_path
                                         for value in (float(cell), .4)]
     snapshot = asdict(config)
     reference = prepare_case(config, case_id='legacy-reference')
+    assert 'optimizer' not in reference.config_snapshot
+    assert 'optimizer' not in reference.parameters['run_settings']
     targets = {'mass_flow_' + side + '_kg_s': getattr(config, 'fluid_' + side).u_mps
                * total_inlet_mass_capacity(reference.design_fields, reference.parameters,
                                           reference.grid, side) for side in ('A', 'B')}
