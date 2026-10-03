@@ -8,8 +8,10 @@ separate exact assertions. These are software comparison tolerances, not gates.
 import copy
 import ctypes
 from dataclasses import replace
+from importlib.metadata import version
 import os
 from pathlib import Path
+import platform
 import sys
 from unittest.mock import patch
 
@@ -307,10 +309,77 @@ def test_no_b_solver_prescribed_temperature(native):
     assert_equivalent(native.run(cfg, p), reference(cfg, p))
 
 
+def _report_refined_grid_failure(actual, expected):
+    """Expose the first CI/local divergence without changing comparison gates."""
+    print("wall24 failure environment:", dict(machine=platform.machine(), macos=platform.mac_ver()[0],
+        python_compiler=platform.python_compiler(),
+        packages={name: version(name) for name in ("numpy", "numba", "llvmlite")}))
+    np.show_config()
+    print("native return:", actual["code"], actual["error"])
+    if actual["code"]:
+        return
+    prob, outer, metrics, _, _ = expected
+    print("native outer history:", actual[200].tolist())
+    print("native status/flow statistics:", actual[202].tolist())
+    print("python thermal history:", [{key: row[key] for key in ("iters", "converged", "residual")}
+                                     for row in prob._ltne_info])
+    print("python flow stopping:", [None if solver is None else {
+        key: getattr(solver, key) for key in ("exit_reason", "_full_native_last_iterations",
+            "final_res_mom", "final_res_mass_local", "final_res_mass_global", "outlet_backflow_frac")}
+        for solver in (prob.sA, prob.sB)])
+    print("python outer temperature changes:", outer._outer_dT_hist)
+    print("python final energy checks:", [row.get("energy_finishing_checks", [])[-3:]
+                                         for row in prob._ltne_info])
+
+    def compare(name, got, want, rtol, atol):
+        got, want = np.asarray(got), np.asarray(want)
+        if got.shape != want.shape:
+            print("field mismatch:", name, dict(native_shape=got.shape, python_shape=want.shape))
+            return 1
+        passing = np.isclose(got, want, rtol=rtol, atol=atol, equal_nan=True)
+        if np.all(passing):
+            return 0
+        finite = np.isfinite(got) & np.isfinite(want)
+        print("field mismatch:", name, dict(
+            max_abs=float(np.max(np.abs(got[finite]-want[finite]))) if np.any(finite) else None,
+            failing_values=int(np.count_nonzero(~passing)),
+            native_nonfinite=int(np.count_nonzero(~np.isfinite(got))),
+            python_nonfinite=int(np.count_nonzero(~np.isfinite(want))), rtol=rtol, atol=atol))
+        return 1
+
+    failed = 0
+    for code, key in enumerate(("Ta", "Tb", "Ts", "P_thermal_A", "P_thermal_B", "h_vA", "h_vB", "rho_cp_A", "rho_cp_B")):
+        want = outer.native_evidence[key]
+        failed += compare(key, actual[code], np.empty(0) if want is None else np.asarray(want).ravel(),
+                          1e-8 if code < 3 else 2e-7, 1e-6 if code < 3 else (1e-5 if code < 5 else 1e-7))
+    for side, solver in enumerate((prob.sA, prob.sB)):
+        if solver is not None:
+            for code, key in enumerate(FLOW_FIELDS):
+                failed += compare(f"{side}:{key}", actual[100+40*side+code], np.asarray(getattr(solver, key)).ravel(),
+                                  2e-7, 1e-5 if key in ("P", "Pp") else 1e-7)
+    for side in range(2):
+        for key, start in (("mass_", 11), ("face_velocity_", 17)):
+            faces = outer.native_evidence[key+"AB"[side]]
+            for axis in range(3):
+                want = np.empty(0) if faces is None else np.asarray(faces[axis]).ravel()
+                failed += compare(f"{key}{'AB'[side]}:{axis}", actual[start+3*side+axis], want, 2e-7, 1e-10)
+    print("thermal/flow/face fields failing original tolerances:", failed)
+    values = [metrics.dP, metrics.dP_B, metrics.T_A_out, metrics.T_B_out,
+              metrics.m_dot_A_simple, metrics.m_dot_B_simple, metrics.Q_enthalpy_A, metrics.Q_enthalpy_B]
+    want = np.asarray([np.nan if value is None else value for value in values])
+    print("metrics [dP_A,dP_B,Tout_A,Tout_B,mdot_A,mdot_B,Q_A,Q_B]:", dict(
+        native=actual[202][12:20].tolist(), python=want.tolist(), delta=(actual[202][12:20]-want).tolist()))
+
+
 def test_refined_real_grid_and_existing_energy_acceleration(native):
     cfg, p = prepared("air-air", counts=(8, 8, 8), mesh="wall_refine_3d", port_wall_refine=True)
     p["max_outer"] = 2
-    assert_equivalent(native.run(cfg, p), reference(cfg, p))
+    actual, expected = native.run(cfg, p), reference(cfg, p)
+    try:
+        assert_equivalent(actual, expected)
+    except AssertionError:
+        _report_refined_grid_failure(actual, expected)
+        raise
 
 
 def test_graded_direct_grid_and_existing_energy_acceleration(native):
