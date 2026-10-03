@@ -132,12 +132,21 @@ def test_import_changes_only_operating_conditions(window, tmp_path, monkeypatch)
 
 
 @pytest.mark.parametrize('dimension', [0, 1])
-def test_current_condition_flow_uses_prepared_fractional_pore_area(window, dimension):
+def test_current_condition_flow_uses_prepared_fractional_pore_area(window, dimension, monkeypatch):
     from sjtu_tpmshx.preprocess.api import prepare_case
     window.combo_dim.setCurrentIndex(dimension)
     cfg = panel._gather_cfg(window)
     rows = panel._condition_inputs(cfg, None)
     case = prepare_case(cfg, case_id='independent-inlet-check')
+    if not dimension:
+        from sjtu_tpmshx.solvers.backends.python.two_d.execution import build_execution_inputs
+        from sjtu_tpmshx.solvers.backends.python.two_d.runtime import build_runtime
+        from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
+        # Inspect the real constructor's imposed inlet; this GUI handoff test
+        # does not need a numerical solve.
+        monkeypatch.setattr(SIMPLESolver, 'solve', lambda *args, **kwargs: (True, 0))
+        parameters, grid = build_execution_inputs(case)
+        run = build_runtime(parameters, grid)['_run_simple']
     for side, flow in zip('AB', rows[0][2:]):
         if dimension:
             prepared = case.parameters['prepared']
@@ -148,23 +157,31 @@ def test_current_condition_flow_uses_prepared_fractional_pore_area(window, dimen
             pore_area = np.sum(eps * prepared['openings'][side]['inlet'] * area)
             rho = prepared['properties'][side]['rho']
         else:
-            direction = case.parameters['cfg'+side]['dir']
-            eps = np.take(case.design_fields['eps_arr'], -1 if direction % 2 else 0,
-                          axis=direction//2)/2
-            widths = case.grid['dy' if direction < 2 else 'dx']
-            pore_area = np.sum(eps*widths*case.parameters['boundary_openings'][side]['in_profile_frac'])*.042
-            rho = case.parameters['static_properties'][side]['rho']
-        assert flow == pytest.approx(rho*pore_area*getattr(cfg, 'fluid_'+side).u_mps, rel=1e-14)
+            fluid = getattr(cfg, 'fluid_' + side)
+            props = parameters['static_properties'][side]
+            solver = run(parameters['cfg' + side], props['rho'], props['mu'],
+                         fluid.T_in_K, fluid.u_mps, side,
+                         P_in_abs=fluid.P_in_Pa, fluid_type='incompressible')[2]
+            actual = np.sum(solver.rho_field[:, 0] * solver.eps_field[:, 0] / 2.
+                            * solver.v[:, 0] * solver.dx_arr) * cfg.geometry.Lz_m
+            assert flow == pytest.approx(actual, rel=1e-14)
+        if dimension:
+            assert flow == pytest.approx(rho*pore_area*getattr(cfg, 'fluid_'+side).u_mps, rel=1e-14)
 
 
 def test_worker_passes_native_contract_and_reports_cancellation(window, tmp_path, monkeypatch):
-    from sjtu_tpmshx.domain.cancellation import CancelledError
+    from sjtu_tpmshx.domain.module_ports import RunControl
     from sjtu_tpmshx.optimization import multi_condition_optimizer as native
     cfg = panel._gather_cfg(window)
     rows = [condition()]
     conditions = panel._condition_inputs(cfg, rows)
     Worker = panel._make_worker_class()
-    worker = Worker(cfg, rows, panel._field_spec(window), 'sobol', 2, 0, 1, 3, str(tmp_path))
+    host_progress, requested = [], [False]
+    host = RunControl(backend='cpp', native_library='/host/solver',
+        native_table_directory='/host/tables', progress=host_progress.append,
+        cancel_check=lambda: requested[0])
+    worker = Worker(cfg, rows, panel._field_spec(window), 'sobol', 2, 0, 1, 3, str(tmp_path),
+                    control=host)
     rows[0]['T_in_A_K'] = 500.
     outputs, progress = [], []
     worker.finished_with_result.connect(outputs.append)
@@ -174,12 +191,17 @@ def test_worker_passes_native_contract_and_reports_cancellation(window, tmp_path
         assert actual == conditions and actual is not conditions
         assert kwargs['method'] == 'sobol' and kwargs['field_spec']['n_ctrl_z'] == 3
         assert kwargs['control'].cancel_check() is False
+        assert kwargs['control'].backend == 'cpp'
+        assert kwargs['control'].native_library == host.native_library
+        assert kwargs['control'].native_table_directory == host.native_table_directory
         kwargs['control'].report_progress(17)
         (tmp_path/'optimization.json').write_text(json.dumps(expected))
-        raise CancelledError('cancelled')
+        requested[0] = True
+        kwargs['control'].check_cancelled()
     monkeypatch.setattr(native, 'run_multi_condition_optimization', run)
     worker.run()
     assert progress == [17] and outputs == [expected]
+    assert host_progress == [17]
 
 
 @pytest.mark.parametrize('cancel_during_prepare', [False, True])

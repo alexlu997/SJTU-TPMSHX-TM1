@@ -36,6 +36,7 @@ from sjtu_tpmshx.ui.theme import (
 
 from sjtu_tpmshx._version import __version__  # noqa: E402
 from sjtu_tpmshx.domain.provenance import SOURCE_ROOT, repository_revision
+from sjtu_tpmshx.domain.module_ports import RunControl
 
 # ── Auto-select delegate for zone table editing ─────────────
 class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
@@ -44,8 +45,9 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
                 AppearanceMixin, SessionPresetsMixin,
                 ShortcutsMixin, IOActionsMixin,
                 QMainWindow):
-    def __init__(self):
+    def __init__(self, *, control=RunControl()):
         super().__init__()
+        self.run_control = control
         # Central widget created directly — the old `Ui_MainWindow` /
         # `mainui.py` scaffolding (auto-generated from Designer and then
         # fully hidden at startup) has been dropped. QMainWindow auto-
@@ -98,7 +100,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         set_default_factory(FieldFactory(self.theme))
 
         # Phase 1: solver lifecycle (refactor-p1-done).
-        self.compute = ComputeOrchestrator(self)
+        self.compute = ComputeOrchestrator(self, backend=control.backend)
         self.signals.connect(self.compute.started, self._on_orch_started,
                              sender=self.compute)
         self.signals.connect(self.compute.progress, self._on_orch_progress,
@@ -1285,15 +1287,21 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
 
 
 # ── Entry point ───────────────────────────────────────────────
-def main():
+def main(argv=None):
     """Start the desktop interface from source or an installed launcher."""
+    import argparse
+    from sjtu_tpmshx.io.cli_options import add_run_control_arguments, run_control_from_args
+    parser = argparse.ArgumentParser(description=__doc__)
+    add_run_control_arguments(parser)
+    args, qt_args = parser.parse_known_args(sys.argv[1:] if argv is None else argv)
+    control = run_control_from_args(args)
     # High-DPI + font smoothing before QApplication instantiation
     from PySide6.QtCore import Qt as _Qt
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         _Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     import os as _os_main
     _os_main.environ.setdefault('QT_ENABLE_HIGHDPI_SCALING', '1')
-    app = QApplication.instance() or QApplication(sys.argv)
+    app = QApplication.instance() or QApplication([sys.argv[0], *qt_args])
 
     from sjtu_tpmshx.controllers.user_storage import load_appearance_settings
     from sjtu_tpmshx.ui.theme import set_accent_override
@@ -1311,7 +1319,7 @@ def main():
     from sjtu_tpmshx.ui.typography import apply_app_font
     apply_app_font(app)
     apply_mpl_theme()
-    window = Main_Menu()
+    window = Main_Menu(control=control)
     window.showMaximized()
     return app.exec()
 

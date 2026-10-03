@@ -34,11 +34,12 @@ def prepare_fixed_mass_flow_case(
 ) -> CaseData:
     """Prepare a 2D or 3D candidate at prescribed total inlet mass flows.
 
-    The native inlet velocity contains the fractional opening once. Therefore
-    its total flow is ``rho * u * sum(eps_side * opening * face_area)`` using
-    the actual physical inlet slice, including reverse directions. Prepared
-    ``eps_A/B`` already represent each fluid's pore fraction in 3D. A 2D
-    case requires an explicit physical depth ``geometry.Lz_m`` to convert
+    Integrate the actual inlet profile and pore fraction on the physical
+    inlet slice, including reverse directions. The 2D tapered profile is
+    normalized to the geometric open area by SIMPLE; its capacity includes
+    that normalization, with the spatial pore fraction inside the integral.
+    Prepared ``eps_A/B`` already represent each fluid's pore fraction in 3D.
+    A 2D case requires an explicit physical depth ``geometry.Lz_m`` to convert
     total flow to the solver's per-unit-depth flow; its symmetric channel
     porosity is half the prepared total porosity.
 

@@ -29,6 +29,19 @@ range, it retries from the unchanged valid input with a halved interval, within
 the original thermal iteration budget. Nonfinite states, later phase violations,
 and invalid final-pressure states still fail their original checks.
 
+For 2D model-h, stable heat and temperature changes trigger the actual nonlinear
+A/B/solid cell balances as well as the existing global energy checks. Each
+fluid's maximum cell residual is normalized by its own integrated exchange
+divided by the cell count, with a 1 W/m exchange floor; the solid uses the
+larger side exchange. All three ratios must be at most 1%. This average-cell
+load scale is not a claim of invariance under arbitrary local mesh refinement.
+Failed checks continue within the original budget. Outer field stability
+cannot stop the loop while its last thermal pass remains unconverged.
+Both main and refined full-compute model-h passes use the existing Anderson
+GS acceleration, including grids without extra port refinement. Trial sweeps
+count against the same budget and must reduce the GS update residual; final
+acceptance still requires the independent actual-state equation certificate.
+
 For source-free 3D model-h, stable heat and temperature changes trigger the
 shared energy certificate. A failed residual or source-balance gate continues
 thermal sweeps within the existing budget. Missing physical inflow data returns
@@ -55,9 +68,25 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 - `solvers/backends/python/` owns prepared numerical execution, current-state
   property evaluation and native result capture; SIMPLE/LTNE kernels remain
   under `solvers/`. It does not import preprocessing or formal postprocessing.
+  Importing the public solver API does not initialize Numba. Its thread
+  environment is applied once when Python numerical kernels or explicit
+  thread controls are loaded; later runs preserve the caller/worker mask.
   The 2D loop reads prepared properties directly, reports through `RunControl`,
   and returns application coefficients and zone statistics with its native
   result; it has no window-shaped runtime adapter or attribute-write hooks.
+- `solvers/backends/cpp/` exposes the independent prepared Quick Design and
+  full 2D/3D drivers through an explicit `RunControl(backend='cpp', native_library=...)`.
+  The host library path is not serialized in CaseData. Shared QD validation and
+  result mapping belong to `solvers/backends/quick_design.py`; numerical property
+  passes, liquid-state guards and thermal iteration belong to the C++ driver.
+  Its returned scalar pass evidence is expanded into the same fields and warning
+  records for postprocessing. Full 2D/3D own SIMPLE, pressure references, outer
+  property/thermal coupling and final certificates in C++; 2D also owns
+  Richardson refinement. The binding packs prepared arrays and maps native
+  evidence into the same `FieldResult`; it does not call Python numerical
+  kernels. Full 2D ABI 2 retains the original prepared Nu geometry ratio rather
+  than reconstructing it after a unit conversion. Python remains the default;
+  Windows native qualification is still outstanding.
 - `postprocess/` reduces recorded fields, fluxes and pressure states. It never
   reruns a solver or reads a private runtime object to recover missing evidence.
   Full-compute evaluation reuses successful heat and mass reductions only within
@@ -65,7 +94,10 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   retains its own missing/unsupported/invalid status handling.
 - `models/` and `df_surrogate/` own shared pure closures and versioned resources.
   Explicit cleaning/calibration entry points live under `preprocess/offline/`.
-- `io/` owns strict YAML/HDF5/JSON interchange. VTK export is a postprocessing
+- `io/` owns strict YAML/HDF5/JSON interchange. Its `cli_options` module maps
+  shared host execution arguments into `RunControl` without adding host paths
+  to saved cases/configuration or coupling CLI consumers to workflows.
+  VTK export is a postprocessing
   view of recorded data, not a new numerical state.
 - `configs/` owns packaged case configuration.
 - `pipelines/` retains explicit scripted stage entry points. Callers import
@@ -220,8 +252,36 @@ its definition because adaptive AMG consumes it. Runtime/accuracy comparisons
 between runs must compare actual inputs, approximation
 modes, grids, iteration budgets and F2 settings.
 Coarse bootstrap supplies a bounded initial guess, not a convergence certificate.
+Formal full 3D execution keeps bootstrap disabled by default. An explicit
+enable uses the configured first coarse-level cap; standalone `None` retains
+the existing cell-count selection (`_AMG_GATE`, currently 2000). Each constructed
+coarse solver retains its original automatic recursive selection and 200-step
+child cap. These are per-level limits, not a shared 200-step bootstrap budget.
+The half-grid minimum of four cells per axis, warm-start skip and fine pressure
+boundary restoration are unchanged.
+
+Both full backends save `diagnostics.coarse_bootstrap_trace` by side. It records
+the effective policy, threshold, first/recursive caps, attempted coarse shapes,
+depth and each layer's actual stop, charged iterations and seed application.
+`solve_started` means at least one iteration of that layer was entered;
+`actual_levels` counts those layers and `started_cap_sum` sums only their caps.
+`total_charged_iterations` sums entered iterations, including a failing one.
+A skipped layer, or a parent cancelled while a child runs, can retain its
+configured cap with zero charge. These records never control or extend a solve.
+The historical bootstrap summary still describes the first coarse level.
 Old result files remain readable; rerunning an explicit legacy configuration
 requires selecting F2 and accepting the independently measured result.
+
+The staggered Python energy projection's `_LAPLACIAN_AMG_CACHE` belongs to the
+Python backend process, keyed by grid shape. It retains the graph operator and
+AMG hierarchy rather than case fields or a case RHS; PyAMG can lazily construct
+its coarse pseudoinverse on first use. Its formal consumers leave production
+with the corresponding Python capability when that capability is retired.
+Retained research/MMS consumers keep an explicit process/reset lifecycle:
+production does not call the reset hook, and research resets must wait until
+active consumers finish. Clearing the cache does not prove that the allocator
+has returned pages to the OS. This ownership does not introduce an LRU policy
+or rebuild the hierarchy for each case.
 
 Both backends consume `models/fluid_props.FluidModel`. The registry imports
 air/water primitives from `tpms_props` and Nu functions from `nu_correlations`
@@ -271,8 +331,10 @@ calibration restrictions and the sCO2 spatial restriction remain.
 
 `optimization.multi_condition.prepare_fixed_mass_flow_case` prepares a candidate,
 sets each inlet velocity using the prescribed total mass flow divided by its
-inlet density and the integral of local single-channel porosity over the actual
-opening, then prepares the final case. Its snapshot therefore records the
+inlet density and the integral of local single-channel porosity times the
+actual normalized inlet velocity profile over the opening, then prepares the
+final case. The 2D taper normalization uses geometric open area independently
+of the spatial porosity field, exactly as the SIMPLE boundary does. Its snapshot records the
 candidate's correct velocity. A 2D study must supply its physical depth for
 total-mass-flow conversion; native results retain their per-unit-depth units.
 `preprocess.api.prepare_inlet_mass_capacities` reuses the native geometry,
@@ -424,11 +486,14 @@ do not apply to this route. Damping changes the iteration, not its steady
 energy equation. Q/field convergence, physical boundary energy, solid energy
 and mass checks remain separate and retain their thresholds. The turning-flow
 regression covers serial/red-black execution and physical A/B label invariance.
-The 3D model-h inner `converged` flag checks duty and temperature changes;
-its recorded equation/solid/boundary budgets are additional diagnostics, not
-the true-h route's independent 0.001 equation gate. The conservation tests
-check their declared budgets separately. Do not infer identical acceptance
-criteria from the shared word `converged` across thermal routes.
+For source-free 3D model-h, duty and temperature stability trigger the shared
+actual-state energy certificate. The inner pass is converged only when that
+certificate passes; failed checks continue within the original budget, while
+missing physical inflow data returns an unconverged pass for a flow update.
+Manufactured-source cases retain their separate stopping rule. The model-h
+residual definitions and budgets differ from the true-h route's independent
+0.001 equation gate. Do not infer identical acceptance criteria from the shared
+word `converged` across thermal routes.
 Model-h Richardson refinement has a 12000-sweep ceiling so the finer grid can
 meet those same criteria; temperature-form refinement retains 5000. See the
 [air/water convergence and validation record](history/README.md#2026-09-18-历史材料整理).
@@ -494,12 +559,19 @@ These numerical choices do not determine physical validity.
 This inlet check joins the outer convergence gate. Correction is on
 by default; explicit `p_in_shooting=False` / `TPMSHX_P_IN_SHOOT=0` remains a
 diagnostic override and cannot certify a mismatched inlet as converged.
-The 2D air property, thermal and report fields use that same SIMPLE absolute
+The 2D/3D air property, thermal and report fields use that same SIMPLE absolute
 state; they do not shift it again to pin the inlet cell row. Numerical and
 experimental before/after evidence is in
 [the pressure-boundary diagnosis](history/README.md#2026-09-18-历史材料整理).
-Water and the current frozen-pressure sCO₂ route retain their property-pressure
-convention. Postprocessing does not reconstruct thermal enthalpy at a new state.
+The incompressible routes freeze density within each SIMPLE solve. The 3D
+water and default sCO₂ routes retain their inlet-pressure density/viscosity
+convention; the existing 2D outer refresh uses the local absolute field.
+In both dimensions the incompressible absolute pressure
+reference anchors the physical inlet faces' open-area-weighted arithmetic
+mean to the specified inlet pressure. Thermal EOS and phase checks consume their
+iteration's absolute field. The detached last-thermal pressure is preserved even if a
+failed final outer post-step produces a different final flow pressure.
+Postprocessing does not reconstruct thermal enthalpy at a new state.
 Pressure drop retains the final SIMPLE pressure convention and its distinct
 recorded state. Metric definitions survive JSON and GUI export metadata.
 Old metrics files retain their definitions; re-evaluate their native result
@@ -559,12 +631,16 @@ the independent final cold-start evaluation still determines feasibility. Final-
 records, GUI diagnostics and Excel also retain hot/cold duties and the existing
 energy-imbalance metric with its availability and reason. This diagnostic does
 not participate in feasibility filtering; unavailable values are not zero.
-Design property lookups apply the shared liquid-water state guard to the inlet and,
-for the second mean-property pass, the representative temperature paired with
-the existing inlet pressure. Invalid pairs raise `WaterStateError` before
-liquid properties are used. This scalar check does not certify phase stability
-throughout the quick-design field: the approximation has no local pressure
-field, and its analytical pressure drop retains its existing meaning. In both
+Design property lookups apply the shared liquid-water state guard to the inlet,
+representative mean-property state, external warm start and every returned
+water temperature cell after each const/mean thermal pass. All use the declared
+inlet pressure: quick design has no solved local pressure field. Invalid input
+states fail immediately; an invalid trial field is an inadmissible sizing
+sample, not an invented signed root residual. A bounded cold search may recover
+an interior liquid candidate when an endpoint leaves the supported water state.
+It accepts only cold, tight verified candidates and reports search exhaustion
+without claiming physical infeasibility or a global minimum between samples.
+Analytical pressure drop retains its existing meaning. In both
 const and mean modes, water Nu retains Pr at 320 K / 0.2 MPa. The mean pass
 updates the other water properties, Re and conductivity used in volumetric heat
 transfer; `metadata.properties.Pr` records the actual pass state, not Nu's
@@ -676,7 +752,12 @@ explicit numerical-model change with directly relevant validation.
    the energy solver forms the two half-porosity streams. For an offset
    isosurface, `models/asym_split.py` computes the upstream `eps_A`/`eps_B`
    split, whose sides sum to the full porosity, and the kernel does not halve
-   those values again.
+   those values again. Effective fluid conductivity is `K_ff_i = eps_i * k_i`
+   for each stream. The symmetric prepared coefficient is therefore
+   `eps_total/2 * k_i`; offset factors `2*split_i` apply once to that baseline.
+   Existing prepared files retain their frozen coefficients; reprepare the
+   original configuration to obtain corrected coefficients, without rewriting
+   historical inputs or results.
 3. **Mass-flux inlet.** Compressible air uses the mass-flux inlet in both 2D
    and 3D. Solver velocities are interstitial, not superficial.
 4. **Darcy-Forchheimer ownership.** `df_surrogate.predict_K_cF()` remains the

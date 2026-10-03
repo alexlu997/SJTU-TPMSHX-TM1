@@ -6,7 +6,7 @@ Case/Result files retain settings, physical evidence and nonfinite diagnostics.
 Run from the source root with the project's configured interpreter.
 """
 from collections.abc import Mapping
-from contextlib import ExitStack, contextmanager, redirect_stderr, redirect_stdout
+from contextlib import ExitStack, contextmanager, nullcontext, redirect_stderr, redirect_stdout
 from dataclasses import asdict
 import argparse
 import functools
@@ -21,6 +21,8 @@ from time import perf_counter
 import traceback
 from unittest.mock import patch
 from uuid import uuid4
+
+from sjtu_tpmshx.domain.module_ports import RunControl
 
 
 def json_data(value):
@@ -57,7 +59,7 @@ def observe_solver(dimension, calls):
         from sjtu_tpmshx.solvers.backends.python.three_d import result_capture as capture, runtime
     else:
         from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver as cls
-        from sjtu_tpmshx.solvers.backends.python.two_d import result_capture as capture, execution
+        from sjtu_tpmshx.solvers.backends.python.two_d import result_capture as capture, runtime
 
     def clocked(original, label, simple=False):
         @functools.wraps(original)
@@ -105,7 +107,7 @@ def observe_solver(dimension, calls):
             stack.enter_context(patch.object(coupling, 'run_outer_coupling', clocked(coupling.run_outer_coupling, 'outer_loop')))
             stack.enter_context(patch.object(coupling, 'solve_full_domain', clocked(coupling.solve_full_domain, 'LTNE')))
             stack.enter_context(patch.object(enthalpy, 'solve_enthalpy_2d', clocked(enthalpy.solve_enthalpy_2d, 'enthalpy')))
-            build = execution.build_runtime
+            build = runtime.build_runtime
             def build_runtime(*args, **kwargs):
                 fields = build(*args, **kwargs)
                 original = fields['_run_simple']
@@ -117,7 +119,7 @@ def observe_solver(dimension, calls):
                         del labels.side
                 fields['_run_simple'] = solve_side
                 return fields
-            stack.enter_context(patch.object(execution, 'build_runtime', build_runtime))
+            stack.enter_context(patch.object(runtime, 'build_runtime', build_runtime))
         yield
 
 
@@ -153,7 +155,7 @@ def sample_rss(samples):
         thread.join()
 
 
-def run_one(job, output, *, sample_kind):
+def run_one(job, output, *, sample_kind, control=RunControl()):
     from sjtu_tpmshx.domain.compute_config import ComputeConfig
     from sjtu_tpmshx.preprocess.api import prepare_case
     from sjtu_tpmshx.solvers.api import run_case
@@ -170,6 +172,7 @@ def run_one(job, output, *, sample_kind):
     target.mkdir(parents=True, exist_ok=False)
     row = dict(run_id=run_id, job_id=job['id'], sample_kind=sample_kind,
                source=source_context(), interpreter=sys.executable, execution='started',
+               backend=control.backend,
                environment={key: value for key, value in os.environ.items() if key.startswith(
                    ('TPMSHX_', 'SJTU_', 'NUMBA_', 'OMP_', 'OPENBLAS_', 'MKL_', 'VECLIB_', 'QT_', 'COOLPROP_'))},
                reference=job.get('reference', {}), timings_s={}, stage_spans=[], calls=[], rss_samples=[])
@@ -193,8 +196,10 @@ def run_one(job, output, *, sample_kind):
                        model_refs=[dict(name=ref.name, version=ref.version,
                                         parameters=ref.parameters, applicability=ref.applicability)
                                    for ref in case.model_refs])
-            with observe_solver(case.grid['dimension'], row['calls']):
-                native = timed('solve_inclusive', run_case, case)
+            observer = (observe_solver(case.grid['dimension'], row['calls'])
+                        if control.backend == 'python' else nullcontext())
+            with observer:
+                native = timed('solve_inclusive', run_case, case, control)
             performance = timed('evaluate', evaluate, native)
             display = timed('application_map', to_compute_result, native, performance)
             row.update(execution=native.run_status['execution'], run_status=native.run_status,
@@ -262,13 +267,16 @@ def run_one(job, output, *, sample_kind):
 
 
 def main(argv=None):
+    from sjtu_tpmshx.io.cli_options import add_run_control_arguments, run_control_from_args
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('manifest', type=Path)
     parser.add_argument('output', type=Path)
     parser.add_argument('--jobs', nargs='+', help='frozen job IDs; default all')
     parser.add_argument('--repeat', type=int, default=1)
     parser.add_argument('--warmup', action='store_true')
+    add_run_control_arguments(parser)
     args = parser.parse_args(argv)
+    control = run_control_from_args(args)
     jobs = json.loads(args.manifest.read_text())['jobs']
     if args.jobs:
         by_id = {job['id']: job for job in jobs}
@@ -277,15 +285,16 @@ def main(argv=None):
         parser.error('at least one job and one repetition are required')
     args.output.mkdir(parents=True, exist_ok=False)
     write_json(args.output / 'selection.json', dict(manifest=str(args.manifest.resolve()),
-               jobs=[j['id'] for j in jobs], repeat=args.repeat, warmup=args.warmup))
+               jobs=[j['id'] for j in jobs], repeat=args.repeat, warmup=args.warmup,
+               backend=control.backend))
     outcomes = []
     for job in jobs:
         if args.warmup:
-            row = run_one(job, args.output, sample_kind='warmup')
+            row = run_one(job, args.output, sample_kind='warmup', control=control)
             outcomes.append((row['execution'], row.get('qualified_for_performance')))
             del row
         for index in range(args.repeat):
-            row = run_one(job, args.output, sample_kind=f'measured-{index + 1}')
+            row = run_one(job, args.output, sample_kind=f'measured-{index + 1}', control=control)
             outcomes.append((row['execution'], row.get('qualified_for_performance')))
             del row
     return 1 if any(state != 'completed' for state, _ in outcomes) else 2 if any(

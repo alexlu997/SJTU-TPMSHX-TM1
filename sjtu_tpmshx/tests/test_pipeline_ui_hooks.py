@@ -82,3 +82,60 @@ def test_pipeline_forwards_runtime_controls(monkeypatch, pipeline_cls):
     assert progress == [55]
     assert labels == ['iter 2/10']
     assert outer == [(2, 10)]
+
+
+@pytest.mark.parametrize('pipeline_cls', [Pipeline2D, Pipeline3D])
+def test_pipeline_retains_host_control_and_combines_cancellation(monkeypatch, pipeline_cls):
+    from sjtu_tpmshx.domain.module_ports import RunControl
+    from sjtu_tpmshx.solvers import api
+
+    gui_progress, host_progress, residuals, labels, outer = [], [], [], [], []
+    gui_labels, gui_outer = [], []
+    requested = [False]
+    host = RunControl(backend='cpp', native_library='/host/solver',
+        native_table_directory='/host/tables', progress=host_progress.append,
+        cancel_check=lambda: requested[0], iteration=labels.append,
+        outer_iteration=lambda k, n: outer.append((k, n)),
+        residual=lambda *value: residuals.append(value))
+    token = CancelToken()
+    fields, result = object(), object()
+
+    def run_case(case, control):
+        assert case is fields
+        assert control.backend == 'cpp'
+        assert control.native_library == host.native_library
+        assert control.native_table_directory == host.native_table_directory
+        assert not control.cancel_check()
+        control.report_progress(50)
+        control.iteration('iter 2/10')
+        control.outer_iteration(2, 10)
+        control.residual('A', 2, .01)
+        requested[0] = True
+        with pytest.raises(CancelledError):
+            control.check_cancelled()
+        requested[0] = False
+        token.cancel()
+        with pytest.raises(CancelledError):
+            control.check_cancelled()
+        return result
+
+    monkeypatch.setattr(api, 'run_case', run_case)
+    pipe = pipeline_cls(ComputeConfig(), progress_cb=gui_progress.append,
+                        cancel_token=token, control=host, ui_hooks={
+                            'iter_label_cb': gui_labels.append,
+                            'iter_cb': lambda k, n: gui_outer.append((k, n))})
+    assert pipe.run_solvers(fields) is result
+    assert gui_progress == [55] and host_progress == [50]
+    assert labels == ['iter 2/10'] and outer == [(2, 10)]
+    assert gui_labels == labels and gui_outer == outer
+    assert residuals == [('A', 2, .01)]
+    assert pipe.control is host
+
+
+def test_host_cancel_stops_pipeline_before_preparation(monkeypatch):
+    from sjtu_tpmshx.domain.module_ports import RunControl
+
+    pipe = pipeline_for(ComputeConfig(), control=RunControl(cancel_check=lambda: True))
+    monkeypatch.setattr(pipe, 'build_fields', lambda: pytest.fail('prepared cancelled run'))
+    with pytest.raises(CancelledError):
+        pipe.run()

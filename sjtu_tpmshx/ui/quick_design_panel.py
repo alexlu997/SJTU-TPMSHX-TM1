@@ -4,11 +4,13 @@
 公开 API: run_quick_design(window) / _gather_inputs(window) / _make_worker_class()。
 """
 from __future__ import annotations
+from dataclasses import replace
 from math import isfinite
 from pathlib import Path
 import sys
 
 from sjtu_tpmshx.logutil import get_logger
+from sjtu_tpmshx.domain.module_ports import RunControl
 
 _log = get_logger(__name__)
 
@@ -82,17 +84,20 @@ def _make_worker_class():
         error_signal = Signal(str)
         cancelled = Signal()
 
-        def __init__(self, params):
+        def __init__(self, params, *, control=RunControl()):
             super().__init__()
             self.params = params
+            self.control = control
             # The first desktop bundle has no loky subprocess entry point.
             self.n_jobs = 1 if getattr(sys, 'frozen', False) else -1
 
         def run(self):
-            from sjtu_tpmshx.domain.module_ports import RunControl
             from sjtu_tpmshx.domain.cancellation import CancelledError
             from sjtu_tpmshx.design.select import SelectionCancelled
-            control = RunControl(cancel_check=self.isInterruptionRequested)
+            def cancelled():
+                return self.isInterruptionRequested() or (
+                    self.control.cancel_check is not None and self.control.cancel_check())
+            control = replace(self.control, cancel_check=cancelled)
             results = []
             p = self.params
 
@@ -253,7 +258,7 @@ def run_quick_design(window) -> None:
     if not params["file"]:
         _set_status(window, "请先选工况文件"); return
     Worker = _make_worker_class()
-    worker = Worker(params)
+    worker = Worker(params, control=getattr(window, 'run_control', RunControl()))
 
     def _on_done(res):
         feas, best = res["feasible"], res["best"]
@@ -366,6 +371,7 @@ def build_quick_design_dialog(parent=None):
             super().closeEvent(event)
 
     dlg = QuickDesignDialog(parent)
+    dlg.run_control = getattr(parent, 'run_control', RunControl())
     dlg.setWindowTitle("快速设计工具")
     dlg.resize(900, 700)
     dlg.setMinimumSize(640, 600)

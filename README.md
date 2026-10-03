@@ -105,11 +105,12 @@ $env:NUMBA_CACHE_DIR = Join-Path $PWD '.cache/numba'
 前两条计算命令分别输出 `case.yaml`、伴随 `case.h5`、`results.h5` 和
 `metrics.json`；最后一条启动图形界面。CLI 输入文件与 GUI 会话文件格式不同，
 上述 JSON 用于命令行。打开对应 `metrics.json`，五项基本指标应为 `available`，
-参考值如下（2026-09-30 在 main `266211ed` 复核，近似值用于核对运行结果）：
+参考值如下（2026-10-02 当前实现复核，近似值用于核对运行结果；
+二维修订前数值保留于[历史索引](docs/history/README.md)）：
 
 | 算例 | Q | Δp A / B（Pa） | 出口温度 A / B（K） |
 | --- | --- | --- | --- |
-| air_2d | 31130.94 W/m | 1626.13 / 1188.83 | 303.28 / 334.80 |
+| air_2d | 31131.52 W/m | 1626.03 / 1188.81 | 303.28 / 334.79 |
 | air_3d | 338.33 W | 1944.17 / 3038.38 | 359.23 / 344.93 |
 
 空气现按真实端口面的面积平均值校准入口绝压，误差低于0.01%才满足该项收敛条件；
@@ -339,10 +340,14 @@ Pareto CSV 仍可导出几何；旧筛选模式不能再执行或重新计算指
 `models/`、`df_surrogate/` 等是共享技术支撑，不是第四个业务模块。旧 Pipeline/应用
 入口单向调用公开模块。具体边界见[架构说明](docs/architecture.md)。
 
-实际后端为 Python，默认使用 Numba；完整双流体 true-h 路线可显式选择
-[C++ 热迭代内核](docs/cpp-migration.md)，物性、收敛与能量验收仍由 Python 执行。
-完整 C++ 后端、OpenFOAM、REFPROP 等提供器、扩展 h/f/PEC 定义与
-伴随能力继续按 M-B/原文限定追踪，不能据目录或接口声明为已实现。
+默认后端为 Python/Numba。已验收的 macOS arm64 原生库可通过显式
+`RunControl(backend='cpp', native_library=...)` 或 CLI `--backend cpp`
+执行 Quick Design 和完整二维／三维求解；库路径、构建及能力边界见
+[C++ 迁移说明](docs/cpp-migration.md)。Windows 原生验收仍有缺口。
+完整二维接口为 ABI 2，必须同步分发库、头文件和适配器。Python 的可选 true-h
+C++ sweep 内核是单独的窄接口，物性和收敛仍由 Python 驱动。
+OpenFOAM、REFPROP 等提供器、扩展 h/f/PEC 定义与伴随能力继续按
+M-B/原文限定追踪，不能据目录或接口声明为已实现。
 
 ## 环境与检查
 

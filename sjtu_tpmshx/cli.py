@@ -56,14 +56,17 @@ def main(argv=None) -> int:
                     help='parse + validate + pipeline dispatch, no solve')
     ap.add_argument('--json', action='store_true', dest='as_json',
                     help='machine-readable one-line JSON summary')
+    from sjtu_tpmshx.io.cli_options import add_run_control_arguments, run_control_from_args
+    add_run_control_arguments(ap)
     args = ap.parse_args(argv)
+    control = run_control_from_args(args)
 
     from sjtu_tpmshx.domain.compute_config import ComputeConfig
     from sjtu_tpmshx.controllers.compute_pipeline import pipeline_for
 
     with redirect_stdout(sys.stderr) if args.as_json else nullcontext():
         cc = ComputeConfig.from_json(args.config)
-        pipe = pipeline_for(cc)
+        pipe = pipeline_for(cc, control=control)
         result = None if args.dry_run else pipe.run()
     if args.dry_run:
         info = {'pipeline': type(pipe).__name__,

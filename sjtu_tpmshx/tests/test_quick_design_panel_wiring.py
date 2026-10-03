@@ -331,8 +331,8 @@ def test_failure_keeps_completed_candidates_error_and_export(monkeypatch, tmp_pa
     monkeypatch.setattr(optimize, 'warm_start_joint', refinement)
     worker_class = panel._make_worker_class()
 
-    def make_worker(params):
-        worker = worker_class(params)
+    def make_worker(params, *, control):
+        worker = worker_class(params, control=control)
         worker.n_jobs = 1
         # Attach before start(), including when a controlled candidate is fast.
         worker.finished_with_result.connect(lambda value: events.append(('result', value)))
