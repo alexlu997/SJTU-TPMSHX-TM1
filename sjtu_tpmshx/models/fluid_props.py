@@ -28,6 +28,10 @@ class WaterStateError(ValueError):
     """An actual water state is unsupported or cannot be confirmed."""
 
 
+class QuickDesignWaterFieldError(WaterStateError):
+    """A quick-design field cannot satisfy the existing liquid-water contract."""
+
+
 def check_water_state(fluid, T, P, *, where="water state") -> None:
     """Check paired actual K/Pa(abs) states, never a temperature-only primitive.
 

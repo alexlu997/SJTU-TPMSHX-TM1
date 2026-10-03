@@ -304,16 +304,6 @@ def build_continuous_geometry(x, L0, t0, y_trans_inlet, y_trans_outlet,
                                  allow_extrap=allow_extrap, axis='continuous')
 
 
-def _arrays_from_fields(L_field, t_field, tpms_type, k_s, u_A, u_B,
-                        T_inA, T_inB, lut, *, P_in=101325., P_inB=None,
-                        allow_extrap=None, fluid_type='air', axis):
-    """Shared property assembly for the 2D and 3D sigmoid fields."""
-    geometry = _geometry_from_fields(L_field, t_field, tpms_type, k_s, lut,
-                                     allow_extrap=allow_extrap, axis=axis)
-    return _fluid_arrays_from_geometry(geometry, tpms_type, u_A, u_B, T_inA, T_inB,
-                                      P_in=P_in, P_inB=P_inB, fluid_type=fluid_type)
-
-
 def _geometry_from_fields(L_field, t_field, tpms_type, k_s, lut, *, allow_extrap, axis):
     # Clip to fit range — bypassed under allow_extrap so user can sweep
     # outside the current CFD geometry grid.
@@ -366,7 +356,7 @@ def _fluid_arrays_from_geometry(geometry, tpms_type, u_A, u_B, T_inA, T_inB, *,
             f"build_continuous_arrays hardcodes air properties; fluid_type="
             f"{fluid_type!r} would silently use air (h_v/K_ff off 10-100x). "
             "Zoned/graded non-air support is deferred — use uniform geometry.")
-    eps_arr, A0_arr = geometry['eps_arr'], geometry['A_0_arr']
+    A0_arr = geometry['A_0_arr']
     L_field, D_h_arr = geometry['L_field'], geometry['r_h_arr'] * 2.0
     k_fA = air_conductivity(T_inA)
     mu_A = air_viscosity(T_inA)
@@ -388,8 +378,8 @@ def _fluid_arrays_from_geometry(geometry, tpms_type, u_A, u_B, T_inA, T_inB, *,
     h_vA_arr = H_sf_A * A0_arr
     h_vB_arr = H_sf_B * A0_arr
 
-    K_ffA_arr = eps_arr * k_fA
-    K_ffB_arr = eps_arr * k_fB
+    K_ffA_arr = geometry['eps_f_arr'] * k_fA
+    K_ffB_arr = geometry['eps_f_arr'] * k_fB
     return {
         **geometry,
         'K_ffA_arr': K_ffA_arr,

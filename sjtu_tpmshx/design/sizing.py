@@ -12,6 +12,7 @@ from sjtu_tpmshx.domain.module_ports import RunControl
 
 from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry
 from sjtu_tpmshx.models.design_fluids import fluid_props, nu_re_window
+from sjtu_tpmshx.models.fluid_props import QuickDesignWaterFieldError
 from .forward import forward
 from sjtu_tpmshx.models.quick_design import dP_fracs, K_STEEL, GEOM_N, LTNE_TOL
 
@@ -29,6 +30,7 @@ BISECT_IT, TOL = 28, 1e-4
 SIZING_TOL = 1e-4      # 定尺搜索期放松 LTNE 残差 (终点再用 LTNE_TOL 收紧)
 GOLDEN_IT = 10         # min-V over s 黄金分割步数 (~12 解, s 分辨率 <5mm; 优于旧 20 网格 22mm)
 S_REFINE_TOL = 0.004   # s 区间收敛阈 [m] (4mm)
+WATER_SEARCH_EVALS = 64  # Cold-start evaluations after a local water-field failure.
 
 def t_target(case) -> float:
     """ΔT 的出口温目标；Q 的入口 cp 等效温度仅用于 governing 预选。"""
@@ -45,7 +47,9 @@ def solve_Lx(case, topo, l, t, s, arrangement, target=None, k_s=K_STEEL,
     A: seed=(Ta,Tb,Ts) 跨-s 续解种子 (s 平滑变, 场近似); ev 内每步续解。
     D: 搜索用 SIZING_TOL (松), 终点用 LTNE_TOL (紧) → 渐进收紧。
     height: 矩形迎风高 (None=方形); 透传 forward。
-    返回 (Lx, ForwardResult)。不可达 (LX_MAX 仍欠冷) → (None, None)。"""
+    返回 (Lx, ForwardResult)。有效 LX_MAX 仍欠冷 → (None, None)。
+    水温场失相时在有界冷启动区间搜索中寻找有效解；未找到已复核候选时
+    抛出 QuickDesignWaterFieldError，不能据此判定物理目标全局不可达。"""
     if target is not None and not math.isfinite(target):
         raise ValueError('solve_Lx target must be finite')
     tgt = target if target is not None else (
@@ -61,14 +65,17 @@ def solve_Lx(case, topo, l, t, s, arrangement, target=None, k_s=K_STEEL,
         return value
     control = control or RunControl()
     prev = {"f": seed, "last": None}
-    def ev(Lx, tol):
+    def ev(Lx, tol, *, cold=False):
         nonlocal evaluation_failed
         control.check_cancelled()
         try:
-            r = forward(case, topo, l, t, s, Lx, arrangement, init=prev["f"],
+            r = forward(case, topo, l, t, s, Lx, arrangement, init=None if cold else prev["f"],
                         k_s=k_s, prop_model=prop_model, tol=tol, height=height,
                         control=control)
             deficit(r)  # Includes the final tightened solve, outside brentq.
+        except QuickDesignWaterFieldError:
+            prev["f"] = None  # An invalid field must never seed another solve.
+            raise
         except ValueError:
             evaluation_failed = True
             raise
@@ -76,34 +83,95 @@ def solve_Lx(case, topo, l, t, s, arrangement, target=None, k_s=K_STEEL,
         prev["last"] = r
         return r
     lo, hi = max(2.0 * l / 1000.0, 1e-3), LX_MAX
-    f_hi = deficit(ev(hi, SIZING_TOL))
-    if f_hi > 0:                             # 最长也欠冷
-        return None, None
-    f_lo = deficit(ev(lo, SIZING_TOL))
-    if f_lo <= 0:                            # 最短已够
-        return lo, ev(lo, LTNE_TOL)          # 终点收紧
-    # f_lo>0>f_hi 已 bracket → brentq 求冷却不足量的零点。
-    try:
-        Lx_root = brentq(lambda Lx: deficit(ev(Lx, SIZING_TOL)),
-                         lo, hi, xtol=TOL, maxiter=BISECT_IT)
-    except ValueError:
-        if evaluation_failed:
-            raise  # Invalid evaluations are not SciPy's changed-bracket condition.
-        # 冷却临界点 (小 LMTD): ev() 改 warm-start 种子 → 松容差 LTNE 解非确定,
-        # brentq 复评端点可能同号而崩。保留原二分退路：冷却不足量随 Lx
-        # 单调递减，取满足同一 Q/温度目标的上界。
-        a, b = lo, hi
-        for _ in range(BISECT_IT):
+
+    def search_water_interval(first_error):
+        """Find a liquid, tightly verified candidate without assigning invalid
+        states a residual sign. A bounded interval search can be unresolved;
+        that is distinct from proving the cooling target unreachable.
+        """
+        samples, intervals = {}, [(lo, hi)]
+        used, best, last_error = 0, None, first_error
+
+        def sample(length):
+            nonlocal used, best, last_error
+            used += 1
+            try:
+                result = ev(length, SIZING_TOL, cold=True)
+                value = deficit(result)
+                if value <= 0 and used < WATER_SEARCH_EVALS:
+                    # Also reject final-pass phase failure or target drift.
+                    used += 1
+                    result = ev(length, LTNE_TOL, cold=True)
+                    value = deficit(result)
+                    if value <= 0 and (best is None or length < best[0]):
+                        best = (length, result)
+                samples[length] = value
+            except QuickDesignWaterFieldError as exc:
+                last_error = exc
+                samples[length] = None
+
+        sample(lo)
+        sample(hi)
+        while intervals and used < WATER_SEARCH_EVALS:
+            # Refine actual sign brackets first, then liquid-domain boundaries,
+            # then unresolved intervals with two invalid ends. Retain both
+            # halves of an invalid interval: neither end proves its interior.
+            def priority(interval):
+                a, b = interval
+                fa, fb = samples[a], samples[b]
+                rank = (0 if fa is not None and fb is not None
+                        else 1 if (fa is None) != (fb is None) else 2)
+                return rank, -(b - a)
+            a, b = min(intervals, key=priority)
+            intervals.remove((a, b))
+            fa, fb = samples[a], samples[b]
+            if best is not None and a >= best[0]:
+                continue
+            if b - a <= TOL:
+                continue
+            # Keep the existing monotone cooling-response assumption only
+            # between two valid evaluations; invalid points have no sign.
+            if fa is not None and fb is not None and fa > 0 and fb > 0:
+                continue
             m = 0.5 * (a + b)
-            if deficit(ev(m, SIZING_TOL)) > 0:
-                a = m              # 仍欠冷 → 需更长 Lx
-            else:
-                b = m
-        Lx_root = b
-    # The root is only resolved to TOL metres. Choose its cooling side;
-    # the final cold-start solve still decides whether this design is usable.
-    Lx_root = min(Lx_root + TOL, hi)
-    return Lx_root, ev(Lx_root, LTNE_TOL)    # 终点收紧
+            sample(m)
+            intervals.extend(((a, m), (m, b)))
+        if best is not None:
+            return best
+        raise QuickDesignWaterFieldError(
+            f'water-state-search-exhausted after {used} cold evaluations '
+            f'in Lx=[{lo:g}, {hi:g}] m; no verified candidate: {last_error}') from last_error
+
+    try:
+        f_hi = deficit(ev(hi, SIZING_TOL))
+        if f_hi > 0:                             # 最长也欠冷
+            return None, None
+        f_lo = deficit(ev(lo, SIZING_TOL))
+        if f_lo <= 0:                            # 最短已够
+            return lo, ev(lo, LTNE_TOL)          # 终点收紧
+        # f_lo>0>f_hi 已 bracket → brentq 求冷却不足量的零点。
+        try:
+            Lx_root = brentq(lambda Lx: deficit(ev(Lx, SIZING_TOL)),
+                             lo, hi, xtol=TOL, maxiter=BISECT_IT)
+        except QuickDesignWaterFieldError:
+            raise
+        except ValueError:
+            if evaluation_failed:
+                raise  # Invalid evaluations are not SciPy's changed-bracket condition.
+            # Warm-start drift can change the bracket during Brent's endpoint
+            # reevaluation. Retain the existing finite-response bisection.
+            a, b = lo, hi
+            for _ in range(BISECT_IT):
+                m = 0.5 * (a + b)
+                if deficit(ev(m, SIZING_TOL)) > 0:
+                    a = m
+                else:
+                    b = m
+            Lx_root = b
+        Lx_root = min(Lx_root + TOL, hi)
+        return Lx_root, ev(Lx_root, LTNE_TOL)
+    except QuickDesignWaterFieldError as exc:
+        return search_water_interval(exc)
 
 RHO_S = 7900.0          # 304 SS [kg/m³]
 
@@ -206,15 +274,20 @@ def size_fixed_cell(cases, topo, l, t, arrangement="cross", rho_s=RHO_S,
         return max(dP_fracs(c, topo, l, t, s, lo_lx, arrangement, height=height)[0]
                    / c.dPlim_h for c in cases)
 
-    state = {"seed": None, "cooled": False}             # warm-start 链 + 是否曾冷到
+    state = {"seed": None, "cooled": False, "water_failure": ""}
 
     def _eval_s(s):
         """该 s 的 (V, Lx); 不可行→(None,None)。热侧 dP 预筛 + governing 冷却 + 两侧 dP 定 Lx。"""
         if _dh_min(s) > 1.0:                            # 热侧 dP 超限 (任何 Lx 不可行)
             return None, None
-        Lx_cool, r = solve_Lx(cool_gov, topo, l, t, s, arrangement, k_s=k_s,
-                              prop_model=prop_model, seed=state["seed"], height=height,
-                              control=control)
+        try:
+            Lx_cool, r = solve_Lx(cool_gov, topo, l, t, s, arrangement, k_s=k_s,
+                                  prop_model=prop_model, seed=state["seed"], height=height,
+                                  control=control)
+        except QuickDesignWaterFieldError as exc:
+            state["seed"] = None
+            state["water_failure"] = str(exc)
+            return None, None
         if Lx_cool is None:                             # governing 冷不到
             return None, None
         state["cooled"] = True
@@ -268,16 +341,20 @@ def size_fixed_cell(cases, topo, l, t, arrangement="cross", rho_s=RHO_S,
     _upd(s_hi, *_eval_s(s_hi))
     if best is None:
         return Design(False, topo, l, t, arrangement=arrangement,
-                      reason="cooling-unreachable" if not state["cooled"]
-                      else "dP>lim@s_max")
+                      reason=state["water_failure"] or (
+                          "cooling-unreachable" if not state["cooled"] else "dP>lim@s_max"))
     _, s_star, _ = best
     s_seed = state["seed"]
 
     def _allK(s):
         """该 s 的全-K (所有工况) 定尺: 返回 (Lx_floor, Lx_star)。
         Lx_floor None=某工况冷不到; Lx_star None=该长度下两侧 dP 超限。"""
-        Lxf = _Lx_all(cases, topo, l, t, s, arrangement, k_s=k_s,
-                      prop_model=prop_model, seed=s_seed, height=height, control=control)
+        try:
+            Lxf = _Lx_all(cases, topo, l, t, s, arrangement, k_s=k_s,
+                          prop_model=prop_model, seed=s_seed, height=height, control=control)
+        except QuickDesignWaterFieldError as exc:
+            state["water_failure"] = str(exc)
+            return None, None
         if Lxf is None or Lxf > LX_MAX:
             return None, None
         return Lxf, _min_Lx_for_dP(cases, topo, l, t, s, arrangement, Lxf, height=height)
@@ -286,6 +363,7 @@ def size_fixed_cell(cases, topo, l, t, arrangement="cross", rho_s=RHO_S,
     # 边界 (个别工况 dP 在更长全-K 冷却 Lx 下超限) → golden 可能精准落在该缝中。
     # 全-K 可行区是连续上区间 (大 s 迎风大 → dP 降 + 冷却易); 若 s* 全-K 不可行,
     # 向上二分找全-K 可行下边界 (= min-V 全-K 点, V 在可行区随 s 增)。
+    state["water_failure"] = ""
     Lx_floor, Lx_star = _allK(s_star)
     if Lx_star is None:
         # 全-K 边界紧邻 s* 上方 (governing≈全-K, 差几 mm) → 先指数扩张定位首个全-K
@@ -305,8 +383,8 @@ def size_fixed_cell(cases, topo, l, t, arrangement="cross", rho_s=RHO_S,
             Lx_floor, Lx_star = _allK(s_hi)
             if Lx_star is None:
                 return Design(False, topo, l, t, arrangement=arrangement,
-                              reason="dP>lim@final" if Lx_floor is not None
-                              else "cooling-unreachable")
+                              reason=state["water_failure"] or (
+                                  "dP>lim@final" if Lx_floor is not None else "cooling-unreachable"))
             s_feas = s_hi
         lo, hi = lo_inf, s_feas                          # 小区间二分边界 (~1.5mm 够)
         for _ in range(12):
@@ -318,7 +396,7 @@ def size_fixed_cell(cases, topo, l, t, arrangement="cross", rho_s=RHO_S,
         Lx_floor, Lx_star = _allK(s_star)
         if Lx_star is None:                              # 安全兜底
             return Design(False, topo, l, t, arrangement=arrangement,
-                          reason="dP>lim@final")
+                          reason=state["water_failure"] or "dP>lim@final")
     # 全 K 工况终验 (一次 forward/工况, 既出 percase 明细又汇总; 不再重复 dP_fracs)
     percase, dPh, dPc, Tout_max = [], 0.0, 0.0, 0.0
     failures = []
@@ -326,9 +404,24 @@ def size_fixed_cell(cases, topo, l, t, arrangement="cross", rho_s=RHO_S,
     warns = set()                                   # A 外推 + B 退化 标记
     for c in cases:
         control.check_cancelled()
-        with warning_scope({}) as records:
-            r = forward(c, topo, l, t, s_star, Lx_star, arrangement, k_s=k_s,
-                        prop_model=prop_model, height=height, control=control)
+        try:
+            with warning_scope({}) as records:
+                r = forward(c, topo, l, t, s_star, Lx_star, arrangement, k_s=k_s,
+                            prop_model=prop_model, height=height, control=control)
+        except QuickDesignWaterFieldError as exc:
+            reason = f'water-state-invalid@final: {exc}'
+            failures.append(f'case {c.case}: {reason}')
+            percase.append(dict(
+                case=c.case, hot_fluid=c.hot_fluid, cold_fluid=c.cold_fluid,
+                **{key: math.nan for key in (
+                    'T_air_out', 'T_cold_out', 'Q_W', 'Q_cold_W', 'dP_hot_frac',
+                    'dP_hot_pa', 'dP_cold_frac', 'dP_cold_pa', 'Re_hot', 'Re_cold')},
+                energy_imbalance_rel=None, energy_imbalance_status='insufficient_data',
+                energy_imbalance_reason=str(exc), warnings=warning_messages(records),
+                run_status={'execution': 'failed', 'converged': False},
+                acceptance_reasons=[reason]))
+            dPh = dPc = Tout_max = re_h_max = re_c_max = math.nan
+            continue
         reasons = []
         if not r.run_status.get('converged', False):
             reasons.append('not-converged@final')

@@ -212,6 +212,59 @@ def test_constant_temperature_and_signed_solid_gate_are_separate():
             assert not balance['passed']
 
 
+@pytest.mark.parametrize('refine', [1, 2])
+@pytest.mark.parametrize('offset', [0., 1.])
+def test_local_equation_certificate_rejects_cancelling_exchange(refine, offset):
+    # Two unequal x cells have equal and opposite integrated exchange.
+    # Bisecting every cell preserves the mean-cell-load normalisation exactly.
+    dx = np.repeat([.25, .75], refine) / refine
+    dy = np.repeat([.4, .6], refine) / refine
+    one = np.ones((len(dx), len(dy))); zero = one * 0.
+    solid_delta = np.repeat([offset, -offset / 3.], refine)[:, None] * one
+    temperature, solid = one * 300., one * 300. + solid_delta
+    mass = (np.zeros((len(dx) + 1, len(dy))), np.zeros((len(dx), len(dy) + 1)))
+    cp = (2., 0., 0., 300., 300.)
+    balance = energy._model_h_balance(
+        temperature, temperature, solid, zero, zero, zero, one, one, dx, dy,
+        mass, mass, cp, cp, 0, 0, np.full(len(dy), 300.), np.full(len(dy), 300.),
+        np.ones(len(dy)), np.ones(len(dy)), False, temperature, temperature)
+    assert balance['energy_ok'] and balance['solid_ok']
+    assert balance['net_boundary_in_W_per_m'] == 0.
+    assert balance['solid_residual_sum_W_per_m'] == pytest.approx(0., abs=1e-12)
+    for side in ('A', 'B'):
+        assert balance[side]['residual_cellmax_rel'] == pytest.approx(.6 * offset, abs=1e-12)
+    assert balance['solid_residual_cellmax_rel'] == pytest.approx(1.2 * offset, abs=1e-12)
+    assert balance['equations_ok'] is (offset == 0.)
+    assert balance['passed'] is (offset == 0.)
+
+
+def test_model_h_stable_updates_continue_until_local_equations_pass():
+    # A real, mass-balanced stiff thermal problem formerly stopped at 8500
+    # sweeps: global error ~1e-5, but local equation ratios >2.6% and Q still
+    # drifted by >1% toward the same-equation fixed point.
+    nx, ny = 30, 2
+    dx, dy = np.full(nx, .1 / nx), np.full(ny, .005)
+    x = (np.arange(nx) + .5) / nx
+    initial = np.broadcast_to((350. + .5 - x + .15 * np.sin(2 * np.pi * x))[:, None],
+                              (nx, ny)).copy()
+    one = np.ones(initial.shape)
+    mass = (np.full((nx + 1, ny), .005), np.zeros((nx, ny + 1)))
+    args = (.1, .01, nx, ny, 350.5, 349.5, .025, .018, 5., 1e7, 1e7,
+            1200., 1200., .7, one, one * 0., -one, one * 0., 0, 1)
+    kwargs = dict(dx_arr=dx, dy_arr=dy, Ta_init=initial, Tb_init=initial, Ts_init=initial,
+                  tol=.5, return_info=True, model_fluids=('air', 'air'),
+                  mass_flux_A=mass, mass_flux_B=tuple(-face for face in mass))
+    limited = energy.solve_full_domain(*args, max_iter=12000, **kwargs)[3]
+    assert not limited['converged']
+    assert limited['iterations'] == 12000
+    assert not limited['model_h_balance']['equations_ok']
+    accepted = energy.solve_full_domain(*args, max_iter=40000, **kwargs)[3]
+    assert accepted['converged'] and accepted['model_h_balance']['passed']
+    assert accepted['iterations'] > 12000
+    assert any(not check['passed'] for check in accepted['energy_finishing_checks'])
+    assert accepted['energy_finishing_checks'][-1]['passed']
+
+
 @pytest.mark.parametrize('pair', [('air', 'air'), ('air', 'water'), ('water', 'air'), ('water', 'water')])
 @pytest.mark.parametrize('variable', [False, True])
 def test_production_r2_passes_actual_mass_without_new_variable_cp_switch(monkeypatch, pair, variable):

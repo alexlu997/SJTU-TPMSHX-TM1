@@ -8,7 +8,8 @@ Three control layers, all funnelling through `set_solver_threads`:
     cores free). The active count can never exceed it.
   * ``TPMSHX_NUM_THREADS`` (project env) — the runtime active count for
     headless / script / batch runs (validation, optimizer) where there is no
-    GUI. Read once at import via `init_from_env`. Unset → Numba default
+    GUI. Read once when this Numba-specific module is imported, either by the
+    numerical kernels or explicit thread controls. Unset → Numba default
     (all cores, up to the cap).
   * `set_solver_threads(n)` — the runtime knob the GUI "CPU cores" spinbox calls.
 
@@ -52,6 +53,11 @@ def init_from_env() -> int:
         except ValueError:
             pass
     return get_solver_threads()
+
+
+# Apply once on the first numerical-kernel or explicit thread-control import.
+# Repeated solves must not overwrite a GUI worker's captured runtime mask.
+init_from_env()
 
 
 # ── Large-grid thread-count advisory (P3.2, 2026-07-20) ─────────────────────

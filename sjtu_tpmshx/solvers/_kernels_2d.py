@@ -7,6 +7,10 @@ compiled output byte-identical while collapsing the duplication.
 """
 from numba import njit
 
+# Every SIMPLE/LTNE Numba route, including direct research calls, imports
+# these helpers before compiling kernels. Keep runtime setup on that path.
+from . import threads as _threads  # noqa: F401
+
 
 # Shared 2D/3D model-h Picard damping. Larger steps limit-cycle for turning
 # flow with deferred SOU on stretched grids; this changes no steady equation.

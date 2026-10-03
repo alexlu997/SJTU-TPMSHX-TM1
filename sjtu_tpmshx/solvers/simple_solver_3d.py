@@ -824,10 +824,18 @@ class SIMPLESolver3D:
         self.final_res_mass_global = None
         self.outlet_backflow_frac = 0.0
         self.f2_cert_post_rescale_ok = False
+        self._iterations_charged = 0
+        if not self.residuals:
+            from .coarse_bootstrap_3d import _new_bootstrap_trace
+            self._coarse_bootstrap_trace = _new_bootstrap_trace(self)
         if not f2_state_is_finite(self, (self.u, self.v, self.w)):
+            if not self.residuals:
+                self._coarse_bootstrap_trace['decision'] = 'nonfinite-input'
             return f2_nonfinite_exit(self, 0)
         if cancel_check is not None and cancel_check():
             self.exit_reason = 'cancelled'
+            if not self.residuals:
+                self._coarse_bootstrap_trace['decision'] = 'cancelled'
             raise CancelledError("compute cancelled by user")
 
         # Capture the mass-flux inlet target ONCE, at reference inlet
@@ -855,11 +863,11 @@ class SIMPLESolver3D:
             _cb_flag = (Nx * Ny * Nz > _AMG_GATE)
         if _cb_flag and not self.residuals:
             try:
-                from .coarse_bootstrap_3d import bootstrap_simple_3d
+                from .coarse_bootstrap_3d import bootstrap_simple_3d, BOOTSTRAP_RECURSIVE_ITERATIONS
                 _bs_info = bootstrap_simple_3d(
                     self,
                     max_iter_coarse=int(getattr(
-                        self, 'coarse_bootstrap_max_iter', 200)),
+                        self, 'coarse_bootstrap_max_iter', BOOTSTRAP_RECURSIVE_ITERATIONS)),
                     verbose=verbose,
                     cancel_check=cancel_check,
                 )
@@ -871,14 +879,22 @@ class SIMPLESolver3D:
                               f"res={_bs_info['coarse_residual']:.3e}")
             except CancelledError:
                 self.exit_reason = 'cancelled'
+                self._coarse_bootstrap_trace['decision'] = 'cancelled'
                 raise
             except Exception as exc:   # robust: never block fine solve
+                self._coarse_bootstrap_trace['decision'] = 'error'
                 self._coarse_bootstrap_info = {
                     'applied': False, 'reason': f'exception:{exc}'}
                 if verbose:
                     _log.warning(f"  3D coarse bootstrap skipped: {exc}")
             if not f2_state_is_finite(self, (self.u, self.v, self.w)):
                 return f2_nonfinite_exit(self, 0)
+
+        if verbose and not self.residuals:
+            trace = self._coarse_bootstrap_trace
+            _log.info("  3D bootstrap policy=%s decision=%s levels=%s charged=%s started_cap_sum=%s",
+                      trace['policy'], trace['decision'], trace['actual_levels'],
+                      trace['total_charged_iterations'], trace['started_cap_sum'])
 
         if self._pp_sparsity is None:
             self._pp_sparsity = _build_pp_sparsity_3d(Nx, Ny, Nz,
@@ -953,6 +969,7 @@ class SIMPLESolver3D:
             if cancel_check is not None and cancel_check():
                 self.exit_reason = 'cancelled'
                 raise CancelledError("compute cancelled by user")
+            self._iterations_charged = it
             # Effective density for continuity: ε·ρ. Uniform ε → multiplicative
             # constant (no functional change). Zoned ε → captures macroscopic
             # ∇·(ε·ρ·u)=0 form; without this the ∇ε contribution is dropped.

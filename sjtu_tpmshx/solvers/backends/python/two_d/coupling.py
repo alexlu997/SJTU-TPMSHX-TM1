@@ -118,11 +118,14 @@ def _simple_scalar_to_real_2d(field, direction):
 
 
 def _simple_pressure_abs_2d(simp, direction, P_in):
-    """Air uses the SIMPLE absolute state; frozen fluids retain their anchor."""
+    """Use the air flow state or the frozen-fluid physical inlet-face anchor."""
     gauge = _simple_scalar_to_real_2d(simp.P, direction)
     if simp.fluid_type == 'ideal_gas':
         return np.ascontiguousarray(simp.P_ref_abs + gauge)
-    inlet_gauge = _pipe_weighted(simp.P[:, 0], simp.inlet_frac.astype(np.float64))
+    from sjtu_tpmshx.result_math import pressure_face_values
+    inlet, _ = pressure_face_values(simp.P, simp.dy_arr)
+    area = simp.dx_arr * simp.inlet_geom_frac
+    inlet_gauge = np.sum(inlet * area) / np.sum(area)
     return np.ascontiguousarray(P_in + gauge - inlet_gauge)
 
 
@@ -187,46 +190,7 @@ def _compute_pressure_2d(simpA, simpB, dir_A, dir_B, P_inA, P_inB):
     return P_fA, P_fB, dP_A, dP_B
 
 
-def _zone_statistics_2d(z_axis, zone_config, za, L, H,
-                        energy_dx, energy_dy, Ta, Tb, Ts):
-    """Return area-weighted zone statistics and physical boundary positions."""
-    if zone_config is not None and za is not None:
-        zones = dict(axis_dir=z_axis)
-        if z_axis == 'continuous':
-            return dict(axis_dir=z_axis, boundaries=[], boundaries_x=[], boundaries_y=[], stats=[])
-        if z_axis == 'grid':
-            # Grid mode: boundaries from zone_config
-            zones['boundaries'] = []
-            zones['boundaries_x'] = [b * L for b in za.get('x_bounds', [])]
-            zones['boundaries_y'] = [b * H for b in za.get('y_bounds', [])]
-            # Build dummy Zone objects for statistics
-            from sjtu_tpmshx.models.zone_config import Zone
-            dummy_zones = [Zone(f'g{r}', gc['y0'], gc['y1'], gc['L'], gc['t'])
-                           for r, gc in enumerate(za.get('grid_cells', []))]
-            from sjtu_tpmshx.models.zone_config import compute_zone_statistics, format_zone_report
-            _ca = energy_dx[:, None] * energy_dy[None, :]
-            stats = compute_zone_statistics(Ta, Tb, Ts, za['zone_id'], dummy_zones,
-                                            cell_area=_ca)
-            _log.info("\n[ZONE STATISTICS]")
-            _log.info(format_zone_report(stats))
-            zones['stats'] = stats
-        else:
-            # 1D mode
-            from sjtu_tpmshx.models.zone_config import compute_zone_statistics, format_zone_report
-            _ca = energy_dx[:, None] * energy_dy[None, :]
-            stats = compute_zone_statistics(Ta, Tb, Ts, za['zone_id'],
-                                            zone_config.zones, cell_area=_ca)
-            _log.info("\n[ZONE STATISTICS]")
-            _log.info(format_zone_report(stats))
-            zones['stats'] = stats
-            zones['boundaries_x'] = None
-            zones['boundaries_y'] = None
-            if z_axis == 'y':
-                zones['boundaries'] = [z.y_frac_end * H for z in zone_config.zones[:-1]]
-            else:
-                zones['boundaries'] = [z.y_frac_end * L for z in zone_config.zones[:-1]]
-        return zones
-    return None
+from .result_capture import _zone_statistics_2d  # noqa: F401 - existing public name
 
 
 def _compute_Q_richardson(
@@ -369,7 +333,7 @@ def _compute_Q_richardson(
     if model_inputs is not None:
         model_kwargs = dict(
             model_fluids=model_inputs['model_fluids'],
-            accelerate=port_wall_refine,
+            accelerate=True,
             mass_flux_A=_prolong_mass_faces_2d(model_inputs['mass_flux_A'], energy_dx, energy_dy, energy_dx2, energy_dy2),
             mass_flux_B=_prolong_mass_faces_2d(model_inputs['mass_flux_B'], energy_dx, energy_dy, energy_dx2, energy_dy2))
         K_ffA2_use = _interp2(model_inputs['K_ffA'])
@@ -741,17 +705,9 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
     fluid_props.check_water_state(fluid_A, T_inA, P_inA_val, where='2D direct inlet A')
     fluid_props.check_water_state(fluid_B, T_inB, P_inB_val, where='2D direct inlet B')
 
-    # ── Asymmetric per-side porosity (offset-isosurface δ) — mirror 3D ──
-    # δ=0 → symmetric (split=0.5, factors=1, no per-side override) → bit-
-    # identical legacy path. δ≠0 → redistribute the total void between channels
-    # A / B by the geometry split ratio s = split_A (shared with 3D via
-    # solvers.asym_split). 2D's symmetric K_ff uses the FULL ε (tpms_calc:506)
-    # while the convective term uses ε/2, so EVERY per-side void-weighted term
-    # scales by the SAME factor relative to the symmetric ε/2 baseline —
-    # 2s for A, 2(1−s) for B — which is bit-identical at δ=0 (factor=1 at s=0.5)
-    # and keeps diffusion / convection / duty per-side consistent. The kernel
-    # itself receives the absolute eps_A = ε·s / eps_B = ε·(1−s) (Phase 1 hook).
-    # See design add-2d-asym-porosity D2(b).
+    # Prepared K_ff is (epsilon/2)*k for each symmetric stream. An offset
+    # redistributes that void by split_A: multiplying by 2s / 2(1-s) gives
+    # epsilon_A*k_A / epsilon_B*k_B, matching the explicit transport porosity.
     _delta_2d = float(cfg['compute_cfg'].geometry.delta_levelset)
     _asym_2d = (_delta_2d != 0.0)
     _model_h_mode = (not _enthalpy_mode and (zone_config is None or cfg['z_axis'] == 'continuous') and not _asym_2d
@@ -1045,10 +1001,8 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
             _e_tol = 0.1
 
         # Step 2: Full-domain coupled energy solve (warm-start from previous iteration)
-        # Per-side porosity for the offset-isosurface δ. δ=0 → eps_A/eps_B None
-        # and the K_ff sources are passed through unscaled → bit-identical to the
-        # legacy symmetric path (zoned and non-zoned branches only ever differed
-        # in the K_ff / ε *source* and the kwarg order, both equivalent here).
+        # Prepared symmetric conductivities already contain epsilon/2.
+        # Only redistribute them when the geometry has an asymmetric split.
         if zone_config is not None:
             _Kffa_src = za['K_ffA_arr']; _Kffb_src = za['K_ffB_arr']
             _Kss_src = za['K_ss_arr']; _eps_src = za['eps_arr']
@@ -1121,7 +1075,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
                 outer_index=int(_coup_it), converged=bool(state.e_info['converged']),
                 iterations=int(state.e_info['iterations']), residual=float(state.e_info['residual']),
                 pressure_source=('air: P_ref_abs + SIMPLE gauge; frozen fluids: '
-                                 'P_in + SIMPLE gauge - weighted inlet gauge'),
+                                 'P_in + SIMPLE gauge - open-area physical inlet-face gauge'),
                 P_in_A_Pa=float(P_inA_val), P_in_B_Pa=float(P_inB_val),
                 P_A_range_Pa=[float(P_abs_A.min()), float(P_abs_A.max())],
                 P_B_range_Pa=[float(P_abs_B.min()), float(P_abs_B.max())])
@@ -1134,7 +1088,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
             if _model_h_mode:
                 model_kwargs = dict(
                     model_fluids=(_pA.name, _pB.name),
-                    accelerate=cfg['compute_cfg'].flags.port_wall_refine,
+                    accelerate=True,
                     mass_flux_A=state.mass_flux_A, mass_flux_B=state.mass_flux_B)
                 state.last_model_inputs = dict(model_kwargs, K_ffA=_Kffa_use, K_ffB=_Kffb_use,
                                          K_ss=_Kss_src, outer_index=int(_coup_it))
@@ -1269,7 +1223,8 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
         _solve_thermal(_coup_it, inputs, P_abs_A, P_abs_B, simple_temperatures)
         _validate_thermal_return(P_abs_A, P_abs_B, simple_temperatures)
         new_properties = _refresh_thermal_properties(P_abs_A, P_abs_B)
-        return _check_outer_convergence(_coup_it, new_properties), new_properties
+        outer_ok = _check_outer_convergence(_coup_it, new_properties)
+        return outer_ok and bool(state.e_info.get('converged', False)), new_properties
 
     def _post_2d(_coup_it, _carry):
         (rho_A_field_new, rho_B_field_new,

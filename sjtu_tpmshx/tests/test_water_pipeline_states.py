@@ -11,15 +11,22 @@ from sjtu_tpmshx.models.fluid_props import WaterStateError
 
 @pytest.mark.parametrize('direction', range(4))
 def test_2d_pressure_preserves_partial_inlet_anchor_and_direction(direction):
-    p = np.arange(12.).reshape(3, 4) * 100.
-    solver = SimpleNamespace(P=p, inlet_frac=np.array([0., .5, 1.]),
+    dx, dy = np.array([1., 3., 2.]), np.array([1., 2., 4., 3.])
+    inlet, slope = np.array([200., 400., 1000.]), np.array([2., 5., 8.])
+    p = inlet[:, None] - slope[:, None] * (np.cumsum(dy) - dy / 2.)
+    fractions = np.array([0., .5, 1.])
+    solver = SimpleNamespace(P=p.copy(), inlet_frac=np.array([0., .8, .4]),
+                             inlet_geom_frac=fractions, dx_arr=dx, dy_arr=dy,
                              fluid_type='incompressible')
     expected = p.T if direction < 2 else p
     if direction % 2:
         expected = np.flip(expected, axis=0 if direction == 1 else 1)
-    expected = 2e5 + expected - (p[1, 0] * .5 + p[2, 0]) / 1.5
+    weights = fractions * dx
+    inlet_mean = np.sum(inlet * weights) / weights.sum()
+    expected = 2e5 + expected - inlet_mean
     np.testing.assert_array_equal(
         solve_2d._simple_pressure_abs_2d(solver, direction, 2e5), expected)
+    np.testing.assert_array_equal(solver.P, p)
 
 
 @pytest.mark.parametrize('axis,perm', [(0, (1, 0, 2)), (1, (0, 1, 2)),
@@ -83,7 +90,7 @@ def observed_3d_problem(monkeypatch):
 
 
 @pytest.mark.parametrize('offset', [-1e9, 190000.])
-def test_3d_temperature_path_uses_property_then_final_report_pressure(
+def test_3d_temperature_path_uses_local_thermal_then_final_report_pressure(
         monkeypatch, offset, observed_3d_problem):
     from sjtu_tpmshx.controllers.compute_pipeline import Pipeline3D
     observed = {}
@@ -94,7 +101,8 @@ def test_3d_temperature_path_uses_property_then_final_report_pressure(
 
     def check(fluid, t, p, *, where):
         if where in ('3D temperature return B', '3D property refresh B'):
-            assert np.ndim(p) == 0 and p == 2e5
+            np.testing.assert_array_equal(p, observed['kernel'])
+            observed.setdefault('checked_stages', []).append(where)
         if where == '3D final report state B':
             np.testing.assert_array_equal(p, observed['report'])
             assert not np.array_equal(p, observed['kernel'])
@@ -103,20 +111,20 @@ def test_3d_temperature_path_uses_property_then_final_report_pressure(
         original(fluid, t, p, where=where)
 
     def cap(*, step, post, **kwargs):
-        _, carry = step(0)
-        post(0, carry)
         problem = observed_3d_problem['problem']
         solver, amap = problem.sB, problem.axis_map_B
+        observed['kernel'] = stages._pressure_real_3d(solver, amap, solver.P_ref_abs)
+        _, carry = step(0)
+        post(0, carry)
         solver.P_ref_abs = offset
         observed['report'] = stages._pressure_real_3d(solver, amap, offset)
-        observed['kernel'] = stages._pressure_real_3d(
-            solver, amap, 2e5 - stages.SIMPLESolver3D.extract_dP_face_extrap(solver))
         return 0, False
 
     monkeypatch.setattr(stages.fluid_props, 'check_water_state', check)
     monkeypatch.setattr(stages, 'run_outer_coupling', cap)
     with pytest.raises(WaterStateError if offset < 0 else CheckedReport):
         Pipeline3D(_water_cfg(3)).run()
+    assert observed['checked_stages'] == ['3D temperature return B', '3D property refresh B']
 
 
 def test_3d_true_h_return_uses_last_kernel_pressure_not_report(monkeypatch, observed_3d_problem):

@@ -12,18 +12,6 @@ from ._kernels_2d import _model_h, diffusion_conductance, limited_face_increment
 # SOU limiter — three axes
 # ---------------------------------------------------------------------------
 
-@njit(cache=True, fastmath=True, inline='always')
-def _va_limit(gu, gd):
-    """minmod slope limiter (signed). Returns 0 at extrema (gu*gd<=0), else
-    the smaller-magnitude gradient with gu's sign. Factored into a helper
-    (2026-05-22) so the SOU stencils read cleanly; behaviour is identical to
-    the original inline minmod."""
-    if gu * gd <= 0.0:
-        return 0.0
-    m = abs(gu) if abs(gu) < abs(gd) else abs(gd)
-    return m if gu > 0.0 else -m
-
-
 @njit(cache=True, fastmath=True)
 def _sou_face_x_cons(T, i, j, k, Nx, Fw, Fe, widths=None):
     """Shared-face minmod reconstruction using physical centre distances."""

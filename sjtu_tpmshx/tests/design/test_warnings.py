@@ -128,14 +128,16 @@ def test_forward_labels_without_extra_property_or_thermal_calls(
     monkeypatch.setattr(execution, 'solve_full_domain_3d', thermal)
     monkeypatch.setattr(model_source, '_dp_one', lambda *a, **kw: 100.)
     monkeypatch.setattr(postprocess, 'evaluate', evaluated)
-    c = replace(_case(), hot_fluid='water', cold_fluid='sco2')
+    # Keep the warning/count fixture's 500 K inlet liquid under the actual
+    # backend water-state check; its transport-property values remain stubbed.
+    c = replace(_case(), hot_fluid='water', cold_fluid='sco2', P_in_h=3e6)
     with warning_scope({}) as records:
         result = f.forward(c, 'Diamond', 7., .5, .1, .1, prop_model=model)
-    expected = [('water', 500., 2e5), ('sco2', 300., 2e5),
-                ('water', 500., 2e5), ('water', 320., 2e5),
+    expected = [('water', 500., 3e6), ('sco2', 300., 2e5),
+                ('water', 500., 3e6), ('water', 320., 2e5),
                 ('sco2', 300., 2e5), ('sco2', 480., 9e6)]
     if passes == 2:
-        expected += [('water', 450., 2e5), ('water', 320., 2e5),
+        expected += [('water', 450., 3e6), ('water', 320., 2e5),
                      ('sco2', 325., 2e5), ('sco2', 480., 9e6)]
     assert calls == expected and len(solves) == passes
     assert result.Q_hot == 10000. and result.Q_cold == 5000.

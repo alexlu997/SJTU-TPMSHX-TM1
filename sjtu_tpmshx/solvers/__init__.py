@@ -1,10 +1,5 @@
-"""SJTU-TPMSHX solver package.
+"""Solver interfaces; importing this package does not initialize a backend.
 
-On first import, honour the ``TPMSHX_NUM_THREADS`` env var (the headless/script
-knob for the parallel energy kernels). No-op unless the var is set, so normal
-runs keep Numba's default (all cores). The GUI sets the count at runtime via
-``solvers.threads.set_solver_threads``.
+Numba thread setup belongs to its numerical kernels and explicit thread
+controls in ``solvers.threads``, not the backend-neutral public API.
 """
-from . import threads as _threads
-
-_threads.init_from_env()

@@ -40,19 +40,24 @@ from sjtu_tpmshx.result_math import compute_phase2a
 # solenoidal and the projection solve is skipped (forward-dir fluids).
 _PROJ_SKIP_TOL = 1e-9
 
-# Cache: grid shape (Nx,Ny,Nz) -> {'L': graph Laplacian csr, 'ml': AMG hierarchy}.
-# Read-only reuse contract: pyamg's multilevel solve() does not mutate the
-# hierarchy, and the csr is only used as an operator — a caller mutating
-# either would poison every later solve on that grid shape (audit §5c).
+# Python-backend process resource: grid shape (Nx,Ny,Nz) -> graph Laplacian
+# and AMG hierarchy. It retains graph-dependent data, not a case's RHS or
+# fields. PyAMG may lazily materialize its coarse pseudoinverse on first use;
+# callers must not modify the shared operator/hierarchy for an individual case.
+# This cache is separate from native per-run workspaces. Its formal consumers
+# leave with the corresponding Python backend capabilities; remaining research
+# consumers retain an explicit process/reset lifecycle.
 _LAPLACIAN_AMG_CACHE = {}
 
 
 def clear_laplacian_amg_cache() -> None:
     """Reset hook (P1.6): drop all cached Laplacian/AMG hierarchies.
 
-    Unbounded by distinct grid shapes; long-lived processes sweeping many
-    grids (GCI studies, BO with adaptive grids) can use this to bound
-    memory. Also gives tests isolation.
+    The Python process retains one graph resource per distinct grid shape;
+    the current production path does not invoke this reset hook. Research
+    callers can reset between runs after active consumers have finished.
+    Tests also use it for isolation. Clearing this dictionary is not evidence
+    that the allocator has returned its retained pages to the operating system.
     """
     _LAPLACIAN_AMG_CACHE.clear()
 
@@ -339,7 +344,6 @@ def _conservation_residual_sum(T, Ts, uf, vf, wf, eps_f, K, rcp, hv,
 # validation/cases/mms_3d_air_air.py and explicit test compilation).
 # ---------------------------------------------------------------------------
 from ._kernels_ltne_3d import (  # noqa: F401
-    _va_limit,
     _sou_corr_x_3d,
     _sou_corr_y_3d,
     _sou_corr_z_3d,
@@ -948,7 +952,7 @@ def solve_full_domain_3d(L, H, D, Nx, Ny, Nz,
         n = min(chunk, max_iter - done)
         if accelerate:
             from sjtu_tpmshx.solvers.anderson_acceleration import advance_energy
-            chg = advance_energy(step, (Ta, Tb, Ts), n)
+            chg = advance_energy(step, (Ta, Tb, Ts), n, cancel_check=cancel_check)
         else:
             chg = step(n)
         done += n
