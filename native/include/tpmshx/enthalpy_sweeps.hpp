@@ -5,6 +5,12 @@
 
 namespace tpmshx {
 
+namespace detail {
+inline double diffusion_conductance(double a, double b, double dl, double dr) {
+    return a <= 0.0 || b <= 0.0 ? 0.0 : a * b / (dl * b + dr * a);
+}
+}  // namespace detail
+
 // Borrowed contiguous storage; the caller retains ownership for the whole call.
 template <typename T> struct ArrayView {
     T* data;
@@ -63,7 +69,16 @@ struct EnergyAudit {
     double q_a, q_b;  // signed inward boundary enthalpy power, W
     double net, solid_abs_sum, denominator, coupled_ratio;
     double fluid_abs_sum[2], fluid_cell_max[2], equation_ratio;
+    bool fluid_equations_computed;
 };
+
+// Signed inward boundary duty from the existing upwind mass/enthalpy faces.
+// No temperature inversion or EOS/audit is performed; the full true-h driver
+// uses this between Picard chunks before deciding whether exact EOS is due.
+double boundary_enthalpy_duty(const GridView& grid, ArrayView<const double> h,
+                             ArrayView<const double> mass_x,
+                             ArrayView<const double> mass_y,
+                             ArrayView<const double> mass_z, double h_in);
 
 // Unrelaxed residuals: conduction + exchange - div(m*h); adiabatic exterior.
 // Outputs are W/cell (W/m for a unit-depth 2D extrusion). Inputs and outputs
@@ -71,12 +86,16 @@ struct EnergyAudit {
 // final EOS state as h; this operator neither evaluates EOS nor certifies it.
 // No acceptance threshold is applied. Invalid inputs throw before output writes;
 // arithmetic overflow throws std::domain_error and invalidates all outputs.
+// With fluid_equations=false, conductivity is neither read nor validated;
+// fluid residual arrays/metrics and equation_ratio are filled with NaN and
+// fluid_equations_computed=false. Boundary/solid/coupled evidence is unchanged.
 EnergyAudit thermal_energy_audit(const GridView& grid, const FluidEnergyView& a,
                                 const FluidEnergyView& b,
                                 ArrayView<const double> t_s,
                                 ArrayView<const double> k_ss,
                                 ArrayView<double> residual_a,
                                 ArrayView<double> residual_b,
-                                ArrayView<double> residual_s);
+                                ArrayView<double> residual_s,
+                                bool fluid_equations = true);
 
 }  // namespace tpmshx

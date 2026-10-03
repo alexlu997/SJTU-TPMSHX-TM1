@@ -22,22 +22,29 @@ from sjtu_tpmshx.solvers import ltne_enthalpy_3d as reference
 
 @pytest.fixture(scope="module")
 def native_library(tmp_path_factory):
-    compiler = shlex.split(os.environ.get("CXX", "c++"))
-    if os.name != "posix" or not compiler or not shutil.which(compiler[0]):
-        message = "native pilot requires a POSIX C++17 compiler (CXX)"
+    compiler = shlex.split(os.environ.get("CXX", "cl" if os.name == "nt" else "c++"))
+    if os.name not in ("posix", "nt") or not compiler or not shutil.which(compiler[0]):
+        message = "native tests require a C++17 compiler (CXX; MSVC cl on Windows)"
         if os.environ.get("TPMSHX_REQUIRE_CPP_TESTS") == "1":
             pytest.fail(message)
         pytest.skip(message)
     root = Path(__file__).resolve().parents[3]
-    suffix = ".dylib" if sys.platform == "darwin" else ".so"
-    link_flag = "-dynamiclib" if sys.platform == "darwin" else "-shared"
-    output = tmp_path_factory.mktemp("cpp-enthalpy") / ("test_thermal" + suffix)
+    build = tmp_path_factory.mktemp("cpp-enthalpy")
+    suffix = ".dll" if os.name == "nt" else (".dylib" if sys.platform == "darwin" else ".so")
+    output = build / ("test_thermal" + suffix)
+    sources = [str(root / "native/src/enthalpy_sweeps.cpp"),
+               str(root / "native/src/thermal_c_api.cpp"),
+               str(Path(__file__).with_name("enthalpy_bridge.cpp"))]
+    if os.name == "nt":
+        arguments = ["/nologo", "/std:c++17", "/O2", "/W4", "/WX", "/EHsc", "/MD",
+                     "/LD", "/DTPMSHX_THERMAL_BUILD_SHARED", "/I" + str(root / "native/include"),
+                     *sources, "/Fe" + str(output), "/link", "/IMPLIB:" + str(build / "test_thermal.lib")]
+    else:
+        link_flag = "-dynamiclib" if sys.platform == "darwin" else "-shared"
+        arguments = ["-std=c++17", "-O2", "-Wall", "-Wextra", "-Wpedantic", "-Werror",
+                     link_flag, "-fPIC", "-I", str(root / "native/include"), *sources, "-o", str(output)]
     subprocess.run(
-        [*compiler, "-std=c++17", "-O2", "-Wall", "-Wextra", "-Wpedantic", "-Werror",
-         link_flag, "-fPIC", "-I", str(root / "native/include"),
-         str(root / "native/src/enthalpy_sweeps.cpp"),
-         str(root / "native/src/thermal_c_api.cpp"),
-         str(Path(__file__).with_name("enthalpy_bridge.cpp")), "-o", str(output)],
+        [*compiler, *arguments], cwd=build,
         check=True, capture_output=True, text=True,
     )
     return ctypes.CDLL(str(output))

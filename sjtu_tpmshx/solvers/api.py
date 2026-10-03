@@ -8,14 +8,25 @@ from sjtu_tpmshx.domain.provenance import source_context
 
 
 def run_case(case: CaseData, control: RunControl = RunControl()) -> FieldResult:
-    if control.backend != 'python':
+    if control.backend not in ('python', 'cpp'):
         raise ValueError(f'unsupported backend: {control.backend}')
     dimension = case.grid.get('dimension')
     mode = case.metadata.get('mode', 'full')
     if mode != 'full':
         from .backends.python.thermal_native import resolve_true_h_kernel
         resolve_true_h_kernel(case.parameters, supported=False)
-    if mode == 'quick_design':
+    if control.backend == 'cpp':
+        if mode == 'quick_design':
+            from .backends.cpp.quick_design import run_case as run
+        elif mode != 'full':
+            raise ValueError(f'unsupported solver mode: {mode}')
+        elif dimension == 2:
+            from .backends.cpp.full_2d import run_case as run
+        elif dimension == 3:
+            from .backends.cpp.full_3d import run_case as run
+        else:
+            raise ValueError(f'unsupported physical dimension: {dimension}')
+    elif mode == 'quick_design':
         from .backends.python.quick_design.execution import run_case as run
     elif mode != 'full':
         raise ValueError(f'unsupported solver mode: {mode}')

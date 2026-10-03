@@ -1,8 +1,10 @@
 // Test-only energy-audit bridge; sweep tests use the production C API.
 #include "tpmshx/enthalpy_sweeps.hpp"
+#include "tpmshx/thermal_c_api.h"
 #include <stdexcept>
 
-extern "C" int test_thermal_energy_audit(const std::size_t* shape, double** arrays,
+extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_thermal_energy_audit(
+                                        const std::size_t* shape, double** arrays,
                                         const std::size_t* sizes, const double* hin,
                                         double* metrics) {
     using namespace tpmshx;

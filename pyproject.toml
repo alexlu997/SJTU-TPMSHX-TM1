@@ -42,6 +42,14 @@ tpmshx-run = "sjtu_tpmshx.cli:main"
 [project.gui-scripts]
 tpmshx-gui = "sjtu_tpmshx.desktop:main"
 
+[tool.tpmshx.native-dependencies]
+# Explicit isolated pilots; Python requirements and production backend stay separate.
+requirements = ["CMake==3.31.8", "CoolProp==7.2.0", "SuperLU==6.0.1", "AMGCL==1.4.4"]
+lock-file = "native/dependencies-lock.toml"
+build-script = "scripts/build_native_dependencies.py"
+cache-dir = ".cache/native-deps"
+runtime-auto-fetch = false
+
 [tool.ruff]
 # Lint keeps the existing source formatting and checks error-level rules only.
 target-version = "py312"

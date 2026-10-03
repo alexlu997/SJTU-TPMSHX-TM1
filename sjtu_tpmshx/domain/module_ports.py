@@ -16,6 +16,9 @@ class RunControl:
     iteration: Callable[[str], None] | None = None
     outer_iteration: Callable[[int, int], None] | None = None
     residual: Callable[[str, int, float], None] | None = None
+    # Host-local library location; never persisted as part of CaseData.
+    native_library: str | None = None
+    native_table_directory: str | None = None
 
     def check_cancelled(self) -> None:
         if self.cancel_check is not None and self.cancel_check():

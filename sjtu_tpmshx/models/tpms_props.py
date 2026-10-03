@@ -36,20 +36,27 @@ _AIR_CP_RANGE   = (250.0, 1000.0)   # polynomial cp fit
 _WATER_T_RANGE  = (273.15, 363.15)  # 0 - 90 °C polynomial water fits
 _AIR_CP_COEFFICIENTS = (1004.5, 0.172, -7.56e-5)
 _WATER_CP = 4182.0
+_CELSIUS_ZERO = 273.15
+_MODEL_H_REFERENCE = 300.0
+_AIR_SUTHERLAND = (_CELSIUS_ZERO, 1.716e-5, 110.4)  # T0, mu0, S
+_AIR_CONDUCTIVITY = (0.0241, _CELSIUS_ZERO, 0.82)  # k0, T0, exponent
+_WATER_DENSITY = (999.84, 0.05, 0.004)  # a - b*T_C - c*T_C**2
+_WATER_VISCOSITY = (2.414e-5, 10.0, 247.8, 140.0, 10.0)  # mu0, base, exponent, shift, floor
+_WATER_CONDUCTIVITY = (0.569, 0.0018)  # a + b*T_C
 
 
 def model_h_coefficients(fluid):
     """Existing cp polynomial, temperature origin and model-h reference (K)."""
     if fluid == 'air':
-        return (*_AIR_CP_COEFFICIENTS, 273.15, 300.0)
+        return (*_AIR_CP_COEFFICIENTS, _CELSIUS_ZERO, _MODEL_H_REFERENCE)
     if fluid == 'water':
-        return (_WATER_CP, 0.0, 0.0, 273.15, 300.0)
+        return (_WATER_CP, 0.0, 0.0, _CELSIUS_ZERO, _MODEL_H_REFERENCE)
     raise ValueError('model h supports only air and water')
 
 _range_warnings_emitted = set()
 
 
-def record_temperature_ranges(fluid, T):
+def record_temperature_ranges(fluid, T, *, source='property_state'):
     """Compare a temperature-model state with existing fits, without property calls.
 
     Callers select only the empirical temperature/model-h route, not HEOS Air.
@@ -66,7 +73,7 @@ def record_temperature_ranges(fluid, T):
     else:
         return
     for name, bounds in fits:
-        record_range(('property_state', name), T, bounds,
+        record_range((source, name), T, bounds,
                      label=name, quantity='T', unit='K')
 
 
@@ -96,14 +103,15 @@ def _warn_range_once(name: str, T, lo: float, hi: float) -> None:
 def air_viscosity(T_K: float) -> float:
     """Dynamic viscosity of air via Sutherland's law [Pa·s]."""
     _warn_range_once('air_viscosity', T_K, *_AIR_T_RANGE)
-    T0, mu0, S = 273.15, 1.716e-5, 110.4
+    T0, mu0, S = _AIR_SUTHERLAND
     return mu0 * (T_K / T0) ** 1.5 * (T0 + S) / (T_K + S)
 
 
 def air_conductivity(T_K: float) -> float:
     """Thermal conductivity of air [W/(m·K)]."""
     _warn_range_once('air_conductivity', T_K, *_AIR_T_RANGE)
-    return 0.0241 * (T_K / 273.15) ** 0.82
+    k0, T0, exponent = _AIR_CONDUCTIVITY
+    return k0 * (T_K / T0) ** exponent
 
 
 def air_density(T_K, P_Pa: float = 101325.0):
@@ -116,7 +124,7 @@ def air_cp(T_K):
     """Specific heat capacity of air [J/(kg·K)] (250-1000 K, < 0.5% error).
     Accepts scalar or ndarray T_K; return type matches input shape."""
     _warn_range_once('air_cp', T_K, *_AIR_CP_RANGE)
-    dT = T_K - 273.15
+    dT = T_K - _CELSIUS_ZERO
     a, b, c = _AIR_CP_COEFFICIENTS
     return a + b * dT + c * dT**2
 
@@ -126,8 +134,9 @@ def air_cp(T_K):
 def water_density(T_K):
     """Density of liquid water [kg/m³]. Polynomial valid 0-90 °C."""
     _warn_range_once('water_density', T_K, *_WATER_T_RANGE)
-    T_C = np.asarray(T_K, dtype=float) - 273.15
-    return 999.84 - 0.05 * T_C - 0.004 * T_C**2
+    T_C = np.asarray(T_K, dtype=float) - _CELSIUS_ZERO
+    a, b, c = _WATER_DENSITY
+    return a - b * T_C - c * T_C**2
 
 
 def water_viscosity(T_K):
@@ -147,15 +156,17 @@ def water_viscosity(T_K):
     # finite: at T~141 K the raw exponent ~247.8 overflows to +inf in float64
     # (robustness 2026-06-25). Physical liquid water (T>=273 K -> denom>=133)
     # is far above the floor, so this is bit-identical in range.
-    denom = np.maximum(T_K_arr - 140.0, 10.0)
-    return 2.414e-5 * 10.0 ** (247.8 / denom)
+    mu0, base, exponent, shift, minimum = _WATER_VISCOSITY
+    denom = np.maximum(T_K_arr - shift, minimum)
+    return mu0 * base ** (exponent / denom)
 
 
 def water_conductivity(T_K):
     """Thermal conductivity of liquid water [W/(m·K)]. Linear fit 0-90 °C."""
     _warn_range_once('water_conductivity', T_K, *_WATER_T_RANGE)
-    T_C = np.asarray(T_K, dtype=float) - 273.15
-    return 0.569 + 0.0018 * T_C
+    T_C = np.asarray(T_K, dtype=float) - _CELSIUS_ZERO
+    a, b = _WATER_CONDUCTIVITY
+    return a + b * T_C
 
 
 def water_cp(T_K):
