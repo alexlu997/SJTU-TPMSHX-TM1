@@ -32,7 +32,9 @@ and NumPy's integer aliases use standard C++ equivalents.
 `sparse/linalg/_isolve/iterative.py:bicgstab`. Coarse solves retain SciPy
 `linalg/_basic.py:pinv`'s rank threshold and expression order. On macOS the
 existing system Accelerate dependency supplies the locked SciPy wheel's LP64
-DGESDD and NumPy-compatible BLAS dot/matmul/matvec calls. The original sparse
+DGESDD through `src/classical_amg_svd_lp64.cpp` and the locked NumPy wheel's
+ILP64 BLAS dot/matmul/matvec calls through `src/classical_amg.cpp`. These ABI
+choices concern integer arguments; both paths retain double arithmetic. The original sparse
 excerpts retain that wheel's multiply/add contraction; the wrapper's CSR
 matvec explicitly uses FMA while NumPy-style vector updates remain strict.
 Other platforms retain the already locked Eigen Jacobi SVD and their existing

@@ -230,6 +230,9 @@ add_executable(fluid_properties_smoke "${TPMSHX_ROOT}/native/tests/fluid_propert
 target_link_libraries(fluid_properties_smoke PRIVATE tpmshx_models)
 add_library(tpmshx_pressure STATIC "${TPMSHX_ROOT}/native/src/pressure_candidate.cpp"
     "${TPMSHX_ROOT}/native/src/classical_amg.cpp")
+if(APPLE)
+    target_sources(tpmshx_pressure PRIVATE "${TPMSHX_ROOT}/native/src/classical_amg_svd_lp64.cpp")
+endif()
 target_include_directories(tpmshx_pressure PUBLIC "${TPMSHX_ROOT}/native/include")
 target_include_directories(tpmshx_pressure SYSTEM PRIVATE "${CP_SOURCE}/externals/Eigen")
 target_compile_definitions(tpmshx_pressure PRIVATE EIGEN_MPL2_ONLY)

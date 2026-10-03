@@ -11,7 +11,9 @@
 
 #include <Eigen/Dense>
 #ifdef __APPLE__
+#include "classical_amg_svd_lp64.hpp"
 #define ACCELERATE_NEW_LAPACK
+#define ACCELERATE_LAPACK_ILP64
 #include <Accelerate/Accelerate.h>
 #endif
 #include <numeric>
@@ -181,20 +183,11 @@ struct ClassicalAmg::Impl {
                 for(int i=0;i<level.a.rows;++i)
                     for(int k=level.a.ptr[i];k<level.a.ptr[i+1];++k)dense(i,level.a.col[k])=level.a.val[k];
 #ifdef __APPLE__
-                // SciPy's locked macOS wheel uses LP64 DGESDD, unlike NumPy's
-                // ILP64 Anderson calls. Preserve pinv's U/s @ Vh layout too.
+                // SciPy's DGESDD uses LP64; the NumPy BLAS operations use ILP64.
+                // Keep the SVD in its own translation unit and preserve pinv's layout.
                 const __LAPACK_int n=static_cast<__LAPACK_int>(dense.rows());
-                const char job='S';__LAPACK_int info=0,lwork=-1;
                 Eigen::MatrixXd u(n,n),vt(n,n);Eigen::VectorXd singular(n);
-                std::vector<__LAPACK_int> iwork(static_cast<std::size_t>(8*n));
-                double query=0.;
-                dgesdd_(&job,&n,&n,dense.data(),&n,singular.data(),u.data(),&n,vt.data(),&n,
-                        &query,&lwork,iwork.data(),&info);
-                if(info)throw std::domain_error("AMG DGESDD workspace failure");
-                lwork=static_cast<__LAPACK_int>(query);std::vector<double> work(static_cast<std::size_t>(lwork));
-                dgesdd_(&job,&n,&n,dense.data(),&n,singular.data(),u.data(),&n,vt.data(),&n,
-                        work.data(),&lwork,iwork.data(),&info);
-                if(info)throw std::domain_error("AMG DGESDD failure");
+                coarse_svd_lp64(dense,u,singular,vt);
                 const double threshold=static_cast<double>(n)*std::numeric_limits<double>::epsilon()*singular[0];
                 __LAPACK_int rank=0;while(rank<n && singular[rank]>threshold)++rank;
                 for(__LAPACK_int j=0;j<rank;++j)for(__LAPACK_int i=0;i<n;++i)u(i,j)/=singular[j];
