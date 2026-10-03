@@ -66,10 +66,15 @@ def native(tmp_path_factory):
     root = Path(__file__).resolve().parents[3]
     eigen = root / '.cache/native-deps/src/CoolProp-7.2.0/externals/Eigen'
     compiler = shlex.split(os.environ.get('CXX', 'cl' if os.name == 'nt' else 'c++'))
-    if not compiler or not shutil.which(compiler[0]) or not (eigen / 'Eigen/Dense').is_file():
-        message = 'outer Anderson qualification requires C++17 and locked Eigen sources'
+    if not compiler or not shutil.which(compiler[0]):
+        message = 'outer Anderson qualification requires a C++17 compiler'
         if (os.environ.get('TPMSHX_REQUIRE_CPP_TESTS') == '1'
                 or os.environ.get('TPMSHX_REQUIRE_NATIVE_DEPS_TESTS') == '1'):
+            pytest.fail(message)
+        pytest.skip(message)
+    if not (eigen / 'Eigen/Dense').is_file():
+        message = 'outer Anderson qualification requires locked Eigen sources'
+        if os.environ.get('TPMSHX_REQUIRE_NATIVE_DEPS_TESTS') == '1':
             pytest.fail(message)
         pytest.skip(message)
     build = tmp_path_factory.mktemp('native-outer-anderson')
