@@ -6,17 +6,25 @@ enter these comparisons. Flow tolerances come from test_full_3d; fixed-input
 thermal tolerances and physical gates come from test_model_h_3d.
 """
 import copy
+import ctypes as ct
 import inspect
+import json
+from pathlib import Path
+import sys
+import tempfile
 from unittest.mock import patch
 
 import numpy as np
 import pytest
 
+from sjtu_tpmshx.solvers import anderson_acceleration as anderson
 from sjtu_tpmshx.tests.native import test_full_3d as full
 from sjtu_tpmshx.tests.native import test_model_h_3d as model_h
+from sjtu_tpmshx.tests.native import test_native_outer_anderson as outer
 
 native_full = full.native
 native_thermal = model_h.native
+native_candidate = outer.native
 
 
 class _FirstThermalEntry(BaseException):
@@ -166,3 +174,165 @@ def test_refined_first_thermal_from_identical_inputs(native_thermal, first_therm
                 failing_values=int(np.count_nonzero(~np.isclose(
                     native, reference, rtol=2e-10, atol=2e-8, equal_nan=True)))))
         raise
+
+
+class _FirstChunkComplete(BaseException):
+    """The original chunk returned; stop before a second chunk or outer step."""
+
+
+def test_refined_first_chunk_same_history_candidates(
+        native_candidate, native_thermal, first_thermal_entry, monkeypatch, record_property):
+    inputs = copy.deepcopy(first_thermal_entry[3])
+    case = _thermal_case(inputs)
+    assert case["shape"] == (24, 24, 24)
+    assert (case["maxit"], case["chunk"], case["alpha"]) == (20000, 250, (.7, 1., .7))
+    assert case["accelerate"] and not case["rb"]
+
+    # This directory is deliberately outside every CI artifact upload path.
+    evidence_root = Path.cwd() / ".cache/native-anderson-same-history"
+    evidence_root.mkdir(parents=True, exist_ok=True)
+    evidence = Path(tempfile.mkdtemp(prefix="qualification-", dir=evidence_root))
+    original_candidate = anderson.AndersonSIMPLE.candidate
+    original_advance = anderson.advance_energy
+    call = native_candidate.lib.test_anderson_candidate
+    call.argtypes = [outer.S, outer.S, outer.D, outer.D, outer.D, ct.c_double,
+                     outer.D, ct.POINTER(ct.c_int), outer.C, outer.S]
+    call.restype = ct.c_int
+    records, step_calls = [], []
+    stage_records = []
+    states, observed_residuals = {}, {}
+    requested = 0
+    chunk_calls = 0
+    chunk_residual = None
+
+    def observe_candidate(accelerator, image):
+        assert accelerator.m == 5 and accelerator.beta == 1. and accelerator.cond_max == 1e10
+        # columns denotes history samples, not difference columns.
+        x = np.ascontiguousarray(np.stack(list(accelerator._X), axis=1))
+        residual = np.ascontiguousarray(np.stack(list(accelerator._R), axis=1))
+        g = np.array(image, dtype=np.float64, order="C", copy=True)
+        assert x.shape == residual.shape and x.shape[0] == 41472
+        assert x.dtype == residual.dtype == g.dtype == np.float64
+        expected, expected_applied = original_candidate(accelerator, image)
+        actual = np.full_like(g, np.nan)
+        applied, error = ct.c_int(), ct.create_string_buffer(512)
+        code = call(*x.shape, x.ctypes.data_as(outer.D), residual.ctypes.data_as(outer.D),
+                    g.ctypes.data_as(outer.D), accelerator.cond_max,
+                    actual.ctypes.data_as(outer.D), ct.byref(applied), error, len(error))
+        failure = None
+        try:
+            assert code == 0, error.value.decode()
+            assert bool(applied.value) == expected_applied
+            np.testing.assert_allclose(actual, expected, rtol=3e-10, atol=3e-12)
+            if sys.platform == "darwin":
+                np.testing.assert_array_equal(actual, expected)
+        except AssertionError as exc:
+            failure = str(exc)
+        row = dict(index=len(records), requested_sweeps=requested, rows=x.shape[0],
+                   history_samples=x.shape[1], difference_columns=x.shape[1]-1,
+                   history_strides=list(x.strides), code=code, error=error.value.decode(),
+                   python_applied=bool(expected_applied), native_applied=bool(applied.value),
+                   array_equal=bool(np.array_equal(actual, expected)),
+                   unequal=int(np.count_nonzero(actual != expected)),
+                   max_abs=float(np.max(np.abs(actual-expected))), failure=failure)
+        if failure is not None:
+            filename = f"candidate-{row['index']:02d}.npz"
+            np.savez(evidence / filename, X=x, R=residual, g=g,
+                     python_candidate=expected, native_candidate=actual)
+            row["failure_arrays"] = filename
+        records.append(row)
+        # The original Python candidate and applied decision drive every trial.
+        return expected, expected_applied
+
+    def observe_advance(step, fields, sweeps, snapshots=(), cancel_check=None):
+        nonlocal requested, chunk_calls, chunk_residual
+        chunk_calls += 1
+        assert chunk_calls == 1 and sweeps == 250 and not snapshots
+        states["before"] = tuple(field.copy() for field in fields)
+
+        def observe_step(count):
+            nonlocal requested
+            residual = step(count)
+            requested += count
+            step_calls.append(dict(count=count, requested_sweeps=requested,
+                                   residual=float(residual)))
+            if requested == 25:
+                states["25"] = tuple(field.copy() for field in fields)
+                observed_residuals["25"] = float(residual)
+            return residual
+
+        chunk_residual = original_advance(
+            observe_step, fields, sweeps, snapshots=snapshots, cancel_check=cancel_check)
+        assert requested == 250
+        states["250"] = tuple(field.copy() for field in fields)
+        observed_residuals["250"] = float(chunk_residual)
+        if any(row["failure"] is not None for row in records):
+            np.savez(evidence / "python-first-chunk-fields.npz",
+                     Ta=fields[0], Tb=fields[1], Ts=fields[2])
+        raise _FirstChunkComplete
+
+    monkeypatch.setattr(anderson.AndersonSIMPLE, "candidate", observe_candidate)
+    monkeypatch.setattr(anderson, "advance_energy", observe_advance)
+    completed = False
+    try:
+        with pytest.raises(_FirstChunkComplete):
+            model_h.energy.solve_full_domain_3d(**inputs)
+        completed = True
+        for seed, actual_seed in zip(case["state"], states["before"]):
+            np.testing.assert_array_equal(seed, actual_seed)
+        for count, accelerate in ((25, False), (250, True)):
+            short_case = copy.deepcopy(case)
+            short_case.update(maxit=count, accelerate=accelerate)
+            result = native_thermal(short_case)
+            code, status, metrics, output, error = result
+            reference = states[str(count)]
+            rtol, atol = (2e-10, 2e-8) if accelerate else (2e-11, 2e-9)
+            comparisons = {name: dict(
+                max_abs=float(np.max(np.abs(a-b))),
+                unequal=int(np.count_nonzero(a != b)),
+                failing_original_tolerance=int(np.count_nonzero(
+                    ~np.isclose(a, b, rtol=rtol, atol=atol, equal_nan=True))))
+                for name, a, b in zip(("Ta", "Tb", "Ts"), short_case["state"], reference)}
+            failure = None
+            try:
+                assert code == 0, error
+                assert status[1] == count
+                for actual_field, reference_field in zip(short_case["state"], reference):
+                    np.testing.assert_allclose(actual_field, reference_field, rtol=rtol, atol=atol)
+                assert metrics[0] == pytest.approx(observed_residuals[str(count)], rel=rtol, abs=atol)
+            except AssertionError as exc:
+                failure = str(exc)
+            stage_records.append(dict(
+                sweeps=count, accelerate=accelerate, rtol=rtol, atol=atol,
+                native_status=list(status), native_error=error,
+                native_residual=float(metrics[0]), python_residual=observed_residuals[str(count)],
+                temperature_comparisons=comparisons, failure=failure))
+            if failure is not None:
+                arrays = {f"native_output_{i}": field for i, field in enumerate(output)}
+                arrays.update({f"native_{name}": field for name, field in zip(("Ta", "Tb", "Ts"), short_case["state"])})
+                for stage, fields in states.items():
+                    arrays.update({f"python_{stage}_{name}": field for name, field in zip(("Ta", "Tb", "Ts"), fields)})
+                np.savez(evidence / f"stage-{count}-failure.npz", **arrays)
+    finally:
+        summary = dict(first_chunk_completed=completed, original_thermal_budget=20000,
+                       requested_chunk=250, requested_sweeps=requested,
+                       chunk_calls=chunk_calls, chunk_residual=chunk_residual,
+                       platform=sys.platform, numpy_version=np.__version__,
+                       native_library=str(native_candidate.lib._name),
+                       short_stage_records=stage_records,
+                       candidate_records=records, step_calls=step_calls)
+        if any(row["failure"] is not None for row in records + stage_records):
+            np.savez(evidence / "python-captured-states.npz", **{
+                f"{stage}_{name}": field for stage, fields in states.items()
+                for name, field in zip(("Ta", "Tb", "Ts"), fields)})
+        (evidence / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+        record_property("anderson_same_history", json.dumps(summary, separators=(",", ":")))
+        print("same-history qualification summary:", json.dumps(summary, separators=(",", ":")))
+        print("local-only full failure arrays:", evidence)
+    assert chunk_calls == 1 and requested == 250
+    assert set(range(2, 7)) <= {row["history_samples"] for row in records}
+    assert sum(row["history_samples"] == 6 for row in records) >= 2, "sliding window was not observed"
+    failures = [row["index"] for row in records if row["failure"] is not None]
+    stage_failures = [row["sweeps"] for row in stage_records if row["failure"] is not None]
+    assert not failures and not stage_failures, (
+        f"candidate mismatches {failures}; short-stage mismatches {stage_failures}; local evidence: {evidence}")

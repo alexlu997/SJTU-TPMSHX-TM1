@@ -89,7 +89,7 @@ def native(tmp_path_factory):
                      '/I' + str(build), '/external:I' + str(eigen), '/external:W0',
                      *sources, '/Fe' + str(output), '/link', '/IMPLIB:' + str(build / 'outer_anderson.lib')]
     else:
-        arguments = ['-std=c++17', '-O2', '-Wall', '-Wextra', '-Wpedantic', '-Werror', '-ffp-contract=off',
+        arguments = ['-std=c++17', '-O3', '-Wall', '-Wextra', '-Wpedantic', '-Werror', '-ffp-contract=off',
                      '-DEIGEN_MPL2_ONLY', '-dynamiclib' if sys.platform == 'darwin' else '-shared', '-fPIC',
                      '-I', root / 'native/include', '-I', build, '-isystem', eigen, *sources, '-o', output]
         if sys.platform == 'darwin':
