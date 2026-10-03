@@ -6,6 +6,25 @@ import pytest
 from sjtu_tpmshx.solvers.anderson_acceleration import AndersonSIMPLE
 
 
+@pytest.mark.parametrize('stop_after', [0, 1, 2, 3])
+def test_energy_acceleration_cancels_before_next_native_step(monkeypatch, stop_after):
+    from sjtu_tpmshx.domain.cancellation import CancelledError
+    from sjtu_tpmshx.solvers.anderson_acceleration import advance_energy
+    fields = [np.full((2, 3), 300.) for _ in range(3)]
+    calls = []
+
+    def step(count):
+        calls.append(count)
+        for field in fields:
+            field += 1.
+        return 1.
+
+    monkeypatch.setattr(AndersonSIMPLE, 'candidate', lambda self, x: (x + 1., True))
+    with pytest.raises(CancelledError):
+        advance_energy(step, fields, 100, cancel_check=lambda: len(calls) >= stop_after)
+    assert len(calls) == stop_after
+
+
 @pytest.mark.parametrize('bad_candidate', [False, True])
 def test_energy_acceleration_budget_and_rollback(monkeypatch, bad_candidate):
     from sjtu_tpmshx.solvers.anderson_acceleration import advance_energy

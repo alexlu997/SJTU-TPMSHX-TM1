@@ -8,6 +8,12 @@ DF 表和 SVG 图标打包；不包含原始实验数据、研究输出、测试
 冻结桌面包的快速设计采用单进程串行候选搜索，避免子进程重复启动 GUI；
 源码运行保留现有并行路径。界面会显示实际执行方式。
 
+同一个 spec 可显式加入预构建的统一原生库：macOS 使用
+`libtpmshx_solver_shared.dylib`，Windows 使用 `tpmshx_solver_shared.dll`。
+库放在包内 `native/`，相应第三方说明、原生依赖锁和完整许可证放在
+`licenses/native/`。打包阶段不下载依赖、不调用 C/C++ 编译器，也不改变
+Python 默认后端；原生库必须先用既有原生构建流程生成并完成对应数值资格检查。
+
 三维代码按 `vtkmodules` 定向导入；打包排除会加载全部 VTK 可选模块的旧
 `vtk` 聚合入口，保留 PyVista、体渲染、拾取、透明度和导出所需的实际依赖。
 更换 VTK/PyVista 版本后需重新核查导入闭包，并验证三维显示和图像/VTK 导出；
@@ -26,11 +32,49 @@ macOS 输出 `.app`，Windows 输出包含可执行文件及依赖的目录。�
 将该环境的绝对解释器路径保存在 `.cache/desktop-build/.venv-path`；后续构建
 使用该解释器，从仓库根执行以下模块。不能将新构建依赖装入共享求解环境。
 
+构建前将 PyInstaller、Matplotlib 和通用缓存设在当前工作树的忽略目录，避免
+构建过程向系统用户目录写缓存。macOS shell 使用：
+
+```sh
+export PYINSTALLER_CONFIG_DIR="$PWD/.cache/desktop-build/pyinstaller-cache"
+export MPLCONFIGDIR="$PWD/.cache/desktop-build/matplotlib"
+export XDG_CACHE_HOME="$PWD/.cache/desktop-build/xdg-cache"
+```
+
+Windows PowerShell 使用：
+
+```powershell
+$env:PYINSTALLER_CONFIG_DIR = Join-Path $PWD '.cache/desktop-build/pyinstaller-cache'
+$env:MPLCONFIGDIR = Join-Path $PWD '.cache/desktop-build/matplotlib'
+$env:XDG_CACHE_HOME = Join-Path $PWD '.cache/desktop-build/xdg-cache'
+```
+
+`PYINSTALLER_CONFIG_DIR` 是 PyInstaller 的官方构建缓存控制变量，参见
+[PyInstaller 环境变量说明](https://pyinstaller.org/en/stable/man/pyinstaller.html#environment-variables)。
+这些设置用于开发机上的构建过程；下文的安装程序启动缓存仍由桌面启动器管理。
+
 ```text
 python -m sjtu_tpmshx.runs.tools.check_locked_environment requirements-lock-desktop.txt
 python -m pip check
 python -m PyInstaller --noconfirm --clean --distpath .cache/desktop-build/dist --workpath .cache/desktop-build/work packaging/desktop.spec
 ```
+
+上述命令在未设置 `TPMSHX_NATIVE_SOLVER_LIBRARY` 时保持既有 Python 包。
+构建原生候选包时，先把该变量设为本目标平台已构建库的绝对路径，例如：
+
+```sh
+export TPMSHX_NATIVE_SOLVER_LIBRARY="/absolute/path/libtpmshx_solver_shared.dylib"
+```
+
+Windows PowerShell 使用：
+
+```powershell
+$env:TPMSHX_NATIVE_SOLVER_LIBRARY = 'C:\absolute\path\tpmshx_solver_shared.dll'
+```
+
+再执行同一 PyInstaller 命令。显式指定的文件缺失、为空或库名与目标平台不符
+会使构建失败；不会悄悄省略原生库。只收集该预构建动态库及其实际运行依赖，
+不把 `.cache/native-deps` 的编译器、源码树、构建目录或物性表缓存装入程序包。
 
 示例中的 `python` 均替换为构建指针记录的绝对解释器。Numba 需要真实的源文件
 定位 JIT 缓存，spec 为应用模块采用纯 Python 源文件收集和加载，避免归档内的
@@ -40,6 +84,25 @@ python -m PyInstaller --noconfirm --clean --distpath .cache/desktop-build/dist -
 [PyInstaller 多进程说明](https://pyinstaller.org/en/stable/common-issues-and-pitfalls.html#multi-processing)。
 几何查表缓存也遵从 `XDG_CACHE_HOME`，首次生成和再次使用均不写入程序目录；
 构建只收集白名单中的模型资源和图标，不携带开发机的会话或缓存。
+
+## 选择原生候选后端
+
+启动原生候选包时必须显式传入 `--backend cpp`。未传 `--native-library`
+时，冻结程序从自己的包内 `native/` 定位上述平台库名；显式路径始终优先。
+源码运行仍要求主机提供库路径，不会自动搜寻开发缓存、编译库或改用其他后端。
+这些选项仅构造本次调用的 `RunControl`，不进入保存的 `CaseData` 或物理配置。
+
+例如，在 macOS 上直接运行包内可执行文件：
+
+```sh
+"/path/SJTU-TPMSHX.app/Contents/MacOS/SJTU-TPMSHX" --backend cpp \
+  --native-table-directory "/absolute/writable/path/native-eos-tables"
+```
+
+同一可执行文件的 `--cli run ...` / `--cli solve ...` 接受相同三个主机选项。
+`--native-table-directory` 指定程序包外可写的绝对路径；sCO2 的 BICUBIC
+物性表使用它，不能指向只读安装目录。原生库在一个进程内固定这一个表目录。
+双击启动而不传后端参数时仍使用 Python 后端。
 
 ## 文件与状态
 
@@ -73,6 +136,13 @@ python -m PyInstaller --noconfirm --clean --distpath .cache/desktop-build/dist -
 4. 使用 `--cli postprocess RESULTS METRICS` 独立回读结果；检查 Q 单位为
    二维 W/m、三维 W，Q/压降/出口温度与同版本源码基线一致。
 5. GUI 完成真实计算并导出 CSV/NPZ；检查后台任务运行时的关闭、取消和重启保护。
+
+包含原生库的候选包还需以显式 `--backend cpp` 重复相关计算、取消与错误路径，
+检查实际加载的是复制后包内库，并在不提供 C/C++ 编译器的运行环境中完成。
+macOS 用 `otool -L` 核对动态依赖，用 `otool -l` 记录库与可执行文件真实的
+`LC_BUILD_VERSION minos`；使用了 macOS 13.3 起提供的 Accelerate 接口，不代表
+某个以更新 SDK 构建的二进制就能运行在 13.3。最低系统版本必须按最终产物和
+目标系统实测声明。Windows 仍须在真实 Windows 环境验证 DLL 依赖、GUI 与导出。
 
 macOS 的本地临时签名构建不是经过 Apple 公证的外部分发版本。正式对外发布
 仍需要项目自己的签名身份、公证和目标系统验证；此文不声明已有相关凭证。

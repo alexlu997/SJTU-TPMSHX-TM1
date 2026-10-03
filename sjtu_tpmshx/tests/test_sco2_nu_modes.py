@@ -149,12 +149,14 @@ def test_cli_preserves_selected_model_and_reports_it(tmp_path, monkeypatch, caps
     from types import SimpleNamespace
     from sjtu_tpmshx.cli import main
     from sjtu_tpmshx.domain.compute_result import ComputeResult
+    from sjtu_tpmshx.domain.module_ports import RunControl
     import sjtu_tpmshx.controllers.compute_pipeline as pipeline
     path=tmp_path/'synthetic-config.json'
     ComputeConfig(sco2_nu=SYNTHETIC).to_json(path)
     expected=nu.sco2_nu_metadata(SYNTHETIC)
-    def dispatch(cfg):
+    def dispatch(cfg, *, control):
         assert cfg.sco2_nu == SYNTHETIC
+        assert control == RunControl()
         return SimpleNamespace(run=lambda: ComputeResult(converged=True, metadata={'sco2_nu':expected}))
     monkeypatch.setattr(pipeline,'pipeline_for',dispatch)
     assert main([str(path),'--json']) == 0

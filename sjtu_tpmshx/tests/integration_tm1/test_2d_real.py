@@ -12,16 +12,16 @@ from sjtu_tpmshx.preprocess.two_d.preparation import prepare_case
 from sjtu_tpmshx.solvers.backends.python.two_d.execution import run_case
 from sjtu_tpmshx.postprocess.metrics import evaluate
 
-# 2026-09-29: shared conservative transport and physical-distance SOU;
-# Richardson uses actual cell bisection. Original gates/budgets are unchanged.
+# 2026-10-02: per-stream epsilon*k and certified model-h finishing, with the
+# existing Anderson sweeps. Original budgets and comparison tolerances remain.
 # Prior references remain in docs/history/README.md.
 # Backend Richardson/centre-pressure and public native/face-pressure metrics
 # have separate references; all comparison tolerances remain unchanged.
-AIR_BASELINE_METRICS = [31156.7524902476, 1631.1903772393234, 1212.5918103948036,
-                        303.281741994655, 334.7957041980853]
-AIR_NATIVE_Q = 31130.94175144736
-AIR_PUBLIC_METRICS = [AIR_NATIVE_Q, 1626.1295067141764, 1188.8348821008549,
-                      303.281741994655, 334.7957041980853]
+AIR_BASELINE_METRICS = [31152.0469411321, 1631.088176096137, 1212.5730880422088,
+                        303.2761483302114, 334.7899628549054]
+AIR_NATIVE_Q = 31131.515711397526
+AIR_PUBLIC_METRICS = [AIR_NATIVE_Q, 1626.028297634257, 1188.8113859451987,
+                      303.2761483302114, 334.7899628549054]
 
 
 def baseline_config():
@@ -86,10 +86,10 @@ def _assert_postprocessing(result):
 
 @pytest.mark.slow
 @pytest.mark.parametrize('fluid_A,u_A,P_A,fluid_B,P_B,expected_Q', [
-    # Shared physical-distance transport; the deliberately short fixed outer
-    # budget still reports nonconvergence. Comparison tolerances are unchanged.
-    ('sco2', .3, 12e6, 'water', 2e6, 45624.58456665004),
-    ('air', 3., 2e5, 'sco2', 12e6, 4416.181405481553),
+    # Physical inlet-face pressure anchoring; the deliberately short fixed
+    # outer budget still reports nonconvergence. Tolerances are unchanged.
+    ('sco2', .3, 12e6, 'water', 2e6, 45624.58629116599),
+    ('air', 3., 2e5, 'sco2', 12e6, 4416.181525306756),
 ])
 def test_mixed_partial_native_and_postprocessing(fluid_A,u_A,P_A,fluid_B,P_B,expected_Q):
     from sjtu_tpmshx.domain.compute_config import ExtrapPolicy

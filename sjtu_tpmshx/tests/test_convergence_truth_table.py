@@ -355,3 +355,30 @@ def test_2d_verdict_ands_the_ltne_inner_pass(monkeypatch, inner_converged):
         assert detail[gate] is True, (gate, detail)
     assert detail['ltne_ok'] is inner_converged
     assert result['solver_converged'] is inner_converged
+
+
+def test_2d_outer_continues_until_stable_thermal_equations_pass(monkeypatch):
+    """Stationary outer fields must not discard the remaining thermal budget."""
+    from sjtu_tpmshx.domain.run_warnings import warning_scope
+    from sjtu_tpmshx.solvers.backends.python.two_d import coupling
+    from sjtu_tpmshx.tests.test_2d_warning_callers import _prepare
+
+    pipe, fields = _prepare(monkeypatch, legacy=True)
+    shape = pipe._parsed['N_x'], pipe._parsed['N_y']
+    calls = []
+
+    def thermal(*args, **kwargs):
+        calls.append(len(calls))
+        return (*(np.full(shape, t) for t in (340., 310., 325.)),
+                dict(converged=len(calls) == 3, iterations=1, residual=0.))
+
+    monkeypatch.setattr(coupling, 'solve_full_domain', thermal)
+    monkeypatch.setattr(coupling.OuterConvergence, 'check',
+                        lambda self, fields, **kw: (True, dict.fromkeys(fields, 0.)))
+    monkeypatch.setattr(coupling, '_compute_Q_richardson', lambda *a, **k:
+        (10., 10., -10., 10., False, dict(converged=True, extrapolated=True)))
+    with warning_scope({}):
+        result = pipe.run_solvers(fields)
+    assert calls == [0, 1, 2]
+    assert result['convergence_detail']['outer_iters'] == 3
+    assert result['solver_converged']

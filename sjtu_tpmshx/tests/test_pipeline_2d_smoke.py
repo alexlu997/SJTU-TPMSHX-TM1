@@ -59,6 +59,11 @@ def test_pipeline2d_run_returns_compute_result():
     dt = time.time() - t0
 
     assert isinstance(result, ComputeResult)
+    # The corrected per-stream Kff leaves a small SOU limit cycle with plain
+    # GS on this real case. Existing Anderson must finish the equations within
+    # the original budget, not merely return stable Q and temperatures.
+    assert result.converged, result.diagnostics['convergence_detail']
+    assert result.diagnostics['convergence_detail']['model_h_balance_ok']
 
     # Headline scalars — positive, finite, physically plausible.
     assert result.Q_W > 0, f"Q_W must be positive (got {result.Q_W})"

@@ -13,8 +13,8 @@ verbatim to ``ui/mixins/run_results.py`` (P2.5a, 2026-07-20); handlers
 here reach it via ``self`` through the ``Main_Menu`` MRO.
 
 UI orchestration reaches prepare_case / run_case / evaluate through
-Pipeline2D/3D on ComputeOrchestrator workers. Numerical execution lives under
-solvers/backends/python; presentation stays in the UI. Deps are stable
+Pipeline2D/3D on ComputeOrchestrator workers. RunControl selects the numerical
+backend; presentation stays in the UI. Deps are stable
 imports (PySide6 widgets, ui.fmt._fmt_dur, ui.ui_constants constants,
 time) — no main.py module state. Adopted via
 ``class Main_Menu(..., RunControllerMixin, QMainWindow)``; external wiring
@@ -34,6 +34,7 @@ from PySide6.QtWidgets import QMessageBox
 from sjtu_tpmshx.ui.fmt import duration as _fmt_dur
 from sjtu_tpmshx.ui.icons import icon
 from sjtu_tpmshx.ui.ui_constants import HIGH_VELOCITY_NOTICE_MS, TOAST_MS_MED, TOAST_MS_SHORT
+from sjtu_tpmshx.domain.module_ports import RunControl
 
 
 from sjtu_tpmshx.ui.compute_api_adapter import run as _run_pipeline
@@ -93,7 +94,8 @@ class RunControllerMixin:
             return
 
         from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
-        worker = partial(_run_pipeline, pipeline_cls=Pipeline2D, ui_hooks={
+        worker = partial(_run_pipeline, pipeline_cls=Pipeline2D,
+                         control=getattr(self, 'run_control', RunControl()), ui_hooks={
             'iter_label_cb': self.compute.iteration.emit,
         })
 
@@ -228,7 +230,8 @@ class RunControllerMixin:
 
         emit_iteration = self.compute.iteration.emit
         from sjtu_tpmshx.controllers.compute_pipeline import Pipeline3D
-        worker = partial(_run_pipeline, pipeline_cls=Pipeline3D, ui_hooks={
+        worker = partial(_run_pipeline, pipeline_cls=Pipeline3D,
+                         control=getattr(self, 'run_control', RunControl()), ui_hooks={
             'iter_cb': lambda k, n: emit_iteration(f"outer {k}/{n}"),
         })
 

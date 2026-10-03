@@ -116,3 +116,49 @@ def test_energy_diagnostic_is_reported_without_a_new_feasibility_gate(
         assert row['数值收敛'] is True and row['终验'] is None
     finally:
         workbook.close()
+
+
+def test_final_water_failure_retains_failed_case_and_continues_cases(monkeypatch):
+    from sjtu_tpmshx.models.fluid_props import QuickDesignWaterFieldError
+    cases = [DesignCase(i, 'air', 400., 2e5, .01, 'water', 300., 2e5, .01,
+                        100., .05, .05) for i in (1, 2)]
+    good = ForwardResult(340., 330., 600., 600., .01, .01, 1000., 1000.,
+                         run_status={'converged': True})
+    calls = []
+    def final(case, *args, **kwargs):
+        calls.append(case.case)
+        if case.case == 1:
+            raise QuickDesignWaterFieldError('design-inlet-pass B water index=(0, 0, 0), T=500 K')
+        return good
+    monkeypatch.setattr(sizing, 'solve_Lx', lambda *a, **kw: (.1, good))
+    monkeypatch.setattr(sizing, 'forward', final)
+    monkeypatch.setattr(sizing, 'tpms_geometry', lambda *a, **kw: {'epsilon': .7})
+    monkeypatch.setattr(sizing, 'dP_fracs', lambda *a, **kw: (.01, .01))
+    design = sizing.size_fixed_cell(cases, 'Diamond', 6., .4)
+    assert not design.feasible and calls == [1, 2]
+    assert 'case 1: water-state-invalid@final' in design.reason
+    failed, good_row = detail_rows([design])
+    assert math.isnan(failed['热侧换热量_W'])
+    assert failed['数值收敛'] is False
+    assert 'index=(0, 0, 0)' in failed['终验']
+    assert good_row['热侧换热量_W'] == 600.
+    assert math.isnan(design.dP_hot_max)
+    assert not pareto_tags([design])
+
+
+def test_unresolved_water_candidate_keeps_identity_without_aborting_selection(monkeypatch):
+    from sjtu_tpmshx.models.fluid_props import QuickDesignWaterFieldError
+    case = DesignCase(1, 'air', 400., 2e5, .01, 'water', 300., 2e5, .01,
+                      100., .05, .05)
+    widths = []
+    def unresolved(*args, **kwargs):
+        widths.append(args[4])
+        raise QuickDesignWaterFieldError('water-state-search-exhausted: controlled field failure')
+    monkeypatch.setattr(sizing, 'solve_Lx', unresolved)
+    monkeypatch.setattr(sizing, 'tpms_geometry', lambda *a, **kw: {'epsilon': .7})
+    monkeypatch.setattr(sizing, 'dP_fracs', lambda *a, **kw: (.01, .01))
+    design = sizing.size_fixed_cell([case], 'Diamond', 6., .4)
+    assert not design.feasible and len(widths) > 1
+    assert design.topo == 'Diamond' and design.l == 6. and design.t == .4
+    assert 'water-state-search-exhausted' in design.reason
+    assert 'cooling-unreachable' not in design.reason

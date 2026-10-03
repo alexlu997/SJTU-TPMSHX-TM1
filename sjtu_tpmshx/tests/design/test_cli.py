@@ -118,3 +118,47 @@ def test_partial_report_error_does_not_hide_computation_error(monkeypatch, tmp_p
              '--out', str(tmp_path / 'partial.xlsx')])
     assert caught.value is failure
     assert 'output unavailable' in capsys.readouterr().err
+
+
+@pytest.mark.parametrize('mode', ['fixed', 'auto', 'refine'])
+@pytest.mark.parametrize('backend', ['python', 'cpp'])
+def test_cli_control_reaches_fixed_enumeration_and_refinement(
+        mode, backend, monkeypatch, tmp_path):
+    from sjtu_tpmshx.design import cli, optimize, sizing
+    from sjtu_tpmshx.domain.module_ports import RunControl
+
+    source, output = tmp_path / 'spec.xlsx', tmp_path / 'design.xlsx'
+    _spec(source)
+    design = sizing.Design(True, topo='Diamond', l=8., t=.4, V=.001)
+    calls = []
+
+    def fixed(*args, control, **kwargs):
+        calls.append(('fixed', control))
+        return design
+
+    def enumeration(*args, control, **kwargs):
+        calls.append(('auto', control))
+        return [design], design
+
+    def refinement(*args, control, **kwargs):
+        calls.append(('refine', control))
+        return design
+
+    monkeypatch.setattr(cli, 'size_fixed_cell', fixed)
+    monkeypatch.setattr(cli, 'enumerate_select', enumeration)
+    monkeypatch.setattr(optimize, 'warm_start_joint', refinement)
+    library, tables = tmp_path / 'solver.so', tmp_path / 'tables'
+    arguments = ['--xlsx', str(source), '--out', str(output), '--backend', backend]
+    if backend == 'cpp':
+        arguments += ['--native-library', str(library), '--native-table-directory', str(tables)]
+    if mode == 'fixed':
+        arguments += ['--mode', 'fixed', '--cell', 'Diamond,8,0.4']
+    elif mode == 'refine':
+        arguments += ['--refine']
+    assert cli.run(arguments) == 0
+    expected = RunControl(backend=backend,
+        native_library=str(library) if backend == 'cpp' else None,
+        native_table_directory=str(tables) if backend == 'cpp' else None)
+    assert calls == [(stage, expected) for stage in
+                     (['auto', 'refine'] if mode == 'refine' else [mode])]
+    assert all(control is calls[0][1] for _, control in calls)

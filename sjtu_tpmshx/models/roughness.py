@@ -20,6 +20,10 @@ Bhatti & Shah (1987). Historical mode changes remain in Git history.
 from __future__ import annotations
 import numpy as np
 
+_PETUKHOV = (0.790, 1.64)
+_HAALAND = (1.8, 3.7, 1.11, 6.9)
+_NU_GAIN_POWER = 0.68
+_AIR_BASELINE_NU = 1.28
 
 # ─── Smooth-wall friction baselines ─────────────────────────────────
 
@@ -30,7 +34,7 @@ def f_petukhov(Re):
     Range: Re ~ 3e3 - 5e6. Returns Darcy (Moody) f, not Fanning.
     """
     Re = np.asarray(Re, dtype=np.float64)
-    return (0.790 * np.log(Re) - 1.64) ** (-2)
+    return (_PETUKHOV[0] * np.log(Re) - _PETUKHOV[1]) ** (-2)
 
 
 def f_haaland(Re, eps_over_Dh):
@@ -38,8 +42,8 @@ def f_haaland(Re, eps_over_Dh):
     to Colebrook-White, <= 2 % error). Darcy f.
     """
     Re = np.asarray(Re, dtype=np.float64)
-    return (1.0 / (-1.8 * np.log10(
-        (eps_over_Dh / 3.7) ** 1.11 + 6.9 / Re))) ** 2
+    return (1.0 / (-_HAALAND[0] * np.log10(
+        (eps_over_Dh / _HAALAND[1]) ** _HAALAND[2] + _HAALAND[3] / Re))) ** 2
 
 
 # ─── Public API ─────────────────────────────────────────────────────
@@ -75,8 +79,8 @@ def nu_extra_factor(Re, mode='baseline', eps_um=None, D_h_mm=None):
         return 1.0
     if mode == 'bhatti_shah_1b':
         f_gain = f_enhancement(Re, mode, eps_um, D_h_mm)
-        g_nu = f_gain ** 0.68
-        return float(g_nu / 1.28)
+        g_nu = f_gain ** _NU_GAIN_POWER
+        return float(g_nu / _AIR_BASELINE_NU)
     raise ValueError(f"unknown roughness mode {mode!r}")
 
 

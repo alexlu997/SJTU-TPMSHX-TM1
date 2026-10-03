@@ -1,11 +1,12 @@
 """
 tests/test_ltne_energy_3d.py — Phase 1 Week 3 verification
 
-Four tests:
+Five tests:
   1. nz1_matches_2d        — Nz=1 delegate path == 2D solver bitwise
   2. mass_balance          — mass_balance_3d probe on divergence-free field
   3. energy_balance        — steady LTNE Q_sA + Q_sB ≈ 0 on Nz=5 extrude
   4. alpha_T_robustness    — α ∈ {0.5, 0.7, 0.9} converge to same fields
+  5. model_h_first_caller  — face transport and audit ignore compilation order
 """
 
 import numpy as np
@@ -16,6 +17,88 @@ from sjtu_tpmshx.solvers.ltne_energy_3d import (
     mass_balance_3d,
 )
 from sjtu_tpmshx.solvers.ltne_energy import solve_full_domain
+
+
+def test_model_h_faces_and_audit_do_not_depend_on_first_caller(tmp_path):
+    import json
+    import os
+    import subprocess
+    import sys
+
+    # A direct energy audit and a fastmath sweep can compile these same helpers
+    # first. Separate processes/caches expose that order; no thermal solve is needed.
+    script = '''
+import json, sys
+import numpy as np
+from numba import njit
+from sjtu_tpmshx.models.tpms_props import model_h_coefficients
+from sjtu_tpmshx.result_math import compute_phase2a
+from sjtu_tpmshx.solvers import ltne_energy_3d as energy
+from sjtu_tpmshx.solvers._kernels_ltne_3d import _model_h_faces, _face_divergence
+from sjtu_tpmshx.tests.native.test_model_h_3d import case
+
+@njit(fastmath=True)
+def fast_caller(T, mass, cp, direction, inlet, opening, dx, dy, dz):
+    capacity, deferred = _model_h_faces(T, mass, cp, direction, inlet, opening, dx, dy, dz)
+    return capacity, deferred, _face_divergence(deferred)
+
+def direct_caller(*args):
+    capacity, deferred = _model_h_faces(*args)
+    return capacity, deferred, _face_divergence(deferred)
+
+# Existing deterministic 4x3x3 nonuniform, nonisothermal qualification input.
+c = case(fluids=(0, 0))
+a, b = c['a'], c['b']
+cp = tuple(model_h_coefficients('air'))
+inputs = (c['state'][0], tuple(a[2:5]), cp, c['directions'][0], a[5], a[6], *c['widths'])
+first = fast_caller if sys.argv[1] == 'fast-first' else direct_caller
+capacity, deferred, divergence = first(*inputs)
+fields = dict(zip(('capacity_x', 'capacity_y', 'capacity_z',
+                   'deferred_x', 'deferred_y', 'deferred_z', 'divergence'),
+                  (*capacity, *deferred, divergence)))
+zero = np.zeros(c['shape'])
+eps = np.full(c['shape'], .35)
+zero_faces = tuple(np.zeros_like(f) for f in a[2:5])
+exchange = []
+for index, (name, side) in enumerate((('A', a), ('B', b))):
+    residual, source, diffusion = energy._conservation_residual_sum(
+        c['state'][index], c['state'][2], *zero_faces, eps, side[0], zero, side[1],
+        *c['widths'], c['directions'][index], side[5], side[6], zero,
+        model_mass=tuple(side[2:5]), model_cp=cp, return_field=True)
+    fields[name+'_residual'] = residual
+    fields[name+'_inlet_diffusion'] = diffusion
+    exchange.append(source)
+solid, _, _ = energy._conservation_residual_sum(
+    c['state'][2], c['state'][2], *zero_faces, eps, c['ks'], zero, zero,
+    *c['widths'], 0, c['state'][2][0], zero[0], zero, return_field=True)
+fields['solid_residual'] = solid + exchange[0] + exchange[1]
+balance = energy._model_h_balance(
+    tuple(c['state'][:2]), c['state'][2], (tuple(a[2:5]), tuple(b[2:5])), (cp, cp),
+    c['directions'], (a[5], b[5]), (a[6], b[6]), (a[0], b[0]), c['ks'],
+    (a[1], b[1]), (eps, eps), (zero, zero), zero, *c['widths'])
+info = dict(model_h_balance=balance, _audit_fB=True)
+for name in ('A', 'B'):
+    side = balance['sides'][name]
+    info['eps_'+name+'_strict'] = abs(side['residual_sum_W']) / side['strict_normalization_W']
+    info['eps_'+name+'_strict_cellmax'] = side['residual_max_abs_W'] * zero.size / side['strict_normalization_W']
+    info['Q_s'+name] = side['fluid_solid_exchange_to_fluid_W']
+    fields.update({name+'_'+face: value for face, value in balance['_native_faces'][name].items()})
+fields['balance'] = np.array([balance[key] for key in (
+    'numerical_external_inward_W', 'explicit_source_W', 'solid_residual_sum_W',
+    'solid_residual_max_abs_W', 'full_residual_sum_W', 'telescoping_error_W')])
+print(json.dumps(dict(fields={name: value.tolist() for name, value in fields.items()},
+                      gates=compute_phase2a(info)['gates'])))
+'''
+    results = []
+    for order in ('direct-first', 'fast-first'):
+        child = subprocess.run(
+            [sys.executable, '-c', script, order], check=True, capture_output=True,
+            text=True, env=os.environ | {'NUMBA_CACHE_DIR': str(tmp_path / order)})
+        results.append(json.loads(child.stdout))
+    assert results[0]['gates'] == results[1]['gates']
+    assert results[0]['fields'].keys() == results[1]['fields'].keys()
+    for name in results[0]['fields']:
+        np.testing.assert_array_equal(results[0]['fields'][name], results[1]['fields'][name], err_msg=name)
 
 
 def _toy_case(Nx=10, Ny=8, Nz=1, T_inA=350.0, T_inB=300.0):

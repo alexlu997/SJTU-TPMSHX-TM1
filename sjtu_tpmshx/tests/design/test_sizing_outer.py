@@ -43,6 +43,30 @@ def test_width_endpoint_feasibility(monkeypatch, arrangement, n_cases, boundary)
             assert row['run_status']['converged']
             assert final_call == (case.case, design.s, design.Lx, None)
 
+
+def test_all_case_water_failure_can_recover_at_another_width(monkeypatch):
+    from sjtu_tpmshx.design import sizing
+    from sjtu_tpmshx.design.forward import ForwardResult
+    from sjtu_tpmshx.models.fluid_props import QuickDesignWaterFieldError
+    cases = [DesignCase(i, 'air', 400., 2e5, .01, 'water', 300., 2e5, .01,
+                        100., .05, .05) for i in (1, 2)]
+    result = ForwardResult(340., 330., 600., 600., .01, .01, 1000., 1000.,
+                           run_status={'converged': True})
+    failures = []
+    def length(case, topo, l, t, s, *args, **kwargs):
+        if case.case == 2 and s < .2:
+            failures.append(s)
+            raise QuickDesignWaterFieldError('water-state-search-exhausted: case 2')
+        return .1, result
+    monkeypatch.setattr(sizing, 'solve_Lx', length)
+    monkeypatch.setattr(sizing, 'forward', lambda *a, **kw: result)
+    monkeypatch.setattr(sizing, 'tpms_geometry', lambda *a, **kw: {'epsilon': .7})
+    monkeypatch.setattr(sizing, 'dP_fracs', lambda *a, **kw: (.01, .01))
+    design = sizing.size_fixed_cell(cases, 'Diamond', 7., .5)
+    assert failures
+    assert design.feasible and .2 <= design.s <= .2015
+    assert len(design.percase) == 2
+
 def _cases():
     return [DesignCase(1,"air",688.23,1_088_700.0,0.2855,
                        "water",320.0,200_000.0,0.5,30_000.0,0.075,0.05)]

@@ -4,13 +4,30 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* Define BUILD_SHARED when producing the DLL, USE_SHARED when consuming it.
+ * Leave both undefined for static linkage. The C ABI uses cdecl on Windows.
+ */
+#if defined(_WIN32)
+#  if defined(TPMSHX_THERMAL_BUILD_SHARED)
+#    define TPMSHX_THERMAL_API __declspec(dllexport)
+#  elif defined(TPMSHX_THERMAL_USE_SHARED)
+#    define TPMSHX_THERMAL_API __declspec(dllimport)
+#  else
+#    define TPMSHX_THERMAL_API
+#  endif
+#  define TPMSHX_THERMAL_CALL __cdecl
+#else
+#  define TPMSHX_THERMAL_API
+#  define TPMSHX_THERMAL_CALL
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #define TPMSHX_THERMAL_ABI_VERSION 1u
 
-uint32_t tpmshx_thermal_abi_version(void);
+TPMSHX_THERMAL_API uint32_t TPMSHX_THERMAL_CALL tpmshx_thermal_abi_version(void);
 
 /* Borrowed arrays; the caller retains valid storage throughout the call.
  * shape has 3 size_t entries (nx, ny, nz), sizes has 23 element counts,
@@ -33,7 +50,8 @@ uint32_t tpmshx_thermal_abi_version(void);
  * after statuses 2 or 3 the state may be partially updated and is unusable.
  * No exception is allowed to cross the C boundary.
  */
-int tpmshx_enthalpy_sweeps_v1(const size_t* shape, double* const* arrays,
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_enthalpy_sweeps_v1(
+                            const size_t* shape, double* const* arrays,
                             const size_t* sizes, const double* scalars,
                             size_t sweeps, uint64_t* clips,
                             char* error, size_t error_capacity);

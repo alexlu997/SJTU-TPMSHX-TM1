@@ -784,6 +784,11 @@ def _model_h_balance(Ta, Tb, Ts, K_A, K_B, K_s, hv_A, hv_B, dx, dy,
             inlet_conduction_faces_W_per_m=diffusion_in.tolist(),
             cp_coefficients=list(cp), unknown_inflow_faces=unknown,
             physical_boundary_complete=(unknown == 0))
+        # Native 2D power is W/m. The 1 W/m floor also defines the
+        # near-zero-load absolute scale; this is not a temperature tolerance.
+        side_scale = max(abs(float(exchange.sum())), 1.0)
+        sides[label]['strict_normalization_W_per_m'] = side_scale
+        sides[label]['residual_cellmax_rel'] = float(np.max(np.abs(residual))) * Ta.size / side_scale
         residuals.append(residual)
         defects.append(defect)
         exchanges.append(exchange)
@@ -796,6 +801,9 @@ def _model_h_balance(Ta, Tb, Ts, K_A, K_B, K_s, hv_A, hv_B, dx, dy,
         *mass_A, *mass_B, cp_A, cp_B, last_Ta, last_Tb,
         *residuals, *defects, solid)) and np.isfinite(net)
     complete = all(s['physical_boundary_complete'] for s in sides.values())
+    solid_cellmax = float(np.max(np.abs(solid))) * Ta.size / scale
+    equations_ok = bool(finite and complete and solid_cellmax <= .01
+                        and all(s['residual_cellmax_rel'] <= .01 for s in sides.values()))
     return dict(
         units='W/m; kg/(s m)', state='raw final thermal return',
         boundary_order=['-x', '+x', '-y', '+y'], A=sides['A'], B=sides['B'],
@@ -804,6 +812,7 @@ def _model_h_balance(Ta, Tb, Ts, K_A, K_B, K_s, hv_A, hv_B, dx, dy,
         solid_boundary_W_per_m=0.0, solid_source_W_per_m=0.0,
         solid_residual_sum_W_per_m=solid_sum,
         solid_residual_max_abs_W_per_m=float(np.max(np.abs(solid))),
+        solid_residual_cellmax_rel=solid_cellmax, equation_tolerance=.01,
         residual_sum_W_per_m=float(sum(r.sum() for r in residuals)+solid_sum),
         telescoping_error_W_per_m=float(sum(r.sum() for r in residuals)+solid_sum-net),
         net_boundary_in_W_per_m=net, D2_W_per_m=scale,
@@ -811,7 +820,8 @@ def _model_h_balance(Ta, Tb, Ts, K_A, K_B, K_s, hv_A, hv_B, dx, dy,
         physical_boundary_complete=complete, finite=bool(finite),
         energy_ok=bool(finite and complete and abs(net)/scale <= .005),
         solid_ok=bool(finite and complete and abs(solid_sum)/scale <= .01),
-        passed=bool(finite and complete and abs(net)/scale <= .005 and abs(solid_sum)/scale <= .01))
+        equations_ok=equations_ok,
+        passed=bool(equations_ok and abs(net)/scale <= .005 and abs(solid_sum)/scale <= .01))
 
 
 def solve_full_domain(L, H, Nx, Ny,
@@ -1025,6 +1035,8 @@ def solve_full_domain(L, H, Nx, Ny,
     Q_prev = None
     Ta_prev = Ta.copy(); Tb_prev = Tb.copy(); Ts_prev = Ts.copy()
     converged = False
+    model_balance = None
+    energy_checks = []
     q_tol = min(tol * 2e-3, 1e-3) if q_rel_tol is None else float(q_rel_tol)
     T_abs_tol = 0.01  # K between chunks
     # 2026-05-20 code-bug sweep (Tier 23): pre-init `chg` so the
@@ -1050,15 +1062,23 @@ def solve_full_domain(L, H, Nx, Ny,
             n, freeze_Tb, 1 if use_sou_B else 0, inlet_flux_A, inlet_flux_B,
             *model_args)
 
+    def current_model_balance():
+        return _model_h_balance(
+            Ta, Tb, Ts, K_ffA_arr, K_ffB_arr, K_ss_arr, h_vA_arr, h_vB_arr,
+            dx_arr, dy_arr, mass_A, mass_B, cp_A, cp_B, dir_A, dir_B,
+            T_inA_arr, T_inB_arr, ifrac_A, ifrac_B, use_sou_B, last_Ta, last_Tb)
+
     while done < max_iter:
         if cancel_check is not None and cancel_check():
             raise CancelledError("compute cancelled by user")
         n = min(chunk, max_iter - done)
         if accelerate:
             from sjtu_tpmshx.solvers.anderson_acceleration import advance_energy
-            chg = advance_energy(step, (Ta, Tb, Ts), n, (last_Ta, last_Tb))
+            chg = advance_energy(step, (Ta, Tb, Ts), n, (last_Ta, last_Tb),
+                                 cancel_check=cancel_check)
         else:
             chg = step(n)
+        model_balance = None
         done += n
         if progress_cb:
             progress_cb(done, max_iter)
@@ -1083,8 +1103,18 @@ def solve_full_domain(L, H, Nx, Ny,
             T_ok = (dTa_max < T_abs_tol and dTb_max < T_abs_tol
                     and dTs_max < T_abs_tol)
             if rel_chg < q_tol and T_ok:
-                converged = True
-                break
+                if model_fluids is not None:
+                    model_balance = current_model_balance()
+                    converged = model_balance['passed']
+                    energy_checks.append(dict(
+                        iterations=done, passed=converged,
+                        equations_ok=model_balance['equations_ok']))
+                    if not model_balance['physical_boundary_complete']:
+                        break  # These fixed mass faces need another flow update.
+                else:
+                    converged = True
+                if converged:
+                    break
         Q_prev = Q_cur
         Ta_prev = Ta.copy(); Tb_prev = Tb.copy(); Ts_prev = Ts.copy()
 
@@ -1095,10 +1125,9 @@ def solve_full_domain(L, H, Nx, Ny,
             'residual': float(chg),
         }
         if model_fluids is not None:
-            info['model_h_balance'] = _model_h_balance(
-                Ta, Tb, Ts, K_ffA_arr, K_ffB_arr, K_ss_arr, h_vA_arr, h_vB_arr,
-                dx_arr, dy_arr, mass_A, mass_B, cp_A, cp_B, dir_A, dir_B,
-                T_inA_arr, T_inB_arr, ifrac_A, ifrac_B, use_sou_B, last_Ta, last_Tb)
+            info['model_h_balance'] = (model_balance if model_balance is not None
+                                       else current_model_balance())
+            info['energy_finishing_checks'] = energy_checks
             info['model_h_balance'].update(
                 thermal_converged=bool(converged), thermal_iterations=int(done),
                 thermal_residual_K=float(chg))

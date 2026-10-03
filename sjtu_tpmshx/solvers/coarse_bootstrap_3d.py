@@ -22,6 +22,28 @@ from __future__ import annotations
 import numpy as np
 
 from ._solve_common import f2_state_is_finite
+from sjtu_tpmshx.domain.cancellation import CancelledError
+
+BOOTSTRAP_RECURSIVE_ITERATIONS = 200
+BOOTSTRAP_MIN_COARSE_AXIS = 4
+
+
+def _new_bootstrap_trace(solver, *, policy=None):
+    """Describe the existing selection; this record never controls a solve."""
+    from .simple_solver_3d import _AMG_GATE
+    flag = getattr(solver, 'use_coarse_bootstrap', None)
+    shape = (solver.Nx, solver.Ny, solver.Nz)
+    selected = bool(flag) if flag is not None else shape[0] * shape[1] * shape[2] > _AMG_GATE
+    if policy == 'direct':
+        selected = True
+    return dict(policy=policy or ('auto_cells_gt_threshold' if flag is None else
+                                 'explicit_on' if flag else 'explicit_off'),
+                selected=bool(selected), fine_shape=shape,
+                coarse_iteration_cap=getattr(solver, 'coarse_bootstrap_max_iter', BOOTSTRAP_RECURSIVE_ITERATIONS),
+                recursive_iteration_cap=BOOTSTRAP_RECURSIVE_ITERATIONS, auto_cell_threshold=_AMG_GATE,
+                min_coarse_axis=BOOTSTRAP_MIN_COARSE_AXIS,
+                decision='not-started' if selected else ('disabled' if flag is not None else 'auto-threshold'),
+                levels=[], actual_levels=0, started_cap_sum=0, total_charged_iterations=0)
 
 
 def _block_average_3d(arr: np.ndarray, fx: int, fy: int, fz: int) -> np.ndarray:
@@ -50,9 +72,46 @@ def _open_intersections(fine_widths, coarse_widths, lo, hi):
     return np.maximum(right - left, 0.)
 
 
-def bootstrap_simple_3d(solver_fine, max_iter_coarse: int = 200,
-                         min_coarse_axis: int = 4,
+def bootstrap_simple_3d(solver_fine, max_iter_coarse: int = BOOTSTRAP_RECURSIVE_ITERATIONS,
+                         min_coarse_axis: int = BOOTSTRAP_MIN_COARSE_AXIS,
                          verbose: bool = False, *, cancel_check=None) -> dict:
+    """Run the unchanged coarse initialization and retain its actual work trace."""
+    trace = getattr(solver_fine, '_coarse_bootstrap_trace', None)
+    if trace is None or not trace['selected']:
+        trace = _new_bootstrap_trace(solver_fine, policy='direct')
+        solver_fine._coarse_bootstrap_trace = trace
+    trace['coarse_iteration_cap'] = max_iter_coarse
+    trace['min_coarse_axis'] = min_coarse_axis
+    level = dict(depth=1, fine_shape=(solver_fine.Nx, solver_fine.Ny, solver_fine.Nz),
+                 coarse_shape=(solver_fine.Nx // 2, solver_fine.Ny // 2, solver_fine.Nz // 2),
+                 iteration_cap=max_iter_coarse, solve_started=False, charged_iterations=0,
+                 stop='not-started', applied=False, converged=False, child_selected=False)
+    trace['levels'] = [level]
+    try:
+        info = _bootstrap_simple_3d(solver_fine, max_iter_coarse, min_coarse_axis,
+                                    verbose, cancel_check=cancel_check, trace=trace, level=level)
+        level['applied'] = bool(info['applied'])
+        trace['decision'] = 'applied' if info['applied'] else info['reason']
+        if level['stop'] == 'not-started':
+            level['stop'] = trace['decision']
+        return info
+    except CancelledError:
+        level['stop'] = trace['decision'] = 'cancelled'
+        raise
+    except Exception:
+        if level['stop'] == 'not-started':
+            level['stop'] = 'error'
+        trace['decision'] = 'error'
+        raise
+    finally:
+        started = [row for row in trace['levels'] if row['solve_started']]
+        trace['actual_levels'] = len(started)
+        trace['started_cap_sum'] = sum(row['iteration_cap'] for row in started)
+        trace['total_charged_iterations'] = sum(row['charged_iterations'] for row in started)
+
+
+def _bootstrap_simple_3d(solver_fine, max_iter_coarse, min_coarse_axis,
+                         verbose, *, cancel_check, trace, level):
     """Run a coarse SIMPLE solve, prolongate (u,v,w,P) into ``solver_fine``.
 
     Parameters
@@ -151,9 +210,24 @@ def bootstrap_simple_3d(solver_fine, max_iter_coarse: int = 200,
         solver_fine, 'use_adaptive_amg_tol', True)
     solver_coarse.convergence_mode = 'f2'  # Parent already validated its captured choice.
 
-    converged, iters = solver_coarse.solve(
-        max_iter=max_iter_coarse, verbose=verbose, cancel_check=cancel_check)
+    try:
+        converged, iters = solver_coarse.solve(
+            max_iter=max_iter_coarse, verbose=verbose, cancel_check=cancel_check)
+        level['charged_iterations'] = int(iters)
+        level['converged'] = bool(converged)
+    finally:
+        if not level['charged_iterations']:
+            level['charged_iterations'] = getattr(solver_coarse, '_iterations_charged', 0)
+        level['solve_started'] = level['charged_iterations'] > 0
+        level['stop'] = getattr(solver_coarse, 'exit_reason', None) or 'error'
+        child = getattr(solver_coarse, '_coarse_bootstrap_trace', None)
+        if child is not None:
+            level['child_selected'] = child['selected']
+            trace['levels'].extend(dict(row, depth=row['depth'] + 1) for row in child['levels'])
     res_final = float(solver_coarse.residuals[-1]) if solver_coarse.residuals else float('nan')
+
+    # Pressure-reference cells belong to the fine boundary, not the seed.
+    outlet_pressure = solver_fine.P[:, -1, :][solver_fine.outlet_mask_ij].copy()
 
     # Prolongate (u, v, w, P) onto fine staggered shapes.
     solver_fine.u[:] = _trilinear_zoom(solver_coarse.u, solver_fine.u.shape)
@@ -165,6 +239,7 @@ def bootstrap_simple_3d(solver_fine, max_iter_coarse: int = 200,
     # Neither density clipping nor reapplying a boundary may erase it.
     if f2_state_is_finite(
             solver_fine, (solver_fine.u, solver_fine.v, solver_fine.w)):
+        solver_fine.P[:, -1, :][solver_fine.outlet_mask_ij] = outlet_pressure
         solver_fine.v[:, 0, :] = solver_fine.v_inlet_field
         if solver_fine.fluid_type == 'ideal_gas':
             solver_fine._update_density()

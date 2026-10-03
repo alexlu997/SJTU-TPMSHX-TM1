@@ -101,15 +101,15 @@ def test_real_error_wins_over_other_side_cancel(monkeypatch, nz, error_type, err
     pipe = (Pipeline2D if nz == 1 else Pipeline3D)(_cfg(nz), cancel_token=token)
     _no_finalize(monkeypatch, pipe)
     if nz == 1:
-        from sjtu_tpmshx.solvers.backends.python.two_d import execution
-        original_build = execution.build_runtime
+        from sjtu_tpmshx.solvers.backends.python.two_d import runtime
+        original_build = runtime.build_runtime
 
         def build(*args, **kwargs):
             fields = original_build(*args, **kwargs)
             fields['_run_simple'] = lambda *a, **k: side(0 if a[5] == 'Fluid A' else 1)
             return fields
 
-        monkeypatch.setattr(execution, 'build_runtime', build)
+        monkeypatch.setattr(runtime, 'build_runtime', build)
     else:
         from sjtu_tpmshx.solvers.backends.python.three_d import runtime as stages
         original_pair = stages._run_two_simple

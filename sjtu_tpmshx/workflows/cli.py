@@ -3,6 +3,7 @@ import argparse
 from pathlib import Path
 
 from sjtu_tpmshx.domain.cancellation import CancelledError
+from sjtu_tpmshx.io.cli_options import add_run_control_arguments, run_control_from_args
 
 
 def _check_input_outputs(parser, args):
@@ -30,8 +31,11 @@ def main(argv=None):
         command.add_argument('output', type=Path)
         if stage in ('prepare', 'run'):
             command.add_argument('--case-id', required=True)
+        if stage in ('solve', 'run'):
+            add_run_control_arguments(command)
     args = parser.parse_args(argv)
     _check_input_outputs(parser, args)
+    control = run_control_from_args(args) if args.stage in ('solve', 'run') else None
     try:
         if args.stage == 'prepare':
             from sjtu_tpmshx.io.yaml_config import load_config
@@ -43,7 +47,7 @@ def main(argv=None):
             from sjtu_tpmshx.io.case_io import load_case
             from sjtu_tpmshx.io.result_io import save_result
             from sjtu_tpmshx.solvers.api import run_case
-            result = run_case(load_case(args.input))
+            result = run_case(load_case(args.input), control=control)
             save_result(result, args.output)
             return 0 if result.run_status['converged'] else 2
         if args.stage == 'postprocess':
@@ -62,7 +66,8 @@ def main(argv=None):
         from sjtu_tpmshx.io.file_set import staged_files
         from .compute import compute
         args.output.mkdir(parents=True, exist_ok=True)
-        case, result, performance = compute(load_config(args.input), case_id=args.case_id)
+        case, result, performance = compute(load_config(args.input), case_id=args.case_id,
+                                            control=control)
         names = ('case.h5', 'case.yaml', 'results.h5', 'metrics.json')
         with staged_files([args.output / name for name in names]) as stage:
             save_case(case, stage / 'case.yaml')

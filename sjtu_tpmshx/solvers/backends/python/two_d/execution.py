@@ -9,8 +9,6 @@ from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.persistence_validation import validate_grid, validate_thermal_geometry
 from sjtu_tpmshx.models.catalog import resolve_model
 from sjtu_tpmshx.models.zone_config import Zone, ZoneConfig
-from .runtime import build_runtime
-from .coupling import _run_solvers
 
 
 from sjtu_tpmshx.models.zone_units import _legacy_zone_units
@@ -118,6 +116,8 @@ def build_execution_inputs(case: CaseData):
 
 def run_case(case: CaseData, control: RunControl = RunControl()):
     """Execute only the numerical stages and capture portable raw evidence."""
+    from .runtime import build_runtime
+    from .coupling import _run_solvers
     from .result_capture import capture_result
     if control.backend != 'python':
         raise ValueError(f'unsupported backend: {control.backend}')

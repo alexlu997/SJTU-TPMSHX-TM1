@@ -105,7 +105,8 @@ _DIAGNOSTICS_3D = frozenset('''
     P_in_shoot_resid_A P_in_shoot_resid_B Q Q_AB_imbalance_rel Q_enthalpy_A
     Q_enthalpy_B Q_interior Q_net Q_sA Q_sA_interior Q_sB Q_sB_interior
     Q_solid_B Q_total T_A_out T_B_out T_in T_out_A T_out_B _ltne_info
-    _ltne_max_iter _max_outer _needs_full_validate convergence_detail dP dP_A
+    _ltne_max_iter _max_outer _needs_full_validate coarse_bootstrap_trace
+    convergence_detail dP dP_A
     dP_B df_metadata dir_A dir_B energy_imbalance_rel envelope_reasons
     envelope_valid envelope_warnings eps_A_strict eps_A_strict_cellmax
     eps_B_strict eps_B_strict_cellmax mass_flow_A_kg_s mass_flow_B_kg_s
@@ -175,6 +176,17 @@ def _assert_3d_diagnostics(raw, diagnostics, *, frozen_B=False, audit=False):
             assert diagnostics[f'_audit_f{side}'].keys() == {
                 'dir', 'in_ctr', 'in_w', 'out_ctr', 'out_w'}
     _assert_producer_diagnostics(raw, diagnostics, expected)
+    trace = diagnostics['coarse_bootstrap_trace']
+    assert trace.keys() == {'A', 'B'}
+    for side in ('A',) if frozen_B else ('A', 'B'):
+        assert trace[side]['policy'] == 'explicit_off'
+        assert trace[side]['decision'] == 'disabled'
+        assert trace[side]['levels'] == []
+        assert trace[side]['actual_levels'] == 0
+        assert trace[side]['started_cap_sum'] == 0
+        assert trace[side]['total_charged_iterations'] == 0
+    if frozen_B:
+        assert trace['B'] is None
     for key in none_keys:
         assert diagnostics[key] is None, key
     detail = diagnostics['convergence_detail']
@@ -265,7 +277,8 @@ def native_result(request):
                 assert detail['inlet_pressure'][side].keys() == _INLET_PRESSURE_KEYS
             assert diagnostics['df_metadata'].keys() == {'mode', 'A', 'B'}
             assert diagnostics['richardson_info'].keys() == {
-                'converged', 'extrapolated', 'iterations', 'model_h_balance', 'residual'}
+                'converged', 'extrapolated', 'iterations', 'model_h_balance',
+                'residual', 'energy_finishing_checks'}
             assert diagnostics['model_h_balance'].keys() == {'main', 'fine'}
             for grid in ('main', 'fine'):
                 balance = diagnostics['model_h_balance'][grid]
@@ -358,6 +371,8 @@ def test_application_fields_and_scalars_match_native_solve(native_result):
             np.testing.assert_array_equal(result.fields[f'd{axis}_arr'], fields.grid[f'd{axis}'])
         return
     assert isinstance(result, ComputeResult)
+    assert_slots(result.diagnostics['coarse_bootstrap_trace'],
+                 raw['coarse_bootstrap_trace'])
 
     # Native reduction must agree with the independently captured raw scalars.
     assert result.Q_W == pytest.approx(raw.get('Q_total', raw.get('Q')))

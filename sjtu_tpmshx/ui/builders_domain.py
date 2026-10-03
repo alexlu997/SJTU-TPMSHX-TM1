@@ -165,10 +165,15 @@ def build_domain_sections(window, lay):
     # mask at launch and applies it in the worker. Optimization has its own
     # resource policy; headless runs use TPMSHX_NUM_THREADS.
     from PySide6.QtWidgets import QSpinBox, QHBoxLayout
-    from sjtu_tpmshx.solvers.threads import (max_threads as _max_threads,
-                                 get_solver_threads as _get_threads,
-                                 set_solver_threads as _set_threads)
-    _mx_cores = _max_threads()
+    from sjtu_tpmshx.domain.module_ports import RunControl
+    _native = getattr(window, 'run_control', RunControl()).backend == 'cpp'
+    if _native:
+        _mx_cores = _thread_count = 0
+    else:
+        from sjtu_tpmshx.solvers.threads import (max_threads as _max_threads,
+                                     get_solver_threads as _get_threads,
+                                     set_solver_threads as _set_threads)
+        _mx_cores, _thread_count = _max_threads(), _get_threads()
     g_cpu, sec_cpu = default_factory().section(lay, "计算资源", _T_NEUTRAL, _F_NEUTRAL)
     window._ia_sections['compute_resources'] = sec_cpu
     # Separate the resource control from numerical switches. The spinbox
@@ -183,11 +188,15 @@ def build_domain_sections(window, lay):
         f"QLabel {{ color:{_tc['fg']}; font-size:10pt; font-weight:400;"
         f" background:transparent; border:none; padding:0; }}")
     window.spin_cpu_cores = QSpinBox()
-    window.spin_cpu_cores.setRange(1, _mx_cores)
-    window.spin_cpu_cores.setValue(_get_threads())
+    window.spin_cpu_cores.setRange(0 if _native else 1, _mx_cores)
+    window.spin_cpu_cores.setValue(_thread_count)
+    if _native:
+        window.spin_cpu_cores.setSpecialValueText('自动')
     window.spin_cpu_cores.setToolTip(
         f"设置下一次普通计算使用的 Numba 并行核线程数（1–{_mx_cores}），小网格可能使用串行核。\n"
         "它不限制整个应用的 CPU 占用，也不控制优化任务数量。")
+    if _native:
+        window.spin_cpu_cores.setToolTip('原生后端当前采用固定并行策略，此控件不适用。')
     _lbl_cores.setToolTip(window.spin_cpu_cores.toolTip())
     # Native QSpinBox arrows can't be themed reliably here: an ANCESTOR
     # stylesheet forces every descendant onto QStyleSheetStyle, and a QSS-styled
@@ -204,7 +213,8 @@ def build_domain_sections(window, lay):
         f"QSpinBox {{ background:{_tc['inp_bg']}; color:{_tc['inp_fg']};"
         f" border:1px solid {_tc['inp_border']}; border-radius:4px; padding:2px 4px; }}"
         f"QSpinBox:focus {{ border-color:{_tc['inp_focus']}; }}")
-    window.spin_cpu_cores.valueChanged.connect(lambda n: _set_threads(int(n)))
+    if not _native:
+        window.spin_cpu_cores.valueChanged.connect(lambda n: _set_threads(int(n)))
 
     _step_qss = (
         f"QPushButton {{ background:{_tc['surface_elevated']}; color:{_tc['fg']};"
@@ -228,6 +238,7 @@ def build_domain_sections(window, lay):
     _cpu_h.addWidget(_btn_dn)
     _cpu_h.addWidget(window.spin_cpu_cores)
     _cpu_h.addWidget(_btn_up)
+    _cpu_card.setEnabled(not _native)
     g_cpu.addWidget(_cpu_card, 0, 0, 1, 2)
     # Hide the heading too when this 3D-only control is unavailable.
     window._3d_only_widgets.append(sec_cpu)

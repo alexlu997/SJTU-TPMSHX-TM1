@@ -268,6 +268,7 @@ def _gs_enthalpy_sweeps_3d(hA, hB, Ts, dhA, dhB, cpA, cpB,
 
 
 _FL_TLO = {'sco2': 230.0, 'water': 274.0, 'air': 200.0}
+_ENTHALPY_BRACKET_MARGIN_K = 60.0
 
 
 def _conduction_source(T, conductivity, dx, dy, dz):
@@ -389,8 +390,8 @@ def solve_ltne_enthalpy_3d_pipeline(Nx, Ny, Nz, dx, dy, dz, eps_arr, K_ss,
 
     h_in_A = _h_scalar(T_inA, P_A, fluid_A)
     h_in_B = _h_scalar(T_inB, P_B, fluid_B)
-    T_span_lo = min(T_inA, T_inB) - 60.0
-    T_span_hi = max(T_inA, T_inB) + 60.0
+    T_span_lo = min(T_inA, T_inB) - _ENTHALPY_BRACKET_MARGIN_K
+    T_span_hi = max(T_inA, T_inB) + _ENTHALPY_BRACKET_MARGIN_K
     h_lo_A = _h_scalar(max(T_span_lo, _FL_TLO.get(fluid_A, 230.0)), P_A, fluid_A)
     h_hi_A = _h_scalar(T_span_hi, P_A, fluid_A)
     h_lo_B = _h_scalar(max(T_span_lo, _FL_TLO.get(fluid_B, 230.0)), P_B, fluid_B)

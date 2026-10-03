@@ -49,6 +49,9 @@ def enumerate_select(cases, arrangement="cross", nodes=None, rho_s=RHO_S,
             from joblib import Parallel, delayed, effective_n_jobs
             # Finish the active wave before honouring cancellation. Qt callbacks
             # remain in this process; no queued candidates launch after that wave.
+            worker_control = RunControl(
+                backend=control.backend, native_library=control.native_library,
+                native_table_directory=control.native_table_directory)
             width = min(effective_n_jobs(n_jobs), len(combos))
             with Parallel(n_jobs=n_jobs, backend="loky") as parallel:
                 for start in range(0, len(combos), width):
@@ -56,7 +59,7 @@ def enumerate_select(cases, arrangement="cross", nodes=None, rho_s=RHO_S,
                     results.extend(parallel(
                         delayed(size_fixed_cell)(cases, topo, l, t, arrangement,
                                                  rho_s=rho_s, k_s=k_s, prop_model=prop_model,
-                                                 height=height)
+                                                 height=height, control=worker_control)
                         for topo, l, t in combos[start:start + width]))
         control.check_cancelled()
     except CancelledError as exc:
