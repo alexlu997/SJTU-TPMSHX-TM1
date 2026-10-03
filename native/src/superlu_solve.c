@@ -8,7 +8,13 @@ _Static_assert(sizeof(int_t) == sizeof(int), "qualified SuperLU uses 32-bit indi
 
 typedef union Allocation Allocation;
 union Allocation {
+#if defined(_MSC_VER)
+    /* MSVC's C headers omit max_align_t; preserve CRT malloc's 8/16-byte
+     * alignment on 32/64-bit targets when returning the payload. */
+    _Alignas(2 * sizeof(void*)) unsigned char alignment;
+#else
     max_align_t alignment;
+#endif
     struct { Allocation* next; size_t bytes; } value;
 };
 
