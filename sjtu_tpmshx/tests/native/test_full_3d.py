@@ -45,7 +45,7 @@ class NativeFull3D:
         self.library.test_full_3d_field.restype = dp
         self.library.test_full_3d_destroy.argtypes = [ctypes.c_void_p]
 
-    def run(self, cfg, prepared, *, cancel_at=0, bad_size=None):
+    def run(self, cfg, prepared, *, cancel_at=0, bad_size=None, cancel_before_thermal=False):
         shape = (prepared["Nx"], prepared["Ny"], prepared["Nz"])
         design, thermal = prepared["design"], cfg["thermal_geometry"]
         spatial = bool(cfg.get("zone_grid_cells") or cfg.get("continuous_field"))
@@ -59,7 +59,8 @@ class NativeFull3D:
         arrays += [np.asarray(cfg.get("mms_S_"+side+"_field", np.empty(0))) for side in ("A", "B", "s")]
         arrays = [np.ascontiguousarray(a, dtype=np.float64) for a in arrays]
         assert len(arrays) == 19
-        f = np.zeros(46, dtype=np.uintp)
+        f = np.zeros(47, dtype=np.uintp)
+        f[46] = cancel_before_thermal
         v = np.zeros(57, dtype=np.float64)
         f[0] = ("Diamond", "Gyroid").index(cfg["tpms_type"])
         f[1:3] = [("air", "water", "sco2").index(cfg["fluid_type_"+s]) for s in "AB"]

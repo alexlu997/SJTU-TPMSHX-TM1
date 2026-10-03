@@ -223,6 +223,7 @@ jobs:
           sjtu_tpmshx/tests/native/test_cpp_full_2d.py
           sjtu_tpmshx/tests/native/test_cpp_full_2d_capture.py
           sjtu_tpmshx/tests/native/test_full_3d.py
+          sjtu_tpmshx/tests/native/test_full_3d_refined_stages.py
           sjtu_tpmshx/tests/native/test_cpp_full_3d.py
           --timeout=600 --timeout-method=thread --durations=20
           --junitxml=.cache/ci/native-dependencies.xml

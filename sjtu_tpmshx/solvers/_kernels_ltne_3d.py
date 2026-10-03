@@ -97,7 +97,8 @@ def _sou_field_cons(T, Fx, Fy, Fz, dx=None, dy=None, dz=None):
 # inlet helpers
 # ---------------------------------------------------------------------------
 
-@njit(cache=True)
+# Pin the sweep's fastmath policy so an audit-first call cannot change compilation.
+@njit(cache=True, fastmath=True)
 def _model_h_faces(T, mass, coefficients, direction, Tin, ifrac, dx=None, dy=None, dz=None):
     """Shared Picard faces: flux = capacity*T_up + deferred.
 
@@ -146,7 +147,7 @@ def _model_h_faces(T, mass, coefficients, direction, Tin, ifrac, dx=None, dy=Non
     return capacity, deferred
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _face_divergence(faces):
     return (faces[0][1:] - faces[0][:-1]
             + faces[1][:, 1:] - faces[1][:, :-1]

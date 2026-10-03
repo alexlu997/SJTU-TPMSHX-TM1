@@ -10,11 +10,14 @@ namespace {
 struct Handle {
     tpmshx::Full3DResult result;
     std::size_t cancel_at=0,calls=0;
+    bool cancel_before_thermal=false,outer_started=false;
     std::vector<double> progress,scratch;
 };
 bool cancelled(void* context) {
-    auto& h=*static_cast<Handle*>(context);return ++h.calls>=h.cancel_at && h.cancel_at>0;
+    auto& h=*static_cast<Handle*>(context);++h.calls;
+    return (h.cancel_at>0 && h.calls>=h.cancel_at) || (h.cancel_before_thermal && h.outer_started);
 }
+void outer_iteration(void* context,std::size_t,std::size_t) {static_cast<Handle*>(context)->outer_started=true;}
 void progress(void* context,double percent) {static_cast<Handle*>(context)->progress.push_back(percent);}
 }
 extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_full_3d_run(
@@ -63,6 +66,7 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_full_3d_run(
         c.simple.convergence.stall_ratio=values[54];c.enthalpy.omega=values[55];c.enthalpy.update_tolerance=values[56];
         c.enthalpy.table_directory=tables?tables:"";
         auto handle=std::make_unique<Handle>();handle->cancel_at=flags[39];
+        handle->cancel_before_thermal=flags[46]!=0;c.outer_iteration=outer_iteration;
         c.cancel=cancelled;c.progress=progress;c.context=handle.get();
         handle->result=solve_full_3d(input,c);*output=handle.release();
         if(error_size)error[0]='\0';return 0;
