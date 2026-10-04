@@ -162,6 +162,48 @@ double minmod(double a, double b) {
     return 0.;
 }
 
+std::array<std::vector<double>, 3> enthalpy_gradients(
+    const GridView& g, ArrayView<const double> h,
+    const std::array<ArrayView<const double>, 3>& mass, double h_in) {
+    const auto cells = g.nx * g.ny * g.nz;
+    const std::size_t stride[]{g.ny * g.nz, g.nz, 1}, extent[]{g.nx, g.ny, g.nz};
+    const ArrayView<const double> width[]{g.dx, g.dy, g.dz};
+    std::array<std::vector<double>, 3> gradient{
+        std::vector<double>(cells), std::vector<double>(cells), std::vector<double>(cells)};
+    for (std::size_t i = 0; i < g.nx; ++i)
+        for (std::size_t j = 0; j < g.ny; ++j)
+            for (std::size_t k = 0; k < g.nz; ++k) {
+                const auto p = (i * g.ny + j) * g.nz + k;
+                const std::size_t coord[]{i, j, k};
+                const std::size_t face[]{p, (i * (g.ny + 1) + j) * g.nz + k,
+                    (i * g.ny + j) * (g.nz + 1) + k};
+                for (std::size_t axis = 0; axis < 3; ++axis) {
+                    if (extent[axis] == 1) continue;
+                    const auto c = coord[axis];
+                    const double d = width[axis][c];
+                    bool have_left = false, have_right = false;
+                    double left = 0., right = 0.;
+                    if (c > 0) {
+                        left = slope(h[p] - h[p - stride[axis]], .5 * (d + width[axis][c - 1]));
+                        have_left = true;
+                    } else if (mass[axis][face[axis]] > 0.) {
+                        left = slope(h[p] - h_in, .5 * d);
+                        have_left = true;
+                    }
+                    if (c + 1 < extent[axis]) {
+                        right = slope(h[p + stride[axis]] - h[p], .5 * (d + width[axis][c + 1]));
+                        have_right = true;
+                    } else if (mass[axis][face[axis] + stride[axis]] < 0.) {
+                        right = slope(h_in - h[p], .5 * d);
+                        have_right = true;
+                    }
+                    gradient[axis][p] = have_left && have_right ? minmod(left, right)
+                        : (have_left ? left : have_right ? right : 0.);
+                }
+            }
+    return gradient;
+}
+
 }  // namespace
 
 void conservative_temperature_sweeps(
@@ -199,39 +241,7 @@ double enthalpy_sou_correction(
         throw std::invalid_argument("correction array length does not match grid");
     const std::size_t stride[]{g.ny * g.nz, g.nz, 1}, extent[]{g.nx, g.ny, g.nz};
     const ArrayView<const double> width[]{g.dx, g.dy, g.dz};
-    std::array<std::vector<double>, 3> gradient{
-        std::vector<double>(cells), std::vector<double>(cells), std::vector<double>(cells)};
-    for (std::size_t i = 0; i < g.nx; ++i)
-        for (std::size_t j = 0; j < g.ny; ++j)
-            for (std::size_t k = 0; k < g.nz; ++k) {
-                const auto p = (i * g.ny + j) * g.nz + k;
-                const std::size_t coord[]{i, j, k};
-                const std::size_t face[]{p, (i * (g.ny + 1) + j) * g.nz + k,
-                    (i * g.ny + j) * (g.nz + 1) + k};
-                for (std::size_t axis = 0; axis < 3; ++axis) {
-                    if (extent[axis] == 1) continue;
-                    const auto c = coord[axis];
-                    const double d = width[axis][c];
-                    bool have_left = false, have_right = false;
-                    double left = 0., right = 0.;
-                    if (c > 0) {
-                        left = slope(h[p] - h[p - stride[axis]], .5 * (d + width[axis][c - 1]));
-                        have_left = true;
-                    } else if (mass[axis][face[axis]] > 0.) {
-                        left = slope(h[p] - h_in, .5 * d);
-                        have_left = true;
-                    }
-                    if (c + 1 < extent[axis]) {
-                        right = slope(h[p + stride[axis]] - h[p], .5 * (d + width[axis][c + 1]));
-                        have_right = true;
-                    } else if (mass[axis][face[axis] + stride[axis]] < 0.) {
-                        right = slope(h_in - h[p], .5 * d);
-                        have_right = true;
-                    }
-                    gradient[axis][p] = have_left && have_right ? minmod(left, right)
-                        : (have_left ? left : have_right ? right : 0.);
-                }
-            }
+    const auto gradient = enthalpy_gradients(g, h, mass, h_in);
     std::fill_n(correction.data, cells, 0.);
     double boundary = 0.;
     for (std::size_t i = 0; i < g.nx; ++i)
@@ -272,6 +282,47 @@ double enthalpy_sou_correction(
         if (!std::isfinite(correction[p]))
             throw std::domain_error("nonfinite SOU cell correction");
     return boundary;
+}
+
+std::array<std::vector<double>, 6> enthalpy_boundary_power(
+    const GridView& g, ArrayView<const double> h,
+    const std::array<ArrayView<const double>, 3>& mass, double h_in,
+    bool second_order) {
+    const auto cells = check_grid(g);
+    check_array(h, cells);
+    check_mass(mass, g);
+    if (!std::isfinite(h_in)) throw std::invalid_argument("nonfinite inlet enthalpy");
+    std::array<std::vector<double>, 3> gradient;
+    if (second_order) gradient = enthalpy_gradients(g, h, mass, h_in);
+    const std::size_t stride[]{g.ny * g.nz, g.nz, 1}, extent[]{g.nx, g.ny, g.nz};
+    const ArrayView<const double> width[]{g.dx, g.dy, g.dz};
+    std::array<std::vector<double>, 6> result;
+    for (std::size_t axis = 0; axis < 3; ++axis)
+        for (const int sign : {-1, 1}) {
+            auto& plane = result[2 * axis + (sign > 0)];
+            plane.reserve(cells / extent[axis]);
+            for (std::size_t i = 0; i < g.nx; ++i)
+                for (std::size_t j = 0; j < g.ny; ++j)
+                    for (std::size_t k = 0; k < g.nz; ++k) {
+                        const std::size_t coord[]{i, j, k};
+                        const auto c = coord[axis];
+                        if (c != (sign > 0 ? extent[axis] - 1 : 0)) continue;
+                        const auto p = (i * g.ny + j) * g.nz + k;
+                        const std::size_t face[]{p, (i * (g.ny + 1) + j) * g.nz + k,
+                            (i * g.ny + j) * (g.nz + 1) + k};
+                        const double outward = sign * mass[axis][face[axis]
+                            + (sign > 0 ? stride[axis] : 0)];
+                        double face_h = h_in;
+                        if (outward > 0.) {
+                            face_h = h[p];
+                            if (second_order) face_h += sign * .5 * width[axis][c] * gradient[axis][p];
+                        }
+                        const double power = outward == 0. ? 0. : outward * face_h;
+                        if (!std::isfinite(power)) throw std::domain_error("nonfinite boundary enthalpy power");
+                        plane.push_back(power);
+                    }
+        }
+    return result;
 }
 
 EnergyAudit thermal_energy_audit_sou(

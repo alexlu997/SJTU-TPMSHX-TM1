@@ -135,6 +135,21 @@ void sou_linear_patch_six_directions() {
             close(boundary, expected_boundary, 1e-11, "outflow SOU correction");
             close(std::accumulate(correction.begin(), correction.end(), 0.),
                 boundary, 1e-11, "SOU source must telescope to boundary");
+            const auto powers=enthalpy_boundary_power(c.grid(),read(c.a.h),c.a.faces(),c.a.h_in,true);
+            const auto fou=enthalpy_boundary_power(c.grid(),read(c.a.h),c.a.faces(),c.a.h_in,false);
+            double sou_q=0.,fou_q=0.;
+            for(std::size_t face=0;face<6;++face) {
+                const std::size_t expected_size=face/2==axis?1:4;
+                require(powers[face].size()==expected_size,"boundary power plane shape");
+                sou_q-=std::accumulate(powers[face].begin(),powers[face].end(),0.);
+                fou_q-=std::accumulate(fou[face].begin(),fou[face].end(),0.);
+                if(face/2!=axis)
+                    for(double value:powers[face]) close(value,0.,0.,"closed face power");
+            }
+            close(powers[2*axis][0],-sign*2000.,1e-10,"physical low-face outward power");
+            close(powers[2*axis+1][0],sign*2100.,1e-10,"physical high-face outward power");
+            close(sou_q,-sign*100.,1e-10,"linear boundary power duty");
+            close(sou_q-fou_q,boundary,1e-10,"boundary power reuses SOU correction");
             const auto audit = thermal_energy_audit_sou(c.grid(), c.a.actual(c.ta),
                 c.b.actual(c.tb), read(c.ts), read(c.ks), write(ra), write(rb), write(rs));
             close(audit.q_a, -sign * 100., 1e-10, "SOU exact linear outlet duty A");

@@ -2,9 +2,27 @@
 #include "tpmshx/enthalpy_driver_c_api.h"
 #include "tpmshx/enthalpy_driver.hpp"
 #include <CoolProp.h>
+#include <cmath>
 #include <cstdio>
+#include <stdexcept>
 
 namespace tpmshx {
+inline EnthalpyAlgorithm energy_algorithm(const tpmshx_energy_options_v1& options) {
+    if (options.algorithm > TPMSHX_ENERGY_TEMPERATURE_SOU
+        || !std::isfinite(options.temperature_update_tolerance)
+        || options.temperature_update_tolerance <= 0.)
+        throw std::invalid_argument("invalid conservative energy options");
+    return static_cast<EnthalpyAlgorithm>(options.algorithm);
+}
+inline void apply_energy_options(EnthalpyControl& control, const tpmshx_energy_options_v1& options) {
+    control.algorithm = energy_algorithm(options);
+    control.temperature_update_tolerance = options.temperature_update_tolerance;
+}
+inline tpmshx_energy_result_v1 energy_c_view(const EnthalpyResult& result) {
+    const bool available = result.stop != EnthalpyStop::cancelled && result.temperature_update.has_value();
+    return {static_cast<uint32_t>(result.algorithm), available ? 1u : 0u,
+            available ? *result.temperature_update : 0., result.picard_relaxation};
+}
 inline tpmshx_enthalpy_result_v1 enthalpy_c_view(const EnthalpyResult& native) {
 tpmshx_enthalpy_result_v1 output{};
 output.stop = static_cast<uint32_t>(native.stop);

@@ -20,6 +20,7 @@ struct Owner {
     std::array<std::vector<tpmshx_full_2d_pressure_iteration_v2>,2> pressure;
     std::array<std::vector<const char*>,2> envelope;
     std::vector<tpmshx_full_2d_outer_v2> outer;
+    std::vector<tpmshx_energy_result_v1> energy_outer;
     std::vector<tpmshx_range_observation_v1> ranges;
 };
 void flag(uint32_t value) {
@@ -121,22 +122,25 @@ void fill(tpmshx_full_2d_result_v2& o,Owner& owner,const Full2DProblem& p) {
             o.fine_duty[side]=f.duty[side]; o.extrapolated_duty[side]=f.extrapolated_duty[side];
         }
     }
-    for (const auto& h:r.outer_history) owner.outer.push_back({h.iteration,h.thermal_iterations,
+    for (const auto& h:r.outer_history) {
+        owner.outer.push_back({h.iteration,h.thermal_iterations,
         static_cast<uint32_t>(h.thermal_converged),static_cast<uint32_t>(h.outer_converged),
         {h.relative_density_change[0],h.relative_density_change[1]},
         {h.temperature_change[0],h.temperature_change[1],h.temperature_change[2]}});
+        owner.energy_outer.push_back({static_cast<uint32_t>(h.enthalpy_algorithm.value_or(EnthalpyAlgorithm::legacy_h_fou)),
+            h.thermal_temperature_update.has_value()?1u:0u,h.thermal_temperature_update.value_or(0.),
+            h.thermal_picard_relaxation.value_or(1.)});
+    }
     o.outer_history=owner.outer.data(); o.outer_history_count=owner.outer.size();
     o.q_total=r.q_total; o.q_solid=r.q_solid; o.energy_imbalance=r.energy_imbalance;
     for (std::size_t side=0;side<2;++side) o.nu_observations[side]=nu_observation_view(r.nu_observations[side]);
     for (const auto& record:r.range_observations) owner.ranges.push_back(range_observation_view(record));
     o.range_observations=owner.ranges.data(); o.range_observation_count=owner.ranges.size();
 }
-} // namespace
-
-extern "C" uint32_t TPMSHX_THERMAL_CALL tpmshx_full_2d_abi_version(void) { return TPMSHX_FULL_2D_ABI_VERSION; }
-extern "C" int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v2(
+int solve(
     const size_t* shape,const double* const* arrays,const size_t* sizes,
-    const tpmshx_full_2d_config_v2* config,const tpmshx_full_2d_callbacks_v2* callbacks,
+    const tpmshx_full_2d_config_v2* config,const tpmshx_energy_options_v1* energy,
+    const tpmshx_full_2d_callbacks_v2* callbacks,
     tpmshx_full_2d_result_v2* result,char* error,size_t error_capacity) {
     if (!error || !error_capacity) return 1;
     try {
@@ -173,6 +177,10 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v2(
         control.enthalpy_update_tolerance=c.enthalpy_update_tolerance; control.pressure_shooting=c.pressure_shooting;
         control.thermal_red_black=c.red_black; control.envelope_mode=c.envelope_mode?c.envelope_mode:"raise";
         control.table_directory=c.table_directory?c.table_directory:"";
+        if(energy) {
+            control.enthalpy_algorithm=energy_algorithm(*energy);
+            control.temperature_update_tolerance=energy->temperature_update_tolerance;
+        }
         control.cancel=cancel; control.progress=progress; control.residual=residual;
         control.context=const_cast<tpmshx_full_2d_callbacks_v2*>(callbacks);
         auto owner=std::make_unique<Owner>(); owner->result=solve_full_2d(p,control);
@@ -186,7 +194,47 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v2(
     catch (const std::exception& e) { std::snprintf(error,error_capacity,"%s",e.what()); return 5; }
     catch (...) { std::snprintf(error,error_capacity,"unexpected full2D native exception"); return 5; }
 }
+tpmshx_full_2d_energy_state_v1 energy_state(const Full2DThermalState& state) {
+    tpmshx_full_2d_energy_state_v1 out{};
+    const auto* e=std::get_if<EnthalpyResult>(&state.result);
+    if(!e)return out;
+    out.energy=energy_c_view(*e);
+    out.available=e->stop!=EnthalpyStop::cancelled && e->algorithm!=EnthalpyAlgorithm::legacy_h_fou
+        && e->final_audit.has_value();
+    if(out.available)for(std::size_t s=0;s<2;++s) {
+        out.actual_conductivity[s]=array(state.actual_conductivity[s]);
+        for(std::size_t f=0;f<6;++f)out.boundary_power[s][f]=array(state.enthalpy_boundary_power[s][f]);
+    }
+    return out;
+}
+} // namespace
+extern "C" uint32_t TPMSHX_THERMAL_CALL tpmshx_full_2d_abi_version(void) { return TPMSHX_FULL_2D_ABI_VERSION; }
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v2(
+    const size_t* shape,const double* const* arrays,const size_t* sizes,
+    const tpmshx_full_2d_config_v2* config,const tpmshx_full_2d_callbacks_v2* callbacks,
+    tpmshx_full_2d_result_v2* result,char* error,size_t capacity) {
+    return solve(shape,arrays,sizes,config,nullptr,callbacks,result,error,capacity);
+}
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v3(
+    const size_t* shape,const double* const* arrays,const size_t* sizes,
+    const tpmshx_full_2d_config_v2* config,const tpmshx_energy_options_v1* energy,
+    const tpmshx_full_2d_callbacks_v2* callbacks,tpmshx_full_2d_result_v2* result,char* error,size_t capacity) {
+    if(!energy) {if(error&&capacity)std::snprintf(error,capacity,"missing conservative energy options");return 1;}
+    return solve(shape,arrays,sizes,config,energy,callbacks,result,error,capacity);
+}
 extern "C" void TPMSHX_THERMAL_CALL tpmshx_full_2d_release_v2(tpmshx_full_2d_result_v2* result) {
     if (!result) return;
     delete static_cast<Owner*>(result->owner); *result={};
+}
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_energy_evidence_v1(
+    const tpmshx_full_2d_result_v2* result,tpmshx_full_2d_energy_evidence_v1* evidence) {
+    if(!result || !result->owner || !evidence)return 1;
+    const auto& owner=*static_cast<const Owner*>(result->owner);
+    tpmshx_full_2d_energy_evidence_v1 out{};
+    if(!owner.result.cancelled) {
+        out.main=energy_state(owner.result.thermal);
+        if(owner.result.refined)out.fine=energy_state(owner.result.refined->thermal);
+        out.outer=owner.energy_outer.data();out.outer_count=owner.energy_outer.size();
+    }
+    *evidence=out;return 0;
 }

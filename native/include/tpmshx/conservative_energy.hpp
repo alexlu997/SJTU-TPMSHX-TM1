@@ -3,6 +3,7 @@
 #include "tpmshx/enthalpy_sweeps.hpp"
 
 #include <array>
+#include <vector>
 
 namespace tpmshx {
 
@@ -35,6 +36,17 @@ double enthalpy_sou_correction(
     const GridView& grid, ArrayView<const double> h,
     const std::array<ArrayView<const double>, 3>& mass, double h_in,
     ArrayView<double> correction);
+
+// Actual outward boundary power m_out*h_face in x-/x+/y-/y+/z-/z+ order.
+// Plane shapes are (ny,nz), (nx,nz), (nx,ny), each twice, in C order.
+// Net inward duty is minus the sum of all six planes. second_order uses the
+// same physical h-minmod/outflow reconstruction as enthalpy_sou_correction;
+// false uses FOU. Inward faces retain h_in. Units are W, or W/m for dz=1 in
+// the 2D unit-depth contract. No EOS or convergence decision is performed.
+std::array<std::vector<double>, 6> enthalpy_boundary_power(
+    const GridView& grid, ArrayView<const double> h,
+    const std::array<ArrayView<const double>, 3>& mass, double h_in,
+    bool second_order);
 
 // Full actual-state SOU energy audit: FOU Fourier/exchange/transport residuals
 // plus reconstruction from the supplied actual h, including exterior duties.

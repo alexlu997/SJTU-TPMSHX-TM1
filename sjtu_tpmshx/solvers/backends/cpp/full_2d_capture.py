@@ -62,7 +62,7 @@ def capture_result(case, cfg, prepared, native):
         if fine_balance is not None:
             fine_info.update(model_h_balance=fine_balance,
                              energy_finishing_checks=deepcopy(fine['model_h']['energy_finishing_checks']))
-    true_h_info = main['true_h'] if mode == 'true_h' else None
+    true_h_info = main['true_h'] if mode in ('true_h', 'conservative_energy') else None
     true_balance = None
     if true_h_info is not None:
         true_balance = dict(
@@ -81,7 +81,8 @@ def capture_result(case, cfg, prepared, native):
             true_balance['P_' + label + '_range_Pa'] = [float(pressure.min()), float(pressure.max())]
         true_balance.update({key: deepcopy(true_h_info[key]) for key in (
             'exit_reason', 'enthalpy_clip_counts', 'effective_settings',
-            'coupled_energy_balance', 'equation_energy_balance') if key in true_h_info})
+            'coupled_energy_balance', 'equation_energy_balance', 'energy_algorithm',
+            'energy_algorithm_version', 'temperature_update_K') if key in true_h_info})
 
     warnings = list(cfg['warnings_list'])
     warnings.extend(replay_range_observations(native['range_observations']))
@@ -121,8 +122,9 @@ def capture_result(case, cfg, prepared, native):
         evidence.update({
             'P_thermal_' + label: main['pressure'][side],
             'P_report_' + label: flow['absolute_pressure'], 'h_v' + label: main['hv'][side],
-            'rho_cp_' + label: None if mode == 'true_h' else main['rho_cp'][side],
-            'mass_flux_' + label: (flow['mass_x'], flow['mass_y']),
+            'rho_cp_' + label: None if mode in ('true_h', 'conservative_energy') else main['rho_cp'][side],
+            'mass_flux_' + label: ((main['mass_x'][side], main['mass_y'][side])
+                                  if mode == 'conservative_energy' else (flow['mass_x'], flow['mass_y'])),
         })
         raw.update({'P_f' + label: flow['absolute_pressure'], 'uc' + label: flow['uc'], 'vc' + label: flow['vc'],
                     'uc' + label + '_disp': None, 'vc' + label + '_disp': None})
@@ -176,6 +178,9 @@ def capture_result(case, cfg, prepared, native):
                          **{label: cfg['flow_inputs'][label]['metadata'] for label in 'AB'}),
         native_full_2d=dict(numerical_driver='cpp',
                             range_observations=native['range_observations']))
+    if mode == 'conservative_energy':
+        diagnostics['native_full_2d'].update(entry_version=native['entry_version'],
+            energy_history=[dict(iteration=row['iteration'], **row['energy_info']) for row in native['outer_history']])
     for side, label in enumerate('AB'):
         state, flow = pressure_states[label], native['flow'][side]
         diagnostics['P_in_realized_' + label] = np.nan if state is None else state['realized_Pa']
@@ -196,4 +201,5 @@ def capture_result(case, cfg, prepared, native):
             props=dict(rho_A=r_a['rho'], rho_B=r_b['rho'], mu_A=r_a['mu'], mu_B=r_b['mu']),
             zones=_zone_statistics_2d(cfg['z_axis'], cfg['zone_config'], cfg['za'], cfg['L'], cfg['H'],
                 prepared['energy_dx'], prepared['energy_dy'], *main['temperature'])))
-    return _capture_result(case, raw, diagnostics, backend_id='cpp', backend_version='full_2d_v2')
+    return _capture_result(case, raw, diagnostics, backend_id='cpp',
+                           backend_version=f"full_2d_v{native.get('entry_version', 2)}")

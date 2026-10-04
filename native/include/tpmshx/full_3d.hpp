@@ -133,6 +133,10 @@ struct Full3DThermalEvidence {
     std::array<std::vector<double>,2> pressure,hv,rho_cp,conductivity;
     std::array<std::array<std::vector<double>,3>,2> mass,face_velocity;
     std::array<std::vector<double>,2> inlet_capacity,enthalpy;
+    // Candidate-only final EOS conductivity and outward m*h_face power.
+    // Original conductivity above remains the prepared outer property state.
+    std::array<std::vector<double>,2> actual_conductivity;
+    std::array<std::array<std::vector<double>,6>,2> enthalpy_boundary_power;
     std::optional<ModelHResult3D> model_h;
     std::optional<EnthalpyResult> true_h;
     std::optional<StaggeredTemperatureResult> staggered;

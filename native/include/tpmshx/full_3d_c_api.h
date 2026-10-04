@@ -173,6 +173,29 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v1(
     const tpmshx_full3d_input_v1*,const tpmshx_full3d_control_v1*,
     const tpmshx_full3d_callbacks_v1*,tpmshx_full3d_result_v1*,char*,size_t);
 TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_full_3d_release_v1(tpmshx_full3d_result_v1*);
+/* Explicit conservative energy selection. Reuses the ABI 1 input/control and
+ * result ownership; release with full_3d_release_v1. options is required.
+ * The original entry point always selects legacy H-FOU. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v2(
+    const tpmshx_full3d_input_v1*,const tpmshx_full3d_control_v1*,
+    const tpmshx_energy_options_v1*,const tpmshx_full3d_callbacks_v1*,
+    tpmshx_full3d_result_v1*,char*,size_t);
+
+typedef struct {
+    uint32_t available;
+    tpmshx_energy_result_v1 energy;
+    tpmshx_full3d_array_v1 actual_conductivity[2];
+    /* Outward signed m*h_face; x-,x+,y-,y+,z-,z+; C-order boundary planes. */
+    tpmshx_full3d_array_v1 boundary_power[2][6];
+    const tpmshx_energy_result_v1* outer;
+    size_t outer_count;
+} tpmshx_full3d_energy_evidence_v1;
+/* Read-only final thermal evidence and scalar outer history. Views borrow the
+ * live result owner until release. available is false without a completed
+ * candidate thermal call, including cancellation; no numerical work occurs.
+ * Error status 1 leaves output unchanged. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_energy_evidence_v1(
+    const tpmshx_full3d_result_v1*,tpmshx_full3d_energy_evidence_v1*);
 /* Read-only query, side 0=A/1=B, status 0 success/1 invalid argument or no
  * live owner. Leaves output untouched on error. Views borrow the result owner
  * through release, including an existing cooperative-cancelled result. Hard

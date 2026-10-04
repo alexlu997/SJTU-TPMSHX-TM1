@@ -57,6 +57,7 @@ struct EnthalpyResult {
     bool heos_polish;
     EnthalpyAlgorithm algorithm = EnthalpyAlgorithm::legacy_h_fou;
     std::optional<double> temperature_update;  // K; absent on the legacy route
+    double picard_relaxation = 1.;  // Actual whole-block T increment multiplier
 };
 
 // Full true-h Picard driver for 3D or a unit-depth nz=1 2D extrusion. Input
@@ -73,6 +74,8 @@ struct EnthalpyResult {
 // Their scalar-inlet/adiabatic boundary requires inlet_direction on both sides;
 // undeclared external inflow is rejected. Direct h-minmod SOU includes outlet
 // reconstruction and differs from model-h's T reconstruction/boundary closure.
+// Its coupled Picard increment is damped by 0.6 before actual PT validation;
+// row relaxation, the SOU fixed-point equation and all audit gates are unchanged.
 EnthalpyResult solve_enthalpy(const GridView& grid, const EnthalpySideView& a,
                              const EnthalpySideView& b, ArrayView<const double> k_ss,
                              EnthalpyStateView state, const EnthalpyControl& control);

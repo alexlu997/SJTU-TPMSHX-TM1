@@ -45,6 +45,8 @@ int main(void) {
         config.sides[side].inlet_hi=.01; config.sides[side].outlet_hi=.01;
     }
     tpmshx_full_2d_result_v2 result={0}; char error[1024];
+    const tpmshx_energy_options_v1 energy={TPMSHX_ENERGY_LEGACY_H_FOU,1e-8};
+    tpmshx_full_2d_energy_evidence_v1 evidence={0};
     assert(tpmshx_full_2d_abi_version()==2);
     /* ABI 2 requires the original prepared Nu ratio, without reconstructing
        it from rounded SI geometry or accepting absent/nonfinite inputs. */
@@ -94,7 +96,7 @@ int main(void) {
     /* A complete nonzero heat-exchange solve must also finish independently
        of Python, including the refined final certificate. */
     config.sides[0].inlet_temperature=350.; config.outer_iterations=12;
-    status=tpmshx_solve_full_2d_v2(shape,arrays,sizes,&config,NULL,&result,error,sizeof(error));
+    status=tpmshx_solve_full_2d_v3(shape,arrays,sizes,&config,&energy,NULL,&result,error,sizeof(error));
     if(status) {fprintf(stderr,"%s\n",error);return 1;}
     assert(result.converged && result.have_fine && result.fine_extrapolated);
     assert(isfinite(result.q_total) && result.q_total>0.);
@@ -106,13 +108,33 @@ int main(void) {
         }
         assert(t->model_h.plane.passed);
     }
+    /* The additive entry preserves legacy results and exposes no candidate
+       arrays; its query borrows the same owner released by the ABI 2 call. */
+    assert(result.owner && tpmshx_full_2d_get_energy_evidence_v1(&result,&evidence)==0);
+    assert(!evidence.main.available && !evidence.fine.available);
+    assert(evidence.main.energy.algorithm==TPMSHX_ENERGY_LEGACY_H_FOU && !evidence.main.energy.has_temperature_update);
+    assert(evidence.fine.energy.algorithm==TPMSHX_ENERGY_LEGACY_H_FOU && !evidence.fine.energy.has_temperature_update);
+    assert(evidence.outer_count==result.outer_history_count);
+    for(size_t i=0;i<evidence.outer_count;++i)
+        assert(evidence.outer[i].algorithm==TPMSHX_ENERGY_LEGACY_H_FOU && !evidence.outer[i].has_temperature_update);
     tpmshx_full_2d_release_v2(&result);
+    evidence.main.available=123;
+    assert(tpmshx_full_2d_get_energy_evidence_v1(&result,&evidence)==1 && evidence.main.available==123);
     tpmshx_full_2d_callbacks_v2 cb={cancelled,NULL,NULL,NULL};
+    const tpmshx_energy_options_v1 invalid_energy[]={{3,1e-8},{0,0.},{0,NAN}};
+    result.iterations=123;
+    for(size_t i=0;i<4;++i) {
+        error[0]='\0';
+        const tpmshx_energy_options_v1* options=i<3?&invalid_energy[i]:NULL;
+        assert(tpmshx_solve_full_2d_v3(shape,arrays,sizes,&config,options,&cb,&result,error,sizeof(error))==1);
+        assert(result.iterations==123 && result.owner==NULL && error[0]);
+        assert(tpmshx_full_2d_get_energy_evidence_v1(&result,&evidence)==1 && evidence.main.available==123);
+    }
     assert(tpmshx_solve_full_2d_v2(shape,arrays,sizes,&config,&cb,&result,error,sizeof(error))==0);
     assert(result.cancelled && !result.converged); tpmshx_full_2d_release_v2(&result);
     config.split_a=0.; result.iterations=123; char short_error[1]={'x'};
     assert(tpmshx_solve_full_2d_v2(shape,arrays,sizes,&config,NULL,&result,short_error,1)==1);
     assert(result.iterations==123 && short_error[0]=='\0');
-    puts("full2D C ABI: port consistency, zero/nonzero duty with refinement, owned views, cancellation and bounded errors passed");
+    puts("full2D C ABI: port consistency, zero/nonzero duty with refinement, owned views, energy entry/query, cancellation and bounded errors passed");
     return 0;
 }

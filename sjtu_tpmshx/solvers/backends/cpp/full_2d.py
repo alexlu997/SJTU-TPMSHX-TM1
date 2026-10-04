@@ -16,6 +16,8 @@ from ._simple_abi import _F2
 from .simple_2d import _Result as _SimpleResult, _result_dict
 from .model_h import _Array, _Result as _ModelResult, _plane_info
 from .enthalpy import _Result as _EnthalpyResult, _result_info
+from .enthalpy import (_EnergyOptions, _EnergyResult, _energy_options,
+                       _energy_result_info, _energy_native_state)
 from .closure_evidence import NuObservation, RangeObservation, copy_nu_observation, copy_range_observations
 
 
@@ -112,6 +114,16 @@ _Residual = ct.CFUNCTYPE(None, ct.c_void_p, ct.c_size_t, ct.c_size_t, ct.c_doubl
 
 class _Callbacks(ct.Structure):
     _fields_ = [('cancel', _Cancel), ('progress', _Progress), ('residual', _Residual), ('context', ct.c_void_p)]
+
+
+class _EnergyState(ct.Structure):
+    _fields_ = [('available', ct.c_uint32), ('energy', _EnergyResult),
+                ('actual_conductivity', _Array * 2), ('boundary_power', (_Array * 6) * 2)]
+
+
+class _EnergyEvidence(ct.Structure):
+    _fields_ = [('main', _EnergyState), ('fine', _EnergyState),
+                ('outer', ct.POINTER(_EnergyResult)), ('outer_count', ct.c_size_t)]
 
 
 def _copy(view, shape=None):
@@ -222,12 +234,27 @@ class NativeFull2DDriver:
     def run_prepared(self, cfg, prepared, control=RunControl()):
         control.check_cancelled()
         shape, arrays, config = _pack(cfg, prepared, self.table_directory)
-        return self.solve(shape, arrays, config, control)
+        solver = cfg['compute_cfg'].solver
+        return self.solve(shape, arrays, config, control, energy_algorithm=solver.enthalpy_algorithm,
+                          temperature_update_tolerance=solver.enthalpy_temperature_tol_K)
 
-    def solve(self, shape, arrays, config, control=RunControl()):
+    def solve(self, shape, arrays, config, control=RunControl(), *,
+              energy_algorithm='legacy_h_fou', temperature_update_tolerance=1e-8):
         """Synchronous C call; detach all views before releasing their sole owner."""
         if len(shape) != 2 or len(arrays) != 29:
             raise ValueError('full 2D requires two extents and 29 prepared arrays')
+        energy = _energy_options(energy_algorithm, temperature_update_tolerance)
+        energy_call = energy_query = None
+        if energy.algorithm:
+            try:
+                energy_call = self.library.tpmshx_solve_full_2d_v3
+                energy_query = self.library.tpmshx_full_2d_get_energy_evidence_v1
+            except AttributeError as exc:
+                raise ValueError('native full 2D library lacks conservative energy v3') from exc
+            energy_call.argtypes = [*self.call.argtypes[:4], ct.POINTER(_EnergyOptions), *self.call.argtypes[4:]]
+            energy_call.restype = ct.c_int
+            energy_query.argtypes = [ct.POINTER(_Result), ct.POINTER(_EnergyEvidence)]
+            energy_query.restype = ct.c_int
         arrays = [np.require(np.asarray(x, dtype=np.float64), requirements=['C', 'A']) for x in arrays]
         errors = []
 
@@ -270,8 +297,9 @@ class NativeFull2DDriver:
         sizes = (ct.c_size_t*len(arrays))(*(x.size for x in arrays))
         result, error = _Result(), ct.create_string_buffer(2048)
         try:
-            status = self.call((ct.c_size_t*2)(*shape), pointers, sizes, ct.byref(config), ct.byref(callbacks),
-                               ct.byref(result), error, len(error))
+            args = ((ct.c_size_t*2)(*shape), pointers, sizes, ct.byref(config))
+            tail = (ct.byref(callbacks), ct.byref(result), error, len(error))
+            status = (energy_call(*args, ct.byref(energy), *tail) if energy_call else self.call(*args, *tail))
             if errors:
                 raise errors[0]
             if status:
@@ -297,6 +325,26 @@ class NativeFull2DDriver:
                 out['outer_history'].append(dict(iteration=h.iteration, thermal_iterations=h.thermal_iterations,
                     thermal_converged=bool(h.thermal_converged), outer_converged=bool(h.outer_converged),
                     relative_density_change=list(h.relative_density_change), temperature_change=list(h.temperature_change)))
+            out['entry_version'] = 2
+            if energy_query:
+                extra = _EnergyEvidence()
+                if energy_query(ct.byref(result), ct.byref(extra)):
+                    raise RuntimeError('native full 2D energy evidence query failed')
+                if out['main']['true_h'] is None or extra.outer_count != len(out['outer_history']):
+                    raise RuntimeError('native full 2D energy evidence does not match the thermal history')
+                info = out['main']['true_h']
+                omega = .2 if extra.main.energy.algorithm == 2 else .6
+                info['effective_settings'].update(sweeps=5, omega=omega)
+                _energy_result_info(info, extra.main.energy,
+                    temperature_tol=energy.temperature_update_tolerance, abi=3)
+                _energy_native_state(info, extra.main, (*shape, 1), 'W/m')
+                out['main']['mode'] = 'conservative_energy'
+                if out['fine'] is not None:
+                    raise RuntimeError('native conservative energy unexpectedly returned Richardson evidence')
+                for index, row in enumerate(out['outer_history']):
+                    row['energy_info'] = _energy_result_info(dict(effective_settings=dict(omega=omega, sweeps=5)),
+                        extra.outer[index], temperature_tol=energy.temperature_update_tolerance, abi=3)
+                out['entry_version'] = 3
             return out
         finally:
             if result.owner:

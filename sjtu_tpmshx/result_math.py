@@ -1,4 +1,6 @@
 """Pure data-only math shared by online diagnostics and offline evaluation."""
+from collections.abc import Mapping
+
 import numpy as np
 
 
@@ -171,6 +173,38 @@ def _boundary_enthalpy_duty(h, h_in, mass_flux):
         net_out += float(np.sum(np.where(outward > 0.0, outward * adjacent,
                                          outward * h_in)))
     return -net_out
+
+
+def _conservative_boundary_power_duty(native, side, dimension, grid):
+    """Reduce captured outward powers without reconstructing a face state.
+
+    Both schemes use the native final-state six-face ledger. In particular,
+    SOU outlet powers cannot be recovered from adjacent cell enthalpies.
+    A 2D ledger retains singleton-z planes, with powers per unit depth.
+    """
+    if native['energy_algorithm'] not in ('temperature_fou', 'temperature_sou'):
+        raise ValueError('unsupported conservative energy algorithm')
+    version = native['energy_algorithm_version']
+    if type(version) is not int or version != 1:
+        raise ValueError('unsupported conservative energy algorithm version')
+    if native['boundary_power_units'] != ('W/m' if dimension == 2 else 'W'):
+        raise ValueError('conservative boundary power units disagree with physical dimension')
+    if native['physical_boundary_complete'] is not True:
+        raise ValueError('incomplete physical boundary prevents conservative heat duty')
+    ledger = native['boundary_power'][side]
+    keys = ('x-', 'x+', 'y-', 'y+', 'z-', 'z+')
+    if not isinstance(ledger, Mapping) or set(ledger) != set(keys):
+        raise ValueError('conservative energy requires all six physical boundary faces')
+    faces = tuple(np.asarray(ledger[key]) for key in keys)
+    shape = _boundary_face_shape(faces, 3, grid, planes=True)
+    for axis, size in zip('xyz'[:dimension], shape):
+        if np.shape(grid['d' + axis]) != (size,):
+            raise ValueError(f'conservative boundary powers disagree with {axis} grid')
+    if dimension == 2 and shape[2] != 1:
+        raise ValueError('2D conservative energy requires singleton-z boundary planes')
+    if any(face.dtype.kind not in 'fiu' or not np.all(np.isfinite(face)) for face in faces):
+        raise ValueError('conservative boundary powers must be finite real values')
+    return -sum(float(np.sum(face)) for face in faces)
 
 
 def _cold_outlet(Tb, arrangement):

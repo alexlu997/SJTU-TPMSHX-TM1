@@ -122,8 +122,10 @@ EnthalpyResult solve_temperature_energy(const GridView& grid, const EnthalpySide
     Side sa(a,state.h_a,state.a,n,true), sb(b,state.h_b,state.b,n,true);
     const std::array<Side*,2> sides{&sa,&sb};
     const std::array<bool,2> warm{state.warm_a,state.warm_b};
+    const bool sou = control.algorithm == EnthalpyAlgorithm::temperature_sou;
     EnthalpyResult result{};
     result.algorithm = control.algorithm;
+    result.picard_relaxation = sou ? .6 : 1.;
     result.stop = EnthalpyStop::cancelled;
     if (control.cancel && control.cancel(control.context)) return result;
     for (std::size_t s = 0; s < sides.size(); ++s) {
@@ -143,7 +145,6 @@ EnthalpyResult solve_temperature_energy(const GridView& grid, const EnthalpySide
     result.inlet_enthalpy = {sa.hin,sb.hin};
     if (!state.warm_solid)
         std::fill_n(state.solid.data,n,.5*(a.inlet_temperature+b.inlet_temperature));
-    const bool sou = control.algorithm == EnthalpyAlgorithm::temperature_sou;
     std::vector<double> ra(n), rb(n), rs(n), old_solid(n), source_a(sou ? n : 0), source_b(sou ? n : 0);
     for (std::size_t iteration = 0; iteration < control.max_iterations; ++iteration) {
         if (control.cancel && control.cancel(control.context)) { result.final_audit.reset(); return result; }
@@ -159,6 +160,17 @@ EnthalpyResult solve_temperature_energy(const GridView& grid, const EnthalpySide
         conservative_temperature_sweeps(grid,sa.frozen(),sb.frozen(),k_ss,
             {state.a,state.b,state.solid},control.sweeps,control.omega,view(source_a),view(source_b),
             sou ? 1. : control.omega);
+        if (sou) {
+            // Underrelaxed rows can still form an oscillatory deferred-source
+            // Picard block on graded meshes. Dampen the coupled increment,
+            // preserving its fixed point; EOS and the audit see this actual T.
+            for (auto* side : sides)
+                for (std::size_t p = 0; p < n; ++p)
+                    side->t[p] = side->temperature_star[p] + result.picard_relaxation
+                        * (side->t[p] - side->temperature_star[p]);
+            for (std::size_t p = 0; p < n; ++p)
+                state.solid[p] = old_solid[p] + result.picard_relaxation * (state.solid[p] - old_solid[p]);
+        }
         result.iterations = iteration+1;
         if (control.cancel && control.cancel(control.context)) { result.final_audit.reset(); return result; }
         double temperature_update = 0., enthalpy_update = 0.;

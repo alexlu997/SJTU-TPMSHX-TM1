@@ -35,7 +35,8 @@ int main(void) {
     c.simple.convergence=(tpmshx_simple_f2_v1){1e-4,1e-6,1e-6,.01,1e-4,1e-3,2,5,60};
     c.enthalpy_iterations=1500;c.enthalpy_sweeps=25;c.enthalpy_omega=.6;c.enthalpy_update_tolerance=1e-3;
     tpmshx_full3d_result_v1 r={0};char error[1024];
-    if(tpmshx_full_3d_abi_version()!=1 || tpmshx_solve_full_3d_v1(&in,&c,NULL,&r,error,sizeof error)) {
+    const tpmshx_energy_options_v1 energy={TPMSHX_ENERGY_LEGACY_H_FOU,1e-8};
+    if(tpmshx_full_3d_abi_version()!=1 || tpmshx_solve_full_3d_v2(&in,&c,&energy,NULL,&r,error,sizeof error)) {
         fprintf(stderr,"full 3D call failed: %s\n",error);return 1;
     }
     if(!r.converged || !r.owner || !r.has_model_h || r.model_h.owner || r.outer_count<2) {
@@ -51,11 +52,30 @@ int main(void) {
        || trace.level_count || trace.started_cap_sum || trace.total_charged_iterations || r.flow[0].bootstrap.available)return 9;
     trace.selected=99;
     if(tpmshx_full_3d_get_bootstrap_trace_v1(&r,2,&trace)!=1 || trace.selected!=99)return 10;
+    /* The additive entry uses the original owner and has no candidate
+       evidence when the selected energy algorithm is legacy. */
+    tpmshx_full3d_energy_evidence_v1 evidence={0};
+    if(tpmshx_full_3d_get_energy_evidence_v1(&r,&evidence) || evidence.available
+       || evidence.energy.algorithm!=TPMSHX_ENERGY_LEGACY_H_FOU || evidence.energy.has_temperature_update
+       || evidence.outer_count!=r.outer_count)return 14;
+    for(size_t i=0;i<evidence.outer_count;++i)
+        if(evidence.outer[i].algorithm!=TPMSHX_ENERGY_LEGACY_H_FOU || evidence.outer[i].has_temperature_update)return 14;
     /* Input changes cannot mutate owned result views. */
     eps[0]=.55;if(r.flow[0].epsilon.data[0]!=.6)return 5;eps[0]=.6;
     tpmshx_full_3d_release_v1(&r);tpmshx_full_3d_release_v1(&r);if(r.owner)return 6;
     if(tpmshx_full_3d_get_bootstrap_trace_v1(&r,0,&trace)!=1 || trace.selected!=99)return 11;
+    evidence.available=99;
+    if(tpmshx_full_3d_get_energy_evidence_v1(&r,&evidence)!=1 || evidence.available!=99)return 15;
     tpmshx_full3d_callbacks_v1 cb={cancelled,NULL,NULL,NULL};
+    const tpmshx_energy_options_v1 invalid_energy[]={{3,1e-8},{0,0.},{0,NAN}};
+    r.stop=99;
+    for(size_t i=0;i<4;++i) {
+        error[0]='\0';
+        const tpmshx_energy_options_v1* options=i<3?&invalid_energy[i]:NULL;
+        if(tpmshx_solve_full_3d_v2(&in,&c,options,&cb,&r,error,sizeof error)!=1
+           || r.stop!=99 || r.owner || !error[0])return 16;
+        if(tpmshx_full_3d_get_energy_evidence_v1(&r,&evidence)!=1 || evidence.available!=99)return 16;
+    }
     c.coarse_bootstrap=1;
     if(tpmshx_solve_full_3d_v1(&in,&c,&cb,&r,error,sizeof error) || r.stop!=2 || r.converged)return 7;
     if(tpmshx_full_3d_get_bootstrap_trace_v1(&r,0,&trace) || !trace.selected || strcmp(trace.decision,"cancelled")
@@ -64,5 +84,5 @@ int main(void) {
     in.epsilon.size=7;r.stop=99;
     if(tpmshx_solve_full_3d_v1(&in,&c,NULL,&r,error,sizeof error)!=1 || r.stop!=99 || !error[0])return 8;
     if(r.owner || tpmshx_full_3d_get_bootstrap_trace_v1(&r,0,&trace)!=1)return 13;
-    puts("{\"status\":\"passed\",\"abi\":1,\"full3d_owned\":true,\"cancel\":true,\"error_untouched\":true}");return 0;
+    puts("{\"status\":\"passed\",\"abi\":1,\"full3d_owned\":true,\"energy_entry_query\":true,\"cancel\":true,\"error_untouched\":true}");return 0;
 }

@@ -97,6 +97,16 @@ ZoneAxis = Literal['x', 'y', 'grid', 'continuous']
 SCO2_P_RANGE_PA = (7.9e6, 16.0e6)
 
 
+def validate_enthalpy_algorithm(algorithm, temperature_tolerance):
+    """Validate the persisted conservative energy recipe and its K update gate."""
+    if algorithm not in ('legacy_h_fou', 'temperature_fou', 'temperature_sou'):
+        raise ValueError(f'unsupported enthalpy_algorithm: {algorithm}')
+    if (isinstance(temperature_tolerance, bool)
+            or not isinstance(temperature_tolerance, (int, float))
+            or not isfinite(temperature_tolerance) or temperature_tolerance <= 0.):
+        raise ValueError('enthalpy_temperature_tol_K must be finite and positive')
+
+
 def reject_retired_boundary_options(config):
     """Reject removed B-participation experiments before physical preparation."""
     retired = sorted(key for key in config
@@ -187,6 +197,10 @@ class SolverConfig:
     mom_tol: Optional[float] = None
     mass_local_tol: Optional[float] = None
     mass_global_tol: Optional[float] = None
+    # Persisted numerical selection; C++ candidates require a qualified true-h
+    # full-flow route. The Python numerical implementation remains unchanged.
+    enthalpy_algorithm: Literal['legacy_h_fou', 'temperature_fou', 'temperature_sou'] = 'legacy_h_fou'
+    enthalpy_temperature_tol_K: float = 1e-8
 
 
 @dataclass
@@ -531,6 +545,9 @@ class ComputeConfig:
         ``validate()`` must still check the resolved speeds and calibration.
         """
         import math
+
+        validate_enthalpy_algorithm(self.solver.enthalpy_algorithm,
+                                   self.solver.enthalpy_temperature_tol_K)
 
         for name, value in (
                 ('zones.enabled', self.zones.enabled),

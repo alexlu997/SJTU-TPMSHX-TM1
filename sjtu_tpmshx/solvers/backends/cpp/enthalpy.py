@@ -44,6 +44,64 @@ class _Result(ct.Structure):
                 ('audit', _Audit), ('coolprop_version', ct.c_char * 32)]
 
 
+_ENERGY_NAMES = ('legacy_h_fou', 'temperature_fou', 'temperature_sou')
+
+
+class _EnergyOptions(ct.Structure):
+    _fields_ = [('algorithm', ct.c_uint32), ('temperature_update_tolerance', ct.c_double)]
+
+
+class _EnergyResult(ct.Structure):
+    _fields_ = [('algorithm', ct.c_uint32), ('has_temperature_update', ct.c_uint32),
+                ('temperature_update', ct.c_double), ('picard_relaxation', ct.c_double)]
+
+
+def _energy_options(algorithm, tolerance):
+    from sjtu_tpmshx.domain.compute_config import validate_enthalpy_algorithm
+    validate_enthalpy_algorithm(algorithm, tolerance)
+    return _EnergyOptions(_ENERGY_NAMES.index(algorithm), tolerance)
+
+
+def _energy_result_info(info, result, *, temperature_tol, abi):
+    """Decode executed native identity, independently of the requested option."""
+    if result.algorithm not in range(len(_ENERGY_NAMES)):
+        raise RuntimeError('native energy returned an unknown algorithm')
+    name = _ENERGY_NAMES[result.algorithm]
+    if name == 'legacy_h_fou' or result.has_temperature_update != 1:
+        raise RuntimeError('native candidate energy omitted its executed state')
+    if not np.isfinite(result.temperature_update) or result.temperature_update < 0:
+        raise RuntimeError('native energy returned an invalid temperature update')
+    if not np.isfinite(result.picard_relaxation) or not 0 < result.picard_relaxation <= 1:
+        raise RuntimeError('native energy returned an invalid Picard relaxation')
+    info.update(energy_algorithm=name, energy_algorithm_version=1,
+                temperature_update_K=result.temperature_update)
+    info['effective_settings'].update(energy_algorithm=name, energy_algorithm_version=1,
+        temperature_update_tol_K=float(temperature_tol), driver_abi=abi,
+        picard_relaxation=result.picard_relaxation,
+        nonlinear_state_update='HEOS_PT',
+        enthalpy_face_reconstruction='FOU' if result.algorithm == 1 else 'h_minmod_outlet_v1',
+        solid_omega=info['effective_settings']['omega'] if result.algorithm == 1 else 1.)
+    return info
+
+
+def _energy_native_state(info, evidence, shape, units):
+    """Copy native face powers; never reconstruct SOU in the Python binding."""
+    if evidence.available != 1:
+        raise RuntimeError('native energy omitted final boundary evidence')
+    def copy(value, expected):
+        return np.ctypeslib.as_array(value.data, (value.size,)).copy().reshape(expected)
+    planes = ('x-', 'x+', 'y-', 'y+', 'z-', 'z+')
+    boundary = {}
+    state = info['_native_state']
+    for side, label in enumerate('AB'):
+        boundary[label] = {name: copy(evidence.boundary_power[side][index],
+            tuple(n for axis, n in enumerate(shape) if axis != index // 2))
+            for index, name in enumerate(planes)}
+        state['actual_conductivity_' + label] = copy(evidence.actual_conductivity[side], shape)
+    state.update(energy_algorithm=info['energy_algorithm'], energy_algorithm_version=1,
+                 boundary_power=boundary, boundary_power_units=units, physical_boundary_complete=True)
+
+
 _Cancel = ct.CFUNCTYPE(ct.c_int, ct.c_void_p)
 
 

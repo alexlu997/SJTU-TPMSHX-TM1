@@ -22,6 +22,23 @@ enum tpmshx_enthalpy_error {
     TPMSHX_ENTHALPY_NATIVE_ERROR = 4
 };
 
+/* Additive selection/evidence for new entry points. Existing v1 POD layouts
+ * and calls retain the legacy H-FOU algorithm. */
+enum tpmshx_energy_algorithm {
+    TPMSHX_ENERGY_LEGACY_H_FOU = 0,
+    TPMSHX_ENERGY_TEMPERATURE_FOU = 1,
+    TPMSHX_ENERGY_TEMPERATURE_SOU = 2
+};
+typedef struct {
+    uint32_t algorithm;
+    double temperature_update_tolerance; /* maximum actual A/B/solid change, K */
+} tpmshx_energy_options_v1;
+typedef struct {
+    uint32_t algorithm, has_temperature_update;
+    double temperature_update; /* K; unavailable on legacy/cancelled returns */
+    double picard_relaxation; /* actual whole-block T relaxation, 0 < value <= 1 */
+} tpmshx_energy_result_v1;
+
 typedef struct {
     uint32_t fluid;
     double inlet_temperature, inlet_pressure;

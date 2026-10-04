@@ -177,7 +177,10 @@ alternating forward/reverse A, B and solid sweeps. Fluid convection uses the
 linearization h* + cp*(T-T*); diffusion uses temperature. SOU freezes a minmod
 correction reconstructed directly from actual enthalpy on physical coordinates,
 including the outlet face, and uses full solid relaxation. FOU uses the supplied
-relaxation for all phases. Guarded HEOS PT updates then replace the linearized
+relaxation for all phases. SOU damps the completed three-phase block increment
+by 0.6 before the actual state update, suppressing a demonstrated limiter-driven
+oscillation on a stretched full-2D grid without changing its steady equation.
+FOU uses no additional block damping. Guarded HEOS PT updates then replace the linearized
 enthalpy with the actual state before residuals and duties are evaluated. No
 BICUBIC table, H-to-T inversion, clipping or recovery fallback is used.
 
@@ -197,6 +200,48 @@ independently reconstructed outlet duty, cancellation, iteration limits and
 physical-domain failures. The dependency-pilot verification runs both. Their
 scope is fixed-flow numerical qualification; production flow/closure acceptance
 and comparison with the legacy BICUBIC route remain separate requirements.
+
+### Explicit full-flow candidate selection
+
+Set `solver.enthalpy_algorithm` to `temperature_fou` or `temperature_sou`
+and `solver.enthalpy_temperature_tol_K` to the required positive K tolerance
+before `prepare_case`, then run the saved case with `backend='cpp'` and the
+matching native library. The defaults remain `legacy_h_fou` and 1e-8 K.
+The current candidates require the existing two-fluid true-h routes; selecting
+them with Python, Quick Design or an unsupported thermal route fails explicitly.
+This selection does not qualify new fluids, boiling, condensation or additional
+Nu/Darcy-Forchheimer applicability. GUI selection is not yet exposed.
+
+The complete driver retains its original SIMPLE, pressure, property, outer
+coupling and final acceptance gates. Full3D also retains its two temperature
+predictor sweeps and original mass preparation. Candidate recipes use five
+sweeps per nonlinear step, fluid relaxation .6 for FOU and .2 for SOU, and
+solid relaxation .6/1 respectively. Full3D saves resolved controls in prepared
+cases; the 2D recipe is fixed by the algorithm version. Both retain their
+previous iteration budgets and require actual coupled/equation energy ratios
+no greater than .001 as well as the declared temperature update tolerance.
+The native result records actual whole-block Picard relaxation (1 for FOU,
+0.6 for SOU), separate from the fluid and solid row relaxation factors.
+
+`tpmshx_solve_full_2d_v3` and `tpmshx_solve_full_3d_v2` accept the shared
+`tpmshx_energy_options_v1`. They preserve the old result PODs and their release
+functions. The corresponding `get_energy_evidence_v1` query borrows the same
+owner and performs no solve: it exposes actual algorithm/temperature update,
+final epsilon-times-HEOS conductivity, six outward signed enthalpy-power
+planes and per-outer-step scalar identity. The previous entry points remain
+available and retain their original numerical behavior.
+
+The Python binding copies query views before release and records
+`backend_version=full_2d_v3` or `full_3d_v2`. Candidate results have portable
+`thermal_mode=conservative_energy`; `boundary_fluxes.true_h` contains the
+existing actual h/inlet-h/mass arrays and the algorithm/version, six-face
+`boundary_power`, its W/m or W units and a completeness flag. Heat is
+`-sum(boundary_power)` for each side. SOU reconstructs physical enthalpy at
+outlet faces, so older FOU cell-enthalpy reducers cannot supply that heat.
+Missing or invalid face evidence makes the metric unavailable; no fallback
+reconstruction occurs. Final post-flow pressure and velocity remain separate
+from the accepted or capped last thermal state. 2D candidates retain the
+true-h unit-depth convention and do not produce Richardson evidence.
 
 ## First implemented slice
 

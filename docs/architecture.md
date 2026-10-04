@@ -96,9 +96,20 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   declared scalar inlets and adiabatic external boundaries. Their SOU outlet
   reconstruction differs from model-h. They require a maximum temperature
   update in K and both explicit energy gates, and fail on invalid PT states
-  without clipping or fallback. The legacy H algorithm remains the default;
-  this C++ entry alone does not change the public C ABI, Python numerical
-  methods, full-flow routing or supported production fluid pairs.
+  without clipping or fallback. The legacy H algorithm remains the default.
+  Full C++ 2D/3D can explicitly select these candidates on their existing
+  two-fluid true-h routes. The persisted `SolverConfig.enthalpy_algorithm`
+  and `enthalpy_temperature_tol_K` select the algorithm and update gate;
+  incompatible routes fail before flow execution. Python numerical methods
+  and production fluid applicability are unchanged.
+  Additive full2D v3/full3D v2 entry points reuse the previous result layouts
+  and owner release functions. Read-only queries expose the executed algorithm,
+  actual thermal conductivity and six outward boundary enthalpy-power planes.
+  Portable candidate results use `thermal_mode=conservative_energy`; their
+  heat is the negative sum of these captured planes, in W/m for 2D and W for
+  3D. Offline readers validate this evidence without reconstructing SOU or
+  calling an EOS. Thermal mass/temperature evidence remains separate from a
+  subsequent final flow update, including iteration-limit returns.
 - `postprocess/` reduces recorded fields, fluxes and pressure states. It never
   reruns a solver or reads a private runtime object to recover missing evidence.
   Full-compute evaluation reuses successful heat and mass reductions only within

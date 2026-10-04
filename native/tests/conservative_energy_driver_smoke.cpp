@@ -90,6 +90,7 @@ int main() {
                 require(result.algorithm==c.algorithm && !result.used_bicubic[0] && !result.used_bicubic[1]
                         && !result.heos_polish && !result.total_clips.a && !result.total_clips.b,
                         "T energy algorithm identity is not the executed method");
+                require(result.picard_relaxation==(sou?.6:1.),"actual Picard relaxation evidence is missing");
                 require(*result.temperature_update<=1e-8 && result.final_audit->equation_ratio<=1e-7
                         && result.final_audit->coupled_ratio<=1e-7,"T energy gate was bypassed");
                 EnthalpyEOS independent;
@@ -117,6 +118,33 @@ int main() {
         require(max_eos_error<=1e-6,"published T and h are not the same actual EOS state");
         require(max_boundary_error<=1e-9,"actual boundary duty omitted SOU outlet reconstruction");
         require(max_warm_difference<=1e-6,"warm and cold T energy solve different equations");
+
+        // Unit-depth 2D and a physical nz=1 extrusion have identical T fields;
+        // integrated convection, diffusion and exchange all scale with depth.
+        for(std::size_t axis:{0u,1u}) for(int sign:{1,-1}) for(bool sou:{false,true}) {
+            Case unit(axis,sign,Fluid::water,Fluid::sco2);
+            unit.width[2][0]=1.;
+            auto slab=unit;
+            constexpr double thickness=.037;
+            slab.width[2][0]=thickness;
+            for(auto& side:slab.mass)for(auto& component:side)
+                for(double& value:component)value*=thickness;
+            const auto c=controls(sou);
+            const auto per_depth=solve_enthalpy(unit.grid(),unit.side(0),unit.side(1),
+                view(unit.solid_k),unit.state(),c);
+            const auto integrated=solve_enthalpy(slab.grid(),slab.side(0),slab.side(1),
+                view(slab.solid_k),slab.state(),c);
+            require(per_depth.stop==EnthalpyStop::converged && integrated.stop==EnthalpyStop::converged,
+                    "unit-depth candidate did not converge");
+            for(std::size_t p=0;p<5;++p) {
+                for(std::size_t s=0;s<2;++s)
+                    require(std::abs(unit.t[s][p]-slab.t[s][p])<=1e-6,"extrusion changed fluid temperature");
+                require(std::abs(unit.solid[p]-slab.solid[p])<=1e-6,"extrusion changed solid temperature");
+            }
+            require(std::abs(integrated.q_a/thickness-per_depth.q_a)<=1e-7*std::abs(per_depth.q_a)+1e-9
+                    && std::abs(integrated.q_b/thickness-per_depth.q_b)<=1e-7*std::abs(per_depth.q_b)+1e-9,
+                    "extrusion lost unit-depth duty scaling");
+        }
 
         Case reference(0,1,Fluid::air,Fluid::water);auto t_control=controls(false);
         const auto t_result=solve_enthalpy(reference.grid(),reference.side(0),reference.side(1),view(reference.solid_k),reference.state(),t_control);

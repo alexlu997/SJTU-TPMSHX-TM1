@@ -12,6 +12,13 @@ def run_case(case: CaseData, control: RunControl = RunControl()) -> FieldResult:
         raise ValueError(f'unsupported backend: {control.backend}')
     dimension = case.grid.get('dimension')
     mode = case.metadata.get('mode', 'full')
+    from sjtu_tpmshx.domain.compute_config import validate_enthalpy_algorithm
+    settings = (case.parameters.get('run_settings', {}).get('solver', {})
+                if dimension == 2 else case.parameters)
+    algorithm = settings.get('enthalpy_algorithm', 'legacy_h_fou')
+    validate_enthalpy_algorithm(algorithm, settings.get('enthalpy_temperature_tol_K', 1e-8))
+    if algorithm != 'legacy_h_fou' and (control.backend != 'cpp' or mode != 'full'):
+        raise ValueError('conservative temperature energy currently requires full compute with backend=cpp')
     if mode != 'full':
         from .backends.python.thermal_native import resolve_true_h_kernel
         resolve_true_h_kernel(case.parameters, supported=False)

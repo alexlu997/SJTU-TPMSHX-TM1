@@ -61,6 +61,8 @@ struct Full2DControl {
     void (*progress)(void*,std::size_t,std::size_t) = nullptr;
     void (*residual)(void*,std::size_t,std::size_t,double) = nullptr; // side,iter,residual
     void* context = nullptr;
+    EnthalpyAlgorithm enthalpy_algorithm = EnthalpyAlgorithm::legacy_h_fou;
+    double temperature_update_tolerance = 1e-8;  // K, candidate inner Picard gate
 };
 
 struct Full2DFlow {
@@ -84,6 +86,10 @@ struct Full2DThermalState {
     std::array<std::vector<double>,2> mass_x,mass_y;
     std::array<std::vector<double>,2> inlet_capacity;
     std::vector<double> solid_conductivity,h_a,h_b;
+    // Candidate-only actual EOS conductivity; prepared conductivity stays above.
+    std::array<std::vector<double>,2> actual_conductivity;
+    // Outward m*h_face, x-/x+/y-/y+/z-/z+; unit-depth W/m, zero z planes.
+    std::array<std::array<std::vector<double>,6>,2> enthalpy_boundary_power;
     std::variant<TemperatureResult,ModelHResult2D,EnthalpyResult> result;
 };
 
@@ -92,6 +98,9 @@ struct Full2DOuterRecord {
     bool thermal_converged,outer_converged;
     std::array<double,2> relative_density_change;
     std::array<double,3> temperature_change;
+    std::optional<EnthalpyAlgorithm> enthalpy_algorithm;
+    std::optional<double> thermal_temperature_update;  // K, distinct from outer change
+    std::optional<double> thermal_picard_relaxation;
 };
 
 struct Full2DRefinedState {

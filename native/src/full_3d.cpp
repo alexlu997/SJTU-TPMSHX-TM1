@@ -1,4 +1,5 @@
 #include "tpmshx/full_3d.hpp"
+#include "tpmshx/conservative_energy.hpp"
 #include "tpmshx/model_coefficients.hpp"
 
 #include <algorithm>
@@ -210,6 +211,25 @@ void validate(const Full3DInput& in,const Full3DControl& c) {
     if(c.enthalpy.coupled_energy_tolerance!=std::optional<double>(.001)
        || c.enthalpy.equation_energy_tolerance!=std::optional<double>(.001))
         throw std::invalid_argument("full 3D requires the existing true-h coupled and equation gates");
+    switch(c.enthalpy.algorithm) {
+        case EnthalpyAlgorithm::legacy_h_fou: break;
+        case EnthalpyAlgorithm::temperature_fou:
+        case EnthalpyAlgorithm::temperature_sou:
+            if(!in.solve_b || (in.a.fluid!=Fluid::sco2 && in.b.fluid!=Fluid::sco2))
+                throw std::invalid_argument("candidate full 3D energy currently requires the existing two-sided true-h route");
+            if(!c.conservative || !c.variable_rho_cp || c.refined_port_energy || c.red_black_energy
+               || in.a.dispersion!=0. || in.b.dispersion!=0.)
+                throw std::invalid_argument("unsupported candidate full 3D energy boundary, property or acceleration option");
+            for(auto source:in.sources)
+                if(source.size && std::any_of(source.data,source.data+source.size,[](double x){return x!=0.;}))
+                    throw std::invalid_argument("candidate full 3D energy does not support physical sources");
+            if(!c.enthalpy.max_iterations || !c.enthalpy.sweeps || !std::isfinite(c.enthalpy.omega)
+               || c.enthalpy.omega<=0. || c.enthalpy.omega>1.
+               || !std::isfinite(c.enthalpy.temperature_update_tolerance) || c.enthalpy.temperature_update_tolerance<=0.)
+                throw std::invalid_argument("invalid candidate full 3D energy controls");
+            break;
+        default: throw std::invalid_argument("unknown full 3D energy algorithm");
+    }
     // These existing options are implemented in subsequent qualified slices;
     // failing before state initialization prevents a silent substitute solve.
     if(g.nz==1) {
@@ -220,6 +240,21 @@ void validate(const Full3DInput& in,const Full3DControl& c) {
     }
     if(c.coarse_bootstrap && !c.coarse_iterations)
         throw std::invalid_argument("coarse bootstrap requires a positive iteration cap");
+}
+
+void check_energy_ports(const GridView& g,const Full3DSide& side,const Faces& mass) {
+    const auto counts=shape(g);
+    for(int axis=0;axis<3;++axis) for(bool high:{false,true})
+        boundary(g,axis,high,[&](std::size_t,std::size_t p,std::size_t f,double) {
+            if(mass[axis][f]==0.) return;
+            if(axis!=side.direction/2)
+                throw std::invalid_argument("candidate energy mass crosses a non-port boundary");
+            const std::array<std::size_t,3> coord{p/(g.ny*g.nz),(p/g.nz)%g.ny,p%g.nz};
+            const auto q=coord[side.solver_axes[0]]*counts[side.solver_axes[2]]+coord[side.solver_axes[2]];
+            const bool inlet=high==static_cast<bool>(side.direction%2);
+            if((inlet?side.inlet_opening:side.outlet_opening)[q]==0.)
+                throw std::invalid_argument("candidate energy mass crosses a closed port face");
+        });
 }
 
 Simple3DMaterialView material(const Full3DFlowState& s) {
@@ -745,17 +780,28 @@ Full3DOuterRecord Runtime::solve_thermal(std::size_t outer,Full3DThermalEvidence
             balance_outflow(g,side(s).direction,faces,multiply(epsilon(s),view(result.flow[s].density_real)));
             const auto projected=thermal.project_capacity_faces(g,epsilon(s),view(result.flow[s].density_real),views(faces));
             e.mass[s]=mass_faces(g,projected.velocity,epsilon(s),result.flow[s].density_real);
+            if(control.enthalpy.algorithm!=EnthalpyAlgorithm::legacy_h_fou)
+                check_energy_ports(g,side(s),e.mass[s]);
             e.enthalpy[s].resize(temperature[s].size());
         }
         auto c=control.enthalpy;c.cancel=control.cancel;c.context=control.context;
         e.true_h=solve_enthalpy(g,
-            {input.a.fluid,input.a.inlet_temperature,input.a.inlet_pressure,view(e.pressure[0]),epsilon(0),view(hv[0]),view(e.mass[0][0]),view(e.mass[0][1]),view(e.mass[0][2])},
-            {input.b.fluid,input.b.inlet_temperature,input.b.inlet_pressure,view(e.pressure[1]),epsilon(1),view(hv[1]),view(e.mass[1][0]),view(e.mass[1][1]),view(e.mass[1][2])},
+            {input.a.fluid,input.a.inlet_temperature,input.a.inlet_pressure,view(e.pressure[0]),epsilon(0),view(hv[0]),view(e.mass[0][0]),view(e.mass[0][1]),view(e.mass[0][2]),input.a.direction},
+            {input.b.fluid,input.b.inlet_temperature,input.b.inlet_pressure,view(e.pressure[1]),epsilon(1),view(hv[1]),view(e.mass[1][0]),view(e.mass[1][1]),view(e.mass[1][2]),input.b.direction},
             geo.solid_conductivity,{writable(e.enthalpy[0]),writable(e.enthalpy[1]),writable(temperature[0]),writable(temperature[1]),writable(temperature[2]),true,true,true},c);
         const auto& r=*e.true_h;if(r.stop==EnthalpyStop::cancelled) throw Cancelled{};
         record.thermal_converged=r.stop==EnthalpyStop::converged;record.thermal_iterations=r.iterations;record.thermal_residual=r.residual;
         check_water(temperature,e.pressure);
         for(const auto& t:temperature) if(!finite(t)) throw std::domain_error("nonfinite full 3D true-h return");
+        if(r.algorithm!=EnthalpyAlgorithm::legacy_h_fou) {
+            for(std::size_t s=0;s<2;++s) {
+                auto& actual=e.actual_conductivity[s];actual.resize(temperature[s].size());
+                for(std::size_t p=0;p<actual.size();++p)
+                    actual[p]=epsilon(s)[p]*eos.conductivity(side(s).fluid,temperature[s][p],e.pressure[s][p]);
+                e.enthalpy_boundary_power[s]=enthalpy_boundary_power(g,view(e.enthalpy[s]),views(e.mass[s]),
+                    r.inlet_enthalpy[s],r.algorithm==EnthalpyAlgorithm::temperature_sou);
+            }
+        }
     }
     e.temperature=temperature;
     if(e.model_h) {
@@ -884,6 +930,8 @@ void Runtime::post(std::size_t outer) {
 void Runtime::finish() {
     const auto& g=input.geometry.grid;
     const bool true_h_pair=input.a.fluid==Fluid::sco2 || input.b.fluid==Fluid::sco2;
+    const bool candidate=result.thermal.true_h
+        && result.thermal.true_h->algorithm!=EnthalpyAlgorithm::legacy_h_fou;
     if(!true_h_pair)temperature_ranges("final","real-cell(x,y,z)");
     result.finite_fields=std::all_of(temperature.begin(),temperature.end(),finite);
     result.simple_ok=true;result.envelope_ok=true;
@@ -891,7 +939,8 @@ void Runtime::finish() {
     for(std::size_t i=0;i<g.nx;++i) for(std::size_t j=0;j<g.ny;++j) for(std::size_t k=0;k<g.nz;++k) {
         const std::array<std::size_t,3> cell{i,j,k};const auto p=index(n,cell);const double vol=g.dx[i]*g.dy[j]*g.dz[k];
         for(std::size_t s=0;s<2;++s) {
-            const double exchange=(hv[s][p]*(temperature[2][p]-temperature[s][p]))*vol;
+            const double exchange=((candidate?result.thermal.hv[s][p]:hv[s][p])
+                *(temperature[2][p]-temperature[s][p]))*vol;
             result.solid_exchange[s]+=exchange;
             if(active(s) && cell[side(s).direction/2]>0 && cell[side(s).direction/2]+1<n[side(s).direction/2])
                 result.interior_exchange[s]+=exchange;
@@ -930,7 +979,7 @@ void Runtime::finish() {
             mass_in+=((f.density[in]*std::abs(f.v[vin]))*area)*eps[in];
             const double weight=((f.density[out]*std::abs(f.v[vout]))*area)*eps[out];
             mass_out+=weight;weighted_t+=local_temperature[out]*weight;plain_t+=local_temperature[out];
-            if(true_h_pair) {
+            if(true_h_pair && !candidate) {
                 const double pressure=f.pressure_reference+f.pressure[out];
                 eos.validate(a.fluid,local_temperature[out],pressure,"3D final outlet enthalpy");
                 const double h=eos.bracket_enthalpy(a.fluid,local_temperature[out],pressure);
@@ -947,7 +996,22 @@ void Runtime::finish() {
             property_ranges(s,"property_state","final","outlet-cell-face(real-transverse-axes)",
                 {sg.nx,sg.nz},view(outlet),15);
         }
-        if(true_h_pair) {
+        if(candidate) {
+            const auto& thermal=result.thermal;
+            const int axis=a.direction/2;const bool reverse=a.direction%2;
+            double thermal_in=0.,thermal_out=0.,thermal_temperature=0.;
+            boundary(g,axis,reverse,[&](std::size_t,std::size_t,std::size_t f,double) {
+                thermal_in+=std::max((reverse?-1.:1.)*thermal.mass[s][axis][f],0.);
+            });
+            boundary(g,axis,!reverse,[&](std::size_t,std::size_t p,std::size_t f,double) {
+                const double weight=std::max((reverse?-1.:1.)*thermal.mass[s][axis][f],0.);
+                thermal_out+=weight;thermal_temperature+=weight*thermal.temperature[s][p];
+            });
+            result.inlet_mass[s]=thermal_in;
+            result.outlet_temperature[s]=thermal_out>0.?thermal_temperature/thermal_out
+                :std::numeric_limits<double>::quiet_NaN();
+            result.duty[s]=std::abs(s==0?thermal.true_h->q_a:thermal.true_h->q_b);
+        } else if(true_h_pair) {
             eos.validate(a.fluid,a.inlet_temperature,a.inlet_pressure,"3D final inlet enthalpy");
             const double hin=eos.bracket_enthalpy(a.fluid,a.inlet_temperature,a.inlet_pressure);
             const double hout=mass_out<1e-30?plain_h/(sg.nx*sg.nz):weighted_h/mass_out;

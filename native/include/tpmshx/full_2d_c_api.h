@@ -143,6 +143,29 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v2(
     const tpmshx_full_2d_config_v2* config,const tpmshx_full_2d_callbacks_v2* callbacks,
     tpmshx_full_2d_result_v2* result,char* error,size_t error_capacity);
 TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_full_2d_release_v2(tpmshx_full_2d_result_v2* result);
+/* Explicit conservative energy selection with unchanged ABI 2 buffers and
+ * result ownership. options is required; release with full_2d_release_v2. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v3(
+    const size_t*,const double* const*,const size_t*,const tpmshx_full_2d_config_v2*,
+    const tpmshx_energy_options_v1*,const tpmshx_full_2d_callbacks_v2*,
+    tpmshx_full_2d_result_v2*,char*,size_t);
+typedef struct {
+    uint32_t available;
+    tpmshx_energy_result_v1 energy;
+    tpmshx_model_h_array_v1 actual_conductivity[2];
+    /* Outward signed W/m, x-,x+,y-,y+,z-,z+; singleton-z boundary planes. */
+    tpmshx_model_h_array_v1 boundary_power[2][6];
+} tpmshx_full_2d_energy_state_v1;
+typedef struct {
+    tpmshx_full_2d_energy_state_v1 main,fine;
+    const tpmshx_energy_result_v1* outer;
+    size_t outer_count;
+} tpmshx_full_2d_energy_evidence_v1;
+/* Read-only evidence from the same final thermal call. Arrays borrow the live
+ * result owner; no solver/EOS execution. Missing/cancelled candidate states
+ * have available=0. Status 1 leaves output unchanged. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_energy_evidence_v1(
+    const tpmshx_full_2d_result_v2*,tpmshx_full_2d_energy_evidence_v1*);
 #ifdef __cplusplus
 }
 #endif

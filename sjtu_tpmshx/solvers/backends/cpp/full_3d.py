@@ -19,6 +19,8 @@ from .simple_3d import _Config as _SimpleConfig, _Result as _SimpleResult, _STOP
 from ._simple_abi import _F2
 from .model_h import _Result as _ModelResult, _volume_info
 from .enthalpy import _Result as _EnthalpyResult, _result_info as _enthalpy_result_info
+from .enthalpy import (_EnergyOptions, _EnergyResult, _energy_options,
+                       _energy_result_info, _energy_native_state)
 from .closure_evidence import NuObservation, RangeObservation, copy_nu_observation, copy_range_observations, replay_range_observations
 
 
@@ -157,6 +159,12 @@ class _Callbacks(ct.Structure):
     _fields_ = [('cancel', _Cancel), ('progress', _Progress), ('outer_iteration', _OuterProgress), ('context', ct.c_void_p)]
 
 
+class _EnergyEvidence(ct.Structure):
+    _fields_ = [('available', ct.c_uint32), ('energy', _EnergyResult),
+                ('actual_conductivity', _Array * 2), ('boundary_power', (_Array * 6) * 2),
+                ('outer', ct.POINTER(_EnergyResult)), ('outer_count', ct.c_size_t)]
+
+
 def _copy(v, shape=None):
     if not v.size:
         return None
@@ -241,6 +249,19 @@ class NativeFull3DDriver:
 
     def run_prepared(self, cfg, p, control=RunControl()):
         control.check_cancelled()
+        energy = _energy_options(cfg.get('enthalpy_algorithm', 'legacy_h_fou'),
+                                 cfg.get('enthalpy_temperature_tol_K', 1e-8))
+        energy_call = energy_query = None
+        if energy.algorithm:
+            try:
+                energy_call = self.library.tpmshx_solve_full_3d_v2
+                energy_query = self.library.tpmshx_full_3d_get_energy_evidence_v1
+            except AttributeError as exc:
+                raise ValueError('native full 3D library lacks conservative energy v2') from exc
+            energy_call.argtypes = [*self.call.argtypes[:2], ct.POINTER(_EnergyOptions), *self.call.argtypes[2:]]
+            energy_call.restype = ct.c_int
+            energy_query.argtypes = [ct.POINTER(_Result), ct.POINTER(_EnergyEvidence)]
+            energy_query.restype = ct.c_int
         require_f2_mode(cfg.get('convergence_mode') or run_environment(cfg, 'TPMSHX_CONV_MODE', 'f2'))
         if cfg.get('use_anderson', False):
             raise ValueError('use_anderson=True in SIMPLE has been retired; disable TPMSHX_PHASE_B/use_anderson')
@@ -291,7 +312,8 @@ class NativeFull3DDriver:
         vrho = run_environment(cfg, 'TPMSHX_VAR_RHOCP')
         c.variable_rho_cp = vrho == '1' if vrho in ('0', '1') else bool(cfg.get('variable_rho_cp', True))
         c.conservative, c.strict_mass_balance, c.force_cell_centered = (bool(cfg.get(k, True)) for k in ('conservative_ltne', 'strict_mass_balance', 'force_cc_ltne'))
-        c.refined_port_energy = bool(cfg.get('port_wall_refine', False));c.red_black_energy = int(np.prod(shape)>30000)
+        c.refined_port_energy = bool(cfg.get('port_wall_refine', False))
+        c.red_black_energy = int(not energy.algorithm and np.prod(shape)>30000)
         c.sco2_local_pressure_a = run_environment(cfg, 'TPMSHX_SCO2_COMPRESSIBLE', '').lower() in ('1','true','yes')
         c.coarse_bootstrap, c.outer_anderson = bool(cfg.get('use_coarse_bootstrap', False)), bool(cfg.get('outer_anderson', False))
         c.coarse_iterations, c.anderson_history, c.anderson_patience = (_count(cfg.get(k, d)) for k, d in (
@@ -306,8 +328,8 @@ class NativeFull3DDriver:
             int(np.prod(shape)>=int(os.environ.get('TPMSHX_PARALLEL_THRESHOLD','200000'))),
             _F2(cfg.get('mom_tol') or 1e-4, cfg.get('mass_local_tol') or 1e-6, cfg.get('mass_global_tol') or 1e-6,
                 .01, 1e-4, 1e-3, 2, 5, 60))
-        c.enthalpy_iterations, c.enthalpy_sweeps = _count(cfg.get('ltne_enthalpy_outer',1500)), _count(cfg.get('ltne_enthalpy_nsweep',25),zero=True)
-        c.enthalpy_omega, c.enthalpy_update_tolerance = cfg.get('ltne_enthalpy_omega',.6), cfg.get('ltne_enthalpy_tol',1e-3)
+        c.enthalpy_iterations, c.enthalpy_sweeps = _count(cfg.get('ltne_enthalpy_outer',1500)), _count(cfg.get('ltne_enthalpy_nsweep',5 if energy.algorithm else 25),zero=True)
+        c.enthalpy_omega, c.enthalpy_update_tolerance = cfg.get('ltne_enthalpy_omega',.2 if energy.algorithm == 2 else .6), cfg.get('ltne_enthalpy_tol',1e-3)
         c.table_directory = self.table_directory
         callback_errors = []
         def callback(fn, *args):
@@ -332,7 +354,10 @@ class NativeFull3DDriver:
         callbacks = _Callbacks(cancelled, progress, outer, None)
         result, error = _Result(), ct.create_string_buffer(2048)
         try:
-            code = self.call(ct.byref(data), ct.byref(c), ct.byref(callbacks), ct.byref(result), error, len(error))
+            if energy_call:
+                code = energy_call(ct.byref(data), ct.byref(c), ct.byref(energy), ct.byref(callbacks), ct.byref(result), error, len(error))
+            else:
+                code = self.call(ct.byref(data), ct.byref(c), ct.byref(callbacks), ct.byref(result), error, len(error))
             if callback_errors:
                 raise callback_errors[0]
             if code:
@@ -345,6 +370,22 @@ class NativeFull3DDriver:
             if result.stop not in (0,1):
                 raise RuntimeError('invalid native full 3D exit')
             detached=_detach(result, shape, c, emit_audit=bool(cfg.get('_emit_audit',False)))
+            if energy_query:
+                extra = _EnergyEvidence()
+                if energy_query(ct.byref(result), ct.byref(extra)):
+                    raise RuntimeError('native full 3D energy evidence query failed')
+                if detached['true_h'] is None or extra.outer_count != len(detached['outer']):
+                    raise RuntimeError('native full 3D energy evidence does not match the thermal history')
+                _energy_result_info(detached['true_h'], extra.energy,
+                    temperature_tol=energy.temperature_update_tolerance, abi=2)
+                _energy_native_state(detached['true_h'], extra, shape, 'W')
+                for index, row in enumerate(detached['outer']):
+                    _energy_result_info(row['true_h_info'], extra.outer[index],
+                        temperature_tol=energy.temperature_update_tolerance, abi=2)
+                detached['mode'] = 'conservative_energy'
+                detached['entry_version'] = 2
+            else:
+                detached['entry_version'] = 1
             detached['bootstrap_trace'] = bootstrap_traces
             replay_range_observations(detached['range_observations'])
             from sjtu_tpmshx.models.nu_correlations import warn_sco2_nu_evidence
@@ -538,7 +579,8 @@ def run_case(case, control=RunControl()):
                 P_A_offset_Pa=h['pressure_reference'][0],P_B_offset_Pa=h['pressure_reference'][1],
                 P_A_range_Pa=h['pressure_range'][0],P_B_range_Pa=h['pressure_range'][1])
             row['true_h_balance'].update({key:info[key] for key in ('exit_reason','enthalpy_clip_counts','effective_settings',
-                'coupled_energy_balance','equation_energy_balance') if key in info})
+                'coupled_energy_balance','equation_energy_balance','energy_algorithm',
+                'energy_algorithm_version','temperature_update_K') if key in info})
         ltne.append(row)
     final_info=ltne[-1]
     strict={}
@@ -602,7 +644,7 @@ def run_case(case, control=RunControl()):
         key=mode+'_balance'
         diagnostics[key]=dict(final_info[key],outer_converged=r['outer_ok'],post_after_last_thermal=r['post_after_last_thermal'],
             state='last true-h solve, before any final post update' if mode=='true_h' else 'last model-h thermal solve, before any final post update') if key in final_info else None
-    diagnostics['native_full_3d']=dict(abi=driver.abi,numerical_driver='cpp',
+    diagnostics['native_full_3d']=dict(abi=driver.abi,entry_version=r['entry_version'],numerical_driver='cpp',
         coarse_bootstrap={label:None if f is None else f['bootstrap'] for label,f in zip('AB',r['flow'])},
         pressure={label:None if f is None else f['last']['pressure'] for label,f in zip('AB',r['flow'])})
     diagnostics['coarse_bootstrap_trace'] = r['bootstrap_trace']
@@ -630,7 +672,7 @@ def run_case(case, control=RunControl()):
         diagnostics['_audit_eps']=float(cfg['eps'])
         diagnostics['_audit_m_dot_B_phys_in']=r['physical_mass_in'][1] if r['flow'][1] else None
         diagnostics['_audit_m_dot_B_phys_out']=r['physical_mass_out'][1] if r['flow'][1] else None
-    return FieldResult(result_id=str(uuid4()),case_id=case.case_id,backend_id='cpp',backend_version='full_3d_v1',grid=case.grid,
+    return FieldResult(result_id=str(uuid4()),case_id=case.case_id,backend_id='cpp',backend_version=f"full_3d_v{r['entry_version']}",grid=case.grid,
         fields=fields,field_metadata=field_metadata,model_refs=case.model_refs,
         boundary_fluxes=dict(mass_A=None if r['mass'][0][0] is None else r['mass'][0],mass_B=None if r['mass'][1][0] is None else r['mass'][1],
             mass_unit='kg/s',mass_axes=('x-face','y-face','z-face'),mass_sign='positive along physical coordinate axis',state='last thermal input',

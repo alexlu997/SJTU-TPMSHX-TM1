@@ -131,6 +131,12 @@ def _parse_geometry_inputs_3d_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
         max_iter_simple=compute_cfg.solver.max_iter_simple,
         max_outer_ltne=compute_cfg.solver.max_outer_ltne,
         outer_tol_K=compute_cfg.solver.outer_tol_K,
+        enthalpy_algorithm=compute_cfg.solver.enthalpy_algorithm,
+        enthalpy_temperature_tol_K=compute_cfg.solver.enthalpy_temperature_tol_K,
+        **(dict(ltne_enthalpy_outer=1500, ltne_enthalpy_nsweep=5,
+                ltne_enthalpy_omega=.2 if compute_cfg.solver.enthalpy_algorithm == 'temperature_sou' else .6,
+                ltne_enthalpy_tol=1e-3)
+           if compute_cfg.solver.enthalpy_algorithm != 'legacy_h_fou' else {}),
         # F2 convergence gates (ledger C6/C7). None -> _apply_accel_flags'
         # resolution: env TPMSHX_CONV_MODE > cfg > default 'f2'.
         **{k: v for k, v in (

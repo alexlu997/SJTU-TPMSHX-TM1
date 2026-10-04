@@ -1,4 +1,5 @@
 #include "tpmshx/full_2d.hpp"
+#include "tpmshx/conservative_energy.hpp"
 #include "tpmshx/model_coefficients.hpp"
 #include "tpmshx/refinement_2d.hpp"
 #include "contiguous_sum.hpp"
@@ -162,6 +163,34 @@ void validate(const Full2DProblem& p,const Full2DControl& c) {
                        c.thermal_q_tolerance,c.enthalpy_update_tolerance})
         if (!std::isfinite(value) || value<=0) throw std::invalid_argument("invalid full2D tolerance/relaxation");
     if (c.outer_relaxation>1) throw std::invalid_argument("full2D outer relaxation exceeds one");
+    switch(c.enthalpy_algorithm) {
+        case EnthalpyAlgorithm::legacy_h_fou: break;
+        case EnthalpyAlgorithm::temperature_fou:
+        case EnthalpyAlgorithm::temperature_sou:
+            if(p.thermal_mode!=Full2DThermalMode::true_h || c.thermal_red_black)
+                throw std::invalid_argument("candidate full2D energy requires the existing true-h route without red-black energy");
+            if(!std::isfinite(c.temperature_update_tolerance) || c.temperature_update_tolerance<=0.)
+                throw std::invalid_argument("invalid candidate full2D temperature update tolerance");
+            break;
+        default: throw std::invalid_argument("unknown full2D energy algorithm");
+    }
+}
+
+void check_energy_ports(const GridView& g,const Full2DSide& side,
+                        const Vector& mass_x,const Vector& mass_y) {
+    for(int axis=0;axis<2;++axis) for(bool high:{false,true}) {
+        const auto count=axis==0?g.ny:g.nx;
+        for(std::size_t q=0;q<count;++q) {
+            const double mass=axis==0?mass_x[(high?g.nx*g.ny:0)+q]
+                :mass_y[q*(g.ny+1)+(high?g.ny:0)];
+            if(mass==0.) continue;
+            if(axis!=side.direction/2)
+                throw std::invalid_argument("candidate energy mass crosses a non-port boundary");
+            const bool inlet=high==static_cast<bool>(side.direction%2);
+            if((inlet?side.inlet_geometry:side.outlet_geometry)[q]==0.)
+                throw std::invalid_argument("candidate energy mass crosses a closed port face");
+        }
+    }
 }
 
 void build_physical_evidence(const Full2DProblem& p,std::size_t side,Full2DFlow& f) {
@@ -440,16 +469,36 @@ void solve_thermal(const Full2DProblem& p,const Full2DControl& c,Full2DResult& r
             eps[side].resize(n);
             const double split=side==0?p.split_a:1.-p.split_a;
             for (std::size_t k=0;k<n;++k) eps[side][k]=p.total_porosity[k]*split;
+            if(c.enthalpy_algorithm!=EnthalpyAlgorithm::legacy_h_fou)
+                check_energy_ports(g,p.sides[side],t.mass_x[side],t.mass_y[side]);
         }
         const auto fluid=[&](std::size_t side) {
             return EnthalpySideView{p.sides[side].fluid,p.sides[side].inlet_temperature,p.sides[side].inlet_pressure,
-                view(t.pressure[side]),view(eps[side]),view(t.hv[side]),view(t.mass_x[side]),view(t.mass_y[side]),view(z)};
+                view(t.pressure[side]),view(eps[side]),view(t.hv[side]),view(t.mass_x[side]),view(t.mass_y[side]),view(z),p.sides[side].direction};
         };
         t.h_a.resize(n); t.h_b.resize(n);
         const EnthalpyStateView state{writable(t.h_a),writable(t.h_b),fields.a,fields.b,fields.solid,true,true,true};
-        const EnthalpyControl control{c.thermal_iterations,3,.6,c.enthalpy_update_tolerance,.001,.001,
+        EnthalpyControl control{c.thermal_iterations,3,.6,c.enthalpy_update_tolerance,.001,.001,
             c.table_directory,c.cancel,c.context};
+        control.algorithm=c.enthalpy_algorithm;
+        control.temperature_update_tolerance=c.temperature_update_tolerance;
+        if(control.algorithm!=EnthalpyAlgorithm::legacy_h_fou) {
+            control.sweeps=5;
+            control.omega=control.algorithm==EnthalpyAlgorithm::temperature_sou?.2:.6;
+        }
         t.result=solve_enthalpy(g,fluid(0),fluid(1),p.solid_conductivity,state,control);
+        const auto& solved=std::get<EnthalpyResult>(t.result);
+        if(solved.stop!=EnthalpyStop::cancelled && solved.algorithm!=EnthalpyAlgorithm::legacy_h_fou) {
+            EnthalpyEOS eos;
+            for(std::size_t side=0;side<2;++side) {
+                auto& actual=t.actual_conductivity[side];actual.resize(n);
+                for(std::size_t k=0;k<n;++k)
+                    actual[k]=eps[side][k]*eos.conductivity(p.sides[side].fluid,t.temperature[side][k],t.pressure[side][k]);
+                t.enthalpy_boundary_power[side]=enthalpy_boundary_power(g,view(side==0?t.h_a:t.h_b),
+                    {view(t.mass_x[side]),view(t.mass_y[side]),view(z)},solved.inlet_enthalpy[side],
+                    solved.algorithm==EnthalpyAlgorithm::temperature_sou);
+            }
+        }
     } else {
         std::array<Vector,2> eps;
         for (std::size_t side=0;side<2;++side) {
@@ -529,6 +578,11 @@ Full2DResult solve_full_2d_coarse(const Full2DProblem& p,const Full2DControl& c)
         std::array<Vector,2> density,rho_cp;
         Full2DOuterRecord record{}; record.iteration=outer; record.thermal_iterations=thermal_iterations(result.thermal);
         record.thermal_converged=thermal_converged(result.thermal);
+        if(const auto* solved=std::get_if<EnthalpyResult>(&result.thermal.result)) {
+            record.enthalpy_algorithm=solved->algorithm;
+            record.thermal_temperature_update=solved->temperature_update;
+            record.thermal_picard_relaxation=solved->picard_relaxation;
+        }
         bool stable=outer>0;
         for (std::size_t side=0;side<2;++side) {
             density[side].resize(n); rho_cp[side].resize(n);
@@ -754,6 +808,9 @@ Full2DResult solve_full_2d(const Full2DProblem& p,const Full2DControl& c) {
     r.simple_ok=true; r.envelope_ok=true;
     for (std::size_t side=0;side<2;++side) {
         const auto& f=r.flow[side]; const auto& s=p.sides[side];
+        const bool candidate=c.enthalpy_algorithm!=EnthalpyAlgorithm::legacy_h_fou;
+        const auto& mass_x=candidate?r.thermal.mass_x[side]:f.mass_x;
+        const auto& mass_y=candidate?r.thermal.mass_y[side]:f.mass_y;
         r.simple_ok=r.simple_ok && f.result.converged;
         r.envelope_ok=r.envelope_ok && r.envelope[side].valid;
         double in=0.,out=0.,in_weights=sum(s.inlet_profile),out_weights=sum(s.outlet_profile);
@@ -771,8 +828,8 @@ Full2DResult solve_full_2d(const Full2DProblem& p,const Full2DControl& c) {
         double mass=0.,heat=0.;
         for (std::size_t k=0;k<s.outlet_geometry.size;++k) {
             const int d=s.direction;
-            const double outward=d==0?f.mass_x[p.grid.nx*p.grid.ny+k]:d==1?-f.mass_x[k]:
-                d==2?f.mass_y[k*(p.grid.ny+1)+p.grid.ny]:-f.mass_y[k*(p.grid.ny+1)];
+            const double outward=d==0?mass_x[p.grid.nx*p.grid.ny+k]:d==1?-mass_x[k]:
+                d==2?mass_y[k*(p.grid.ny+1)+p.grid.ny]:-mass_y[k*(p.grid.ny+1)];
             if (s.outlet_geometry[k]>0.) {
                 const double w=std::max(outward,0.); mass+=w;
                 if (w>0.) heat+=w*r.thermal.temperature[side][boundary_cell(p.grid,d,k,true)];
@@ -786,10 +843,10 @@ Full2DResult solve_full_2d(const Full2DProblem& p,const Full2DControl& c) {
             r.inlet_mass[side]=std::get<ModelHResult2D>(r.thermal.result).audit.sides[side].mass_in;
         else if (p.thermal_mode==Full2DThermalMode::true_h) {
             r.inlet_mass[side]=0.; const auto& g=p.grid;
-            for (std::size_t j=0;j<g.ny;++j) r.inlet_mass[side]+=std::max(f.mass_x[j],0.);
-            for (std::size_t j=0;j<g.ny;++j) r.inlet_mass[side]+=std::max(-f.mass_x[g.nx*g.ny+j],0.);
-            for (std::size_t i=0;i<g.nx;++i) r.inlet_mass[side]+=std::max(f.mass_y[i*(g.ny+1)],0.);
-            for (std::size_t i=0;i<g.nx;++i) r.inlet_mass[side]+=std::max(-f.mass_y[i*(g.ny+1)+g.ny],0.);
+            for (std::size_t j=0;j<g.ny;++j) r.inlet_mass[side]+=std::max(mass_x[j],0.);
+            for (std::size_t j=0;j<g.ny;++j) r.inlet_mass[side]+=std::max(-mass_x[g.nx*g.ny+j],0.);
+            for (std::size_t i=0;i<g.nx;++i) r.inlet_mass[side]+=std::max(mass_y[i*(g.ny+1)],0.);
+            for (std::size_t i=0;i<g.nx;++i) r.inlet_mass[side]+=std::max(-mass_y[i*(g.ny+1)+g.ny],0.);
         }
     }
     r.energy_imbalance=std::abs(r.duty[0]+r.duty[1])/(std::abs(r.duty[0])+std::abs(r.duty[1])+1e-30);
