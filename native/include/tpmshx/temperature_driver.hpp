@@ -22,10 +22,6 @@ struct TemperatureFluidView {
     TemperatureBoundary boundary;
 };
 
-struct TemperatureStateView {
-    ArrayView<double> a, b, solid;
-};
-
 struct TemperatureControl {
     // These are the resolved caller budgets; no mode-dependent defaults hide
     // here. Python defaults: 2D (50000,500,min(tol*2e-3,1e-3));

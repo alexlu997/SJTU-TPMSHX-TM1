@@ -1,4 +1,5 @@
 #include "tpmshx/enthalpy_driver.hpp"
+#include "tpmshx/conservative_energy.hpp"
 #include "tpmshx/model_coefficients.hpp"
 
 #include <algorithm>
@@ -42,10 +43,12 @@ struct Side {
     const EnthalpySideView& input;
     ArrayView<double> h, t;
     double hin = 0., lower = 0., upper = 0.;
-    std::vector<double> cp, dh, k, star, table_lower, table_upper;
+    std::vector<double> cp, dh, k, star, temperature_star, table_lower, table_upper;
     bool table_used = false;
     Side(const EnthalpySideView& f, ArrayView<double> enthalpy, ArrayView<double> temperature,
-         std::size_t n) : input(f), h(enthalpy), t(temperature), cp(n), dh(n), k(n), star(n) {}
+         std::size_t n, bool temperature_variable = false)
+        : input(f), h(enthalpy), t(temperature), cp(n), dh(n), k(n), star(n),
+          temperature_star(temperature_variable ? n : 0) {}
 
     void invert(EnthalpyEOS& eos, const GridView& grid, bool tables, const std::string& where) {
         bool use_table = tables && !table_lower.empty();
@@ -57,7 +60,7 @@ struct Side {
     }
 
     FluidView frozen() const {
-        return {view(dh),view(cp),view(t),view(star),input.hv,
+        return {view(dh),view(cp),temperature_star.empty() ? view(t) : view(temperature_star),view(star),input.hv,
                 input.mass_x,input.mass_y,input.mass_z,hin,lower,upper};
     }
     FluidEnergyView energy(bool equations) const {
@@ -65,11 +68,146 @@ struct Side {
                 input.mass_x,input.mass_y,input.mass_z,hin};
     }
 };
+
+void check_inflow(const GridView& g, const EnthalpySideView& side) {
+    if (side.inlet_direction < 0 || side.inlet_direction > 5)
+        throw std::invalid_argument("T energy requires an explicit inlet direction");
+    const std::size_t extent[]{g.nx,g.ny,g.nz}, stride[]{g.ny*g.nz,g.nz,1};
+    const ArrayView<const double> mass[]{side.mass_x,side.mass_y,side.mass_z};
+    for (std::size_t i = 0; i < g.nx; ++i)
+        for (std::size_t j = 0; j < g.ny; ++j)
+            for (std::size_t k = 0; k < g.nz; ++k) {
+                const std::size_t coord[]{i,j,k};
+                const std::size_t face[]{(i*g.ny+j)*g.nz+k,
+                    (i*(g.ny+1)+j)*g.nz+k,(i*g.ny+j)*(g.nz+1)+k};
+                for (std::size_t axis = 0; axis < 3; ++axis) {
+                    const int low = static_cast<int>(2*axis), high = low+1;
+                    if ((coord[axis] == 0 && mass[axis][face[axis]] > 0.
+                         && side.inlet_direction != low)
+                        || (coord[axis]+1 == extent[axis] && mass[axis][face[axis]+stride[axis]] < 0.
+                            && side.inlet_direction != high))
+                        throw std::invalid_argument("T energy has exterior inflow without a defined inlet state");
+                }
+            }
+}
+
+EnthalpyResult solve_temperature_energy(const GridView& grid, const EnthalpySideView& a,
+                                       const EnthalpySideView& b, ArrayView<const double> k_ss,
+                                       EnthalpyStateView state, const EnthalpyControl& control) {
+    if (!control.max_iterations || !control.sweeps || !std::isfinite(control.omega)
+        || control.omega <= 0. || control.omega > 1.
+        || !std::isfinite(control.temperature_update_tolerance) || control.temperature_update_tolerance <= 0.)
+        throw std::invalid_argument("invalid T energy numerical controls");
+    for (const auto limit : {control.coupled_energy_tolerance,control.equation_energy_tolerance})
+        if (!limit || !std::isfinite(*limit) || *limit <= 0.)
+            throw std::invalid_argument("T energy requires positive coupled and equation tolerances");
+    const auto maximum = std::numeric_limits<std::size_t>::max();
+    if (grid.nx == maximum || grid.ny == maximum || grid.nz == maximum)
+        throw std::invalid_argument("invalid T energy grid extent");
+    const auto n = product(product(grid.nx,grid.ny),grid.nz);
+    coefficient(grid.dx,grid.nx,true); coefficient(grid.dy,grid.ny,true); coefficient(grid.dz,grid.nz,true);
+    coefficient(k_ss,n,false);
+    for (const auto* f : {&a,&b}) {
+        check(f->pressure,n,false);
+        coefficient(f->epsilon,n,false); coefficient(f->hv,n,false);
+        check(f->mass_x,product(product(grid.nx+1,grid.ny),grid.nz));
+        check(f->mass_y,product(product(grid.nx,grid.ny+1),grid.nz));
+        check(f->mass_z,product(product(grid.nx,grid.ny),grid.nz+1));
+        check_inflow(grid,*f);
+    }
+    check(state.h_a,n,false); check(state.h_b,n,false);
+    // Actual PT validation owns each fluid's error category and cell context.
+    check(state.a,n,false); check(state.b,n,false); check(state.solid,n,state.warm_solid);
+    EnthalpyEOS eos;
+    Side sa(a,state.h_a,state.a,n,true), sb(b,state.h_b,state.b,n,true);
+    const std::array<Side*,2> sides{&sa,&sb};
+    const std::array<bool,2> warm{state.warm_a,state.warm_b};
+    EnthalpyResult result{};
+    result.algorithm = control.algorithm;
+    result.stop = EnthalpyStop::cancelled;
+    if (control.cancel && control.cancel(control.context)) return result;
+    for (std::size_t s = 0; s < sides.size(); ++s) {
+        auto& side = *sides[s];
+        const auto& f = side.input;
+        const std::string name = s == 0 ? "A" : "B";
+        side.hin = eos.evaluate_state(f.fluid,f.inlet_temperature,f.inlet_pressure,"T energy inlet "+name).enthalpy;
+        for (std::size_t p = 0; p < n; ++p) {
+            const double temperature = warm[s] ? side.t[p] : f.inlet_temperature;
+            const auto actual = eos.evaluate_state(f.fluid,temperature,f.pressure[p],
+                location(grid,p,"T energy initial state "+name));
+            side.t[p] = temperature; side.h[p] = actual.enthalpy; side.cp[p] = actual.cp;
+            side.k[p] = f.epsilon[p]*actual.conductivity;
+            side.dh[p] = side.k[p]/actual.cp;
+        }
+    }
+    result.inlet_enthalpy = {sa.hin,sb.hin};
+    if (!state.warm_solid)
+        std::fill_n(state.solid.data,n,.5*(a.inlet_temperature+b.inlet_temperature));
+    const bool sou = control.algorithm == EnthalpyAlgorithm::temperature_sou;
+    std::vector<double> ra(n), rb(n), rs(n), old_solid(n), source_a(sou ? n : 0), source_b(sou ? n : 0);
+    for (std::size_t iteration = 0; iteration < control.max_iterations; ++iteration) {
+        if (control.cancel && control.cancel(control.context)) { result.final_audit.reset(); return result; }
+        for (auto* side : sides) {
+            std::copy_n(side->h.data,n,side->star.begin());
+            std::copy_n(side->t.data,n,side->temperature_star.begin());
+        }
+        std::copy_n(state.solid.data,n,old_solid.begin());
+        if (sou) {
+            enthalpy_sou_correction(grid,view(sa.h),{a.mass_x,a.mass_y,a.mass_z},sa.hin,output(source_a));
+            enthalpy_sou_correction(grid,view(sb.h),{b.mass_x,b.mass_y,b.mass_z},sb.hin,output(source_b));
+        }
+        conservative_temperature_sweeps(grid,sa.frozen(),sb.frozen(),k_ss,
+            {state.a,state.b,state.solid},control.sweeps,control.omega,view(source_a),view(source_b),
+            sou ? 1. : control.omega);
+        result.iterations = iteration+1;
+        if (control.cancel && control.cancel(control.context)) { result.final_audit.reset(); return result; }
+        double temperature_update = 0., enthalpy_update = 0.;
+        for (std::size_t s = 0; s < sides.size(); ++s) {
+            auto& side = *sides[s];
+            for (std::size_t p = 0; p < n; ++p) {
+                const auto actual = eos.evaluate_state(side.input.fluid,side.t[p],side.input.pressure[p],
+                    location(grid,p,s == 0 ? "T energy actual state A" : "T energy actual state B"));
+                temperature_update = std::max(temperature_update,std::abs(side.t[p]-side.temperature_star[p]));
+                side.h[p] = actual.enthalpy; side.cp[p] = actual.cp;
+                side.k[p] = side.input.epsilon[p]*actual.conductivity;
+                side.dh[p] = side.k[p]/actual.cp;
+                enthalpy_update = std::max(enthalpy_update,std::abs(side.h[p]-side.star[p]));
+            }
+        }
+        for (std::size_t p = 0; p < n; ++p)
+            temperature_update = std::max(temperature_update,std::abs(state.solid[p]-old_solid[p]));
+        result.temperature_update = temperature_update;
+        result.residual = enthalpy_update/std::max(std::abs(sa.hin-sb.hin),1.);
+        if (!std::isfinite(temperature_update) || !std::isfinite(result.residual))
+            throw std::domain_error("nonfinite actual T energy update");
+        result.final_audit = sou
+            ? thermal_energy_audit_sou(grid,sa.energy(true),sb.energy(true),view(state.solid),k_ss,output(ra),output(rb),output(rs))
+            : thermal_energy_audit(grid,sa.energy(true),sb.energy(true),view(state.solid),k_ss,output(ra),output(rb),output(rs),true);
+        const auto& audit = *result.final_audit;
+        result.q_a = audit.q_a; result.q_b = audit.q_b;
+        result.energy_imbalance = std::abs(audit.net)/std::max({std::abs(audit.q_a),std::abs(audit.q_b),1e-30});
+        if (temperature_update <= control.temperature_update_tolerance
+            && audit.coupled_ratio <= *control.coupled_energy_tolerance
+            && audit.equation_ratio <= *control.equation_energy_tolerance) {
+            result.stop = EnthalpyStop::converged;
+            return result;
+        }
+    }
+    result.stop = EnthalpyStop::iteration_limit;
+    return result;
+}
 }  // namespace
 
 EnthalpyResult solve_enthalpy(const GridView& grid, const EnthalpySideView& a,
                              const EnthalpySideView& b, ArrayView<const double> k_ss,
                              EnthalpyStateView state, const EnthalpyControl& control) {
+    switch (control.algorithm) {
+        case EnthalpyAlgorithm::temperature_fou:
+        case EnthalpyAlgorithm::temperature_sou:
+            return solve_temperature_energy(grid,a,b,k_ss,state,control);
+        case EnthalpyAlgorithm::legacy_h_fou: break;
+        default: throw std::invalid_argument("unknown conservative energy algorithm");
+    }
     for (const auto limit : {control.coupled_energy_tolerance,control.equation_energy_tolerance})
         if (limit && (!std::isfinite(*limit) || *limit <= 0.))
             throw std::invalid_argument("true-h energy tolerances must be finite and positive");

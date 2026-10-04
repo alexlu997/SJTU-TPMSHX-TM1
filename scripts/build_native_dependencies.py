@@ -256,6 +256,7 @@ def verify(cache: Path, host: str) -> None:
         raise RuntimeError(f"Pressure smoke failed: {pressure}")
     for caller in ("quick_design_c_static", "quick_design_c_shared",
                    "enthalpy_c_static", "enthalpy_c_shared", "enthalpy_driver_smoke",
+                   "conservative_energy_smoke", "conservative_energy_driver_smoke",
                    "simple_2d_smoke", "simple_3d_smoke", "simple_2d_c_static", "simple_2d_c_shared",
                    "simple_3d_c_static", "simple_3d_c_shared", "model_h_2d_smoke", "model_h_3d_smoke",
                    "model_h_c_static", "model_h_c_shared", "temperature_c_static", "temperature_c_shared",

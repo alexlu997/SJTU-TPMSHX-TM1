@@ -59,7 +59,8 @@ add_library(tpmshx_quick_design STATIC "${TPMSHX_ROOT}/native/src/quick_design_d
 target_include_directories(tpmshx_quick_design PUBLIC "${TPMSHX_ROOT}/native/include")
 target_link_libraries(tpmshx_quick_design PUBLIC tpmshx_models)
 add_library(tpmshx_enthalpy STATIC "${TPMSHX_ROOT}/native/src/enthalpy_driver.cpp"
-    "${TPMSHX_ROOT}/native/src/enthalpy_eos.cpp" "${TPMSHX_ROOT}/native/src/enthalpy_sweeps.cpp")
+    "${TPMSHX_ROOT}/native/src/enthalpy_eos.cpp" "${TPMSHX_ROOT}/native/src/enthalpy_sweeps.cpp"
+    "${TPMSHX_ROOT}/native/src/conservative_energy.cpp")
 target_include_directories(tpmshx_enthalpy PUBLIC "${TPMSHX_ROOT}/native/include")
 target_link_libraries(tpmshx_enthalpy PUBLIC tpmshx_models)
 add_library(tpmshx_enthalpy_c STATIC "${TPMSHX_ROOT}/native/src/enthalpy_driver_c_api.cpp")
@@ -190,6 +191,10 @@ else()
 endif()
 add_executable(enthalpy_driver_smoke "${TPMSHX_ROOT}/native/tests/enthalpy_driver_smoke.cpp")
 target_link_libraries(enthalpy_driver_smoke PRIVATE tpmshx_enthalpy)
+add_executable(conservative_energy_smoke "${TPMSHX_ROOT}/native/tests/conservative_energy_smoke.cpp")
+target_link_libraries(conservative_energy_smoke PRIVATE tpmshx_enthalpy)
+add_executable(conservative_energy_driver_smoke "${TPMSHX_ROOT}/native/tests/conservative_energy_driver_smoke.cpp")
+target_link_libraries(conservative_energy_driver_smoke PRIVATE tpmshx_enthalpy)
 add_library(enthalpy_driver_test SHARED "${TPMSHX_ROOT}/sjtu_tpmshx/tests/native/enthalpy_driver_bridge.cpp")
 target_compile_definitions(enthalpy_driver_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
 target_link_libraries(enthalpy_driver_test PRIVATE tpmshx_enthalpy)
@@ -297,7 +302,8 @@ target_include_directories(superlu_error_smoke PRIVATE "${TPMSHX_ROOT}/native/in
 target_link_libraries(superlu_error_smoke PRIVATE SuperLU::LU Threads::Threads)
 foreach(target IN ITEMS tpmshx_models tpmshx_quick_design tpmshx_solver tpmshx_solver_shared
         tpmshx_enthalpy tpmshx_enthalpy_c tpmshx_enthalpy_shared enthalpy_c_static enthalpy_c_shared
-        enthalpy_driver_smoke enthalpy_driver_test tpmshx_model_h_2d model_h_2d_test model_h_2d_smoke
+        enthalpy_driver_smoke enthalpy_driver_test conservative_energy_smoke conservative_energy_driver_smoke
+        tpmshx_model_h_2d model_h_2d_test model_h_2d_smoke
         tpmshx_model_h_3d model_h_3d_test model_h_3d_smoke
         tpmshx_model_h_c tpmshx_model_h_shared model_h_c_static model_h_c_shared
         tpmshx_temperature_staggered temperature_staggered_test temperature_staggered_smoke

@@ -160,6 +160,44 @@ temperature route retains its existing unavailable-heat boundary when complete
 enthalpy evidence is absent. Optimization still applies its independent
 model-h physical-boundary and energy certificates.
 
+## Fixed-flow conservative temperature candidates
+
+The C++ `solve_enthalpy` interface in `enthalpy_driver.hpp` accepts an explicit
+`EnthalpyAlgorithm::temperature_fou` or `temperature_sou`. Existing calls default
+to `legacy_h_fou`; the version-1 C interface continues to use that route.
+The temperature candidates currently cover two solved fluids on a tensor grid,
+including a unit-depth 2D extrusion, with supplied signed mass faces, local
+absolute pressures, effective solid conductivity and volumetric exchange
+coefficients. Each side must declare its scalar inlet direction; inflow through
+any other exterior face is rejected. External conductive boundaries are
+adiabatic. This entry does not prepare mass flow, solve SIMPLE or evaluate Nu.
+
+Each nonlinear step freezes independent actual h, T and cp arrays, then performs
+alternating forward/reverse A, B and solid sweeps. Fluid convection uses the
+linearization h* + cp*(T-T*); diffusion uses temperature. SOU freezes a minmod
+correction reconstructed directly from actual enthalpy on physical coordinates,
+including the outlet face, and uses full solid relaxation. FOU uses the supplied
+relaxation for all phases. Guarded HEOS PT updates then replace the linearized
+enthalpy with the actual state before residuals and duties are evaluated. No
+BICUBIC table, H-to-T inversion, clipping or recovery fallback is used.
+
+The candidates require positive coupled and equation tolerances and a positive
+`temperature_update_tolerance` in K. Convergence requires all three tests on the
+same actual state. `EnthalpyResult::algorithm` identifies the executed recipe;
+`temperature_update` is present only on these routes. The existing `residual`
+still records the normalized actual enthalpy update. SOU final certificates
+reconstruct its actual face corrections again and use them consistently in
+boundary duty and local residuals. An iteration-limit result retains its actual
+certificate; cancellation invalidates partial fields and clears that certificate.
+
+`conservative_energy_smoke` checks independent frozen balances, six-direction
+nonuniform face fluxes, reference-enthalpy invariance and invalid inputs.
+`conservative_energy_driver_smoke` checks real EOS states, cold/warm consistency,
+independently reconstructed outlet duty, cancellation, iteration limits and
+physical-domain failures. The dependency-pilot verification runs both. Their
+scope is fixed-flow numerical qualification; production flow/closure acceptance
+and comparison with the legacy BICUBIC route remain separate requirements.
+
 ## First implemented slice
 
 `native/include/tpmshx/enthalpy_sweeps.hpp` and

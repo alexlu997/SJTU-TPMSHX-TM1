@@ -22,4 +22,8 @@ struct GridView {
     ArrayView<const double> dx, dy, dz;  // m; positive cell widths
 };
 
+struct TemperatureStateView {
+    ArrayView<double> a, b, solid;
+};
+
 }  // namespace tpmshx

@@ -80,6 +80,20 @@ EnthalpyProperties EnthalpyEOS::evaluate(Fluid fluid, double temperature, double
     return result;
 }
 
+EnthalpyPTState EnthalpyEOS::evaluate_state(Fluid fluid, double temperature, double pressure,
+                                          const std::string& where) {
+    validate(fluid,temperature,pressure,where);
+    auto& state = heos(fluid);
+    state.update(CoolProp::PT_INPUTS,pressure,temperature);
+    if (state.phase() == CoolProp::iphase_twophase)
+        throw std::invalid_argument(where+": conservative energy requires a single-phase state");
+    const EnthalpyPTState result{state.hmass(),state.cpmass(),state.conductivity()};
+    if (!std::isfinite(result.enthalpy) || !std::isfinite(result.cp) || result.cp <= 0.
+        || !std::isfinite(result.conductivity) || result.conductivity <= 0.)
+        throw std::domain_error(where+": invalid actual PT energy state");
+    return result;
+}
+
 double EnthalpyEOS::conductivity(Fluid fluid, double temperature, double pressure) {
     const double result = transport_state(fluid,temperature,pressure).conductivity();
     if (!std::isfinite(result) || result <= 0.)

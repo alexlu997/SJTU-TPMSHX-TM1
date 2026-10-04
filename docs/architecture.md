@@ -87,6 +87,18 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   kernels. Full 2D ABI 2 retains the original prepared Nu geometry ratio rather
   than reconstructing it after a unit conversion. Python remains the default;
   Windows native qualification is still outstanding.
+- The C++ fixed-flow `solve_enthalpy` also has explicit `temperature_fou`
+  and `temperature_sou` candidates. Both solve conservative enthalpy transport
+  with temperature as the nonlinear unknown, guarded HEOS PT state updates,
+  Fourier conduction and LTNE exchange. `conservative_energy` owns the frozen
+  finite-volume sweeps and direct enthalpy face reconstruction; the driver owns
+  EOS refresh, stopping and actual-state certificates. These candidates require
+  declared scalar inlets and adiabatic external boundaries. Their SOU outlet
+  reconstruction differs from model-h. They require a maximum temperature
+  update in K and both explicit energy gates, and fail on invalid PT states
+  without clipping or fallback. The legacy H algorithm remains the default;
+  this C++ entry alone does not change the public C ABI, Python numerical
+  methods, full-flow routing or supported production fluid pairs.
 - `postprocess/` reduces recorded fields, fluxes and pressure states. It never
   reruns a solver or reads a private runtime object to recover missing evidence.
   Full-compute evaluation reuses successful heat and mass reductions only within

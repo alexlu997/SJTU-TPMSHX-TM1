@@ -12,6 +12,10 @@ struct EnthalpyProperties {
     double cp, conductivity;
 };
 
+struct EnthalpyPTState {
+    double enthalpy, cp, conductivity;
+};
+
 // Real-fluid HEOS used only by the existing true-h equation. In particular,
 // true-h Air/Water h, cp and k are EOS quantities; QD/model-h keep their
 // separate empirical PropertyEvaluator route. One evaluator belongs to a run.
@@ -25,6 +29,10 @@ public:
     void validate(Fluid fluid, double temperature, double pressure,
                   const std::string& where);
     EnthalpyProperties evaluate(Fluid fluid, double temperature, double pressure);
+    // Actual single-phase PT state, including the project water/CO2 guards.
+    // Unlike mathematical bracket evaluation, this can certify a T update.
+    EnthalpyPTState evaluate_state(Fluid fluid, double temperature, double pressure,
+                                  const std::string& where);
     double conductivity(Fluid fluid, double temperature, double pressure);
     double temperature(Fluid fluid, double enthalpy, double pressure,
                        bool use_bicubic, const std::string& where);
