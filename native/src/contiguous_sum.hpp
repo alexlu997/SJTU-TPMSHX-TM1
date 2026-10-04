@@ -1,6 +1,6 @@
 #pragma once
 
-#include "tpmshx/enthalpy_sweeps.hpp"
+#include "tpmshx/finite_volume.hpp"
 
 #include <algorithm>
 #include <array>

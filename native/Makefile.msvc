@@ -10,19 +10,19 @@ all: $(BUILD_DIR)\tpmshx_thermal.lib
 
 shared: $(BUILD_DIR)\tpmshx_thermal.dll
 
-$(BUILD_DIR)\enthalpy_sweeps.obj: native\src\enthalpy_sweeps.cpp native\include\tpmshx\enthalpy_sweeps.hpp
+$(BUILD_DIR)\enthalpy_sweeps.obj: native\src\enthalpy_sweeps.cpp native\include\tpmshx\enthalpy_sweeps.hpp native\include\tpmshx\finite_volume.hpp
 	@if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"
 	cl $(CXXFLAGS) /c native\src\enthalpy_sweeps.cpp /Fo$@
 
-$(BUILD_DIR)\thermal_c_api.obj: native\src\thermal_c_api.cpp native\include\tpmshx\thermal_c_api.h native\include\tpmshx\enthalpy_sweeps.hpp
+$(BUILD_DIR)\thermal_c_api.obj: native\src\thermal_c_api.cpp native\include\tpmshx\thermal_c_api.h native\include\tpmshx\enthalpy_sweeps.hpp native\include\tpmshx\finite_volume.hpp
 	@if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"
 	cl $(CXXFLAGS) /c native\src\thermal_c_api.cpp /Fo$@
 
-$(BUILD_DIR)\thermal_c_api_shared.obj: native\src\thermal_c_api.cpp native\include\tpmshx\thermal_c_api.h native\include\tpmshx\enthalpy_sweeps.hpp
+$(BUILD_DIR)\thermal_c_api_shared.obj: native\src\thermal_c_api.cpp native\include\tpmshx\thermal_c_api.h native\include\tpmshx\enthalpy_sweeps.hpp native\include\tpmshx\finite_volume.hpp
 	@if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"
 	cl $(CXXFLAGS) /DTPMSHX_THERMAL_BUILD_SHARED /c native\src\thermal_c_api.cpp /Fo$@
 
-$(BUILD_DIR)\temperature_driver.obj: native\src\temperature_driver.cpp native\include\tpmshx\temperature_driver.hpp native\include\tpmshx\enthalpy_sweeps.hpp
+$(BUILD_DIR)\temperature_driver.obj: native\src\temperature_driver.cpp native\include\tpmshx\temperature_driver.hpp native\include\tpmshx\finite_volume.hpp
 	@if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"
 	cl $(CXXFLAGS) /c native\src\temperature_driver.cpp /Fo$@
 
@@ -46,10 +46,10 @@ $(BUILD_DIR)\thermal_c_static.exe: $(BUILD_DIR)\thermal_c_smoke.obj $(BUILD_DIR)
 $(BUILD_DIR)\thermal_c_shared.exe: $(BUILD_DIR)\thermal_c_shared.obj $(BUILD_DIR)\tpmshx_thermal.dll
 	cl /nologo $(BUILD_DIR)\thermal_c_shared.obj $(BUILD_DIR)\tpmshx_thermal_import.lib /Fe$@
 
-$(BUILD_DIR)\thermal_cpp_smoke.exe: native\tests\thermal_cpp_smoke.cpp $(BUILD_DIR)\tpmshx_thermal.lib native\include\tpmshx\enthalpy_sweeps.hpp
+$(BUILD_DIR)\thermal_cpp_smoke.exe: native\tests\thermal_cpp_smoke.cpp $(BUILD_DIR)\tpmshx_thermal.lib native\include\tpmshx\enthalpy_sweeps.hpp native\include\tpmshx\finite_volume.hpp
 	cl $(CXXFLAGS) native\tests\thermal_cpp_smoke.cpp $(BUILD_DIR)\tpmshx_thermal.lib /Fo$(BUILD_DIR)\thermal_cpp_smoke.obj /Fe$@
 
-$(BUILD_DIR)\temperature_driver_smoke.exe: native\tests\temperature_driver_smoke.cpp $(BUILD_DIR)\tpmshx_thermal.lib native\include\tpmshx\temperature_driver.hpp native\include\tpmshx\enthalpy_sweeps.hpp
+$(BUILD_DIR)\temperature_driver_smoke.exe: native\tests\temperature_driver_smoke.cpp $(BUILD_DIR)\tpmshx_thermal.lib native\include\tpmshx\temperature_driver.hpp native\include\tpmshx\finite_volume.hpp
 	cl $(CXXFLAGS) native\tests\temperature_driver_smoke.cpp $(BUILD_DIR)\tpmshx_thermal.lib /Fo$(BUILD_DIR)\temperature_driver_smoke.obj /Fe$@
 
 check: $(BUILD_DIR)\thermal_c_static.exe $(BUILD_DIR)\thermal_c_shared.exe $(BUILD_DIR)\thermal_cpp_smoke.exe $(BUILD_DIR)\temperature_driver_smoke.exe

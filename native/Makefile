@@ -17,22 +17,22 @@ all: $(BUILD_DIR)/libtpmshx_thermal.a
 
 shared: $(BUILD_DIR)/libtpmshx_thermal.$(SHARED_SUFFIX)
 
-$(BUILD_DIR)/enthalpy_sweeps.o: native/src/enthalpy_sweeps.cpp native/include/tpmshx/enthalpy_sweeps.hpp
+$(BUILD_DIR)/enthalpy_sweeps.o: native/src/enthalpy_sweeps.cpp native/include/tpmshx/enthalpy_sweeps.hpp native/include/tpmshx/finite_volume.hpp
 	mkdir -p $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -I native/include -c $< -o $@
 
-$(BUILD_DIR)/thermal_c_api.o: native/src/thermal_c_api.cpp native/include/tpmshx/thermal_c_api.h native/include/tpmshx/enthalpy_sweeps.hpp
+$(BUILD_DIR)/thermal_c_api.o: native/src/thermal_c_api.cpp native/include/tpmshx/thermal_c_api.h native/include/tpmshx/enthalpy_sweeps.hpp native/include/tpmshx/finite_volume.hpp
 	mkdir -p $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -I native/include -c $< -o $@
 
-$(BUILD_DIR)/temperature_driver.o: native/src/temperature_driver.cpp native/include/tpmshx/temperature_driver.hpp native/include/tpmshx/enthalpy_sweeps.hpp
+$(BUILD_DIR)/temperature_driver.o: native/src/temperature_driver.cpp native/include/tpmshx/temperature_driver.hpp native/include/tpmshx/finite_volume.hpp
 	mkdir -p $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -I native/include -c $< -o $@
 
 $(BUILD_DIR)/libtpmshx_thermal.a: $(BUILD_DIR)/enthalpy_sweeps.o $(BUILD_DIR)/thermal_c_api.o $(BUILD_DIR)/temperature_driver.o
 	$(AR) rcs $@ $^
 
-$(BUILD_DIR)/libtpmshx_thermal.$(SHARED_SUFFIX): native/src/enthalpy_sweeps.cpp native/src/thermal_c_api.cpp native/src/temperature_driver.cpp native/include/tpmshx/enthalpy_sweeps.hpp native/include/tpmshx/thermal_c_api.h native/include/tpmshx/temperature_driver.hpp
+$(BUILD_DIR)/libtpmshx_thermal.$(SHARED_SUFFIX): native/src/enthalpy_sweeps.cpp native/src/thermal_c_api.cpp native/src/temperature_driver.cpp native/include/tpmshx/enthalpy_sweeps.hpp native/include/tpmshx/finite_volume.hpp native/include/tpmshx/thermal_c_api.h native/include/tpmshx/temperature_driver.hpp
 	mkdir -p $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -fPIC $(SHARED_LDFLAGS) -I native/include native/src/enthalpy_sweeps.cpp native/src/thermal_c_api.cpp native/src/temperature_driver.cpp -o $@
 
@@ -46,10 +46,10 @@ $(BUILD_DIR)/thermal_c_static: $(BUILD_DIR)/thermal_c_smoke.o $(BUILD_DIR)/libtp
 $(BUILD_DIR)/thermal_c_shared: $(BUILD_DIR)/thermal_c_smoke.o $(BUILD_DIR)/libtpmshx_thermal.$(SHARED_SUFFIX)
 	$(CXX) $^ -Wl,-rpath,$(abspath $(BUILD_DIR)) -o $@
 
-$(BUILD_DIR)/thermal_cpp_smoke: native/tests/thermal_cpp_smoke.cpp $(BUILD_DIR)/libtpmshx_thermal.a native/include/tpmshx/enthalpy_sweeps.hpp
+$(BUILD_DIR)/thermal_cpp_smoke: native/tests/thermal_cpp_smoke.cpp $(BUILD_DIR)/libtpmshx_thermal.a native/include/tpmshx/enthalpy_sweeps.hpp native/include/tpmshx/finite_volume.hpp
 	$(CXX) $(CXXFLAGS) -I native/include $< $(BUILD_DIR)/libtpmshx_thermal.a -o $@
 
-$(BUILD_DIR)/temperature_driver_smoke: native/tests/temperature_driver_smoke.cpp $(BUILD_DIR)/libtpmshx_thermal.a native/include/tpmshx/temperature_driver.hpp native/include/tpmshx/enthalpy_sweeps.hpp
+$(BUILD_DIR)/temperature_driver_smoke: native/tests/temperature_driver_smoke.cpp $(BUILD_DIR)/libtpmshx_thermal.a native/include/tpmshx/temperature_driver.hpp native/include/tpmshx/finite_volume.hpp
 	$(CXX) $(CXXFLAGS) -I native/include $< $(BUILD_DIR)/libtpmshx_thermal.a -o $@
 
 check: $(BUILD_DIR)/thermal_c_static $(BUILD_DIR)/thermal_c_shared $(BUILD_DIR)/thermal_cpp_smoke $(BUILD_DIR)/temperature_driver_smoke
