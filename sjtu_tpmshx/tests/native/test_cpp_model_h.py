@@ -1,4 +1,4 @@
-"""Stable model-h C ABI: unchanged native metadata, callbacks and owned state.
+"""Stable model-h C ABI: public metadata, callbacks and owned state.
 
 Use the already-fixed full-driver tolerances; compare all nested metadata and
 all returned boundary faces, without replacing any physical acceptance gate.
@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.domain.cancellation import CancelledError
-from sjtu_tpmshx.solvers.backends.cpp.model_h import NativeModelHDriver
+from sjtu_tpmshx.solvers.backends.cpp.model_h import NativeModelHDriver, _model_h_algorithm
 from sjtu_tpmshx.tests.native import test_model_h_2d as plane
 from sjtu_tpmshx.tests.native import test_model_h_3d as volume
 
@@ -88,7 +88,12 @@ def test_full_public_metadata(driver, monkeypatch, dimension, kind):
     for a, e in zip(actual[:3], expected[:3]):
         np.testing.assert_allclose(a, e, rtol=2e-10 if c['accelerate'] else 2e-11,
                                    atol=2e-8 if c['accelerate'] else 2e-9)
-    compare(actual[3], expected[3], rtol=2e-10 if dimension == 2 else 2e-9,
+    algorithm = ('shared_fv_model_h_2d_defect_v1' if dimension == 2
+                 else 'shared_fv_model_h_3d_compensated_v1')
+    assert _model_h_algorithm(driver.library, dimension) == algorithm
+    info = actual[3].copy()
+    assert info.pop('native_metadata') == dict(abi=1, algorithm=algorithm, red_black=c['rb'])
+    compare(info, expected[3], rtol=2e-10 if dimension == 2 else 2e-9,
             atol=2e-8 if dimension == 2 else 2e-9)
     compare(c, original, rtol=0, atol=0)
     if dimension == 2:

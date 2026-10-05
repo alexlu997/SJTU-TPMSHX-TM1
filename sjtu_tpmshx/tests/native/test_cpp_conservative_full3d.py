@@ -312,7 +312,10 @@ def test_missing_candidate_native_capability_never_falls_back(native_path, monke
                 raise AttributeError(name)
             return getattr(library, name)
     monkeypatch.setattr(driver, 'library', OldLibrary())
-    monkeypatch.setattr(driver, 'call', lambda *_: pytest.fail('candidate fell back to old entry'))
+    def forbidden_fallback(*_):
+        pytest.fail('candidate fell back to old entry')
+    forbidden_fallback.argtypes = driver.call.argtypes
+    monkeypatch.setattr(driver, 'call', forbidden_fallback)
     with pytest.raises(ValueError, match='lacks conservative energy v2'):
         driver.run_prepared(*build_execution_inputs(candidate(ALGORITHMS[0])))
 

@@ -70,7 +70,14 @@ def compare_portable(actual, expected):
     assert actual.backend_version == 'full_2d_v2'
     for key in ('fields', 'field_metadata', 'pressure_evidence', 'run_status'):
         compare(getattr(actual, key), getattr(expected, key), key)
-    compare(actual.boundary_fluxes, expected.boundary_fluxes, 'boundary_fluxes')
+    fluxes = dict(actual.boundary_fluxes)
+    if actual.metadata['thermal_mode'] == 'model_h':
+        assert expected.metadata['thermal_mode'] == 'model_h'
+        fine = dict(fluxes['fine'])
+        assert fine.pop('native') == dict(
+            abi=2, algorithm='shared_fv_model_h_2d_defect_v1', red_black=False)
+        fluxes['fine'] = fine
+    compare(fluxes, expected.boundary_fluxes, 'boundary_fluxes')
     for key in ('model_metadata', 'application', 'reporting_reference', 'df_metadata'):
         compare(actual.metadata[key], expected.metadata[key], key)
     actual_metrics, expected_metrics = evaluate(actual).metrics, evaluate(expected).metrics
