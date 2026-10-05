@@ -23,7 +23,7 @@ from sjtu_tpmshx.io.result_io import save_result, load_result
 from sjtu_tpmshx.postprocess.api import evaluate
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
-from sjtu_tpmshx.solvers.backends.cpp.full_2d import NativeFull2DDriver, _pack
+from sjtu_tpmshx.solvers.backends.cpp.full_2d import NativeFull2DDriver
 from sjtu_tpmshx.solvers.backends.cpp.full_2d_capture import capture_result
 from sjtu_tpmshx.solvers.backends.python.two_d.execution import build_execution_inputs
 
