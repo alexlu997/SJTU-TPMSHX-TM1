@@ -44,6 +44,12 @@ typedef struct {
 
 typedef struct tpmshx_temperature_driver_v1 tpmshx_temperature_driver_v1;
 TPMSHX_THERMAL_API uint32_t TPMSHX_THERMAL_CALL tpmshx_temperature_driver_abi_version(void);
+/* Numerical recipe implemented by this library for a temperature scheme.
+ * Returns immutable NUL-terminated static storage; never free or modify it.
+ * Unknown schemes return NULL. The identity is not a qualification certificate
+ * and does not select an algorithm or change ABI-v1 structure layouts.
+ */
+TPMSHX_THERMAL_API const char* TPMSHX_THERMAL_CALL tpmshx_temperature_algorithm_v1(uint32_t scheme);
 /* Explicit owner of the last grid's MAC hierarchy. Independent handles may be
  * used concurrently; one handle must not be called concurrently or from its
  * callbacks. A failed create leaves *driver untouched. Destroy accepts NULL.
@@ -70,7 +76,9 @@ TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_temperature_driver_destroy_v1
  * original grid-size/opt-in gates. accelerate must be 0 (non-model-h rule).
  * Warm state is used only if warm_start=1; prescribed_b, if nonempty, pins B.
  * max_iterations may be 0; chunk_iterations is positive. Every requested
- * chunk is charged even if its internal 1e-10 K shortcut exits earlier.
+ * chunk is charged without exceeding max_iterations. CC and conservative SOU
+ * use frozen reconstruction blocks of at most five actual sweeps. Structurally
+ * FOU and nonconservative staggered may stop an exactly unchanged sweep early.
  * Inputs and control tables remain immutable through callbacks. They and
  * result/error/owner storage must not overlap mutable state or one another.
  * Pointer arguments cannot establish allocation extents; the caller owns all
@@ -82,7 +90,10 @@ TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_temperature_driver_destroy_v1
  * Error storage is mandatory, positive capacity, bounded/NUL terminated.
  * On normal return result owns any residual views independently of driver
  * and inputs until release. Only available fluids have valid views/metrics.
- * They are original final equations, not additional acceptance gates. Powers
+ * They use the final reconstructed face powers. With complete boundaries,
+ * CC and conservative staggered additionally require solved-phase L1 and
+ * global energy errors <=1e-7 relative to max(abs(Qa),abs(Qb),1). Incomplete
+ * boundary diagnostics retain Q/field stopping and are not physical qualification. Powers
  * are W/m for CC2D, W for 3D. Projection evidence applies only to conservative
  * staggered. Q_b is the B interface integral and NaN before an audited chunk.
  * Release each normal result, including cancelled, before reusing its struct.

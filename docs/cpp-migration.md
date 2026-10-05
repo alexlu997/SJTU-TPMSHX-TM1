@@ -19,8 +19,12 @@ case and producing evidence usable by the existing postprocessor.
 
 Python/Numba remains the default. The explicit `backend='cpp'` supports
 complete prepared Quick Design and full 2D/3D execution on the qualified macOS
-arm64 build. Windows native execution is not yet qualified. Installed desktop
-visual acceptance and whole-application performance are separate gates.
+arm64 build. Windows native execution is not yet qualified. Delivery uses the
+existing Python/Qt entry point and a precompiled C++ library in the project
+folder. Source GUI acceptance and whole-application performance remain separate
+gates; a packaged `.app` is outside this delivery scope. The macOS folder
+launcher explicitly selects the supplied candidate library; it does not change
+the public Python default or establish qualification for every case.
 The optional true-h sweep kernel inside the Python backend is a separate,
 narrower capability.
 
@@ -300,30 +304,137 @@ directions, a one-cell 20 W exchange, internal-face cancellation, isothermal
 pressure-dependent enthalpy and a deliberately unbalanced local temperature
 field whose global/coupled budget is zero but equation residual is positive.
 
-## Fixed-coefficient temperature driver
+## Shared finite-volume temperature consumers
 
-`temperature_driver.hpp` adds `solve_temperature` for 2D and 3D cell-centred
-temperature equations. The native call owns cold/warm initialization,
-prescribed B, the per-cell A/solid/B update order, chunk budgets, Q and field
-stability, progress and cancellation. It accepts explicit per-side porosity,
-variable coefficients, nonuniform widths, signed inlet capacity and partial
-openings; conductivity already includes its side's porosity.
+The integrated fullCC candidate transports the
+existing air/water integral h(T) using strict model-h drivers and actual
+thermal mass faces. It replaces the earlier variable-cp m*cp*T proposal;
+the earlier physical-contract failure is retained as history, not a description
+of the current implementation. Earlier numerical and resource qualifications
+remain tied to their recorded builds; final-library and application acceptance
+remain separate gates. Fixed-cp Quick Design is a separate
+approximation and is not a variable-cp integral-enthalpy claim.
 
-This is a fixed-coefficient driver, with no EOS, property passes, pressure
-solve or physical energy certificate. The 3D staggered/projection, MMS,
-model-h, true-h and red-black paths are not implemented by this entry point.
-The production backend does not select it. Invalid dimensions, directions,
-relaxation policies, extents and aliased state are rejected before updates;
-arithmetic failures invalidate the partial state. Cancellation returns an
-explicit cancelled status and cannot certify convergence.
+The private `energy_fv_rows.hpp` supplies shared transport, Fourier conduction,
+LTNE exchange and physical-source rows. It does not select a fluid model,
+prepare SIMPLE/MAC faces, own an EOS or grant a consumer convergence policy.
+CMake applies the same no-contraction floating-point policy to every source
+that instantiates these shared rows, including the direct kernel smoke test.
+This prevents link order from selecting differently rounded copies of the
+same template. The policy is source-local; retained legacy thermal kernels
+keep their existing compile options.
+The actual caller boundaries are:
 
-Qualification compares complete A/B/solid fields, residuals, stopping status
-and charged budgets, including real Quick Design inputs frozen after their
-Python property preparation. Same-algorithm tolerances were fixed before
-comparison: 2D `rtol=2e-12, atol=2e-10 K`; 3D
-`rtol=2e-11, atol=2e-9 K` against its Numba fastmath reference. These are
-arithmetic tolerances, not changes to PDE or experimental gates. A separate
-C++ caller checks a hand-calculated single-cell phase update.
+| Consumer | Driver and retained contract |
+| --- | --- |
+| Quick Design const/mean and standalone CC | `solve_temperature` in `temperature_driver.cpp`; fixed coefficients per pass, capacity transport, cold/warm start, bounded iteration and cancellation |
+| Air/water full2D temperature main/fine and full3D CC Nz=1 | Strict `solve_model_h_2d`; existing air/water h(T), A-SOU/B-FOU, prepared mass/K/h_v and each caller's original budget |
+| Air/water full3D CC Nz>1 | Strict `solve_model_h_3d`; SOU on both sides, prepared mass/K/h_v, prescribed B, asymmetric geometry and strict-only water/water support |
+| Existing product model-h | Default non-strict model-h drivers and original eligibility/stopping rules; reuse by fullCC does not grant optimizer eligibility |
+| Full3D true-h CC warm-up | Existing private `legacy_single_a_temperature` with empty prescribed B; original G4 two-sweep map for Nz=1, or Nz>1 with conservative=false and force_cell_centered=true. Both sides are solved; the following enthalpy driver retains its selected algorithm and physical gates |
+| Single-A sCO2 CC | Same private G4 kernel with prescribed B and the original thermal budget; identity `legacy_frozen_cp_single_a_cc_v1`, preserving the prior single-fluid path without an integral h(P,T) ledger |
+| Staggered/MAC temperature | Existing projection/cache and capacity-face preparation; retained nonconservative advective research correction has no fullCC integral-h qualification |
+| True-h | Existing legacy H-FOU default or explicitly selected conservative T algorithms; EOS and their independent gates remain in the enthalpy driver |
+
+The retained CC warm-up is a deterministic true-h caller contract, shared
+with the existing single-A implementation. It adds no public selector or new
+kernel copy. Its two-sweep result is only an initial state; the enthalpy
+driver still validates every sCO2 warm temperature and supplies the final
+thermal verdict. Nz>1 staggered warm-up keeps its existing shared-temperature
+route. Full2D true-h does not consume this full3D warm-up.
+
+FullCC uses the accepted thermal SIMPLE mass faces without multiplying them
+by cp, reconstructing mass from cell velocity or applying porosity/opening
+twice. The model-h driver evaluates the existing h(T) model on reconstructed
+face temperatures and uses the original prepared Fourier conductivity and
+exchange. Full2D rows/powers use unit depth and W/m. Full3D Nz=1 requires zero
+active z-face mass, divides its physical mass by depth for the 2D solve, then
+multiplies residual, source/reservoir and boundary powers by depth exactly once
+to return W; temperature is unchanged.
+
+Strict fullCC keeps duty/field stability and additionally requires a fresh
+complete-boundary ledger: the larger of the phase sums of absolute cell
+residuals and the coupled boundary/source imbalance must be <=1e-7 of the
+interface exchange scale, with a one-native-power-unit floor. Failed
+checks continue within the caller's budget; incomplete physical inflow cannot
+converge. Strict SOU uses physical inlet distances and one-sided outflow
+reconstruction; strict inlet Fourier conduction uses the resistance/moment
+rule in both rows and audits. The non-strict product model-h boundary remains
+unchanged. Nonzero fullCC manufactured volume sources remain unsupported.
+Prescribed B remains an external temperature reservoir, is excluded from
+updates/Anderson/solved equations, and has no fabricated B certificate.
+
+The following guarded-line iteration describes only the fixed-coefficient
+QD/standalone CC driver, not the strict fullCC model-h adapter. Standalone CC
+reconstructs unique signed capacity faces from supplied cell fields; explicit
+capacity inputs, where provided, already contain their porosity/area/depth
+factors and override that reconstruction. It uses one T-minmod correction on
+each internal face. With complete inflow,
+active second-order transport and no red-black ordering, a block contains up
+to four point sweeps and a guarded line-Newton trial. The trial is accepted
+only when its actual-state physical error strictly decreases. Both comparison
+states include the same 0.6 block damping; rejection retains the damped point
+state. Point sweeps for A and SOU B use min(caller alpha,0.2); FOU B and
+line trials use the caller alpha. Degenerate or red-black cases use point blocks. Budgets count every
+requested step, and cancellation never certifies convergence.
+
+In this fixed-coefficient driver, complete-boundary convergence requires
+Q/field stability and fresh maximum phase residual/coupled boundary-source
+balance <=1e-7, normalized by the larger
+interface power with a 1 W or W/m floor. Direct-capacity calls cannot converge
+with unidentified exterior inflow. Standalone reconstructed-capacity calls
+retain their historical stability status for incomplete boundaries but expose
+the missing boundary certificate explicitly. No EOS lookup occurs in this
+fixed-coefficient driver. CC still rejects nonzero manufactured volume sources;
+staggered/model-h retain their existing source capabilities. Prescribed B is
+an external temperature reservoir and has no solved B residual certificate.
+
+Read-only queries distinguish the executed fixed-coefficient guarded-line,
+staggered and model-h recipes. FullCC identifies its spatial contract as
+`model_h_tface_sou_fou_strict_v3` (2D/Nz=1) or
+`model_h_tface_sou_sou_strict_v3` (Nz>1). The additive full2D/full3D
+`get_model_enthalpy_evidence_v1` queries preserve existing solve-result layouts
+and expose `tpmshx_model_enthalpy_evidence_v1`, not the former capacity-ledger
+layout. Each solved fluid records [c0,c1,c2,Tbase,Tref] for the existing
+quadratic cp(T) and its integral h(Tref)=0, alongside solved-phase flags,
+physical residuals, source/reservoir power and outward m*h(T_face)/Fourier
+planes. Views borrow the result owner; bindings copy them before release.
+Main/fine 2D stages retain separate actual identities. The requested thermal
+mode remains `temperature`; portable evidence declares
+`model_enthalpy_temperature_v1`. Offline postprocessing validates and reduces
+the captured powers without running a solver, EOS or new face reconstruction.
+Availability is not convergence, and these records do not create product
+model-h optimization eligibility. Missing declarations for new ledger fields
+are invalid; historical files without new fields retain their original rules.
+
+Current qualification is bounded. Sixty strict inlet resistance/moment smoke
+configurations cover six directions and ten coefficient/boundary families;
+they check local rows and ledgers, not a complete PDE grid-order result. The
+defined N3 layered protocol separately passes independent operator/K=0
+analytic checks, 84 accepted axial-order segments from 20 unique rows across
+42 metrics, and the original absolute-error gates for six actual 64-cubed
+manufactured-solution groups. It does not establish global second order for
+arbitrary three-dimensional flows; 32-to-64 rates remain reported trends.
+The original six-group MMS population passed zero of six groups. The original
+axial population passed four of six groups and failed two. Those historical
+results remain unchanged under the later protocol.
+
+N5's twelve deliberately capped consumer requests returned successfully and
+passed fourteen recorded-stage arithmetic audits, but zero of twelve product
+requests converged and only two of fourteen thermal stages converged. The
+separate normal-budget population passed all three complete steady consumers
+(2D main/fine, 3D Nz=1 and 3D Nz>1) and all four thermal-stage audits. The prior
+steady candidate's two-of-three result, including its failed 2D main/fine
+gates, remains history. These fixed populations do not establish experimental
+accuracy or N6 performance/memory acceptance; old fixed-capacity component
+timings are not a same-operator h(T) full-driver cost comparison.
+
+New native algorithms require independent matrix, analytic, grid-sequence,
+actual-state balance and lifecycle qualification. Old-Python trajectory tests
+remain historical same-algorithm evidence and cannot establish parity with a
+changed native method. A native successful exit, complete physical ledger,
+convergence and experimental accuracy are distinct facts. Python numerical
+methods and the default backend remain separately controlled.
 
 ## Build and run the qualification checks
 
@@ -336,8 +447,14 @@ make -f native/Makefile check
 ```
 
 This builds `.cache/native/libtpmshx_thermal.a`. Include `native/include` and
-link that archive from a C++ caller. There is no Python, Qt, NumPy, CoolProp,
-OpenMP, CMake or binding-library dependency in the native library itself.
+link that archive from a C++ caller. Building the temperature line solver
+requires the existing locked Eigen headers, compiled with `EIGEN_MPL2_ONLY`.
+`TPMSHX_EIGEN_INCLUDE` defaults to the locked CoolProp source's `externals/Eigen`
+directory under `.cache/native-deps`; set it explicitly for an isolated source
+tree. A missing directory fails the build without downloading dependencies.
+The low-level archive links no Python, Qt, NumPy, CoolProp/EOS, OpenMP or
+binding-library runtime. The complete dependency-pilot library retains its
+separate EOS/pressure dependencies.
 The `check` target compiles and runs independent C static/shared callers and
 C++ static callers for the energy-audit operator and temperature driver. The shared target
 builds `.cache/native/libtpmshx_thermal.dylib` on macOS or

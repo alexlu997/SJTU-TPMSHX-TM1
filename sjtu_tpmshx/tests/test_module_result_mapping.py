@@ -540,6 +540,22 @@ def test_diagnostic_text_includes_recorded_stage_seconds():
     assert '阶段耗时：准备 0.125 s · 求解 12.500 s · 后处理 0.250 s · 显示 0.375 s' in text
 
 
+@pytest.mark.parametrize('mode', ['2d', '3d'])
+@pytest.mark.parametrize('outer_iters', [0, 7, None])
+def test_gui_summary_uses_recorded_outer_iterations(mode, outer_iters):
+    from sjtu_tpmshx.ui.mixins.run_results import RunResultsMixin
+    result = ComputeResult(diagnostics={
+        'mode': mode, '_max_outer': 99,
+        'convergence_detail': {'outer_iters': outer_iters},
+    })
+    window = SimpleNamespace(cache=ResultCache())
+    RunResultsMixin.write_result(window, result)
+    result.diagnostics['convergence_detail']['outer_iters'] = 99
+    assert window._diag_summary['iters']['iter_outer'] == outer_iters
+    expected = '—' if outer_iters is None else str(outer_iters)
+    assert f'迭代: 外循环 {expected} · SIMPLE A/B —/—' in RunResultsMixin._diag_summary_text(window)
+
+
 def test_mapping_keeps_recorded_state_after_producer_drafts_change(native_result):
     fields, raw = native_result
     expected = to_compute_result(fields, evaluate(fields))

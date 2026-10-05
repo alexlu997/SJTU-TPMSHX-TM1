@@ -17,10 +17,12 @@ from sjtu_tpmshx.models.fluid_props import WaterStateError
 from sjtu_tpmshx.models.field_coordinates_3d import _port_rectangles
 from .simple_3d import _Config as _SimpleConfig, _Result as _SimpleResult, _STOPS, _count
 from ._simple_abi import _F2
-from .model_h import _Result as _ModelResult, _volume_info
+from .model_h import _Result as _ModelResult, _volume_info, _model_h_algorithm
+from .temperature import _temperature_algorithm
+from .temperature_evidence import TemperatureEvidence, copy_temperature_evidence
 from .enthalpy import _Result as _EnthalpyResult, _result_info as _enthalpy_result_info
 from .enthalpy import (_EnergyOptions, _EnergyResult, _energy_options,
-                       _energy_result_info, _energy_native_state)
+                       _energy_result_info, _energy_native_state, _ENERGY_NAMES)
 from .closure_evidence import NuObservation, RangeObservation, copy_nu_observation, copy_range_observations, replay_range_observations
 
 
@@ -165,6 +167,40 @@ class _EnergyEvidence(ct.Structure):
                 ('outer', ct.POINTER(_EnergyResult)), ('outer_count', ct.c_size_t)]
 
 
+class _EnergyOptionsV2(ct.Structure):
+    _fields_ = [('algorithm', ct.c_uint32), ('temperature_update_tolerance', ct.c_double),
+                ('coupled_energy_tolerance', ct.c_double), ('equation_energy_tolerance', ct.c_double),
+                ('require_enthalpy_update_on_temperature', ct.c_uint32)]
+
+
+class _EnergyEffectiveSettings(ct.Structure):
+    _fields_ = [(name, ct.c_uint32) for name in (
+        'available', 'algorithm', 'require_enthalpy_update_on_temperature')]
+    _fields_ += [(name, ct.c_size_t) for name in ('max_iterations', 'sweeps')]
+    _fields_ += [(name, ct.c_double) for name in ('omega', 'update_tolerance',
+        'temperature_update_tolerance', 'coupled_energy_tolerance', 'equation_energy_tolerance')]
+
+
+class _FullEnergyEffectiveSettings(ct.Structure):
+    _fields_ = [('resolved', _EnergyEffectiveSettings), ('last', _EnergyEffectiveSettings),
+                ('outer', ct.POINTER(_EnergyEffectiveSettings)), ('outer_count', ct.c_size_t)]
+
+
+def _executed_energy_settings(info, actual):
+    if actual.available != 1 or actual.algorithm not in range(len(_ENERGY_NAMES)):
+        raise RuntimeError('native full 3D omitted executed thermal settings')
+    info['effective_settings'].update(
+        update_tol=actual.update_tolerance,
+        coupled_energy_tol=actual.coupled_energy_tolerance,
+        equation_energy_tol=actual.equation_energy_tolerance,
+        max_iterations=actual.max_iterations, sweeps=actual.sweeps, omega=actual.omega,
+        energy_algorithm=_ENERGY_NAMES[actual.algorithm],
+        require_enthalpy_update_on_temperature=bool(actual.require_enthalpy_update_on_temperature),
+        effective_settings_source='native_completed_thermal_call', driver_abi=3)
+    if actual.algorithm:
+        info['effective_settings']['temperature_update_tol_K'] = actual.temperature_update_tolerance
+
+
 def _copy(v, shape=None):
     if not v.size:
         return None
@@ -251,15 +287,41 @@ class NativeFull3DDriver:
         control.check_cancelled()
         energy = _energy_options(cfg.get('enthalpy_algorithm', 'legacy_h_fou'),
                                  cfg.get('enthalpy_temperature_tol_K', 1e-8))
-        energy_call = energy_query = None
-        if energy.algorithm:
+        require_h = cfg.get('require_enthalpy_update_on_temperature', False)
+        if type(require_h) is not bool:
+            raise ValueError('require_enthalpy_update_on_temperature must be boolean')
+        strict_options = require_h or any(cfg.get(name) is not None for name in (
+            'ltne_enthalpy_coupled_energy_tol', 'ltne_enthalpy_equation_energy_tol'))
+        energy_call = energy_query = settings_query = None
+        entry_version = 1
+        if strict_options:
+            energy = _EnergyOptionsV2(energy.algorithm, energy.temperature_update_tolerance,
+                .001 if cfg.get('ltne_enthalpy_coupled_energy_tol') is None else cfg['ltne_enthalpy_coupled_energy_tol'],
+                .001 if cfg.get('ltne_enthalpy_equation_energy_tol') is None else cfg['ltne_enthalpy_equation_energy_tol'],
+                require_h)
+            try:
+                energy_call = self.library.tpmshx_solve_full_3d_v3
+                settings_query = self.library.tpmshx_full_3d_get_energy_effective_settings_v1
+            except AttributeError as exc:
+                raise ValueError('native full 3D library lacks explicit energy controls v3') from exc
+            energy_call.argtypes = [*self.call.argtypes[:2], ct.POINTER(_EnergyOptionsV2), *self.call.argtypes[2:]]
+            energy_call.restype = ct.c_int
+            settings_query.argtypes = [ct.POINTER(_Result), ct.POINTER(_FullEnergyEffectiveSettings)]
+            settings_query.restype = ct.c_int
+            entry_version = 3
+        elif energy.algorithm:
             try:
                 energy_call = self.library.tpmshx_solve_full_3d_v2
-                energy_query = self.library.tpmshx_full_3d_get_energy_evidence_v1
             except AttributeError as exc:
                 raise ValueError('native full 3D library lacks conservative energy v2') from exc
             energy_call.argtypes = [*self.call.argtypes[:2], ct.POINTER(_EnergyOptions), *self.call.argtypes[2:]]
             energy_call.restype = ct.c_int
+            entry_version = 2
+        if energy.algorithm:
+            try:
+                energy_query = self.library.tpmshx_full_3d_get_energy_evidence_v1
+            except AttributeError as exc:
+                raise ValueError(f'native full 3D library lacks conservative energy v{entry_version} evidence') from exc
             energy_query.argtypes = [ct.POINTER(_Result), ct.POINTER(_EnergyEvidence)]
             energy_query.restype = ct.c_int
         require_f2_mode(cfg.get('convergence_mode') or run_environment(cfg, 'TPMSHX_CONV_MODE', 'f2'))
@@ -377,15 +439,52 @@ class NativeFull3DDriver:
                 if detached['true_h'] is None or extra.outer_count != len(detached['outer']):
                     raise RuntimeError('native full 3D energy evidence does not match the thermal history')
                 _energy_result_info(detached['true_h'], extra.energy,
-                    temperature_tol=energy.temperature_update_tolerance, abi=2)
+                    temperature_tol=energy.temperature_update_tolerance, abi=entry_version)
                 _energy_native_state(detached['true_h'], extra, shape, 'W')
                 for index, row in enumerate(detached['outer']):
                     _energy_result_info(row['true_h_info'], extra.outer[index],
-                        temperature_tol=energy.temperature_update_tolerance, abi=2)
+                        temperature_tol=energy.temperature_update_tolerance, abi=entry_version)
                 detached['mode'] = 'conservative_energy'
-                detached['entry_version'] = 2
-            else:
-                detached['entry_version'] = 1
+            detached['entry_version'] = entry_version
+            if settings_query:
+                actual = _FullEnergyEffectiveSettings()
+                if settings_query(ct.byref(result), ct.byref(actual)):
+                    raise RuntimeError('native full 3D effective settings query failed')
+                if (actual.resolved.available != 1 or detached['true_h'] is None
+                        or actual.outer_count != len(detached['outer'])):
+                    raise RuntimeError('native full 3D effective settings do not match the thermal history')
+                _executed_energy_settings(detached['true_h'], actual.last)
+                for index, row in enumerate(detached['outer']):
+                    _executed_energy_settings(row['true_h_info'], actual.outer[index])
+            if detached['mode'] in ('model_h', 'temperature'):
+                if detached['mode'] == 'model_h':
+                    algorithm = _model_h_algorithm(self.library, 3)
+                    red_black = bool(c.red_black_energy)
+                else:
+                    scheme = 0 if shape[2] == 1 else (2 if c.conservative or not c.force_cell_centered else 1)
+                    red_black = bool(c.red_black_energy and scheme == 2)
+                    if scheme == 2:
+                        algorithm = _temperature_algorithm(self.library, scheme)
+                    else:
+                        query = self.library.tpmshx_full_3d_get_model_enthalpy_evidence_v1
+                        query.argtypes = [ct.POINTER(_Result), ct.POINTER(TemperatureEvidence)]
+                        query.restype = ct.c_int
+                        extra = TemperatureEvidence()
+                        if query(ct.byref(result), ct.byref(extra)):
+                            raise RuntimeError('native full 3D temperature evidence query failed')
+                        if not data.solve_b and data.sides[0].fluid == 2:
+                            identity = 'legacy_frozen_cp_single_a_cc_v1'
+                            if (extra.available or extra.physical_dimension != 3
+                                    or extra.algorithm != identity.encode('ascii')):
+                                raise RuntimeError('native single-A sCO2 temperature identity or absent ledger is invalid')
+                            detached['temperature_transport'] = identity
+                            algorithm = identity
+                        else:
+                            detached['temperature_evidence'] = copy_temperature_evidence(extra, shape, 3)
+                            algorithm = detached['temperature_evidence']['algorithm']
+                detached['native_metadata'] = dict(abi=self.abi, algorithm=algorithm, red_black=red_black)
+                if 'temperature_transport' in detached:
+                    detached['native_metadata']['transport'] = detached['temperature_transport']
             detached['bootstrap_trace'] = bootstrap_traces
             replay_range_observations(detached['range_observations'])
             from sjtu_tpmshx.models.nu_correlations import warn_sco2_nu_evidence
@@ -672,17 +771,22 @@ def run_case(case, control=RunControl()):
         diagnostics['_audit_eps']=float(cfg['eps'])
         diagnostics['_audit_m_dot_B_phys_in']=r['physical_mass_in'][1] if r['flow'][1] else None
         diagnostics['_audit_m_dot_B_phys_out']=r['physical_mass_out'][1] if r['flow'][1] else None
+    temperature_transport = (r['temperature_evidence']['definition'] if 'temperature_evidence' in r
+                             else r.get('temperature_transport'))
     return FieldResult(result_id=str(uuid4()),case_id=case.case_id,backend_id='cpp',backend_version=f"full_3d_v{r['entry_version']}",grid=case.grid,
         fields=fields,field_metadata=field_metadata,model_refs=case.model_refs,
         boundary_fluxes=dict(mass_A=None if r['mass'][0][0] is None else r['mass'][0],mass_B=None if r['mass'][1][0] is None else r['mass'][1],
             mass_unit='kg/s',mass_axes=('x-face','y-face','z-face'),mass_sign='positive along physical coordinate axis',state='last thermal input',
             model_h=None if r['model_h'] is None else r['model_h']['_native_model_h'],true_h=true_h,report=report,
-            face_velocity_A=r['face_velocity'][0],face_velocity_B=r['face_velocity'][1] if r['flow'][1] else None),
+            face_velocity_A=r['face_velocity'][0],face_velocity_B=r['face_velocity'][1] if r['flow'][1] else None,
+            **({'temperature':r['temperature_evidence']} if 'temperature_evidence' in r else {})),
         pressure_evidence=pressure,run_status=dict(execution='completed',converged=r['converged'],outer_index=r['outer_index']),
         metadata=dict(dimension=3,quantity_basis='total',thermal_mode=r['mode'],parameters=case.parameters,design_fields=case.design_fields,
+            **({'temperature_transport':temperature_transport} if temperature_transport is not None else {}),
             design_mode=case.metadata['design_mode'],model_metadata=model_metadata,notices=case.metadata['notices'],
             application=dict(coeffs=dict(K_ffA=r['final_conductivity'][0],K_ffB=r['final_conductivity'][1],
                 K_ss=np.asarray(p['design']['K_ss']) if emit_audit else None),
                 props=dict(rho_cp_A=r['final_rho_cp'][0],rho_cp_B=r['final_rho_cp'][1],u_A_in_mps=cfg['u_A'],T_in_A_K=cfg['T_inA'])),
+            **({'native':r['native_metadata']} if 'native_metadata' in r else {}),
             diagnostics=diagnostics,df_metadata=df_metadata,model_roles=case.metadata['model_roles'],
             reporting_reference={key:diagnostics[key] for key in ('Q','dP_A','dP_B','T_out_A','T_out_B')}))

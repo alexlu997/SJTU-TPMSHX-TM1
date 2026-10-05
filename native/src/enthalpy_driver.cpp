@@ -98,6 +98,9 @@ EnthalpyResult solve_temperature_energy(const GridView& grid, const EnthalpySide
         || control.omega <= 0. || control.omega > 1.
         || !std::isfinite(control.temperature_update_tolerance) || control.temperature_update_tolerance <= 0.)
         throw std::invalid_argument("invalid T energy numerical controls");
+    if (control.require_enthalpy_update_on_temperature
+        && (!std::isfinite(control.update_tolerance) || control.update_tolerance <= 0.))
+        throw std::invalid_argument("T energy h-update tolerance must be finite and positive");
     for (const auto limit : {control.coupled_energy_tolerance,control.equation_energy_tolerance})
         if (!limit || !std::isfinite(*limit) || *limit <= 0.)
             throw std::invalid_argument("T energy requires positive coupled and equation tolerances");
@@ -199,6 +202,7 @@ EnthalpyResult solve_temperature_energy(const GridView& grid, const EnthalpySide
         result.q_a = audit.q_a; result.q_b = audit.q_b;
         result.energy_imbalance = std::abs(audit.net)/std::max({std::abs(audit.q_a),std::abs(audit.q_b),1e-30});
         if (temperature_update <= control.temperature_update_tolerance
+            && (!control.require_enthalpy_update_on_temperature || result.residual <= control.update_tolerance)
             && audit.coupled_ratio <= *control.coupled_energy_tolerance
             && audit.equation_ratio <= *control.equation_energy_tolerance) {
             result.stop = EnthalpyStop::converged;

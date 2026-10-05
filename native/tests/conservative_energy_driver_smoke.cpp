@@ -119,6 +119,39 @@ int main() {
         require(max_boundary_error<=1e-9,"actual boundary duty omitted SOU outlet reconstruction");
         require(max_warm_difference<=1e-6,"warm and cold T energy solve different equations");
 
+        // Each explicit gate must control the actual exit, not merely appear
+        // in reported settings. The one-step fixtures isolate one gate each.
+        for(bool sou:{false,true}) {
+            Case loose(0,1,Fluid::air,Fluid::water);auto gate=controls(sou);
+            gate.max_iterations=1;gate.sweeps=1;gate.update_tolerance=1e-30;
+            gate.temperature_update_tolerance=1e6;
+            gate.coupled_energy_tolerance=gate.equation_energy_tolerance=1e6;
+            require(!gate.require_enthalpy_update_on_temperature,"extra h gate changed the T default");
+            const auto ungated=solve_enthalpy(loose.grid(),loose.side(0),loose.side(1),view(loose.solid_k),loose.state(),gate);
+            require(ungated.stop==EnthalpyStop::converged && ungated.residual>1e-30
+                    && ungated.final_audit && ungated.final_audit->coupled_ratio>1e-30
+                    && ungated.final_audit->equation_ratio>1e-30,"one-step gate fixture is not discriminating");
+            for(int selected=0;selected<3;++selected) {
+                Case strict(0,1,Fluid::air,Fluid::water);auto selected_gate=gate;
+                if(selected==0)selected_gate.require_enthalpy_update_on_temperature=true;
+                if(selected==1)selected_gate.coupled_energy_tolerance=1e-30;
+                if(selected==2)selected_gate.equation_energy_tolerance=1e-30;
+                const auto stopped=solve_enthalpy(strict.grid(),strict.side(0),strict.side(1),view(strict.solid_k),strict.state(),selected_gate);
+                require(stopped.stop==EnthalpyStop::iteration_limit && stopped.iterations==1
+                        && stopped.final_audit && stopped.temperature_update
+                        && *stopped.temperature_update<=gate.temperature_update_tolerance,
+                        "strict actual h/coupled/equation gate did not block the native exit");
+            }
+            for(double bad:{0.,-1.,std::numeric_limits<double>::infinity(),std::numeric_limits<double>::quiet_NaN()}) {
+                Case invalid_gate(0,1,Fluid::air,Fluid::water);auto invalid=gate;
+                invalid.require_enthalpy_update_on_temperature=true;invalid.update_tolerance=bad;
+                rejects<std::invalid_argument>([&] {
+                    solve_enthalpy(invalid_gate.grid(),invalid_gate.side(0),invalid_gate.side(1),
+                                   view(invalid_gate.solid_k),invalid_gate.state(),invalid);
+                },"T energy accepted an invalid additional h-update tolerance");
+            }
+        }
+
         // Unit-depth 2D and a physical nz=1 extrusion have identical T fields;
         // integrated convection, diffusion and exchange all scale with depth.
         for(std::size_t axis:{0u,1u}) for(int sign:{1,-1}) for(bool sou:{false,true}) {

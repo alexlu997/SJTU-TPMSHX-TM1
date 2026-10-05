@@ -30,7 +30,10 @@ target_include_directories(tpmshx_superlu_lu PRIVATE "${TPMSHX_ROOT}/native/incl
 if(MSVC)
     target_compile_options(tpmshx_superlu_lu PUBLIC
         "/FI${CMAKE_CURRENT_BINARY_DIR}/superlu_config.h")
-    set(superlu_hooks_option "/FI${TPMSHX_ROOT}/native/src/superlu_hooks.h")
+    # Keep the generated no-METIS config ahead of hooks in the source-level list.
+    set(superlu_hooks_option
+        "/FI${CMAKE_CURRENT_BINARY_DIR}/superlu_config.h"
+        "/FI${TPMSHX_ROOT}/native/src/superlu_hooks.h")
     set_source_files_properties("${TPMSHX_ROOT}/native/src/superlu_solve.c" PROPERTIES
         COMPILE_OPTIONS "/W4;/WX")
 else()

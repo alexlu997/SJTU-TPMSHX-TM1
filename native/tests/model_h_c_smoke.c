@@ -1,11 +1,15 @@
 #include "tpmshx/model_h_c_api.h"
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 #define CHECK(x) do { if (!(x)) { fprintf(stderr,"model-h C check failed, line %d\n",__LINE__); return 1; } } while (0)
 static int TPMSHX_THERMAL_CALL cancel(void* value) { return *(int*)value; }
 int main(void) {
     CHECK(tpmshx_model_h_abi_version()==1);
+    CHECK(tpmshx_model_h_algorithm_v1(2) && strcmp(tpmshx_model_h_algorithm_v1(2),"shared_fv_model_h_2d_defect_v1")==0);
+    CHECK(tpmshx_model_h_algorithm_v1(3) && strcmp(tpmshx_model_h_algorithm_v1(3),"shared_fv_model_h_3d_compensated_v1")==0);
+    CHECK(!tpmshx_model_h_algorithm_v1(0) && !tpmshx_model_h_algorithm_v1(UINT32_MAX));
     for (unsigned dimension=2;dimension<=3;++dimension) {
         size_t shape[3]={1,1,dimension==2?1:2};
         const size_t n=shape[2];

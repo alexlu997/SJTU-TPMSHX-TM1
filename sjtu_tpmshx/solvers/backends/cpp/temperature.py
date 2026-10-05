@@ -46,6 +46,19 @@ class _Callbacks(ct.Structure):
     _fields_ = [('cancel', _Cancel), ('progress', _Progress), ('context', ct.c_void_p)]
 
 
+def _temperature_algorithm(library, scheme):
+    """Copy the recipe identity from the same native library used to solve."""
+    try:
+        query = library.tpmshx_temperature_algorithm_v1
+    except AttributeError as error:
+        raise ValueError('native library lacks tpmshx_temperature_algorithm_v1') from error
+    query.argtypes, query.restype = [ct.c_uint32], ct.c_char_p
+    identity = query(scheme)
+    if not identity:
+        raise ValueError(f'native library has no temperature algorithm for scheme {scheme}')
+    return identity.decode('ascii')
+
+
 class NativeTemperatureDriver:
     """Prepared 2D/3D temperature capability; never changes default dispatch.
 
@@ -65,6 +78,7 @@ class NativeTemperatureDriver:
         self.abi = version()
         if self.abi != 1:
             raise ValueError(f'unsupported temperature driver ABI: {self.abi}; expected 1')
+        self.algorithms = tuple(_temperature_algorithm(self.library, mode) for mode in range(3))
         double_p, size_p, char_p = ct.POINTER(ct.c_double), ct.POINTER(ct.c_size_t), ct.POINTER(ct.c_char)
         self.call = self.library.tpmshx_solve_temperature_v1
         self.call.argtypes = [ct.c_void_p, size_p, ct.POINTER(double_p), size_p, ct.POINTER(_Config),
@@ -205,7 +219,8 @@ class NativeTemperatureDriver:
             info = dict(converged=result.stop == 0, iterations=result.iterations, residual=result.residual)
             if dimension == 3:
                 info['delegated_to_2d'] = False
-            evidence = dict(scheme=scheme, driver='cpp', driver_abi=self.abi, Q_B=result.q_b,
+            evidence = dict(scheme=scheme, driver='cpp', driver_abi=self.abi,
+                            algorithm=self.algorithms[mode], Q_B=result.q_b,
                             duty_units='W/m' if dimension == 2 else 'W', equations={}, projection={})
             if mode == 2 and conservative:
                 for label, residual, projected in zip(('A', 'B'), result.fluid, result.projection):

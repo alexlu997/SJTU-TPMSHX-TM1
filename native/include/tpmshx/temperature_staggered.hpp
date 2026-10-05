@@ -48,9 +48,14 @@ std::vector<double> solve_mac_neumann_bordered(
 // runs the capacity-weighted MAC projection before replacing explicit inlet
 // capacity faces. The projection intentionally interpolates epsilon*rhoCp,
 // whereas thermal transport interpolates epsilon and rhoCp separately.
-// Serial SOU reads live temperatures; RB SOU freezes start-of-sweep fields.
-// Stopping remains Q + field stability; final strict metrics are evidence,
-// not new convergence gates. Prescribed B is fixed and has no B certificate.
+// Conservative internal SOU freezes face offsets for five-sweep blocks with
+// fluid relaxation capped at .2 and block damping .6. Structurally FOU keeps
+// the original single-sweep schedule. Nonconservative serial reconstruction
+// reads live temperatures; its RB path freezes start-of-sweep fields.
+// Q/field stability is required. For complete conservative boundaries a fresh
+// solved-phase L1 and global energy error must also be <=1e-7 relative to
+// max(abs(Qa),abs(Qb),1). Incomplete boundaries retain diagnostic Q/field stopping.
+// Prescribed B is fixed, contributes reservoir power and has no B certificate.
 // Original non-model-h acceleration is unsupported. No EOS or model-h path.
 // One instance retains the last grid's AMG hierarchy and is not concurrently
 // callable; independent instances have independent mutable solver storage.

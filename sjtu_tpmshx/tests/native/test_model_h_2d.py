@@ -1,14 +1,14 @@
-"""Complete native 2D model-h driver qualification against current Python.
+"""Native 2D model-h contracts and independent returned-state equations.
 
 Tolerances fixed before running: unaccelerated T rtol 2e-12 / atol 2e-10 K;
-Anderson T rtol 2e-10 / atol 2e-8 K (different SVD implementation). Audits
-rtol 2e-10 / atol 2e-8 W/m, with exact budget, exit and gate predicates.
+Anderson T rtol 2e-10 / atol 2e-8 K remain on the explicitly retained legacy
+same-map contracts. Actual-state audits keep rtol 2e-10 / atol 2e-8 W/m.
+Fixed budgets, explicit exit tests and original physical gate predicates stay.
 No new acceptance threshold replaces the production equation/energy gates.
 """
 from concurrent.futures import ThreadPoolExecutor
 import copy
 import ctypes
-import inspect
 import os
 from pathlib import Path
 import sys
@@ -17,6 +17,11 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.solvers import ltne_energy as energy
+from sjtu_tpmshx.models.tpms_props import model_h_coefficients
+from sjtu_tpmshx.tests.native.model_h_history import (
+    compare_shadow, driver_function, heat_in_driver_order, n4_solved_case,
+    read_progress, read_trace, stable_chunks,
+)
 
 
 SIDE_KEYS = (
@@ -48,14 +53,20 @@ def native():
         if override or os.environ.get("TPMSHX_REQUIRE_NATIVE_DEPS_TESTS") == "1":
             pytest.fail(message)
         pytest.skip(message)
-    function = ctypes.CDLL(str(library)).test_model_h_2d
-    sp = ctypes.POINTER(ctypes.c_size_t)
+    official_library = ctypes.CDLL(str(library))
+    function = driver_function(official_library, 2)
     dp = ctypes.POINTER(ctypes.c_double)
-    function.argtypes = [sp, ctypes.POINTER(dp), sp, sp, dp, sp, dp,
-                         ctypes.POINTER(ctypes.c_char), ctypes.c_size_t]
-    function.restype = ctypes.c_int
 
-    def run(case, *, bad_size=None, cancel_at=0, alias=False):
+    def run(case, *, bad_size=None, cancel_at=0, alias=False, history=None, shadow=False, trace=None):
+        active_library, active_function = official_library, function
+        if shadow:
+            override_history = os.environ.get("TPMSHX_MODEL_H_2D_HISTORY_LIBRARY")
+            observed_path = Path(override_history) if override_history else library.with_name(name.replace("_test", "_history_test"))
+            if not observed_path.is_file():
+                pytest.fail(f"native model-h history library not built: {observed_path}")
+            active_library = ctypes.CDLL(str(observed_path))
+            active_function = driver_function(active_library, 2)
+
         shape = case["shape"]
         outputs = [np.full(shape, np.nan) for _ in range(7)]
         outputs += [np.full_like(case[key][index], np.nan) for key in ("a", "b") for index in (2, 3)]
@@ -70,13 +81,18 @@ def native():
             sizes[bad_size] -= 1
         if alias:
             pointers[6] = pointers[3]
-        config = (ctypes.c_size_t * 10)(case["maxit"], case["chunk"], case["warm"],
-            case["accelerate"], case["rb"], *case["fluids"], *case["directions"], cancel_at)
+        config = (ctypes.c_size_t * 12)(case["maxit"], case["chunk"], case["warm"],
+            case["accelerate"], case["rb"], *case["fluids"], *case["directions"], cancel_at, history is not None, case.get("strict", False))
         values = (ctypes.c_double * 3)(*case["tin"], case["qtol"])
         dimensions = (ctypes.c_size_t * 3)(*shape, 1)
         status, metrics = (ctypes.c_size_t * 15)(), (ctypes.c_double * 41)()
         error = ctypes.create_string_buffer(512)
-        code = function(dimensions, pointers, sizes, config, values, status, metrics, error, len(error))
+        code = active_function(dimensions, pointers, sizes, config, values, status, metrics, error, len(error))
+        if history is not None:
+            history[:] = read_progress(active_library, case["shape"])
+        if trace is not None:
+            assert shadow
+            trace[:] = read_trace(active_library, case["shape"])
         return code, tuple(status), np.array(metrics), outputs, error.value.decode()
 
     return run
@@ -125,7 +141,7 @@ def python(case, monkeypatch):
         *case["directions"], **kwargs)
 
 
-def equivalent(c, native, monkeypatch):
+def legacy_equivalent(c, native, monkeypatch):
     expected = python(c, monkeypatch)
     code, status, metrics, output, error = native(c)
     assert code == 0, error
@@ -158,6 +174,150 @@ def equivalent(c, native, monkeypatch):
     return status, metrics, output
 
 
+def assert_actual_state(c, actual):
+    """Audit the returned non-strict state and its native accepted snapshots.
+
+    The existing Python audit is independent of the C++ shared row. It does
+    not advance a thermal solve or replace this route's half-cell boundary.
+    """
+    code, status, metrics, output, error = actual
+    assert code == 0, error
+    assert status[0] in (0, 1) and 0 <= status[1] <= c["maxit"]
+    assert status[5] == 1
+    assert np.isfinite(metrics[0]) and metrics[0] >= 0
+    assert all(np.all(np.isfinite(t)) for t in (*c["state"], *output[:2]))
+    a, b = c["a"], c["b"]
+    profiles, openings = [], []
+    for index, side in enumerate((a, b)):
+        size = c["shape"][1-c["directions"][index]//2]
+        profiles.append(side[4] if side[4].size else np.full(size, c["tin"][index]))
+        openings.append(side[5] if side[5].size else np.ones(size))
+    coefficients = [model_h_coefficients(("air", "water")[f]) for f in c["fluids"]]
+    balance = energy._model_h_balance(
+        *c["state"], a[0], b[0], c["ks"], a[1], b[1], *c["widths"][:2],
+        tuple(a[2:4]), tuple(b[2:4]), *coefficients, *c["directions"],
+        *profiles, *openings, True, *output[:2])
+    assert status[6:8] == tuple(balance[s]["unknown_inflow_faces"] for s in ("A", "B"))
+    assert status[8:14] == tuple(balance[key] for key in GATE_KEYS)
+    scalars = [balance[s][key] for s in ("A", "B") for key in SIDE_KEYS]
+    scalars += [balance[key] for key in AUDIT_KEYS]
+    np.testing.assert_allclose(metrics[2:], scalars, rtol=2e-10, atol=2e-8)
+
+    dx, dy = c["widths"][:2]
+    area = dx[:, None]*dy[None, :]
+
+    def divergence(faces):
+        return np.diff(faces[0], axis=0)+np.diff(faces[1], axis=1)
+
+    def conduction(t, k):
+        flux_x, flux_y = np.zeros_like(a[2]), np.zeros_like(a[3])
+        resistance_x = .5*(dx[:-1, None]*k[1:]+dx[1:, None]*k[:-1])
+        resistance_y = .5*(dy[None, :-1]*k[:, 1:]+dy[None, 1:]*k[:, :-1])
+        gx = np.divide(k[:-1]*k[1:], resistance_x,
+                       out=np.zeros_like(resistance_x), where=resistance_x > 0)
+        gy = np.divide(k[:, :-1]*k[:, 1:], resistance_y,
+                       out=np.zeros_like(resistance_y), where=resistance_y > 0)
+        flux_x[1:-1] = gx*dy[None, :]*(t[:-1]-t[1:])
+        flux_y[:, 1:-1] = gy*dx[:, None]*(t[:, :-1]-t[:, 1:])
+        return -divergence((flux_x, flux_y))
+
+    exchanges = []
+    for i, (name, side) in enumerate((("A", a), ("B", b))):
+        t, ts = c["state"][i], c["state"][2]
+        flux = tuple(np.asarray(f) for f in balance[name]["h_faces_W_per_m"])
+        for axis in range(2):
+            np.testing.assert_allclose(output[7+2*i+axis], flux[axis], rtol=2e-10, atol=2e-8)
+        inlet = np.asarray(balance[name]["inlet_conduction_faces_W_per_m"])
+        np.testing.assert_allclose(output[11+i], inlet, rtol=2e-10, atol=2e-8)
+        cap, deferred = energy._model_h_faces(
+            output[i], tuple(side[2:4]), coefficients[i], c["directions"][i],
+            profiles[i], openings[i], True, dx, dy)
+        linear_flux = energy._model_face_values(
+            t, tuple(side[2:4]), cap, deferred, c["directions"][i], profiles[i], openings[i])
+        defect = divergence(linear_flux)-divergence(flux)
+        exchange = side[1]*(ts-t)*area
+        residual = -divergence(flux)+conduction(t, side[0])+exchange
+        boundary = [slice(None), slice(None)]
+        boundary[c["directions"][i]//2] = -1 if c["directions"][i]%2 else 0
+        residual[tuple(boundary)] += inlet
+        np.testing.assert_allclose(output[2+i], residual, rtol=2e-10, atol=2e-8)
+        np.testing.assert_allclose(output[5+i], defect, rtol=2e-10, atol=2e-8)
+        exchanges.append(exchange)
+    solid = conduction(c["state"][2], c["ks"])-exchanges[0]-exchanges[1]
+    np.testing.assert_allclose(output[4], solid, rtol=2e-10, atol=2e-8)
+    checks = output[-1][:3*status[14]].reshape(-1, 3)
+    assert len(checks) == status[14] <= (status[1]+c["chunk"]-1)//c["chunk"]
+    if len(checks):
+        assert np.all(np.isfinite(checks))
+        assert np.all((checks[:, 1:] == 0) | (checks[:, 1:] == 1))
+        assert np.all(np.diff(checks[:, 0]) > 0)
+        assert np.all((checks[:, 0] > 0) & (checks[:, 0] <= status[1]))
+        assert np.all((checks[:, 0] % c["chunk"] == 0) | (checks[:, 0] == c["maxit"]))
+        assert np.all(checks[:, 1] <= checks[:, 2])
+    if status[0] == 0:
+        assert balance["passed"] and len(checks) > 0
+        np.testing.assert_array_equal(checks[-1], [status[1], True, True])
+    elif status[1] < c["maxit"]:
+        assert not balance["physical_boundary_complete"]
+    if c["maxit"]:
+        q = np.sum(b[1]*(c["state"][2]-c["state"][1])*area)
+        assert metrics[1] == pytest.approx(q, rel=2e-10, abs=2e-8)
+    else:
+        assert np.isnan(metrics[1])
+    return status, metrics, output
+
+
+def assert_finishing_history(c, actual, history):
+    """Check every trigger and nonlinear threshold at the accepted chunk T.
+
+    Progress does not expose intermediate last_a/b. Substituting current T
+    below is only for the audit's unused linearization diagnostics; no claim
+    is made about their intermediate finiteness or values. Real snapshot and
+    defect values are checked at final return and in the observed AA trials.
+    """
+    _, status, metrics, output, _ = actual
+    assert not c.get("strict", False)
+    expected_done = list(range(c["chunk"], status[1]+1, c["chunk"]))
+    if status[1] % c["chunk"]:
+        expected_done.append(status[1])
+    assert [done for done, _ in history] == expected_done
+    assert len(history) == status[3]
+    profiles, openings = [], []
+    for i, side in enumerate((c["a"], c["b"])):
+        size = c["shape"][1-c["directions"][i]//2]
+        profiles.append(side[4] if side[4].size else np.full(size, c["tin"][i]))
+        openings.append(side[5] if side[5].size else np.ones(size))
+    coefficients = [model_h_coefficients(("air", "water")[f]) for f in c["fluids"]]
+    checks = []
+    for done, state, stable in stable_chunks(c, history):
+        assert all(np.all(np.isfinite(field)) for field in state)
+        if stable:
+            balance = energy._model_h_balance(
+                *state, c["a"][0], c["b"][0], c["ks"], c["a"][1], c["b"][1],
+                *c["widths"][:2], tuple(c["a"][2:4]), tuple(c["b"][2:4]),
+                *coefficients, *c["directions"], *profiles, *openings, True, *state[:2])
+            checks.append([done, balance["passed"], balance["equations_ok"]])
+            if balance["passed"] or not balance["physical_boundary_complete"]:
+                assert done == status[1]
+                assert status[0] == (0 if balance["passed"] else 1)
+    assert status[14] == len(checks)
+    np.testing.assert_array_equal(output[-1][:3*status[14]].reshape(-1, 3),
+                                  np.asarray(checks).reshape(-1, 3))
+    if history:
+        assert metrics[1] == pytest.approx(heat_in_driver_order(c, history[-1][1]), rel=2e-10, abs=2e-8)
+
+
+def equivalent(c, native, monkeypatch):
+    # With zero sweeps the original same-state comparison is still valid.
+    if c["maxit"] == 0:
+        return legacy_equivalent(c, native, monkeypatch)
+    history = []
+    actual = native(c, history=history)
+    result = assert_actual_state(c, actual)
+    assert_finishing_history(c, actual, history)
+    return result
+
+
 @pytest.mark.parametrize("directions", [(0, 2), (1, 3), (2, 1), (3, 0), (0, 1), (2, 3)])
 @pytest.mark.parametrize("rb", [False, True])
 def test_directed_nonuniform_sou_and_final_audit(native, monkeypatch, directions, rb):
@@ -168,14 +328,64 @@ def test_directed_nonuniform_sou_and_final_audit(native, monkeypatch, directions
 
 @pytest.mark.parametrize("directions", [(0, 3), (1, 2)])
 def test_strict_model_h_sweep_operation_order(native, monkeypatch, directions):
-    # The original 2D Numba kernel forbids fused multiply/add. Its face
-    # enthalpy subtraction amplifies an unintended contraction at water cp.
+    # Preserve the original case/budget as an actual-state qualification.
     c = case(shape=(8, 6), directions=directions, sweeps=25, chunk=25)
-    expected = python(c, monkeypatch)
-    code, _, _, _, error = native(c)
+    assert_actual_state(c, native(c))
+
+    # One CV gives an independent binary64 operation-order contract for the
+    # current defect map; this is not a second Python thermal iterator.
+    c = case(shape=(1, 1), directions=directions, fluids=(1, 1), sweeps=1, chunk=1)
+    dx, dy, hv, cp = .01, .013, 2000., 4182.
+    ta, tb, ts = 350.1, 300.2, 325.15
+    c.update(widths=[np.array([dx]), np.array([dy]), np.ones(1)], tin=(350.3, 299.9),
+             state=[np.full((1, 1), value) for value in (ta, tb, ts)])
+    c["ks"][:] = 0.
+    for i, (key, mass) in enumerate((("a", .0001), ("b", .00004))):
+        side, direction = c[key], directions[i]
+        side[0][:] = 0.
+        side[1][:] = hv
+        side[2][:] = side[3][:] = 0.
+        side[2+direction//2][:] = mass if direction%2 == 0 else -mass
+        side[4] = side[5] = np.empty(0)
+    a, b, cubic, origin, reference = map(float, model_h_coefficients("water"))
+
+    def enthalpy(t):
+        x, x0 = t-origin, reference-origin
+        return a*(x-x0)+.5*b*(x*x-x0*x0)+cubic/3.*(x*x*x-x0*x0*x0)
+
+    def defect(t, solid, inlet, mass):
+        value = hv*(dx*dy)*(solid-t)
+        value += (mass*cp)*(inlet-t)
+        value -= mass*(enthalpy(t)-cp*t)-mass*(enthalpy(inlet)-cp*inlet)
+        return value
+
+    h = hv*(dx*dy)
+    expected_a = ta+.2*defect(ta, ts, c["tin"][0], .0001)/(h+.0001*cp)
+    expected_s = ts+(h*(expected_a-ts)+h*(tb-ts))/(h+h)
+    expected_b = tb+.2*defect(tb, expected_s, c["tin"][1], .00004)/(h+.00004*cp)
+    result = native(c)
+    code, status, metrics, output, error = result
     assert code == 0, error
-    for actual, target in zip(c["state"], expected[:3]):
-        np.testing.assert_array_equal(actual, target)
+    assert status[0] == 1 and status[1] == 1
+    np.testing.assert_array_equal([field.item() for field in c["state"]],
+                                  [expected_a, expected_b, expected_s])
+    assert metrics[0] == max(abs(expected_a-ta), abs(expected_b-tb), abs(expected_s-ts))
+    np.testing.assert_array_equal(output[0], np.full((1, 1), ta))
+    np.testing.assert_array_equal(output[1], np.full((1, 1), tb))
+    # Reconstruct the reported nonlinear face power at the returned state,
+    # keeping every multiply/subtract/add separately rounded as binary64.
+    for i, mass in enumerate((.0001, .00004)):
+        direction = directions[i]
+        signed_mass = mass if direction%2 == 0 else -mass
+        for axis in range(2):
+            expected = np.zeros_like(output[7+2*i+axis])
+            if axis == direction//2:
+                for end in range(2):
+                    up = c["tin"][i] if end == direction%2 else c["state"][i].item()
+                    flux = (signed_mass*cp)*up+signed_mass*(enthalpy(up)-cp*up)
+                    expected[(end, 0) if axis == 0 else (0, end)] = flux
+            np.testing.assert_array_equal(output[7+2*i+axis], expected)
+    assert_actual_state(c, result)
 
 
 @pytest.mark.parametrize("fluids", [(0, 0), (0, 1), (1, 0), (1, 1)])
@@ -214,28 +424,18 @@ def test_same_budget_and_physical_acceptance(native, monkeypatch, accelerate, rb
 def test_anderson_short_budget_restores_snapshot(native, monkeypatch):
     c = straight_case(sweeps=139, accelerate=True)
     c["chunk"] = 67
-    original = energy._gs_full_chunk
-    signature = inspect.signature(original.py_func)
-    trials, snapshots = [], []
-
-    def record(*args, **kwargs):
-        values = signature.bind(*args, **kwargs).arguments
-        result = original(*args, **kwargs)
-        if values["n_iters"] == 1:
-            trials.append(result)
-        snapshots[:] = [values["last_Ta"], values["last_Tb"]]
-        return result
-
-    monkeypatch.setattr(energy, "_gs_full_chunk", record)
-    status, _, output = equivalent(c, native, monkeypatch)
-    assert status[1] == 139
-    assert status[0] == 1
-    assert len(trials) == 4
-    assert trials[1] > trials[0]  # first candidate rejected
-    assert trials[3] <= trials[2]  # second candidate accepted
-    for actual, target in zip(output[:2], snapshots):
-        np.testing.assert_allclose(actual, target, rtol=2e-10, atol=2e-8)
-
+    actual, history, decisions, trace = compare_shadow(c, native, 2)
+    status, _, _ = assert_actual_state(c, actual)
+    assert_finishing_history(c, actual, history)
+    assert status[1] == 139 and status[0] == 1
+    assert len(decisions) == 2
+    assert sum(row[0] == 0 and row[1] == 1 for row in trace) == 4
+    # The fixed N4 solved/rb0 input supplies both decisions for this
+    # current map; old-map trial signs are not used as an oracle.
+    fixed = n4_solved_case(case, 2)
+    n4, _, choices, _ = compare_shadow(fixed, native, 2)
+    assert n4[1][0] == 1 and n4[1][1] == 139
+    assert choices == [False, True]
 
 def test_zero_budget_real_audit(native, monkeypatch):
     c = case(sweeps=0)
@@ -272,11 +472,13 @@ def test_stable_heat_cannot_bypass_local_equation_gate(native, monkeypatch, swee
         c[key][4] = c[key][5] = np.empty(0)
     c["ks"][:] = 5
     status, _, output = equivalent(c, native, monkeypatch)
-    assert status[0] == (0 if accepted else 1)
-    assert status[12] == accepted
-    checks = output[-1][:3*status[14]].reshape(-1, 3)
-    assert np.any(checks[:, 1] == 0)
-    assert (status[1] > 12000) if accepted else (status[1] == 12000)
+    # accepted labels the historical point-map result, not the new map's
+    # convergence time. Both original budgets and the actual equation gate stay.
+    assert status[1] <= sweeps
+    if status[0] == 0:
+        assert status[12] == status[13] == 1
+    else:
+        assert status[1] == sweeps
 
 
 @pytest.mark.parametrize("refine", [1, 2])

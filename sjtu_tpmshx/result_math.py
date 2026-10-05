@@ -191,7 +191,26 @@ def _conservative_boundary_power_duty(native, side, dimension, grid):
         raise ValueError('conservative boundary power units disagree with physical dimension')
     if native['physical_boundary_complete'] is not True:
         raise ValueError('incomplete physical boundary prevents conservative heat duty')
-    ledger = native['boundary_power'][side]
+    return _boundary_plane_duty(native['boundary_power'], side, dimension, grid)
+
+
+def _temperature_boundary_power_duty(native, side, dimension, grid):
+    """Reduce the recorded signed advective duty; Fourier power stays separate."""
+    if native['definition'] != 'model_enthalpy_temperature_v1':
+        raise ValueError('unsupported temperature transport definition')
+    if native['physical_dimension'] != dimension:
+        raise ValueError('temperature evidence dimension disagrees with physical grid')
+    if native['power_units'] != ('W/m' if dimension == 2 else 'W'):
+        raise ValueError('temperature boundary power units disagree with physical dimension')
+    if native['physical_boundary_complete'] is not True:
+        raise ValueError('incomplete physical boundary prevents temperature heat duty')
+    if native['solved'][side] is not True:
+        raise NotImplementedError('prescribed fluid has no solved boundary heat duty')
+    return _boundary_plane_duty(native['advective_out'], side, dimension, grid)
+
+
+def _boundary_plane_duty(powers, side, dimension, grid):
+    ledger = powers[side]
     keys = ('x-', 'x+', 'y-', 'y+', 'z-', 'z+')
     if not isinstance(ledger, Mapping) or set(ledger) != set(keys):
         raise ValueError('conservative energy requires all six physical boundary faces')

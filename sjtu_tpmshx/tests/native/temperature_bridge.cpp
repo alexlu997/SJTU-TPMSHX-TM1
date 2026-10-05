@@ -1,10 +1,12 @@
 // Test-only FFI: production users call the C++ fixed-coefficient driver.
 #include "tpmshx/temperature_driver.hpp"
+#include "tpmshx/conservative_energy.hpp"
 #include "tpmshx/thermal_c_api.h"
 
 #include <algorithm>
 #include <cstdio>
 #include <stdexcept>
+#include <limits>
 
 namespace {
 struct Callbacks {
@@ -25,7 +27,8 @@ void progress(void* context, std::size_t done, std::size_t) {
 extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_temperature_driver(
     const std::size_t* shape, double** arrays, const std::size_t* sizes,
     const std::size_t* config, const double* values,
-    std::size_t* status, double* metrics, char* error, std::size_t error_size) {
+    std::size_t* status, double* metrics, double* residual, double* powers,
+    double* audit_meta, char* error, std::size_t error_size) {
     using namespace tpmshx;
     const auto v = [&](std::size_t i) { return ArrayView<const double>{arrays[i],sizes[i]}; };
     const auto out = [&](std::size_t i) { return ArrayView<double>{arrays[i],sizes[i]}; };
@@ -38,8 +41,9 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_temperature_driver(
     TemperatureControl control{config[1],config[2],values[2],values[3],values[4],values[5],
                                config[3] != 0,config[4] != 0,cancelled,progress,&callbacks};
     try {
+        PhysicalHeatLedger ledger;
         const auto result = solve_temperature(static_cast<TemperatureScheme>(config[0]),
-            grid,a,b,v(26),{out(3),out(4),out(5)},control,v(27),config[8]!=0);
+            grid,a,b,v(26),{out(3),out(4),out(5)},control,v(27),config[8]!=0,&ledger);
         status[0] = static_cast<std::size_t>(result.stop);
         status[1] = result.iterations;
         status[2] = callbacks.cancel_calls;
@@ -47,6 +51,23 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_temperature_driver(
         status[4] = callbacks.last_progress;
         metrics[0] = result.residual;
         metrics[1] = result.q_b;
+        audit_meta[0] = ledger.residual[0].empty() ? 0. : 1.;
+        if (audit_meta[0]) {
+            const auto n = shape[0]*shape[1]*shape[2];
+            std::size_t power = 0;
+            audit_meta[1] = ledger.boundary_complete ? 1. : 0.;
+            audit_meta[2] = ledger.prescribed_b_power;
+            for (std::size_t phase=0; phase<3; ++phase) {
+                for (std::size_t cell=0; cell<n; ++cell)
+                    residual[phase*n+cell] = ledger.solved[phase] ? ledger.residual[phase][cell]
+                        : std::numeric_limits<double>::quiet_NaN();
+                for (std::size_t face=0; face<6; ++face)
+                    for (const auto* values : {&ledger.advective_out[phase][face], &ledger.diffusive_out[phase][face]})
+                        for (std::size_t patch=0; patch<n/shape[face/2]; ++patch)
+                            powers[power++] = ledger.solved[phase] ? (*values)[patch]
+                                : std::numeric_limits<double>::quiet_NaN();
+            }
+        }
         if (error_size) error[0] = '\0';
         return 0;
     } catch (const std::invalid_argument& exc) {

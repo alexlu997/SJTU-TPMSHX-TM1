@@ -359,8 +359,10 @@ void prepare_thermal(const Full2DProblem& p,const Full2DControl& c,Full2DResult&
         t.hv[side].resize(n); t.conductivity[side].resize(n);
         t.pressure[side]=f.absolute_pressure; t.mass_x[side]=f.mass_x; t.mass_y[side]=f.mass_y;
         t.rho_cp[side]=r.rho_cp[side];
-        if (p.thermal_mode==Full2DThermalMode::temperature)
+        if (p.thermal_mode==Full2DThermalMode::temperature) {
             t.inlet_capacity[side]=capacity_at_inlet(g,s.direction,t,side,inlet[side].cp);
+            t.temperature_cp_coefficients[side]=model_h_common::coefficients(s.fluid);
+        }
         double mean_rho=average(view(r.density[side]),g);
         double mean_mu=r.iterations?average(view(r.viscosity[side]),g):s.initial_viscosity;
         auto reference=inlet[side];
@@ -500,21 +502,19 @@ void solve_thermal(const Full2DProblem& p,const Full2DControl& c,Full2DResult& r
             }
         }
     } else {
-        std::array<Vector,2> eps;
-        for (std::size_t side=0;side<2;++side) {
-            eps[side].resize(n);
-            const double split=side==0?p.split_a:1.-p.split_a;
-            for (std::size_t k=0;k<n;++k) eps[side][k]=p.total_porosity[k]*split;
-        }
         const auto fluid=[&](std::size_t side) {
-            auto bc=boundary(side); bc.capacity_flux=view(t.inlet_capacity[side]);
-            return TemperatureFluidView{view(t.conductivity[side]),view(t.hv[side]),view(eps[side]),
-                view(t.rho_cp[side]),view(r.flow[side].uc),view(r.flow[side].vc),{},bc};
+            return ModelHFluid2D{p.sides[side].fluid,view(t.conductivity[side]),view(t.hv[side]),
+                                view(t.mass_x[side]),view(t.mass_y[side]),boundary(side)};
         };
-        const TemperatureControl control{c.thermal_iterations,c.thermal_chunk,c.thermal_q_tolerance,
-            .7,1.,1.,true,false,c.cancel,nullptr,c.context};
-        t.result=solve_temperature(TemperatureScheme::cell_centered_2d,g,fluid(0),fluid(1),
-                                   p.solid_conductivity,fields,control,{},c.thermal_red_black && n>30000);
+        ModelHControl2D control{c.thermal_iterations,c.thermal_chunk,c.thermal_q_tolerance,
+            true,true,c.thermal_red_black && n>30000,c.cancel,nullptr,c.context};
+        control.second_order_b=false;control.strict_energy_balance=true;
+        PhysicalHeatLedger audit;t.temperature_audit.reset();
+        const auto solved=solve_model_h_2d(g,fluid(0),fluid(1),p.solid_conductivity,fields,control,{},&audit);
+        t.result=TemperatureResult{solved.stop,solved.iterations,solved.residual,solved.q_b};
+        t.temperature_algorithm="model_h_tface_sou_fou_strict_v3";
+        if(solved.physical_audit_available)
+            t.temperature_audit=std::move(audit);
     }
 }
 } // namespace
@@ -648,23 +648,13 @@ double solid_duty(const GridView& g,const Full2DThermalState& t) {
     }
     return q;
 }
-double temperature_duty(const GridView& g,int direction,double inlet_temperature,
-                        ArrayView<const double> temperature,ArrayView<const double> uc,
-                        ArrayView<const double> vc,ArrayView<const double> rho_cp,
-                        ArrayView<const double> epsilon,double split,
-                        ArrayView<const double> inlet_profile,ArrayView<const double> outlet_profile) {
-    const auto widths=direction<2?g.dy:g.dx,velocity=direction<2?uc:vc;
-    double in_weight=0.,out_weight=0.,in_heat=0.,out_heat=0.,out_mean=0.;
-    for (std::size_t k=0;k<widths.size;++k) {
-        const auto in=boundary_cell(g,direction,k,false),out=boundary_cell(g,direction,k,true);
-        const double wi=(epsilon[in]*split)*rho_cp[in]*std::abs(velocity[in])*widths[k]*inlet_profile[k];
-        const double wo=(epsilon[out]*split)*rho_cp[out]*std::abs(velocity[out])*widths[k]*outlet_profile[k];
-        in_weight+=wi; out_weight+=wo; in_heat+=wi*inlet_temperature; out_heat+=wo*temperature[out];
-        out_mean+=temperature[out];
-    }
-    if (in_weight<1e-30) return 0.;
-    const double outlet=out_weight>1e-30?out_heat/out_weight:out_mean/static_cast<double>(widths.size);
-    return in_weight*(in_heat/in_weight-outlet);
+double temperature_duty(const Full2DThermalState& thermal,std::size_t side) {
+    if(!thermal.temperature_audit) throw std::logic_error("full2D temperature duty requires its thermal ledger");
+    if(!thermal.temperature_audit->boundary_complete) return std::numeric_limits<double>::quiet_NaN();
+    double q=0.;
+    for(const auto& plane:thermal.temperature_audit->advective_out[side])
+        for(double value:plane) q-=value;
+    return q;
 }
 void refine_thermal(const Full2DProblem& p,const Full2DControl& c,Full2DResult& r,
                     PropertyEvaluator& properties) {
@@ -714,13 +704,15 @@ void refine_thermal(const Full2DProblem& p,const Full2DControl& c,Full2DResult& 
                      "Richardson coarse",side);
         actual_water(properties,s.fluid,view(fr.thermal.temperature[side]),view(fr.thermal.pressure[side]),
                      "Richardson warm start",side);
-        if (p.thermal_mode==Full2DThermalMode::model_h) {
+        if (p.thermal_mode==Full2DThermalMode::model_h || p.thermal_mode==Full2DThermalMode::temperature) {
             auto faces=prolong_mass_faces_2d({view(r.thermal.mass_x[side]),view(r.thermal.mass_y[side])},
                                             g.dx,g.dy,fg.dx,fg.dy);
             fr.thermal.mass_x[side]=std::move(faces[0]); fr.thermal.mass_y[side]=std::move(faces[1]);
-        } else {
+        }
+        if(p.thermal_mode==Full2DThermalMode::temperature) {
             const auto coarse=s.direction<2?g.dy:g.dx;
             fr.thermal.inlet_capacity[side]=refine_inlet_capacity(coarse,cross,view(r.thermal.inlet_capacity[side]));
+            fr.thermal.temperature_cp_coefficients[side]=model_h_common::coefficients(s.fluid);
         }
     }
     fr.thermal.temperature[2]=interpolate(view(r.thermal.temperature[2]));
@@ -745,20 +737,13 @@ void refine_thermal(const Full2DProblem& p,const Full2DControl& c,Full2DResult& 
         fine.accepted=fine.accepted && main.passed && refined.passed;
     }
     const auto nan=std::numeric_limits<double>::quiet_NaN();
-    const Vector coarse_epsilon(g.nx*g.ny,p.reference_porosity);
     for (std::size_t side=0;side<2;++side) {
-        const auto& s=p.sides[side]; const double split=side==0?p.split_a:1.-p.split_a;
         if (p.thermal_mode==Full2DThermalMode::model_h) {
             r.duty[side]=std::get<ModelHResult2D>(r.thermal.result).audit.sides[side].q_advective;
             fine.duty[side]=fine.accepted?std::get<ModelHResult2D>(fine.thermal.result).audit.sides[side].q_advective:nan;
         } else {
-            r.duty[side]=temperature_duty(g,s.direction,s.inlet_temperature,view(r.thermal.temperature[side]),
-                view(r.flow[side].uc),view(r.flow[side].vc),view(r.thermal.rho_cp[side]),view(coarse_epsilon),split,
-                s.inlet_profile,s.outlet_profile);
-            fine.duty[side]=fine.accepted?temperature_duty(fg,s.direction,s.inlet_temperature,
-                view(fine.thermal.temperature[side]),view(fine.uc[side]),view(fine.vc[side]),
-                view(fine.thermal.rho_cp[side]),view(fine.epsilon),split,
-                view(fine.inlet_profile[side]),view(fine.outlet_profile[side])):nan;
+            r.duty[side]=temperature_duty(r.thermal,side);
+            fine.duty[side]=fine.accepted?temperature_duty(fine.thermal,side):nan;
         }
         fine.extrapolated_duty[side]=(4.*std::abs(fine.duty[side])-std::abs(r.duty[side]))/3.;
     }
@@ -773,26 +758,6 @@ void refine_thermal(const Full2DProblem& p,const Full2DControl& c,Full2DResult& 
     r.q_solid=solid_duty(g,r.thermal);
     if (fine.accepted) r.q_solid=(4.*solid_duty(fg,fine.thermal)-r.q_solid)/3.;
     if (!fine.extrapolated) { fine.warning=true; r.q_solid=solid_duty(g,r.thermal); }
-    // Original temperature-only fallback: finite outlet-cell mean and physical
-    // inlet capacity. Model-h never substitutes a mean-field duty.
-    if (!std::isfinite(r.q_total) && p.thermal_mode==Full2DThermalMode::temperature) {
-        for (std::size_t side=0;side<2;++side) {
-            const auto& s=p.sides[side]; const std::size_t count=s.direction<2?g.ny:g.nx;
-            double mean=0.; std::size_t finite=0;
-            for (std::size_t k=0;k<count;++k) {
-                const double t=r.thermal.temperature[side][boundary_cell(g,s.direction,k,true)];
-                if (std::isfinite(t)) { mean+=t; ++finite; }
-            }
-            mean=finite?mean/static_cast<double>(finite):s.inlet_temperature;
-            const auto props=properties.evaluate(s.fluid,s.inlet_temperature,s.inlet_pressure);
-            temperature_ranges(r.range_observations,s.fluid,side,"property","fallback-inlet","scalar",{},
-                               {&s.inlet_temperature,1},{"density","cp"});
-            const double mass=props.rho*std::abs(s.inlet_velocity)*(s.inlet_hi-s.inlet_lo)
-                *p.reference_porosity*(side==0?p.split_a:1.-p.split_a);
-            const double q=mass*props.cp*std::abs(s.inlet_temperature-mean);
-            if (std::isfinite(q)) r.q_total=std::isfinite(r.q_total)?std::max(r.q_total,q):q;
-        }
-    }
 }
 } // namespace
 
@@ -808,7 +773,7 @@ Full2DResult solve_full_2d(const Full2DProblem& p,const Full2DControl& c) {
     r.simple_ok=true; r.envelope_ok=true;
     for (std::size_t side=0;side<2;++side) {
         const auto& f=r.flow[side]; const auto& s=p.sides[side];
-        const bool candidate=c.enthalpy_algorithm!=EnthalpyAlgorithm::legacy_h_fou;
+        const bool candidate=c.enthalpy_algorithm!=EnthalpyAlgorithm::legacy_h_fou || r.thermal.temperature_audit.has_value();
         const auto& mass_x=candidate?r.thermal.mass_x[side]:f.mass_x;
         const auto& mass_y=candidate?r.thermal.mass_y[side]:f.mass_y;
         r.simple_ok=r.simple_ok && f.result.converged;
@@ -841,7 +806,7 @@ Full2DResult solve_full_2d(const Full2DProblem& p,const Full2DControl& c) {
         r.inlet_mass[side]=std::numeric_limits<double>::quiet_NaN();
         if (p.thermal_mode==Full2DThermalMode::model_h)
             r.inlet_mass[side]=std::get<ModelHResult2D>(r.thermal.result).audit.sides[side].mass_in;
-        else if (p.thermal_mode==Full2DThermalMode::true_h) {
+        else if (p.thermal_mode==Full2DThermalMode::true_h || r.thermal.temperature_audit) {
             r.inlet_mass[side]=0.; const auto& g=p.grid;
             for (std::size_t j=0;j<g.ny;++j) r.inlet_mass[side]+=std::max(mass_x[j],0.);
             for (std::size_t j=0;j<g.ny;++j) r.inlet_mass[side]+=std::max(-mass_x[g.nx*g.ny+j],0.);

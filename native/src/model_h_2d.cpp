@@ -1,5 +1,6 @@
 #include "tpmshx/model_h_2d.hpp"
 #include "model_h_common.hpp"
+#include "energy_fv_rows.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -10,22 +11,15 @@ namespace {
 using namespace model_h_common;
 using Vector = std::vector<double>;
 using Faces = std::array<Vector, 2>;
-using Rows = std::vector<std::array<double, 4>>;
 
 
 struct Mesh {
     const GridView& g;
     std::size_t n;
+    Vector zero_z = Vector(2*n);
     std::size_t cell(std::size_t i, std::size_t j) const { return i*g.ny+j; }
     std::size_t face(std::size_t axis, std::size_t i, std::size_t j) const {
         return i*(axis==0 ? g.ny : g.ny+1)+j;
-    }
-    std::size_t neighbor(std::size_t i, std::size_t j, std::size_t f) const {
-        if (f==0 && i>0) return cell(i-1,j);
-        if (f==1 && i+1<g.nx) return cell(i+1,j);
-        if (f==2 && j>0) return cell(i,j-1);
-        if (f==3 && j+1<g.ny) return cell(i,j+1);
-        return cell(i,j);
     }
     double volume(std::size_t i, std::size_t j) const { return g.dx[i]*g.dy[j]; }
     double divergence(const Faces& f, std::size_t i, std::size_t j) const {
@@ -34,51 +28,34 @@ struct Mesh {
     }
 };
 
-Rows diffusion_rows(const Mesh& mesh, ArrayView<const double> k,
-                    const TemperatureBoundary* boundary) {
-    const auto& g=mesh.g;
-    Rows rows(mesh.n);
-    for (std::size_t i=0; i<g.nx; ++i) for (std::size_t j=0; j<g.ny; ++j) {
-        const auto p=mesh.cell(i,j);
-        for (std::size_t f=0; f<4; ++f) {
-            const auto nb=mesh.neighbor(i,j,f), axis=f/2, pos=axis==0 ? i : j;
-            const auto widths=axis==0 ? g.dx : g.dy;
-            const double area=axis==0 ? g.dy[j] : g.dx[i];
-            if (nb!=p) {
-                const auto next=f%2==0 ? pos-1 : pos+1;
-                rows[p][f]=detail::diffusion_conductance(k[p],k[nb],.5*widths[pos],.5*widths[next])*area;
-            } else if (!boundary) rows[p][f]=k[p]*area/widths[pos];
-            else if (static_cast<int>(f)==boundary->direction) {
-                const auto patch=axis==0 ? j : i;
-                rows[p][f]=2*k[p]*area*optional(boundary->opening,patch,1)/widths[pos];
-            }
-        }
-    }
-    return rows;
-}
-
 struct Side {
     const ModelHFluid2D& f;
-    const std::array<double,5>& cp;
-    Rows diffusion;
-    Vector exchange;
+    const std::array<double,5>* cp;
+    bool second_order, strict_boundary;
     Faces capacity, deferred;
-    Side(const Mesh& mesh, const ModelHFluid2D& fluid)
-        : f(fluid), cp(coefficients(f.fluid)), diffusion(diffusion_rows(mesh,f.conductivity,&f.boundary)),
-          exchange(mesh.n), capacity{Vector(f.mass_x.size),Vector(f.mass_y.size)},
-          deferred{Vector(f.mass_x.size),Vector(f.mass_y.size)} {
-        for (std::size_t i=0; i<mesh.g.nx; ++i) for (std::size_t j=0; j<mesh.g.ny; ++j) {
-            const auto p=mesh.cell(i,j);
-            exchange[p]=f.hv[p]*mesh.volume(i,j);
-        }
+    Side(const Mesh&, const ModelHFluid2D& fluid, bool order, bool solved, bool strict)
+        : f(fluid), cp(solved ? &coefficients(f.fluid) : nullptr), second_order(order), strict_boundary(strict),
+          capacity{Vector(f.mass_x.size),Vector(f.mass_y.size)},
+          deferred{Vector(f.mass_x.size),Vector(f.mass_y.size)} {}
+    EnergyPhase energy(const Mesh& mesh) const {
+        return {f.conductivity,f.hv,{},
+            {{view(capacity[0]),view(capacity[1]),view(mesh.zero_z)},
+             {view(deferred[0]),view(deferred[1]),{}}},f.boundary,true,strict_boundary};
+    }
+    PhysicalEnergyPhase physical(const Mesh& mesh) const {
+        return {f.conductivity,f.hv,{},
+            {view(capacity[0]),view(capacity[1]),view(mesh.zero_z)},
+            {view(deferred[0]),view(deferred[1]),view(mesh.zero_z)},f.boundary,true,strict_boundary};
     }
     ArrayView<const double> mass(std::size_t axis) const { return axis==0 ? f.mass_x : f.mass_y; }
     double inlet(std::size_t patch) const { return optional(f.boundary.profile,patch,f.boundary.inlet_temperature); }
     double opening(std::size_t patch) const { return optional(f.boundary.opening,patch,1); }
 };
 
+template<bool physical=false>
 void faces(const Mesh& mesh, Side& side, ArrayView<const double> t) {
     const auto& g=mesh.g;
+    const auto& coefficients=*side.cp;
     const auto dir=static_cast<std::size_t>(side.f.boundary.direction);
     for (std::size_t axis=0; axis<2; ++axis) {
         const auto count=axis==0 ? g.nx : g.ny, ni=g.nx+(axis==0), nj=g.ny+(axis==1);
@@ -89,18 +66,33 @@ void faces(const Mesh& mesh, Side& side, ArrayView<const double> t) {
             const auto u=mass>=0 ? (pos==0 ? 0 : pos-1) : std::min(pos,count-1);
             const auto up=axis==0 ? mesh.cell(u,j) : mesh.cell(i,u);
             double temperature=t[up], inc=0;
-            if (pos>0 && pos<count && u>0 && u+1<count) {
+            if (side.second_order && pos>0 && pos<count && u>0 && u+1<count) {
                 const auto stride=axis==0 ? g.ny : 1;
                 inc=increment(t[up-stride],temperature,t[up+stride],.5*(width[u-1]+width[u]),
                               .5*(width[u]+width[u+1]),(mass>=0 ? .5 : -.5)*width[u]);
+            } else if (side.strict_boundary && side.second_order && count>1
+                       && !(pos==0 && mass>0) && !(pos==count && mass<0)) {
+                const bool low=u==0;
+                const auto neighbor=low ? u+1 : u-1, end=low ? 0 : count;
+                const auto patch=axis==0 ? j : i;
+                const auto boundary_face=axis==0 ? mesh.face(axis,end,j) : mesh.face(axis,i,end);
+                const double boundary_mass=side.mass(axis)[boundary_face];
+                const bool known=axis==dir/2 && dir%2==(low ? 0U : 1U)
+                    && side.opening(patch)>0 && (low ? boundary_mass : -boundary_mass)>0;
+                const auto near=axis==0 ? mesh.cell(neighbor,j) : mesh.cell(i,neighbor);
+                inc=boundary_increment(temperature,t[near],.5*(width[u]+width[neighbor]),
+                    known ? side.inlet(patch) : 0.,.5*width[u],known,low,
+                    (mass>=0 ? .5 : -.5)*width[u]);
             }
             if (axis==dir/2 && pos==(dir%2==0 ? 0 : count)) {
                 const auto patch=axis==0 ? j : i;
                 if (side.opening(patch)>0 && (dir%2==0 ? mass : -mass)>0) temperature=side.inlet(patch);
             }
-            const double x=temperature-side.cp[3], cp=side.cp[0]+side.cp[1]*x+side.cp[2]*x*x;
+            const double x=temperature-coefficients[3], cp=coefficients[0]+coefficients[1]*x+coefficients[2]*x*x;
             side.capacity[axis][p]=mass*cp;
-            side.deferred[axis][p]=mass*(enthalpy(temperature+inc,side.cp)-cp*temperature);
+            if constexpr (physical)
+                side.deferred[axis][p]=mass*enthalpy(temperature+inc,coefficients);
+            else side.deferred[axis][p]=mass*(enthalpy(temperature+inc,coefficients)-cp*temperature);
         }
     }
 }
@@ -126,45 +118,24 @@ Faces fluxes(const Mesh& mesh, const Side& side, ArrayView<const double> t) {
     return flux;
 }
 
-double fluid_row(const Mesh& mesh, const Side& s, ArrayView<double> t,
-                 ArrayView<double> solid, std::size_t i, std::size_t j) {
-    const auto p=mesh.cell(i,j);
-    double diagonal=s.exchange[p], rhs=diagonal*solid[p];
-    for (std::size_t f=0; f<4; ++f) {
-        const auto axis=f/2, nb=mesh.neighbor(i,j,f);
-        const auto fp=mesh.face(axis,i+(f==1),j+(f==3));
-        const double sign=f%2==0 ? -1 : 1, cap=sign*s.capacity[axis][fp], outward=sign*s.mass(axis)[fp];
-        rhs-=sign*s.deferred[axis][fp];
-        double neighbor=t[nb], conductance=s.diffusion[p][f];
-        if (nb==p && static_cast<int>(f)==s.f.boundary.direction) {
-            const auto patch=axis==0 ? j : i;
-            rhs+=conductance*s.inlet(patch);
-            diagonal+=conductance;
-            conductance=0;
-            if (s.opening(patch)>0 && outward<0) neighbor=s.inlet(patch);
-        }
-        diagonal+=conductance+(outward>=0 ? cap : 0);
-        rhs+=(conductance-(outward<0 ? cap : 0))*neighbor;
-    }
-    if (!std::isfinite(diagonal) || diagonal<=0 || !std::isfinite(rhs))
-        throw std::domain_error("invalid model-h fluid equation");
-    return t[p]+model_coefficients::model_h_relaxation*(rhs/diagonal-t[p]);
-}
 void update(ArrayView<double> t, std::size_t p, double value, double& change) {
     if (!std::isfinite(value)) throw std::domain_error("nonfinite model-h update");
     change=std::max(change,std::abs(value-t[p]));
     t[p]=value;
 }
 
-double sweeps(const Mesh& mesh, Side& a, Side& b, const Rows& ds,
+double sweeps(const Mesh& mesh, Side& a, Side& b, ArrayView<const double> ks,
               TemperatureStateView t, Vector& last_a, Vector& last_b,
-              std::size_t count, bool red_black) {
+              std::size_t count, bool red_black, bool solve_b) {
     const auto& g=mesh.g;
+    const detail::EnergyMesh energy_mesh(g);
+    const auto phase_a=a.energy(mesh),phase_b=b.energy(mesh);
     double change=0;
     for (std::size_t it=0; it<count; ++it) {
         last_a.assign(t.a.data,t.a.data+t.a.size);
         last_b.assign(t.b.data,t.b.data+t.b.size);
-        faces(mesh,a,view(last_a)); faces(mesh,b,view(last_b));
+        faces(mesh,a,view(last_a));
+        if (solve_b) faces(mesh,b,view(last_b));
         change=0;
         for (std::size_t color=0; color<(red_black ? 2U : 1U); ++color)
             for (std::size_t ii=0; ii<g.nx; ++ii) for (std::size_t jj=0; jj<g.ny; ++jj) {
@@ -173,18 +144,23 @@ double sweeps(const Mesh& mesh, Side& a, Side& b, const Rows& ds,
                     || (a.f.boundary.direction==3 && b.f.boundary.direction==0)) ? g.ny-1-jj : jj;
                 if (red_black && (i+j)%2!=color) continue;
                 const auto p=mesh.cell(i,j);
-                update(t.a,p,fluid_row(mesh,a,t.a,t.solid,i,j),change);
-                const auto& d=ds[p];
-                const double diagonal=d[1]+d[0]+d[3]+d[2]+a.exchange[p]+b.exchange[p];
-                const double rhs=d[1]*t.solid[mesh.neighbor(i,j,1)]+d[0]*t.solid[mesh.neighbor(i,j,0)]
-                    +d[3]*t.solid[mesh.neighbor(i,j,3)]+d[2]*t.solid[mesh.neighbor(i,j,2)]
-                    +a.exchange[p]*t.a[p]+b.exchange[p]*t.b[p];
-                if (!std::isfinite(diagonal) || diagonal<=0 || !std::isfinite(rhs))
+                const auto row_a=detail::fluid_energy_defect_row(energy_mesh,phase_a,view(t.a),view(t.solid),p);
+                if (!std::isfinite(row_a.diagonal) || row_a.diagonal<=0)
+                    throw std::domain_error("invalid model-h fluid equation");
+                update(t.a,p,t.a[p]+model_coefficients::model_h_relaxation*row_a.rhs/row_a.diagonal,change);
+                const auto row_s=detail::solid_energy_defect_row(energy_mesh,ks,a.f.hv,b.f.hv,
+                    view(t.a),view(t.b),view(t.solid),{},p);
+                if (!std::isfinite(row_s.diagonal) || row_s.diagonal<=0)
                     throw std::domain_error("invalid model-h solid equation");
-                update(t.solid,p,rhs/diagonal,change);
-                update(t.b,p,fluid_row(mesh,b,t.b,t.solid,i,j),change);
+                update(t.solid,p,t.solid[p]+row_s.rhs/row_s.diagonal,change);
+                if (solve_b) {
+                    const auto row_b=detail::fluid_energy_defect_row(energy_mesh,phase_b,view(t.b),view(t.solid),p);
+                    if (!std::isfinite(row_b.diagonal) || row_b.diagonal<=0)
+                        throw std::domain_error("invalid model-h fluid equation");
+                    update(t.b,p,t.b[p]+model_coefficients::model_h_relaxation*row_b.rhs/row_b.diagonal,change);
+                }
             }
-        if (change<1e-10) break;
+        if (change==0.) break;
     }
     return change;
 }
@@ -197,48 +173,27 @@ std::array<Vector,4> boundaries(const Mesh& mesh, ArrayView<const double> x, Arr
     }
     return out;
 }
-Vector conduction(const Mesh& mesh, ArrayView<const double> t, ArrayView<const double> k) {
-    Faces flow{Vector((mesh.g.nx+1)*mesh.g.ny),Vector(mesh.g.nx*(mesh.g.ny+1))};
-    const auto& g=mesh.g;
-    for (std::size_t i=0; i<g.nx; ++i) for (std::size_t j=0; j<g.ny; ++j) {
-        const auto p=mesh.cell(i,j);
-        if (i+1<g.nx) {
-            const auto nb=mesh.cell(i+1,j);
-            const double r=.5*(g.dx[i]*k[nb]+g.dx[i+1]*k[p]);
-            flow[0][mesh.face(0,i+1,j)]=(r>0 ? k[p]*k[nb]/r : 0)*g.dy[j]*(t[p]-t[nb]);
-        }
-        if (j+1<g.ny) {
-            const auto nb=mesh.cell(i,j+1);
-            const double r=.5*(g.dy[j]*k[nb]+g.dy[j+1]*k[p]);
-            flow[1][mesh.face(1,i,j+1)]=(r>0 ? k[p]*k[nb]/r : 0)*g.dx[i]*(t[p]-t[nb]);
-        }
-    }
-    Vector result(mesh.n);
-    for (std::size_t i=0; i<g.nx; ++i) for (std::size_t j=0; j<g.ny; ++j)
-        result[mesh.cell(i,j)]=-mesh.divergence(flow,i,j);
-    return result;
-}
-
 ModelHAudit2D audit(const Mesh& mesh, Side& a, Side& b, ArrayView<const double> ks,
                    TemperatureStateView t, const Vector& last_a, const Vector& last_b) {
     ModelHAudit2D result{};
-    result.finite=true; result.boundary_complete=true;
-    result.solid_residual=conduction(mesh,view(t.solid),ks);
+    faces(mesh,a,view(t.a)); faces(mesh,b,view(t.b));
+    auto ledger=energy_physical_audit(mesh.g,a.energy(mesh),b.energy(mesh),ks,t);
+    result.finite=true; result.boundary_complete=ledger.boundary_complete;
+    result.solid_residual=std::move(ledger.residual[2]);
     Side* sides[]{&a,&b};
     const ArrayView<const double> temperature[]{view(t.a),view(t.b)}, snapshot[]{view(last_a),view(last_b)};
     for (std::size_t index=0; index<2; ++index) {
         auto& s=*sides[index]; auto& out=result.sides[index]; const auto temp=temperature[index];
-        out.cp_coefficients=s.cp;
+        out.cp_coefficients=*s.cp;
         faces(mesh,s,temp); out.h_faces=fluxes(mesh,s,temp);
         faces(mesh,s,snapshot[index]); const auto linear=fluxes(mesh,s,temp);
-        out.residual=conduction(mesh,temp,s.f.conductivity); out.linearization_defect.resize(mesh.n);
+        out.residual=std::move(ledger.residual[index]); out.linearization_defect.resize(mesh.n);
         for (std::size_t i=0; i<mesh.g.nx; ++i) for (std::size_t j=0; j<mesh.g.ny; ++j) {
             const auto p=mesh.cell(i,j);
             const double exchange=s.f.hv[p]*(t.solid[p]-temp[p])*mesh.volume(i,j);
             const double div=mesh.divergence(out.h_faces,i,j);
-            out.residual[p]=(-div+out.residual[p])+exchange;
             out.linearization_defect[p]=mesh.divergence(linear,i,j)-div;
-            result.solid_residual[p]-=exchange; out.exchange+=exchange;
+            out.exchange+=exchange;
             const double mass=s.f.mass_x[mesh.face(0,i+1,j)]-s.f.mass_x[mesh.face(0,i,j)]
                              +s.f.mass_y[mesh.face(1,i,j+1)]-s.f.mass_y[mesh.face(1,i,j)];
             out.mass_net+=mass; out.mass_local_max=std::max(out.mass_local_max,std::abs(mass));
@@ -246,15 +201,12 @@ ModelHAudit2D audit(const Mesh& mesh, Side& a, Side& b, ArrayView<const double> 
         const auto dir=static_cast<std::size_t>(s.f.boundary.direction), npatch=dir<2 ? mesh.g.ny : mesh.g.nx;
         out.inlet_conduction_faces.resize(npatch);
         for (std::size_t patch=0; patch<npatch; ++patch) {
-            const auto i=dir<2 ? (dir==0 ? 0 : mesh.g.nx-1) : patch;
-            const auto j=dir>=2 ? (dir==2 ? 0 : mesh.g.ny-1) : patch;
-            const auto p=mesh.cell(i,j);
-            const double cross=dir<2 ? mesh.g.dy[j] : mesh.g.dx[i], width=dir<2 ? mesh.g.dx[i] : mesh.g.dy[j];
-            const double value=2*s.f.conductivity[p]*cross*s.opening(patch)/width*(s.inlet(patch)-temp[p]);
-            out.inlet_conduction_faces[patch]=value; out.residual[p]+=value; out.inlet_conduction+=value;
+            const double value=-ledger.diffusive_out[index][dir][patch];
+            out.inlet_conduction_faces[patch]=value; out.inlet_conduction+=value;
         }
         out.boundary_mass_out=boundaries(mesh,s.f.mass_x,s.f.mass_y);
-        out.boundary_h_out=boundaries(mesh,view(out.h_faces[0]),view(out.h_faces[1]));
+        for (std::size_t f=0; f<4; ++f)
+            out.boundary_h_out[f]=std::move(ledger.advective_out[index][f]);
         for (std::size_t f=0; f<4; ++f) for (std::size_t p=0; p<out.boundary_mass_out[f].size(); ++p) {
             const double mass=out.boundary_mass_out[f][p];
             if (mass<0 && (f!=dir || s.opening(p)<=0)) ++out.unknown_inflow_faces;
@@ -296,7 +248,8 @@ ModelHAudit2D audit(const Mesh& mesh, Side& a, Side& b, ArrayView<const double> 
 
 
 void validate(const GridView& g, const ModelHFluid2D& a, const ModelHFluid2D& b,
-              ArrayView<const double> ks, TemperatureStateView t, const ModelHControl2D& c) {
+              ArrayView<const double> ks, TemperatureStateView t, const ModelHControl2D& c,
+              ArrayView<const double> prescribed_b) {
     const auto n=product(g.nx,g.ny);
     if (g.nz!=1 || g.nx==std::numeric_limits<std::size_t>::max() || g.ny==std::numeric_limits<std::size_t>::max())
         throw std::invalid_argument("model-h 2D requires a unit-depth grid");
@@ -310,20 +263,30 @@ void validate(const GridView& g, const ModelHFluid2D& a, const ModelHFluid2D& b,
         throw std::invalid_argument("invalid model-h control");
     const ArrayView<double> states[]{t.a,t.b,t.solid};
     for (auto state:states) check(state,n,c.warm_start);
+    if (prescribed_b.size) {
+        if (!c.strict_energy_balance)
+            throw std::invalid_argument("prescribed model-h B requires strict energy mode");
+        check(prescribed_b,n);
+        for (auto state:states) disjoint(view(state),prescribed_b);
+    }
     for (std::size_t i=0; i<3; ++i) {
         for (std::size_t j=i+1; j<3; ++j) disjoint(view(states[i]),view(states[j]));
         for (auto input:{g.dx,g.dy,g.dz,ks}) disjoint(view(states[i]),input);
     }
     for (const auto* f:{&a,&b}) {
-        coefficients(f->fluid);
+        const bool solved=f==&a || !prescribed_b.size;
+        if (solved) coefficients(f->fluid);
         coefficient(f->conductivity,n); coefficient(f->hv,n);
-        check(f->mass_x,(g.nx+1)*g.ny); check(f->mass_y,g.nx*(g.ny+1));
+        check(f->mass_x,(g.nx+1)*g.ny,solved); check(f->mass_y,g.nx*(g.ny+1),solved);
         const auto& bc=f->boundary;
         if (bc.direction<0 || bc.direction>3 || !std::isfinite(bc.inlet_temperature)
-            || bc.inlet_temperature<=0 || bc.capacity_flux.size)
+            || (solved && bc.inlet_temperature<=0) || bc.capacity_flux.size)
             throw std::invalid_argument("invalid model-h boundary");
         const auto count=bc.direction<2 ? g.ny : g.nx;
-        if (bc.profile.size) coefficient(bc.profile,count,true);
+        if (bc.profile.size) {
+            if (solved) coefficient(bc.profile,count,true);
+            else check(bc.profile,count);
+        }
         if (bc.opening.size) {
             coefficient(bc.opening,count);
             for (std::size_t p=0; p<count; ++p)
@@ -337,8 +300,11 @@ void validate(const GridView& g, const ModelHFluid2D& a, const ModelHFluid2D& b,
 
 ModelHResult2D solve_model_h_2d(const GridView& g, const ModelHFluid2D& a,
                               const ModelHFluid2D& b, ArrayView<const double> ks,
-                              TemperatureStateView t, const ModelHControl2D& c) {
-    validate(g,a,b,ks,t,c);
+                              TemperatureStateView t, const ModelHControl2D& c,
+                              ArrayView<const double> prescribed_b,
+                              PhysicalHeatLedger* physical_audit) {
+    validate(g,a,b,ks,t,c,prescribed_b);
+    const bool solve_b=!prescribed_b.size;
     ModelHResult2D result{};
     result.stop=TemperatureStop::budget_exhausted;
     result.q_b=std::numeric_limits<double>::quiet_NaN();
@@ -346,21 +312,37 @@ ModelHResult2D solve_model_h_2d(const GridView& g, const ModelHFluid2D& a,
     if (cancelled()) { result.stop=TemperatureStop::cancelled; return result; }
     if (!c.warm_start) {
         std::fill_n(t.a.data,t.a.size,a.boundary.inlet_temperature);
-        std::fill_n(t.b.data,t.b.size,b.boundary.inlet_temperature);
+        if (solve_b) std::fill_n(t.b.data,t.b.size,b.boundary.inlet_temperature);
         std::fill_n(t.solid.data,t.solid.size,.5*(a.boundary.inlet_temperature+b.boundary.inlet_temperature));
     }
+    if (!solve_b) std::copy_n(prescribed_b.data,prescribed_b.size,t.b.data);
     result.last_a.assign(t.a.data,t.a.data+t.a.size); result.last_b.assign(t.b.data,t.b.data+t.b.size);
     const Mesh mesh{g,g.nx*g.ny};
-    Side side_a(mesh,a), side_b(mesh,b);
-    const auto ds=diffusion_rows(mesh,ks,nullptr);
-    auto previous=pack(t);
+    Side side_a(mesh,a,c.second_order_a,true,c.strict_energy_balance),
+         side_b(mesh,b,c.second_order_b,solve_b,c.strict_energy_balance);
+    auto previous=pack(t,solve_b);
+    bool strict_boundary_complete=true;
+    const auto strict_audit=[&] {
+        // Reuse the deferred buffers for actual m*h, avoiding C*T+B
+        // cancellation. Every subsequent numerical sweep rebuilds C/B first.
+        faces<true>(mesh,side_a,view(t.a));
+        if (solve_b) faces<true>(mesh,side_b,view(t.b));
+        auto ledger=energy_physical_audit(g,side_a.physical(mesh),side_b.physical(mesh),ks,t,{},prescribed_b);
+        result.energy_error_ratio=energy_balance_error(ledger)/energy_scale(g,a.hv,b.hv,t);
+        strict_boundary_complete=ledger.boundary_complete;
+        result.physical_audit_available=true;
+        const bool passed=ledger.boundary_complete && std::isfinite(result.energy_error_ratio)
+            && result.energy_error_ratio<=1e-7;
+        if (physical_audit) *physical_audit=std::move(ledger);
+        return passed;
+    };
     double previous_q=0;
     bool have_q=false;
     // The cancellation exception never escapes the public C++ driver.
     struct Cancelled {};
     const auto step=[&](std::size_t count) {
         if (cancelled()) throw Cancelled{};
-        const double change=sweeps(mesh,side_a,side_b,ds,t,result.last_a,result.last_b,count,c.red_black);
+        const double change=sweeps(mesh,side_a,side_b,ks,t,result.last_a,result.last_b,count,c.red_black,solve_b);
         if (cancelled()) throw Cancelled{};
         return change;
     };
@@ -372,27 +354,28 @@ ModelHResult2D solve_model_h_2d(const GridView& g, const ModelHFluid2D& a,
                 Anderson accelerator;
                 std::size_t done=0;
                 while (done<count) {
-                    auto before=pack(t);
+                    auto before=pack(t,solve_b);
                     const auto n=std::min<std::size_t>(25,count-done);
                     result.residual=step(n); done+=n;
-                    auto picard=pack(t);
+                    auto picard=pack(t,solve_b);
                     accelerator.push(std::move(before),picard);
                     Eigen::VectorXd candidate;
                     if (!accelerator.candidate(picard,candidate) || count-done<2) continue;
                     const double picard_residual=step(1);
-                    picard=pack(t);
+                    picard=pack(t,solve_b);
                     const auto saved_a=result.last_a, saved_b=result.last_b;
-                    restore(t,candidate);
+                    restore(t,candidate,solve_b);
                     const double candidate_residual=step(1); done+=2;
                     if (std::isfinite(candidate_residual) && candidate_residual<=picard_residual)
                         result.residual=candidate_residual;
                     else {
-                        restore(t,picard); result.last_a=saved_a; result.last_b=saved_b;
+                        restore(t,picard,solve_b); result.last_a=saved_a; result.last_b=saved_b;
                         result.residual=picard_residual;
                     }
                 }
             } else result.residual=step(count);
             result.audit_available=false;
+            result.physical_audit_available=false;
             result.iterations+=count;
             if (c.progress) c.progress(c.context,result.iterations,c.max_iterations);
             if (cancelled()) throw Cancelled{};
@@ -402,23 +385,34 @@ ModelHResult2D solve_model_h_2d(const GridView& g, const ModelHFluid2D& a,
                 q+=b.hv[p]*(t.solid[p]-t.b[p])*mesh.volume(i,j);
             }
             result.q_b=q;
-            const auto current=pack(t);
+            const auto current=pack(t,solve_b);
             if (have_q && std::abs(q-previous_q)/std::max({std::abs(q),std::abs(previous_q),1.0})<c.q_relative_tolerance
                 && (current-previous).cwiseAbs().maxCoeff()<.01) {
-                result.audit=audit(mesh,side_a,side_b,ks,t,result.last_a,result.last_b);
-                result.audit_available=true;
-                result.finishing_checks.push_back({result.iterations,result.audit.passed,result.audit.equations_ok});
-                if (result.audit.passed) result.stop=TemperatureStop::converged;
-                if (result.audit.passed || !result.audit.boundary_complete) break;
+                if (c.strict_energy_balance) {
+                    const bool passed=strict_audit();
+                    result.finishing_checks.push_back({result.iterations,passed,passed,result.energy_error_ratio});
+                    if (passed) result.stop=TemperatureStop::converged;
+                    if (passed || !strict_boundary_complete) break;
+                } else {
+                    result.audit=audit(mesh,side_a,side_b,ks,t,result.last_a,result.last_b);
+                    result.audit_available=true;
+                    result.finishing_checks.push_back({result.iterations,result.audit.passed,result.audit.equations_ok});
+                    if (result.audit.passed) result.stop=TemperatureStop::converged;
+                    if (result.audit.passed || !result.audit.boundary_complete) break;
+                }
             }
             previous_q=q; have_q=true; previous=current;
         }
     } catch (const Cancelled&) {
         result.stop=TemperatureStop::cancelled;
         result.audit_available=false; result.q_b=std::numeric_limits<double>::quiet_NaN();
+        result.physical_audit_available=false;
+        result.energy_error_ratio=std::numeric_limits<double>::quiet_NaN();
         return result;
     }
-    if (!result.audit_available) {
+    if (c.strict_energy_balance) {
+        if (!result.physical_audit_available && result.iterations) strict_audit();
+    } else if (!result.audit_available) {
         result.audit=audit(mesh,side_a,side_b,ks,t,result.last_a,result.last_b);
         result.audit_available=true;
     }

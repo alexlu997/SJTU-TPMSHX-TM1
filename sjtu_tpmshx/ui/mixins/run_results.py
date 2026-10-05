@@ -64,8 +64,10 @@ class RunResultsMixin:
                 result.diagnostics.get('envelope_warnings', []) or []),
             'extrap': list(result.extrap_reasons),
             'warnings': list(result.warnings),
-            'iters': {k: result.diagnostics.get(k) for k in
-                      ('iter_outer', 'iter_simple_A', 'iter_simple_B')},
+            'iters': {
+                'iter_outer': (result.diagnostics.get('convergence_detail') or {}).get('outer_iters'),
+                **{k: result.diagnostics.get(k) for k in ('iter_simple_A', 'iter_simple_B')},
+            },
             'wall_s': result.diagnostics.get('wall_time_s'),
             'coeffs': {k: result.coeffs.get(k) for k in
                        ('K_ffA', 'K_ffB', 'K_ss', 'h_vA', 'h_vB')},
@@ -139,8 +141,8 @@ class RunResultsMixin:
             f"收敛: {'是' if d.get('converged', True) else '否（结果仅供参考）'}"
             f" · 包络: {'有效' if env else ('失效' if env is not None else '—')}"
             f" · 外推 {len(d.get('extrap') or [])} 项",
-            f"迭代: 外循环 {it.get('iter_outer', '—')} · SIMPLE A/B"
-            f" {it.get('iter_simple_A', '—')}/{it.get('iter_simple_B', '—')}"
+            f"迭代: 外循环 {_f(it.get('iter_outer'), '{:.0f}')} · SIMPLE A/B"
+            f" {_f(it.get('iter_simple_A'), '{:.0f}')}/{_f(it.get('iter_simple_B'), '{:.0f}')}"
             f" · 耗时 {_f(d.get('wall_s'), '{:.1f}')} s",
             f"闭合系数: K_ffA={_f(co.get('K_ffA'))} K_ffB={_f(co.get('K_ffB'))}"
             f" h_vA={_f(co.get('h_vA'))} h_vB={_f(co.get('h_vB'))}",

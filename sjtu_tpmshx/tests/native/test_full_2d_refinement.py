@@ -19,6 +19,7 @@ from sjtu_tpmshx.tests.native import test_full_2d as coarse
 from sjtu_tpmshx.tests.native.test_refinement_2d import interpolate
 
 native = coarse.native  # shared test-only packing/ABI fixture
+same_thermal = coarse.same_thermal
 
 
 def power(actual, expected):
@@ -122,6 +123,9 @@ def compare_complete(actual, record):
                 coarse.compare_array(fine['thermal'][key][side], target)
         else:
             coarse.compare_array(fine['thermal']['inlet_capacity'][side], values['inlet_flux_'+label])
+            if 'refinement_mass_faces' in record:
+                for key, target in zip(('mass_x', 'mass_y'), record['refinement_mass_faces'][side]):
+                    coarse.compare_array(fine['thermal'][key][side], target)
     coarse.compare_array(fine['thermal']['solid_conductivity'], np.broadcast_to(values['K_ss'], shape))
     if np.ndim(values['K_ss']) == 0:
         np.testing.assert_array_equal(np.asarray(fine['thermal']['solid_conductivity']).reshape(shape),
@@ -130,6 +134,13 @@ def compare_complete(actual, record):
         compare_audit(actual['thermal']['result']['audit'], diagnostics['model_h_balance']['main'])
         compare_audit(fine['thermal']['result']['audit'], diagnostics['model_h_balance']['fine'])
         expected_duty = [info['model_h_balance'][s]['Q_advective_W_per_m'] for s in ('A', 'B')]
+    elif '_full_reference' in info:
+        ledger = info['_full_reference']
+        expected_duty = ledger['advective_inward'] if ledger['boundary_complete'] else [np.nan, np.nan]
+        for _, result in (record['coarse_thermal_calls'][-1], record['thermal_calls'][-1]):
+            if result['converged']:
+                assert result['_full_reference']['boundary_complete']
+                assert result['_full_reference']['energy_error_ratio'] <= 1e-7
     else:
         expected_duty = []
         for label, split in (('A', args['split_A']), ('B', 1-args['split_A'])):
@@ -142,8 +153,8 @@ def compare_complete(actual, record):
     power(fine['extrapolated_duty'], expected_ext)
 
 
-def run_pair(native, cfg, *, case_id):
-    reference = coarse.capture_python(prepare_case(cfg, case_id=case_id), full=True)
+def run_pair(native, cfg, *, case_id, thermal=None):
+    reference = coarse.capture_python(prepare_case(cfg, case_id=case_id), full=True, thermal=thermal)
     request = coarse.inputs(reference) | {'full': True}
     before = [x.copy() for x in request['arrays']]
     code, error, actual = native(request)
@@ -155,9 +166,9 @@ def run_pair(native, cfg, *, case_id):
 
 @pytest.mark.parametrize('directions', [(0, 3), (1, 2), (2, 0), (3, 1)])
 @pytest.mark.parametrize('mode', ['temperature', 'model_h'])
-def test_full_refinement_directed_partial_cap_preserves_thermal_inputs(native, directions, mode):
+def test_full_refinement_directed_partial_cap_preserves_thermal_inputs(native, same_thermal, directions, mode):
     cfg = coarse.configuration(directions=directions, outer=2, mode=mode)
-    actual, record = run_pair(native, cfg, case_id=f'full2d-refine-{mode}-{directions[0]}')
+    actual, record = run_pair(native, cfg, case_id=f'full2d-refine-{mode}-{directions[0]}', thermal=same_thermal)
     assert actual['post_after_last_thermal'] and not actual['converged']
     args, values = record['refinement_inputs'], record['thermal_calls'][-1][0]
     dx, dy = args['energy_dx'], args['energy_dy']
@@ -181,16 +192,16 @@ def test_full_refinement_directed_partial_cap_preserves_thermal_inputs(native, d
 
 
 @pytest.mark.parametrize('mode', ['temperature', 'model_h'])
-def test_full_refinement_completed_outer_warm_start(native, mode):
+def test_full_refinement_completed_outer_warm_start(native, same_thermal, mode):
     cfg = coarse.configuration(directions=(3, 1), outer=8, mode=mode, warm=True)
-    actual, _ = run_pair(native, cfg, case_id='full2d-completed-'+mode)
+    actual, _ = run_pair(native, cfg, case_id='full2d-completed-'+mode, thermal=same_thermal)
     assert actual['outer_converged']
     assert not actual['post_after_last_thermal']
 
 
-def test_existing_air_2d_golden_complete_pair(native):
+def test_existing_air_2d_golden_complete_pair(native, same_thermal):
     cfg = ComputeConfig.from_json(coarse.ROOT / 'examples/three_module/air_2d.json')
-    actual, _ = run_pair(native, cfg, case_id='native-existing-air-2d-golden')
+    actual, _ = run_pair(native, cfg, case_id='native-existing-air-2d-golden', thermal=same_thermal)
     assert actual['converged']
     assert actual['refined']['accepted'] and actual['refined']['extrapolated']
 

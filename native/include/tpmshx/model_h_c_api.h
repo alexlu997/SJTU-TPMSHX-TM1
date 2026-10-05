@@ -78,6 +78,8 @@ typedef struct {
 } tpmshx_model_h_result_v1;
 
 TPMSHX_THERMAL_API uint32_t TPMSHX_THERMAL_CALL tpmshx_model_h_abi_version(void);
+/* Read-only recipe identity. Static storage; NULL for unsupported dimensions. */
+TPMSHX_THERMAL_API const char* TPMSHX_THERMAL_CALL tpmshx_model_h_algorithm_v1(uint32_t dimension);
 
 /* Complete fixed-flow thermal solve. No EOS/flow/outer coupling is performed.
  * dimension=2 requires nz=1,dz[0]=1 and air/water sides. dimension=3 requires

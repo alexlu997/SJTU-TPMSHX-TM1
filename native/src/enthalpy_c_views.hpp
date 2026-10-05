@@ -18,6 +18,18 @@ inline void apply_energy_options(EnthalpyControl& control, const tpmshx_energy_o
     control.algorithm = energy_algorithm(options);
     control.temperature_update_tolerance = options.temperature_update_tolerance;
 }
+inline void apply_energy_options(EnthalpyControl& control, const tpmshx_energy_options_v2& options) {
+    if (options.require_enthalpy_update_on_temperature > 1
+        || !std::isfinite(options.coupled_energy_tolerance) || options.coupled_energy_tolerance <= 0.
+        || !std::isfinite(options.equation_energy_tolerance) || options.equation_energy_tolerance <= 0.
+        || !control.max_iterations || !std::isfinite(control.omega) || control.omega <= 0. || control.omega > 1.
+        || !std::isfinite(control.update_tolerance) || control.update_tolerance <= 0.)
+        throw std::invalid_argument("invalid strict conservative energy options");
+    apply_energy_options(control,tpmshx_energy_options_v1{options.algorithm,options.temperature_update_tolerance});
+    control.coupled_energy_tolerance = options.coupled_energy_tolerance;
+    control.equation_energy_tolerance = options.equation_energy_tolerance;
+    control.require_enthalpy_update_on_temperature = options.require_enthalpy_update_on_temperature != 0;
+}
 inline tpmshx_energy_result_v1 energy_c_view(const EnthalpyResult& result) {
     const bool available = result.stop != EnthalpyStop::cancelled && result.temperature_update.has_value();
     return {static_cast<uint32_t>(result.algorithm), available ? 1u : 0u,

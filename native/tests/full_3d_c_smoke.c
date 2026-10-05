@@ -7,6 +7,16 @@ static int cancelled(void* context) {(void)context;return 1;}
 static tpmshx_full3d_array_v1 view(const double* p,size_t n) {
     tpmshx_full3d_array_v1 v={p,n};return v;
 }
+static int settings_match(const tpmshx_energy_effective_settings_v1* s,
+    const tpmshx_full3d_control_v1* c,const tpmshx_energy_options_v2* e) {
+    return s->algorithm==e->algorithm
+        && s->require_enthalpy_update_on_temperature==e->require_enthalpy_update_on_temperature
+        && s->max_iterations==c->enthalpy_iterations && s->sweeps==c->enthalpy_sweeps
+        && s->omega==c->enthalpy_omega && s->update_tolerance==c->enthalpy_update_tolerance
+        && s->temperature_update_tolerance==e->temperature_update_tolerance
+        && s->coupled_energy_tolerance==e->coupled_energy_tolerance
+        && s->equation_energy_tolerance==e->equation_energy_tolerance;
+}
 int main(void) {
     const double width[2]={.01,.01},opening[4]={1.,1.,1.,1.};
     double eps[8],half[8],k[8],cf[8],ks[8],length[8],area[8],diameter[8];
@@ -60,12 +70,21 @@ int main(void) {
        || evidence.outer_count!=r.outer_count)return 14;
     for(size_t i=0;i<evidence.outer_count;++i)
         if(evidence.outer[i].algorithm!=TPMSHX_ENERGY_LEGACY_H_FOU || evidence.outer[i].has_temperature_update)return 14;
+    const tpmshx_energy_options_v2 original={TPMSHX_ENERGY_LEGACY_H_FOU,1e-8,.001,.001,0};
+    tpmshx_full3d_energy_effective_settings_v1 settings={0};
+    if(tpmshx_full_3d_get_energy_effective_settings_v1(&r,&settings)
+       || !settings_match(&settings.resolved,&c,&original) || settings.resolved.available
+       || settings.last.available || settings.outer_count!=r.outer_count)return 17;
+    for(size_t i=0;i<settings.outer_count;++i)if(settings.outer[i].available)return 17;
     /* Input changes cannot mutate owned result views. */
     eps[0]=.55;if(r.flow[0].epsilon.data[0]!=.6)return 5;eps[0]=.6;
     tpmshx_full_3d_release_v1(&r);tpmshx_full_3d_release_v1(&r);if(r.owner)return 6;
     if(tpmshx_full_3d_get_bootstrap_trace_v1(&r,0,&trace)!=1 || trace.selected!=99)return 11;
     evidence.available=99;
     if(tpmshx_full_3d_get_energy_evidence_v1(&r,&evidence)!=1 || evidence.available!=99)return 15;
+    settings.resolved.available=99;
+    if(tpmshx_full_3d_get_energy_effective_settings_v1(&r,&settings)!=1
+       || settings.resolved.available!=99)return 18;
     tpmshx_full3d_callbacks_v1 cb={cancelled,NULL,NULL,NULL};
     const tpmshx_energy_options_v1 invalid_energy[]={{3,1e-8},{0,0.},{0,NAN}};
     r.stop=99;
@@ -80,9 +99,85 @@ int main(void) {
     if(tpmshx_solve_full_3d_v1(&in,&c,&cb,&r,error,sizeof error) || r.stop!=2 || r.converged)return 7;
     if(tpmshx_full_3d_get_bootstrap_trace_v1(&r,0,&trace) || !trace.selected || strcmp(trace.decision,"cancelled")
        || trace.level_count || trace.started_cap_sum || trace.total_charged_iterations)return 12;
+    if(tpmshx_full_3d_get_energy_effective_settings_v1(&r,&settings)
+       || !settings_match(&settings.resolved,&c,&original) || settings.resolved.available
+       || settings.last.available || settings.outer_count)return 19;
     tpmshx_full_3d_release_v1(&r);
     in.epsilon.size=7;r.stop=99;
     if(tpmshx_solve_full_3d_v1(&in,&c,NULL,&r,error,sizeof error)!=1 || r.stop!=99 || !error[0])return 8;
     if(r.owner || tpmshx_full_3d_get_bootstrap_trace_v1(&r,0,&trace)!=1)return 13;
-    puts("{\"status\":\"passed\",\"abi\":1,\"full3d_owned\":true,\"energy_entry_query\":true,\"cancel\":true,\"error_untouched\":true}");return 0;
+    in.epsilon.size=8;c.coarse_bootstrap=0;
+    tpmshx_energy_options_v2 strict={TPMSHX_ENERGY_LEGACY_H_FOU,1e-8,1e-5,1e-5,0};
+    /* Explicit strict controls must not silently run an unrelated model-h
+       route, even when cancellation would otherwise stop before flow. */
+    if(tpmshx_solve_full_3d_v3(&in,&c,&strict,&cb,&r,error,sizeof error)!=1
+       || r.stop!=99 || r.owner)return 20;
+    for(size_t s=0;s<2;++s) {
+        in.sides[s].fluid=TPMSHX_ENTHALPY_SCO2;
+        in.sides[s].inlet_temperature=s?310.:340.;
+        in.sides[s].inlet_pressure=8e6;in.sides[s].inlet_velocity=.02;
+    }
+    c.max_outer=1;c.enthalpy_iterations=1000;c.enthalpy_sweeps=25;
+    c.enthalpy_omega=.6;c.enthalpy_update_tolerance=1e-6;c.envelope_mode=1;
+    in.solve_b=0;
+    if(tpmshx_solve_full_3d_v3(&in,&c,&strict,&cb,&r,error,sizeof error)!=1
+       || r.stop!=99 || r.owner)return 21;
+    in.solve_b=1;
+    const tpmshx_energy_options_v2 invalid_strict[]={
+        {3,1e-8,1e-5,1e-5,0},{1,0.,1e-5,1e-5,0},{1,NAN,1e-5,1e-5,0},
+        {1,1e-8,0.,1e-5,0},{1,1e-8,NAN,1e-5,0},{1,1e-8,1e-5,0.,0},
+        {1,1e-8,1e-5,INFINITY,0},{1,1e-8,1e-5,1e-5,2}};
+    for(size_t i=0;i<=sizeof invalid_strict/sizeof invalid_strict[0];++i) {
+        const tpmshx_energy_options_v2* option=i<sizeof invalid_strict/sizeof invalid_strict[0]?&invalid_strict[i]:NULL;
+        error[0]='\0';
+        if(tpmshx_solve_full_3d_v3(&in,&c,option,&cb,&r,error,sizeof error)!=1
+           || r.stop!=99 || r.owner || !error[0])return 22;
+    }
+    strict.algorithm=TPMSHX_ENERGY_TEMPERATURE_FOU;strict.require_enthalpy_update_on_temperature=1;
+    c.enthalpy_update_tolerance=NAN;
+    if(tpmshx_solve_full_3d_v3(&in,&c,&strict,&cb,&r,error,sizeof error)!=1
+       || r.stop!=99 || r.owner)return 23;
+    c.enthalpy_update_tolerance=1e-6;
+    c.enthalpy_iterations=0;
+    if(tpmshx_solve_full_3d_v3(&in,&c,&strict,&cb,&r,error,sizeof error)!=1
+       || r.stop!=99 || r.owner)return 23;
+    c.enthalpy_iterations=1000;
+    for(uint32_t algorithm=TPMSHX_ENERGY_LEGACY_H_FOU;algorithm<=TPMSHX_ENERGY_TEMPERATURE_FOU;++algorithm) {
+        strict.algorithm=algorithm;strict.require_enthalpy_update_on_temperature=algorithm!=0;
+        if(tpmshx_solve_full_3d_v3(&in,&c,&strict,&cb,&r,error,sizeof error)
+           || r.stop!=2 || !r.owner || r.converged)return 24;
+        if(tpmshx_full_3d_get_energy_effective_settings_v1(&r,&settings)
+           || !settings_match(&settings.resolved,&c,&strict) || settings.resolved.available
+           || settings.last.available || settings.outer_count)return 25;
+        tpmshx_full_3d_release_v1(&r);
+    }
+    /* Actual T-FOU is table-free. Legacy strict execution is covered by the
+       public pytest fixture that already supplies its explicit table path.
+       One capped outer pass is not a Ceff accuracy/flow qualification. */
+    {
+        strict.algorithm=TPMSHX_ENERGY_TEMPERATURE_FOU;strict.require_enthalpy_update_on_temperature=1;
+        if(tpmshx_solve_full_3d_v3(&in,&c,&strict,NULL,&r,error,sizeof error)) {
+            fprintf(stderr,"strict full3D smoke failed: %s\n",error);return 26;
+        }
+        if(!r.has_true_h || r.outer_count!=1 || r.true_h.stop!=TPMSHX_ENTHALPY_CONVERGED
+           || !r.true_h.audit_available || !isfinite(r.true_h.residual) || r.true_h.residual>1e-6
+           || !isfinite(r.true_h.audit.coupled_ratio) || !isfinite(r.true_h.audit.equation_ratio)
+           || r.true_h.audit.coupled_ratio>1e-5 || r.true_h.audit.equation_ratio>1e-5)return 27;
+        if(tpmshx_full_3d_get_energy_effective_settings_v1(&r,&settings)
+           || !settings.resolved.available || !settings.last.available
+           || !settings_match(&settings.resolved,&c,&strict) || !settings_match(&settings.last,&c,&strict)
+           || settings.outer_count!=r.outer_count)return 28;
+        for(size_t i=0;i<settings.outer_count;++i)
+            if(!settings.outer[i].available || !settings_match(&settings.outer[i],&c,&strict))return 29;
+        if(tpmshx_full_3d_get_energy_evidence_v1(&r,&evidence)
+           || !evidence.available || !evidence.energy.has_temperature_update
+           || evidence.energy.temperature_update>strict.temperature_update_tolerance)return 30;
+        strict.equation_energy_tolerance=2e-4;
+        if(tpmshx_full_3d_get_energy_effective_settings_v1(&r,&settings)
+           || settings.resolved.equation_energy_tolerance!=1e-5
+           || settings.last.equation_energy_tolerance!=1e-5 || settings.outer[0].equation_energy_tolerance!=1e-5)return 31;
+        strict.equation_energy_tolerance=1e-5;
+        tpmshx_full_3d_release_v1(&r);
+    }
+    puts("{\"status\":\"passed\",\"abi\":1,\"full3d_owned\":true,\"energy_entry_query\":true,\"strict_energy_v3\":true,\"cancel\":true,\"error_untouched\":true}");return 0;
 }

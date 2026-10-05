@@ -4,6 +4,7 @@
 #include "tpmshx/model_h_c_api.h"
 #include "tpmshx/enthalpy_driver_c_api.h"
 #include "tpmshx/closure_evidence_c_api.h"
+#include "tpmshx/temperature_evidence_c_api.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -166,6 +167,15 @@ typedef struct {
  * have available=0. Status 1 leaves output unchanged. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_energy_evidence_v1(
     const tpmshx_full_2d_result_v2*,tpmshx_full_2d_energy_evidence_v1*);
+typedef struct {
+    tpmshx_model_enthalpy_evidence_v1 main,fine;
+} tpmshx_full_2d_model_enthalpy_evidence_v1;
+/* No solver, EOS or allocation. Invalid/null/released owners return 1 without
+ * changing output. Cancelled and states without a model-enthalpy CC ledger
+ * return available=0. Completed budget-limited states retain their actual
+ * thermal evidence in W/m. Release views with the full_2d_release_v2 owner. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_model_enthalpy_evidence_v1(
+    const tpmshx_full_2d_result_v2*,tpmshx_full_2d_model_enthalpy_evidence_v1*);
 #ifdef __cplusplus
 }
 #endif

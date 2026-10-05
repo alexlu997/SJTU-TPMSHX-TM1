@@ -1,4 +1,6 @@
 #include "tpmshx/temperature_driver.hpp"
+#include "temperature_faces.hpp"
+#include "temperature_active_line.hpp"
 
 #include <algorithm>
 #include <array>
@@ -44,77 +46,58 @@ void disjoint(ArrayView<T> a, ArrayView<U> b) {
         throw std::invalid_argument("temperature input/output arrays overlap");
 }
 
-struct Mesh {
-    const GridView& g;
-    bool two_d;
-    std::array<std::size_t, 3> count, stride;
-    std::array<ArrayView<const double>, 3> width;
-    std::size_t axes;
-    Mesh(const GridView& grid, bool plane)
-        : g(grid), two_d(plane), count{grid.nx, grid.ny, grid.nz},
-          stride{grid.ny*grid.nz, grid.nz, 1}, width{grid.dx,grid.dy,grid.dz},
-          axes(plane ? 2U : 3U) {}
-    double volume(const std::array<std::size_t,3>& c) const {
-        const double area = g.dx[c[0]] * g.dy[c[1]];
-        return two_d ? area : area * g.dz[c[2]];
+using Mesh = detail::EnergyMesh;
+
+// Prepared unique positive-axis face capacity. Every adjacent pair consumes
+// the same face; only this adapter knows cell velocities and inlet overrides.
+struct TemperatureEnergyPhase {
+    EnergyPhase energy;
+    std::array<std::vector<double>,3> capacity,offset;
+    TemperatureEnergyPhase(const Mesh& mesh,const TemperatureFluidView& f)
+        : energy{f.conductivity,f.hv,{}, {},f.boundary,true} {
+        energy.inlet.capacity_flux={}; // consumed once into signed-axis faces
+        const auto& g=mesh.g;
+        const std::array<std::size_t,3> sizes{(g.nx+1)*g.ny*g.nz,
+            g.nx*(g.ny+1)*g.nz,g.nx*g.ny*(g.nz+1)};
+        const std::array<ArrayView<const double>,3> velocity{f.u,f.v,f.w};
+        for(std::size_t axis=0;axis<3;++axis) {
+            offset[axis].assign(sizes[axis],0.);
+            if(f.capacity_faces[axis].size) {
+                energy.faces.capacity[axis]=f.capacity_faces[axis];
+                energy.faces.offset[axis]={offset[axis].data(),offset[axis].size()};
+                continue;
+            }
+            capacity[axis].assign(sizes[axis],0.);
+            energy.faces.capacity[axis]={capacity[axis].data(),capacity[axis].size()};
+            energy.faces.offset[axis]={offset[axis].data(),offset[axis].size()};
+            // A validated nz==1 CC scheme is 2D: optional cell w is inactive.
+            if(axis==2&&g.nz==1) continue;
+            for(std::size_t p=0;p<mesh.cells();++p) {
+                const auto c=mesh.coord(p);
+                const auto cell=[&](std::size_t q) {
+                    return f.epsilon[q]*f.rho_cp[q]*detail::optional(velocity[axis],q);
+                };
+                const double area=mesh.face_area(axis,c),local=cell(p);
+                const double high=c[axis]+1<mesh.count[axis]
+                    ? .5*(local+cell(p+mesh.stride[axis])):local;
+                capacity[axis][mesh.face(axis,p,1)]=high*area;
+                if(c[axis]==0) capacity[axis][mesh.face(axis,p,-1)]=local*area;
+                for(int sign:{-1,1}) {
+                    if(mesh.inside(c,axis,sign)||!detail::inlet_face(f.boundary,axis,sign)) continue;
+                    const auto patch=mesh.patch(axis,c);
+                    auto& C=capacity[axis][mesh.face(axis,p,sign)];
+                    if(detail::optional(f.boundary.opening,patch,1.)==0.) C=0.;
+                    else if(f.boundary.capacity_flux.size) C=-sign*f.boundary.capacity_flux[patch];
+                }
+            }
+        }
     }
-    double face_area(std::size_t axis, const std::array<std::size_t,3>& c) const {
-        if (two_d) return axis == 0 ? g.dy[c[1]] : g.dx[c[0]];
-        if (axis == 0) return g.dy[c[1]] * g.dz[c[2]];
-        if (axis == 1) return g.dx[c[0]] * g.dz[c[2]];
-        return g.dx[c[0]] * g.dy[c[1]];
-    }
-    std::size_t patch(int direction, const std::array<std::size_t,3>& c) const {
-        if (direction <= 1) return c[1]*g.nz+c[2];
-        if (direction <= 3) return c[0]*g.nz+c[2];
-        return c[0]*g.ny+c[1];
+    std::array<ArrayView<double>,3> writable_offsets() {
+        return {{{offset[0].data(),offset[0].size()},
+                 {offset[1].data(),offset[1].size()},
+                 {offset[2].data(),offset[2].size()}}};
     }
 };
-
-double optional(ArrayView<const double> x, std::size_t p, double fallback) {
-    return x.size ? x[p] : fallback;
-}
-
-double increment(double tm, double t, double tp, double dm, double dp, double offset) {
-    const double left = (t-tm)/dm, right = (tp-t)/dp;
-    if (left*right <= 0.0) return 0.0;
-    return (left < 0.0 ? -std::min(std::abs(left),std::abs(right))
-                       : std::min(std::abs(left),std::abs(right))) * offset;
-}
-
-double cell_capacity(const Mesh& mesh, const TemperatureFluidView& f,
-                     std::size_t p, std::size_t axis,
-                     const std::array<std::size_t,3>& c) {
-    const auto velocity = axis == 0 ? f.u : (axis == 1 ? f.v : f.w);
-    return (f.epsilon[p]*f.rho_cp[p]) * velocity[p] * mesh.face_area(axis,c);
-}
-
-double sou_axis(const Mesh& mesh, const TemperatureFluidView& f,
-                ArrayView<const double> t, std::size_t p, std::size_t axis,
-                const std::array<std::size_t,3>& c) {
-    double correction = 0.0;
-    const auto pos = c[axis], count = mesh.count[axis], stride = mesh.stride[axis];
-    const auto width = mesh.width[axis];
-    const double local = cell_capacity(mesh,f,p,axis,c);
-    for (std::size_t side = 0; side < 2; ++side) {
-        const auto face = pos+side;
-        if (face == 0 || face == count) continue;
-        const auto left = p-(side == 0 ? stride : 0);
-        const auto right = left+stride;
-        const double flow = mesh.two_d
-            ? 0.5*(cell_capacity(mesh,f,left,axis,c)+cell_capacity(mesh,f,right,axis,c))
-            : local;
-        const auto upos = flow >= 0.0 ? face-1 : face;
-        if (upos == 0 || upos+1 == count) continue;
-        const auto up = flow >= 0.0 ? left : right;
-        const double dm = 0.5*(width[upos-1]+width[upos]);
-        const double dp = 0.5*(width[upos]+width[upos+1]);
-        const double offset = 0.5*width[upos]*(flow >= 0.0 ? 1.0 : -1.0);
-        correction += (side == 0 ? 1.0 : -1.0)*flow*
-            increment(t[up-stride],t[up],t[up+stride],dm,dp,offset);
-    }
-    return correction;
-}
 
 void update(ArrayView<double> t, std::size_t p, double value, double alpha, double& change) {
     const double next = alpha == 1.0 ? value : t[p]+alpha*(value-t[p]);
@@ -123,141 +106,213 @@ void update(ArrayView<double> t, std::size_t p, double value, double alpha, doub
     t[p] = next;
 }
 
-void fluid_row(const Mesh& mesh, const TemperatureFluidView& f,
-               ArrayView<double> t, ArrayView<double> solid, std::size_t p,
-               const std::array<std::size_t,3>& c, bool sou, double alpha,
-               double& change, ArrayView<const double> reconstruction = {}) {
-    std::array<double,6> a{}, neighbor{};
-    const auto direction = static_cast<std::size_t>(f.boundary.direction);
-    for (std::size_t axis = 0; axis < mesh.axes; ++axis) {
-        const auto pos = c[axis], count = mesh.count[axis], stride = mesh.stride[axis];
-        const auto width = mesh.width[axis];
-        const double area = mesh.face_area(axis,c);
-        const double local = cell_capacity(mesh,f,p,axis,c);
-        for (std::size_t side = 0; side < 2; ++side) {
-            const auto face = 2*axis+side;
-            const bool inside = side == 0 ? pos > 0 : pos+1 < count;
-            const auto nb = inside ? (side == 0 ? p-stride : p+stride) : p;
-            const auto npos = inside ? (side == 0 ? pos-1 : pos+1) : pos;
-            const double diffusion = inside ? detail::diffusion_conductance(
-                f.conductivity[p],f.conductivity[nb],0.5*width[pos],0.5*width[npos])*area : 0.0;
-            const double flow = mesh.two_d
-                ? (side == 0 ? 0.5*(cell_capacity(mesh,f,nb,axis,c)+local)
-                             : 0.5*(local+cell_capacity(mesh,f,nb,axis,c))) : local;
-            a[face] = diffusion + std::max(side == 0 ? flow : -flow,0.0);
-            neighbor[face] = t[nb];
-            if (!inside && face == direction) {
-                const auto patch = mesh.patch(f.boundary.direction,c);
-                const double frac = optional(f.boundary.opening,patch,1.0);
-                const double incoming = optional(f.boundary.capacity_flux,patch,
-                                                  side == 0 ? flow : -flow);
-                if (mesh.two_d || frac > 0.0) {
-                    // The 3D CC closed patch retains its old self-neighbour
-                    // convection. In 2D the physical inlet coefficient is zero.
-                    a[face] = 2.0*f.conductivity[p]*area*frac/width[pos]
-                        + (frac > 0.0 ? std::max(incoming,0.0) : 0.0);
-                    neighbor[face] = optional(f.boundary.profile,patch,
-                                              f.boundary.inlet_temperature);
-                }
-            }
-        }
-    }
-    const double hv = f.hv[p]*mesh.volume(c);
-    double diagonal = a[1]+a[0]+a[3]+a[2];
-    double rhs = a[1]*neighbor[1]+a[0]*neighbor[0]+a[3]*neighbor[3]+a[2]*neighbor[2];
-    if (!mesh.two_d) {
-        diagonal += a[5]+a[4];
-        rhs += a[5]*neighbor[5]+a[4]*neighbor[4];
-    }
-    diagonal += hv;
-    double correction = 0.0;
-    if (!reconstruction.size) reconstruction = {t.data,t.size};
-    if (sou)
-        for (std::size_t axis = 0; axis < mesh.axes; ++axis)
-            correction += sou_axis(mesh,f,reconstruction,p,axis,c);
-    rhs += hv*solid[p];
-    rhs += correction;
-    if (!std::isfinite(diagonal) || !std::isfinite(rhs) || diagonal <= 0.0)
-        throw std::domain_error("invalid temperature fluid equation");
-    if (mesh.two_d && alpha != 1.0) {
-        const auto axis = direction/2;
-        const bool outlet = direction%2 == 0 ? c[axis]+1 == mesh.count[axis] : c[axis] == 0;
-        if (outlet) alpha = 1.0;
-    }
-    update(t,p,rhs/diagonal,alpha,change);
+void apply_row(ArrayView<double> t,std::size_t p,detail::EnergyRow row,
+               double alpha,double& change) {
+    if(!std::isfinite(row.diagonal)||!std::isfinite(row.rhs)||row.diagonal<=0.)
+        throw std::domain_error("invalid temperature energy equation");
+    update(t,p,row.rhs/row.diagonal,alpha,change);
 }
 
-void solid_row(const Mesh& mesh, const TemperatureFluidView& a, const TemperatureFluidView& b,
-               ArrayView<const double> ks, TemperatureStateView state, std::size_t p,
-               const std::array<std::size_t,3>& c, double alpha, double& change) {
-    std::array<double,6> conductance{}, neighbor{};
-    for (std::size_t axis = 0; axis < mesh.axes; ++axis) {
-        const auto pos = c[axis], count = mesh.count[axis], stride = mesh.stride[axis];
-        const auto width = mesh.width[axis];
-        const double area = mesh.face_area(axis,c);
-        for (std::size_t side = 0; side < 2; ++side) {
-            const auto face = 2*axis+side;
-            const bool inside = side == 0 ? pos > 0 : pos+1 < count;
-            const auto nb = inside ? (side == 0 ? p-stride : p+stride) : p;
-            const auto npos = inside ? (side == 0 ? pos-1 : pos+1) : pos;
-            conductance[face] = inside ? detail::diffusion_conductance(
-                ks[p],ks[nb],0.5*width[pos],0.5*width[npos])*area : ks[p]*area/width[pos];
-            neighbor[face] = state.solid[nb];
-        }
-    }
-    const double ha = a.hv[p]*mesh.volume(c), hb = b.hv[p]*mesh.volume(c);
-    double diagonal = conductance[1]+conductance[0]+conductance[3]+conductance[2];
-    double rhs = conductance[1]*neighbor[1]+conductance[0]*neighbor[0]
-        +conductance[3]*neighbor[3]+conductance[2]*neighbor[2];
-    if (!mesh.two_d) {
-        diagonal += conductance[5]+conductance[4];
-        rhs += conductance[5]*neighbor[5]+conductance[4]*neighbor[4];
-    }
-    diagonal += ha+hb;
-    rhs += ha*state.a[p]+hb*state.b[p];
-    if (!std::isfinite(diagonal) || !std::isfinite(rhs) || diagonal <= 0.0)
-        throw std::domain_error("invalid temperature solid equation");
-    update(state.solid,p,rhs/diagonal,alpha,change);
-}
-
-double chunk(const Mesh& mesh, const TemperatureFluidView& a, const TemperatureFluidView& b,
-             ArrayView<const double> ks, TemperatureStateView state,
-             const TemperatureControl& control, bool frozen, std::size_t sweeps,
+double point_chunk(const Mesh& mesh,TemperatureEnergyPhase& a,TemperatureEnergyPhase& b,
+             ArrayView<const double> ks,TemperatureStateView state,
+             const TemperatureControl& control,bool frozen,std::size_t sweeps,
              bool red_black) {
-    double change = 0.0;
-    const bool reverse_x = !red_black && a.boundary.direction == 1;
-    const bool reverse_y = !red_black && (b.boundary.direction == 3
-        || (mesh.two_d && a.boundary.direction == 3 && b.boundary.direction == 0));
-    const bool reverse_z = !red_black && a.boundary.direction == 5;
-    std::vector<double> snapshot_a(red_black ? state.a.size : 0);
-    std::vector<double> snapshot_b(red_black ? state.b.size : 0);
-    for (std::size_t iteration = 0; iteration < sweeps; ++iteration) {
-        change = 0.0;
-        if (red_black) {
-            std::copy(state.a.data,state.a.data+state.a.size,snapshot_a.begin());
-            std::copy(state.b.data,state.b.data+state.b.size,snapshot_b.begin());
+    double change=0.;
+    const bool reverse_x=!red_black&&a.energy.inlet.direction==1;
+    const bool reverse_y=!red_black&&(b.energy.inlet.direction==3
+        ||(mesh.g.nz==1&&a.energy.inlet.direction==3&&b.energy.inlet.direction==0));
+    const bool reverse_z=!red_black&&a.energy.inlet.direction==5;
+    const auto n=mesh.cells();
+    const double alpha_a=std::min(control.alpha_a,.2);
+    const double alpha_b=control.second_order_b?std::min(control.alpha_b,.2):control.alpha_b;
+    const std::array<ArrayView<double>,3> fields{state.a,state.b,state.solid};
+    std::array<std::vector<double>,3> before;
+    for(auto& saved:before) saved.resize(n);
+    for(std::size_t iteration=0;iteration<sweeps;) {
+        for(std::size_t phase=0;phase<3;++phase)
+            std::copy_n(fields[phase].data,n,before[phase].data());
+        detail::temperature_face_offsets(mesh,a.energy.faces.capacity,
+            {state.a.data,n},a.writable_offsets());
+        if(control.second_order_b&&!frozen)
+            detail::temperature_face_offsets(mesh,b.energy.faces.capacity,
+                {state.b.data,n},b.writable_offsets());
+        const auto block=std::min(std::size_t{5},sweeps-iteration);
+        for(std::size_t inner=0;inner<block;++inner) {
+        change=0.;
+        for(std::size_t color=0;color<(red_black?2U:1U);++color)
+            for(std::size_t ii=0;ii<mesh.g.nx;++ii)
+                for(std::size_t jj=0;jj<mesh.g.ny;++jj)
+                    for(std::size_t kk=0;kk<mesh.g.nz;++kk) {
+                        const std::array<std::size_t,3> c{
+                            reverse_x?mesh.g.nx-1-ii:ii,
+                            reverse_y?mesh.g.ny-1-jj:jj,
+                            reverse_z?mesh.g.nz-1-kk:kk};
+                        if(red_black&&(c[0]+c[1])%2!=color) continue;
+                        const auto p=(c[0]*mesh.g.ny+c[1])*mesh.g.nz+c[2];
+                        apply_row(state.a,p,detail::fluid_energy_row(mesh,a.energy,
+                            {state.a.data,n},{state.solid.data,n},p),alpha_a,change);
+                        apply_row(state.solid,p,detail::solid_energy_row(mesh,ks,a.energy.hv,b.energy.hv,
+                            {state.a.data,n},{state.b.data,n},{state.solid.data,n},{},p),
+                            control.alpha_solid,change);
+                        if(!frozen) apply_row(state.b,p,detail::fluid_energy_row(mesh,b.energy,
+                            {state.b.data,n},{state.solid.data,n},p),alpha_b,change);
+                    }
         }
-        for (std::size_t color = 0; color < (red_black ? 2U : 1U); ++color)
-          for (std::size_t ii = 0; ii < mesh.g.nx; ++ii)
-            for (std::size_t jj = 0; jj < mesh.g.ny; ++jj)
-                for (std::size_t kk = 0; kk < mesh.g.nz; ++kk) {
-                    const std::array<std::size_t,3> c{
-                        reverse_x ? mesh.g.nx-1-ii : ii,
-                        reverse_y ? mesh.g.ny-1-jj : jj,
-                        reverse_z ? mesh.g.nz-1-kk : kk};
-                    if (red_black && (c[0]+c[1])%2 != color) continue;
-                    const auto p = (c[0]*mesh.g.ny+c[1])*mesh.g.nz+c[2];
-                    fluid_row(mesh,a,state.a,state.solid,p,c,true,control.alpha_a,change,
-                              {snapshot_a.data(),snapshot_a.size()});
-                    solid_row(mesh,a,b,ks,state,p,c,control.alpha_solid,change);
-                    if (!frozen) fluid_row(mesh,b,state.b,state.solid,p,c,
-                                          control.second_order_b,control.alpha_b,change,
-                                          {snapshot_b.data(),snapshot_b.size()});
-                }
-        if (change < 1e-10) break;
+        change=0.;
+        for(std::size_t phase=0;phase<3;++phase)
+            for(std::size_t p=0;p<n;++p) {
+                const double old=before[phase][p];
+                fields[phase][p]=old+.6*(fields[phase][p]-old);
+                change=std::max(change,std::abs(fields[phase][p]-old));
+            }
+        iteration+=block;
     }
     return change;
 }
+
+bool complete_inflow(const Mesh& mesh,const EnergyPhase& phase) {
+    for(std::size_t p=0;p<mesh.cells();++p) {
+        const auto c=mesh.coord(p);
+        for(std::size_t axis=0;axis<3;++axis) for(int sign:{-1,1})
+            if(!mesh.inside(c,axis,sign)
+                &&sign*phase.faces.capacity[axis][mesh.face(axis,p,sign)]<0.
+                &&!detail::known_inlet(mesh,phase.inlet,c,axis,sign)) return false;
+    }
+    return true;
+}
+
+void refresh_offsets(const Mesh& mesh,TemperatureEnergyPhase& a,TemperatureEnergyPhase& b,
+        TemperatureStateView state,bool second_b,ArrayView<const double> prescribed) {
+    detail::temperature_face_offsets(mesh,a.energy.faces.capacity,
+        {state.a.data,state.a.size},a.writable_offsets());
+    if(second_b&&!prescribed.size) detail::temperature_face_offsets(mesh,b.energy.faces.capacity,
+        {state.b.data,state.b.size},b.writable_offsets());
+}
+
+double actual_error(const Mesh& mesh,TemperatureEnergyPhase& a,TemperatureEnergyPhase& b,
+        ArrayView<const double> ks,TemperatureStateView state,bool second_b,
+        ArrayView<const double> prescribed) {
+    refresh_offsets(mesh,a,b,state,second_b,prescribed);
+    const auto ledger=energy_balance_audit(mesh.g,a.energy,b.energy,ks,state,{},prescribed);
+    if(!ledger.boundary_complete) throw std::logic_error("active temperature guard lost complete boundary");
+    return ledger.error;
+}
+
+using PointCache=std::array<std::vector<detail::PointEnergyCoefficients>,3>;
+
+template<bool Cached=false>
+void point_sweep(const Mesh& mesh,TemperatureEnergyPhase& a,TemperatureEnergyPhase& b,
+        ArrayView<const double> ks,TemperatureStateView state,const TemperatureControl& control,
+        bool frozen,int phase_only=-1,const PointCache* cache=nullptr) {
+    const bool reverse_x=a.energy.inlet.direction==1;
+    const bool reverse_y=b.energy.inlet.direction==3
+        ||(mesh.g.nz==1&&a.energy.inlet.direction==3&&b.energy.inlet.direction==0);
+    const bool reverse_z=a.energy.inlet.direction==5;
+    const auto n=mesh.cells();double change=0.;
+    for(std::size_t ii=0;ii<mesh.g.nx;++ii)
+        for(std::size_t jj=0;jj<mesh.g.ny;++jj)
+            for(std::size_t kk=0;kk<mesh.g.nz;++kk) {
+                const std::array<std::size_t,3> c{reverse_x?mesh.g.nx-1-ii:ii,
+                    reverse_y?mesh.g.ny-1-jj:jj,reverse_z?mesh.g.nz-1-kk:kk};
+                const auto p=(c[0]*mesh.g.ny+c[1])*mesh.g.nz+c[2];
+                if(phase_only==-1||phase_only==0)
+                    apply_row(state.a,p,Cached ?detail::fluid_energy_row(mesh,a.energy,
+                        {state.a.data,n},{state.solid.data,n},p,(*cache)[0][p])
+                        :detail::fluid_energy_row(mesh,a.energy,{state.a.data,n},{state.solid.data,n},p),
+                        std::min(control.alpha_a,.2),change);
+                if(phase_only==-1||phase_only==2)
+                    apply_row(state.solid,p,Cached ?detail::solid_energy_row(mesh,ks,a.energy.hv,b.energy.hv,
+                        {state.a.data,n},{state.b.data,n},{state.solid.data,n},{},p,(*cache)[2][p])
+                        :detail::solid_energy_row(mesh,ks,a.energy.hv,b.energy.hv,
+                        {state.a.data,n},{state.b.data,n},{state.solid.data,n},{},p),control.alpha_solid,change);
+                if(!frozen&&(phase_only==-1||phase_only==1))
+                    apply_row(state.b,p,Cached ?detail::fluid_energy_row(mesh,b.energy,
+                        {state.b.data,n},{state.solid.data,n},p,(*cache)[1][p])
+                        :detail::fluid_energy_row(mesh,b.energy,{state.b.data,n},{state.solid.data,n},p),
+                        control.second_order_b?std::min(control.alpha_b,.2):control.alpha_b,change);
+            }
+}
+
+void fluid_line_sweep(const Mesh& mesh,TemperatureEnergyPhase& phase,
+        ArrayView<double> temperature,ArrayView<const double> solid,double alpha,
+        const std::array<bool,3>& reverse,detail::ActiveLineWork& work) {
+    const auto axis=static_cast<std::size_t>(phase.energy.inlet.direction/2);
+    for(std::size_t ordinal=0;ordinal<mesh.line_count(axis);++ordinal) {
+        auto c=mesh.coord(mesh.line_start(axis,ordinal));
+        for(std::size_t a=0;a<3;++a) if(a!=axis&&reverse[a]) c[a]=mesh.count[a]-1-c[a];
+        const auto p=(c[0]*mesh.g.ny+c[1])*mesh.g.nz+c[2];
+        detail::active_temperature_line(mesh,phase,temperature,solid,axis,p,alpha,work);
+    }
+}
+
+double chunk(const Mesh& mesh,TemperatureEnergyPhase& a,TemperatureEnergyPhase& b,
+        ArrayView<const double> ks,TemperatureStateView state,const TemperatureControl& control,
+        bool frozen,std::size_t sweeps,bool red_black,bool eligible,
+        ArrayView<const double> prescribed,detail::ActiveLineWork& work) {
+    if(!eligible)
+        return point_chunk(mesh,a,b,ks,state,control,frozen,sweeps,red_black);
+    const auto n=mesh.cells();const std::array<ArrayView<double>,3> fields{state.a,state.b,state.solid};
+    // Chunk-local cache cannot overlap the full finish ledger. Fallback
+    // point blocks have already returned; one-sweep Newton blocks need none.
+    PointCache cache;
+    if(sweeps>1) for(std::size_t phase=0;phase<3;++phase) {
+        if(phase==1&&frozen) continue;
+        cache[phase].resize(n);
+        for(std::size_t p=0;p<n;++p) {
+            const auto row=phase<2 ?detail::fluid_energy_row(mesh,phase==0?a.energy:b.energy,
+                {fields[phase].data,n},{state.solid.data,n},p)
+                :detail::solid_energy_row(mesh,ks,a.energy.hv,b.energy.hv,
+                    {state.a.data,n},{state.b.data,n},{state.solid.data,n},{},p);
+            cache[phase][p]={row.diagonal,row.neighbor};
+        }
+    }
+    std::array<std::vector<double>,3> before,saved;
+    for(auto* block:{&before,&saved}) for(auto& values:*block) values.resize(n);
+    const std::array<bool,3> reverse{a.energy.inlet.direction==1,b.energy.inlet.direction==3
+        ||(mesh.g.nz==1&&a.energy.inlet.direction==3&&b.energy.inlet.direction==0),a.energy.inlet.direction==5};
+    double change=0.;
+    for(std::size_t iteration=0;iteration<sweeps;) {
+        const auto block=std::min(std::size_t{5},sweeps-iteration);
+        for(std::size_t phase=0;phase<3;++phase) std::copy_n(fields[phase].data,n,before[phase].data());
+        detail::temperature_face_offsets(mesh,a.energy.faces.capacity,{state.a.data,n},a.writable_offsets());
+        if(control.second_order_b&&!frozen)
+            detail::temperature_face_offsets(mesh,b.energy.faces.capacity,{state.b.data,n},b.writable_offsets());
+        for(std::size_t inner=0;inner+1<block;++inner)
+            point_sweep<true>(mesh,a,b,ks,state,control,frozen,-1,&cache);
+        for(std::size_t phase=0;phase<3;++phase) std::copy_n(fields[phase].data,n,saved[phase].data());
+        try {
+            for(std::size_t phase=0;phase<3;++phase) for(std::size_t p=0;p<n;++p)
+                fields[phase][p]=before[phase][p]+.6*(fields[phase][p]-before[phase][p]);
+            const double baseline=actual_error(mesh,a,b,ks,state,control.second_order_b,prescribed);
+            for(std::size_t phase=0;phase<3;++phase) std::copy_n(saved[phase].data(),n,fields[phase].data);
+            fluid_line_sweep(mesh,a,state.a,{state.solid.data,n},control.alpha_a,reverse,work);
+            point_sweep(mesh,a,b,ks,state,control,frozen,2);
+            if(!frozen) {
+                if(control.second_order_b)
+                    fluid_line_sweep(mesh,b,state.b,{state.solid.data,n},control.alpha_b,reverse,work);
+                else point_sweep(mesh,a,b,ks,state,control,frozen,1);
+            }
+            for(std::size_t phase=0;phase<3;++phase) for(std::size_t p=0;p<n;++p)
+                fields[phase][p]=before[phase][p]+.6*(fields[phase][p]-before[phase][p]);
+            const double candidate=actual_error(mesh,a,b,ks,state,control.second_order_b,prescribed);
+            if(!(candidate<baseline)) {
+                for(std::size_t phase=0;phase<3;++phase) for(std::size_t p=0;p<n;++p)
+                    fields[phase][p]=before[phase][p]+.6*(saved[phase][p]-before[phase][p]);
+                refresh_offsets(mesh,a,b,state,control.second_order_b,prescribed);
+            }
+        } catch(...) {
+            for(std::size_t phase=0;phase<3;++phase) std::copy_n(saved[phase].data(),n,fields[phase].data);
+            refresh_offsets(mesh,a,b,state,control.second_order_b,prescribed);
+            throw;
+        }
+        change=0.;
+        for(std::size_t phase=0;phase<3;++phase) for(std::size_t p=0;p<n;++p)
+            change=std::max(change,std::abs(fields[phase][p]-before[phase][p]));
+        iteration+=block;
+    }
+    return change;
+}
+
 
 double duty(const Mesh& mesh, const TemperatureFluidView& b, TemperatureStateView state) {
     double q = 0.0;
@@ -276,7 +331,8 @@ double duty(const Mesh& mesh, const TemperatureFluidView& b, TemperatureStateVie
 TemperatureResult solve_temperature(TemperatureScheme scheme, const GridView& grid,
     const TemperatureFluidView& a, const TemperatureFluidView& b,
     ArrayView<const double> k_ss, TemperatureStateView state,
-    const TemperatureControl& control, ArrayView<const double> prescribed_b, bool red_black) {
+    const TemperatureControl& control, ArrayView<const double> prescribed_b, bool red_black,
+    PhysicalHeatLedger* returned_audit) {
     if (scheme != TemperatureScheme::cell_centered_2d && scheme != TemperatureScheme::cell_centered_3d)
         throw std::invalid_argument("unsupported temperature scheme");
     const bool two_d = scheme == TemperatureScheme::cell_centered_2d;
@@ -308,6 +364,16 @@ TemperatureResult solve_temperature(TemperatureScheme scheme, const GridView& gr
         coefficient(f->epsilon,cells); coefficient(f->rho_cp,cells,true);
         check_array(f->u,cells); check_array(f->v,cells);
         if (!two_d || f->w.size) check_array(f->w,cells);
+        const bool direct=std::any_of(f->capacity_faces.begin(),f->capacity_faces.end(),
+            [](auto face){return face.size!=0;});
+        if(direct) {
+            const std::array<std::size_t,3> sizes{product(product(grid.nx+1,grid.ny),grid.nz),
+                product(product(grid.nx,grid.ny+1),grid.nz),product(product(grid.nx,grid.ny),grid.nz+1)};
+            for(std::size_t axis=0;axis<3;++axis) {
+                check_array(f->capacity_faces[axis],sizes[axis]);
+                for(auto out:outputs) disjoint(out,f->capacity_faces[axis]);
+            }
+        }
         const auto& bc = f->boundary;
         if (bc.direction < 0 || bc.direction >= (two_d ? 4 : 6)
             || !std::isfinite(bc.inlet_temperature))
@@ -329,7 +395,23 @@ TemperatureResult solve_temperature(TemperatureScheme scheme, const GridView& gr
         std::fill_n(state.solid.data,cells,.5*(a.boundary.inlet_temperature+b.boundary.inlet_temperature));
     }
     if (prescribed_b.size) std::copy_n(prescribed_b.data,cells,state.b.data);
-    const Mesh mesh(grid,two_d);
+    const double unit_depth=1.;
+    GridView normalized=grid;
+    if(two_d) normalized.dz={&unit_depth,1};
+    const Mesh mesh(normalized);
+    TemperatureEnergyPhase phase_a(mesh,a),phase_b(mesh,b);
+    const bool eligible=!red_black&&(detail::temperature_second_order_active(mesh,phase_a.energy.faces.capacity)
+        ||(control.second_order_b&&!prescribed_b.size&&detail::temperature_second_order_active(mesh,phase_b.energy.faces.capacity)))
+        &&complete_inflow(mesh,phase_a.energy)&&(prescribed_b.size||complete_inflow(mesh,phase_b.energy));
+    detail::ActiveLineWork line_work(eligible ? *std::max_element(mesh.count.begin(),mesh.count.end()):1U);
+    const auto audit_state=[&]() {
+        detail::temperature_face_offsets(mesh,phase_a.energy.faces.capacity,
+            {state.a.data,cells},phase_a.writable_offsets());
+        if(control.second_order_b&&!prescribed_b.size)
+            detail::temperature_face_offsets(mesh,phase_b.energy.faces.capacity,
+                {state.b.data,cells},phase_b.writable_offsets());
+        return energy_physical_audit(normalized,phase_a.energy,phase_b.energy,k_ss,state,{},prescribed_b);
+    };
     std::array<std::vector<double>,3> previous;
     for (std::size_t phase = 0; phase < outputs.size(); ++phase)
         previous[phase].assign(outputs[phase].data,outputs[phase].data+cells);
@@ -344,7 +426,7 @@ TemperatureResult solve_temperature(TemperatureScheme scheme, const GridView& gr
             return result;
         }
         const auto n = std::min(control.chunk_iterations,control.max_iterations-result.iterations);
-        result.residual = chunk(mesh,a,b,k_ss,state,control,prescribed_b.size != 0,n,red_black);
+        result.residual = chunk(mesh,phase_a,phase_b,k_ss,state,control,prescribed_b.size != 0,n,red_black,eligible,prescribed_b,line_work);
         result.iterations += n;
         if (control.progress) control.progress(control.context,result.iterations,control.max_iterations);
         if (control.cancel && control.cancel(control.context)) {
@@ -360,14 +442,27 @@ TemperatureResult solve_temperature(TemperatureScheme scheme, const GridView& gr
         const double scale = std::max({std::abs(result.q_b),std::abs(previous_q),1.0});
         if (have_previous_q && std::abs(result.q_b-previous_q)/scale < control.q_relative_tolerance
             && delta < .01) {
-            result.stop = TemperatureStop::converged;
-            return result;
+            // Audit a fresh reconstruction at the returned state, never the
+            // offsets frozen at the beginning of the last Picard block.
+            auto audit=audit_state();
+            double qa=0.;
+            for(std::size_t p=0;p<cells;++p)
+                qa+=a.hv[p]*(state.a[p]-state.solid[p])*mesh.volume(mesh.coord(p));
+            const double denominator=std::max({std::abs(qa),std::abs(result.q_b),1.});
+            const bool direct=a.capacity_faces[0].size||b.capacity_faces[0].size;
+            if((!direct&&!audit.boundary_complete)
+                ||(audit.boundary_complete&&energy_balance_error(audit)/denominator<=1e-7)) {
+                result.stop = TemperatureStop::converged;
+                if(returned_audit) *returned_audit=std::move(audit);
+                return result;
+            }
         }
         previous_q = result.q_b;
         have_previous_q = true;
         for (std::size_t phase = 0; phase < outputs.size(); ++phase)
             std::copy_n(outputs[phase].data,cells,previous[phase].data());
     }
+    if(returned_audit&&result.iterations>0) *returned_audit=audit_state();
     return result;
 }
 

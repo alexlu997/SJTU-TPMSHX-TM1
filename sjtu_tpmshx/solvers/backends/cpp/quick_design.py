@@ -9,6 +9,7 @@ from sjtu_tpmshx.domain.run_warnings import range_context
 from sjtu_tpmshx.models.design_fluids import Props, record_native_design_ranges
 from sjtu_tpmshx.models.fluid_props import WaterStateError, QuickDesignWaterFieldError
 from sjtu_tpmshx.solvers.backends.quick_design import prepared_input, field_result
+from sjtu_tpmshx.solvers.backends.cpp.temperature import _temperature_algorithm
 
 
 class _Side(ct.Structure):
@@ -68,6 +69,8 @@ def run_case(case, control):
     abi = version()
     if abi != 1:
         raise ValueError(f'unsupported solver library ABI: {abi}; expected 1')
+    plane = shape[2] == 1
+    algorithm = _temperature_algorithm(library, 0 if plane else 1)
     call = library.tpmshx_solve_quick_design_v1
     double_p, size_p = ct.POINTER(ct.c_double), ct.POINTER(ct.c_size_t)
     call.argtypes = [size_p, ct.POINTER(double_p), size_p, ct.POINTER(_Config),
@@ -85,7 +88,6 @@ def run_case(case, control):
         for fluid, tin, pin, mass, side in (
             (op.hot_fluid, op.T_in_h, op.P_in_h, op.mdot_h, 'A'),
             (op.cold_fluid, op.T_in_c, op.P_in_c, op.mdot_c, 'B'))))
-    plane = shape[2] == 1
     chunk = controls['chunk'] if controls['chunk'] is not None else (500 if plane else 250)
     qtol = controls['qtol']
     if qtol is None:
@@ -153,4 +155,5 @@ def run_case(case, control):
                   h_vA=np.full(shape, a.hv), h_vB=np.full(shape, b.hv), eps=fixed['eps'])
     props_a, props_b = (Props(s.rho, s.mu, s.k, s.cp, s.pr) for s in (a, b))
     return field_result(case, fields, props_a, props_b, a.speed, b.speed, pass_info, backend_id='cpp',
-                        native_metadata=dict(solver_abi=abi, capability='quick_design_v1'))
+                        native_metadata=dict(solver_abi=abi, capability='quick_design_v1',
+                                             temperature_algorithm=algorithm))

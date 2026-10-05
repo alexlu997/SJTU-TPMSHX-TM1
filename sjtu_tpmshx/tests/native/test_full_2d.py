@@ -1,7 +1,7 @@
 """Prepared-case full2D coarse driver against the original production outer.
 
 The Python oracle performs real prepare_case -> build_execution_inputs ->
-_run_solvers. Its unchanged outer skeleton/thermal/SIMPLE calls execute; the
+_run_solvers. Its original outer/property/SIMPLE execute with qualified same-map thermal components; the
 state is copied when the real outer loop returns and Richardson is stopped
 at its entry. This qualifies coarse coupling, not completed 2D Richardson.
 
@@ -11,7 +11,7 @@ Other frozen input/coefficient/diagnostic fields use rtol=2e-8 and a scale-
 appropriate 2e-10 absolute tolerance; Q and dimensional thermal audit fields
 use rtol=2e-8/atol=2e-7 W/m. Original physical gates are unchanged.
 """
-from copy import deepcopy
+from copy import copy, deepcopy
 import ctypes as ct
 from functools import wraps
 import inspect
@@ -34,8 +34,10 @@ from sjtu_tpmshx.solvers import ltne_energy, simple_solver
 from sjtu_tpmshx.solvers._solve_common import inlet_pressure_state
 from sjtu_tpmshx.solvers.backends.python.two_d import coupling, execution, runtime
 from sjtu_tpmshx.tests.native.test_simple_2d_c_api import arguments as simple_arguments
+from sjtu_tpmshx.tests.native import full_thermal_reference
 
 ROOT = Path(__file__).resolve().parents[3]
+same_thermal = full_thermal_reference.same_thermal
 D = ct.POINTER(ct.c_double)
 S = ct.c_size_t
 
@@ -68,8 +70,8 @@ def configuration(*, directions=(0, 3), outer=4, partial=True, warm=False,
         extrap=ExtrapPolicy(allow=True))
 
 
-def capture_python(case, *, pressure_shooting=True, full=False):
-    """Observe original calls and closure-owned state; never replace numerics."""
+def capture_python(case, *, pressure_shooting=True, full=False, thermal=None):
+    """Observe the original outer; thermal is an explicit same-map test adapter."""
     cfg, prepared = execution.build_execution_inputs(case)
     cfg['p_in_shooting'] = pressure_shooting
     record = dict(cfg=cfg, prepared=prepared, thermal_calls=[], simple_calls=[], outer_history=[], envelope={})
@@ -83,17 +85,33 @@ def capture_python(case, *, pressure_shooting=True, full=False):
         record['simple_calls'].append((deepcopy(solver), result, bound.arguments))
         return result
 
+    live_state = {}
+
     @wraps(original_energy)
     def energy(*args, **kwargs):
         bound = inspect.signature(original_energy).bind(*args, **kwargs)
         bound.apply_defaults()
         values = deepcopy(bound.arguments)
-        result = original_energy(*args, **kwargs)
+        thermal_state = live_state['state']
+        if thermal is not None and 'refinement_inputs' in record and values['model_fluids'] is None:
+            # The fine strict solve uses the last coarse thermal mass faces,
+            # conservatively prolonged; final post properties are not a source.
+            thermal_state = copy(thermal_state)
+            coarse = record['refinement_inputs']
+            for side in 'AB':
+                mass = coupling._prolong_mass_faces_2d(
+                    getattr(record['state'], 'mass_flux_'+side), coarse['energy_dx'], coarse['energy_dy'],
+                    values['dx_arr'], values['dy_arr'])
+                setattr(thermal_state, 'mass_flux_'+side, mass)
+            record['refinement_mass_faces'] = (thermal_state.mass_flux_A, thermal_state.mass_flux_B)
+        result = (original_energy(*args, **kwargs) if thermal is None else
+                  thermal.plane(values, thermal_state, cfg))
         record['thermal_calls'].append((values, deepcopy(result[3])))
         return result
 
     def outer(*, max_iter, step, post):
         state = inspect.getclosurevars(post).nonlocals['state']
+        live_state['state'] = state
         previous = None
 
         def observed_step(index):
@@ -130,7 +148,36 @@ def capture_python(case, *, pressure_shooting=True, full=False):
         bound = inspect.signature(original_refinement).bind(*args, **kwargs)
         bound.apply_defaults()
         record['refinement_inputs'] = deepcopy(bound.arguments)
-        result = original_refinement(*args, **kwargs)
+        if thermal is not None and bound.arguments['model_inputs'] is None:
+            original_duty = coupling._enthalpy_balance_2d
+            record['legacy_temperature_duties'] = []
+
+            def duty(temperature, *duty_args, **duty_kwargs):
+                legacy = original_duty(temperature, *duty_args, **duty_kwargs)
+                for stage, fields, info in (
+                        ('main', (bound.arguments['Ta'], bound.arguments['Tb']),
+                         record['coarse_thermal_calls'][-1][1]),
+                        ('fine', (evidence['Ta'], evidence['Tb']), record['thermal_calls'][-1][1])):
+                    for side, field in enumerate(fields):
+                        if temperature is field:
+                            ledger = info['_full_reference']
+                            value = (ledger['advective_inward'][side] if ledger['boundary_complete']
+                                     else float('nan'))
+                            record['legacy_temperature_duties'].append(dict(
+                                stage=stage, side=side, legacy_cp_duty=legacy, model_h_duty=value))
+                            return value
+                raise AssertionError('Richardson duty did not use an observed thermal return')
+
+            # Preserve the original Richardson algebra, acceptance and fallback
+            # checks; only its explicitly changed fullCC duty definition differs.
+            with patch.object(coupling, '_enthalpy_balance_2d', duty):
+                result = original_refinement(*args, **kwargs)
+            expected = [('main', 0), ('main', 1)]
+            if record['thermal_calls'][-1][1]['converged']:
+                expected += [('fine', 0), ('fine', 1)]
+            assert [(r['stage'], r['side']) for r in record['legacy_temperature_duties']] == expected
+        else:
+            result = original_refinement(*args, **kwargs)
         record['refinement_result'] = deepcopy(result)
         record['refinement_evidence'] = deepcopy(evidence)
         return result
@@ -153,6 +200,17 @@ def capture_python(case, *, pressure_shooting=True, full=False):
          patch.object(simple_solver.SIMPLESolver, 'solve', flow), patch.object(ltne_enthalpy_2d, 'solve_enthalpy_2d', enthalpy):
         try:
             record['raw_return'] = coupling._run_solvers(cfg, rt, RunControl())
+            if 'legacy_temperature_duties' in record:
+                # FullCC reports all inward mass on the detached main thermal
+                # boundary. Tout already uses these same mass faces in Python.
+                diagnostics = record['raw_return'][1]
+                record['legacy_temperature_inlet_mass'] = {
+                    side: diagnostics['mass_flow_'+side+'_kg_s_per_m'] for side in 'AB'}
+                for side in 'AB':
+                    mx, my = getattr(record['state'], 'mass_flux_'+side)
+                    diagnostics['mass_flow_'+side+'_kg_s_per_m'] = float(
+                        np.maximum(mx[0], 0.).sum() + np.maximum(-mx[-1], 0.).sum()
+                        + np.maximum(my[:, 0], 0.).sum() + np.maximum(-my[:, -1], 0.).sum())
         except CoarseCaptured:
             record['refinement_stopped'] = True
     assert 'state' in record and len(record['coarse_thermal_calls']) == len(record['outer_history'])
@@ -225,6 +283,7 @@ def native():
     host = 'windows-x64' if os.name == 'nt' else 'macos-arm64'
     suffix = '.dll' if os.name == 'nt' else '.dylib' if sys.platform == 'darwin' else '.so'
     library = ROOT / '.cache/native-deps/build' / ('pilot-'+host) / (('' if os.name == 'nt' else 'lib')+'full_2d_test'+suffix)
+    library = Path(os.environ.get('TPMSHX_FULL_2D_TEST_LIBRARY', library))
     if not library.is_file():
         message = f'full2D coarse qualification library not built: {library}'
         if os.environ.get('TPMSHX_REQUIRE_NATIVE_DEPS_TESTS') == '1':
@@ -394,36 +453,36 @@ def compare_coarse(actual, record):
 
 
 @pytest.mark.parametrize('outer', [2, 4])
-def test_prepared_air_water_model_h_coarse(native, outer):
+def test_prepared_air_water_model_h_coarse(native, same_thermal, outer):
     case = prepare_case(configuration(outer=outer), case_id=f'native-full2d-coarse-{outer}')
-    reference = capture_python(case)
+    reference = capture_python(case, thermal=same_thermal)
     code, error, actual = native(inputs(reference))
     assert code == 0, error
     compare_coarse(actual, reference)
 
 
 @pytest.mark.parametrize('directions,warm', [((1, 2), False), ((2, 1), False), ((3, 0), True)])
-def test_prepared_directions_and_solid_warm_start(native, directions, warm):
+def test_prepared_directions_and_solid_warm_start(native, same_thermal, directions, warm):
     case = prepare_case(configuration(directions=directions, warm=warm), case_id='native-full2d-directed')
-    reference = capture_python(case)
+    reference = capture_python(case, thermal=same_thermal)
     code, error, actual = native(inputs(reference))
     assert code == 0, error
     compare_coarse(actual, reference)
 
 
 @pytest.mark.parametrize('mode', ['temperature', 'true_h'])
-def test_prepared_other_thermal_routes(native, mode):
+def test_prepared_other_thermal_routes(native, same_thermal, mode):
     case = prepare_case(configuration(mode=mode, outer=2), case_id='native-full2d-'+mode)
-    reference = capture_python(case)
+    reference = capture_python(case, thermal=None if mode == 'true_h' else same_thermal)
     code, error, actual = native(inputs(reference))
     assert code == 0, error
     compare_coarse(actual, reference)
 
 
 @pytest.mark.parametrize('shooting', [False, True])
-def test_prepared_pressure_shooting_with_capped_simple(native, shooting):
+def test_prepared_pressure_shooting_with_capped_simple(native, same_thermal, shooting):
     case = prepare_case(configuration(outer=2, simple_max=10), case_id='native-full2d-capped-flow')
-    reference = capture_python(case, pressure_shooting=shooting)
+    reference = capture_python(case, pressure_shooting=shooting, thermal=same_thermal)
     code, error, actual = native(inputs(reference))
     assert code == 0, error
     compare_coarse(actual, reference)
@@ -434,7 +493,7 @@ def test_prepared_pressure_shooting_with_capped_simple(native, shooting):
     (False, False, (0, 3)), (True, False, (0, 3)),
     (True, True, (0, 3)), (True, True, (1, 2)),
 ])
-def test_prepared_completed_coarse_and_continuous_fields(native, partial, continuous, directions):
+def test_prepared_completed_coarse_and_continuous_fields(native, same_thermal, partial, continuous, directions):
     cfg = configuration(partial=partial, directions=directions, outer=10)
     if continuous:
         cfg.zones = ZoneInputConfig(enabled=True, axis='continuous', config={
@@ -442,7 +501,7 @@ def test_prepared_completed_coarse_and_continuous_fields(native, partial, contin
             'n_ctrl_x': 2, 'n_ctrl_y': 2, 'symmetric_y': False,
             'spline_order': 1, 'L_bounds': [4., 8.], 't_bounds': [.3, .6]})
     case = prepare_case(cfg, case_id='native-full2d-completed')
-    reference = capture_python(case)
+    reference = capture_python(case, thermal=same_thermal)
     request = inputs(reference)
     if continuous:
         assert np.ptp(request['arrays'][6]) > 0

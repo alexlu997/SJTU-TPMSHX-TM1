@@ -85,9 +85,9 @@ extern "C" TPMSHX_THERMAL_API std::size_t TPMSHX_THERMAL_CALL tpmshx_simple3d_hi
         const auto needed=11*history.momentum.size();
         if (out&&capacity>=needed) for (std::size_t i=0;i<history.momentum.size();++i) {
             const auto& row=history.momentum[i];const auto& r=row.residual;
-            const double values[]={static_cast<double>(row.iteration),r.maximum,r.numerator[0],r.numerator[1],r.numerator[2],
+            const double row_values[]={static_cast<double>(row.iteration),r.maximum,r.numerator[0],r.numerator[1],r.numerator[2],
                 r.denominator[0],r.denominator[1],r.denominator[2],r.component[0],r.component[1],r.component[2]};
-            std::copy(values,values+11,out+11*i);
+            std::copy(row_values,row_values+11,out+11*i);
         }
         return needed;
     }

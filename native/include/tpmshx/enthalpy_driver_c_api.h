@@ -33,6 +33,16 @@ typedef struct {
     uint32_t algorithm;
     double temperature_update_tolerance; /* maximum actual A/B/solid change, K */
 } tpmshx_energy_options_v1;
+/* Explicit full3D v3 controls. Existing options_v1 layout is unchanged.
+ * update_tolerance, iteration budget, sweeps and omega remain in the full3D
+ * control_v1. The optional h gate is dimensionless, never Kelvin. */
+typedef struct {
+    uint32_t algorithm;
+    double temperature_update_tolerance;
+    double coupled_energy_tolerance;
+    double equation_energy_tolerance;
+    uint32_t require_enthalpy_update_on_temperature; /* 0 or 1; default 0 */
+} tpmshx_energy_options_v2;
 typedef struct {
     uint32_t algorithm, has_temperature_update;
     double temperature_update; /* K; unavailable on legacy/cancelled returns */

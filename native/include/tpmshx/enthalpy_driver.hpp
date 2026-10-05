@@ -40,6 +40,9 @@ struct EnthalpyControl {
     // explicit energy tolerances; update_tolerance retains its normalized
     // enthalpy-update meaning on the legacy route.
     double temperature_update_tolerance = 1e-8;
+    // Opt-in additional dimensionless h-update gate on T algorithms. This
+    // does not replace their K update gate or change the legacy H-FOU gate.
+    bool require_enthalpy_update_on_temperature = false;
 };
 
 enum class EnthalpyStop { converged, enthalpy_limited, iteration_limit, cancelled };

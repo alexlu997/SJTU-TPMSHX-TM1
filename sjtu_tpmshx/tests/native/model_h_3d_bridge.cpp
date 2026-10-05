@@ -4,13 +4,34 @@
 #include <algorithm>
 #include <cstdio>
 #include <stdexcept>
+#include <utility>
+#include <vector>
 
 namespace {
-struct Callbacks { std::size_t cancel_at,calls=0,progress=0,last=0; };
+thread_local std::vector<std::vector<double>> progress_states;
+struct Callbacks { std::size_t cancel_at,calls=0,progress=0,last=0;
+    bool capture=false; tpmshx::TemperatureStateView state{}; };
 bool cancel(void* context) { auto& c=*static_cast<Callbacks*>(context); return ++c.calls>=c.cancel_at && c.cancel_at>0; }
 void progress(void* context,std::size_t done,std::size_t) {
     auto& c=*static_cast<Callbacks*>(context); ++c.progress; c.last=done;
+    if (c.capture) {
+        std::vector<double> row{static_cast<double>(done)};
+        for (auto field:{c.state.a,c.state.b,c.state.solid})
+            row.insert(row.end(),field.data,field.data+field.size);
+        progress_states.push_back(std::move(row));
+    }
 }
+}
+// These getters belong only to the qualification bridge.
+extern "C" TPMSHX_THERMAL_API std::size_t TPMSHX_THERMAL_CALL test_model_h_progress_size() {
+    return progress_states.size();
+}
+extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_model_h_progress_read(
+    std::size_t index,double* values,std::size_t capacity) {
+    if (index>=progress_states.size() || capacity!=progress_states[index].size()) return 1;
+    const auto& row=progress_states[index];
+    std::copy(row.begin(),row.end(),values);
+    return 0;
 }
 extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_model_h_3d(
     const std::size_t* shape,double** arrays,const std::size_t* sizes,
@@ -23,6 +44,7 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_model_h_3d(
         if (sizes[p]!=data.size()) throw std::invalid_argument("3D bridge output extent mismatch");
         std::copy(data.begin(),data.end(),arrays[p]);
     };
+    progress_states.clear();
     try {
         const GridView grid{shape[0],shape[1],shape[2],v(0),v(1),v(2)};
         const ModelHFluid3D a{static_cast<Fluid>(config[5]),v(8),v(9),v(10),v(11),v(12),
@@ -30,8 +52,10 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_model_h_3d(
         const ModelHFluid3D b{static_cast<Fluid>(config[6]),v(16),v(17),v(18),v(19),v(20),
             {static_cast<int>(config[8]),values[1],v(21),v(22),{}},v(23)};
         Callbacks cb{config[9]};
-        const ModelHControl3D control{config[0],config[1],values[2],values[3],values[4],values[5],
+        cb.capture=config[10]!=0; cb.state={out(3),out(4),out(5)};
+        ModelHControl3D control{config[0],config[1],values[2],values[3],values[4],values[5],
             config[2]!=0,config[3]!=0,config[4]!=0,cancel,progress,&cb};
+        control.strict_energy_balance=config[11]!=0;
         const auto result=solve_model_h_3d(grid,a,b,v(6),v(7),{out(3),out(4),out(5)},control);
         const auto& audit=result.audit;
         const std::size_t initial[]{static_cast<std::size_t>(result.stop),result.iterations,cb.calls,cb.progress,cb.last,

@@ -20,9 +20,12 @@ from sjtu_tpmshx.io.result_io import load_result, save_result
 from sjtu_tpmshx.models.fluid_props import WaterStateError, QuickDesignWaterFieldError
 from sjtu_tpmshx.postprocess.api import evaluate
 from sjtu_tpmshx.solvers.api import run_case
-from sjtu_tpmshx.tests.native.test_quick_design_driver import prepared
+from sjtu_tpmshx.tests.native import test_quick_design_driver as qd
+from sjtu_tpmshx.tests.native.test_quick_design_driver import prepared, python_run
 
 ROOT = Path(__file__).resolve().parents[3]
+quick_design_native = qd.quick_design_native
+same_qd_thermal = qd.same_qd_thermal
 
 
 @pytest.fixture(scope='module')
@@ -74,14 +77,14 @@ def compare_results(actual, expected, plane):
 @pytest.mark.parametrize('mode', ['const', 'mean'])
 @pytest.mark.parametrize('pair,topology', [('air_water', 'Diamond'), ('water_air', 'Gyroid'),
                                          ('sco2_sco2', 'Diamond')])
-def test_public_fields_metrics_and_pass_contract(native_control, arrangement, mode, pair, topology):
+def test_public_fields_metrics_and_pass_contract(native_control, same_qd_thermal, monkeypatch, arrangement, mode, pair, topology):
     case = prepared(arrangement, mode, pair, topology)
-    expected = run_case(case)
+    expected = python_run(case, monkeypatch, thermal=same_qd_thermal, public=True)[0]
     actual = run_case(case, native_control)
     compare_results(actual, expected, arrangement == 'cross')
 
 
-def test_warnings_use_native_pass_evidence_without_python_numerics(native_control, monkeypatch):
+def test_warnings_use_native_pass_evidence_without_python_numerics(native_control, same_qd_thermal, monkeypatch):
     from sjtu_tpmshx.models import quick_design, design_fluids, fluid_props
     case = prepared('counter', 'mean', 'water_air')
     p = case.parameters
@@ -89,7 +92,7 @@ def test_warnings_use_native_pass_evidence_without_python_numerics(native_contro
     # existing property/Re warnings on both actual property passes.
     case = replace(case, parameters={**p, 'operating_point': {
         **p['operating_point'], 'T_in_h': 380., 'P_in_h': 3e6, 'mdot_c': .001}})
-    expected = run_case(case)
+    expected = python_run(case, monkeypatch, thermal=same_qd_thermal, public=True)[0]
 
     def forbidden(*args, **kwargs):
         pytest.fail('native execution called a Python property or thermal implementation')
@@ -154,7 +157,7 @@ def test_budget_exhaustion_is_saved_as_unconverged(native_control, tmp_path):
     assert restored.metadata['native']['solver_abi'] == 1
 
 
-def test_two_runs_cancel_only_one(native_control):
+def test_two_runs_cancel_only_one(native_control, same_qd_thermal, monkeypatch):
     first, second = prepared('cross', 'mean'), prepared('counter', 'mean', 'sco2_sco2')
     progressed = []
     cancelled_control = replace(native_control, progress=progressed.append,
@@ -165,7 +168,7 @@ def test_two_runs_cancel_only_one(native_control):
         with pytest.raises(CancelledError):
             cancelled.result()
         result = completed.result()
-    compare_results(result, run_case(second), False)
+    compare_results(result, python_run(second, monkeypatch, thermal=same_qd_thermal, public=True)[0], False)
 
 
 @pytest.mark.parametrize('invalid', ['missing', 'relative', 'wrong_abi', 'unknown_mode', 'unknown_3d_mode', 'dimension'])

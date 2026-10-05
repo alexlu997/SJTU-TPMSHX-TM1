@@ -1,7 +1,9 @@
 #include "tpmshx/solver_c_api.h"
+#include "tpmshx/temperature_driver_c_api.h"
 
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 #define REQUIRE(condition) do { if (!(condition)) { \
     fprintf(stderr,"C QD check failed at line %d: %s\n",__LINE__,error); return 1; } } while (0)
@@ -37,6 +39,16 @@ int main(void) {
     config.max_iterations=1000; config.chunk_iterations=100;
     config.q_relative_tolerance=1e-4; config.alpha=.7;
     REQUIRE(tpmshx_solver_abi_version()==TPMSHX_SOLVER_ABI_VERSION);
+    {
+        const char* expected[3]={"shared_fv_cc2d_tminmod_guarded_line_v1",
+            "shared_fv_cc3d_tminmod_guarded_line_v1","shared_fv_staggered_tminmod_picard_v1"};
+        for (i=0;i<3;++i) {
+            const char* identity=tpmshx_temperature_algorithm_v1((uint32_t)i);
+            REQUIRE(identity && strcmp(identity,expected[i])==0);
+        }
+        REQUIRE(tpmshx_temperature_algorithm_v1(3)==NULL);
+        REQUIRE(tpmshx_temperature_algorithm_v1(UINT32_MAX)==NULL);
+    }
     REQUIRE(tpmshx_solve_quick_design_v1(shape,arrays,sizes,&config,&callbacks,&result,error,sizeof(error))==TPMSHX_OK);
     REQUIRE(result.completed_passes==2 && result.stop==TPMSHX_CONVERGED && progress==100);
     REQUIRE(result.pressure[0].outlet==199800. && !result.pressure[0].choked);

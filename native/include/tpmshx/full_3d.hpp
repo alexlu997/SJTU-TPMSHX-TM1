@@ -7,6 +7,7 @@
 #include "tpmshx/pressure_reference.hpp"
 #include "tpmshx/simple_3d.hpp"
 #include "tpmshx/temperature_staggered.hpp"
+#include "tpmshx/conservative_energy.hpp"
 
 #include <array>
 #include <optional>
@@ -140,6 +141,10 @@ struct Full3DThermalEvidence {
     std::optional<ModelHResult3D> model_h;
     std::optional<EnthalpyResult> true_h;
     std::optional<StaggeredTemperatureResult> staggered;
+    // Same-state existing model h(T) and physical W ledger, including Nz=1.
+    std::array<std::array<double,5>,2> temperature_cp_coefficients{};
+    const char* temperature_algorithm=nullptr;
+    std::optional<PhysicalHeatLedger> temperature_audit;
 };
 
 struct Full3DOuterRecord {

@@ -3,7 +3,7 @@ import numpy as np
 
 from sjtu_tpmshx.result_math import (
     _boundary_enthalpy_duty, _boundary_face_shape,
-    _conservative_boundary_power_duty, pressure_face_values,
+    _conservative_boundary_power_duty, _temperature_boundary_power_duty, pressure_face_values,
 )
 
 
@@ -39,6 +39,15 @@ def _dp(pressure):
 
 def thermal_duty(result, side):
     flux = result.boundary_fluxes
+    if result.metadata['thermal_mode'] == 'temperature' and (
+            'temperature_transport' in result.metadata or 'temperature' in flux):
+        if result.metadata.get('temperature_transport') == 'legacy_frozen_cp_single_a_cc_v1':
+            if 'temperature' in flux:
+                raise ValueError('legacy single-A sCO2 temperature route cannot carry a model enthalpy ledger')
+            raise NotImplementedError('single-A sCO2 frozen-property research route has no captured complete h(P,T) transport')
+        if result.metadata.get('temperature_transport') != 'model_enthalpy_temperature_v1':
+            raise ValueError('unsupported temperature transport declaration')
+        return _temperature_boundary_power_duty(flux['temperature'], side, 3, result.grid)
     if result.metadata['thermal_mode'] == 'conservative_energy':
         return _conservative_boundary_power_duty(flux['true_h'], side, 3, result.grid)
     if result.metadata['thermal_mode'] == 'model_h':

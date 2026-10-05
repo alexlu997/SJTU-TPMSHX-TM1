@@ -60,17 +60,43 @@ inline double increment(double tm, double t, double tp, double dm, double dp, do
     if (a*b<=0) return 0;
     return (a<0 ? -std::min(std::abs(a),std::abs(b)) : std::min(std::abs(a),std::abs(b)))*offset;
 }
-inline Eigen::VectorXd pack(TemperatureStateView t) {
-    Eigen::VectorXd values(static_cast<Eigen::Index>(3*t.a.size));
-    const ArrayView<double> fields[]{t.a,t.b,t.solid};
-    for (std::size_t side=0; side<3; ++side)
+// Endpoint geometry matches the existing high-order enthalpy transport:
+// a defined incoming state lies at the boundary face, half a cell away;
+// an outgoing end uses its available interior slope. This reconstructs T,
+// leaving the model-h caller responsible for evaluating the existing h(T).
+inline double boundary_increment(double t, double neighbor, double distance,
+        double inlet, double half_width, bool known_inflow, bool low_end,
+        double offset) {
+    if (known_inflow)
+        return low_end ? increment(inlet,t,neighbor,half_width,distance,offset)
+                       : increment(neighbor,t,inlet,distance,half_width,offset);
+    return (low_end ? neighbor-t : t-neighbor)/distance*offset;
+}
+inline Eigen::VectorXd pack(TemperatureStateView t, bool solve_b=true) {
+    const std::size_t count=solve_b ? 3 : 2;
+    Eigen::VectorXd values(static_cast<Eigen::Index>(count*t.a.size));
+    const ArrayView<double> fields[]{t.a,solve_b ? t.b : t.solid,t.solid};
+    for (std::size_t side=0; side<count; ++side)
         std::copy(fields[side].data,fields[side].data+fields[side].size,values.data()+side*t.a.size);
     return values;
 }
-inline void restore(TemperatureStateView t, const Eigen::VectorXd& values) {
-    const ArrayView<double> fields[]{t.a,t.b,t.solid};
-    for (std::size_t side=0; side<3; ++side)
+inline void restore(TemperatureStateView t, const Eigen::VectorXd& values, bool solve_b=true) {
+    const ArrayView<double> fields[]{t.a,solve_b ? t.b : t.solid,t.solid};
+    for (std::size_t side=0; side<(solve_b ? 3U : 2U); ++side)
         std::copy(values.data()+side*t.a.size,values.data()+(side+1)*t.a.size,fields[side].data);
+}
+
+inline double energy_scale(const GridView& g, ArrayView<const double> hv_a,
+                           ArrayView<const double> hv_b, TemperatureStateView t) {
+    double qa=0.,qb=0.;
+    for(std::size_t i=0;i<g.nx;++i) for(std::size_t j=0;j<g.ny;++j)
+        for(std::size_t k=0;k<g.nz;++k) {
+            const auto p=(i*g.ny+j)*g.nz+k;
+            const double volume=g.dx[i]*g.dy[j]*g.dz[k];
+            qa+=hv_a[p]*(t.a[p]-t.solid[p])*volume;
+            qb+=hv_b[p]*(t.solid[p]-t.b[p])*volume;
+        }
+    return std::max({std::abs(qa),std::abs(qb),1.});
 }
 
 // Existing Type-II Anderson policy: model-h defaults to six (x,r) samples,

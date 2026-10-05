@@ -112,6 +112,20 @@ def _parse_geometry_inputs_3d_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
         else:
             raise NotImplementedError('3D zones support grid or continuous mode only')
 
+    enthalpy_controls = {}
+    if compute_cfg.solver.enthalpy_algorithm != 'legacy_h_fou':
+        enthalpy_controls.update(ltne_enthalpy_outer=1500, ltne_enthalpy_nsweep=5,
+            ltne_enthalpy_omega=.2 if compute_cfg.solver.enthalpy_algorithm == 'temperature_sou' else .6,
+            ltne_enthalpy_tol=1e-3)
+    for name in ('ltne_enthalpy_outer', 'ltne_enthalpy_nsweep', 'ltne_enthalpy_omega',
+                 'ltne_enthalpy_tol', 'ltne_enthalpy_coupled_energy_tol',
+                 'ltne_enthalpy_equation_energy_tol'):
+        value = getattr(compute_cfg.solver, name)
+        if value is not None:
+            enthalpy_controls[name] = value
+    if compute_cfg.solver.require_enthalpy_update_on_temperature:
+        enthalpy_controls['require_enthalpy_update_on_temperature'] = True
+
     return dict(
         L=L, H=H, Lz=Lz, Nx=Nx, Ny=Ny, Nz=Nz,
         u_A=u_A, u_B=u_B, T_inA=T_inA, T_inB=T_inB,
@@ -133,10 +147,7 @@ def _parse_geometry_inputs_3d_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
         outer_tol_K=compute_cfg.solver.outer_tol_K,
         enthalpy_algorithm=compute_cfg.solver.enthalpy_algorithm,
         enthalpy_temperature_tol_K=compute_cfg.solver.enthalpy_temperature_tol_K,
-        **(dict(ltne_enthalpy_outer=1500, ltne_enthalpy_nsweep=5,
-                ltne_enthalpy_omega=.2 if compute_cfg.solver.enthalpy_algorithm == 'temperature_sou' else .6,
-                ltne_enthalpy_tol=1e-3)
-           if compute_cfg.solver.enthalpy_algorithm != 'legacy_h_fou' else {}),
+        **enthalpy_controls,
         # F2 convergence gates (ledger C6/C7). None -> _apply_accel_flags'
         # resolution: env TPMSHX_CONV_MODE > cfg > default 'f2'.
         **{k: v for k, v in (

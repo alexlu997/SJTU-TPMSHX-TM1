@@ -40,7 +40,8 @@ def capture_result(case, raw, diagnostics, *, backend_id='python', backend_versi
             mass_unit='kg/(s m)', mass_axes=('x-face', 'y-face'),
             mass_sign='positive along physical coordinate axis',
             state='last main thermal input', model_h=native['model_h_balance'],
-            true_h=native['true_h'], fine=native['fine']),
+            true_h=native['true_h'], fine=native['fine'],
+            **({'temperature': native['temperature']} if 'temperature' in native else {})),
         pressure_evidence=native['pressure'],
         run_status=dict(execution='completed', converged=bool(raw['solver_converged']),
                         envelope_valid=bool(raw['envelope_valid']),
@@ -48,6 +49,8 @@ def capture_result(case, raw, diagnostics, *, backend_id='python', backend_versi
                         outer_index=native['outer_index']),
         metadata=dict(dimension=2, quantity_basis='per_unit_depth',
                       thermal_mode=native['mode'], split_A=native['split_A'],
+                      **({'temperature_transport': native['temperature']['definition']}
+                         if 'temperature' in native else {}),
                       rho_cp_A=native['rho_cp_A'], rho_cp_B=native['rho_cp_B'],
                       parameters=case.parameters, design_fields=case.design_fields,
                       design_mode=case.metadata['design_mode'], application=raw['application'],

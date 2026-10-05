@@ -170,6 +170,19 @@ def _volume_info(result, shape, *, include_faces=True):
     return dict(model_h_balance=balance, _native_model_h=native_faces, **strict, delegated_to_2d=False)
 
 
+def _model_h_algorithm(library, dimension):
+    """Copy the recipe identity from the same native library used to solve."""
+    try:
+        query = library.tpmshx_model_h_algorithm_v1
+    except AttributeError as error:
+        raise ValueError('native library lacks tpmshx_model_h_algorithm_v1') from error
+    query.argtypes, query.restype = [ct.c_uint32], ct.c_char_p
+    identity = query(dimension)
+    if not identity:
+        raise ValueError(f'native library has no model-h algorithm for dimension {dimension}')
+    return identity.decode('ascii')
+
+
 class NativeModelHDriver:
     """Explicit fixed-flow capability; construction never changes dispatch defaults."""
 
@@ -200,6 +213,7 @@ class NativeModelHDriver:
         dimension = len(widths)
         if dimension not in (2, 3):
             raise ValueError('native model-h requires two or three coordinate widths')
+        algorithm = _model_h_algorithm(self.library, dimension)
         widths = [np.require(x, dtype=np.float64, requirements=['C', 'A']) for x in widths]
         if any(x.ndim != 1 or not x.size for x in widths):
             raise ValueError('native model-h widths must be nonempty vectors')
@@ -290,7 +304,8 @@ class NativeModelHDriver:
                 raise CancelledError('compute cancelled by user')
             if result.dimension != dimension or result.stop not in (0, 1) or not result.audit_available:
                 raise RuntimeError('native model-h returned an invalid result contract')
-            info = dict(converged=result.stop == 0, iterations=result.iterations, residual=result.residual)
+            info = dict(converged=result.stop == 0, iterations=result.iterations, residual=result.residual,
+                        native_metadata=dict(abi=self.abi, algorithm=algorithm, red_black=bool(config.red_black)))
             checks = [result.finishing_checks[i] for i in range(result.finishing_count)]
             if dimension == 2:
                 info['model_h_balance'] = _plane_info(result, shape, widths, masses)

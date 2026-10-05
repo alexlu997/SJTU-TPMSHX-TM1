@@ -2,6 +2,7 @@
 #include "tpmshx/full_2d.hpp"
 #include "model_h_c_views.hpp"
 #include "enthalpy_c_views.hpp"
+#include "temperature_c_views.hpp"
 #include "simple_2d_c_views.hpp"
 #include "closure_evidence_c_views.hpp"
 #include <Exceptions.h>
@@ -235,6 +236,24 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_energy_evidence_v1(
         out.main=energy_state(owner.result.thermal);
         if(owner.result.refined)out.fine=energy_state(owner.result.refined->thermal);
         out.outer=owner.energy_outer.data();out.outer_count=owner.energy_outer.size();
+    }
+    *evidence=out;return 0;
+}
+
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_model_enthalpy_evidence_v1(
+    const tpmshx_full_2d_result_v2* result,tpmshx_full_2d_model_enthalpy_evidence_v1* evidence) {
+    if(!result || !result->owner || !evidence)return 1;
+    const auto& r=static_cast<const Owner*>(result->owner)->result;
+    tpmshx_full_2d_model_enthalpy_evidence_v1 out{};
+    if(!r.cancelled) {
+        if(r.thermal.temperature_audit)
+            out.main=model_enthalpy_c_view(*r.thermal.temperature_audit,
+                r.thermal.temperature_cp_coefficients,r.thermal.temperature_algorithm,2);
+        if(r.refined && r.refined->thermal.temperature_audit) {
+            const auto& f=r.refined->thermal;
+            out.fine=model_enthalpy_c_view(*f.temperature_audit,
+                f.temperature_cp_coefficients,f.temperature_algorithm,2);
+        }
     }
     *evidence=out;return 0;
 }

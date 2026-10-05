@@ -4,6 +4,7 @@ Numerical fields, duties and acceptance verdicts come from the native driver.
 Only established display smoothing and zone reporting are applied here.
 """
 from copy import deepcopy
+from dataclasses import replace
 
 import numpy as np
 
@@ -44,6 +45,13 @@ def _fine_evidence(fine, balance):
         for prefix, key in (('uc', 'uc'), ('vc', 'vc'), ('rho_cp_', 'rho_cp'),
                             ('inlet_', 'inlet_profile'), ('outlet_', 'outlet_profile')):
             evidence[prefix + label] = fine[key][side]
+    if 'native_metadata' in fine:
+        evidence['native'] = fine['native_metadata']
+    if 'temperature_evidence' in fine:
+        evidence['temperature'] = fine['temperature_evidence']
+        for index, label in enumerate('AB'):
+            evidence['mass_' + label] = (fine['mass_x'][index], fine['mass_y'][index])
+        evidence['mass_unit'] = 'kg/(s m)'
     return evidence
 
 
@@ -108,6 +116,8 @@ def capture_result(case, cfg, prepared, native):
         model_h_balance=model_balance, mode=mode, split_A=cfg['thermal_geometry']['split_A'],
         outer_index=int(native['iterations']) - 1,
         final_after_thermal=bool(native['post_after_last_thermal']), K_ss=main['solid_conductivity'])
+    if 'temperature_evidence' in main:
+        evidence['temperature'] = main['temperature_evidence']
     partial = []
     for side, label in enumerate('AB'):
         flow = native['flow'][side]
@@ -124,7 +134,8 @@ def capture_result(case, cfg, prepared, native):
             'P_report_' + label: flow['absolute_pressure'], 'h_v' + label: main['hv'][side],
             'rho_cp_' + label: None if mode in ('true_h', 'conservative_energy') else main['rho_cp'][side],
             'mass_flux_' + label: ((main['mass_x'][side], main['mass_y'][side])
-                                  if mode == 'conservative_energy' else (flow['mass_x'], flow['mass_y'])),
+                                  if mode == 'conservative_energy' or 'temperature_evidence' in main
+                                  else (flow['mass_x'], flow['mass_y'])),
         })
         raw.update({'P_f' + label: flow['absolute_pressure'], 'uc' + label: flow['uc'], 'vc' + label: flow['vc'],
                     'uc' + label + '_disp': None, 'vc' + label + '_disp': None})
@@ -137,7 +148,7 @@ def capture_result(case, cfg, prepared, native):
                 f"mass_global={result['mass']['global_residual']})")
     evidence['pressure'] = pressure_evidence
     if fine is not None and not native['fine_extrapolated']:
-        source = '主网格值' if np.any(np.isfinite(native['duty'])) else ('不可用值' if mode == 'model_h' else '1D 最后兜底值')
+        source = '主网格值' if np.any(np.isfinite(native['duty'])) else ('不可用值' if mode == 'model_h' or 'temperature_evidence' in main else '1D 最后兜底值')
         warnings.append(
             f"Richardson 细解或外推未通过，换热量使用{source}，未外推 "
             f"(converged={fine_info['converged']}, iterations={fine_info['iterations']}, "
@@ -201,5 +212,8 @@ def capture_result(case, cfg, prepared, native):
             props=dict(rho_A=r_a['rho'], rho_B=r_b['rho'], mu_A=r_a['mu'], mu_B=r_b['mu']),
             zones=_zone_statistics_2d(cfg['z_axis'], cfg['zone_config'], cfg['za'], cfg['L'], cfg['H'],
                 prepared['energy_dx'], prepared['energy_dy'], *main['temperature'])))
-    return _capture_result(case, raw, diagnostics, backend_id='cpp',
-                           backend_version=f"full_2d_v{native.get('entry_version', 2)}")
+    result = _capture_result(case, raw, diagnostics, backend_id='cpp',
+                             backend_version=f"full_2d_v{native.get('entry_version', 2)}")
+    if 'native_metadata' in native:
+        result = replace(result, metadata=dict(result.metadata, native=native['native_metadata']))
+    return result

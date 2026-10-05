@@ -174,6 +174,37 @@ def test_public_case_fields_native_ledgers_and_postprocess(native_path,pair):
         compare(actual.metadata['diagnostics']['convergence_detail'][key],expected.metadata['diagnostics']['convergence_detail'][key],key)
 
 
+def test_public_legacy_strict_v3_reports_executed_final_and_outer_settings(native_path):
+    cfg = _config(3, True)
+    cfg = replace(cfg, solver=replace(cfg.solver, max_outer_ltne=2,
+        enthalpy_algorithm='legacy_h_fou', ltne_enthalpy_outer=1000,
+        ltne_enthalpy_nsweep=25, ltne_enthalpy_omega=.6, ltne_enthalpy_tol=1e-6,
+        ltne_enthalpy_coupled_energy_tol=1e-5, ltne_enthalpy_equation_energy_tol=1e-5))
+    prepared = prepare_case(cfg, case_id='legacy-strict-full3d')
+    # Reuse the module's explicit absolute table path; no C-smoke fallback,
+    # new directory policy, or silent skip substitutes for legacy execution.
+    actual = cpp_run(prepared, control(native_path))
+    diagnostics = actual.metadata['diagnostics']
+    assert actual.backend_id == 'cpp' and actual.backend_version == 'full_3d_v3'
+    assert actual.metadata['thermal_mode'] == 'true_h'
+    assert diagnostics['native_full_3d']['entry_version'] == 3
+    history = diagnostics['_ltne_info']
+    assert len(history) == 2
+    expected = dict(update_tol=1e-6, coupled_energy_tol=1e-5, equation_energy_tol=1e-5,
+        max_iterations=1000, sweeps=25, omega=.6, energy_algorithm='legacy_h_fou',
+        require_enthalpy_update_on_temperature=False,
+        effective_settings_source='native_completed_thermal_call', driver_abi=3)
+    for balance in [diagnostics['true_h_balance'], *(row['true_h_balance'] for row in history)]:
+        settings = balance['effective_settings']
+        assert {key: settings[key] for key in expected} == expected
+        assert 'temperature_update_tol_K' not in settings
+        assert balance['converged'] and balance['exit_reason'] == 'converged'
+        assert np.isfinite(balance['residual']) and balance['residual'] < 1e-6
+        for key in ('coupled_energy_balance', 'equation_energy_balance'):
+            assert np.isfinite(balance[key]['ratio']) and balance[key]['ratio'] <= 1e-5
+        assert max(balance['enthalpy_clip_counts']['total']) == 0
+
+
 def test_capped_public_keeps_distinct_pressure_states(native_path):
     prepared=case('air-sco2',2);a=cpp_run(prepared,control(native_path));e=python_run(prepared)
     assert not a.run_status['converged']

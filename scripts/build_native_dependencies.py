@@ -2,7 +2,7 @@
 
 No package installation, production binding, system PATH change or runtime
 download. Run with the interpreter recorded on the first line of .venv-path.
-The build command is offline; only fetch uses the network.
+The build command is offline; only fetch and fetch-eigen use the network.
 """
 from __future__ import annotations
 
@@ -139,12 +139,35 @@ def apply_lu_patch(cache: Path) -> None:
     verify_lu_patch(cache)
 
 
+def fetch_eigen(cache: Path) -> None:
+    """Fetch only the header dependency already pinned by the CoolProp lock."""
+    coolprop = LOCK["sources"]["coolprop"]
+    spec = next(module for module in coolprop["submodules"]
+                if module["path"] == "externals/Eigen")
+    source = cache / "src" / coolprop["directory"] / spec["path"]
+    log = cache / "logs" / "fetch-eigen.log"
+    if not source.exists():
+        source.mkdir(parents=True)
+        run(["git", "init", source], log)
+        run(["git", "remote", "add", "origin", spec["repository"]], log, cwd=source)
+        run(["git", "fetch", "--depth", "1", "origin", spec["commit"]], log, cwd=source)
+        run(["git", "checkout", "--detach", spec["commit"]], log, cwd=source)
+    actual = run(["git", "rev-parse", "HEAD"], log, cwd=source).strip()
+    if actual != spec["commit"]:
+        raise RuntimeError("Eigen source commit differs from the lock")
+    changed = run(["git", "status", "--porcelain", "--untracked-files=all"], log, cwd=source).strip()
+    if changed:
+        raise RuntimeError("Eigen source worktree is not clean")
+    if not (source / "Eigen/SparseLU").is_file():
+        raise RuntimeError("Locked Eigen/SparseLU header is missing")
+
+
 def fetch(cache: Path, host: str) -> None:
     for name, spec in LOCK["sources"].items():
         source = cache / "src" / spec["directory"]
         log = cache / "logs" / f"fetch-{name}.log"
-        if not source.exists():
-            source.mkdir(parents=True)
+        if not (source / ".git").exists():
+            source.mkdir(parents=True, exist_ok=True)
             run(["git", "init", source], log)
             run(["git", "remote", "add", "origin", spec["repository"]], log, cwd=source)
             run(["git", "fetch", "--depth", "1", "origin", spec["commit"]], log, cwd=source)
@@ -272,7 +295,7 @@ def verify(cache: Path, host: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("fetch", "build", "verify"))
+    parser.add_argument("action", choices=("fetch", "fetch-eigen", "build", "verify"))
     parser.add_argument("--cache", type=Path, default=ROOT / ".cache/native-deps")
     parser.add_argument("--python-lock", type=Path, default=ROOT / "requirements-lock.txt")
     parser.add_argument("--component", choices=("all", "coolprop", "pilot"), default="all")
@@ -282,6 +305,8 @@ def main() -> None:
         raise RuntimeError("Native dependency outputs must remain under this worktree's .cache/")
     if args.action == "fetch":
         fetch(cache, host)
+    elif args.action == "fetch-eigen":
+        fetch_eigen(cache)
     elif args.action == "build":
         build(cache, host, python, args.python_lock.resolve(), args.component)
     else:

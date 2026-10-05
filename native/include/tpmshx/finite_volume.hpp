@@ -22,6 +22,15 @@ struct GridView {
     ArrayView<const double> dx, dy, dz;  // m; positive cell widths
 };
 
+struct TemperatureBoundary {
+    int direction;  // 0:+x, 1:-x, 2:+y, 3:-y, 4:+z, 5:-z
+    double inlet_temperature;
+    // Optional materialized face arrays. Empty profile/opening means Tin/1.
+    // A supplied capacity_flux is signed inward and already includes opening.
+    // Shapes: (ny,nz), (nx,nz), or (nx,ny), according to direction.
+    ArrayView<const double> profile{}, opening{}, capacity_flux{};
+};
+
 struct TemperatureStateView {
     ArrayView<double> a, b, solid;
 };

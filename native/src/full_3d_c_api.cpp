@@ -3,6 +3,7 @@
 #include "tpmshx/full_3d.hpp"
 #include "model_h_c_views.hpp"
 #include "enthalpy_c_views.hpp"
+#include "temperature_c_views.hpp"
 #include "simple_3d_c_views.hpp"
 #include <algorithm>
 #include <cstdio>
@@ -17,6 +18,8 @@ struct Owner {
     std::array<std::vector<double>,2> momentum;
     std::vector<tpmshx_full3d_outer_v1> outer;
     std::vector<tpmshx_energy_result_v1> energy_outer;
+    tpmshx_energy_effective_settings_v1 energy_settings{};
+    std::vector<tpmshx_energy_effective_settings_v1> energy_outer_settings;
     std::vector<tpmshx_model_h_check_v1> finishing;
     std::vector<std::vector<tpmshx_model_h_check_v1>> outer_finishing;
     std::vector<std::vector<const char*>> startup_reasons;
@@ -170,6 +173,9 @@ tpmshx_full3d_result_v1 output(Owner& o) {
         if(h.true_h) {record.has_true_h=1;record.true_h=enthalpy_c_view(*h.true_h);}
         o.outer.push_back(record);
         o.energy_outer.push_back(h.true_h ? energy_c_view(*h.true_h) : tpmshx_energy_result_v1{});
+        auto settings=o.energy_settings;
+        settings.available=r.stop!=Full3DStop::cancelled && h.true_h && h.true_h->stop!=EnthalpyStop::cancelled;
+        o.energy_outer_settings.push_back(settings);
     }
     out.outer=o.outer.data();out.outer_count=o.outer.size();
     for(const auto& f:r.simple_failures)o.failures.push_back(f.c_str());out.simple_failures=o.failures.data();out.simple_failure_count=o.failures.size();
@@ -183,6 +189,7 @@ tpmshx_full3d_result_v1 output(Owner& o) {
 }
 int solve(const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,
     const tpmshx_energy_options_v1* energy,
+    const tpmshx_energy_options_v2* strict_energy,
     const tpmshx_full3d_callbacks_v1* callbacks,tpmshx_full3d_result_v1* result,char* error,size_t capacity) {
     if(!error || !capacity)return 1;
     try {
@@ -197,7 +204,22 @@ int solve(const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,
         for(std::size_t s=0;s<3;++s)data.sources[s]=input(in->sources[s]);
         auto control=controls(*c,callbacks);
         if(energy)apply_energy_options(control.enthalpy,*energy);
-        auto owner=std::make_unique<Owner>();owner->result=solve_full_3d(data,control);auto value=output(*owner);
+        if(strict_energy) {
+            if(!data.solve_b || (data.a.fluid!=Fluid::sco2 && data.b.fluid!=Fluid::sco2))
+                throw std::invalid_argument("strict full 3D energy controls require the existing two-sided true-h route");
+            apply_energy_options(control.enthalpy,*strict_energy);
+        }
+        auto owner=std::make_unique<Owner>();owner->result=solve_full_3d(data,control);
+        // This is the validated control actually passed to solve_full_3d.
+        // Its enthalpy controls are copied unchanged for every thermal call.
+        const auto& e=control.enthalpy;
+        const auto& h=owner->result.thermal.true_h;
+        const bool completed=owner->result.stop!=Full3DStop::cancelled && h && h->stop!=EnthalpyStop::cancelled;
+        owner->energy_settings={completed ? 1u : 0u,static_cast<uint32_t>(e.algorithm),
+            e.require_enthalpy_update_on_temperature ? 1u : 0u,e.max_iterations,e.sweeps,
+            e.omega,e.update_tolerance,e.temperature_update_tolerance,
+            *e.coupled_energy_tolerance,*e.equation_energy_tolerance};
+        auto value=output(*owner);
         value.owner=owner.release();*result=value;error[0]='\0';return 0;
     } catch(const WaterStateError& e) {std::snprintf(error,capacity,"%s",e.what());return 2;}
       catch(const std::invalid_argument& e) {std::snprintf(error,capacity,"%s",e.what());return 1;}
@@ -210,13 +232,19 @@ extern "C" {
 uint32_t TPMSHX_THERMAL_CALL tpmshx_full_3d_abi_version(void) {return TPMSHX_FULL_3D_ABI_VERSION;}
 int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v1(const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,
     const tpmshx_full3d_callbacks_v1* callbacks,tpmshx_full3d_result_v1* result,char* error,size_t capacity) {
-    return solve(in,c,nullptr,callbacks,result,error,capacity);
+    return solve(in,c,nullptr,nullptr,callbacks,result,error,capacity);
 }
 int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v2(const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,
     const tpmshx_energy_options_v1* energy,const tpmshx_full3d_callbacks_v1* callbacks,
     tpmshx_full3d_result_v1* result,char* error,size_t capacity) {
     if(!energy) {if(error&&capacity)std::snprintf(error,capacity,"missing conservative energy options");return 1;}
-    return solve(in,c,energy,callbacks,result,error,capacity);
+    return solve(in,c,energy,nullptr,callbacks,result,error,capacity);
+}
+int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v3(const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,
+    const tpmshx_energy_options_v2* energy,const tpmshx_full3d_callbacks_v1* callbacks,
+    tpmshx_full3d_result_v1* result,char* error,size_t capacity) {
+    if(!energy) {if(error&&capacity)std::snprintf(error,capacity,"missing strict conservative energy options");return 1;}
+    return solve(in,c,nullptr,energy,callbacks,result,error,capacity);
 }
 void TPMSHX_THERMAL_CALL tpmshx_full_3d_release_v1(tpmshx_full3d_result_v1* result) {
     if(result) {delete static_cast<Owner*>(result->owner);*result={};}
@@ -241,4 +269,30 @@ int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_energy_evidence_v1(
     out.outer=o.energy_outer.data();out.outer_count=o.energy_outer.size();
     *evidence=out;return 0;
 }
+int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_energy_effective_settings_v1(
+    const tpmshx_full3d_result_v1* result,tpmshx_full3d_energy_effective_settings_v1* settings) {
+    if(!result || !result->owner || !settings)return 1;
+    const auto& o=*static_cast<const Owner*>(result->owner);
+    tpmshx_full3d_energy_effective_settings_v1 out{};
+    out.resolved=out.last=o.energy_settings;
+    const auto& h=o.result.thermal.true_h;
+    out.last.available=o.result.stop!=Full3DStop::cancelled && h && h->stop!=EnthalpyStop::cancelled;
+    out.outer=o.energy_outer_settings.data();out.outer_count=o.energy_outer_settings.size();
+    *settings=out;return 0;
+}
+}
+
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_model_enthalpy_evidence_v1(
+    const tpmshx_full3d_result_v1* result,tpmshx_model_enthalpy_evidence_v1* evidence) {
+    if(!result || !result->owner || !evidence)return 1;
+    const auto& r=static_cast<const Owner*>(result->owner)->result;
+    tpmshx_model_enthalpy_evidence_v1 out{};
+    if(r.stop!=Full3DStop::cancelled && r.thermal.temperature_audit)
+        out=model_enthalpy_c_view(*r.thermal.temperature_audit,
+            r.thermal.temperature_cp_coefficients,r.thermal.temperature_algorithm,3);
+    else if(r.stop!=Full3DStop::cancelled && r.thermal.temperature_algorithm) {
+        out.physical_dimension=3;
+        out.algorithm=r.thermal.temperature_algorithm;
+    }
+    *evidence=out;return 0;
 }

@@ -1,4 +1,5 @@
 #include "tpmshx/conservative_energy.hpp"
+#include "energy_fv_rows.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -43,7 +44,7 @@ std::size_t check_grid(const GridView& g) {
     return cells;
 }
 
-void check_mass(const std::array<ArrayView<const double>, 3>& mass,
+void check_faces(const std::array<ArrayView<const double>, 3>& mass,
                 const GridView& g) {
     check_array(mass[0], product(product(g.nx + 1, g.ny), g.nz));
     check_array(mass[1], product(product(g.nx, g.ny + 1), g.nz));
@@ -56,7 +57,7 @@ void check_fluid(const FluidView& f, const GridView& g, std::size_t cells) {
     check_coefficient(f.hv, cells, false);
     check_array(f.t_star, cells);
     check_array(f.h_star, cells);
-    check_mass({f.mass_x, f.mass_y, f.mass_z}, g);
+    check_faces({f.mass_x, f.mass_y, f.mass_z}, g);
     if (!std::isfinite(f.h_in))
         throw std::invalid_argument("nonfinite inlet enthalpy");
 }
@@ -72,80 +73,30 @@ void update_temperature(double diagonal, double rhs, double omega, double& t) {
     }
 }
 
-void fluid_sweep(const GridView& g, const FluidView& f, ArrayView<double> t,
-                 ArrayView<double> ts, double omega,
-                 ArrayView<const double> source, bool reverse) {
-    const std::size_t stride[]{g.ny * g.nz, g.nz, 1};
-    const std::size_t extent[]{g.nx, g.ny, g.nz};
-    const ArrayView<const double> width[]{g.dx, g.dy, g.dz};
-    const ArrayView<const double> mass[]{f.mass_x, f.mass_y, f.mass_z};
-    const auto cells = g.nx * g.ny * g.nz;
-    for (std::size_t ordinal = 0; ordinal < cells; ++ordinal) {
-        const auto p = reverse ? cells - 1 - ordinal : ordinal;
-        const std::size_t i = p / stride[0], j = (p / g.nz) % g.ny, k = p % g.nz;
-        const std::size_t coord[]{i, j, k};
-        const std::size_t face[]{p, (i * (g.ny + 1) + j) * g.nz + k,
-            (i * g.ny + j) * (g.nz + 1) + k};
-        const double volume = g.dx[i] * g.dy[j] * g.dz[k];
-        const double ki = f.dh[p] * f.cp[p], exchange = f.hv[p] * volume;
-        const double intercept = f.h_star[p] - f.cp[p] * f.t_star[p];
-        double diagonal = exchange;
-        double rhs = exchange * ts[p] + (source.size ? source[p] : 0.);
-        for (std::size_t axis = 0; axis < 3; ++axis) {
-            const auto c = coord[axis];
-            const double area = volume / width[axis][c];
-            for (int sign : {-1, 1}) {
-                const double outward = sign * mass[axis][face[axis]
-                    + (sign > 0 ? stride[axis] : 0)];
-                const double leaving = std::max(outward, 0.);
-                const double entering = std::max(-outward, 0.);
-                diagonal += leaving * f.cp[p];
-                rhs -= leaving * intercept;
-                if (sign < 0 ? c > 0 : c + 1 < extent[axis]) {
-                    const auto q = sign < 0 ? p - stride[axis] : p + stride[axis];
-                    const auto neighbor = sign < 0 ? c - 1 : c + 1;
-                    const double d = detail::diffusion_conductance(
-                        ki, f.dh[q] * f.cp[q], .5 * width[axis][c],
-                        .5 * width[axis][neighbor]) * area;
-                    diagonal += d;
-                    rhs += d * t[q]
-                        + entering * (f.h_star[q] + f.cp[q] * (t[q] - f.t_star[q]));
-                } else {
-                    rhs += entering * f.h_in;
-                }
-            }
-        }
-        update_temperature(diagonal, rhs, omega, t[p]);
+template<class Phase>
+void fluid_sweep(const GridView& g,const Phase& f,ArrayView<double> t,
+                 ArrayView<double> ts,double omega,ArrayView<const double> numerical,
+                 bool reverse) {
+    const detail::EnergyMesh mesh(g);
+    for(std::size_t ordinal=0;ordinal<mesh.cells();++ordinal) {
+        const auto p=reverse ? mesh.cells()-1-ordinal : ordinal;
+        const auto row=detail::fluid_energy_row(mesh,f,{t.data,t.size},{ts.data,ts.size},p,
+            detail::optional(numerical,p));
+        update_temperature(row.diagonal,row.rhs,omega,t[p]);
     }
 }
 
-void solid_sweep(const GridView& g, const FluidView& a, const FluidView& b,
-                 ArrayView<const double> ks, TemperatureStateView state,
-                 double omega, bool reverse) {
-    const std::size_t stride[]{g.ny * g.nz, g.nz, 1}, extent[]{g.nx, g.ny, g.nz};
-    const ArrayView<const double> width[]{g.dx, g.dy, g.dz};
-    const auto cells = g.nx * g.ny * g.nz;
-    for (std::size_t ordinal = 0; ordinal < cells; ++ordinal) {
-        const auto p = reverse ? cells - 1 - ordinal : ordinal;
-        const std::size_t i = p / stride[0], j = (p / g.nz) % g.ny, k = p % g.nz;
-        const std::size_t coord[]{i, j, k};
-        const double volume = g.dx[i] * g.dy[j] * g.dz[k];
-        const double ea = a.hv[p] * volume, eb = b.hv[p] * volume;
-        double diagonal = ea + eb, rhs = ea * state.a[p] + eb * state.b[p];
-        for (std::size_t axis = 0; axis < 3; ++axis) {
-            const auto c = coord[axis];
-            for (int sign : {-1, 1}) {
-                if (sign < 0 ? c == 0 : c + 1 == extent[axis]) continue;
-                const auto q = sign < 0 ? p - stride[axis] : p + stride[axis];
-                const auto neighbor = sign < 0 ? c - 1 : c + 1;
-                const double d = detail::diffusion_conductance(ks[p], ks[q],
-                    .5 * width[axis][c], .5 * width[axis][neighbor])
-                    * (volume / width[axis][c]);
-                diagonal += d;
-                rhs += d * state.solid[q];
-            }
-        }
-        update_temperature(diagonal, rhs, omega, state.solid[p]);
+template<class Phase>
+void solid_sweep(const GridView& g,const Phase& a,const Phase& b,
+                 ArrayView<const double> ks,TemperatureStateView state,
+                 double omega,bool reverse,ArrayView<const double> source={}) {
+    const detail::EnergyMesh mesh(g);
+    for(std::size_t ordinal=0;ordinal<mesh.cells();++ordinal) {
+        const auto p=reverse ? mesh.cells()-1-ordinal : ordinal;
+        const auto row=detail::solid_energy_row(mesh,ks,detail::exchange(a),detail::exchange(b),
+            {state.a.data,state.a.size},{state.b.data,state.b.size},
+            {state.solid.data,state.solid.size},source,p);
+        update_temperature(row.diagonal,row.rhs,omega,state.solid[p]);
     }
 }
 
@@ -221,11 +172,14 @@ void conservative_temperature_sweeps(
     for (const double relaxation : {omega, solid_omega})
         if (!std::isfinite(relaxation) || relaxation <= 0. || relaxation > 1.)
             throw std::invalid_argument("fluid and solid omega must be in (0, 1]");
+    // Legacy source parameters retain W/cell numerical RHS semantics.
+    // Direction -1 is private to this legacy all-inward-h_in adapter.
+    const FrozenEnergyPhase pa{a,{-1,0.}}, pb{b,{-1,0.}};
     for (std::size_t sweep = 0; sweep < sweeps; ++sweep) {
         const bool reverse = sweep % 2 != 0;
-        fluid_sweep(g, a, state.a, state.solid, omega, source_a, reverse);
-        fluid_sweep(g, b, state.b, state.solid, omega, source_b, reverse);
-        solid_sweep(g, a, b, k_ss, state, solid_omega, reverse);
+        fluid_sweep(g, pa, state.a, state.solid, omega, source_a, reverse);
+        fluid_sweep(g, pb, state.b, state.solid, omega, source_b, reverse);
+        solid_sweep(g, pa, pb, k_ss, state, solid_omega, reverse);
     }
 }
 
@@ -235,7 +189,7 @@ double enthalpy_sou_correction(
     ArrayView<double> correction) {
     const auto cells = check_grid(g);
     check_array(h, cells);
-    check_mass(mass, g);
+    check_faces(mass, g);
     if (!std::isfinite(h_in)) throw std::invalid_argument("nonfinite inlet enthalpy");
     if (!correction.data || correction.size != cells)
         throw std::invalid_argument("correction array length does not match grid");
@@ -290,7 +244,7 @@ std::array<std::vector<double>, 6> enthalpy_boundary_power(
     bool second_order) {
     const auto cells = check_grid(g);
     check_array(h, cells);
-    check_mass(mass, g);
+    check_faces(mass, g);
     if (!std::isfinite(h_in)) throw std::invalid_argument("nonfinite inlet enthalpy");
     std::array<std::vector<double>, 3> gradient;
     if (second_order) gradient = enthalpy_gradients(g, h, mass, h_in);
@@ -361,4 +315,281 @@ EnergyAudit thermal_energy_audit_sou(
     return result;
 }
 
+namespace {
+
+void check_energy_fields(const EnergyPhase& f,const GridView& g,std::size_t n) {
+    check_coefficient(f.K,n,false);check_coefficient(f.hv,n,false);
+    check_faces(f.faces.capacity,g);
+    for(std::size_t axis=0;axis<3;++axis)
+        if(f.faces.offset[axis].size) check_array(f.faces.offset[axis],f.faces.capacity[axis].size);
+}
+void check_energy_fields(const FrozenEnergyPhase& f,const GridView& g,std::size_t n) {
+    check_fluid(f.fluid,g,n);
+}
+void check_energy_fields(const PhysicalEnergyPhase& f,const GridView& g,std::size_t n) {
+    check_coefficient(f.K,n,false);check_coefficient(f.hv,n,false);
+    check_faces(f.signed_transport,g);check_faces(f.power,g);
+}
+void check_inlet_h(const EnergyPhase&,std::size_t) {}
+void check_inlet_h(const PhysicalEnergyPhase&,std::size_t) {}
+void check_inlet_h(const FrozenEnergyPhase& f,std::size_t n) {
+    if(f.inlet_h.size) check_array(f.inlet_h,n);
+}
+
+template<class Phase>
+bool check_energy_phase(const Phase& f,const GridView& g,std::size_t n,bool solved) {
+    check_energy_fields(f,g,n);
+    if(f.source_W_m3.size) check_array(f.source_W_m3,n);
+    const auto& inlet=f.inlet;
+    if(inlet.direction<0||inlet.direction>5||!std::isfinite(inlet.inlet_temperature))
+        throw std::invalid_argument("invalid physical inlet identity");
+    const detail::EnergyMesh mesh(g);
+    const auto plane=n/mesh.count[inlet.direction/2];
+    if(inlet.profile.size) check_array(inlet.profile,plane);
+    if(inlet.opening.size) {
+        check_array(inlet.opening,plane);
+        for(std::size_t p=0;p<plane;++p)
+            if(inlet.opening[p]<0.||inlet.opening[p]>1.)
+                throw std::invalid_argument("inlet opening outside [0,1]");
+    }
+    if(inlet.capacity_flux.size)
+        throw std::invalid_argument("prepare signed-axis energy faces before component call");
+    check_inlet_h(f,plane);
+    if(!solved) return true;
+    bool complete=true;
+    for(std::size_t p=0;p<n;++p) {
+        const auto c=mesh.coord(p);
+        for(std::size_t axis=0;axis<3;++axis) for(int sign:{-1,1}) {
+            if(mesh.inside(c,axis,sign)) continue;
+            if(sign*detail::transport(f,axis,mesh.face(axis,p,sign))>=0.) continue;
+            if(!detail::known_inlet(mesh,inlet,c,axis,sign)) complete=false;
+        }
+    }
+    return complete;
+}
+
+template<class Phase>
+bool check_component(const GridView& g,const Phase& a,const Phase& b,
+    ArrayView<const double> ks,TemperatureStateView state,
+    ArrayView<const double> ss,ArrayView<const double> prescribed) {
+    const auto n=check_grid(g);
+    const bool ac=check_energy_phase(a,g,n,true),bc=check_energy_phase(b,g,n,!prescribed.size);
+    check_coefficient(ks,n,false);
+    for(const auto t:{state.a,state.b,state.solid}) check_array(t,n);
+    if(ss.size) check_array(ss,n);
+    if(prescribed.size) check_array(prescribed,n);
+    return ac&&bc;
+}
+
+template<class Phase>
+void component_sweeps(const GridView& g,const Phase& a,const Phase& b,
+    ArrayView<const double> ks,TemperatureStateView state,std::size_t sweeps,double omega,
+    ArrayView<const double> ss,ArrayView<const double> prescribed,
+    ArrayView<const double> na,ArrayView<const double> nb,double solid_omega) {
+    if(!check_component(g,a,b,ks,state,ss,prescribed))
+        throw std::invalid_argument("inward face has no open physical inlet state");
+    for(const auto n:{na,nb}) if(n.size) check_array(n,state.a.size);
+    for(double r:{omega,solid_omega})
+        if(!std::isfinite(r)||r<=0.||r>1.) throw std::invalid_argument("invalid energy relaxation");
+    if(!sweeps) return;
+    if(prescribed.size) std::copy_n(prescribed.data,prescribed.size,state.b.data);
+    for(std::size_t sweep=0;sweep<sweeps;++sweep) {
+        const bool reverse=sweep%2!=0;
+        fluid_sweep(g,a,state.a,state.solid,omega,na,reverse);
+        if(!prescribed.size) fluid_sweep(g,b,state.b,state.solid,omega,nb,reverse);
+        solid_sweep(g,a,b,ks,state,solid_omega,reverse,ss);
+    }
+}
+
+// Full and scalar audits share the same boundary power and arithmetic order.
+template<bool Diffusive,class Phase>
+double boundary_power(const detail::EnergyMesh& mesh,const Phase& f,
+        ArrayView<const double> temperature,std::size_t p,std::size_t axis,int sign) {
+    const auto c=mesh.coord(p);
+    if constexpr(Diffusive) {
+        if(detail::second_order_inlet(f)) {
+            const auto inlet=detail::inlet_diffusion(mesh,f,p,axis,sign);
+            double power=inlet.boundary>0. ? inlet.boundary*(temperature[p]
+                -detail::inlet_temperature(f.inlet,mesh.patch(axis,c))):0.;
+            if(inlet.neighbor>0.) power+=inlet.neighbor*(temperature[p]-temperature[inlet.neighbor_cell]);
+            return power;
+        }
+        const double G=detail::inlet_conductance(mesh,f,p,axis,sign);
+        return G>0. ? G*(temperature[p]-detail::inlet_temperature(f.inlet,mesh.patch(axis,c))):0.;
+    } else {
+        const auto face=detail::face_energy(f,mesh,p,axis,sign);
+        const double outward=sign*face.C;
+        double power=sign*face.B;
+        if(outward!=0.) power+=outward*(outward>0.||!detail::known_inlet(mesh,f.inlet,c,axis,sign)
+            ? temperature[p]:detail::inlet_temperature(f.inlet,mesh.patch(axis,c)));
+        return power;
+    }
+}
+
+// Keep phase reductions separate to match the complete ledger arithmetic.
+struct ReducedAuditScalars {
+    std::array<double,3> phase_l1{},source{};
+    double outward=0.,sources=0.,reservoir=0.,error=0.;
+    bool boundary_complete=true;
+};
+
+template<class Phase>
+ReducedAuditScalars component_reduced_audit(const GridView& g,const Phase& a,const Phase& b,
+    ArrayView<const double> ks,TemperatureStateView state,
+    ArrayView<const double> ss,ArrayView<const double> prescribed) {
+    ReducedAuditScalars result;
+    result.boundary_complete=check_component(g,a,b,ks,state,ss,prescribed);
+    if(prescribed.size)
+        for(std::size_t p=0;p<prescribed.size;++p)
+            if(state.b[p]!=prescribed[p]) throw std::invalid_argument("prescribed B is not applied");
+    const detail::EnergyMesh mesh(g);
+    const ArrayView<const double> t[]{ {state.a.data,state.a.size},
+        {state.b.data,state.b.size},{state.solid.data,state.solid.size} };
+    const Phase* phases[]{&a,&b};
+    const std::array<bool,3> solved{true,!prescribed.size,true};
+    std::array<bool,3> residual_finite{true,true,true},boundary_finite{true,true,true};
+    for(std::size_t side=0;side<3;++side) {
+        if(!solved[side]) {
+            result.source[side]=std::numeric_limits<double>::quiet_NaN();
+            continue;
+        }
+        for(std::size_t p=0;p<mesh.cells();++p) {
+            const auto row=side<2 ? detail::fluid_energy_defect_row(mesh,*phases[side],t[side],t[2],p)
+                :detail::solid_energy_defect_row(mesh,ks,detail::exchange(a),detail::exchange(b),t[0],t[1],t[2],ss,p);
+            result.phase_l1[side]+=std::abs(row.rhs);
+            residual_finite[side]=residual_finite[side]&&std::isfinite(row.rhs);
+            result.source[side]+=detail::optional(side<2 ? phases[side]->source_W_m3:ss,p)*mesh.volume(mesh.coord(p));
+        }
+        result.error=std::max(result.error,result.phase_l1[side]);
+        result.sources+=result.source[side];
+        for(std::size_t face=0;face<6;++face) {
+            const std::size_t axis=face/2;const int sign=face%2 ? 1:-1;
+            for(int kind=0;kind<2;++kind) for(std::size_t patch=0;patch<mesh.line_count(axis);++patch) {
+                const auto p=mesh.line_start(axis,patch)+(sign>0 ? (mesh.count[axis]-1)*mesh.stride[axis]:0);
+                const double power=side==2 ? 0. : kind==0
+                    ?boundary_power<false>(mesh,*phases[side],t[side],p,axis,sign)
+                    :boundary_power<true>(mesh,*phases[side],t[side],p,axis,sign);
+                result.outward+=power;
+                boundary_finite[side]=boundary_finite[side]&&std::isfinite(power);
+            }
+        }
+    }
+    if(prescribed.size)
+        for(std::size_t p=0;p<mesh.cells();++p)
+            result.reservoir+=detail::exchange(b)[p]*mesh.volume(mesh.coord(p))*(t[1][p]-t[2][p]);
+    for(std::size_t side=0;side<3;++side) if(solved[side]) {
+        if(!std::isfinite(result.source[side])) throw std::domain_error("nonfinite physical source integral");
+        if(!residual_finite[side]) throw std::domain_error("nonfinite physical residual");
+        if(!boundary_finite[side]) throw std::domain_error("nonfinite physical boundary power");
+    }
+    if(!std::isfinite(result.reservoir)) throw std::domain_error("nonfinite prescribed reservoir power");
+    result.error=std::max(result.error,std::abs(result.outward-result.sources-result.reservoir));
+    return result;
+}
+
+
+template<class Phase>
+PhysicalHeatLedger component_audit(const GridView& g,const Phase& a,const Phase& b,
+    ArrayView<const double> ks,TemperatureStateView state,
+    ArrayView<const double> ss,ArrayView<const double> prescribed) {
+    const bool complete=check_component(g,a,b,ks,state,ss,prescribed);
+    if(prescribed.size)
+        for(std::size_t p=0;p<prescribed.size;++p)
+            if(state.b[p]!=prescribed[p]) throw std::invalid_argument("prescribed B is not applied");
+    const detail::EnergyMesh mesh(g);
+    PhysicalHeatLedger result;result.solved[1]=!prescribed.size;result.boundary_complete=complete;
+    const ArrayView<const double> t[]{ {state.a.data,state.a.size},
+        {state.b.data,state.b.size},{state.solid.data,state.solid.size} };
+    const Phase* phases[]{&a,&b};
+    for(std::size_t side=0;side<3;++side) {
+        if(!result.solved[side]) {
+            result.source_integral[side]=std::numeric_limits<double>::quiet_NaN();
+            continue;
+        }
+        result.residual[side].resize(mesh.cells());
+        for(std::size_t face=0;face<6;++face) {
+            result.advective_out[side][face].assign(mesh.cells()/mesh.count[face/2],0.);
+            result.diffusive_out[side][face].assign(mesh.cells()/mesh.count[face/2],0.);
+        }
+        for(std::size_t p=0;p<mesh.cells();++p) {
+            const auto c=mesh.coord(p);
+            // Evaluate the physical difference directly: subtracting two
+            // absolute C*T row totals loses low-order balance at large capacity.
+            const auto row=side<2 ? detail::fluid_energy_defect_row(mesh,*phases[side],t[side],t[2],p)
+                : detail::solid_energy_defect_row(mesh,ks,detail::exchange(a),detail::exchange(b),t[0],t[1],t[2],ss,p);
+            result.residual[side][p]=row.rhs;
+            result.source_integral[side]+=detail::optional(side<2 ? phases[side]->source_W_m3:ss,p)*mesh.volume(c);
+            if(side==2) continue; // all exterior solid Fourier faces are adiabatic
+            const auto& f=*phases[side];
+            for(std::size_t axis=0;axis<3;++axis) for(int sign:{-1,1}) {
+                if(mesh.inside(c,axis,sign)) continue;
+                const auto slot=2*axis+(sign>0),patch=mesh.patch(axis,c);
+                result.advective_out[side][slot][patch]=boundary_power<false>(mesh,f,t[side],p,axis,sign);
+                result.diffusive_out[side][slot][patch]=boundary_power<true>(mesh,f,t[side],p,axis,sign);
+            }
+        }
+    }
+    if(prescribed.size)
+        for(std::size_t p=0;p<mesh.cells();++p)
+            result.prescribed_b_power+=detail::exchange(b)[p]*mesh.volume(mesh.coord(p))*(t[1][p]-t[2][p]);
+    for(std::size_t side=0;side<3;++side) if(result.solved[side]) {
+        if(!std::isfinite(result.source_integral[side])) throw std::domain_error("nonfinite physical source integral");
+        for(double x:result.residual[side]) if(!std::isfinite(x)) throw std::domain_error("nonfinite physical residual");
+        for(std::size_t face=0;face<6;++face)
+            for(const auto* plane:{&result.advective_out[side][face],&result.diffusive_out[side][face]})
+                for(double x:*plane) if(!std::isfinite(x)) throw std::domain_error("nonfinite physical boundary power");
+    }
+    if(!std::isfinite(result.prescribed_b_power)) throw std::domain_error("nonfinite prescribed reservoir power");
+    return result;
+}
+
+} // namespace
+
+double energy_balance_error(const PhysicalHeatLedger& ledger) {
+    double error=0.,outward=0.,sources=0.;
+    for(std::size_t phase=0;phase<3;++phase) if(ledger.solved[phase]) {
+        double absolute=0.;
+        for(double r:ledger.residual[phase]) absolute+=std::abs(r);
+        error=std::max(error,absolute);
+        sources+=ledger.source_integral[phase];
+        for(std::size_t face=0;face<6;++face)
+            for(const auto* powers:{&ledger.advective_out[phase][face],&ledger.diffusive_out[phase][face]})
+                for(double power:*powers) outward+=power;
+    }
+    return std::max(error,std::abs(outward-sources-ledger.prescribed_b_power));
+}
+
+void energy_temperature_sweeps(const GridView& g,const EnergyPhase& a,const EnergyPhase& b,
+    ArrayView<const double> ks,TemperatureStateView state,std::size_t sweeps,double omega,
+    ArrayView<const double> ss,ArrayView<const double> prescribed,
+    ArrayView<const double> na,ArrayView<const double> nb,double solid_omega) {
+    component_sweeps(g,a,b,ks,state,sweeps,omega,ss,prescribed,na,nb,solid_omega);
+}
+PhysicalHeatLedger energy_physical_audit(const GridView& g,const EnergyPhase& a,const EnergyPhase& b,
+    ArrayView<const double> ks,TemperatureStateView state,ArrayView<const double> ss,
+    ArrayView<const double> prescribed) { return component_audit(g,a,b,ks,state,ss,prescribed); }
+
+void energy_temperature_sweeps(const GridView& g,const FrozenEnergyPhase& a,const FrozenEnergyPhase& b,
+    ArrayView<const double> ks,TemperatureStateView state,std::size_t sweeps,double omega,
+    ArrayView<const double> ss,ArrayView<const double> prescribed,
+    ArrayView<const double> na,ArrayView<const double> nb,double solid_omega) {
+    component_sweeps(g,a,b,ks,state,sweeps,omega,ss,prescribed,na,nb,solid_omega);
+}
+PhysicalHeatLedger energy_physical_audit(const GridView& g,const FrozenEnergyPhase& a,const FrozenEnergyPhase& b,
+    ArrayView<const double> ks,TemperatureStateView state,ArrayView<const double> ss,
+    ArrayView<const double> prescribed) { return component_audit(g,a,b,ks,state,ss,prescribed); }
+
+PhysicalHeatLedger energy_physical_audit(const GridView& g,const PhysicalEnergyPhase& a,const PhysicalEnergyPhase& b,
+    ArrayView<const double> ks,TemperatureStateView state,ArrayView<const double> ss,
+    ArrayView<const double> prescribed) { return component_audit(g,a,b,ks,state,ss,prescribed); }
+
 }  // namespace tpmshx
+
+namespace tpmshx {
+EnergyBalanceAudit energy_balance_audit(const GridView& g,const EnergyPhase& a,const EnergyPhase& b,
+    ArrayView<const double> ks,TemperatureStateView state,ArrayView<const double> ss,
+    ArrayView<const double> prescribed) {
+    const auto r=component_reduced_audit(g,a,b,ks,state,ss,prescribed);
+    return {r.error,r.boundary_complete};
+}
+}

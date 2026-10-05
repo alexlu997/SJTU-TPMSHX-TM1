@@ -19,6 +19,15 @@ int main(void) {
     tpmshx_temperature_callbacks_v1 callbacks={cancel,progress,&calls};
     char error[256]; size_t p,i,mode;
     if (tpmshx_temperature_driver_abi_version()!=1) return 1;
+    {
+        const char* expected[3]={"shared_fv_cc2d_tminmod_guarded_line_v1",
+            "shared_fv_cc3d_tminmod_guarded_line_v1","shared_fv_staggered_tminmod_picard_v1"};
+        for (mode=0;mode<3;++mode) {
+            const char* identity=tpmshx_temperature_algorithm_v1((uint32_t)mode);
+            if (!identity || strcmp(identity,expected[mode])) return 12;
+        }
+        if (tpmshx_temperature_algorithm_v1(3) || tpmshx_temperature_algorithm_v1(UINT32_MAX)) return 13;
+    }
     if (tpmshx_temperature_driver_create_v1(&driver,error,sizeof(error)) || !driver) return 2;
     for (p=0;p<31;++p) arrays[p]=storage[p];
     config.direction_a=0; config.direction_b=2; config.inlet_a=350; config.inlet_b=300;

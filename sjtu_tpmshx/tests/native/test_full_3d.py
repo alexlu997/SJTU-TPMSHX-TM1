@@ -1,4 +1,4 @@
-"""Prepared-data 3D outer driver qualification against the unchanged backend.
+"""Prepared-data 3D outer driver with same-map thermal reference components.
 
 Reference tolerances frozen before execution: temperature rtol1e-8/atol1e-6 K;
 flow/pressure rtol2e-7, velocity/density atol1e-7, pressure atol1e-5 Pa.
@@ -7,6 +7,7 @@ separate exact assertions. These are software comparison tolerances, not gates.
 """
 import copy
 import ctypes
+import inspect
 from dataclasses import replace
 from importlib.metadata import version
 import os
@@ -25,9 +26,11 @@ from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.backends.python.three_d.execution import build_execution_inputs
 from sjtu_tpmshx.solvers.backends.python.three_d import runtime
 from sjtu_tpmshx.tests.native.test_native_execution import _config
+from sjtu_tpmshx.tests.native import full_thermal_reference
 
 
 ROOT = Path(__file__).resolve().parents[3]
+same_thermal = full_thermal_reference.same_thermal
 FLOW_FIELDS = ("dx", "dy", "dz", "eps_field", "K_arr", "cF_arr", "T_field", "mu_field",
                "_mu_eff_field", "rho_field", "u", "v", "w", "P", "Pp", "d_u", "d_v", "d_w",
                "v_inlet_field", "inlet_frac", "outlet_frac", "outlet_u_frac", "outlet_w_frac",
@@ -183,16 +186,26 @@ def prepared(pair="air-air", *, directions=None, counts=None, mesh=None, **contr
     return c, p
 
 
-def reference(cfg, p):
+def reference(cfg, p, thermal=None):
     original = runtime.SIMPLESolver3D.solve
     def observed(solver, *args, **kwargs):
         value = original(solver, *args, **kwargs)
         solver._full_native_last_iterations = value[1]
         return value
-    with patch.object(runtime.SIMPLESolver3D, "solve", observed):
+    original_energy = runtime.solve_full_domain_3d
+    def energy(*args, **kwargs):
+        if thermal is None:
+            return original_energy(*args, **kwargs)
+        bound = inspect.signature(original_energy).bind(*args, **kwargs)
+        bound.apply_defaults()
+        return thermal.volume(bound.arguments, prob)
+    with patch.object(runtime.SIMPLESolver3D, "solve", observed), \
+         patch.object(runtime, "solve_full_domain_3d", energy):
         prob = runtime.build_problem(copy.deepcopy(cfg), copy.deepcopy(p))
         outer = runtime._run_outer_coupling_3d(prob, runtime._build_hv_machinery(prob), capture_native=True)
     metrics = runtime._extract_3d_metrics(prob, outer)
+    if thermal is not None:
+        metrics = thermal.volume_reporting(prob, outer, metrics)
     raw, diagnostics = runtime._assemble_3d_verdict(prob, outer, metrics)
     return prob, outer, metrics, raw, diagnostics
 
@@ -244,23 +257,23 @@ def assert_equivalent(actual, expected):
 
 
 @pytest.mark.parametrize("pair", ["air-air", "air-water", "water-air", "air-sco2", "sco2-water"])
-def test_full_prepared_outer(native, pair):
+def test_full_prepared_outer(native, same_thermal, pair):
     cfg, p = prepared(pair)
     actual = native.run(cfg, p)
-    assert_equivalent(actual, reference(cfg, p))
+    assert_equivalent(actual, reference(cfg, p, thermal=same_thermal))
 
 
 @pytest.mark.parametrize("conservative,force_cc", [(False, True), (False, False), (True, True)])
-def test_temperature_routes(native, conservative, force_cc):
+def test_temperature_routes(native, same_thermal, conservative, force_cc):
     cfg, p = prepared("air-air", conservative_ltne=conservative, force_cc_ltne=force_cc, variable_rho_cp=False)
-    assert_equivalent(native.run(cfg, p), reference(cfg, p))
+    assert_equivalent(native.run(cfg, p), reference(cfg, p, thermal=same_thermal))
 
 
-def test_cap_retains_thermal_and_later_flow(native):
+def test_cap_retains_thermal_and_later_flow(native, same_thermal):
     cfg, p = prepared("air-sco2")
     p["max_outer"] = 1
     actual = native.run(cfg, p)
-    assert_equivalent(actual, reference(cfg, p))
+    assert_equivalent(actual, reference(cfg, p, thermal=same_thermal))
     assert actual[202][7] == 1 and actual[202][1] == 0
     assert np.max(np.abs(actual[3]-actual[124])) > 1e-5
 
@@ -280,34 +293,51 @@ def test_invalid_prepared_extent_before_execution(native):
 
 
 @pytest.mark.parametrize("direction", range(6))
-def test_every_physical_direction(native, direction):
+def test_every_physical_direction(native, same_thermal, direction):
     cfg, p = prepared(directions=(direction, (direction+3)%6))
     p["max_outer"] = 2
-    assert_equivalent(native.run(cfg, p), reference(cfg, p))
+    assert_equivalent(native.run(cfg, p), reference(cfg, p, thermal=same_thermal))
 
 
 @pytest.mark.parametrize("pair", ["air-air", "air-sco2"])
-def test_nz_one_delegates_original_2d_temperature(native, pair):
+def test_nz_one_delegates_original_2d_temperature(native, same_thermal, pair):
     cfg, p = prepared(pair, directions=(0, 3), counts=(4, 4, 1))
-    assert_equivalent(native.run(cfg, p), reference(cfg, p))
+    assert_equivalent(native.run(cfg, p), reference(cfg, p, thermal=same_thermal))
+
+
+def test_true_h_cell_centered_3d_retains_g4_warmup(native, same_thermal):
+    from sjtu_tpmshx.solvers import ltne_energy_3d
+
+    cfg, p = prepared("air-sco2", counts=(4, 4, 4),
+                      conservative_ltne=False, force_cc_ltne=True)
+    actual = native.run(cfg, p)
+    assert actual["code"] == 0, actual["error"]
+    assert actual[202][8] == 2  # Full3DThermalMode::true_h
+    with patch.object(ltne_energy_3d, "solve_full_domain_3d",
+                      wraps=ltne_energy_3d.solve_full_domain_3d) as retained:
+        expected = reference(cfg, p, thermal=same_thermal)
+    assert retained.call_count == len(expected[0]._ltne_info) > 0
+    assert all(call.kwargs["Nz"] > 1 and call.kwargs["ufA"] is None
+               and call.kwargs["max_iter"] == 2 for call in retained.call_args_list)
+    assert_equivalent(actual, expected)
 
 
 @pytest.mark.parametrize("pair", ["air-air", "air-water"])
-def test_outer_anderson_property_order(native, pair):
+def test_outer_anderson_property_order(native, same_thermal, pair):
     cfg, p = prepared(pair, outer_anderson=True)
-    assert_equivalent(native.run(cfg, p), reference(cfg, p))
+    assert_equivalent(native.run(cfg, p), reference(cfg, p, thermal=same_thermal))
 
 
-def test_sco2_a_local_pressure_property_switch(native):
+def test_sco2_a_local_pressure_property_switch(native, same_thermal):
     cfg, p = prepared("sco2-water")
     cfg["_environment"]["TPMSHX_SCO2_COMPRESSIBLE"] = "1"
-    assert_equivalent(native.run(cfg, p), reference(cfg, p))
+    assert_equivalent(native.run(cfg, p), reference(cfg, p, thermal=same_thermal))
 
 
-def test_no_b_solver_prescribed_temperature(native):
+def test_no_b_solver_prescribed_temperature(native, same_thermal):
     cfg, p = prepared("air-air")
     cfg["fluid_B_cfg"] = None
-    assert_equivalent(native.run(cfg, p), reference(cfg, p))
+    assert_equivalent(native.run(cfg, p), reference(cfg, p, thermal=same_thermal))
 
 
 def _report_refined_grid_failure(actual, expected):
@@ -372,10 +402,10 @@ def _report_refined_grid_failure(actual, expected):
         native=actual[202][12:20].tolist(), python=want.tolist(), delta=(actual[202][12:20]-want).tolist()))
 
 
-def test_refined_real_grid_and_existing_energy_acceleration(native):
+def test_refined_real_grid_and_existing_energy_acceleration(native, same_thermal):
     cfg, p = prepared("air-air", counts=(8, 8, 8), mesh="wall_refine_3d", port_wall_refine=True)
     p["max_outer"] = 2
-    actual, expected = native.run(cfg, p), reference(cfg, p)
+    actual, expected = native.run(cfg, p), reference(cfg, p, thermal=same_thermal)
     try:
         assert_equivalent(actual, expected)
     except AssertionError:
@@ -383,27 +413,27 @@ def test_refined_real_grid_and_existing_energy_acceleration(native):
         raise
 
 
-def test_graded_direct_grid_and_existing_energy_acceleration(native):
+def test_graded_direct_grid_and_existing_energy_acceleration(native, same_thermal):
     cfg, p = prepared("air-air", counts=(8, 8, 8), mesh="graded", port_wall_refine=True)
     p["max_outer"] = 2
-    assert_equivalent(native.run(cfg, p), reference(cfg, p))
+    assert_equivalent(native.run(cfg, p), reference(cfg, p, thermal=same_thermal))
 
 
 @pytest.mark.parametrize("mode", ["baseline", "norris_1a", "bhatti_shah_1b"])
-def test_original_air_roughness_mode(native, mode):
+def test_original_air_roughness_mode(native, same_thermal, mode):
     cfg, p = prepared("air-air")
     cfg["roughness_resolved"]["mode"] = mode
-    assert_equivalent(native.run(cfg, p), reference(cfg, p))
+    assert_equivalent(native.run(cfg, p), reference(cfg, p, thermal=same_thermal))
 
 
-def test_dispersion_and_user_solid_seed(native):
+def test_dispersion_and_user_solid_seed(native, same_thermal):
     cfg, p = prepared("air-water", disp_C_A=.1, disp_C_B=.06, T_s_init=335.)
-    assert_equivalent(native.run(cfg, p), reference(cfg, p))
+    assert_equivalent(native.run(cfg, p), reference(cfg, p, thermal=same_thermal))
 
 
 @pytest.mark.parametrize("counts,mesh", [((4, 4, 4), None), ((8, 8, 8), None), ((9, 8, 11), "graded"), ((9, 8, 11), "wall_refine_3d")])
-def test_coarse_bootstrap_preserves_physical_ports_and_fine_gate(native, counts, mesh):
+def test_coarse_bootstrap_preserves_physical_ports_and_fine_gate(native, same_thermal, counts, mesh):
     cfg, p = prepared("air-air", counts=counts, mesh=mesh, use_coarse_bootstrap=True, coarse_bootstrap_max_iter=30)
     cfg["max_iter_simple"] = 100
     p["max_outer"] = 1
-    assert_equivalent(native.run(cfg, p), reference(cfg, p))
+    assert_equivalent(native.run(cfg, p), reference(cfg, p, thermal=same_thermal))

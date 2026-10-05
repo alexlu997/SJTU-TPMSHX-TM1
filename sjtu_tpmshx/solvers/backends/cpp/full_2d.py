@@ -14,7 +14,8 @@ from sjtu_tpmshx.models.grid import _port_overlap_1d, _port_fractions_1d
 from sjtu_tpmshx.solvers._solve_common import configure_convergence, F2Monitor
 from ._simple_abi import _F2
 from .simple_2d import _Result as _SimpleResult, _result_dict
-from .model_h import _Array, _Result as _ModelResult, _plane_info
+from .model_h import _Array, _Result as _ModelResult, _plane_info, _model_h_algorithm
+from .temperature_evidence import TemperatureEvidence2D, copy_temperature_evidence
 from .enthalpy import _Result as _EnthalpyResult, _result_info
 from .enthalpy import (_EnergyOptions, _EnergyResult, _energy_options,
                        _energy_result_info, _energy_native_state)
@@ -208,6 +209,15 @@ def _thermal(t, config):
     return out
 
 
+def _set_native_metadata(result, abi, algorithm, red_black):
+    for stage in (result['main'], result['fine']):
+        if stage is not None:
+            actual = stage['temperature_evidence']['algorithm'] if 'temperature_evidence' in stage else algorithm
+            stage['native_metadata'] = dict(abi=abi, algorithm=actual,
+                red_black=bool(red_black and np.prod(stage['shape']) > 30000))
+    result['native_metadata'] = result['main']['native_metadata']
+
+
 class NativeFull2DDriver:
     def __init__(self, library, *, table_directory=None):
         path = Path(library)
@@ -345,6 +355,21 @@ class NativeFull2DDriver:
                     row['energy_info'] = _energy_result_info(dict(effective_settings=dict(omega=omega, sweeps=5)),
                         extra.outer[index], temperature_tol=energy.temperature_update_tolerance, abi=3)
                 out['entry_version'] = 3
+            if out['main']['mode'] == 'temperature':
+                query = self.library.tpmshx_full_2d_get_model_enthalpy_evidence_v1
+                query.argtypes = [ct.POINTER(_Result), ct.POINTER(TemperatureEvidence2D)]
+                query.restype = ct.c_int
+                extra = TemperatureEvidence2D()
+                if query(ct.byref(result), ct.byref(extra)):
+                    raise RuntimeError('native full 2D temperature evidence query failed')
+                out['main']['temperature_evidence'] = copy_temperature_evidence(extra.main, (*shape, 1), 2)
+                if out['fine'] is not None:
+                    fine_shape = (len(out['fine']['dx']), len(out['fine']['dy']), 1)
+                    out['fine']['temperature_evidence'] = copy_temperature_evidence(extra.fine, fine_shape, 2)
+            if out['main']['mode'] in ('model_h', 'temperature'):
+                algorithm = (_model_h_algorithm(self.library, 2) if out['main']['mode'] == 'model_h'
+                             else out['main']['temperature_evidence']['algorithm'])
+                _set_native_metadata(out, self.abi, algorithm, config.red_black)
             return out
         finally:
             if result.owner:

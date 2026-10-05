@@ -1,9 +1,11 @@
-"""Native complete QD property-pass qualification against the current backend.
+"""Native QD properties/orchestration against the same current thermal map.
 
 Fixed before comparison: 2D fields rtol=2e-12 / atol=2e-10 K;
 3D fields rtol=2e-11 / atol=2e-9 K. Pass properties/Re/u/hv/K use
 rtol=2e-10, atol=0; status, pass count and iteration budgets are exact.
-The bridge is a test fixture; no production backend is selected or replaced.
+The explicit test fixture supplies current C++ thermal iteration to the
+Python orchestration reference; independent FV powers check each returned
+pass. Historical Python thermal helpers remain the default for other callers.
 """
 import ctypes
 from dataclasses import replace
@@ -88,7 +90,7 @@ def quick_design_native():
         return dict(code=code, status=tuple(status), metrics=np.array(metrics), fields=state,
                     error=error.value.decode())
 
-    run.build = build
+    run.build = path.parent
     return run
 
 
@@ -104,10 +106,95 @@ def prepared(arrangement="cross", mode="const", pair="air_water", topology="Diam
                                 height=.06)
 
 
-def python_run(case, monkeypatch, *, inject_side=0, inject_pass=0):
+@pytest.fixture(scope="module")
+def same_qd_thermal(quick_design_native):
+    """Keep Python QD properties/orchestration; use the current thermal map."""
+    from sjtu_tpmshx.solvers.backends.cpp.temperature import NativeTemperatureDriver
+    from sjtu_tpmshx.tests.native.temperature_fv_oracle import physical
+
+    name = "tpmshx_temperature_shared.dll" if os.name == "nt" else (
+        "libtpmshx_temperature_shared.dylib" if sys.platform == "darwin" else "libtpmshx_temperature_shared.so")
+    path = Path(os.environ.get("TPMSHX_TEMPERATURE_LIBRARY", str(quick_design_native.build / name))).resolve()
+    driver = NativeTemperatureDriver(path)
+
+    def run(*args, **kwargs):
+        shape = tuple(args[3:6])
+        plane = shape[2] == 1
+        dimension = 2 if plane else 3
+
+        def field(value):
+            value = np.asarray(value)
+            return value[..., 0] if plane and value.ndim == 3 else value
+
+        initial = None if kwargs["Ta_init"] is None else tuple(
+            field(kwargs[key]) for key in ("Ta_init", "Tb_init", "Ts_init"))
+        entry = dict(shape=shape, max_iterations=kwargs["max_iter"],
+                     chunk_iterations=kwargs["conv_chunk"] or (500 if plane else 250),
+                     warm=initial is not None, returned=False)
+        run.calls.append(entry)
+        *state, info = driver(
+            scheme="cell_centered_2d" if plane else "cell_centered_3d",
+            widths=tuple(kwargs["d" + axis + "_arr"] for axis in "xyz"[:dimension]),
+            conductivity=tuple(field(value) for value in args[8:11]),
+            exchange=tuple(field(value) for value in args[11:13]),
+            epsilon=(field(args[15] / 2),) * 2, rho_cp=args[13:15],
+            velocity=tuple(tuple(field(value) for value in args[start:start+dimension])
+                           for start in (16, 19)),
+            directions=(kwargs["dir_A"], kwargs["dir_B"]), inlets=args[6:8],
+            initial=initial, max_iterations=kwargs["max_iter"],
+            chunk_iterations=kwargs["conv_chunk"], q_relative_tolerance=kwargs["q_rel_tol"],
+            tol=kwargs["tol"], alpha=(.7, 1., 1.) if plane else (kwargs["alpha_T"],) * 3,
+            second_order_b=not plane, cancel_check=kwargs.get("cancel_check"),
+            progress=kwargs.get("progress_cb"))
+        entry.update(returned=True, iterations=info["iterations"], converged=info["converged"])
+        state = [value[..., None] if plane else value for value in state]
+        fluids = []
+        for side, start in enumerate((16, 19)):
+            fluids.append([np.full(shape, value) for value in
+                           (args[8+side], args[11+side], args[15]/2, args[13+side])]
+                          + list(args[start:start+3]) + [np.empty(0) for _ in range(3)])
+        audit = physical(dict(shape=shape, state=state,
+            widths=tuple(kwargs["d" + axis + "_arr"] for axis in "xyz"),
+            a=fluids[0], b=fluids[1], ks=args[10], prescribed=np.empty(0),
+            directions=(kwargs["dir_A"], kwargs["dir_B"]), tin=args[6:8], sou_b=not plane))
+        evidence = info.pop("_native_temperature")
+        assert evidence["duty_units"] == ("W/m" if plane else "W")
+        assert evidence["Q_B"] == pytest.approx(audit["qb"], rel=2e-12 if plane else 2e-11, abs=1e-8)
+        assert audit["boundary_complete"] and all(np.isfinite(value).all() for value in state)
+        boundary = float(np.sum(audit["powers"]))
+        assert abs(float(np.sum(audit["residual"])) + boundary) <= 2e-8
+        count, chunk = info["iterations"], entry["chunk_iterations"]
+        assert 0 < count <= kwargs["max_iter"]
+        assert count == kwargs["max_iter"] or count % chunk == 0
+        if info["converged"]:
+            assert (count + chunk - 1) // chunk >= 2
+            assert max(np.abs(audit["residual"]).reshape(3, -1).sum(axis=1).max(),
+                       abs(boundary)) / audit["denominator"] <= 1e-7
+        else:
+            assert count == kwargs["max_iter"]
+        info["delegated_to_2d"] = plane
+        return *state, info
+
+    run.calls, run.native_entries = [], []
+    native_call = driver.call
+
+    def traced_call(*args):
+        entry = dict(returned=False)
+        run.native_entries.append(entry)
+        code = native_call(*args)
+        entry.update(returned=True, code=int(code))
+        return code
+
+    driver.call = traced_call
+    try:
+        yield run
+    finally:
+        driver.close()
+def python_run(case, monkeypatch, *, inject_side=0, inject_pass=0, thermal=None, public=False):
     execution = importlib.import_module("sjtu_tpmshx.solvers.backends.python.quick_design.execution")
     model = importlib.import_module("sjtu_tpmshx.models.quick_design")
-    hvol, thermal = model._hvol, execution.solve_full_domain_3d
+    hvol = model._hvol
+    thermal = thermal or execution.solve_full_domain_3d
     evaluations, results, progress = [], [], []
 
     def capture_hvol(*args, **kwargs):
@@ -125,12 +212,13 @@ def python_run(case, monkeypatch, *, inject_side=0, inject_pass=0):
     with monkeypatch.context() as patch:
         patch.setattr(model, "_hvol", capture_hvol)
         patch.setattr(execution, "solve_full_domain_3d", capture_thermal)
-        result = execution.run_case(case, RunControl(progress=progress.append))
+        from sjtu_tpmshx.solvers.api import run_case
+        result = (run_case if public else execution.run_case)(case, RunControl(progress=progress.append))
     return result, evaluations, results, progress
 
 
-def assert_equivalent(case, native, monkeypatch):
-    expected, evaluations, passes, progress = python_run(case, monkeypatch)
+def assert_equivalent(case, native, monkeypatch, thermal=None):
+    expected, evaluations, passes, progress = python_run(case, monkeypatch, thermal=thermal)
     actual = native(case)
     assert actual["code"] == 0, actual["error"]
     status, metrics = actual["status"], actual["metrics"]
@@ -165,28 +253,28 @@ def assert_equivalent(case, native, monkeypatch):
 @pytest.mark.parametrize("mode", ["const", "mean"])
 @pytest.mark.parametrize("pair,topology", [("air_water", "Diamond"), ("water_air", "Gyroid"),
                                            ("sco2_sco2", "Diamond")])
-def test_actual_prepared_geometry_full_property_passes(quick_design_native, monkeypatch, arrangement, mode, pair, topology):
-    assert_equivalent(prepared(arrangement, mode, pair, topology), quick_design_native, monkeypatch)
+def test_actual_prepared_geometry_full_property_passes(quick_design_native, same_qd_thermal, monkeypatch, arrangement, mode, pair, topology):
+    assert_equivalent(prepared(arrangement, mode, pair, topology), quick_design_native, monkeypatch, same_qd_thermal)
 
 
 @pytest.mark.parametrize("arrangement", ["cross", "counter"])
-def test_external_warm_fields_and_budget_exhaustion(quick_design_native, monkeypatch, arrangement):
+def test_external_warm_fields_and_budget_exhaustion(quick_design_native, same_qd_thermal, monkeypatch, arrangement):
     case = prepared(arrangement, "mean")
     p = case.parameters
     shape = tuple(len(case.grid["d"+axis]) for axis in "xyz")
     seed = tuple(np.full(shape, t) for t in (345., 320., 332.))
     case = replace(case, parameters={**p, "initial_fields": seed,
                                     "controls": {**p["controls"], "maxit": 7, "chunk": 5}})
-    actual, _ = assert_equivalent(case, quick_design_native, monkeypatch)
+    actual, _ = assert_equivalent(case, quick_design_native, monkeypatch, same_qd_thermal)
     assert actual["status"][0] == 1
     assert actual["status"][6] == actual["status"][8] == 7
 
 
 @pytest.mark.parametrize("mode", ["const", "mean"])
-def test_prepared_inlet_pressure_fractions_are_never_recalculated(quick_design_native, monkeypatch, mode):
+def test_prepared_inlet_pressure_fractions_are_never_recalculated(quick_design_native, same_qd_thermal, monkeypatch, mode):
     case = prepared("cross", mode)
     case = replace(case, parameters={**case.parameters, "inlet_pressure_fractions": {"A": 1.2, "B": .03125}})
-    actual, _ = assert_equivalent(case, quick_design_native, monkeypatch)
+    actual, _ = assert_equivalent(case, quick_design_native, monkeypatch, same_qd_thermal)
     assert actual["status"][9:11] == (1, 0)
 
 

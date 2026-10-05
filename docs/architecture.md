@@ -1,5 +1,15 @@
 # SJTU-TPMSHX-TM1 architecture
 
+The integrated native full-compute CC candidate uses the existing
+air/water integral h(T) model through the strict model-h drivers. This replaces
+the earlier variable-cp m*cp*T adapter; that candidate's failures remain in the
+historical record. Earlier numerical and resource qualifications remain tied
+to their recorded builds; the final shared-row compilation policy requires
+affected numerical/resource checks and application acceptance. Fixed-coefficient
+Quick Design/standalone temperature, the retained
+true-h CC warm-up and single-A sCO2 paths, and staggered research routes have
+separate contracts.
+
 This is the current architectural and physical contract for the repository.
 Historical audits and reports explain how the project reached this state, but
 they do not override the running code or this document.
@@ -16,7 +26,8 @@ available metric is not an experimental accuracy certificate.
 | 2D model-h | SIMPLE, outer coupling, main/fine thermal convergence and energy certificates, Richardson eligibility and pressure envelope | Multi-condition batches require both physical-boundary ledgers and the existing main/fine gates; Q is W/m and total-flow studies need an explicit depth |
 | 3D model-h | Final SIMPLE checks, thermal/outer convergence, finite fields and pressure envelope; source-free thermal passes also require the existing strict energy gates | Multi-condition batches independently check the archived `compute_phase2a` global/cell, source and boundary certificates, including results produced before energy finishing was added |
 | 2D/3D true-h | Native enthalpy solve with final-state equation/boundary budgets and property checks; returned thermal evidence is captured before any failed final post-update | Inspect the route's `true_h_balance` and convergence detail; this route is outside the air/water model-h optimizer contract |
-| Temperature and low-level research routes | Existing route-specific stopping rules and captured state | 2D temperature Q uses its recorded capacity-temperature reduction; 3D legacy-temperature Q is unavailable without complete enthalpy evidence. Neither asserts model-h optimization qualification |
+| Native full-compute CC (G5 candidate) | Strict model-h on the accepted thermal mass faces; actual integral h(T_face) advective powers, Fourier powers and phase residuals; complete-boundary error ratio at most 1e-7 | Declared `model_enthalpy_temperature_v1` supports captured heat in W/m for 2D or W for physical 3D. The requested temperature route remains distinct from product model-h optimization eligibility |
+| Other temperature and low-level research routes | Existing route-specific stopping rules, coefficient sampling and recorded state | Fixed-coefficient capacity transport, staggered/MAC research and retained single-A sCO2 do not inherit the fullCC integral-enthalpy qualification; historical files keep their original reductions |
 | Quick design | Explicit prescribed-flow approximate mode | Its metrics and feasibility checks do not certify a full SIMPLE solve |
 
 GUI and CLI retain their native convergence meaning. Failed/cancelled GUI
@@ -110,6 +121,32 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   3D. Offline readers validate this evidence without reconstructing SOU or
   calling an EOS. Thermal mass/temperature evidence remains separate from a
   subsequent final flow update, including iteration-limit returns.
+- Native CC/QD, staggered temperature, model-h and conservative-energy
+  consumers share finite-volume rows while retaining their physical models and
+  caller-owned face preparation. Air/water full2D CC main/fine and full3D CC with Nz=1
+  call strict `solve_model_h_2d`; full3D CC with Nz>1 calls strict
+  `solve_model_h_3d`. They use accepted thermal SIMPLE mass faces and the
+  existing air/water integral h(T), preserving the prepared K and h_v.
+  The 2D/Nz=1 adapter selects A-SOU/B-FOU; Nz>1 selects SOU on both sides.
+  Additive `get_model_enthalpy_evidence_v1` queries capture that thermal state
+  before later flow/property updates and owner release. Portable
+  `model_enthalpy_temperature_v1` records the h(T) coefficients, solved-phase
+  flags, residuals, source/reservoir powers and outward advective/Fourier planes,
+  with separate 2D main/fine identities. It does not use the old capacity-ledger
+  layout. Missing declarations for new fields are invalid; historical files
+  without a new ledger retain their original reductions. Physical 3D Nz=1
+  divides mass by depth for the 2D solve and multiplies integrated powers by
+  depth once; temperature is not scaled. FullCC nonzero sources remain
+  unsupported, and prescribed B is an external reservoir without a solved B
+  certificate. QD/standalone CC retain fixed-coefficient capacity transport.
+  Full3D true-h CC warm-up retains the private G4 temperature kernel for Nz=1
+  and for Nz>1 when conservative=false and force_cell_centered=true. Its two
+  sweeps solve both sides before the selected enthalpy algorithm and its
+  property/conservation gates. Single-A sCO2 uses the same private kernel with
+  prescribed B and its original thermal budget. These retained rows and the
+  staggered/MAC projection/capacity research contract do not acquire this
+  fullCC qualification. See [native consumer contracts](cpp-migration.md#shared-finite-volume-temperature-consumers)
+  for iteration, incomplete-boundary and build requirements.
 - `postprocess/` reduces recorded fields, fluxes and pressure states. It never
   reruns a solver or reads a private runtime object to recover missing evidence.
   Full-compute evaluation reuses successful heat and mass reductions only within
@@ -198,6 +235,12 @@ and does not create files. Cancellation keeps evidence and returns CLI status 13
 The GUI entry point is `python -m sjtu_tpmshx.main`; source-based headless
 work uses `python -m sjtu_tpmshx.cli`. Parameter optimization and design use
 the same public contracts with their explicitly named approximation modes.
+The macOS project-folder launcher passes `backend=cpp`, the supplied library
+under `native/lib/macos-arm64/`, and the project table directory to this same
+GUI entry point. Python retains UI, prepared-input assembly, optimization
+orchestration and result processing. The explicit native selection leaves
+public defaults and research-only Python routes unchanged; old numerical
+implementations remain until their individual replacement gates pass.
 M-A review, CI and merged-main acceptance for the rectangular 2D/3D module
 flow are retained in [fixed history](history/README.md). Current M-B extensions
 and their unmet acceptance conditions are listed in [capabilities](capabilities.md);
@@ -459,9 +502,9 @@ Thermal routes are selected by their present qualification conditions:
 
 | Route | Shared implementation and retained differences |
 |---|---|
-| True enthalpy | Pairs containing sCO2 use signed mass/enthalpy transport; the 2D adapter calls the shared 3D enthalpy kernel. Existing zone/route constraints remain. |
+| True enthalpy | Pairs containing sCO2 use signed mass/enthalpy transport; the 2D adapter calls the shared 3D enthalpy kernel. Full3D CC uses the retained G4 two-sweep warm-up before the selected enthalpy solve. Existing zone/route constraints remain. |
 | Model enthalpy | Existing air/water h(T) transport; 2D includes water/water when unzoned and symmetric. 3D currently includes air/air, air/water and water/air with its Nz, variable-property, dual-flow, conservative and mask conditions. |
-| Temperature | Existing remaining cases and approximation modes keep their current discretization and property sampling. |
+| Temperature | The native fullCC air/water candidate reuses strict integral-h(T) model-h drivers while retaining the requested temperature route. Python temperature, QD/standalone fixed-coefficient, staggered research and private single-A sCO2 routes retain their separately stated contracts. |
 
 The sCO2 restriction is on geometry combinations, not on the other stream's
 fluid: sCO2/water, sCO2/air and sCO2/sCO2 pairs can use the true-enthalpy route,
@@ -501,8 +544,8 @@ The enthalpy-update criterion remains independent. A final chunk containing
 clipped enthalpy updates cannot certify convergence. The true-h ledger records
 the effective settings, residual budgets, clip counts and exit reason.
 
-Model-h uses signed mass faces and minmod SOU on **both** fluid sides in both
-dimensions. Its fluid Picard update uses the shared `MODEL_H_RELAXATION=0.2`
+The existing product model-h route uses signed mass faces and minmod SOU on
+**both** fluid sides in both dimensions. Its fluid Picard update uses the shared `MODEL_H_RELAXATION=0.2`
 policy, including outlet cells; 3D retains explicitly smaller relaxation values.
 The earlier 2D B-side first-order default and 3D fluid-name relaxation choice
 do not apply to this route. Damping changes the iteration, not its steady
@@ -517,8 +560,27 @@ Manufactured-source cases retain their separate stopping rule. The model-h
 residual definitions and budgets differ from the true-h route's independent
 0.001 equation gate. Do not infer identical acceptance criteria from the shared
 word `converged` across thermal routes.
-Model-h Richardson refinement has a 12000-sweep ceiling so the finer grid can
-meet those same criteria; temperature-form refinement retains 5000. See the
+
+The strict fullCC adapter has a separate stopping and boundary contract within
+the model-h drivers. Full2D main/fine and full3D Nz=1 use A-SOU/B-FOU; full3D
+Nz>1 uses SOU on both sides. The native identities are respectively
+`model_h_tface_sou_fou_strict_v3` and `model_h_tface_sou_sou_strict_v3`.
+Faces transport the existing integral h(T_face), with physical-distance
+reconstruction at inlet/outlet cells. Strict inlet Fourier conduction uses
+the resistance/moment reconstruction shared by the row and audit; the original
+non-strict model-h boundary rule is unchanged. Duty and field stability must
+also pass a fresh complete-boundary ledger: the larger of the phase sums of
+absolute cell residuals and the coupled boundary/source imbalance, divided
+by the interface exchange scale (one native power unit floor), must be at most
+1e-7. Failure continues within the original budget; unavailable inflow
+does not certify convergence. Prescribed B has reservoir power but no solved
+B residual. This strict path supports its existing fullCC asymmetric and 3D
+water/water consumers without extending the non-strict product model-h route
+or granting optimizer eligibility.
+
+Product model-h Richardson refinement has a 12000-sweep ceiling so the finer
+grid can meet its criteria; the fullCC temperature-role refinement retains its
+5000-sweep budget with the strict h(T) driver. See the
 [air/water convergence and validation record](history/README.md#2026-09-18-历史材料整理).
 
 Changing a shared convergence rule affects both dimensions. Changing a

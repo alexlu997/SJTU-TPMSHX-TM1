@@ -4,6 +4,7 @@
 #include "tpmshx/model_h_c_api.h"
 #include "tpmshx/enthalpy_driver_c_api.h"
 #include "tpmshx/closure_evidence_c_api.h"
+#include "tpmshx/temperature_evidence_c_api.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -180,6 +181,41 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v2(
     const tpmshx_full3d_input_v1*,const tpmshx_full3d_control_v1*,
     const tpmshx_energy_options_v1*,const tpmshx_full3d_callbacks_v1*,
     tpmshx_full3d_result_v1*,char*,size_t);
+/* Explicit strict thermal controls; options_v2 is required. All thresholds
+ * must be finite and positive, and the new flag must be 0 or 1. Uses the
+ * original input/control/result PODs, error statuses and owner release.
+ * Requires the existing two-sided true-h route (solve_b and at least one
+ * sCO2 side); unused thermal controls are rejected before flow execution.
+ * v1/v2 retain their .001 coupled/equation gates and disabled extra h gate. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v3(
+    const tpmshx_full3d_input_v1*,const tpmshx_full3d_control_v1*,
+    const tpmshx_energy_options_v2*,const tpmshx_full3d_callbacks_v1*,
+    tpmshx_full3d_result_v1*,char*,size_t);
+
+typedef struct {
+    uint32_t available,algorithm,require_enthalpy_update_on_temperature;
+    size_t max_iterations,sweeps;
+    double omega,update_tolerance,temperature_update_tolerance;
+    double coupled_energy_tolerance,equation_energy_tolerance;
+} tpmshx_energy_effective_settings_v1;
+typedef struct {
+    tpmshx_energy_effective_settings_v1 resolved,last;
+    const tpmshx_energy_effective_settings_v1* outer;
+    size_t outer_count;
+} tpmshx_full3d_energy_effective_settings_v1;
+/* No numerical work. resolved contains the validated control adopted by the
+ * full driver, including on cooperative cancellation. Its values alone do
+ * not prove execution: available is true only after an actual completed
+ * (possibly iteration-limited) true-h call, as for last/outer. All available
+ * flags are false on full-driver cancellation or non-true-h routes.
+ * outer indices match result.outer exactly. Values never imply convergence.
+ * Views borrow the live result owner until release_v1. Status 1 for null or
+ * released arguments leaves output unchanged. No owner is created on errors.
+ * update_tolerance is the dimensionless h residual; temperature_update_tolerance
+ * is K. Legacy H-FOU always uses its original h gate. T algorithms use the h
+ * gate only when require_enthalpy_update_on_temperature is 1. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_energy_effective_settings_v1(
+    const tpmshx_full3d_result_v1*,tpmshx_full3d_energy_effective_settings_v1*);
 
 typedef struct {
     uint32_t available;
@@ -208,6 +244,12 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_energy_evidence_v1
  * summary fields retain their original first-coarse-level meaning. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_bootstrap_trace_v1(
     const tpmshx_full3d_result_v1*,size_t,tpmshx_full3d_bootstrap_trace_v1*);
+/* Read-only actual model-enthalpy CC state, including budget-limited returns.
+ * Invalid/null/released owners return 1 and leave output unchanged. Cancelled
+ * and states without this ledger have available=0. No solver, EOS or allocation;
+ * arrays borrow the owner until full_3d_release_v1. Nz=1 uses physical W. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_model_enthalpy_evidence_v1(
+    const tpmshx_full3d_result_v1*,tpmshx_model_enthalpy_evidence_v1*);
 #ifdef __cplusplus
 }
 #endif

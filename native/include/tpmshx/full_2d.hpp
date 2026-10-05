@@ -5,6 +5,7 @@
 #include "tpmshx/pressure_reference.hpp"
 #include "tpmshx/simple_2d.hpp"
 #include "tpmshx/closure_evidence.hpp"
+#include "tpmshx/conservative_energy.hpp"
 
 #include <variant>
 
@@ -91,6 +92,10 @@ struct Full2DThermalState {
     // Outward m*h_face, x-/x+/y-/y+/z-/z+; unit-depth W/m, zero z planes.
     std::array<std::array<std::vector<double>,6>,2> enthalpy_boundary_power;
     std::variant<TemperatureResult,ModelHResult2D,EnthalpyResult> result;
+    // Same-state existing model h(T) evidence; no model-h product certificate.
+    std::array<std::array<double,5>,2> temperature_cp_coefficients{};
+    const char* temperature_algorithm=nullptr;
+    std::optional<PhysicalHeatLedger> temperature_audit;
 };
 
 struct Full2DOuterRecord {

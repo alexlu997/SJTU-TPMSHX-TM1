@@ -1,5 +1,6 @@
 #include "tpmshx/temperature_staggered.hpp"
 #include "tpmshx/superlu_solve.h"
+#include "temperature_faces.hpp"
 #include <Eigen/Dense>
 #include <amgcl/amg.hpp>
 #include <amgcl/backend/builtin.hpp>
@@ -19,7 +20,6 @@ namespace {
 using Vector=std::vector<double>;
 using Coordinate=std::array<std::size_t,3>;
 using Faces=std::array<Vector,3>;
-using Rows=std::vector<std::array<double,6>>;
 template<class T> ArrayView<const double> view(const T& x) { return {x.data(),x.size()}; }
 ArrayView<const double> view(ArrayView<double> x) { return {x.data,x.size}; }
 std::size_t product(std::size_t a,std::size_t b) {
@@ -172,30 +172,15 @@ Vector bordered(const Laplacian& lap,ArrayView<const double> rhs) {
 }
 double dot(const Vector& a,const Vector& b) { return std::inner_product(a.begin(),a.end(),b.begin(),0.0); }
 
-Rows diffusion_rows(const Mesh& mesh,ArrayView<const double> k,bool solid) {
-    Rows rows(mesh.n);
-    for (std::size_t p=0;p<mesh.n;++p) {
-        const auto c=mesh.point(p);
-        for (std::size_t f=0;f<6;++f) {
-            const auto axis=f/2,nb=mesh.neighbor(c,f),pos=c[axis];
-            if (nb!=p) {
-                const auto next=f%2==0 ? pos-1 : pos+1;
-                rows[p][f]=detail::diffusion_conductance(k[p],k[nb],.5*mesh.widths[axis][pos],
-                    .5*mesh.widths[axis][next])*mesh.area(axis,c);
-            } else if (solid) rows[p][f]=k[p]*mesh.area(axis,c)/mesh.widths[axis][pos];
-        }
-    }
-    return rows;
-}
 struct Side {
     const StaggeredTemperatureFluid& f;
-    Rows diffusion;
-    Faces velocity,capacity;
+    Faces velocity,capacity,offset;
     Side(const Mesh& mesh,const StaggeredTemperatureFluid& fluid,Faces velocities):
-        f(fluid),diffusion(diffusion_rows(mesh,f.conductivity,false)),velocity(std::move(velocities)) {
+        f(fluid),velocity(std::move(velocities)) {
         const auto direction=static_cast<std::size_t>(f.boundary.direction);
         for (std::size_t axis=0;axis<3;++axis) {
-            capacity[axis].resize(mesh.face_size(axis)); auto extent=mesh.counts; ++extent[axis];
+            capacity[axis].resize(mesh.face_size(axis)); offset[axis].resize(mesh.face_size(axis));
+            auto extent=mesh.counts; ++extent[axis];
             for (std::size_t i=0;i<extent[0];++i) for (std::size_t j=0;j<extent[1];++j)
                 for (std::size_t k=0;k<extent[2];++k) {
                     const Coordinate c{i,j,k}; const auto pos=c[axis],count=mesh.counts[axis],p=mesh.face(axis,c);
@@ -211,6 +196,18 @@ struct Side {
                 }
         }
     }
+    EnergyPhase energy() const {
+        auto boundary=f.boundary;
+        boundary.capacity_flux={}; // already applied to the positive-axis faces
+        return {f.conductivity,f.hv,f.source,
+            {{view(capacity[0]),view(capacity[1]),view(capacity[2])},
+             {view(offset[0]),view(offset[1]),view(offset[2])}},boundary,true};
+    }
+    void reconstruct(const detail::EnergyMesh& mesh,ArrayView<const double> t) {
+        detail::temperature_face_offsets(mesh,energy().faces.capacity,t,
+            {{{offset[0].data(),offset[0].size()}, {offset[1].data(),offset[1].size()},
+              {offset[2].data(),offset[2].size()}}});
+    }
     double inlet(std::size_t p) const { return optional(f.boundary.profile,p,f.boundary.inlet_temperature); }
     double opening(std::size_t p) const { return optional(f.boundary.opening,p,1); }
 };
@@ -219,7 +216,7 @@ double increment(double tm,double t,double tp,double dm,double dp,double offset)
     if (a*b<=0) return 0;
     return (a<0 ? -std::min(std::abs(a),std::abs(b)) : std::min(std::abs(a),std::abs(b)))*offset;
 }
-double sou(const Mesh& mesh,const Side& side,ArrayView<const double> t,const Coordinate& c,bool conservative) {
+double advective_form_sou(const Mesh& mesh,const Side& side,ArrayView<const double> t,const Coordinate& c) {
     double result=0; const auto p=mesh.cell(c);
     for (std::size_t axis=0;axis<3;++axis) {
         auto high=c; ++high[axis];
@@ -228,7 +225,7 @@ double sou(const Mesh& mesh,const Side& side,ArrayView<const double> t,const Coo
         double axis_result=0;
         for (std::size_t end=0;end<2;++end) {
             auto fc=c; fc[axis]+=end; const auto pos=fc[axis],count=mesh.counts[axis];
-            const double flux=conservative ? side.capacity[axis][mesh.face(axis,fc)] : (center>=0 ? mag : -mag);
+            const double flux=center>=0 ? mag : -mag;
             if (!pos || pos==count) continue;
             const auto up=flux>=0 ? pos-1 : pos;
             if (!up || up+1==count) continue;
@@ -242,44 +239,44 @@ double sou(const Mesh& mesh,const Side& side,ArrayView<const double> t,const Coo
     }
     return result;
 }
-struct FluidRow { std::array<double,6> coefficients,neighbors; double diagonal,rhs,source; };
-FluidRow fluid_row(const Mesh& mesh,const Side& side,ArrayView<const double> t,
-    ArrayView<const double> solid,ArrayView<const double> reconstruction,const Coordinate& c,bool conservative) {
-    const auto p=mesh.cell(c),dir=static_cast<std::size_t>(side.f.boundary.direction);
-    FluidRow row{}; auto& a=row.coefficients; auto& neighbor=row.neighbors; std::array<double,6> cap{};
-    for (std::size_t f=0;f<6;++f) {
-        const auto axis=f/2,nb=mesh.neighbor(c,f); auto fc=c; fc[axis]+=f%2;
-        cap[f]=side.capacity[axis][mesh.face(axis,fc)];
-        a[f]=side.diffusion[p][f]+std::max(f%2 ? -cap[f] : cap[f],0.0); neighbor[f]=t[nb];
-        if (nb==p && f==dir) {
-            const auto patch=mesh.patch(axis,c); const double opening=side.opening(patch);
-            if (opening>0) {
-                a[f]+=2.0*side.f.conductivity[p]*mesh.area(axis,c)*opening/mesh.widths[axis][c[axis]];
-                neighbor[f]=side.inlet(patch);
-            }
-        }
-    }
-    const double volume=mesh.volume(c),hv=side.f.hv[p]*volume;
-    const double net=conservative ? (cap[1]-cap[0])+(cap[3]-cap[2])+(cap[5]-cap[4]) : 0;
-    row.diagonal=a[1]+a[0]+a[3]+a[2]+a[5]+a[4]+net+hv;
-    row.source=sou(mesh,side,reconstruction,c,conservative)+optional(side.f.source,p,0)*volume;
-    row.rhs=a[1]*neighbor[1]+a[0]*neighbor[0]+a[3]*neighbor[3]+a[2]*neighbor[2]
-        +a[5]*neighbor[5]+a[4]*neighbor[4]+hv*solid[p]+row.source;
-    return row;
+void update_increment(ArrayView<double> t,std::size_t p,double increment,double& change,
+                      double* carry=nullptr) {
+    const double updated=carry ? detail::compensated_energy_increment(t[p],increment,*carry):t[p]+increment;
+    if (!std::isfinite(updated)) throw std::domain_error("nonfinite staggered temperature row");
+    change=std::max({change,std::abs(increment),std::abs(updated-t[p])}); t[p]=updated;
 }
 void update(ArrayView<double> t,std::size_t p,double value,double alpha,double& change) {
-    const double updated=t[p]+alpha*(value-t[p]);
-    if (!std::isfinite(updated)) throw std::domain_error("nonfinite staggered temperature row");
-    change=std::max(change,std::abs(updated-t[p])); t[p]=updated;
+    update_increment(t,p,alpha*(value-t[p]),change);
 }
-double sweeps(const Mesh& mesh,const Side& a,const Side& b,const Rows& ds,
+double sweeps(const Mesh& mesh,Side& a,Side& b,ArrayView<const double> ks,
     ArrayView<const double> source_s,TemperatureStateView t,const TemperatureControl& control,
-    bool conservative,bool rb,bool frozen,std::size_t count) {
+    bool conservative,bool rb,bool frozen,bool sou_a,bool sou_b,std::size_t count) {
+    const detail::EnergyMesh energy_mesh(mesh.g);
+    const auto phase_a=a.energy(),phase_b=b.energy();
+    Vector snapshot_a(!conservative && rb ? mesh.n : 0),snapshot_b(!conservative && rb ? mesh.n : 0);
+    const bool nonlinear=sou_a||sou_b;
+    const std::array<ArrayView<double>,3> fields{t.a,t.b,t.solid};
+    std::array<Vector,3> before,carry;
+    if(nonlinear) {
+        for(auto& field:before) field.resize(mesh.n);
+        for(auto& field:carry) field.resize(mesh.n);
+    }
+    const double alpha_a=sou_a ? std::min(control.alpha_a,.2):control.alpha_a;
+    const double alpha_b=sou_b ? std::min(control.alpha_b,.2):control.alpha_b;
     double change=0;
-    for (std::size_t it=0;it<count;++it) {
-        Vector snapshot_a,snapshot_b;
-        if (rb) { snapshot_a.assign(t.a.data,t.a.data+t.a.size); snapshot_b.assign(t.b.data,t.b.data+t.b.size); }
-        const auto rec_a=rb ? view(snapshot_a) : view(t.a),rec_b=rb ? view(snapshot_b) : view(t.b);
+    for (std::size_t it=0;it<count;) {
+        const auto block=nonlinear ? std::min(std::size_t{5},count-it):std::size_t{1};
+        if(nonlinear) for(std::size_t phase=0;phase<3;++phase) {
+            std::copy_n(fields[phase].data,mesh.n,before[phase].data());
+            std::fill(carry[phase].begin(),carry[phase].end(),0.);
+        }
+        if (conservative) {
+            a.reconstruct(energy_mesh,view(t.a)); b.reconstruct(energy_mesh,view(t.b));
+        } else if(rb) {
+            std::copy_n(t.a.data,mesh.n,snapshot_a.begin());
+            std::copy_n(t.b.data,mesh.n,snapshot_b.begin());
+        }
+        for(std::size_t inner=0;inner<block;++inner) {
         change=0;
         for (std::size_t color=0;color<(rb ? 2U : 1U);++color)
             for (std::size_t ii=0;ii<mesh.g.nx;++ii) for (std::size_t jj=0;jj<mesh.g.ny;++jj)
@@ -289,39 +286,63 @@ double sweeps(const Mesh& mesh,const Side& a,const Side& b,const Rows& ds,
                     const auto k=!rb && a.f.boundary.direction==5 ? mesh.g.nz-1-kk : kk;
                     if (rb && (i+j+k)%2!=color) continue;
                     const Coordinate c{i,j,k}; const auto p=mesh.cell(c);
-                    const auto row_a=fluid_row(mesh,a,view(t.a),view(t.solid),rec_a,c,conservative);
-                    update(t.a,p,row_a.rhs/std::max(row_a.diagonal,1e-30),control.alpha_a,change);
-                    const auto& d=ds[p]; const double vol=mesh.volume(c),ha=a.f.hv[p]*vol,hb=b.f.hv[p]*vol;
-                    const double diagonal=d[1]+d[0]+d[3]+d[2]+d[5]+d[4]+ha+hb;
-                    const double rhs=d[1]*t.solid[mesh.neighbor(c,1)]+d[0]*t.solid[mesh.neighbor(c,0)]
-                        +d[3]*t.solid[mesh.neighbor(c,3)]+d[2]*t.solid[mesh.neighbor(c,2)]
-                        +d[5]*t.solid[mesh.neighbor(c,5)]+d[4]*t.solid[mesh.neighbor(c,4)]
-                        +ha*t.a[p]+hb*t.b[p]+optional(source_s,p,0)*vol;
-                    if (!std::isfinite(diagonal) || diagonal<=0) throw std::domain_error("invalid staggered solid row");
-                    update(t.solid,p,rhs/diagonal,control.alpha_solid,change);
+                    auto row_a=conservative
+                        ? detail::fluid_energy_defect_row(energy_mesh,phase_a,view(t.a),view(t.solid),p)
+                        : detail::fluid_energy_row(energy_mesh,phase_a,view(t.a),view(t.solid),p,
+                            advective_form_sou(mesh,a,rb ? view(snapshot_a):view(t.a),c));
+                    // The existing nonconservative research option is the
+                    // advective form: remove div(C)*T from the common row.
+                    if (!conservative) row_a.diagonal-=mesh.divergence(a.capacity,c);
+                    if(conservative) update_increment(t.a,p,alpha_a*row_a.rhs/std::max(row_a.diagonal,1e-30),change,nonlinear ? &carry[0][p]:nullptr);
+                    else update(t.a,p,row_a.rhs/std::max(row_a.diagonal,1e-30),alpha_a,change);
+                    const auto row_s=conservative
+                        ? detail::solid_energy_defect_row(energy_mesh,ks,a.f.hv,b.f.hv,view(t.a),view(t.b),view(t.solid),source_s,p)
+                        : detail::solid_energy_row(energy_mesh,ks,a.f.hv,b.f.hv,view(t.a),view(t.b),view(t.solid),source_s,p);
+                    if (!std::isfinite(row_s.diagonal) || row_s.diagonal<=0)
+                        throw std::domain_error("invalid staggered solid row");
+                    if(conservative) update_increment(t.solid,p,control.alpha_solid*row_s.rhs/row_s.diagonal,change,nonlinear ? &carry[2][p]:nullptr);
+                    else update(t.solid,p,row_s.rhs/row_s.diagonal,control.alpha_solid,change);
                     if (!frozen) {
-                        const auto row_b=fluid_row(mesh,b,view(t.b),view(t.solid),rec_b,c,conservative);
-                        update(t.b,p,row_b.rhs/std::max(row_b.diagonal,1e-30),control.alpha_b,change);
+                        auto row_b=conservative
+                            ? detail::fluid_energy_defect_row(energy_mesh,phase_b,view(t.b),view(t.solid),p)
+                            : detail::fluid_energy_row(energy_mesh,phase_b,view(t.b),view(t.solid),p,
+                                advective_form_sou(mesh,b,rb ? view(snapshot_b):view(t.b),c));
+                        if (!conservative) row_b.diagonal-=mesh.divergence(b.capacity,c);
+                        if(conservative) update_increment(t.b,p,alpha_b*row_b.rhs/std::max(row_b.diagonal,1e-30),change,nonlinear ? &carry[1][p]:nullptr);
+                        else update(t.b,p,row_b.rhs/std::max(row_b.diagonal,1e-30),alpha_b,change);
                     }
                 }
-        if (change<1e-10) break;
+        }
+        if(nonlinear) {
+            change=0.;
+            for(std::size_t phase=0;phase<3;++phase) {
+                if(frozen&&phase==1) continue;
+                for(std::size_t p=0;p<mesh.n;++p) {
+                    const double old=before[phase][p];
+                    fields[phase][p]=old+.6*((fields[phase][p]-old)-carry[phase][p]);
+                    change=std::max(change,std::abs(fields[phase][p]-old));
+                }
+            }
+        }
+        it+=block;
+        // A nonzero update may still matter to a tighter caller Q tolerance.
+        if (!nonlinear&&change==0.) break;
     }
     return change;
 }
-StaggeredFluidResidual residual(const Mesh& mesh,const Side& side,ArrayView<const double> t,ArrayView<const double> solid) {
-    StaggeredFluidResidual result{}; result.available=true; result.cells.resize(mesh.n);
+StaggeredFluidResidual residual(const Mesh& mesh,const Side& side,
+    ArrayView<const double> t,ArrayView<const double> solid,Vector cells) {
+    StaggeredFluidResidual result{}; result.available=true; result.cells=std::move(cells);
     for (std::size_t p=0;p<mesh.n;++p) {
-        const auto c=mesh.point(p); const auto row=fluid_row(mesh,side,t,solid,t,c,true);
-        const auto& a=row.coefficients; const auto& v=row.neighbors;
-        // Independent final unrelaxed equation, preserving Python's subtract order.
-        const double r=row.diagonal*t[p]-a[1]*v[1]-a[0]*v[0]-a[3]*v[3]-a[2]*v[2]-a[5]*v[5]-a[4]*v[4]
-            -side.f.hv[p]*mesh.volume(c)*solid[p]-row.source;
+        // Retain the public staggered residual sign D*T-RHS.
+        const double r=-result.cells[p];
         if (!std::isfinite(r)) throw std::domain_error("nonfinite staggered residual");
         result.cells[p]=r; result.sum+=r; result.maximum=std::max(result.maximum,std::abs(r));
-        result.exchange+=side.f.hv[p]*mesh.volume(c)*(solid[p]-t[p]);
+        result.exchange+=side.f.hv[p]*mesh.volume(mesh.point(p))*(solid[p]-t[p]);
     }
     const double scale=std::max(std::abs(result.exchange),1.0);
-    result.global_ratio=std::abs(result.sum)/scale; result.cell_ratio=result.maximum*static_cast<double>(mesh.n)/scale;
+    result.global_ratio=std::abs(result.sum)/scale;
+    result.cell_ratio=result.maximum*static_cast<double>(mesh.n)/scale;
     return result;
 }
 }  // namespace
@@ -464,8 +485,10 @@ StaggeredTemperatureResult StaggeredTemperatureDriver::solve(const GridView& gri
         } else for (std::size_t axis=0;axis<3;++axis)
             velocities[s][axis].assign(f.velocity[axis].data,f.velocity[axis].data+f.velocity[axis].size);
     }
-    const Side side_a(mesh,a,std::move(velocities[0])),side_b(mesh,b,std::move(velocities[1]));
-    const auto solid_diffusion=diffusion_rows(mesh,ks,true);
+    Side side_a(mesh,a,std::move(velocities[0])),side_b(mesh,b,std::move(velocities[1]));
+    const detail::EnergyMesh energy_mesh(grid);
+    const bool sou_a=conservative&&detail::temperature_second_order_active(energy_mesh,side_a.energy().faces.capacity);
+    const bool sou_b=conservative&&!prescribed_b.size&&detail::temperature_second_order_active(energy_mesh,side_b.energy().faces.capacity);
     std::array<Vector,3> previous;
     for (std::size_t s=0;s<3;++s) previous[s].assign(output[s].data,output[s].data+mesh.n);
     double old_q=std::numeric_limits<double>::quiet_NaN();
@@ -473,7 +496,7 @@ StaggeredTemperatureResult StaggeredTemperatureDriver::solve(const GridView& gri
     while (result.iteration.iterations<control.max_iterations) {
         if (cancel()) { result.iteration.stop=TemperatureStop::cancelled; return result; }
         const auto count=std::min(control.chunk_iterations,control.max_iterations-result.iteration.iterations);
-        result.iteration.residual=sweeps(mesh,side_a,side_b,solid_diffusion,source_s,t,control,conservative,rb,prescribed_b.size>0,count);
+        result.iteration.residual=sweeps(mesh,side_a,side_b,ks,source_s,t,control,conservative,rb,prescribed_b.size>0,sou_a,sou_b,count);
         result.iteration.iterations+=count;
         if (control.progress) control.progress(control.context,result.iteration.iterations,control.max_iterations);
         if (cancel()) { result.iteration.stop=TemperatureStop::cancelled; result.iteration.q_b=std::numeric_limits<double>::quiet_NaN(); return result; }
@@ -485,13 +508,27 @@ StaggeredTemperatureResult StaggeredTemperatureDriver::solve(const GridView& gri
         if (!std::isfinite(q)) throw std::domain_error("nonfinite staggered duty");
         result.iteration.q_b=q;
         if (std::isfinite(old_q) && std::abs(q-old_q)/std::max({std::abs(q),std::abs(old_q),1.0})<control.q_relative_tolerance && change<.01) {
-            result.iteration.stop=TemperatureStop::converged; break;
+            bool equations_ok=true;
+            if(conservative) {
+                side_a.reconstruct(energy_mesh,view(t.a)); side_b.reconstruct(energy_mesh,view(t.b));
+                const auto ledger=energy_physical_audit(grid,side_a.energy(),side_b.energy(),ks,t,source_s,prescribed_b);
+                double qa=0.;
+                for(std::size_t p=0;p<mesh.n;++p)
+                    qa+=a.hv[p]*(t.a[p]-t.solid[p])*mesh.volume(mesh.point(p));
+                const double scale=std::max({std::abs(qa),std::abs(q),1.});
+                equations_ok=!ledger.boundary_complete||energy_balance_error(ledger)/scale<=1e-7;
+            }
+            if(equations_ok) { result.iteration.stop=TemperatureStop::converged; break; }
         }
         old_q=q; for (std::size_t s=0;s<3;++s) std::copy(output[s].data,output[s].data+mesh.n,previous[s].begin());
     }
     if (conservative) {
-        result.residual[0]=residual(mesh,side_a,view(t.a),view(t.solid));
-        if (!prescribed_b.size) result.residual[1]=residual(mesh,side_b,view(t.b),view(t.solid));
+        const detail::EnergyMesh energy_mesh(grid);
+        side_a.reconstruct(energy_mesh,view(t.a)); side_b.reconstruct(energy_mesh,view(t.b));
+        auto ledger=energy_physical_audit(grid,side_a.energy(),side_b.energy(),ks,t,source_s,prescribed_b);
+        result.residual[0]=residual(mesh,side_a,view(t.a),view(t.solid),std::move(ledger.residual[0]));
+        if (!prescribed_b.size)
+            result.residual[1]=residual(mesh,side_b,view(t.b),view(t.solid),std::move(ledger.residual[1]));
     }
     return result;
 }

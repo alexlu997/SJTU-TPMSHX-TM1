@@ -1,4 +1,5 @@
 #include "tpmshx/conservative_energy.hpp"
+#include "../src/energy_fv_rows.hpp"
 
 #include <algorithm>
 #include <array>
@@ -265,6 +266,265 @@ void invalid_inputs_and_overflow() {
     }, "SOU slope overflow accepted");
 }
 
+void prepared_capacity_sources_and_reservoir() {
+    const Values dx{1.,2.}, transverse{1.}, zero(2,0.), cx(3,2.), no_x(3,0.), no_yz(4,0.);
+    const Values ha{2.,3.},hb{5.,7.},sa{4.,6.},sb{9.,11.},ss{8.,10.},fixed_b{300.,310.};
+    const GridView grid{2,1,1,read(dx),read(transverse),read(transverse)};
+    EnergyPhase a{read(zero),read(ha),read(sa),
+        {{read(cx),read(no_yz),read(no_yz)},{}},{0,360.,{},{},{}},false};
+    const EnergyPhase b{read(zero),read(hb),read(sb),
+        {{read(no_x),read(no_yz),read(no_yz)},{}},{1,300.,{},{},{}},false};
+    Values ta{350.,340.},tb=fixed_b,ts{330.,320.};
+    const TemperatureStateView state{write(ta),write(tb),write(ts)};
+    const auto ledger=energy_physical_audit(grid,a,b,read(zero),state,read(ss),read(fixed_b));
+    require(ledger.boundary_complete && !ledger.solved[1] && ledger.residual[1].empty()
+        && std::isnan(ledger.source_integral[1]),"prescribed reservoir has a solved B equation");
+    close(ledger.residual[0][0],-16.,1e-12,"first cell capacity/source balance");
+    close(ledger.residual[0][1],-88.,1e-12,"second cell capacity/source balance");
+    close(ledger.residual[2][0],-102.,1e-12,"first solid exchange balance");
+    close(ledger.residual[2][1],0.,1e-12,"second solid exchange balance");
+    close(ledger.advective_out[0][0][0],-720.,1e-12,"capacity inlet power");
+    close(ledger.advective_out[0][1][0],680.,1e-12,"capacity outlet power");
+    close(ledger.source_integral[0],16.,1e-12,"physical fluid source volume");
+    close(ledger.source_integral[2],28.,1e-12,"physical solid source volume");
+    close(ledger.prescribed_b_power,-290.,1e-12,"external reservoir power");
+    close(energy_balance_error(ledger),206.,1e-12,"shared actual-state balance reduction");
+
+    const Values numerical{8.,-12.};
+    tb={322.,333.};
+    energy_temperature_sweeps(grid,a,b,read(zero),state,0,1.,read(ss),read(fixed_b),read(numerical));
+    require(tb==Values({322.,333.}),"zero sweeps applied prescribed state");
+    energy_temperature_sweeps(grid,a,b,read(zero),state,1,1.,read(ss),read(fixed_b),read(numerical));
+    require(tb==fixed_b,"positive sweep did not pin prescribed B");
+    close(ta[0],348.,1e-12,"numerical source is not once in W/cell");
+    close(ta[1],327.,1e-12,"internal capacity is not shared with opposite signs");
+    close(ts[0],2204./7.,1e-12,"first solid physical source and exchange");
+    close(ts[1],6322./20.,1e-12,"second solid physical source and exchange");
+    const auto actual=energy_physical_audit(grid,a,b,read(zero),state,read(ss),read(fixed_b));
+    close(actual.residual[0][0],2*(360.-ta[0])+2*(ts[0]-ta[0])+4.,1e-12,
+        "numerical source leaked into actual physical ledger");
+    const auto before_a=ta,before_b=tb,before_s=ts;
+    a.inlet.direction=1; // Positive x- transport now has no declared inlet state.
+    const auto incomplete=energy_physical_audit(grid,a,b,read(zero),state,read(ss),read(fixed_b));
+    require(!incomplete.boundary_complete,"unknown inward boundary claimed complete");
+    rejects<std::invalid_argument>([&] {
+        energy_temperature_sweeps(grid,a,b,read(zero),state,1,1.,read(ss),read(fixed_b));
+    },"unknown inward boundary accepted by solve");
+    require(ta==before_a && tb==before_b && ts==before_s,"invalid inlet mutated state");
+}
+
+void diffusion_line_and_compensated_equilibrium() {
+    const Values dx{.3,.7}, transverse{.4}, zero(2,0.), one(2,1.);
+    const Values cx(3,0.), cy(4,0.), cz(4,0.), conductivity{.2,.3};
+    const GridView grid{2,1,1,read(dx),read(transverse),read(transverse)};
+    const detail::EnergyMesh mesh(grid);
+    EnergyPhase phase{read(conductivity),read(one),{},
+        {{read(cx),read(cy),read(cz)},{}},{0,330.,{},{},{}},false};
+    const Values bath{330.,300.};
+    Values temperature{345.,315.};
+    detail::EnergyLineScratch scratch(2);
+    detail::fluid_energy_line(mesh,phase,write(temperature),read(bath),0,0,1.,scratch);
+    // Independent two-cell conductance system with adiabatic exterior faces.
+    const double conductance=.16/(.3/(2*.2)+.7/(2*.3));
+    const double h0=.3*.16,h1=.7*.16,d0=h0+conductance,d1=h1+conductance;
+    const double determinant=d0*d1-conductance*conductance;
+    close(temperature[0],(h0*bath[0]*d1+conductance*h1*bath[1])/determinant,
+        2e-12,"nonuniform diffusion line first cell");
+    close(temperature[1],(h1*bath[1]*d0+conductance*h0*bath[0])/determinant,
+        2e-12,"nonuniform diffusion line second cell");
+
+    phase.K=read(zero);
+    for(double target:{273.15,330.,480.125}) for(double direction:{-1.,1.}) {
+        const double start=std::nextafter(target,target+direction);
+        Values t(2,start),ts(2,start),reference(2,start),equilibrium(2,target),carry(2,0.),solid_carry(2,0.);
+        for(int sweep=0;sweep<32;++sweep) {
+            const double change=detail::fluid_energy_line(mesh,phase,write(t),read(equilibrium),0,0,.2,scratch,{},write(carry));
+            detail::fluid_energy_line(mesh,phase,write(reference),read(equilibrium),0,0,.2,scratch);
+            detail::solid_energy_line(mesh,read(zero),read(one),read(one),read(equilibrium),
+                read(equilibrium),write(ts),{},0,0,.2,scratch,write(solid_carry));
+            if(sweep==0) require(change>0. && t==Values(2,start),
+                "sub-ulp live line update incorrectly reports zero");
+        }
+        require(t==equilibrium && ts==equilibrium,"compensated line misses exact equilibrium");
+        require(reference==Values(2,start),"uncompensated control no longer reproduces stagnation");
+    }
+    const Values initial{329.,331.};
+    for(std::size_t extent:{1U,2U}) {
+        Values t=initial,carry{.125,std::numeric_limits<double>::quiet_NaN()};
+        rejects<std::exception>([&] {
+            detail::fluid_energy_line(mesh,phase,write(t),read(bath),0,0,.2,scratch,{},
+                {carry.data(),extent});
+        },"invalid compensation accepted");
+        require(t==initial && carry[0]==.125 && std::isnan(carry[1]),
+            "failed line changed temperature or compensation");
+    }
+}
+
+void inlet_fourier_flux_six_directions() {
+    struct Configuration {
+        const char* name;
+        std::size_t cells;
+        double h1, kp, kn, q0, q1, opening;
+    };
+    const std::array<Configuration,10> configurations{{
+        {"constant",2,.375,.5,2.,0.,0.,1.},
+        {"constant-K uniform affine",2,.125,.5,.5,2.,0.,1.},
+        {"constant-K nonuniform quadratic",2,.375,.5,.5,2.,3.,1.},
+        {"layered-K constant flux",2,.375,.5,2.,2.,0.,1.},
+        {"layered-K linear flux",2,.375,.5,2.,2.,3.,1.},
+        {"partial opening linear flux",2,.375,.5,2.,2.,3.,.25},
+        {"closed opening",2,.375,.5,2.,2.,3.,0.},
+        {"zero boundary conductivity",2,.375,0.,2.,2.,3.,1.},
+        {"zero neighbor conductivity",2,.375,.5,0.,2.,0.,1.},
+        {"singleton",1,.375,.5,2.,2.,0.,1.}
+    }};
+    const auto check=[](double actual,double expected,const char* message) {
+        close(actual,expected,5e-12+2e-12*std::abs(expected),message);
+    };
+    for(int direction=0;direction<6;++direction) for(const auto& configuration:configurations) {
+        try {
+            const std::size_t axis=direction/2,n=configuration.cells;
+            const int sign=direction%2 ? 1:-1; // Outward normal; s increases inward.
+            const std::size_t p=sign>0 ? n-1:0,q=n==1 ? p:1-p;
+            Case c(axis==0 ? n:1,axis==1 ? n:1,axis==2 ? n:1);
+            constexpr double h0=.125,tin=300.,area=.125;
+            for(std::size_t j=0;j<3;++j) if(j!=axis)
+                c.widths[j][0]=j==(axis+1)%3 ? .5:.25;
+            c.widths[axis][p]=h0;
+            c.a.conductivity[p]=configuration.kp;
+            if(n>1) {
+                c.widths[axis][q]=configuration.h1;
+                c.a.conductivity[q]=configuration.kn;
+            }
+            const Values profile{tin},opening{configuration.opening};
+            // A deliberately different scalar checks that the true face profile is used.
+            const TemperatureBoundary inlet{direction,123.,read(profile),read(opening),{}};
+            const EnergyPhase a{read(c.a.conductivity),read(c.a.hv),{},
+                {c.a.faces(),{}},inlet,true,true};
+            const EnergyPhase b{read(c.b.conductivity),read(c.b.hv),{},
+                {c.b.faces(),{}},{direction^1,tin,{},{},{}},false};
+            const PhysicalEnergyPhase physical_a{read(c.a.conductivity),read(c.a.hv),{},
+                c.a.faces(),c.a.faces(),inlet,true,true};
+            const PhysicalEnergyPhase physical_b{read(c.b.conductivity),read(c.b.hv),{},
+                c.b.faces(),c.b.faces(),{direction^1,tin,{},{},{}},false};
+
+            // Independent continuum construction: T(s)=Tin-q0*R(s)-q1*M(s),
+            // R=int(1/K ds), M=int(s/K ds), with Kp on [0,h0], then Kn.
+            // No production inlet/diffusion helper is used for these expectations.
+            double gb=0.,gn=0.,internal=0.;
+            const double open_area=area*configuration.opening;
+            if(configuration.kp==0.) {
+                c.ta[p]=267.;c.ta[q]=331.;
+            } else {
+                const double center=h0/2.,rp=center/configuration.kp;
+                const double mp=center*center/(2.*configuration.kp);
+                c.ta[p]=tin-configuration.q0*rp-configuration.q1*mp;
+                gb=open_area/rp;
+                if(n>1&&configuration.kn>0.) {
+                    const double next_center=h0+configuration.h1/2.;
+                    const double rn=h0/configuration.kp+(next_center-h0)/configuration.kn;
+                    const double mn=h0*h0/(2.*configuration.kp)
+                        +(next_center*next_center-h0*h0)/(2.*configuration.kn);
+                    c.ta[q]=tin-configuration.q0*rn-configuration.q1*mn;
+                    const double determinant=rp*mn-rn*mp;
+                    gb=open_area*(mn-mp)/determinant;
+                    gn=open_area*mp/determinant;
+                    internal=area/(h0/(2.*configuration.kp)
+                        +configuration.h1/(2.*configuration.kn));
+                } else if(n>1) c.ta[q]=617.; // This isolated temperature must not enter Qin.
+            }
+            const double expected_out=configuration.kp==0. ? 0.:-open_area*configuration.q0;
+            require(gb>=0.&&gn>=0.,"independent Fourier coefficients are negative");
+            const auto initial=c.ta;
+            const auto grid=c.grid();
+            const detail::EnergyMesh mesh(grid);
+            Values expected_residual(n,0.);
+            for(std::size_t cell=0;cell<n;++cell) {
+                const auto other=n==1 ? cell:1-cell;
+                const double boundary=cell==p ? gb:0.;
+                const double neighbor=n==1 ? 0.:internal+(cell==p ? gn:0.);
+                const double expected_diagonal=boundary+neighbor;
+                const double expected_rhs=boundary*tin+neighbor*c.ta[other];
+                expected_residual[cell]=(cell==p ? -expected_out:0.)
+                    +internal*(c.ta[other]-c.ta[cell]);
+                const auto absolute=detail::fluid_energy_row(mesh,a,read(c.ta),read(c.ts),cell);
+                const auto defect=detail::fluid_energy_defect_row(mesh,a,read(c.ta),read(c.ts),cell);
+                const detail::PointEnergyCoefficients coefficients{absolute.diagonal,absolute.neighbor};
+                const auto cached=detail::fluid_energy_row(mesh,a,read(c.ta),read(c.ts),cell,coefficients);
+                check(absolute.diagonal,expected_diagonal,"independent Fourier row diagonal");
+                check(absolute.rhs,expected_rhs,"independent Fourier absolute RHS");
+                check(absolute.local_rhs,boundary*tin,"Fourier local RHS contains a neighbor");
+                check(defect.rhs,expected_residual[cell],"independent physical Fourier defect");
+                check(defect.rhs,absolute.rhs-absolute.diagonal*c.ta[cell],"absolute/defect mismatch");
+                check(defect.diagonal,absolute.diagonal,"defect diagonal differs");
+                check(defect.local_rhs,0.,"defect has an absolute local RHS");
+                check(cached.diagonal,absolute.diagonal,"cached Fourier diagonal differs");
+                check(cached.rhs,absolute.rhs,"cached Fourier RHS counts neighbor twice");
+                check(cached.local_rhs,absolute.local_rhs,"cached local RHS differs");
+                for(std::size_t face=0;face<6;++face) {
+                    const double expected=n>1&&face==2*axis+(other>cell) ? neighbor:0.;
+                    check(absolute.neighbor[face],expected,"independent inward neighbor coefficient");
+                    check(defect.neighbor[face],expected,"defect inward neighbor coefficient");
+                    check(cached.neighbor[face],expected,"cached inward neighbor coefficient");
+                }
+                check(absolute.diagonal-std::accumulate(absolute.neighbor.begin(),absolute.neighbor.end(),0.),
+                    boundary,"independent boundary Gb from row");
+                if(n>1) check(absolute.neighbor[2*axis+(other>cell)]-internal,cell==p ? gn:0.,
+                    "independent boundary Gn from row");
+            }
+            const auto prepared=energy_physical_audit(grid,a,b,read(c.ks),c.state());
+            const auto physical=energy_physical_audit(grid,physical_a,physical_b,read(c.ks),c.state());
+            double residual_sum=0.,boundary_sum=0.,expected_l1=0.;
+            for(double value:expected_residual) expected_l1+=std::abs(value);
+            require(prepared.boundary_complete&&physical.boundary_complete,
+                "declared Fourier boundary is incomplete");
+            for(std::size_t phase=0;phase<3;++phase) {
+                check(prepared.source_integral[phase],0.,"unexpected prepared Fourier source");
+                check(physical.source_integral[phase],0.,"unexpected actual Fourier source");
+                for(std::size_t cell=0;cell<n;++cell) {
+                    const double expected=phase==0 ? expected_residual[cell]:0.;
+                    check(prepared.residual[phase][cell],expected,"prepared Fourier ledger residual");
+                    check(physical.residual[phase][cell],expected,"actual Fourier ledger residual");
+                    residual_sum+=prepared.residual[phase][cell];
+                }
+                for(std::size_t face=0;face<6;++face)
+                    for(std::size_t patch=0;patch<prepared.diffusive_out[phase][face].size();++patch) {
+                        const double expected=phase==0&&face==static_cast<std::size_t>(direction)
+                            ? expected_out:0.;
+                        check(prepared.diffusive_out[phase][face][patch],expected,"prepared six-face Fourier power");
+                        check(physical.diffusive_out[phase][face][patch],expected,"actual six-face Fourier power");
+                        check(prepared.advective_out[phase][face][patch],0.,"unexpected prepared advection");
+                        check(physical.advective_out[phase][face][patch],0.,"unexpected actual advection");
+                        boundary_sum+=prepared.diffusive_out[phase][face][patch];
+                    }
+            }
+            check(prepared.prescribed_b_power,0.,"unexpected prepared reservoir power");
+            check(physical.prescribed_b_power,0.,"unexpected actual reservoir power");
+            check(boundary_sum,expected_out,"global Fourier boundary power");
+            check(residual_sum,-boundary_sum,"Fourier residual does not telescope to boundary");
+            const double expected_error=std::max(expected_l1,std::abs(expected_out));
+            check(energy_balance_error(prepared),expected_error,"full Fourier reduction differs");
+            const auto scalar=energy_balance_audit(grid,a,b,read(c.ks),c.state());
+            require(scalar.boundary_complete,"scalar Fourier boundary is incomplete");
+            check(scalar.error,expected_error,"scalar Fourier reduction differs");
+
+            if(configuration.kp==configuration.kn&&configuration.q1!=0.) {
+                auto legacy=a;legacy.second_order_inlet_conduction=false;
+                const auto old=energy_physical_audit(grid,legacy,b,read(c.ks),c.state());
+                const double old_expected=-open_area*(configuration.q0+configuration.q1*h0/4.);
+                const double old_power=old.diffusive_out[0][direction][0];
+                check(old_power,old_expected,"legacy half-cell arithmetic changed");
+                require(std::abs(old_power-expected_out)>5e-12+2e-12*std::abs(expected_out),
+                    "quadratic counterexample no longer exposes half-cell boundary error");
+            }
+            require(c.ta==initial,"Fourier operator audits mutated temperature");
+        } catch(const std::exception& error) {
+            throw std::runtime_error("Fourier direction="+std::to_string(direction)
+                +" case="+configuration.name+": "+error.what());
+        }
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -274,6 +534,9 @@ int main() {
         isothermal_pressure_offsets_do_not_conduct();
         sou_extremum_has_no_outward_extrapolation();
         invalid_inputs_and_overflow();
+        prepared_capacity_sources_and_reservoir();
+        diffusion_line_and_compensated_equilibrium();
+        inlet_fourier_flux_six_directions();
         std::cout << "conservative energy smoke passed\n";
         return 0;
     } catch (const std::exception& error) {

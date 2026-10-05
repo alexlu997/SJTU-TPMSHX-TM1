@@ -13,6 +13,8 @@ from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.solvers.backends.cpp.temperature import NativeTemperatureDriver
 from sjtu_tpmshx.tests.native import test_temperature_driver as cc
 from sjtu_tpmshx.tests.native import test_temperature_staggered as stag
+component_cc = cc.temperature_native
+component_staggered = stag.native
 
 
 @pytest.fixture(scope="module")
@@ -64,12 +66,45 @@ def prepared(c, staggered=False):
         sources=tuple(optional(x) for x in (c["a"][10], c["b"][10], c["source_s"])) if staggered else (None, None, None))
 
 
-def equivalent(c, native, monkeypatch=None, staggered=False):
-    expected = stag.python(c, monkeypatch) if staggered else cc.python_temperature(c)
+def equivalent(c, native, monkeypatch=None, staggered=False, reference=None):
+    changed_map = c["maxit"] > 0
+    if changed_map:
+        # This file qualifies the public adapter against the already qualified
+        # current-map native component. It does not reproduce a thermal solver.
+        assert reference is not None
+        reference_case = copy.deepcopy(c)
+        result = reference(reference_case)
+        code, status, metrics = result[:3]
+        assert code == 0, result[-1]
+        info = dict(converged=status[0] == 0, iterations=status[1], residual=metrics[0])
+        if c["shape"][2] != 1:
+            info["delegated_to_2d"] = False
+        expected = (*reference_case["state"], info)
+    else:
+        # Zero-step states retain the original Python parity contract. The
+        # shared solid row also changes nonconservative staggered iterations.
+        expected = stag.python(c, monkeypatch) if staggered else cc.python_temperature(c)
     options = prepared(c, staggered)
     before = copy.deepcopy(options)
     actual = native(**options)
     two_d = c["shape"][2] == 1
+    residuals = {}
+    if staggered and c["conservative"]:
+        # The new SOU endpoint equation also differs at zero iterations.
+        # Reuse the independent face-power oracle on actual returned T.
+        oracle_case = dict(c, state=actual[:3])
+        for side, label in enumerate(("A", "B")):
+            if side == 1 and c["prescribed"].size:
+                expected[3][f"eps_{label}_strict"] = None
+                expected[3][f"eps_{label}_strict_cellmax"] = None
+                continue
+            f = c[("a", "b")[side]]
+            faces = stag.energy._project_faces_div_free(*f[4:7], f[2], f[3], *c["widths"])
+            residual, exchange = stag.independent_conservative_face_balance(oracle_case, side, faces)
+            residuals[label] = residual
+            scale = max(abs(float(np.sum(exchange))), 1.)
+            expected[3][f"eps_{label}_strict"] = abs(float(np.sum(residual)))/scale
+            expected[3][f"eps_{label}_strict_cellmax"] = float(np.max(np.abs(residual)))*residual.size/scale
     rtol, atol = ((2e-10, 2e-8) if staggered else ((2e-12, 2e-10) if two_d else (2e-11, 2e-9)))
     for field, target in zip(actual[:3], expected[:3]):
         np.testing.assert_allclose(field, target[..., 0] if two_d else target, rtol=rtol, atol=atol)
@@ -86,15 +121,15 @@ def equivalent(c, native, monkeypatch=None, staggered=False):
             if side == 1 and c["prescribed"].size:
                 assert label not in evidence["equations"]
                 continue
-            f = c[("a", "b")[side]]
-            faces = stag.energy._project_faces_div_free(*f[4:7], f[2], f[3], *c["widths"])
-            patch_shape = tuple(n for axis, n in enumerate(c["shape"]) if axis != c["directions"][side]//2)
-            residual, _, _ = stag.energy._conservation_residual_sum(expected[side], expected[2], *faces,
-                f[2], f[0], f[3], f[1], *c["widths"], c["directions"][side],
-                f[7] if f[7].size else np.full(patch_shape, c["tin"][side]),
-                f[8] if f[8].size else np.ones(patch_shape),
-                f[10] if f[10].size else np.zeros(c["shape"]), f[9] if f[9].size else None, return_field=True)
+            residual = residuals[label]
             np.testing.assert_allclose(evidence["equations"][label]["residual_W"], residual, rtol=2e-8, atol=2e-8)
+    if c["maxit"]:
+        volume = c["widths"][0][:, None, None]*c["widths"][1][None, :, None]
+        if not two_d:
+            volume = volume*c["widths"][2][None, None, :]
+        ts, tb = (field[..., None] if two_d else field for field in (actual[2], actual[1]))
+        q = np.sum(c["b"][1]*(ts-tb)*volume)
+        assert evidence["Q_B"] == pytest.approx(q, rel=2e-8, abs=2e-8)
     for key in ("conductivity", "exchange", "epsilon", "rho_cp", "widths"):
         for target, original in zip(options[key], before[key]): np.testing.assert_array_equal(target, original)
     if options["initial"] is not None:
@@ -105,42 +140,42 @@ def equivalent(c, native, monkeypatch=None, staggered=False):
 @pytest.mark.parametrize("direction", range(4))
 @pytest.mark.parametrize("sou_b", [False, True])
 @pytest.mark.parametrize("rb", [False, True])
-def test_public_2d_cc(native, monkeypatch, direction, sou_b, rb):
+def test_public_2d_cc(native, monkeypatch, direction, sou_b, rb, component_cc):
     c = cc.temperature_case(directions=(direction, (direction+1)%4))
     c.update(sou_b=sou_b, rb=rb)
     monkeypatch.setattr(cc.ltne_energy, "_RB_ENERGY_2D", rb)
     monkeypatch.setattr(cc.ltne_energy, "_RB_ENERGY_2D_GATE", 0)
-    equivalent(c, native)
+    equivalent(c, native, reference=component_cc)
 
 
 @pytest.mark.parametrize("warm", [False, True])
 @pytest.mark.parametrize("budget", [0, 1, 19])
-def test_public_cc2d_rb_frozen_b_and_budget(native, monkeypatch, warm, budget):
+def test_public_cc2d_rb_frozen_b_and_budget(native, monkeypatch, warm, budget, component_cc):
     c = cc.temperature_case((5, 4, 1), (3, 1), sweeps=budget)
     c.update(rb=True, warm=warm, sou_b=True)
     c["prescribed"] = np.linspace(301, 329, np.prod(c["shape"])).reshape(c["shape"])
     monkeypatch.setattr(cc.ltne_energy, "_RB_ENERGY_2D", True)
     monkeypatch.setattr(cc.ltne_energy, "_RB_ENERGY_2D_GATE", 0)
-    equivalent(c, native)
+    equivalent(c, native, reference=component_cc)
 
 
 @pytest.mark.parametrize("direction", range(6))
-def test_public_3d_cc(native, direction):
-    equivalent(cc.temperature_case((4, 3, 2), (direction, (direction+1)%6)), native)
+def test_public_3d_cc(native, direction, component_cc):
+    equivalent(cc.temperature_case((4, 3, 2), (direction, (direction+1)%6)), native, reference=component_cc)
 
 
 @pytest.mark.parametrize("direction", range(6))
 @pytest.mark.parametrize("rb", [False, True])
 @pytest.mark.parametrize("conservative", [False, True])
-def test_public_staggered(native, monkeypatch, direction, rb, conservative):
+def test_public_staggered(native, monkeypatch, direction, rb, conservative, component_staggered):
     c = stag.case(directions=(direction, (direction+1)%6))
     c.update(rb=rb, conservative=conservative)
-    equivalent(c, native, monkeypatch, True)
+    equivalent(c, native, monkeypatch, True, component_staggered)
 
 
 @pytest.mark.parametrize("scheme", [0, 1, 2])
 @pytest.mark.parametrize("warm", [False, True])
-def test_frozen_b_and_owned_outputs(native, monkeypatch, scheme, warm):
+def test_frozen_b_and_owned_outputs(native, monkeypatch, scheme, warm, component_cc, component_staggered):
     c = stag.case() if scheme == 2 else cc.temperature_case((4, 3, 1 if scheme == 0 else 2))
     c["prescribed"] = np.linspace(301, 329, np.prod(c["shape"])).reshape(c["shape"])
     c["warm"] = warm
@@ -149,7 +184,8 @@ def test_frozen_b_and_owned_outputs(native, monkeypatch, scheme, warm):
         c["b"][10] = np.full(c["shape"], -100.)
         c["source_s"] = np.full(c["shape"], 50.)
         c["a"][9] = np.full(c["a"][8].shape, .0004)
-    result = equivalent(c, native, monkeypatch, scheme == 2)
+    result = equivalent(c, native, monkeypatch, scheme == 2,
+                        component_staggered if scheme == 2 else component_cc)
     expected = c["prescribed"][..., 0] if scheme == 0 else c["prescribed"]
     np.testing.assert_array_equal(result[1], expected)
     saved = copy.deepcopy(result)
@@ -160,11 +196,11 @@ def test_frozen_b_and_owned_outputs(native, monkeypatch, scheme, warm):
                                       saved[3]["_native_temperature"]["equations"]["A"]["residual_W"])
 
 
-def test_staggered_b_mms_and_signed_capacity(native, monkeypatch):
+def test_staggered_b_mms_and_signed_capacity(native, monkeypatch, component_staggered):
     c = stag.case(sweeps=27)
     c["b"][10] = np.linspace(-1000, 1000, np.prod(c["shape"])).reshape(c["shape"])
     c["b"][9] = np.linspace(-.0001, .001, c["b"][8].size).reshape(c["b"][8].shape)
-    equivalent(c, native, monkeypatch, True)
+    equivalent(c, native, monkeypatch, True, component_staggered)
 
 
 @pytest.mark.parametrize("scheme", [0, 1, 2])
