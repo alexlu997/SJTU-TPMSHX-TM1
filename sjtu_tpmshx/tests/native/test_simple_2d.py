@@ -3,7 +3,8 @@
 Independent operators retain rtol=2e-12, atol=2e-12. Complete iterative fields
 use the approved 0.01% relative comparison, with pressure floor 2e-8 Pa and
 velocity floor 2e-11 m/s. The vanishing pressure correction uses the complete
-2D comparison floor of 2e-5 Pa. SIMPLE/F2 gates and counts remain exact.
+2D comparison floor of 2e-5 Pa. Momentum residuals certify each returned
+field and retain their own raw history. SIMPLE/F2 gates and counts remain exact.
 """
 from __future__ import annotations
 
@@ -177,14 +178,36 @@ def compare_fields(actual, expected, *, operator=False):
     np.testing.assert_allclose(actual.raw_y, expected.raw_y, rtol=2e-10 if operator else 1e-4, atol=2e-12)
 
 
-def compare_result(out, expected, native, reference_result):
+def compare_momentum(actual, expected, value, history, *, measured, converged):
+    records = np.array([[r["iter"], r["max"], *r["num"], *r["den"], r["u"], r["v"]]
+                        for r in expected.mom_residuals]).reshape(-1, 8)
+    np.testing.assert_array_equal(history[:, 0], records[:, 0])
+    np.testing.assert_allclose(history[:, 4:6], records[:, 4:6], rtol=1e-4, atol=2e-11)
+    for solver, residual, rows in ((actual, value, history), (expected, expected.final_res_mom, records)):
+        # Near convergence, cancellation makes the residual sensitive to small
+        # field differences. Audit each trajectory's own raw normalization.
+        for row in rows:
+            ru, rv = momentum_component_residuals(row[2:4], row[4:6], solver._MOM_FLOOR_FRAC)
+            np.testing.assert_allclose(row[[1, 6, 7]], [max(ru, rv), ru, rv], rtol=2e-12, atol=2e-12)
+        if measured:
+            _, maximum = python_momentum(solver)
+            np.testing.assert_allclose(residual, maximum, rtol=2e-12, atol=2e-12)
+            if converged:
+                assert maximum < getattr(solver, "mom_tol", 1e-4)
+        else:
+            # Budget exits retain the last pre-closure observation.
+            np.testing.assert_allclose(np.nan if residual is None else residual,
+                rows[-1, 1] if len(rows) else np.nan, rtol=2e-12, atol=2e-12, equal_nan=True)
+
+
+def compare_result(out, actual, expected, native, reference_result):
     assert bool(out[1]) == reference_result[0]
     assert int(out[2]) == reference_result[1]
     assert STOP[int(out[0])] == expected.exit_reason
     if expected.exit_reason != "nonfinite":
         assert bool(out[3]) == (expected.f2_cert_post_rescale_ok is not None)
     assert bool(out[4]) == bool(expected.f2_cert_post_rescale_ok)
-    for index, name in ((5, "final_res"), (6, "final_res_mom"), (7, "final_res_mass_local"),
+    for index, name in ((5, "final_res"), (7, "final_res_mass_local"),
                         (8, "final_res_mass_global"), (9, "outlet_backflow_frac")):
         value = getattr(expected, name)
         np.testing.assert_allclose(out[index], np.nan if value is None else value,
@@ -193,11 +216,8 @@ def compare_result(out, expected, native, reference_result):
     np.testing.assert_allclose(out[13], getattr(expected, "_massflux_target", np.nan), equal_nan=True)
     for kind, name in enumerate(("residuals", "mass_local_residuals", "mass_global_residuals")):
         np.testing.assert_allclose(native.history(kind), getattr(expected, name), rtol=1e-4, atol=2e-11)
-    records = np.array([[r["iter"], r["max"], *r["num"], *r["den"], r["u"], r["v"]]
-                        for r in expected.mom_residuals]).reshape(-1, 8)
-    history = native.history(3).reshape(-1, 8)
-    np.testing.assert_array_equal(history[:, 0], records[:, 0])
-    np.testing.assert_allclose(history[:, 1:], records[:, 1:], rtol=1e-4, atol=2e-11)
+    compare_momentum(actual, expected, out[6], native.history(3).reshape(-1, 8),
+                     measured=bool(out[3]), converged=bool(out[1]))
 
 
 @pytest.mark.parametrize("sweeps", [1, 3])
@@ -236,11 +256,25 @@ def test_complete_cold_solver_fields_and_f2(library, fluid, partial, variable):
     with Native(library, actual) as native:
         out = native.call(actual)
         compare_fields(actual, expected)
-        compare_result(out, expected, native, reference)
+        compare_result(out, actual, expected, native, reference)
         history = native.history(4).reshape(-1, 2)
         np.testing.assert_array_equal(history[:, 0], np.asarray(progress)[:, 0])
         np.testing.assert_allclose(history[:, 1], np.asarray(progress)[:, 1], rtol=1e-4, atol=2e-11)
         assert out[24] == out[2]
+
+
+def test_momentum_audit_rejects_changed_returned_pressure(library):
+    expected = make_solver()
+    actual = copy.deepcopy(expected)
+    expected.solve(max_iter=600, verbose=False)
+    with Native(library, actual) as native:
+        out = native.call(actual)
+        history = native.history(3).reshape(-1, 8)
+        compare_momentum(actual, expected, out[6], history, measured=True, converged=True)
+        actual.P[2, 3] += .1
+        with pytest.raises(AssertionError):
+            compare_momentum(actual, expected, out[6], history,
+                             measured=True, converged=True)
 
 
 @pytest.mark.parametrize("fluid", ["incompressible", "ideal_gas"])
@@ -250,7 +284,7 @@ def test_warm_restart_retains_target_and_histories(library, fluid):
     with Native(library, actual) as native:
         reference = expected.solve(max_iter=600, verbose=False)
         out = native.call(actual)
-        compare_result(out, expected, native, reference)
+        compare_result(out, actual, expected, native, reference)
         fixed_target = out[13]
         for solver in (expected, actual):
             solver.rho_field *= np.linspace(.97, 1.03, solver.Ny)[None, :]
@@ -259,7 +293,7 @@ def test_warm_restart_retains_target_and_histories(library, fluid):
         reference = expected.solve(max_iter=600, verbose=False)
         out = native.call(actual)
         compare_fields(actual, expected)
-        compare_result(out, expected, native, reference)
+        compare_result(out, actual, expected, native, reference)
         assert out[13] == fixed_target
 
 
@@ -271,7 +305,7 @@ def test_budget_exit_keeps_existing_2d_certificate_contract(library, iterations)
     with Native(library, actual) as native:
         out = native.call(actual, iterations=iterations)
         compare_fields(actual, expected)
-        compare_result(out, expected, native, reference)
+        compare_result(out, actual, expected, native, reference)
         assert STOP[int(out[0])] == "max_iter" and not out[3]
 
 
@@ -286,7 +320,7 @@ def test_stall_is_failure(library):
     with Native(library, actual) as native:
         out = native.call(actual, iterations=80)
         compare_fields(actual, expected)
-        compare_result(out, expected, native, reference)
+        compare_result(out, actual, expected, native, reference)
         assert STOP[int(out[0])] == "stall" and not out[1]
 
 
@@ -298,7 +332,7 @@ def test_pressure_clip_keeps_gauge_density_and_counter(library):
     with Native(library, actual) as native:
         out = native.call(actual, iterations=1)
         compare_fields(actual, expected)
-        compare_result(out, expected, native, reference)
+        compare_result(out, actual, expected, native, reference)
         assert out[12] == expected.P.size
 
 
@@ -316,7 +350,7 @@ def test_existing_inlet_and_closeout_controls(library, mode):
     with Native(library, actual) as native:
         out = native.call(actual, iterations=60)
         compare_fields(actual, expected)
-        compare_result(out, expected, native, reference)
+        compare_result(out, actual, expected, native, reference)
 
 
 def test_finite_input_overflow_retains_failed_field_evidence(library):
@@ -336,7 +370,7 @@ def test_initial_nonfinite_is_not_convergence(library, field):
     reference = expected.solve(max_iter=5, verbose=False)
     with Native(library, actual) as native:
         out = native.call(actual, iterations=5)
-        compare_result(out, expected, native, reference)
+        compare_result(out, actual, expected, native, reference)
         assert out[0] == 4 and out[2] == 0 and not out[1]
 
 
@@ -360,7 +394,7 @@ def test_cancellation_preserves_actual_partial_state_and_recovers(library, cance
         reference = expected.solve(max_iter=600, verbose=False)
         out = native.call(actual)
         compare_fields(actual, expected)
-        compare_result(out, expected, native, reference)
+        compare_result(out, actual, expected, native, reference)
 
 
 def test_alias_rejected_before_mutation_then_recovery(library):

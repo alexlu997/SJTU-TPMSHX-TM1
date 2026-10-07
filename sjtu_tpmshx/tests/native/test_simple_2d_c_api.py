@@ -53,22 +53,20 @@ def create(path, solver):
                           outlet_open=solver.outlet_geom_frac > 0)
 
 
-def compare(result, handle, expected, reference):
+def compare(result, handle, actual, expected, reference):
     assert (result['converged'], result['iterations']) == reference
     assert result['exit_reason'] == expected.exit_reason
     assert result['post_closure_certified'] == bool(expected.f2_cert_post_rescale_ok)
     assert result['post_closure_measured'] == (expected.f2_cert_post_rescale_ok is not None)
     assert result['native_abi'] == 1
-    np.testing.assert_allclose([result['legacy_residual'], result['momentum']['maximum'],
+    np.testing.assert_allclose([result['legacy_residual'],
         result['mass']['local_residual'], result['mass']['global_residual']],
-        [expected.final_res, expected.final_res_mom, expected.final_res_mass_local, expected.final_res_mass_global],
+        [expected.final_res, expected.final_res_mass_local, expected.final_res_mass_global],
         rtol=1e-4, atol=2e-11)
     for kind, name in enumerate(('residuals', 'mass_local_residuals', 'mass_global_residuals')):
         np.testing.assert_allclose(handle.history(kind), getattr(expected, name), rtol=1e-4, atol=2e-11)
-    records = np.array([[r['iter'], r['max'], *r['num'], *r['den'], r['u'], r['v']]
-                        for r in expected.mom_residuals])
-    np.testing.assert_array_equal(handle.history(3)[:, 0], records[:, 0])
-    np.testing.assert_allclose(handle.history(3)[:, 1:], records[:, 1:], rtol=1e-4, atol=2e-11)
+    oracle.compare_momentum(actual, expected, result['momentum']['maximum'], handle.history(3),
+                            measured=result['post_closure_measured'], converged=result['converged'])
     assert result['pressure']['success']
     assert result['pressure']['relative_residual'] <= 1e-10
     assert result['pressure']['pin_maximum'] <= 1e-10
@@ -85,7 +83,7 @@ def test_public_prepared_fields_f2_and_progress(public_library, fluid, variable)
     with create(public_library, actual) as handle:
         result = handle.solve(**arguments(actual), progress_cb=lambda i, r: progress.append((i, r)))
         oracle.compare_fields(actual, expected)
-        compare(result, handle, expected, reference)
+        compare(result, handle, actual, expected, reference)
         np.testing.assert_array_equal(np.asarray(progress)[:, 0], np.asarray(reference_progress)[:, 0])
         np.testing.assert_allclose(np.asarray(progress)[:, 1], np.asarray(reference_progress)[:, 1],
                                    rtol=1e-4, atol=2e-11)
@@ -105,7 +103,7 @@ def test_public_warm_reuse_target_history_and_grid_copy(public_library):
             reference = expected.solve(max_iter=600, verbose=False)
             result = handle.solve(**arguments(actual))
             oracle.compare_fields(actual, expected)
-            compare(result, handle, expected, reference)
+            compare(result, handle, actual, expected, reference)
             assert result['massflux_target'] == expected._massflux_target
     handle.close()
     with pytest.raises(ValueError, match='closed'):

@@ -31,6 +31,11 @@ extremum in the original observed field. Save/replay, independent formula and
 assembly checks retain their tighter tolerances. These comparisons do not
 qualify unsupported metrics or untested physical conditions.
 
+SIMPLE momentum residuals near convergence are audited against each run's own
+returned field after outlet closure and the original F2 gate. Their histories
+retain the actual raw numerator, denominator and normalized residual; a capped
+2D solve retains its last pre-closure observation without a new certificate.
+
 A capped outer run remains nonconverged. Its returned thermal state is checked
 with its actual last inputs and original energy gates; it is not accepted as
 a converged engineering-accuracy result.
