@@ -123,6 +123,13 @@ extern "C" TPMSHX_THERMAL_API const double* TPMSHX_THERMAL_CALL test_full_3d_fie
         }
         field=&scratch;
     } else if(code==201) field=&static_cast<Handle*>(handle)->progress;
+    else if(code==203) {
+        if(r.thermal.model_h) for(const auto& check:r.thermal.model_h->finishing_checks) {
+            scratch.push_back(static_cast<double>(check.iterations));
+            for(bool passed:check.gates) scratch.push_back(double(passed));
+        }
+        field=&scratch;
+    }
     else if(code==202) {
         const double q[]{double(r.stop),double(r.converged),double(r.simple_ok),double(r.thermal_ok),double(r.outer_ok),double(r.finite_fields),
             double(r.envelope_ok),double(r.post_after_last_thermal),double(r.thermal.mode),double(r.thermal.outer_index),
