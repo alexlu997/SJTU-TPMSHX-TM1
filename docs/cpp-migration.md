@@ -18,8 +18,9 @@ qualified C++ backend inside the solver module, consuming the same physical
 case and producing evidence usable by the existing postprocessor.
 
 Python/Numba remains the default. The explicit `backend='cpp'` supports
-complete prepared Quick Design and full 2D/3D execution on the qualified macOS
-arm64 build. Windows native execution is not yet qualified. Delivery uses the
+complete prepared Quick Design and full 2D/3D execution on macOS arm64 and
+Windows x64. The required native CI suite passes on macOS/Python 3.13 and
+Windows/Python 3.12 and 3.13. Delivery uses the
 existing Python/Qt entry point and a precompiled C++ library in the project
 folder. Source GUI acceptance and whole-application performance remain separate
 gates; a packaged `.app` is outside this delivery scope. The macOS folder
@@ -62,10 +63,10 @@ result = run_case(prepared_case, RunControl(
 Use `tpmshx_solver_shared.dll` on Windows. The path must refer to a prebuilt
 library on that host; missing libraries, wrong ABI or unsupported capabilities
 fail explicitly. Public result saving, loading and offline evaluation use the
-existing interfaces. macOS qualification includes fresh-process saved-case
-replay without Numba/Python solver kernels, callback failures, cancellation,
-recovery and concurrent runs. Windows has build/required-CI definitions but
-still requires an actual native run; this is not a packaged application release.
+existing interfaces. Native CI on macOS and Windows includes fresh-process
+saved-case replay without Numba/Python solver kernels, callback failures,
+cancellation, recovery and concurrent runs. These runs qualify the tested
+C ABI and command-line paths; visible desktop delivery remains a separate gate.
 
 ## Complete full 2D capability
 
@@ -604,7 +605,9 @@ ledger. Allocation failures and ABORT return bounded errors after cleanup;
 the jump never crosses a C++ frame. macOS qualification injects failure at
 every observed allocation ordinal, checks same-process recovery, long ABORT
 messages, singular info and simultaneous independent threads under release and
-ASan/UBSan builds. Windows still needs native execution. Invalid input and
+ASan/UBSan builds. Windows required CI also passes the release allocation,
+ABORT and recovery checks; this does not extend the sanitizer evidence to
+Windows. Invalid input and
 unknown backend errors do not silently fall back to LU. These pressure tests
 do not by themselves establish complete native SIMPLE or outer coupling qualification.
 
@@ -620,15 +623,15 @@ drivers also support the full 2D/3D outer-coupled backends described above.
 
 The macOS SuperLU build uses the system Accelerate BLAS used by the pinned
 SciPy reference, retaining its original CSR/transposed LU operation order for
-2D SIMPLE. Windows uses the locked portable CBLAS sources pending native
-qualification. A serial momentum loop does not imply a single-threaded BLAS;
+2D SIMPLE. Windows uses the locked portable CBLAS sources, exercised by the
+required native CI suite. A serial momentum loop does not imply a single-threaded BLAS;
 thread policy and measured performance must be recorded separately.
 
 The `native-dependencies` CI matrix builds and runs these callers and required
 tests on macOS/Python 3.13 and Windows/Python 3.12/3.13. A missing executable
 fails the required job. Ordinary Python-only runs may skip an unbuilt pilot;
-that skip does not establish native qualification. Local macOS results and a
-written Windows build configuration do not establish a Windows runtime pass.
+that skip does not establish native qualification. Both platforms have actual
+required native CI passes; the evidence is bounded to those builds and cases.
 
 ## Remaining stages and acceptance gates
 

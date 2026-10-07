@@ -388,10 +388,12 @@ Pareto CSV 仍可导出几何；旧筛选模式不能再执行或重新计算指
 `models/`、`df_surrogate/` 等是共享技术支撑，不是第四个业务模块。旧 Pipeline/应用
 入口单向调用公开模块。具体边界见[架构说明](docs/architecture.md)。
 
-默认后端为 Python/Numba。已验收的 macOS arm64 原生库可通过显式
+默认后端为 Python/Numba。macOS arm64 和 Windows x64 原生库可通过显式
 `RunControl(backend='cpp', native_library=...)` 或 CLI `--backend cpp`
 执行 Quick Design 和完整二维／三维求解；库路径、构建及能力边界见
-[C++ 迁移说明](docs/cpp-migration.md)。Windows 原生验收仍有缺口。
+[C++ 迁移说明](docs/cpp-migration.md)。原生构建、独立调用及数值对照已通过
+macOS/Python 3.13 与 Windows/Python 3.12、3.13 的必需 CI；
+可见桌面交付与完整性能验收仍各自保留。
 完整二维接口为 ABI 2，必须同步分发库、头文件和适配器。
 原 Python 外循环加 C++ sweep 内核的混合入口已退役；当前选择完整 Python 或 C++ 后端。
 OpenFOAM、REFPROP 等提供器、扩展 h/f/PEC 定义与伴随能力继续按

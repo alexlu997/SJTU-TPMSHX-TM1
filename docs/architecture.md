@@ -140,7 +140,9 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   evidence into the same `FieldResult`; it does not call Python numerical
   kernels. Full 2D ABI 2 retains the original prepared Nu geometry ratio rather
   than reconstructing it after a unit conversion. Python remains the default;
-  Windows native qualification is still outstanding.
+  the required native CI suite passes on macOS arm64/Python 3.13 and Windows
+  x64/Python 3.12 and 3.13. Visible desktop delivery and full performance
+  qualification remain separate gates.
 - The C++ fixed-flow `solve_enthalpy` also has explicit `temperature_fou`
   and `temperature_sou` candidates. Both solve conservative enthalpy transport
   with temperature as the nonlinear unknown, guarded HEOS PT state updates,
