@@ -10,6 +10,7 @@
 
 #include <array>
 #include <atomic>
+#include <cmath>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -157,7 +158,11 @@ int main(int argc, char** argv) {
         std::cout << "id\tstatus\trho\tmu\tk\tcp\tPr\tNu\tmelting_K\terror_hex\n";
         for (std::size_t i = 0; i < requests.size(); ++i) {
             std::cout << requests[i].id << '\t' << results[i].status;
-            for (double value : results[i].values) std::cout << '\t' << value;
+            for (double value : results[i].values) {
+                std::cout << '\t';
+                if (std::isnan(value)) std::cout << "nan";
+                else std::cout << value;
+            }
             std::cout << '\t' << hex(results[i].error) << '\n';
         }
         return 0;
