@@ -27,9 +27,9 @@ def run_case(case: CaseData, control: RunControl = RunControl()) -> FieldResult:
     if (explicit_energy_gates or require_h) and (
             control.backend != 'cpp' or mode != 'full' or dimension != 3):
         raise ValueError('explicit energy gates currently require full 3D compute with backend=cpp')
-    if mode != 'full':
-        from .backends.python.thermal_native import resolve_true_h_kernel
-        resolve_true_h_kernel(case.parameters, supported=False)
+    if control.backend == 'python' or mode != 'full':
+        from sjtu_tpmshx.domain.run_environment import require_python_kernel
+        require_python_kernel(case.parameters)
     if control.backend == 'cpp':
         if mode == 'quick_design':
             from .backends.cpp.quick_design import run_case as run

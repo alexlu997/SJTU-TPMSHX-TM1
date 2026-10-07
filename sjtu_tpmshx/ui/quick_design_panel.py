@@ -304,6 +304,8 @@ def run_quick_design(window) -> None:
     worker.error_signal.connect(_on_err)
     worker.finished.connect(_on_finished)
     window._qd_worker = worker
+    from sjtu_tpmshx.ui.solver_backend import refresh_backend_availability
+    refresh_backend_availability(getattr(window, 'parent', lambda: None)())
     window._qd_last = None
     for attr in ('_qd_table', '_qd_energy_table'):
         table = getattr(window, attr, None)

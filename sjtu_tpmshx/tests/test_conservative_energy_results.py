@@ -14,7 +14,7 @@ from sjtu_tpmshx.postprocess.metrics import evaluate
 FACES = ('x-', 'x+', 'y-', 'y+', 'z-', 'z+')
 
 
-def result_fixture(dimension, algorithm='temperature_sou'):
+def result_fixture(dimension, algorithm='temperature_sou', version=1):
     shape = (2, 3, 1 if dimension == 2 else 2)
     axes = tuple('xyz'[:dimension])
     grid = dict(dimension=dimension, length_unit='m', axis_order=axes)
@@ -39,7 +39,7 @@ def result_fixture(dimension, algorithm='temperature_sou'):
               for side, totals in (('A', totals_a), ('B', totals_b))}
     native = dict(h_A=np.full(shape, 100.), h_B=np.full(shape, 200.),
         h_in_A=300., h_in_B=100., mass_flux_A=masses, mass_flux_B=masses,
-        energy_algorithm=algorithm, energy_algorithm_version=1, boundary_power=powers,
+        energy_algorithm=algorithm, energy_algorithm_version=version, boundary_power=powers,
         boundary_power_units='W/m' if dimension == 2 else 'W', physical_boundary_complete=True,
         actual_conductivity_A=np.full(shape, .1), actual_conductivity_B=np.full(shape, .2))
     return FieldResult('conservative', 'case', 'fixture', grid=grid,
@@ -64,16 +64,20 @@ def sources(result, tmp_path):
 
 
 @pytest.mark.parametrize('dimension', [2, 3])
-@pytest.mark.parametrize('algorithm', ['temperature_fou', 'temperature_sou'])
-def test_captured_power_and_transport_survive_save_replay(tmp_path, monkeypatch, dimension, algorithm):
+@pytest.mark.parametrize('algorithm,version', [('temperature_fou', 1),
+    ('temperature_sou', 1), ('temperature_sou', 2)])
+def test_captured_power_and_transport_survive_save_replay(tmp_path, monkeypatch, dimension, algorithm, version):
     from sjtu_tpmshx.postprocess import metrics, three_d
 
     def forbidden(*args, **kwargs):
         pytest.fail('candidate duty must never reconstruct the legacy FOU boundary')
     monkeypatch.setattr(metrics, '_boundary_enthalpy_duty', forbidden)
     monkeypatch.setattr(three_d, '_boundary_enthalpy_duty', forbidden)
-    result = result_fixture(dimension, algorithm)
+    result = result_fixture(dimension, algorithm, version)
     for source in sources(result, tmp_path):
+        assert source.boundary_fluxes['true_h']['energy_algorithm'] == algorithm
+        assert type(source.boundary_fluxes['true_h']['energy_algorithm_version']) is int
+        assert source.boundary_fluxes['true_h']['energy_algorithm_version'] == version
         actual = evaluate(source).metrics
         assert actual['Q'].value == pytest.approx(15.)
         assert actual['Q_A'].value == pytest.approx(15.)
@@ -93,7 +97,7 @@ def test_captured_power_and_transport_survive_save_replay(tmp_path, monkeypatch,
 
 @pytest.mark.parametrize('dimension', [2, 3])
 @pytest.mark.parametrize('defect', ['missing_algorithm', 'algorithm', 'missing_version', 'version',
-    'float_version', 'bool_version', 'missing_units', 'units', 'missing_complete', 'incomplete',
+    'fou_version_2', 'float_version', 'bool_version', 'missing_units', 'units', 'missing_complete', 'incomplete',
     'truthy_complete', 'missing_power', 'missing_native'])
 def test_candidate_header_does_not_fall_back_to_legacy_h(tmp_path, dimension, defect):
     result = result_fixture(dimension)
@@ -101,6 +105,8 @@ def test_candidate_header_does_not_fall_back_to_legacy_h(tmp_path, dimension, de
     native = flux['true_h']
     if defect == 'missing_native':
         del flux['true_h']
+    elif defect == 'fou_version_2':
+        native.update(energy_algorithm='temperature_fou', energy_algorithm_version=2)
     elif defect.startswith('missing_'):
         key = {'algorithm': 'energy_algorithm', 'version': 'energy_algorithm_version',
                'units': 'boundary_power_units', 'complete': 'physical_boundary_complete',
@@ -108,7 +114,7 @@ def test_candidate_header_does_not_fall_back_to_legacy_h(tmp_path, dimension, de
         del native[key]
     else:
         key, value = {'algorithm': ('energy_algorithm', 'legacy_h_fou'),
-            'version': ('energy_algorithm_version', 2), 'float_version': ('energy_algorithm_version', 1.),
+            'version': ('energy_algorithm_version', 3), 'float_version': ('energy_algorithm_version', 1.),
             'bool_version': ('energy_algorithm_version', True),
             'units': ('boundary_power_units', 'W' if dimension == 2 else 'W/m'),
             'incomplete': ('physical_boundary_complete', False),
@@ -175,8 +181,10 @@ def test_zero_and_sequence_planes_need_no_h_or_conductivity_reconstruction(tmp_p
         assert actual['energy_imbalance_rel'].value == 0.
 
 
-def test_saved_candidate_replays_in_fresh_process_without_solver_import(tmp_path):
-    path = save_result(result_fixture(3), tmp_path / 'candidate.h5')
+@pytest.mark.parametrize('algorithm,version', [('temperature_fou', 1),
+    ('temperature_sou', 1), ('temperature_sou', 2)])
+def test_saved_candidate_replays_in_fresh_process_without_solver_import(tmp_path, algorithm, version):
+    path = save_result(result_fixture(3, algorithm, version), tmp_path / 'candidate.h5')
     process = subprocess.run([sys.executable, '-c', '''
 import sys
 from sjtu_tpmshx.io.result_io import load_result
@@ -184,10 +192,13 @@ from sjtu_tpmshx.postprocess.api import evaluate
 result = load_result(sys.argv[1])
 metrics = evaluate(result).metrics
 assert result.metadata['thermal_mode'] == 'conservative_energy'
+assert result.boundary_fluxes['true_h']['energy_algorithm'] == sys.argv[2]
+assert type(result.boundary_fluxes['true_h']['energy_algorithm_version']) is int
+assert result.boundary_fluxes['true_h']['energy_algorithm_version'] == int(sys.argv[3])
 assert abs(metrics['Q_A'].value - 15.) < 1e-12
 assert abs(metrics['Q_B'].value + 15.) < 1e-12
 assert metrics['T_out_A'].value == 309.5
 for prefix in ('sjtu_tpmshx.solvers', 'sjtu_tpmshx.preprocess', 'numba', 'PySide6', 'CoolProp'):
     assert not any(name == prefix or name.startswith(prefix + '.') for name in sys.modules), prefix
-''', str(path)], capture_output=True, text=True, timeout=30)
+''', str(path), algorithm, str(version)], capture_output=True, text=True, timeout=30)
     assert process.returncode == 0, process.stderr

@@ -270,6 +270,8 @@ def _set_progress_pct(window, pct: float) -> None:
 
 def _toggle_buttons(window, running: bool) -> None:
     """Disable Launch / enable Cancel while running, opposite when idle."""
+    from sjtu_tpmshx.ui.solver_backend import refresh_backend_availability
+    refresh_backend_availability(window)
     btn = getattr(window, '_opt_btn', None)
     cancel = getattr(window, '_opt_cancel_btn', None)
     try:

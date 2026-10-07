@@ -30,6 +30,7 @@ from sjtu_tpmshx.tests.native.test_native_execution import _config
 
 ROOT = Path(__file__).resolve().parents[3]
 ALGORITHMS = ('temperature_fou', 'temperature_sou')
+VERSIONS = {'temperature_fou': 1, 'temperature_sou': 2}
 FACES = ('x-', 'x+', 'y-', 'y+', 'z-', 'z+')
 
 
@@ -132,7 +133,8 @@ def test_executed_algorithm_and_original_convergence_gates(completed):
     for balance in [*histories, diagnostics['true_h_balance']]:
         settings = balance['effective_settings']
         assert balance['energy_algorithm'] == settings['energy_algorithm'] == algorithm
-        assert balance['energy_algorithm_version'] == settings['energy_algorithm_version'] == 1
+        assert type(balance['energy_algorithm_version']) is int
+        assert balance['energy_algorithm_version'] == settings['energy_algorithm_version'] == VERSIONS[algorithm]
         assert settings['driver_abi'] == 2 and settings['nonlinear_state_update'] == 'HEOS_PT'
         assert settings['coupled_energy_tol'] == settings['equation_energy_tol'] == .001
         assert settings['temperature_update_tol_K'] == 1e-8
@@ -159,7 +161,8 @@ def test_actual_heos_state_six_face_powers_and_postprocess(completed, monkeypatc
     native = result.boundary_fluxes['true_h']
     algorithm = prepared.parameters['enthalpy_algorithm']
     assert native['energy_algorithm'] == algorithm
-    assert native['energy_algorithm_version'] == 1
+    assert type(native['energy_algorithm_version']) is int
+    assert native['energy_algorithm_version'] == VERSIONS[algorithm]
     assert native['boundary_power_units'] == 'W'
     assert native['physical_boundary_complete'] is True
     shape = result.fields['Ta'].shape
@@ -264,6 +267,7 @@ before, after = old.boundary_fluxes['true_h'], new.boundary_fluxes['true_h']
 for key in ('energy_algorithm', 'energy_algorithm_version', 'boundary_power_units', 'physical_boundary_complete'):
     assert after[key] == before[key]
 assert after['energy_algorithm'] == 'temperature_sou'
+assert after['energy_algorithm_version'] == 2
 for side in 'AB':
     for key in ('h_', 'h_in_', 'actual_conductivity_'):
         np.testing.assert_array_equal(after[key + side], before[key + side])
@@ -298,6 +302,7 @@ def test_one_block_budget_keeps_iteration_limit_and_final_evidence(native_path, 
     assert balance['post_after_last_thermal'] is True
     assert len(result.metadata['diagnostics']['_ltne_info']) == 2
     assert result.boundary_fluxes['true_h']['energy_algorithm'] == algorithm
+    assert result.boundary_fluxes['true_h']['energy_algorithm_version'] == VERSIONS[algorithm]
     assert evaluate(result).metrics['Q'].status == 'available'
 
 
@@ -318,6 +323,45 @@ def test_missing_candidate_native_capability_never_falls_back(native_path, monke
     monkeypatch.setattr(driver, 'call', forbidden_fallback)
     with pytest.raises(ValueError, match='lacks conservative energy v2'):
         driver.run_prepared(*build_execution_inputs(candidate(ALGORITHMS[0])))
+
+
+@pytest.mark.parametrize('algorithm', ['legacy_h_fou', *ALGORITHMS])
+def test_missing_version_query_blocks_candidate_before_solve_but_allows_legacy(native_path, monkeypatch, algorithm):
+    from sjtu_tpmshx.solvers.backends.cpp import full_3d
+    original = NativeFull3DDriver(native_path).library
+    entered = []
+
+    class LegacyEntered(Exception):
+        pass
+
+    def legacy(*args):
+        entered.append('legacy')
+        raise LegacyEntered
+
+    def forbidden_candidate(*args):
+        pytest.fail('native candidate solve ran before its version capability check')
+
+    class OldLibrary:
+        def __getattr__(self, name):
+            if name == 'tpmshx_energy_algorithm_version_v1':
+                raise AttributeError(name)
+            if name == 'tpmshx_solve_full_3d_v1':
+                return legacy
+            if name in ('tpmshx_solve_full_3d_v2', 'tpmshx_solve_full_3d_v3'):
+                return forbidden_candidate
+            return getattr(original, name)
+
+    prepared = candidate(algorithm, cap=2)
+    monkeypatch.setattr(full_3d.ct, 'CDLL', lambda _: OldLibrary())
+    old = NativeFull3DDriver(native_path)
+    if algorithm == 'legacy_h_fou':
+        with pytest.raises(LegacyEntered):
+            old.run_prepared(*build_execution_inputs(prepared))
+        assert entered == ['legacy']
+    else:
+        with pytest.raises(ValueError, match='lacks conservative energy algorithm version query'):
+            old.run_prepared(*build_execution_inputs(prepared))
+        assert not entered
 
 
 @pytest.mark.parametrize('option, value, message', [
@@ -422,7 +466,8 @@ def test_large_grid_packing_keeps_legacy_rb_and_candidate_serial(tmp_path, monke
         tpmshx_solve_full_3d_v1=capture, tpmshx_solve_full_3d_v2=capture,
         tpmshx_full_3d_release_v1=lambda *_: pytest.fail('packing allocated native ownership'),
         tpmshx_full_3d_get_bootstrap_trace_v1=lambda *_: None,
-        tpmshx_full_3d_get_energy_evidence_v1=lambda *_: None)
+        tpmshx_full_3d_get_energy_evidence_v1=lambda *_: None,
+        tpmshx_energy_algorithm_version_v1=lambda algorithm: {1: 1, 2: 2}.get(algorithm, 0))
     monkeypatch.setattr(full_3d.ct, 'CDLL', lambda _: library)
     path = tmp_path / 'packing-only-library'
     path.touch()

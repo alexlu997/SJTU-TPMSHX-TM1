@@ -348,7 +348,7 @@ Vector capacity_at_inlet(const GridView& g,int direction,const Full2DThermalStat
     return capacity;
 }
 
-void prepare_thermal(const Full2DProblem& p,const Full2DControl& c,Full2DResult& r,
+void prepare_thermal(const Full2DProblem& p,Full2DResult& r,
                      PropertyEvaluator& properties,const std::array<FluidProperties,2>& inlet) {
     const auto& g=p.grid; const std::size_t n=g.nx*g.ny;
     auto& t=r.thermal;
@@ -447,7 +447,6 @@ void prepare_thermal(const Full2DProblem& p,const Full2DControl& c,Full2DResult&
             temperature_ranges(r.range_observations,s.fluid,side,"property","main-inlet","scalar",{},
                                {&s.inlet_temperature,1},{"cp"});
     }
-    (void)c;
 }
 
 void solve_thermal(const Full2DProblem& p,const Full2DControl& c,Full2DResult& r) {
@@ -560,7 +559,7 @@ Full2DResult solve_full_2d_coarse(const Full2DProblem& p,const Full2DControl& c)
                 temperature_ranges(result.range_observations,Fluid::air,side,"property","main","solver-cell(perp,stream)",
                     {f.dx.size(),f.dy.size()},view(f.temperature),{"viscosity"});
         }
-        prepare_thermal(p,c,result,properties,inlet);
+        prepare_thermal(p,result,properties,inlet);
         if (p.thermal_mode!=Full2DThermalMode::true_h && (outer || p.initial_solid_temperature))
             for (std::size_t side=0;side<2;++side)
                 temperature_state(result.range_observations,p.sides[side].fluid,side,"main-warm",g,

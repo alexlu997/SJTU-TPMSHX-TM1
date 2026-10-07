@@ -11,6 +11,10 @@ static int TPMSHX_THERMAL_CALL cancel_first(void* context) {
 }
 
 int main(void) {
+    if (tpmshx_energy_algorithm_version_v1(TPMSHX_ENERGY_TEMPERATURE_FOU)!=1
+        || tpmshx_energy_algorithm_version_v1(TPMSHX_ENERGY_TEMPERATURE_SOU)!=2
+        || tpmshx_energy_algorithm_version_v1(TPMSHX_ENERGY_LEGACY_H_FOU)!=0
+        || tpmshx_energy_algorithm_version_v1(UINT32_MAX)!=0) return 9;
     const size_t shape[3] = {8, 1, 1};
     const size_t sizes[21] = {8,1,1,8,8,8,8,9,16,16,8,8,8,9,16,16,8,8,8,8,8};
     double dx[8], dy[1] = {.01}, dz[1] = {.01}, ks[8], pressure[8], eps[8], hv[8];

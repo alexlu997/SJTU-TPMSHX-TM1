@@ -2,6 +2,10 @@
 #include "tpmshx/conservative_energy.hpp"
 #include "tpmshx/model_coefficients.hpp"
 
+#include "model_h_common.hpp"
+
+#include <Exceptions.h>
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -149,7 +153,14 @@ EnthalpyResult solve_temperature_energy(const GridView& grid, const EnthalpySide
     if (!state.warm_solid)
         std::fill_n(state.solid.data,n,.5*(a.inlet_temperature+b.inlet_temperature));
     std::vector<double> ra(n), rb(n), rs(n), old_solid(n), source_a(sou ? n : 0), source_b(sou ? n : 0);
+    model_h_common::Anderson aa;
+    EnthalpyEOS aa_eos;  // Candidate PT state cannot disturb the ordinary EOS.
     for (std::size_t iteration = 0; iteration < control.max_iterations; ++iteration) {
+        // Capture before sweeps replace T with an unaudited image.
+        const auto reference_audit=result.final_audit;
+        const double reference_equation=reference_audit ? reference_audit->equation_ratio : std::numeric_limits<double>::quiet_NaN();
+        const double reference_coupled=reference_audit ? reference_audit->coupled_ratio : std::numeric_limits<double>::quiet_NaN();
+        const double reference_merit=reference_audit ? std::max(reference_equation / *control.equation_energy_tolerance,reference_coupled / *control.coupled_energy_tolerance) : std::numeric_limits<double>::quiet_NaN();
         if (control.cancel && control.cancel(control.context)) { result.final_audit.reset(); return result; }
         for (auto* side : sides) {
             std::copy_n(side->h.data,n,side->star.begin());
@@ -176,6 +187,84 @@ EnthalpyResult solve_temperature_energy(const GridView& grid, const EnthalpySide
         }
         result.iterations = iteration+1;
         if (control.cancel && control.cancel(control.context)) { result.final_audit.reset(); return result; }
+        // First/small-update/final blocks keep the complete ordinary path.
+        if (sou && result.iterations<control.max_iterations) {
+            Eigen::VectorXd aa_previous(3*n),aa_image(3*n),candidate;
+            double pre_dT=0.;
+            for (std::size_t p=0;p<n;++p) {
+                aa_previous[p]=sa.temperature_star[p]; aa_image[p]=sa.t[p];
+                aa_previous[n+p]=sb.temperature_star[p]; aa_image[n+p]=sb.t[p];
+                aa_previous[2*n+p]=old_solid[p]; aa_image[2*n+p]=state.solid[p];
+                pre_dT=std::max({pre_dT,std::abs(sa.t[p]-sa.temperature_star[p]),
+                    std::abs(sb.t[p]-sb.temperature_star[p]),std::abs(state.solid[p]-old_solid[p])});
+            }
+            const bool finite_image=aa_image.allFinite();
+            // The forced first ordinary block still supplies the first (x,G(x)).
+            if (finite_image) aa.push(std::move(aa_previous),aa_image);
+            if (reference_audit && finite_image && std::isfinite(pre_dT)
+                && pre_dT>control.temperature_update_tolerance && aa.x.size()>=2 && std::isfinite(reference_merit)) {
+                bool valid=aa.candidate(aa_image,candidate),accepted=false,trial_cancelled=false;
+                if (valid) {
+                    std::vector<double> ha(n),hb(n),cra(n),crb(n),crs(n);
+                    Side ca(a,output(ha),{candidate.data(),n},n),cb(b,output(hb),{candidate.data()+n,n},n);
+                    ca.hin=sa.hin; cb.hin=sb.hin;
+                    const std::array<Side*,2> trial_sides{&ca,&cb};
+                    double trial_dT=0.,trial_dh=0.;
+                    for (std::size_t s=0;s<2 && valid;++s) {
+                        auto& side=*trial_sides[s];
+                        for (std::size_t p=0;p<n && valid;++p) {
+                            if (p%256==0 && control.cancel && control.cancel(control.context)) {
+                                trial_cancelled=true; valid=false; break;
+                            }
+                            const auto where=location(grid,p,s==0 ? "AA candidate A" : "AA candidate B");
+                            EnthalpyPTState actual{};
+                            try { actual=aa_eos.evaluate_state(side.input.fluid,side.t[p],side.input.pressure[p],where); }
+                            catch (const std::invalid_argument&) { valid=false; }
+                            catch (const std::domain_error&) { valid=false; }
+                            catch (const CoolProp::CoolPropBaseError&) { valid=false; }
+                            if (!valid) break;
+                            side.h[p]=actual.enthalpy; side.cp[p]=actual.cp;
+                            side.k[p]=side.input.epsilon[p]*actual.conductivity; side.dh[p]=side.k[p]/actual.cp;
+                            trial_dT=std::max(trial_dT,std::abs(side.t[p]-sides[s]->temperature_star[p]));
+                            trial_dh=std::max(trial_dh,std::abs(side.h[p]-sides[s]->star[p]));
+                            if (!std::isfinite(side.k[p]) || !std::isfinite(side.dh[p])) valid=false;
+                        }
+                    }
+                    for (std::size_t p=0;p<n;++p)
+                        trial_dT=std::max(trial_dT,std::abs(candidate[2*n+p]-old_solid[p]));
+                    trial_dh/=std::max(std::abs(sa.hin-sb.hin),1.);
+                    if (!std::isfinite(trial_dT) || !std::isfinite(trial_dh)) valid=false;
+                    EnergyAudit trial_audit{};
+                    if (valid) {
+                        try { trial_audit=thermal_energy_audit_sou(grid,ca.energy(true),cb.energy(true),
+                            {candidate.data()+2*n,n},k_ss,output(cra),output(crb),output(crs)); }
+                        catch (const std::domain_error&) { valid=false; }
+                    }
+                    if (control.cancel && control.cancel(control.context)) { trial_cancelled=true; valid=false; }
+                    const double merit=valid ? std::max(trial_audit.equation_ratio / *control.equation_energy_tolerance,trial_audit.coupled_ratio / *control.coupled_energy_tolerance) : std::numeric_limits<double>::quiet_NaN();
+                    if (valid && !std::isfinite(merit)) valid=false;
+                    if (valid && merit<reference_merit) {
+                        for (std::size_t s=0;s<2;++s) {
+                            auto& to=*sides[s]; auto& from=*trial_sides[s];
+                            std::copy_n(from.t.data,n,to.t.data); std::copy_n(from.h.data,n,to.h.data);
+                            to.cp.swap(from.cp); to.k.swap(from.k); to.dh.swap(from.dh);
+                        }
+                        std::copy_n(candidate.data()+2*n,n,state.solid.data);
+                        ra.swap(cra); rb.swap(crb); rs.swap(crs);
+                        result.temperature_update=trial_dT; result.residual=trial_dh;
+                        result.final_audit=trial_audit; result.q_a=trial_audit.q_a; result.q_b=trial_audit.q_b;
+                        result.energy_imbalance=std::abs(trial_audit.net)/std::max({std::abs(trial_audit.q_a),std::abs(trial_audit.q_b),1e-30});
+                        accepted=true;
+                    }
+                }
+                // A rejected algebra/PT/audit trial must not hide cancellation
+                // behind the additional ordinary EOS pass that now follows it.
+                if (!accepted && !trial_cancelled && control.cancel && control.cancel(control.context))
+                    trial_cancelled=true;
+                if (trial_cancelled) { result.final_audit.reset(); return result; }
+                if (accepted) continue;  // Only the untouched ordinary gate below may converge.
+            }
+        }
         double temperature_update = 0., enthalpy_update = 0.;
         for (std::size_t s = 0; s < sides.size(); ++s) {
             auto& side = *sides[s];

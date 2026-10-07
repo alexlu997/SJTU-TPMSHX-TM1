@@ -62,7 +62,17 @@ def _energy_options(algorithm, tolerance):
     return _EnergyOptions(_ENERGY_NAMES.index(algorithm), tolerance)
 
 
-def _energy_result_info(info, result, *, temperature_tol, abi):
+def _energy_algorithm_query(library):
+    """Bind the recipe query from the same library before starting a solve."""
+    try:
+        query = library.tpmshx_energy_algorithm_version_v1
+    except AttributeError as error:
+        raise ValueError('native library lacks conservative energy algorithm version query') from error
+    query.argtypes, query.restype = [ct.c_uint32], ct.c_uint32
+    return query
+
+
+def _energy_result_info(info, result, *, temperature_tol, abi, version_query):
     """Decode executed native identity, independently of the requested option."""
     if result.algorithm not in range(len(_ENERGY_NAMES)):
         raise RuntimeError('native energy returned an unknown algorithm')
@@ -73,9 +83,12 @@ def _energy_result_info(info, result, *, temperature_tol, abi):
         raise RuntimeError('native energy returned an invalid temperature update')
     if not np.isfinite(result.picard_relaxation) or not 0 < result.picard_relaxation <= 1:
         raise RuntimeError('native energy returned an invalid Picard relaxation')
-    info.update(energy_algorithm=name, energy_algorithm_version=1,
+    version = version_query(result.algorithm)
+    if type(version) is not int or version not in ((1,) if result.algorithm == 1 else (1, 2)):
+        raise RuntimeError('native energy returned an unsupported algorithm version')
+    info.update(energy_algorithm=name, energy_algorithm_version=version,
                 temperature_update_K=result.temperature_update)
-    info['effective_settings'].update(energy_algorithm=name, energy_algorithm_version=1,
+    info['effective_settings'].update(energy_algorithm=name, energy_algorithm_version=version,
         temperature_update_tol_K=float(temperature_tol), driver_abi=abi,
         picard_relaxation=result.picard_relaxation,
         nonlinear_state_update='HEOS_PT',
@@ -98,7 +111,7 @@ def _energy_native_state(info, evidence, shape, units):
             tuple(n for axis, n in enumerate(shape) if axis != index // 2))
             for index, name in enumerate(planes)}
         state['actual_conductivity_' + label] = copy(evidence.actual_conductivity[side], shape)
-    state.update(energy_algorithm=info['energy_algorithm'], energy_algorithm_version=1,
+    state.update(energy_algorithm=info['energy_algorithm'], energy_algorithm_version=info['energy_algorithm_version'],
                  boundary_power=boundary, boundary_power_units=units, physical_boundary_complete=True)
 
 

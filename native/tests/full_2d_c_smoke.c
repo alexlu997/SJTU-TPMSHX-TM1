@@ -17,6 +17,10 @@ static void expect_invalid_port(const size_t* shape,const double* const* arrays,
     assert(status==1 && result.iterations==123 && result.owner==NULL && error[0]);
 }
 int main(void) {
+    assert(tpmshx_energy_algorithm_version_v1(TPMSHX_ENERGY_TEMPERATURE_FOU)==1);
+    assert(tpmshx_energy_algorithm_version_v1(TPMSHX_ENERGY_TEMPERATURE_SOU)==2);
+    assert(tpmshx_energy_algorithm_version_v1(TPMSHX_ENERGY_LEGACY_H_FOU)==0);
+    assert(tpmshx_energy_algorithm_version_v1(UINT32_MAX)==0);
     const size_t shape[2]={2,2};
     double widths[2]={.005,.005},depth=1.,k[4]={.21,.21,.21,.21},ks[4]={4.8,4.8,4.8,4.8};
     double eps[4]={.7,.7,.7,.7},a0[4]={100.,100.,100.,100.},dh[4]={.003,.003,.003,.003};

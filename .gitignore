@@ -15,6 +15,7 @@ venv/
 # Per-machine shared Python interpreter pointer and writable runtime caches
 /.venv-path
 /.cache/
+/native/lib/
 
 # Historical model artifacts (retired tools are indexed in docs/history/)
 models/*.joblib

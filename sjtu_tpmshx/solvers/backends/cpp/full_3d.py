@@ -22,7 +22,7 @@ from .temperature import _temperature_algorithm
 from .temperature_evidence import TemperatureEvidence, copy_temperature_evidence
 from .enthalpy import _Result as _EnthalpyResult, _result_info as _enthalpy_result_info
 from .enthalpy import (_EnergyOptions, _EnergyResult, _energy_options,
-                       _energy_result_info, _energy_native_state, _ENERGY_NAMES)
+                       _energy_algorithm_query, _energy_result_info, _energy_native_state, _ENERGY_NAMES)
 from .closure_evidence import NuObservation, RangeObservation, copy_nu_observation, copy_range_observations, replay_range_observations
 
 
@@ -292,7 +292,7 @@ class NativeFull3DDriver:
             raise ValueError('require_enthalpy_update_on_temperature must be boolean')
         strict_options = require_h or any(cfg.get(name) is not None for name in (
             'ltne_enthalpy_coupled_energy_tol', 'ltne_enthalpy_equation_energy_tol'))
-        energy_call = energy_query = settings_query = None
+        energy_call = energy_query = settings_query = version_query = None
         entry_version = 1
         if strict_options:
             energy = _EnergyOptionsV2(energy.algorithm, energy.temperature_update_tolerance,
@@ -318,6 +318,7 @@ class NativeFull3DDriver:
             energy_call.restype = ct.c_int
             entry_version = 2
         if energy.algorithm:
+            version_query = _energy_algorithm_query(self.library)
             try:
                 energy_query = self.library.tpmshx_full_3d_get_energy_evidence_v1
             except AttributeError as exc:
@@ -439,11 +440,11 @@ class NativeFull3DDriver:
                 if detached['true_h'] is None or extra.outer_count != len(detached['outer']):
                     raise RuntimeError('native full 3D energy evidence does not match the thermal history')
                 _energy_result_info(detached['true_h'], extra.energy,
-                    temperature_tol=energy.temperature_update_tolerance, abi=entry_version)
+                    temperature_tol=energy.temperature_update_tolerance, abi=entry_version, version_query=version_query)
                 _energy_native_state(detached['true_h'], extra, shape, 'W')
                 for index, row in enumerate(detached['outer']):
                     _energy_result_info(row['true_h_info'], extra.outer[index],
-                        temperature_tol=energy.temperature_update_tolerance, abi=entry_version)
+                        temperature_tol=energy.temperature_update_tolerance, abi=entry_version, version_query=version_query)
                 detached['mode'] = 'conservative_energy'
             detached['entry_version'] = entry_version
             if settings_query:

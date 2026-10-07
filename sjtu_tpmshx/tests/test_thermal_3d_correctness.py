@@ -74,6 +74,28 @@ def _uniform_args(nz=2):
                 dir_A=0, dir_B=1, max_iter=20, conv_chunk=2, return_info=True)
 
 
+@pytest.mark.parametrize('axis', range(3))
+@pytest.mark.parametrize('sign', [-1., 1.])
+def test_end_cell_sou_reconstructs_linear_face_and_cancels(axis, sign):
+    widths = np.array([.1, .2, .4, .3])
+    centres = np.cumsum(widths) - widths/2.
+    shape = [1, 1, 1]; shape[axis] = len(widths)
+    temperature = (300.+2.*centres).reshape(shape)
+    face = 1 if sign > 0 else 3
+    up = 0 if sign > 0 else 3
+    left = [0, 0, 0]; left[axis] = face-1
+    right = left.copy(); right[axis] = face
+    function = (kernels._sou_face_x_cons, kernels._sou_face_y_cons, kernels._sou_face_z_cons)[axis]
+    expected = -.1*sign*2.*(widths[:face].sum()-centres[up])
+    actual = function(temperature, *left, 4, 0., .1*sign, widths)
+    assert actual == pytest.approx(expected, abs=1e-13)
+    assert actual + function(temperature, *right, 4, .1*sign, 0., widths) == pytest.approx(0., abs=1e-14)
+    # The separate nonconservative research stencil retains its end-cell FOU.
+    assert function(temperature, *left, 4, 0., .1*sign, widths, False) == 0.
+    peak = np.array([300., 310., 300., 310.]).reshape(shape)
+    assert function(peak, *left, 4, 0., .1*sign, widths) == 0.
+
+
 @pytest.mark.parametrize('hv_b', [0., 1., 1e-12])
 def test_zero_load_requires_two_observations_then_converges(hv_b):
     args = _uniform_args(); args['h_vB'] = hv_b

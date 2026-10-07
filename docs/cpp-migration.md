@@ -25,15 +25,10 @@ folder. Source GUI acceptance and whole-application performance remain separate
 gates; a packaged `.app` is outside this delivery scope. The macOS folder
 launcher explicitly selects the supplied candidate library; it does not change
 the public Python default or establish qualification for every case.
-The optional true-h sweep kernel inside the Python backend is a separate,
-narrower capability.
-
-The first connection (2026-09-22) follows full-budget Python reference checks.
-It supports full two-fluid 2D/3D true-enthalpy runs containing sCO2, including
-signed partial ports. Python still owns EOS, property updates, convergence,
-independent energy checks and cancellation between sweep chunks. Model-h,
-single-fluid and quick-design execution reject an explicit `cpp_sweeps_v1`
-request; they never silently fall back to Numba.
+The earlier `cpp_sweeps_v1` connection, where Python owned the outer solve
+and C++ supplied only sweep chunks, has been retired. Select the complete
+Python or C++ backend through `RunControl` or `--backend`. The shared C++
+sweep implementation and its low-level C ABI remain in use and are retained.
 
 ## Complete Quick Design capability
 
@@ -188,9 +183,24 @@ FOU uses no additional block damping. Guarded HEOS PT updates then replace the l
 enthalpy with the actual state before residuals and duties are evaluated. No
 BICUBIC table, H-to-T inversion, clipping or recovery fallback is used.
 
+SOU recipe 2 uses six-sample Anderson proposals on this damped ordinary map.
+It validates each proposal with actual HEOS PT properties and the original
+energy audit before selecting it. A proposal must strictly reduce the maximum
+of the equation and coupled ratios normalized by their original tolerances;
+invalid or nonfinite proposals retain the ordinary update. Accepted proposals
+continue iteration. First/final blocks and small ordinary temperature updates
+use a complete ordinary PT/audit block, and only that block may converge.
+`picard_relaxation=0.6` describes the ordinary map, not each Anderson increment.
+The same loaded library's `tpmshx_energy_algorithm_version_v1` query reports
+FOU recipe 1 or SOU recipe 2 from the actual returned algorithm. Python records
+this identity in main/outer evidence, effective settings and boundary capture;
+an old library without the query fails before conservative flow execution.
+Saved SOU recipe 1 and recipe 2 boundary evidence remain readable, with no EOS
+replay or version inference. Recipe versions are independent of the C ABI.
+
 The candidates require positive coupled and equation tolerances and a positive
 `temperature_update_tolerance` in K. Convergence requires all three tests on the
-same actual state. `EnthalpyResult::algorithm` identifies the executed recipe;
+same actual state. `EnthalpyResult::algorithm` identifies the executed algorithm;
 `temperature_update` is present only on these routes. The existing `residual`
 still records the normalized actual enthalpy update. SOU final certificates
 reconstruct its actual face corrections again and use them consistently in
@@ -473,9 +483,9 @@ callers. The C ABI uses explicit Windows exports/imports and `cdecl`; ctypes
 uses the DLL path with `CDLL`. These commands do not install a compiler.
 
 `thermal_c_api.h` exposes the versioned sweep ABI and bounded error messages;
-exceptions do not cross the C boundary. The production ctypes adapter validates
-shapes, contiguous float64 storage, alignment and nonaliasing mutable arrays.
-Native errors invalidate the run; cancelled/failed runs are not finalized.
+exceptions do not cross the C boundary. Independent C/C++ callers and direct
+C ABI tests retain the buffer and physical-parameter checks. The retired
+Python hybrid adapter is no longer part of the production execution path.
 The energy-audit tests still use a test-only bridge.
 
 Use the interpreter from `.venv-path`, after the normal environment checks:
@@ -491,21 +501,17 @@ TPMSHX_REQUIRE_CPP_TESTS=1 \
 "$tm1_python" -m pytest -q sjtu_tpmshx/tests/native
 ```
 
-For an accepted full true-h case, set these before `prepare_case` or the CLI:
-
-```sh
-export TPMSHX_TRUE_H_KERNEL=cpp_sweeps_v1
-export TPMSHX_THERMAL_LIBRARY="$PWD/.cache/native/libtpmshx_thermal.dylib"
-"$tm1_python" -m sjtu_tpmshx.cli --help
-```
-
-Use the `.so` path on other POSIX hosts. `TPMSHX_TRUE_H_KERNEL=numba` selects
-the default. Prepared cases freeze both values, including across save/load;
-changing the receiving process environment does not change that case's kernel.
-A native case requires its recorded absolute library path to exist on the
-execution host. Missing libraries, wrong ABI and unsupported choices fail
-before SIMPLE. `true_h_balance.effective_settings` records the selected kernel,
-native ABI/path when used, and `energy_audit='python'`.
+The old `TPMSHX_TRUE_H_KERNEL=cpp_sweeps_v1` setting no longer starts a
+mixed solve. Python execution rejects that setting, including saved prepared
+cases, before SIMPLE rather than silently changing the recorded algorithm.
+The old selector is retained in environment snapshots only for this rejection;
+unset or `numba` values use the unchanged Python kernel. New cases no longer
+capture `TPMSHX_THERMAL_LIBRARY`. Use the complete native backend's
+`--backend cpp --native-library /absolute/path/to/libtpmshx_solver_shared.dylib`
+instead. Its host-local library path is supplied through `RunControl`.
+Previously saved results remain readable and evaluable without a numerical
+kernel or the former hybrid library. Python true-h evidence continues to
+record `sweep_kernel='numba'` and `energy_audit='python'`.
 
 The required flag makes a missing compiler fail this qualification command.
 General Python-only testing skips these tests when its platform compiler is

@@ -28,6 +28,7 @@ from sjtu_tpmshx.solvers.backends.cpp.full_2d_capture import capture_result
 from sjtu_tpmshx.solvers.backends.python.two_d.execution import build_execution_inputs
 
 ROOT = Path(__file__).resolve().parents[3]
+VERSIONS = {'temperature_fou': 1, 'temperature_sou': 2}
 
 
 @pytest.fixture(scope='module')
@@ -83,7 +84,11 @@ def test_actual_thermal_state_and_signed_ledger(capped):
     assert result.backend_version == 'full_2d_v3'
     assert not raw['converged'] and raw['post_after_last_thermal']
     assert result.metadata['thermal_mode'] == 'conservative_energy'
-    assert info['energy_algorithm'] == cfg['compute_cfg'].solver.enthalpy_algorithm
+    assert info['energy_algorithm'] == info['effective_settings']['energy_algorithm'] == \
+        cfg['compute_cfg'].solver.enthalpy_algorithm
+    assert type(info['energy_algorithm_version']) is int
+    assert info['energy_algorithm_version'] == info['effective_settings']['energy_algorithm_version'] == \
+        VERSIONS[info['energy_algorithm']]
     assert info['effective_settings']['picard_relaxation'] == \
         (.6 if info['energy_algorithm'] == 'temperature_sou' else 1.)
     assert info['temperature_update_K'] <= 1e-8
@@ -91,9 +96,18 @@ def test_actual_thermal_state_and_signed_ledger(capped):
     assert info['coupled_energy_balance']['ratio'] <= .001
     assert info['equation_energy_balance']['ratio'] <= .001
     assert raw['outer_history'][0]['energy_info']['energy_algorithm'] == info['energy_algorithm']
+    for row in raw['outer_history']:
+        history = row['energy_info']
+        assert history['energy_algorithm'] == history['effective_settings']['energy_algorithm'] == info['energy_algorithm']
+        assert type(history['energy_algorithm_version']) is int
+        assert history['energy_algorithm_version'] == history['effective_settings']['energy_algorithm_version'] == \
+            VERSIONS[info['energy_algorithm']]
     assert all(row['energy_info']['effective_settings']['picard_relaxation'] ==
                info['effective_settings']['picard_relaxation'] for row in raw['outer_history'])
     state = result.boundary_fluxes['true_h']
+    assert state['energy_algorithm'] == info['energy_algorithm']
+    assert type(state['energy_algorithm_version']) is int
+    assert state['energy_algorithm_version'] == VERSIONS[info['energy_algorithm']]
     assert state['boundary_power_units'] == 'W/m' and state['physical_boundary_complete']
     metrics = evaluate(result).metrics
     for side, label, fluid in ((0, 'A', 'Water'), (1, 'B', 'CO2')):
@@ -130,6 +144,8 @@ def test_complete_original_native_acceptance(driver, algorithm, partial):
         'thermal_ok', 'envelope_ok', 'pair_balance_ok', 'model_balance_ok')}
     assert not raw['post_after_last_thermal']
     assert all(row['energy_info']['energy_algorithm'] == algorithm for row in raw['outer_history'])
+    assert all(row['energy_info']['energy_algorithm_version'] == VERSIONS[algorithm]
+               for row in raw['outer_history'])
 
 
 def test_saved_case_result_new_process_replay(driver, capped, tmp_path):
@@ -151,6 +167,10 @@ assert main(['solve',sys.argv[1],sys.argv[3],'--backend','cpp','--native-library
              '--native-table-directory',sys.argv[5]]) == 2
 new = load_result(sys.argv[3])
 assert new.metadata['thermal_mode'] == 'conservative_energy'
+before, after = old.boundary_fluxes['true_h'], new.boundary_fluxes['true_h']
+assert after['energy_algorithm'] == before['energy_algorithm']
+assert after['energy_algorithm_version'] == before['energy_algorithm_version'] == \
+    {'temperature_fou': 1, 'temperature_sou': 2}[after['energy_algorithm']]
 assert evaluate(new).metrics == evaluate(old).metrics
 assert not any(name.startswith(('numba','sjtu_tpmshx.solvers.ltne_',
     'sjtu_tpmshx.solvers.simple_', 'sjtu_tpmshx.solvers.backends.python.two_d.runtime',
@@ -184,6 +204,79 @@ def test_old_library_candidate_capability_fails_before_flow(driver, monkeypatch,
     monkeypatch.setattr(driver, 'library', OldAPI())
     with pytest.raises(ValueError, match='lacks conservative energy v3'):
         driver.run_prepared(*build_execution_inputs(case))
+
+
+@pytest.mark.parametrize('algorithm', ['legacy_h_fou', *VERSIONS])
+def test_missing_version_query_blocks_candidate_before_solve_but_allows_legacy(driver, monkeypatch, algorithm):
+    from sjtu_tpmshx.solvers.backends.cpp import full_2d
+    original, entered = driver.library, []
+
+    class LegacyEntered(Exception):
+        pass
+
+    def legacy(*args):
+        entered.append('legacy')
+        raise LegacyEntered
+
+    def forbidden_candidate(*args):
+        pytest.fail('native candidate solve ran before its version capability check')
+
+    class OldLibrary:
+        def __getattr__(self, name):
+            if name == 'tpmshx_energy_algorithm_version_v1':
+                raise AttributeError(name)
+            if name == 'tpmshx_solve_full_2d_v2':
+                return legacy
+            if name == 'tpmshx_solve_full_2d_v3':
+                return forbidden_candidate
+            return getattr(original, name)
+
+    case = prepare_case(configuration(algorithm), case_id='energy2d-missing-version')
+    monkeypatch.setattr(full_2d.ct, 'CDLL', lambda _: OldLibrary())
+    old = NativeFull2DDriver(driver.path)
+    if algorithm == 'legacy_h_fou':
+        with pytest.raises(LegacyEntered):
+            old.run_prepared(*build_execution_inputs(case))
+        assert entered == ['legacy']
+    else:
+        with pytest.raises(ValueError, match='lacks conservative energy algorithm version query'):
+            old.run_prepared(*build_execution_inputs(case))
+        assert not entered
+
+
+@pytest.mark.parametrize('executed,version', [(1, 1), (2, 1), (2, 2)])
+def test_energy_decoder_queries_executed_algorithm(executed, version):
+    from sjtu_tpmshx.solvers.backends.cpp.enthalpy import _EnergyResult, _energy_options, _energy_result_info
+
+    requested = _energy_options('temperature_sou' if executed == 1 else 'temperature_fou', 1e-8)
+    assert requested.algorithm != executed
+    info = dict(energy_algorithm='requested-placeholder', energy_algorithm_version=99,
+                effective_settings=dict(omega=.2, energy_algorithm='requested-placeholder', energy_algorithm_version=99))
+    queried = []
+
+    def query(algorithm):
+        queried.append(algorithm)
+        return version
+
+    actual = _EnergyResult(executed, 1, 1e-9, 1. if executed == 1 else .6)
+    _energy_result_info(info, actual, temperature_tol=requested.temperature_update_tolerance,
+                        abi=3, version_query=query)
+    name = 'temperature_fou' if executed == 1 else 'temperature_sou'
+    assert queried == [executed]
+    assert info['energy_algorithm'] == info['effective_settings']['energy_algorithm'] == name
+    assert type(info['energy_algorithm_version']) is int
+    assert info['energy_algorithm_version'] == info['effective_settings']['energy_algorithm_version'] == version
+
+
+@pytest.mark.parametrize('executed,version', [(1, 2), (2, 0), (2, 3), (2, True), (2, 1.)])
+def test_energy_decoder_rejects_unsupported_native_version(executed, version):
+    from sjtu_tpmshx.solvers.backends.cpp.enthalpy import _EnergyResult, _energy_result_info
+
+    info = dict(effective_settings=dict(omega=.2))
+    actual = _EnergyResult(executed, 1, 1e-9, 1. if executed == 1 else .6)
+    with pytest.raises(RuntimeError, match='version'):
+        _energy_result_info(info, actual, temperature_tol=1e-8, abi=3,
+                            version_query=lambda algorithm: version)
 
 
 @pytest.mark.parametrize('kind', ['cancel', 'callback', 'decode'])

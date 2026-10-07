@@ -18,7 +18,7 @@ from .model_h import _Array, _Result as _ModelResult, _plane_info, _model_h_algo
 from .temperature_evidence import TemperatureEvidence2D, copy_temperature_evidence
 from .enthalpy import _Result as _EnthalpyResult, _result_info
 from .enthalpy import (_EnergyOptions, _EnergyResult, _energy_options,
-                       _energy_result_info, _energy_native_state)
+                       _energy_algorithm_query, _energy_result_info, _energy_native_state)
 from .closure_evidence import NuObservation, RangeObservation, copy_nu_observation, copy_range_observations
 
 
@@ -254,13 +254,14 @@ class NativeFull2DDriver:
         if len(shape) != 2 or len(arrays) != 29:
             raise ValueError('full 2D requires two extents and 29 prepared arrays')
         energy = _energy_options(energy_algorithm, temperature_update_tolerance)
-        energy_call = energy_query = None
+        energy_call = energy_query = version_query = None
         if energy.algorithm:
             try:
                 energy_call = self.library.tpmshx_solve_full_2d_v3
                 energy_query = self.library.tpmshx_full_2d_get_energy_evidence_v1
             except AttributeError as exc:
                 raise ValueError('native full 2D library lacks conservative energy v3') from exc
+            version_query = _energy_algorithm_query(self.library)
             energy_call.argtypes = [*self.call.argtypes[:4], ct.POINTER(_EnergyOptions), *self.call.argtypes[4:]]
             energy_call.restype = ct.c_int
             energy_query.argtypes = [ct.POINTER(_Result), ct.POINTER(_EnergyEvidence)]
@@ -346,14 +347,15 @@ class NativeFull2DDriver:
                 omega = .2 if extra.main.energy.algorithm == 2 else .6
                 info['effective_settings'].update(sweeps=5, omega=omega)
                 _energy_result_info(info, extra.main.energy,
-                    temperature_tol=energy.temperature_update_tolerance, abi=3)
+                    temperature_tol=energy.temperature_update_tolerance, abi=3, version_query=version_query)
                 _energy_native_state(info, extra.main, (*shape, 1), 'W/m')
                 out['main']['mode'] = 'conservative_energy'
                 if out['fine'] is not None:
                     raise RuntimeError('native conservative energy unexpectedly returned Richardson evidence')
                 for index, row in enumerate(out['outer_history']):
                     row['energy_info'] = _energy_result_info(dict(effective_settings=dict(omega=omega, sweeps=5)),
-                        extra.outer[index], temperature_tol=energy.temperature_update_tolerance, abi=3)
+                        extra.outer[index], temperature_tol=energy.temperature_update_tolerance, abi=3,
+                        version_query=version_query)
                 out['entry_version'] = 3
             if out['main']['mode'] == 'temperature':
                 query = self.library.tpmshx_full_2d_get_model_enthalpy_evidence_v1

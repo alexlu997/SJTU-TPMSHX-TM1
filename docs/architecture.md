@@ -10,6 +10,20 @@ Quick Design/standalone temperature, the retained
 true-h CC warm-up and single-A sCO2 paths, and staggered research routes have
 separate contracts.
 
+Conservative staggered temperature transport uses the same end-cell SOU
+reconstruction in Python and C++: internal faces next to a domain end use
+the two available one-sided slopes, limited by minmod in physical distances.
+External faces retain their prescribed boundary treatment; axes with fewer
+than three cells remain first order. Product model-h and the nonconservative
+research stencil retain their separate reconstruction contracts.
+
+Engineering backend parity requires one prepared case, independent convergence
+and energy gates, at most 0.1% relative differences in duty, pressure drop and
+mass flow, and at most 0.01 K absolute differences in outlet and full-field
+temperatures. `test_backend_engineering_parity.py` covers eight fluid pairings
+in 2D and 3D. It supplements the tighter numerical regressions and does not
+qualify unsupported metrics or untested physical conditions.
+
 This is the current architectural and physical contract for the repository.
 Historical audits and reports explain how the project reached this state, but
 they do not override the running code or this document.
@@ -85,6 +99,9 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   The 2D loop reads prepared properties directly, reports through `RunControl`,
   and returns application coefficients and zone statistics with its native
   result; it has no window-shaped runtime adapter or attribute-write hooks.
+  The mixed Python-outer/C++-sweep route is retired. Python runs use the
+  original Numba kernel; saved explicit mixed-kernel requests fail before
+  SIMPLE. Complete native execution is selected separately with `RunControl`.
 - `solvers/backends/cpp/` exposes the independent prepared Quick Design and
   full 2D/3D drivers through an explicit `RunControl(backend='cpp', native_library=...)`.
   The host library path is not serialized in CaseData. Shared QD validation and
@@ -106,8 +123,12 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   EOS refresh, stopping and actual-state certificates. These candidates require
   declared scalar inlets and adiabatic external boundaries. Their SOU outlet
   reconstruction differs from model-h. They require a maximum temperature
-  update in K and both explicit energy gates, and fail on invalid PT states
-  without clipping or fallback. The legacy H algorithm remains the default.
+  update in K and both explicit energy gates. Ordinary invalid PT states fail
+  without clipping. SOU recipe 2 proposes six-sample Anderson updates before
+  ordinary PT evaluation, accepts only actual-PT/audit merit improvement, and
+  retains the ordinary path when a proposal is rejected. Only a complete
+  ordinary block can converge or provide the final budget certificate.
+  The legacy H algorithm remains the default.
   Full C++ 2D/3D can explicitly select these candidates on their existing
   two-fluid true-h routes. The persisted `SolverConfig.enthalpy_algorithm`
   and `enthalpy_temperature_tol_K` select the algorithm and update gate;
@@ -116,6 +137,12 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   Additive full2D v3/full3D v2 entry points reuse the previous result layouts
   and owner release functions. Read-only queries expose the executed algorithm,
   actual thermal conductivity and six outward boundary enthalpy-power planes.
+  The same loaded binary's energy recipe query identifies FOU1/SOU2 from each
+  actual returned algorithm; bindings copy that version into main, outer and
+  boundary evidence. Missing query capability fails before conservative flow
+  execution. Offline boundary readers retain both saved SOU1 and SOU2, while
+  rejecting unsupported algorithm/version pairs; result PODs and ABIs do not
+  change with the recipe.
   Portable candidate results use `thermal_mode=conservative_energy`; their
   heat is the negative sum of these captured planes, in W/m for 2D and W for
   3D. Offline readers validate this evidence without reconstructing SOU or

@@ -201,7 +201,7 @@ add_library(refinement_2d_test SHARED "${TPMSHX_ROOT}/sjtu_tpmshx/tests/native/r
 target_compile_definitions(refinement_2d_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
 target_link_libraries(refinement_2d_test PRIVATE tpmshx_refinement_2d)
 add_library(tpmshx_full_2d STATIC "${TPMSHX_ROOT}/native/src/full_2d.cpp")
-target_link_libraries(tpmshx_full_2d PUBLIC tpmshx_simple tpmshx_temperature_staggered tpmshx_quick_design
+target_link_libraries(tpmshx_full_2d PUBLIC tpmshx_simple
     tpmshx_model_h_2d tpmshx_enthalpy tpmshx_pressure_reference tpmshx_models tpmshx_refinement_2d)
 add_library(full_2d_test SHARED "${TPMSHX_ROOT}/sjtu_tpmshx/tests/native/full_2d_bridge.cpp")
 target_compile_definitions(full_2d_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
@@ -249,6 +249,10 @@ endforeach()
 foreach(target IN ITEMS tpmshx_model_h_c tpmshx_model_h_shared
         tpmshx_solver tpmshx_solver_shared tpmshx_full_2d_c tpmshx_full_2d_shared)
     target_sources(${target} PRIVATE "${TPMSHX_ROOT}/native/src/model_h_algorithm_c_api.cpp")
+endforeach()
+foreach(target IN ITEMS tpmshx_enthalpy_c tpmshx_enthalpy_shared
+        tpmshx_solver tpmshx_solver_shared tpmshx_full_2d_c tpmshx_full_2d_shared)
+    target_sources(${target} PRIVATE "${TPMSHX_ROOT}/native/src/energy_algorithm_c_api.cpp")
 endforeach()
 foreach(kind IN ITEMS static shared)
     add_executable(full_3d_c_${kind} "${TPMSHX_ROOT}/native/tests/full_3d_c_smoke.c")

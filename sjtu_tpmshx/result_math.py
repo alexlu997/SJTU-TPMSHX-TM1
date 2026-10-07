@@ -185,7 +185,8 @@ def _conservative_boundary_power_duty(native, side, dimension, grid):
     if native['energy_algorithm'] not in ('temperature_fou', 'temperature_sou'):
         raise ValueError('unsupported conservative energy algorithm')
     version = native['energy_algorithm_version']
-    if type(version) is not int or version != 1:
+    supported_versions = (1,) if native['energy_algorithm'] == 'temperature_fou' else (1, 2)
+    if type(version) is not int or version not in supported_versions:
         raise ValueError('unsupported conservative energy algorithm version')
     if native['boundary_power_units'] != ('W/m' if dimension == 2 else 'W'):
         raise ValueError('conservative boundary power units disagree with physical dimension')

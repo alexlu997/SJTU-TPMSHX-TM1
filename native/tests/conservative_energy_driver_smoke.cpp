@@ -1,5 +1,7 @@
 #include "tpmshx/enthalpy_driver.hpp"
 
+#include <Exceptions.h>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -61,6 +63,56 @@ EnthalpyControl controls(bool sou) {
     EnthalpyControl c{1200,5,sou?.2:.6,2e-12,1e-7,1e-7,""};
     c.algorithm=sou?EnthalpyAlgorithm::temperature_sou:EnthalpyAlgorithm::temperature_fou;
     return c;
+}
+
+bool same_fields(const Case& a,const Case& b) {
+    return a.t==b.t && a.h==b.h && a.solid==b.solid;
+}
+bool same(double a,double b) {
+    return std::isfinite(a) && std::isfinite(b)
+        && std::abs(a-b)<=2e-12*std::max({std::abs(a),std::abs(b),1.});
+}
+void require_same_actual_solve(const Case& a,const EnthalpyResult& actual,
+                               const Case& b,const EnthalpyResult& expected) {
+    require(actual.final_audit && expected.final_audit && actual.temperature_update && expected.temperature_update,
+            "ordinary replay omitted actual evidence");
+    EnthalpyEOS independent;
+    for (std::size_t p=0;p<5;++p) {
+        for (std::size_t s=0;s<2;++s) {
+            require(same(a.t[s][p],b.t[s][p]) && same(a.h[s][p],b.h[s][p]),
+                    "ordinary replay changed the actual fluid state");
+            const auto pt=independent.evaluate_state(a.fluid[s],a.t[s][p],a.pressure[s][p],"ordinary replay PT reference");
+            require(same(a.h[s][p],pt.enthalpy),"ordinary replay published h from a different PT state");
+        }
+        require(same(a.solid[p],b.solid[p]),"ordinary replay changed the solid state");
+    }
+    const auto values=[](const EnergyAudit& v) {
+        return std::array<double,11>{v.q_a,v.q_b,v.net,v.solid_abs_sum,v.denominator,v.coupled_ratio,
+            v.fluid_abs_sum[0],v.fluid_abs_sum[1],v.fluid_cell_max[0],v.fluid_cell_max[1],v.equation_ratio};
+    };
+    require(actual.final_audit->fluid_equations_computed && expected.final_audit->fluid_equations_computed,
+            "ordinary replay omitted its equation audit");
+    const auto av=values(*actual.final_audit),bv=values(*expected.final_audit);
+    for (std::size_t i=0;i<av.size();++i) require(same(av[i],bv[i]),"ordinary replay changed the actual audit");
+    require(same(*actual.temperature_update,*expected.temperature_update) && same(actual.residual,expected.residual)
+            && same(actual.q_a,expected.q_a) && same(actual.q_b,expected.q_b)
+            && same(actual.energy_imbalance,expected.energy_imbalance),
+            "ordinary replay changed the reported update or duty");
+}
+struct Observations {
+    Case* data;
+    std::vector<Case> snapshots;
+    bool cancel_on_second_repeat=false,triggered=false;
+    std::size_t repeats=0;
+};
+bool observe(void* context) {
+    auto& seen=*static_cast<Observations*>(context);
+    if (seen.triggered) return true;
+    if (!seen.snapshots.empty() && same_fields(seen.snapshots.back(),*seen.data)) ++seen.repeats;
+    else seen.repeats=0;
+    seen.snapshots.push_back(*seen.data);
+    seen.triggered=seen.cancel_on_second_repeat && seen.repeats==2;
+    return seen.triggered;
 }
 
 struct Cancellation { int calls=0,stop_at=1; };
@@ -150,6 +202,203 @@ int main() {
                                    view(invalid_gate.solid_k),invalid_gate.state(),invalid);
                 },"T energy accepted an invalid additional h-update tolerance");
             }
+        }
+
+        // Accepted AA must seed a complete ordinary confirmation. The last
+        // three callbacks see the unvalidated image, accepted state, and final
+        // ordinary swept T. An h-only change cannot prove AA was accepted.
+        {
+            Case data(0,1,Fluid::air,Fluid::water);auto c=controls(true);
+            c.max_iterations=3;c.require_enthalpy_update_on_temperature=true;
+            c.temperature_update_tolerance=c.update_tolerance=1e-30;
+            c.coupled_energy_tolerance=c.equation_energy_tolerance=1e-30;
+            Observations seen{&data,{}};c.context=&seen;c.cancel=observe;
+            const auto result=solve_enthalpy(data.grid(),data.side(0),data.side(1),
+                view(data.solid_k),data.state(),c);
+            require(result.stop==EnthalpyStop::iteration_limit && result.iterations==3
+                    && result.final_audit && result.temperature_update && seen.snapshots.size()>=3,
+                    "AA confirmation fixture did not reach its three-block budget");
+            const auto tail=seen.snapshots.size()-3;
+            const auto& ordinary=seen.snapshots[tail];
+            const auto& accepted=seen.snapshots[tail+1];
+            const auto& swept=seen.snapshots[tail+2];
+            require(accepted.t!=ordinary.t || accepted.solid!=ordinary.solid,
+                    "AA confirmation fixture never accepted a candidate");
+            require(swept.h==accepted.h && swept.t==data.t && swept.solid==data.solid,
+                    "AA confirmation callback tail is not the final ordinary block");
+            Case replay=accepted;auto one=c;
+            one.max_iterations=1;one.cancel=nullptr;one.context=nullptr;
+            const auto repeated=solve_enthalpy(replay.grid(),replay.side(0),replay.side(1),
+                view(replay.solid_k),replay.state(true),one);
+            require(repeated.stop==EnthalpyStop::iteration_limit && repeated.iterations==1,
+                    "AA confirmation replay did not execute one ordinary block");
+            require_same_actual_solve(data,result,replay,repeated);
+            double actual_dT=0.,actual_dh=0.;
+            for (std::size_t p=0;p<5;++p) {
+                for (std::size_t s=0;s<2;++s) {
+                    actual_dT=std::max(actual_dT,std::abs(data.t[s][p]-accepted.t[s][p]));
+                    actual_dh=std::max(actual_dh,std::abs(data.h[s][p]-accepted.h[s][p]));
+                }
+                actual_dT=std::max(actual_dT,std::abs(data.solid[p]-accepted.solid[p]));
+            }
+            actual_dh/=std::max(std::abs(result.inlet_enthalpy[0]-result.inlet_enthalpy[1]),1.);
+            require(same(*result.temperature_update,actual_dT) && same(result.residual,actual_dh),
+                    "AA confirmation update certificate refers to a different starting state");
+        }
+
+        // This warm fixture rejects the fifth-block trial. Callback snapshots
+        // verify trial isolation and ordinary fallback; they do not identify
+        // the rejection reason or count candidate EOS evaluations.
+        {
+            Case data(0,1,Fluid::air,Fluid::water);auto c=controls(true);c.max_iterations=6;
+            data.t={Values(5,364.),Values(5,316.)};data.solid.assign(5,340.);
+            Observations seen{&data,{}};c.context=&seen;c.cancel=observe;
+            const auto result=solve_enthalpy(data.grid(),data.side(0),data.side(1),
+                view(data.solid_k),data.state(true),c);
+            require(result.stop==EnthalpyStop::iteration_limit && result.iterations==6
+                    && result.final_audit && result.temperature_update && seen.snapshots.size()>=4,
+                    "rollback fixture did not reach its six-block budget");
+            const auto image_index=seen.snapshots.size()-3;
+            const auto& image=seen.snapshots[image_index];
+            const auto& ordinary=seen.snapshots[image_index+1];
+            const auto& swept=seen.snapshots[image_index+2];
+            require(image.t==ordinary.t && image.solid==ordinary.solid && image.h!=ordinary.h,
+                    "rollback fixture did not take an ordinary EOS fallback");
+            require(swept.h==ordinary.h && swept.t==data.t && swept.solid==data.solid,
+                    "rollback callback tail is not the final ordinary block");
+            auto first_image=image_index;
+            while (first_image>0 && same_fields(seen.snapshots[first_image-1],image)) --first_image;
+            require(first_image>0 && image_index-first_image+1==5,
+                    "rollback fixture missed its five isolated trial/fallback callbacks");
+            const auto& before=seen.snapshots[first_image-1];
+            require(image.h==before.h && (image.t!=before.t || image.solid!=before.solid),
+                    "rejected candidate changed caller enthalpy before ordinary validation");
+            Case replay=before;auto two=c;two.max_iterations=2;two.cancel=nullptr;two.context=nullptr;
+            const auto repeated=solve_enthalpy(replay.grid(),replay.side(0),replay.side(1),
+                view(replay.solid_k),replay.state(true),two);
+            require(repeated.stop==EnthalpyStop::iteration_limit && repeated.iterations==2,
+                    "rollback replay did not execute two ordinary blocks");
+            require_same_actual_solve(data,result,replay,repeated);
+        }
+
+        // The first trial's post-sweep/A0/B0 callbacks see identical caller
+        // fields. Cancel at B0 after five A-side candidate PT evaluations;
+        // cancellation must prevent an ordinary iteration-2 update.
+        {
+            Case data(0,1,Fluid::air,Fluid::water);auto c=controls(true);c.max_iterations=3;
+            data.t={Values(5,364.),Values(5,316.)};data.solid.assign(5,340.);
+            Observations seen{&data,{}};seen.cancel_on_second_repeat=true;c.context=&seen;c.cancel=observe;
+            const auto result=solve_enthalpy(data.grid(),data.side(0),data.side(1),
+                view(data.solid_k),data.state(true),c);
+            require(seen.triggered && result.stop==EnthalpyStop::cancelled && result.iterations==2
+                    && !result.final_audit && seen.snapshots.size()>=4,
+                    "inner candidate cancellation did not clear the final audit");
+            const auto image_index=seen.snapshots.size()-3;
+            const auto& before=seen.snapshots[image_index-1];
+            const auto& image=seen.snapshots[image_index];
+            require(same_fields(image,seen.snapshots[image_index+1])
+                    && same_fields(image,seen.snapshots[image_index+2]) && same_fields(image,data),
+                    "cancelled trial published scratch candidate fields");
+            require(image.h==before.h && (image.t!=before.t || image.solid!=before.solid),
+                    "inner cancellation did not preserve the unaudited ordinary image");
+        }
+
+        // A legal positive energy tolerance may overflow normalized merit.
+        // Preserve the raw gates and skip optional AA, without a tolerance
+        // floor. The one-block probe permits T convergence to isolate the
+        // energy gate; its ordinary state also seeds the two-block replay.
+        {
+            constexpr double tiny=1e-310;
+            Case data(0,1,Fluid::air,Fluid::water);auto c=controls(true);c.max_iterations=3;
+            data.t={Values(5,364.),Values(5,316.)};data.solid.assign(5,340.);
+            c.coupled_energy_tolerance=c.equation_energy_tolerance=tiny;
+            Case replay=data;auto one=c;one.max_iterations=1;one.temperature_update_tolerance=1e6;
+            const auto first=solve_enthalpy(replay.grid(),replay.side(0),replay.side(1),
+                view(replay.solid_k),replay.state(true),one);
+            require(tiny>0. && first.stop==EnthalpyStop::iteration_limit && first.iterations==1
+                    && first.final_audit && first.temperature_update
+                    && !one.require_enthalpy_update_on_temperature && std::isfinite(*first.temperature_update)
+                    && *first.temperature_update<=one.temperature_update_tolerance,
+                    "tiny legal energy tolerance did not independently block convergence");
+            const auto& audit=*first.final_audit;
+            require(std::isfinite(audit.equation_ratio) && std::isfinite(audit.coupled_ratio)
+                    && audit.equation_ratio>tiny && audit.coupled_ratio>tiny,
+                    "tiny-tolerance probe did not produce finite failing energy ratios");
+            const double merit=std::max(audit.equation_ratio/tiny,audit.coupled_ratio/tiny);
+            require(std::isinf(merit) && merit>0.,"tiny-tolerance probe did not overflow normalized merit");
+            Observations seen{&data,{}};c.context=&seen;c.cancel=observe;
+            const auto result=solve_enthalpy(data.grid(),data.side(0),data.side(1),
+                view(data.solid_k),data.state(true),c);
+            require(result.stop==EnthalpyStop::iteration_limit && result.iterations==3
+                    && seen.snapshots.size()==7 && same_fields(replay,seen.snapshots[3]),
+                    "nonfinite reference merit did not skip the optional AA trial");
+            double pre_dT=0.;
+            const auto& before=seen.snapshots[3];const auto& image=seen.snapshots[4];
+            for (std::size_t p=0;p<5;++p) {
+                for (std::size_t s=0;s<2;++s) {
+                    require(std::isfinite(image.t[s][p]),"tiny-tolerance ordinary image is not finite");
+                    pre_dT=std::max(pre_dT,std::abs(image.t[s][p]-before.t[s][p]));
+                }
+                require(std::isfinite(image.solid[p]),"tiny-tolerance solid image is not finite");
+                pre_dT=std::max(pre_dT,std::abs(image.solid[p]-before.solid[p]));
+            }
+            require(std::isfinite(pre_dT) && pre_dT>c.temperature_update_tolerance,
+                    "tiny-tolerance fixture skipped AA because of a small T update");
+            auto two=c;two.max_iterations=2;two.cancel=nullptr;two.context=nullptr;
+            const auto repeated=solve_enthalpy(replay.grid(),replay.side(0),replay.side(1),
+                view(replay.solid_k),replay.state(true),two);
+            require(repeated.stop==EnthalpyStop::iteration_limit && repeated.iterations==2,
+                    "tiny-tolerance replay did not execute two ordinary blocks");
+            require_same_actual_solve(data,result,replay,repeated);
+        }
+
+        // Real CoolProp two-phase rejection from a finite, positive AA
+        // proposal. Ordinary EOS failures must still propagate unchanged.
+        {
+            Case data(0,1,Fluid::air,Fluid::air);
+            data.inlet_t={150.,60.};data.inlet_p={1e6,1e6};
+            data.t={Values(5,141.),Values(5,69.)};data.solid.assign(5,105.);
+            for(auto& pressure:data.pressure)
+                for(std::size_t p=0;p<5;++p) pressure[p]=1e6-100.*p;
+            auto c=controls(true);c.temperature_update_tolerance=1e-30;c.max_iterations=2;
+            Case ordinary=data;
+            const auto probe=solve_enthalpy(ordinary.grid(),ordinary.side(0),ordinary.side(1),
+                view(ordinary.solid_k),ordinary.state(true),c);
+            require(probe.stop==EnthalpyStop::iteration_limit && probe.iterations==2
+                    && probe.final_audit && probe.temperature_update,
+                    "CoolProp trial fixture did not retain two valid ordinary blocks");
+
+            c.max_iterations=3;
+            Observations seen{&data,{}};c.context=&seen;c.cancel=observe;
+            const auto result=solve_enthalpy(data.grid(),data.side(0),data.side(1),
+                view(data.solid_k),data.state(true),c);
+            require(result.stop==EnthalpyStop::iteration_limit && result.iterations==3
+                    && result.final_audit && result.temperature_update && seen.snapshots.size()>=3,
+                    "CoolProp candidate exception escaped its ordinary fallback");
+            const auto tail=seen.snapshots.size()-3;
+            const auto& image=seen.snapshots[tail];
+            const auto& actual=seen.snapshots[tail+1];
+            const auto& swept=seen.snapshots[tail+2];
+            require(image.t==actual.t && image.solid==actual.solid && image.h!=actual.h
+                    && same_fields(actual,ordinary),
+                    "CoolProp rejection changed the two-block ordinary state");
+            require(swept.h==actual.h && swept.t==data.t && swept.solid==data.solid,
+                    "CoolProp rejection skipped the final ordinary block");
+            auto one=c;one.max_iterations=1;one.cancel=nullptr;one.context=nullptr;
+            const auto repeated=solve_enthalpy(ordinary.grid(),ordinary.side(0),ordinary.side(1),
+                view(ordinary.solid_k),ordinary.state(true),one);
+            require(repeated.stop==EnthalpyStop::iteration_limit && repeated.iterations==1,
+                    "CoolProp rejection replay did not execute one ordinary block");
+            require_same_actual_solve(data,result,ordinary,repeated);
+
+            // The rejected PT was side A cell 3. As an initial state it is
+            // an actual input failure, not an optional trial to discard.
+            Case invalid=actual;
+            invalid.t[0][3]=107.4014706134527;
+            rejects<CoolProp::CoolPropBaseError>([&] {
+                solve_enthalpy(invalid.grid(),invalid.side(0),invalid.side(1),
+                    view(invalid.solid_k),invalid.state(true),one);
+            },"ordinary initial CoolProp failure was swallowed");
         }
 
         // Unit-depth 2D and a physical nz=1 extrusion have identical T fields;

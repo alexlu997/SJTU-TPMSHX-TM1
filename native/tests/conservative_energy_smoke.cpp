@@ -1,5 +1,5 @@
 #include "tpmshx/conservative_energy.hpp"
-#include "../src/energy_fv_rows.hpp"
+#include "../src/temperature_faces.hpp"
 
 #include <algorithm>
 #include <array>
@@ -184,6 +184,76 @@ void sou_linear_patch_six_directions() {
             close(shifted.q_b, audit.q_b, 1e-8, "SOU reference audit B");
             close(shifted.equation_ratio, audit.equation_ratio, 1e-10, "SOU reference ratio");
         }
+}
+
+void temperature_sou_internal_endpoint_face_accuracy() {
+    // This is fixed-capacity temperature reconstruction, distinct from the
+    // enthalpy SOU inlet/outlet powers checked above. Expected face values
+    // come only from analytic T(x) at cumulative physical face coordinates.
+    // Dyadic data make the affine identities and local h^2 errors exact.
+    constexpr std::size_t cells=4;
+    const std::array<double,cells> widths{.125,.375,.25,.5};
+    for(std::size_t axis=0;axis<3;++axis) for(int sign:{-1,1}) {
+        try {
+            Case c(axis==0?cells:1,axis==1?cells:1,axis==2?cells:1);
+            std::copy(widths.begin(),widths.end(),c.widths[axis].begin());
+            const auto grid=c.grid();
+            const detail::EnergyMesh mesh(grid);
+            // Reuse Side's face-array shapes, with C in W/K for this test.
+            auto capacity=c.a.mass,offset=c.a.mass;
+            const double C=sign*2.;
+            std::fill(capacity[axis].begin(),capacity[axis].end(),C);
+            const std::array<ArrayView<const double>,3> input{
+                read(capacity[0]),read(capacity[1]),read(capacity[2])};
+            const std::array<ArrayView<double>,3> output{
+                write(offset[0]),write(offset[1]),write(offset[2])};
+            std::array<double,cells+1> edges{};
+            for(std::size_t p=0;p<cells;++p) edges[p+1]=edges[p]+widths[p];
+            for(double slope:{-16.,16.}) {
+                for(std::size_t p=0;p<cells;++p)
+                    c.ta[p]=300.+slope*.5*(edges[p]+edges[p+1]);
+                detail::temperature_face_offsets(mesh,input,read(c.ta),output);
+                for(std::size_t face=1;face<cells;++face) {
+                    const auto donor=sign>0?face-1:face;
+                    const double expected=C*(300.+slope*edges[face]);
+                    close(C*c.ta[donor]+offset[axis][face],expected,0.,
+                        "nonuniform affine internal temperature face power");
+                    if((sign>0&&face==1)||(sign<0&&face==cells-1))
+                        require(expected!=C*c.ta[donor],
+                            "affine endpoint fixture does not distinguish zero correction");
+                }
+                for(std::size_t a=0;a<3;++a)
+                    for(std::size_t face=0;face<offset[a].size();++face)
+                        if(a!=axis||face==0||face==cells)
+                            close(offset[a][face],0.,0.,
+                                "exterior or untransported temperature correction");
+            }
+            // T(x)=300+16x+x^2 is smooth and monotone on each homothetic
+            // patch. Halving ALL widths must quarter the endpoint face error.
+            // This is local face-reconstruction order, not a fixed-domain
+            // mesh-convergence claim for the coupled finite-volume solver.
+            const auto quadratic=[](double x) { return 300.+16.*x+x*x; };
+            std::array<double,3> error{};
+            for(std::size_t level=0;level<error.size();++level) {
+                const double scale=std::ldexp(1.,-static_cast<int>(level));
+                for(std::size_t p=0;p<cells;++p) {
+                    c.widths[axis][p]=scale*widths[p];
+                    edges[p+1]=edges[p]+c.widths[axis][p];
+                    c.ta[p]=quadratic(.5*(edges[p]+edges[p+1]));
+                }
+                detail::temperature_face_offsets(mesh,input,read(c.ta),output);
+                const std::size_t face=sign>0?1:cells-1,donor=sign>0?0:cells-1;
+                error[level]=std::abs(C*c.ta[donor]+offset[axis][face]
+                    -C*quadratic(edges[face]));
+                require(error[level]>0.,"quadratic face fixture has no measurable truncation error");
+            }
+            close(error[0],4.*error[1],0.,"temperature endpoint face error is not locally second order");
+            close(error[1],4.*error[2],0.,"temperature endpoint face refinement lost local second order");
+        } catch(const std::exception& error) {
+            throw std::runtime_error("temperature SOU internal endpoint axis="+std::to_string(axis)
+                +" sign="+std::to_string(sign)+": "+error.what());
+        }
+    }
 }
 
 void isothermal_pressure_offsets_do_not_conduct() {
@@ -531,6 +601,7 @@ int main() {
     try {
         frozen_linear_balance_and_reference_shift();
         sou_linear_patch_six_directions();
+        temperature_sou_internal_endpoint_face_accuracy();
         isothermal_pressure_offsets_do_not_conduct();
         sou_extremum_has_no_outward_extrapolation();
         invalid_inputs_and_overflow();

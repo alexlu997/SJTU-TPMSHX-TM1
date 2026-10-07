@@ -79,6 +79,8 @@ struct EnthalpyResult {
 // reconstruction and differs from model-h's T reconstruction/boundary closure.
 // Its coupled Picard increment is damped by 0.6 before actual PT validation;
 // row relaxation, the SOU fixed-point equation and all audit gates are unchanged.
+// SOU recipe 2 may select an actual-PT/audit-validated Anderson proposal over
+// that map; only a complete ordinary block may declare final convergence.
 EnthalpyResult solve_enthalpy(const GridView& grid, const EnthalpySideView& a,
                              const EnthalpySideView& b, ArrayView<const double> k_ss,
                              EnthalpyStateView state, const EnthalpyControl& control);

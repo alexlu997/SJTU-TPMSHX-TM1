@@ -29,6 +29,10 @@ enum tpmshx_energy_algorithm {
     TPMSHX_ENERGY_TEMPERATURE_FOU = 1,
     TPMSHX_ENERGY_TEMPERATURE_SOU = 2
 };
+/* Recipe version for an executed conservative energy algorithm: FOU=1,
+ * SOU=2 (trial-first Anderson with ordinary final confirmation), unsupported
+ * or legacy=0. This read-only scalar query does not change any POD or ABI. */
+TPMSHX_THERMAL_API uint32_t TPMSHX_THERMAL_CALL tpmshx_energy_algorithm_version_v1(uint32_t algorithm);
 typedef struct {
     uint32_t algorithm;
     double temperature_update_tolerance; /* maximum actual A/B/solid change, K */

@@ -18,6 +18,10 @@ static int settings_match(const tpmshx_energy_effective_settings_v1* s,
         && s->equation_energy_tolerance==e->equation_energy_tolerance;
 }
 int main(void) {
+    if(tpmshx_energy_algorithm_version_v1(TPMSHX_ENERGY_TEMPERATURE_FOU)!=1
+       || tpmshx_energy_algorithm_version_v1(TPMSHX_ENERGY_TEMPERATURE_SOU)!=2
+       || tpmshx_energy_algorithm_version_v1(TPMSHX_ENERGY_LEGACY_H_FOU)!=0
+       || tpmshx_energy_algorithm_version_v1(UINT32_MAX)!=0)return 32;
     const double width[2]={.01,.01},opening[4]={1.,1.,1.,1.};
     double eps[8],half[8],k[8],cf[8],ks[8],length[8],area[8],diameter[8];
     for(size_t i=0;i<8;++i) {eps[i]=.6;half[i]=.3;k[i]=1e-8;cf[i]=40.;ks[i]=8.;length[i]=.007;area[i]=500.;diameter[i]=.003;}

@@ -157,6 +157,25 @@ macOS 尚未验收。继续复用 `.venv-path` 指定的现有锁定环境，环
 编译库或切换到 Python。需要 CO₂ BICUBIC 表的既有 legacy 路线使用随附四表；
 新的保守温度算法不使用这些表。公共 API、CLI 和直接模块调用仍默认使用 Python。
 
+已有锁定原生依赖时，可从当前源码离线重建并更新启动器使用的库：
+
+```sh
+"$PYTHON" scripts/build_native_dependencies.py build --component pilot
+mkdir -p native/lib/macos-arm64
+cp .cache/native-deps/build/pilot-macos-arm64/libtpmshx_solver_shared.dylib native/lib/macos-arm64/
+```
+
+此命令复用现有依赖；缺少锁定依赖时会停止，不在运行时安装或下载。
+`native/lib/` 是本地交付目录，已由 Git 忽略。源码改变后应重新构建匹配库。
+以 Python 数值后端打开同一界面可运行
+`"$PYTHON" -m sjtu_tpmshx.main --backend python`。
+在界面左侧“求解 → 求解器 → 计算后端”可直接选择 Python 或 C++，无需重启。
+初始选择由启动参数决定；切换作用于下一次普通计算、快速设计和优化。
+任务运行及取消收尾期间禁止切换。C++ 使用启动时指定的库，或本机 macOS
+交付目录中的匹配库；库缺失会保留原选择并提示原因。Python 线程数设置随
+后端切换启用，C++ 使用既有固定并行策略。此选择属于当前窗口的运行设置，
+不写入工况文件，也不改变已经生成的结果。
+
 2026-10-05 的候选验收保留以下边界：Ceff43 为 19/43 通过、24/43 超时，
 固定总体未通过；fixed230 执行和索引为 230/230，用时 93 分 18.5 秒，
 保存态独立检查为 229/230 通过，首行因审计工具错误未评估且未重试。
@@ -373,8 +392,8 @@ Pareto CSV 仍可导出几何；旧筛选模式不能再执行或重新计算指
 `RunControl(backend='cpp', native_library=...)` 或 CLI `--backend cpp`
 执行 Quick Design 和完整二维／三维求解；库路径、构建及能力边界见
 [C++ 迁移说明](docs/cpp-migration.md)。Windows 原生验收仍有缺口。
-完整二维接口为 ABI 2，必须同步分发库、头文件和适配器。Python 的可选 true-h
-C++ sweep 内核是单独的窄接口，物性和收敛仍由 Python 驱动。
+完整二维接口为 ABI 2，必须同步分发库、头文件和适配器。
+原 Python 外循环加 C++ sweep 内核的混合入口已退役；当前选择完整 Python 或 C++ 后端。
 OpenFOAM、REFPROP 等提供器、扩展 h/f/PEC 定义与伴随能力继续按
 M-B/原文限定追踪，不能据目录或接口声明为已实现。
 
