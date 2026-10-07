@@ -1076,26 +1076,26 @@ void Runtime::finish() {
                 {sg.nx,sg.nz},view(outlet),15);
         }
         if(candidate || result.thermal.temperature_audit) {
-            const auto& thermal=result.thermal;
+            const auto& evidence=result.thermal;
             const int axis=a.direction/2;const bool reverse=a.direction%2;
             double thermal_in=0.,thermal_out=0.,thermal_temperature=0.;
             boundary(g,axis,reverse,[&](std::size_t,std::size_t,std::size_t f,double) {
-                thermal_in+=std::max((reverse?-1.:1.)*thermal.mass[s][axis][f],0.);
+                thermal_in+=std::max((reverse?-1.:1.)*evidence.mass[s][axis][f],0.);
             });
             boundary(g,axis,!reverse,[&](std::size_t,std::size_t p,std::size_t f,double) {
-                const double weight=std::max((reverse?-1.:1.)*thermal.mass[s][axis][f],0.);
-                thermal_out+=weight;thermal_temperature+=weight*thermal.temperature[s][p];
+                const double weight=std::max((reverse?-1.:1.)*evidence.mass[s][axis][f],0.);
+                thermal_out+=weight;thermal_temperature+=weight*evidence.temperature[s][p];
             });
             result.inlet_mass[s]=thermal_in;
             result.outlet_temperature[s]=thermal_out>0.?thermal_temperature/thermal_out
                 :std::numeric_limits<double>::quiet_NaN();
-            if(thermal.temperature_audit) {
+            if(evidence.temperature_audit) {
                 double q=0.;
-                for(const auto& plane:thermal.temperature_audit->advective_out[s])
+                for(const auto& plane:evidence.temperature_audit->advective_out[s])
                     for(double value:plane) q-=value;
-                result.duty[s]=thermal.temperature_audit->boundary_complete?std::abs(q)
+                result.duty[s]=evidence.temperature_audit->boundary_complete?std::abs(q)
                     :std::numeric_limits<double>::quiet_NaN();
-            } else result.duty[s]=std::abs(s==0?thermal.true_h->q_a:thermal.true_h->q_b);
+            } else result.duty[s]=std::abs(s==0?evidence.true_h->q_a:evidence.true_h->q_b);
         } else if(true_h_pair) {
             eos.validate(a.fluid,a.inlet_temperature,a.inlet_pressure,"3D final inlet enthalpy");
             const double hin=eos.bracket_enthalpy(a.fluid,a.inlet_temperature,a.inlet_pressure);

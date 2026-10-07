@@ -523,7 +523,6 @@ StaggeredTemperatureResult StaggeredTemperatureDriver::solve(const GridView& gri
         old_q=q; for (std::size_t s=0;s<3;++s) std::copy(output[s].data,output[s].data+mesh.n,previous[s].begin());
     }
     if (conservative) {
-        const detail::EnergyMesh energy_mesh(grid);
         side_a.reconstruct(energy_mesh,view(t.a)); side_b.reconstruct(energy_mesh,view(t.b));
         auto ledger=energy_physical_audit(grid,side_a.energy(),side_b.energy(),ks,t,source_s,prescribed_b);
         result.residual[0]=residual(mesh,side_a,view(t.a),view(t.solid),std::move(ledger.residual[0]));

@@ -141,9 +141,9 @@ tpmshx_full3d_result_v1 output(Owner& o) {
         out.thermal_pressure[s]=array(e.pressure[s]);out.hv[s]=array(e.hv[s]);out.rho_cp[s]=array(e.rho_cp[s]);out.conductivity[s]=array(e.conductivity[s]);
         for(std::size_t d=0;d<3;++d) {out.mass[s][d]=array(e.mass[s][d]);out.face_velocity[s][d]=array(e.face_velocity[s][d]);}
         out.inlet_capacity[s]=array(e.inlet_capacity[s]);out.enthalpy[s]=array(e.enthalpy[s]);
-        if(e.staggered) {const auto& p=e.staggered->projection[s];const auto& f=e.staggered->residual[s];
-            out.staggered[s]={1,p.skipped,p.used_bordered_lu,p.cg_iterations,p.rhs_mean,p.residual_relative,array(f.cells),f.available,
-                f.sum,f.maximum,f.exchange,f.global_ratio,f.cell_ratio};}
+        if(e.staggered) {const auto& p=e.staggered->projection[s];const auto& residual=e.staggered->residual[s];
+            out.staggered[s]={1,p.skipped,p.used_bordered_lu,p.cg_iterations,p.rhs_mean,p.residual_relative,array(residual.cells),residual.available,
+                residual.sum,residual.maximum,residual.exchange,residual.global_ratio,residual.cell_ratio};}
         out.pressure_drop[s]=r.pressure_drop[s];out.outlet_temperature[s]=r.outlet_temperature[s];out.inlet_mass[s]=r.inlet_mass[s];
         out.duty[s]=r.duty[s];out.maximum_mach[s]=r.maximum_mach[s];out.minimum_pressure[s]=r.minimum_pressure[s];
         out.solid_exchange[s]=r.solid_exchange[s];out.interior_exchange[s]=r.interior_exchange[s];out.physical_mass_in[s]=r.physical_mass_in[s];
@@ -182,7 +182,7 @@ tpmshx_full3d_result_v1 output(Owner& o) {
     for(const auto& w:r.warnings)o.warnings.push_back(w.c_str());out.warnings=o.warnings.data();out.warning_count=o.warnings.size();
     for(const auto& w:r.envelope_reasons)o.envelope_reasons.push_back(w.c_str());
     out.envelope_reasons=o.envelope_reasons.data();out.envelope_reason_count=o.envelope_reasons.size();
-    for(const auto& r:r.range_observations)o.ranges.push_back(range_observation_view(r));
+    for(const auto& observation:r.range_observations)o.ranges.push_back(range_observation_view(observation));
     out.range_observations=o.ranges.data();out.range_observation_count=o.ranges.size();
     out.energy_imbalance=r.energy_imbalance;out.interior_duty=r.interior_duty;out.interior_imbalance=r.interior_imbalance;out.enthalpy_imbalance=r.enthalpy_imbalance;
     return out;
