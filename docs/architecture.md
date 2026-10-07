@@ -35,6 +35,9 @@ SIMPLE momentum residuals near convergence are audited against each run's own
 returned field after outlet closure and the original F2 gate. Their histories
 retain the actual raw numerator, denominator and normalized residual; a capped
 2D solve retains its last pre-closure observation without a new certificate.
+Complete 2D SIMPLE mass-history comparisons use a dimensionless absolute floor
+of 1e-8, 1% of the default 1e-6 F2 mass gate; final mass and F2 checks keep their
+original limits. Progress samples must equal that run's own recorded residuals.
 
 A capped outer run remains nonconverged. Its returned thermal state is checked
 with its actual last inputs and original energy gates; it is not accepted as

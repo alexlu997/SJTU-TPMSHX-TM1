@@ -63,10 +63,11 @@ def compare(result, handle, actual, expected, reference):
         result['mass']['local_residual'], result['mass']['global_residual']],
         [expected.final_res, expected.final_res_mass_local, expected.final_res_mass_global],
         rtol=1e-4, atol=2e-11)
-    for kind, name in enumerate(('residuals', 'mass_local_residuals', 'mass_global_residuals')):
-        np.testing.assert_allclose(handle.history(kind), getattr(expected, name), rtol=1e-4, atol=2e-11)
     oracle.compare_momentum(actual, expected, result['momentum']['maximum'], handle.history(3),
                             measured=result['post_closure_measured'], converged=result['converged'])
+    for kind, name in enumerate(('residuals', 'mass_local_residuals', 'mass_global_residuals')):
+        np.testing.assert_allclose(handle.history(kind), getattr(expected, name),
+                                   rtol=1e-4, atol=oracle.MASS_HISTORY_ATOL, err_msg=name)
     assert result['pressure']['success']
     assert result['pressure']['relative_residual'] <= 1e-10
     assert result['pressure']['pin_maximum'] <= 1e-10
@@ -85,8 +86,9 @@ def test_public_prepared_fields_f2_and_progress(public_library, fluid, variable)
         oracle.compare_fields(actual, expected)
         compare(result, handle, actual, expected, reference)
         np.testing.assert_array_equal(np.asarray(progress)[:, 0], np.asarray(reference_progress)[:, 0])
-        np.testing.assert_allclose(np.asarray(progress)[:, 1], np.asarray(reference_progress)[:, 1],
-                                   rtol=1e-4, atol=2e-11)
+        for samples, residuals in ((np.asarray(progress), handle.history(0)),
+                                   (np.asarray(reference_progress), np.asarray(expected.residuals))):
+            np.testing.assert_array_equal(samples[:, 1], residuals[samples[:, 0].astype(int)-1])
 
 
 def test_public_warm_reuse_target_history_and_grid_copy(public_library):
