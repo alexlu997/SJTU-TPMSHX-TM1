@@ -143,7 +143,11 @@ def python(case, monkeypatch):
 
 def legacy_equivalent(c, native, monkeypatch):
     expected = python(c, monkeypatch)
-    code, status, metrics, output, error = native(c)
+    return assert_equivalent(c, native(c), expected)
+
+
+def assert_equivalent(c, actual, expected):
+    code, status, metrics, output, error = actual
     assert code == 0, error
     info, balance = expected[3], expected[3]["model_h_balance"]
     assert status[0] == (0 if info["converged"] else 1)

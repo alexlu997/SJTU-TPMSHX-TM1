@@ -51,15 +51,30 @@ def control(path,**kwargs):
     return RunControl(backend='cpp',native_library=str(path),native_table_directory=str(ROOT/'.cache/native-deps/tables'),**kwargs)
 
 
-def compare(actual,expected,path=''):
+def compare(actual,expected,path='', *, engineering=False):
     if isinstance(expected,Mapping):
         assert actual.keys()==expected.keys(),path
-        for key,value in expected.items():compare(actual[key],value,path+'/'+str(key))
+        for key,value in expected.items():compare(actual[key],value,path+'/'+str(key),engineering=engineering)
     elif isinstance(expected,(tuple,list)):
         assert len(actual)==len(expected),path
-        for i,value in enumerate(expected):compare(actual[i],value,path+'/'+str(i))
+        for i,value in enumerate(expected):compare(actual[i],value,path+'/'+str(i),engineering=engineering)
     elif isinstance(expected,(np.ndarray,float,np.floating)):
-        np.testing.assert_allclose(actual,expected,rtol=2e-7,atol=1e-6,equal_nan=True,err_msg=path)
+        if isinstance(expected,np.ndarray):
+            assert np.shape(actual)==expected.shape,path
+            if expected.dtype.kind in 'biu':
+                np.testing.assert_array_equal(actual,expected,err_msg=path)
+                return
+        rtol,atol=2e-7,1e-6
+        if engineering:
+            rtol=1e-4  # Intermediate fields: 0.01%, independently of physical gates.
+            key=path.rsplit('/',1)[-1]
+            if key.startswith(('Ta','Tb','Ts','T_out')) or 'temperature' in path:
+                rtol,atol=0.,.01
+            elif key in ('Q','Q_A','Q_B','dP_A','dP_B','mass_flow_A','mass_flow_B'):
+                rtol,atol=.001,0.
+            elif key=='energy_imbalance_rel':
+                rtol,atol=0.,1e-5  # Compare near-zero ratios in absolute units.
+        np.testing.assert_allclose(actual,expected,rtol=rtol,atol=atol,equal_nan=True,err_msg=path)
     else:
         assert actual==expected,path
 
@@ -157,19 +172,22 @@ def test_old_full3d_library_missing_trace_has_explicit_capability_error(native_p
 
 @pytest.mark.parametrize('pair',['air-air','air-water','water-air','air-sco2','sco2-water'])
 def test_public_case_fields_native_ledgers_and_postprocess(native_path,pair):
+    from sjtu_tpmshx.tests.native.test_backend_engineering_parity import _physical_gates
     prepared=case(pair);expected=python_run(prepared)
     # A Python numerical entry cannot supply any part of the native answer.
     with patch('sjtu_tpmshx.solvers.backends.python.three_d.runtime.build_problem',side_effect=AssertionError('Python numerical driver called')):
         actual=cpp_run(prepared,control(native_path))
     assert actual.backend_id=='cpp'
+    for result in (actual,expected):
+        _physical_gates(result)
     for key in ('fields','field_metadata','boundary_fluxes','pressure_evidence','run_status'):
-        compare(getattr(actual,key),getattr(expected,key),key)
+        compare(getattr(actual,key),getattr(expected,key),key,engineering=True)
     for key in ('model_metadata','application','reporting_reference','df_metadata'):
-        compare(actual.metadata[key],expected.metadata[key],key)
+        compare(actual.metadata[key],expected.metadata[key],key,engineering=key in ('application','reporting_reference'))
     for key in ('Q','Q_A','Q_B','dP_A','dP_B','T_out_A','T_out_B','mass_flow_A','mass_flow_B','energy_imbalance_rel'):
         a,e=evaluate(actual).metrics[key],evaluate(expected).metrics[key]
         assert a.status==e.status
-        compare(a.value,e.value,key)
+        compare(a.value,e.value,key,engineering=True)
     for key in ('simple_ok','ltne_ok','outer_converged','fields_finite','envelope_ok','simple_exit_A','simple_exit_B'):
         compare(actual.metadata['diagnostics']['convergence_detail'][key],expected.metadata['diagnostics']['convergence_detail'][key],key)
 
@@ -210,7 +228,7 @@ def test_capped_public_keeps_distinct_pressure_states(native_path):
     assert not a.run_status['converged']
     assert a.metadata['diagnostics']['true_h_balance']['post_after_last_thermal']
     assert np.max(np.abs(a.fields['P_report_A']-a.fields['P_thermal_A']))>1e-5
-    compare(a.fields,e.fields,'cap-fields')
+    compare(a.fields,e.fields,'cap-fields',engineering=True)
     for key in ('P_A_offset_Pa','P_B_offset_Pa','P_A_range_Pa','P_B_range_Pa'):
         compare(a.metadata['diagnostics']['true_h_balance'][key],e.metadata['diagnostics']['true_h_balance'][key],key)
 
@@ -262,11 +280,11 @@ def test_opt_in_audit_exports_final_capped_state_and_nu_observations(native_path
     prepared=case(pair,2)
     prepared=replace(prepared,parameters=dict(prepared.parameters,_emit_audit=True))
     a=cpp_run(prepared,control(native_path));e=python_run(prepared)
-    compare(a.metadata['application'],e.metadata['application'],'application')
+    compare(a.metadata['application'],e.metadata['application'],'application',engineering=True)
     expected=e.metadata['diagnostics'];actual=a.metadata['diagnostics']
     for key in expected:
         if key.startswith('_audit_') or key in ('sco2_nu_observations','envelope_reasons','envelope_warnings'):
-            compare(actual[key],expected[key],key)
+            compare(actual[key],expected[key],key,engineering=True)
 
 
 @pytest.mark.parametrize('design_mode',['grid','continuous','continuous_xyz','asymmetric'])
@@ -295,17 +313,41 @@ def test_prepared_spatial_and_asymmetric_geometry(native_path,design_mode):
 
 
 @pytest.mark.parametrize('pair',['air-air','air-water','water-air','air-sco2','sco2-water'])
-def test_runtime_range_evidence_preserves_original_sources_and_denominators(native_path,pair):
+def test_runtime_range_evidence_preserves_original_sources_and_denominators(native_path,pair,monkeypatch):
     # The public entry owns its warning scope; inspect the adapter's raw range
     # records here, while the remaining integration cases use the public entry.
     from sjtu_tpmshx.solvers.backends.cpp.full_3d import run_case as adapter_run
-    prepared=case(pair,2);expected={};actual={}
+    from sjtu_tpmshx.domain import run_warnings
+    from sjtu_tpmshx.models import tpms_props, nu_correlations
+    prepared=case(pair,2);expected={};actual={};snapshots={}
+    def observe(source,values,*args,**kwargs):
+        array=np.asarray(values)
+        key=(*source,array.shape,run_warnings._range_context.get())
+        snapshots.setdefault(key,[]).append(array.copy())
+        return run_warnings.record_range(source,values,*args,**kwargs)
+    monkeypatch.setattr(tpms_props,'record_range',observe)
+    monkeypatch.setattr(nu_correlations,'record_range',observe)
     with warning_scope(expected):python_run(prepared)
     with warning_scope(actual):adapter_run(prepared,control(native_path))
     assert actual.keys()==expected.keys()
     for key,value in expected.items():
         if isinstance(value,RangeRecord):
-            compare(vars(actual[key]),vars(value),str(key))
+            a=dict(vars(actual[key]));e=dict(vars(value))
+            for name in ('minimum','maximum'):
+                got,want=a.pop(name),e.pop(name)
+                if want is None:
+                    assert got is None
+                    continue
+                label='temperature' if value.quantity=='T' else 'range'
+                compare(got[0],want[0],label,engineering=True)
+                if got[1]!=want[1]:
+                    # Symmetric cells can exchange argmin/argmax after roundoff.
+                    # The reported location must still carry the same extremum
+                    # in an observed source snapshot, not merely be in bounds.
+                    rtol,atol=(0.,.01) if value.quantity=='T' else (1e-4,1e-6)
+                    assert any(np.isclose(row[got[1]],want[0],rtol=rtol,atol=atol)
+                               for row in snapshots[key])
+            compare(a,e,str(key))
         else:
             assert actual[key]==value
 

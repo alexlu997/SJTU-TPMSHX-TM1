@@ -21,8 +21,20 @@ Engineering backend parity requires one prepared case, independent convergence
 and energy gates, at most 0.1% relative differences in duty, pressure drop and
 mass flow, and at most 0.01 K absolute differences in outlet and full-field
 temperatures. `test_backend_engineering_parity.py` covers eight fluid pairings
-in 2D and 3D. It supplements the tighter numerical regressions and does not
+in 2D and 3D. Public 3D comparisons use these limits, with 0.01% relative
+tolerance for intermediate fields and explicit absolute tolerances for
+near-zero residual ratios. Counts, states, sources and physical gates remain
+separate assertions; a different extremum location must still identify an
+extremum in the original observed field. Save/replay, independent formula and
+assembly checks retain their tighter tolerances. These comparisons do not
 qualify unsupported metrics or untested physical conditions.
+
+Full-driver capture and component ABI tests use the current thermal component
+when checking that algorithm's fields, iteration counts and residual records.
+They do not require the retained Python thermal iterator to follow the same
+trajectory. Public backend engineering tests still run both complete backends
+independently. The fullCC capture checks its integral-h(T) boundary powers
+against the component ledger, separately from the retained Python cp*T report.
 
 This is the current architectural and physical contract for the repository.
 Historical audits and reports explain how the project reached this state, but

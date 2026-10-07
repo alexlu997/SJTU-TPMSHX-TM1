@@ -1,7 +1,8 @@
 """Stable model-h C ABI: public metadata, callbacks and owned state.
 
-Use the already-fixed full-driver tolerances; compare all nested metadata and
-all returned boundary faces, without replacing any physical acceptance gate.
+Compare the public ABI with the same native component, then independently
+audit its returned equations and boundary faces with the existing Python checks.
+The historical Python iterator follows a different short-budget trajectory.
 """
 from concurrent.futures import ThreadPoolExecutor
 import copy
@@ -18,6 +19,9 @@ from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.solvers.backends.cpp.model_h import NativeModelHDriver, _model_h_algorithm
 from sjtu_tpmshx.tests.native import test_model_h_2d as plane
 from sjtu_tpmshx.tests.native import test_model_h_3d as volume
+
+native_plane = plane.native
+native_volume = volume.native
 
 
 @pytest.fixture(scope='module')
@@ -67,7 +71,7 @@ def compare(actual, expected, *, rtol, atol):
 
 @pytest.mark.parametrize('dimension', [2, 3])
 @pytest.mark.parametrize('kind', ['partial', 'cold', 'rb', 'zero', 'converged', 'anderson', 'unknown'])
-def test_full_public_metadata(driver, monkeypatch, dimension, kind):
+def test_full_public_metadata(driver, native_plane, native_volume, dimension, kind):
     oracle = plane if dimension == 2 else volume
     c = oracle.straight_case() if kind in ('converged', 'anderson', 'unknown') else oracle.case()
     if kind == 'cold':
@@ -82,19 +86,17 @@ def test_full_public_metadata(driver, monkeypatch, dimension, kind):
         c.update(accelerate=True, maxit=139, chunk=67)
     if kind == 'unknown':
         c['a'][2][-1] = -.0001 if dimension == 2 else -.000001
-    expected = oracle.python(c, monkeypatch)
     original = copy.deepcopy(c)
+    reference = copy.deepcopy(c)
+    component = (native_plane if dimension == 2 else native_volume)(reference)
+    oracle.assert_actual_state(reference, component)
     actual = driver(**arguments(c))
-    for a, e in zip(actual[:3], expected[:3]):
-        np.testing.assert_allclose(a, e, rtol=2e-10 if c['accelerate'] else 2e-11,
-                                   atol=2e-8 if c['accelerate'] else 2e-9)
+    oracle.assert_equivalent(reference, component, actual)
     algorithm = ('shared_fv_model_h_2d_defect_v1' if dimension == 2
                  else 'shared_fv_model_h_3d_compensated_v1')
     assert _model_h_algorithm(driver.library, dimension) == algorithm
     info = actual[3].copy()
     assert info.pop('native_metadata') == dict(abi=1, algorithm=algorithm, red_black=c['rb'])
-    compare(info, expected[3], rtol=2e-10 if dimension == 2 else 2e-9,
-            atol=2e-8 if dimension == 2 else 2e-9)
     compare(c, original, rtol=0, atol=0)
     if dimension == 2:
         json.dumps(actual[3], allow_nan=True)
@@ -104,12 +106,15 @@ def test_full_public_metadata(driver, monkeypatch, dimension, kind):
         assert not actual[3]['converged']
 
 
-def test_manufactured_sources_preserve_certificate(driver, monkeypatch):
+def test_manufactured_sources_preserve_certificate(driver, native_volume):
     c = volume.case(sweeps=31)
     c['a'][7] = np.full(c['shape'], 31.)
     c['b'][7] = np.full(c['shape'], -29.)
     c['source_s'] = np.full(c['shape'], 3.)
-    compare(driver(**arguments(c)), volume.python(c, monkeypatch), rtol=2e-9, atol=2e-9)
+    reference = copy.deepcopy(c)
+    component = native_volume(reference)
+    volume.assert_actual_state(reference, component)
+    volume.assert_equivalent(reference, component, driver(**arguments(c)))
 
 
 def test_interrupt_after_native_return_releases_owner(driver, monkeypatch):

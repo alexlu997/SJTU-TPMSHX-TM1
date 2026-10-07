@@ -17,7 +17,10 @@ from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.backends.cpp.full_2d import NativeFull2DDriver
 from sjtu_tpmshx.solvers.backends.cpp.full_2d_capture import capture_result
 from sjtu_tpmshx.solvers.backends.python.two_d.execution import build_execution_inputs, run_case as python_run
-from sjtu_tpmshx.tests.native.test_full_2d import ROOT, configuration
+from sjtu_tpmshx.tests.native import full_thermal_reference
+from sjtu_tpmshx.tests.native.test_full_2d import ROOT, configuration, capture_python
+
+same_thermal = full_thermal_reference.same_thermal
 
 
 @pytest.fixture(scope='module')
@@ -50,6 +53,8 @@ def compare(actual, expected, path=''):
             atol = 2e-5
         elif any(key in path for key in ('W_per_m', 'h_faces', '/Q', 'denominator', 'solid_abs_sum', 'fluid_abs_sum', 'fluid_cell_max')):
             atol = 2e-7
+        elif path.endswith('residual_cellmax_rel'):
+            atol = 1e-8  # Near-zero residual ratios; physical gates are separate.
         np.testing.assert_allclose(actual, expected, rtol=rtol, atol=atol, equal_nan=True, err_msg=path)
     else:
         assert actual == expected, path
@@ -65,7 +70,7 @@ def captured(driver, case):
         return capture_result(case, cfg, prepared, raw), raw
 
 
-def compare_portable(actual, expected):
+def compare_portable(actual, expected, *, full_cc=False):
     assert actual.backend_id == 'cpp'
     assert actual.backend_version == 'full_2d_v2'
     for key in ('fields', 'field_metadata', 'pressure_evidence', 'run_status'):
@@ -77,17 +82,30 @@ def compare_portable(actual, expected):
         assert fine.pop('native') == dict(
             abi=2, algorithm='shared_fv_model_h_2d_defect_v1', red_black=False)
         fluxes['fine'] = fine
+    if full_cc:
+        # Additional fullCC powers are checked against the component ledger by
+        # the caller; the retained Python capture has no such evidence.
+        fluxes.pop('temperature')
+        fine = dict(fluxes['fine'])
+        for key in ('native', 'temperature', 'mass_A', 'mass_B', 'mass_unit'):
+            fine.pop(key)
+        fluxes['fine'] = fine
     compare(fluxes, expected.boundary_fluxes, 'boundary_fluxes')
     for key in ('model_metadata', 'application', 'reporting_reference', 'df_metadata'):
         compare(actual.metadata[key], expected.metadata[key], key)
     actual_metrics, expected_metrics = evaluate(actual).metrics, evaluate(expected).metrics
     for key in ('Q', 'Q_A', 'Q_B', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B', 'mass_flow_A', 'mass_flow_B', 'energy_imbalance_rel'):
+        if full_cc and key in ('Q', 'Q_A', 'Q_B', 'energy_imbalance_rel'):
+            continue  # Checked from the fullCC ledger, not the legacy cp*T duty.
         a, e = actual_metrics[key], expected_metrics[key]
         assert a.status == e.status, (key, a, e)
         compare(a.value, e.value, key)
     a, e = actual.metadata['diagnostics'], expected.metadata['diagnostics']
     compare(a['convergence_detail'], e['convergence_detail'], 'convergence_detail')
-    compare(a['richardson_info'], e['richardson_info'], 'richardson_info')
+    fine_info = dict(e['richardson_info']) if e['richardson_info'] is not None else None
+    if full_cc:
+        fine_info.pop('_full_reference')
+    compare(a['richardson_info'], fine_info, 'richardson_info')
     compare(a['model_h_balance'], e['model_h_balance'], 'model_h_balance')
     compare(a['sco2_nu_observations'], e['sco2_nu_observations'], 'sco2_nu_observations')
     for key in ('Q_A', 'Q_B', 'Q_net', 'Q_solid_richardson', 'Q_richardson_warn', 'energy_imbalance_rel',
@@ -114,7 +132,7 @@ def compare_range_records(actual, expected):
                     atol=2e-7 if e.quantity == 'T' else 2e-10, err_msg=str((key, name)))
 
 
-@pytest.mark.parametrize('mode', ['temperature', 'model_h', 'true_h'])
+@pytest.mark.parametrize('mode', ['model_h', 'true_h'])
 def test_capped_partial_fields_last_inputs_and_recomputed_metrics(driver, mode):
     case = prepare_case(configuration(directions=(1, 2), outer=2, partial=True, mode=mode),
                         case_id='capture-partial-' + mode)
@@ -129,6 +147,52 @@ def test_capped_partial_fields_last_inputs_and_recomputed_metrics(driver, mode):
     assert not np.array_equal(actual.fields['Ta'], actual.fields['Ta_display'])
     np.testing.assert_array_equal(actual.metadata['rho_cp_A'], None if mode == 'true_h' else raw['main']['rho_cp'][0])
     assert actual.metadata['diagnostics']['native_full_2d']['range_observations']
+
+
+def test_capped_temperature_capture_uses_current_full_cc_enthalpy(driver, same_thermal):
+    """The native fullCC route and the retained Python cp*T route differ."""
+    from sjtu_tpmshx.solvers.backends.python.two_d.result_capture import capture_result as python_capture
+
+    case = prepare_case(configuration(directions=(1, 2), outer=2, mode='temperature'),
+                        case_id='capture-partial-temperature')
+    with warning_scope({}) as expected_records:
+        reference = capture_python(case, full=True, thermal=same_thermal)
+        expected = python_capture(case, *reference['raw_return'])
+    with warning_scope({}) as actual_records:
+        actual, raw = captured(driver, case)
+    compare_range_records(actual_records, expected_records)
+    compare_portable(actual, expected, full_cc=True)
+    assert actual.run_status['final_flow_after_last_thermal'] and not actual.run_status['converged']
+    assert not np.array_equal(actual.fields['Ta'], actual.fields['Ta_display'])
+    np.testing.assert_array_equal(actual.metadata['rho_cp_A'], raw['main']['rho_cp'][0])
+    for stage, calls in (('main', 'coarse_thermal_calls'), ('fine', 'thermal_calls')):
+        info = reference[calls][-1][1]
+        evidence = actual.boundary_fluxes if stage == 'main' else actual.boundary_fluxes['fine']
+        ledger = evidence['temperature']
+        assert ledger['definition'] == 'model_enthalpy_temperature_v1'
+        assert ledger['physical_dimension'] == 2 and ledger['power_units'] == 'W/m'
+        assert ledger['physical_boundary_complete'] == info['_full_reference']['boundary_complete']
+        assert raw[stage]['iterations'] == info['iterations'] and raw[stage]['stop'] == 0
+        for phase in ('A', 'B', 'solid'):
+            compare(ledger['residual'][phase], raw[stage]['temperature_evidence']['residual'][phase])
+            for kind in ('advective_out', 'diffusive_out'):
+                compare(ledger[kind][phase], raw[stage]['temperature_evidence'][kind][phase])
+        powers = [-sum(np.sum(face) for face in ledger['advective_out'][side].values()) for side in 'AB']
+        compare(powers, info['_full_reference']['advective_inward'], stage + '/Q')
+        assert info['_full_reference']['energy_error_ratio'] <= 1e-7
+    fine = actual.boundary_fluxes['fine']
+    assert fine['native'] == dict(abi=2, algorithm='model_h_tface_sou_fou_strict_v3', red_black=False)
+    assert fine['mass_unit'] == 'kg/(s m)'
+    for side, mass in zip('AB', reference['refinement_mass_faces']):
+        compare(fine['mass_' + side], mass)
+    metrics = evaluate(actual).metrics
+    powers = reference['coarse_thermal_calls'][-1][1]['_full_reference']['advective_inward']
+    for side, power in zip('AB', powers):
+        assert metrics['Q_' + side].status == 'available'
+        compare(metrics['Q_' + side].value, power, 'Q_' + side)
+    assert metrics['Q'].status == metrics['energy_imbalance_rel'].status == 'available'
+    compare(metrics['Q'].value, abs(powers[0]), 'Q')
+    compare(metrics['energy_imbalance_rel'].value, abs(sum(powers)) / max(map(abs, powers)))
 
 
 @pytest.mark.parametrize('outer,warm', [(2, False), (2, True)])
@@ -214,15 +278,20 @@ def test_partial_optimization_cases_preserve_fine_water_balance(
     assert actual.metadata['diagnostics']['model_h_balance']['fine']['B']['physical_boundary_complete']
 
 
-def test_golden_air_prepared_case_retains_accepted_refinement(driver):
+def test_golden_air_prepared_case_retains_accepted_refinement(driver, same_thermal):
     from sjtu_tpmshx.solvers.api import run_case
+    from sjtu_tpmshx.solvers.backends.python.two_d.result_capture import capture_result as python_capture
     case = prepare_case(ComputeConfig.from_json(str(ROOT / 'examples/three_module/air_2d.json')),
                         case_id='capture-golden-air2d')
-    expected = python_run(case)
+    reference = capture_python(case, full=True, thermal=same_thermal)
+    raw, diagnostics = reference['raw_return']
+    component_metadata = diagnostics['richardson_info'].pop('native_metadata')
+    expected = python_capture(case, raw, diagnostics)
     with patch('sjtu_tpmshx.solvers.backends.python.two_d.runtime.build_runtime',
                side_effect=AssertionError('Python SIMPLE construction called')):
         actual = run_case(case, RunControl(backend='cpp', native_library=str(driver.path),
                                           native_table_directory=os.fsdecode(driver.table_directory)))
+    assert component_metadata == dict(abi=1, algorithm='shared_fv_model_h_2d_defect_v1', red_black=False)
     compare_portable(actual, expected)
     assert actual.run_status['converged']
     assert actual.metadata['diagnostics']['richardson_info']['extrapolated']
