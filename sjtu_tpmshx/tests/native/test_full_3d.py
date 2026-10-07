@@ -340,7 +340,7 @@ def test_no_b_solver_prescribed_temperature(native, same_thermal):
     assert_equivalent(native.run(cfg, p), reference(cfg, p, thermal=same_thermal))
 
 
-def _report_refined_grid_failure(actual, expected):
+def _report_refined_grid_failure(actual, expected, *, include_roundoff=False):
     """Expose the first CI/local divergence without changing comparison gates."""
     print("wall24 failure environment:", dict(machine=platform.machine(), macos=platform.mac_ver()[0],
         python_compiler=platform.python_compiler(),
@@ -368,15 +368,20 @@ def _report_refined_grid_failure(actual, expected):
             print("field mismatch:", name, dict(native_shape=got.shape, python_shape=want.shape))
             return 1
         passing = np.isclose(got, want, rtol=rtol, atol=atol, equal_nan=True)
-        if np.all(passing):
+        if np.all(passing) and (not include_roundoff or np.array_equal(got, want, equal_nan=True)):
             return 0
         finite = np.isfinite(got) & np.isfinite(want)
+        largest = int(np.argmax(np.where(finite, np.abs(got-want), -1.))) if np.any(finite) else None
         print("field mismatch:", name, dict(
             max_abs=float(np.max(np.abs(got[finite]-want[finite]))) if np.any(finite) else None,
+            unequal_values=int(np.count_nonzero(got != want)),
+            largest_index=largest,
+            native_value=None if largest is None else float(got[largest]),
+            python_value=None if largest is None else float(want[largest]),
             failing_values=int(np.count_nonzero(~passing)),
             native_nonfinite=int(np.count_nonzero(~np.isfinite(got))),
             python_nonfinite=int(np.count_nonzero(~np.isfinite(want))), rtol=rtol, atol=atol))
-        return 1
+        return int(not np.all(passing))
 
     failed = 0
     for code, key in enumerate(("Ta", "Tb", "Ts", "P_thermal_A", "P_thermal_B", "h_vA", "h_vB", "rho_cp_A", "rho_cp_B")):
@@ -410,6 +415,13 @@ def test_refined_real_grid_and_existing_energy_acceleration(native, same_thermal
         assert_equivalent(actual, expected)
     except AssertionError:
         _report_refined_grid_failure(actual, expected)
+        # A separate one-outer replay exposes the first thermal inputs and
+        # return before their differences feed the second flow/thermal pass.
+        # Keep the failed original two-outer assertion and all its budgets.
+        first = dict(p, max_outer=1)
+        print("wall24 first-outer diagnostic replay (including roundoff):")
+        _report_refined_grid_failure(native.run(cfg, first),
+            reference(cfg, first, thermal=same_thermal), include_roundoff=True)
         raise
 
 
