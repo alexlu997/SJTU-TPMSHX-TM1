@@ -695,7 +695,6 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
                               eps_g / 2.0, lengths, D_h * 1000.0, Pr)
         return A0 * Nu_arr * k_f_scalar / D_h
 
-    tpms_type = cfg['tpms_type']
     Lcell = cfg['Lcell']; t_wall = cfg['t_wall']
 
     state = _OuterState2D(mu_A=rA['mu'], mu_B=rB['mu'])
@@ -1286,10 +1285,8 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
         state.Ts = gaussian_filter(state.Ts, sigma=_st)
 
     # ── Step 3: Pressure from SIMPLE ──
-    P_inA = cfg['compute_cfg'].fluid_A.P_in_Pa
-    P_inB = cfg['compute_cfg'].fluid_B.P_in_Pa
     P_fA, P_fB, dP_A, dP_B = _compute_pressure_2d(
-        state.simpA, state.simpB, dir_A, dir_B, P_inA, P_inB)
+        state.simpA, state.simpB, dir_A, dir_B, P_inA_val, P_inB_val)
     if not _enthalpy_mode:
         for side, fluid, temperature in (('A', fluid_A, Ta_raw), ('B', fluid_B, Tb_raw)):
             with range_context(side=side, stage='final', layout='real-cell(x,y)'):

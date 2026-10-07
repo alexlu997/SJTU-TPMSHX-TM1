@@ -109,8 +109,7 @@ def build_execution_inputs(case: CaseData):
         zone['zones'] = [Zone(**item) for item in zone['zones']]
         zone = ZoneConfig(**zone)
     cfg['zone_config'] = zone
-    prepared = dict(energy_dx=dx, energy_dy=dy,
-                    _x_breaks=case.grid['x_breaks'], _y_breaks=case.grid['y_breaks'])
+    prepared = dict(energy_dx=dx, energy_dy=dy)
     return cfg, prepared
 
 
