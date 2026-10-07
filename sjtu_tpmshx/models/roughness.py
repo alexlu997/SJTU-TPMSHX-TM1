@@ -20,10 +20,11 @@ Bhatti & Shah (1987). Historical mode changes remain in Git history.
 from __future__ import annotations
 import numpy as np
 
+from sjtu_tpmshx.models.nu_correlations import NU_ROUGHNESS_FACTOR
+
 _PETUKHOV = (0.790, 1.64)
 _HAALAND = (1.8, 3.7, 1.11, 6.9)
 _NU_GAIN_POWER = 0.68
-_AIR_BASELINE_NU = 1.28
 
 # ─── Smooth-wall friction baselines ─────────────────────────────────
 
@@ -80,7 +81,7 @@ def nu_extra_factor(Re, mode='baseline', eps_um=None, D_h_mm=None):
     if mode == 'bhatti_shah_1b':
         f_gain = f_enhancement(Re, mode, eps_um, D_h_mm)
         g_nu = f_gain ** _NU_GAIN_POWER
-        return float(g_nu / _AIR_BASELINE_NU)
+        return float(g_nu / NU_ROUGHNESS_FACTOR)
     raise ValueError(f"unknown roughness mode {mode!r}")
 
 

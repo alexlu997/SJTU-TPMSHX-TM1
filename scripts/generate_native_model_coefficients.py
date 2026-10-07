@@ -45,7 +45,7 @@ def header():
                         ("envelope_r_air", R_AIR_DEFAULT),
                         ("envelope_gamma_air", GAMMA_AIR),
                         ("roughness_nu_power", roughness._NU_GAIN_POWER),
-                        ("roughness_nu_baseline", roughness._AIR_BASELINE_NU),
+                        ("roughness_nu_baseline", nu.NU_ROUGHNESS_FACTOR),
                         ("enthalpy_bracket_margin", _ENTHALPY_BRACKET_MARGIN_K),
                         ("model_h_relaxation", MODEL_H_RELAXATION)):
         lines.append(f"inline constexpr double {name} = {float(value)!r};")

@@ -42,7 +42,6 @@ def _arguments(monkeypatch, directions=(1, 3), full=False):
         rho_cp_A=1., rho_cp_B=1., simpA=captured[0], simpB=captured[1],
         N_x=shape[0], N_y=shape[1], L=.182, H=.042,
         dir_A=directions[0], dir_B=directions[1], energy_dx=dx, energy_dy=dy,
-        _x_breaks=fields['_x_breaks'], _y_breaks=fields['_y_breaks'],
         T_inA=400., T_inB=300., P_inA_val=101325., P_inB_val=101325., eps=.7,
         za=None, coeffs=dict(K_ffA=1., K_ffB=1., K_ss=1.),
         _pA=props, _pB=props, cfgA=parsed['cfgA'], cfgB=parsed['cfgB'],
@@ -62,9 +61,8 @@ def _finite_refined(args, kwargs, converged):
 
 
 @pytest.mark.parametrize('full', [False, True])
-@pytest.mark.parametrize('port_wall_refine', [False, True])
 def test_refinement_bisects_actual_cells_and_preserves_old_edges(
-        monkeypatch, full, port_wall_refine):
+        monkeypatch, full):
     _, arguments = _arguments(monkeypatch, full=full)
     observed = {}
 
@@ -73,7 +71,7 @@ def test_refinement_bisects_actual_cells_and_preserves_old_edges(
         return _finite_refined(args, kwargs, True)
 
     monkeypatch.setattr(solve_2d, 'solve_full_domain', refined)
-    solve_2d._compute_Q_richardson(**arguments, port_wall_refine=port_wall_refine)
+    solve_2d._compute_Q_richardson(**arguments)
     for axis in ('x', 'y'):
         coarse = arguments['energy_d' + axis]
         fine = observed['d' + axis + '_arr']

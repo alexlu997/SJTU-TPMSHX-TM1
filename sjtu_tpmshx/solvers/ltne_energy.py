@@ -153,8 +153,8 @@ def _model_h_cell(T, Ts, K, hv, i, j, dx, dy, direction, Tin, ifrac,
 
 
 @njit(cache=True)
-def _sou_corr_x(T, i, j, Nx, u_loc, Fx_field, dx=None):
-    """Shared signed-flux correction; u_loc is retained for caller compatibility."""
+def _sou_corr_x(T, i, j, Nx, Fx_field, dx=None):
+    """Shared signed-flux x correction on the actual cell-centre coordinates."""
     correction = 0.0
     for face in (i, i+1):
         if 0 < face < Nx:
@@ -171,7 +171,7 @@ def _sou_corr_x(T, i, j, Nx, u_loc, Fx_field, dx=None):
 
 
 @njit(cache=True)
-def _sou_corr_y(T, i, j, Ny, v_loc, Fy_field, dy=None):
+def _sou_corr_y(T, i, j, Ny, Fy_field, dy=None):
     """Shared signed-flux y correction on the actual cell-centre coordinates."""
     correction = 0.0
     for face in (j, j+1):
@@ -289,7 +289,6 @@ def _gs_full_chunk(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
                 dN = diff_A[i, j, 3]
                 dS = diff_A[i, j, 2]
 
-                u_loc = ucA[i,j]; v_loc = vcA[i,j]
                 # A3: signed shared-face fluxes (arithmetic mean of the
                 # two cells' signed fluxes — identical value on both
                 # sides of a face ⇒ globally telescoping). Domain-edge
@@ -334,8 +333,8 @@ def _gs_full_chunk(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
                         tN = T_inA_arr[idx_in]
 
                 # Model-h uses its own frozen-face SOU, computed above.
-                sou = (_sou_corr_x(Ta, i, j, Nx, u_loc, FxAs, dx_arr)
-                       + _sou_corr_y(Ta, i, j, Ny, v_loc, FyAs, dy_arr)) if mass_A is None else 0.0
+                sou = (_sou_corr_x(Ta, i, j, Nx, FxAs, dx_arr)
+                       + _sou_corr_y(Ta, i, j, Ny, FyAs, dy_arr)) if mass_A is None else 0.0
 
                 aP = aE + aW + aN + aS + hvA
                 if mass_A is not None:
@@ -387,7 +386,6 @@ def _gs_full_chunk(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
                     dN = diff_B[i, j, 3]
                     dS = diff_B[i, j, 2]
 
-                    u_loc = ucB[i,j]; v_loc = vcB[i,j]
                     # A3: conservative signed shared-face fluxes (see the
                     # fluid-A block).
                     FxP = FxBs[i, j]; FyP = FyBs[i, j]
@@ -438,8 +436,8 @@ def _gs_full_chunk(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
                     # face-consistent telescoping form, gated by sou_B
                     # (kill switch: solve_full_domain(use_sou_B=False)).
                     if sou_B == 1 and mass_A is None:
-                        sou = (_sou_corr_x(Tb, i, j, Nx, u_loc, FxBs, dx_arr)
-                               + _sou_corr_y(Tb, i, j, Ny, v_loc, FyBs, dy_arr))
+                        sou = (_sou_corr_x(Tb, i, j, Nx, FxBs, dx_arr)
+                               + _sou_corr_y(Tb, i, j, Ny, FyBs, dy_arr))
                     else:
                         sou = 0.0
 
@@ -527,7 +525,6 @@ def _gs_full_chunk_rb(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
                 dW = diff_A[i, j, 0]
                 dN = diff_A[i, j, 3]
                 dS = diff_A[i, j, 2]
-                u_loc = ucA[i,j]; v_loc = vcA[i,j]
                 # A3: conservative signed shared-face fluxes (serial twin).
                 FxP = FxAs[i, j]; FyP = FyAs[i, j]
                 Fe = 0.5 * (FxP + (FxAs[i+1, j] if i < Nx-1 else FxP))
@@ -568,8 +565,8 @@ def _gs_full_chunk_rb(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
                         tN = T_inA_arr[idx_in]
 
                 # Model-h uses its own frozen-face SOU, computed above.
-                sou = (_sou_corr_x(Ta_snap, i, j, Nx, u_loc, FxAs, dx_arr)
-                       + _sou_corr_y(Ta_snap, i, j, Ny, v_loc, FyAs, dy_arr)) if mass_A is None else 0.0
+                sou = (_sou_corr_x(Ta_snap, i, j, Nx, FxAs, dx_arr)
+                       + _sou_corr_y(Ta_snap, i, j, Ny, FyAs, dy_arr)) if mass_A is None else 0.0
                 aP = aE + aW + aN + aS + hvA
                 if mass_A is not None:
                     new = _model_h_cell(Ta, Ts, K_ffA_arr, h_vA_arr, i, j,
@@ -609,7 +606,6 @@ def _gs_full_chunk_rb(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
                     dW = diff_B[i, j, 0]
                     dN = diff_B[i, j, 3]
                     dS = diff_B[i, j, 2]
-                    u_loc = ucB[i,j]; v_loc = vcB[i,j]
                     # A3: conservative signed shared-face fluxes; SOU
                     # re-enabled in face-consistent form, gated by sou_B
                     # (see the serial kernel for the 2026-06-24 history).
@@ -652,8 +648,8 @@ def _gs_full_chunk_rb(Ta, Tb, Ts, Nx, Ny, dx_arr, dy_arr,
                             tN = T_inB_arr[idx_in]
 
                     if sou_B == 1 and mass_A is None:
-                        sou = (_sou_corr_x(Tb_snap, i, j, Nx, u_loc, FxBs, dx_arr)
-                               + _sou_corr_y(Tb_snap, i, j, Ny, v_loc, FyBs, dy_arr))
+                        sou = (_sou_corr_x(Tb_snap, i, j, Nx, FxBs, dx_arr)
+                               + _sou_corr_y(Tb_snap, i, j, Ny, FyBs, dy_arr))
                     else:
                         sou = 0.0
                     aP = aE + aW + aN + aS + hvB

@@ -37,7 +37,10 @@ from sjtu_tpmshx.ui.ui_constants import HIGH_VELOCITY_NOTICE_MS, TOAST_MS_MED, T
 from sjtu_tpmshx.domain.module_ports import RunControl
 
 
-from sjtu_tpmshx.ui.compute_api_adapter import run as _run_pipeline
+def _run_pipeline(config, cancel_token, progress_cb, *, pipeline_cls, ui_hooks, control=RunControl()):
+    return pipeline_cls(config, progress_cb=progress_cb,
+                        cancel_token=cancel_token, ui_hooks=ui_hooks, control=control).run()
+
 
 class RunControllerMixin:
     """Compute entry points + orchestrator signal handlers + UI lifecycle."""

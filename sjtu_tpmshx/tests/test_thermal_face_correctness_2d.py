@@ -15,7 +15,7 @@ def test_signed_turning_thermal_correction_cancels(axis):
         temperature, flux = temperature.T.copy(), flux.T.copy()
     correction = energy._sou_corr_y if axis else energy._sou_corr_x
     net = sum(correction(temperature, 0 if axis else p, p if axis else 0,
-                         n, float(np.sign(flux[0, p] if axis else flux[p, 0])), flux)
+                         n, flux)
               for p in range(n))
     assert net == pytest.approx(0., abs=1e-12)
 

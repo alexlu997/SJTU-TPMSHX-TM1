@@ -591,7 +591,7 @@ def _assemble_pp_data_jit(data, rhs, u, v, d_u, d_v, Nx, Ny, dx_arr, dy_arr, rho
                       + (rho_n * v[i, j+1] - rho_s * v[i, j]) * dxi)
 
 
-def _solve_pp_sparse_fast(Pp, u, v, d_u, d_v, outlet_frac,
+def _solve_pp_sparse_fast(Pp, u, v, d_u, d_v,
                           Nx, Ny, dx_arr, dy_arr, rho_field, sparsity):
     """Pressure-Poisson solve with precomputed sparsity pattern.
 

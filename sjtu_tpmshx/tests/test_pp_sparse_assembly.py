@@ -28,7 +28,7 @@ def test_singular_pp_records_nonfinite_fact_without_changing_solution():
     sparsity = _build_pp_sparsity_pattern(1, 2, outlet)
     correction = np.zeros((1, 2))
     with warning_scope({}) as records, pytest.warns(MatrixRankWarning):
-        _solve_pp_sparse_fast(correction, u, v, d_u, d_v, outlet,
+        _solve_pp_sparse_fast(correction, u, v, d_u, d_v,
                               1, 2, dx, dy, rho, sparsity)
     assert np.isnan(correction).all()
     assert list(records.values()) == [
@@ -107,7 +107,7 @@ def _run_both(Nx, Ny, seed):
     sparsity = _build_pp_sparsity_pattern(Nx, Ny, outlet_frac)
     Pp_fast = np.zeros((Nx, Ny))
     A_fast, rhs_fast = _solve_pp_sparse_fast(
-        Pp_fast, u, v, d_u, d_v, outlet_frac,
+        Pp_fast, u, v, d_u, d_v,
         Nx, Ny, dx_arr, dy_arr, rho_field, sparsity)
     return (Pp_ref, A_ref, rhs_ref), (Pp_fast, A_fast, rhs_fast)
 

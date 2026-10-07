@@ -29,7 +29,7 @@ def test_sou_corr_x_telescopes_with_nonuniform_flux_uplus():
     Fx = np.zeros((Nx, 1))
     for i in range(Nx):
         Fx[i, 0] = 1.0 + 0.4 * i          # non-uniform flux field
-    total = sum(_sou_corr_x(T, i, 0, Nx, 1.0, Fx) for i in range(Nx))
+    total = sum(_sou_corr_x(T, i, 0, Nx, Fx) for i in range(Nx))
     assert abs(total) < 1e-9, f"x-SOU not conservative (sum={total})"
 
 
@@ -39,7 +39,7 @@ def test_sou_corr_x_telescopes_with_nonuniform_flux_uminus():
     Fx = np.zeros((Nx, 1))
     for i in range(Nx):
         Fx[i, 0] = -(2.0 - 0.15 * i)
-    total = sum(_sou_corr_x(T, i, 0, Nx, -1.0, Fx) for i in range(Nx))
+    total = sum(_sou_corr_x(T, i, 0, Nx, Fx) for i in range(Nx))
     assert abs(total) < 1e-9, f"x-SOU (u<0) not conservative (sum={total})"
 
 
@@ -49,7 +49,7 @@ def test_sou_corr_y_telescopes_with_nonuniform_flux():
     Fy = np.zeros((1, Ny))
     for j in range(Ny):
         Fy[0, j] = 1.0 + 0.4 * j
-    total = sum(_sou_corr_y(T, 0, j, Ny, 1.0, Fy) for j in range(Ny))
+    total = sum(_sou_corr_y(T, 0, j, Ny, Fy) for j in range(Ny))
     assert abs(total) < 1e-9, f"y-SOU not conservative (sum={total})"
 
 
@@ -63,7 +63,7 @@ def test_sou_corr_x_uniform_flux_matches_local_form():
     F = 1.7
     Fx = np.full((Nx, 1), F)
     for i in range(Nx):
-        got = _sou_corr_x(T, i, 0, Nx, 1.0, Fx)
+        got = _sou_corr_x(T, i, 0, Nx, Fx)
         phi_w = minmod(T[i-1, 0] - T[i-2, 0], T[i, 0] - T[i-1, 0]) if i > 1 else 0.0
         phi_e = (minmod(T[i, 0] - T[i-1, 0], T[i+1, 0] - T[i, 0])
                  if (i < Nx - 1 and i > 0) else 0.0)

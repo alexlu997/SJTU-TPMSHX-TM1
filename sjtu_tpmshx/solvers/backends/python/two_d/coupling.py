@@ -196,11 +196,11 @@ from .result_capture import _zone_statistics_2d  # noqa: F401 - existing public 
 def _compute_Q_richardson(
         Ta, Tb, Ts, ucA, vcA, ucB, vcB, rho_cp_A, rho_cp_B,
         simpA, simpB, N_x, N_y, L, H, dir_A, dir_B,
-        energy_dx, energy_dy, _x_breaks, _y_breaks,
+        energy_dx, energy_dy,
         T_inA, T_inB, P_inA_val, P_inB_val, eps, za, coeffs,
         _pA, _pB, cfgA, cfgB, u_A, u_B, warnings_list,
         h_vA_coarse, h_vB_coarse, split_A=0.5, cancel_check=None,
-        model_inputs=None, model_balance=None, evidence=None, port_wall_refine=False):
+        model_inputs=None, model_balance=None, evidence=None):
     """Heat duty Q via Richardson extrapolation on the enthalpy balance.
 
     Re-solves the coupled energy field on a 2x-refined grid, applies
@@ -612,7 +612,6 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
     fluid_B = cfg.get('fluid_B', 'air')
 
     energy_dx = fields['energy_dx']; energy_dy = fields['energy_dy']
-    _x_breaks = fields['_x_breaks']; _y_breaks = fields['_y_breaks']
     _run_simple = fields['_run_simple']
     simple_warnings = fields['simple_warnings']
 
@@ -1345,12 +1344,11 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
          richardson_warn, richardson_info) = _compute_Q_richardson(
             Ta_raw, Tb_raw, Ts_raw, state.ucA, state.vcA, state.ucB, state.vcB, rcp_A_energy, rcp_B_energy,
             state.simpA, state.simpB, N_x, N_y, L, H, dir_A, dir_B,
-            energy_dx, energy_dy, _x_breaks, _y_breaks,
+            energy_dx, energy_dy,
             T_inA, T_inB, P_inA_val, P_inB_val, eps, za, coeffs,
             _pA, _pB, cfgA, cfgB, u_A, u_B, warnings_list,
             h_vA_coarse=hv_A_energy, h_vB_coarse=hv_B_energy,
             split_A=_split_A_2d,
-            port_wall_refine=cfg['compute_cfg'].flags.port_wall_refine,
             cancel_check=cancel_check, model_inputs=state.last_model_inputs, model_balance=model_balance,
             **({'evidence': fine_evidence} if cfg.get('_capture_native') else {}))
 
