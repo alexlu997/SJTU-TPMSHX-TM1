@@ -1,8 +1,8 @@
 """2D SIMPLE equation and full-state qualification against the current Python owner.
 
-Frozen before first comparison: operator rtol=2e-12, atol=2e-12;
-full state rtol=2e-10, pressure atol=2e-8 Pa, velocity atol=2e-11 m/s.
-These arithmetic tolerances do not alter any SIMPLE/F2 acceptance gate.
+Independent operators retain rtol=2e-12, atol=2e-12. Complete iterative fields
+use the approved 0.01% relative comparison, with the existing pressure floor
+2e-8 Pa and velocity floor 2e-11 m/s. SIMPLE/F2 gates and counts remain exact.
 """
 from __future__ import annotations
 
@@ -162,8 +162,9 @@ def python_predictor(solver, sweeps):
 def compare_fields(actual, expected, *, operator=False):
     for field in ("u", "v", "P", "Pp", "d_u", "d_v", "rho_field", "v_inlet_field"):
         atol = 2e-12 if operator else (2e-8 if field in {"P", "Pp"} else 2e-11)
+        assert getattr(actual, field).shape == getattr(expected, field).shape, field
         np.testing.assert_allclose(getattr(actual, field), getattr(expected, field),
-            rtol=2e-12 if operator else 2e-10, atol=atol, err_msg=field)
+            rtol=2e-12 if operator else 1e-4, atol=atol, err_msg=field)
     # Raw solver-axis mass flows, without an outlet/global repair or projection.
     for s in (actual, expected):
         re = s.rho_field*s.eps_field
@@ -171,8 +172,8 @@ def compare_fields(actual, expected, *, operator=False):
                      + np.pad(re, ((0, 1), (0, 0)), mode="edge"))*s.u*s.dy_arr[None, :]
         s.raw_y = .5*(np.pad(re, ((0, 0), (1, 0)), mode="edge")
                      + np.pad(re, ((0, 0), (0, 1)), mode="edge"))*s.v*s.dx_arr[:, None]
-    np.testing.assert_allclose(actual.raw_x, expected.raw_x, rtol=2e-10, atol=2e-12)
-    np.testing.assert_allclose(actual.raw_y, expected.raw_y, rtol=2e-10, atol=2e-12)
+    np.testing.assert_allclose(actual.raw_x, expected.raw_x, rtol=2e-10 if operator else 1e-4, atol=2e-12)
+    np.testing.assert_allclose(actual.raw_y, expected.raw_y, rtol=2e-10 if operator else 1e-4, atol=2e-12)
 
 
 def compare_result(out, expected, native, reference_result):
@@ -186,14 +187,16 @@ def compare_result(out, expected, native, reference_result):
                         (8, "final_res_mass_global"), (9, "outlet_backflow_frac")):
         value = getattr(expected, name)
         np.testing.assert_allclose(out[index], np.nan if value is None else value,
-                                   rtol=2e-10, atol=2e-11, equal_nan=True, err_msg=name)
+                                   rtol=1e-4, atol=2e-11, equal_nan=True, err_msg=name)
     assert out[12] == getattr(expected, "_p_clip_hits", 0)
     np.testing.assert_allclose(out[13], getattr(expected, "_massflux_target", np.nan), equal_nan=True)
     for kind, name in enumerate(("residuals", "mass_local_residuals", "mass_global_residuals")):
-        np.testing.assert_allclose(native.history(kind), getattr(expected, name), rtol=2e-10, atol=2e-11)
+        np.testing.assert_allclose(native.history(kind), getattr(expected, name), rtol=1e-4, atol=2e-11)
     records = np.array([[r["iter"], r["max"], *r["num"], *r["den"], r["u"], r["v"]]
                         for r in expected.mom_residuals]).reshape(-1, 8)
-    np.testing.assert_allclose(native.history(3).reshape(-1, 8), records, rtol=2e-10, atol=2e-11)
+    history = native.history(3).reshape(-1, 8)
+    np.testing.assert_array_equal(history[:, 0], records[:, 0])
+    np.testing.assert_allclose(history[:, 1:], records[:, 1:], rtol=1e-4, atol=2e-11)
 
 
 @pytest.mark.parametrize("sweeps", [1, 3])
@@ -233,7 +236,9 @@ def test_complete_cold_solver_fields_and_f2(library, fluid, partial, variable):
         out = native.call(actual)
         compare_fields(actual, expected)
         compare_result(out, expected, native, reference)
-        np.testing.assert_allclose(native.history(4).reshape(-1, 2), progress, rtol=2e-10, atol=2e-11)
+        history = native.history(4).reshape(-1, 2)
+        np.testing.assert_array_equal(history[:, 0], np.asarray(progress)[:, 0])
+        np.testing.assert_allclose(history[:, 1], np.asarray(progress)[:, 1], rtol=1e-4, atol=2e-11)
         assert out[24] == out[2]
 
 

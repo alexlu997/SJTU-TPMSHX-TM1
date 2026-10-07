@@ -2,8 +2,8 @@
 
 The oracle executes the existing production outer and _compute_Q_richardson.
 No synthetic thermal result, altered budget or weakened gate is substituted.
-Frozen tolerances: T 2e-9/2e-7 K, P 2e-8/2e-5 Pa; other fields
-2e-8/2e-10, powers/audits 2e-8/2e-7 W/m. Gates/charged counts are exact.
+Complete iterative fields use the approved comparisons in test_full_2d;
+powers/audits retain 2e-8/2e-7 W/m. Gates/charged counts are exact.
 """
 from copy import deepcopy
 

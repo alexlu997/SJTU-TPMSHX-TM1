@@ -46,18 +46,35 @@ def compare(actual, expected, path=''):
         for index, value in enumerate(expected):
             compare(actual[index], value, path + '/' + str(index))
     elif isinstance(expected, (np.ndarray, float, np.floating)):
+        if isinstance(expected, np.ndarray):
+            assert np.shape(actual) == expected.shape, path
+            if expected.dtype.kind in 'biu':
+                np.testing.assert_array_equal(actual, expected, err_msg=path)
+                return
         rtol, atol = 2e-8, 2e-10
         if any(key in path for key in ('/Ta', '/Tb', '/Ts', 'temperature', 'T_out', 'residual_K')):
             rtol, atol = 2e-9, 2e-7
         elif any(key in path for key in ('/P_', '_Pa', 'pressure')):
             atol = 2e-5
-        elif any(key in path for key in ('W_per_m', 'h_faces', '/Q', 'denominator', 'solid_abs_sum', 'fluid_abs_sum', 'fluid_cell_max')):
+        elif path.rsplit('/', 1)[-1].startswith('Q') or any(key in path for key in (
+                'W_per_m', 'h_faces', '/Q', 'denominator', 'solid_abs_sum', 'fluid_abs_sum', 'fluid_cell_max')):
             atol = 2e-7
         elif path.endswith('residual_cellmax_rel'):
             atol = 1e-8  # Near-zero residual ratios; physical gates are separate.
         np.testing.assert_allclose(actual, expected, rtol=rtol, atol=atol, equal_nan=True, err_msg=path)
     else:
         assert actual == expected, path
+
+
+def test_power_comparison_uses_units_at_root_and_nested_paths():
+    for path in ('Q_net', 'diagnostics/Q_net'):
+        compare(2.153230187265869, 2.15323, path)
+        with pytest.raises(AssertionError):
+            compare(2.15324, 2.15323, path)
+    with pytest.raises(AssertionError):
+        compare(False, True, 'Q_richardson_warn')
+    with pytest.raises(AssertionError):
+        compare(np.array([100001]), np.array([100000]), 'counts')
 
 
 def captured(driver, case):
