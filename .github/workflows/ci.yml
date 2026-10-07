@@ -123,18 +123,19 @@ jobs:
           retention-days: 7
 
   native-dependencies:
-    name: native-dependencies (${{ matrix.os }}, ${{ matrix.python }})
+    name: native-dependencies (${{ matrix.platform.os }}, ${{ matrix.platform.python }}, ${{ matrix.shard }})
     strategy:
       fail-fast: false
       matrix:
-        include:
+        shard: [0, 1]
+        platform:
           - os: macos-14
             python: "3.13"
           - os: windows-2022
             python: "3.12"
           - os: windows-2022
             python: "3.13"
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.platform.os }}
     timeout-minutes: 90
     env:
       PYTHONHASHSEED: "0"
@@ -163,7 +164,7 @@ jobs:
           'CXX=cl' | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - uses: actions/setup-python@v6
         with:
-          python-version: ${{ matrix.python }}
+          python-version: ${{ matrix.platform.python }}
           cache: pip
           cache-dependency-path: requirements-lock.txt
       - name: Create isolated native qualification environment
@@ -256,15 +257,19 @@ jobs:
           sjtu_tpmshx/tests/native/test_backend_engineering_parity.py
           sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py
           sjtu_tpmshx/tests/native/test_cpp_conservative_full3d.py
+          -p sjtu_tpmshx.tests.ci_shard --ci-shard=${{ matrix.shard }}
+          --ci-shard-modules=sjtu_tpmshx/tests/native/_ci_shard0.txt
+          --ci-manifest=.cache/ci/native-manifest
           --timeout=600 --timeout-method=thread --durations=20
           --junitxml=.cache/ci/native-dependencies.xml
       - name: Save native qualification outcomes
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: native-dependencies-${{ matrix.os }}-py${{ matrix.python }}
+          name: native-dependencies-${{ matrix.platform.os }}-py${{ matrix.platform.python }}-shard-${{ matrix.shard }}
           path: |
             .cache/ci/native-dependencies.xml
+            .cache/ci/native-manifest/
             .cache/native-deps/logs/
           include-hidden-files: true
           if-no-files-found: error
@@ -309,6 +314,15 @@ jobs:
           python scripts/check_ci_shards.py
           .cache/ci-shards/test-reports-${{ matrix.os }}-py${{ matrix.python }}-fast-0/fast-manifest
           .cache/ci-shards/test-reports-${{ matrix.os }}-py${{ matrix.python }}-fast-1/fast-manifest
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: native-dependencies-${{ matrix.os }}-py${{ matrix.python }}-shard-*
+          path: .cache/ci-shards
+      - name: Require both complete and disjoint native shards
+        run: >-
+          python scripts/check_ci_shards.py --serial
+          .cache/ci-shards/native-dependencies-${{ matrix.os }}-py${{ matrix.python }}-shard-0/ci/native-manifest
+          .cache/ci-shards/native-dependencies-${{ matrix.os }}-py${{ matrix.python }}-shard-1/ci/native-manifest
 
   bo-tests:
     strategy:

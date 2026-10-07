@@ -457,11 +457,19 @@ envelope 实现、三模块数据契约与公共 API、后处理指标入口；�
 `"$PYTHON" scripts/check_ci_shards.py .cache/ci/fast-0 .cache/ci/fast-1`
 核对两个 worker 的集合一致、两片互斥且完整覆盖原子集。
 
-CI 日志保留最慢 30 项和 skip 原因。每片将 JUnit 与 collection manifest 保存为
+原生资格检查也按完整模块分到两个独立 runner，每片串行执行，保留各自的
+原生构建、独立调用及全部数值断言。其分片 0 清单为
+`sjtu_tpmshx/tests/native/_ci_shard0.txt`，通过 `--ci-shard-modules` 指定；
+未列出的资格模块自动进入分片 1。每片上传
+`native-dependencies-<平台>-py<版本>-shard-<0|1>`，包含 JUnit、构建日志和
+`ci/native-manifest`；同一集合校验器加 `--serial` 核对两片完整且互斥。
+原生日志保留最慢 20 项和 skip 原因。
+
+快测和集成日志保留最慢 30 项和 skip 原因。每片将 JUnit 与 collection manifest 保存为
 `test-reports-<平台>-py<版本>-<fast-0|fast-1|integration>` artifact，保留 7 天。
 manifest 附带各 pytest 进程的独立 RSS 峰值与已加载 Numba dispatcher 的缓存计数；
 进程峰值不能相加当作同期总峰值，统计不覆盖普通子进程或已经销毁的 dispatcher。
-三个原名 `tests (<平台>, <版本>)` 必需检查共同等待全部平台的测试片和 BO，
+三个原名 `tests (<平台>, <版本>)` 必需检查共同等待全部平台的测试片、BO 和原生资格片，
 只接受全部成功及分片集合校验通过；失败、取消、跳过或缺失分片不能放行。
 `minimal-postprocess` 继续作为独立必需检查。
 比较速度时区分快测、集成和整个 job，并使用相同平台的基准，不据本地耗时承诺 CI 提速。
