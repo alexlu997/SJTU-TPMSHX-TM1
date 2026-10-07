@@ -215,8 +215,8 @@ EnergyRow assemble_fluid_energy_row(const EnergyMesh& m,const Phase& f,
                 // writes, and raw audit cannot certify this boundary.
                 const bool defined=f.inlet.direction==-1||known_inlet(m,f.inlet,c,axis,sign);
                 if(G>0.) {
-                    const double inlet=inlet_temperature(f.inlet,m.patch(axis,c));
-                    const double value=G*(Defect ? inlet-t[p]:inlet);
+                    const double inlet_T=inlet_temperature(f.inlet,m.patch(axis,c));
+                    const double value=G*(Defect ? inlet_T-t[p]:inlet_T);
                     row.rhs+=value;
                     if constexpr(!Defect) row.local_rhs+=value;
                 }

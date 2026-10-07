@@ -62,9 +62,9 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_temperature_driver(
                     residual[phase*n+cell] = ledger.solved[phase] ? ledger.residual[phase][cell]
                         : std::numeric_limits<double>::quiet_NaN();
                 for (std::size_t face=0; face<6; ++face)
-                    for (const auto* values : {&ledger.advective_out[phase][face], &ledger.diffusive_out[phase][face]})
+                    for (const auto* face_power : {&ledger.advective_out[phase][face], &ledger.diffusive_out[phase][face]})
                         for (std::size_t patch=0; patch<n/shape[face/2]; ++patch)
-                            powers[power++] = ledger.solved[phase] ? (*values)[patch]
+                            powers[power++] = ledger.solved[phase] ? (*face_power)[patch]
                                 : std::numeric_limits<double>::quiet_NaN();
             }
         }

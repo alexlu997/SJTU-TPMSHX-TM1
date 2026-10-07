@@ -7,7 +7,7 @@ set(HAVE_METIS 0)
 set(HAVE_COLAMD 1)
 set(XSDK_INDEX_SIZE 32)
 configure_file("${SUPERLU_SOURCE}/SRC/superlu_config.h.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/superlu_config.h")
+    "${CMAKE_CURRENT_BINARY_DIR}/tpmshx_superlu_config.h")
 set(lu_sources
     superlu_timer.c util.c memory.c get_perm_c.c mmd.c sp_coletree.c
     sp_preorder.c sp_ienv.c relax_snode.c heap_relax_snode.c colamd.c
@@ -24,21 +24,19 @@ target_include_directories(tpmshx_superlu_lu SYSTEM PUBLIC
 target_compile_definitions(tpmshx_superlu_lu PRIVATE SCIPY_FIX=1)
 target_include_directories(tpmshx_superlu_lu PRIVATE "${TPMSHX_ROOT}/native/include"
     "${TPMSHX_ROOT}/native/src")
-# Upstream tracks a source-directory config enabling METIS. Its quoted include
-# wins normal include search; preinclude this generated config so its guard
-# supplies the explicitly selected 32-bit/no-METIS contract to C and C++ alike.
+# Use a distinct generated name: hooks load it before upstream headers even
+# when MSVC processes source-level forced includes before target options.
+# Public consumers retain the same 32-bit/no-METIS contract.
 if(MSVC)
     target_compile_options(tpmshx_superlu_lu PUBLIC
-        "/FI${CMAKE_CURRENT_BINARY_DIR}/superlu_config.h")
-    # Keep the generated no-METIS config ahead of hooks in the source-level list.
+        "/FI${CMAKE_CURRENT_BINARY_DIR}/tpmshx_superlu_config.h")
     set(superlu_hooks_option
-        "/FI${CMAKE_CURRENT_BINARY_DIR}/superlu_config.h"
         "/FI${TPMSHX_ROOT}/native/src/superlu_hooks.h")
     set_source_files_properties("${TPMSHX_ROOT}/native/src/superlu_solve.c" PROPERTIES
         COMPILE_OPTIONS "/W4;/WX")
 else()
     target_compile_options(tpmshx_superlu_lu PUBLIC
-        "SHELL:-include \"${CMAKE_CURRENT_BINARY_DIR}/superlu_config.h\"")
+        "SHELL:-include \"${CMAKE_CURRENT_BINARY_DIR}/tpmshx_superlu_config.h\"")
     set(superlu_hooks_option "-include${TPMSHX_ROOT}/native/src/superlu_hooks.h")
     set_source_files_properties("${TPMSHX_ROOT}/native/src/superlu_solve.c" PROPERTIES
         COMPILE_OPTIONS "-Wall;-Wextra;-Wpedantic;-Werror")
