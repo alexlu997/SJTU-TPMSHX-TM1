@@ -176,9 +176,10 @@ assert not any(name.startswith(('numba','sjtu_tpmshx.solvers.ltne_',
     'sjtu_tpmshx.solvers.simple_', 'sjtu_tpmshx.solvers.backends.python.two_d.runtime',
     'sjtu_tpmshx.solvers.backends.python.two_d.coupling')) for name in sys.modules)
 '''
+    # The same SOU solve took 134 s in-process on Windows qualification runners.
     completed = subprocess.run([sys.executable, '-c', code, str(case_path), str(result_path),
         str(tmp_path / 'replayed.h5'), str(driver.path), str(ROOT / '.cache/native-deps/tables')],
-        cwd=ROOT, capture_output=True, text=True, timeout=120)
+        cwd=ROOT, capture_output=True, text=True, timeout=300)
     assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
