@@ -20,9 +20,8 @@ from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.io.text_file import write_text
 from sjtu_tpmshx.logutil import get_logger
 from sjtu_tpmshx.models.continuous_field import decision_bounds
-from sjtu_tpmshx.optimization.multi_condition import (
-    evaluate_condition_batch, resolve_fixed_mass_flow_config,
-)
+from sjtu_tpmshx.optimization.multi_condition import _evaluate_condition_batch
+from sjtu_tpmshx.domain.portable_data import mutable_data
 
 
 _log = get_logger(__name__)
@@ -224,8 +223,8 @@ def run_multi_condition_optimization(
             zones = ZoneInputConfig(enabled=True, axis='continuous',
                                      config={**spec, 'x_decision': row['x_decision']})
             candidates = [(name, replace(cfg, zones=zones), a, b) for name, cfg, a, b in inputs]
-            result = evaluate_condition_batch(candidates, output_dir=root / row['directory'],
-                baseline=baseline['results'], control=batch_control(row['index']+1))
+            result = _evaluate_condition_batch(candidates, output_dir=root / row['directory'],
+                baseline=baseline['summaries'], control=batch_control(row['index']+1))
             if result['status'] != 'completed':
                 row.update(status='failed', reason=result.get('reason') or 'condition batch failed')
                 return
@@ -253,15 +252,15 @@ def run_multi_condition_optimization(
         record['baseline']['status'] = 'running'
         publish()
         uniform = [(name, replace(cfg, zones=ZoneInputConfig()), a, b) for name, cfg, a, b in inputs]
-        baseline = evaluate_condition_batch(uniform, output_dir=root / 'baseline', control=batch_control(0))
+        baseline = _evaluate_condition_batch(uniform, output_dir=root / 'baseline', control=batch_control(0))
         record['baseline'].update(status=baseline['status'], reason=baseline.get('reason'))
         if baseline['status'] != 'completed':
             record.update(status='failed', reason='Uniform baseline batch failed')
             return record
         # Resolve replayable speeds only after the baseline has retained each
         # condition's preparation/solve outcome, including invalid target flows.
-        inputs = tuple((name, resolve_fixed_mass_flow_config(
-            cfg, mass_flow_A_kg_s=a, mass_flow_B_kg_s=b), a, b) for name, cfg, a, b in uniform)
+        inputs = tuple((name, ComputeConfig.from_dict(mutable_data(
+            baseline['summaries'][name]['config_snapshot'])), a, b) for name, _, a, b in uniform)
         for archived, (_, cfg, _, _) in zip(record['conditions'], inputs):
             archived['config'] = cfg.to_dict()
         record['stage'] = 'initial'

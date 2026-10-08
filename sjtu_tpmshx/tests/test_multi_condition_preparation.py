@@ -11,7 +11,7 @@ from sjtu_tpmshx.domain.compute_config import (
 from sjtu_tpmshx.models.field_coordinates_3d import _solver_staggered_to_real
 from sjtu_tpmshx.optimization.multi_condition import prepare_fixed_mass_flow_case
 from sjtu_tpmshx.preprocess.three_d import preparation
-from sjtu_tpmshx.preprocess.api import prepare_case, prepare_inlet_mass_capacities
+from sjtu_tpmshx.preprocess.api import prepare_case, prepare_inlet_mass_capacities, resolve_fixed_mass_flow_config
 from sjtu_tpmshx.preprocess.inlet_flow import total_inlet_mass_capacity
 from sjtu_tpmshx.solvers.backends.python.three_d import runtime
 from sjtu_tpmshx.solvers.backends.python.three_d.execution import build_execution_inputs
@@ -216,15 +216,22 @@ def test_fixed_flow_uses_only_resolved_velocities(monkeypatch, dimension, design
     targets = {'mass_flow_' + side + '_kg_s': getattr(config, 'fluid_' + side).u_mps
                * total_inlet_mass_capacity(reference.design_fields, reference.parameters,
                                           reference.grid, side) for side in ('A', 'B')}
-    expected = prepare_fixed_mass_flow_case(config, **targets, case_id='fixed')
+    expected = prepare_case(resolve_fixed_mass_flow_config(config, **targets), case_id='fixed')
     old = replace(config, fluid_A=replace(config.fluid_A, u_mps=.001),
                   fluid_B=replace(config.fluid_B, u_mps=.00001))
     snapshot = asdict(old)
-    actual = prepare_fixed_mass_flow_case(old, **targets, case_id='fixed')
+    from unittest.mock import patch
+    with patch.object(preparation, '_prepare_geometry_data', wraps=preparation._prepare_geometry_data) as geometry:
+        actual = prepare_fixed_mass_flow_case(old, **targets, case_id='fixed')
+    if dimension == 3:
+        assert geometry.call_count == 1
     assert asdict(old) == snapshot
     assert actual.config_snapshot == expected.config_snapshot
     assert actual.metadata['warnings'] == expected.metadata['warnings']
-    assert actual.parameters['extrap_reasons'] == expected.parameters['extrap_reasons']
+    from sjtu_tpmshx.tests.native.test_cpp_full_3d import compare
+    compare(actual.parameters, expected.parameters)
+    compare(actual.grid, expected.grid)
+    assert actual.model_refs == expected.model_refs
     for key in expected.design_fields:
         np.testing.assert_equal(actual.design_fields[key], expected.design_fields[key])
     for side in ('A', 'B'):
@@ -298,3 +305,6 @@ def test_capacity_preparation_validates_static_inputs_before_building_fields(mon
         for candidate, message in invalid:
             with pytest.raises(ValueError, match=message):
                 prepare_inlet_mass_capacities(candidate)
+            with pytest.raises(ValueError, match=message):
+                prepare_fixed_mass_flow_case(candidate, mass_flow_A_kg_s=.01,
+                                             mass_flow_B_kg_s=.02, case_id='invalid-static')
