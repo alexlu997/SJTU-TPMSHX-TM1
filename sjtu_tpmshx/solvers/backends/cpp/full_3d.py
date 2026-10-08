@@ -624,13 +624,13 @@ def _detach(r, shape, settings, *, emit_audit=False, application_only=False):
 
 def run_case(case, control=RunControl()):
     from .full_3d_capture import capture_result
-    from sjtu_tpmshx.solvers.backends.python.three_d.execution import build_execution_inputs
+    from sjtu_tpmshx.solvers.backends.python.three_d.execution import _build_execution_inputs
     if control.backend != 'cpp':
         raise ValueError('full native 3D requires backend=cpp')
     if not control.native_library:
         raise ValueError('cpp requires RunControl.native_library for this host')
     control.check_cancelled()
-    cfg,p=build_execution_inputs(case)
+    cfg,p=_build_execution_inputs(case, copy_design=False)
     driver=NativeFull3DDriver(control.native_library, table_directory=getattr(control,'native_table_directory',None))
     r=driver._run_prepared(cfg,p,control,application_only=True)
     control.check_cancelled()

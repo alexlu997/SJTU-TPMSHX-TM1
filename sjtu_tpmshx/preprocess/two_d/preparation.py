@@ -55,7 +55,6 @@ def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None, geome
         P_inB = compute_cfg.fluid_B.P_in_Pa
         if z_axis == 'continuous':
             from sjtu_tpmshx.models.continuous_field import from_decision_vector
-            from sjtu_tpmshx.models import fluid_props
             spec = dict(compute_cfg.zones.config)
             field = from_decision_vector(spec.pop('x_decision'), tpms_type, k_s, L, H, **spec)
             lfield, tfield = field.evaluate_grid(N_x, N_y, dx_arr, dy_arr)
@@ -66,8 +65,7 @@ def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None, geome
             za = dict(axis='continuous', L_field=lfield, t_field=tfield,
                       eps_arr=eps, eps_f_arr=eps / 2., K_ss_arr=solid, r_h_arr=radius)
             if not geometry_only:
-                for side, fluid in (('A', compute_cfg.fluid_A), ('B', compute_cfg.fluid_B)):
-                    za['K_ff' + side + '_arr'] = za['eps_f_arr'] * float(fluid_props.get(fluid.type).k(fluid.T_in_K, fluid.P_in_Pa))
+                _complete_spline_properties(compute_cfg, za)
             zone_config = 'continuous'
         elif z_axis == 'grid':
             grid = compute_cfg.zones.grid
@@ -135,6 +133,13 @@ def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None, geome
                 za[_key] = gaussian_filter(za[_key], sigma=_sigma)
 
     return zone_config, za, z_axis
+
+
+def _complete_spline_properties(config, za):
+    from sjtu_tpmshx.models import fluid_props
+    for side, fluid in (('A', config.fluid_A), ('B', config.fluid_B)):
+        za['K_ff' + side + '_arr'] = za['eps_f_arr'] * float(
+            fluid_props.get(fluid.type).k(fluid.T_in_K, fluid.P_in_Pa))
 
 
 def _parse_inputs_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
@@ -275,16 +280,23 @@ def _prepare_mesh(cfg):
 
 
 def _prepare_grid(cfg):
-    physical_grid = _prepare_mesh(cfg)
+    return _complete_grid(cfg, _prepare_mesh(cfg))
+
+
+def _complete_grid(cfg, physical_grid, *, spline_geometry=None):
     energy_dx, energy_dy = physical_grid['energy_dx'], physical_grid['energy_dy']
-    N_x, N_y = cfg['N_x'], cfg['N_y']
+    N_x, N_y = len(energy_dx), len(energy_dy)
+    cfg['N_x'], cfg['N_y'] = N_x, N_y
     zone_config, za = cfg['zone_config'], cfg['za']
 
-    # Re-evaluate the design on the final physical mesh. Matching array shapes
-    # alone do not establish matching cell centres on a port-aligned grid.
+    # The design must use final physical cell centres, not only matching shapes.
     if zone_config is not None:
-        zone_config, za, _ = _build_zone_arrays(
-            cfg['compute_cfg'], N_x, N_y, dx_arr=energy_dx, dy_arr=energy_dy)
+        if spline_geometry is None:
+            zone_config, za, _ = _build_zone_arrays(
+                cfg['compute_cfg'], N_x, N_y, dx_arr=energy_dx, dy_arr=energy_dy)
+        else:
+            za = spline_geometry
+            _complete_spline_properties(cfg['compute_cfg'], za)
         za['eps_f_arr'] = np.asarray(za['eps_arr'], dtype=np.float64) / 2.0
         cfg['zone_config'], cfg['za'] = zone_config, za
 
@@ -396,11 +408,17 @@ def _prepare_inlet_data(config):
     cfg['static_properties'] = {
         side: {'rho': float(fluid_props.get(fluid.type).rho(fluid.T_in_K, fluid.P_in_Pa))}
         for side, fluid in (('A', config.fluid_A), ('B', config.fluid_B))}
-    return design, cfg, {'dimension': 2, 'dx': dx, 'dy': dy}
+    return design, cfg, {'dimension': 2, 'dx': dx, 'dy': dy,
+                        'x_breaks': physical_grid['_x_breaks'],
+                        'y_breaks': physical_grid['_y_breaks']}
 
 
 def prepare_case(config: ComputeConfig, *, case_id: str):
     """Freeze the effective 2D grid and physical design for another process."""
+    return _prepare_case(config, case_id=case_id)
+
+
+def _prepare_case(config: ComputeConfig, *, case_id: str, inlet_grid=None, spline_geometry=None):
     from dataclasses import asdict
     from sjtu_tpmshx.domain.case_data import CaseData
     from sjtu_tpmshx.domain.model_refs import ModelRef
@@ -413,7 +431,14 @@ def prepare_case(config: ComputeConfig, *, case_id: str):
     parsed = _parse_inputs_cfg(config)
     from sjtu_tpmshx.domain.run_environment import capture_environment
     parsed['_environment'] = capture_environment()
-    physical_grid = _prepare_grid(parsed)
+    if inlet_grid is None:
+        physical_grid = _prepare_grid(parsed)
+    else:
+        physical_grid = _complete_grid(parsed, {
+            'energy_dx': inlet_grid['dx'], 'energy_dy': inlet_grid['dy'],
+            '_x_breaks': inlet_grid['x_breaks'], '_y_breaks': inlet_grid['y_breaks']},
+            # Preserve legacy property/smoothing order; only spline geometry is reusable.
+            spline_geometry=spline_geometry)
     dx, dy = physical_grid['energy_dx'], physical_grid['energy_dy']
     za = parsed.pop('za')
     zones = parsed.pop('zone_config')

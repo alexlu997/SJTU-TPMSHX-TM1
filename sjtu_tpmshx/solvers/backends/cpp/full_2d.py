@@ -456,12 +456,12 @@ def _pack(cfg, prepared, table_directory):
 
 
 def run_case(case, control=RunControl()):
-    from sjtu_tpmshx.solvers.backends.python.two_d.execution import build_execution_inputs
+    from sjtu_tpmshx.solvers.backends.python.two_d.execution import _build_execution_inputs
     from .full_2d_capture import capture_result
     if control.backend != 'cpp' or control.native_library is None:
         raise ValueError('full native 2D requires backend=cpp and an explicit native_library')
     control.check_cancelled()
-    cfg, prepared = build_execution_inputs(case)
+    cfg, prepared = _build_execution_inputs(case, copy_design=False)
     driver = NativeFull2DDriver(control.native_library, table_directory=control.native_table_directory)
     native = driver.run_prepared(cfg, prepared, control)
     control.check_cancelled()

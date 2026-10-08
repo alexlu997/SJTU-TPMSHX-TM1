@@ -221,10 +221,18 @@ def test_fixed_flow_uses_only_resolved_velocities(monkeypatch, dimension, design
                   fluid_B=replace(config.fluid_B, u_mps=.00001))
     snapshot = asdict(old)
     from unittest.mock import patch
-    with patch.object(preparation, '_prepare_geometry_data', wraps=preparation._prepare_geometry_data) as geometry:
+    from sjtu_tpmshx.preprocess.two_d import preparation as prep2d
+    with patch.object(preparation, '_prepare_geometry_data', wraps=preparation._prepare_geometry_data) as geometry, \
+         patch.object(prep2d, '_prepare_mesh', wraps=prep2d._prepare_mesh) as mesh, \
+         patch.object(prep2d, '_build_zone_arrays', wraps=prep2d._build_zone_arrays) as zones:
         actual = prepare_fixed_mass_flow_case(old, **targets, case_id='fixed')
     if dimension == 3:
         assert geometry.call_count == 1
+    else:
+        assert mesh.call_count == 1
+        assert zones.call_count == 2  # Final inlet geometry, then original nominal validation.
+        assert zones.call_args_list[0].kwargs['geometry_only']
+        assert actual.design_fields['eps_arr'].shape != (4, 4)
     assert asdict(old) == snapshot
     assert actual.config_snapshot == expected.config_snapshot
     assert actual.metadata['warnings'] == expected.metadata['warnings']
@@ -277,9 +285,19 @@ def test_fixed_flow_preserves_legacy_2d_geometry_and_input(monkeypatch, tmp_path
                * total_inlet_mass_capacity(reference.design_fields, reference.parameters,
                                           reference.grid, side) for side in ('A', 'B')}
     old = replace(config, fluid_A=replace(config.fluid_A, u_mps=.001))
-    actual = prepare_fixed_mass_flow_case(old, **targets, case_id='legacy-fixed')
+    expected = prepare_case(resolve_fixed_mass_flow_config(old, **targets), case_id='legacy-fixed')
+    from sjtu_tpmshx.preprocess.two_d import preparation as prep2d
+    from sjtu_tpmshx.tests.native.test_cpp_full_3d import compare
+    from unittest.mock import patch
+    with patch.object(prep2d, '_prepare_mesh', wraps=prep2d._prepare_mesh) as mesh:
+        actual = prepare_fixed_mass_flow_case(old, **targets, case_id='legacy-fixed')
+    assert mesh.call_count == 1
     assert asdict(config) == snapshot
     assert old.fluid_A.u_mps == .001
+    assert actual.config_snapshot == expected.config_snapshot
+    assert actual.metadata['warnings'] == expected.metadata['warnings']
+    compare(actual.parameters, expected.parameters)
+    compare(actual.grid, expected.grid)
     for key in reference.design_fields:
         np.testing.assert_equal(actual.design_fields[key], reference.design_fields[key])
     for side in ('A', 'B'):
@@ -308,3 +326,34 @@ def test_capacity_preparation_validates_static_inputs_before_building_fields(mon
             with pytest.raises(ValueError, match=message):
                 prepare_fixed_mass_flow_case(candidate, mass_flow_A_kg_s=.01,
                                              mass_flow_B_kg_s=.02, case_id='invalid-static')
+
+
+@pytest.mark.parametrize('continuous', [False, True])
+def test_fixed_flow_retains_only_reused_inlet_geometry(monkeypatch, continuous):
+    import weakref
+    from sjtu_tpmshx.preprocess.two_d import preparation as prep2d
+
+    config = ComputeConfig(geometry=GeometryConfig(Lz_m=.042),
+                           solver=SolverConfig(Nx=4, Ny=4), extrap=ExtrapPolicy(allow=True))
+    if continuous:
+        config.zones = ZoneInputConfig(enabled=True, axis='continuous', config={
+            'x_decision': [7.] * 4 + [.6] * 4, 'n_ctrl_x': 2, 'n_ctrl_y': 2,
+            'symmetric_y': False, 'spline_order': 1,
+            'L_bounds': [4., 8.], 't_bounds': [.3, .6]})
+    inlet, finish = prep2d._prepare_inlet_data, prep2d._prepare_case
+    references = []
+
+    def tracked_inlet(config):
+        data = inlet(config)
+        references.append(weakref.ref(data[0]['eps_arr']))
+        return data
+
+    def tracked_finish(*args, **kwargs):
+        assert (references[0]() is not None) == continuous
+        return finish(*args, **kwargs)
+
+    monkeypatch.setattr(prep2d, '_prepare_inlet_data', tracked_inlet)
+    monkeypatch.setattr(prep2d, '_prepare_case', tracked_finish)
+    prepare_fixed_mass_flow_case(config, mass_flow_A_kg_s=.01,
+                                 mass_flow_B_kg_s=.02, case_id='inlet-lifetime')
+    assert references[0]() is None

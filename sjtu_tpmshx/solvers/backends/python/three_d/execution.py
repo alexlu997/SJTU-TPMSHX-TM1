@@ -9,6 +9,11 @@ from sjtu_tpmshx.models.catalog import resolve_model
 
 
 def build_execution_inputs(case):
+    """Validate prepared inputs and return independent, writable design fields."""
+    return _build_execution_inputs(case, copy_design=True)
+
+
+def _build_execution_inputs(case, *, copy_design):
     if case.grid.get('dimension') != 3:
         raise ValueError('3D execution requires a prepared 3D grid')
     cfg = mutable_data(case.parameters)
@@ -72,7 +77,7 @@ def build_execution_inputs(case):
         cfg['zone_grid_cells'] = [dict((('L' if key == 'L_m' else 't' if key == 't_m' else key),
                                        value * 1e3 if key in ('L_m', 't_m') else value)
                                       for key, value in cell.items()) for cell in cfg['zone_grid_cells']]
-    design = mutable_data(case.design_fields)
+    design = mutable_data(case.design_fields) if copy_design else dict(case.design_fields)
     for key, value in design.items():
         arr = np.asarray(value)
         if arr.ndim and arr.shape != shape:
