@@ -235,7 +235,7 @@ def test_capped_public_keeps_distinct_pressure_states(native_path):
 
 def test_pre_cancelled_case_skips_preparation_and_library_load(tmp_path):
     prepared = case()
-    with patch('sjtu_tpmshx.solvers.backends.python.three_d.execution.build_execution_inputs',
+    with patch('sjtu_tpmshx.solvers.backends.python.three_d.execution._build_execution_inputs',
                side_effect=AssertionError('cancelled case prepared for execution')):
         with pytest.raises(CancelledError):
             cpp_run(prepared, control(tmp_path/'missing.dll', cancel_check=lambda: True))
@@ -281,6 +281,81 @@ def test_owned_fields_survive_subsequent_and_parallel_calls(native_path):
         results=list(pool.map(lambda _:cpp_run(prepared,control(native_path)),range(2)))
     np.testing.assert_array_equal(first.fields['Ta'],ta)
     for r in results:compare(r.fields,first.fields)
+
+
+@pytest.mark.parametrize('dimension', [2, 3])
+@pytest.mark.parametrize('failure', ['cancel', 'callback'])
+@pytest.mark.parametrize('solid_dtype', [np.float64, np.float32])
+def test_native_call_borrows_case_arrays_and_recovers(native_path, monkeypatch, dimension, failure, solid_dtype):
+    import ctypes as ct
+    from sjtu_tpmshx.solvers.backends.cpp import full_2d, full_3d
+    from sjtu_tpmshx.tests.native.test_full_2d import configuration
+
+    config = configuration(outer=2) if dimension == 2 else _config(3, True)
+    config = replace(config, fluid_A=replace(config.fluid_A, T_in_K=300.),
+                     fluid_B=replace(config.fluid_B, type='water', T_in_K=300., P_in_Pa=2e5))
+    if dimension == 2:
+        config.zones = ZoneInputConfig(enabled=True, axis='continuous', config={
+            'x_decision': [6.8, 7., 7.1, 7.2, .5, .52, .55, .58],
+            'n_ctrl_x': 2, 'n_ctrl_y': 2, 'symmetric_y': False,
+            'spline_order': 1, 'L_bounds': [4., 8.], 't_bounds': [.3, .6]})
+    prepared = prepare_case(config, case_id='borrowed-native-input')
+    solid_key = 'K_ss_arr' if dimension == 2 else 'K_ss'
+    prepared = replace(prepared, design_fields={**prepared.design_fields,
+        solid_key: prepared.design_fields[solid_key].astype(solid_dtype)})
+    before = {key: value.copy() for key, value in prepared.design_fields.items()
+              if isinstance(value, np.ndarray)}
+    from sjtu_tpmshx.solvers.backends.python.two_d import execution as exec2
+    from sjtu_tpmshx.solvers.backends.python.three_d import execution as exec3
+    execution = exec2 if dimension == 2 else exec3
+    builder = execution._build_execution_inputs
+    with patch.object(execution, '_build_execution_inputs',
+                      lambda case, **_: builder(case, copy_design=True)):
+        reference = cpp_run(prepared, control(native_path))
+    driver_type = full_2d.NativeFull2DDriver if dimension == 2 else full_3d.NativeFull3DDriver
+    original_init, entered = driver_type.__init__, []
+
+    def init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        original_call = self.call
+
+        def call(*args):
+            if dimension == 2:
+                pointers = {key: args[1][index] for key, index in (
+                    ('K_ffA_arr', 3), ('K_ffB_arr', 4), ('K_ss_arr', 5), ('eps_arr', 6))}
+            else:
+                data = args[0]._obj
+                pointers = {key: getattr(data, field).data for key, field in (
+                    ('eps_arr', 'epsilon'), ('eps_A', 'epsilon_a'), ('eps_B', 'epsilon_b'),
+                    ('K_m2', 'permeability'), ('cF_per_m', 'forchheimer'),
+                    ('K_ss', 'solid_conductivity'), ('L_field_m', 'cell_length'))}
+            for key, pointer in pointers.items():
+                source = prepared.design_fields[key]
+                same_buffer = ct.cast(pointer, ct.c_void_p).value == source.ctypes.data
+                assert same_buffer == (source.dtype == np.float64)
+                np.testing.assert_array_equal(np.ctypeslib.as_array(pointer, shape=(source.size,)), source.ravel())
+            entered.append(True)
+            return original_call(*args)
+
+        call.argtypes = original_call.argtypes
+        self.call = call
+
+    monkeypatch.setattr(driver_type, '__init__', init)
+
+    def fail(*_):
+        raise RuntimeError('borrow callback sentinel')
+
+    options = {'cancel_check': lambda: bool(entered)} if failure == 'cancel' else {'outer_iteration': fail}
+    with pytest.raises(CancelledError if failure == 'cancel' else RuntimeError,
+                       match='cancelled' if failure == 'cancel' else 'borrow callback sentinel'):
+        cpp_run(prepared, control(native_path, **options))
+    assert entered
+    result = cpp_run(prepared, control(native_path))
+    compare(result.fields, reference.fields)
+    compare(result.run_status, reference.run_status)
+    for key, expected in before.items():
+        np.testing.assert_array_equal(prepared.design_fields[key], expected)
+        assert not prepared.design_fields[key].flags.writeable
 
 
 @pytest.mark.parametrize('pair',['air-air','air-sco2','sco2-water'])

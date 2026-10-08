@@ -142,8 +142,11 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   property/thermal coupling and final certificates in C++. 2D also owns
   Richardson refinement.
 
-  The binding packs prepared arrays and maps native
-  evidence into the same `FieldResult`. It does not call Python numerical
+  The binding borrows immutable prepared design arrays for its synchronous
+  native call. It keeps strong references through the call and result capture.
+  The existing dtype, alignment and unit conversions still allocate when required.
+  Public Python input builders return independent, writable design arrays.
+  The binding maps native evidence into the same `FieldResult`. It does not call Python numerical
   kernels. Full 2D ABI 2 keeps the original prepared Nu geometry ratio rather
   than reconstructing it after a unit conversion. Python stays the default.
   The required native CI suite passes on macOS arm64/Python 3.13 and Windows

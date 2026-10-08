@@ -16,6 +16,10 @@ from sjtu_tpmshx.models.zone_units import _legacy_zone_units
 
 def build_execution_inputs(case: CaseData):
     """Validate and detach the supplied data, without rebuilding a grid."""
+    return _build_execution_inputs(case, copy_design=True)
+
+
+def _build_execution_inputs(case: CaseData, *, copy_design):
     if case.grid.get('dimension') != 2:
         raise ValueError('2D execution requires a prepared 2D grid')
     cfg = _mutable_data(case.parameters)
@@ -74,7 +78,9 @@ def build_execution_inputs(case: CaseData):
         raise ValueError('prepared topology and Darcy-Forchheimer resource disagree')
     cfg['_models'] = providers
     cfg['_capture_native'] = True
-    design = _legacy_zone_units(_mutable_data(case.design_fields))
+    design = _legacy_zone_units({
+        key: value if not copy_design and isinstance(value, np.ndarray) else _mutable_data(value)
+        for key, value in case.design_fields.items()})
     for key, value in design.items():
         if isinstance(value, np.ndarray) and value.ndim == 2:
             if value.shape != (len(dx), len(dy)) or not np.all(np.isfinite(value)):
