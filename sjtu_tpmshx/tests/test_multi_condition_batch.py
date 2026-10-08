@@ -365,7 +365,8 @@ def test_energy_certificate_failure_cannot_produce_objectives(tmp_path, monkeypa
 
 
 @pytest.mark.parametrize('pre_cancelled', [False, True])
-def test_cancellation_preserves_full_membership_and_is_reraised(tmp_path, monkeypatch, pre_cancelled):
+@pytest.mark.parametrize('entry', [batch.evaluate_condition_batch, batch._evaluate_condition_batch])
+def test_cancellation_preserves_full_membership_and_is_reraised(tmp_path, monkeypatch, pre_cancelled, entry):
     conditions, calls = _conditions(), []
     cancelled = [pre_cancelled]
 
@@ -379,7 +380,7 @@ def test_cancellation_preserves_full_membership_and_is_reraised(tmp_path, monkey
     _patch_solve(monkeypatch, solve)
     directory = tmp_path / 'cancelled'
     with pytest.raises(CancelledError):
-        batch.evaluate_condition_batch(conditions, output_dir=directory,
+        entry(conditions, output_dir=directory,
             control=RunControl(cancel_check=lambda: cancelled[0]))
     manifest = _manifest(directory)
     assert manifest['status'] == 'cancelled' and manifest['objectives'] is None
@@ -427,3 +428,84 @@ def test_all_member_structure_is_checked_before_output_creation(tmp_path, monkey
     with pytest.raises((ValueError, TypeError)):
         batch.evaluate_condition_batch(conditions, output_dir=directory)
     assert not directory.exists()
+
+
+@pytest.mark.parametrize('failure', [None, 'convergence', 'energy', 'save'])
+def test_compact_batches_release_fields_before_next_solve(tmp_path, monkeypatch, failure):
+    import weakref
+    from sjtu_tpmshx.io import result_io
+
+    conditions = _conditions(3)
+    uniform = [(name, replace(cfg, zones=ZoneInputConfig()), a, b) for name, cfg, a, b in conditions]
+    references, reads = [], []
+    call_count = 0
+    load, save = result_io.load_result, result_io.save_result
+
+    def solve(case, control):
+        nonlocal call_count
+        assert all(ref() is None for ref in references + reads)
+        call_count += 1
+        field = _native(case)
+        if call_count == 5 and failure == 'convergence':
+            field = replace(field, run_status=dict(execution='completed', converged=False))
+        elif call_count == 5 and failure == 'energy':
+            field = replace(field, metadata={**field.metadata, 'diagnostics': {
+                **field.metadata['diagnostics'], 'eps_A_strict': .5}})
+        references.append(weakref.ref(field))
+        return field
+
+    def tracked_load(path):
+        field = load(path)
+        reads.append(weakref.ref(field))
+        return field
+
+    def tracked_save(field, path):
+        if call_count == 5 and failure == 'save':
+            raise OSError('result disk failure')
+        save(field, path)
+
+    _patch_solve(monkeypatch, solve)
+    monkeypatch.setattr(result_io, 'load_result', tracked_load)
+    monkeypatch.setattr(result_io, 'save_result', tracked_save)
+    baseline = batch._evaluate_condition_batch(uniform, output_dir=tmp_path / 'baseline')
+    assert baseline['status'] == 'completed'
+    assert all(ref() is None for ref in references)
+    assert set(baseline['summaries']) == {'low', 'mid', 'high'}
+    result = batch._evaluate_condition_batch(conditions, output_dir=tmp_path / 'candidate',
+                                             baseline=baseline['summaries'])
+    assert call_count == 6
+    assert all(ref() is None for ref in references + reads)
+    assert result['status'] == ('completed' if failure is None else 'failed')
+    assert [row['status'] for row in result['conditions']] == [
+        'completed', 'completed' if failure is None else 'failed', 'completed']
+    if failure is None:
+        full_baseline = [(name, load(row['result_file']), row['performance'])
+                         for name, row in baseline['summaries'].items()]
+        full_results = [(name, load(row['result_file']), row['performance'])
+                        for name, row in result['summaries'].items()]
+        assert result['objectives'] == batch.aggregate_multi_condition(
+            [row[0] for row in conditions], full_baseline, full_results)
+    else:
+        assert result['objectives'] is None
+
+
+@pytest.mark.parametrize('damage', ['missing', 'corrupt', 'identity'])
+def test_compact_baseline_archive_failures_are_comparison_failures(tmp_path, monkeypatch, damage):
+    conditions = _conditions(2)
+    uniform = [(name, replace(cfg, zones=ZoneInputConfig()), a, b) for name, cfg, a, b in conditions]
+    _patch_solve(monkeypatch, lambda case, control: _native(case))
+    baseline = batch._evaluate_condition_batch(uniform, output_dir=tmp_path / 'baseline')
+    path = baseline['summaries']['low']['result_file']
+    if damage == 'missing':
+        path.unlink()
+    elif damage == 'corrupt':
+        path.write_bytes(b'invalid HDF5')
+    else:
+        from sjtu_tpmshx.io.result_io import save_result
+        save_result(replace(load_result(path), result_id='different-result'), path)
+    result = batch._evaluate_condition_batch(conditions, output_dir=tmp_path / 'candidate',
+                                             baseline=baseline['summaries'])
+    assert result['status'] == 'failed' and result['objectives'] is None
+    assert result['conditions'][0]['stage'] == 'comparison'
+    assert result['conditions'][0]['status'] == 'failed'
+    assert result['conditions'][1]['status'] == 'completed'

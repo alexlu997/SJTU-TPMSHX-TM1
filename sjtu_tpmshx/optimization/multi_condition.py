@@ -1,6 +1,5 @@
 """Fixed-flow preparation and equal-weight multi-condition objectives."""
 from collections.abc import Sequence
-from copy import deepcopy
 from dataclasses import asdict, replace
 import json
 from math import fsum, isfinite
@@ -9,7 +8,6 @@ from uuid import uuid4
 
 import numpy as np
 
-from sjtu_tpmshx.domain.case_data import CaseData
 from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.domain.compute_config import ComputeConfig
 from sjtu_tpmshx.domain.field_result import FieldResult
@@ -17,7 +15,10 @@ from sjtu_tpmshx.domain.metric_spec import full_metric_version
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.performance_result import PerformanceResult
 from sjtu_tpmshx.logutil import get_logger
-from sjtu_tpmshx.preprocess.api import prepare_case, prepare_inlet_mass_capacities
+from sjtu_tpmshx.preprocess.api import (
+    prepare_fixed_mass_flow_case,
+    resolve_fixed_mass_flow_config as resolve_fixed_mass_flow_config,
+)
 from sjtu_tpmshx.preprocess.inlet_flow import total_inlet_mass_capacity
 
 
@@ -26,53 +27,6 @@ _log = get_logger(__name__)
 ConditionResult = tuple[str, FieldResult, PerformanceResult]
 ConditionInput = tuple[str, ComputeConfig, float, float]
 _METRICS = ('Q_B', 'dP_A', 'dP_B')
-
-
-def prepare_fixed_mass_flow_case(
-    config: ComputeConfig, *, mass_flow_A_kg_s: float,
-    mass_flow_B_kg_s: float, case_id: str,
-) -> CaseData:
-    """Prepare a 2D or 3D candidate at prescribed total inlet mass flows.
-
-    Integrate the actual inlet profile and pore fraction on the physical
-    inlet slice, including reverse directions. The 2D tapered profile is
-    normalized to the geometric open area by SIMPLE; its capacity includes
-    that normalization, with the spatial pore fraction inside the integral.
-    Prepared ``eps_A/B`` already represent each fluid's pore fraction in 3D.
-    A 2D case requires an explicit physical depth ``geometry.Lz_m`` to convert
-    total flow to the solver's per-unit-depth flow; its symmetric channel
-    porosity is half the prepared total porosity.
-
-    Resolve geometry and inlet density before checking inlet velocities, so
-    the immutable snapshot and all speed-dependent preparation use the targets.
-    The caller's configuration, geometry, inlet temperature/pressure and model
-    choices stay intact.
-    No numerical solve is performed.
-    """
-    resolved = resolve_fixed_mass_flow_config(config, mass_flow_A_kg_s=mass_flow_A_kg_s,
-                                             mass_flow_B_kg_s=mass_flow_B_kg_s)
-    return prepare_case(resolved, case_id=case_id)
-
-
-def resolve_fixed_mass_flow_config(
-    config: ComputeConfig, *, mass_flow_A_kg_s: float, mass_flow_B_kg_s: float,
-) -> ComputeConfig:
-    """Resolve inlet velocities from the actual geometry, then validate them."""
-    config = deepcopy(config)
-    if config.fluid_A is None or config.fluid_B is None:
-        raise ValueError('fixed mass flow requires a dual-fluid ComputeConfig')
-    if not config.is_3d and (config.geometry.Lz_m is None or not isfinite(config.geometry.Lz_m)
-                             or config.geometry.Lz_m <= 0):
-        raise ValueError('2D total mass flow requires a positive physical Lz_m')
-    targets = {'A': mass_flow_A_kg_s, 'B': mass_flow_B_kg_s}
-    for side, target in targets.items():
-        if not isfinite(target) or target <= 0:
-            raise ValueError(f'mass_flow_{side}_kg_s must be finite and positive')
-    capacities = prepare_inlet_mass_capacities(config)
-    fluids = {'fluid_' + side: replace(getattr(config, 'fluid_' + side),
-                                       u_mps=target / capacities[side])
-              for side, target in targets.items()}
-    return replace(config, **fluids).validate()
 
 
 def _full_result_metadata(field):
@@ -180,8 +134,15 @@ def evaluate_condition_batch(
     completed batch with a supplied baseline can produce aggregate objectives.
     The return value adds in-memory ``results`` to the JSON record.
     """
+    return _evaluate_condition_batch(conditions, output_dir=output_dir, baseline=baseline,
+                                     control=control, collect_fields=True)
+
+
+def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
+                              control=RunControl(), collect_fields=False):
+    """Share batch validation; optimizer summaries keep paths and scalar metrics."""
     from sjtu_tpmshx.io.case_io import save_case
-    from sjtu_tpmshx.io.result_io import save_result
+    from sjtu_tpmshx.io.result_io import load_result, save_result
     from sjtu_tpmshx.io.metrics_io import save_metrics
     from sjtu_tpmshx.io.text_file import write_text
     from sjtu_tpmshx.solvers.api import run_case
@@ -206,14 +167,24 @@ def evaluate_condition_batch(
         current = asdict(config)
         if any(current[key] != first[key] for key in frozen_keys):
             raise ValueError(f'condition {condition_id}: design and evaluation settings must be fixed')
+    reference = {}
+    references = {}
+    reference_metrics = {}
     if baseline is not None:
-        _condition_metrics(baseline, ids, 'baseline')
-    references = {} if baseline is None else {condition_id: field for condition_id, field, _ in baseline}
-    reference_metrics = {} if baseline is None else {
-        condition_id: dict(case_id=field.case_id, result_id=field.result_id,
-            metrics_id=performance.result_id,
-            metrics={name: asdict(performance.metrics[name]) for name in _METRICS})
-        for condition_id, field, performance in baseline}
+        if collect_fields:
+            reference = _condition_metrics(baseline, ids, 'baseline')
+            references = {name: field for name, field, _ in baseline}
+            identities = {name: dict(case_id=field.case_id, result_id=field.result_id)
+                          for name, field, _ in baseline}
+        else:
+            if set(baseline) != set(ids):
+                raise ValueError('baseline: condition membership mismatch')
+            reference = {name: row['performance'] for name, row in baseline.items()}
+            identities = {name: dict(case_id=row['case_id'], result_id=row['result_id'])
+                          for name, row in baseline.items()}
+        reference_metrics = {name: dict(**identities[name], metrics_id=performance.result_id,
+            metrics={key: asdict(performance.metrics[key]) for key in _METRICS})
+            for name, performance in reference.items()}
 
     root = Path(output_dir)
     root.mkdir(parents=True, exist_ok=False)
@@ -227,6 +198,8 @@ def evaluate_condition_batch(
     record = dict(batch_id=batch_id, status='running', reason=None,
                   conditions=history, objectives=None)
     results = []
+    summaries = {}
+    design = {}
 
     def publish(primary_error=None):
         try:
@@ -239,6 +212,74 @@ def evaluate_condition_batch(
             _log.exception('Could not save condition batch checkpoint')
             raise primary_error
 
+    def run_condition(index, condition, row, directory):
+        condition_id, config, flow_a, flow_b = condition
+        directory.mkdir()
+        write_text(directory / 'input.json', json.dumps(config.to_dict(),
+            ensure_ascii=False, allow_nan=False, indent=2) + '\n')
+        row['stage'] = 'prepare'
+        case = prepare_fixed_mass_flow_case(config, mass_flow_A_kg_s=flow_a,
+            mass_flow_B_kg_s=flow_b, case_id=row['case_id'])
+        row['stage'] = 'save_case'
+        save_case(case, directory / 'case.yaml')
+        row['case_file'] = f"{row['directory']}/case.yaml"
+        publish()
+        if baseline is not None:
+            row['stage'] = 'comparison'
+            if collect_fields:
+                _check_baseline_case(references[condition_id], case, flow_a, flow_b)
+            else:
+                baseline_field = load_result(baseline[condition_id]['result_file'])
+                _condition_metrics([(condition_id, baseline_field, reference[condition_id])],
+                                   (condition_id,), 'baseline')
+                _check_baseline_case(baseline_field, case, flow_a, flow_b)
+                del baseline_field
+        control.check_cancelled()
+        row['stage'] = 'solve'
+        progress = (None if control.progress is None else
+                    lambda percent, i=index: control.report_progress(
+                        int(100 * (i + percent / 100) / len(inputs))))
+        field = run_case(case, replace(control, progress=progress))
+        row['stage'] = 'save_result'
+        save_result(field, directory / 'result.h5')
+        row['result_file'] = f"{row['directory']}/result.h5"
+        publish()
+        if field.case_id != case.case_id:
+            raise ValueError('returned result does not belong to the prepared case')
+        metadata = _full_result_metadata(field)
+        dimension = case.grid['dimension']
+        result_mode = (metadata['parameters']['df_mode'] if dimension == 3
+                       else metadata['parameters']['run_settings']['df_mode'])
+        if (field.model_refs != case.model_refs or metadata['dimension'] != dimension
+                or result_mode != config.df_mode
+                or metadata['design_mode'] != case.metadata['design_mode']):
+            raise ValueError('returned result changes prepared model or design mode')
+        for name, values in case.design_fields.items():
+            if not np.array_equal(metadata['design_fields'][name], values):
+                raise ValueError(f'returned result changes prepared design field {name}')
+        control.check_cancelled()
+        row['stage'] = 'postprocess'
+        performance = evaluate(field)
+        row['stage'] = 'save_metrics'
+        save_metrics(performance, directory / 'metrics.json')
+        row['metrics_file'] = f"{row['directory']}/metrics.json"
+        publish()
+        result = (condition_id, field, performance)
+        if collect_fields:
+            results.append(result)
+        row['stage'] = 'validate'
+        design.update(_condition_metrics([result], (condition_id,), 'candidate'))
+        row['stage'] = 'energy'
+        row['energy_gates'] = _energy_gates(field)
+        failed_gates = [label for label, passed in row['energy_gates'] if not passed]
+        if failed_gates:
+            raise ValueError('Energy certificate failed: ' + '; '.join(failed_gates))
+        if not collect_fields:
+            summaries[condition_id] = dict(case_id=case.case_id, result_id=field.result_id,
+                result_file=directory / 'result.h5', performance=performance,
+                config_snapshot=case.config_snapshot)
+        row.update(status='completed', reason=None)
+
     publish()
     primary_error = None
     try:
@@ -249,59 +290,7 @@ def evaluate_condition_batch(
             publish()
             condition_error = None
             try:
-                directory.mkdir()
-                write_text(directory / 'input.json', json.dumps(config.to_dict(),
-                    ensure_ascii=False, allow_nan=False, indent=2) + '\n')
-                row['stage'] = 'prepare'
-                case = prepare_fixed_mass_flow_case(config, mass_flow_A_kg_s=flow_a,
-                    mass_flow_B_kg_s=flow_b, case_id=row['case_id'])
-                row['stage'] = 'save_case'
-                save_case(case, directory / 'case.yaml')
-                row['case_file'] = f"{row['directory']}/case.yaml"
-                publish()
-                if baseline is not None:
-                    row['stage'] = 'comparison'
-                    _check_baseline_case(references[condition_id], case, flow_a, flow_b)
-                control.check_cancelled()
-                row['stage'] = 'solve'
-                progress = (None if control.progress is None else
-                            lambda percent, i=index: control.report_progress(
-                                int(100 * (i + percent / 100) / len(inputs))))
-                field = run_case(case, replace(control, progress=progress))
-                row['stage'] = 'save_result'
-                save_result(field, directory / 'result.h5')
-                row['result_file'] = f"{row['directory']}/result.h5"
-                publish()
-                if field.case_id != case.case_id:
-                    raise ValueError('returned result does not belong to the prepared case')
-                metadata = _full_result_metadata(field)
-                dimension = case.grid['dimension']
-                result_mode = (metadata['parameters']['df_mode'] if dimension == 3
-                               else metadata['parameters']['run_settings']['df_mode'])
-                if (field.model_refs != case.model_refs or metadata['dimension'] != dimension
-                        or result_mode != config.df_mode
-                        or metadata['design_mode'] != case.metadata['design_mode']):
-                    raise ValueError('returned result changes prepared model or design mode')
-                for name, values in case.design_fields.items():
-                    if not np.array_equal(metadata['design_fields'][name], values):
-                        raise ValueError(f'returned result changes prepared design field {name}')
-                control.check_cancelled()
-                row['stage'] = 'postprocess'
-                performance = evaluate(field)
-                row['stage'] = 'save_metrics'
-                save_metrics(performance, directory / 'metrics.json')
-                row['metrics_file'] = f"{row['directory']}/metrics.json"
-                publish()
-                result = (condition_id, field, performance)
-                results.append(result)
-                row['stage'] = 'validate'
-                _condition_metrics([result], (condition_id,), 'candidate')
-                row['stage'] = 'energy'
-                row['energy_gates'] = _energy_gates(field)
-                failed_gates = [label for label, passed in row['energy_gates'] if not passed]
-                if failed_gates:
-                    raise ValueError('Energy certificate failed: ' + '; '.join(failed_gates))
-                row.update(status='completed', reason=None)
+                run_condition(index, (condition_id, config, flow_a, flow_b), row, directory)
             except CancelledError as exc:
                 condition_error = exc
                 row.update(status='cancelled', reason=str(exc))
@@ -311,13 +300,14 @@ def evaluate_condition_batch(
                 row.update(status='failed', reason=f'{type(exc).__name__}: {exc}')
             finally:
                 publish(condition_error)
+            condition_error = None
             control.report_progress(int(100 * (index + 1) / len(inputs)))
         control.check_cancelled()
         if any(row['status'] != 'completed' for row in history):
             record.update(status='failed', reason='One or more conditions failed; no aggregate objectives')
         elif baseline is not None:
             try:
-                record['objectives'] = aggregate_multi_condition(ids, baseline, results)
+                record['objectives'] = _aggregate_metrics(ids, reference, design)
             except ValueError as exc:
                 record.update(status='failed', reason=f'Aggregate rejected: {exc}')
             else:
@@ -337,7 +327,7 @@ def evaluate_condition_batch(
         raise
     finally:
         publish(primary_error)
-    return {**record, 'results': results}
+    return {**record, **({'results': results} if collect_fields else {'summaries': summaries})}
 
 
 def _condition_metrics(rows: Sequence[ConditionResult], condition_ids: tuple[str, ...],
@@ -399,6 +389,10 @@ def aggregate_multi_condition(
         raise ValueError('condition_ids must not contain duplicates')
     reference = _condition_metrics(baseline, ids, 'baseline')
     design = _condition_metrics(candidate, ids, 'candidate')
+    return _aggregate_metrics(ids, reference, design)
+
+
+def _aggregate_metrics(ids, reference, design):
     heat_gains, pressure_ratios = [], []
     for condition_id in ids:
         ratios = {}

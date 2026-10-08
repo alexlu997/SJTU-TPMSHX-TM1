@@ -27,7 +27,7 @@ def _manifest(path):
 
 
 def _fake_batches(monkeypatch, *, fail_indices=(), baseline_failure=False, cancel_index=None):
-    calls, baseline_token = [], object()
+    calls, baseline_token = [], {}
 
     def evaluate(conditions, *, output_dir, baseline=None, control=RunControl()):
         directory = Path(output_dir)
@@ -38,9 +38,14 @@ def _fake_batches(monkeypatch, *, fail_indices=(), baseline_failure=False, cance
         control.report_progress(0)
         if baseline is None:
             assert all(not cfg.zones.enabled for _, cfg, _, _ in conditions)
+            if not baseline_failure:
+                from sjtu_tpmshx.preprocess.api import resolve_fixed_mass_flow_config
+                baseline_token.update({name: dict(config_snapshot=resolve_fixed_mass_flow_config(
+                    cfg, mass_flow_A_kg_s=a, mass_flow_B_kg_s=b).to_dict())
+                    for name, cfg, a, b in conditions})
             result = dict(status='failed' if baseline_failure else 'completed',
                           reason='bad reference' if baseline_failure else None,
-                          objectives=None, results=baseline_token)
+                          objectives=None, summaries=baseline_token)
         else:
             assert baseline is baseline_token
             if index == cancel_index:
@@ -51,12 +56,12 @@ def _fake_batches(monkeypatch, *, fail_indices=(), baseline_failure=False, cance
             result = dict(status='failed' if failed else 'completed',
                           reason='one condition failed' if failed else None,
                           objectives={'heat_gain_percent': -20.+index, 'pressure_ratio': .7+.02*index},
-                          results=[])
-        (directory / 'batch.json').write_text(json.dumps({k: v for k, v in result.items() if k != 'results'}))
+                          summaries={})
+        (directory / 'batch.json').write_text(json.dumps({k: v for k, v in result.items() if k != 'summaries'}))
         control.report_progress(100)
         return result
 
-    monkeypatch.setattr(search, 'evaluate_condition_batch', evaluate)
+    monkeypatch.setattr(search, '_evaluate_condition_batch', evaluate)
     return calls
 
 
@@ -321,3 +326,33 @@ def test_pareto_max_duplicate_rows_at_least_one_kept():
     mask = search._pareto_mask_max(Y)
     # Implementation may keep first or both — key invariant: ≥1 kept.
     assert mask.sum() >= 1
+
+
+def test_search_reuses_baseline_case_configs_and_releases_fields(tmp_path, monkeypatch):
+    import weakref
+    from unittest.mock import patch
+    from sjtu_tpmshx.domain.portable_data import mutable_data
+    from sjtu_tpmshx.io.case_io import load_case
+    from sjtu_tpmshx.preprocess.three_d import preparation
+    from sjtu_tpmshx.solvers import api as execution
+    from sjtu_tpmshx.tests.test_multi_condition_batch import _conditions, _native
+
+    references = []
+
+    def solve(case, control):
+        assert all(ref() is None for ref in references)
+        field = _native(case)
+        references.append(weakref.ref(field))
+        return field
+
+    monkeypatch.setattr(execution, 'run_case', solve)
+    output = tmp_path / 'study'
+    with patch.object(preparation, '_prepare_geometry_data', wraps=preparation._prepare_geometry_data) as geometry:
+        result = search.run_multi_condition_optimization(_conditions(2), output_dir=output,
+                                                         method='sobol', n_init=2, n_iter=0)
+    assert result['status'] == 'completed' and result['n_usable'] == 2
+    assert len(references) == geometry.call_count == 6
+    assert all(ref() is None for ref in references)
+    for index, condition in enumerate(result['conditions'], 1):
+        case = load_case(output / 'baseline' / f'condition_{index:03d}' / 'case.yaml')
+        assert condition['config'] == mutable_data(case.config_snapshot)

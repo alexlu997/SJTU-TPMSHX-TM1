@@ -476,10 +476,16 @@ The original window
 and extrapolation status stay in metadata. Uniform calibration requests keep their velocity limits. Other spatial
 calibration restrictions and the sCO2 spatial restriction stay.
 
-`optimization.multi_condition.prepare_fixed_mass_flow_case` first prepares a candidate. For each inlet, it integrates local single-channel porosity times the actual
+`preprocess.api.prepare_fixed_mass_flow_case` owns fixed-flow preparation.
+The existing `optimization.multi_condition` imports remain available. For each
+inlet, preparation integrates local single-channel porosity times the actual
 normalized inlet velocity profile over the opening. It multiplies this integral
 by inlet density, then divides prescribed total mass flow by that product to set
-inlet velocity. It then prepares the final case. The 2D taper normalization uses geometric open area independently
+inlet velocity. In 3D, it builds geometry, the grid, ports and inlet properties
+once. It validates the resolved speeds, then completes range observations,
+D-F application and the Case snapshot from that same prepared data. Ordinary
+and fixed-flow preparation share these final steps. The 2D path keeps its
+existing geometry and final preparation stages. The 2D taper normalization uses geometric open area independently
 of the spatial porosity field, exactly as the SIMPLE boundary does.
 
 Its snapshot records the
@@ -491,7 +497,7 @@ speeds must pass full configuration and case preparation checks. Ordinary
 preparation keeps those same full checks.
 
 Imported-flow optimization records
-the resolved uniform-reference configuration for replay, and each candidate
+the actual uniform-reference Case configuration for replay, and each candidate
 resolves its own inlet speeds again using its local porosity field. `aggregate_multi_condition` compares useful water
 uptake (`-Q_B`) and both relative pressure drops with paired baseline conditions.
 It requires complete converged results. Heat and pressure stay separate
@@ -511,6 +517,16 @@ these notes and does not present a stale running checkpoint as a cancelled resul
 ports, model resources, D-F mode, frozen run overrides, resolved roughness,
 prescribed total flows, grids and solver settings. The raw conditions must
 share geometry and numerical settings.
+
+The public batch API returns all in-memory FieldResults. The optimizer uses the
+same batch implementation but keeps only validated metrics, identities, paths
+and configuration snapshots. Each candidate loads one archived baseline result,
+runs the same identity, input and energy checks, and releases it before solving.
+Each completed or failed member leaves the active scope after its checkpoint is
+saved. Full fields remain in the existing archives. Missing or invalid baseline
+files fail at the comparison stage. This bounds retained completed fields to one
+active condition, at the cost of one baseline file read per candidate condition.
+Public and optimizer batches use the same objective calculation and weights.
 
 Only a complete numerically accepted batch can publish the two objectives. In addition to native convergence, 3D reuses the existing full-control-volume
 certificate from `postprocess.conservation.compute_phase2a`. Each fluid's
@@ -837,6 +853,16 @@ A metadata-only case or result update can reuse a complete,
 contiguous immutable bytes buffer with a separate array header. Changing the new
 array's shape or dtype cannot change the original. Sliced fields that would keep
 a larger parent buffer are copied into compact storage.
+
+The C++ full 3D binding detaches native evidence before it releases the native
+owner. `full_3d_capture` maps that evidence to FieldResult. The application path
+copies only arrays needed for this contract; opt-in flow audit arrays are copied
+when requested. `NativeFull3DDriver.run_prepared` retains its complete, detached
+return for direct callers. Both paths share native execution and owner release.
+The three temperature/display pairs, two report/display pressure pairs and
+true-h thermal mass-face aliases share immutable buffers with separate array
+headers. Thermal pressure and final flow pressure remain separate states.
+GUI consumers still receive their required writable copies.
 
 ### Cooperative cancellation
 
