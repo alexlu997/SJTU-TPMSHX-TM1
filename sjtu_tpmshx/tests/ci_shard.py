@@ -11,6 +11,9 @@ def pytest_addoption(parser):
     group = parser.getgroup('ci-shard')
     group.addoption('--ci-shard', type=int, choices=(0, 1), default=None,
                     help='Run listed modules (0) or their automatic complement (1).')
+    group.addoption('--ci-shard-modules', type=Path,
+                    default=Path(__file__).with_name('_ci_shard0.txt'),
+                    help='File listing the whole modules in shard 0.')
     group.addoption('--ci-manifest', help='Directory for per-worker collection JSON.')
 
 
@@ -29,7 +32,7 @@ def pytest_collection_modifyitems(config, items):
     full = [item.nodeid for item in items]
     if shard is not None:
         modules = {line.strip() for line in
-                   Path(__file__).with_name('_ci_shard0.txt').read_text().splitlines()
+                   config.getoption('ci_shard_modules').read_text().splitlines()
                    if line.strip() and not line.lstrip().startswith('#')}
         kept, removed = [], []
         for item in items:

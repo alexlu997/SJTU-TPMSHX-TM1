@@ -1,5 +1,6 @@
 """Build the locked base desktop application on the target operating system."""
 from pathlib import Path
+import os
 import sys
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
@@ -21,9 +22,30 @@ data += [(str(root / 'examples' / 'three_module' / name), 'examples')
          for name in ('air_2d.json', 'air_3d.json')]
 data += [(str(root / 'LICENSE'), 'licenses')]
 
+# Native inclusion is an explicit build input, never a build/download action.
+# Leaving it unset preserves the existing Python desktop distribution.
+binaries = []
+native_input = os.environ.get('TPMSHX_NATIVE_SOLVER_LIBRARY')
+if native_input is not None:
+    if not native_input.strip():
+        raise ValueError('TPMSHX_NATIVE_SOLVER_LIBRARY must name a prebuilt solver library')
+    library = Path(native_input).expanduser().resolve(strict=True)
+    expected_name = {
+        'darwin': 'libtpmshx_solver_shared.dylib',
+        'win32': 'tpmshx_solver_shared.dll',
+    }[sys.platform]
+    if not library.is_file() or library.name != expected_name:
+        raise ValueError(f'Expected the prebuilt {expected_name} for this desktop target: {library}')
+    binaries.append((str(library), 'native'))
+    data += [
+        (str(root / 'native' / 'THIRD_PARTY_NOTICES.md'), 'licenses/native'),
+        (str(root / 'native' / 'dependencies-lock.toml'), 'licenses/native'),
+        (str(root / 'native' / 'licenses'), 'licenses/native/licenses'),
+    ]
+
 a = Analysis(
     [str(root / 'packaging' / 'desktop_entry.py')],
-    pathex=[str(root)], binaries=[], datas=data, hiddenimports=hidden,
+    pathex=[str(root)], binaries=binaries, datas=data, hiddenimports=hidden,
     # VTK's compatibility aggregator imports every optional VTK module.
     # The app and locked PyVista use vtkmodules directly; PyVista's type hints
     # and old-version fallbacks otherwise pull the aggregator into Analysis.

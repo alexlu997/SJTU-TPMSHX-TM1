@@ -404,7 +404,7 @@ def build_param_tabs(window):
         ("流体", True,
          ['fluids_row']),
         ("网格与求解器", True,
-         ['grid_rect', 'material', 'df_method', 'sco2_nu', 'correlation_policy', 'compute_resources']),
+         ['solver_backend', 'grid_rect', 'material', 'df_method', 'sco2_nu', 'correlation_policy', 'compute_resources']),
         ("进出口边界", False,
          ['pipe_a', 'pipe_b', 'preview_btn']),
     ]

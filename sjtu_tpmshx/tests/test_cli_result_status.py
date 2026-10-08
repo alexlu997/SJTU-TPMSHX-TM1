@@ -27,7 +27,7 @@ def test_cli_result_status(tmp_path, monkeypatch, capsys, as_json,
         diagnostics={'envelope_valid': envelope,
                      'convergence_detail': {'outer_converged': outer}},
     )
-    monkeypatch.setattr(pipeline, 'pipeline_for', lambda cc: SimpleNamespace(run=lambda: result))
+    monkeypatch.setattr(pipeline, 'pipeline_for', lambda cc, *, control: SimpleNamespace(run=lambda: result))
     assert main([str(config)] + (['--json'] if as_json else [])) == exit_code
     output = capsys.readouterr().out
     if as_json:
@@ -46,7 +46,7 @@ def test_dry_run_does_not_claim_computed_status(tmp_path, monkeypatch, capsys):
 
     config = tmp_path / 'config.json'
     ComputeConfig().to_json(config)
-    monkeypatch.setattr(pipeline, 'pipeline_for', lambda cc: SimpleNamespace())
+    monkeypatch.setattr(pipeline, 'pipeline_for', lambda cc, *, control: SimpleNamespace())
     assert main([str(config), '--dry-run', '--json']) == 0
     assert set(json.loads(capsys.readouterr().out)) == {'pipeline', 'grid'}
 
@@ -69,7 +69,7 @@ def test_machine_output_separates_logs_and_preserves_unavailable_status(tmp_path
         print('solver warning', file=sys.stderr)
         return result
 
-    monkeypatch.setattr(pipeline, 'pipeline_for', lambda cc: SimpleNamespace(run=run))
+    monkeypatch.setattr(pipeline, 'pipeline_for', lambda cc, *, control: SimpleNamespace(run=run))
     assert main([str(config), '--json']) == 2
     captured = capsys.readouterr()
 
@@ -83,3 +83,21 @@ def test_machine_output_separates_logs_and_preserves_unavailable_status(tmp_path
     assert summary['metadata']['diagnostic'] == [None, None]
     assert summary['warnings'] == ['热量不可用']
     assert 'solver progress' in captured.err and 'solver warning' in captured.err
+
+
+def test_direct_cli_preserves_host_backend_selection(tmp_path, monkeypatch, capsys):
+    from sjtu_tpmshx.controllers import compute_pipeline
+    config = tmp_path / 'config.json'
+    ComputeConfig().to_json(config)
+    seen = []
+    def pipeline(cfg, *, control):
+        seen.append(control)
+        return SimpleNamespace()
+    monkeypatch.setattr(compute_pipeline, 'pipeline_for', pipeline)
+    assert main([str(config), '--dry-run', '--backend', 'cpp',
+                 '--native-library', str(tmp_path/'native-library'),
+                 '--native-table-directory', str(tmp_path/'tables')]) == 0
+    capsys.readouterr()
+    assert seen[0].backend == 'cpp'
+    assert seen[0].native_library == str(tmp_path/'native-library')
+    assert seen[0].native_table_directory == str(tmp_path/'tables')

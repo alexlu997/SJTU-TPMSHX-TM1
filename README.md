@@ -105,11 +105,12 @@ $env:NUMBA_CACHE_DIR = Join-Path $PWD '.cache/numba'
 前两条计算命令分别输出 `case.yaml`、伴随 `case.h5`、`results.h5` 和
 `metrics.json`；最后一条启动图形界面。CLI 输入文件与 GUI 会话文件格式不同，
 上述 JSON 用于命令行。打开对应 `metrics.json`，五项基本指标应为 `available`，
-参考值如下（2026-09-30 在 main `266211ed` 复核，近似值用于核对运行结果）：
+参考值如下（2026-10-02 当前实现复核，近似值用于核对运行结果；
+二维修订前数值保留于[历史索引](docs/history/README.md)）：
 
 | 算例 | Q | Δp A / B（Pa） | 出口温度 A / B（K） |
 | --- | --- | --- | --- |
-| air_2d | 31130.94 W/m | 1626.13 / 1188.83 | 303.28 / 334.80 |
+| air_2d | 31131.52 W/m | 1626.03 / 1188.81 | 303.28 / 334.79 |
 | air_3d | 338.33 W | 1944.17 / 3038.38 | 359.23 / 344.93 |
 
 空气现按真实端口面的面积平均值校准入口绝压，误差低于0.01%才满足该项收敛条件；
@@ -136,6 +137,54 @@ $env:NUMBA_CACHE_DIR = Join-Path $PWD '.cache/numba'
 Python 3.13 使用 `requirements-lock-bo-macos.txt`。BO 应安装到用户授权的独立环境，
 随后用对应锁运行环境检查及 `pip check`；勿将可选依赖加到正在使用的共享基础环境。
 上述小算例无需 BO。原始实验回归与重新拟合则需要匹配版本的本地数据，见文末。
+
+### macOS 项目文件夹中的 C++ 候选库
+
+本次交付保留 Python/Qt 主程序和源码，在项目内放置匹配的预编译 C++ 库，
+不制作 `.app`。随附库面向本机 macOS 27 / arm64；其他系统、机器和旧版
+macOS 尚未验收。继续复用 `.venv-path` 指定的现有锁定环境，环境检查同上。
+
+双击项目根目录的 `launch-macos.command`，或在终端运行：
+
+```sh
+./launch-macos.command
+```
+
+启动器进入自身所在项目目录，将缓存写入项目 `.cache/`，通过 `--backend cpp`
+显式加载 `native/lib/macos-arm64/libtpmshx_solver_shared.dylib`，并传入
+`.cache/native-deps/tables`。库、表和本机 `.venv-path` 属于本地交付资源，
+不随 Git 源码自动提供。缺少解释器或库会直接报告原因；启动器不安装依赖、
+编译库或切换到 Python。需要 CO₂ BICUBIC 表的既有 legacy 路线使用随附四表；
+新的保守温度算法不使用这些表。公共 API、CLI 和直接模块调用仍默认使用 Python。
+
+已有锁定原生依赖时，可从当前源码离线重建并更新启动器使用的库：
+
+```sh
+"$PYTHON" scripts/build_native_dependencies.py build --component pilot
+mkdir -p native/lib/macos-arm64
+cp .cache/native-deps/build/pilot-macos-arm64/libtpmshx_solver_shared.dylib native/lib/macos-arm64/
+```
+
+此命令复用现有依赖；缺少锁定依赖时会停止，不在运行时安装或下载。
+`native/lib/` 是本地交付目录，已由 Git 忽略。源码改变后应重新构建匹配库。
+以 Python 数值后端打开同一界面可运行
+`"$PYTHON" -m sjtu_tpmshx.main --backend python`。
+在界面左侧“求解 → 求解器 → 计算后端”可直接选择 Python 或 C++，无需重启。
+初始选择由启动参数决定；切换作用于下一次普通计算、快速设计和优化。
+任务运行及取消收尾期间禁止切换。C++ 使用启动时指定的库，或本机 macOS
+交付目录中的匹配库；库缺失会保留原选择并提示原因。Python 线程数设置随
+后端切换启用，C++ 使用既有固定并行策略。此选择属于当前窗口的运行设置，
+不写入工况文件，也不改变已经生成的结果。
+
+2026-10-05 的候选验收保留以下边界：Ceff43 为 19/43 通过、24/43 超时，
+固定总体未通过；fixed230 执行和索引为 230/230，用时 93 分 18.5 秒，
+保存态独立检查为 229/230 通过，首行因审计工具错误未评估且未重试。
+这些局部检查不构成完整原生配置、迭代历史、F2 或实验准确度资格。
+源码 GUI 已有两维显示和导出证据，取消、重算、菜单配置保存重载、重启恢复及
+外循环次数显示的可见复核尚待解锁 Mac 后完成；当前不作为完整应用验收通过。
+当前候选的 macOS 原生 CI 仍有数值比较失败；旧 Python 轨迹与新共享 FV
+算法的对照边界尚未全部闭合，未通过放宽容差或删除失败断言处理。
+文件夹可启动与限定回归通过不代表完整原生资格通过。
 
 <a id="gui-use"></a>
 
@@ -339,10 +388,16 @@ Pareto CSV 仍可导出几何；旧筛选模式不能再执行或重新计算指
 `models/`、`df_surrogate/` 等是共享技术支撑，不是第四个业务模块。旧 Pipeline/应用
 入口单向调用公开模块。具体边界见[架构说明](docs/architecture.md)。
 
-实际后端为 Python，默认使用 Numba；完整双流体 true-h 路线可显式选择
-[C++ 热迭代内核](docs/cpp-migration.md)，物性、收敛与能量验收仍由 Python 执行。
-完整 C++ 后端、OpenFOAM、REFPROP 等提供器、扩展 h/f/PEC 定义与
-伴随能力继续按 M-B/原文限定追踪，不能据目录或接口声明为已实现。
+默认后端为 Python/Numba。macOS arm64 和 Windows x64 原生库可通过显式
+`RunControl(backend='cpp', native_library=...)` 或 CLI `--backend cpp`
+执行 Quick Design 和完整二维／三维求解；库路径、构建及能力边界见
+[C++ 迁移说明](docs/cpp-migration.md)。原生构建、独立调用及数值对照已通过
+macOS/Python 3.13 与 Windows/Python 3.12、3.13 的必需 CI；
+可见桌面交付与完整性能验收仍各自保留。
+完整二维接口为 ABI 2，必须同步分发库、头文件和适配器。
+原 Python 外循环加 C++ sweep 内核的混合入口已退役；当前选择完整 Python 或 C++ 后端。
+OpenFOAM、REFPROP 等提供器、扩展 h/f/PEC 定义与伴随能力继续按
+M-B/原文限定追踪，不能据目录或接口声明为已实现。
 
 ## 环境与检查
 
@@ -402,11 +457,19 @@ envelope 实现、三模块数据契约与公共 API、后处理指标入口；�
 `"$PYTHON" scripts/check_ci_shards.py .cache/ci/fast-0 .cache/ci/fast-1`
 核对两个 worker 的集合一致、两片互斥且完整覆盖原子集。
 
-CI 日志保留最慢 30 项和 skip 原因。每片将 JUnit 与 collection manifest 保存为
+原生资格检查也按完整模块分到两个独立 runner，每片串行执行，保留各自的
+原生构建、独立调用及全部数值断言。其分片 0 清单为
+`sjtu_tpmshx/tests/native/_ci_shard0.txt`，通过 `--ci-shard-modules` 指定；
+未列出的资格模块自动进入分片 1。每片上传
+`native-dependencies-<平台>-py<版本>-shard-<0|1>`，包含 JUnit、构建日志和
+`ci/native-manifest`；同一集合校验器加 `--serial` 核对两片完整且互斥。
+原生日志保留最慢 20 项和 skip 原因。
+
+快测和集成日志保留最慢 30 项和 skip 原因。每片将 JUnit 与 collection manifest 保存为
 `test-reports-<平台>-py<版本>-<fast-0|fast-1|integration>` artifact，保留 7 天。
 manifest 附带各 pytest 进程的独立 RSS 峰值与已加载 Numba dispatcher 的缓存计数；
 进程峰值不能相加当作同期总峰值，统计不覆盖普通子进程或已经销毁的 dispatcher。
-三个原名 `tests (<平台>, <版本>)` 必需检查共同等待全部平台的测试片和 BO，
+三个原名 `tests (<平台>, <版本>)` 必需检查共同等待全部平台的测试片、BO 和原生资格片，
 只接受全部成功及分片集合校验通过；失败、取消、跳过或缺失分片不能放行。
 `minimal-postprocess` 继续作为独立必需检查。
 比较速度时区分快测、集成和整个 job，并使用相同平台的基准，不据本地耗时承诺 CI 提速。

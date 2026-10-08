@@ -28,7 +28,7 @@ def main(argv=None):
         from sjtu_tpmshx.cli import main as run_cli
         return run_cli(args[1:])
     from sjtu_tpmshx.main import main as run_gui
-    return run_gui()
+    return run_gui(args)
 
 
 if __name__ == '__main__':

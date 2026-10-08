@@ -42,7 +42,8 @@ def test_invalid_axes_rejected_before_runtime_and_file_handoff(
     def unexpected_runtime(*args, **kwargs):
         pytest.fail('invalid grid axes reached numerical runtime construction')
     if case.grid['dimension'] == 2:
-        monkeypatch.setattr(execution, 'build_runtime', unexpected_runtime)
+        runtime = import_module('sjtu_tpmshx.solvers.backends.python.two_d.runtime')
+        monkeypatch.setattr(runtime, 'build_runtime', unexpected_runtime)
     else:
         runtime = import_module('sjtu_tpmshx.solvers.backends.python.three_d.runtime')
         monkeypatch.setattr(runtime, 'build_problem', unexpected_runtime)

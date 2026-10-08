@@ -39,20 +39,23 @@ def suite(tmp_path_factory):
     return root
 
 
-def run_pytest(root, *options):
+def run_pytest(root, *options, workers=2):
     env = dict(os.environ, PYTEST_DISABLE_PLUGIN_AUTOLOAD='1',
                PYTHONPATH=os.pathsep.join([str(root), str(_ROOT), os.environ.get('PYTHONPATH', '')]))
     return subprocess.run(
         [sys.executable, '-m', 'pytest', '-p', 'xdist.plugin', '-p', 'ci_shard',
-         '-n', '2', '--dist=loadscope', '-q', '-m', 'not heavy and not slow',
+         '-c', str(root / 'pytest.ini'),
+         '-n', str(workers), '--dist=loadscope', '-q', '-m', 'not heavy and not slow',
          '-k', 'keep or heavy or slow', *options], cwd=root, env=env,
         text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=45)
 
 
-def run_checker(zero, one, baseline=None):
+def run_checker(zero, one, baseline=None, *, serial=False):
     args = [sys.executable, '-S', str(_CHECKER), str(zero), str(one)]
     if baseline is not None:
         args += ['--baseline', str(baseline)]
+    if serial:
+        args += ['--serial']
     return subprocess.run(args, text=True, stdout=subprocess.PIPE,
                           stderr=subprocess.STDOUT, timeout=10)
 
@@ -85,6 +88,32 @@ def test_filters_module_partition_new_files_and_baseline(manifests):
             assert selected == expected
     checked = run_checker(manifests['zero'], manifests['one'], manifests['baseline'])
     assert checked.returncode == 0, checked.stdout
+
+
+def test_serial_shards_with_custom_modules(suite, tmp_path):
+    modules = tmp_path / 'native-modules.txt'
+    modules.write_text('test_rest.py\n', encoding='utf-8')
+    directories = {label: tmp_path / label for label in ('baseline', 'zero', 'one')}
+    for label, shard in (('baseline', None), ('zero', 0), ('one', 1)):
+        options = ['--ci-manifest', str(directories[label]), '--ci-shard-modules', str(modules)]
+        if shard is not None:
+            options += [f'--ci-shard={shard}']
+        result = run_pytest(suite, *options, workers=0)
+        assert result.returncode == 0, result.stdout
+    selected = json.loads((directories['zero'] / 'controller.json').read_text())
+    assert selected['selected_nodeids'] == ['test_rest.py::test_keep_rest']
+    checked = run_checker(directories['zero'], directories['one'], directories['baseline'], serial=True)
+    assert checked.returncode == 0, checked.stdout
+    assert run_checker(directories['zero'], directories['one']).returncode != 0
+    path = directories['one'] / 'controller.json'
+    record = json.loads(path.read_text())
+    record['exitstatus'] = 1
+    path.write_text(json.dumps(record), encoding='utf-8')
+    assert run_checker(directories['zero'], directories['one'], serial=True).returncode != 0
+    record['exitstatus'] = 0
+    record['selected_nodeids'].pop()
+    path.write_text(json.dumps(record), encoding='utf-8')
+    assert run_checker(directories['zero'], directories['one'], serial=True).returncode != 0
 
 
 @pytest.mark.parametrize('damage', ['missing', 'worker_disagreement', 'overlap', 'incomplete',

@@ -194,7 +194,7 @@ def _compute_cached(tpms_type: str,
         cF_df     – Forchheimer coefficient [1/m] (fixed CFD D-F closure)
         dP_per_L  – pressure drop per unit length [Pa/m]
         H_sf      – face heat transfer coefficient [W/(m²·K)]
-        K_ff      – fluid effective thermal conductivity [W/(m·K)]
+        K_ff      – single-stream effective conductivity epsilon_A*k_f [W/(m·K)]
         rho       – selected fluid density [kg/m³]
         mu        – selected fluid dynamic viscosity [Pa·s]
         k_f       – selected fluid thermal conductivity [W/(m·K)]
@@ -266,7 +266,7 @@ def _compute_cached(tpms_type: str,
         dP_per_L = mu * u / K_df + rho * cF_df * u * u
 
         # ── Effective thermal conductivities (volume-averaged) ────
-        K_ff = eps * k_f
+        K_ff = eps_A * k_f
 
         return {
             'epsilon':   eps,

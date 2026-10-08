@@ -28,7 +28,13 @@ def test_solve_Lx_hits_target():
 @pytest.mark.parametrize('prop_model', ['const', 'mean'])
 def test_duty_search_meets_actual_heat_duty_after_cold_start(prop_model):
     from sjtu_tpmshx.design.forward import forward
+    from sjtu_tpmshx.design.sizing import LX_MAX
+    from sjtu_tpmshx.models.fluid_props import QuickDesignWaterFieldError
     case = replace(_case(), Q=70000.)
+    # The original longest-first algorithm aborts here, although a shorter
+    # design meets the same duty and keeps every water cell liquid.
+    with pytest.raises(QuickDesignWaterFieldError):
+        forward(case, 'Diamond', 7., .5, .15, LX_MAX, 'cross', prop_model=prop_model)
     length, result = solve_Lx(case, 'Diamond', 7., .5, .15, 'cross',
                               prop_model=prop_model)
     assert length is not None and result.Q_hot >= case.Q
@@ -200,3 +206,83 @@ def test_brentq_finite_response_preserves_seed_chain_and_fallback(monkeypatch, m
     assert events[-1][1] == LTNE_TOL
     for actual, last in zip(result.fields, events[-1][2]):
         np.testing.assert_array_equal(actual, last)
+
+
+@pytest.mark.parametrize('failure,lower', [
+    ('upper', .15), ('both-ends', .15), ('hole', .17), ('tight', .18), ('warm', .15),
+])
+def test_water_failure_search_keeps_valid_interior(monkeypatch, failure, lower):
+    from sjtu_tpmshx.design import sizing
+    from sjtu_tpmshx.design.forward import ForwardResult
+    from sjtu_tpmshx.models.fluid_props import QuickDesignWaterFieldError
+    case = replace(_case(), Q=150.)
+    calls, failures = [], []
+    def thermal(case, topo, l, t, s, length, arrangement, **kwargs):
+        calls.append((length, kwargs['tol'], kwargs['init']))
+        invalid = ((failure == 'upper' and length > .3)
+                   or (failure == 'both-ends' and not .1 <= length <= .3)
+                   or (failure == 'hole' and .145 < length < .17)
+                   or (failure == 'tight' and kwargs['tol'] == sizing.LTNE_TOL
+                       and .15 <= length < .18)
+                   or (failure == 'warm' and kwargs['init'] is not None))
+        if invalid:
+            failures.append(len(calls))
+            raise QuickDesignWaterFieldError('controlled water hotspot')
+        return ForwardResult(400. - length, 330., 1000. * length, 1000. * length,
+                             .001, .001, 1000., 1000.,
+                             fields=tuple(np.full((2, 2, 1), 330.) for _ in range(3)),
+                             run_status={'converged': True})
+    monkeypatch.setattr(sizing, 'forward', thermal)
+    length, result = sizing.solve_Lx(case, 'Diamond', 7., .5, .084, 'cross')
+    assert failures
+    assert lower <= length <= lower + sizing.TOL
+    assert result.Q_hot >= case.Q
+    assert len(calls) - failures[0] <= sizing.WATER_SEARCH_EVALS
+    assert all(init is None for _, _, init in calls[failures[0]:])
+    assert any(lx == length and tol == sizing.LTNE_TOL for lx, tol, _ in calls)
+
+
+def test_water_search_exhaustion_is_bounded_and_not_cooling_unreachable(monkeypatch):
+    from sjtu_tpmshx.design import sizing
+    from sjtu_tpmshx.models.fluid_props import QuickDesignWaterFieldError
+    calls = []
+    def invalid(*args, **kwargs):
+        calls.append(args[5])
+        raise QuickDesignWaterFieldError('water index=(0, 1, 0), T=500 K')
+    monkeypatch.setattr(sizing, 'forward', invalid)
+    with pytest.raises(QuickDesignWaterFieldError, match='water-state-search-exhausted') as caught:
+        sizing.solve_Lx(_case(), 'Diamond', 7., .5, .084, 'cross')
+    assert len(calls) == sizing.WATER_SEARCH_EVALS + 1
+    assert 'cooling-unreachable' not in str(caught.value)
+    assert 'index=(0, 1, 0)' in str(caught.value)
+
+
+def test_water_input_property_error_is_not_a_search_point(monkeypatch):
+    from sjtu_tpmshx.design import sizing
+    from sjtu_tpmshx.models.fluid_props import WaterStateError
+    calls = []
+    error = WaterStateError('invalid inlet water state')
+    def invalid(*args, **kwargs):
+        calls.append(args[5])
+        raise error
+    monkeypatch.setattr(sizing, 'forward', invalid)
+    with pytest.raises(WaterStateError) as caught:
+        sizing.solve_Lx(_case(), 'Diamond', 7., .5, .084, 'cross')
+    assert caught.value is error
+    assert len(calls) == 1
+
+
+def test_water_interval_search_still_cancels(monkeypatch):
+    from sjtu_tpmshx.design import sizing
+    from sjtu_tpmshx.domain.cancellation import CancelledError
+    from sjtu_tpmshx.domain.module_ports import RunControl
+    from sjtu_tpmshx.models.fluid_props import QuickDesignWaterFieldError
+    calls = []
+    def invalid(*args, **kwargs):
+        calls.append(args[5])
+        raise QuickDesignWaterFieldError('controlled water hotspot')
+    monkeypatch.setattr(sizing, 'forward', invalid)
+    control = RunControl(cancel_check=lambda: len(calls) >= 3)
+    with pytest.raises(CancelledError):
+        sizing.solve_Lx(_case(), 'Diamond', 7., .5, .084, 'cross', control=control)
+    assert len(calls) == 3

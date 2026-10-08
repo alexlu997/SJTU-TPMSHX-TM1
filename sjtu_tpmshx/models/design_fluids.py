@@ -16,7 +16,38 @@ from sjtu_tpmshx.models.nu_correlations import (
     SCO2_NU_RE_RANGE,       # sCO2 CFD 拟合 Re 域 (2600,128000), Diamond+Gyroid
     nu_water_topo,
     nu_sco2_topo,
+    _warn_extrap, _warn_water_nu, _warn_sco2_nu,
 )
+from sjtu_tpmshx.models.tpms_props import record_temperature_ranges
+
+DESIGN_NU_REFERENCE_STATES = {
+    'water': (320.0, 2e5),
+    'sco2': (480.0, 9.0e6),
+}
+
+
+def _warn_sco2_representative_pr():
+    record_warning(('design-sco2-representative-pr',),
+                   'sCO2 Nu uses representative Pr queried at 480 K / 9 MPa, '
+                   'not at this case inlet or mean state. The smooth-wall CFD '
+                   'correlation joint qualification for this case is not established.')
+
+
+def record_native_design_ranges(fluid, topo, temperature, reynolds):
+    """Map returned native pass evidence through existing warning owners, without EOS calls."""
+    record_temperature_ranges(fluid, temperature, source='property')
+    if fluid in DESIGN_NU_REFERENCE_STATES:
+        with range_context(stage='design-nu-representative-pr', layout='scalar'):
+            record_temperature_ranges(fluid, DESIGN_NU_REFERENCE_STATES[fluid][0], source='property')
+    if fluid == 'air':
+        _warn_extrap(topo, reynolds, reynolds, reynolds)
+    elif fluid == 'water':
+        _warn_water_nu(max(reynolds, 1.), max(reynolds, 1.), topo, reynolds)
+    elif fluid == 'sco2':
+        _warn_sco2_representative_pr()
+        _warn_sco2_nu(max(reynolds, 1.), max(reynolds, 1.), topo, reynolds)
+    else:
+        raise ValueError(f'unknown fluid {fluid!r}')
 
 
 def nu_re_window(fluid: str):
@@ -58,15 +89,12 @@ def fluid_nu(fluid: str, topo: str, Re: float, eps_f: float,
         return nu_from_Re(topo, Re, eps_f, L_mm, D_h_mm)
     if fluid == "water":
         with range_context(stage='design-nu-representative-pr', layout='scalar'):
-            Pr_w = fluid_props("water", 320.0, 2e5).Pr
+            Pr_w = fluid_props("water", *DESIGN_NU_REFERENCE_STATES['water']).Pr
         return nu_water_topo(topo, Re, Pr_w)
     if fluid == "sco2":
         # representative far-from-critical sCO2 (D-7-6 mid ~480K/9MPa)
         with range_context(stage='design-nu-representative-pr', layout='scalar'):
-            Pr_s = fluid_props("sco2", 480.0, 9.0e6).Pr
-        record_warning(('design-sco2-representative-pr',),
-                       'sCO2 Nu uses representative Pr queried at 480 K / 9 MPa, '
-                       'not at this case inlet or mean state. The smooth-wall CFD '
-                       'correlation joint qualification for this case is not established.')
+            Pr_s = fluid_props("sco2", *DESIGN_NU_REFERENCE_STATES['sco2']).Pr
+        _warn_sco2_representative_pr()
         return nu_sco2_topo(topo, Re, Pr_s, L_mm, D_h_mm)
     raise ValueError(f"unknown fluid {fluid!r}")

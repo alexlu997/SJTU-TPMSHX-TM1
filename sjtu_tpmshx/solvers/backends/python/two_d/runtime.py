@@ -23,8 +23,6 @@ def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
     za = cfg['za']
 
     energy_dx, energy_dy = prepared['energy_dx'], prepared['energy_dy']
-    _x_breaks, _y_breaks = set(prepared['_x_breaks']), set(prepared['_y_breaks'])
-    N_x, N_y = cfg['N_x'], cfg['N_y']
 
     # Build the _run_simple closure here so it captures all needed locals.
     # It is returned in fields and called by Phase 3.
@@ -223,10 +221,8 @@ def build_runtime(cfg: dict[str, Any], prepared: dict[str, Any], *,
 
         return uc_real, vc_real, s
 
-    fields = {
+    return {
         'energy_dx': energy_dx, 'energy_dy': energy_dy,
-        '_x_breaks': _x_breaks, '_y_breaks': _y_breaks,
         '_run_simple': _run_simple,
         'simple_warnings': simple_warnings,
     }
-    return fields

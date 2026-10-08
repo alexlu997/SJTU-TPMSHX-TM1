@@ -85,6 +85,7 @@ def test_workflow_last_write_failure_keeps_previous_run_identities(tmp_path, mon
     from sjtu_tpmshx.tests.io_tm1.test_case_io import sample_case
     from sjtu_tpmshx.domain.field_result import FieldResult
     from sjtu_tpmshx.domain.metric_spec import MetricSpec
+    from sjtu_tpmshx.domain.module_ports import RunControl
     from sjtu_tpmshx.domain.performance_result import MetricValue, PerformanceResult
     from sjtu_tpmshx.io import metrics_io, yaml_config
     from sjtu_tpmshx.io.case_io import load_case
@@ -92,7 +93,8 @@ def test_workflow_last_write_failure_keeps_previous_run_identities(tmp_path, mon
     from sjtu_tpmshx.workflows.cli import main
     original = metrics_io.save_metrics
 
-    def compute(config, case_id):
+    def compute(config, case_id, *, control):
+        assert control == RunControl()
         case = replace(sample_case(), case_id=case_id)
         result = FieldResult(case_id + '-result', case_id, 'synthetic', grid=case.grid,
                              run_status={'execution': 'completed', 'converged': True})

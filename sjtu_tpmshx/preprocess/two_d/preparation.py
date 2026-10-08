@@ -67,7 +67,7 @@ def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None, geome
                       eps_arr=eps, eps_f_arr=eps / 2., K_ss_arr=solid, r_h_arr=radius)
             if not geometry_only:
                 for side, fluid in (('A', compute_cfg.fluid_A), ('B', compute_cfg.fluid_B)):
-                    za['K_ff' + side + '_arr'] = eps * float(fluid_props.get(fluid.type).k(fluid.T_in_K, fluid.P_in_Pa))
+                    za['K_ff' + side + '_arr'] = za['eps_f_arr'] * float(fluid_props.get(fluid.type).k(fluid.T_in_K, fluid.P_in_Pa))
             zone_config = 'continuous'
         elif z_axis == 'grid':
             grid = compute_cfg.zones.grid

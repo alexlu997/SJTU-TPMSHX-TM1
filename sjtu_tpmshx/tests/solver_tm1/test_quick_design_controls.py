@@ -13,7 +13,10 @@ from sjtu_tpmshx.tests.design.test_forward import _case
 
 
 def test_quick_mode_controls_and_native_unconverged_status(monkeypatch):
-    case = prepare_quick_design(_case(), 'Diamond', 7., .5, .084, .05, case_id='controls')
+    # The deliberately unfinished iterate must still stay in the liquid-water
+    # range; convergence status is independent of the water-state rejection.
+    op = replace(_case(), P_in_c=3e6)
+    case = prepare_quick_design(op, 'Diamond', 7., .5, .084, .05, case_id='controls')
     from sjtu_tpmshx.models import quick_design
     def forbidden(*args, **kwargs):
         raise AssertionError('execution attempted to rebuild fixed inlet pressure')

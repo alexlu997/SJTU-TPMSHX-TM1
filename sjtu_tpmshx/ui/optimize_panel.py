@@ -28,7 +28,8 @@ def _make_worker_class():
         progress_signal = Signal(int)
         error_signal = Signal(str)
 
-        def __init__(self, config, condition_rows, field_spec, method, n_init, n_iter, q_batch, seed, save_dir):
+        def __init__(self, config, condition_rows, field_spec, method, n_init, n_iter, q_batch, seed, save_dir,
+                     *, control=RunControl()):
             super().__init__()
             self.config = deepcopy(config)
             self.condition_rows = deepcopy(condition_rows)
@@ -36,12 +37,18 @@ def _make_worker_class():
             self.method = method
             self.n_init, self.n_iter, self.q_batch, self.seed = n_init, n_iter, q_batch, seed
             self.save_dir = save_dir
+            self.control = control
 
         def run(self):
             from sjtu_tpmshx.domain.cancellation import CancelledError
             try:
-                control = RunControl(progress=self.progress_signal.emit,
-                                     cancel_check=self.isInterruptionRequested)
+                def progress(percent):
+                    self.progress_signal.emit(percent)
+                    self.control.report_progress(percent)
+                def cancelled():
+                    return self.isInterruptionRequested() or (
+                        self.control.cancel_check is not None and self.control.cancel_check())
+                control = replace(self.control, progress=progress, cancel_check=cancelled)
                 control.check_cancelled()
                 conditions = _condition_inputs(self.config, self.condition_rows)
                 control.check_cancelled()
@@ -171,7 +178,7 @@ def refresh_setup(window):
     label = getattr(window, '_opt_condition_summary', None)
     if label is not None:
         label.setText(f'{n} 个工况 · 等权：' + '、'.join(row['condition_id'] for row in rows)
-                      if rows else '单工况 · 当前窗口输入；总流量由入口速度和真实孔隙开口面积换算')
+                      if rows else '单工况 · 当前窗口输入；总流量按实际入口速度分布与孔隙率积分换算')
     params = getattr(window, '_opt_inline_params', {})
     label = getattr(window, '_opt_eval_preview', None)
     if label is not None and params:
@@ -263,6 +270,8 @@ def _set_progress_pct(window, pct: float) -> None:
 
 def _toggle_buttons(window, running: bool) -> None:
     """Disable Launch / enable Cancel while running, opposite when idle."""
+    from sjtu_tpmshx.ui.solver_backend import refresh_backend_availability
+    refresh_backend_availability(window)
     btn = getattr(window, '_opt_btn', None)
     cancel = getattr(window, '_opt_cancel_btn', None)
     try:
@@ -337,7 +346,8 @@ def run_optimize(window):
         params = {key: spin.value() for key, spin in window._opt_inline_params.items()}
         method = window._opt_method.currentData()
         save_dir = str(optimization_output_dir() / f'{method}_{time.strftime("%Y%m%d_%H%M%S")}_{time.time_ns()%1000000:06d}')
-        worker = _make_worker_class()(cfg, rows, spec, method, save_dir=save_dir, **params)
+        worker = _make_worker_class()(cfg, rows, spec, method, save_dir=save_dir,
+            control=getattr(window, 'run_control', RunControl()), **params)
     except Exception as exc:
         window._opt_launching = False
         _toggle_buttons(window, False)

@@ -1,6 +1,6 @@
 """demo_vis_3d_interactive.py — interactive 3D visualisation.
 
-PyVista standalone window showing Shanghai case 8 3D fields, with a draggable
+PyVista standalone window showing saved FieldResult 3D fields, with a draggable
 slice-plane widget. The default display preserves the domain's real aspect.
 
 Controls:
@@ -15,33 +15,20 @@ Its axis labels then show normalised position and an annotation provides the
 real-world dimensions. The underlying physics data are unchanged.
 
 Usage (from the repo root):
-    python -m sjtu_tpmshx.runs.demos.demo_vis_3d_interactive         # real aspect
-    python -m sjtu_tpmshx.runs.demos.demo_vis_3d_interactive --test  # off-screen smoke
-    python -m sjtu_tpmshx.runs.demos.demo_vis_3d_interactive --cube  # stretch display
+    python -m sjtu_tpmshx.runs.demos.demo_vis_3d_interactive results.h5
+    python -m sjtu_tpmshx.runs.demos.demo_vis_3d_interactive results.h5 --test
+    python -m sjtu_tpmshx.runs.demos.demo_vis_3d_interactive results.h5 --cube
 """
 
 from __future__ import annotations
 import argparse
 import math
-import sys, warnings
 from pathlib import Path
 
 import numpy as np
 import pyvista as pv
 
-try:
-    sys.stdout.reconfigure(encoding='utf-8')
-except Exception:
-    pass
-warnings.filterwarnings('ignore')
-
-# Reuse helpers + field loader from demo_vis_3d
-from sjtu_tpmshx.ui.demo_vis_3d import (
-    run_case_8_fields, build_demo_zoning_field,
-    L_DOM, H_DOM, LZ,
-)
-
-
+from sjtu_tpmshx.ui.demo_vis_3d import load_visualization_result
 from sjtu_tpmshx.ui.vis3d_constants import FIELD_ORDER, FIELD_META, tone_down_plane_widget
 
 
@@ -60,11 +47,9 @@ def build_data_grid(dx, dy, dz, Ta, vmag, P, L_field,
     z_edges = np.concatenate([[0.0], np.cumsum(dz)]) * 1000.0
 
     if stretch_to_cube:
-        # Rescale each axis to [0, max_dim_mm]; cube side = max(L, H, Lz) * 1000
-        side = max(L_DOM, H_DOM, LZ) * 1000.0
-        x_edges = x_edges / x_edges[-1] * side
-        y_edges = y_edges / y_edges[-1] * side
-        z_edges = z_edges / z_edges[-1] * side
+        x_edges = x_edges / x_edges[-1]
+        y_edges = y_edges / y_edges[-1]
+        z_edges = z_edges / z_edges[-1]
 
     grid = pv.RectilinearGrid(x_edges, y_edges, z_edges)
     grid.cell_data['Ta']    = Ta.flatten(order='F')
@@ -75,7 +60,7 @@ def build_data_grid(dx, dy, dz, Ta, vmag, P, L_field,
 
 
 def launch_interactive(grid, *, off_screen=False, out_dir=None,
-                        stretched=False, real_dims=(L_DOM, H_DOM, LZ)):
+                        stretched=False, real_dims=None):
     """Spin up the PyVista window with widgets + keybindings.
 
     stretched : whether the grid has been visually stretched to a cube.
@@ -85,6 +70,10 @@ def launch_interactive(grid, *, off_screen=False, out_dir=None,
         out_dir = Path(__file__).resolve().parents[3] / '.cache' / 'demos' / 'interactive'
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    if real_dims is None:
+        if stretched:
+            raise ValueError('Cube-stretched display requires the physical real_dims')
+        real_dims = tuple((grid.bounds[2*i+1] - grid.bounds[2*i]) / 1000. for i in range(3))
 
     # This A-side demo supplies a subset of the embedded panel's fields.
     field_order = [field for field in FIELD_ORDER if field in grid.point_data]
@@ -119,9 +108,12 @@ def launch_interactive(grid, *, off_screen=False, out_dir=None,
 
     # Bounding box outline (minimal, no dense grid)
     pl.add_mesh(grid.outline(), color='#3c4758', line_width=2)
-    pl.show_bounds(
+    axes = pl.show_bounds(
+        bounds=grid.bounds,
         grid='back', location='outer',
-        xtitle='x (mm)', ytitle='y (mm)', ztitle='z (mm)',
+        xtitle='x/Lx' if stretched else 'x (mm)',
+        ytitle='y/Ly' if stretched else 'y (mm)',
+        ztitle='z/Lz' if stretched else 'z (mm)',
         n_xlabels=3, n_ylabels=3, n_zlabels=3,
         all_edges=False, minor_ticks=False, use_2d=False,
         font_size=11,
@@ -212,6 +204,8 @@ def launch_interactive(grid, *, off_screen=False, out_dir=None,
                     color='#1a1f24', name='info_header', shadow=False)
         pl.add_text(footer_text(), font_size=9, position='lower_edge',
                     color='#606870', name='info_footer')
+        # Widget actors expand scene bounds while they are rebuilt.
+        axes.update_bounds(grid.bounds)
 
     def cycle_field():
         state['field_idx'] = (state['field_idx'] + 1) % len(field_order)
@@ -282,48 +276,27 @@ def launch_interactive(grid, *, off_screen=False, out_dir=None,
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument('result', type=Path, help='Saved 3D FieldResult HDF5 file.')
     ap.add_argument('--test', action='store_true',
                     help='Off-screen render for CI smoke (no window).')
     ap.add_argument('--cube', action='store_true',
                     help='Stretch display to cube (visual only, distorts aspect). '
                          'Default is true physical aspect.')
-    ap.add_argument('--nx', type=int, default=30)
-    ap.add_argument('--ny', type=int, default=15)
-    ap.add_argument('--nz', type=int, default=5)
-    ap.add_argument('--max-outer', type=int, default=3)
+    ap.add_argument('--out-dir', type=Path, help='Screenshot directory (default: .cache/demos/interactive).')
     args = ap.parse_args()
 
-    print(f"[1/3] Running Shanghai case 8 ({args.nx}×{args.ny}×{args.nz})…")
-    sA, Ta, dx, dy, dz, Nx, Ny, Nz, u_A, T_Ain_K = run_case_8_fields(
-        Nx=args.nx, Ny=args.ny, Nz=args.nz, max_outer=args.max_outer)
-    print(f"      T_a range: [{Ta.min():.1f}, {Ta.max():.1f}] K  "
-          f"u_A={u_A:.1f} m/s")
-
-    # Extract velocity magnitude + P in real (Nx, Ny, Nz) coords
-    vA_cc = 0.5 * (sA.v[:, :-1, :] + sA.v[:, 1:, :])      # (Ny, Nx, Nz)
-    uc_real = vA_cc.transpose(1, 0, 2).copy()             # (Nx, Ny, Nz)
-    uA_cc = 0.5 * (sA.u[:-1, :, :] + sA.u[1:, :, :])      # (Ny, Nx, Nz)
-    vc_real = uA_cc.transpose(1, 0, 2).copy()
-    wA_cc = 0.5 * (sA.w[:, :, :-1] + sA.w[:, :, 1:])      # (Ny, Nx, Nz)
-    wc_real = wA_cc.transpose(1, 0, 2).copy()
-    vmag = np.sqrt(uc_real**2 + vc_real**2 + wc_real**2)
-
-    P_real = (sA.P_ref_abs + sA.P).transpose(1, 0, 2).copy()  # absolute Pa
-
-    print(f"      |v| range: [{vmag.min():.1f}, {vmag.max():.1f}] m/s")
-    print(f"      Absolute P range: [{P_real.min():.0f}, {P_real.max():.0f}] Pa")
-
-    print("[2/3] Building demo zoning L-field…")
-    L_field = build_demo_zoning_field(Nx, Ny, Nz, dx, dy, dz)
-
-    print(f"[3/3] Launching PyVista "
-          f"{'(off-screen)' if args.test else 'interactive'} window "
-          f"{'[cube-stretched]' if args.cube else '[true aspect]'}…")
-    grid = build_data_grid(dx, dy, dz, Ta, vmag, P_real, L_field,
-                            stretch_to_cube=args.cube)
-    launch_interactive(grid, off_screen=args.test, stretched=args.cube)
+    result = load_visualization_result(args.result)
+    widths = [result.grid['d' + axis] for axis in 'xyz']
+    fields = result.fields
+    vmag = np.sqrt(sum(fields[name]**2 for name in ('ucA', 'vcA', 'wcA')))
+    L_field = result.metadata['design_fields']['L_field_m'] * 1000.
+    print(f"Loaded {args.result}: grid={fields['Ta'].shape}, status={dict(result.run_status)}")
+    grid = build_data_grid(*widths, fields['Ta'], vmag, fields['P_report_A'], L_field,
+                           stretch_to_cube=args.cube)
+    launch_interactive(grid, off_screen=args.test, out_dir=args.out_dir,
+                        stretched=args.cube, real_dims=tuple(np.sum(d) for d in widths))
     return 0
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    raise SystemExit(main())

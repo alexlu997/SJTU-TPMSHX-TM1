@@ -28,6 +28,17 @@ def test_bundled_cli_dispatch_preserves_status(monkeypatch):
     assert calls == ['freeze', 'cache', ['run', 'input.json', 'output']]
 
 
+def test_desktop_gui_forwards_backend_and_qt_arguments(monkeypatch):
+    from sjtu_tpmshx import main as gui
+    calls = []
+    monkeypatch.setattr(desktop.multiprocessing, 'freeze_support', lambda: None)
+    monkeypatch.setattr(desktop, 'configure_cache', lambda: None)
+    monkeypatch.setattr(gui, 'main', lambda args: calls.append(args) or 0)
+    args = ['--backend', 'cpp', '--native-library', '/host/solver', '-platform', 'offscreen']
+    assert desktop.main(args) == 0
+    assert calls == [args]
+
+
 def test_desktop_build_lock_covers_declared_builder():
     from pathlib import Path
     import tomllib

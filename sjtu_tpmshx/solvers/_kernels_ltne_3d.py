@@ -12,29 +12,18 @@ from ._kernels_2d import _model_h, diffusion_conductance, limited_face_increment
 # SOU limiter — three axes
 # ---------------------------------------------------------------------------
 
-@njit(cache=True, fastmath=True, inline='always')
-def _va_limit(gu, gd):
-    """minmod slope limiter (signed). Returns 0 at extrema (gu*gd<=0), else
-    the smaller-magnitude gradient with gu's sign. Factored into a helper
-    (2026-05-22) so the SOU stencils read cleanly; behaviour is identical to
-    the original inline minmod."""
-    if gu * gd <= 0.0:
-        return 0.0
-    m = abs(gu) if abs(gu) < abs(gd) else abs(gd)
-    return m if gu > 0.0 else -m
-
-
 @njit(cache=True, fastmath=True)
-def _sou_face_x_cons(T, i, j, k, Nx, Fw, Fe, widths=None):
+def _sou_face_x_cons(T, i, j, k, Nx, Fw, Fe, widths=None, one_sided=True):
     """Shared-face minmod reconstruction using physical centre distances."""
     result = 0.0
     for face, flux, sign in ((i, Fw, 1.0), (i+1, Fe, -1.0)):
         up = face-1 if flux >= 0.0 else face
-        if 0 < face < Nx and 0 < up < Nx-1:
-            dm = 1.0 if widths is None else 0.5*(widths[up-1]+widths[up])
-            dp = 1.0 if widths is None else 0.5*(widths[up]+widths[up+1])
+        if 0 < face < Nx and Nx >= 3 and (one_sided or 0 < up < Nx-1):
+            mid = min(max(up, 1), Nx-2)
+            dm = 1.0 if widths is None else 0.5*(widths[mid-1]+widths[mid])
+            dp = 1.0 if widths is None else 0.5*(widths[mid]+widths[mid+1])
             half = 0.5 if widths is None else 0.5*widths[up]
-            inc = limited_face_increment(T[up-1, j, k], T[up, j, k], T[up+1, j, k],
+            inc = limited_face_increment(T[mid-1, j, k], T[mid, j, k], T[mid+1, j, k],
                                          dm, dp, half if flux >= 0.0 else -half)
             result += sign*flux*inc
     return result
@@ -43,20 +32,21 @@ def _sou_face_x_cons(T, i, j, k, Nx, Fw, Fe, widths=None):
 @njit(cache=True, fastmath=True)
 def _sou_corr_x_3d(T, i, j, k, Nx, u_loc, Fx, widths=None):
     signed = Fx if u_loc >= 0.0 else -Fx
-    return _sou_face_x_cons(T, i, j, k, Nx, signed, signed, widths)
+    return _sou_face_x_cons(T, i, j, k, Nx, signed, signed, widths, False)
 
 
 @njit(cache=True, fastmath=True)
-def _sou_face_y_cons(T, i, j, k, Ny, Fs, Fn, widths=None):
+def _sou_face_y_cons(T, i, j, k, Ny, Fs, Fn, widths=None, one_sided=True):
     """Shared-face minmod reconstruction using physical centre distances."""
     result = 0.0
     for face, flux, sign in ((j, Fs, 1.0), (j+1, Fn, -1.0)):
         up = face-1 if flux >= 0.0 else face
-        if 0 < face < Ny and 0 < up < Ny-1:
-            dm = 1.0 if widths is None else 0.5*(widths[up-1]+widths[up])
-            dp = 1.0 if widths is None else 0.5*(widths[up]+widths[up+1])
+        if 0 < face < Ny and Ny >= 3 and (one_sided or 0 < up < Ny-1):
+            mid = min(max(up, 1), Ny-2)
+            dm = 1.0 if widths is None else 0.5*(widths[mid-1]+widths[mid])
+            dp = 1.0 if widths is None else 0.5*(widths[mid]+widths[mid+1])
             half = 0.5 if widths is None else 0.5*widths[up]
-            inc = limited_face_increment(T[i, up-1, k], T[i, up, k], T[i, up+1, k],
+            inc = limited_face_increment(T[i, mid-1, k], T[i, mid, k], T[i, mid+1, k],
                                          dm, dp, half if flux >= 0.0 else -half)
             result += sign*flux*inc
     return result
@@ -65,20 +55,21 @@ def _sou_face_y_cons(T, i, j, k, Ny, Fs, Fn, widths=None):
 @njit(cache=True, fastmath=True)
 def _sou_corr_y_3d(T, i, j, k, Ny, v_loc, Fy, widths=None):
     signed = Fy if v_loc >= 0.0 else -Fy
-    return _sou_face_y_cons(T, i, j, k, Ny, signed, signed, widths)
+    return _sou_face_y_cons(T, i, j, k, Ny, signed, signed, widths, False)
 
 
 @njit(cache=True, fastmath=True)
-def _sou_face_z_cons(T, i, j, k, Nz, Fb, Ft, widths=None):
+def _sou_face_z_cons(T, i, j, k, Nz, Fb, Ft, widths=None, one_sided=True):
     """Shared-face minmod reconstruction using physical centre distances."""
     result = 0.0
     for face, flux, sign in ((k, Fb, 1.0), (k+1, Ft, -1.0)):
         up = face-1 if flux >= 0.0 else face
-        if 0 < face < Nz and 0 < up < Nz-1:
-            dm = 1.0 if widths is None else 0.5*(widths[up-1]+widths[up])
-            dp = 1.0 if widths is None else 0.5*(widths[up]+widths[up+1])
+        if 0 < face < Nz and Nz >= 3 and (one_sided or 0 < up < Nz-1):
+            mid = min(max(up, 1), Nz-2)
+            dm = 1.0 if widths is None else 0.5*(widths[mid-1]+widths[mid])
+            dp = 1.0 if widths is None else 0.5*(widths[mid]+widths[mid+1])
             half = 0.5 if widths is None else 0.5*widths[up]
-            inc = limited_face_increment(T[i, j, up-1], T[i, j, up], T[i, j, up+1],
+            inc = limited_face_increment(T[i, j, mid-1], T[i, j, mid], T[i, j, mid+1],
                                          dm, dp, half if flux >= 0.0 else -half)
             result += sign*flux*inc
     return result
@@ -87,7 +78,7 @@ def _sou_face_z_cons(T, i, j, k, Nz, Fb, Ft, widths=None):
 @njit(cache=True, fastmath=True)
 def _sou_corr_z_3d(T, i, j, k, Nz, w_loc, Fz, widths=None):
     signed = Fz if w_loc >= 0.0 else -Fz
-    return _sou_face_z_cons(T, i, j, k, Nz, signed, signed, widths)
+    return _sou_face_z_cons(T, i, j, k, Nz, signed, signed, widths, False)
 
 
 @njit(cache=True, fastmath=True)
@@ -109,7 +100,8 @@ def _sou_field_cons(T, Fx, Fy, Fz, dx=None, dy=None, dz=None):
 # inlet helpers
 # ---------------------------------------------------------------------------
 
-@njit(cache=True)
+# Pin the sweep's fastmath policy so an audit-first call cannot change compilation.
+@njit(cache=True, fastmath=True)
 def _model_h_faces(T, mass, coefficients, direction, Tin, ifrac, dx=None, dy=None, dz=None):
     """Shared Picard faces: flux = capacity*T_up + deferred.
 
@@ -158,7 +150,7 @@ def _model_h_faces(T, mass, coefficients, direction, Tin, ifrac, dx=None, dy=Non
     return capacity, deferred
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _face_divergence(faces):
     return (faces[0][1:] - faces[0][:-1]
             + faces[1][:, 1:] - faces[1][:, :-1]

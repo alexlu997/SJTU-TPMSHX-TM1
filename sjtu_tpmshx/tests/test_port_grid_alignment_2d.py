@@ -191,16 +191,16 @@ def test_counter_port_endpoints_do_not_create_unknown_fine_inflow():
                                          (0, 1), (2, 3)])
 def test_ports_align_on_physical_axis(directions):
     cfg = _case(directions)
-    parsed, fields = _backend_fields(cfg)
+    case = Pipeline2D(cfg).build_fields()
     expected = {'x': set(), 'y': set()}
     for bc in (cfg.bc_A, cfg.bc_B):
         expected['y' if bc.dir in (0, 1) else 'x'].update(_edges(bc))
     for axis, length in (('x', 0.182), ('y', 0.042)):
-        widths = fields[f'energy_d{axis}']
-        assert len(widths) == parsed[f'N_{axis}'] == 40
+        widths = case.grid[f'd{axis}']
+        assert len(widths) == 40
         assert np.all(widths > 0)
         assert widths.sum() == pytest.approx(length, rel=1e-13)
-        assert fields[f'_{axis}_breaks'] == expected[axis]
+        assert set(case.grid[f'{axis}_breaks']) == expected[axis]
         grid_edges = np.r_[0.0, np.cumsum(widths)]
         for edge in expected[axis]:
             assert np.min(np.abs(grid_edges - edge)) < 1e-13
@@ -223,12 +223,12 @@ def test_full_faces_keep_wall_refinement(directions):
     cfg.bc_A = PartialBCConfig(dir=directions[0])
     cfg.bc_B = PartialBCConfig(dir=directions[1])
     cfg.validate()
-    _, fields = _backend_fields(cfg)
+    case = Pipeline2D(cfg).build_fields()
     dx, dy, _, _ = build_master_refined_grid(
         0.182, 0.042, 40, 40, n_refine=8, first_cell=0.02e-3, growth=1.8)
-    assert fields['_x_breaks'] == fields['_y_breaks'] == set()
-    np.testing.assert_array_equal(fields['energy_dx'], dx)
-    np.testing.assert_array_equal(fields['energy_dy'], dy)
+    assert case.grid['x_breaks'] == case.grid['y_breaks'] == ()
+    np.testing.assert_array_equal(case.grid['dx'], dx)
+    np.testing.assert_array_equal(case.grid['dy'], dy)
 
 
 @pytest.mark.parametrize('inset', [0.0005, 0.0015])
@@ -237,10 +237,10 @@ def test_near_wall_break_filter_is_preserved(inset):
     for bc, length in ((cfg.bc_A, 0.182), (cfg.bc_B, 0.042)):
         bc.in_ctr = bc.out_ctr = length / 2
         bc.in_w = bc.out_w = length * (1 - 2 * inset)
-    _, fields = _backend_fields(cfg.validate())
+    case = Pipeline2D(cfg.validate()).build_fields()
     for axis, bc in (('x', cfg.bc_A), ('y', cfg.bc_B)):
         expected = set(_edges(bc)) if inset > 0.001 else set()
-        assert fields[f'_{axis}_breaks'] == expected
+        assert set(case.grid[f'{axis}_breaks']) == expected
 
 
 def _expected_profile(widths, lo, hi):

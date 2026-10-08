@@ -66,3 +66,27 @@
 | 公共三维空气与文件/GUI 接口 | [test_three_process.py](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/66f523b5157672079923bfbdc997873a2369cda8/sjtu_tpmshx/tests/integration_tm1/test_three_process.py)、[test_public_gui.py](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/66f523b5157672079923bfbdc997873a2369cda8/sjtu_tpmshx/tests/integration_tm1/test_public_gui.py) | 三进程与 GUI 使用同一公共指标定义，保存回读保留状态与数值 |
 
 这些是软件行为参考；数值复现、守恒/网格资格及实验误差分别验证。
+
+## 2026-10-02 二维单侧导热与收敛参考修订
+
+二维 full 空气/水 model-h 的流体有效导热系数统一为每侧孔隙率乘导热率；
+热迭代要求通过局部离散方程检查，并使用现有 Anderson 加速在原预算内完成。
+外层场变化稳定不能代替内层热收敛。B20 空气软件参考据此更新，配置、预算和
+`rtol=1e-10` 比较容差不变。原参考保存在
+[a0131ab 的测试](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/a0131ab2e5e11b701711b75859c65ef80f7e6344/sjtu_tpmshx/tests/integration_tm1/test_2d_real.py)：
+
+| 软件指标 | 原值 | 修订值 |
+| --- | ---: | ---: |
+| native Q（W/m） | 31130.94175144736 | 31131.515711397526 |
+| Richardson Q（W/m） | 31156.7524902476 | 31152.0469411321 |
+| 公共面压降 A/B（Pa） | 1626.1295067141764 / 1188.8348821008549 | 1626.028297634257 / 1188.8113859451987 |
+| 出口温度 A/B（K） | 303.281741994655 / 334.7957041980853 | 303.2761483302114 / 334.7899628549054 |
+
+这次修订不改原实验数据与已保存 CaseData 的冻结系数；重建 CaseData 才使用
+修正后的准备公式。软件参考更新不代表独立实验精度验收。
+
+同次修订还把二维 incompressible 压力基准从入口单元行/profile 权重改为
+实际入口面/几何开口面积平均。三轮固定短预算的 sCO₂–水、空气–sCO₂
+软件 Q 参考分别从 45624.58456665004、4416.181405481553 W/m 变为
+45624.58629116599、4416.181525306756 W/m。两例仍必须返回未收敛、
+保留最后热输入与最终流场的差别；这些数字不作为收敛或物理精度证书。

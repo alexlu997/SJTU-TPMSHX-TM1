@@ -1,4 +1,4 @@
-"""Fixed mass-flow preparation agrees with the native 3D inlet faces."""
+"""Fixed mass-flow preparation agrees with the native 2D/3D inlet faces."""
 from dataclasses import asdict, replace
 
 import numpy as np
@@ -6,7 +6,7 @@ import pytest
 
 from sjtu_tpmshx.domain.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, PartialBCConfig,
-    SolverConfig, ZoneInputConfig,
+    SolverConfig, ZoneInputConfig, ExtrapPolicy,
 )
 from sjtu_tpmshx.models.field_coordinates_3d import _solver_staggered_to_real
 from sjtu_tpmshx.optimization.multi_condition import prepare_fixed_mass_flow_case
@@ -92,6 +92,87 @@ def test_fixed_flow_matches_native_faces_after_density_update(monkeypatch, direc
             inlet = np.take(native_faces[axes['stream_real_axis']],
                             -1 if axes['is_reverse'] else 0, axis=axes['stream_real_axis'])
             assert inward_sign * inlet.sum() == pytest.approx(targets[side], rel=2e-14)
+
+
+@pytest.mark.parametrize('direction', range(4))
+@pytest.mark.parametrize('design_mode', ['uniform', 'continuous'])
+@pytest.mark.parametrize('port_profile', ['full', 'uniform-partial', 'tapered-partial'])
+def test_fixed_flow_2d_matches_actual_inlet_faces(monkeypatch, direction, design_mode,
+                                                port_profile):
+    from sjtu_tpmshx.preprocess.two_d import preparation as preparation_2d
+    from sjtu_tpmshx.solvers.backends.python.two_d.execution import build_execution_inputs
+    from sjtu_tpmshx.solvers.backends.python.two_d.runtime import build_runtime
+    from sjtu_tpmshx.solvers.backends.python.two_d.coupling import (
+        _simple_scalar_to_real_2d, _simple_staggered_to_real_2d,
+    )
+
+    shape, lengths = (9, 10), (.04, .05)
+    widths = tuple(np.linspace(.3, 1.7, count) * length / count
+                   for count, length in zip(shape, lengths))
+    monkeypatch.setattr(preparation_2d, '_prepare_mesh', lambda cfg: dict(
+        energy_dx=widths[0], energy_dy=widths[1], _x_breaks=(), _y_breaks=()))
+
+    def port(d):
+        span = lengths[1 if d < 2 else 0]
+        full = port_profile == 'full'
+        return PartialBCConfig(
+            dir=d, in_ctr=(.5 if full else .47) * span,
+            in_w=(1. if full else .53) * span,
+            out_ctr=(.5 if full else .55) * span,
+            out_w=(1. if full else .49) * span,
+            uniform_inlet_2d=port_profile == 'uniform-partial')
+
+    config = ComputeConfig(
+        fluid_A=FluidConfig(type='air', u_mps=5., T_in_K=380., P_in_Pa=160000.),
+        fluid_B=FluidConfig(type='water', u_mps=.05, T_in_K=300., P_in_Pa=200000.),
+        geometry=GeometryConfig(L_dom_m=lengths[0], H_dom_m=lengths[1], Lz_m=.02),
+        solver=SolverConfig(Nx=shape[0], Ny=shape[1], max_iter_simple=1),
+        bc_A=port(direction), bc_B=port((direction + 1) % 4),
+        extrap=ExtrapPolicy(allow=True))
+    if design_mode == 'continuous':
+        config.zones = ZoneInputConfig(enabled=True, axis='continuous', config={
+            'x_decision': [5., 6., 7., 7.5, .3, .4, .45, .6],
+            'n_ctrl_x': 2, 'n_ctrl_y': 2, 'symmetric_y': False,
+            'spline_order': 1, 'L_bounds': [4., 8.], 't_bounds': [.3, .6]})
+    targets = {'A': .001, 'B': .03}
+    case = prepare_fixed_mass_flow_case(
+        config, mass_flow_A_kg_s=targets['A'], mass_flow_B_kg_s=targets['B'],
+        case_id='fixed-mass-2d')
+    cfg, grid = build_execution_inputs(case)
+    run = build_runtime(cfg, grid)['_run_simple']
+    for side in ('A', 'B'):
+        fluid = getattr(config, 'fluid_' + side)
+        props = cfg['static_properties'][side]
+        d = cfg['cfg' + side]['dir']
+        # One real iteration exercises the solver's mass-target capture. This
+        # test qualifies the imposed inlet, not convergence of the full case.
+        solver = run(cfg['cfg' + side], props['rho'], props['mu'], fluid.T_in_K,
+                     cfg['u_' + side], side, P_in_abs=fluid.P_in_Pa,
+                     fluid_type='ideal_gas' if side == 'A' else 'incompressible',
+                     rho_inlet_ref=props['rho'])[2]
+        if port_profile == 'tapered-partial':
+            assert solver._inlet_taper_flux_scale > 1.
+        else:
+            assert solver._inlet_taper_flux_scale == 1.
+        eps = np.asarray(case.design_fields['eps_arr']) / 2.
+        if design_mode == 'continuous':
+            assert np.ptp(np.take(eps, -1 if d % 2 else 0, axis=d // 2)) > 0.
+        for update_density in (False, True):
+            if update_density:
+                i, j = np.indices(solver.rho_field.shape)
+                solver.rho_field *= 1.3 + .1 * i + .02 * j
+            # Apply the actual solver inlet after the density update. No
+            # capacity/profile formula participates in the measured flux.
+            solver._apply_massflux_inlet()
+            solver._set_bc()
+            faces = _simple_staggered_to_real_2d(solver, d)
+            rho = _simple_scalar_to_real_2d(solver.rho_field, d)
+            axis, edge = d // 2, -1 if d % 2 else 0
+            inward = -1 if d % 2 else 1
+            actual = inward * np.sum(
+                np.take(rho * eps, edge, axis=axis)
+                * np.take(faces[axis], edge, axis=axis) * widths[1 - axis]) * .02
+            assert actual == pytest.approx(targets[side], rel=2e-14)
 
 
 @pytest.mark.parametrize('side', ['A', 'B'])

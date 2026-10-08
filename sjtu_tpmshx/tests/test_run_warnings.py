@@ -443,7 +443,8 @@ def test_sigmoid_nu_warning_origin_and_run_scope(standalone_registries):
     from sjtu_tpmshx.models import sigmoid_field
 
     shape = (2, 2)
-    geometry = dict(eps_arr=np.full(shape, .8), A_0_arr=np.full(shape, 1000.),
+    geometry = dict(eps_arr=np.full(shape, .8), eps_f_arr=np.full(shape, .4),
+                    A_0_arr=np.full(shape, 1000.),
                     L_field=np.full(shape, 7.), r_h_arr=np.full(shape, .00075))
 
     def evaluate():

@@ -663,7 +663,6 @@ class SIMPLESolver:
                             self.eps_field,
                             alpha_u, n_inner, self.cf_aniso)
             _solve_pp_sparse_fast(self.Pp, self.u, self.v, self.d_u, self.d_v,
-                                  self.outlet_geom_frac,
                                   Nx, Ny, dx_a, dy_a, rho_eps_field,
                                   self._pp_sparsity)
             _correct_jit(self.u, self.v, self.P, self.Pp,

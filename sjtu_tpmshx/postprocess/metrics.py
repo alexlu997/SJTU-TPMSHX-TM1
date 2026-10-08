@@ -10,6 +10,7 @@ from sjtu_tpmshx.domain.performance_result import MetricValue, PerformanceResult
 from sjtu_tpmshx.domain.persistence_validation import validate_result_declarations
 from sjtu_tpmshx.result_math import (
     _boundary_enthalpy_duty, _boundary_face_shape,
+    _conservative_boundary_power_duty, _temperature_boundary_power_duty,
     _enthalpy_balance_2d, _outlet_temperature_2d,
 )
 
@@ -29,6 +30,10 @@ def _model_duty(balance, side, grid):
 def _side_duty(result, side, *, fine=False):
     mode = result.metadata['thermal_mode']
     fluxes = result.boundary_fluxes
+    if mode == 'conservative_energy':
+        if fine:
+            raise NotImplementedError('conservative energy has no Richardson thermal solve')
+        return _conservative_boundary_power_duty(fluxes['true_h'], side, 2, result.grid)
     if mode == 'true_h':
         if fine:
             raise NotImplementedError('true enthalpy has no Richardson thermal solve')
@@ -48,6 +53,14 @@ def _side_duty(result, side, *, fine=False):
 
 
 def _temperature_duty(result, side, *, fine=False):
+    flux = result.boundary_fluxes
+    if ('temperature_transport' in result.metadata or 'temperature' in flux
+            or 'temperature' in (flux.get('fine') or {})):
+        if result.metadata.get('temperature_transport') != 'model_enthalpy_temperature_v1':
+            raise ValueError('unsupported temperature transport declaration')
+        evidence = result.boundary_fluxes['fine'] if fine else result.boundary_fluxes
+        grid = evidence if fine else result.grid
+        return _temperature_boundary_power_duty(evidence['temperature'], side, 2, grid)
     parameters = result.metadata['parameters']
     data = result.boundary_fluxes['fine'] if fine else result.fields
     temperature = np.asarray(data['Ta' if side == 'A' else 'Tb'])
@@ -67,6 +80,8 @@ def _temperature_duty(result, side, *, fine=False):
 
 
 def _richardson_duty(result, side, duty):
+    if result.metadata['thermal_mode'] == 'conservative_energy':
+        raise NotImplementedError('conservative energy has no Richardson thermal solve')
     if result.metadata['thermal_mode'] == 'true_h':
         raise NotImplementedError('true enthalpy has no Richardson thermal solve')
     if not result.metadata['diagnostics']['richardson_info']['extrapolated']:

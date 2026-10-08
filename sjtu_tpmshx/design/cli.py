@@ -8,6 +8,7 @@ from .cases import load_cases
 from .sizing import size_fixed_cell
 from .select import enumerate_select
 from sjtu_tpmshx.domain.cancellation import CancelledError
+from sjtu_tpmshx.io.cli_options import add_run_control_arguments, run_control_from_args
 
 def _parse_cell(s):           # "Diamond,7,0.5"
     topo, l, t = s.split(","); return topo, float(l), float(t)
@@ -38,9 +39,11 @@ def run(argv=None) -> int:
     ap.add_argument("--jobs", type=int, default=-1,
                     help="auto 枚举并行核数 (-1=全核, 1=串行; joblib loky)")
     ap.add_argument("--out", required=True)
+    add_run_control_arguments(ap)
     a = ap.parse_args(argv)
     if Path(a.xlsx).resolve() == Path(a.out).resolve():
         ap.error(f'output overlaps input: {a.out}')
+    control = run_control_from_args(a)
     cases = load_cases(a.xlsx)
 
     results = []
@@ -48,18 +51,20 @@ def run(argv=None) -> int:
         if a.mode == "fixed":
             topo, l, t = _parse_cell(a.cell)
             d = size_fixed_cell(cases, topo, l, t, a.arrangement,
-                                rho_s=a.rho_s, k_s=a.k_s, prop_model=a.prop_model)
+                                rho_s=a.rho_s, k_s=a.k_s, prop_model=a.prop_model,
+                                control=control)
             results, best = [d], (d if d.feasible else None)
         else:
             nodes = _parse_nodes(a.nodes) if a.nodes else None
             results, best = enumerate_select(cases, a.arrangement, nodes,
                                              rho_s=a.rho_s, n_jobs=a.jobs, k_s=a.k_s,
-                                             prop_model=a.prop_model, completed=results)
+                                             prop_model=a.prop_model, control=control,
+                                             completed=results)
             if a.refine and best is not None:           # Stage B warm-start 精修
                 from .optimize import warm_start_joint
                 ref = warm_start_joint(cases, best, a.arrangement,
                                        rho_s=a.rho_s, k_s=a.k_s,
-                                       prop_model=a.prop_model)
+                                       prop_model=a.prop_model, control=control)
                 if ref is not best:
                     results = results + [ref]
                     best = ref

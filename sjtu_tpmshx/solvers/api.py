@@ -8,14 +8,40 @@ from sjtu_tpmshx.domain.provenance import source_context
 
 
 def run_case(case: CaseData, control: RunControl = RunControl()) -> FieldResult:
-    if control.backend != 'python':
+    if control.backend not in ('python', 'cpp'):
         raise ValueError(f'unsupported backend: {control.backend}')
     dimension = case.grid.get('dimension')
     mode = case.metadata.get('mode', 'full')
-    if mode != 'full':
-        from .backends.python.thermal_native import resolve_true_h_kernel
-        resolve_true_h_kernel(case.parameters, supported=False)
-    if mode == 'quick_design':
+    from sjtu_tpmshx.domain.compute_config import validate_enthalpy_algorithm
+    settings = (case.parameters.get('run_settings', {}).get('solver', {})
+                if dimension == 2 else case.parameters)
+    algorithm = settings.get('enthalpy_algorithm', 'legacy_h_fou')
+    validate_enthalpy_algorithm(algorithm, settings.get('enthalpy_temperature_tol_K', 1e-8))
+    if algorithm != 'legacy_h_fou' and (control.backend != 'cpp' or mode != 'full'):
+        raise ValueError('conservative temperature energy currently requires full compute with backend=cpp')
+    explicit_energy_gates = any(settings.get(name) is not None for name in (
+        'ltne_enthalpy_coupled_energy_tol', 'ltne_enthalpy_equation_energy_tol'))
+    require_h = settings.get('require_enthalpy_update_on_temperature', False)
+    if type(require_h) is not bool:
+        raise ValueError('require_enthalpy_update_on_temperature must be boolean')
+    if (explicit_energy_gates or require_h) and (
+            control.backend != 'cpp' or mode != 'full' or dimension != 3):
+        raise ValueError('explicit energy gates currently require full 3D compute with backend=cpp')
+    if control.backend == 'python' or mode != 'full':
+        from sjtu_tpmshx.domain.run_environment import require_python_kernel
+        require_python_kernel(case.parameters)
+    if control.backend == 'cpp':
+        if mode == 'quick_design':
+            from .backends.cpp.quick_design import run_case as run
+        elif mode != 'full':
+            raise ValueError(f'unsupported solver mode: {mode}')
+        elif dimension == 2:
+            from .backends.cpp.full_2d import run_case as run
+        elif dimension == 3:
+            from .backends.cpp.full_3d import run_case as run
+        else:
+            raise ValueError(f'unsupported physical dimension: {dimension}')
+    elif mode == 'quick_design':
         from .backends.python.quick_design.execution import run_case as run
     elif mode != 'full':
         raise ValueError(f'unsupported solver mode: {mode}')

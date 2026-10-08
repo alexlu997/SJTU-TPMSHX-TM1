@@ -138,8 +138,10 @@ def test_initial_geometry_and_returned_faces_share_physical_frame(monkeypatch, d
     result, diagnostics = runtime._assemble_3d_verdict(problem, outer, metrics)
     i, j, k = np.indices(shape)
     gauge_real = 1. + i + 2.*j + 3.*k
-    expected_A = problem.P_inA - metrics.dP + gauge_real
-    expected_B = problem.P_inB - metrics.dP_B + gauge_real
+    # Final reporting preserves each SIMPLE state's absolute reference;
+    # face-extrapolated dP is a separate reduction, not a new display anchor.
+    expected_A = problem.sA.P_ref_abs + gauge_real
+    expected_B = problem.sB.P_ref_abs + gauge_real
     np.testing.assert_array_equal(result['P_Pa'], expected_A)
     np.testing.assert_array_equal(result['P_kPa'], expected_A / 1000.)
     np.testing.assert_array_equal(result['P_Pa_B'], expected_B)

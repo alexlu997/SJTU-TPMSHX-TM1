@@ -7,9 +7,10 @@ from __future__ import annotations
 import numpy as np
 from collections import deque
 from typing import Tuple
+from sjtu_tpmshx.domain.cancellation import CancelledError
 
 
-def advance_energy(step, fields, sweeps, snapshots=()):
+def advance_energy(step, fields, sweeps, snapshots=(), cancel_check=None):
     """Accelerate an existing GS chunk, accepting only smaller GS residuals.
 
     Trial sweeps count against the original iteration budget. ``snapshots``
@@ -18,6 +19,14 @@ def advance_energy(step, fields, sweeps, snapshots=()):
     """
     accelerator = AndersonSIMPLE(m=5)
     size = fields[0].size
+
+    def advance(count):
+        if cancel_check is not None and cancel_check():
+            raise CancelledError("compute cancelled by user")
+        residual = step(count)
+        if cancel_check is not None and cancel_check():
+            raise CancelledError("compute cancelled by user")
+        return residual
 
     def pack():
         return np.concatenate([field.ravel() for field in fields])
@@ -31,18 +40,18 @@ def advance_energy(step, fields, sweeps, snapshots=()):
     while done < sweeps:
         previous = pack()
         count = min(25, sweeps - done)
-        residual = step(count)
+        residual = advance(count)
         done += count
         picard = pack()
         accelerator.push(previous, picard)
         candidate, applied = accelerator.candidate(picard)
         if not applied or done + 2 > sweeps:
             continue
-        picard_residual = step(1)
+        picard_residual = advance(1)
         picard = pack()
         saved = [field.copy() for field in snapshots]
         restore(candidate)
-        candidate_residual = step(1)
+        candidate_residual = advance(1)
         done += 2
         if np.isfinite(candidate_residual) and candidate_residual <= picard_residual:
             residual = candidate_residual

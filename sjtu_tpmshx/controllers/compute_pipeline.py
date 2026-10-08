@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import replace
 from time import perf_counter
 from typing import Any, Callable, Dict, Optional
 
@@ -10,6 +11,7 @@ from sjtu_tpmshx.domain.compute_result import ComputeResult
 from sjtu_tpmshx.domain.case_data import CaseData
 from sjtu_tpmshx.domain.field_result import FieldResult
 from sjtu_tpmshx.domain.cancellation import CancelledError
+from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.run_warnings import warning_scope, warning_messages
 
 
@@ -35,6 +37,10 @@ class ComputePipeline(ABC):
         Any object with a ``cancelled`` attribute that resolves to a
         bool.  Checked before each phase; truthy value raises
         :class:`CancelledError`.
+    control : RunControl, optional
+        Host backend/library selection and runtime callbacks. GUI progress,
+        iteration hooks and cancellation are combined with these callbacks;
+        the controls are not saved in portable cases or results.
 
     Subclass contract
     -----------------
@@ -47,14 +53,17 @@ class ComputePipeline(ABC):
     def __init__(self, cfg: ComputeConfig,
                  progress_cb: Optional[ProgressFn] = None,
                  cancel_token: Optional[Any] = None,
-                 ui_hooks: Optional[Dict[str, Any]] = None) -> None:
+                 ui_hooks: Optional[Dict[str, Any]] = None, *,
+                 control: RunControl = RunControl()) -> None:
         self.cfg = cfg
         self.progress_cb: ProgressFn = progress_cb or (lambda _pct: None)
         self.cancel = cancel_token
+        self.control = control
         # Optional GUI iteration callbacks; solver residuals stay in RunControl.
         self.ui_hooks: Dict[str, Any] = ui_hooks or {}
 
     def _check_cancel(self) -> None:
+        self.control.check_cancelled()
         if self.cancel is None:
             return
         if getattr(self.cancel, 'cancelled', False):
@@ -124,14 +133,26 @@ class Pipeline2D(ComputePipeline):
         return prepare_case(self.cfg, case_id=str(uuid4()))
 
     def run_solvers(self, fields: CaseData) -> FieldResult:
-        from sjtu_tpmshx.domain.module_ports import RunControl
         from sjtu_tpmshx.solvers.api import run_case
-        control = RunControl(
-            progress=lambda percent: self.progress_cb(20 + int(.7 * percent)),
-            cancel_check=(None if self.cancel is None else
-                          lambda: bool(getattr(self.cancel, 'cancelled', False))),
-            iteration=self.ui_hooks.get('iter_label_cb'),
-            outer_iteration=self.ui_hooks.get('iter_cb'))
+        def progress(percent):
+            self.progress_cb(20 + int(.7 * percent))
+            self.control.report_progress(percent)
+        def cancelled():
+            return bool(getattr(self.cancel, 'cancelled', False) or
+                        (self.control.cancel_check is not None and self.control.cancel_check()))
+        def with_ui_hook(name, callback):
+            hook = self.ui_hooks.get(name)
+            if hook is None:
+                return callback
+            if callback is None:
+                return hook
+            def report(*args):
+                hook(*args)
+                callback(*args)
+            return report
+        control = replace(self.control, progress=progress, cancel_check=cancelled,
+            iteration=with_ui_hook('iter_label_cb', self.control.iteration),
+            outer_iteration=with_ui_hook('iter_cb', self.control.outer_iteration))
         return run_case(fields, control)
 
     def finalize(self, raw: FieldResult, fields: CaseData) -> ComputeResult:
@@ -149,7 +170,8 @@ class Pipeline3D(Pipeline2D):
 def pipeline_for(cfg: ComputeConfig,
                  progress_cb: Optional[ProgressFn] = None,
                  cancel_token: Optional[Any] = None,
-                 ui_hooks: Optional[Dict[str, Any]] = None) -> ComputePipeline:
+                 ui_hooks: Optional[Dict[str, Any]] = None, *,
+                 control: RunControl = RunControl()) -> ComputePipeline:
     """Dim-dispatch factory: return :class:`Pipeline3D` if ``cfg.is_3d``,
     otherwise :class:`Pipeline2D`.
 
@@ -158,7 +180,7 @@ def pipeline_for(cfg: ComputeConfig,
     """
     cls = Pipeline3D if cfg.is_3d else Pipeline2D
     return cls(cfg, progress_cb=progress_cb, cancel_token=cancel_token,
-               ui_hooks=ui_hooks)
+               ui_hooks=ui_hooks, control=control)
 
 
 __all__ = [
