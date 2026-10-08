@@ -151,20 +151,20 @@ def test_full_3d_cc_captured_powers_survive_owner_release_and_portable_replay(mo
     path = os.environ.get('TPMSHX_NATIVE_SOLVER_LIBRARY')
     if path is None:
         pytest.skip('explicit native library required')
-    original = NativeFull3DDriver.run_prepared
+    original = NativeFull3DDriver._run_prepared
     returned = []
 
-    def bounded(self, cfg, prepared, runtime_control):
+    def bounded(self, cfg, prepared, runtime_control, **kwargs):
         cfg = dict(cfg, max_iter_simple=1, variable_rho_cp=False,
                    conservative_ltne=False, force_cc_ltne=True)
         cfg['_environment'] = dict(cfg.get('_environment', {}),
                                    TPMSHX_P_IN_SHOOT='0', TPMSHX_VAR_RHOCP=None)
         prepared = dict(prepared, max_outer=1, ltne_max_iter=1)
-        raw = original(self, cfg, prepared, runtime_control)
+        raw = original(self, cfg, prepared, runtime_control, **kwargs)
         returned.append(raw)
         return raw
 
-    monkeypatch.setattr(NativeFull3DDriver, 'run_prepared', bounded)
+    monkeypatch.setattr(NativeFull3DDriver, '_run_prepared', bounded)
     result = run_case(case('air-air', cap=2), control(Path(path)))
     raw, = returned
     assert raw['mode'] == 'temperature'

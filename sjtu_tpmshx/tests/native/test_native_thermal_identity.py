@@ -102,13 +102,13 @@ def test_full_3d_portable_identity_roundtrip(monkeypatch, tmp_path):
     from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver, run_case
     from sjtu_tpmshx.tests.native.test_cpp_full_3d import case, control
     from sjtu_tpmshx.io.result_io import save_result, load_result
-    original = NativeFull3DDriver.run_prepared
-    def bounded(self, cfg, p, control):
+    original = NativeFull3DDriver._run_prepared
+    def bounded(self, cfg, p, control, **kwargs):
         cfg = dict(cfg, max_iter_simple=1)
         cfg['_environment'] = dict(cfg.get('_environment', {}), TPMSHX_P_IN_SHOOT='0', TPMSHX_VAR_RHOCP=None)
         p = dict(p, max_outer=1, ltne_max_iter=1)
-        return original(self, cfg, p, control)
-    monkeypatch.setattr(NativeFull3DDriver, 'run_prepared', bounded)
+        return original(self, cfg, p, control, **kwargs)
+    monkeypatch.setattr(NativeFull3DDriver, '_run_prepared', bounded)
     result = run_case(case('air-air', cap=2), control(library_path('TPMSHX_NATIVE_SOLVER_LIBRARY')))
     assert dict(result.metadata['native']) == dict(abi=1, algorithm='shared_fv_model_h_3d_compensated_v1', red_black=False)
     path = tmp_path/'identity-3d.h5'

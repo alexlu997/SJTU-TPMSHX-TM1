@@ -411,3 +411,99 @@ def test_public_full3d_missing_library_never_falls_back(tmp_path, relative):
                side_effect=AssertionError('Python numerical driver called')):
         with pytest.raises(error, match=message):
             cpp_run(case(), selected)
+
+
+@pytest.mark.parametrize('pair,route,audit', [
+    ('air-air', 'model_h', False), ('air-water', 'model_h', False),
+    ('water-air', 'model_h', False), ('air-sco2', 'legacy_h_fou', False),
+    ('sco2-water', 'legacy_h_fou', False), ('air-air', 'model_h', True),
+    ('air-sco2', 'legacy_h_fou', True), ('sco2-water', 'legacy_h_fou', True),
+    ('air-air', 'temperature_cc', False), ('air-air', 'temperature_staggered', False),
+    ('air-sco2', 'temperature_fou', False), ('air-sco2', 'temperature_sou', False),
+])
+def test_application_capture_owns_shared_aliases_and_keeps_full_evidence(
+        native_path, monkeypatch, tmp_path, pair, route, audit):
+    from sjtu_tpmshx.io.result_io import load_result, save_result
+    from sjtu_tpmshx.solvers.backends.cpp import full_3d
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d_capture import capture_result
+    from sjtu_tpmshx.solvers.backends.python.three_d.execution import build_execution_inputs
+    prepared = case(pair, 2)
+    cfg, p = build_execution_inputs(prepared)
+    cfg.update(max_iter_simple=1, _emit_audit=audit, ltne_enthalpy_outer=2, ltne_enthalpy_nsweep=1)
+    cfg['_environment'] = dict(cfg.get('_environment', {}), TPMSHX_P_IN_SHOOT='0', TPMSHX_VAR_RHOCP=None)
+    p.update(max_outer=1, ltne_max_iter=1)
+    if route in ('temperature_cc', 'temperature_staggered'):
+        cfg.update(variable_rho_cp=False, conservative_ltne=False,
+                   force_cc_ltne=route.endswith('_cc'))
+    elif route in ('temperature_fou', 'temperature_sou'):
+        cfg['enthalpy_algorithm'] = route
+    original = full_3d._detach
+    complete = []
+
+    def detach(*args, **kwargs):
+        complete.append(original(*args, **dict(kwargs, application_only=False)))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(full_3d, '_detach', detach)
+    driver = full_3d.NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
+    raw = driver._run_prepared(cfg, p, application_only=True)
+    full, = complete
+    assert 'rho_cp' in full and 'rho_cp' not in raw
+    for actual, expected in zip(raw['flow'], full['flow']):
+        assert expected['d_u'].flags.writeable
+        assert 'd_u' not in actual and 'face_velocity_real' not in actual
+        assert ('u' in actual) is audit
+    restored = dict(full, **raw)
+    restored['flow'] = [dict(f, **a) for f, a in zip(full['flow'], raw['flow'])]
+    result = capture_result(prepared, cfg, p, raw, driver.abi)
+    expected = capture_result(prepared, cfg, p, restored, driver.abi)
+    for key in ('fields', 'field_metadata', 'boundary_fluxes', 'pressure_evidence', 'run_status', 'metadata'):
+        compare(getattr(result, key), getattr(expected, key), key)
+    aliases = [(result.fields[key], result.fields[key + '_display']) for key in ('Ta', 'Tb', 'Ts')]
+    aliases += [(result.fields['P_report_' + side], result.fields['P_f' + side + '_display']) for side in 'AB']
+    true_h = result.boundary_fluxes['true_h']
+    if true_h is not None:
+        aliases += [pair for side in 'AB' for pair in zip(
+            result.boundary_fluxes['mass_' + side], true_h['mass_flux_' + side])]
+    for left, right in aliases:
+        assert left is not right and np.shares_memory(left, right)
+        assert not left.flags.writeable and not right.flags.writeable
+        with pytest.raises(ValueError):
+            left.setflags(write=True)
+        shape, dtype = right.shape, right.dtype
+        left.shape = (left.size,)
+        left.dtype = np.uint8
+        assert right.shape == shape and right.dtype == dtype
+        left.dtype, left.shape = dtype, shape
+    path = tmp_path / 'shared-result.h5'
+    save_result(result, path)
+    loaded = load_result(path)
+    for key in ('fields', 'boundary_fluxes', 'run_status'):
+        compare(getattr(loaded, key), getattr(result, key), key)
+
+
+@pytest.mark.parametrize('failure', ['detach', 'query'])
+def test_application_failure_releases_native_owner(native_path, monkeypatch, failure):
+    from sjtu_tpmshx.solvers.backends.cpp import full_3d
+    from sjtu_tpmshx.tests.native.test_full_3d import prepared
+    driver = full_3d.NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
+    release, released = driver.release, []
+
+    def tracked(pointer):
+        assert pointer._obj.owner
+        release(pointer)
+        released.append(pointer._obj.owner)
+
+    def fail(*args, **kwargs):
+        raise RuntimeError('capture failure')
+
+    monkeypatch.setattr(driver, 'release', tracked)
+    if failure == 'detach':
+        monkeypatch.setattr(full_3d, '_detach', fail)
+    else:
+        monkeypatch.setattr(driver, '_bootstrap_traces', fail)
+    cfg, p = prepared('air-air', counts=(4, 4, 4), max_iter_simple=1)
+    p.update(max_outer=1, ltne_max_iter=1)
+    with pytest.raises(RuntimeError, match='capture failure'):
+        driver._run_prepared(cfg, p, application_only=True)
+    assert released == [None]
