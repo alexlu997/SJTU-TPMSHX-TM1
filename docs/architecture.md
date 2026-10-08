@@ -484,8 +484,12 @@ by inlet density, then divides prescribed total mass flow by that product to set
 inlet velocity. In 3D, it builds geometry, the grid, ports and inlet properties
 once. It validates the resolved speeds, then completes range observations,
 D-F application and the Case snapshot from that same prepared data. Ordinary
-and fixed-flow preparation share these final steps. The 2D path keeps its
-existing geometry and final preparation stages. The 2D taper normalization uses geometric open area independently
+and fixed-flow preparation share these final steps. The 2D path reuses the final
+mesh from inlet capacity preparation. For spline designs, it also reuses that
+mesh's geometry and then adds inlet fluid conductivity. The original nominal-grid
+validation stays. Legacy stripes, rectangles and sigmoid fields keep their final
+property construction and original smoothing rules. All speed-dependent steps use
+the resolved inlet speeds. The 2D taper normalization uses geometric open area independently
 of the spatial porosity field, exactly as the SIMPLE boundary does.
 
 Its snapshot records the
