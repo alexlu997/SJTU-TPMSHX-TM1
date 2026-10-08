@@ -618,6 +618,7 @@ def run_case(case, control=RunControl()):
         raise ValueError('full native 3D requires backend=cpp')
     if not control.native_library:
         raise ValueError('cpp requires RunControl.native_library for this host')
+    control.check_cancelled()
     cfg,p=build_execution_inputs(case)
     driver=NativeFull3DDriver(control.native_library, table_directory=getattr(control,'native_table_directory',None))
     r=driver.run_prepared(cfg,p,control)
