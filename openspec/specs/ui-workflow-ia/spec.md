@@ -1,5 +1,7 @@
 # Spec: ui-workflow-ia
 
+[中文](spec.md) | [English](spec.en.md)
+
 ## Purpose
 左侧工况参数按几何、边界、求解分页；各页复用同一批输入控件和校验。
 

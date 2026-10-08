@@ -1,7 +1,9 @@
 # 能力范围与未完成事项
 
+[中文](capabilities.md) | [English](capabilities.en.md)
+
 现行 GUI、CLI 和多工况优化共享 `prepare_case → run_case → evaluate` 主线。
-各路线的收敛、指标可用性和优化资格见[结果资格表](architecture.md#result-qualification-by-route)；
+各路线的收敛、指标可用性和优化资格见[结果资格表](architecture.zh-CN.md#result-qualification-by-route)；
 实验适用范围见[模型资源](model-resources.md)，参考版本见[数据目录](data-catalog.md)。
 原生桌面操作、headless CI、数值守恒与实验精度分别验收，不能互相替代。
 
@@ -9,14 +11,14 @@
 37 项完成、7 项计划中、1 项因依赖阻塞。该数量是历史快照；下表同时记录后续
 增量实现，但不把局部内核接入等同于整个扩展节点通过，也不改变验收条件。
 原始需求、节点状态、评审和失败证据见[固定历史索引](history/README.md#2026-09-18-历史材料整理)。
-现行模块职责见[架构说明](architecture.md)，公开文件契约见[schemas](../schemas/three_module_v1/)。
+现行模块职责见[架构说明](architecture.zh-CN.md)，公开文件契约见[schemas](../schemas/three_module_v1/README.zh-CN.md)。
 
 | V0.1 要求 | 当前可核查范围 | 尚未交付或待验收 |
 | --- | --- | --- |
 | 前处理、求解、后处理独立 | 三个公开 API；CaseData/FieldResult；真实分进程及 M-A 合并后验收完成 | 本行 M-A 范围无待验收项；外部后端能力另列 |
 | 统一工作流和外部应用调用 | GUI/CLI、设计、优化、参数/有效场示例接线及合并后交接验收完成 | 外部后端和扩展物性能力仍按下列节点验收 |
 | Python/Numba 路线 | 实际全模型 2D/3D 及快速设计 | 数值/能量/实验结论按模式分别保留，不由架构通过推导 |
-| Native C/C++ 后端 | 显式 `backend='cpp'` 覆盖矩形双流体 full 2D/3D 与 Quick Design，独立 C11 调用及 macOS/Python 3.13、Windows/Python 3.12 和 3.13 的原生 CI 数值对照通过；默认仍为 Python/Numba；详见 [C++ 接入范围](cpp-migration.md) | macOS/Windows 可见桌面验收、完整性能评估与默认切换/旧路径退役仍需各自证据；不据局部通过将 X10/X11 整体关闭 |
+| Native C/C++ 后端 | 显式 `backend='cpp'` 覆盖矩形双流体 full 2D/3D 与 Quick Design，独立 C11 调用及 macOS/Python 3.13、Windows/Python 3.12 和 3.13 的原生 CI 数值对照通过；默认仍为 Python/Numba；详见 [C++ 接入范围](cpp-migration.zh-CN.md) | macOS/Windows 可见桌面验收、完整性能评估与默认切换/旧路径退役仍需各自证据；不据局部通过将 X10/X11 整体关闭 |
 | OpenFOAM 适配 | 公共物理数据与后端隔离 | X20/X21/X22 未实现真实求解/转换/交叉验证 |
 | 其他 External 后端 | 公开入口接受 Python 与明确能力范围内的 C++，其他 backend 明确拒绝 | 无其他具体外部实现；不能将接口声明当成已支持 |
 | 宏观几何与可选微观几何 | 当前 TPMS 固定/分区几何准备，共享单胞几何计算 | 不宣称宏观求解解析真实微观曲面；可选显式微观网格流程未交付 |

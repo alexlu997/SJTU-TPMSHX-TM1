@@ -1,5 +1,7 @@
 # Spec: ui-optimize-wizard
 
+[中文](spec.md) | [English](spec.en.md)
+
 ## Purpose
 优化页三页向导（配置/运行/结果）：阶段按钮驱动翻页、内联参数、取消保样本。
 

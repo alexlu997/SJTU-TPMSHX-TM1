@@ -1,5 +1,7 @@
 # sCO2 CFD：现行 Nu 工具与历史 D-F 归档
 
+[中文](README.md) | [English](README.en.md)
+
 当前数据位于 `data/raw_data/cfd/sco2/{Diamond,Gyroid}/`；统一读取器为
 `df_surrogate/load_sco2_cfd.py`，保留拓扑、布局、压力/密度和原始字段守卫。
 
@@ -13,7 +15,7 @@
 它们是当时的结果，不能作为当前生产模型的新验收。
 
 现行阻力采用联合水+sCO2 几何固定 K/cF 及已审查的实验修正，见
-[架构](../../../docs/architecture.md)；旧模型完整入口见
+[架构](../../../docs/architecture.zh-CN.md)；旧模型完整入口见
 [历史索引](../../../docs/history/legacy-models.md)。现行 sCO2 实验模式从
 `configs/sco2_effective_nu.json` 读取总有效 Nu 系数，通过
 `models.nu_correlations.sco2_effective_nu_config()` 显式选择；使用、标定来源及

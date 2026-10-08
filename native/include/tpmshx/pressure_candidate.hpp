@@ -8,7 +8,7 @@
 
 namespace tpmshx {
 
-// Qualification candidate, not a production backend. SuperLU is called only
+// Pressure system used by the native SIMPLE drivers. SuperLU is called only
 // through the protected C allocation/ABORT boundary; no C++ frame is jumped.
 // Canonical, sorted, duplicate-free square CSR, with 32-bit indices.
 // pin_mask identifies the original zero-Dirichlet pressure-correction rows;

@@ -233,6 +233,14 @@ def test_capped_public_keeps_distinct_pressure_states(native_path):
         compare(a.metadata['diagnostics']['true_h_balance'][key],e.metadata['diagnostics']['true_h_balance'][key],key)
 
 
+def test_pre_cancelled_case_skips_preparation_and_library_load(tmp_path):
+    prepared = case()
+    with patch('sjtu_tpmshx.solvers.backends.python.three_d.execution.build_execution_inputs',
+               side_effect=AssertionError('cancelled case prepared for execution')):
+        with pytest.raises(CancelledError):
+            cpp_run(prepared, control(tmp_path/'missing.dll', cancel_check=lambda: True))
+
+
 @pytest.mark.parametrize('during',[False,True])
 def test_native_cancellation_never_returns_a_field_result(native_path,during):
     calls=[]
@@ -396,7 +404,7 @@ assert not [name for name in sys.modules if name.startswith(forbidden)]
 
 
 @pytest.mark.parametrize('relative', [False, True])
-def test_public_full3d_missing_library_never_falls_back(native_path, tmp_path, relative):
+def test_public_full3d_missing_library_never_falls_back(tmp_path, relative):
     selected = control('missing.dll' if relative else tmp_path/'missing.dll')
     error, message = (ValueError, 'absolute') if relative else (FileNotFoundError, 'missing')
     with patch('sjtu_tpmshx.solvers.backends.python.three_d.runtime.build_problem',

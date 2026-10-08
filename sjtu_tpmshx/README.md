@@ -1,8 +1,10 @@
 # 主体源码：sjtu_tpmshx
 
+[中文](README.md) | [English](README.en.md)
+
 这是 TM1 的 Python 源码包。首次配置、命令行算例和 GUI 启动见
 [项目 README](../README.md#first-run)；命令从仓库根目录执行。
-完整的模块边界和物理约束见[架构说明](../docs/architecture.md)。
+完整的模块边界和物理约束见[架构说明](../docs/architecture.zh-CN.md)。
 
 ## 三模块主线
 

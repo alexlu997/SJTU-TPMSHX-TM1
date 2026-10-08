@@ -1,10 +1,10 @@
 # Native dependency notices
 
-The optional dependency pilot uses the exact sources and build options in
-[`dependencies-lock.toml`](dependencies-lock.toml). It is not bundled with the
-current production solver. Source and build artifacts remain in the ignored
-`.cache/native-deps` directory; the notices below must accompany any future
-binary distribution that includes these components.
+The native solver and its component checks use the sources and build options in
+[`dependencies-lock.toml`](dependencies-lock.toml). The complete C++ backend links
+the applicable dependencies listed below. Source and build artifacts stay in
+the ignored `.cache/native-deps` directory. These notices must accompany each
+binary distribution that includes the corresponding components.
 
 | Component | Source and notices | Use in this build |
 | --- | --- | --- |

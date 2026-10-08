@@ -1,5 +1,7 @@
 # SJTU-TPMSHX-TM1
 
+[中文](README.md) | [English](README.en.md)
+
 TM1 将 TPMS 换热器的前处理、求解和后处理拆为独立维护的模块，供计算界面、
 参数优化和快速设计通过公开接口调用。目标仓库为
 [alexlu997/SJTU-TPMSHX-TM1](https://github.com/alexlu997/SJTU-TPMSHX-TM1)。
@@ -7,6 +9,10 @@ TM1 将 TPMS 换热器的前处理、求解和后处理拆为独立维护的模�
 
 **主体源码在 [sjtu_tpmshx/](sjtu_tpmshx/)**，前处理、求解和后处理都在这个包内。
 其他根目录分别存放文档、示例、辅助工具和验证记录。
+
+Python/Numba 与 C++ 都作为正式后端维护，默认使用 Python。两者支持现有的
+完整 2D/3D 计算和快速设计，通过相同的准备态与结果接口连接 GUI、CLI 和优化。
+本轮维护平台为 macOS arm64 与 Windows x64；Linux 服务器部署暂不开展。
 
 矩形 2D/3D 三模块主线的 M-A 合并验收已记录；M-B 扩展能力继续单独追踪。
 历史 B40 失败与物理适用范围仍须保留。当前结论见
@@ -20,7 +26,7 @@ TM1 将 TPMS 换热器的前处理、求解和后处理拆为独立维护的模�
 | 在本机运行 | [macOS / Windows 首次运行](#first-run)，含命令行算例和 GUI 启动 |
 | 从界面开始使用 | [GUI 常用流程](#gui-use) |
 | 阅读或修改源码 | [主体源码与模块地图](sjtu_tpmshx/README.md) |
-| 理解模块边界 | [架构说明](docs/architecture.md)、[三模块数据契约](schemas/three_module_v1/) |
+| 理解模块边界 | [架构说明](docs/architecture.zh-CN.md)、[三模块数据契约](schemas/three_module_v1/README.zh-CN.md) |
 | 构建桌面软件 | [独立打包环境、用户文件与交付验证](docs/desktop.md) |
 | 查找文档与其他目录 | [仓库目录与文档导航](docs/README.md) |
 | 查阅旧版本资料 | [历史资料索引](docs/history/README.md) |
@@ -114,7 +120,7 @@ $env:NUMBA_CACHE_DIR = Join-Path $PWD '.cache/numba'
 | air_3d | 338.33 W | 1944.17 / 3038.38 | 359.23 / 344.93 |
 
 空气现按真实端口面的面积平均值校准入口绝压，误差低于0.01%才满足该项收敛条件；
-压力和热量收敛定义见[架构说明](docs/architecture.md)。
+压力和热量收敛定义见[架构说明](docs/architecture.zh-CN.md)。
 当前空气阻力系数、标定来源与适用范围见[模型资源](docs/model-resources.md)；
 阶段修复与实验对照报告从[历史索引](docs/history/README.md)查阅。
 
@@ -182,9 +188,14 @@ cp .cache/native-deps/build/pilot-macos-arm64/libtpmshx_solver_shared.dylib nati
 这些局部检查不构成完整原生配置、迭代历史、F2 或实验准确度资格。
 源码 GUI 已有两维显示和导出证据，取消、重算、菜单配置保存重载、重启恢复及
 外循环次数显示的可见复核尚待解锁 Mac 后完成；当前不作为完整应用验收通过。
-当前候选的 macOS 原生 CI 仍有数值比较失败；旧 Python 轨迹与新共享 FV
-算法的对照边界尚未全部闭合，未通过放宽容差或删除失败断言处理。
+合入 PR #136 的 `298761d2` 基线已通过 macOS/Windows 原生 CI，见
+[CI 记录](https://github.com/alexlu997/SJTU-TPMSHX-TM1/actions/runs/37713153292)。
+早期数值比较失败仍属于其原版本记录。工程对照、严格局部回归、实验精度、
+完整性能和可见桌面验收分别保留各自门槛。
 文件夹可启动与限定回归通过不代表完整原生资格通过。
+
+Windows x64 和不使用本地 macOS 启动器的用户，按
+[项目文件夹运行说明](docs/desktop.md#source-folder)显式传入原生库与可写表目录。
 
 <a id="gui-use"></a>
 
@@ -353,7 +364,7 @@ PowerShell 使用相同参数，将 `"$PYTHON"` 改为 `& $tm1Python`，目录�
 各阶段参数可用 `"$PYTHON" -m sjtu_tpmshx.cli prepare --help` 等查看，PowerShell 同样使用 `& $tm1Python`。
 
 Case YAML 引用伴随 HDF5；result/VTK 导出和严格指标 JSON 的限制见
-[schema](schemas/three_module_v1/)。CLI 输出必须与本次输入文件及 Case 的伴随 HDF5
+[schema](schemas/three_module_v1/README.zh-CN.md)。CLI 输出必须与本次输入文件及 Case 的伴随 HDF5
 分开，路径重合会在执行阶段前拒绝；独立的既有输出仍可更新。
 取消与失败不伪装成完成结果；已完成但未收敛的
 结果保留原状态。指标有限不等于数值、能量或实验精度验收通过。
@@ -386,12 +397,12 @@ Pareto CSV 仍可导出几何；旧筛选模式不能再执行或重新计算指
 主线物理规则及独立模块交接的实现与验证。
 
 `models/`、`df_surrogate/` 等是共享技术支撑，不是第四个业务模块。旧 Pipeline/应用
-入口单向调用公开模块。具体边界见[架构说明](docs/architecture.md)。
+入口单向调用公开模块。具体边界见[架构说明](docs/architecture.zh-CN.md)。
 
 默认后端为 Python/Numba。macOS arm64 和 Windows x64 原生库可通过显式
 `RunControl(backend='cpp', native_library=...)` 或 CLI `--backend cpp`
 执行 Quick Design 和完整二维／三维求解；库路径、构建及能力边界见
-[C++ 迁移说明](docs/cpp-migration.md)。原生构建、独立调用及数值对照已通过
+[C++ 迁移说明](docs/cpp-migration.zh-CN.md)。原生构建、独立调用及数值对照已通过
 macOS/Python 3.13 与 Windows/Python 3.12、3.13 的必需 CI；
 可见桌面交付与完整性能验收仍各自保留。
 完整二维接口为 ABI 2，必须同步分发库、头文件和适配器。
@@ -425,9 +436,9 @@ PowerShell 使用同样的 pytest 参数，并以 `$env:NUMBA_NUM_THREADS='2'` �
 显式运行双线程检查；独立集成步骤使用 1，运行全量前恢复为 2。
 CI 快测按完整模块分到两个独立 runner，每片固定两个 worker，
 每个 worker 的 BLAS/OMP 单线程、Numba 上限为 2；完整 integration 使用第三个 runner 并行执行。
-固定 128 核服务器的并行预算见 `scripts/run_tests_server.ps1`；
-`run_tests_fast.ps1` 只提供开发反馈，其 `not heavy` 子集与 CI 快测不同。
-两份服务器脚本默认严格检查基础锁。已有 Windows BO 环境时，显式使用
+现有测试辅助脚本继续保留；`run_tests_fast.ps1` 只提供开发反馈，
+其 `not heavy` 子集与 CI 快测不同。两份 PowerShell 脚本默认严格检查基础锁。
+已有 Windows BO 环境时，显式使用
 `./scripts/run_tests_server.ps1 -LockFile requirements-lock-server.txt`，或向
 `run_tests_fast.ps1` 传同一参数；所选锁与 `pip check` 都通过后才启动测试。
 脚本不安装依赖，也不因为选择了服务器锁而放行锁外包。

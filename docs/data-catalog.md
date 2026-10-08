@@ -1,5 +1,7 @@
 # 原始数据目录与文件名对照
 
+[中文](data-catalog.md) | [English](data-catalog.en.md)
+
 2026-09-12 目录整理。原始文件位于本地 `data/raw_data/`，由私有
 SJTU-TPMSHX-data 仓库承载；本页只记录路径和用途，不包含原始测量值。
 本次移动、重命名 13 个 Excel，并按用途归类 CFD CSV 和随附说明。

@@ -1,4 +1,77 @@
-# 桌面软件构建与验证
+<a id="桌面软件构建与验证"></a>
+
+# 桌面运行与可选打包
+
+[中文](desktop.md) | [English](desktop.en.md)
+
+日常交付使用普通项目文件夹，保留 Python/Qt、源码、模型资源和匹配的原生库。
+Python 与 C++ 都是受维护后端。macOS arm64 与 Windows x64 使用同一界面；
+不需要制作 `.app` 才能运行。下文保留既有冻结打包方式，供明确需要时使用。
+
+<a id="source-folder"></a>
+
+## 从项目文件夹运行
+
+从仓库根目录操作。先确认 `.venv-path` 第一行指向本机已有的绝对解释器，
+再按 [README 环境检查](../README.md#环境与检查)核对锁和依赖。
+原生库必须与当前适配器和头文件匹配；源码仓库不附带本机编译产物。
+原生依赖构建方法见 [C++ 说明](cpp-migration.zh-CN.md)。
+
+项目文件夹保留以下内容：
+
+- 完整 `sjtu_tpmshx/` 源码，包括 `configs/*.json`、`df_surrogate/_prebuilt/*.csv` 和界面资源。
+- 本机 `.venv-path`、对应 `requirements-lock*.txt`、使用示例和运行说明。
+- 与源码版本、平台和 ABI 匹配的动态库，以及 `native/include/`、`native/dependencies-lock.toml`、`native/THIRD_PARTY_NOTICES.md` 和 `native/licenses/`。
+- 可写的模型表与运行缓存目录；表文件不写入动态库或只读资源目录。
+
+下列 C++ 命令直接使用既有构建流程的输出路径。
+
+macOS arm64：
+
+```sh
+tm1_python="$(sed -n '1p' .venv-path)"
+export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
+export NUMBA_CACHE_DIR="$PWD/.cache/numba"
+"$tm1_python" -m sjtu_tpmshx.main --backend python
+```
+
+需要使用 C++ 时，关闭该窗口，再以匹配的原生库启动：
+
+```sh
+"$tm1_python" -m sjtu_tpmshx.main --backend cpp \
+  --native-library "$PWD/.cache/native-deps/build/pilot-macos-arm64/libtpmshx_solver_shared.dylib" \
+  --native-table-directory "$PWD/.cache/native-deps/tables"
+```
+
+Windows x64（PowerShell）：
+
+```powershell
+$tm1Python = Get-Content .venv-path -TotalCount 1
+$env:MPLCONFIGDIR = Join-Path $PWD '.cache/matplotlib'
+$env:XDG_CACHE_HOME = Join-Path $PWD '.cache/xdg'
+$env:NUMBA_CACHE_DIR = Join-Path $PWD '.cache/numba'
+& $tm1Python -m sjtu_tpmshx.main --backend python
+```
+
+需要使用 C++ 时，关闭该窗口，再以既有构建产物启动：
+
+```powershell
+$tm1Library = Join-Path $PWD '.cache/native-deps/build/pilot-windows-x64/tpmshx_solver_shared.dll'
+$tm1Tables = Join-Path $PWD '.cache/native-deps/tables'
+& $tm1Python -m sjtu_tpmshx.main --backend cpp --native-library $tm1Library --native-table-directory $tm1Tables
+```
+
+如库存放在其他文件夹，替换该路径。程序不搜索磁盘、编译库、下载或安装依赖。
+表目录必须可写；同一原生进程固定使用一个表目录。
+CLI 的 `run` 和 `solve` 子命令接受同样的三个后端参数。
+源码运行不以 `TPMSHX_NATIVE_SOLVER_LIBRARY` 代替显式启动参数。
+
+窗口中的“计算后端”作用于下一次普通计算、快速设计和优化。
+运行及取消收尾时禁止切换；切换不修改已发布结果的后端来源或保存的工况。
+Windows 源码入口需要显式库路径；macOS GUI 还保留本地文件夹库的既有默认位置。
+CLI、独立 C 调用和 CI 通过不代替两平台可见桌面验收。
+
+## 可选冻结打包
 
 桌面入口是 `sjtu_tpmshx.desktop`，调用现有 GUI 和公共三模块计算链。
 `packaging/desktop.spec` 使用 PyInstaller 将解释器、锁定运行依赖、模型配置、

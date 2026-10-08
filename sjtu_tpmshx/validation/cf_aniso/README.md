@@ -1,5 +1,7 @@
 # cf_aniso — 斜流 Forchheimer 方向因子标定（方向分辨单胞 CFD 工单）
 
+[中文](README.md) | [English](README.en.md)
+
 状态：**待方向分辨 CFD 数据，尚未标定**。下文保留原研究矩阵与判定建议，
 不代表当前方向系数已有实验或 CFD 验证，也不在本轮文档整理中启动标定。
 
@@ -32,7 +34,7 @@
 轴转 θ 再抽 STL，流动保持 +x，完全复用现有周期平移 BC + 质量流量的工作流
 （原方案拟采用 ideal-gas、pressure-based steady、periodic + mass-flow-rate）。
 旋转后的周期性、域尺寸和网格无关性须在真正开展 CFD 前确认；
-当前[架构说明](../../../docs/architecture.md)并未将这套研究方案验收为有效。
+当前[架构说明](../../../docs/architecture.zh-CN.md)并未将这套研究方案验收为有效。
 
 ⚠ 单流体单胞算例：只算 A 网络一侧（ε_f = ε/2 的那套通道），与原 DF 标定同口径。
 

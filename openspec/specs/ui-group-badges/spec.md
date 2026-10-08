@@ -1,5 +1,7 @@
 # Spec: ui-group-badges
 
+[中文](spec.md) | [English](spec.en.md)
+
 ## Purpose
 左面板分组徽标：必填缺失计数、防抖校验驱动、折叠存活。（结构修复 2026-07-03：补 Purpose 头，内容不变。）
 

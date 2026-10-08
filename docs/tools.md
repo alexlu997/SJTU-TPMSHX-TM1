@@ -1,5 +1,7 @@
 # 工具入口与复现边界
 
+[中文](tools.md) | [English](tools.en.md)
+
 全部命令从仓库根目录执行，Python 使用 `.venv-path` 第一行的绝对解释器。
 先按 [README](../README.md#first-run) 检查对应锁和 `pip check`；缓存使用本工作树
 忽略的 `.cache/`。下表中的 `python` 表示该解释器，不是系统 Python。
@@ -104,7 +106,7 @@ python -m sjtu_tpmshx.runs.smokes.smoke_ui_screenshots --output .cache/ui-smoke-
 `--nx/--ny/--nz` 保留手选网格，`--port-wall-refine` 选择端口/壁面加密；
 旧 `--wall-refine` 为另一种六面壁面加密，两者不能同时启用。
 实际网格始终来自本次结果的准备网格。
-当前共同 F2 和物理边界见[架构说明](architecture.md)；旧架构回归和实验误差见历史索引。
+当前共同 F2 和物理边界见[架构说明](architecture.zh-CN.md)；旧架构回归和实验误差见历史索引。
 无效的 `tol_simple` 和优化启动器旧 `--tol` 已退役；旧工况文件导入时明确提示
 忽略该字段，实际 F2 动量和质量收敛门槛继续保留。MMS 的能量求解 `--tol`
 是独立的有效参数，不在此次退役范围内。

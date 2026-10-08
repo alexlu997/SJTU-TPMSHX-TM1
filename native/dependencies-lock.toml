@@ -1,6 +1,6 @@
-# Fixed native dependency trial inputs. Source/build outputs stay in .cache/.
+# Fixed native solver and verification inputs. Source/build outputs stay in .cache/.
 schema-version = 1
-scope = "isolated-pilot; not a production backend"
+scope = "native-solver-and-component-verification"
 platforms = ["macos-arm64", "windows-x64"]
 parallel = 2
 

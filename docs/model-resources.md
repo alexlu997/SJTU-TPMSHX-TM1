@@ -1,14 +1,14 @@
 # 模型资源、离线拟合与标定来源
 
+[中文](model-resources.md) | [English](model-resources.en.md)
+
 ## 离线数据与正式准备流程
 
-`sjtu_tpmshx.preprocess.offline` exposes the experiment, water CFD, sCO2 core
-and sCO2 segment cleaners. Each accepts `source=`. The caller selects the
-resource; a missing explicit input never triggers a search for an alternative.
+`sjtu_tpmshx.preprocess.offline` 提供实验、水 CFD、sCO2 芯体和 sCO2 分段清洗入口。
+各入口接受 `source=`，由调用方选择资源；显式输入缺失时不搜索替代来源。
 
-Experiment cleaning retains col47 friction dP, L8 Re>=1600 and Shanghai
-source/geometry exclusion guards. CFD cleaning retains raw Dh and nominal Re,
-pressure-density guards, entrance exclusions and water flow-suspect flags.
+实验清洗保留 col47 摩擦压降、L8 Re>=1600 和上海来源／几何排除检查。
+CFD 清洗保留原始 Dh、名义 Re、压力／密度检查、入口段排除和水流量可疑标记。
 
 ```python
 from sjtu_tpmshx.preprocess.offline import load_experiments, load_water
@@ -17,28 +17,23 @@ frame = load_experiments(source=training_workbook)
 water = load_water('Diamond', source=water_workbook)
 ```
 
-`fit_nu_sco2` reuses the existing log-space fit. The validation script retains
-campaign splits, cross-validation, metrics and CSV reports. Returned research
-coefficients need physical acceptance before promotion; this API never installs
-them as production correlations. Importing offline modules does not refit data.
+`fit_nu_sco2` 复用既有对数空间拟合。验证脚本保留批次划分、交叉验证、指标和 CSV 报告。
+返回的研究系数须先经过物理验收才能采用；此 API 不将其安装为生产关联式。
+导入离线模块不触发重新拟合。
 
-On 2026-09-12 the user approved retiring SurrogateV3/gamma research models and
-`publish_surrogate`, together with `build_prebuilt_surrogate`. Their original
-col43/alpha pressure convention, publication contract and tests are preserved
-at the fixed Git state in the [history index](history/legacy-models.md).
-The current col47 cleaner does not replace that historical calibration product.
+2026-09-12 用户批准退役 SurrogateV3/gamma 研究模型、`publish_surrogate`
+及 `build_prebuilt_surrogate`。原 col43/alpha 压力约定、发布契约和测试保留在
+[历史索引](history/legacy-models.md)的固定 Git 版本中。
+当前 col47 清洗器不替代该历史标定产物。
 
-Ordinary full preparation uses the fixed CFD resource and is tested with
-workbook reading forbidden. Quick-design evaluates analytical inlet-pressure
-fractions in preparation; the receiving solver uses the recorded fractions.
-Only the fixed CFD method is now supported. Serialized preparation/solve and
-postprocess boundaries are unchanged.
+普通完整前处理使用固定 CFD 资源，并通过禁止工作簿读取的测试。
+快速设计在前处理评估解析入口压降比例，接收求解器消费记录的比例。
+当前只支持固定 CFD 方法，序列化前处理／求解及后处理边界不变。
 
-The matching private data commit is recorded by `data-revision.txt`; the
-[data catalog](data-catalog.md) records active and historical paths.
-`Water-CFD/水数值模拟数据.xlsx` remains missing. The explicit legacy-water Nu
-check does not substitute that file or reconstruct its historical fit; its
-measured error and the decision to retain the original Nu are in the catalog.
+匹配的私有数据提交由 `data-revision.txt` 记录；[数据目录](data-catalog.md)
+记录当前和历史路径。`Water-CFD/水数值模拟数据.xlsx` 仍缺失。
+显式 legacy 水 Nu 检查不代替该文件，也不重建其历史拟合；
+实测误差与保留原 Nu 的决定见数据目录。
 
 ## 当前资源与研究输出
 
@@ -200,7 +195,7 @@ Pout² = Pin² − 2 R T̄ L (μ G/K0 + sF cF0 G²)
 输出源文件、工作表、行号和复核系数；不覆盖生产参数。
 
 适用几何为均匀、对称 Gyroid 7/0.6 mm、182×42×42 mm 换热器，无分区、δ=0；
-端口与其他物理范围仍受[架构约束](architecture.md)检查。此值是该实验和模型
+端口与其他物理范围仍受[架构约束](architecture.zh-CN.md)检查。此值是该实验和模型
 口径下的有效阻力修正，不能当成与装置、面积和压力定义无关的通用工质常数。
 
 | 速度口径 | 空气孔隙速度范围（m/s） |
