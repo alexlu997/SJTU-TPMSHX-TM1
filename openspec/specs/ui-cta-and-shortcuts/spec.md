@@ -1,5 +1,7 @@
 # Spec: ui-cta-and-shortcuts
 
+[中文](spec.md) | [English](spec.en.md)
+
 ## Purpose
 计算 CTA、空状态预设入口与键盘/页签快捷键层的行为约定。
 ## Requirements

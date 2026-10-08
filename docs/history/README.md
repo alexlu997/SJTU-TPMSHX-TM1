@@ -1,6 +1,8 @@
 # 历史资料索引
 
-当前架构与运行方式见[架构说明](../architecture.md)和[项目 README](../../README.md)。
+[中文](README.md) | [English](README.en.md)
+
+当前架构与运行方式见[架构说明](../architecture.zh-CN.md)和[项目 README](../../README.md)。
 
 旧手册、开发日志、V2 README、已结束工程和固定试验已移出当前树，
 从[退役工具索引](retired-tools.md)查阅固定提交中的原文件。

@@ -1,5 +1,7 @@
 # Spec: ui-result-workbench
 
+[中文](spec.md) | [English](spec.en.md)
+
 ## Purpose
 结果工作台：主导航、场图／三维切换、可收起的底部摘要及诊断详情。
 

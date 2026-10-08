@@ -1,5 +1,7 @@
 # Spec: ui-design-tokens
 
+[中文](spec.md) | [English](spec.en.md)
+
 ## Purpose
 设计令牌纪律：共享控件的圆角、色值和字号由 theme.py 提供。
 

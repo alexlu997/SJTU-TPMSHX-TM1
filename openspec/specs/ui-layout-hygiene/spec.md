@@ -1,5 +1,7 @@
 # Spec: ui-layout-hygiene
 
+[中文](spec.md) | [English](spec.en.md)
+
 ## Purpose
 左面板布局卫生（无横向滚动、响应式流体卡、结构化空状态）与纯布局变更的行为约束。
 ## Requirements
@@ -37,7 +39,7 @@
 Pareto 图像依据自身画布和优化结果就绪，不依赖单点计算的场缓存。
 底部结果摘要在 `ui/builders_sidebar.py`，读取已发布的本次标量结果；
 使用方直接从所属模块导入，不维护旧兼容重导出。
-画布和 3D 面板的组装按当前[架构说明](../../../docs/architecture.md#ui-structure)
+画布和 3D 面板的组装按当前[架构说明](../../../docs/architecture.zh-CN.md#ui-structure)
 组织；旧拆分方案的逐字迁移和“不拆分”决定属于历史，不限制后续已验证的维护。
 
 #### Scenario: Window constructs with the extended MRO

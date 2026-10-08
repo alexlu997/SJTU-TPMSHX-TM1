@@ -1,5 +1,7 @@
 # 验证工具
 
+[中文](README.md) | [English](README.en.md)
+
 现行入口、所需数据和运行方法见[工具导航](../../docs/tools.md)。
 从仓库根使用 `.venv-path` 指定的解释器运行模块；数据位于本地 `data/raw_data/`。
 

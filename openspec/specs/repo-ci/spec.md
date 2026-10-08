@@ -1,5 +1,7 @@
 # repo-ci Specification
 
+[中文](spec.md) | [English](spec.en.md)
+
 ## Purpose
 仓库 CI 门（GitHub Actions，headless pytest 子集）及其安装/排除约定。来自 openspec archive `2026-07-02-cleanup-ci`（架构扫描批次 D+F）。
 ## Requirements

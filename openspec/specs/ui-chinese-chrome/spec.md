@@ -1,5 +1,7 @@
 # Spec: ui-chinese-chrome
 
+[中文](spec.md) | [English](spec.en.md)
+
 ## Purpose
 UI 表面中文化约定：可见文案中文、内部路由键保持英文。（结构修复 2026-07-03：补 Purpose 头，内容不变。）
 
