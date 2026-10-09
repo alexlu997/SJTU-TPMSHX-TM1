@@ -117,6 +117,8 @@ def _T_of_h_field(h, P, fluid, *, where='enthalpy EOS return', lookup=None):
             hc = np.asarray(_PropsSI(("H", "C"), "T", out, "P",
                 np.ascontiguousarray(P).ravel(), _CP_NAME.get(fluid, fluid))).reshape(-1, 2)
             out += (h.ravel() - hc[:, 0]) / hc[:, 1]
+    except WaterStateError:
+        raise
     except ValueError as exc:
         if fluid == 'water':
             location = (f'index={tuple(0 for _ in h.shape)}' if h.size == 1
