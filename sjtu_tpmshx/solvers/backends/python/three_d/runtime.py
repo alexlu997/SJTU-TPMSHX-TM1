@@ -19,7 +19,7 @@ from sjtu_tpmshx.domain.run_environment import require_python_kernel, run_enviro
 from sjtu_tpmshx.domain.run_warnings import range_context
 from sjtu_tpmshx.models.nu_correlations import record_raw_nu_range, warn_sco2_nu_evidence
 from sjtu_tpmshx.models.tpms_props import record_temperature_ranges
-from sjtu_tpmshx.models.local_heat_transfer import _sco2_hv_local_field, local_nusselt, local_speed
+from sjtu_tpmshx.models.local_heat_transfer import real_fluid_hv_local_field, local_nusselt, local_speed
 from sjtu_tpmshx.models.grid import cell_average
 from sjtu_tpmshx.result_math import pressure_face_values
 
@@ -265,13 +265,14 @@ def _conservation_diagnostics_3d(Ta, Tb, Ts, h_vA_field, h_vB_field,
         Q_sB = e_bal['Q_sB']
         Q_net = e_bal['Q_net']
         energy_rel = abs(Q_net) / (abs(Q_sA) + abs(Q_sB) + 1e-30)
+        # Intrinsic velocities conserve porosity-weighted mass for spatial fields.
         m_bal_A = mass_balance_3d(
-            sA.u, sA.v, sA.w, sA.rho_field, sA.dy, sA.dx, sA.dz, 2)
+            sA.u, sA.v, sA.w, sA.rho_field * sA.eps_field, sA.dy, sA.dx, sA.dz, 2)
         mass_rel_A = m_bal_A.get('rel', 0.0)
         mass_rel_B = 0.0
         if sB is not None:
             m_bal_B = mass_balance_3d(
-                sB.u, sB.v, sB.w, sB.rho_field, sB.dy, sB.dx, sB.dz, 2)
+                sB.u, sB.v, sB.w, sB.rho_field * sB.eps_field, sB.dy, sB.dx, sB.dz, 2)
             mass_rel_B = m_bal_B.get('rel', 0.0)
     except Exception as _e:
         # Surface the failure instead of nan-ing it away silently: these
@@ -649,7 +650,7 @@ def build_problem(cfg, prepared, *, control: RunControl = RunControl()):
 
     from sjtu_tpmshx.df_surrogate.experimental_correction import (
         apply_prepared_correction, cfd_metadata)
-    if _df_mode == 'experimental':
+    if 'A' in (cfg.get('df_application') or {}):
         with range_context(side='A', stage='df-application', layout='scalar'):
             K_A_arr, cF_A_arr, _df_meta_A = apply_prepared_correction(
                 K_A_arr, cF_A_arr, cfg['df_application']['A'])
@@ -698,7 +699,7 @@ def build_problem(cfg, prepared, *, control: RunControl = RunControl()):
     _apply_accel_flags(sA, cfg)
     # Water also has rho(T): an outer update must not change inlet throughput.
     # Air already captures its target in the compressible SIMPLE path.
-    if fluid_type_A in ('sco2', 'water'):
+    if fluid_type_A in ('sco2', 'co2', 'water'):
         sA._massflux_target = (v_inlet_field * rho_A).copy()
     # Zoned ε → push to SIMPLE so its continuity ∇·(ε·ρ·u)=0 picks up the
     # ∇ε contribution. Uniform ε leaves the default unchanged.
@@ -711,7 +712,7 @@ def build_problem(cfg, prepared, *, control: RunControl = RunControl()):
             sA.eps_field = eps_sol
             sA._mu_eff_field = np.ascontiguousarray(
                 sA.mu_field / sA.eps_field, dtype=np.float64)
-    if fluid_type_A != 'sco2':
+    if fluid_type_A not in ('sco2', 'co2'):
         sA.apply_outlet_taper(n_taper=8, min_frac=0.2)
     # Rectangles set both raw BC support and staggered wall areas.
     # A.solve() deferred — build B first, then select one level of parallelism.
@@ -746,7 +747,7 @@ def build_problem(cfg, prepared, *, control: RunControl = RunControl()):
         else:
             K_B_arr = np.full((N_stream_B, N_cross2_B), K_pred_B)
             cF_B_arr = np.full((N_stream_B, N_cross2_B), cF_pred_B)
-        if _df_mode == 'experimental':
+        if 'B' in (cfg.get('df_application') or {}):
             with range_context(side='B', stage='df-application', layout='scalar'):
                 K_B_arr, cF_B_arr, _df_meta_B = apply_prepared_correction(
                     K_B_arr, cF_B_arr, cfg['df_application']['B'])
@@ -785,7 +786,7 @@ def build_problem(cfg, prepared, *, control: RunControl = RunControl()):
         sB.pressure_iterations = pressure_history_B
         # Mirror Phase A/B/C flags onto sB (sweep config consistent with sA).
         _apply_accel_flags(sB, cfg)
-        if fluid_type_B in ('sco2', 'water'):
+        if fluid_type_B in ('sco2', 'co2', 'water'):
             sB._massflux_target = (v_inlet_B * rho_B).copy()
         # Zoned ε for sB.
         if eps_field_3d is not None:
@@ -797,7 +798,7 @@ def build_problem(cfg, prepared, *, control: RunControl = RunControl()):
                 sB.eps_field = eps_sol_B
                 sB._mu_eff_field = np.ascontiguousarray(
                     sB.mu_field / sB.eps_field, dtype=np.float64)
-        if fluid_type_B != 'sco2':
+        if fluid_type_B not in ('sco2', 'co2'):
             sB.apply_outlet_taper(n_taper=8, min_frac=0.2)
         # Rectangles set both raw BC support and staggered wall areas.
         # sB.solve deferred — dispatched with sA below.
@@ -1013,7 +1014,7 @@ def _build_hv_machinery(prob: _Problem3D):
         Pr = float(Pr_val if Pr_val is not None else 7.0) if not m.compressible else None
         Nu_val = m.nu(tpms_type, Re_eff, float(eps_f_val), float(L_mm_val),
                       float(D_h_mm_val), Pr)
-        return max(float(Nu_val), _NU_LAM_FLOOR)
+        return max(float(Nu_val), _NU_LAM_FLOOR * m.nu_floor_multiplier)
 
     def _record_bulk_ranges(L_fld, u_side, T_side, P_side, fluid_type):
         """Retain inlet observations; local h_v is built before thermal use."""
@@ -1060,11 +1061,11 @@ def _build_hv_machinery(prob: _Problem3D):
         # Uniform sCO2 evaluates ρ,μ,k,Pr at the lagged local temperature.
         # Without a temperature field, use inlet properties for initialization;
         # air/water retain the scalar-inlet property branch below.
-        if fluid_type == 'sco2' and L_fld is None and np.ndim(T_side) > 0:
-            g = cfg['thermal_geometry']['uniform']
-            return _sco2_hv_local_field(T_side, P_side, u_abs,
-                                        g['A_0'], g['D_h'], tpms_type, Lcell,
-                                        sco2_nu=cfg.get('sco2_nu'), observation=observation)
+        if fluid_type in ('sco2', 'co2') and np.ndim(T_side) > 0:
+            g = cfg['thermal_geometry']['uniform' if L_fld is None else 'fields']
+            return real_fluid_hv_local_field(T_side, P_side, u_abs,
+                                        g['A_0'], g['D_h'], tpms_type, Lcell if L_fld is None else L_fld,
+                                        fluid=fluid_type, sco2_nu=cfg.get('sco2_nu'), observation=observation)
         rho, mu, k_f, Pr_f = _fluid_transport_props(fluid_type, T_side, P_side)
         # Use the same vectorized closure and arithmetic order for uniform
         # and spatial geometry; only the prepared geometry's shape differs.
@@ -1210,7 +1211,7 @@ def _extract_3d_metrics(prob: _Problem3D, outer: _OuterState):
     # A pair containing sCO2 is solved in true enthalpy for BOTH streams, so
     # report the same boundary-face quantity for both fluids. Other routes
     # retain cp·ΔT unless the completed thermal solve supplied a model-h ledger.
-    _true_h_pair = 'sco2' in (fluid_type_A, fluid_type_B)
+    _true_h_pair = any(f in ('sco2', 'co2') for f in (fluid_type_A, fluid_type_B))
     if _true_h_pair:
         from sjtu_tpmshx.solvers.ltne_enthalpy_3d import _h_scalar, _prop_field
         _P_A_real = (sA.P_ref_abs + sA.P).transpose(prob.solver_to_real_perm)
@@ -1263,7 +1264,7 @@ def _extract_3d_metrics(prob: _Problem3D, outer: _OuterState):
     # A cap exit can leave reporting at a later flow than the last thermal
     # solve. Their mismatch alone cannot establish a kernel closure defect.
     Q_AB_imbalance_rel = float('nan')
-    if (sB is not None and (fluid_type_A == 'sco2' or fluid_type_B == 'sco2')
+    if (sB is not None and any(f in ('sco2', 'co2') for f in (fluid_type_A, fluid_type_B))
             and Q_enthalpy_A > 1.0 and Q_enthalpy_B > 1.0):
         Q_AB_imbalance_rel = (abs(Q_enthalpy_A - Q_enthalpy_B)
                               / max(Q_enthalpy_A, Q_enthalpy_B))
@@ -2016,7 +2017,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
         speed_A = local_speed(ucA, vcA, wcA)
         # D3: sCO2 uses the LOCAL temperature field (lagged Ta) for h_v props;
         # iter-0 Ta is None → scalar T_inA (frozen, = old behaviour).
-        _T_hvA = state.Ta if (fluid_type_A == 'sco2' and state.Ta is not None) else T_inA
+        _T_hvA = state.Ta if (fluid_type_A in ('sco2', 'co2') and state.Ta is not None) else T_inA
         with range_context(side='A', stage='main', layout='real-cell(x,y,z)-hv-speed'):
             state.h_vA_field = _build_hv_local_3d(
                 L_mm_field, speed_A, _T_hvA, P_inA, fluid_type_A,
@@ -2041,7 +2042,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
 
         if sB is not None:
             speed_B = local_speed(ucB, vcB, wcB)
-            _T_hvB = state.Tb if (fluid_type_B == 'sco2' and state.Tb is not None) else T_inB
+            _T_hvB = state.Tb if (fluid_type_B in ('sco2', 'co2') and state.Tb is not None) else T_inB
             with range_context(side='B', stage='main', layout='real-cell(x,y,z)-hv-speed'):
                 state.h_vB_field = _build_hv_local_3d(
                     L_mm_field, speed_B, _T_hvB, P_inB, fluid_type_B,
@@ -2062,7 +2063,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
         pressure_A = _pressure_real_3d(sA, axis_map, sA.P_ref_abs)
         pressure_B = None if sB is None else _pressure_real_3d(sB, axis_map_B, sB.P_ref_abs)
         _enth_gate = (sB is not None
-                      and 'sco2' in (fluid_type_A, fluid_type_B))
+                      and any(f in ('sco2', 'co2') for f in (fluid_type_A, fluid_type_B)))
         if not _enth_gate:
             _check_property_water('3D temperature warm start', pressures=(pressure_A, pressure_B))
         fluid_props.check_finite_temperatures(
@@ -2476,7 +2477,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
         eps_eff_A = sA.eps_field if hasattr(sA, 'eps_field') else sA.eps
         sA._mu_eff_field = np.ascontiguousarray(
             sA.mu_field / eps_eff_A, dtype=np.float64)
-        if fluid_type_A in ('sco2', 'water'):
+        if fluid_type_A in ('sco2', 'co2', 'water'):
             sA._apply_massflux_inlet()
 
         T_avg = cell_average(state.Ta, dx, dy, dz)
@@ -2636,7 +2637,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
         eps_eff_B = sB.eps_field if hasattr(sB, 'eps_field') else sB.eps
         sB._mu_eff_field = np.ascontiguousarray(
             sB.mu_field / eps_eff_B, dtype=np.float64)
-        if fluid_type_B in ('sco2', 'water'):
+        if fluid_type_B in ('sco2', 'co2', 'water'):
             sB._apply_massflux_inlet()
 
         if _mB.compressible:   # P_ref recompute is compressible-only
@@ -2721,8 +2722,13 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
             sco2_props._validate_state(
                 temperature, _pressure_real_3d(solver, amap, solver.P_ref_abs),
                 where=f'3D final report state {side}')
+        elif fluid == 'co2' and solver is not None:
+            from sjtu_tpmshx.models.co2_props import check_co2_state
+            check_co2_state(
+                fluid, temperature, _pressure_real_3d(solver, amap, solver.P_ref_abs),
+                where=f'3D final report state {side}')
 
-    if not (sB is not None and 'sco2' in (fluid_type_A, fluid_type_B)):
+    if not (sB is not None and any(f in ('sco2', 'co2') for f in (fluid_type_A, fluid_type_B))):
         _record_temperature_state('final', 'real-cell(x,y,z)')
 
     return state

@@ -361,7 +361,7 @@ EnthalpyResult solve_enthalpy(const GridView& grid, const EnthalpySideView& a,
         auto& side = *sides[s];
         const auto& f = side.input;
         const std::string stage = s == 0 ? "enthalpy warm start A" : "enthalpy warm start B";
-        if (f.fluid == Fluid::sco2 || (warm[s] && f.fluid == Fluid::water))
+        if (uses_co2_eos(f.fluid) || (warm[s] && f.fluid == Fluid::water))
             for (std::size_t p = 0; p < n; ++p)
                 eos.validate(f.fluid,warm[s] ? side.t[p] : f.inlet_temperature,f.pressure[p],location(grid,p,stage));
     }

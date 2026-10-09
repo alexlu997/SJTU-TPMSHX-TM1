@@ -35,8 +35,8 @@ def test_real_fluid_builder_enables_each_supported_fluid(win):
     from sjtu_tpmshx.ui.window_config import config_from_window
     for side in ('A', 'B'):
         combo = getattr(win, 'combo_fluid' + side)
-        assert [combo.itemText(i) for i in range(combo.count())] == ['Air', 'Water', 'sCO₂']
-        for index, fluid in enumerate(('air', 'water', 'sco2')):
+        assert [combo.itemText(i) for i in range(combo.count())] == ['Air', 'Water', 'sCO₂', 'CO₂']
+        for index, fluid in enumerate(('air', 'water', 'sco2', 'co2')):
             assert combo.model().item(index).isEnabled()
             combo.setCurrentIndex(index)
             assert getattr(config_from_window(win), 'fluid_' + side).type == fluid

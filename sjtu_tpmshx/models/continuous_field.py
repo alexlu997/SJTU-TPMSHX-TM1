@@ -48,8 +48,8 @@ def decision_dim(n_ctrl_x: int = DEFAULT_N_CTRL_X,
     n_ctrl_z adds that many independently controlled planes in z.
     """
     for count in (n_ctrl_x, n_ctrl_y) + (() if n_ctrl_z is None else (n_ctrl_z,)):
-        if isinstance(count, (bool, np.bool_)) or not isinstance(count, (int, np.integer)) or count < 2:
-            raise ValueError('Need integer control counts >=2 per axis')
+        if isinstance(count, (bool, np.bool_)) or not isinstance(count, (int, np.integer)) or count < 1:
+            raise ValueError('Need integer control counts >=1 per axis')
     My_eff = (n_ctrl_y + 1) // 2 if symmetric_y else n_ctrl_y
     return 2 * n_ctrl_x * My_eff * (1 if n_ctrl_z is None else n_ctrl_z)
 
@@ -156,6 +156,11 @@ def _cell_centres(count, length, widths):
     return 0.5 * (edges[:-1] + edges[1:])
 
 
+def control_axis(count, length):
+    """Equally spaced controls; a constant axis is recorded at its midplane."""
+    return np.array([length / 2.]) if count == 1 else np.linspace(0., length, count)
+
+
 @dataclass
 class ContinuousFieldConfig:
     """Continuous spatial field of (L, t) parameters via B-spline interpolation
@@ -212,12 +217,11 @@ class ContinuousFieldConfig:
         for nodes, length in axes:
             if not np.isfinite(length) or length <= 0:
                 raise ValueError('field domain lengths must be finite and positive')
-            if (nodes.ndim != 1 or nodes.size < 2 or not np.all(np.isfinite(nodes))
+            if (nodes.ndim != 1 or nodes.size < 1 or not np.all(np.isfinite(nodes))
                     or not np.all(np.diff(nodes) > 0)
-                    or nodes[0] != 0.0 or nodes[-1] != length):
-                raise ValueError('control axes must increase from zero to the full domain length')
-            if self.ctrl_z is not None and nodes.size <= self.spline_order:
-                raise ValueError('3D fields need more controls per axis than spline_order')
+                    or (nodes[0] != length / 2. if nodes.size == 1 else
+                        nodes[0] != 0.0 or nodes[-1] != length)):
+                raise ValueError('control axes must increase across the domain, or use its midpoint for one control')
         shape = tuple(nodes.size for nodes, _ in axes)
         for values in (self.L_ctrl, self.t_ctrl):
             if values.shape != shape or not np.all(np.isfinite(values)):
@@ -225,7 +229,7 @@ class ContinuousFieldConfig:
         for bounds in (self.L_bounds, self.t_bounds):
             if len(bounds) != 2 or not np.all(np.isfinite(bounds)) or not 0 < bounds[0] < bounds[1]:
                 raise ValueError('L/t bounds must be finite, positive and increasing')
-        if self.ctrl_z is None:
+        if self.ctrl_z is None and min(self.ctrl_x.size, self.ctrl_y.size) > 1:
             # Preserve the historical 2D spline, including its lower-order
             # fallback for small direct-call control grids.
             kx = min(self.spline_order, self.ctrl_x.size - 1)
@@ -250,17 +254,7 @@ class ContinuousFieldConfig:
         xc = _cell_centres(Nx, self.L_domain, dx_arr)
         yc = _cell_centres(Ny, self.H_domain, dy_arr)
 
-        L_field = self._L_spline(xc, yc, grid=True)   # shape (Nx, Ny)
-        t_field = self._t_spline(xc, yc, grid=True)
-        # Preserve the exact constant polynomial; spline roundoff must not
-        # turn a uniform reference into a weakly varying coefficient field.
-        if np.all(self.L_ctrl == self.L_ctrl.flat[0]):
-            L_field.fill(self.L_ctrl.flat[0])
-        if np.all(self.t_ctrl == self.t_ctrl.flat[0]):
-            t_field.fill(self.t_ctrl.flat[0])
-        np.clip(L_field, self.L_bounds[0], self.L_bounds[1], out=L_field)
-        np.clip(t_field, self.t_bounds[0], self.t_bounds[1], out=t_field)
-        return L_field, t_field
+        return self.evaluate_axes(xc, yc)
 
     def evaluate_volume(self, Nx: int, Ny: int, Nz: int,
                         dx_arr: Optional[np.ndarray] = None,
@@ -277,16 +271,35 @@ class ContinuousFieldConfig:
         centres = (_cell_centres(Nx, self.L_domain, dx_arr),
                    _cell_centres(Ny, self.H_domain, dy_arr),
                    _cell_centres(Nz, self.Lz_domain, dz_arr))
+        return self.evaluate_axes(*centres)
+
+    def evaluate_axes(self, *coordinates):
+        """Evaluate the same physical field on Cartesian sampling axes in m."""
+        nodes = (self.ctrl_x, self.ctrl_y) + (() if self.ctrl_z is None else (self.ctrl_z,))
+        lengths = (self.L_domain, self.H_domain) + (() if self.ctrl_z is None else (self.Lz_domain,))
+        if len(coordinates) != len(nodes):
+            raise ValueError('sampling axes must match the field dimension')
+        coordinates = tuple(np.asarray(points, dtype=float) for points in coordinates)
+        for points, length in zip(coordinates, lengths):
+            if (points.ndim != 1 or not points.size or not np.all(np.isfinite(points))
+                    or np.any(np.diff(points) <= 0) or points[0] < 0 or points[-1] > length):
+                raise ValueError('sampling axes must be finite, increasing and inside the field domain')
+        shape = tuple(points.size for points in coordinates)
         fields = []
-        for values, bounds in ((self.L_ctrl, self.L_bounds), (self.t_ctrl, self.t_bounds)):
+        for values, bounds, name in ((self.L_ctrl, self.L_bounds, '_L_spline'),
+                                     (self.t_ctrl, self.t_bounds, '_t_spline')):
             if np.all(values == values.flat[0]):
-                sampled = np.full((Nx, Ny, Nz), values.flat[0], dtype=np.float64)
+                sampled = np.full(shape, values.flat[0], dtype=np.float64)
+            elif self.ctrl_z is None and min(self.ctrl_x.size, self.ctrl_y.size) > 1:
+                sampled = getattr(self, name)(*coordinates, grid=True)
             else:
                 sampled = values
-                for axis, (nodes, points) in enumerate(zip(
-                        (self.ctrl_x, self.ctrl_y, self.ctrl_z), centres)):
-                    sampled = make_interp_spline(nodes, sampled, k=self.spline_order,
-                                                  axis=axis)(points)
+                for axis, (control, points) in enumerate(zip(nodes, coordinates)):
+                    if control.size == 1:
+                        sampled = np.repeat(sampled, points.size, axis=axis)
+                    else:
+                        sampled = make_interp_spline(control, sampled,
+                            k=min(self.spline_order, control.size - 1), axis=axis)(points)
             np.clip(sampled, *bounds, out=sampled)
             fields.append(np.ascontiguousarray(sampled))
         return tuple(fields)
@@ -320,8 +333,8 @@ def from_decision_vector(x: np.ndarray,
         raise ValueError('n_ctrl_z and Lz_domain must be supplied together')
     L_ctrl, t_ctrl = decode_decision_vector(x, n_ctrl_x, n_ctrl_y, symmetric_y,
                                            n_ctrl_z=n_ctrl_z)
-    ctrl_x = np.linspace(0.0, L_domain, n_ctrl_x)
-    ctrl_y = np.linspace(0.0, H_domain, n_ctrl_y)
+    ctrl_x = control_axis(n_ctrl_x, L_domain)
+    ctrl_y = control_axis(n_ctrl_y, H_domain)
     return ContinuousFieldConfig(
         ctrl_x=ctrl_x, ctrl_y=ctrl_y,
         L_ctrl=L_ctrl, t_ctrl=t_ctrl,
@@ -329,7 +342,7 @@ def from_decision_vector(x: np.ndarray,
         L_domain=L_domain, H_domain=H_domain,
         spline_order=spline_order,
         L_bounds=L_bounds, t_bounds=t_bounds,
-        ctrl_z=None if n_ctrl_z is None else np.linspace(0.0, Lz_domain, n_ctrl_z),
+        ctrl_z=None if n_ctrl_z is None else control_axis(n_ctrl_z, Lz_domain),
         Lz_domain=Lz_domain,
     )
 
@@ -345,8 +358,8 @@ def uniform_field(L_mm: float, t_mm: float,
     """Build a uniform-field config (useful for sanity checks vs single-zone)."""
     L_ctrl = np.full((n_ctrl_x, n_ctrl_y), L_mm, dtype=np.float64)
     t_ctrl = np.full((n_ctrl_x, n_ctrl_y), t_mm, dtype=np.float64)
-    ctrl_x = np.linspace(0.0, L_domain, n_ctrl_x)
-    ctrl_y = np.linspace(0.0, H_domain, n_ctrl_y)
+    ctrl_x = control_axis(n_ctrl_x, L_domain)
+    ctrl_y = control_axis(n_ctrl_y, H_domain)
     return ContinuousFieldConfig(
         ctrl_x=ctrl_x, ctrl_y=ctrl_y,
         L_ctrl=L_ctrl, t_ctrl=t_ctrl,

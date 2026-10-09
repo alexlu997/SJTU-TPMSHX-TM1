@@ -26,6 +26,29 @@ def _manifest(path):
     return json.loads((path / 'optimization.json').read_text())
 
 
+def test_unsupported_control_count_is_rejected_before_allocating_bounds(tmp_path, monkeypatch):
+    monkeypatch.setattr(search, 'decision_bounds', lambda *a, **k: pytest.fail('oversized bounds allocated'))
+    with pytest.raises(ValueError, match='21201 variables'):
+        search.run_multi_condition_optimization(_conditions(3), output_dir=tmp_path / 'unused',
+            method='sobol', n_init=1, n_iter=0,
+            field_spec=dict(n_ctrl_x=99, n_ctrl_y=99, n_ctrl_z=99))
+    assert not (tmp_path / 'unused').exists()
+
+
+@pytest.mark.parametrize('shape', [(1, 2), (1, 2, 5)])
+def test_search_and_archive_preserve_low_and_mixed_control_counts(tmp_path, monkeypatch, shape):
+    calls = _fake_batches(monkeypatch)
+    spec = {f'n_ctrl_{axis}': count for axis, count in zip('xyz', shape)}
+    result = search.run_multi_condition_optimization(_conditions(len(shape)),
+        output_dir=tmp_path / 'study', method='sobol', n_init=2, n_iter=0, field_spec=spec)
+    count = 2 * int(np.prod(shape))
+    assert result['status'] == 'completed'
+    assert all(len(row['x_decision']) == count for row in result['history'])
+    assert all(result['field_spec'][key] == value for key, value in spec.items())
+    assert _manifest(tmp_path / 'study')['field_spec'] == result['field_spec']
+    assert len(calls) == 3
+
+
 def _fake_batches(monkeypatch, *, fail_indices=(), baseline_failure=False, cancel_index=None,
                   backend='python'):
     calls, baseline_token = [], {}

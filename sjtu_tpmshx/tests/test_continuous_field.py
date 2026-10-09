@@ -42,6 +42,38 @@ def test_decision_dim_3x3_symmetric_is_12():
     assert decision_dim(3, 3, symmetric_y=True) == 12
 
 
+@pytest.mark.parametrize('shape', [(1, 1), (1, 5), (2, 3), (5, 1),
+                                  (1, 1, 1), (1, 2, 5), (2, 1, 3), (5, 3, 1), (5, 5, 5)])
+def test_mixed_control_counts_reproduce_linear_fields_and_constant_axes(shape):
+    from sjtu_tpmshx.models.continuous_field import control_axis
+
+    lengths = (.1, .05, .04)[:len(shape)]
+    controls = [control_axis(count, length) for count, length in zip(shape, lengths)]
+    positions = np.meshgrid(*controls, indexing='ij')
+    L = 5. + sum((axis + 1) * grid for axis, grid in enumerate(positions))
+    t = .4 + sum(.1 * grid for grid in positions)
+    decisions = encode_decision_vector(L, t, False)
+    field = from_decision_vector(decisions, 'Gyroid', 16., *lengths[:2],
+        n_ctrl_x=shape[0], n_ctrl_y=shape[1], symmetric_y=False, spline_order=3,
+        **(dict(n_ctrl_z=shape[2], Lz_domain=lengths[2]) if len(shape) == 3 else {}))
+    sampling = [np.linspace(0, length, 7) for length in lengths]
+    expected_positions = np.meshgrid(*[
+        np.full(7, length / 2.) if count == 1 else points
+        for count, length, points in zip(shape, lengths, sampling)], indexing='ij')
+    sampled = field.evaluate_axes(*sampling)
+    np.testing.assert_allclose(sampled[0], 5. + sum((i+1)*p for i, p in enumerate(expected_positions)), atol=1e-13)
+    np.testing.assert_allclose(sampled[1], .4 + sum(.1*p for p in expected_positions), atol=1e-14)
+    np.testing.assert_array_equal(encode_decision_vector(field.L_ctrl, field.t_ctrl, False), decisions)
+
+
+def test_single_symmetric_y_control_roundtrips_without_extra_mirror():
+    L, t = np.array([[5.], [7.]]), np.array([[.3], [.6]])
+    decision = encode_decision_vector(L, t, True)
+    assert decision_dim(2, 1, True) == 4
+    for expected, actual in zip((L, t), decode_decision_vector(decision, 2, 1, True)):
+        np.testing.assert_array_equal(actual, expected)
+
+
 def test_decision_bounds_shape_and_range():
     lb, ub = decision_bounds(4, 4, symmetric_y=True,
                               L_bounds=(3.0, 10.0), t_bounds=(0.2, 0.8))

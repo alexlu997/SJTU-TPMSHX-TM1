@@ -6,6 +6,8 @@ import pytest
 from PySide6.QtWidgets import QLabel
 
 from sjtu_tpmshx.ui.mixins import fluid_input
+from sjtu_tpmshx.tests.test_mass_flow_inputs import mass_window as mass_window
+from sjtu_tpmshx.tests.gui_io_support import win as win
 
 
 @pytest.mark.parametrize('side', ['A', 'B'])
@@ -13,6 +15,7 @@ from sjtu_tpmshx.ui.mixins import fluid_input
     ('Air', 'air', (400., 16000.)),
     ('Water', 'water', (90., 51000.)),
     ('sCO₂', 'sco2', (2600., 128000.)),
+    ('CO₂', 'co2', (3000., 60000.)),
 ])
 def test_autofill_re_label_and_status_follow_selected_fluid(
         monkeypatch, side, label, fluid, bounds):
@@ -54,3 +57,29 @@ def test_autofill_re_label_and_status_follow_selected_fluid(
         for name in ('rho', 'Re', 'Nu', 'dPL'):
             assert getattr(window, '_v_' + name + other_side).text() == ''
         getattr(window, '_fluid_computed_' + other_side)._set_expanded.assert_not_called()
+
+
+@pytest.mark.parametrize('side', ['A', 'B'])
+def test_co2_gui_defaults_save_and_fixed_preview_are_distinct_from_sco2(mass_window, monkeypatch, side):
+    from PySide6.QtWidgets import QMessageBox
+    from sjtu_tpmshx.ui.window_config import config_from_window
+    from sjtu_tpmshx.models.tpms_calc import compute
+    window = mass_window
+    combo = getattr(window, 'combo_fluid' + side)
+    combo.setCurrentIndex(3)
+    config = config_from_window(window, strict=True)
+    fluid = getattr(config, 'fluid_' + side)
+    assert (fluid.type, fluid.T_in_K, fluid.P_in_Pa, fluid.u_mps) == ('co2', 340., 8e6, .3)
+    assert not window._co2_fixed_notice.isHidden()
+    monkeypatch.setattr(QMessageBox, 'critical', lambda *args: pytest.fail(str(args)))
+    expected = compute('Gyroid', 7., .6, .3, 340., 8e6, 16., fluid_type='co2')
+    for mode in ('cfd_smooth', 'experimental'):
+        window.combo_df_mode.setCurrentIndex(window.combo_df_mode.findData(mode))
+        window._auto_fill_fluid(side)
+        assert float(getattr(window, '_v_dPL' + side).text()) == pytest.approx(expected['dP_per_L'], abs=.05)
+        assert float(getattr(window, '_v_Nu' + side).text()) == pytest.approx(expected['Nu'], abs=.00005)
+    preset = window._capture_current_preset('co2 inputs')
+    combo.setCurrentIndex(2)
+    assert getattr(config_from_window(window), 'fluid_' + side).type == 'sco2'
+    window._apply_user_preset(preset, show_notice=False)
+    assert getattr(config_from_window(window, strict=True), 'fluid_' + side).type == 'co2'

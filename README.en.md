@@ -176,6 +176,12 @@ Windows x64 users and macOS users without the local launcher should follow [proj
 1. Start `sjtu_tpmshx.main`. Select a preset with Load at the top. The left Case Parameters rail has Geometry, Boundary, and Solver pages. Enter structure/dimension, fluid inlets/openings, then grid/solver settings.
 
    Drag the divider to change rail width. Collapse it with the title control or `Ctrl+\`. Expand or select a group to restore parameters, values, scroll position, and width.
+   For 3D, each inlet can prescribe velocity or total mass flow in kg/s.
+   In mass-flow mode, velocity is read-only and shows its last resolved value.
+   Auto-fill or the next compute resolves it from current inlet state,
+   porosity, and actual openings. Geometry edits keep the prescribed kg/s.
+   The 2D interface keeps velocity inputs. Imported optimization conditions
+   independently prescribe each condition's total flows.
 2. Select Start Compute at the rail bottom, or press Ctrl+R. The status card below the canvas shows elapsed time. Expand Details for actual solver iterations and notices. Its separate Cancel control stays available when the rail is collapsed.
 
 Cancellation waits for the current computation step. 3D coarse-grid initialization also responds. Solver import no longer precompiles all paths. Each required kernel compiles on first use. Cancellation during compilation still waits for the step to return.
@@ -226,6 +232,17 @@ It does not relax property or geometry limits. Ordinary computation passes the t
 
 Fluid cards emphasize inlet conditions. Autofill expands the property preview. Collapsing it keeps values. sCO₂ heat-transfer options follow fluid selection. A selected experimental mode stays visible for review or switching. Use Current Effective Coefficients explicitly loads `sco2-effective-nu-20260920-v1`.
 
+The separate single-phase CO₂ model supports either side of full 2D/3D uniform
+and continuous-field calculations. It uses HEOS properties and the supplied CO₂
+CFD geometry and Nu resource. Fixed factors give `K=K0/2.5`, `cF=2.5cF0`, and
+`Nu=1.28Nu_base`. Each factor applies once within its closure, only on CO₂ sides,
+independently of the global D-F mode. Both streams use the common symmetric CO₂
+geometry. Results record the model versions and factors. These are specified
+empirical inputs, not a new experimental fit. CO₂ and sCO₂ remain separate model
+selections. State, Nu/Re/Pr, and geometry checks remain active. Extrapolation is
+not enabled automatically. Two-phase states, the critical point, discrete zones,
+nonzero level-set offset, and CO₂ Quick Design are outside this added path.
+
 Custom or historical parameters can be imported with provenance, version, and applicability. Current `alpha_D=4.1064` and `alpha_G=2.4824` are total Nu amplitudes, applied one time without another historical multiplier. Generic `cfd_smooth` stays the default. Loading saved inputs does not silently replace their parameters. See [model resources](docs/model-resources.en.md#sco2-有效-nu-系数) for selection, Gyroid calibration, and Diamond transfer limits.
 
 Optimization uses continuous-field search settings. The original discrete zone table stays for single-case computation.
@@ -240,9 +257,27 @@ Result tables place volume near the front for comparison. Selection/refinement e
 
 If candidates exist, Quick Design CLI saves a partial report to `--out`, then raises the original error and exits nonzero. Failure of the first candidate does not overwrite an previous report.
 
-Optimization searches continuous air/water fields in the active dimension: L(x,y)/t(x,y) for 2D and L(x,y,z)/t(x,y,z) for 3D. Objectives compare heat-transfer percentage improvement and equally weighted two-side relative pressure drop. Pareto designs keep complete controls. Methods are Sobol, qLogNEHVI, and qLogNParEGO. BO requires its separate locked environment.
+Optimization supports air A / water B and two-fluid pairs with a CO₂ or sCO₂ side. It searches continuous fields in the active dimension: L(x,y)/t(x,y) for 2D and L(x,y,z)/t(x,y,z) for 3D. Objectives compare B-side heat-uptake improvement and equally weighted two-side relative pressure drop. The heat metric stays `-Q_B`; the baseline must be positive. All conditions keep the same A/B fluid models. Pareto designs keep complete controls. Methods are Sobol, qLogNEHVI, and qLogNParEGO. BO requires its separate locked environment.
 
 Optimization Design → Results switches between Pareto and size/wall fields. Select a Pareto design to inspect its continuous field. The geometry canvas stays independent. Optimization plots support separate copy/export.
+
+Set X/Y/Z control counts in the search space. Each axis defaults to 3 controls.
+One control makes that axis constant; two controls use linear interpolation.
+The interface shows the decision count. Sobol initialization rejects more than 21201 variables.
+Export Pareto Data writes CSV or XLSX with usable points, original design IDs,
+front membership, and run status. Select a front point to export modeling coordinates.
+The export includes `geometry.csv`, original `controls.csv`, `Lfield.csv`,
+`tfield.csv`, and provenance. All coordinates and L/t values use mm.
+Rows vary x first, then y and z. Modeling samples include domain boundaries;
+a single sample uses the midplane. The limit is one million sample points.
+Export uses the archived design configuration, including after later input edits.
+The API keeps cell-center sampling as its default.
+
+The 3D Range button cycles through Full, Slice, and Custom. Custom Min/Max
+values are saved per field and restored with the workspace session. Volume,
+slice, new slice popups, and their images use these limits. Values outside
+the limits use endpoint colors. Display limits do not change field data.
+Both limits must be finite and Max must exceed Min.
 
 For 3D designs, the 3D Size / Wall Thickness Field tab shows the full XYZ parameter field. Rotate, zoom, select L/t, adjust opacity, or move XY/YZ/XZ slices. This samples the continuous design without another solve. It displays spatial cell size and wall thickness, not a CAD preview of the TPMS surface. Temperature, pressure, velocity, size/wall, and sensitivity maps share `ui.theme.FIELD_CMAP='turbo'` across 2D, 3D, and slice popups. Each quantity keeps its own units and range.
 
@@ -307,9 +342,9 @@ Cancellation and failure do not become completed results. Completed nonconverged
 | Parameter scans and effective-field input | [Public examples](examples/) | No private solver members are changed. |
 | Offline cleaning and Nu fitting | `preprocess.offline` | Explicit sources. No automatic production-model replacement. Previous RBF publication is retired. |
 
-Current GUI continuous optimization keeps the full case's ports, fluids, and dimensional solver settings. It supports air A / water B. Default ranges are L=4–8 mm and t=0.3–0.6 mm. The solver validates each fluid's Nu applicability independently. `optimization.json` stores all conditions, controls, field definitions, failures, and native batch paths. It and `batch.json` record the selected `backend`, including failures and cancellation, without local library paths.
+Current GUI continuous optimization keeps the full case's ports, fluids, and dimensional solver settings. It supports air A / water B and two-fluid pairs with CO₂/sCO₂. Default ranges are L=4–8 mm and t=0.3–0.6 mm. The solver validates each fluid's Nu applicability independently. `optimization.json` stores all conditions, controls, field definitions, failures, and native batch paths. It and `batch.json` record the selected `backend`, including failures and cancellation, without local library paths.
 
-Only fully qualified numerical batches receive objective values. GUI Pareto application keeps complete fields. Different current geometry, ports, or solver settings cause rejection. Arbitrary external CLI configurations are not GUI presets. Evaluation count is a search budget, not proof of algorithm convergence or experimental accuracy.
+Only fully qualified numerical batches receive objective values. Model-h keeps its existing energy checks. True-h uses its own convergence, unclipped enthalpy, coupled-energy, and equation-energy evidence. GUI Pareto application keeps complete fields. Different current geometry, ports, or solver settings cause rejection. Arbitrary external CLI configurations are not GUI presets. Evaluation count is a search budget, not proof of algorithm convergence or experimental accuracy.
 
 Previous air/air optimization screening, its 2D entry, and frozen-B 3D solving are retired. See [history](docs/history/retired-tools.md). Previous result archives stay readable. Pareto CSV geometry stays exportable with its original configuration. Retired screening modes cannot execute or recompute metrics.
 

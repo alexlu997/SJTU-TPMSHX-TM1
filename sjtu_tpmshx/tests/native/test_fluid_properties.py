@@ -62,6 +62,9 @@ for inp in payload['rows']:
                 pr,multiplier=inp['pr'],inp['multiplier']
                 if fluid=='air':
                     value=nu_from_Re(inp['topology'],a,.37,b*1000.,c*1000.)
+                elif fluid=='co2':
+                    from sjtu_tpmshx.models.co2_correlations import nusselt
+                    value=nusselt(inp['topology'],a,pr,b*1000.,c*1000.)
                 elif fluid=='water':
                     value=nu_water_topo(inp['topology'],a,pr)
                 else:
@@ -332,3 +335,26 @@ def test_protocol_and_primitive_reject_nonfinite_nonpositive_inputs(native_prope
     assert all(row['status'] and row['error'] and np.isnan(row['values']).all() for row in actual[:-1])
     assert actual[-2]['status']==2  # finite input producing nonphysical cp
     assert actual[-1]['status']==0 and all(np.isfinite(actual[-1]['values'][:5]))
+
+
+@pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
+def test_co2_full_nu_and_heos_are_independent_of_sco2_selection(native_properties, python_properties, topology):
+    rows = [props(f'p{i}', 'co2', t, p) for i, (t, p) in enumerate(
+        ((280., 3e6), (300., 5e6), (300., 9e6), (340., 8e6), (360., 12e6)))]
+    rows += [dict(nu(f'n{i}', 'co2', topology, re), op='fullnu', pr=pr, multiplier=m)
+             for i, (re, pr, m) in enumerate((
+                 (.5, 1.2, .1), (1., 2., 1.), (3000., 1.2, 4.), (60000., 3., 1.)))]
+    expected = python_properties(rows)
+    assert all(row['status'] == 0 for row in expected)
+    equal_rows(native_properties(rows, workers=2), expected, rows)
+
+
+def test_co2_native_rejects_invalid_states_and_recovers(native_properties):
+    import CoolProp.CoolProp as CP
+    requests = [props('below-triple', 'co2', 200., 1e6),
+                props('saturation', 'co2', 280., CP.PropsSI('P', 'T', 280., 'Q', 0., 'CO2')),
+                props('critical', 'co2', CP.PropsSI('Tcrit', 'CO2'), CP.PropsSI('Pcrit', 'CO2')),
+                props('valid', 'co2', 340., 8e6)]
+    actual = native_properties(requests)
+    assert all(row['status'] != 0 and row['error'] for row in actual[:3])
+    assert actual[-1]['status'] == 0

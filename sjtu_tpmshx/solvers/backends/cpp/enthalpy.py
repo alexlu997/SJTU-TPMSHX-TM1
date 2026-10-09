@@ -207,9 +207,9 @@ class NativeEnthalpyDriver:
         arrays = [array(value, (n,)) for value, n in zip((dx, dy, dz), shape)]
         arrays += [array(K_ss, shape, broadcast=True), pa, eps_a, array(h_vA_field, shape), *faces_a,
                    pb, eps_b, array(h_vB_field, shape), *faces_b, *state]
-        fluid_codes = {'air': 0, 'water': 1, 'sco2': 2}
+        fluid_codes = {'air': 0, 'water': 1, 'sco2': 2, 'co2': 3}
         if fluid_A not in fluid_codes or fluid_B not in fluid_codes:
-            raise ValueError('native true-h supports air, water and sco2')
+            raise ValueError('native true-h supports air, water, sco2 and co2')
         config = _Config((_Side * 2)(_Side(fluid_codes[fluid_A], T_inA, P_A),
                                     _Side(fluid_codes[fluid_B], T_inB, P_B)),
             *(int(value is not None) for value in warm),

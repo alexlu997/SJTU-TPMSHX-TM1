@@ -108,6 +108,23 @@ double PropertyEvaluator::check_water(double temperature, double pressure) {
     }
 }
 
+void PropertyEvaluator::check_co2(double temperature, double pressure) {
+    positive_state(temperature,pressure);
+    if (!co2_) co2_ = make_eos_state("HEOS", "CO2");
+    if (temperature <= co2_->Ttriple())
+        throw std::invalid_argument("CO2 at/below triple-point temperature is unsupported");
+    co2_->update(CoolProp::PT_INPUTS,pressure,temperature);
+    const auto phase = co2_->phase();
+    if (phase != CoolProp::iphase_liquid && phase != CoolProp::iphase_gas
+        && phase != CoolProp::iphase_supercritical && phase != CoolProp::iphase_supercritical_gas
+        && phase != CoolProp::iphase_supercritical_liquid)
+        throw std::invalid_argument("CO2 requires stable single-phase PT; saturation, two-phase and critical-point states are unsupported");
+}
+
+double nusselt_floor(Fluid fluid) {
+    return data::nu_laminar_floor * (fluid == Fluid::co2 ? data::co2_nu_multiplier : 1.);
+}
+
 FluidProperties PropertyEvaluator::evaluate(Fluid fluid, double temperature, double pressure) {
     if (fluid == Fluid::water) check_water(temperature, pressure);
     return transport(fluid,temperature,pressure);
@@ -139,13 +156,16 @@ FluidProperties PropertyEvaluator::transport(Fluid fluid, double temperature, do
             result.cp = data::model_h_water[0];
             break;
         }
+        case Fluid::co2:
         case Fluid::sco2: {
+            if (fluid == Fluid::sco2) {
             if (temperature < data::sco2_temperature_range[0] || temperature > data::sco2_temperature_range[1])
                 throw std::invalid_argument("sCO2 temperature must be within 280..700 K");
             if (pressure < data::sco2_pressure_range[0] || pressure > data::sco2_pressure_range[1])
                 throw std::invalid_argument("sCO2 pressure must be within 7.9..16 MPa");
             if (!co2_) co2_ = make_eos_state("HEOS", "CO2");
             co2_->update(CoolProp::PT_INPUTS, pressure, temperature);
+            } else check_co2(temperature,pressure);
             result.rho = co2_->rhomass();
             result.mu = co2_->viscosity();
             result.k = co2_->conductivity();
@@ -193,6 +213,14 @@ double fluid_nusselt_ratio(Fluid fluid, Topology topology, double re,double pr,
             result *= sco2_multiplier;
             break;
         }
+        case Fluid::co2: {
+            const auto& b = data::nu_co2[row];
+            if (re <= 0.) throw std::invalid_argument("CO2 Nu requires positive Re");
+            const double x = std::log(re/1e4);
+            const double y = std::log(pr/2.), z = std::log(hydraulic_to_cell_ratio/.5);
+            result = data::co2_nu_multiplier * std::exp(b[0]+b[1]*x+b[2]*y+b[3]*z+b[4]*x*x);
+            break;
+        }
         default: throw std::invalid_argument("unsupported Nu fluid");
     }
     if (!std::isfinite(result) || result < 0.) throw std::domain_error("nonfinite or negative Nu");
@@ -202,6 +230,7 @@ double fluid_nusselt_ratio(Fluid fluid, Topology topology, double re,double pr,
 double PropertyEvaluator::quick_design_nu(Fluid fluid, Topology topology, double re,
                                          double cell_length_m, double hydraulic_diameter_m) {
     nu_inputs(re,cell_length_m,hydraulic_diameter_m);
+    if (fluid == Fluid::co2) throw std::invalid_argument("CO2 is supported by full compute only");
     double pr=data::pr_air;
     if (fluid==Fluid::water || fluid==Fluid::sco2) {
         const auto& state=fluid==Fluid::water?data::water_nu_reference_state:data::sco2_nu_reference_state;

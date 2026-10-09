@@ -135,6 +135,22 @@ CONFIG_FIELDS: tuple = (
 )
 
 
+def mass_flow_active(window, side, *, is_3d=None):
+    if is_3d is None:
+        dimension = getattr(window, 'combo_dim', None)
+        is_3d = dimension is not None and dimension.currentIndex() == 1
+    mode = getattr(window, 'combo_inlet_mode' + side, None)
+    return bool(is_3d and mode is not None and mode.currentData() == 'mass_flow')
+
+
+def inlet_input_active(window, name):
+    if name in ('le_uA', 'le_uB'):
+        return not mass_flow_active(window, name[-1])
+    if name in ('le_mass_flowA', 'le_mass_flowB'):
+        return mass_flow_active(window, name[-1])
+    return True
+
+
 def _read_section_fields(window, section: str, *, is_3d: bool = True) -> dict:
     """Table-driven scalar reads for one config section (non-special rows)."""
     out = {}
@@ -164,7 +180,12 @@ def _validate_required_widgets(window, *, is_3d: bool) -> None:
     positive Kelvin values.
     """
     import math as _math
-    required = [fs for fs in CONFIG_FIELDS if fs.required_2d]
+    required = [fs for fs in CONFIG_FIELDS if fs.required_2d
+                and not (fs.name == 'u_mps' and mass_flow_active(window, fs.section[-1], is_3d=is_3d))]
+    for side in 'AB':
+        if mass_flow_active(window, side, is_3d=is_3d):
+            required.append(FieldSpec('fluid_' + side, 'mass_flow_kg_s', 'le_mass_flow' + side,
+                                     'float', None, label=f'Total mass flow {side} [kg/s]'))
     if is_3d:
         required += [fs for fs in CONFIG_FIELDS if fs.required_3d_extra]
     bad = []
@@ -197,6 +218,8 @@ def _validate_required_widgets(window, *, is_3d: bool) -> None:
     # finite. No sign check — downstream validation owns physics bounds.
     _seen = {fs.widget for fs in required}
     for fs in CONFIG_FIELDS:
+        if fs.name == 'u_mps' and mass_flow_active(window, fs.section[-1], is_3d=is_3d):
+            continue
         if fs.widget in _seen or fs.special or (fs.required_3d_extra and not is_3d):
             continue
         widget = getattr(window, fs.widget, None)
@@ -246,8 +269,10 @@ def _parse_fluid_label(combo) -> FluidType:
         text = combo.currentText().lower().replace('₂', '2')
     except Exception:
         return 'air'
-    if 'co2' in text or 'sco' in text:
+    if 'sco2' in text:
         return 'sco2'
+    if 'co2' in text:
+        return 'co2'
     if 'water' in text:
         return 'water'
     return 'air'
@@ -440,10 +465,14 @@ def config_from_window(window, *, strict: bool = False,
     # fluids — type combos special; fluid_B.u_mps defaults to A's value:
     fluid_A = FluidConfig(
         type=_parse_fluid_label(getattr(window, 'combo_fluidA', None)),
+        mass_flow_kg_s=(_qt_float(getattr(window, 'le_mass_flowA', None), 0.)
+                       if mass_flow_active(window, 'A', is_3d=is_3d) else None),
         **_read_section_fields(window, 'fluid_A'),
     )
     fluid_B = FluidConfig(
         type=_parse_fluid_label(getattr(window, 'combo_fluidB', None)),
+        mass_flow_kg_s=(_qt_float(getattr(window, 'le_mass_flowB', None), 0.)
+                       if mass_flow_active(window, 'B', is_3d=is_3d) else None),
         u_mps=_qt_float(getattr(window, 'le_uB', None), fluid_A.u_mps),
         **_read_section_fields(window, 'fluid_B'),
     )

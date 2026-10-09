@@ -6,6 +6,8 @@ from sjtu_tpmshx.domain.model_refs import ModelRef
 MODEL_VERSIONS = {
     'quick_design': 'v2-5f1cafb',
     'fluid': 'v2-5f1cafb',
+    'co2_fluid': 'co2-fixed-factors-20261009-v1',
+    'co2_geometry': 'co2-segment2-20261002-v1',
     'geometry': 'v2-5f1cafb',
     'darcy_forchheimer': 'cfd_full_core_3cell_fixed_v2',
 }
@@ -23,14 +25,21 @@ def resolve_model(ref: ModelRef):
             raise ValueError('quick-design closure takes no fixed parameters')
         from . import quick_design
         return quick_design
-    if ref.name == 'fluid':
+    if ref.name in ('fluid', 'co2_fluid'):
         from .fluid_props import get
         if set(parameters) - {'fluid', 'sco2_nu'} or 'fluid' not in parameters:
             raise ValueError('fluid model requires fluid and optional sco2_nu parameters')
+        if (ref.name == 'co2_fluid') != (parameters['fluid'] == 'co2'):
+            raise ValueError('CO2 requires its versioned fluid resource')
         settings = parameters.get('sco2_nu')
         if settings is not None:
             settings = Sco2NuConfig(**settings).validate()
         return get(parameters['fluid'], sco2_nu=settings)
+    if ref.name == 'co2_geometry':
+        from .co2_correlations import geometry
+        if parameters:
+            raise ValueError('CO2 geometry resource takes no fixed parameters')
+        return geometry
     if ref.name == 'geometry':
         from .tpms_props import geometry
         if parameters:

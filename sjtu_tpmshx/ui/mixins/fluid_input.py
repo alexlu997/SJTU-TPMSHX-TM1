@@ -42,6 +42,13 @@ class FluidInputMixin:
             'B': (self.le_uB, self.le_TinB, self.le_PinB),
         }[fluid]
         try:
+            from sjtu_tpmshx.ui.window_config import mass_flow_active, config_from_window
+            if mass_flow_active(self, fluid):
+                from sjtu_tpmshx.preprocess.api import resolve_inlet_flow_config
+                resolved = resolve_inlet_flow_config(config_from_window(self, strict=True))
+                for side in 'AB':
+                    if mass_flow_active(self, side):
+                        getattr(self, 'le_u' + side).setText(format(getattr(resolved, 'fluid_' + side).u_mps, '.17g'))
             T_K = self._temp_to_K(le_Tin)
             # Share the same fluid normalization used for solver inputs.
             from sjtu_tpmshx.ui.window_config import _parse_fluid_label
@@ -53,9 +60,10 @@ class FluidInputMixin:
                 float(self.le_Lcell.text()), float(self.le_t.text()),
                 float(le_u.text()), T_K,
                 float(le_Pin.text()), float(self.le_ks.text()),
-                fluid_type=_ftype, sco2_nu=sco2_nu_from_window(self))
+                fluid_type=_ftype, sco2_nu=sco2_nu_from_window(self),
+                co2_geometry=any(_parse_fluid_label(getattr(self, 'combo_fluid' + side, None)) == 'co2' for side in 'AB'))
             df_combo = getattr(self, 'combo_df_mode', None)
-            if df_combo is not None and df_combo.currentData() == 'experimental':
+            if _ftype != 'co2' and df_combo is not None and df_combo.currentData() == 'experimental':
                 from sjtu_tpmshx.df_surrogate.experimental_correction import apply_correction
                 u = float(le_u.text())
                 K, cF, _ = apply_correction(

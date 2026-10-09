@@ -359,7 +359,7 @@ def build_actions(w) -> list[Action]:
 
     # Fluid type switches
     if hasattr(w, 'combo_fluidA'):
-        for fluid_name in ("Air", "Water", "sCO₂"):
+        for fluid_name in ("Air", "Water", "sCO₂", "CO₂"):
             def _set_fluid(side, n=fluid_name):
                 combo = getattr(w, f'combo_fluid{side}', None)
                 if combo is None:

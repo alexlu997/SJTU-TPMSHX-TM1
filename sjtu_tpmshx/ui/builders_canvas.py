@@ -515,7 +515,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
         return fr, fl
 
     from .optimize_panel import (refresh_setup, import_conditions, use_current_condition,
-                                 clear_continuous_field)
+                                 clear_continuous_field, export_pareto_data, export_geometry)
     par_card, par_lay = _opt_card("优化参数", 260)
     _spin_qss = (
         f"QAbstractSpinBox{{background:{_t['inp_bg']};"
@@ -569,7 +569,8 @@ def _build_optimize_panel(window, card_lay, t, theme):
     window.le_Lz.textChanged.connect(window._opt_depth.setText)
     window._opt_depth.textChanged.connect(window.le_Lz.setText)
     par_lay.addWidget(window._opt_depth_label); par_lay.addWidget(window._opt_depth)
-    scope = QLabel('继承当前算例的几何、材料、端口和完整求解设置；空气 A / 水 B。')
+    scope = QLabel('继承当前算例的几何、材料、端口和完整求解设置；支持空气 A / 水 B，'
+                   '以及含 CO₂ 或 sCO₂ 的双流体组合。换热目标为 B 侧吸热，基准 B 侧必须吸热。')
     scope.setWordWrap(True); par_lay.addWidget(scope)
     window.combo_dim.currentIndexChanged.connect(lambda *_: refresh_setup(window))
     par_lay.addStretch(1)
@@ -626,6 +627,21 @@ def _build_optimize_panel(window, card_lay, t, theme):
     window._opt_space_params['t_min'] = _sp_tmin
     window._opt_space_params['t_max'] = _sp_tmax
 
+    window._opt_controls = {}
+    for axis in 'xyz':
+        row = _HBop()
+        label = QLabel(f'{axis.upper()} 控制点')
+        edit = _QSBop()
+        edit.setRange(1, 99)
+        edit.setValue(3)
+        edit.setToolTip('1 点为该轴恒定；2 点线性；更多点使用当前样条阶数。')
+        row.addWidget(label)
+        row.addWidget(edit)
+        space_lay.addLayout(row)
+        window._opt_controls[axis] = edit
+        if axis == 'z':
+            window._opt_control_z_label = label
+        edit.valueChanged.connect(lambda: refresh_setup(window))
     window._opt_field_layout = QLabel()
     window._opt_field_layout.setWordWrap(True)
     space_lay.addWidget(window._opt_field_layout)
@@ -811,6 +827,19 @@ def _build_optimize_panel(window, card_lay, t, theme):
     banner.hide()
     window._opt_summary_banner = banner
     p3v.addWidget(banner)
+
+    window._opt_export_pareto_btn = QPushButton('导出 Pareto 数据 — CSV / XLSX')
+    window._opt_export_pareto_btn.setStyleSheet(t.style('BTN_SECONDARY'))
+    window._opt_export_pareto_btn.setMinimumHeight(30)
+    window._opt_export_pareto_btn.setEnabled(False)
+    window._opt_export_pareto_btn.clicked.connect(lambda: export_pareto_data(window))
+    p3v.addWidget(window._opt_export_pareto_btn)
+    window._opt_export_geometry_btn = QPushButton('导出所选方案建模坐标 — CSV')
+    window._opt_export_geometry_btn.setStyleSheet(t.style('BTN_SECONDARY'))
+    window._opt_export_geometry_btn.setMinimumHeight(30)
+    window._opt_export_geometry_btn.setEnabled(False)
+    window._opt_export_geometry_btn.clicked.connect(lambda: export_geometry(window))
+    p3v.addWidget(window._opt_export_geometry_btn)
 
     card_lay.addWidget(op_host)
 

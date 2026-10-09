@@ -5,15 +5,20 @@ from sjtu_tpmshx.models.asym_split import _asym_split_A
 
 
 def prepare_thermal_geometry(tpms, cell_mm, wall_mm, conductivity, *,
-                             L_field=None, t_field=None, delta=0.):
-    uniform = geometry(tpms, cell_mm, wall_mm, conductivity)
+                             L_field=None, t_field=None, delta=0., co2_geometry=False):
+    geometry_model = geometry
+    if co2_geometry:
+        from sjtu_tpmshx.models.co2_correlations import geometry as geometry_model
+        if delta != 0.:
+            raise ValueError('CO2 geometry requires delta=0')
+    uniform = geometry_model(tpms, cell_mm, wall_mm, conductivity)
     fields = None
     if L_field is not None:
         if t_field is None or np.shape(L_field) != np.shape(t_field):
             raise ValueError('thermal geometry requires matching cell and wall fields')
         fields = {key: np.empty(np.shape(L_field)) for key in ('A_0', 'D_h', 'epsilon')}
         for index in np.ndindex(np.shape(L_field)):
-            local = geometry(tpms, float(L_field[index]), float(t_field[index]), conductivity)
+            local = geometry_model(tpms, float(L_field[index]), float(t_field[index]), conductivity)
             for key in fields:
                 fields[key][index] = local[key]
     split = _asym_split_A({'delta_levelset': delta}, tpms, cell_mm, wall_mm)

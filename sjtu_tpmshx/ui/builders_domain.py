@@ -27,6 +27,10 @@ def _on_dim_changed(window):
     window.lbl_domain_shape.setText("长方体" if is_3d else "矩形")
     for w in getattr(window, '_3d_only_widgets', []):
         w.setVisible(is_3d)
+    from .builders_fluids import refresh_inlet_mode
+    for side in 'AB':
+        if hasattr(window, 'le_mass_flow' + side):
+            refresh_inlet_mode(window, side)
     # Mode change also reveals/hides the result tabs for the current mode
     if hasattr(window, '_update_tab_visibility'):
         window._update_tab_visibility()

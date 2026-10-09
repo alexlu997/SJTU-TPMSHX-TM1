@@ -302,7 +302,7 @@ def test_temperature_state_comparison_does_not_evaluate_properties(monkeypatch, 
 @pytest.mark.parametrize('bound_context', [False, True])
 def test_sco2_local_raw_re_is_before_floor_without_extra_properties(monkeypatch, bound_context):
     from contextlib import nullcontext
-    from sjtu_tpmshx.models.local_heat_transfer import _sco2_hv_local_field
+    from sjtu_tpmshx.models.local_heat_transfer import real_fluid_hv_local_field
     from sjtu_tpmshx.models import sco2_props
 
     calls = []
@@ -314,7 +314,7 @@ def test_sco2_local_raw_re_is_before_floor_without_extra_properties(monkeypatch,
     velocity = np.array([[[0., 0.125]]])
     context = range_context(side='B', stage='main', layout='real-cell(x,y,z)') if bound_context else nullcontext()
     with warning_scope({}) as records, context:
-        actual = _sco2_hv_local_field(temperature, 8e6, velocity, 10., 1., 'Gyroid', 7.)
+        actual = real_fluid_hv_local_field(temperature, 8e6, velocity, 10., 1., 'Gyroid', 7.)
     assert calls == [('D', 'V', 'L', 'C')]
     labels = ('B', 'main', 'real-cell(x,y,z)') if bound_context else ('unbound', 'unbound', 'source')
     raw = records[('nu_raw', 'sco2', 'Gyroid', temperature.shape, labels)]

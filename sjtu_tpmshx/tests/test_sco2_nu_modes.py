@@ -11,7 +11,7 @@ SYNTHETIC = Sco2NuConfig('experimental', .8, 1.2, 'synthetic-test-v1',
 
 @pytest.mark.parametrize('topology,total', [('Diamond', 4.1064), ('Gyroid', 2.4824)])
 def test_current_effective_parameters_roundtrip_and_apply_once(tmp_path, topology, total):
-    from sjtu_tpmshx.models.local_heat_transfer import _sco2_hv_local_field
+    from sjtu_tpmshx.models.local_heat_transfer import real_fluid_hv_local_field
 
     settings = nu.sco2_effective_nu_config()
     assert settings.parameter_version == 'sco2-effective-nu-20260920-v1'
@@ -26,8 +26,8 @@ def test_current_effective_parameters_roundtrip_and_apply_once(tmp_path, topolog
                           total * fluid_props.get('sco2').nu(*args))
     temperature = np.array([[350., 400.], [430., 470.]])
     args = (temperature, 10e6, np.ones((2, 2)), 500., .003, topology, 7.)
-    smooth = _sco2_hv_local_field(*args)
-    selected = _sco2_hv_local_field(*args, sco2_nu=settings)
+    smooth = real_fluid_hv_local_field(*args)
+    selected = real_fluid_hv_local_field(*args, sco2_nu=settings)
     np.testing.assert_allclose(selected, total * smooth, rtol=1e-14)
     metadata = nu.sco2_nu_metadata(settings)
     assert metadata['alpha_D'] == 4.1064 and metadata['alpha_G'] == 2.4824
@@ -65,7 +65,7 @@ def test_shared_scalar_array_nu_and_unchanged_other_fluids(topology, alpha):
 
 @pytest.mark.parametrize('shape', [(2, 3), (2, 3, 2)])
 def test_local_hv_multiplier_before_floor_without_extra_eos(monkeypatch, shape):
-    from sjtu_tpmshx.models.local_heat_transfer import _sco2_hv_local_field
+    from sjtu_tpmshx.models.local_heat_transfer import real_fluid_hv_local_field
     from sjtu_tpmshx.models import sco2_props
     def properties(keys, T, P):
         assert keys == ('D', 'V', 'L', 'C')
@@ -76,11 +76,11 @@ def test_local_hv_multiplier_before_floor_without_extra_eos(monkeypatch, shape):
     raw=nu.nu_sco2_topo('Diamond', np.maximum(4*u,1.), 8., 7., 1000.)
     expected=2.5*np.maximum(.8*raw, nu.NU_LAM_FLOOR)
     observation = {}
-    assert np.array_equal(_sco2_hv_local_field(*args, sco2_nu=SYNTHETIC, observation=observation), expected)
+    assert np.array_equal(real_fluid_hv_local_field(*args, sco2_nu=SYNTHETIC, observation=observation), expected)
     assert observation['floor_cells'] == int(np.count_nonzero(.8*raw < nu.NU_LAM_FLOOR))
     assert observation['cells'] == T.size
     assert observation['stage'].endswith('(lagged temperature)')
-    assert np.array_equal(_sco2_hv_local_field(*args), _sco2_hv_local_field(*args, sco2_nu=Sco2NuConfig()))
+    assert np.array_equal(real_fluid_hv_local_field(*args), real_fluid_hv_local_field(*args, sco2_nu=Sco2NuConfig()))
 
 
 def test_compute_cache_separates_parameters_and_versions():

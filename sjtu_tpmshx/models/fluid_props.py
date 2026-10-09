@@ -21,7 +21,7 @@ from typing import Callable
 import numpy as np
 import CoolProp.CoolProp as CP
 
-from . import nu_correlations, sco2_props, tpms_props
+from . import co2_correlations, co2_props, nu_correlations, sco2_props, tpms_props
 
 
 class WaterStateError(ValueError):
@@ -133,6 +133,10 @@ def _sco2_prop(key):
     return _wrapped
 
 
+def _nu_co2(tpms_type, Re, eps_f, L_mm, D_h_mm, Pr):
+    return co2_correlations.nusselt(tpms_type, Re, Pr, L_mm, D_h_mm)
+
+
 @dataclass(frozen=True)
 class FluidModel:
     name: str
@@ -154,9 +158,20 @@ class FluidModel:
     # Set for sCO2. None for air/water: their callers retain the selected
     # temperature/cp or integrated model-enthalpy formulation.
     enthalpy: Callable | None = None
+    nu_floor_multiplier: float = 1.
 
 
 FLUIDS = {
+    'co2': FluidModel(
+        name='co2', compressible=False,
+        rho=partial(co2_props.co2_prop, 'D'),
+        cp=partial(co2_props.co2_prop, 'C'),
+        mu=partial(co2_props.co2_prop, 'V'),
+        k=partial(co2_props.co2_prop, 'L'),
+        nu=_nu_co2, embeds_roughness=True,
+        enthalpy=partial(co2_props.co2_prop, 'H'),
+        nu_floor_multiplier=co2_correlations.NU_MULTIPLIER,
+    ),
     'air': FluidModel(
         name='air', compressible=True,
         rho=tpms_props.air_density,        # (T, P=101325) -> rho
@@ -193,7 +208,7 @@ FLUIDS = {
 
 
 def get(fluid: str, *, sco2_nu=None) -> FluidModel:
-    """Return the model for 'air', 'water' or 'sco2', case-insensitive."""
+    """Return the model for 'air', 'water', 'sco2' or 'co2', case-insensitive."""
     try:
         model = FLUIDS[fluid.strip().lower()]
     except (KeyError, AttributeError):

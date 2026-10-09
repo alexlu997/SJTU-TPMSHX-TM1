@@ -29,12 +29,12 @@ double average(ArrayView<const double> values,const GridView& g) {
 }
 double maximum(ArrayView<const double> x) { return *std::max_element(x.data,x.data+x.size); }
 double minimum(ArrayView<const double> x) { return *std::min_element(x.data,x.data+x.size); }
-const char* fluid_name(Fluid fluid) { return fluid==Fluid::air?"air":fluid==Fluid::water?"water":"sco2"; }
+const char* fluid_name(Fluid fluid) { return fluid==Fluid::air?"air":fluid==Fluid::water?"water":fluid==Fluid::co2?"co2":"sco2"; }
 void temperature_ranges(std::vector<RangeObservation>& ledger,Fluid fluid,std::size_t side,
                         const char* source,const char* stage,const char* layout,
                         const std::vector<std::size_t>& shape,ArrayView<const double> temperature,
                         std::initializer_list<const char*> properties) {
-    if (fluid==Fluid::sco2) return; // sCO2 state bounds are fail-loud, not empirical fit warnings.
+    if (uses_co2_eos(fluid)) return; // sCO2 state bounds are fail-loud, not empirical fit warnings.
     for (const auto* property:properties) {
         if (fluid==Fluid::air && std::string(property)=="density") continue;
         const auto bounds=fluid==Fluid::water?data::water_temperature_range:
@@ -51,7 +51,8 @@ RangeObservation nu_range(const Full2DProblem& p,std::size_t side,bool raw,const
                           const char* layout,std::vector<std::size_t> shape) {
     const auto fluid=p.sides[side].fluid;
     const auto bounds=fluid==Fluid::air?data::air_nu_re_range:
-        fluid==Fluid::water?data::water_nu_re_range:data::sco2_nu_re_range;
+        fluid==Fluid::water?data::water_nu_re_range:
+        fluid==Fluid::co2?data::co2_nu_re_range:data::sco2_nu_re_range;
     return {raw?"nu_raw":"nu",fluid_name(fluid),p.topology==Topology::diamond?"Diamond":"Gyroid",
             stage,layout,side,std::move(shape),bounds};
 }
@@ -115,9 +116,9 @@ void validate(const Full2DProblem& p,const Full2DControl& c) {
         throw std::invalid_argument("invalid full2D solid seed");
     for (std::size_t side=0;side<2;++side) {
         const auto& s=p.sides[side];
-        if (s.direction<0 || s.direction>3 || (s.fluid!=Fluid::air && s.fluid!=Fluid::water && s.fluid!=Fluid::sco2))
+        if (s.direction<0 || s.direction>3 || (s.fluid!=Fluid::air && s.fluid!=Fluid::water && !uses_co2_eos(s.fluid)))
             throw std::invalid_argument("invalid full2D side direction/fluid");
-        if (p.thermal_mode==Full2DThermalMode::model_h && (s.fluid==Fluid::sco2 || p.asymmetric))
+        if (p.thermal_mode==Full2DThermalMode::model_h && (uses_co2_eos(s.fluid) || p.asymmetric))
             throw std::invalid_argument("full2D model-h requires symmetric air/water");
         for (double value:{s.inlet_temperature,s.inlet_pressure,s.initial_viscosity,s.seed_permeability})
             if (!std::isfinite(value) || value<=0) throw std::invalid_argument("invalid full2D inlet/seed");
@@ -367,7 +368,7 @@ void prepare_thermal(const Full2DProblem& p,Full2DResult& r,
         double mean_mu=r.iterations?average(view(r.viscosity[side]),g):s.initial_viscosity;
         auto reference=inlet[side];
         double reference_temperature=s.inlet_temperature;
-        if (p.thermal_mode==Full2DThermalMode::true_h && s.fluid!=Fluid::sco2) {
+        if (p.thermal_mode==Full2DThermalMode::true_h && !uses_co2_eos(s.fluid)) {
             Vector rho(n),mu(n),pin(n,s.inlet_pressure);
             actual_water(properties,s.fluid,view(t.temperature[side]),view(pin),"2D h_v property refresh",side);
             for (std::size_t k=0;k<n;++k) {
@@ -400,15 +401,16 @@ void prepare_thermal(const Full2DProblem& p,Full2DResult& r,
                 if (s.fluid!=Fluid::air) temperature_ranges(r.range_observations,s.fluid,side,"property","asym-ratio",layout,
                     {},{&s.inlet_temperature,1},{"viscosity","conductivity","cp"});
                 merge_range_observation(r.range_observations,std::move(source));
-                return area*std::max(nu,data::nu_laminar_floor)/dh;
+                return area*std::max(nu,nusselt_floor(s.fluid))/dh;
             };
             const double denominator=reduced(s.reference_area_density,s.reference_hydraulic_diameter,"asym-reference-scalar");
             ratio=denominator>0?reduced(s.side_area_density,s.side_hydraulic_diameter,"asym-side-scalar")/denominator:1.;
         }
         auto raw_re=nu_range(p,side,true,"main-hv","real-cell(x,y)",{g.nx,g.ny});
         auto source_re=nu_range(p,side,false,"main-hv","real-cell(x,y)",{g.nx,g.ny});
+        auto pr_range=source_re; pr_range.view="nu_pr"; pr_range.bounds=data::co2_nu_pr_range;
         auto& observation=r.nu_observations[side];
-        if (p.thermal_mode==Full2DThermalMode::true_h && s.fluid==Fluid::sco2) {
+        if (p.thermal_mode==Full2DThermalMode::true_h && uses_co2_eos(s.fluid)) {
             observation=NuObservation{}; observation.available=true; observation.cells=n; observation.pressure=s.inlet_pressure;
             observation.raw_min=observation.re_min=observation.pr_min=observation.temperature_min=std::numeric_limits<double>::infinity();
             observation.raw_max=observation.re_max=observation.pr_max=observation.temperature_max=-std::numeric_limits<double>::infinity();
@@ -416,7 +418,7 @@ void prepare_thermal(const Full2DProblem& p,Full2DResult& r,
         for (std::size_t k=0;k<n;++k) {
             const double speed=std::sqrt(f.uc[k]*f.uc[k]+f.vc[k]*f.vc[k]);
             double re,pr,conductivity;
-            if (p.thermal_mode==Full2DThermalMode::true_h && s.fluid==Fluid::sco2) {
+            if (p.thermal_mode==Full2DThermalMode::true_h && uses_co2_eos(s.fluid)) {
                 const auto props=properties.transport(s.fluid,t.temperature[side][k],s.inlet_pressure);
                 re=props.rho*std::abs(speed)*p.hydraulic_diameter[k]/std::max(props.mu,1e-30);
                 pr=props.cp*props.mu/std::max(props.k,1e-30); conductivity=props.k;
@@ -427,15 +429,16 @@ void prepare_thermal(const Full2DProblem& p,Full2DResult& r,
             const double nu=fluid_nusselt_ratio(s.fluid,p.topology,std::max(re,1.),pr,
                                                p.nu_geometry_ratio[k],p.sco2_nu_multiplier);
             observe_range_value(raw_re,re,k); observe_range_value(source_re,std::max(re,1.),k);
+            if (s.fluid==Fluid::co2) observe_range_value(pr_range,pr,k);
             if (observation.available) {
-                observation.floor_cells+=nu<data::nu_laminar_floor;
+                observation.floor_cells+=nu<nusselt_floor(s.fluid);
                 observation.raw_min=std::min(observation.raw_min,nu); observation.raw_max=std::max(observation.raw_max,nu);
                 observation.re_min=std::min(observation.re_min,re); observation.re_max=std::max(observation.re_max,re);
                 observation.pr_min=std::min(observation.pr_min,pr); observation.pr_max=std::max(observation.pr_max,pr);
                 observation.temperature_min=std::min(observation.temperature_min,t.temperature[side][k]);
                 observation.temperature_max=std::max(observation.temperature_max,t.temperature[side][k]);
             }
-            t.hv[side][k]=p.area_density[k]*std::max(nu,data::nu_laminar_floor)*conductivity/p.hydraulic_diameter[k];
+            t.hv[side][k]=p.area_density[k]*std::max(nu,nusselt_floor(s.fluid))*conductivity/p.hydraulic_diameter[k];
             if (p.asymmetric) t.hv[side][k]*=ratio;
             t.conductivity[side][k]=p.fluid_conductivity[side][k]*(p.asymmetric?2.*split:1.);
         }
@@ -443,6 +446,7 @@ void prepare_thermal(const Full2DProblem& p,Full2DResult& r,
         if (s.fluid!=Fluid::air) temperature_ranges(r.range_observations,s.fluid,side,"property","main-hv","real-cell(x,y)",
             {},{&reference_temperature,1},{"viscosity","conductivity","cp"});
         merge_range_observation(r.range_observations,std::move(source_re));
+        if (s.fluid==Fluid::co2) merge_range_observation(r.range_observations,std::move(pr_range));
         if (p.thermal_mode==Full2DThermalMode::temperature)
             temperature_ranges(r.range_observations,s.fluid,side,"property","main-inlet","scalar",{},
                                {&s.inlet_temperature,1},{"cp"});

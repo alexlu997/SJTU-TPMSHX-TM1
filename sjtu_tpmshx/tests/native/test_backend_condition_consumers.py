@@ -16,8 +16,76 @@ from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.preprocess.inlet_flow import total_inlet_mass_capacity
 from sjtu_tpmshx.tests.native import test_cpp_full_3d as native_3d
 from sjtu_tpmshx.tests.native.test_native_execution import _config
+from sjtu_tpmshx.tests.gui_io_support import win as win
 
 native_path = native_3d.native_path
+
+
+@pytest.mark.parametrize('backend', ['python', 'cpp'])
+def test_gui_co2_mass_input_save_reopen_geometry_and_export(win, native_path, tmp_path, monkeypatch, backend):
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+    from sjtu_tpmshx.preprocess.api import prepare_inlet_mass_capacities
+    from sjtu_tpmshx.tests.test_co2_model import co2_config
+    from sjtu_tpmshx.tests.integration_tm1.test_public_gui import apply_config
+    from sjtu_tpmshx.tests.gui_worker_support import _wait_for
+    from sjtu_tpmshx.ui.window_config import config_from_window
+
+    errors = []
+    monkeypatch.setattr(QMessageBox, 'critical', lambda *args: errors.append(args[1:]))
+    monkeypatch.setattr(QMessageBox, 'warning', lambda *args: errors.append(args[1:]))
+    def accept_grid(dialog):
+        assert 'Grid preflight' in dialog.text(), dialog.text()
+        return QMessageBox.StandardButton.Yes
+    monkeypatch.setattr(QMessageBox, 'exec', accept_grid)
+    config = co2_config(3)
+    target = prepare_inlet_mass_capacities(config)['A'] * config.fluid_A.u_mps
+    config.fluid_A.mass_flow_kg_s = target
+    apply_config(win, config)
+    native = native_3d.control(native_path)
+    win.run_control = replace(win.run_control, native_library=native.native_library,
+                              native_table_directory=native.native_table_directory)
+    win.combo_solver_backend.setCurrentIndex(win.combo_solver_backend.findData(backend))
+    assert win.compute.backend == backend
+    saved = tmp_path/'co2-config.json'
+    monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(saved), 'JSON'))
+    win.save_config()
+    assert saved.is_file(), errors
+    win.combo_fluidA.setCurrentIndex(2)
+    win.combo_inlet_modeA.setCurrentIndex(0)
+    assert win._load_config_path(saved), errors
+    reopened = config_from_window(win, strict=True)
+    assert reopened.fluid_A.type == 'co2' and reopened.fluid_A.mass_flow_kg_s == target
+    finished = []
+    win.compute.finished.connect(finished.append)
+    try:
+        for factor in (1., 2.):
+            depth = config.geometry.Lz_m * factor
+            win.le_Lz.setText(str(depth))
+            for side in 'AB':
+                for end in ('in', 'out'):
+                    getattr(win, f'le_pipe{side}_{end}_z_ctr').setText(str(depth/2))
+                    getattr(win, f'le_pipe{side}_{end}_z_w').setText(str(depth))
+            win.run_calculation()
+            _wait_for(win.compute.is_idle, timeout=180)
+            assert len(finished) == int(factor), errors
+            result = finished[-1]
+            assert result.converged and result.metadata['backend_id'] == backend
+            assert result.metadata['co2']['pressure_multiplier'] == 2.5
+            assert result.metadata['co2']['nu_multiplier'] == 1.28
+            inlet = result.metadata['inlet_inputs']['A']
+            assert inlet['mass_flow_kg_s'] == target
+            assert inlet['u_mps'] == pytest.approx(config.fluid_A.u_mps/factor, rel=1e-12)
+            assert float(win.le_uA.text()) == pytest.approx(inlet['u_mps'], rel=1e-10)
+            assert abs(result.residuals['mass_imbalance_rel_A']) <= 1e-6
+            output = tmp_path/f'co2-{int(factor)}.csv'
+            monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(output), 'CSV'))
+            win._export_results()
+            assert output.is_file() and not errors
+    finally:
+        win.compute.finished.disconnect(finished.append)
+        if not win.compute.is_idle():
+            win.compute.cancel()
+            _wait_for(win.compute.is_idle, timeout=30)
 
 
 @pytest.mark.parametrize('dimension', [2, 3])

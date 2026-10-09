@@ -10,7 +10,7 @@ import argparse
 from pathlib import Path
 
 from sjtu_tpmshx.models import nu_correlations as nu, roughness
-from sjtu_tpmshx.models import sco2_props, tpms_props as props
+from sjtu_tpmshx.models import co2_correlations, sco2_props, tpms_props as props
 from sjtu_tpmshx.models.design_fluids import DESIGN_NU_REFERENCE_STATES
 from sjtu_tpmshx.models.envelope import GAMMA_AIR, PRESSURE_FLOOR_PA, R_AIR_DEFAULT
 from sjtu_tpmshx.solvers._solve_common import INLET_PRESSURE_REL_TOL
@@ -40,6 +40,7 @@ def header():
     for name, value in (("gas_constant", props.R), ("air_molar_mass", props.M_air),
                         ("pr_air", nu.Pr_AIR), ("nu_roughness_factor", nu.NU_ROUGHNESS_FACTOR),
                         ("nu_laminar_floor", nu.NU_LAM_FLOOR),
+                        ("co2_nu_multiplier", co2_correlations.NU_MULTIPLIER),
                         ("pressure_floor_pa", PRESSURE_FLOOR_PA),
                         ("inlet_pressure_relative_tolerance", INLET_PRESSURE_REL_TOL),
                         ("envelope_r_air", R_AIR_DEFAULT),
@@ -67,14 +68,19 @@ def header():
         "air_nu_re_range": nu.NU_RE_FIT_RANGE,
         "water_nu_re_range": nu.WATER_NU_RE_RANGE,
         "sco2_nu_re_range": nu.SCO2_NU_RE_RANGE,
+        "co2_nu_re_range": co2_correlations.RE_RANGE,
+        "co2_nu_pr_range": co2_correlations.coefficients()["bounds"]["Pr"],
         "water_nu_reference_state": DESIGN_NU_REFERENCE_STATES["water"],  # K, Pa(abs)
         "sco2_nu_reference_state": DESIGN_NU_REFERENCE_STATES["sco2"],
-        "enthalpy_temperature_lower_bounds": [_FL_TLO[fluid] for fluid in ("air", "water", "sco2")],
+        "enthalpy_temperature_lower_bounds": [_FL_TLO[fluid] for fluid in ("air", "water", "sco2", "co2")],
     }
     lines.extend(array(name, values) for name, values in vectors.items())
     lines.extend((table("nu_air", nu.NU_COEFFS, ("c", "a", "d")),
                   table("nu_water", nu.WATER_NU_COEFFS, ("c", "a")),
                   table("nu_sco2", nu.SCO2_NU_COEFFS, ("c", "a", "d"))))
+    co2 = {topology: dict(enumerate(model['Nu']['parameters']['theta']))
+           for topology, model in co2_correlations.coefficients()['topologies'].items()}
+    lines.append(table('nu_co2', co2, range(5)))
     lines.append("}  // namespace tpmshx::model_coefficients\n")
     return "\n".join(lines)
 

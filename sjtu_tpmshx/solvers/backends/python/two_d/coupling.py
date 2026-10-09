@@ -627,8 +627,8 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
     nu_observations = {'A': {}, 'B': {}}
     _pA = cfg['_models']['fluid_A'] if '_models' in cfg else fluid_props.get(fluid_A)
     _pB = cfg['_models']['fluid_B'] if '_models' in cfg else fluid_props.get(fluid_B)
-    _enthalpy_mode = ('sco2' in (_pA.name, _pB.name)
-                      and zone_config is None)
+    _enthalpy_mode = (any(p.enthalpy is not None for p in (_pA, _pB))
+                      and (zone_config is None or cfg['z_axis'] == 'continuous'))
     from sjtu_tpmshx.domain.run_environment import require_python_kernel
     require_python_kernel(cfg)
 
@@ -661,7 +661,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
         """Retain the 2D property sampling and unguarded Pr denominator."""
         m = fluid_props.get(side_props.name, sco2_nu=sco2_nu)
         Pr = None
-        if side_props.name in ('water', 'sco2'):
+        if side_props.name in ('water', 'sco2', 'co2'):
             # Pr-substitution (2D convention: no k guard) computed here so the
             # registry stays free of the 2D-vs-3D Prandtl differences.
             mu_w = float(side_props.mu(side_T_for_Pr, side_P))
@@ -734,7 +734,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
             Re_raw = _rho * abs(float(u_side)) * Dh_m / max(_mu, 1e-30)
             record_raw_nu_range(side_props.name, tpms_type, Re_raw)
             Re = max(Re_raw, 1.0)
-            if side_props.name in ('water', 'sco2'):
+            if side_props.name in ('water', 'sco2', 'co2'):
                 nu = _nu_dispatch(side_props, T_side, Re, 0.5 * float(eps),
                                   Lcell, Dh_m * 1000.0, P_side)
             else:
@@ -792,18 +792,19 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
         """Evaluate h_v at the lagged thermal field and frozen inlet pressure."""
         fluid_props.check_water_state(props.name, T_field, P_in,
                                       where='2D h_v property refresh')
-        if props.name == 'sco2':
-            from sjtu_tpmshx.models.local_heat_transfer import _sco2_hv_local_field
+        if props.name in ('sco2', 'co2'):
+            from sjtu_tpmshx.models.local_heat_transfer import real_fluid_hv_local_field
 
-            return _sco2_hv_local_field(
+            return real_fluid_hv_local_field(
                 T_field, P_in, u_mag, geometry['A_0'], geometry['D_h'],
-                tpms_type, Lcell, sco2_nu=sco2_nu, observation=observation)
+                tpms_type, Lcell if za is None else za['L_field'],
+                fluid=props.name, sco2_nu=sco2_nu, observation=observation)
         rho = cell_average(props.rho(T_field, P_in), energy_dx, energy_dy)
         mu = cell_average(props.mu(T_field, P_in), energy_dx, energy_dy)
         mean_T = cell_average(T_field, energy_dx, energy_dy)
         return _build_hv_local_2d(
             rho, mu, float(props.k(mean_T, P_in)),
-            u_mag, None, side_props=props,
+            u_mag, None if za is None else za['L_field'], side_props=props,
             side_T_for_Pr=mean_T, side_P=P_in)
 
     def _solve_flow(_coup_it):
@@ -945,7 +946,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
         if zone_config is not None and za is not None:
             L_field_2d = za['L_field']
         if _enthalpy_mode:
-            _g_hv = cfg['thermal_geometry']['uniform']
+            _g_hv = cfg['thermal_geometry']['uniform' if L_field_2d is None else 'fields']
             _Ta_hv = (state.Ta if state.Ta is not None
                       else np.full_like(u_mag_A, T_inA))
             _Tb_hv = (state.Tb if state.Tb is not None

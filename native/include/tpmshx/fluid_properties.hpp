@@ -15,7 +15,11 @@ std::unique_ptr<CoolProp::AbstractState> make_eos_state(const char* backend, con
 // switching it after initialization is rejected to protect concurrent runs.
 void configure_eos_tables_once(const char* absolute_directory);
 
-enum class Fluid { air, water, sco2 };
+enum class Fluid { air, water, sco2, co2 };
+constexpr bool uses_co2_eos(Fluid fluid) {
+    return fluid == Fluid::sco2 || fluid == Fluid::co2;
+}
+double nusselt_floor(Fluid fluid);
 enum class Topology { diamond, gyroid };
 enum class RoughnessMode { baseline, norris_1a, bhatti_shah_1b };
 
@@ -67,6 +71,7 @@ public:
     // Returns the melting-line temperature, K. Rejects uncertain/unsupported
     // water states; it does not certify the T-only fit's pressure accuracy.
     double check_water(double temperature, double pressure);
+    void check_co2(double temperature, double pressure);
     // Existing QD Nu policy: fixed air Pr; representative water/sCO2 Pr;
     // no local laminar floor, experimental C_eff or geometry recalculation.
     double quick_design_nu(Fluid fluid, Topology topology, double re,

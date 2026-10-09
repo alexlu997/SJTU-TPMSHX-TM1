@@ -77,6 +77,8 @@ def to_compute_result(result, performance):
     props.update(eps_A=geometry['epsilon'], D_h_m=geometry['D_h'], A_0_m2=geometry['A_0'])
     diagnostics['mode'] = f'{dimension}d'
     metadata = mutable_data(result.metadata['model_metadata'])
+    if 'inlet_inputs' in parameters:
+        metadata['inlet_inputs'] = mutable_data(parameters['inlet_inputs'])
     metadata.update(darcy_forchheimer=mutable_data(result.metadata['df_metadata']),
                     quantity_basis=result.metadata['quantity_basis'], units={'Q': unit},
                     source_result_id=result.result_id, case_id=result.case_id,

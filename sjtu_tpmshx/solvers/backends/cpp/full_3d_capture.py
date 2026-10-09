@@ -146,7 +146,7 @@ def capture_result(case, cfg, p, r, abi):
         for s,label in enumerate('AB'):
             f=r['flow'][s];bc=cfg['fluid_'+label+'_cfg'];axes=p['axes'][label]
             outlet_coeff=None if f is None else f['outlet_opening']
-            if f is not None and cfg['fluid_type_'+label]!='sco2':
+            if f is not None and cfg['fluid_type_'+label] not in ('sco2', 'co2'):
                 # Legacy audit-only display weight; raw opening owns every solved face.
                 outlet_coeff=outlet_coeff*_build_outlet_frac_taper(*outlet_coeff.shape)
             diagnostics['_audit_s'+label+'_face']=None if f is None else dict(

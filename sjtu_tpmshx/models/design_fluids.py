@@ -59,6 +59,9 @@ def nu_re_window(fluid: str):
         return WATER_NU_RE_RANGE
     if fluid == "sco2":
         return SCO2_NU_RE_RANGE
+    if fluid == "co2":
+        from .co2_correlations import RE_RANGE
+        return RE_RANGE
     return NU_RE_FIT_RANGE
 
 

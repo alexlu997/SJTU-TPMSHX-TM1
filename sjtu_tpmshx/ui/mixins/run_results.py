@@ -45,7 +45,7 @@ class RunResultsMixin:
         self._result_Q_unit = result.metadata.get('units', {}).get(
             'Q', 'W' if result.diagnostics.get('mode') == '3d' else 'W/m')
         self._result_model_metadata = {key: deepcopy(result.metadata[key])
-                                       for key in ('darcy_forchheimer', 'sco2_nu', 'sco2_enthalpy_eos')
+                                       for key in ('darcy_forchheimer', 'sco2_nu', 'sco2_enthalpy_eos', 'co2')
                                        if key in result.metadata}
         self._diag_summary = {
             'mode': result.diagnostics.get('mode', '2d'),
@@ -147,6 +147,11 @@ class RunResultsMixin:
             f"闭合系数: K_ffA={_f(co.get('K_ffA'))} K_ffB={_f(co.get('K_ffB'))}"
             f" h_vA={_f(co.get('h_vA'))} h_vB={_f(co.get('h_vB'))}",
         ]
+        co2_model = getattr(self, '_result_model_metadata', {}).get('co2')
+        if co2_model:
+            lines.append('CO₂ 侧 ' + '/'.join(co2_model['sides'])
+                         + f"：单相 HEOS；固定阻力 ×{co2_model['pressure_multiplier']:g}"
+                         + f"、Nu ×{co2_model['nu_multiplier']:g}（含下限）；两侧共用 CO₂ CFD 几何。")
         timings = d.get('timings_s')
         if timings:
             lines.append("阶段耗时：" + " · ".join(

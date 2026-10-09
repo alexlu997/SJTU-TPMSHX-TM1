@@ -105,14 +105,20 @@ def _gather_cfg(window):
 
 
 def _field_spec(window):
-    from sjtu_tpmshx.models.continuous_field import decision_bounds
+    from scipy.stats import qmc
+    from sjtu_tpmshx.models.continuous_field import decision_bounds, decision_dim
     widgets = window._opt_space_params
-    spec = dict(n_ctrl_x=3, n_ctrl_y=3, symmetric_y=False, spline_order=2,
+    controls = window._opt_controls
+    spec = dict(n_ctrl_x=controls['x'].value(), n_ctrl_y=controls['y'].value(),
+                symmetric_y=False, spline_order=2,
                 L_bounds=[widgets['L_min'].value(), widgets['L_max'].value()],
                 t_bounds=[widgets['t_min'].value(), widgets['t_max'].value()])
     if _is_3d_mode(window):
-        spec['n_ctrl_z'] = 3
-    low, high = decision_bounds(3, 3, False, spec['L_bounds'], spec['t_bounds'],
+        spec['n_ctrl_z'] = controls['z'].value()
+    count = decision_dim(spec['n_ctrl_x'], spec['n_ctrl_y'], False, n_ctrl_z=spec.get('n_ctrl_z'))
+    if count > qmc.Sobol.MAXDIM:
+        raise ValueError(f'当前控制点包含 {count} 个变量；优化初始化最多支持 {qmc.Sobol.MAXDIM} 个')
+    low, high = decision_bounds(spec['n_ctrl_x'], spec['n_ctrl_y'], False, spec['L_bounds'], spec['t_bounds'],
                                 n_ctrl_z=spec.get('n_ctrl_z'))
     ZoneInputConfig(enabled=True, axis='continuous',
                     config={**spec, 'x_decision': ((low+high)/2).tolist()}).validate()
@@ -171,8 +177,12 @@ def refresh_setup(window):
         window._opt_depth_label.setVisible(not is_3d)
     label = getattr(window, '_opt_field_layout', None)
     if label is not None:
-        label.setText('3 × 3 × 3 · 54 个变量 · XYZ 连续场' if is_3d
-                      else '3 × 3 · 18 个变量 · XY 连续场')
+        controls = window._opt_controls
+        controls['z'].setVisible(is_3d)
+        window._opt_control_z_label.setVisible(is_3d)
+        counts = [controls[axis].value() for axis in ('xyz' if is_3d else 'xy')]
+        label.setText(' × '.join(map(str, counts)) + f' · {2 * int(np.prod(counts))} 个变量 · '
+                      + ('XYZ' if is_3d else 'XY') + ' 连续场')
     rows = getattr(window, '_opt_conditions', None)
     n = len(rows) if rows else 1
     label = getattr(window, '_opt_condition_summary', None)
@@ -200,11 +210,13 @@ def _condition_inputs(cfg, rows):
     if rows:
         return [(row['condition_id'], replace(cfg, **{
             f'fluid_{side}': replace(getattr(cfg, f'fluid_{side}'),
-                T_in_K=row[f'T_in_{side}_K'], P_in_Pa=row[f'P_in_{side}_Pa'])
+                T_in_K=row[f'T_in_{side}_K'], P_in_Pa=row[f'P_in_{side}_Pa'], mass_flow_kg_s=None)
             for side in 'AB'}), row['mass_flow_A_kg_s'], row['mass_flow_B_kg_s']) for row in rows]
     from sjtu_tpmshx.preprocess.api import prepare_case
     from sjtu_tpmshx.preprocess.inlet_flow import total_inlet_mass_capacity
     case = prepare_case(cfg, case_id='gui-current-condition')
+    from sjtu_tpmshx.domain.portable_data import mutable_data
+    cfg = ComputeConfig.from_dict(mutable_data(case.config_snapshot))
     flows = [total_inlet_mass_capacity(case.design_fields, case.parameters, case.grid, side)
              * getattr(cfg, f'fluid_{side}').u_mps for side in 'AB']
     return [('current', cfg, *flows)]
@@ -441,6 +453,8 @@ def _termination_label(report):
 def show_pareto(window, report):
     """Render native objectives, returning a display error without changing the report."""
     history = report['history']
+    window._opt_selected_history_index = None
+    window._opt_export_geometry_btn.setEnabled(False)
     rows = [history[index] for index in report['pareto_indices']]
     window._pareto_X = np.asarray([row['x_decision'] for row in rows]) if rows else None
     # Keep the existing figure-export readiness contract, with explicit G/C meaning.
@@ -508,7 +522,37 @@ def show_pareto(window, report):
     _set_status(window, summary)
     if hasattr(window, '_refresh_export_button'):
         window._refresh_export_button()
+    export_button = getattr(window, '_opt_export_pareto_btn', None)
+    if export_button is not None:
+        export_button.setEnabled(any(row['status'] == 'completed' for row in history))
     return render_error
+
+
+def export_pareto_data(window):
+    """Save the archived plot data without re-evaluating a design."""
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+    from sjtu_tpmshx.optimization.pareto_io import export_pareto_data as export
+
+    report = getattr(window, '_last_opt_report', None)
+    if report is None:
+        _set_status(window, '没有可导出的优化结果。')
+        return
+    default = Path(getattr(window, '_last_opt_output_dir', '') or '.') / 'pareto_data.xlsx'
+    path, selected_filter = QFileDialog.getSaveFileName(
+        window, '导出 Pareto 数据', str(default), 'Excel (*.xlsx);;CSV (*.csv)')
+    if not path:
+        return
+    target = Path(path)
+    if target.suffix.lower() not in ('.csv', '.xlsx'):
+        target = target.with_suffix('.csv' if 'CSV' in selected_filter else '.xlsx')
+    try:
+        counts = export(report, target)
+    except (KeyError, TypeError, ValueError, OSError, ImportError) as error:
+        _log.exception('Could not export Pareto data')
+        QMessageBox.warning(window, 'Pareto 导出失败', str(error))
+        return
+    _set_status(window, f'已导出 {counts["n_usable"]} 个有效点，'
+                f'{counts["n_pareto"]} 个前沿点：{target}')
 
 
 def on_pareto_pick(window, event):
@@ -517,9 +561,61 @@ def on_pareto_pick(window, event):
         return
     index = int(event.ind[0])
     if 0 <= index < len(X):
-        selected = X[np.argsort(F[:, 1])[index]]
+        position = int(np.argsort(F[:, 1])[index])
+        selected = X[position]
+        window._opt_selected_history_index = window._last_opt_report['pareto_indices'][position]
+        window._opt_export_geometry_btn.setEnabled(True)
         load_pareto_solution(window, selected)
         show_field_preview(window, selected)
+
+
+def export_geometry(window):
+    from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog,
+                                  QFormLayout, QLabel, QMessageBox, QSpinBox)
+    from sjtu_tpmshx.optimization.export_ntop_csv import export_study_design, MAX_EXPORT_POINTS
+
+    report = getattr(window, '_last_opt_report', None)
+    index = getattr(window, '_opt_selected_history_index', None)
+    if report is None or index is None:
+        _set_status(window, '请先在 Pareto 图中选择一个方案。')
+        return
+    dialog = QDialog(window)
+    dialog.setWindowTitle('导出所选方案的建模坐标')
+    layout = QFormLayout(dialog)
+    layout.addRow(QLabel('各轴采样包含边界；单点取中面。坐标、L 和 t 均为 mm。'))
+    counts = []
+    for axis, default in zip('xyz'[:report['dimension']], (100, 50, 25)):
+        edit = QSpinBox(dialog)
+        edit.setRange(1, 999)
+        edit.setValue(default)
+        counts.append(edit)
+        layout.addRow(f'{axis.upper()} 采样点', edit)
+    size = QLabel()
+    layout.addRow(size)
+    buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+    layout.addRow(buttons)
+
+    def update_size():
+        count = int(np.prod([edit.value() for edit in counts]))
+        size.setText(f'{count:,} 个采样点 · 上限 {MAX_EXPORT_POINTS:,} · '
+                     f'工作数组估算 {count * 128 / 1e6:.1f} MB')
+        buttons.button(QDialogButtonBox.StandardButton.Save).setEnabled(count <= MAX_EXPORT_POINTS)
+    for edit in counts:
+        edit.valueChanged.connect(update_size)
+    update_size()
+    buttons.accepted.connect(dialog.accept)
+    buttons.rejected.connect(dialog.reject)
+    if dialog.exec() != QDialog.DialogCode.Accepted:
+        return
+    target = QFileDialog.getExistingDirectory(window, '选择建模文件导出目录')
+    if not target:
+        return
+    try:
+        summary = export_study_design(report, index, target, tuple(edit.value() for edit in counts))
+    except (ValueError, TypeError, KeyError, OSError) as error:
+        QMessageBox.warning(window, '建模坐标导出失败', str(error))
+        return
+    _set_status(window, f'已导出方案 {report["history"][index]["index"]}：{summary["csv_geometry"]}')
 
 
 def _result_field_config(window):
@@ -591,6 +687,9 @@ def load_pareto_solution(window, x_decision):
     window.chk_zones.setChecked(True)
     for side in 'AB':
         fluid = getattr(cfg, f'fluid_{side}')
+        if cfg.is_3d:
+            getattr(window, 'le_mass_flow' + side).setText(format(row[f'mass_flow_{side}_kg_s'], '.17g'))
+            getattr(window, 'combo_inlet_mode' + side).setCurrentIndex(1)
         temperature = fluid.T_in_K - (273.15 if getattr(window, '_temp_unit', 'K') == 'C' else 0.)
         for attr, value in ((f'le_Tin{side}', temperature), (f'le_Pin{side}', fluid.P_in_Pa),
                             (f'le_u{side}', fluid.u_mps)):
@@ -704,6 +803,7 @@ def show_field_volume(window):
                 raise RuntimeError(window._vis3d_import_error)
             from .panel_vis_3d import ThreeDVisPanel
             panel = ThreeDVisPanel(window._opt_3d_host)
+            panel.restore_color_ranges(getattr(window, '_volume_color_ranges', {}).get('optimization', {}))
             panel.hide()
             window._opt_3d_host.layout().addWidget(panel, 1)
             window.canvas_opt_3d = panel

@@ -89,7 +89,7 @@ from pathlib import Path
 from typing import Any, Dict, Literal, Optional, Tuple, Union
 
 
-FluidType = Literal['air', 'water', 'sco2']
+FluidType = Literal['air', 'water', 'sco2', 'co2']
 DFMode = Literal['cfd_smooth', 'experimental']
 TPMSType = Literal['Diamond', 'Gyroid']
 ZoneAxis = Literal['x', 'y', 'grid', 'continuous']
@@ -128,6 +128,8 @@ class FluidConfig:
     u_mps: float = 5.0
     T_in_K: float = 300.0
     P_in_Pa: float = 101325.0
+    # None prescribes velocity; otherwise total inlet flow is authoritative.
+    mass_flow_kg_s: Optional[float] = None
 
 
 @dataclass
@@ -365,8 +367,8 @@ class ZoneInputConfig:
             order = spec['spline_order']
             if not 1 <= order <= 3:
                 raise ValueError('Continuous field spline_order must be 1..3')
-            if any(spec[name] < 2 or spec[name] <= order for name in control_keys):
-                raise ValueError('Continuous field needs >=2 controls per axis and more controls than spline_order')
+            if any(spec[name] < 1 for name in control_keys):
+                raise ValueError('Continuous field needs >=1 controls per axis')
             if type(spec['symmetric_y']) is not bool:
                 raise ValueError('Continuous field symmetric_y must be boolean')
             for name in ('x_decision', 'L_bounds', 't_bounds'):
@@ -637,6 +639,12 @@ class ComputeConfig:
         if ge.Lz_m is not None:
             checks.append(('geometry.Lz_m', ge.Lz_m))
         for side, fl in (('A', self.fluid_A), ('B', self.fluid_B)):
+            if fl.mass_flow_kg_s is not None:
+                if (type(fl.mass_flow_kg_s) not in (int, float)
+                        or not math.isfinite(fl.mass_flow_kg_s) or fl.mass_flow_kg_s <= 0):
+                    _bad(f'fluid_{side}.mass_flow_kg_s', fl.mass_flow_kg_s)
+                if ge.Lz_m is None:
+                    raise ValueError('Total mass flow requires an explicit positive geometry.Lz_m')
             checks += [
                 (f'fluid_{side}.T_in_K', fl.T_in_K),
                 (f'fluid_{side}.P_in_Pa', fl.P_in_Pa),
@@ -764,13 +772,18 @@ class ComputeConfig:
                 if not SCO2_P_RANGE_PA[0] <= fl.P_in_Pa <= SCO2_P_RANGE_PA[1]:
                     raise ValueError(
                         f"sCO2 fluid {side} pressure must be 7.9..16 MPa")
-            if self.zones.enabled:
-                raise ValueError("sCO2 V2 does not support zones")
+            if self.zones.enabled and self.zones.axis != 'continuous':
+                raise ValueError("sCO2 V2 does not support discrete zones")
             if self.geometry.delta_levelset != 0.0:
                 raise ValueError("sCO2 V2 requires delta_levelset=0")
+        if 'co2' in (self.fluid_A.type, self.fluid_B.type):
+            if self.zones.enabled and self.zones.axis != 'continuous':
+                raise ValueError('CO2 does not support discrete zones')
+            if self.geometry.delta_levelset != 0.:
+                raise ValueError('CO2 requires symmetric delta_levelset=0 geometry')
         return self
 
-    def validate(self) -> 'ComputeConfig':
+    def validate(self, *, resolved_inlet_speeds: bool = False) -> 'ComputeConfig':
         """Reject non-physical inputs at the script and preparation boundary.
 
         ``from_dict``/``from_json`` call this; direct dataclass construction
@@ -780,6 +793,8 @@ class ComputeConfig:
 
         self.validate_static_inputs()
         for side, fluid in (('A', self.fluid_A), ('B', self.fluid_B)):
+            if fluid.mass_flow_kg_s is not None and not resolved_inlet_speeds:
+                continue
             try:
                 speed = float(fluid.u_mps)
             except (TypeError, ValueError):
@@ -796,13 +811,18 @@ class ComputeConfig:
                              and self.fluid_A.type == 'air' and self.fluid_B.type == 'water'
                              and math.isclose(ge.L_cell_mm, 7., rel_tol=0., abs_tol=1e-12)
                              and math.isclose(ge.t_wall_mm, .6, rel_tol=0., abs_tol=1e-12))
-            if self.zones.enabled and not continuous_hx:
+            if (self.zones.enabled and not continuous_hx
+                    and any(fl.type != 'co2' for fl in (self.fluid_A, self.fluid_B))):
                 raise ValueError(
                     "experimental calibration currently requires uniform L/t; "
                     "continuous Shanghai Gyroid air/water fields may use "
                     "the 7/0.6 calibration as an exploratory extrapolation")
             for side, fl in (('A', self.fluid_A),
                              ('B', self.fluid_B)):
+                if fl.type == 'co2':
+                    continue  # Fixed CO2 factors are independent of the global D-F selection.
+                if fl.mass_flow_kg_s is not None and not resolved_inlet_speeds:
+                    continue  # Preparation checks calibration after resolving the prescribed flow.
                 try:
                     _, _, _, scope = correction_scale(
                         self.geometry.tpms, fl.type,

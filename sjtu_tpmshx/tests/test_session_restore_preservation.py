@@ -146,3 +146,26 @@ def test_removed_rejected_file_does_not_prevent_new_session(tmp_path, monkeypatc
     path.unlink()  # The original was explicitly removed outside the app.
     assert manager.save_session({'line_edits': {'le_L': '0.2'}})
     assert manager.load_session()['line_edits']['le_L'] == '0.2'
+
+
+def test_lazy_volume_ranges_survive_session_save_and_reopen(session_window):
+    ranges = {'results': {'mode': 'custom', 'ranges': {'Ta': [300., 350.]}},
+              'optimization': {'mode': 'custom', 'ranges': {'L_mm': [4., 8.]}}}
+    window, path, _, messages = session_window({'ui_state': {'volume_color_ranges': ranges}})
+    assert window._volume_color_ranges == ranges
+    assert window._save_session()
+    saved = json.loads(path.read_text())
+    assert saved['ui_state']['volume_color_ranges'] == ranges
+    reopened, _, _, _ = session_window(saved)
+    assert reopened._volume_color_ranges == ranges
+    assert not messages
+
+
+def test_invalid_volume_range_rejects_session_before_physical_edits(session_window):
+    payload = {'line_edits': {'le_L': '0.333'},
+               'ui_state': {'volume_color_ranges': {
+                   'results': {'mode': 'custom', 'ranges': {'Ta': [350., 300.]}}}}}
+    window, path, raw, messages = session_window(payload)
+    assert window.le_L.text() != '0.333'
+    assert any('Max > Min' in text for _, text in messages)
+    assert [p.read_bytes() for p in path.parent.glob(path.name + '.corrupt-*')] == [raw]

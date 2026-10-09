@@ -22,6 +22,9 @@ def apply_config(window, config):
              for field in CONFIG_FIELDS
              if getattr(getattr(config, field.section), field.name) is not None}
     for side in ('A', 'B'):
+        flow = getattr(config, 'fluid_' + side).mass_flow_kg_s
+        if flow is not None:
+            edits['le_mass_flow' + side] = str(flow)
         port = getattr(config, 'bc_' + side)
         cross = config.geometry.H_dom_m if port.dir in (0, 1) else config.geometry.L_dom_m
         normalized = bc_to_dict(port, config.geometry.L_dom_m, config.geometry.H_dom_m, with_z=True)
@@ -36,8 +39,10 @@ def apply_config(window, config):
         combos={'combo_shape': 0, 'combo_dim': int(config.is_3d),
                 'combo_grid': int(config.flags.port_wall_refine),
                 'combo_tpms': window.combo_tpms.findText(config.geometry.tpms),
-                'combo_fluidA': ('air', 'water', 'sco2').index(config.fluid_A.type),
-                'combo_fluidB': ('air', 'water', 'sco2').index(config.fluid_B.type),
+                'combo_fluidA': ('air', 'water', 'sco2', 'co2').index(config.fluid_A.type),
+                'combo_fluidB': ('air', 'water', 'sco2', 'co2').index(config.fluid_B.type),
+                'combo_inlet_modeA': int(config.fluid_A.mass_flow_kg_s is not None),
+                'combo_inlet_modeB': int(config.fluid_B.mass_flow_kg_s is not None),
                 'combo_df_mode': window.combo_df_mode.findData(config.df_mode),
                 'combo_sco2_nu_mode': window.combo_sco2_nu_mode.findData(config.sco2_nu.mode),
                 'combo_dirA': config.bc_A.dir, 'combo_dirB': config.bc_B.dir},

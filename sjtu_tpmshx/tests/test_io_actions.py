@@ -1336,7 +1336,8 @@ def test_optimization_volume_copy_and_export_require_current_render(
                       dtype=np.uint8)[:, :, :channels].copy()
     expected = pixels.copy()
     panel = SimpleNamespace(_grid=object(), _field='L_mm', _volume_actor=object(), _scale_mode='global',
-                            plotter=Mock(), status=Mock(), grab=Mock())
+                            plotter=Mock(), status=Mock(), grab=Mock(), _sync_clim_controls=Mock(),
+                            color_range_state=lambda: {'mode': 'global', 'ranges': {}})
     panel.plotter.screenshot.return_value = pixels
     panel._on_screenshot = MethodType(ThreeDVisPanel._on_screenshot, panel)
     monkeypatch.setattr(win, 'canvas_opt_3d', panel)

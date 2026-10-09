@@ -67,7 +67,7 @@ Pr    = 0.72       # Prandtl number (air, approximately constant)
 
 # Each fluid keeps its own property and Nu model. Production pressure loss uses
 # one geometry-only fixed CFD table shared by both sides and all fluid types.
-_SUPPORTED_FLUIDS = {'air', 'water', 'sco2'}
+_SUPPORTED_FLUIDS = {'air', 'water', 'sco2', 'co2'}
 
 
 
@@ -93,7 +93,7 @@ def validate_fluid_type(fluid_type: str, side: str) -> None:
         raise NotImplementedError(
             f"Fluid {side} = {label} is not supported yet — no fitted "
             f"correlations (Nu / f-Re / D-F surrogate) for this fluid. "
-            f"Supported fluids: air, water, sco2."
+            f"Supported fluids: air, water, sco2, co2."
         )
 
 
@@ -122,6 +122,7 @@ _RE_FIT_RANGE_BY_FLUID = {
     'air': NU_RE_FIT_RANGE,
     'water': WATER_NU_RE_RANGE,
     'sco2': SCO2_NU_RE_RANGE,
+    'co2': (3000., 60000.),
 }
 
 
@@ -160,7 +161,7 @@ def _compute_cached(tpms_type: str,
                     T_in_K: float,
                     P_in_Pa: float,
                     fluid_type: str = 'air',
-                    sco2_nu=None) -> tuple[dict, dict]:
+                    sco2_nu=None, co2_geometry=False) -> tuple[dict, dict]:
     """
     Cache TPMS geometry and fluid properties.
 
@@ -201,7 +202,11 @@ def _compute_cached(tpms_type: str,
     """
     with cache_warning_records({}) as records:
         # ── Geometry from numerical computation ─────────────────────
-        g = _tpms_geom(tpms_type, L_cell_mm, t_mm)
+        if co2_geometry or fluid_type == 'co2':
+            from .co2_correlations import geometry as geometry_model
+            g = geometry_model(tpms_type, L_cell_mm, t_mm)
+        else:
+            g = _tpms_geom(tpms_type, L_cell_mm, t_mm)
         eps   = g['epsilon']
         A0    = g['A_0']
         D_h_m = g['D_h']
@@ -263,6 +268,9 @@ def _compute_cached(tpms_type: str,
             tpms_type, float(L_cell_mm), float(t_mm), float(eps) / 2.0,
             method=SCO2_DF_METHOD,
         )
+        if fluid_type == 'co2':
+            from .co2_correlations import apply_drag
+            K_df, cF_df, _ = apply_drag(K_df, cF_df)
         dP_per_L = mu * u / K_df + rho * cF_df * u * u
 
         # ── Effective thermal conductivities (volume-averaged) ────
@@ -295,7 +303,7 @@ def compute(tpms_type: str,
             T_in_K: float,
             P_in_Pa: float,
             k_s: float,
-            fluid_type: str = 'air', *, sco2_nu=None) -> dict:
+            fluid_type: str = 'air', *, sco2_nu=None, co2_geometry=False) -> dict:
     """Return cached properties plus solid conductivity ``K_ss`` [W/(m·K)].
 
     See ``_compute_cached`` for the other fields. ``K_ss`` uses the current
@@ -314,7 +322,7 @@ def compute(tpms_type: str,
     # Production V2 closure is fluid-independent and fixed for a TPMS/L/t
     # geometry.
     result, records = _compute_cached(tpms_type, L_cell_mm, t_mm, u, T_in_K,
-                                     P_in_Pa, fluid_type, sco2_nu)
+                                     P_in_Pa, fluid_type, sco2_nu, co2_geometry)
     result = dict(result)
     eps = result['epsilon']
     result['K_ss'] = chi_s_eff(tpms_type, eps) * (1.0 - eps) * k_s

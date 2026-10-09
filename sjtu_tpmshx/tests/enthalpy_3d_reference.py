@@ -37,9 +37,9 @@ def solve_ltne_enthalpy_3d(Nx, Ny, Nz, Lx, Ly, Lz, eps, k_s,
     P_A = float(P)
     P_B = float(P_B) if P_B is not None else P_A
     ent.check_water_state(fluid_A, T_inA, P_A, where='enthalpy inlet A')
-    ent._check_sco2_state(fluid_A, T_inA, P_A, where='enthalpy inlet A')
+    ent._check_real_fluid_state(fluid_A, T_inA, P_A, where='enthalpy inlet A')
     ent.check_water_state(fluid_B, T_inB, P_B, where='enthalpy inlet B')
-    ent._check_sco2_state(fluid_B, T_inB, P_B, where='enthalpy inlet B')
+    ent._check_real_fluid_state(fluid_B, T_inB, P_B, where='enthalpy inlet B')
     dx = np.full(Nx, Lx / Nx, dtype=np.float64)
     dy = np.full(Ny, Ly / Ny, dtype=np.float64)
     dz = np.full(Nz, Lz / Nz, dtype=np.float64)

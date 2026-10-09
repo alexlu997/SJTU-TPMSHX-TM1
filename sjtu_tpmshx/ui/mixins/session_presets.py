@@ -220,6 +220,8 @@ class SessionPresetsMixin:
         combos = dict(preset.get('combos') or {})
         combos.setdefault('combo_df_mode', 0)  # legacy saved inputs used smooth CFD
         combos.setdefault('combo_sco2_nu_mode', 0)
+        for side in 'AB':
+            combos.setdefault('combo_inlet_mode' + side, 0)
         combos.setdefault('combo_grid', int((preset.get('checks') or {}).get('chk_port_wall_refine', False)))
         for name in self._PRESET_COMBOS:
             if name not in combos:
@@ -269,6 +271,8 @@ class SessionPresetsMixin:
         from copy import deepcopy
         self._continuous_field_spec = deepcopy(preset.get('continuous_field'))
         self._opt_conditions = deepcopy(preset.get('optimization_conditions'))
+        for axis, edit in self._opt_controls.items():
+            edit.setValue(preset.get('optimization_controls', {}).get(axis, 3))
         from sjtu_tpmshx.ui.optimize_panel import refresh_setup
         refresh_setup(self)
         self._user_edited_grid = True
@@ -312,7 +316,16 @@ class SessionPresetsMixin:
 
         if not isinstance(preset, dict):
             raise ValueError('Preset must be a JSON object.')
-        if complete and set(preset) - {'sco2_nu_parameters', 'continuous_field', 'optimization_conditions'} != {'name', 'temp_unit', 'line_edits',
+        if 'ui_state' in preset:
+            from sjtu_tpmshx.ui.vis3d_constants import validate_color_range_state
+            if not isinstance(preset['ui_state'], dict):
+                raise ValueError('Invalid saved UI state')
+            views = preset['ui_state'].get('volume_color_ranges', {})
+            if not isinstance(views, dict) or set(views) - {'results', 'optimization'}:
+                raise ValueError('Invalid saved 3D views')
+            for state in views.values():
+                validate_color_range_state(state)
+        if complete and set(preset) - {'sco2_nu_parameters', 'continuous_field', 'optimization_conditions', 'optimization_controls'} != {'name', 'temp_unit', 'line_edits',
                                        'combos', 'checks', 'zone_inputs'}:
             raise ValueError('Incomplete or unsupported preset fields.')
         from sjtu_tpmshx.domain.compute_config import Sco2NuConfig
@@ -327,6 +340,11 @@ class SessionPresetsMixin:
         if conditions is not None:
             from sjtu_tpmshx.ui.optimize_panel import validate_condition_table
             validate_condition_table({'conditions': conditions})
+        if 'optimization_controls' in preset:
+            controls = preset['optimization_controls']
+            if (not isinstance(controls, dict) or set(controls) != set('xyz')
+                    or any(type(value) is not int or not 1 <= value <= 99 for value in controls.values())):
+                raise ValueError('Optimization control counts must be integers in 1..99 for X/Y/Z')
         if combos.get('combo_sco2_nu_mode', 0) == 1:
             replace(parameters, mode='experimental').validate()
         validate_domain_shape(combos.get('combo_shape', 0))
@@ -350,6 +368,10 @@ class SessionPresetsMixin:
                 required.discard('combo_sco2_nu_mode')  # old saved configs default to CFD
             if section == 'combos' and 'combo_grid' not in values:
                 required.discard('combo_grid')
+            for side in 'AB':
+                optional = ('combo_inlet_mode' if section == 'combos' else 'le_mass_flow') + side
+                if optional not in values:
+                    required.discard(optional)
             if section == 'checks':
                 # Old complete files may omit newly fixed settings or use the
                 # former port-refinement checkbox instead of the mesh combo.
@@ -362,7 +384,10 @@ class SessionPresetsMixin:
                     continue  # retain the shared preset allow-list boundary
                 if section == 'line_edits' and type(value) not in (str, int, float):
                     raise ValueError(f'Invalid text field: {name}')
-                if section == 'line_edits' and str(value).strip():
+                mass_mode = combos.get('combo_dim') == 1 and combos.get('combo_inlet_mode' + name[-1], 0) == 1
+                inactive = (name in ('le_uA', 'le_uB') and mass_mode
+                            or name in ('le_mass_flowA', 'le_mass_flowB') and not mass_mode)
+                if section == 'line_edits' and str(value).strip() and not inactive:
                     try:
                         number = float(value)
                         if not math.isfinite(number):
@@ -434,6 +459,7 @@ class SessionPresetsMixin:
             payload['continuous_field'] = deepcopy(self._continuous_field_spec)
         if getattr(self, '_opt_conditions', None) is not None:
             payload['optimization_conditions'] = deepcopy(self._opt_conditions)
+        payload['optimization_controls'] = {axis: edit.value() for axis, edit in self._opt_controls.items()}
         for n in self._SESSION_LINE_EDITS:
             w = getattr(self, n, None)
             if w is not None:
@@ -523,6 +549,7 @@ class SessionPresetsMixin:
     _SESSION_LINE_EDITS = (
         'le_L', 'le_H', 'le_Lz', 'le_Lcell', 'le_t', 'le_ks',
         'le_uA', 'le_TinA', 'le_PinA', 'le_uB', 'le_TinB', 'le_PinB',
+        'le_mass_flowA', 'le_mass_flowB',
         'le_Nx', 'le_Ny', 'le_Nz',
         'le_rho_s',
         'le_pipeA_in_ctr', 'le_pipeA_in_w',
@@ -538,6 +565,7 @@ class SessionPresetsMixin:
         'combo_dim', 'combo_tpms', 'combo_grid',
         'combo_df_mode', 'combo_sco2_nu_mode',
         'combo_fluidA', 'combo_fluidB',
+        'combo_inlet_modeA', 'combo_inlet_modeB',
         'combo_dirA', 'combo_dirB',
     )
     _SESSION_CHECKS = ('chk_zones',)
@@ -624,8 +652,9 @@ class SessionPresetsMixin:
         # Keep capture pure: partial-import validation also reads that snapshot.
         self._refresh_field_validation()
         payload = self._capture_current_preset('Last session')
+        from sjtu_tpmshx.ui.window_config import inlet_input_active
         if any(getattr(self, name).property('inpError') == 'true'
-               for name in self._SESSION_LINE_EDITS):
+               for name in self._SESSION_LINE_EDITS if inlet_input_active(self, name)):
             return False
         try:
             self._validate_preset(payload)
@@ -649,6 +678,12 @@ class SessionPresetsMixin:
             'parameter_page': getattr(self, '_param_page', 0),
             'result_summary_visible': self.btn_result_summary.isChecked(),
         }
+        ranges = dict(getattr(self, '_volume_color_ranges', {}))
+        for key, name in (('results', 'canvas_3d'), ('optimization', 'canvas_opt_3d')):
+            panel = getattr(self, name, None)
+            if panel is not None:
+                ranges[key] = panel.color_range_state()
+        payload['ui_state']['volume_color_ranges'] = ranges
         # Window geometry + state (maximised, size, position). Store as
         # base64 so the JSON stays readable when the rest is inspected.
         try:
@@ -733,6 +768,11 @@ class SessionPresetsMixin:
         # A gated-off saved tab falls back through _switch_tab's own
         # button-disabled path (→ layout); no new fallback logic here.
         _ui = payload.get('ui_state') or {}
+        self._volume_color_ranges = deepcopy(_ui.get('volume_color_ranges', {}))
+        for key, name in (('results', 'canvas_3d'), ('optimization', 'canvas_opt_3d')):
+            panel = getattr(self, name, None)
+            if panel is not None:
+                panel.restore_color_ranges(self._volume_color_ranges.get(key, {}))
         try:
             if getattr(self, '_3d_immersive', False):
                 self._toggle_3d_immersive()

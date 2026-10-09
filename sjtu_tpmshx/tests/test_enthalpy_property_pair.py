@@ -5,7 +5,7 @@ import pytest
 from sjtu_tpmshx.solvers import ltne_enthalpy_3d as ent
 
 
-@pytest.mark.parametrize('fluid, pressure', [('sco2', 8e6), ('water', 2e5), ('air', 2e5)])
+@pytest.mark.parametrize('fluid, pressure', [('sco2', 8e6), ('co2', 8e6), ('water', 2e5), ('air', 2e5)])
 @pytest.mark.parametrize('layout', ['scalar', 'single', 'vector', '2d', '3d', 'strided'])
 def test_cp_k_matches_separate_queries(fluid, pressure, layout, monkeypatch):
     values = np.linspace(300., 350., 24)

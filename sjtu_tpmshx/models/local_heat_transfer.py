@@ -17,14 +17,15 @@ def local_nusselt(model, tpms_type, Re, eps_f, L_mm, D_h_mm, Pr):
     """Uniform-grid Nu floors; callers own properties, raw-Re notices and h_v."""
     from sjtu_tpmshx.models.nu_correlations import NU_LAM_FLOOR
     Nu = model.nu(tpms_type, np.maximum(Re, 1.0), eps_f, L_mm, D_h_mm, Pr)
-    return np.maximum(np.asarray(Nu, dtype=np.float64), NU_LAM_FLOOR)
+    return np.maximum(np.asarray(Nu, dtype=np.float64),
+                      NU_LAM_FLOOR * model.nu_floor_multiplier)
 
 
-def _sco2_hv_local_field(T_field: np.ndarray, P_Pa: float,
+def real_fluid_hv_local_field(T_field: np.ndarray, P_Pa: float,
                          u_abs: np.ndarray | float, A_0: float,
                          D_h_m: float, tpms_type: str,
-                         L_cell_mm: float, *, sco2_nu=None, observation=None) -> np.ndarray:
-    """Shared 2D/3D sCO2 h_v = A_0·Nu·k(T)/D_h with local properties.
+                         L_cell_mm, *, fluid='sco2', sco2_nu=None, observation=None) -> np.ndarray:
+    """Shared 2D/3D CO2/sCO2 h_v = A_0·Nu·k(T)/D_h with local properties.
 
     ρ, μ, k, cp — hence Re and Pr — are evaluated per cell at the local
     temperature field (fixed P), not frozen at the scalar inlet T. sCO2
@@ -34,23 +35,19 @@ def _sco2_hv_local_field(T_field: np.ndarray, P_Pa: float,
     field averages, including lagged-temperature properties on a mixed true-h
     side; 3D local air/water closure uses scalar inlet properties.
     """
-    from sjtu_tpmshx.models import sco2_props as _s2
-    from sjtu_tpmshx.models.tpms_calc import nu_sco2_topo as _nu_s2
+    from sjtu_tpmshx.models import co2_props, sco2_props, fluid_props
     from sjtu_tpmshx.models.nu_correlations import NU_LAM_FLOOR as _floor
     from sjtu_tpmshx.models.nu_correlations import record_raw_nu_range
     T = np.asarray(T_field, dtype=np.float64)
-    rho, mu, k_f, cp = _s2.sco2_prop(('D', 'V', 'L', 'C'), T, P_Pa)
+    model = fluid_props.get(fluid, sco2_nu=sco2_nu)
+    properties = co2_props.co2_prop if fluid == 'co2' else sco2_props.sco2_prop
+    rho, mu, k_f, cp = properties(('D', 'V', 'L', 'C'), T, P_Pa)
+    _floor *= model.nu_floor_multiplier
     Pr = cp * mu / np.maximum(k_f, 1e-30)
     Re_loc = rho * np.abs(u_abs) * D_h_m / np.maximum(mu, 1e-30)
-    record_raw_nu_range('sco2', tpms_type, Re_loc)
-    if sco2_nu is not None:
-        sco2_nu.validate()
-        if sco2_nu.mode == 'experimental':
-            from functools import partial
-            from sjtu_tpmshx.models.nu_correlations import nu_sco2_selected
-            _nu_s2 = partial(nu_sco2_selected, settings=sco2_nu)
-    Nu_raw = np.asarray(_nu_s2(tpms_type, np.maximum(Re_loc, 1.0), Pr,
-                               L_cell_mm, D_h_m * 1000.0), dtype=np.float64)
+    record_raw_nu_range(fluid, tpms_type, Re_loc)
+    Nu_raw = np.asarray(model.nu(tpms_type, np.maximum(Re_loc, 1.0), None,
+                                L_cell_mm, D_h_m * 1000.0, Pr), dtype=np.float64)
     if observation is not None:
         observation.clear()
         observation.update(

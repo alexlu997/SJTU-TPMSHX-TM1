@@ -190,7 +190,7 @@ def test_volume_fields_are_lazy_cached_and_reset_without_changing_values(monkeyp
                  'btn_view_side', 'btn_view_iso', 'btn_clear'):
         setattr(panel, name, Mock())
     for name in ('_render_initial_scene', 'fit_view', '_update_coord_label',
-                 '_validate_coord_input', '_update_status'):
+                 '_validate_coord_input', '_update_status', '_sync_clim_controls'):
         setattr(panel, name, Mock())
     for name in ('_build_volume_grid', '_build_global_clim', '_rebuild_volume',
                  '_clim_for', '_opacity_ramp'):
@@ -259,7 +259,8 @@ def test_design_volume_and_slice_keep_independent_ranges_and_optional_arrows(flo
                  'slider_opacity', 'btn_view_top', 'btn_view_front',
                  'btn_view_side', 'btn_view_iso', 'btn_clear'):
         setattr(panel, name, Mock())
-    for name in ('fit_view', '_update_coord_label', '_validate_coord_input', '_update_status'):
+    for name in ('fit_view', '_update_coord_label', '_validate_coord_input', '_update_status',
+                 '_sync_clim_controls'):
         setattr(panel, name, Mock())
     for name in ('_render_initial_scene', '_add_flow_glyph', '_build_volume_grid',
                  '_build_global_clim', '_rebuild_volume', '_clim_for', '_opacity_ramp'):
