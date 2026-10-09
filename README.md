@@ -79,6 +79,15 @@ $tm1Python = Get-Content .venv-path -TotalCount 1
 [Python venv 支持的用法](https://docs.python.org/3.13/library/venv.html#how-venvs-work)。
 `.venv-path` 保存本机绝对路径，不随 Git 共享；新终端中重新读取该文件即可。
 
+升级到当前依赖锁时，请创建独立的新环境并预热，保留原环境及其源码版本。
+当前锁保留 NumPy 2.4.4、Numba 0.64、llvmlite 0.46，以避免已测得的热运行性能回退；
+SciPy 1.18、pandas 3、CoolProp 8 和 Qt 6.12 继续使用新版。
+BO 与桌面打包继续使用各自的完整锁。不要向其他工作树正在使用的共享环境安装新锁。
+切换 `.venv-path` 后，先通过锁检查和 `pip check`，再运行计算或测试。
+CO₂ 插值表按 CoolProp 版本隔离。Python 默认写入 `XDG_CACHE_HOME/coolprop/CoolProp-8.0.0`；
+显式 `COOLPROP_ALTERNATIVE_TABLES_DIRECTORY` 和 C++ 表参数均作为缓存根目录，
+内部追加 `CoolProp-8.0.0`。旧表保留，首次使用新版本时会在本机重新生成。
+
 ### 跑通小算例
 
 仓库自带 [air_2d.json](examples/three_module/air_2d.json) 和
@@ -144,6 +153,12 @@ Python 3.13 使用 `requirements-lock-bo-macos.txt`。BO 应安装到用户授�
 随后用对应锁运行环境检查及 `pip check`；勿将可选依赖加到正在使用的共享基础环境。
 上述小算例无需 BO。原始实验回归与重新拟合则需要匹配版本的本地数据，见文末。
 
+BoTorch 首次构造多目标 Log 采集函数时会尝试编译其可选 C++ 内核。
+将 `TORCH_EXTENSIONS_DIR` 设为当前工作树的 `.cache/torch-extensions`，并在该次运行的
+`PATH` 前放置 BO 环境的 `bin`（Windows 为 `Scripts`），使已锁定的 Ninja 可用。
+编译还需要本机 C++ 工具链；无法编译时 BoTorch 会报告并使用其 Python 实现。
+两种执行方式的性能证据需分别记录，首次编译不能计入暖态求解耗时。
+
 ### macOS 项目文件夹中的 C++ 候选库
 
 本次交付保留 Python/Qt 主程序和源码，在项目内放置匹配的预编译 C++ 库，
@@ -160,27 +175,36 @@ macOS 尚未验收。继续复用 `.venv-path` 指定的现有锁定环境，环
 显式加载 `native/lib/macos-arm64/libtpmshx_solver_shared.dylib`，并传入
 `.cache/native-deps/tables`。库、表和本机 `.venv-path` 属于本地交付资源，
 不随 Git 源码自动提供。缺少解释器或库会直接报告原因；启动器不安装依赖、
-编译库或切换到 Python。需要 CO₂ BICUBIC 表的既有 legacy 路线使用随附四表；
+编译库或切换到 Python。需要 CO₂ BICUBIC 表的既有 legacy 路线使用当前版本目录中的四表，
+缺少时由该版本在本机生成；
 新的保守温度算法不使用这些表。公共 API、CLI 和直接模块调用仍默认使用 Python。
 
-已有锁定原生依赖时，可从当前源码离线重建并更新启动器使用的库：
+已有当前锁定原生依赖且相关原生回归通过时，可显式发布启动器使用的库：
 
 ```sh
-"$PYTHON" scripts/build_native_dependencies.py build --component pilot
-mkdir -p native/lib/macos-arm64
-cp .cache/native-deps/build/pilot-macos-arm64/libtpmshx_solver_shared.dylib native/lib/macos-arm64/
+"$PYTHON" scripts/build_native_dependencies.py publish
 ```
 
-此命令复用现有依赖；缺少锁定依赖时会停止，不在运行时安装或下载。
-`native/lib/` 是本地交付目录，已由 Git 忽略。源码改变后应重新构建匹配库。
+此命令离线构建当前源码，运行独立 C/C++ 调用和错误路径检查，再替换本平台的库。
+缺少锁定依赖或验证失败时停止。改变库内容前，旧库及记录保存在同目录的 `previous/`；
+重复发布相同库保留已有回退副本。`build.json` 记录源码提交、未提交改动、构建配置及路径。
+`native/lib/` 是 Git 忽略的本地交付目录。停止使用该库的程序后，可从 `previous/`
+复制库和 `build.json` 回原目录；同时恢复对应源码、Python 环境和物性版本。
+发布检查不替代数值回归或桌面验收。日常启动不执行构建、安装或下载。
 以 Python 数值后端打开同一界面可运行
 `"$PYTHON" -m sjtu_tpmshx.main --backend python`。
 在界面左侧“求解 → 求解器 → 计算后端”可直接选择 Python 或 C++，无需重启。
 初始选择由启动参数决定；切换作用于下一次普通计算、快速设计和优化。
-任务运行及取消收尾期间禁止切换。C++ 使用启动时指定的库，或本机 macOS
+任务运行及取消收尾期间禁止切换。C++ 使用启动时指定的库，或本机 macOS／Windows
 交付目录中的匹配库；库缺失会保留原选择并提示原因。Python 线程数设置随
 后端切换启用，C++ 使用既有固定并行策略。此选择属于当前窗口的运行设置，
 不写入工况文件，也不改变已经生成的结果。
+
+源码 GUI 和 CLI 共用默认查找：macOS 使用
+`native/lib/macos-arm64/libtpmshx_solver_shared.dylib`，Windows 使用
+`native/lib/windows-x64/tpmshx_solver_shared.dll`；默认表目录为
+`.cache/native-deps/tables`。匹配的库已发布到这些位置时，只需 `--backend cpp`。
+显式库／表路径优先；直接调用求解 API 时仍在 `RunControl` 中传入主机路径。
 
 2026-10-05 的候选验收保留以下边界：Ceff43 为 19/43 通过、24/43 超时，
 固定总体未通过；fixed230 执行和索引为 230/230，用时 93 分 18.5 秒，
@@ -382,6 +406,7 @@ Case YAML 引用伴随 HDF5；result/VTK 导出和严格指标 JSON 的限制见
 当前 GUI 连续场优化沿用完整算例的端口、流体和本维度求解设置，支持空气 A / 水 B，
 默认搜索 L=4–8 mm、t=0.3–0.6 mm，各流体 Nu 的适用范围另行检查。
 `optimization.json` 保存全部工况、控制向量、场定义、失败和原生批次路径；
+它与 `batch.json` 均通过 `backend` 记录本轮选择，包括失败和取消，不记录本机库路径。
 只有完整数值合格的批次才有目标值。GUI 来源的 Pareto 回填保留完整场，
 当前几何、端口或求解设置与来源不同则拒绝载入。任意外部 CLI 配置不等于 GUI 预设。
 设计评估次数是搜索预算，不保证算法收敛或实验精度。
@@ -443,7 +468,7 @@ CI 快测按完整模块分到两个独立 runner，每片固定两个 worker，
 `run_tests_fast.ps1` 传同一参数；所选锁与 `pip check` 都通过后才启动测试。
 脚本不安装依赖，也不因为选择了服务器锁而放行锁外包。
 
-GitHub workflow 使用 checkout v5、setup-python v6、upload-artifact v6，
+GitHub workflow 使用 checkout v7、setup-python v7、upload-artifact v7，
 分片门使用 download-artifact v8。这些 Action 的运行时不改变求解器的 Python 环境；
 `three-module` 继续单独验证完整环境到最小后处理环境的真实文件交接。
 `ci` 的基础和独立 BO 作业均覆盖 macOS / Python 3.13，以及 Windows / Python

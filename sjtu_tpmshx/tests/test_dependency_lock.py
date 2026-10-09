@@ -49,6 +49,59 @@ def test_server_lock_includes_base_and_bo_dependencies():
     assert not missing, f'BO dependencies missing from server lock: {missing}'
 
 
+@pytest.mark.parametrize('platform, python_version', [
+    ('darwin', '3.13'), ('win32', '3.12'), ('win32', '3.13'),
+])
+def test_supported_locks_satisfy_project_version_constraints(platform, python_version):
+    config = tomllib.loads((_ROOT / 'pyproject.toml').read_text(encoding='utf-8'))
+    project = config['project']
+    declared = [*project['dependencies'], *config['build-system']['requires']]
+    for group in ('io', 'gui', 'test', 'dev'):
+        declared.extend(project['optional-dependencies'][group])
+    bo_lock = ('requirements-lock-bo-macos.txt' if platform == 'darwin'
+               else 'requirements-lock-server.txt')
+    environment = {
+        'sys_platform': platform,
+        'platform_system': 'Darwin' if platform == 'darwin' else 'Windows',
+        'platform_machine': 'arm64' if platform == 'darwin' else 'AMD64',
+        'os_name': 'posix' if platform == 'darwin' else 'nt',
+        'python_version': python_version,
+        'python_full_version': python_version + '.0',
+    }
+    for filename, extra in (
+        ('requirements-lock.txt', []),
+        (bo_lock, project['optional-dependencies']['bo']),
+        ('requirements-lock-desktop.txt', project['optional-dependencies']['desktop-build']),
+    ):
+        locked = read_lock(_ROOT / filename, environment)
+        for raw in (*declared, *extra):
+            requirement = Requirement(raw)
+            if requirement.marker and not requirement.marker.evaluate(environment):
+                continue
+            name = canonicalize_name(requirement.name)
+            assert name in locked, f'{filename} on {platform}: missing {requirement}'
+            version = next(iter(locked[name].specifier)).version
+            assert version in requirement.specifier, (
+                f'{filename} on {platform}/{python_version}: '
+                f'{name}=={version} does not satisfy {requirement}')
+
+
+def test_minimal_postprocess_lock_preserves_declared_io_versions():
+    project = tomllib.loads((_ROOT / 'pyproject.toml').read_text(encoding='utf-8'))['project']
+    locked = read_lock(_ROOT / 'requirements-lock-postprocess.txt', {
+        'sys_platform': 'linux', 'python_version': '3.13', 'python_full_version': '3.13.0',
+        'platform_system': 'Linux', 'platform_machine': 'x86_64', 'os_name': 'posix',
+    })
+    declared = [raw for raw in project['dependencies']
+                if canonicalize_name(Requirement(raw).name) == 'numpy']
+    declared.extend(project['optional-dependencies']['io'])
+    for raw in declared:
+        requirement = Requirement(raw)
+        pin = locked[canonicalize_name(requirement.name)]
+        assert next(iter(pin.specifier)).version in requirement.specifier
+    assert not {'numba', 'scipy', 'pyside6', 'torch'} & set(locked)
+
+
 def test_lock_reader_follows_includes_and_platform_markers(tmp_path):
     (tmp_path / 'base.txt').write_text(
         'alpha==1\ncolorama==0.4.6; sys_platform == "win32"\n',

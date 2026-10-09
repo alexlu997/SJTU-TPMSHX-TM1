@@ -5,127 +5,134 @@ platforms = ["macos-arm64", "windows-x64"]
 parallel = 2
 
 [cmake]
-version = "3.31.8"
-checksum-url = "https://github.com/Kitware/CMake/releases/download/v3.31.8/cmake-3.31.8-SHA-256.txt"
-license-url = "https://raw.githubusercontent.com/Kitware/CMake/v3.31.8/Copyright.txt"
+version = "4.4.4"
+checksum-url = "https://github.com/Kitware/CMake/releases/download/v4.4.4/cmake-4.4.4-SHA-256.txt"
+license-url = "https://raw.githubusercontent.com/Kitware/CMake/v4.4.4/Copyright.txt"
 
 [cmake.macos-arm64]
-url = "https://github.com/Kitware/CMake/releases/download/v3.31.8/cmake-3.31.8-macos-universal.tar.gz"
-sha256 = "d1449f969c54d5c00886d5b643340d493dfb3c81cb39ee29b35453395c11ebf7"
-executable = "cmake-3.31.8-macos-universal/CMake.app/Contents/bin/cmake"
+url = "https://github.com/Kitware/CMake/releases/download/v4.4.4/cmake-4.4.4-macos-universal.tar.gz"
+sha256 = "4b7b73704b1db9b374e5c9ab8e17ac6148b817b6396ee75cd94a852cbac9d305"
+executable = "cmake-4.4.4-macos-universal/CMake.app/Contents/bin/cmake"
 generator = "Unix Makefiles"
 
 [cmake.windows-x64]
-url = "https://github.com/Kitware/CMake/releases/download/v3.31.8/cmake-3.31.8-windows-x86_64.zip"
-sha256 = "81aa9964dbabd71fe02e7ec50472fd3ad56138c49944515ece9001efbff8d719"
-executable = "cmake-3.31.8-windows-x86_64/bin/cmake.exe"
+url = "https://github.com/Kitware/CMake/releases/download/v4.4.4/cmake-4.4.4-windows-x86_64.zip"
+sha256 = "bace36e94b31c68ab6fa295f26dfa11219e0701cf7c94b0284a7d1cb13dac536"
+executable = "cmake-4.4.4-windows-x86_64/bin/cmake.exe"
 generator = "Visual Studio 17 2022"
 
 [sources.coolprop]
-version = "7.2.0"
+version = "8.0.0"
 repository = "https://github.com/CoolProp/CoolProp.git"
-ref = "v7.2.0"
-commit = "98b3523d5daa98454618d381d2ae53f7471d216b"
-directory = "CoolProp-7.2.0"
-recursive-submodules = true
+ref = "v8.0.0"
+commit = "ae81610e7d23efc57f9d051c8e70a4d66e87537f"
+directory = "CoolProp-8.0.0"
 license = "MIT; retain each bundled and submodule license separately"
-license-url = "https://raw.githubusercontent.com/CoolProp/CoolProp/98b3523d5daa98454618d381d2ae53f7471d216b/LICENSE"
+license-url = "https://raw.githubusercontent.com/CoolProp/CoolProp/ae81610e7d23efc57f9d051c8e70a4d66e87537f/LICENSE"
 cmake-options = ["COOLPROP_STATIC_LIBRARY=ON", "COOLPROP_RELEASE=ON", "COOLPROP_NO_EXAMPLES=ON", "CMAKE_POSITION_INDEPENDENT_CODE=ON", "CMAKE_BUILD_TYPE=Release", "CMAKE_CXX_FLAGS=-DEIGEN_MPL2_ONLY", "CMAKE_EXPORT_COMPILE_COMMANDS=ON"]
 windows-options = ["COOLPROP_MSVC_DYNAMIC=ON", "CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL"]
 backends = "Keep all version-default backends, including HEOS and BICUBIC; no EOS replacement"
 
-[[sources.coolprop.submodules]]
-path = "externals/Catch2"
-commit = "914aeecfe23b1e16af6ea675a4fb5dbd5a5b8d0a"
-repository = "https://github.com/catchorg/Catch2"
-
-[[sources.coolprop.submodules]]
-path = "externals/Eigen"
-commit = "68f4e58cfacc686583d16cff90361f0b43bc2c1b"
-repository = "https://gitlab.com/libeigen/eigen.git"
-
-[[sources.coolprop.submodules]]
-path = "externals/ExcelAddinInstaller"
-commit = "db8ce41cdb02079a2d9242ea08f3633e8a1d38b0"
-repository = "https://github.com/CoolProp/ExcelAddinInstaller.git"
-
-[[sources.coolprop.submodules]]
-path = "externals/FindMathematica"
-commit = "99d8c95eed1a517f4a06511ea40b2cee6477a8c1"
-repository = "https://github.com/sakra/FindMathematica"
-
-[[sources.coolprop.submodules]]
-path = "externals/IF97"
-commit = "7aaced024a702f0985474bf293cdaae9c8d06521"
-repository = "https://github.com/CoolProp/IF97"
-
-[[sources.coolprop.submodules]]
-path = "externals/REFPROP-headers"
-commit = "b4faab1b73911c32c4b69c526c7e92f74edb67de"
-repository = "https://github.com/CoolProp/REFPROP-headers.git"
-
-[[sources.coolprop.submodules]]
-path = "externals/fmtlib"
-commit = "e424e3f2e607da02742f73db84873b8084fc714c"
-repository = "https://github.com/fmtlib/fmt.git"
-
-[[sources.coolprop.submodules]]
-path = "externals/msgpack-c"
-commit = "919908742b4fdbc575e77fe1a8657e70c9573c44"
-repository = "https://github.com/msgpack/msgpack-c"
-
-[[sources.coolprop.submodules]]
-path = "externals/multicomplex"
-commit = "39bf9ca52c7882ff0788bb9087c7548ebd8fba4c"
-repository = "https://github.com/usnistgov/multicomplex"
-
-[[sources.coolprop.submodules]]
-path = "externals/multicomplex/multicomplex/externals/pybind11"
-commit = "6d1b197b4669c70da94c8efb516374e1935d3ea3"
-repository = "https://github.com/pybind/pybind11.git"
-
-[[sources.coolprop.submodules]]
-path = "externals/pybind11"
-commit = "76b7f53649580b66b559752de6a39d98477ff1da"
-repository = "https://github.com/pybind/pybind11.git"
-
-[[sources.coolprop.submodules]]
-path = "externals/rapidjson"
-commit = "24b5e7a8b27f42fa16b96fc70aade9106cf7102f"
-repository = "https://github.com/Tencent/rapidjson.git"
-
-[[sources.coolprop.submodules]]
-path = "externals/rapidjson/thirdparty/gtest"
-commit = "ba96d0b1161f540656efdaed035b3c062b60e006"
-repository = "https://github.com/google/googletest.git"
-
 [sources.superlu]
-version = "6.0.1"
+version = "7.0.1"
 repository = "https://github.com/xiaoyeli/superlu.git"
-# SciPy 1.17.1 upstream baseline, deliberately not the v6.0.1 tag commit.
-commit = "18958c35006c63071813df6808d7809247caac89"
-directory = "superlu-6.0.1"
-recursive-submodules = false
+# Upstream v7.0.1 with the selected SciPy 1.18.1 double-LU corrections.
+commit = "83a3c82b9e44c966ca2bc26991ffdb2bf63e1e2b"
+directory = "superlu-7.0.1"
 license = "BSD-3-Clause for compiled LU sources; MC64 is excluded"
-license-url = "https://raw.githubusercontent.com/xiaoyeli/superlu/18958c35006c63071813df6808d7809247caac89/License.txt"
+license-url = "https://raw.githubusercontent.com/xiaoyeli/superlu/83a3c82b9e44c966ca2bc26991ffdb2bf63e1e2b/License.txt"
 source-list = "native/dependency-pilot/superlu-lu-only.cmake"
 build-options = ["double-real LU only", "32-bit int_t", "macOS: system Accelerate NEWLAPACK LP64, USE_VENDOR_BLAS=1", "Windows: portable internal double CBLAS pending native qualification", "static PIC", "COLAMD", "no METIS", "no Fortran", "no examples/tests", "no MC64/ILU factorization paths", "SCIPY_FIX=1 for selected double-LU corrections"]
-scipy-commit = "527eb7fd7953a1de068f94bf8b322f249b9405ae"
-scipy-patch-url = "https://raw.githubusercontent.com/scipy/scipy/527eb7fd7953a1de068f94bf8b322f249b9405ae/scipy/sparse/linalg/_dsolve/SuperLU/scipychanges.patch"
-scipy-readme-url = "https://raw.githubusercontent.com/scipy/scipy/527eb7fd7953a1de068f94bf8b322f249b9405ae/scipy/sparse/linalg/_dsolve/SuperLU/README.scipy"
+scipy-version = "1.18.1"
+scipy-commit = "e4e854eaa8f18d807cd3496028e257e36caa93cc"
+scipy-patch-url = "https://raw.githubusercontent.com/scipy/scipy/e4e854eaa8f18d807cd3496028e257e36caa93cc/scipy/sparse/linalg/_dsolve/SuperLU/scipychanges.patch"
+scipy-readme-url = "https://raw.githubusercontent.com/scipy/scipy/e4e854eaa8f18d807cd3496028e257e36caa93cc/scipy/sparse/linalg/_dsolve/SuperLU/README.scipy"
 scipy-patch-files = ["SRC/dpanel_bmod.c", "SRC/dpivotL.c", "SRC/dsnode_bmod.c"]
 scipy-patch-exclusions = ["single/complex/ILU files: not compiled", "Python allocator and abort hooks: not imported", "Fortran symbol/header configuration: project selects system Accelerate LP64 or portable CBLAS", "METIS: not enabled"]
 macos-system-blas = "Accelerate framework, macOS >=13.3, dgemm/dgemv/dtrsm/dtrsv $NEWLAPACK LP64 symbols; already supplied by the operating system, no copied or downloaded binary"
 error-boundary = "Project C solve wrapper intercepts USER_MALLOC/FREE/ABORT with a thread-local allocation ledger and bounded error return; raw vendor calls outside this boundary are unsupported"
 
 [sources.amgcl]
-version = "1.4.4"
+version = "1.5.0"
 repository = "https://github.com/ddemidov/amgcl.git"
-ref = "1.4.4"
-commit = "42ee9da2057153b1aef734e8e462c846a33aa805"
-directory = "amgcl-1.4.4"
-recursive-submodules = false
+ref = "1.5.0"
+commit = "f4614a7e9ccfe716c4c96df75dc349157229609a"
+directory = "amgcl-1.5.0"
 license = "MIT"
-license-url = "https://raw.githubusercontent.com/ddemidov/amgcl/42ee9da2057153b1aef734e8e462c846a33aa805/LICENSE.md"
+license-url = "https://raw.githubusercontent.com/ddemidov/amgcl/f4614a7e9ccfe716c4c96df75dc349157229609a/LICENSE.md"
 build-options = ["header-only", "AMGCL_NO_BOOST", "builtin<double>", "single-threaded", "no OpenMP/MPI/GPU"]
 algorithm-boundary = "Staggered-temperature MAC candidate only: RS direct interpolation differs from PyAMG classical interpolation and requires its own qualification. Pressure uses the locked PyAMG/SciPy original-algorithm excerpts in native/src/classical_amg*."
+
+# CoolProp 8 CPM inputs are fetched explicitly; CMake consumes local sources offline.
+
+[sources.eigen]
+version = "5.0.1"
+repository = "https://gitlab.com/libeigen/eigen.git"
+commit = "bc3b39870ecb690a623a3f49149a358b95c5781d"
+directory = "Eigen-5.0.1"
+cpm-name = "Eigen"
+license = "MPL-2.0 with upstream permissive notices; EIGEN_MPL2_ONLY"
+
+[sources.msgpack]
+version = "locked commit"
+repository = "https://github.com/msgpack/msgpack-c.git"
+commit = "919908742b4fdbc575e77fe1a8657e70c9573c44"
+directory = "msgpack-c"
+cpm-name = "msgpack-c"
+license = "Boost-1.0"
+
+[sources.json]
+version = "3.12.0"
+repository = "https://github.com/nlohmann/json.git"
+commit = "55f93686c01528224f448c19128836e7df245f72"
+directory = "json-3.12.0"
+cpm-name = "nlohmann_json"
+license = "MIT with bundled upstream notices"
+
+[sources.valijson]
+version = "1.0.6"
+repository = "https://github.com/tristanpenman/valijson.git"
+commit = "4edda758546436462da479bb8c8514f8a95c35ad"
+directory = "valijson-1.0.6"
+cpm-name = "valijson"
+license = "BSD-2-Clause with bundled upstream notices"
+
+[sources.if97]
+version = "locked commit"
+repository = "https://github.com/CoolProp/IF97.git"
+commit = "7aaced024a702f0985474bf293cdaae9c8d06521"
+directory = "IF97"
+cpm-name = "IF97"
+license = "MIT"
+
+[sources.refprop_headers]
+version = "locked commit"
+repository = "https://github.com/CoolProp/REFPROP-headers.git"
+commit = "b4faab1b73911c32c4b69c526c7e92f74edb67de"
+directory = "REFPROP-headers"
+cpm-name = "REFPROP_headers"
+license = "MIT"
+
+[sources.boost_headers]
+version = "locked commit"
+repository = "https://github.com/CoolProp/boost-headers.git"
+commit = "c68104660ca4bd80d0d5cb34c4eba0cf5bab3f73"
+directory = "boost-headers"
+cpm-name = "boost_headers"
+license = "Boost-1.0"
+
+[sources.multicomplex]
+version = "locked commit"
+repository = "https://github.com/usnistgov/multicomplex.git"
+commit = "39bf9ca52c7882ff0788bb9087c7548ebd8fba4c"
+directory = "multicomplex"
+cpm-name = "multicomplex"
+license = "MIT; upstream NIST non-US rights notice"
+
+[sources.fmt]
+version = "12.0.0"
+repository = "https://github.com/fmtlib/fmt.git"
+commit = "e424e3f2e607da02742f73db84873b8084fc714c"
+directory = "fmt-12.0.0"
+cpm-name = "fmt"
+license = "MIT"

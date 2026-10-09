@@ -67,6 +67,10 @@ $tm1Python = Get-Content .venv-path -TotalCount 1
 
 These commands call the environment interpreter directly. No activation script or PowerShell execution-policy change is required. This is [supported venv usage](https://docs.python.org/3.13/library/venv.html#how-venvs-work). `.venv-path` stores a local absolute path and is not shared through Git. Read it again in each new terminal.
 
+For a dependency upgrade, create and prewarm a separate environment. Keep the old environment and its source revision. The current locks keep NumPy 2.4.4, Numba 0.64 and llvmlite 0.46 to avoid the measured warm-solve slowdown. SciPy 1.18, pandas 3, CoolProp 8 and Qt 6.12 stay on the newer versions. BO and desktop packaging use their own complete locks. Do not install the new lock into a shared environment used by another worktree. After changing `.venv-path`, pass the lock check and `pip check` before computation or tests.
+
+CO₂ interpolation tables are separated by CoolProp version. Python defaults to `XDG_CACHE_HOME/coolprop/CoolProp-8.0.0`. An explicit `COOLPROP_ALTERNATIVE_TABLES_DIRECTORY` or C++ table path supplies the cache root; the solver adds `CoolProp-8.0.0`. Previous tables stay in place. First use of a new version generates its tables locally.
+
 <a id="跑通小算例"></a>
 
 ### Run small examples
@@ -117,6 +121,8 @@ Read the preceding command's exit code with `echo $?` on macOS or `$LASTEXITCODE
 
 The default lock includes GUI, file handoff, and test dependencies. It excludes Torch / BoTorch / GPyTorch. Windows CPU Bayesian optimization uses `requirements-lock-server.txt`. macOS arm64 / Python 3.13 uses `requirements-lock-bo-macos.txt`. Install BO only in a separately authorized environment.
 
+BoTorch tries to compile its optional C++ kernel when it first constructs a multi-objective Log acquisition function. Set `TORCH_EXTENSIONS_DIR` to `.cache/torch-extensions` in the current worktree. Prepend the BO environment's `bin` directory (`Scripts` on Windows) to `PATH` for that run so the locked Ninja is available. Compilation also requires a local C++ toolchain. If compilation fails, BoTorch reports the failure and uses its Python implementation. Record performance separately for the two paths, and keep first compilation outside warm measurements.
+
 Then do a check of the matching lock. Run `pip check`. Do not add optional dependencies to an active shared base environment. Small examples need no BO. Raw experimental regression and refitting need matching local data, described below.
 
 <a id="macos-项目文件夹中的-c-候选库"></a>
@@ -133,19 +139,21 @@ Double-click root `launch-macos.command`, or run:
 
 The launcher enters its own project directory and writes caches under `.cache/`. It explicitly loads `native/lib/macos-arm64/libtpmshx_solver_shared.dylib` with `--backend cpp` and passes `.cache/native-deps/tables`. The library, tables, and host `.venv-path` are local delivery resources, not automatically supplied by Git. A missing interpreter or library produces an explicit error. The launcher installs no dependencies, compiles no library, and does not switch to Python.
 
-Existing legacy CO₂ BICUBIC routes use the four supplied tables. The new conservative temperature algorithm does not use them. Public APIs, CLI, and direct module calls still default to Python.
+Existing legacy CO₂ BICUBIC routes use four tables in the current version's directory and generate missing tables locally. The new conservative temperature algorithm does not use them. Public APIs, CLI, and direct module calls still default to Python.
 
-With locked native dependencies already present, rebuild offline from current source and update the launcher library:
+With the current locked native dependencies present and the relevant native regressions passed, explicitly publish the launcher library:
 
 ```sh
-"$PYTHON" scripts/build_native_dependencies.py build --component pilot
-mkdir -p native/lib/macos-arm64
-cp .cache/native-deps/build/pilot-macos-arm64/libtpmshx_solver_shared.dylib native/lib/macos-arm64/
+"$PYTHON" scripts/build_native_dependencies.py publish
 ```
 
-This reuses existing dependencies. Missing locked dependencies stop the build. Runtime performs no installation or download. `native/lib/` is an ignored local delivery directory. Rebuild a matching library after source changes. To open the same interface with Python, run `"$PYTHON" -m sjtu_tpmshx.main --backend python`.
+The command builds current source offline, runs independent C/C++ callers and error checks, then replaces the host library. Missing dependencies or failed verification stop publication. Before replacing different library contents, it saves the old library and record under `previous/` in the same directory. Republishing identical contents keeps that backup. `build.json` records the source commit, uncommitted changes, build configuration and paths.
 
-In the left rail, Solver → Solver → Compute Backend selects Python or C++ without restarting. Startup arguments determine the initial selection. Switching affects the next ordinary computation, Quick Design, and optimization. It is locked during work and cancellation cleanup. C++ uses the startup library or the matching local macOS delivery library.
+`native/lib/` is an ignored local delivery directory. To roll back, stop programs using the library, then copy the library and `build.json` from `previous/` to the parent directory. Restore the matching source, Python environment and property version as well. Publication checks do not replace numerical regressions or desktop acceptance. Daily startup performs no build, installation or download. To open the same interface with Python, run `"$PYTHON" -m sjtu_tpmshx.main --backend python`.
+
+In the left rail, Solver → Solver → Compute Backend selects Python or C++ without restarting. Startup arguments determine the initial selection. Switching affects the next ordinary computation, Quick Design, and optimization. It is locked during work and cancellation cleanup. C++ uses the startup library or the matching local macOS or Windows delivery library.
+
+Source GUI and CLI share the default lookup. macOS uses `native/lib/macos-arm64/libtpmshx_solver_shared.dylib`; Windows uses `native/lib/windows-x64/tpmshx_solver_shared.dll`. The default table directory is `.cache/native-deps/tables`. With the matching library published there, use `--backend cpp`. Explicit library and table paths take priority. Direct solver API calls still pass host paths in `RunControl`.
 
 A missing library keeps the current selection and shows the reason. Python thread settings follow backend selection. C++ keeps its existing fixed parallel strategy. Selection is a window runtime setting. It is not saved in case files and does not change existing results.
 
@@ -157,7 +165,7 @@ Source GUI evidence covers 2D/3D display and export. Visible checks for cancella
 
 Engineering comparison, strict local regression, experimental accuracy, complete performance, and visible desktop acceptance keep separate thresholds. Folder startup and limited regression passes do not show full native qualification.
 
-Windows x64 users and macOS users without the local launcher should follow [project-folder instructions](docs/desktop.en.md#source-folder). Pass the native library and writable table directory explicitly.
+Windows x64 users and macOS users without the local launcher should follow [project-folder instructions](docs/desktop.en.md#source-folder). Pass explicit library and writable table paths when using locations other than the defaults.
 
 <a id="gui-use"></a>
 
@@ -299,7 +307,7 @@ Cancellation and failure do not become completed results. Completed nonconverged
 | Parameter scans and effective-field input | [Public examples](examples/) | No private solver members are changed. |
 | Offline cleaning and Nu fitting | `preprocess.offline` | Explicit sources. No automatic production-model replacement. Previous RBF publication is retired. |
 
-Current GUI continuous optimization keeps the full case's ports, fluids, and dimensional solver settings. It supports air A / water B. Default ranges are L=4–8 mm and t=0.3–0.6 mm. The solver validates each fluid's Nu applicability independently. `optimization.json` stores all conditions, controls, field definitions, failures, and native batch paths.
+Current GUI continuous optimization keeps the full case's ports, fluids, and dimensional solver settings. It supports air A / water B. Default ranges are L=4–8 mm and t=0.3–0.6 mm. The solver validates each fluid's Nu applicability independently. `optimization.json` stores all conditions, controls, field definitions, failures, and native batch paths. It and `batch.json` record the selected `backend`, including failures and cancellation, without local library paths.
 
 Only fully qualified numerical batches receive objective values. GUI Pareto application keeps complete fields. Different current geometry, ports, or solver settings cause rejection. Arbitrary external CLI configurations are not GUI presets. Evaluation count is a search budget, not proof of algorithm convergence or experimental accuracy.
 
@@ -344,7 +352,7 @@ Existing test helpers stay. `run_tests_fast.ps1` is development feedback only. I
 
 The same parameter is accepted by `run_tests_fast.ps1`. Tests start only after the selected lock and `pip check` pass. Scripts install nothing. A server lock does not permit unlisted packages.
 
-GitHub workflows use checkout v5, setup-python v6, upload-artifact v6, and download-artifact v8 for shard gates. Action runtimes do not change solver Python environments. `three-module` independently validates real file handoff from a complete environment to minimal postprocessing. Base and separate BO jobs cover macOS/Python 3.13 and Windows/Python 3.12 and 3.13. BO jobs install platform-specific locks, validate environments, and explicitly import Torch/BoTorch/GPyTorch.
+GitHub workflows use checkout v7, setup-python v7, upload-artifact v7, and download-artifact v8 for shard gates. Action runtimes do not change solver Python environments. `three-module` independently validates real file handoff from a complete environment to minimal postprocessing. Base and separate BO jobs cover macOS/Python 3.13 and Windows/Python 3.12 and 3.13. BO jobs install platform-specific locks, validate environments, and explicitly import Torch/BoTorch/GPyTorch.
 
 They run multi-condition optimizer tests, including both real Log acquisition functions. Base jobs keep the lock without BO and test missing-optional-dependency behavior. BO uploads only JUnit reports for 7 days, without solve data or environments.
 

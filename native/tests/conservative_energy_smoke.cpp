@@ -519,6 +519,8 @@ void inlet_fourier_flux_six_directions() {
                     +internal*(c.ta[other]-c.ta[cell]);
                 const auto absolute=detail::fluid_energy_row(mesh,a,read(c.ta),read(c.ts),cell);
                 const auto defect=detail::fluid_energy_defect_row(mesh,a,read(c.ta),read(c.ts),cell);
+                const auto diffusion=detail::energy_diffusion(mesh,a,cell);
+                const auto reused=detail::fluid_energy_defect_row(mesh,a,read(c.ta),read(c.ts),cell,0.,&diffusion);
                 const detail::PointEnergyCoefficients coefficients{absolute.diagonal,absolute.neighbor};
                 const auto cached=detail::fluid_energy_row(mesh,a,read(c.ta),read(c.ts),cell,coefficients);
                 check(absolute.diagonal,expected_diagonal,"independent Fourier row diagonal");
@@ -528,6 +530,8 @@ void inlet_fourier_flux_six_directions() {
                 check(defect.rhs,absolute.rhs-absolute.diagonal*c.ta[cell],"absolute/defect mismatch");
                 check(defect.diagonal,absolute.diagonal,"defect diagonal differs");
                 check(defect.local_rhs,0.,"defect has an absolute local RHS");
+                check(reused.rhs,expected_residual[cell],"fixed diffusion changed physical Fourier defect");
+                check(reused.diagonal,expected_diagonal,"fixed diffusion changed Fourier diagonal");
                 check(cached.diagonal,absolute.diagonal,"cached Fourier diagonal differs");
                 check(cached.rhs,absolute.rhs,"cached Fourier RHS counts neighbor twice");
                 check(cached.local_rhs,absolute.local_rhs,"cached local RHS differs");
@@ -535,6 +539,7 @@ void inlet_fourier_flux_six_directions() {
                     const double expected=n>1&&face==2*axis+(other>cell) ? neighbor:0.;
                     check(absolute.neighbor[face],expected,"independent inward neighbor coefficient");
                     check(defect.neighbor[face],expected,"defect inward neighbor coefficient");
+                    check(reused.neighbor[face],expected,"fixed diffusion changed inward neighbor coefficient");
                     check(cached.neighbor[face],expected,"cached inward neighbor coefficient");
                 }
                 check(absolute.diagonal-std::accumulate(absolute.neighbor.begin(),absolute.neighbor.end(),0.),
@@ -595,6 +600,45 @@ void inlet_fourier_flux_six_directions() {
     }
 }
 
+void fixed_diffusion_keeps_transport_and_state_live() {
+    for(int direction=0;direction<6;++direction) for(bool second_order:{false,true}) {
+        Case c(3,2,2);
+        c.widths={Values{.2,.5,.3},Values{.1,.4},Values{.3,.7}};
+        for(std::size_t p=0;p<c.ta.size();++p) {
+            c.a.conductivity[p]=.1*(p+1);c.ks[p]=.3*(p+1);
+        }
+        const auto grid=c.grid();const detail::EnergyMesh mesh(grid);
+        Values source(c.ta.size(),7.);
+        const EnergyPhase phase{read(c.a.conductivity),read(c.a.hv),read(source),
+            {c.a.faces(),c.b.faces()},{direction,360.,{},{},{}},true,second_order};
+        std::vector<detail::EnergyDiffusion> fluid,solid;
+        for(std::size_t p=0;p<c.ta.size();++p) {
+            fluid.push_back(detail::energy_diffusion(mesh,phase,p));
+            solid.push_back(detail::energy_diffusion(mesh,read(c.ks),p));
+        }
+        for(int step=0;step<3;++step) {
+            for(std::size_t axis=0;axis<3;++axis) for(std::size_t f=0;f<c.a.mass[axis].size();++f) {
+                c.a.mass[axis][f]=.01*(step+1)*(static_cast<double>(f%3)-1.);
+                c.b.mass[axis][f]=.03*(step+2)*(f+1);
+            }
+            for(std::size_t p=0;p<c.ta.size();++p) {
+                c.ta[p]+=step+p;c.ts[p]-=.1*(step+p);c.tb[p]+=.2*step;
+                c.a.hv[p]=.4*(step+p);c.b.hv[p]=.2*(step+1);source[p]+=step;
+                const auto a=detail::fluid_energy_defect_row(mesh,phase,read(c.ta),read(c.ts),p,3.);
+                const auto b=detail::fluid_energy_defect_row(mesh,phase,read(c.ta),read(c.ts),p,3.,&fluid[p]);
+                require(a.diagonal==b.diagonal&&a.rhs==b.rhs&&a.neighbor==b.neighbor,
+                    "fixed fluid diffusion froze live transport, sources or state");
+                const auto s=detail::solid_energy_defect_row(mesh,read(c.ks),read(c.a.hv),read(c.b.hv),
+                    read(c.ta),read(c.tb),read(c.ts),read(source),p);
+                const auto r=detail::solid_energy_defect_row(mesh,read(c.ks),read(c.a.hv),read(c.b.hv),
+                    read(c.ta),read(c.tb),read(c.ts),read(source),p,&solid[p]);
+                require(s.diagonal==r.diagonal&&s.rhs==r.rhs&&s.neighbor==r.neighbor,
+                    "fixed solid diffusion froze exchange, sources or state");
+            }
+        }
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -608,6 +652,7 @@ int main() {
         prepared_capacity_sources_and_reservoir();
         diffusion_line_and_compensated_equilibrium();
         inlet_fourier_flux_six_directions();
+        fixed_diffusion_keeps_transport_and_state_live();
         std::cout << "conservative energy smoke passed\n";
         return 0;
     } catch (const std::exception& error) {

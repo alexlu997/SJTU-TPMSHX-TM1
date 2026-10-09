@@ -96,6 +96,14 @@ GS acceleration, including grids without extra port refinement. Trial sweeps
 count against the same budget and must reduce the GS update residual. Final
 acceptance still requires the independent actual-state equation certificate.
 
+The C++ 3D model-h driver computes fixed mesh/conductivity face conductances
+once per thermal call. Numerical line and red-black sweeps reuse these values,
+including the inlet Fourier reconstruction. Temperature-dependent face
+transport, exchange, sources and row accumulation order stay unchanged.
+Physical audits recompute conductances from the original inputs. The cache is
+local to the call and adds 216 bytes per cell when both fluids are solved
+(about 2.85 MiB for 24 cubed cells); prescribed B uses 144 bytes per cell.
+
 For source-free 3D model-h, stable heat and temperature changes trigger the
 shared energy certificate. A failed residual or source-balance gate continues
 thermal sweeps within the existing budget. Missing physical inflow data returns
@@ -512,7 +520,9 @@ objectives. Each condition has equal weight, with 50/50 pressure-side weights. T
 
 `evaluate_condition_batch` runs a fixed design's air-A/water-B conditions
 serially into a new directory. Each member keeps its input, prepared Case,
-native result and metrics as soon as that stage succeeds. `batch.json` keeps
+native result and metrics as soon as that stage succeeds. `batch.json` and
+`optimization.json` record the requested `backend` even on failure or cancellation;
+host library and table paths stay outside these records. `batch.json` keeps
 all requested members, failure stages and reasons, unrun members after
 cancellation, and the baseline metric values/definitions and source IDs. Cancellation propagates. Ordinary condition failures continue without fabricated
 penalties. If saving a failure/cancellation checkpoint also fails, the original exception
@@ -648,6 +658,15 @@ meet the same limit.
 The enthalpy-update criterion stays independent. A final chunk containing
 clipped enthalpy updates cannot certify convergence. The true-h ledger records
 the effective settings, residual budgets, clip counts and exit reason.
+
+CoolProp 8 uses a 30-bit temperature bracket for some HEOS H/P inversions.
+Both true-h drivers apply one Newton correction with the same HEOS H(T,P)
+and cp to restore enthalpy consistency. Raw and corrected states retain the
+original domain checks. BICUBIC iteration remains separate from exact HEOS
+finishing. Its table cache is versioned to prevent reuse of tables generated
+by an earlier EOS release. Fluid sweeps use the algebraically equivalent
+enthalpy defect so an isothermal state at a legal enthalpy bound does not
+acquire cancellation error from subtracting absolute temperatures.
 
 The existing product model-h route uses signed mass faces and minmod SOU on
 **both** fluid sides in both dimensions. Its fluid Picard update uses the shared `MODEL_H_RELAXATION=0.2`

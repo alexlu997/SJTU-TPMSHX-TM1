@@ -4,7 +4,7 @@
 BUILD_DIR = .cache\native
 !ENDIF
 !IFNDEF TPMSHX_EIGEN_INCLUDE
-TPMSHX_EIGEN_INCLUDE = .cache\native-deps\src\CoolProp-7.2.0\externals\Eigen
+TPMSHX_EIGEN_INCLUDE = .cache\native-deps\src\Eigen-5.0.1
 !ENDIF
 !IF !EXIST("$(TPMSHX_EIGEN_INCLUDE)\Eigen\SparseLU")
 !ERROR Missing Eigen/SparseLU; set TPMSHX_EIGEN_INCLUDE to the existing locked Eigen headers.

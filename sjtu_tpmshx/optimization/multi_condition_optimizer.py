@@ -174,7 +174,7 @@ def run_multi_condition_optimization(
     root = Path(output_dir)
     root.mkdir(parents=True, exist_ok=False)
     history = []
-    record = dict(method=method, seed=seed, dimension=dimension, field_spec=spec,
+    record = dict(method=method, backend=control.backend, seed=seed, dimension=dimension, field_spec=spec,
         software_versions=versions, n_init=n_init, n_iter=n_iter, q_batch=q_batch,
         design_budget=budget, baseline_batches=1, status='running', stage='baseline', reason=None,
         objective_directions={'heat_gain_percent': 'maximize', 'pressure_ratio': 'minimize'},

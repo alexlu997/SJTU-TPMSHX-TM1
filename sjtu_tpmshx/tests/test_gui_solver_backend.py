@@ -57,14 +57,18 @@ def test_missing_explicit_library_keeps_previous_selection(win, tmp_path, monkey
     assert len(messages) == 1 and previous.native_library in messages[0]
 
 
-def test_python_start_resolves_local_macos_delivery(win, tmp_path, monkeypatch):
-    from sjtu_tpmshx.ui import solver_backend
-    library = tmp_path / 'native/lib/macos-arm64/libtpmshx_solver_shared.dylib'
+@pytest.mark.parametrize('platform,relative', [
+    ('darwin', 'native/lib/macos-arm64/libtpmshx_solver_shared.dylib'),
+    ('win32', 'native/lib/windows-x64/tpmshx_solver_shared.dll'),
+])
+def test_python_start_resolves_local_delivery(win, tmp_path, monkeypatch, platform, relative):
+    from sjtu_tpmshx.io import cli_options
+    library = tmp_path / relative
     library.parent.mkdir(parents=True)
     library.touch()
-    monkeypatch.setattr(solver_backend, 'SOURCE_ROOT', tmp_path)
-    monkeypatch.setattr(solver_backend.sys, 'platform', 'darwin')
-    monkeypatch.setattr(solver_backend.sys, 'frozen', False, raising=False)
+    monkeypatch.setattr(cli_options, 'SOURCE_ROOT', tmp_path)
+    monkeypatch.setattr(cli_options.sys, 'platform', platform)
+    monkeypatch.setattr(cli_options.sys, 'frozen', False, raising=False)
     win.combo_solver_backend.setCurrentIndex(win.combo_solver_backend.findData('cpp'))
     assert win.run_control.backend == 'cpp'
     assert win.run_control.native_library == str(library)

@@ -334,9 +334,9 @@ case = case_data(("sco2", "water"), shape=(3, 2, 1))
 before = CP.get_config_as_json_string()
 with ThreadPoolExecutor(max_workers=2) as pool:
     results = list(pool.map(native, [case, case]))
+assert CP.get_config_as_json_string() == before
 for result in results:
     assert_same(case, result)
-assert CP.get_config_as_json_string() == before
 assert results[0]["status"] == results[1]["status"]
 print(json.dumps({"concurrent_runs": 2, "iterations": results[0]["status"][1], "python_config_unchanged": True}))
 '''

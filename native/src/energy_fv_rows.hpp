@@ -157,13 +157,43 @@ InletDiffusion inlet_diffusion(const EnergyMesh& m,const Phase& f,std::size_t p,
     return {G0*(1.+x*(rp+rn)/denominator),G0*(x*rp/denominator),q};
 }
 
+// Numerical sweeps may reuse fixed K/grid terms; transport and audits stay live.
+struct EnergyDiffusion {
+    std::array<double,6> face{};
+    InletDiffusion inlet{};
+};
+inline EnergyDiffusion energy_diffusion(const EnergyMesh& m,ArrayView<const double> k,
+                                      std::size_t p) {
+    EnergyDiffusion result;
+    const auto c=m.coord(p);
+    for(std::size_t axis=0;axis<3;++axis) for(int sign:{-1,1}) {
+        if(!m.inside(c,axis,sign)) continue;
+        const auto q=m.neighbor(p,axis,sign),nc=sign<0 ? c[axis]-1:c[axis]+1;
+        result.face[2*axis+(sign>0)]=diffusion_conductance(k[p],k[q],
+            .5*m.width[axis][c[axis]],.5*m.width[axis][nc])*m.face_area(axis,c);
+    }
+    return result;
+}
+inline EnergyDiffusion energy_diffusion(const EnergyMesh& m,const EnergyPhase& f,
+                                      std::size_t p) {
+    auto result=energy_diffusion(m,f.K,p);
+    const auto c=m.coord(p);
+    for(std::size_t axis=0;axis<3;++axis) for(int sign:{-1,1}) {
+        if(m.inside(c,axis,sign)||!inlet_face(f.inlet,axis,sign)) continue;
+        result.inlet=inlet_diffusion(m,f,p,axis,sign);
+        result.face[2*axis+(sign>0)]=result.inlet.boundary;
+    }
+    return result;
+}
+
 // One conservative physical row for both finite representations and updates.
 // The default absolute form keeps its historical accumulation order. In the
 // defect form rhs is evaluated as differences, never as rhs_absolute-D*T.
 template<bool Defect,bool Cached=false,class Phase>
 EnergyRow assemble_fluid_energy_row(const EnergyMesh& m,const Phase& f,
         ArrayView<const double> t,ArrayView<const double> ts,std::size_t p,
-        double numerical_W=0.,const PointEnergyCoefficients* cached=nullptr) {
+        double numerical_W=0.,const PointEnergyCoefficients* cached=nullptr,
+        const EnergyDiffusion* diffusion=nullptr) {
     static_assert(!Defect||!Cached,"physical defects never use the point cache");
     const auto c=m.coord(p);
     const double volume=m.volume(c), h=exchange(f)[p]*volume;
@@ -176,7 +206,7 @@ EnergyRow assemble_fluid_energy_row(const EnergyMesh& m,const Phase& f,
         int inlet_sign=0;
         if(second_order_inlet(f)) for(int sign:{-1,1})
             if(!m.inside(c,axis,sign)&&inlet_face(f.inlet,axis,sign)) {
-                inlet=inlet_diffusion(m,f,p,axis,sign);inlet_sign=sign;
+                inlet=diffusion ? diffusion->inlet:inlet_diffusion(m,f,p,axis,sign);inlet_sign=sign;
             }
         const LinearFace faces[]{face_energy(f,m,p,axis,-1),face_energy(f,m,p,axis,1)};
         if constexpr(Defect) {
@@ -196,7 +226,8 @@ EnergyRow assemble_fluid_energy_row(const EnergyMesh& m,const Phase& f,
             double coefficient;
             if constexpr(Cached) coefficient=cached->neighbor[2*axis+(sign>0)];
             else {
-                const double G=diffusion_conductance(effective_K(f,p),effective_K(f,q),
+                const double G=diffusion ? diffusion->face[2*axis+(sign>0)]
+                    : diffusion_conductance(effective_K(f,p),effective_K(f,q),
                     .5*m.width[axis][c[axis]],.5*m.width[axis][nc])*m.face_area(axis,c);
                 row.diagonal+=G;coefficient=G+std::max(-outward,0.);
                 if(inlet.neighbor>0.&&q==inlet.neighbor_cell) {
@@ -206,7 +237,8 @@ EnergyRow assemble_fluid_energy_row(const EnergyMesh& m,const Phase& f,
             row.rhs+=coefficient*(Defect ? t[q]-t[p]:t[q]);
             row.neighbor[2*axis+(sign>0)]=coefficient;
         } else {
-            const double G=sign==inlet_sign ? inlet.boundary:inlet_conductance(m,f,p,axis,sign);
+            const double G=diffusion ? diffusion->face[2*axis+(sign>0)]
+                : sign==inlet_sign ? inlet.boundary:inlet_conductance(m,f,p,axis,sign);
             if constexpr(!Cached) row.diagonal+=G;
             const double incoming=G+std::max(-outward,0.);
             if(incoming>0.) {
@@ -250,8 +282,8 @@ EnergyRow fluid_energy_row(const EnergyMesh& m,const Phase& f,
 template<class Phase>
 EnergyRow fluid_energy_defect_row(const EnergyMesh& m,const Phase& f,
         ArrayView<const double> t,ArrayView<const double> ts,std::size_t p,
-        double numerical_W=0.) {
-    return assemble_fluid_energy_row<true>(m,f,t,ts,p,numerical_W);
+        double numerical_W=0.,const EnergyDiffusion* diffusion=nullptr) {
+    return assemble_fluid_energy_row<true>(m,f,t,ts,p,numerical_W,nullptr,diffusion);
 }
 
 template<bool Defect,bool Cached=false>
@@ -259,7 +291,7 @@ EnergyRow assemble_solid_energy_row(const EnergyMesh& m,ArrayView<const double> 
         ArrayView<const double> hva,ArrayView<const double> hvb,
         ArrayView<const double> ta,ArrayView<const double> tb,
         ArrayView<const double> ts,ArrayView<const double> source,std::size_t p,
-        const PointEnergyCoefficients* cached=nullptr) {
+        const PointEnergyCoefficients* cached=nullptr,const EnergyDiffusion* diffusion=nullptr) {
     static_assert(!Defect||!Cached,"physical defects never use the point cache");
     const auto c=m.coord(p);const double volume=m.volume(c);
     const double a=hva[p]*volume,b=hvb[p]*volume;
@@ -272,7 +304,8 @@ EnergyRow assemble_solid_energy_row(const EnergyMesh& m,ArrayView<const double> 
         double G;
         if constexpr(Cached) G=cached->neighbor[2*axis+(sign>0)];
         else {
-            G=diffusion_conductance(ks[p],ks[q],.5*m.width[axis][c[axis]],
+            G=diffusion ? diffusion->face[2*axis+(sign>0)]
+                : diffusion_conductance(ks[p],ks[q],.5*m.width[axis][c[axis]],
                 .5*m.width[axis][nc])*m.face_area(axis,c);
             row.diagonal+=G;
         }
@@ -298,8 +331,9 @@ inline EnergyRow solid_energy_row(const EnergyMesh& m,ArrayView<const double> ks
 inline EnergyRow solid_energy_defect_row(const EnergyMesh& m,ArrayView<const double> ks,
         ArrayView<const double> hva,ArrayView<const double> hvb,
         ArrayView<const double> ta,ArrayView<const double> tb,
-        ArrayView<const double> ts,ArrayView<const double> source,std::size_t p) {
-    return assemble_solid_energy_row<true>(m,ks,hva,hvb,ta,tb,ts,source,p);
+        ArrayView<const double> ts,ArrayView<const double> source,std::size_t p,
+        const EnergyDiffusion* diffusion=nullptr) {
+    return assemble_solid_energy_row<true>(m,ks,hva,hvb,ta,tb,ts,source,p,nullptr,diffusion);
 }
 
 // Caller owns and reuses this O(line length) workspace. No per-cell or
@@ -388,12 +422,13 @@ template<class Phase>
 double fluid_energy_line(const EnergyMesh& m,const Phase& f,ArrayView<double> t,
         ArrayView<const double> ts,std::size_t axis,std::size_t start,
         double omega,EnergyLineScratch& work,ArrayView<const double> numerical={},
-        ArrayView<double> compensation={}) {
+        ArrayView<double> compensation={},const EnergyDiffusion* diffusion=nullptr) {
     check_line_workspace(m,axis,omega,work,compensation);
     const ArrayView<const double> temperature{t.data,t.size};
     for(std::size_t j=0;j<m.count[axis];++j) {
         const auto p=start+j*m.stride[axis];
-        const auto row=fluid_energy_defect_row(m,f,temperature,ts,p,optional(numerical,p));
+        const auto row=fluid_energy_defect_row(m,f,temperature,ts,p,optional(numerical,p),
+            diffusion ? diffusion+p:nullptr);
         append_line_row(work,j,row.diagonal,-row.neighbor[2*axis],
             -row.neighbor[2*axis+1],row.rhs);
     }
@@ -404,12 +439,14 @@ inline double solid_energy_line(const EnergyMesh& m,ArrayView<const double> ks,
         ArrayView<const double> hva,ArrayView<const double> hvb,
         ArrayView<const double> ta,ArrayView<const double> tb,ArrayView<double> ts,
         ArrayView<const double> source,std::size_t axis,std::size_t start,
-        double omega,EnergyLineScratch& work,ArrayView<double> compensation={}) {
+        double omega,EnergyLineScratch& work,ArrayView<double> compensation={},
+        const EnergyDiffusion* diffusion=nullptr) {
     check_line_workspace(m,axis,omega,work,compensation);
     const ArrayView<const double> temperature{ts.data,ts.size};
     for(std::size_t j=0;j<m.count[axis];++j) {
         const auto p=start+j*m.stride[axis];
-        const auto row=solid_energy_defect_row(m,ks,hva,hvb,ta,tb,temperature,source,p);
+        const auto row=solid_energy_defect_row(m,ks,hva,hvb,ta,tb,temperature,source,p,
+            diffusion ? diffusion+p:nullptr);
         append_line_row(work,j,row.diagonal,-row.neighbor[2*axis],
             -row.neighbor[2*axis+1],row.rhs);
     }

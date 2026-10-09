@@ -43,7 +43,7 @@ int main(void) {
     status = tpmshx_solve_enthalpy_v1(shape,arrays,sizes,&config,NULL,&result,error,sizeof(error));
     if (status || result.stop != TPMSHX_ENTHALPY_CONVERGED || !result.audit_available
         || !result.audit.fluid_equations_computed || result.audit.equation_ratio > 1e-3
-        || strcmp(result.coolprop_version,"7.2.0") || error[0]) {
+        || strcmp(result.coolprop_version,"8.0.0") || error[0]) {
         fprintf(stderr,"true-h C solve failed: status=%d, %s\n",status,error); return 2;
     }
     for (i = 0; i < 8; ++i)

@@ -1,23 +1,20 @@
-# Windows x64 / Python 3.12 and 3.13 optional BO environment. The shared solver, GUI, test, and
-# development environment, including TM1 YAML/HDF5, is pinned once in requirements-lock.txt.
+# Windows x64 / Python 3.12 and 3.13 optional BO environment.
+# Shared solver, GUI, I/O, test and development dependencies are pinned once.
 -r requirements-lock.txt
 
 --extra-index-url https://download.pytorch.org/whl/cpu
-botorch==0.17.2
-filelock==3.29.0
-fsspec==2026.4.0
+botorch==0.18.1
+filelock==4.0.12
+fsspec==2026.9.0
 gpytorch==1.15.2
 Jinja2==3.1.6
 linear_operator==0.6.1
-MarkupSafe==3.0.3
+MarkupSafe==3.0.4
 multipledispatch==1.0.0
-opt_einsum==3.4.0
+narwhals==2.26.0
+ninja==1.13.2
 pyre-extensions==0.0.32
-pyro-api==0.1.2
-pyro-ppl==1.9.1
-# Required by the retained GPyTorch optimization stack, not the base solver.
-scikit-learn==1.8.0
-threadpoolctl==3.6.0
-torch==2.11.0+cpu
-tqdm==4.68.4
+scikit-learn==1.9.1
+threadpoolctl==3.7.0
+torch==2.14.1+cpu
 typing-inspect==0.9.0

@@ -576,17 +576,20 @@ exercise saved-case selection, cancellation and actual native error exits. Neith
 The dependency pilot is an explicit build, separate from production backend
 selection. Its inputs are locked in
 [`native/dependencies-lock.toml`](../native/dependencies-lock.toml).
-These include CoolProp 7.2.0 with its recursive submodules and the SuperLU 6.0.1
-source commit used by SciPy 1.17.1. They also include AMGCL 1.4.4 and portable
-CMake 3.31.8. Source, binaries,
+These include CoolProp 8.0.0, its nine required CPM header dependencies at fixed
+commits, and SuperLU 7.0.1 with three selected SciPy 1.18.1 double-LU corrections.
+The SuperLU source is not identical to SciPy's bundled revision. They also
+include AMGCL 1.5.0 and portable CMake 4.4.4. Source, binaries,
 logs and tabular EOS files stay under the worktree's `.cache/native-deps`.
 [`native/THIRD_PARTY_NOTICES.md`](../native/THIRD_PARTY_NOTICES.md) records the
 linked components and their original license notices.
 
 After explicit native-dependency provisioning authorization, use the configured
-interpreter and the existing lock checks. `fetch` is the only network step.
+interpreter and the existing lock checks. `fetch` provisions the complete dependencies.
 `build` is offline and does not install Python packages or change the shared
-environment:
+environment. `fetch-eigen` fetches only the fixed Eigen 5.0.1 headers for the
+EOS-free thermal library. The CoolProp build uses explicit local CPM paths with
+FetchContent disconnected; it does not fetch optional test or wrapper modules:
 
 ```sh
 "$tm1_python" scripts/build_native_dependencies.py fetch

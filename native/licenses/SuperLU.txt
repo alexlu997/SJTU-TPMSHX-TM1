@@ -64,7 +64,6 @@ be removed for commercial users. MC64 routine carries the following notice:
   None of the comments from the Copyright notice up to and including this
   one shall be removed or altered in any way.
 
-
 ========================================================================
 Additional original notice from SRC/colamd.h
 ========================================================================
@@ -106,4 +105,3 @@ Additional original notice from SRC/colamd.h
 	listed below, or that uses the colamd/symamd definitions listed below.
 
 */
-

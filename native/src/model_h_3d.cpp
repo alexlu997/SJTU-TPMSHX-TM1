@@ -8,6 +8,7 @@ using namespace model_h_common;
 using Vector=std::vector<double>;
 using Coordinate=std::array<std::size_t,3>;
 using Faces=std::array<Vector,3>;
+using Diffusion=std::array<std::vector<detail::EnergyDiffusion>,3>;
 struct Mesh {
     const GridView& g;
     std::size_t n;
@@ -108,7 +109,7 @@ void update(ArrayView<double> t, Vector& carry, std::size_t p, double defect_ste
 double sweeps(const Mesh& mesh, Side& a, Side& b, ArrayView<const double> ks, ArrayView<const double> source_s,
               TemperatureStateView t, const ModelHControl3D& control, std::size_t count,
               std::size_t line_axis,detail::EnergyLineScratch& line_work,std::array<Vector,3>& carry,
-              bool solve_b) {
+              const Diffusion& diffusion,bool solve_b) {
     const detail::EnergyMesh energy_mesh(mesh.g);
     const auto phase_a=a.energy(),phase_b=b.energy();
     const double alpha_a=std::min(control.alpha_a,model_coefficients::model_h_relaxation);
@@ -122,12 +123,13 @@ double sweeps(const Mesh& mesh, Side& a, Side& b, ArrayView<const double> ks, Ar
             for (std::size_t ordinal=0; ordinal<energy_mesh.line_count(line_axis); ++ordinal) {
                 const auto start=energy_mesh.line_start(line_axis,ordinal);
                 change=std::max(change,detail::fluid_energy_line(energy_mesh,phase_a,t.a,view(t.solid),
-                    line_axis,start,alpha_a,line_work,{}, {carry[0].data(),carry[0].size()}));
+                    line_axis,start,alpha_a,line_work,{}, {carry[0].data(),carry[0].size()},diffusion[0].data()));
                 change=std::max(change,detail::solid_energy_line(energy_mesh,ks,a.f.hv,b.f.hv,
-                    view(t.a),view(t.b),t.solid,source_s,line_axis,start,control.alpha_solid,line_work,{carry[2].data(),carry[2].size()}));
+                    view(t.a),view(t.b),t.solid,source_s,line_axis,start,control.alpha_solid,line_work,
+                    {carry[2].data(),carry[2].size()},diffusion[2].data()));
                 if (solve_b)
                     change=std::max(change,detail::fluid_energy_line(energy_mesh,phase_b,t.b,view(t.solid),
-                        line_axis,start,alpha_b,line_work,{}, {carry[1].data(),carry[1].size()}));
+                        line_axis,start,alpha_b,line_work,{}, {carry[1].data(),carry[1].size()},diffusion[1].data()));
             }
             if (change==0.) break;
             continue;
@@ -138,15 +140,15 @@ double sweeps(const Mesh& mesh, Side& a, Side& b, ArrayView<const double> ks, Ar
                     const auto i=ii,j=jj,k=kk;
                     if ((i+j+k)%2!=color) continue;
                     const Coordinate c{i,j,k}; const auto p=mesh.cell(c);
-                    const auto row_a=detail::fluid_energy_defect_row(energy_mesh,phase_a,view(t.a),view(t.solid),p);
+                    const auto row_a=detail::fluid_energy_defect_row(energy_mesh,phase_a,view(t.a),view(t.solid),p,0.,&diffusion[0][p]);
                     update(t.a,carry[0],p,row_a.rhs/std::max(row_a.diagonal,1e-30),alpha_a,change);
                     const auto row_s=detail::solid_energy_defect_row(energy_mesh,ks,a.f.hv,b.f.hv,
-                        view(t.a),view(t.b),view(t.solid),source_s,p);
+                        view(t.a),view(t.b),view(t.solid),source_s,p,&diffusion[2][p]);
                     if (!std::isfinite(row_s.diagonal) || row_s.diagonal<=0)
                         throw std::domain_error("invalid 3D model-h solid row");
                     update(t.solid,carry[2],p,row_s.rhs/row_s.diagonal,control.alpha_solid,change);
                     if (solve_b) {
-                        const auto row_b=detail::fluid_energy_defect_row(energy_mesh,phase_b,view(t.b),view(t.solid),p);
+                        const auto row_b=detail::fluid_energy_defect_row(energy_mesh,phase_b,view(t.b),view(t.solid),p,0.,&diffusion[1][p]);
                         update(t.b,carry[1],p,row_b.rhs/std::max(row_b.diagonal,1e-30),alpha_b,change);
                     }
                 }
@@ -315,6 +317,16 @@ ModelHResult3D solve_model_h_3d(const GridView& grid, const ModelHFluid3D& a,
     const auto line_axis=control.red_black ? 0U
         : detail::dominant_diffusion_axis(energy_mesh,side_a.energy(),side_b.energy(),ks);
     detail::EnergyLineScratch line_work(control.red_black ? 0 : energy_mesh.count[line_axis]);
+    Diffusion diffusion;
+    if(control.max_iterations) {
+        diffusion[0].reserve(mesh.n);diffusion[2].reserve(mesh.n);
+        if(solve_b) diffusion[1].reserve(mesh.n);
+        for(std::size_t p=0;p<mesh.n;++p) {
+            diffusion[0].push_back(detail::energy_diffusion(energy_mesh,side_a.energy(),p));
+            diffusion[2].push_back(detail::energy_diffusion(energy_mesh,ks,p));
+            if(solve_b) diffusion[1].push_back(detail::energy_diffusion(energy_mesh,side_b.energy(),p));
+        }
+    }
     std::array<Vector,3> carry{Vector(mesh.n),Vector(mesh.n),Vector(mesh.n)};
     const auto reset_carry=[&] { for(auto& field:carry) std::fill(field.begin(),field.end(),0.); };
     auto previous=pack(t,solve_b); double previous_q=0; bool have_q=false;
@@ -336,7 +348,7 @@ ModelHResult3D solve_model_h_3d(const GridView& grid, const ModelHFluid3D& a,
     struct Cancelled {};
     const auto step=[&](std::size_t count) {
         if (cancelled()) throw Cancelled{};
-        const double change=sweeps(mesh,side_a,side_b,ks,source_s,t,control,count,line_axis,line_work,carry,solve_b);
+        const double change=sweeps(mesh,side_a,side_b,ks,source_s,t,control,count,line_axis,line_work,carry,diffusion,solve_b);
         if (cancelled()) throw Cancelled{};
         return change;
     };

@@ -1,4 +1,4 @@
-# Fixed double-real LU subset of the SciPy 1.17.1 upstream baseline.
+# Fixed double-real SuperLU 7.0.1 subset with selected SciPy 1.18.1 corrections.
 # Deliberately excludes MC64, ILU drivers, METIS, Fortran and other precisions.
 # Shared utility files still contain upstream unused ILU utility functions.
 # Private C allocation/ABORT hooks return through the protected C solve boundary.
@@ -7,7 +7,7 @@ set(HAVE_METIS 0)
 set(HAVE_COLAMD 1)
 set(XSDK_INDEX_SIZE 32)
 configure_file("${SUPERLU_SOURCE}/SRC/superlu_config.h.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/tpmshx_superlu_config.h")
+    "${CMAKE_CURRENT_BINARY_DIR}/superlu_config.h")
 set(lu_sources
     superlu_timer.c util.c memory.c get_perm_c.c mmd.c sp_coletree.c
     sp_preorder.c sp_ienv.c relax_snode.c heap_relax_snode.c colamd.c
@@ -24,19 +24,18 @@ target_include_directories(tpmshx_superlu_lu SYSTEM PUBLIC
 target_compile_definitions(tpmshx_superlu_lu PRIVATE SCIPY_FIX=1)
 target_include_directories(tpmshx_superlu_lu PRIVATE "${TPMSHX_ROOT}/native/include"
     "${TPMSHX_ROOT}/native/src")
-# Use a distinct generated name: hooks load it before upstream headers even
-# when MSVC processes source-level forced includes before target options.
-# Public consumers retain the same 32-bit/no-METIS contract.
+# Load the generated configuration before allocator hooks, including with MSVC
+# source-level forced includes. Consumers retain the 32-bit/no-METIS contract.
 if(MSVC)
     target_compile_options(tpmshx_superlu_lu PUBLIC
-        "/FI${CMAKE_CURRENT_BINARY_DIR}/tpmshx_superlu_config.h")
+        "/FI${CMAKE_CURRENT_BINARY_DIR}/superlu_config.h")
     set(superlu_hooks_option
         "/FI${TPMSHX_ROOT}/native/src/superlu_hooks.h")
     set_source_files_properties("${TPMSHX_ROOT}/native/src/superlu_solve.c" PROPERTIES
         COMPILE_OPTIONS "/W4;/WX")
 else()
     target_compile_options(tpmshx_superlu_lu PUBLIC
-        "SHELL:-include \"${CMAKE_CURRENT_BINARY_DIR}/tpmshx_superlu_config.h\"")
+        "SHELL:-include \"${CMAKE_CURRENT_BINARY_DIR}/superlu_config.h\"")
     set(superlu_hooks_option "-include${TPMSHX_ROOT}/native/src/superlu_hooks.h")
     set_source_files_properties("${TPMSHX_ROOT}/native/src/superlu_solve.c" PROPERTIES
         COMPILE_OPTIONS "-Wall;-Wextra;-Wpedantic;-Werror")

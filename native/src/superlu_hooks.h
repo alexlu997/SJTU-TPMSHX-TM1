@@ -2,7 +2,7 @@
 #define TPMSHX_SUPERLU_HOOKS_H
 
 /* Private build header: preincluded in every compiled SuperLU C unit. */
-#include <tpmshx_superlu_config.h>
+#include <superlu_config.h>
 #include "tpmshx/superlu_solve.h"
 
 #ifdef __cplusplus

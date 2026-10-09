@@ -4,7 +4,7 @@
 
 #include "model_h_common.hpp"
 
-#include <Exceptions.h>
+#include <CoolProp/Exceptions.h>
 
 #include <algorithm>
 #include <cmath>

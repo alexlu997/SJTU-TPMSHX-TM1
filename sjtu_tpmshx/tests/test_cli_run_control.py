@@ -49,6 +49,46 @@ def test_native_paths_require_explicit_cpp_backend(option, explicit_python):
         run_control_from_args(parser.parse_args(arguments))
 
 
+@pytest.mark.parametrize('platform,relative', [
+    ('darwin', 'native/lib/macos-arm64/libtpmshx_solver_shared.dylib'),
+    ('win32', 'native/lib/windows-x64/tpmshx_solver_shared.dll'),
+])
+def test_source_cli_resolves_local_delivery_and_preserves_explicit_paths(
+        tmp_path, monkeypatch, platform, relative):
+    from sjtu_tpmshx.io import cli_options
+    monkeypatch.setattr(cli_options, 'SOURCE_ROOT', tmp_path)
+    monkeypatch.setattr(cli_options.sys, 'platform', platform)
+    monkeypatch.setattr(cli_options.sys, 'frozen', False, raising=False)
+    parser = argparse.ArgumentParser()
+    add_run_control_arguments(parser)
+    assert run_control_from_args(parser.parse_args(['--backend', 'cpp'])) == RunControl(
+        backend='cpp', native_library=str(tmp_path / relative),
+        native_table_directory=str(tmp_path / '.cache/native-deps/tables'))
+    tables = tmp_path / 'selected-tables'
+    actual = run_control_from_args(parser.parse_args([
+        '--backend', 'cpp', '--native-table-directory', str(tables)]))
+    assert actual.native_library == str(tmp_path / relative)
+    assert actual.native_table_directory == str(tables)
+    library = tmp_path / 'selected-library'
+    assert run_control_from_args(parser.parse_args([
+        '--backend', 'cpp', '--native-library', str(library)])) == RunControl(
+        backend='cpp', native_library=str(library))
+
+
+def test_other_source_platform_requires_explicit_library(tmp_path, monkeypatch):
+    from sjtu_tpmshx.io import cli_options
+    monkeypatch.setattr(cli_options.sys, 'platform', 'linux')
+    monkeypatch.setattr(cli_options.sys, 'frozen', False, raising=False)
+    parser = argparse.ArgumentParser()
+    add_run_control_arguments(parser)
+    with pytest.raises(ValueError, match='use --native-library'):
+        run_control_from_args(parser.parse_args(['--backend', 'cpp']))
+    library = tmp_path / 'solver.so'
+    assert run_control_from_args(parser.parse_args([
+        '--backend', 'cpp', '--native-library', str(library)])) == RunControl(
+        backend='cpp', native_library=str(library))
+
+
 @pytest.mark.parametrize('stage', ['solve', 'run'])
 @pytest.mark.parametrize('backend', ['python', 'cpp'])
 def test_workflow_control_reaches_execution_and_cancellation_keeps_output(

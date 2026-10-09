@@ -1,7 +1,7 @@
 #pragma once
 #include "tpmshx/enthalpy_driver_c_api.h"
 #include "tpmshx/enthalpy_driver.hpp"
-#include <CoolProp.h>
+#include <CoolProp/CoolProp.h>
 #include <cmath>
 #include <cstdio>
 #include <stdexcept>

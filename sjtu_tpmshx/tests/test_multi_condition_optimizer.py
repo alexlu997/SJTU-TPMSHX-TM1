@@ -26,10 +26,12 @@ def _manifest(path):
     return json.loads((path / 'optimization.json').read_text())
 
 
-def _fake_batches(monkeypatch, *, fail_indices=(), baseline_failure=False, cancel_index=None):
+def _fake_batches(monkeypatch, *, fail_indices=(), baseline_failure=False, cancel_index=None,
+                  backend='python'):
     calls, baseline_token = [], {}
 
     def evaluate(conditions, *, output_dir, baseline=None, control=RunControl()):
+        assert control.backend == backend
         directory = Path(output_dir)
         directory.mkdir()
         index = len(calls)-1  # First call is the extra uniform baseline.
@@ -111,12 +113,13 @@ def test_invalid_resolved_speed_keeps_failed_baseline_evidence(tmp_path, monkeyp
 
 
 @pytest.mark.parametrize('dimension', [2, 3])
-def test_equal_design_budgets_initial_data_and_full_field_handoff(tmp_path, monkeypatch, dimension):
+@pytest.mark.parametrize('backend', ['python', 'cpp'])
+def test_equal_design_budgets_initial_data_and_full_field_handoff(tmp_path, monkeypatch, dimension, backend):
     originals = _conditions(dimension)
     snapshots = [asdict(row[1]) for row in originals]
     reports = []
     for method in ('sobol', 'qlognehvi', 'qlognparego'):
-        calls = _fake_batches(monkeypatch, fail_indices=(1,))
+        calls = _fake_batches(monkeypatch, fail_indices=(1,), backend=backend)
         proposals = []
 
         def propose(X, Y, lower, upper, reference, **kwargs):
@@ -129,8 +132,9 @@ def test_equal_design_budgets_initial_data_and_full_field_handoff(tmp_path, monk
         directory = tmp_path / method
         result = search.run_multi_condition_optimization(originals, output_dir=directory,
             method=method, n_init=3, n_iter=2, q_batch=2, seed=17,
-            control=RunControl(progress=progress.append))
+            control=RunControl(backend=backend, progress=progress.append))
         assert result == _manifest(directory)
+        assert result['backend'] == backend
         assert all('optimizer' not in row['config'] for row in result['conditions'])
         assert result['status'] == 'completed'
         assert result['design_budget'] == result['n_evaluated'] == 7
@@ -195,18 +199,20 @@ def test_failed_uniform_reference_stops_before_candidates(tmp_path, monkeypatch)
     result = search.run_multi_condition_optimization(_conditions(), output_dir=tmp_path / 'search',
         method='sobol', n_init=2, n_iter=1)
     assert len(calls) == 1 and result['status'] == 'failed'
+    assert result['backend'] == _manifest(tmp_path / 'search')['backend'] == 'python'
     assert result['history'] == result['pareto_indices'] == []
     assert result['baseline']['reason'] == 'bad reference'
 
 
 @pytest.mark.parametrize('pre_cancelled', [False, True])
 def test_cancel_retains_finished_and_current_native_evidence(tmp_path, monkeypatch, pre_cancelled):
-    calls = _fake_batches(monkeypatch, cancel_index=1)
+    calls = _fake_batches(monkeypatch, cancel_index=1, backend='cpp')
     directory = tmp_path / 'search'
     with pytest.raises(CancelledError):
         search.run_multi_condition_optimization(_conditions(), output_dir=directory, method='sobol',
-            n_init=3, n_iter=2, control=RunControl(cancel_check=lambda: pre_cancelled))
+            n_init=3, n_iter=2, control=RunControl(backend='cpp', cancel_check=lambda: pre_cancelled))
     result = _manifest(directory)
+    assert result['backend'] == 'cpp'
     assert result['status'] == 'cancelled'
     assert len(result['initial_designs']) == 3
     if pre_cancelled:

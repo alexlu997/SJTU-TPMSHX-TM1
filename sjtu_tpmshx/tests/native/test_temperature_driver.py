@@ -31,7 +31,7 @@ def temperature_native(tmp_path_factory):
         pytest.skip(message)
     root = Path(__file__).resolve().parents[3]
     eigen = Path(os.environ.get("TPMSHX_EIGEN_INCLUDE",
-                               root / ".cache/native-deps/src/CoolProp-7.2.0/externals/Eigen")).resolve()
+                               root / ".cache/native-deps/src/Eigen-5.0.1")).resolve()
     if not (eigen / "Eigen/SparseLU").is_file():
         pytest.fail(f"Missing Eigen/SparseLU in {eigen}; set TPMSHX_EIGEN_INCLUDE "
                     "to the existing locked Eigen headers")
