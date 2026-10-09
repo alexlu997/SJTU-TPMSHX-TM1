@@ -1,10 +1,25 @@
 """Explicit publication preserves the working library until validation succeeds."""
 import json
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import pytest
 
 from scripts import build_native_dependencies as native
+
+
+def test_coolprop_cpm_paths_are_safe_in_generated_cmake(monkeypatch):
+    commands = []
+    monkeypatch.setattr(native, "run", lambda command, *args, **kwargs: commands.append(command))
+    monkeypatch.setattr(native, "verify_sources", lambda cache: None)
+    monkeypatch.setattr(native, "apply_lu_patch", lambda cache: None)
+    monkeypatch.setattr(native, "cmake_path", lambda *args: PureWindowsPath("C:/cmake.exe"))
+    cache = PureWindowsPath("D:/a/project/.cache/native-deps")
+    native.build(cache, "windows-x64", PureWindowsPath("C:/python.exe"),
+                 Path("requirements-lock.txt"), "coolprop")
+    configure = next(command for command in commands if "-S" in command)
+    assert "-DCPM_Eigen_SOURCE=D:/a/project/.cache/native-deps/src/Eigen-5.0.1" in configure
+    assert all("\\" not in option for option in configure
+               if isinstance(option, str) and option.startswith("-DCPM_"))
 
 
 @pytest.fixture

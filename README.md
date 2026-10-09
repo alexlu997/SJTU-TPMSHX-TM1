@@ -152,6 +152,12 @@ Python 3.13 使用 `requirements-lock-bo-macos.txt`。BO 应安装到用户授�
 随后用对应锁运行环境检查及 `pip check`；勿将可选依赖加到正在使用的共享基础环境。
 上述小算例无需 BO。原始实验回归与重新拟合则需要匹配版本的本地数据，见文末。
 
+BoTorch 首次构造多目标 Log 采集函数时会尝试编译其可选 C++ 内核。
+将 `TORCH_EXTENSIONS_DIR` 设为当前工作树的 `.cache/torch-extensions`，并在该次运行的
+`PATH` 前放置 BO 环境的 `bin`（Windows 为 `Scripts`），使已锁定的 Ninja 可用。
+编译还需要本机 C++ 工具链；无法编译时 BoTorch 会报告并使用其 Python 实现。
+两种执行方式的性能证据需分别记录，首次编译不能计入暖态求解耗时。
+
 ### macOS 项目文件夹中的 C++ 候选库
 
 本次交付保留 Python/Qt 主程序和源码，在项目内放置匹配的预编译 C++ 库，
@@ -454,7 +460,7 @@ CI 快测按完整模块分到两个独立 runner，每片固定两个 worker，
 `run_tests_fast.ps1` 传同一参数；所选锁与 `pip check` 都通过后才启动测试。
 脚本不安装依赖，也不因为选择了服务器锁而放行锁外包。
 
-GitHub workflow 使用 checkout v5、setup-python v6、upload-artifact v6，
+GitHub workflow 使用 checkout v7、setup-python v7、upload-artifact v7，
 分片门使用 download-artifact v8。这些 Action 的运行时不改变求解器的 Python 环境；
 `three-module` 继续单独验证完整环境到最小后处理环境的真实文件交接。
 `ci` 的基础和独立 BO 作业均覆盖 macOS / Python 3.13，以及 Windows / Python

@@ -225,7 +225,7 @@ def build(cache: Path, host: str, python: Path, lock: Path, component: str) -> N
         options = [f"-D{value}" for value in spec["cmake-options"]]
         options += [f"-DPython_EXECUTABLE={python}"]
         options += ["-DFETCHCONTENT_FULLY_DISCONNECTED=ON"]
-        options += [f"-DCPM_{dependency['cpm-name']}_SOURCE={cache / 'src' / dependency['directory']}"
+        options += [f"-DCPM_{dependency['cpm-name']}_SOURCE={(cache / 'src' / dependency['directory']).as_posix()}"
                     for dependency in LOCK["sources"].values() if "cpm-name" in dependency]
         if host == "windows-x64":
             options += [f"-D{value}" for value in spec["windows-options"]]

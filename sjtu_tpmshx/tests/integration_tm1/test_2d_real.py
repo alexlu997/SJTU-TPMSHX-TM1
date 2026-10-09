@@ -88,8 +88,9 @@ def _assert_postprocessing(result):
 @pytest.mark.parametrize('fluid_A,u_A,P_A,fluid_B,P_B,expected_Q', [
     # Physical inlet-face pressure anchoring; the deliberately short fixed
     # outer budget still reports nonconvergence. Tolerances are unchanged.
-    ('sco2', .3, 12e6, 'water', 2e6, 45624.58629116599),
-    ('air', 3., 2e5, 'sco2', 12e6, 4416.181525306756),
+    # CoolProp 8 HEOS-polished references; independent extra HP refinement agrees.
+    ('sco2', .3, 12e6, 'water', 2e6, 45624.58630011295),
+    ('air', 3., 2e5, 'sco2', 12e6, 4416.181525308646),
 ])
 def test_mixed_partial_native_and_postprocessing(fluid_A,u_A,P_A,fluid_B,P_B,expected_Q):
     from sjtu_tpmshx.domain.compute_config import ExtrapPolicy

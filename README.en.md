@@ -121,6 +121,8 @@ Read the preceding command's exit code with `echo $?` on macOS or `$LASTEXITCODE
 
 The default lock includes GUI, file handoff, and test dependencies. It excludes Torch / BoTorch / GPyTorch. Windows CPU Bayesian optimization uses `requirements-lock-server.txt`. macOS arm64 / Python 3.13 uses `requirements-lock-bo-macos.txt`. Install BO only in a separately authorized environment.
 
+BoTorch tries to compile its optional C++ kernel when it first constructs a multi-objective Log acquisition function. Set `TORCH_EXTENSIONS_DIR` to `.cache/torch-extensions` in the current worktree. Prepend the BO environment's `bin` directory (`Scripts` on Windows) to `PATH` for that run so the locked Ninja is available. Compilation also requires a local C++ toolchain. If compilation fails, BoTorch reports the failure and uses its Python implementation. Record performance separately for the two paths, and keep first compilation outside warm measurements.
+
 Then do a check of the matching lock. Run `pip check`. Do not add optional dependencies to an active shared base environment. Small examples need no BO. Raw experimental regression and refitting need matching local data, described below.
 
 <a id="macos-项目文件夹中的-c-候选库"></a>
@@ -348,7 +350,7 @@ Existing test helpers stay. `run_tests_fast.ps1` is development feedback only. I
 
 The same parameter is accepted by `run_tests_fast.ps1`. Tests start only after the selected lock and `pip check` pass. Scripts install nothing. A server lock does not permit unlisted packages.
 
-GitHub workflows use checkout v5, setup-python v6, upload-artifact v6, and download-artifact v8 for shard gates. Action runtimes do not change solver Python environments. `three-module` independently validates real file handoff from a complete environment to minimal postprocessing. Base and separate BO jobs cover macOS/Python 3.13 and Windows/Python 3.12 and 3.13. BO jobs install platform-specific locks, validate environments, and explicitly import Torch/BoTorch/GPyTorch.
+GitHub workflows use checkout v7, setup-python v7, upload-artifact v7, and download-artifact v8 for shard gates. Action runtimes do not change solver Python environments. `three-module` independently validates real file handoff from a complete environment to minimal postprocessing. Base and separate BO jobs cover macOS/Python 3.13 and Windows/Python 3.12 and 3.13. BO jobs install platform-specific locks, validate environments, and explicitly import Torch/BoTorch/GPyTorch.
 
 They run multi-condition optimizer tests, including both real Log acquisition functions. Base jobs keep the lock without BO and test missing-optional-dependency behavior. BO uploads only JUnit reports for 7 days, without solve data or environments.
 
