@@ -2,7 +2,7 @@
 colorama==0.4.6; sys_platform == "win32"
 h5py==3.16.0
 iniconfig==2.3.1
-numpy==2.5.3
+numpy==2.4.4
 packaging==26.3
 pluggy==1.6.0
 Pygments==2.21.0

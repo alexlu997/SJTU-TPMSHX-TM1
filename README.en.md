@@ -67,7 +67,7 @@ $tm1Python = Get-Content .venv-path -TotalCount 1
 
 These commands call the environment interpreter directly. No activation script or PowerShell execution-policy change is required. This is [supported venv usage](https://docs.python.org/3.13/library/venv.html#how-venvs-work). `.venv-path` stores a local absolute path and is not shared through Git. Read it again in each new terminal.
 
-For a dependency upgrade, create and prewarm a separate environment. Keep the old environment and its source revision. The current locks include NumPy 2.5, Numba 0.68, SciPy 1.18, pandas 3, CoolProp 8 and Qt 6.12. BO and desktop packaging use their own complete locks. Do not install the new lock into a shared environment used by another worktree. After changing `.venv-path`, pass the lock check and `pip check` before computation or tests.
+For a dependency upgrade, create and prewarm a separate environment. Keep the old environment and its source revision. The current locks keep NumPy 2.4.4, Numba 0.64 and llvmlite 0.46 to avoid the measured warm-solve slowdown. SciPy 1.18, pandas 3, CoolProp 8 and Qt 6.12 stay on the newer versions. BO and desktop packaging use their own complete locks. Do not install the new lock into a shared environment used by another worktree. After changing `.venv-path`, pass the lock check and `pip check` before computation or tests.
 
 CO₂ interpolation tables are separated by CoolProp version. Python defaults to `XDG_CACHE_HOME/coolprop/CoolProp-8.0.0`. An explicit `COOLPROP_ALTERNATIVE_TABLES_DIRECTORY` or C++ table path supplies the cache root; the solver adds `CoolProp-8.0.0`. Previous tables stay in place. First use of a new version generates its tables locally.
 
@@ -151,7 +151,9 @@ The command builds current source offline, runs independent C/C++ callers and er
 
 `native/lib/` is an ignored local delivery directory. To roll back, stop programs using the library, then copy the library and `build.json` from `previous/` to the parent directory. Restore the matching source, Python environment and property version as well. Publication checks do not replace numerical regressions or desktop acceptance. Daily startup performs no build, installation or download. To open the same interface with Python, run `"$PYTHON" -m sjtu_tpmshx.main --backend python`.
 
-In the left rail, Solver → Solver → Compute Backend selects Python or C++ without restarting. Startup arguments determine the initial selection. Switching affects the next ordinary computation, Quick Design, and optimization. It is locked during work and cancellation cleanup. C++ uses the startup library or the matching local macOS delivery library.
+In the left rail, Solver → Solver → Compute Backend selects Python or C++ without restarting. Startup arguments determine the initial selection. Switching affects the next ordinary computation, Quick Design, and optimization. It is locked during work and cancellation cleanup. C++ uses the startup library or the matching local macOS or Windows delivery library.
+
+Source GUI and CLI share the default lookup. macOS uses `native/lib/macos-arm64/libtpmshx_solver_shared.dylib`; Windows uses `native/lib/windows-x64/tpmshx_solver_shared.dll`. The default table directory is `.cache/native-deps/tables`. With the matching library published there, use `--backend cpp`. Explicit library and table paths take priority. Direct solver API calls still pass host paths in `RunControl`.
 
 A missing library keeps the current selection and shows the reason. Python thread settings follow backend selection. C++ keeps its existing fixed parallel strategy. Selection is a window runtime setting. It is not saved in case files and does not change existing results.
 
@@ -163,7 +165,7 @@ Source GUI evidence covers 2D/3D display and export. Visible checks for cancella
 
 Engineering comparison, strict local regression, experimental accuracy, complete performance, and visible desktop acceptance keep separate thresholds. Folder startup and limited regression passes do not show full native qualification.
 
-Windows x64 users and macOS users without the local launcher should follow [project-folder instructions](docs/desktop.en.md#source-folder). Pass the native library and writable table directory explicitly.
+Windows x64 users and macOS users without the local launcher should follow [project-folder instructions](docs/desktop.en.md#source-folder). Pass explicit library and writable table paths when using locations other than the defaults.
 
 <a id="gui-use"></a>
 
@@ -305,7 +307,7 @@ Cancellation and failure do not become completed results. Completed nonconverged
 | Parameter scans and effective-field input | [Public examples](examples/) | No private solver members are changed. |
 | Offline cleaning and Nu fitting | `preprocess.offline` | Explicit sources. No automatic production-model replacement. Previous RBF publication is retired. |
 
-Current GUI continuous optimization keeps the full case's ports, fluids, and dimensional solver settings. It supports air A / water B. Default ranges are L=4–8 mm and t=0.3–0.6 mm. The solver validates each fluid's Nu applicability independently. `optimization.json` stores all conditions, controls, field definitions, failures, and native batch paths.
+Current GUI continuous optimization keeps the full case's ports, fluids, and dimensional solver settings. It supports air A / water B. Default ranges are L=4–8 mm and t=0.3–0.6 mm. The solver validates each fluid's Nu applicability independently. `optimization.json` stores all conditions, controls, field definitions, failures, and native batch paths. It and `batch.json` record the selected `backend`, including failures and cancellation, without local library paths.
 
 Only fully qualified numerical batches receive objective values. GUI Pareto application keeps complete fields. Different current geometry, ports, or solver settings cause rejection. Arbitrary external CLI configurations are not GUI presets. Evaluation count is a search budget, not proof of algorithm convergence or experimental accuracy.
 

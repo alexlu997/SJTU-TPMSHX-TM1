@@ -119,12 +119,14 @@ def _patch_solve(monkeypatch, solve):
     monkeypatch.setattr(execution, 'run_case', solve)
 
 
-def test_success_keeps_independent_case_native_and_metric_files(tmp_path, monkeypatch):
+@pytest.mark.parametrize('backend', ['python', 'cpp'])
+def test_success_keeps_independent_case_native_and_metric_files(tmp_path, monkeypatch, backend):
     conditions = _conditions(2)
     baseline = _baseline(conditions)
     prepared, progress = [], []
 
     def solve(case, control):
+        assert control.backend == backend
         prepared.append(case)
         for percent in (0, 40, 100):
             control.report_progress(percent)
@@ -133,9 +135,10 @@ def test_success_keeps_independent_case_native_and_metric_files(tmp_path, monkey
     _patch_solve(monkeypatch, solve)
     directory = tmp_path / 'success'
     result = batch.evaluate_condition_batch(conditions, output_dir=directory,
-                                            baseline=baseline, control=RunControl(progress=progress.append))
+        baseline=baseline, control=RunControl(backend=backend, progress=progress.append))
     manifest = _manifest(directory)
     assert result['status'] == manifest['status'] == 'completed'
+    assert result['backend'] == manifest['backend'] == backend
     assert result['batch_id'] == manifest['batch_id']
     assert result['objectives'] == manifest['objectives'] == pytest.approx(
         {'heat_gain_percent': 10., 'pressure_ratio': 1.})
@@ -193,6 +196,7 @@ def test_solve_exception_keeps_failed_member_and_continues(tmp_path, monkeypatch
     result = batch.evaluate_condition_batch(conditions, output_dir=directory, baseline=baseline)
     assert len(calls) == 3
     assert result['status'] == 'failed' and result['objectives'] is None
+    assert result['backend'] == _manifest(directory)['backend'] == 'python'
     rows = _manifest(directory)['conditions']
     assert [row['status'] for row in rows] == ['completed', 'failed', 'completed']
     assert 'injected flow failure' in rows[1]['reason']
@@ -381,8 +385,9 @@ def test_cancellation_preserves_full_membership_and_is_reraised(tmp_path, monkey
     directory = tmp_path / 'cancelled'
     with pytest.raises(CancelledError):
         entry(conditions, output_dir=directory,
-            control=RunControl(cancel_check=lambda: cancelled[0]))
+            control=RunControl(backend='cpp', cancel_check=lambda: cancelled[0]))
     manifest = _manifest(directory)
+    assert manifest['backend'] == 'cpp'
     assert manifest['status'] == 'cancelled' and manifest['objectives'] is None
     rows = manifest['conditions']
     assert [row['condition_id'] for row in rows] == ['low', 'mid', 'high']

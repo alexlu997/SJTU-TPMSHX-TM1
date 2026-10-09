@@ -195,7 +195,7 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
                     baseline=reference_metrics.get(condition_id),
                     mass_flow_A_kg_s=flow_a, mass_flow_B_kg_s=flow_b)
                for index, (condition_id, _, flow_a, flow_b) in enumerate(inputs, 1)]
-    record = dict(batch_id=batch_id, status='running', reason=None,
+    record = dict(batch_id=batch_id, backend=control.backend, status='running', reason=None,
                   conditions=history, objectives=None)
     results = []
     summaries = {}

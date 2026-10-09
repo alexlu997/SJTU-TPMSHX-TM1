@@ -16,13 +16,14 @@ license-files = ["LICENSE"]
 dependencies = [
     # Normal installation uses this list. Historical machine snapshots remain
     # separate and do not define current project dependencies.
-    "numpy>=2.5",
+    # Keep the qualified JIT stack until newer Numba restores warm-solve throughput.
+    "numpy>=2.4.4,<2.5",
     "scipy>=1.18",
     "pandas>=3.0",
     "sympy>=1.14",
     "pyamg>=5.3",
     "joblib>=1.6",
-    "numba>=0.68",
+    "numba>=0.64,<0.65",
     "matplotlib>=3.11",
     "openpyxl>=3.1",
     "CoolProp>=8.0",
