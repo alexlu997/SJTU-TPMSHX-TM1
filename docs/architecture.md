@@ -178,6 +178,8 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   ordinary block can converge or give the final budget certificate. The legacy H algorithm stays the default. Full C++ 2D/3D can explicitly select these candidates on their existing
   two-fluid true-h routes. The persisted `SolverConfig.enthalpy_algorithm`
   and `enthalpy_temperature_tol_K` select the algorithm and update gate.
+  Full 3D candidates accept prepared `port_wall_refine` grids with full or
+  partial openings. They retain the actual cell widths and port face masses.
   Incompatible routes fail before flow execution. Python numerical methods
   and production fluid applicability are unchanged.
 

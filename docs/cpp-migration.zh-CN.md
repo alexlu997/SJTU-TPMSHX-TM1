@@ -100,6 +100,8 @@ SOU recipe 2 在该阻尼普通映射上使用六样本 Anderson 候选。选择
 
 在 `prepare_case` 前，将 `solver.enthalpy_algorithm` 设为 `temperature_fou` 或 `temperature_sou`，并将 `solver.enthalpy_temperature_tol_K` 设为所需正 K 容差。随后使用 `backend='cpp'` 和匹配原生库执行已保存工况。默认值仍为 `legacy_h_fou` 和 1e-8 K。当前候选要求既有双流体 true-h 路线。在 Python、Quick Design 或不支持的热路线中选择时明确失败。该选择不扩大流体、沸腾、冷凝或 Nu/Darcy-Forchheimer 适用范围。GUI 尚未提供此算法选择。
 
+完整三维候选也支持 `port_wall_refine` 生成的非均匀张量网格，覆盖完整和部分开口。计算使用实际单元宽度及端口面质量流量。model-h 的端口能量标志不改变此 true-h 路径。此支持不改变已保存算法、默认值或验收门。
+
 完整驱动保留原 SIMPLE、压力、物性、外耦合和最终验收门。full 3D 还保留两次温度预测 sweep 和原质量准备。候选 recipe 每个非线性步使用五次 sweep。FOU/SOU 流体松弛分别为 .6/.2，固体松弛分别为 .6/1。full 3D 在准备态 Case 中保存已解析控制量；二维 recipe 由算法版本固定。两者保留原迭代预算，并要求真实耦合／方程能量比不大于 .001，同时满足声明的温度更新容差。原生结果记录实际整块 Picard 松弛：FOU 为 1，SOU 为 0.6；它与流体及固体行松弛分开。
 
 `tpmshx_solve_full_2d_v3` 和 `tpmshx_solve_full_3d_v2` 接受共享 `tpmshx_energy_options_v1`，保留旧结果 POD 和释放函数。对应 `get_energy_evidence_v1` 查询借用同一所有者，不执行求解。它提供实际算法／温度更新、最终 epsilon×HEOS 导热率、六个向外有符号焓功率面，以及逐外步标量身份。旧入口仍可用，数值行为不变。

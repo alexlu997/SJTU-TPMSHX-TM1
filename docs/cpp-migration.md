@@ -238,6 +238,11 @@ positive K tolerance before preparation. Then run the saved case with
 `backend='cpp'` and the matching native library. The defaults stay `legacy_h_fou` and 1e-8 K. The current candidates require the existing two-fluid true-h routes. Selecting
 them with Python, Quick Design or an unsupported thermal route fails explicitly.
 
+Full 3D candidates also support `port_wall_refine` on the prepared nonuniform
+tensor grid, for full and partial openings. They use the actual cell widths and
+port face masses. The model-h port-energy flag does not change this true-h path.
+This support does not change the saved algorithm, defaults or acceptance gates.
+
 This selection does not qualify new fluids, boiling, condensation or additional
 Nu/Darcy-Forchheimer applicability. GUI selection is not yet exposed.
 
