@@ -2,12 +2,10 @@
 from argparse import Namespace
 from dataclasses import replace
 from pathlib import Path
-import sys
 
 from PySide6.QtCore import QSignalBlocker, QTimer
 from PySide6.QtWidgets import QMessageBox
 
-from sjtu_tpmshx.domain.provenance import SOURCE_ROOT
 from sjtu_tpmshx.io.cli_options import run_control_from_args
 from sjtu_tpmshx.ui.background_tasks import has_active_tasks
 
@@ -16,12 +14,6 @@ def _cpp_control(control):
     if control.native_library is None:
         defaults = run_control_from_args(Namespace(
             backend='cpp', native_library=None, native_table_directory=None))
-        if defaults.native_library is None:
-            if sys.platform != 'darwin':
-                raise ValueError('尚未配置本机 C++ 求解器库，请使用带匹配原生库的启动入口。')
-            defaults = replace(defaults,
-                native_library=str(SOURCE_ROOT / 'native/lib/macos-arm64/libtpmshx_solver_shared.dylib'),
-                native_table_directory=str(SOURCE_ROOT / '.cache/native-deps/tables'))
         control = replace(control, native_library=defaults.native_library,
             native_table_directory=control.native_table_directory or defaults.native_table_directory)
     if not Path(control.native_library).is_file():

@@ -255,6 +255,7 @@ jobs:
           sjtu_tpmshx/tests/native/test_full_3d_refined_stages.py
           sjtu_tpmshx/tests/native/test_cpp_full_3d.py
           sjtu_tpmshx/tests/native/test_backend_engineering_parity.py
+          sjtu_tpmshx/tests/native/test_backend_condition_consumers.py
           sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py
           sjtu_tpmshx/tests/native/test_cpp_conservative_full3d.py
           -p sjtu_tpmshx.tests.ci_shard --ci-shard=${{ matrix.shard }}

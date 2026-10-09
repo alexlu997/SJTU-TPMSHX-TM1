@@ -69,7 +69,10 @@ CLI 的 `run` 和 `solve` 子命令接受同样的三个后端参数。
 
 窗口中的“计算后端”作用于下一次普通计算、快速设计和优化。
 运行及取消收尾时禁止切换；切换不修改已发布结果的后端来源或保存的工况。
-Windows 源码入口需要显式库路径；macOS GUI 还保留本地文件夹库的既有默认位置。
+源码 GUI 和 CLI 共用本机默认库：macOS 为
+`native/lib/macos-arm64/libtpmshx_solver_shared.dylib`，Windows 为
+`native/lib/windows-x64/tpmshx_solver_shared.dll`。使用默认库时，表目录默认为
+`.cache/native-deps/tables`；显式参数优先。匹配库就位后只需选择后端。
 CLI、独立 C 调用和 CI 通过不代替两平台可见桌面验收。
 
 ## 可选冻结打包

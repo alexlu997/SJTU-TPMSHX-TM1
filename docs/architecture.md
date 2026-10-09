@@ -520,7 +520,9 @@ objectives. Each condition has equal weight, with 50/50 pressure-side weights. T
 
 `evaluate_condition_batch` runs a fixed design's air-A/water-B conditions
 serially into a new directory. Each member keeps its input, prepared Case,
-native result and metrics as soon as that stage succeeds. `batch.json` keeps
+native result and metrics as soon as that stage succeeds. `batch.json` and
+`optimization.json` record the requested `backend` even on failure or cancellation;
+host library and table paths stay outside these records. `batch.json` keeps
 all requested members, failure stages and reasons, unrun members after
 cancellation, and the baseline metric values/definitions and source IDs. Cancellation propagates. Ordinary condition failures continue without fabricated
 penalties. If saving a failure/cancellation checkpoint also fails, the original exception
