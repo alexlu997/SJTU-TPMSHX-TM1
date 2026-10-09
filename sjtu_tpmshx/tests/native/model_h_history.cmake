@@ -45,8 +45,8 @@ function(_model_h_history_target dimension)
             "    const auto reset_carry=[&] { for(auto& field:carry) std::fill(field.begin(),field.end(),0.); };"
             "    const auto reset_carry=[&] {\n        double before=0.;\n        for(const auto& field:carry) for(double value:field) before=std::max(before,std::abs(value));\n        for(auto& field:carry) std::fill(field.begin(),field.end(),0.);\n        observe_model_h_carry(carry,before);\n    };")
         _model_h_observer_replace(
-            "        const double change=sweeps(mesh,side_a,side_b,ks,source_s,t,control,count,line_axis,line_work,carry,solve_b);"
-            "        const double change=sweeps(mesh,side_a,side_b,ks,source_s,t,control,count,line_axis,line_work,carry,solve_b);\n        observe_model_h(0,count,change,t);")
+            "        const double change=sweeps(mesh,side_a,side_b,ks,source_s,t,control,count,line_axis,line_work,carry,diffusion,solve_b);"
+            "        const double change=sweeps(mesh,side_a,side_b,ks,source_s,t,control,count,line_axis,line_work,carry,diffusion,solve_b);\n        observe_model_h(0,count,change,t);")
         _model_h_observer_replace(
             "                    const double ordinary=step(1); picard=pack(t,solve_b); restore(t,candidate,solve_b); reset_carry();"
             "                    const double ordinary=step(1); picard=pack(t,solve_b);\n                    observe_model_h(1,result.iterations+done+1,ordinary,t);\n                    restore(t,candidate,solve_b); reset_carry();")

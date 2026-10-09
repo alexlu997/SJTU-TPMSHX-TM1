@@ -96,6 +96,14 @@ GS acceleration, including grids without extra port refinement. Trial sweeps
 count against the same budget and must reduce the GS update residual. Final
 acceptance still requires the independent actual-state equation certificate.
 
+The C++ 3D model-h driver computes fixed mesh/conductivity face conductances
+once per thermal call. Numerical line and red-black sweeps reuse these values,
+including the inlet Fourier reconstruction. Temperature-dependent face
+transport, exchange, sources and row accumulation order stay unchanged.
+Physical audits recompute conductances from the original inputs. The cache is
+local to the call and adds 216 bytes per cell when both fluids are solved
+(about 2.85 MiB for 24 cubed cells); prescribed B uses 144 bytes per cell.
+
 For source-free 3D model-h, stable heat and temperature changes trigger the
 shared energy certificate. A failed residual or source-balance gate continues
 thermal sweeps within the existing budget. Missing physical inflow data returns
