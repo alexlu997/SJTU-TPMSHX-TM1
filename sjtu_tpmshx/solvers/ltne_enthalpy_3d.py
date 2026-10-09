@@ -20,6 +20,10 @@ patches share the same first-order conservative formulation.
 """
 from __future__ import annotations
 
+import os
+from pathlib import Path
+from threading import Lock
+
 import numpy as np
 from numba import njit
 from ._kernels_2d import diffusion_conductance
@@ -33,13 +37,33 @@ from sjtu_tpmshx.domain.cancellation import CancelledError
 # sCO2 stream with a water (or air) stream — the real 703 precooler. Each fluid's
 # h/cp/k and final T(h) use HEOS at the side's pressure. Production sCO2
 # iterations start with BICUBIC for T(h); exact-EOS finishing and checks use HEOS.
-from CoolProp import AbstractState, HmassP_INPUTS, __version__ as _CP_VERSION  # noqa: E402
+from CoolProp import AbstractState, HmassP_INPUTS, PT_INPUTS, __version__ as _CP_VERSION  # noqa: E402
+import CoolProp.CoolProp as _CP  # noqa: E402
 from CoolProp.CoolProp import PropsSI as _PropsSI  # noqa: E402
 from sjtu_tpmshx.models.fluid_props import (  # noqa: E402
     WaterStateError, check_water_state, check_finite_temperatures,
 )
 from sjtu_tpmshx.models.sco2_props import _validate_state, T_RANGE_K  # noqa: E402
 _CP_NAME = {'sco2': 'CO2', 'water': 'Water', 'air': 'Air'}
+_TABLE_LOCK = Lock()
+_TABLE_DIRECTORY = None
+
+
+def _bicubic_state():
+    """Keep incompatible upstream tables separate and initialize them serially."""
+    global _TABLE_DIRECTORY
+    with _TABLE_LOCK:
+        if _TABLE_DIRECTORY is None:
+            root = _CP.get_config_string(_CP.ALTERNATIVE_TABLES_DIRECTORY)
+            if not root:
+                root = Path(os.environ.get('XDG_CACHE_HOME', Path.home() / '.cache')) / 'coolprop'
+            directory = Path(root).resolve() / ('CoolProp-' + _CP_VERSION)
+            directory.mkdir(parents=True, exist_ok=True)
+            _CP.set_config_string(_CP.ALTERNATIVE_TABLES_DIRECTORY, str(directory) + os.sep)
+            _TABLE_DIRECTORY = directory
+        state = AbstractState('BICUBIC&HEOS', 'CO2')
+        state.update(PT_INPUTS, 8e6, 300.)
+        return state
 
 
 def _check_sco2_state(fluid, T, P, *, where):
@@ -86,6 +110,13 @@ def _T_of_h_field(h, P, fluid, *, where='enthalpy EOS return', lookup=None):
         else:
             out = _PropsSI("T", "H", h.ravel(), "P", np.ascontiguousarray(P).ravel(),
                            _CP_NAME.get(fluid, fluid))
+            # CoolProp 8 HP uses 30-bit T brackets; restore HEOS enthalpy consistency.
+            out = np.asarray(out, dtype=np.float64).reshape(-1)
+            check_water_state(fluid, out.reshape(h.shape), P, where=where)
+            _check_sco2_state(fluid, out.reshape(h.shape), P, where=where)
+            hc = np.asarray(_PropsSI(("H", "C"), "T", out, "P",
+                np.ascontiguousarray(P).ravel(), _CP_NAME.get(fluid, fluid))).reshape(-1, 2)
+            out += (h.ravel() - hc[:, 0]) / hc[:, 1]
     except ValueError as exc:
         if fluid == 'water':
             location = (f'index={tuple(0 for _ in h.shape)}' if h.size == 1
@@ -166,47 +197,48 @@ def _fluid_enthalpy_sweep(h, T_star, Ts, cp, h_star, dh, hv, Fx, Fy, Fz,
                 aB = max(fb, 0.0)
                 aT = max(-ft, 0.0)
                 cpi = max(cp[i, j, k], 1e-30)
-                offset = T_star[i, j, k] - h_star[i, j, k] / cpi
+                temperature = T_star[i, j, k] + (h[i, j, k] - h_star[i, j, k]) / cpi
                 exchange = hv[i, j, k] * vol
                 aP = ((dW + dE + dS + dN + dB + dT + exchange) / cpi
                       + max(-fw, 0.0) + max(fe, 0.0)
                       + max(-fs, 0.0) + max(fn, 0.0)
                       + max(-fb, 0.0) + max(ft, 0.0))
-                rhs = exchange * (
-                    Ts[i, j, k] - T_star[i, j, k]
-                    + h_star[i, j, k] / cpi)
+                # A defect update preserves an isothermal state at an exact h bound.
+                rhs = exchange * (Ts[i, j, k] - temperature) - h[i, j, k] * (
+                    max(-fw, 0.0) + max(fe, 0.0) + max(-fs, 0.0)
+                    + max(fn, 0.0) + max(-fb, 0.0) + max(ft, 0.0))
                 if i > 0:
                     rhs += aW * h[i - 1, j, k] + dW * (T_star[i - 1, j, k]
-                        + (h[i - 1, j, k] - h_star[i - 1, j, k]) / cp[i - 1, j, k] - offset)
+                        + (h[i - 1, j, k] - h_star[i - 1, j, k]) / cp[i - 1, j, k] - temperature)
                 elif fw > 0.0:
                     rhs += fw * h_in
                 if i + 1 < Nx:
                     rhs += aE * h[i + 1, j, k] + dE * (T_star[i + 1, j, k]
-                        + (h[i + 1, j, k] - h_star[i + 1, j, k]) / cp[i + 1, j, k] - offset)
+                        + (h[i + 1, j, k] - h_star[i + 1, j, k]) / cp[i + 1, j, k] - temperature)
                 elif fe < 0.0:
                     rhs += -fe * h_in
                 if j > 0:
                     rhs += aS * h[i, j - 1, k] + dS * (T_star[i, j - 1, k]
-                        + (h[i, j - 1, k] - h_star[i, j - 1, k]) / cp[i, j - 1, k] - offset)
+                        + (h[i, j - 1, k] - h_star[i, j - 1, k]) / cp[i, j - 1, k] - temperature)
                 elif fs > 0.0:
                     rhs += fs * h_in
                 if j + 1 < Ny:
                     rhs += aN * h[i, j + 1, k] + dN * (T_star[i, j + 1, k]
-                        + (h[i, j + 1, k] - h_star[i, j + 1, k]) / cp[i, j + 1, k] - offset)
+                        + (h[i, j + 1, k] - h_star[i, j + 1, k]) / cp[i, j + 1, k] - temperature)
                 elif fn < 0.0:
                     rhs += -fn * h_in
                 if k > 0:
                     rhs += aB * h[i, j, k - 1] + dB * (T_star[i, j, k - 1]
-                        + (h[i, j, k - 1] - h_star[i, j, k - 1]) / cp[i, j, k - 1] - offset)
+                        + (h[i, j, k - 1] - h_star[i, j, k - 1]) / cp[i, j, k - 1] - temperature)
                 elif fb > 0.0:
                     rhs += fb * h_in
                 if k + 1 < Nz:
                     rhs += aT * h[i, j, k + 1] + dT * (T_star[i, j, k + 1]
-                        + (h[i, j, k + 1] - h_star[i, j, k + 1]) / cp[i, j, k + 1] - offset)
+                        + (h[i, j, k + 1] - h_star[i, j, k + 1]) / cp[i, j, k + 1] - temperature)
                 elif ft < 0.0:
                     rhs += -ft * h_in
                 if aP > 1e-30:
-                    update = (1.0 - omega) * h[i, j, k] + omega * rhs / aP
+                    update = h[i, j, k] + omega * rhs / aP
                     clips += int(update < h_lo or update > h_hi)
                     h[i, j, k] = min(max(update, h_lo), h_hi)
     return clips
@@ -442,7 +474,7 @@ def solve_ltne_enthalpy_3d_pipeline(Nx, Ny, Nz, dx, dy, dz, eps_arr, K_ss,
         if outer == 0 and 'sco2' in (fluid_A, fluid_B):
             # Initialize after the first cancellation check. One mutable state
             # belongs to this solve, shared only by its serial sides.
-            state = AbstractState('BICUBIC&HEOS', 'CO2')
+            state = _bicubic_state()
             lookup_A = _sco2_iteration_lookup(P_A_field, state) if fluid_A == 'sco2' else None
             lookup_B = _sco2_iteration_lookup(P_B_field, state) if fluid_B == 'sco2' else None
         if next_temperatures is None:

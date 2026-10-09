@@ -87,41 +87,44 @@ std::uint64_t fluid_sweep(const GridView& g, const FluidView& f,
                 const double as = std::max(fs, 0.0), an = std::max(-fn, 0.0);
                 const double ab = std::max(fb, 0.0), at = std::max(-ft, 0.0);
                 const double cpi = std::max(f.cp[p], 1e-30);
-                const double offset = f.t_star[p] - f.h_star[p] / cpi;
+                const double temperature = f.t_star[p] + (h[p] - f.h_star[p]) / cpi;
                 const double exchange = f.hv[p] * vol;
                 const double ap = (dw + de + ds + dn + db + dt + exchange) / cpi
                     + std::max(-fw, 0.0) + std::max(fe, 0.0)
                     + std::max(-fs, 0.0) + std::max(fn, 0.0)
                     + std::max(-fb, 0.0) + std::max(ft, 0.0);
-                double rhs = exchange * (ts[p] - f.t_star[p] + f.h_star[p] / cpi);
+                // Preserve an isothermal state at an exact enthalpy bound.
+                double rhs = exchange * (ts[p] - temperature) - h[p] * (
+                    std::max(-fw, 0.0) + std::max(fe, 0.0) + std::max(-fs, 0.0)
+                    + std::max(fn, 0.0) + std::max(-fb, 0.0) + std::max(ft, 0.0));
                 if (i > 0)
                     rhs += aw * h[p-sx] + dw * (f.t_star[p-sx]
-                        + (h[p-sx] - f.h_star[p-sx]) / f.cp[p-sx] - offset);
+                        + (h[p-sx] - f.h_star[p-sx]) / f.cp[p-sx] - temperature);
                 else if (fw > 0.0) rhs += fw * f.h_in;
                 if (i+1 < g.nx)
                     rhs += ae * h[p+sx] + de * (f.t_star[p+sx]
-                        + (h[p+sx] - f.h_star[p+sx]) / f.cp[p+sx] - offset);
+                        + (h[p+sx] - f.h_star[p+sx]) / f.cp[p+sx] - temperature);
                 else if (fe < 0.0) rhs += -fe * f.h_in;
                 if (j > 0)
                     rhs += as * h[p-sy] + ds * (f.t_star[p-sy]
-                        + (h[p-sy] - f.h_star[p-sy]) / f.cp[p-sy] - offset);
+                        + (h[p-sy] - f.h_star[p-sy]) / f.cp[p-sy] - temperature);
                 else if (fs > 0.0) rhs += fs * f.h_in;
                 if (j+1 < g.ny)
                     rhs += an * h[p+sy] + dn * (f.t_star[p+sy]
-                        + (h[p+sy] - f.h_star[p+sy]) / f.cp[p+sy] - offset);
+                        + (h[p+sy] - f.h_star[p+sy]) / f.cp[p+sy] - temperature);
                 else if (fn < 0.0) rhs += -fn * f.h_in;
                 if (k > 0)
                     rhs += ab * h[p-1] + db * (f.t_star[p-1]
-                        + (h[p-1] - f.h_star[p-1]) / f.cp[p-1] - offset);
+                        + (h[p-1] - f.h_star[p-1]) / f.cp[p-1] - temperature);
                 else if (fb > 0.0) rhs += fb * f.h_in;
                 if (k+1 < g.nz)
                     rhs += at * h[p+1] + dt * (f.t_star[p+1]
-                        + (h[p+1] - f.h_star[p+1]) / f.cp[p+1] - offset);
+                        + (h[p+1] - f.h_star[p+1]) / f.cp[p+1] - temperature);
                 else if (ft < 0.0) rhs += -ft * f.h_in;
                 if (!std::isfinite(ap) || !std::isfinite(rhs))
                     throw std::domain_error("nonfinite fluid sweep equation");
                 if (ap > 1e-30) {
-                    const double update = (1.0 - omega) * h[p] + omega * rhs / ap;
+                    const double update = h[p] + omega * rhs / ap;
                     if (!std::isfinite(update))
                         throw std::domain_error("nonfinite fluid sweep update");
                     clips += update < f.h_lo || update > f.h_hi;

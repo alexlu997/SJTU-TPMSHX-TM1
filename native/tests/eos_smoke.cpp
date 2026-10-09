@@ -3,9 +3,9 @@
 // stdin: id HEOS|BICUBIC&HEOS CO2|Water TP|HP temperature_or_enthalpy pressure
 // stdout: TSV, SI units. Error bytes are losslessly hex-encoded in the last
 // column; failed rows retain NaN outputs and never reuse an earlier state.
-#include <AbstractState.h>
-#include <Configuration.h>
-#include <CoolProp.h>
+#include <CoolProp/AbstractState.h>
+#include <CoolProp/Configuration.h>
+#include <CoolProp/CoolProp.h>
 
 #include <array>
 #include <chrono>

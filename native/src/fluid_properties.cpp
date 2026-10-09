@@ -1,9 +1,10 @@
 #include "tpmshx/fluid_properties.hpp"
 #include "tpmshx/model_coefficients.hpp"
 
-#include <AbstractState.h>
-#include <Exceptions.h>
-#include <Configuration.h>
+#include <CoolProp/AbstractState.h>
+#include <CoolProp/CoolProp.h>
+#include <CoolProp/Exceptions.h>
+#include <CoolProp/Configuration.h>
 
 #include <algorithm>
 #include <cmath>
@@ -25,20 +26,21 @@ void configure_eos_tables_once(const char* absolute_directory) {
     if (!requested.is_absolute())
         throw std::invalid_argument("native EOS tables require an absolute directory");
     const std::lock_guard<std::mutex> lock(factory_mutex);
-    const auto directory = std::filesystem::weakly_canonical(requested).generic_u8string()+"/";
+    const auto versioned = requested / ("CoolProp-" + CoolProp::get_global_param_string("version"));
+    const auto directory = std::filesystem::weakly_canonical(versioned).generic_u8string()+"/";
     if (!tables_directory.empty()) {
         if (tables_directory != directory)
             throw std::invalid_argument("native EOS table directory is already fixed for this library");
         return;
     }
-    std::filesystem::create_directories(requested);
+    std::filesystem::create_directories(versioned);
     CoolProp::set_config_string(ALTERNATIVE_TABLES_DIRECTORY,directory);
     tables_directory = directory;
 }
 
 std::unique_ptr<CoolProp::AbstractState> make_eos_state(const char* backend, const char* fluid) {
-    // CoolProp 7.2 FluidLibrary::get_library lazily mutates a process-global
-    // library without a lock. Serialize construction; all updates stay local.
+    // CoolProp lazily mutates shared fluid/table libraries during construction;
+    // serialize initialization while all subsequent updates stay local.
     // ponytail: one factory lock; split initialization only if startup throughput matters.
     const std::lock_guard<std::mutex> lock(factory_mutex);
     if (!backend || !fluid) throw std::invalid_argument("missing EOS backend or fluid");

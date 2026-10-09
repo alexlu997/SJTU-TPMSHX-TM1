@@ -649,6 +649,15 @@ The enthalpy-update criterion stays independent. A final chunk containing
 clipped enthalpy updates cannot certify convergence. The true-h ledger records
 the effective settings, residual budgets, clip counts and exit reason.
 
+CoolProp 8 uses a 30-bit temperature bracket for some HEOS H/P inversions.
+Both true-h drivers apply one Newton correction with the same HEOS H(T,P)
+and cp to restore enthalpy consistency. Raw and corrected states retain the
+original domain checks. BICUBIC iteration remains separate from exact HEOS
+finishing. Its table cache is versioned to prevent reuse of tables generated
+by an earlier EOS release. Fluid sweeps use the algebraically equivalent
+enthalpy defect so an isothermal state at a legal enthalpy bound does not
+acquire cancellation error from subtracting absolute temperatures.
+
 The existing product model-h route uses signed mass faces and minmod SOU on
 **both** fluid sides in both dimensions. Its fluid Picard update uses the shared `MODEL_H_RELAXATION=0.2`
 policy, including outlet cells. 3D keeps explicitly smaller relaxation values. The earlier 2D B-side first-order default and 3D fluid-name relaxation choice

@@ -64,7 +64,7 @@ class Native:
 @pytest.fixture(scope='module')
 def native(tmp_path_factory):
     root = Path(__file__).resolve().parents[3]
-    eigen = root / '.cache/native-deps/src/CoolProp-7.2.0/externals/Eigen'
+    eigen = root / '.cache/native-deps/src/Eigen-5.0.1'
     compiler = shlex.split(os.environ.get('CXX', 'cl' if os.name == 'nt' else 'c++'))
     if not compiler or not shutil.which(compiler[0]):
         message = 'outer Anderson qualification requires a C++17 compiler'

@@ -62,7 +62,8 @@ $tm1Tables = Join-Path $PWD '.cache/native-deps/tables'
 ```
 
 如库存放在其他文件夹，替换该路径。程序不搜索磁盘、编译库、下载或安装依赖。
-表目录必须可写；同一原生进程固定使用一个表目录。
+表目录必须可写；同一原生进程固定使用一个表目录。目录内的 `CoolProp-8.0.0`
+子目录只保存当前 EOS 版本生成的表，旧版本表保留供原版本使用。
 CLI 的 `run` 和 `solve` 子命令接受同样的三个后端参数。
 源码运行不以 `TPMSHX_NATIVE_SOLVER_LIBRARY` 代替显式启动参数。
 

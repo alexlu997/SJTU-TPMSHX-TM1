@@ -79,6 +79,14 @@ $tm1Python = Get-Content .venv-path -TotalCount 1
 [Python venv 支持的用法](https://docs.python.org/3.13/library/venv.html#how-venvs-work)。
 `.venv-path` 保存本机绝对路径，不随 Git 共享；新终端中重新读取该文件即可。
 
+升级到当前依赖锁时，请创建独立的新环境并预热，保留原环境及其源码版本。
+当前锁包含 NumPy 2.5、Numba 0.68、SciPy 1.18、pandas 3、CoolProp 8 和 Qt 6.12；
+BO 与桌面打包继续使用各自的完整锁。不要向其他工作树正在使用的共享环境安装新锁。
+切换 `.venv-path` 后，先通过锁检查和 `pip check`，再运行计算或测试。
+CO₂ 插值表按 CoolProp 版本隔离。Python 默认写入 `XDG_CACHE_HOME/coolprop/CoolProp-8.0.0`；
+显式 `COOLPROP_ALTERNATIVE_TABLES_DIRECTORY` 和 C++ 表参数均作为缓存根目录，
+内部追加 `CoolProp-8.0.0`。旧表保留，首次使用新版本时会在本机重新生成。
+
 ### 跑通小算例
 
 仓库自带 [air_2d.json](examples/three_module/air_2d.json) 和
@@ -160,19 +168,22 @@ macOS 尚未验收。继续复用 `.venv-path` 指定的现有锁定环境，环
 显式加载 `native/lib/macos-arm64/libtpmshx_solver_shared.dylib`，并传入
 `.cache/native-deps/tables`。库、表和本机 `.venv-path` 属于本地交付资源，
 不随 Git 源码自动提供。缺少解释器或库会直接报告原因；启动器不安装依赖、
-编译库或切换到 Python。需要 CO₂ BICUBIC 表的既有 legacy 路线使用随附四表；
+编译库或切换到 Python。需要 CO₂ BICUBIC 表的既有 legacy 路线使用当前版本目录中的四表，
+缺少时由该版本在本机生成；
 新的保守温度算法不使用这些表。公共 API、CLI 和直接模块调用仍默认使用 Python。
 
-已有锁定原生依赖时，可从当前源码离线重建并更新启动器使用的库：
+已有当前锁定原生依赖且相关原生回归通过时，可显式发布启动器使用的库：
 
 ```sh
-"$PYTHON" scripts/build_native_dependencies.py build --component pilot
-mkdir -p native/lib/macos-arm64
-cp .cache/native-deps/build/pilot-macos-arm64/libtpmshx_solver_shared.dylib native/lib/macos-arm64/
+"$PYTHON" scripts/build_native_dependencies.py publish
 ```
 
-此命令复用现有依赖；缺少锁定依赖时会停止，不在运行时安装或下载。
-`native/lib/` 是本地交付目录，已由 Git 忽略。源码改变后应重新构建匹配库。
+此命令离线构建当前源码，运行独立 C/C++ 调用和错误路径检查，再替换本平台的库。
+缺少锁定依赖或验证失败时停止。改变库内容前，旧库及记录保存在同目录的 `previous/`；
+重复发布相同库保留已有回退副本。`build.json` 记录源码提交、未提交改动、构建配置及路径。
+`native/lib/` 是 Git 忽略的本地交付目录。停止使用该库的程序后，可从 `previous/`
+复制库和 `build.json` 回原目录；同时恢复对应源码、Python 环境和物性版本。
+发布检查不替代数值回归或桌面验收。日常启动不执行构建、安装或下载。
 以 Python 数值后端打开同一界面可运行
 `"$PYTHON" -m sjtu_tpmshx.main --backend python`。
 在界面左侧“求解 → 求解器 → 计算后端”可直接选择 Python 或 C++，无需重启。

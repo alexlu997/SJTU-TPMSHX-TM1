@@ -1,8 +1,8 @@
 #include "tpmshx/enthalpy_eos.hpp"
 #include "tpmshx/model_coefficients.hpp"
 
-#include <AbstractState.h>
-#include <Exceptions.h>
+#include <CoolProp/AbstractState.h>
+#include <CoolProp/Exceptions.h>
 
 #include <cmath>
 #include <sstream>
@@ -126,6 +126,12 @@ double EnthalpyEOS::temperature(Fluid fluid, double enthalpy, double pressure,
         auto& state = use_bicubic ? *bicubic_ : heos(fluid);
         state.update(CoolProp::HmassP_INPUTS,enthalpy,pressure);
         result = state.T();
+        if (!use_bicubic) {
+            // CoolProp 8 HP uses 30-bit T brackets; restore HEOS enthalpy consistency.
+            validate(fluid,result,pressure,where);
+            state.update(CoolProp::PT_INPUTS,pressure,result);
+            result += (enthalpy-state.hmass())/state.cpmass();
+        }
     } catch (const std::exception& error) {
         if (fluid != Fluid::water) throw;
         std::ostringstream message;

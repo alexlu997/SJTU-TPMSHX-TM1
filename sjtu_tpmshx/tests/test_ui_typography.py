@@ -105,7 +105,7 @@ def test_vtk_renders_latin_labels_from_times_new_roman():
 @pytest.mark.parametrize("theme_name", ["dark", "light"])
 def test_chart_glyphs_mathtext_and_theme(theme_name):
     import matplotlib as mpl
-    from matplotlib import font_manager
+    from matplotlib import _text_helpers, font_manager
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     from matplotlib.figure import Figure
     from matplotlib.mathtext import MathTextParser
@@ -119,9 +119,10 @@ def test_chart_glyphs_mathtext_and_theme(theme_name):
         with mpl.rc_context():
             set_theme(theme_name)
             apply_mpl_theme()
-            # The locked Matplotlib renderer exposes its actual per-glyph map.
+            # Inspect the renderer's actual font selection for each laid-out glyph.
             paths = font_manager.fontManager._find_fonts_by_props(font_manager.FontProperties())
-            font_map = font_manager.get_font(paths)._get_fontmap("温度Q123")
+            font_map = {item.char: item.ft_object for item in
+                        _text_helpers.layout("温度Q123", font_manager.get_font(paths))}
             assert {font_map[c].family_name for c in "温度"} == {"Microsoft YaHei"}
             assert {font_map[c].family_name for c in "Q123"} == {"Times New Roman"}
             parsed = MathTextParser("path").parse(r"$T_a + \mathbf{Q} + 123$")

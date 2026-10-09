@@ -5,7 +5,7 @@
 #include "temperature_c_views.hpp"
 #include "simple_2d_c_views.hpp"
 #include "closure_evidence_c_views.hpp"
-#include <Exceptions.h>
+#include <CoolProp/Exceptions.h>
 #include <memory>
 
 namespace {

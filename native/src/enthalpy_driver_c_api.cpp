@@ -2,8 +2,8 @@
 #include "tpmshx/enthalpy_driver.hpp"
 #include "enthalpy_c_views.hpp"
 
-#include <CoolProp.h>
-#include <Exceptions.h>
+#include <CoolProp/CoolProp.h>
+#include <CoolProp/Exceptions.h>
 
 #include <cstdio>
 #include <exception>

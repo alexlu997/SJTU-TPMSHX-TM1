@@ -160,7 +160,8 @@ double norm(const Vector& a) {return std::sqrt(dot(a,a));}
 struct ClassicalAmg::Impl {
     struct Level { Csr a,p,r;Vector x; };
     std::vector<Level> levels;
-    std::optional<Eigen::MatrixXd> coarse_inverse;
+    using CoarseMatrix=Eigen::Matrix<double,Eigen::Dynamic,Eigen::Dynamic,Eigen::RowMajor>;
+    std::optional<CoarseMatrix> coarse_inverse;
     explicit Impl(const PressureSystem& system) {
         levels.push_back({Csr(system),{},{},{}});
         // Locked pyamg.ruge_stuben_solver: max_levels=30, max_coarse=200.
@@ -189,29 +190,30 @@ struct ClassicalAmg::Impl {
                 Eigen::MatrixXd u(n,n),vt(n,n);Eigen::VectorXd singular(n);
                 coarse_svd_lp64(dense,u,singular,vt);
                 const double threshold=static_cast<double>(n)*std::numeric_limits<double>::epsilon()*singular[0];
-                __LAPACK_int rank=0;while(rank<n && singular[rank]>threshold)++rank;
-                for(__LAPACK_int j=0;j<rank;++j)for(__LAPACK_int i=0;i<n;++i)u(i,j)/=singular[j];
-                // NumPy's product is C order; its transpose is the F-order pinv.
-                coarse_inverse=Eigen::MatrixXd::Zero(n,n);
-                cblas_dgemm(CblasRowMajor,CblasTrans,CblasTrans,n,n,rank,1.,u.data(),n,
-                            vt.data(),n,0.,coarse_inverse->data(),n);
+                for(__LAPACK_int j=0;j<n;++j) {
+                    const double inverse=singular[j]>threshold?1./singular[j]:0.;
+                    for(__LAPACK_int i=0;i<n;++i)u(i,j)*=inverse;
+                }
+                // SciPy 1.18 pinv: Vh.T @ ((1/s)[:,None] * U.T), in C order.
+                coarse_inverse=CoarseMatrix::Zero(n,n);
+                cblas_dgemm(CblasRowMajor,CblasNoTrans,CblasNoTrans,n,n,n,1.,vt.data(),n,
+                            u.data(),n,0.,coarse_inverse->data(),n);
 #else
                 Eigen::JacobiSVD<Eigen::MatrixXd> svd(dense,Eigen::ComputeThinU|Eigen::ComputeThinV);
                 const auto singular=svd.singularValues();
                 const double threshold=static_cast<double>(std::max(dense.rows(),dense.cols()))*
                     std::numeric_limits<double>::epsilon()*singular[0];
-                Eigen::Index rank=0;while(rank<singular.size() && singular[rank]>threshold)++rank;
-                // scipy.linalg.pinv: ((U[:,:rank]/s[:rank]) @ Vh[:rank,:]).T.
-                Eigen::MatrixXd left=svd.matrixU().leftCols(rank);
-                for(Eigen::Index j=0;j<rank;++j)left.col(j)/=singular[j];
-                coarse_inverse=(left*svd.matrixV().leftCols(rank).transpose()).transpose().eval();
+                Eigen::MatrixXd left=svd.matrixU();
+                for(Eigen::Index j=0;j<singular.size();++j)
+                    left.col(j)*=singular[j]>threshold?1./singular[j]:0.;
+                coarse_inverse=svd.matrixV()*left.transpose();
 #endif
                 if(!coarse_inverse->allFinite())throw std::domain_error("nonfinite classical AMG coarse pseudo-inverse");
             }
             const Eigen::Map<const Eigen::VectorXd> rhs(b.data(),static_cast<Eigen::Index>(b.size()));
 #ifdef __APPLE__
             Eigen::VectorXd solved(rhs.size());
-            cblas_dgemv(CblasColMajor,CblasNoTrans,static_cast<__LAPACK_int>(rhs.size()),
+            cblas_dgemv(CblasRowMajor,CblasNoTrans,static_cast<__LAPACK_int>(rhs.size()),
                 static_cast<__LAPACK_int>(rhs.size()),1.,coarse_inverse->data(),
                 static_cast<__LAPACK_int>(rhs.size()),rhs.data(),1,0.,solved.data(),1);
 #else

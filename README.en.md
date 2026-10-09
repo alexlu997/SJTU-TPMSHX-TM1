@@ -67,6 +67,10 @@ $tm1Python = Get-Content .venv-path -TotalCount 1
 
 These commands call the environment interpreter directly. No activation script or PowerShell execution-policy change is required. This is [supported venv usage](https://docs.python.org/3.13/library/venv.html#how-venvs-work). `.venv-path` stores a local absolute path and is not shared through Git. Read it again in each new terminal.
 
+For a dependency upgrade, create and prewarm a separate environment. Keep the old environment and its source revision. The current locks include NumPy 2.5, Numba 0.68, SciPy 1.18, pandas 3, CoolProp 8 and Qt 6.12. BO and desktop packaging use their own complete locks. Do not install the new lock into a shared environment used by another worktree. After changing `.venv-path`, pass the lock check and `pip check` before computation or tests.
+
+CO₂ interpolation tables are separated by CoolProp version. Python defaults to `XDG_CACHE_HOME/coolprop/CoolProp-8.0.0`. An explicit `COOLPROP_ALTERNATIVE_TABLES_DIRECTORY` or C++ table path supplies the cache root; the solver adds `CoolProp-8.0.0`. Previous tables stay in place. First use of a new version generates its tables locally.
+
 <a id="跑通小算例"></a>
 
 ### Run small examples
@@ -133,17 +137,17 @@ Double-click root `launch-macos.command`, or run:
 
 The launcher enters its own project directory and writes caches under `.cache/`. It explicitly loads `native/lib/macos-arm64/libtpmshx_solver_shared.dylib` with `--backend cpp` and passes `.cache/native-deps/tables`. The library, tables, and host `.venv-path` are local delivery resources, not automatically supplied by Git. A missing interpreter or library produces an explicit error. The launcher installs no dependencies, compiles no library, and does not switch to Python.
 
-Existing legacy CO₂ BICUBIC routes use the four supplied tables. The new conservative temperature algorithm does not use them. Public APIs, CLI, and direct module calls still default to Python.
+Existing legacy CO₂ BICUBIC routes use four tables in the current version's directory and generate missing tables locally. The new conservative temperature algorithm does not use them. Public APIs, CLI, and direct module calls still default to Python.
 
-With locked native dependencies already present, rebuild offline from current source and update the launcher library:
+With the current locked native dependencies present and the relevant native regressions passed, explicitly publish the launcher library:
 
 ```sh
-"$PYTHON" scripts/build_native_dependencies.py build --component pilot
-mkdir -p native/lib/macos-arm64
-cp .cache/native-deps/build/pilot-macos-arm64/libtpmshx_solver_shared.dylib native/lib/macos-arm64/
+"$PYTHON" scripts/build_native_dependencies.py publish
 ```
 
-This reuses existing dependencies. Missing locked dependencies stop the build. Runtime performs no installation or download. `native/lib/` is an ignored local delivery directory. Rebuild a matching library after source changes. To open the same interface with Python, run `"$PYTHON" -m sjtu_tpmshx.main --backend python`.
+The command builds current source offline, runs independent C/C++ callers and error checks, then replaces the host library. Missing dependencies or failed verification stop publication. Before replacing different library contents, it saves the old library and record under `previous/` in the same directory. Republishing identical contents keeps that backup. `build.json` records the source commit, uncommitted changes, build configuration and paths.
+
+`native/lib/` is an ignored local delivery directory. To roll back, stop programs using the library, then copy the library and `build.json` from `previous/` to the parent directory. Restore the matching source, Python environment and property version as well. Publication checks do not replace numerical regressions or desktop acceptance. Daily startup performs no build, installation or download. To open the same interface with Python, run `"$PYTHON" -m sjtu_tpmshx.main --backend python`.
 
 In the left rail, Solver → Solver → Compute Backend selects Python or C++ without restarting. Startup arguments determine the initial selection. Switching affects the next ordinary computation, Quick Design, and optimization. It is locked during work and cancellation cleanup. C++ uses the startup library or the matching local macOS delivery library.
 

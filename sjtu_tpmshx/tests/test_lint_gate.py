@@ -15,6 +15,6 @@ _REPO = Path(__file__).resolve().parents[2]
 
 def test_ruff_lint_clean():
     r = subprocess.run(
-        [sys.executable, '-m', 'ruff', 'check', 'sjtu_tpmshx'],
+        [sys.executable, '-m', 'ruff', 'check', '.'],
         capture_output=True, text=True, timeout=300, cwd=str(_REPO))
     assert r.returncode == 0, "ruff findings:\n" + r.stdout[-2000:]

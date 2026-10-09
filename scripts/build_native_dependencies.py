@@ -1,4 +1,4 @@
-"""Explicitly fetch, build, or verify the locked, isolated native pilots.
+"""Explicitly fetch, build, verify, or publish the locked native solver.
 
 No package installation, production binding, system PATH change or runtime
 download. Run with the interpreter recorded on the first line of .venv-path.
@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import argparse
 import csv
+from datetime import datetime, timezone
+import filecmp
 import hashlib
 import io
 import json
@@ -98,7 +100,8 @@ def verify_sources(cache: Path) -> None:
 
 
 def scipy_patch(cache: Path) -> Path:
-    return cache / "downloads" / "scipy-1.17.1-superlu-changes.patch"
+    version = LOCK["sources"]["superlu"]["scipy-version"]
+    return cache / "downloads" / f"scipy-{version}-superlu-changes.patch"
 
 
 def verify_lu_patch(cache: Path) -> None:
@@ -139,22 +142,26 @@ def apply_lu_patch(cache: Path) -> None:
     verify_lu_patch(cache)
 
 
-def fetch_eigen(cache: Path) -> None:
-    """Fetch only the header dependency already pinned by the CoolProp lock."""
-    coolprop = LOCK["sources"]["coolprop"]
-    spec = next(module for module in coolprop["submodules"]
-                if module["path"] == "externals/Eigen")
-    source = cache / "src" / coolprop["directory"] / spec["path"]
-    log = cache / "logs" / "fetch-eigen.log"
-    if not source.exists():
-        source.mkdir(parents=True)
+def fetch_source(cache: Path, name: str) -> Path:
+    spec = LOCK["sources"][name]
+    source = cache / "src" / spec["directory"]
+    log = cache / "logs" / f"fetch-{name}.log"
+    if not (source / ".git").exists():
+        source.mkdir(parents=True, exist_ok=True)
         run(["git", "init", source], log)
         run(["git", "remote", "add", "origin", spec["repository"]], log, cwd=source)
         run(["git", "fetch", "--depth", "1", "origin", spec["commit"]], log, cwd=source)
         run(["git", "checkout", "--detach", spec["commit"]], log, cwd=source)
     actual = run(["git", "rev-parse", "HEAD"], log, cwd=source).strip()
     if actual != spec["commit"]:
-        raise RuntimeError("Eigen source commit differs from the lock")
+        raise RuntimeError(f"{name}: source commit differs from the lock")
+    return source
+
+
+def fetch_eigen(cache: Path) -> None:
+    """Fetch only the fixed headers used by the EOS-free thermal library."""
+    source = fetch_source(cache, "eigen")
+    log = cache / "logs" / "fetch-eigen.log"
     changed = run(["git", "status", "--porcelain", "--untracked-files=all"], log, cwd=source).strip()
     if changed:
         raise RuntimeError("Eigen source worktree is not clean")
@@ -163,21 +170,13 @@ def fetch_eigen(cache: Path) -> None:
 
 
 def fetch(cache: Path, host: str) -> None:
-    for name, spec in LOCK["sources"].items():
-        source = cache / "src" / spec["directory"]
-        log = cache / "logs" / f"fetch-{name}.log"
-        if not (source / ".git").exists():
-            source.mkdir(parents=True, exist_ok=True)
-            run(["git", "init", source], log)
-            run(["git", "remote", "add", "origin", spec["repository"]], log, cwd=source)
-            run(["git", "fetch", "--depth", "1", "origin", spec["commit"]], log, cwd=source)
-            run(["git", "checkout", "--detach", spec["commit"]], log, cwd=source)
-        if spec["recursive-submodules"]:
-            run(["git", "submodule", "update", "--init", "--recursive", "--jobs", "2"], log, cwd=source)
+    for name in LOCK["sources"]:
+        fetch_source(cache, name)
     verify_sources(cache)
     superlu = LOCK["sources"]["superlu"]
     download(superlu["scipy-patch-url"], scipy_patch(cache))
-    download(superlu["scipy-readme-url"], cache / "downloads" / "scipy-1.17.1-superlu-README")
+    download(superlu["scipy-readme-url"],
+             cache / "downloads" / f"scipy-{superlu['scipy-version']}-superlu-README")
     apply_lu_patch(cache)
     spec = LOCK["cmake"][host]
     archive = cache / "downloads" / spec["url"].rsplit("/", 1)[1]
@@ -225,6 +224,9 @@ def build(cache: Path, host: str, python: Path, lock: Path, component: str) -> N
     if component in {"all", "coolprop"}:
         options = [f"-D{value}" for value in spec["cmake-options"]]
         options += [f"-DPython_EXECUTABLE={python}"]
+        options += ["-DFETCHCONTENT_FULLY_DISCONNECTED=ON"]
+        options += [f"-DCPM_{dependency['cpm-name']}_SOURCE={cache / 'src' / dependency['directory']}"
+                    for dependency in LOCK["sources"].values() if "cpm-name" in dependency]
         if host == "windows-x64":
             options += [f"-D{value}" for value in spec["windows-options"]]
         else:
@@ -293,9 +295,64 @@ def verify(cache: Path, host: str) -> None:
           flush=True)
 
 
+def publish(cache: Path, host: str, python: Path, lock: Path) -> Path:
+    """Build offline, verify, then replace the folder-launch library with a backup."""
+    build(cache, host, python, lock, "all")
+    verify(cache, host)
+    name = ("tpmshx_solver_shared.dll" if host == "windows-x64"
+            else "libtpmshx_solver_shared.dylib")
+    source = cache / "build" / f"pilot-{host}" / name
+    target = ROOT / "native/lib" / host / name
+    log = cache / "logs" / f"publish-{host}.log"
+    record = {
+        "published_at": datetime.now(timezone.utc).isoformat(),
+        "source_commit": run(["git", "rev-parse", "HEAD"], log).strip(),
+        "source_changes": run(["git", "status", "--porcelain", "--untracked-files=no"], log).splitlines(),
+        "platform": host,
+        "source_library": str(source),
+        "target_library": str(target),
+        "python": str(python),
+        "python_lock": str(lock),
+        "cmake_version": LOCK["cmake"]["version"],
+        "generator": LOCK["cmake"][host]["generator"],
+        "configuration": "Release",
+        "dependencies": LOCK["sources"],
+        "verification": "independent native callers and SuperLU error boundary passed",
+    }
+    target.parent.mkdir(parents=True, exist_ok=True)
+    metadata = target.with_name("build.json")
+    with tempfile.TemporaryDirectory(prefix=".publish-", dir=target.parent) as temporary:
+        staged = Path(temporary)
+        shutil.copy2(source, staged / name)
+        (staged / "build.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+        old_record = staged / "old-build.json"
+        if metadata.is_file():
+            shutil.copy2(metadata, old_record)
+        if target.is_file() and not filecmp.cmp(source, target, shallow=False):
+            previous = target.parent / "previous"
+            previous.mkdir(exist_ok=True)
+            shutil.copy2(target, previous / name)
+            if metadata.is_file():
+                shutil.copy2(metadata, previous / "build.json")
+            else:
+                (previous / "build.json").write_text(
+                    '{"provenance": "existing library without a build record"}\n', encoding="utf-8")
+        (staged / "build.json").replace(metadata)
+        try:
+            (staged / name).replace(target)
+        except OSError:
+            if old_record.is_file():
+                old_record.replace(metadata)
+            else:
+                metadata.unlink()
+            raise
+    print(f"Published verified library: {target}\nBuild record: {metadata}", flush=True)
+    return target
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("fetch", "fetch-eigen", "build", "verify"))
+    parser.add_argument("action", choices=("fetch", "fetch-eigen", "build", "verify", "publish"))
     parser.add_argument("--cache", type=Path, default=ROOT / ".cache/native-deps")
     parser.add_argument("--python-lock", type=Path, default=ROOT / "requirements-lock.txt")
     parser.add_argument("--component", choices=("all", "coolprop", "pilot"), default="all")
@@ -309,6 +366,8 @@ def main() -> None:
         fetch_eigen(cache)
     elif args.action == "build":
         build(cache, host, python, args.python_lock.resolve(), args.component)
+    elif args.action == "publish":
+        publish(cache, host, python, args.python_lock.resolve())
     else:
         verify(cache, host)
 

@@ -4,7 +4,7 @@ CXXFLAGS = -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror
 CC = cc
 CFLAGS = -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror
 BUILD_DIR = .cache/native
-TPMSHX_EIGEN_INCLUDE ?= .cache/native-deps/src/CoolProp-7.2.0/externals/Eigen
+TPMSHX_EIGEN_INCLUDE ?= .cache/native-deps/src/Eigen-5.0.1
 EIGEN_CPPFLAGS = -DEIGEN_MPL2_ONLY -isystem "$(TPMSHX_EIGEN_INCLUDE)"
 
 ifeq ($(shell uname -s),Darwin)

@@ -1,4 +1,4 @@
-"""Isolated CoolProp 7.2.0 C++ capability qualification, no production binding.
+"""Isolated CoolProp 8.0.0 C++ capability qualification, no production binding.
 
 Fixed before comparison: HEOS property rtol=2e-10; BICUBIC rtol=2e-9.
 SI absolute tolerances for rho/cp/mu/k/h are 2e-8/2e-5/2e-14/2e-10/2e-5.
@@ -121,7 +121,7 @@ def eos_program():
                "VIRTUAL_ENV", "DYLD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH")}
     if os.name != "nt": env["PATH"] = "/usr/bin:/bin"
     version = subprocess.run([str(path), "--version"], env=env, capture_output=True, text=True, check=True)
-    assert version.stdout.split()[0] == "7.2.0"
+    assert version.stdout.split()[0] == "8.0.0"
     return path, env
 
 
@@ -166,7 +166,7 @@ def native_eos(eos_program, eos_tables):
             row["fields"] = [float(row[key]) for key in FIELDS]
             row["melting"] = float(row["melting_K"])
             row["error"] = bytes.fromhex(row["error_hex"]).decode("utf-8")
-        assert metadata["version"] == "7.2.0"
+        assert metadata["version"] == "8.0.0"
         assert Path(metadata["tables"]).resolve() == Path(tables).resolve()
         assert int(metadata["workers"]) == workers
         return rows, metadata
@@ -210,7 +210,7 @@ def test_forward_properties_at_project_bounds_and_pseudocritical_states(native_e
     rows = forward_grid(backend)
     expected = python_eos(rows)
     actual, _ = native_eos(rows)
-    assert expected["version"] == "7.2.0"
+    assert expected["version"] == "8.0.0"
     assert all(row["status"] == 0 for row in expected["rows"])
     assert_rows_equal(actual, expected["rows"], rows)
 

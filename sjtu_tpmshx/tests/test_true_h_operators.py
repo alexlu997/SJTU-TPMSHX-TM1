@@ -8,6 +8,40 @@ from sjtu_tpmshx.solvers import ltne_enthalpy_3d as ent
 from sjtu_tpmshx.solvers.ltne_enthalpy_2d import solve_enthalpy_2d
 
 
+@pytest.mark.parametrize('fluid,temperatures,pressures', [
+    ('water', [273.5, 300., 350., 380.], [1e5, 2e5, 8e6, 2e5]),
+    ('sco2', [281., 304., 307., 320., 350., 699.], [7.9e6, 8e6, 8e6, 8e6, 8e6, 16e6]),
+    ('air', [240., 300., 450., 700.], [2e5] * 4),
+])
+def test_heos_inverse_preserves_enthalpy_after_upstream_hp_bracket_change(fluid, temperatures, pressures):
+    temperature = np.asarray(temperatures).reshape(-1, 1, 1)
+    pressure = np.asarray(pressures).reshape(temperature.shape)
+    enthalpy = ent._prop_field('H', temperature, pressure, fluid)
+    actual = ent._T_of_h_field(enthalpy, pressure, fluid)
+    np.testing.assert_allclose(actual, temperature, rtol=0., atol=1e-9)
+    np.testing.assert_allclose(ent._prop_field('H', actual, pressure, fluid), enthalpy,
+                               rtol=0., atol=2e-6)
+
+
+def test_bicubic_cache_separates_upstream_versions(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    old_table = tmp_path / 'existing-table'
+    old_table.write_text('old-version table remains available to its original solver')
+    config, calls = {}, []
+    monkeypatch.setattr(ent, '_TABLE_DIRECTORY', None)
+    monkeypatch.setattr(ent._CP, 'get_config_string', lambda _: str(tmp_path))
+    monkeypatch.setattr(ent._CP, 'set_config_string', lambda key, value: config.update(path=value))
+    monkeypatch.setattr(ent, 'AbstractState', lambda *args:
+        SimpleNamespace(update=lambda *values: calls.append((args, values, config['path']))))
+    ent._bicubic_state()
+    ent._bicubic_state()
+    expected = tmp_path / ('CoolProp-' + ent._CP_VERSION)
+    assert expected.is_dir() and old_table.read_text().startswith('old-version')
+    assert len(calls) == 2
+    assert all(args == ('BICUBIC&HEOS', 'CO2') and values == (ent.PT_INPUTS, 8e6, 300.)
+               and ent.Path(path) == expected for args, values, path in calls)
+
+
 def sweep(h, temperature, solid, cp, dh, hv, faces, inlet, widths):
     return ent._fluid_enthalpy_sweep(
         h, temperature, solid, cp, h.copy(), dh, hv, *faces,

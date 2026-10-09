@@ -70,7 +70,7 @@ def test_public_driver_has_same_complete_solve_and_evidence(driver, pair, shape,
     assert settings['driver_abi'] == 1
     eos = actual[3]['_native_state'].get('sco2_enthalpy_eos')
     if eos:
-        assert eos['coolprop_version'] == '7.2.0'
+        assert eos['coolprop_version'] == '8.0.0'
 
 
 @pytest.mark.parametrize('coupled,equation', [(None, None), (1e-3, None), (None, 1e-3)])
@@ -240,6 +240,7 @@ def test_co2_requires_explicit_tables_after_first_cancellation(driver_library):
 def test_table_directory_cannot_change_for_loaded_library(driver, driver_library, tmp_path):
     case = case_data(('sco2', 'water'), shape=(2, 1, 1))
     driver(**case)
+    assert (Path(driver.table_directory.decode()) / 'CoolProp-8.0.0').is_dir()
     with pytest.raises(ValueError, match='absolute path'):
         NativeEnthalpyDriver(driver_library, table_directory='relative')
     changed = tmp_path / 'other-tables'
@@ -285,4 +286,4 @@ def test_pure_c_static_and_shared_callers(driver_library):
         path = driver_library.with_name('enthalpy_c_'+kind+('.exe' if os.name == 'nt' else ''))
         result = subprocess.run([str(path)], env=environment, capture_output=True, text=True, timeout=30)
         assert result.returncode == 0, result.stdout+result.stderr
-        assert 'enthalpy C ABI ok' in result.stdout and 'CoolProp=7.2.0' in result.stdout
+        assert 'enthalpy C ABI ok' in result.stdout and 'CoolProp=8.0.0' in result.stdout
