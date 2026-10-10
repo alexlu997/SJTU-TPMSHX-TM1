@@ -517,12 +517,13 @@ envelope 实现、三模块数据契约与公共 API、后处理指标入口；�
 `"$PYTHON" scripts/check_ci_shards.py .cache/ci/fast-0 .cache/ci/fast-1`
 核对两个 worker 的集合一致、两片互斥且完整覆盖原子集。
 
-原生资格检查分到四个独立 runner，每片串行执行。按实测耗时分配完整模块，
+原生资格检查分到四个独立 runner，每片串行执行。按实测耗时分配模块，
 共享求解 fixture 的用例留在同一片，3D 流动模块集中复用 JIT 编译。
+独立的 CO₂–水 2D 工程配对用例按完整 node ID 分到分片 0，以平衡工程配对的耗时。
 按顺序重复传入 `--ci-shard-modules=sjtu_tpmshx/tests/native/_ci_shard0.txt`、
 `--ci-shard-modules=sjtu_tpmshx/tests/native/_ci_shard1.txt` 和
 `--ci-shard-modules=sjtu_tpmshx/tests/native/_ci_shard2.txt`；
-三份清单分别对应分片 0、1、2，未列出的模块（含完整工程配对）自动进入分片 3。
+三份清单分别对应分片 0、1、2，未列出的用例自动进入分片 3。
 同一集合校验器加 `--serial`，依次传入四片 manifest，核对其完整且互斥。
 全部原数值用例、精度和收敛断言以及三个平台/Python 组合保持不变。
 工程配对用例内部同时运行两个独立后端，复用同一个不可变准备态；Python 留在调用线程，
