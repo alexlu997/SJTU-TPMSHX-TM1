@@ -1,9 +1,8 @@
-# Native qualification group 0; unlisted nodes go to group 2.
-# Keep shared solver fixtures in one job; only independent parity cases split.
+# Native qualification group 0; keep conservative 2D fixtures in one job.
 sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py
-sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[co2-water-2]
-sjtu_tpmshx/tests/native/test_full_3d_refined_stages.py
-sjtu_tpmshx/tests/native/test_cpp_full_3d.py
 sjtu_tpmshx/tests/native/test_native_eos.py
 sjtu_tpmshx/tests/native/test_enthalpy_driver.py
 sjtu_tpmshx/tests/native/test_native_outer_anderson.py
+sjtu_tpmshx/tests/native/test_cpp_full_2d.py
+sjtu_tpmshx/tests/native/test_fluid_properties.py
+sjtu_tpmshx/tests/native/test_cpp_enthalpy.py

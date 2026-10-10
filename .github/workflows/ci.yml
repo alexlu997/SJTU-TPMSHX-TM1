@@ -262,7 +262,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2]
+        shard: [0, 1, 2, 3]
         platform:
           - os: macos-14
             python: "3.13"
@@ -402,6 +402,7 @@ jobs:
           -p sjtu_tpmshx.tests.ci_shard --ci-shard=${{ matrix.shard }}
           --ci-shard-modules=sjtu_tpmshx/tests/native/_ci_shard0.txt
           --ci-shard-modules=sjtu_tpmshx/tests/native/_ci_shard1.txt
+          --ci-shard-modules=sjtu_tpmshx/tests/native/_ci_shard2.txt
           --ci-manifest=.cache/ci/native-manifest
           --timeout=600 --timeout-method=thread --durations=20
           --junitxml=.cache/ci/native-dependencies.xml
@@ -458,12 +459,13 @@ jobs:
         with:
           pattern: native-dependencies-${{ matrix.os }}-py${{ matrix.python }}-shard-*
           path: .cache/ci-shards
-      - name: Require all three complete and disjoint native shards
+      - name: Require all four complete and disjoint native shards
         run: >-
           python scripts/check_ci_shards.py --serial
           .cache/ci-shards/native-dependencies-${{ matrix.os }}-py${{ matrix.python }}-shard-0/native-manifest
           .cache/ci-shards/native-dependencies-${{ matrix.os }}-py${{ matrix.python }}-shard-1/native-manifest
           .cache/ci-shards/native-dependencies-${{ matrix.os }}-py${{ matrix.python }}-shard-2/native-manifest
+          .cache/ci-shards/native-dependencies-${{ matrix.os }}-py${{ matrix.python }}-shard-3/native-manifest
 
   bo-tests:
     strategy:
