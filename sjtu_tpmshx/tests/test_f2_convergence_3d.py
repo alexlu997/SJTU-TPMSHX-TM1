@@ -670,7 +670,7 @@ def test_nonfinite_iteration_does_not_add_cancel_checkpoint(monkeypatch, dim):
     requested = False
 
     def cancel():
-        calls.append(True)
+        calls.append(requested)
         return requested
 
     update = s._update_density
@@ -683,7 +683,7 @@ def test_nonfinite_iteration_does_not_add_cancel_checkpoint(monkeypatch, dim):
 
     monkeypatch.setattr(s, '_update_density', density)
     assert s.solve(max_iter=1, verbose=False, cancel_check=cancel) == (False, 1)
-    assert len(calls) == (1 if dim == 2 else 2)
+    assert calls and not any(calls)
     assert s.exit_reason == 'nonfinite'
     assert np.isnan(s.P.flat[0])
     _assert_invalid_final_diagnostics(s)

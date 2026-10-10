@@ -619,8 +619,10 @@ def test_field_preview_belongs_to_optimization_and_keeps_other_figures(window, d
     assert window._opt_result_tabs.currentWidget() is window.canvas_pareto
     window.resize(1280, 900)
     window.show()
-    # Initial layout posts further resize/layout events; drain that chain
-    # before measuring repeated previews rather than the first-show transition.
+    # Visit configuration before results so the plot uses the settled viewport.
+    window._opt_stack.setCurrentIndex(0)
+    QApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 1000)
+    window._opt_stack.setCurrentIndex(2)
     QApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 1000)
     heights = []
     try:
