@@ -1040,13 +1040,13 @@ class SIMPLESolver3D:
                              self.v_inlet_field, Nx, Ny, Nz, self.alpha_p,
                              self.rho_field, self.eps_field, self.outlet_mask_ij,
                              dx, dy, dz)
-            check_cancelled()
             if (self.fluid_type == 'ideal_gas'
                     and not f2_state_is_finite(self, (self.u, self.v, self.w))):
                 return f2_nonfinite_exit(self, it)
             self._update_density()  # compressible: ρ = P/(RT) + mass flux rescale
             if not f2_state_is_finite(self, (self.u, self.v, self.w)):
                 return f2_nonfinite_exit(self, it)
+            check_cancelled()
 
             # NOTE: `rho_eps_field` here is the PRE-`_update_density` array —
             # the one `_solve_pp_amg` above just solved div(rho_eps.u)=0 against.
