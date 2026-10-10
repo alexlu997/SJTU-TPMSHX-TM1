@@ -1,6 +1,7 @@
 # Whole modules in native qualification shard 0; the complement is shard 1.
 # Balance uses macOS/Windows JUnit timings; each runner executes serially.
 sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py
+sjtu_tpmshx/tests/native/test_cpp_conservative_full3d.py
 sjtu_tpmshx/tests/native/test_cpp_full_2d.py
 sjtu_tpmshx/tests/native/test_cpp_full_2d_capture.py
 sjtu_tpmshx/tests/native/test_cpp_quick_design.py
