@@ -66,7 +66,7 @@ def eval_expr(text):
         return None
     try:
         tree = ast.parse(s, mode='eval')
-    except SyntaxError:
+    except (SyntaxError, RecursionError):
         return None
     for node in ast.walk(tree):
         if not isinstance(node, _ALLOWED_NODES):
@@ -104,7 +104,7 @@ def eval_expr(text):
             if isinstance(op, ast.Mult):     return a * b
             if isinstance(op, ast.Div):      return a / b
             if isinstance(op, ast.Mod):      return a % b
-            if isinstance(op, ast.Pow):      return a ** b
+            if isinstance(op, ast.Pow):      return math.pow(a, b)
             if isinstance(op, ast.FloorDiv): return a // b
             raise ValueError("unsupported op")
         if isinstance(n, ast.Call):
@@ -121,12 +121,6 @@ def eval_expr(text):
         val = float(result)
     except (TypeError, ValueError, OverflowError):
         return None
-    # 2026-05-20 UI sweep: block NaN / ±Inf from leaking into the
-    # LineEdit (e.g. user types `1/0`, `0**-1`, or `log(0)`). Without
-    # this the field would be silently overwritten with the literal
-    # text `inf` / `nan`, which the solver then sees as a parse failure
-    # at compute time.
-    import math
     if not math.isfinite(val):
         return None
     return val

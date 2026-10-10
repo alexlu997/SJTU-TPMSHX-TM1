@@ -2,9 +2,8 @@
 simple_solver_3d.py — 3D SIMPLE solver for porous-media Brinkman-Forchheimer flow.
 
 Extends the 2D `simple_solver.py` architecture to a full 3D staggered MAC grid
-with PyAMG-based pressure-Poisson solution. Designed for the SJTU-TPMSHX 3D
-extension (plan archived: vault/reports/_archive/3d-solver/
-2026-04-19-3D-extension-plan-CN.md).
+with PyAMG-based pressure-Poisson solution. Current physical and numerical
+contracts are documented in docs/architecture.md.
 
 Key design choices (header re-verified against code 2026-07-06; the original
 Phase-1 "MVP" caveats are superseded):
@@ -167,10 +166,8 @@ from ._kernels_simple_3d import (  # noqa: F401
 def _build_pp_sparsity_3d(Nx, Ny, Nz, outlet_mask_ij):
     """Pre-compute CSR indptr/indices/cell_base/cell_kind for 7-point stencil.
 
-    outlet_mask_ij : (Nx, Ny) bool — True where the j=Ny-1 cells of that
-        (i, k) column are treated as outlet reference. Actually we use the
-        j-direction outlet (Fluid A) by default; Phase 1 pins k=Nz-1 too if
-        provided. For MVP we use j=Ny-1 only.
+    outlet_mask_ij : (Nx, Nz) bool — True where the j=Ny-1 cell of that
+        (i, k) column is an open outlet. All streams use solver-local j.
 
     WHAT THE PIN ACTUALLY IS (be precise — ledger C6, corrected 2026-07-12).
     `cell_kind = 1` marks EVERY open outlet cell, and `_assemble_pp_3d` then

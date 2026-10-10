@@ -1,4 +1,4 @@
-"""asym_pyfluent_runner.py — Phase-1 asym-porosity CFD batch via PyFluent.
+"""Mesh-specific template for an asymmetric-porosity pressure-drop study.
 
 Drives ANSYS Fluent over the asym_cfd_worklist.xlsx matrix. For each geometry
 (one nTop-exported mesh per (tpms, split, side)) it sweeps the per-side Re list,
@@ -7,16 +7,18 @@ p0..p3 at the core-cell boundaries → dp_core = p0 − p3 (developed friction,
 entrance/exit excluded). Emits one results CSV that asym_postproc_kappa.py
 consumes (DF fit → κ).
 
-Locked domain (see plan §6):
+Intended domain:
     [inlet_mm straight] + [n_core × period offset-TPMS core] + [outlet_mm straight]
     cross-section 1 cell L×L, lateral x,y = PERIODIC (set in the mesh),
     straight channels = void face extruded.
     BC: mass-flow inlet (worklist mdot_kg_s) + pressure outlet.
     planes p_i at z = inlet_mm + i·period  (i = 0..n_core), dp_core = p0 − p3.
 
-NOTE: this is the orchestration skeleton — runs on the Fluent machine, not here.
-Adjust MESH_DIR / mesh_path(), the periodic-zone names, and any version-specific
-settings-tree paths to your PyFluent build (tested shape: 2024R1 / 2025R1 API).
+This template is incomplete. Mesh units, periodic pairs, fluid cell-zone
+assignment and initialization require setup for the actual mesh and Fluent
+version. It reads pressures after a fixed iteration count without a convergence
+gate. A printed pressure is not a qualified result. It does not set up CHT.
+PyFluent is an external dependency, outside the normal project environment.
 
 Usage (on the CFD box):
     python -m sjtu_tpmshx.runs.cfd_asym.asym_pyfluent_runner --worklist asym_cfd_worklist.xlsx \

@@ -131,6 +131,41 @@ def test_geometry_lut_uses_external_cache_with_read_only_package(tmp_path, monke
         (package / 'solvers').chmod(0o755)
 
 
+@pytest.mark.parametrize('corruption', ['shape', 'nan', 'complex', 'object'])
+def test_geometry_lut_rebuilds_invalid_cache(tmp_path, monkeypatch, corruption):
+    import numpy as np
+    from sjtu_tpmshx.models.sigmoid_field import GeometryLUT
+
+    kwargs = dict(n_L=3, n_t=2, N=16, cache_dir=str(tmp_path))
+    original = GeometryLUT('Gyroid', **kwargs)
+    with np.load(original._cache_path, allow_pickle=False) as stored:
+        data = dict(stored)
+    if corruption == 'shape':
+        data['eps_table'] = data['eps_table'].ravel()
+    elif corruption == 'nan':
+        data['A0_table'][0, 0] = np.nan
+    elif corruption == 'complex':
+        data['eps_table'] = data['eps_table'] + 1j
+    else:
+        data['tpms_type'] = np.array(['Gyroid'], dtype=object)
+    np.savez_compressed(original._cache_path, **data)
+
+    rebuilds = []
+    precompute = GeometryLUT._precompute
+
+    def rebuild(self):
+        rebuilds.append(True)
+        precompute(self)
+
+    monkeypatch.setattr(GeometryLUT, '_precompute', rebuild)
+    restored = GeometryLUT('Gyroid', **kwargs)
+    assert rebuilds == [True]
+    np.testing.assert_array_equal(restored.eps_table, original.eps_table)
+    np.testing.assert_array_equal(restored.A0_table, original.A0_table)
+    with np.load(restored._cache_path, allow_pickle=False) as saved:
+        assert saved['tpms_type'][0] == 'Gyroid'
+
+
 # ── compute() cache — fixed production DF + hit-copy poison guard ──
 
 

@@ -171,17 +171,22 @@ class GeometryLUT:
         if not os.path.exists(self._cache_path):
             return False
         try:
-            data = np.load(self._cache_path, allow_pickle=True)
-            if str(data['tpms_type'][0]) != self.tpms_type:
-                return False
-            if 'N' not in data or int(data['N'][0]) != int(self.N):
-                return False   # resolution mismatch → recompute (audit 2026-06-28)
-            if not np.array_equal(data['L_vals'], self.L_vals):
-                return False
-            if not np.array_equal(data['t_vals'], self.t_vals):
-                return False
-            self.eps_table = data['eps_table']
-            self.A0_table = data['A0_table']
+            with np.load(self._cache_path, allow_pickle=False) as data:
+                if str(data['tpms_type'][0]) != self.tpms_type:
+                    return False
+                if 'N' not in data or int(data['N'][0]) != int(self.N):
+                    return False
+                if not np.array_equal(data['L_vals'], self.L_vals):
+                    return False
+                if not np.array_equal(data['t_vals'], self.t_vals):
+                    return False
+                eps_table, A0_table = data['eps_table'], data['A0_table']
+                shape = (len(self.L_vals), len(self.t_vals))
+                for table in (eps_table, A0_table):
+                    if (table.shape != shape or not np.isrealobj(table)
+                            or not np.isfinite(table).all()):
+                        return False
+            self.eps_table, self.A0_table = eps_table, A0_table
             return True
         except Exception:
             # Deliberate (except-audit 2026-07-03): a corrupt/stale cache

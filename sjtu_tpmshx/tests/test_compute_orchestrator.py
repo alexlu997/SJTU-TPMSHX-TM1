@@ -374,11 +374,6 @@ def test_compute_applies_launch_thread_count_and_restores_reused_pool_thread(out
         set_solver_threads(original_gui_count)
 
 
-# ----------------------------------------------------------- ETA history
-
-
-
-
 # ----------------------------------------------------------- mode validation
 
 

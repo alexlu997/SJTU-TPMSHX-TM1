@@ -2,9 +2,9 @@
 
 Computes the effective solid-phase thermal conductivity of the TPMS sheet
 skeleton by periodic homogenization on the SAME voxel geometry used for
-epsilon / A_0 (solvers/tpms_geometry: |phi| <= C(t/L), cell-centred N^3
-grid), closing the TODO at models/tpms_props.py CHI_S ("replace with
-numerical homogenisation from a unit-cell simulation").
+epsilon / A_0 (models/tpms_geometry: |phi| <= C(t/L), cell-centred N^3
+grid). The fixed coefficients are in models/tpms_props.py::_CHI_S_FIT;
+running this tool does not replace them.
 
 Method
 ------

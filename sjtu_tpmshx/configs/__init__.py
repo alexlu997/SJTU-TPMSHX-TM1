@@ -1,8 +1,7 @@
 """Project-wide configuration loaders.
 
-The ``configs`` package centralises parameter dicts that were previously
-hardcoded across multiple production scripts. Per audit Item 3 / AR8
-(vault/reports/engineering/2026-05-28-sjtu-tpmshx-4-perspective-audit-CN.html).
+The ``configs`` package owns shared configuration resources. Model provenance
+and applicability are documented in docs/model-resources.md.
 """
 from __future__ import annotations
 

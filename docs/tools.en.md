@@ -32,13 +32,18 @@ The independent Shanghai lumped dual-Nu comparison uses crossflow as primary and
 
 `benchmark_sou_3d` uses current `pressure_face_v1` face-extrapolated pressure drops. Previous cell-center outputs keep only their historical definition.
 
+`asym_pyfluent_runner` is an incomplete pressure-drop research template.
+Mesh units, periodic pairs, fluid cell-zone assignment and initialization need configuration for the actual mesh and Fluent version.
+It reads pressures after a fixed iteration count, without a convergence acceptance gate.
+It does not set up conjugate heat transfer. PyFluent is outside the default locked environment.
+
 | Tool | Input → output | Command and scope |
 | --- | --- | --- |
 | [examples/](../examples/) | Public JSON/YAML configuration → Case/Result/metrics | Real 2D/3D CLI examples in README. First-run entry within current support. |
 | [runs/smokes/](../sjtu_tpmshx/runs/smokes/) | Built-in examples → console and declared diagnostics | `python -m sjtu_tpmshx.runs.smokes.<module>`. Headless GUI requires `QT_QPA_PLATFORM=offscreen`. |
 | [runs/demos/](../sjtu_tpmshx/runs/demos/) | Built-in 3D cases → console/visualization | `python -m sjtu_tpmshx.runs.demos.<module>`. Interactive graphics require a desktop. Examples do not extend applicability. |
 | [CFD worklist](../sjtu_tpmshx/runs/tools/asym_build_cfd_worklist_xlsx.py) → [nTop expressions](../sjtu_tpmshx/runs/cfd_asym/asym_ntop_expressions_html.py) | Built-in geometry/fluid and optional private `water_DG_cfd_results_legacy.xlsx` → XLSX → HTML | Run the two commands below in order with one output directory. Missing local water data leaves a skip explanation in `r1_water_ref`, without invented anchors. |
-| [Asymmetric CFD tools](../sjtu_tpmshx/runs/cfd_asym/), [diagnostics/](../sjtu_tpmshx/runs/diagnostics/) | Declared geometry and field/CFD files → research results | `python -m sjtu_tpmshx.runs.<subdirectory>.<module>`. External Fluent/vault dependencies follow each tool's declarations. They are not default installation or verified capabilities for this round. |
+| [Asymmetric CFD tools](../sjtu_tpmshx/runs/cfd_asym/), [diagnostics/](../sjtu_tpmshx/runs/diagnostics/) | Declared geometry and field/CFD files → research results | `python -m sjtu_tpmshx.runs.<subdirectory>.<module>`. Fluent and private input files need separate preparation. The PyFluent template's incomplete steps are listed above. |
 | [scripts/](../scripts/) | Configured environment and test selection → logs | Two PowerShell test entries. Repository path comes from script location. Interpreter comes from `.venv-path`. `-LockFile` selects the lock. No automatic dependency installation. |
 | [D76 Nu/ε-NTU historical Q](../sjtu_tpmshx/validation/cases/validate_sco2_d76.py) | Six fixed D-7-6 cases/private Excel → smooth-CFD Nu and lumped Q | `python -m sjtu_tpmshx.validation.cases.validate_sco2_d76`. Keeps the 15% maximum absolute relative Q error gate. Exit 0 passes. 1 fails. It does not validate current effective Nu coefficients. |
 | [Existing water Nu table](../sjtu_tpmshx/validation/cases/validate_water_nu_excel.py) | 1879 legacy water CFD rows → row/topology/geometry/Re-band errors | `python -m sjtu_tpmshx.validation.cases.validate_water_nu_excel --out .cache/water-nu-validation`. Fixed current correlations. Exit 0 passes. 2 fails accuracy. Data errors raise. |

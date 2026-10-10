@@ -238,7 +238,7 @@ TPMSHX_REQUIRE_CPP_TESTS=1 \
 
 ## 隔离 EOS 与压力依赖资格
 
-依赖组件构建为显式步骤，与生产后端选择分开。输入锁定在 [native/dependencies-lock.toml](../native/dependencies-lock.toml)：CoolProp 8.0.0 及九个固定提交的 CPM 头文件依赖、SuperLU 7.0.1 及选定的三项 SciPy 1.18.1 double-LU 修正、AMGCL 1.5.0 和可移植 CMake 4.4.4。SuperLU 源码不等同于 SciPy 内附修订。源码、二进制、日志和 EOS 表都保存在本工作树 `.cache/native-deps`。[第三方说明](../native/THIRD_PARTY_NOTICES.md)记录链接组件和原始许可声明。
+依赖组件构建为显式步骤，与生产后端选择分开。`native/dependency-pilot/` 是当前原生后端使用的构建项目。输入锁定在 [native/dependencies-lock.toml](../native/dependencies-lock.toml)：CoolProp 8.0.0 及九个固定提交的 CPM 头文件依赖、SuperLU 7.0.1 及选定的三项 SciPy 1.18.1 double-LU 修正、AMGCL 1.5.0 和可移植 CMake 4.4.4。SuperLU 源码不等同于 SciPy 内附修订。源码、二进制、日志和 EOS 表都保存在本工作树 `.cache/native-deps`。[第三方说明](../native/THIRD_PARTY_NOTICES.md)记录链接组件和原始许可声明。
 
 获得原生依赖准备的明确授权后，使用配置解释器和既有锁检查。`fetch` 是完整依赖的联网步骤；`fetch-eigen` 仅获取无 EOS 热库所需的固定 Eigen 5.0.1 头文件。`build` 离线运行，不安装 Python 包或改变共享环境。CoolProp 构建使用显式本地 CPM 路径并关闭 FetchContent 联网，不获取可选测试或包装模块：
 
