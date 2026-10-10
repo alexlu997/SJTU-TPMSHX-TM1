@@ -52,10 +52,26 @@ def control(path, **kwargs):
                       native_table_directory=str(ROOT / '.cache/native-deps/tables'), **kwargs)
 
 
-def candidate(algorithm, pair='air-sco2', *, cap=30):
+def candidate(algorithm, pair='air-sco2', *, cap=30, port_refined=None):
     config = _config(3, air_sco2=pair == 'air-sco2')
-    return prepare_case(replace(config, solver=replace(config.solver,
+    if port_refined:
+        def full_port(port):
+            return replace(port, in_ctr=.015, in_w=.03, out_ctr=.015, out_w=.03,
+                           in_z_ctr=.015, in_z_w=.03, out_z_ctr=.015, out_z_w=.03)
+        counts = (30 if port_refined == 'partial' else 10, 10, 10)
+        port_a = full_port(config.bc_A)
+        if port_refined == 'partial':
+            port_a = replace(port_a, in_w=.015, out_w=.015)
+        config = replace(config, flags=replace(config.flags, port_wall_refine=True),
+                         solver=replace(config.solver, Nx=counts[0], Ny=counts[1], Nz=counts[2]),
+                         bc_A=port_a, bc_B=full_port(config.bc_B))
+    prepared = prepare_case(replace(config, solver=replace(config.solver,
         enthalpy_algorithm=algorithm, max_outer_ltne=cap)), case_id='candidate-' + pair + '-' + algorithm)
+    if port_refined:
+        for axis, count in zip('xyz', counts):
+            widths = np.asarray(prepared.grid['d' + axis])
+            assert len(widths) == count and np.ptp(widths) > 0.
+    return prepared
 
 
 def assert_preserved(actual, expected):
@@ -76,11 +92,13 @@ def assert_preserved(actual, expected):
         assert actual == expected
 
 
-@pytest.fixture(scope='module', params=[(a, p) for a in ALGORITHMS for p in ('air-sco2', 'sco2-water')],
-                ids=lambda value: '-'.join(value))
+@pytest.fixture(scope='module', params=[
+    (a, p, None) for a in ALGORITHMS for p in ('air-sco2', 'sco2-water')
+] + [(a, 'sco2-water', mesh) for a in ALGORITHMS for mesh in ('full', 'partial')],
+                ids=lambda value: '-'.join(map(str, value)))
 def completed(request, native_path):
-    algorithm, pair = request.param
-    prepared = candidate(algorithm, pair)
+    algorithm, pair, port_refined = request.param
+    prepared = candidate(algorithm, pair, port_refined=port_refined)
     # The public C++ entry must not obtain any numerical answer from Python.
     with patch('sjtu_tpmshx.solvers.backends.python.three_d.runtime.build_problem',
                side_effect=AssertionError('Python numerical driver called')):
@@ -369,7 +387,6 @@ def test_missing_version_query_blocks_candidate_before_solve_but_allows_legacy(n
     ('fluid_B_cfg', None, 'two-sided true-h route'),
     ('conservative_ltne', False, 'unsupported candidate'),
     ('variable_rho_cp', False, 'unsupported candidate'),
-    ('port_wall_refine', True, 'unsupported candidate'),
     ('disp_C_A', .01, 'unsupported candidate'),
     ('disp_C_B', .01, 'unsupported candidate'),
     ('mms_S_s_field', 1., 'physical sources'),
