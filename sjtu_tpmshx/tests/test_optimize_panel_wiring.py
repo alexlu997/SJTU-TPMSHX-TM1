@@ -101,7 +101,12 @@ def test_long_export_path_keeps_pareto_plot_inside_viewport(window, tmp_path, mo
     window.show()
     QApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 1000)
     initial_width = window.width()
-    target = tmp_path / ('continuous-field-optimization-' * 4) / 'pareto_data.csv'
+    viewport = window._canvas_scroll.viewport()
+    canvas = window.canvas_pareto
+    assert canvas.isVisible()
+    origin = canvas.mapTo(viewport, QPoint(0, 0))
+    assert origin.x() + canvas.width() <= viewport.width()
+    target = tmp_path / ('continuous_field_optimization_' * 6) / 'pareto_data.csv'
     target.parent.mkdir()
     monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(target), 'CSV (*.csv)'))
     try:
@@ -109,8 +114,6 @@ def test_long_export_path_keeps_pareto_plot_inside_viewport(window, tmp_path, mo
         QApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 1000)
         assert target.is_file()
         assert str(target) in window._opt_status.text()
-        viewport = window._canvas_scroll.viewport()
-        canvas = window.canvas_pareto
         assert canvas.isVisible()
         origin = canvas.mapTo(viewport, QPoint(0, 0))
         assert origin.x() + canvas.width() <= viewport.width()

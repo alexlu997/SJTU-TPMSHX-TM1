@@ -470,6 +470,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
             stage_row.addWidget(arr)
     status = QLabel("空闲 — 配置参数后点击启动")
     status.setMinimumHeight(24)
+    status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
     status.setWordWrap(True)
     status.setStyleSheet(
         f"color:{_sub_fg}; font-family:{_mono};"
