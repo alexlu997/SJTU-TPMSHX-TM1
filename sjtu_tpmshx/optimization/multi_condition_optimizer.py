@@ -19,7 +19,7 @@ from sjtu_tpmshx.domain.compute_config import ComputeConfig, ZoneInputConfig
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.io.text_file import write_text
 from sjtu_tpmshx.logutil import get_logger
-from sjtu_tpmshx.models.continuous_field import decision_bounds
+from sjtu_tpmshx.models.continuous_field import decision_bounds, decision_dim
 from sjtu_tpmshx.optimization.multi_condition import _evaluate_condition_batch
 from sjtu_tpmshx.domain.portable_data import mutable_data
 
@@ -142,7 +142,8 @@ def run_multi_condition_optimization(
     first = asdict(config)
     for _, current, _, _ in inputs[1:]:
         current = asdict(current)
-        if any(current[key] != first[key] for key in frozen):
+        if (any(current[key] != first[key] for key in frozen)
+                or any(current['fluid_' + s]['type'] != first['fluid_' + s]['type'] for s in 'AB')):
             raise ValueError('all conditions must use the same geometry and evaluation settings')
     spec = dict(n_ctrl_x=3, n_ctrl_y=3, symmetric_y=False, spline_order=2,
                 L_bounds=[4., 8.], t_bounds=[.3, .6])
@@ -152,6 +153,11 @@ def run_multi_condition_optimization(
         if 'x_decision' in field_spec:
             raise ValueError('field_spec describes the search space; omit x_decision')
         spec.update(deepcopy(field_spec))
+    dimension_count = decision_dim(spec['n_ctrl_x'], spec['n_ctrl_y'], spec['symmetric_y'],
+                                   n_ctrl_z=spec.get('n_ctrl_z'))
+    if dimension_count > qmc.Sobol.MAXDIM:
+        raise ValueError(f'{method} initialization supports at most {qmc.Sobol.MAXDIM} variables; '
+                         f'this control layout has {dimension_count}')
     lower, upper = decision_bounds(spec['n_ctrl_x'], spec['n_ctrl_y'], spec['symmetric_y'],
         spec['L_bounds'], spec['t_bounds'], n_ctrl_z=spec.get('n_ctrl_z'))
     count = len(lower)//2

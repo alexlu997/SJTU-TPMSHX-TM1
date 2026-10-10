@@ -17,6 +17,8 @@ def window(win):
     win._load_named_preset('Shanghai (3D Gyroid)')
     win._continuous_field_spec = None
     win._opt_conditions = None
+    for edit in win._opt_controls.values():
+        edit.setValue(3)
     win.le_Nx.setText('12'); win.le_Ny.setText('8'); win.le_Nz.setText('6')
     win.combo_grid.setCurrentIndex(win.combo_grid.findData(False))
     for key, value in (('L_min', 4.), ('L_max', 8.), ('t_min', .3), ('t_max', .6)):
@@ -30,9 +32,11 @@ def condition(name='one'):
 
 
 def report(window, *, status='completed'):
+    from sjtu_tpmshx.models.continuous_field import decision_dim
     cfg = panel._gather_cfg(window)
     spec = panel._field_spec(window)
-    count = 27 if cfg.is_3d else 9
+    count = decision_dim(spec['n_ctrl_x'], spec['n_ctrl_y'], spec['symmetric_y'],
+                         n_ctrl_z=spec.get('n_ctrl_z')) // 2
     # Different z controls ensure flattening or mean backfill cannot pass.
     x = np.r_[np.linspace(5., 7., count), np.linspace(.35, .55, count)].tolist()
     return dict(status=status, reason=None, dimension=3 if cfg.is_3d else 2,
@@ -64,6 +68,96 @@ def archive_candidate(window, study, output_dir):
     (directory / 'batch.json').write_text(json.dumps(batch))
     window._last_opt_output_dir = str(output_dir)
     return case, batch
+
+
+def test_export_button_uses_archived_objectives_after_ui_edits(window, tmp_path, monkeypatch):
+    import csv
+    from PySide6.QtWidgets import QFileDialog
+
+    study = report(window, status='cancelled')
+    window._last_opt_report = study
+    panel.show_pareto(window, study)
+    window.le_TinA.setText('450')
+    target = tmp_path / 'pareto.csv'
+    monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(target), 'CSV (*.csv)'))
+    assert window._opt_export_pareto_btn.isEnabled()
+    window._opt_export_pareto_btn.click()
+    with target.open(encoding='utf-8-sig', newline='') as stream:
+        rows = list(csv.DictReader(stream))
+    assert len(rows) == 1
+    assert float(rows[0]['pressure_ratio']) == .25
+    assert float(rows[0]['heat_gain_percent']) == -2.
+    assert rows[0]['run_status'] == 'cancelled'
+
+
+def test_long_export_path_keeps_pareto_plot_inside_viewport(window, tmp_path, monkeypatch):
+    from PySide6.QtCore import QEventLoop, QPoint
+    from PySide6.QtWidgets import QApplication, QFileDialog
+
+    window._last_opt_report = study = report(window)
+    panel.show_pareto(window, study)
+    window._switch_tab('pareto')
+    window.resize(1300, 900)
+    window.show()
+    QApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 1000)
+    initial_width = window.width()
+    viewport = window._canvas_scroll.viewport()
+    canvas = window.canvas_pareto
+    assert canvas.isVisible()
+    origin = canvas.mapTo(viewport, QPoint(0, 0))
+    assert origin.x() + canvas.width() <= viewport.width()
+    target = tmp_path / ('continuous_field_optimization_' * 4) / 'pareto_data.csv'
+    target.parent.mkdir()
+    monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(target), 'CSV (*.csv)'))
+    try:
+        window._opt_export_pareto_btn.click()
+        QApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 1000)
+        assert target.is_file()
+        assert str(target) in window._opt_status.text()
+        assert canvas.isVisible()
+        origin = canvas.mapTo(viewport, QPoint(0, 0))
+        assert origin.x() + canvas.width() <= viewport.width()
+        assert window.width() == initial_width
+    finally:
+        window.hide()
+
+
+@pytest.mark.parametrize('dimension', [0, 1])
+def test_control_counts_and_selected_export_keep_frozen_design(window, tmp_path, dimension):
+    from sjtu_tpmshx.optimization.export_ntop_csv import export_study_design
+    window.combo_dim.setCurrentIndex(dimension)
+    for axis, count in zip('xyz', (1, 2, 5)):
+        window._opt_controls[axis].setValue(count)
+    spec = panel._field_spec(window)
+    assert spec['n_ctrl_x'] == 1 and spec['n_ctrl_y'] == 2
+    if dimension:
+        assert spec['n_ctrl_z'] == 5
+    assert ('20' if dimension else '4') + ' 个变量' in window._opt_field_layout.text()
+    preset = window._capture_current_preset('controls')
+    window._validate_preset(preset, complete=True)
+    window._opt_controls['x'].setValue(3)
+    window._apply_user_preset(preset, show_notice=False)
+    assert [edit.value() for edit in window._opt_controls.values()] == [1, 2, 5]
+    study = report(window)
+    window._last_opt_report = study
+    archive_candidate(window, study, tmp_path / 'archive')
+    panel.show_pareto(window, study)
+    panel.on_pareto_pick(window, types.SimpleNamespace(ind=[0]))
+    assert window._opt_selected_history_index == 0
+    assert window._opt_export_geometry_btn.isEnabled()
+    frozen = deepcopy(study)
+    window.le_L.setText('0.2')
+    window._opt_controls['x'].setValue(4)
+    summary = export_study_design(window._last_opt_report, window._opt_selected_history_index,
+                                 tmp_path / 'geometry', (3, 2, 4) if dimension else (3, 2))
+    assert study == frozen
+    assert summary['L_domain_mm'] == pytest.approx(182.)
+    assert summary['geometry_config']['n_ctrl_x'] == 1
+    assert summary['source']['design_id'] == 0
+    assert summary['decision_vector'] == study['history'][0]['x_decision']
+    panel.show_pareto(window, study)
+    assert window._opt_selected_history_index is None
+    assert not window._opt_export_geometry_btn.isEnabled()
 
 
 @pytest.mark.parametrize('dimension', [0, 1])
@@ -542,6 +636,8 @@ def test_volume_tab_is_lazy_reuses_panel_and_keeps_failed_updates_unavailable(wi
             super().__init__(parent)
             self.set_fields = Mock()
             self.cleanup = Mock()
+            self.restore_color_ranges = Mock()
+            self.color_range_state = lambda: {'mode': 'global', 'ranges': {}}
             self._volume_actor = object()
             created.append(self)
 

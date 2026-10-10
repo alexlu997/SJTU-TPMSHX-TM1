@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from sjtu_tpmshx.domain.case_data import CaseData
+from sjtu_tpmshx.domain.compute_config import FluidConfig
 from sjtu_tpmshx.domain.run_warnings import (
     current_warnings, record_warning, warning_messages, warning_scope,
 )
@@ -18,7 +19,7 @@ from sjtu_tpmshx.preprocess import api
 ])
 def test_public_preparation_keeps_metadata_and_warning_ownership(monkeypatch, entry, module, is_3d):
     # Stub only physical preparation; exercise each real public boundary.
-    argument = SimpleNamespace(is_3d=is_3d)
+    argument = SimpleNamespace(is_3d=is_3d, fluid_A=FluidConfig(), fluid_B=FluidConfig())
     args = (argument,) if entry == 'prepare_case' else (argument, object())
     kwargs = {'case_id': 'boundary'}
     original = CaseData('boundary', metadata={

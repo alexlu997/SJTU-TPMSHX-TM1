@@ -53,17 +53,17 @@ def range_records(rows):
     """Reconstruct RangeRecord values from captured inputs without properties."""
     records = {}
     for row in rows:
-        nu = row['view'] in ('nu', 'nu_raw')
+        nu = row['view'] in ('nu', 'nu_raw', 'nu_pr')
         source = (row['view'], row['model'], row['topology']) if nu else (row['view'], row['model'])
         if row['view'] == 'nu_raw':
             label = f"[{row['model']} Nu raw] {row['topology']}"
-        elif row['view'] == 'nu':
-            prefix = {'air': 'Nu extrap', 'water': 'water Nu extrap', 'sco2': 'sCO2 Nu extrap'}[row['model']]
+        elif row['view'] in ('nu', 'nu_pr'):
+            prefix = {'air': 'Nu extrap', 'water': 'water Nu extrap', 'sco2': 'sCO2 Nu extrap', 'co2': 'CO2 Nu extrap'}[row['model']]
             label = f"[{prefix}] {row['topology']}"
         else:
             label = row['model']
         key = (*source, tuple(row['shape']), (row['side'], row['stage'], row['layout']))
-        record = RangeRecord(label, 'Re' if nu else 'T', '-' if nu else 'K', tuple(row['bounds']),
+        record = RangeRecord(label, 'Pr' if row['view'] == 'nu_pr' else 'Re' if nu else 'T', '-' if nu else 'K', tuple(row['bounds']),
             row['minimum'], row['maximum'], row['low'], row['high'], row['size'], row['nonfinite'])
         previous = records.get(key)
         records[key] = record if previous is None else previous.merged(record)

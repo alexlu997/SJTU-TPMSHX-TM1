@@ -347,6 +347,9 @@ class RunControllerMixin:
                     for key in keys]
                 result.metadata['run_provenance'] = deepcopy(provenance)
             self.write_result(result)
+            for side, inlet in result.metadata.get('inlet_inputs', {}).items():
+                if inlet['mass_flow_kg_s'] is not None:
+                    getattr(self, 'le_u' + side).setText(format(inlet['u_mps'], '.17g'))
             published = True
             success = self._render_compute_result()
         except Exception as exc:

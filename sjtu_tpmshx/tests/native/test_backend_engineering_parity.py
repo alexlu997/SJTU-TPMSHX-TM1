@@ -8,13 +8,14 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.domain.compute_config import FluidConfig
+from sjtu_tpmshx.domain.compute_config import FluidConfig, PartialBCConfig, ZoneInputConfig
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.postprocess.api import evaluate
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.tests.native import test_cpp_full_3d as native_3d
 from sjtu_tpmshx.tests.native.test_native_execution import _config
+from sjtu_tpmshx.tests.test_co2_model import CO2_PAIRS, co2_config, co2_engineering_config
 
 native_path = native_3d.native_path
 
@@ -43,7 +44,7 @@ def _physical_gates(result):
 
 @pytest.mark.parametrize('dimension', [2, 3])
 @pytest.mark.parametrize('pair', ['air-air', 'air-water', 'water-air', 'air-sco2',
-                                  'sco2-air', 'water-sco2', 'sco2-water', 'sco2-sco2'])
+                                  'sco2-air', 'water-sco2', 'sco2-water', 'sco2-sco2', *CO2_PAIRS])
 def test_public_backends_meet_engineering_limits(native_path, dimension, pair, record_property):
     def fluid(name, side):
         return FluidConfig(type=name, u_mps=3. if name == 'air' else .2,
@@ -51,10 +52,42 @@ def test_public_backends_meet_engineering_limits(native_path, dimension, pair, r
             P_in_Pa={'air': 2e5, 'water': 2e6, 'sco2': 12e6}[name])
 
     names = pair.split('-')
-    config = replace(_config(dimension, True), fluid_A=fluid(names[0], 0), fluid_B=fluid(names[1], 1))
+    config = (co2_engineering_config(dimension, pair) if pair in CO2_PAIRS else
+              replace(_config(dimension, True), fluid_A=fluid(names[0], 0), fluid_B=fluid(names[1], 1)))
     prepared = prepare_case(config, case_id=f'backend-parity-{dimension}d-{pair}')
     python = run_case(prepared, RunControl())
     cpp = run_case(prepared, native_3d.control(native_path))
+    _assert_engineering_pair(python, cpp, record_property)
+
+
+@pytest.mark.parametrize('dimension', [2, 3])
+@pytest.mark.parametrize('fluid', ['co2', 'sco2'])
+def test_continuous_real_fluid_public_backends(native_path, dimension, fluid, record_property):
+    config = co2_config(1 if dimension == 2 else 3)
+    config.fluid_A.type = fluid
+    count = 2 if dimension == 2 else 6
+    spec = dict(n_ctrl_x=1, n_ctrl_y=2, symmetric_y=False, spline_order=2,
+                L_bounds=[6.8, 7.2], t_bounds=[.55, .6],
+                x_decision=np.r_[np.linspace(6.8, 7.2, count), np.linspace(.55, .6, count)].tolist())
+    if dimension == 3:
+        spec['n_ctrl_z'] = 3
+    else:
+        config.solver.max_outer_ltne = 100
+        config.bc_A = PartialBCConfig(dir=0, in_ctr=.021, in_w=.021, out_ctr=.021, out_w=.021)
+        config.bc_B = PartialBCConfig(dir=3, in_ctr=.091, in_w=.091, out_ctr=.091, out_w=.091)
+    config.zones = ZoneInputConfig(enabled=True, axis='continuous', config=spec)
+    prepared = prepare_case(config, case_id=f'continuous-{dimension}d-{fluid}')
+    python = run_case(prepared, RunControl())
+    cpp = run_case(prepared, native_3d.control(native_path))
+    for result in (python, cpp):
+        assert result.metadata['thermal_mode'] == 'true_h'
+        assert result.metadata['design_mode'] == ('continuous' if dimension == 2 else 'continuous_xyz')
+        for side in 'AB':
+            assert abs(result.metadata['diagnostics']['mass_imbalance_rel_' + side]) <= 1e-6
+    _assert_engineering_pair(python, cpp, record_property)
+
+
+def _assert_engineering_pair(python, cpp, record_property):
     for result in (python, cpp):
         _physical_gates(result)
     temperature_max = 0.

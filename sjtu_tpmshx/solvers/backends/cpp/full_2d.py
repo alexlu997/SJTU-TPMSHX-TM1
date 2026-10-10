@@ -329,6 +329,10 @@ class NativeFull2DDriver:
                 out[name] = getattr(result, name)
             out['sco2_nu_observations'] = {side: copy_nu_observation(value, shape)
                                          for side, value in zip(('A', 'B'), result.nu_observations)}
+            from sjtu_tpmshx.models.co2_correlations import NU_MULTIPLIER
+            for i, side in enumerate('AB'):
+                if config.sides[i].fluid == 3 and out['sco2_nu_observations'][side]:
+                    out['sco2_nu_observations'][side]['floor'] *= NU_MULTIPLIER
             out['range_observations'] = copy_range_observations(result.range_observations, result.range_observation_count)
             out['outer_history'] = []
             for i in range(result.outer_history_count):
@@ -394,7 +398,8 @@ def _pack(cfg, prepared, table_directory):
     config.topology = ('Diamond', 'Gyroid').index(cfg['tpms_type'])
     config.asymmetric = cfg['compute_cfg'].geometry.delta_levelset != 0
     fluids = (cfg['fluid_A'], cfg['fluid_B'])
-    config.thermal_mode = (2 if 'sco2' in fluids and cfg['zone_config'] is None else
+    config.thermal_mode = (2 if any(f in ('sco2', 'co2') for f in fluids)
+                           and (cfg['zone_config'] is None or cfg['z_axis'] == 'continuous') else
         1 if all(f in ('air', 'water') for f in fluids) and not config.asymmetric and
         (cfg['zone_config'] is None or cfg['z_axis'] == 'continuous') else 0)
     config.spatial_geometry = zones is not None
@@ -426,7 +431,7 @@ def _pack(cfg, prepared, table_directory):
             _port_overlap_1d(flow['dx'], port['out_ctr']-port['out_w']/2, port['out_ctr']+port['out_w']/2, staggered=True)])
         physical = getattr(cfg['compute_cfg'], 'fluid_'+side)
         side_geometry = (cfg['thermal_geometry']['side_geometry'] or {}).get(side, (0., 0., 0., 0.))
-        config.sides[i] = _Side(('air', 'water', 'sco2').index(cfg['fluid_'+side]), cfg['dir_'+side],
+        config.sides[i] = _Side(('air', 'water', 'sco2', 'co2').index(cfg['fluid_'+side]), cfg['dir_'+side],
             int(port.get('uniform_inlet_2d', False)), cfg['T_in'+side], physical.P_in_Pa, cfg['u_'+side],
             properties[side]['mu'], flow['seed_K_m2'], flow['seed_cF_per_m'],
             port['in_ctr']-port['in_w']/2, port['in_ctr']+port['in_w']/2,

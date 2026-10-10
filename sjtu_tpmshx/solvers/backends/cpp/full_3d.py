@@ -355,7 +355,7 @@ class NativeFull3DDriver:
         data.spatial, data.asymmetric, data.solve_b = spatial, cfg.get('delta_levelset', 0.) != 0., cfg.get('fluid_B_cfg') is not None
         for s, label in enumerate('AB'):
             a = data.sides[s];axis = p['axes'][label];bc = cfg['fluid_'+label+'_cfg']
-            a.fluid = ('air', 'water', 'sco2').index(cfg['fluid_type_'+label]);a.direction = 3 if bc is None else bc['dir']
+            a.fluid = ('air', 'water', 'sco2', 'co2').index(cfg['fluid_type_'+label]);a.direction = 3 if bc is None else bc['dir']
             a.solver_axes[:] = [axis[key+'_real_axis'] for key in ('cross1', 'stream', 'cross2')]
             a.inlet_temperature, a.inlet_pressure, a.inlet_velocity = cfg['T_in'+label], cfg['P_in'+label], cfg['u_'+label]
             rectangles = _port_rectangles(bc, float(sum(axis['dcross2']))) if bc is not None else dict(inlet_rect=(0.,1.,0.,1.),outlet_rect=(0.,1.,0.,1.))
@@ -490,6 +490,10 @@ class NativeFull3DDriver:
                 detached['native_metadata'] = dict(abi=self.abi, algorithm=algorithm, red_black=red_black)
                 if 'temperature_transport' in detached:
                     detached['native_metadata']['transport'] = detached['temperature_transport']
+            from sjtu_tpmshx.models.co2_correlations import NU_MULTIPLIER
+            for label in 'AB':
+                if cfg['fluid_type_'+label] == 'co2' and detached['nu_observations'][label]:
+                    detached['nu_observations'][label]['floor'] *= NU_MULTIPLIER
             detached['bootstrap_trace'] = bootstrap_traces
             replay_range_observations(detached['range_observations'])
             from sjtu_tpmshx.models.nu_correlations import warn_sco2_nu_evidence

@@ -50,8 +50,8 @@ def run_pytest(root, *options, workers=2):
         text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=45)
 
 
-def run_checker(zero, one, baseline=None, *, serial=False):
-    args = [sys.executable, '-S', str(_CHECKER), str(zero), str(one)]
+def run_checker(*shards, baseline=None, serial=False):
+    args = [sys.executable, '-S', str(_CHECKER), *map(str, shards)]
     if baseline is not None:
         args += ['--baseline', str(baseline)]
     if serial:
@@ -86,7 +86,7 @@ def test_filters_module_partition_new_files_and_baseline(manifests):
             assert selected == {n for n in expected if not n.startswith('test_packed.py::')}
         else:
             assert selected == expected
-    checked = run_checker(manifests['zero'], manifests['one'], manifests['baseline'])
+    checked = run_checker(manifests['zero'], manifests['one'], baseline=manifests['baseline'])
     assert checked.returncode == 0, checked.stdout
 
 
@@ -102,7 +102,7 @@ def test_serial_shards_with_custom_modules(suite, tmp_path):
         assert result.returncode == 0, result.stdout
     selected = json.loads((directories['zero'] / 'controller.json').read_text())
     assert selected['selected_nodeids'] == ['test_rest.py::test_keep_rest']
-    checked = run_checker(directories['zero'], directories['one'], directories['baseline'], serial=True)
+    checked = run_checker(directories['zero'], directories['one'], baseline=directories['baseline'], serial=True)
     assert checked.returncode == 0, checked.stdout
     assert run_checker(directories['zero'], directories['one']).returncode != 0
     path = directories['one'] / 'controller.json'
@@ -114,6 +114,42 @@ def test_serial_shards_with_custom_modules(suite, tmp_path):
     record['selected_nodeids'].pop()
     path.write_text(json.dumps(record), encoding='utf-8')
     assert run_checker(directories['zero'], directories['one'], serial=True).returncode != 0
+
+
+def test_three_shards_split_exact_parameters_and_keep_new_tests(suite, tmp_path):
+    groups = [tmp_path / 'group0.txt', tmp_path / 'group1.txt']
+    groups[0].write_text('test_packed.py::test_keep[1]\n', encoding='utf-8')
+    groups[1].write_text('test_rest.py\ntest_packed.py::test_keep[2]\n', encoding='utf-8')
+    directories = [tmp_path / f'shard{i}' for i in range(3)]
+    for shard, directory in enumerate(directories):
+        result = run_pytest(suite, f'--ci-shard={shard}', '--ci-manifest', str(directory),
+                            *[f'--ci-shard-modules={path}' for path in groups], workers=0)
+        assert result.returncode == 0, result.stdout
+    expected = [{'test_packed.py::test_keep[1]'},
+                {'test_packed.py::test_keep[2]', 'test_rest.py::test_keep_rest'},
+                {'test_new.py::test_keep_new'}]
+    for directory, nodes in zip(directories, expected):
+        record = json.loads((directory / 'controller.json').read_text())
+        assert set(record['selected_nodeids']) == nodes
+    checked = run_checker(*directories, serial=True)
+    assert checked.returncode == 0, checked.stdout
+    assert run_checker(*directories[:2], serial=True).returncode != 0
+    assert run_checker(directories[0], directories[2], serial=True).returncode != 0
+
+
+def test_overlapping_groups_are_rejected(suite, tmp_path):
+    group = tmp_path / 'overlap.txt'
+    group.write_text('test_packed.py::test_keep[1]\n', encoding='utf-8')
+    result = run_pytest(suite, '--ci-shard=0', '--ci-manifest', str(tmp_path / 'manifest'),
+                        f'--ci-shard-modules={suite / "_ci_shard0.txt"}',
+                        f'--ci-shard-modules={group}', workers=0)
+    assert result.returncode != 0 and 'belongs to multiple shards' in result.stdout
+
+
+@pytest.mark.parametrize('shard', [-1, 2])
+def test_shard_outside_configured_groups_is_rejected(suite, tmp_path, shard):
+    result = run_pytest(suite, f'--ci-shard={shard}', '--ci-manifest', str(tmp_path), workers=0)
+    assert result.returncode != 0 and '--ci-shard must be between 0 and 1' in result.stdout
 
 
 @pytest.mark.parametrize('damage', ['missing', 'worker_disagreement', 'overlap', 'incomplete',

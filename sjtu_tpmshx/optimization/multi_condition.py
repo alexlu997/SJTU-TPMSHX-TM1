@@ -34,8 +34,9 @@ def _full_result_metadata(field):
     dimension = metadata.get('dimension')
     if (dimension not in (2, 3) or field.grid['dimension'] != dimension
             or metadata.get('quantity_basis') != {2: 'per_unit_depth', 3: 'total'}[dimension]
-            or metadata.get('mode', 'full') != 'full' or metadata.get('thermal_mode') != 'model_h'):
-        raise ValueError('batch comparison requires full 2D/3D model_h results with native units')
+            or metadata.get('mode', 'full') != 'full'
+            or metadata.get('thermal_mode') not in ('model_h', 'true_h', 'conservative_energy')):
+        raise ValueError('batch comparison requires full 2D/3D enthalpy results with native units')
     parameters = metadata['parameters']
     df_mode = parameters['df_mode'] if dimension == 3 else parameters['run_settings']['df_mode']
     if metadata['df_metadata']['mode'] != df_mode:
@@ -46,6 +47,18 @@ def _full_result_metadata(field):
 def _energy_gates(field):
     from sjtu_tpmshx.postprocess.conservation import compute_phase2a
     metadata = field.metadata
+    if metadata['thermal_mode'] in ('true_h', 'conservative_energy'):
+        balance = metadata['diagnostics']['true_h_balance']
+        clips = np.asarray(balance['enthalpy_clip_counts']['total'])
+        gates = [['true-h thermal solve converged', balance['converged'] is True],
+                 ['true-h enthalpy remains unclipped', bool(clips.shape == (2,) and np.all(clips == 0))]]
+        for name in ('coupled', 'equation'):
+            ratio = balance[name + '_energy_balance']['ratio']
+            tolerance = balance['effective_settings'][name + '_energy_tol']
+            gates.append([f'true-h {name} energy balance',
+                          bool(isfinite(ratio) and isfinite(tolerance)
+                               and 0. <= ratio <= tolerance and tolerance > 0.)])
+        return gates
     if metadata['dimension'] == 2:
         diagnostics = metadata['diagnostics']
         gates = []
@@ -90,7 +103,8 @@ def _check_baseline_case(reference, case, flow_a, flow_b):
         if parameters[key] != case.parameters[key]:
             raise ValueError(f'baseline and candidate differ in fixed input {key}')
     for key in ('max_iter_simple', 'max_outer_ltne', 'outer_tol_K', 'convergence_mode',
-                'mom_tol', 'mass_local_tol', 'mass_global_tol'):
+                'mom_tol', 'mass_local_tol', 'mass_global_tol',
+                'enthalpy_algorithm', 'enthalpy_temperature_tol_K'):
         if parameters.get(key) != case.parameters.get(key):
             raise ValueError(f'baseline and candidate solver setting {key} differs')
     if reference.model_refs != case.model_refs:
@@ -117,7 +131,7 @@ def evaluate_condition_batch(
     baseline: Sequence[ConditionResult] | None = None,
     control: RunControl = RunControl(),
 ) -> dict:
-    """Run one air-A/water-B design's conditions serially, without penalties.
+    """Run one supported design's conditions serially, without penalties.
 
     Each input is ``(condition_id, config, mass_flow_A_kg_s, mass_flow_B_kg_s)``.
     Use the same design and fixed condition list for every comparison. The
@@ -156,8 +170,9 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
     for condition_id, config, flow_a, flow_b in inputs:
         if not isinstance(config, ComputeConfig):
             raise TypeError(f'condition {condition_id}: config must be ComputeConfig')
-        if config.fluid_A.type != 'air' or config.fluid_B.type != 'water':
-            raise ValueError('condition batch requires air-A/water-B inputs')
+        pair = (config.fluid_A.type, config.fluid_B.type)
+        if pair != ('air', 'water') and not {'co2', 'sco2'}.intersection(pair):
+            raise ValueError('condition batch requires air-A/water-B or a CO2/sCO2 side')
         if not all(isfinite(value) and value > 0 for value in (flow_a, flow_b)):
             raise ValueError(f'condition {condition_id}: mass flows must be finite and positive')
     frozen_keys = ('geometry', 'zones', 'bc_A', 'bc_B', 'flags', 'solver', 'df_mode',
@@ -165,7 +180,8 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
     first = asdict(inputs[0][1])
     for condition_id, config, _, _ in inputs[1:]:
         current = asdict(config)
-        if any(current[key] != first[key] for key in frozen_keys):
+        if (any(current[key] != first[key] for key in frozen_keys)
+                or any(current['fluid_' + s]['type'] != first['fluid_' + s]['type'] for s in 'AB')):
             raise ValueError(f'condition {condition_id}: design and evaluation settings must be fixed')
     reference = {}
     references = {}
@@ -248,6 +264,12 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
             raise ValueError('returned result does not belong to the prepared case')
         metadata = _full_result_metadata(field)
         dimension = case.grid['dimension']
+        expected_thermal = ('true_h' if {'co2', 'sco2'}.intersection(
+            (config.fluid_A.type, config.fluid_B.type)) else 'model_h')
+        if expected_thermal == 'true_h' and config.solver.enthalpy_algorithm != 'legacy_h_fou':
+            expected_thermal = 'conservative_energy'
+        if metadata['thermal_mode'] != expected_thermal:
+            raise ValueError('returned thermal mode disagrees with the configured fluids')
         result_mode = (metadata['parameters']['df_mode'] if dimension == 3
                        else metadata['parameters']['run_settings']['df_mode'])
         if (field.model_refs != case.model_refs or metadata['dimension'] != dimension
@@ -375,8 +397,8 @@ def aggregate_multi_condition(
     changing the averaging denominator. The caller owns physical applicability
     and the identity of the fixed baseline design.
 
-    The fixed heat metric is ``-Q_B``: useful B-side water heat uptake for the
-    Shanghai air-A/water-B benchmark. Native ``Q_B`` is signed heat loss, so it
+    The fixed heat metric is ``-Q_B``: useful B-side heat uptake, preserving
+    the Shanghai benchmark objective for CO2/sCO2. Native ``Q_B`` is signed heat loss, so it
     is negated, never made absolute; the generic A-side ``Q`` is not consumed.
     Heat gain is maximized; the independent pressure ratio is minimized. Metric
     definitions and units must match the baseline for each condition. No Pa

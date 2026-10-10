@@ -6,6 +6,8 @@ standalone `runs/demos/demo_vis_3d_interactive.py` so they stay in sync.
 """
 from __future__ import annotations
 
+from math import isfinite
+
 from .theme import FIELD_CMAP
 
 # Display order + per-field rendering metadata.
@@ -40,6 +42,24 @@ FIELD_META = {
     't_mm':    {'cmap': FIELD_CMAP, 'title': 't (mm)',          'fmt': '%.3f',
                 'label': 'Wall thickness t'},
 }
+
+
+def validate_color_range_state(state):
+    """Validate saved display ranges before changing a window or a panel."""
+    if not isinstance(state, dict) or set(state) - {'mode', 'ranges'}:
+        raise ValueError('Invalid 3D color-range state')
+    mode, ranges = state.get('mode', 'global'), state.get('ranges', {})
+    if mode not in ('global', 'local', 'custom') or not isinstance(ranges, dict):
+        raise ValueError('Invalid 3D color-range mode or ranges')
+    checked = {}
+    for key, limits in ranges.items():
+        if key not in FIELD_META or not isinstance(limits, (list, tuple)) or len(limits) != 2:
+            raise ValueError('3D color ranges require a known field and two limits')
+        lo, hi = map(float, limits)
+        if not (isfinite(lo) and isfinite(hi) and hi > lo):
+            raise ValueError('3D color ranges require finite Max > Min')
+        checked[key] = [lo, hi]
+    return {'mode': mode, 'ranges': checked}
 
 
 def tone_down_plane_widget(plotter, *,

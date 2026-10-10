@@ -4,6 +4,7 @@ from typing import Any
 import numpy as np
 from sjtu_tpmshx.domain.compute_config import ComputeConfig, bc_to_dict
 from sjtu_tpmshx.models.tpms_props import geometry as tpms_geometry
+from sjtu_tpmshx.models import co2_correlations
 from sjtu_tpmshx.models.input_validation import validate_domain_dims, surrogate_extrap_reasons
 from sjtu_tpmshx.logutil import get_logger
 
@@ -36,6 +37,7 @@ def _check_zoned_fluid_support(compute_cfg: ComputeConfig) -> None:
 
 def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None, geometry_only=False):
     """Sample the requested design at the supplied physical cell centres."""
+    geometry_model = co2_correlations.geometry if co2_correlations.uses_co2(compute_cfg) else tpms_geometry
     geometry = compute_cfg.geometry
     L, H = geometry.L_dom_m, geometry.H_dom_m
     tpms_type, Lcell, t_wall = geometry.tpms, geometry.L_cell_mm, geometry.t_wall_mm
@@ -60,7 +62,7 @@ def _build_zone_arrays(compute_cfg, N_x, N_y, *, dx_arr=None, dy_arr=None, geome
             lfield, tfield = field.evaluate_grid(N_x, N_y, dx_arr, dy_arr)
             eps, solid, radius = (np.empty((N_x, N_y)) for _ in range(3))
             for index in np.ndindex(eps.shape):
-                local = tpms_geometry(tpms_type, float(lfield[index]), float(tfield[index]), k_s)
+                local = geometry_model(tpms_type, float(lfield[index]), float(tfield[index]), k_s)
                 eps[index], solid[index], radius[index] = local['epsilon'], local['K_ss'], local['D_h'] / 2.
             za = dict(axis='continuous', L_field=lfield, t_field=tfield,
                       eps_arr=eps, eps_f_arr=eps / 2., K_ss_arr=solid, r_h_arr=radius)
@@ -195,7 +197,8 @@ def _parse_geometry_inputs_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
     Lcell = compute_cfg.geometry.L_cell_mm
     t_wall = compute_cfg.geometry.t_wall_mm
     k_s = compute_cfg.geometry.k_s_W_mK
-    g = tpms_geometry(tpms_type, Lcell, t_wall, k_s)
+    geometry_model = co2_correlations.geometry if co2_correlations.uses_co2(compute_cfg) else tpms_geometry
+    g = geometry_model(tpms_type, Lcell, t_wall, k_s)
     eps = g['epsilon']
     r_h = g['D_h'] / 2.0
 
@@ -306,7 +309,8 @@ def _complete_grid(cfg, physical_grid, *, spline_geometry=None):
         cfg['tpms_type'], cfg['Lcell'], cfg['t_wall'], cfg['k_s'],
         L_field=None if za is None else za['L_field'],
         t_field=None if za is None else za['t_field'],
-        delta=float(cfg['compute_cfg'].geometry.delta_levelset))
+        delta=float(cfg['compute_cfg'].geometry.delta_levelset),
+        co2_geometry=co2_correlations.uses_co2(cfg['compute_cfg']))
     cfg['boundary_openings'] = _prepare_openings(cfg, energy_dx, energy_dy)
     return physical_grid
 
@@ -348,7 +352,14 @@ def _prepare_flow_inputs(cfg, dx, dy):
                 za['L_field'], za['t_field'], tpms, cfg['k_s'], count,
                 direction, streamwise_dx=stream, source_grid=(dx, dy))
         seed_K, seed_cF = base_K, base_cF
-        if cfg['compute_cfg'].df_mode == 'experimental':
+        if cfg['fluid_' + side] == 'co2':
+            seed_K, seed_cF, _ = co2_correlations.apply_drag(base_K, base_cF)
+            if continuous:
+                K_field, cF_field, metadata = co2_correlations.apply_drag(K_field, cF_field)
+                K, cF = K_field.mean(axis=0), cF_field.mean(axis=0)
+            else:
+                K, cF, metadata = co2_correlations.apply_drag(K, cF)
+        elif cfg['compute_cfg'].df_mode == 'experimental':
             from sjtu_tpmshx.domain.run_warnings import range_context
             with range_context(side=side, stage='prepared-df', layout='solver-row'):
                 seed_K, seed_cF, metadata = apply_correction(
@@ -456,8 +467,10 @@ def _prepare_case(config: ComputeConfig, *, case_id: str, inlet_grid=None, splin
             parsed['static_properties'][side] = compute(
                 config.geometry.tpms, config.geometry.L_cell_mm, config.geometry.t_wall_mm,
                 fluid.u_mps, fluid.T_in_K, fluid.P_in_Pa, config.geometry.k_s_W_mK,
-                fluid.type, sco2_nu=config.sco2_nu)
-    parsed['static_properties']['geometry'] = tpms_geometry(
+                fluid.type, sco2_nu=config.sco2_nu,
+                co2_geometry=co2_correlations.uses_co2(config))
+    geometry_model = co2_correlations.geometry if co2_correlations.uses_co2(config) else tpms_geometry
+    parsed['static_properties']['geometry'] = geometry_model(
         config.geometry.tpms, config.geometry.L_cell_mm, config.geometry.t_wall_mm,
         config.geometry.k_s_W_mK)
     parsed['zone_config'] = _zone_data_si(asdict(zones)) if hasattr(zones, '__dataclass_fields__') else zones
@@ -468,11 +481,13 @@ def _prepare_case(config: ComputeConfig, *, case_id: str, inlet_grid=None, splin
         'L_field_m': np.full((len(dx), len(dy)), parsed['L_cell_m']),
         't_field_m': np.full((len(dx), len(dy)), parsed['t_wall_m']),
     }
-    refs = tuple(ModelRef('fluid', MODEL_VERSIONS['fluid'],
+    refs = tuple(ModelRef('co2_fluid' if fluid.type == 'co2' else 'fluid',
+                          MODEL_VERSIONS['co2_fluid' if fluid.type == 'co2' else 'fluid'],
                           {'fluid': fluid.type, 'sco2_nu': asdict(config.sco2_nu)},
                           applicability=f'side {side}')
                  for side, fluid in (('A', config.fluid_A), ('B', config.fluid_B)))
-    refs += (ModelRef('geometry', MODEL_VERSIONS['geometry']),
+    geometry_ref = 'co2_geometry' if co2_correlations.uses_co2(config) else 'geometry'
+    refs += (ModelRef(geometry_ref, MODEL_VERSIONS[geometry_ref]),
              ModelRef('darcy_forchheimer', MODEL_VERSIONS['darcy_forchheimer'],
                       {'topology': config.geometry.tpms}))
     return CaseData.from_compute_config(
@@ -485,8 +500,9 @@ def _prepare_case(config: ComputeConfig, *, case_id: str, inlet_grid=None, splin
               'y_breaks': physical_grid['_y_breaks']},
         design_fields=design, parameters=parsed, model_refs=refs,
         metadata={'preprocessor': 'two_d_v1', 'quantity_basis': 'per_unit_depth',
-                  'model_metadata': {'sco2_nu': sco2_nu_metadata(config.sco2_nu)},
-                  'notices': sco2_nu_notices(config),
+                  'model_metadata': {'sco2_nu': sco2_nu_metadata(config.sco2_nu),
+                                     **co2_correlations.model_metadata(config)},
+                  'notices': sco2_nu_notices(config) + co2_correlations.notices(config),
                   'design_mode': 'uniform' if za is None else za['axis'],
                   'model_roles': {'fluid_A': 0, 'fluid_B': 1, 'geometry': 2, 'darcy_forchheimer': 3}})
 

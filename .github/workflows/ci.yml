@@ -122,12 +122,147 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  native-build:
+    name: native-build (${{ matrix.platform.os }}, ${{ matrix.platform.python }})
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - os: macos-14
+            python: "3.13"
+          - os: windows-2022
+            python: "3.12"
+          - os: windows-2022
+            python: "3.13"
+    runs-on: ${{ matrix.platform.os }}
+    timeout-minutes: 30
+    env:
+      PYTHONHASHSEED: "0"
+      MPLCONFIGDIR: .cache/matplotlib
+      XDG_CACHE_HOME: .cache/xdg
+      NUMBA_CACHE_DIR: .cache/numba
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      NUMBA_NUM_THREADS: "2"
+      TPMSHX_REQUIRE_NATIVE_DEPS_TESTS: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - name: Activate MSVC for native qualification
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $installation = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $installation) { throw 'The required MSVC compiler is missing' }
+          & "$installation\Common7\Tools\Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
+          foreach ($name in @('PATH', 'INCLUDE', 'LIB', 'LIBPATH')) {
+            "$name=$([Environment]::GetEnvironmentVariable($name))" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          }
+          'CXX=cl' | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.platform.python }}
+          cache: pip
+          cache-dependency-path: requirements-lock.txt
+      - name: Create isolated native qualification environment
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/sjtu-native-ci-venv"
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'sjtu-native-ci-venv'
+          interpreter = root / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
+          Path('.venv-path').write_text(interpreter.as_posix() + '\n', encoding='utf-8')
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as output:
+              output.write(f'CI_PYTHON={interpreter.as_posix()}\n')
+          PY
+      - name: Install locked qualification dependencies
+        shell: bash
+        run: '"$CI_PYTHON" -m pip install -r requirements-lock.txt'
+      - name: Check exact dependency lock
+        shell: bash
+        run: '"$CI_PYTHON" -m sjtu_tpmshx.runs.tools.check_locked_environment requirements-lock.txt'
+      - name: Check dependency compatibility
+        shell: bash
+        run: '"$CI_PYTHON" -m pip check'
+      - name: Fetch fixed native sources and build tool
+        shell: bash
+        run: '"$CI_PYTHON" scripts/build_native_dependencies.py fetch'
+      - name: Record hosted toolchain image
+        id: toolchain
+        shell: bash
+        run: echo "image=$ImageVersion" >> "$GITHUB_OUTPUT"
+      - name: Cache locked CoolProp static library
+        id: coolprop
+        uses: actions/cache@v6
+        with:
+          path: |
+            .cache/native-deps/build/coolprop-macos-arm64/libCoolProp.a
+            .cache/native-deps/build/coolprop-windows-x64/Release/CoolProp.lib
+          key: coolprop-${{ runner.os }}-${{ runner.arch }}-py${{ matrix.platform.python }}-${{ steps.toolchain.outputs.image }}-${{ hashFiles('native/dependencies-lock.toml', 'scripts/build_native_dependencies.py') }}
+      - name: Build locked CoolProp on cache miss
+        if: steps.coolprop.outputs.cache-hit != 'true'
+        shell: bash
+        run: '"$CI_PYTHON" scripts/build_native_dependencies.py build --component coolprop'
+      - name: Build current project libraries and callers offline
+        shell: bash
+        run: '"$CI_PYTHON" scripts/build_native_dependencies.py build --component pilot'
+      - name: Run independent native callers
+        shell: bash
+        run: '"$CI_PYTHON" scripts/build_native_dependencies.py verify'
+      - name: Pack native runtime files with executable permissions
+        shell: bash
+        run: |
+          "$CI_PYTHON" - <<'PY'
+          import os
+          from pathlib import Path
+          import tarfile
+          host = 'windows-x64' if os.name == 'nt' else 'macos-arm64'
+          build = Path('.cache/native-deps/build') / ('pilot-' + host)
+          files = [path for path in build.iterdir() if path.is_file() and (
+              path.suffix in {'.dll', '.dylib', '.exe'} or
+              (not path.suffix and os.access(path, os.X_OK)))]
+          prefix, suffix = ('', '.dll') if os.name == 'nt' else ('lib', '.dylib')
+          required = {prefix + name + suffix for name in ('tpmshx_solver_shared', 'tpmshx_model_h_shared')}
+          required.add('eos_smoke.exe' if os.name == 'nt' else 'eos_smoke')
+          assert required <= {path.name for path in files}, 'Missing native runtime files'
+          archive = Path('.cache/ci-native-build/native-binaries.tar')
+          archive.parent.mkdir(parents=True, exist_ok=True)
+          with tarfile.open(archive, 'w') as output:
+              for path in files:
+                  output.add(path, arcname=path.relative_to(build.parent), recursive=False)
+              output.add('LICENSE', arcname='LICENSE')
+              output.add('native/THIRD_PARTY_NOTICES.md', arcname='THIRD_PARTY_NOTICES.md')
+              output.add('native/licenses', arcname='licenses')
+          print(f'Packed {len(files)} native runtime files ({archive.stat().st_size} bytes)')
+          PY
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-build-${{ matrix.platform.os }}-py${{ matrix.platform.python }}
+          path: .cache/ci-native-build/native-binaries.tar
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+      - name: Save native build and independent caller logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-build-logs-${{ matrix.platform.os }}-py${{ matrix.platform.python }}
+          path: .cache/native-deps/logs/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
   native-dependencies:
+    needs: native-build
     name: native-dependencies (${{ matrix.platform.os }}, ${{ matrix.platform.python }}, ${{ matrix.shard }})
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1]
+        shard: [0, 1, 2]
         platform:
           - os: macos-14
             python: "3.13"
@@ -189,15 +324,21 @@ jobs:
       - name: Check dependency compatibility
         shell: bash
         run: '"$CI_PYTHON" -m pip check'
-      - name: Fetch fixed native sources and build tool
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-build-${{ matrix.platform.os }}-py${{ matrix.platform.python }}
+          path: .cache/ci-native-build
+      - name: Restore native runtime files
         shell: bash
-        run: '"$CI_PYTHON" scripts/build_native_dependencies.py fetch'
-      - name: Build isolated native dependency pilots offline
+        run: |
+          "$CI_PYTHON" - <<'PY'
+          import tarfile
+          with tarfile.open('.cache/ci-native-build/native-binaries.tar') as archive:
+              archive.extractall('.cache/native-deps/build', filter='data')
+          PY
+      - name: Fetch locked Eigen headers for fixture-built libraries
         shell: bash
-        run: '"$CI_PYTHON" scripts/build_native_dependencies.py build'
-      - name: Run independent native callers
-        shell: bash
-        run: '"$CI_PYTHON" scripts/build_native_dependencies.py verify'
+        run: '"$CI_PYTHON" scripts/build_native_dependencies.py fetch-eigen'
       - name: Require explicit native libraries for thermal evidence tests
         shell: bash
         run: |
@@ -260,6 +401,7 @@ jobs:
           sjtu_tpmshx/tests/native/test_cpp_conservative_full3d.py
           -p sjtu_tpmshx.tests.ci_shard --ci-shard=${{ matrix.shard }}
           --ci-shard-modules=sjtu_tpmshx/tests/native/_ci_shard0.txt
+          --ci-shard-modules=sjtu_tpmshx/tests/native/_ci_shard1.txt
           --ci-manifest=.cache/ci/native-manifest
           --timeout=600 --timeout-method=thread --durations=20
           --junitxml=.cache/ci/native-dependencies.xml
@@ -268,10 +410,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: native-dependencies-${{ matrix.platform.os }}-py${{ matrix.platform.python }}-shard-${{ matrix.shard }}
-          path: |
-            .cache/ci/native-dependencies.xml
-            .cache/ci/native-manifest/
-            .cache/native-deps/logs/
+          path: .cache/ci/
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
@@ -279,7 +418,7 @@ jobs:
   tests:
     # Keep the existing required check names; BO is now enforced by these gates.
     name: tests (${{ matrix.os }}, ${{ matrix.python }})
-    needs: [test-parts, bo-tests, native-dependencies]
+    needs: [test-parts, bo-tests, native-build, native-dependencies]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -319,11 +458,12 @@ jobs:
         with:
           pattern: native-dependencies-${{ matrix.os }}-py${{ matrix.python }}-shard-*
           path: .cache/ci-shards
-      - name: Require both complete and disjoint native shards
+      - name: Require all three complete and disjoint native shards
         run: >-
           python scripts/check_ci_shards.py --serial
-          .cache/ci-shards/native-dependencies-${{ matrix.os }}-py${{ matrix.python }}-shard-0/ci/native-manifest
-          .cache/ci-shards/native-dependencies-${{ matrix.os }}-py${{ matrix.python }}-shard-1/ci/native-manifest
+          .cache/ci-shards/native-dependencies-${{ matrix.os }}-py${{ matrix.python }}-shard-0/native-manifest
+          .cache/ci-shards/native-dependencies-${{ matrix.os }}-py${{ matrix.python }}-shard-1/native-manifest
+          .cache/ci-shards/native-dependencies-${{ matrix.os }}-py${{ matrix.python }}-shard-2/native-manifest
 
   bo-tests:
     strategy:

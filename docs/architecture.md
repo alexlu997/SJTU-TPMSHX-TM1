@@ -475,6 +475,15 @@ Geometry gradients
 still require independent physical validation. Parameter smoothness does not
 show TPMS surface connectivity or manufacturability.
 
+Each continuous-field axis accepts at least one control. A singleton is
+recorded at the domain midpoint and stays constant along that axis. Other
+axes use degree `min(spline_order, control_count - 1)`. Existing XY fields
+with at least two controls per axis keep their original bivariate spline.
+Solver cell centers and modeling boundary samples share `evaluate_axes`.
+Geometry exports preserve original controls and use one staged file set.
+The sampling limit is one million points; optimization checks the installed
+Sobol dimension limit before allocating its decision bounds.
+
 Continuous fields
 require symmetric channels. For Shanghai Gyroid air-A/water-B,
 `df_mode="experimental"` also supports continuous fields with the original
@@ -487,9 +496,38 @@ uniform-HX window when porosity changes at fixed mass flow.
 
 The original window
 and extrapolation status stay in metadata. Uniform calibration requests keep their velocity limits. Other spatial
-calibration restrictions and the sCO2 spatial restriction stay.
+calibration restrictions stay. CO2 and sCO2 support symmetric continuous fields;
+discrete zones and nonzero level-set offsets remain unsupported. This does not
+extend sCO2's uniform experimental D-F calibration to a gradient.
+
+The separate `co2` model uses the versioned `co2_segment2_v1.json` Nu and
+symmetric geometry resource. Shared preparation gives both streams that geometry.
+Only CO2 sides receive fixed drag factors `K=K0/2.5`, `cF=2.5cF0` and the
+Nu factor 1.28, including the Nu floor. These apply once, independently of
+`df_mode`, and survive Case/FieldResult archives as model references and metadata.
+CO2 properties and inverse enthalpy use single-phase HEOS, without the sCO2
+BICUBIC iteration table. Both backends evaluate CO2/sCO2 local h_v with the
+lagged temperature and local L/D_h/A_0 fields. Air/water retain their existing
+property-sampling rules. Native coefficients come from the shared generator.
+The native fluid enum appends CO2 as value 3; existing values and POD layouts
+stay unchanged. CO2 execution requires a library built with this model.
 
 `preprocess.api.prepare_fixed_mass_flow_case` owns fixed-flow preparation.
+`FluidConfig.mass_flow_kg_s=None` keeps velocity input. A positive value
+prescribes total inlet flow. The public `prepare_case` resolves only those
+sides through the same inlet integral, before checking their velocity and
+calibration limits with `validate(resolved_inlet_speeds=True)`. Other sides
+keep their velocity inputs. Input validation does not inspect an inactive
+cached velocity. Case snapshots save both the target and resolved speed;
+`parameters.inlet_inputs` carries them into native and application results.
+Explicit batch flow arguments override saved inlet modes on a run copy.
+The 3D GUI exposes the two input modes. Programmatic 2D total-flow inputs
+still require an explicit physical depth and retain per-depth solver units.
+The 3D mass-imbalance diagnostic integrates signed inlet and outlet fluxes
+with local porosity, consistent with the SIMPLE continuity operator. An
+unweighted intrinsic-velocity integral is not a mass-conservation test for
+a spatially varying porosity field.
+
 The existing `optimization.multi_condition` imports remain available. For each
 inlet, preparation integrates local single-channel porosity times the actual
 normalized inlet velocity profile over the opening. It multiplies this integral
@@ -515,12 +553,13 @@ preparation keeps those same full checks.
 
 Imported-flow optimization records
 the actual uniform-reference Case configuration for replay, and each candidate
-resolves its own inlet speeds again using its local porosity field. `aggregate_multi_condition` compares useful water
+resolves its own inlet speeds again using its local porosity field. `aggregate_multi_condition` compares useful B-side
 uptake (`-Q_B`) and both relative pressure drops with paired baseline conditions.
 It requires complete converged results. Heat and pressure stay separate
 objectives. Each condition has equal weight, with 50/50 pressure-side weights. These helpers do not qualify a closure or start an optimization run.
 
-`evaluate_condition_batch` runs a fixed design's air-A/water-B conditions
+`evaluate_condition_batch` supports air-A/water-B and two-fluid pairs with
+CO2 or sCO2. All conditions keep the same ordered fluid pair. It runs conditions
 serially into a new directory. Each member keeps its input, prepared Case,
 native result and metrics as soon as that stage succeeds. `batch.json` and
 `optimization.json` record the requested `backend` even on failure or cancellation;
@@ -547,14 +586,22 @@ files fail at the comparison stage. This bounds retained completed fields to one
 active condition, at the cost of one baseline file read per candidate condition.
 Public and optimizer batches use the same objective calculation and weights.
 
-Only a complete numerically accepted batch can publish the two objectives. In addition to native convergence, 3D reuses the existing full-control-volume
+Only a complete numerically accepted batch can publish the two objectives.
+The baseline must have positive B-side heat uptake `-Q_B` and positive pressure
+drops; objective signs and equal weights do not change for CO2/sCO2.
+In addition to native convergence, model-h 3D reuses the existing full-control-volume
 certificate from `postprocess.conservation.compute_phase2a`. Each fluid's
 global/cellmax residual and the LTNE source imbalance must stay below 1%. The physical boundary ledger must be complete. Native 3D finishing and the
 conservation audit use this same pure function, owned by `result_math` and
 re-exported through the existing postprocessing entry.
 
 The 2D branch requires the native main/fine
-model-h balances, complete physical boundaries and Richardson acceptance. This is separate from experimental accuracy,
+model-h balances, complete physical boundaries and Richardson acceptance.
+True-h and its explicit conservative-energy candidates use their own native
+certificate: thermal convergence, no enthalpy clipping, and finite coupled and
+equation energy ratios within the recorded solver tolerances. They do not use
+the model-h certificate or Richardson. Algorithm and temperature-update settings
+must match the baseline. This is separate from experimental accuracy,
 the formal convective `energy_imbalance_rel` metric and gradient applicability.
 These stay evidence needed for physical predictions. They do not prevent
 an explicitly labeled exploratory search using frozen reference corrections.
@@ -619,14 +666,13 @@ Thermal routes are selected by their present qualification conditions:
 
 | Route | Shared implementation and kept differences |
 |---|---|
-| True enthalpy | Pairs containing sCO2 use signed mass/enthalpy transport. The 2D adapter calls the shared 3D enthalpy kernel. Full3D CC uses the kept G4 two-sweep warm-up before the selected enthalpy solve. Existing zone/route constraints stay. |
+| True enthalpy | Pairs containing CO2 or sCO2 use signed mass/enthalpy transport for uniform and continuous geometry. The 2D adapter calls the shared 3D enthalpy kernel. Full3D CC uses the kept G4 two-sweep warm-up before the selected enthalpy solve. Discrete-zone and offset constraints stay. |
 | Model enthalpy | Existing air/water h(T) transport. 2D includes water/water when unzoned and symmetric. 3D currently includes air/air, air/water and water/air with its Nz, variable-property, dual-flow, conservative and mask conditions. |
 | Temperature | The native fullCC air/water candidate reuses strict integral-h(T) model-h drivers while keeping the requested temperature route. Python temperature, QD/standalone fixed-coefficient, staggered research and private single-A sCO2 routes keep their separately stated contracts. |
 
-The sCO2 restriction applies to geometry combinations, not the other stream's fluid.
-sCO2/water, sCO2/air and sCO2/sCO2 pairs can use the true-enthalpy route.
-Either stream can be in A or B. Public configuration currently rejects enabled
-zones and nonzero level-set offset when either stream is sCO2. Each stream
+The CO2/sCO2 restrictions apply to geometry combinations, not the other stream's fluid.
+Either stream can be in A or B. Public configuration rejects discrete
+zones and nonzero level-set offset when either stream is CO2/sCO2. Each stream
 still has to satisfy its own property and correlation applicability checks.
 
 Internal thermal face conductance uses the two actual centre-to-face
@@ -1083,7 +1129,7 @@ Taper stays
    transfers inlet mass by physical open-area intersection, and reapplies the
    fine outlet support after prolongation. Its budget and initial-guess role are
    unchanged. Richardson does not add a fine SIMPLE solve.
-10. **True-enthalpy ownership.** Any ordered fluid pair containing sCO2 uses
+10. **True-enthalpy ownership.** Any ordered fluid pair containing CO2 or sCO2 uses
     the conservative enthalpy kernel. It consumes SIMPLE's signed staggered
     face mass flows and computes duty from boundary enthalpy fluxes. It must
     not reconstruct a full-face x-flow from a scalar mass rate. The shared kernel requires both face-flow tuples explicitly.
@@ -1092,7 +1138,7 @@ Taper stays
     construction for numerical reference tests lives only in the test helpers. Each sCO2 side in 2D/3D uses the shared property-wrapper range
     **280–700 K, 7.9–16 MPa absolute**, at inlets and actual local states. The 2026-09-09 pressure-floor extension leaves the EOS backend and the
     independent Nu/D-F applicability and acceptance gates unchanged. It does
-    not show experimental accuracy in the added range. Production Picard iterations use CoolProp BICUBIC only for CO2 T(h,P).
+    not show experimental accuracy in the added range. Production Picard iterations use CoolProp BICUBIC only for the sCO2 model's T(h,P). The separate CO2 model uses HEOS throughout.
 
 Final temperatures, coupled-energy checks, outlet inversion and all other
     properties stay HEOS. If an exact-EOS energy check fails, the remaining
@@ -1117,7 +1163,7 @@ These anchors are not guaranteed equal. The ideal-gas inlet-pressure
     Compare actual
     inlet pressure and both anchors alongside mass/energy budgets before
     interpreting an ON/OFF difference as improved accuracy.
-11. **Current TM1 limit.** sCO2 zones and offset level sets stay rejected. Air/water-only runs keep the qualified model-enthalpy and temperature
+11. **Current TM1 limit.** CO2/sCO2 discrete zones and offset level sets stay rejected; symmetric continuous fields are supported. Air/water-only runs keep the qualified model-enthalpy and temperature
     routes listed above. For Nz>1, their end-cell treatment covers each
     physical fluid and solid end control volume. Tin is imposed at the open
     inlet face with half-cell conduction.

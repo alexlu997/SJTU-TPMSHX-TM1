@@ -15,6 +15,7 @@ std::size_t index(Fluid fluid) {
         case Fluid::air: return 0;
         case Fluid::water: return 1;
         case Fluid::sco2: return 2;
+        case Fluid::co2: return 3;
     }
     throw std::invalid_argument("unsupported true-h fluid");
 }
@@ -31,7 +32,7 @@ EnthalpyEOS::~EnthalpyEOS() = default;
 
 CoolProp::AbstractState& EnthalpyEOS::heos(Fluid fluid) {
     const auto i = index(fluid);
-    const char* names[] = {"Air","Water","CO2"};
+    const char* names[] = {"Air","Water","CO2","CO2"};
     if (!heos_[i]) heos_[i] = make_eos_state("HEOS",names[i]);
     return *heos_[i];
 }
@@ -50,6 +51,7 @@ void EnthalpyEOS::validate(Fluid fluid, double temperature, double pressure,
         return;
     }
     positive(temperature,pressure);
+    if (fluid == Fluid::co2) guards_.check_co2(temperature,pressure);
     if (fluid == Fluid::sco2) {
         const auto& tr = model_coefficients::sco2_temperature_range;
         const auto& pr = model_coefficients::sco2_pressure_range;
@@ -64,7 +66,7 @@ CoolProp::AbstractState& EnthalpyEOS::transport_state(Fluid fluid, double temper
     // Python _prop_field validates the sCO2 project domain here. Water's
     // physical guard has just run on the inverse T(h,P) field; do not add a
     // second phase/property path to each transport or final-k evaluation.
-    if (fluid == Fluid::sco2) validate(fluid,temperature,pressure,"enthalpy property field");
+    if (uses_co2_eos(fluid)) validate(fluid,temperature,pressure,"enthalpy property field");
     else positive(temperature,pressure);
     auto& state = heos(fluid);
     state.update(CoolProp::PT_INPUTS,pressure,temperature);

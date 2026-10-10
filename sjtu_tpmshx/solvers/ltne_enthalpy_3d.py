@@ -44,7 +44,7 @@ from sjtu_tpmshx.models.fluid_props import (  # noqa: E402
     WaterStateError, check_water_state, check_finite_temperatures,
 )
 from sjtu_tpmshx.models.sco2_props import _validate_state, T_RANGE_K  # noqa: E402
-_CP_NAME = {'sco2': 'CO2', 'water': 'Water', 'air': 'Air'}
+_CP_NAME = {'sco2': 'CO2', 'co2': 'CO2', 'water': 'Water', 'air': 'Air'}
 _TABLE_LOCK = Lock()
 _TABLE_DIRECTORY = None
 
@@ -66,16 +66,19 @@ def _bicubic_state():
         return state
 
 
-def _check_sco2_state(fluid, T, P, *, where):
+def _check_real_fluid_state(fluid, T, P, *, where):
     if fluid == 'sco2':
         _validate_state(T, P, where=where)
+    elif fluid == 'co2':
+        from sjtu_tpmshx.models.co2_props import check_co2_state
+        check_co2_state(fluid, T, P, where=where)
 
 
 def _prop_field(key, T, P, fluid):
     """Return one field, or contiguous fields for a sequence of output keys."""
     T = np.ascontiguousarray(T, dtype=np.float64)
     P = np.broadcast_to(np.asarray(P, dtype=np.float64), T.shape)
-    _check_sco2_state(fluid, T, P, where='enthalpy property field')
+    _check_real_fluid_state(fluid, T, P, where='enthalpy property field')
     out = _PropsSI(key, "T", T.ravel(), "P", np.ascontiguousarray(P).ravel(),
                    _CP_NAME.get(fluid, fluid))
     out = np.asarray(out, dtype=np.float64)
@@ -113,7 +116,7 @@ def _T_of_h_field(h, P, fluid, *, where='enthalpy EOS return', lookup=None):
             # CoolProp 8 HP uses 30-bit T brackets; restore HEOS enthalpy consistency.
             out = np.asarray(out, dtype=np.float64).reshape(-1)
             check_water_state(fluid, out.reshape(h.shape), P, where=where)
-            _check_sco2_state(fluid, out.reshape(h.shape), P, where=where)
+            _check_real_fluid_state(fluid, out.reshape(h.shape), P, where=where)
             hc = np.asarray(_PropsSI(("H", "C"), "T", out, "P",
                 np.ascontiguousarray(P).ravel(), _CP_NAME.get(fluid, fluid))).reshape(-1, 2)
             out += (h.ravel() - hc[:, 0]) / hc[:, 1]
@@ -130,7 +133,7 @@ def _T_of_h_field(h, P, fluid, *, where='enthalpy EOS return', lookup=None):
         raise
     temperature = np.asarray(out, dtype=np.float64).reshape(h.shape)
     check_water_state(fluid, temperature, P, where=where)
-    _check_sco2_state(fluid, temperature, P, where=where)
+    _check_real_fluid_state(fluid, temperature, P, where=where)
     return temperature
 
 
@@ -301,7 +304,7 @@ def _gs_enthalpy_sweeps_3d(hA, hB, Ts, dhA, dhB, cpA, cpB,
             hvA, hvB, Kss, dx, dy, dz, omega)
 
 
-_FL_TLO = {'sco2': 230.0, 'water': 274.0, 'air': 200.0}
+_FL_TLO = {'sco2': 230.0, 'co2': 216.592000001, 'water': 274.0, 'air': 200.0}
 _ENTHALPY_BRACKET_MARGIN_K = 60.0
 
 
@@ -392,9 +395,9 @@ def solve_ltne_enthalpy_3d_pipeline(Nx, Ny, Nz, dx, dy, dz, eps_arr, K_ss,
         if limit is not None and (not np.isfinite(limit) or limit <= 0):
             raise ValueError(f'{name} must be finite and positive')
     check_water_state(fluid_A, T_inA, P_A, where='enthalpy inlet A')
-    _check_sco2_state(fluid_A, T_inA, P_A, where='enthalpy inlet A')
+    _check_real_fluid_state(fluid_A, T_inA, P_A, where='enthalpy inlet A')
     check_water_state(fluid_B, T_inB, P_B, where='enthalpy inlet B')
-    _check_sco2_state(fluid_B, T_inB, P_B, where='enthalpy inlet B')
+    _check_real_fluid_state(fluid_B, T_inB, P_B, where='enthalpy inlet B')
     shape = (Nx, Ny, Nz)
     dx = np.ascontiguousarray(dx, dtype=np.float64)
     dy = np.ascontiguousarray(dy, dtype=np.float64)
@@ -432,9 +435,9 @@ def solve_ltne_enthalpy_3d_pipeline(Nx, Ny, Nz, dx, dy, dz, eps_arr, K_ss,
     h_hi_B = _h_scalar(T_span_hi, P_B, fluid_B)
 
     # Validate actual initial states; the wider scalar h brackets are mathematical.
-    _check_sco2_state(fluid_A, T_inA if Ta_init is None else Ta_init, P_A_field,
+    _check_real_fluid_state(fluid_A, T_inA if Ta_init is None else Ta_init, P_A_field,
                       where='enthalpy warm start A')
-    _check_sco2_state(fluid_B, T_inB if Tb_init is None else Tb_init, P_B_field,
+    _check_real_fluid_state(fluid_B, T_inB if Tb_init is None else Tb_init, P_B_field,
                       where='enthalpy warm start B')
     if Ta_init is not None:
         check_water_state(fluid_A, Ta_init, P_A_field, where='enthalpy warm start A')

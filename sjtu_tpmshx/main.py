@@ -277,7 +277,8 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         for combo_attr, idx in (('combo_dirA', 0),
                                 ('combo_dirB', 3),
                                 ('combo_fluidA', 0),
-                                ('combo_fluidB', 1)):
+                                ('combo_fluidB', 1),
+                                ('combo_inlet_modeA', 0), ('combo_inlet_modeB', 0)):
             try:
                 c = getattr(self, combo_attr, None)
                 if c is None or not (0 <= idx < c.count()):
@@ -392,7 +393,11 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         """Compute pure geometry (ε, A₀, D_h, K_ss) from TPMS inputs. Returns True on success."""
         self.statusBar().showMessage("Computing TPMS geometry...")
         try:
-            r = tpms_geometry(
+            from sjtu_tpmshx.ui.window_config import _parse_fluid_label
+            geometry_model = tpms_geometry
+            if any(_parse_fluid_label(combo) == 'co2' for combo in (self.combo_fluidA, self.combo_fluidB)):
+                from sjtu_tpmshx.models.co2_correlations import geometry as geometry_model
+            r = geometry_model(
                 self.combo_tpms.currentText(),
                 float(self.le_Lcell.text()),
                 float(self.le_t.text()),
@@ -456,6 +461,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         'Air':   {'u': 20.0,  'T': 422.0, 'P': 101325.0},
         'Water': {'u': 0.15,  'T': 300.0, 'P': 101325.0},
         'sCO₂':  {'u': 2.0,   'T': 350.0, 'P': 12000000.0},
+        'CO₂':   {'u': .3,    'T': 340.0, 'P': 8000000.0},
     }
 
 
@@ -515,7 +521,10 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         `inpError` dynamic property set by `_attach_input_validators`."""
         bad = []
         is_3d = self.combo_dim.currentIndex() == 1
+        from sjtu_tpmshx.ui.window_config import inlet_input_active
         for name in self._SESSION_LINE_EDITS:
+            if not inlet_input_active(self, name):
+                continue
             if not is_3d and (name in ('le_Lz', 'le_Nz') or '_z_' in name):
                 continue
             le = getattr(self, name, None)
@@ -1127,6 +1136,10 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         )
 
         def _cb():
+            from sjtu_tpmshx.ui.window_config import inlet_input_active
+            if not inlet_input_active(self, attr):
+                le.setProperty('inpError', 'false')
+                return
             # Badge repaint FIRST — the empty-text case returns early below
             # (empty is preflight's job, not a blur-time error), but the
             # group ⚠N badge must still update for exactly that case.
@@ -1259,6 +1272,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             try:
                 from sjtu_tpmshx.ui.panel_vis_3d import ThreeDVisPanel
                 panel = ThreeDVisPanel()
+                panel.restore_color_ranges(getattr(self, '_volume_color_ranges', {}).get('results', {}))
             except Exception as e:
                 self._vis3d_import_error = str(e)
                 return

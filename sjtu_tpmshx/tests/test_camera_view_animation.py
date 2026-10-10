@@ -310,7 +310,8 @@ def test_fit_toolbar_uses_current_orientation():
 
 @pytest.mark.parametrize('width', [500, 650, 1100])
 @pytest.mark.parametrize('wide_hints', [False, True])
-def test_volume_toolbar_groups_fit_narrow_and_wide_panels(width, wide_hints):
+@pytest.mark.parametrize('custom', [False, True])
+def test_volume_toolbar_groups_fit_narrow_and_wide_panels(width, wide_hints, custom):
     class Toolbar(ThreeDVisPanel):
         def __init__(self):
             QWidget.__init__(self)
@@ -320,6 +321,8 @@ def test_volume_toolbar_groups_fit_narrow_and_wide_panels(width, wide_hints):
         hideEvent = QWidget.hideEvent
 
     panel = Toolbar()
+    panel.le_clim_min.setVisible(custom)
+    panel.le_clim_max.setVisible(custom)
     panel.resize(width, 230)
     panel.combo_field.blockSignals(True)
     panel.combo_field.addItem('Temperature A')
@@ -356,6 +359,8 @@ def test_volume_toolbar_groups_fit_narrow_and_wide_panels(width, wide_hints):
                 panel.btn_clim, panel.btn_view_top, panel.btn_view_front,
                 panel.btn_view_side, panel.btn_view_iso, panel.btn_shot,
                 *panel.findChildren(QLabel)]
+    if custom:
+        controls.extend((panel.le_clim_min, panel.le_clim_max))
     for control in controls:
         rect = control.rect().translated(control.mapTo(panel, QPoint()))
         assert panel.rect().contains(rect), (width, control, rect, group_hints)

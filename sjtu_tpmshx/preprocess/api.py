@@ -15,11 +15,20 @@ def _prepare_with_metadata(prepare, *args, **kwargs) -> CaseData:
         case = prepare(*args, **kwargs)
     warnings = tuple(dict.fromkeys((*case.metadata.get('warnings', ()),
                                     *warning_messages(records))))
+    inlets = {side: case.config_snapshot.get('fluid_' + side, {}) for side in 'AB'}
+    if any(fluid.get('mass_flow_kg_s') is not None for fluid in inlets.values()):
+        case = replace(case, parameters={**case.parameters, 'inlet_inputs': {
+            side: {name: fluid[name] for name in ('u_mps', 'mass_flow_kg_s')}
+            for side, fluid in inlets.items()}})
     return replace(case, metadata={**case.metadata, 'provenance': provenance,
                                    'warnings': warnings})
 
 
 def prepare_case(config: ComputeConfig, *, case_id: str) -> CaseData:
+    targets = {side: getattr(config, 'fluid_' + side).mass_flow_kg_s for side in 'AB'
+               if getattr(config, 'fluid_' + side).mass_flow_kg_s is not None}
+    if targets:
+        return _prepare_mass_flow_case(deepcopy(config), targets, case_id=case_id)
     if config.is_3d:
         from .three_d.preparation import prepare_case as prepare
     else:
@@ -68,6 +77,10 @@ def prepare_fixed_mass_flow_case(
     No numerical solve is performed.
     """
     config, targets = _fixed_mass_flow_inputs(config, mass_flow_A_kg_s, mass_flow_B_kg_s)
+    return _prepare_mass_flow_case(config, targets, case_id=case_id)
+
+
+def _prepare_mass_flow_case(config, targets, *, case_id):
     if not config.is_3d:
         from .two_d.preparation import _prepare_inlet_data, _prepare_case
         from .inlet_flow import total_inlet_mass_capacity
@@ -110,6 +123,15 @@ def resolve_fixed_mass_flow_config(
     return _resolve_inlet_speeds(config, targets, prepare_inlet_mass_capacities(config))
 
 
+def resolve_inlet_flow_config(config: ComputeConfig) -> ComputeConfig:
+    """Resolve only sides with a configured total-flow target; keep velocity sides."""
+    targets = {side: getattr(config, 'fluid_' + side).mass_flow_kg_s for side in 'AB'
+               if getattr(config, 'fluid_' + side).mass_flow_kg_s is not None}
+    if not targets:
+        return config
+    return _resolve_inlet_speeds(config, targets, prepare_inlet_mass_capacities(config))
+
+
 def _fixed_mass_flow_inputs(config, flow_a, flow_b):
     config = deepcopy(config)
     if config.fluid_A is None or config.fluid_B is None:
@@ -121,6 +143,9 @@ def _fixed_mass_flow_inputs(config, flow_a, flow_b):
     for side, target in targets.items():
         if not isfinite(target) or target <= 0:
             raise ValueError(f'mass_flow_{side}_kg_s must be finite and positive')
+    # The batch's explicit flow arguments own its input, including GUI mass-mode drafts.
+    config = replace(config, **{'fluid_' + side: replace(getattr(config, 'fluid_' + side),
+                       mass_flow_kg_s=None) for side in 'AB'})
     return config, targets
 
 
@@ -128,7 +153,7 @@ def _resolve_inlet_speeds(config, targets, capacities):
     fluids = {'fluid_' + side: replace(getattr(config, 'fluid_' + side),
                                        u_mps=target / capacities[side])
               for side, target in targets.items()}
-    return replace(config, **fluids).validate()
+    return replace(config, **fluids).validate(resolved_inlet_speeds=True)
 
 
 def prepare_quick_design(*args, **kwargs) -> CaseData:

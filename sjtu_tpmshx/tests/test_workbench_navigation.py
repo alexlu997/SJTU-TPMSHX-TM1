@@ -68,7 +68,8 @@ def test_fit_view_targets_the_active_optimization_volume(win, monkeypatch):
     from unittest.mock import Mock
     from sjtu_tpmshx.ui.builders_canvas import canvas_zoom_reset
 
-    main_panel, optimization_panel = SimpleNamespace(fit_view=Mock()), SimpleNamespace(fit_view=Mock())
+    main_panel, optimization_panel = (SimpleNamespace(
+        fit_view=Mock(), color_range_state=lambda: {'mode': 'global', 'ranges': {}}) for _ in range(2))
     monkeypatch.setattr(win, 'canvas_3d', main_panel)
     monkeypatch.setattr(win, 'canvas_opt_3d', optimization_panel)
     win._opt_result_tabs.setCurrentWidget(win._opt_3d_host)
@@ -96,7 +97,7 @@ def test_window_close_cleans_both_volume_plotters_and_their_popups(win):
         popup = QDialog(win)
         popup.show()
         panel = SimpleNamespace(_popup_dialogs=[popup], _stop_camera_tween=Mock(),
-                                plotter=Mock())
+                                plotter=Mock(), color_range_state=lambda: {'mode': 'global', 'ranges': {}})
         panel.cleanup = MethodType(ThreeDVisPanel.cleanup, panel)
         setattr(win, name, panel)
         panels.append(panel)

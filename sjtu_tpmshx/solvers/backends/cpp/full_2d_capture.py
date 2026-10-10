@@ -97,7 +97,7 @@ def capture_result(case, cfg, prepared, native):
     notices = {}
     with warning_scope(notices):
         for label, observation in native['sco2_nu_observations'].items():
-            if observation:
+            if observation and cfg['fluid_' + label] == 'sco2':
                 warn_sco2_nu_evidence(side=label, stage='2D main-hv', tpms_type=cfg['tpms_type'],
                     L_mm=cfg['Lcell'], t_mm=cfg['t_wall'], P_in=observation['P_abs_Pa'])
     merge_warnings(current_warnings(), [notices])

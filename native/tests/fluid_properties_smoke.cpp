@@ -53,6 +53,7 @@ Request parse(const std::string& line, std::size_t index) {
         if (fluid == "air") row.fluid = tpmshx::Fluid::air;
         else if (fluid == "water") row.fluid = tpmshx::Fluid::water;
         else if (fluid == "sco2") row.fluid = tpmshx::Fluid::sco2;
+        else if (fluid == "co2") row.fluid = tpmshx::Fluid::co2;
         else throw std::invalid_argument("unsupported property fluid");
         if (row.operation == "nu" || row.operation == "fullnu") {
             if (!(input >> topology >> a >> b >> c))

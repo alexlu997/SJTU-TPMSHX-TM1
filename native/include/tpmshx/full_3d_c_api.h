@@ -155,7 +155,7 @@ TPMSHX_THERMAL_API uint32_t TPMSHX_THERMAL_CALL tpmshx_full_3d_abi_version(void)
  * C order; side openings are prepared solver (cross1,cross2). Full immutable
  * fields, physical port rectangles and D-F application scales are mandatory.
  * Sources are optional empty arrays. No numerical Python callback is used.
- * Flags are 0/1; fluid 0air/1water/2sCO2, topology 0Diamond/1Gyroid,
+ * Flags are 0/1; fluid 0air/1water/2sCO2/3CO2, topology 0Diamond/1Gyroid,
  * direction 0+x/1-x/2+y/3-y/4+z/5-z. SIMPLE controls preserve their v1 meaning
  * except max_iterations/reference/ideal_gas are owned by the outer driver.
  * All input storage is borrowed through return; callbacks are synchronous and

@@ -25,7 +25,7 @@ def check_surrogate_domain_at_point(tpms_type: str,
                                     side: str = 'A',
                                     allow_extrap: bool = False,
                                     fluid: str = 'air', *,
-                                    nu_reasons: list[str] | None = None) -> List[str]:
+                                    nu_reasons: list[str] | None = None, co2_geometry: bool = False) -> List[str]:
     """Point-form surrogate-domain check for the Compute path.
 
     Computes Re with the selected fluid and checks only that fluid's Nu fit
@@ -69,18 +69,25 @@ def check_surrogate_domain_at_point(tpms_type: str,
     model = _get_fluid(fluid)
     rho = float(model.rho(T, P))
     mu = float(model.mu(T, P))
-    D_h = _geom(tpms_type, L_mm, t_mm, k_s)['D_h']
+    from sjtu_tpmshx.models import co2_correlations
+    geometry = co2_correlations.geometry if co2_geometry or fluid == 'co2' else _geom
+    D_h = geometry(tpms_type, L_mm, t_mm, k_s)['D_h']
     Re = rho * u * D_h / mu
 
     nu_at_point: list[str] = []
     re_range = {'air': NU_RE_FIT_RANGE, 'water': WATER_NU_RE_RANGE,
-                'sco2': SCO2_NU_RE_RANGE}[model.name]
+                'sco2': SCO2_NU_RE_RANGE, 'co2': co2_correlations.RE_RANGE}[model.name]
     if not re_range[0] <= Re <= re_range[1]:
         nu_at_point.append(
             f"Fluid {side}: Re = {Re:.0f} outside {model.name} Nu window "
             f"[{re_range[0]:.0f}, {re_range[1]:.0f}] "
             f"(u={u} m/s, T={T} K, P={P:.0f} Pa, L={L_mm}mm, t={t_mm}mm)."
         )
+    if fluid == 'co2':
+        pr = float(model.cp(T, P)) * mu / float(model.k(T, P))
+        lo, hi = co2_correlations.coefficients()['bounds']['Pr']
+        if not lo <= pr <= hi:
+            nu_at_point.append(f'Fluid {side}: Pr={pr:g} outside CO2 Nu window [{lo:g}, {hi:g}].')
     geometry_reasons: list[str] = []
     if not _SURROGATE_L_MM[0] <= float(L_mm) <= _SURROGATE_L_MM[-1]:
         geometry_reasons.append("V2 L_cell must be inside the 4..8 mm CFD grid.")

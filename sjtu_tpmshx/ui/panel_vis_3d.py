@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
 )
 
 
-from sjtu_tpmshx.ui.vis3d_constants import FIELD_ORDER, FIELD_META
+from sjtu_tpmshx.ui.vis3d_constants import FIELD_ORDER, FIELD_META, validate_color_range_state
 from sjtu_tpmshx.ui.responsive import ResponsiveRow
 
 # ── Theme-aware QSS generators for 3D panel controls ──
@@ -343,17 +343,33 @@ class ThreeDVisPanel(QWidget):
         self.btn_clear.clicked.connect(self._on_clear_slice)
         actions.addWidget(self.btn_clear)
 
+        color_controls = QHBoxLayout()
+        color_controls.setSpacing(6)
+        color_controls.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        action_row.layout().addLayout(color_controls)
         self.btn_clim = QPushButton("Range: Full")
-        self.btn_clim.setCheckable(True)
         self.btn_clim.setEnabled(False)
         self.btn_clim.setStyleSheet(_btn_qss())
         self.btn_clim.setFixedHeight(_CTRL_HEIGHT)
         self.btn_clim.setToolTip(
-            "Color-bar range.\n"
-            "  Full  — min/max of the entire 3D domain\n"
-            "  Slice — min/max of the current slice only")
-        self.btn_clim.clicked.connect(self._on_clim_toggled)
-        actions.addWidget(self.btn_clim)
+            "Color-bar range. Click to cycle Full / Slice / Custom.\n"
+            "Custom uses the displayed field's Min/Max values.")
+        self.btn_clim.clicked.connect(self._on_clim_cycle)
+        color_controls.addWidget(self.btn_clim)
+
+        self.le_clim_min, self.le_clim_max = QLineEdit(), QLineEdit()
+        for edit, label in ((self.le_clim_min, 'Min'), (self.le_clim_max, 'Max')):
+            edit.setPlaceholderText(label)
+            edit.setAccessibleName(f'Color range {label}')
+            edit.setToolTip(f'{label} in the displayed field units')
+            edit.setValidator(QDoubleValidator(edit))
+            edit.setStyleSheet(_lineedit_qss())
+            edit.setFixedHeight(_CTRL_HEIGHT)
+            edit.setFixedWidth(90)
+            edit.hide()
+            edit.editingFinished.connect(self._on_custom_clim_changed)
+            color_controls.addWidget(edit)
+        color_controls.addStretch(1)
 
         actions.addStretch(1)
         view_export = ResponsiveRow(threshold=0, spacing=6)
@@ -473,6 +489,7 @@ class ThreeDVisPanel(QWidget):
         self._dz_mm: Optional[np.ndarray] = None
         self._L_mm = (0.0, 0.0, 0.0)                 # (Lx, Ly, Lz) domain mm
         self._global_clim: dict = {}
+        self._custom_clim: dict = {}
         self._field = None                           # currently selected field key
         self._scale_mode = 'global'
         self._volume_actor = None
@@ -613,6 +630,7 @@ class ThreeDVisPanel(QWidget):
             _picked = self.combo_field.itemData(0) or "Ta"
         self._field = _picked
         self.combo_field.blockSignals(False)
+        self._sync_clim_controls()
 
         # Enable controls
         for w in (self.combo_field, self.combo_plane, self.le_coord,
@@ -827,6 +845,7 @@ class ThreeDVisPanel(QWidget):
                 or _new_field not in FIELD_META:
             return
         self._field = _new_field
+        self._sync_clim_controls()
         # Batch volume + slice actor mutations into a single GPU flush.
         # Without this, switching fields triggers 2-3 sequential pl.render()
         # calls (visible stutter on 100×40×30 grids — user pain point).
@@ -1090,10 +1109,48 @@ class ThreeDVisPanel(QWidget):
                 pass
         self._rebuild_volume()
 
-    def _on_clim_toggled(self, checked: bool):
-        self._scale_mode = 'local' if checked else 'global'
-        self.btn_clim.setText(f"Range: {'Slice' if checked else 'Full'}")
-        # Batch — same rationale as _on_field_changed.
+    def color_range_state(self):
+        return {'mode': self._scale_mode,
+                'ranges': {key: list(limits) for key, limits in self._custom_clim.items()}}
+
+    def restore_color_ranges(self, state):
+        state = validate_color_range_state(state)
+        self._scale_mode = state['mode']
+        self._custom_clim = {key: tuple(limits) for key, limits in state['ranges'].items()}
+        self._refresh_clim()
+
+    def _sync_clim_controls(self):
+        custom = self._scale_mode == 'custom'
+        label = {'global': 'Full', 'local': 'Slice', 'custom': 'Custom'}[self._scale_mode]
+        self.btn_clim.setText(f'Range: {label}')
+        limits = self._custom_clim.get(self._field, self._global_clim.get(self._field, (0., 1.)))
+        for edit, value in zip((self.le_clim_min, self.le_clim_max), limits):
+            edit.setVisible(custom)
+            edit.setEnabled(custom and self._field is not None)
+            edit.setText(f'{value:.12g}')
+
+    def _on_clim_cycle(self):
+        modes = ('global', 'local', 'custom')
+        self._scale_mode = modes[(modes.index(self._scale_mode) + 1) % len(modes)]
+        self._refresh_clim()
+
+    def _on_custom_clim_changed(self):
+        if self._scale_mode != 'custom' or self._field is None:
+            return
+        try:
+            lo, hi = float(self.le_clim_min.text()), float(self.le_clim_max.text())
+            if not (np.isfinite(lo) and np.isfinite(hi) and hi > lo):
+                raise ValueError
+        except ValueError:
+            self.status.setText('Custom color range requires finite Max > Min.')
+            return
+        self._custom_clim[self._field] = (lo, hi)
+        self._refresh_clim()
+
+    def _refresh_clim(self):
+        self._sync_clim_controls()
+        if self._grid is None:
+            return
         self._rebuild_volume(render=False)
         if self._slice_info is not None:
             self._add_slice_actor(self._slice_info['axis'],
@@ -1263,6 +1320,8 @@ class ThreeDVisPanel(QWidget):
 
     def _clim_for(self, fkey: str):
         """Resolve (lo, hi) clim for the given field per current scale mode."""
+        if self._scale_mode == 'custom':
+            return self._custom_clim.get(fkey, self._global_clim.get(fkey, (0., 1.)))
         if self._scale_mode == 'global' or fkey not in self._arrays:
             return self._global_clim.get(fkey, (0.0, 1.0))
         # local: computed from current slice (if any) else global
@@ -1574,7 +1633,11 @@ class ThreeDVisPanel(QWidget):
         # which Gouraud smoothing softened on the coarse grid. horiz/vert are
         # cell centres; meshgrid builds the matching X/Y mesh.
         Hx, Vy = np.meshgrid(horiz, vert)
-        im = ax.contourf(Hx, Vy, slc2d.T, levels=256, cmap=meta['cmap'])
+        lo, hi = self._clim_for(key)
+        if hi - lo < 1e-12:
+            hi = lo + 1.
+        im = ax.contourf(Hx, Vy, slc2d.T, levels=np.linspace(lo, hi, 257),
+                         vmin=lo, vmax=hi, cmap=meta['cmap'], extend='both')
         # fraction/pad keep the colorbar height matched to the (possibly short)
         # axes instead of the tall thin default bar.
         cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
@@ -1672,9 +1735,9 @@ class ThreeDVisPanel(QWidget):
         # rebuilds and left the status bar stuck on a stale message.
         if self._field not in FIELD_META:
             return
-        lo, hi = self._global_clim.get(self._field, (0.0, 1.0))
+        lo, hi = self._clim_for(self._field)
         Lx, Ly, Lz = self._L_mm
-        color_range_label = 'Slice' if self._scale_mode == 'local' else 'Full'
+        color_range_label = {'global': 'Full', 'local': 'Slice', 'custom': 'Custom'}[self._scale_mode]
         parts = [
             f"Field: {FIELD_META[self._field]['title']}",
             f"Range: {lo:.2f} – {hi:.2f}",

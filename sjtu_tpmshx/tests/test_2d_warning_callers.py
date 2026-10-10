@@ -499,7 +499,7 @@ def test_sco2_notice_follows_first_successful_hv_without_extra_eos(monkeypatch, 
     from sjtu_tpmshx.models import sco2_props, fluid_props
     from sjtu_tpmshx.domain import run_warnings as rw
     pipe, fields = _prepare(monkeypatch, pair=pair)
-    original_hv = local_heat_transfer._sco2_hv_local_field
+    original_hv = local_heat_transfer.real_fluid_hv_local_field
     original_notice = solve_2d.warn_sco2_nu_evidence
     events = []
 
@@ -535,7 +535,7 @@ def test_sco2_notice_follows_first_successful_hv_without_extra_eos(monkeypatch, 
             step(index)
         return 1, True
 
-    monkeypatch.setattr(local_heat_transfer, '_sco2_hv_local_field', hv)
+    monkeypatch.setattr(local_heat_transfer, 'real_fluid_hv_local_field', hv)
     monkeypatch.setattr(solve_2d, 'warn_sco2_nu_evidence', notice)
     monkeypatch.setattr(ltne_enthalpy_2d, 'solve_enthalpy_2d', thermal)
     monkeypatch.setattr(solve_2d, 'run_outer_coupling', drive)

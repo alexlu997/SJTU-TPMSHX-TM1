@@ -62,6 +62,38 @@ def test_xyz_export_keeps_depth_variation_and_full_precision(tmp_path):
         assert len(np.unique(rows[:, 2])) == 6
 
 
+def test_boundary_geometry_and_exact_controls_share_physical_coordinates(tmp_path):
+    # One x control fixes that direction; y/z retain independent gradients.
+    y, z = np.meshgrid([0., 1.], [0., .5, 1.], indexing='ij')
+    L = (5. + y + z)[None, :, :]
+    t = (.35 + .1*z)[None, :, :]
+    decisions = encode_decision_vector(L, t, False)
+    result = export_decision_vector(decisions, tmp_path, n_ctrl_x=1, n_ctrl_y=2,
+        n_ctrl_z=3, symmetric_y=False, spline_order=3, L_domain_m=.182,
+        H_domain_m=.042, Lz_domain_m=.06, Nx_export=1, Ny_export=4, Nz_export=5,
+        sampling='boundaries')
+    data = np.loadtxt(result['csv_geometry'], delimiter=',', skiprows=1)
+    assert data.shape == (20, 5)
+    assert np.all(data[:, 0] == 91.)
+    assert [data[:, 1].min(), data[:, 1].max()] == [0., 42.]
+    assert [data[:, 2].min(), data[:, 2].max()] == [0., 60.]
+    np.testing.assert_allclose(data[:, 3], 5.+data[:, 1]/42.+data[:, 2]/60., atol=1e-13)
+    controls = np.loadtxt(result['csv_controls'], delimiter=',', skiprows=1)
+    np.testing.assert_array_equal(controls[:, 3], L.ravel(order='F'))
+    np.testing.assert_array_equal(controls[:, 4], t.ravel(order='F'))
+    assert result['sampling'] == 'boundaries' and result['coordinate_units'] == 'mm'
+
+
+@pytest.mark.parametrize('counts', [(0, 5), (True, 5), (999, 999, 999)])
+def test_invalid_or_oversized_export_is_rejected_before_field_allocation(tmp_path, monkeypatch, counts):
+    monkeypatch.setattr(export_ntop_csv, 'from_decision_vector',
+                        lambda *a, **k: pytest.fail('invalid sampling allocated a field'))
+    with pytest.raises(ValueError, match='counts|sampling points'):
+        export_decision_vector([], tmp_path / 'unused', Nx_export=counts[0], Ny_export=counts[1],
+            **(dict(Nz_export=counts[2], n_ctrl_z=3) if len(counts) == 3 else {}))
+    assert not (tmp_path / 'unused').exists()
+
+
 def test_uniform_field_export_writes_three_files(tmp_path):
     x = _uniform_decision_vector()
     out = tmp_path / 'export'

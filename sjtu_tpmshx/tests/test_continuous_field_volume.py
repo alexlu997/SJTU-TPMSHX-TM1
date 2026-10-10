@@ -119,9 +119,9 @@ def test_json_replay_preserves_complete_xy_or_xyz_field(tmp_path, nz, n_ctrl_z):
 
 
 @pytest.mark.parametrize('damage,match', [
-    ('2d_z', '2D continuous'), ('few_z', 'more controls'), ('float_z', 'integer'),
+    ('2d_z', '2D continuous'), ('few_z', '>=1 controls'), ('float_z', 'integer'),
     ('short_vector', 'values'), ('nan', 'finite'), ('bounds', 'increasing'),
-    ('outside', 'within'), ('sco2', 'does not support zones'),
+    ('outside', 'within'), ('sco2', 'experimental.*uniform'),
     ('anchor', 'uniform L/t'), ('domain', 'campaign domain'),
 ])
 def test_continuous_contract_rejects_wrong_dimension_geometry_and_values(damage, match):
@@ -130,7 +130,7 @@ def test_continuous_contract_rejects_wrong_dimension_geometry_and_values(damage,
     if damage == '2d_z':
         cfg.solver.Nz = 1
     elif damage == 'few_z':
-        spec['n_ctrl_z'] = 2
+        spec['n_ctrl_z'] = 0
     elif damage == 'float_z':
         spec['n_ctrl_z'] = 3.
     elif damage == 'short_vector':
@@ -163,8 +163,8 @@ def test_volume_requires_full_valid_xyz_controls():
     field = _field(np.full((3, 3, 3), 7.), np.full((3, 3, 3), .6))
     with pytest.raises(ValueError, match='evaluate_volume'):
         field.evaluate_grid(4, 4)
-    with pytest.raises(ValueError, match='more controls'):
-        _field(np.full((3, 3, 2), 7.), np.full((3, 3, 2), .6))
+    fewer = _field(np.full((3, 3, 2), 7.), np.full((3, 3, 2), .6))
+    assert np.all(fewer.evaluate_volume(5, 4, 3)[0] == 7.)
     with pytest.raises(ValueError, match='finite'):
         _field(np.full((3, 3, 3), np.inf), np.full((3, 3, 3), .6))
     with pytest.raises(ValueError, match='increase'):

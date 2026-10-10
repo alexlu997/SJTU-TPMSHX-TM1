@@ -31,7 +31,8 @@ def test_local_nusselt_clamps_both_bounds_without_mutating_inputs():
         np.testing.assert_array_equal(Re, [[1., 1., 1., 2.]])
         return raw_nu
 
-    actual = local_nusselt(SimpleNamespace(nu=nu), 'Gyroid', reynolds, .4, 7., 2., 7.)
+    actual = local_nusselt(SimpleNamespace(nu=nu, nu_floor_multiplier=1.),
+                           'Gyroid', reynolds, .4, 7., 2., 7.)
     assert actual.dtype == np.float64
     np.testing.assert_array_equal(actual, [[NU_LAM_FLOOR, NU_LAM_FLOOR, 5., 8.]])
     np.testing.assert_array_equal(reynolds, original)

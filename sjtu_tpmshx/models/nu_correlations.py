@@ -251,8 +251,9 @@ _SCO2_NU_WARNED: set[str] = set()
 
 def record_raw_nu_range(fluid, tpms_type, Re):
     """Observe an upstream Re before its floor, separately from Nu source inputs."""
+    from .co2_correlations import RE_RANGE
     bounds = {'air': NU_RE_FIT_RANGE, 'water': WATER_NU_RE_RANGE,
-              'sco2': SCO2_NU_RE_RANGE}[fluid]
+              'sco2': SCO2_NU_RE_RANGE, 'co2': RE_RANGE}[fluid]
     record_range(('nu_raw', fluid, tpms_type), Re, bounds,
                  label=f'[{fluid} Nu raw] {tpms_type}', quantity='Re', unit='-')
 

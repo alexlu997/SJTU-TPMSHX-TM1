@@ -216,7 +216,7 @@ void validate(const Full3DInput& in,const Full3DControl& c) {
         case EnthalpyAlgorithm::legacy_h_fou: break;
         case EnthalpyAlgorithm::temperature_fou:
         case EnthalpyAlgorithm::temperature_sou:
-            if(!in.solve_b || (in.a.fluid!=Fluid::sco2 && in.b.fluid!=Fluid::sco2))
+            if(!in.solve_b || (!uses_co2_eos(in.a.fluid) && !uses_co2_eos(in.b.fluid)))
                 throw std::invalid_argument("candidate full 3D energy currently requires the existing two-sided true-h route");
             if(!c.conservative || !c.variable_rho_cp || c.red_black_energy
                || in.a.dispersion!=0. || in.b.dispersion!=0.)
@@ -457,7 +457,7 @@ struct Runtime {
 
 void Runtime::property_ranges(std::size_t s,const char* source,const char* stage,const char* layout,
                              const std::vector<std::size_t>& dims,ArrayView<const double> values,unsigned mask) {
-    const auto fluid=side(s).fluid;if(fluid==Fluid::sco2)return;
+    const auto fluid=side(s).fluid;if(uses_co2_eos(fluid))return;
     const char* names[]{"density","viscosity","conductivity","cp"};
     for(unsigned bit=0;bit<4;++bit) if((mask&(1u<<bit)) && (fluid==Fluid::water || bit!=0)) {
         RangeObservation r;r.view=source;r.model=std::string(fluid==Fluid::air?"air_":"water_")+names[bit];
@@ -476,10 +476,11 @@ void Runtime::temperature_ranges(const char* stage,const char* layout) {
 RangeObservation Runtime::nu_range(std::size_t s,const char* source,const char* stage,const char* layout,
                                    std::vector<std::size_t> dims) const {
     const auto fluid=side(s).fluid;RangeObservation r;r.view=source;
-    r.model=fluid==Fluid::air?"air":(fluid==Fluid::water?"water":"sco2");
+    r.model=fluid==Fluid::air?"air":(fluid==Fluid::water?"water":fluid==Fluid::co2?"co2":"sco2");
     r.topology=input.topology==Topology::diamond?"Diamond":"Gyroid";r.side=s;r.stage=stage;r.layout=layout;r.shape=std::move(dims);
     r.bounds=fluid==Fluid::air?model_coefficients::air_nu_re_range:
-        (fluid==Fluid::water?model_coefficients::water_nu_re_range:model_coefficients::sco2_nu_re_range);
+        (fluid==Fluid::water?model_coefficients::water_nu_re_range:
+         fluid==Fluid::co2?model_coefficients::co2_nu_re_range:model_coefficients::sco2_nu_re_range);
     return r;
 }
 
@@ -604,7 +605,7 @@ void Runtime::initialize() {
                 auto source=nu_range(s,"nu","inlet",layout,{});observe_range_value(source,std::max(re,1.),0);
                 merge_range_observation(result.range_observations,std::move(source));
                 const double nu=std::max(fluid_nusselt(a.fluid,input.topology,std::max(re,1.),inlet[s].pr,
-                    input.geometry.reference_cell_length,diameter,a.sco2_nusselt_multiplier),model_coefficients::nu_laminar_floor);
+                    input.geometry.reference_cell_length,diameter,a.sco2_nusselt_multiplier),nusselt_floor(a.fluid));
                 return area*nu/diameter;
             };
             const double reference=coefficient(z[2],z[3]);
@@ -627,30 +628,30 @@ void Runtime::check_water(const std::array<Values,3>& t,const std::array<Values,
 void Runtime::heat_transfer(std::size_t s,bool warm) {
     if(!active(s)) return;
     const auto& a=side(s);const auto& geo=input.geometry;const auto& velocity=result.flow[s].velocity_real;
-    if(a.fluid==Fluid::sco2 && geo.spatial && warm)
-        throw std::invalid_argument("spatial sCO2 3D h_v has no scalar property route for a local temperature field");
     const auto& g=geo.grid;
     property_ranges(s,"property","main","scalar-hv-property",{},{&a.inlet_temperature,1},a.fluid==Fluid::air?6:15);
     auto raw_range=nu_range(s,"nu_raw","main","real-cell(x,y,z)-hv-speed",{g.nx,g.ny,g.nz});
     auto source_range=nu_range(s,"nu","main","real-cell(x,y,z)-hv-speed",{g.nx,g.ny,g.nz});
+    auto pr_range=source_range; pr_range.view="nu_pr"; pr_range.bounds=model_coefficients::co2_nu_pr_range;
     auto& observation=result.nu_observations[s];
-    if(a.fluid==Fluid::sco2 && warm && !geo.spatial) {
+    if(uses_co2_eos(a.fluid) && warm) {
         observation={};observation.available=true;observation.cells=hv[s].size();observation.pressure=a.inlet_pressure;
         observation.raw_min=observation.re_min=observation.pr_min=observation.temperature_min=std::numeric_limits<double>::infinity();
         observation.raw_max=observation.re_max=observation.pr_max=observation.temperature_max=-std::numeric_limits<double>::infinity();
     }
     for(std::size_t p=0;p<hv[s].size();++p) {
         auto property=inlet[s];
-        if(a.fluid==Fluid::sco2 && warm) property=props.transport(a.fluid,temperature[s][p],a.inlet_pressure);
+        if(uses_co2_eos(a.fluid) && warm) property=props.transport(a.fluid,temperature[s][p],a.inlet_pressure);
         const double speed=std::abs(std::sqrt(velocity[0][p]*velocity[0][p]+velocity[1][p]*velocity[1][p]
                                            +velocity[2][p]*velocity[2][p]))+1e-12;
         const double re=property.rho*speed*geo.hydraulic_diameter[p]/property.mu;
         observe_range_value(raw_range,re,p);observe_range_value(source_range,std::max(re,1.),p);
+        if(a.fluid==Fluid::co2)observe_range_value(pr_range,property.pr,p);
         const double raw_nu=fluid_nusselt(a.fluid,input.topology,std::max(re,1.),property.pr,
             geo.cell_length[p],geo.hydraulic_diameter[p],a.sco2_nusselt_multiplier);
-        const double nu=std::max(raw_nu,model_coefficients::nu_laminar_floor);
+        const double nu=std::max(raw_nu,nusselt_floor(a.fluid));
         if(observation.available) {
-            observation.floor_cells+=raw_nu<model_coefficients::nu_laminar_floor;
+            observation.floor_cells+=raw_nu<nusselt_floor(a.fluid);
             observation.raw_min=std::min(observation.raw_min,raw_nu);observation.raw_max=std::max(observation.raw_max,raw_nu);
             observation.re_min=std::min(observation.re_min,re);observation.re_max=std::max(observation.re_max,re);
             observation.pr_min=std::min(observation.pr_min,property.pr);observation.pr_max=std::max(observation.pr_max,property.pr);
@@ -667,11 +668,12 @@ void Runtime::heat_transfer(std::size_t s,bool warm) {
     }
     merge_range_observation(result.range_observations,std::move(raw_range));
     merge_range_observation(result.range_observations,std::move(source_range));
+    if(a.fluid==Fluid::co2)merge_range_observation(result.range_observations,std::move(pr_range));
 }
 
 Full3DThermalEvidence Runtime::prepare(bool warm) {
     Full3DThermalEvidence e;const auto& geo=input.geometry;const auto& g=geo.grid;
-    const bool true_h=input.solve_b && (input.a.fluid==Fluid::sco2 || input.b.fluid==Fluid::sco2);
+    const bool true_h=input.solve_b && (uses_co2_eos(input.a.fluid) || uses_co2_eos(input.b.fluid));
     const bool model_h=g.nz>1 && control.variable_rho_cp && input.solve_b && control.conservative && !geo.asymmetric
         && ((input.a.fluid==Fluid::air && (input.b.fluid==Fluid::air || input.b.fluid==Fluid::water))
             || (input.a.fluid==Fluid::water && input.b.fluid==Fluid::air));
@@ -1008,7 +1010,7 @@ void Runtime::post(std::size_t outer) {
 
 void Runtime::finish() {
     const auto& g=input.geometry.grid;
-    const bool true_h_pair=input.a.fluid==Fluid::sco2 || input.b.fluid==Fluid::sco2;
+    const bool true_h_pair=uses_co2_eos(input.a.fluid) || uses_co2_eos(input.b.fluid);
     const bool candidate=result.thermal.true_h
         && result.thermal.true_h->algorithm!=EnthalpyAlgorithm::legacy_h_fou;
     if(!true_h_pair)temperature_ranges("final","real-cell(x,y,z)");
@@ -1040,7 +1042,7 @@ void Runtime::finish() {
         if(anderson[s]) result.anderson[s]=anderson[s]->stats();
         for(std::size_t p=0;p<temperature[s].size();++p) {
             if(a.fluid==Fluid::water) props.check_water(temperature[s][p],f.pressure_real[p]);
-            else if(a.fluid==Fluid::sco2) eos.validate(a.fluid,temperature[s][p],f.pressure_real[p],"3D final report state");
+            else if(uses_co2_eos(a.fluid)) eos.validate(a.fluid,temperature[s][p],f.pressure_real[p],"3D final report state");
         }
         f.inlet_pressure=inlet_state(a,f);
         const auto port=inlet_pressure_state(sg,view(f.pressure),view(f.inlet_opening),view(f.outlet_opening),f.pressure_reference,a.inlet_pressure);
@@ -1053,7 +1055,7 @@ void Runtime::finish() {
             const auto vin=i*(sg.ny+1)*sg.nz+k,vout=(i*(sg.ny+1)+sg.ny)*sg.nz+k;
             const double area=sg.dx[i]*sg.dz[k];
             const double m_in=f.density[in]*f.v[vin]*area,m_out=f.density[out]*f.v[vout]*area;
-            signed_in+=m_in;signed_out+=m_out;
+            signed_in+=m_in*eps[in];signed_out+=m_out*eps[out];
             result.physical_mass_in[s]+=std::abs(m_in);result.physical_mass_out[s]+=std::abs(m_out);
             mass_in+=((f.density[in]*std::abs(f.v[vin]))*area)*eps[in];
             const double weight=((f.density[out]*std::abs(f.v[vout]))*area)*eps[out];

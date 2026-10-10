@@ -31,8 +31,8 @@ def test_validate_sco2_passes():
     validate_fluid_type('sco2', 'B')
 
 
-def test_supported_fluids_air_water_sco2():
-    assert _SUPPORTED_FLUIDS == {'air', 'water', 'sco2'}
+def test_supported_full_compute_fluids():
+    assert _SUPPORTED_FLUIDS == {'air', 'water', 'sco2', 'co2'}
 
 
 def test_water_compute_returns_water_density():

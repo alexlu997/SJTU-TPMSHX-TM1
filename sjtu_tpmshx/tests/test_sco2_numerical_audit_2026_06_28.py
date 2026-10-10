@@ -114,7 +114,7 @@ def test_d2_mass_weighted_outlet_enthalpy_not_h_of_mean():
 # ── D3 : 3D h_v with LOCAL-temperature transport props (sCO2) ────────────────
 def test_d3_sco2_hv_uses_local_temperature_props():
     # No effective parameter selection: both paths use the smooth CFD base.
-    from sjtu_tpmshx.models.local_heat_transfer import _sco2_hv_local_field
+    from sjtu_tpmshx.models.local_heat_transfer import real_fluid_hv_local_field
     from sjtu_tpmshx.models.tpms_calc import nu_sco2_topo
 
     A_0, D_h_m = 500.0, 1.0e-3
@@ -123,7 +123,7 @@ def test_d3_sco2_hv_uses_local_temperature_props():
     T_field = np.full((2, 2, 2), T_in)
     T_field[1, 1, 1] = 450.0               # a cell far from the inlet state
 
-    hv = _sco2_hv_local_field(T_field, _P, u_abs, A_0, D_h_m, 'Diamond', 7.0)
+    hv = real_fluid_hv_local_field(T_field, _P, u_abs, A_0, D_h_m, 'Diamond', 7.0)
 
     # frozen-at-inlet h_v (what the buggy scalar path applies to EVERY cell)
     rho_i = sco2_props.sco2_prop('D', T_in, _P)

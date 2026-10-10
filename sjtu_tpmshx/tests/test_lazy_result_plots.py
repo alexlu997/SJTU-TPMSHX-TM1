@@ -40,7 +40,8 @@ def test_first_plot_lazy_switch_and_export_use_current_selection(win, monkeypatc
     win._field_phase = 0
     if mode == '3d':
         monkeypatch.setattr(win, 'canvas_3d', SimpleNamespace(
-            set_fields=lambda **kw: None, set_watermark=lambda text: None))
+            set_fields=lambda **kw: None, set_watermark=lambda text: None,
+            color_range_state=lambda: {'mode': 'global', 'ranges': {}}))
         assert finalize_plots_3d(win)
     else:
         win._finalize_plots()

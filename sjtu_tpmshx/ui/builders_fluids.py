@@ -30,6 +30,17 @@ def refresh_fluid_model_visibility(window):
                 or window.combo_fluidB.currentIndex() == 2
                 or window.combo_sco2_nu_mode.currentData() != 'cfd_smooth')
     window._ia_sections['sco2_nu'].setVisible(relevant)
+    window._co2_fixed_notice.setVisible(
+        any(combo.currentIndex() == 3 for combo in (window.combo_fluidA, window.combo_fluidB)))
+
+
+def refresh_inlet_mode(window, side):
+    from .window_config import mass_flow_active
+    active = mass_flow_active(window, side)
+    getattr(window, 'le_u' + side).setReadOnly(active)
+    getattr(window, 'le_mass_flow' + side).setEnabled(active)
+    getattr(window, '_lbl_u' + side).setText(
+        '上次解析速度 [m/s]' if active else f'入口速度 {side} [m/s]')
 
 
 def _build_pipe_section(window, lay, side, *, title_style, frame_style,
@@ -74,19 +85,34 @@ def _build_fluid_io_rows(window, g, side, t, u_default, T_default, P_default,
     from .field_factory import default_factory
 
     s = side
+    mode = QComboBox()
+    mode.addItem('速度 [m/s]', 'velocity')
+    mode.addItem('总质量流量 [kg/s]', 'mass_flow')
+    mode.setStyleSheet(t.style('COMBO'))
+    setattr(window, f'combo_inlet_mode{s}', mode)
+    default_factory().add_row(g, 1, '入口输入', right_align_combo(mode))
+    window._3d_only_widgets += [g.itemAtPosition(1, 0).widget(), g.itemAtPosition(1, 1).widget()]
     setattr(window, f'le_u{s}',
-            default_factory().row(g, 1, f"入口速度 <i>u</i><sub>{s}</sub> [m/s]", u_default))
+            default_factory().row(g, 2, f"入口速度 <i>u</i><sub>{s}</sub> [m/s]", u_default))
+    setattr(window, f'_lbl_u{s}', g.itemAtPosition(2, 0).widget())
+    flow = default_factory().row(g, 3, '总质量流量 [kg/s]', '')
+    flow.setPlaceholderText('输入正数')
+    flow.setToolTip('按实际入口孔隙率和开口积分换算；计算或自动填充时更新速度。')
+    setattr(window, f'le_mass_flow{s}', flow)
+    window._3d_only_widgets += [flow, g.itemAtPosition(3, 0).widget()]
+    mode.currentIndexChanged.connect(lambda: refresh_inlet_mode(window, side))
+    refresh_inlet_mode(window, side)
     setattr(window, f'le_Tin{s}',
-            default_factory().row(g, 2, "入口温度 <i>T</i><sub>in</sub> [K]", T_default))
-    setattr(window, f'_lbl_Tin{s}_unit', g.itemAtPosition(2, 0).widget())
+            default_factory().row(g, 4, "入口温度 <i>T</i><sub>in</sub> [K]", T_default))
+    setattr(window, f'_lbl_Tin{s}_unit', g.itemAtPosition(4, 0).widget())
     setattr(window, f'le_Pin{s}',
-            default_factory().row(g, 3, "入口绝压 <i>P</i><sub>in</sub> [Pa]", P_default))
+            default_factory().row(g, 5, "入口绝压 <i>P</i><sub>in</sub> [Pa]", P_default))
     btn = QPushButton(btn_text)
     btn.setFixedHeight(28); btn.setStyleSheet(t.style('BTN_SECONDARY'))
     btn.setToolTip(f"Compute Fluid {s} density / Reynolds / Nusselt and inlet "
                    "dP/dL from the current state and selected D-F model")
     btn.clicked.connect(getattr(window, f'auto_fill_fluid_{s.lower()}'))
-    g.addWidget(btn, 4, 0, 1, 2)
+    g.addWidget(btn, 6, 0, 1, 2)
     details = QWidget()
     details_lay = QVBoxLayout(details)
     details_lay.setContentsMargins(0, 0, 0, 0)
@@ -98,7 +124,7 @@ def _build_fluid_io_rows(window, g, side, t, u_default, T_default, P_default,
     setattr(window, f'_v_Re{s}', default_factory().res_row(gd, 1, "Re"))
     setattr(window, f'_v_Nu{s}', default_factory().res_row(gd, 2, "Nu"))
     setattr(window, f'_v_dPL{s}', default_factory().res_row(gd, 3, "d<i>P</i>/d<i>L</i> [Pa/m]"))
-    g.addWidget(details, 5, 0, 1, 2)
+    g.addWidget(details, 7, 0, 1, 2)
 
 
 def build_fluid_sections(window, lay):
@@ -128,6 +154,11 @@ def build_fluid_sections(window, lay):
         "实验标定使用与具体实验 campaign、边界和压降定义绑定的有效修正；"
         "数据集选择不代表已证实的工质本征效应。")
     default_factory().add_row(g_method, 0, "方法", right_align_combo(window.combo_df_mode))
+    window._co2_fixed_notice = QLabel(
+        "CO₂：单相 HEOS；阻力 ×2.5、Nu ×1.28 为固定修正，独立于上方选择。"
+        "两侧共用 CO₂ CFD 几何。")
+    window._co2_fixed_notice.setWordWrap(True)
+    g_method.addWidget(window._co2_fixed_notice, 1, 0, 1, 2)
 
     g_nu, nu_section = default_factory().section(lay, "sCO₂ Nu 换热模型", _T_NEUTRAL, _F_NEUTRAL)
     window._ia_sections['sco2_nu'] = nu_section
@@ -167,13 +198,13 @@ def build_fluid_sections(window, lay):
 
     # ── Fluid A (input + computed) ────────────────────────
     g1, _ = default_factory().section(_fluids_row_lay, "流体 A", _T_A, _F_A)
-    _FLUID_TYPES = ["Air", "Water", "sCO₂"]
+    _FLUID_TYPES = ["Air", "Water", "sCO₂", "CO₂"]
     window.combo_fluidA = QComboBox()
     window.combo_fluidA.addItems(_FLUID_TYPES)
     window.combo_fluidA.setCurrentIndex(0)
     window.combo_fluidA.setStyleSheet(_COMBO)
     window.combo_fluidA.setToolTip(
-        "Fluid A supports Air, Water and sCO₂ (2D + 3D).")
+        "Fluid A supports Air, Water, sCO₂ and single-phase CO₂ (2D + 3D).")
     try:
         _modelA = window.combo_fluidA.model()
         _itA_w = _modelA.item(1)   # Water
@@ -196,13 +227,13 @@ def build_fluid_sections(window, lay):
 
     # ── Fluid B (input + computed) — sits to the right of Fluid A ─────
     g2b, _ = default_factory().section(_fluids_row_lay, "流体 B", _T_B, _F_B)
-    # Both sides expose the same three-fluid capability.
+    # Both sides expose the same full-compute fluids.
     window.combo_fluidB = QComboBox()
     window.combo_fluidB.addItems(_FLUID_TYPES)
     window.combo_fluidB.setCurrentIndex(1)  # default Water (Shanghai cold side)
     window.combo_fluidB.setStyleSheet(_COMBO)
     window.combo_fluidB.setToolTip(
-        "Fluid B supports Air, Water and sCO₂ (2D + 3D).")
+        "Fluid B supports Air, Water, sCO₂ and single-phase CO₂ (2D + 3D).")
     try:
         _modelB = window.combo_fluidB.model()
         _it = _modelB.item(2)   # sCO₂ — wired in 2D + 3D (2026-06-28)

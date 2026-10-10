@@ -5,6 +5,7 @@ import os
 import numpy as np
 from sjtu_tpmshx.domain.compute_config import ComputeConfig, bc_to_dict, reject_retired_boundary_options
 from sjtu_tpmshx.models.tpms_props import geometry as tpms_geometry
+from sjtu_tpmshx.models import co2_correlations
 from sjtu_tpmshx.models.input_validation import validate_domain_dims, surrogate_extrap_reasons
 from sjtu_tpmshx.models.grid_3d import _build_grid_3d, _resolve_axis_map, _build_zone_fields_3d
 from sjtu_tpmshx.models.field_coordinates_3d import _build_partial_masks
@@ -63,7 +64,8 @@ def _parse_geometry_inputs_3d_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
     k_s = compute_cfg.geometry.k_s_W_mK
     tpms_type = compute_cfg.geometry.tpms
 
-    g = tpms_geometry(tpms_type, Lcell, t_wall, k_s)
+    geometry_model = co2_correlations.geometry if co2_correlations.uses_co2(compute_cfg) else tpms_geometry
+    g = geometry_model(tpms_type, Lcell, t_wall, k_s)
     eps = g['epsilon']
     D_h = g['D_h']
 
@@ -219,11 +221,15 @@ def _prepare_geometry_data(cfg):
     cap = int(cfg.get('max_cells_3d', os.environ.get('TPMSHX_MAX_CELLS_3D', '2000000')))
     if nx * ny * nz > cap:
         raise ValueError(f'3D grid {nx}x{ny}x{nz} exceeds the {cap}-cell cap')
-    geometry = tpms_geometry(cfg['tpms_type'], cfg['Lcell'], cfg['t_wall'], cfg['k_s'])
+    co2_geometry = any(cfg.get('fluid_type_' + side) == 'co2' for side in ('A', 'B'))
+    geometry_model = co2_correlations.geometry if co2_geometry else tpms_geometry
+    geometry = geometry_model(cfg['tpms_type'], cfg['Lcell'], cfg['t_wall'], cfg['k_s'])
     cells = cfg.get('zone_grid_cells')
     continuous = cfg.get('continuous_field')
     continuous_geometry = None
     spatial = bool(cells) or continuous is not None
+    if co2_geometry and (cells or cfg.get('delta_levelset', 0.) != 0.):
+        raise ValueError('CO2 supports symmetric uniform or continuous geometry only')
     if cfg.get('df_mode', 'cfd_smooth') == 'experimental' and spatial and continuous is None:
         raise ValueError('experimental calibration currently requires uniform L/t')
     if continuous is not None:
@@ -234,8 +240,6 @@ def _prepare_geometry_data(cfg):
             raise ValueError('Continuous field cannot also supply zone_grid_cells')
         if cfg.get('delta_levelset', 0.) != 0.:
             raise ValueError('Continuous spatial fields require delta_levelset=0')
-        if any(cfg.get('fluid_type_' + side) == 'sco2' for side in ('A', 'B')):
-            raise ValueError('sCO2 V2 does not support zones')
         spec = dict(continuous)
         volume = 'n_ctrl_z' in spec
         field = from_decision_vector(spec.pop('x_decision'), cfg['tpms_type'], cfg['k_s'],
@@ -249,11 +253,11 @@ def _prepare_geometry_data(cfg):
         # while the original cell geometry is still in the existing leaf cache.
         thermal_L, thermal_t = local_L * 1e-3 * 1e3, local_t * 1e-3 * 1e3
         for index in np.ndindex(local_eps.shape):
-            local = tpms_geometry(
+            local = geometry_model(
                 cfg['tpms_type'], float(local_L[index]), float(local_t[index]), cfg['k_s'])
             local_eps[index] = local['epsilon']
             if thermal_L[index] != local_L[index] or thermal_t[index] != local_t[index]:
-                local = tpms_geometry(
+                local = geometry_model(
                     cfg['tpms_type'], float(thermal_L[index]), float(thermal_t[index]), cfg['k_s'])
             for key in continuous_geometry:
                 continuous_geometry[key][index] = local[key]
@@ -276,7 +280,7 @@ def _prepare_geometry_data(cfg):
         cfg['tpms_type'], cfg['Lcell'], cfg['t_wall'], cfg['k_s'],
         L_field=lfield * 1e-3 * 1e3 if spatial and continuous_geometry is None else None,
         t_field=tfield * 1e-3 * 1e3 if spatial and continuous_geometry is None else None,
-        delta=float(cfg.get('delta_levelset', 0.)))
+        delta=float(cfg.get('delta_levelset', 0.)), co2_geometry=co2_geometry)
     if continuous_geometry is not None:
         cfg['thermal_geometry']['fields'] = continuous_geometry
     from sjtu_tpmshx.models.roughness import resolve_mode_from_env
@@ -309,12 +313,18 @@ def _prepare_geometry_data(cfg):
 
 def _prepare_df_application(cfg, axes, permeability, forchheimer):
     """Resolve experimental calibration once; runtime still consumes K/cF fields."""
-    if cfg.get('df_mode', 'cfd_smooth') != 'experimental':
+    experimental = cfg.get('df_mode', 'cfd_smooth') == 'experimental'
+    if not experimental and not any(cfg['fluid_type_' + side] == 'co2' for side in axes):
         return None
     from sjtu_tpmshx.df_surrogate.experimental_correction import apply_correction
     from sjtu_tpmshx.domain.run_warnings import range_context
     result = {}
     for side in axes:
+        if cfg['fluid_type_' + side] == 'co2':
+            _, _, result[side] = co2_correlations.apply_drag(permeability, forchheimer)
+            continue
+        if not experimental:
+            continue
         with range_context(side=side, stage='prepared-df', layout='scalar'):
             _, _, result[side] = apply_correction(
                 cfg['tpms_type'], cfg['fluid_type_' + side], cfg['Lcell'], cfg['t_wall'],
@@ -343,7 +353,8 @@ def _record_air_bulk_ranges(cfg, lfield, shape):
             if lfield is None:
                 compute(cfg['tpms_type'], cfg['Lcell'], cfg['t_wall'],
                         cfg.get('u_' + side, cfg['u_A']), cfg['T_in' + side],
-                        cfg.get('P_in' + side, cfg['P_inA']), cfg['k_s'])
+                        cfg.get('P_in' + side, cfg['P_inA']), cfg['k_s'],
+                        co2_geometry=any(cfg.get('fluid_type_' + s) == 'co2' for s in ('A', 'B')))
             else:
                 from sjtu_tpmshx.models import fluid_props
                 model = fluid_props.get('air')
@@ -406,10 +417,12 @@ def _case_from_prepared(config, prepared, *, case_id):
         widths = prepared['d' + axis]
         grid['d' + axis] = widths
         grid[axis + '_edges'] = np.r_[0., np.cumsum(widths)]
-    refs = tuple(ModelRef('fluid', MODEL_VERSIONS['fluid'],
+    refs = tuple(ModelRef('co2_fluid' if fluid.type == 'co2' else 'fluid',
+                          MODEL_VERSIONS['co2_fluid' if fluid.type == 'co2' else 'fluid'],
                           {'fluid': fluid.type, 'sco2_nu': asdict(config.sco2_nu)}, f'side {side}')
                  for side, fluid in (('A', config.fluid_A), ('B', config.fluid_B)))
-    refs += (ModelRef('geometry', MODEL_VERSIONS['geometry']),
+    geometry_ref = 'co2_geometry' if co2_correlations.uses_co2(config) else 'geometry'
+    refs += (ModelRef(geometry_ref, MODEL_VERSIONS[geometry_ref]),
              ModelRef('darcy_forchheimer', MODEL_VERSIONS['darcy_forchheimer'], {'topology': config.geometry.tpms}))
     continuous = parameters.get('continuous_field')
     if continuous is not None:
@@ -419,7 +432,8 @@ def _case_from_prepared(config, prepared, *, case_id):
     return CaseData.from_compute_config(case_id, config, grid=grid,
         design_fields=prepared['design'], parameters=parameters, model_refs=refs,
         metadata={'preprocessor': 'three_d_v1', 'quantity_basis': 'total',
-                  'model_metadata': {'sco2_nu': sco2_nu_metadata(config.sco2_nu)},
-                  'notices': sco2_nu_notices(config),
+                  'model_metadata': {'sco2_nu': sco2_nu_metadata(config.sco2_nu),
+                                     **co2_correlations.model_metadata(config)},
+                  'notices': sco2_nu_notices(config) + co2_correlations.notices(config),
                   'design_mode': design_mode,
                   'model_roles': {'fluid_A': 0, 'fluid_B': 1, 'geometry': 2, 'darcy_forchheimer': 3}})

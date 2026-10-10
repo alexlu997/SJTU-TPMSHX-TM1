@@ -58,7 +58,7 @@ def test_full_cc_h_driver_does_not_grant_model_h_optimization_qualification(dime
     metadata = mutable_data(result.metadata)
     metadata['native'] = dict(algorithm='model_h_tface_sou_fou_strict_v1' if dimension == 2
                              else 'model_h_tface_sou_sou_strict_v1')
-    with pytest.raises(ValueError, match='requires full 2D/3D model_h results'):
+    with pytest.raises(ValueError, match='requires full 2D/3D enthalpy results'):
         _full_result_metadata(replace(result, metadata=metadata))
 
 

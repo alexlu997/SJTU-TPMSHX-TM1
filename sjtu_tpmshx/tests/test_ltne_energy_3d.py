@@ -10,7 +10,6 @@ Five tests:
 """
 
 import numpy as np
-
 from sjtu_tpmshx.solvers.ltne_energy_3d import (
     solve_full_domain_3d,
     energy_balance_3d,
@@ -18,6 +17,27 @@ from sjtu_tpmshx.solvers.ltne_energy_3d import (
 )
 from sjtu_tpmshx.solvers.ltne_energy import solve_full_domain
 
+
+def test_runtime_mass_diagnostic_uses_local_porosity():
+    from types import SimpleNamespace
+    from sjtu_tpmshx.solvers.backends.python.three_d.runtime import _conservation_diagnostics_3d
+    cells = np.ones((2, 2, 2))
+    porosity = cells.copy()
+    porosity[:, 0, :] = .25
+    porosity[:, 1, :] = .5
+    velocity = np.ones((2, 3, 2))
+    velocity[:, -1, :] = .5
+    solver = SimpleNamespace(u=np.zeros((3, 2, 2)), v=velocity, w=np.zeros((2, 2, 3)),
+                             rho_field=cells, eps_field=porosity,
+                             dx=np.ones(2), dy=np.ones(2), dz=np.ones(2))
+    result = _conservation_diagnostics_3d(cells, cells, cells, cells, cells,
+        solver, solver, {'dir': 2}, {'dir': 2}, solver.dx, solver.dy, solver.dz)
+    assert result['mass_rel_A'] == result['mass_rel_B'] == 0.
+    solver.v[:, -1, :] *= .8
+    result = _conservation_diagnostics_3d(cells, cells, cells, cells, cells,
+        solver, solver, {'dir': 2}, {'dir': 2}, solver.dx, solver.dy, solver.dz)
+    assert np.isclose(result['mass_rel_A'], .2)
+    assert np.isclose(result['mass_rel_B'], .2)
 
 def test_model_h_faces_and_audit_do_not_depend_on_first_caller(tmp_path):
     import json

@@ -2,6 +2,7 @@
 from dataclasses import asdict, replace
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
 import numpy as np
@@ -117,6 +118,61 @@ def _manifest(directory):
 
 def _patch_solve(monkeypatch, solve):
     monkeypatch.setattr(execution, 'run_case', solve)
+
+
+@pytest.mark.parametrize('dimension', [2, 3])
+@pytest.mark.parametrize('mode', ['true_h', 'conservative_energy'])
+@pytest.mark.parametrize('damage', [None, 'convergence', 'clips', 'coupled', 'equation', 'nonfinite', 'missing'])
+def test_true_h_batch_uses_its_native_energy_certificate(dimension, mode, damage):
+    balance = dict(converged=True, enthalpy_clip_counts={'total': [0, 0]},
+        effective_settings={'coupled_energy_tol': .001, 'equation_energy_tol': .001},
+        coupled_energy_balance={'ratio': .0002}, equation_energy_balance={'ratio': .0003})
+    if damage == 'convergence':
+        balance['converged'] = False
+    elif damage == 'clips':
+        balance['enthalpy_clip_counts']['total'][1] = 1
+    elif damage in ('coupled', 'equation'):
+        balance[damage + '_energy_balance']['ratio'] = .00101
+    elif damage == 'nonfinite':
+        balance['equation_energy_balance']['ratio'] = float('nan')
+    elif damage == 'missing':
+        del balance['equation_energy_balance']
+    field = SimpleNamespace(metadata={'dimension': dimension, 'thermal_mode': mode,
+                                     'diagnostics': {'true_h_balance': balance}})
+    if damage == 'missing':
+        with pytest.raises(KeyError):
+            batch._energy_gates(field)
+    else:
+        gates = batch._energy_gates(field)
+        assert len(gates) == 4 and all(type(passed) is bool for _, passed in gates)
+        assert all(passed for _, passed in gates) == (damage is None)
+
+
+@pytest.mark.parametrize('fluid', ['co2', 'sco2'])
+def test_real_fluid_batch_reaches_the_original_solver_and_keeps_failure(tmp_path, monkeypatch, fluid):
+    from sjtu_tpmshx.tests.test_co2_model import co2_config
+    from sjtu_tpmshx.preprocess.api import prepare_inlet_mass_capacities
+    config = co2_config(3)
+    config.fluid_A.type = fluid
+    capacity = prepare_inlet_mass_capacities(config)
+    targets = [capacity[s]*getattr(config, 'fluid_' + s).u_mps for s in 'AB']
+    def solve(case, control):
+        assert case.config_snapshot['fluid_A']['type'] == fluid
+        raise RuntimeError('recorded true-h solver failure')
+    _patch_solve(monkeypatch, solve)
+    report = batch.evaluate_condition_batch([('real', config, *targets)], output_dir=tmp_path/'batch')
+    row = report['conditions'][0]
+    assert report['status'] == row['status'] == 'failed' and report['objectives'] is None
+    assert row['stage'] == 'solve' and 'recorded true-h solver failure' in row['reason']
+
+
+def test_batch_requires_the_same_fluid_pair_at_every_condition(tmp_path):
+    conditions = _conditions(2)
+    name, config, a, b = conditions[1]
+    conditions[1] = (name, replace(config, fluid_A=replace(config.fluid_A, type='co2')), a, b)
+    with pytest.raises(ValueError, match='must be fixed'):
+        batch.evaluate_condition_batch(conditions, output_dir=tmp_path/'batch')
+    assert not (tmp_path/'batch').exists()
 
 
 @pytest.mark.parametrize('backend', ['python', 'cpp'])

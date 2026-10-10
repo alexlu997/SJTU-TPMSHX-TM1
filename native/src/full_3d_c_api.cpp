@@ -37,7 +37,7 @@ tpmshx_full3d_pressure_state_v1 pressure(const std::optional<PressurePortState>&
     p.relative_tolerance=s.relative_tolerance;p.definition=s.definition.c_str();return p;
 }
 Full3DSide side(const tpmshx_full3d_side_v1& a) {
-    if(a.fluid>2 || a.direction>5)throw std::invalid_argument("invalid full 3D fluid or direction");
+    if(a.fluid>3 || a.direction>5)throw std::invalid_argument("invalid full 3D fluid or direction");
     Full3DSide s;s.fluid=static_cast<Fluid>(a.fluid);s.direction=static_cast<int>(a.direction);
     for(std::size_t d=0;d<3;++d) {
         if(a.solver_axes[d]>2)throw std::invalid_argument("invalid full 3D axis");s.solver_axes[d]=static_cast<int>(a.solver_axes[d]);
@@ -205,7 +205,7 @@ int solve(const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,
         auto control=controls(*c,callbacks);
         if(energy)apply_energy_options(control.enthalpy,*energy);
         if(strict_energy) {
-            if(!data.solve_b || (data.a.fluid!=Fluid::sco2 && data.b.fluid!=Fluid::sco2))
+            if(!data.solve_b || (!uses_co2_eos(data.a.fluid) && !uses_co2_eos(data.b.fluid)))
                 throw std::invalid_argument("strict full 3D energy controls require the existing two-sided true-h route");
             apply_energy_options(control.enthalpy,*strict_energy);
         }

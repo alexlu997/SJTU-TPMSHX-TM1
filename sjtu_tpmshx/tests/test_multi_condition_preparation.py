@@ -20,7 +20,8 @@ from sjtu_tpmshx.solvers.ltne_enthalpy_3d import face_mass_fluxes
 
 @pytest.mark.parametrize('direction', range(6))
 @pytest.mark.parametrize('design_mode', ['uniform', 'grid', 'continuous'])
-def test_fixed_flow_matches_native_faces_after_density_update(monkeypatch, direction, design_mode):
+@pytest.mark.parametrize('input_mode', ['explicit_batch', 'configured_flow'])
+def test_fixed_flow_matches_native_faces_after_density_update(monkeypatch, direction, design_mode, input_mode):
     shape, lengths = (6, 5, 4), (.04, .05, .06)
     widths = tuple(np.arange(1., count + 1.) * length / sum(range(1, count + 1))
                    for count, length in zip(shape, lengths))
@@ -51,9 +52,15 @@ def test_fixed_flow_matches_native_faces_after_density_update(monkeypatch, direc
             'spline_order': 2, 'L_bounds': [4., 8.], 't_bounds': [.3, .6]}))
     original = asdict(config)
     targets = {'A': .002, 'B': .03}
-    case = prepare_fixed_mass_flow_case(
-        config, mass_flow_A_kg_s=targets['A'], mass_flow_B_kg_s=targets['B'],
-        case_id='fixed-mass-flow')
+    if input_mode == 'configured_flow':
+        config = replace(config, **{'fluid_' + side: replace(getattr(config, 'fluid_' + side),
+                         u_mps=-1., mass_flow_kg_s=targets[side]) for side in 'AB'})
+        original = asdict(config)
+        case = prepare_case(config, case_id='fixed-mass-flow')
+    else:
+        case = prepare_fixed_mass_flow_case(
+            config, mass_flow_A_kg_s=targets['A'], mass_flow_B_kg_s=targets['B'],
+            case_id='fixed-mass-flow')
     assert asdict(config) == original
     assert case.case_id == 'fixed-mass-flow'
     assert dict(case.config_snapshot['geometry']) == original['geometry']

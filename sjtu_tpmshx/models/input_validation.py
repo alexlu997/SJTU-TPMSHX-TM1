@@ -31,15 +31,17 @@ def surrogate_extrap_reasons(compute_cfg: ComputeConfig,
     Required model imports and physical-domain failures propagate to the caller.
     """
     from sjtu_tpmshx.df_surrogate.surrogate_domain import check_surrogate_domain_at_point
+    from .co2_correlations import uses_co2
+    from .co2_props import check_co2_state
     geo = compute_cfg.geometry
     reasons = []
     for side, fl in (('A', compute_cfg.fluid_A), ('B', compute_cfg.fluid_B)):
+        check_co2_state(fl.type, fl.T_in_K, fl.P_in_Pa, where=f'CO2 inlet {side}')
         nu_reasons = []
         reasons += check_surrogate_domain_at_point(
             geo.tpms, geo.L_cell_mm, geo.t_wall_mm, geo.k_s_W_mK,
             fl.u_mps, fl.T_in_K, fl.P_in_Pa, side=side,
-            allow_extrap=allow_extrap, fluid=fl.type, nu_reasons=nu_reasons) or []
+            allow_extrap=allow_extrap, fluid=fl.type, nu_reasons=nu_reasons, co2_geometry=uses_co2(compute_cfg)) or []
         for reason in nu_reasons:
             record_warning(('nu_preflight', side), reason)
     return reasons
-

@@ -388,6 +388,7 @@ FIELD_UNITS = {
 POSITIVE_FIELDS = frozenset((
     'le_L', 'le_H', 'le_Lz', 'le_Lcell', 'le_t', 'le_ks',
     'le_uA', 'le_uB',
+    'le_mass_flowA', 'le_mass_flowB',
     'le_TinA', 'le_TinB', 'le_PinA', 'le_PinB',
     'le_Nx', 'le_Ny', 'le_Nz',
     'le_rho_s',

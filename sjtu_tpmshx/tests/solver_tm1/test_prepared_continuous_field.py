@@ -240,15 +240,39 @@ def test_explicit_supported_layouts_keep_their_original_spec(symmetric_y, order,
     assert asdict(ComputeConfig.from_dict(data))['zones']['config'] == data['zones']['config']
 
 
-@pytest.mark.parametrize('mode', ['delta', 'sco2'])
+@pytest.mark.parametrize('mode', ['delta', 'sco2_experimental'])
 def test_continuous_fields_preserve_spatial_applicability_guards(mode):
     cfg = _config()
     if mode == 'delta':
         cfg.geometry.delta_levelset = .05
     else:
         cfg.fluid_A = FluidConfig(type='sco2', u_mps=1., T_in_K=400., P_in_Pa=8e6)
+        cfg.df_mode = 'experimental'
     with pytest.raises(ValueError, match='uniform L/t|delta_levelset=0|does not support zones'):
         prepare_case(cfg, case_id='unsupported-continuous')
+
+
+@pytest.mark.parametrize('fluid', ['co2', 'sco2'])
+@pytest.mark.parametrize('dimension', [2, 3])
+def test_real_fluid_continuous_geometry_replays_without_model_substitution(tmp_path, fluid, dimension):
+    from sjtu_tpmshx.models.co2_correlations import geometry as co2_geometry
+    cfg = _config(dimension == 3)
+    cfg.solver.Nz = 3 if dimension == 3 else 1
+    cfg.solver.Nx = 12
+    cfg.fluid_A = FluidConfig(type=fluid, u_mps=.3, T_in_K=340., P_in_Pa=8e6)
+    case = prepare_case(cfg, case_id='real-fluid-continuous')
+    path = tmp_path/'case.yaml'
+    save_case(case, path)
+    restored = load_case(path)
+    assert restored.config_snapshot['fluid_A']['type'] == fluid
+    assert restored.config_snapshot['zones']['config']['x_decision'] == tuple(cfg.zones.config['x_decision'])
+    local_geometry = co2_geometry if fluid == 'co2' else geometry
+    thermal = restored.parameters['thermal_geometry']['fields']
+    for index in np.ndindex(restored.design_fields['L_field_m'].shape):
+        g = local_geometry(cfg.geometry.tpms, restored.design_fields['L_field_m'][index]*1e3,
+                           restored.design_fields['t_field_m'][index]*1e3, cfg.geometry.k_s_W_mK)
+        assert thermal['D_h'][index] == pytest.approx(g['D_h'], rel=1e-13)
+        assert thermal['A_0'][index] == pytest.approx(g['A_0'], rel=1e-13)
 
 
 @pytest.mark.parametrize('constant', [False, True])

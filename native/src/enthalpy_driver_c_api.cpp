@@ -31,7 +31,7 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_solve_enthalpy_v1(
     using namespace tpmshx;
     if (!shape || !arrays || !sizes || !config || !result || !error || !error_capacity)
         return fail(TPMSHX_ENTHALPY_INVALID_ARGUMENT,"missing true-h argument or error buffer",error,error_capacity);
-    if (config->sides[0].fluid > TPMSHX_ENTHALPY_SCO2 || config->sides[1].fluid > TPMSHX_ENTHALPY_SCO2
+    if (config->sides[0].fluid > TPMSHX_ENTHALPY_CO2 || config->sides[1].fluid > TPMSHX_ENTHALPY_CO2
         || config->warm_a > 1 || config->warm_b > 1 || config->warm_solid > 1
         || config->coupled_gate > 1 || config->equation_gate > 1)
         return fail(TPMSHX_ENTHALPY_INVALID_ARGUMENT,"invalid true-h fluid or boolean flag",error,error_capacity);
