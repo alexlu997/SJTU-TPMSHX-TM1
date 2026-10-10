@@ -1,0 +1,10 @@
+# Native qualification group 1; the two lists use measured CI durations.
+sjtu_tpmshx/tests/native/test_cpp_conservative_full3d.py
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[co2-air-2]
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[air-co2-2]
+sjtu_tpmshx/tests/native/test_cpp_quick_design.py
+sjtu_tpmshx/tests/native/test_cpp_full_2d_capture.py
+sjtu_tpmshx/tests/native/test_full_2d_refinement.py
+sjtu_tpmshx/tests/native/test_backend_condition_consumers.py
+sjtu_tpmshx/tests/native/test_quick_design_driver.py
+sjtu_tpmshx/tests/native/test_cpp_temperature.py

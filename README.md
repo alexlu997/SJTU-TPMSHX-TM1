@@ -517,12 +517,22 @@ envelope 实现、三模块数据契约与公共 API、后处理指标入口；�
 `"$PYTHON" scripts/check_ci_shards.py .cache/ci/fast-0 .cache/ci/fast-1`
 核对两个 worker 的集合一致、两片互斥且完整覆盖原子集。
 
-原生资格检查也按完整模块分到两个独立 runner，每片串行执行，保留各自的
-原生构建、独立调用及全部数值断言。其分片 0 清单为
-`sjtu_tpmshx/tests/native/_ci_shard0.txt`，通过 `--ci-shard-modules` 指定；
-未列出的资格模块自动进入分片 1。每片上传
-`native-dependencies-<平台>-py<版本>-shard-<0|1>`，包含 JUnit、构建日志和
-`ci/native-manifest`；同一集合校验器加 `--serial` 核对两片完整且互斥。
+原生资格检查分到三个独立 runner，每片串行执行。共享求解 fixture 的模块保持完整，
+独立且耗时较长的后端配对参数用例按完整 node ID 分配。按顺序重复传入
+`--ci-shard-modules=sjtu_tpmshx/tests/native/_ci_shard0.txt` 和
+`--ci-shard-modules=sjtu_tpmshx/tests/native/_ci_shard1.txt`；
+两份清单分别对应分片 0、1，未列出的用例自动进入分片 2。
+同一集合校验器加 `--serial`，依次传入三片 manifest，核对其完整且互斥。
+全部原数值用例、精度和收敛断言以及三个平台/Python 组合保持不变。
+
+每个平台/Python 组合先构建一次原生库并运行独立 C/C++ 调用，
+三片从同一工作流的 `native-build-<平台>-py<版本>` artifact 复用该构建。
+归档保留可执行权限，包含运行库、调用程序和许可声明。CoolProp 静态库使用精确缓存键，
+绑定平台、架构、Python、托管编译环境版本、原生依赖锁和构建脚本；
+项目 C++ 与模型系数每次重新构建，缓存命中仍须通过独立调用检查。
+构建日志单独保存在 `native-build-logs-<平台>-py<版本>`。
+每片上传 `native-dependencies-<平台>-py<版本>-shard-<0|1|2>`，
+包含 JUnit 和 `native-manifest`。以上 artifact 均保留 7 天。
 原生日志保留最慢 20 项和 skip 原因。
 
 快测和集成日志保留最慢 30 项和 skip 原因。每片将 JUnit 与 collection manifest 保存为

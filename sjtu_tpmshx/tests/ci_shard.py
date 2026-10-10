@@ -1,4 +1,4 @@
-"""Opt-in, module-preserving CI shards after the normal pytest filters."""
+"""Opt-in CI shards after normal pytest filters, with an automatic complement."""
 import json
 from pathlib import Path
 
@@ -9,16 +9,19 @@ _COLLECTION = pytest.StashKey[dict]()
 
 def pytest_addoption(parser):
     group = parser.getgroup('ci-shard')
-    group.addoption('--ci-shard', type=int, choices=(0, 1), default=None,
-                    help='Run listed modules (0) or their automatic complement (1).')
-    group.addoption('--ci-shard-modules', type=Path,
-                    default=Path(__file__).with_name('_ci_shard0.txt'),
-                    help='File listing the whole modules in shard 0.')
+    group.addoption('--ci-shard', type=int, default=None,
+                    help='Run a listed group or the final automatic complement.')
+    group.addoption('--ci-shard-modules', type=Path, action='append',
+                    help='Repeat in shard order; each file lists modules or exact test node IDs.')
     group.addoption('--ci-manifest', help='Directory for per-worker collection JSON.')
 
 
 def pytest_configure(config):
-    if config.getoption('ci_shard') is not None and not config.getoption('ci_manifest'):
+    shard = config.getoption('ci_shard')
+    groups = config.getoption('ci_shard_modules') or [Path(__file__).with_name('_ci_shard0.txt')]
+    if shard is not None and not 0 <= shard <= len(groups):
+        raise pytest.UsageError(f'--ci-shard must be between 0 and {len(groups)}')
+    if shard is not None and not config.getoption('ci_manifest'):
         raise pytest.UsageError('--ci-shard requires --ci-manifest')
 
 
@@ -31,13 +34,18 @@ def pytest_collection_modifyitems(config, items):
     shard = config.getoption('ci_shard')
     full = [item.nodeid for item in items]
     if shard is not None:
-        modules = {line.strip() for line in
-                   config.getoption('ci_shard_modules').read_text().splitlines()
-                   if line.strip() and not line.lstrip().startswith('#')}
+        paths = config.getoption('ci_shard_modules') or [Path(__file__).with_name('_ci_shard0.txt')]
+        groups = [{line.strip() for line in path.read_text(encoding='utf-8').splitlines()
+                   if line.strip() and not line.lstrip().startswith('#')} for path in paths]
         kept, removed = [], []
         for item in items:
-            listed = item.path.relative_to(config.rootpath).as_posix() in modules
-            (kept if listed == (shard == 0) else removed).append(item)
+            module = item.path.relative_to(config.rootpath).as_posix()
+            owners = [index for index, group in enumerate(groups)
+                      if module in group or item.nodeid in group]
+            if len(owners) > 1:
+                raise pytest.UsageError(f'CI node belongs to multiple shards: {item.nodeid}')
+            owner = owners[0] if owners else len(groups)
+            (kept if owner == shard else removed).append(item)
         items[:] = kept
         if removed:
             config.hook.pytest_deselected(items=removed)
