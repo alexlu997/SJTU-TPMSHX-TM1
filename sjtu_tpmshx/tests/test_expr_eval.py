@@ -1,4 +1,4 @@
-"""User expressions stay finite and cannot hold the GUI in integer arithmetic."""
+"""User expressions preserve finite results and reject oversized integer powers."""
 import subprocess
 import sys
 
@@ -12,6 +12,9 @@ from sjtu_tpmshx.ui.expr_eval import eval_expr
     ('2^3', 8.),
     ('2**-3', .125),
     ('(-2)^3', -8.),
+    ('0^(10^1000)', 0.),
+    ('1^(10^1000)', 1.),
+    ('(-1)^(10^1000 + 1)', -1.),
     ('atan(1) * 180 / pi', 45.),
     ('round(max(1.1, 2.25), 1)', 2.2),
 ])

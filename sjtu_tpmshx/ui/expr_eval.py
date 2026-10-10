@@ -104,7 +104,12 @@ def eval_expr(text):
             if isinstance(op, ast.Mult):     return a * b
             if isinstance(op, ast.Div):      return a / b
             if isinstance(op, ast.Mod):      return a % b
-            if isinstance(op, ast.Pow):      return math.pow(a, b)
+            if isinstance(op, ast.Pow):
+                # shortcut: cap integer powers at 16K bits; expand for larger input needs.
+                if (isinstance(a, int) and isinstance(b, int)
+                        and abs(a) > 1 and b > 0 and a.bit_length() * b > 16_384):
+                    raise ValueError("integer power is too large")
+                return a ** b
             if isinstance(op, ast.FloorDiv): return a // b
             raise ValueError("unsupported op")
         if isinstance(n, ast.Call):
