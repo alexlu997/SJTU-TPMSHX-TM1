@@ -90,6 +90,35 @@ def test_export_button_uses_archived_objectives_after_ui_edits(window, tmp_path,
     assert rows[0]['run_status'] == 'cancelled'
 
 
+def test_long_export_path_keeps_pareto_plot_inside_viewport(window, tmp_path, monkeypatch):
+    from PySide6.QtCore import QEventLoop, QPoint
+    from PySide6.QtWidgets import QApplication, QFileDialog
+
+    window._last_opt_report = study = report(window)
+    panel.show_pareto(window, study)
+    window._switch_tab('pareto')
+    window.resize(1300, 900)
+    window.show()
+    QApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 1000)
+    initial_width = window.width()
+    target = tmp_path / ('continuous-field-optimization-' * 4) / 'pareto_data.csv'
+    target.parent.mkdir()
+    monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(target), 'CSV (*.csv)'))
+    try:
+        window._opt_export_pareto_btn.click()
+        QApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 1000)
+        assert target.is_file()
+        assert str(target) in window._opt_status.text()
+        viewport = window._canvas_scroll.viewport()
+        canvas = window.canvas_pareto
+        assert canvas.isVisible()
+        origin = canvas.mapTo(viewport, QPoint(0, 0))
+        assert origin.x() + canvas.width() <= viewport.width()
+        assert window.width() == initial_width
+    finally:
+        window.hide()
+
+
 @pytest.mark.parametrize('dimension', [0, 1])
 def test_control_counts_and_selected_export_keep_frozen_design(window, tmp_path, dimension):
     from sjtu_tpmshx.optimization.export_ntop_csv import export_study_design

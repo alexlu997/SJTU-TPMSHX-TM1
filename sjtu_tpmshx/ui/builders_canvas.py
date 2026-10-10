@@ -468,9 +468,9 @@ def _build_optimize_panel(window, card_lay, t, theme):
                 f"color:{_border_sub}; font-size:12pt;"
                 "background:transparent; border:none; padding:0 2px;")
             stage_row.addWidget(arr)
-    stage_row.addStretch(1)
     status = QLabel("空闲 — 配置参数后点击启动")
     status.setMinimumHeight(24)
+    status.setWordWrap(True)
     status.setStyleSheet(
         f"color:{_sub_fg}; font-family:{_mono};"
         f"font-size:9pt; font-weight:400;"
@@ -478,7 +478,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
     status.setAlignment(Qt.AlignmentFlag.AlignRight
                         | Qt.AlignmentFlag.AlignVCenter)
     window._opt_status = status
-    stage_row.addWidget(status, 0)
+    stage_row.addWidget(status, 1)
     op_v.addLayout(stage_row)
     # Initial stage: Config active, others idle
     window._opt_stage_pills['config'].setStyleSheet(_pill_active)
