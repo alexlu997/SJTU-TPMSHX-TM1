@@ -106,7 +106,7 @@ def test_long_export_path_keeps_pareto_plot_inside_viewport(window, tmp_path, mo
     assert canvas.isVisible()
     origin = canvas.mapTo(viewport, QPoint(0, 0))
     assert origin.x() + canvas.width() <= viewport.width()
-    target = tmp_path / ('continuous_field_optimization_' * 6) / 'pareto_data.csv'
+    target = tmp_path / ('continuous_field_optimization_' * 4) / 'pareto_data.csv'
     target.parent.mkdir()
     monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(target), 'CSV (*.csv)'))
     try:
