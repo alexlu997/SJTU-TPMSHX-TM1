@@ -3,6 +3,7 @@
 Both public backends consume one prepared case and must independently satisfy
 their physical gates. These checks supplement the existing tighter regressions.
 """
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 
 import numpy as np
@@ -18,6 +19,14 @@ from sjtu_tpmshx.tests.native.test_native_execution import _config
 from sjtu_tpmshx.tests.test_co2_model import CO2_PAIRS, co2_config, co2_engineering_config
 
 native_path = native_3d.native_path
+
+
+def _run_pair(prepared, native_path):
+    # Overlap independent backends; keep Python on the caller's Numba mask.
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        cpp = pool.submit(run_case, prepared, native_3d.control(native_path))
+        python = run_case(prepared, RunControl())
+        return python, cpp.result()
 
 
 def _physical_gates(result):
@@ -55,8 +64,7 @@ def test_public_backends_meet_engineering_limits(native_path, dimension, pair, r
     config = (co2_engineering_config(dimension, pair) if pair in CO2_PAIRS else
               replace(_config(dimension, True), fluid_A=fluid(names[0], 0), fluid_B=fluid(names[1], 1)))
     prepared = prepare_case(config, case_id=f'backend-parity-{dimension}d-{pair}')
-    python = run_case(prepared, RunControl())
-    cpp = run_case(prepared, native_3d.control(native_path))
+    python, cpp = _run_pair(prepared, native_path)
     _assert_engineering_pair(python, cpp, record_property)
 
 
@@ -77,8 +85,7 @@ def test_continuous_real_fluid_public_backends(native_path, dimension, fluid, re
         config.bc_B = PartialBCConfig(dir=3, in_ctr=.091, in_w=.091, out_ctr=.091, out_w=.091)
     config.zones = ZoneInputConfig(enabled=True, axis='continuous', config=spec)
     prepared = prepare_case(config, case_id=f'continuous-{dimension}d-{fluid}')
-    python = run_case(prepared, RunControl())
-    cpp = run_case(prepared, native_3d.control(native_path))
+    python, cpp = _run_pair(prepared, native_path)
     for result in (python, cpp):
         assert result.metadata['thermal_mode'] == 'true_h'
         assert result.metadata['design_mode'] == ('continuous' if dimension == 2 else 'continuous_xyz')

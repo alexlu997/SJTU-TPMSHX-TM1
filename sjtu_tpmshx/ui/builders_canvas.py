@@ -607,7 +607,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
         ds.setSingleStep(step); ds.setDecimals(dec)
         ds.setStyleSheet(_spin_qss)
         ds.setAlignment(Qt.AlignmentFlag.AlignRight)
-        ds.setFixedWidth(80)
+        ds.setFixedWidth(max(80, ds.sizeHint().width()))
         ds.setMinimumHeight(30)
         return ds
 
@@ -702,7 +702,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
     # ═══ Page 3 · 结果 ═══ (banner + Pareto canvas mounted below.)
     p3 = _QWop()
     p3v = _VBop(p3)
-    p3v.setContentsMargins(0, 0, 0, 0); p3v.setSpacing(16)
+    p3v.setContentsMargins(0, 0, 0, 0); p3v.setSpacing(8)
     _stack.addWidget(p3)
     window._opt_page3_lay = p3v
 

@@ -273,13 +273,15 @@ def test_cancel_preserves_original_budget_and_never_succeeds(library, cancel_aft
     def cancel():
         nonlocal calls
         calls += 1
-        return calls >= cancel_after
+        # Match completed iterations; Python also polls between kernels.
+        return (calls >= cancel_after if cancel_after <= 2
+                else len(expected.residuals) >= cancel_after-2)
     with Native(library, actual) as native:
         out = native.call(actual, cancel_after=cancel_after)
         with pytest.raises(CancelledError):
             expected.solve(cancel_check=cancel)
-        assert out[0] == 5 and not out[1] and out[26] == calls
-        assert out[2] == max(0, cancel_after-2)
+        assert out[0] == 5 and not out[1] and out[26] == cancel_after
+        assert out[2] == len(expected.residuals) == max(0, cancel_after-2)
         assert len(native.history(0)) == max(0, cancel_after-2)
         assert out[31] == (0 if cancel_after == 1 else actual.Nx*actual.Nz)
         compare_fields(actual, expected)

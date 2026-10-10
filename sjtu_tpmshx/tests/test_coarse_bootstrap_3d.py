@@ -200,7 +200,8 @@ def test_cancel_after_real_iteration_stops_before_next_sweep(monkeypatch, bootst
         solver.solve(cancel_check=lambda: bool(corrections))
     assert corrections == [True]
     assert solver.exit_reason == 'cancelled'
-    assert len(solver.residuals) == (0 if bootstrap else 1)
+    assert solver.residuals == []  # Cancellation now precedes residual kernels.
+    assert solver._iterations_charged == (0 if bootstrap else 1)
 
 
 def test_bootstrap_rebuilds_rectangles_and_conserves_inlet_mass(monkeypatch):

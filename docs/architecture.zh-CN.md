@@ -238,7 +238,7 @@ C++ 完整三维绑定在释放原生 owner 前复制所需证据，由 `full_3d
 
 流水线、求解器和 GUI 编排共享 `domain.cancellation.CancelledError`，它继承 InterruptedError，并由 `controllers.compute_pipeline` 和 `ComputeOrchestrator.CancelledError` 重导出。只有显式取消检查点抛出它；即使取消已请求，无关异常仍是错误。传播前等待两个 SIMPLE worker，真实失败优先于取消。编排器直接将此异常作为取消终态；GUI 适配器只绑定参数，保留原异常。
 
-二维每次 SIMPLE 迭代和既有 LTNE chunk 边界检查，包括 Richardson 细化。三维保留每 25 次 SIMPLE 和 LTNE chunk 边界检查。共享 true-h 每次物性／sweep 迭代检查。原生线性求解、JIT、LTNE chunk（二维默认 500 sweep）或焓物性／sweep 必须完成后才到下一检查点。没有强制线程终止或固定墙钟取消时限。取消不发布结果。
+二维每次 SIMPLE 迭代和既有 LTNE chunk 边界检查，包括 Richardson 细化。三维每次 SIMPLE 迭代以及动量 sweep、压力求解和修正之间检查；这些调用期间收到取消请求时，在当前调用返回后停止，不再启动下一个核函数，包括冷编译。三维 LTNE chunk 边界保持不变。共享 true-h 每次物性／sweep 迭代检查。原生线性求解、JIT、LTNE chunk（二维默认 500 sweep）或焓物性／sweep 必须完成后才到下一检查点。没有强制线程终止或固定墙钟取消时限。取消不发布结果。
 
 <a id="ui-structure"></a>
 

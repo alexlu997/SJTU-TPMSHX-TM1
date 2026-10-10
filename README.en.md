@@ -401,6 +401,8 @@ For shard 1, use `--ci-shard=1` with its own manifest directory. `sjtu_tpmshx/te
 
 Native qualification uses three independent runners. Each shard runs serially. Modules with shared solver fixtures stay together. Independent, expensive backend-pair cases use exact node IDs. Repeat `--ci-shard-modules` with `sjtu_tpmshx/tests/native/_ci_shard0.txt` and `sjtu_tpmshx/tests/native/_ci_shard1.txt`, in that order. These lists select shards 0 and 1. All remaining cases enter shard 2. All numerical cases, precision and convergence assertions, and three platform/Python combinations stay unchanged.
 
+Each engineering pair runs its two independent backends concurrently from the same immutable prepared case. Python stays on the caller thread to keep its Numba thread setting. The original conservation, convergence, and difference checks run after both results return.
+
 Each platform/Python combination builds native libraries once and runs independent C/C++ callers. Its three shards reuse the same workflow's `native-build-<platform>-py<version>` artifact. The archive preserves executable permissions and includes runtime libraries, callers, and license notices. An exact CoolProp static-library cache key binds the platform, architecture, Python, hosted toolchain image version, native dependency lock, and build script. Project C++ and model coefficients rebuild on every run. Cache hits still require independent caller checks.
 
 Build logs use `native-build-logs-<platform>-py<version>`. Each shard uploads `native-dependencies-<platform>-py<version>-shard-<0|1|2>` with JUnit and `native-manifest`. These artifacts are retained for 7 days.

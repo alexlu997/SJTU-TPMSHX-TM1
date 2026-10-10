@@ -955,8 +955,10 @@ The orchestrator handles this exception directly as its cancelled terminal state
 The GUI adapter only binds pipeline arguments and keeps the original exception.
 
 2D polls each SIMPLE iteration and at the existing LTNE chunk boundaries,
-including the Richardson refined solve. 3D keeps its 25-iteration SIMPLE
-polling interval and LTNE chunk boundaries. The shared true-enthalpy driver
+including the Richardson refined solve. 3D polls each SIMPLE iteration and
+between its momentum sweeps, pressure solve, and correction. A request during
+one of these calls stops before starting the next kernel, including cold compilation. Its LTNE
+chunk boundaries remain unchanged. The shared true-enthalpy driver
 polls each property/sweep iteration. Each active operation must finish before its next checkpoint. These operations
 include native linear solves, JIT compilation, LTNE chunks (2D defaults to 500
 sweeps), and enthalpy property/sweep iterations.

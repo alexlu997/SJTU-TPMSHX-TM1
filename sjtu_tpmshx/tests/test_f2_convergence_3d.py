@@ -670,7 +670,7 @@ def test_nonfinite_iteration_does_not_add_cancel_checkpoint(monkeypatch, dim):
     requested = False
 
     def cancel():
-        calls.append(True)
+        calls.append(requested)
         return requested
 
     update = s._update_density
@@ -683,9 +683,29 @@ def test_nonfinite_iteration_does_not_add_cancel_checkpoint(monkeypatch, dim):
 
     monkeypatch.setattr(s, '_update_density', density)
     assert s.solve(max_iter=1, verbose=False, cancel_check=cancel) == (False, 1)
-    assert len(calls) == (1 if dim == 2 else 2)
+    assert calls and not any(calls)
     assert s.exit_reason == 'nonfinite'
     assert np.isnan(s.P.flat[0])
+    _assert_invalid_final_diagnostics(s)
+
+
+@pytest.mark.parametrize('fluid_type', ['ideal_gas', 'incompressible'])
+def test_nonfinite_correction_is_not_reported_as_cancellation(monkeypatch, fluid_type):
+    module = _solver_module(3)
+    s = _small_f2(3)
+    s.fluid_type = fluid_type
+    requested = False
+    correct = module._correct_jit_3d
+
+    def invalid_correction(*args, **kwargs):
+        nonlocal requested
+        correct(*args, **kwargs)
+        s.P.flat[0] = np.nan
+        requested = True
+
+    monkeypatch.setattr(module, '_correct_jit_3d', invalid_correction)
+    assert s.solve(max_iter=1, cancel_check=lambda: requested) == (False, 1)
+    assert s.exit_reason == 'nonfinite'
     _assert_invalid_final_diagnostics(s)
 
 
