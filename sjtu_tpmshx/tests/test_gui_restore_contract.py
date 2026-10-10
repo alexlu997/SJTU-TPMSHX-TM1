@@ -238,6 +238,31 @@ def test_copy_menu_uses_display_units(win, unit, field, text, expected):
     assert QApplication.clipboard().text() == expected
 
 
+@pytest.mark.parametrize('theme_name', ['light', 'dark'])
+def test_field_menu_uses_current_theme_colors(win, monkeypatch, theme_name):
+    from PySide6.QtCore import QPoint, QTimer
+    from PySide6.QtGui import QContextMenuEvent, QPalette
+    from PySide6.QtWidgets import QApplication
+    from sjtu_tpmshx.ui.theme import _THEMES
+
+    colors = _THEMES[theme_name]
+    monkeypatch.setattr(win.theme, 'palette', lambda: colors)
+    observed = []
+
+    def inspect_menu():
+        menu = QApplication.activePopupWidget()
+        try:
+            palette = menu.palette()
+            observed.append((palette.color(QPalette.ColorRole.Window).name(),
+                             palette.color(QPalette.ColorRole.WindowText).name()))
+        finally:
+            menu.close()
+
+    QTimer.singleShot(0, inspect_menu)
+    win.le_L.contextMenuEvent(QContextMenuEvent(QContextMenuEvent.Reason.Mouse, QPoint(), QPoint()))
+    assert observed == [(colors['card_bg'], colors['fg'])]
+
+
 @pytest.mark.parametrize('route', ['named', 'recent', 'scrub', 'session'])
 def test_restore_uses_its_own_source_name(win, route):
     preset = win._capture_current_preset('Recent @ 12:00' if route != 'named' else 'custom source')

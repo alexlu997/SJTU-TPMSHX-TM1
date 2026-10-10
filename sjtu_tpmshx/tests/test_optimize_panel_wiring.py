@@ -122,6 +122,33 @@ def test_long_export_path_keeps_pareto_plot_inside_viewport(window, tmp_path, mo
         window.hide()
 
 
+@pytest.mark.parametrize('width', [1280, 1442])
+def test_optimization_bounds_show_complete_decimal_values(window, width):
+    from PySide6.QtCore import QEventLoop
+    from PySide6.QtWidgets import QApplication
+
+    previous_size = window.size()
+    previous_page = window._opt_stack.currentIndex()
+    previous_tab = window._active_tab
+    window._switch_tab('pareto')
+    window._opt_stack.setCurrentIndex(0)
+    window.resize(width, 932)
+    window.show()
+    QApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 1000)
+    try:
+        for spin in window._opt_space_params.values():
+            edit = spin.lineEdit()
+            margins = edit.textMargins()
+            available = edit.contentsRect().width() - margins.left() - margins.right() - 4
+            assert edit.fontMetrics().horizontalAdvance(spin.text()) <= available, spin.text()
+    finally:
+        window._opt_stack.setCurrentIndex(previous_page)
+        window._switch_tab(previous_tab)
+        window.resize(previous_size)
+        QApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 1000)
+        window.hide()
+
+
 @pytest.mark.parametrize('dimension', [0, 1])
 def test_control_counts_and_selected_export_keep_frozen_design(window, tmp_path, dimension):
     from sjtu_tpmshx.optimization.export_ntop_csv import export_study_design

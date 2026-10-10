@@ -789,10 +789,10 @@ class SIMPLESolver3D:
         """Run the SIMPLE iterative loop.
 
         cancel_check : optional callable -> bool. Polled before bootstrap and
-            every SIMPLE iteration, including the coarse solve. JIT sweeps
-            inside one iteration are not interruptible. True raises
-            CancelledError; a cancelled solve never returns a partial iterate
-            as a completed result.
+            every SIMPLE iteration and between its momentum/pressure kernels,
+            including the coarse solve. Individual JIT calls are not
+            interruptible. True raises CancelledError; a cancelled solve never
+            returns a partial iterate as a completed result.
 
         F2 requires momentum, fresh-density local/global mass and backflow
         gates on consecutive observations. Set ``mom_tol``, ``mass_local_tol`` and ``mass_global_tol`` explicitly
@@ -832,11 +832,15 @@ class SIMPLESolver3D:
             if not self.residuals:
                 self._coarse_bootstrap_trace['decision'] = 'nonfinite-input'
             return f2_nonfinite_exit(self, 0)
-        if cancel_check is not None and cancel_check():
-            self.exit_reason = 'cancelled'
-            if not self.residuals:
-                self._coarse_bootstrap_trace['decision'] = 'cancelled'
-            raise CancelledError("compute cancelled by user")
+
+        def check_cancelled():
+            if cancel_check is not None and cancel_check():
+                self.exit_reason = 'cancelled'
+                if self._iterations_charged == 0 and not self.residuals:
+                    self._coarse_bootstrap_trace['decision'] = 'cancelled'
+                raise CancelledError("compute cancelled by user")
+
+        check_cancelled()
 
         # Capture the mass-flux inlet target ONCE, at reference inlet
         # conditions (prescribed v × initial ρ), before any pressure build-up.
@@ -966,9 +970,7 @@ class SIMPLESolver3D:
             return self.exit_reason == 'tol', iterations
 
         for it in range(1, max_iter + 1):
-            if cancel_check is not None and cancel_check():
-                self.exit_reason = 'cancelled'
-                raise CancelledError("compute cancelled by user")
+            check_cancelled()
             self._iterations_charged = it
             # Effective density for continuity: ε·ρ. Uniform ε → multiplicative
             # constant (no functional change). Zoned ε → captures macroscopic
@@ -988,6 +990,7 @@ class SIMPLESolver3D:
                       self.K_arr, self.cF_arr,
                       self.outlet_u_frac,
                       self.alpha_u, n_inner, _use_sou, _use_eps)
+            check_cancelled()
             _sweep_v(self.u, self.v, self.w, self.P, self.d_v,
                       self.v_inlet_field,
                       Nx, Ny, Nz, dx, dy, dz,
@@ -996,6 +999,7 @@ class SIMPLESolver3D:
                       self.K_arr, self.cF_arr,
                       self.alpha_u, n_inner, _use_sou, _use_eps,
                       self.outlet_mask_ij)
+            check_cancelled()
             _sweep_w(self.u, self.v, self.w, self.P, self.d_w,
                       Nx, Ny, Nz, dx, dy, dz,
                       self.rho_field, self._mu_eff_field, self.mu_field,
@@ -1003,6 +1007,7 @@ class SIMPLESolver3D:
                       self.K_arr, self.cF_arr,
                       self.outlet_w_frac,
                       self.alpha_u, n_inner, _use_sou, _use_eps)
+            check_cancelled()
 
             # E2 (audit 2026-06-28): force a rebuild on the first inner iter only
             # when the hierarchy cache is COLD. On a warm restart (the 3D outer
@@ -1028,12 +1033,14 @@ class SIMPLESolver3D:
                            self._pp_sparsity, self._ml_cache, rebuild,
                            rtol_dyn=rtol_dyn,
                            drift_thresh=self.pyamg_rebuild_drift_thresh)
+            check_cancelled()
 
             _correct_jit_3d(self.u, self.v, self.w, self.P, self.Pp,
                              self.d_u, self.d_v, self.d_w,
                              self.v_inlet_field, Nx, Ny, Nz, self.alpha_p,
                              self.rho_field, self.eps_field, self.outlet_mask_ij,
                              dx, dy, dz)
+            check_cancelled()
             if (self.fluid_type == 'ideal_gas'
                     and not f2_state_is_finite(self, (self.u, self.v, self.w))):
                 return f2_nonfinite_exit(self, it)

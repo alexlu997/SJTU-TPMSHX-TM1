@@ -34,6 +34,13 @@ def _attach_context_menu(window, le, attr):
     def _ctx(event):
         # Pull the stock menu (cut/copy/paste/select-all) and append ours.
         menu = le.createStandardContextMenu()
+        theme = window.theme.palette()
+        menu.setStyleSheet(
+            f"QMenu{{background:{theme['card_bg']}; color:{theme['fg']};"
+            f"border:1px solid {theme['card_border']}; padding:4px;}}"
+            "QMenu::item{padding:6px 20px;}"
+            f"QMenu::item:selected{{background:{theme['accent_primary']}; color:{theme['tab_on_fg']};}}"
+            f"QMenu::item:disabled{{color:{theme['sub_fg']};}}")
         menu.addSeparator()
 
         act_revert = menu.addAction("恢复算例工况默认值")

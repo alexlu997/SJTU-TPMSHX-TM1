@@ -607,7 +607,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
         ds.setSingleStep(step); ds.setDecimals(dec)
         ds.setStyleSheet(_spin_qss)
         ds.setAlignment(Qt.AlignmentFlag.AlignRight)
-        ds.setFixedWidth(80)
+        ds.setFixedWidth(max(80, ds.sizeHint().width()))
         ds.setMinimumHeight(30)
         return ds
 

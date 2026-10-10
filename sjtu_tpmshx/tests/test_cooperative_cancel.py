@@ -81,6 +81,35 @@ def test_real_simple_cancel_joins_both_sides(monkeypatch, nz):
     assert records
 
 
+@pytest.mark.parametrize('kernel,next_kernel', [
+    ('_sweep_u_jit_df_3d', '_sweep_v_jit_df_3d'),
+    ('_sweep_v_jit_df_3d', '_sweep_w_jit_df_3d'),
+    ('_sweep_w_jit_df_3d', '_solve_pp_amg'),
+    ('_solve_pp_amg', '_correct_jit_3d'),
+    ('_correct_jit_3d', '_mass_res_jit_3d'),
+])
+def test_3d_cancel_during_kernel_skips_next_compile(monkeypatch, kernel, next_kernel):
+    from sjtu_tpmshx.solvers import simple_solver_3d as module
+    from sjtu_tpmshx.tests.test_simple_solver_3d import _uniform_darcy_config
+
+    solver = _uniform_darcy_config(Nx=4, Ny=4, Nz=3)
+    token = CancelToken()
+    original = getattr(module, kernel)
+
+    def request_after_work(*args, **kwargs):
+        result = original(*args, **kwargs)
+        token.cancel()
+        return result
+
+    monkeypatch.setattr(module, kernel, request_after_work)
+    monkeypatch.setattr(module, next_kernel,
+                        lambda *a, **k: pytest.fail('started another kernel after cancellation'))
+    with pytest.raises(CancelledError):
+        solver.solve(max_iter=2, cancel_check=token.is_set)
+    assert solver.exit_reason == 'cancelled'
+    assert solver._iterations_charged == 1
+
+
 @pytest.mark.parametrize('nz', [1, 3])
 @pytest.mark.parametrize('error_type', [ValueError, InterruptedError])
 @pytest.mark.parametrize('error_side', [0, 1])
