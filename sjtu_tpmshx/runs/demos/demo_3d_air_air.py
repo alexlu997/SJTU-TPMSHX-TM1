@@ -1,7 +1,7 @@
 """demo_3d_air_air.py — fixed air/air demonstration workload.
 
-Drives `_run_3d_stack` directly (no Qt) so we can inspect numerical results
-and dump mid-z cloud plots without a display server.
+Uses prepare_case, run_case and evaluate without Qt. Plots keep the display
+fields; public boundary metrics and backend diagnostics are reported separately.
 
 Fixed demonstration inputs:
     Geometry: L=0.182 m, H=0.042 m, Lz=0.042 m, Nx=30, Ny=20, Nz=5
@@ -18,89 +18,108 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
-from sjtu_tpmshx.runs._case_template import build_cfg as _template_cfg
+from sjtu_tpmshx.domain.compute_config import (
+    ComputeConfig, FluidConfig, GeometryConfig, PartialBCConfig, SolverConfig,
+)
+from sjtu_tpmshx.domain.module_ports import RunControl
+from sjtu_tpmshx.preprocess.api import prepare_case
+from sjtu_tpmshx.solvers.api import run_case
+from sjtu_tpmshx.postprocess.api import evaluate
 
 
-def build_cfg():
-    # B2 2.6: canonical template; this demo IS the template defaults
-    # except its 30x20x5 grid.
-    return _template_cfg(Nx=30, Ny=20, Nz=5)
+def build_cfg(*, L=0.182, H=0.042, Lz=0.042, Nx=30, Ny=20, Nz=5):
+    return ComputeConfig(
+        fluid_A=FluidConfig(type='air', u_mps=20.0, T_in_K=422.0, P_in_Pa=192362.0),
+        fluid_B=FluidConfig(type='air', u_mps=10.0, T_in_K=293.15, P_in_Pa=101325.0),
+        geometry=GeometryConfig(tpms='Gyroid', L_cell_mm=7.0, t_wall_mm=0.5,
+            k_s_W_mK=16.0, L_dom_m=L, H_dom_m=H, Lz_m=Lz),
+        solver=SolverConfig(Nx=Nx, Ny=Ny, Nz=Nz),
+        bc_A=PartialBCConfig(dir=0, in_ctr=H / 2, in_w=H, out_ctr=H / 2, out_w=H),
+        bc_B=PartialBCConfig(dir=3, in_ctr=L / 2, in_w=L, out_ctr=L / 2, out_w=L),
+    )
 
 
-def print_metrics(res, cfg):
+def print_metrics(res, performance, cfg):
+    geometry = res.metadata['parameters']['prepared']['geometry']
+    diagnostics = res.metadata['diagnostics']
     print("=" * 70)
-    print(" 3D AIR-AIR DEMO — fixed workload (Gyroid 0.182×0.042×0.042 m)")
+    print(f" 3D AIR-AIR DEMO — {cfg.geometry.L_dom_m:g}×"
+          f"{cfg.geometry.H_dom_m:g}×{cfg.geometry.Lz_m:g} m")
     print("=" * 70)
-    print(f"  Driving ΔT     : {cfg['T_inA'] - cfg['T_inB']:.1f} K  "
-          f"(T_inA={cfg['T_inA']:.1f}, T_inB={cfg['T_inB']:.2f})")
-    print(f"  u_A / u_B      : {cfg['u_A']:.1f} / {cfg['u_B']:.1f} m/s")
-    print(f"  ε (porosity)   : {cfg['eps']:.4f}")
-    print(f"  D_h            : {cfg['D_h']*1000:.3f} mm")
+    print(f"  Driving ΔT     : {cfg.fluid_A.T_in_K - cfg.fluid_B.T_in_K:.1f} K")
+    print(f"  u_A / u_B      : {cfg.fluid_A.u_mps:.1f} / {cfg.fluid_B.u_mps:.1f} m/s")
+    print(f"  ε / D_h        : {geometry['epsilon']:.4f} / {geometry['D_h']*1000:.3f} mm")
+    print(f"  Execution      : {res.run_status['execution']}")
+    print(f"  Converged      : {res.run_status['converged']}")
+    passed = res.run_status['execution'] == 'completed' and bool(res.run_status['converged'])
+    print("\n  PUBLIC METRICS")
+    print("    Q = |Q_A|; Q_A/Q_B are signed native boundary heat losses.")
+    print("    Heat gain is negative. T_out uses outward native thermal mass flux.")
+    print("    dP uses physical port faces from the final SIMPLE pressure field.")
+    for name in ('Q', 'Q_A', 'Q_B', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B',
+                 'mass_flow_A', 'mass_flow_B', 'mass_imbalance_rel_A',
+                 'mass_imbalance_rel_B', 'energy_imbalance_rel'):
+        metric = performance.metrics[name]
+        if metric.status == 'available':
+            print(f"    {name:<24}: {metric.value:.6g} {metric.spec.unit}")
+        else:
+            print(f"    {name:<24}: {metric.status} — {metric.reason}")
+            passed = False
+    print("\n  BACKEND DIAGNOSTICS — original definitions and recorded values")
+    print("    Q_enthalpy_A/B are magnitudes; Q_sA/Q_sB and Q_net are volume terms.")
+    print("    Q_interior and AB_interior exclude the boundary-cell layer.")
+    for name, unit in (
+        ('Q', 'W'), ('Q_enthalpy_A', 'W'), ('Q_enthalpy_B', 'W'),
+        ('Q_solid_B', 'W'), ('Q_sA', 'W'), ('Q_sB', 'W'), ('Q_net', 'W'),
+        ('Q_interior', 'W'), ('AB_interior', '1'), ('energy_imbalance_rel', '1'),
+        ('mass_imbalance_rel_A', '1'), ('mass_imbalance_rel_B', '1'),
+        ('T_A_out', 'K'), ('T_B_out', 'K'), ('dP', 'Pa'), ('dP_B', 'Pa'),
+    ):
+        if name in diagnostics:
+            print(f"    {name:<24}: {diagnostics[name]:.6g} {unit}")
+        else:
+            print(f"    {name:<24}: not recorded")
     print()
-    print("  PRIMARY METRICS")
-    print(f"    Q (air-side duty)   : {res['Q']:.2f}  W")
-    print(f"    Q_enthalpy_A        : {res['Q_enthalpy_A']:.2f}  W   "
-          f"(m_dot·cp·|T_inA-T_A_out|)")
-    print(f"    Q_enthalpy_B        : {res['Q_enthalpy_B']:.2f}  W")
-    print(f"    Q_solid_B (diag)    : {res['Q_solid_B']:.2f}  W   "
-          f"(∫h_vB·(Ts-Tb)·dV)")
-    print(f"    Q_interior          : {res.get('Q_interior', float('nan')):.2f} W "
-          f"(BC-layer excluded)")
-    print()
-    print(f"    dP_A                : {res['dP']:.1f}  Pa")
-    print(f"    dP_B                : {res['dP_B']:.1f}  Pa")
-    print()
-    print(f"    T_A_out (mass-wgt)  : {res['T_A_out']:.2f} K  "
-          f"(ΔT_A = {cfg['T_inA']-res['T_A_out']:.2f} K)")
-    print(f"    T_B_out (mass-wgt)  : {res['T_B_out']:.2f} K  "
-          f"(ΔT_B = {res['T_B_out']-cfg['T_inB']:.2f} K)")
-    print()
-    print("  CONSERVATION DIAGNOSTICS")
-    print(f"    Q_sA (LTNE)         : {res.get('Q_sA', float('nan')):.2f} W")
-    print(f"    Q_sB (LTNE)         : {res.get('Q_sB', float('nan')):.2f} W")
-    print(f"    Q_net  (= Q_sA+Q_sB): {res.get('Q_net', float('nan')):.3e} W "
-          f"(should → 0)")
-    print(f"    energy_imbalance_rel: {res.get('energy_imbalance_rel', float('nan'))*100:.3f} %")
-    print(f"    mass_imbal_rel_A    : {res.get('mass_imbalance_rel_A', float('nan'))*100:.3f} %")
-    print(f"    mass_imbal_rel_B    : {res.get('mass_imbalance_rel_B', float('nan'))*100:.3f} %")
-    print(f"    AB_interior         : {res.get('AB_interior', float('nan'))*100:.2f} %")
-    print()
-    print("  FIELD STATS (mid-z slice)")
-    Nz = res['Ta'].shape[2]
+    print("  DISPLAY FIELD STATS (mid-z slice)")
+    f = res.fields
+    Nz = f['Ta_display'].shape[2]
     k_mid = Nz // 2
-    Ta = res['Ta'][:, :, k_mid]
-    Tb = res['Tb'][:, :, k_mid]
-    Ts = res['Ts'][:, :, k_mid]
-    vmag = res['vmag'][:, :, k_mid]
-    P_kPa = res['P_kPa'][:, :, k_mid]
+    Ta = f['Ta_display'][:, :, k_mid]
+    Tb = f['Tb_display'][:, :, k_mid]
+    Ts = f['Ts_display'][:, :, k_mid]
+    vmag = f['vmag_A'][:, :, k_mid]
+    P_kPa = f['P_fA_display'][:, :, k_mid] / 1000.0
     print(f"    Ta  range   : [{Ta.min():.2f}, {Ta.max():.2f}] K")
     print(f"    Tb  range   : [{Tb.min():.2f}, {Tb.max():.2f}] K")
     print(f"    Ts  range   : [{Ts.min():.2f}, {Ts.max():.2f}] K")
     print(f"    |v|_A range : [{vmag.min():.4f}, {vmag.max():.3f}] m/s")
     print(f"    P_A range   : [{P_kPa.min():.2f}, {P_kPa.max():.2f}] kPa")
     print()
+    if not passed:
+        print("Run or required metrics failed acceptance; plots are diagnostic outputs.")
+    return passed
 
 
 def plot_clouds(res, outdir):
     os.makedirs(outdir, exist_ok=True)
-    Nx, Ny, Nz = res['Ta'].shape
+    f = res.fields
+    Nx, Ny, Nz = f['Ta_display'].shape
     k_mid = Nz // 2
-    dx = res['dx']; dy = res['dy']
+    dx = res.grid['dx']; dy = res.grid['dy']
     xc = (np.cumsum(dx) - dx / 2) * 1000.0   # mm
     yc = (np.cumsum(dy) - dy / 2) * 1000.0
     Y, X = np.meshgrid(yc, xc)
 
-    Ta = res['Ta'][:, :, k_mid]; Tb = res['Tb'][:, :, k_mid]
-    Ts = res['Ts'][:, :, k_mid]
-    vmag_A = res['vmag'][:, :, k_mid]
-    vmag_B = res.get('vmag_B')
+    Ta = f['Ta_display'][:, :, k_mid]; Tb = f['Tb_display'][:, :, k_mid]
+    Ts = f['Ts_display'][:, :, k_mid]
+    vmag_A = f['vmag_A'][:, :, k_mid]
+    vmag_B = f.get('vmag_B')
     if vmag_B is not None:
         vmag_B = vmag_B[:, :, k_mid]
-    P_A = res['P_kPa'][:, :, k_mid]
+    P_A = f['P_fA_display'][:, :, k_mid] / 1000.0
     P_B = None
-    if res.get('P_Pa_B') is not None:
-        P_B = res['P_Pa_B'][:, :, k_mid] / 1000.0
+    if f.get('P_fB_display') is not None:
+        P_B = f['P_fB_display'][:, :, k_mid] / 1000.0
 
     # ── Temperature 3-panel (shared clim) ──
     # NOTE: matplotlib's contourf with `levels=int` auto-bins per data array
@@ -189,20 +208,21 @@ def plot_orthogonal_3d_slices(res, outdir, *, filename_prefix='3d_air_air_orthos
     Side (YZ at mid-x). Uses real domain aspect ratio so the user reads
     the actual rectangle shape (182 × 42 × 42 mm — far from a cube).
     """
-    Nx, Ny, Nz = res['Ta'].shape
-    dx, dy, dz = res['dx'], res['dy'], res['dz']
+    f = res.fields
+    Nx, Ny, Nz = f['Ta_display'].shape
+    dx, dy, dz = res.grid['dx'], res.grid['dy'], res.grid['dz']
     xc = (np.cumsum(dx) - dx / 2) * 1000.0
     yc = (np.cumsum(dy) - dy / 2) * 1000.0
     zc = (np.cumsum(dz) - dz / 2) * 1000.0
-    Lx_mm, Ly_mm, Lz_mm = res['Lx']*1000, res['Ly']*1000, res['Lz']*1000
+    Lx_mm, Ly_mm, Lz_mm = dx.sum()*1000, dy.sum()*1000, dz.sum()*1000
     i_mid, j_mid, k_mid = Nx // 2, Ny // 2, Nz // 2
 
     fields = [
-        ('Ta',  res['Ta'],  'turbo', '[K]', 'Ta — Fluid A (hot, +x stream)'),
-        ('Tb',  res['Tb'],  'turbo', '[K]', 'Tb — Fluid B (cold, -y stream)'),
-        ('Ts',  res['Ts'],  'turbo', '[K]', 'Ts — Solid (LTNE coupling)'),
-        ('vmag', res['vmag'], 'turbo', '[m/s]', '|v|_A — Fluid A speed'),
-        ('P_kPa', res['P_kPa'], 'turbo', '[kPa]', 'P_A abs — Fluid A pressure'),
+        ('Ta',  f['Ta_display'],  'turbo', '[K]', 'Ta — Fluid A (hot, +x stream)'),
+        ('Tb',  f['Tb_display'],  'turbo', '[K]', 'Tb — Fluid B (cold, -y stream)'),
+        ('Ts',  f['Ts_display'],  'turbo', '[K]', 'Ts — Solid (LTNE coupling)'),
+        ('vmag', f['vmag_A'], 'turbo', '[m/s]', '|v|_A — Fluid A speed'),
+        ('P_kPa', f['P_fA_display'] / 1000.0, 'turbo', '[kPa]', 'P_A abs — Fluid A pressure'),
     ]
     paths = []
     for fkey, F, cmap, unit, title in fields:
@@ -256,23 +276,22 @@ def plot_orthogonal_3d_slices(res, outdir, *, filename_prefix='3d_air_air_orthos
     return paths
 
 
-if __name__ == '__main__':
+def main():
     cfg = build_cfg()
     print("Building 3D air-air case + running solver (3D LTNE × SIMPLE A+B)...")
-    print(f"  Grid: {cfg['Nx']} × {cfg['Ny']} × {cfg['Nz']} = "
-          f"{cfg['Nx']*cfg['Ny']*cfg['Nz']} cells")
-    print(f"  Domain: {cfg['L']*1000:.0f} × {cfg['H']*1000:.0f} × "
-          f"{cfg['Lz']*1000:.0f} mm  "
-          f"(NOT a cube — aspect "
-          f"{cfg['L']/cfg['Lz']:.1f}:{cfg['H']/cfg['Lz']:.1f}:1)")
+    print(f"  Grid: {cfg.solver.Nx} × {cfg.solver.Ny} × {cfg.solver.Nz} = "
+          f"{cfg.solver.Nx*cfg.solver.Ny*cfg.solver.Nz} cells")
+    print(f"  Domain: {cfg.geometry.L_dom_m*1000:.0f} × {cfg.geometry.H_dom_m*1000:.0f} × "
+          f"{cfg.geometry.Lz_m*1000:.0f} mm")
     print()
     import time
     t0 = time.time()
-    res = _run_3d_stack(cfg)
+    case = prepare_case(cfg, case_id='demo-3d-air-air')
+    res = run_case(case, RunControl(backend='python'))
     elapsed = time.time() - t0
     print(f"Solver wall-clock: {elapsed:.1f} s")
     print()
-    print_metrics(res, cfg)
+    passed = print_metrics(res, evaluate(res), cfg)
     outdir = str(Path(__file__).resolve().parents[3] / '.cache' / 'demos' / 'air_air')
     p1, p2, p3 = plot_clouds(res, outdir)
     print("MID-Z CLOUD PLOTS WRITTEN")
@@ -282,3 +301,8 @@ if __name__ == '__main__':
     print("3D ORTHOGONAL-SLICE PLOTS WRITTEN")
     for p in paths:
         print(f"  {p}")
+    return 0 if passed else 2
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

@@ -1,7 +1,7 @@
 """demo_3d_cube_volume.py — true 3D volume rendering of cube case.
 
-Uses PyVista offscreen ray-cast volume rendering. Renders the 50³ cube
-result from `demo_3d_cube_air_air.py` as actual 3D scenes (not 2D slices).
+Uses the public API and PyVista offscreen ray-cast volume rendering for the
+50 mm cube on its original 20³ grid. Plots retain the solver's display fields.
 
 Output PNGs (per field):
   1. Volume — full ray-cast volume with semi-transparent opacity ramp
@@ -20,30 +20,28 @@ pv.OFF_SCREEN = True
 pv.global_theme.background = 'white'
 pv.global_theme.font.color = 'black'
 
-from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
-
-
-def build_cube_cfg():
-    # B2 2.6: canonical template; cube deltas = 50 mm cube, 20^3 grid.
-    from sjtu_tpmshx.runs._case_template import build_cfg as _template_cfg
-    return _template_cfg(L=0.050, H=0.050, Lz=0.050, Nx=20, Ny=20, Nz=20)
+from sjtu_tpmshx.runs.demos.demo_3d_cube_air_air import build_cube_cfg
+from sjtu_tpmshx.runs.demos.demo_3d_air_air import print_metrics
+from sjtu_tpmshx.domain.module_ports import RunControl
+from sjtu_tpmshx.preprocess.api import prepare_case
+from sjtu_tpmshx.solvers.api import run_case
+from sjtu_tpmshx.postprocess.api import evaluate
 
 
 def make_grid(res):
     """Build pv.RectilinearGrid from solver result + attach all scalar fields."""
-    Nx, Ny, Nz = res['Ta'].shape
-    dx = res['dx']; dy = res['dy']; dz = res['dz']
+    dx = res.grid['dx']; dy = res.grid['dy']; dz = res.grid['dz']
     # Edges in mm so the camera frames a sensible scale
     x_edges = np.concatenate([[0.0], np.cumsum(dx)]) * 1000.0
     y_edges = np.concatenate([[0.0], np.cumsum(dy)]) * 1000.0
     z_edges = np.concatenate([[0.0], np.cumsum(dz)]) * 1000.0
     grid = pv.RectilinearGrid(x_edges, y_edges, z_edges)
     fields_to_attach = {
-        'Ta': res['Ta'],
-        'Tb': res['Tb'],
-        'Ts': res['Ts'],
-        'vmag': res['vmag'],
-        'P_kPa': res['P_kPa'],
+        'Ta': res.fields['Ta_display'],
+        'Tb': res.fields['Tb_display'],
+        'Ts': res.fields['Ts_display'],
+        'vmag': res.fields['vmag_A'],
+        'P_kPa': res.fields['P_fA_display'] / 1000.0,
     }
     for key, arr in fields_to_attach.items():
         grid.cell_data[key] = arr.flatten(order='F')
@@ -180,8 +178,10 @@ def main():
     print("Running 50x50x50 mm cube case...")
     import time
     t0 = time.time()
-    res = _run_3d_stack(cfg)
+    case = prepare_case(cfg, case_id='demo-3d-cube-volume')
+    res = run_case(case, RunControl(backend='python'))
     print(f"Solver: {time.time()-t0:.1f}s")
+    passed = print_metrics(res, evaluate(res), cfg)
     grid = make_grid(res)
 
     outdir = str(Path(__file__).resolve().parents[3] / '.cache' / 'demos' / 'cube_3d')
@@ -220,7 +220,7 @@ def main():
             failures += 1
             print(f"  iso  FAILED ({fkey}): {e}")
     print(f"\nRendering finished: {failures} failures.")
-    return 1 if failures else 0
+    return 1 if failures else (0 if passed else 2)
 
 
 if __name__ == '__main__':

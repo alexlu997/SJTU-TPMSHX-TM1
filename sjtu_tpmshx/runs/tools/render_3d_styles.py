@@ -30,7 +30,11 @@ pv.global_theme.background = 'white'
 pv.global_theme.font.color = 'black'
 
 from sjtu_tpmshx.runs.demos.demo_3d_cube_volume import build_cube_cfg, make_grid
-from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
+from sjtu_tpmshx.runs.demos.demo_3d_air_air import print_metrics
+from sjtu_tpmshx.domain.module_ports import RunControl
+from sjtu_tpmshx.preprocess.api import prepare_case
+from sjtu_tpmshx.solvers.api import run_case
+from sjtu_tpmshx.postprocess.api import evaluate
 
 
 def _add_axes_show_bounds(p):
@@ -344,17 +348,20 @@ def main():
     print("Solving 50x50x50 mm cube case...")
     import time
     t0 = time.time()
-    res = _run_3d_stack(cfg)
+    case = prepare_case(cfg, case_id='render-3d-styles')
+    res = run_case(case, RunControl(backend='python'))
     print(f"Solver: {time.time()-t0:.1f}s")
+    passed = print_metrics(res, evaluate(res), cfg)
     grid = make_grid(res)
 
-    # Preserve raw arrays + spacings for 2D contourf (grid.cell_data is gone
+    # Preserve display arrays + spacings for 2D contourf (grid.cell_data is gone
     # after cell_data_to_point_data()).
-    raw_arrays = {'Ta': res['Ta'], 'Tb': res['Tb'], 'Ts': res['Ts'],
-                  'vmag': res['vmag'], 'P_kPa': res['P_kPa']}
-    dx_mm = res['dx'] * 1000.0
-    dy_mm = res['dy'] * 1000.0
-    dz_mm = res['dz'] * 1000.0
+    raw_arrays = {'Ta': res.fields['Ta_display'], 'Tb': res.fields['Tb_display'],
+                  'Ts': res.fields['Ts_display'], 'vmag': res.fields['vmag_A'],
+                  'P_kPa': res.fields['P_fA_display'] / 1000.0}
+    dx_mm = res.grid['dx'] * 1000.0
+    dy_mm = res.grid['dy'] * 1000.0
+    dz_mm = res.grid['dz'] * 1000.0
 
     outdir = str(Path(__file__).resolve().parents[3] / '.cache' / 'demos' / 'cube_3d_styles')
     os.makedirs(outdir, exist_ok=True)
@@ -402,7 +409,7 @@ def main():
             if ok:
                 print(f"  [6] interactive HTML    : {p_html}")
     print(f"\nRendering finished: {'FAIL' if failed else 'PASS'}")
-    return 1 if failed else 0
+    return 1 if failed else (0 if passed else 2)
 
 
 if __name__ == '__main__':

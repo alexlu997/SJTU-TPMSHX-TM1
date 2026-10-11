@@ -83,7 +83,7 @@ def right_align_combo(combo):
     return combo
 
 
-def collapsible_section(window, parent_lay, title, title_style, frame_style,
+def collapsible_section(parent_lay, title, title_style, frame_style,
                         expanded=False, on_toggle=None):
     """Collapsible variant of ``FieldFactory.section``.
 
@@ -96,8 +96,6 @@ def collapsible_section(window, parent_lay, title, title_style, frame_style,
 
     ``on_toggle(is_open)`` — optional callback fired after state changes
     (not the initial state), allowing mode-dependent visibility to refresh.
-    ``window`` is unused — kept
-    for call-site symmetry with :func:`section`.
     """
     from .field_factory import default_factory
     grid, container = default_factory().section(parent_lay, title,

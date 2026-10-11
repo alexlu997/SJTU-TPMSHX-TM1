@@ -1,24 +1,18 @@
-"""Negative tests for hard invariants with no prior guard (audit T7, 2026-07-07).
+"""Regression guards for three physical invariants.
 
-Three repository physical invariants were previously enforced nowhere (or only on a
-single non-production caller):
-
-1. ε is split ONCE — the production pipelines (stages_2d / stages_3d) must
-   hand the energy kernel the FULL porosity; only
-   validate_shanghai_3d_real had a contract spy (test_eps_contract_3d).
-2. massflux_inlet defaults ON — the default lived only inside
-   ``getattr(self, 'massflux_inlet', True)`` fallbacks; flipping it would
-   only have been caught indirectly by the local goldens.
+1. ε is split ONCE — the shared 2D and 3D Python backends must hand the
+   energy kernel the FULL porosity on the symmetric path.
+2. massflux_inlet defaults ON — both SIMPLE solvers capture the inlet
+   mass-flux target without an explicit override.
 3. norris_1a is a friction NO-OP (×1.0) — the DF closure already bakes in
-   SLM roughness; any friction multiplier double-counts. Zero tests
-   referenced f_enhancement before this file.
+   SLM roughness; any friction multiplier double-counts.
 """
 
 import numpy as np
 import pytest
 
 
-# ── 1. ε-once contract: production pipeline callers ────────────────
+# ── 1. ε-once contract: shared Python backend callers ──────────────
 
 
 class _EpsCaptured(Exception):
@@ -26,13 +20,11 @@ class _EpsCaptured(Exception):
 
 
 def test_stages_3d_passes_full_epsilon(monkeypatch):
-    """_run_3d_stack (production 3D pipeline) must hand solve_full_domain_3d
+    """The scripted 3D entry must hand solve_full_domain_3d
     the FULL ε (kernel halves once) — not a pre-halved ε_A."""
-    # P1.8b F3: patch the STAGES module — the five stage functions moved to
-    # run_stack_3d_stages.py and read their globals THERE; patching the
-    # orchestrator/re-export module would be a silent no-op.
+    # Patch the shared runtime where the thermal kernel is resolved.
     import sjtu_tpmshx.solvers.backends.python.three_d.runtime as R
-    import sjtu_tpmshx.pipelines.run_stack_3d as R_orch
+    from sjtu_tpmshx.tests import cases_3d as R_orch
 
     captured = {}
 
@@ -50,16 +42,16 @@ def test_stages_3d_passes_full_epsilon(monkeypatch):
     from test_partial_bc_ghost_b import _partial_bc_air_air_cfg
     cfg = _partial_bc_air_air_cfg(Nx=6, Ny=6, Nz=6)
     with pytest.raises(_EpsCaptured):
-        R_orch._run_3d_stack(cfg)
+        R_orch.run_research(cfg)
 
     assert captured["eps"] == pytest.approx(cfg['eps'], rel=1e-6), (
-        f"stages_3d passed epsilon.max()={captured['eps']:.4f}; expected "
+        f"3D Python backend passed epsilon.max()={captured['eps']:.4f}; expected "
         f"FULL ε={cfg['eps']:.4f}. A value near {cfg['eps'] / 2:.4f} means "
-        f"the ε double-halving regression is back on the PRODUCTION path.")
+        f"the ε double-halving regression is back on the shared 3D path.")
 
 
 def test_solve_2d_passes_full_epsilon(monkeypatch):
-    """The 2D pipeline loop must hand solve_full_domain the FULL ε with
+    """The 2D Python coupling loop must hand solve_full_domain the FULL ε with
     eps_A/eps_B None on the symmetric (δ=0) path."""
     import sjtu_tpmshx.solvers.backends.python.two_d.coupling as S2
 

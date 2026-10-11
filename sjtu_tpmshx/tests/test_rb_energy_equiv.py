@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 import sjtu_tpmshx.solvers.ltne_energy_3d as le
 from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry
-from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
+from sjtu_tpmshx.tests.cases_3d import run_research
 
 
 def _z_asym_pct(field):
@@ -47,25 +47,25 @@ def test_rb_energy_matches_serial_and_preserves_symmetry(monkeypatch):
     monkeypatch.setattr(le, '_RB_ENERGY_GATE', 0)   # force RB even on this small grid
 
     monkeypatch.setattr(le, '_RB_ENERGY', False)
-    s = _run_3d_stack(_symmetric_crossflow_cfg())
+    s = run_research(_symmetric_crossflow_cfg())
 
     monkeypatch.setattr(le, '_RB_ENERGY', True)
-    r = _run_3d_stack(_symmetric_crossflow_cfg())
+    r = run_research(_symmetric_crossflow_cfg())
 
     # Same converged solution (deferred SOU shifts the path, not the fixpoint).
-    dTa = float(np.abs(np.asarray(s['Ta']) - np.asarray(r['Ta'])).max())
-    dTs = float(np.abs(np.asarray(s['Ts']) - np.asarray(r['Ts'])).max())
+    dTa = float(np.abs(np.asarray(s.fields['Ta_display']) - np.asarray(r.fields['Ta_display'])).max())
+    dTs = float(np.abs(np.asarray(s.fields['Ts_display']) - np.asarray(r.fields['Ts_display'])).max())
     assert dTa < 1.0e-2, f"RB vs serial T_A diverged: {dTa:.3e} K"
     assert dTs < 1.0e-2, f"RB vs serial T_s diverged: {dTs:.3e} K"
 
     # Parity trap: a z-symmetric setup must stay z-symmetric under RB.
-    assert _z_asym_pct(r['Ta']) < 2.0, \
-        f"RB broke z-symmetry: T_A asym {_z_asym_pct(r['Ta']):.2f}%"
-    assert _z_asym_pct(r['Ts']) < 2.0, \
-        f"RB broke z-symmetry: T_s asym {_z_asym_pct(r['Ts']):.2f}%"
+    assert _z_asym_pct(r.fields['Ta_display']) < 2.0, \
+        f"RB broke z-symmetry: T_A asym {_z_asym_pct(r.fields['Ta_display']):.2f}%"
+    assert _z_asym_pct(r.fields['Ts_display']) < 2.0, \
+        f"RB broke z-symmetry: T_s asym {_z_asym_pct(r.fields['Ts_display']):.2f}%"
 
     # Strict conservation preserved on the RB path.
-    assert r.get('eps_A_strict', 1.0) < 0.01, \
-        f"RB conservation A {r.get('eps_A_strict')*100:.3f}% not < 1%"
-    assert r.get('eps_B_strict', 1.0) < 0.01, \
-        f"RB conservation B {r.get('eps_B_strict')*100:.3f}% not < 1%"
+    assert r.metadata['diagnostics'].get('eps_A_strict', 1.0) < 0.01, \
+        f"RB conservation A {r.metadata['diagnostics'].get('eps_A_strict')*100:.3f}% not < 1%"
+    assert r.metadata['diagnostics'].get('eps_B_strict', 1.0) < 0.01, \
+        f"RB conservation B {r.metadata['diagnostics'].get('eps_B_strict')*100:.3f}% not < 1%"

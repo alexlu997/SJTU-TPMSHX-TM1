@@ -22,8 +22,8 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.solvers.anderson_acceleration import AndersonOuterCoupling  # noqa: E402
-from sjtu_tpmshx.runs._case_template import build_cfg                        # noqa: E402
-from sjtu_tpmshx.pipelines.run_stack_3d import _build_3d_problem, _run_3d_stack
+from sjtu_tpmshx.tests.cases_3d import demo_fixture_cfg as build_cfg                        # noqa: E402
+from sjtu_tpmshx.tests.cases_3d import prepared_problem, run_research
 from sjtu_tpmshx.solvers.backends.python.three_d import runtime
 
 
@@ -40,7 +40,7 @@ def _cfg(**over):
 
 def test_default_off_reports_no_acceleration():
     """The knob is off by default; property-frame tests cover the Picard blend."""
-    r = _run_3d_stack(_cfg())
+    r = run_research(_cfg()).metadata['diagnostics']
     assert r['convergence_detail']['outer_anderson'] is None
 
 
@@ -51,8 +51,8 @@ def test_enabled_converges_to_the_same_fixed_point():
     actually reach the coupling criterion — comparing two capped runs would
     compare two arbitrary truncation points, not two fixed points.
     """
-    r_off = _run_3d_stack(_cfg(max_outer_ltne=20))
-    r_on = _run_3d_stack(_cfg(max_outer_ltne=20, outer_anderson=True))
+    r_off = run_research(_cfg(max_outer_ltne=20)).metadata['diagnostics']
+    r_on = run_research(_cfg(max_outer_ltne=20, outer_anderson=True)).metadata['diagnostics']
     assert r_on['convergence_detail']['outer_anderson'] is not None
     assert r_off['convergence_detail']['outer_converged'], \
         "baseline must converge for this comparison to mean anything"
@@ -91,7 +91,7 @@ def test_outer_property_blocks_reach_simple(monkeypatch, fluids, mode):
 
     monkeypatch.setattr(runtime.SIMPLESolver3D, 'solve', solve)
     monkeypatch.setattr(AndersonOuterCoupling, 'step', observe_step)
-    prob = _build_3d_problem(_cfg(
+    prob = prepared_problem(_cfg(
         Nx=4, Ny=5, Nz=3, u_A=.02, u_B=.02, T_inA=350., T_s_init=325.,
         P_inA=2e6, P_inB=2e6, fluid_type_A=fluids[0], fluid_type_B=fluids[1],
         wall_refine_3d=False, outer_anderson=mode != 'off', p_in_shooting=False))
@@ -133,7 +133,7 @@ def test_outer_property_blocks_reach_simple(monkeypatch, fluids, mode):
 
 def test_enabled_never_emits_non_physical_properties():
     """Admissibility gate: a run with the knob on stays finite and positive."""
-    r = _run_3d_stack(_cfg(outer_anderson=True))
+    r = run_research(_cfg(outer_anderson=True)).metadata['diagnostics']
     assert r['convergence_detail']['fields_finite'] is True
     st = r['convergence_detail']['outer_anderson']['A']
     # Whatever the mix of accepted / rejected, the run must have stayed sane.

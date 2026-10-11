@@ -37,7 +37,8 @@ except Exception:
     pass
 warnings.filterwarnings('ignore')
 
-from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
+from sjtu_tpmshx.preprocess.api import prepare_research_case
+from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.validation.harness._provenance import (
     write_csv_with_provenance, output_directory, output_path,
 )
@@ -121,19 +122,20 @@ def run_c1(case_id, grids=(12, 16, 20, 30), out_csv=None):
         cfg = CASES_C[case_id](g)
         t0 = time.time()
         try:
-            res = _run_3d_stack(cfg)
+            res = run_case(prepare_research_case(cfg, case_id=cfg['_case_label']))
+            diag = res.metadata['diagnostics']
             dt = time.time() - t0
-            Q_enth_A = float(res.get('Q_enthalpy_A', float('nan')))
-            Q_enth_B = float(res.get('Q_enthalpy_B', float('nan')))
-            Q_sB_int = float(res.get('Q_sB_interior', float('nan')))
-            T_A_out = float(res.get('T_A_out', float('nan')))
-            T_B_out = float(res.get('T_B_out', float('nan')))
-            dP = float(res.get('dP', float('nan')))
+            Q_enth_A = float(diag.get('Q_enthalpy_A', float('nan')))
+            Q_enth_B = float(diag.get('Q_enthalpy_B', float('nan')))
+            Q_sB_int = float(diag.get('Q_sB_interior', float('nan')))
+            T_A_out = float(diag.get('T_A_out', float('nan')))
+            T_B_out = float(diag.get('T_B_out', float('nan')))
+            dP = float(diag.get('dP', float('nan')))
             rows.append(dict(case=case_id, N=g, h=1.0/g,
                              Q_enth_A=Q_enth_A, Q_enth_B=Q_enth_B,
                              Q_sB_interior=Q_sB_int, T_A_out=T_A_out,
                              T_B_out=T_B_out, dP=dP, elapsed=dt,
-                             converged=bool(res['solver_converged'])))
+                             converged=bool(res.run_status['converged'])))
             Q_list.append(Q_enth_A)
             print(f"  N={g:>3}: Q_A={Q_enth_A:>8.2f}W  Q_B={Q_enth_B:>8.2f}W  "
                   f"T_A_out={T_A_out:.2f}K  dP={dP:.1f}Pa  [{dt:.0f}s]")
@@ -199,7 +201,8 @@ def run_c3_tol(case_id='T2', grid=20, tols=(1e-3, 1e-5, 1e-7)):
             cfg['mom_tol'] = tol
             t0 = time.time()
             try:
-                res = _run_3d_stack(cfg)
+                res = run_case(prepare_research_case(cfg, case_id=cfg['_case_label']))
+                diag = res.metadata['diagnostics']
             except Exception as exc:
                 rows.append(dict(case=case_id, grid=grid, tol=tol, Q_enth_A=float('nan'),
                                  T_A_out=float('nan'), elapsed=time.time() - t0,
@@ -207,11 +210,11 @@ def run_c3_tol(case_id='T2', grid=20, tols=(1e-3, 1e-5, 1e-7)):
                 print(f'  tol={tol:.0e}: FAILED ({type(exc).__name__}: {exc})')
                 continue
             dt = time.time() - t0
-            Q = float(res.get('Q_enthalpy_A', float('nan')))
-            T_A_out = float(res.get('T_A_out', float('nan')))
+            Q = float(diag.get('Q_enthalpy_A', float('nan')))
+            T_A_out = float(diag.get('T_A_out', float('nan')))
             rows.append(dict(case=case_id, grid=grid, tol=tol,
                              Q_enth_A=Q, T_A_out=T_A_out, elapsed=dt,
-                             converged=bool(res['solver_converged'])))
+                             converged=bool(res.run_status['converged'])))
             print(f"  tol={tol:.0e}: Q={Q:.4f}W  T_A_out={T_A_out:.4f}K  [{dt:.0f}s]")
     return rows
 

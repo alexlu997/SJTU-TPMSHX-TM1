@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
+from sjtu_tpmshx.tests.cases_3d import run_research
 from sjtu_tpmshx.solvers._solve_common import (
     inlet_pressure_state, pressure_shooting_target_sq,
     pressure_initial_reference, pressure_shooting_reference,
@@ -166,8 +166,8 @@ def _res3d_pair():
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(stages, 'pressure_initial_reference', biased_estimate)
         patch.delenv('TPMSHX_P_IN_SHOOT', raising=False)
-        r_off = _run_3d_stack(_cfg3d_air_air(**base, p_in_shooting=False))
-        r_on = _run_3d_stack(_cfg3d_air_air(**base))
+        r_off = run_research(_cfg3d_air_air(**base, p_in_shooting=False)).metadata['diagnostics']
+        r_on = run_research(_cfg3d_air_air(**base)).metadata['diagnostics']
     return r_off, r_on
 
 
@@ -274,8 +274,8 @@ def test_coupled_flow_recovers_from_unusable_seed(monkeypatch, dimension, side):
         from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
         result = Pipeline2D(_cfg2d()).run().diagnostics
     else:
-        result = _run_3d_stack(_cfg3d_air_air(
-            Nx=12, Ny=12, Nz=12, u_A=16., u_B=5., fluid_B_cfg=dict(_FULL_B_3D)))
+        result = run_research(_cfg3d_air_air(
+            Nx=12, Ny=12, Nz=12, u_A=16., u_B=5., fluid_B_cfg=dict(_FULL_B_3D))).metadata['diagnostics']
     state = result['convergence_detail']['inlet_pressure'][side]
     assert state['iterations'][0]['method'] == 'inlet-pressure'
     assert state['passed']

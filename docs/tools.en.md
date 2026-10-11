@@ -8,6 +8,17 @@ Run all commands from the repository root. Use the absolute interpreter on the f
 
 The README defines public compute entry points and formal Case/Result handoff. These tools do not replace mainline acceptance.
 
+`demo_3d_air_air`, `demo_3d_cube_air_air`, `demo_3d_cube_volume`, and
+`runs.tools.render_3d_styles` use `prepare_case → run_case → evaluate` with the Python backend.
+They keep the original rectangular and cubic cases, display fields, and their directories under `.cache/demos/`.
+The summary separates public metrics from previous backend diagnostics. `Q=|Q_A|`.
+`Q_A/Q_B` are signed native boundary heat losses; heat gain is negative.
+Outlet temperature uses outward mass weighting from the native thermal state.
+Pressure drop uses physical port faces from the final SIMPLE pressure field.
+Previous `Q_enthalpy_A/B`, volume-source, and interior-region diagnostics keep their recorded values.
+They are not aliases for public metrics. An unconverged run or an unavailable required metric returns 2,
+even if diagnostic plots are written. Rendering failure returns a nonzero code.
+
 MMS A3/A4/B4 and GCI create a separate `.cache/validation/<tool>-<run-ID>/` by default. It contains CSV files, reports, and metadata. `--out-dir` selects another directory. A3 also supports `--out_csv`, `--orders_csv`, and `--report`. A4 supports the first two. B4 supports `--out_csv`.
 
 Explicit relative file paths resolve from the current working directory. Reference CSV files, orders, and historical metadata under `sjtu_tpmshx/validation/` stay. Before solving, tools reject writes there, including symlinks that point there. Other explicit output directories can be reused. Use the default separate directory to keep each run.
@@ -27,6 +38,24 @@ Conservation audit T1 uses co-directed streams. The former crossflow T1 table is
 Missing or nonfinite certificates fail. Source coupling and mass checks stay separate. The former 5% heuristic excluded first/last layers. That rule and surface budgets inferred from cell temperatures are retired. Historical CSV files and failures stay unchanged.
 
 Numerical conservation is not experimental accuracy acceptance.
+
+The LTNE source-balance limit stays at 1%. Its normalization is
+`max(abs(Q_sA), abs(Q_sB), 1 W)`, as in the strict energy residual.
+The report shows the absolute residual and scale. A near-zero exchange
+therefore uses an absolute check, not a small residual divided by itself.
+
+Phase 3 evaluates thermal-model entropy production in W/K. It excludes
+pressure and viscous terms. It uses raw temperatures, exchange and conductivity
+from the last thermal state. Each boundary mass face carries `integral(cp(T)/T dT)`
+at its local temperature. Physical inlet conduction also carries entropy.
+Physical production includes phase exchange, shared internal conduction faces
+and inlet half-cells. Numerical advection dissipation is not added to physical
+production. The boundary/physical-production agreement limit stays at 5%.
+Its near-zero scale floor is `1 W / lowest inlet temperature`, in W/K.
+Insufficient grid resolution still fails. Use
+`python -m sjtu_tpmshx.validation.cases.audit_3d_conservation --grid 40`
+for the current T1–T6 checks. Explicit coarse-grid results keep their failed
+verdicts. Allowed outlet-temperature crossover is an observation, not a failed gate.
 
 The independent Shanghai lumped dual-Nu comparison uses crossflow as primary and counterflow for sensitivity. Run `python -m sjtu_tpmshx.validation.cases.validate_shanghai_lumped_dual_nu`. By default, CSV and provenance metadata go to a new `.cache/validation/shanghai-lumped-dual-nu-*` directory. `--out-dir` can select a directory. It no longer overwrites `data/shanghai_lumped_dual_nu.csv`.
 
@@ -175,3 +204,44 @@ Performance files and research reports can use fixed filenames. Keep useful outp
 
 The [retired tool index](history/retired-tools.md) records completed 703/704/624 work, fixed M1/M2 experiments, and previous performance reproduction scripts.
 They are no longer current rerun entry points.
+
+## Prepared 3D research cases
+
+The roughness smoke, T1–T6 audit and GCI tools use the same public solver
+entry as ordinary cases. `prepare_research_case` accepts their prescribed
+porosity and explicit `fluid_B_cfg=None` for a single A fluid. Lengths are m,
+temperatures K, pressures Pa and speeds m/s, except `Lcell` and `t_wall` in mm.
+Unknown inputs and runtime callbacks are rejected; use `RunControl` for callbacks.
+The saved input snapshot and prepared fields preserve the requested and actual
+grid, model resources, environment and budgets. These research cases currently
+support Python only; ordinary configured cases keep their Python/C++ support.
+
+`fast_sweep` caps each grid axis at 15 and defaults to 3 outer iterations;
+`full_validate` keeps the grid and defaults to 12 outer iterations and 50,000
+thermal iterations. `max_outer_ltne` overrides the outer budget. One outer
+iteration is allowed as an experiment and remains unconverged. `_emit_audit`
+adds report masks and coupling fields; field metadata separates final SIMPLE
+flow from the last thermal solve. Inactive B metrics remain unsupported.
+GCI retains `Q_enthalpy_A`, the actual grid ratios, and the existing 5% GCI and
+1% tolerance-sensitivity gates. The conservation gates above stay unchanged.
+MMS discrete-operator studies retain their prescribed velocities and sources.
+
+Run this example from the repository root with the checked `.venv-path`
+interpreter and worktree-local caches described above:
+
+```python
+from pathlib import Path
+from sjtu_tpmshx.preprocess.api import prepare_research_case
+from sjtu_tpmshx.solvers.api import run_case
+from sjtu_tpmshx.io.case_io import save_case, load_case
+from sjtu_tpmshx.io.result_io import save_result
+from sjtu_tpmshx.validation.cases.audit_3d_conservation import make_T2
+
+output = Path('.cache/research-t2')
+output.mkdir(parents=True, exist_ok=True)
+inputs = dict(make_T2(20), _emit_audit=True)
+case = prepare_research_case(inputs, case_id='T2-20')
+save_case(case, output / 'case.yaml')
+result = run_case(load_case(output / 'case.yaml'))
+save_result(result, output / 'results.h5')
+```

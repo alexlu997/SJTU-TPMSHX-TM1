@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.models import fluid_props
-from sjtu_tpmshx.pipelines.run_stack_3d import _build_3d_problem
+from sjtu_tpmshx.tests.cases_3d import prepared_problem
 from sjtu_tpmshx.solvers.backends.python.three_d import runtime
 from sjtu_tpmshx.solvers import ltne_enthalpy_3d, ltne_energy_3d
 from sjtu_tpmshx.tests.test_3d_model_enthalpy_transport import _pipeline_cfg
@@ -49,7 +49,7 @@ def test_thermal_pressure_tracks_completed_flow_and_is_detached_before_post(monk
     cfg = _pipeline_cfg(pair)
     if pair[0] == 'sco2':
         cfg['P_inA'] = 12e6
-    prob = _build_3d_problem(cfg)
+    prob = prepared_problem(cfg)
     hv = runtime._build_hv_machinery(prob)
     shape = prob.Nx, prob.Ny, prob.Nz
     fields = tuple(np.full(shape, t) for t in (340., 310., 325.))
@@ -113,7 +113,7 @@ def test_thermal_pressure_tracks_completed_flow_and_is_detached_before_post(monk
 
 def test_water_phase_guard_checks_actual_local_pressure(monkeypatch):
     monkeypatch.setattr(runtime.SIMPLESolver3D, 'solve', lambda *a, **k: (True, 0))
-    prob = _build_3d_problem(_pipeline_cfg(('air', 'water')))
+    prob = prepared_problem(_pipeline_cfg(('air', 'water')))
     hv = runtime._build_hv_machinery(prob)
     prob.cfg['T_s_init'] = 380.
     prob.T_inB = 380.  # liquid at the specified 200 kPa, vapour at actual 100 kPa

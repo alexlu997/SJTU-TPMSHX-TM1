@@ -16,8 +16,8 @@ from sjtu_tpmshx.domain.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, SolverConfig,
     PartialBCConfig, ExtrapPolicy, FeatureFlags,
 )
-from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg
-from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
+from sjtu_tpmshx.preprocess.api import prepare_case
+from sjtu_tpmshx.solvers.api import run_case
 
 
 def _air_water_cfg():
@@ -36,11 +36,11 @@ def _air_water_cfg():
         extrap=ExtrapPolicy(allow=True),
         flags=FeatureFlags(wall_refine_3d=False),
     )
-    return _parse_inputs_3d_cfg(cc)
+    return prepare_case(cc, case_id='headline-air-side')
 
 
 def test_headline_q_equals_air_side_enthalpy():
-    res = _run_3d_stack(_air_water_cfg())
+    res = run_case(_air_water_cfg()).metadata['diagnostics']
     Q = res['Q']
     Q_A = res['Q_enthalpy_A']
     Q_B = res['Q_enthalpy_B']

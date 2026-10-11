@@ -117,11 +117,11 @@ def test_2d_max_outer_knob_turns():
 @pytest.mark.slow
 def test_3d_knobs_turn():
     """max_outer_ltne must cap the 3D outer loop."""
-    from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
+    from sjtu_tpmshx.tests.cases_3d import run_research
     from test_partial_bc_ghost_b import _partial_bc_air_air_cfg
     base = _partial_bc_air_air_cfg(Nx=8, Ny=6, Nz=6)
-    r_def = _run_3d_stack(dict(base))
-    r_knob = _run_3d_stack(dict(base, max_outer_ltne=1))
+    r_def = run_research(dict(base)).metadata['diagnostics']
+    r_knob = run_research(dict(base, max_outer_ltne=1)).metadata['diagnostics']
     outer_def = len(r_def['convergence_detail']['outer_dT'])
     outer_knob = len(r_knob['convergence_detail']['outer_dT'])
     assert outer_knob == 1, \

@@ -26,8 +26,8 @@ These tests assert the *verdict wiring*, not physics numbers.
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.runs._case_template import build_cfg          # noqa: E402
-from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
+from sjtu_tpmshx.tests.cases_3d import demo_fixture_cfg as build_cfg          # noqa: E402
+from sjtu_tpmshx.tests.cases_3d import run_research
 from sjtu_tpmshx.solvers.coupling_skeleton import run_outer_coupling  # noqa: E402
 
 _GATES = ('simple_ok', 'ltne_ok', 'outer_converged', 'fields_finite',
@@ -69,7 +69,7 @@ def test_skeleton_reports_converged_exit():
 # ── 3D: every gate is exposed and ANDed ──────────────────────────────────────
 
 def test_3d_exposes_every_gate_and_verdict_is_their_and():
-    r = _run_3d_stack(_cheap_3d())
+    r = run_research(_cheap_3d()).metadata['diagnostics']
     cd = r['convergence_detail']
     for g in _GATES:
         assert g in cd, f"convergence_detail must expose the {g!r} gate"
@@ -84,12 +84,12 @@ def test_3d_outer_cap_forces_not_converged():
     iteration is never 'converged' by construction — the loop necessarily exits
     on the cap. Before the fix this still reported solver_converged=True.
     """
-    r = _run_3d_stack(_cheap_3d(), )  # baseline for the field-shape sanity
+    r = run_research(_cheap_3d(), ).metadata['diagnostics']  # baseline for the field-shape sanity
     assert 'outer_hit_cap' in r['convergence_detail']
 
     cfg = _cheap_3d()
     cfg['max_outer_ltne'] = 1
-    r1 = _run_3d_stack(cfg)
+    r1 = run_research(cfg).metadata['diagnostics']
     cd = r1['convergence_detail']
     assert cd['outer_iters'] == 1
     assert cd['outer_hit_cap'] is True
@@ -111,7 +111,7 @@ def test_3d_zero_outer_iterations_fails_loud():
     cfg = _cheap_3d()
     cfg['max_outer_ltne'] = 0
     with pytest.raises(ValueError, match='max_outer_ltne'):
-        _run_3d_stack(cfg)
+        run_research(cfg).metadata['diagnostics']
 
 
 def test_typed_config_rejects_non_converging_outer_budget():
@@ -119,7 +119,7 @@ def test_typed_config_rejects_non_converging_outer_budget():
 
     A single outer pass can never satisfy the coupling criterion (nothing to
     diff against), so it could only ever report converged=False. Raw-dict
-    screening (`_run_3d_stack` with max_outer_ltne=1) stays legal and honest.
+    screening (`run_research` with max_outer_ltne=1) stays legal and honest.
     """
     from sjtu_tpmshx.domain.compute_config import (ComputeConfig, FluidConfig,
                                        GeometryConfig, SolverConfig)
@@ -178,7 +178,7 @@ def test_typed_config_requires_explicit_lz_for_3d():
 
 def test_3d_initial_dual_fluid_simple_obeys_solver_config(monkeypatch):
     """The initial dual-side SIMPLE solve consumes the configured iteration cap."""
-    from sjtu_tpmshx.pipelines.run_stack_3d import _build_3d_problem
+    from sjtu_tpmshx.tests.cases_3d import prepared_problem
     from sjtu_tpmshx.solvers.backends.python.three_d import runtime
 
     calls = []
@@ -188,7 +188,7 @@ def test_3d_initial_dual_fluid_simple_obeys_solver_config(monkeypatch):
         return True, 0
 
     monkeypatch.setattr(runtime.SIMPLESolver3D, 'solve', solve)
-    prob = _build_3d_problem(_cheap_3d(max_iter_simple=37))
+    prob = prepared_problem(_cheap_3d(max_iter_simple=37))
     # The two sides may run in either thread order.
     assert len(calls) == 2
     assert {id(solver) for solver, _ in calls} == {id(prob.sA), id(prob.sB)}
@@ -263,7 +263,7 @@ def test_3d_verdict_judges_the_final_simple_solve_not_the_warmup():
 
     The history must stay visible — it is split, not dropped.
     """
-    r = _run_3d_stack(_cheap_3d())
+    r = run_research(_cheap_3d()).metadata['diagnostics']
     cd = r['convergence_detail']
     for k in ('simple_nonconv', 'simple_nonconv_final',
               'simple_nonconv_transient', 'simple_exit_A'):

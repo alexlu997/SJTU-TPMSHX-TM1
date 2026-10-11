@@ -46,7 +46,8 @@ except Exception:
     pass
 warnings.filterwarnings('ignore')
 
-from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
+from sjtu_tpmshx.preprocess.api import prepare_research_case
+from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.postprocess.conservation import compute_phase2a
 from sjtu_tpmshx.validation.harness._provenance import output_directory, output_path
 
@@ -209,10 +210,11 @@ def compute_phase2c_h3(res):
     Use solver-coord staggered face arrays (raw sA.u, sB.u etc.) since they
     are the EXACT face fluxes used by the kernel.
     """
-    sA = res['_audit_sA_face']
-    sB = res.get('_audit_sB_face')
-    eps_arr = res['_audit_eps_arr']
-    Ta = res['Ta']; Tb = res['Tb']
+    diag = res.metadata['diagnostics']
+    sA = diag['_audit_sA_face']
+    sB = diag.get('_audit_sB_face')
+    eps_arr = res.metadata['design_fields']['eps_arr']
+    Ta = res.fields['Ta_display']; Tb = res.fields['Tb_display']
 
     def _per_cell_net_out(face):
         """Per-cell mass NET_OUT = Σ_face ρ·u·n·A (signed by outward normal)."""
@@ -291,7 +293,7 @@ def compute_phase2c_h3(res):
 
     # NET_OUT already includes rho; T * cp * NET_OUT * eps_per_phase is W.
     eps_per_phase_solver = 0.5 * _audit_scalar_to_solver(eps_arr, sA)
-    cp_A = res['_audit_cp_A']
+    cp_A = diag['_audit_cp_A']
     spur_A_per_cell = Ta_solver * cp_A * net_A * eps_per_phase_solver
     spur_A_total = float(np.sum(spur_A_per_cell))
     mass_imbal_A_total = float(np.sum(net_A))   # kg/s sum (per-cell)
@@ -311,7 +313,7 @@ def compute_phase2c_h3(res):
         net_B = _per_cell_net_out(sB)
         Tb_solver = _audit_scalar_to_solver(Tb, sB)
         eps_per_phase_solver_B = 0.5 * _audit_scalar_to_solver(eps_arr, sB)
-        cp_B = res['_audit_cp_B']
+        cp_B = diag['_audit_cp_B']
         spur_B_per_cell = Tb_solver * cp_B * net_B * eps_per_phase_solver_B
         spur_B_total = float(np.sum(spur_B_per_cell))
         out['B'] = dict(
@@ -328,83 +330,143 @@ def compute_phase2c_h3(res):
 # Phase 3 — 2nd law (S_gen) + volumetric σ̇ + Carnot bound + monotonicity
 # ──────────────────────────────────────────────────────────────────────────
 
+def _thermal_entropy(T, coefficients):
+    """Integral cp(T)/T for the thermal model; no pressure/viscous entropy."""
+    a, b, c, origin, reference = coefficients
+    T = np.asarray(T)
+    delta = T - reference
+    return ((a - b*origin + c*origin**2) * np.log1p(delta/reference)
+            + (b - 2*c*origin)*delta + .5*c*delta*(T + reference))
+
+
+def _conductive_entropy(T, conductivity, widths):
+    """Internal face heat times its reciprocal-temperature drop, W/K per cell."""
+    K = np.broadcast_to(conductivity, T.shape)
+    production = np.zeros_like(T)
+    for axis, width in enumerate(widths):
+        lo = [slice(None)]*3; hi = lo.copy()
+        lo[axis] = slice(None, -1); hi[axis] = slice(1, None)
+        lo, hi = tuple(lo), tuple(hi)
+        shape = [1]*3; shape[axis] = -1
+        kl, kr = K[lo], K[hi]
+        resistance = .5*width[:-1].reshape(shape)*kr + .5*width[1:].reshape(shape)*kl
+        conductance = np.zeros_like(kl)
+        np.divide(kl*kr, resistance, out=conductance, where=(kl > 0.) & (kr > 0.))
+        for transverse, transverse_width in enumerate(widths):
+            if transverse != axis:
+                shape = [1]*3; shape[transverse] = -1
+                conductance *= transverse_width.reshape(shape)
+        pair = conductance*(T[hi] - T[lo])**2/(T[hi]*T[lo])
+        production[lo] += .5*pair
+        production[hi] += .5*pair
+    return production
+
+
+def _boundary_thermal_entropy(T, mass, coefficients, direction, Tin, inlet_mask):
+    """Signed thermal mass faces carry local s(T), before outlet mixing."""
+    total = 0.
+    for axis, flux in enumerate(mass):
+        for end, sign in ((0, -1), (-1, 1)):
+            outward = sign*np.take(flux, end, axis=axis)
+            face_T = np.take(T, end, axis=axis)
+            inlet = axis == direction//2 and end == (0 if direction % 2 == 0 else -1)
+            known_inlet = inlet_mask > 0. if inlet else np.zeros_like(outward, dtype=bool)
+            if np.any((outward < 0.) & ~known_inlet):
+                raise ValueError('thermal entropy requires prescribed state at every inflow face')
+            upstream = np.where(outward < 0., Tin, face_T) if inlet else face_T
+            total += float(np.sum(outward*_thermal_entropy(upstream, coefficients)))
+    return total
+
+
 def compute_phase3(res):
     """Phase 3 — second law and Carnot bound checks.
 
     Five sub-blocks per spec §4:
-      3.1 Global S_gen via outlet T (mass-flux weighted)
-      3.2 Volumetric σ̇ per cell + integral; sign-positive check
+      3.1 Thermal entropy from local cp(T)/T on native boundary mass faces
+      3.2 Physical cell/face entropy production; numerical advection stays in the gap
       3.3 Carnot/NTU upper bound (cross-flow Incropera ε_max)
       3.4 Monotonicity: T_min ≤ Tα ≤ T_max ∀ cell (max principle)
       3.5 T_B_out < T_A_out (cold ≯ hot)
     """
-    Ta = res['Ta']; Tb = res['Tb']; Ts = res['Ts']
-    h_vA = res['h_vA_field']; h_vB = res['h_vB_field']
-    K_ffA = res['_audit_K_ffA']; K_ffB = res['_audit_K_ffB']
-    K_ss = res['_audit_K_ss']
-    dx = res['dx']; dy = res['dy']; dz = res['dz']
-    cp_A = res['_audit_cp_A']
-    cp_B = res.get('_audit_cp_B')
-    T_inA = res['_audit_T_inA']; T_inB = res.get('_audit_T_inB')
-    m_A = float(res['_audit_m_dot_A_simple'])
-    m_B = (float(res.get('_audit_m_dot_B_simple', 0.0))
-           if res.get('_audit_m_dot_B_simple') is not None else 0.0)
-    # A B-isolated run leaves res['T_B_out'] PRESENT but None; dict.get returns
+    diag = res.metadata['diagnostics']
+    Ta = res.fields['Ta']; Tb = res.fields['Tb']; Ts = res.fields['Ts']
+    h_vA = res.fields['h_vA']; h_vB = res.fields['h_vB']
+    K_ffA = res.fields['K_ffA']; K_ffB = res.fields['K_ffB']
+    K_ss = res.fields['K_ss']
+    dx = res.grid['dx']; dy = res.grid['dy']; dz = res.grid['dz']
+    cp_A = diag['_audit_cp_A']
+    cp_B = diag.get('_audit_cp_B')
+    T_inA = diag['_audit_T_inA']; T_inB = diag.get('_audit_T_inB')
+    m_A = float(diag['_audit_m_dot_A_simple'])
+    m_B = (float(diag.get('_audit_m_dot_B_simple', 0.0))
+           if diag.get('_audit_m_dot_B_simple') is not None else 0.0)
+    # A B-isolated run leaves diag['T_B_out'] PRESENT but None; dict.get returns
     # the stored None (not the fallback), so float(None) would crash Phase 3.
     # Coerce present-but-None symmetrically for both fluids. Audit: r2-val-01.
-    _ta = res.get('T_A_out')
+    _ta = diag.get('T_A_out')
     T_A_out = float(_ta if _ta is not None else T_inA)
-    _tb = res.get('T_B_out')
+    _tb = diag.get('T_B_out')
     T_B_out = float(_tb if _tb is not None
                     else (T_inB if T_inB is not None else T_inA))
 
     Nx, Ny, Nz = Ta.shape
     cell_vol = dx[:, None, None] * dy[None, :, None] * dz[None, None, :]
 
-    # ── 3.1 Global S_gen ──
-    S_gen_A = m_A * cp_A * np.log(max(T_A_out, 1e-30) / max(T_inA, 1e-30))
-    if cp_B is not None and m_B > 0 and T_inB is not None:
-        S_gen_B = m_B * cp_B * np.log(max(T_B_out, 1e-30) / max(T_inB, 1e-30))
-    else:
-        S_gen_B = 0.0
-    S_gen_global = float(S_gen_A + S_gen_B)
-
-    # ── 3.2 Volumetric σ̇ per-cell ──
-    # σ̇ = h_vA·(Ts−Ta)²/(Ts·Ta) + h_vB·(Ts−Tb)²/(Ts·Tb)
-    #    + K_ss·|∇Ts|²/Ts² + K_ffA·|∇Ta|²/Ta² + K_ffB·|∇Tb|²/Tb²
-    # All terms positive in continuous form.
-    sigma_h_vA = h_vA * (Ts - Ta) ** 2 / (Ts * Ta + 1e-30)
-    sigma_h_vB = h_vB * (Ts - Tb) ** 2 / (Ts * Tb + 1e-30) if cp_B is not None else np.zeros_like(Ta)
-    # ∇T magnitude squared (cell-center finite difference, central)
-    def _grad_sq(T, dx, dy, dz):
-        gx = np.zeros_like(T)
-        gy = np.zeros_like(T)
-        gz = np.zeros_like(T)
-        if T.shape[0] > 1:
-            gx[1:-1] = (T[2:] - T[:-2]) / (dx[1:-1, None, None] * 2)
-            gx[0] = (T[1] - T[0]) / dx[0]
-            gx[-1] = (T[-1] - T[-2]) / dx[-1]
-        if T.shape[1] > 1:
-            gy[:, 1:-1] = (T[:, 2:] - T[:, :-2]) / (dy[None, 1:-1, None] * 2)
-            gy[:, 0] = (T[:, 1] - T[:, 0]) / dy[0]
-            gy[:, -1] = (T[:, -1] - T[:, -2]) / dy[-1]
-        if T.shape[2] > 1:
-            gz[:, :, 1:-1] = (T[:, :, 2:] - T[:, :, :-2]) / (dz[None, None, 1:-1] * 2)
-            gz[:, :, 0] = (T[:, :, 1] - T[:, :, 0]) / dz[0]
-            gz[:, :, -1] = (T[:, :, -1] - T[:, :, -2]) / dz[-1]
-        return gx ** 2 + gy ** 2 + gz ** 2
-    grad2_Ts = _grad_sq(Ts, dx, dy, dz)
-    grad2_Ta = _grad_sq(Ta, dx, dy, dz)
-    grad2_Tb = _grad_sq(Tb, dx, dy, dz) if cp_B is not None else np.zeros_like(Ta)
-
-    sigma_diff_s = K_ss * grad2_Ts / (Ts ** 2 + 1e-30)
-    sigma_diff_A = K_ffA * grad2_Ta / (Ta ** 2 + 1e-30)
-    sigma_diff_B = K_ffB * grad2_Tb / (Tb ** 2 + 1e-30) if cp_B is not None else np.zeros_like(Ta)
-
-    sigma_dot = sigma_h_vA + sigma_h_vB + sigma_diff_s + sigma_diff_A + sigma_diff_B
-    S_gen_volumetric = float(np.sum(sigma_dot * cell_vol))
+    # Thermal entropy uses the same raw state, cp model and physical faces as energy.
+    widths = (dx, dy, dz)
+    for field in (Ta, Tb, Ts, h_vA, h_vB, K_ffA, K_ffB, K_ss):
+        if not np.isfinite(field).all():
+            raise ValueError('thermal entropy requires finite temperatures and coefficients')
+    if any(np.any(np.asarray(field) < 0.) for field in (h_vA, h_vB, K_ffA, K_ffB, K_ss)):
+        raise ValueError('thermal entropy requires nonnegative exchange and conductivity')
+    if min(float(Ta.min()), float(Tb.min()), float(Ts.min())) <= 0.:
+        raise ValueError('thermal entropy requires positive absolute temperatures')
+    entropy_power = _conductive_entropy(Ts, K_ss, widths)
+    boundary_diffusion = 0.
+    boundary_production = 0.
+    side_entropy = {'A': 0., 'B': 0.}
+    for side, T, K, hv, cp, Tin in (
+            ('A', Ta, K_ffA, h_vA, cp_A, T_inA),
+            ('B', Tb, K_ffB, h_vB, cp_B, T_inB)):
+        if cp is None:
+            continue
+        entropy_power += hv*(Ts-T)**2/(Ts*T)*cell_vol
+        entropy_power += _conductive_entropy(T, K, widths)
+        port = res.metadata['parameters']['fluid_'+side+'_cfg']
+        direction = port['dir']; axis = direction//2
+        end = 0 if direction % 2 == 0 else -1
+        mask = res.metadata['audit']['masks'][side]['inlet']
+        face_T = np.take(T, end, axis=axis)
+        K_face = np.take(np.broadcast_to(K, T.shape), end, axis=axis)
+        conductance = 2*K_face*mask/widths[axis][end]
+        for transverse, width in enumerate(widths):
+            if transverse != axis:
+                shape = [1, 1]; shape[transverse - (transverse > axis)] = -1
+                conductance = conductance*width.reshape(shape)
+        heat_out = conductance*(face_T - Tin)
+        boundary_diffusion += float(np.sum(heat_out/Tin))
+        generation = conductance*(face_T-Tin)**2/(face_T*Tin)
+        boundary_production += float(np.sum(generation))
+        np.moveaxis(entropy_power, axis, 0)[end] += generation
+        if res.metadata['thermal_mode'] == 'model_h':
+            coefficient = diag['model_h_balance']['sides'][side]['model_cp_coefficients']
+            side_entropy[side] = _boundary_thermal_entropy(
+                T, res.boundary_fluxes['mass_'+side], coefficient, direction, Tin, mask)
+        elif cp_B is None:
+            # T5 retains its capacity-temperature null check, not a model-h certificate.
+            side_entropy[side] = m_A*cp_A*np.log1p((T_A_out-T_inA)/T_inA)
+        else:
+            raise ValueError('thermal entropy audit supports model-h or the single-fluid null case')
+    S_gen_A, S_gen_B = side_entropy['A'], side_entropy['B']
+    S_gen_global = S_gen_A + S_gen_B + boundary_diffusion
+    S_gen_volumetric = float(entropy_power.sum())
+    sigma_dot = entropy_power/cell_vol
     sigma_neg_cells = int(np.sum(sigma_dot < -1e-12))
-    sigma_neg_pct = sigma_neg_cells / sigma_dot.size * 100
+    sigma_neg_pct = sigma_neg_cells/sigma_dot.size*100
+    # Convert the existing 1 W zero-duty energy scale into entropy-flow units.
+    entropy_floor = 1.0/min(T_inA, T_inB if cp_B is not None else T_inA)
+    entropy_scale = max(abs(S_gen_global), abs(S_gen_volumetric), entropy_floor)
+
 
     # ── 3.3 Carnot / NTU bound ──
     # Use LTNE-effective C (= m_LTNE·cp). The kernel's energy equation
@@ -431,7 +493,7 @@ def compute_phase3(res):
         Q_LTNE_B = C_B * abs(T_B_out - T_inB) if C_B > 0 else 0.0
         Q_phys_A = float(Q_LTNE_A)   # naming retained for report
         Q_phys_B = float(Q_LTNE_B)
-        Q_volumetric_phys = abs(float(res.get('Q_sB_interior', 0.0)))
+        Q_volumetric_phys = abs(float(diag.get('Q_sB_interior', 0.0)))
         Q_primary = 0.5 * (Q_LTNE_A + Q_LTNE_B) if Q_LTNE_B > 0 else Q_LTNE_A
         eps_obs = Q_primary / max(Q_NTU_max, 1e-30)
         # NTU estimate from the current unscaled interphase coupling.
@@ -477,7 +539,12 @@ def compute_phase3(res):
         sigma_neg_cells=sigma_neg_cells,
         sigma_neg_pct=sigma_neg_pct,
         sigma_global_vs_volumetric_rel=(abs(S_gen_global - S_gen_volumetric)
-                                       / max(abs(S_gen_global), abs(S_gen_volumetric), 1e-30)),
+                                       / entropy_scale),
+        entropy_residual_W_K=abs(S_gen_global-S_gen_volumetric),
+        entropy_normalization_W_K=entropy_scale,
+        entropy_zero_duty_floor_W_K=entropy_floor,
+        S_boundary_conduction=boundary_diffusion,
+        S_inlet_half_cell=boundary_production,
         # 3.3
         C_A=float(C_A) if cp_B is not None else float('nan'),
         C_B=float(C_B) if cp_B is not None else float('nan'),
@@ -511,10 +578,11 @@ def compute_phase4(res):
     Density variation changes velocity; it never excuses a net mass source.
     Relative temperature change is reported separately, not subtracted.
     """
-    sA = res['_audit_sA_face']
-    sB = res.get('_audit_sB_face')
-    T_inA = res['_audit_T_inA']
-    T_inB = res.get('_audit_T_inB')
+    diag = res.metadata['diagnostics']
+    sA = diag['_audit_sA_face']
+    sB = diag.get('_audit_sB_face')
+    T_inA = diag['_audit_T_inA']
+    T_inB = diag.get('_audit_T_inB')
 
     def _per_fluid(face, T_in, T_out):
         u = face['u']; v = face['v']; w = face['w']
@@ -559,10 +627,10 @@ def compute_phase4(res):
 
     out = dict(A=None, B=None)
     if sA is not None:
-        T_A_out = float(res.get('T_A_out', T_inA))
+        T_A_out = float(diag.get('T_A_out', T_inA))
         out['A'] = _per_fluid(sA, T_inA, T_A_out)
     if sB is not None and T_inB is not None:
-        T_B_out = float(res.get('T_B_out', T_inB))
+        T_B_out = float(diag.get('T_B_out', T_inB))
         out['B'] = _per_fluid(sB, T_inB, T_B_out)
     return out
 
@@ -580,15 +648,16 @@ def compute_phase5(res):
     (zero net flux). Hard gate: lateral wall flux < 0.5 % of streamwise
     inlet/outlet max.
     """
-    sA = res['_audit_sA_face']
-    sB = res.get('_audit_sB_face')
-    Ta = res['Ta']; Tb = res['Tb']
-    rho_cp_A = res['_audit_rho_cp_fA']
-    rho_cp_B = res['_audit_rho_cp_fB']
-    eps_arr = res['_audit_eps_arr']
+    diag = res.metadata['diagnostics']
+    sA = diag['_audit_sA_face']
+    sB = diag.get('_audit_sB_face')
+    Ta = res.fields['Ta_display']; Tb = res.fields['Tb_display']
+    rho_cp_A = res.metadata['application']['props']['rho_cp_A']
+    rho_cp_B = res.metadata['application']['props']['rho_cp_B']
+    eps_arr = res.metadata['design_fields']['eps_arr']
     eps_per_phase = 0.5 * eps_arr
-    fA = res['_audit_fA']
-    fB = res.get('_audit_fB')
+    fA = diag['_audit_fA']
+    fB = diag.get('_audit_fB')
 
     def _per_fluid(face, T_field, rho_cp_field, fcfg):
         if face is None or fcfg is None:
@@ -659,14 +728,15 @@ def _fmt(x, p=4):
 
 
 def render_case(label, res, p2a, p2c, p3=None, p4=None, p5=None):
+    diag = res.metadata['diagnostics']
     lines = []
     all_gates = []
     lines.append(f'\n## Case: {label}\n')
-    lines.append(f'- grid: {res["Ta"].shape}')
-    lines.append(f'- Q_enthalpy_A = {_fmt(res.get("Q_enthalpy_A", float("nan")), 2)} W')
-    lines.append(f'- Q_enthalpy_B = {_fmt(res.get("Q_enthalpy_B", float("nan")), 2)} W')
-    lines.append(f'- Q_solid_A (∫h_vA(Ts−Ta)dV) = {_fmt(res.get("Q_sA", float("nan")), 2)} W')
-    lines.append(f'- Q_solid_B (∫h_vB(Ts−Tb)dV) = {_fmt(res.get("Q_sB", float("nan")), 2)} W')
+    lines.append(f'- grid: {res.fields["Ta_display"].shape}')
+    lines.append(f'- Q_enthalpy_A = {_fmt(diag.get("Q_enthalpy_A", float("nan")), 2)} W')
+    lines.append(f'- Q_enthalpy_B = {_fmt(diag.get("Q_enthalpy_B", float("nan")), 2)} W')
+    lines.append(f'- Q_solid_A (∫h_vA(Ts−Ta)dV) = {_fmt(diag.get("Q_sA", float("nan")), 2)} W')
+    lines.append(f'- Q_solid_B (∫h_vB(Ts−Tb)dV) = {_fmt(diag.get("Q_sB", float("nan")), 2)} W')
     lines.append('### Phase 2a — full-CV discrete energy certificate\n')
     lines.append('All actual control volumes are included. The existing thermal '
                  'operator supplies physical-face advection and half-cell inlet '
@@ -691,6 +761,8 @@ def render_case(label, res, p2a, p2c, p3=None, p4=None, p5=None):
             lines.append('T5 capacity-temperature path: model-h face ledger N/A; '
                          'the active-fluid full-CV strict certificate is still required.')
         lines.append(f'- Full-volume LTNE source balance: {_fmt(p2a["eps_LTNE"]*100, 3)} %')
+        lines.append(f'- Source residual: {_fmt(p2a["source_residual_W"])} W; '
+                     f'normalization: {_fmt(p2a["source_normalization_W"])} W (1 W zero-duty floor).')
         for name, ok in p2a['gates']:
             lines.append(f'- {name}: **{"PASS" if ok else "FAIL"}**')
         all_gates.extend(p2a['gates'])
@@ -713,13 +785,21 @@ def render_case(label, res, p2a, p2c, p3=None, p4=None, p5=None):
 
     if p3 is not None:
         lines.append('### Phase 3 — 2nd law + Carnot bound\n')
-        lines.append('**3.1 Global S_gen** (mass-flux-weighted T_out form):\n')
+        lines.append('**3.1 Boundary thermal entropy** (local cp(T)/T and physical boundary heat):\n')
+        lines.append('Thermal model only; pressure/viscous entropy is outside this audit. '
+                     'The single-fluid T5 capacity-temperature null check keeps its own transport definition.')
         lines.append(f'- S_gen_A = {_fmt(p3["S_gen_A"], 4)} W/K')
         lines.append(f'- S_gen_B = {_fmt(p3["S_gen_B"], 4)} W/K')
-        lines.append(f'- **S_gen_global = {_fmt(p3["S_gen_global"], 4)} W/K**\n')
-        lines.append('**3.2 Volumetric σ̇** (per-cell entropy generation rate, dual check):\n')
+        lines.append(f'- Boundary conductive entropy flux = {_fmt(p3["S_boundary_conduction"], 6)} W/K')
+        lines.append(f'- **S_gen_global = {_fmt(p3["S_gen_global"], 6)} W/K**\n')
+        lines.append('**3.2 Physical entropy production** (exchange and shared conductive faces):\n')
         lines.append(f'- S_gen_volumetric = ∫_Ω σ̇ dV = {_fmt(p3["S_gen_volumetric"], 4)} W/K')
-        lines.append(f'- |global − volumetric| / max = {_fmt(p3["sigma_global_vs_volumetric_rel"]*100, 2)} %')
+        lines.append(f'- |global − volumetric| / scale = {_fmt(p3["sigma_global_vs_volumetric_rel"]*100, 4)} %')
+        lines.append(f'- Absolute gap = {_fmt(p3["entropy_residual_W_K"], 6)} W/K; '
+                     f'scale = {_fmt(p3["entropy_normalization_W_K"], 6)} W/K; '
+                     f'zero-duty floor (1 W / coldest inlet K) = {_fmt(p3["entropy_zero_duty_floor_W_K"], 6)} W/K.')
+        lines.append('Numerical advection dissipation is not counted as physical production. '
+                     'The unchanged 5% agreement gate still tests grid resolution.')
         lines.append(f'- σ̇ < 0 cells: {p3["sigma_neg_cells"]} ({_fmt(p3["sigma_neg_pct"], 2)} %)\n')
         lines.append('**3.3 Carnot / NTU bound** (LTNE-effective scale, '
                      'matches kernel energy balance):\n')
@@ -742,14 +822,14 @@ def render_case(label, res, p2a, p2c, p3=None, p4=None, p5=None):
         lines.append(f'- A violations: {p3["max_principle_violations_A"]}')
         lines.append(f'- B violations: {p3["max_principle_violations_B"]}')
         lines.append(f'- s violations: {p3["max_principle_violations_s"]}\n')
-        lines.append('**3.5 Cold ≯ hot**:\n')
+        lines.append('**3.5 Outlet temperature ordering**:\n')
         lines.append(f'- T_A_out = {p3["T_A_out"]:.2f} K, T_B_out = {p3["T_B_out"]:.2f} K')
-        lines.append(f'- T_B_out < T_A_out: **{"PASS" if p3["cold_lt_hot"] else "FAIL"}**\n')
+        lines.append(f'- Cold outlet below hot outlet: {p3["cold_lt_hot"]} (observation).\n')
 
         gates3 = []
         gates3.append(('S_gen_global ≥ −1e-3', p3['S_gen_global'] >= -1e-3))
         gates3.append(('σ̇ < 0 cells < 0.1 %', p3['sigma_neg_pct'] < 0.1))
-        gates3.append(('|global − volumetric| / max < 5 %',
+        gates3.append(('|global − volumetric| / scale < 5 %',
                         p3['sigma_global_vs_volumetric_rel'] < 0.05))
         if p3['carnot_pass'] is not None:
             gates3.append(('ε_obs ≤ ε_max + 0.05', p3['carnot_pass']))
@@ -763,7 +843,7 @@ def render_case(label, res, p2a, p2c, p3=None, p4=None, p5=None):
         crossover_allowed = (p3['C_r'] > 0 and
                              p3['eps_obs'] > 1.0 / (1.0 + p3['C_r']))
         if crossover_allowed and not p3['cold_lt_hot']:
-            lines.append('- cold ≯ hot: **(crossover allowed, ε > 1/(1+C_r))**')
+            lines.append('- Outlet crossover: **allowed** (ε > 1/(1+C_r)); not a failed gate.')
         else:
             gates3.append(('cold ≯ hot', p3['cold_lt_hot']))
         for name, ok in gates3:
@@ -828,7 +908,7 @@ def render_case(label, res, p2a, p2c, p3=None, p4=None, p5=None):
 def write_report(out_path, sections, header_meta):
     out_path = output_path(out_path)
     lines = []
-    lines.append('# Phase 2 — 3D LTNE Conservation Audit\n')
+    lines.append('# 3D LTNE Energy and Thermal-Entropy Audit\n')
     lines.append(f'- Date: {header_meta["date"]}')
     lines.append('- Discrete gate: existing full-CV strict-conservation global/cell-max < 1 %; historical surface specification is not inferred.')
     lines.append('- Audit script: `sjtu_tpmshx/validation/cases/audit_3d_conservation.py`\n')
@@ -882,13 +962,13 @@ def main():
             row = {'case': cid}
             for g in grids:
                 cfg = CASES[cid](g)
-                cfg['_emit_audit'] = True   # C1: reads r['_audit_*'] keys
+                cfg['_emit_audit'] = True   # Retain final SIMPLE evidence for the offline audit
                 t0 = time.time()
                 Q_enth = eps_strict = float('nan')
                 try:
-                    res = _run_3d_stack(cfg)
-                    failed = failed or not res['solver_converged']
-                    Q_enth = float(res.get('Q_enthalpy_B', float('nan')))
+                    res = run_case(prepare_research_case(cfg, case_id=cfg['_case_label']))
+                    failed = failed or not res.run_status['converged']
+                    Q_enth = float(res.metadata['diagnostics'].get('Q_enthalpy_B', float('nan')))
                     certificate = compute_phase2a(res)
                     passed = all(ok for _, ok in certificate['gates'])
                     row[f'certificate_pass_g{g}'] = passed
@@ -931,15 +1011,15 @@ def main():
     for cid in selected:
         print(f'\n══════ Phase 2 case: {cid} ══════')
         cfg = CASES[cid](args.grid)
-        cfg['_emit_audit'] = True   # C1: reads r['_audit_*'] keys
+        cfg['_emit_audit'] = True   # Retain final SIMPLE evidence for the offline audit
         t0 = time.time()
         try:
-            res = _run_3d_stack(cfg)
+            res = run_case(prepare_research_case(cfg, case_id=cfg['_case_label']))
         except Exception as exc:
             failed = True
             sections.append(f'\n## Case: {cid}\n\n**FAIL**: {type(exc).__name__}: {exc}')
             continue
-        failed = failed or not res['solver_converged']
+        failed = failed or not res.run_status['converged']
         dt = time.time() - t0
         print(f'  solved in {dt:.1f}s')
         try:
@@ -978,7 +1058,7 @@ def main():
             print(f'  Phase 5 failed: {e}')
             p5 = None
         sec, passed = render_case(cid, res, p2a, p2c, p3, p4, p5)
-        if not res['solver_converged']:
+        if not res.run_status['converged']:
             sec += '\n- Solver convergence: **FAIL**\n'
         failed = failed or not passed
         sections.append(sec)

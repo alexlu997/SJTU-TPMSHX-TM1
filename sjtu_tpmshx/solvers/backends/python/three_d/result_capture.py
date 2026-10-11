@@ -43,6 +43,30 @@ def capture_result(case, prob, outer, raw, diagnostics):
     for name, unit in display_units.items():
         metadata[name] = dict(unit=unit, axes=('x', 'y', 'z'), location='cell',
                               state='display' if name.endswith('_display') else 'final flow/report')
+    audit = {}
+    if prob.cfg.get('_emit_audit', False):
+        for side in ('A', 'B'):
+            name = 'K_ff' + side
+            fields[name] = native[name]
+            metadata[name] = dict(unit='W/(m K)', axes=('x', 'y', 'z'),
+                                  location='cell', state='last thermal input')
+        for side in ('A', 'B'):
+            name = 'h_v' + side + '_report'
+            fields[name] = raw['h_v' + side + '_field']
+            metadata[name] = dict(unit='W/(m3 K)', axes=('x', 'y', 'z'),
+                                  location='cell', state='final report coupling')
+        masks = {}
+        for side in case.parameters['prepared']['axes']:
+            axis = case.parameters['prepared']['axes'][side]
+            masks[side] = dict(
+                thermal=raw['_audit_ltne_mask_' + side],
+                inlet=raw['_audit_in_mask_' + ('2d' if side == 'A' else 'B')],
+                outlet=raw['_audit_out_mask_' + ('2d' if side == 'A' else 'B')],
+                axes=tuple('xyz'[axis[key]] for key in ('cross1_real_axis', 'cross2_real_axis')),
+                unit='1', state='final report opening masks')
+        audit = dict(masks=masks, axes=('x', 'y', 'z'), state='final report/property refresh',
+                     units=dict(K_ffA='W/(m K)', K_ffB='W/(m K)', K_ss='W/(m K)',
+                                rho_cp_A='J/(m3 K)', rho_cp_B='J/(m3 K)'))
     model_metadata = dict(case.metadata['model_metadata'])
     if native['true_h'] and 'sco2_enthalpy_eos' in native['true_h']:
         model_metadata['sco2_enthalpy_eos'] = native['true_h']['sco2_enthalpy_eos']
@@ -58,9 +82,11 @@ def capture_result(case, prob, outer, raw, diagnostics):
         run_status=dict(execution='completed', converged=bool(raw['solver_converged']),
                         outer_index=native['outer_index']),
         metadata=dict(dimension=3, quantity_basis='total', thermal_mode=native['mode'],
+            active_fluids=tuple(pressure),
             parameters=case.parameters, design_fields=case.design_fields,
             design_mode=case.metadata['design_mode'],
             model_metadata=model_metadata, notices=case.metadata['notices'],
+            audit=audit,
             application=dict(
                 coeffs={key: raw.get('_audit_' + key) for key in ('K_ffA', 'K_ffB', 'K_ss')},
                 props={key: raw.get(source) for key, source in (

@@ -267,7 +267,7 @@ def bc_to_dict(bc: 'PartialBCConfig', L_dom: float, H_dom: float,
       to a full-face inlet/outlet spanning the cross-stream axis. Used by the
       2D path (both sides) and 3D side A.
     * ``side='B'`` — a *fully* degenerate BC (``in_w<=0`` AND ``out_w<=0``)
-      returns ``None``, which ``_run_3d_stack`` reads as "no B fluid —
+      returns ``None``, which the 3D backend reads as "no B fluid —
       single-fluid A-alone run" (it skips the B SIMPLE build). A
       partially-degenerate BC returns the raw partial dict (no full-face
       fallback). 3D side B only.
@@ -276,7 +276,7 @@ def bc_to_dict(bc: 'PartialBCConfig', L_dom: float, H_dom: float,
       rebuilds a full-face B from a None here, because via ComputeConfig
       fluid_B is always a configured 2nd fluid (a None there is just the
       ``PartialBCConfig`` default widths, meaning full-face cross-flow). The
-      genuine single-fluid path reaches ``_run_3d_stack`` with an explicit
+      research preparation accepts an explicit
       ``fluid_B_cfg=None`` and bypasses that boundary.
     * ``with_z=True`` — append the ``in_z_*``/``out_z_*`` overlay when the cfg
       captured 3D z-partial fields (``None`` = full face along z).
@@ -738,9 +738,8 @@ class ComputeConfig:
             # by construction — the loop always exits on the cap and the run
             # can only ever report converged=False. Fail loud here (the typed
             # production boundary) rather than silently ship a result that
-            # claims nothing. The raw-cfg path (_run_3d_stack) still accepts 1
-            # as an explicit single-pass SCREENING mode — it now honestly
-            # reports solver_converged=False (see run_stack_3d.py).
+            # claims nothing. prepare_research_case accepts an explicit
+            # one-pass experiment and preserves its unconverged verdict.
             if mo < 2:
                 raise ValueError(
                     f"ComputeConfig.solver.max_outer_ltne={mo} — must be >= 2. "
@@ -748,9 +747,8 @@ class ComputeConfig:
                     "criterion (it needs a previous iterate to compare "
                     "against), so the run could only ever report "
                     "converged=False. For a deliberate single-pass screening "
-                    "sweep, drive pipelines.run_stack_3d._run_3d_stack directly "
-                    "with a raw cfg dict and read convergence_detail — do not "
-                    "route it through the typed production config.")
+                    "sweep, use preprocess.api.prepare_research_case then "
+                    "solvers.api.run_case and inspect the result run_status.")
 
         # V2 production D-F closure is a water+sCO2 CFD table with bilinear
         # interpolation in geometry only. Extrapolation is not supported.

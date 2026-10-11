@@ -80,6 +80,8 @@ def _mass_flow(result, side):
 
 
 def evaluate_metric(result, name, *, duty, mass_flow):
+    if (name.endswith('_B') or name == 'energy_imbalance_rel') and 'B' not in result.metadata.get('active_fluids', ('A', 'B')):
+        raise NotImplementedError('fluid B is inactive in this prepared research case')
     if name == 'Q':
         return abs(duty('A'))
     if name in ('Q_A', 'Q_B'):

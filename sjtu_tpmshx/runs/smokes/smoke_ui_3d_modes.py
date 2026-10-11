@@ -1,9 +1,10 @@
-"""runs/smoke_ui_3d_modes.py — Phase B: smoke 3D Compute path with 3 roughness modes.
+"""Scripted 3D numerical smoke for three roughness modes.
 
-Constructs minimal cfg mirroring UI 3D Compute, calls _run_3d_stack
-directly, compares Q + dP across {baseline, norris_1a, bhatti_shah_1b}.
+Uses prepared CaseData and run_case, without Qt or GUI acceptance checks, and
+compares Q + dP across {baseline, norris_1a, bhatti_shah_1b}.
 Also exercises fluid_type_B='water' path (Shanghai-style) to verify
-roughness skipped on water side.
+roughness skipped on water side. The fast_sweep profile bounds the smoke
+workload; these comparisons do not certify solver convergence.
 """
 from __future__ import annotations
 import os, warnings
@@ -11,8 +12,9 @@ import math
 
 warnings.filterwarnings('ignore')
 
-from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
-from sjtu_tpmshx.runs._case_template import build_cfg as _template_cfg
+from sjtu_tpmshx.preprocess.api import prepare_research_case
+from sjtu_tpmshx.solvers.api import run_case
+from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry
 
 
 def build_cfg(tpms='Gyroid', Lcell=7.0, t_wall=0.6, k_s=16.0,
@@ -21,19 +23,19 @@ def build_cfg(tpms='Gyroid', Lcell=7.0, t_wall=0.6, k_s=16.0,
                u_A=12.0, T_inA=422.0, P_inA=101325.0,
                u_B=8.0, T_inB=302.0, P_inB=101325.0,
                fluid_type_A='air', fluid_type_B='air'):
-    # B2 2.6: canonical template + this smoke's deltas (fast_sweep
-    # profile, fixed-width 42 mm crossflow B inlet).
-    return _template_cfg(
+    geometry = tpms_geometry(tpms, Lcell, t_wall, k_s)
+    return dict(
         tpms_type=tpms, Lcell=Lcell, t_wall=t_wall, k_s=k_s,
-        L=L, H=H, Lz=Lz, Nx=Nx, Ny=Ny, Nz=Nz,
+        L=L, H=H, Lz=Lz, Nx=Nx, Ny=Ny, Nz=Nz, eps=geometry['epsilon'],
         u_A=u_A, T_inA=T_inA, P_inA=P_inA,
         u_B=u_B, T_inB=T_inB, P_inB=P_inB,
+        T_s_init=None, wall_refine_3d=False, zone_grid_cells=None,
         fluid_type_A=fluid_type_A, fluid_type_B=fluid_type_B,
+        fluid_A_cfg=dict(dir=0, in_ctr=H/2, in_w=H, out_ctr=H/2, out_w=H),
         fluid_B_cfg=dict(dir=3, in_ctr=L/2, in_w=0.042,
                          out_ctr=L/2, out_w=0.042),
-        sweep_profile='fast_sweep',
-        use_adaptive_amg_tol=True,
-    )
+        sweep_profile='fast_sweep', use_adaptive_amg_tol=True)
+
 
 
 def run_with_mode(label, mode, eps_um=100, **kw):
@@ -45,7 +47,7 @@ def run_with_mode(label, mode, eps_um=100, **kw):
     print(f"\n=== {label}  mode={mode} eps={eps_um}μm "
           f"fluid_B={cfg['fluid_type_B']} ===", flush=True)
     try:
-        res = _run_3d_stack(cfg)
+        res = run_case(prepare_research_case(cfg, case_id=label))
     except Exception as e:
         print(f"  CRASH: {type(e).__name__}: {e}", flush=True)
         return None
@@ -55,9 +57,10 @@ def run_with_mode(label, mode, eps_um=100, **kw):
                 os.environ.pop(name, None)
             else:
                 os.environ[name] = value
-    Q = float(res.get('Q_total', float('nan')))
-    dP_A = float(res.get('dP_A', float('nan')))
-    dP_B = float(res.get('dP_B', float('nan')))
+    diag = res.metadata['diagnostics']
+    Q = float(diag.get('Q_total', float('nan')))
+    dP_A = float(diag.get('dP_A', float('nan')))
+    dP_B = float(diag.get('dP_B', float('nan')))
     if not all(math.isfinite(value) for value in (Q, dP_A, dP_B)):
         print('  FAIL: nonfinite Q or pressure drop', flush=True)
         return None
@@ -66,8 +69,8 @@ def run_with_mode(label, mode, eps_um=100, **kw):
 
 
 def main():
-    print("=== Phase B: 3D UI Compute path × 4 modes ===", flush=True)
-    print("Shanghai-style: Gyroid L=7 t=0.6, u_A=12 air @ 422K, u_B=8 air @ 302K, 20×10×8\n", flush=True)
+    print("=== Scripted 3D numerical smoke: 4 roughness settings ===", flush=True)
+    print("Shanghai-style: Gyroid L=7 t=0.6, u_A=12 air @ 422K, u_B=8 air @ 302K, requested 20×10×8; effective 15×10×8\n", flush=True)
 
     results = {}
     results['baseline'] = run_with_mode('baseline (no roughness)',  'baseline')

@@ -306,8 +306,9 @@ def native_result(request):
 
 @pytest.mark.parametrize('frozen_B', [False, True])
 @pytest.mark.parametrize('audit', [False, True])
-def test_legacy_3d_producer_preserves_optional_diagnostics(monkeypatch, frozen_B, audit):
-    from sjtu_tpmshx.pipelines import run_stack_3d as stack
+def test_research_3d_producer_preserves_optional_diagnostics(monkeypatch, frozen_B, audit):
+    from sjtu_tpmshx.solvers.backends.python.three_d import runtime as stack
+    from sjtu_tpmshx.tests.cases_3d import run_research
     from sjtu_tpmshx.tests.test_convergence_truth_table import _cheap_3d
 
     cfg = _cheap_3d(max_outer_ltne=1, _emit_audit=audit)
@@ -317,15 +318,18 @@ def test_legacy_3d_producer_preserves_optional_diagnostics(monkeypatch, frozen_B
         cfg['fluid_B_cfg'] = None
     assemble = stack._assemble_3d_verdict
     observed = []
+    thermal_conductivity = []
 
     def record(prob, outer, metrics):
         raw, diagnostics = assemble(prob, outer, metrics)
         _assert_3d_diagnostics(raw, diagnostics, frozen_B=frozen_B, audit=audit)
-        observed.append(raw)
+        observed.append(diagnostics)
         if frozen_B:
             assert raw['P_Pa_B'] is raw['vmag_B'] is None
             assert diagnostics['P_Pa_B'] is diagnostics['vmag_B'] is None
         if audit:
+            thermal_conductivity.append({key: np.array(outer.native_evidence[key], copy=True)
+                                         for key in ('K_ffA', 'K_ffB')})
             assert '_audit_sA_face' in diagnostics
             assert '_audit_K_ffA' not in diagnostics
             assert not np.shares_memory(raw['_audit_K_ffA'], prob.K_ffA)
@@ -338,8 +342,15 @@ def test_legacy_3d_producer_preserves_optional_diagnostics(monkeypatch, frozen_B
         return raw, diagnostics
 
     monkeypatch.setattr(stack, '_assemble_3d_verdict', record)
-    result = stack._run_3d_stack(cfg)
-    assert len(observed) == 1 and result is observed[0]
+    result = run_research(cfg)
+    for key in ('K_ffA', 'K_ffB'):
+        assert (key in result.fields) is audit
+        if audit:
+            np.testing.assert_array_equal(result.fields[key], thermal_conductivity[0][key])
+            assert result.field_metadata[key]['state'] == 'last thermal input'
+    assert len(observed) == 1
+    for key, value in observed[0].items():
+        assert_slots(result.metadata['diagnostics'][key], value)
 
 
 def test_application_fields_and_scalars_match_native_solve(native_result):

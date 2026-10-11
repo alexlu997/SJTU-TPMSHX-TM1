@@ -9,7 +9,7 @@ def test_smoke_solver_failure_restores_environment_and_fails(monkeypatch):
     from sjtu_tpmshx.runs.smokes import smoke_ui_3d_modes as smoke
     monkeypatch.setenv('TPMSHX_ROUGH_MODE', 'original')
     monkeypatch.delenv('TPMSHX_ROUGH_EPS_UM', raising=False)
-    monkeypatch.setattr(smoke, '_run_3d_stack', lambda cfg: (_ for _ in ()).throw(RuntimeError('solve failed')))
+    monkeypatch.setattr(smoke, 'run_case', lambda cfg: (_ for _ in ()).throw(RuntimeError('solve failed')))
     assert smoke.main() == 1
     assert smoke.os.environ['TPMSHX_ROUGH_MODE'] == 'original'
     assert 'TPMSHX_ROUGH_EPS_UM' not in smoke.os.environ
@@ -17,13 +17,16 @@ def test_smoke_solver_failure_restores_environment_and_fails(monkeypatch):
 
 def test_smoke_nonfinite_result_is_failure(monkeypatch):
     from sjtu_tpmshx.runs.smokes import smoke_ui_3d_modes as smoke
-    monkeypatch.setattr(smoke, '_run_3d_stack', lambda cfg: dict(Q_total=np.nan, dP_A=1., dP_B=1.))
+    monkeypatch.setattr(smoke, 'run_case', lambda case: SimpleNamespace(metadata={'diagnostics': dict(Q_total=np.nan, dP_A=1., dP_B=1.)}))
     assert smoke.run_with_mode('test', 'baseline') is None
 
 
 def test_demo_render_failure_controls_exit(monkeypatch):
     from sjtu_tpmshx.runs.demos import demo_3d_cube_volume as demo
-    monkeypatch.setattr(demo, '_run_3d_stack', lambda cfg: {})
+    monkeypatch.setattr(demo, 'prepare_case', lambda cfg, **kw: object())
+    monkeypatch.setattr(demo, 'run_case', lambda case, control: object())
+    monkeypatch.setattr(demo, 'evaluate', lambda res: object())
+    monkeypatch.setattr(demo, 'print_metrics', lambda *args: True)
     monkeypatch.setattr(demo, 'make_grid', lambda res: object())
     monkeypatch.setattr(demo.os, 'makedirs', lambda *a, **kw: None)
     monkeypatch.setattr(demo, 'render_volume', lambda *a, **kw: (_ for _ in ()).throw(RuntimeError('render failed')))

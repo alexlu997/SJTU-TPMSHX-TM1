@@ -613,17 +613,15 @@ def solve_full_domain_3d(L, H, D, Nx, Ny, Nz,
     K_ffA/K_ffB/K_ss, h_vA/h_vB, rho_cp_fA/rho_cp_fB : scalar or (Nx, Ny, Nz).
     epsilon : scalar or (Nx, Ny, Nz). **Pass the FULL porosity ε_full**
               (= ε_A + ε_B for symmetric Gyroid). The kernel internally
-              applies a SINGLE halving `eps_f = 0.5 * epsilon` (see
-              ~line 1391) to get the single-channel ε_A = ε_full/2 used
+              applies a SINGLE halving `eps_f = 0.5 * epsilon` to get
+              the single-channel ε_A = ε_full/2 used
               in the convective face flux F = ε_f · ρcp · u · A_face.
               Do NOT pre-halve at the call site — that double-halves to
-              ε_full/4 (the 2026-05-14 regression; fixed under Option A
-              on 2026-05-19, every production caller now passes full ε,
-              guarded by tests/test_eps_contract_3d.py). The explicit
+              ε_full/4. The full-porosity caller contract is guarded by
+              tests/test_eps_contract_3d.py and
+              tests/test_invariant_negative_guards.py. The explicit
               `eps_A` / `eps_B` kwargs below ARE single-channel and are
-              consumed without further halving. Rationale + Shanghai
-              case-1 evidence: the historical run_calculation_3d.py
-              comment (now the ε-contract block in pipelines/run_stack_3d).
+              consumed without further halving.
     ucA/vcA/wcA/ucB/vcB/wcB    : (Nx, Ny, Nz) cell-centre.
     dir_A/dir_B ∈ {0=+x, 1=-x, 2=+y, 3=-y, 4=+z, 5=-z}.
     inlet_mask_*               : 2D cross-section or None.

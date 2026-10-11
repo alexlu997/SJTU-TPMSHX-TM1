@@ -264,7 +264,9 @@ def compute_phase2a(res):
         phase['boundary'] = balance['sides'][side] if balance is not None else None
         phases[side] = phase
     qa, qb = float(res['Q_sA']), float(res['Q_sB'])
-    eps_ltne = abs(qa + qb) / max(abs(qa), abs(qb), 1e-30)
+    # Match the existing strict-energy normalization at zero duty (1 W).
+    source_scale = max(abs(qa), abs(qb), 1.0)
+    eps_ltne = abs(qa + qb) / source_scale
     gates.append(('full-volume LTNE source balance < 1 %',
                   bool(np.isfinite(eps_ltne) and eps_ltne < 0.01)))
     if balance is not None:
@@ -272,5 +274,6 @@ def compute_phase2a(res):
                       balance['physical_boundary_complete'] is True))
     elif active_b:
         gates.append(('two-fluid model-h boundary ledger available', False))
-    return dict(sides=phases, eps_LTNE=eps_ltne, gates=gates,
+    return dict(sides=phases, eps_LTNE=eps_ltne,
+                source_residual_W=abs(qa + qb), source_normalization_W=source_scale, gates=gates,
                 boundary=balance)

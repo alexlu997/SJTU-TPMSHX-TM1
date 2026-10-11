@@ -40,6 +40,16 @@ def _certificate_result(active_b=True):
     )
 
 
+def _certificate_fields(data):
+    from sjtu_tpmshx.domain.field_result import FieldResult
+
+    return FieldResult('audit-fixture', 'audit-case', 'test',
+        fields={'Ta_display': data['Ta'], 'h_vB': data['h_vB_field']},
+        run_status={'converged': data.get('solver_converged', True)},
+        metadata={'diagnostics': data,
+                  'parameters': {'fluid_B_cfg': data['_audit_fB']}})
+
+
 @pytest.mark.parametrize('key', ['eps_A_strict', 'eps_A_strict_cellmax',
                                 'eps_B_strict', 'eps_B_strict_cellmax'])
 @pytest.mark.parametrize('value', [None, np.nan, np.inf, .01, .05, -.001])
@@ -60,7 +70,7 @@ def test_current_conservation_report_uses_full_cv_certificate(active_b):
     certificate = audit.compute_phase2a(result)
     cell = dict(net_out_total=0., net_out_abs=0., spurious_enthalpy_W=0.,
                 net_out_max_cell=0., net_out_p99=0.)
-    report, passed = audit.render_case('T1', result, certificate, dict(A=cell, B=None))
+    report, passed = audit.render_case('T1', _certificate_fields(result), certificate, dict(A=cell, B=None))
     assert passed
     assert 'strict global < 1 %' in report and 'strict cellmax < 1 %' in report
     assert 'half-cell inlet diffusion' in report
@@ -96,7 +106,7 @@ def test_failed_current_certificate_controls_cli_exit(monkeypatch, tmp_path, dam
         result['eps_A_strict' + ('_cellmax' if damage == 'cellmax' else '')] = .02
     cell = dict(net_out_total=0., net_out_abs=0., spurious_enthalpy_W=0.,
                 net_out_max_cell=0., net_out_p99=0.)
-    monkeypatch.setattr(audit, '_run_3d_stack', lambda cfg: result)
+    monkeypatch.setattr(audit, 'run_case', lambda case: _certificate_fields(result))
     monkeypatch.setattr(audit, 'compute_phase2c_h3', lambda res: dict(A=cell, B=None))
     for name in ('compute_phase3', 'compute_phase4', 'compute_phase5'):
         monkeypatch.setattr(audit, name, lambda res: None)
@@ -107,7 +117,8 @@ def test_failed_current_certificate_controls_cli_exit(monkeypatch, tmp_path, dam
 
 
 def test_grid_sweep_keeps_every_failed_certificate_member(monkeypatch, tmp_path):
-    monkeypatch.setattr(audit, '_run_3d_stack', lambda cfg: dict(solver_converged=True))
+    monkeypatch.setattr(audit, 'run_case', lambda case: SimpleNamespace(
+        run_status={'converged': True}, metadata={'diagnostics': {}}))
     report = tmp_path / 'audit.md'
     monkeypatch.setattr('sys.argv', ['audit', '--cases', 'T1', '--phase6_grid_convergence',
                                    '--out', str(report)])
@@ -163,3 +174,27 @@ def test_sou_benchmark_reports_physical_face_pressure(monkeypatch):
     conv, iterations, _, pressure = benchmark.run(1, 4, 1, True)
     assert conv and iterations == 3
     assert pressure == pytest.approx(700.)
+
+
+@pytest.mark.parametrize('active_b', [False, True])
+@pytest.mark.parametrize('residual,passed', [(1.57e-6, True), (0., True),
+                                           (.01, False), (.02, False),
+                                           (float('nan'), False), (float('inf'), False)])
+def test_zero_duty_source_balance_keeps_one_percent_on_existing_one_watt_scale(
+        active_b, residual, passed):
+    result = _certificate_result(active_b)
+    result.update(Q_sA=residual, Q_sB=0.)
+    certificate = audit.compute_phase2a(result)
+    assert dict(certificate['gates'])['full-volume LTNE source balance < 1 %'] is passed
+    if np.isfinite(residual):
+        assert certificate['source_normalization_W'] == 1.
+        assert certificate['source_residual_W'] == abs(residual)
+
+
+@pytest.mark.parametrize('residual,passed', [(.999, True), (1., False), (2., False)])
+def test_nonzero_duty_source_balance_retains_original_relative_gate(residual, passed):
+    result = _certificate_result()
+    result.update(Q_sA=-100., Q_sB=100.-residual)
+    certificate = audit.compute_phase2a(result)
+    assert dict(certificate['gates'])['full-volume LTNE source balance < 1 %'] is passed
+    assert certificate['source_normalization_W'] == 100.

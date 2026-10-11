@@ -36,6 +36,12 @@ def prepare_case(config: ComputeConfig, *, case_id: str) -> CaseData:
     return _prepare_with_metadata(prepare, config, case_id=case_id)
 
 
+def prepare_research_case(inputs, *, case_id: str) -> CaseData:
+    """Prepare prescribed 3D research inputs; execute them with run_case."""
+    from .three_d.research import prepare_research_case as prepare
+    return _prepare_with_metadata(prepare, inputs, case_id=case_id)
+
+
 def prepare_inlet_mass_capacities(config: ComputeConfig) -> dict[str, float]:
     """Resolve mass per inlet speed without evaluating an obsolete velocity.
 

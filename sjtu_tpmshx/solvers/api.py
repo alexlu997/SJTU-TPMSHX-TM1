@@ -10,6 +10,8 @@ from sjtu_tpmshx.domain.provenance import source_context
 def run_case(case: CaseData, control: RunControl = RunControl()) -> FieldResult:
     if control.backend not in ('python', 'cpp'):
         raise ValueError(f'unsupported backend: {control.backend}')
+    if control.backend not in case.metadata.get('supported_backends', ('python', 'cpp')):
+        raise ValueError(f'prepared research case does not support backend={control.backend}')
     dimension = case.grid.get('dimension')
     mode = case.metadata.get('mode', 'full')
     from sjtu_tpmshx.domain.compute_config import validate_enthalpy_algorithm

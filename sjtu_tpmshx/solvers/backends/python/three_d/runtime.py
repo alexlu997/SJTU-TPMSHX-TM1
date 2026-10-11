@@ -2007,7 +2007,8 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
             mass_A=mass_A, mass_B=mass_B,
             P_thermal_A=pressure_A, P_thermal_B=pressure_B,
             face_velocity_A=faces_A, face_velocity_B=faces_B,
-            rho_cp_A=state.rho_cp_fA, rho_cp_B=state.rho_cp_fB))
+            rho_cp_A=state.rho_cp_fA, rho_cp_B=state.rho_cp_fB,
+            **(dict(K_ffA=K_ffA, K_ffB=state.K_ffB) if cfg.get('_emit_audit', False) else {})))
 
     def _refresh_heat_transfer(outer, velocity_A):
         """Refresh each side's h_v and physical inlet masks in real axes."""

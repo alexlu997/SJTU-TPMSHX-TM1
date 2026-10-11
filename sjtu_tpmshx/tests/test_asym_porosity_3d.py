@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.models.asym_split import _asym_split_A, _eps_sides_for_run
-from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
+from sjtu_tpmshx.tests.cases_3d import run_research
 from sjtu_tpmshx.tests.cases_3d import air_air_cfg as _air_air_cfg
 from sjtu_tpmshx.df_surrogate import kappa_asym
 
@@ -64,8 +64,8 @@ def test_kappa_table_applies_and_clears():
 
 def test_delta0_explicit_matches_baseline_bit_identical():
     """delta_levelset=0.0 in cfg == no key at all → identical headline scalars."""
-    r0 = _run_3d_stack(_air_air_cfg())
-    rd = _run_3d_stack(_air_air_cfg(delta_levelset=0.0))
+    r0 = run_research(_air_air_cfg()).metadata['diagnostics']
+    rd = run_research(_air_air_cfg(delta_levelset=0.0)).metadata['diagnostics']
     for k in ('Q', 'dP', 'dP_B', 'T_A_out', 'T_B_out'):
         assert r0[k] == rd[k], f"{k}: {r0[k]} != {rd[k]}"
 
@@ -74,9 +74,9 @@ def test_delta0_explicit_matches_baseline_bit_identical():
 def test_asym_delta_runs_and_changes_result(conservative):
     """δ>0 runs end-to-end (NotImplementedError gone) on cc + stag kernels,
     produces finite output, and actually differs from symmetric."""
-    base = _run_3d_stack(_air_air_cfg(conservative_ltne=conservative))
-    asym = _run_3d_stack(_air_air_cfg(delta_levelset=0.6,
-                                      conservative_ltne=conservative))
+    base = run_research(_air_air_cfg(conservative_ltne=conservative)).metadata['diagnostics']
+    asym = run_research(_air_air_cfg(delta_levelset=0.6,
+                                      conservative_ltne=conservative)).metadata['diagnostics']
     assert np.isfinite(asym['Q']) and asym['Q'] > 0.0
     assert np.isfinite(asym['dP']) and np.isfinite(asym['dP_B'])
     # asymmetry must move at least one headline scalar
@@ -94,7 +94,7 @@ def test_asym_conservation_certificate_machine_zero():
                                         out_ctr=0.021, out_w=0.042,
                                         in_z_ctr=0.021, in_z_w=0.042,
                                         out_z_ctr=0.021, out_z_w=0.042))
-    r = _run_3d_stack(cfg)
+    r = run_research(cfg).metadata['diagnostics']
     assert np.isfinite(r['Q']) and r['Q'] > 0.0
     assert r['eps_A_strict'] < 1e-9, f"A-side conservation broke: {r['eps_A_strict']}"
     assert r['eps_B_strict'] < 1e-9, f"B-side conservation broke: {r['eps_B_strict']}"
