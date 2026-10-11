@@ -553,6 +553,9 @@ manifest 附带各 pytest 进程的独立 RSS 峰值与已加载 Numba dispatche
 
 ## 协作与合并
 
+Codex 与 Claude 共用 [AGENTS.md](AGENTS.md) 中的项目规则。任务归属、独立工作树、
+环境选择、同步与交接使用[协作流程](docs/collaboration.zh-CN.md)。
+
 公开契约的修改需要检查下游消费者：前处理的配置/单位/网格由求解侧复核；求解的
 原生场/边界证据/状态由后处理侧复核；指标定义及文件关联由应用/文件消费者复核。
 GUI 和调度留在 `ui/`、`controllers/`，模型资源保持共享。每个 PR 写明受影响的
