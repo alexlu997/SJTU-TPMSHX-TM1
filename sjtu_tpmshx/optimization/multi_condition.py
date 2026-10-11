@@ -71,8 +71,7 @@ def _energy_gates(field):
             raise ValueError('2D energy certificate requires main and fine thermal results')
         gates.append(['2D native Richardson check', diagnostics['convergence_detail']['richardson_ok'] is True])
         return gates
-    certificate = compute_phase2a({**metadata['diagnostics'],
-        '_audit_fB': metadata['parameters']['fluid_B_cfg']})
+    certificate = compute_phase2a(field)
     return [list(gate) for gate in certificate['gates']]
 
 

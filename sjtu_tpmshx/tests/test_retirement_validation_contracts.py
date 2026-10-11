@@ -56,7 +56,7 @@ def _certificate_fields(data):
 def test_current_conservation_gate_rejects_missing_nonfinite_and_failed_certificates(key, value):
     result = _certificate_result()
     result[key] = value
-    certificate = audit.compute_phase2a(result)
+    certificate = audit.compute_phase2a(_certificate_fields(result))
     assert not all(ok for _, ok in certificate['gates'])
 
 
@@ -67,7 +67,7 @@ def test_current_conservation_report_uses_full_cv_certificate(active_b):
         result['model_h_balance'] = None  # T5 capacity-temperature path.
     # Retired interior-source diagnostics have no current gate semantics.
     result.update(Q_sA_interior=1e9, Q_sB_interior=-1e9)
-    certificate = audit.compute_phase2a(result)
+    certificate = audit.compute_phase2a(_certificate_fields(result))
     cell = dict(net_out_total=0., net_out_abs=0., spurious_enthalpy_W=0.,
                 net_out_max_cell=0., net_out_p99=0.)
     report, passed = audit.render_case('T1', _certificate_fields(result), certificate, dict(A=cell, B=None))
@@ -78,7 +78,7 @@ def test_current_conservation_report_uses_full_cv_certificate(active_b):
         assert certificate['sides']['B'] is None and 'N/A (disabled)' in report
         assert 'capacity-temperature path' in report
         result['h_vB_field'][0, 0, 0] = 1.
-        assert not all(ok for _, ok in audit.compute_phase2a(result)['gates'])
+        assert not all(ok for _, ok in audit.compute_phase2a(_certificate_fields(result))['gates'])
 
 
 @pytest.mark.parametrize('damage', ['boundary', 'source', 'missing_ledger'])
@@ -91,9 +91,9 @@ def test_current_conservation_requires_complete_boundary_and_source_balance(dama
     else:
         del result['model_h_balance']
         with pytest.raises(KeyError):
-            audit.compute_phase2a(result)
+            audit.compute_phase2a(_certificate_fields(result))
         return
-    assert not all(ok for _, ok in audit.compute_phase2a(result)['gates'])
+    assert not all(ok for _, ok in audit.compute_phase2a(_certificate_fields(result))['gates'])
 
 
 @pytest.mark.parametrize('damage', ['global', 'cellmax', 'missing'])
@@ -184,7 +184,7 @@ def test_zero_duty_source_balance_keeps_one_percent_on_existing_one_watt_scale(
         active_b, residual, passed):
     result = _certificate_result(active_b)
     result.update(Q_sA=residual, Q_sB=0.)
-    certificate = audit.compute_phase2a(result)
+    certificate = audit.compute_phase2a(_certificate_fields(result))
     assert dict(certificate['gates'])['full-volume LTNE source balance < 1 %'] is passed
     if np.isfinite(residual):
         assert certificate['source_normalization_W'] == 1.
@@ -195,6 +195,6 @@ def test_zero_duty_source_balance_keeps_one_percent_on_existing_one_watt_scale(
 def test_nonzero_duty_source_balance_retains_original_relative_gate(residual, passed):
     result = _certificate_result()
     result.update(Q_sA=-100., Q_sB=100.-residual)
-    certificate = audit.compute_phase2a(result)
+    certificate = audit.compute_phase2a(_certificate_fields(result))
     assert dict(certificate['gates'])['full-volume LTNE source balance < 1 %'] is passed
     assert certificate['source_normalization_W'] == 100.

@@ -113,7 +113,7 @@ def test_entropy_rejects_nonfinite_evidence(key, value):
 def test_crossover_observation_is_not_rendered_as_a_failed_gate():
     from sjtu_tpmshx.tests.test_retirement_validation_contracts import _certificate_result, _certificate_fields
     data = _certificate_result()
-    certificate = audit.compute_phase2a(data)
+    certificate = audit.compute_phase2a(_certificate_fields(data))
     p3 = audit.compute_phase3(null_case())
     p3.update(C_r=.5, eps_obs=.9, cold_lt_hot=False, T_A_out=320., T_B_out=340.)
     cell = dict(net_out_total=0., net_out_abs=0., spurious_enthalpy_W=0.,

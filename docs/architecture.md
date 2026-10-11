@@ -604,8 +604,10 @@ The source ratio uses `max(abs(Q_sA), abs(Q_sB), 1 W)`, the existing
 strict-energy zero-duty scale. Thus the absolute source residual must stay
 below 0.01 W near zero duty. Python and C++ use the same rule.
 The physical boundary ledger must be complete. Native 3D finishing and the
-conservation audit use this same pure function, owned by `result_math` and
-re-exported through the existing postprocessing entry.
+conservation audit use the same pure certificate function in `result_math`.
+The public postprocessing entry accepts `FieldResult` only and extracts its
+recorded certificate; numerical kernels pass their local evidence directly to
+the pure function.
 
 The 2D branch requires the native main/fine
 model-h balances, complete physical boundaries and Richardson acceptance.
@@ -798,10 +800,11 @@ does not return a fabricated completed archive.
 Each full-compute backend explicitly produces its display/flow fields and
 final diagnostics, passing diagnostics directly to native result capture.
 Capture does not infer diagnostic ownership from value types. The 3D backend
-still uses an internal flattened mapping, including optional audit exports and
-absent-field placeholders, before capture returns `FieldResult`. The public
-dictionary entry is retired. Final report diagnostics stay separate from the
-detached last-thermal snapshot. Reporting references
+passes its problem, outer state, reporting metrics and diagnostics directly to
+`FieldResult` capture. Its flattened intermediate dictionary and public
+dictionary entry are retired. Optional audit exports and absent-field
+diagnostic placeholders retain their contracts. Final report diagnostics stay
+separate from the detached last-thermal snapshot. Reporting references
 do not replace formal reductions from native evidence.
 
 Full 2D heat duty is W/m with no fabricated thickness or z-wall loss. Full 3D

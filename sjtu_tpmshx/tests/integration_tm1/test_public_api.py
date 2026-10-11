@@ -32,6 +32,26 @@ def assert_slots(actual, expected):
         assert actual == expected
 
 
+def legacy_3d_result(prob, outer, metrics, diagnostics):
+    """Recreate the retired 3D input for the frozen application-mapping oracle."""
+    raw = dict(
+        Ta=outer.Ta, Tb=outer.Tb, Ts=outer.Ts, vmag=metrics.vmag,
+        P_kPa=metrics.P_real / 1000.,
+        L_mm=(prob.L_mm_field.copy() if prob.L_mm_field is not None
+              else np.full((prob.Nx, prob.Ny, prob.Nz), prob.Lcell)),
+        P_Pa=metrics.P_real, P_Pa_B=metrics.P_real_B,
+        uc_real=metrics.uc_real, vc_real=metrics.vc_real, wc_real=metrics.wc_real,
+        uc_real_B=prob.ucB, vc_real_B=prob.vcB, wc_real_B=prob.wcB,
+        vmag_B=metrics.vmag_B, dx=prob.dx, dy=prob.dy, dz=prob.dz,
+        h_vA_field=outer.h_vA_field, h_vB_field=outer.h_vB_field)
+    raw.update(diagnostics)
+    if prob.cfg.get('_emit_audit', False):
+        raw.update(_audit_K_ffA=prob.K_ffA, _audit_K_ffB=outer.K_ffB,
+                   _audit_K_ss=prob.K_ss, _audit_rho_cp_fA=outer.rho_cp_fA,
+                   _audit_rho_cp_fB=outer.rho_cp_fB)
+    return raw
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize('dimension', [2, 3])
 def test_real_application_mapping_and_offline_readback(monkeypatch, tmp_path, dimension):
@@ -59,8 +79,9 @@ def test_real_application_mapping_and_offline_readback(monkeypatch, tmp_path, di
         from sjtu_tpmshx.solvers.backends.python.three_d import result_capture
         from sjtu_tpmshx.tests.integration_tm1.legacy_result_mapping import _finalize_3d_cfg
         capture = result_capture.capture_result
-        def checked_capture(case, problem, outer, raw, diagnostics):
-            result = capture(case, problem, outer, raw, diagnostics)
+        def checked_capture(case, problem, outer, metrics, diagnostics):
+            result = capture(case, problem, outer, metrics, diagnostics)
+            raw = legacy_3d_result(problem, outer, metrics, diagnostics)
             expected.append(lambda: _finalize_3d_cfg(dict(raw), dict(
                 compute_cfg=config, extrap_reasons=case.parameters['extrap_reasons'])))
             return result

@@ -18,7 +18,7 @@ from sjtu_tpmshx.postprocess.api import evaluate
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.tests.integration_tm1.test_2d_real import baseline_config
-from sjtu_tpmshx.tests.integration_tm1.test_public_api import assert_slots
+from sjtu_tpmshx.tests.integration_tm1.test_public_api import assert_slots, legacy_3d_result
 
 
 def _synthetic_3d_results():
@@ -152,7 +152,7 @@ def _assert_producer_diagnostics(raw, diagnostics, expected_keys):
         assert diagnostics[key] is value, key
 
 
-def _assert_3d_diagnostics(raw, diagnostics, *, frozen_B=False, audit=False):
+def _assert_3d_diagnostics(diagnostics, *, frozen_B=False, audit=False):
     expected = _DIAGNOSTICS_3D
     none_keys = {'true_h_balance'}
     if frozen_B:
@@ -175,7 +175,9 @@ def _assert_3d_diagnostics(raw, diagnostics, *, frozen_B=False, audit=False):
                 'outlet_frac', 'rho', 'solver_to_real_perm', 'u', 'v', 'w'}
             assert diagnostics[f'_audit_f{side}'].keys() == {
                 'dir', 'in_ctr', 'in_w', 'out_ctr', 'out_w'}
-    _assert_producer_diagnostics(raw, diagnostics, expected)
+    assert diagnostics.keys() == expected, (
+        f'diagnostic keys: missing={sorted(expected - diagnostics.keys())}, '
+        f'unexpected={sorted(diagnostics.keys() - expected)}')
     trace = diagnostics['coarse_bootstrap_trace']
     assert trace.keys() == {'A', 'B'}
     for side in ('A',) if frozen_B else ('A', 'B'):
@@ -261,7 +263,7 @@ def native_result(request):
     captured = []
     capture = module.capture_result
     def record(*args):
-        raw = args[1] if dimension == 2 else args[3]
+        raw = args[1] if dimension == 2 else legacy_3d_result(*args[1:])
         diagnostics = args[-1]
         if dimension == 2:
             expected = (_DIAGNOSTICS_2D - {'ucA_disp', 'vcA_disp'}
@@ -288,7 +290,7 @@ def native_result(request):
                     assert {'physical_boundary_complete', 'Q_advective_W_per_m',
                             'h_faces_W_per_m', 'mass_faces_kg_s_per_m'} <= balance[side].keys()
         else:
-            _assert_3d_diagnostics(raw, diagnostics)
+            _assert_3d_diagnostics(diagnostics)
         captured.append(raw)
         result = capture(*args)
         assert result.metadata['diagnostics'].keys() == diagnostics.keys()
@@ -307,7 +309,7 @@ def native_result(request):
 @pytest.mark.parametrize('frozen_B', [False, True])
 @pytest.mark.parametrize('audit', [False, True])
 def test_research_3d_producer_preserves_optional_diagnostics(monkeypatch, frozen_B, audit):
-    from sjtu_tpmshx.solvers.backends.python.three_d import runtime as stack
+    from sjtu_tpmshx.solvers.backends.python.three_d import result_capture
     from sjtu_tpmshx.tests.cases_3d import run_research
     from sjtu_tpmshx.tests.test_convergence_truth_table import _cheap_3d
 
@@ -316,32 +318,33 @@ def test_research_3d_producer_preserves_optional_diagnostics(monkeypatch, frozen
     cfg['sweep_profile'] = None
     if frozen_B:
         cfg['fluid_B_cfg'] = None
-    assemble = stack._assemble_3d_verdict
+    capture = result_capture.capture_result
     observed = []
     thermal_conductivity = []
 
-    def record(prob, outer, metrics):
-        raw, diagnostics = assemble(prob, outer, metrics)
-        _assert_3d_diagnostics(raw, diagnostics, frozen_B=frozen_B, audit=audit)
+    def record(case, prob, outer, metrics, diagnostics):
+        result = capture(case, prob, outer, metrics, diagnostics)
+        _assert_3d_diagnostics(diagnostics, frozen_B=frozen_B, audit=audit)
         observed.append(diagnostics)
         if frozen_B:
-            assert raw['P_Pa_B'] is raw['vmag_B'] is None
+            assert metrics.P_real_B is metrics.vmag_B is None
             assert diagnostics['P_Pa_B'] is diagnostics['vmag_B'] is None
         if audit:
             thermal_conductivity.append({key: np.array(outer.native_evidence[key], copy=True)
                                          for key in ('K_ffA', 'K_ffB')})
             assert '_audit_sA_face' in diagnostics
             assert '_audit_K_ffA' not in diagnostics
-            assert not np.shares_memory(raw['_audit_K_ffA'], prob.K_ffA)
+            assert not np.shares_memory(result.metadata['application']['coeffs']['K_ffA'], prob.K_ffA)
             assert not np.shares_memory(diagnostics['_audit_sA_face']['u'], prob.sA.u)
             if frozen_B:
                 assert diagnostics['_audit_sB_face'] is None
                 assert diagnostics['_audit_in_mask_B'] is None
         else:
-            assert not any(key.startswith('_audit_') for key in raw)
-        return raw, diagnostics
+            assert not any(key.startswith('_audit_') for key in diagnostics)
+            assert result.metadata['application']['coeffs']['K_ffA'] is None
+        return result
 
-    monkeypatch.setattr(stack, '_assemble_3d_verdict', record)
+    monkeypatch.setattr(result_capture, 'capture_result', record)
     result = run_research(cfg)
     for key in ('K_ffA', 'K_ffB'):
         assert (key in result.fields) is audit
