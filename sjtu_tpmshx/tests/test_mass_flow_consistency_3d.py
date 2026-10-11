@@ -1,11 +1,7 @@
 """3D solver mass-flow consistency tests — pins Category B (mixed-basis PPE) bug.
 
-Pre-fix: both tests are EXPECTED to FAIL with a ~2x discrepancy when eps=0.5.
-Post-fix: both tests should PASS.
-
-Bug source (per 2026-05-14 audit, vault/reports/3d-solver/
-2026-05-14-flow-topology/audit_notes.md):
-    simple_solver(_3d).py PPE assembly mixes interstitial matrix
+The original 2026-05-14 failure had a ~2x discrepancy when eps=0.5:
+    simple_solver(_3d).py PPE assembly mixed interstitial matrix
     (rho * eps coefficients) with superficial RHS (rho * u divergence).
     With eps=0.5 the pressure correction is ~2x scaled, propagating an
     inconsistent mass-flow factor through the solution.

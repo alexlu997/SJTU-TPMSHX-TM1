@@ -209,8 +209,7 @@ def build_wall_refined_1d(W, N_bulk, n_refine=8, first_cell=0.02e-3, growth=1.8)
     -------
     dx_arr : np.ndarray shape (2*n_refine + N_bulk,), sum == W
 
-    Used to resolve Brinkman boundary layer at outer housing walls. See
-    vault/reports/2026-04-17-shanghai-dP-error-analysis-CN.md §12.
+    Used to resolve the Brinkman boundary layer at outer housing walls.
     """
     refine_sizes = np.array([first_cell * growth**k for k in range(n_refine)], dtype=np.float64)
     total_refine = 2.0 * refine_sizes.sum()

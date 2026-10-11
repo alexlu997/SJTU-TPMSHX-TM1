@@ -45,7 +45,7 @@ tpmshx-run = "sjtu_tpmshx.cli:main"
 tpmshx-gui = "sjtu_tpmshx.desktop:main"
 
 [tool.tpmshx.native-dependencies]
-# Explicit isolated pilots; Python requirements and production backend stay separate.
+# Explicit native builds; Python package installation does not provision these dependencies.
 requirements = ["CMake==4.4.4", "CoolProp==8.0.0", "SuperLU==7.0.1", "AMGCL==1.5.0"]
 lock-file = "native/dependencies-lock.toml"
 build-script = "scripts/build_native_dependencies.py"

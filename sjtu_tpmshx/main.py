@@ -82,8 +82,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         self._compute_running = False
         self._compute_btn_handler = None
 
-        # Controllers — Phase 1+2+3 of 2026-05-06 main.py refactor (#4).
-        # See vault/reports/refactor/2026-05-06-main-py-refactor-plan-CN.md.
+        # Controller ownership and lifecycle are defined in docs/architecture.md.
         from sjtu_tpmshx.controllers import (ComputeOrchestrator, ResultCache,
                                   SessionManager, SignalRouter)
         from sjtu_tpmshx.ui.theme_manager import ThemeManager

@@ -1,13 +1,11 @@
 """ComputeOrchestrator — solver thread lifecycle as a QObject.
 
-Replaces the raw `threading.Thread(daemon=True)` + QTimer-poll pattern in
-`main.py:run_calculation` with a Qt-native QThreadPool + QRunnable + signals
-pattern. Provides:
+Runs solver work in QThreadPool/QRunnable and publishes results through
+queued Qt signals. Provides:
 
   - re-entrancy guard (refuse to start while running)
   - cooperative cancel via cancel_token (worker checks at epoch boundaries)
   - structured signals (started / progress / finished / error / cancelled)
-  - ETA history per mode (2d / 3d)
   - solver stdout/stderr capture of the latest 500,000 characters
 
 The actual solver work runs in `worker_fn(cfg, cancel_token, progress_cb)`.
@@ -47,11 +45,7 @@ class CancelToken:
 
     @property
     def cancelled(self) -> bool:
-        """B2 2.1a (2026-06-13): the pipeline layer probes
-        ``getattr(token, 'cancelled', False)`` (compute_pipeline._check_cancel
-        and its RunControl callback) — without this property that probe was ALWAYS
-        False, making cancel a silent no-op on the cfg path. ``is_set()``
-        stays for the legacy window path."""
+        """Expose the same flag through the compute pipeline's token contract."""
         return self._evt.is_set()
 
     def cancel(self) -> None:
@@ -275,9 +269,9 @@ class ComputeOrchestrator(QObject):
         worker_fn signature:
             worker_fn(cfg, cancel_token: CancelToken,
                       progress_cb: Callable[[int], None]) -> object
-        Worker should poll cancel_token at epoch boundaries and raise
-        ComputeOrchestrator.CancelledError when set, OR simply return early
-        with whatever partial state is reasonable.
+        Worker should poll cancel_token at its cancellation checkpoints and
+        raise ComputeOrchestrator.CancelledError when set. A normal return
+        publishes finished, including an unconverged result.
 
         Re-entrancy: rejects with False if a compute is already running.
         Caller should display "compute busy" feedback in that case.
@@ -301,9 +295,9 @@ class ComputeOrchestrator(QObject):
     def cancel(self) -> None:
         """Signal the worker to stop at its next epoch boundary.
 
-        Idempotent. Worker decides what 'stop' means (mid-iteration return
-        with partial result, or raise CancelledError). The orchestrator does
-        NOT force-kill the thread — that would corrupt numba state.
+        Idempotent. The worker raises CancelledError after it observes the
+        flag. The orchestrator does not force-kill the thread, which could
+        leave numerical state incomplete.
         """
         if self._cancel_token is not None:
             self._cancel_token.cancel()

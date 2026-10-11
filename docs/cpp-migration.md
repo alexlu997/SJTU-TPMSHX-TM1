@@ -578,8 +578,9 @@ exercise saved-case selection, cancellation and actual native error exits. Neith
 
 ## Isolated EOS and pressure dependency qualification
 
-The dependency pilot is an explicit build, separate from production backend
-selection. Its inputs are locked in
+Native dependencies require an explicit build, separate from production backend
+selection. `native/dependency-pilot/` is the build project for the current native backends.
+Its inputs are locked in
 [`native/dependencies-lock.toml`](../native/dependencies-lock.toml).
 These include CoolProp 8.0.0, its nine required CPM header dependencies at fixed
 commits, and SuperLU 7.0.1 with three selected SciPy 1.18.1 double-LU corrections.

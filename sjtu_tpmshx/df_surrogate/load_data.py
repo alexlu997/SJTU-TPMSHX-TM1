@@ -158,7 +158,7 @@ def _attach_geometry(df: pd.DataFrame) -> pd.DataFrame:
 # Shanghai geometry — never appears in training. Used by
 # _assert_no_shanghai_leakage to fail loudly if anyone accidentally points
 # DATA_XLSX at a validation file or a future merge contaminates the
-# training sheets. See vault/reports/shanghai-validation/ for context.
+# training sheets. See docs/model-resources.md for the data boundary.
 _SHANGHAI_GEOMETRY = (7.0, 0.6)   # (L_mm, t_mm)
 _SHANGHAI_PATH_KEYWORDS = ('shanghai', '上海')
 

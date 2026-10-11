@@ -1,17 +1,5 @@
 """SessionManager — file-based session + preset persistence with versioning.
 
-Phase 2 of 2026-05-06 main.py refactor (audit fix #4). Aggregates the IO
-that was previously inlined in Main_Menu:
-
-    Main_Menu method                  SessionManager method
-    ──────────────────────────        ─────────────────────────────
-    self._session_path(ws)            sm.session_path(ws)
-    self._save_session()              sm.save_session(payload, ws)
-    self._restore_session()           sm.load_session(ws)
-    self._user_presets_path()         sm.presets_path()
-    self._load_user_presets()         sm.load_user_presets()
-    self._save_user_presets(presets)  sm.save_user_presets(presets)
-
 File names under the platform user data directory:
     .last_session.json        ← workspace A
     .last_session_B.json      ← workspace B
@@ -19,17 +7,14 @@ File names under the platform user data directory:
     .user_presets.json        ← named preset library
     .workspace               ← single-char active workspace marker
 
-Schema version (NEW)
---------------------
-All session/preset payloads now include `schema_version` (currently 1).
-Older files without the field are treated as v0 and silently migrated on
-load (no field changes yet — version stamp is forward-compat only).
+Saved session payloads and preset archives include `schema_version` (1).
+Session loads mark files without this field as v0 for the caller's restore
+validation. Unrestored files are kept before replacement.
 
 `base_dir` remains configurable for isolated sessions and tests. The default
 imports existing package-local user files without changing the originals.
 
-Phase 2 of 2026-05-06 plan #4 refactor.
-See vault/reports/refactor/2026-05-06-main-py-refactor-plan-CN.md.
+See docs/architecture.md for controller responsibilities and restore rules.
 """
 from __future__ import annotations
 
@@ -103,8 +88,8 @@ class SessionManager(QObject):
     def load_session(self, workspace: str = 'A') -> Optional[Dict[str, Any]]:
         """Return parsed session payload or None if file missing/malformed.
 
-        Auto-migrates pre-v1 files (no schema_version field) on read by
-        injecting `schema_version: 0` so caller can route by version.
+        Marks pre-v1 files with `schema_version: 0` in memory so the caller
+        can route by version. Reading does not rewrite the file.
         """
         path = self.session_path(workspace)
         if not path.exists():
@@ -129,7 +114,6 @@ class SessionManager(QObject):
         self._unrestored_files.discard(path)
         # Schema migration: legacy files missing the field → v0
         payload.setdefault('schema_version', 0)
-        # Future: payload = self._migrate(payload) ...
         return payload
 
     def quarantine_session(self, workspace: str = 'A') -> Optional[Path]:

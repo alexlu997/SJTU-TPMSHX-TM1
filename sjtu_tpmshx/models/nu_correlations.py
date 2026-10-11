@@ -1,10 +1,7 @@
 """Nu correlations — single source of truth for scalar + vector paths.
 
-Replaces the previous lock-step pattern where Nu coefficients lived in BOTH
-``tpms_calc._nu_diamond`` / ``_nu_gyroid`` (scalar path) AND
-``sigmoid_field._nu_vec`` (vector path). After 2026-05-28 refactor (per
-audit finding H1), both call sites import from here, so refitting Nu
-requires editing exactly ``NU_COEFFS`` below.
+Scalar and vector consumers share the coefficients below. The native build
+generates its model coefficients from the same Python definitions.
 
 API
 ---
@@ -17,10 +14,9 @@ Historical Pr-substitution and Yan comparisons live in tests/water_nu_reference.
 Roughness factor
 ----------------
 ``NU_ROUGHNESS_FACTOR = 1.28`` — SLM Sa≈31 µm roughness enhancement.
-Multiplies the smooth-wall Nu uniformly. See
-``vault/reports/method/2026-04-28-nu-correlation-v4-3p-PL-CN.md`` for the
-experimental derivation (φ_rough = ⟨Q_exp / Q_DB(Re)⟩ across 0°/30°/45°/
-60°/90° print angles ≈ 1.28).
+Multiplies the smooth-wall air Nu uniformly. Its historical derivation is
+φ_rough = ⟨Q_exp / Q_DB(Re)⟩ across 0°/30°/45°/60°/90° print angles ≈ 1.28.
+See ``docs/model-resources.md`` for current resources and applicability.
 
 Form
 ----
