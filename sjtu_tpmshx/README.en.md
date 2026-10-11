@@ -36,7 +36,7 @@ See the [project README](../README.en.md) and [capabilities](../docs/capabilitie
 | [io](io/) | YAML, HDF5 and JSON transport, with reader validation. |
 | [models](models/) and [df_surrogate](df_surrogate/) | Shared geometry, properties, correlations and model resources. |
 | [configs](configs/) | Configuration resources supplied with the package. |
-| [pipelines](pipelines/) and [workflows](workflows/) | Script entries and workflow orchestration. |
+| [workflows](workflows/) | Script entries and workflow orchestration. |
 | [main.py](main.py), [ui](ui/) and [controllers](controllers/) | GUI startup, presentation and controls. Use the public modules to organize computation. |
 | [cli.py](cli.py) | CLI preparation, solving, postprocessing and complete runs. |
 | [design](design/) and [optimization](optimization/) | Quick Design and parameter optimization applications. |

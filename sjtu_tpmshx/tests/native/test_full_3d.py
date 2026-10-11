@@ -206,15 +206,15 @@ def reference(cfg, p, thermal=None):
     metrics = runtime._extract_3d_metrics(prob, outer)
     if thermal is not None:
         metrics = thermal.volume_reporting(prob, outer, metrics)
-    raw, diagnostics = runtime._assemble_3d_verdict(prob, outer, metrics)
-    return prob, outer, metrics, raw, diagnostics
+    diagnostics = runtime._assemble_3d_diagnostics(prob, outer, metrics)
+    return prob, outer, metrics, diagnostics
 
 
 def assert_equivalent(actual, expected):
     assert actual["code"] == 0, actual["error"]
-    prob, outer, metrics, raw, diagnostics = expected
+    prob, outer, metrics, diagnostics = expected
     stats = actual[202]
-    assert bool(stats[1]) == bool(raw["solver_converged"])
+    assert bool(stats[1]) == bool(diagnostics["solver_converged"])
     assert bool(stats[4]) == bool(outer._outer_converged)
     assert actual[200].shape[0] == len(prob._ltne_info)
     np.testing.assert_array_equal(actual[200][:, 1], [x["iters"] for x in prob._ltne_info])
@@ -357,13 +357,13 @@ def test_refined_real_grid_and_existing_energy_acceleration(native, same_thermal
 
     actual = native.run(cfg, p)
     with patch.object(same_thermal, "volume", side_effect=capture):
-        prob, outer, _, raw, _ = reference(cfg, p, thermal=same_thermal)
+        prob, outer, _, diagnostics = reference(cfg, p, thermal=same_thermal)
     assert actual["code"] == 0, actual["error"]
     stats, history, checks = actual[202], actual[200], actual[203]
     assert stats[0] == 1 and not stats[1] and not stats[4]  # iteration_limit
     assert stats[2] == stats[3] == stats[5] == stats[7] == 1
     assert stats[9] == outer.native_evidence["outer_index"] == 1
-    assert not raw["solver_converged"] and not outer._outer_converged
+    assert not diagnostics["solver_converged"] and not outer._outer_converged
     assert history.shape == (2, 16) and len(prob._ltne_info) == 2
     np.testing.assert_array_equal(history[:, 0], [0, 1])
     np.testing.assert_array_equal(history[:, 3], [True, True])

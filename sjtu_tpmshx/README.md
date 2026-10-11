@@ -30,7 +30,7 @@
 | [io/](io/) | YAML/HDF5/JSON 文件交接与读取校验 |
 | [models/](models/)、[df_surrogate/](df_surrogate/) | 共享几何、物性、关联式及模型资源 |
 | [configs/](configs/) | 随包提供的配置资源 |
-| [pipelines/](pipelines/)、[workflows/](workflows/) | 脚本入口与计算流程编排 |
+| [workflows/](workflows/) | 脚本入口与计算流程编排 |
 | [main.py](main.py)、[ui/](ui/)、[controllers/](controllers/) | GUI 入口、显示和界面控制；通过公开模块组织计算 |
 | [cli.py](cli.py) | 命令行的准备、求解、后处理及完整运行入口 |
 | [design/](design/)、[optimization/](optimization/) | 快速设计和参数优化应用 |

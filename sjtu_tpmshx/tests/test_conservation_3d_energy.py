@@ -35,7 +35,7 @@ import pytest
 from sjtu_tpmshx.validation.cases.audit_3d_conservation import (
     make_T1, make_T2, make_T3, make_T4, make_T5, make_T6,
 )
-from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
+from sjtu_tpmshx.tests.cases_3d import run_research
 
 _GATE = 0.01  # < 1 %
 
@@ -64,7 +64,7 @@ def test_strict_energy_conservation(name, maker, grid):
     does not break mass conservation, for every audit geometry."""
     cfg = maker(grid)
     cfg["conservative_ltne"] = True
-    res = _run_3d_stack(cfg)
+    res = run_research(cfg).metadata['diagnostics']
 
     # Strict-conservation certificate must be emitted on the conservative path.
     for key in ("eps_A_strict", "eps_B_strict",

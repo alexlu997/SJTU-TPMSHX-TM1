@@ -1,6 +1,6 @@
 """Model-h face transport: independent balances and production ownership."""
 
-from sjtu_tpmshx.pipelines.run_stack_3d import _build_3d_problem
+from sjtu_tpmshx.tests.cases_3d import prepared_problem
 import inspect
 
 import numpy as np
@@ -123,7 +123,7 @@ def test_actual_pipeline_gate_and_prebalance_mass(monkeypatch, pair, var, nz, en
     cfg.update(variable_rho_cp=var)
     monkeypatch.delenv('TPMSHX_VAR_RHOCP', raising=False)
     monkeypatch.setattr(stages.SIMPLESolver3D, 'solve', lambda *a, **k: (True, 0))
-    prob = _build_3d_problem(cfg)
+    prob = prepared_problem(cfg)
     hv = stages._build_hv_machinery(prob)
     for solver in (prob.sA, prob.sB):
         solver.v[:] = .02
@@ -184,7 +184,7 @@ def _pipeline_cfg(pair=('air', 'air'), nz=4):
 @pytest.mark.parametrize('invalid', [None, ('A', 'unknown'), ('B', 'nan'), ('A', 'inf')])
 def test_model_h_ledger_reaches_result_before_final_post(monkeypatch, cap, invalid):
     from sjtu_tpmshx.solvers.backends.python.three_d import runtime as stages
-    from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
+    from sjtu_tpmshx.tests.cases_3d import run_research
     monkeypatch.setattr(stages.SIMPLESolver3D, 'solve', lambda *a, **k: (True, 0))
     signature = inspect.signature(energy.solve_full_domain_3d)
     seen = []
@@ -214,7 +214,7 @@ def test_model_h_ledger_reaches_result_before_final_post(monkeypatch, cap, inval
         return 1, False
     monkeypatch.setattr(stages, 'solve_full_domain_3d', thermal)
     monkeypatch.setattr(stages, 'run_outer_coupling', outer)
-    raw = _run_3d_stack(_pipeline_cfg())
+    raw = run_research(_pipeline_cfg()).metadata['diagnostics']
     ledger = raw['model_h_balance']
     assert ledger['numerical_external_inward_W'] == 2.5
     assert ledger['physical_external_inward_W'] is None
@@ -235,9 +235,9 @@ def test_model_h_ledger_reaches_result_before_final_post(monkeypatch, cap, inval
 @pytest.mark.parametrize('cap', [False, True])
 def test_native_thermal_snapshot_survives_final_post(monkeypatch, cap):
     from sjtu_tpmshx.solvers.backends.python.three_d import runtime as stages
-    from sjtu_tpmshx.pipelines.run_stack_3d import _build_3d_problem
+    from sjtu_tpmshx.tests.cases_3d import prepared_problem
     monkeypatch.setattr(stages.SIMPLESolver3D, 'solve', lambda *a, **k: (True, 0))
-    prob = _build_3d_problem(_pipeline_cfg())
+    prob = prepared_problem(_pipeline_cfg())
     hv = stages._build_hv_machinery(prob)
     signature = inspect.signature(energy.solve_full_domain_3d)
     consumed = {}
@@ -273,7 +273,7 @@ def test_native_thermal_snapshot_survives_final_post(monkeypatch, cap):
 
 def test_reported_model_h_two_unequal_outlets_excludes_diffusion(monkeypatch):
     from sjtu_tpmshx.solvers.backends.python.three_d import runtime as stages
-    from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
+    from sjtu_tpmshx.tests.cases_3d import run_research
     # Two CVs with unequal outlet masses. Independent h=2*theta+.01*theta**2:
     # h(340)=96, h(310)=21, h(330)=69; 4*96-(1*21+3*69)=156 W.
     # cp(340)*4*(340-325)=168 and 4*(h(340)-h(325))=159 are both wrong.
@@ -301,7 +301,7 @@ def test_reported_model_h_two_unequal_outlets_excludes_diffusion(monkeypatch):
     cfg.update(Nx=1, Ny=1, T_inA=340.)
     cfg['fluid_A_cfg']['dir'] = 0
     cfg['fluid_B_cfg']['dir'] = 1
-    raw = _run_3d_stack(cfg)
+    raw = run_research(cfg).metadata['diagnostics']
     assert raw['Q_total'] == pytest.approx(156.)
     assert raw['Q_enthalpy_B'] == pytest.approx(228.)
 
@@ -321,8 +321,8 @@ def test_report_without_model_h_ledger_keeps_original_cp_temperature(monkeypatch
     cfg = _pipeline_cfg()
     cfg['variable_rho_cp'] = False
     monkeypatch.delenv('TPMSHX_VAR_RHOCP', raising=False)
-    from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
-    raw = _run_3d_stack(cfg)
+    from sjtu_tpmshx.tests.cases_3d import run_research
+    raw = run_research(cfg).metadata['diagnostics']
     assert raw['Q'] == pytest.approx(4*float(air_cp(350.))*25.)
     assert raw['Q_enthalpy_B'] == pytest.approx(4*float(air_cp(300.))*25.)
 

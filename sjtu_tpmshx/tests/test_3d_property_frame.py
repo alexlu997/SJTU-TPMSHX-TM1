@@ -1,6 +1,6 @@
 """Exercise the wired outer property refresh without running numerical sweeps."""
 
-from sjtu_tpmshx.pipelines.run_stack_3d import _build_3d_problem
+from sjtu_tpmshx.tests.cases_3d import prepared_problem
 import inspect
 
 import numpy as np
@@ -56,7 +56,7 @@ def test_outer_temperature_properties_share_simple_frame(
         return True, 0
 
     monkeypatch.setattr(stages.SIMPLESolver3D, 'solve', solve)
-    prob = _build_3d_problem(cfg)
+    prob = prepared_problem(cfg)
     hv = stages._build_hv_machinery(prob)
     model = stages.fluid_props.get(fluid)
 

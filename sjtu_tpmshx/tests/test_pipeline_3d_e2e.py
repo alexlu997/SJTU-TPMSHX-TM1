@@ -1,11 +1,7 @@
 """Pipeline3D.run() end-to-end smoke (audit T5, 2026-07-07).
 
-Until this file, no test executed the full 3D orchestration
-(config parse → _run_3d_stack → finalize): unit tests constructed
-Pipeline3D without running it, and the golden gate calls _run_3d_stack
-directly, bypassing the assembly layers. The 2D side has always run
-Pipeline2D.run() in its golden — this closes the asymmetry at the pytest
-level (physical-consistency assertions, not pinned values).
+Exercise the full public preparation, solve and GUI-result mapping path.
+Physical-consistency assertions complement the independent numerical goldens.
 """
 import math
 

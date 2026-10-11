@@ -223,24 +223,24 @@ def test_compute_result_has_converged_default_true():
 
 # ── 3D cell cap (script path, no UI dialog) ───────────────────────────
 
-def test_run_3d_stack_cell_cap(monkeypatch):
-    from sjtu_tpmshx.runs._case_template import build_cfg
-    from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
+def testrun_research_cell_cap(monkeypatch):
+    from sjtu_tpmshx.tests.cases_3d import demo_fixture_cfg as build_cfg
+    from sjtu_tpmshx.tests.cases_3d import run_research
     monkeypatch.setenv('TPMSHX_MAX_CELLS_3D', '1000')
     cfg = build_cfg(Nx=20, Ny=20, Nz=5)          # 2000 cells > 1000 cap
     with pytest.raises(ValueError, match='cell cap'):
-        _run_3d_stack(cfg)
+        run_research(cfg)
 
 
-def test_run_3d_stack_cell_cap_cfg_override(monkeypatch):
-    from sjtu_tpmshx.runs._case_template import build_cfg
-    from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
+def testrun_research_cell_cap_cfg_override(monkeypatch):
+    from sjtu_tpmshx.tests.cases_3d import demo_fixture_cfg as build_cfg
+    from sjtu_tpmshx.tests.cases_3d import run_research
     monkeypatch.setenv('TPMSHX_MAX_CELLS_3D', '10')
     cfg = build_cfg(Nx=20, Ny=20, Nz=5, max_cells_3d=100)
     # cfg override wins over env; 2000 > 100 still raises (proves the
     # cfg path is honoured without running a full solve)
     with pytest.raises(ValueError, match='cell cap'):
-        _run_3d_stack(cfg)
+        run_research(cfg)
 
 
 # ── corrupt-session quarantine ────────────────────────────────────────

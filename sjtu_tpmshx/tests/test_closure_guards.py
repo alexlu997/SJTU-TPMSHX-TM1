@@ -103,7 +103,7 @@ def test_compute_nu_window_unified_no_warn_at_re_581():
 
 
 # ── compressible dP infeasibility honesty ──────────────────────────────────
-def test_predict_dP_choked_warns_when_rescuing_to_pin():
+def test_predict_dP_infeasible_warns_when_rescuing_to_pin():
     import sjtu_tpmshx.df_surrogate.predict as predmod
     predmod._CHOKE_WARNED.clear()
     with W.catch_warnings(record=True) as rec:
@@ -113,15 +113,11 @@ def test_predict_dP_choked_warns_when_rescuing_to_pin():
             'Gyroid', 7.0, 0.5, 0.78, G=200.0, T=800.0, P_in=101325.0,
             mu=3.6e-5, L=0.7, strict=False)
     assert dP == pytest.approx(101325.0)
-    assert any('chok' in str(w.message).lower()
-               or 'infeasible' in str(w.message).lower() for w in rec)
+    assert any('no positive outlet pressure solution' in str(w.message).lower() for w in rec)
 
 
-def test_predict_dP_choke_warns_per_geometry_not_once_per_process():
-    # Audit fix (choke-warn-key-too-coarse): the warning was keyed on the
-    # constant string 'choke', so only the FIRST choked candidate in a design
-    # sweep warned. Now keyed on (tpms, L, t) -> a second, different choked
-    # geometry warns too.
+def test_predict_dP_infeasible_warns_per_geometry_not_once_per_process():
+    # An infeasible pressure estimate must warn for each distinct geometry.
     import sjtu_tpmshx.df_surrogate.predict as predmod
     predmod._CHOKE_WARNED.clear()
     geoms = [('Gyroid', 7.0, 0.5), ('Diamond', 4.0, 0.3)]
@@ -132,6 +128,6 @@ def test_predict_dP_choke_warns_per_geometry_not_once_per_process():
             predict_dP_compressible(tpms, L, t, 0.78, G=200.0, T=800.0,
                                     P_in=101325.0, mu=3.6e-5, L=0.7,
                                     strict=False)
-        if any('chok' in str(w.message).lower() for w in rec):
+        if any('no positive outlet pressure solution' in str(w.message).lower() for w in rec):
             warned += 1
-    assert warned == 2, "each distinct choked geometry must warn"
+    assert warned == 2, "each distinct infeasible geometry must warn"

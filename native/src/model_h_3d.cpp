@@ -226,7 +226,8 @@ ModelHAudit3D audit(const Mesh& mesh, Side& a, Side& b, ArrayView<const double> 
     }
     result.telescoping_error=result.full_residual_sum+result.numerical_external_in+result.explicit_source;
     const double qa=result.sides[0].exchange,qb=result.sides[1].exchange;
-    result.ltne_source_ratio=std::abs(qa+qb)/std::max({std::abs(qa),std::abs(qb),1e-30});
+    // Use the same 1 W zero-duty scale as the strict fluid residuals.
+    result.ltne_source_ratio=std::abs(qa+qb)/std::max({std::abs(qa),std::abs(qb),1.0});
     result.gates[4]=std::isfinite(result.ltne_source_ratio) && result.ltne_source_ratio<.01;
     result.gates[5]=result.boundary_complete;
     result.passed=std::all_of(result.gates.begin(),result.gates.end(),[](bool passed) { return passed; });

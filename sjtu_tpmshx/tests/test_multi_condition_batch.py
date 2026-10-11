@@ -80,10 +80,12 @@ def _native(case, *, q=100., dp_a=20., dp_b=40., index=0):
                               ('B', 'y+', -q), ('B', 'y-', 2*q)):
         ledger[side][name].flat[0] = value
     faces.update(report=report, model_h=ledger)
-    fields = {'Ta': np.full(shape, 350.), 'Tb': np.full(shape, 320.), 'Ts': np.full(shape, 335.)}
+    fields = {'Ta': np.full(shape, 350.), 'Tb': np.full(shape, 320.), 'Ts': np.full(shape, 335.),
+              'h_vB': np.full(shape, 1000.)}
     return FieldResult(
         str(uuid4()), case.case_id, 'analytic-native-test', grid=case.grid, fields=fields,
-        field_metadata={name: dict(unit='K', axes=('x', 'y', 'z'), location='cell',
+        field_metadata={name: dict(unit='W/(m3 K)' if name == 'h_vB' else 'K',
+                                   axes=('x', 'y', 'z'), location='cell',
                                    state='analytic main thermal state') for name in fields},
         boundary_fluxes=faces, pressure_evidence=pressure,
         run_status={'execution': 'completed', 'converged': True}, model_refs=case.model_refs,

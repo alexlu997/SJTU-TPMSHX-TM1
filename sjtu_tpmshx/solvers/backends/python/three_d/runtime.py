@@ -489,8 +489,6 @@ class _ThermalInputs3D:
 @dataclass
 class _Metrics3D:
     """Seam-D state bundle (P2.0): _extract_3d_metrics's return, as fields."""
-    L_mm: object
-    P_kPa: object
     P_real: object
     P_real_B: object
     Q: object
@@ -1137,7 +1135,6 @@ def _extract_3d_metrics(prob: _Problem3D, outer: _OuterState):
     These reporting values retain final-pressure property calls and warnings.
     Formal postprocessing instead reduces the detached native thermal evidence.
     """
-    L_mm_field = prob.L_mm_field
     T_inA = prob.T_inA
     T_inB = prob.T_inB
     Ta = outer.Ta
@@ -1299,9 +1296,6 @@ def _extract_3d_metrics(prob: _Problem3D, outer: _OuterState):
     # Display the completed flow's absolute state; dP remains the independent
     # pressure difference between its extrapolated physical port faces.
     P_real = _pressure_real_3d(sA, prob.axis_map, sA.P_ref_abs)
-    P_kPa = P_real / 1000.0
-    L_mm = (L_mm_field.copy() if L_mm_field is not None
-            else np.full((prob.Nx, prob.Ny, prob.Nz), prob.Lcell, dtype=np.float64))
 
     # Fluid B fields (if sB solved): real-coord P + velocity magnitude
     if sB is not None:
@@ -1315,8 +1309,6 @@ def _extract_3d_metrics(prob: _Problem3D, outer: _OuterState):
         dP_B = 0.0
 
     return _Metrics3D(
-        L_mm=L_mm,
-        P_kPa=P_kPa,
         P_real=P_real,
         P_real_B=P_real_B,
         Q=Q,
@@ -1341,8 +1333,8 @@ def _extract_3d_metrics(prob: _Problem3D, outer: _OuterState):
     )
 
 
-def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D) -> tuple[dict, dict]:
-    """Return compatibility fields and explicit final-state diagnostics.
+def _assemble_3d_diagnostics(prob: _Problem3D, outer: _OuterState, met: _Metrics3D) -> dict:
+    """Return explicit final-state diagnostics.
 
     Thermal evidence was detached by the outer loop. These reporting reductions
     retain their distinct final-flow timing and do not replace native metrics.
@@ -1361,8 +1353,6 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D) 
     _env_mode = prob._env_mode
     _env_warnings = prob._env_warnings
     _ltne_info = prob._ltne_info
-    _ltne_mask_A = outer._ltne_mask_A
-    _ltne_mask_B = outer._ltne_mask_B
     _ltne_max_iter = prob._ltne_max_iter
     _outer_converged = outer._outer_converged
     _simple_nonconv = prob._simple_nonconv
@@ -1377,14 +1367,10 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D) 
     fB = prob.fB
     h_vA_field = outer.h_vA_field
     h_vB_field = outer.h_vB_field
-    in_mask_2d = prob.in_mask_2d
-    in_mask_B = prob.in_mask_B
     m_dot_A_simple = met.m_dot_A_simple
     m_dot_B_phys_in = met.m_dot_B_phys_in
     m_dot_B_phys_out = met.m_dot_B_phys_out
     m_dot_B_simple = met.m_dot_B_simple
-    out_mask_2d = prob.out_mask_2d
-    out_mask_B = prob.out_mask_B
     sA = prob.sA
     sB = prob.sB
     u_A = prob.u_A
@@ -1479,12 +1465,6 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D) 
 
     # ═══════════════════════════════════════════════════════════════════
 
-    result = dict(
-        Ta=Ta, Tb=Tb, Ts=Ts, vmag=vmag, P_kPa=met.P_kPa, L_mm=met.L_mm,
-        P_Pa=met.P_real, uc_real=met.uc_real, vc_real=met.vc_real, wc_real=met.wc_real,
-        P_Pa_B=met.P_real_B, uc_real_B=prob.ucB, vc_real_B=prob.vcB, wc_real_B=prob.wcB,
-        vmag_B=vmag_B, dx=dx, dy=dy, dz=dz,
-        h_vA_field=h_vA_field, h_vB_field=h_vB_field)
     diagnostics = dict(
         coarse_bootstrap_trace={side: None if solver is None else getattr(solver, '_coarse_bootstrap_trace', None)
                                 for side, solver in (('A', sA), ('B', sB))},
@@ -1770,38 +1750,21 @@ def _assemble_3d_verdict(prob: _Problem3D, outer: _OuterState, met: _Metrics3D) 
         _audit_P_inB=float(P_inB),
         )
 
-        result.update(
-        _audit_ltne_mask_B=(np.asarray(_ltne_mask_B).copy()
-                             if _ltne_mask_B is not None else None),
-        _audit_ltne_mask_A=(np.asarray(_ltne_mask_A).copy()
-                             if _ltne_mask_A is not None else None),
-        _audit_in_mask_B=(np.asarray(in_mask_B).copy()
-                          if (sB is not None and in_mask_B is not None) else None),
-        _audit_out_mask_B=(np.asarray(out_mask_B).copy()
-                           if (sB is not None and out_mask_B is not None) else None),
-        _audit_in_mask_2d=(np.asarray(in_mask_2d).copy()
-                           if in_mask_2d is not None else None),
-        _audit_out_mask_2d=(np.asarray(out_mask_2d).copy()
-                            if out_mask_2d is not None else None),
-        # Phase 2 conservation-residual exports
-        _audit_K_ffA=prob.K_ffA.copy(),
-        _audit_K_ffB=outer.K_ffB.copy(),
-        _audit_K_ss=prob.K_ss.copy(),
-        _audit_eps_arr=prob.eps_arr.copy(),
-        _audit_rho_cp_fA=outer.rho_cp_fA.copy(),
-        _audit_rho_cp_fB=outer.rho_cp_fB.copy(),
-        )
-        for key in ('_audit_ltne_mask_B', '_audit_ltne_mask_A', '_audit_in_mask_B',
-                    '_audit_out_mask_B', '_audit_in_mask_2d', '_audit_out_mask_2d'):
-            if result[key] is None:
+        for key, value in (
+                ('_audit_ltne_mask_A', outer._ltne_mask_A),
+                ('_audit_ltne_mask_B', outer._ltne_mask_B),
+                ('_audit_in_mask_2d', prob.in_mask_2d),
+                ('_audit_out_mask_2d', prob.out_mask_2d),
+                ('_audit_in_mask_B', prob.in_mask_B if sB is not None else None),
+                ('_audit_out_mask_B', prob.out_mask_B if sB is not None else None)):
+            if value is None:
                 diagnostics[key] = None
 
     # Preserve absent-field diagnostic placeholders used by existing archives.
-    for key in ('P_Pa_B', 'vmag_B'):
-        if result[key] is None:
+    for key, value in (('P_Pa_B', met.P_real_B), ('vmag_B', met.vmag_B)):
+        if value is None:
             diagnostics[key] = None
-    result.update(diagnostics)
-    return result, diagnostics
+    return diagnostics
 
 
 def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
@@ -2007,7 +1970,8 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
             mass_A=mass_A, mass_B=mass_B,
             P_thermal_A=pressure_A, P_thermal_B=pressure_B,
             face_velocity_A=faces_A, face_velocity_B=faces_B,
-            rho_cp_A=state.rho_cp_fA, rho_cp_B=state.rho_cp_fB))
+            rho_cp_A=state.rho_cp_fA, rho_cp_B=state.rho_cp_fB,
+            **(dict(K_ffA=K_ffA, K_ffB=state.K_ffB) if cfg.get('_emit_audit', False) else {})))
 
     def _refresh_heat_transfer(outer, velocity_A):
         """Refresh each side's h_v and physical inlet masks in real axes."""

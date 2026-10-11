@@ -245,23 +245,31 @@ Temperature is not scaled. FullCC nonzero sources stay
   VTK export is a postprocessing
   view of recorded data, not a new numerical state.
 - `configs/` owns packaged case configuration.
-- `pipelines/` keeps explicit scripted stage entry points. Callers import
-  shared models and numerical backends directly. There are no `sys.modules`
-  aliases or import-time function injection into the numerical backend. The kept dictionary-based 3D entry is `run_stack_3d._run_3d_stack`. Research and conservation tools still use it for single-fluid and manufactured
-  source cases outside `ComputeConfig`. It shares the prepared numerical backend
-  rather than carrying another solver.
+- Research and conservation tools use `preprocess.api.prepare_research_case`
+  to create `CaseData`, then `solvers.api.run_case` to return `FieldResult`.
+  This checked 3D input contract retains prescribed porosity, an explicit
+  inactive B phase, finite manufactured sources, and research iteration
+  budgets. It shares the ordinary preparation and numerical implementation.
+  The saved `research_3d_v1` snapshot records the original inputs; prepared
+  fields record the effective grid, budgets, model resources and environment.
+  Research cases currently support Python only. An unsupported backend fails
+  explicitly. Ordinary `ComputeConfig` keeps its dual-fluid and budget rules.
 
-  It is not a compatibility alias to remove
-  before those physical cases have an equivalent public contract. It and `_build_3d_problem` accept keyword-only `control=RunControl(...)`,
-  forwarded to initial SIMPLE and outer coupling. Runtime callbacks do not
-  belong in `cfg`: `_cancel_check`, `_progress_cb` and `_iter_cb` are rejected
-  with a migration error. Use `RunControl.cancel_check`, `.progress` and
-  `.outer_iteration(current, total)` respectively. `.iteration(message)` is
-  the separate text callback. Existing calls without controls stay valid.
+  `RunControl` supplies cancellation, progress, text and outer-iteration
+  callbacks. Runtime callbacks in input dictionaries are rejected. Optional
+  `_emit_audit` evidence records report coupling fields and masks with units,
+  axes and state labels. It also detaches both fluid conductivities at the last
+  thermal input, so entropy evaluation does not use later property updates. It keeps final SIMPLE flow separate from the last
+  thermal input. Inactive B has no B-side metric or two-fluid balance
+  certificate. YAML/HDF5 use the existing case/result I/O. MMS tests that
+  prescribe an independent discrete operator continue to call that operator.
 
-  Former `stages_2d`, `stages_3d` and `_stage_common` import facades are retired.
-  Preparation and shared helpers are imported from their owning modules. The former `solvers.envelope` and `solvers.roughness` facades are also retired. Grid and projection helpers come from `models.grid` and `models.df_projection`.
-  Formal pressure reductions use the recorded physical port faces in postprocessing.
+  The old `pipelines.run_stack_3d` entry and dictionary template are retired.
+  Preparation and helpers come from their owning modules. The retired
+  `stages_2d`, `stages_3d`, `_stage_common`, `solvers.envelope` and
+  `solvers.roughness` facades remain absent. There are no import-time aliases
+  or backend function injection. Formal pressure reductions use recorded
+  physical port faces in postprocessing.
 - `controllers/compute_pipeline.py` sequences the public modules. The module
   adapter maps their results to the historical GUI ComputeResult contract.
   It is the sole production result mapper. The previous 2D/3D mappings stay only
@@ -591,9 +599,15 @@ The baseline must have positive B-side heat uptake `-Q_B` and positive pressure
 drops; objective signs and equal weights do not change for CO2/sCO2.
 In addition to native convergence, model-h 3D reuses the existing full-control-volume
 certificate from `postprocess.conservation.compute_phase2a`. Each fluid's
-global/cellmax residual and the LTNE source imbalance must stay below 1%. The physical boundary ledger must be complete. Native 3D finishing and the
-conservation audit use this same pure function, owned by `result_math` and
-re-exported through the existing postprocessing entry.
+global/cellmax residual and the LTNE source imbalance must stay below 1%.
+The source ratio uses `max(abs(Q_sA), abs(Q_sB), 1 W)`, the existing
+strict-energy zero-duty scale. Thus the absolute source residual must stay
+below 0.01 W near zero duty. Python and C++ use the same rule.
+The physical boundary ledger must be complete. Native 3D finishing and the
+conservation audit use the same pure certificate function in `result_math`.
+The public postprocessing entry accepts `FieldResult` only and extracts its
+recorded certificate; numerical kernels pass their local evidence directly to
+the pure function.
 
 The 2D branch requires the native main/fine
 model-h balances, complete physical boundaries and Richardson acceptance.
@@ -785,10 +799,12 @@ does not return a fabricated completed archive.
 
 Each full-compute backend explicitly produces its display/flow fields and
 final diagnostics, passing diagnostics directly to native result capture.
-Capture does not infer diagnostic ownership from value types. The kept
-3D dictionary entry still returns the flattened compatibility mapping, including
-optional audit exports and absent-field placeholders. Final report diagnostics
-stay separate from the detached last-thermal snapshot. Reporting references
+Capture does not infer diagnostic ownership from value types. The 3D backend
+passes its problem, outer state, reporting metrics and diagnostics directly to
+`FieldResult` capture. Its flattened intermediate dictionary and public
+dictionary entry are retired. Optional audit exports and absent-field
+diagnostic placeholders retain their contracts. Final report diagnostics stay
+separate from the detached last-thermal snapshot. Reporting references
 do not replace formal reductions from native evidence.
 
 Full 2D heat duty is W/m with no fabricated thickness or z-wall loss. Full 3D

@@ -1,6 +1,5 @@
 """Exact rectangular ports and once-only area in actual staggered fluxes."""
 
-from sjtu_tpmshx.pipelines.run_stack_3d import _build_3d_problem
 from types import SimpleNamespace
 
 import numpy as np
@@ -120,18 +119,23 @@ def test_pressure_reductions_use_nonuniform_face_area():
 @pytest.mark.parametrize('fluid', ['air', 'water', 'sco2'])
 def test_pipeline_inlets_preserve_opening_velocity_and_mass_target(monkeypatch, fluid):
     from sjtu_tpmshx.solvers.backends.python.three_d import runtime as stages
-    from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg
+    from sjtu_tpmshx.preprocess.api import prepare_case
+    from sjtu_tpmshx.solvers.backends.python.three_d.execution import build_execution_inputs
     from sjtu_tpmshx.tests.test_pipeline_3d_e2e import _small_air_cfg
 
-    cfg = _parse_inputs_3d_cfg(_small_air_cfg())
-    cfg.update(fluid_type_A=fluid, fluid_type_B=fluid, u_A=.02, u_B=.03,
-               T_inA=350., T_inB=300., P_inA=1e7, P_inB=1e7)
-    for key in ('fluid_A_cfg', 'fluid_B_cfg'):
-        cfg[key].update(in_ctr=.013, in_w=.011, out_ctr=.017, out_w=.013,
-                        in_z_ctr=.014, in_z_w=.009, out_z_ctr=.015, out_z_w=.012)
+    cfg = _small_air_cfg()
+    for side, speed, temperature in (('A', .02, 350.), ('B', .03, 300.)):
+        settings = getattr(cfg, 'fluid_' + side)
+        settings.type, settings.u_mps = fluid, speed
+        settings.T_in_K, settings.P_in_Pa = temperature, 1e7
+        port = getattr(cfg, 'bc_' + side)
+        for key, value in dict(in_ctr=.013, in_w=.011, out_ctr=.017, out_w=.013,
+                              in_z_ctr=.014, in_z_w=.009, out_z_ctr=.015, out_z_w=.012).items():
+            setattr(port, key, value)
     # Exercise real setup, without launching a coupled temperature solve.
     monkeypatch.setattr(stages, '_run_two_simple', lambda *a, **kw: None)
-    p = _build_3d_problem(cfg)
+    inputs, prepared = build_execution_inputs(prepare_case(cfg, case_id='port-face'))
+    p = stages.build_problem(inputs, prepared)
     for solver, u, rho in ((p.sA, .02, p.rho_A), (p.sB, .03, p.rho_B)):
         f = solver.inlet_frac
         assert np.any((f > 0.) & (f < 1.))

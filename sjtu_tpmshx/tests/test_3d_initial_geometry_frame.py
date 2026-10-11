@@ -11,7 +11,7 @@ from sjtu_tpmshx.domain.compute_config import (
 from sjtu_tpmshx.models.field_coordinates_3d import _solver_staggered_to_real
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.preprocess.three_d import preparation
-from sjtu_tpmshx.solvers.backends.python.three_d import runtime
+from sjtu_tpmshx.solvers.backends.python.three_d import result_capture, runtime
 from sjtu_tpmshx.solvers.backends.python.three_d.execution import build_execution_inputs
 from sjtu_tpmshx.solvers.backends.python.three_d.flux import _face_flux_weights
 from sjtu_tpmshx.solvers.ltne_enthalpy_3d import face_mass_fluxes
@@ -134,16 +134,21 @@ def test_initial_geometry_and_returned_faces_share_physical_frame(monkeypatch, d
         rho_cp_fA=np.full(shape, problem.rho_A * problem.cp_A),
         rho_cp_fB=np.full(shape, problem.rho_B * problem.cp_B),
         native_evidence=None)
+    outer.native_evidence = dict(
+        Ta=outer.Ta, Tb=outer.Tb, Ts=outer.Ts, h_vA=zero, h_vB=zero, K_ss=problem.K_ss,
+        P_thermal_A=None, P_thermal_B=None, mass_A=None, mass_B=None,
+        model_h=None, true_h=None, face_velocity_A=None, face_velocity_B=None,
+        mode='temperature', outer_index=0)
     metrics = runtime._extract_3d_metrics(problem, outer)
-    result, diagnostics = runtime._assemble_3d_verdict(problem, outer, metrics)
+    diagnostics = runtime._assemble_3d_diagnostics(problem, outer, metrics)
+    result = result_capture.capture_result(case, problem, outer, metrics, diagnostics)
     i, j, k = np.indices(shape)
     gauge_real = 1. + i + 2.*j + 3.*k
     # Final reporting preserves each SIMPLE state's absolute reference;
     # face-extrapolated dP is a separate reduction, not a new display anchor.
     expected_A = problem.sA.P_ref_abs + gauge_real
     expected_B = problem.sB.P_ref_abs + gauge_real
-    np.testing.assert_array_equal(result['P_Pa'], expected_A)
-    np.testing.assert_array_equal(result['P_kPa'], expected_A / 1000.)
-    np.testing.assert_array_equal(result['P_Pa_B'], expected_B)
+    np.testing.assert_array_equal(result.fields['P_fA_display'], expected_A)
+    np.testing.assert_array_equal(result.fields['P_fB_display'], expected_B)
     assert diagnostics['dP_A'] == runtime.SIMPLESolver3D.extract_dP_face_extrap(problem.sA)
     assert diagnostics['dP_B'] == runtime.SIMPLESolver3D.extract_dP_face_extrap(problem.sB)

@@ -1,5 +1,4 @@
 
-from sjtu_tpmshx.pipelines.run_stack_3d import _build_3d_problem
 import numpy as np
 import pytest
 from pathlib import Path
@@ -435,7 +434,7 @@ def test_matching_hx_air_and_water_pair_use_separate_frozen_scales():
 @pytest.mark.parametrize('tpms', ['Diamond', 'Gyroid'])
 def test_application_coefficients_precede_real_seed_and_solver_setup(monkeypatch, dim, fluid_A, tpms):
     from sjtu_tpmshx.preprocess.two_d.preparation import _parse_inputs_cfg, _prepare_grid
-    from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg
+    from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg, _prepare_problem_data
     from sjtu_tpmshx.solvers.backends.python.two_d.runtime import build_runtime
     from sjtu_tpmshx.solvers.backends.python.three_d import runtime as run_stack_3d_stages
     from sjtu_tpmshx.models import fluid_props
@@ -485,7 +484,8 @@ def test_application_coefficients_precede_real_seed_and_solver_setup(monkeypatch
         else:
             monkeypatch.setattr(run_stack_3d_stages, '_run_two_simple', lambda *a, **kw: None)
             parsed = _parse_inputs_3d_cfg(cfg)
-            problem = _build_3d_problem(parsed)
+            prepared = _prepare_problem_data(parsed)
+            problem = run_stack_3d_stages.build_problem(prepared['cfg'], prepared)
             solvers = [problem.sA, problem.sB]
 
     for s, fc in zip(solvers, (cfg.fluid_A, cfg.fluid_B)):

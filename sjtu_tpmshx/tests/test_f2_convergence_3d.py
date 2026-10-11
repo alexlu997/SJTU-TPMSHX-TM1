@@ -408,7 +408,8 @@ def test_nonfinite_post_closeout_observation_rejects_2d(monkeypatch, metric):
 
 
 def test_nonfinite_exit_is_rejected_by_3d_result_consumer(monkeypatch):
-    from sjtu_tpmshx.tests.test_convergence_truth_table import _cheap_3d, _run_3d_stack
+    from sjtu_tpmshx.tests.test_convergence_truth_table import _cheap_3d
+    from sjtu_tpmshx.tests.cases_3d import run_research
     from sjtu_tpmshx.solvers._solve_common import f2_nonfinite_exit
     original = SIMPLESolver3D.solve
 
@@ -418,7 +419,7 @@ def test_nonfinite_exit_is_rejected_by_3d_result_consumer(monkeypatch):
         return f2_nonfinite_exit(self, iterations)
 
     monkeypatch.setattr(SIMPLESolver3D, 'solve', failed)
-    result = _run_3d_stack(_cheap_3d())
+    result = run_research(_cheap_3d()).metadata['diagnostics']
     detail = result['convergence_detail']
     assert detail['simple_exit_A'] == 'nonfinite'
     assert detail['simple_ok'] is False

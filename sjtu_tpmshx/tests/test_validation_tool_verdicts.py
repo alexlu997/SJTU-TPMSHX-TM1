@@ -1,5 +1,6 @@
 """Validation must retain failed cases and return failure, without large solves."""
 import sys
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -32,7 +33,7 @@ def test_gci_solve_exceptions_preserve_grid_and_tolerance_members(monkeypatch):
     def fail(cfg):
         raise RuntimeError('injected solve failure')
 
-    monkeypatch.setattr(gci, '_run_3d_stack', fail)
+    monkeypatch.setattr(gci, 'run_case', fail)
     rows, table = gci.run_c1('T2', grids=(12, 20, 30))
     assert [row['N'] for row in rows] == [12, 20, 30]
     assert all('injected solve failure' in row['error'] for row in rows)
@@ -132,7 +133,8 @@ def test_temperature_change_does_not_excuse_steady_mass_imbalance(direction):
     face = dict(u=np.zeros((3, 2, 2)), v=v, w=np.zeros((2, 2, 3)),
                 rho=np.ones((2, 2, 2)), dx=np.ones(2), dy=np.ones(2), dz=np.ones(2),
                 dir_real=direction)
-    result = audit.compute_phase4(dict(_audit_sA_face=face, _audit_T_inA=300., T_A_out=600.))
+    result = audit.compute_phase4(SimpleNamespace(metadata={'diagnostics': dict(
+        _audit_sA_face=face, _audit_T_inA=300., T_A_out=600.)}))
     assert result['A']['imbal_rel'] == pytest.approx(.1)
     assert result['A']['temperature_change_rel'] == 1.
     assert result['A']['m_in'] == 8.
@@ -141,7 +143,7 @@ def test_temperature_change_does_not_excuse_steady_mass_imbalance(direction):
 
 
 def test_conservation_diagnostic_exception_controls_exit(tmp_path, monkeypatch):
-    monkeypatch.setattr(audit, '_run_3d_stack', lambda cfg: dict(solver_converged=True))
+    monkeypatch.setattr(audit, 'run_case', lambda case: SimpleNamespace(run_status={'converged': True}))
     monkeypatch.setattr(audit, 'compute_phase2a', lambda res: (_ for _ in ()).throw(RuntimeError('bad audit')))
     monkeypatch.setattr(audit, 'compute_phase2c_h3', lambda res: {})
     monkeypatch.setattr(audit, 'compute_phase3', lambda res: None)

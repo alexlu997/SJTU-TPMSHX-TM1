@@ -685,7 +685,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
     if getattr(window, '_zone_panel', None) is not None:
         from .builders_base import collapsible_section
         zone_grid, zone_card = collapsible_section(
-            window, p1v, "单点计算分区（不参与优化搜索）",
+            p1v, "单点计算分区（不参与优化搜索）",
             t.style('T_NEUTRAL'), t.style('F_NEUTRAL'), expanded=False)
         zone_grid.addWidget(window._zone_panel, 0, 0, 1, 2)
         window.chk_zones.toggled.connect(zone_card._set_expanded)

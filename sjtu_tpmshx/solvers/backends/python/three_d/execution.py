@@ -24,6 +24,11 @@ def _build_execution_inputs(case, *, copy_design):
     shape = validate_grid(case.grid)
     validate_thermal_geometry(cfg['thermal_geometry'], shape)
     prepared = cfg.pop('prepared')
+    active = case.metadata.get('active_fluids')
+    if active is not None and (tuple(prepared['axes']) != tuple(active)
+            or set(prepared['openings']) != set(active)
+            or tuple(side for side in ('A', 'B') if cfg['fluid_' + side + '_cfg'] is not None) != tuple(active)):
+        raise ValueError('prepared active fluids disagree with the ports and axis maps')
     for axis, length_key in zip('xyz', ('L', 'H', 'Lz')):
         widths = np.asarray(case.grid['d' + axis], dtype=float).copy()
         if not np.isclose(np.cumsum(widths)[-1], cfg[length_key], rtol=1e-12, atol=1e-15):
@@ -118,8 +123,8 @@ def run_case(case, control=RunControl()):
     hv = runtime._build_hv_machinery(prob)
     outer = runtime._run_outer_coupling_3d(prob, hv, control=control, capture_native=True)
     metrics = runtime._extract_3d_metrics(prob, outer)
-    raw, diagnostics = runtime._assemble_3d_verdict(prob, outer, metrics)
+    diagnostics = runtime._assemble_3d_diagnostics(prob, outer, metrics)
     control.check_cancelled()
-    result = capture_result(case, prob, outer, raw, diagnostics)
+    result = capture_result(case, prob, outer, metrics, diagnostics)
     control.report_progress(100)
     return result

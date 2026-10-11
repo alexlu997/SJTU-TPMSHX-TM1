@@ -11,7 +11,7 @@ the historical failure is not a statement of the current run's verdict.
 import numpy as np
 import pytest
 from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry
-from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
+from sjtu_tpmshx.tests.cases_3d import run_research
 
 
 def _z_mirror_asym_pct(field):
@@ -43,9 +43,9 @@ def _symmetric_crossflow_cfg(u_A):
 @pytest.mark.parametrize("u_A", [20.0, 2.0])
 def test_conservative_ltne_z_symmetric(u_A):
     """Conservative 3D LTNE must keep T_A/T_s z-symmetric for a z-symmetric case."""
-    res = _run_3d_stack(_symmetric_crossflow_cfg(u_A))
-    asym_Ta = _z_mirror_asym_pct(res['Ta'])
-    asym_Ts = _z_mirror_asym_pct(res['Ts'])
+    res = run_research(_symmetric_crossflow_cfg(u_A))
+    asym_Ta = _z_mirror_asym_pct(res.fields['Ta_display'])
+    asym_Ts = _z_mirror_asym_pct(res.fields['Ts_display'])
     assert asym_Ta < 2.0, (
         f"T_A z-asymmetry {asym_Ta:.2f}% (u_A={u_A}) — z-symmetric setup must "
         f"yield a z-symmetric field; conservative kernel broke it.")

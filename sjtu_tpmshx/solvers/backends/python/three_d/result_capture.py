@@ -5,19 +5,20 @@ from sjtu_tpmshx.domain.field_result import FieldResult
 from .runtime import _pressure_real_3d
 
 
-def capture_result(case, prob, outer, raw, diagnostics):
+def capture_result(case, prob, outer, metrics, diagnostics):
     native = outer.native_evidence
+    emit_audit = prob.cfg.get('_emit_audit', False)
     fields = {key: native[key] for key in ('Ta', 'Tb', 'Ts', 'h_vA', 'h_vB', 'K_ss',
                                           'P_thermal_A', 'P_thermal_B') if native[key] is not None}
     display_units = {}
-    for name, source, unit in (
-        ('Ta_display', 'Ta', 'K'), ('Tb_display', 'Tb', 'K'), ('Ts_display', 'Ts', 'K'),
-        ('P_fA_display', 'P_Pa', 'Pa'), ('P_fB_display', 'P_Pa_B', 'Pa'),
-        ('ucA', 'uc_real', 'm/s'), ('vcA', 'vc_real', 'm/s'), ('wcA', 'wc_real', 'm/s'),
-        ('ucB', 'uc_real_B', 'm/s'), ('vcB', 'vc_real_B', 'm/s'), ('wcB', 'wc_real_B', 'm/s'),
-        ('vmag_A', 'vmag', 'm/s'), ('vmag_B', 'vmag_B', 'm/s')):
-        if raw[source] is not None:
-            fields[name] = raw[source]
+    for name, value, unit in (
+        ('Ta_display', outer.Ta, 'K'), ('Tb_display', outer.Tb, 'K'), ('Ts_display', outer.Ts, 'K'),
+        ('P_fA_display', metrics.P_real, 'Pa'), ('P_fB_display', metrics.P_real_B, 'Pa'),
+        ('ucA', metrics.uc_real, 'm/s'), ('vcA', metrics.vc_real, 'm/s'), ('wcA', metrics.wc_real, 'm/s'),
+        ('ucB', prob.ucB, 'm/s'), ('vcB', prob.vcB, 'm/s'), ('wcB', prob.wcB, 'm/s'),
+        ('vmag_A', metrics.vmag, 'm/s'), ('vmag_B', metrics.vmag_B, 'm/s')):
+        if value is not None:
+            fields[name] = value
             display_units[name] = unit
     pressure, report = {}, {}
     for side, solver, port in zip(('A', 'B'), (prob.sA, prob.sB), (prob.fA, prob.fB)):
@@ -43,6 +44,30 @@ def capture_result(case, prob, outer, raw, diagnostics):
     for name, unit in display_units.items():
         metadata[name] = dict(unit=unit, axes=('x', 'y', 'z'), location='cell',
                               state='display' if name.endswith('_display') else 'final flow/report')
+    audit = {}
+    if emit_audit:
+        for side in ('A', 'B'):
+            name = 'K_ff' + side
+            fields[name] = native[name]
+            metadata[name] = dict(unit='W/(m K)', axes=('x', 'y', 'z'),
+                                  location='cell', state='last thermal input')
+        for side in ('A', 'B'):
+            name = 'h_v' + side + '_report'
+            fields[name] = getattr(outer, 'h_v' + side + '_field')
+            metadata[name] = dict(unit='W/(m3 K)', axes=('x', 'y', 'z'),
+                                  location='cell', state='final report coupling')
+        masks = {}
+        for side in case.parameters['prepared']['axes']:
+            axis = case.parameters['prepared']['axes'][side]
+            masks[side] = dict(
+                thermal=getattr(outer, '_ltne_mask_' + side),
+                inlet=prob.in_mask_2d if side == 'A' else prob.in_mask_B,
+                outlet=prob.out_mask_2d if side == 'A' else prob.out_mask_B,
+                axes=tuple('xyz'[axis[key]] for key in ('cross1_real_axis', 'cross2_real_axis')),
+                unit='1', state='final report opening masks')
+        audit = dict(masks=masks, axes=('x', 'y', 'z'), state='final report/property refresh',
+                     units=dict(K_ffA='W/(m K)', K_ffB='W/(m K)', K_ss='W/(m K)',
+                                rho_cp_A='J/(m3 K)', rho_cp_B='J/(m3 K)'))
     model_metadata = dict(case.metadata['model_metadata'])
     if native['true_h'] and 'sco2_enthalpy_eos' in native['true_h']:
         model_metadata['sco2_enthalpy_eos'] = native['true_h']['sco2_enthalpy_eos']
@@ -55,17 +80,21 @@ def capture_result(case, prob, outer, raw, diagnostics):
             model_h=native['model_h'], true_h=native['true_h'], report=report,
             face_velocity_A=native['face_velocity_A'], face_velocity_B=native['face_velocity_B']),
         pressure_evidence=pressure,
-        run_status=dict(execution='completed', converged=bool(raw['solver_converged']),
+        run_status=dict(execution='completed', converged=bool(diagnostics['solver_converged']),
                         outer_index=native['outer_index']),
         metadata=dict(dimension=3, quantity_basis='total', thermal_mode=native['mode'],
+            active_fluids=tuple(pressure),
             parameters=case.parameters, design_fields=case.design_fields,
             design_mode=case.metadata['design_mode'],
             model_metadata=model_metadata, notices=case.metadata['notices'],
+            audit=audit,
             application=dict(
-                coeffs={key: raw.get('_audit_' + key) for key in ('K_ffA', 'K_ffB', 'K_ss')},
-                props={key: raw.get(source) for key, source in (
-                    ('rho_cp_A', '_audit_rho_cp_fA'), ('rho_cp_B', '_audit_rho_cp_fB'),
-                    ('u_A_in_mps', 'u_A'), ('T_in_A_K', 'T_in'))}),
-            diagnostics=diagnostics, df_metadata=raw['df_metadata'],
+                coeffs={key: value if emit_audit else None for key, value in (
+                    ('K_ffA', prob.K_ffA), ('K_ffB', outer.K_ffB), ('K_ss', prob.K_ss))},
+                props=dict(rho_cp_A=outer.rho_cp_fA if emit_audit else None,
+                           rho_cp_B=outer.rho_cp_fB if emit_audit else None,
+                           u_A_in_mps=prob.u_A, T_in_A_K=prob.T_inA)),
+            diagnostics=diagnostics, df_metadata=diagnostics['df_metadata'],
             model_roles=case.metadata['model_roles'],
-            reporting_reference={key: raw[key] for key in ('Q', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B')}))
+            reporting_reference=dict(Q=metrics.Q, dP_A=metrics.dP, dP_B=metrics.dP_B,
+                                     T_out_A=metrics.T_A_out, T_out_B=metrics.T_B_out)))

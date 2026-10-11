@@ -77,12 +77,12 @@ def _parse_geometry_inputs_3d_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
         # THIS ComputeConfig→3D boundary means "full-face cross-flow B", NOT a
         # single-fluid run: via ComputeConfig fluid_B is always a configured 2nd
         # fluid (validated below). bc_to_dict(side='B') returns None for that
-        # degenerate case and DROPS the direction; _run_3d_stack's
+        # degenerate case and DROPS the direction; the backend's
         # `if fB is not None` gate then skips the entire B SIMPLE build (the
         # A-alone path), so the 2-fluid solve silently returns nan (air uncooled,
         # T_out_B=nan, E_imbal=1.0). Rebuild a full-face dict via the side='A'
         # fallback, which preserves bc_B.dir. The genuine single-fluid A-alone
-        # path reaches _run_3d_stack with an explicit fluid_B_cfg=None and
+        # research preparation uses an explicit fluid_B_cfg=None and
         # bypasses this boundary (e.g. audit_3d_conservation T5), so it — and
         # bc_to_dict's documented side-B None asymmetry — are unaffected.
         fluid_B_cfg = bc_to_dict(compute_cfg.bc_B, L, H, side='A', with_z=True)
@@ -394,14 +394,14 @@ def _set_run_environment(cfg):
     cfg.setdefault('use_coarse_bootstrap', (cfg['_environment']['TPMSHX_PHASE_C'] or '0') == '1')
 
 
-def _case_from_prepared(config, prepared, *, case_id):
+def _case_from_prepared(config, prepared, *, case_id, config_snapshot=None):
     from dataclasses import asdict
     from sjtu_tpmshx.domain.case_data import CaseData
     from sjtu_tpmshx.domain.model_refs import ModelRef
     from sjtu_tpmshx.models.catalog import MODEL_VERSIONS
     from sjtu_tpmshx.models.nu_correlations import sco2_nu_metadata, sco2_nu_notices
     parameters = dict(prepared['cfg'])
-    parameters.pop('compute_cfg')
+    parameters.pop('compute_cfg', None)
     parameters['sco2_nu'] = asdict(parameters['sco2_nu'])
     parameters['L_cell_m'] = parameters.pop('Lcell') * 1e-3
     parameters['t_wall_m'] = parameters.pop('t_wall') * 1e-3
@@ -429,7 +429,7 @@ def _case_from_prepared(config, prepared, *, case_id):
         design_mode = 'continuous_xyz' if 'n_ctrl_z' in continuous else 'continuous_xy_extruded'
     else:
         design_mode = 'xy_extruded' if cells else 'uniform'
-    return CaseData.from_compute_config(case_id, config, grid=grid,
+    return CaseData(case_id=case_id, config_snapshot=(config.to_dict() if config_snapshot is None else config_snapshot), grid=grid,
         design_fields=prepared['design'], parameters=parameters, model_refs=refs,
         metadata={'preprocessor': 'three_d_v1', 'quantity_basis': 'total',
                   'model_metadata': {'sco2_nu': sco2_nu_metadata(config.sco2_nu),

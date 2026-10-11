@@ -7,6 +7,14 @@
 忽略的 `.cache/`。下表中的 `python` 表示该解释器，不是系统 Python。
 公开计算入口与正式 Case/Result 文件交接仍见 README；这些工具不替代主线验收。
 
+`demo_3d_air_air`、`demo_3d_cube_air_air`、`demo_3d_cube_volume` 和
+`runs.tools.render_3d_styles` 使用 `prepare_case → run_case → evaluate`，固定 Python 后端。
+它们保留原始长方体/立方体工况及显示场，输出目录仍为 `.cache/demos/` 下各自的目录。
+摘要将公共指标与旧后端诊断分别列出：`Q=|Q_A|`，`Q_A/Q_B` 是带符号的原生边界热损失，
+吸热为负；出口温度使用原生热状态的流出质量加权，压降使用最终 SIMPLE 压力的物理端口面。
+旧 `Q_enthalpy_A/B`、体积热源与内部区域诊断保留原值，不作为公共指标的别名。
+未收敛或所需指标不可用时仍可生成诊断图，但进程返回 2；渲染失败返回非零。
+
 MMS A3/A4/B4 和 GCI 每次默认创建独立的 `.cache/validation/<工具>-<运行ID>/`，
 保存本次 CSV、报告与元数据；可用 `--out-dir` 指定输出目录。A3 另支持
 `--out_csv`、`--orders_csv`、`--report`，A4 支持前两项，B4 支持 `--out_csv`；
@@ -35,6 +43,19 @@ GCI 当前使用 T2 和 T4（偏置局部开口、无 B 侧实验修正）。历
 缺失或非有限证书判失败；源项耦合与质量检查分别保留。旧的删首末层5%启发式门
 和用单元温度猜端口的表面预算已退役；历史CSV与原失败保持原样。
 这些数值守恒判据不等同于实验精度验收。
+
+LTNE 源项平衡沿用 1% 门限，分母使用与严格能量残差相同的
+`max(abs(Q_sA), abs(Q_sB), 1 W)`；报告同时列出绝对残差和归一化尺度。
+这使零换热工况按绝对残差验收，不会把微小残差除以自身报成 100%。
+
+Phase 3 核算热模型的熵产（W/K），不含压力／黏性贡献。它使用最后热状态的
+原始温度、耦合和导热系数；端口逐面计算质量通量乘 `∫cp(T)/T dT`，
+并计入物理入口导热的熵流。物理体积产熵含相间换热、内部共享导热面和入口半单元，
+不把数值对流耗散加进物理产熵。边界／物理产熵一致性的 5% 门限保持不变，
+近零归一化下限为 `1 W / 最低入口温度`（W/K）。网格分辨率不足仍会失败。
+使用 `python -m sjtu_tpmshx.validation.cases.audit_3d_conservation --grid 40`
+复核当前 T1–T6；显式粗网格结果保留其原失败状态。允许的出口温度交叉只列为观察项，
+不会再显示为失败门。
 
 上海独立lumped双Nu比较仍以crossflow为主、counterflow为敏感性对照。
 `python -m sjtu_tpmshx.validation.cases.validate_shanghai_lumped_dual_nu`
@@ -227,3 +248,39 @@ python -m sjtu_tpmshx.runs.cfd_asym.asym_ntop_expressions_html
 
 已结束的 703/704/624 工程、M1/M2 固定试验及旧性能复现脚本见
 [退役工具索引](history/retired-tools.md)，不再列为当前目录的重跑入口。
+
+## 三维研究工况的准备与重放
+
+粗糙度 smoke、T1–T6 审计和 GCI 已使用同一公开求解入口。
+`prepare_research_case` 保留研究指定的孔隙率，并用显式
+`fluid_B_cfg=None` 表示仅求解 A。长度为 m、温度 K、压力 Pa、速度 m/s，
+但 `Lcell` 与 `t_wall` 为 mm。未知输入和运行时回调会被拒绝；回调通过
+`RunControl` 传递。保存的原始输入快照和准备态字段保留请求／实际网格、
+模型资源、环境与预算。研究工况当前仅支持 Python，普通配置仍支持 Python/C++。
+
+`fast_sweep` 将各网格轴限制为最多 15，默认 3 次外循环；`full_validate`
+保留网格，默认 12 次外循环和 50,000 次热迭代。`max_outer_ltne` 可覆盖外循环
+预算。单次外循环允许作为数值试验，但结果仍为未收敛。`_emit_audit` 按需增加
+报告态掩膜与耦合场；字段元数据区分最终 SIMPLE 流动与最后一次热求解。
+未参与求解的 B 侧指标保持不支持。GCI 保留 `Q_enthalpy_A`、实际网格比、
+5% GCI 门和 1% 容差敏感性门；上面的守恒门不变。独立 MMS 离散算子研究保留
+给定速度和源项。
+
+从仓库根目录使用已检查的 `.venv-path` 解释器和上述工作树内缓存运行：
+
+```python
+from pathlib import Path
+from sjtu_tpmshx.preprocess.api import prepare_research_case
+from sjtu_tpmshx.solvers.api import run_case
+from sjtu_tpmshx.io.case_io import save_case, load_case
+from sjtu_tpmshx.io.result_io import save_result
+from sjtu_tpmshx.validation.cases.audit_3d_conservation import make_T2
+
+output = Path('.cache/research-t2')
+output.mkdir(parents=True, exist_ok=True)
+inputs = dict(make_T2(20), _emit_audit=True)
+case = prepare_research_case(inputs, case_id='T2-20')
+save_case(case, output / 'case.yaml')
+result = run_case(load_case(output / 'case.yaml'))
+save_result(result, output / 'results.h5')
+```

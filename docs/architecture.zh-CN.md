@@ -67,7 +67,9 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 - `models/` 和 `df_surrogate/` 负责共享纯闭合和带版本资源。显式清洗／标定位于 `preprocess/offline/`。
 - `io/` 负责严格 YAML/HDF5/JSON 交换。`cli_options` 将共享主机参数映射为 RunControl，不把主机路径写入工况／配置，也不让 CLI 使用方依赖工作流。VTK 导出是记录数据的后处理视图，不是新数值状态。
 - `configs/` 负责随包工况配置。
-- `pipelines/` 保留显式脚本阶段入口。调用方直接导入共享模型和数值后端，不使用 `sys.modules` 别名或导入时向后端注入函数。字典三维入口为 `run_stack_3d._run_3d_stack`。研究与守恒工具仍用它处理 ComputeConfig 范围外的单流体和制造源；它共享准备态后端，不另存求解器。这不是在等效公共契约建立前可删除的兼容别名。该入口和 `_build_3d_problem` 接受仅关键字 `control=RunControl(...)`，转发给初始 SIMPLE 和外耦合。cfg 中的 `_cancel_check`、`_progress_cb`、`_iter_cb` 以迁移错误拒绝。分别使用 `RunControl.cancel_check`、`.progress`、`.outer_iteration(current, total)`；`.iteration(message)` 是独立文本回调。不带控制的既有调用仍有效。原 `stages_2d`、`stages_3d`、`_stage_common` 导入门面已退役，前处理和助手从所属模块导入。原 `solvers.envelope`、`solvers.roughness` 门面也已退役。网格与投影助手来自 `models.grid`、`models.df_projection`。正式压力归约在后处理中使用记录的物理端口面。
+- 研究与守恒工具通过 `preprocess.api.prepare_research_case` 生成 `CaseData`，再用 `solvers.api.run_case` 返回 `FieldResult`。受校验的三维研究输入保留显式孔隙率、未参与求解的 B 相、有限制造源和研究迭代预算，复用普通前处理与数值实现。保存的 `research_3d_v1` 快照记录原始输入；准备态字段记录实际网格、预算、模型资源与环境。研究工况当前只支持 Python，不支持的后端显式失败。普通 `ComputeConfig` 保留双流体与预算规则。
+- `RunControl` 提供取消、进度、文本和外循环回调，输入字典中的运行时回调会被拒绝。按需启用 `_emit_audit` 后，结果保存报告态耦合场和掩膜，并声明单位、坐标与取样状态；还会脱离运行时保存最后热输入的两侧流体导热系数，供熵产核算使用，避免引用后续物性更新；最终 SIMPLE 流场与最后一次热求解输入保持分开。未求解 B 不提供 B 侧指标或双流体平衡证书。YAML/HDF5 复用现有 Case/Result 文件通路。规定独立离散算子的 MMS 测试继续调用该算子。
+- 旧 `pipelines.run_stack_3d` 入口和字典模板已退役。前处理与助手从所属模块导入；原 `stages_2d`、`stages_3d`、`_stage_common`、`solvers.envelope` 和 `solvers.roughness` 门面保持退役。不使用导入时别名或向后端注入函数。正式压力归约在后处理中使用记录的物理端口面。
 - `controllers/compute_pipeline.py` 编排公共模块；模块适配器映射到历史 GUI ComputeResult 契约，是唯一生产结果映射器。旧二维／三维映射仅作为真实原生结果集成比较的冻结测试参考保留。
 - `ui/` 仅负责 PySide6 和 PyVista 展示。两维结果缓存均用 ComputeResult。二维发布标量、元数据、警告和导出状态快照，同时共享场数组；三维保留已发布对象。失败或取消保留上次接受结果用于显示／导出，与当前草稿输入独立。画布工作台复用左侧几何／边界／求解控件。相位和三维 z 切片读取接受结果快照，草稿编辑不替换来源。图像导出遵循当前视图；CSV 保留摘要。三维 NPZ 保留完整物理 XYZ 显示温度（K）、两侧速度分量及模（m/s）、显示压力 `P_fA/P_fB`（Pa）、`L_mm/t_mm`（mm）和 `dx/dy/dz`（m）。旧 `vmag/P_kPa` 为 A 侧模和 kPa 压力别名。显示压力参考不变；完整原生热状态和通量属于 results.h5。`ui/typography.py` 为 Qt 使用系统无衬线字体，为 Matplotlib/VTK 保留出版字体，不捆绑字体或向低层导入 Qt。普通 GUI 计算捕获启动线程 Numba 掩码，在复用 Qt worker 中应用／恢复；优化保留独立进程／线程策略。桌面入口在开口内用均匀速度，开启局部密度热输运，不额外六壁面细化；端口／壁面细化通过网格方案选择。载入不同退役设置的预设／会话时报告转换并保存当前显式值；脚本设置另行管理。
 - `validation/` 和 `runs/` 是可执行研究与验证工具，不是替代生产实现。
@@ -142,7 +144,7 @@ Shanghai Gyroid air-A/water-B 的 `df_mode="experimental"` 也支持连续场，
 
 若失败／取消检查点保存也失败，则传播原异常，并附上保存错误说明；已有文件仅是最后成功证据，不是完整最终存档。没有活动异常时的保存错误仍为错误。桌面展示这些说明，不将过期 running 检查点显示为取消结果。基准比较检查均匀参考、配对工况、端口、模型、D-F 模式、冻结运行覆盖、已解析粗糙度、总流量、网格和求解设置。原始工况必须共享几何与数值设置。
 
-只有完整数值合格批次可以发布两个目标。除原生收敛外，三维 model-h 复用 `postprocess.conservation.compute_phase2a` 完整控制体证据：各流体全局／cellmax 残差和 LTNE 源不平衡均低于 1%，且物理边界账本完整。原生三维收尾与守恒审计使用同一纯函数，由 `result_math` 所有，并经现有后处理入口重导出。二维 model-h 要求原生主／细平衡、完整物理边界及 Richardson 接受。true-h 及其显式守恒能量候选采用自身原生证据：热求解收敛、无焓裁剪、有限的耦合与方程能量比均不超过记录的求解容差；不套用 model-h 或 Richardson。焓算法及温度更新设置必须与基准相同。
+只有完整数值合格批次可以发布两个目标。除原生收敛外，三维 model-h 复用 `postprocess.conservation.compute_phase2a` 完整控制体证据：各流体全局／cellmax 残差和 LTNE 源不平衡均低于 1%，且物理边界账本完整。源项比值采用 `max(abs(Q_sA), abs(Q_sB), 1 W)`，复用严格能量残差已有的零负荷尺度；因此近零负荷的源项绝对残差必须小于 0.01 W。Python 与 C++ 使用同一规则。原生三维收尾与守恒审计共用 `result_math` 中的纯证书函数。公开后处理入口只接受 `FieldResult` 并提取记录的证书；数值核将局部证据直接传给纯函数。二维 model-h 要求原生主／细平衡、完整物理边界及 Richardson 接受。true-h 及其显式守恒能量候选采用自身原生证据：热求解收敛、无焓裁剪、有限的耦合与方程能量比均不超过记录的求解容差；不套用 model-h 或 Richardson。焓算法及温度更新设置必须与基准相同。
 
 这与实验精度、正式对流 `energy_imbalance_rel` 和梯度适用性不同；物理预测仍需后者证据，但不禁止明确标注、使用冻结参考修正的探索搜索。
 
@@ -196,7 +198,7 @@ CaseData 包含实际准备网格、设计场、边界输入、固定热／流�
 
 FieldResult 包含原生场位置／单位、原通量和压力证据、执行／收敛状态与诊断。显示压力／温度不替代原状态。诊断数组 NaN 和完成但未收敛运行保持可见；严格 JSON 指标以原因记录不可用值。取消／失败不返回虚构完成存档。
 
-各完整后端显式生成显示／流动场与最终诊断，直接将诊断传入捕获，不按值类型猜测所有权。保留的三维字典入口仍返回扁平兼容映射，包括可选审计导出和缺场占位。最终报告诊断与最后热快照分开；报告参考不能替代正式原生证据归约。
+各完整后端显式生成显示／流动场与最终诊断，直接将诊断传入捕获，不按值类型猜测所有权。三维后端将问题、外循环状态、报告指标和诊断直接交给 `FieldResult` 捕获，扁平中间字典和公开字典入口均已退役；可选审计导出和缺场诊断占位保留原契约。最终报告诊断与最后热快照分开；报告参考不能替代正式原生证据归约。
 
 完整二维热量为 W/m，不虚构厚度或 z 壁损失；完整三维在应用归一化前为 W。Quick Design 是给定流量 LTNE 加准备态解析入口压降，不是 SIMPLE。其离线指标无需 EOS 或标定调用。
 

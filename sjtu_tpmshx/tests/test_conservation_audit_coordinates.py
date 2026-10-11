@@ -2,6 +2,7 @@
 import numpy as np
 import pytest
 
+from sjtu_tpmshx.domain.field_result import FieldResult
 from sjtu_tpmshx.validation.cases import audit_3d_conservation as audit
 
 
@@ -25,14 +26,17 @@ def oriented_two_cell_result(request):
         dx=np.ones(1), dy=np.ones(2), dz=np.ones(1),
         dir_real=direction, solver_to_real_perm=permutation,
     )
-    return dict(
-        _audit_sA_face=face, _audit_sB_face=face,
-        Ta=real_scalar(300., 400.), Tb=real_scalar(500., 600.),
-        _audit_eps_arr=real_scalar(.8, .6),
-        _audit_cp_A=2., _audit_cp_B=2.,
-        _audit_rho_cp_fA=real_scalar(2., 3.),
-        _audit_rho_cp_fB=real_scalar(4., 5.),
-        _audit_fA={'dir': direction}, _audit_fB={'dir': direction},
+    return FieldResult('coordinate-fixture', 'two-cell', 'test',
+        fields=dict(Ta_display=real_scalar(300., 400.),
+                    Tb_display=real_scalar(500., 600.)),
+        metadata=dict(
+            diagnostics=dict(_audit_sA_face=face, _audit_sB_face=face,
+                             _audit_cp_A=2., _audit_cp_B=2.,
+                             _audit_fA={'dir': direction}, _audit_fB={'dir': direction}),
+            design_fields=dict(eps_arr=real_scalar(.8, .6)),
+            application=dict(props=dict(rho_cp_A=real_scalar(2., 3.),
+                                        rho_cp_B=real_scalar(4., 5.))),
+        ),
     )
 
 

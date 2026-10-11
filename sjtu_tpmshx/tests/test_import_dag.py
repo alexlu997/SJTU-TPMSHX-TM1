@@ -4,7 +4,7 @@ The kernel import direction is:
 
     tpms_geometry ← tpms_props ← df_surrogate ← tpms_calc / simple_solver / ...
 
-and pipelines must be importable without controllers (contracts-layer).
+and preparation must be importable without controllers (contracts-layer).
 These tests run each probe in a FRESH interpreter so this test module's own
 imports cannot pollute sys.modules.
 """
@@ -47,23 +47,23 @@ def test_tpms_props_is_a_leaf():
     )
 
 
-def test_pipelines_import_without_controllers():
+def test_public_preparation_imports_without_controllers():
     """Scripted orchestration and input preparation stay below controllers."""
     _probe(
-        "import sys; import sjtu_tpmshx.pipelines.run_stack_3d; "
+        "import sys; import sjtu_tpmshx.preprocess.three_d.research; import sjtu_tpmshx.solvers.api; "
         "import sjtu_tpmshx.preprocess.two_d.preparation; "
         "import sjtu_tpmshx.preprocess.three_d.preparation; "
         "bad = [m for m in sys.modules if m == 'controllers' "
         "or m.startswith(('controllers.', 'sjtu_tpmshx.controllers'))]; "
-        "assert not bad, f'pipelines pulled controllers: {bad}'"
+        "assert not bad, f'preparation pulled controllers: {bad}'"
     )
 
 
-def test_legacy_orchestration_does_not_modify_backend_namespace():
+def test_public_preparation_does_not_modify_backend_namespace():
     _probe(
         "from sjtu_tpmshx.solvers.backends.python.three_d import runtime; "
         "before = dict(vars(runtime)); "
-        "import sjtu_tpmshx.pipelines.run_stack_3d; "
+        "import sjtu_tpmshx.preprocess.three_d.research; import sjtu_tpmshx.solvers.api; "
         "assert vars(runtime).keys() == before.keys(); "
         "assert all(vars(runtime)[key] is value for key, value in before.items())"
     )

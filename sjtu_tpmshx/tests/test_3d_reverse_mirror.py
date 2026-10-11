@@ -18,8 +18,8 @@ from sjtu_tpmshx.domain.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, SolverConfig,
     PartialBCConfig, ExtrapPolicy, FeatureFlags,
 )
-from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg
-from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
+from sjtu_tpmshx.preprocess.api import prepare_case
+from sjtu_tpmshx.solvers.api import run_case
 
 
 def _cfg(dir_B, in_ctr, out_ctr):
@@ -38,7 +38,7 @@ def _cfg(dir_B, in_ctr, out_ctr):
         extrap=ExtrapPolicy(allow=True),
         flags=FeatureFlags(wall_refine_3d=False),
     )
-    return _parse_inputs_3d_cfg(cc)
+    return prepare_case(cc, case_id=f'reverse-mirror-{dir_B}')
 
 
 # 2026-06-09 FIXED (was xfail). Root cause was NOT the interior negate+flip
@@ -59,11 +59,11 @@ def test_reverse_y_is_mirror_of_forward_y():
     # This is the exact y-mirror of the forward case.
     cfg_rev = _cfg(dir_B=3, in_ctr=0.07, out_ctr=0.03)
 
-    res_fwd = _run_3d_stack(cfg_fwd)
-    res_rev = _run_3d_stack(cfg_rev)
+    res_fwd = run_case(cfg_fwd)
+    res_rev = run_case(cfg_rev)
 
-    Tb_fwd = res_fwd['Tb']
-    Tb_rev = res_rev['Tb']
+    Tb_fwd = res_fwd.fields['Tb_display']
+    Tb_rev = res_rev.fields['Tb_display']
     # mirror the forward field along the real y-axis (axis=1)
     Tb_fwd_mirrored = Tb_fwd[:, ::-1, :]
 
@@ -92,8 +92,8 @@ def test_reverse_y_is_mirror_of_forward_y():
     # transforms. Bug regime (transpose-only, no flip): rel ≈ 0.17 AND the
     # reverse-fluid high-pressure end lands at the real OUTLET (y=0) instead
     # of the real INLET (y=H). Both checks below.
-    Pb_fwd = res_fwd['P_Pa_B']
-    Pb_rev = res_rev['P_Pa_B']
+    Pb_fwd = res_fwd.fields['P_fB_display']
+    Pb_rev = res_rev.fields['P_fB_display']
     Pb_fwd_mirrored = Pb_fwd[:, ::-1, :]
     p_span = float(Pb_fwd.max() - Pb_fwd.min())
     assert p_span > 1.0, "degenerate: no pressure variation to compare"
@@ -124,9 +124,9 @@ def test_displayed_pressure_is_absolute_matches_inlet():
     absolute (max ~ P_in) from gauge (max ~ dP << 0.5·P_in).
     """
     P_inA, P_inB = 150000.0, 120000.0   # must match _cfg() FluidConfig P_in_Pa
-    res = _run_3d_stack(_cfg(dir_B=2, in_ctr=0.07, out_ctr=0.03))
-    P_A = np.asarray(res['P_Pa'])         # fluid A (air, +x)
-    P_B = np.asarray(res['P_Pa_B'])       # fluid B (water, +y)
+    res = run_case(_cfg(dir_B=2, in_ctr=0.07, out_ctr=0.03))
+    P_A = np.asarray(res.fields['P_fA_display'])         # fluid A (air, +x)
+    P_B = np.asarray(res.fields['P_fB_display'])       # fluid B (water, +y)
 
     # Inlet is anchored to the input P_in (abs = P_in - dP + gauge), so the
     # high-pressure end reads ~ input within ~3 % (residual = gauge-max vs

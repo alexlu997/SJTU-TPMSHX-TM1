@@ -1,6 +1,6 @@
 """Actual 3D guard boundaries with numerical sweeps replaced, not full solves."""
 
-from sjtu_tpmshx.pipelines.run_stack_3d import _build_3d_problem
+from sjtu_tpmshx.tests.cases_3d import prepared_problem
 import inspect
 
 import numpy as np
@@ -17,7 +17,8 @@ from sjtu_tpmshx.preprocess.thermal_geometry import prepare_thermal_geometry
 @pytest.mark.parametrize('co2_side', ['A', 'B'])
 @pytest.mark.parametrize('seed', [np.nan, np.inf, -np.inf, None, 325.])
 def test_typed_co2_solid_seed_checked_before_thermal_calls(monkeypatch, co2_side, seed):
-    from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg
+    from sjtu_tpmshx.preprocess.api import prepare_case
+    from sjtu_tpmshx.solvers.backends.python.three_d.execution import build_execution_inputs
     from sjtu_tpmshx.tests.test_pipeline_3d_e2e import _small_air_cfg
     from sjtu_tpmshx.solvers import ltne_energy_3d
 
@@ -26,9 +27,9 @@ def test_typed_co2_solid_seed_checked_before_thermal_calls(monkeypatch, co2_side
     fluid.type, fluid.P_in_Pa = 'sco2', 12e6
     cfg.solver.T_s_init_K = seed
     cfg.validate()
-    parsed = _parse_inputs_3d_cfg(cfg)
     monkeypatch.setattr(stages.SIMPLESolver3D, 'solve', lambda *a, **k: (True, 0))
-    prob = _build_3d_problem(parsed)
+    inputs, prepared = build_execution_inputs(prepare_case(cfg, case_id='temperature-guard'))
+    prob = stages.build_problem(inputs, prepared)
     hv = stages._build_hv_machinery(prob)
     shape = (prob.Nx, prob.Ny, prob.Nz)
     returned = tuple(np.full(shape, t) for t in (400., 330., 350.))
@@ -108,7 +109,7 @@ def _problem(monkeypatch, pair):
         if fluid == 'sco2':
             cfg['P_in' + side] = 12e6
     monkeypatch.setattr(stages.SIMPLESolver3D, 'solve', lambda *a, **k: (True, 0))
-    prob = _build_3d_problem(cfg)
+    prob = prepared_problem(cfg)
     return prob, stages._build_hv_machinery(prob)
 
 
@@ -117,7 +118,7 @@ def _problem(monkeypatch, pair):
 def test_water_startup_yields_to_flow_before_full_thermal_budget(monkeypatch, pair, budget):
     from sjtu_tpmshx.solvers import ltne_energy_3d as energy
 
-    prob = _build_3d_problem(_pipeline_cfg(pair))
+    prob = prepared_problem(_pipeline_cfg(pair))
     hv = stages._build_hv_machinery(prob)
     prob._ltne_max_iter = budget
     thermal = stages.solve_full_domain_3d
@@ -218,7 +219,7 @@ def test_single_fluid_has_zero_b_coupling_at_real_thermal_boundary(monkeypatch, 
     cfg = _pipeline_cfg((fluid, 'air'))
     cfg['fluid_B_cfg'] = None
     monkeypatch.setattr(stages.SIMPLESolver3D, 'solve', lambda *a, **k: (True, 0))
-    prob = _build_3d_problem(cfg)
+    prob = prepared_problem(cfg)
     assert prob.sB is None
     hv = stages._build_hv_machinery(prob)
     signature = inspect.signature(stages.solve_full_domain_3d)
@@ -390,7 +391,7 @@ def test_zoned_sco2_notice_uses_successful_local_hv_fields(monkeypatch):
         dict(x0=0., x1=.5, y0=0., y1=1., L=5., t=.3),
         dict(x0=.5, x1=1., y0=0., y1=1., L=6., t=.4)])
     monkeypatch.setattr(stages.SIMPLESolver3D, 'solve', lambda *a, **k: (True, 0))
-    prob = _build_3d_problem(cfg)
+    prob = prepared_problem(cfg)
     hv = stages._build_hv_machinery(prob)
     assert 5. < prob.L_mm_field.min() < prob.L_mm_field.max() < 6.
     assert .3 < prob.t_field_3d.min() < prob.t_field_3d.max() < .4
@@ -436,7 +437,7 @@ def test_sco2_evidence_once_per_side_after_first_local_refresh_with_cached_prope
     cfg = _pipeline_cfg(('sco2', 'sco2'))
     cfg.update(P_inA=9e6, P_inB=16e6)
     monkeypatch.setattr(stages.SIMPLESolver3D, 'solve', lambda *a, **k: (True, 0))
-    prob = _build_3d_problem(cfg)
+    prob = prepared_problem(cfg)
     hv = stages._build_hv_machinery(prob)
     prob.cfg.pop('T_s_init')  # Actual first scalar and subsequent array h_v routes.
     shape = (prob.Nx, prob.Ny, prob.Nz)

@@ -39,9 +39,9 @@ def _full_face_cfg(**overrides):
 def test_wall_refine_3d_solves_and_matches_uniform():
     """Refined-grid solve is finite, conservative, and agrees with the
     uniform-grid solution of the same physical case."""
-    from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
+    from sjtu_tpmshx.tests.cases_3d import run_research
 
-    r = _run_3d_stack(_full_face_cfg())
+    r = run_research(_full_face_cfg()).metadata['diagnostics']
     for key in ('T_A_out', 'T_B_out', 'dP_A',
                 'Q_enthalpy_A', 'Q_enthalpy_B'):
         assert np.isfinite(r[key]), f"{key} not finite on refined grid"
@@ -57,7 +57,7 @@ def test_wall_refine_3d_solves_and_matches_uniform():
     # Same case on the uniform grid — refinement must not move the answer
     # far (E1 measured ~0.6% dP shift at Shanghai scale; bands are generous
     # because this grid is much coarser).
-    ru = _run_3d_stack(_full_face_cfg(wall_refine_3d=False))
+    ru = run_research(_full_face_cfg(wall_refine_3d=False)).metadata['diagnostics']
     dP_u, dP_r = ru['dP_A'], r['dP_A']
     assert abs(dP_r - dP_u) / dP_u < 0.15, \
         f"refined dP {dP_r:.0f} vs uniform {dP_u:.0f} (>15%)"

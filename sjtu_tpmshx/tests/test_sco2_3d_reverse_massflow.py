@@ -25,7 +25,7 @@ import pytest
 PropsSI = pytest.importorskip("CoolProp.CoolProp").PropsSI
 
 from sjtu_tpmshx.models.tpms_calc import geometry as _geom          # noqa: E402
-from sjtu_tpmshx.pipelines.run_stack_3d import _run_3d_stack
+from sjtu_tpmshx.tests.cases_3d import run_research
 
 _G = _geom("Diamond", 7.0, 0.6, 16.0)
 EPS, EPS_A = _G["epsilon"], _G["epsilon_A"]
@@ -56,7 +56,7 @@ def test_reverse_dir_sco2_massflow_recovered(monkeypatch):
         fluid_B_cfg=dict(dir=1, **_ff(H, LZ)),     # reverse-dir B
         fluid_type_A="sco2", fluid_type_B="sco2", wall_refine_3d=False,
     )
-    r = _run_3d_stack(cfg)
+    r = run_research(cfg).metadata['diagnostics']
 
     # Historical proxy: raw Q_B divided by an inlet-pressure enthalpy change.
     # This is not the directly recorded native boundary mass flux.

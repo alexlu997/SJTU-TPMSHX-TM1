@@ -501,3 +501,24 @@ def test_parallel_state_and_cancel_isolation(native):
         successful = pool.submit(native, straight_case(accelerate=True))
         assert cancelled.result()[1][0] == 2
         assert successful.result()[1][0] == 0
+
+
+@pytest.mark.parametrize('residual,passed', [(1.57e-6, True), (.005, True), (.02, False)])
+def test_zero_duty_source_gate_matches_existing_strict_energy_scale(native, residual, passed):
+    c = case(shape=(2, 2, 2), directions=(0, 0), fluids=(0, 0), sweeps=0)
+    volume = np.prod([width.sum() for width in c['widths']])
+    c['tin'] = (350., 350.)
+    for side in (c['a'], c['b']):
+        side[1][:] = 1./volume
+        for mass in side[2:5]:
+            mass[:] = 0.
+        side[5][:] = 350.
+        side[6][:] = 1.
+    for T in c['state']:
+        T[:] = 350.
+    c['state'][0][:] += residual
+    actual = native(c)
+    assert_actual_state(c, actual)
+    assert bool(actual[1][13]) is passed  # Fifth certificate gate: solid source balance.
+    certificate = compute_phase2a(dict(returned_model_info(c), _audit_fB=True))
+    assert certificate['eps_LTNE'] == pytest.approx(residual, abs=1e-11)

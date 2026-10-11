@@ -117,7 +117,7 @@ def _build_fluid_io_rows(window, g, side, t, u_default, T_default, P_default,
     details_lay = QVBoxLayout(details)
     details_lay.setContentsMargins(0, 0, 0, 0)
     gd, computed = collapsible_section(
-        window, details_lay, "物性预览", t.style('T_NEUTRAL'),
+        details_lay, "物性预览", t.style('T_NEUTRAL'),
         t.style('F_NEUTRAL'), expanded=False)
     setattr(window, f'_fluid_computed_{s}', computed)
     setattr(window, f'_v_rho{s}', default_factory().res_row(gd, 0, "<i>&rho;</i> [kg/m³]"))

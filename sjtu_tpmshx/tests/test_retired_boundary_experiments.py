@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from sjtu_tpmshx.domain.compute_config import ComputeConfig
-from sjtu_tpmshx.pipelines.run_stack_3d import _build_3d_problem
+from sjtu_tpmshx.tests.cases_3d import prepared_problem
 from sjtu_tpmshx.solvers.backends.python.three_d.execution import build_execution_inputs
 from sjtu_tpmshx.solvers.backends.python.three_d import runtime
 
@@ -33,7 +33,7 @@ def test_retired_control_rejected_before_numerical_work(monkeypatch, key, value,
         if entry == 'canonical':
             ComputeConfig.from_dict(data)
         elif entry == 'raw':
-            _build_3d_problem(data)
+            prepared_problem(data)
         elif entry == 'prepared':
             build_execution_inputs(SimpleNamespace(
                 grid={'dimension': 3, 'length_unit': 'm'}, parameters=data))
@@ -76,7 +76,7 @@ def test_removed_chi_face_positional_cannot_become_porosity(name, preceding_args
 def test_retired_audit_case_does_not_silently_run_empty_matrix(monkeypatch, tmp_path):
     from sjtu_tpmshx.validation.cases import audit_3d_conservation as audit
     monkeypatch.setattr('sys.argv', ['audit', '--cases', 'T4_H2', '--out', str(tmp_path/'audit.md')])
-    monkeypatch.setattr(audit, '_run_3d_stack', lambda *args: pytest.fail('retired case ran'))
+    monkeypatch.setattr(audit, 'run_case', lambda *args: pytest.fail('retired case ran'))
     with pytest.raises(SystemExit) as stopped:
         audit.main()
     assert stopped.value.code == 2
