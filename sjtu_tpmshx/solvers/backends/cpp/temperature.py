@@ -12,6 +12,7 @@ import weakref
 import numpy as np
 
 from sjtu_tpmshx.domain.cancellation import CancelledError
+from ._thermal_abi import _Callbacks, _Cancel as _Cancel, _Progress as _Progress, make_callbacks
 
 
 class _Config(ct.Structure):
@@ -36,14 +37,6 @@ class _Result(ct.Structure):
     _fields_ = [('scheme', ct.c_uint32), ('stop', ct.c_uint32), ('iterations', ct.c_size_t),
                 ('residual', ct.c_double), ('q_b', ct.c_double), ('fluid', _Residual*2),
                 ('projection', _Projection*2), ('owner', ct.c_void_p)]
-
-
-_Cancel = ct.CFUNCTYPE(ct.c_int, ct.c_void_p)
-_Progress = ct.CFUNCTYPE(None, ct.c_void_p, ct.c_size_t, ct.c_size_t)
-
-
-class _Callbacks(ct.Structure):
-    _fields_ = [('cancel', _Cancel), ('progress', _Progress), ('context', ct.c_void_p)]
 
 
 def _temperature_algorithm(library, scheme):
@@ -178,28 +171,7 @@ class NativeTemperatureDriver:
         arrays += state
         config = _Config(mode, *directions, initial is not None, sou_b, bool(conservative), bool(red_black), 0,
                          budget, chunk, *inlets, qtol, *alpha)
-        callback_errors = []
-
-        @_Cancel
-        def cancelled(_):
-            if callback_errors:
-                return 1
-            try:
-                return int(cancel_check()) if cancel_check is not None else 0
-            except BaseException as error:
-                callback_errors.append(error)
-                return 1
-
-        @_Progress
-        def progressed(_, done, total):
-            if callback_errors:
-                return
-            try:
-                progress(done, total)
-            except BaseException as error:
-                callback_errors.append(error)
-
-        callbacks = _Callbacks(cancelled, progressed if progress is not None else _Progress(), None)
+        callbacks, callback_errors = make_callbacks(cancel_check, progress)
         double_p = ct.POINTER(ct.c_double)
         pointers = (double_p*len(arrays))(*(x.ctypes.data_as(double_p) for x in arrays))
         sizes = (ct.c_size_t*len(arrays))(*(x.size for x in arrays))

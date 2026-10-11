@@ -159,13 +159,13 @@ def test_callbacks_cancel_recovery_and_concurrency(driver, dimension):
     assert events and events[-1] == (c['maxit'], c['maxit'])
     with pytest.raises(CancelledError):
         driver(**kwargs, cancel_check=lambda: True)
-    class CallbackFailure(Exception):
-        pass
+    marker = BaseException('callback test')
     def fail(*args):
-        raise CallbackFailure('callback test')
+        raise marker
     for name in ('cancel_check', 'progress'):
-        with pytest.raises(CallbackFailure, match='callback test'):
+        with pytest.raises(BaseException) as caught:
             driver(**kwargs, **{name: fail})
+        assert caught.value is marker
     compare(driver(**kwargs), actual, rtol=0, atol=0)
     with ThreadPoolExecutor(2) as pool:
         failed = pool.submit(driver, **kwargs, cancel_check=lambda: True)

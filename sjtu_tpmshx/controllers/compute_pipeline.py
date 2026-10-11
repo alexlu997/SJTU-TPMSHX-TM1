@@ -71,12 +71,7 @@ class ComputePipeline(ABC):
 
     def run(self) -> ComputeResult:
         """Drive the 3 phases + cancel checks + progress ticks."""
-        # Config validation (2026-07-13, codex review): `validate()` used to
-        # run ONLY on the from_dict/from_json factory paths — every direct
-        # dataclass construction (gate scripts, goldens, tests, scripted
-        # callers) bypassed it, so illegal F2 tolerances / grid combos went
-        # straight into the solvers. The pipeline is the chokepoint every
-        # run passes through; validate here, fail loud before solving.
+        # Validate directly constructed configs before running the pipeline phases.
         with warning_scope({}) as records:
             self.cfg.validate()
             self._check_cancel()
