@@ -25,6 +25,15 @@ before changing solver, pipeline, closure, or data-loading code.
 - Pause and ask the user when physical scope or applicability is unclear.
   Authorization for unrelated work does not resolve that pause.
 
+## Task coordination
+
+- Follow [the collaboration workflow](docs/collaboration.md) for task ownership,
+  worktree setup, synchronization, review, handoff, and retirement.
+- Give each task one owner, one worktree, one branch, and one handoff record.
+  Keep one writer per file and one heavy numerical job per machine.
+- Keep shared environments outside task worktrees. Preserve ignored evidence
+  and verify its recovery before removing a worktree or its runtime resources.
+
 ## Python environment
 
 - `.venv-path` is required for local Python work. Use the absolute interpreter

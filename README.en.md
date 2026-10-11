@@ -421,6 +421,10 @@ Configuration alone does not show a CI pass.
 
 ## Collaboration and merge
 
+Codex and Claude share the project rules in [AGENTS.md](AGENTS.md). Use the
+[collaboration workflow](docs/collaboration.md) for task ownership, worktrees,
+environments, synchronization, and handoff.
+
 Public contract changes require downstream review. Solvers validate preprocessing configuration, units, and grids. Postprocessing validates native fields, boundary evidence, and states. Applications/file consumers validate metric definitions and file relationships. GUI and scheduling stay in `ui/` and `controllers/`. Model resources stay shared.
 
 Each PR identifies affected interfaces, verification evidence, and reviewers. Current repository maintainer is `alexlu997`. Named module owners will be assigned when the additional colleague joins. Do not invent CODEOWNERS or describe model self-review as independent human approval.
