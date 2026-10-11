@@ -1,0 +1,6 @@
+# Native qualification group 2; share 3D flow compilation in one serial job.
+# Unlisted cases go to group 3.
+sjtu_tpmshx/tests/native/test_simple_3d.py
+sjtu_tpmshx/tests/native/test_full_3d.py
+sjtu_tpmshx/tests/native/test_full_3d_refined_stages.py
+sjtu_tpmshx/tests/native/test_cpp_full_3d.py
