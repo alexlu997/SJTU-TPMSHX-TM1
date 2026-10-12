@@ -140,15 +140,15 @@ def test_backend_uses_last_main_raw_and_mass_for_reported_scalars(monkeypatch, m
     monkeypatch.setattr(solve_2d, '_compute_Q_richardson', richardson)
     monkeypatch.setattr(solve_2d, '_outlet_temperature_2d', reduce)
     with warning_scope({}):
-        raw = pipe.run_solvers(fields)
+        display_fields, _, _, diagnostics = pipe.run_solvers(fields)
     assert len(thermal_calls) == 2 and len(reductions) == 2
-    assert not np.array_equal(raw['Ta'], thermal_calls[-1][0][0])
-    assert (raw['T_out_A_K'], raw['T_out_B_K']) == tuple(reductions)
-    assert raw['Q_total'] == (10. if mode == 'true_h' else 123.)
-    assert not raw['solver_converged']
-    assert raw['mass_imbalance_rel_A'] == .2
-    assert raw['Q_A'] == 10. and raw['Q_B'] == -8.
+    assert not np.array_equal(display_fields['Ta_display'], thermal_calls[-1][0][0])
+    assert (diagnostics['T_out_A_K'], diagnostics['T_out_B_K']) == tuple(reductions)
+    assert diagnostics['Q_total'] == (10. if mode == 'true_h' else 123.)
+    assert not diagnostics['solver_converged']
+    assert diagnostics['mass_imbalance_rel_A'] == .2
+    assert diagnostics['Q_A'] == 10. and diagnostics['Q_B'] == -8.
     if mode == 'model_h':
-        assert not raw['model_h_balance']['main']['physical_boundary_complete']
+        assert not diagnostics['model_h_balance']['main']['physical_boundary_complete']
     # Current application mapping is exercised with real FieldResult snapshots
     # in test_module_result_mapping, including later changes to producer data.
