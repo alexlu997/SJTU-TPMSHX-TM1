@@ -44,7 +44,7 @@ cd SJTU-TPMSHX-TM1
 python3.13 -m venv .venv
 printf '%s\n' "$PWD/.venv/bin/python" > .venv-path
 PYTHON="$(head -n 1 .venv-path)"
-"$PYTHON" -m pip install -r requirements-lock.txt
+"$PYTHON" -m pip install -r requirements/base.txt
 "$PYTHON" -m sjtu_tpmshx.runs.tools.check_locked_environment
 "$PYTHON" -m pip check
 ```
@@ -60,7 +60,7 @@ py -3.13 -m venv .venv
 $tm1Python = (Resolve-Path .venv\Scripts\python.exe).Path
 [System.IO.File]::WriteAllText((Join-Path $PWD '.venv-path'), $tm1Python + [Environment]::NewLine)
 $tm1Python = Get-Content .venv-path -TotalCount 1
-& $tm1Python -m pip install -r requirements-lock.txt
+& $tm1Python -m pip install -r requirements/base.txt
 & $tm1Python -m sjtu_tpmshx.runs.tools.check_locked_environment
 & $tm1Python -m pip check
 ```
@@ -119,7 +119,7 @@ Requested grid counts can change during preparation refinement. These examples v
 
 Read the preceding command's exit code with `echo $?` on macOS or `$LASTEXITCODE` in PowerShell. Do not relax thresholds to remove failures.
 
-The default lock includes GUI, file handoff, and test dependencies. It excludes Torch / BoTorch / GPyTorch. Windows CPU Bayesian optimization uses `requirements-lock-server.txt`. macOS arm64 / Python 3.13 uses `requirements-lock-bo-macos.txt`. Use a separate environment for an authorized BO task.
+The default lock includes GUI, file handoff, and test dependencies. It excludes Torch / BoTorch / GPyTorch. Windows CPU Bayesian optimization uses `requirements/bo-windows.txt`. macOS arm64 / Python 3.13 uses `requirements/bo-macos.txt`. Use a separate environment for an authorized BO task.
 
 BoTorch tries to compile its optional C++ kernel when it first constructs a multi-objective Log acquisition function. Set `TORCH_EXTENSIONS_DIR` to `.cache/torch-extensions` in the current worktree. Prepend the BO environment's `bin` directory (`Scripts` on Windows) to `PATH` for that run so the locked Ninja is available. Compilation also requires a local C++ toolchain. If compilation fails, BoTorch reports the failure and uses its Python implementation. Record performance separately for the two paths, and keep first compilation outside warm measurements.
 
@@ -379,7 +379,7 @@ export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
 export QT_QPA_PLATFORM=offscreen PYTHONHASHSEED=0
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 export NUMBA_NUM_THREADS=2
-"$PYTHON" -m mypy @mypy-core-files.txt --config-file pyproject.toml
+"$PYTHON" -m mypy --config-file pyproject.toml
 "$PYTHON" -m pytest sjtu_tpmshx/tests -q -ra -m "not slow and not heavy" --ignore=sjtu_tpmshx/tests/integration_tm1 -n 2 --dist loadscope --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/fast.xml
 NUMBA_NUM_THREADS=1 "$PYTHON" -m pytest sjtu_tpmshx/tests/integration_tm1 -q -ra --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/integration.xml
 # Complete local acceptance: no -m filter. Replace auto with a fixed worker count for available resources.
@@ -390,7 +390,7 @@ PowerShell uses the same pytest arguments. Set variables with forms such as `$en
 
 CI fast tests split complete modules between two runners, each with two workers. Each worker has single-threaded BLAS/OMP and at most two Numba threads. Complete integration runs concurrently on a third runner.
 
-Existing test helpers stay. `run_tests_fast.ps1` is development feedback only. Its `not heavy` subset differs from fast CI. The two PowerShell scripts validate the base lock by default. With an existing Windows BO environment, use `./scripts/run_tests_server.ps1 -LockFile requirements-lock-server.txt`.
+Existing test helpers stay. `run_tests_fast.ps1` is development feedback only. Its `not heavy` subset differs from fast CI. The two PowerShell scripts validate the base lock by default. With an existing Windows BO environment, use `./scripts/run_tests_server.ps1 -LockFile requirements/bo-windows.txt`.
 
 The same parameter is accepted by `run_tests_fast.ps1`. Tests start only after the selected lock and `pip check` pass. Scripts install nothing. A server lock does not permit unlisted packages.
 
@@ -398,7 +398,7 @@ GitHub workflows use checkout v7, setup-python v7, upload-artifact v7, and downl
 
 They run multi-condition optimizer tests, including both real Log acquisition functions. Base jobs keep the lock without BO and test missing-optional-dependency behavior. BO uploads only JUnit reports for 7 days, without solve data or environments.
 
-`mypy-core-files.txt` explicitly lists 18 files. Coverage includes configuration, controllers, CLI, current envelope implementation, three-module contracts/APIs, and the postprocessing metric entry. Deleted forwarding modules are excluded. `pyproject.toml` validates unannotated bodies in four boundary implementation modules. This does not show strict typing across each solver.
+The `[tool.mypy].files` setting in `pyproject.toml` explicitly lists 18 files. Coverage includes configuration, controllers, CLI, current envelope implementation, three-module contracts/APIs, and the postprocessing metric entry. Deleted forwarding modules are excluded. `pyproject.toml` validates unannotated bodies in four boundary implementation modules. This does not show strict typing across each solver.
 
 Fast `test_type_gate.py` runs the same list and validates the rejection of incorrect inputs by all three public APIs. The standalone mypy command is for local checks. CI does not add a duplicate step.
 
@@ -420,7 +420,7 @@ Fast/integration logs keep the 30 slowest tests and skip reasons. Each shard pub
 
 The three original `tests (<platform>, <version>)` required checks wait for all platforms' test shards, BO jobs, and native qualification shards. They require each job to succeed and all shard-set checks to pass. Failed, canceled, skipped, or missing shards cannot pass the gate. `minimal-postprocess` stays separately required. Compare fast, integration, and full-job speed separately with same-platform baselines.
 
-Local timing does not promise CI speedups. Acceptance skips keep specific reasons. Skipped capabilities are not passed. Minimal-postprocess CI uses separate `requirements-lock-postprocess.txt`. It consumes real 2D/3D files from another complete environment. Files stay local to CI jobs without result-artifact uploads.
+Local timing does not promise CI speedups. Acceptance skips keep specific reasons. Skipped capabilities are not passed. Minimal-postprocess CI uses separate `requirements/postprocess.txt`. It consumes real 2D/3D files from another complete environment. Files stay local to CI jobs without result-artifact uploads.
 
 Configuration alone does not show a CI pass.
 

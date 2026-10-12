@@ -53,7 +53,7 @@ cd SJTU-TPMSHX-TM1
 python3.13 -m venv .venv
 printf '%s\n' "$PWD/.venv/bin/python" > .venv-path
 PYTHON="$(head -n 1 .venv-path)"
-"$PYTHON" -m pip install -r requirements-lock.txt
+"$PYTHON" -m pip install -r requirements/base.txt
 "$PYTHON" -m sjtu_tpmshx.runs.tools.check_locked_environment
 "$PYTHON" -m pip check
 ```
@@ -70,7 +70,7 @@ py -3.13 -m venv .venv
 $tm1Python = (Resolve-Path .venv\Scripts\python.exe).Path
 [System.IO.File]::WriteAllText((Join-Path $PWD '.venv-path'), $tm1Python + [Environment]::NewLine)
 $tm1Python = Get-Content .venv-path -TotalCount 1
-& $tm1Python -m pip install -r requirements-lock.txt
+& $tm1Python -m pip install -r requirements/base.txt
 & $tm1Python -m sjtu_tpmshx.runs.tools.check_locked_environment
 & $tm1Python -m pip check
 ```
@@ -148,8 +148,8 @@ $env:NUMBA_CACHE_DIR = Join-Path $PWD '.cache/numba'
 查看紧接着上一条命令的返回码。不要通过放宽阈值消除失败。
 
 默认锁包含 GUI、文件交接和测试依赖，不包含 Torch / BoTorch / GPyTorch。
-贝叶斯优化的 Windows CPU 环境另见 `requirements-lock-server.txt`；macOS arm64 /
-Python 3.13 使用 `requirements-lock-bo-macos.txt`。已授权的 BO 任务使用独立环境，
+贝叶斯优化的 Windows CPU 环境另见 `requirements/bo-windows.txt`；macOS arm64 /
+Python 3.13 使用 `requirements/bo-macos.txt`。已授权的 BO 任务使用独立环境，
 随后用对应锁运行环境检查及 `pip check`；勿将可选依赖加到正在使用的共享基础环境。
 上述小算例无需 BO。原始实验回归与重新拟合则需要匹配版本的本地数据，见文末。
 
@@ -476,7 +476,7 @@ export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
 export QT_QPA_PLATFORM=offscreen PYTHONHASHSEED=0
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 export NUMBA_NUM_THREADS=2
-"$PYTHON" -m mypy @mypy-core-files.txt --config-file pyproject.toml
+"$PYTHON" -m mypy --config-file pyproject.toml
 "$PYTHON" -m pytest sjtu_tpmshx/tests -q -ra -m "not slow and not heavy" --ignore=sjtu_tpmshx/tests/integration_tm1 -n 2 --dist loadscope --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/fast.xml
 NUMBA_NUM_THREADS=1 "$PYTHON" -m pytest sjtu_tpmshx/tests/integration_tm1 -q -ra --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/integration.xml
 # 完整本地验收：没有 -m 过滤；按本机 CPU/内存可将 auto 换为固定 worker 数。
@@ -491,7 +491,7 @@ CI 快测按完整模块分到两个独立 runner，每片固定两个 worker，
 现有测试辅助脚本继续保留；`run_tests_fast.ps1` 只提供开发反馈，
 其 `not heavy` 子集与 CI 快测不同。两份 PowerShell 脚本默认严格检查基础锁。
 已有 Windows BO 环境时，显式使用
-`./scripts/run_tests_server.ps1 -LockFile requirements-lock-server.txt`，或向
+`./scripts/run_tests_server.ps1 -LockFile requirements/bo-windows.txt`，或向
 `run_tests_fast.ps1` 传同一参数；所选锁与 `pip check` 都通过后才启动测试。
 脚本不安装依赖，也不因为选择了服务器锁而放行锁外包。
 
@@ -504,7 +504,7 @@ GitHub workflow 使用 checkout v7、setup-python v7、upload-artifact v7，
 采集函数）。基础作业仍使用不含 BO 的锁，覆盖可选依赖缺失时的行为。
 BO 作业只上传 JUnit 测试报告，保留 7 天，不上传求解数据或虚拟环境。
 
-`mypy-core-files.txt` 显式列出 18 个类型检查文件：覆盖配置、控制器、CLI、当前
+`pyproject.toml` 的 `[tool.mypy].files` 显式列出 18 个类型检查文件：覆盖配置、控制器、CLI、当前
 envelope 实现、三模块数据契约与公共 API、后处理指标入口；已删除的转发模块不再列入。
 `pyproject.toml` 还对四个边界实现模块启用无注解函数体检查；这不等于全求解器严格类型覆盖。
 `test_type_gate.py` 在 pytest 快测中执行同一清单，并确认错误类型不能传入三个公共 API；
@@ -551,7 +551,7 @@ manifest 附带各 pytest 进程的独立 RSS 峰值与已加载 Numba dispatche
 `minimal-postprocess` 继续作为独立必需检查。
 比较速度时区分快测、集成和整个 job，并使用相同平台的基准，不据本地耗时承诺 CI 提速。
 完整验收的 skip 须保留具体原因，不能当作被跳过能力已经通过。最小后处理 CI 使用独立的
-`requirements-lock-postprocess.txt` 环境，并消费另一完整环境生成的真实 2D/3D
+`requirements/postprocess.txt` 环境，并消费另一完整环境生成的真实 2D/3D
 结果文件；文件留在 CI 作业本地，不上传结果 artifact。配置不等于实际 CI 通过。
 
 ## 协作与合并

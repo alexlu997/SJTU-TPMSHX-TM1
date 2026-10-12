@@ -58,6 +58,9 @@ jobs:
         with:
           python-version: ${{ matrix.platform.python }}
           cache: pip
+          cache-dependency-path: |
+            requirements/base.txt
+            pyproject.toml
       - name: Create isolated CI environment
         shell: bash
         run: |
@@ -76,7 +79,7 @@ jobs:
         run: '"$CI_PYTHON" -m pip install -r requirements.txt'
       - name: Check exact dependency lock
         shell: bash
-        run: '"$CI_PYTHON" -m sjtu_tpmshx.runs.tools.check_locked_environment requirements-lock.txt --allow-extra sjtu-tpmshx'
+        run: '"$CI_PYTHON" -m sjtu_tpmshx.runs.tools.check_locked_environment requirements/base.txt --allow-extra sjtu-tpmshx'
       - name: Check dependency compatibility
         shell: bash
         run: '"$CI_PYTHON" -m pip check'
@@ -165,7 +168,7 @@ jobs:
         with:
           python-version: ${{ matrix.platform.python }}
           cache: pip
-          cache-dependency-path: requirements-lock.txt
+          cache-dependency-path: requirements/base.txt
       - name: Create isolated native qualification environment
         shell: bash
         run: |
@@ -181,10 +184,10 @@ jobs:
           PY
       - name: Install locked qualification dependencies
         shell: bash
-        run: '"$CI_PYTHON" -m pip install -r requirements-lock.txt'
+        run: '"$CI_PYTHON" -m pip install -r requirements/base.txt'
       - name: Check exact dependency lock
         shell: bash
-        run: '"$CI_PYTHON" -m sjtu_tpmshx.runs.tools.check_locked_environment requirements-lock.txt'
+        run: '"$CI_PYTHON" -m sjtu_tpmshx.runs.tools.check_locked_environment requirements/base.txt'
       - name: Check dependency compatibility
         shell: bash
         run: '"$CI_PYTHON" -m pip check'
@@ -301,7 +304,7 @@ jobs:
         with:
           python-version: ${{ matrix.platform.python }}
           cache: pip
-          cache-dependency-path: requirements-lock.txt
+          cache-dependency-path: requirements/base.txt
       - name: Create isolated native qualification environment
         shell: bash
         run: |
@@ -317,10 +320,10 @@ jobs:
           PY
       - name: Install locked qualification dependencies
         shell: bash
-        run: '"$CI_PYTHON" -m pip install -r requirements-lock.txt'
+        run: '"$CI_PYTHON" -m pip install -r requirements/base.txt'
       - name: Check exact dependency lock
         shell: bash
-        run: '"$CI_PYTHON" -m sjtu_tpmshx.runs.tools.check_locked_environment requirements-lock.txt'
+        run: '"$CI_PYTHON" -m sjtu_tpmshx.runs.tools.check_locked_environment requirements/base.txt'
       - name: Check dependency compatibility
         shell: bash
         run: '"$CI_PYTHON" -m pip check'
@@ -474,13 +477,13 @@ jobs:
         include:
           - os: macos-14
             python: "3.13"
-            lock: requirements-lock-bo-macos.txt
+            lock: requirements/bo-macos.txt
           - os: windows-2022
             python: "3.12"
-            lock: requirements-lock-server.txt
+            lock: requirements/bo-windows.txt
           - os: windows-2022
             python: "3.13"
-            lock: requirements-lock-server.txt
+            lock: requirements/bo-windows.txt
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     env:
@@ -501,7 +504,7 @@ jobs:
           python-version: ${{ matrix.python }}
           cache: pip
           cache-dependency-path: |
-            requirements-lock.txt
+            requirements/base.txt
             ${{ matrix.lock }}
       - name: Create isolated BO environment
         shell: bash

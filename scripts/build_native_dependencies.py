@@ -354,7 +354,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("fetch", "fetch-eigen", "build", "verify", "publish"))
     parser.add_argument("--cache", type=Path, default=ROOT / ".cache/native-deps")
-    parser.add_argument("--python-lock", type=Path, default=ROOT / "requirements-lock.txt")
+    parser.add_argument("--python-lock", type=Path, default=ROOT / "requirements/base.txt")
     parser.add_argument("--component", choices=("all", "coolprop", "pilot"), default="all")
     args = parser.parse_args()
     python, host, cache = configured_python(), platform_name(), args.cache.resolve()

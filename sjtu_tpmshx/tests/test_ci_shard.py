@@ -17,8 +17,8 @@ def suite(tmp_path_factory):
     root = tmp_path_factory.mktemp('ci-shard-suite')
     shutil.copyfile(Path(__file__).with_name('ci_shard.py'), root / 'ci_shard.py')
     (root / '_ci_shard0.txt').write_text('test_packed.py\n', encoding='utf-8')
-    (root / 'pytest.ini').write_text(
-        '[pytest]\naddopts = --strict-markers\nmarkers =\n    heavy\n    slow\n', encoding='utf-8')
+    (root / 'pyproject.toml').write_text(
+        '[tool.pytest.ini_options]\naddopts = ["--strict-markers"]\nmarkers = ["heavy", "slow"]\n', encoding='utf-8')
     # Use the project's existing heavy-marker hook, pointed at a tiny manifest.
     (root / 'conftest.py').write_text(
         'from pathlib import Path\n'
@@ -44,7 +44,7 @@ def run_pytest(root, *options, workers=2):
                PYTHONPATH=os.pathsep.join([str(root), str(_ROOT), os.environ.get('PYTHONPATH', '')]))
     return subprocess.run(
         [sys.executable, '-m', 'pytest', '-p', 'xdist.plugin', '-p', 'ci_shard',
-         '-c', str(root / 'pytest.ini'),
+         '-c', str(root / 'pyproject.toml'),
          '-n', str(workers), '--dist=loadscope', '-q', '-m', 'not heavy and not slow',
          '-k', 'keep or heavy or slow', *options], cwd=root, env=env,
         text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=45)

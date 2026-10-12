@@ -66,7 +66,7 @@ and rework through complete changes, clear decisions, and verified results.
 - For Matplotlib, Qt smoke, and pytest commands, set `MPLCONFIGDIR` and
   `XDG_CACHE_HOME` to ignored `.cache/` paths in the current worktree.
 - Keep shared environments outside task worktrees. Install only dependencies
-  from `requirements-lock.txt`, not `requirements.txt`, in a shared base environment.
+  from `requirements/base.txt`, not `requirements.txt`, in a shared base environment.
   Use the applicable separate lock for other environment purposes.
   Do not install this project into a shared environment in editable mode.
 - Before the first environment-dependent work in a task, run

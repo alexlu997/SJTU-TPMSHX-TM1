@@ -25,7 +25,7 @@ def test_declared_environment_is_fully_locked_and_installed():
     for group in ('gui', 'test', 'dev'):
         declared.extend(project['optional-dependencies'][group])
 
-    locked = read_lock(_ROOT / 'requirements-lock.txt')
+    locked = read_lock(_ROOT / 'requirements/base.txt')
 
     missing = sorted(
         req.name for raw in declared
@@ -39,8 +39,8 @@ def test_declared_environment_is_fully_locked_and_installed():
 def test_server_lock_includes_base_and_bo_dependencies():
     project = tomllib.loads(
         (_ROOT / 'pyproject.toml').read_text(encoding='utf-8'))['project']
-    base = read_lock(_ROOT / 'requirements-lock.txt')
-    server = read_lock(_ROOT / 'requirements-lock-server.txt')
+    base = read_lock(_ROOT / 'requirements/base.txt')
+    server = read_lock(_ROOT / 'requirements/bo-windows.txt')
 
     assert set(base) <= set(server)
     missing = sorted(
@@ -58,8 +58,8 @@ def test_supported_locks_satisfy_project_version_constraints(platform, python_ve
     declared = [*project['dependencies'], *config['build-system']['requires']]
     for group in ('io', 'gui', 'test', 'dev'):
         declared.extend(project['optional-dependencies'][group])
-    bo_lock = ('requirements-lock-bo-macos.txt' if platform == 'darwin'
-               else 'requirements-lock-server.txt')
+    bo_lock = ('requirements/bo-macos.txt' if platform == 'darwin'
+               else 'requirements/bo-windows.txt')
     environment = {
         'sys_platform': platform,
         'platform_system': 'Darwin' if platform == 'darwin' else 'Windows',
@@ -69,9 +69,9 @@ def test_supported_locks_satisfy_project_version_constraints(platform, python_ve
         'python_full_version': python_version + '.0',
     }
     for filename, extra in (
-        ('requirements-lock.txt', []),
+        ('requirements/base.txt', []),
         (bo_lock, project['optional-dependencies']['bo']),
-        ('requirements-lock-desktop.txt', project['optional-dependencies']['desktop-build']),
+        ('requirements/desktop.txt', project['optional-dependencies']['desktop-build']),
     ):
         locked = read_lock(_ROOT / filename, environment)
         for raw in (*declared, *extra):
@@ -88,7 +88,7 @@ def test_supported_locks_satisfy_project_version_constraints(platform, python_ve
 
 def test_minimal_postprocess_lock_preserves_declared_io_versions():
     project = tomllib.loads((_ROOT / 'pyproject.toml').read_text(encoding='utf-8'))['project']
-    locked = read_lock(_ROOT / 'requirements-lock-postprocess.txt', {
+    locked = read_lock(_ROOT / 'requirements/postprocess.txt', {
         'sys_platform': 'linux', 'python_version': '3.13', 'python_full_version': '3.13.0',
         'platform_system': 'Linux', 'platform_machine': 'x86_64', 'os_name': 'posix',
     })
@@ -119,8 +119,8 @@ def test_lock_reader_follows_includes_and_platform_markers(tmp_path):
 
 
 def test_server_environment_requires_explicit_server_lock():
-    base = read_lock(_ROOT / 'requirements-lock.txt', {'sys_platform': 'win32'})
-    server = read_lock(_ROOT / 'requirements-lock-server.txt', {'sys_platform': 'win32'})
+    base = read_lock(_ROOT / 'requirements/base.txt', {'sys_platform': 'win32'})
+    server = read_lock(_ROOT / 'requirements/bo-windows.txt', {'sys_platform': 'win32'})
     installed = {name: {next(iter(req.specifier)).version} for name, req in server.items()}
     assert environment_issues(server, installed) == []
     issues = environment_issues(base, installed)

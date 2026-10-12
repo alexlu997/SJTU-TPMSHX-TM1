@@ -46,7 +46,7 @@ def test_desktop_build_lock_covers_declared_builder():
     from packaging.utils import canonicalize_name
     from sjtu_tpmshx.runs.tools.check_locked_environment import read_lock
     root = Path(__file__).resolve().parents[2]
-    lock = read_lock(root / 'requirements-lock-desktop.txt')
+    lock = read_lock(root / 'requirements/desktop.txt')
     project = tomllib.loads((root / 'pyproject.toml').read_text(encoding='utf-8'))['project']
     for raw in project['optional-dependencies']['desktop-build']:
         requirement = Requirement(raw)

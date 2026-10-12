@@ -13,7 +13,7 @@
 逐项状态及耗时的 JUnit XML，测试报告 artifact 保留 7 天。上传范围为
 `.cache/ci/` 的测试报告、收集/分片清单及资源记录，不包含原生求解结果或本地数据。
 平台汇总门 SHALL 验证两个快测分片完整且互斥，并要求测试分片、集成、BO 及原生依赖资格作业成功。
-平台快测、真实集成和最小后处理门均保留；macOS 3.13、Windows 3.12、Windows 3.13 和 minimal-postprocess 四项检查均为必需门，数值断言/容差不因提速改变。基础与 BO 作业 SHALL 使用相同的平台/Python 版本矩阵；两个 Windows 版本共用 requirements-lock-server.txt。
+平台快测、真实集成和最小后处理门均保留；macOS 3.13、Windows 3.12、Windows 3.13 和 minimal-postprocess 四项检查均为必需门，数值断言/容差不因提速改变。基础与 BO 作业 SHALL 使用相同的平台/Python 版本矩阵；两个 Windows 版本共用 requirements/bo-windows.txt。
 
 #### Scenario: Integration is executed once per platform
 - **WHEN** 合并两个快测分片和独立集成作业的测试集合
@@ -47,7 +47,7 @@
 - **THEN** 仅保留真实活跃的 change；不要求默认 Python 环境安装 OpenSpec CLI
 
 ### Requirement: Pytest config single source
-仓库根 SHALL 提供 `pytest.ini`：`testpaths = sjtu_tpmshx/tests`、`--strict-markers`，并注册 `slow`、`fast` 与 `heavy` 标记。未注册标记 SHALL 导致收集期报错而非静默通过。
+仓库根 `pyproject.toml` SHALL 在 `[tool.pytest.ini_options]` 中定义：`testpaths = sjtu_tpmshx/tests`、`--strict-markers`，并注册 `slow`、`fast` 与 `heavy` 标记。未注册标记 SHALL 导致收集期报错而非静默通过。
 
 #### Scenario: Bare pytest collects only the real suite
 - **WHEN** 在仓库根运行 `pytest --collect-only -q`
@@ -58,7 +58,7 @@
 - **THEN** pytest 收集期报错
 
 ### Requirement: Public interface type gate
-`mypy-core-files.txt` SHALL 显式列出公共接口与数据契约检查范围，包含当前 envelope
+`pyproject.toml` 的 `[tool.mypy].files` SHALL 显式列出公共接口与数据契约检查范围，包含当前 envelope
 实现、三模块 API 和数据对象，同时保留仍有消费者的兼容入口。`pyproject.toml`
 SHALL 对 envelope、前处理 API、求解 API 和后处理 metrics 启用无注解函数体检查。
 这不声明全求解器严格类型覆盖。`test_type_gate.py` SHALL 在快测中执行清单检查，
