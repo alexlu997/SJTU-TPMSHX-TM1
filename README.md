@@ -520,25 +520,28 @@ envelope 实现、三模块数据契约与公共 API、后处理指标入口；�
 `"$PYTHON" scripts/check_ci_shards.py .cache/ci/fast-0 .cache/ci/fast-1`
 核对两个 worker 的集合一致、两片互斥且完整覆盖原子集。
 
-原生资格检查在 macOS 分为三片，在每个 Windows/Python 组合分为六片，每片串行执行。
-分组依据完整矩阵的实测用例耗时；同一模块的共享 fixture 保持在同片，独立工程配对用例可按完整 node ID 分组。
+原生资格检查在 macOS 分为三片，在每个 Windows/Python 组合分为七片，每片串行执行。
+分组依据完整矩阵的实测用例耗时。Windows 的保守能量测试按独立 fixture 参数分组，
+同组的收敛、物性、能量账本和真实回放检查保持在同片。其他模块保留共享 fixture；
+独立工程配对用例可按完整 node ID 分组。
 macOS 的 3D 流动模块放在同片以复用 JIT 编译。
 分组清单位于 `sjtu_tpmshx/tests/native/`：macOS 使用 `_ci_macos_shard0.txt` 和 `_ci_macos_shard1.txt`，
-Windows 使用 `_ci_windows_shard0.txt` 至 `_ci_windows_shard4.txt`。
+Windows 使用 `_ci_windows_shard0.txt` 至 `_ci_windows_shard5.txt`。
 按编号顺序将每份清单通过 `--ci-shard-modules=<清单路径>` 重复传入。
-未列出的用例自动进入最后一片，即 macOS 分片 2 或 Windows 分片 5。
+未列出的用例自动进入最后一片，即 macOS 分片 2 或 Windows 分片 6。
 同一集合校验器加 `--serial`，按编号传入全部 manifest，核对其完整且互斥。
 全部数值用例、精度和收敛断言以及三个平台/Python 组合保持不变。
 工程配对用例内部同时运行两个独立后端，复用同一个不可变准备态；Python 留在调用线程，
 保持其 Numba 线程设置。两个结果都返回后再执行原有守恒、收敛及差异检查。
 
-每个平台/Python 组合先构建一次原生库并运行独立 C/C++ 调用，
+每个平台/Python 组合调用 [原生工作流](.github/workflows/native.yml)，
+先构建一次原生库并运行独立 C/C++ 调用。该构建完成后立即提交本组合的分片，无需等待其他平台构建。
 该组合的全部分片从同一工作流的 `native-build-<平台>-py<版本>` artifact 复用该构建。
 归档保留可执行权限，包含运行库、调用程序和许可声明。CoolProp 静态库使用精确缓存键，
 绑定平台、架构、Python、托管编译环境版本、原生依赖锁和构建脚本；
 项目 C++ 与模型系数每次重新构建，缓存命中仍须通过独立调用检查。
 构建日志单独保存在 `native-build-logs-<平台>-py<版本>`。
-每片上传 `native-dependencies-<平台>-py<版本>-shard-<编号>`，macOS 编号为 0–2，Windows 为 0–5，
+每片上传 `native-dependencies-<平台>-py<版本>-shard-<编号>`，macOS 编号为 0–2，Windows 为 0–6，
 包含 JUnit 和 `native-manifest`。以上 artifact 均保留 7 天。
 原生日志保留最慢 20 项和 skip 原因。
 

@@ -1,16 +1,34 @@
-# windows native group 2; keep shared module fixtures together.
-# Independent engineering pairs use complete test node IDs.
-sjtu_tpmshx/tests/native/test_full_3d.py
-sjtu_tpmshx/tests/native/test_simple_3d_api.py
-sjtu_tpmshx/tests/native/test_cpp_full_2d_capture.py
-sjtu_tpmshx/tests/native/test_cpp_full_3d.py
-sjtu_tpmshx/tests/native/test_backend_condition_consumers.py
-sjtu_tpmshx/tests/native/test_quick_design_driver.py
-sjtu_tpmshx/tests/native/test_cpp_enthalpy.py
-sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_continuous_real_fluid_public_backends[sco2-3]
-sjtu_tpmshx/tests/native/test_model_h_3d.py
-sjtu_tpmshx/tests/native/test_model_h_2d.py
-sjtu_tpmshx/tests/native/test_native_pressure.py
-sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[water-sco2-3]
-sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[sco2-sco2-3]
+# windows native group 2; retain each shared numerical result.
+# Conservative solver checks and replay stay with their fixture parameter.
+sjtu_tpmshx/tests/native/test_simple_3d.py
+sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py::test_actual_thermal_state_and_signed_ledger[temperature_sou-directions03-partialFalse]
+sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py::test_saved_case_result_new_process_replay[temperature_sou-directions03-partialFalse]
+sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py::test_actual_thermal_state_and_signed_ledger[temperature_fou-directions12-partialFalse]
+sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py::test_saved_case_result_new_process_replay[temperature_fou-directions12-partialFalse]
+sjtu_tpmshx/tests/native/test_cpp_conservative_full3d.py::test_actual_heos_state_six_face_powers_and_postprocess[temperature_fou-sco2-water-full]
+sjtu_tpmshx/tests/native/test_cpp_conservative_full3d.py::test_executed_algorithm_and_original_convergence_gates[temperature_fou-sco2-water-full]
+sjtu_tpmshx/tests/native/test_cpp_conservative_full3d.py::test_prepared_recipe_and_detached_evidence_save_replay[temperature_fou-sco2-water-full]
+sjtu_tpmshx/tests/native/test_fluid_properties.py
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[air-water-2]
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[air-co2-3]
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_continuous_real_fluid_public_backends[co2-3]
+sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py::test_actual_thermal_state_and_signed_ledger[temperature_sou-directions12-partialTrue]
+sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py::test_saved_case_result_new_process_replay[temperature_sou-directions12-partialTrue]
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_continuous_real_fluid_public_backends[co2-2]
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[sco2-sco2-2]
+sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py::test_candidate_exception_releases_and_recovers[decode]
+sjtu_tpmshx/tests/native/test_cpp_conservative_full3d.py::test_actual_heos_state_six_face_powers_and_postprocess[temperature_fou-sco2-water-None]
+sjtu_tpmshx/tests/native/test_cpp_conservative_full3d.py::test_executed_algorithm_and_original_convergence_gates[temperature_fou-sco2-water-None]
+sjtu_tpmshx/tests/native/test_cpp_conservative_full3d.py::test_prepared_recipe_and_detached_evidence_save_replay[temperature_fou-sco2-water-None]
+sjtu_tpmshx/tests/native/test_cpp_conservative_full3d.py::test_interrupt_after_candidate_native_return_releases_owner
 sjtu_tpmshx/tests/native/test_temperature_evidence.py
+sjtu_tpmshx/tests/native/test_refinement_2d.py
+sjtu_tpmshx/tests/native/test_cpp_conservative_full3d.py::test_large_grid_packing_keeps_legacy_rb_and_candidate_serial[temperature_fou]
+sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py::test_missing_version_query_blocks_candidate_before_solve_but_allows_legacy[legacy_h_fou]
+sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py::test_old_library_candidate_capability_fails_before_flow[tpmshx_solve_full_2d_v3]
+sjtu_tpmshx/tests/native/test_cpp_conservative_full3d.py::test_candidate_requires_public_full_cpp_route[python-full]
+sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py::test_energy_decoder_rejects_unsupported_native_version[2-True]
+sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py::test_energy_decoder_rejects_unsupported_native_version[2-3]
+sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py::test_energy_decoder_rejects_unsupported_native_version[2-0]
+sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py::test_energy_decoder_queries_executed_algorithm[2-2]
+sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py::test_energy_decoder_queries_executed_algorithm[1-1]
