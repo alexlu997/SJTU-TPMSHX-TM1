@@ -54,12 +54,21 @@ M-A 三模块主线完成不代表 M-B 扩展功能完成，也不代表实验�
 
 当前使用说明、架构、接口和现行规范提供中英文版本。原路径保留其主语言，
 另一版本使用 `.en.md` 或 `.zh-CN.md`，页首提供语言切换。
-历史正文、代理指令和许可证原文保留；历史索引及当前用途说明提供双语。
+历史正文、外部引文和许可证保留原文；历史索引及当前用途说明提供双语。
+代理指令保留原语言，无须另建双语副本；现行英文指令的修改仍遵守以下写作规则。
 
 英文按 [ASD-STE100 Issue 9](https://www.asd-ste100.org/about_STE.html)的受控英语规则编写。
+范围包括技术文档、代理指令、代码注释、docstring、面向用户的说明、提交说明及 PR 文本。
+新增或修改的注释和 docstring 使用英文。注释保持简短，说明代码本身没有表达的原因。
+新增和修改的文字直接执行这些规则；相关工作触及存量文字时一并修订，其他存量文字
+的集中改写另设任务。
+
 操作步骤每句表达一个动作，操作句不超过 20 词，描述句不超过 25 词。
-代码、字段、模型名称和下列技术名词保持固定写法。中文使用相同结构和技术含义。
-句长检查辅助人工词义与技术审读，不代表独立的 STE 合规认证。
+代码、字段、模型名称和下列技术名词保持固定写法。语言修订不得改变标识符、命令、
+公式、单位、外部引文和许可证原文。中文与英文保持相同结构、技术含义和术语对应；
+STE 本身是英文规范。
+审查包括词义、词性、句式和技术术语。句长检查辅助语义与技术审读，不代表独立的
+STE 合规认证。
 
 | 英文技术名词 | 中文 | 本项目含义 |
 | --- | --- | --- |
@@ -86,10 +95,10 @@ M-A 三模块主线完成不代表 M-B 扩展功能完成，也不代表实验�
 | 领域与词性 | 技术词 | 含义边界 |
 | --- | --- | --- |
 | 数值与物理名词 | residual, accuracy, convergence, conservation, enthalpy, porosity, interpolation, boundary flux, pressure reference, finite-volume row | 架构和模型文档定义的量与方法；accuracy 不表示重复性 |
-| 软件名词 | case, field, state, backend, ABI, callback, archive, metadata, cache, build, worker, trace, result owner | 公共契约及当前实现定义的对象和过程 |
+| 软件名词 | case, field, state, backend, ABI, callback, archive, metadata, cache, build, worker, trace, result owner, worktree, branch, commit, PR, CI | 公共契约、当前实现及 Git 协作流程定义的对象和过程 |
 | 证据名词 | original budget, native evidence, engineering parity, acceptance gate, qualification, experimental validation | 明确版本和范围下记录的参考、限制与证据 |
 | 数值动词 | solve, converge, discretize, interpolate, integrate, normalize, extrapolate, refine, fit, calibrate, clip, relax | 对应的数值操作，不表示物理结果已通过验收 |
-| 软件动词 | build, compile, run, load, parse, serialize, deserialize, validate, allocate, release, cache, replay, export, import | 对应计算机过程；例如 build 生成二进制，不表示数值资格已通过 |
+| 软件动词 | build, compile, run, load, parse, serialize, deserialize, validate, allocate, release, cache, replay, export, import, commit, push, merge, fast-forward | 对应计算机或 Git 操作；例如 build 生成二进制，不表示数值资格已通过 |
 
 字段名和代码字面值不翻译。一次修改同步核对两种语言的默认值、单位、限制、
 命令和当前证据；旧链接入口及被引用锚点继续保留。

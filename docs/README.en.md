@@ -60,12 +60,28 @@ Keep the original B40 failures, frozen references and historical conclusions.
 Current usage, architecture, contract and specification documents have Chinese and English versions.
 The existing path keeps its main language. Its companion uses `.en.md` or `.zh-CN.md`.
 Each page gives language links.
-Historical bodies, agent instructions and license texts keep their originals.
+Historical bodies, external quotations, and license texts keep their original text.
 Historical indexes and current usage explanations have both languages.
+Agent instructions keep their original language without a separate translation.
+Changes to current English instructions must follow the writing rules below.
 
-English text follows the controlled-language rules of [ASD-STE100 Issue 9](https://www.asd-ste100.org/about_STE.html). Use one action per procedural sentence. Limit procedural sentences to 20 words and descriptive sentences to 25 words. Keep fixed spellings for code, fields, model names and the technical terms below. Chinese text keeps the structure and technical meaning.
+English text follows the controlled-language rules of [ASD-STE100 Issue 9](https://www.asd-ste100.org/about_STE.html).
+This includes technical documents, agent instructions, code comments, docstrings, user-facing explanations, commit messages, and PR text.
+Write new or changed comments and docstrings in English.
+Keep comments short. Explain reasons that the code does not show.
+Apply these rules to new and changed text.
+Revise existing text when related work touches it.
+A rewrite of other existing text needs a separate task.
 
-Sentence-length checks support human semantic and technical review. They are not independent STE certification.
+Use one action per procedural sentence.
+Limit procedural sentences to 20 words and descriptive sentences to 25 words.
+Keep fixed spellings for code, fields, model names, and the technical terms below.
+Keep identifiers, commands, formulas, units, external quotations, and license text unchanged during language edits.
+Chinese text keeps the English structure, technical meaning, and terminology.
+STE is an English standard.
+
+Review word meanings, parts of speech, sentences, and technical terms.
+Sentence-length checks support semantic and technical review. They are not independent STE certification.
 
 | English term | Chinese term | Meaning in TM1 |
 | --- | --- | --- |
@@ -95,10 +111,10 @@ They are not general alternatives to approved dictionary words.
 | Subject and word type | Technical terms | Meaning boundary |
 | --- | --- | --- |
 | Numerical and physical nouns | residual, accuracy, convergence, conservation, enthalpy, porosity, interpolation, boundary flux, pressure reference, finite-volume row | The quantities and methods defined in the architecture and model documents. Accuracy does not mean repeatability. |
-| Software nouns | case, field, state, backend, ABI, callback, archive, metadata, cache, build, worker, trace, result owner | Objects and processes defined by the public contracts and current implementation. |
+| Software nouns | case, field, state, backend, ABI, callback, archive, metadata, cache, build, worker, trace, result owner, worktree, branch, commit, PR, CI | Objects and processes defined by the public contracts, current implementation, and Git workflow. |
 | Evidence nouns | original budget, native evidence, engineering parity, acceptance gate, qualification, experimental validation | The recorded reference, limits, and evidence for a specified version and scope. |
 | Numerical verbs | solve, converge, discretize, interpolate, integrate, normalize, extrapolate, refine, fit, calibrate, clip, relax | The corresponding numerical operation. These terms do not imply that a physical result passed its acceptance gates. |
-| Software verbs | build, compile, run, load, parse, serialize, deserialize, validate, allocate, release, cache, replay, export, import | The corresponding computer process. For example, a build creates a binary. It does not show numerical qualification. |
+| Software verbs | build, compile, run, load, parse, serialize, deserialize, validate, allocate, release, cache, replay, export, import, commit, push, merge, fast-forward | The corresponding computer or Git operation. For example, a build creates a binary. It does not show numerical qualification. |
 
 Do not translate field names or code literals.
 For each change, compare defaults, units, limits, commands and current evidence in both languages.
