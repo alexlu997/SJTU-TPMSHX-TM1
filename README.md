@@ -149,7 +149,7 @@ $env:NUMBA_CACHE_DIR = Join-Path $PWD '.cache/numba'
 
 默认锁包含 GUI、文件交接和测试依赖，不包含 Torch / BoTorch / GPyTorch。
 贝叶斯优化的 Windows CPU 环境另见 `requirements-lock-server.txt`；macOS arm64 /
-Python 3.13 使用 `requirements-lock-bo-macos.txt`。BO 应安装到用户授权的独立环境，
+Python 3.13 使用 `requirements-lock-bo-macos.txt`。已授权的 BO 任务使用独立环境，
 随后用对应锁运行环境检查及 `pip check`；勿将可选依赖加到正在使用的共享基础环境。
 上述小算例无需 BO。原始实验回归与重新拟合则需要匹配版本的本地数据，见文末。
 
@@ -461,9 +461,12 @@ M-B/原文限定追踪，不能据目录或接口声明为已实现。
 
 ## 环境与检查
 
-本地 Python 必须使用 `.venv-path` 第一行的绝对解释器。缺失时先配置合规环境；
-代理不自动创建、升级或重装共享环境。依赖声明与精确锁同时维护，共享 venv
-只安装锁定依赖，不把当前项目 editable 安装进去。命令从当前仓库根运行。
+本地项目执行使用 `.venv-path` 第一行的绝对解释器。任务环境缺失或检查失败时，
+先停止依赖该环境的工作，再按[环境恢复流程](docs/collaboration.zh-CN.md#环境恢复)
+自主恢复。修改前说明影响并保留恢复方式，通过检查后再切换指针和继续工作。
+恢复使用当前适用锁；依赖版本变更须同时更新依赖声明和精确锁。
+共享 venv 只安装锁定依赖，不把当前项目 editable 安装进去，不修改使用中的环境。
+命令从当前仓库根运行。
 
 ```bash
 PYTHON="$(head -n 1 .venv-path)"

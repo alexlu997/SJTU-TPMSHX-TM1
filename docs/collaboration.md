@@ -10,6 +10,9 @@ in force when the owner or tool changes.
 
 Use the [standing task authority](../AGENTS.md#1-task-scope-and-authority)
 for Git actions. Follow the user's limits for each task.
+For a broad goal, investigate and propose a direction with acceptance conditions.
+Get the user's direction before implementation. Then complete the agreed work,
+including retirement and required validation, without approval at each step.
 
 ## Start a task
 
@@ -34,11 +37,64 @@ for Git actions. Follow the user's limits for each task.
    Record the actual native library and its source/build identity separately.
    Do a check for references to a worktree scheduled for removal.
 
-Creating or changing an environment requires user authorization. After such an
-explicit request, build at its final location from the applicable exact lock.
-Validate the new environment before switching active pointers. Keep the old
-one until the switch passes. BO and desktop build environments keep their
-separate locks and acceptance checks.
+## Environment recovery
+
+Standing task authority includes recovery of the environment needed for an agreed task.
+It includes creation when the required environment is missing.
+Follow these steps before dependent project work resumes:
+
+1. Explain the failure, affected tasks, planned changes, and recovery method.
+   Record the applicable lock, original interpreter and pointers, and active consumers.
+   Keep the old environment and its source revision available.
+   If no usable old environment exists, record that limit and preserve the original files.
+2. Use the applicable exact lock. Build a replacement at its final location outside task worktrees.
+   An existing, compatible host Python can create the replacement.
+   Record its absolute path and version. Use it only for environment creation.
+   Use the replacement's absolute interpreter for installation and recovery checks.
+   This is the explicit exception to the active `.venv-path` rule during recovery.
+   If a suitable interpreter or required access is unavailable, report the needed action.
+3. Run the lock checker and `pip check` with the replacement interpreter.
+   Run from the current repository root. Use worktree-local caches.
+   Complete relevant smoke checks and prewarm for the environment's purpose.
+   BO and desktop build environments use their own locks and acceptance checks.
+4. Switch only the affected idle task's pointer after these checks pass.
+   Keep active consumers on their original environment.
+   Do not modify or remove an environment in use.
+   Check the task through the new pointer. On failure, restore the original pointer
+   and retain the failure record. Resume project execution only with a qualified environment.
+5. Record the replacement, results, changed pointers, and recovery paths.
+   Retain the previous environment until the switch is verified and its consumers are zero.
+   Follow the archive and removal checks before later removal.
+
+Recovery uses the current lock. A dependency version change needs a scoped PR
+that updates `pyproject.toml` and the applicable lock together.
+Validate its replacement environment before switching. Routine launchers still install no packages.
+
+## Complete code retirement
+
+For a replacement task, record the new behavior and the old code to retire before implementation.
+Use the task's existing handoff record; keep detailed local evidence in ignored `.cache/`.
+
+1. Trace public and internal callers, dynamic names, CLI/GUI entries, and external consumers.
+   Include configuration and saved-file readers, exports, packaging, tests, fixtures, and documentation.
+   Check actual use. A filename or a search with no hits is not sufficient evidence.
+2. Verify the replacement against the behavior that current consumers need.
+   Keep physical, data, platform, and compatibility requirements.
+   Supported Python and C++ backends remain current product capabilities.
+3. In the same PR, move consumers and regression coverage to the replacement.
+   Remove the replaced implementation and files used only by it.
+   Update entry points, build lists, configuration, exports, and documentation together.
+   Preserve useful regression coverage. Use Git history for previous source code;
+   do not keep duplicate backup files in the working tree.
+4. Check remaining references and run the relevant consumer and regression checks.
+   For each retained item, record its consumer, reason, and exact removal condition.
+   Report implementation and retirement states separately if retirement is incomplete.
+   Complete the task only when its required retirement and validation pass.
+
+During an implementation task, record confirmed defects outside its scope.
+After delivery, fix them in separate PRs under the standing authority.
+Each PR covers a confirmed defect and its necessary consequences.
+Explicit read-only tasks remain read-only.
 
 ## Synchronize and review
 
