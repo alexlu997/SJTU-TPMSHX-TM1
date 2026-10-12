@@ -60,7 +60,7 @@ def compare_audit(actual, expected):
 
 
 def compare_complete(actual, record):
-    _, diagnostics = record['raw_return']
+    diagnostics = record['capture_inputs'][-1]
     final_record = record
     if diagnostics['model_h_balance'] is not None:
         # The shared coarse capture precedes the caller's outer certificate.

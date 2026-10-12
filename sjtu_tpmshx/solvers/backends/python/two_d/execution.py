@@ -77,7 +77,6 @@ def _build_execution_inputs(case: CaseData, *, copy_design):
     if df_ref.parameters['topology'] != cfg['tpms_type']:
         raise ValueError('prepared topology and Darcy-Forchheimer resource disagree')
     cfg['_models'] = providers
-    cfg['_capture_native'] = True
     design = _legacy_zone_units({
         key: value if not copy_design and isinstance(value, np.ndarray) else _mutable_data(value)
         for key, value in case.design_fields.items()})
@@ -129,8 +128,8 @@ def run_case(case: CaseData, control: RunControl = RunControl()):
     control.check_cancelled()
     cfg, prepared = build_execution_inputs(case)
     runtime = build_runtime(cfg, prepared, residual_cb=control.residual)
-    raw, diagnostics = _run_solvers(cfg, runtime, control)
+    display_fields, native, application, diagnostics = _run_solvers(cfg, runtime, control)
     control.check_cancelled()
-    result = capture_result(case, raw, diagnostics)
+    result = capture_result(case, display_fields, native, application, diagnostics)
     control.report_progress(100)
     return result

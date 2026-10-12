@@ -32,6 +32,17 @@ def assert_slots(actual, expected):
         assert actual == expected
 
 
+def legacy_2d_result(case, display_fields, diagnostics):
+    """Recreate the retired 2D input for the frozen application-mapping oracle."""
+    raw = {key: display_fields[key + '_display'] for key in ('Ta', 'Tb', 'Ts', 'P_fA', 'P_fB')}
+    for key in ('ucA', 'vcA', 'ucB', 'vcB'):
+        raw[key] = display_fields[key]
+        raw[key + '_disp'] = display_fields.get(key + '_display')
+    raw.update(energy_dx=case.grid['dx'], energy_dy=case.grid['dy'])
+    raw.update(diagnostics)
+    return raw
+
+
 def legacy_3d_result(prob, outer, metrics, diagnostics):
     """Recreate the retired 3D input for the frozen application-mapping oracle."""
     raw = dict(
@@ -61,14 +72,14 @@ def test_real_application_mapping_and_offline_readback(monkeypatch, tmp_path, di
         from sjtu_tpmshx.solvers.backends.python.two_d import result_capture
         from sjtu_tpmshx.tests.integration_tm1.legacy_result_mapping import _finalize_cfg
         capture = result_capture.capture_result
-        def checked_capture(case, raw, diagnostics):
-            result = capture(case, raw, diagnostics)
-            legacy = dict(raw)
+        def checked_capture(case, display_fields, native, application, diagnostics):
+            result = capture(case, display_fields, native, application, diagnostics)
+            legacy = legacy_2d_result(case, display_fields, diagnostics)
             for group in ('coeffs', 'props'):
                 legacy.update({'_shim_' + name: value
-                               for name, value in raw['application'][group].items()})
+                               for name, value in application[group].items()})
             legacy.update({'_shim_zone_' + name: value for name, value in
-                           (raw['application']['zones'] or {}).items()})
+                           (application['zones'] or {}).items()})
             parsed = dict(compute_cfg=config, N_x=len(case.grid['dx']), N_y=len(case.grid['dy']),
                           L=case.parameters['L'], H=case.parameters['H'],
                           dir_A=case.parameters['dir_A'], dir_B=case.parameters['dir_B'],

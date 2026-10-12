@@ -46,7 +46,7 @@ class ComputePipeline(ABC):
     -----------------
 
     Concrete pipelines exchange CaseData and FieldResult through the public
-    module APIs. ``finalize(raw, fields)`` evaluates the native result and
+    module APIs. ``finalize(raw)`` evaluates the native result and
     maps it to the existing :class:`ComputeResult` display contract.
     """
 
@@ -86,7 +86,7 @@ class ComputePipeline(ABC):
             self.progress_cb(90)
             self._check_cancel()
             started = perf_counter()
-            result = self.finalize(raw, fields)
+            result = self.finalize(raw)
             timings['postprocess'] = perf_counter() - started
             result.metadata['timings_s'] = timings
             self._check_cancel()
@@ -107,8 +107,7 @@ class ComputePipeline(ABC):
         """Phase 2: execute prepared data and return native evidence."""
 
     @abstractmethod
-    def finalize(self, raw: FieldResult,
-                 fields: CaseData) -> ComputeResult:
+    def finalize(self, raw: FieldResult) -> ComputeResult:
         """Phase 3: assemble :class:`ComputeResult` from raw output."""
 
 
@@ -150,7 +149,7 @@ class Pipeline2D(ComputePipeline):
             outer_iteration=with_ui_hook('iter_cb', self.control.outer_iteration))
         return run_case(fields, control)
 
-    def finalize(self, raw: FieldResult, fields: CaseData) -> ComputeResult:
+    def finalize(self, raw: FieldResult) -> ComputeResult:
         from sjtu_tpmshx.postprocess.api import evaluate
         from sjtu_tpmshx.controllers.module_adapter import to_compute_result
         return to_compute_result(raw, evaluate(raw))

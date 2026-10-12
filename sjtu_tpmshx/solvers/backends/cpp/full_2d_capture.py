@@ -110,8 +110,9 @@ def capture_result(case, cfg, prepared, native):
             f"(drho_A={rho[0]:.4f}, drho_B={rho[1]:.4f}, "
             f"dT_A={temperature[0]:.2f}K, dT_B={temperature[1]:.2f}K)")
     pressure_states, pressure_evidence = {}, {}
-    raw = dict(zip(('Ta', 'Tb', 'Ts'), main['temperature']))
-    evidence = dict(raw, fine=_fine_evidence(fine, fine_balance),
+    display_fields = dict(zip(('Ta_display', 'Tb_display', 'Ts_display'), main['temperature']))
+    evidence = dict(zip(('Ta', 'Tb', 'Ts'), main['temperature']))
+    evidence.update(fine=_fine_evidence(fine, fine_balance),
         true_h=None if true_h_info is None else true_h_info['_native_state'],
         model_h_balance=model_balance, mode=mode, split_A=cfg['thermal_geometry']['split_A'],
         outer_index=int(native['iterations']) - 1,
@@ -137,8 +138,8 @@ def capture_result(case, cfg, prepared, native):
                                   if mode == 'conservative_energy' or 'temperature_evidence' in main
                                   else (flow['mass_x'], flow['mass_y'])),
         })
-        raw.update({'P_f' + label: flow['absolute_pressure'], 'uc' + label: flow['uc'], 'vc' + label: flow['vc'],
-                    'uc' + label + '_disp': None, 'vc' + label + '_disp': None})
+        display_fields.update({'P_f' + label + '_display': flow['absolute_pressure'],
+                               'uc' + label: flow['uc'], 'vc' + label: flow['vc']})
         result = flow['result']
         if not result['converged']:
             warnings.append(
@@ -155,13 +156,15 @@ def capture_result(case, cfg, prepared, native):
             f"residual={fine_info['residual']:.3e})")
     if any(partial):
         from scipy.ndimage import gaussian_filter
-        for key in ('Ta', 'Tb', 'Ts'):
-            raw[key] = gaussian_filter(raw[key], sigma=1.5)
+        for key in ('Ta_display', 'Tb_display', 'Ts_display'):
+            display_fields[key] = gaussian_filter(display_fields[key], sigma=1.5)
         for side, label in enumerate('AB'):
             if partial[side]:
-                raw['P_f' + label] = gaussian_filter(raw['P_f' + label], sigma=1.5)
+                key = 'P_f' + label + '_display'
+                display_fields[key] = gaussian_filter(display_fields[key], sigma=1.5)
                 for prefix in ('uc', 'vc'):
-                    raw[prefix + label + '_disp'] = gaussian_filter(raw[prefix + label], sigma=2.)
+                    display_fields[prefix + label + '_display'] = gaussian_filter(
+                        display_fields[prefix + label], sigma=2.)
 
     detail = dict(inlet_pressure=pressure_states, outer_converged=bool(native['outer_converged']),
         outer_iters=int(native['iterations']), outer_hit_cap=not native['outer_converged'],
@@ -199,20 +202,18 @@ def capture_result(case, cfg, prepared, native):
         diagnostics['residuals_' + label] = list(flow['history']['legacy'])
         diagnostics['mass_imbalance_rel_' + label] = flow['result']['mass']['global_residual']
         for prefix in ('uc', 'vc'):
-            key = prefix + label + '_disp'
-            if raw[key] is None:
-                diagnostics[key] = None
+            if prefix + label + '_display' not in display_fields:
+                diagnostics[prefix + label + '_disp'] = None
     properties = cfg['static_properties']
     r_a, r_b = properties['A'], properties['B']
-    raw.update(diagnostics, _native_evidence=evidence,
-        application=dict(
-            coeffs=dict(K_ffA=r_a['K_ff'], K_ffB=r_b['K_ff'], K_ss=properties['geometry']['K_ss'],
-                        h_vA=compute_volumetric_htc(r_a['A_0'], r_a['H_sf']),
-                        h_vB=compute_volumetric_htc(r_b['A_0'], r_b['H_sf'])),
-            props=dict(rho_A=r_a['rho'], rho_B=r_b['rho'], mu_A=r_a['mu'], mu_B=r_b['mu']),
-            zones=_zone_statistics_2d(cfg['z_axis'], cfg['zone_config'], cfg['za'], cfg['L'], cfg['H'],
-                prepared['energy_dx'], prepared['energy_dy'], *main['temperature'])))
-    result = _capture_result(case, raw, diagnostics, backend_id='cpp',
+    application = dict(
+        coeffs=dict(K_ffA=r_a['K_ff'], K_ffB=r_b['K_ff'], K_ss=properties['geometry']['K_ss'],
+                    h_vA=compute_volumetric_htc(r_a['A_0'], r_a['H_sf']),
+                    h_vB=compute_volumetric_htc(r_b['A_0'], r_b['H_sf'])),
+        props=dict(rho_A=r_a['rho'], rho_B=r_b['rho'], mu_A=r_a['mu'], mu_B=r_b['mu']),
+        zones=_zone_statistics_2d(cfg['z_axis'], cfg['zone_config'], cfg['za'], cfg['L'], cfg['H'],
+            prepared['energy_dx'], prepared['energy_dy'], *main['temperature']))
+    result = _capture_result(case, display_fields, evidence, application, diagnostics, backend_id='cpp',
                              backend_version=f"full_2d_v{native.get('entry_version', 2)}")
     if 'native_metadata' in native:
         result = replace(result, metadata=dict(result.metadata, native=native['native_metadata']))

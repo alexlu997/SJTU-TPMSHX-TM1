@@ -175,9 +175,10 @@ A1/benchmark A 的旧输入原已缺失，历史代码不代表可在当前目�
 原断言要求关闭可变物性后的有效度满足 `ε_off > ε_on + 0.1`。修改前的隔离源码
 和本轮代码均得到 `ε_on=0.1759099320`、`ε_off=0.1374915884`，原测试均失败
 （退出码 1）。这项旧方向性假设不再用作开关是否有效的验收条件；没有调整求解公式、
-关联式、冻结参考数值或其他测试容差。基线失败及退役前全量失败日志保留在本任务
-`.cache/consistency-maintenance-20260913/` 的 `baseline-legacy-override.log`
-与 `full-suite-corrected.log`。
+关联式、冻结参考数值或其他测试容差。基线失败及退役前全量失败日志已归档到
+`.cache/retained-records-20261007/consistency-maintenance-20260913/records-and-source.tar.gz`。
+包内 `consistency-maintenance-20260913/` 目录保留 `baseline-legacy-override.log`
+与 `full-suite-corrected.log`；可从记录包读取原日志。
 
 现行覆盖继续保留：
 
