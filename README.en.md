@@ -398,9 +398,9 @@ GitHub workflows use checkout v7, setup-python v7, upload-artifact v7, and downl
 
 They run multi-condition optimizer tests, including both real Log acquisition functions. Base jobs keep the lock without BO and test missing-optional-dependency behavior. BO uploads only JUnit reports for 7 days, without solve data or environments.
 
-The `[tool.mypy].files` setting in `pyproject.toml` explicitly lists 18 files. Coverage includes configuration, controllers, CLI, current envelope implementation, three-module contracts/APIs, and the postprocessing metric entry. Deleted forwarding modules are excluded. `pyproject.toml` validates unannotated bodies in four boundary implementation modules. This does not show strict typing across each solver.
+The `[tool.mypy].files` setting in `pyproject.toml` explicitly lists 19 files. Coverage includes configuration, controllers, CLI, the common workflow, current envelope implementation, three-module contracts/APIs, and the postprocessing metric entry. Deleted forwarding modules are excluded. `pyproject.toml` validates unannotated bodies in four boundary implementation modules. This does not show strict typing across each solver.
 
-Fast `test_type_gate.py` runs the same list and validates the rejection of incorrect inputs by all three public APIs. The standalone mypy command is for local checks. CI does not add a duplicate step.
+Fast `test_type_gate.py` runs the same list. It validates the rejection of incorrect inputs by all three public APIs and both workflow entries. The standalone mypy command is for local checks. CI does not add a duplicate step.
 
 The first pytest command excludes slow/heavy and `integration_tm1`. The second runs that complete integration directory one time. Neither replaces the third, complete local gate. Local commands run the unsharded subsets. To reproduce a fast shard, append `-p sjtu_tpmshx.tests.ci_shard --ci-shard=0 --ci-manifest=.cache/ci/fast-0`.
 
