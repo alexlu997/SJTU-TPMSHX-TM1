@@ -1,24 +1,24 @@
-# macos native group 1; keep shared module fixtures together.
-# Independent engineering pairs use complete test node IDs.
+# macos native group 1; retain each shared numerical result.
+# Conservative solver checks and replay stay with their fixture parameter.
 sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py
 sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[co2-air-2]
-sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[air-co2-2]
-sjtu_tpmshx/tests/native/test_cpp_quick_design.py
+sjtu_tpmshx/tests/native/test_simple_3d_api.py
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[air-water-3]
+sjtu_tpmshx/tests/native/test_cpp_full_2d.py
 sjtu_tpmshx/tests/native/test_full_2d_refinement.py
 sjtu_tpmshx/tests/native/test_full_2d.py
-sjtu_tpmshx/tests/native/test_enthalpy_driver.py
+sjtu_tpmshx/tests/native/test_cpp_enthalpy.py
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[air-air-3]
 sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[air-sco2-3]
-sjtu_tpmshx/tests/native/test_cpp_temperature.py
-sjtu_tpmshx/tests/native/test_native_outer_anderson.py
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[sco2-water-3]
+sjtu_tpmshx/tests/native/test_simple_pressure.py
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_continuous_real_fluid_public_backends[co2-3]
 sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[co2-co2-3]
-sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[co2-water-3]
-sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[sco2-co2-3]
-sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[co2-sco2-3]
 sjtu_tpmshx/tests/native/test_model_h_3d.py
 sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[sco2-water-2]
-sjtu_tpmshx/tests/native/test_native_pressure.py
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_continuous_real_fluid_public_backends[sco2-2]
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[co2-sco2-2]
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[sco2-sco2-2]
 sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[water-sco2-3]
-sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[sco2-air-3]
-sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[air-water-3]
 sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[water-air-3]
-sjtu_tpmshx/tests/native/test_full_2d_stage_identity.py
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[water-air-2]

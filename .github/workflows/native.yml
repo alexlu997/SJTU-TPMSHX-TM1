@@ -1,0 +1,293 @@
+# Build and qualify one platform without waiting for other platform builds.
+name: native
+
+on:
+  workflow_call:
+    inputs:
+      os:
+        required: true
+        type: string
+      python:
+        required: true
+        type: string
+
+jobs:
+  native-build:
+    name: native-build
+    runs-on: ${{ inputs.os }}
+    timeout-minutes: 30
+    env:
+      PYTHONHASHSEED: "0"
+      MPLCONFIGDIR: .cache/matplotlib
+      XDG_CACHE_HOME: .cache/xdg
+      NUMBA_CACHE_DIR: .cache/numba
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      NUMBA_NUM_THREADS: "2"
+      TPMSHX_REQUIRE_NATIVE_DEPS_TESTS: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - name: Activate MSVC for native qualification
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $installation = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $installation) { throw 'The required MSVC compiler is missing' }
+          & "$installation\Common7\Tools\Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
+          foreach ($name in @('PATH', 'INCLUDE', 'LIB', 'LIBPATH')) {
+            "$name=$([Environment]::GetEnvironmentVariable($name))" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          }
+          'CXX=cl' | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ inputs.python }}
+          cache: pip
+          cache-dependency-path: requirements/base.txt
+      - name: Create isolated native qualification environment
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/sjtu-native-ci-venv"
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'sjtu-native-ci-venv'
+          interpreter = root / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
+          Path('.venv-path').write_text(interpreter.as_posix() + '\n', encoding='utf-8')
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as output:
+              output.write(f'CI_PYTHON={interpreter.as_posix()}\n')
+          PY
+      - name: Install locked qualification dependencies
+        shell: bash
+        run: '"$CI_PYTHON" -m pip install -r requirements/base.txt'
+      - name: Check exact dependency lock
+        shell: bash
+        run: '"$CI_PYTHON" -m sjtu_tpmshx.runs.tools.check_locked_environment requirements/base.txt'
+      - name: Check dependency compatibility
+        shell: bash
+        run: '"$CI_PYTHON" -m pip check'
+      - name: Fetch fixed native sources and build tool
+        shell: bash
+        run: '"$CI_PYTHON" scripts/build_native_dependencies.py fetch'
+      - name: Record hosted toolchain image
+        id: toolchain
+        shell: bash
+        run: echo "image=$ImageVersion" >> "$GITHUB_OUTPUT"
+      - name: Cache locked CoolProp static library
+        id: coolprop
+        uses: actions/cache@v6
+        with:
+          path: |
+            .cache/native-deps/build/coolprop-macos-arm64/libCoolProp.a
+            .cache/native-deps/build/coolprop-windows-x64/Release/CoolProp.lib
+          key: coolprop-${{ runner.os }}-${{ runner.arch }}-py${{ inputs.python }}-${{ steps.toolchain.outputs.image }}-${{ hashFiles('native/dependencies-lock.toml', 'scripts/build_native_dependencies.py') }}
+      - name: Build locked CoolProp on cache miss
+        if: steps.coolprop.outputs.cache-hit != 'true'
+        shell: bash
+        run: '"$CI_PYTHON" scripts/build_native_dependencies.py build --component coolprop'
+      - name: Build current project libraries and callers offline
+        shell: bash
+        run: '"$CI_PYTHON" scripts/build_native_dependencies.py build --component pilot'
+      - name: Run independent native callers
+        shell: bash
+        run: '"$CI_PYTHON" scripts/build_native_dependencies.py verify'
+      - name: Pack native runtime files with executable permissions
+        shell: bash
+        run: |
+          "$CI_PYTHON" - <<'PY'
+          import os
+          from pathlib import Path
+          import tarfile
+          host = 'windows-x64' if os.name == 'nt' else 'macos-arm64'
+          build = Path('.cache/native-deps/build') / ('pilot-' + host)
+          files = [path for path in build.iterdir() if path.is_file() and (
+              path.suffix in {'.dll', '.dylib', '.exe'} or
+              (not path.suffix and os.access(path, os.X_OK)))]
+          prefix, suffix = ('', '.dll') if os.name == 'nt' else ('lib', '.dylib')
+          required = {prefix + name + suffix for name in ('tpmshx_solver_shared', 'tpmshx_model_h_shared')}
+          required.add('eos_smoke.exe' if os.name == 'nt' else 'eos_smoke')
+          assert required <= {path.name for path in files}, 'Missing native runtime files'
+          archive = Path('.cache/ci-native-build/native-binaries.tar')
+          archive.parent.mkdir(parents=True, exist_ok=True)
+          with tarfile.open(archive, 'w') as output:
+              for path in files:
+                  output.add(path, arcname=path.relative_to(build.parent), recursive=False)
+              output.add('LICENSE', arcname='LICENSE')
+              output.add('native/THIRD_PARTY_NOTICES.md', arcname='THIRD_PARTY_NOTICES.md')
+              output.add('native/licenses', arcname='licenses')
+          print(f'Packed {len(files)} native runtime files ({archive.stat().st_size} bytes)')
+          PY
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-build-${{ inputs.os }}-py${{ inputs.python }}
+          path: .cache/ci-native-build/native-binaries.tar
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+      - name: Save native build and independent caller logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-build-logs-${{ inputs.os }}-py${{ inputs.python }}
+          path: .cache/native-deps/logs/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+  native-dependencies:
+    needs: native-build
+    name: native-dependencies (${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(inputs.os == 'macos-14' && '[0,1,2]' || '[0,1,2,3,4,5,6]') }}
+    runs-on: ${{ inputs.os }}
+    timeout-minutes: 90
+    env:
+      NATIVE_SHARD_SET: ${{ inputs.os == 'macos-14' && 'macos' || 'windows' }}
+      PYTHONHASHSEED: "0"
+      MPLCONFIGDIR: .cache/matplotlib
+      XDG_CACHE_HOME: .cache/xdg
+      NUMBA_CACHE_DIR: .cache/numba
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      NUMBA_NUM_THREADS: "2"
+      TPMSHX_REQUIRE_NATIVE_DEPS_TESTS: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - name: Activate MSVC for native qualification
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $installation = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $installation) { throw 'The required MSVC compiler is missing' }
+          & "$installation\Common7\Tools\Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
+          foreach ($name in @('PATH', 'INCLUDE', 'LIB', 'LIBPATH')) {
+            "$name=$([Environment]::GetEnvironmentVariable($name))" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          }
+          'CXX=cl' | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ inputs.python }}
+          cache: pip
+          cache-dependency-path: requirements/base.txt
+      - name: Create isolated native qualification environment
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/sjtu-native-ci-venv"
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'sjtu-native-ci-venv'
+          interpreter = root / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
+          Path('.venv-path').write_text(interpreter.as_posix() + '\n', encoding='utf-8')
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as output:
+              output.write(f'CI_PYTHON={interpreter.as_posix()}\n')
+          PY
+      - name: Install locked qualification dependencies
+        shell: bash
+        run: '"$CI_PYTHON" -m pip install -r requirements/base.txt'
+      - name: Check exact dependency lock
+        shell: bash
+        run: '"$CI_PYTHON" -m sjtu_tpmshx.runs.tools.check_locked_environment requirements/base.txt'
+      - name: Check dependency compatibility
+        shell: bash
+        run: '"$CI_PYTHON" -m pip check'
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-build-${{ inputs.os }}-py${{ inputs.python }}
+          path: .cache/ci-native-build
+      - name: Restore native runtime files
+        shell: bash
+        run: |
+          "$CI_PYTHON" - <<'PY'
+          import tarfile
+          with tarfile.open('.cache/ci-native-build/native-binaries.tar') as archive:
+              archive.extractall('.cache/native-deps/build', filter='data')
+          PY
+      - name: Fetch locked Eigen headers for fixture-built libraries
+        shell: bash
+        run: '"$CI_PYTHON" scripts/build_native_dependencies.py fetch-eigen'
+      - name: Require explicit native libraries for thermal evidence tests
+        shell: bash
+        run: |
+          "$CI_PYTHON" - <<'PY'
+          import os
+          from pathlib import Path
+          host = 'windows-x64' if os.name == 'nt' else 'macos-arm64'
+          prefix, suffix = ('', '.dll') if os.name == 'nt' else ('lib', '.dylib')
+          build = Path('.cache/native-deps/build') / ('pilot-' + host)
+          libraries = {
+              'TPMSHX_NATIVE_SOLVER_LIBRARY': build / (prefix + 'tpmshx_solver_shared' + suffix),
+              'TPMSHX_MODEL_H_PUBLIC_LIBRARY': build / (prefix + 'tpmshx_model_h_shared' + suffix),
+          }
+          for name, path in libraries.items():
+              if not path.is_file():
+                  raise FileNotFoundError(f'{name}: native library not built: {path}')
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as output:
+              for name, path in libraries.items():
+                  output.write(f'{name}={path.resolve().as_posix()}\n')
+          PY
+      - name: Require native property, flow and thermal qualification
+        shell: bash
+        run: |
+          shard_options=()
+          for group in sjtu_tpmshx/tests/native/_ci_"$NATIVE_SHARD_SET"_shard*.txt; do
+            shard_options+=("--ci-shard-modules=$group")
+          done
+          "$CI_PYTHON" -m pytest -q -ra \
+          sjtu_tpmshx/tests/native/test_native_eos.py \
+          sjtu_tpmshx/tests/native/test_native_pressure.py \
+          sjtu_tpmshx/tests/native/test_fluid_properties.py \
+          sjtu_tpmshx/tests/native/test_quick_design_driver.py \
+          sjtu_tpmshx/tests/native/test_cpp_quick_design.py \
+          sjtu_tpmshx/tests/native/test_superlu_error_boundary.py \
+          sjtu_tpmshx/tests/native/test_enthalpy_driver.py \
+          sjtu_tpmshx/tests/native/test_cpp_enthalpy.py \
+          sjtu_tpmshx/tests/native/test_model_h_2d.py \
+          sjtu_tpmshx/tests/native/test_model_h_3d.py \
+          sjtu_tpmshx/tests/native/test_cpp_model_h.py \
+          sjtu_tpmshx/tests/native/test_temperature_driver.py \
+          sjtu_tpmshx/tests/native/test_temperature_staggered.py \
+          sjtu_tpmshx/tests/native/test_cpp_temperature.py \
+          sjtu_tpmshx/tests/native/test_native_thermal_identity.py \
+          sjtu_tpmshx/tests/native/test_temperature_evidence.py \
+          sjtu_tpmshx/tests/native/test_full_2d_stage_identity.py \
+          sjtu_tpmshx/tests/native/test_pressure_reference.py \
+          sjtu_tpmshx/tests/native/test_native_outer_anderson.py \
+          sjtu_tpmshx/tests/native/test_simple_pressure.py \
+          sjtu_tpmshx/tests/native/test_simple_2d.py \
+          sjtu_tpmshx/tests/native/test_simple_2d_c_api.py \
+          sjtu_tpmshx/tests/native/test_simple_3d.py \
+          sjtu_tpmshx/tests/native/test_simple_3d_api.py \
+          sjtu_tpmshx/tests/native/test_refinement_2d.py \
+          sjtu_tpmshx/tests/native/test_full_2d.py \
+          sjtu_tpmshx/tests/native/test_full_2d_refinement.py \
+          sjtu_tpmshx/tests/native/test_cpp_full_2d.py \
+          sjtu_tpmshx/tests/native/test_cpp_full_2d_capture.py \
+          sjtu_tpmshx/tests/native/test_full_3d.py \
+          sjtu_tpmshx/tests/native/test_full_3d_refined_stages.py \
+          sjtu_tpmshx/tests/native/test_cpp_full_3d.py \
+          sjtu_tpmshx/tests/native/test_backend_engineering_parity.py \
+          sjtu_tpmshx/tests/native/test_backend_condition_consumers.py \
+          sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py \
+          sjtu_tpmshx/tests/native/test_cpp_conservative_full3d.py \
+          -p sjtu_tpmshx.tests.ci_shard --ci-shard=${{ matrix.shard }} \
+          "${shard_options[@]}" \
+          --ci-manifest=.cache/ci/native-manifest \
+          --timeout=600 --timeout-method=thread --durations=20 \
+          --junitxml=.cache/ci/native-dependencies.xml
+      - name: Save native qualification outcomes
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-dependencies-${{ inputs.os }}-py${{ inputs.python }}-shard-${{ matrix.shard }}
+          path: .cache/ci/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7

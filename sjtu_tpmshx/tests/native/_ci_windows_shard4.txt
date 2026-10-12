@@ -1,18 +1,18 @@
-# windows native group 4; keep shared module fixtures together.
-# Independent engineering pairs use complete test node IDs.
+# windows native group 4; retain each shared numerical result.
+# Conservative solver checks and replay stay with their fixture parameter.
 sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[co2-co2-2]
-sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[co2-water-2]
-sjtu_tpmshx/tests/native/test_full_3d_refined_stages.py
-sjtu_tpmshx/tests/native/test_native_eos.py
-sjtu_tpmshx/tests/native/test_fluid_properties.py
-sjtu_tpmshx/tests/native/test_cpp_temperature.py
-sjtu_tpmshx/tests/native/test_temperature_driver.py
-sjtu_tpmshx/tests/native/test_simple_pressure.py
-sjtu_tpmshx/tests/native/test_native_thermal_identity.py
-sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[co2-sco2-3]
-sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[co2-sco2-2]
-sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[air-co2-3]
-sjtu_tpmshx/tests/native/test_temperature_staggered.py
-sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[air-water-2]
-sjtu_tpmshx/tests/native/test_simple_2d_c_api.py
-sjtu_tpmshx/tests/native/test_full_2d_stage_identity.py
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[air-co2-2]
+sjtu_tpmshx/tests/native/test_cpp_quick_design.py
+sjtu_tpmshx/tests/native/test_simple_3d_api.py
+sjtu_tpmshx/tests/native/test_full_2d.py
+sjtu_tpmshx/tests/native/test_enthalpy_driver.py
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[air-air-3]
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[sco2-water-2]
+sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py::test_actual_thermal_state_and_signed_ledger[temperature_sou-directions03-partialTrue]
+sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py::test_saved_case_result_new_process_replay[temperature_sou-directions03-partialTrue]
+sjtu_tpmshx/tests/native/test_model_h_3d.py
+sjtu_tpmshx/tests/native/test_model_h_2d.py
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[water-sco2-3]
+sjtu_tpmshx/tests/native/test_cpp_conservative_full3d.py::test_missing_version_query_blocks_candidate_before_solve_but_allows_legacy[legacy_h_fou]
+sjtu_tpmshx/tests/native/test_cpp_conservative_full3d.py::test_missing_candidate_native_capability_never_falls_back[tpmshx_solve_full_3d_v2]
+sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py::test_invalid_persisted_options_rejected[temperature_sou-nan]
