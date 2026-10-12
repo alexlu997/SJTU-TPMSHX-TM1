@@ -6,7 +6,8 @@ import sys
 
 import numpy as np
 
-from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D, Pipeline3D
+
+from sjtu_tpmshx.controllers.module_adapter import compute_result
 from sjtu_tpmshx.df_surrogate.full_core_3cell_fixed_v2 import (
     FullCore3CellFixedDFV2,
 )
@@ -76,8 +77,8 @@ def run_validation() -> dict:
     fixed_point_dp = _fixed_dp(point, model)
     fixed_point_error = abs(fixed_point_dp / point.dp_core_Pa - 1.0)
 
-    result_2d = Pipeline2D(_config(1, point.Um_m_s, point.Tref)).run()
-    result_3d = Pipeline3D(_config(4, point.Um_m_s, point.Tref)).run()
+    result_2d = compute_result(_config(1, point.Um_m_s, point.Tref))
+    result_3d = compute_result(_config(4, point.Um_m_s, point.Tref))
     depth = 0.021
     q_2d = result_2d.Q_W * depth
     q_3d = result_3d.Q_W

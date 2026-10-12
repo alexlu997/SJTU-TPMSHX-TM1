@@ -22,7 +22,7 @@ def test_domain_firewall_blocks_meter_typed_as_mm():
     """The domain unit firewall (L > 10 m → ValueError, catching the
     classic mm-vs-m slip of typing 182 into a metre field) must guard the
     PRODUCTION parse boundary. Since B2 2.1c that boundary is
-    ``_parse_inputs_3d_cfg`` (driven by Pipeline3D.build_fields); the
+    ``_parse_inputs_3d_cfg`` (driven by preprocess.api.prepare_case); the
     window adapter the original test used was deleted with the legacy
     entrypoints.
     """

@@ -69,7 +69,7 @@ def test_shanghai_3d_historical_evidence():
     # surface (per-geometry water-CFD K, 2-stage extraction). c_F unchanged; the
     # cleaner/smaller K lifts the Darcy term, so Nz=3 RMSRE_dP 5.05% → 5.28%
     # (Q 3.20% → 3.21%). See gamma_df.py K UPDATE + openspec/df-coeffs-cfd-refit.
-    # 2026-07-12 — GATE RUNNER SWITCHED: frozen-B kernel → production Pipeline3D
+    # 2026-07-12 — GATE RUNNER SWITCHED: frozen-B kernel → production 3D workflow
     # (the water side is now SOLVED, not prescribed). RMSRE_dP 5.28% → 4.93%,
     # RMSRE_Q 3.21% → 2.12%. Three reasons, fully written up in the
     # historical validate_shanghai_3d_real docstring at Git a32b975638aaa7df0ab154e438b40130c4df4906:
@@ -82,7 +82,7 @@ def test_shanghai_3d_historical_evidence():
     #       (243.8 W vs the experimental air-side 248.4 W). A method given LESS
     #       information produces a BETTER answer;
     #   (3) the old gate validated a code path production never runs — the GUI,
-    #       the optimizer and the server batches all drive Pipeline3D.
+    #       the optimizer and the server batches all use the common workflow.
     # In that recorded run all 16 cases converged in 3 outer iterations.
     # (The `A@init[stall]` on the high-u cases is a benign cold-start artifact;
     # every warm re-solve converged; see the historical module docstring.)

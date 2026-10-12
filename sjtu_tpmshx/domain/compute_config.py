@@ -677,7 +677,6 @@ class ComputeConfig:
                 "0.042 m). Set geometry.Lz_m, or set Nz=1 for a 2D run.")
 
         # ── Numerical solver settings (2026-07-12) ───────────────────────────
-        # All production callers pass here through ComputePipeline.run().
         # Normalise the typed-config full-face sentinel before applying the
         # shared port validator. ComputeConfig always has two fluids, so side
         # B uses the same full-face rule as A; its legacy None means

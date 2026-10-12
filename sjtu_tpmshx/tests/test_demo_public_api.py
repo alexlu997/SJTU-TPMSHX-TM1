@@ -33,7 +33,7 @@ def test_demo_preparation_keeps_original_workload(cube):
     from sjtu_tpmshx.preprocess.three_d.preparation import _prepare_problem_data
     from sjtu_tpmshx.tests.cases_3d import demo_fixture_cfg as legacy_cfg
     from sjtu_tpmshx.runs.demos.demo_3d_cube_air_air import build_cube_cfg
-    from sjtu_tpmshx.solvers.backends.python.three_d.execution import build_execution_inputs
+    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
 
     config = build_cube_cfg() if cube else air.build_cfg()
     case = prepare_case(config, case_id='demo-inputs')

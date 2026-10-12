@@ -370,10 +370,9 @@ def test_zero_reference_still_fails_diagnostic_case(monkeypatch, dimension):
         assert config.fluid_A.P_in_Pa == config.fluid_B.P_in_Pa == 9101325.
         for side in (config.fluid_A, config.fluid_B):
             assert 100. * side.u_mps * .001 == pytest.approx(.05)
-        return SimpleNamespace(run=lambda: result)
+        return result
 
-    monkeypatch.setattr(runner, "Pipeline2D", pipeline)
-    monkeypatch.setattr(runner, "Pipeline3D", pipeline)
+    monkeypatch.setattr(runner, "compute_result", pipeline)
     with pytest.raises(ZeroDivisionError):
         runner._run_case("Diamond", 1, dimension, frame)
 

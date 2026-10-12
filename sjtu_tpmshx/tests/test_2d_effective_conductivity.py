@@ -6,7 +6,7 @@ from sjtu_tpmshx.domain.compute_config import ZoneInputConfig
 from sjtu_tpmshx.models.fluid_props import get
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.backends.python.two_d import coupling
-from sjtu_tpmshx.solvers.backends.python.two_d.execution import build_execution_inputs
+from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
 from sjtu_tpmshx.solvers.backends.python.two_d.runtime import build_runtime
 from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
 from sjtu_tpmshx.tests.solver_tm1.test_prepared_continuous_2d import _config as spline_config

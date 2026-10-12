@@ -1,9 +1,11 @@
 """Physical port edges and SIMPLE profiles must use the shared 2D grid."""
+from sjtu_tpmshx.controllers.module_adapter import compute_result
+from sjtu_tpmshx.preprocess.api import prepare_case
 
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
+
 from sjtu_tpmshx.domain.compute_config import ComputeConfig, PartialBCConfig
 from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver, _aligned_grid
 
@@ -91,9 +93,9 @@ def test_port_wall_grid_rejects_insufficient_total_count():
 
 def _backend_fields(config):
     """Reach the actual runtime closure using the prepared public grid."""
-    from sjtu_tpmshx.solvers.backends.python.two_d.execution import build_execution_inputs
+    from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
     from sjtu_tpmshx.solvers.backends.python.two_d.runtime import build_runtime
-    case = Pipeline2D(config).build_fields()
+    case = prepare_case(config, case_id='test-case')
     parsed, prepared = build_execution_inputs(case)
     return parsed, build_runtime(parsed, prepared)
 
@@ -191,7 +193,7 @@ def test_counter_port_endpoints_do_not_create_unknown_fine_inflow():
                                          (0, 1), (2, 3)])
 def test_ports_align_on_physical_axis(directions):
     cfg = _case(directions)
-    case = Pipeline2D(cfg).build_fields()
+    case = prepare_case(cfg, case_id='test-case')
     expected = {'x': set(), 'y': set()}
     for bc in (cfg.bc_A, cfg.bc_B):
         expected['y' if bc.dir in (0, 1) else 'x'].update(_edges(bc))
@@ -223,7 +225,7 @@ def test_full_faces_keep_wall_refinement(directions):
     cfg.bc_A = PartialBCConfig(dir=directions[0])
     cfg.bc_B = PartialBCConfig(dir=directions[1])
     cfg.validate()
-    case = Pipeline2D(cfg).build_fields()
+    case = prepare_case(cfg, case_id='test-case')
     dx, dy, _, _ = build_master_refined_grid(
         0.182, 0.042, 40, 40, n_refine=8, first_cell=0.02e-3, growth=1.8)
     assert case.grid['x_breaks'] == case.grid['y_breaks'] == ()
@@ -237,7 +239,7 @@ def test_near_wall_break_filter_is_preserved(inset):
     for bc, length in ((cfg.bc_A, 0.182), (cfg.bc_B, 0.042)):
         bc.in_ctr = bc.out_ctr = length / 2
         bc.in_w = bc.out_w = length * (1 - 2 * inset)
-    case = Pipeline2D(cfg.validate()).build_fields()
+    case = prepare_case(cfg.validate(), case_id='test-case')
     for axis, bc in (('x', cfg.bc_A), ('y', cfg.bc_B)):
         expected = set(_edges(bc)) if inset > 0.001 else set()
         assert set(case.grid[f'{axis}_breaks']) == expected
@@ -355,12 +357,12 @@ def test_negative_pressure_and_staggered_faces_return_to_physical_cells(directio
 @pytest.mark.parametrize('directions', [(2, 0), (0, 1), (3, 0)])
 def test_custom_port_numerical_regression(directions):
     cfg = _case(directions)
-    # Same in-domain air/geometry point as the existing Pipeline2D smoke.
+    # Same in-domain air/geometry point as the existing 2D workflow smoke.
     cfg.geometry.t_wall_mm = 0.4
     cfg.fluid_A.u_mps = cfg.fluid_B.u_mps = 10.0
     cfg.fluid_A.T_in_K = 600.0
     cfg.fluid_B.T_in_K = 300.0
-    result = Pipeline2D(cfg).run()
+    result = compute_result(cfg)
     assert result.converged, (result.diagnostics, result.warnings)
     for side in ('A', 'B'):
         assert result.residuals[f'mass_imbalance_rel_{side}'] < 1e-6

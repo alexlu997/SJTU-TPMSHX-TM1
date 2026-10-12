@@ -504,10 +504,10 @@ GitHub workflow 使用 checkout v7、setup-python v7、upload-artifact v7，
 采集函数）。基础作业仍使用不含 BO 的锁，覆盖可选依赖缺失时的行为。
 BO 作业只上传 JUnit 测试报告，保留 7 天，不上传求解数据或虚拟环境。
 
-`pyproject.toml` 的 `[tool.mypy].files` 显式列出 18 个类型检查文件：覆盖配置、控制器、CLI、当前
+`pyproject.toml` 的 `[tool.mypy].files` 显式列出 19 个类型检查文件：覆盖配置、控制器、CLI、统一工作流、当前
 envelope 实现、三模块数据契约与公共 API、后处理指标入口；已删除的转发模块不再列入。
 `pyproject.toml` 还对四个边界实现模块启用无注解函数体检查；这不等于全求解器严格类型覆盖。
-`test_type_gate.py` 在 pytest 快测中执行同一清单，并确认错误类型不能传入三个公共 API；
+`test_type_gate.py` 在 pytest 快测中执行同一清单，并确认错误类型不能传入三个公共 API 及两个工作流入口；
 上面的 mypy 命令用于本地单独检查，CI 不另加重复步骤。
 
 第一条 pytest 排除了 slow/heavy 和 `integration_tm1`，第二条单独完整执行该集成目录，

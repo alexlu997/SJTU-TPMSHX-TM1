@@ -70,8 +70,9 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
 - 研究与守恒工具通过 `preprocess.api.prepare_research_case` 生成 `CaseData`，再用 `solvers.api.run_case` 返回 `FieldResult`。受校验的三维研究输入保留显式孔隙率、未参与求解的 B 相、有限制造源和研究迭代预算，复用普通前处理与数值实现。保存的 `research_3d_v1` 快照记录原始输入；准备态字段记录实际网格、预算、模型资源与环境。研究工况当前只支持 Python，不支持的后端显式失败。普通 `ComputeConfig` 保留双流体与预算规则。
 - `RunControl` 提供取消、进度、文本和外循环回调，输入字典中的运行时回调会被拒绝。按需启用 `_emit_audit` 后，结果保存报告态耦合场和掩膜，并声明单位、坐标与取样状态；还会脱离运行时保存最后热输入的两侧流体导热系数，供熵产核算使用，避免引用后续物性更新；最终 SIMPLE 流场与最后一次热求解输入保持分开。未求解 B 不提供 B 侧指标或双流体平衡证书。YAML/HDF5 复用现有 Case/Result 文件通路。规定独立离散算子的 MMS 测试继续调用该算子。
 - 旧 `pipelines.run_stack_3d` 入口和字典模板已退役。前处理与助手从所属模块导入；原 `stages_2d`、`stages_3d`、`_stage_common`、`solvers.envelope` 和 `solvers.roughness` 门面保持退役。不使用导入时别名或向后端注入函数。正式压力归约在后处理中使用记录的物理端口面。
-- `controllers/compute_pipeline.py` 编排公共模块；模块适配器映射到历史 GUI ComputeResult 契约，是唯一生产结果映射器。旧二维／三维映射仅作为真实原生结果集成比较的冻结测试参考保留。
-- `ui/` 仅负责 PySide6 和 PyVista 展示。两维结果缓存均用 ComputeResult。二维发布标量、元数据、警告和导出状态快照，同时共享场数组；三维保留已发布对象。失败或取消保留上次接受结果用于显示／导出，与当前草稿输入独立。画布工作台复用左侧几何／边界／求解控件。相位和三维 z 切片读取接受结果快照，草稿编辑不替换来源。图像导出遵循当前视图；CSV 保留摘要。三维 NPZ 保留完整物理 XYZ 显示温度（K）、两侧速度分量及模（m/s）、显示压力 `P_fA/P_fB`（Pa）、`L_mm/t_mm`（mm）和 `dx/dy/dz`（m）。旧 `vmag/P_kPa` 为 A 侧模和 kPa 压力别名。显示压力参考不变；完整原生热状态和通量属于 results.h5。`ui/typography.py` 为 Qt 使用系统无衬线字体，为 Matplotlib/VTK 保留出版字体，不捆绑字体或向低层导入 Qt。普通 GUI 计算捕获启动线程 Numba 掩码，在复用 Qt worker 中应用／恢复；优化保留独立进程／线程策略。桌面入口在开口内用均匀速度，开启局部密度热输运，不额外六壁面细化；端口／壁面细化通过网格方案选择。载入不同退役设置的预设／会话时报告转换并保存当前显式值；脚本设置另行管理。
+- `workflows/compute.py` 负责配置校验和统一的准备、求解、评估顺序，在阶段之间及后处理完成后检查取消。阶段耗时和警告写入返回的 `FieldResult` 元数据，结果身份及不可变数组存储不变。工作流返回 `CaseData`、`FieldResult` 和 `PerformanceResult`。总体进度由此工作流报告；`RunControl` 保留原始求解器进度、后端选择和主机回调。`controllers/module_adapter.compute_result` 调用公共工作流及唯一应用结果映射器 `to_compute_result`。GUI、直接摘要 CLI 和验证工具使用该入口；文件 CLI 使用同一工作流和可移植结果。旧二维／三维映射只作为真实原生结果比较的冻结测试参考保留。
+- `solvers/backends/prepared_2d.py` 和 `prepared_3d.py` 为两种后端校验执行输入。Python 获得可写设计副本，C++ 可通过相同检查借用不可变设计数组。`solvers/backends/capture_2d.py` 为两种后端捕获可移植二维证据；数值驱动仍在各自后端目录。
+- `ui/` 仅负责 PySide6 和 PyVista 展示。`ResultCache` 为已接受维度持有唯一已发布 `ComputeResult`。两维均发布独立的标量、元数据、诊断和警告容器，同时共享场数组。底栏、历史、诊断文本、场图和导出从该结果读取；发布完成后，显示耗时写入其元数据。失败或取消保留上次接受结果用于显示／导出，与当前草稿输入独立。画布工作台复用左侧几何／边界／求解控件。相位和三维 z 切片读取接受结果快照，草稿编辑不替换来源。图像导出遵循当前视图；CSV 保留摘要。三维 NPZ 保留完整物理 XYZ 显示温度（K）、两侧速度分量及模（m/s）、显示压力 `P_fA/P_fB`（Pa）、`L_mm/t_mm`（mm）和 `dx/dy/dz`（m）。旧 `vmag/P_kPa` 为 A 侧模和 kPa 压力别名。显示压力参考不变；完整原生热状态和通量属于 results.h5。`ui/typography.py` 为 Qt 使用系统无衬线字体，为 Matplotlib/VTK 保留出版字体，不捆绑字体或向低层导入 Qt。普通 GUI 计算捕获启动线程 Numba 掩码，在复用 Qt worker 中应用／恢复；优化保留独立进程／线程策略。桌面入口在开口内用均匀速度，开启局部密度热输运，不额外六壁面细化；端口／壁面细化通过网格方案选择。载入不同退役设置的预设／会话时报告转换并保存当前显式值；脚本设置另行管理。
 - `validation/` 和 `runs/` 是可执行研究与验证工具，不是替代生产实现。
 
 实验 Q 运行器 `validation.cases.validate_sco2_exp_q` 在首次求解前冻结所有拓扑／工况／维度成员。CLI 每完成一个成员，通过既有同目录暂存发布器写 `partial.csv` 和 `state.json`。失败、取消和数值未合格成员均保留；执行完成与 Q 验收分开。状态保留此前尝试及精确 CSV 记录，避免不匹配或不完整文件对静默供给续跑结果。发布器仍受单写入者和 Python 异常恢复边界限制。
@@ -238,7 +239,7 @@ C++ 完整三维绑定在释放原生 owner 前复制所需证据，由 `full_3d
 
 完整 Python 和 C++ 入口在准备执行输入或加载原生库前检查取消，主机选择校验仍适用。有效的预取消请求抛出 `CancelledError`，即使所选绝对库路径不存在。未取消且缺库的请求保留原错误。
 
-流水线、求解器和 GUI 编排共享 `domain.cancellation.CancelledError`，它继承 InterruptedError，并由 `controllers.compute_pipeline` 和 `ComputeOrchestrator.CancelledError` 重导出。只有显式取消检查点抛出它；即使取消已请求，无关异常仍是错误。传播前等待两个 SIMPLE worker，真实失败优先于取消。编排器直接将此异常作为取消终态；GUI 适配器只绑定参数，保留原异常。
+工作流、求解器和 GUI 编排共享 `domain.cancellation.CancelledError`，它继承 InterruptedError，也可通过 `ComputeOrchestrator.CancelledError` 使用。只有显式取消检查点抛出它；即使取消已请求，无关异常仍是错误。传播前等待两个 SIMPLE worker，真实失败优先于取消。编排器直接将此异常作为取消终态；GUI 适配器绑定工作流控制参数，保留原异常。
 
 二维每次 SIMPLE 迭代和既有 LTNE chunk 边界检查，包括 Richardson 细化。三维每次 SIMPLE 迭代以及动量 sweep、压力求解和修正之间检查；这些调用期间收到取消请求时，在当前调用返回后停止，不再启动下一个核函数，包括冷编译。三维 LTNE chunk 边界保持不变。共享 true-h 每次物性／sweep 迭代检查。原生线性求解、JIT、LTNE chunk（二维默认 500 sweep）或焓物性／sweep 必须完成后才到下一检查点。没有强制线程终止或固定墙钟取消时限。取消不发布结果。
 
@@ -258,7 +259,7 @@ C++ 完整三维绑定在释放原生 owner 前复制所需证据，由 `full_3d
 - `ui/mixins/tab_view.py` 负责可用性和路由，包括二维／三维结果切换，不以隐藏控件作为导航状态。
 - `ui/panel_vis_3d.py` 负责 PyVista 展示。构造器把工具栏、控件、视口、状态和计时器交给专门方法，渲染仍留在同一控件类。
 
-结果底栏和历史直接格式化已发布标量快照，没有隐藏结果标签、重复 chip 条或百分比差计算。草稿不替换接受结果及单位。只有最近发布结果拥有场缓存、摘要和导出。Pareto 图像可用性由自身画布决定，复制／导出无需单点场结果。菜单加载和 JSON 拖入共享当前／受支持旧 GUI 文件解码器。
+结果底栏和历史直接格式化已发布结果中的标量，没有隐藏结果标签、重复 chip 条或百分比差计算。草稿不替换接受结果及单位。只有最近发布结果拥有场缓存、摘要和导出。Pareto 图像可用性由自身画布决定，复制／导出无需单点场结果。菜单加载和 JSON 拖入共享当前／受支持旧 GUI 文件解码器。
 
 失败或取消保留完整快照。发布后渲染失败保留新数值结果与来源，同时使不可用视图和旧图／探针内容失效。当前多工况优化器保留各维完整 ComputeConfig 求解设置；初始／后续设计数是搜索预算，不是收敛证书。求解器保留既有收敛和物理检查。外部 CLI 设置若无法在 GUI 控件表达，不能静默恢复成不同工况；交接明确拒绝不匹配。
 

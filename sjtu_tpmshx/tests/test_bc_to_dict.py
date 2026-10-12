@@ -92,7 +92,7 @@ def test_independent_cross2_window_reaches_prepared_physical_area(monkeypatch, d
     import numpy as np
     from sjtu_tpmshx.preprocess.api import prepare_case
     from sjtu_tpmshx.tests.test_pipeline_3d_e2e import _small_air_cfg
-    from sjtu_tpmshx.solvers.backends.python.three_d.execution import build_execution_inputs
+    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
     from sjtu_tpmshx.solvers.backends.python.three_d import runtime
 
     cfg = _small_air_cfg()

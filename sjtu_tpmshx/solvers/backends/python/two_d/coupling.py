@@ -190,7 +190,7 @@ def _compute_pressure_2d(simpA, simpB, dir_A, dir_B, P_inA, P_inB):
     return P_fA, P_fB, dP_A, dP_B
 
 
-from .result_capture import _zone_statistics_2d  # noqa: F401 - existing public name
+from sjtu_tpmshx.solvers.backends.capture_2d import _zone_statistics_2d
 
 
 def _compute_Q_richardson(

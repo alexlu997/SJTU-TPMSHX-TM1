@@ -51,7 +51,7 @@ def test_full_2d_identity_roundtrip(mode, tmp_path):
     from sjtu_tpmshx.preprocess.api import prepare_case
     from sjtu_tpmshx.solvers.backends.cpp.full_2d import NativeFull2DDriver, _pack
     from sjtu_tpmshx.solvers.backends.cpp.full_2d_capture import capture_result
-    from sjtu_tpmshx.solvers.backends.python.two_d.execution import build_execution_inputs
+    from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
     from sjtu_tpmshx.tests.native.test_full_2d import configuration
     from sjtu_tpmshx.io.result_io import save_result, load_result
     from dataclasses import replace

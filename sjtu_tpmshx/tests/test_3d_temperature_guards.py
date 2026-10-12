@@ -18,7 +18,7 @@ from sjtu_tpmshx.preprocess.thermal_geometry import prepare_thermal_geometry
 @pytest.mark.parametrize('seed', [np.nan, np.inf, -np.inf, None, 325.])
 def test_typed_co2_solid_seed_checked_before_thermal_calls(monkeypatch, co2_side, seed):
     from sjtu_tpmshx.preprocess.api import prepare_case
-    from sjtu_tpmshx.solvers.backends.python.three_d.execution import build_execution_inputs
+    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
     from sjtu_tpmshx.tests.test_pipeline_3d_e2e import _small_air_cfg
     from sjtu_tpmshx.solvers import ltne_energy_3d
 

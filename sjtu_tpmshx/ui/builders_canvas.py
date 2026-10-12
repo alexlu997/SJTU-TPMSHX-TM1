@@ -386,7 +386,7 @@ def refresh_field_controls(window):
         slice_controls.setVisible(is_field and result is not None)
     heading = getattr(window, '_result_heading', None)
     if heading is not None:
-        mode = (getattr(window, '_diag_summary', None) or {}).get('mode')
+        mode = window._result_summary().get('mode')
         heading.setText(
             f"本次结果 · {mode.upper()}" if tab in ('temp', 'pres', 'vel', '3d') and mode
             else {"layout": "几何与工况", "pareto": "优化设计"}.get(tab, "场图工作台"))

@@ -110,7 +110,6 @@ def test_metadata_and_source_notice_are_independent_of_df():
 
 
 def test_real_pipeline_heat_builders_share_selected_parameters():
-    from types import SimpleNamespace
     from sjtu_tpmshx.domain.compute_config import FluidConfig, GeometryConfig
     from sjtu_tpmshx.preprocess.api import prepare_case
     from sjtu_tpmshx.solvers.backends.python.three_d.runtime import _build_hv_machinery
@@ -129,6 +128,7 @@ def test_real_pipeline_heat_builders_share_selected_parameters():
     # Actual production h_v builders, with a prepared geometric/problem seam;
     # no momentum or thermal PDE is run in this functional check.
     from sjtu_tpmshx.preprocess.thermal_geometry import prepare_thermal_geometry
+    from types import SimpleNamespace
     problem = SimpleNamespace(D_h=.003, L_mm_field=None, Lcell=7., Nx=2, Ny=3, Nz=2,
         P_inA=10e6, P_inB=10e6, T_inA=400., T_inB=350., eps=.7,
         fluid_type_A='sco2', fluid_type_B='sco2', mu_A=1e-5, mu_B=1e-5,
@@ -146,18 +146,17 @@ def test_real_pipeline_heat_builders_share_selected_parameters():
 
 def test_cli_preserves_selected_model_and_reports_it(tmp_path, monkeypatch, capsys):
     import json
-    from types import SimpleNamespace
     from sjtu_tpmshx.cli import main
     from sjtu_tpmshx.domain.compute_result import ComputeResult
     from sjtu_tpmshx.domain.module_ports import RunControl
-    import sjtu_tpmshx.controllers.compute_pipeline as pipeline
+    import sjtu_tpmshx.controllers.module_adapter as adapter
     path=tmp_path/'synthetic-config.json'
     ComputeConfig(sco2_nu=SYNTHETIC).to_json(path)
     expected=nu.sco2_nu_metadata(SYNTHETIC)
     def dispatch(cfg, *, control):
         assert cfg.sco2_nu == SYNTHETIC
         assert control == RunControl()
-        return SimpleNamespace(run=lambda: ComputeResult(converged=True, metadata={'sco2_nu':expected}))
-    monkeypatch.setattr(pipeline,'pipeline_for',dispatch)
+        return ComputeResult(converged=True, metadata={'sco2_nu':expected})
+    monkeypatch.setattr(adapter,'compute_result',dispatch)
     assert main([str(path),'--json']) == 0
     assert json.loads(capsys.readouterr().out)['metadata']['sco2_nu'] == expected

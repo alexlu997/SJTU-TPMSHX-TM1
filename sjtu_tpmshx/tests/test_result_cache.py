@@ -70,7 +70,10 @@ def test_clear_one_or_all():
     _app()
     c = ResultCache()
     c.set_result('2d', ComputeResult(Q_W=1))
-    c.set_result('3d', ComputeResult(Q_W=2))
+    current = ComputeResult(Q_W=2)
+    c.set_result('3d', current)
+    assert c.get_result() is current
+    assert c.get_result('2d') is None
 
     c.clear('2d')
     assert not c.has_results('2d')

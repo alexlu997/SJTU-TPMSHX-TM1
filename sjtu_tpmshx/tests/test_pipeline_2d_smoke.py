@@ -1,17 +1,6 @@
-"""Pipeline2D end-to-end smoke — audit C4 (L-a-2).
-
-Drives :class:`controllers.compute_pipeline.Pipeline2D` on a small
-in-domain Shanghai-like case and asserts the ComputeResult slots
-populate with physically plausible numbers.  Not a regression test —
-historical Shanghai evidence is checked in ``test_shanghai_regression.py``
-(opt-in subprocess test).  This test exists so a CI run catches
-``Pipeline2D`` breakage without the 13-minute lumped-dual-nu cost.
-
-Marked ``@pytest.mark.slow`` because the inner SIMPLE+LTNE loop on a
-20x40 grid takes ~10–15 s per run; pytest skips by default unless the
-runner explicitly opts in.
-"""
+"""Small complete 2D workflow checks preserve the physical result contract."""
 from __future__ import annotations
+from sjtu_tpmshx.controllers.module_adapter import compute_result
 
 import time
 
@@ -25,11 +14,7 @@ from sjtu_tpmshx.domain.compute_config import (
     SolverConfig,
     PartialBCConfig,
 )
-from sjtu_tpmshx.controllers.compute_pipeline import (
-    Pipeline2D,
-    pipeline_for,
-    ComputeResult,
-)
+from sjtu_tpmshx.domain.compute_result import ComputeResult
 
 
 def _shanghai_like_cfg() -> ComputeConfig:
@@ -50,12 +35,11 @@ def _shanghai_like_cfg() -> ComputeConfig:
 
 @pytest.mark.slow
 def test_pipeline2d_run_returns_compute_result():
-    """``Pipeline2D(cfg).run()`` must return a :class:`ComputeResult`
+    """``compute_result(cfg)`` must return a :class:`ComputeResult`
     with the headline scalars populated and all sub-dicts non-empty."""
     cfg = _shanghai_like_cfg()
-    pipe = Pipeline2D(cfg)
     t0 = time.time()
-    result = pipe.run()
+    result = compute_result(cfg)
     dt = time.time() - t0
 
     assert isinstance(result, ComputeResult)
@@ -125,34 +109,22 @@ def test_pipeline2d_run_returns_compute_result():
     assert 'Q_richardson_warn' in result.diagnostics
 
     # Sanity on wall time — should not be > 5 minutes for a 20×40 grid.
-    assert dt < 300, f"Pipeline2D.run() took {dt:.1f}s — too slow"
+    assert dt < 300, f"compute_result() took {dt:.1f}s — too slow"
 
 
 @pytest.mark.slow
 def test_pipeline2d_progress_cb_fires():
-    """``progress_cb`` must fire at least 5 times (ABC ticks + shim
+    """``progress_cb`` must fire at least 5 times (stage progress + solver
     forwards from ``_compute_progress`` writes inside the solver loop)."""
     cfg = _shanghai_like_cfg()
     seen = []
-    pipe = Pipeline2D(cfg, progress_cb=lambda p: seen.append(p))
-    pipe.run()
-    # ABC fires 20/90/100 + shim fires each outer-loop coupling iter.
+    compute_result(cfg, progress_cb=seen.append)
+    # The workflow reports 20/90/100 and each outer-loop coupling iter.
     assert len(seen) >= 5, f"progress_cb only fired {len(seen)} times"
     assert 20 in seen
     assert 90 in seen
     assert 100 in seen
     assert max(seen) == 100
-
-
-@pytest.mark.slow
-def test_pipeline_for_2d_dispatch():
-    """``pipeline_for(cfg)`` with Nz=1 must return a Pipeline2D that
-    runs to completion."""
-    cfg = _shanghai_like_cfg()
-    pipe = pipeline_for(cfg)
-    assert isinstance(pipe, Pipeline2D)
-    result = pipe.run()
-    assert result.Q_W > 0
 
 
 @pytest.mark.slow
@@ -179,7 +151,7 @@ def test_pipeline2d_mixed_sco2_custom_ports(fluid_A, u_A, P_A, fluid_B, P_B):
                              out_ctr=0.03, out_w=0.03),
         extrap=ExtrapPolicy(allow=True),
     )
-    result = Pipeline2D(cfg).run()
+    result = compute_result(cfg)
     assert result.Q_W > 0
     assert result.T_out_A_K < cfg.fluid_A.T_in_K
     assert result.T_out_B_K > cfg.fluid_B.T_in_K

@@ -1,4 +1,4 @@
-"""Validate the 16 Shanghai water-air cases through the current Pipeline3D.
+"""Validate the 16 Shanghai water-air cases through the common 3D workflow.
 
 Both fluids are solved using confirmed staggered water ports and the workbook's
 F/H mass-flow inputs. With no explicit grid, the port/wall mesh is used; output
@@ -19,6 +19,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from sjtu_tpmshx.controllers.module_adapter import compute_result
 from sjtu_tpmshx.validation.harness._harness import load_cases_df
 from sjtu_tpmshx.validation.harness._case_sets import (
     shanghai_spec, SHANGHAI_XLSX, SHANGHAI_N_CASES,
@@ -45,7 +46,7 @@ def _run_one_case_pipeline(ci, df, Nx_u, Ny_u, Nz_u,
                            max_outer=None, wall_refine=False, port_wall_refine=False,
                            df_mode='cfd_smooth'):
     """Solve both fluids through the same production pipeline as the GUI."""
-    from sjtu_tpmshx.controllers.compute_pipeline import Pipeline3D
+
     cc = _pipeline_config(ci, df, Nx_u, Ny_u, Nz_u, max_outer, wall_refine,
                           port_wall_refine, df_mode)
     case = ci + 1
@@ -54,7 +55,7 @@ def _run_one_case_pipeline(ci, df, Nx_u, Ny_u, Nz_u,
     dP_B_exp = float(df.iloc[ci, 32])
     Q_exp = float(df.iloc[ci, 33])
     Q_water_exp = float(df.iloc[ci, 34])
-    result = Pipeline3D(cc).run()
+    result = compute_result(cc)
     dP_sim = result.dP_A_Pa
     Q_sim = result.Q_W
     Q_A = result.residuals['Q_A']
@@ -164,7 +165,7 @@ def main(argv=None):
           f'wall_refine={args.wall_refine}, port_wall_refine={port_refine}')
     print(f'Requested outer budget: max_outer={args.max_outer}')
     print(f'Requested D-F mode: {args.df_mode}')
-    print('Runner: production Pipeline3D, both fluids solved\n')
+    print('Runner: common 3D workflow, both fluids solved\n')
     results = []
     for ci in range(args.cases):
         try:

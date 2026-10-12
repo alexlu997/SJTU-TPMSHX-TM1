@@ -7,7 +7,8 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.controllers.compute_orchestrator import CancelToken
-from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D, Pipeline3D
+from sjtu_tpmshx.controllers.module_adapter import compute_result
+from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.domain.compute_config import (
     ComputeConfig, ExtrapPolicy, FluidConfig, GeometryConfig, PartialBCConfig, SolverConfig,
@@ -113,15 +114,13 @@ def test_python_chunk_failure_never_finalizes(monkeypatch, dimension, failure):
         return value
 
     monkeypatch.setattr(ltne_enthalpy_3d, '_gs_enthalpy_sweeps_3d', chunk)
-    pipeline = (Pipeline2D if dimension == 2 else Pipeline3D)(
-        _config(dimension), cancel_token=token)
     if failure == 'cancel_before':
         token.cancel()
-    monkeypatch.setattr(pipeline, 'finalize',
+    monkeypatch.setattr('sjtu_tpmshx.postprocess.api.evaluate',
                         lambda *args: pytest.fail('failed Python result was finalized'))
     with pytest.raises(FloatingPointError if failure == 'nonfinite' else CancelledError,
                        match='Non-finite coupled energy state' if failure == 'nonfinite' else 'cancel'):
-        pipeline.run()
+        compute_result(_config(dimension), control=RunControl(cancel_check=token.is_set))
     assert called == ([] if failure == 'cancel_before' else [True])
 
 

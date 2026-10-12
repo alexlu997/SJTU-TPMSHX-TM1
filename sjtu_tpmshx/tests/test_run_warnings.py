@@ -9,7 +9,8 @@ from sjtu_tpmshx.domain.run_warnings import (
     current_warnings, warning_scope, range_context, warning_messages, merge_warnings,
 )
 from sjtu_tpmshx.models import fluid_props, nu_correlations as nu, tpms_props
-from sjtu_tpmshx.tests.test_compute_pipeline import _RecordingPipeline
+from sjtu_tpmshx.domain.field_result import FieldResult
+from sjtu_tpmshx.workflows.compute import compute as run_workflow
 from sjtu_tpmshx.domain.compute_config import ComputeConfig
 
 
@@ -182,26 +183,23 @@ def test_pressure_limit_warning_matches_each_return_policy(monkeypatch, policies
 
 @pytest.mark.parametrize('error', [ValueError, InterruptedError])
 def test_pipeline_exception_restores_scope_and_next_run(monkeypatch, error):
-    pipe = _RecordingPipeline(ComputeConfig())
-    original = pipe.build_fields
+    native = FieldResult('warning-result', 'warning-case', 'test')
 
-    def fail():
+    def fail(config, *, case_id):
         nu.nu_water_topo('Gyroid', 1, 3)
         raise error('failure after real warning')
 
-    monkeypatch.setattr(pipe, 'build_fields', fail)
     with pytest.raises(error):
-        pipe.run()
+        run_workflow(ComputeConfig(), prepare=fail)
     assert current_warnings() is None
 
-    def build():
+    def prepare(config, *, case_id):
         nu.nu_water_topo('Gyroid', 1, 3)
-        return original()
+        return object()
 
-    monkeypatch.setattr(pipe, 'build_fields', build)
-    result = pipe.run()
-    assert len(result.warnings) == 1
-    assert result.extrap_reasons == []
+    _, result, _ = run_workflow(ComputeConfig(), prepare=prepare,
+        solve=lambda *a: native, evaluate=lambda *a: object())
+    assert len(result.metadata['diagnostics']['warnings_list']) == 1
 
 
 def test_parallel_worker_scopes_merge_in_side_order():
@@ -331,17 +329,16 @@ def test_concurrent_pipeline_runs_do_not_share_records(monkeypatch):
     results, errors = {}, []
 
     def run(fluid):
-        pipe = _RecordingPipeline(ComputeConfig())
-        original = pipe.build_fields
+        native = FieldResult('warning-result', 'warning-case', 'test')
 
-        def build():
+        def prepare(config, *, case_id):
             barrier.wait()
             fluid_props.get(fluid).nu('Gyroid', 1, 0.35, 7, 2, 3)
-            return original()
+            return object()
 
-        monkeypatch.setattr(pipe, 'build_fields', build)
         try:
-            results[fluid] = pipe.run()
+            _, results[fluid], _ = run_workflow(ComputeConfig(), prepare=prepare,
+                solve=lambda *a: native, evaluate=lambda *a: object())
             assert current_warnings() is None
         except BaseException as exc:
             errors.append(exc)
@@ -354,8 +351,9 @@ def test_concurrent_pipeline_runs_do_not_share_records(monkeypatch):
     assert all(not thread.is_alive() for thread in threads)
     assert not errors
     for fluid, result in results.items():
-        assert len(result.warnings) == 1
-        assert result.warnings[0].startswith('[water' if fluid == 'water' else '[sCO2')
+        messages = result.metadata['diagnostics']['warnings_list']
+        assert len(messages) == 1
+        assert messages[0].startswith('[water' if fluid == 'water' else '[sCO2')
 
 
 def test_range_snapshots_keep_extrema_separate_and_nonfinite_visible():

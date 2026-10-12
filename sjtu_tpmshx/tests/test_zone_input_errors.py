@@ -4,7 +4,7 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D, Pipeline3D
+from sjtu_tpmshx.workflows.compute import compute
 from sjtu_tpmshx.domain.compute_config import ComputeConfig, ExtrapPolicy, GeometryConfig, SolverConfig, ZoneInputConfig
 from sjtu_tpmshx.models.zone_config import Zone, ZoneConfig
 
@@ -144,24 +144,21 @@ def test_supported_3d_grid_is_consumed():
     assert thickness == pytest.approx(0.3)
 
 
-@pytest.mark.parametrize('pipeline,axis,grid', [
-    (Pipeline2D, 'y', None), (Pipeline2D, 'grid', None),
-    (Pipeline2D, 'grid', {'cells': []}),
-    (Pipeline3D, 'y', None), (Pipeline3D, 'grid', None),
-    (Pipeline3D, 'grid', {'cells': []}),
+@pytest.mark.parametrize('dimension,axis,grid', [
+    (2, 'y', None), (2, 'grid', None),
+    (2, 'grid', {'cells': []}),
+    (3, 'y', None), (3, 'grid', None),
+    (3, 'grid', {'cells': []}),
 ])
-def test_missing_zones_never_solve_or_finalize(pipeline, axis, grid, monkeypatch):
+def test_missing_zones_never_solve_or_finalize(dimension, axis, grid, monkeypatch):
     cfg = ComputeConfig(
         geometry=GeometryConfig(Lz_m=0.042),
-        solver=SolverConfig(Nz=2 if pipeline is Pipeline3D else 1),
+        solver=SolverConfig(Nz=2 if dimension == 3 else 1),
         extrap=ExtrapPolicy(allow=True),
         zones=ZoneInputConfig(enabled=True, axis=axis, grid=grid))
-    pipe = pipeline(cfg)
     solve, finalize = Mock(), Mock()
-    monkeypatch.setattr(pipe, 'run_solvers', solve)
-    monkeypatch.setattr(pipe, 'finalize', finalize)
     with pytest.raises((ValueError, NotImplementedError), match='[Zz]on|grid'):
-        pipe.run()
+        compute(cfg, solve=solve, evaluate=finalize)
     solve.assert_not_called()
     finalize.assert_not_called()
 
@@ -178,38 +175,33 @@ def test_zone_builder_error_propagates(builder, monkeypatch):
     monkeypatch.setattr(ZoneConfig, builder, Mock(side_effect=failure))
     if builder == 'build_structured_arrays':
         monkeypatch.setattr(ZoneConfig, 'compute_properties', lambda *a, **kw: None)
-    pipe = Pipeline2D(ComputeConfig(geometry=GeometryConfig(tpms='Diamond'),
-        zones=zones, extrap=ExtrapPolicy(allow=True)))
+    cfg = ComputeConfig(geometry=GeometryConfig(tpms='Diamond'),
+        zones=zones, extrap=ExtrapPolicy(allow=True))
     solve, finalize = Mock(), Mock()
-    monkeypatch.setattr(pipe, 'run_solvers', solve)
-    monkeypatch.setattr(pipe, 'finalize', finalize)
     with pytest.raises(RuntimeError, match='zone builder failed') as caught:
-        pipe.run()
+        compute(cfg, solve=solve, evaluate=finalize)
     assert caught.value is failure
     solve.assert_not_called()
     finalize.assert_not_called()
 
 
-@pytest.mark.parametrize('pipeline', [Pipeline2D, Pipeline3D])
+@pytest.mark.parametrize('dimension', [2, 3])
 @pytest.mark.parametrize('axis', ['x', 'y'])
 @pytest.mark.parametrize('start,end', [
     (1, 0), (0.5, 0.5), (-0.1, 1), (0, 1.1),
     (float('nan'), 1), (0, float('inf')),
 ])
-def test_invalid_grid_rectangle_never_solves(pipeline, axis, start, end, monkeypatch):
+def test_invalid_grid_rectangle_never_solves(dimension, axis, start, end, monkeypatch):
     cell = dict(x0=0, x1=1, y0=0, y1=1, L=6, t=0.3)
     cell[f'{axis}0'], cell[f'{axis}1'] = start, end
     cfg = ComputeConfig(
         geometry=GeometryConfig(Lz_m=0.042),
-        solver=SolverConfig(Nz=2 if pipeline is Pipeline3D else 1),
+        solver=SolverConfig(Nz=2 if dimension == 3 else 1),
         extrap=ExtrapPolicy(allow=True),
         zones=ZoneInputConfig(enabled=True, axis='grid', grid=dict(
             cells=[cell], tpms_type='Diamond', k_s=16)))
-    pipe = pipeline(cfg)
     solve, finalize = Mock(), Mock()
-    monkeypatch.setattr(pipe, 'run_solvers', solve)
-    monkeypatch.setattr(pipe, 'finalize', finalize)
     with pytest.raises(ValueError, match=f'cell 1.*{axis}'):
-        pipe.run()
+        compute(cfg, solve=solve, evaluate=finalize)
     solve.assert_not_called()
     finalize.assert_not_called()

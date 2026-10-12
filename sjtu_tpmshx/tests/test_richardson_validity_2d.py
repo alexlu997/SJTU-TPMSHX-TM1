@@ -1,10 +1,11 @@
 """Refined duty must use physical ports and a converged energy solve."""
+from sjtu_tpmshx.controllers.module_adapter import compute_result
 from dataclasses import replace
 from sjtu_tpmshx.models.fluid_props import get
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
+
 from sjtu_tpmshx.domain.compute_config import PartialBCConfig
 from sjtu_tpmshx.solvers.backends.python.two_d import coupling as solve_2d
 from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver, _port_fractions_1d
@@ -269,7 +270,7 @@ def test_cap_post_does_not_replace_last_thermal_coefficients(monkeypatch):
     monkeypatch.setattr(solve_2d, 'solve_full_domain', energy)
     monkeypatch.setattr(solve_2d, 'run_outer_coupling', cap)
     monkeypatch.setattr(solve_2d, '_compute_Q_richardson', refined)
-    result = Pipeline2D(cfg).run()
+    result = compute_result(cfg)
     assert captured
     assert not result.converged
     assert result.diagnostics['convergence_detail']['outer_hit_cap']
@@ -307,7 +308,7 @@ def test_failed_refinement_preserves_main_fields_and_rejects_overall(monkeypatch
         return result
 
     monkeypatch.setattr(solve_2d, '_compute_Q_richardson', richardson)
-    result = Pipeline2D(_cfg()).run()
+    result = compute_result(_cfg())
     detail = result.diagnostics['convergence_detail']
     for gate in ('outer_converged', 'simple_ok', 'ltne_ok', 'envelope_ok'):
         assert detail[gate] is True, (gate, detail)

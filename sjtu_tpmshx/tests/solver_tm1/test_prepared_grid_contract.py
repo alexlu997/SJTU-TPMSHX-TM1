@@ -21,8 +21,7 @@ def prepared_case(request):
 
 
 def _execution(case):
-    dimension = 'two_d' if case.grid['dimension'] == 2 else 'three_d'
-    return import_module(f'sjtu_tpmshx.solvers.backends.python.{dimension}.execution')
+    return import_module(f"sjtu_tpmshx.solvers.backends.prepared_{case.grid['dimension']}d")
 
 
 @pytest.mark.parametrize('axes', ['reversed', 'missing'])

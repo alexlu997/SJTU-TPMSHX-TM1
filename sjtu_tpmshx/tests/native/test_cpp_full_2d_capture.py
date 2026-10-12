@@ -16,7 +16,8 @@ from sjtu_tpmshx.postprocess.api import evaluate
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.backends.cpp.full_2d import NativeFull2DDriver
 from sjtu_tpmshx.solvers.backends.cpp.full_2d_capture import capture_result
-from sjtu_tpmshx.solvers.backends.python.two_d.execution import build_execution_inputs, run_case as python_run
+from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
+from sjtu_tpmshx.solvers.backends.python.two_d.execution import run_case as python_run
 from sjtu_tpmshx.tests.native import full_thermal_reference
 from sjtu_tpmshx.tests.native.test_full_2d import ROOT, configuration, capture_python
 
@@ -168,7 +169,7 @@ def test_capped_partial_fields_last_inputs_and_recomputed_metrics(driver, mode):
 
 def test_capped_temperature_capture_uses_current_full_cc_enthalpy(driver, same_thermal):
     """The native fullCC route and the retained Python cp*T route differ."""
-    from sjtu_tpmshx.solvers.backends.python.two_d.result_capture import capture_result as python_capture
+    from sjtu_tpmshx.solvers.backends.capture_2d import capture_result as python_capture
 
     case = prepare_case(configuration(directions=(1, 2), outer=2, mode='temperature'),
                         case_id='capture-partial-temperature')
@@ -297,7 +298,7 @@ def test_partial_optimization_cases_preserve_fine_water_balance(
 
 def test_golden_air_prepared_case_retains_accepted_refinement(driver, same_thermal):
     from sjtu_tpmshx.solvers.api import run_case
-    from sjtu_tpmshx.solvers.backends.python.two_d.result_capture import capture_result as python_capture
+    from sjtu_tpmshx.solvers.backends.capture_2d import capture_result as python_capture
     case = prepare_case(ComputeConfig.from_json(str(ROOT / 'examples/three_module/air_2d.json')),
                         case_id='capture-golden-air2d')
     reference = capture_python(case, full=True, thermal=same_thermal)

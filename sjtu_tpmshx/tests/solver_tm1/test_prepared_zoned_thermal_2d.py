@@ -11,7 +11,7 @@ from sjtu_tpmshx.domain.compute_config import (
 )
 from sjtu_tpmshx.models.zone_config import Zone, ZoneConfig
 from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.backends.python.two_d.execution import build_execution_inputs
+from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
 
 
 def _config(mode='y'):

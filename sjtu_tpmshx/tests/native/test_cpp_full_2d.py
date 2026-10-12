@@ -15,7 +15,7 @@ from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.backends.cpp.full_2d import NativeFull2DDriver, _pack
-from sjtu_tpmshx.solvers.backends.python.two_d.execution import build_execution_inputs
+from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
 from sjtu_tpmshx.tests.native import test_full_2d as typed
 from sjtu_tpmshx.tests.native.test_full_2d_refinement import compare_audit
 

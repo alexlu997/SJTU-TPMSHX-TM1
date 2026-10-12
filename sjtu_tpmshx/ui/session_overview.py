@@ -97,7 +97,7 @@ class OverviewDialog(QDialog):
         values = result_metric_texts(window)
 
         kpi_row.addWidget(_kpi("HEAT TRANSFER  Q",
-                                 values['Q'], getattr(window, '_result_Q_unit', 'W/m'),
+                                 values['Q'], values['Q_unit'],
                                  t.get('accent_primary', '#3B82F6')))
         kpi_row.addWidget(_kpi("PRESSURE DROP  ΔP_A",
                                  values['dP_A'], "Pa",
@@ -123,7 +123,7 @@ class OverviewDialog(QDialog):
         tv.addWidget(trend_cap)
         spark = Sparkline(height=60)
         for e in reversed(list(getattr(window, '_recent_runs', []) or [])):
-            if e.get('Q_unit') != getattr(window, '_result_Q_unit', 'W/m'):
+            if e.get('Q_unit') != values['Q_unit']:
                 continue
             v = _float(e.get('Q'))
             if v is not None:

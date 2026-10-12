@@ -12,7 +12,7 @@ from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.domain.run_warnings import current_warnings, merge_warnings, warning_messages, warning_scope
 from sjtu_tpmshx.domain.validator import compute_volumetric_htc
 from sjtu_tpmshx.models.nu_correlations import warn_sco2_nu_evidence
-from sjtu_tpmshx.solvers.backends.python.two_d.result_capture import (
+from sjtu_tpmshx.solvers.backends.capture_2d import (
     capture_result as _capture_result, _zone_statistics_2d,
 )
 from .closure_evidence import replay_range_observations

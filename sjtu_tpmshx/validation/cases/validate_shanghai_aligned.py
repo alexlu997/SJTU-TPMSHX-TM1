@@ -12,6 +12,7 @@ import argparse
 import numpy as np
 import pandas as pd
 
+from sjtu_tpmshx.controllers.module_adapter import compute_result
 from sjtu_tpmshx.models.tpms_calc import air_cp
 from sjtu_tpmshx.validation.harness._harness import load_cases_df
 from sjtu_tpmshx.validation.harness._case_sets import SHANGHAI_XLSX, SHANGHAI_N_CASES
@@ -30,8 +31,8 @@ def _pipeline_config(ci, df):
 
 
 def _run_one_case_pipeline(ci, df):
-    """Run current Pipeline2D, retaining the explicitly named legacy Q reduction."""
-    from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
+    """Run the common workflow with the named historical Q reduction."""
+
     cc = _pipeline_config(ci, df)
     case = ci + 1
     m_air = float(df.iloc[ci, 5])
@@ -40,7 +41,7 @@ def _run_one_case_pipeline(ci, df):
     P_Ain = cc.fluid_A.P_in_Pa
     dP_A_exp = float(df.iloc[ci, 30]) - float(df.iloc[ci, 31])
     Q_exp = float(df.iloc[ci, 33])
-    res = Pipeline2D(cc).run()
+    res = compute_result(cc)
 
     dP_A_sim = float(res.dP_A_Pa)
 

@@ -98,7 +98,7 @@ def test_selected_backend_reaches_worker_and_stays_locked_through_cancel(
 
     if kind == 'compute':
         monkeypatch.setattr(win, '_preflight_grid', lambda: True)
-        monkeypatch.setattr(run_controller, '_run_pipeline', held)
+        monkeypatch.setattr(run_controller, '_run_compute', held)
         win.run_calculation()
         cancel = win.compute.cancel
     elif kind == 'optimize':

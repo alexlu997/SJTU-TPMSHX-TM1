@@ -31,7 +31,8 @@ from sjtu_tpmshx.models.grid import _port_overlap_1d
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers import ltne_energy, simple_solver
 from sjtu_tpmshx.solvers._solve_common import inlet_pressure_state
-from sjtu_tpmshx.solvers.backends.python.two_d import coupling, execution, runtime
+from sjtu_tpmshx.solvers.backends.python.two_d import coupling, runtime
+from sjtu_tpmshx.solvers.backends import prepared_2d as execution
 from sjtu_tpmshx.tests.native.test_simple_2d_c_api import arguments as simple_arguments
 from sjtu_tpmshx.tests.native import full_thermal_reference
 

@@ -7,6 +7,7 @@
 3. norris_1a is a friction NO-OP (×1.0) — the DF closure already bakes in
    SLM roughness; any friction multiplier double-counts.
 """
+from sjtu_tpmshx.controllers.module_adapter import compute_result
 
 import numpy as np
 import pytest
@@ -68,7 +69,7 @@ def test_solve_2d_passes_full_epsilon(monkeypatch):
     from sjtu_tpmshx.domain.compute_config import (ComputeConfig, ExtrapPolicy,
                                        FluidConfig, GeometryConfig,
                                        SolverConfig)
-    from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
+
     cfg = ComputeConfig(
         fluid_A=FluidConfig(type='air', u_mps=5.0, T_in_K=400.0),
         fluid_B=FluidConfig(type='air', u_mps=10.0, T_in_K=310.0),
@@ -78,7 +79,7 @@ def test_solve_2d_passes_full_epsilon(monkeypatch):
         extrap=ExtrapPolicy(allow=True),   # t=0.6 outside ConstDF-v1 window
     )
     try:
-        Pipeline2D(cfg).run()
+        compute_result(cfg)
     except Exception:
         pass   # sentinel (or downstream wreckage) — capture is what matters
 

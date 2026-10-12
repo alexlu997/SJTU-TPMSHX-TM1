@@ -1,4 +1,5 @@
 """Water checks follow actual pressure frames and survive cap/fallback paths."""
+from sjtu_tpmshx.controllers.module_adapter import compute_result
 from types import SimpleNamespace
 
 import numpy as np
@@ -62,7 +63,7 @@ def _water_cfg(dimension):
 @pytest.mark.parametrize('dimension', [2, 3])
 @pytest.mark.parametrize('side,bad', [('A', np.nan), ('B', 420.)])
 def test_invalid_raw_water_return_raises_before_nan_patch_or_refresh(monkeypatch, dimension, side, bad):
-    from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D, Pipeline3D
+
 
     def invalid(*args, **kwargs):
         shape = args[2:4] if dimension == 2 else args[3:6]
@@ -73,7 +74,7 @@ def test_invalid_raw_water_return_raises_before_nan_patch_or_refresh(monkeypatch
     monkeypatch.setattr(solve_2d if dimension == 2 else stages,
                         'solve_full_domain' if dimension == 2 else 'solve_full_domain_3d', invalid)
     with pytest.raises(WaterStateError, match='return ' + side):
-        (Pipeline2D if dimension == 2 else Pipeline3D)(_water_cfg(dimension)).run()
+        compute_result(_water_cfg(dimension))
 
 
 @pytest.fixture
@@ -92,7 +93,7 @@ def observed_3d_problem(monkeypatch):
 @pytest.mark.parametrize('offset', [-1e9, 190000.])
 def test_3d_temperature_path_uses_local_thermal_then_final_report_pressure(
         monkeypatch, offset, observed_3d_problem):
-    from sjtu_tpmshx.controllers.compute_pipeline import Pipeline3D
+
     observed = {}
     original = stages.fluid_props.check_water_state
 
@@ -123,12 +124,12 @@ def test_3d_temperature_path_uses_local_thermal_then_final_report_pressure(
     monkeypatch.setattr(stages.fluid_props, 'check_water_state', check)
     monkeypatch.setattr(stages, 'run_outer_coupling', cap)
     with pytest.raises(WaterStateError if offset < 0 else CheckedReport):
-        Pipeline3D(_water_cfg(3)).run()
+        compute_result(_water_cfg(3))
     assert observed['checked_stages'] == ['3D temperature return B', '3D property refresh B']
 
 
 def test_3d_true_h_return_uses_last_kernel_pressure_not_report(monkeypatch, observed_3d_problem):
-    from sjtu_tpmshx.controllers.compute_pipeline import Pipeline3D
+
     from sjtu_tpmshx.solvers import ltne_enthalpy_3d as ent
     cfg = _water_cfg(3)
     cfg.fluid_A.type = 'sco2'
@@ -163,7 +164,7 @@ def test_3d_true_h_return_uses_last_kernel_pressure_not_report(monkeypatch, obse
     monkeypatch.setattr(ent, 'solve_ltne_enthalpy_3d_pipeline', thermal)
     monkeypatch.setattr(stages.fluid_props, 'check_water_state', check)
     with pytest.raises(WaterStateError, match='3D enthalpy return B'):
-        Pipeline3D(cfg).run()
+        compute_result(cfg)
 
 
 @pytest.mark.parametrize('failure', ['return', 'duty', 'fallback'])

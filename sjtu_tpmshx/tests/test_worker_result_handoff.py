@@ -11,9 +11,8 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from shiboken6 import isValid
 
 from sjtu_tpmshx.controllers.compute_orchestrator import ComputeOrchestrator
-from sjtu_tpmshx.controllers.compute_pipeline import (
-    CancelledError, Pipeline2D, Pipeline3D,
-)
+from sjtu_tpmshx.domain.cancellation import CancelledError
+from sjtu_tpmshx.controllers.module_adapter import compute_result
 from sjtu_tpmshx.domain.compute_config import ComputeConfig
 from sjtu_tpmshx.domain.compute_result import ComputeResult
 from sjtu_tpmshx.tests.gui_worker_support import _configure, _wait_for, win as win
@@ -26,7 +25,7 @@ def test_2d_tout_displays_result_scalars_across_units_and_direction_drafts(win):
                 'Tb': np.arange(6.).reshape(2, 3) + 300.},
         diagnostics={'mode': '2d'})
     win.write_result(result)
-    assert win._tout_K_cache == (341.25, 312.75)
+    assert (win.cache.get_result().T_out_A_K, win.cache.get_result().T_out_B_K) == (341.25, 312.75)
     for direction in range(4):
         win.combo_dirA.setCurrentIndex(direction)
         win.combo_dirB.setCurrentIndex(3-direction)
@@ -53,35 +52,26 @@ def test_real_source_warnings_do_not_set_df_ui_flag(win, monkeypatch, mode, df_e
     from sjtu_tpmshx.df_surrogate.surrogate_domain import check_surrogate_domain_at_point
     from sjtu_tpmshx.models.nu_correlations import nu_water_topo
     from sjtu_tpmshx.models.tpms_props import air_cp
-    from sjtu_tpmshx.tests.test_compute_pipeline import _RecordingPipeline
+    from sjtu_tpmshx.tests.gui_worker_support import _stub_stages
 
     # Exercise the existing geometry reason carrier, not an out-of-domain solve.
     df_reasons = check_surrogate_domain_at_point(
         'Gyroid', 9 if df_extrap else 7, 0.4, 16, 5, 350, allow_extrap=True)
-    pipe = _RecordingPipeline(ComputeConfig())
-    original_build, original_finalize = pipe.build_fields, pipe.finalize
-
-    def build():
+    def build(config, *, case_id):
         nu_water_topo('Gyroid', 1, 3)
         air_cp(1100)
-        return original_build()
+        return object()
 
-    def finalize(*args):
-        result = original_finalize(*args)
-        result.extrap_reasons = list(df_reasons)
-        result.diagnostics['mode'] = mode
-        return result
-
-    monkeypatch.setattr(pipe, 'build_fields', build)
-    monkeypatch.setattr(pipe, 'finalize', finalize)
-    result = pipe.run()
+    _stub_stages(monkeypatch, mode, build)
+    result = compute_result(ComputeConfig())
+    result.extrap_reasons = list(df_reasons)
     assert any('[water Nu extrap]' in text for text in result.warnings)
     assert any('air_cp:' in text for text in result.warnings)
     assert result.extrap_reasons == df_reasons
     win.write_result(result)
-    assert win._diag_summary['warnings'] == result.warnings
-    assert win._extrap_reasons == df_reasons
-    assert win._has_extrap is df_extrap
+    assert win._result_summary()['warnings'] == result.warnings
+    assert win.cache.get_result().extrap_reasons == df_reasons
+    assert bool(win._result_summary()['extrap']) is df_extrap
 
 
 def test_autofill_cache_and_draft_warnings_are_isolated_from_worker(win, monkeypatch):
@@ -105,17 +95,15 @@ def test_autofill_cache_and_draft_warnings_are_isolated_from_worker(win, monkeyp
     assert not win._test_error_dialogs
     ready, release = threading.Event(), threading.Event()
 
-    def build(pipe):
+    def build(config, *, case_id):
         assert current_warnings() is not None
         ready.set()
         assert release.wait(10)
         compute('Gyroid', 7, 0.6, 0.001, temperature, 101325, 16, 'air')
         return {}
 
-    monkeypatch.setattr(Pipeline2D, 'build_fields', build)
-    monkeypatch.setattr(Pipeline2D, 'run_solvers', lambda *a: {})
-    monkeypatch.setattr(Pipeline2D, 'finalize',
-                        lambda *a: ComputeResult(diagnostics={'mode': '2d'}))
+    from sjtu_tpmshx.tests.gui_worker_support import _stub_stages
+    _stub_stages(monkeypatch, '2d', build)
     monkeypatch.setattr(win, '_render_compute_result', lambda: True)
     try:
         win.run_calculation()
@@ -140,7 +128,7 @@ def test_autofill_cache_and_draft_warnings_are_isolated_from_worker(win, monkeyp
 
 @pytest.mark.parametrize('dimensions', [(0,), (1, 0, 1)])
 def test_real_window_config_preserves_explicit_pipeline_mode(win, monkeypatch, dimensions):
-    """A hidden Nz survives switching to 2D; it must not select Pipeline3D."""
+    """A hidden Nz survives switching to 2D; it must not select a 3D solve."""
     win.le_Nz.setText('5')
     win.auto_fill_fluid_a()
     win.auto_fill_fluid_b()
@@ -148,13 +136,12 @@ def test_real_window_config_preserves_explicit_pipeline_mode(win, monkeypatch, d
     assert win.isAncestorOf(win.combo_df_mode)
     calls = []
 
-    def run(pipe):
-        mode = '3d' if isinstance(pipe, Pipeline3D) else '2d'
-        calls.append((mode, pipe.cfg.solver.Nz))
+    def run(config, *, control, progress_cb):
+        mode = '3d' if config.is_3d else '2d'
+        calls.append((mode, config.solver.Nz))
         return ComputeResult(Q_W=123, diagnostics={'mode': mode})
 
-    monkeypatch.setattr(Pipeline2D, 'run', run)
-    monkeypatch.setattr(Pipeline3D, 'run', run)
+    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', run)
     monkeypatch.setattr(win, '_render_compute_result', lambda: True)
     for dim in dimensions:
         win.combo_dim.setCurrentIndex(dim)
@@ -241,9 +228,10 @@ def test_real_zoned_pipeline_error_never_publishes(win, monkeypatch, dim):
     win.compute.finished.connect(published.append)
     win.compute.error.connect(lambda *args: errors.append(args))
     monkeypatch.setattr(win, 'write_result', writes.append)
-    pipeline = Pipeline3D if dim else Pipeline2D
-    monkeypatch.setattr(pipeline, 'run_solvers', lambda *args: {})
-    monkeypatch.setattr(pipeline, 'finalize', lambda *args: ComputeResult(Q_W=1))
+    monkeypatch.setattr('sjtu_tpmshx.solvers.api.run_case',
+                        lambda *args: pytest.fail('invalid zones reached solver'))
+    monkeypatch.setattr('sjtu_tpmshx.postprocess.api.evaluate',
+                        lambda *args: pytest.fail('invalid zones reached postprocessing'))
     win.run_calculation()
     _wait_for(win.compute.is_idle)
     assert errors and not published and not writes
@@ -285,17 +273,17 @@ def test_worker_publishes_payload_on_gui_thread_without_reentry(win, monkeypatch
         lambda p: progress.append((threading.get_ident(), p)))
     win.compute.iteration.connect(lambda s: iterations.append((threading.get_ident(), s)))
 
-    def run(pipe):
-        pipe.progress_cb(37)
+    def run(config, *, control, progress_cb):
+        progress_cb(37)
         if mode == '2d':
-            pipe.ui_hooks['iter_label_cb']('iter 1/2')
+            control.iteration('iter 1/2')
         else:
-            pipe.ui_hooks['iter_cb'](1, 2)
+            control.outer_iteration(1, 2)
         assert release.wait(10)
-        worker_seen.append((threading.get_ident(), pipe.cfg, pipe.cfg.solver.Nz))
+        worker_seen.append((threading.get_ident(), config, config.solver.Nz))
         return result
 
-    monkeypatch.setattr(Pipeline2D if mode == '2d' else Pipeline3D, 'run', run)
+    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', run)
     original_write = win.write_result
     original_cache = win.cache.set_result
 
@@ -334,21 +322,18 @@ def test_worker_publishes_payload_on_gui_thread_without_reentry(win, monkeypatch
     assert worker_seen[0][1] is cfg
     assert worker_seen[0][2] == (2 if mode == '3d' else 1)
     assert writes == [(gui_thread, result, True)]
-    assert cache_writes == [
-        (gui_thread, '3d' if mode == '2d' else '2d', True),
-        (gui_thread, mode, False),
-    ]
+    assert cache_writes == [(gui_thread, mode, False)]
+    assert win.cache.get_result('3d' if mode == '2d' else '2d') is None
     assert payloads == [result] and payloads[0] is result
     assert win.compute.last_result() is result
     assert (gui_thread, 37) in progress
     assert iterations[0][0] == gui_thread
     assert rendered == [(False, True, False)]
     assert win.compute.current_mode() == mode
-    if mode == '3d':
-        assert win.cache.get_result(mode) is result
-    else:
-        assert win.cache.get_result('2d').fields['Ta'] is result.fields['Ta']
-        assert win.cache.get_result('2d').Q_W == result.Q_W
+    cached = win.cache.get_result(mode)
+    assert cached is not result
+    assert cached.fields['Ta'] is result.fields['Ta']
+    assert cached.Q_W == result.Q_W
     assert not win._compute_running
     assert win.btn_compute.isEnabled()
     assert win._compute_btn_handler == win.run_calculation
@@ -363,8 +348,8 @@ def test_display_timing_reaches_result_and_export_cache(win, monkeypatch, mode):
     result = ComputeResult(
         Q_W=123.5, diagnostics={'mode': mode}, warnings=['retained warning'],
         metadata={'timings_s': {'prepare': 1.0, 'solve': 2.0, 'postprocess': 3.0}})
-    monkeypatch.setattr(Pipeline2D if mode == '2d' else Pipeline3D, 'run',
-                        lambda _pipe: result)
+    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result',
+                        lambda config, **kwargs: result)
     original_write = win.write_result
     original_end = win._end_compute_ui
     original_finish = win._run_status_card.finish
@@ -398,13 +383,13 @@ def test_display_timing_reaches_result_and_export_cache(win, monkeypatch, mode):
     _wait_for(win.compute.is_idle)
 
     expected = {'prepare': 1.0, 'solve': 2.0, 'postprocess': 3.0, 'display': 5.0}
-    assert result.metadata['timings_s'] == expected
+    assert result.metadata['timings_s'] == {key: value for key, value in expected.items() if key != 'display'}
     cached = win.cache.get_result(mode)
     assert cached.metadata['timings_s'] == expected
-    assert win._diag_summary['timings_s'] == expected
+    assert win._result_summary()['timings_s'] == expected
     assert card_elapsed == provenance_elapsed == [25.0]
     assert win._last_elapsed_s == 25.0
-    assert win._diag_summary['warnings'] == ['retained warning']
+    assert win._result_summary()['warnings'] == ['retained warning']
     assert result.Q_W == 123.5
 
 
@@ -417,18 +402,18 @@ def test_terminal_paths_restore_ui(win, monkeypatch, mode, outcome):
     win.compute.cancelled.connect(lambda *args: observed.append('cancel'))
     win.compute.finished.connect(lambda *args: observed.append('finished'))
 
-    def run(pipe):
+    def run(config, *, control, progress_cb):
         if outcome == 'error':
             raise RuntimeError('solver failed')
         if outcome == 'cancel':
-            assert pipe.cancel.is_set()
+            assert control.cancel_check()
             raise CancelledError('cancel checkpoint')
         return ComputeResult(Q_W=123, diagnostics={'mode': mode})
 
     def bad_render():
         raise RuntimeError('render failed')
 
-    monkeypatch.setattr(Pipeline2D if mode == '2d' else Pipeline3D, 'run', run)
+    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', run)
     if outcome == 'cancel':
         win.compute.started.connect(lambda _mode: win._on_cancel_compute())
     if outcome == 'render_error':
@@ -582,7 +567,7 @@ def test_workspace_switch_waits_for_worker_publication_and_exit(win, monkeypatch
     original_run, original_save = _ComputeRunnable.run, win._save_session
     saves, notices = [], []
 
-    def run(pipe):
+    def run(config, *, control, progress_cb):
         entered.set()
         assert release.wait(10)
         return result
@@ -596,7 +581,7 @@ def test_workspace_switch_waits_for_worker_publication_and_exit(win, monkeypatch
         saves.append(True)
         return original_save()
 
-    monkeypatch.setattr(Pipeline2D if mode == '2d' else Pipeline3D, 'run', run)
+    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', run)
     monkeypatch.setattr(_ComputeRunnable, 'run', held_run)
     monkeypatch.setattr(win, '_render_compute_result', lambda: True)
     monkeypatch.setattr(win, '_save_session', save)
@@ -644,18 +629,18 @@ def test_close_cancels_live_pipeline_without_destroying_its_callbacks(win, monke
     release, entered = threading.Event(), threading.Event()
     cancellation_seen = []
 
-    def run(pipe):
+    def run(config, *, control, progress_cb):
         entered.set()
         assert release.wait(10)
-        cancellation_seen.append(pipe.cancel.cancelled)
-        pipe.progress_cb(90)
+        cancellation_seen.append(control.cancel_check())
+        progress_cb(90)
         if mode == '2d':
-            pipe.ui_hooks['iter_label_cb']('last checkpoint')
+            control.iteration('last checkpoint')
         else:
-            pipe.ui_hooks['iter_cb'](2, 2)
-        pipe._check_cancel()
+            control.outer_iteration(2, 2)
+        control.check_cancelled()
 
-    monkeypatch.setattr(Pipeline2D if mode == '2d' else Pipeline3D, 'run', run)
+    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', run)
     win.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
     try:
         win.run_calculation()

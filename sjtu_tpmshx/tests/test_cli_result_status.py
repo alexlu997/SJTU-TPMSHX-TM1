@@ -1,6 +1,5 @@
 """CLI verdict and existing result messages; no numerical solve required."""
 import json
-from types import SimpleNamespace
 
 import pytest
 
@@ -17,7 +16,7 @@ from sjtu_tpmshx.domain.compute_result import ComputeResult
 ])
 def test_cli_result_status(tmp_path, monkeypatch, capsys, as_json,
                            converged, envelope, outer, messages, exit_code):
-    import sjtu_tpmshx.controllers.compute_pipeline as pipeline
+    import sjtu_tpmshx.controllers.module_adapter as adapter
 
     config = tmp_path / 'config.json'
     ComputeConfig().to_json(config)
@@ -27,7 +26,7 @@ def test_cli_result_status(tmp_path, monkeypatch, capsys, as_json,
         diagnostics={'envelope_valid': envelope,
                      'convergence_detail': {'outer_converged': outer}},
     )
-    monkeypatch.setattr(pipeline, 'pipeline_for', lambda cc, *, control: SimpleNamespace(run=lambda: result))
+    monkeypatch.setattr(adapter, 'compute_result', lambda cc, *, control: result)
     assert main([str(config)] + (['--json'] if as_json else [])) == exit_code
     output = capsys.readouterr().out
     if as_json:
@@ -42,18 +41,18 @@ def test_cli_result_status(tmp_path, monkeypatch, capsys, as_json,
 
 
 def test_dry_run_does_not_claim_computed_status(tmp_path, monkeypatch, capsys):
-    import sjtu_tpmshx.controllers.compute_pipeline as pipeline
+    import sjtu_tpmshx.controllers.module_adapter as adapter
 
     config = tmp_path / 'config.json'
     ComputeConfig().to_json(config)
-    monkeypatch.setattr(pipeline, 'pipeline_for', lambda cc, *, control: SimpleNamespace())
+    monkeypatch.setattr(adapter, 'compute_result', lambda *a, **k: pytest.fail('dry run computed'))
     assert main([str(config), '--dry-run', '--json']) == 0
     assert set(json.loads(capsys.readouterr().out)) == {'pipeline', 'grid'}
 
 
 def test_machine_output_separates_logs_and_preserves_unavailable_status(tmp_path, monkeypatch, capsys):
     import sys
-    import sjtu_tpmshx.controllers.compute_pipeline as pipeline
+    import sjtu_tpmshx.controllers.module_adapter as adapter
 
     config = tmp_path / 'config.json'
     ComputeConfig().to_json(config)
@@ -64,12 +63,12 @@ def test_machine_output_separates_logs_and_preserves_unavailable_status(tmp_path
                   'diagnostic': [float('inf'), float('-inf')]},
     )
 
-    def run():
+    def run(config, *, control):
         print('solver progress')
         print('solver warning', file=sys.stderr)
         return result
 
-    monkeypatch.setattr(pipeline, 'pipeline_for', lambda cc, *, control: SimpleNamespace(run=run))
+    monkeypatch.setattr(adapter, 'compute_result', run)
     assert main([str(config), '--json']) == 2
     captured = capsys.readouterr()
 
@@ -86,15 +85,15 @@ def test_machine_output_separates_logs_and_preserves_unavailable_status(tmp_path
 
 
 def test_direct_cli_preserves_host_backend_selection(tmp_path, monkeypatch, capsys):
-    from sjtu_tpmshx.controllers import compute_pipeline
+    from sjtu_tpmshx.controllers import module_adapter
     config = tmp_path / 'config.json'
     ComputeConfig().to_json(config)
     seen = []
     def pipeline(cfg, *, control):
         seen.append(control)
-        return SimpleNamespace()
-    monkeypatch.setattr(compute_pipeline, 'pipeline_for', pipeline)
-    assert main([str(config), '--dry-run', '--backend', 'cpp',
+        return ComputeResult()
+    monkeypatch.setattr(module_adapter, 'compute_result', pipeline)
+    assert main([str(config), '--backend', 'cpp',
                  '--native-library', str(tmp_path/'native-library'),
                  '--native-table-directory', str(tmp_path/'tables')]) == 0
     capsys.readouterr()

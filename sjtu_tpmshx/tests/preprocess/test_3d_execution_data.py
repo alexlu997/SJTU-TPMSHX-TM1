@@ -7,7 +7,7 @@ import pytest
 from sjtu_tpmshx.domain.compute_config import ComputeConfig
 from sjtu_tpmshx.domain.model_refs import ModelRef
 from sjtu_tpmshx.preprocess.three_d.preparation import prepare_case
-from sjtu_tpmshx.solvers.backends.python.three_d.execution import build_execution_inputs
+from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
 
 
 def test_three_d_execution_consumes_design_and_rejects_inconsistent_data():

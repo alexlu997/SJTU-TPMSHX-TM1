@@ -96,7 +96,7 @@ def test_nonuniform_3d_preparation_samples_exact_polynomial_and_replays_case(tmp
         np.testing.assert_array_equal(loaded.design_fields[name], values)
     for name in ('epsilon', 'A_0', 'D_h'):
         np.testing.assert_array_equal(loaded.parameters['thermal_geometry']['fields'][name], thermal[name])
-    from sjtu_tpmshx.solvers.backends.python.three_d.execution import build_execution_inputs
+    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
     _, replay = build_execution_inputs(replace(loaded, config_snapshot={}))
     for name, values in case.design_fields.items():
         np.testing.assert_array_equal(replay['design'][name], values)
@@ -106,7 +106,7 @@ def test_nonuniform_3d_preparation_samples_exact_polynomial_and_replays_case(tmp
 @pytest.mark.parametrize('volume', [False, True])
 def test_uniform_controls_match_uniform_prepared_geometry(tpms, monkeypatch, volume):
     from sjtu_tpmshx.solvers.backends.python.three_d import runtime
-    from sjtu_tpmshx.solvers.backends.python.three_d.execution import build_execution_inputs
+    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
     cfg = _config(volume)
     cfg.geometry.tpms = tpms
     count = 27 if volume else 9
@@ -140,7 +140,7 @@ def test_nonuniform_local_hv_matches_independent_cell_formula(tpms, monkeypatch,
         NU_COEFFS, NU_LAM_FLOOR, NU_ROUGHNESS_FACTOR, Pr_AIR, WATER_NU_COEFFS,
     )
     from sjtu_tpmshx.solvers.backends.python.three_d import runtime
-    from sjtu_tpmshx.solvers.backends.python.three_d.execution import build_execution_inputs
+    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
 
     cfg = _config(volume)
     cfg.geometry.tpms = tpms
@@ -281,7 +281,7 @@ def test_real_fluid_continuous_geometry_replays_without_model_substitution(tmp_p
 def test_continuous_experimental_factors_reach_both_local_solver_fields(
         monkeypatch, tmp_path, constant, direction, volume):
     from sjtu_tpmshx.solvers.backends.python.three_d import runtime
-    from sjtu_tpmshx.solvers.backends.python.three_d.execution import build_execution_inputs
+    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
     cfg = _config(volume)
     cfg.geometry = GeometryConfig(tpms='Gyroid', L_dom_m=.182, H_dom_m=.042,
                                   Lz_m=.042, L_cell_mm=7., t_wall_mm=.6)
@@ -326,7 +326,7 @@ def test_2d_explicitly_rejects_three_dimensional_continuous_controls():
 
 @pytest.mark.parametrize('volume', [False, True])
 def test_execution_preserves_declared_continuous_dimension(volume):
-    from sjtu_tpmshx.solvers.backends.python.three_d.execution import build_execution_inputs
+    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
     case = prepare_case(_config(volume), case_id='declared-continuous-dimension')
     metadata = mutable_data(case.metadata)
     metadata['design_mode'] = 'continuous_xy_extruded' if volume else 'continuous_xyz'

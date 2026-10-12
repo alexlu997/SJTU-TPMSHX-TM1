@@ -7,6 +7,7 @@ Mirrors `test_asym_porosity_3d.py` at the kernel level. Guards:
     default single-`eps_f_arr` path bit-for-bit (symmetric 2D / Shanghai 2D parity);
   - the total-void guard still rejects ε_A + ε_B > ε.
 """
+from sjtu_tpmshx.controllers.module_adapter import compute_result
 
 import numpy as np
 import pytest
@@ -99,7 +100,7 @@ def test_over_allocation_rejected():
         solve_full_domain(**args, eps_A=eps_A, eps_B=eps_B)
 
 
-# ── Phase 2: end-to-end through Pipeline2D (δ split plumbing) ─────────────────
+# ── Phase 2: end-to-end through the 2D workflow (δ split plumbing) ─────────────────
 
 def _air_air_delta_cfg(delta):
     """Fixed 2D air-air regression case with geometry offset δ."""
@@ -124,13 +125,12 @@ def _air_air_delta_cfg(delta):
 
 
 def test_delta_pos_pipeline_runs_and_conserves():
-    """A δ≠0 config runs end-to-end through Pipeline2D, returns finite headline
+    """A δ≠0 config runs end-to-end through the 2D workflow, returns finite headline
     scalars, and the A↔B energy balance still closes (split conserves)."""
-    from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
-    p0 = Pipeline2D(_air_air_delta_cfg(0.0))
-    raw0 = p0.run_solvers(p0.build_fields()).metadata['diagnostics']
-    pd = Pipeline2D(_air_air_delta_cfg(0.6))
-    rawd = pd.run_solvers(pd.build_fields()).metadata['diagnostics']
+    from sjtu_tpmshx.preprocess.api import prepare_case
+    from sjtu_tpmshx.solvers.api import run_case
+    raw0 = run_case(prepare_case(_air_air_delta_cfg(0.0), case_id='symmetric')).metadata['diagnostics']
+    rawd = run_case(prepare_case(_air_air_delta_cfg(0.6), case_id='asymmetric')).metadata['diagnostics']
 
     assert np.isfinite(rawd['Q_total']) and rawd['Q_total'] > 0.0
     assert np.isfinite(rawd['dP_A']) and np.isfinite(rawd['dP_B'])
@@ -142,9 +142,8 @@ def test_delta_pos_pipeline_runs_and_conserves():
 def test_delta_pos_differs_from_symmetric_pipeline():
     """δ≠0 actually drives an asymmetric run end-to-end — at least one headline
     scalar moves vs the symmetric δ=0 path (guards that δ is plumbed at all)."""
-    from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
-    r0 = Pipeline2D(_air_air_delta_cfg(0.0)).run()
-    rd = Pipeline2D(_air_air_delta_cfg(0.6)).run()
+    r0 = compute_result(_air_air_delta_cfg(0.0))
+    rd = compute_result(_air_air_delta_cfg(0.6))
     assert (rd.Q_W != r0.Q_W) or (rd.dP_A_Pa != r0.dP_A_Pa) or (rd.T_out_A_K != r0.T_out_A_K)
 
 

@@ -710,7 +710,7 @@ def _mass_res_jit(v, Nx, Ny, dx_arr, rho_field):
 # outlet the residual is a TAUTOLOGY. Measured: it reaches 1.6e-15, so `tol`
 # fires at the MIN-ITER FLOOR (iteration 20) and the solve stops there.
 #
-# Cost of that, measured on the production Pipeline2D (golden air-air config,
+# Cost of that, measured on the production 2D workflow (golden air-air config,
 # ledger C9): dP_A is under-converged by -3.3 %, and 50 iterations per SIMPLE
 # call removes it for 1.21x wall. (3D's premature exit costs only 0.13-0.23 %.)
 #

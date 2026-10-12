@@ -124,8 +124,6 @@ class SessionPresetsMixin:
         """
         self.cache.clear()
         self._3d_view_ready = False
-        self._tout_K_cache = None
-        self._diag_summary = {}
         self._update_result_summary()
         # Refresh tab visibility so the result tabs (Temp/Pres/Vel/3D)
         # disable now that there are no results to show.

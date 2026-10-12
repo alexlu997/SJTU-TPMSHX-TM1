@@ -1,10 +1,11 @@
 """Ledger ownership: last thermal return, including a final cap/post update."""
+from sjtu_tpmshx.controllers.module_adapter import compute_result
 import inspect
 
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D, Pipeline3D
+
 from sjtu_tpmshx.domain.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, SolverConfig, ExtrapPolicy,
 )
@@ -51,7 +52,7 @@ def test_last_true_h_return_survives_outer_post(monkeypatch, dimension, cap):
     monkeypatch.setattr(ltne_enthalpy_3d, 'solve_ltne_enthalpy_3d_pipeline', thermal)
     target = solve_2d if dimension == 2 else run_stack_3d_stages
     monkeypatch.setattr(target, 'run_outer_coupling', outer)
-    result = (Pipeline2D if dimension == 2 else Pipeline3D)(cfg).run()
+    result = compute_result(cfg)
     ledger = result.diagnostics['true_h_balance']
     assert len(seen) == 2 and posts == ([0, 1] if cap else [0])
     last, pa, pb = seen[-1]

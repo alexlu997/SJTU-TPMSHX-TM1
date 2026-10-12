@@ -14,7 +14,8 @@ from sjtu_tpmshx.domain.compute_config import ComputeConfig
 from sjtu_tpmshx.models import fluid_props
 from sjtu_tpmshx.models.grid import split_cells
 from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.backends.python.two_d import coupling, execution
+from sjtu_tpmshx.solvers.backends.python.two_d import coupling
+from sjtu_tpmshx.solvers.backends import prepared_2d as execution
 from sjtu_tpmshx.tests.native import test_full_2d as coarse
 from sjtu_tpmshx.tests.native.test_refinement_2d import interpolate
 

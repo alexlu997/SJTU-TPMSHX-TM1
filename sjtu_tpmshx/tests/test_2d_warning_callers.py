@@ -56,7 +56,7 @@ def _prepare(monkeypatch, *, legacy=False, zoned=False, pair=('air', 'air'),
             'tpms_type': cfg.geometry.tpms, 'k_s': cfg.geometry.k_s_W_mK,
             'cells': [dict(x0=0., x1=1., y0=0., y1=.5, L=7., t=.6),
                       dict(x0=0., x1=1., y0=.5, y1=1., L=6.5, t=.4)]})
-    from sjtu_tpmshx.solvers.backends.python.two_d.execution import build_execution_inputs
+    from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
     from sjtu_tpmshx.solvers.backends.python.two_d.runtime import build_runtime
     with warning_scope({}):
         parsed, grid = build_execution_inputs(prepare_case(cfg, case_id='caller-probe'))

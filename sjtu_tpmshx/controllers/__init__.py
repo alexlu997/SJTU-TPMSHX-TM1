@@ -1,7 +1,7 @@
 """GUI compute lifecycle, result cache, session persistence and signal ownership.
 
 The exported controllers use Qt and load lazily, so importing the headless
-compute_pipeline does not import PySide6.
+module_adapter does not import PySide6.
 """
 _LAZY = {
     'ComputeOrchestrator': '.compute_orchestrator',

@@ -6,12 +6,10 @@ import numpy as np
 import pytest
 from PySide6.QtWidgets import QFileDialog
 
-from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D, Pipeline3D
-from sjtu_tpmshx.domain.compute_result import ComputeResult
 from sjtu_tpmshx.models.tpms_calc import compute
 from sjtu_tpmshx.models.nu_correlations import warn_sco2_nu_evidence
 from sjtu_tpmshx.tests.gui_worker_support import (
-    _configure, _wait_for, win as win,
+    _configure, _stub_stages, _wait_for, win as win,
 )
 
 
@@ -23,9 +21,8 @@ def test_closure_warning_worker_to_export(win, monkeypatch, tmp_path, mode, sour
         cfg.geometry.Lz_m = 0.042
     args = ('Gyroid', 7, 0.6, 0.001, 350, 101325, 16, 'air')
     compute(*args)  # Warm the real public cache outside a run; do not clear it.
-    pipeline = Pipeline2D if mode == '2d' else Pipeline3D
 
-    def build(pipe):
+    def build(config, *, case_id):
         if source == 'Nu':
             compute(*args)  # Actual Nu source and cache replay.
         else:
@@ -39,11 +36,7 @@ def test_closure_warning_worker_to_export(win, monkeypatch, tmp_path, mode, sour
                                   t_mm=np.array([.3, .4]), P_in=12e6)
         return {}
 
-    monkeypatch.setattr(pipeline, 'build_fields', build)
-    monkeypatch.setattr(pipeline, 'run_solvers', lambda *a: {})
-    monkeypatch.setattr(pipeline, 'finalize', lambda *a: ComputeResult(
-        diagnostics={'mode': mode}, fields={'Ta': np.ones(
-            (2, 2) if mode == '2d' else (2, 2, 2))}))
+    _stub_stages(monkeypatch, mode, build)
     monkeypatch.setattr(win, '_render_compute_result', lambda: True)
     for run in range(2):
         win.run_calculation()
@@ -59,8 +52,7 @@ def test_closure_warning_worker_to_export(win, monkeypatch, tmp_path, mode, sour
         if mode == '3d' and source == 'Nu':
             assert any('zoned L=[5,6] mm, t=[0.3,0.4] mm' in message for message in result.warnings)
         assert result.extrap_reasons == []
-        assert win._diag_summary['warnings'] == result.warnings
-        win._compute_warnings = None  # Notification lifetime is independent.
+        assert win._result_summary()['warnings'] == result.warnings
         out = tmp_path / f'{run}.csv'
         monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(out), ''))
         win._export_results()

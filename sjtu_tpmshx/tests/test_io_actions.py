@@ -176,19 +176,19 @@ def test_complete_config_menu_roundtrip(tmp_path, monkeypatch, win,
     assert win._undo_last['le_L'] == '0.182'
     assert win._user_edited_grid
     # Exercise the real Compute entry point without starting numerical work.
-    from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D, Pipeline3D
+    from sjtu_tpmshx.ui.mixins.run_controller import _run_compute
     calls = []
     monkeypatch.setattr(win, '_validate_inputs_preflight', lambda: True)
     monkeypatch.setattr(win, '_preflight_grid', lambda: True)
     monkeypatch.setattr(win, '_preflight_3d', lambda: (True, 8, 'test'))
 
     def capture_start(mode, worker, *, cfg):
-        calls.append((mode, worker.keywords['pipeline_cls'], asdict(cfg)))
+        calls.append((mode, worker.func, asdict(cfg)))
         return True
 
     monkeypatch.setattr(win.compute, 'start', capture_start)
     win.run_calculation()
-    assert calls == [('3d' if dim else '2d', Pipeline3D if dim else Pipeline2D, before)]
+    assert calls == [('3d' if dim else '2d', _run_compute, before)]
     if dim:
         win._compute_3d_watchdog.stop()
 
@@ -883,9 +883,9 @@ def test_result_status_survives_notification_and_mode_switch(
         expected_warnings = result.warnings.copy()
         if mode == '2d':
             finalize_plots(win)
-            assert win._compute_warnings == expected_warnings
+            assert win.cache.get_result().warnings == expected_warnings
             assert not notices, 'completed solves must not wait for a warning popup'
-            assert win._diag_summary['converged'] == converged
+            assert win._result_summary()['converged'] == converged
             assert win.cache.get_result('2d').warnings == expected_warnings
             # Result owns copies; a later notification/draft must not replace it.
             result.warnings.clear()
@@ -903,10 +903,8 @@ def test_result_status_survives_notification_and_mode_switch(
             for key, expected in (('Q_A', 10.), ('Q_B', -9.), ('Q_net', 1.),
                                   ('energy_imbalance_rel', .1)):
                 assert cached.residuals[key] == expected
-            assert win._diag_summary['Q_A'] == 10.
-            assert win._diag_summary['closure_rel'] == .1
-        win._compute_warnings = ['下一工况通知']
-        win._extrap_reasons = ['下一工况外推']
+            assert win._result_summary()['Q_A'] == 10.
+            assert win._result_summary()['closure_rel'] == .1
         out = tmp_path / f'{index}.csv'
         monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(out), ''))
         win._export_results()

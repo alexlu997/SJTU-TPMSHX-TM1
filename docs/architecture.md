@@ -270,13 +270,20 @@ Temperature is not scaled. FullCC nonzero sources stay
   `solvers.roughness` facades remain absent. There are no import-time aliases
   or backend function injection. Formal pressure reductions use recorded
   physical port faces in postprocessing.
-- `controllers/compute_pipeline.py` sequences the public modules. The module
-  adapter maps their results to the historical GUI ComputeResult contract.
-  It is the sole production result mapper. The previous 2D/3D mappings stay only
-  as frozen test oracles for the real native-result integration comparison.
-- `ui/` owns PySide6 and PyVista presentation only. Both dimensions use `ComputeResult` in the result cache. The 2D publication
-  snapshots scalars, metadata, warnings and exported status while sharing field
-  arrays. 3D keeps the published object. A failed or cancelled attempt keeps
+- `workflows/compute.py` owns configuration validation and the common prepare, solve and evaluate sequence.
+  It checks cancellation between stages and after postprocessing. It records stage times and warnings in the returned `FieldResult` metadata.
+  The result identity and immutable array storage stay unchanged. The workflow returns `CaseData`, `FieldResult` and `PerformanceResult`.
+  Overall progress uses this workflow. `RunControl` keeps raw solver progress, backend selection and host callbacks.
+  `controllers/module_adapter.compute_result` calls this workflow and the sole application result mapper, `to_compute_result`.
+  The GUI, direct-summary CLI and validation tools use this entry. The file CLI uses the same workflow and portable results.
+  The previous 2D/3D mappings stay only as frozen test references for real native-result comparisons.
+- `solvers/backends/prepared_2d.py` and `prepared_3d.py` validate execution inputs for both backends.
+  Python receives writable design copies. C++ can borrow immutable design arrays through the same checks.
+  `solvers/backends/capture_2d.py` captures portable 2D evidence for both backends. Numerical drivers remain in their backend directories.
+- `ui/` owns PySide6 and PyVista presentation only. `ResultCache` owns one published `ComputeResult` for the accepted dimension.
+  Both dimensions publish separate scalar, metadata, diagnostic and warning containers while sharing field arrays.
+  The footer, history, diagnostic text, plots and exports read this result. Display timing is added to its metadata after publication.
+  A failed or cancelled attempt keeps
   the last accepted result for display and export, independently of current inputs. Its canvas workbench reuses the existing parameter widgets in a left-hand
   geometry/boundary/solver inspector.
 
@@ -966,14 +973,13 @@ A valid pre-cancelled request raises `CancelledError`, including when the select
 absolute library path does not exist. An uncancelled missing-library request
 keeps its original error.
 
-Pipelines, solvers and the GUI orchestrator share `domain.cancellation.CancelledError`,
-an `InterruptedError` subclass re-exported by `controllers.compute_pipeline`
-and `ComputeOrchestrator.CancelledError`.
+Workflows, solvers and the GUI orchestrator share `domain.cancellation.CancelledError`.
+It is an `InterruptedError` subclass, also available through `ComputeOrchestrator.CancelledError`.
 Only explicit cancellation checkpoints raise it. Unrelated exceptions stay
 errors even when a cancellation request is pending. Both SIMPLE workers are
 joined before propagation, with real failures taking precedence over cancellation.
 The orchestrator handles this exception directly as its cancelled terminal state.
-The GUI adapter only binds pipeline arguments and keeps the original exception.
+The GUI adapter binds workflow controls and keeps the original exception.
 
 2D polls each SIMPLE iteration and at the existing LTNE chunk boundaries,
 including the Richardson refined solve. 3D polls each SIMPLE iteration and
@@ -1034,7 +1040,7 @@ full-restore/historical-default rules. Partial import does not redefine them.
   toolbar, controls, viewport, state, and timer setup to focused methods while
   rendering behavior stays in the same widget class.
 
-The result footer and history format the published scalar snapshot directly.
+The result footer and history format scalar values from the published result.
 There are no hidden result labels, duplicate chip strip or percentage-delta calculation. Changing draft inputs does not replace the accepted run or its recorded units. Only the latest published result owns the field cache, scalar summary and export. Pareto image readiness belongs to its own canvas: copying/exporting that image
 does not require a single-point field result. Saved-input menu loading and JSON
 drag-and-drop share one decoder for current and supported previous GUI files.

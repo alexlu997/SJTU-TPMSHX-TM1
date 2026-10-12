@@ -146,15 +146,15 @@ def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, di
     assert not errors
     assert len(finished) == 1
     result = finished[0]
-    assert win._diag_summary['warnings'] == result.warnings
+    assert win._result_summary()['warnings'] == result.warnings
     if result.warnings:
         assert win._run_status_card.state == ('warning' if result.converged else 'unconverged')
         assert '诊断' in win._run_status_card.note.text()
     unit = 'W/m' if dimension == 2 else 'W'
     assert result.metadata['source_result_id']
-    assert result.metadata['units']['Q'] == win._result_Q_unit == unit
+    assert result.metadata['units']['Q'] == win._result_summary()['Q_unit'] == unit
     assert win._sb_labels['q'].text().endswith(' ' + unit)
-    assert win._tout_K_cache == (result.T_out_A_K, result.T_out_B_K)
+    assert (win.cache.get_result().T_out_A_K, win.cache.get_result().T_out_B_K) == (result.T_out_A_K, result.T_out_B_K)
     assert float(win._sb_labels['tout'].text().split(' / ')[0]) == pytest.approx(result.T_out_A_K - 273.15, abs=.051)
     assert result.fields['dir_A'] == config.bc_A.dir
     assert result.fields['Ta'].shape[0] != 99

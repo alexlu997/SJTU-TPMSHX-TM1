@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 from PySide6.QtWidgets import QApplication, QMessageBox, QTableWidgetItem
 
-from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D, Pipeline3D, CancelledError
+from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.domain.compute_result import ComputeResult
 from sjtu_tpmshx.ui.mixins.run_results import RunResultsMixin
 from sjtu_tpmshx.tests.gui_worker_support import win as win, _wait_for
@@ -109,7 +109,7 @@ def test_accepted_state_reaches_recent_menu_and_persisted_timeline(
                     metric_status=dict(statuses), metric_reasons=dict(reasons))
     result.metadata.update(source_result_id=expected['source_result_id'],
                            metric_status=statuses, metric_reasons=reasons)
-    monkeypatch.setattr(Pipeline2D if mode == '2d' else Pipeline3D, 'run', lambda pipe: result)
+    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', lambda config, **kwargs: result)
     monkeypatch.setattr(win, '_render_compute_result', lambda: True)
     win.run_calculation()
     _wait_for(win.compute.is_idle)
@@ -198,11 +198,11 @@ def test_running_edits_recent_restore_and_consecutive_dimensions(run_window, mon
         result = ComputeResult(Q_W=100 + dim, diagnostics={'mode': '3d' if dim else '2d'},
                                fields={k: np.ones(n) for k, n in zip(keys, sizes)})
 
-        def run(pipe):
+        def run(config, *, control, progress_cb):
             assert release.wait(10)
             return result
 
-        monkeypatch.setattr(Pipeline3D if dim else Pipeline2D, 'run', run)
+        monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', run)
         try:
             win.run_calculation()
             # A busy click must not replace the accepted run's snapshot.
@@ -252,7 +252,7 @@ def test_failed_or_rejected_run_cannot_record_or_leak(run_window, monkeypatch, o
     win.combo_dim.setCurrentIndex(0)
     release = threading.Event()
 
-    def run(pipe):
+    def run(config, *, control, progress_cb):
         assert release.wait(10)
         if outcome == 'error':
             raise RuntimeError('controlled failure')
@@ -260,7 +260,7 @@ def test_failed_or_rejected_run_cannot_record_or_leak(run_window, monkeypatch, o
             raise CancelledError('controlled cancellation')
         return ComputeResult(Q_W=99)
 
-    monkeypatch.setattr(Pipeline2D, 'run', run)
+    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', run)
     original_start = win.compute.start
     if outcome == 'reject':
         monkeypatch.setattr(win.compute, 'start', lambda *args, **kwargs: False)
@@ -279,7 +279,7 @@ def test_failed_or_rejected_run_cannot_record_or_leak(run_window, monkeypatch, o
     if outcome == 'close':
         return
     monkeypatch.setattr(win.compute, 'start', original_start)
-    monkeypatch.setattr(Pipeline2D, 'run', lambda pipe: ComputeResult(Q_W=321))
+    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', lambda config, **kwargs: ComputeResult(Q_W=321))
     win._active_preset_name = 'recovery'
     win.auto_fill_fluid_a()
     win.auto_fill_fluid_b()
@@ -298,11 +298,11 @@ def test_snapshot_deepcopies_nested_preset_payload(run_window, monkeypatch):
     monkeypatch.setattr(win, '_capture_current_preset', lambda name: payload)
     release = threading.Event()
 
-    def run(pipe):
+    def run(config, *, control, progress_cb):
         assert release.wait(10)
         return ComputeResult(Q_W=123)
 
-    monkeypatch.setattr(Pipeline2D, 'run', run)
+    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', run)
     win.combo_dim.setCurrentIndex(0)
     try:
         win.run_calculation()
@@ -366,11 +366,11 @@ def test_started_signal_edits_happen_after_config_and_snapshot(run_window, monke
         win.combo_dim.setCurrentIndex(1 - dim)
         QApplication.processEvents()
 
-    def run(pipe):
-        received.append(pipe.cfg.solver.Nx)
+    def run(config, *, control, progress_cb):
+        received.append(config.solver.Nx)
         return ComputeResult(Q_W=42, diagnostics={'mode': '3d' if dim else '2d'})
 
-    monkeypatch.setattr(Pipeline3D if dim else Pipeline2D, 'run', run)
+    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', run)
     win.compute.started.connect(edit_on_started)
     win.run_calculation()
     _wait_for(win.compute.is_idle)
@@ -386,7 +386,7 @@ def test_footer_and_history_follow_each_successful_result(run_window, monkeypatc
     for value in (100, 120, 180):
         win.auto_fill_fluid_a()
         win.auto_fill_fluid_b()
-        monkeypatch.setattr(Pipeline2D, 'run', lambda pipe: ComputeResult(Q_W=value))
+        monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', lambda config, **kwargs: ComputeResult(Q_W=value))
         win.run_calculation()
         _wait_for(win.compute.is_idle)
         assert win._sb_labels['q'].text() == f'{value:.1f} W/m'
@@ -406,14 +406,14 @@ def test_nu_run_snapshot_history_and_export(run_window, monkeypatch, tmp_path, d
     win.combo_dim.setCurrentIndex(dim)
     release = threading.Event()
     eos = {'algorithm': 'bicubic_iteration_heos_final_v1', 'sides': ['A', 'B']}
-    def run(pipe):
-        assert pipe.cfg.sco2_nu == SYNTHETIC
+    def run(config, *, control, progress_cb):
+        assert config.sco2_nu == SYNTHETIC
         assert release.wait(10)
         return ComputeResult(Q_W=100., diagnostics={'mode': '3d' if dim else '2d'},
-            metadata={'sco2_nu': sco2_nu_metadata(pipe.cfg.sco2_nu),
+            metadata={'sco2_nu': sco2_nu_metadata(config.sco2_nu),
                       'sco2_enthalpy_eos': eos,
-                      'darcy_forchheimer': {'mode': pipe.cfg.df_mode}})
-    monkeypatch.setattr(Pipeline3D if dim else Pipeline2D, 'run', run)
+                      'darcy_forchheimer': {'mode': config.df_mode}})
+    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', run)
     try:
         win.run_calculation()
         win.combo_sco2_nu_mode.setCurrentIndex(0)

@@ -474,16 +474,14 @@ def test_result_footer_wraps_full_diagnostics_and_long_kpis(win):
     app = QApplication.instance()
     old_size = win.size()
     win.combo_dim.setCurrentIndex(0)
-    win.cache.set_result('2d', ComputeResult())
-    win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})  # These layout stubs represent rendered fields.
+    win.write_result(ComputeResult(Q_W=31124.6, dP_A_Pa=1626.3, dP_B_Pa=1189.0,
+        T_out_A_K=303.34, T_out_B_K=334.79, residuals={'energy_imbalance_rel': .012},
+        metadata={'units': {'Q': 'W/m'}}, extrap_reasons=['outside fit'],
+        diagnostics={'mode': '2d', 'envelope_valid': True, 'wall_time_s': 123.4,
+                     'convergence_detail': {'outer_iters': 12}}))
+    win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})
     win._update_tab_visibility()
     win._switch_tab('temp')
-    win._tout_K_cache = (303.34, 334.79)
-    win._result_Q_unit = 'W/m'
-    win._diag_summary = {'mode': '2d', 'closure_rel': .012,
-                         'Q_W': 31124.6, 'dP_A': 1626.3, 'dP_B': 1189.0,
-                         'envelope_valid': True, 'extrap': ['outside fit'],
-                         'iters': {'iter_outer': 12}, 'wall_s': 123.4}
     refresh_result_sidebar(win)
     try:
         for width, direction in (

@@ -25,7 +25,7 @@ def main():
 
         win.run_calculation()
         assert win.compute.is_running(), 'orchestrator did not start'
-        print('[2/3] compute started (Pipeline2D worker)', flush=True)
+        print('[2/3] compute started (2D workflow worker)', flush=True)
         t0 = time.monotonic()
         while win.compute.is_running() and time.monotonic() - t0 < 600:
             app.processEvents(); time.sleep(0.05)

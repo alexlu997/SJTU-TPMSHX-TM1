@@ -37,8 +37,7 @@ def test_v1_rejects_nonfinite_gated_metrics(monkeypatch, damage, invalid):
     monkeypatch.setattr(v1, '_cfd_check', lambda: (metrics, point))
     monkeypatch.setattr(v1, 'FullCore3CellFixedDFV2', lambda *a: None)
     monkeypatch.setattr(v1, '_fixed_dp', lambda *a: invalid if damage == 'fixed_dp' else 100.)
-    monkeypatch.setattr(v1, 'Pipeline2D', lambda cfg: SimpleNamespace(run=lambda: result))
-    monkeypatch.setattr(v1, 'Pipeline3D', lambda cfg: SimpleNamespace(run=lambda: result_3d))
+    monkeypatch.setattr(v1, 'compute_result', lambda cfg: result_3d if cfg.is_3d else result)
     assert v1.main() == (0 if damage is None else 1)
 
 

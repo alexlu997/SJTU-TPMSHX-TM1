@@ -260,7 +260,7 @@ def test_current_condition_flow_uses_prepared_fractional_pore_area(window, dimen
     rows = panel._condition_inputs(cfg, None)
     case = prepare_case(cfg, case_id='independent-inlet-check')
     if not dimension:
-        from sjtu_tpmshx.solvers.backends.python.two_d.execution import build_execution_inputs
+        from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
         from sjtu_tpmshx.solvers.backends.python.two_d.runtime import build_runtime
         from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
         # Inspect the real constructor's imposed inlet; this GUI handoff test
