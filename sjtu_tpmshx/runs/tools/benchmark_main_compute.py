@@ -59,7 +59,8 @@ def observe_solver(dimension, calls):
         from sjtu_tpmshx.solvers.backends.python.three_d import result_capture as capture, runtime
     else:
         from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver as cls
-        from sjtu_tpmshx.solvers.backends.python.two_d import result_capture as capture, runtime
+        from sjtu_tpmshx.solvers.backends import capture_2d as capture
+        from sjtu_tpmshx.solvers.backends.python.two_d import runtime
 
     def clocked(original, label, simple=False):
         @functools.wraps(original)

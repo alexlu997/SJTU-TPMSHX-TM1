@@ -18,10 +18,10 @@ import time
 import numpy as np
 import pandas as pd
 
+from sjtu_tpmshx.controllers.module_adapter import compute_result
 from sjtu_tpmshx.domain.compute_config import (ComputeConfig, FluidConfig,   # noqa: E402
                                    GeometryConfig, SolverConfig,
                                    PartialBCConfig, ExtrapPolicy)
-from sjtu_tpmshx.controllers.compute_pipeline import Pipeline3D              # noqa: E402
 from sjtu_tpmshx.models.tpms_calc import (air_density, water_density,       # noqa: E402
                                P_atm)
 from sjtu_tpmshx.validation.harness._case_sets import shanghai_spec, SHANGHAI_XLSX  # noqa: E402
@@ -80,7 +80,7 @@ def _run(ci, df, Nx, Ny, Nz, **kw):
     Q_exp = float(df.iloc[ci, 33])
     cc = _build_cfg(ci, df, Nx, Ny, Nz, **kw)
     t0 = time.perf_counter()
-    res = Pipeline3D(cc).run()
+    res = compute_result(cc)
     wall = time.perf_counter() - t0
 
     d = res.diagnostics or {}

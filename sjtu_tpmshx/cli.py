@@ -53,7 +53,7 @@ def main(argv=None) -> int:
     ap.add_argument('config', help='ComputeConfig JSON file '
                                    '(canonical or legacy baseline shape)')
     ap.add_argument('--dry-run', action='store_true',
-                    help='parse + validate + pipeline dispatch, no solve')
+                    help='parse, validate and report the dimension without a solve')
     ap.add_argument('--json', action='store_true', dest='as_json',
                     help='machine-readable one-line JSON summary')
     from sjtu_tpmshx.io.cli_options import add_run_control_arguments, run_control_from_args
@@ -62,14 +62,14 @@ def main(argv=None) -> int:
     control = run_control_from_args(args)
 
     from sjtu_tpmshx.domain.compute_config import ComputeConfig
-    from sjtu_tpmshx.controllers.compute_pipeline import pipeline_for
+    from sjtu_tpmshx.controllers.module_adapter import compute_result
 
     with redirect_stdout(sys.stderr) if args.as_json else nullcontext():
         cc = ComputeConfig.from_json(args.config)
-        pipe = pipeline_for(cc, control=control)
-        result = None if args.dry_run else pipe.run()
+        result = None if args.dry_run else compute_result(cc, control=control)
     if args.dry_run:
-        info = {'pipeline': type(pipe).__name__,
+        # Keep the public mode identifiers in the direct-summary interface.
+        info = {'pipeline': 'Pipeline3D' if cc.is_3d else 'Pipeline2D',
                 'grid': [cc.solver.Nx, cc.solver.Ny, cc.solver.Nz]}
         print(json.dumps(info) if args.as_json
               else f"[dry-run] {info['pipeline']} grid={info['grid']}")

@@ -23,7 +23,8 @@ import time
 import numpy as np
 import pandas as pd
 
-from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D, Pipeline3D
+
+from sjtu_tpmshx.controllers.module_adapter import compute_result
 from sjtu_tpmshx.domain.compute_config import (
     ComputeConfig,
     FluidConfig,
@@ -146,8 +147,7 @@ def _run_case(topology: str, case: int, dimension: str,
     u_cold = _flow_velocity(float(cold["mdot"]), rho_cold, geo["void_area_m2"])
 
     cfg = _config(topology, hot, cold, u_hot, u_cold, dimension)
-    result = (Pipeline3D(cfg).run() if dimension == "3d"
-              else Pipeline2D(cfg).run())
+    result = compute_result(cfg)
     if dimension == "3d":
         q_solver = float(result.Q_W)
         mdot_hot_actual = float(result.diagnostics["mass_flow_A_kg_s"])

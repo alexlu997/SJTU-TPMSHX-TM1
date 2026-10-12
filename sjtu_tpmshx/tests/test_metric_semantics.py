@@ -10,7 +10,7 @@ from sjtu_tpmshx.domain.metric_spec import MetricSpec
 from sjtu_tpmshx.domain.performance_result import MetricValue, PerformanceResult
 from sjtu_tpmshx.io.metrics_io import load_metrics, save_metrics
 from sjtu_tpmshx.optimization.multi_condition import aggregate_multi_condition
-from sjtu_tpmshx.tests.test_module_result_mapping import _synthetic_3d_results
+from sjtu_tpmshx.tests.test_module_result_mapping import _synthetic_results
 from sjtu_tpmshx.tests.test_multi_condition import _row
 
 
@@ -39,7 +39,7 @@ def test_mapping_key_cannot_change_metric_identity(key, spec):
     ('dP_A', {'name': 'dP_B'}),
 ])
 def test_external_json_cannot_relabel_values_for_gui(tmp_path, name, change):
-    native, performance = _synthetic_3d_results()
+    native, performance = _synthetic_results()
     path = save_metrics(performance, tmp_path / 'metrics.json')
     data = json.loads(path.read_text())
     data['metrics'][name]['spec'].update(change)
@@ -49,7 +49,7 @@ def test_external_json_cannot_relabel_values_for_gui(tmp_path, name, change):
 
 
 def test_family_and_side_names_roundtrip_without_changing_fields(tmp_path):
-    native, performance = _synthetic_3d_results()
+    native, performance = _synthetic_results()
     aliases = {'Q_A': 'Q', 'Q_B': 'Q', 'dP_A': 'dP', 'dP_B': 'dP',
                'T_out_A': 'T_out', 'T_out_B': 'T_out'}
     metrics = {name: replace(metric, spec=replace(metric.spec, name=aliases.get(name, name)))
@@ -74,7 +74,7 @@ def test_existing_mass_flow_unit_spelling_is_preserved(tmp_path):
 
 @pytest.mark.parametrize('name', ['T_out_A', 'Q_B'])
 def test_historical_definition_is_readable_but_not_current_gui(tmp_path, name):
-    native, performance = _synthetic_3d_results()
+    native, performance = _synthetic_results()
     metrics = dict(performance.metrics)
     metrics[name] = replace(metrics[name], spec=replace(metrics[name].spec,
                                                        definition_version='three_module_v1'))
@@ -85,7 +85,7 @@ def test_historical_definition_is_readable_but_not_current_gui(tmp_path, name):
 
 
 def test_gui_cannot_use_per_depth_side_duty_in_total_result():
-    native, performance = _synthetic_3d_results()
+    native, performance = _synthetic_results()
     metrics = dict(performance.metrics)
     metrics['Q_B'] = replace(metrics['Q_B'], spec=replace(metrics['Q_B'].spec, unit='W/m'))
     with pytest.raises(ValueError, match='unit.*dimension'):
@@ -93,7 +93,7 @@ def test_gui_cannot_use_per_depth_side_duty_in_total_result():
 
 
 def test_current_unavailable_temperature_keeps_status_and_reason(tmp_path):
-    native, performance = _synthetic_3d_results()
+    native, performance = _synthetic_results()
     metrics = dict(performance.metrics)
     metrics['T_out_B'] = replace(metrics['T_out_B'], value=None,
                                 status='insufficient_data', reason='outlet mass flux absent')

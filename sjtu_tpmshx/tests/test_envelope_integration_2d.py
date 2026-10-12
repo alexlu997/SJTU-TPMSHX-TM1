@@ -10,7 +10,8 @@ import pytest
 
 from sjtu_tpmshx.domain.compute_config import ComputeConfig
 from sjtu_tpmshx.domain.portable_data import mutable_data
-from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
+from sjtu_tpmshx.preprocess.api import prepare_case
+from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.models.envelope import ChokedFlowError, PRESSURE_FLOOR_PA
 from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
 
@@ -22,9 +23,8 @@ def _run_2d(u, L=0.182, Nx=20, Ny=20):
         geometry=replace(base.geometry, t_wall_mm=0.5, L_dom_m=L),
         fluid_A=replace(base.fluid_A, u_mps=u),
         solver=replace(base.solver, Nx=Nx, Ny=Ny, max_outer_ltne=2))
-    pipe = Pipeline2D(cfg)
-    fields = pipe.build_fields()
-    return mutable_data(pipe.run_solvers(fields).metadata['diagnostics'])
+    fields = prepare_case(cfg, case_id='envelope-2d')
+    return mutable_data(run_case(fields).metadata['diagnostics'])
 
 
 def test_2d_in_envelope_reports_valid_with_gate_keys():

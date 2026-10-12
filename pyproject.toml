@@ -80,7 +80,8 @@ markers = [
 # Check the selected public interfaces and data contracts from the repository root.
 # Silent imports keep the existing solver type-check scope.
 files = [
-    "sjtu_tpmshx/controllers/compute_pipeline.py",
+    "sjtu_tpmshx/workflows/compute.py",
+    "sjtu_tpmshx/controllers/module_adapter.py",
     "sjtu_tpmshx/domain/compute_config.py",
     "sjtu_tpmshx/domain/validator.py",
     "sjtu_tpmshx/domain/compute_result.py",

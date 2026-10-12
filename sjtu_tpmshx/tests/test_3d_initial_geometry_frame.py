@@ -12,7 +12,7 @@ from sjtu_tpmshx.models.field_coordinates_3d import _solver_staggered_to_real
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.preprocess.three_d import preparation
 from sjtu_tpmshx.solvers.backends.python.three_d import result_capture, runtime
-from sjtu_tpmshx.solvers.backends.python.three_d.execution import build_execution_inputs
+from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
 from sjtu_tpmshx.solvers.backends.python.three_d.flux import _face_flux_weights
 from sjtu_tpmshx.solvers.ltne_enthalpy_3d import face_mass_fluxes
 

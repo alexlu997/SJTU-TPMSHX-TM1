@@ -59,3 +59,13 @@ def _configure(win, monkeypatch, mode):
     monkeypatch.setattr('sjtu_tpmshx.ui.window_config.config_from_window',
                         lambda *args, **kwargs: cfg)
     return cfg
+
+
+
+def _stub_stages(monkeypatch, mode, prepare):
+    """Keep the real workflow and display mapping; replace numerical stages."""
+    from sjtu_tpmshx.tests.test_module_result_mapping import _synthetic_results
+    native, performance = _synthetic_results(2 if mode == '2d' else 3)
+    monkeypatch.setattr('sjtu_tpmshx.preprocess.api.prepare_case', prepare)
+    monkeypatch.setattr('sjtu_tpmshx.solvers.api.run_case', lambda *a: native)
+    monkeypatch.setattr('sjtu_tpmshx.postprocess.api.evaluate', lambda *a: performance)

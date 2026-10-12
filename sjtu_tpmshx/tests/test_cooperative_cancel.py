@@ -4,7 +4,9 @@ import threading
 import pytest
 
 from sjtu_tpmshx.controllers.compute_orchestrator import CancelToken
-from sjtu_tpmshx.controllers.compute_pipeline import CancelledError, Pipeline2D, Pipeline3D
+from sjtu_tpmshx.domain.cancellation import CancelledError
+from sjtu_tpmshx.controllers.module_adapter import compute_result
+from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, SolverConfig,
 )
@@ -25,8 +27,8 @@ def _cfg(nz=1, enthalpy=False):
     )
 
 
-def _no_finalize(monkeypatch, pipe):
-    monkeypatch.setattr(pipe, 'finalize',
+def _no_finalize(monkeypatch):
+    monkeypatch.setattr('sjtu_tpmshx.postprocess.api.evaluate',
                         lambda *a: pytest.fail('cancelled result was finalized'))
 
 
@@ -67,10 +69,10 @@ def test_real_simple_cancel_joins_both_sides(monkeypatch, nz):
             exited.append(True)
 
     monkeypatch.setattr(cls, 'solve', solve)
-    pipe = (Pipeline2D if nz == 1 else Pipeline3D)(_cfg(nz), cancel_token=token)
-    _no_finalize(monkeypatch, pipe)
+    config = _cfg(nz)
+    _no_finalize(monkeypatch)
     with pytest.raises(CancelledError):
-        pipe.run()
+        compute_result(config, control=RunControl(cancel_check=token.is_set))
     assert worked and len(exited) == len(threads) == 2
     assert all(not thread.is_alive() for thread in threads)
     from sjtu_tpmshx.domain.run_warnings import current_warnings, warning_scope
@@ -127,8 +129,8 @@ def test_real_error_wins_over_other_side_cancel(monkeypatch, nz, error_type, err
             raise failure
         raise CancelledError('explicit checkpoint')
 
-    pipe = (Pipeline2D if nz == 1 else Pipeline3D)(_cfg(nz), cancel_token=token)
-    _no_finalize(monkeypatch, pipe)
+    config = _cfg(nz)
+    _no_finalize(monkeypatch)
     if nz == 1:
         from sjtu_tpmshx.solvers.backends.python.two_d import runtime
         original_build = runtime.build_runtime
@@ -150,7 +152,7 @@ def test_real_error_wins_over_other_side_cancel(monkeypatch, nz, error_type, err
 
         monkeypatch.setattr(stages, '_run_two_simple', pair)
     with pytest.raises(error_type) as caught:
-        pipe.run()
+        compute_result(config, control=RunControl(cancel_check=token.is_set))
     assert caught.value is failure
     assert len(threads) == 2 and all(not thread.is_alive() for thread in threads)
 
@@ -177,11 +179,10 @@ def test_pipeline_energy_cancel_after_native_chunk(monkeypatch, nz, enthalpy):
         return result
 
     monkeypatch.setattr(energy, kernel, chunk)
-    pipe = (Pipeline2D if nz == 1 else Pipeline3D)(
-        _cfg(nz, enthalpy), cancel_token=token)
-    _no_finalize(monkeypatch, pipe)
+    config = _cfg(nz, enthalpy)
+    _no_finalize(monkeypatch)
     with pytest.raises(CancelledError):
-        pipe.run()
+        compute_result(config, control=RunControl(cancel_check=token.is_set))
     assert worked == [True]
 
 
@@ -204,10 +205,10 @@ def test_richardson_cancel_after_refined_chunk(monkeypatch):
         return original(*args, **kwargs)
 
     monkeypatch.setattr(solve_2d, '_compute_Q_richardson', richardson)
-    pipe = Pipeline2D(_cfg(), cancel_token=token)
-    _no_finalize(monkeypatch, pipe)
+    config = _cfg()
+    _no_finalize(monkeypatch)
     with pytest.raises(CancelledError):
-        pipe.run()
+        compute_result(config, control=RunControl(cancel_check=token.is_set))
     assert refined == [True]
 
 
@@ -217,17 +218,15 @@ def test_ui_adapter_only_classifies_explicit_cancellation(monkeypatch, error_typ
     from sjtu_tpmshx.ui.mixins import run_controller
     token = CancelToken()
     failure = error_type('solver stopped')
-    pipe = Pipeline3D(_cfg(3), cancel_token=token)
 
-    def run():
+    def run(config, *, control, progress_cb):
         if requested:
             token.cancel()
         raise failure
 
-    monkeypatch.setattr(pipe, 'run', run)
+    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', run)
     with pytest.raises(error_type) as caught:
-        run_controller._run_pipeline(_cfg(3), token, lambda *a: None,
-                                     pipeline_cls=lambda *a, **k: pipe, ui_hooks={})
+        run_controller._run_compute(_cfg(3), token, lambda *a: None, ui_hooks={})
     assert caught.value is failure
 
 
@@ -252,15 +251,13 @@ def test_cancel_during_finalize_does_not_return_result(monkeypatch):
     from sjtu_tpmshx.domain.compute_result import ComputeResult
     token = CancelToken()
     progress = []
-    pipe = Pipeline2D(_cfg(), cancel_token=token, progress_cb=progress.append)
-    monkeypatch.setattr(pipe, 'build_fields', lambda: {})
-    monkeypatch.setattr(pipe, 'run_solvers', lambda fields: {})
+    from sjtu_tpmshx.workflows.compute import compute
 
     def finalize(*args):
         token.cancel()
         return ComputeResult(Q_W=1.0)
 
-    monkeypatch.setattr(pipe, 'finalize', finalize)
     with pytest.raises(CancelledError):
-        pipe.run()
+        compute(_cfg(), control=RunControl(cancel_check=token.is_set), progress_cb=progress.append,
+                prepare=lambda *a, **k: {}, solve=lambda *a: {}, evaluate=finalize)
     assert 100 not in progress

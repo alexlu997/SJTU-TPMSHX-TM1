@@ -26,10 +26,14 @@ def test_public_module_inputs_reject_wrong_types(tmp_path):
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.postprocess.api import evaluate
+from sjtu_tpmshx.workflows.compute import compute
+from sjtu_tpmshx.controllers.module_adapter import compute_result
 
 prepare_case("not a config", case_id="type-check")
 run_case("not a prepared case")
 evaluate("not a native result")
+compute("not a config")
+compute_result("not a config")
 '''
     invalid_inputs = tmp_path / 'invalid_inputs.py'
     invalid_inputs.write_text(source, encoding='utf-8')
@@ -38,4 +42,4 @@ evaluate("not a native result")
          '--config-file', 'pyproject.toml'],
         capture_output=True, text=True, timeout=600, cwd=str(_REPO))
     assert result.returncode == 1, result.stdout + result.stderr
-    assert result.stdout.count('[arg-type]') == 3, result.stdout
+    assert result.stdout.count('[arg-type]') == 5, result.stdout

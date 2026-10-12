@@ -94,7 +94,7 @@ def test_research_callback_exception_propagates(callback):
 @pytest.mark.parametrize('cap,last_raw,last_pipeline', [(4, 70, 69), (12, 83, 78), (24, 86, 80)])
 def test_outer_progress_uses_effective_budget_through_pipeline(monkeypatch, cap, last_raw, last_pipeline):
     """Exercise real callbacks and pipeline mapping; stop before thermal work."""
-    from sjtu_tpmshx.controllers.compute_pipeline import Pipeline3D
+    from sjtu_tpmshx.workflows.compute import compute
     from sjtu_tpmshx.domain.compute_config import ComputeConfig, GeometryConfig, SolverConfig
     from sjtu_tpmshx.solvers import api
     from sjtu_tpmshx.solvers.backends.python.three_d import runtime
@@ -127,16 +127,18 @@ def test_outer_progress_uses_effective_budget_through_pipeline(monkeypatch, cap,
             runtime._run_outer_coupling_3d(prob, hv, control=RunControl(
                 progress=progress,
                 outer_iteration=lambda current, total: counts.append((current, total))))
+        raise FinishedProbe
 
     monkeypatch.setattr(runtime, 'run_outer_coupling', outer_loop)
     monkeypatch.setattr(api, 'run_case', run_case)
     cfg = ComputeConfig(geometry=GeometryConfig(Lz_m=.02), solver=SolverConfig(Nz=3))
-    Pipeline3D(cfg, progress_cb=mapped.append).run_solvers(None)
+    with pytest.raises(FinishedProbe):
+        compute(cfg, progress_cb=mapped.append, prepare=lambda *a, **k: None)
     assert counts == [(index + 1, cap) for index in range(cap)]
     assert raw[0] == 10 and raw[-1] == last_raw
     assert all(0 <= p < 90 for p in raw)
     assert raw == sorted(raw)
-    assert mapped[0] == 27 and mapped[-1] == last_pipeline
+    assert mapped[:2] == [20, 27] and mapped[-1] == last_pipeline
     assert all(20 <= p < 90 for p in mapped)
 
 

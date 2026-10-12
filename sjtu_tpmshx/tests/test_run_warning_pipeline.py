@@ -6,7 +6,8 @@ import inspect
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.controllers import compute_pipeline as pipelines
+import importlib
+from sjtu_tpmshx.controllers.module_adapter import compute_result
 from sjtu_tpmshx.models import nu_correlations as nu
 from sjtu_tpmshx.models.tpms_calc import compute
 from sjtu_tpmshx.tests.test_pipeline_2d_smoke import _shanghai_like_cfg
@@ -40,26 +41,24 @@ def test_real_pipeline_warning_ownership_and_numerical_transparency(monkeypatch,
         return original(*args)
 
     monkeypatch.setattr(nu, '_warn_extrap', observe)
-    pipe = pipelines.pipeline_for(cfg)
-    result = pipe.run()
+    result = compute_result(cfg)
     assert result.converged, result.diagnostics['convergence_detail']
     assert result.diagnostics['convergence_detail']['outer_iters'] > 1
     assert len(rounds) > 2  # actual first and later energy-coupling Nu calls
     assert any('[Nu extrap]' in message for message in result.warnings)
     assert result.extrap_reasons == []  # both cases remain inside the D-F grid
     win.write_result(result)
-    assert win._has_extrap is False
-    assert win._extrap_reasons == []
-    assert win._diag_summary['warnings'] == result.warnings
+    assert win.cache.get_result().extrap_reasons == []
+    assert win._result_summary()['warnings'] == result.warnings
     assert len(result.warnings) == len(set(result.warnings))
 
-    repeated = pipe.run()
+    repeated = compute_result(cfg)
     assert repeated.warnings == result.warnings
     assert repeated.extrap_reasons == result.extrap_reasons
     # Suppress only collection in the comparator; every numerical call remains.
     with monkeypatch.context() as patch:
-        patch.setattr(pipelines, 'warning_scope', lambda records: nullcontext(records))
-        without_capture = pipe.run()
+        patch.setattr(importlib.import_module('sjtu_tpmshx.workflows.compute'), 'warning_scope', lambda records: nullcontext(records))
+        without_capture = compute_result(cfg)
     for other in (repeated, without_capture):
         assert other.converged, other.diagnostics['convergence_detail']
         for name in ('Q_W', 'dP_A_Pa', 'dP_B_Pa', 'T_out_A_K', 'T_out_B_K'):

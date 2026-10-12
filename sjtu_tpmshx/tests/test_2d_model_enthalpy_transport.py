@@ -1,4 +1,5 @@
 """Approved R2 transport: independent face/row arithmetic and state ownership."""
+from sjtu_tpmshx.controllers.module_adapter import compute_result
 import inspect
 
 import numpy as np
@@ -268,7 +269,7 @@ def test_model_h_stable_updates_continue_until_local_equations_pass():
 @pytest.mark.parametrize('pair', [('air', 'air'), ('air', 'water'), ('water', 'air'), ('water', 'water')])
 @pytest.mark.parametrize('variable', [False, True])
 def test_production_r2_passes_actual_mass_without_new_variable_cp_switch(monkeypatch, pair, variable):
-    from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
+
     from sjtu_tpmshx.tests.test_cooperative_cancel import _cfg
     cfg = _cfg()
     from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
@@ -296,7 +297,7 @@ def test_production_r2_passes_actual_mass_without_new_variable_cp_switch(monkeyp
     monkeypatch.setattr(solve_2d, '_face_mass_fluxes_2d', mass)
     monkeypatch.setattr(solve_2d, 'solve_full_domain', thermal)
     with pytest.raises(Captured):
-        Pipeline2D(cfg).run()
+        compute_result(cfg)
 
 
 def test_driver_reports_last_sweep_defect_without_resolving(monkeypatch):

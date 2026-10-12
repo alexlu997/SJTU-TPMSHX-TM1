@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 @dataclass
 class ComputeResult:
-    """Output of a single ``ComputePipeline`` run.
+    """Application values mapped from one completed result and its metrics.
 
     Headline scalars (``Q_W``, ``dP_*_Pa``, ``T_out_*_K``) match the
     numbers shown in the UI result panel.  The rich

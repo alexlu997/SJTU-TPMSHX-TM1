@@ -110,16 +110,17 @@ def _build_result_sidebar(window, _t, t):
 
 
 def result_metric_texts(window):
-    """Format the published scalar snapshot for the footer and run history."""
+    """Format the published result for the footer and run history."""
     from math import isfinite
-    d = getattr(window, '_diag_summary', None) or {}
+    d = window._result_summary()
     is_3d = d.get('mode') == '3d'
     def value(number, digits):
         return f"{number:.{digits}f}" if number is not None and isfinite(number) else '—'
     offset = 273.15 if getattr(window, '_temp_unit', 'K') == 'C' else 0.0
-    temperatures = getattr(window, '_tout_K_cache', None) or (None, None)
+    temperatures = (d.get('T_out_A_K'), d.get('T_out_B_K'))
     return {
         'Q': value(d.get('Q_W'), 2 if is_3d else 1),
+        'Q_unit': d.get('Q_unit', ''),
         'dP_A': value(d.get('dP_A'), 0 if is_3d else 1),
         'dP_B': value(d.get('dP_B'), 0 if is_3d else 1),
         'ToutA': value(None if temperatures[0] is None else temperatures[0] - offset, 2),
@@ -134,11 +135,11 @@ def refresh_result_sidebar(window):
         return
     _t = get_theme()
     values = result_metric_texts(window)
-    labels['q'].setText(f"{values['Q']} {getattr(window, '_result_Q_unit', '')}".strip())
+    labels['q'].setText(f"{values['Q']} {values['Q_unit']}".strip())
     labels['dpa'].setText(values['dP_A'])
     labels['dpb'].setText(values['dP_B'])
     labels['tout'].setText(f"{values['ToutA']} / {values['ToutB']}")
-    d = getattr(window, '_diag_summary', None) or {}
+    d = window._result_summary()
     _good = _t.get('accent_green', '#22C55E')
     _warn = _t.get('warn', '#FBBF24')
 

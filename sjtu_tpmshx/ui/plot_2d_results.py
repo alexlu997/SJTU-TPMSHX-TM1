@@ -303,12 +303,8 @@ def finalize_plots(window, field="temp"):
 
     window._update_tout(-1)
 
-    # Surrogate extrapolation watermark — one compact label across all
-    # result canvases so the reader always sees this run left the
-    # validated (L, t, Re) window. Also stored on window._has_extrap so
-    # the Pareto / export paths can refuse or flag it downstream.
-    _reasons = list(getattr(window, '_extrap_reasons', []) or [])
-    window._has_extrap = bool(_reasons)
+    # Keep the applicability warning visible with every field plot.
+    _reasons = window.cache.get_result('2d').extrap_reasons
     if _reasons:
         from sjtu_tpmshx.ui.theme import get_theme as _gt
         _tw = _gt().get('warn', '#B45309')

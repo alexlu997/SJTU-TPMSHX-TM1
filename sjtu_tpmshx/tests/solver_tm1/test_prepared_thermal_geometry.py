@@ -3,7 +3,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.backends.python.three_d.execution import build_execution_inputs
+from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
 from sjtu_tpmshx.solvers.backends.python.three_d import runtime, flux
 from sjtu_tpmshx.tests.test_pipeline_3d_e2e import _small_air_cfg
 

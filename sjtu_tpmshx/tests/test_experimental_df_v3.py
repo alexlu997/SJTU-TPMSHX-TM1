@@ -1,3 +1,4 @@
+from sjtu_tpmshx.controllers.module_adapter import compute_result
 
 import numpy as np
 import pytest
@@ -243,7 +244,7 @@ def test_side_scales_are_selected_independently_not_averaged():
 
 @pytest.mark.slow
 def test_2d_and_3d_apply_the_same_coefficients_once():
-    from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D, Pipeline3D
+
 
     def cfg(nz):
         return ComputeConfig(
@@ -260,8 +261,8 @@ def test_2d_and_3d_apply_the_same_coefficients_once():
             bc_A=PartialBCConfig(dir=0), bc_B=PartialBCConfig(dir=1),
             df_mode="experimental")
 
-    m2 = Pipeline2D(cfg(1)).run().metadata["darcy_forchheimer"]
-    m3 = Pipeline3D(cfg(2)).run().metadata["darcy_forchheimer"]
+    m2 = compute_result(cfg(1)).metadata["darcy_forchheimer"]
+    m3 = compute_result(cfg(2)).metadata["darcy_forchheimer"]
     c2 = m2["A"]["applied_cF"]
     c3 = m3["A"]["applied_cF"]["min"]
     assert c2 == c3
@@ -275,7 +276,7 @@ def test_2d_and_3d_apply_the_same_coefficients_once():
     ("Gyroid", 4.198913430360186, 2.649010286988306),
 ])
 def test_water_air_2d_and_3d_use_separate_hx_coefficients_once(tpms, water_sf, air_sf):
-    from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D, Pipeline3D
+
 
     def cfg(nz):
         if nz == 1:
@@ -312,8 +313,8 @@ def test_water_air_2d_and_3d_use_separate_hx_coefficients_once(tpms, water_sf, a
             bc_B=bc_B,
             df_mode="experimental")
 
-    m2 = Pipeline2D(cfg(1)).run().metadata["darcy_forchheimer"]
-    m3 = Pipeline3D(cfg(2)).run().metadata["darcy_forchheimer"]
+    m2 = compute_result(cfg(1)).metadata["darcy_forchheimer"]
+    m3 = compute_result(cfg(2)).metadata["darcy_forchheimer"]
     assert m2["A"]["scale_F"] == pytest.approx(water_sf)
     assert m2["B"]["scale_F"] == pytest.approx(air_sf)
     assert m3["A"]["scale_F"] == pytest.approx(m2["A"]["scale_F"])

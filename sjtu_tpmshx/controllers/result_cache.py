@@ -13,16 +13,15 @@ from PySide6.QtCore import QObject
 
 
 class ResultCache(QObject):
-    """Per-mode results; replacing a result invalidates rendered tabs."""
+    """One published result; a replacement invalidates rendered tabs."""
 
     MODES = ('2d', '3d')
 
 
     def __init__(self, parent: Optional[QObject] = None):
         super().__init__(parent)
-        self._results: dict[str, ComputeResult | None] = {
-            m: None for m in self.MODES
-        }
+        self._result: ComputeResult | None = None
+        self._mode: str | None = None
         # Which tabs have been drawn for the current result snapshot.
         # Cleared when a new payload arrives so the canvas repaints.
         self._drawn_tabs: set = set()
@@ -40,30 +39,28 @@ class ResultCache(QObject):
         A non-None payload clears the drawn-tabs set for repainting.
         """
         self._check_mode(mode)
-        self._results[mode] = payload
-        if payload is not None:
-            # New result invalidates all prior tab renders.
+        if payload is not None or mode == self._mode:
+            self._result = payload
+            self._mode = mode if payload is not None else None
             self._drawn_tabs.clear()
 
-    def get_result(self, mode: str) -> ComputeResult | None:
-        self._check_mode(mode)
-        return self._results[mode]
+    def get_result(self, mode: str | None = None) -> ComputeResult | None:
+        if mode is not None:
+            self._check_mode(mode)
+        return self._result if mode is None or mode == self._mode else None
 
     def clear(self, mode: Optional[str] = None) -> None:
         """Clear one result, or all results and rendered-tab flags."""
         if mode is None:
-            for m in self.MODES:
-                self._results[m] = None
+            self._result = None
+            self._mode = None
             self._drawn_tabs.clear()
         else:
             self.set_result(mode, None)
 
     def has_results(self, mode: Optional[str] = None) -> bool:
         """True if `mode` (or any mode if None) has a non-None result."""
-        if mode is None:
-            return any(r is not None for r in self._results.values())
-        self._check_mode(mode)
-        return self._results[mode] is not None
+        return self.get_result(mode) is not None
 
     def has_any_results(self) -> bool:
         return self.has_results(None)
@@ -89,7 +86,7 @@ class ResultCache(QObject):
 
     def __repr__(self) -> str:
         flags = ' '.join(
-            f'{m}={"+" if self._results[m] is not None else "-"}'
+            f'{m}={"+" if self.get_result(m) is not None else "-"}'
             for m in self.MODES
         )
         return f'<ResultCache {flags} drawn={sorted(self._drawn_tabs)!r}>'

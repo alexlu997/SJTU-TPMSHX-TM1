@@ -5,7 +5,7 @@ import pytest
 
 from sjtu_tpmshx.domain.compute_config import ComputeConfig
 from sjtu_tpmshx.tests.cases_3d import prepared_problem
-from sjtu_tpmshx.solvers.backends.python.three_d.execution import build_execution_inputs
+from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
 from sjtu_tpmshx.solvers.backends.python.three_d import runtime
 
 

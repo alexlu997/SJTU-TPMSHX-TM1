@@ -1,8 +1,9 @@
-"""Pipeline3D.run() end-to-end smoke (audit T5, 2026-07-07).
+"""Common 3D workflow end-to-end smoke (audit T5, 2026-07-07).
 
 Exercise the full public preparation, solve and GUI-result mapping path.
 Physical-consistency assertions complement the independent numerical goldens.
 """
+from sjtu_tpmshx.controllers.module_adapter import compute_result
 import math
 
 import pytest
@@ -37,13 +38,13 @@ def _small_air_cfg():
 
 @pytest.mark.slow
 def test_pipeline3d_run_end_to_end():
-    from sjtu_tpmshx.controllers.compute_pipeline import Pipeline3D
+
     from sjtu_tpmshx.domain.compute_result import ComputeResult
 
     cfg = _small_air_cfg()
     assert cfg.is_3d
 
-    res = Pipeline3D(cfg).run()
+    res = compute_result(cfg)
 
     assert isinstance(res, ComputeResult)
     assert math.isfinite(res.Q_W) and res.Q_W > 0
@@ -58,7 +59,7 @@ def test_pipeline3d_run_end_to_end():
 
 @pytest.mark.slow
 def test_pipeline3d_water_a_runs_through_incompressible_path():
-    from sjtu_tpmshx.controllers.compute_pipeline import Pipeline3D
+
 
     cfg = ComputeConfig(
         fluid_A=FluidConfig(type='water', u_mps=0.5, T_in_K=360.0,
@@ -81,7 +82,7 @@ def test_pipeline3d_water_a_runs_through_incompressible_path():
         flags=FeatureFlags(),
     )
 
-    res = Pipeline3D(cfg).run()
+    res = compute_result(cfg)
 
     assert math.isfinite(res.Q_W) and res.Q_W > 0
     assert math.isfinite(res.dP_A_Pa) and res.dP_A_Pa > 0
@@ -96,7 +97,7 @@ def test_pipeline3d_water_a_runs_through_incompressible_path():
     ids=['sco2-water', 'air-sco2'],
 )
 def test_pipeline3d_mixed_sco2_z_and_x_ports(fluid_A, u_A, P_A, fluid_B, P_B):
-    from sjtu_tpmshx.controllers.compute_pipeline import Pipeline3D
+
 
     def port(direction):
         return PartialBCConfig(
@@ -119,7 +120,7 @@ def test_pipeline3d_mixed_sco2_z_and_x_ports(fluid_A, u_A, P_A, fluid_B, P_B):
         bc_B=port(1),
         extrap=ExtrapPolicy(allow=True),
     )
-    result = Pipeline3D(cfg).run()
+    result = compute_result(cfg)
     eos = result.metadata['sco2_enthalpy_eos']
     assert list(eos['sides']) == (['A'] if fluid_A == 'sco2' else ['B'])
     assert eos['final_backend'] == 'HEOS'

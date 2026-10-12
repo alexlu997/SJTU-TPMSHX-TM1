@@ -120,7 +120,7 @@ def test_pressure_reductions_use_nonuniform_face_area():
 def test_pipeline_inlets_preserve_opening_velocity_and_mass_target(monkeypatch, fluid):
     from sjtu_tpmshx.solvers.backends.python.three_d import runtime as stages
     from sjtu_tpmshx.preprocess.api import prepare_case
-    from sjtu_tpmshx.solvers.backends.python.three_d.execution import build_execution_inputs
+    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
     from sjtu_tpmshx.tests.test_pipeline_3d_e2e import _small_air_cfg
 
     cfg = _small_air_cfg()

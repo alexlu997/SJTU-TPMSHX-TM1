@@ -22,7 +22,7 @@ from sjtu_tpmshx.domain.compute_config import FluidConfig
 from sjtu_tpmshx.domain.run_environment import run_environment
 from sjtu_tpmshx.models.field_coordinates_3d import _port_rectangles
 from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.backends.python.three_d.execution import build_execution_inputs
+from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
 from sjtu_tpmshx.solvers.backends.python.three_d import runtime
 from sjtu_tpmshx.tests.native.test_native_execution import _config
 from sjtu_tpmshx.tests.native import full_thermal_reference

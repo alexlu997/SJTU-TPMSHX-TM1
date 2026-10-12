@@ -2,6 +2,7 @@
 from dataclasses import replace
 from types import SimpleNamespace
 from sjtu_tpmshx.controllers.result_cache import ResultCache
+from sjtu_tpmshx.ui.mixins.run_results import RunResultsMixin
 import importlib
 
 import numpy as np
@@ -21,13 +22,18 @@ from sjtu_tpmshx.tests.integration_tm1.test_2d_real import baseline_config
 from sjtu_tpmshx.tests.integration_tm1.test_public_api import assert_slots, legacy_2d_result, legacy_3d_result
 
 
-def _synthetic_3d_results():
+class _ResultWindow(RunResultsMixin):
+    def __init__(self):
+        self.cache = ResultCache()
+
+
+def _synthetic_results(dimension=3):
     """Mapping inputs with distinct original geometry and pressure states."""
     from sjtu_tpmshx.domain.field_result import FieldResult
     from sjtu_tpmshx.domain.metric_spec import MetricSpec
     from sjtu_tpmshx.domain.performance_result import MetricValue, PerformanceResult
 
-    cell = np.arange(24.).reshape(2, 3, 4)
+    cell = np.arange(24.).reshape(2, 3, 4) if dimension == 3 else np.arange(6.).reshape(2, 3)
     L_m, t_m = .004 + cell * .0001, .0003 + cell * .00001
     grid = dict(dimension=3, axis_order=('x', 'y', 'z'), length_unit='m',
                 dx=np.array([.05, .15]), dy=np.array([.01, .03, .06]),
@@ -39,19 +45,26 @@ def _synthetic_3d_results():
         native_fields['P_f' + side + '_display'] = pressure + cell
         native_fields['P_gauge_' + side] = cell
         native_fields['P_report_' + side] = pressure + cell + 500.
+    if dimension == 2:
+        grid.update(dimension=2, axis_order=('x', 'y'))
+        del grid['dz']
     native = FieldResult('synthetic-result', 'synthetic-case', 'test', grid=grid,
         fields=native_fields, run_status=dict(execution='completed', converged=True),
         metadata=dict(parameters=dict(L=.2, H=.1, Lz=.05, extrap_reasons=[],
+                          dir_A=1, dir_B=4, zone_config=None,
+                          static_properties=dict(geometry=dict(epsilon=.8, D_h=.003, A_0=.01)),
                           fluid_A_cfg=dict(dir=1, in_ctr=.05, in_w=.1, out_ctr=.05, out_w=.1),
                           fluid_B_cfg=dict(dir=4, in_ctr=.16, in_w=.04, out_ctr=.03, out_w=.02,
                                            in_z_ctr=.025, in_z_w=.01, out_z_ctr=.07, out_z_w=.02),
                           prepared=dict(geometry=dict(epsilon=.8, D_h=.003, A_0=.01))),
                       design_fields=dict(L_field_m=L_m, t_field_m=t_m),
-                      diagnostics=dict(dir_A=1, dir_B=4),
-                      application=dict(coeffs={}, props={}),
+                      diagnostics=dict(dir_A=1, dir_B=4, mass_imbalance_rel_A=0., mass_imbalance_rel_B=0.,
+                                       Q_A=100., Q_B=-100., energy_imbalance_rel=0.,
+                                       Q_richardson_warn=False, residuals_A={}, residuals_B={}),
+                      application=dict(coeffs={}, props={}, zones=None), design_mode='uniform',
                       model_metadata={}, df_metadata={}, quantity_basis='total', notices=[]))
     performance = PerformanceResult('synthetic-metrics', native.result_id, {
-        name: MetricValue(value, MetricSpec(name, unit,
+        name: MetricValue(value, MetricSpec(name, 'W/m' if dimension == 2 and unit == 'W' else unit,
             'pressure_face_v1' if name.startswith('dP') else 'native_boundary_v1'))
         for name, value, unit in (('Q', 100., 'W'), ('Q_A', 100., 'W'), ('Q_B', -100., 'W'),
                                  ('dP_A', 10., 'Pa'), ('dP_B', 20., 'Pa'),
@@ -61,7 +74,7 @@ def _synthetic_3d_results():
 
 
 def test_synthetic_3d_mapping_preserves_full_geometry_and_display_pressure():
-    native, performance = _synthetic_3d_results()
+    native, performance = _synthetic_results()
     native_fields, grid = native.fields, native.grid
     L_m = native.metadata['design_fields']['L_field_m']
     t_m = native.metadata['design_fields']['t_field_m']
@@ -248,8 +261,8 @@ def native_result(request):
             solver=SolverConfig(Nx=8, Ny=10, Nz=1, max_outer_ltne=2, max_iter_simple=500),
             bc_A=PartialBCConfig(dir=0, in_ctr=.015, in_w=.014, out_ctr=.015, out_w=.014))
     module = importlib.import_module(
-        'sjtu_tpmshx.solvers.backends.python.'
-        + ('two_d' if dimension == 2 else 'three_d') + '.result_capture')
+        'sjtu_tpmshx.solvers.backends.capture_2d' if dimension == 2 else
+        'sjtu_tpmshx.solvers.backends.python.three_d.result_capture')
     captured = []
     capture = module.capture_result
     def record(*args):
@@ -517,7 +530,7 @@ def test_richardson_grid_warning_reaches_gui_without_changing_verdict(native_res
     assert result.diagnostics['Q_richardson_warn'] == diagnostics['Q_richardson_warn']
     if state == 'failed':
         assert sum('未外推' in item for item in result.warnings) == 1
-    window = SimpleNamespace(cache=ResultCache())
+    window = _ResultWindow()
     RunResultsMixin.write_result(window, result)
     assert (warning in RunResultsMixin._diag_summary_text(window)) == (state == 'accepted_warning')
 
@@ -526,13 +539,13 @@ def test_native_result_reaches_gui_diagnostics_and_display_cache(native_result):
     from sjtu_tpmshx.ui.mixins.run_results import RunResultsMixin
     fields, _ = native_result
     result = to_compute_result(fields, evaluate(fields))
-    window = SimpleNamespace(cache=ResultCache())
+    window = _ResultWindow()
     RunResultsMixin.write_result(window, result)
     if fields.grid['dimension'] == 3:
         for side in ('A', 'B'):
-            assert window._diag_summary['Q_' + side] == pytest.approx(
+            assert window._result_summary()['Q_' + side] == pytest.approx(
                 result.residuals['Q_' + side], nan_ok=True)
-        assert window._diag_summary['closure_basis'] == '主网格两侧有符号焓流'
+        assert window._result_summary()['closure_basis'] == '主网格两侧有符号焓流'
         text = RunResultsMixin._diag_summary_text(window)
         assert '两侧焓流: Q_A' in text and '能量闭合（主网格两侧有符号焓流）' in text
     else:
@@ -544,8 +557,9 @@ def test_native_result_reaches_gui_diagnostics_and_display_cache(native_result):
 
 def test_diagnostic_text_includes_recorded_stage_seconds():
     from sjtu_tpmshx.ui.mixins.run_results import RunResultsMixin
-    window = SimpleNamespace(_diag_summary={'timings_s': {
-        'prepare': 0.125, 'solve': 12.5, 'postprocess': 0.25, 'display': 0.375}})
+    window = _ResultWindow()
+    window.write_result(ComputeResult(metadata={'timings_s': {
+        'prepare': 0.125, 'solve': 12.5, 'postprocess': 0.25, 'display': 0.375}}))
     text = RunResultsMixin._diag_summary_text(window)
     assert '阶段耗时：准备 0.125 s · 求解 12.500 s · 后处理 0.250 s · 显示 0.375 s' in text
 
@@ -558,12 +572,25 @@ def test_gui_summary_uses_recorded_outer_iterations(mode, outer_iters):
         'mode': mode, '_max_outer': 99,
         'convergence_detail': {'outer_iters': outer_iters},
     })
-    window = SimpleNamespace(cache=ResultCache())
+    window = _ResultWindow()
     RunResultsMixin.write_result(window, result)
     result.diagnostics['convergence_detail']['outer_iters'] = 99
-    assert window._diag_summary['iters']['iter_outer'] == outer_iters
+    assert window._result_summary()['iters']['iter_outer'] == outer_iters
     expected = '—' if outer_iters is None else str(outer_iters)
     assert f'迭代: 外循环 {expected} · SIMPLE A/B —/—' in RunResultsMixin._diag_summary_text(window)
+
+
+@pytest.mark.parametrize('mode', ['2d', '3d'])
+def test_gui_summary_keeps_published_coefficients_and_envelope_notices(mode):
+    result = ComputeResult(coeffs={'K_ss': 16.}, diagnostics={
+        'mode': mode, 'envelope_warnings': ['recorded envelope notice']})
+    window = _ResultWindow()
+    window.write_result(result)
+    result.coeffs['K_ss'] = -1.
+    result.diagnostics['envelope_warnings'].append('later source edit')
+    summary = window._result_summary()
+    assert summary['coeffs']['K_ss'] == 16.
+    assert summary['envelope_warnings'] == ['recorded envelope notice']
 
 
 def test_mapping_keeps_recorded_state_after_producer_drafts_change(native_result):
@@ -681,3 +708,31 @@ def test_nonuniform_zone_mapping_preserves_units_types_and_isolation(native_resu
         np.testing.assert_array_equal(native.metadata['design_fields'][source], design[source])
     np.testing.assert_array_equal(second.fields['za']['eps_arr'], design['eps_arr'])
     np.testing.assert_array_equal(native.metadata['design_fields']['eps_arr'], design['eps_arr'])
+
+
+def test_compute_result_defaults_are_zero_or_empty():
+    """Empty constructor must not raise; numbers default to zero, dicts
+    + lists default empty so downstream JSON serialisers don't blow up."""
+    r = ComputeResult()
+    assert r.Q_W == 0.0
+    assert r.dP_A_Pa == 0.0
+    assert r.dP_B_Pa == 0.0
+    assert r.T_out_A_K == 0.0
+    assert r.T_out_B_K == 0.0
+    assert r.fields == {}
+    assert r.coeffs == {}
+    assert r.props == {}
+    assert r.residuals == {}
+    assert r.zones is None
+    assert r.warnings == []
+    assert r.extrap_reasons == []
+    assert r.diagnostics == {}
+
+
+def test_compute_result_independent_default_dicts():
+    """``field(default_factory=dict)`` must give each instance its own
+    dict, not a shared class-level singleton."""
+    a = ComputeResult()
+    b = ComputeResult()
+    a.fields['foo'] = 1
+    assert 'foo' not in b.fields

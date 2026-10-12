@@ -1,4 +1,5 @@
 """Production controls remain effective; retired settings round-trip in archives."""
+from sjtu_tpmshx.controllers.module_adapter import compute_result
 import json
 from dataclasses import asdict
 import warnings as _warnings
@@ -103,10 +104,10 @@ def test_2d_max_outer_knob_turns():
     review 2026-07-13), whose deliberate rule is max_outer_ltne >= 2 (a
     single pass cannot even measure a dT change — the truth-table tests
     pin that rule)."""
-    from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
-    Ta_def = Pipeline2D(_small_2d_cfg()).run().fields['Ta']
-    Ta_capped = Pipeline2D(_small_2d_cfg(max_outer_ltne=2)).run().fields['Ta']
-    Ta_capped2 = Pipeline2D(_small_2d_cfg(max_outer_ltne=2)).run().fields['Ta']
+
+    Ta_def = compute_result(_small_2d_cfg()).fields['Ta']
+    Ta_capped = compute_result(_small_2d_cfg(max_outer_ltne=2)).fields['Ta']
+    Ta_capped2 = compute_result(_small_2d_cfg(max_outer_ltne=2)).fields['Ta']
     assert np.array_equal(Ta_capped, Ta_capped2), \
         "determinism control failed — cannot attribute differences to the knob"
     assert not np.array_equal(Ta_def, Ta_capped), (

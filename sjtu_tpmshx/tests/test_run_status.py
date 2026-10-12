@@ -4,7 +4,7 @@ import threading
 import pytest
 from PySide6.QtWidgets import QApplication, QBoxLayout
 
-from sjtu_tpmshx.controllers.compute_pipeline import CancelledError, Pipeline2D, Pipeline3D
+from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.domain.compute_result import ComputeResult
 from sjtu_tpmshx.tests.gui_worker_support import (
     _configure, _wait_for, win as win,
@@ -29,20 +29,20 @@ def test_worker_lifecycle_keeps_cancel_logs_and_verdict(win, monkeypatch, tmp_pa
     released = threading.Event()
     callbacks_sent = threading.Event()
 
-    def run(pipe):
+    def run(config, *, control, progress_cb):
         print('captured solver log')
-        pipe.ui_hooks['iter_label_cb']('SIMPLE A · 2')
+        control.iteration('SIMPLE A · 2')
         callbacks_sent.set()
         assert released.wait(10)
         if outcome == 'error':
             raise RuntimeError('controlled failure')
         if outcome == 'cancelled':
-            assert pipe.cancel.cancelled
+            assert control.cancel_check()
             raise CancelledError('controlled cancellation')
         return ComputeResult(Q_W=42, converged=outcome != 'unconverged',
                              warnings=['domain notice'] if outcome == 'warning' else [])
 
-    monkeypatch.setattr(Pipeline2D, 'run', run)
+    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', run)
     try:
         win.run_calculation()
         _wait_for(callbacks_sent.is_set)
@@ -78,7 +78,7 @@ def test_worker_lifecycle_keeps_cancel_logs_and_verdict(win, monkeypatch, tmp_pa
 
 def test_plot_publication_failure_is_not_a_success_card(win, monkeypatch, tmp_path):
     _configure(win, monkeypatch, '2d')
-    monkeypatch.setattr(Pipeline2D, 'run', lambda pipe: ComputeResult(Q_W=42))
+    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', lambda config, **kwargs: ComputeResult(Q_W=42))
 
     def broken_plot():
         raise RuntimeError('controlled rendering failure')
@@ -133,7 +133,7 @@ def test_card_expansion_narrow_width_and_restart_clear_previous_run():
 
 def test_3d_missing_view_reports_warning_without_discarding_result(win, monkeypatch, tmp_path):
     _configure(win, monkeypatch, '3d')
-    monkeypatch.setattr(Pipeline3D, 'run', lambda pipe: ComputeResult(
+    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', lambda config, **kwargs: ComputeResult(
         Q_W=42, diagnostics={'mode': '3d'}))
     win.run_calculation()
     _wait_for(win.compute.is_idle)

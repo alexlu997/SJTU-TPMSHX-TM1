@@ -58,7 +58,7 @@ def _physical_fields(case, mode):
 @pytest.mark.parametrize('nonuniform', [False, True])
 def test_prepared_drag_uses_the_same_physical_design_in_all_directions(
         mode, direction, nonuniform, tmp_path, monkeypatch):
-    from sjtu_tpmshx.solvers.backends.python.two_d.execution import build_execution_inputs
+    from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
     cfg = _config(mode, direction, nonuniform)
     # Production preparation chooses its fixed model even if a retired
     # standalone-method override is present in the launching environment.
@@ -91,7 +91,7 @@ def test_prepared_drag_uses_the_same_physical_design_in_all_directions(
 
 
 def test_3d_graded_zone_uses_physical_centres_without_changing_smoothing(tmp_path):
-    from sjtu_tpmshx.solvers.backends.python.three_d.execution import build_execution_inputs
+    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
     cfg = ComputeConfig(
         geometry=GeometryConfig(L_dom_m=.06, H_dom_m=.03, Lz_m=.03,
                                 L_cell_mm=6., t_wall_mm=.3),

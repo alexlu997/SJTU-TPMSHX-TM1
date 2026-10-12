@@ -58,7 +58,7 @@ def prepared_problem(cfg, *, control=None):
     """Build the runtime object under test without running the outer loop."""
     from sjtu_tpmshx.domain.module_ports import RunControl
     from sjtu_tpmshx.preprocess.api import prepare_research_case
-    from sjtu_tpmshx.solvers.backends.python.three_d.execution import build_execution_inputs
+    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
     from sjtu_tpmshx.solvers.backends.python.three_d.runtime import build_problem
 
     control = RunControl() if control is None else control

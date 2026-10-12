@@ -1,7 +1,10 @@
 """Map archived module results to the existing application display contract."""
+from collections.abc import Callable
 from dataclasses import asdict
 
+from sjtu_tpmshx.domain.compute_config import ComputeConfig
 from sjtu_tpmshx.domain.compute_result import ComputeResult
+from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.metric_spec import METRIC_KINDS, full_metric_version
 from sjtu_tpmshx.domain.portable_data import mutable_data
 from sjtu_tpmshx.models.zone_units import _legacy_zone_units
@@ -10,6 +13,16 @@ _SUMMARY_METRICS = ('Q', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B')
 _RESIDUAL_METRICS = ('Q_A', 'Q_B', 'energy_imbalance_rel',
                      'mass_imbalance_rel_A', 'mass_imbalance_rel_B',
                      'Q_richardson_A', 'Q_richardson_B')
+
+
+def compute_result(config: ComputeConfig, *, control: RunControl = RunControl(),
+                   progress_cb: Callable[[int], None] | None = None) -> ComputeResult:
+    """Run the common workflow and map its evidence for application consumers."""
+    from sjtu_tpmshx.workflows.compute import compute
+    _, result, performance = compute(config, control=control, progress_cb=progress_cb)
+    display = to_compute_result(result, performance)
+    control.check_cancelled()
+    return display
 
 
 def to_compute_result(result, performance):
@@ -77,6 +90,8 @@ def to_compute_result(result, performance):
     props.update(eps_A=geometry['epsilon'], D_h_m=geometry['D_h'], A_0_m2=geometry['A_0'])
     diagnostics['mode'] = f'{dimension}d'
     metadata = mutable_data(result.metadata['model_metadata'])
+    if 'timings_s' in result.metadata:
+        metadata['timings_s'] = mutable_data(result.metadata['timings_s'])
     if 'inlet_inputs' in parameters:
         metadata['inlet_inputs'] = mutable_data(parameters['inlet_inputs'])
     metadata.update(darcy_forchheimer=mutable_data(result.metadata['df_metadata']),

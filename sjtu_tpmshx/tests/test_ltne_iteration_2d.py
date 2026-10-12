@@ -1,11 +1,12 @@
 """A converged LTNE chunk must not hide alternating single-sweep updates."""
+from sjtu_tpmshx.controllers.module_adapter import compute_result
 
 import inspect
 
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
+
 from sjtu_tpmshx.solvers import ltne_energy
 from sjtu_tpmshx.tests.test_port_grid_alignment_2d import _case
 
@@ -93,7 +94,7 @@ def test_swapped_port_ltne_settles_between_consecutive_sweeps(monkeypatch):
     cfg.fluid_A.u_mps = cfg.fluid_B.u_mps = 10.0
     cfg.fluid_A.T_in_K = 600.0
     cfg.fluid_B.T_in_K = 300.0
-    result = Pipeline2D(cfg).run()
+    result = compute_result(cfg)
     assert final_main
 
     # Observe detached fields every sweep, not only at the even 500-step gate.

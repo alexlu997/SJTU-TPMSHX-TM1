@@ -89,7 +89,7 @@ class RunHistoryMixin:
             "ts": now.isoformat(timespec="seconds"),
             "label": now.strftime("%H:%M:%S"),
             "Q": values["Q"],
-            "Q_unit": getattr(self, '_result_Q_unit', '?'),
+            "Q_unit": values['Q_unit'],
             "dP_A": values["dP_A"],
             "dP_B": values["dP_B"],
             "ToutA": values["ToutA"],
@@ -103,7 +103,9 @@ class RunHistoryMixin:
             "source_result_id": result.metadata.get('source_result_id'),
             "metric_status": dict(result.metadata.get('metric_status', {})),
             "metric_reasons": dict(result.metadata.get('metric_reasons', {})),
-            "model_metadata": deepcopy(getattr(self, '_result_model_metadata', {})),
+            "model_metadata": {key: deepcopy(result.metadata[key])
+                               for key in ('darcy_forchheimer', 'sco2_nu', 'sco2_enthalpy_eos', 'co2')
+                               if key in result.metadata},
         }
         self._recent_runs.appendleft(entry)
 

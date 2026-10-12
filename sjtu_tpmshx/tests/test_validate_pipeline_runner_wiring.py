@@ -37,39 +37,35 @@ def test_solver_config_carries_max_outer_ltne():
 
 
 @pytest.mark.parametrize('df_mode', ['cfd_smooth', 'experimental'])
-def test_pipeline_branch_wires_max_outer_into_solver_config(df_mode):
+def test_pipeline_branch_wires_max_outer_into_solver_config(df_mode, monkeypatch):
     """`_run_one_case_pipeline(max_outer=N)` must reach SolverConfig.
 
     Rather than run a real 16-case solve, capture the ComputeConfig the runner
-    builds by intercepting Pipeline3D.
+    builds by intercepting compute_result.
     """
     import sjtu_tpmshx.validation.cases.validate_shanghai_3d_real as v3d
-    import sjtu_tpmshx.controllers.compute_pipeline as cp
 
     captured = {}
 
-    class _FakePipeline3D:
-        def __init__(self, cc):
-            captured['cc'] = cc
-
-        def run(self):
-            class _R:
-                converged = True
-                dP_A_Pa = 1.0
-                dP_B_Pa = 2.0
-                Q_W = 1.0
-                residuals = {'Q_A': 1., 'Q_B': -1., 'energy_imbalance_rel': 0.,
-                             'mass_imbalance_rel_A': 0., 'mass_imbalance_rel_B': 0.}
-                metadata = {'metric_status': dict(Q='available', dP_A='available', dP_B='available'),
-                            'darcy_forchheimer': {'mode': df_mode},
-                            'timings_s': dict(prepare=.1, solve=2., postprocess=.3)}
-                fields = {'dx': [1.] * 8, 'dy': [1.] * 4, 'dz': [1.] * 3}
-                diagnostics = {'envelope_valid': True, 'p_clip_hits': 0,
-                               '_max_outer': 4,   # the CAP — must NOT be read
-                               'convergence_detail': {
-                                   'outer_iters': 3, 'outer_converged': True}}
-                warnings = []
-            return _R()
+    def fake_compute(cc):
+        captured['cc'] = cc
+        class _R:
+            converged = True
+            dP_A_Pa = 1.0
+            dP_B_Pa = 2.0
+            Q_W = 1.0
+            residuals = {'Q_A': 1., 'Q_B': -1., 'energy_imbalance_rel': 0.,
+                         'mass_imbalance_rel_A': 0., 'mass_imbalance_rel_B': 0.}
+            metadata = {'metric_status': dict(Q='available', dP_A='available', dP_B='available'),
+                        'darcy_forchheimer': {'mode': df_mode},
+                        'timings_s': dict(prepare=.1, solve=2., postprocess=.3)}
+            fields = {'dx': [1.] * 8, 'dy': [1.] * 4, 'dz': [1.] * 3}
+            diagnostics = {'envelope_valid': True, 'p_clip_hits': 0,
+                           '_max_outer': 4,   # the CAP — must NOT be read
+                           'convergence_detail': {
+                               'outer_iters': 3, 'outer_converged': True}}
+            warnings = []
+        return _R()
 
     import pandas as pd
     # 35 source columns include separate water pressure drop and heat duty.
@@ -84,16 +80,9 @@ def test_pipeline_branch_wires_max_outer_into_solver_config(df_mode):
     df = pd.DataFrame([row])
     df['water_P_in_abs_Pa'] = 99325.0  # supplied by the experiment loader
 
-    orig = cp.Pipeline3D
-    v3d_orig = getattr(v3d, 'Pipeline3D', None)
-    cp.Pipeline3D = _FakePipeline3D
-    try:
-        kwargs = {} if df_mode == 'cfd_smooth' else {'df_mode': df_mode}
-        result = v3d._run_one_case_pipeline(0, df, 8, 4, 3, max_outer=4, **kwargs)
-    finally:
-        cp.Pipeline3D = orig
-        if v3d_orig is not None:
-            v3d.Pipeline3D = v3d_orig
+    monkeypatch.setattr(v3d, 'compute_result', fake_compute)
+    kwargs = {} if df_mode == 'cfd_smooth' else {'df_mode': df_mode}
+    result = v3d._run_one_case_pipeline(0, df, 8, 4, 3, max_outer=4, **kwargs)
 
     cc = captured.get('cc')
     assert cc is not None, "runner never constructed a ComputeConfig"
@@ -106,40 +95,35 @@ def test_pipeline_branch_wires_max_outer_into_solver_config(df_mode):
 
 
 @pytest.mark.parametrize('water_pressure_available', [True, False])
-def test_pipeline_branch_reports_real_pressure_diagnostics(water_pressure_available):
+def test_pipeline_branch_reports_real_pressure_diagnostics(water_pressure_available, monkeypatch):
     """Keep both sides' evidence, unavailable metrics and native diagnostics."""
     import sjtu_tpmshx.validation.cases.validate_shanghai_3d_real as v3d
-    import sjtu_tpmshx.controllers.compute_pipeline as cp
 
-    class _FakePipeline3D:
-        def __init__(self, cc):
-            pass
-
-        def run(self):
-            class _R:
-                converged = False
-                dP_A_Pa = 2000.0
-                dP_B_Pa = 1200.0 if water_pressure_available else float('nan')
-                Q_W = 5000.0
-                residuals = {'Q_A': 5000., 'Q_B': -4400., 'energy_imbalance_rel': .12,
-                             'mass_imbalance_rel_A': .001, 'mass_imbalance_rel_B': .002}
-                metadata = {'metric_status': dict(Q='available', dP_A='available',
-                                                 dP_B='available' if water_pressure_available else 'missing'),
-                            'darcy_forchheimer': {'mode': 'cfd_smooth'},
-                            'timings_s': dict(prepare=.1, solve=2., postprocess=.3)}
-                fields = {'dx': [1.] * 8, 'dy': [1.] * 4, 'dz': [1.] * 3}
-                # A case the post-solve gate marked NON-physical, with clips.
-                # `_max_outer` is the CAP (30). The runner must report the work
-                # ACTUALLY done (4) and that it was TRUNCATED — reading the cap
-                # made the printed `outer=` track --max-outer, so a cap of 12
-                # and a cap of 30 both printed their own value while returning
-                # bit-identical fields (found 2026-07-12).
-                diagnostics = {'envelope_valid': False, 'p_clip_hits': 7,
-                               '_max_outer': 30,
-                               'convergence_detail': {
-                                   'outer_iters': 4, 'outer_converged': False}}
-                warnings = ['3D-A: Mach 1.02 >= 1.0']
-            return _R()
+    def fake_compute(cc):
+        class _R:
+            converged = False
+            dP_A_Pa = 2000.0
+            dP_B_Pa = 1200.0 if water_pressure_available else float('nan')
+            Q_W = 5000.0
+            residuals = {'Q_A': 5000., 'Q_B': -4400., 'energy_imbalance_rel': .12,
+                         'mass_imbalance_rel_A': .001, 'mass_imbalance_rel_B': .002}
+            metadata = {'metric_status': dict(Q='available', dP_A='available',
+                                             dP_B='available' if water_pressure_available else 'missing'),
+                        'darcy_forchheimer': {'mode': 'cfd_smooth'},
+                        'timings_s': dict(prepare=.1, solve=2., postprocess=.3)}
+            fields = {'dx': [1.] * 8, 'dy': [1.] * 4, 'dz': [1.] * 3}
+            # A case the post-solve gate marked NON-physical, with clips.
+            # `_max_outer` is the CAP (30). The runner must report the work
+            # ACTUALLY done (4) and that it was TRUNCATED — reading the cap
+            # made the printed `outer=` track --max-outer, so a cap of 12
+            # and a cap of 30 both printed their own value while returning
+            # bit-identical fields (found 2026-07-12).
+            diagnostics = {'envelope_valid': False, 'p_clip_hits': 7,
+                           '_max_outer': 30,
+                           'convergence_detail': {
+                               'outer_iters': 4, 'outer_converged': False}}
+            warnings = ['3D-A: Mach 1.02 >= 1.0']
+        return _R()
 
     import pandas as pd
     row = {i: 0.0 for i in range(35)}
@@ -149,12 +133,8 @@ def test_pipeline_branch_reports_real_pressure_diagnostics(water_pressure_availa
     df = pd.DataFrame([row])
     df['water_P_in_abs_Pa'] = 99325.0
 
-    orig = cp.Pipeline3D
-    cp.Pipeline3D = _FakePipeline3D
-    try:
-        r = v3d._run_one_case_pipeline(0, df, 8, 4, 3)
-    finally:
-        cp.Pipeline3D = orig
+    monkeypatch.setattr(v3d, 'compute_result', fake_compute)
+    r = v3d._run_one_case_pipeline(0, df, 8, 4, 3)
 
     assert r['pressure_state_valid'] == 0, (
         "an envelope-invalid pipeline result must NOT be reported valid; the "

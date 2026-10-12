@@ -1,7 +1,7 @@
 """Publish finished compute data, render fields and expose result diagnostics.
 
 RunControllerMixin owns worker dispatch and cancellation; this mixin only
-consumes ComputeResult and writes the GUI's result cache and scalar snapshot.
+consumes ComputeResult and publishes it to the GUI result cache.
 """
 
 from __future__ import annotations
@@ -29,29 +29,57 @@ class RunResultsMixin:
 
     def write_result(self, result):
         """Publish one ComputeResult for rendering, diagnostics and export."""
-        # ui-plan3-workbench T2: one diagnostics snapshot per run, consumed
-        # by the result sidebar + the 诊断详情 dialog. Built BEFORE the 3D
-        # early-return so both modes fill it.
-        # robustness-hardening (2026-07-03): surface the first-class
-        # convergence verdict — a diverged solve used to display Q/dP
-        # indistinguishably from a good one.
         if not getattr(result, 'converged', True):
             _nc_msg = ("求解未收敛 — Q/ΔP 来自未收敛场，仅供参考"
                        "（请查看诊断，核对工况、网格与迭代预算后重算）。")
             if _nc_msg not in result.warnings:
                 result.warnings.insert(0, _nc_msg)
         from copy import deepcopy
-        self._tout_K_cache = (result.T_out_A_K, result.T_out_B_K)
-        self._result_Q_unit = result.metadata.get('units', {}).get(
-            'Q', 'W' if result.diagnostics.get('mode') == '3d' else 'W/m')
-        self._result_model_metadata = {key: deepcopy(result.metadata[key])
-                                       for key in ('darcy_forchheimer', 'sco2_nu', 'sco2_enthalpy_eos', 'co2')
-                                       if key in result.metadata}
-        self._diag_summary = {
+
+        # Only the latest published run owns the summary, plots and exports.
+        # A new accepted result also invalidates readiness of the old 3D views.
+        self._3d_view_ready = False
+        self._rendered_3d_slices = False
+        mode = result.diagnostics.get('mode', '2d')
+        # Isolate published containers while sharing the field arrays.
+        self.cache.set_result(mode, replace(
+            result, fields=dict(result.fields), coeffs=dict(result.coeffs),
+            residuals=dict(result.residuals),
+            metadata=deepcopy(result.metadata), warnings=list(result.warnings),
+            extrap_reasons=list(result.extrap_reasons),
+            diagnostics={**result.diagnostics,
+                'envelope_warnings': list(result.diagnostics.get('envelope_warnings') or ()),
+                'convergence_detail': dict(
+                result.diagnostics.get('convergence_detail') or {})},
+        ))
+        if mode == '3d':
+            return
+
+        # Boundaries used by the zone overlays.
+        if result.zones is not None:
+            self._zone_axis_dir = result.zones.get('axis_dir')
+            self._zone_boundaries = result.zones.get('boundaries')
+            self._zone_boundaries_x = result.zones.get('boundaries_x')
+            self._zone_boundaries_y = result.zones.get('boundaries_y')
+        else:
+            self._zone_axis_dir = None
+            self._zone_boundaries = None
+            self._zone_boundaries_x = None
+            self._zone_boundaries_y = None
+
+    def _result_summary(self):
+        """Read diagnostics and scalar values from the published result."""
+        result = self.cache.get_result()
+        if result is None:
+            return {}
+        return {
             'mode': result.diagnostics.get('mode', '2d'),
             'converged': bool(getattr(result, 'converged', True)),
             'Q_W': result.Q_W,
-            'Q_unit': self._result_Q_unit,
+            'Q_unit': result.metadata.get('units', {}).get(
+                'Q', 'W' if result.diagnostics.get('mode') == '3d' else 'W/m'),
+            'T_out_A_K': result.T_out_A_K, 'T_out_B_K': result.T_out_B_K,
+            'timings_s': result.metadata.get('timings_s', {}),
             'dP_A': result.dP_A_Pa, 'dP_B': result.dP_B_Pa,
             'Q_A': result.residuals.get('Q_A'),
             'Q_B': result.residuals.get('Q_B'),
@@ -73,46 +101,9 @@ class RunResultsMixin:
                        ('K_ffA', 'K_ffB', 'K_ss', 'h_vA', 'h_vB')},
         }
 
-        # Only the latest published run owns the summary, plots and exports.
-        # A new accepted result also invalidates readiness of the old 3D views.
-        self._3d_view_ready = False
-        self._rendered_3d_slices = False
-        # 3D renderers consume ComputeResult directly.
-        if result.diagnostics.get('mode') == '3d':
-            self.cache.clear('2d')
-            self.cache.set_result('3d', result)
-            self._extrap_reasons = list(result.extrap_reasons)
-            self._has_extrap = bool(result.extrap_reasons)
-            return
-
-        self.cache.clear('3d')
-        # Keep the 2D publication snapshot isolated from later edits to the
-        # source containers, while retaining the existing field-array sharing.
-        self.cache.set_result('2d', replace(
-            result, fields=dict(result.fields), residuals=dict(result.residuals),
-            metadata=deepcopy(result.metadata), warnings=list(result.warnings),
-            extrap_reasons=list(result.extrap_reasons),
-            diagnostics={**result.diagnostics, 'convergence_detail': dict(
-                result.diagnostics.get('convergence_detail') or {})},
-        ))
-        self._compute_warnings = list(result.warnings)
-        self._extrap_reasons = list(result.extrap_reasons)
-        self._has_extrap = bool(result.extrap_reasons)
-
-        # Boundaries used by the zone overlays.
-        if result.zones is not None:
-            self._zone_axis_dir = result.zones.get('axis_dir')
-            self._zone_boundaries = result.zones.get('boundaries')
-            self._zone_boundaries_x = result.zones.get('boundaries_x')
-            self._zone_boundaries_y = result.zones.get('boundaries_y')
-        else:
-            self._zone_axis_dir = None
-            self._zone_boundaries = None
-            self._zone_boundaries_x = None
-            self._zone_boundaries_y = None
 
     def _update_result_summary(self):
-        """Refresh the visible footer from the published scalar snapshot."""
+        """Refresh the visible footer from the published result."""
         from sjtu_tpmshx.ui.builders_sidebar import (
             refresh_result_sidebar, update_result_sidebar_visibility,
         )
@@ -122,7 +113,7 @@ class RunResultsMixin:
     def _diag_summary_text(self):
         """Plain-text diagnostics block (ui-plan3-workbench T3) — pasteable
         into 组会/周报. Returns '' when no run has landed."""
-        d = getattr(self, '_diag_summary', None)
+        d = self._result_summary()
         if not d:
             return ''
         def _f(v, fmt="{:.4g}"):
@@ -147,7 +138,7 @@ class RunResultsMixin:
             f"闭合系数: K_ffA={_f(co.get('K_ffA'))} K_ffB={_f(co.get('K_ffB'))}"
             f" h_vA={_f(co.get('h_vA'))} h_vB={_f(co.get('h_vB'))}",
         ]
-        co2_model = getattr(self, '_result_model_metadata', {}).get('co2')
+        co2_model = self.cache.get_result().metadata.get('co2')
         if co2_model:
             lines.append('CO₂ 侧 ' + '/'.join(co2_model['sides'])
                          + f"：单相 HEOS；固定阻力 ×{co2_model['pressure_multiplier']:g}"

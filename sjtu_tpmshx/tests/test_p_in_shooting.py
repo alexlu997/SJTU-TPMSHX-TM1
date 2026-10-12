@@ -1,4 +1,5 @@
 """Physical inlet pressure: face geometry, P² update and both real pipelines."""
+from sjtu_tpmshx.controllers.module_adapter import compute_result
 from types import SimpleNamespace
 
 import numpy as np
@@ -228,10 +229,10 @@ def _cfg2d(fluid_B='air'):
 
 
 def test_2d_shooting_lands_on_spec(monkeypatch):
-    from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
+
     monkeypatch.delenv('TPMSHX_P_IN_SHOOT', raising=False)
     monkeypatch.setenv('TPMSHX_CONV_MODE', 'f2')   # pin criterion (C11 lesson)
-    res = Pipeline2D(_cfg2d()).run()
+    res = compute_result(_cfg2d())
     d = res.diagnostics   # forwarded by the public result adapter
     for side in ('A', 'B'):
         resid = d[f'P_in_shoot_resid_{side}']
@@ -246,10 +247,10 @@ def test_2d_water_side_inert_nan_keys(monkeypatch):
     """Mixed-fluid run with the knob ON: water B must stay out of the
     shooting (frozen-ρ P_ref is level-inert) — NaN diagnostics, no crash —
     while air A still lands."""
-    from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
+
     monkeypatch.setenv('TPMSHX_P_IN_SHOOT', '1')
     monkeypatch.setenv('TPMSHX_CONV_MODE', 'f2')
-    res = Pipeline2D(_cfg2d(fluid_B='water')).run()
+    res = compute_result(_cfg2d(fluid_B='water'))
     d = res.diagnostics
     assert abs(d['P_in_shoot_resid_A']) < 1e-4
     assert np.isnan(d['P_in_realized_B'])
@@ -271,8 +272,8 @@ def test_coupled_flow_recovers_from_unusable_seed(monkeypatch, dimension, side):
 
     monkeypatch.setattr(runtime, 'pressure_initial_reference', unusable_estimate)
     if dimension == 2:
-        from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
-        result = Pipeline2D(_cfg2d()).run().diagnostics
+
+        result = compute_result(_cfg2d()).diagnostics
     else:
         result = run_research(_cfg3d_air_air(
             Nx=12, Ny=12, Nz=12, u_A=16., u_B=5., fluid_B_cfg=dict(_FULL_B_3D))).metadata['diagnostics']

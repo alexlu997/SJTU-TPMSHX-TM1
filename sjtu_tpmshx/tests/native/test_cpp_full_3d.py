@@ -235,7 +235,7 @@ def test_capped_public_keeps_distinct_pressure_states(native_path):
 
 def test_pre_cancelled_case_skips_preparation_and_library_load(tmp_path):
     prepared = case()
-    with patch('sjtu_tpmshx.solvers.backends.python.three_d.execution._build_execution_inputs',
+    with patch('sjtu_tpmshx.solvers.backends.prepared_3d.build_execution_inputs',
                side_effect=AssertionError('cancelled case prepared for execution')):
         with pytest.raises(CancelledError):
             cpp_run(prepared, control(tmp_path/'missing.dll', cancel_check=lambda: True))
@@ -252,7 +252,7 @@ def test_native_cancellation_never_returns_a_field_result(native_path,during):
 
 def test_interrupt_after_native_return_releases_owner(native_path, monkeypatch):
     from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
-    from sjtu_tpmshx.solvers.backends.python.three_d.execution import build_execution_inputs
+    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
     driver = NativeFull3DDriver(native_path, table_directory=ROOT/'.cache/native-deps/tables')
     call, release, released = driver.call, driver.release, []
     def interrupted(*args):
@@ -305,11 +305,11 @@ def test_native_call_borrows_case_arrays_and_recovers(native_path, monkeypatch, 
         solid_key: prepared.design_fields[solid_key].astype(solid_dtype)})
     before = {key: value.copy() for key, value in prepared.design_fields.items()
               if isinstance(value, np.ndarray)}
-    from sjtu_tpmshx.solvers.backends.python.two_d import execution as exec2
-    from sjtu_tpmshx.solvers.backends.python.three_d import execution as exec3
+    from sjtu_tpmshx.solvers.backends import prepared_2d as exec2
+    from sjtu_tpmshx.solvers.backends import prepared_3d as exec3
     execution = exec2 if dimension == 2 else exec3
-    builder = execution._build_execution_inputs
-    with patch.object(execution, '_build_execution_inputs',
+    builder = execution.build_execution_inputs
+    with patch.object(execution, 'build_execution_inputs',
                       lambda case, **_: builder(case, copy_design=True)):
         reference = cpp_run(prepared, control(native_path))
     driver_type = full_2d.NativeFull2DDriver if dimension == 2 else full_3d.NativeFull3DDriver
@@ -501,7 +501,7 @@ def test_application_capture_owns_shared_aliases_and_keeps_full_evidence(
     from sjtu_tpmshx.io.result_io import load_result, save_result
     from sjtu_tpmshx.solvers.backends.cpp import full_3d
     from sjtu_tpmshx.solvers.backends.cpp.full_3d_capture import capture_result
-    from sjtu_tpmshx.solvers.backends.python.three_d.execution import build_execution_inputs
+    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
     prepared = case(pair, 2)
     cfg, p = build_execution_inputs(prepared)
     cfg.update(max_iter_simple=1, _emit_audit=audit, ltne_enthalpy_outer=2, ltne_enthalpy_nsweep=1)

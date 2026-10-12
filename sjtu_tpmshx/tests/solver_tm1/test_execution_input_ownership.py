@@ -6,8 +6,8 @@ import pytest
 
 from sjtu_tpmshx.domain.model_refs import ModelRef
 from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.backends.python.two_d import execution as execution_2d
-from sjtu_tpmshx.solvers.backends.python.three_d import execution as execution_3d
+from sjtu_tpmshx.solvers.backends import prepared_2d as execution_2d
+from sjtu_tpmshx.solvers.backends import prepared_3d as execution_3d
 from sjtu_tpmshx.tests.solver_tm1.test_prepared_continuous_field import _config
 
 
@@ -18,7 +18,7 @@ def test_native_design_is_readonly_while_public_builder_detaches(dimension):
     case = prepare_case(config, case_id='design-ownership')
     execution = execution_2d if dimension == 2 else execution_3d
     copied = execution.build_execution_inputs(case)
-    borrowed = execution._build_execution_inputs(case, copy_design=False)
+    borrowed = execution.build_execution_inputs(case, copy_design=False)
     copies = copied[0]['za'] if dimension == 2 else copied[1]['design']
     views = borrowed[0]['za'] if dimension == 2 else borrowed[1]['design']
     for key, source in case.design_fields.items():
@@ -55,7 +55,7 @@ def test_borrowing_keeps_prepared_input_validation(dimension, copy_design):
     key = 'K_ss_arr' if dimension == 2 else 'K_ss'
     invalid = replace(case, design_fields={**case.design_fields, key: np.ones((2, 3))})
     with pytest.raises(ValueError, match='does not match'):
-        execution._build_execution_inputs(invalid, copy_design=copy_design)
+        execution.build_execution_inputs(invalid, copy_design=copy_design)
     refs = (ModelRef('fluid', 'unknown'), *case.model_refs[1:])
     with pytest.raises(ValueError, match='unknown model'):
-        execution._build_execution_inputs(replace(case, model_refs=refs), copy_design=copy_design)
+        execution.build_execution_inputs(replace(case, model_refs=refs), copy_design=copy_design)

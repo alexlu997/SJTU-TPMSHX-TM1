@@ -13,7 +13,7 @@ verbatim to ``ui/mixins/run_results.py`` (P2.5a, 2026-07-20); handlers
 here reach it via ``self`` through the ``Main_Menu`` MRO.
 
 UI orchestration reaches prepare_case / run_case / evaluate through
-Pipeline2D/3D on ComputeOrchestrator workers. RunControl selects the numerical
+the common workflow on ComputeOrchestrator workers. RunControl selects the numerical
 backend; presentation stays in the UI. Deps are stable
 imports (PySide6 widgets, ui.fmt._fmt_dur, ui.ui_constants constants,
 time) — no main.py module state. Adopted via
@@ -28,6 +28,7 @@ import time as _time
 from time import perf_counter
 from copy import deepcopy
 from functools import partial
+from dataclasses import replace
 
 from PySide6.QtWidgets import QMessageBox
 
@@ -37,9 +38,27 @@ from sjtu_tpmshx.ui.ui_constants import HIGH_VELOCITY_NOTICE_MS, TOAST_MS_MED, T
 from sjtu_tpmshx.domain.module_ports import RunControl
 
 
-def _run_pipeline(config, cancel_token, progress_cb, *, pipeline_cls, ui_hooks, control=RunControl()):
-    return pipeline_cls(config, progress_cb=progress_cb,
-                        cancel_token=cancel_token, ui_hooks=ui_hooks, control=control).run()
+def _run_compute(config, cancel_token, progress_cb, *, ui_hooks, control=RunControl()):
+    from sjtu_tpmshx.controllers.module_adapter import compute_result
+
+    def cancelled():
+        return cancel_token.cancelled or (control.cancel_check is not None and control.cancel_check())
+
+    def with_ui_hook(name, callback):
+        hook = ui_hooks.get(name)
+        if hook is None:
+            return callback
+        if callback is None:
+            return hook
+        def report(*args):
+            hook(*args)
+            callback(*args)
+        return report
+
+    return compute_result(config, progress_cb=progress_cb, control=replace(
+        control, cancel_check=cancelled,
+        iteration=with_ui_hook('iter_label_cb', control.iteration),
+        outer_iteration=with_ui_hook('iter_cb', control.outer_iteration)))
 
 
 class RunControllerMixin:
@@ -77,17 +96,12 @@ class RunControllerMixin:
         # Mark compute start so `_end_compute_ui` records elapsed for the
         # status bar clock. 3D branch overwrites with its own clock.
         self._compute_t0 = _time.time()
-        # 3D dispatch uses Pipeline3D; the captured config may include a
-        # continuous XYZ field loaded from the optimization Pareto archive.
+        # Capture the selected dimension before the worker starts.
         if hasattr(self, 'combo_dim') and self.combo_dim.currentIndex() == 1:
             self._run_calculation_3d()
             return
 
-        # B2 2.1b (2026-06-13): the 2D compute path now drives Pipeline2D —
-        # the legacy run_calculation_inner(window) entrypoint is deleted.
-        # Qt widgets are read EXACTLY ONCE here on the main thread; the
-        # worker thread only ever sees the pure ComputeConfig. strict=True
-        # reproduces the legacy blank/non-numeric widget validation.
+        # Read widgets on the GUI thread before passing data to the worker.
         from sjtu_tpmshx.ui.window_config import config_from_window
         try:
             compute_cfg = config_from_window(self, strict=True,
@@ -96,8 +110,7 @@ class RunControllerMixin:
             QMessageBox.warning(self, "Invalid Input", str(e))
             return
 
-        from sjtu_tpmshx.controllers.compute_pipeline import Pipeline2D
-        worker = partial(_run_pipeline, pipeline_cls=Pipeline2D,
+        worker = partial(_run_compute,
                          control=getattr(self, 'run_control', RunControl()), ui_hooks={
             'iter_label_cb': self.compute.iteration.emit,
         })
@@ -209,11 +222,7 @@ class RunControllerMixin:
         if not ok:
             return
 
-        # B2 2.1c (2026-06-13): the 3D compute path drives Pipeline3D —
-        # the legacy run_calculation_3d_inner(window) entrypoint is
-        # deleted. Qt widgets are read exactly once HERE on the main
-        # thread (before the UI locks, so a validation error leaves the
-        # window usable).
+        # Validate captured inputs before locking the compute controls.
         from sjtu_tpmshx.ui.window_config import config_from_window
         try:
             compute_cfg = config_from_window(self, strict=True,
@@ -232,8 +241,7 @@ class RunControllerMixin:
         from PySide6.QtCore import QTimer
 
         emit_iteration = self.compute.iteration.emit
-        from sjtu_tpmshx.controllers.compute_pipeline import Pipeline3D
-        worker = partial(_run_pipeline, pipeline_cls=Pipeline3D,
+        worker = partial(_run_compute,
                          control=getattr(self, 'run_control', RunControl()), ui_hooks={
             'iter_cb': lambda k, n: emit_iteration(f"outer {k}/{n}"),
         })
@@ -347,10 +355,10 @@ class RunControllerMixin:
                     for key in keys]
                 result.metadata['run_provenance'] = deepcopy(provenance)
             self.write_result(result)
+            published = True
             for side, inlet in result.metadata.get('inlet_inputs', {}).items():
                 if inlet['mass_flow_kg_s'] is not None:
                     getattr(self, 'le_u' + side).setText(format(inlet['u_mps'], '.17g'))
-            published = True
             success = self._render_compute_result()
         except Exception as exc:
             import traceback
@@ -358,13 +366,9 @@ class RunControllerMixin:
             stage = 'display' if published else 'publication'
             self.statusBar().showMessage(f"Result {stage} failed: {exc}", 12000)
         finally:
-            timings = result.metadata.setdefault('timings_s', {})
-            timings['display'] = perf_counter() - display_started
+            display_s = perf_counter() - display_started
             if published:
-                self._diag_summary['timings_s'] = dict(timings)
-            if published and result.diagnostics.get('mode') != '3d':
-                # The 2D presentation/export cache owns a metadata snapshot.
-                self.cache.get_result('2d').metadata['timings_s'] = dict(timings)
+                self.cache.get_result().metadata.setdefault('timings_s', {})['display'] = display_s
             try:
                 if published:
                     # Numerical publication survives a renderer error. All
@@ -381,7 +385,7 @@ class RunControllerMixin:
                     self._update_result_summary()
                     self._update_tab_visibility()
                     self.btn_export.setEnabled(True)
-                    elapsed = self.compute.last_elapsed() + timings['display']
+                    elapsed = self.compute.last_elapsed() + display_s
                     self._last_elapsed_s = elapsed
                     self._refresh_status_bar()
                     self._stamp_result_provenance(elapsed)
@@ -619,7 +623,7 @@ class RunControllerMixin:
         the Compute action. The orchestrator stays busy until its slots return.
         """
         if success:
-            result = self.compute.last_result()
+            result = self.cache.get_result()
             # Worker time includes validation/setup as well as the three phases.
             # User interaction and queued delivery do not belong to compute time.
             elapsed = self.compute.last_elapsed() + result.metadata['timings_s']['display']

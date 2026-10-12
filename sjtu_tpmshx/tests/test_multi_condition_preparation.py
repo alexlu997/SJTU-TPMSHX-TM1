@@ -14,7 +14,7 @@ from sjtu_tpmshx.preprocess.three_d import preparation
 from sjtu_tpmshx.preprocess.api import prepare_case, prepare_inlet_mass_capacities, resolve_fixed_mass_flow_config
 from sjtu_tpmshx.preprocess.inlet_flow import total_inlet_mass_capacity
 from sjtu_tpmshx.solvers.backends.python.three_d import runtime
-from sjtu_tpmshx.solvers.backends.python.three_d.execution import build_execution_inputs
+from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
 from sjtu_tpmshx.solvers.ltne_enthalpy_3d import face_mass_fluxes
 
 
@@ -107,7 +107,7 @@ def test_fixed_flow_matches_native_faces_after_density_update(monkeypatch, direc
 def test_fixed_flow_2d_matches_actual_inlet_faces(monkeypatch, direction, design_mode,
                                                 port_profile):
     from sjtu_tpmshx.preprocess.two_d import preparation as preparation_2d
-    from sjtu_tpmshx.solvers.backends.python.two_d.execution import build_execution_inputs
+    from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
     from sjtu_tpmshx.solvers.backends.python.two_d.runtime import build_runtime
     from sjtu_tpmshx.solvers.backends.python.two_d.coupling import (
         _simple_scalar_to_real_2d, _simple_staggered_to_real_2d,
