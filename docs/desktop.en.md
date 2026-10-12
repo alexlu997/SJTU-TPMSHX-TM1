@@ -87,7 +87,15 @@ macOS outputs an `.app`. Windows outputs a folder containing the executable and 
 
 ## Environment and build
 
-Keep the shared solver environment and root `.venv-path` unchanged. With explicit authorization, install `requirements-lock-desktop.txt` in a separate build environment. It contains the original lock and pinned packaging tools. Save that environment's absolute interpreter path in `.cache/desktop-build/.venv-path`. Use it for the following modules from the repository root. Do not install build dependencies into the shared solver environment.
+Keep the shared solver environment and root `.venv-path` unchanged.
+For an authorized desktop build, install `requirements-lock-desktop.txt` in a separate build environment.
+It contains the original lock and pinned packaging tools.
+Save that environment's absolute interpreter path in `.cache/desktop-build/.venv-path`.
+Use it for the following modules from the repository root.
+Do not install build dependencies into the shared solver environment.
+If the required build environment is missing or fails checks, use the
+[environment recovery workflow](collaboration.md#environment-recovery).
+Explain the impact, keep a recovery method, and pass the checks before continuing the authorized task.
 
 Before building, direct PyInstaller, Matplotlib, and general caches to ignored directories in this worktree. This avoids writing build caches to system user directories. On macOS:
 

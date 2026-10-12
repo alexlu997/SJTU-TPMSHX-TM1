@@ -119,7 +119,7 @@ Requested grid counts can change during preparation refinement. These examples v
 
 Read the preceding command's exit code with `echo $?` on macOS or `$LASTEXITCODE` in PowerShell. Do not relax thresholds to remove failures.
 
-The default lock includes GUI, file handoff, and test dependencies. It excludes Torch / BoTorch / GPyTorch. Windows CPU Bayesian optimization uses `requirements-lock-server.txt`. macOS arm64 / Python 3.13 uses `requirements-lock-bo-macos.txt`. Install BO only in a separately authorized environment.
+The default lock includes GUI, file handoff, and test dependencies. It excludes Torch / BoTorch / GPyTorch. Windows CPU Bayesian optimization uses `requirements-lock-server.txt`. macOS arm64 / Python 3.13 uses `requirements-lock-bo-macos.txt`. Use a separate environment for an authorized BO task.
 
 BoTorch tries to compile its optional C++ kernel when it first constructs a multi-objective Log acquisition function. Set `TORCH_EXTENSIONS_DIR` to `.cache/torch-extensions` in the current worktree. Prepend the BO environment's `bin` directory (`Scripts` on Windows) to `PATH` for that run so the locked Ninja is available. Compilation also requires a local C++ toolchain. If compilation fails, BoTorch reports the failure and uses its Python implementation. Record performance separately for the two paths, and keep first compilation outside warm measurements.
 
@@ -362,7 +362,14 @@ Full 2D uses ABI 2. Distribute matching libraries, headers, and adapters. The fo
 
 ## Environment and checks
 
-Local Python commands must use the absolute interpreter on `.venv-path`'s first line. If absent, a compliant environment must be configured first. Agents do not automatically create, upgrade, or reinstall shared environments. Dependency declarations and exact locks change together. Shared environments contain locked dependencies only, without an editable project installation. Run from the current repository root.
+For local project execution, use the absolute interpreter on `.venv-path`'s first line.
+If the task environment is missing or fails its checks, stop dependent work.
+Use the [environment recovery workflow](docs/collaboration.md#environment-recovery) under standing task authority.
+Explain the impact and keep a recovery method before changes.
+Pass the checks before switching pointers and resuming work.
+Recovery uses the current applicable lock. Dependency version changes update declarations and exact locks together.
+Shared environments contain locked dependencies only, without an editable project installation.
+Do not modify an environment in use. Run from the current repository root.
 
 ```bash
 PYTHON="$(head -n 1 .venv-path)"
