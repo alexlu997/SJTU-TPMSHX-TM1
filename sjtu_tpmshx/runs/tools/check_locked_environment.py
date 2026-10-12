@@ -149,7 +149,7 @@ def main(argv: list[str] | None = None) -> int:
         "lock",
         nargs="?",
         type=Path,
-        default=Path("requirements-lock.txt"),
+        default=Path("requirements/base.txt"),
     )
     parser.add_argument(
         "--allow-extra",

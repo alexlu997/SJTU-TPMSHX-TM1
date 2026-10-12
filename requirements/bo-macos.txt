@@ -1,6 +1,6 @@
 # macOS arm64 / Python 3.13 optional BO environment.
 # Shared solver, GUI, I/O, test and development dependencies are pinned once.
--r requirements-lock.txt
+-r base.txt
 
 botorch==0.18.1
 filelock==4.0.12

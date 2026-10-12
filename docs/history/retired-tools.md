@@ -162,7 +162,7 @@ A1/benchmark A 的旧输入原已缺失，历史代码不代表可在当前目�
 
 基础依赖不再需要 `scikit-learn` 和 `threadpoolctl`，已从基础锁移除。
 常规 BO 的 [GPyTorch 1.15.2](https://pypi.org/pypi/gpytorch/1.15.2/json)
-仍依赖 scikit-learn，因此两个原版本保留在 `requirements-lock-server.txt`。
+仍依赖 scikit-learn，因此两个原版本保留在 `requirements/bo-windows.txt`。
 `joblib` 仍用于常规设计/优化并行计算，几何与现行 K/cF 的预热也继续保留。
 
 ## 旧可变物性方向性测试退役

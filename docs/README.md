@@ -29,14 +29,16 @@
 | [sjtu_tpmshx/](../sjtu_tpmshx/) | 主体源码、应用层、共享模型、有效测试和验证工具 |
 | [docs/](./) | 当前说明与历史资料入口 |
 | [examples/](../examples/) | 公开调用示例和首次运行配置 |
+| [requirements/](../requirements/) | 基础、macOS BO、Windows BO、桌面构建和最小后处理的精确依赖锁 |
 | [scripts/](../scripts/) | 测试、原生依赖构建和模型系数生成脚本 |
 | [sjtu_tpmshx/runs/](../sjtu_tpmshx/runs/) | 现行性能剖析、诊断和演示工具 |
 | [schemas/](../schemas/) | 三模块数据契约；实现位于主体包的 domain/、io/ 等模块 |
 | [openspec/](../openspec/) | 按功能分开的现行行为规范 |
 | [.github/](../.github/) | macOS / Windows CI 和最小后处理环境检查 |
 
-`pyproject.toml`、`requirements*.txt`、`pytest.ini` 负责构建、依赖和测试；
-`mypy-core-files.txt` 声明公共接口与数据契约的显式类型检查范围，执行方式见
+`pyproject.toml` 集中定义构建、依赖声明、pytest、mypy 和 lint 配置。
+`requirements/` 保存各用途的精确依赖锁；根目录 `requirements.txt` 用于独立开发环境安装。
+`[tool.mypy].files` 声明公共接口与数据契约的显式类型检查范围，执行方式见
 [环境与检查](../README.md#环境与检查)。
 `AGENTS.md` 记录项目协作规则，`LICENSE` 记录许可，`data-revision.txt` 声明配套数据版本。
 原始实验/CFD 数据位于本地 `data/raw_data/`，研究脚本与结果放在忽略的 `.cache/`，

@@ -20,7 +20,7 @@ Python 与 C++ 都是受维护后端。macOS arm64 与 Windows x64 使用同一�
 项目文件夹保留以下内容：
 
 - 完整 `sjtu_tpmshx/` 源码，包括 `configs/*.json`、`df_surrogate/_prebuilt/*.csv` 和界面资源。
-- 本机 `.venv-path`、对应 `requirements-lock*.txt`、使用示例和运行说明。
+- 本机 `.venv-path`、对应 `requirements/*.txt`、使用示例和运行说明。
 - 与源码版本、平台和 ABI 匹配的动态库，以及 `native/include/`、`native/dependencies-lock.toml`、`native/THIRD_PARTY_NOTICES.md` 和 `native/licenses/`。
 - 可写的模型表与运行缓存目录；表文件不写入动态库或只读资源目录。
 
@@ -80,7 +80,7 @@ CLI、独立 C 调用和 CI 通过不代替两平台可见桌面验收。
 桌面入口是 `sjtu_tpmshx.desktop`，调用现有 GUI 和公共三模块计算链。
 `packaging/desktop.spec` 使用 PyInstaller 将解释器、锁定运行依赖、模型配置、
 DF 表和 SVG 图标打包；不包含原始实验数据、研究输出、测试代码或 Office 字体。
-默认构建与 `requirements-lock.txt` 的功能范围一致，不含可选 Torch/BoTorch
+默认构建与 `requirements/base.txt` 的功能范围一致，不含可选 Torch/BoTorch
 优化依赖。完整 BO 发行包需要单独锁定和真实优化验证，不能仅解除排除列表。
 冻结桌面包的快速设计采用单进程串行候选搜索，避免子进程重复启动 GUI；
 源码运行保留现有并行路径。界面会显示实际执行方式。
@@ -105,7 +105,7 @@ macOS 输出 `.app`，Windows 输出包含可执行文件及依赖的目录。�
 ## 环境与构建
 
 共享求解环境和仓库根 `.venv-path` 不变。已授权的桌面构建任务在独立构建环境安装
-`requirements-lock-desktop.txt`，它包含原锁及固定版本的打包工具。
+`requirements/desktop.txt`，它包含原锁及固定版本的打包工具。
 将该环境的绝对解释器路径保存在 `.cache/desktop-build/.venv-path`；后续构建
 使用该解释器，从仓库根执行以下模块。不能将新构建依赖装入共享求解环境。
 所需构建环境缺失或检查失败时，按[环境恢复流程](collaboration.zh-CN.md#环境恢复)
@@ -133,7 +133,7 @@ $env:XDG_CACHE_HOME = Join-Path $PWD '.cache/desktop-build/xdg-cache'
 这些设置用于开发机上的构建过程；下文的安装程序启动缓存仍由桌面启动器管理。
 
 ```text
-python -m sjtu_tpmshx.runs.tools.check_locked_environment requirements-lock-desktop.txt
+python -m sjtu_tpmshx.runs.tools.check_locked_environment requirements/desktop.txt
 python -m pip check
 python -m PyInstaller --noconfirm --clean --distpath .cache/desktop-build/dist --workpath .cache/desktop-build/work packaging/desktop.spec
 ```

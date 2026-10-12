@@ -87,10 +87,10 @@ def test_runner_missing_environment_fails_before_python(tmp_path, script):
 @pytest.mark.parametrize('script', ['run_tests_fast.ps1', 'run_tests_server.ps1'])
 @pytest.mark.parametrize('lock,failed_step', [
     (None, None),
-    ('requirements-lock-server.txt', None),
-    ('requirements-lock-server.txt', 'lock'),
-    ('requirements-lock.txt', 'pip'),
-    ('requirements-lock.txt', 'pytest'),
+    ('requirements/bo-windows.txt', None),
+    ('requirements/bo-windows.txt', 'lock'),
+    ('requirements/base.txt', 'pip'),
+    ('requirements/base.txt', 'pytest'),
 ])
 def test_runner_uses_selected_lock_and_stops_before_tests(tmp_path, script, lock, failed_step):
     _copy_runners(tmp_path)
@@ -118,7 +118,7 @@ def test_runner_uses_selected_lock_and_stops_before_tests(tmp_path, script, lock
     result = _run_runner(tmp_path, script, lock)
     assert calls_path.exists(), result.stdout + result.stderr
     calls = [json.loads(line) for line in calls_path.read_text(encoding='utf-8').splitlines()]
-    assert calls[0] == ['lock', [lock or 'requirements-lock.txt']]
+    assert calls[0] == ['lock', [lock or 'requirements/base.txt']]
     expected = ['lock'] if failed_step == 'lock' else ['lock', 'pip']
     if failed_step in (None, 'pytest'):
         expected.append('pytest')

@@ -1,4 +1,4 @@
 # Isolated Mac/Windows checkout or CI: locked dependencies plus editable project.
-# Shared worktree venvs install requirements-lock.txt only; run from the repo root.
--r requirements-lock.txt
+# Shared worktree venvs install requirements/base.txt only; run from the repo root.
+-r requirements/base.txt
 -e .

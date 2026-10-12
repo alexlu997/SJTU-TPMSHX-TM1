@@ -35,13 +35,16 @@ Use the [first run instructions](../README.en.md#first-run) to run the applicati
 | [sjtu_tpmshx](../sjtu_tpmshx/) | Application source, shared models, active tests and validation tools. |
 | [docs](./) | Current explanations and historical references. |
 | [examples](../examples/) | Public API examples and first run configurations. |
+| [requirements](../requirements/) | Exact dependency locks for base, macOS BO, Windows BO, desktop builds, and minimal postprocessing. |
 | [scripts](../scripts/) | Test helpers, native dependency builds and model coefficient generation. |
 | [sjtu_tpmshx/runs](../sjtu_tpmshx/runs/) | Current profiling, diagnostic and demonstration tools. |
 | [schemas](../schemas/) | Public data contracts. Their implementations are in domain and io. |
 | [openspec](../openspec/) | Current requirements grouped by function. |
 | [.github](../.github/) | macOS/Windows CI and the minimal postprocessing check. |
 
-`pyproject.toml`, `requirements*.txt` and `pytest.ini` define builds, dependencies and tests. `mypy-core-files.txt` selects public interfaces and data contracts for type checks. See [environment and checks](../README.en.md#环境与检查). `AGENTS.md` defines collaboration rules. `LICENSE` states the license.
+`pyproject.toml` defines builds, dependency declarations, pytest, mypy, and lint settings.
+`requirements/` holds exact locks for each environment purpose. Root `requirements.txt` installs an isolated development environment.
+`[tool.mypy].files` selects public interfaces and data contracts for type checks. See [environment and checks](../README.en.md#环境与检查). `AGENTS.md` defines collaboration rules. `LICENSE` states the license.
 
 `data-revision.txt` declares the associated data version. Raw experiment and CFD data stay in local `data/raw_data/`. Research scripts and results stay in ignored `.cache/`. Neither location is committed. The previous `reports/` output directory is also ignored.
 

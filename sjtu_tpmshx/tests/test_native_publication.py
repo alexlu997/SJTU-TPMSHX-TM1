@@ -15,7 +15,7 @@ def test_coolprop_cpm_paths_are_safe_in_generated_cmake(monkeypatch):
     monkeypatch.setattr(native, "cmake_path", lambda *args: PureWindowsPath("C:/cmake.exe"))
     cache = PureWindowsPath("D:/a/project/.cache/native-deps")
     native.build(cache, "windows-x64", PureWindowsPath("C:/python.exe"),
-                 Path("requirements-lock.txt"), "coolprop")
+                 Path("requirements/base.txt"), "coolprop")
     configure = next(command for command in commands if "-S" in command)
     assert "-DCPM_Eigen_SOURCE=D:/a/project/.cache/native-deps/src/Eigen-5.0.1" in configure
     assert all("\\" not in option for option in configure
@@ -44,7 +44,7 @@ def publication(tmp_path, monkeypatch):
 
 def test_publish_rebuilds_verifies_and_preserves_previous_library(publication):
     cache, source, target, events = publication
-    actual = native.publish(cache, "macos-arm64", Path("/python"), Path("requirements-lock.txt"))
+    actual = native.publish(cache, "macos-arm64", Path("/python"), Path("requirements/base.txt"))
     assert events == ["build", "verify"]
     assert actual == target and target.read_bytes() == source.read_bytes()
     backup = target.parent / "previous"
@@ -54,7 +54,7 @@ def test_publish_rebuilds_verifies_and_preserves_previous_library(publication):
     assert record["source_commit"] == "test-commit"
     assert record["configuration"] == "Release"
     assert record["target_library"] == str(target)
-    native.publish(cache, "macos-arm64", Path("/python"), Path("requirements-lock.txt"))
+    native.publish(cache, "macos-arm64", Path("/python"), Path("requirements/base.txt"))
     assert (backup / target.name).read_bytes() == b"previous qualified library"
 
 
@@ -70,7 +70,7 @@ def test_failed_publication_keeps_current_library_and_record(publication, monkey
     else:
         monkeypatch.setattr(native, stage, fail)
     with pytest.raises(RuntimeError, match="publication failure"):
-        native.publish(cache, "macos-arm64", Path("/python"), Path("requirements-lock.txt"))
+        native.publish(cache, "macos-arm64", Path("/python"), Path("requirements/base.txt"))
     assert target.read_bytes() == b"previous qualified library"
     assert json.loads(target.with_name("build.json").read_text())["source_commit"] == "previous"
     assert not (target.parent / "previous").exists()
@@ -92,7 +92,7 @@ def test_failed_final_replace_restores_build_record(publication, monkeypatch, st
 
     monkeypatch.setattr(Path, "replace", fail_selected)
     with pytest.raises(PermissionError, match="library is in use"):
-        native.publish(cache, "macos-arm64", Path("/python"), Path("requirements-lock.txt"))
+        native.publish(cache, "macos-arm64", Path("/python"), Path("requirements/base.txt"))
     assert target.read_bytes() == b"previous qualified library"
     assert metadata.is_file() == existing_record
     if existing_record:

@@ -14,8 +14,8 @@
 # `slow` marker semantics untouched (CI skip-list, hand-curated).
 
 param(
-    [ValidateSet('requirements-lock.txt', 'requirements-lock-server.txt')]
-    [string]$LockFile = 'requirements-lock.txt'
+    [ValidateSet('requirements/base.txt', 'requirements/bo-windows.txt')]
+    [string]$LockFile = 'requirements/base.txt'
 )
 
 $ErrorActionPreference = "Stop"

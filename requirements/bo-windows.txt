@@ -1,6 +1,6 @@
 # Windows x64 / Python 3.12 and 3.13 optional BO environment.
 # Shared solver, GUI, I/O, test and development dependencies are pinned once.
--r requirements-lock.txt
+-r base.txt
 
 --extra-index-url https://download.pytorch.org/whl/cpu
 botorch==0.18.1

@@ -25,8 +25,8 @@
 # Anaconda — PySide6's abi3 forwarder crashes (0xc0000139) otherwise.
 
 param(
-    [ValidateSet('requirements-lock.txt', 'requirements-lock-server.txt')]
-    [string]$LockFile = 'requirements-lock.txt',
+    [ValidateSet('requirements/base.txt', 'requirements/bo-windows.txt')]
+    [string]$LockFile = 'requirements/base.txt',
     [switch]$Fast
 )
 

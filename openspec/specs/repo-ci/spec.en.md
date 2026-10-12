@@ -14,7 +14,7 @@ Fast jobs MUST use two workers, one BLAS/OMP/MKL/NumExpr thread, and at most two
 
 Uploads cover reports, collection/shard lists, and resource records under `.cache/ci/`. They exclude native solver results and local data. Each platform summary MUST validate that both fast shards are complete and disjoint. It MUST require successful test shards, integration, BO, and native dependency qualification jobs.
 
-Platform fast tests, real integration, and minimal postprocessing gates stay required. The four required checks are macOS 3.13, Windows 3.12, Windows 3.13, and minimal-postprocess. Speed improvements MUST NOT change numerical assertions or tolerances. Base and BO jobs MUST use the same platform/Python matrix. Both Windows versions use requirements-lock-server.txt.
+Platform fast tests, real integration, and minimal postprocessing gates stay required. The four required checks are macOS 3.13, Windows 3.12, Windows 3.13, and minimal-postprocess. Speed improvements MUST NOT change numerical assertions or tolerances. Base and BO jobs MUST use the same platform/Python matrix. Both Windows versions use requirements/bo-windows.txt.
 
 #### Scenario: Integration is executed once per platform
 - **WHEN** test sets from both fast shards and the integration job are combined
@@ -48,7 +48,7 @@ Git history MUST keep completed changes. `openspec/changes/` MUST contain only a
 - **THEN** only active changes stay. The default Python environment does not require OpenSpec CLI.
 
 ### Requirement: Pytest config single source
-Root `pytest.ini` MUST set `testpaths = sjtu_tpmshx/tests` and `--strict-markers`. It MUST register `slow`, `fast`, and `heavy`. Unregistered markers MUST cause collection errors.
+Root `pyproject.toml` MUST use `[tool.pytest.ini_options]` to set `testpaths = sjtu_tpmshx/tests` and `--strict-markers`. It MUST register `slow`, `fast`, and `heavy`. Unregistered markers MUST cause collection errors.
 
 #### Scenario: Bare pytest collects only the real suite
 - **WHEN** `pytest --collect-only -q` runs at the repository root
@@ -59,7 +59,7 @@ Root `pytest.ini` MUST set `testpaths = sjtu_tpmshx/tests` and `--strict-markers
 - **THEN** pytest reports a collection error
 
 ### Requirement: Public interface type gate
-`mypy-core-files.txt` MUST explicitly list public interfaces and data contracts. The list includes the current envelope implementation, three-module APIs, data objects, and compatibility entries with active consumers. `pyproject.toml` MUST enable checking of unannotated bodies for envelope, preprocessing API, solver API, and postprocessing metrics. This does not claim strict type coverage for all solvers. `test_type_gate.py` MUST check the list in fast tests. It MUST verify that `prepare_case`, `run_case`, and `evaluate` reject incorrect input types. CI MUST NOT add a duplicate mypy step.
+The `[tool.mypy].files` setting in `pyproject.toml` MUST explicitly list public interfaces and data contracts. The list includes the current envelope implementation, three-module APIs, data objects, and compatibility entries with active consumers. `pyproject.toml` MUST enable checking of unannotated bodies for envelope, preprocessing API, solver API, and postprocessing metrics. This does not claim strict type coverage for all solvers. `test_type_gate.py` MUST check the list in fast tests. It MUST verify that `prepare_case`, `run_case`, and `evaluate` reject incorrect input types. CI MUST NOT add a duplicate mypy step.
 
 #### Scenario: Wrong public input types are rejected
 - **WHEN** mypy checks calls that pass strings to the three public APIs instead of their data objects
