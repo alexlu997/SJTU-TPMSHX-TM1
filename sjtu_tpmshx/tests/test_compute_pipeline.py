@@ -84,10 +84,9 @@ class _RecordingPipeline(ComputePipeline):
         assert fields == {'stub': 'fields'}
         return {'stub': 'raw'}
 
-    def finalize(self, raw, fields):
+    def finalize(self, raw):
         self.calls.append('finalize')
         assert raw == {'stub': 'raw'}
-        assert fields == {'stub': 'fields'}
         return ComputeResult(Q_W=42.0)
 
 
@@ -127,9 +126,9 @@ def test_pipeline_times_phases_without_between_phase_progress_callbacks(monkeypa
             clock[0] += 2.0
             return super().run_solvers(fields)
 
-        def finalize(self, raw, fields):
+        def finalize(self, raw):
             clock[0] += 3.0
-            result = super().finalize(raw, fields)
+            result = super().finalize(raw)
             result.metadata['units'] = {'Q': 'W'}
             return result
 

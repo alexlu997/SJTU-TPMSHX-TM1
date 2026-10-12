@@ -18,7 +18,7 @@ from sjtu_tpmshx.postprocess.api import evaluate
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.tests.integration_tm1.test_2d_real import baseline_config
-from sjtu_tpmshx.tests.integration_tm1.test_public_api import assert_slots, legacy_3d_result
+from sjtu_tpmshx.tests.integration_tm1.test_public_api import assert_slots, legacy_2d_result, legacy_3d_result
 
 
 def _synthetic_3d_results():
@@ -138,18 +138,10 @@ _INLET_PRESSURE_KEYS = frozenset('''
 '''.split())
 
 
-def _assert_producer_diagnostics(raw, diagnostics, expected_keys):
+def _assert_diagnostic_keys(diagnostics, expected_keys):
     assert diagnostics.keys() == expected_keys, (
         f'diagnostic keys: missing={sorted(expected_keys - diagnostics.keys())}, '
         f'unexpected={sorted(diagnostics.keys() - expected_keys)}')
-    # The former capture rule separately checks classification and shared values;
-    # it cannot detect a key missing from both new mappings on its own.
-    expected = {key: value for key, value in raw.items()
-                if not isinstance(value, np.ndarray)
-                and key not in ('_native_evidence', 'application')}
-    assert diagnostics.keys() == expected.keys()
-    for key, value in expected.items():
-        assert diagnostics[key] is value, key
 
 
 def _assert_3d_diagnostics(diagnostics, *, frozen_B=False, audit=False):
@@ -220,14 +212,12 @@ def _assert_3d_diagnostics(diagnostics, *, frozen_B=False, audit=False):
     pytest.param(_DIAGNOSTICS_3D | {'P_Pa_B', 'vmag_B'},
                  'P_Pa_B', id='3d-none-placeholder'),
 ])
-def test_diagnostic_contract_rejects_joint_field_loss(keys, missing):
-    raw = dict.fromkeys(keys)
-    diagnostics = raw.copy()
-    _assert_producer_diagnostics(raw, diagnostics, keys)
-    del raw[missing]
+def test_diagnostic_contract_rejects_missing_field(keys, missing):
+    diagnostics = dict.fromkeys(keys)
+    _assert_diagnostic_keys(diagnostics, keys)
     del diagnostics[missing]
     with pytest.raises(AssertionError, match=missing):
-        _assert_producer_diagnostics(raw, diagnostics, keys)
+        _assert_diagnostic_keys(diagnostics, keys)
 
 
 def _small_air_air_cfg():
@@ -263,12 +253,17 @@ def native_result(request):
     captured = []
     capture = module.capture_result
     def record(*args):
-        raw = args[1] if dimension == 2 else legacy_3d_result(*args[1:])
         diagnostics = args[-1]
         if dimension == 2:
+            raw = legacy_2d_result(args[0], args[1], diagnostics)
+            display_keys = {'Ta_display', 'Tb_display', 'Ts_display', 'P_fA_display', 'P_fB_display',
+                            'ucA', 'vcA', 'ucB', 'vcB'}
+            if request.param == '2-partial':
+                display_keys |= {'ucA_display', 'vcA_display'}
+            assert args[1].keys() == display_keys
             expected = (_DIAGNOSTICS_2D - {'ucA_disp', 'vcA_disp'}
                         if request.param == '2-partial' else _DIAGNOSTICS_2D)
-            _assert_producer_diagnostics(raw, diagnostics, expected)
+            _assert_diagnostic_keys(diagnostics, expected)
             for key in expected & {'ucA_disp', 'vcA_disp', 'ucB_disp', 'vcB_disp'}:
                 assert diagnostics[key] is None, key
             assert diagnostics['true_h_balance'] is None
@@ -290,6 +285,7 @@ def native_result(request):
                     assert {'physical_boundary_complete', 'Q_advective_W_per_m',
                             'h_faces_W_per_m', 'mass_faces_kg_s_per_m'} <= balance[side].keys()
         else:
+            raw = legacy_3d_result(*args[1:])
             _assert_3d_diagnostics(diagnostics)
         captured.append(raw)
         result = capture(*args)

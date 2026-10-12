@@ -67,9 +67,8 @@ def _prepare(monkeypatch, *, legacy=False, zoned=False, pair=('air', 'air'),
     for side in ('A', 'B'):
         parsed['_models']['fluid_' + side] = SimpleNamespace(**vars(parsed['_models']['fluid_' + side]))
     cfg = parsed['compute_cfg']
-    parsed['_capture_native'] = False
     pipe = SimpleNamespace(cfg=cfg, _parsed=parsed,
-        run_solvers=lambda fields: solve_2d._run_solvers(parsed, fields)[0])
+        run_solvers=lambda fields: solve_2d._run_solvers(parsed, fields))
     if legacy:
         # Controlled asymmetric geometry activates the existing temperature path;
         # geometry accuracy itself is outside this caller test.

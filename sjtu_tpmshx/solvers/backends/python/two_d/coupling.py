@@ -589,8 +589,8 @@ def _compute_Q_richardson(
             richardson_warn, richardson_info)
 
 
-def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict, dict]:
-    """Run coupling and return compatibility fields plus explicit diagnostics."""
+def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict, dict, dict, dict]:
+    """Return display fields, native evidence, application data and diagnostics."""
     properties = cfg['static_properties']
     rA, rB = properties['A'], properties['B']
     coeffs = dict(K_ffA=rA['K_ff'], K_ffB=rB['K_ff'],
@@ -1024,12 +1024,11 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
         state.mass_flux_B = _face_mass_fluxes_2d(
             state.simpB, dir_B, _epsB_use if _epsB_use is not None else .5*_eps_src,
             energy_dx, energy_dy)
-        if cfg.get('_capture_native'):
-            native_evidence.update(
-                P_thermal_A=np.array(P_abs_A, copy=True), P_thermal_B=np.array(P_abs_B, copy=True),
-                mass_flux_A=state.mass_flux_A, mass_flux_B=state.mass_flux_B,
-                outer_index=int(_coup_it), h_vA=np.array(h_vA_local, copy=True),
-                h_vB=np.array(h_vB_local, copy=True), K_ss=np.array(_Kss_src, copy=True))
+        native_evidence.update(
+            P_thermal_A=np.array(P_abs_A, copy=True), P_thermal_B=np.array(P_abs_B, copy=True),
+            mass_flux_A=state.mass_flux_A, mass_flux_B=state.mass_flux_B,
+            outer_index=int(_coup_it), h_vA=np.array(h_vA_local, copy=True),
+            h_vB=np.array(h_vB_local, copy=True), K_ss=np.array(_Kss_src, copy=True))
         return _ThermalInputs2D(
             h_vA=h_vA_local, h_vB=h_vB_local,
             K_ffA=_Kffa_use, K_ffB=_Kffb_use, K_ss=_Kss_src,
@@ -1348,7 +1347,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
             h_vA_coarse=hv_A_energy, h_vB_coarse=hv_B_energy,
             split_A=_split_A_2d,
             cancel_check=cancel_check, model_inputs=state.last_model_inputs, model_balance=model_balance,
-            **({'evidence': fine_evidence} if cfg.get('_capture_native') else {}))
+            evidence=fine_evidence)
 
     # ΔP: always from SIMPLE converged P fields (dP_A, dP_B set above at line 580-581
     # via inlet/outlet-weighted SIMPLE pressure averages). Previously this block
@@ -1356,23 +1355,22 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
     # were present — that bypassed SIMPLE's D-F closure and is now removed.
     # Production dP path is strictly SIMPLE (2026-04-17).
 
-    if cfg.get('_capture_native'):
-        native_evidence.update(
-            Ta=Ta_raw, Tb=Tb_raw, Ts=Ts_raw,
-            P_report_A=np.array(P_fA, copy=True), P_report_B=np.array(P_fB, copy=True),
-            fine=fine_evidence, true_h=state.e_info.get('_native_state'),
-            model_h_balance=model_balance, mode=('true_h' if _enthalpy_mode else
-                                                'model_h' if _model_h_mode else 'temperature'),
-            split_A=float(_split_A_2d), rho_cp_A=None if _enthalpy_mode else rcp_A_energy,
-            rho_cp_B=None if _enthalpy_mode else rcp_B_energy,
-            final_after_thermal=bool(not coupling_converged),
-            pressure={side: dict(inlet_gauge_Pa=np.array(simp.P[:, 0], copy=True),
-                                 outlet_gauge_Pa=np.array(simp.P[:, -1], copy=True),
-                                 inlet_fraction=np.array(simp.inlet_frac, copy=True),
-                                 outlet_fraction=np.array(simp.outlet_frac, copy=True),
-                                 outlet_geom_frac=np.array(simp.outlet_geom_frac, copy=True),
-                                 reference_abs_Pa=float(simp.P_ref_abs))
-                      for side, simp in (('A', state.simpA), ('B', state.simpB))})
+    native_evidence.update(
+        Ta=Ta_raw, Tb=Tb_raw, Ts=Ts_raw,
+        P_report_A=np.array(P_fA, copy=True), P_report_B=np.array(P_fB, copy=True),
+        fine=fine_evidence, true_h=state.e_info.get('_native_state'),
+        model_h_balance=model_balance, mode=('true_h' if _enthalpy_mode else
+                                            'model_h' if _model_h_mode else 'temperature'),
+        split_A=float(_split_A_2d), rho_cp_A=None if _enthalpy_mode else rcp_A_energy,
+        rho_cp_B=None if _enthalpy_mode else rcp_B_energy,
+        final_after_thermal=bool(not coupling_converged),
+        pressure={side: dict(inlet_gauge_Pa=np.array(simp.P[:, 0], copy=True),
+                             outlet_gauge_Pa=np.array(simp.P[:, -1], copy=True),
+                             inlet_fraction=np.array(simp.inlet_frac, copy=True),
+                             outlet_fraction=np.array(simp.outlet_frac, copy=True),
+                             outlet_geom_frac=np.array(simp.outlet_geom_frac, copy=True),
+                             reference_abs_Pa=float(simp.P_ref_abs))
+                  for side, simp in (('A', state.simpA), ('B', state.simpB))})
 
     # Smooth pressure and velocity fields for display if partial-width
     if state._has_partial_A or state._has_partial_B:
@@ -1513,21 +1511,19 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
         },
     }
     # Display/flow fields are named here; native thermal evidence stays separate.
-    result = dict(
-        Ta=state.Ta, Tb=state.Tb, Ts=state.Ts, P_fA=P_fA, P_fB=P_fB,
-        ucA=state.ucA, vcA=state.vcA, ucB=state.ucB, vcB=state.vcB,
-        ucA_disp=state.ucA_disp, vcA_disp=state.vcA_disp,
-        ucB_disp=state.ucB_disp, vcB_disp=state.vcB_disp,
-        energy_dx=energy_dx, energy_dy=energy_dy)
+    display_fields = dict(
+        Ta_display=state.Ta, Tb_display=state.Tb, Ts_display=state.Ts,
+        P_fA_display=P_fA, P_fB_display=P_fB,
+        ucA=state.ucA, vcA=state.vcA, ucB=state.ucB, vcB=state.vcB)
     # Existing archives retain a None diagnostic when a display copy is absent.
-    for key in ('ucA_disp', 'vcA_disp', 'ucB_disp', 'vcB_disp'):
-        if result[key] is None:
-            diagnostics[key] = None
-    result.update(diagnostics)
-    if cfg.get('_capture_native'):
-        result['_native_evidence'] = native_evidence
-    result['application'] = dict(
+    for key in ('ucA', 'vcA', 'ucB', 'vcB'):
+        value = getattr(state, key + '_disp')
+        if value is None:
+            diagnostics[key + '_disp'] = None
+        else:
+            display_fields[key + '_display'] = value
+    application = dict(
         coeffs=coeffs,
         props=dict(rho_A=rA['rho'], rho_B=rB['rho'], mu_A=rA['mu'], mu_B=rB['mu']),
         zones=zones)
-    return result, diagnostics
+    return display_fields, native_evidence, application, diagnostics

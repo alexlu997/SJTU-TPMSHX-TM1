@@ -174,7 +174,7 @@ def test_capped_temperature_capture_uses_current_full_cc_enthalpy(driver, same_t
                         case_id='capture-partial-temperature')
     with warning_scope({}) as expected_records:
         reference = capture_python(case, full=True, thermal=same_thermal)
-        expected = python_capture(case, *reference['raw_return'])
+        expected = python_capture(case, *reference['capture_inputs'])
     with warning_scope({}) as actual_records:
         actual, raw = captured(driver, case)
     compare_range_records(actual_records, expected_records)
@@ -301,9 +301,9 @@ def test_golden_air_prepared_case_retains_accepted_refinement(driver, same_therm
     case = prepare_case(ComputeConfig.from_json(str(ROOT / 'examples/three_module/air_2d.json')),
                         case_id='capture-golden-air2d')
     reference = capture_python(case, full=True, thermal=same_thermal)
-    raw, diagnostics = reference['raw_return']
+    diagnostics = reference['capture_inputs'][-1]
     component_metadata = diagnostics['richardson_info'].pop('native_metadata')
-    expected = python_capture(case, raw, diagnostics)
+    expected = python_capture(case, *reference['capture_inputs'])
     with patch('sjtu_tpmshx.solvers.backends.python.two_d.runtime.build_runtime',
                side_effect=AssertionError('Python SIMPLE construction called')):
         actual = run_case(case, RunControl(backend='cpp', native_library=str(driver.path),

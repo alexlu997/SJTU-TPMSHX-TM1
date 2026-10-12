@@ -5,16 +5,12 @@ import numpy as np
 from sjtu_tpmshx.domain.field_result import FieldResult
 
 
-def capture_result(case, raw, diagnostics, *, backend_id='python', backend_version='two_d_v1'):
-    native = raw['_native_evidence']
+def capture_result(case, display_fields, native, application, diagnostics, *,
+                   backend_id='python', backend_version='two_d_v1'):
     fields = {key: native[key] for key in (
         'Ta', 'Tb', 'Ts', 'P_thermal_A', 'P_thermal_B', 'P_report_A', 'P_report_B',
         'h_vA', 'h_vB', 'K_ss')}
-    fields.update({key + '_display': raw[key] for key in ('Ta', 'Tb', 'Ts', 'P_fA', 'P_fB')})
-    fields.update({key: raw[key] for key in ('ucA', 'vcA', 'ucB', 'vcB')})
-    fields.update({key + '_display': raw[key + '_disp']
-                   for key in ('ucA', 'vcA', 'ucB', 'vcB')
-                   if raw.get(key + '_disp') is not None})
+    fields.update(display_fields)
     for key in ('h_vA', 'h_vB', 'K_ss'):
         fields[key] = np.broadcast_to(fields[key], np.shape(fields['Ta']))
     field_metadata = {}
@@ -43,8 +39,8 @@ def capture_result(case, raw, diagnostics, *, backend_id='python', backend_versi
             true_h=native['true_h'], fine=native['fine'],
             **({'temperature': native['temperature']} if 'temperature' in native else {})),
         pressure_evidence=native['pressure'],
-        run_status=dict(execution='completed', converged=bool(raw['solver_converged']),
-                        envelope_valid=bool(raw['envelope_valid']),
+        run_status=dict(execution='completed', converged=bool(diagnostics['solver_converged']),
+                        envelope_valid=bool(diagnostics['envelope_valid']),
                         final_flow_after_last_thermal=native['final_after_thermal'],
                         outer_index=native['outer_index']),
         metadata=dict(dimension=2, quantity_basis='per_unit_depth',
@@ -53,11 +49,11 @@ def capture_result(case, raw, diagnostics, *, backend_id='python', backend_versi
                          if 'temperature' in native else {}),
                       rho_cp_A=native['rho_cp_A'], rho_cp_B=native['rho_cp_B'],
                       parameters=case.parameters, design_fields=case.design_fields,
-                      design_mode=case.metadata['design_mode'], application=raw['application'],
+                      design_mode=case.metadata['design_mode'], application=application,
                       model_metadata=model_metadata, notices=case.metadata['notices'],
-                      diagnostics=diagnostics, df_metadata=raw['df_metadata'],
+                      diagnostics=diagnostics, df_metadata=diagnostics['df_metadata'],
                       model_roles=case.metadata['model_roles'],
-                      reporting_reference={key: raw[key] for key in (
+                      reporting_reference={key: diagnostics[key] for key in (
                           'Q_total', 'dP_A', 'dP_B', 'T_out_A_K', 'T_out_B_K')}))
 
 

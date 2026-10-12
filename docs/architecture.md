@@ -799,7 +799,12 @@ does not return a fabricated completed archive.
 
 Each full-compute backend explicitly produces its display/flow fields and
 final diagnostics, passing diagnostics directly to native result capture.
-Capture does not infer diagnostic ownership from value types. The 3D backend
+Capture does not infer diagnostic ownership from value types. Both 2D backends
+pass display/flow fields, native evidence, application data and diagnostics
+separately to shared capture. The flattened intermediate dictionary and optional
+native-capture switch are retired. Native evidence is always recorded, and
+absent display-velocity copies retain their existing diagnostic placeholders.
+The 3D backend
 passes its problem, outer state, reporting metrics and diagnostics directly to
 `FieldResult` capture. Its flattened intermediate dictionary and public
 dictionary entry are retired. Optional audit exports and absent-field

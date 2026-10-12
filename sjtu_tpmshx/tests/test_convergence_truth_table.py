@@ -348,7 +348,7 @@ def test_2d_verdict_ands_the_ltne_inner_pass(monkeypatch, inner_converged):
     monkeypatch.setattr(coupling, '_compute_Q_richardson', lambda *a, **k:
         (10., 10., -10., 10., False, dict(converged=True, extrapolated=True)))
     with warning_scope({}):
-        result = pipe.run_solvers(fields)
+        _, _, _, result = pipe.run_solvers(fields)
     detail = result['convergence_detail']
     for gate in ('outer_converged', 'simple_ok', 'richardson_ok',
                  'enthalpy_balance_ok', 'envelope_ok'):
@@ -378,7 +378,7 @@ def test_2d_outer_continues_until_stable_thermal_equations_pass(monkeypatch):
     monkeypatch.setattr(coupling, '_compute_Q_richardson', lambda *a, **k:
         (10., 10., -10., 10., False, dict(converged=True, extrapolated=True)))
     with warning_scope({}):
-        result = pipe.run_solvers(fields)
+        _, _, _, result = pipe.run_solvers(fields)
     assert calls == [0, 1, 2]
     assert result['convergence_detail']['outer_iters'] == 3
     assert result['solver_converged']

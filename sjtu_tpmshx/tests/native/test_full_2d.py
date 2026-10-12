@@ -198,11 +198,11 @@ def capture_python(case, *, pressure_shooting=True, full=False, thermal=None):
          patch.object(coupling, '_compute_Q_richardson', refinement), patch.object(coupling, 'gate_solution', gate), \
          patch.object(simple_solver.SIMPLESolver, 'solve', flow), patch.object(ltne_enthalpy_2d, 'solve_enthalpy_2d', enthalpy):
         try:
-            record['raw_return'] = coupling._run_solvers(cfg, rt, RunControl())
+            record['capture_inputs'] = coupling._run_solvers(cfg, rt, RunControl())
             if 'legacy_temperature_duties' in record:
                 # FullCC reports all inward mass on the detached main thermal
                 # boundary. Tout already uses these same mass faces in Python.
-                diagnostics = record['raw_return'][1]
+                diagnostics = record['capture_inputs'][-1]
                 record['legacy_temperature_inlet_mass'] = {
                     side: diagnostics['mass_flow_'+side+'_kg_s_per_m'] for side in 'AB'}
                 for side in 'AB':
