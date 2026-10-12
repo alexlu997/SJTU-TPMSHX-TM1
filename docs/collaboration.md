@@ -8,24 +8,31 @@ Keep task decisions in a handoff record. A chat's private context is not a
 handoff record. Existing authorization and unresolved acceptance gates remain
 in force when the owner or tool changes.
 
+Use the [standing task authority](../AGENTS.md#1-task-scope-and-authority)
+for Git actions. Follow the user's limits for each task.
+
 ## Start a task
 
-1. Name one owner, the permitted scope, and a reviewer. Use one worktree and
-   one branch per task. Keep one writer per file. Run one heavy numerical job
-   at a time on each machine; independent light tasks can run in parallel.
-2. The coordinator checks the primary checkout and synchronizes a clean
-   `main` by fast-forward. Record the base commit. Preserve and inspect local
-   changes or diverged history before choosing an integration action.
+1. For a change task, name one owner, the permitted scope, and a reviewer.
+   Use one worktree and branch per independent change task.
+   Reuse them for continued work on that task.
+   Read-only work does not need a new worktree. Keep one writer per file.
+   Run one heavy numerical job at a time on each machine.
+   Independent light tasks can run in parallel.
+2. The coordinator does a check of the primary checkout.
+   Fast-forward a clean `main` to `origin/main`. Record the base commit.
+   Keep local changes or diverged history for inspection before you select an integration action.
 3. Start the task branch from that commit. Use `codex/` for Codex branches
    unless the user requests another name. Record the worktree and branch.
 4. Select the interpreter through the task's ignored `.venv-path`. Shared
    environments contain dependencies only and live outside task worktrees.
    Share an environment only when its applicable lock files match. Run the
-   lock checker and `pip check` before environment-dependent work.
+   [environment checks](../AGENTS.md#3-work-setup-and-environment) before environment-dependent work.
+   Reuse passing results only as those rules permit.
 5. Import project source from the current worktree. Keep Matplotlib, XDG,
    Numba, and native table caches in that worktree's ignored `.cache/`.
    Record the actual native library and its source/build identity separately.
-   Check for references to a worktree scheduled for removal.
+   Do a check for references to a worktree scheduled for removal.
 
 Creating or changing an environment requires user authorization. After such an
 explicit request, build at its final location from the applicable exact lock.
@@ -35,23 +42,33 @@ separate locks and acceptance checks.
 
 ## Synchronize and review
 
-The owner completes the relevant checks, then commits, pushes, and opens a PR
-within the authorized scope. Exclude local data, environments, and exploratory
-reports. Put a concise handoff record in the PR description, or in a designated
-issue when a task must be handed off before a PR exists. Keep local absolute
-paths and detailed evidence in a private ignored record.
+1. The owner completes the relevant checks. Commit only changes within the task scope.
+   Exclude local data, environments, and exploratory reports.
+2. Review a specific head commit. The owner makes revisions.
+   Update the review result after each later commit.
+   Record who did the review. Do not describe an agent's own review as independent human approval.
+3. Push the task branch. Open or update the PR.
+   Put a concise handoff record in the PR description.
+   Use a designated issue when the task needs a handoff before a PR exists.
+   Keep local absolute paths and detailed evidence in a private ignored record.
+4. If `main` advances, merge the current `origin/main` into the task branch.
+   Resolve conflicts. Repeat the affected checks and required CI.
+   Update the review result for the new head commit.
+   Keep branch history. Do not force-push or overwrite another owner's changes.
+5. Wait for required CI on the latest PR commit.
+   Fix task-related failures under the standing authority.
+   Repeat the affected checks after a fix. Update the review result.
+   An unresolved failure outside the permitted scope needs a recorded next action.
+6. Merge when the required review, tests, CI, and repository protection conditions pass.
+   Do not bypass repository protection.
+7. Confirm the remote merge commit. Wait for required CI on that `main` commit to finish.
+   If this CI fails, record the failure.
+   Continue the task-related repair under the same authority.
+8. After required CI passes, the coordinator fast-forwards the clean primary checkout to the accepted commit.
+   Update the handoff record with the final commit, CI result, and remaining acceptance conditions.
 
-Review a specific head commit. The owner makes revisions. A later commit
-requires the review result to be updated. If `main` advances, the owner merges
-the current `origin/main` into the task branch, resolves conflicts, and reruns
-the affected checks and required CI. Preserve branch history; do not force-push
-or overwrite another owner's changes.
-
-Merge only within the user's authorization and repository protection rules.
-Verify the remote merge commit and the terminal CI result for the resulting
-`main`. The coordinator then fast-forwards the clean primary checkout and
-updates the handoff record. PR CI, merged-main CI, desktop acceptance, and
-experimental accuracy are separate conclusions.
+The task's delivery record must show the final status of each required step.
+PR CI, merged-main CI, desktop acceptance, and experimental validation are separate results.
 
 ## Handoff record
 
