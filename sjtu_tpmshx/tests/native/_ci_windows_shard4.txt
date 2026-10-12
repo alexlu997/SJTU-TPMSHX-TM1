@@ -1,0 +1,18 @@
+# windows native group 4; keep shared module fixtures together.
+# Independent engineering pairs use complete test node IDs.
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[co2-co2-2]
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[co2-water-2]
+sjtu_tpmshx/tests/native/test_full_3d_refined_stages.py
+sjtu_tpmshx/tests/native/test_native_eos.py
+sjtu_tpmshx/tests/native/test_fluid_properties.py
+sjtu_tpmshx/tests/native/test_cpp_temperature.py
+sjtu_tpmshx/tests/native/test_temperature_driver.py
+sjtu_tpmshx/tests/native/test_simple_pressure.py
+sjtu_tpmshx/tests/native/test_native_thermal_identity.py
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[co2-sco2-3]
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[co2-sco2-2]
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[air-co2-3]
+sjtu_tpmshx/tests/native/test_temperature_staggered.py
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[air-water-2]
+sjtu_tpmshx/tests/native/test_simple_2d_c_api.py
+sjtu_tpmshx/tests/native/test_full_2d_stage_identity.py

@@ -1,0 +1,3 @@
+# windows native group 0; keep shared module fixtures together.
+# Independent engineering pairs use complete test node IDs.
+sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py

@@ -1,0 +1,11 @@
+# windows native group 1; keep shared module fixtures together.
+# Independent engineering pairs use complete test node IDs.
+sjtu_tpmshx/tests/native/test_cpp_conservative_full3d.py
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[air-sco2-2]
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[co2-co2-3]
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_continuous_real_fluid_public_backends[co2-2]
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[sco2-air-2]
+sjtu_tpmshx/tests/native/test_pressure_reference.py
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[sco2-air-3]
+sjtu_tpmshx/tests/native/test_backend_engineering_parity.py::test_public_backends_meet_engineering_limits[water-air-3]
+sjtu_tpmshx/tests/native/test_superlu_error_boundary.py
