@@ -711,6 +711,14 @@ Thermal routes are selected by their present qualification conditions:
 | Model enthalpy | Existing air/water h(T) transport. 2D includes water/water when unzoned and symmetric. 3D currently includes air/air, air/water and water/air with its Nz, variable-property, dual-flow, conservative and mask conditions. |
 | Temperature | The native fullCC air/water candidate reuses strict integral-h(T) model-h drivers while keeping the requested temperature route. Python temperature, QD/standalone fixed-coefficient, staggered research and private single-A sCO2 routes keep their separately stated contracts. |
 
+Full3D true-h keeps its original two temperature sweeps before each enthalpy call.
+The staggered warm-up uses caller relaxation and live serial SOU corrections.
+Red-black warm-up freezes those corrections for one sweep.
+The solid keeps the original exterior self terms in its iteration diagonal.
+These terms have zero wall heat flux. Standalone temperature keeps its own
+block schedule and convergence checks. The warm-up does not certify true-h
+convergence; the selected enthalpy driver applies its original physical gates.
+
 The CO2/sCO2 restrictions apply to geometry combinations, not the other stream's fluid.
 Either stream can be in A or B. Public configuration rejects discrete
 zones and nonzero level-set offset when either stream is CO2/sCO2. Each stream

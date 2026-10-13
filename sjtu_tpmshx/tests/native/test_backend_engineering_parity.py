@@ -68,6 +68,14 @@ def test_public_backends_meet_engineering_limits(native_path, dimension, pair, r
     _assert_engineering_pair(python, cpp, record_property)
 
 
+def test_refined_true_h_partial_ports_meet_engineering_limits(native_path, record_property):
+    from sjtu_tpmshx.tests.native.test_cpp_conservative_full3d import candidate
+
+    prepared = candidate('legacy_h_fou', 'sco2-water', port_refined='partial')
+    python, cpp = _run_pair(prepared, native_path)
+    _assert_engineering_pair(python, cpp, record_property)
+
+
 @pytest.mark.parametrize('dimension', [2, 3])
 @pytest.mark.parametrize('fluid', ['co2', 'sco2'])
 def test_continuous_real_fluid_public_backends(native_path, dimension, fluid, record_property):
