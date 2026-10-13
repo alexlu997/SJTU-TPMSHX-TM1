@@ -50,6 +50,14 @@ public:
     using std::invalid_argument::invalid_argument;
 };
 
+namespace detail {
+// Each guard updates the caller's HEOS state for the next property read.
+double check_water_pt(std::unique_ptr<CoolProp::AbstractState>& state,
+                      double temperature, double pressure);
+void check_co2_pt(std::unique_ptr<CoolProp::AbstractState>& state,
+                  double temperature, double pressure);
+}  // namespace detail
+
 // One instance per run. Mutable EOS states are not shared between runs or
 // threads. Air/water retain the project's empirical transport correlations;
 // HEOS checks water's stable liquid phase and supplies sCO2 properties.

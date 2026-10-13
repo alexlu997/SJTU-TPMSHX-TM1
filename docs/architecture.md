@@ -765,6 +765,14 @@ by an earlier EOS release. Fluid sweeps use the algebraically equivalent
 enthalpy defect so an isothermal state at a legal enthalpy bound does not
 acquire cancellation error from subtracting absolute temperatures.
 
+Each native true-h evaluator uses one HEOS state for PT checks and property reads.
+Water and CO2 guards update that state before its enthalpy, cp or conductivity is read.
+This removes a duplicate PT update within the same call.
+All phase, melting, pressure and corrected H/P checks remain at their existing locations.
+Air and sCO2 domain checks do not add HEOS updates.
+Water transport keeps its existing separate physical check.
+Mathematical enthalpy brackets keep their separate validation contract.
+
 The existing product model-h route uses signed mass faces and minmod SOU on
 **both** fluid sides in both dimensions. Its fluid Picard update uses the shared `MODEL_H_RELAXATION=0.2`
 policy, including outlet cells. 3D keeps explicitly smaller relaxation values. The earlier 2D B-side first-order default and 3D fluid-name relaxation choice
