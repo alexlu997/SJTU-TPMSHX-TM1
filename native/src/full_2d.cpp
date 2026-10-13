@@ -161,16 +161,16 @@ void validate(const Full2DProblem& p,const Full2DControl& c) {
     if (!c.outer_iterations || !c.thermal_iterations || !c.thermal_chunk)
         throw std::invalid_argument("full2D budgets must be positive");
     for (double value:{c.outer_temperature_tolerance,c.outer_density_tolerance,c.outer_relaxation,
-                       c.thermal_q_tolerance,c.enthalpy_update_tolerance})
+                       c.thermal_q_tolerance,c.enthalpy.update_tolerance})
         if (!std::isfinite(value) || value<=0) throw std::invalid_argument("invalid full2D tolerance/relaxation");
     if (c.outer_relaxation>1) throw std::invalid_argument("full2D outer relaxation exceeds one");
-    switch(c.enthalpy_algorithm) {
+    switch(c.enthalpy.algorithm) {
         case EnthalpyAlgorithm::legacy_h_fou: break;
         case EnthalpyAlgorithm::temperature_fou:
         case EnthalpyAlgorithm::temperature_sou:
             if(p.thermal_mode!=Full2DThermalMode::true_h || c.thermal_red_black)
                 throw std::invalid_argument("candidate full2D energy requires the existing true-h route without red-black energy");
-            if(!std::isfinite(c.temperature_update_tolerance) || c.temperature_update_tolerance<=0.)
+            if(!std::isfinite(c.enthalpy.temperature_update_tolerance) || c.enthalpy.temperature_update_tolerance<=0.)
                 throw std::invalid_argument("invalid candidate full2D temperature update tolerance");
             break;
         default: throw std::invalid_argument("unknown full2D energy algorithm");
@@ -474,7 +474,7 @@ void solve_thermal(const Full2DProblem& p,const Full2DControl& c,Full2DResult& r
             eps[side].resize(n);
             const double split=side==0?p.split_a:1.-p.split_a;
             for (std::size_t k=0;k<n;++k) eps[side][k]=p.total_porosity[k]*split;
-            if(c.enthalpy_algorithm!=EnthalpyAlgorithm::legacy_h_fou)
+            if(c.enthalpy.algorithm!=EnthalpyAlgorithm::legacy_h_fou)
                 check_energy_ports(g,p.sides[side],t.mass_x[side],t.mass_y[side]);
         }
         const auto fluid=[&](std::size_t side) {
@@ -483,14 +483,8 @@ void solve_thermal(const Full2DProblem& p,const Full2DControl& c,Full2DResult& r
         };
         t.h_a.resize(n); t.h_b.resize(n);
         const EnthalpyStateView state{writable(t.h_a),writable(t.h_b),fields.a,fields.b,fields.solid,true,true,true};
-        EnthalpyControl control{c.thermal_iterations,3,.6,c.enthalpy_update_tolerance,.001,.001,
-            c.table_directory,c.cancel,c.context};
-        control.algorithm=c.enthalpy_algorithm;
-        control.temperature_update_tolerance=c.temperature_update_tolerance;
-        if(control.algorithm!=EnthalpyAlgorithm::legacy_h_fou) {
-            control.sweeps=5;
-            control.omega=control.algorithm==EnthalpyAlgorithm::temperature_sou?.2:.6;
-        }
+        auto control=c.enthalpy;
+        control.cancel=c.cancel;control.context=c.context;
         t.result=solve_enthalpy(g,fluid(0),fluid(1),p.solid_conductivity,state,control);
         const auto& solved=std::get<EnthalpyResult>(t.result);
         if(solved.stop!=EnthalpyStop::cancelled && solved.algorithm!=EnthalpyAlgorithm::legacy_h_fou) {
@@ -776,7 +770,7 @@ Full2DResult solve_full_2d(const Full2DProblem& p,const Full2DControl& c) {
     r.simple_ok=true; r.envelope_ok=true;
     for (std::size_t side=0;side<2;++side) {
         const auto& f=r.flow[side]; const auto& s=p.sides[side];
-        const bool candidate=c.enthalpy_algorithm!=EnthalpyAlgorithm::legacy_h_fou || r.thermal.temperature_audit.has_value();
+        const bool candidate=c.enthalpy.algorithm!=EnthalpyAlgorithm::legacy_h_fou || r.thermal.temperature_audit.has_value();
         const auto& mass_x=candidate?r.thermal.mass_x[side]:f.mass_x;
         const auto& mass_y=candidate?r.thermal.mass_y[side]:f.mass_y;
         r.simple_ok=r.simple_ok && f.result.converged;

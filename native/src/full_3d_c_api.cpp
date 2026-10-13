@@ -212,13 +212,9 @@ int solve(const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,
         auto owner=std::make_unique<Owner>();owner->result=solve_full_3d(data,control);
         // This is the validated control actually passed to solve_full_3d.
         // Its enthalpy controls are copied unchanged for every thermal call.
-        const auto& e=control.enthalpy;
         const auto& h=owner->result.thermal.true_h;
         const bool completed=owner->result.stop!=Full3DStop::cancelled && h && h->stop!=EnthalpyStop::cancelled;
-        owner->energy_settings={completed ? 1u : 0u,static_cast<uint32_t>(e.algorithm),
-            e.require_enthalpy_update_on_temperature ? 1u : 0u,e.max_iterations,e.sweeps,
-            e.omega,e.update_tolerance,e.temperature_update_tolerance,
-            *e.coupled_energy_tolerance,*e.equation_energy_tolerance};
+        owner->energy_settings=energy_settings_c_view(control.enthalpy,completed);
         auto value=output(*owner);
         value.owner=owner.release();*result=value;error[0]='\0';return 0;
     } catch(const WaterStateError& e) {std::snprintf(error,capacity,"%s",e.what());return 2;}

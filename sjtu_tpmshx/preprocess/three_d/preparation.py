@@ -115,10 +115,6 @@ def _parse_geometry_inputs_3d_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
             raise NotImplementedError('3D zones support grid or continuous mode only')
 
     enthalpy_controls = {}
-    if compute_cfg.solver.enthalpy_algorithm != 'legacy_h_fou':
-        enthalpy_controls.update(ltne_enthalpy_outer=1500, ltne_enthalpy_nsweep=5,
-            ltne_enthalpy_omega=.2 if compute_cfg.solver.enthalpy_algorithm == 'temperature_sou' else .6,
-            ltne_enthalpy_tol=1e-3)
     for name in ('ltne_enthalpy_outer', 'ltne_enthalpy_nsweep', 'ltne_enthalpy_omega',
                  'ltne_enthalpy_tol', 'ltne_enthalpy_coupled_energy_tol',
                  'ltne_enthalpy_equation_energy_tol'):

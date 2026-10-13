@@ -22,6 +22,8 @@ struct Owner {
     std::array<std::vector<const char*>,2> envelope;
     std::vector<tpmshx_full_2d_outer_v2> outer;
     std::vector<tpmshx_energy_result_v1> energy_outer;
+    tpmshx_energy_effective_settings_v1 energy_settings{};
+    std::vector<tpmshx_energy_effective_settings_v1> energy_outer_settings;
     std::vector<tpmshx_range_observation_v1> ranges;
 };
 void flag(uint32_t value) {
@@ -131,6 +133,9 @@ void fill(tpmshx_full_2d_result_v2& o,Owner& owner,const Full2DProblem& p) {
         owner.energy_outer.push_back({static_cast<uint32_t>(h.enthalpy_algorithm.value_or(EnthalpyAlgorithm::legacy_h_fou)),
             h.thermal_temperature_update.has_value()?1u:0u,h.thermal_temperature_update.value_or(0.),
             h.thermal_picard_relaxation.value_or(1.)});
+        auto settings=owner.energy_settings;
+        settings.available=h.enthalpy_algorithm.has_value();
+        owner.energy_outer_settings.push_back(settings);
     }
     o.outer_history=owner.outer.data(); o.outer_history_count=owner.outer.size();
     o.q_total=r.q_total; o.q_solid=r.q_solid; o.energy_imbalance=r.energy_imbalance;
@@ -175,16 +180,20 @@ int solve(
         control.outer_iterations=c.outer_iterations; control.thermal_iterations=c.thermal_iterations; control.thermal_chunk=c.thermal_chunk;
         control.outer_temperature_tolerance=c.outer_temperature_tolerance; control.outer_density_tolerance=c.outer_density_tolerance;
         control.outer_relaxation=c.outer_relaxation; control.thermal_q_tolerance=c.thermal_q_tolerance;
-        control.enthalpy_update_tolerance=c.enthalpy_update_tolerance; control.pressure_shooting=c.pressure_shooting;
+        control.pressure_shooting=c.pressure_shooting;
         control.thermal_red_black=c.red_black; control.envelope_mode=c.envelope_mode?c.envelope_mode:"raise";
-        control.table_directory=c.table_directory?c.table_directory:"";
-        if(energy) {
-            control.enthalpy_algorithm=energy_algorithm(*energy);
-            control.temperature_update_tolerance=energy->temperature_update_tolerance;
-        }
+        control.enthalpy=full_enthalpy_control(2,energy ? energy_algorithm(*energy) : EnthalpyAlgorithm::legacy_h_fou,
+            p.sides[0].fluid==Fluid::water || p.sides[1].fluid==Fluid::water);
+        control.enthalpy.max_iterations=c.thermal_iterations;
+        control.enthalpy.update_tolerance=c.enthalpy_update_tolerance;
+        control.enthalpy.table_directory=c.table_directory?c.table_directory:"";
+        if(energy)apply_energy_options(control.enthalpy,*energy);
         control.cancel=cancel; control.progress=progress; control.residual=residual;
         control.context=const_cast<tpmshx_full_2d_callbacks_v2*>(callbacks);
         auto owner=std::make_unique<Owner>(); owner->result=solve_full_2d(p,control);
+        const auto* h=std::get_if<EnthalpyResult>(&owner->result.thermal.result);
+        owner->energy_settings=energy_settings_c_view(control.enthalpy,
+            !owner->result.cancelled && h && h->stop!=EnthalpyStop::cancelled);
         tpmshx_full_2d_result_v2 out{}; fill(out,*owner,p);
         out.owner=owner.release(); *result=out; error[0]='\0'; return 0;
     } catch (const WaterStateError& e) { std::snprintf(error,error_capacity,"%s",e.what()); return 2; }
@@ -238,6 +247,15 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_energy_evidence_v1(
         out.outer=owner.energy_outer.data();out.outer_count=owner.energy_outer.size();
     }
     *evidence=out;return 0;
+}
+
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_energy_effective_settings_v1(
+    const tpmshx_full_2d_result_v2* result,tpmshx_full_2d_energy_effective_settings_v1* settings) {
+    if(!result || !result->owner || !settings)return 1;
+    const auto& owner=*static_cast<const Owner*>(result->owner);
+    *settings={owner.energy_settings,owner.energy_settings,
+        owner.energy_outer_settings.data(),owner.energy_outer_settings.size()};
+    return 0;
 }
 
 extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_model_enthalpy_evidence_v1(

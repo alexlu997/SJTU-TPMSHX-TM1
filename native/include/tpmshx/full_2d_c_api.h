@@ -168,6 +168,17 @@ typedef struct {
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_energy_evidence_v1(
     const tpmshx_full_2d_result_v2*,tpmshx_full_2d_energy_evidence_v1*);
 typedef struct {
+    tpmshx_energy_effective_settings_v1 resolved,last;
+    const tpmshx_energy_effective_settings_v1* outer;
+    size_t outer_count;
+} tpmshx_full_2d_energy_effective_settings_v1;
+/* Read controls from the live result owner. Values do not imply convergence.
+ * available requires a completed true-h call, including a budget-limited call.
+ * Cancellation and other thermal modes have available=0. Outer entries match
+ * result.outer_history. Invalid or released arguments return 1 and preserve output. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_energy_effective_settings_v1(
+    const tpmshx_full_2d_result_v2*,tpmshx_full_2d_energy_effective_settings_v1*);
+typedef struct {
     tpmshx_model_enthalpy_evidence_v1 main,fine;
 } tpmshx_full_2d_model_enthalpy_evidence_v1;
 /* No solver, EOS or allocation. Invalid/null/released owners return 1 without

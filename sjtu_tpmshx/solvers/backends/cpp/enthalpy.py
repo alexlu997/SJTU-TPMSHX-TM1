@@ -56,6 +56,55 @@ class _EnergyResult(ct.Structure):
                 ('temperature_update', ct.c_double), ('picard_relaxation', ct.c_double)]
 
 
+class _EnergyEffectiveSettings(ct.Structure):
+    _fields_ = [(name, ct.c_uint32) for name in (
+        'available', 'algorithm', 'require_enthalpy_update_on_temperature')]
+    _fields_ += [(name, ct.c_size_t) for name in ('max_iterations', 'sweeps')]
+    _fields_ += [(name, ct.c_double) for name in ('omega', 'update_tolerance',
+        'temperature_update_tolerance', 'coupled_energy_tolerance', 'equation_energy_tolerance')]
+
+
+class _FullEnergyEffectiveSettings(ct.Structure):
+    _fields_ = [('resolved', _EnergyEffectiveSettings), ('last', _EnergyEffectiveSettings),
+                ('outer', ct.POINTER(_EnergyEffectiveSettings)), ('outer_count', ct.c_size_t)]
+
+
+def _full_enthalpy_defaults(library, dimension, algorithm, has_water):
+    try:
+        query = library.tpmshx_full_enthalpy_defaults_v1
+    except AttributeError as error:
+        raise ValueError('native library lacks full enthalpy defaults; rebuild the library') from error
+    query.argtypes = [ct.c_uint32, ct.c_uint32, ct.c_uint32, ct.POINTER(_EnergyEffectiveSettings)]
+    query.restype = ct.c_int
+    defaults = _EnergyEffectiveSettings()
+    if query(dimension, algorithm, has_water, ct.byref(defaults)):
+        raise ValueError('invalid native full enthalpy defaults request')
+    return defaults
+
+
+def _executed_energy_settings(info, actual, abi):
+    if actual.available != 1 or actual.algorithm not in range(len(_ENERGY_NAMES)):
+        raise RuntimeError('native full driver omitted executed thermal settings')
+    info['effective_settings'].update(
+        update_tol=actual.update_tolerance,
+        coupled_energy_tol=actual.coupled_energy_tolerance,
+        equation_energy_tol=actual.equation_energy_tolerance,
+        max_iterations=actual.max_iterations, sweeps=actual.sweeps, omega=actual.omega,
+        energy_algorithm=_ENERGY_NAMES[actual.algorithm],
+        require_enthalpy_update_on_temperature=bool(actual.require_enthalpy_update_on_temperature),
+        effective_settings_source='native_completed_thermal_call', driver_abi=abi)
+    if actual.algorithm:
+        info['effective_settings']['temperature_update_tol_K'] = actual.temperature_update_tolerance
+
+
+def _full_enthalpy_info(result, actual, abi):
+    info = _result_info(result, update_tol=actual.update_tolerance,
+        coupled_energy_tol=actual.coupled_energy_tolerance, equation_energy_tol=actual.equation_energy_tolerance,
+        max_iterations=actual.max_iterations, sweeps=actual.sweeps, omega=actual.omega, abi=abi)
+    _executed_energy_settings(info, actual, abi)
+    return info
+
+
 def _energy_options(algorithm, tolerance):
     from sjtu_tpmshx.domain.compute_config import validate_enthalpy_algorithm
     validate_enthalpy_algorithm(algorithm, tolerance)

@@ -54,6 +54,18 @@ typedef struct {
 } tpmshx_energy_result_v1;
 
 typedef struct {
+    uint32_t available,algorithm,require_enthalpy_update_on_temperature;
+    size_t max_iterations,sweeps;
+    double omega,update_tolerance,temperature_update_tolerance;
+    double coupled_energy_tolerance,equation_energy_tolerance;
+} tpmshx_energy_effective_settings_v1;
+/* Read full-driver defaults without numerical work. available is zero.
+ * dimension is 2 or 3; has_water is 0 or 1. Invalid arguments return 1
+ * and leave output unchanged. Explicit caller controls still take priority. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_enthalpy_defaults_v1(
+    uint32_t dimension,uint32_t algorithm,uint32_t has_water,tpmshx_energy_effective_settings_v1*);
+
+typedef struct {
     uint32_t fluid;
     double inlet_temperature, inlet_pressure;
 } tpmshx_enthalpy_side_v1;

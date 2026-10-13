@@ -73,7 +73,7 @@ def test_prepared_packing_and_public_abi_exact_typed_return(driver, native, mode
     status, error, reference = native(request)
     assert status == 0, error
     cfg, prepared = build_execution_inputs(case)
-    shape, arrays, _ = _pack(cfg, prepared, driver.table_directory)
+    shape, arrays, _ = _pack(cfg, prepared, driver.table_directory, driver.library)
     assert shape == request['shape']
     for value, expected in zip(arrays, request['arrays']):
         np.testing.assert_array_equal(value, expected)
@@ -84,6 +84,13 @@ def test_prepared_packing_and_public_abi_exact_typed_return(driver, native, mode
                  'outlet_temperature', 'inlet_mass', 'duty', 'q_total', 'q_solid', 'energy_imbalance'):
         arrays_equal(result[name], reference[name])
     check_thermal(result['main'], reference['thermal'])
+    if mode == 'true_h':
+        expected = dict(max_iterations=12000, sweeps=3, omega=.6, update_tol=.001,
+            coupled_energy_tol=.001, equation_energy_tol=.001, energy_algorithm='legacy_h_fou',
+            effective_settings_source='native_completed_thermal_call', driver_abi=2)
+        records = [result['main']['true_h'], *(row['energy_info'] for row in result['outer_history'])]
+        for record in records:
+            assert {key: record['effective_settings'][key] for key in expected} == expected
     for flow, expected in zip(result['flow'], reference['flow']):
         for name in ('dx', 'dy', 'u', 'v', 'pressure', 'pressure_correction', 'density', 'uc', 'vc',
                      'absolute_pressure', 'mass_x', 'mass_y', 'reference_pressure', 'taper_flux_scale'):
@@ -113,7 +120,7 @@ def prepared_zero_duty():
 
 def test_views_detached_inputs_readonly_and_repeated_calls(driver, prepared_zero_duty):
     cfg, prepared = prepared_zero_duty
-    shape, arrays, config = _pack(cfg, prepared, driver.table_directory)
+    shape, arrays, config = _pack(cfg, prepared, driver.table_directory, driver.library)
     originals = [x.copy() for x in arrays]
     for x in arrays:
         x.setflags(write=False)
@@ -180,7 +187,7 @@ def test_cancel_during_native_call_and_recovery(driver, prepared_zero_duty):
 
 
 def test_invalid_array_and_recovery(driver, prepared_zero_duty):
-    shape, arrays, config = _pack(*prepared_zero_duty, driver.table_directory)
+    shape, arrays, config = _pack(*prepared_zero_duty, driver.table_directory, driver.library)
     arrays[3] = np.empty(1)
     with pytest.raises(ValueError):
         driver.solve(shape, arrays, config)

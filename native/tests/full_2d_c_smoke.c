@@ -17,6 +17,23 @@ static void expect_invalid_port(const size_t* shape,const double* const* arrays,
     assert(status==1 && result.iterations==123 && result.owner==NULL && error[0]);
 }
 int main(void) {
+    tpmshx_energy_effective_settings_v1 defaults={0};
+    for(uint32_t dimension=2;dimension<=3;++dimension) for(uint32_t algorithm=0;algorithm<=2;++algorithm)
+        for(uint32_t water=0;water<=1;++water) {
+            assert(tpmshx_full_enthalpy_defaults_v1(dimension,algorithm,water,&defaults)==0);
+            assert(!defaults.available && defaults.algorithm==algorithm);
+            assert(defaults.max_iterations==(dimension==3?1500u:water?12000u:5000u));
+            assert(defaults.sweeps==(algorithm?5u:dimension==2?3u:25u));
+            assert(defaults.omega==(algorithm==2?.2:.6));
+            assert(defaults.update_tolerance==.001 && defaults.temperature_update_tolerance==1e-8);
+            assert(defaults.coupled_energy_tolerance==.001 && defaults.equation_energy_tolerance==.001);
+            assert(!defaults.require_enthalpy_update_on_temperature);
+        }
+    defaults.available=123;
+    assert(tpmshx_full_enthalpy_defaults_v1(1,0,0,&defaults)==1 && defaults.available==123);
+    assert(tpmshx_full_enthalpy_defaults_v1(2,3,0,&defaults)==1 && defaults.available==123);
+    assert(tpmshx_full_enthalpy_defaults_v1(2,0,2,&defaults)==1 && defaults.available==123);
+    assert(tpmshx_full_enthalpy_defaults_v1(2,0,0,NULL)==1);
     assert(tpmshx_energy_algorithm_version_v1(TPMSHX_ENERGY_TEMPERATURE_FOU)==1);
     assert(tpmshx_energy_algorithm_version_v1(TPMSHX_ENERGY_TEMPERATURE_SOU)==2);
     assert(tpmshx_energy_algorithm_version_v1(TPMSHX_ENERGY_LEGACY_H_FOU)==0);
@@ -51,6 +68,7 @@ int main(void) {
     tpmshx_full_2d_result_v2 result={0}; char error[1024];
     const tpmshx_energy_options_v1 energy={TPMSHX_ENERGY_LEGACY_H_FOU,1e-8};
     tpmshx_full_2d_energy_evidence_v1 evidence={0};
+    tpmshx_full_2d_energy_effective_settings_v1 settings={0};
     assert(tpmshx_full_2d_abi_version()==2);
     /* ABI 2 requires the original prepared Nu ratio, without reconstructing
        it from rounded SI geometry or accepting absent/nonfinite inputs. */
@@ -86,6 +104,9 @@ int main(void) {
     /* Equal inlet/initial temperatures are the independent zero-duty solution
        on both main and refined grids, without an EOS or Python oracle. */
     assert(result.converged && result.have_fine && result.fine_extrapolated);
+    assert(tpmshx_full_2d_get_energy_effective_settings_v1(&result,&settings)==0);
+    assert(!settings.resolved.available && !settings.last.available && settings.outer_count==result.outer_history_count);
+    for(size_t i=0;i<settings.outer_count;++i) assert(!settings.outer[i].available);
     assert(fabs(result.q_total)<1e-7 && fabs(result.q_solid)<1e-7);
     for(size_t stage=0;stage<2;++stage) {
         const tpmshx_full_2d_thermal_v2* t=stage?&result.fine:&result.main;
@@ -135,7 +156,33 @@ int main(void) {
         assert(tpmshx_full_2d_get_energy_evidence_v1(&result,&evidence)==1 && evidence.main.available==123);
     }
     assert(tpmshx_solve_full_2d_v2(shape,arrays,sizes,&config,&cb,&result,error,sizeof(error))==0);
-    assert(result.cancelled && !result.converged); tpmshx_full_2d_release_v2(&result);
+    assert(result.cancelled && !result.converged);
+    assert(tpmshx_full_2d_get_energy_effective_settings_v1(&result,&settings)==0);
+    assert(!settings.resolved.available && !settings.last.available && !settings.outer_count);
+    tpmshx_full_2d_release_v2(&result);
+    /* Explicit budgets and tolerances belong to the completed thermal call. */
+    config.thermal_mode=2; config.thermal_iterations=2; config.enthalpy_update_tolerance=.013;
+    config.sides[0].inlet_temperature=300.;
+    for(uint32_t algorithm=0;algorithm<=2;++algorithm) {
+        const tpmshx_energy_options_v1 options={algorithm,2e-8};
+        status=tpmshx_solve_full_2d_v3(shape,arrays,sizes,&config,&options,NULL,&result,error,sizeof(error));
+        if(status) {fprintf(stderr,"%s\n",error);return 1;}
+        assert(tpmshx_full_2d_get_energy_effective_settings_v1(&result,&settings)==0);
+        assert(settings.resolved.available && settings.last.available && settings.outer_count==result.outer_history_count);
+        assert(settings.last.algorithm==algorithm && settings.last.max_iterations==2);
+        assert(settings.last.update_tolerance==.013 && settings.last.temperature_update_tolerance==2e-8);
+        assert(settings.last.sweeps==(algorithm?5u:3u) && settings.last.omega==(algorithm==2?.2:.6));
+        for(size_t i=0;i<settings.outer_count;++i) {
+            assert(settings.outer[i].available && settings.outer[i].max_iterations==2);
+            assert(settings.outer[i].algorithm==algorithm && settings.outer[i].update_tolerance==.013);
+        }
+        config.enthalpy_update_tolerance=.025;
+        assert(settings.last.update_tolerance==.013);
+        config.enthalpy_update_tolerance=.013;
+        tpmshx_full_2d_release_v2(&result);
+    }
+    settings.resolved.available=123;
+    assert(tpmshx_full_2d_get_energy_effective_settings_v1(&result,&settings)==1 && settings.resolved.available==123);
     config.split_a=0.; result.iterations=123; char short_error[1]={'x'};
     assert(tpmshx_solve_full_2d_v2(shape,arrays,sizes,&config,NULL,&result,short_error,1)==1);
     assert(result.iterations==123 && short_error[0]=='\0');
