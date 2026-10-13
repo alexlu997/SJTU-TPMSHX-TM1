@@ -48,7 +48,6 @@ private:
     CoolProp::AbstractState& transport_state(Fluid fluid, double temperature, double pressure);
     std::array<std::unique_ptr<CoolProp::AbstractState>,4> heos_;
     std::unique_ptr<CoolProp::AbstractState> bicubic_;
-    PropertyEvaluator guards_;
 };
 
 }  // namespace tpmshx

@@ -39,9 +39,9 @@ CoolProp::AbstractState& EnthalpyEOS::heos(Fluid fluid) {
 
 void EnthalpyEOS::validate(Fluid fluid, double temperature, double pressure,
                          const std::string& where) {
-    index(fluid);
+    const auto slot = index(fluid);
     if (fluid == Fluid::water) {
-        try { guards_.check_water(temperature,pressure); }
+        try { detail::check_water_pt(heos_[slot],temperature,pressure); }
         catch (const WaterStateError& error) {
             std::ostringstream message;
             message << where << ": water T=" << temperature << " K, P_abs=" << pressure
@@ -51,7 +51,7 @@ void EnthalpyEOS::validate(Fluid fluid, double temperature, double pressure,
         return;
     }
     positive(temperature,pressure);
-    if (fluid == Fluid::co2) guards_.check_co2(temperature,pressure);
+    if (fluid == Fluid::co2) detail::check_co2_pt(heos_[slot],temperature,pressure);
     if (fluid == Fluid::sco2) {
         const auto& tr = model_coefficients::sco2_temperature_range;
         const auto& pr = model_coefficients::sco2_pressure_range;
@@ -69,7 +69,7 @@ CoolProp::AbstractState& EnthalpyEOS::transport_state(Fluid fluid, double temper
     if (uses_co2_eos(fluid)) validate(fluid,temperature,pressure,"enthalpy property field");
     else positive(temperature,pressure);
     auto& state = heos(fluid);
-    state.update(CoolProp::PT_INPUTS,pressure,temperature);
+    if (fluid != Fluid::co2) state.update(CoolProp::PT_INPUTS,pressure,temperature);
     return state;
 }
 
@@ -86,7 +86,8 @@ EnthalpyPTState EnthalpyEOS::evaluate_state(Fluid fluid, double temperature, dou
                                           const std::string& where) {
     validate(fluid,temperature,pressure,where);
     auto& state = heos(fluid);
-    state.update(CoolProp::PT_INPUTS,pressure,temperature);
+    if (fluid != Fluid::water && fluid != Fluid::co2)
+        state.update(CoolProp::PT_INPUTS,pressure,temperature);
     if (state.phase() == CoolProp::iphase_twophase)
         throw std::invalid_argument(where+": conservative energy requires a single-phase state");
     const EnthalpyPTState result{state.hmass(),state.cpmass(),state.conductivity()};
@@ -131,7 +132,8 @@ double EnthalpyEOS::temperature(Fluid fluid, double enthalpy, double pressure,
         if (!use_bicubic) {
             // CoolProp 8 HP uses 30-bit T brackets; restore HEOS enthalpy consistency.
             validate(fluid,result,pressure,where);
-            state.update(CoolProp::PT_INPUTS,pressure,result);
+            if (fluid != Fluid::water && fluid != Fluid::co2)
+                state.update(CoolProp::PT_INPUTS,pressure,result);
             result += (enthalpy-state.hmass())/state.cpmass();
         }
     } catch (const std::exception& error) {

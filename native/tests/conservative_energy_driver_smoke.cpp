@@ -1,6 +1,7 @@
 #include "tpmshx/enthalpy_driver.hpp"
 
 #include <Exceptions.h>
+#include <CoolProp/AbstractState.h>
 
 #include <algorithm>
 #include <array>
@@ -463,6 +464,34 @@ int main() {
         for (double bad_t:{270.,500.,std::numeric_limits<double>::quiet_NaN()})
             rejects<WaterStateError>([&] { eos.evaluate_state(Fluid::water,bad_t,2e5,"PT guard regression"); },"actual PT water guard was bypassed");
         rejects<std::invalid_argument>([&] { eos.evaluate_state(Fluid::sco2,300.,7e6,"PT guard regression"); },"actual PT CO2 domain was bypassed");
+        rejects<WaterStateError>([&] { eos.evaluate_state(Fluid::water,300.,30e6,"PT guard regression"); },
+                                 "high-pressure water guard was bypassed");
+        rejects<std::invalid_argument>([&] { eos.evaluate_state(Fluid::co2,215.,8e6,"PT guard regression"); },
+                                       "CO2 triple-point guard was bypassed");
+        // Reuse the evaluator after rejected states and other valid PT states.
+        for (const auto fluid:{Fluid::water,Fluid::co2,Fluid::sco2,Fluid::air}) {
+            const char* name=fluid==Fluid::water ? "Water" : fluid==Fluid::air ? "Air" : "CO2";
+            auto reference=make_eos_state("HEOS",name);
+            for (const double pressure:{2e6,8e6}) for (const double temperature:{300.,350.}) {
+                if (fluid==Fluid::sco2 && pressure<7.9e6) continue;
+                reference->update(CoolProp::PT_INPUTS,pressure,temperature);
+                const double h=reference->hmass(),cp=reference->cpmass(),k=reference->conductivity();
+                eos.validate(fluid,temperature+1.,pressure,"other PT state");
+                const auto actual=eos.evaluate_state(fluid,temperature,pressure,"PT reuse regression");
+                require(std::abs(actual.enthalpy-h)<=2e-10*std::max(std::abs(h),1.)
+                        && std::abs(actual.cp-cp)<=2e-10*cp
+                        && std::abs(actual.conductivity-k)<=2e-10*k,
+                        "guarded PT properties differ from independent HEOS");
+                eos.bracket_enthalpy(fluid,temperature+2.,pressure);
+                const auto transport=eos.evaluate(fluid,temperature,pressure);
+                require(std::abs(transport.cp-cp)<=2e-10*cp
+                        && std::abs(transport.conductivity-k)<=2e-10*k
+                        && std::abs(eos.conductivity(fluid,temperature,pressure)-k)<=2e-10*k,
+                        "transport properties retained another PT state");
+                const double inverse=eos.temperature(fluid,h,pressure,false,"HP reuse regression");
+                require(std::abs(inverse-temperature)<=2e-8,"guarded HP inverse differs from independent HEOS");
+            }
+        }
         std::cout<<"conservative_energy_driver_smoke ok; cold/warm pairs="<<solved
                  <<"; max EOS T error="<<max_eos_error<<"; boundary W error="<<max_boundary_error
                  <<"; warm T error="<<max_warm_difference<<'\n';

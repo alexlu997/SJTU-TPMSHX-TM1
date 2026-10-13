@@ -85,21 +85,22 @@ void nu_inputs(double re,double length,double diameter) {
 PropertyEvaluator::PropertyEvaluator() = default;
 PropertyEvaluator::~PropertyEvaluator() = default;
 
-double PropertyEvaluator::check_water(double temperature, double pressure) {
+double detail::check_water_pt(std::unique_ptr<CoolProp::AbstractState>& state,
+                            double temperature, double pressure) {
     if (!std::isfinite(temperature) || !std::isfinite(pressure)
         || temperature <= 0. || pressure <= 0.)
         throw WaterStateError("water requires finite positive K and Pa(abs)");
     try {
-        if (!water_) water_ = make_eos_state("HEOS", "Water");
-        water_->update(CoolProp::PT_INPUTS, pressure, temperature);
-        const auto phase = water_->phase();
+        if (!state) state = make_eos_state("HEOS", "Water");
+        state->update(CoolProp::PT_INPUTS, pressure, temperature);
+        const auto phase = state->phase();
         if (phase == CoolProp::iphase_supercritical_liquid)
             throw WaterStateError("high-pressure liquid: T-only model applicability unconfirmed");
         if (phase != CoolProp::iphase_liquid)
             throw WaterStateError("only stable single-phase liquid water is supported");
-        if (!water_->has_melting_line())
+        if (!state->has_melting_line())
             throw WaterStateError("solid/liquid stability unconfirmed");
-        const double melting = water_->melting_line(CoolProp::iT, CoolProp::iP, pressure);
+        const double melting = state->melting_line(CoolProp::iT, CoolProp::iP, pressure);
         if (!std::isfinite(melting) || temperature <= melting)
             throw WaterStateError("freezing boundary or solid/metastable water unsupported");
         return melting;
@@ -108,17 +109,26 @@ double PropertyEvaluator::check_water(double temperature, double pressure) {
     }
 }
 
-void PropertyEvaluator::check_co2(double temperature, double pressure) {
+void detail::check_co2_pt(std::unique_ptr<CoolProp::AbstractState>& state,
+                         double temperature, double pressure) {
     positive_state(temperature,pressure);
-    if (!co2_) co2_ = make_eos_state("HEOS", "CO2");
-    if (temperature <= co2_->Ttriple())
+    if (!state) state = make_eos_state("HEOS", "CO2");
+    if (temperature <= state->Ttriple())
         throw std::invalid_argument("CO2 at/below triple-point temperature is unsupported");
-    co2_->update(CoolProp::PT_INPUTS,pressure,temperature);
-    const auto phase = co2_->phase();
+    state->update(CoolProp::PT_INPUTS,pressure,temperature);
+    const auto phase = state->phase();
     if (phase != CoolProp::iphase_liquid && phase != CoolProp::iphase_gas
         && phase != CoolProp::iphase_supercritical && phase != CoolProp::iphase_supercritical_gas
         && phase != CoolProp::iphase_supercritical_liquid)
         throw std::invalid_argument("CO2 requires stable single-phase PT; saturation, two-phase and critical-point states are unsupported");
+}
+
+double PropertyEvaluator::check_water(double temperature, double pressure) {
+    return detail::check_water_pt(water_,temperature,pressure);
+}
+
+void PropertyEvaluator::check_co2(double temperature, double pressure) {
+    detail::check_co2_pt(co2_,temperature,pressure);
 }
 
 double nusselt_floor(Fluid fluid) {
