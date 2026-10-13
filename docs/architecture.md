@@ -57,6 +57,24 @@ This is the current architectural and physical contract for the repository.
 Historical audits and reports explain how the project reached this state, but
 they do not override the running code or this document.
 
+## Completed execution records
+
+Public full solves add `metadata.execution_record` with version `full_execution_v1`.
+It records each side's flow and heat-transfer resource separately from its energy relation.
+An EOS energy relation records the HEOS fluid and the actual thermal pressure field.
+Integral h(T), capacity temperature transport and prescribed temperatures remain distinct.
+The record copies returned algorithm identifiers, effective settings and state labels.
+A missing algorithm identifier stays null; requested settings do not establish execution.
+For sCO2, the recorded inverse table policy applies only to its listed sides.
+The nonlinear unknown and face reconstruction remain separate fields.
+A temperature unknown can use enthalpy face reconstruction.
+
+Thermal and final-flow state labels remain separate after an outer post-update.
+This record describes the completed execution; it is not a new quality certificate.
+Rejected runs and Quick Design keep their existing contracts.
+Saved records retain this metadata. Reading a historical result does not add it.
+Prepared input resolution and complete property sampling records remain later work.
+
 ## Result qualification by route
 
 Execution completion, solver convergence, metric availability and optimization

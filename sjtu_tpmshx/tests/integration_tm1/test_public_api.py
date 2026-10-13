@@ -110,6 +110,7 @@ def test_real_application_mapping_and_offline_readback(monkeypatch, tmp_path, di
         result = run_case(case, RunControl())
     performance = evaluate(result)
     actual = to_compute_result(result, performance)
+    assert_slots(actual.metadata['execution_record'], result.metadata['execution_record'])
     reference = expected[0]()
     for slot in ('fields', 'coeffs', 'props', 'diagnostics', 'metadata', 'extrap_reasons'):
         assert_slots(getattr(actual, slot), getattr(reference, slot))
@@ -144,6 +145,7 @@ from sjtu_tpmshx.controllers.module_adapter import to_compute_result
 result = load_result(sys.argv[1])
 display = to_compute_result(result, evaluate(result))
 assert display.metadata['source_result_id'] == result.result_id
+assert display.metadata['execution_record'] == result.metadata['execution_record']
 from pathlib import Path
 import numpy as np
 from sjtu_tpmshx.postprocess.export import export_vtk
