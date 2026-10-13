@@ -22,6 +22,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import tomllib
 import urllib.request
 import zipfile
@@ -150,7 +151,22 @@ def fetch_source(cache: Path, name: str) -> Path:
         source.mkdir(parents=True, exist_ok=True)
         run(["git", "init", source], log)
         run(["git", "remote", "add", "origin", spec["repository"]], log, cwd=source)
-        run(["git", "fetch", "--depth", "1", "origin", spec["commit"]], log, cwd=source)
+    # A failed fetch leaves an initialized repository without HEAD.
+    head = subprocess.run(["git", "rev-parse", "--verify", "--quiet", "HEAD"], cwd=source,
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    if head.returncode == 1:
+        if run(["git", "status", "--porcelain", "--untracked-files=all"], log, cwd=source).strip():
+            raise RuntimeError(f"Incomplete {name} source contains local changes")
+        for attempt in range(5):
+            try:
+                run(["git", "fetch", "--depth", "1", spec["repository"], spec["commit"]], log, cwd=source)
+                break
+            except RuntimeError as error:
+                if attempt == 4 or "GitLab is currently unable to handle this request due to load" not in str(error):
+                    raise
+                delay = 10 * 2**attempt
+                print(f"GitLab is busy; retry the fixed {name} fetch in {delay} seconds", flush=True)
+                time.sleep(delay)
         run(["git", "checkout", "--detach", spec["commit"]], log, cwd=source)
     actual = run(["git", "rev-parse", "HEAD"], log, cwd=source).strip()
     if actual != spec["commit"]:
