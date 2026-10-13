@@ -12,6 +12,7 @@
 | --- | --- |
 | 模块职责、调用关系和物理约束 | [architecture.zh-CN.md](architecture.zh-CN.md) |
 | 完整 Python/C++ 后端、原生 ABI 与构建 | [C++ 接入说明](cpp-migration.zh-CN.md) |
+| 已授权的稳态单相求解器设计与任务节点 | [统一求解器设计](unified-solver.zh-CN.md) |
 | macOS/Windows 项目文件夹运行与可选打包 | [桌面运行说明](desktop.md) |
 | CaseData、FieldResult、指标与文件交接 | [三模块数据契约](../schemas/three_module_v1/README.zh-CN.md) |
 | 已交付能力、M-B 未完成事项与阻塞条件 | [能力范围](capabilities.md) |
