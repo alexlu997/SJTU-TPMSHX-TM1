@@ -757,7 +757,7 @@ Full3DOuterRecord Runtime::solve_thermal(std::size_t outer,Full3DThermalEvidence
                     {view(conductivity[0]),view(hv[0]),epsilon(0),view(rho_cp[0]),views(e.face_velocity[0]),bc[0],input.sources[0]},
                     {view(conductivity[1]),view(hv[1]),epsilon(1),view(rho_cp[1]),views(e.face_velocity[1]),bc[1],input.sources[1]},
                     geo.solid_conductivity,state,tc,control.conservative,control.red_black_energy,
-                    input.solve_b?ArrayView<const double>{}:view(initial[1]),input.sources[2]);
+                    input.solve_b?ArrayView<const double>{}:view(initial[1]),input.sources[2],true_h);
                 r=e.staggered->iteration;
             } else {
                 if(std::any_of(input.sources.begin(),input.sources.end(),[](auto source){

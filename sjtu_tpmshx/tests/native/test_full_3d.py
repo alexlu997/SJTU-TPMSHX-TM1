@@ -419,6 +419,30 @@ def test_refined_real_grid_and_existing_energy_acceleration(native, same_thermal
         for i, key in enumerate(("Ta", "Tb", "Ts"))))
 
 
+@pytest.mark.parametrize("directions", [(4, 1), (5, 0)])
+@pytest.mark.parametrize("red_black", [False, True])
+@pytest.mark.parametrize("conservative", [True, False], ids=["conservative", "advective"])
+def test_true_h_warm_up_keeps_original_two_sweeps(native, monkeypatch, directions, red_black, conservative):
+    from sjtu_tpmshx.solvers import ltne_energy_3d
+
+    cfg, p = prepared("sco2-water", directions=directions, counts=(8, 6, 7),
+                      ltne_enthalpy_outer=1, ltne_enthalpy_nsweep=0,
+                      _native_rb_energy=red_black, conservative_ltne=conservative,
+                      force_cc_ltne=False)
+    p["max_outer"] = 1
+    monkeypatch.setattr(ltne_energy_3d, "_RB_ENERGY", red_black)
+    monkeypatch.setattr(ltne_energy_3d, "_RB_ENERGY_GATE", 0)
+    actual = native.run(cfg, p)
+    _, outer, _, diagnostics = reference(cfg, p)
+    assert actual["code"] == 0, actual["error"]
+    assert not actual[202][1] and not diagnostics["solver_converged"]
+    assert actual[200].shape[0] == 1 and actual[200][0, 1] == 1
+    # Zero enthalpy sweeps expose the temperature warm-up without a new entry.
+    for index, key in enumerate(("Ta", "Tb", "Ts")):
+        np.testing.assert_allclose(actual[index], outer.native_evidence[key].ravel(),
+                                   rtol=1e-10, atol=1e-7, err_msg=key)
+
+
 def test_graded_direct_grid_and_existing_energy_acceleration(native, same_thermal):
     cfg, p = prepared("air-air", counts=(8, 8, 8), mesh="graded", port_wall_refine=True)
     p["max_outer"] = 2

@@ -134,10 +134,9 @@ class SameMapThermal:
         if c['model_fluids'] is not None:
             return self._model(options, c, (c['model_mass_A'], c['model_mass_B']), 3)
         staggered = dimension == 3 and c['ufA'] is not None
-        true_h = 'sco2' in (prob.fluid_type_A, prob.fluid_type_B)
-        if true_h and not staggered:
-            # The native private G4 CC kernel retains this original Python map
-            # for true-h warm-up and single-A sCO2 with prescribed B.
+        true_h = any(fluid in ('sco2', 'co2') for fluid in (prob.fluid_type_A, prob.fluid_type_B))
+        if true_h:
+            # True-h warm-up and single-A sCO2 keep the original temperature map.
             return ltne_energy_3d.solve_full_domain_3d(**c)
         if not staggered and not true_h:
             from sjtu_tpmshx.solvers.backends.python.three_d import runtime
