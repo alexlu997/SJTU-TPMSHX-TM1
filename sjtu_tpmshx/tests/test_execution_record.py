@@ -1,0 +1,101 @@
+"""Energy identity stays distinct from transport resources and user inputs."""
+from dataclasses import replace
+
+import numpy as np
+import pytest
+
+from sjtu_tpmshx.domain.case_data import CaseData
+from sjtu_tpmshx.domain.field_result import FieldResult
+from sjtu_tpmshx.domain.model_refs import ModelRef
+from sjtu_tpmshx.io.result_io import load_result, save_result
+from sjtu_tpmshx.solvers.execution_record import full_execution_record
+
+
+def evidence(mode, *, settings=None, temperature=None, table=None):
+    refs = (ModelRef('fluid', 'test-v1', {'fluid': 'sco2'}),
+            ModelRef('fluid', 'test-v1', {'fluid': 'water'}),
+            ModelRef('geometry', 'test-v1'), ModelRef('darcy_forchheimer', 'test-v1'))
+    grid = dict(dimension=2, length_unit='m', axis_order=('x', 'y'),
+                dx=np.ones(1), dy=np.ones(1), x_edges=np.arange(2.), y_edges=np.arange(2.))
+    case = CaseData('case', grid=grid, model_refs=refs,
+                    config_snapshot={'solver': {'enthalpy_algorithm': 'unused_request'}},
+                    metadata={'model_roles': dict(fluid_A=0, fluid_B=1, geometry=2, darcy_forchheimer=3)})
+    fields = {name: np.ones((1, 1)) * value for name, value in
+              dict(Ta=310., Tb=300., Ts=305., P_thermal_A=1e7, P_thermal_B=2e6,
+                   P_report_A=1.1e7, P_report_B=2.1e6).items()}
+    field_metadata = {name: dict(unit='K' if name.startswith('T') else 'Pa', axes=('x', 'y'),
+                                location='cell', state='post flow' if name.startswith('P_report') else 'thermal')
+                      for name in fields}
+    result = FieldResult('result', 'case', 'cpp', backend_version='test-v1', grid=grid,
+                         fields=fields, field_metadata=field_metadata, model_refs=refs,
+                         pressure_evidence={'A': {}, 'B': {}}, run_status={'execution': 'completed', 'converged': True, 'outer_index': 4},
+                         boundary_fluxes={'state': 'last thermal input', 'temperature': temperature},
+                         metadata=dict(thermal_mode=mode,
+                                       diagnostics={'true_h_balance': {'effective_settings': settings or {}}},
+                                       model_metadata={'sco2_enthalpy_eos': table or {}}))
+    return case, result
+
+
+def test_water_energy_and_transport_resources_are_distinct():
+    case, result = evidence('true_h')
+    record = full_execution_record(case, result)
+    water = record['sides']['B']
+    assert water['flow_and_exchange_model_ref'] == 1
+    assert case.model_refs[1].parameters['fluid'] == 'water'
+    assert water['energy']['property_provider'] == 'HEOS'
+    assert water['energy']['relation'] == 'eos_h_TP'
+    assert water['energy']['pressure_field'] == 'P_thermal_B'
+    assert record['evidence']['pressure_report_states']['B'] == 'post flow'
+
+
+def test_temperature_unknown_can_reconstruct_enthalpy():
+    settings = dict(energy_algorithm='temperature_sou', energy_algorithm_version=2,
+                    nonlinear_state_update='HEOS_PT', enthalpy_face_reconstruction='h_minmod_outlet_v1')
+    case, result = evidence('conservative_energy', settings=settings)
+    record = full_execution_record(case, result)
+    assert record['numerics']['unknown'] == 'T'
+    assert record['numerics']['algorithm'] == 'temperature_sou'
+    assert record['numerics']['face_reconstruction'] == 'h_minmod_outlet_v1'
+    assert record['sides']['A']['property_evaluation']['state_update'] == 'HEOS_PT'
+    assert 'iteration_inverse_backend' not in record['sides']['A']['property_evaluation']
+
+
+def test_table_evidence_applies_only_to_its_recorded_side():
+    table = dict(sides=('A',), iteration_backend='BICUBIC&HEOS', algorithm='recorded-table-v1',
+                 heos_polish=False, coolprop_version='recorded-version')
+    case, result = evidence('true_h', table=table)
+    record = full_execution_record(case, result)
+    assert record['sides']['A']['property_evaluation']['iteration_inverse_backend'] == 'BICUBIC&HEOS'
+    assert record['sides']['A']['property_evaluation']['heos_polish'] is False
+    assert record['sides']['B']['property_evaluation']['iteration_inverse_backend'] == 'HEOS'
+    assert record['numerics']['algorithm'] is None
+
+
+def test_temperature_ledger_distinguishes_integral_energy_and_prescribed_side():
+    ledger = dict(definition='model_enthalpy_temperature_v1', solved={'A': True, 'B': False})
+    case, result = evidence('temperature', temperature=ledger)
+    record = full_execution_record(case, result)
+    assert record['sides']['A']['energy']['relation'] == 'integral_cp_T'
+    assert record['sides']['B']['energy']['relation'] == 'prescribed_temperature'
+    assert record['sides']['B']['solved'] is False
+    assert record['sides']['B']['energy']['property_provider'] is None
+    case, result = evidence('legacy_temperature')
+    assert full_execution_record(case, result)['sides']['A']['energy']['relation'] == 'capacity_temperature'
+
+
+def test_record_is_immutable_and_survives_file_handoff(tmp_path):
+    case, result = evidence('true_h', settings={'energy_algorithm': 'legacy_h_fou'})
+    record = full_execution_record(case, result)
+    result = replace(result, metadata={**result.metadata, 'execution_record': record})
+    record['sides']['B']['energy']['relation'] = 'later edit'
+    path = tmp_path / 'result.h5'
+    save_result(result, path)
+    loaded = load_result(path)
+    assert loaded.metadata['execution_record'] == result.metadata['execution_record']
+    assert loaded.metadata['execution_record']['sides']['B']['energy']['relation'] == 'eos_h_TP'
+    with pytest.raises(TypeError):
+        loaded.metadata['execution_record']['sides']['B']['energy']['relation'] = 'edit'
+    old = replace(result, metadata={key: value for key, value in result.metadata.items()
+                                    if key != 'execution_record'})
+    save_result(old, path)
+    assert 'execution_record' not in load_result(path).metadata

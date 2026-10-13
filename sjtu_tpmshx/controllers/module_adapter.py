@@ -90,8 +90,9 @@ def to_compute_result(result, performance):
     props.update(eps_A=geometry['epsilon'], D_h_m=geometry['D_h'], A_0_m2=geometry['A_0'])
     diagnostics['mode'] = f'{dimension}d'
     metadata = mutable_data(result.metadata['model_metadata'])
-    if 'timings_s' in result.metadata:
-        metadata['timings_s'] = mutable_data(result.metadata['timings_s'])
+    for key in ('timings_s', 'execution_record'):
+        if key in result.metadata:
+            metadata[key] = mutable_data(result.metadata[key])
     if 'inlet_inputs' in parameters:
         metadata['inlet_inputs'] = mutable_data(parameters['inlet_inputs'])
     metadata.update(darcy_forchheimer=mutable_data(result.metadata['df_metadata']),

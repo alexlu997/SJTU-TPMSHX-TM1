@@ -66,6 +66,18 @@ def test_public_backends_meet_engineering_limits(native_path, dimension, pair, r
     prepared = prepare_case(config, case_id=f'backend-parity-{dimension}d-{pair}')
     python, cpp = _run_pair(prepared, native_path)
     _assert_engineering_pair(python, cpp, record_property)
+    for result in (python, cpp):
+        record = result.metadata['execution_record']
+        assert record['backend'] == result.backend_id
+        assert record['dimension'] == dimension
+        assert record['numerics']['thermal_mode'] == result.metadata['thermal_mode']
+        for side, fluid in zip('AB', names):
+            actual = record['sides'][side]
+            assert actual['fluid'] == fluid and actual['solved']
+            ref = prepared.model_refs[actual['flow_and_exchange_model_ref']]
+            assert ref.parameters['fluid'] == fluid
+            relation = 'eos_h_TP' if result.metadata['thermal_mode'] == 'true_h' else 'integral_cp_T'
+            assert actual['energy']['relation'] == relation
 
 
 def test_refined_true_h_partial_ports_meet_engineering_limits(native_path, record_property):

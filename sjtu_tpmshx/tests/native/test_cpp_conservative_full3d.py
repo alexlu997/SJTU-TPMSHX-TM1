@@ -133,6 +133,11 @@ def test_executed_algorithm_and_original_convergence_gates(completed):
     algorithm = prepared.parameters['enthalpy_algorithm']
     assert result.backend_id == 'cpp' and result.backend_version == 'full_3d_v2'
     assert result.metadata['thermal_mode'] == 'conservative_energy'
+    record = result.metadata['execution_record']
+    assert record['numerics']['unknown'] == 'T'
+    assert record['numerics']['algorithm'] == algorithm
+    assert record['numerics']['face_reconstruction'] == ('FOU' if algorithm == ALGORITHMS[0] else 'h_minmod_outlet_v1')
+    assert all(side['energy']['relation'] == 'eos_h_TP' for side in record['sides'].values())
     assert result.run_status['converged'] is True
     diagnostics = result.metadata['diagnostics']
     assert diagnostics['native_full_3d']['entry_version'] == 2
