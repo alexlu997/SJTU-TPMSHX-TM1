@@ -45,6 +45,18 @@ struct EnthalpyControl {
     bool require_enthalpy_update_on_temperature = false;
 };
 
+inline EnthalpyControl full_enthalpy_control(std::size_t dimension,
+    EnthalpyAlgorithm algorithm = EnthalpyAlgorithm::legacy_h_fou, bool has_water = false) {
+    EnthalpyControl control{dimension == 2 ? (has_water ? 12000u : 5000u) : 1500u,
+        dimension == 2 ? 3u : 25u, .6, 1e-3, .001, .001, ""};
+    control.algorithm = algorithm;
+    if (algorithm != EnthalpyAlgorithm::legacy_h_fou) {
+        control.sweeps = 5;
+        control.omega = algorithm == EnthalpyAlgorithm::temperature_sou ? .2 : .6;
+    }
+    return control;
+}
+
 enum class EnthalpyStop { converged, enthalpy_limited, iteration_limit, cancelled };
 
 struct EnthalpyResult {

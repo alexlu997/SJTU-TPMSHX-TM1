@@ -55,15 +55,14 @@ struct Full2DControl {
     Simple2DControl flow;
     std::size_t outer_iterations, thermal_iterations, thermal_chunk;
     double outer_temperature_tolerance, outer_density_tolerance, outer_relaxation;
-    double thermal_q_tolerance, enthalpy_update_tolerance;
+    double thermal_q_tolerance;
     bool pressure_shooting, thermal_red_black; // original global RB opt-in; size gate remains native
-    std::string envelope_mode, table_directory;
+    std::string envelope_mode;
+    EnthalpyControl enthalpy = full_enthalpy_control(2);
     bool (*cancel)(void*) = nullptr;
     void (*progress)(void*,std::size_t,std::size_t) = nullptr;
     void (*residual)(void*,std::size_t,std::size_t,double) = nullptr; // side,iter,residual
     void* context = nullptr;
-    EnthalpyAlgorithm enthalpy_algorithm = EnthalpyAlgorithm::legacy_h_fou;
-    double temperature_update_tolerance = 1e-8;  // K, candidate inner Picard gate
 };
 
 struct Full2DFlow {

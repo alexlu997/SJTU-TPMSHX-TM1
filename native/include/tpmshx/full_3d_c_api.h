@@ -193,12 +193,6 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v3(
     tpmshx_full3d_result_v1*,char*,size_t);
 
 typedef struct {
-    uint32_t available,algorithm,require_enthalpy_update_on_temperature;
-    size_t max_iterations,sweeps;
-    double omega,update_tolerance,temperature_update_tolerance;
-    double coupled_energy_tolerance,equation_energy_tolerance;
-} tpmshx_energy_effective_settings_v1;
-typedef struct {
     tpmshx_energy_effective_settings_v1 resolved,last;
     const tpmshx_energy_effective_settings_v1* outer;
     size_t outer_count;

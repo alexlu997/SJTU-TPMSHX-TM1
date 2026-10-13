@@ -199,6 +199,26 @@ Offline boundary readers keep both saved SOU1 and SOU2, while
   3D. Offline readers validate this evidence without reconstructing SOU or
   calling an EOS. Thermal mass/temperature evidence stays separate from a
   subsequent final flow update, including iteration-limit returns.
+- Full C++ 2D/3D true-h drivers use the same `EnthalpyControl` and native default resolver.
+  The bindings read defaults from the loaded library, then apply explicit caller controls.
+  Preparation keeps unspecified true-h controls unset. The existing defaults remain:
+
+  | Route | Maximum iterations | Sweeps per iteration | Fluid relaxation |
+  | --- | --- | --- | --- |
+  | 2D legacy H-FOU | 12000 with water; otherwise 5000 | 3 | 0.6 |
+  | 3D legacy H-FOU | 1500 | 25 | 0.6 |
+  | 2D temperature FOU/SOU | 12000 with water; otherwise 5000 | 5 | 0.6 / 0.2 |
+  | 3D temperature FOU/SOU | 1500 | 5 | 0.6 / 0.2 |
+
+  The default normalized h-update tolerance and both energy tolerances are 0.001.
+  The temperature update tolerance is 1e-8 K; its optional extra h gate is off.
+  Full 3D explicit controls keep their existing precedence and supported scope.
+  Read-only result queries provide actual settings for the last thermal call and each outer iteration.
+  `available` requires a completed true-h call, including a budget-limited call; it does not certify convergence.
+  Cancellation and other thermal routes have `available=0`.
+  The bindings require these queries before execution; rebuild older libraries for the current bindings.
+  C input/result layouts, owner lifetimes, and existing entry points remain unchanged.
+  The 2D flow-first order and 3D thermal-first outer order remain separate.
 - Native CC/QD, staggered temperature, model-h and conservative-energy
   consumers share finite-volume rows. They keep their physical models and caller-owned face preparation. Air/water full2D CC main/fine and full3D CC with Nz=1
   call strict `solve_model_h_2d`. Full3D CC with Nz>1 calls strict

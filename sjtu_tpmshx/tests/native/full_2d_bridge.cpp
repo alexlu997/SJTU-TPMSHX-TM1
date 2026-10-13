@@ -240,8 +240,9 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_full_2d_run(
         c.flow.convergence.global_mass_tolerance=values[40];c.flow.convergence.backflow_maximum=values[41];
         c.flow.convergence.velocity_check_tolerance=values[42];c.flow.convergence.stall_ratio=values[43];
         c.outer_temperature_tolerance=values[44];c.outer_density_tolerance=values[45];c.outer_relaxation=values[46];
-        c.thermal_q_tolerance=values[47];c.enthalpy_update_tolerance=values[48];
-        c.table_directory=tables?tables:"";c.envelope_mode=envelope?envelope:"raise";
+        c.thermal_q_tolerance=values[47];c.enthalpy.update_tolerance=values[48];
+        c.enthalpy.max_iterations=c.thermal_iterations;
+        c.enthalpy.table_directory=tables?tables:"";c.envelope_mode=envelope?envelope:"raise";
         auto h=std::make_unique<Handle>();h->cancel_at=flags[22];c.cancel=cancelled;c.context=h.get();
         h->result=result_json(full?solve_full_2d(p,c):solve_full_2d_coarse(p,c));*output=h.release();
         if(error_size)error[0]='\0';return 0;
