@@ -37,9 +37,9 @@ def full_execution_record(case, result):
         if eos:
             evaluation['final_property_backend'] = 'HEOS'
             if mode == 'true_h':
-                evaluation['inverse_backend'] = 'HEOS'
+                evaluation['iteration_inverse_backend'] = 'HEOS'
                 if label in table.get('sides', ()):
-                    evaluation.update(inverse_backend=table['iteration_backend'],
+                    evaluation.update(iteration_inverse_backend=table['iteration_backend'],
                                       inverse_algorithm=table['algorithm'],
                                       heos_polish=table['heos_polish'],
                                       coolprop_version=table['coolprop_version'])

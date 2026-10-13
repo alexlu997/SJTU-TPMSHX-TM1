@@ -57,7 +57,7 @@ def test_temperature_unknown_can_reconstruct_enthalpy():
     assert record['numerics']['algorithm'] == 'temperature_sou'
     assert record['numerics']['face_reconstruction'] == 'h_minmod_outlet_v1'
     assert record['sides']['A']['property_evaluation']['state_update'] == 'HEOS_PT'
-    assert 'inverse_backend' not in record['sides']['A']['property_evaluation']
+    assert 'iteration_inverse_backend' not in record['sides']['A']['property_evaluation']
 
 
 def test_table_evidence_applies_only_to_its_recorded_side():
@@ -65,9 +65,9 @@ def test_table_evidence_applies_only_to_its_recorded_side():
                  heos_polish=False, coolprop_version='recorded-version')
     case, result = evidence('true_h', table=table)
     record = full_execution_record(case, result)
-    assert record['sides']['A']['property_evaluation']['inverse_backend'] == 'BICUBIC&HEOS'
+    assert record['sides']['A']['property_evaluation']['iteration_inverse_backend'] == 'BICUBIC&HEOS'
     assert record['sides']['A']['property_evaluation']['heos_polish'] is False
-    assert record['sides']['B']['property_evaluation']['inverse_backend'] == 'HEOS'
+    assert record['sides']['B']['property_evaluation']['iteration_inverse_backend'] == 'HEOS'
     assert record['numerics']['algorithm'] is None
 
 

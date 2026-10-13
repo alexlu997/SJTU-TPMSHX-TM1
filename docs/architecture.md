@@ -65,7 +65,8 @@ An EOS energy relation records the HEOS fluid and the actual thermal pressure fi
 Integral h(T), capacity temperature transport and prescribed temperatures remain distinct.
 The record copies returned algorithm identifiers, effective settings and state labels.
 A missing algorithm identifier stays null; requested settings do not establish execution.
-For sCO2, the recorded inverse table policy applies only to its listed sides.
+For sCO2, the initial inverse backend applies only to its listed sides.
+The HEOS finishing flag remains explicit.
 The nonlinear unknown and face reconstruction remain separate fields.
 A temperature unknown can use enthalpy face reconstruction.
 
