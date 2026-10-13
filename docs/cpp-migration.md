@@ -370,8 +370,11 @@ The kept CC warm-up is a deterministic true-h caller contract, shared
 with the existing single-A implementation. It adds no public selector or new
 kernel copy. Its two-sweep result is only an initial state. The enthalpy
 driver still validates each sCO2 warm temperature and supplies the final
-thermal verdict. Nz>1 staggered warm-up keeps its existing shared-temperature
-route. Full2D true-h does not consume this full3D warm-up.
+thermal verdict. Nz>1 staggered warm-up uses the shared temperature rows with
+caller relaxation and live serial SOU corrections. Red-black corrections are
+frozen for one sweep. The original exterior solid self terms stay in the
+iteration diagonal. This call does not use standalone temperature block damping.
+Full2D true-h does not consume this full3D warm-up.
 
 FullCC uses the accepted thermal SIMPLE mass faces without multiplying them
 by cp, reconstructing mass from cell velocity or applying porosity/opening

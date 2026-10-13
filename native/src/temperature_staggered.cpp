@@ -208,6 +208,16 @@ struct Side {
             {{{offset[0].data(),offset[0].size()}, {offset[1].data(),offset[1].size()},
               {offset[2].data(),offset[2].size()}}});
     }
+    void reconstruct_cell(const detail::EnergyMesh& mesh,ArrayView<const double> t,std::size_t p) {
+        const auto c=mesh.coord(p);
+        for(std::size_t axis=0;axis<3;++axis) for(int sign:{-1,1}) {
+            if(!mesh.inside(c,axis,sign)) continue;
+            const auto low=sign<0 ? p-mesh.stride[axis]:p;
+            const auto face=mesh.face(axis,p,sign);
+            offset[axis][face]=detail::temperature_face_correction(
+                mesh,axis,low,capacity[axis][face],t).value;
+        }
+    }
     double inlet(std::size_t p) const { return optional(f.boundary.profile,p,f.boundary.inlet_temperature); }
     double opening(std::size_t p) const { return optional(f.boundary.opening,p,1); }
 };
@@ -250,19 +260,19 @@ void update(ArrayView<double> t,std::size_t p,double value,double alpha,double& 
 }
 double sweeps(const Mesh& mesh,Side& a,Side& b,ArrayView<const double> ks,
     ArrayView<const double> source_s,TemperatureStateView t,const TemperatureControl& control,
-    bool conservative,bool rb,bool frozen,bool sou_a,bool sou_b,std::size_t count) {
+    bool conservative,bool rb,bool frozen,bool sou_a,bool sou_b,std::size_t count,bool true_h_warm_up) {
     const detail::EnergyMesh energy_mesh(mesh.g);
     const auto phase_a=a.energy(),phase_b=b.energy();
     Vector snapshot_a(!conservative && rb ? mesh.n : 0),snapshot_b(!conservative && rb ? mesh.n : 0);
-    const bool nonlinear=sou_a||sou_b;
+    const bool nonlinear=(sou_a||sou_b)&&!true_h_warm_up;
     const std::array<ArrayView<double>,3> fields{t.a,t.b,t.solid};
     std::array<Vector,3> before,carry;
     if(nonlinear) {
         for(auto& field:before) field.resize(mesh.n);
         for(auto& field:carry) field.resize(mesh.n);
     }
-    const double alpha_a=sou_a ? std::min(control.alpha_a,.2):control.alpha_a;
-    const double alpha_b=sou_b ? std::min(control.alpha_b,.2):control.alpha_b;
+    const double alpha_a=nonlinear&&sou_a ? std::min(control.alpha_a,.2):control.alpha_a;
+    const double alpha_b=nonlinear&&sou_b ? std::min(control.alpha_b,.2):control.alpha_b;
     double change=0;
     for (std::size_t it=0;it<count;) {
         const auto block=nonlinear ? std::min(std::size_t{5},count-it):std::size_t{1};
@@ -270,9 +280,9 @@ double sweeps(const Mesh& mesh,Side& a,Side& b,ArrayView<const double> ks,
             std::copy_n(fields[phase].data,mesh.n,before[phase].data());
             std::fill(carry[phase].begin(),carry[phase].end(),0.);
         }
-        if (conservative) {
+        if (conservative && (!true_h_warm_up || rb)) {
             a.reconstruct(energy_mesh,view(t.a)); b.reconstruct(energy_mesh,view(t.b));
-        } else if(rb) {
+        } else if(!conservative && rb) {
             std::copy_n(t.a.data,mesh.n,snapshot_a.begin());
             std::copy_n(t.b.data,mesh.n,snapshot_b.begin());
         }
@@ -286,6 +296,8 @@ double sweeps(const Mesh& mesh,Side& a,Side& b,ArrayView<const double> ks,
                     const auto k=!rb && a.f.boundary.direction==5 ? mesh.g.nz-1-kk : kk;
                     if (rb && (i+j+k)%2!=color) continue;
                     const Coordinate c{i,j,k}; const auto p=mesh.cell(c);
+                    if(true_h_warm_up && conservative && !rb)
+                        a.reconstruct_cell(energy_mesh,view(t.a),p);
                     auto row_a=conservative
                         ? detail::fluid_energy_defect_row(energy_mesh,phase_a,view(t.a),view(t.solid),p)
                         : detail::fluid_energy_row(energy_mesh,phase_a,view(t.a),view(t.solid),p,
@@ -295,14 +307,22 @@ double sweeps(const Mesh& mesh,Side& a,Side& b,ArrayView<const double> ks,
                     if (!conservative) row_a.diagonal-=mesh.divergence(a.capacity,c);
                     if(conservative) update_increment(t.a,p,alpha_a*row_a.rhs/std::max(row_a.diagonal,1e-30),change,nonlinear ? &carry[0][p]:nullptr);
                     else update(t.a,p,row_a.rhs/std::max(row_a.diagonal,1e-30),alpha_a,change);
-                    const auto row_s=conservative
+                    auto row_s=conservative
                         ? detail::solid_energy_defect_row(energy_mesh,ks,a.f.hv,b.f.hv,view(t.a),view(t.b),view(t.solid),source_s,p)
                         : detail::solid_energy_row(energy_mesh,ks,a.f.hv,b.f.hv,view(t.a),view(t.b),view(t.solid),source_s,p);
+                    if(true_h_warm_up) for(std::size_t axis=0;axis<3;++axis) for(int sign:{-1,1}) {
+                        if(energy_mesh.inside(c,axis,sign)) continue;
+                        const double self=ks[p]*energy_mesh.face_area(axis,c)/energy_mesh.width[axis][c[axis]];
+                        row_s.diagonal+=self;
+                        if(!conservative) row_s.rhs+=self*t.solid[p];
+                    }
                     if (!std::isfinite(row_s.diagonal) || row_s.diagonal<=0)
                         throw std::domain_error("invalid staggered solid row");
                     if(conservative) update_increment(t.solid,p,control.alpha_solid*row_s.rhs/row_s.diagonal,change,nonlinear ? &carry[2][p]:nullptr);
                     else update(t.solid,p,row_s.rhs/row_s.diagonal,control.alpha_solid,change);
                     if (!frozen) {
+                        if(true_h_warm_up && conservative && !rb)
+                            b.reconstruct_cell(energy_mesh,view(t.b),p);
                         auto row_b=conservative
                             ? detail::fluid_energy_defect_row(energy_mesh,phase_b,view(t.b),view(t.solid),p)
                             : detail::fluid_energy_row(energy_mesh,phase_b,view(t.b),view(t.solid),p,
@@ -436,7 +456,7 @@ MacProjectionResult StaggeredTemperatureDriver::project_capacity_faces(const Gri
 StaggeredTemperatureResult StaggeredTemperatureDriver::solve(const GridView& grid,
     const StaggeredTemperatureFluid& a,const StaggeredTemperatureFluid& b,ArrayView<const double> ks,
     TemperatureStateView t,const TemperatureControl& control,bool conservative,bool rb,
-    ArrayView<const double> prescribed_b,ArrayView<const double> source_s) {
+    ArrayView<const double> prescribed_b,ArrayView<const double> source_s,bool true_h_warm_up) {
     const Mesh mesh(grid); coefficient(ks,mesh.n);
     if (grid.nz<=1) throw std::invalid_argument("staggered 3D requires nz>1");
     if (!control.chunk_iterations || !std::isfinite(control.q_relative_tolerance) || control.q_relative_tolerance<=0)
@@ -496,7 +516,8 @@ StaggeredTemperatureResult StaggeredTemperatureDriver::solve(const GridView& gri
     while (result.iteration.iterations<control.max_iterations) {
         if (cancel()) { result.iteration.stop=TemperatureStop::cancelled; return result; }
         const auto count=std::min(control.chunk_iterations,control.max_iterations-result.iteration.iterations);
-        result.iteration.residual=sweeps(mesh,side_a,side_b,ks,source_s,t,control,conservative,rb,prescribed_b.size>0,sou_a,sou_b,count);
+        result.iteration.residual=sweeps(mesh,side_a,side_b,ks,source_s,t,control,conservative,rb,prescribed_b.size>0,
+            sou_a,sou_b,count,true_h_warm_up);
         result.iteration.iterations+=count;
         if (control.progress) control.progress(control.context,result.iteration.iterations,control.max_iterations);
         if (cancel()) { result.iteration.stop=TemperatureStop::cancelled; result.iteration.q_b=std::numeric_limits<double>::quiet_NaN(); return result; }
