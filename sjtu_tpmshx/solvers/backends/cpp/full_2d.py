@@ -16,9 +16,11 @@ from ._simple_abi import _F2
 from .simple_2d import _Result as _SimpleResult, _result_dict
 from .model_h import _Array, _Result as _ModelResult, _plane_info, _model_h_algorithm
 from .temperature_evidence import TemperatureEvidence2D, copy_temperature_evidence
-from .enthalpy import _Result as _EnthalpyResult, _result_info
+from .enthalpy import _Result as _EnthalpyResult
 from .enthalpy import (_EnergyOptions, _EnergyResult, _energy_options,
-                       _energy_algorithm_query, _energy_result_info, _energy_native_state)
+                       _energy_algorithm_query, _energy_result_info, _energy_native_state,
+                       _FullEnergyEffectiveSettings, _full_enthalpy_defaults, _full_enthalpy_info,
+                       _executed_energy_settings)
 from .closure_evidence import NuObservation, RangeObservation, copy_nu_observation, copy_range_observations
 
 
@@ -172,7 +174,7 @@ def _flow(f, physical_shape):
     return out
 
 
-def _thermal(t, config):
+def _thermal(t, actual, abi):
     shape = (t.nx, t.ny)
     out = dict(shape=shape, mode=('temperature', 'model_h', 'true_h')[t.mode], stop=t.stop,
                iterations=t.iterations, residual=t.residual, q_b=t.q_b)
@@ -195,9 +197,7 @@ def _thermal(t, config):
             for i in range(t.model_h.finishing_count)]
     elif t.mode == 2:
         h = t.true_h
-        out['true_h'] = _result_info(h, update_tol=config.enthalpy_update_tolerance,
-            coupled_energy_tol=.001, equation_energy_tol=.001, max_iterations=config.thermal_iterations,
-            sweeps=3, omega=.6)
+        out['true_h'] = _full_enthalpy_info(h, actual, abi)
         mass3 = [(*[face[..., None] for face in pair], np.zeros((*shape, 2))) for pair in masses]
         out['true_h']['_native_state'] = state = dict(h_A=out['enthalpy'][0][..., None], h_B=out['enthalpy'][1][..., None],
             h_in_A=h.inlet_enthalpy[0], h_in_B=h.inlet_enthalpy[1], mass_flux_A=mass3[0], mass_flux_B=mass3[1])
@@ -240,10 +240,16 @@ class NativeFull2DDriver:
         self.call.restype = ct.c_int
         self.release = self.library.tpmshx_full_2d_release_v2
         self.release.argtypes, self.release.restype = [ct.POINTER(_Result)], None
+        try:
+            self.query_settings = self.library.tpmshx_full_2d_get_energy_effective_settings_v1
+        except AttributeError as exc:
+            raise ValueError('native full 2D library lacks executed settings; rebuild the library') from exc
+        self.query_settings.argtypes = [ct.POINTER(_Result), ct.POINTER(_FullEnergyEffectiveSettings)]
+        self.query_settings.restype = ct.c_int
 
     def run_prepared(self, cfg, prepared, control=RunControl()):
         control.check_cancelled()
-        shape, arrays, config = _pack(cfg, prepared, self.table_directory)
+        shape, arrays, config = _pack(cfg, prepared, self.table_directory, self.library)
         solver = cfg['compute_cfg'].solver
         return self.solve(shape, arrays, config, control, energy_algorithm=solver.enthalpy_algorithm,
                           temperature_update_tolerance=solver.enthalpy_temperature_tol_K)
@@ -318,9 +324,16 @@ class NativeFull2DDriver:
                 raise exception(error.value.decode('utf-8', errors='replace'))
             if result.cancelled:
                 raise CancelledError('compute cancelled by user')
+            actual = _FullEnergyEffectiveSettings()
+            if self.query_settings(ct.byref(result), ct.byref(actual)):
+                raise RuntimeError('native full 2D effective settings query failed')
+            if actual.outer_count != result.outer_history_count:
+                raise RuntimeError('native full 2D effective settings do not match the thermal history')
+            entry_version = 3 if energy_call else 2
             out = {name: bool(getattr(result, name)) for name in (*_FLAGS, *_FINE_FLAGS)}
             out.update(iterations=result.iterations, flow=[_flow(f, shape) for f in result.flow],
-                       main=_thermal(result.main, config), fine=_thermal(result.fine, config) if result.have_fine else None)
+                       main=_thermal(result.main, actual.last, entry_version),
+                       fine=_thermal(result.fine, actual.last, entry_version) if result.have_fine else None)
             for name in ('density', 'viscosity', 'rho_cp'):
                 out[name] = [_copy(x, shape) for x in getattr(result, name)]
             for name in ('fine_duty', 'extrapolated_duty', 'pressure_drop', 'outlet_temperature', 'inlet_mass', 'duty'):
@@ -340,7 +353,11 @@ class NativeFull2DDriver:
                 out['outer_history'].append(dict(iteration=h.iteration, thermal_iterations=h.thermal_iterations,
                     thermal_converged=bool(h.thermal_converged), outer_converged=bool(h.outer_converged),
                     relative_density_change=list(h.relative_density_change), temperature_change=list(h.temperature_change)))
-            out['entry_version'] = 2
+                if out['main']['true_h'] is not None:
+                    info = dict(effective_settings={})
+                    _executed_energy_settings(info, actual.outer[i], entry_version)
+                    out['outer_history'][-1]['energy_info'] = info
+            out['entry_version'] = entry_version
             if energy_query:
                 extra = _EnergyEvidence()
                 if energy_query(ct.byref(result), ct.byref(extra)):
@@ -348,19 +365,16 @@ class NativeFull2DDriver:
                 if out['main']['true_h'] is None or extra.outer_count != len(out['outer_history']):
                     raise RuntimeError('native full 2D energy evidence does not match the thermal history')
                 info = out['main']['true_h']
-                omega = .2 if extra.main.energy.algorithm == 2 else .6
-                info['effective_settings'].update(sweeps=5, omega=omega)
                 _energy_result_info(info, extra.main.energy,
-                    temperature_tol=energy.temperature_update_tolerance, abi=3, version_query=version_query)
+                    temperature_tol=actual.last.temperature_update_tolerance, abi=3, version_query=version_query)
                 _energy_native_state(info, extra.main, (*shape, 1), 'W/m')
                 out['main']['mode'] = 'conservative_energy'
                 if out['fine'] is not None:
                     raise RuntimeError('native conservative energy unexpectedly returned Richardson evidence')
                 for index, row in enumerate(out['outer_history']):
-                    row['energy_info'] = _energy_result_info(dict(effective_settings=dict(omega=omega, sweeps=5)),
-                        extra.outer[index], temperature_tol=energy.temperature_update_tolerance, abi=3,
+                    _energy_result_info(row['energy_info'], extra.outer[index],
+                        temperature_tol=actual.outer[index].temperature_update_tolerance, abi=3,
                         version_query=version_query)
-                out['entry_version'] = 3
             if out['main']['mode'] == 'temperature':
                 query = self.library.tpmshx_full_2d_get_model_enthalpy_evidence_v1
                 query.argtypes = [ct.POINTER(_Result), ct.POINTER(TemperatureEvidence2D)]
@@ -382,7 +396,7 @@ class NativeFull2DDriver:
                 self.release(ct.byref(result))
 
 
-def _pack(cfg, prepared, table_directory):
+def _pack(cfg, prepared, table_directory, library):
     """Pack already validated CaseData without constructing Python solvers."""
     shape = (len(prepared['energy_dx']), len(prepared['energy_dy']))
     properties, zones = cfg['static_properties'], cfg['za']
@@ -449,10 +463,18 @@ def _pack(cfg, prepared, table_directory):
     config.outer_iterations = solver.max_outer_ltne or 10
     config.outer_temperature_tolerance = solver.outer_tol_K or 1.
     config.outer_density_tolerance, config.outer_relaxation = .01, .7
-    config.thermal_iterations = 12000 if 'water' in fluids else 5000
-    config.thermal_chunk = 3 if config.thermal_mode == 2 else 500
-    tolerance = .1 if config.thermal_mode == 2 else 1. if 'water' in fluids else .5
-    config.thermal_q_tolerance, config.enthalpy_update_tolerance = min(tolerance*2e-3, 1e-3), max(tolerance, 1e-8)/100.
+    if config.thermal_mode == 2:
+        energy = _energy_options(solver.enthalpy_algorithm, solver.enthalpy_temperature_tol_K)
+        defaults = _full_enthalpy_defaults(library, 2, energy.algorithm, 'water' in fluids)
+        config.thermal_iterations = defaults.max_iterations
+        config.enthalpy_update_tolerance = defaults.update_tolerance
+        config.thermal_chunk, config.thermal_q_tolerance = 3, .1*2e-3
+    else:
+        config.thermal_iterations = 12000 if 'water' in fluids else 5000
+        config.thermal_chunk = 500
+        tolerance = 1. if 'water' in fluids else .5
+        config.thermal_q_tolerance = min(tolerance*2e-3, 1e-3)
+        config.enthalpy_update_tolerance = tolerance/100.
     config.alpha_velocity, config.alpha_pressure, config.alpha_density = .7, .3, .3
     config.gas_constant, config.cf_anisotropy = 287.05, 0.
     config.massflux_inlet, config.close_outlet_on_exit = 1, 1

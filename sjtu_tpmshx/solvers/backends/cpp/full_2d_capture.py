@@ -192,7 +192,7 @@ def capture_result(case, cfg, prepared, native):
                          **{label: cfg['flow_inputs'][label]['metadata'] for label in 'AB'}),
         native_full_2d=dict(numerical_driver='cpp',
                             range_observations=native['range_observations']))
-    if mode == 'conservative_energy':
+    if native['main']['true_h'] is not None:
         diagnostics['native_full_2d'].update(entry_version=native['entry_version'],
             energy_history=[dict(iteration=row['iteration'], **row['energy_info']) for row in native['outer_history']])
     for side, label in enumerate('AB'):

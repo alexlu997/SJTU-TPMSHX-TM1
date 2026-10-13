@@ -61,7 +61,7 @@ def test_full_2d_identity_roundtrip(mode, tmp_path):
     case = prepare_case(config, case_id='identity-2d')
     cfg, prepared = build_execution_inputs(case)
     driver = NativeFull2DDriver(library_path('TPMSHX_NATIVE_SOLVER_LIBRARY'))
-    shape, arrays, settings = _pack(cfg, prepared, driver.table_directory)
+    shape, arrays, settings = _pack(cfg, prepared, driver.table_directory, driver.library)
     settings.thermal_iterations = settings.outer_iterations = 1
     settings.pressure_shooting = 0
     raw = driver.solve(shape, arrays, settings)

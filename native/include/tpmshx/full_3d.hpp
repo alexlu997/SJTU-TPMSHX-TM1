@@ -69,7 +69,7 @@ struct Full3DControl {
     Simple3DControl simple{2000,1,100,.5,.2,.3,0.,287.05,.05,
         true,true,false,true,false,Simple3DOrdering::natural,
         {1e-4,1e-6,1e-6,.01,1e-4,1e-3,2,5,60},nullptr,nullptr,nullptr};
-    EnthalpyControl enthalpy{1500,25,.6,1e-3,.001,.001,"",nullptr,nullptr};
+    EnthalpyControl enthalpy = full_enthalpy_control(3);
     std::optional<double> initial_solid_temperature;
     bool (*cancel)(void*) = nullptr;
     void (*progress)(void*,double percent) = nullptr;

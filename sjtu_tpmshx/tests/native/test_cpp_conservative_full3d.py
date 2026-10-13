@@ -150,6 +150,7 @@ def test_executed_algorithm_and_original_convergence_gates(completed):
     assert histories
     for balance in [*histories, diagnostics['true_h_balance']]:
         settings = balance['effective_settings']
+        assert settings['effective_settings_source'] == 'native_completed_thermal_call'
         assert balance['energy_algorithm'] == settings['energy_algorithm'] == algorithm
         assert type(balance['energy_algorithm_version']) is int
         assert balance['energy_algorithm_version'] == settings['energy_algorithm_version'] == VERSIONS[algorithm]
@@ -475,7 +476,15 @@ def test_large_grid_packing_keeps_legacy_rb_and_candidate_serial(tmp_path, monke
         assert tuple(data.shape) == (32, 32, 32)
         seen.append(settings.red_black_energy)
         assert settings.red_black_energy == (1 if algorithm == 'legacy_h_fou' else 0)
+        assert (settings.enthalpy_iterations, settings.enthalpy_sweeps) == (321, 7)
+        assert (settings.enthalpy_omega, settings.enthalpy_update_tolerance) == (.4, .002)
         raise EntryCaptured
+
+    def defaults(dimension, selected, water, output):
+        assert dimension == 3 and selected == ('legacy_h_fou', *ALGORITHMS).index(algorithm)
+        output._obj.max_iterations, output._obj.sweeps = 321, 7
+        output._obj.omega, output._obj.update_tolerance = .4, .002
+        return 0
 
     # Resolve/pack genuine prepared 32768-cell input, but never load a library
     # or solve a large grid merely to inspect the automatically selected flag.
@@ -484,6 +493,8 @@ def test_large_grid_packing_keeps_legacy_rb_and_candidate_serial(tmp_path, monke
         tpmshx_full_3d_release_v1=lambda *_: pytest.fail('packing allocated native ownership'),
         tpmshx_full_3d_get_bootstrap_trace_v1=lambda *_: None,
         tpmshx_full_3d_get_energy_evidence_v1=lambda *_: None,
+        tpmshx_full_3d_get_energy_effective_settings_v1=lambda *_: None,
+        tpmshx_full_enthalpy_defaults_v1=defaults,
         tpmshx_energy_algorithm_version_v1=lambda algorithm: {1: 1, 2: 2}.get(algorithm, 0))
     monkeypatch.setattr(full_3d.ct, 'CDLL', lambda _: library)
     path = tmp_path / 'packing-only-library'

@@ -98,6 +98,11 @@ def test_actual_thermal_state_and_signed_ledger(capped):
     assert raw['outer_history'][0]['energy_info']['energy_algorithm'] == info['energy_algorithm']
     for row in raw['outer_history']:
         history = row['energy_info']
+        settings = history['effective_settings']
+        assert settings['effective_settings_source'] == 'native_completed_thermal_call'
+        assert settings['max_iterations'] == 12000 and settings['sweeps'] == 5
+        assert settings['update_tol'] == .001
+        assert settings['omega'] == (.2 if info['energy_algorithm'] == 'temperature_sou' else .6)
         assert history['energy_algorithm'] == history['effective_settings']['energy_algorithm'] == info['energy_algorithm']
         assert type(history['energy_algorithm_version']) is int
         assert history['energy_algorithm_version'] == history['effective_settings']['energy_algorithm_version'] == \

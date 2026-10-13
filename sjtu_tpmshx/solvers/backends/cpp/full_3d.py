@@ -20,9 +20,10 @@ from ._simple_abi import _F2
 from .model_h import _Result as _ModelResult, _volume_info, _model_h_algorithm
 from .temperature import _temperature_algorithm
 from .temperature_evidence import TemperatureEvidence, copy_temperature_evidence
-from .enthalpy import _Result as _EnthalpyResult, _result_info as _enthalpy_result_info
+from .enthalpy import _Result as _EnthalpyResult
 from .enthalpy import (_EnergyOptions, _EnergyResult, _energy_options,
-                       _energy_algorithm_query, _energy_result_info, _energy_native_state, _ENERGY_NAMES)
+                       _energy_algorithm_query, _energy_result_info, _energy_native_state,
+                       _FullEnergyEffectiveSettings, _full_enthalpy_defaults, _full_enthalpy_info)
 from .closure_evidence import NuObservation, RangeObservation, copy_nu_observation, copy_range_observations, replay_range_observations
 
 
@@ -173,34 +174,6 @@ class _EnergyOptionsV2(ct.Structure):
                 ('require_enthalpy_update_on_temperature', ct.c_uint32)]
 
 
-class _EnergyEffectiveSettings(ct.Structure):
-    _fields_ = [(name, ct.c_uint32) for name in (
-        'available', 'algorithm', 'require_enthalpy_update_on_temperature')]
-    _fields_ += [(name, ct.c_size_t) for name in ('max_iterations', 'sweeps')]
-    _fields_ += [(name, ct.c_double) for name in ('omega', 'update_tolerance',
-        'temperature_update_tolerance', 'coupled_energy_tolerance', 'equation_energy_tolerance')]
-
-
-class _FullEnergyEffectiveSettings(ct.Structure):
-    _fields_ = [('resolved', _EnergyEffectiveSettings), ('last', _EnergyEffectiveSettings),
-                ('outer', ct.POINTER(_EnergyEffectiveSettings)), ('outer_count', ct.c_size_t)]
-
-
-def _executed_energy_settings(info, actual):
-    if actual.available != 1 or actual.algorithm not in range(len(_ENERGY_NAMES)):
-        raise RuntimeError('native full 3D omitted executed thermal settings')
-    info['effective_settings'].update(
-        update_tol=actual.update_tolerance,
-        coupled_energy_tol=actual.coupled_energy_tolerance,
-        equation_energy_tol=actual.equation_energy_tolerance,
-        max_iterations=actual.max_iterations, sweeps=actual.sweeps, omega=actual.omega,
-        energy_algorithm=_ENERGY_NAMES[actual.algorithm],
-        require_enthalpy_update_on_temperature=bool(actual.require_enthalpy_update_on_temperature),
-        effective_settings_source='native_completed_thermal_call', driver_abi=3)
-    if actual.algorithm:
-        info['effective_settings']['temperature_update_tol_K'] = actual.temperature_update_tolerance
-
-
 def _copy(v, shape=None):
     if not v.size:
         return None
@@ -215,12 +188,6 @@ def _pressure(p):
                 outlet_gauge_Pa=p.outlet_gauge, minimum_Pa=p.minimum,
                 relative_error=p.relative_error, relative_tolerance=p.relative_tolerance,
                 passed=bool(p.passed), definition=p.definition.decode())
-
-
-def _enthalpy_info(r, settings):
-    return _enthalpy_result_info(r, update_tol=settings.enthalpy_update_tolerance,
-        coupled_energy_tol=.001,equation_energy_tol=.001,max_iterations=settings.enthalpy_iterations,
-        sweeps=settings.enthalpy_sweeps,omega=settings.enthalpy_omega)
 
 
 def _model_info(r, shape, *, include_faces):
@@ -253,6 +220,12 @@ class NativeFull3DDriver:
         self.call.restype = ct.c_int
         self.release = self.library.tpmshx_full_3d_release_v1
         self.release.argtypes, self.release.restype = [ct.POINTER(_Result)], None
+        try:
+            self.query_settings = self.library.tpmshx_full_3d_get_energy_effective_settings_v1
+        except AttributeError as exc:
+            raise ValueError('native full 3D library lacks executed settings; rebuild the library') from exc
+        self.query_settings.argtypes = [ct.POINTER(_Result), ct.POINTER(_FullEnergyEffectiveSettings)]
+        self.query_settings.restype = ct.c_int
         try:
             self.query_bootstrap = self.library.tpmshx_full_3d_get_bootstrap_trace_v1
         except AttributeError as exc:
@@ -290,27 +263,26 @@ class NativeFull3DDriver:
         control.check_cancelled()
         energy = _energy_options(cfg.get('enthalpy_algorithm', 'legacy_h_fou'),
                                  cfg.get('enthalpy_temperature_tol_K', 1e-8))
+        defaults = _full_enthalpy_defaults(self.library, 3, energy.algorithm,
+            'water' in (cfg['fluid_type_A'], cfg['fluid_type_B']))
         require_h = cfg.get('require_enthalpy_update_on_temperature', False)
         if type(require_h) is not bool:
             raise ValueError('require_enthalpy_update_on_temperature must be boolean')
         strict_options = require_h or any(cfg.get(name) is not None for name in (
             'ltne_enthalpy_coupled_energy_tol', 'ltne_enthalpy_equation_energy_tol'))
-        energy_call = energy_query = settings_query = version_query = None
+        energy_call = energy_query = version_query = None
         entry_version = 1
         if strict_options:
             energy = _EnergyOptionsV2(energy.algorithm, energy.temperature_update_tolerance,
-                .001 if cfg.get('ltne_enthalpy_coupled_energy_tol') is None else cfg['ltne_enthalpy_coupled_energy_tol'],
-                .001 if cfg.get('ltne_enthalpy_equation_energy_tol') is None else cfg['ltne_enthalpy_equation_energy_tol'],
+                defaults.coupled_energy_tolerance if cfg.get('ltne_enthalpy_coupled_energy_tol') is None else cfg['ltne_enthalpy_coupled_energy_tol'],
+                defaults.equation_energy_tolerance if cfg.get('ltne_enthalpy_equation_energy_tol') is None else cfg['ltne_enthalpy_equation_energy_tol'],
                 require_h)
             try:
                 energy_call = self.library.tpmshx_solve_full_3d_v3
-                settings_query = self.library.tpmshx_full_3d_get_energy_effective_settings_v1
             except AttributeError as exc:
                 raise ValueError('native full 3D library lacks explicit energy controls v3') from exc
             energy_call.argtypes = [*self.call.argtypes[:2], ct.POINTER(_EnergyOptionsV2), *self.call.argtypes[2:]]
             energy_call.restype = ct.c_int
-            settings_query.argtypes = [ct.POINTER(_Result), ct.POINTER(_FullEnergyEffectiveSettings)]
-            settings_query.restype = ct.c_int
             entry_version = 3
         elif energy.algorithm:
             try:
@@ -394,8 +366,10 @@ class NativeFull3DDriver:
             int(np.prod(shape)>=int(os.environ.get('TPMSHX_PARALLEL_THRESHOLD','200000'))),
             _F2(cfg.get('mom_tol') or 1e-4, cfg.get('mass_local_tol') or 1e-6, cfg.get('mass_global_tol') or 1e-6,
                 .01, 1e-4, 1e-3, 2, 5, 60))
-        c.enthalpy_iterations, c.enthalpy_sweeps = _count(cfg.get('ltne_enthalpy_outer',1500)), _count(cfg.get('ltne_enthalpy_nsweep',5 if energy.algorithm else 25),zero=True)
-        c.enthalpy_omega, c.enthalpy_update_tolerance = cfg.get('ltne_enthalpy_omega',.2 if energy.algorithm == 2 else .6), cfg.get('ltne_enthalpy_tol',1e-3)
+        c.enthalpy_iterations = _count(cfg.get('ltne_enthalpy_outer', defaults.max_iterations))
+        c.enthalpy_sweeps = _count(cfg.get('ltne_enthalpy_nsweep', defaults.sweeps), zero=True)
+        c.enthalpy_omega = cfg.get('ltne_enthalpy_omega', defaults.omega)
+        c.enthalpy_update_tolerance = cfg.get('ltne_enthalpy_tol', defaults.update_tolerance)
         c.table_directory = self.table_directory
         callback_errors = []
         def callback(fn, *args):
@@ -435,8 +409,13 @@ class NativeFull3DDriver:
                 raise cancelled_error
             if result.stop not in (0,1):
                 raise RuntimeError('invalid native full 3D exit')
-            detached=_detach(result, shape, c, emit_audit=bool(cfg.get('_emit_audit',False)),
-                             application_only=application_only)
+            actual = _FullEnergyEffectiveSettings()
+            if self.query_settings(ct.byref(result), ct.byref(actual)):
+                raise RuntimeError('native full 3D effective settings query failed')
+            if actual.outer_count != result.outer_count:
+                raise RuntimeError('native full 3D effective settings do not match the thermal history')
+            detached=_detach(result, shape, c, actual, entry_version,
+                             emit_audit=bool(cfg.get('_emit_audit',False)), application_only=application_only)
             if energy_query:
                 extra = _EnergyEvidence()
                 if energy_query(ct.byref(result), ct.byref(extra)):
@@ -444,23 +423,13 @@ class NativeFull3DDriver:
                 if detached['true_h'] is None or extra.outer_count != len(detached['outer']):
                     raise RuntimeError('native full 3D energy evidence does not match the thermal history')
                 _energy_result_info(detached['true_h'], extra.energy,
-                    temperature_tol=energy.temperature_update_tolerance, abi=entry_version, version_query=version_query)
+                    temperature_tol=actual.last.temperature_update_tolerance, abi=entry_version, version_query=version_query)
                 _energy_native_state(detached['true_h'], extra, shape, 'W')
                 for index, row in enumerate(detached['outer']):
                     _energy_result_info(row['true_h_info'], extra.outer[index],
-                        temperature_tol=energy.temperature_update_tolerance, abi=entry_version, version_query=version_query)
+                        temperature_tol=actual.outer[index].temperature_update_tolerance, abi=entry_version, version_query=version_query)
                 detached['mode'] = 'conservative_energy'
             detached['entry_version'] = entry_version
-            if settings_query:
-                actual = _FullEnergyEffectiveSettings()
-                if settings_query(ct.byref(result), ct.byref(actual)):
-                    raise RuntimeError('native full 3D effective settings query failed')
-                if (actual.resolved.available != 1 or detached['true_h'] is None
-                        or actual.outer_count != len(detached['outer'])):
-                    raise RuntimeError('native full 3D effective settings do not match the thermal history')
-                _executed_energy_settings(detached['true_h'], actual.last)
-                for index, row in enumerate(detached['outer']):
-                    _executed_energy_settings(row['true_h_info'], actual.outer[index])
             if detached['mode'] in ('model_h', 'temperature'):
                 if detached['mode'] == 'model_h':
                     algorithm = _model_h_algorithm(self.library, 3)
@@ -508,7 +477,7 @@ class NativeFull3DDriver:
                 self.release(ct.byref(result))
 
 
-def _detach(r, shape, settings, *, emit_audit=False, application_only=False):
+def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=False, application_only=False):
     result = {name: getattr(r, name) if name == 'stop' else bool(getattr(r, name)) for name in _FLAGS}
     result.update({name: list(getattr(r, name)) for name in _PAIRS})
     result.update({name: getattr(r, name) for name in ('energy_imbalance', 'interior_duty', 'interior_imbalance', 'enthalpy_imbalance')})
@@ -580,7 +549,7 @@ def _detach(r, shape, settings, *, emit_audit=False, application_only=False):
                                                           residuals=[] if not a.residuals.size else _copy(a.residuals).tolist())
         result['flow'].append(flow)
     result['model_h'] = _model_info(r.model_h,shape,include_faces=True) if r.has_model_h else None
-    result['true_h'] = _enthalpy_info(r.true_h,settings) if r.has_true_h else None
+    result['true_h'] = _full_enthalpy_info(r.true_h,energy_settings.last,entry_version) if r.has_true_h else None
     if r.has_true_h:
         true_h=result['true_h']
         true_h['_native_state']=dict(h_A=result['enthalpy'][0],h_B=result['enthalpy'][1],
@@ -613,7 +582,7 @@ def _detach(r, shape, settings, *, emit_audit=False, application_only=False):
             row['energy_finishing_checks']=info['energy_finishing_checks']
             row['model_h_balance']=dict(info['model_h_balance'],outer_index=h.outer_index,converged=bool(h.thermal_converged),iterations=h.thermal_iterations)
         if h.has_true_h:
-            row['true_h_info']=_enthalpy_info(h.true_h,settings)
+            row['true_h_info']=_full_enthalpy_info(h.true_h,energy_settings.outer[i],entry_version)
         result['outer'].append(row)
     result['simple_failures']=[r.simple_failures[i].decode() for i in range(r.simple_failure_count)]
     result['warnings']=[r.warnings[i].decode() for i in range(r.warning_count)]

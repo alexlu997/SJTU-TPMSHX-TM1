@@ -37,20 +37,11 @@ def test_strict_controls_survive_json_and_override_route_defaults(tmp_path, algo
     assert parsed['ltne_enthalpy_tol'] != parsed['enthalpy_temperature_tol_K']
 
 
-@pytest.mark.parametrize('algorithm,omega', [('legacy_h_fou', None), ('temperature_fou', .6), ('temperature_sou', .2)])
-def test_unspecified_controls_keep_existing_preparation_defaults(algorithm, omega):
+@pytest.mark.parametrize('algorithm', ['legacy_h_fou', 'temperature_fou', 'temperature_sou'])
+def test_unspecified_controls_remain_unset_for_native_resolution(algorithm):
     cfg = config(algorithm)
     parsed = _parse_geometry_inputs_3d_cfg(cfg)
-    if algorithm == 'legacy_h_fou':
-        assert all(key not in parsed for key in STRICT)
-    else:
-        assert parsed['ltne_enthalpy_outer'] == 1500
-        assert parsed['ltne_enthalpy_nsweep'] == 5
-        assert parsed['ltne_enthalpy_omega'] == omega
-        assert parsed['ltne_enthalpy_tol'] == 1e-3
-        assert all(key not in parsed for key in (
-            'ltne_enthalpy_coupled_energy_tol', 'ltne_enthalpy_equation_energy_tol',
-            'require_enthalpy_update_on_temperature'))
+    assert all(key not in parsed for key in STRICT)
 
 
 @pytest.mark.parametrize('key,value', [
