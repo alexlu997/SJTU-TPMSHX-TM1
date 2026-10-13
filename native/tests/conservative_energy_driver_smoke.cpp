@@ -471,11 +471,11 @@ int main() {
         // Reuse the evaluator after rejected states and other valid PT states.
         for (const auto fluid:{Fluid::water,Fluid::co2,Fluid::sco2,Fluid::air}) {
             const char* name=fluid==Fluid::water ? "Water" : fluid==Fluid::air ? "Air" : "CO2";
-            auto reference=make_eos_state("HEOS",name);
+            auto heos_reference=make_eos_state("HEOS",name);
             for (const double pressure:{2e6,8e6}) for (const double temperature:{300.,350.}) {
                 if (fluid==Fluid::sco2 && pressure<7.9e6) continue;
-                reference->update(CoolProp::PT_INPUTS,pressure,temperature);
-                const double h=reference->hmass(),cp=reference->cpmass(),k=reference->conductivity();
+                heos_reference->update(CoolProp::PT_INPUTS,pressure,temperature);
+                const double h=heos_reference->hmass(),cp=heos_reference->cpmass(),k=heos_reference->conductivity();
                 eos.validate(fluid,temperature+1.,pressure,"other PT state");
                 const auto actual=eos.evaluate_state(fluid,temperature,pressure,"PT reuse regression");
                 require(std::abs(actual.enthalpy-h)<=2e-10*std::max(std::abs(h),1.)
