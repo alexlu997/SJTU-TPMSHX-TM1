@@ -160,6 +160,19 @@ def test_capped_partial_fields_last_inputs_and_recomputed_metrics(driver, mode):
         actual, raw = captured(driver, case)
     compare_range_records(actual_records, expected_records)
     compare_portable(actual, expected)
+    for result in (actual, expected):
+        samples = result.metadata['property_sampling']
+        for label in 'AB':
+            fluid = case.model_refs[case.metadata['model_roles']['fluid_' + label]].parameters['fluid']
+            hv = [r for r in samples if r['side'] == label and r['stage'] == 'thermal_hv' and r['quantity'] == 'conductivity']
+            assert len(hv) == 1 and hv[0]['outer_index'] == result.run_status['outer_index']
+            assert hv[0]['pressure'] == 'inlet'
+            operation = ('local_evaluation' if fluid == 'sco2' else 'evaluation_at_volume_mean_temperature') if mode == 'true_h' else 'scalar_evaluation'
+            assert hv[0]['operation'] == operation
+        post = [r for r in samples if r['stage'] == 'property_post']
+        assert max(r['outer_index'] for r in post) == result.run_status['outer_index']
+        assert any(r['stage'] == 'refined_thermal' for r in samples) == (mode == 'model_h')
+        assert result.metadata['input_resolution']['source'] == 'CaseData.parameters'
     assert actual.run_status['final_flow_after_last_thermal']
     assert not actual.run_status['converged']
     assert not np.array_equal(actual.fields['Ta'], actual.fields['Ta_display'])

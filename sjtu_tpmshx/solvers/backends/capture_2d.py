@@ -53,6 +53,7 @@ def capture_result(case, display_fields, native, application, diagnostics, *,
                       model_metadata=model_metadata, notices=case.metadata['notices'],
                       diagnostics=diagnostics, df_metadata=diagnostics['df_metadata'],
                       model_roles=case.metadata['model_roles'],
+                      **{key: native[key] for key in ('input_resolution', 'property_sampling') if key in native},
                       reporting_reference={key: diagnostics[key] for key in (
                           'Q_total', 'dP_A', 'dP_B', 'T_out_A_K', 'T_out_B_K')}))
 

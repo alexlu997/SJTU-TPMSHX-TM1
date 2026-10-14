@@ -1,5 +1,7 @@
 #pragma once
 
+#include "tpmshx/property_sampling.hpp"
+
 #include "tpmshx/enthalpy_driver.hpp"
 #include "tpmshx/closure_evidence.hpp"
 #include "tpmshx/model_h_3d.hpp"
@@ -123,9 +125,11 @@ struct Full3DFlowState {
     std::vector<double> pressure_real, density_real;
     std::vector<double> speed_real;
     std::array<std::vector<double>,3> velocity_real, face_velocity_real;
+    std::vector<PropertySample> property_sampling;
 };
 
 struct Full3DThermalEvidence {
+    std::vector<PropertySample> property_sampling;
     // Detached before the subsequent post update, including the final capped
     // post. These fields cannot be reconstructed from the later final flow.
     Full3DThermalMode mode = Full3DThermalMode::temperature;
@@ -172,6 +176,7 @@ struct Full3DResult {
     std::vector<Full3DOuterRecord> outer;
     std::vector<std::string> simple_failures, warnings,envelope_reasons;
     std::array<std::vector<double>,2> final_conductivity,final_rho_cp;
+    std::vector<PropertySample> property_sampling;
     std::array<double,2> inlet_cp{};
     std::array<NuObservation,2> nu_observations;
     std::vector<RangeObservation> range_observations;

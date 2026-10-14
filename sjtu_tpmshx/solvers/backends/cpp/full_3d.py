@@ -5,6 +5,7 @@ owned output views. SIMPLE, EOS, closure refresh, energy, outer coupling and
 physical convergence verdicts are produced by the C++ call.
 """
 import ctypes as ct
+from .property_sampling import sampling_query, copy_sampling
 import os
 from pathlib import Path
 
@@ -226,6 +227,7 @@ class NativeFull3DDriver:
             raise ValueError('native full 3D library lacks executed settings; rebuild the library') from exc
         self.query_settings.argtypes = [ct.POINTER(_Result), ct.POINTER(_FullEnergyEffectiveSettings)]
         self.query_settings.restype = ct.c_int
+        self.query_sampling = sampling_query(self.library, 3, _Result)
         try:
             self.query_bootstrap = self.library.tpmshx_full_3d_get_bootstrap_trace_v1
         except AttributeError as exc:
@@ -429,6 +431,7 @@ class NativeFull3DDriver:
                     _energy_result_info(row['true_h_info'], extra.outer[index],
                         temperature_tol=actual.outer[index].temperature_update_tolerance, abi=entry_version, version_query=version_query)
                 detached['mode'] = 'conservative_energy'
+            detached['property_sampling'] = copy_sampling(self.query_sampling, result)
             detached['entry_version'] = entry_version
             if detached['mode'] in ('model_h', 'temperature'):
                 if detached['mode'] == 'model_h':

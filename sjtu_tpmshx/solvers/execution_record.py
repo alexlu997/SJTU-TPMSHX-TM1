@@ -47,6 +47,9 @@ def full_execution_record(case, result):
                             energy=energy, property_evaluation=evaluation)
     return dict(version='full_execution_v1', backend=result.backend_id,
                 backend_version=result.backend_version, dimension=case.grid['dimension'],
+                **({'input_resolution': metadata['input_resolution']} if 'input_resolution' in metadata else {}),
+                **({'property_sampling': dict(version='full_sampling_v1', records=metadata['property_sampling'])}
+                   if 'property_sampling' in metadata else {}),
                 sides=sides, closure_model_refs={key: roles[key] for key in ('geometry', 'darcy_forchheimer')},
                 numerics=dict(thermal_mode=mode, unknown='h' if mode == 'true_h' else 'T',
                               algorithm=algorithm, algorithm_version=settings.get('energy_algorithm_version'),
@@ -59,3 +62,24 @@ def full_execution_record(case, result):
                                                       result.field_metadata['P_report_' + label]['state']
                                                       for label, value in result.pressure_evidence.items()},
                               outer_index=result.run_status['outer_index']))
+
+
+def resolved_input_record(case, providers, shape, directions):
+    """Record resources only after the execution builder has validated them."""
+    roles = case.metadata['model_roles']
+    return dict(version='prepared_input_v1', source='CaseData.parameters',
+                grid_source='CaseData.grid', design_source='CaseData.design_fields',
+                grid_shape=tuple(shape), active_sides=tuple(directions), directions=directions,
+                grid_length_unit='m', cell_length_unit_in_file='m', cell_length_unit_after_resolution='mm',
+                resources={role: dict(model_ref=index, name=case.model_refs[index].name,
+                                      version=case.model_refs[index].version)
+                           for role, index in roles.items()},
+                fluids={side: providers['fluid_' + side].name for side in ('A', 'B')})
+
+
+def record_property_samples(records, side, outer_index, stage, provider,
+                            temperature, pressure, operation, *quantities):
+    """Describe a sampling operation at its numerical owner."""
+    records.extend(dict(side=side, outer_index=outer_index, stage=stage, quantity=quantity,
+                        provider=provider, temperature=temperature, pressure=pressure,
+                        operation=operation) for quantity in quantities)

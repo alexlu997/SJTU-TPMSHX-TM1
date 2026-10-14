@@ -172,6 +172,7 @@ def capture_result(case, cfg, p, r, abi):
         pressure_evidence=pressure,run_status=dict(execution='completed',converged=r['converged'],outer_index=r['outer_index']),
         metadata=dict(dimension=3,quantity_basis='total',thermal_mode=r['mode'],parameters=case.parameters,design_fields=case.design_fields,
             **({'temperature_transport':temperature_transport} if temperature_transport is not None else {}),
+            input_resolution=cfg['_input_resolution'], property_sampling=r['property_sampling'],
             design_mode=case.metadata['design_mode'],model_metadata=model_metadata,notices=case.metadata['notices'],
             application=dict(coeffs=dict(K_ffA=r['final_conductivity'][0],K_ffB=r['final_conductivity'][1],
                 K_ss=np.asarray(p['design']['K_ss']) if emit_audit else None),

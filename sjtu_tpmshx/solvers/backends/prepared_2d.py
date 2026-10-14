@@ -109,4 +109,7 @@ def build_execution_inputs(case: CaseData, *, copy_design=True):
         zone = ZoneConfig(**zone)
     cfg['zone_config'] = zone
     prepared = dict(energy_dx=dx, energy_dy=dy)
+    from sjtu_tpmshx.solvers.execution_record import resolved_input_record
+    cfg['_input_resolution'] = resolved_input_record(
+        case, cfg['_models'], shape, {side: cfg['cfg' + side]['dir'] for side in ('A', 'B')})
     return cfg, prepared
