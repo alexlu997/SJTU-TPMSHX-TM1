@@ -156,7 +156,7 @@ int main(void) {
         const tpmshx_model_h_iteration_record_v1* row=&model_records.records[i];
         assert(row->max_iterations==17 && row->chunk_iterations==500);
         assert(row->temperature_tolerance==1e-5 && row->q_relative_tolerance==1e-8);
-        assert(row->refined==(i+1==model_records.count));
+        assert(row->refined==(uint32_t)(i+1==model_records.count));
     }
     model_options.temperature_tolerance=99.;
     assert(model_records.records[0].temperature_tolerance==1e-5);
