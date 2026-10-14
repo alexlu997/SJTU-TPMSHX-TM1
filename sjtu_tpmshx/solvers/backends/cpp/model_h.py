@@ -13,6 +13,72 @@ from sjtu_tpmshx.domain.cancellation import CancelledError
 from ._thermal_abi import _Callbacks, _Cancel as _Cancel, _Progress as _Progress, make_callbacks
 
 
+class _IterationOptions(ct.Structure):
+    _fields_ = [('max_iterations', ct.c_size_t), ('temperature_tolerance', ct.c_double),
+                ('q_relative_tolerance', ct.c_double)]
+
+
+class _IterationRecord(ct.Structure):
+    _fields_ = [('outer_index', ct.c_size_t), ('attempt', ct.c_size_t), ('refined', ct.c_uint32),
+                ('max_iterations', ct.c_size_t), ('chunk_iterations', ct.c_size_t),
+                ('temperature_tolerance', ct.c_double), ('q_relative_tolerance', ct.c_double),
+                ('total_iteration_budget', ct.c_size_t)]
+
+
+class _IterationRecords(ct.Structure):
+    _fields_ = [('records', ct.POINTER(_IterationRecord)), ('count', ct.c_size_t)]
+
+
+def _iteration_options(settings):
+    names = ('model_h_max_iterations', 'model_h_temperature_tol_K', 'model_h_q_relative_tol')
+    values = [settings.get(name) for name in names]
+    if all(value is None for value in values):
+        return None
+    for index, (name, value) in enumerate(zip(names, values)):
+        if value is None:
+            values[index] = 0
+        elif index == 0:
+            if type(value) is not int or not 0 < value <= ct.c_size_t(-1).value:
+                raise ValueError(f'{name} must be a positive size_t integer')
+        elif (isinstance(value, bool) or not isinstance(value, (int, float))
+              or not np.isfinite(value) or value <= 0.):
+            raise ValueError(f'{name} must be finite and positive')
+    return _IterationOptions(*values)
+
+
+def _iteration_query(library, dimension, result_type):
+    try:
+        query = getattr(library, f'tpmshx_full_{dimension}d_get_model_h_iterations_v1')
+    except AttributeError as exc:
+        raise ValueError('native library lacks model-h iteration records; rebuild the library') from exc
+    query.argtypes = [ct.POINTER(result_type), ct.POINTER(_IterationRecords)]
+    query.restype = ct.c_int
+    return query
+
+
+def _copy_iteration_records(query, result):
+    view = _IterationRecords()
+    if query(ct.byref(result), ct.byref(view)):
+        raise RuntimeError('native model-h iteration query failed')
+    if view.count and not view.records:
+        raise RuntimeError('native model-h iteration records are missing')
+    records = []
+    for index in range(view.count):
+        row = view.records[index]
+        if (row.refined not in (0, 1) or not row.max_iterations or not row.chunk_iterations
+                or row.total_iteration_budget < row.max_iterations
+                or not np.isfinite(row.temperature_tolerance) or row.temperature_tolerance <= 0.
+                or not np.isfinite(row.q_relative_tolerance) or row.q_relative_tolerance < 0.):
+            raise RuntimeError('invalid native model-h iteration record')
+        records.append(dict(outer_index=row.outer_index, attempt=row.attempt,
+            stage='refined_thermal' if row.refined else 'outer_thermal',
+            settings=dict(max_iterations=row.max_iterations, chunk_iterations=row.chunk_iterations,
+                          temperature_update_tolerance_K=row.temperature_tolerance,
+                          q_relative_tolerance=row.q_relative_tolerance,
+                          total_iteration_budget=row.total_iteration_budget)))
+    return dict(version='model_h_iterations_v1', records=records)
+
+
 class _Array(ct.Structure):
     _fields_ = [('data', ct.POINTER(ct.c_double)), ('size', ct.c_size_t)]
 

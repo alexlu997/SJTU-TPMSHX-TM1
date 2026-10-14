@@ -72,6 +72,7 @@ struct Full3DControl {
         true,true,false,true,false,Simple3DOrdering::natural,
         {1e-4,1e-6,1e-6,.01,1e-4,1e-3,2,5,60},nullptr,nullptr,nullptr};
     EnthalpyControl enthalpy = full_enthalpy_control(3);
+    ModelHIterationOverrides model_h_iterations;
     std::optional<double> initial_solid_temperature;
     bool (*cancel)(void*) = nullptr;
     void (*progress)(void*,double percent) = nullptr;
@@ -152,6 +153,7 @@ struct Full3DThermalEvidence {
 };
 
 struct Full3DOuterRecord {
+    std::vector<ModelHIterationSettings> model_h_iterations;
     std::size_t outer_index = 0, thermal_iterations = 0;
     double thermal_residual = 0.;
     std::array<double,3> temperature_change{};

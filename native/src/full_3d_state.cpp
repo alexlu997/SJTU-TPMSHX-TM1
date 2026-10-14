@@ -43,13 +43,19 @@ template<class Archive,class Value> void walk(Archive& archive,Value& value,Enth
     FIELD(max_iterations) FIELD(sweeps) FIELD(omega) FIELD(update_tolerance) FIELD(coupled_energy_tolerance)
     FIELD(equation_energy_tolerance) FIELD(algorithm) FIELD(temperature_update_tolerance) FIELD(require_enthalpy_update_on_temperature)
 }
+template<class Archive,class Value> void walk(Archive& archive,Value& value,ModelHIterationOverrides*) {
+    FIELD(max_iterations) FIELD(temperature_tolerance) FIELD(q_relative_tolerance)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,ModelHIterationSettings*) {
+    FIELD(max_iterations) FIELD(chunk_iterations) FIELD(temperature_tolerance) FIELD(q_relative_tolerance) FIELD(total_iteration_budget)
+}
 template<class Archive,class Value> void walk(Archive& archive,Value& value,Full3DControl*) {
     FIELD(max_outer) FIELD(initial_simple_iterations) FIELD(warm_simple_iterations) FIELD(thermal_iterations) FIELD(outer_temperature_tolerance)
     FIELD(thermal_relaxation) FIELD(pressure_shooting) FIELD(variable_rho_cp) FIELD(conservative) FIELD(strict_mass_balance)
     FIELD(force_cell_centered) FIELD(refined_port_energy) FIELD(red_black_energy) FIELD(sco2_local_pressure_a) FIELD(coarse_bootstrap)
     FIELD(outer_anderson) FIELD(coarse_iterations) FIELD(anderson_history) FIELD(anderson_patience) FIELD(anderson_trust)
     FIELD(roughness_mode) FIELD(roughness_height) FIELD(envelope_mode) FIELD(simple) FIELD(enthalpy)
-    FIELD(initial_solid_temperature)
+    FIELD(initial_solid_temperature) FIELD(model_h_iterations)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,PropertySample*) {
     FIELD(side) FIELD(stage) FIELD(quantity) FIELD(provider) FIELD(temperature)
@@ -188,7 +194,7 @@ template<class Archive,class Value> void walk(Archive& archive,Value& value,Full
 template<class Archive,class Value> void walk(Archive& archive,Value& value,Full3DOuterRecord*) {
     FIELD(outer_index) FIELD(thermal_iterations) FIELD(thermal_residual) FIELD(temperature_change) FIELD(inlet_pressure)
     FIELD(pressure_reference) FIELD(pressure_range) FIELD(thermal_converged) FIELD(coupling_converged) FIELD(rejected_startup_iterations)
-    FIELD(rejected_startup_reasons) FIELD(startup_total_iterations) FIELD(model_h) FIELD(true_h)
+    FIELD(rejected_startup_reasons) FIELD(startup_total_iterations) FIELD(model_h) FIELD(true_h) FIELD(model_h_iterations)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,NuObservation*) {
     FIELD(available) FIELD(cells) FIELD(floor_cells) FIELD(raw_min) FIELD(raw_max)

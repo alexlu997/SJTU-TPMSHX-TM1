@@ -35,6 +35,19 @@ struct ModelHAudit2D {
     bool boundary_complete, finite, energy_ok, solid_ok, equations_ok, passed;
 };
 
+struct ModelHIterationOverrides {
+    // Zero retains the route default, including its refined-grid budget.
+    std::size_t max_iterations=0;
+    double temperature_tolerance=0.,q_relative_tolerance=0.;
+    bool active() const { return max_iterations || temperature_tolerance || q_relative_tolerance; }
+};
+
+struct ModelHIterationSettings {
+    std::size_t max_iterations,chunk_iterations;
+    double temperature_tolerance,q_relative_tolerance;
+    std::size_t total_iteration_budget;
+};
+
 struct ModelHControl2D {
     std::size_t max_iterations, chunk_iterations;
     double q_relative_tolerance;
@@ -46,6 +59,7 @@ struct ModelHControl2D {
     // FullCC uses the existing h(T) model with its own strict final-state
     // energy gate. The original model-h certificate/stopping defaults remain.
     bool strict_energy_balance = false;
+    double temperature_tolerance = .01;
 };
 
 struct ModelHFinishingCheck2D {

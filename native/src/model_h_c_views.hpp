@@ -7,6 +7,14 @@
 // finishing vector until all views are consumed. This does not assign a C
 // owner handle; only the API owning the complete result can release it.
 namespace tpmshx::model_h_c_views {
+inline ModelHIterationOverrides iteration_options(const tpmshx_model_h_iteration_options_v1& o) {
+    return {o.max_iterations,o.temperature_tolerance,o.q_relative_tolerance};
+}
+inline tpmshx_model_h_iteration_record_v1 iteration_record(const ModelHIterationSettings& s,
+        std::size_t outer,std::size_t attempt=0,bool refined=false) {
+    return {outer,attempt,static_cast<uint32_t>(refined),s.max_iterations,s.chunk_iterations,
+            s.temperature_tolerance,s.q_relative_tolerance,s.total_iteration_budget};
+}
 inline tpmshx_model_h_array_v1 owned(const std::vector<double>& x) { return {x.data(),x.size()}; }
 inline void side_2d(tpmshx_model_h_side_2d_v1& out,const ModelHSideAudit2D& s) {
     out.q_advective=s.q_advective; out.inlet_conduction=s.inlet_conduction; out.exchange=s.exchange;

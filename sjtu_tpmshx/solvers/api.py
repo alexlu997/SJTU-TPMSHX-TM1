@@ -37,6 +37,10 @@ def run_case(case: CaseData, control: RunControl = RunControl()) -> FieldResult:
     if (explicit_energy_gates or require_h or explicit_2d_thermal) and (
             control.backend != 'cpp' or mode != 'full'):
         raise ValueError('explicit energy controls require full compute with backend=cpp')
+    if any(settings.get(name) is not None for name in (
+            'model_h_max_iterations', 'model_h_temperature_tol_K', 'model_h_q_relative_tol')) and (
+                control.backend != 'cpp' or mode != 'full'):
+        raise ValueError('explicit model-h controls require full compute with backend=cpp')
     if control.backend == 'python' or mode != 'full':
         from sjtu_tpmshx.domain.run_environment import require_python_kernel
         require_python_kernel(case.parameters)

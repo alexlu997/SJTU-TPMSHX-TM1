@@ -51,6 +51,8 @@ def capture_result(case, cfg, p, r, abi):
             applied=cfd_metadata(f['permeability'],f['forchheimer'])
             df_metadata[label]=dict((cfg.get('df_application') or {}).get(label,{}) if df_metadata['mode']=='experimental' else base,
                 base_K=base['base_K'],base_cF=base['base_cF'],applied_K=applied['applied_K'],applied_cF=applied['applied_cF'])
+    model_h_calls=r['model_h_iterations']['records']
+    thermal_budget=(model_h_calls[-1]['settings']['total_iteration_budget'] if model_h_calls else p['ltne_max_iter'])
     ltne=[]
     for h in r['outer']:
         row={key:h[key] for key in ('outer','iters','converged','residual')}
@@ -89,7 +91,7 @@ def capture_result(case, cfg, p, r, abi):
         energy_imbalance_rel=r['energy_imbalance'],mass_imbalance_rel_A=r['mass_imbalance'][0],mass_imbalance_rel_B=r['mass_imbalance'][1],
         Q_AB_imbalance_rel=r['enthalpy_imbalance'],Q_sA_interior=r['interior_exchange'][0],Q_sB_interior=r['interior_exchange'][1],
         Q_interior=r['interior_duty'],AB_interior=r['interior_imbalance'],**strict,_ltne_info=ltne,
-        _max_outer=p['max_outer'] if p['max_outer'] is not None else 12,_ltne_max_iter=p['ltne_max_iter'],
+        _max_outer=p['max_outer'] if p['max_outer'] is not None else 12,_ltne_max_iter=thermal_budget,
         _needs_full_validate=bool(p.get('compact',False) and not all(h['converged'] for h in ltne)),
         sco2_nu_observations=r['nu_observations'],df_metadata=df_metadata,
         solver_converged=r['converged'],envelope_valid=r['envelope_ok'],envelope_reasons=r['envelope_reasons'],
@@ -176,6 +178,7 @@ def capture_result(case, cfg, p, r, abi):
             **({'temperature_transport':temperature_transport} if temperature_transport is not None else {}),
             input_resolution=cfg['_input_resolution'], property_sampling=r['property_sampling'],
             simple_velocity_relaxation=r['simple_velocity_relaxation'],
+            model_h_iterations=r['model_h_iterations'],
             design_mode=case.metadata['design_mode'],model_metadata=model_metadata,notices=case.metadata['notices'],
             application=dict(coeffs=dict(K_ffA=r['final_conductivity'][0],K_ffB=r['final_conductivity'][1],
                 K_ss=np.asarray(p['design']['K_ss']) if emit_audit else None),

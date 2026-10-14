@@ -211,6 +211,10 @@ class SolverConfig:
     # full-flow route. The Python numerical implementation remains unchanged.
     enthalpy_algorithm: Literal['legacy_h_fou', 'temperature_fou', 'temperature_sou'] = 'legacy_h_fou'
     enthalpy_temperature_tol_K: float = 1e-8
+    # Optional integral h(T) controls; None keeps the actual route defaults.
+    model_h_max_iterations: Optional[int] = None
+    model_h_temperature_tol_K: Optional[float] = None
+    model_h_q_relative_tol: Optional[float] = None
     # Optional full EOS thermal controls. None keeps the route's existing
     # defaults; explicit values survive config -> prepared case -> replay.
     ltne_enthalpy_outer: Optional[int] = None
@@ -569,7 +573,7 @@ class ComputeConfig:
                                    self.solver.enthalpy_temperature_tol_K)
 
         validate_simple_velocity_relaxation(self.solver.simple_velocity_relaxation)
-        for name in ('ltne_enthalpy_outer', 'ltne_enthalpy_nsweep'):
+        for name in ('ltne_enthalpy_outer', 'ltne_enthalpy_nsweep', 'model_h_max_iterations'):
             value = getattr(self.solver, name)
             if value is None:
                 continue
@@ -577,7 +581,8 @@ class ComputeConfig:
             if type(value) is not int or value < minimum:
                 raise ValueError(f'ComputeConfig.solver.{name} must be an integer >= {minimum}')
         for name in ('ltne_enthalpy_omega', 'ltne_enthalpy_tol',
-                     'ltne_enthalpy_coupled_energy_tol', 'ltne_enthalpy_equation_energy_tol'):
+                     'ltne_enthalpy_coupled_energy_tol', 'ltne_enthalpy_equation_energy_tol',
+                     'model_h_temperature_tol_K', 'model_h_q_relative_tol'):
             value = getattr(self.solver, name)
             if value is None:
                 continue

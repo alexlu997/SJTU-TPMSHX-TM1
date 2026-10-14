@@ -217,6 +217,19 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_physical_heat_ledg
  * and preserve output. Copy the strings before the result owner is released. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_property_sampling_v1(
     const tpmshx_full_2d_result_v2*,tpmshx_property_sampling_v1*);
+/* Integral h(T) controls for all actual model-h consumers, including full CC.
+ * options is required. Other thermal routes reject active overrides before flow.
+ * Existing input/result layouts, status codes and release operations apply. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v5(
+    const size_t*,const double* const*,const size_t*,const tpmshx_full_2d_config_v2*,
+    const tpmshx_model_h_iteration_options_v1*,const tpmshx_full_2d_callbacks_v2*,
+    tpmshx_full_2d_result_v2*,char*,size_t);
+/* Actual completed calls, including capped and rejected startup trials.
+ * Views borrow the result owner. Cancellation returns no records.
+ * Invalid or released owners return 1 and preserve the output. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_model_h_iterations_v1(
+    const tpmshx_full_2d_result_v2*,tpmshx_model_h_iteration_records_v1*);
+
 #ifdef __cplusplus
 }
 #endif

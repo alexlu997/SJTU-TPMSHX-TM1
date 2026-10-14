@@ -79,7 +79,7 @@ def native():
         dimensions = (ctypes.c_size_t*3)(*c["shape"])
         config = (ctypes.c_size_t*12)(c["maxit"], c["chunk"], c["warm"], c["accelerate"],
                                     c["rb"], *c["fluids"], *c["directions"], cancel_at, history is not None, c.get("strict", False))
-        values = (ctypes.c_double*6)(*c["tin"], c["qtol"], *c["alpha"])
+        values = (ctypes.c_double*7)(*c["tin"], c["qtol"], *c["alpha"], c.get("temperature_tol", .01))
         status, metrics, error = (ctypes.c_size_t*30)(), (ctypes.c_double*84)(), ctypes.create_string_buffer(512)
         code = active_function(dimensions, pointers, sizes, config, values, status, metrics, error, len(error))
         if history is not None:
@@ -522,3 +522,27 @@ def test_zero_duty_source_gate_matches_existing_strict_energy_scale(native, resi
     assert bool(actual[1][13]) is passed  # Fifth certificate gate: solid source balance.
     certificate = compute_phase2a(dict(returned_model_info(c), _audit_fB=True))
     assert certificate['eps_LTNE'] == pytest.approx(residual, abs=1e-11)
+
+
+def test_field_change_control_changes_finishing_without_relaxing_physical_gates(native):
+    counts = []
+    for tolerance in (1e6, 1e-12):
+        c = case(sweeps=19, chunk=5)
+        c.update(qtol=1e6, temperature_tol=tolerance)
+        history = []
+        actual = native(c, history=history)
+        assert actual[0] == 0, actual[-1]
+        assert_finishing_history(c, actual, history)
+        counts.append(actual[1][29])
+    assert counts[0] > 0 and counts[1] == 0
+
+
+@pytest.mark.parametrize('tolerance', [0., float('nan')])
+def test_invalid_field_change_control_preserves_input_state(native, tolerance):
+    c = case()
+    c['temperature_tol'] = tolerance
+    original = [field.copy() for field in c['state']]
+    actual = native(c)
+    assert actual[0] == 1 and 'control' in actual[-1]
+    for field, expected in zip(c['state'], original):
+        np.testing.assert_array_equal(field, expected)

@@ -5,6 +5,7 @@ import numpy as np
 
 from sjtu_tpmshx.models.fluid_props import WaterStateError
 from .enthalpy import _EnergyOptionsV2
+from .model_h import _IterationOptions
 from .full_3d import _Callbacks, _Control, _Input, _Result
 
 
@@ -23,12 +24,12 @@ _DTYPES = (np.dtype('float64'), np.dtype('uint64'), np.dtype('int64'), np.dtype(
 class NativeFull3DRun:
     """Advance one native boundary at a time. Close each run after use."""
 
-    def __init__(self, library, data, controls, energy, callbacks, *, state=None):
+    def __init__(self, library, data, controls, energy, callbacks, *, model_h=None, state=None):
         self.library = library
         self.handle = ct.c_void_p()
         self.callbacks = callbacks
         common = [ct.POINTER(_Input), ct.POINTER(_Control), ct.POINTER(_EnergyOptionsV2),
-                  ct.POINTER(_Callbacks)]
+                  ct.POINTER(_IterationOptions), ct.POINTER(_Callbacks)]
         tail = [ct.POINTER(ct.c_void_p), ct.POINTER(ct.c_char), ct.c_size_t]
         signatures = {
             'create': common + tail,
@@ -41,17 +42,18 @@ class NativeFull3DRun:
         }
         try:
             for name, arguments in signatures.items():
-                function = getattr(library, f'tpmshx_full_3d_run_{name}_v1')
+                version = 2 if name in ('create', 'restore') else 1
+                function = getattr(library, f'tpmshx_full_3d_run_{name}_v{version}')
                 function.argtypes = arguments
                 function.restype = None if name == 'release' else ct.c_int
                 setattr(self, '_'+name, function)
             self._release_snapshot = library.tpmshx_run_state_release_v1
         except AttributeError as error:
-            raise ValueError('native library lacks full 3D continuation v1') from error
+            raise ValueError('native library lacks full 3D continuation controls v2') from error
         self._release_snapshot.argtypes = [ct.POINTER(_Snapshot)]
         self._release_snapshot.restype = None
         args = [ct.byref(data), ct.byref(controls), ct.byref(energy) if energy is not None else None,
-                ct.byref(callbacks)]
+                ct.byref(model_h) if model_h is not None else None, ct.byref(callbacks)]
         if state is None:
             self._call(self._create, *args, ct.byref(self.handle))
         else:

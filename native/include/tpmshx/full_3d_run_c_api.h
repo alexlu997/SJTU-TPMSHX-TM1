@@ -39,6 +39,17 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_restore_v1(
     const tpmshx_full3d_input_v1*,const tpmshx_full3d_control_v1*,const tpmshx_energy_options_v2*,
     const tpmshx_full3d_callbacks_v1*,const tpmshx_run_state_field_v1*,size_t count,
     void** run,char* error,size_t capacity);
+/* Add integral h(T) controls to the same run owner. Null keeps route defaults.
+ * Active model-h options cannot be combined with EOS energy options.
+ * Restore requires the same overrides and retains actual call records. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_create_v2(
+    const tpmshx_full3d_input_v1*,const tpmshx_full3d_control_v1*,const tpmshx_energy_options_v2*,
+    const tpmshx_model_h_iteration_options_v1*,const tpmshx_full3d_callbacks_v1*,
+    void** run,char* error,size_t capacity);
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_restore_v2(
+    const tpmshx_full3d_input_v1*,const tpmshx_full3d_control_v1*,const tpmshx_energy_options_v2*,
+    const tpmshx_model_h_iteration_options_v1*,const tpmshx_full3d_callbacks_v1*,
+    const tpmshx_run_state_field_v1*,size_t count,void** run,char* error,size_t capacity);
 /* Advance completes initialization, one outer step, or final result capture.
  * A cancelled or failed run cannot produce a new checkpoint.
  * A failed advance leaves its phase readable as FAILED. */

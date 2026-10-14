@@ -2,6 +2,7 @@
 #include "tpmshx/conservative_energy.hpp"
 #include "tpmshx/model_coefficients.hpp"
 #include "legacy_single_a_temperature.hpp"
+#include "model_h_common.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -165,6 +166,14 @@ void anchor(const Full3DSide& side,Full3DFlowState& state) {
 struct Cancelled {};
 void cancel(const Full3DControl& c) { if(c.cancel && c.cancel(c.context)) throw Cancelled{}; }
 
+Full3DThermalMode thermal_mode(const Full3DInput& in,const Full3DControl& c) {
+    if(in.solve_b && (uses_co2_eos(in.a.fluid) || uses_co2_eos(in.b.fluid)))return Full3DThermalMode::true_h;
+    if(in.geometry.grid.nz>1 && c.variable_rho_cp && in.solve_b && c.conservative && !in.geometry.asymmetric
+        && ((in.a.fluid==Fluid::air && (in.b.fluid==Fluid::air || in.b.fluid==Fluid::water))
+            || (in.a.fluid==Fluid::water && in.b.fluid==Fluid::air)))return Full3DThermalMode::model_h;
+    return Full3DThermalMode::temperature;
+}
+
 void validate(const Full3DInput& in,const Full3DControl& c) {
     const auto& x=in.geometry; const auto& g=x.grid; const auto n=product(product(g.nx,g.ny),g.nz);
     extent(g.dx,g.nx,true);extent(g.dy,g.ny,true);extent(g.dz,g.nz,true);
@@ -202,6 +211,14 @@ void validate(const Full3DInput& in,const Full3DControl& c) {
             extent(a,np,false,true); if(std::any_of(a.data,a.data+a.size,[](double v){return v>1.;}))
                 throw std::invalid_argument("full 3D geometric opening exceeds one");
         }
+    }
+    model_h_common::validate_iteration_overrides(c.model_h_iterations);
+    if(c.model_h_iterations.active()) {
+        const auto mode=thermal_mode(in,c);
+        const bool integral=mode==Full3DThermalMode::model_h || (mode==Full3DThermalMode::temperature
+            && (g.nz==1 || (!c.conservative && c.force_cell_centered))
+            && !uses_co2_eos(in.a.fluid) && (!in.solve_b || !uses_co2_eos(in.b.fluid)));
+        if(!integral)throw std::invalid_argument("model-h iteration controls require an integral h(T) route");
     }
     if(!c.max_outer || !c.initial_simple_iterations || !c.warm_simple_iterations || !c.thermal_iterations
        || !std::isfinite(c.outer_temperature_tolerance) || c.outer_temperature_tolerance<=0.
@@ -689,11 +706,8 @@ void Runtime::heat_transfer(std::size_t s,bool warm) {
 
 Full3DThermalEvidence Runtime::prepare(bool warm,std::size_t outer) {
     Full3DThermalEvidence e;const auto& geo=input.geometry;const auto& g=geo.grid;
-    const bool true_h=input.solve_b && (uses_co2_eos(input.a.fluid) || uses_co2_eos(input.b.fluid));
-    const bool model_h=g.nz>1 && control.variable_rho_cp && input.solve_b && control.conservative && !geo.asymmetric
-        && ((input.a.fluid==Fluid::air && (input.b.fluid==Fluid::air || input.b.fluid==Fluid::water))
-            || (input.a.fluid==Fluid::water && input.b.fluid==Fluid::air));
-    e.mode=true_h?Full3DThermalMode::true_h:(model_h?Full3DThermalMode::model_h:Full3DThermalMode::temperature);
+    e.mode=thermal_mode(input,control);
+    const bool true_h=e.mode==Full3DThermalMode::true_h,model_h=e.mode==Full3DThermalMode::model_h;
     const bool cc=e.mode==Full3DThermalMode::temperature
         &&(g.nz==1||(!control.conservative&&control.force_cell_centered));
     const bool legacy_single_sco2=!input.solve_b && input.a.fluid==Fluid::sco2;
@@ -767,8 +781,10 @@ Full3DOuterRecord Runtime::solve_thermal(std::size_t outer,Full3DThermalEvidence
     for(std::size_t s=0;s<2;++s) bc[s]={active(s)?side(s).direction:3,side(s).inlet_temperature,{},
         active(s)?side(s).inlet_opening:ArrayView<const double>{},view(e.inlet_capacity[s])};
     Full3DOuterRecord record;record.outer_index=outer;e.outer_index=outer;
-    std::size_t budget=true_h?2:(startup?std::min<std::size_t>(control.thermal_iterations,250):control.thermal_iterations);
-    std::size_t remaining=control.thermal_iterations;
+    const auto thermal_budget=control.model_h_iterations.max_iterations
+        ?control.model_h_iterations.max_iterations:control.thermal_iterations;
+    std::size_t budget=true_h?2:(startup?std::min<std::size_t>(thermal_budget,250):thermal_budget);
+    std::size_t remaining=thermal_budget;
     const auto initial=temperature;
     while(true) {
         auto state=TemperatureStateView{writable(temperature[0]),writable(temperature[1]),writable(temperature[2])};
@@ -777,6 +793,7 @@ Full3DOuterRecord Runtime::solve_thermal(std::size_t outer,Full3DThermalEvidence
             ModelHControl3D mc{budget,250,1e-4,control.thermal_relaxation,
                 control.refined_port_energy?1.:control.thermal_relaxation,control.thermal_relaxation,
                 true,control.refined_port_energy,control.red_black_energy,control.cancel,nullptr,control.context};
+            record.model_h_iterations.push_back(model_h_common::apply_iteration_tolerances(mc,control.model_h_iterations,thermal_budget));
             e.model_h=solve_model_h_3d(g,
                 {input.a.fluid,view(conductivity[0]),view(hv[0]),view(e.mass[0][0]),view(e.mass[0][1]),view(e.mass[0][2]),ba,input.sources[0]},
                 {input.b.fluid,view(conductivity[1]),view(hv[1]),view(e.mass[1][0]),view(e.mass[1][1]),view(e.mass[1][2]),bb,input.sources[1]},
@@ -841,6 +858,7 @@ Full3DOuterRecord Runtime::solve_thermal(std::size_t outer,Full3DThermalEvidence
                         }
                         ModelHControl2D mc{budget,500,2e-8,true,false,false,control.cancel,nullptr,control.context};
                         mc.second_order_b=false;mc.strict_energy_balance=true;
+                        record.model_h_iterations.push_back(model_h_common::apply_iteration_tolerances(mc,control.model_h_iterations,thermal_budget));
                         const auto solved=solve_model_h_2d(planar,
                             {input.a.fluid,view(conductivity[0]),view(hv[0]),view(mass[0][0]),view(mass[0][1]),ba},
                             {input.b.fluid,view(conductivity[1]),view(hv[1]),view(mass[1][0]),view(mass[1][1]),bb},
@@ -860,6 +878,7 @@ Full3DOuterRecord Runtime::solve_thermal(std::size_t outer,Full3DThermalEvidence
                             control.thermal_relaxation,control.thermal_relaxation,
                             true,false,false,control.cancel,nullptr,control.context};
                         mc.strict_energy_balance=true;
+                        record.model_h_iterations.push_back(model_h_common::apply_iteration_tolerances(mc,control.model_h_iterations,thermal_budget));
                         const auto solved=solve_model_h_3d(g,
                             {input.a.fluid,view(conductivity[0]),view(hv[0]),view(e.mass[0][0]),view(e.mass[0][1]),view(e.mass[0][2]),ba,{}},
                             {input.b.fluid,view(conductivity[1]),view(hv[1]),view(e.mass[1][0]),view(e.mass[1][1]),view(e.mass[1][2]),bb,{}},
@@ -887,7 +906,7 @@ Full3DOuterRecord Runtime::solve_thermal(std::size_t outer,Full3DThermalEvidence
         }
         if(startup) {
             remaining-=std::min(remaining,record.thermal_iterations);
-            record.startup_total_iterations=control.thermal_iterations-remaining;
+            record.startup_total_iterations=thermal_budget-remaining;
         }
         break;
     }
