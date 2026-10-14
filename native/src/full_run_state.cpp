@@ -1,4 +1,5 @@
 #include "tpmshx/full_3d_state.hpp"
+#include "tpmshx/full_2d_state.hpp"
 #include "native_state_build.hpp"
 #include <limits>
 #include <map>
@@ -226,6 +227,92 @@ template<class Archive,class Value> void walk(Archive& archive,Value& value,Full
     FIELD(mass_flux) FIELD(dispersion) FIELD(hv_ratio) FIELD(conductivity) FIELD(rho_cp)
     FIELD(hv) FIELD(temperature) FIELD(previous) FIELD(simple) FIELD(anderson)
 }
+template<class Archive,class Value> void walk(Archive& archive,Value& value,Full2DSide*) {
+    FIELD(fluid) FIELD(direction) FIELD(inlet_temperature) FIELD(inlet_pressure) FIELD(inlet_velocity)
+    FIELD(initial_viscosity) FIELD(seed_permeability) FIELD(seed_forchheimer) FIELD(row_permeability) FIELD(row_forchheimer)
+    FIELD(permeability) FIELD(forchheimer) FIELD(inlet_geometry) FIELD(outlet_geometry) FIELD(inlet_profile)
+    FIELD(outlet_profile) FIELD(outlet_u_fraction) FIELD(inlet_lo) FIELD(inlet_hi) FIELD(outlet_lo)
+    FIELD(outlet_hi) FIELD(uniform_inlet) FIELD(side_area_density) FIELD(side_hydraulic_diameter) FIELD(reference_area_density)
+    FIELD(reference_hydraulic_diameter)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,Full2DProblem*) {
+    FIELD(grid) FIELD(sides) FIELD(topology) FIELD(thermal_mode) FIELD(fluid_conductivity)
+    FIELD(solid_conductivity) FIELD(total_porosity) FIELD(area_density) FIELD(hydraulic_diameter) FIELD(cell_length)
+    FIELD(nu_geometry_ratio) FIELD(reference_cell_length) FIELD(reference_porosity) FIELD(split_a) FIELD(sco2_nu_multiplier)
+    FIELD(asymmetric) FIELD(initial_solid_temperature) FIELD(spatial_geometry)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,Simple2DControl*) {
+    FIELD(max_iterations) FIELD(inner_sweeps) FIELD(alpha_velocity) FIELD(alpha_pressure) FIELD(alpha_density)
+    FIELD(pressure_reference_absolute) FIELD(gas_constant) FIELD(cf_anisotropy) FIELD(ideal_gas) FIELD(massflux_inlet)
+    FIELD(close_outlet_on_exit) FIELD(convergence)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,Full2DControl*) {
+    FIELD(flow) FIELD(outer_iterations) FIELD(thermal_iterations) FIELD(thermal_chunk) FIELD(outer_temperature_tolerance)
+    FIELD(outer_density_tolerance) FIELD(outer_relaxation) FIELD(thermal_q_tolerance) FIELD(pressure_shooting) FIELD(thermal_red_black)
+    FIELD(envelope_mode) FIELD(enthalpy) FIELD(model_h_iterations)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,Simple2DResult*) {
+    FIELD(stop) FIELD(converged) FIELD(post_closure_measured) FIELD(post_closure_certified) FIELD(iterations)
+    FIELD(pressure_clip_hits) FIELD(legacy_residual) FIELD(momentum) FIELD(mass) FIELD(linear)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,Full2DFlow*) {
+    FIELD(dx) FIELD(dy) FIELD(u) FIELD(v) FIELD(pressure)
+    FIELD(pressure_correction) FIELD(d_u) FIELD(d_v) FIELD(density) FIELD(inlet_velocity)
+    FIELD(viscosity) FIELD(effective_viscosity) FIELD(temperature) FIELD(epsilon) FIELD(reference_pressure)
+    FIELD(taper_flux_scale) FIELD(massflux_target) FIELD(result) FIELD(history) FIELD(pressure_state)
+    FIELD(pressure_iterations) FIELD(uc) FIELD(vc) FIELD(absolute_pressure) FIELD(mass_x)
+    FIELD(mass_y) FIELD(property_sampling)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,ModelHSideAudit2D*) {
+    FIELD(q_advective) FIELD(inlet_conduction) FIELD(exchange) FIELD(residual_sum) FIELD(residual_max)
+    FIELD(linearized_sum) FIELD(linearized_max) FIELD(defect_sum) FIELD(defect_max) FIELD(mass_net)
+    FIELD(mass_local_max) FIELD(mass_in) FIELD(mass_out) FIELD(normalization) FIELD(cell_ratio)
+    FIELD(unknown_inflow_faces) FIELD(boundary_mass_out) FIELD(boundary_h_out) FIELD(h_faces) FIELD(inlet_conduction_faces)
+    FIELD(residual) FIELD(linearization_defect) FIELD(cp_coefficients)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,ModelHAudit2D*) {
+    FIELD(sides) FIELD(solid_residual) FIELD(solid_sum) FIELD(solid_max) FIELD(solid_cell_ratio)
+    FIELD(residual_sum) FIELD(telescoping_error) FIELD(net_boundary_in) FIELD(denominator) FIELD(energy_imbalance)
+    FIELD(solid_imbalance) FIELD(boundary_complete) FIELD(finite) FIELD(energy_ok) FIELD(solid_ok)
+    FIELD(equations_ok) FIELD(passed)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,ModelHFinishingCheck2D*) {
+    FIELD(iterations) FIELD(passed) FIELD(equations_ok) FIELD(energy_error_ratio)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,ModelHResult2D*) {
+    FIELD(stop) FIELD(iterations) FIELD(residual) FIELD(q_b) FIELD(audit_available)
+    FIELD(audit) FIELD(finishing_checks) FIELD(last_a) FIELD(last_b) FIELD(physical_audit_available)
+    FIELD(energy_error_ratio)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,Full2DThermalState*) {
+    FIELD(model_h_iterations) FIELD(property_sampling) FIELD(temperature) FIELD(hv) FIELD(conductivity)
+    FIELD(pressure) FIELD(rho_cp) FIELD(mass_x) FIELD(mass_y) FIELD(inlet_capacity)
+    FIELD(solid_conductivity) FIELD(h_a) FIELD(h_b) FIELD(actual_conductivity) FIELD(enthalpy_boundary_power)
+    FIELD(result) FIELD(temperature_cp_coefficients) FIELD(temperature_algorithm) FIELD(physical_audit)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,Full2DOuterRecord*) {
+    FIELD(model_h_iterations) FIELD(iteration) FIELD(thermal_iterations) FIELD(thermal_converged) FIELD(outer_converged)
+    FIELD(relative_density_change) FIELD(temperature_change) FIELD(enthalpy_algorithm) FIELD(thermal_temperature_update) FIELD(thermal_picard_relaxation)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,Full2DRefinedState*) {
+    FIELD(dx) FIELD(dy) FIELD(epsilon) FIELD(uc) FIELD(vc)
+    FIELD(inlet_profile) FIELD(outlet_profile) FIELD(thermal) FIELD(accepted) FIELD(extrapolated)
+    FIELD(warning) FIELD(duty) FIELD(extrapolated_duty)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,EnvelopeAssessment*) {
+    FIELD(valid) FIELD(reasons)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,Full2DResult*) {
+    FIELD(cancelled) FIELD(outer_converged) FIELD(post_after_last_thermal) FIELD(iterations) FIELD(flow)
+    FIELD(thermal) FIELD(outer_history) FIELD(envelope) FIELD(density) FIELD(viscosity)
+    FIELD(rho_cp) FIELD(refined) FIELD(property_sampling) FIELD(converged) FIELD(simple_ok)
+    FIELD(thermal_ok) FIELD(envelope_ok) FIELD(pair_balance_ok) FIELD(model_balance_ok) FIELD(pressure_drop)
+    FIELD(outlet_temperature) FIELD(inlet_mass) FIELD(duty) FIELD(q_total) FIELD(q_solid)
+    FIELD(energy_imbalance) FIELD(nu_observations) FIELD(range_observations)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,Full2DRunState*) {
+    FIELD(phase) FIELD(result) FIELD(inlet) FIELD(previous)
+}
 #undef FIELD
 
 template<class T> constexpr bool numeric=std::is_arithmetic_v<T>||std::is_enum_v<T>;
@@ -249,6 +336,10 @@ struct Writer {
         else walk(*this,value,static_cast<T*>(nullptr));
     }
     void put(const std::string& value) {fields.push_back({path,value});}
+    template<class... T> void put(const std::variant<T...>& value) {
+        (*this)("index",value.index());
+        std::visit([&](const auto& item){(*this)("value",item);},value);
+    }
     template<class T> void put(const std::optional<T>& value) {
         (*this)("present",value.has_value());if(value)(*this)("value",*value);
     }
@@ -264,6 +355,7 @@ struct Writer {
     template<class T> void put(ArrayView<const T> value) {numbers(value.data,value.size);}
 };
 
+int enum_max(Full2DPhase) {return static_cast<int>(Full2DPhase::failed);}
 int enum_max(Full3DPhase) {return static_cast<int>(Full3DPhase::failed);}
 int enum_max(Full3DStop) {return static_cast<int>(Full3DStop::cancelled);}
 int enum_max(Full3DThermalMode) {return static_cast<int>(Full3DThermalMode::true_h);}
@@ -309,6 +401,15 @@ struct Reader {
         else walk(*this,value,static_cast<T*>(nullptr));
     }
     void get(std::string& value) {value=typed<std::string>();}
+    template<std::size_t I=0,class... T> void alternative(std::variant<T...>& value,std::size_t index) {
+        if constexpr(I<sizeof...(T)) {
+            if(index==I) {value.template emplace<I>();(*this)("value",std::get<I>(value));}
+            else alternative<I+1>(value,index);
+        } else throw std::invalid_argument("native state variant index is invalid: "+path);
+    }
+    template<class... T> void get(std::variant<T...>& value) {
+        std::size_t index=0;(*this)("index",index);alternative(value,index);
+    }
     template<class T> void get(std::optional<T>& value) {
         bool present=false;(*this)("present",present);
         if(present) {value.emplace();(*this)("value",*value);} else value.reset();
@@ -330,7 +431,7 @@ struct Reader {
     template<class T,std::size_t N> void get(T (&value)[N]) {numbers(value,N);}
 };
 
-RunStateRecord identity(const Full3DInput& input,const Full3DControl& control) {
+template<class Input,class Control> RunStateRecord identity(const Input& input,const Control& control) {
     RunStateRecord fields;Writer writer{fields,""};
     writer("format",std::uint64_t{1});writer("build",std::string(TPMSHX_STATE_BUILD_ID));
     writer("platform",std::string(TPMSHX_STATE_PLATFORM));writer("input",input);writer("control",control);
@@ -341,7 +442,9 @@ RunStateRecord identity(const Full3DInput& input,const Full3DControl& control) {
 RunStateRecord export_full_3d_state(const Full3DInput& input,const Full3DControl& control,const Full3DRunState& state) {
     auto fields=identity(input,control);Writer{fields,""}("state",state);return fields;
 }
-Full3DRunState import_full_3d_state(const Full3DInput& input,const Full3DControl& control,const RunStateRecord& fields) {
+namespace {
+template<class State,class Input,class Control>
+State import_state(const Input& input,const Control& control,const RunStateRecord& fields) {
     Entries remaining;
     for(const auto& field:fields)
         if(field.name.empty() || !remaining.emplace(field.name,&field.value).second)
@@ -350,8 +453,20 @@ Full3DRunState import_full_3d_state(const Full3DInput& input,const Full3DControl
         Reader reader{remaining,expected.name};
         if(reader.take()!=expected.value)throw std::invalid_argument("native state identity differs: "+expected.name);
     }
-    Full3DRunState state;Reader{remaining,""}("state",state);
+    State state;Reader{remaining,""}("state",state);
     if(!remaining.empty())throw std::invalid_argument("native state contains unknown fields");
     return state;
 }
+} // namespace
+
+Full3DRunState import_full_3d_state(const Full3DInput& input,const Full3DControl& control,const RunStateRecord& fields) {
+    return import_state<Full3DRunState>(input,control,fields);
+}
+RunStateRecord export_full_2d_state(const Full2DProblem& input,const Full2DControl& control,const Full2DRunState& state) {
+    auto fields=identity(input,control);Writer{fields,""}("state",state);return fields;
+}
+Full2DRunState import_full_2d_state(const Full2DProblem& input,const Full2DControl& control,const RunStateRecord& fields) {
+    return import_state<Full2DRunState>(input,control,fields);
+}
+
 } // namespace tpmshx

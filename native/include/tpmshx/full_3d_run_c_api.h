@@ -1,30 +1,15 @@
 #ifndef TPMSHX_FULL_3D_RUN_C_API_H
 #define TPMSHX_FULL_3D_RUN_C_API_H
 #include "tpmshx/full_3d_c_api.h"
+#include "tpmshx/run_state_c_api.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 enum {
-    TPMSHX_RUN_STATE_F64=0,TPMSHX_RUN_STATE_U64=1,TPMSHX_RUN_STATE_I64=2,
-    TPMSHX_RUN_STATE_U8=3,TPMSHX_RUN_STATE_UTF8=4
-};
-enum {
     TPMSHX_FULL3D_CREATED=0,TPMSHX_FULL3D_OUTER_BOUNDARY=1,TPMSHX_FULL3D_READY=2,
     TPMSHX_FULL3D_COMPLETED=3,TPMSHX_FULL3D_CANCELLED=4,TPMSHX_FULL3D_FAILED=5
 };
-typedef struct {
-    const char* name;
-    uint32_t type;
-    const void* data;
-    size_t count;
-} tpmshx_run_state_field_v1;
-typedef struct {
-    const tpmshx_run_state_field_v1* fields;
-    size_t count;
-    void* owner;
-} tpmshx_run_state_v1;
-
 /* Creation copies all prepared arrays, controls and the callback table.
  * Callback functions and their context must stay valid until run release.
  * Calls on one run must not overlap. Status codes match the one-shot API.
@@ -61,7 +46,6 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_phase_v1(const voi
  * String counts are UTF-8 bytes; the terminator is not included. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_snapshot_v1(
     const void* run,tpmshx_run_state_v1* state,char* error,size_t capacity);
-TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_run_state_release_v1(tpmshx_run_state_v1*);
 /* Transfer the completed or cancelled result once. Its existing release and
  * evidence queries remain valid after the run handle is released. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_take_result_v1(

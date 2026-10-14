@@ -187,11 +187,12 @@ add_custom_target(tpmshx_state_build_identity
         -P "${CMAKE_CURRENT_SOURCE_DIR}/write_state_build_id.cmake"
     BYPRODUCTS "${CMAKE_CURRENT_BINARY_DIR}/native_state_build.hpp"
     VERBATIM)
-add_library(tpmshx_full_3d STATIC "${TPMSHX_ROOT}/native/src/full_3d.cpp"
-    "${TPMSHX_ROOT}/native/src/full_3d_state.cpp")
-add_dependencies(tpmshx_full_3d tpmshx_state_build_identity)
-target_include_directories(tpmshx_full_3d PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
-target_link_libraries(tpmshx_full_3d PUBLIC tpmshx_simple tpmshx_temperature_staggered
+add_library(tpmshx_run_state STATIC "${TPMSHX_ROOT}/native/src/full_run_state.cpp")
+add_dependencies(tpmshx_run_state tpmshx_state_build_identity)
+target_include_directories(tpmshx_run_state PUBLIC "${TPMSHX_ROOT}/native/include"
+    PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+add_library(tpmshx_full_3d STATIC "${TPMSHX_ROOT}/native/src/full_3d.cpp")
+target_link_libraries(tpmshx_full_3d PUBLIC tpmshx_run_state tpmshx_simple tpmshx_temperature_staggered
     tpmshx_quick_design tpmshx_model_h_2d tpmshx_model_h_3d tpmshx_enthalpy tpmshx_pressure_reference tpmshx_outer_anderson)
 if(MSVC)
     target_compile_options(tpmshx_full_3d PRIVATE /fp:strict)
@@ -211,7 +212,7 @@ add_library(refinement_2d_test SHARED "${TPMSHX_ROOT}/sjtu_tpmshx/tests/native/r
 target_compile_definitions(refinement_2d_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
 target_link_libraries(refinement_2d_test PRIVATE tpmshx_refinement_2d)
 add_library(tpmshx_full_2d STATIC "${TPMSHX_ROOT}/native/src/full_2d.cpp")
-target_link_libraries(tpmshx_full_2d PUBLIC tpmshx_simple
+target_link_libraries(tpmshx_full_2d PUBLIC tpmshx_run_state tpmshx_simple
     tpmshx_model_h_2d tpmshx_enthalpy tpmshx_pressure_reference tpmshx_models tpmshx_refinement_2d)
 add_executable(side_physics_smoke "${TPMSHX_ROOT}/native/tests/side_physics_smoke.cpp")
 target_link_libraries(side_physics_smoke PRIVATE tpmshx_full_2d tpmshx_full_3d)
@@ -253,6 +254,9 @@ add_library(tpmshx_solver_shared SHARED "${TPMSHX_ROOT}/native/src/solver_c_api.
     "${TPMSHX_ROOT}/native/src/full_2d_c_api.cpp" "${TPMSHX_ROOT}/native/src/full_3d_c_api.cpp")
 target_compile_definitions(tpmshx_solver_shared PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
 target_link_libraries(tpmshx_solver_shared PUBLIC tpmshx_quick_design tpmshx_full_2d tpmshx_full_3d)
+foreach(target IN ITEMS tpmshx_solver tpmshx_solver_shared tpmshx_full_2d_c tpmshx_full_2d_shared)
+    target_sources(${target} PRIVATE "${TPMSHX_ROOT}/native/src/run_state_c_api.cpp")
+endforeach()
 # Full3D C callers use the solver targets; Full2D also has separate C targets.
 foreach(target IN ITEMS tpmshx_temperature_c tpmshx_temperature_shared
         tpmshx_solver tpmshx_solver_shared tpmshx_full_2d_c tpmshx_full_2d_shared)
@@ -361,7 +365,7 @@ add_executable(superlu_error_smoke "${TPMSHX_ROOT}/native/tests/superlu_error_sm
 target_include_directories(superlu_error_smoke PRIVATE "${TPMSHX_ROOT}/native/include"
     "${TPMSHX_ROOT}/native/src")
 target_link_libraries(superlu_error_smoke PRIVATE SuperLU::LU Threads::Threads)
-foreach(target IN ITEMS tpmshx_energy tpmshx_models tpmshx_quick_design temperature_driver_smoke tpmshx_solver tpmshx_solver_shared
+foreach(target IN ITEMS tpmshx_run_state tpmshx_energy tpmshx_models tpmshx_quick_design temperature_driver_smoke tpmshx_solver tpmshx_solver_shared
         tpmshx_enthalpy tpmshx_enthalpy_c tpmshx_enthalpy_shared enthalpy_c_static enthalpy_c_shared
         enthalpy_driver_smoke enthalpy_driver_test conservative_energy_smoke conservative_energy_driver_smoke
         tpmshx_model_h_2d model_h_2d_test model_h_2d_smoke

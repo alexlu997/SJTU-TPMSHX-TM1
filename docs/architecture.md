@@ -1168,7 +1168,9 @@ true-h thermal mass-face aliases share immutable buffers with separate array
 headers. Thermal pressure and final flow pressure remain separate states.
 GUI consumers still receive their required writable copies.
 
-### Native 3D continuation
+<a id="native-3d-continuation"></a>
+
+### Native 2D and 3D continuation
 
 `Full3DRun` advances initialization, one complete outer step, or final result capture.
 The existing one-shot entry calls this same controller.
@@ -1179,7 +1181,14 @@ Restore reconstructs that hierarchy from its saved matrix.
 It preserves the last thermal evidence separately from later flow updates.
 It does not reset budgets or repeat initialization.
 
-`full_3d_run_c_api.h` exposes owned run and snapshot handles.
+`Full2DRun` uses the same boundary contract for the existing 2D outer sequence.
+Its final advance completes refinement and result capture.
+The snapshot keeps the completed outer history, pressure records, last thermal
+evidence, property observations, and fields used by the next step.
+The one-shot 2D entries use this controller.
+Both dimensions use the shared typed archive in `full_run_state.cpp`.
+
+`full_2d_run_c_api.h` and `full_3d_run_c_api.h` expose owned run and snapshot handles.
 The C entry copies prepared arrays and the callback table.
 The caller keeps callback functions and their context alive until run release.
 Snapshot fields own their numeric arrays and UTF-8 strings.
@@ -1191,13 +1200,14 @@ The result is transferred once; its views remain valid until result release.
 The native Python backend accepts `checkpoint` and `resume_state` keyword arguments.
 `checkpoint` receives detached typed fields at each available boundary.
 `SolverCheckpoint` stores those fields with the absolute prepared-case path and model references.
+Use `full_2d_continuation_v1` for 2D state; 3D retains `full_3d_continuation_v1`.
 The functions in `io/solver_checkpoint_io.py` use the existing typed HDF5 record writer.
 The writer closes a temporary file before atomic replacement.
 A failed write or process interruption before replacement preserves the previous checkpoint.
 This contract does not claim recovery from power loss.
 
-This stage covers native 3D outer boundaries.
-It does not yet expose inner-iteration, 2D, GUI, or CLI continuation.
+This stage covers native 2D and 3D outer boundaries.
+It does not yet expose inner-iteration, refinement-iteration, GUI, or CLI continuation.
 The longest complete step sets the current possible loss of computation.
 Saving frequency and full recovery acceptance remain separate tasks.
 

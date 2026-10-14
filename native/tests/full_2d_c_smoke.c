@@ -1,4 +1,5 @@
 #include "tpmshx/full_2d_c_api.h"
+#include "tpmshx/full_2d_run_c_api.h"
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
@@ -16,6 +17,65 @@ static void expect_invalid_port(const size_t* shape,const double* const* arrays,
     const int status=tpmshx_solve_full_2d_v2(shape,arrays,sizes,config,&callbacks,&result,error,sizeof(error));
     if(status==0) tpmshx_full_2d_release_v2(&result);
     assert(status==1 && result.iterations==123 && result.owner==NULL && error[0]);
+}
+static void check_run_state(const size_t* shape,const double* const* arrays,const size_t* sizes,
+                            tpmshx_full_2d_config_v2* config,double* widths,
+                            const tpmshx_full_2d_result_v2* expected) {
+    void* run=NULL;char error[1024];uint32_t phase=99;
+    tpmshx_run_state_v1 saved={0};tpmshx_full_2d_result_v2 actual={0};
+    assert(tpmshx_full_2d_run_create_v1(shape,arrays,sizes,config,NULL,NULL,NULL,NULL,
+                                     &run,error,sizeof error)==0 && run);
+    void* original=run;
+    assert(tpmshx_full_2d_run_create_v1(shape,arrays,sizes,config,NULL,NULL,NULL,NULL,
+                                     &run,error,sizeof error)==1 && run==original);
+    assert(tpmshx_full_2d_run_snapshot_v1(run,&saved,error,sizeof error)==5 && !saved.owner);
+    assert(tpmshx_full_2d_run_take_result_v1(run,&actual,error,sizeof error)==5 && !actual.owner);
+    const double width=widths[0];widths[0]*=2.;
+    assert(tpmshx_full_2d_run_advance_v1(run,&phase,error,sizeof error)==0 && phase==1);
+    widths[0]=width;
+    assert(tpmshx_full_2d_run_snapshot_v1(run,&saved,error,sizeof error)==0 && saved.owner);
+    tpmshx_full_2d_run_release_v1(&run);tpmshx_full_2d_run_release_v1(&run);
+    assert(!run && tpmshx_full_2d_run_phase_v1(run,&phase)==1);
+    const double relaxation=config->outer_relaxation;config->outer_relaxation*=.5;
+    assert(tpmshx_full_2d_run_restore_v1(shape,arrays,sizes,config,NULL,NULL,NULL,NULL,
+                                      saved.fields,saved.count,&run,error,sizeof error)==1 && !run);
+    config->outer_relaxation=relaxation;
+    assert(tpmshx_full_2d_run_restore_v1(shape,arrays,sizes,config,NULL,NULL,NULL,NULL,
+                                      saved.fields,saved.count,&run,error,sizeof error)==0 && run);
+    tpmshx_run_state_release_v1(&saved);tpmshx_run_state_release_v1(&saved);
+    assert(!saved.owner && !saved.fields && !saved.count);
+    do {assert(tpmshx_full_2d_run_advance_v1(run,&phase,error,sizeof error)==0);} while(phase!=3);
+    assert(tpmshx_full_2d_run_take_result_v1(run,&actual,error,sizeof error)==0 && actual.owner);
+    tpmshx_full_2d_result_v2 repeated={0};
+    assert(tpmshx_full_2d_run_take_result_v1(run,&repeated,error,sizeof error)==5 && !repeated.owner);
+    tpmshx_full_2d_run_release_v1(&run);
+    assert(actual.iterations==expected->iterations && actual.outer_history_count==expected->outer_history_count);
+    assert(actual.converged==expected->converged && actual.have_fine==expected->have_fine);
+    assert(actual.q_total==expected->q_total && actual.q_solid==expected->q_solid);
+    for(size_t stage=0;stage<2;++stage) for(size_t side=0;side<3;++side) {
+        const tpmshx_model_h_array_v1 a=(stage?actual.fine:actual.main).temperature[side];
+        const tpmshx_model_h_array_v1 b=(stage?expected->fine:expected->main).temperature[side];
+        assert(a.size==b.size && memcmp(a.data,b.data,a.size*sizeof(double))==0);
+    }
+    tpmshx_property_sampling_v1 sampling={0};
+    assert(tpmshx_full_2d_get_property_sampling_v1(&actual,&sampling)==0 && sampling.count);
+    tpmshx_full_2d_release_v2(&actual);
+    tpmshx_full_2d_callbacks_v2 callbacks={cancelled,NULL,NULL,NULL};
+    assert(tpmshx_full_2d_run_create_v1(shape,arrays,sizes,config,NULL,NULL,NULL,&callbacks,
+                                     &run,error,sizeof error)==0);
+    callbacks.cancel=NULL;
+    assert(tpmshx_full_2d_run_advance_v1(run,&phase,error,sizeof error)==0 && phase==1);
+    assert(tpmshx_full_2d_run_advance_v1(run,&phase,error,sizeof error)==0 && phase==4);
+    assert(tpmshx_full_2d_run_snapshot_v1(run,&saved,error,sizeof error)==5 && !saved.owner);
+    assert(tpmshx_full_2d_run_take_result_v1(run,&actual,error,sizeof error)==0 && actual.cancelled);
+    tpmshx_full_2d_run_release_v1(&run);tpmshx_full_2d_release_v2(&actual);
+    const double temperature=config->sides[0].inlet_temperature;config->sides[0].inlet_temperature=3000.;
+    assert(tpmshx_full_2d_run_create_v1(shape,arrays,sizes,config,NULL,NULL,NULL,NULL,
+                                     &run,error,sizeof error)==0);
+    assert(tpmshx_full_2d_run_advance_v1(run,&phase,error,sizeof error)==2);
+    assert(tpmshx_full_2d_run_phase_v1(run,&phase)==0 && phase==5);
+    assert(tpmshx_full_2d_run_snapshot_v1(run,&saved,error,sizeof error)==5 && !saved.owner);
+    tpmshx_full_2d_run_release_v1(&run);config->sides[0].inlet_temperature=temperature;
 }
 int main(void) {
     tpmshx_energy_effective_settings_v1 defaults={0};
@@ -139,6 +199,7 @@ int main(void) {
     assert(tpmshx_full_2d_get_last_closure_ranges_v1(&result,NULL)==1);
     ranges.size=123;
     assert(tpmshx_full_2d_get_last_closure_ranges_v1(NULL,&ranges)==1 && ranges.size==123);
+    check_run_state(shape,arrays,sizes,&config,widths,&result);
     const double saved=result.main.dx.data[0]; widths[0]=.123;
     assert(result.main.dx.data[0]==saved); widths[0]=saved;
     tpmshx_full_2d_release_v2(&result); assert(result.owner==NULL);
