@@ -1,5 +1,8 @@
 #include "tpmshx/full_2d_c_api.h"
 #include "tpmshx/full_2d.hpp"
+#include "tpmshx/full_2d_state.hpp"
+#include "tpmshx/full_2d_run_c_api.h"
+#include "run_state_c_views.hpp"
 #include "property_sampling_c_views.hpp"
 #include "model_h_c_views.hpp"
 #include "enthalpy_c_views.hpp"
@@ -159,74 +162,77 @@ void fill(tpmshx_full_2d_result_v2& o,Owner& owner,const Full2DProblem& p) {
     }
     o.range_observations=owner.ranges.data(); o.range_observation_count=owner.ranges.size();
 }
-int solve(
-    const size_t* shape,const double* const* arrays,const size_t* sizes,
+void prepare(const size_t* shape,const double* const* arrays,const size_t* sizes,
     const tpmshx_full_2d_config_v2* config,const tpmshx_energy_options_v1* energy,
     const tpmshx_full_2d_energy_control_v4* explicit_energy,
     const tpmshx_model_h_iteration_options_v1* model_h,
-    const tpmshx_full_2d_callbacks_v2* callbacks,
-    tpmshx_full_2d_result_v2* result,char* error,size_t error_capacity) {
-    if (!error || !error_capacity) return 1;
-    try {
-        if (!shape || !arrays || !sizes || !config || !result) throw std::invalid_argument("null full2D argument");
-        const auto& c=*config;
-        for (auto value:{c.asymmetric,c.have_solid_seed,c.pressure_shooting,c.red_black,c.spatial_geometry,
-                        c.massflux_inlet,c.close_outlet_on_exit}) flag(value);
-        const auto v=[&](std::size_t i) { return ArrayView<const double>{arrays[i],sizes[i]}; };
-        Full2DProblem p{}; p.grid={shape[0],shape[1],1,v(0),v(1),v(2)};
-        p.fluid_conductivity={v(3),v(4)}; p.solid_conductivity=v(5); p.total_porosity=v(6);
-        p.area_density=v(7); p.hydraulic_diameter=v(8); p.cell_length=v(9);
-        p.nu_geometry_ratio=v(28);
-        p.topology=static_cast<Topology>(c.topology); p.thermal_mode=static_cast<Full2DThermalMode>(c.thermal_mode);
-        p.asymmetric=c.asymmetric; p.reference_cell_length=c.reference_cell_length; p.reference_porosity=c.reference_porosity;
-        p.split_a=c.split_a; p.sco2_nu_multiplier=c.sco2_nu_multiplier;
-        p.spatial_geometry=c.spatial_geometry;
-        if (c.have_solid_seed) p.initial_solid_temperature=c.solid_seed;
-        for (std::size_t side=0;side<2;++side) {
-            const auto& s=c.sides[side]; flag(s.uniform_inlet); const std::size_t a=10+9*side;
-            p.sides[side]={static_cast<Fluid>(s.fluid),static_cast<int>(s.direction),
-                s.inlet_temperature,s.inlet_pressure,s.inlet_velocity,s.initial_viscosity,s.seed_permeability,s.seed_forchheimer,
-                v(a),v(a+1),v(a+2),v(a+3),v(a+4),v(a+5),v(a+6),v(a+7),v(a+8),
-                s.inlet_lo,s.inlet_hi,s.outlet_lo,s.outlet_hi,s.uniform_inlet!=0,
-                s.side_area_density,s.side_hydraulic_diameter,s.reference_area_density,s.reference_hydraulic_diameter};
-        }
-        Full2DControl control{};
-        control.flow={c.simple_iterations,c.simple_sweeps,c.alpha_velocity,c.alpha_pressure,c.alpha_density,0.,c.gas_constant,
-            c.cf_anisotropy,true,c.massflux_inlet!=0,c.close_outlet_on_exit!=0,
-            {c.f2.momentum_tolerance,c.f2.local_mass_tolerance,c.f2.global_mass_tolerance,c.f2.backflow_maximum,
-             c.f2.velocity_check_tolerance,c.f2.stall_ratio,c.f2.confirmations,c.f2.momentum_interval,c.f2.stall_window}};
-        control.outer_iterations=c.outer_iterations; control.thermal_iterations=c.thermal_iterations; control.thermal_chunk=c.thermal_chunk;
-        control.outer_temperature_tolerance=c.outer_temperature_tolerance; control.outer_density_tolerance=c.outer_density_tolerance;
-        control.outer_relaxation=c.outer_relaxation; control.thermal_q_tolerance=c.thermal_q_tolerance;
-        control.pressure_shooting=c.pressure_shooting;
-        if(model_h)control.model_h_iterations=model_h_c_views::iteration_options(*model_h);
-        control.thermal_red_black=c.red_black; control.envelope_mode=c.envelope_mode?c.envelope_mode:"raise";
-        control.enthalpy=full_enthalpy_control(2,energy ? energy_algorithm(*energy) : EnthalpyAlgorithm::legacy_h_fou,
-            p.sides[0].fluid==Fluid::water || p.sides[1].fluid==Fluid::water);
-        control.enthalpy.max_iterations=c.thermal_iterations;
-        control.enthalpy.update_tolerance=c.enthalpy_update_tolerance;
-        control.enthalpy.table_directory=c.table_directory?c.table_directory:"";
-        if(energy)apply_energy_options(control.enthalpy,*energy);
-        if(explicit_energy) {
-            const auto& e=*explicit_energy;
-            if(p.thermal_mode!=Full2DThermalMode::true_h)
-                throw std::invalid_argument("explicit full 2D energy controls require the existing true-h route");
-            if(!e.max_iterations || !std::isfinite(e.omega) || e.omega<=0. || e.omega>1.
-                || !std::isfinite(e.update_tolerance) || e.update_tolerance<=0.)
-                throw std::invalid_argument("invalid explicit full 2D thermal controls");
-            control.thermal_iterations=control.enthalpy.max_iterations=e.max_iterations;
-            control.enthalpy.sweeps=e.sweeps; control.enthalpy.omega=e.omega;
-            control.enthalpy.update_tolerance=e.update_tolerance;
-            apply_energy_options(control.enthalpy,e.energy);
-        }
-        control.cancel=cancel; control.progress=progress; control.residual=residual;
-        control.context=const_cast<tpmshx_full_2d_callbacks_v2*>(callbacks);
-        auto owner=std::make_unique<Owner>(); owner->result=solve_full_2d(p,control);
-        const auto* h=std::get_if<EnthalpyResult>(&owner->result.thermal.result);
-        owner->energy_settings=energy_settings_c_view(control.enthalpy,
-            !owner->result.cancelled && h && h->stop!=EnthalpyStop::cancelled);
-        tpmshx_full_2d_result_v2 out{}; fill(out,*owner,p);
-        out.owner=owner.release(); *result=out; error[0]='\0'; return 0;
+    const tpmshx_full_2d_callbacks_v2* callbacks,Full2DProblem& p,Full2DControl& control) {
+    if(!shape || !arrays || !sizes || !config)throw std::invalid_argument("null full2D argument");
+    const auto& c=*config;
+    for (auto value:{c.asymmetric,c.have_solid_seed,c.pressure_shooting,c.red_black,c.spatial_geometry,
+                    c.massflux_inlet,c.close_outlet_on_exit}) flag(value);
+    const auto v=[&](std::size_t i) { return ArrayView<const double>{arrays[i],sizes[i]}; };
+    p.grid={shape[0],shape[1],1,v(0),v(1),v(2)};
+    p.fluid_conductivity={v(3),v(4)}; p.solid_conductivity=v(5); p.total_porosity=v(6);
+    p.area_density=v(7); p.hydraulic_diameter=v(8); p.cell_length=v(9);
+    p.nu_geometry_ratio=v(28);
+    p.topology=static_cast<Topology>(c.topology); p.thermal_mode=static_cast<Full2DThermalMode>(c.thermal_mode);
+    p.asymmetric=c.asymmetric; p.reference_cell_length=c.reference_cell_length; p.reference_porosity=c.reference_porosity;
+    p.split_a=c.split_a; p.sco2_nu_multiplier=c.sco2_nu_multiplier;
+    p.spatial_geometry=c.spatial_geometry;
+    if (c.have_solid_seed) p.initial_solid_temperature=c.solid_seed;
+    for (std::size_t side=0;side<2;++side) {
+        const auto& s=c.sides[side]; flag(s.uniform_inlet); const std::size_t a=10+9*side;
+        p.sides[side]={static_cast<Fluid>(s.fluid),static_cast<int>(s.direction),
+            s.inlet_temperature,s.inlet_pressure,s.inlet_velocity,s.initial_viscosity,s.seed_permeability,s.seed_forchheimer,
+            v(a),v(a+1),v(a+2),v(a+3),v(a+4),v(a+5),v(a+6),v(a+7),v(a+8),
+            s.inlet_lo,s.inlet_hi,s.outlet_lo,s.outlet_hi,s.uniform_inlet!=0,
+            s.side_area_density,s.side_hydraulic_diameter,s.reference_area_density,s.reference_hydraulic_diameter};
+    }
+    control.flow={c.simple_iterations,c.simple_sweeps,c.alpha_velocity,c.alpha_pressure,c.alpha_density,0.,c.gas_constant,
+        c.cf_anisotropy,true,c.massflux_inlet!=0,c.close_outlet_on_exit!=0,
+        {c.f2.momentum_tolerance,c.f2.local_mass_tolerance,c.f2.global_mass_tolerance,c.f2.backflow_maximum,
+         c.f2.velocity_check_tolerance,c.f2.stall_ratio,c.f2.confirmations,c.f2.momentum_interval,c.f2.stall_window}};
+    control.outer_iterations=c.outer_iterations; control.thermal_iterations=c.thermal_iterations; control.thermal_chunk=c.thermal_chunk;
+    control.outer_temperature_tolerance=c.outer_temperature_tolerance; control.outer_density_tolerance=c.outer_density_tolerance;
+    control.outer_relaxation=c.outer_relaxation; control.thermal_q_tolerance=c.thermal_q_tolerance;
+    control.pressure_shooting=c.pressure_shooting;
+    if(model_h)control.model_h_iterations=model_h_c_views::iteration_options(*model_h);
+    control.thermal_red_black=c.red_black; control.envelope_mode=c.envelope_mode?c.envelope_mode:"raise";
+    control.enthalpy=full_enthalpy_control(2,energy ? energy_algorithm(*energy) : EnthalpyAlgorithm::legacy_h_fou,
+        p.sides[0].fluid==Fluid::water || p.sides[1].fluid==Fluid::water);
+    control.enthalpy.max_iterations=c.thermal_iterations;
+    control.enthalpy.update_tolerance=c.enthalpy_update_tolerance;
+    control.enthalpy.table_directory=c.table_directory?c.table_directory:"";
+    if(energy)apply_energy_options(control.enthalpy,*energy);
+    if(explicit_energy) {
+        const auto& e=*explicit_energy;
+        if(p.thermal_mode!=Full2DThermalMode::true_h)
+            throw std::invalid_argument("explicit full 2D energy controls require the existing true-h route");
+        if(!e.max_iterations || !std::isfinite(e.omega) || e.omega<=0. || e.omega>1.
+            || !std::isfinite(e.update_tolerance) || e.update_tolerance<=0.)
+            throw std::invalid_argument("invalid explicit full 2D thermal controls");
+        control.thermal_iterations=control.enthalpy.max_iterations=e.max_iterations;
+        control.enthalpy.sweeps=e.sweeps; control.enthalpy.omega=e.omega;
+        control.enthalpy.update_tolerance=e.update_tolerance;
+        apply_energy_options(control.enthalpy,e.energy);
+    }
+    control.cancel=cancel; control.progress=progress; control.residual=residual;
+    control.context=const_cast<tpmshx_full_2d_callbacks_v2*>(callbacks);
+}
+
+tpmshx_full_2d_result_v2 publish_result(Full2DResult value,const Full2DProblem& p,const Full2DControl& control) {
+    auto owner=std::make_unique<Owner>();owner->result=std::move(value);
+    const auto* h=std::get_if<EnthalpyResult>(&owner->result.thermal.result);
+    owner->energy_settings=energy_settings_c_view(control.enthalpy,
+        !owner->result.cancelled && h && h->stop!=EnthalpyStop::cancelled);
+    tpmshx_full_2d_result_v2 out{}; fill(out,*owner,p);
+    out.owner=owner.release();return out;
+}
+
+template<class Function> int guarded_run(Function function,char* error,std::size_t error_capacity) noexcept {
+    if(!error || !error_capacity)return 1;
+    try {function();error[0]='\0';return 0;
     } catch (const WaterStateError& e) { std::snprintf(error,error_capacity,"%s",e.what()); return 2; }
     catch (const ChokedFlowError& e) { std::snprintf(error,error_capacity,"%s",e.what()); return 4; }
     catch (const CoolProp::CoolPropBaseError& e) { std::snprintf(error,error_capacity,"%s",e.what()); return 1; }
@@ -235,6 +241,52 @@ int solve(
     catch (const std::exception& e) { std::snprintf(error,error_capacity,"%s",e.what()); return 5; }
     catch (...) { std::snprintf(error,error_capacity,"unexpected full2D native exception"); return 5; }
 }
+
+int solve(const size_t* shape,const double* const* arrays,const size_t* sizes,
+    const tpmshx_full_2d_config_v2* config,const tpmshx_energy_options_v1* energy,
+    const tpmshx_full_2d_energy_control_v4* explicit_energy,
+    const tpmshx_model_h_iteration_options_v1* model_h,
+    const tpmshx_full_2d_callbacks_v2* callbacks,
+    tpmshx_full_2d_result_v2* result,char* error,size_t error_capacity) {
+    return guarded_run([&] {
+        if(!result)throw std::invalid_argument("null full2D argument");
+        Full2DProblem p{};Full2DControl control{};
+        prepare(shape,arrays,sizes,config,energy,explicit_energy,model_h,callbacks,p,control);
+        *result=publish_result(solve_full_2d(p,control),p,control);
+    },error,error_capacity);
+}
+
+struct RunOwner {
+    tpmshx_full_2d_callbacks_v2 callbacks{};
+    Full2DProblem data{};
+    Full2DControl control{};
+    std::vector<Vector> storage;
+    std::unique_ptr<Full2DRun> run;
+    RunOwner(const size_t* shape,const double* const* arrays,const size_t* sizes,
+    const tpmshx_full_2d_config_v2* config,const tpmshx_energy_options_v1* energy,
+    const tpmshx_full_2d_energy_control_v4* explicit_energy,
+    const tpmshx_model_h_iteration_options_v1* model_h,
+    const tpmshx_full_2d_callbacks_v2* callbacks) {
+        if(callbacks)this->callbacks=*callbacks;
+        prepare(shape,arrays,sizes,config,energy,explicit_energy,model_h,
+            callbacks?&this->callbacks:nullptr,data,control);
+        storage.reserve(29);
+        const auto copy=[&](ArrayView<const double>& field) {
+            if(field.size && !field.data)throw std::invalid_argument("null full 2D input array");
+            if(field.size)storage.emplace_back(field.data,field.data+field.size);else storage.emplace_back();
+            field={storage.back().data(),storage.back().size()};
+        };
+        for(auto* field:{&data.grid.dx,&data.grid.dy,&data.grid.dz,&data.fluid_conductivity[0],
+            &data.fluid_conductivity[1],&data.solid_conductivity,&data.total_porosity,&data.area_density,
+            &data.hydraulic_diameter,&data.cell_length,&data.nu_geometry_ratio})copy(*field);
+        for(auto& side:data.sides)
+            for(auto* field:{&side.row_permeability,&side.row_forchheimer,&side.permeability,&side.forchheimer,
+                &side.inlet_geometry,&side.outlet_geometry,&side.inlet_profile,&side.outlet_profile,&side.outlet_u_fraction})copy(*field);
+    }
+};
+using run_state_c_views::SnapshotOwner;
+using run_state_c_views::state_record;
+
 tpmshx_full_2d_energy_state_v1 energy_state(const Full2DThermalState& state) {
     tpmshx_full_2d_energy_state_v1 out{};
     const auto* e=std::get_if<EnthalpyResult>(&state.result);
@@ -302,13 +354,13 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_model_enthalpy_evidence_v1
     const auto& r=static_cast<const Owner*>(result->owner)->result;
     tpmshx_full_2d_model_enthalpy_evidence_v1 out{};
     if(!r.cancelled) {
-        if(r.thermal.temperature_algorithm && r.thermal.physical_audit)
+        if(!r.thermal.temperature_algorithm.empty() && r.thermal.physical_audit)
             out.main=model_enthalpy_c_view(*r.thermal.physical_audit,
-                r.thermal.temperature_cp_coefficients,r.thermal.temperature_algorithm,2);
-        if(r.refined && r.refined->thermal.temperature_algorithm && r.refined->thermal.physical_audit) {
+                r.thermal.temperature_cp_coefficients,r.thermal.temperature_algorithm.c_str(),2);
+        if(r.refined && !r.refined->thermal.temperature_algorithm.empty() && r.refined->thermal.physical_audit) {
             const auto& f=r.refined->thermal;
             out.fine=model_enthalpy_c_view(*f.physical_audit,
-                f.temperature_cp_coefficients,f.temperature_algorithm,2);
+                f.temperature_cp_coefficients,f.temperature_algorithm.c_str(),2);
         }
     }
     *evidence=out;return 0;
@@ -356,4 +408,64 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_model_h_iterations_v1(
     if(!result || !result->owner || !records)return 1;
     const auto& owner=*static_cast<const Owner*>(result->owner);
     *records={owner.model_h_iterations.data(),owner.model_h_iterations.size()};return 0;
+}
+
+extern "C" {
+int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_create_v1(const size_t* shape,const double* const* arrays,const size_t* sizes,
+    const tpmshx_full_2d_config_v2* config,const tpmshx_energy_options_v1* energy,
+    const tpmshx_full_2d_energy_control_v4* explicit_energy,
+    const tpmshx_model_h_iteration_options_v1* model_h,
+    const tpmshx_full_2d_callbacks_v2* callbacks,void** run,char* error,size_t capacity) {
+    return guarded_run([&] {
+        if(!run || *run)throw std::invalid_argument("invalid full 2D run output");
+        auto owner=std::make_unique<RunOwner>(shape,arrays,sizes,config,energy,explicit_energy,model_h,callbacks);
+        owner->run=std::make_unique<Full2DRun>(owner->data,owner->control);
+        *run=owner.release();
+    },error,capacity);
+}
+int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_restore_v1(const size_t* shape,const double* const* arrays,const size_t* sizes,
+    const tpmshx_full_2d_config_v2* config,const tpmshx_energy_options_v1* energy,
+    const tpmshx_full_2d_energy_control_v4* explicit_energy,
+    const tpmshx_model_h_iteration_options_v1* model_h,
+    const tpmshx_full_2d_callbacks_v2* callbacks,
+    const tpmshx_run_state_field_v1* fields,size_t count,void** run,char* error,size_t capacity) {
+    return guarded_run([&] {
+        if(!run || *run)throw std::invalid_argument("invalid full 2D run output");
+        auto owner=std::make_unique<RunOwner>(shape,arrays,sizes,config,energy,explicit_energy,model_h,callbacks);
+        const auto state=import_full_2d_state(owner->data,owner->control,state_record(fields,count));
+        owner->run=std::make_unique<Full2DRun>(owner->data,owner->control,state);
+        *run=owner.release();
+    },error,capacity);
+}
+int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_advance_v1(void* run,uint32_t* phase,char* error,size_t capacity) {
+    return guarded_run([&] {
+        if(!run || !phase)throw std::invalid_argument("invalid full 2D advance argument");
+        *phase=static_cast<uint32_t>(static_cast<RunOwner*>(run)->run->advance());
+    },error,capacity);
+}
+int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_phase_v1(const void* run,uint32_t* phase) {
+    if(!run || !phase)return 1;
+    *phase=static_cast<uint32_t>(static_cast<const RunOwner*>(run)->run->phase());return 0;
+}
+int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_snapshot_v1(
+    const void* run,tpmshx_run_state_v1* state,char* error,size_t capacity) {
+    return guarded_run([&] {
+        if(!run || !state || state->owner)throw std::invalid_argument("invalid full 2D snapshot output");
+        const auto& owner=*static_cast<const RunOwner*>(run);
+        auto snapshot=std::make_unique<SnapshotOwner>(export_full_2d_state(owner.data,owner.control,owner.run->snapshot()));
+        const tpmshx_run_state_v1 value{snapshot->fields.data(),snapshot->fields.size(),snapshot.get()};
+        snapshot.release();*state=value;
+    },error,capacity);
+}
+int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_take_result_v1(
+    void* run,tpmshx_full_2d_result_v2* result,char* error,size_t capacity) {
+    return guarded_run([&] {
+        if(!run || !result || result->owner)throw std::invalid_argument("invalid full 2D result output");
+        auto& owner=*static_cast<RunOwner*>(run);
+        *result=publish_result(owner.run->take_result(),owner.data,owner.control);
+    },error,capacity);
+}
+void TPMSHX_THERMAL_CALL tpmshx_full_2d_run_release_v1(void** run) {
+    if(run) {delete static_cast<RunOwner*>(*run);*run=nullptr;}
+}
 }

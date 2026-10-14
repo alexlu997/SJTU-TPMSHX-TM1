@@ -1,16 +1,9 @@
 #pragma once
 
 #include "tpmshx/full_3d.hpp"
-#include <cstdint>
-#include <variant>
+#include "tpmshx/run_state.hpp"
 
 namespace tpmshx {
-
-// Every field owns its values. Strings contain UTF-8; numeric arrays are flat.
-using RunStateValue=std::variant<std::vector<double>,std::vector<std::uint64_t>,
-    std::vector<std::int64_t>,std::vector<unsigned char>,std::string>;
-struct RunStateField {std::string name;RunStateValue value;};
-using RunStateRecord=std::vector<RunStateField>;
 
 // Format and build identity precede the exact prepared input and controls.
 // Host paths and callback addresses are not numerical identity fields.

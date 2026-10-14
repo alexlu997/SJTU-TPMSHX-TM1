@@ -1223,7 +1223,9 @@ true-h thermal mass-face aliases share immutable buffers with separate array
 headers. Thermal pressure and final flow pressure remain separate states.
 GUI consumers still receive their required writable copies.
 
-### Native 3D continuation
+<a id="native-3d-continuation"></a>
+
+### Native 2D and 3D continuation
 
 `Full3DRun.advance_step` completes one SIMPLE step, thermal block, or controller transition.
 The existing one-shot entry uses these same steps.
@@ -1246,11 +1248,18 @@ The controller preserves A flow, thermal property refresh, then B flow.
 Completed thermal evidence stays separate from later flow updates, including the final capped post update.
 Snapshots and re-entry are rejected while a step is unfinished.
 
-`full_3d_run_c_api.h` exposes owned run and snapshot handles.
+`Full2DRun` uses the same boundary contract for the existing 2D outer sequence.
+Its final advance completes refinement and result capture.
+The snapshot keeps the completed outer history, pressure records, last thermal
+evidence, property observations, and fields used by the next step.
+The one-shot 2D entries use this controller.
+Both dimensions use the shared typed archive in `full_run_state.cpp`.
+
+`full_2d_run_c_api.h` and `full_3d_run_c_api.h` expose owned run and snapshot handles.
 The C entry copies prepared arrays and the callback table.
 The caller keeps callback functions and their context alive until run release.
 Snapshot fields own their numeric arrays and UTF-8 strings.
-The additive `advance_step_v1` entry exposes inner boundaries. Native state format 2 records these states.
+The additive 3D `advance_step_v1` entry exposes inner boundaries. Native 3D state format 2 records these states.
 Restore requires the same format, native build, platform, prepared input, and numerical controls.
 Each native build receives a new identity. Host paths and callback addresses are excluded.
 A cancelled or failed run cannot publish a new snapshot.
@@ -1259,13 +1268,14 @@ The result is transferred once; its views remain valid until result release.
 The native Python backend accepts `checkpoint` and `resume_state` keyword arguments.
 `checkpoint` receives detached typed fields at each available boundary.
 `SolverCheckpoint` stores those fields with the absolute prepared-case path and model references.
+Use `full_2d_continuation_v1` for 2D state; 3D retains `full_3d_continuation_v1`.
 The functions in `io/solver_checkpoint_io.py` use the existing typed HDF5 record writer.
 The writer closes a temporary file before atomic replacement.
 A failed write or process interruption before replacement preserves the previous checkpoint.
 This contract does not claim recovery from power loss.
 
-This stage covers native 3D inner and outer boundaries.
-Full 2D inner states and GUI/CLI recovery remain separate integration work.
+This stage covers native 2D outer boundaries and 3D inner and outer boundaries.
+Full 2D inner and refinement states and GUI/CLI recovery remain separate integration work.
 The longest complete step or bootstrap sets the current possible loss of computation.
 Saving frequency and full recovery acceptance remain separate tasks.
 

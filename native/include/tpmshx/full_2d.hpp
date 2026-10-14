@@ -100,7 +100,7 @@ struct Full2DThermalState {
     std::variant<TemperatureResult,ModelHResult2D,EnthalpyResult> result;
     // Same-state existing model h(T) evidence; no model-h product certificate.
     std::array<std::array<double,5>,2> temperature_cp_coefficients{};
-    const char* temperature_algorithm=nullptr;
+    std::string temperature_algorithm;
     std::optional<PhysicalHeatLedger> physical_audit;
 };
 
@@ -141,6 +141,35 @@ struct Full2DResult {
     double q_total=0.,q_solid=0.,energy_imbalance=0.;
     std::array<NuObservation,2> nu_observations;
     std::vector<RangeObservation> range_observations;
+};
+
+enum class Full2DPhase { created, outer_boundary, ready_to_finish, completed, cancelled, failed };
+
+// Independent state after initialization or a complete outer step.
+struct Full2DRunState {
+    Full2DPhase phase=Full2DPhase::outer_boundary;
+    Full2DResult result;
+    std::array<FluidProperties,2> inlet{};
+    std::array<std::vector<double>,3> previous;
+};
+
+// Prepared arrays remain immutable and live until run release.
+class Full2DRun {
+public:
+    Full2DRun(const Full2DProblem&,const Full2DControl&);
+    Full2DRun(const Full2DProblem&,const Full2DControl&,const Full2DRunState&);
+    ~Full2DRun();
+    Full2DRun(const Full2DRun&)=delete;
+    Full2DRun& operator=(const Full2DRun&)=delete;
+    // Advance initialization, one joined outer step, or refinement and capture.
+    Full2DPhase advance();
+    Full2DPhase phase() const;
+    Full2DRunState snapshot() const;
+    Full2DResult take_result();
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+    friend Full2DResult solve_full_2d_coarse(const Full2DProblem&,const Full2DControl&);
 };
 
 // Complete coarse-grid 2D flow-first coupling. Native owns initialization,
