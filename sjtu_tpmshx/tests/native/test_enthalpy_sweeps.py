@@ -157,6 +157,29 @@ def test_all_face_directions_transport_inlet_enthalpy(native, direction):
         np.testing.assert_allclose(h, 3e5, rtol=0., atol=2e-8)
 
 
+@pytest.mark.parametrize("direction", range(6))
+@pytest.mark.parametrize("bound", ("lower", "upper"))
+def test_isothermal_enthalpy_bound_uses_actual_face_energy(native, direction, bound):
+    case = case_data((3, 4, 2))
+    enthalpy, temperature = 300000.1, 321.234
+    for fluid, h in zip((case["a"], case["b"]), case["state"]):
+        fields = fluid["arrays"]
+        fields[2].fill(temperature)
+        fields[3].fill(enthalpy)
+        fields[4].fill(0.)
+        fields[5:] = list(uniform_face_mass_flux(case["shape"], .01, direction))
+        fluid["hin"] = enthalpy
+        fluid["bounds"] = ((enthalpy, enthalpy + 1000.) if bound == "lower"
+                           else (enthalpy - 1000., enthalpy))
+        h.fill(enthalpy)
+    case["state"][2].fill(temperature)
+    case["kss"].fill(0.)
+    code, clips, error = native(case, sweeps=7, omega=1.)
+    assert code == 0 and clips == (0, 0) and not error
+    for h in case["state"][:2]:
+        np.testing.assert_array_equal(h, np.full(case["shape"], enthalpy))
+
+
 def test_isothermal_pressure_gradient_has_no_false_conduction(native, native_audit):
     case = case_data((2, 1, 1))
     temperature = np.full(case["shape"], 400.)

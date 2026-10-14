@@ -1,4 +1,5 @@
 #include "tpmshx/enthalpy_sweeps.hpp"
+#include "energy_fv_rows.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -61,76 +62,17 @@ using detail::diffusion_conductance;
 std::uint64_t fluid_sweep(const GridView& g, const FluidView& f,
                           ArrayView<double> h, ArrayView<double> ts, double omega) {
     std::uint64_t clips = 0;
-    const auto sx = g.ny * g.nz;
-    const auto sy = g.nz;
-    for (std::size_t i = 0; i < g.nx; ++i) {
-        for (std::size_t j = 0; j < g.ny; ++j) {
-            for (std::size_t k = 0; k < g.nz; ++k) {
-                const auto p = (i * g.ny + j) * g.nz + k;
-                const double dxi = g.dx[i], dyj = g.dy[j], dzk = g.dz[k];
-                const double ax = dyj * dzk, ay = dxi * dzk, az = dxi * dyj;
-                const double vol = dxi * dyj * dzk;
-                const double ki = f.dh[p] * f.cp[p];
-                const double dw = i > 0 ? diffusion_conductance(ki, f.dh[p-sx] * f.cp[p-sx], 0.5*dxi, 0.5*g.dx[i-1]) * ax : 0.0;
-                const double de = i+1 < g.nx ? diffusion_conductance(ki, f.dh[p+sx] * f.cp[p+sx], 0.5*dxi, 0.5*g.dx[i+1]) * ax : 0.0;
-                const double ds = j > 0 ? diffusion_conductance(ki, f.dh[p-sy] * f.cp[p-sy], 0.5*dyj, 0.5*g.dy[j-1]) * ay : 0.0;
-                const double dn = j+1 < g.ny ? diffusion_conductance(ki, f.dh[p+sy] * f.cp[p+sy], 0.5*dyj, 0.5*g.dy[j+1]) * ay : 0.0;
-                const double db = k > 0 ? diffusion_conductance(ki, f.dh[p-1] * f.cp[p-1], 0.5*dzk, 0.5*g.dz[k-1]) * az : 0.0;
-                const double dt = k+1 < g.nz ? diffusion_conductance(ki, f.dh[p+1] * f.cp[p+1], 0.5*dzk, 0.5*g.dz[k+1]) * az : 0.0;
-
-                const auto py = (i * (g.ny + 1) + j) * g.nz + k;
-                const auto pz = (i * g.ny + j) * (g.nz + 1) + k;
-                const double fw = f.mass_x[p], fe = f.mass_x[p+sx];
-                const double fs = f.mass_y[py], fn = f.mass_y[py+sy];
-                const double fb = f.mass_z[pz], ft = f.mass_z[pz+1];
-                const double aw = std::max(fw, 0.0), ae = std::max(-fe, 0.0);
-                const double as = std::max(fs, 0.0), an = std::max(-fn, 0.0);
-                const double ab = std::max(fb, 0.0), at = std::max(-ft, 0.0);
-                const double cpi = std::max(f.cp[p], 1e-30);
-                const double temperature = f.t_star[p] + (h[p] - f.h_star[p]) / cpi;
-                const double exchange = f.hv[p] * vol;
-                const double ap = (dw + de + ds + dn + db + dt + exchange) / cpi
-                    + std::max(-fw, 0.0) + std::max(fe, 0.0)
-                    + std::max(-fs, 0.0) + std::max(fn, 0.0)
-                    + std::max(-fb, 0.0) + std::max(ft, 0.0);
-                // Preserve an isothermal state at an exact enthalpy bound.
-                double rhs = exchange * (ts[p] - temperature) - h[p] * (
-                    std::max(-fw, 0.0) + std::max(fe, 0.0) + std::max(-fs, 0.0)
-                    + std::max(fn, 0.0) + std::max(-fb, 0.0) + std::max(ft, 0.0));
-                if (i > 0)
-                    rhs += aw * h[p-sx] + dw * (f.t_star[p-sx]
-                        + (h[p-sx] - f.h_star[p-sx]) / f.cp[p-sx] - temperature);
-                else if (fw > 0.0) rhs += fw * f.h_in;
-                if (i+1 < g.nx)
-                    rhs += ae * h[p+sx] + de * (f.t_star[p+sx]
-                        + (h[p+sx] - f.h_star[p+sx]) / f.cp[p+sx] - temperature);
-                else if (fe < 0.0) rhs += -fe * f.h_in;
-                if (j > 0)
-                    rhs += as * h[p-sy] + ds * (f.t_star[p-sy]
-                        + (h[p-sy] - f.h_star[p-sy]) / f.cp[p-sy] - temperature);
-                else if (fs > 0.0) rhs += fs * f.h_in;
-                if (j+1 < g.ny)
-                    rhs += an * h[p+sy] + dn * (f.t_star[p+sy]
-                        + (h[p+sy] - f.h_star[p+sy]) / f.cp[p+sy] - temperature);
-                else if (fn < 0.0) rhs += -fn * f.h_in;
-                if (k > 0)
-                    rhs += ab * h[p-1] + db * (f.t_star[p-1]
-                        + (h[p-1] - f.h_star[p-1]) / f.cp[p-1] - temperature);
-                else if (fb > 0.0) rhs += fb * f.h_in;
-                if (k+1 < g.nz)
-                    rhs += at * h[p+1] + dt * (f.t_star[p+1]
-                        + (h[p+1] - f.h_star[p+1]) / f.cp[p+1] - temperature);
-                else if (ft < 0.0) rhs += -ft * f.h_in;
-                if (!std::isfinite(ap) || !std::isfinite(rhs))
-                    throw std::domain_error("nonfinite fluid sweep equation");
-                if (ap > 1e-30) {
-                    const double update = h[p] + omega * rhs / ap;
-                    if (!std::isfinite(update))
-                        throw std::domain_error("nonfinite fluid sweep update");
-                    clips += update < f.h_lo || update > f.h_hi;
-                    h[p] = std::min(std::max(update, f.h_lo), f.h_hi);
-                }
-            }
+    const detail::EnergyMesh mesh(g);
+    for(std::size_t p=0;p<mesh.cells();++p) {
+        const auto row=detail::enthalpy_energy_defect_row(mesh,f,{h.data,h.size},{ts.data,ts.size},p);
+        if(!std::isfinite(row.diagonal)||!std::isfinite(row.rhs))
+            throw std::domain_error("nonfinite fluid sweep equation");
+        if(row.diagonal>1e-30) {
+            const double update=h[p]+omega*row.rhs/row.diagonal;
+            if(!std::isfinite(update))
+                throw std::domain_error("nonfinite fluid sweep update");
+            clips+=update<f.h_lo||update>f.h_hi;
+            h[p]=std::min(std::max(update,f.h_lo),f.h_hi);
         }
     }
     return clips;
@@ -138,47 +80,24 @@ std::uint64_t fluid_sweep(const GridView& g, const FluidView& f,
 
 void solid_sweep(const GridView& g, const FluidView& a, const FluidView& b,
                  ArrayView<const double> ks, ThermalStateView state, double omega) {
-    const auto ts = state.t_s;
-    const auto sx = g.ny * g.nz;
-    const auto sy = g.nz;
-    for (std::size_t i = 0; i < g.nx; ++i) {
-        for (std::size_t j = 0; j < g.ny; ++j) {
-            for (std::size_t k = 0; k < g.nz; ++k) {
-                const auto p = (i * g.ny + j) * g.nz + k;
-                const double dxi = g.dx[i], dyj = g.dy[j], dzk = g.dz[k];
-                const double ax = dyj * dzk, ay = dxi * dzk, az = dxi * dyj;
-                const double vol = dxi * dyj * dzk;
-                const double dw = i > 0 ? diffusion_conductance(ks[p], ks[p-sx], 0.5*dxi, 0.5*g.dx[i-1]) * ax : 0.0;
-                const double de = i+1 < g.nx ? diffusion_conductance(ks[p], ks[p+sx], 0.5*dxi, 0.5*g.dx[i+1]) * ax : 0.0;
-                const double ds = j > 0 ? diffusion_conductance(ks[p], ks[p-sy], 0.5*dyj, 0.5*g.dy[j-1]) * ay : 0.0;
-                const double dn = j+1 < g.ny ? diffusion_conductance(ks[p], ks[p+sy], 0.5*dyj, 0.5*g.dy[j+1]) * ay : 0.0;
-                const double db = k > 0 ? diffusion_conductance(ks[p], ks[p-1], 0.5*dzk, 0.5*g.dz[k-1]) * az : 0.0;
-                const double dt = k+1 < g.nz ? diffusion_conductance(ks[p], ks[p+1], 0.5*dzk, 0.5*g.dz[k+1]) * az : 0.0;
-                const double ta = a.t_star[p]
-                    + (state.h_a[p] - a.h_star[p]) / std::max(a.cp[p], 1e-30);
-                const double tb = b.t_star[p]
-                    + (state.h_b[p] - b.h_star[p]) / std::max(b.cp[p], 1e-30);
-                const double ea = a.hv[p] * vol, eb = b.hv[p] * vol;
-                const double ap = dw + de + ds + dn + db + dt + ea + eb;
-                double rhs = ea * ta + eb * tb;
-                if (i > 0) rhs += dw * ts[p-sx];
-                if (i+1 < g.nx) rhs += de * ts[p+sx];
-                if (j > 0) rhs += ds * ts[p-sy];
-                if (j+1 < g.ny) rhs += dn * ts[p+sy];
-                if (k > 0) rhs += db * ts[p-1];
-                if (k+1 < g.nz) rhs += dt * ts[p+1];
-                if (!std::isfinite(ap) || !std::isfinite(rhs))
-                    throw std::domain_error("nonfinite solid sweep equation");
-                if (ap > 1e-30) {
-                    const double update = (1.0 - omega) * ts[p] + omega * rhs / ap;
-                    if (!std::isfinite(update))
-                        throw std::domain_error("nonfinite solid sweep update");
-                    ts[p] = update;
-                }
-            }
+    const auto ts=state.t_s;
+    const detail::EnergyMesh mesh(g);
+    for(std::size_t p=0;p<mesh.cells();++p) {
+        const double ta=a.t_star[p]+(state.h_a[p]-a.h_star[p])/std::max(a.cp[p],1e-30);
+        const double tb=b.t_star[p]+(state.h_b[p]-b.h_star[p])/std::max(b.cp[p],1e-30);
+        const auto row=detail::assemble_solid_energy_row<false>(mesh,ks,a.hv,b.hv,
+            ta,tb,{ts.data,ts.size},{},p);
+        if(!std::isfinite(row.diagonal)||!std::isfinite(row.rhs))
+            throw std::domain_error("nonfinite solid sweep equation");
+        if(row.diagonal>1e-30) {
+            const double update=(1.-omega)*ts[p]+omega*row.rhs/row.diagonal;
+            if(!std::isfinite(update))
+                throw std::domain_error("nonfinite solid sweep update");
+            ts[p]=update;
         }
     }
 }
+
 }  // namespace
 
 ClipCounts enthalpy_sweeps(const GridView& grid, const FluidView& a,
