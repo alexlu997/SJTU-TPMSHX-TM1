@@ -297,3 +297,36 @@ def test_model_h_unset_budget_preserves_main_and_refined_defaults(driver, mode):
     assert records[-1]['settings']['max_iterations'] == (12000 if mode == 'model_h' else 5000)
     assert records[-1]['settings']['q_relative_tolerance'] == .001
     assert all(row['settings']['temperature_update_tolerance_K'] == 1e-5 for row in records)
+
+
+@pytest.mark.parametrize('relaxation', [None, .35])
+def test_persisted_velocity_relaxation_matches_direct_native_control(driver, prepared_zero_duty, relaxation):
+    cfg, prepared = prepared_zero_duty
+    shape, arrays, native_config = _pack(cfg, prepared, driver.table_directory, driver.library)
+    native_config.alpha_velocity = .7 if relaxation is None else relaxation
+    expected = driver.solve(shape, arrays, native_config)
+    changed = dict(cfg, compute_cfg=replace(cfg['compute_cfg'],
+        solver=replace(cfg['compute_cfg'].solver, simple_velocity_relaxation=relaxation)))
+    actual = driver.run_prepared(changed, prepared)
+    assert actual['simple_velocity_relaxation'] == native_config.alpha_velocity
+    assert actual['flow'][0]['result'] == expected['flow'][0]['result']
+    assert actual['flow'][1]['result'] == expected['flow'][1]['result']
+    for first, second in zip(actual['main']['temperature'], expected['main']['temperature']):
+        np.testing.assert_array_equal(first, second)
+
+
+@pytest.mark.parametrize('relaxation', [None, .35])
+def test_full2d_velocity_relaxation_record_survives_storage(driver, tmp_path, relaxation):
+    from sjtu_tpmshx.io.result_io import load_result, save_result
+    from sjtu_tpmshx.solvers.api import run_case
+    cfg = typed.configuration(mode='model_h', outer=2)
+    cfg = replace(cfg, solver=replace(cfg.solver, simple_velocity_relaxation=relaxation))
+    prepared = prepare_case(cfg, case_id='full2d-velocity-control')
+    actual = run_case(prepared, RunControl(backend='cpp', native_library=driver.library._name,
+                                          native_table_directory=str(driver.table_directory.decode())))
+    expected = .7 if relaxation is None else relaxation
+    assert actual.metadata['simple_velocity_relaxation'] == expected
+    assert actual.metadata['execution_record']['numerics']['simple_velocity_relaxation'] == expected
+    path = tmp_path / 'result.h5'
+    save_result(actual, path)
+    assert load_result(path).metadata['execution_record'] == actual.metadata['execution_record']

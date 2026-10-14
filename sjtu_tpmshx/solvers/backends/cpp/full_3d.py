@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 
 from sjtu_tpmshx.domain.cancellation import CancelledError
+from sjtu_tpmshx.domain.compute_config import validate_simple_velocity_relaxation
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.run_environment import run_environment, require_f2_mode
 from sjtu_tpmshx.models.fluid_props import WaterStateError
@@ -375,7 +376,9 @@ class NativeFull3DDriver:
         c.envelope_mode = ('raise','warn','off').index(cfg.get('envelope_mode','raise'))
         c.has_initial_solid_temperature = cfg.get('T_s_init') is not None
         c.roughness_height, c.initial_solid_temperature = cfg['roughness_resolved']['eps_m'], cfg.get('T_s_init') or 0.
-        c.simple = _SimpleConfig(2000, 1, 100, .5, .2, .3, 0., 287.05, .05, 1, 1, 0,
+        relaxation = cfg.get('simple_velocity_relaxation')
+        validate_simple_velocity_relaxation(relaxation)
+        c.simple = _SimpleConfig(2000, 1, 100, .5 if relaxation is None else relaxation, .2, .3, 0., 287.05, .05, 1, 1, 0,
             bool(cfg.get('use_adaptive_amg_tol', True)), bool(cfg.get('track_momentum_residual', False)),
             int(np.prod(shape)>=int(os.environ.get('TPMSHX_PARALLEL_THRESHOLD','200000'))),
             _F2(cfg.get('mom_tol') or 1e-4, cfg.get('mass_local_tol') or 1e-6, cfg.get('mass_global_tol') or 1e-6,
@@ -466,6 +469,7 @@ class NativeFull3DDriver:
                     completed_outer_steps=int(resume_state['state.result.outer.size'][0]),
                     saved_phase=int(resume_state['state.phase'][0]))
             detached['property_sampling'] = copy_sampling(self.query_sampling, result)
+            detached['simple_velocity_relaxation'] = c.simple.alpha_velocity
             detached['model_h_iterations'] = _copy_iteration_records(self.query_model_h, result)
             budgets = {row['outer_index']: row['settings']['total_iteration_budget']
                        for row in detached['model_h_iterations']['records']}
