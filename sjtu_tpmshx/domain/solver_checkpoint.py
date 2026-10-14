@@ -17,7 +17,7 @@ class SolverCheckpoint:
     state_format: str = 'full_3d_continuation_v1'
 
     def __post_init__(self):
-        if self.state_format != 'full_3d_continuation_v1':
+        if self.state_format not in ('full_2d_continuation_v1', 'full_3d_continuation_v1'):
             raise ValueError('unsupported solver checkpoint format')
         if not isinstance(self.case_id, str) or not self.case_id:
             raise ValueError('solver checkpoint requires a case identifier')

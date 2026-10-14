@@ -260,7 +260,7 @@ class NativeFull2DDriver:
         self.query_sampling = sampling_query(self.library, 2, _Result)
         self.query_model_h = _iteration_query(self.library, 2, _Result)
 
-    def run_prepared(self, cfg, prepared, control=RunControl()):
+    def run_prepared(self, cfg, prepared, control=RunControl(), *, resume_state=None, checkpoint=None):
         control.check_cancelled()
         shape, arrays, config = _pack(cfg, prepared, self.table_directory, self.library)
         solver = cfg['compute_cfg'].solver
@@ -281,11 +281,12 @@ class NativeFull2DDriver:
                 solver.require_enthalpy_update_on_temperature))
         return self.solve(shape, arrays, config, control, energy_algorithm=solver.enthalpy_algorithm,
                           temperature_update_tolerance=solver.enthalpy_temperature_tol_K,
-                          energy_control=energy_control, model_h_options=_iteration_options(vars(solver)))
+                          energy_control=energy_control, model_h_options=_iteration_options(vars(solver)),
+                          resume_state=resume_state, checkpoint=checkpoint)
 
     def solve(self, shape, arrays, config, control=RunControl(), *,
               energy_algorithm='legacy_h_fou', temperature_update_tolerance=1e-8, energy_control=None,
-              model_h_options=None):
+              model_h_options=None, resume_state=None, checkpoint=None):
         """Synchronous C call; detach all views before releasing their sole owner."""
         if len(shape) != 2 or len(arrays) != 29:
             raise ValueError('full 2D requires two extents and 29 prepared arrays')
@@ -373,7 +374,21 @@ class NativeFull2DDriver:
             args = ((ct.c_size_t*2)(*shape), pointers, sizes, ct.byref(config))
             tail = (ct.byref(callbacks), ct.byref(result), error, len(error))
             options = model_h_options if model_h_options is not None else energy_control if energy_control is not None else energy
-            status = (energy_call(*args, ct.byref(options), *tail) if energy_call else self.call(*args, *tail))
+            if resume_state is not None or checkpoint is not None:
+                from .full_2d_run import NativeFull2DRun
+                with NativeFull2DRun(self.library, *args[:3], config, callbacks,
+                        energy=energy if entry_version == 3 else None,
+                        energy_control=energy_control, model_h=model_h_options, state=resume_state) as run:
+                    while run.phase not in (3, 4):
+                        phase = run.advance()
+                        if errors:
+                            raise errors[0]
+                        if checkpoint is not None and phase in (1, 2):
+                            checkpoint(run.snapshot())
+                    result = run.take_result()
+                status = 0
+            else:
+                status = (energy_call(*args, ct.byref(options), *tail) if energy_call else self.call(*args, *tail))
             if errors:
                 raise errors[0]
             if status:
@@ -416,6 +431,10 @@ class NativeFull2DDriver:
                     info = dict(effective_settings={})
                     _executed_energy_settings(info, actual.outer[i], entry_version)
                     out['outer_history'][-1]['energy_info'] = info
+            if resume_state is not None:
+                out['continuation'] = dict(format='full_2d_continuation_v1', build=resume_state['build'],
+                    completed_outer_steps=int(resume_state['state.result.outer_history.size'][0]),
+                    saved_phase=int(resume_state['state.phase'][0]))
             out['entry_version'] = entry_version
             if energy_query:
                 extra = _EnergyEvidence()
@@ -549,7 +568,7 @@ def _pack(cfg, prepared, table_directory, library):
     return shape, arrays, config
 
 
-def run_case(case, control=RunControl()):
+def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None):
     from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
     from .full_2d_capture import capture_result
     if control.backend != 'cpp' or control.native_library is None:
@@ -557,7 +576,7 @@ def run_case(case, control=RunControl()):
     control.check_cancelled()
     cfg, prepared = build_execution_inputs(case, copy_design=False)
     driver = NativeFull2DDriver(control.native_library, table_directory=control.native_table_directory)
-    native = driver.run_prepared(cfg, prepared, control)
+    native = driver.run_prepared(cfg, prepared, control, resume_state=resume_state, checkpoint=checkpoint)
     control.check_cancelled()
     result = capture_result(case, cfg, prepared, native)
     control.report_progress(100)
