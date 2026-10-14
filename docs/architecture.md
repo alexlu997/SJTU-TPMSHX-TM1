@@ -335,6 +335,18 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   The required native CI suite passes on macOS arm64/Python 3.13 and Windows
   x64/Python 3.12 and 3.13. Visible desktop delivery and full performance
   qualification stay separate gates.
+- `Simple2DSolver` and `Simple3DSolver` retain each active flow call.
+  `start` begins the original call; `advance` completes one pressure, density,
+  boundary and F2 step. The existing one-shot entries use these operations.
+  Active snapshots own the fields, F2 confirmation and stall state, result,
+  histories, inlet target, clip count and pressure hierarchy construction state.
+  Restore preserves the original iteration budget, momentum schedule and pressure
+  rebuild cadence. It validates saved state before it writes caller fields.
+  Initial correction arrays keep their original unused-value rules.
+  Warm-call snapshots stay separate from active-call snapshots. Callbacks cannot
+  save or re-enter an unfinished step. Physical equations, ordering, cancellation
+  points and final boundary certificates stay unchanged. These component interfaces
+  still require integration with full-controller archives and application recovery.
 - `EnthalpyRun` owns the existing H-FOU, T-FOU and T-SOU Picard iteration state.
   Each advance completes one original iteration, including its SOU proposal.
   An active snapshot owns five solution fields, enthalpy bounds, table bounds,

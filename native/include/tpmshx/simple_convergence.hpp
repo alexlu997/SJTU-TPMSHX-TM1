@@ -8,6 +8,8 @@
 
 namespace tpmshx {
 
+enum class SimplePhase { idle, active, completed, cancelled, failed };
+
 enum class SimpleStop { ongoing, tol, stall, max_iterations, nonfinite, cancelled, pressure_failure, post_closure };
 
 struct SimpleF2Control {

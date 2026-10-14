@@ -325,6 +325,8 @@ if(MSVC)
 else()
     target_compile_options(tpmshx_simple PRIVATE -ffp-contract=off)
 endif()
+add_executable(simple_run_smoke "${TPMSHX_ROOT}/native/tests/simple_run_smoke.cpp")
+target_link_libraries(simple_run_smoke PRIVATE tpmshx_simple)
 add_executable(simple_2d_smoke "${TPMSHX_ROOT}/native/tests/simple_2d_smoke.cpp")
 target_link_libraries(simple_2d_smoke PRIVATE tpmshx_simple)
 add_library(simple_2d_test SHARED "${TPMSHX_ROOT}/sjtu_tpmshx/tests/native/simple_2d_bridge.cpp")
@@ -379,7 +381,7 @@ foreach(target IN ITEMS tpmshx_energy tpmshx_models tpmshx_quick_design temperat
         tpmshx_full_2d full_2d_test side_physics_smoke
         tpmshx_full_2d_c tpmshx_full_2d_shared full_2d_c_static full_2d_c_shared
         tpmshx_pressure tpmshx_simple
-        simple_2d_smoke simple_2d_test simple_3d_test simple_3d_smoke
+        simple_2d_smoke simple_2d_test simple_3d_test simple_3d_smoke simple_run_smoke
         tpmshx_simple_2d_c tpmshx_simple_2d_shared simple_2d_c_static simple_2d_c_shared
         tpmshx_simple_3d_c tpmshx_simple_3d_shared simple_3d_c_static simple_3d_c_shared
         quick_design_c_static quick_design_c_shared quick_design_driver_smoke
