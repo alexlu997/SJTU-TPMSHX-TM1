@@ -6,6 +6,8 @@
 #include "model_h_common.hpp"
 
 #include <exception>
+#include <condition_variable>
+#include <mutex>
 #include <numeric>
 #include <thread>
 
@@ -257,8 +259,8 @@ void build_physical_evidence(const Full2DProblem& p,std::size_t side,Full2DFlow&
     }
 }
 
-Full2DFlow solve_flow(const Full2DProblem& p,const Full2DControl& c,std::size_t side,
-                     std::size_t outer,const Full2DResult& current,const FluidProperties& inlet) {
+Full2DFlow prepare_flow(const Full2DProblem& p,const Full2DControl& c,std::size_t side,
+                       std::size_t outer,const Full2DResult& current) {
     const auto& g=p.grid; const auto& s=p.sides[side]; const auto& old=current.flow[side];
     const std::size_t count=g.nx*g.ny;
     Full2DFlow f;
@@ -275,7 +277,6 @@ Full2DFlow solve_flow(const Full2DProblem& p,const Full2DControl& c,std::size_t 
     const auto cross=s.direction<2?g.dy:g.dx,stream=s.direction<2?g.dx:g.dy;
     f.dx.assign(cross.data,cross.data+cross.size); f.dy.assign(stream.data,stream.data+stream.size);
     if (s.direction%2) std::reverse(f.dy.begin(),f.dy.end());
-    const double depth=1.; const GridView fg{cross.size,stream.size,1,view(f.dx),view(f.dy),{&depth,1}};
     f.density=to_flow(view(current.density[side]),g,s.direction);
     f.viscosity=to_flow(view(current.viscosity[side]),g,s.direction);
     f.temperature=outer?to_flow(view(current.thermal.temperature[side]),g,s.direction):Vector(count,s.inlet_temperature);
@@ -324,37 +325,122 @@ Full2DFlow solve_flow(const Full2DProblem& p,const Full2DControl& c,std::size_t 
     f.pressure.assign(count,0.); f.pressure_correction.assign(count,0.);
     f.d_u.assign(f.u.size(),0.); f.d_v.assign(f.v.size(),0.);
     f.inlet_velocity.assign(cross.size,s.inlet_velocity*f.taper_flux_scale);
-    std::vector<unsigned char> open(cross.size);
     for (std::size_t a=0;a<cross.size;++a) {
-        open[a]=s.outlet_geometry[a]>0.;
         f.v[a*(stream.size+1)]=f.inlet_velocity[a]*s.inlet_profile[a];
-        f.v[a*(stream.size+1)+stream.size]=open[a]?f.v[a*(stream.size+1)+stream.size-1]:0.;
+        f.v[a*(stream.size+1)+stream.size]=s.outlet_geometry[a]>0.?f.v[a*(stream.size+1)+stream.size-1]:0.;
     }
-    Vector permeability(count),forchheimer(count);
-    for (std::size_t a=0;a<cross.size;++a) for (std::size_t b=0;b<stream.size;++b) {
-        const auto k=a*stream.size+b;
-        permeability[k]=s.permeability.size?s.permeability[k]:s.row_permeability[b];
-        forchheimer[k]=s.forchheimer.size?s.forchheimer[k]:s.row_forchheimer[b];
-    }
-    const Simple2DMaterialView material{view(f.epsilon),view(f.viscosity),view(f.effective_viscosity),
-        view(permeability),view(forchheimer),view(f.temperature)};
-    const Simple2DBoundaryView boundary{s.inlet_profile,s.outlet_u_fraction,s.inlet_velocity,f.taper_flux_scale,inlet.rho};
-    const Simple2DStateView state{writable(f.u),writable(f.v),writable(f.pressure),writable(f.pressure_correction),
-        writable(f.d_u),writable(f.d_v),writable(f.density),writable(f.inlet_velocity)};
-    auto flow_control=c.flow; flow_control.pressure_reference_absolute=f.reference_pressure;
-    flow_control.ideal_gas=s.fluid==Fluid::air;
-    FlowCallback callback{c,side}; flow_control.cancel=flow_cancel; flow_control.progress=flow_progress;
-    flow_control.context=&callback;
-    Simple2DSolver solver(fg,{open.data(),open.size()});
-    f.result=solver.solve(material,boundary,state,flow_control); f.history=solver.history();
-    f.massflux_target=solver.massflux_target();
-    if (f.result.stop==SimpleStop::cancelled) return f;
-    if (s.fluid==Fluid::air)
-        f.pressure_state=inlet_pressure_state(fg,view(f.pressure),s.inlet_geometry,s.outlet_geometry,
-                                             f.reference_pressure,s.inlet_pressure);
-    build_physical_evidence(p,side,f);
     return f;
 }
+
+struct FlowRun {
+    const Full2DProblem& p;
+    FlowCallback callback;
+    Full2DFlow flow;
+    Vector permeability,forchheimer;
+    std::unique_ptr<Simple2DSolver> solver;
+    FlowRun(const Full2DProblem& problem,const Full2DControl& control,std::size_t side,
+            const Full2DResult& current,const FluidProperties& inlet,const Full2DFlowRunState* saved)
+        :p(problem),callback{control,side},flow(saved?saved->flow:prepare_flow(p,control,side,current.iterations,current)) {
+        if(saved && !saved->iteration)return;
+        auto& f=flow;const auto& s=p.sides[side];
+        const auto cross=f.dx.size(),stream=f.dy.size();
+        permeability.resize(cross*stream);forchheimer.resize(cross*stream);
+        for(std::size_t a=0;a<cross;++a)for(std::size_t b=0;b<stream;++b) {
+            const auto k=a*stream+b;
+            permeability[k]=s.permeability.size?s.permeability[k]:s.row_permeability[b];
+            forchheimer[k]=s.forchheimer.size?s.forchheimer[k]:s.row_forchheimer[b];
+        }
+        std::vector<unsigned char> open(cross);
+        for(std::size_t a=0;a<cross;++a)open[a]=s.outlet_geometry[a]>0.;
+        const double depth=1.;const GridView grid{cross,stream,1,view(f.dx),view(f.dy),{&depth,1}};
+        solver=std::make_unique<Simple2DSolver>(grid,ArrayView<const unsigned char>{open.data(),open.size()});
+        const Simple2DMaterialView material{view(f.epsilon),view(f.viscosity),view(f.effective_viscosity),
+            view(permeability),view(forchheimer),view(f.temperature)};
+        const Simple2DBoundaryView boundary{s.inlet_profile,s.outlet_u_fraction,s.inlet_velocity,f.taper_flux_scale,inlet.rho};
+        const Simple2DStateView fields{writable(f.u),writable(f.v),writable(f.pressure),writable(f.pressure_correction),
+            writable(f.d_u),writable(f.d_v),writable(f.density),writable(f.inlet_velocity)};
+        auto settings=control.flow;settings.pressure_reference_absolute=f.reference_pressure;
+        settings.ideal_gas=s.fluid==Fluid::air;settings.cancel=flow_cancel;settings.progress=flow_progress;
+        settings.context=&callback;
+        if(saved) {
+            auto state=*saved->iteration;
+            for(const auto& field:state.fields)if(!field.empty())
+                throw std::invalid_argument("full 2D flow state repeats its physical fields");
+            state.fields={f.u,f.v,f.pressure,f.pressure_correction,f.d_u,f.d_v,f.density,f.inlet_velocity};
+            solver->restore_active(material,boundary,fields,settings,state);
+        } else solver->start(material,boundary,fields,settings);
+        finish();
+    }
+    void finish() {
+        if(!solver || solver->phase()==SimplePhase::active)return;
+        auto& f=flow;const auto side=callback.side;const auto& s=p.sides[side];
+        f.result=solver->take_result();f.history=solver->history();f.massflux_target=solver->massflux_target();
+        solver.reset();
+        if(f.result.stop==SimpleStop::cancelled)return;
+        const double depth=1.;const GridView grid{f.dx.size(),f.dy.size(),1,view(f.dx),view(f.dy),{&depth,1}};
+        if(s.fluid==Fluid::air)
+            f.pressure_state=inlet_pressure_state(grid,view(f.pressure),s.inlet_geometry,s.outlet_geometry,
+                                                 f.reference_pressure,s.inlet_pressure);
+        build_physical_evidence(p,side,f);
+    }
+    void advance(bool complete) {
+        do {if(solver) {solver->advance();finish();}}while(complete && solver);
+    }
+    Full2DFlowRunState snapshot() const {
+        Full2DFlowRunState state{flow,{}};
+        if(solver) {state.iteration=solver->snapshot_active();state.iteration->fields={};}
+        return state;
+    }
+};
+
+// Keep both workers for the call. Ordinary solves have no per-step barrier.
+struct FlowPair {
+    std::array<std::unique_ptr<FlowRun>,2> sides;
+    std::array<std::thread,2> workers;
+    std::array<std::exception_ptr,2> errors;
+    std::mutex mutex;
+    std::condition_variable work,joined;
+    std::size_t generation=0,finished=0;
+    bool complete=false,shutdown=false;
+    FlowPair(const Full2DProblem& p,const Full2DControl& c,const Full2DResult& r,
+             const std::array<FluidProperties,2>& inlet,const std::array<Full2DFlowRunState,2>* saved=nullptr) {
+        for(std::size_t side=0;side<2;++side)
+            sides[side]=std::make_unique<FlowRun>(p,c,side,r,inlet[side],saved?&(*saved)[side]:nullptr);
+        try {
+            for(std::size_t side=0;side<2;++side)workers[side]=std::thread([this,side] {
+                std::size_t seen=0;
+                std::unique_lock<std::mutex> lock(mutex);
+                for(;;) {
+                    work.wait(lock,[&] {return shutdown || generation!=seen;});
+                    if(shutdown)return;
+                    seen=generation;const bool drain=complete;lock.unlock();
+                    std::exception_ptr error;
+                    try {sides[side]->advance(drain);}catch(...) {error=std::current_exception();}
+                    lock.lock();errors[side]=error;++finished;joined.notify_one();
+                }
+            });
+        } catch(...) {stop();throw;}
+    }
+    ~FlowPair() {stop();}
+    void stop() {
+        {std::lock_guard<std::mutex> lock(mutex);shutdown=true;}
+        work.notify_all();for(auto& worker:workers)if(worker.joinable())worker.join();
+    }
+    void advance(bool drain) {
+        std::unique_lock<std::mutex> lock(mutex);
+        finished=0;complete=drain;errors={};++generation;work.notify_all();
+        joined.wait(lock,[&] {return finished==2;});
+        for(const auto& error:errors)if(error)std::rethrow_exception(error);
+    }
+    bool done() const {return !sides[0]->solver && !sides[1]->solver;}
+    bool cancelled() const {
+        return sides[0]->flow.result.stop==SimpleStop::cancelled || sides[1]->flow.result.stop==SimpleStop::cancelled;
+    }
+    std::array<Full2DFlow,2> take_result() {
+        stop();return {std::move(sides[0]->flow),std::move(sides[1]->flow)};
+    }
+    std::array<Full2DFlowRunState,2> snapshot() const {return {sides[0]->snapshot(),sides[1]->snapshot()};}
+};
 
 bool thermal_converged(const Full2DThermalState& t) {
     return std::visit([](const auto& r) { return static_cast<int>(r.stop)==0; },t.result);
@@ -506,94 +592,134 @@ void prepare_thermal(const Full2DProblem& p,const std::array<SidePhysics,2>& phy
     }
 }
 
-void solve_thermal(const Full2DProblem& p,const std::array<SidePhysics,2>& physics,
-                   const Full2DControl& c,Full2DResult& r,const char* stage) {
-    auto& t=r.thermal;
-    const auto& g=p.grid; const std::size_t n=g.nx*g.ny;
-    const auto budget=c.model_h_iterations.max_iterations?c.model_h_iterations.max_iterations:c.thermal_iterations;
-    t.physical_audit.reset();
-    t.model_h_iterations.reset();
-    for (std::size_t side=0;side<2;++side)
-        record_property_samples(t.property_sampling,side,static_cast<std::int64_t>(r.iterations),stage,
-            physics[side].eos_energy()?"HEOS":"model_resource","current_thermal_iterate",
-            physics[side].eos_energy()?"last_thermal_input_absolute":nullptr,
-            physics[side].eos_energy()?"local_evaluation":"integral_cp_T",{"energy_relation"});
-    if (physics[0].conductivity==ConductivitySource::local_eos)
-        for (std::size_t side=0;side<2;++side)
-            record_property_samples(t.property_sampling,side,static_cast<std::int64_t>(r.iterations),stage,
-                "HEOS","current_thermal_iterate","last_thermal_input_absolute","local_evaluation",{"conductivity"});
-    const TemperatureStateView fields{writable(t.temperature[0]),writable(t.temperature[1]),writable(t.temperature[2])};
-    const auto boundary=[&](std::size_t side) {
-        return TemperatureBoundary{p.sides[side].direction,p.sides[side].inlet_temperature,{},p.sides[side].inlet_geometry,{}};
-    };
-    if (p.thermal_mode==Full2DThermalMode::model_h) {
-        const auto fluid=[&](std::size_t side) {
-            return ModelHFluid2D{physics[side].transport_fluid,view(t.conductivity[side]),view(t.hv[side]),
-                                view(t.mass_x[side]),view(t.mass_y[side]),boundary(side)};
-        };
-        ModelHControl2D control{budget,c.thermal_chunk,c.thermal_q_tolerance,
-            true,true,c.thermal_red_black && n>30000,c.cancel,nullptr,c.context};
-        t.model_h_iterations=model_h_common::apply_iteration_tolerances(control,c.model_h_iterations);
-        PhysicalHeatLedger audit;
-        auto solved=solve_model_h_2d(g,fluid(0),fluid(1),p.solid_conductivity,fields,control,{},&audit);
-        if (solved.physical_audit_available) t.physical_audit=std::move(audit);
-        t.result=std::move(solved);
-    } else if (physics[0].eos_energy()) {
-        std::array<Vector,2> eps; Vector z(n*2,0.);
-        for (std::size_t side=0;side<2;++side) {
-            eps[side].resize(n);
-            const double split=side==0?p.split_a:1.-p.split_a;
-            for (std::size_t k=0;k<n;++k) eps[side][k]=p.total_porosity[k]*split;
-            if(c.enthalpy.algorithm!=EnthalpyAlgorithm::legacy_h_fou)
-                if(const auto* error=energy_port_error(g,p.sides[side],t.mass_x[side],t.mass_y[side]))
-                    throw std::invalid_argument(error);
-        }
-        const auto fluid=[&](std::size_t side) {
-            return EnthalpySideView{p.sides[side].fluid,p.sides[side].inlet_temperature,p.sides[side].inlet_pressure,
-                view(t.pressure[side]),view(eps[side]),view(t.hv[side]),view(t.mass_x[side]),view(t.mass_y[side]),view(z),p.sides[side].direction};
-        };
-        t.h_a.resize(n); t.h_b.resize(n);
-        const EnthalpyStateView state{writable(t.h_a),writable(t.h_b),fields.a,fields.b,fields.solid,true,true,true};
-        auto control=c.enthalpy;
-        control.cancel=c.cancel;control.context=c.context;
-        PhysicalHeatLedger audit;
-        t.result=solve_enthalpy(g,fluid(0),fluid(1),p.solid_conductivity,state,control,&audit);
-        const auto& solved=std::get<EnthalpyResult>(t.result);
-        if (solved.stop!=EnthalpyStop::cancelled && solved.final_audit
-            && solved.final_audit->fluid_equations_computed) {
+struct ThermalRun {
+    const Full2DProblem& p;
+    Full2DThermalState& t;
+    std::array<Vector,2> epsilon;
+    Vector z;
+    PhysicalHeatLedger audit;
+    std::unique_ptr<ModelHRun2D> model_h;
+    std::unique_ptr<EnthalpyRun> enthalpy;
+    ThermalRun(const Full2DProblem& problem,const std::array<SidePhysics,2>& physics,
+               const Full2DControl& c,Full2DThermalState& thermal,std::size_t outer,const char* stage,
+               const Full2DThermalRunState* saved=nullptr):p(problem),t(thermal) {
+        const auto& g=p.grid;const std::size_t n=g.nx*g.ny;
+        const auto budget=c.model_h_iterations.max_iterations?c.model_h_iterations.max_iterations:c.thermal_iterations;
+        if(!saved) {
+            t.physical_audit.reset();t.model_h_iterations.reset();
             for(std::size_t side=0;side<2;++side)
-                audit.boundary_complete=audit.boundary_complete
-                    && !energy_port_error(g,p.sides[side],t.mass_x[side],t.mass_y[side]);
-            t.physical_audit=std::move(audit);
+                record_property_samples(t.property_sampling,side,static_cast<std::int64_t>(outer),stage,
+                    physics[side].eos_energy()?"HEOS":"model_resource","current_thermal_iterate",
+                    physics[side].eos_energy()?"last_thermal_input_absolute":nullptr,
+                    physics[side].eos_energy()?"local_evaluation":"integral_cp_T",{"energy_relation"});
+            if(physics[0].conductivity==ConductivitySource::local_eos)
+                for(std::size_t side=0;side<2;++side)
+                    record_property_samples(t.property_sampling,side,static_cast<std::int64_t>(outer),stage,
+                        "HEOS","current_thermal_iterate","last_thermal_input_absolute","local_evaluation",{"conductivity"});
         }
-        if(solved.stop!=EnthalpyStop::cancelled && solved.algorithm!=EnthalpyAlgorithm::legacy_h_fou) {
-            EnthalpyEOS eos;
+        const TemperatureStateView fields{writable(t.temperature[0]),writable(t.temperature[1]),writable(t.temperature[2])};
+        if(physics[0].eos_energy()) {
+            if(saved && (!saved->enthalpy || saved->model_h || t.model_h_iterations))
+                throw std::invalid_argument("full 2D continuation requires its EOS energy owner");
+            z.assign(n*2,0.);
             for(std::size_t side=0;side<2;++side) {
-                auto& actual=t.actual_conductivity[side];actual.resize(n);
-                for(std::size_t k=0;k<n;++k)
-                    actual[k]=eps[side][k]*eos.conductivity(p.sides[side].fluid,t.temperature[side][k],t.pressure[side][k]);
-                t.enthalpy_boundary_power[side]=enthalpy_boundary_power(g,view(side==0?t.h_a:t.h_b),
-                    {view(t.mass_x[side]),view(t.mass_y[side]),view(z)},solved.inlet_enthalpy[side],
-                    solved.algorithm==EnthalpyAlgorithm::temperature_sou);
+                epsilon[side].resize(n);const double split=side==0?p.split_a:1.-p.split_a;
+                for(std::size_t k=0;k<n;++k)epsilon[side][k]=p.total_porosity[k]*split;
+                if(c.enthalpy.algorithm!=EnthalpyAlgorithm::legacy_h_fou)
+                    if(const auto* error=energy_port_error(g,p.sides[side],t.mass_x[side],t.mass_y[side]))
+                        throw std::invalid_argument(error);
+            }
+            const auto fluid=[&](std::size_t side) {
+                return EnthalpySideView{p.sides[side].fluid,p.sides[side].inlet_temperature,p.sides[side].inlet_pressure,
+                    view(t.pressure[side]),view(epsilon[side]),view(t.hv[side]),view(t.mass_x[side]),view(t.mass_y[side]),view(z),p.sides[side].direction};
+            };
+            if(!saved) {t.h_a.resize(n);t.h_b.resize(n);}
+            const EnthalpyStateView fields_h{writable(t.h_a),writable(t.h_b),fields.a,fields.b,fields.solid,true,true,true};
+            auto control=c.enthalpy;control.cancel=c.cancel;control.context=c.context;
+            if(saved) {
+                auto state=*saved->enthalpy;
+                for(const auto& field:state.fields)if(!field.empty())
+                    throw std::invalid_argument("full 2D EOS state repeats its physical fields");
+                state.fields={t.h_a,t.h_b,t.temperature[0],t.temperature[1],t.temperature[2]};
+                enthalpy=std::make_unique<EnthalpyRun>(g,fluid(0),fluid(1),p.solid_conductivity,fields_h,control,state,&audit);
+            } else enthalpy=std::make_unique<EnthalpyRun>(g,fluid(0),fluid(1),p.solid_conductivity,fields_h,control,&audit);
+        } else {
+            if(saved && (!saved->model_h || saved->enthalpy || !t.model_h_iterations))
+                throw std::invalid_argument("full 2D continuation requires its model energy owner");
+            const auto fluid=[&](std::size_t side) {
+                const TemperatureBoundary boundary{p.sides[side].direction,p.sides[side].inlet_temperature,{},p.sides[side].inlet_geometry,{}};
+                return ModelHFluid2D{physics[side].transport_fluid,view(t.conductivity[side]),view(t.hv[side]),
+                                    view(t.mass_x[side]),view(t.mass_y[side]),boundary};
+            };
+            ModelHControl2D control{budget,c.thermal_chunk,c.thermal_q_tolerance,
+                true,true,c.thermal_red_black && n>30000,c.cancel,nullptr,c.context};
+            if(p.thermal_mode==Full2DThermalMode::temperature) {
+                control.second_order_b=false;control.strict_energy_balance=true;
+            }
+            const auto settings=model_h_common::apply_iteration_tolerances(control,c.model_h_iterations);
+            if(saved) {
+                const auto& stored=*t.model_h_iterations;
+                if(stored.max_iterations!=settings.max_iterations || stored.chunk_iterations!=settings.chunk_iterations
+                    || stored.temperature_tolerance!=settings.temperature_tolerance
+                    || stored.q_relative_tolerance!=settings.q_relative_tolerance
+                    || stored.total_iteration_budget!=settings.total_iteration_budget)
+                    throw std::invalid_argument("full 2D energy state differs from its iteration controls");
+                auto state=*saved->model_h;
+                for(const auto& field:state.iteration.temperature)if(!field.empty())
+                    throw std::invalid_argument("full 2D model energy state repeats its physical fields");
+                state.iteration.temperature=t.temperature;
+                model_h=std::make_unique<ModelHRun2D>(g,fluid(0),fluid(1),p.solid_conductivity,fields,control,state,ArrayView<const double>{},&audit);
+            } else {
+                t.model_h_iterations=settings;
+                model_h=std::make_unique<ModelHRun2D>(g,fluid(0),fluid(1),p.solid_conductivity,fields,control,ArrayView<const double>{},&audit);
             }
         }
-    } else {
-        const auto fluid=[&](std::size_t side) {
-            return ModelHFluid2D{physics[side].transport_fluid,view(t.conductivity[side]),view(t.hv[side]),
-                                view(t.mass_x[side]),view(t.mass_y[side]),boundary(side)};
-        };
-        ModelHControl2D control{budget,c.thermal_chunk,c.thermal_q_tolerance,
-            true,true,c.thermal_red_black && n>30000,c.cancel,nullptr,c.context};
-        control.second_order_b=false;control.strict_energy_balance=true;
-        t.model_h_iterations=model_h_common::apply_iteration_tolerances(control,c.model_h_iterations);
-        PhysicalHeatLedger audit;t.physical_audit.reset();
-        const auto solved=solve_model_h_2d(g,fluid(0),fluid(1),p.solid_conductivity,fields,control,{},&audit);
-        t.result=TemperatureResult{solved.stop,solved.iterations,solved.residual,solved.q_b};
-        t.temperature_algorithm="model_h_tface_sou_fou_strict_v3";
-        if(solved.physical_audit_available)
-            t.physical_audit=std::move(audit);
+        finish();
     }
-}
+    void finish() {
+        if(model_h && model_h->phase()!=ModelHPhase::active) {
+            auto solved=model_h->take_result();model_h.reset();
+            if(solved.physical_audit_available)t.physical_audit=std::move(audit);
+            if(p.thermal_mode==Full2DThermalMode::model_h)t.result=std::move(solved);
+            else {
+                t.result=TemperatureResult{solved.stop,solved.iterations,solved.residual,solved.q_b};
+                t.temperature_algorithm="model_h_tface_sou_fou_strict_v3";
+            }
+        }
+        if(enthalpy && enthalpy->phase()!=EnthalpyPhase::active) {
+            t.result=enthalpy->take_result();enthalpy.reset();
+            const auto& solved=std::get<EnthalpyResult>(t.result);const auto& g=p.grid;
+            if(solved.stop!=EnthalpyStop::cancelled && solved.final_audit && solved.final_audit->fluid_equations_computed) {
+                for(std::size_t side=0;side<2;++side)
+                    audit.boundary_complete=audit.boundary_complete && !energy_port_error(g,p.sides[side],t.mass_x[side],t.mass_y[side]);
+                t.physical_audit=std::move(audit);
+            }
+            if(solved.stop!=EnthalpyStop::cancelled && solved.algorithm!=EnthalpyAlgorithm::legacy_h_fou) {
+                EnthalpyEOS eos;
+                for(std::size_t side=0;side<2;++side) {
+                    auto& actual=t.actual_conductivity[side];actual.resize(g.nx*g.ny);
+                    for(std::size_t k=0;k<actual.size();++k)
+                        actual[k]=epsilon[side][k]*eos.conductivity(p.sides[side].fluid,t.temperature[side][k],t.pressure[side][k]);
+                    t.enthalpy_boundary_power[side]=enthalpy_boundary_power(g,view(side==0?t.h_a:t.h_b),
+                        {view(t.mass_x[side]),view(t.mass_y[side]),view(z)},solved.inlet_enthalpy[side],
+                        solved.algorithm==EnthalpyAlgorithm::temperature_sou);
+                }
+            }
+        }
+    }
+    bool done() const {return !model_h && !enthalpy;}
+    void advance() {
+        if(model_h)model_h->advance();else if(enthalpy)enthalpy->advance();
+        finish();
+    }
+    Full2DThermalRunState snapshot() const {
+        Full2DThermalRunState saved;
+        if(model_h) {saved.model_h=model_h->snapshot();saved.model_h->iteration.temperature={};}
+        if(enthalpy) {saved.enthalpy=enthalpy->snapshot();saved.enthalpy->fields={};}
+        return saved;
+    }
+};
+
 } // namespace
 
 namespace {
@@ -605,10 +731,21 @@ struct Runtime {
     PropertyEvaluator properties;
     std::array<FluidProperties,2> inlet{};
     std::array<Vector,3> previous;
+    std::optional<Full2DProblem> fine_problem;
+    std::array<Vector,2> fine_opening;
+    double unit_depth=1.;
+    std::unique_ptr<FlowPair> flow;
+    std::unique_ptr<ThermalRun> thermal;
     Runtime(const Full2DProblem& problem,const Full2DControl& control)
         :p(problem),c(control),physics(resolve_full_2d_physics(problem)) {}
     void initialize();
-    void step();
+    void begin_flow();
+    void finish_flow();
+    void finish_thermal();
+    void bind_refinement();
+    Full2DControl refinement_control() const;
+    void begin_refinement();
+    void finish_refinement();
     void finish_coarse();
     void finish();
 };
@@ -632,22 +769,17 @@ void Runtime::initialize() {
         .5*(p.sides[0].inlet_temperature+p.sides[1].inlet_temperature)));
 }
 
-void Runtime::step() {
-    const auto& g=p.grid;const std::size_t n=g.nx*g.ny,outer=result.iterations;
-    if (cancelled(c)) { result.cancelled=true; return; }
-    if (c.progress) c.progress(c.context,outer,c.outer_iterations);
-    std::array<Full2DFlow,2> next; std::array<std::exception_ptr,2> errors;
-    const auto flow=[&](std::size_t side) {
-        try { next[side]=solve_flow(p,c,side,outer,result,inlet[side]); }
-        catch (...) { errors[side]=std::current_exception(); }
-    };
-    std::thread a(flow,0);
-    try { std::thread b(flow,1); a.join(); b.join(); }
-    catch (...) { if (a.joinable()) a.join(); throw; }
-    for (auto& error:errors) if (error) std::rethrow_exception(error);
-    result.flow=std::move(next);
-    if (cancelled(c) || result.flow[0].result.stop==SimpleStop::cancelled || result.flow[1].result.stop==SimpleStop::cancelled) {
-        result.cancelled=true; return;
+void Runtime::begin_flow() {
+    if(cancelled(c)) {result.cancelled=true;return;}
+    if(c.progress)c.progress(c.context,result.iterations,c.outer_iterations);
+    flow=std::make_unique<FlowPair>(p,c,result,inlet);
+}
+
+void Runtime::finish_flow() {
+    const auto& g=p.grid;const auto outer=result.iterations;
+    result.flow=flow->take_result();flow.reset();
+    if(cancelled(c) || result.flow[0].result.stop==SimpleStop::cancelled || result.flow[1].result.stop==SimpleStop::cancelled) {
+        result.cancelled=true;return;
     }
     for (std::size_t side=0;side<2;++side)
         actual_water(properties,p.sides[side].fluid,view(result.thermal.temperature[side]),
@@ -663,7 +795,12 @@ void Runtime::step() {
         for (std::size_t side=0;side<2;++side)
             temperature_state(result.range_observations,p.sides[side].fluid,side,"main-warm",g,
                               view(result.thermal.temperature[side]));
-    solve_thermal(p,physics,c,result,"thermal");
+    thermal=std::make_unique<ThermalRun>(p,physics,c,result.thermal,outer,"thermal");
+}
+
+void Runtime::finish_thermal() {
+    thermal.reset();
+    const auto& g=p.grid;const std::size_t n=g.nx*g.ny,outer=result.iterations;
     if (thermal_cancelled(result.thermal)) { result.cancelled=true; return; }
     if (p.thermal_mode!=Full2DThermalMode::true_h)
         for (std::size_t side=0;side<2;++side)
@@ -765,13 +902,12 @@ double temperature_duty(const Full2DThermalState& thermal,std::size_t side) {
         for(double value:plane) q-=value;
     return q;
 }
-void refine_thermal(const Full2DProblem& p,const Full2DControl& c,Full2DResult& r,
-                    PropertyEvaluator& properties) {
+void Runtime::begin_refinement() {
+    auto& r=result;
     r.refined.emplace(); auto& fine=*r.refined;
     const auto& g=p.grid;
     fine.dx=split_refinement_cells(g.dx); fine.dy=split_refinement_cells(g.dy);
-    const double depth=1.;
-    const GridView fg{fine.dx.size(),fine.dy.size(),1,view(fine.dx),view(fine.dy),{&depth,1}};
+    const GridView fg{fine.dx.size(),fine.dy.size(),1,view(fine.dx),view(fine.dy),{&unit_depth,1}};
     const auto interpolate=[&](ArrayView<const double> field) {
         return refine_cell_field_2d(g.dx,g.dy,fg.dx,fg.dy,field);
     };
@@ -779,19 +915,14 @@ void refine_thermal(const Full2DProblem& p,const Full2DControl& c,Full2DResult& 
         return p.spatial_geometry?interpolate(field):Vector(fg.nx*fg.ny,field[0]);
     };
     fine.epsilon=geometry(p.total_porosity);
-    auto fp=p; fp.grid=fg; fp.total_porosity=view(fine.epsilon);
-    Full2DResult fr; fr.iterations=r.iterations-1;
-    fr.thermal.solid_conductivity=geometry(view(r.thermal.solid_conductivity));
-    fp.solid_conductivity=view(fr.thermal.solid_conductivity);
-    std::array<Vector,2> opening;
+    fine.thermal.solid_conductivity=geometry(view(r.thermal.solid_conductivity));
     for (std::size_t side=0;side<2;++side) {
         const auto& s=p.sides[side]; const auto cross=s.direction<2?fg.dy:fg.dx;
         auto inlet=port_fractions_1d(cross,s.inlet_lo,s.inlet_hi,s.uniform_inlet);
-        opening[side]=std::move(inlet.first); fine.inlet_profile[side]=std::move(inlet.second);
+        fine.inlet_profile[side]=std::move(inlet.second);
         fine.outlet_profile[side]=port_fractions_1d(cross,s.outlet_lo,s.outlet_hi).second;
-        fp.sides[side].inlet_geometry=view(opening[side]);
-        fr.thermal.temperature[side]=interpolate(view(r.thermal.temperature[side]));
-        temperature_state(r.range_observations,s.fluid,side,"richardson-warm",fg,view(fr.thermal.temperature[side]));
+        fine.thermal.temperature[side]=interpolate(view(r.thermal.temperature[side]));
+        temperature_state(r.range_observations,s.fluid,side,"richardson-warm",fg,view(fine.thermal.temperature[side]));
         // Python retains scalar rho*cp only for the first main solve; later
         // outer passes own fields. Preserve that source shape in the ledger.
         if (r.iterations==1)
@@ -800,48 +931,68 @@ void refine_thermal(const Full2DProblem& p,const Full2DControl& c,Full2DResult& 
         if (p.thermal_mode==Full2DThermalMode::temperature)
             temperature_ranges(r.range_observations,s.fluid,side,"property","richardson-inlet","scalar",{},
                                {&s.inlet_temperature,1},{"cp"});
-        record_property_samples(fr.thermal.property_sampling,side,static_cast<std::int64_t>(fr.iterations),
+        record_property_samples(fine.thermal.property_sampling,side,static_cast<std::int64_t>((r.iterations-1)),
             "refined_thermal","coarse_thermal_input",nullptr,nullptr,"interpolate",{"hv","rho_cp","pressure"});
-        record_property_samples(fr.thermal.property_sampling,side,static_cast<std::int64_t>(fr.iterations),
+        record_property_samples(fine.thermal.property_sampling,side,static_cast<std::int64_t>((r.iterations-1)),
             "refined_thermal","prepared_property_state","inlet","inlet",
             p.spatial_geometry?"interpolate":"broadcast",{"conductivity"});
-        fr.thermal.hv[side]=interpolate(view(r.thermal.hv[side]));
-        fr.thermal.rho_cp[side]=interpolate(view(r.thermal.rho_cp[side]));
-        fr.thermal.conductivity[side]=geometry(p.thermal_mode==Full2DThermalMode::model_h
+        fine.thermal.hv[side]=interpolate(view(r.thermal.hv[side]));
+        fine.thermal.rho_cp[side]=interpolate(view(r.thermal.rho_cp[side]));
+        fine.thermal.conductivity[side]=geometry(p.thermal_mode==Full2DThermalMode::model_h
             ?view(r.thermal.conductivity[side]):p.fluid_conductivity[side]);
         if (p.thermal_mode==Full2DThermalMode::temperature && p.asymmetric)
-            for (double& value:fr.thermal.conductivity[side]) value*=2.*(side==0?p.split_a:1.-p.split_a);
-        fr.thermal.pressure[side]=interpolate(view(r.thermal.pressure[side]));
-        fr.flow[side].uc=interpolate(view(r.flow[side].uc));
-        fr.flow[side].vc=interpolate(view(r.flow[side].vc));
+            for (double& value:fine.thermal.conductivity[side]) value*=2.*(side==0?p.split_a:1.-p.split_a);
+        fine.thermal.pressure[side]=interpolate(view(r.thermal.pressure[side]));
+        fine.uc[side]=interpolate(view(r.flow[side].uc));
+        fine.vc[side]=interpolate(view(r.flow[side].vc));
         actual_water(properties,s.fluid,view(r.thermal.temperature[side]),view(r.thermal.pressure[side]),
                      "Richardson coarse",side);
-        actual_water(properties,s.fluid,view(fr.thermal.temperature[side]),view(fr.thermal.pressure[side]),
+        actual_water(properties,s.fluid,view(fine.thermal.temperature[side]),view(fine.thermal.pressure[side]),
                      "Richardson warm start",side);
         if (p.thermal_mode==Full2DThermalMode::model_h || p.thermal_mode==Full2DThermalMode::temperature) {
             auto faces=prolong_mass_faces_2d({view(r.thermal.mass_x[side]),view(r.thermal.mass_y[side])},
                                             g.dx,g.dy,fg.dx,fg.dy);
-            fr.thermal.mass_x[side]=std::move(faces[0]); fr.thermal.mass_y[side]=std::move(faces[1]);
+            fine.thermal.mass_x[side]=std::move(faces[0]); fine.thermal.mass_y[side]=std::move(faces[1]);
         }
         if(p.thermal_mode==Full2DThermalMode::temperature) {
             const auto coarse=s.direction<2?g.dy:g.dx;
-            fr.thermal.inlet_capacity[side]=refine_inlet_capacity(coarse,cross,view(r.thermal.inlet_capacity[side]));
-            fr.thermal.temperature_cp_coefficients[side]=model_h_common::coefficients(s.fluid);
+            fine.thermal.inlet_capacity[side]=refine_inlet_capacity(coarse,cross,view(r.thermal.inlet_capacity[side]));
+            fine.thermal.temperature_cp_coefficients[side]=model_h_common::coefficients(s.fluid);
         }
     }
-    fr.thermal.temperature[2]=interpolate(view(r.thermal.temperature[2]));
-    auto fc=c; fc.thermal_iterations=p.thermal_mode==Full2DThermalMode::model_h?12000:5000;
-    fc.thermal_chunk=500; fc.thermal_q_tolerance=.001;
-    solve_thermal(fp,resolve_full_2d_physics(fp),fc,fr,"refined_thermal");
-    if (thermal_cancelled(fr.thermal)) { r.cancelled=true; fine.thermal=std::move(fr.thermal); return; }
-    for (std::size_t side=0;side<2;++side) {
-        temperature_state(r.range_observations,p.sides[side].fluid,side,"richardson-return",fg,view(fr.thermal.temperature[side]));
-        actual_water(properties,p.sides[side].fluid,view(fr.thermal.temperature[side]),view(fr.thermal.pressure[side]),
-                     "Richardson return",side);
-        fine.uc[side]=std::move(fr.flow[side].uc); fine.vc[side]=std::move(fr.flow[side].vc);
+    fine.thermal.temperature[2]=interpolate(view(r.thermal.temperature[2]));
+    bind_refinement();
+    thermal=std::make_unique<ThermalRun>(*fine_problem,physics,refinement_control(),fine.thermal,r.iterations-1,"refined_thermal");
+}
+
+Full2DControl Runtime::refinement_control() const {
+    auto control=c;control.thermal_iterations=p.thermal_mode==Full2DThermalMode::model_h?12000:5000;
+    control.thermal_chunk=500;control.thermal_q_tolerance=.001;
+    return control;
+}
+
+void Runtime::bind_refinement() {
+    auto& fine=*result.refined;
+    fine_problem=p;auto& fp=*fine_problem;
+    fp.grid={fine.dx.size(),fine.dy.size(),1,view(fine.dx),view(fine.dy),{&unit_depth,1}};
+    fp.total_porosity=view(fine.epsilon);fp.solid_conductivity=view(fine.thermal.solid_conductivity);
+    for(std::size_t side=0;side<2;++side) {
+        const auto& spec=p.sides[side];const auto widths=spec.direction<2?fp.grid.dy:fp.grid.dx;
+        fine_opening[side]=port_fractions_1d(widths,spec.inlet_lo,spec.inlet_hi,spec.uniform_inlet).first;
+        fp.sides[side].inlet_geometry=view(fine_opening[side]);
     }
-    for (const auto& field:fr.thermal.temperature) model_h_common::check(view(field),fg.nx*fg.ny);
-    fine.thermal=std::move(fr.thermal);
+}
+
+void Runtime::finish_refinement() {
+    thermal.reset();auto& r=result;auto& fine=*r.refined;
+    const auto& g=p.grid;const auto& fg=fine_problem->grid;
+    if(thermal_cancelled(fine.thermal)) {r.cancelled=true;return;}
+    for (std::size_t side=0;side<2;++side) {
+        temperature_state(r.range_observations,p.sides[side].fluid,side,"richardson-return",fg,view(fine.thermal.temperature[side]));
+        actual_water(properties,p.sides[side].fluid,view(fine.thermal.temperature[side]),view(fine.thermal.pressure[side]),
+                     "Richardson return",side);
+    }
+    for (const auto& field:fine.thermal.temperature) model_h_common::check(view(field),fg.nx*fg.ny);
     fine.accepted=thermal_converged(fine.thermal);
     if (p.thermal_mode==Full2DThermalMode::model_h) {
         auto& main=std::get<ModelHResult2D>(r.thermal.result).audit;
@@ -881,7 +1032,7 @@ void Runtime::finish() {
     if (p.thermal_mode==Full2DThermalMode::true_h) {
         const auto& h=std::get<EnthalpyResult>(r.thermal.result);
         r.duty={h.q_a,h.q_b}; r.q_total=std::abs(h.q_a); r.q_solid=std::abs(h.q_b);
-    } else refine_thermal(p,c,r,properties);
+    }
     if (r.cancelled) return;
     r.simple_ok=true; r.envelope_ok=true;
     for (std::size_t side=0;side<2;++side) {
@@ -942,7 +1093,7 @@ struct Full2DRun::Impl {
     Full2DControl control;
     Runtime runtime;
     Full2DPhase phase=Full2DPhase::created;
-    bool result_taken=false;
+    bool result_taken=false,boundary=true;
     Impl(const Full2DProblem& p,const Full2DControl& c):input(p),control(c),runtime(input,control) {}
 };
 
@@ -953,33 +1104,81 @@ Full2DRun::~Full2DRun()=default;
 Full2DPhase Full2DRun::phase() const {return impl_->phase;}
 
 Full2DPhase Full2DRun::advance() {
+    advance_impl(true);
+    while(impl_->phase==Full2DPhase::flow_boundary || impl_->phase==Full2DPhase::thermal_boundary
+        || impl_->phase==Full2DPhase::refinement_boundary)advance_impl(true);
+    return impl_->phase;
+}
+
+Full2DPhase Full2DRun::advance_step() {return advance_impl(false);}
+
+Full2DPhase Full2DRun::advance_impl(bool complete_flow) {
+    if(!impl_->boundary)throw std::logic_error("unfinished full 2D step cannot advance");
     if(impl_->phase==Full2DPhase::completed || impl_->phase==Full2DPhase::cancelled)return impl_->phase;
     if(impl_->phase==Full2DPhase::failed)throw std::logic_error("full 2D failed run cannot advance");
     auto& runtime=impl_->runtime;
+    impl_->boundary=false;
     try {
-        if(impl_->phase==Full2DPhase::created) {
-            runtime.initialize();impl_->phase=Full2DPhase::outer_boundary;
-        } else if(impl_->phase==Full2DPhase::ready_to_finish) {
-            runtime.finish();impl_->phase=Full2DPhase::completed;
-        } else {
-            runtime.step();
+        const auto end_thermal=[&] {
+            runtime.finish_thermal();impl_->phase=Full2DPhase::outer_boundary;
             if(!runtime.result.cancelled && (runtime.result.outer_converged
                 || runtime.result.iterations==impl_->control.outer_iterations)) {
                 runtime.finish_coarse();impl_->phase=Full2DPhase::ready_to_finish;
             }
+        };
+        const auto end_refinement=[&] {
+            runtime.finish_refinement();runtime.finish();impl_->phase=Full2DPhase::completed;
+        };
+        if(impl_->phase==Full2DPhase::created) {
+            runtime.initialize();impl_->phase=Full2DPhase::outer_boundary;
+        } else if(impl_->phase==Full2DPhase::ready_to_finish) {
+            if(impl_->input.thermal_mode==Full2DThermalMode::true_h) {
+                runtime.finish();impl_->phase=Full2DPhase::completed;
+            } else {
+                runtime.begin_refinement();impl_->phase=Full2DPhase::refinement_boundary;
+                if(runtime.thermal->done())end_refinement();
+            }
+        } else if(impl_->phase==Full2DPhase::outer_boundary) {
+            runtime.begin_flow();impl_->phase=Full2DPhase::flow_boundary;
+        } else if(impl_->phase==Full2DPhase::flow_boundary) {
+            runtime.flow->advance(complete_flow);
+            if(runtime.flow->done()) {
+                runtime.finish_flow();impl_->phase=Full2DPhase::thermal_boundary;
+                if(!runtime.result.cancelled && runtime.thermal->done())end_thermal();
+            } else if(runtime.flow->cancelled())runtime.result.cancelled=true;
+        } else if(impl_->phase==Full2DPhase::thermal_boundary) {
+            runtime.thermal->advance();if(runtime.thermal->done())end_thermal();
+        } else if(impl_->phase==Full2DPhase::refinement_boundary) {
+            runtime.thermal->advance();if(runtime.thermal->done())end_refinement();
         }
-        if(runtime.result.cancelled)impl_->phase=Full2DPhase::cancelled;
-    } catch(...) {impl_->phase=Full2DPhase::failed;throw;}
+        if(runtime.result.cancelled) {
+            runtime.flow.reset();runtime.thermal.reset();impl_->phase=Full2DPhase::cancelled;
+        }
+        impl_->boundary=true;
+    } catch(...) {
+        runtime.flow.reset();runtime.thermal.reset();impl_->phase=Full2DPhase::failed;throw;
+    }
     return impl_->phase;
 }
 
 namespace {
+bool saved_boundary(Full2DPhase phase) {
+    return phase==Full2DPhase::outer_boundary || phase==Full2DPhase::ready_to_finish
+        || phase==Full2DPhase::flow_boundary || phase==Full2DPhase::thermal_boundary
+        || phase==Full2DPhase::refinement_boundary;
+}
 void validate_continuation(const Full2DProblem& p,const Full2DControl& c,const Full2DRunState& state) {
     const auto& r=state.result;const auto& g=p.grid;
     const auto outer=r.outer_history.size(),n=g.nx*g.ny;
-    const bool ready=state.phase==Full2DPhase::ready_to_finish;
-    if((state.phase!=Full2DPhase::outer_boundary && !ready) || outer>c.outer_iterations
-        || r.iterations!=outer || r.cancelled || r.refined || r.converged
+    const bool flow_active=state.phase==Full2DPhase::flow_boundary;
+    const bool thermal_active=state.phase==Full2DPhase::thermal_boundary;
+    const bool refinement=state.phase==Full2DPhase::refinement_boundary;
+    const bool ready=state.phase==Full2DPhase::ready_to_finish || refinement;
+    if(!saved_boundary(state.phase) || outer>c.outer_iterations
+        || r.iterations!=outer || r.cancelled || r.converged
+        || r.refined.has_value()!=refinement || state.flow.has_value()!=flow_active
+        || state.thermal.has_value()!=(thermal_active || refinement)
+        || (refinement && p.thermal_mode==Full2DThermalMode::true_h)
         || (!ready && (r.outer_converged || outer==c.outer_iterations))
         || (ready && (!outer || (!r.outer_converged && outer!=c.outer_iterations)))
         || r.post_after_last_thermal!=(ready && !r.outer_converged))
@@ -991,22 +1190,12 @@ void validate_continuation(const Full2DProblem& p,const Full2DControl& c,const F
         if(r.outer_history[i].iteration!=i || (i+1<outer && r.outer_history[i].outer_converged))
             throw std::invalid_argument("invalid full 2D continuation history");
     const auto check=[&](const Vector& values,std::size_t size,bool positive=false) {
-        if(values.size()!=size || !std::all_of(values.begin(),values.end(),[&](double v) {
-            return std::isfinite(v) && (!positive || v>0.);
+        if(values.size()!=size || !std::all_of(values.begin(),values.end(),[&](double value) {
+            return std::isfinite(value) && (!positive || value>0.);
         }))throw std::invalid_argument("invalid full 2D continuation field");
     };
-    for(std::size_t field=0;field<3;++field) {
-        check(r.thermal.temperature[field],n,true);check(state.previous[field],outer?n:0,true);
-        if(outer && state.previous[field]!=r.thermal.temperature[field])
-            throw std::invalid_argument("full 2D continuation comparison field differs from its thermal state");
-    }
-    for(std::size_t side=0;side<2;++side) {
-        for(const auto* field:{&r.density[side],&r.viscosity[side],&r.rho_cp[side]})check(*field,n,true);
-        const auto& inlet=state.inlet[side];
-        for(double value:{inlet.rho,inlet.mu,inlet.k,inlet.cp,inlet.pr})
-            if(!(value>0.) || !std::isfinite(value))throw std::invalid_argument("invalid full 2D continuation property");
-        if(!outer)continue;
-        const auto& f=r.flow[side];const auto direction=p.sides[side].direction;
+    const auto check_flow=[&](const Full2DFlow& f,std::size_t side,bool complete) {
+        const auto direction=p.sides[side].direction;
         const auto cross=direction<2?g.dy:g.dx,stream=direction<2?g.dx:g.dy;
         check(f.dx,cross.size,true);check(f.dy,stream.size,true);
         for(std::size_t i=0;i<cross.size;++i)if(f.dx[i]!=cross[i])
@@ -1015,63 +1204,121 @@ void validate_continuation(const Full2DProblem& p,const Full2DControl& c,const F
             throw std::invalid_argument("full 2D continuation grid differs from input");
         if(f.epsilon!=to_flow(p.total_porosity,g,direction))
             throw std::invalid_argument("full 2D continuation geometry differs from input");
-        for(const auto* field:{&f.density,&f.viscosity,&f.effective_viscosity,&f.temperature,&f.absolute_pressure})
-            check(*field,n,true);
-        for(const auto* field:{&f.pressure,&f.pressure_correction,&f.uc,&f.vc})check(*field,n);
+        for(const auto* field:{&f.density,&f.viscosity,&f.effective_viscosity,&f.temperature})check(*field,n,true);
+        for(const auto* field:{&f.pressure,&f.pressure_correction})check(*field,n);
         for(const auto* field:{&f.u,&f.d_u})check(*field,(cross.size+1)*stream.size);
         for(const auto* field:{&f.v,&f.d_v})check(*field,cross.size*(stream.size+1));
-        check(f.inlet_velocity,cross.size);check(f.mass_x,(g.nx+1)*g.ny);check(f.mass_y,g.nx*(g.ny+1));
+        check(f.inlet_velocity,cross.size);check(f.absolute_pressure,complete?n:0,true);
+        check(f.uc,complete?n:0);check(f.vc,complete?n:0);
+        check(f.mass_x,complete?(g.nx+1)*g.ny:0);check(f.mass_y,complete?g.nx*(g.ny+1):0);
         if(!(f.reference_pressure>0.) || !std::isfinite(f.reference_pressure)
-            || !(f.taper_flux_scale>0.) || !std::isfinite(f.taper_flux_scale))
-            throw std::invalid_argument("invalid full 2D continuation flow reference");
-        const auto& t=r.thermal;
-        check(t.hv[side],n);check(t.conductivity[side],n);
-        check(t.pressure[side],n,true);check(t.rho_cp[side],n,true);
-        check(t.mass_x[side],(g.nx+1)*g.ny);check(t.mass_y[side],g.nx*(g.ny+1));
-        check(t.inlet_capacity[side],p.thermal_mode==Full2DThermalMode::temperature?cross.size:0);
-        if(!t.actual_conductivity[side].empty())check(t.actual_conductivity[side],n,true);
-    }
-    if(!outer)return;
-    const auto& t=r.thermal;
-    if(t.result.index()!=static_cast<std::size_t>(p.thermal_mode)
-        || r.outer_history.back().thermal_iterations!=thermal_iterations(t)
-        || r.outer_history.back().thermal_converged!=thermal_converged(t))
-        throw std::invalid_argument("full 2D continuation thermal mode or history differs from its evidence");
-    check(t.solid_conductivity,n);
-    check(t.h_a,p.thermal_mode==Full2DThermalMode::true_h?n:0);
-    check(t.h_b,p.thermal_mode==Full2DThermalMode::true_h?n:0);
-    if(p.thermal_mode==Full2DThermalMode::temperature
-        ? t.temperature_algorithm!="model_h_tface_sou_fou_strict_v3" : !t.temperature_algorithm.empty())
-        throw std::invalid_argument("full 2D continuation energy relation differs from its input");
-    if(const auto* h=std::get_if<EnthalpyResult>(&t.result))
-        if(h->algorithm!=c.enthalpy.algorithm)
-            throw std::invalid_argument("full 2D continuation energy method differs from its input");
-    if(const auto* h=std::get_if<ModelHResult2D>(&t.result)) {
-        check(h->last_a,n);check(h->last_b,n);
-        if(h->audit_available) {
-            check(h->audit.solid_residual,n);
-            for(const auto& side:h->audit.sides) {
-                check(side.residual,n);check(side.linearization_defect,n);
-                check(side.h_faces[0],(g.nx+1)*g.ny);check(side.h_faces[1],g.nx*(g.ny+1));
-                for(std::size_t face=0;face<4;++face) {
-                    const auto size=face<2?g.ny:g.nx;
-                    check(side.boundary_mass_out[face],size);check(side.boundary_h_out[face],size);
+            || !(f.taper_flux_scale>0.) || !std::isfinite(f.taper_flux_scale)
+            || (complete && (f.result.stop==SimpleStop::ongoing || f.result.stop==SimpleStop::cancelled
+                || f.result.iterations>c.flow.max_iterations))
+            || (!complete && (f.pressure_state || f.massflux_target || !f.history.legacy.empty()
+                || !f.history.local_mass.empty() || !f.history.global_mass.empty() || !f.history.momentum.empty())))
+            throw std::invalid_argument("invalid full 2D continuation flow reference or position");
+    };
+    const auto check_thermal=[&](const Full2DThermalState& t,const GridView& grid,bool active) {
+        const auto count=grid.nx*grid.ny;
+        for(const auto& temperature:t.temperature)check(temperature,count,true);
+        for(std::size_t side=0;side<2;++side) {
+            const auto cross=p.sides[side].direction<2?grid.ny:grid.nx;
+            check(t.hv[side],count);check(t.conductivity[side],count);
+            check(t.pressure[side],count,true);check(t.rho_cp[side],count,true);
+            check(t.mass_x[side],(grid.nx+1)*grid.ny);check(t.mass_y[side],grid.nx*(grid.ny+1));
+            check(t.inlet_capacity[side],p.thermal_mode==Full2DThermalMode::temperature?cross:0);
+            if(!t.actual_conductivity[side].empty())check(t.actual_conductivity[side],count,true);
+        }
+        check(t.solid_conductivity,count);
+        check(t.h_a,p.thermal_mode==Full2DThermalMode::true_h?count:0);
+        check(t.h_b,p.thermal_mode==Full2DThermalMode::true_h?count:0);
+        if(active) {
+            if(t.physical_audit)throw std::invalid_argument("unfinished full 2D energy state has a final audit");
+            return;
+        }
+        if(t.result.index()!=static_cast<std::size_t>(p.thermal_mode)
+            || (p.thermal_mode==Full2DThermalMode::temperature
+                ?t.temperature_algorithm!="model_h_tface_sou_fou_strict_v3":!t.temperature_algorithm.empty()))
+            throw std::invalid_argument("full 2D continuation energy relation differs from its input");
+        if(const auto* h=std::get_if<EnthalpyResult>(&t.result))
+            if(h->algorithm!=c.enthalpy.algorithm)
+                throw std::invalid_argument("full 2D continuation energy method differs from its input");
+        if(const auto* h=std::get_if<ModelHResult2D>(&t.result)) {
+            check(h->last_a,count);check(h->last_b,count);
+            if(h->audit_available) {
+                check(h->audit.solid_residual,count);
+                for(const auto& side:h->audit.sides) {
+                    check(side.residual,count);check(side.linearization_defect,count);
+                    check(side.h_faces[0],(grid.nx+1)*grid.ny);check(side.h_faces[1],grid.nx*(grid.ny+1));
+                    for(std::size_t face=0;face<4;++face) {
+                        const auto size=face<2?grid.ny:grid.nx;
+                        check(side.boundary_mass_out[face],size);check(side.boundary_h_out[face],size);
+                    }
                 }
             }
         }
-    }
-    if(t.physical_audit) {
-        const auto& audit=*t.physical_audit;
-        const std::size_t sizes[]{g.ny,g.ny,g.nx,g.nx,n,n};
-        for(std::size_t phase=0;phase<3;++phase) {
-            check(audit.residual[phase],n);
-            for(std::size_t face=0;face<6;++face) {
-                check(audit.advective_out[phase][face],sizes[face]);
-                check(audit.diffusive_out[phase][face],sizes[face]);
+        if(t.physical_audit) {
+            const auto& ledger=*t.physical_audit;
+            const std::size_t sizes[]{grid.ny,grid.ny,grid.nx,grid.nx,count,count};
+            for(std::size_t phase=0;phase<3;++phase) {
+                check(ledger.residual[phase],count);
+                for(std::size_t face=0;face<6;++face) {
+                    check(ledger.advective_out[phase][face],sizes[face]);
+                    check(ledger.diffusive_out[phase][face],sizes[face]);
+                }
             }
+        }
+    };
+    for(std::size_t field=0;field<3;++field) {
+        check(r.thermal.temperature[field],n,true);check(state.previous[field],outer?n:0,true);
+        if(outer && !thermal_active && state.previous[field]!=r.thermal.temperature[field])
+            throw std::invalid_argument("full 2D continuation comparison field differs from its thermal state");
+    }
+    for(std::size_t side=0;side<2;++side) {
+        for(const auto* field:{&r.density[side],&r.viscosity[side],&r.rho_cp[side]})check(*field,n,true);
+        const auto& inlet=state.inlet[side];
+        for(double value:{inlet.rho,inlet.mu,inlet.k,inlet.cp,inlet.pr})
+            if(!(value>0.) || !std::isfinite(value))throw std::invalid_argument("invalid full 2D continuation property");
+        if(outer || thermal_active)check_flow(r.flow[side],side,true);
+        if(thermal_active && (r.thermal.pressure[side]!=r.flow[side].absolute_pressure
+            || r.thermal.mass_x[side]!=r.flow[side].mass_x || r.thermal.mass_y[side]!=r.flow[side].mass_y
+            || r.thermal.rho_cp[side]!=r.rho_cp[side]))
+            throw std::invalid_argument("full 2D continuation thermal input differs from the current state");
+        if(state.flow) {
+            const auto& run=(*state.flow)[side];check_flow(run.flow,side,!run.iteration);
+            if(run.iteration)for(const auto& field:run.iteration->fields)check(field,0);
+        }
+    }
+    if(outer || thermal_active)check_thermal(r.thermal,g,thermal_active);
+    if(outer && !thermal_active && (r.outer_history.back().thermal_iterations!=thermal_iterations(r.thermal)
+        || r.outer_history.back().thermal_converged!=thermal_converged(r.thermal)))
+        throw std::invalid_argument("full 2D continuation thermal history differs from its evidence");
+    if(state.thermal) {
+        const auto& run=*state.thermal;
+        const bool eos=p.thermal_mode==Full2DThermalMode::true_h;
+        if(run.enthalpy.has_value()!=eos || run.model_h.has_value()==eos)
+            throw std::invalid_argument("invalid full 2D continuation thermal owner");
+        if(run.enthalpy)for(const auto& field:run.enthalpy->fields)check(field,0);
+        if(run.model_h)for(const auto& field:run.model_h->iteration.temperature)check(field,0);
+    }
+    if(refinement) {
+        const auto& fine=*r.refined;const double depth=1.;
+        if(fine.dx!=split_refinement_cells(g.dx) || fine.dy!=split_refinement_cells(g.dy)
+            || fine.accepted || fine.extrapolated)
+            throw std::invalid_argument("invalid full 2D continuation refined grid or position");
+        const GridView grid{fine.dx.size(),fine.dy.size(),1,view(fine.dx),view(fine.dy),{&depth,1}};
+        check(fine.epsilon,grid.nx*grid.ny,true);check_thermal(fine.thermal,grid,true);
+        for(std::size_t side=0;side<2;++side) {
+            check(fine.uc[side],grid.nx*grid.ny);check(fine.vc[side],grid.nx*grid.ny);
+            const auto& spec=p.sides[side];const auto widths=spec.direction<2?grid.dy:grid.dx;
+            if(fine.inlet_profile[side]!=port_fractions_1d(widths,spec.inlet_lo,spec.inlet_hi,spec.uniform_inlet).second
+                || fine.outlet_profile[side]!=port_fractions_1d(widths,spec.outlet_lo,spec.outlet_hi).second)
+                throw std::invalid_argument("full 2D continuation refined ports differ from input");
         }
     }
 }
+
 } // namespace
 
 Full2DRun::Full2DRun(const Full2DProblem& input,const Full2DControl& control,const Full2DRunState& state)
@@ -1079,19 +1326,30 @@ Full2DRun::Full2DRun(const Full2DProblem& input,const Full2DControl& control,con
     validate_continuation(input,control,state);
     auto& r=impl_->runtime;r.result=state.result;r.inlet=state.inlet;r.previous=state.previous;
     impl_->phase=state.phase;
+    if(state.flow)r.flow=std::make_unique<FlowPair>(impl_->input,impl_->control,r.result,r.inlet,&*state.flow);
+    if(state.thermal) {
+        if(state.phase==Full2DPhase::refinement_boundary) {
+            r.bind_refinement();
+            r.thermal=std::make_unique<ThermalRun>(*r.fine_problem,r.physics,r.refinement_control(),
+                r.result.refined->thermal,r.result.iterations-1,"refined_thermal",&*state.thermal);
+        } else r.thermal=std::make_unique<ThermalRun>(impl_->input,r.physics,impl_->control,
+            r.result.thermal,r.result.iterations,"thermal",&*state.thermal);
+    }
 }
 
 Full2DRunState Full2DRun::snapshot() const {
-    if(impl_->phase!=Full2DPhase::outer_boundary && impl_->phase!=Full2DPhase::ready_to_finish)
-        throw std::logic_error("full 2D snapshot requires a completed outer boundary");
+    if(!impl_->boundary || !saved_boundary(impl_->phase))
+        throw std::logic_error("full 2D snapshot requires a completed iteration boundary");
     const auto& runtime=impl_->runtime;
-    Full2DRunState state{impl_->phase,runtime.result,runtime.inlet,runtime.previous};
+    Full2DRunState state{impl_->phase,runtime.result,runtime.inlet,runtime.previous,{},{}};
+    if(runtime.flow)state.flow=runtime.flow->snapshot();
+    if(runtime.thermal)state.thermal=runtime.thermal->snapshot();
     validate_continuation(impl_->input,impl_->control,state);
     return state;
 }
 
 Full2DResult Full2DRun::take_result() {
-    if(impl_->result_taken || (impl_->phase!=Full2DPhase::completed && impl_->phase!=Full2DPhase::cancelled))
+    if(!impl_->boundary || impl_->result_taken || (impl_->phase!=Full2DPhase::completed && impl_->phase!=Full2DPhase::cancelled))
         throw std::logic_error("full 2D result is not available");
     impl_->result_taken=true;return std::move(impl_->runtime.result);
 }

@@ -343,7 +343,19 @@ template<class Archive,class Value> void walk(Archive& archive,Value& value,Full
     FIELD(energy_imbalance) FIELD(nu_observations) FIELD(range_observations)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,Full2DRunState*) {
-    FIELD(phase) FIELD(result) FIELD(inlet) FIELD(previous)
+    FIELD(phase) FIELD(result) FIELD(inlet) FIELD(previous) FIELD(flow) FIELD(thermal)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,Simple2DOwnerState*) {
+    FIELD(widths) FIELD(depth) FIELD(outlet) FIELD(pressure) FIELD(history) FIELD(massflux_target) FIELD(pressure_clip_hits)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,Simple2DRunState*) {
+    FIELD(owner) FIELD(fields) FIELD(convergence) FIELD(result)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,Full2DFlowRunState*) {
+    FIELD(flow) FIELD(iteration)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,Full2DThermalRunState*) {
+    FIELD(model_h) FIELD(enthalpy)
 }
 #undef FIELD
 
@@ -387,7 +399,7 @@ struct Writer {
     template<class T> void put(ArrayView<const T> value) {numbers(value.data,value.size);}
 };
 
-int enum_max(Full2DPhase) {return static_cast<int>(Full2DPhase::failed);}
+int enum_max(Full2DPhase) {return static_cast<int>(Full2DPhase::refinement_boundary);}
 int enum_max(Full3DPhase) {return static_cast<int>(Full3DPhase::post_flow_b);}
 int enum_max(Full3DStop) {return static_cast<int>(Full3DStop::cancelled);}
 int enum_max(Full3DThermalMode) {return static_cast<int>(Full3DThermalMode::true_h);}
@@ -465,7 +477,7 @@ struct Reader {
 
 template<class Input,class Control> RunStateRecord identity(const Input& input,const Control& control) {
     RunStateRecord fields;Writer writer{fields,""};
-    writer("format",std::uint64_t{std::is_same_v<Input,Full3DInput>?2u:1u});writer("build",std::string(TPMSHX_STATE_BUILD_ID));
+    writer("format",std::uint64_t{2});writer("build",std::string(TPMSHX_STATE_BUILD_ID));
     writer("platform",std::string(TPMSHX_STATE_PLATFORM));writer("input",input);writer("control",control);
     return fields;
 }

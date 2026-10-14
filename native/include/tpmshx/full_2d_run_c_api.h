@@ -8,7 +8,8 @@ extern "C" {
 
 enum {
     TPMSHX_FULL2D_CREATED=0,TPMSHX_FULL2D_OUTER_BOUNDARY=1,TPMSHX_FULL2D_READY=2,
-    TPMSHX_FULL2D_COMPLETED=3,TPMSHX_FULL2D_CANCELLED=4,TPMSHX_FULL2D_FAILED=5
+    TPMSHX_FULL2D_COMPLETED=3,TPMSHX_FULL2D_CANCELLED=4,TPMSHX_FULL2D_FAILED=5,
+    TPMSHX_FULL2D_FLOW=6,TPMSHX_FULL2D_THERMAL=7,TPMSHX_FULL2D_REFINEMENT=8
 };
 
 /* Creation copies the 29 prepared arrays, controls and callback table.
@@ -31,6 +32,10 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_restore_v1(
 /* Advance completes initialization, one outer step, or refinement and capture.
  * Failed and cancelled runs cannot produce a new checkpoint. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_advance_v1(
+    void* run,uint32_t* phase,char* error,size_t capacity);
+/* Advance both SIMPLE sides by one complete step, one thermal block,
+ * or one controller transition. Refined thermal blocks are included. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_advance_step_v1(
     void* run,uint32_t* phase,char* error,size_t capacity);
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_phase_v1(const void* run,uint32_t* phase);
 /* Snapshots own their fields independently. Release them with run_state_release.

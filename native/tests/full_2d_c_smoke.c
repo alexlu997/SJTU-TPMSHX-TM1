@@ -9,6 +9,26 @@
 #include <string.h>
 
 static int cancelled(void* context) { (void)context; return 1; }
+typedef struct {void* run;size_t calls[2];} inner_context;
+static void TPMSHX_THERMAL_CALL inner_residual(void* context,size_t side,size_t iteration,double value) {
+    inner_context* data=(inner_context*)context;
+    char error[256];uint32_t phase=99;tpmshx_run_state_v1 saved={0};tpmshx_full_2d_result_v2 result={0};
+    (void)iteration;(void)value;++data->calls[side];
+    assert(tpmshx_full_2d_run_snapshot_v1(data->run,&saved,error,sizeof error)==5 && !saved.owner);
+    assert(tpmshx_full_2d_run_advance_step_v1(data->run,&phase,error,sizeof error)==5 && phase==99);
+    assert(tpmshx_full_2d_run_advance_v1(data->run,&phase,error,sizeof error)==5 && phase==99);
+    assert(tpmshx_full_2d_run_take_result_v1(data->run,&result,error,sizeof error)==5 && !result.owner);
+}
+static void same_run_result(const tpmshx_full_2d_result_v2* actual,const tpmshx_full_2d_result_v2* expected) {
+    assert(actual->iterations==expected->iterations && actual->outer_history_count==expected->outer_history_count);
+    assert(actual->converged==expected->converged && actual->have_fine==expected->have_fine);
+    assert(actual->q_total==expected->q_total && actual->q_solid==expected->q_solid);
+    for(size_t stage=0;stage<2;++stage)for(size_t side=0;side<3;++side) {
+        const tpmshx_model_h_array_v1 a=(stage?actual->fine:actual->main).temperature[side];
+        const tpmshx_model_h_array_v1 b=(stage?expected->fine:expected->main).temperature[side];
+        assert(a.size==b.size && memcmp(a.data,b.data,a.size*sizeof(double))==0);
+    }
+}
 static void expect_invalid_port(const size_t* shape,const double* const* arrays,const size_t* sizes,
                                const tpmshx_full_2d_config_v2* config) {
     tpmshx_full_2d_result_v2 result={0}; result.iterations=123;
@@ -49,17 +69,28 @@ static void check_run_state(const size_t* shape,const double* const* arrays,cons
     tpmshx_full_2d_result_v2 repeated={0};
     assert(tpmshx_full_2d_run_take_result_v1(run,&repeated,error,sizeof error)==5 && !repeated.owner);
     tpmshx_full_2d_run_release_v1(&run);
-    assert(actual.iterations==expected->iterations && actual.outer_history_count==expected->outer_history_count);
-    assert(actual.converged==expected->converged && actual.have_fine==expected->have_fine);
-    assert(actual.q_total==expected->q_total && actual.q_solid==expected->q_solid);
-    for(size_t stage=0;stage<2;++stage) for(size_t side=0;side<3;++side) {
-        const tpmshx_model_h_array_v1 a=(stage?actual.fine:actual.main).temperature[side];
-        const tpmshx_model_h_array_v1 b=(stage?expected->fine:expected->main).temperature[side];
-        assert(a.size==b.size && memcmp(a.data,b.data,a.size*sizeof(double))==0);
-    }
+    same_run_result(&actual,expected);
     tpmshx_property_sampling_v1 sampling={0};
     assert(tpmshx_full_2d_get_property_sampling_v1(&actual,&sampling)==0 && sampling.count);
     tpmshx_full_2d_release_v2(&actual);
+    inner_context inner={NULL,{0,0}};
+    tpmshx_full_2d_callbacks_v2 observed={NULL,NULL,inner_residual,&inner};
+    assert(tpmshx_full_2d_run_create_v1(shape,arrays,sizes,config,NULL,NULL,NULL,&observed,
+                                     &run,error,sizeof error)==0);
+    inner.run=run;unsigned int restored=0;
+    do {
+        assert(tpmshx_full_2d_run_advance_step_v1(run,&phase,error,sizeof error)==0);
+        if(phase>=6 && !(restored&(1u<<phase))) {
+            assert(tpmshx_full_2d_run_snapshot_v1(run,&saved,error,sizeof error)==0);
+            tpmshx_full_2d_run_release_v1(&run);
+            assert(tpmshx_full_2d_run_restore_v1(shape,arrays,sizes,config,NULL,NULL,NULL,&observed,
+                saved.fields,saved.count,&run,error,sizeof error)==0);
+            inner.run=run;tpmshx_run_state_release_v1(&saved);restored|=1u<<phase;
+        }
+    }while(phase!=3);
+    assert(restored==((1u<<6)|(1u<<7)|(1u<<8)) && inner.calls[0] && inner.calls[1]);
+    assert(tpmshx_full_2d_run_take_result_v1(run,&actual,error,sizeof error)==0);
+    tpmshx_full_2d_run_release_v1(&run);same_run_result(&actual,expected);tpmshx_full_2d_release_v2(&actual);
     tpmshx_full_2d_callbacks_v2 callbacks={cancelled,NULL,NULL,NULL};
     assert(tpmshx_full_2d_run_create_v1(shape,arrays,sizes,config,NULL,NULL,NULL,&callbacks,
                                      &run,error,sizeof error)==0);

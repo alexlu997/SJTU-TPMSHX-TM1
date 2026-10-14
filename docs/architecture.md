@@ -1248,18 +1248,26 @@ The controller preserves A flow, thermal property refresh, then B flow.
 Completed thermal evidence stays separate from later flow updates, including the final capped post update.
 Snapshots and re-entry are rejected while a step is unfinished.
 
-`Full2DRun` uses the same boundary contract for the existing 2D outer sequence.
-Its final advance completes refinement and result capture.
-The snapshot keeps the completed outer history, pressure records, last thermal
-evidence, property observations, and fields used by the next step.
-The one-shot 2D entries use this controller.
+`Full2DRun.advance_step` completes a paired SIMPLE step, thermal selection, or controller transition.
+Two side workers stay active through each flow call.
+The operation returns after both current steps complete.
+The existing `advance` and one-shot entries drain the same flow owners concurrently, without a barrier after each SIMPLE step.
+Snapshots retain each side's active pressure and F2 state, including a side that has already finished.
+The previous completed flow stays separate until both new flow calls finish.
+Pressure shooting keeps the reference chosen for the current outer call.
+Main thermal snapshots retain model-h selection history or the complete EOS iteration state.
+Refinement snapshots own the actual fine grid, interpolated inputs, prolonged mass faces, and active thermal state.
+Restore rebuilds views and immutable inputs. It does not repeat interpolation, property observations, or charged iterations.
+The original capped property update, refinement budgets, and result capture remain in the controller.
+The former stack-only flow, main thermal, and refinement loops are removed.
 Both dimensions use the shared typed archive in `full_run_state.cpp`.
 
 `full_2d_run_c_api.h` and `full_3d_run_c_api.h` expose owned run and snapshot handles.
 The C entry copies prepared arrays and the callback table.
 The caller keeps callback functions and their context alive until run release.
 Snapshot fields own their numeric arrays and UTF-8 strings.
-The additive 3D `advance_step_v1` entry exposes inner boundaries. Native 3D state format 2 records these states.
+The additive `advance_step_v1` entries expose inner boundaries in both dimensions.
+Native state format 2 records these states.
 Restore requires the same format, native build, platform, prepared input, and numerical controls.
 Each native build receives a new identity. Host paths and callback addresses are excluded.
 A cancelled or failed run cannot publish a new snapshot.
@@ -1274,8 +1282,8 @@ The writer closes a temporary file before atomic replacement.
 A failed write or process interruption before replacement preserves the previous checkpoint.
 This contract does not claim recovery from power loss.
 
-This stage covers native 2D outer boundaries and 3D inner and outer boundaries.
-Full 2D inner and refinement states and GUI/CLI recovery remain separate integration work.
+This stage covers native 2D and 3D inner and outer boundaries, including 2D thermal refinement.
+GUI/CLI recovery remains separate integration work.
 The longest complete step or bootstrap sets the current possible loss of computation.
 Saving frequency and full recovery acceptance remain separate tasks.
 
