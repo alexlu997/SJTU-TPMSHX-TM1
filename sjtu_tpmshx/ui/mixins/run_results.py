@@ -75,6 +75,7 @@ class RunResultsMixin:
         return {
             'mode': result.diagnostics.get('mode', '2d'),
             'converged': bool(getattr(result, 'converged', True)),
+            'qualification': result.metadata.get('qualification', {}),
             'Q_W': result.Q_W,
             'Q_unit': result.metadata.get('units', {}).get(
                 'Q', 'W' if result.diagnostics.get('mode') == '3d' else 'W/m'),
@@ -138,6 +139,14 @@ class RunResultsMixin:
             f"闭合系数: K_ffA={_f(co.get('K_ffA'))} K_ffB={_f(co.get('K_ffB'))}"
             f" h_vA={_f(co.get('h_vA'))} h_vB={_f(co.get('h_vB'))}",
         ]
+        qualification = d.get('qualification', {})
+        design = qualification.get('design', {})
+        state = {'eligible': '合格', 'rejected': '不合格', 'unverified': '未核实'}.get(
+            design.get('status'), '未核实')
+        lines.append('设计资格：' + state + '；实验与桌面验收另行记录。')
+        for name, label in (('physical', '物理台账'), ('applicability', '适用范围'), ('model_scope', '模型适用性')):
+            passed = qualification.get(name, {}).get('passed')
+            lines.append(label + '：' + ('通过' if passed is True else '未通过' if passed is False else '未核实'))
         co2_model = self.cache.get_result().metadata.get('co2')
         if co2_model:
             lines.append('CO₂ 侧 ' + '/'.join(co2_model['sides'])

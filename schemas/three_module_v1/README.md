@@ -113,6 +113,12 @@ unconverged run does not become a validated metric merely because evaluation
 finished. `available`, `insufficient_data`, `unsupported` and `invalid` are
 metric statuses. The original run verdict stays in FieldResult.
 
+`PerformanceResult.qualification` is an immutable mapping with definition
+`result_qualification_v1` and the matching `source_result_id`. It keeps separate
+execution, convergence, physical, applicability, metric and design conclusions.
+JSON saves it with the metrics. Historical JSON without this field stays readable;
+its qualification is absent, not passed. A new evaluation uses only its saved native evidence.
+
 Full-compute `native_boundary_v1` defines `Q` as `abs(Q_A)` from the main
 thermal boundary transport. `Q_A`/`Q_B` are signed heat loss, positive for a
 stream releasing heat. `energy_imbalance_rel` uses those same native duties. Outlet temperature and mass flow use the matching signed thermal mass faces. The separately named 2D `Q_richardson_A/B` keep the accepted absolute-duty

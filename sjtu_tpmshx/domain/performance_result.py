@@ -6,6 +6,7 @@ import math
 from types import MappingProxyType
 from typing import Mapping
 
+from sjtu_tpmshx.domain.model_refs import freeze_mapping
 from sjtu_tpmshx.domain.metric_spec import METRIC_KINDS, MetricSpec
 
 
@@ -33,6 +34,7 @@ class PerformanceResult:
     result_id: str
     source_result_id: str
     metrics: Mapping[str, MetricValue] = field(default_factory=dict)
+    qualification: Mapping = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.result_id or not self.source_result_id:
@@ -44,3 +46,7 @@ class PerformanceResult:
             if value.spec.name not in (key, METRIC_KINDS.get(key, key)):
                 raise ValueError(f"metric {key!r} disagrees with spec name {value.spec.name!r}")
         object.__setattr__(self, "metrics", MappingProxyType(dict(self.metrics)))
+        if self.qualification and (self.qualification.get('definition') != 'result_qualification_v1'
+                or self.qualification.get('source_result_id') != self.source_result_id):
+            raise ValueError('qualification version or source disagrees with performance')
+        object.__setattr__(self, 'qualification', freeze_mapping(self.qualification))

@@ -57,6 +57,7 @@ def main(argv=None):
             result = load_result(args.input)
             performance = evaluate(result)
             save_metrics(performance, args.output)
+            print('design = ' + performance.qualification.get('design', {}).get('status', 'unverified'))
             required = ('Q', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B')
             return 0 if all(performance.metrics[key].status == 'available' for key in required) else 2
         from sjtu_tpmshx.io.yaml_config import load_config
@@ -73,6 +74,7 @@ def main(argv=None):
             save_case(case, stage / 'case.yaml')
             save_result(result, stage / 'results.h5')
             save_metrics(performance, stage / 'metrics.json')
+        print('design = ' + performance.qualification.get('design', {}).get('status', 'unverified'))
         required = ('Q', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B')
         return 0 if result.run_status['converged'] and all(
             performance.metrics[key].status == 'available' for key in required) else 2

@@ -91,11 +91,14 @@ def test_gui_co2_mass_input_save_reopen_geometry_and_export(win, native_path, tm
 @pytest.mark.parametrize('dimension', [2, 3])
 def test_selected_backend_completes_batch_and_optimization(native_path, tmp_path, dimension):
     config = replace(_config(dimension, True),
-        fluid_B=FluidConfig(type='water', u_mps=.2, T_in_K=300., P_in_Pa=2e6))
+        fluid_B=FluidConfig(type='water', u_mps=.3, T_in_K=300., P_in_Pa=2e6))
     config = replace(config, geometry=replace(config.geometry, Lz_m=.03))
+    if dimension == 3:
+        config = replace(config, **{'bc_' + side: replace(getattr(config, 'bc_' + side),
+            in_w=.03, out_w=.03, in_z_w=.03, out_z_w=.03) for side in 'AB'})
     conditions = []
     for index in range(2):
-        cfg = replace(config, fluid_A=replace(config.fluid_A, T_in_K=500.+10*index))
+        cfg = replace(config, fluid_A=replace(config.fluid_A, u_mps=12., T_in_K=500.+10*index))
         case = prepare_case(cfg, case_id=f'input-{index}')
         flows = [total_inlet_mass_capacity(case.design_fields, case.parameters, case.grid, side)
                  * getattr(cfg, 'fluid_' + side).u_mps for side in 'AB']
@@ -113,7 +116,7 @@ def test_selected_backend_completes_batch_and_optimization(native_path, tmp_path
             restored = load_result(directory / 'batch' / row['result_file'])
             assert restored.backend_id == field.backend_id == backend
             assert restored.run_status['converged']
-            assert row['energy_gates'] and all(passed for _, passed in row['energy_gates'])
+            assert row['qualification']['design']['eligible'] is True
             assert load_metrics(directory / 'batch' / row['metrics_file']) == metrics
             assert evaluate(restored).metrics == metrics.metrics
             for name in ('Ta', 'Tb', 'Ts'):
@@ -131,7 +134,7 @@ def test_selected_backend_completes_batch_and_optimization(native_path, tmp_path
             record = json.loads((batch_dir / 'batch.json').read_text())
             assert record['backend'] == backend and record['status'] == 'completed'
             for row in record['conditions']:
-                assert all(passed for _, passed in row['energy_gates'])
+                assert row['qualification']['design']['eligible'] is True
                 field = load_result(batch_dir / row['result_file'])
                 assert field.backend_id == backend and field.run_status['converged']
 
@@ -143,3 +146,28 @@ def test_selected_backend_completes_batch_and_optimization(native_path, tmp_path
             assert actual.status == expected.status == 'available'
             assert actual.spec.unit == expected.spec.unit
             np.testing.assert_allclose(actual.value, expected.value, rtol=.001, atol=0.)
+
+
+@pytest.mark.parametrize('dimension', [2, 3])
+@pytest.mark.parametrize('backend', ['python', 'cpp'])
+def test_converged_outside_range_batch_retains_diagnostics(native_path, tmp_path, backend, dimension):
+    config = replace(_config(dimension, True),
+        fluid_B=FluidConfig(type='water', u_mps=.2, T_in_K=300., P_in_Pa=2e6))
+    config = replace(config, geometry=replace(config.geometry, Lz_m=.03))
+    case = prepare_case(config, case_id='outside-range')
+    flows = [total_inlet_mass_capacity(case.design_fields, case.parameters, case.grid, side)
+             * getattr(config, 'fluid_' + side).u_mps for side in 'AB']
+    control = RunControl() if backend == 'python' else native_3d.control(native_path)
+    batch = evaluate_condition_batch([('outside', config, *flows)],
+        output_dir=tmp_path / 'batch', control=control)
+    row, = batch['conditions']
+    assert batch['status'] == row['status'] == 'failed' and batch['objectives'] is None
+    assert row['stage'] == 'qualification'
+    field = load_result(tmp_path / 'batch' / row['result_file'])
+    metrics = load_metrics(tmp_path / 'batch' / row['metrics_file'])
+    assert field.run_status['converged']
+    assert metrics.qualification['physical']['passed'] is True
+    assert metrics.qualification['metrics']['passed'] is True
+    assert metrics.qualification['applicability']['passed'] is False
+    assert metrics.qualification['design']['eligible'] is False
+    assert evaluate(field).qualification == metrics.qualification

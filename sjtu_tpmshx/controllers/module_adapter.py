@@ -115,6 +115,7 @@ def to_compute_result(result, performance):
         values[name] = metric.value if metric.status == 'available' else float('nan')
         if metric.status != 'available':
             warnings.append(f'{name}: {metric.status}: {metric.reason}')
+    metadata['qualification'] = mutable_data(performance.qualification)
     metadata['metric_status'] = {name: performance.metrics[name].status for name in values}
     metadata['metric_reasons'] = {name: performance.metrics[name].reason for name in values
                                   if performance.metrics[name].status != 'available'}

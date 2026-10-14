@@ -85,6 +85,7 @@ def main(argv=None) -> int:
         'Q_W': getattr(result, 'Q_W', None),
         'Q_unit': result.metadata.get('units', {}).get('Q', 'W' if cc.is_3d else 'W/m'),
         'converged': result.converged,
+        'qualification': result.metadata.get('qualification', {}),
         'dP_A_Pa': getattr(result, 'dP_A_Pa', None),
         'dP_B_Pa': getattr(result, 'dP_B_Pa', None),
         'envelope_valid': diag.get('envelope_valid'),
@@ -103,6 +104,7 @@ def main(argv=None) -> int:
         print(f"converged = {summary['converged']}   "
               f"envelope_valid = {summary['envelope_valid']}   "
               f"outer_converged = {summary['outer_converged']}")
+        print("design = " + summary['qualification'].get('design', {}).get('status', 'unverified'))
         print(f"models = {json.dumps(summary['metadata'], ensure_ascii=False)}")
         for w in warnings_list:
             print(f"warning: {w}")
