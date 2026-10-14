@@ -65,3 +65,35 @@ def test_closure_warning_worker_to_export(win, monkeypatch, tmp_path, mode, sour
             with np.load(tmp_path / f'{run}_fields.npz', allow_pickle=False) as saved:
                 assert json.loads(saved['warnings'].item()) == result.warnings
                 assert json.loads(saved['extrap_reasons'].item()) == []
+
+
+def test_converged_outside_range_result_keeps_design_rejection_in_gui_and_export(win, monkeypatch, tmp_path):
+    from dataclasses import replace
+    from sjtu_tpmshx.controllers.module_adapter import to_compute_result
+    from sjtu_tpmshx.domain.portable_data import mutable_data
+    from sjtu_tpmshx.postprocess.api import evaluate_qualification
+    from sjtu_tpmshx.tests.test_module_result_mapping import _synthetic_results
+    from sjtu_tpmshx.tests.postprocess_tm1.test_applicability import result_with_evidence
+    native, performance = _synthetic_results()
+    evidence = mutable_data(result_with_evidence().metadata['applicability_evidence'])
+    evidence['final'][0]['minimum'][0] = 89.
+    native = replace(native, metadata=dict(native.metadata, applicability_evidence=evidence))
+    quality = evaluate_qualification(native, performance.metrics)
+    performance = replace(performance, qualification=quality)
+    result = to_compute_result(native, performance)
+    assert result.converged and result.metadata['qualification']['design']['eligible'] is False
+    win.write_result(result)
+    win._update_result_summary()
+    assert win._sb_labels['design'].text() == '未通过 ⚠'
+    assert win._sb_labels['extrap'].text() == '未通过 ⚠'
+    assert '设计资格：不合格' in win._diag_summary_text()
+    path = tmp_path / 'range-rejected.csv'
+    monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(path), 'CSV'))
+    win._export_results()
+    with path.open(encoding='utf-8', newline='') as stream:
+        rows = dict(csv.reader(stream))
+    archived = json.loads(rows['metadata'])['qualification']
+    assert archived['convergence']['passed'] is True
+    assert archived['applicability']['passed'] is False
+    assert archived['design']['eligible'] is False
+    assert not win._test_error_dialogs

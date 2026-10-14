@@ -210,6 +210,32 @@ full design qualification. It retains model-scope notices, including unresolved
 joint sCO2 correlation coverage. Existing compute permissions, hard property
 and phase checks, frozen coefficients and numerical stopping rules stay in effect.
 
+## Common result verdict
+
+`postprocess.api.evaluate` stores `result_qualification_v1` in
+`PerformanceResult.qualification`. `evaluate_qualification(result, metrics)`
+can reproduce it from saved evidence without a solver or EOS call.
+Execution, convergence, physical evidence, parameter limits, metric availability
+and design eligibility have separate states and source paths.
+Unknown evidence remains unverified. A failed gate remains failed.
+The physical conclusion keeps the existing route-specific tolerances and
+requires complete captured heat and active-side mass evidence.
+Only 2D model-h and integral-temperature routes require a refined thermal ledger.
+Its thermal state stays separate from the final SIMPLE pressure state.
+
+The design conclusion requires all recorded gates to pass.
+Original model bounds use the agreed 10 percent parameter allowance.
+The unresolved joint sCO2 P/T/Pr and wall heating or cooling scope remains unverified.
+Quick Design and historical records without the required evidence do not gain full design eligibility.
+Experimental, mesh-accuracy and desktop acceptance remain separate from this result verdict.
+
+GUI summaries, history, CLI output, exports and full-compute measurements retain the same conclusion.
+CLI exit codes retain their stage-success meaning; read the design state separately.
+Optimization recomputes the common verdict from the supplied native result and metrics.
+A failed or unverified baseline or candidate cannot produce objectives.
+The batch keeps its diagnostic result, available metrics and failure reason.
+The former optimizer-only energy evaluator is now part of common postprocessing.
+
 ## Runtime flow
 
 ```text

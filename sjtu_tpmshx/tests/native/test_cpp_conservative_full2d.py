@@ -114,7 +114,11 @@ def test_actual_thermal_state_and_signed_ledger(capped):
     assert type(state['energy_algorithm_version']) is int
     assert state['energy_algorithm_version'] == VERSIONS[info['energy_algorithm']]
     assert state['boundary_power_units'] == 'W/m' and state['physical_boundary_complete']
-    metrics = evaluate(result).metrics
+    performance = evaluate(result)
+    assert performance.qualification['physical']['passed'] is True
+    assert performance.qualification['convergence']['pressure_states'] == {
+        side: result.field_metadata['P_report_' + side]['state'] for side in ('A', 'B')}
+    metrics = performance.metrics
     for side, label, fluid in ((0, 'A', 'Water'), (1, 'B', 'CO2')):
         temperature = thermal['temperature'][side]
         pressure = thermal['pressure'][side]

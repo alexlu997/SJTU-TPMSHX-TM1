@@ -71,12 +71,13 @@ def _build_result_sidebar(window, _t, t):
     row.setSpacing(16)
     _kv(row, "能量闭合", 'closure')
     _kv(row, "压缩性包络", 'envelope')
-    _kv(row, "外推", 'extrap')
+    _kv(row, "适用范围", 'extrap')
     row.addStretch(1)
     convergence = QWidget()
     detail_row = QHBoxLayout(convergence)
     detail_row.setContentsMargins(0, 0, 0, 0)
     detail_row.setSpacing(16)
+    _kv(detail_row, "设计资格", 'design')
     detail_row.addStretch(1)
     diagnostic.addWidget(confidence)
     diagnostic.addWidget(convergence)
@@ -154,15 +155,17 @@ def refresh_result_sidebar(window):
     rel = d.get('closure_rel')
     labels['closure'].setToolTip(d.get('closure_basis', '两侧焓流'))
     if rel is not None and rel == rel:          # not NaN
-        _mark('closure', f"{abs(rel) * 100:.1f} % {'✓' if abs(rel) < 0.05 else '⚠'}",
-              abs(rel) < 0.05)
+        _mark('closure', f"{abs(rel) * 100:.1f} %",
+              d.get('qualification', {}).get('physical', {}).get('passed'))
     else:
         _mark('closure', "—", None)
     env = d.get('envelope_valid')
     _mark('envelope', "有效 ✓" if env else ("失效 ⚠" if env is not None else "—"),
           env if env is not None else None)
-    n_ex = len(d.get('extrap') or [])
-    _mark('extrap', f"{n_ex} 项 ⚠" if n_ex else "无 ✓", not n_ex)
+    qualification = d.get('qualification', {})
+    for key, passed in (('extrap', qualification.get('applicability', {}).get('passed')),
+                        ('design', qualification.get('design', {}).get('eligible'))):
+        _mark(key, '通过 ✓' if passed is True else '未通过 ⚠' if passed is False else '未核实', passed)
     it = (d.get('iters') or {}).get('iter_outer')
     ws = d.get('wall_s')
     labels['iters'].setText(
