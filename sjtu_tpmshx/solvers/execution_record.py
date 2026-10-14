@@ -12,6 +12,11 @@ def full_execution_record(case, result):
     integral = mode == 'model_h' or temperature.get('definition') == 'model_enthalpy_temperature_v1'
     balance = metadata['diagnostics'].get('true_h_balance') or {}
     settings = balance.get('effective_settings', {})
+    model_h_iterations = metadata.get('model_h_iterations')
+    if integral and model_h_iterations:
+        main_calls = [row for row in model_h_iterations['records'] if row['stage'] == 'outer_thermal']
+        if main_calls:
+            settings = main_calls[-1]['settings']
     native = metadata.get('native', {})
     algorithm = settings.get('energy_algorithm', native.get('algorithm'))
     table = metadata.get('model_metadata', {}).get('sco2_enthalpy_eos', {})
@@ -55,7 +60,8 @@ def full_execution_record(case, result):
                               algorithm=algorithm, algorithm_version=settings.get('energy_algorithm_version'),
                               face_reconstruction=settings.get('enthalpy_face_reconstruction'),
                               temperature_transport=metadata.get('temperature_transport'),
-                              effective_settings=settings, native=native),
+                              effective_settings=settings, native=native,
+                              **({'model_h_iterations': model_h_iterations} if model_h_iterations else {})),
                 evidence=dict(thermal_state=result.field_metadata['Ta']['state'],
                               mass_state=result.boundary_fluxes['state'],
                               pressure_report_states={label: None if value is None else

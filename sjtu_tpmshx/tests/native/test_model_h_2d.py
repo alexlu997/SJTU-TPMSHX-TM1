@@ -83,7 +83,7 @@ def native():
             pointers[6] = pointers[3]
         config = (ctypes.c_size_t * 12)(case["maxit"], case["chunk"], case["warm"],
             case["accelerate"], case["rb"], *case["fluids"], *case["directions"], cancel_at, history is not None, case.get("strict", False))
-        values = (ctypes.c_double * 3)(*case["tin"], case["qtol"])
+        values = (ctypes.c_double * 4)(*case["tin"], case["qtol"], case.get("temperature_tol", .01))
         dimensions = (ctypes.c_size_t * 3)(*shape, 1)
         status, metrics = (ctypes.c_size_t * 15)(), (ctypes.c_double * 41)()
         error = ctypes.create_string_buffer(512)
@@ -574,3 +574,27 @@ def test_one_cell_water_row_independent_arithmetic(native):
     assert result[0] == 0, result[-1]
     np.testing.assert_allclose([x.item() for x in c["state"]],
                                [expected_a, expected_b, expected_s], rtol=0, atol=1e-12)
+
+
+def test_field_change_control_changes_finishing_without_relaxing_physical_gates(native):
+    counts = []
+    for tolerance in (1e6, 1e-12):
+        c = case(sweeps=19, chunk=5)
+        c.update(qtol=1e6, temperature_tol=tolerance)
+        history = []
+        actual = native(c, history=history)
+        assert actual[0] == 0, actual[-1]
+        assert_finishing_history(c, actual, history)
+        counts.append(actual[1][14])
+    assert counts[0] > 0 and counts[1] == 0
+
+
+@pytest.mark.parametrize('tolerance', [0., float('nan')])
+def test_invalid_field_change_control_preserves_input_state(native, tolerance):
+    c = case()
+    c['temperature_tol'] = tolerance
+    original = [field.copy() for field in c['state']]
+    actual = native(c)
+    assert actual[0] == 1 and 'control' in actual[-1]
+    for field, expected in zip(c['state'], original):
+        np.testing.assert_array_equal(field, expected)

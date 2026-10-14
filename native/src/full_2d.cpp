@@ -158,6 +158,10 @@ void validate(const Full2DProblem& p,const Full2DControl& c) {
                                              s.reference_area_density,s.reference_hydraulic_diameter})
             if (!std::isfinite(value) || value<=0) throw std::invalid_argument("invalid offset-side geometry");
     }
+    model_h_common::validate_iteration_overrides(c.model_h_iterations);
+    if(c.model_h_iterations.active() && (p.thermal_mode==Full2DThermalMode::true_h
+        || uses_co2_eos(p.sides[0].fluid) || uses_co2_eos(p.sides[1].fluid)))
+        throw std::invalid_argument("model-h iteration controls require an integral h(T) route");
     if (!c.outer_iterations || !c.thermal_iterations || !c.thermal_chunk)
         throw std::invalid_argument("full2D budgets must be positive");
     for (double value:{c.outer_temperature_tolerance,c.outer_density_tolerance,c.outer_relaxation,
@@ -490,7 +494,9 @@ void prepare_thermal(const Full2DProblem& p,Full2DResult& r,
 void solve_thermal(const Full2DProblem& p,const Full2DControl& c,Full2DResult& r,const char* stage) {
     auto& t=r.thermal;
     const auto& g=p.grid; const std::size_t n=g.nx*g.ny;
+    const auto budget=c.model_h_iterations.max_iterations?c.model_h_iterations.max_iterations:c.thermal_iterations;
     t.physical_audit.reset();
+    t.model_h_iterations.reset();
     for (std::size_t side=0;side<2;++side)
         record_property_samples(t.property_sampling,side,static_cast<std::int64_t>(r.iterations),stage,
             p.thermal_mode==Full2DThermalMode::true_h?"HEOS":"model_resource","current_thermal_iterate",
@@ -509,8 +515,9 @@ void solve_thermal(const Full2DProblem& p,const Full2DControl& c,Full2DResult& r
             return ModelHFluid2D{p.sides[side].fluid,view(t.conductivity[side]),view(t.hv[side]),
                                 view(t.mass_x[side]),view(t.mass_y[side]),boundary(side)};
         };
-        const ModelHControl2D control{c.thermal_iterations,c.thermal_chunk,c.thermal_q_tolerance,
+        ModelHControl2D control{budget,c.thermal_chunk,c.thermal_q_tolerance,
             true,true,c.thermal_red_black && n>30000,c.cancel,nullptr,c.context};
+        t.model_h_iterations=model_h_common::apply_iteration_tolerances(control,c.model_h_iterations);
         PhysicalHeatLedger audit;
         auto solved=solve_model_h_2d(g,fluid(0),fluid(1),p.solid_conductivity,fields,control,{},&audit);
         if (solved.physical_audit_available) t.physical_audit=std::move(audit);
@@ -559,9 +566,10 @@ void solve_thermal(const Full2DProblem& p,const Full2DControl& c,Full2DResult& r
             return ModelHFluid2D{p.sides[side].fluid,view(t.conductivity[side]),view(t.hv[side]),
                                 view(t.mass_x[side]),view(t.mass_y[side]),boundary(side)};
         };
-        ModelHControl2D control{c.thermal_iterations,c.thermal_chunk,c.thermal_q_tolerance,
+        ModelHControl2D control{budget,c.thermal_chunk,c.thermal_q_tolerance,
             true,true,c.thermal_red_black && n>30000,c.cancel,nullptr,c.context};
         control.second_order_b=false;control.strict_energy_balance=true;
+        t.model_h_iterations=model_h_common::apply_iteration_tolerances(control,c.model_h_iterations);
         PhysicalHeatLedger audit;t.physical_audit.reset();
         const auto solved=solve_model_h_2d(g,fluid(0),fluid(1),p.solid_conductivity,fields,control,{},&audit);
         t.result=TemperatureResult{solved.stop,solved.iterations,solved.residual,solved.q_b};
@@ -634,6 +642,7 @@ Full2DResult solve_full_2d_coarse(const Full2DProblem& p,const Full2DControl& c)
         for (const auto& field:result.thermal.temperature) model_h_common::check(view(field),n);
         std::array<Vector,2> density,rho_cp;
         Full2DOuterRecord record{}; record.iteration=outer; record.thermal_iterations=thermal_iterations(result.thermal);
+        record.model_h_iterations=result.thermal.model_h_iterations;
         record.thermal_converged=thermal_converged(result.thermal);
         if(const auto* solved=std::get_if<EnthalpyResult>(&result.thermal.result)) {
             record.enthalpy_algorithm=solved->algorithm;

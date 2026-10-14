@@ -62,7 +62,7 @@ def stable_chunks(c, history):
         heat = heat_in_driver_order(c, state)
         stable = previous is not None and (
             abs(heat-previous_q)/max(abs(heat), abs(previous_q), 1.) < c["qtol"]
-            and max(float(np.max(np.abs(a-b))) for a, b in zip(state, previous)) < .01)
+            and max(float(np.max(np.abs(a-b))) for a, b in zip(state, previous)) < c.get("temperature_tol", .01))
         yield done, state, stable
         previous, previous_q = state, heat
 

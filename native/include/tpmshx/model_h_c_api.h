@@ -8,6 +8,25 @@ extern "C" {
 
 #define TPMSHX_MODEL_H_ABI_VERSION 1u
 
+/* Optional full-solve overrides. Zero retains each route's current default.
+ * Positive tolerances are finite. The budget includes charged startup trials.
+ * Physical audit thresholds and chunk sizes remain unchanged. */
+typedef struct {
+    size_t max_iterations;
+    double temperature_tolerance,q_relative_tolerance;
+} tpmshx_model_h_iteration_options_v1;
+typedef struct {
+    size_t outer_index,attempt;
+    uint32_t refined;
+    size_t max_iterations,chunk_iterations;
+    double temperature_tolerance,q_relative_tolerance;
+    size_t total_iteration_budget;
+} tpmshx_model_h_iteration_record_v1;
+typedef struct {
+    const tpmshx_model_h_iteration_record_v1* records;
+    size_t count;
+} tpmshx_model_h_iteration_records_v1;
+
 typedef struct { const double* data; size_t size; } tpmshx_model_h_array_v1;
 typedef struct {
     uint32_t dimension, fluid_a, fluid_b, direction_a, direction_b;

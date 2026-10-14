@@ -59,6 +59,7 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_model_h_2d(
         ModelHControl2D control{config[0],config[1],values[2],config[2]!=0,
             config[3]!=0,config[4]!=0,cancel,progress,&cb};
         control.strict_energy_balance=config[11]!=0;
+        control.temperature_tolerance=values[3];
         const auto result=solve_model_h_2d(grid,a,b,v(6),{out(3),out(4),out(5)},control);
         const auto& audit=result.audit;
         const std::size_t stats[]{static_cast<std::size_t>(result.stop),result.iterations,cb.calls,cb.progress,cb.last,

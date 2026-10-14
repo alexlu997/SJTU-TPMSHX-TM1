@@ -177,6 +177,48 @@ int main(void) {
            || r.stop!=99 || r.owner || !error[0])return 16;
         if(tpmshx_full_3d_get_energy_evidence_v1(&r,&evidence)!=1 || evidence.available!=99)return 16;
     }
+    tpmshx_model_h_iteration_options_v1 model_options={17,1e-5,1e-8};
+    tpmshx_model_h_iteration_records_v1 model_records={0};
+    if(tpmshx_solve_full_3d_v4(&in,&c,&model_options,NULL,&r,error,sizeof error))return 80;
+    if(r.converged || tpmshx_full_3d_get_model_h_iterations_v1(&r,&model_records)
+       || !model_records.count || model_records.count!=r.outer_count)return 81;
+    for(size_t i=0;i<model_records.count;++i) {
+        const tpmshx_model_h_iteration_record_v1* row=&model_records.records[i];
+        if(row->max_iterations!=17 || row->chunk_iterations!=250 || row->refined
+           || row->temperature_tolerance!=1e-5 || row->q_relative_tolerance!=1e-8)return 82;
+    }
+    if(tpmshx_full_3d_run_create_v2(&in,&c,NULL,&model_options,NULL,&run,error,sizeof error))return 88;
+    if(tpmshx_full_3d_run_advance_v1(run,&phase,error,sizeof error)
+       || tpmshx_full_3d_run_advance_v1(run,&phase,error,sizeof error)
+       || tpmshx_full_3d_run_snapshot_v1(run,&saved,error,sizeof error))return 89;
+    tpmshx_full_3d_run_release_v1(&run);
+    if(tpmshx_full_3d_run_restore_v2(&in,&c,NULL,&model_options,NULL,saved.fields,saved.count,&run,error,sizeof error))return 90;
+    tpmshx_run_state_release_v1(&saved);
+    while(phase!=TPMSHX_FULL3D_COMPLETED)
+        if(tpmshx_full_3d_run_advance_v1(run,&phase,error,sizeof error))return 91;
+    tpmshx_full3d_result_v1 continued={0};tpmshx_model_h_iteration_records_v1 continued_calls={0};
+    if(tpmshx_full_3d_run_take_result_v1(run,&continued,error,sizeof error)
+       || tpmshx_full_3d_get_model_h_iterations_v1(&continued,&continued_calls)
+       || continued_calls.count!=model_records.count)return 92;
+    for(size_t i=0;i<continued_calls.count;++i)
+        if(continued_calls.records[i].max_iterations!=17 || continued_calls.records[i].total_iteration_budget!=17
+           || continued_calls.records[i].temperature_tolerance!=1e-5
+           || continued_calls.records[i].q_relative_tolerance!=1e-8)return 93;
+    for(size_t field=0;field<3;++field)
+        if(memcmp(continued.temperature[field].data,r.temperature[field].data,8*sizeof(double)))return 94;
+    tpmshx_full_3d_release_v1(&continued);tpmshx_full_3d_run_release_v1(&run);
+    model_options.temperature_tolerance=99.;
+    if(model_records.records[0].temperature_tolerance!=1e-5)return 83;
+    tpmshx_full_3d_release_v1(&r);model_records.count=123;
+    if(tpmshx_full_3d_get_model_h_iterations_v1(&r,&model_records)!=1 || model_records.count!=123)return 84;
+    model_options.temperature_tolerance=NAN;r.stop=99;
+    if(tpmshx_solve_full_3d_v4(&in,&c,&model_options,&cb,&r,error,sizeof error)!=1 || r.stop!=99 || r.owner)return 85;
+    model_options.temperature_tolerance=1e-5;c.variable_rho_cp=0;
+    if(tpmshx_solve_full_3d_v4(&in,&c,&model_options,&cb,&r,error,sizeof error)!=1 || r.stop!=99 || r.owner)return 86;
+    c.variable_rho_cp=1;
+    if(tpmshx_solve_full_3d_v4(&in,&c,&model_options,&cb,&r,error,sizeof error)
+       || tpmshx_full_3d_get_model_h_iterations_v1(&r,&model_records) || model_records.count)return 87;
+    tpmshx_full_3d_release_v1(&r);
     in.solve_b=0;
     if(tpmshx_solve_full_3d_v1(&in,&c,NULL,&r,error,sizeof error))return 36;
     if(tpmshx_full_3d_get_property_sampling_v1(&r,&sampling) || !sampling.count)return 36;

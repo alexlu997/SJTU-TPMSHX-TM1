@@ -115,3 +115,16 @@ def test_record_is_immutable_and_survives_file_handoff(tmp_path):
                                     if key != 'execution_record'})
     save_result(old, path)
     assert 'execution_record' not in load_result(path).metadata
+
+
+def test_model_h_last_main_settings_keep_refined_and_startup_records_separate():
+    case, result = evidence('model_h')
+    calls = dict(version='model_h_iterations_v1', records=[
+        dict(outer_index=0, attempt=0, stage='outer_thermal', settings={'max_iterations': 250}),
+        dict(outer_index=0, attempt=1, stage='outer_thermal', settings={'max_iterations': 125}),
+        dict(outer_index=0, attempt=0, stage='refined_thermal', settings={'max_iterations': 12000})])
+    result = replace(result, metadata={**result.metadata, 'model_h_iterations': calls})
+    record = full_execution_record(case, result)
+    assert record['numerics']['effective_settings']['max_iterations'] == 125
+    assert len(record['numerics']['model_h_iterations']['records']) == 3
+    assert record['sides']['B']['energy']['relation'] == 'integral_cp_T'

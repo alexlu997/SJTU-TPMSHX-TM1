@@ -252,3 +252,48 @@ assert not [name for name in sys.modules if name.startswith(forbidden)]
     assert restored.backend_id == 'cpp' and restored.run_status['converged'] == converged
     if not converged:
         assert len(restored.boundary_fluxes['true_h']['mass_flux_A']) == 3
+
+
+def test_model_h_budget_reaches_main_refined_and_saved_result(driver, tmp_path):
+    from sjtu_tpmshx.io.case_io import load_case, save_case
+    from sjtu_tpmshx.io.result_io import load_result, save_result
+    from sjtu_tpmshx.solvers.api import run_case
+    cfg = typed.configuration(outer=2)
+    cfg = replace(cfg, fluid_A=replace(cfg.fluid_A, type='water', T_in_K=300.),
+                  solver=replace(cfg.solver, T_s_init_K=300., model_h_max_iterations=17,
+                                 model_h_temperature_tol_K=1e-5, model_h_q_relative_tol=1e-8))
+    prepared = prepare_case(cfg, case_id='model-h-controls-2d')
+    save_case(prepared, tmp_path/'case.h5')
+    prepared = load_case(tmp_path/'case.h5')
+    raw = driver.run_prepared(*build_execution_inputs(prepared))
+    assert raw['main']['iterations'] == raw['fine']['iterations'] == 17
+    assert not raw['thermal_ok'] and not raw['converged']
+    records = raw['model_h_iterations']['records']
+    assert len(records) == len(raw['outer_history']) + 1
+    assert records[-1]['stage'] == 'refined_thermal'
+    expected = dict(max_iterations=17, chunk_iterations=500,
+                    temperature_update_tolerance_K=1e-5, q_relative_tolerance=1e-8, total_iteration_budget=17)
+    assert all(row['settings'] == expected for row in records)
+    result = run_case(prepared, RunControl(backend='cpp', native_library=str(driver.path)))
+    assert result.metadata['execution_record']['numerics']['effective_settings'] == expected
+    save_result(result, tmp_path/'result.h5')
+    restored = load_result(tmp_path/'result.h5')
+    assert restored.metadata['model_h_iterations'] == result.metadata['model_h_iterations']
+    assert restored.metadata['execution_record'] == result.metadata['execution_record']
+
+
+@pytest.mark.parametrize('mode', ['model_h', 'temperature'])
+def test_model_h_unset_budget_preserves_main_and_refined_defaults(driver, mode):
+    cfg = typed.configuration(mode=mode, outer=2)
+    prepared = prepare_case(cfg, case_id='model-h-defaults-2d')
+    runtime, arrays = build_execution_inputs(prepared)
+    runtime['compute_cfg'].solver.model_h_temperature_tol_K = 1e-5
+    raw = driver.run_prepared(runtime, arrays)
+    records = raw['model_h_iterations']['records']
+    assert records and records[-1]['stage'] == 'refined_thermal'
+    shape, fields, config = _pack(runtime, arrays, driver.table_directory, driver.library)
+    assert all(row['settings']['max_iterations'] == config.thermal_iterations
+               for row in records if row['stage'] == 'outer_thermal')
+    assert records[-1]['settings']['max_iterations'] == (12000 if mode == 'model_h' else 5000)
+    assert records[-1]['settings']['q_relative_tolerance'] == .001
+    assert all(row['settings']['temperature_update_tolerance_K'] == 1e-5 for row in records)

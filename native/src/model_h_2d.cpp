@@ -261,7 +261,8 @@ void validate(const GridView& g, const ModelHFluid2D& a, const ModelHFluid2D& b,
     coefficient(g.dx,g.nx,true); coefficient(g.dy,g.ny,true); coefficient(g.dz,1,true);
     if (g.dz[0]!=1) throw std::invalid_argument("model-h 2D requires dz=1");
     coefficient(ks,n);
-    if (!c.chunk_iterations || !std::isfinite(c.q_relative_tolerance) || c.q_relative_tolerance<0)
+    if (!c.chunk_iterations || !std::isfinite(c.q_relative_tolerance) || c.q_relative_tolerance<0
+        || !std::isfinite(c.temperature_tolerance) || c.temperature_tolerance<=0.)
         throw std::invalid_argument("invalid model-h control");
     const ArrayView<double> states[]{t.a,t.b,t.solid};
     for (auto state:states) check(state,n,c.warm_start);
@@ -389,7 +390,7 @@ ModelHResult2D solve_model_h_2d(const GridView& g, const ModelHFluid2D& a,
             result.q_b=q;
             const auto current=pack(t,solve_b);
             if (have_q && std::abs(q-previous_q)/std::max({std::abs(q),std::abs(previous_q),1.0})<c.q_relative_tolerance
-                && (current-previous).cwiseAbs().maxCoeff()<.01) {
+                && (current-previous).cwiseAbs().maxCoeff()<c.temperature_tolerance) {
                 if (c.strict_energy_balance) {
                     const bool passed=strict_audit();
                     result.finishing_checks.push_back({result.iterations,passed,passed,result.energy_error_ratio});

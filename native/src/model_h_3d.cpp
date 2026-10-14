@@ -250,7 +250,8 @@ void validate(const GridView& g, const ModelHFluid3D& a, const ModelHFluid3D& b,
         throw std::invalid_argument("3D model-h state is too large");
     coefficient(g.dx,g.nx,true); coefficient(g.dy,g.ny,true); coefficient(g.dz,g.nz,true); coefficient(ks,n);
     if (source_s.size) check(source_s,n);
-    if (!control.chunk_iterations || !std::isfinite(control.q_relative_tolerance) || control.q_relative_tolerance<0)
+    if (!control.chunk_iterations || !std::isfinite(control.q_relative_tolerance) || control.q_relative_tolerance<0
+        || !std::isfinite(control.temperature_tolerance) || control.temperature_tolerance<=0.)
         throw std::invalid_argument("invalid 3D model-h control");
     for (double alpha:{control.alpha_a,control.alpha_solid,control.alpha_b})
         if (!std::isfinite(alpha) || alpha<=0 || alpha>1) throw std::invalid_argument("invalid model-h relaxation");
@@ -381,7 +382,7 @@ ModelHResult3D solve_model_h_3d(const GridView& grid, const ModelHFluid3D& a,
             for (std::size_t p=0; p<mesh.n; ++p) q+=b.hv[p]*(t.solid[p]-t.b[p])*mesh.volume(mesh.point(p));
             result.q_b=q; const auto current=pack(t,solve_b);
             if (have_q && std::abs(q-previous_q)/std::max({std::abs(q),std::abs(previous_q),1.0})<control.q_relative_tolerance
-                && (current-previous).cwiseAbs().maxCoeff()<.01) {
+                && (current-previous).cwiseAbs().maxCoeff()<control.temperature_tolerance) {
                 if (control.strict_energy_balance) {
                     const bool passed=strict_audit();
                     result.finishing_checks.push_back({result.iterations,{},passed,result.energy_error_ratio});
