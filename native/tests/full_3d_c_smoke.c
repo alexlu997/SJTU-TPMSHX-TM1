@@ -80,9 +80,22 @@ int main(void) {
        || !settings_match(&settings.resolved,&c,&original) || settings.resolved.available
        || settings.last.available || settings.outer_count!=r.outer_count)return 17;
     for(size_t i=0;i<settings.outer_count;++i)if(settings.outer[i].available)return 17;
+    tpmshx_range_observations_view_v1 ranges={0};
+    if(tpmshx_full_3d_get_last_closure_ranges_v1(&r,&ranges) || !ranges.data
+       || ranges.size!=r.range_observation_count)return 71;
+    for(size_t i=0;i<ranges.size;++i) {
+        const tpmshx_range_observation_v1* row=&ranges.data[i];
+        if(!row->size || !row->have_finite || row->minimum>row->maximum
+           || row->minimum<r.range_observations[i].minimum
+           || row->maximum>r.range_observations[i].maximum)return 72;
+    }
+    ranges.size=123;
+    if(tpmshx_full_3d_get_last_closure_ranges_v1(NULL,&ranges)!=1 || ranges.size!=123
+       || tpmshx_full_3d_get_last_closure_ranges_v1(&r,NULL)!=1)return 73;
     /* Input changes cannot mutate owned result views. */
     eps[0]=.55;if(r.flow[0].epsilon.data[0]!=.6)return 5;eps[0]=.6;
     tpmshx_full_3d_release_v1(&r);tpmshx_full_3d_release_v1(&r);if(r.owner)return 6;
+    if(tpmshx_full_3d_get_last_closure_ranges_v1(&r,&ranges)!=1 || ranges.size!=123)return 74;
     if(tpmshx_full_3d_get_bootstrap_trace_v1(&r,0,&trace)!=1 || trace.selected!=99)return 11;
     evidence.available=99;
     if(tpmshx_full_3d_get_energy_evidence_v1(&r,&evidence)!=1 || evidence.available!=99)return 15;
@@ -106,6 +119,7 @@ int main(void) {
     if(tpmshx_full_3d_get_energy_effective_settings_v1(&r,&settings)
        || !settings_match(&settings.resolved,&c,&original) || settings.resolved.available
        || settings.last.available || settings.outer_count)return 19;
+    if(tpmshx_full_3d_get_last_closure_ranges_v1(&r,&ranges) || ranges.size || ranges.data)return 75;
     tpmshx_full_3d_release_v1(&r);
     in.epsilon.size=7;r.stop=99;
     if(tpmshx_solve_full_3d_v1(&in,&c,NULL,&r,error,sizeof error)!=1 || r.stop!=99 || !error[0])return 8;

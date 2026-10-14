@@ -36,6 +36,7 @@ class RangeRecord:
     high: int
     size: int
     nonfinite: int  # peak count in a single observation of this same shape
+    last: dict | None = None
 
     def merged(self, other):
         minimum = self.minimum
@@ -47,7 +48,7 @@ class RangeRecord:
         # Keys include shape: equal fractions retain the first joined snapshot.
         worst = other if other.low + other.high > self.low + self.high else self
         return replace(worst, minimum=minimum, maximum=maximum,
-                       nonfinite=max(self.nonfinite, other.nonfinite))
+                       nonfinite=max(self.nonfinite, other.nonfinite), last=other.last)
 
 
 def record_range(source, values, bounds, *, label, quantity, unit):
@@ -71,6 +72,7 @@ def record_range(source, values, bounds, *, label, quantity, unit):
                         int(np.count_nonzero(finite & (array < lo))),
                         int(np.count_nonzero(finite & (array > hi))),
                         int(array.size), int(array.size - indices.size))
+    value = replace(value, last={name: getattr(value, name) for name in _SAMPLE_FIELDS})
     # Cache facts carry shape, but never the originating run's side/stage/layout.
     key = (*source, array.shape)
     if cached is not None:
@@ -81,6 +83,25 @@ def record_range(source, values, bounds, *, label, quantity, unit):
         previous = records.get(key)
         records[key] = value if previous is None else previous.merged(value)
     return records is not None
+
+
+
+_SAMPLE_FIELDS = ('minimum', 'maximum', 'low', 'high', 'size', 'nonfinite')
+
+
+def range_observations(records, *, last=False):
+    """Copy source bounds and either aggregate or last-call observations."""
+    rows = []
+    for key, value in records.items():
+        if not isinstance(value, RangeRecord):
+            continue
+        shape, (side, stage, layout) = key[-2:]
+        sample = value.last if last else {name: getattr(value, name) for name in _SAMPLE_FIELDS}
+        rows.append(dict(source=key[:-2], side=side, stage=stage, layout=layout,
+                         shape=shape, quantity=value.quantity, unit=value.unit,
+                         bounds=value.bounds, captured=sample is not None,
+                         **({} if sample is None else sample)))
+    return rows
 
 
 def warning_messages(records):

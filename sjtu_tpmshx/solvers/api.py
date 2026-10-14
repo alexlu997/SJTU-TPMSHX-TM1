@@ -65,4 +65,7 @@ def run_case(case: CaseData, control: RunControl = RunControl()) -> FieldResult:
     if mode == 'full' and result.run_status['execution'] == 'completed':
         from .execution_record import full_execution_record
         metadata['execution_record'] = full_execution_record(case, result)
+        from .applicability_evidence import capture_applicability
+        metadata['applicability_evidence'] = capture_applicability(case, result, records)
+        metadata.pop('_last_closure_ranges', None)
     return replace(result, metadata=metadata)

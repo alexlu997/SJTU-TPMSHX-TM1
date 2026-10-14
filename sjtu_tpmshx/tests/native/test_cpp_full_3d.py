@@ -411,11 +411,26 @@ def test_runtime_range_evidence_preserves_original_sources_and_denominators(nati
     monkeypatch.setattr(tpms_props,'record_range',observe)
     monkeypatch.setattr(nu_correlations,'record_range',observe)
     with warning_scope(expected):python_run(prepared)
-    with warning_scope(actual):adapter_run(prepared,control(native_path))
+    with warning_scope(actual):result=adapter_run(prepared,control(native_path))
+    last={(*row['source'],tuple(row['shape']),(row['side'],row['stage'],row['layout'])): row
+          for row in result.metadata['_last_closure_ranges']}
+    assert last.keys()=={key for key,value in expected.items() if isinstance(value,RangeRecord)}
     assert actual.keys()==expected.keys()
     for key,value in expected.items():
         if isinstance(value,RangeRecord):
             a=dict(vars(actual[key]));e=dict(vars(value))
+            assert a.pop('last') is None
+            sample=e.pop('last')
+            for name in ('low','high','size','nonfinite'):
+                assert last[key][name]==sample[name]
+            for name in ('minimum','maximum'):
+                got,want=last[key][name],sample[name]
+                if want is None:
+                    assert got is None
+                else:
+                    rtol,atol=(0.,.01) if value.quantity=='T' else (1e-4,1e-6)
+                    assert np.isclose(got[0],want[0],rtol=rtol,atol=atol)
+                    assert np.isclose(snapshots[key][-1][got[1]],want[0],rtol=rtol,atol=atol)
             for name in ('minimum','maximum'):
                 got,want=a.pop(name),e.pop(name)
                 if want is None:
@@ -582,3 +597,37 @@ def test_application_failure_releases_native_owner(native_path, monkeypatch, fai
     with pytest.raises(RuntimeError, match='capture failure'):
         driver._run_prepared(cfg, p, application_only=True)
     assert released == [None]
+
+
+@pytest.mark.parametrize('dimension,real_co2', [(2, False), (3, False), (2, True), (3, True)])
+def test_public_applicability_keeps_original_inlet_and_last_local_sources(native_path, tmp_path, dimension, real_co2):
+    from sjtu_tpmshx.domain.portable_data import mutable_data
+    from sjtu_tpmshx.io.result_io import save_result, load_result
+    from sjtu_tpmshx.postprocess.api import evaluate_applicability
+    from sjtu_tpmshx.solvers.api import run_case
+    from sjtu_tpmshx.tests.native.test_full_2d import configuration
+    prepared = (prepare_case(configuration(outer=2), case_id='ranges-2d')
+                if dimension == 2 else case('air-air', 2))
+    if real_co2:
+        from sjtu_tpmshx.tests.test_co2_model import co2_config
+        config = co2_config(1 if dimension == 2 else 3)
+        prepared = prepare_case(replace(config, solver=replace(config.solver, max_outer_ltne=2)), case_id='co2-ranges')
+    summaries = []
+    for backend in ('python', 'cpp'):
+        result = run_case(prepared, control(native_path) if backend == 'cpp' else RunControl())
+        summary = evaluate_applicability(result)
+        assert summary['missing'] == []
+        assert summary['status'] in ('within_limits', 'outside_limits')
+        assert '_last_closure_ranges' not in result.metadata
+        for side in 'AB':
+            assert any(row['side'] == side and row['source'][0] == 'nu_raw'
+                       and row['captured'] for row in summary['checks']['final'])
+        if real_co2:
+            assert any(row['source'] == ('nu_pr', 'co2', 'Gyroid')
+                       for row in summary['checks']['final'])
+        path = save_result(result, tmp_path / (backend + '.h5'))
+        assert mutable_data(evaluate_applicability(load_result(path))) == mutable_data(summary)
+        summaries.append(summary)
+    assert summaries[0]['within_limits'] == summaries[1]['within_limits']
+    assert {row['source'][1] for row in summaries[1]['checks']['inlet']
+            if row['source'][0] == 'geometry'} == {'L_field_m', 't_field_m'}

@@ -24,7 +24,7 @@ struct Owner {
     std::vector<std::vector<tpmshx_model_h_check_v1>> outer_finishing;
     std::vector<std::vector<const char*>> startup_reasons;
     std::vector<const char*> failures,warnings,envelope_reasons;
-    std::vector<tpmshx_range_observation_v1> ranges;
+    std::vector<tpmshx_range_observation_v1> ranges,last_ranges;
     std::array<std::vector<tpmshx_full3d_bootstrap_level_v1>,2> bootstrap_levels;
     std::array<tpmshx_full3d_bootstrap_trace_v1,2> bootstrap_traces{};
 };
@@ -182,7 +182,10 @@ tpmshx_full3d_result_v1 output(Owner& o) {
     for(const auto& w:r.warnings)o.warnings.push_back(w.c_str());out.warnings=o.warnings.data();out.warning_count=o.warnings.size();
     for(const auto& w:r.envelope_reasons)o.envelope_reasons.push_back(w.c_str());
     out.envelope_reasons=o.envelope_reasons.data();out.envelope_reason_count=o.envelope_reasons.size();
-    for(const auto& observation:r.range_observations)o.ranges.push_back(range_observation_view(observation));
+    for(const auto& observation:r.range_observations) {
+        o.ranges.push_back(range_observation_view(observation));
+        o.last_ranges.push_back(last_range_observation_view(observation));
+    }
     out.range_observations=o.ranges.data();out.range_observation_count=o.ranges.size();
     out.energy_imbalance=r.energy_imbalance;out.interior_duty=r.interior_duty;out.interior_imbalance=r.interior_imbalance;out.enthalpy_imbalance=r.enthalpy_imbalance;
     return out;
@@ -291,4 +294,13 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_model_enthalpy_evidence_v1
         out.algorithm=r.thermal.temperature_algorithm;
     }
     *evidence=out;return 0;
+}
+
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_last_closure_ranges_v1(
+    const tpmshx_full3d_result_v1* result,tpmshx_range_observations_view_v1* ranges) {
+    if(!result || !result->owner || !ranges) return 1;
+    const auto& owner=*static_cast<const Owner*>(result->owner);
+    *ranges={owner.result.stop==Full3DStop::cancelled?nullptr:owner.last_ranges.data(),
+             owner.result.stop==Full3DStop::cancelled?0:owner.last_ranges.size()};
+    return 0;
 }

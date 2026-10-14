@@ -114,9 +114,22 @@ int main(void) {
             assert(fabs(t->temperature[phase].data[i]-300.)<1e-9);
         assert(t->model_h.audit_available && t->model_h.plane.passed && t->model_h.owner==NULL);
     }
+    tpmshx_range_observations_view_v1 ranges={0};
+    assert(tpmshx_full_2d_get_last_closure_ranges_v1(&result,&ranges)==0);
+    assert(ranges.data && ranges.size==result.range_observation_count);
+    for(size_t i=0;i<ranges.size;++i) {
+        const tpmshx_range_observation_v1* row=&ranges.data[i];
+        assert(row->size && row->have_finite && row->minimum<=row->maximum);
+        assert(row->minimum>=result.range_observations[i].minimum);
+        assert(row->maximum<=result.range_observations[i].maximum);
+    }
+    assert(tpmshx_full_2d_get_last_closure_ranges_v1(&result,NULL)==1);
+    ranges.size=123;
+    assert(tpmshx_full_2d_get_last_closure_ranges_v1(NULL,&ranges)==1 && ranges.size==123);
     const double saved=result.main.dx.data[0]; widths[0]=.123;
     assert(result.main.dx.data[0]==saved); widths[0]=saved;
     tpmshx_full_2d_release_v2(&result); assert(result.owner==NULL);
+    assert(tpmshx_full_2d_get_last_closure_ranges_v1(&result,&ranges)==1 && ranges.size==123);
     tpmshx_full_2d_release_v2(&result);
     /* A complete nonzero heat-exchange solve must also finish independently
        of Python, including the refined final certificate. */
@@ -157,6 +170,7 @@ int main(void) {
     }
     assert(tpmshx_solve_full_2d_v2(shape,arrays,sizes,&config,&cb,&result,error,sizeof(error))==0);
     assert(result.cancelled && !result.converged);
+    assert(tpmshx_full_2d_get_last_closure_ranges_v1(&result,&ranges)==0 && !ranges.size && !ranges.data);
     assert(tpmshx_full_2d_get_energy_effective_settings_v1(&result,&settings)==0);
     assert(!settings.resolved.available && !settings.last.available && !settings.outer_count);
     tpmshx_full_2d_release_v2(&result);

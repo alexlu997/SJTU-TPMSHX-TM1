@@ -134,6 +134,32 @@ Manufactured-source tests keep their stopping rule because their external
 sources do not obey the source-free LTNE exchange balance. See [capabilities](capabilities.en.md), [model applicability](model-resources.en.md)
 and [data provenance](data-catalog.en.md) for the separate physical scope.
 
+## Captured parameter limits
+
+Prepared cases store original model bounds and inlet samples in
+`applicability_inputs`. Completed full solves store `applicability_evidence_v1`.
+Python and C++ keep the last actual source call for each side, stage, layout
+and array shape. The existing warning record keeps extrema from all calls.
+The additive C queries borrow the existing result owner. The bindings copy
+their values before release and require a current library.
+
+`postprocess.api.evaluate_applicability(result)` reads this evidence without
+an EOS or solver call. It checks the inlet and last local correlation inputs,
+including Re before its floor. Missing required evidence returns an unverified
+state. An old file without evidence returns an unavailable state.
+
+For positive original bounds `[L,U]`, the allowed parameter interval is
+`[0.9L,1.1U]`. Any sample beyond that interval fails the range check.
+The limit is not a fraction of cells. Zero or signed boundaries require a
+specified domain rule for extrapolation. Geometry bounds stay fixed.
+The water HX calibration lower speed of 0.10 m/s permits 0.09 m/s.
+A broader historical application window does not change this limit.
+
+This range result does not grant convergence, experimental acceptance or
+full design qualification. It retains model-scope notices, including unresolved
+joint sCO2 correlation coverage. Existing compute permissions, hard property
+and phase checks, frozen coefficients and numerical stopping rules stay in effect.
+
 ## Runtime flow
 
 ```text

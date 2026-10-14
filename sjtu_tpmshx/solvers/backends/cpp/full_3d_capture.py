@@ -170,7 +170,7 @@ def capture_result(case, cfg, p, r, abi):
             face_velocity_A=r['face_velocity'][0],face_velocity_B=r['face_velocity'][1] if r['flow'][1] else None,
             **({'temperature':r['temperature_evidence']} if 'temperature_evidence' in r else {})),
         pressure_evidence=pressure,run_status=dict(execution='completed',converged=r['converged'],outer_index=r['outer_index']),
-        metadata=dict(dimension=3,quantity_basis='total',thermal_mode=r['mode'],parameters=case.parameters,design_fields=case.design_fields,
+        metadata=dict(_last_closure_ranges=r['last_closure_ranges'],dimension=3,quantity_basis='total',thermal_mode=r['mode'],parameters=case.parameters,design_fields=case.design_fields,
             **({'temperature_transport':temperature_transport} if temperature_transport is not None else {}),
             design_mode=case.metadata['design_mode'],model_metadata=model_metadata,notices=case.metadata['notices'],
             application=dict(coeffs=dict(K_ffA=r['final_conductivity'][0],K_ffB=r['final_conductivity'][1],

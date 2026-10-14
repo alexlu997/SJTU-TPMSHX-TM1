@@ -187,6 +187,10 @@ typedef struct {
  * thermal evidence in W/m. Release views with the full_2d_release_v2 owner. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_model_enthalpy_evidence_v1(
     const tpmshx_full_2d_result_v2*,tpmshx_full_2d_model_enthalpy_evidence_v1*);
+/* No solver or EOS call. Invalid owners return 1 and preserve output.
+ * Cancellation returns an empty view. Copy before the result owner is released. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_last_closure_ranges_v1(
+    const tpmshx_full_2d_result_v2*,tpmshx_range_observations_view_v1*);
 #ifdef __cplusplus
 }
 #endif

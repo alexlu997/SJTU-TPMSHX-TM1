@@ -21,7 +21,7 @@ from .enthalpy import (_EnergyOptions, _EnergyResult, _energy_options,
                        _energy_algorithm_query, _energy_result_info, _energy_native_state,
                        _FullEnergyEffectiveSettings, _full_enthalpy_defaults, _full_enthalpy_info,
                        _executed_energy_settings)
-from .closure_evidence import NuObservation, RangeObservation, copy_nu_observation, copy_range_observations
+from .closure_evidence import NuObservation, RangeObservation, copy_nu_observation, copy_range_observations, last_range_query, copy_last_ranges
 
 
 class _Side(ct.Structure):
@@ -246,6 +246,7 @@ class NativeFull2DDriver:
             raise ValueError('native full 2D library lacks executed settings; rebuild the library') from exc
         self.query_settings.argtypes = [ct.POINTER(_Result), ct.POINTER(_FullEnergyEffectiveSettings)]
         self.query_settings.restype = ct.c_int
+        self.query_last_ranges = last_range_query(self.library, 2, _Result)
 
     def run_prepared(self, cfg, prepared, control=RunControl()):
         control.check_cancelled()
@@ -340,6 +341,7 @@ class NativeFull2DDriver:
                 out[name] = list(getattr(result, name))
             for name in ('q_total', 'q_solid', 'energy_imbalance'):
                 out[name] = getattr(result, name)
+            out['last_closure_ranges'] = copy_last_ranges(self.query_last_ranges, result)
             out['sco2_nu_observations'] = {side: copy_nu_observation(value, shape)
                                          for side, value in zip(('A', 'B'), result.nu_observations)}
             from sjtu_tpmshx.models.co2_correlations import NU_MULTIPLIER
