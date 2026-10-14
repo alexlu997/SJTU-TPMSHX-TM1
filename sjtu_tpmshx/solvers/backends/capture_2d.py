@@ -24,6 +24,14 @@ def capture_result(case, display_fields, native, application, diagnostics, *,
                  'final flow/report' if key.startswith(('P_report', 'uc', 'vc')) else
                  'raw last main thermal return')
         field_metadata[key] = dict(unit=unit, axes=('x', 'y'), location='cell', state=state)
+    ledger = native.get('physical_ledger')
+    if ledger is not None and ledger['physical_boundary_complete'] is None:
+        from sjtu_tpmshx.solvers.physical_ledger import ports_complete
+        parameters = case.parameters
+        ledger = dict(ledger, physical_boundary_complete=all(ports_complete(
+            native['mass_flux_' + side], parameters['dir_' + side],
+            parameters['boundary_openings'][side]['in_geom_frac'],
+            parameters['boundary_openings'][side]['out_geom_frac']) for side in ('A', 'B')))
     model_metadata = dict(case.metadata['model_metadata'])
     if native['true_h'] and 'sco2_enthalpy_eos' in native['true_h']:
         model_metadata['sco2_enthalpy_eos'] = native['true_h']['sco2_enthalpy_eos']
@@ -32,6 +40,7 @@ def capture_result(case, display_fields, native, application, diagnostics, *,
         backend_id=backend_id, backend_version=backend_version, grid=case.grid,
         fields=fields, field_metadata=field_metadata, model_refs=case.model_refs,
         boundary_fluxes=dict(
+            energy=ledger,
             mass_A=native['mass_flux_A'], mass_B=native['mass_flux_B'],
             mass_unit='kg/(s m)', mass_axes=('x-face', 'y-face'),
             mass_sign='positive along physical coordinate axis',

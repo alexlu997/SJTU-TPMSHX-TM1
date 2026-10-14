@@ -94,7 +94,7 @@ struct Full2DThermalState {
     // Same-state existing model h(T) evidence; no model-h product certificate.
     std::array<std::array<double,5>,2> temperature_cp_coefficients{};
     const char* temperature_algorithm=nullptr;
-    std::optional<PhysicalHeatLedger> temperature_audit;
+    std::optional<PhysicalHeatLedger> physical_audit;
 };
 
 struct Full2DOuterRecord {

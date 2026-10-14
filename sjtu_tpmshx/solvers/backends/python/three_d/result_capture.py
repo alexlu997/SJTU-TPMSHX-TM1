@@ -1,6 +1,8 @@
 """Detach native 3D thermal and final-flow evidence from backend instances."""
 from uuid import uuid4
 
+import numpy as np
+
 from sjtu_tpmshx.domain.field_result import FieldResult
 from .runtime import _pressure_real_3d
 
@@ -68,13 +70,27 @@ def capture_result(case, prob, outer, metrics, diagnostics):
         audit = dict(masks=masks, axes=('x', 'y', 'z'), state='final report/property refresh',
                      units=dict(K_ffA='W/(m K)', K_ffB='W/(m K)', K_ss='W/(m K)',
                                 rho_cp_A='J/(m3 K)', rho_cp_B='J/(m3 K)'))
+    ledger = native.get('physical_ledger')
+    if ledger is not None and ledger['physical_boundary_complete'] is None:
+        from sjtu_tpmshx.solvers.physical_ledger import ports_complete
+        complete = True
+        for side in ('A', 'B'):
+            axis = case.parameters['prepared']['axes'][side]
+            ports = case.parameters['prepared']['openings'][side]
+            masks = [np.asarray(ports[end]) for end in ('inlet', 'outlet')]
+            if axis['cross1_real_axis'] > axis['cross2_real_axis']:
+                masks = [mask.T for mask in masks]
+            complete = complete and ports_complete(
+                native['mass_' + side], report[side]['direction'], *masks)
+        ledger = dict(ledger, physical_boundary_complete=complete)
     model_metadata = dict(case.metadata['model_metadata'])
     if native['true_h'] and 'sco2_enthalpy_eos' in native['true_h']:
         model_metadata['sco2_enthalpy_eos'] = native['true_h']['sco2_enthalpy_eos']
     return FieldResult(result_id=str(uuid4()), case_id=case.case_id,
         backend_id='python', backend_version='three_d_v1', grid=case.grid,
         fields=fields, field_metadata=metadata, model_refs=case.model_refs,
-        boundary_fluxes=dict(mass_A=native['mass_A'], mass_B=native['mass_B'],
+        boundary_fluxes=dict(energy=ledger,
+            mass_A=native['mass_A'], mass_B=native['mass_B'],
             mass_unit='kg/s', mass_axes=('x-face', 'y-face', 'z-face'),
             mass_sign='positive along physical coordinate axis', state='last thermal input',
             model_h=native['model_h'], true_h=native['true_h'], report=report,

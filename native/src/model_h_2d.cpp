@@ -174,10 +174,12 @@ std::array<Vector,4> boundaries(const Mesh& mesh, ArrayView<const double> x, Arr
     return out;
 }
 ModelHAudit2D audit(const Mesh& mesh, Side& a, Side& b, ArrayView<const double> ks,
-                   TemperatureStateView t, const Vector& last_a, const Vector& last_b) {
+                   TemperatureStateView t, const Vector& last_a, const Vector& last_b,
+                   PhysicalHeatLedger* physical_audit) {
     ModelHAudit2D result{};
     faces(mesh,a,view(t.a)); faces(mesh,b,view(t.b));
     auto ledger=energy_physical_audit(mesh.g,a.energy(mesh),b.energy(mesh),ks,t);
+    if (physical_audit) *physical_audit=ledger;
     result.finite=true; result.boundary_complete=ledger.boundary_complete;
     result.solid_residual=std::move(ledger.residual[2]);
     Side* sides[]{&a,&b};
@@ -394,7 +396,7 @@ ModelHResult2D solve_model_h_2d(const GridView& g, const ModelHFluid2D& a,
                     if (passed) result.stop=TemperatureStop::converged;
                     if (passed || !strict_boundary_complete) break;
                 } else {
-                    result.audit=audit(mesh,side_a,side_b,ks,t,result.last_a,result.last_b);
+                    result.audit=audit(mesh,side_a,side_b,ks,t,result.last_a,result.last_b,physical_audit);
                     result.audit_available=true;
                     result.finishing_checks.push_back({result.iterations,result.audit.passed,result.audit.equations_ok});
                     if (result.audit.passed) result.stop=TemperatureStop::converged;
@@ -413,9 +415,11 @@ ModelHResult2D solve_model_h_2d(const GridView& g, const ModelHFluid2D& a,
     if (c.strict_energy_balance) {
         if (!result.physical_audit_available && result.iterations) strict_audit();
     } else if (!result.audit_available) {
-        result.audit=audit(mesh,side_a,side_b,ks,t,result.last_a,result.last_b);
+        result.audit=audit(mesh,side_a,side_b,ks,t,result.last_a,result.last_b,physical_audit);
         result.audit_available=true;
     }
+    if (physical_audit && !c.strict_energy_balance)
+        result.physical_audit_available=result.audit_available;
     return result;
 }
 }  // namespace tpmshx

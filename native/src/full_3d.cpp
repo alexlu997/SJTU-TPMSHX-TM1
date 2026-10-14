@@ -246,19 +246,24 @@ void validate(const Full3DInput& in,const Full3DControl& c) {
         throw std::invalid_argument("coarse bootstrap requires a positive iteration cap");
 }
 
-void check_energy_ports(const GridView& g,const Full3DSide& side,const Faces& mass) {
+const char* energy_port_error(const GridView& g,const Full3DSide& side,const Faces& mass) {
     const auto counts=shape(g);
+    const char* error=nullptr;
     for(int axis=0;axis<3;++axis) for(bool high:{false,true})
         boundary(g,axis,high,[&](std::size_t,std::size_t p,std::size_t f,double) {
-            if(mass[axis][f]==0.) return;
-            if(axis!=side.direction/2)
-                throw std::invalid_argument("candidate energy mass crosses a non-port boundary");
+            if(error || mass[axis][f]==0.) return;
+            if(axis!=side.direction/2) {
+                error="candidate energy mass crosses a non-port boundary";return;
+            }
             const std::array<std::size_t,3> coord{p/(g.ny*g.nz),(p/g.nz)%g.ny,p%g.nz};
             const auto q=coord[side.solver_axes[0]]*counts[side.solver_axes[2]]+coord[side.solver_axes[2]];
             const bool inlet=high==static_cast<bool>(side.direction%2);
             if((inlet?side.inlet_opening:side.outlet_opening)[q]==0.)
-                throw std::invalid_argument("candidate energy mass crosses a closed port face");
+                error="candidate energy mass crosses a closed port face";
+            if(!inlet && (high?mass[axis][f]:-mass[axis][f])<0.)
+                error="candidate energy has exterior inflow without a defined inlet state";
         });
+    return error;
 }
 
 Simple3DMaterialView material(const Full3DFlowState& s) {
@@ -744,8 +749,9 @@ Full3DOuterRecord Runtime::solve_thermal(std::size_t outer,Full3DThermalEvidence
             e.model_h=solve_model_h_3d(g,
                 {input.a.fluid,view(conductivity[0]),view(hv[0]),view(e.mass[0][0]),view(e.mass[0][1]),view(e.mass[0][2]),ba,input.sources[0]},
                 {input.b.fluid,view(conductivity[1]),view(hv[1]),view(e.mass[1][0]),view(e.mass[1][1]),view(e.mass[1][2]),bb,input.sources[1]},
-                geo.solid_conductivity,input.sources[2],state,mc);
+                geo.solid_conductivity,input.sources[2],state,mc,{},&e.physical_audit.emplace());
             const auto& r=*e.model_h;
+            if (!r.physical_audit_available) e.physical_audit.reset();
             if(r.stop==TemperatureStop::cancelled) throw Cancelled{};
             record.thermal_converged=r.stop==TemperatureStop::converged;record.thermal_iterations=r.iterations;record.thermal_residual=r.residual;
         } else {
@@ -757,7 +763,8 @@ Full3DOuterRecord Runtime::solve_thermal(std::size_t outer,Full3DThermalEvidence
                     {view(conductivity[0]),view(hv[0]),epsilon(0),view(rho_cp[0]),views(e.face_velocity[0]),bc[0],input.sources[0]},
                     {view(conductivity[1]),view(hv[1]),epsilon(1),view(rho_cp[1]),views(e.face_velocity[1]),bc[1],input.sources[1]},
                     geo.solid_conductivity,state,tc,control.conservative,control.red_black_energy,
-                    input.solve_b?ArrayView<const double>{}:view(initial[1]),input.sources[2],true_h);
+                    input.solve_b?ArrayView<const double>{}:view(initial[1]),input.sources[2],true_h,
+                    control.conservative && !true_h ? &e.physical_audit.emplace() : nullptr);
                 r=e.staggered->iteration;
             } else {
                 if(std::any_of(input.sources.begin(),input.sources.end(),[](auto source){
@@ -830,7 +837,7 @@ Full3DOuterRecord Runtime::solve_thermal(std::size_t outer,Full3DThermalEvidence
                         audit_available=solved.physical_audit_available;
                         e.temperature_algorithm="model_h_tface_sou_sou_strict_v3";
                     }
-                    if(audit_available) e.temperature_audit=std::move(audit);
+                    if(audit_available) e.physical_audit=std::move(audit);
                 }
             }
             if(r.stop==TemperatureStop::cancelled) throw Cancelled{};
@@ -861,15 +868,20 @@ Full3DOuterRecord Runtime::solve_thermal(std::size_t outer,Full3DThermalEvidence
             const auto projected=thermal.project_capacity_faces(g,epsilon(s),view(result.flow[s].density_real),views(faces));
             e.mass[s]=mass_faces(g,projected.velocity,epsilon(s),result.flow[s].density_real);
             if(control.enthalpy.algorithm!=EnthalpyAlgorithm::legacy_h_fou)
-                check_energy_ports(g,side(s),e.mass[s]);
+                if(const auto* error=energy_port_error(g,side(s),e.mass[s]))
+                    throw std::invalid_argument(error);
             e.enthalpy[s].resize(temperature[s].size());
         }
         auto c=control.enthalpy;c.cancel=control.cancel;c.context=control.context;
         e.true_h=solve_enthalpy(g,
             {input.a.fluid,input.a.inlet_temperature,input.a.inlet_pressure,view(e.pressure[0]),epsilon(0),view(hv[0]),view(e.mass[0][0]),view(e.mass[0][1]),view(e.mass[0][2]),input.a.direction},
             {input.b.fluid,input.b.inlet_temperature,input.b.inlet_pressure,view(e.pressure[1]),epsilon(1),view(hv[1]),view(e.mass[1][0]),view(e.mass[1][1]),view(e.mass[1][2]),input.b.direction},
-            geo.solid_conductivity,{writable(e.enthalpy[0]),writable(e.enthalpy[1]),writable(temperature[0]),writable(temperature[1]),writable(temperature[2]),true,true,true},c);
+            geo.solid_conductivity,{writable(e.enthalpy[0]),writable(e.enthalpy[1]),writable(temperature[0]),writable(temperature[1]),writable(temperature[2]),true,true,true},c,&e.physical_audit.emplace());
         const auto& r=*e.true_h;if(r.stop==EnthalpyStop::cancelled) throw Cancelled{};
+        if (!r.final_audit || !r.final_audit->fluid_equations_computed) e.physical_audit.reset();
+        if(e.physical_audit) for(std::size_t s=0;s<2;++s)
+            e.physical_audit->boundary_complete=e.physical_audit->boundary_complete
+                && !energy_port_error(g,side(s),e.mass[s]);
         record.thermal_converged=r.stop==EnthalpyStop::converged;record.thermal_iterations=r.iterations;record.thermal_residual=r.residual;
         check_water(temperature,e.pressure);
         for(const auto& t:temperature) if(!finite(t)) throw std::domain_error("nonfinite full 3D true-h return");
@@ -1077,7 +1089,7 @@ void Runtime::finish() {
             property_ranges(s,"property_state","final","outlet-cell-face(real-transverse-axes)",
                 {sg.nx,sg.nz},view(outlet),15);
         }
-        if(candidate || result.thermal.temperature_audit) {
+        if(candidate || (result.thermal.temperature_algorithm && result.thermal.physical_audit)) {
             const auto& evidence=result.thermal;
             const int axis=a.direction/2;const bool reverse=a.direction%2;
             double thermal_in=0.,thermal_out=0.,thermal_temperature=0.;
@@ -1091,11 +1103,11 @@ void Runtime::finish() {
             result.inlet_mass[s]=thermal_in;
             result.outlet_temperature[s]=thermal_out>0.?thermal_temperature/thermal_out
                 :std::numeric_limits<double>::quiet_NaN();
-            if(evidence.temperature_audit) {
+            if(evidence.temperature_algorithm && evidence.physical_audit) {
                 double q=0.;
-                for(const auto& plane:evidence.temperature_audit->advective_out[s])
+                for(const auto& plane:evidence.physical_audit->advective_out[s])
                     for(double value:plane) q-=value;
-                result.duty[s]=evidence.temperature_audit->boundary_complete?std::abs(q)
+                result.duty[s]=evidence.physical_audit->boundary_complete?std::abs(q)
                     :std::numeric_limits<double>::quiet_NaN();
             } else result.duty[s]=std::abs(s==0?evidence.true_h->q_a:evidence.true_h->q_b);
         } else if(true_h_pair) {

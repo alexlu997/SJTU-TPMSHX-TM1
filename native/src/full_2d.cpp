@@ -177,7 +177,7 @@ void validate(const Full2DProblem& p,const Full2DControl& c) {
     }
 }
 
-void check_energy_ports(const GridView& g,const Full2DSide& side,
+const char* energy_port_error(const GridView& g,const Full2DSide& side,
                         const Vector& mass_x,const Vector& mass_y) {
     for(int axis=0;axis<2;++axis) for(bool high:{false,true}) {
         const auto count=axis==0?g.ny:g.nx;
@@ -186,12 +186,15 @@ void check_energy_ports(const GridView& g,const Full2DSide& side,
                 :mass_y[q*(g.ny+1)+(high?g.ny:0)];
             if(mass==0.) continue;
             if(axis!=side.direction/2)
-                throw std::invalid_argument("candidate energy mass crosses a non-port boundary");
+                return "candidate energy mass crosses a non-port boundary";
             const bool inlet=high==static_cast<bool>(side.direction%2);
             if((inlet?side.inlet_geometry:side.outlet_geometry)[q]==0.)
-                throw std::invalid_argument("candidate energy mass crosses a closed port face");
+                return "candidate energy mass crosses a closed port face";
+            if (!inlet && (high?mass:-mass)<0.)
+                return "candidate energy has exterior inflow without a defined inlet state";
         }
     }
+    return nullptr;
 }
 
 void build_physical_evidence(const Full2DProblem& p,std::size_t side,Full2DFlow& f) {
@@ -456,6 +459,7 @@ void prepare_thermal(const Full2DProblem& p,Full2DResult& r,
 void solve_thermal(const Full2DProblem& p,const Full2DControl& c,Full2DResult& r) {
     auto& t=r.thermal;
     const auto& g=p.grid; const std::size_t n=g.nx*g.ny;
+    t.physical_audit.reset();
     const TemperatureStateView fields{writable(t.temperature[0]),writable(t.temperature[1]),writable(t.temperature[2])};
     const auto boundary=[&](std::size_t side) {
         return TemperatureBoundary{p.sides[side].direction,p.sides[side].inlet_temperature,{},p.sides[side].inlet_geometry,{}};
@@ -467,7 +471,10 @@ void solve_thermal(const Full2DProblem& p,const Full2DControl& c,Full2DResult& r
         };
         const ModelHControl2D control{c.thermal_iterations,c.thermal_chunk,c.thermal_q_tolerance,
             true,true,c.thermal_red_black && n>30000,c.cancel,nullptr,c.context};
-        t.result=solve_model_h_2d(g,fluid(0),fluid(1),p.solid_conductivity,fields,control);
+        PhysicalHeatLedger audit;
+        auto solved=solve_model_h_2d(g,fluid(0),fluid(1),p.solid_conductivity,fields,control,{},&audit);
+        if (solved.physical_audit_available) t.physical_audit=std::move(audit);
+        t.result=std::move(solved);
     } else if (p.thermal_mode==Full2DThermalMode::true_h) {
         std::array<Vector,2> eps; Vector z(n*2,0.);
         for (std::size_t side=0;side<2;++side) {
@@ -475,7 +482,8 @@ void solve_thermal(const Full2DProblem& p,const Full2DControl& c,Full2DResult& r
             const double split=side==0?p.split_a:1.-p.split_a;
             for (std::size_t k=0;k<n;++k) eps[side][k]=p.total_porosity[k]*split;
             if(c.enthalpy.algorithm!=EnthalpyAlgorithm::legacy_h_fou)
-                check_energy_ports(g,p.sides[side],t.mass_x[side],t.mass_y[side]);
+                if(const auto* error=energy_port_error(g,p.sides[side],t.mass_x[side],t.mass_y[side]))
+                    throw std::invalid_argument(error);
         }
         const auto fluid=[&](std::size_t side) {
             return EnthalpySideView{p.sides[side].fluid,p.sides[side].inlet_temperature,p.sides[side].inlet_pressure,
@@ -485,8 +493,16 @@ void solve_thermal(const Full2DProblem& p,const Full2DControl& c,Full2DResult& r
         const EnthalpyStateView state{writable(t.h_a),writable(t.h_b),fields.a,fields.b,fields.solid,true,true,true};
         auto control=c.enthalpy;
         control.cancel=c.cancel;control.context=c.context;
-        t.result=solve_enthalpy(g,fluid(0),fluid(1),p.solid_conductivity,state,control);
+        PhysicalHeatLedger audit;
+        t.result=solve_enthalpy(g,fluid(0),fluid(1),p.solid_conductivity,state,control,&audit);
         const auto& solved=std::get<EnthalpyResult>(t.result);
+        if (solved.stop!=EnthalpyStop::cancelled && solved.final_audit
+            && solved.final_audit->fluid_equations_computed) {
+            for(std::size_t side=0;side<2;++side)
+                audit.boundary_complete=audit.boundary_complete
+                    && !energy_port_error(g,p.sides[side],t.mass_x[side],t.mass_y[side]);
+            t.physical_audit=std::move(audit);
+        }
         if(solved.stop!=EnthalpyStop::cancelled && solved.algorithm!=EnthalpyAlgorithm::legacy_h_fou) {
             EnthalpyEOS eos;
             for(std::size_t side=0;side<2;++side) {
@@ -506,12 +522,12 @@ void solve_thermal(const Full2DProblem& p,const Full2DControl& c,Full2DResult& r
         ModelHControl2D control{c.thermal_iterations,c.thermal_chunk,c.thermal_q_tolerance,
             true,true,c.thermal_red_black && n>30000,c.cancel,nullptr,c.context};
         control.second_order_b=false;control.strict_energy_balance=true;
-        PhysicalHeatLedger audit;t.temperature_audit.reset();
+        PhysicalHeatLedger audit;t.physical_audit.reset();
         const auto solved=solve_model_h_2d(g,fluid(0),fluid(1),p.solid_conductivity,fields,control,{},&audit);
         t.result=TemperatureResult{solved.stop,solved.iterations,solved.residual,solved.q_b};
         t.temperature_algorithm="model_h_tface_sou_fou_strict_v3";
         if(solved.physical_audit_available)
-            t.temperature_audit=std::move(audit);
+            t.physical_audit=std::move(audit);
     }
 }
 } // namespace
@@ -646,10 +662,10 @@ double solid_duty(const GridView& g,const Full2DThermalState& t) {
     return q;
 }
 double temperature_duty(const Full2DThermalState& thermal,std::size_t side) {
-    if(!thermal.temperature_audit) throw std::logic_error("full2D temperature duty requires its thermal ledger");
-    if(!thermal.temperature_audit->boundary_complete) return std::numeric_limits<double>::quiet_NaN();
+    if(!thermal.physical_audit) throw std::logic_error("full2D temperature duty requires its thermal ledger");
+    if(!thermal.physical_audit->boundary_complete) return std::numeric_limits<double>::quiet_NaN();
     double q=0.;
-    for(const auto& plane:thermal.temperature_audit->advective_out[side])
+    for(const auto& plane:thermal.physical_audit->advective_out[side])
         for(double value:plane) q-=value;
     return q;
 }
@@ -770,7 +786,7 @@ Full2DResult solve_full_2d(const Full2DProblem& p,const Full2DControl& c) {
     r.simple_ok=true; r.envelope_ok=true;
     for (std::size_t side=0;side<2;++side) {
         const auto& f=r.flow[side]; const auto& s=p.sides[side];
-        const bool candidate=c.enthalpy.algorithm!=EnthalpyAlgorithm::legacy_h_fou || r.thermal.temperature_audit.has_value();
+        const bool candidate=c.enthalpy.algorithm!=EnthalpyAlgorithm::legacy_h_fou || (r.thermal.temperature_algorithm && r.thermal.physical_audit.has_value());
         const auto& mass_x=candidate?r.thermal.mass_x[side]:f.mass_x;
         const auto& mass_y=candidate?r.thermal.mass_y[side]:f.mass_y;
         r.simple_ok=r.simple_ok && f.result.converged;
@@ -803,7 +819,7 @@ Full2DResult solve_full_2d(const Full2DProblem& p,const Full2DControl& c) {
         r.inlet_mass[side]=std::numeric_limits<double>::quiet_NaN();
         if (p.thermal_mode==Full2DThermalMode::model_h)
             r.inlet_mass[side]=std::get<ModelHResult2D>(r.thermal.result).audit.sides[side].mass_in;
-        else if (p.thermal_mode==Full2DThermalMode::true_h || r.thermal.temperature_audit) {
+        else if (p.thermal_mode==Full2DThermalMode::true_h || (r.thermal.temperature_algorithm && r.thermal.physical_audit)) {
             r.inlet_mass[side]=0.; const auto& g=p.grid;
             for (std::size_t j=0;j<g.ny;++j) r.inlet_mass[side]+=std::max(mass_x[j],0.);
             for (std::size_t j=0;j<g.ny;++j) r.inlet_mass[side]+=std::max(-mass_x[g.nx*g.ny+j],0.);

@@ -12,7 +12,7 @@ from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.domain.compute_config import ComputeConfig, PartialBCConfig, ZoneInputConfig
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.run_warnings import RangeRecord, warning_scope
-from sjtu_tpmshx.postprocess.api import evaluate
+from sjtu_tpmshx.postprocess.api import evaluate, evaluate_physical_balance
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.backends.cpp.full_2d import NativeFull2DDriver
 from sjtu_tpmshx.solvers.backends.cpp.full_2d_capture import capture_result
@@ -58,7 +58,7 @@ def compare(actual, expected, path=''):
         elif any(key in path for key in ('/P_', '_Pa', 'pressure')):
             atol = 2e-5
         elif path.rsplit('/', 1)[-1].startswith('Q') or any(key in path for key in (
-                'W_per_m', 'h_faces', '/Q', 'denominator', 'solid_abs_sum', 'fluid_abs_sum', 'fluid_cell_max')):
+                'W_per_m', 'h_faces', '/energy/', '/Q', 'denominator', 'solid_abs_sum', 'fluid_abs_sum', 'fluid_cell_max')):
             atol = 2e-7
         elif path.endswith('residual_cellmax_rel'):
             atol = 1e-8  # Near-zero residual ratios; physical gates are separate.
@@ -90,6 +90,12 @@ def captured(driver, case):
 
 def compare_portable(actual, expected, *, full_cc=False):
     assert actual.backend_id == 'cpp'
+    for result in (actual, expected):
+        balance = evaluate_physical_balance(result)
+        for name in ('energy', 'fine_energy'):
+            audit = balance.get(name)
+            if audit is not None and audit['status'] == 'available':
+                assert abs(audit['telescoping_error']) < 2e-7
     assert actual.backend_version == 'full_2d_v2'
     for key in ('fields', 'field_metadata', 'pressure_evidence', 'run_status'):
         compare(getattr(actual, key), getattr(expected, key), key)
@@ -310,7 +316,14 @@ def test_golden_air_prepared_case_retains_accepted_refinement(driver, same_therm
         actual = run_case(case, RunControl(backend='cpp', native_library=str(driver.path),
                                           native_table_directory=os.fsdecode(driver.table_directory)))
     assert component_metadata == dict(abi=1, algorithm='shared_fv_model_h_2d_defect_v1', red_black=False)
-    compare_portable(actual, expected)
+    # The component oracle does not export this new full-result audit.
+    balance = evaluate_physical_balance(actual)
+    for name in ('energy', 'fine_energy'):
+        assert balance[name]['status'] == 'available'
+        assert abs(balance[name]['telescoping_error']) < 2e-7
+    flux = dict(actual.boundary_fluxes, energy=None,
+                fine=dict(actual.boundary_fluxes['fine'], energy=None))
+    compare_portable(replace(actual, boundary_fluxes=flux), expected)
     assert actual.run_status['converged']
     assert actual.metadata['diagnostics']['richardson_info']['extrapolated']
 

@@ -73,6 +73,27 @@ struct Side {
     }
 };
 
+void retain_physical_audit(PhysicalHeatLedger* output, const GridView& grid,
+        const Side& a, const Side& b, std::vector<double>& ra,
+        std::vector<double>& rb, std::vector<double>& rs, bool second_order) {
+    if (!output) return;
+    PhysicalHeatLedger ledger;
+    ledger.residual={std::move(ra),std::move(rb),std::move(rs)};
+    const std::size_t planes[]{grid.ny*grid.nz,grid.ny*grid.nz,
+        grid.nx*grid.nz,grid.nx*grid.nz,grid.nx*grid.ny,grid.nx*grid.ny};
+    for (std::size_t phase=0;phase<3;++phase) for (std::size_t face=0;face<6;++face) {
+        ledger.advective_out[phase][face].assign(planes[face],0.);
+        ledger.diffusive_out[phase][face].assign(planes[face],0.);
+    }
+    const Side* sides[]{&a,&b};
+    for (std::size_t side=0;side<2;++side) {
+        const auto& f=*sides[side];
+        ledger.advective_out[side]=enthalpy_boundary_power(grid,view(f.h),
+            {f.input.mass_x,f.input.mass_y,f.input.mass_z},f.hin,second_order);
+    }
+    *output=std::move(ledger);
+}
+
 void check_inflow(const GridView& g, const EnthalpySideView& side) {
     if (side.inlet_direction < 0 || side.inlet_direction > 5)
         throw std::invalid_argument("T energy requires an explicit inlet direction");
@@ -97,7 +118,8 @@ void check_inflow(const GridView& g, const EnthalpySideView& side) {
 
 EnthalpyResult solve_temperature_energy(const GridView& grid, const EnthalpySideView& a,
                                        const EnthalpySideView& b, ArrayView<const double> k_ss,
-                                       EnthalpyStateView state, const EnthalpyControl& control) {
+                                       EnthalpyStateView state, const EnthalpyControl& control,
+                                       PhysicalHeatLedger* physical_audit) {
     if (!control.max_iterations || !control.sweeps || !std::isfinite(control.omega)
         || control.omega <= 0. || control.omega > 1.
         || !std::isfinite(control.temperature_update_tolerance) || control.temperature_update_tolerance <= 0.)
@@ -295,21 +317,24 @@ EnthalpyResult solve_temperature_energy(const GridView& grid, const EnthalpySide
             && audit.coupled_ratio <= *control.coupled_energy_tolerance
             && audit.equation_ratio <= *control.equation_energy_tolerance) {
             result.stop = EnthalpyStop::converged;
+            retain_physical_audit(physical_audit,grid,sa,sb,ra,rb,rs,sou);
             return result;
         }
     }
     result.stop = EnthalpyStop::iteration_limit;
+    retain_physical_audit(physical_audit,grid,sa,sb,ra,rb,rs,sou);
     return result;
 }
 }  // namespace
 
 EnthalpyResult solve_enthalpy(const GridView& grid, const EnthalpySideView& a,
                              const EnthalpySideView& b, ArrayView<const double> k_ss,
-                             EnthalpyStateView state, const EnthalpyControl& control) {
+                             EnthalpyStateView state, const EnthalpyControl& control,
+                                       PhysicalHeatLedger* physical_audit) {
     switch (control.algorithm) {
         case EnthalpyAlgorithm::temperature_fou:
         case EnthalpyAlgorithm::temperature_sou:
-            return solve_temperature_energy(grid,a,b,k_ss,state,control);
+            return solve_temperature_energy(grid,a,b,k_ss,state,control,physical_audit);
         case EnthalpyAlgorithm::legacy_h_fou: break;
         default: throw std::invalid_argument("unknown conservative energy algorithm");
     }
@@ -457,6 +482,8 @@ EnthalpyResult solve_enthalpy(const GridView& grid, const EnthalpySideView& a,
     if (result.stop != EnthalpyStop::converged)
         result.stop = result.last_clips.a || result.last_clips.b
             ? EnthalpyStop::enthalpy_limited : EnthalpyStop::iteration_limit;
+    if (result.final_audit && result.final_audit->fluid_equations_computed)
+        retain_physical_audit(physical_audit,grid,sa,sb,ra,rb,rs,false);
     return result;
 }
 }  // namespace tpmshx

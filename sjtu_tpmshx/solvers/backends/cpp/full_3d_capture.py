@@ -167,6 +167,7 @@ def capture_result(case, cfg, p, r, abi):
         boundary_fluxes=dict(mass_A=None if mass[0][0] is None else mass[0],mass_B=None if mass[1][0] is None else mass[1],
             mass_unit='kg/s',mass_axes=('x-face','y-face','z-face'),mass_sign='positive along physical coordinate axis',state='last thermal input',
             model_h=None if r['model_h'] is None else r['model_h']['_native_model_h'],true_h=true_h,report=report,
+            energy=r.get('physical_ledger'),
             face_velocity_A=r['face_velocity'][0],face_velocity_B=r['face_velocity'][1] if r['flow'][1] else None,
             **({'temperature':r['temperature_evidence']} if 'temperature_evidence' in r else {})),
         pressure_evidence=pressure,run_status=dict(execution='completed',converged=r['converged'],outer_index=r['outer_index']),

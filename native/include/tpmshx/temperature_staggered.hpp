@@ -80,7 +80,8 @@ public:
         bool conservative, bool red_black,
         ArrayView<const double> prescribed_b = {},
         ArrayView<const double> source_solid = {},
-        bool true_h_warm_up = false);
+        bool true_h_warm_up = false,
+        PhysicalHeatLedger* physical_audit = nullptr);
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

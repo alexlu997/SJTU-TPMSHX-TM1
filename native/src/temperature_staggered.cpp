@@ -456,7 +456,8 @@ MacProjectionResult StaggeredTemperatureDriver::project_capacity_faces(const Gri
 StaggeredTemperatureResult StaggeredTemperatureDriver::solve(const GridView& grid,
     const StaggeredTemperatureFluid& a,const StaggeredTemperatureFluid& b,ArrayView<const double> ks,
     TemperatureStateView t,const TemperatureControl& control,bool conservative,bool rb,
-    ArrayView<const double> prescribed_b,ArrayView<const double> source_s,bool true_h_warm_up) {
+    ArrayView<const double> prescribed_b,ArrayView<const double> source_s,bool true_h_warm_up,
+    PhysicalHeatLedger* physical_audit) {
     const Mesh mesh(grid); coefficient(ks,mesh.n);
     if (grid.nz<=1) throw std::invalid_argument("staggered 3D requires nz>1");
     if (!control.chunk_iterations || !std::isfinite(control.q_relative_tolerance) || control.q_relative_tolerance<=0)
@@ -546,6 +547,7 @@ StaggeredTemperatureResult StaggeredTemperatureDriver::solve(const GridView& gri
     if (conservative) {
         side_a.reconstruct(energy_mesh,view(t.a)); side_b.reconstruct(energy_mesh,view(t.b));
         auto ledger=energy_physical_audit(grid,side_a.energy(),side_b.energy(),ks,t,source_s,prescribed_b);
+        if (physical_audit) *physical_audit=ledger;
         result.residual[0]=residual(mesh,side_a,view(t.a),view(t.solid),std::move(ledger.residual[0]));
         if (!prescribed_b.size)
             result.residual[1]=residual(mesh,side_b,view(t.b),view(t.solid),std::move(ledger.residual[1]));
