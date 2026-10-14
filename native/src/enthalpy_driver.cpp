@@ -259,10 +259,10 @@ struct EnthalpyRun::Impl {
             const std::string name = s == 0 ? "A" : "B";
             side.hin = eos.evaluate_state(f.fluid,f.inlet_temperature,f.inlet_pressure,"T energy inlet "+name).enthalpy;
             for (std::size_t p = 0; p < n; ++p) {
-                const double temperature = warm[s] ? side.t[p] : f.inlet_temperature;
-                const auto actual = eos.evaluate_state(f.fluid,temperature,f.pressure[p],
+                const double initial_temperature = warm[s] ? side.t[p] : f.inlet_temperature;
+                const auto actual = eos.evaluate_state(f.fluid,initial_temperature,f.pressure[p],
                     location(grid,p,"T energy initial state "+name));
-                side.t[p] = temperature; side.h[p] = actual.enthalpy; side.cp[p] = actual.cp;
+                side.t[p] = initial_temperature; side.h[p] = actual.enthalpy; side.cp[p] = actual.cp;
                 side.k[p] = f.epsilon[p]*actual.conductivity;
                 side.dh[p] = side.k[p]/actual.cp;
             }

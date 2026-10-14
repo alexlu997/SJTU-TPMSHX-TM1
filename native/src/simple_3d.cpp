@@ -550,13 +550,13 @@ bool Simple3DSolver::Impl::step() {
     const auto& control=call.control;auto& result=call.result;
     auto& monitor=call.monitor;
     Kernel kernel(g,m,b,s,control.second_order_upwind);
-    const SimpleBoundaryView boundary{read(s.inlet_velocity),{},impl.opening()};
+    const SimpleBoundaryView velocity_boundary{read(s.inlet_velocity),{},impl.opening()};
     const auto audit=[&](bool final) {
         impl.rho_eps(impl.fresh_rho_eps,m,s);
         return simple_mass_audit(3,g,velocities(s),{impl.fresh_rho_eps.data(),impl.fresh_rho_eps.size()},impl.excluded(final));
     };
     const auto finish=[&](SimpleStop reason) {
-        try { apply_simple_y_boundary(3,g,boundary,mutable_velocities(s),read(s.density),m.epsilon); }
+        try { apply_simple_y_boundary(3,g,velocity_boundary,mutable_velocities(s),read(s.density),m.epsilon); }
         catch (const std::domain_error&) { nonfinite_result(result);return; }
         if (!state_finite(m,s)) { nonfinite_result(result);return; }
         result.mass=audit(true);result.momentum=kernel.residual();result.post_closure_measured=true;
@@ -583,7 +583,7 @@ bool Simple3DSolver::Impl::step() {
     result.linear=impl.pressure.solve(*system,linear);
     if (!result.linear.success) { result.stop=SimpleStop::pressure_failure;return true; }
     std::copy(result.linear.x.begin(),result.linear.x.end(),s.pressure_correction.data);result.linear.x.clear();
-    try { correct_simple_pressure(3,g,boundary,s.pressure,read(s.pressure_correction),mutable_velocities(s),
+    try { correct_simple_pressure(3,g,velocity_boundary,s.pressure,read(s.pressure_correction),mutable_velocities(s),
         corrections(s),read(s.density),m.epsilon,control.alpha_pressure); }
     catch (const std::domain_error&) { nonfinite_result(result);return true; }
     if (control.ideal_gas) {

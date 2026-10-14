@@ -416,7 +416,7 @@ bool Simple2DSolver::Impl::step() {
     const auto& control=call.control;auto& result=call.result;
     auto& monitor=call.monitor;
     Kernel kernel(g,m,b,s,control.cf_anisotropy);
-    const SimpleBoundaryView boundary{read(s.inlet_velocity),b.inlet_fraction,impl.opening()};
+    const SimpleBoundaryView velocity_boundary{read(s.inlet_velocity),b.inlet_fraction,impl.opening()};
     const auto close_outlet = [&] {
         if (control.close_outlet_on_exit)
             close_simple_outlet(2,g,impl.opening(),mutable_velocities(s),read(s.density),m.epsilon);
@@ -439,7 +439,7 @@ bool Simple2DSolver::Impl::step() {
     std::copy(result.linear.x.begin(),result.linear.x.end(),s.pressure_correction.data);
     result.linear.x.clear();
     try {
-        correct_simple_pressure(2,g,boundary,s.pressure,read(s.pressure_correction),mutable_velocities(s),
+        correct_simple_pressure(2,g,velocity_boundary,s.pressure,read(s.pressure_correction),mutable_velocities(s),
             corrections(s),read(s.density),m.epsilon,control.alpha_pressure);
     } catch (const std::domain_error&) { nonfinite_result(result); return true; }
     if (control.ideal_gas) {
