@@ -251,10 +251,9 @@ coupling and final acceptance gates. Full3D also keeps its two temperature
 predictor sweeps and original mass preparation. Candidate recipes use five
 sweeps per nonlinear step, fluid relaxation .6 for FOU and .2 for SOU, and
 solid relaxation .6/1 respectively. Full3D saves resolved controls in prepared
-cases. The 2D recipe is fixed by the algorithm version.
+cases. Unset 2D controls use the recipe for the selected algorithm version.
 
-Both keep their
-previous iteration budgets and require actual coupled/equation energy ratios
+With default controls, both keep their previous iteration budgets and require actual coupled/equation energy ratios
 no greater than .001 as well as the declared temperature update tolerance. The native result records actual whole-block Picard relaxation (1 for FOU,
 0.6 for SOU), separate from the fluid and solid row relaxation factors.
 
@@ -266,8 +265,16 @@ final epsilon-times-HEOS conductivity, six outward signed enthalpy-power
 planes and per-outer-step scalar identity. The previous entry points stay
 available and keep their original numerical behavior.
 
+Explicit controls use `tpmshx_solve_full_2d_v4` or `tpmshx_solve_full_3d_v3`.
+They accept the same persisted EOS iteration, sweep, relaxation and convergence settings.
+The 2D v4 control block also contains `tpmshx_energy_options_v2`.
+It replaces the two thermal-control values in `config_v2`; other values retain their meaning.
+The existing effective-settings query records the controls used by each thermal call.
+The public Python 2D and integral model-h routes reject these EOS overrides before flow execution.
+
 The Python binding copies query views before release and records
-`backend_version=full_2d_v3` or `full_3d_v2`. Candidate results have portable
+`backend_version=full_2d_v3` or `full_3d_v2` for the default controls.
+Explicit controls use `full_2d_v4` or `full_3d_v3`. Candidate results have portable
 `thermal_mode=conservative_energy`. `boundary_fluxes.true_h` contains the
 existing actual h/inlet-h/mass arrays and the algorithm/version, six-face
 `boundary_power`, its W/m or W units and a completeness flag. Heat is

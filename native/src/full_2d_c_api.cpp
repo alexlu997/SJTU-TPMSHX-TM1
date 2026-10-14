@@ -7,6 +7,7 @@
 #include "simple_2d_c_views.hpp"
 #include "closure_evidence_c_views.hpp"
 #include <CoolProp/Exceptions.h>
+#include <cmath>
 #include <memory>
 
 namespace {
@@ -155,6 +156,7 @@ void fill(tpmshx_full_2d_result_v2& o,Owner& owner,const Full2DProblem& p) {
 int solve(
     const size_t* shape,const double* const* arrays,const size_t* sizes,
     const tpmshx_full_2d_config_v2* config,const tpmshx_energy_options_v1* energy,
+    const tpmshx_full_2d_energy_control_v4* explicit_energy,
     const tpmshx_full_2d_callbacks_v2* callbacks,
     tpmshx_full_2d_result_v2* result,char* error,size_t error_capacity) {
     if (!error || !error_capacity) return 1;
@@ -197,6 +199,18 @@ int solve(
         control.enthalpy.update_tolerance=c.enthalpy_update_tolerance;
         control.enthalpy.table_directory=c.table_directory?c.table_directory:"";
         if(energy)apply_energy_options(control.enthalpy,*energy);
+        if(explicit_energy) {
+            const auto& e=*explicit_energy;
+            if(p.thermal_mode!=Full2DThermalMode::true_h)
+                throw std::invalid_argument("explicit full 2D energy controls require the existing true-h route");
+            if(!e.max_iterations || !std::isfinite(e.omega) || e.omega<=0. || e.omega>1.
+                || !std::isfinite(e.update_tolerance) || e.update_tolerance<=0.)
+                throw std::invalid_argument("invalid explicit full 2D thermal controls");
+            control.thermal_iterations=control.enthalpy.max_iterations=e.max_iterations;
+            control.enthalpy.sweeps=e.sweeps; control.enthalpy.omega=e.omega;
+            control.enthalpy.update_tolerance=e.update_tolerance;
+            apply_energy_options(control.enthalpy,e.energy);
+        }
         control.cancel=cancel; control.progress=progress; control.residual=residual;
         control.context=const_cast<tpmshx_full_2d_callbacks_v2*>(callbacks);
         auto owner=std::make_unique<Owner>(); owner->result=solve_full_2d(p,control);
@@ -232,14 +246,21 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v2(
     const size_t* shape,const double* const* arrays,const size_t* sizes,
     const tpmshx_full_2d_config_v2* config,const tpmshx_full_2d_callbacks_v2* callbacks,
     tpmshx_full_2d_result_v2* result,char* error,size_t capacity) {
-    return solve(shape,arrays,sizes,config,nullptr,callbacks,result,error,capacity);
+    return solve(shape,arrays,sizes,config,nullptr,nullptr,callbacks,result,error,capacity);
 }
 extern "C" int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v3(
     const size_t* shape,const double* const* arrays,const size_t* sizes,
     const tpmshx_full_2d_config_v2* config,const tpmshx_energy_options_v1* energy,
     const tpmshx_full_2d_callbacks_v2* callbacks,tpmshx_full_2d_result_v2* result,char* error,size_t capacity) {
     if(!energy) {if(error&&capacity)std::snprintf(error,capacity,"missing conservative energy options");return 1;}
-    return solve(shape,arrays,sizes,config,energy,callbacks,result,error,capacity);
+    return solve(shape,arrays,sizes,config,energy,nullptr,callbacks,result,error,capacity);
+}
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v4(
+    const size_t* shape,const double* const* arrays,const size_t* sizes,
+    const tpmshx_full_2d_config_v2* config,const tpmshx_full_2d_energy_control_v4* energy,
+    const tpmshx_full_2d_callbacks_v2* callbacks,tpmshx_full_2d_result_v2* result,char* error,size_t capacity) {
+    if(!energy) {if(error&&capacity)std::snprintf(error,capacity,"missing explicit full 2D energy controls");return 1;}
+    return solve(shape,arrays,sizes,config,nullptr,energy,callbacks,result,error,capacity);
 }
 extern "C" void TPMSHX_THERMAL_CALL tpmshx_full_2d_release_v2(tpmshx_full_2d_result_v2* result) {
     if (!result) return;

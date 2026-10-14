@@ -90,6 +90,15 @@ Current bindings require the added query and report an explicit error for an old
 Saved results retain both records. Historical results retain their original metadata.
 Final applicability and physical quality remain separate decisions.
 
+Full C++ 2D EOS runs also accept the optional thermal controls in `SolverConfig`.
+The additive `full_2d_v4` entry passes the iteration and sweep budgets, relaxation,
+normalized h-update tolerance, Kelvin update tolerance and both energy gates.
+The optional h-update check on a temperature solve remains a separate gate.
+Unset controls retain native route defaults. Integral model-h and Python 2D
+reject these EOS-only overrides before flow execution. Existing v2/v3 C callers
+keep their original layouts and defaults. Saved effective settings identify the
+controls used by each completed thermal call.
+
 ## Result qualification by route
 
 Execution completion, solver convergence, metric availability and optimization

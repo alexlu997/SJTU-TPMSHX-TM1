@@ -51,6 +51,12 @@ class _EnergyOptions(ct.Structure):
     _fields_ = [('algorithm', ct.c_uint32), ('temperature_update_tolerance', ct.c_double)]
 
 
+class _EnergyOptionsV2(ct.Structure):
+    _fields_ = [('algorithm', ct.c_uint32), ('temperature_update_tolerance', ct.c_double),
+                ('coupled_energy_tolerance', ct.c_double), ('equation_energy_tolerance', ct.c_double),
+                ('require_enthalpy_update_on_temperature', ct.c_uint32)]
+
+
 class _EnergyResult(ct.Structure):
     _fields_ = [('algorithm', ct.c_uint32), ('has_temperature_update', ct.c_uint32),
                 ('temperature_update', ct.c_double), ('picard_relaxation', ct.c_double)]

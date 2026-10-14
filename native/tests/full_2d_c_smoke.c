@@ -236,6 +236,42 @@ int main(void) {
         config.enthalpy_update_tolerance=.013;
         tpmshx_full_2d_release_v2(&result);
     }
+    tpmshx_full_2d_energy_control_v4 explicit_energy={17,4,.55,2e-8,{0,3e-8,4e-7,5e-7,1}};
+    for(uint32_t algorithm=0;algorithm<=2;++algorithm) {
+        explicit_energy.energy.algorithm=algorithm;
+        status=tpmshx_solve_full_2d_v4(shape,arrays,sizes,&config,&explicit_energy,NULL,&result,error,sizeof(error));
+        if(status) {fprintf(stderr,"%s\n",error);return 1;}
+        assert(tpmshx_full_2d_get_energy_effective_settings_v1(&result,&settings)==0);
+        assert(settings.last.available && settings.last.algorithm==algorithm);
+        assert(settings.last.max_iterations==17 && settings.last.sweeps==4 && settings.last.omega==.55);
+        assert(settings.last.update_tolerance==2e-8 && settings.last.temperature_update_tolerance==3e-8);
+        assert(settings.last.coupled_energy_tolerance==4e-7 && settings.last.equation_energy_tolerance==5e-7);
+        assert(settings.last.require_enthalpy_update_on_temperature==1);
+        for(size_t i=0;i<settings.outer_count;++i) {
+            assert(settings.outer[i].available && settings.outer[i].algorithm==algorithm);
+            assert(settings.outer[i].max_iterations==17 && settings.outer[i].sweeps==4);
+        }
+        tpmshx_full_2d_release_v2(&result);
+    }
+    for(size_t bad=0;bad<7;++bad) {
+        tpmshx_full_2d_energy_control_v4 invalid=explicit_energy;
+        if(bad==0)invalid.max_iterations=0;
+        if(bad==1)invalid.omega=1.01;
+        if(bad==2)invalid.update_tolerance=NAN;
+        if(bad==3)invalid.energy.coupled_energy_tolerance=-1.;
+        if(bad==4)invalid.energy.require_enthalpy_update_on_temperature=2;
+        if(bad==5)config.thermal_mode=1;
+        result.iterations=123;
+        assert(tpmshx_solve_full_2d_v4(shape,arrays,sizes,&config,bad==6?NULL:&invalid,&cb,
+                                      &result,error,sizeof(error))==1);
+        assert(result.iterations==123 && !result.owner && error[0]);
+        config.thermal_mode=2;
+    }
+    assert(tpmshx_solve_full_2d_v4(shape,arrays,sizes,&config,&explicit_energy,&cb,&result,error,sizeof(error))==0);
+    assert(result.cancelled && !result.converged);
+    assert(tpmshx_full_2d_get_energy_effective_settings_v1(&result,&settings)==0);
+    assert(!settings.last.available && settings.last.max_iterations==17 && !settings.outer_count);
+    tpmshx_full_2d_release_v2(&result);
     settings.resolved.available=123;
     assert(tpmshx_full_2d_get_energy_effective_settings_v1(&result,&settings)==1 && settings.resolved.available==123);
     config.split_a=0.; result.iterations=123; char short_error[1]={'x'};

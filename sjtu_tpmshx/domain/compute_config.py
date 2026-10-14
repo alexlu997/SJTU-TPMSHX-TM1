@@ -203,7 +203,7 @@ class SolverConfig:
     # full-flow route. The Python numerical implementation remains unchanged.
     enthalpy_algorithm: Literal['legacy_h_fou', 'temperature_fou', 'temperature_sou'] = 'legacy_h_fou'
     enthalpy_temperature_tol_K: float = 1e-8
-    # Optional full-3D thermal controls. None keeps the route's existing
+    # Optional full EOS thermal controls. None keeps the route's existing
     # defaults; explicit values survive config -> prepared case -> replay.
     ltne_enthalpy_outer: Optional[int] = None
     ltne_enthalpy_nsweep: Optional[int] = None
@@ -560,12 +560,10 @@ class ComputeConfig:
         validate_enthalpy_algorithm(self.solver.enthalpy_algorithm,
                                    self.solver.enthalpy_temperature_tol_K)
 
-        explicit_enthalpy_controls = []
         for name in ('ltne_enthalpy_outer', 'ltne_enthalpy_nsweep'):
             value = getattr(self.solver, name)
             if value is None:
                 continue
-            explicit_enthalpy_controls.append(name)
             minimum = 0 if name == 'ltne_enthalpy_nsweep' else 1
             if type(value) is not int or value < minimum:
                 raise ValueError(f'ComputeConfig.solver.{name} must be an integer >= {minimum}')
@@ -574,7 +572,6 @@ class ComputeConfig:
             value = getattr(self.solver, name)
             if value is None:
                 continue
-            explicit_enthalpy_controls.append(name)
             if (isinstance(value, bool) or not isinstance(value, (int, float))
                     or not isfinite(value) or value <= 0.
                     or name == 'ltne_enthalpy_omega' and value > 1.):
@@ -582,8 +579,6 @@ class ComputeConfig:
         require_h = self.solver.require_enthalpy_update_on_temperature
         if type(require_h) is not bool:
             raise ValueError('ComputeConfig.solver.require_enthalpy_update_on_temperature must be boolean')
-        if (explicit_enthalpy_controls or require_h) and not self.is_3d:
-            raise ValueError('explicit enthalpy controls currently require full 3D compute')
 
         for name, value in (
                 ('zones.enabled', self.zones.enabled),

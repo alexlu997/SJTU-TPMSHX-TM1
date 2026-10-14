@@ -326,3 +326,72 @@ def test_invalid_persisted_options_rejected(algorithm, tolerance):
     cfg = replace(cfg, solver=replace(cfg.solver, enthalpy_temperature_tol_K=tolerance))
     with pytest.raises(ValueError, match='enthalpy_'):
         prepare_case(cfg, case_id='invalid-energy-options')
+
+
+@pytest.mark.parametrize('algorithm', ['legacy_h_fou', 'temperature_fou', 'temperature_sou'])
+def test_explicit_controls_reach_complete_thermal_calls_and_saved_replay(driver, tmp_path, algorithm):
+    config = configuration(algorithm)
+    config.solver = replace(config.solver, ltne_enthalpy_outer=12000,
+        ltne_enthalpy_nsweep=5, ltne_enthalpy_omega=.2 if algorithm == 'temperature_sou' else .6,
+        ltne_enthalpy_tol=1e-8, ltne_enthalpy_coupled_energy_tol=1e-7,
+        ltne_enthalpy_equation_energy_tol=1e-7, require_enthalpy_update_on_temperature=True)
+    case = prepare_case(config, case_id='explicit-energy2d-' + algorithm)
+    save_case(case, tmp_path / 'case.h5')
+    restored = load_case(tmp_path / 'case.h5')
+    result = run_case(restored, RunControl(backend='cpp', native_library=str(driver.path),
+                                         native_table_directory=str(ROOT / '.cache/native-deps/tables')))
+    assert result.backend_version == 'full_2d_v4'
+    detail = result.metadata['diagnostics']['convergence_detail']
+    assert detail['ltne_ok'] and not detail['outer_converged']
+    info = result.metadata['diagnostics']['true_h_balance']
+    assert info['converged']
+    assert info['coupled_energy_balance']['ratio'] <= 1e-7
+    assert info['equation_energy_balance']['ratio'] <= 1e-7
+    expected = dict(max_iterations=12000, sweeps=5,
+        omega=config.solver.ltne_enthalpy_omega, update_tol=1e-8,
+        coupled_energy_tol=1e-7, equation_energy_tol=1e-7,
+        require_enthalpy_update_on_temperature=True)
+    for actual in (info['effective_settings'], *(row['effective_settings'] for row in
+            result.metadata['diagnostics']['native_full_2d']['energy_history'])):
+        assert {key: actual[key] for key in expected} == expected
+        assert actual['driver_abi'] == 4 and actual['energy_algorithm'] == algorithm
+    save_result(result, tmp_path / 'result.h5')
+    saved = load_result(tmp_path / 'result.h5')
+    assert saved.metadata['execution_record'] == result.metadata['execution_record']
+    assert evaluate(saved).metrics == evaluate(result).metrics
+
+
+
+@pytest.mark.parametrize('algorithm', ['legacy_h_fou', 'temperature_fou', 'temperature_sou'])
+def test_one_explicit_control_preserves_other_route_defaults(driver, algorithm):
+    config = configuration(algorithm)
+    config.solver = replace(config.solver, ltne_enthalpy_coupled_energy_tol=1e-7)
+    case = prepare_case(config, case_id='one-explicit-control-' + algorithm)
+    raw = driver.run_prepared(*build_execution_inputs(case))
+    expected = dict(max_iterations=12000, sweeps=3 if algorithm == 'legacy_h_fou' else 5,
+        omega=.2 if algorithm == 'temperature_sou' else .6, update_tol=.001,
+        coupled_energy_tol=1e-7, equation_energy_tol=.001,
+        require_enthalpy_update_on_temperature=False, driver_abi=4)
+    actual = raw['main']['true_h']['effective_settings']
+    assert {key: actual[key] for key in expected} == expected
+    assert actual['energy_algorithm'] == algorithm
+
+
+def test_explicit_thermal_controls_reject_unavailable_routes_before_flow(driver, monkeypatch):
+    config = configuration('legacy_h_fou')
+    config.solver = replace(config.solver, ltne_enthalpy_nsweep=4)
+    case = prepare_case(config, case_id='explicit-energy2d-backend')
+    with pytest.raises(ValueError, match='explicit energy controls require full compute with backend=cpp'):
+        run_case(case)
+    other = replace(config, fluid_B=replace(config.fluid_B, type='water'))
+    with pytest.raises(ValueError, match='existing true-h route'):
+        driver.run_prepared(*build_execution_inputs(prepare_case(other, case_id='explicit-energy2d-model-h')))
+    original = driver.library
+    class OldLibrary:
+        def __getattr__(self, name):
+            if name == 'tpmshx_solve_full_2d_v4':
+                raise AttributeError(name)
+            return getattr(original, name)
+    monkeypatch.setattr(driver, 'library', OldLibrary())
+    with pytest.raises(ValueError, match='lacks explicit energy controls v4'):
+        driver.run_prepared(*build_execution_inputs(case))
