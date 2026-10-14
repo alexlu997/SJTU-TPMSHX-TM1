@@ -20,6 +20,13 @@
 
 <a id="completed-execution-records"></a>
 
+H-FOU 与温度更新共用 `energy_fv_rows.hpp` 中的流体及固体单元装配。
+H 方程输运实际焓，并使用冻结的焓—温度切线关系计算导热与流固换热。
+它保留焓界限、裁剪计数及 A、B、固体的串行扫掠顺序。
+调用者继续负责输入检查、EOS 状态更新、迭代预算和停止条件。
+H 边界热量与审计保留现有的有符号物理功率。
+本次装配不需要新增温度数组或面数组。
+
 ## 完整执行记录
 
 公共完整求解结果增加版本为 `full_execution_v1` 的 `metadata.execution_record`。

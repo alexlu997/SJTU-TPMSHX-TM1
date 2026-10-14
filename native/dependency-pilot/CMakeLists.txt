@@ -49,9 +49,8 @@ target_compile_definitions(tpmshx_amgcl INTERFACE AMGCL_NO_BOOST)
 add_library(tpmshx_energy STATIC "${TPMSHX_ROOT}/native/src/conservative_energy.cpp"
     "${TPMSHX_ROOT}/native/src/enthalpy_sweeps.cpp")
 target_include_directories(tpmshx_energy PUBLIC "${TPMSHX_ROOT}/native/include")
-# Current translation units that emit the shared EnergyPhase defect row.
-# Keep their contraction policy identical so weak-symbol selection cannot
-# change the arithmetic. This list includes the direct row smoke consumer.
+# Sources that emit common finite-volume rows use one contraction policy.
+# Weak-symbol selection must not change the arithmetic.
 if(MSVC)
     set(TPMSHX_ENERGY_ROW_FP_OPTION /fp:strict)
 else()
@@ -59,6 +58,7 @@ else()
 endif()
 set_property(SOURCE
     "${TPMSHX_ROOT}/native/src/conservative_energy.cpp"
+    "${TPMSHX_ROOT}/native/src/enthalpy_sweeps.cpp"
     "${TPMSHX_ROOT}/native/src/temperature_driver.cpp"
     "${TPMSHX_ROOT}/native/src/temperature_staggered.cpp"
     "${TPMSHX_ROOT}/native/src/model_h_2d.cpp"

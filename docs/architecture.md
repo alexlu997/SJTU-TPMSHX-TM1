@@ -57,6 +57,13 @@ This is the current architectural and physical contract for the repository.
 Historical audits and reports explain how the project reached this state, but
 they do not override the running code or this document.
 
+The H-FOU and temperature updates share the fluid and solid row assembly in `energy_fv_rows.hpp`.
+The H row transports actual enthalpy and uses the frozen h-to-T tangent for conduction and exchange.
+It retains the enthalpy bounds, clip counts and serial A, B, solid sweep order.
+The caller retains input checks, EOS state updates, iteration budgets and stopping gates.
+H boundary duties and audits retain their existing signed physical powers.
+No extra temperature or face arrays are needed for this assembly.
+
 ## Completed execution records
 
 Public full solves add `metadata.execution_record` with version `full_execution_v1`.

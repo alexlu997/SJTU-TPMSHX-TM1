@@ -189,17 +189,31 @@ inline EnergyDiffusion energy_diffusion(const EnergyMesh& m,const EnergyPhase& f
 // One conservative physical row for both finite representations and updates.
 // The default absolute form keeps its historical accumulation order. In the
 // defect form rhs is evaluated as differences, never as rhs_absolute-D*T.
-template<bool Defect,bool Cached=false,class Phase>
+template<bool Defect,bool Cached=false,bool Enthalpy=false,class Phase>
 EnergyRow assemble_fluid_energy_row(const EnergyMesh& m,const Phase& f,
         ArrayView<const double> t,ArrayView<const double> ts,std::size_t p,
         double numerical_W=0.,const PointEnergyCoefficients* cached=nullptr,
         const EnergyDiffusion* diffusion=nullptr) {
     static_assert(!Defect||!Cached,"physical defects never use the point cache");
+    static_assert(!Enthalpy||(Defect&&!Cached),"enthalpy uses a live defect row");
     const auto c=m.coord(p);
     const double volume=m.volume(c), h=exchange(f)[p]*volume;
-    const double local=h*(Defect ? ts[p]-t[p]:ts[p])
+    double local_temperature=t[p],cp=1.,outward_mass=0.,conductance=0.;
+    if constexpr(Enthalpy) {
+        cp=std::max(f.fluid.cp[p],1e-30);
+        local_temperature=f.fluid.t_star[p]+(t[p]-f.fluid.h_star[p])/cp;
+        outward_mass=std::max(-transport(f,0,m.face(0,p,-1)),0.)
+            +std::max(transport(f,0,m.face(0,p,1)),0.)
+            +std::max(-transport(f,1,m.face(1,p,-1)),0.)
+            +std::max(transport(f,1,m.face(1,p,1)),0.)
+            +std::max(-transport(f,2,m.face(2,p,-1)),0.)
+            +std::max(transport(f,2,m.face(2,p,1)),0.);
+    }
+    const double local=h*(Defect ? ts[p]-local_temperature:ts[p])
         +optional(f.source_W_m3,p)*volume+numerical_W;
     EnergyRow row{Cached ? cached->diagonal:h,local,local};
+    // Actual h transport keeps an isothermal state at an exact enthalpy bound.
+    if constexpr(Enthalpy) row.rhs-=t[p]*outward_mass;
     double divergence_C=0.,divergence_B=0.;
     for(std::size_t axis=0;axis<3;++axis) {
         InletDiffusion inlet;
@@ -208,38 +222,50 @@ EnergyRow assemble_fluid_energy_row(const EnergyMesh& m,const Phase& f,
             if(!m.inside(c,axis,sign)&&inlet_face(f.inlet,axis,sign)) {
                 inlet=diffusion ? diffusion->inlet:inlet_diffusion(m,f,p,axis,sign);inlet_sign=sign;
             }
-        const LinearFace faces[]{face_energy(f,m,p,axis,-1),face_energy(f,m,p,axis,1)};
-        if constexpr(Defect) {
+        const auto energy_face=[&](int sign) {
+            if constexpr(Enthalpy) return LinearFace{transport(f,axis,m.face(axis,p,sign)),0.};
+            else return face_energy(f,m,p,axis,sign);
+        };
+        const LinearFace faces[]{energy_face(-1),energy_face(1)};
+        if constexpr(Defect&&!Enthalpy) {
             divergence_C+=faces[1].C-faces[0].C;
             divergence_B+=faces[1].B-faces[0].B;
         }
         for(int sign:{-1,1}) {
         const auto face=faces[sign>0];
         const double outward=sign*face.C;
-        if constexpr(!Cached) row.diagonal+=std::max(outward,0.);
+        if constexpr(!Cached&&!Enthalpy) row.diagonal+=std::max(outward,0.);
         if constexpr(!Defect) {
             row.rhs-=sign*face.B;
             row.local_rhs-=sign*face.B;
         }
         if(m.inside(c,axis,sign)) {
             const auto q=m.neighbor(p,axis,sign),nc=sign<0 ? c[axis]-1:c[axis]+1;
-            double coefficient;
+            double coefficient,G=0.;
             if constexpr(Cached) coefficient=cached->neighbor[2*axis+(sign>0)];
             else {
-                const double G=diffusion ? diffusion->face[2*axis+(sign>0)]
+                G=diffusion ? diffusion->face[2*axis+(sign>0)]
                     : diffusion_conductance(effective_K(f,p),effective_K(f,q),
                     .5*m.width[axis][c[axis]],.5*m.width[axis][nc])*m.face_area(axis,c);
-                row.diagonal+=G;coefficient=G+std::max(-outward,0.);
+                if constexpr(Enthalpy) {
+                    conductance+=G;coefficient=G/f.fluid.cp[q]+std::max(-outward,0.);
+                } else {
+                    row.diagonal+=G;coefficient=G+std::max(-outward,0.);
+                }
                 if(inlet.neighbor>0.&&q==inlet.neighbor_cell) {
                     row.diagonal+=inlet.neighbor;coefficient+=inlet.neighbor;
                 }
             }
-            row.rhs+=coefficient*(Defect ? t[q]-t[p]:t[q]);
+            if constexpr(Enthalpy) {
+                const double neighbor_temperature=f.fluid.t_star[q]+(t[q]-f.fluid.h_star[q])/f.fluid.cp[q];
+                row.rhs+=std::max(-outward,0.)*t[q]+G*(neighbor_temperature-local_temperature);
+            } else row.rhs+=coefficient*(Defect ? t[q]-t[p]:t[q]);
             row.neighbor[2*axis+(sign>0)]=coefficient;
         } else {
             const double G=diffusion ? diffusion->face[2*axis+(sign>0)]
                 : sign==inlet_sign ? inlet.boundary:inlet_conductance(m,f,p,axis,sign);
-            if constexpr(!Cached) row.diagonal+=G;
+            if constexpr(Enthalpy) conductance+=G;
+            else if constexpr(!Cached) row.diagonal+=G;
             const double incoming=G+std::max(-outward,0.);
             if(incoming>0.) {
                 // Undefined inward transport is kept as an interior-state
@@ -248,20 +274,28 @@ EnergyRow assemble_fluid_energy_row(const EnergyMesh& m,const Phase& f,
                 const bool defined=f.inlet.direction==-1||known_inlet(m,f.inlet,c,axis,sign);
                 if(G>0.) {
                     const double inlet_T=inlet_temperature(f.inlet,m.patch(axis,c));
-                    const double value=G*(Defect ? inlet_T-t[p]:inlet_T);
+                    const double value=G*(Defect ? inlet_T-local_temperature:inlet_T);
                     row.rhs+=value;
                     if constexpr(!Defect) row.local_rhs+=value;
                 }
-                const double upstream=defined ? inlet_temperature(f.inlet,m.patch(axis,c)):t[p];
-                row.rhs+=std::max(-outward,0.)*(Defect ? upstream-t[p]:upstream);
-                if constexpr(!Defect) row.local_rhs+=std::max(-outward,0.)*upstream;
+                if constexpr(Enthalpy) {
+                    const double upstream=defined ? optional(f.inlet_h,m.patch(axis,c),f.fluid.h_in):t[p];
+                    row.rhs+=std::max(-outward,0.)*upstream;
+                } else {
+                    const double upstream=defined ? inlet_temperature(f.inlet,m.patch(axis,c)):t[p];
+                    row.rhs+=std::max(-outward,0.)*(Defect ? upstream-t[p]:upstream);
+                    if constexpr(!Defect) row.local_rhs+=std::max(-outward,0.)*upstream;
+                }
             }
         }
         }
     }
+    if constexpr(Enthalpy) row.diagonal=(conductance+h)/cp+outward_mass;
     if constexpr(Defect) {
-        row.rhs-=t[p]*divergence_C;
-        row.rhs-=divergence_B;
+        if constexpr(!Enthalpy) {
+            row.rhs-=t[p]*divergence_C;
+            row.rhs-=divergence_B;
+        }
         row.local_rhs=0.; // No absolute-temperature RHS is used by delta lines.
     }
     return row;
@@ -286,17 +320,23 @@ EnergyRow fluid_energy_defect_row(const EnergyMesh& m,const Phase& f,
     return assemble_fluid_energy_row<true>(m,f,t,ts,p,numerical_W,nullptr,diffusion);
 }
 
+inline EnergyRow enthalpy_energy_defect_row(const EnergyMesh& m,const FluidView& f,
+        ArrayView<const double> h,ArrayView<const double> ts,std::size_t p) {
+    const FrozenEnergyPhase phase{f,{-1,0.}};
+    return assemble_fluid_energy_row<true,false,true>(m,phase,h,ts,p);
+}
+
 template<bool Defect,bool Cached=false>
 EnergyRow assemble_solid_energy_row(const EnergyMesh& m,ArrayView<const double> ks,
         ArrayView<const double> hva,ArrayView<const double> hvb,
-        ArrayView<const double> ta,ArrayView<const double> tb,
+        double ta,double tb,
         ArrayView<const double> ts,ArrayView<const double> source,std::size_t p,
         const PointEnergyCoefficients* cached=nullptr,const EnergyDiffusion* diffusion=nullptr) {
     static_assert(!Defect||!Cached,"physical defects never use the point cache");
     const auto c=m.coord(p);const double volume=m.volume(c);
     const double a=hva[p]*volume,b=hvb[p]*volume;
-    const double local=a*(Defect ? ta[p]-ts[p]:ta[p])
-        +b*(Defect ? tb[p]-ts[p]:tb[p])+optional(source,p)*volume;
+    const double local=a*(Defect ? ta-ts[p]:ta)
+        +b*(Defect ? tb-ts[p]:tb)+optional(source,p)*volume;
     EnergyRow row{Cached ? cached->diagonal:a+b,local,local};
     for(std::size_t axis=0;axis<3;++axis) for(int sign:{-1,1}) {
         if(!m.inside(c,axis,sign)) continue;
@@ -319,21 +359,21 @@ inline EnergyRow solid_energy_row(const EnergyMesh& m,ArrayView<const double> ks
         ArrayView<const double> hva,ArrayView<const double> hvb,
         ArrayView<const double> ta,ArrayView<const double> tb,
         ArrayView<const double> ts,ArrayView<const double> source,std::size_t p) {
-    return assemble_solid_energy_row<false>(m,ks,hva,hvb,ta,tb,ts,source,p);
+    return assemble_solid_energy_row<false>(m,ks,hva,hvb,ta[p],tb[p],ts,source,p);
 }
 inline EnergyRow solid_energy_row(const EnergyMesh& m,ArrayView<const double> ks,
         ArrayView<const double> hva,ArrayView<const double> hvb,
         ArrayView<const double> ta,ArrayView<const double> tb,
         ArrayView<const double> ts,ArrayView<const double> source,std::size_t p,
         const PointEnergyCoefficients& cached) {
-    return assemble_solid_energy_row<false,true>(m,ks,hva,hvb,ta,tb,ts,source,p,&cached);
+    return assemble_solid_energy_row<false,true>(m,ks,hva,hvb,ta[p],tb[p],ts,source,p,&cached);
 }
 inline EnergyRow solid_energy_defect_row(const EnergyMesh& m,ArrayView<const double> ks,
         ArrayView<const double> hva,ArrayView<const double> hvb,
         ArrayView<const double> ta,ArrayView<const double> tb,
         ArrayView<const double> ts,ArrayView<const double> source,std::size_t p,
         const EnergyDiffusion* diffusion=nullptr) {
-    return assemble_solid_energy_row<true>(m,ks,hva,hvb,ta,tb,ts,source,p,nullptr,diffusion);
+    return assemble_solid_energy_row<true>(m,ks,hva,hvb,ta[p],tb[p],ts,source,p,nullptr,diffusion);
 }
 
 // Caller owns and reuses this O(line length) workspace. No per-cell or
