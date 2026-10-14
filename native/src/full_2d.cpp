@@ -159,7 +159,8 @@ void validate(const Full2DProblem& p,const Full2DControl& c) {
             if (!std::isfinite(value) || value<=0) throw std::invalid_argument("invalid offset-side geometry");
     }
     model_h_common::validate_iteration_overrides(c.model_h_iterations);
-    if(c.model_h_iterations.active() && p.thermal_mode==Full2DThermalMode::true_h)
+    if(c.model_h_iterations.active() && (p.thermal_mode==Full2DThermalMode::true_h
+        || uses_co2_eos(p.sides[0].fluid) || uses_co2_eos(p.sides[1].fluid)))
         throw std::invalid_argument("model-h iteration controls require an integral h(T) route");
     if (!c.outer_iterations || !c.thermal_iterations || !c.thermal_chunk)
         throw std::invalid_argument("full2D budgets must be positive");

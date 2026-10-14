@@ -167,6 +167,12 @@ int main(void) {
     assert(tpmshx_solve_full_2d_v5(shape,arrays,sizes,&config,&model_options,&model_cancel,&result,error,sizeof(error))==1);
     assert(result.iterations==123 && !result.owner);
     model_options.temperature_tolerance=1e-5;
+    const uint32_t model_fluid=config.sides[0].fluid;
+    config.sides[0].fluid=3;config.thermal_mode=0;
+    assert(tpmshx_solve_full_2d_v5(shape,arrays,sizes,&config,&model_options,&model_cancel,&result,error,sizeof(error))==1);
+    assert(result.iterations==123 && !result.owner);
+    assert(strstr(error,"model-h iteration controls")!=NULL);
+    config.sides[0].fluid=model_fluid;config.thermal_mode=1;
     assert(tpmshx_solve_full_2d_v5(shape,arrays,sizes,&config,&model_options,&model_cancel,&result,error,sizeof(error))==0);
     assert(tpmshx_full_2d_get_model_h_iterations_v1(&result,&model_records)==0 && !model_records.count);
     tpmshx_full_2d_release_v2(&result);
