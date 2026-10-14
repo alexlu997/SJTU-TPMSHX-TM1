@@ -1,6 +1,7 @@
 #pragma once
 
 #include "tpmshx/property_sampling.hpp"
+#include "tpmshx/side_physics.hpp"
 
 #include "tpmshx/enthalpy_driver.hpp"
 #include "tpmshx/model_h_2d.hpp"
@@ -155,5 +156,8 @@ Full2DResult solve_full_2d_coarse(const Full2DProblem& problem,const Full2DContr
 // temperature/model-h. True-h uses its original exact-enthalpy duty instead.
 // Refinement budgets and gates retain the current caller's fixed policy.
 Full2DResult solve_full_2d(const Full2DProblem& problem,const Full2DControl& control);
+
+// Resolve existing physical choices. This does not select new fluid defaults.
+std::array<SidePhysics,2> resolve_full_2d_physics(const Full2DProblem& problem);
 
 } // namespace tpmshx
