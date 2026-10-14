@@ -929,7 +929,8 @@ def test_checkpoint_covers_energy_routes(native_path, route, cut):
     from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
     from sjtu_tpmshx.tests.native.test_full_3d import prepared
     pair = 'sco2-water' if route.startswith('temperature') or route == 'single_sco2_cc' else 'air-air'
-    cfg, p = prepared(pair, counts=(4, 4, 1) if route == 'nz1_cc' else None)
+    cfg, p = prepared(pair, counts=(4, 4, 1) if route == 'nz1_cc' else None,
+                      directions=(0, 3) if route == 'nz1_cc' else None)
     p['max_outer'] = 3
     if route.startswith('single'):
         cfg.update(fluid_B_cfg=None, conservative_ltne=False, force_cc_ltne=route.endswith('_cc'))
