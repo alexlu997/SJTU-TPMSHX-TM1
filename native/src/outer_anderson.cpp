@@ -57,6 +57,47 @@ struct OuterAnderson::Impl {
 
 OuterAnderson::OuterAnderson(int m,double trust,int patience,double cond_max)
     : impl_(std::make_unique<Impl>(m,trust,patience,cond_max)) {}
+OuterAnderson::OuterAnderson(const OuterAndersonState& state)
+    : impl_(std::make_unique<Impl>(-1,state.trust,state.patience,state.accelerator.condition_limit)) {
+    if (!std::isfinite(state.trust) || state.trust<0. || state.patience<0. || state.stale<0
+        || (state.stale && state.stale>=state.patience) || state.sizes.size()!=state.scales.size())
+        throw std::invalid_argument("invalid saved outer Anderson controls");
+    auto& p=*impl_;p.accelerator.restore(state.accelerator);
+    if (!state.initialized) {
+        if (!state.sizes.empty() || !state.accelerator.x.empty() || !state.statistics.residuals.empty()
+            || state.statistics.applied || state.statistics.rejected || state.statistics.resets
+            || state.stale || state.residual_min!=std::numeric_limits<double>::infinity())
+            throw std::invalid_argument("unused outer Anderson state contains history");
+    } else {
+        if (state.sizes.empty() || !std::isfinite(state.residual_min) || state.residual_min<0.
+            || state.statistics.residuals.empty())
+            throw std::invalid_argument("saved outer Anderson history is incomplete");
+        std::size_t total=0;
+        for (std::size_t i=0;i<state.sizes.size();++i) {
+            if (!state.sizes[i] || state.sizes[i]>std::numeric_limits<std::size_t>::max()-total
+                || !std::isfinite(state.scales[i]) || state.scales[i]<=0.)
+                throw std::invalid_argument("invalid saved outer Anderson block");
+            total+=state.sizes[i];
+        }
+        if (!state.accelerator.x.empty() && state.accelerator.x.front().size()!=total)
+            throw std::invalid_argument("saved outer Anderson sample extent differs");
+        for (double value:state.statistics.residuals)
+            if (!std::isfinite(value) || value<0.)
+                throw std::invalid_argument("invalid saved outer Anderson residual");
+        const auto count=state.statistics.residuals.size();
+        if (state.statistics.applied>count || state.statistics.rejected>count || state.statistics.resets>count)
+            throw std::invalid_argument("invalid saved outer Anderson statistics");
+    }
+    p.residual_min=state.residual_min;p.stale=state.stale;p.initialized=state.initialized;
+    p.sizes=state.sizes;p.scales=state.scales;p.statistics=state.statistics;
+}
+
+OuterAndersonState OuterAnderson::snapshot() const {
+    const auto& p=*impl_;
+    return {p.accelerator.snapshot(),p.trust,p.residual_min,p.patience,p.stale,p.initialized,
+            p.sizes,p.scales,p.statistics};
+}
+
 OuterAnderson::~OuterAnderson()=default;
 const OuterAndersonStats& OuterAnderson::stats() const { return impl_->statistics; }
 

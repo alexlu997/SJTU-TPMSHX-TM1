@@ -135,6 +135,37 @@ struct PressureCandidate::Impl {
 PressureCandidate::PressureCandidate() : impl_(std::make_unique<Impl>()) {}
 PressureCandidate::~PressureCandidate() = default;
 
+PressureState PressureCandidate::snapshot() const {
+    PressureState state;
+    state.rebuild_count=impl_->rebuild_count;
+    if (impl_->hierarchy) {
+        state.construction=impl_->hierarchy->construction_system();
+        state.construction->pin_mask=impl_->pins;
+    }
+    return state;
+}
+
+void PressureCandidate::restore(const PressureState& state) {
+    auto restored=std::make_unique<Impl>();
+    if (state.construction) {
+        const auto& a=*state.construction;
+        if (a.rhs.size()<=amg_gate || !state.rebuild_count
+            || state.rebuild_count==std::numeric_limits<std::size_t>::max())
+            throw std::invalid_argument("invalid saved pressure hierarchy state");
+        restored->diagonal=validate(a,PressureControl{});
+        if (std::any_of(a.rhs.begin(),a.rhs.end(),[](double value){return value!=0.;}))
+            throw std::invalid_argument("saved pressure construction RHS must be zero");
+        restored->hierarchy=std::make_unique<classical_detail::ClassicalAmg>(a);
+        restored->row_offsets=a.row_offsets;
+        restored->columns=a.columns;
+        restored->pins=a.pin_mask;
+        restored->rebuild_count=state.rebuild_count;
+    } else if (state.rebuild_count) {
+        throw std::invalid_argument("saved pressure rebuild count has no hierarchy");
+    }
+    impl_=std::move(restored);
+}
+
 PressureResult PressureCandidate::solve(const PressureSystem& a, const PressureControl& control) {
     const auto current_diagonal = validate(a,control);
     PressureResult result;

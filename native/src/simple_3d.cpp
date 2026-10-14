@@ -423,6 +423,40 @@ struct Simple3DSolver::Impl {
 Simple3DSolver::Simple3DSolver(const GridView& g,ArrayView<const unsigned char> open) {
     validate_grid(g);validate_open(g,open);impl_=std::make_unique<Impl>(g,open);
 }
+Simple3DOwnerState Simple3DSolver::snapshot() const {
+    const auto& p=*impl_;
+    return {{p.dx,p.dy,p.dz},p.outlet,p.pressure.snapshot(),p.history,p.target,
+            p.pressure_clip_hits,p.charged_iterations};
+}
+
+void Simple3DSolver::restore(const Simple3DOwnerState& state) {
+    const auto& p=*impl_;
+    if (state.widths[0]!=p.dx || state.widths[1]!=p.dy || state.widths[2]!=p.dz || state.outlet!=p.outlet
+        || (!state.massflux_target.empty() && state.massflux_target.size()!=p.grid.nx*p.grid.nz)
+        || state.history.legacy.size()!=state.history.local_mass.size()
+        || state.history.legacy.size()!=state.history.global_mass.size()
+        || state.charged_iterations>state.history.legacy.size()
+        || (state.pressure.construction && state.pressure.construction->rhs.size()!=p.grid.nx*p.grid.ny*p.grid.nz))
+        throw std::invalid_argument("saved SIMPLE 3D owner state differs from its grid or history");
+    for (const auto* values:{&state.history.legacy,&state.history.local_mass,&state.history.global_mass})
+        for (double value:*values)
+            if (!std::isfinite(value) || value<0.) throw std::invalid_argument("invalid saved SIMPLE 3D residual");
+    for (double value:state.massflux_target)
+        if (!std::isfinite(value)) throw std::invalid_argument("nonfinite saved SIMPLE 3D inlet target");
+    for (const auto& record:state.history.momentum) {
+        if (!record.iteration || !std::isfinite(record.residual.maximum) || record.residual.maximum<0.)
+            throw std::invalid_argument("invalid saved SIMPLE 3D momentum record");
+        for (const auto* values:{&record.residual.numerator,&record.residual.denominator,&record.residual.component})
+            for (double value:*values)
+                if (!std::isfinite(value) || value<0.) throw std::invalid_argument("invalid saved SIMPLE 3D momentum value");
+    }
+    auto restored=std::make_unique<Impl>(p.grid,p.opening());
+    restored->pressure.restore(state.pressure);
+    restored->history=state.history;restored->target=state.massflux_target;
+    restored->pressure_clip_hits=state.pressure_clip_hits;restored->charged_iterations=state.charged_iterations;
+    impl_=std::move(restored);
+}
+
 Simple3DSolver::~Simple3DSolver()=default;
 const SimpleHistory& Simple3DSolver::history() const { return impl_->history; }
 const std::vector<double>& Simple3DSolver::massflux_target() const { return impl_->target; }

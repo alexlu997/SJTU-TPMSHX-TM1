@@ -1200,52 +1200,219 @@ void Runtime::finish() {
 
 }  // namespace
 
-Full3DResult solve_full_3d(const Full3DInput& input,const Full3DControl& control) {
-    validate(input,control);
-    Runtime runtime(input,control);
+struct Full3DRun::Impl {
+    Full3DInput input;
+    Full3DControl control;
+    Runtime runtime;
+    Full3DPhase phase=Full3DPhase::created;
+    bool result_taken=false;
+    Impl(const Full3DInput& i,const Full3DControl& c):input(i),control(c),runtime(input,control) {}
+};
+
+Full3DRun::Full3DRun(const Full3DInput& input,const Full3DControl& control) {
+    validate(input,control);impl_=std::make_unique<Impl>(input,control);
+}
+Full3DRun::~Full3DRun()=default;
+Full3DPhase Full3DRun::phase() const {return impl_->phase;}
+
+Full3DPhase Full3DRun::advance() {
+    auto& runtime=impl_->runtime;const auto& input=impl_->input;const auto& control=impl_->control;
+    if(impl_->phase==Full3DPhase::completed || impl_->phase==Full3DPhase::cancelled) return impl_->phase;
+    if(impl_->phase==Full3DPhase::failed) throw std::logic_error("full 3D failed run cannot advance");
     try {
-        cancel(control);runtime.initialize();
-        for(std::size_t outer=0;outer<control.max_outer;++outer) {
-            cancel(control);
-            if(control.outer_iteration)control.outer_iteration(control.context,outer+1,control.max_outer);
-            if(control.progress) control.progress(control.context,10.+80.*static_cast<double>(outer)/control.max_outer);
-            auto evidence=runtime.prepare(outer>0 || control.initial_solid_temperature.has_value(),outer);
-            auto record=runtime.solve_thermal(outer,evidence);
-            // Detach the completed thermal state before either post update.
-            runtime.result.thermal=std::move(evidence);
-            cancel(control);
-            bool temperature_ok=outer>0;
-            for(std::size_t field=0;field<3;++field) {
-                double delta=outer?0.:std::numeric_limits<double>::infinity();
-                if(outer) for(std::size_t p=0;p<runtime.temperature[field].size();++p)
-                    delta=std::max(delta,std::abs(runtime.temperature[field][p]-runtime.previous[field][p]));
-                record.temperature_change[field]=delta;
-                temperature_ok=temperature_ok && delta<control.outer_temperature_tolerance;
-                runtime.previous[field]=runtime.temperature[field];
-            }
-            record.inlet_pressure={inlet_state(input.a,runtime.result.flow[0]),
-                input.solve_b?inlet_state(input.b,runtime.result.flow[1]):std::nullopt};
-            const bool pressure_ok=std::all_of(record.inlet_pressure.begin(),record.inlet_pressure.end(),
-                [](const auto& p){return !p || p->passed;});
-            record.coupling_converged=temperature_ok && pressure_ok;
-            runtime.result.outer.push_back(record);
-            if(record.coupling_converged && record.thermal_converged) {
-                runtime.result.outer_ok=true;runtime.result.stop=Full3DStop::converged;break;
-            }
-            // Preserve the original final capped post, including its later
-            // pressure reference and fields. Thermal evidence is already owned.
-            runtime.post(outer);
+        if(impl_->phase==Full3DPhase::created) {
+            cancel(control);runtime.initialize();impl_->phase=Full3DPhase::outer_boundary;return impl_->phase;
         }
-        runtime.result.post_after_last_thermal=!runtime.result.outer_ok;
-        runtime.finish();cancel(control);
-        if(control.progress) control.progress(control.context,100.);
+        if(impl_->phase==Full3DPhase::ready_to_finish) {
+            runtime.result.post_after_last_thermal=!runtime.result.outer_ok;
+            runtime.finish();cancel(control);
+            if(control.progress) control.progress(control.context,100.);
+            impl_->phase=Full3DPhase::completed;return impl_->phase;
+        }
+        const auto outer=runtime.result.outer.size();
+        cancel(control);
+        if(control.outer_iteration)control.outer_iteration(control.context,outer+1,control.max_outer);
+        if(control.progress) control.progress(control.context,10.+80.*static_cast<double>(outer)/control.max_outer);
+        auto evidence=runtime.prepare(outer>0 || control.initial_solid_temperature.has_value(),outer);
+        auto record=runtime.solve_thermal(outer,evidence);
+        // Detach the completed thermal state before either post update.
+        runtime.result.thermal=std::move(evidence);
+        cancel(control);
+        bool temperature_ok=outer>0;
+        for(std::size_t field=0;field<3;++field) {
+            double delta=outer?0.:std::numeric_limits<double>::infinity();
+            if(outer) for(std::size_t p=0;p<runtime.temperature[field].size();++p)
+                delta=std::max(delta,std::abs(runtime.temperature[field][p]-runtime.previous[field][p]));
+            record.temperature_change[field]=delta;
+            temperature_ok=temperature_ok && delta<control.outer_temperature_tolerance;
+            runtime.previous[field]=runtime.temperature[field];
+        }
+        record.inlet_pressure={inlet_state(input.a,runtime.result.flow[0]),
+            input.solve_b?inlet_state(input.b,runtime.result.flow[1]):std::nullopt};
+        const bool pressure_ok=std::all_of(record.inlet_pressure.begin(),record.inlet_pressure.end(),
+            [](const auto& p){return !p || p->passed;});
+        record.coupling_converged=temperature_ok && pressure_ok;
+        runtime.result.outer.push_back(record);
+        if(record.coupling_converged && record.thermal_converged) {
+            runtime.result.outer_ok=true;runtime.result.stop=Full3DStop::converged;
+            impl_->phase=Full3DPhase::ready_to_finish;return impl_->phase;
+        }
+        // Preserve the original final capped post, including its later
+        // pressure reference and fields. Thermal evidence is already owned.
+        runtime.post(outer);
+        if(runtime.result.outer.size()==control.max_outer) impl_->phase=Full3DPhase::ready_to_finish;
     } catch(const Cancelled&) {
         runtime.result.stop=Full3DStop::cancelled;runtime.result.converged=false;
         for(auto& flow:runtime.result.flow)
             if(flow.bootstrap_trace.available && flow.bootstrap_trace.decision=="not-started")
                 flow.bootstrap_trace.decision="cancelled";
+        impl_->phase=Full3DPhase::cancelled;
+    } catch(...) {impl_->phase=Full3DPhase::failed;throw;}
+    return impl_->phase;
+}
+
+namespace {
+void validate_continuation(const Full3DInput& input,const Full3DControl& control,const Full3DRunState& state) {
+    const auto outer=state.result.outer.size();const auto& g=input.geometry.grid;
+    const auto n=g.nx*g.ny*g.nz;
+    if((state.phase!=Full3DPhase::outer_boundary && state.phase!=Full3DPhase::ready_to_finish)
+       || outer>control.max_outer || (state.phase==Full3DPhase::outer_boundary && outer==control.max_outer)
+       || (state.phase==Full3DPhase::ready_to_finish && !state.result.outer_ok && outer!=control.max_outer)
+       || (state.result.outer_ok && state.phase!=Full3DPhase::ready_to_finish))
+        throw std::invalid_argument("invalid full 3D continuation position");
+    const bool completed=outer && state.result.outer.back().coupling_converged
+        && state.result.outer.back().thermal_converged;
+    if(state.result.outer_ok!=completed
+       || state.result.stop!=(completed?Full3DStop::converged:Full3DStop::iteration_limit))
+        throw std::invalid_argument("full 3D continuation exit differs from its history");
+    for(std::size_t i=0;i<outer;++i) if(state.result.outer[i].outer_index!=i)
+        throw std::invalid_argument("invalid full 3D continuation history");
+    auto check=[&](const Values& values,std::size_t size,bool positive=false) {
+        if(values.size()!=size || !finite(values) || (positive && !std::all_of(values.begin(),values.end(),[](double v){return v>0.;})))
+            throw std::invalid_argument("invalid full 3D continuation field");
+    };
+    for(std::size_t field=0;field<3;++field) {
+        check(state.temperature[field],n,true);check(state.previous[field],outer?n:0,true);
     }
-    return std::move(runtime.result);
+    for(std::size_t side=0;side<2;++side) {
+        check(state.conductivity[side],n,true);check(state.rho_cp[side],n,true);check(state.hv[side],n);
+        const auto& inlet=state.inlet[side];
+        for(double value:{inlet.rho,inlet.mu,inlet.k,inlet.cp,inlet.pr,state.hv_ratio[side]})
+            if(!(value>0.) || !std::isfinite(value))throw std::invalid_argument("invalid full 3D continuation property");
+        for(double value:{state.drag_k[side],state.drag_cf[side],state.mass_flux[side],state.dispersion[side]})
+            if(value<0. || !std::isfinite(value))throw std::invalid_argument("invalid full 3D continuation coefficient");
+        const bool active=side==0||input.solve_b;
+        if(state.simple[side].has_value()!=active || state.anderson[side].has_value()!=(active&&control.outer_anderson))
+            throw std::invalid_argument("invalid full 3D continuation owner");
+        if(state.anderson[side]) {
+            const auto& saved=*state.anderson[side];
+            if(saved.trust!=control.anderson_trust || saved.patience!=static_cast<int>(control.anderson_patience)
+               || !saved.accelerator.history_limit || saved.accelerator.history_limit-1!=control.anderson_history
+               || saved.accelerator.condition_limit!=AndersonState{}.condition_limit)
+                throw std::invalid_argument("full 3D continuation Anderson controls differ from input");
+        }
+        if(!active)continue;
+        const auto& flow=state.result.flow[side];const auto& a=side?input.b:input.a;
+        const std::array<ArrayView<const double>,3> widths{g.dx,g.dy,g.dz};
+        for(std::size_t d=0;d<3;++d) {
+            const auto expected=widths[a.solver_axes[d]];
+            check(flow.widths[d],expected.size,true);
+            for(std::size_t j=0;j<expected.size;++j)
+                if(flow.widths[d][j]!=expected[d==1 && a.direction%2?expected.size-1-j:j])
+                    throw std::invalid_argument("full 3D continuation grid differs from input");
+        }
+        const auto sg=grid(flow);
+        const auto& geo=input.geometry;
+        auto expected_k=to_solver(g,a,geo.permeability),expected_cf=to_solver(g,a,geo.forchheimer);
+        for(auto& value:expected_k)value*=a.permeability_scale;
+        for(auto& value:expected_cf)value*=a.forchheimer_scale;
+        if(flow.epsilon!=to_solver(g,a,geo.epsilon) || flow.permeability!=expected_k || flow.forchheimer!=expected_cf
+           || flow.inlet_opening!=Values(a.inlet_opening.data,a.inlet_opening.data+a.inlet_opening.size)
+           || flow.outlet_opening!=Values(a.outlet_opening.data,a.outlet_opening.data+a.outlet_opening.size))
+            throw std::invalid_argument("full 3D continuation geometry differs from input");
+        if(!(flow.pressure_reference>0.) || !std::isfinite(flow.pressure_reference))
+            throw std::invalid_argument("invalid full 3D continuation pressure reference");
+        for(const auto* v:{&flow.epsilon,&flow.permeability,&flow.temperature,&flow.viscosity,&flow.effective_viscosity,&flow.density})check(*v,n,true);
+        for(const auto* v:{&flow.forchheimer,&flow.pressure,&flow.pressure_correction,&flow.pressure_real,&flow.density_real})check(*v,n);
+        const std::array<std::size_t,3> faces{(sg.nx+1)*sg.ny*sg.nz,sg.nx*(sg.ny+1)*sg.nz,sg.nx*sg.ny*(sg.nz+1)};
+        for(std::size_t d=0;d<3;++d) {
+            const Values* velocity[]{&flow.u,&flow.v,&flow.w};const Values* diagonal[]{&flow.d_u,&flow.d_v,&flow.d_w};
+            check(*velocity[d],faces[d]);check(*diagonal[d],faces[d]);
+            check(flow.velocity_real[d],n);
+            const std::array<std::size_t,3> physical_faces{(g.nx+1)*g.ny*g.nz,g.nx*(g.ny+1)*g.nz,g.nx*g.ny*(g.nz+1)};
+            check(flow.face_velocity_real[d],physical_faces[d]);
+        }
+        for(const auto* v:{&flow.inlet_velocity,&flow.inlet_opening,&flow.outlet_opening,&flow.fixed_inlet_massflux})check(*v,sg.nx*sg.nz);
+        check(flow.outlet_u_fraction,(sg.nx+1)*sg.nz);check(flow.outlet_w_fraction,sg.nx*(sg.nz+1));
+    }
+    if(outer) {
+        const auto& thermal=state.result.thermal;
+        if(thermal.outer_index!=outer-1)throw std::invalid_argument("full 3D thermal evidence has a different continuation position");
+        if((thermal.mode==Full3DThermalMode::true_h)!=thermal.true_h.has_value()
+           || (thermal.mode==Full3DThermalMode::model_h)!=thermal.model_h.has_value())
+            throw std::invalid_argument("full 3D continuation thermal mode differs from its evidence");
+        for(const auto& temperature:thermal.temperature)check(temperature,n,true);
+        const std::array<std::size_t,3> faces{(g.nx+1)*g.ny*g.nz,g.nx*(g.ny+1)*g.nz,g.nx*g.ny*(g.nz+1)};
+        const bool actual_mass=thermal.mode!=Full3DThermalMode::temperature || thermal.temperature_algorithm.has_value();
+        for(std::size_t side=0;side<2;++side) {
+            check(thermal.hv[side],n);check(thermal.conductivity[side],n,true);check(thermal.rho_cp[side],n,true);
+            const bool active=side==0||input.solve_b;check(thermal.pressure[side],active?n:0,true);
+            for(std::size_t d=0;d<3;++d) {
+                check(thermal.face_velocity[side][d],faces[d]);
+                check(thermal.mass[side][d],actual_mass?faces[d]:0);
+            }
+            check(thermal.enthalpy[side],thermal.true_h?n:0);
+            if(!thermal.actual_conductivity[side].empty())check(thermal.actual_conductivity[side],n,true);
+        }
+    }
+}
+} // namespace
+
+Full3DRunState Full3DRun::snapshot() const {
+    if(impl_->phase!=Full3DPhase::outer_boundary && impl_->phase!=Full3DPhase::ready_to_finish)
+        throw std::logic_error("full 3D snapshot requires a completed iteration boundary");
+    const auto& r=impl_->runtime;Full3DRunState state;
+    state.phase=impl_->phase;state.result=r.result;state.inlet=r.inlet;
+    state.drag_k=r.drag_k;state.drag_cf=r.drag_cf;state.mass_flux=r.mass_flux;
+    state.dispersion=r.dispersion;state.hv_ratio=r.hv_ratio;
+    state.conductivity=r.conductivity;state.rho_cp=r.rho_cp;state.hv=r.hv;
+    state.temperature=r.temperature;state.previous=r.previous;
+    for(std::size_t side=0;side<2;++side) {
+        if(r.simple[side])state.simple[side]=r.simple[side]->snapshot();
+        if(r.anderson[side])state.anderson[side]=r.anderson[side]->snapshot();
+    }
+    validate_continuation(impl_->input,impl_->control,state);
+    return state;
+}
+
+Full3DRun::Full3DRun(const Full3DInput& input,const Full3DControl& control,const Full3DRunState& state)
+    :Full3DRun(input,control) {
+    validate_continuation(input,control,state);
+    for(std::size_t side=0;side<2;++side) if(state.simple[side]) {
+        const auto& flow=state.result.flow[side];const auto sg=grid(flow);
+        std::vector<unsigned char> opened(flow.outlet_opening.size());
+        for(std::size_t j=0;j<opened.size();++j)opened[j]=flow.outlet_opening[j]>0.;
+        auto solver=std::make_unique<Simple3DSolver>(sg,ArrayView<const unsigned char>{opened.data(),opened.size()});
+        solver->restore(*state.simple[side]);impl_->runtime.simple[side]=std::move(solver);
+        if(state.anderson[side])impl_->runtime.anderson[side]=std::make_unique<OuterAnderson>(*state.anderson[side]);
+    }
+    auto& r=impl_->runtime;r.result=state.result;r.inlet=state.inlet;
+    r.drag_k=state.drag_k;r.drag_cf=state.drag_cf;r.mass_flux=state.mass_flux;
+    r.dispersion=state.dispersion;r.hv_ratio=state.hv_ratio;
+    r.conductivity=state.conductivity;r.rho_cp=state.rho_cp;r.hv=state.hv;
+    r.temperature=state.temperature;r.previous=state.previous;impl_->phase=state.phase;
+}
+
+Full3DResult Full3DRun::take_result() {
+    if((impl_->phase!=Full3DPhase::completed && impl_->phase!=Full3DPhase::cancelled) || impl_->result_taken)
+        throw std::logic_error("full 3D result is not available");
+    impl_->result_taken=true;return std::move(impl_->runtime.result);
+}
+
+Full3DResult solve_full_3d(const Full3DInput& input,const Full3DControl& control) {
+    Full3DRun run(input,control);
+    while(run.phase()!=Full3DPhase::completed && run.phase()!=Full3DPhase::cancelled)run.advance();
+    return run.take_result();
 }
 
 }  // namespace tpmshx

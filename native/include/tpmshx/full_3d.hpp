@@ -147,7 +147,7 @@ struct Full3DThermalEvidence {
     std::optional<StaggeredTemperatureResult> staggered;
     // Same-state existing model h(T) and physical W ledger, including Nz=1.
     std::array<std::array<double,5>,2> temperature_cp_coefficients{};
-    const char* temperature_algorithm=nullptr;
+    std::optional<std::string> temperature_algorithm;
     std::optional<PhysicalHeatLedger> physical_audit;
 };
 
@@ -186,6 +186,39 @@ struct Full3DResult {
     double energy_imbalance=0.,interior_duty=0.,interior_imbalance=0.;
     double enthalpy_imbalance=std::numeric_limits<double>::quiet_NaN();
     std::array<std::optional<OuterAndersonStats>,2> anderson;
+};
+
+enum class Full3DPhase { created, outer_boundary, ready_to_finish, completed, cancelled, failed };
+
+// Independent state at initialization or a completed outer-step boundary.
+struct Full3DRunState {
+    Full3DPhase phase=Full3DPhase::outer_boundary;
+    Full3DResult result;
+    std::array<FluidProperties,2> inlet{};
+    std::array<double,2> drag_k{},drag_cf{},mass_flux{},dispersion{},hv_ratio{};
+    std::array<std::vector<double>,2> conductivity,rho_cp,hv;
+    std::array<std::vector<double>,3> temperature,previous;
+    std::array<std::optional<Simple3DOwnerState>,2> simple;
+    std::array<std::optional<OuterAndersonState>,2> anderson;
+};
+
+// Prepared input arrays remain immutable and live until release.
+// Restore requires the same prepared input and numerical controls.
+class Full3DRun {
+public:
+    Full3DRun(const Full3DInput&,const Full3DControl&);
+    Full3DRun(const Full3DInput&,const Full3DControl&,const Full3DRunState&);
+    ~Full3DRun();
+    Full3DRun(const Full3DRun&)=delete;
+    Full3DRun& operator=(const Full3DRun&)=delete;
+    // Complete initialization, one outer step, or final result capture.
+    Full3DPhase advance();
+    Full3DPhase phase() const;
+    Full3DRunState snapshot() const;
+    Full3DResult take_result();
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 };
 
 // Numerical execution from prepared physical fields. Owns initial SIMPLE,

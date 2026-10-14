@@ -21,6 +21,7 @@ public:
     KrylovResult solve(const PressureSystem&,const std::vector<double>& rhs,
                        double tolerance,std::size_t max_iterations);
     std::size_t bytes() const;
+    PressureSystem construction_system() const;
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

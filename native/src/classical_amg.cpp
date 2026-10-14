@@ -234,6 +234,11 @@ struct ClassicalAmg::Impl {
 
 ClassicalAmg::ClassicalAmg(const PressureSystem& a):impl_(std::make_unique<Impl>(a)) {}
 ClassicalAmg::~ClassicalAmg()=default;
+PressureSystem ClassicalAmg::construction_system() const {
+    const auto& a=impl_->levels.front().a;
+    return {a.ptr,a.col,a.val,Vector(static_cast<std::size_t>(a.rows),0.),{}};
+}
+
 std::size_t ClassicalAmg::bytes() const {
     std::size_t total=0;
     for(const auto& level:impl_->levels)total+=level.a.bytes()+level.p.bytes()+level.r.bytes()+level.x.size()*sizeof(double);
