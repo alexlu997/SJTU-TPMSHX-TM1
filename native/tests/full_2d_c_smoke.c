@@ -205,9 +205,9 @@ int main(void) {
     }
     assert(tpmshx_solve_full_2d_v2(shape,arrays,sizes,&config,&cb,&result,error,sizeof(error))==0);
     assert(result.cancelled && !result.converged);
+    assert(tpmshx_full_2d_get_last_closure_ranges_v1(&result,&ranges)==0 && !ranges.size && !ranges.data);
     assert(tpmshx_full_2d_get_physical_heat_ledger_v1(&result,&heat)==0);
     assert(!heat.main.available && !heat.fine.available);
-    assert(tpmshx_full_2d_get_last_closure_ranges_v1(&result,&ranges)==0 && !ranges.size && !ranges.data);
     assert(tpmshx_full_2d_get_property_sampling_v1(&result,&sampling)==0 && sampling.count==0);
     assert(tpmshx_full_2d_get_energy_effective_settings_v1(&result,&settings)==0);
     assert(!settings.resolved.available && !settings.last.available && !settings.outer_count);

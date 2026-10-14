@@ -304,6 +304,15 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_model_enthalpy_evidence_v1
     *evidence=out;return 0;
 }
 
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_last_closure_ranges_v1(
+    const tpmshx_full3d_result_v1* result,tpmshx_range_observations_view_v1* ranges) {
+    if(!result || !result->owner || !ranges) return 1;
+    const auto& owner=*static_cast<const Owner*>(result->owner);
+    *ranges={owner.result.stop==Full3DStop::cancelled?nullptr:owner.last_ranges.data(),
+             owner.result.stop==Full3DStop::cancelled?0:owner.last_ranges.size()};
+    return 0;
+}
+
 extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_physical_heat_ledger_v1(
     const tpmshx_full3d_result_v1* result,tpmshx_physical_heat_ledger_v1* evidence) {
     if(!result || !result->owner || !evidence)return 1;
@@ -312,15 +321,6 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_physical_heat_ledger_v1(
     if(r.stop!=Full3DStop::cancelled && r.thermal.physical_audit)
         out=physical_ledger_c_view(*r.thermal.physical_audit,3);
     *evidence=out;return 0;
-}
-
-extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_last_closure_ranges_v1(
-    const tpmshx_full3d_result_v1* result,tpmshx_range_observations_view_v1* ranges) {
-    if(!result || !result->owner || !ranges) return 1;
-    const auto& owner=*static_cast<const Owner*>(result->owner);
-    *ranges={owner.result.stop==Full3DStop::cancelled?nullptr:owner.last_ranges.data(),
-             owner.result.stop==Full3DStop::cancelled?0:owner.last_ranges.size()};
-    return 0;
 }
 
 extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_property_sampling_v1(

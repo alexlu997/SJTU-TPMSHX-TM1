@@ -248,8 +248,8 @@ class NativeFull2DDriver:
             raise ValueError('native full 2D library lacks executed settings; rebuild the library') from exc
         self.query_settings.argtypes = [ct.POINTER(_Result), ct.POINTER(_FullEnergyEffectiveSettings)]
         self.query_settings.restype = ct.c_int
-        self.query_heat_ledger = heat_ledger_query(self.library, 2, _Result)
         self.query_last_ranges = last_range_query(self.library, 2, _Result)
+        self.query_heat_ledger = heat_ledger_query(self.library, 2, _Result)
         self.query_sampling = sampling_query(self.library, 2, _Result)
 
     def run_prepared(self, cfg, prepared, control=RunControl()):
