@@ -211,6 +211,7 @@ and design eligibility have separate states and source paths.
 Unknown evidence remains unverified. A failed gate remains failed.
 The physical conclusion keeps the existing route-specific tolerances and
 requires complete captured heat and active-side mass evidence.
+Only 2D model-h and integral-temperature routes require a refined thermal ledger.
 Its thermal state stays separate from the final SIMPLE pressure state.
 
 The design conclusion requires all recorded gates to pass.

@@ -70,7 +70,8 @@ def evaluate_qualification(result, metrics):
         *(value for value in gates.values() if value is not None))),
         'run_status.converged and metadata.diagnostics.convergence_detail',
         gates=gates, thermal_state=result.boundary_fluxes.get('state'),
-        pressure_states={side: row.get('state') for side, row in result.pressure_evidence.items()
+        pressure_states={side: result.field_metadata.get('P_report_' + side, {}).get('state')
+                         for side, row in result.pressure_evidence.items()
                          if row is not None})
     full = metadata.get('mode', 'full') == 'full'
     execution_record = metadata.get('execution_record', {})
@@ -81,12 +82,12 @@ def evaluate_qualification(result, metrics):
         try:
             balance = evaluate_physical_balance(result)
             checks = []
-            for name in ('energy', 'fine_energy'):
-                if name not in balance:
-                    continue
-                row = balance[name]
-                checks.append([name + ' ledger available', True if row['status'] == 'available' else None])
-                if row['status'] == 'available':
+            stages = (('energy', 'fine_energy') if balance['physical_dimension'] == 2
+                      and metadata.get('thermal_mode') in ('model_h', 'temperature') else ('energy',))
+            for name in stages:
+                row = balance.get(name, {})
+                checks.append([name + ' ledger available', True if row.get('status') == 'available' else None])
+                if row.get('status') == 'available':
                     checks.append([name + ' physical boundary complete', row['physical_boundary_complete']])
             for side in ('A', 'B'):
                 if (result.pressure_evidence.get(side) is not None

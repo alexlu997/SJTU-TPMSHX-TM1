@@ -17,8 +17,8 @@ from sjtu_tpmshx.tests.postprocess_tm1.test_applicability import result_with_evi
 from sjtu_tpmshx.tests.postprocess_tm1.test_physical_balance import sample_result
 
 
-def qualified_result():
-    result = sample_result(3)
+def qualified_result(dimension=3):
+    result = sample_result(dimension)
     flux = mutable_data(result.boundary_fluxes)
     for phase in ('A', 'B', 'solid'):
         flux['energy']['residual'][phase][:] = 0.
@@ -38,14 +38,15 @@ def qualified_result():
             eps_A_strict_cellmax=0., eps_B_strict_cellmax=0., Q_sA=0., Q_sB=0.,
             model_h_balance=dict(physical_boundary_complete=True, sides={'A': {}, 'B': {}})))
     return replace(result, boundary_fluxes=flux, metadata=metadata,
-                   fields=dict(h_vB=np.zeros((2, 2, 2))),
-                   field_metadata=dict(h_vB=dict(unit='W/(m3 K)', axes=('x', 'y', 'z'),
+                   fields=dict(h_vB=np.zeros((2,) * dimension)),
+                   field_metadata=dict(h_vB=dict(unit='W/(m3 K)', axes=tuple('xyz'[:dimension]),
                                                 location='cell', state='last thermal solve')), run_status=dict(execution='completed', converged=True))
 
 
-def required_metrics():
+def required_metrics(dimension=3):
+    power_unit = 'W' if dimension == 3 else 'W/m'
     return {name: MetricValue(value, MetricSpec(name, unit)) for name, value, unit in (
-        ('Q', 0., 'W'), ('Q_B', 0., 'W'), ('dP_A', 1., 'Pa'), ('dP_B', 1., 'Pa'),
+        ('Q', 0., power_unit), ('Q_B', 0., power_unit), ('dP_A', 1., 'Pa'), ('dP_B', 1., 'Pa'),
         ('T_out_A', 330., 'K'), ('T_out_B', 330., 'K'))}
 
 
@@ -107,6 +108,27 @@ def test_no_promotion_from_a_partial_or_failed_gate(damage, section, expected):
     if section != 'convergence':
         assert quality['convergence']['passed'] is True
     assert quality['metrics']['passed'] is True
+
+
+
+@pytest.mark.parametrize('mode', ['true_h', 'conservative_energy', 'model_h'])
+@pytest.mark.parametrize('fine', [None, {}])
+def test_only_routes_with_refinement_require_fine_heat_evidence(mode, fine):
+    result = qualified_result(2)
+    metadata = mutable_data(result.metadata)
+    metadata['thermal_mode'] = mode
+    diagnostics = metadata['diagnostics']
+    diagnostics['true_h_balance'] = dict(converged=True, enthalpy_clip_counts={'total': [0, 0]},
+        effective_settings=dict(coupled_energy_tol=.001, equation_energy_tol=.001),
+        coupled_energy_balance={'ratio': 0.}, equation_energy_balance={'ratio': 0.})
+    diagnostics['model_h_balance'] = {name: dict(passed=True,
+        A={'physical_boundary_complete': True}, B={'physical_boundary_complete': True})
+        for name in ('main', 'fine')}
+    diagnostics['convergence_detail']['richardson_ok'] = True
+    result = replace(result, metadata=metadata, boundary_fluxes={**result.boundary_fluxes, 'fine': fine})
+    quality = evaluate_qualification(result, required_metrics(2))
+    assert quality['physical']['passed'] is (None if mode == 'model_h' else True)
+    assert quality['design']['eligible'] is (None if mode == 'model_h' else True)
 
 
 def test_missing_and_unavailable_metrics_are_distinct():
