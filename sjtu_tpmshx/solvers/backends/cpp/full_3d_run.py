@@ -34,7 +34,7 @@ class NativeFull3DRun:
         signatures = {
             'create': common + tail,
             'restore': common + [ct.POINTER(_Field), ct.c_size_t] + tail,
-            'advance': [ct.c_void_p, ct.POINTER(ct.c_uint32), *tail[-2:]],
+            'advance_step': [ct.c_void_p, ct.POINTER(ct.c_uint32), *tail[-2:]],
             'phase': [ct.c_void_p, ct.POINTER(ct.c_uint32)],
             'snapshot': [ct.c_void_p, ct.POINTER(_Snapshot), *tail[-2:]],
             'take_result': [ct.c_void_p, ct.POINTER(_Result), *tail[-2:]],
@@ -49,7 +49,7 @@ class NativeFull3DRun:
                 setattr(self, '_'+name, function)
             self._release_snapshot = library.tpmshx_run_state_release_v1
         except AttributeError as error:
-            raise ValueError('native library lacks full 3D continuation controls v2') from error
+            raise ValueError('native library lacks full 3D inner continuation') from error
         self._release_snapshot.argtypes = [ct.POINTER(_Snapshot)]
         self._release_snapshot.restype = None
         args = [ct.byref(data), ct.byref(controls), ct.byref(energy) if energy is not None else None,
@@ -99,7 +99,7 @@ class NativeFull3DRun:
 
     def advance(self):
         phase = ct.c_uint32()
-        self._call(self._advance, self.handle, ct.byref(phase))
+        self._call(self._advance_step, self.handle, ct.byref(phase))
         return phase.value
 
     def snapshot(self):

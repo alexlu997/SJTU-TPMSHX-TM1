@@ -773,7 +773,7 @@ def test_native_checkpoint_hdf5_round_trip(native_path, tmp_path, pair, cut):
     saved_path = tmp_path/'checkpoint.h5'
     expected = run_case(prepared_case, control(native_path))
     def save_at_boundary(state):
-        if int(state['state.result.outer.size'][0]) == cut:
+        if int(state['state.phase'][0]) in (1, 2) and int(state['state.result.outer.size'][0]) == cut:
             saved = SolverCheckpoint(str(case_path), prepared_case.case_id, prepared_case.model_refs, state)
             save_solver_checkpoint(saved, saved_path)
             state['state.temperature.0'][0] = -1.
@@ -801,7 +801,7 @@ def test_native_checkpoint_rejects_damaged_fields(native_path, damage):
     driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
     saved = {}
     def pause(state):
-        if int(state['state.result.outer.size'][0]) == (0 if damage == 'premature_finish' else 1):
+        if int(state['state.phase'][0]) in (1, 2) and int(state['state.result.outer.size'][0]) == (0 if damage == 'premature_finish' else 1):
             saved.update(state)
             raise _PauseCheckpoint
     with pytest.raises(_PauseCheckpoint):
@@ -809,7 +809,7 @@ def test_native_checkpoint_rejects_damaged_fields(native_path, damage):
     if damage == 'build':
         saved['build'] = 'another-build'
     elif damage == 'format':
-        saved['format'][0] = 2
+        saved['format'][0] += 1
     elif damage == 'input':
         saved['input.a.inlet_velocity'][0] *= 1.01
     elif damage == 'control':
@@ -859,7 +859,7 @@ control = RunControl(backend='cpp', native_library=library, native_table_directo
 if mode == 'interrupt':
     case = load_case(case_path)
     def stop(state):
-        if int(state['state.result.outer.size'][0]) == 1:
+        if int(state['state.phase'][0]) in (1, 2) and int(state['state.result.outer.size'][0]) == 1:
             save_solver_checkpoint(SolverCheckpoint(case_path, case.case_id, case.model_refs, state), saved_path)
             os._exit(23)
     run_case(case, control, checkpoint=stop)
@@ -998,7 +998,7 @@ def test_checkpoint_covers_energy_routes(native_path, route, cut):
         cut = len(expected['outer'])
     saved = {}
     def pause(state):
-        if int(state['state.result.outer.size'][0]) == cut:
+        if int(state['state.phase'][0]) in (1, 2) and int(state['state.result.outer.size'][0]) == cut:
             saved.update(state)
             raise _PauseCheckpoint
     with pytest.raises(_PauseCheckpoint):
@@ -1015,6 +1015,8 @@ def test_checkpoint_cancel_keeps_last_complete_boundary(native_path):
     cancel = False
     def checkpoint(state):
         nonlocal cancel
+        if int(state['state.phase'][0]) not in (1, 2):
+            return
         saved.append(state)
         cancel = int(state['state.result.outer.size'][0]) == 1
     with pytest.raises(CancelledError):
@@ -1045,7 +1047,7 @@ def test_full_checkpoint_keeps_active_pressure_hierarchies(native_path):
     expected = driver.run_prepared(cfg, p)
     saved = {}
     def pause(state):
-        if int(state['state.result.outer.size'][0]) == 1:
+        if int(state['state.phase'][0]) in (1, 2) and int(state['state.result.outer.size'][0]) == 1:
             saved.update(state)
             raise _PauseCheckpoint
     with pytest.raises(_PauseCheckpoint):
@@ -1067,7 +1069,7 @@ def test_checkpoint_rejects_changed_model_h_controls_before_flow(native_path, na
     driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
     saved = {}
     def pause(state):
-        if int(state['state.result.outer.size'][0]) == 1:
+        if int(state['state.phase'][0]) in (1, 2) and int(state['state.result.outer.size'][0]) == 1:
             saved.update(state)
             raise _PauseCheckpoint
     with pytest.raises(_PauseCheckpoint):
@@ -1108,7 +1110,7 @@ def test_checkpoint_rejects_changed_velocity_relaxation(native_path):
     driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
     saved = {}
     def pause(state):
-        if int(state['state.result.outer.size'][0]) == 1:
+        if int(state['state.phase'][0]) in (1, 2) and int(state['state.result.outer.size'][0]) == 1:
             saved.update(state)
             raise _PauseCheckpoint
     with pytest.raises(_PauseCheckpoint):
@@ -1119,3 +1121,281 @@ def test_checkpoint_rejects_changed_velocity_relaxation(native_path):
         driver.run_prepared(cfg, p, control(native_path, outer_iteration=lambda *args: entered.append(args)),
                             resume_state=saved)
     assert not entered
+
+
+def _inner_prepared(route):
+    from sjtu_tpmshx.tests.native.test_full_3d import prepared
+    eos = route in ('true_h', 'true_h_cc', 'temperature_fou', 'temperature_sou', 'single_sco2_cc')
+    cfg, p = prepared('sco2-water' if eos else 'air-air',
+                      counts=(3, 4, 1) if route == 'nz1_cc' else (3, 4, 2),
+                      directions=(0, 3) if route == 'nz1_cc' else None,
+                      max_iter_simple=40, outer_anderson=True)
+    p.update(max_outer=2, ltne_max_iter=800)
+    if route == 'model_h_accelerated':
+        cfg['port_wall_refine'] = True
+    elif route in ('temperature_cc', 'nz1_cc'):
+        cfg.update(variable_rho_cp=False, conservative_ltne=False, force_cc_ltne=True)
+    elif route in ('staggered', 'staggered_conservative', 'staggered_rb'):
+        cfg.update(variable_rho_cp=False, conservative_ltne=route != 'staggered',
+                   force_cc_ltne=False, _native_rb_energy=route == 'staggered_rb')
+    elif route.startswith('single'):
+        cfg.update(fluid_B_cfg=None, conservative_ltne=False, force_cc_ltne=True)
+    if eos:
+        cfg.update(ltne_enthalpy_outer=12, ltne_enthalpy_nsweep=3)
+    if route.startswith('temperature_') and eos:
+        cfg['enthalpy_algorithm'] = route
+    if route == 'true_h_cc':
+        cfg['conservative_ltne'] = False
+    return cfg, p
+
+
+def _inner_position(state):
+    prefix = 'state.thermal.value.'
+    for owner in ('model_h_2d', 'model_h_3d', 'staggered', 'legacy', 'enthalpy'):
+        if state[prefix+owner+'.present'][0]:
+            path = prefix+owner+'.value.'
+            result = path+('iteration.' if owner == 'staggered' else '')+'result.'
+            position = int(state[result+'iterations'][0])
+            if owner.startswith('model_h') and state[path+'iteration.chunk.present'][0]:
+                position += int(state[path+'iteration.chunk.value.completed'][0])
+            return owner, position
+    raise AssertionError('active thermal state has no owner')
+
+
+@pytest.mark.parametrize('route', [
+    'model_h', 'model_h_accelerated', 'temperature_cc', 'nz1_cc',
+    'staggered', 'staggered_conservative', 'staggered_rb', 'single_cc',
+    'single_sco2_cc', 'true_h', 'true_h_cc', 'temperature_fou', 'temperature_sou'])
+@pytest.mark.parametrize('after_update', [False, True])
+def test_inner_thermal_checkpoint_keeps_complete_result(native_path, route, after_update):
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
+    cfg, p = _inner_prepared(route)
+    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
+    expected = driver.run_prepared(cfg, p)
+    saved = {}
+    def pause(state):
+        if state['state.phase'][0] != 8:
+            return
+        owner, position = _inner_position(state)
+        if route in ('true_h', 'true_h_cc', 'temperature_fou', 'temperature_sou') and owner != 'enthalpy':
+            return
+        if bool(position) != after_update:
+            return
+        saved.update(state)
+        raise _PauseCheckpoint
+    with pytest.raises(_PauseCheckpoint):
+        driver.run_prepared(cfg, p, checkpoint=pause)
+    assert saved['format'][0] == 2
+    owner, position = _inner_position(saved)
+    assert bool(position) == after_update
+    actual = driver.run_prepared(cfg, p, resume_state=saved)
+    actual.pop('continuation')
+    _exact_resume_values(actual, expected)
+
+
+@pytest.mark.parametrize('phase', [6, 7, 9, 10])
+@pytest.mark.parametrize('iteration', [0, 1, 7])
+def test_inner_flow_checkpoint_keeps_complete_result(native_path, phase, iteration):
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
+    cfg, p = _inner_prepared('model_h_accelerated')
+    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
+    expected = driver.run_prepared(cfg, p)
+    saved = {}
+    def pause(state):
+        if state['state.phase'][0] == phase and state['state.flow_iteration.value.iterations'][0] == iteration:
+            saved.update(state)
+            raise _PauseCheckpoint
+    with pytest.raises(_PauseCheckpoint):
+        driver.run_prepared(cfg, p, checkpoint=pause)
+    actual = driver.run_prepared(cfg, p, resume_state=saved)
+    actual.pop('continuation')
+    _exact_resume_values(actual, expected)
+
+
+@pytest.mark.parametrize('damage', ['flow_budget', 'flow_monitor', 'flow_previous', 'flow_field',
+                                    'thermal_budget', 'remaining_budget', 'owner', 'initial',
+                                    'shared_field', 'iteration', 'thermal_input', 'record_budget', 'initial_value'])
+def test_inner_checkpoint_rejects_damaged_iteration(native_path, damage):
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
+    cfg, p = _inner_prepared('model_h_accelerated')
+    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
+    saved = {}
+    def pause(state):
+        if damage.startswith('flow'):
+            selected = state['state.phase'][0] == 6 and state['state.flow_iteration.value.iterations'][0] == 2
+        else:
+            selected = state['state.phase'][0] == 8 and _inner_position(state)[1] > 0
+        if selected:
+            saved.update(state)
+            raise _PauseCheckpoint
+    with pytest.raises(_PauseCheckpoint):
+        driver.run_prepared(cfg, p, checkpoint=pause)
+    if damage == 'flow_budget':
+        saved['state.flow_iteration.value.iterations'][0] = 40
+    elif damage == 'flow_monitor':
+        saved['state.flow_convergence.value.streak'][0] = 100
+    elif damage == 'flow_previous':
+        saved['state.flow_convergence.value.previous.0'] = np.empty(0)
+    elif damage == 'flow_field':
+        saved['state.result.flow.0.density'][0] = np.nan
+    elif damage == 'thermal_budget':
+        saved['state.thermal.value.budget'][0] += 1
+    elif damage == 'remaining_budget':
+        saved['state.thermal.value.remaining'][0] -= 1
+    elif damage == 'owner':
+        saved['state.thermal.value.model_h_3d.present'][0] = 0
+    elif damage == 'initial':
+        saved['state.thermal.value.initial.0'][0] = np.nan
+    elif damage == 'initial_value':
+        saved['state.thermal.value.initial.0'][0] += 1.
+    elif damage == 'record_budget':
+        saved['state.thermal.value.record.model_h_iterations.0.max_iterations'][0] += 1
+    elif damage == 'shared_field':
+        saved['state.thermal.value.model_h_3d.value.iteration.temperature.0'] = saved['state.temperature.0'].copy()
+    elif damage == 'iteration':
+        saved['state.thermal.value.model_h_3d.value.iteration.chunk.value.completed'][0] = 99999
+    else:
+        saved['state.thermal.value.evidence.hv.0'][0] += 1.
+    with pytest.raises(ValueError, match='state|continuation|SIMPLE|model-h|chunk|monitor'):
+        driver.run_prepared(cfg, p, resume_state=saved)
+
+
+@pytest.mark.parametrize('phase', [6, 8, 9])
+def test_inner_cancel_retains_previous_boundary(native_path, phase):
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
+    cfg, p = _inner_prepared('model_h')
+    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
+    saved = []
+    cancel = False
+    def checkpoint(state):
+        nonlocal cancel
+        saved.append(state)
+        cancel = state['state.phase'][0] == phase and (
+            _inner_position(state)[1] > 0 if phase == 8 else state['state.flow_iteration.value.iterations'][0] >= 2)
+    with pytest.raises(CancelledError):
+        driver.run_prepared(cfg, p, control(native_path, cancel_check=lambda: cancel), checkpoint=checkpoint)
+    assert saved[-1]['state.phase'][0] == phase
+    actual = driver.run_prepared(cfg, p, resume_state=saved[-1])
+    actual.pop('continuation')
+    _exact_resume_values(actual, driver.run_prepared(cfg, p))
+
+
+_INNER_CHECKPOINT_CHILD = r'''
+import os
+from pathlib import Path
+import sys
+from sjtu_tpmshx.domain.module_ports import RunControl
+from sjtu_tpmshx.domain.solver_checkpoint import SolverCheckpoint
+from sjtu_tpmshx.io.case_io import load_case
+from sjtu_tpmshx.io.result_io import save_result
+from sjtu_tpmshx.io.solver_checkpoint_io import load_solver_checkpoint, save_solver_checkpoint, load_checkpoint_case
+from sjtu_tpmshx.solvers.backends.cpp.full_3d import run_case
+from sjtu_tpmshx.tests.native.test_cpp_full_3d import _inner_position
+mode, case_path, saved_path, result_path, library, tables, target = sys.argv[1:]
+control = RunControl(backend='cpp', native_library=library, native_table_directory=tables)
+if mode == 'interrupt':
+    case = load_case(case_path)
+    def stop(state):
+        phase = int(state['state.phase'][0])
+        selected = (target.isdigit() and phase == int(target)
+                    and state['state.flow_iteration.value.iterations'][0] == 3)
+        if phase == 8 and target in ('model_h_3d', 'enthalpy'):
+            owner, position = _inner_position(state)
+            selected = owner == target and position > 0
+        if selected:
+            save_solver_checkpoint(SolverCheckpoint(case_path, case.case_id, case.model_refs, state), saved_path)
+            os._exit(23)
+    run_case(case, control, checkpoint=stop)
+    raise RuntimeError('inner checkpoint was not reached')
+saved = load_solver_checkpoint(saved_path)
+result = run_case(load_checkpoint_case(saved), control, resume_state=saved.native_state)
+save_result(result, result_path)
+'''
+
+
+@pytest.mark.parametrize('target,algorithm', [('6', 'legacy_h_fou'), ('7', 'legacy_h_fou'),
+    ('9', 'legacy_h_fou'), ('10', 'legacy_h_fou'), ('model_h_3d', 'legacy_h_fou'),
+    ('enthalpy', 'legacy_h_fou'), ('enthalpy', 'temperature_fou'), ('enthalpy', 'temperature_sou')])
+def test_inner_checkpoint_continues_after_process_exit(native_path, tmp_path, target, algorithm):
+    from sjtu_tpmshx.io.case_io import save_case
+    from sjtu_tpmshx.io.result_io import load_result
+    from sjtu_tpmshx.io.solver_checkpoint_io import load_solver_checkpoint
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import run_case
+    prepared_case = case('sco2-water' if target == 'enthalpy' else 'air-air', cap=2)
+    parameters = dict(prepared_case.parameters, max_iter_simple=40, ltne_max_iter=800,
+                      ltne_enthalpy_outer=12, ltne_enthalpy_nsweep=3, enthalpy_algorithm=algorithm)
+    prepared_case = replace(prepared_case, parameters=parameters)
+    case_path = save_case(prepared_case, tmp_path/'case.h5')
+    saved_path, result_path = tmp_path/'inner.h5', tmp_path/'result.h5'
+    args = [str(case_path), str(saved_path), str(result_path), str(native_path),
+            control(native_path).native_table_directory, target]
+    stopped = subprocess.run([sys.executable, '-c', _INNER_CHECKPOINT_CHILD, 'interrupt', *args],
+                             cwd=ROOT, capture_output=True, text=True, timeout=120)
+    assert stopped.returncode == 23, stopped.stderr
+    assert not result_path.exists()
+    saved = load_solver_checkpoint(saved_path)
+    assert saved.native_state['state.phase'][0] in (6, 7, 8, 9, 10)
+    finished = subprocess.run([sys.executable, '-c', _INNER_CHECKPOINT_CHILD, 'resume', *args],
+                              cwd=ROOT, capture_output=True, text=True, timeout=120)
+    assert finished.returncode == 0, finished.stderr
+    actual, expected = load_result(result_path), run_case(prepared_case, control(native_path))
+    for key in ('grid', 'fields', 'boundary_fluxes', 'pressure_evidence', 'run_status', 'field_metadata'):
+        _exact_resume_values(getattr(actual, key), getattr(expected, key), key)
+    _exact_resume_values({k: v for k, v in actual.metadata.items() if k != 'continuation'}, expected.metadata)
+    actual_metrics, expected_metrics = evaluate(actual), evaluate(expected)
+    for key, metric in expected_metrics.metrics.items():
+        assert actual_metrics.metrics[key].status == metric.status
+        _exact_resume_values(actual_metrics.metrics[key].value, metric.value, key)
+
+
+@pytest.mark.parametrize('rejected', [1, 3, 7])
+def test_inner_checkpoint_retains_water_startup_retry_budget(native_path, rejected):
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
+    from sjtu_tpmshx.tests.native.test_full_3d import prepared
+    cfg, p = prepared('water-air', counts=(3, 4, 2), max_iter_simple=40)
+    p.update(max_outer=1, ltne_max_iter=800)
+    # A physical source forces the unchanged water gate to shorten startup.
+    cfg['mms_S_A_field'] = np.full((p['Nx'], p['Ny'], p['Nz']), 1e9)
+    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
+    expected = driver.run_prepared(cfg, p)
+    startup = expected['outer'][0]['coupling_startup']
+    assert [row['iterations'] for row in startup['rejected_attempts']] == [250, 125, 62, 31, 15, 7, 3]
+    assert startup['total_iterations'] == 494
+    saved = {}
+    def pause(state):
+        if state['state.phase'][0] == 8 and len(state['state.thermal.value.record.rejected_startup_iterations']) == rejected:
+            saved.update(state)
+            raise _PauseCheckpoint
+    with pytest.raises(_PauseCheckpoint):
+        driver.run_prepared(cfg, p, checkpoint=pause)
+    charged = sum(saved['state.thermal.value.record.rejected_startup_iterations'])
+    assert saved['state.thermal.value.remaining'][0] == 800-charged
+    assert _inner_position(saved)[1] == 0
+    actual = driver.run_prepared(cfg, p, resume_state=saved)
+    actual.pop('continuation')
+    _exact_resume_values(actual, expected)
+
+
+def test_inner_checkpoint_retains_heos_finishing(native_path):
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
+    cfg, p = _inner_prepared('true_h')
+    p['max_outer'] = 1
+    cfg.update(ltne_enthalpy_outer=80, ltne_enthalpy_tol=1.,
+               ltne_enthalpy_coupled_energy_tol=1e-14, ltne_enthalpy_equation_energy_tol=1e-14)
+    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
+    saved = {}
+    def pause(state):
+        if state['state.phase'][0] == 8 and _inner_position(state)[0] == 'enthalpy':
+            if state['state.thermal.value.enthalpy.value.result.heos_polish'][0]:
+                saved.update(state)
+                raise _PauseCheckpoint
+    with pytest.raises(_PauseCheckpoint):
+        driver.run_prepared(cfg, p, checkpoint=pause)
+    finishing = []
+    def observe(state):
+        if state['state.phase'][0] == 8 and _inner_position(state)[0] == 'enthalpy':
+            finishing.append(bool(state['state.thermal.value.enthalpy.value.result.heos_polish'][0]))
+    actual = driver.run_prepared(cfg, p, resume_state=saved, checkpoint=observe)
+    actual.pop('continuation')
+    assert finishing and all(finishing)
+    _exact_resume_values(actual, driver.run_prepared(cfg, p))

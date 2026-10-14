@@ -11,7 +11,9 @@ enum {
 };
 enum {
     TPMSHX_FULL3D_CREATED=0,TPMSHX_FULL3D_OUTER_BOUNDARY=1,TPMSHX_FULL3D_READY=2,
-    TPMSHX_FULL3D_COMPLETED=3,TPMSHX_FULL3D_CANCELLED=4,TPMSHX_FULL3D_FAILED=5
+    TPMSHX_FULL3D_COMPLETED=3,TPMSHX_FULL3D_CANCELLED=4,TPMSHX_FULL3D_FAILED=5,
+    TPMSHX_FULL3D_INITIAL_A=6,TPMSHX_FULL3D_INITIAL_B=7,TPMSHX_FULL3D_THERMAL=8,
+    TPMSHX_FULL3D_POST_A=9,TPMSHX_FULL3D_POST_B=10
 };
 typedef struct {
     const char* name;
@@ -54,6 +56,11 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_restore_v2(
  * A cancelled or failed run cannot produce a new checkpoint.
  * A failed advance leaves its phase readable as FAILED. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_advance_v1(
+    void* run,uint32_t* phase,char* error,size_t capacity);
+/* Advance one complete SIMPLE step, thermal block, or controller transition.
+ * Coarse bootstrap stays atomic before its fine SIMPLE boundary.
+ * The same owner serves both advance entries. All active phases can be saved. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_advance_step_v1(
     void* run,uint32_t* phase,char* error,size_t capacity);
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_phase_v1(const void* run,uint32_t* phase);
 /* Snapshot fields are independent of the run. Copy or persist them before

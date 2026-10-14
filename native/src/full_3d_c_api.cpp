@@ -480,6 +480,12 @@ int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_phase_v1(const void* run,uint32_t* ph
     if(!run || !phase)return 1;
     *phase=static_cast<uint32_t>(static_cast<const RunOwner*>(run)->run->phase());return 0;
 }
+int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_advance_step_v1(void* run,uint32_t* phase,char* error,size_t capacity) {
+    return guarded_run([&] {
+        if(!run || !phase)throw std::invalid_argument("null full 3D step argument");
+        *phase=static_cast<uint32_t>(static_cast<RunOwner*>(run)->run->advance_step());
+    },error,capacity);
+}
 int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_snapshot_v1(
     const void* run,tpmshx_run_state_v1* state,char* error,size_t capacity) {
     return guarded_run([&] {

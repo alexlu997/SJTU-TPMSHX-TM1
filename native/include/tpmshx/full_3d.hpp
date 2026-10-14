@@ -191,9 +191,26 @@ struct Full3DResult {
     std::array<std::optional<OuterAndersonStats>,2> anderson;
 };
 
-enum class Full3DPhase { created, outer_boundary, ready_to_finish, completed, cancelled, failed };
+enum class Full3DPhase {
+    created, outer_boundary, ready_to_finish, completed, cancelled, failed,
+    initial_flow_a, initial_flow_b, thermal_boundary, post_flow_a, post_flow_b
+};
 
-// Independent state at initialization or a completed outer-step boundary.
+struct Full3DThermalRunState {
+    Full3DThermalEvidence evidence;
+    Full3DOuterRecord record;
+    std::array<std::vector<double>,3> initial;
+    std::size_t budget=0,remaining=0;
+    // Shared physical fields stay in the full owner. These component copies
+    // retain only their distinct iteration history and work state.
+    std::optional<ModelHRunState2D> model_h_2d;
+    std::optional<ModelHRunState3D> model_h_3d;
+    std::optional<StaggeredTemperatureRunState> staggered;
+    std::optional<TemperatureRunState> legacy;
+    std::optional<EnthalpyRunState> enthalpy;
+};
+
+// Independent state at a complete numerical step or outer boundary.
 struct Full3DRunState {
     Full3DPhase phase=Full3DPhase::outer_boundary;
     Full3DResult result;
@@ -203,6 +220,9 @@ struct Full3DRunState {
     std::array<std::vector<double>,3> temperature,previous;
     std::array<std::optional<Simple3DOwnerState>,2> simple;
     std::array<std::optional<OuterAndersonState>,2> anderson;
+    std::optional<SimpleF2State> flow_convergence;
+    std::optional<Simple3DResult> flow_iteration;
+    std::optional<Full3DThermalRunState> thermal;
 };
 
 // Prepared input arrays remain immutable and live until release.
@@ -216,6 +236,8 @@ public:
     Full3DRun& operator=(const Full3DRun&)=delete;
     // Complete initialization, one outer step, or final result capture.
     Full3DPhase advance();
+    // Complete one SIMPLE step, thermal block, or controller transition.
+    Full3DPhase advance_step();
     Full3DPhase phase() const;
     Full3DRunState snapshot() const;
     Full3DResult take_result();
