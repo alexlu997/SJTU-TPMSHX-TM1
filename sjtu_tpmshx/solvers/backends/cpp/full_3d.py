@@ -23,7 +23,7 @@ from .model_h import _Result as _ModelResult, _volume_info, _model_h_algorithm
 from .temperature import _temperature_algorithm
 from .temperature_evidence import TemperatureEvidence, copy_temperature_evidence
 from .enthalpy import _Result as _EnthalpyResult
-from .enthalpy import (_EnergyOptions, _EnergyResult, _energy_options,
+from .enthalpy import (_EnergyOptions, _EnergyOptionsV2, _EnergyResult, _energy_options,
                        _energy_algorithm_query, _energy_result_info, _energy_native_state,
                        _FullEnergyEffectiveSettings, _full_enthalpy_defaults, _full_enthalpy_info)
 from .closure_evidence import NuObservation, RangeObservation, copy_nu_observation, copy_range_observations, replay_range_observations, last_range_query, copy_last_ranges
@@ -168,12 +168,6 @@ class _EnergyEvidence(ct.Structure):
     _fields_ = [('available', ct.c_uint32), ('energy', _EnergyResult),
                 ('actual_conductivity', _Array * 2), ('boundary_power', (_Array * 6) * 2),
                 ('outer', ct.POINTER(_EnergyResult)), ('outer_count', ct.c_size_t)]
-
-
-class _EnergyOptionsV2(ct.Structure):
-    _fields_ = [('algorithm', ct.c_uint32), ('temperature_update_tolerance', ct.c_double),
-                ('coupled_energy_tolerance', ct.c_double), ('equation_energy_tolerance', ct.c_double),
-                ('require_enthalpy_update_on_temperature', ct.c_uint32)]
 
 
 def _copy(v, shape=None):

@@ -19,7 +19,7 @@ from .simple_2d import _Result as _SimpleResult, _result_dict
 from .model_h import _Array, _Result as _ModelResult, _plane_info, _model_h_algorithm
 from .temperature_evidence import TemperatureEvidence2D, copy_temperature_evidence
 from .enthalpy import _Result as _EnthalpyResult
-from .enthalpy import (_EnergyOptions, _EnergyResult, _energy_options,
+from .enthalpy import (_EnergyOptions, _EnergyOptionsV2, _EnergyResult, _energy_options,
                        _energy_algorithm_query, _energy_result_info, _energy_native_state,
                        _FullEnergyEffectiveSettings, _full_enthalpy_defaults, _full_enthalpy_info,
                        _executed_energy_settings)
@@ -48,6 +48,12 @@ class _Config(ct.Structure):
     _fields_ += [(n, ct.c_double) for n in ('outer_temperature_tolerance', 'outer_density_tolerance',
         'outer_relaxation', 'thermal_q_tolerance', 'enthalpy_update_tolerance')]
     _fields_ += [('envelope_mode', ct.c_char_p), ('table_directory', ct.c_char_p)]
+
+
+class _EnergyControl(ct.Structure):
+    _fields_ = [('max_iterations', ct.c_size_t), ('sweeps', ct.c_size_t),
+                ('omega', ct.c_double), ('update_tolerance', ct.c_double),
+                ('energy', _EnergyOptionsV2)]
 
 
 class _Pressure(ct.Structure):
@@ -256,25 +262,57 @@ class NativeFull2DDriver:
         control.check_cancelled()
         shape, arrays, config = _pack(cfg, prepared, self.table_directory, self.library)
         solver = cfg['compute_cfg'].solver
+        energy_control = None
+        names = ('ltne_enthalpy_outer', 'ltne_enthalpy_nsweep', 'ltne_enthalpy_omega',
+                 'ltne_enthalpy_tol', 'ltne_enthalpy_coupled_energy_tol', 'ltne_enthalpy_equation_energy_tol')
+        if solver.require_enthalpy_update_on_temperature or any(getattr(solver, name) is not None for name in names):
+            if config.thermal_mode != 2:
+                raise ValueError('explicit full 2D energy controls require the existing true-h route')
+            energy = _energy_options(solver.enthalpy_algorithm, solver.enthalpy_temperature_tol_K)
+            defaults = _full_enthalpy_defaults(self.library, 2, energy.algorithm,
+                                               any(side.fluid == 1 for side in config.sides))
+            values = [getattr(solver, name) if getattr(solver, name) is not None else getattr(defaults, field)
+                      for name, field in zip(names, ('max_iterations', 'sweeps', 'omega', 'update_tolerance',
+                                                    'coupled_energy_tolerance', 'equation_energy_tolerance'))]
+            energy_control = _EnergyControl(*values[:4], _EnergyOptionsV2(
+                energy.algorithm, energy.temperature_update_tolerance, *values[4:],
+                solver.require_enthalpy_update_on_temperature))
         return self.solve(shape, arrays, config, control, energy_algorithm=solver.enthalpy_algorithm,
-                          temperature_update_tolerance=solver.enthalpy_temperature_tol_K)
+                          temperature_update_tolerance=solver.enthalpy_temperature_tol_K,
+                          energy_control=energy_control)
 
     def solve(self, shape, arrays, config, control=RunControl(), *,
-              energy_algorithm='legacy_h_fou', temperature_update_tolerance=1e-8):
+              energy_algorithm='legacy_h_fou', temperature_update_tolerance=1e-8, energy_control=None):
         """Synchronous C call; detach all views before releasing their sole owner."""
         if len(shape) != 2 or len(arrays) != 29:
             raise ValueError('full 2D requires two extents and 29 prepared arrays')
         energy = _energy_options(energy_algorithm, temperature_update_tolerance)
+        if energy_control is not None:
+            energy = energy_control.energy
         energy_call = energy_query = version_query = None
-        if energy.algorithm:
+        entry_version = 2
+        if energy_control is not None:
+            try:
+                energy_call = self.library.tpmshx_solve_full_2d_v4
+            except AttributeError as exc:
+                raise ValueError('native full 2D library lacks explicit energy controls v4') from exc
+            energy_call.argtypes = [*self.call.argtypes[:4], ct.POINTER(_EnergyControl), *self.call.argtypes[4:]]
+            energy_call.restype = ct.c_int
+            entry_version = 4
+        elif energy.algorithm:
             try:
                 energy_call = self.library.tpmshx_solve_full_2d_v3
-                energy_query = self.library.tpmshx_full_2d_get_energy_evidence_v1
             except AttributeError as exc:
                 raise ValueError('native full 2D library lacks conservative energy v3') from exc
-            version_query = _energy_algorithm_query(self.library)
             energy_call.argtypes = [*self.call.argtypes[:4], ct.POINTER(_EnergyOptions), *self.call.argtypes[4:]]
             energy_call.restype = ct.c_int
+            entry_version = 3
+        if energy.algorithm:
+            try:
+                energy_query = self.library.tpmshx_full_2d_get_energy_evidence_v1
+            except AttributeError as exc:
+                raise ValueError(f'native full 2D library lacks conservative energy v{entry_version}') from exc
+            version_query = _energy_algorithm_query(self.library)
             energy_query.argtypes = [ct.POINTER(_Result), ct.POINTER(_EnergyEvidence)]
             energy_query.restype = ct.c_int
         arrays = [np.require(np.asarray(x, dtype=np.float64), requirements=['C', 'A']) for x in arrays]
@@ -321,7 +359,8 @@ class NativeFull2DDriver:
         try:
             args = ((ct.c_size_t*2)(*shape), pointers, sizes, ct.byref(config))
             tail = (ct.byref(callbacks), ct.byref(result), error, len(error))
-            status = (energy_call(*args, ct.byref(energy), *tail) if energy_call else self.call(*args, *tail))
+            options = energy_control if energy_control is not None else energy
+            status = (energy_call(*args, ct.byref(options), *tail) if energy_call else self.call(*args, *tail))
             if errors:
                 raise errors[0]
             if status:
@@ -334,7 +373,6 @@ class NativeFull2DDriver:
                 raise RuntimeError('native full 2D effective settings query failed')
             if actual.outer_count != result.outer_history_count:
                 raise RuntimeError('native full 2D effective settings do not match the thermal history')
-            entry_version = 3 if energy_call else 2
             out = {name: bool(getattr(result, name)) for name in (*_FLAGS, *_FINE_FLAGS)}
             out.update(iterations=result.iterations, flow=[_flow(f, shape) for f in result.flow],
                        main=_thermal(result.main, actual.last, entry_version),
@@ -373,14 +411,14 @@ class NativeFull2DDriver:
                     raise RuntimeError('native full 2D energy evidence does not match the thermal history')
                 info = out['main']['true_h']
                 _energy_result_info(info, extra.main.energy,
-                    temperature_tol=actual.last.temperature_update_tolerance, abi=3, version_query=version_query)
+                    temperature_tol=actual.last.temperature_update_tolerance, abi=entry_version, version_query=version_query)
                 _energy_native_state(info, extra.main, (*shape, 1), 'W/m')
                 out['main']['mode'] = 'conservative_energy'
                 if out['fine'] is not None:
                     raise RuntimeError('native conservative energy unexpectedly returned Richardson evidence')
                 for index, row in enumerate(out['outer_history']):
                     _energy_result_info(row['energy_info'], extra.outer[index],
-                        temperature_tol=actual.outer[index].temperature_update_tolerance, abi=3,
+                        temperature_tol=actual.outer[index].temperature_update_tolerance, abi=entry_version,
                         version_query=version_query)
             if out['main']['mode'] == 'temperature':
                 query = self.library.tpmshx_full_2d_get_model_enthalpy_evidence_v1

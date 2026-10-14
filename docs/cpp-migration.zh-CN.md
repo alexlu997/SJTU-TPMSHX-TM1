@@ -102,11 +102,18 @@ SOU recipe 2 在该阻尼普通映射上使用六样本 Anderson 候选。选择
 
 完整三维候选也支持 `port_wall_refine` 生成的非均匀张量网格，覆盖完整和部分开口。计算使用实际单元宽度及端口面质量流量。model-h 的端口能量标志不改变此 true-h 路径。此支持不改变已保存算法、默认值或验收门。
 
-完整驱动保留原 SIMPLE、压力、物性、外耦合和最终验收门。full 3D 还保留两次温度预测 sweep 和原质量准备。候选 recipe 每个非线性步使用五次 sweep。FOU/SOU 流体松弛分别为 .6/.2，固体松弛分别为 .6/1。full 3D 在准备态 Case 中保存已解析控制量；二维 recipe 由算法版本固定。两者保留原迭代预算，并要求真实耦合／方程能量比不大于 .001，同时满足声明的温度更新容差。原生结果记录实际整块 Picard 松弛：FOU 为 1，SOU 为 0.6；它与流体及固体行松弛分开。
+完整驱动保留原 SIMPLE、压力、物性、外耦合和最终验收门。full 3D 还保留两次温度预测 sweep 和原质量准备。候选 recipe 每个非线性步使用五次 sweep。FOU/SOU 流体松弛分别为 .6/.2，固体松弛分别为 .6/1。full 3D 在准备态 Case 中保存已解析控制量；二维未设置控制量时采用对应算法版本的 recipe。默认设置下，两者保留原迭代预算，并要求真实耦合／方程能量比不大于 .001，同时满足声明的温度更新容差。原生结果记录实际整块 Picard 松弛：FOU 为 1，SOU 为 0.6；它与流体及固体行松弛分开。
 
 `tpmshx_solve_full_2d_v3` 和 `tpmshx_solve_full_3d_v2` 接受共享 `tpmshx_energy_options_v1`，保留旧结果 POD 和释放函数。对应 `get_energy_evidence_v1` 查询借用同一所有者，不执行求解。它提供实际算法／温度更新、最终 epsilon×HEOS 导热率、六个向外有符号焓功率面，以及逐外步标量身份。旧入口仍可用，数值行为不变。
 
-Python 绑定在释放前复制查询视图，并记录 `backend_version=full_2d_v3` 或 `full_3d_v2`。候选结果采用可移植 `thermal_mode=conservative_energy`。`boundary_fluxes.true_h` 包含既有真实 h、入口 h、质量数组，以及算法／版本、六面 `boundary_power`、W/m 或 W 单位和完整性标志。各侧热负荷为 `-sum(boundary_power)`。
+显式控制使用 `tpmshx_solve_full_2d_v4` 或 `tpmshx_solve_full_3d_v3`。
+两者接受同一组已持久化的 EOS 迭代、扫掠、松弛与收敛设置。
+二维 v4 控制块还包含 `tpmshx_energy_options_v2`。
+它覆盖 `config_v2` 中的两个热控制值，其他值保持原含义。
+现有实际执行设置查询记录每次热调用使用的控制参数。
+公共 Python 二维与积分 model-h 路径在流场执行前拒绝这些 EOS 专用设置。
+
+Python 绑定在释放前复制查询视图。默认控制记录 `backend_version=full_2d_v3` 或 `full_3d_v2`。显式控制使用 `full_2d_v4` 或 `full_3d_v3`。候选结果采用可移植 `thermal_mode=conservative_energy`。`boundary_fluxes.true_h` 包含既有真实 h、入口 h、质量数组，以及算法／版本、六面 `boundary_power`、W/m 或 W 单位和完整性标志。各侧热负荷为 `-sum(boundary_power)`。
 
 SOU 在出口面重构物理焓，因此旧 FOU 单元焓归约不能提供该热量。面证据缺失或无效时指标不可用，不进行替代重构。最终流动更新后的压力和速度，与已接受或限预算的最后热状态保持区分。二维候选保留 true-h 单位深度约定，不生成 Richardson 证据。
 

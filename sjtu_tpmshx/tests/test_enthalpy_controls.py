@@ -1,4 +1,4 @@
-"""Persisted strict full-3D controls must reach preparation without substitution."""
+"""Persisted strict full-compute controls must reach preparation without substitution."""
 import pytest
 
 from sjtu_tpmshx.domain.compute_config import ComputeConfig
@@ -59,8 +59,13 @@ def test_invalid_control_is_rejected_before_preparation(key, value):
         cfg.validate_static_inputs()
 
 
-def test_explicit_three_dimensional_controls_are_not_silently_ignored_in_2d():
+@pytest.mark.parametrize('algorithm', ['legacy_h_fou', 'temperature_fou', 'temperature_sou'])
+def test_two_dimensional_controls_survive_serialization(algorithm):
     cfg = ComputeConfig()
-    cfg.solver.ltne_enthalpy_coupled_energy_tol = 1e-5
-    with pytest.raises(ValueError, match='full 3D'):
-        cfg.validate_static_inputs()
+    cfg.solver.enthalpy_algorithm = algorithm
+    for key, value in STRICT.items():
+        setattr(cfg.solver, key, value)
+    cfg.validate_static_inputs()
+    restored = ComputeConfig.from_dict(cfg.to_dict())
+    assert not restored.is_3d
+    assert {key: getattr(restored.solver, key) for key in STRICT} == STRICT

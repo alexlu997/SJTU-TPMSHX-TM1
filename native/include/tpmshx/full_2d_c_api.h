@@ -159,6 +159,20 @@ typedef struct {
     /* Outward signed W/m, x-,x+,y-,y+,z-,z+; singleton-z boundary planes. */
     tpmshx_model_h_array_v1 boundary_power[2][6];
 } tpmshx_full_2d_energy_state_v1;
+/* Explicit EOS controls for v4. These replace the thermal iteration and
+ * enthalpy-update fields in config_v2. Other config fields keep their meaning. */
+typedef struct {
+    size_t max_iterations,sweeps;
+    double omega,update_tolerance;
+    tpmshx_energy_options_v2 energy;
+} tpmshx_full_2d_energy_control_v4;
+/* Requires the two-sided true-h route. Existing v2/v3 defaults are unchanged.
+ * Buffers, status and result ownership follow v2. Release with release_v2. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v4(
+    const size_t* shape,const double* const* arrays,const size_t* sizes,
+    const tpmshx_full_2d_config_v2* config,const tpmshx_full_2d_energy_control_v4* energy,
+    const tpmshx_full_2d_callbacks_v2* callbacks,
+    tpmshx_full_2d_result_v2* result,char* error,size_t error_capacity);
 typedef struct {
     tpmshx_full_2d_energy_state_v1 main,fine;
     const tpmshx_energy_result_v1* outer;
