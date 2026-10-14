@@ -218,6 +218,8 @@ def capture_result(case, cfg, prepared, native):
     evidence.update(input_resolution=cfg['_input_resolution'], property_sampling=native['property_sampling'])
     result = _capture_result(case, display_fields, evidence, application, diagnostics, backend_id='cpp',
                              backend_version=f"full_2d_v{native.get('entry_version', 2)}")
+    if 'continuation' in native:
+        result = replace(result, metadata=dict(result.metadata, continuation=native['continuation']))
     if 'native_metadata' in native:
         result = replace(result, metadata=dict(result.metadata, native=native['native_metadata']))
     return replace(result, metadata=dict(result.metadata, _last_closure_ranges=native['last_closure_ranges'],
