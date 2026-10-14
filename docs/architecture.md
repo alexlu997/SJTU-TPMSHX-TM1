@@ -219,7 +219,7 @@ The unresolved joint sCO2 P/T/Pr and wall heating or cooling scope remains unver
 Quick Design and historical records without the required evidence do not gain full design eligibility.
 Experimental, mesh-accuracy and desktop acceptance remain separate from this result verdict.
 
-GUI summaries, history, CLI output and exports retain the same conclusion.
+GUI summaries, history, CLI output, exports and full-compute measurements retain the same conclusion.
 CLI exit codes retain their stage-success meaning; read the design state separately.
 Optimization recomputes the common verdict from the supplied native result and metrics.
 A failed or unverified baseline or candidate cannot produce objectives.

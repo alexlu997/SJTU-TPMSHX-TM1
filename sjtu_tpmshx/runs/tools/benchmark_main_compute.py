@@ -233,17 +233,15 @@ def run_one(job, output, *, sample_kind, control=RunControl()):
                 row['mass_flow_comparison'][side] = dict(actual_kg_s=observed, expected_kg_s=expected,
                     metric_status=flow.status, reason=flow.reason,
                     relative_error=None if observed is None or expected is None else observed / expected - 1)
-            row['software_qualified'] = bool(native.run_status['converged']
-                and display.diagnostics.get('envelope_valid', True)
-                and (row['convergence_detail'] or {}).get('outer_converged', True) and all(
-                performance.metrics[key].status == 'available' for key in ('Q', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B')))
+            row['qualification'] = performance.qualification
             required_flows = [flow for flow in row['mass_flow_comparison'].values()
                               if flow['expected_kg_s'] is not None]
             row['input_flow_check'] = dict(relative_tolerance=FLOW_REL_TOL,
                 status=('not_requested' if not required_flows else 'passed' if all(
                     flow['relative_error'] is not None and abs(flow['relative_error']) <= FLOW_REL_TOL
                     for flow in required_flows) else 'failed'))
-            row['qualified_for_performance'] = row['software_qualified'] and row['input_flow_check']['status'] != 'failed'
+            row['qualified_for_performance'] = (performance.qualification.get('design', {}).get('eligible') is True
+                and row['input_flow_check']['status'] != 'failed')
             timed('write_case', save_case, case, target / 'case.h5')
             timed('write_result', save_result, native, target / 'result.h5')
             timed('write_metrics', save_metrics, performance, target / 'metrics.json')

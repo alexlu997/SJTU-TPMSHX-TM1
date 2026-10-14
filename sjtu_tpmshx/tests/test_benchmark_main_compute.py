@@ -14,9 +14,10 @@ from sjtu_tpmshx.runs.tools import benchmark_main_compute as benchmark
 from sjtu_tpmshx.tests.io_tm1.test_case_io import sample_case
 
 
-@pytest.mark.parametrize('failure', ['save_result', 'load_result'])
+@pytest.mark.parametrize('failure', [None, 'save_result', 'load_result'])
+@pytest.mark.parametrize('eligible', [True, False, None])
 @pytest.mark.parametrize('backend', ['python', 'cpp'])
-def test_file_failure_disqualifies_sample_but_preserves_solve_status(tmp_path, monkeypatch, failure, backend):
+def test_sample_uses_common_verdict_and_keeps_file_failures(tmp_path, monkeypatch, failure, backend, eligible):
     from sjtu_tpmshx.preprocess import api as preparation
     from sjtu_tpmshx.solvers import api as solving
     from sjtu_tpmshx.postprocess import api as evaluation
@@ -35,7 +36,9 @@ def test_file_failure_disqualifies_sample_but_preserves_solve_status(tmp_path, m
         ('Q', 'W/m'), ('dP_A', 'Pa'), ('dP_B', 'Pa'), ('T_out_A', 'K'),
         ('T_out_B', 'K'), ('mass_flow_A', 'kg/(m s)'), ('mass_flow_B', 'kg/(m s)'))}
     monkeypatch.setattr(evaluation, 'evaluate', lambda result:
-                        PerformanceResult('metrics', result.result_id, metrics))
+                        PerformanceResult('metrics', result.result_id, metrics,
+                            dict(definition='result_qualification_v1', source_result_id=result.result_id,
+                                 design=dict(eligible=eligible))))
     monkeypatch.setattr(module_adapter, 'to_compute_result', lambda *args: SimpleNamespace(
         Q_W=1., dP_A_Pa=1., dP_B_Pa=1., T_out_A_K=1., T_out_B_K=1.,
         diagnostics={'envelope_valid': True}, residuals={}, warnings=[]))
@@ -46,13 +49,17 @@ def test_file_failure_disqualifies_sample_but_preserves_solve_status(tmp_path, m
     monkeypatch.setattr(benchmark, 'observe_solver', observe)
     def fail(*args):
         raise OSError(f'{failure} denied')
-    monkeypatch.setattr(result_io, failure, fail)
+    if failure is not None:
+        monkeypatch.setattr(result_io, failure, fail)
     row = benchmark.run_one({'id': 'file-failure', 'config': {}}, tmp_path,
                             sample_kind='synthetic-check', control=control)
-    assert row['message'] == f'{failure} denied'
-    assert row['software_qualified'] is True
-    assert row['execution'] == 'failed'
+    if failure is not None:
+        assert row['message'] == f'{failure} denied'
+    assert row['qualification']['design']['eligible'] is eligible
+    assert row['run_status']['converged'] is True
+    assert row['execution'] == ('failed' if failure else 'completed')
     saved = json.loads((tmp_path / row['run_id'] / 'measurement.json').read_text())
     assert 'optimizer' not in saved['config']
-    assert saved['qualified_for_performance'] is False
+    assert saved['qualified_for_performance'] is (failure is None and eligible is True)
+    assert saved['qualification']['design']['eligible'] is eligible
     assert saved['backend'] == backend
