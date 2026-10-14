@@ -735,7 +735,9 @@ def _model_h_balance(Ta, Tb, Ts, K_A, K_B, K_s, hv_A, hv_B, dx, dy,
     def boundaries(face):
         return (-face[0][0], face[0][-1], -face[1][:, 0], face[1][:, -1])
 
+    from .physical_ledger import FACE_NAMES, boundary_zeros, heat_ledger
     sides = {}
+    advection, diffusion = [], []
     residuals = []
     defects = []
     exchanges = []
@@ -757,6 +759,11 @@ def _model_h_balance(Ta, Tb, Ts, K_A, K_B, K_s, hv_A, hv_B, dx, dy,
         residual[inlet] += diffusion_in
         outward_mass = boundaries(mass)
         outward_h = boundaries(flux)
+        adv, diff = boundary_zeros(T.shape), boundary_zeros(T.shape)
+        adv.update({name: face[:, None] for name, face in zip(FACE_NAMES, outward_h)})
+        diff[FACE_NAMES[direction]] = -diffusion_in[:, None]
+        advection.append(adv)
+        diffusion.append(diff)
         unknown = sum(int(np.count_nonzero((m < 0) & (frac <= 0))) if f == direction
                       else int(np.count_nonzero(m < 0)) for f, m in enumerate(outward_mass))
         q = -sum(float(f.sum()) for f in outward_h)
@@ -801,6 +808,7 @@ def _model_h_balance(Ta, Tb, Ts, K_A, K_B, K_s, hv_A, hv_B, dx, dy,
     equations_ok = bool(finite and complete and solid_cellmax <= .01
                         and all(s['residual_cellmax_rel'] <= .01 for s in sides.values()))
     return dict(
+        _physical_ledger=heat_ledger((*residuals, solid), advection, diffusion, (0., 0., 0.), complete),
         units='W/m; kg/(s m)', state='raw final thermal return',
         boundary_order=['-x', '+x', '-y', '+y'], A=sides['A'], B=sides['B'],
         sou_A=True, sou_B=bool(sou_B), cell_count=int(Ta.size),
@@ -1123,6 +1131,7 @@ def solve_full_domain(L, H, Nx, Ny,
         if model_fluids is not None:
             info['model_h_balance'] = (model_balance if model_balance is not None
                                        else current_model_balance())
+            info['physical_ledger'] = info['model_h_balance'].pop('_physical_ledger')
             info['energy_finishing_checks'] = energy_checks
             info['model_h_balance'].update(
                 thermal_converged=bool(converged), thermal_iterations=int(done),

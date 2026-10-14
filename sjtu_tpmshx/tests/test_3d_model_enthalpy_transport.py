@@ -386,7 +386,8 @@ def test_model_h_finishing_uses_existing_energy_gates_within_budget(
 
     def balance(*args):
         fail_cell = mode in ('cell_stall', 'mms') or (mode == 'recover' and len(calls) == 2)
-        return dict(physical_boundary_complete=mode != 'boundary', _native_faces={}, sides={
+        return dict(physical_boundary_complete=mode != 'boundary', _native_faces={},
+            _physical_ledger=None, sides={
             side: dict(residual_sum_W=0., residual_max_abs_W=1. if fail_cell else 0.,
                        strict_normalization_W=100.,
                        fluid_solid_exchange_to_fluid_W=value)

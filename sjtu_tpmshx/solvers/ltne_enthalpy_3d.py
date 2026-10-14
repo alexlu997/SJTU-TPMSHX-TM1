@@ -329,7 +329,8 @@ def _conduction_source(T, conductivity, dx, dy, dz):
     return residual
 
 
-def _fluid_energy_residual(h, T, Ts, hv, conductivity, mass_flux, h_in, dx, dy, dz):
+def _fluid_energy_residual(h, T, Ts, hv, conductivity, mass_flux, h_in, dx, dy, dz,
+                           boundary_power=None):
     """Unrelaxed physical energy residual: conduction + exchange - div(m*h)."""
     volume = dx[:, None, None] * dy[None, :, None] * dz[None, None, :]
     residual = _conduction_source(T, conductivity, dx, dy, dz) + hv * (Ts - T) * volume
@@ -343,16 +344,22 @@ def _fluid_energy_residual(h, T, Ts, hv, conductivity, mass_flux, h_in, dx, dy, 
         downstream = np.pad(h, pads, constant_values=h_in)
         flux = mass * np.where(mass >= 0., upstream, downstream)
         residual -= np.diff(flux, axis=axis)
+        if boundary_power is not None:
+            boundary_power['xyz'[axis] + '-'] = -np.take(flux, 0, axis=axis)
+            boundary_power['xyz'[axis] + '+'] = np.take(flux, -1, axis=axis)
     if not np.all(np.isfinite(residual)):
         raise FloatingPointError('Non-finite fluid energy residual')
     return residual
 
 
-def _coupled_energy_balance(Ta, Tb, Ts, hvA, hvB, Kss, dx, dy, dz, q_A, q_B):
+def _coupled_energy_balance(Ta, Tb, Ts, hvA, hvB, Kss, dx, dy, dz, q_A, q_B,
+                            residual_fields=None):
     """Adiabatic solid CV residuals at the final EOS state; W (W/m in 2D)."""
     volume = dx[:, None, None] * dy[None, :, None] * dz[None, None, :]
     residual = ((hvA * (Ta - Ts) + hvB * (Tb - Ts)) * volume
                 + _conduction_source(Ts, Kss, dx, dy, dz))
+    if residual_fields is not None:
+        residual_fields['solid'] = residual
     net = q_A + q_B
     solid_abs = float(np.abs(residual).sum())
     # Check each operand before max: max(finite, NaN) can hide NaN.
@@ -524,17 +531,23 @@ def solve_ltne_enthalpy_3d_pipeline(Nx, Ny, Nz, dx, dy, dz, eps_arr, K_ss,
                 Ta = _T_of_h_field(hA, P_A_field, fluid_A, where='enthalpy final EOS return A')
                 Tb = _T_of_h_field(hB, P_B_field, fluid_B, where='enthalpy final EOS return B')
                 check_finite_temperatures(Ta, Tb, Ts, where='enthalpy final return')
+                residual_fields = {}
                 coupled = _coupled_energy_balance(
-                    Ta, Tb, Ts, hvA_fld, hvB_fld, Kss, dx, dy, dz, q_A, q_B)
+                    Ta, Tb, Ts, hvA_fld, hvB_fld, Kss, dx, dy, dz, q_A, q_B, residual_fields)
                 if coupled_energy_tol is not None:
                     converged = converged and coupled['ratio'] <= coupled_energy_tol
                 if equation_energy_tol is not None:
+                    from .physical_ledger import boundary_zeros, heat_ledger
+                    advection = [{}, {}]
                     residuals = [
                         _fluid_energy_residual(h, T, Ts, hv, eps_side *
-                            _prop_field('L', T, pressure, fluid), faces, hin, dx, dy, dz)
-                        for h, T, hv, eps_side, pressure, fluid, faces, hin in (
+                            _prop_field('L', T, pressure, fluid), faces, hin, dx, dy, dz, power)
+                        for power, (h, T, hv, eps_side, pressure, fluid, faces, hin) in zip(advection, (
                             (hA, Ta, hvA_fld, epsA, P_A_field, fluid_A, flux_A, h_in_A),
-                            (hB, Tb, hvB_fld, epsB, P_B_field, fluid_B, flux_B, h_in_B))]
+                            (hB, Tb, hvB_fld, epsB, P_B_field, fluid_B, flux_B, h_in_B)))]
+                    physical_ledger = heat_ledger(
+                        (*residuals, residual_fields['solid']), advection,
+                        (boundary_zeros(shape), boundary_zeros(shape)), (0., 0., 0.), None)
                     fluid_abs = [float(np.abs(r).sum()) for r in residuals]
                     equation_ratio = max(*fluid_abs, coupled['solid_abs_sum'],
                                          abs(coupled['net'])) / coupled['denominator']
@@ -582,4 +595,5 @@ def solve_ltne_enthalpy_3d_pipeline(Nx, Ny, Nz, dx, dy, dz, eps_arr, K_ss,
         info['coupled_energy_balance'] = coupled
     if equations is not None:
         info['equation_energy_balance'] = equations
+        info['physical_ledger'] = physical_ledger
     return Ta, Tb, Ts, info

@@ -2,6 +2,7 @@
 
 #include "tpmshx/enthalpy_eos.hpp"
 #include "tpmshx/enthalpy_sweeps.hpp"
+#include "tpmshx/conservative_energy.hpp"
 
 #include <array>
 #include <optional>
@@ -82,6 +83,8 @@ struct EnthalpyResult {
 // finishing gates are inside this call. Inlet h uses scalar inlet pressure;
 // cell EOS uses the supplied local pressure. A failed final exact-EOS audit
 // continues permanently with HEOS within the same original iteration budget.
+// The optional ledger retains a completed full equation audit. It stays
+// untouched on cancellation or when the equation audit was not requested.
 // Caller-owned arrays are borrowed and non-aliasing. An exception invalidates
 // partially updated output fields; cancelled output is not a completed solve.
 // The explicit T algorithms use guarded HEOS PT updates, unbounded T sweeps,
@@ -95,6 +98,7 @@ struct EnthalpyResult {
 // that map; only a complete ordinary block may declare final convergence.
 EnthalpyResult solve_enthalpy(const GridView& grid, const EnthalpySideView& a,
                              const EnthalpySideView& b, ArrayView<const double> k_ss,
-                             EnthalpyStateView state, const EnthalpyControl& control);
+                             EnthalpyStateView state, const EnthalpyControl& control,
+                             PhysicalHeatLedger* physical_audit = nullptr);
 
 }  // namespace tpmshx

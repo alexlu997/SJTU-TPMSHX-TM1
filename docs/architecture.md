@@ -148,6 +148,33 @@ Manufactured-source tests keep their stopping rule because their external
 sources do not obey the source-free LTNE exchange balance. See [capabilities](capabilities.en.md), [model applicability](model-resources.en.md)
 and [data provenance](data-catalog.en.md) for the separate physical scope.
 
+## Physical balance evidence
+
+Full results retain available physical heat audits under `boundary_fluxes.energy`.
+The record version is `physical_heat_ledger_v1`. The existing
+`boundary_fluxes.temperature` record provides the same arrays for its declared transport.
+These records retain signed outward advection and diffusion, source integrals,
+phase residuals, solved-phase flags and prescribed-B reservoir power.
+Residuals use physical RHS minus diagonal times state.
+Units are W/m for 2D and W for 3D. The last thermal state stays separate from later flow updates.
+The refined 2D thermal audit stays under `boundary_fluxes.fine`.
+
+`postprocess.api.evaluate_physical_balance` reads this evidence without solver or EOS calls.
+It returns mass inflow, outflow and divergence, phase residual norms, signed external power,
+and the difference between summed residuals and external power.
+Its diagnostic power scale is the maximum absolute phase net boundary power,
+phase source integral, prescribed reservoir power and one native power unit.
+The output retains this scale and its definition. It does not replace any existing route's acceptance denominator or tolerance.
+An available audit does not establish convergence, applicability or design acceptance.
+
+Native queries borrow arrays from the existing full-result owner.
+The bindings copy these arrays before release. Missing or released owners return an error.
+Cancelled results and routes without a complete captured audit report unavailable evidence.
+True-h retains a ledger only when the existing final audit computed all phase equations.
+The kept Python model-h and true-h paths copy their existing audit results.
+Python capacity-temperature paths without a full face audit remain unavailable.
+Historical files keep missing evidence as missing; the reader does not create a zero balance.
+
 ## Runtime flow
 
 ```text

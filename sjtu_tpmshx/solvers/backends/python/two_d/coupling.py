@@ -394,7 +394,8 @@ def _compute_Q_richardson(
                         ucA=ucA2, vcA=vcA2, ucB=ucB2, vcB=vcB2,
                         rho_cp_A=rcp_A2, rho_cp_B=rcp_B2, eps=eps2,
                         inlet_A=mA_in2, outlet_A=mA_out2, inlet_B=mB_in2, outlet_B=mB_out2,
-                        model_h_balance=refined_info.get('model_h_balance'))
+                        model_h_balance=refined_info.get('model_h_balance'),
+                        energy=refined_info.pop('physical_ledger', None))
     richardson_info = dict(refined_info, extrapolated=False)
     refined_ok = bool(refined_info['converged'] and all(
         np.all(np.isfinite(field)) for field in (Ta2, Tb2, Ts2)))
@@ -1437,6 +1438,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
         Ta=Ta_raw, Tb=Tb_raw, Ts=Ts_raw,
         P_report_A=np.array(P_fA, copy=True), P_report_B=np.array(P_fB, copy=True),
         fine=fine_evidence, true_h=state.e_info.get('_native_state'),
+        physical_ledger=state.e_info.pop('physical_ledger', None),
         model_h_balance=model_balance, mode=('true_h' if _enthalpy_mode else
                                             'model_h' if _model_h_mode else 'temperature'),
         split_A=float(_split_A_2d), rho_cp_A=None if _enthalpy_mode else rcp_A_energy,

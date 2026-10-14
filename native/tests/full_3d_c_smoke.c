@@ -74,6 +74,20 @@ int main(void) {
        || evidence.outer_count!=r.outer_count)return 14;
     for(size_t i=0;i<evidence.outer_count;++i)
         if(evidence.outer[i].algorithm!=TPMSHX_ENERGY_LEGACY_H_FOU || evidence.outer[i].has_temperature_update)return 14;
+    tpmshx_physical_heat_ledger_v1 heat={0};
+    if(tpmshx_full_3d_get_physical_heat_ledger_v1(&r,&heat)
+       || !heat.available || heat.physical_dimension!=3 || !heat.boundary_complete)return 33;
+    double residual=0.,external=heat.prescribed_b_power;
+    for(size_t phase=0;phase<3;++phase) {
+        if(!heat.solved[phase] || heat.residual[phase].size!=8)return 34;
+        external+=heat.source_integral[phase];
+        for(size_t i=0;i<8;++i)residual+=heat.residual[phase].data[i];
+        for(size_t face=0;face<6;++face) {
+            if(heat.advective_out[phase][face].size!=4 || heat.diffusive_out[phase][face].size!=4)return 34;
+            for(size_t i=0;i<4;++i)external-=heat.advective_out[phase][face].data[i]+heat.diffusive_out[phase][face].data[i];
+        }
+    }
+    if(fabs(residual-external)>1e-7)return 35;
     const tpmshx_energy_options_v2 original={TPMSHX_ENERGY_LEGACY_H_FOU,1e-8,.001,.001,0};
     tpmshx_full3d_energy_effective_settings_v1 settings={0};
     if(tpmshx_full_3d_get_energy_effective_settings_v1(&r,&settings)
@@ -90,6 +104,8 @@ int main(void) {
     eps[0]=.55;if(r.flow[0].epsilon.data[0]!=.6)return 5;eps[0]=.6;
     tpmshx_full_3d_release_v1(&r);tpmshx_full_3d_release_v1(&r);if(r.owner)return 6;
     if(tpmshx_full_3d_get_bootstrap_trace_v1(&r,0,&trace)!=1 || trace.selected!=99)return 11;
+    heat.available=99;
+    if(tpmshx_full_3d_get_physical_heat_ledger_v1(&r,&heat)!=1 || heat.available!=99)return 36;
     sampling.count=123;
     if(tpmshx_full_3d_get_property_sampling_v1(&r,&sampling)!=1 || sampling.count!=123)return 35;
     evidence.available=99;
@@ -118,6 +134,7 @@ int main(void) {
     tpmshx_full_3d_release_v1(&r); in.solve_b=1;
     c.coarse_bootstrap=1;
     if(tpmshx_solve_full_3d_v1(&in,&c,&cb,&r,error,sizeof error) || r.stop!=2 || r.converged)return 7;
+    if(tpmshx_full_3d_get_physical_heat_ledger_v1(&r,&heat) || heat.available)return 37;
     if(tpmshx_full_3d_get_property_sampling_v1(&r,&sampling) || sampling.count)return 35;
     if(tpmshx_full_3d_get_bootstrap_trace_v1(&r,0,&trace) || !trace.selected || strcmp(trace.decision,"cancelled")
        || trace.level_count || trace.started_cap_sum || trace.total_charged_iterations)return 12;
@@ -194,6 +211,8 @@ int main(void) {
         if(tpmshx_full_3d_get_energy_evidence_v1(&r,&evidence)
            || !evidence.available || !evidence.energy.has_temperature_update
            || evidence.energy.temperature_update>strict.temperature_update_tolerance)return 30;
+        if(tpmshx_full_3d_get_physical_heat_ledger_v1(&r,&heat) || !heat.available
+           || heat.physical_dimension!=3 || heat.residual[0].size!=8)return 38;
         strict.equation_energy_tolerance=2e-4;
         if(tpmshx_full_3d_get_energy_effective_settings_v1(&r,&settings)
            || settings.resolved.equation_energy_tolerance!=1e-5

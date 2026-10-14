@@ -14,6 +14,7 @@ from sjtu_tpmshx.models.fluid_props import WaterStateError
 from sjtu_tpmshx.models.grid import _port_overlap_1d, _port_fractions_1d
 from sjtu_tpmshx.solvers._solve_common import configure_convergence, F2Monitor
 from ._simple_abi import _F2
+from .physical_ledger import HeatLedger2D, heat_ledger_query, copy_heat_ledger
 from .simple_2d import _Result as _SimpleResult, _result_dict
 from .model_h import _Array, _Result as _ModelResult, _plane_info, _model_h_algorithm
 from .temperature_evidence import TemperatureEvidence2D, copy_temperature_evidence
@@ -247,6 +248,7 @@ class NativeFull2DDriver:
             raise ValueError('native full 2D library lacks executed settings; rebuild the library') from exc
         self.query_settings.argtypes = [ct.POINTER(_Result), ct.POINTER(_FullEnergyEffectiveSettings)]
         self.query_settings.restype = ct.c_int
+        self.query_heat_ledger = heat_ledger_query(self.library, 2, _Result)
         self.query_sampling = sampling_query(self.library, 2, _Result)
 
     def run_prepared(self, cfg, prepared, control=RunControl()):
@@ -389,6 +391,14 @@ class NativeFull2DDriver:
                 if out['fine'] is not None:
                     fine_shape = (len(out['fine']['dx']), len(out['fine']['dy']), 1)
                     out['fine']['temperature_evidence'] = copy_temperature_evidence(extra.fine, fine_shape, 2)
+            if 'temperature_evidence' not in out['main']:
+                ledger = HeatLedger2D()
+                if self.query_heat_ledger(ct.byref(result), ct.byref(ledger)):
+                    raise RuntimeError('native full 2D heat ledger query failed')
+                out['main']['physical_ledger'] = copy_heat_ledger(ledger.main, (*shape, 1), 2)
+                if out['fine'] is not None:
+                    fine_shape = (len(out['fine']['dx']), len(out['fine']['dy']), 1)
+                    out['fine']['physical_ledger'] = copy_heat_ledger(ledger.fine, fine_shape, 2)
             if out['main']['mode'] in ('model_h', 'temperature'):
                 algorithm = (_model_h_algorithm(self.library, 2) if out['main']['mode'] == 'model_h'
                              else out['main']['temperature_evidence']['algorithm'])

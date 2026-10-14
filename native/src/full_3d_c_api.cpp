@@ -291,13 +291,23 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_model_enthalpy_evidence_v1
     if(!result || !result->owner || !evidence)return 1;
     const auto& r=static_cast<const Owner*>(result->owner)->result;
     tpmshx_model_enthalpy_evidence_v1 out{};
-    if(r.stop!=Full3DStop::cancelled && r.thermal.temperature_audit)
-        out=model_enthalpy_c_view(*r.thermal.temperature_audit,
+    if(r.stop!=Full3DStop::cancelled && r.thermal.temperature_algorithm && r.thermal.physical_audit)
+        out=model_enthalpy_c_view(*r.thermal.physical_audit,
             r.thermal.temperature_cp_coefficients,r.thermal.temperature_algorithm,3);
     else if(r.stop!=Full3DStop::cancelled && r.thermal.temperature_algorithm) {
         out.physical_dimension=3;
         out.algorithm=r.thermal.temperature_algorithm;
     }
+    *evidence=out;return 0;
+}
+
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_physical_heat_ledger_v1(
+    const tpmshx_full3d_result_v1* result,tpmshx_physical_heat_ledger_v1* evidence) {
+    if(!result || !result->owner || !evidence)return 1;
+    const auto& r=static_cast<const Owner*>(result->owner)->result;
+    tpmshx_physical_heat_ledger_v1 out{};
+    if(r.stop!=Full3DStop::cancelled && r.thermal.physical_audit)
+        out=physical_ledger_c_view(*r.thermal.physical_audit,3);
     *evidence=out;return 0;
 }
 

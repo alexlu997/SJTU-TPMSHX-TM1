@@ -20,7 +20,7 @@ from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.io.case_io import load_case, save_case
 from sjtu_tpmshx.io.result_io import load_result, save_result
-from sjtu_tpmshx.postprocess.api import evaluate
+from sjtu_tpmshx.postprocess.api import evaluate, evaluate_physical_balance
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
@@ -189,6 +189,12 @@ def test_actual_heos_state_six_face_powers_and_postprocess(completed, monkeypatc
     assert native['energy_algorithm_version'] == VERSIONS[algorithm]
     assert native['boundary_power_units'] == 'W'
     assert native['physical_boundary_complete'] is True
+    audit = evaluate_physical_balance(result)['energy']
+    assert audit['status'] == 'available' and audit['physical_boundary_complete'] is True
+    assert audit['units'] == 'W' and abs(audit['telescoping_error']) < 1e-8
+    equations = result.metadata['diagnostics']['true_h_balance']['equation_energy_balance']
+    for side, expected in zip(('A', 'B', 'solid'), (*equations['fluid_abs_sum'], equations['solid_abs_sum'])):
+        assert audit['phases'][side]['residual']['l1'] == pytest.approx(expected, rel=2e-12, abs=1e-10)
     shape = result.fields['Ta'].shape
     widths = [np.asarray(result.grid['d' + a]) for a in 'xyz']
     differs_from_fou = False
@@ -272,7 +278,7 @@ from sjtu_tpmshx.cli import main
 from sjtu_tpmshx.io.case_io import load_case
 from sjtu_tpmshx.io.result_io import load_result
 from sjtu_tpmshx.io.metrics_io import load_metrics
-from sjtu_tpmshx.postprocess.api import evaluate
+from sjtu_tpmshx.postprocess.api import evaluate, evaluate_physical_balance
 case = load_case(sys.argv[1])
 old = load_result(sys.argv[2])
 assert case.parameters['enthalpy_algorithm'] == 'temperature_sou'
@@ -285,6 +291,7 @@ assert new.run_status['converged'] is True
 assert new.metadata['thermal_mode'] == 'conservative_energy'
 assert new.metadata['diagnostics']['true_h_balance'] == old.metadata['diagnostics']['true_h_balance']
 assert evaluate(new).metrics == evaluate(old).metrics
+assert evaluate_physical_balance(new) == evaluate_physical_balance(old)
 for key, field in old.fields.items():
     np.testing.assert_array_equal(new.fields[key], field)
 before, after = old.boundary_fluxes['true_h'], new.boundary_fluxes['true_h']
@@ -497,6 +504,7 @@ def test_large_grid_packing_keeps_legacy_rb_and_candidate_serial(tmp_path, monke
         tpmshx_solve_full_3d_v1=capture, tpmshx_solve_full_3d_v2=capture,
         tpmshx_full_3d_release_v1=lambda *_: pytest.fail('packing allocated native ownership'),
         tpmshx_full_3d_get_bootstrap_trace_v1=lambda *_: None,
+        tpmshx_full_3d_get_physical_heat_ledger_v1=lambda *_: pytest.fail('packing requested result evidence'),
         tpmshx_full_3d_get_property_sampling_v1=lambda *_: pytest.fail('packing requested result evidence'),
         tpmshx_full_3d_get_energy_evidence_v1=lambda *_: None,
         tpmshx_full_3d_get_energy_effective_settings_v1=lambda *_: None,
