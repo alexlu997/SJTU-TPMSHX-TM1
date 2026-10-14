@@ -2,7 +2,6 @@
 from dataclasses import asdict, replace
 import json
 from pathlib import Path
-from types import SimpleNamespace
 from uuid import uuid4
 
 import numpy as np
@@ -79,7 +78,17 @@ def _native(case, *, q=100., dp_a=20., dp_b=40., index=0):
     for side, name, value in (('A', 'x-', -2*q), ('A', 'x+', q),
                               ('B', 'y+', -q), ('B', 'y-', 2*q)):
         ledger[side][name].flat[0] = value
-    faces.update(report=report, model_h=ledger)
+    # Exact analytic budgets with independent range observations for consumer tests.
+    from sjtu_tpmshx.tests.postprocess_tm1.test_applicability import result_with_evidence
+    all_phases = ('A', 'B', 'solid')
+    zeros = {name: np.zeros_like(value) for name, value in ledger['A'].items()}
+    faces.update(report=report, model_h=ledger, state='analytic last thermal input', energy=dict(
+        definition='physical_heat_ledger_v1', physical_dimension=3, power_units='W',
+        physical_boundary_complete=True, solved=dict.fromkeys(all_phases, True),
+        residual={phase: np.zeros(shape) for phase in all_phases},
+        advective_out=dict(**ledger, solid=zeros),
+        diffusive_out={phase: zeros for phase in all_phases},
+        source_integral=dict.fromkeys(all_phases, 0.), prescribed_b_power=0.))
     fields = {'Ta': np.full(shape, 350.), 'Tb': np.full(shape, 320.), 'Ts': np.full(shape, 335.),
               'h_vB': np.full(shape, 1000.)}
     return FieldResult(
@@ -89,7 +98,10 @@ def _native(case, *, q=100., dp_a=20., dp_b=40., index=0):
                                    state='analytic main thermal state') for name in fields},
         boundary_fluxes=faces, pressure_evidence=pressure,
         run_status={'execution': 'completed', 'converged': True}, model_refs=case.model_refs,
-        metadata={'dimension': 3, 'quantity_basis': 'total', 'thermal_mode': 'model_h',
+        metadata={'applicability_evidence': result_with_evidence().metadata['applicability_evidence'],
+                  'execution_record': {'version': 'full_execution_v1', 'sides': {
+                      side: dict(fluid=case.config_snapshot['fluid_' + side]['type'], solved=True)
+                      for side in 'AB'}}, 'dimension': 3, 'quantity_basis': 'total', 'thermal_mode': 'model_h',
                   'parameters': case.parameters, 'fixture_index': index,
                   'design_mode': case.metadata['design_mode'], 'model_roles': case.metadata['model_roles'],
                   'df_metadata': {'mode': case.parameters['df_mode']},
@@ -120,34 +132,6 @@ def _manifest(directory):
 
 def _patch_solve(monkeypatch, solve):
     monkeypatch.setattr(execution, 'run_case', solve)
-
-
-@pytest.mark.parametrize('dimension', [2, 3])
-@pytest.mark.parametrize('mode', ['true_h', 'conservative_energy'])
-@pytest.mark.parametrize('damage', [None, 'convergence', 'clips', 'coupled', 'equation', 'nonfinite', 'missing'])
-def test_true_h_batch_uses_its_native_energy_certificate(dimension, mode, damage):
-    balance = dict(converged=True, enthalpy_clip_counts={'total': [0, 0]},
-        effective_settings={'coupled_energy_tol': .001, 'equation_energy_tol': .001},
-        coupled_energy_balance={'ratio': .0002}, equation_energy_balance={'ratio': .0003})
-    if damage == 'convergence':
-        balance['converged'] = False
-    elif damage == 'clips':
-        balance['enthalpy_clip_counts']['total'][1] = 1
-    elif damage in ('coupled', 'equation'):
-        balance[damage + '_energy_balance']['ratio'] = .00101
-    elif damage == 'nonfinite':
-        balance['equation_energy_balance']['ratio'] = float('nan')
-    elif damage == 'missing':
-        del balance['equation_energy_balance']
-    field = SimpleNamespace(metadata={'dimension': dimension, 'thermal_mode': mode,
-                                     'diagnostics': {'true_h_balance': balance}})
-    if damage == 'missing':
-        with pytest.raises(KeyError):
-            batch._energy_gates(field)
-    else:
-        gates = batch._energy_gates(field)
-        assert len(gates) == 4 and all(type(passed) is bool for _, passed in gates)
-        assert all(passed for _, passed in gates) == (damage is None)
 
 
 @pytest.mark.parametrize('fluid', ['co2', 'sco2'])
@@ -229,8 +213,8 @@ def test_success_keeps_independent_case_native_and_metric_files(tmp_path, monkey
         reevaluated = postprocess.evaluate(native)
         assert reevaluated.metrics == performance.metrics
         assert performance.metrics['Q_B'].value == -110.
-        assert row['energy_gates'] and all(isinstance(gate, list) and gate[1] is True
-                                          for gate in row['energy_gates'])
+        assert row['qualification']['design']['eligible'] is True
+        assert all(gate[1] is True for gate in row['qualification']['physical']['checks'])
         reference = baseline[index - 1]
         assert row['baseline'] == {
             'case_id': reference[1].case_id, 'result_id': reference[1].result_id,
@@ -413,12 +397,13 @@ def test_energy_certificate_failure_cannot_produce_objectives(tmp_path, monkeypa
     result = batch.evaluate_condition_batch(conditions, output_dir=directory, baseline=baseline)
     row = _manifest(directory)['conditions'][0]
     assert result['status'] == row['status'] == 'failed' and result['objectives'] is None
-    assert 'certificate failed:' in row['reason']
+    assert 'qualification failed: physical' in row['reason']
     if target == 'baseline':
         assert row['stage'] == 'comparison'
         assert row['result_file'] is None and row['metrics_file'] is None
     else:
-        assert row['stage'] == 'energy' and not all(gate[1] for gate in row['energy_gates'])
+        assert row['stage'] == 'qualification'
+        assert row['qualification']['physical']['passed'] is False
         native = load_result(directory / row['result_file'])
         metrics = load_metrics(directory / row['metrics_file'])
         assert metrics.source_result_id == native.result_id
@@ -572,3 +557,31 @@ def test_compact_baseline_archive_failures_are_comparison_failures(tmp_path, mon
     assert result['conditions'][0]['stage'] == 'comparison'
     assert result['conditions'][0]['status'] == 'failed'
     assert result['conditions'][1]['status'] == 'completed'
+
+
+@pytest.mark.parametrize('target', ['baseline', 'candidate'])
+def test_original_range_limit_excludes_otherwise_qualified_results(tmp_path, monkeypatch, target):
+    conditions = _conditions(1)
+    baseline = _baseline(conditions)
+    def outside(field):
+        metadata = mutable_data(field.metadata)
+        metadata['applicability_evidence']['final'][0]['minimum'][0] = 89.
+        return replace(field, metadata=metadata)
+    if target == 'baseline':
+        name, field, performance = baseline[0]
+        baseline[0] = name, outside(field), performance
+        _patch_solve(monkeypatch, lambda *args: pytest.fail('invalid baseline reached solve'))
+    else:
+        _patch_solve(monkeypatch, lambda case, control: outside(_native(case)))
+    directory = tmp_path / 'ranges'
+    result = batch.evaluate_condition_batch(conditions, output_dir=directory, baseline=baseline)
+    row, = result['conditions']
+    assert row['status'] == result['status'] == 'failed' and result['objectives'] is None
+    assert 'qualification failed: applicability' in row['reason']
+    if target == 'candidate':
+        native = load_result(directory / row['result_file'])
+        performance = load_metrics(directory / row['metrics_file'])
+        assert native.run_status['converged']
+        assert performance.qualification['physical']['passed'] is True
+        assert performance.qualification['metrics']['passed'] is True
+        assert performance.qualification['design']['eligible'] is False

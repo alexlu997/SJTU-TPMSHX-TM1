@@ -25,6 +25,8 @@ def export_vtk(result, path):
     metadata = dict(schema_version=result.schema_version, result_id=result.result_id,
                     coordinate_unit='m', dimension=result.grid['dimension'],
                     field_metadata=mutable_data(result.field_metadata), run_status=mutable_data(result.run_status))
+    from .metrics import evaluate
+    metadata['qualification'] = mutable_data(evaluate(result).qualification)
     data = json.dumps(metadata, ensure_ascii=False, allow_nan=False).encode('utf-8')
     stream.write(f'FIELD FieldData 1\nmetadata_utf8 1 {len(data)} unsigned_char\n')
     np.savetxt(stream, np.frombuffer(data, dtype=np.uint8).reshape(1, -1), fmt='%d')

@@ -3,17 +3,18 @@ from dataclasses import replace
 
 import pytest
 
-from sjtu_tpmshx.domain.field_result import FieldResult
 from sjtu_tpmshx.domain.metric_spec import MetricSpec
 from sjtu_tpmshx.domain.performance_result import MetricValue, PerformanceResult
 from sjtu_tpmshx.optimization.multi_condition import aggregate_multi_condition
 
 
 def _row(condition_id, q=100.0, dp_a=20.0, dp_b=40.0, **run_status):
-    field = FieldResult(
-        f'field-{condition_id}', f'design-case-{condition_id}', 'test',
+    from sjtu_tpmshx.tests.postprocess_tm1.test_qualification import qualified_result, required_metrics
+    field = replace(qualified_result(), result_id=f'field-{condition_id}',
+        case_id=f'design-case-{condition_id}',
         run_status={'execution': 'completed', 'converged': True, **run_status})
     metrics = {
+        **required_metrics(),
         'Q': MetricValue(999.0, MetricSpec('Q', 'W', 'native_boundary_v1')),
         'Q_B': MetricValue(-q, MetricSpec('Q_B', 'W', 'native_boundary_v1')),
         'dP_A': MetricValue(dp_a, MetricSpec('dP', 'Pa', 'pressure_face_v1')),
@@ -92,7 +93,8 @@ def test_mixed_metric_definitions_are_not_compared(change):
     condition, field, performance = _row('low')
     metrics = dict(performance.metrics)
     metrics['Q_B'] = replace(metrics['Q_B'], spec=replace(metrics['Q_B'].spec, **change))
-    with pytest.raises(ValueError, match='metric definitions differ'):
+    message = 'unit disagrees' if 'unit' in change else 'metric definitions differ'
+    with pytest.raises(ValueError, match=message):
         aggregate_multi_condition(['low'], [_row('low')],
                                   [(condition, field, replace(performance, metrics=metrics))])
 

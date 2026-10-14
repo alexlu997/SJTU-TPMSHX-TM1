@@ -131,7 +131,7 @@ def test_real_application_mapping_and_offline_readback(monkeypatch, tmp_path, di
     assert actual.metadata['units']['Q'] == ('W/m' if dimension == 2 else 'W')
     assert actual.metadata['metric_definitions']['Q']['definition_version'] == 'native_boundary_v1'
     with pytest.raises(ValueError, match='another result'):
-        to_compute_result(result, replace(performance, source_result_id='other'))
+        to_compute_result(result, replace(performance, source_result_id='other', qualification={}))
     path = tmp_path / 'results.h5'
     save_result(result, path)
     loaded = load_result(path)

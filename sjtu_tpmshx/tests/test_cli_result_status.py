@@ -100,3 +100,16 @@ def test_direct_cli_preserves_host_backend_selection(tmp_path, monkeypatch, caps
     assert seen[0].backend == 'cpp'
     assert seen[0].native_library == str(tmp_path/'native-library')
     assert seen[0].native_table_directory == str(tmp_path/'tables')
+
+
+def test_cli_stage_success_does_not_imply_design_eligibility(tmp_path, monkeypatch, capsys):
+    from sjtu_tpmshx.controllers import module_adapter
+    path = tmp_path / 'config.json'
+    ComputeConfig().to_json(path)
+    quality = {'definition': 'result_qualification_v1',
+               'design': {'eligible': False, 'status': 'rejected'}}
+    result = ComputeResult(converged=True, metadata={'qualification': quality})
+    monkeypatch.setattr(module_adapter, 'compute_result', lambda *a, **k: result)
+    assert main([str(path), '--json']) == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary['converged'] and summary['qualification']['design']['eligible'] is False

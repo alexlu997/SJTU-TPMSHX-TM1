@@ -105,10 +105,13 @@ def test_accepted_state_reaches_recent_menu_and_persisted_timeline(
     statuses = dict.fromkeys(('Q', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B'), 'available')
     statuses['Q'] = q_status
     reasons = {} if q_status == 'available' else {'Q': 'native heat evidence missing'}
+    qualification = {'design': {'status': 'rejected', 'eligible': False}}
+    label += ' · 设计不合格'
     expected = dict(converged=converged, source_result_id='accepted-' + mode,
-                    metric_status=dict(statuses), metric_reasons=dict(reasons))
+                    metric_status=dict(statuses), metric_reasons=dict(reasons),
+                    qualification=deepcopy(qualification))
     result.metadata.update(source_result_id=expected['source_result_id'],
-                           metric_status=statuses, metric_reasons=reasons)
+                           metric_status=statuses, metric_reasons=reasons, qualification=qualification)
     monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', lambda config, **kwargs: result)
     monkeypatch.setattr(win, '_render_compute_result', lambda: True)
     win.run_calculation()
@@ -123,6 +126,7 @@ def test_accepted_state_reaches_recent_menu_and_persisted_timeline(
     cached.metadata['source_result_id'] = 'later-result'
     cached.metadata['metric_status']['Q'] = 'unsupported'
     cached.metadata['metric_reasons']['Q'] = 'later reason'
+    cached.metadata['qualification']['design']['eligible'] = True
     for record in (entry, persisted):
         assert {key: record[key] for key in expected} == expected
         assert record['Q'] == (f'{123.:.{2 if mode == "3d" else 1}f}'
@@ -151,7 +155,8 @@ def test_legacy_history_keeps_unknown_state_without_rewriting_or_blocking_restor
     base = dict(ts='2000-01-01T00:00:00', label='00:00:00', Q='123.0',
                 Q_unit='W/m', dP_A='10.0', dP_B='8.0', preset=preset)
     entries = [dict(base), dict(base, converged=True), dict(base, metric_status=metrics)]
-    labels = ['状态未知', '已收敛 · 指标状态未知', '收敛状态未知']
+    labels = [text + ' · 设计未核实' for text in
+              ('状态未知', '已收敛 · 指标状态未知', '收敛状态未知')]
     win._recent_runs = deque(entries, maxlen=5)
     timeline = win.sm.base_dir / '.session_timeline.jsonl'
     original = '\n'.join(json.dumps({k: v for k, v in e.items() if k != 'preset'})

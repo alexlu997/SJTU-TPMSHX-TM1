@@ -65,6 +65,12 @@ Q 支持 W（总热负荷）和 W/m（单位深度热负荷）；质量支持 kg
 
 指标定义版本还必须标识报告的侧别、符号、压力测量规则和热状态时点。未收敛运行的有限结果，不会因后处理完成而成为已验证指标。`available`、`insufficient_data`、`unsupported` 和 `invalid` 是指标状态；原运行结论仍在 FieldResult 中。
 
+`PerformanceResult.qualification` 是不可变映射，定义为
+`result_qualification_v1`，并保留匹配的 `source_result_id`。
+其中分别记录执行、收敛、物理、适用范围、指标和设计结论。
+JSON 将其与指标一起保存。缺少此字段的历史 JSON 仍可读取；其资格结论为缺失，不能视为通过。
+重新评估只使用原文件中保存的原生证据。
+
 完整计算的 `native_boundary_v1` 将 `Q` 定义为主热状态边界输运的 `abs(Q_A)`。`Q_A`/`Q_B` 是有符号热损失，流体放热为正。`energy_imbalance_rel` 使用同一组原生热负荷。出口温度和质量流量使用匹配的有符号热状态质量面。独立命名的二维 `Q_richardson_A/B` 保留已接受的绝对热负荷外推，不能代替主网格指标。每项定义保存到 `MetricSpec.description` 和 `definition_version`，包括 JSON 导出。
 
 完整计算压降采用 `pressure_face_v1`：将压力外推到物理入口面和出口面，以几何开口面积加权，再取差值。当前计算不支持显式请求旧的完整计算指标定义。已保存的旧指标仍按原定义读取；当前 GUI 映射需要重新评估原生结果。该消费检查也覆盖各侧热负荷、温度和显示的平衡指标。

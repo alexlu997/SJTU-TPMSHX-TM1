@@ -44,37 +44,6 @@ def _full_result_metadata(field):
     return metadata
 
 
-def _energy_gates(field):
-    from sjtu_tpmshx.postprocess.conservation import compute_phase2a
-    metadata = field.metadata
-    if metadata['thermal_mode'] in ('true_h', 'conservative_energy'):
-        balance = metadata['diagnostics']['true_h_balance']
-        clips = np.asarray(balance['enthalpy_clip_counts']['total'])
-        gates = [['true-h thermal solve converged', balance['converged'] is True],
-                 ['true-h enthalpy remains unclipped', bool(clips.shape == (2,) and np.all(clips == 0))]]
-        for name in ('coupled', 'equation'):
-            ratio = balance[name + '_energy_balance']['ratio']
-            tolerance = balance['effective_settings'][name + '_energy_tol']
-            gates.append([f'true-h {name} energy balance',
-                          bool(isfinite(ratio) and isfinite(tolerance)
-                               and 0. <= ratio <= tolerance and tolerance > 0.)])
-        return gates
-    if metadata['dimension'] == 2:
-        diagnostics = metadata['diagnostics']
-        gates = []
-        for level, balance in diagnostics['model_h_balance'].items():
-            gates.append([f'2D {level} native model-h certificate', balance['passed'] is True])
-            for side in ('A', 'B'):
-                gates.append([f'2D {level} {side} physical boundary complete',
-                              balance[side]['physical_boundary_complete'] is True])
-        if set(diagnostics['model_h_balance']) != {'main', 'fine'}:
-            raise ValueError('2D energy certificate requires main and fine thermal results')
-        gates.append(['2D native Richardson check', diagnostics['convergence_detail']['richardson_ok'] is True])
-        return gates
-    certificate = compute_phase2a(field)
-    return [list(gate) for gate in certificate['gates']]
-
-
 def _check_baseline_case(reference, case, flow_a, flow_b):
     """Pair like-for-like inputs, allowing candidate inlet speed to change."""
     metadata = _full_result_metadata(reference)
@@ -120,9 +89,6 @@ def _check_baseline_case(reference, case, flow_a, flow_b):
         # This checks serialized input arithmetic, not measured flow accuracy.
         if not np.isclose(prescribed, target, rtol=1e-12, atol=0.):
             raise ValueError(f'baseline and candidate prescribed mass flow {side} differs')
-    failed = [label for label, passed in _energy_gates(reference) if not passed]
-    if failed:
-        raise ValueError('Baseline energy certificate failed: ' + '; '.join(failed))
 
 
 def evaluate_condition_batch(
@@ -134,9 +100,8 @@ def evaluate_condition_batch(
 
     Each input is ``(condition_id, config, mass_flow_A_kg_s, mass_flow_B_kg_s)``.
     Use the same design and fixed condition list for every comparison. The
-    caller selects the model and its extrapolation policy. ``completed`` records
-    native convergence, each dimension's existing energy certificate and
-    available objective metrics, not experimental accuracy. Total input mass
+    common result qualification includes the original model bounds. A
+    ``completed`` batch does not establish experimental accuracy. Total input mass
     flows retain kg/s; 2D native metrics retain their per-unit-depth units.
 
     A new output directory is required. Every requested member appears in
@@ -187,7 +152,7 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
     reference_metrics = {}
     if baseline is not None:
         if collect_fields:
-            reference = _condition_metrics(baseline, ids, 'baseline')
+            reference = _condition_metrics(baseline, ids, 'baseline', qualify=False)
             references = {name: field for name, field, _ in baseline}
             identities = {name: dict(case_id=field.case_id, result_id=field.result_id)
                           for name, field, _ in baseline}
@@ -206,7 +171,7 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
     batch_id = str(uuid4())
     history = [dict(condition_id=condition_id, directory=f'condition_{index:03d}',
                     case_id=f'{batch_id}:{condition_id}', status='not_run', stage=None,
-                    reason=None, case_file=None, result_file=None, metrics_file=None, energy_gates=None,
+                    reason=None, case_file=None, result_file=None, metrics_file=None, qualification=None,
                     baseline=reference_metrics.get(condition_id),
                     mass_flow_A_kg_s=flow_a, mass_flow_B_kg_s=flow_b)
                for index, (condition_id, _, flow_a, flow_b) in enumerate(inputs, 1)]
@@ -242,6 +207,8 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
         if baseline is not None:
             row['stage'] = 'comparison'
             if collect_fields:
+                _condition_metrics([(condition_id, references[condition_id], reference[condition_id])],
+                                   (condition_id,), 'baseline')
                 _check_baseline_case(references[condition_id], case, flow_a, flow_b)
             else:
                 baseline_field = load_result(baseline[condition_id]['result_file'])
@@ -288,13 +255,10 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
         result = (condition_id, field, performance)
         if collect_fields:
             results.append(result)
-        row['stage'] = 'validate'
+        row['stage'] = 'qualification'
+        from sjtu_tpmshx.domain.portable_data import mutable_data
+        row['qualification'] = mutable_data(performance.qualification)
         design.update(_condition_metrics([result], (condition_id,), 'candidate'))
-        row['stage'] = 'energy'
-        row['energy_gates'] = _energy_gates(field)
-        failed_gates = [label for label, passed in row['energy_gates'] if not passed]
-        if failed_gates:
-            raise ValueError('Energy certificate failed: ' + '; '.join(failed_gates))
         if not collect_fields:
             summaries[condition_id] = dict(case_id=case.case_id, result_id=field.result_id,
                 result_file=directory / 'result.h5', performance=performance,
@@ -352,7 +316,7 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
 
 
 def _condition_metrics(rows: Sequence[ConditionResult], condition_ids: tuple[str, ...],
-                       label: str) -> dict[str, PerformanceResult]:
+                       label: str, *, qualify=True) -> dict[str, PerformanceResult]:
     results = {}
     for condition_id, field, performance in rows:
         prefix = f'{label} condition {condition_id}'
@@ -374,6 +338,12 @@ def _condition_metrics(rows: Sequence[ConditionResult], condition_ids: tuple[str
             if (name == 'Q_B' and dimension in (2, 3)
                     and metric.spec.unit != ('W/m' if dimension == 2 else 'W')):
                 raise ValueError(f'{prefix}: Q_B unit disagrees with the result dimension')
+        if qualify:
+            from sjtu_tpmshx.postprocess.api import evaluate_qualification
+            qualification = evaluate_qualification(field, performance.metrics)
+            if qualification['design']['eligible'] is not True:
+                raise ValueError(f'{prefix}: design qualification failed: '
+                                 + '; '.join(qualification['design']['reasons']))
         results[condition_id] = performance
     if set(results) != set(condition_ids):
         missing = sorted(set(condition_ids) - set(results))
@@ -393,8 +363,8 @@ def aggregate_multi_condition(
     result and its evaluated metrics. IDs are independent of design case IDs.
     All requested conditions must occur exactly once on each side. Invalid or
     unavailable runs raise ``ValueError`` instead of contributing a penalty or
-    changing the averaging denominator. The caller owns physical applicability
-    and the identity of the fixed baseline design.
+    changing the averaging denominator. The common qualification owns result
+    eligibility. The caller owns the identity of the fixed baseline design.
 
     The fixed heat metric is ``-Q_B``: useful B-side heat uptake, preserving
     the Shanghai benchmark objective for CO2/sCO2. Native ``Q_B`` is signed heat loss, so it

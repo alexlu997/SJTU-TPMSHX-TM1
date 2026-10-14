@@ -54,6 +54,9 @@ def _history_status(entry):
     elif not all(key in statuses for key in metrics):
         label = ('状态未知' if converged is None and not statuses
                  else label + ' · 指标状态未知')
+    qualification = entry.get('qualification', {})
+    design = qualification.get('design', {})
+    label += ' · 设计' + {'eligible': '合格', 'rejected': '不合格'}.get(design.get('status'), '未核实')
     details = [label, f"结果 ID：{entry.get('source_result_id') or '未知'}"]
     for key in unavailable:
         reason = reasons.get(key)
@@ -100,6 +103,7 @@ class RunHistoryMixin:
             "input_grid": list(provenance['input_grid']),
             "actual_grid": list(provenance['actual_grid']),
             "converged": result.converged,
+            "qualification": deepcopy(result.metadata.get("qualification", {})),
             "source_result_id": result.metadata.get('source_result_id'),
             "metric_status": dict(result.metadata.get('metric_status', {})),
             "metric_reasons": dict(result.metadata.get('metric_reasons', {})),
