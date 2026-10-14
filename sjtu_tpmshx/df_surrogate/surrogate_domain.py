@@ -77,6 +77,10 @@ def check_surrogate_domain_at_point(tpms_type: str,
     nu_at_point: list[str] = []
     re_range = {'air': NU_RE_FIT_RANGE, 'water': WATER_NU_RE_RANGE,
                 'sco2': SCO2_NU_RE_RANGE, 'co2': co2_correlations.RE_RANGE}[model.name]
+    from sjtu_tpmshx.domain.run_warnings import range_context, record_range
+    with range_context(side=side, stage='inlet-preflight', layout='scalar'):
+        record_range(('nu', model.name, tpms_type), Re, re_range,
+                     label=f'{model.name} inlet Nu', quantity='Re', unit='-')
     if not re_range[0] <= Re <= re_range[1]:
         nu_at_point.append(
             f"Fluid {side}: Re = {Re:.0f} outside {model.name} Nu window "
@@ -86,6 +90,9 @@ def check_surrogate_domain_at_point(tpms_type: str,
     if fluid == 'co2':
         pr = float(model.cp(T, P)) * mu / float(model.k(T, P))
         lo, hi = co2_correlations.coefficients()['bounds']['Pr']
+        with range_context(side=side, stage='inlet-preflight', layout='scalar'):
+            record_range(('nu_pr', model.name, tpms_type), pr, (lo, hi),
+                         label='CO2 inlet Nu', quantity='Pr', unit='-')
         if not lo <= pr <= hi:
             nu_at_point.append(f'Fluid {side}: Pr={pr:g} outside CO2 Nu window [{lo:g}, {hi:g}].')
     geometry_reasons: list[str] = []

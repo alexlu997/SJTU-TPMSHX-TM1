@@ -15,4 +15,9 @@ typedef struct {
     size_t shape[3],minimum_index,maximum_index,low,high,size,nonfinite;
     double lower,upper,minimum,maximum;
 } tpmshx_range_observation_v1;
+/* Borrowed last-call snapshots with the original source bounds. */
+typedef struct {
+    const tpmshx_range_observation_v1* data;
+    size_t size;
+} tpmshx_range_observations_view_v1;
 #endif

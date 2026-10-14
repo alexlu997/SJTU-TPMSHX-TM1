@@ -505,6 +505,7 @@ def test_large_grid_packing_keeps_legacy_rb_and_candidate_serial(tmp_path, monke
         tpmshx_full_3d_release_v1=lambda *_: pytest.fail('packing allocated native ownership'),
         tpmshx_full_3d_get_bootstrap_trace_v1=lambda *_: None,
         tpmshx_full_3d_get_physical_heat_ledger_v1=lambda *_: pytest.fail('packing requested result evidence'),
+        tpmshx_full_3d_get_last_closure_ranges_v1=lambda *_: pytest.fail('packing requested result evidence'),
         tpmshx_full_3d_get_property_sampling_v1=lambda *_: pytest.fail('packing requested result evidence'),
         tpmshx_full_3d_get_energy_evidence_v1=lambda *_: None,
         tpmshx_full_3d_get_energy_effective_settings_v1=lambda *_: None,

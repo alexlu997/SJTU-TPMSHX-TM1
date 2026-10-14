@@ -26,7 +26,7 @@ from .enthalpy import _Result as _EnthalpyResult
 from .enthalpy import (_EnergyOptions, _EnergyResult, _energy_options,
                        _energy_algorithm_query, _energy_result_info, _energy_native_state,
                        _FullEnergyEffectiveSettings, _full_enthalpy_defaults, _full_enthalpy_info)
-from .closure_evidence import NuObservation, RangeObservation, copy_nu_observation, copy_range_observations, replay_range_observations
+from .closure_evidence import NuObservation, RangeObservation, copy_nu_observation, copy_range_observations, replay_range_observations, last_range_query, copy_last_ranges
 
 
 class _Array(ct.Structure):
@@ -229,6 +229,7 @@ class NativeFull3DDriver:
         self.query_settings.argtypes = [ct.POINTER(_Result), ct.POINTER(_FullEnergyEffectiveSettings)]
         self.query_settings.restype = ct.c_int
         self.query_heat_ledger = heat_ledger_query(self.library, 3, _Result)
+        self.query_last_ranges = last_range_query(self.library, 3, _Result)
         self.query_sampling = sampling_query(self.library, 3, _Result)
         try:
             self.query_bootstrap = self.library.tpmshx_full_3d_get_bootstrap_trace_v1
@@ -469,6 +470,7 @@ class NativeFull3DDriver:
                 if self.query_heat_ledger(ct.byref(result), ct.byref(ledger)):
                     raise RuntimeError('native full 3D heat ledger query failed')
                 detached['physical_ledger'] = copy_heat_ledger(ledger, shape, 3)
+            detached['last_closure_ranges'] = copy_last_ranges(self.query_last_ranges, result)
             from sjtu_tpmshx.models.co2_correlations import NU_MULTIPLIER
             for label in 'AB':
                 if cfg['fluid_type_'+label] == 'co2' and detached['nu_observations'][label]:

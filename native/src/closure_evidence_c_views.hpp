@@ -20,4 +20,13 @@ inline tpmshx_range_observation_v1 range_observation_view(const RangeObservation
     v.lower=r.bounds[0]; v.upper=r.bounds[1]; v.minimum=r.minimum; v.maximum=r.maximum;
     return v;
 }
+inline tpmshx_range_observation_v1 last_range_observation_view(const RangeObservation& r) {
+    auto v=range_observation_view(r);
+    const auto& last=r.last;
+    v.have_finite=last.have_finite;
+    v.minimum_index=last.minimum_index;v.maximum_index=last.maximum_index;
+    v.low=last.low;v.high=last.high;v.size=last.size;v.nonfinite=last.nonfinite;
+    v.minimum=last.minimum;v.maximum=last.maximum;
+    return v;
+}
 } // namespace tpmshx
