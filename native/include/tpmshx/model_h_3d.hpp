@@ -69,6 +69,37 @@ struct ModelHResult3D {
     double energy_error_ratio=std::numeric_limits<double>::quiet_NaN();
 };
 
+struct ModelHRunState3D {
+    ModelHIterationState iteration;
+    ModelHResult3D result;
+    std::array<std::vector<double>,3> carry;
+};
+
+// Caller arrays remain live. The caller must not change them between calls.
+// Restore requires the same input and controls. Snapshots own their arrays.
+class ModelHRun3D {
+public:
+    ModelHRun3D(const GridView&, const ModelHFluid3D&, const ModelHFluid3D&,
+                 ArrayView<const double> k_ss, ArrayView<const double> solid_source,
+                 TemperatureStateView, const ModelHControl3D&,
+                 ArrayView<const double> prescribed_b={}, PhysicalHeatLedger* physical_audit=nullptr);
+    ModelHRun3D(const GridView&, const ModelHFluid3D&, const ModelHFluid3D&,
+                 ArrayView<const double> k_ss, ArrayView<const double> solid_source,
+                 TemperatureStateView, const ModelHControl3D&, const ModelHRunState3D&,
+                 ArrayView<const double> prescribed_b={}, PhysicalHeatLedger* physical_audit=nullptr);
+    ~ModelHRun3D();
+    ModelHRun3D(const ModelHRun3D&)=delete;
+    ModelHRun3D& operator=(const ModelHRun3D&)=delete;
+    // Advance one complete selection, or one nonaccelerated chunk.
+    ModelHPhase advance();
+    ModelHPhase phase() const;
+    ModelHRunState3D snapshot() const;
+    ModelHResult3D take_result();
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
+
 // Complete fixed-flow symmetric AA/AW/WA model-h thermal driver, nz>1.
 // The caller supplies real-axis completed SIMPLE raw mass faces; this call
 // performs no MAC projection, mass correction, EOS or outer property refresh.

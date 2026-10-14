@@ -294,48 +294,93 @@ void validate(const GridView& g, const ModelHFluid3D& a, const ModelHFluid3D& b,
 }
 }  // namespace
 
-ModelHResult3D solve_model_h_3d(const GridView& grid, const ModelHFluid3D& a,
-                              const ModelHFluid3D& b, ArrayView<const double> ks,
-                              ArrayView<const double> source_s, TemperatureStateView t,
-                              const ModelHControl3D& control,
-                              ArrayView<const double> prescribed_b,
-                              PhysicalHeatLedger* physical_audit) {
-    validate(grid,a,b,ks,source_s,t,control,prescribed_b);
-    const bool solve_b=!prescribed_b.size;
-    ModelHResult3D result{}; result.stop=TemperatureStop::budget_exhausted;
-    result.q_b=std::numeric_limits<double>::quiet_NaN();
-    const auto cancelled=[&] { return control.cancel && control.cancel(control.context); };
-    if (cancelled()) { result.stop=TemperatureStop::cancelled; return result; }
-    if (!control.warm_start) {
-        std::fill_n(t.a.data,t.a.size,a.boundary.inlet_temperature);
-        if (solve_b) std::fill_n(t.b.data,t.b.size,b.boundary.inlet_temperature);
-        std::fill_n(t.solid.data,t.solid.size,.5*(a.boundary.inlet_temperature+b.boundary.inlet_temperature));
-    }
-    if (!solve_b) std::copy_n(prescribed_b.data,prescribed_b.size,t.b.data);
-    for (auto source:{a.source,solve_b ? b.source : ArrayView<const double>{},source_s})
-        for (std::size_t p=0; p<source.size; ++p) result.has_sources=result.has_sources || source[p]!=0;
-    const Mesh mesh(grid);
-    Side side_a(mesh,a,control.second_order_a,true,control.strict_energy_balance),
-         side_b(mesh,b,control.second_order_b,solve_b,control.strict_energy_balance);
-    const detail::EnergyMesh energy_mesh(grid);
-    const auto line_axis=control.red_black ? 0U
-        : detail::dominant_diffusion_axis(energy_mesh,side_a.energy(),side_b.energy(),ks);
-    detail::EnergyLineScratch line_work(control.red_black ? 0 : energy_mesh.count[line_axis]);
+struct ModelHRun3D::Impl {
+    GridView grid;
+    ModelHFluid3D a,b;
+    ArrayView<const double> ks,source_s;
+    TemperatureStateView t;
+    ModelHControl3D control;
+    ArrayView<const double> prescribed_b;
+    PhysicalHeatLedger* physical_audit;
+    bool solve_b,strict_boundary_complete=true,have_q=false,taken=false,boundary=true;
+    ModelHPhase phase=ModelHPhase::active;
+    ModelHResult3D result{};
+    std::optional<Mesh> mesh_;
+    std::optional<Side> side_a_,side_b_;
+    std::optional<AcceleratedChunk> chunk;
+    Eigen::VectorXd previous;
+    double previous_q=0.;
+    std::size_t line_axis=0;
+    std::optional<detail::EnergyLineScratch> line_work_;
     Diffusion diffusion;
-    if(control.max_iterations) {
-        diffusion[0].reserve(mesh.n);diffusion[2].reserve(mesh.n);
-        if(solve_b) diffusion[1].reserve(mesh.n);
-        for(std::size_t p=0;p<mesh.n;++p) {
-            diffusion[0].push_back(detail::energy_diffusion(energy_mesh,side_a.energy(),p));
-            diffusion[2].push_back(detail::energy_diffusion(energy_mesh,ks,p));
-            if(solve_b) diffusion[1].push_back(detail::energy_diffusion(energy_mesh,side_b.energy(),p));
+    std::array<Vector,3> carry;
+    struct Cancelled {};
+    bool cancelled() const { return control.cancel && control.cancel(control.context); }
+
+    Impl(const GridView& input_grid,const ModelHFluid3D& input_a,const ModelHFluid3D& input_b,
+        ArrayView<const double> input_ks, ArrayView<const double> source_s,TemperatureStateView fields,
+        const ModelHControl3D& input_control,ArrayView<const double> input_prescribed,
+        PhysicalHeatLedger* output)
+        :grid(input_grid),a(input_a),b(input_b),ks(input_ks),source_s(source_s),t(fields),control(input_control),
+         prescribed_b(input_prescribed),physical_audit(output),solve_b(!prescribed_b.size) {
+        validate(grid,a,b,ks,source_s,t,control,prescribed_b);
+        result.stop=TemperatureStop::budget_exhausted;
+        result.q_b=std::numeric_limits<double>::quiet_NaN();
+        if(cancelled()) { result.stop=TemperatureStop::cancelled;phase=ModelHPhase::cancelled;return; }
+        if (!control.warm_start) {
+            std::fill_n(t.a.data,t.a.size,a.boundary.inlet_temperature);
+            if (solve_b) std::fill_n(t.b.data,t.b.size,b.boundary.inlet_temperature);
+            std::fill_n(t.solid.data,t.solid.size,.5*(a.boundary.inlet_temperature+b.boundary.inlet_temperature));
         }
+        if (!solve_b) std::copy_n(prescribed_b.data,prescribed_b.size,t.b.data);
+        for (auto source:{a.source,solve_b ? b.source : ArrayView<const double>{},source_s})
+            for (std::size_t p=0; p<source.size; ++p) result.has_sources=result.has_sources || source[p]!=0;
+        prepare();previous=pack(t,solve_b);
     }
-    std::array<Vector,3> carry{Vector(mesh.n),Vector(mesh.n),Vector(mesh.n)};
-    const auto reset_carry=[&] { for(auto& field:carry) std::fill(field.begin(),field.end(),0.); };
-    auto previous=pack(t,solve_b); double previous_q=0; bool have_q=false;
-    bool strict_boundary_complete=true;
-    const auto strict_audit=[&] {
+    Impl(const GridView& input_grid,const ModelHFluid3D& input_a,const ModelHFluid3D& input_b,
+        ArrayView<const double> input_ks, ArrayView<const double> source_s,TemperatureStateView fields,
+        const ModelHControl3D& input_control,ArrayView<const double> input_prescribed,
+        PhysicalHeatLedger* output,const ModelHRunState3D& saved)
+        :grid(input_grid),a(input_a),b(input_b),ks(input_ks),source_s(source_s),t(fields),control(input_control),
+         prescribed_b(input_prescribed),physical_audit(output),solve_b(!prescribed_b.size) {
+        validate(grid,a,b,ks,source_s,t,control,prescribed_b);
+        validate_iteration_state(saved.iteration,saved.result,control,t.a.size,prescribed_b);
+        for(const auto& field:saved.carry)check(view(field),t.a.size);
+        bool has_sources=false;
+        for(auto source:{a.source,solve_b?b.source:ArrayView<const double>{},source_s})
+            for(std::size_t p=0;p<source.size;++p)has_sources=has_sources || source[p]!=0;
+        if(saved.result.has_sources!=has_sources)
+            throw std::invalid_argument("saved model-h source state differs");
+        prepare();
+        result=saved.result;previous_q=saved.iteration.previous_q;have_q=saved.iteration.have_q;
+        previous=Eigen::Map<const Eigen::VectorXd>(saved.iteration.previous.data(),
+            static_cast<Eigen::Index>(saved.iteration.previous.size()));
+        if(saved.iteration.chunk)chunk.emplace(saved.iteration.chunk->count,saved.iteration.previous.size(),*saved.iteration.chunk);
+        carry=saved.carry;
+        restore_iteration(t,saved.iteration);
+    }
+    void prepare() {
+        mesh_.emplace(grid);
+        side_a_.emplace(*mesh_,a,control.second_order_a,true,control.strict_energy_balance);
+        side_b_.emplace(*mesh_,b,control.second_order_b,solve_b,control.strict_energy_balance);
+        const auto& mesh=*mesh_;const auto& side_a=*side_a_;const auto& side_b=*side_b_;
+        const detail::EnergyMesh energy_mesh(grid);
+        line_axis=control.red_black ? 0U
+            : detail::dominant_diffusion_axis(energy_mesh,side_a.energy(),side_b.energy(),ks);
+        line_work_.emplace(control.red_black ? 0 : energy_mesh.count[line_axis]);
+        if(control.max_iterations) {
+            diffusion[0].reserve(mesh.n);diffusion[2].reserve(mesh.n);
+            if(solve_b) diffusion[1].reserve(mesh.n);
+            for(std::size_t p=0;p<mesh.n;++p) {
+                diffusion[0].push_back(detail::energy_diffusion(energy_mesh,side_a.energy(),p));
+                diffusion[2].push_back(detail::energy_diffusion(energy_mesh,ks,p));
+                if(solve_b) diffusion[1].push_back(detail::energy_diffusion(energy_mesh,side_b.energy(),p));
+            }
+        }
+        carry={Vector(mesh.n),Vector(mesh.n),Vector(mesh.n)};
+    }
+    bool strict_audit() {
+        const auto& mesh=*mesh_;auto& side_a=*side_a_;auto& side_b=*side_b_;
         // Reuse the deferred buffers for actual m*h, avoiding C*T+B
         // cancellation. Every subsequent numerical sweep rebuilds C/B first.
         faces<true>(mesh,side_a,view(t.a));
@@ -348,31 +393,55 @@ ModelHResult3D solve_model_h_3d(const GridView& grid, const ModelHFluid3D& a,
             && result.energy_error_ratio<=1e-7;
         if (physical_audit) *physical_audit=std::move(ledger);
         return passed;
-    };
-    struct Cancelled {};
-    const auto step=[&](std::size_t count) {
+    }
+    double step(std::size_t count) {
+        const auto& mesh=*mesh_;auto& side_a=*side_a_;auto& side_b=*side_b_;
         if (cancelled()) throw Cancelled{};
+        auto& line_work=*line_work_;
         const double change=sweeps(mesh,side_a,side_b,ks,source_s,t,control,count,line_axis,line_work,carry,diffusion,solve_b);
         if (cancelled()) throw Cancelled{};
         return change;
-    };
-    try {
-        while (result.iterations<control.max_iterations) {
-            if (cancelled()) throw Cancelled{};
+    }
+    void reset_carry() {
+        for(auto& field:carry)std::fill(field.begin(),field.end(),0.);
+    }
+    double trial(Eigen::VectorXd& picard,const Eigen::VectorXd& candidate) {
+        const double ordinary=step(1);
+        picard=pack(t,solve_b);restore(t,candidate,solve_b);reset_carry();
+        const double proposed=step(1);
+        const bool accepted=std::isfinite(proposed) && proposed<=ordinary;
+        if(!accepted)restore(t,picard,solve_b);
+        reset_carry();
+        return accepted?proposed:ordinary;
+    }
+    void finish() {
+        const auto& mesh=*mesh_;auto& side_a=*side_a_;auto& side_b=*side_b_;
+        if (control.strict_energy_balance) {
+            if (!result.physical_audit_available && result.iterations) strict_audit();
+        } else if (!result.audit_available) {
+            result.audit=audit(mesh,side_a,side_b,ks,source_s,t,physical_audit); result.audit_available=true;
+        }
+        if (physical_audit && !control.strict_energy_balance)
+            result.physical_audit_available=result.audit_available;
+        phase=ModelHPhase::completed;
+    }
+    void advance() {
+        if(phase==ModelHPhase::failed)throw std::logic_error("failed model-h run cannot advance");
+        if(phase!=ModelHPhase::active)return;
+        if(!boundary)throw std::logic_error("model-h run is already advancing");
+        boundary=false;
+        try {
+            if(result.iterations==control.max_iterations) { finish();return; }
             const auto count=std::min(control.chunk_iterations,control.max_iterations-result.iterations);
-            if (control.accelerate) {
-                AcceleratedChunk chunk(count);
-                const auto trial=[&](Eigen::VectorXd& picard,const Eigen::VectorXd& candidate) {
-                    const double ordinary=step(1);
-                    picard=pack(t,solve_b);restore(t,candidate,solve_b);reset_carry();
-                    const double proposed=step(1);
-                    const bool accepted=std::isfinite(proposed) && proposed<=ordinary;
-                    if(!accepted)restore(t,picard,solve_b);
-                    reset_carry();
-                    return accepted?proposed:ordinary;
-                };
-                while(!chunk.complete())chunk.advance(t,solve_b,step,trial,result.residual);
+            if(!chunk && cancelled())throw Cancelled{};
+            if(control.accelerate) {
+                if(!chunk)chunk.emplace(count);
+                chunk->advance(t,solve_b,[&](std::size_t n){return step(n);},
+                    [&](Eigen::VectorXd& x,const Eigen::VectorXd& candidate){return trial(x,candidate);},result.residual);
+                if(!chunk->complete()) { boundary=true;return; }
+                chunk.reset();
             } else result.residual=step(count);
+            const auto& mesh=*mesh_;auto& side_a=*side_a_;auto& side_b=*side_b_;
             result.audit_available=false; result.iterations+=count;
             result.physical_audit_available=false;
             if (control.progress) control.progress(control.context,result.iterations,control.max_iterations);
@@ -386,30 +455,59 @@ ModelHResult3D solve_model_h_3d(const GridView& grid, const ModelHFluid3D& a,
                     const bool passed=strict_audit();
                     result.finishing_checks.push_back({result.iterations,{},passed,result.energy_error_ratio});
                     if (passed) result.stop=TemperatureStop::converged;
-                    if (passed || !strict_boundary_complete) break;
+                    if (passed || !strict_boundary_complete) { finish();return; }
                 } else {
-                    if (result.has_sources) { result.stop=TemperatureStop::converged; break; }
+                    if (result.has_sources) { result.stop=TemperatureStop::converged;finish();return; }
                     result.audit=audit(mesh,side_a,side_b,ks,source_s,t,physical_audit); result.audit_available=true;
                     result.finishing_checks.push_back({result.iterations,result.audit.gates});
                     if (result.audit.passed) result.stop=TemperatureStop::converged;
-                    if (result.audit.passed || !result.audit.boundary_complete) break;
+                    if (result.audit.passed || !result.audit.boundary_complete) { finish();return; }
                 }
             }
             previous_q=q; have_q=true; previous=current;
-        }
-    } catch (const Cancelled&) {
-        result.stop=TemperatureStop::cancelled; result.audit_available=false;
-        result.physical_audit_available=false;
-        result.energy_error_ratio=std::numeric_limits<double>::quiet_NaN();
-        result.q_b=std::numeric_limits<double>::quiet_NaN(); return result;
+            if(result.iterations==control.max_iterations)finish();
+            boundary=true;
+        } catch(const Cancelled&) {
+            result.stop=TemperatureStop::cancelled; result.audit_available=false;
+            result.physical_audit_available=false;
+            result.energy_error_ratio=std::numeric_limits<double>::quiet_NaN();
+            result.q_b=std::numeric_limits<double>::quiet_NaN();
+            phase=ModelHPhase::cancelled;
+        } catch(...) { phase=ModelHPhase::failed;throw; }
     }
-    if (control.strict_energy_balance) {
-        if (!result.physical_audit_available && result.iterations) strict_audit();
-    } else if (!result.audit_available) {
-        result.audit=audit(mesh,side_a,side_b,ks,source_s,t,physical_audit); result.audit_available=true;
+    ModelHRunState3D snapshot() const {
+        if(phase!=ModelHPhase::active || !boundary)throw std::logic_error("model-h run has no active save boundary");
+        return {snapshot_iteration(t,previous,previous_q,have_q,chunk),result,carry};
     }
-    if (physical_audit && !control.strict_energy_balance)
-        result.physical_audit_available=result.audit_available;
-    return result;
+    ModelHResult3D take_result() {
+        if(taken || (phase!=ModelHPhase::completed && phase!=ModelHPhase::cancelled))
+            throw std::logic_error("model-h result is not available");
+        taken=true;return std::move(result);
+    }
+};
+
+ModelHRun3D::ModelHRun3D(const GridView& grid,const ModelHFluid3D& a,const ModelHFluid3D& b,
+        ArrayView<const double> ks, ArrayView<const double> source_s,TemperatureStateView t,const ModelHControl3D& control,
+        ArrayView<const double> prescribed_b,PhysicalHeatLedger* physical_audit)
+    :impl_(std::make_unique<Impl>(grid,a,b,ks,source_s,t,control,prescribed_b,physical_audit)) {}
+ModelHRun3D::ModelHRun3D(const GridView& grid,const ModelHFluid3D& a,const ModelHFluid3D& b,
+        ArrayView<const double> ks, ArrayView<const double> source_s,TemperatureStateView t,const ModelHControl3D& control,
+        const ModelHRunState3D& saved,ArrayView<const double> prescribed_b,PhysicalHeatLedger* physical_audit)
+    :impl_(std::make_unique<Impl>(grid,a,b,ks,source_s,t,control,prescribed_b,physical_audit,saved)) {}
+ModelHRun3D::~ModelHRun3D()=default;
+ModelHPhase ModelHRun3D::advance() { impl_->advance();return impl_->phase; }
+ModelHPhase ModelHRun3D::phase() const { return impl_->phase; }
+ModelHRunState3D ModelHRun3D::snapshot() const { return impl_->snapshot(); }
+ModelHResult3D ModelHRun3D::take_result() { return impl_->take_result(); }
+
+ModelHResult3D solve_model_h_3d(const GridView& grid, const ModelHFluid3D& a,
+                              const ModelHFluid3D& b, ArrayView<const double> ks,
+                              ArrayView<const double> source_s, TemperatureStateView t,
+                              const ModelHControl3D& control,
+                              ArrayView<const double> prescribed_b,
+                              PhysicalHeatLedger* physical_audit) {
+    ModelHRun3D run(grid,a,b,ks,source_s,t,control,prescribed_b,physical_audit);
+    while(run.phase()==ModelHPhase::active)run.advance();
+    return run.take_result();
 }
 }  // namespace tpmshx

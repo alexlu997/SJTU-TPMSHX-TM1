@@ -12,6 +12,7 @@
 
 namespace {
 thread_local std::vector<std::vector<double>> model_h_trace;
+thread_local std::size_t observed_steps=0;
 
 // kind 0: completed step (position is its requested sweep count).
 // kind 1/2/3: ordinary/trial/post-decision (position is charged iteration).

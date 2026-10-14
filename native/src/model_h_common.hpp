@@ -214,4 +214,53 @@ public:
     }
 };
 
+
+inline ModelHIterationState snapshot_iteration(TemperatureStateView fields,
+        const Eigen::VectorXd& previous,double previous_q,bool have_q,
+        const std::optional<AcceleratedChunk>& chunk) {
+    ModelHIterationState state;
+    const ArrayView<double> values[]{fields.a,fields.b,fields.solid};
+    for(std::size_t i=0;i<3;++i)
+        state.temperature[i].assign(values[i].data,values[i].data+values[i].size);
+    state.previous.assign(previous.data(),previous.data()+previous.size());
+    state.previous_q=previous_q;state.have_q=have_q;
+    if(chunk)state.chunk=chunk->snapshot();
+    return state;
+}
+
+template<class Result,class Control>
+void validate_iteration_state(const ModelHIterationState& state,const Result& result,
+        const Control& control,std::size_t cells,ArrayView<const double> prescribed_b) {
+    for(const auto& field:state.temperature)check(view(field),cells);
+    check(view(state.previous),cells*(prescribed_b.size?2:3));
+    if(result.stop!=TemperatureStop::budget_exhausted
+        || (control.max_iterations?result.iterations>=control.max_iterations:result.iterations!=0)
+        || result.iterations%control.chunk_iterations || state.have_q!=(result.iterations!=0)
+        || !std::isfinite(state.previous_q) || (!state.have_q && state.previous_q!=0.)
+        || !std::isfinite(result.residual) || result.residual<0.
+        || (state.have_q?!std::isfinite(result.q_b):!std::isnan(result.q_b)))
+        throw std::invalid_argument("invalid saved model-h iteration");
+    if(prescribed_b.size && !std::equal(state.temperature[1].begin(),state.temperature[1].end(),prescribed_b.data))
+        throw std::invalid_argument("saved model-h prescribed field differs");
+    std::size_t last=0;
+    for(const auto& check:result.finishing_checks) {
+        if(check.iterations<=last || check.iterations>result.iterations
+            || check.iterations%control.chunk_iterations)
+            throw std::invalid_argument("invalid saved model-h finishing history");
+        last=check.iterations;
+    }
+    if(state.chunk) {
+        const auto count=std::min(control.chunk_iterations,control.max_iterations-result.iterations);
+        if(!control.accelerate || !state.chunk->completed || state.chunk->completed>=count)
+            throw std::invalid_argument("invalid saved model-h active chunk");
+        AcceleratedChunk validated(count,state.previous.size(),*state.chunk);
+    }
+}
+
+inline void restore_iteration(TemperatureStateView fields,const ModelHIterationState& state) {
+    const ArrayView<double> values[]{fields.a,fields.b,fields.solid};
+    for(std::size_t i=0;i<3;++i)
+        std::copy(state.temperature[i].begin(),state.temperature[i].end(),values[i].data);
+}
+
 }  // namespace tpmshx::model_h_common

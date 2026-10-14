@@ -61,8 +61,16 @@ The 2D and 3D model-h drivers share one accelerated chunk owner.
 It retains 25 sweeps per block, two proposal probes, and separate Anderson history for each chunk.
 A complete selection boundary can export the consumed budget and an independent history copy.
 A failed partial step cannot export or resume that chunk.
-The caller retains its fields, residual, 2D linearization rollback and 3D carry reset.
-Full thermal and SIMPLE continuation require their separate state owners.
+`ModelHRun2D` and `ModelHRun3D` own the thermal iteration state.
+The existing one-shot entries use these same owners.
+Snapshots copy temperatures, stopping history, active chunk history, 2D linearization and 3D carry fields.
+Restore rebuilds derived face buffers and conductances with the same input and controls.
+It validates saved state before it writes destination temperatures.
+An accelerated advance completes one block and any proposal probes. A nonaccelerated advance keeps the original complete chunk.
+Callbacks keep their original sequence. A callback cannot save or advance an unfinished step.
+Cancelled, failed and completed runs cannot publish a new thermal snapshot.
+The caller receives the final physical ledger through the original output argument.
+Full-controller inner-state serialization and application continuation remain separate integration work.
 
 ## Completed execution records
 
