@@ -180,7 +180,17 @@ if(MSVC)
 else()
     target_compile_options(tpmshx_outer_anderson PRIVATE -ffp-contract=off)
 endif()
-add_library(tpmshx_full_3d STATIC "${TPMSHX_ROOT}/native/src/full_3d.cpp")
+add_custom_target(tpmshx_state_build_identity
+    COMMAND "${CMAKE_COMMAND}"
+        "-DTPMSHX_STATE_HEADER=${CMAKE_CURRENT_BINARY_DIR}/native_state_build.hpp"
+        "-DTPMSHX_STATE_PLATFORM=${CMAKE_SYSTEM_NAME}:${CMAKE_SYSTEM_PROCESSOR}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/write_state_build_id.cmake"
+    BYPRODUCTS "${CMAKE_CURRENT_BINARY_DIR}/native_state_build.hpp"
+    VERBATIM)
+add_library(tpmshx_full_3d STATIC "${TPMSHX_ROOT}/native/src/full_3d.cpp"
+    "${TPMSHX_ROOT}/native/src/full_3d_state.cpp")
+add_dependencies(tpmshx_full_3d tpmshx_state_build_identity)
+target_include_directories(tpmshx_full_3d PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 target_link_libraries(tpmshx_full_3d PUBLIC tpmshx_simple tpmshx_temperature_staggered
     tpmshx_quick_design tpmshx_model_h_2d tpmshx_model_h_3d tpmshx_enthalpy tpmshx_pressure_reference tpmshx_outer_anderson)
 if(MSVC)

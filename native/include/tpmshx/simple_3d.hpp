@@ -63,6 +63,15 @@ SimpleMomentumResidual simple_3d_momentum_residual(
     const GridView& grid, const Simple3DMaterialView& material,
     const Simple3DBoundaryView& boundary, Simple3DStateView state, bool second_order_upwind);
 
+struct Simple3DOwnerState {
+    std::array<std::vector<double>,3> widths;
+    std::vector<unsigned char> outlet;
+    PressureState pressure;
+    SimpleHistory history;
+    std::vector<double> massflux_target;
+    std::size_t pressure_clip_hits=0,charged_iterations=0;
+};
+
 // One prepared solver +y grid / outlet support per instance. Widths and support
 // are copied; fields remain caller-owned. The caller supplies prepared fields
 // and any coarse seed. No geometry generation, bootstrap, external property backend, outer thermal
@@ -81,6 +90,9 @@ public:
     Simple3DResult solve(const Simple3DMaterialView& material,
                         const Simple3DBoundaryView& boundary, Simple3DStateView state,
                         const Simple3DControl& control);
+    // Between completed solve calls. Fields stay with the run owner.
+    Simple3DOwnerState snapshot() const;
+    void restore(const Simple3DOwnerState&);
     const SimpleHistory& history() const;
     // Iterations actually entered in the latest call, including a failing
     // iteration; zero for entry rejection/cancellation. Diagnostic only.

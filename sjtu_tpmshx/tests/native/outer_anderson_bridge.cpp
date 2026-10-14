@@ -22,6 +22,19 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_outer_anderson_create
     *handle=nullptr;
     return checked([&] {*handle=new tpmshx::OuterAnderson(m,trust,patience,condition);},error,capacity);
 }
+extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_outer_anderson_clone(
+    void* source,int corruption,void** handle,char* error,std::size_t capacity) {
+    *handle=nullptr;
+    return checked([&] {
+        auto state=static_cast<tpmshx::OuterAnderson*>(source)->snapshot();
+        if (corruption==1) state.scales.clear();
+        if (corruption==2) state.accelerator.r.clear();
+        if (corruption==3) state.residual_min=std::numeric_limits<double>::quiet_NaN();
+        if (corruption==4) state.accelerator.x.at(0).pop_back();
+        if (corruption==5) state.accelerator.x.at(0).at(0)=std::numeric_limits<double>::infinity();
+        *handle=new tpmshx::OuterAnderson(state);
+    },error,capacity);
+}
 extern "C" TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL test_outer_anderson_destroy(void* handle) {
     delete static_cast<tpmshx::OuterAnderson*>(handle);
 }
@@ -61,6 +74,13 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_anderson_candidate(
         const Eigen::VectorXd g=Eigen::Map<const Eigen::VectorXd>(image,rows);
         Eigen::VectorXd result;
         *applied=accelerator.candidate(g,result);
+        tpmshx::model_h_common::Anderson restored;
+        restored.restore(accelerator.snapshot());
+        Eigen::VectorXd resumed;
+        const bool resumed_applied=restored.candidate(g,resumed);
+        if (resumed_applied!=static_cast<bool>(*applied)
+            || (resumed_applied && (resumed.size()!=result.size() || (resumed-result).cwiseAbs().maxCoeff()!=0.)))
+            throw std::runtime_error("restored Anderson candidate differs");
         if (!*applied) result=g;
         std::copy(result.data(),result.data()+rows,output);
     },error,capacity);

@@ -174,7 +174,29 @@ int smoke() {
         || tiny.rebuild_count != 1 || tiny.relative_residual > 1e-7) return 4;
     for (std::size_t i = 0; i < expected.size(); ++i)
         if (std::abs(tiny.x[i]/1e-30-expected[i]) > 1e-7) return 5;
-    std::cout << "{\"status\":\"passed\",\"checks\":[\"analytical_lu\",\"amg_above_2000\",\"tiny_rhs_original_residual\",\"hierarchy_reuse\"]}" << std::endl;
+    const auto saved=solver.snapshot();
+    PressureCandidate resumed;
+    resumed.restore(saved);
+    for (std::size_t row=1;row<large.rhs.size();++row) {
+        large.rhs[row]*=1.+.01*static_cast<double>(row%5);
+        for (int k=large.row_offsets[row];k<large.row_offsets[row+1];++k)
+            if (large.columns[k]!=static_cast<int>(row)) large.values[k]*=.97;
+    }
+    const auto continuous=solver.solve(large), restored=resumed.solve(large);
+    if (!continuous.success || !restored.success || continuous.x!=restored.x
+        || continuous.iterations!=restored.iterations || continuous.rebuild_count!=restored.rebuild_count
+        || !restored.rebuild_reason.empty() || continuous.relative_residual!=restored.relative_residual)
+        return 6;
+    auto invalid=saved;
+    invalid.construction->values[0]=std::numeric_limits<double>::quiet_NaN();
+    bool rejected=false;
+    try { resumed.restore(invalid); }
+    catch (const std::invalid_argument&) { rejected=true; }
+    if (!rejected || resumed.solve(large).x!=continuous.x) return 7;
+    resumed.restore({});
+    if (resumed.snapshot().construction || resumed.snapshot().rebuild_count) return 8;
+    if (resumed.solve(large).rebuild_reason!="cold") return 9;
+    std::cout << "{\"status\":\"passed\",\"checks\":[\"analytical_lu\",\"amg_above_2000\",\"tiny_rhs_original_residual\",\"hierarchy_reuse\",\"saved_hierarchy_resume\",\"invalid_state_retains_owner\"]}" << std::endl;
     return 0;
 }
 }  // namespace

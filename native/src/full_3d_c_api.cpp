@@ -1,4 +1,6 @@
 #include "tpmshx/full_3d_c_api.h"
+#include "tpmshx/full_3d_run_c_api.h"
+#include "tpmshx/full_3d_state.hpp"
 #include "closure_evidence_c_views.hpp"
 #include "tpmshx/full_3d.hpp"
 #include "property_sampling_c_views.hpp"
@@ -192,6 +194,32 @@ tpmshx_full3d_result_v1 output(Owner& o) {
     out.energy_imbalance=r.energy_imbalance;out.interior_duty=r.interior_duty;out.interior_imbalance=r.interior_imbalance;out.enthalpy_imbalance=r.enthalpy_imbalance;
     return out;
 }
+Full3DInput prepared_input(const tpmshx_full3d_input_v1* in) {
+    if(!in)throw std::invalid_argument("null full 3D input");
+    if(in->topology>1 || in->spatial>1 || in->asymmetric>1 || in->solve_b>1)
+        throw std::invalid_argument("invalid full 3D topology or flag");
+    Full3DInput data;data.geometry={{in->shape[0],in->shape[1],in->shape[2],input(in->widths[0]),input(in->widths[1]),input(in->widths[2])},
+        input(in->epsilon),input(in->epsilon_a),input(in->epsilon_b),input(in->permeability),input(in->forchheimer),input(in->solid_conductivity),
+        input(in->cell_length),input(in->area_density),input(in->hydraulic_diameter),in->reference_cell_length,in->reference_hydraulic_diameter,
+        in->spatial!=0,in->asymmetric!=0};
+    data.topology=static_cast<Topology>(in->topology);data.solve_b=in->solve_b!=0;data.a=side(in->sides[0]);data.b=side(in->sides[1]);
+    for(std::size_t s=0;s<3;++s)data.sources[s]=input(in->sources[s]);
+    return data;
+}
+tpmshx_full3d_result_v1 publish_result(Full3DResult result,const Full3DControl& control) {
+    auto owner=std::make_unique<Owner>();owner->result=std::move(result);
+    const auto& h=owner->result.thermal.true_h;
+    const bool completed=owner->result.stop!=Full3DStop::cancelled && h && h->stop!=EnthalpyStop::cancelled;
+    owner->energy_settings=energy_settings_c_view(control.enthalpy,completed);
+    if(owner->result.stop!=Full3DStop::cancelled) {
+        const auto& r=owner->result;
+        append_property_samples(owner->property_sampling,r.thermal.property_sampling);
+        for(const auto& flow:r.flow) append_property_samples(owner->property_sampling,flow.property_sampling);
+        append_property_samples(owner->property_sampling,r.property_sampling);
+    }
+    auto value=output(*owner);
+    value.owner=owner.release();return value;
+}
 int solve(const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,
     const tpmshx_energy_options_v1* energy,
     const tpmshx_energy_options_v2* strict_energy,
@@ -199,14 +227,7 @@ int solve(const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,
     if(!error || !capacity)return 1;
     try {
         if(!in || !c || !result)throw std::invalid_argument("null full 3D API argument");
-        if(in->topology>1 || in->spatial>1 || in->asymmetric>1 || in->solve_b>1)
-            throw std::invalid_argument("invalid full 3D topology or flag");
-        Full3DInput data;data.geometry={{in->shape[0],in->shape[1],in->shape[2],input(in->widths[0]),input(in->widths[1]),input(in->widths[2])},
-            input(in->epsilon),input(in->epsilon_a),input(in->epsilon_b),input(in->permeability),input(in->forchheimer),input(in->solid_conductivity),
-            input(in->cell_length),input(in->area_density),input(in->hydraulic_diameter),in->reference_cell_length,in->reference_hydraulic_diameter,
-            in->spatial!=0,in->asymmetric!=0};
-        data.topology=static_cast<Topology>(in->topology);data.solve_b=in->solve_b!=0;data.a=side(in->sides[0]);data.b=side(in->sides[1]);
-        for(std::size_t s=0;s<3;++s)data.sources[s]=input(in->sources[s]);
+        const auto data=prepared_input(in);
         auto control=controls(*c,callbacks);
         if(energy)apply_energy_options(control.enthalpy,*energy);
         if(strict_energy) {
@@ -214,25 +235,88 @@ int solve(const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,
                 throw std::invalid_argument("strict full 3D energy controls require the existing two-sided true-h route");
             apply_energy_options(control.enthalpy,*strict_energy);
         }
-        auto owner=std::make_unique<Owner>();owner->result=solve_full_3d(data,control);
-        // This is the validated control actually passed to solve_full_3d.
-        // Its enthalpy controls are copied unchanged for every thermal call.
-        const auto& h=owner->result.thermal.true_h;
-        const bool completed=owner->result.stop!=Full3DStop::cancelled && h && h->stop!=EnthalpyStop::cancelled;
-        owner->energy_settings=energy_settings_c_view(control.enthalpy,completed);
-        if(owner->result.stop!=Full3DStop::cancelled) {
-            const auto& r=owner->result;
-            append_property_samples(owner->property_sampling,r.thermal.property_sampling);
-            for(const auto& flow:r.flow) append_property_samples(owner->property_sampling,flow.property_sampling);
-            append_property_samples(owner->property_sampling,r.property_sampling);
-        }
-        auto value=output(*owner);
-        value.owner=owner.release();*result=value;error[0]='\0';return 0;
+        *result=publish_result(solve_full_3d(data,control),control);error[0]='\0';return 0;
     } catch(const WaterStateError& e) {std::snprintf(error,capacity,"%s",e.what());return 2;}
       catch(const std::invalid_argument& e) {std::snprintf(error,capacity,"%s",e.what());return 1;}
       catch(const std::domain_error& e) {std::snprintf(error,capacity,"%s",e.what());return 3;}
       catch(const std::exception& e) {std::snprintf(error,capacity,"%s",e.what());return 4;}
       catch(...) {std::snprintf(error,capacity,"unknown full 3D native failure");return 4;}
+}
+
+// Keep the full-driver error classes at every new C boundary.
+template<class Function> int guarded_run(Function function,char* error,std::size_t capacity) noexcept {
+    if(!error || !capacity)return 1;
+    try {function();error[0]='\0';return 0;}
+    catch(const WaterStateError& e) {std::snprintf(error,capacity,"%s",e.what());return 2;}
+    catch(const std::invalid_argument& e) {std::snprintf(error,capacity,"%s",e.what());return 1;}
+    catch(const std::domain_error& e) {std::snprintf(error,capacity,"%s",e.what());return 3;}
+    catch(const std::exception& e) {std::snprintf(error,capacity,"%s",e.what());return 4;}
+    catch(...) {std::snprintf(error,capacity,"unknown full 3D run failure");return 4;}
+}
+struct RunOwner {
+    tpmshx_full3d_callbacks_v1 callbacks{};
+    Full3DInput data;
+    Full3DControl control;
+    std::vector<std::vector<double>> storage;
+    std::unique_ptr<Full3DRun> run;
+    RunOwner(const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,
+             const tpmshx_energy_options_v2* energy,const tpmshx_full3d_callbacks_v1* cb)
+        :data(prepared_input(in)) {
+        if(!c)throw std::invalid_argument("null full 3D run controls");
+        if(cb)callbacks=*cb;
+        control=controls(*c,cb?&callbacks:nullptr);
+        if(energy) {
+            if(!data.solve_b || (!uses_co2_eos(data.a.fluid) && !uses_co2_eos(data.b.fluid)))
+                throw std::invalid_argument("strict full 3D energy controls require the existing two-sided true-h route");
+            apply_energy_options(control.enthalpy,*energy);
+        }
+        storage.reserve(19);
+        auto copy=[&](ArrayView<const double>& field) {
+            if(field.size && !field.data)throw std::invalid_argument("null full 3D input array");
+            if(field.size)storage.emplace_back(field.data,field.data+field.size);else storage.emplace_back();
+            field={storage.back().data(),storage.back().size()};
+        };
+        auto& g=data.geometry;
+        for(auto* field:{&g.grid.dx,&g.grid.dy,&g.grid.dz,&g.epsilon,&g.epsilon_a,&g.epsilon_b,&g.permeability,
+            &g.forchheimer,&g.solid_conductivity,&g.cell_length,&g.area_density,&g.hydraulic_diameter,
+            &data.a.inlet_opening,&data.a.outlet_opening,&data.b.inlet_opening,&data.b.outlet_opening})copy(*field);
+        for(auto& source:data.sources)copy(source);
+    }
+};
+struct SnapshotOwner {
+    RunStateRecord record;
+    std::vector<tpmshx_run_state_field_v1> fields;
+    explicit SnapshotOwner(RunStateRecord value):record(std::move(value)) {
+        fields.reserve(record.size());
+        for(const auto& field:record)std::visit([&](const auto& values) {
+            fields.push_back({field.name.c_str(),static_cast<uint32_t>(field.value.index()),values.data(),values.size()});
+        },field.value);
+    }
+};
+RunStateRecord state_record(const tpmshx_run_state_field_v1* fields,std::size_t count) {
+    if(!fields || !count)throw std::invalid_argument("native state fields are missing");
+    RunStateRecord record;record.reserve(count);
+    for(std::size_t i=0;i<count;++i) {
+        const auto& field=fields[i];
+        if(!field.name || (field.count && !field.data))throw std::invalid_argument("null native state field");
+        RunStateField value;value.name=field.name;
+        auto copy=[&](auto element) {
+            using T=decltype(element);
+            if(field.count>std::numeric_limits<std::size_t>::max()/sizeof(T))throw std::invalid_argument("native state field is too large");
+            const auto* data=static_cast<const T*>(field.data);
+            if(field.count)value.value=std::vector<T>(data,data+field.count);else value.value=std::vector<T>{};
+        };
+        switch(field.type) {
+            case TPMSHX_RUN_STATE_F64:copy(double{});break;
+            case TPMSHX_RUN_STATE_U64:copy(std::uint64_t{});break;
+            case TPMSHX_RUN_STATE_I64:copy(std::int64_t{});break;
+            case TPMSHX_RUN_STATE_U8:copy(static_cast<unsigned char>(0));break;
+            case TPMSHX_RUN_STATE_UTF8:value.value=field.count?std::string(static_cast<const char*>(field.data),field.count):std::string{};break;
+            default:throw std::invalid_argument("unknown native state field type");
+        }
+        record.push_back(std::move(value));
+    }
+    return record;
 }
 } // namespace
 extern "C" {
@@ -296,10 +380,10 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_model_enthalpy_evidence_v1
     tpmshx_model_enthalpy_evidence_v1 out{};
     if(r.stop!=Full3DStop::cancelled && r.thermal.temperature_algorithm && r.thermal.physical_audit)
         out=model_enthalpy_c_view(*r.thermal.physical_audit,
-            r.thermal.temperature_cp_coefficients,r.thermal.temperature_algorithm,3);
+            r.thermal.temperature_cp_coefficients,r.thermal.temperature_algorithm->c_str(),3);
     else if(r.stop!=Full3DStop::cancelled && r.thermal.temperature_algorithm) {
         out.physical_dimension=3;
-        out.algorithm=r.thermal.temperature_algorithm;
+        out.algorithm=r.thermal.temperature_algorithm->c_str();
     }
     *evidence=out;return 0;
 }
@@ -329,4 +413,61 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_property_sampling_v1(
     const auto& owner=*static_cast<const Owner*>(result->owner);
     *sampling={owner.property_sampling.data(),owner.property_sampling.size()};
     return 0;
+}
+
+extern "C" {
+int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_create_v1(
+    const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,const tpmshx_energy_options_v2* energy,
+    const tpmshx_full3d_callbacks_v1* callbacks,void** run,char* error,size_t capacity) {
+    return guarded_run([&] {
+        if(!run || *run)throw std::invalid_argument("full 3D run output must be null");
+        auto owner=std::make_unique<RunOwner>(in,c,energy,callbacks);
+        owner->run=std::make_unique<Full3DRun>(owner->data,owner->control);*run=owner.release();
+    },error,capacity);
+}
+int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_restore_v1(
+    const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,const tpmshx_energy_options_v2* energy,
+    const tpmshx_full3d_callbacks_v1* callbacks,const tpmshx_run_state_field_v1* fields,size_t count,
+    void** run,char* error,size_t capacity) {
+    return guarded_run([&] {
+        if(!run || *run)throw std::invalid_argument("full 3D run output must be null");
+        auto owner=std::make_unique<RunOwner>(in,c,energy,callbacks);
+        const auto state=import_full_3d_state(owner->data,owner->control,state_record(fields,count));
+        owner->run=std::make_unique<Full3DRun>(owner->data,owner->control,state);*run=owner.release();
+    },error,capacity);
+}
+int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_advance_v1(void* run,uint32_t* phase,char* error,size_t capacity) {
+    return guarded_run([&] {
+        if(!run || !phase)throw std::invalid_argument("null full 3D advance argument");
+        *phase=static_cast<uint32_t>(static_cast<RunOwner*>(run)->run->advance());
+    },error,capacity);
+}
+int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_phase_v1(const void* run,uint32_t* phase) {
+    if(!run || !phase)return 1;
+    *phase=static_cast<uint32_t>(static_cast<const RunOwner*>(run)->run->phase());return 0;
+}
+int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_snapshot_v1(
+    const void* run,tpmshx_run_state_v1* state,char* error,size_t capacity) {
+    return guarded_run([&] {
+        if(!run || !state || state->owner)throw std::invalid_argument("invalid full 3D snapshot output");
+        const auto& owner=*static_cast<const RunOwner*>(run);
+        auto snapshot=std::make_unique<SnapshotOwner>(export_full_3d_state(owner.data,owner.control,owner.run->snapshot()));
+        const tpmshx_run_state_v1 value{snapshot->fields.data(),snapshot->fields.size(),snapshot.get()};
+        snapshot.release();*state=value;
+    },error,capacity);
+}
+void TPMSHX_THERMAL_CALL tpmshx_run_state_release_v1(tpmshx_run_state_v1* state) {
+    if(state) {delete static_cast<SnapshotOwner*>(state->owner);*state={};}
+}
+int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_take_result_v1(
+    void* run,tpmshx_full3d_result_v1* result,char* error,size_t capacity) {
+    return guarded_run([&] {
+        if(!run || !result || result->owner)throw std::invalid_argument("invalid full 3D result output");
+        auto& owner=*static_cast<RunOwner*>(run);
+        *result=publish_result(owner.run->take_result(),owner.control);
+    },error,capacity);
+}
+void TPMSHX_THERMAL_CALL tpmshx_full_3d_run_release_v1(void** run) {
+    if(run) {delete static_cast<RunOwner*>(*run);*run=nullptr;}
+}
 }

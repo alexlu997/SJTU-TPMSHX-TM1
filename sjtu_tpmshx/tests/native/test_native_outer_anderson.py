@@ -32,6 +32,8 @@ class Native:
         self.lib.test_outer_anderson_create.argtypes = [ct.c_int, ct.c_double, ct.c_int, ct.c_double,
                                                         ct.POINTER(ct.c_void_p), C, S]
         self.lib.test_outer_anderson_create.restype = ct.c_int
+        self.lib.test_outer_anderson_clone.argtypes = [ct.c_void_p, ct.c_int, ct.POINTER(ct.c_void_p), C, S]
+        self.lib.test_outer_anderson_clone.restype = ct.c_int
         self.lib.test_outer_anderson_destroy.argtypes = [ct.c_void_p]
         self.lib.test_outer_anderson_destroy.restype = None
         self.lib.test_outer_anderson_step.argtypes = [ct.c_void_p, S, ct.POINTER(S), ct.POINTER(D),
@@ -42,6 +44,16 @@ class Native:
     def accelerator(self, *, m=3, trust=5., patience=3, cond_max=1e10):
         handle, error = ct.c_void_p(), ct.create_string_buffer(512)
         code = self.lib.test_outer_anderson_create(m, trust, patience, cond_max, ct.byref(handle), error, len(error))
+        assert code == 0, error.value.decode()
+        try:
+            yield handle
+        finally:
+            self.lib.test_outer_anderson_destroy(handle)
+
+    @contextmanager
+    def restored(self, source):
+        handle, error = ct.c_void_p(), ct.create_string_buffer(512)
+        code = self.lib.test_outer_anderson_clone(source, 0, ct.byref(handle), error, len(error))
         assert code == 0, error.value.decode()
         try:
             yield handle
@@ -198,3 +210,40 @@ def test_fallback_retains_upstream_invalid_evidence(native, invalid):
     with native.accelerator() as handle:
         with np.errstate(invalid='ignore'):
             check_step(native, handle, python, [np.array([1., 2.])], [np.array([invalid, 2.2])])
+
+
+@pytest.mark.parametrize('saved_after', [0, 2, 6])
+@pytest.mark.parametrize('patience', [0, 3])
+def test_saved_history_preserves_next_candidates_and_decisions(native, saved_after, patience):
+    x = [np.array([1., 1.3, 1.6]), np.array([1.8e-5, 2.4e-5])]
+    target = [np.ones(3), np.full(2, 2e-5)]
+    factors = [np.array([.2, .4, .7]), np.array([.3, .6])]
+
+    def image(values):
+        return [goal + factor * (value - goal) for goal, factor, value in zip(target, factors, values)]
+
+    with native.accelerator(m=4, patience=patience) as original:
+        for _ in range(saved_after):
+            x = native.step(original, x, image(x), .6)[0]
+        with native.restored(original) as restored:
+            for _ in range(8):
+                g = image(x)
+                expected = native.step(original, x, g, .6)
+                actual = native.step(restored, x, g, .6)
+                assert actual[1:] == expected[1:]
+                for before, after in zip(expected[0], actual[0]):
+                    np.testing.assert_array_equal(before, after)
+                x = expected[0]
+
+
+@pytest.mark.parametrize('corruption', [1, 2, 3, 4, 5])
+def test_invalid_saved_history_is_rejected(native, corruption):
+    with native.accelerator() as original:
+        native.step(original, [np.array([1., 2.])], [np.array([1.2, 1.8])], .6)
+        handle, error = ct.c_void_p(), ct.create_string_buffer(512)
+        code = native.lib.test_outer_anderson_clone(original, corruption, ct.byref(handle), error, len(error))
+        assert code == 1 and not handle.value
+        assert error.value
+        with native.restored(original) as restored:
+            inputs = [np.array([1.1, 1.9])], [np.array([1.15, 1.85])], .6
+            assert native.step(original, *inputs)[1:] == native.step(restored, *inputs)[1:]

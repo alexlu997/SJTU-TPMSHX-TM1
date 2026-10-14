@@ -27,6 +27,28 @@ SimpleF2Monitor::SimpleF2Monitor(SimpleFacesView<const double> velocity,
         if (arrays[c].size) previous_[c].assign(arrays[c].data, arrays[c].data + arrays[c].size);
 }
 
+SimpleF2Monitor::SimpleF2Monitor(const SimpleF2State& state,const SimpleF2Control& control)
+    : SimpleF2Monitor({{state.previous[0].data(),state.previous[0].size()},
+                       {state.previous[1].data(),state.previous[1].size()},
+                       {state.previous[2].data(),state.previous[2].size()}},
+                      control,state.minimum_iterations) {
+    if (state.streak>control.confirmations
+        || (std::isnan(state.momentum_at_window_start) && state.window_start_iteration)
+        || (!std::isnan(state.momentum_at_window_start)
+            && (!std::isfinite(state.momentum_at_window_start) || state.momentum_at_window_start<0.)))
+        throw std::invalid_argument("invalid saved SIMPLE F2 history");
+    for (const auto& component:state.previous)
+        for (double value:component)
+            if (!std::isfinite(value)) throw std::invalid_argument("nonfinite saved SIMPLE F2 velocity");
+    streak_=state.streak;
+    window_start_iteration_=state.window_start_iteration;
+    momentum_at_window_start_=state.momentum_at_window_start;
+}
+
+SimpleF2State SimpleF2Monitor::snapshot() const {
+    return {minimum_iterations_,streak_,window_start_iteration_,momentum_at_window_start_,previous_};
+}
+
 double SimpleF2Monitor::velocity_delta(SimpleFacesView<const double> velocity) {
     const ArrayView<const double> arrays[] = {velocity.u, velocity.v, velocity.w};
     double maximum = 0., scale = 1e-30;
