@@ -92,11 +92,19 @@ int main(void) {
     ranges.size=123;
     if(tpmshx_full_3d_get_last_closure_ranges_v1(NULL,&ranges)!=1 || ranges.size!=123
        || tpmshx_full_3d_get_last_closure_ranges_v1(&r,NULL)!=1)return 73;
+    tpmshx_property_sampling_v1 sampling={0};
+    if(tpmshx_full_3d_get_property_sampling_v1(&r,&sampling) || !sampling.count)return 35;
+    for(size_t i=0;i<sampling.count;++i)
+        if(sampling.records[i].side>1 || !sampling.records[i].stage || !sampling.records[i].quantity)return 35;
+    if(tpmshx_full_3d_get_property_sampling_v1(NULL,&sampling)!=1
+       || tpmshx_full_3d_get_property_sampling_v1(&r,NULL)!=1)return 35;
     /* Input changes cannot mutate owned result views. */
     eps[0]=.55;if(r.flow[0].epsilon.data[0]!=.6)return 5;eps[0]=.6;
     tpmshx_full_3d_release_v1(&r);tpmshx_full_3d_release_v1(&r);if(r.owner)return 6;
     if(tpmshx_full_3d_get_last_closure_ranges_v1(&r,&ranges)!=1 || ranges.size!=123)return 74;
     if(tpmshx_full_3d_get_bootstrap_trace_v1(&r,0,&trace)!=1 || trace.selected!=99)return 11;
+    sampling.count=123;
+    if(tpmshx_full_3d_get_property_sampling_v1(&r,&sampling)!=1 || sampling.count!=123)return 35;
     evidence.available=99;
     if(tpmshx_full_3d_get_energy_evidence_v1(&r,&evidence)!=1 || evidence.available!=99)return 15;
     settings.resolved.available=99;
@@ -112,8 +120,18 @@ int main(void) {
            || r.stop!=99 || r.owner || !error[0])return 16;
         if(tpmshx_full_3d_get_energy_evidence_v1(&r,&evidence)!=1 || evidence.available!=99)return 16;
     }
+    in.solve_b=0;
+    if(tpmshx_solve_full_3d_v1(&in,&c,NULL,&r,error,sizeof error))return 36;
+    if(tpmshx_full_3d_get_property_sampling_v1(&r,&sampling) || !sampling.count)return 36;
+    for(size_t i=0;i<sampling.count;++i) {
+        const tpmshx_property_sample_v1* row=&sampling.records[i];
+        if(row->side==1 && (!strcmp(row->stage,"thermal_hv") || !strcmp(row->stage,"flow")
+                           || !strcmp(row->stage,"flow_post")))return 36;
+    }
+    tpmshx_full_3d_release_v1(&r); in.solve_b=1;
     c.coarse_bootstrap=1;
     if(tpmshx_solve_full_3d_v1(&in,&c,&cb,&r,error,sizeof error) || r.stop!=2 || r.converged)return 7;
+    if(tpmshx_full_3d_get_property_sampling_v1(&r,&sampling) || sampling.count)return 35;
     if(tpmshx_full_3d_get_bootstrap_trace_v1(&r,0,&trace) || !trace.selected || strcmp(trace.decision,"cancelled")
        || trace.level_count || trace.started_cap_sum || trace.total_charged_iterations)return 12;
     if(tpmshx_full_3d_get_energy_effective_settings_v1(&r,&settings)

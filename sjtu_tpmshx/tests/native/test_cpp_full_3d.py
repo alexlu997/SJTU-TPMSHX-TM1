@@ -179,6 +179,15 @@ def test_public_case_fields_native_ledgers_and_postprocess(native_path,pair):
         actual=cpp_run(prepared,control(native_path))
     assert actual.backend_id=='cpp'
     for result in (actual,expected):
+        samples = result.metadata['property_sampling']
+        for label, fluid in zip('AB', pair.split('-')):
+            hv = [r for r in samples if r['side'] == label and r['stage'] == 'thermal_hv' and r['quantity'] == 'conductivity']
+            assert len(hv) == 1 and hv[0]['outer_index'] == result.run_status['outer_index']
+            assert hv[0]['pressure'] == 'inlet'
+            assert hv[0]['temperature'] == ('previous_thermal_or_seed' if fluid == 'sco2' else 'inlet')
+        assert result.metadata['input_resolution']['source'] == 'CaseData.parameters'
+    assert actual.metadata['execution_record']['property_sampling']['version'] == 'full_sampling_v1'
+    for result in (actual,expected):
         _physical_gates(result)
     for key in ('fields','field_metadata','boundary_fluxes','pressure_evidence','run_status'):
         compare(getattr(actual,key),getattr(expected,key),key,engineering=True)
@@ -631,3 +640,41 @@ def test_public_applicability_keeps_original_inlet_and_last_local_sources(native
     assert summaries[0]['within_limits'] == summaries[1]['within_limits']
     assert {row['source'][1] for row in summaries[1]['checks']['inlet']
             if row['source'][0] == 'geometry'} == {'L_field_m', 't_field_m'}
+
+
+@pytest.mark.parametrize('seeded', [False, True])
+def test_first_thermal_sampling_distinguishes_inlet_and_seed(native_path, seeded):
+    from sjtu_tpmshx.preprocess.api import prepare_research_case
+    from sjtu_tpmshx.tests.test_convergence_truth_table import _cheap_3d
+    cfg = _cheap_3d(max_outer_ltne=1, fluid_type_A='sco2', fluid_type_B='water',
+                   u_A=.2, u_B=.2, T_inA=500., T_inB=300., P_inA=12e6, P_inB=2e6,
+                   T_s_init=350. if seeded else None)
+    prepared = prepare_research_case(cfg, case_id='first-sampling')
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
+    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
+    cfg, data = build_execution_inputs(prepared)
+    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
+    native = driver.run_prepared(cfg, data, control(native_path))
+    reference = python_run(prepared)
+    for rows in (native['property_sampling'], reference.metadata['property_sampling']):
+        sample = next(row for row in rows if row['side'] == 'A' and row['stage'] == 'thermal_hv'
+                      and row['quantity'] == 'conductivity')
+        assert sample['outer_index'] == 0
+        assert sample['temperature'] == ('previous_thermal_or_seed' if seeded else 'inlet')
+        assert sample['operation'] == ('local_evaluation' if seeded else 'scalar_evaluation')
+        assert any(row['stage'] == 'thermal_warmup' for row in rows)
+        post = [row for row in rows if row['stage'] == 'flow_post']
+        assert post and all(row['temperature'] == 'current_thermal_return' for row in post)
+
+
+def test_inactive_python_side_has_no_flow_or_exchange_sampling():
+    from sjtu_tpmshx.preprocess.api import prepare_research_case
+    from sjtu_tpmshx.tests.test_convergence_truth_table import _cheap_3d
+    cfg = _cheap_3d(max_outer_ltne=1)
+    cfg.update(fluid_B_cfg=None, sweep_profile=None)
+    result = python_run(prepare_research_case(cfg, case_id='inactive-sampling'))
+    assert result.metadata['input_resolution']['active_sides'] == ('A',)
+    energy = next(row for row in result.metadata['property_sampling'] if row['quantity'] == 'energy_relation')
+    assert energy['temperature'] == 'inlet' and energy['operation'] == 'frozen_capacity_temperature'
+    assert not [row for row in result.metadata['property_sampling']
+                if row['side'] == 'B' and row['stage'] in ('thermal_hv', 'flow', 'flow_post')]

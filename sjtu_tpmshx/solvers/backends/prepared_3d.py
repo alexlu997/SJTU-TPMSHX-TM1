@@ -103,4 +103,7 @@ def build_execution_inputs(case, *, copy_design=True):
     else:
         raise ValueError('unsupported prepared 3D design mode')
     prepared['design'] = design
+    from sjtu_tpmshx.solvers.execution_record import resolved_input_record
+    cfg['_input_resolution'] = resolved_input_record(
+        case, cfg['_models'], shape, {side: cfg['fluid_' + side + '_cfg']['dir'] for side in prepared['axes']})
     return cfg, prepared

@@ -145,7 +145,12 @@ from sjtu_tpmshx.controllers.module_adapter import to_compute_result
 result = load_result(sys.argv[1])
 display = to_compute_result(result, evaluate(result))
 assert display.metadata['source_result_id'] == result.result_id
-assert display.metadata['execution_record'] == result.metadata['execution_record']
+from sjtu_tpmshx.domain.portable_data import mutable_data
+assert display.metadata['execution_record'] == mutable_data(result.metadata['execution_record'])
+sample = display.metadata['execution_record']['property_sampling']['records'][0]
+original_stage = result.metadata['execution_record']['property_sampling']['records'][0]['stage']
+sample['stage'] = 'GUI edit'
+assert result.metadata['execution_record']['property_sampling']['records'][0]['stage'] == original_stage
 from pathlib import Path
 import numpy as np
 from sjtu_tpmshx.postprocess.export import export_vtk

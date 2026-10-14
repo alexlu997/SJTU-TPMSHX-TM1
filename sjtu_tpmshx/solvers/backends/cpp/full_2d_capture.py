@@ -213,6 +213,7 @@ def capture_result(case, cfg, prepared, native):
         props=dict(rho_A=r_a['rho'], rho_B=r_b['rho'], mu_A=r_a['mu'], mu_B=r_b['mu']),
         zones=_zone_statistics_2d(cfg['z_axis'], cfg['zone_config'], cfg['za'], cfg['L'], cfg['H'],
             prepared['energy_dx'], prepared['energy_dy'], *main['temperature']))
+    evidence.update(input_resolution=cfg['_input_resolution'], property_sampling=native['property_sampling'])
     result = _capture_result(case, display_fields, evidence, application, diagnostics, backend_id='cpp',
                              backend_version=f"full_2d_v{native.get('entry_version', 2)}")
     if 'native_metadata' in native:

@@ -74,7 +74,21 @@ Thermal and final-flow state labels remain separate after an outer post-update.
 This record describes the completed execution; it is not a new quality certificate.
 Rejected runs and Quick Design keep their existing contracts.
 Saved records retain this metadata. Reading a historical result does not add it.
-Prepared input resolution and complete property sampling records remain later work.
+The prepared builders also return `input_resolution`, with version `prepared_input_v1`.
+This record identifies validated resources, physical grid sizes, active sides, directions and cell-length units.
+Its input source is `CaseData.parameters`; an edited GUI draft does not change it.
+
+The numerical owners record property sampling under `property_sampling`, with version `full_sampling_v1`.
+Each entry identifies the side, outer index, stage, quantity, provider, temperature source, pressure source and operation.
+The last thermal and flow operations remain separate from initialization and property updates.
+Entries distinguish inlet values, local values, volume averages, relaxation and transfer to a refined thermal grid.
+The 3D true-h record includes its temperature warm-up and its EOS energy solve.
+An inactive B side has no flow or heat-transfer sampling operation.
+The record preserves the different 2D and 3D sampling rules and the retained Python energy relations.
+The native query borrows views from the result owner; Python copies these views before release.
+Current bindings require the added query and report an explicit error for an older native library.
+Saved results retain both records. Historical results retain their original metadata.
+Final applicability and physical quality remain separate decisions.
 
 ## Result qualification by route
 
