@@ -361,18 +361,17 @@ ModelHResult3D solve_model_h_3d(const GridView& grid, const ModelHFluid3D& a,
             if (cancelled()) throw Cancelled{};
             const auto count=std::min(control.chunk_iterations,control.max_iterations-result.iterations);
             if (control.accelerate) {
-                Anderson accelerator; std::size_t done=0;
-                while (done<count) {
-                    auto before=pack(t,solve_b); const auto n=std::min<std::size_t>(25,count-done);
-                    result.residual=step(n); done+=n; auto picard=pack(t,solve_b);
-                    accelerator.push(std::move(before),picard); Eigen::VectorXd candidate;
-                    if (!accelerator.candidate(picard,candidate) || count-done<2) continue;
-                    const double ordinary=step(1); picard=pack(t,solve_b); restore(t,candidate,solve_b); reset_carry();
-                    const double trial=step(1); done+=2;
-                    if (std::isfinite(trial) && trial<=ordinary) result.residual=trial;
-                    else { restore(t,picard,solve_b); result.residual=ordinary; }
+                AcceleratedChunk chunk(count);
+                const auto trial=[&](Eigen::VectorXd& picard,const Eigen::VectorXd& candidate) {
+                    const double ordinary=step(1);
+                    picard=pack(t,solve_b);restore(t,candidate,solve_b);reset_carry();
+                    const double proposed=step(1);
+                    const bool accepted=std::isfinite(proposed) && proposed<=ordinary;
+                    if(!accepted)restore(t,picard,solve_b);
                     reset_carry();
-                }
+                    return accepted?proposed:ordinary;
+                };
+                while(!chunk.complete())chunk.advance(t,solve_b,step,trial,result.residual);
             } else result.residual=step(count);
             result.audit_available=false; result.iterations+=count;
             result.physical_audit_available=false;

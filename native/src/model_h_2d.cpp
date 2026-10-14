@@ -354,28 +354,20 @@ ModelHResult2D solve_model_h_2d(const GridView& g, const ModelHFluid2D& a,
             if (cancelled()) throw Cancelled{};
             const auto count=std::min(c.chunk_iterations,c.max_iterations-result.iterations);
             if (c.accelerate) {
-                Anderson accelerator;
-                std::size_t done=0;
-                while (done<count) {
-                    auto before=pack(t,solve_b);
-                    const auto n=std::min<std::size_t>(25,count-done);
-                    result.residual=step(n); done+=n;
-                    auto picard=pack(t,solve_b);
-                    accelerator.push(std::move(before),picard);
-                    Eigen::VectorXd candidate;
-                    if (!accelerator.candidate(picard,candidate) || count-done<2) continue;
-                    const double picard_residual=step(1);
+                AcceleratedChunk chunk(count);
+                const auto trial=[&](Eigen::VectorXd& picard,const Eigen::VectorXd& candidate) {
+                    const double ordinary=step(1);
                     picard=pack(t,solve_b);
-                    const auto saved_a=result.last_a, saved_b=result.last_b;
+                    const auto saved_a=result.last_a,saved_b=result.last_b;
                     restore(t,candidate,solve_b);
-                    const double candidate_residual=step(1); done+=2;
-                    if (std::isfinite(candidate_residual) && candidate_residual<=picard_residual)
-                        result.residual=candidate_residual;
-                    else {
-                        restore(t,picard,solve_b); result.last_a=saved_a; result.last_b=saved_b;
-                        result.residual=picard_residual;
+                    const double proposed=step(1);
+                    const bool accepted=std::isfinite(proposed) && proposed<=ordinary;
+                    if(!accepted) {
+                        restore(t,picard,solve_b);result.last_a=saved_a;result.last_b=saved_b;
                     }
-                }
+                    return accepted?proposed:ordinary;
+                };
+                while(!chunk.complete())chunk.advance(t,solve_b,step,trial,result.residual);
             } else result.residual=step(count);
             result.audit_available=false;
             result.physical_audit_available=false;

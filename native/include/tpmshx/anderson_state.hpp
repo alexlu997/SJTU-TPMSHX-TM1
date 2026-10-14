@@ -9,4 +9,8 @@ struct AndersonState {
     double condition_limit=1e10;
     std::vector<std::vector<double>> x,r;
 };
+struct ModelHChunkState {
+    std::size_t count=0,completed=0;
+    AndersonState acceleration;
+};
 }  // namespace tpmshx

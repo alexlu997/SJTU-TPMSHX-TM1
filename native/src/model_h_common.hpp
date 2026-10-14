@@ -174,4 +174,44 @@ struct Anderson {
     }
 };
 
+class AcceleratedChunk {
+    std::size_t count_,done_=0;
+    Anderson accelerator_;
+    bool boundary_=true;
+public:
+    explicit AcceleratedChunk(std::size_t count):count_(count) {}
+    AcceleratedChunk(std::size_t count,std::size_t fields,const ModelHChunkState& state)
+        :count_(count),done_(state.completed) {
+        if(state.count!=count || done_>count || state.acceleration.history_limit!=6
+            || state.acceleration.condition_limit!=1e10
+            || ((done_==0)!=state.acceleration.x.empty()))
+            throw std::invalid_argument("invalid saved model-h chunk");
+        accelerator_.restore(state.acceleration);
+        if(!accelerator_.x.empty() && static_cast<std::size_t>(accelerator_.x.front().size())!=fields)
+            throw std::invalid_argument("saved model-h chunk field extent differs");
+    }
+    bool complete() const { return done_==count_; }
+    ModelHChunkState snapshot() const {
+        if(!boundary_)throw std::logic_error("model-h chunk has no complete save boundary");
+        return {count_,done_,accelerator_.snapshot()};
+    }
+    template<class Step,class Trial>
+    void advance(TemperatureStateView fields,bool solve_b,Step&& step,Trial&& trial,double& residual) {
+        if(!boundary_)throw std::logic_error("failed model-h chunk cannot advance");
+        if(complete())return;
+        boundary_=false;
+        auto before=pack(fields,solve_b);
+        const auto count=std::min<std::size_t>(25,count_-done_);
+        residual=step(count);done_+=count;
+        auto picard=pack(fields,solve_b);
+        accelerator_.push(std::move(before),picard);
+        Eigen::VectorXd candidate;
+        if(accelerator_.candidate(picard,candidate) && count_-done_>=2) {
+            const double selected=trial(picard,candidate);
+            done_+=2;residual=selected;
+        }
+        boundary_=true;
+    }
+};
+
 }  // namespace tpmshx::model_h_common

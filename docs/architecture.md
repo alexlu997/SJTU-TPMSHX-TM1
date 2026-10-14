@@ -57,6 +57,13 @@ This is the current architectural and physical contract for the repository.
 Historical audits and reports explain how the project reached this state, but
 they do not override the running code or this document.
 
+The 2D and 3D model-h drivers share one accelerated chunk owner.
+It retains 25 sweeps per block, two proposal probes, and separate Anderson history for each chunk.
+A complete selection boundary can export the consumed budget and an independent history copy.
+A failed partial step cannot export or resume that chunk.
+The caller retains its fields, residual, 2D linearization rollback and 3D carry reset.
+Full thermal and SIMPLE continuation require their separate state owners.
+
 ## Completed execution records
 
 Public full solves add `metadata.execution_record` with version `full_execution_v1`.

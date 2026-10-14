@@ -131,6 +131,8 @@ target_compile_definitions(model_h_3d_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
 target_link_libraries(model_h_3d_test PRIVATE tpmshx_model_h_3d)
 add_executable(model_h_3d_smoke "${TPMSHX_ROOT}/native/tests/model_h_3d_smoke.cpp")
 target_link_libraries(model_h_3d_smoke PRIVATE tpmshx_model_h_3d)
+add_executable(model_h_chunk_smoke "${TPMSHX_ROOT}/native/tests/model_h_chunk_smoke.cpp")
+target_link_libraries(model_h_chunk_smoke PRIVATE tpmshx_models)
 include("${TPMSHX_ROOT}/sjtu_tpmshx/tests/native/model_h_history.cmake")
 add_library(tpmshx_model_h_c STATIC "${TPMSHX_ROOT}/native/src/model_h_c_api.cpp")
 target_link_libraries(tpmshx_model_h_c PUBLIC tpmshx_model_h_2d tpmshx_model_h_3d)
@@ -363,7 +365,7 @@ foreach(target IN ITEMS tpmshx_energy tpmshx_models tpmshx_quick_design temperat
         tpmshx_enthalpy tpmshx_enthalpy_c tpmshx_enthalpy_shared enthalpy_c_static enthalpy_c_shared
         enthalpy_driver_smoke enthalpy_driver_test conservative_energy_smoke conservative_energy_driver_smoke
         tpmshx_model_h_2d model_h_2d_test model_h_2d_smoke
-        tpmshx_model_h_3d model_h_3d_test model_h_3d_smoke
+        tpmshx_model_h_3d model_h_3d_test model_h_3d_smoke model_h_chunk_smoke
         tpmshx_model_h_c tpmshx_model_h_shared model_h_c_static model_h_c_shared
         tpmshx_temperature_staggered temperature_staggered_test temperature_staggered_smoke
         tpmshx_temperature_c tpmshx_temperature_shared temperature_c_static temperature_c_shared
