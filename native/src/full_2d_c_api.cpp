@@ -1,5 +1,6 @@
 #include "tpmshx/full_2d_c_api.h"
 #include "tpmshx/full_2d.hpp"
+#include "property_sampling_c_views.hpp"
 #include "model_h_c_views.hpp"
 #include "enthalpy_c_views.hpp"
 #include "temperature_c_views.hpp"
@@ -25,6 +26,7 @@ struct Owner {
     tpmshx_energy_effective_settings_v1 energy_settings{};
     std::vector<tpmshx_energy_effective_settings_v1> energy_outer_settings;
     std::vector<tpmshx_range_observation_v1> ranges;
+    std::vector<tpmshx_property_sample_v1> property_sampling;
 };
 void flag(uint32_t value) {
     if (value>1) throw std::invalid_argument("full2D flags must be zero or one");
@@ -63,6 +65,10 @@ void fill(tpmshx_full_2d_result_v2& o,Owner& owner,const Full2DProblem& p) {
     const auto& r=owner.result;
     o.cancelled=r.cancelled; o.iterations=r.iterations;
     if (r.cancelled) return;
+    append_property_samples(owner.property_sampling,r.thermal.property_sampling);
+    for(const auto& flow:r.flow) append_property_samples(owner.property_sampling,flow.property_sampling);
+    append_property_samples(owner.property_sampling,r.property_sampling);
+    if(r.refined) append_property_samples(owner.property_sampling,r.refined->thermal.property_sampling);
     o.converged=r.converged; o.outer_converged=r.outer_converged; o.post_after_last_thermal=r.post_after_last_thermal;
     o.simple_ok=r.simple_ok; o.thermal_ok=r.thermal_ok; o.envelope_ok=r.envelope_ok;
     o.pair_balance_ok=r.pair_balance_ok; o.model_balance_ok=r.model_balance_ok;
@@ -287,4 +293,12 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_physical_heat_ledger_v1(
             out.fine=physical_ledger_c_view(*r.refined->thermal.physical_audit,2);
     }
     *evidence=out;return 0;
+}
+
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_property_sampling_v1(
+    const tpmshx_full_2d_result_v2* result,tpmshx_property_sampling_v1* sampling) {
+    if(!result || !result->owner || !sampling)return 1;
+    const auto& owner=*static_cast<const Owner*>(result->owner);
+    *sampling={owner.property_sampling.data(),owner.property_sampling.size()};
+    return 0;
 }

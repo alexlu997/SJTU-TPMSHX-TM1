@@ -16,6 +16,7 @@ def run_case(case: CaseData, control: RunControl = RunControl()):
     runtime = build_runtime(cfg, prepared, residual_cb=control.residual)
     display_fields, native, application, diagnostics = _run_solvers(cfg, runtime, control)
     control.check_cancelled()
+    native['input_resolution'] = cfg['_input_resolution']
     result = capture_result(case, display_fields, native, application, diagnostics)
     control.report_progress(100)
     return result

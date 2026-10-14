@@ -335,6 +335,9 @@ def test_research_3d_producer_preserves_optional_diagnostics(monkeypatch, frozen
         result = capture(case, prob, outer, metrics, diagnostics)
         _assert_3d_diagnostics(diagnostics, frozen_B=frozen_B, audit=audit)
         observed.append(diagnostics)
+        samples = result.metadata['property_sampling']
+        assert any(row['side'] == 'B' and row['stage'] == 'thermal_hv' for row in samples) == (not frozen_B)
+        assert result.metadata['input_resolution']['active_sides'] == (('A',) if frozen_B else ('A', 'B'))
         if frozen_B:
             assert metrics.P_real_B is metrics.vmag_B is None
             assert diagnostics['P_Pa_B'] is diagnostics['vmag_B'] is None
@@ -370,6 +373,8 @@ def test_application_fields_and_scalars_match_native_solve(native_result):
     performance = evaluate(fields)
     result = to_compute_result(fields, performance)
     dimension = fields.grid['dimension']
+    assert_slots(result.metadata['execution_record'], fields.metadata['execution_record'])
+    assert result.metadata['execution_record']['property_sampling']['records']
     assert result.converged == fields.run_status['converged']
     assert result.metadata['units']['Q'] == ('W/m' if dimension == 2 else 'W')
     assert result.Q_W == performance.metrics['Q'].value

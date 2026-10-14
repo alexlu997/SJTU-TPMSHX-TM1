@@ -1,5 +1,6 @@
 """Prepared rectangular 2D binding; the complete numerical loop is native."""
 import ctypes as ct
+from .property_sampling import sampling_query, copy_sampling
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -248,6 +249,7 @@ class NativeFull2DDriver:
         self.query_settings.argtypes = [ct.POINTER(_Result), ct.POINTER(_FullEnergyEffectiveSettings)]
         self.query_settings.restype = ct.c_int
         self.query_heat_ledger = heat_ledger_query(self.library, 2, _Result)
+        self.query_sampling = sampling_query(self.library, 2, _Result)
 
     def run_prepared(self, cfg, prepared, control=RunControl()):
         control.check_cancelled()
@@ -336,6 +338,7 @@ class NativeFull2DDriver:
             out.update(iterations=result.iterations, flow=[_flow(f, shape) for f in result.flow],
                        main=_thermal(result.main, actual.last, entry_version),
                        fine=_thermal(result.fine, actual.last, entry_version) if result.have_fine else None)
+            out['property_sampling'] = copy_sampling(self.query_sampling, result)
             for name in ('density', 'viscosity', 'rho_cp'):
                 out[name] = [_copy(x, shape) for x in getattr(result, name)]
             for name in ('fine_duty', 'extrapolated_duty', 'pressure_drop', 'outlet_temperature', 'inlet_mass', 'duty'):

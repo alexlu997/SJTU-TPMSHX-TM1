@@ -1,6 +1,7 @@
 #include "tpmshx/full_3d_c_api.h"
 #include "closure_evidence_c_views.hpp"
 #include "tpmshx/full_3d.hpp"
+#include "property_sampling_c_views.hpp"
 #include "model_h_c_views.hpp"
 #include "enthalpy_c_views.hpp"
 #include "temperature_c_views.hpp"
@@ -25,6 +26,7 @@ struct Owner {
     std::vector<std::vector<const char*>> startup_reasons;
     std::vector<const char*> failures,warnings,envelope_reasons;
     std::vector<tpmshx_range_observation_v1> ranges;
+    std::vector<tpmshx_property_sample_v1> property_sampling;
     std::array<std::vector<tpmshx_full3d_bootstrap_level_v1>,2> bootstrap_levels;
     std::array<tpmshx_full3d_bootstrap_trace_v1,2> bootstrap_traces{};
 };
@@ -215,6 +217,12 @@ int solve(const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,
         const auto& h=owner->result.thermal.true_h;
         const bool completed=owner->result.stop!=Full3DStop::cancelled && h && h->stop!=EnthalpyStop::cancelled;
         owner->energy_settings=energy_settings_c_view(control.enthalpy,completed);
+        if(owner->result.stop!=Full3DStop::cancelled) {
+            const auto& r=owner->result;
+            append_property_samples(owner->property_sampling,r.thermal.property_sampling);
+            for(const auto& flow:r.flow) append_property_samples(owner->property_sampling,flow.property_sampling);
+            append_property_samples(owner->property_sampling,r.property_sampling);
+        }
         auto value=output(*owner);
         value.owner=owner.release();*result=value;error[0]='\0';return 0;
     } catch(const WaterStateError& e) {std::snprintf(error,capacity,"%s",e.what());return 2;}
@@ -301,4 +309,12 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_physical_heat_ledger_v1(
     if(r.stop!=Full3DStop::cancelled && r.thermal.physical_audit)
         out=physical_ledger_c_view(*r.thermal.physical_audit,3);
     *evidence=out;return 0;
+}
+
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_property_sampling_v1(
+    const tpmshx_full3d_result_v1* result,tpmshx_property_sampling_v1* sampling) {
+    if(!result || !result->owner || !sampling)return 1;
+    const auto& owner=*static_cast<const Owner*>(result->owner);
+    *sampling={owner.property_sampling.data(),owner.property_sampling.size()};
+    return 0;
 }
