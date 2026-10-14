@@ -687,3 +687,54 @@ def test_inactive_python_side_has_no_flow_or_exchange_sampling():
     assert energy['temperature'] == 'inlet' and energy['operation'] == 'frozen_capacity_temperature'
     assert not [row for row in result.metadata['property_sampling']
                 if row['side'] == 'B' and row['stage'] in ('thermal_hv', 'flow', 'flow_post')]
+
+
+@pytest.mark.parametrize('pair', ['air-air', 'water-air'])
+def test_public_model_h_controls_retain_native_calls_and_startup_budget(native_path, tmp_path, pair):
+    from sjtu_tpmshx.io.case_io import load_case, save_case
+    from sjtu_tpmshx.io.result_io import load_result, save_result
+    prepared = case(pair, 2)
+    prepared = replace(prepared, parameters={**prepared.parameters,
+        'model_h_max_iterations': 17, 'model_h_temperature_tol_K': 1e-5, 'model_h_q_relative_tol': 1e-8})
+    save_case(prepared, tmp_path/'case.h5')
+    result = cpp_run(load_case(tmp_path/'case.h5'), control(native_path))
+    records = result.metadata['model_h_iterations']['records']
+    assert records and all(row['stage'] == 'outer_thermal' for row in records)
+    assert all(row['settings']['max_iterations'] <= 17 and row['settings']['chunk_iterations'] == 250
+               for row in records)
+    assert all(row['settings']['temperature_update_tolerance_K'] == 1e-5
+               and row['settings']['q_relative_tolerance'] == 1e-8 for row in records)
+    assert result.metadata['execution_record']['numerics']['effective_settings'] == records[-1]['settings']
+    assert not result.run_status['converged']
+    for row in result.metadata['diagnostics']['_ltne_info']:
+        if 'coupling_startup' in row:
+            assert row['coupling_startup']['iteration_budget'] == 17
+            assert row['coupling_startup']['total_iterations'] <= 17
+    save_result(result, tmp_path/'result.h5')
+    assert load_result(tmp_path/'result.h5').metadata['model_h_iterations'] == result.metadata['model_h_iterations']
+
+
+def test_eos_route_rejects_model_h_override_before_native_work(native_path):
+    prepared = case('air-sco2', 2)
+    prepared = replace(prepared, parameters={**prepared.parameters, 'model_h_temperature_tol_K': 1e-5})
+    callbacks = []
+    with pytest.raises(ValueError, match=r'model-h iteration controls require an integral h\(T\) route'):
+        cpp_run(prepared, control(native_path, progress=lambda *args: callbacks.append(args)))
+    assert not callbacks
+
+
+@pytest.mark.parametrize('nz', [1, 4])
+def test_integral_temperature_delegate_receives_model_h_controls(native_path, nz):
+    from sjtu_tpmshx.tests.native.test_full_3d import prepared
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
+    cfg, data = prepared('air-air', directions=(0, 3), counts=(4, 4, nz),
+                         conservative_ltne=False, force_cc_ltne=True)
+    cfg.update(model_h_max_iterations=17, model_h_temperature_tol_K=1e-5, model_h_q_relative_tol=1e-8)
+    data['max_outer'] = 2
+    raw = NativeFull3DDriver(native_path).run_prepared(cfg, data)
+    calls = raw['model_h_iterations']['records']
+    assert len(calls) == 2
+    assert all(row['settings']['max_iterations'] == 17
+               and row['settings']['chunk_iterations'] == (500 if nz == 1 else 250)
+               and row['settings']['temperature_update_tolerance_K'] == 1e-5
+               and row['settings']['q_relative_tolerance'] == 1e-8 for row in calls)

@@ -1,6 +1,6 @@
 #pragma once
 // Shared by the actual 2D and 3D model-h thermal drivers.
-#include "tpmshx/fluid_properties.hpp"
+#include "tpmshx/model_h_2d.hpp"
 #include "tpmshx/temperature_driver.hpp"
 #include "tpmshx/model_coefficients.hpp"
 #include <Eigen/Dense>
@@ -16,6 +16,17 @@
 #endif
 
 namespace tpmshx::model_h_common {
+inline void validate_iteration_overrides(const ModelHIterationOverrides& options) {
+    for(double value:{options.temperature_tolerance,options.q_relative_tolerance})
+        if(!std::isfinite(value) || value<0.)throw std::invalid_argument("invalid model-h iteration override");
+}
+template<class Control> ModelHIterationSettings apply_iteration_tolerances(
+        Control& control,const ModelHIterationOverrides& options,std::size_t total_budget=0) {
+    if(options.temperature_tolerance)control.temperature_tolerance=options.temperature_tolerance;
+    if(options.q_relative_tolerance)control.q_relative_tolerance=options.q_relative_tolerance;
+    return {control.max_iterations,control.chunk_iterations,control.temperature_tolerance,control.q_relative_tolerance,
+            total_budget?total_budget:control.max_iterations};
+}
 template <typename T> ArrayView<const double> view(const T& x) { return {x.data(), x.size()}; }
 inline ArrayView<const double> view(ArrayView<double> x) { return {x.data, x.size}; }
 

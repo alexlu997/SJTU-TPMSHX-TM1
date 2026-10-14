@@ -18,6 +18,7 @@ from .physical_ledger import HeatLedger2D, heat_ledger_query, copy_heat_ledger
 from .simple_2d import _Result as _SimpleResult, _result_dict
 from .model_h import _Array, _Result as _ModelResult, _plane_info, _model_h_algorithm
 from .temperature_evidence import TemperatureEvidence2D, copy_temperature_evidence
+from .model_h import _IterationOptions, _iteration_options, _iteration_query, _copy_iteration_records
 from .enthalpy import _Result as _EnthalpyResult
 from .enthalpy import (_EnergyOptions, _EnergyOptionsV2, _EnergyResult, _energy_options,
                        _energy_algorithm_query, _energy_result_info, _energy_native_state,
@@ -257,6 +258,7 @@ class NativeFull2DDriver:
         self.query_last_ranges = last_range_query(self.library, 2, _Result)
         self.query_heat_ledger = heat_ledger_query(self.library, 2, _Result)
         self.query_sampling = sampling_query(self.library, 2, _Result)
+        self.query_model_h = _iteration_query(self.library, 2, _Result)
 
     def run_prepared(self, cfg, prepared, control=RunControl()):
         control.check_cancelled()
@@ -279,10 +281,11 @@ class NativeFull2DDriver:
                 solver.require_enthalpy_update_on_temperature))
         return self.solve(shape, arrays, config, control, energy_algorithm=solver.enthalpy_algorithm,
                           temperature_update_tolerance=solver.enthalpy_temperature_tol_K,
-                          energy_control=energy_control)
+                          energy_control=energy_control, model_h_options=_iteration_options(vars(solver)))
 
     def solve(self, shape, arrays, config, control=RunControl(), *,
-              energy_algorithm='legacy_h_fou', temperature_update_tolerance=1e-8, energy_control=None):
+              energy_algorithm='legacy_h_fou', temperature_update_tolerance=1e-8, energy_control=None,
+              model_h_options=None):
         """Synchronous C call; detach all views before releasing their sole owner."""
         if len(shape) != 2 or len(arrays) != 29:
             raise ValueError('full 2D requires two extents and 29 prepared arrays')
@@ -291,7 +294,17 @@ class NativeFull2DDriver:
             energy = energy_control.energy
         energy_call = energy_query = version_query = None
         entry_version = 2
-        if energy_control is not None:
+        if model_h_options is not None:
+            if energy_control is not None or energy.algorithm or config.thermal_mode == 2:
+                raise ValueError('model-h iteration controls require an integral h(T) route')
+            try:
+                energy_call = self.library.tpmshx_solve_full_2d_v5
+            except AttributeError as exc:
+                raise ValueError('native full 2D library lacks model-h controls v5; rebuild the library') from exc
+            energy_call.argtypes = [*self.call.argtypes[:4], ct.POINTER(_IterationOptions), *self.call.argtypes[4:]]
+            energy_call.restype = ct.c_int
+            entry_version = 5
+        elif energy_control is not None:
             try:
                 energy_call = self.library.tpmshx_solve_full_2d_v4
             except AttributeError as exc:
@@ -359,7 +372,7 @@ class NativeFull2DDriver:
         try:
             args = ((ct.c_size_t*2)(*shape), pointers, sizes, ct.byref(config))
             tail = (ct.byref(callbacks), ct.byref(result), error, len(error))
-            options = energy_control if energy_control is not None else energy
+            options = model_h_options if model_h_options is not None else energy_control if energy_control is not None else energy
             status = (energy_call(*args, ct.byref(options), *tail) if energy_call else self.call(*args, *tail))
             if errors:
                 raise errors[0]
@@ -378,6 +391,7 @@ class NativeFull2DDriver:
                        main=_thermal(result.main, actual.last, entry_version),
                        fine=_thermal(result.fine, actual.last, entry_version) if result.have_fine else None)
             out['property_sampling'] = copy_sampling(self.query_sampling, result)
+            out['model_h_iterations'] = _copy_iteration_records(self.query_model_h, result)
             for name in ('density', 'viscosity', 'rho_cp'):
                 out[name] = [_copy(x, shape) for x in getattr(result, name)]
             for name in ('fine_duty', 'extrapolated_duty', 'pressure_drop', 'outlet_temperature', 'inlet_mass', 'duty'):

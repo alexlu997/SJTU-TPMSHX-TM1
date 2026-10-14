@@ -48,6 +48,7 @@ struct ModelHControl3D {
     void* context=nullptr;
     bool second_order_a=true, second_order_b=true;
     bool strict_energy_balance=false;
+    double temperature_tolerance=.01;
 };
 
 struct ModelHFinishingCheck3D {

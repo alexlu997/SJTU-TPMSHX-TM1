@@ -22,6 +22,7 @@ from .physical_ledger import HeatLedger, heat_ledger_query, copy_heat_ledger
 from .model_h import _Result as _ModelResult, _volume_info, _model_h_algorithm
 from .temperature import _temperature_algorithm
 from .temperature_evidence import TemperatureEvidence, copy_temperature_evidence
+from .model_h import _IterationOptions, _iteration_options, _iteration_query, _copy_iteration_records
 from .enthalpy import _Result as _EnthalpyResult
 from .enthalpy import (_EnergyOptions, _EnergyOptionsV2, _EnergyResult, _energy_options,
                        _energy_algorithm_query, _energy_result_info, _energy_native_state,
@@ -225,6 +226,7 @@ class NativeFull3DDriver:
         self.query_last_ranges = last_range_query(self.library, 3, _Result)
         self.query_heat_ledger = heat_ledger_query(self.library, 3, _Result)
         self.query_sampling = sampling_query(self.library, 3, _Result)
+        self.query_model_h = _iteration_query(self.library, 3, _Result)
         try:
             self.query_bootstrap = self.library.tpmshx_full_3d_get_bootstrap_trace_v1
         except AttributeError as exc:
@@ -271,7 +273,19 @@ class NativeFull3DDriver:
             'ltne_enthalpy_coupled_energy_tol', 'ltne_enthalpy_equation_energy_tol'))
         energy_call = energy_query = version_query = None
         entry_version = 1
-        if strict_options:
+        model_h_options = _iteration_options(cfg)
+        if model_h_options is not None:
+            if energy.algorithm or strict_options or any(cfg.get(name) is not None for name in (
+                    'ltne_enthalpy_outer', 'ltne_enthalpy_nsweep', 'ltne_enthalpy_omega', 'ltne_enthalpy_tol')):
+                raise ValueError('model-h iteration controls cannot be combined with EOS controls')
+            try:
+                energy_call = self.library.tpmshx_solve_full_3d_v4
+            except AttributeError as exc:
+                raise ValueError('native full 3D library lacks model-h controls v4; rebuild the library') from exc
+            energy_call.argtypes = [*self.call.argtypes[:2], ct.POINTER(_IterationOptions), *self.call.argtypes[2:]]
+            energy_call.restype = ct.c_int
+            entry_version = 4
+        elif strict_options:
             energy = _EnergyOptionsV2(energy.algorithm, energy.temperature_update_tolerance,
                 defaults.coupled_energy_tolerance if cfg.get('ltne_enthalpy_coupled_energy_tol') is None else cfg['ltne_enthalpy_coupled_energy_tol'],
                 defaults.equation_energy_tolerance if cfg.get('ltne_enthalpy_equation_energy_tol') is None else cfg['ltne_enthalpy_equation_energy_tol'],
@@ -394,7 +408,8 @@ class NativeFull3DDriver:
         result, error = _Result(), ct.create_string_buffer(2048)
         try:
             if energy_call:
-                code = energy_call(ct.byref(data), ct.byref(c), ct.byref(energy), ct.byref(callbacks), ct.byref(result), error, len(error))
+                options = model_h_options if model_h_options is not None else energy
+                code = energy_call(ct.byref(data), ct.byref(c), ct.byref(options), ct.byref(callbacks), ct.byref(result), error, len(error))
             else:
                 code = self.call(ct.byref(data), ct.byref(c), ct.byref(callbacks), ct.byref(result), error, len(error))
             if callback_errors:
@@ -429,6 +444,12 @@ class NativeFull3DDriver:
                         temperature_tol=actual.outer[index].temperature_update_tolerance, abi=entry_version, version_query=version_query)
                 detached['mode'] = 'conservative_energy'
             detached['property_sampling'] = copy_sampling(self.query_sampling, result)
+            detached['model_h_iterations'] = _copy_iteration_records(self.query_model_h, result)
+            budgets = {row['outer_index']: row['settings']['total_iteration_budget']
+                       for row in detached['model_h_iterations']['records']}
+            for row in detached['outer']:
+                if 'coupling_startup' in row:
+                    row['coupling_startup']['iteration_budget'] = budgets[row['outer']]
             detached['entry_version'] = entry_version
             if detached['mode'] in ('model_h', 'temperature'):
                 if detached['mode'] == 'model_h':

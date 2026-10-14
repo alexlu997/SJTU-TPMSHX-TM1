@@ -146,6 +146,30 @@ int main(void) {
     sampling.count=123;
     assert(tpmshx_full_2d_get_property_sampling_v1(&result,&sampling)==1 && sampling.count==123);
     tpmshx_full_2d_release_v2(&result);
+    tpmshx_model_h_iteration_options_v1 model_options={17,1e-5,1e-8};
+    tpmshx_model_h_iteration_records_v1 model_records={0};
+    assert(tpmshx_solve_full_2d_v5(shape,arrays,sizes,&config,&model_options,NULL,&result,error,sizeof(error))==0);
+    assert(!result.converged && result.have_fine && result.main.iterations==17 && result.fine.iterations==17);
+    assert(tpmshx_full_2d_get_model_h_iterations_v1(&result,&model_records)==0);
+    assert(model_records.count==result.outer_history_count+1);
+    for(size_t i=0;i<model_records.count;++i) {
+        const tpmshx_model_h_iteration_record_v1* row=&model_records.records[i];
+        assert(row->max_iterations==17 && row->chunk_iterations==500);
+        assert(row->temperature_tolerance==1e-5 && row->q_relative_tolerance==1e-8);
+        assert(row->refined==(i+1==model_records.count));
+    }
+    model_options.temperature_tolerance=99.;
+    assert(model_records.records[0].temperature_tolerance==1e-5);
+    tpmshx_full_2d_release_v2(&result);model_records.count=123;
+    assert(tpmshx_full_2d_get_model_h_iterations_v1(&result,&model_records)==1 && model_records.count==123);
+    tpmshx_full_2d_callbacks_v2 model_cancel={cancelled,NULL,NULL,NULL};
+    model_options.temperature_tolerance=NAN;result.iterations=123;
+    assert(tpmshx_solve_full_2d_v5(shape,arrays,sizes,&config,&model_options,&model_cancel,&result,error,sizeof(error))==1);
+    assert(result.iterations==123 && !result.owner);
+    model_options.temperature_tolerance=1e-5;
+    assert(tpmshx_solve_full_2d_v5(shape,arrays,sizes,&config,&model_options,&model_cancel,&result,error,sizeof(error))==0);
+    assert(tpmshx_full_2d_get_model_h_iterations_v1(&result,&model_records)==0 && !model_records.count);
+    tpmshx_full_2d_release_v2(&result);
     /* A complete nonzero heat-exchange solve must also finish independently
        of Python, including the refined final certificate. */
     config.sides[0].inlet_temperature=350.; config.outer_iterations=12;

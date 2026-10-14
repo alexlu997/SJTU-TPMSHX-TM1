@@ -61,6 +61,7 @@ struct Full2DControl {
     bool pressure_shooting, thermal_red_black; // original global RB opt-in; size gate remains native
     std::string envelope_mode;
     EnthalpyControl enthalpy = full_enthalpy_control(2);
+    ModelHIterationOverrides model_h_iterations;
     bool (*cancel)(void*) = nullptr;
     void (*progress)(void*,std::size_t,std::size_t) = nullptr;
     void (*residual)(void*,std::size_t,std::size_t,double) = nullptr; // side,iter,residual
@@ -84,6 +85,7 @@ struct Full2DFlow {
 };
 
 struct Full2DThermalState {
+    std::optional<ModelHIterationSettings> model_h_iterations;
     std::vector<PropertySample> property_sampling;
     std::array<std::vector<double>,3> temperature;
     std::array<std::vector<double>,2> hv,conductivity,pressure,rho_cp;
@@ -102,6 +104,7 @@ struct Full2DThermalState {
 };
 
 struct Full2DOuterRecord {
+    std::optional<ModelHIterationSettings> model_h_iterations;
     std::size_t iteration,thermal_iterations;
     bool thermal_converged,outer_converged;
     std::array<double,2> relative_density_change;

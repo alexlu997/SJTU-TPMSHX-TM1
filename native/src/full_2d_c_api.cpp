@@ -16,6 +16,7 @@ using Array=tpmshx_model_h_array_v1;
 using Vector=std::vector<double>;
 Array array(const Vector& x) { return {x.data(),x.size()}; }
 struct Owner {
+    std::vector<tpmshx_model_h_iteration_record_v1> model_h_iterations;
     Full2DResult result;
     Vector dx,dy,epsilon;
     std::array<Vector,2> inlet,outlet,momentum;
@@ -133,6 +134,8 @@ void fill(tpmshx_full_2d_result_v2& o,Owner& owner,const Full2DProblem& p) {
         }
     }
     for (const auto& h:r.outer_history) {
+        if(h.model_h_iterations)owner.model_h_iterations.push_back(
+            model_h_c_views::iteration_record(*h.model_h_iterations,h.iteration));
         owner.outer.push_back({h.iteration,h.thermal_iterations,
         static_cast<uint32_t>(h.thermal_converged),static_cast<uint32_t>(h.outer_converged),
         {h.relative_density_change[0],h.relative_density_change[1]},
@@ -144,6 +147,9 @@ void fill(tpmshx_full_2d_result_v2& o,Owner& owner,const Full2DProblem& p) {
         settings.available=h.enthalpy_algorithm.has_value();
         owner.energy_outer_settings.push_back(settings);
     }
+    if(r.refined && r.refined->thermal.model_h_iterations)
+        owner.model_h_iterations.push_back(model_h_c_views::iteration_record(
+            *r.refined->thermal.model_h_iterations,r.iterations,0,true));
     o.outer_history=owner.outer.data(); o.outer_history_count=owner.outer.size();
     o.q_total=r.q_total; o.q_solid=r.q_solid; o.energy_imbalance=r.energy_imbalance;
     for (std::size_t side=0;side<2;++side) o.nu_observations[side]=nu_observation_view(r.nu_observations[side]);
@@ -157,6 +163,7 @@ int solve(
     const size_t* shape,const double* const* arrays,const size_t* sizes,
     const tpmshx_full_2d_config_v2* config,const tpmshx_energy_options_v1* energy,
     const tpmshx_full_2d_energy_control_v4* explicit_energy,
+    const tpmshx_model_h_iteration_options_v1* model_h,
     const tpmshx_full_2d_callbacks_v2* callbacks,
     tpmshx_full_2d_result_v2* result,char* error,size_t error_capacity) {
     if (!error || !error_capacity) return 1;
@@ -192,6 +199,7 @@ int solve(
         control.outer_temperature_tolerance=c.outer_temperature_tolerance; control.outer_density_tolerance=c.outer_density_tolerance;
         control.outer_relaxation=c.outer_relaxation; control.thermal_q_tolerance=c.thermal_q_tolerance;
         control.pressure_shooting=c.pressure_shooting;
+        if(model_h)control.model_h_iterations=model_h_c_views::iteration_options(*model_h);
         control.thermal_red_black=c.red_black; control.envelope_mode=c.envelope_mode?c.envelope_mode:"raise";
         control.enthalpy=full_enthalpy_control(2,energy ? energy_algorithm(*energy) : EnthalpyAlgorithm::legacy_h_fou,
             p.sides[0].fluid==Fluid::water || p.sides[1].fluid==Fluid::water);
@@ -246,21 +254,21 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v2(
     const size_t* shape,const double* const* arrays,const size_t* sizes,
     const tpmshx_full_2d_config_v2* config,const tpmshx_full_2d_callbacks_v2* callbacks,
     tpmshx_full_2d_result_v2* result,char* error,size_t capacity) {
-    return solve(shape,arrays,sizes,config,nullptr,nullptr,callbacks,result,error,capacity);
+    return solve(shape,arrays,sizes,config,nullptr,nullptr,nullptr,callbacks,result,error,capacity);
 }
 extern "C" int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v3(
     const size_t* shape,const double* const* arrays,const size_t* sizes,
     const tpmshx_full_2d_config_v2* config,const tpmshx_energy_options_v1* energy,
     const tpmshx_full_2d_callbacks_v2* callbacks,tpmshx_full_2d_result_v2* result,char* error,size_t capacity) {
     if(!energy) {if(error&&capacity)std::snprintf(error,capacity,"missing conservative energy options");return 1;}
-    return solve(shape,arrays,sizes,config,energy,nullptr,callbacks,result,error,capacity);
+    return solve(shape,arrays,sizes,config,energy,nullptr,nullptr,callbacks,result,error,capacity);
 }
 extern "C" int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v4(
     const size_t* shape,const double* const* arrays,const size_t* sizes,
     const tpmshx_full_2d_config_v2* config,const tpmshx_full_2d_energy_control_v4* energy,
     const tpmshx_full_2d_callbacks_v2* callbacks,tpmshx_full_2d_result_v2* result,char* error,size_t capacity) {
     if(!energy) {if(error&&capacity)std::snprintf(error,capacity,"missing explicit full 2D energy controls");return 1;}
-    return solve(shape,arrays,sizes,config,nullptr,energy,callbacks,result,error,capacity);
+    return solve(shape,arrays,sizes,config,nullptr,energy,nullptr,callbacks,result,error,capacity);
 }
 extern "C" void TPMSHX_THERMAL_CALL tpmshx_full_2d_release_v2(tpmshx_full_2d_result_v2* result) {
     if (!result) return;
@@ -334,4 +342,18 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_property_sampling_v1(
     const auto& owner=*static_cast<const Owner*>(result->owner);
     *sampling={owner.property_sampling.data(),owner.property_sampling.size()};
     return 0;
+}
+
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v5(
+    const size_t* shape,const double* const* arrays,const size_t* sizes,
+    const tpmshx_full_2d_config_v2* config,const tpmshx_model_h_iteration_options_v1* options,
+    const tpmshx_full_2d_callbacks_v2* callbacks,tpmshx_full_2d_result_v2* result,char* error,size_t capacity) {
+    if(!options) {if(error&&capacity)std::snprintf(error,capacity,"missing model-h iteration options");return 1;}
+    return solve(shape,arrays,sizes,config,nullptr,nullptr,options,callbacks,result,error,capacity);
+}
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_model_h_iterations_v1(
+    const tpmshx_full_2d_result_v2* result,tpmshx_model_h_iteration_records_v1* records) {
+    if(!result || !result->owner || !records)return 1;
+    const auto& owner=*static_cast<const Owner*>(result->owner);
+    *records={owner.model_h_iterations.data(),owner.model_h_iterations.size()};return 0;
 }

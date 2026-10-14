@@ -14,6 +14,7 @@
 namespace {
 using namespace tpmshx;
 struct Owner {
+    std::vector<tpmshx_model_h_iteration_record_v1> model_h_iterations;
     Full3DResult result;
     std::array<std::vector<tpmshx_full3d_pressure_iteration_v1>,2> pressure;
     std::array<std::vector<double>,2> momentum;
@@ -158,6 +159,8 @@ tpmshx_full3d_result_v1 output(Owner& o) {
     if(e.true_h) {out.has_true_h=1;out.true_h=enthalpy_c_view(*e.true_h);}
     o.outer_finishing.resize(r.outer.size());o.startup_reasons.resize(r.outer.size());
     for(const auto& h:r.outer) {
+        for(std::size_t attempt=0;attempt<h.model_h_iterations.size();++attempt)
+            o.model_h_iterations.push_back(model_h_c_views::iteration_record(h.model_h_iterations[attempt],h.outer_index,attempt));
         tpmshx_full3d_outer_v1 record{};record.outer_index=h.outer_index;record.thermal_iterations=h.thermal_iterations;
         record.thermal_residual=h.thermal_residual;std::copy(h.temperature_change.begin(),h.temperature_change.end(),record.temperature_change);
         for(std::size_t s=0;s<2;++s) {
@@ -195,6 +198,7 @@ tpmshx_full3d_result_v1 output(Owner& o) {
 int solve(const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,
     const tpmshx_energy_options_v1* energy,
     const tpmshx_energy_options_v2* strict_energy,
+    const tpmshx_model_h_iteration_options_v1* model_h,
     const tpmshx_full3d_callbacks_v1* callbacks,tpmshx_full3d_result_v1* result,char* error,size_t capacity) {
     if(!error || !capacity)return 1;
     try {
@@ -208,6 +212,7 @@ int solve(const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,
         data.topology=static_cast<Topology>(in->topology);data.solve_b=in->solve_b!=0;data.a=side(in->sides[0]);data.b=side(in->sides[1]);
         for(std::size_t s=0;s<3;++s)data.sources[s]=input(in->sources[s]);
         auto control=controls(*c,callbacks);
+        if(model_h)control.model_h_iterations=model_h_c_views::iteration_options(*model_h);
         if(energy)apply_energy_options(control.enthalpy,*energy);
         if(strict_energy) {
             if(!data.solve_b || (!uses_co2_eos(data.a.fluid) && !uses_co2_eos(data.b.fluid)))
@@ -239,19 +244,19 @@ extern "C" {
 uint32_t TPMSHX_THERMAL_CALL tpmshx_full_3d_abi_version(void) {return TPMSHX_FULL_3D_ABI_VERSION;}
 int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v1(const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,
     const tpmshx_full3d_callbacks_v1* callbacks,tpmshx_full3d_result_v1* result,char* error,size_t capacity) {
-    return solve(in,c,nullptr,nullptr,callbacks,result,error,capacity);
+    return solve(in,c,nullptr,nullptr,nullptr,callbacks,result,error,capacity);
 }
 int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v2(const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,
     const tpmshx_energy_options_v1* energy,const tpmshx_full3d_callbacks_v1* callbacks,
     tpmshx_full3d_result_v1* result,char* error,size_t capacity) {
     if(!energy) {if(error&&capacity)std::snprintf(error,capacity,"missing conservative energy options");return 1;}
-    return solve(in,c,energy,nullptr,callbacks,result,error,capacity);
+    return solve(in,c,energy,nullptr,nullptr,callbacks,result,error,capacity);
 }
 int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v3(const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,
     const tpmshx_energy_options_v2* energy,const tpmshx_full3d_callbacks_v1* callbacks,
     tpmshx_full3d_result_v1* result,char* error,size_t capacity) {
     if(!energy) {if(error&&capacity)std::snprintf(error,capacity,"missing strict conservative energy options");return 1;}
-    return solve(in,c,nullptr,energy,callbacks,result,error,capacity);
+    return solve(in,c,nullptr,energy,nullptr,callbacks,result,error,capacity);
 }
 void TPMSHX_THERMAL_CALL tpmshx_full_3d_release_v1(tpmshx_full3d_result_v1* result) {
     if(result) {delete static_cast<Owner*>(result->owner);*result={};}
@@ -329,4 +334,18 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_property_sampling_v1(
     const auto& owner=*static_cast<const Owner*>(result->owner);
     *sampling={owner.property_sampling.data(),owner.property_sampling.size()};
     return 0;
+}
+
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v4(
+    const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* control,
+    const tpmshx_model_h_iteration_options_v1* options,const tpmshx_full3d_callbacks_v1* callbacks,
+    tpmshx_full3d_result_v1* result,char* error,size_t capacity) {
+    if(!options) {if(error&&capacity)std::snprintf(error,capacity,"missing model-h iteration options");return 1;}
+    return solve(in,control,nullptr,nullptr,options,callbacks,result,error,capacity);
+}
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_model_h_iterations_v1(
+    const tpmshx_full3d_result_v1* result,tpmshx_model_h_iteration_records_v1* records) {
+    if(!result || !result->owner || !records)return 1;
+    const auto& owner=*static_cast<const Owner*>(result->owner);
+    *records={owner.model_h_iterations.data(),owner.model_h_iterations.size()};return 0;
 }

@@ -146,6 +146,9 @@ def _parse_geometry_inputs_3d_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
         enthalpy_algorithm=compute_cfg.solver.enthalpy_algorithm,
         enthalpy_temperature_tol_K=compute_cfg.solver.enthalpy_temperature_tol_K,
         **enthalpy_controls,
+        **{name: getattr(compute_cfg.solver, name) for name in (
+            'model_h_max_iterations', 'model_h_temperature_tol_K', 'model_h_q_relative_tol')
+            if getattr(compute_cfg.solver, name) is not None},
         # F2 convergence gates (ledger C6/C7). None -> _apply_accel_flags'
         # resolution: env TPMSHX_CONV_MODE > cfg > default 'f2'.
         **{k: v for k, v in (

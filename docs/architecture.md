@@ -99,6 +99,27 @@ reject these EOS-only overrides before flow execution. Existing v2/v3 C callers
 keep their original layouts and defaults. Saved effective settings identify the
 controls used by each completed thermal call.
 
+Full C++ integral h(T) routes accept three optional `SolverConfig` controls:
+`model_h_max_iterations`, `model_h_temperature_tol_K` and `model_h_q_relative_tol`.
+The iteration budget counts sweeps, including charged startup trials.
+The Kelvin tolerance limits the field change between thermal chunks.
+The relative Q tolerance compares the existing observed heat duties.
+Unset controls keep each route's defaults, including the 0.01 K field-change gate.
+Chunk sizes, phase checks and physical energy gates stay unchanged.
+Explicit controls apply to both 2D main and refined thermal calls.
+They also apply to 3D model-h, integral full CC and the integral `Nz=1` delegate.
+Python, Quick Design and other thermal routes reject these controls before flow execution.
+The Python numerical backend retains its existing controls.
+
+The additive `full_2d_v5` and `full_3d_v4` C entries use the existing engines.
+Their option fields use zero for an unset override; public Python values use `None`.
+Existing C entry layouts and defaults stay unchanged.
+Native queries return actual call settings as `model_h_iterations_v1`.
+Each record identifies its outer index, attempt, main or refined stage, call cap and total budget.
+It also records the chunk size and both tolerances, including rejected startup trials.
+The result and execution record retain these owned settings through file storage.
+Historical files keep their original metadata.
+
 ## Result qualification by route
 
 Execution completion, solver convergence, metric availability and optimization
