@@ -214,6 +214,8 @@ target_link_libraries(refinement_2d_test PRIVATE tpmshx_refinement_2d)
 add_library(tpmshx_full_2d STATIC "${TPMSHX_ROOT}/native/src/full_2d.cpp")
 target_link_libraries(tpmshx_full_2d PUBLIC tpmshx_run_state tpmshx_simple
     tpmshx_model_h_2d tpmshx_enthalpy tpmshx_pressure_reference tpmshx_models tpmshx_refinement_2d)
+add_executable(side_physics_smoke "${TPMSHX_ROOT}/native/tests/side_physics_smoke.cpp")
+target_link_libraries(side_physics_smoke PRIVATE tpmshx_full_2d tpmshx_full_3d)
 add_library(full_2d_test SHARED "${TPMSHX_ROOT}/sjtu_tpmshx/tests/native/full_2d_bridge.cpp")
 target_compile_definitions(full_2d_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
 target_link_libraries(full_2d_test PRIVATE tpmshx_full_2d)
@@ -374,7 +376,7 @@ foreach(target IN ITEMS tpmshx_run_state tpmshx_energy tpmshx_models tpmshx_quic
         tpmshx_pressure_reference
         tpmshx_outer_anderson tpmshx_full_3d full_3d_test full_thermal_test full_3d_c_static full_3d_c_shared
         tpmshx_refinement_2d refinement_2d_test
-        tpmshx_full_2d full_2d_test
+        tpmshx_full_2d full_2d_test side_physics_smoke
         tpmshx_full_2d_c tpmshx_full_2d_shared full_2d_c_static full_2d_c_shared
         tpmshx_pressure tpmshx_simple
         simple_2d_smoke simple_2d_test simple_3d_test simple_3d_smoke

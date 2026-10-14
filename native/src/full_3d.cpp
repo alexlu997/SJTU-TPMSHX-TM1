@@ -434,6 +434,9 @@ void bootstrap(const Full3DSide& a,Full3DFlowState& fine,Simple3DSolver& solver,
 
 struct Runtime {
     const Full3DInput& input; const Full3DControl& control;
+    const Full3DThermalMode mode;
+    const std::array<SidePhysics,2> physics;
+    const bool cell_centered,legacy_single_sco2;
     Full3DResult result;
     PropertyEvaluator props;
     EnthalpyEOS eos;
@@ -447,7 +450,11 @@ struct Runtime {
     const Full3DSide& side(std::size_t s) const { return s?input.b:input.a; }
     ArrayView<const double> epsilon(std::size_t s) const { return s?input.geometry.epsilon_b:input.geometry.epsilon_a; }
     bool active(std::size_t s) const { return !s || input.solve_b; }
-    explicit Runtime(const Full3DInput& i,const Full3DControl& c):input(i),control(c) {
+    explicit Runtime(const Full3DInput& i,const Full3DControl& c):input(i),control(c),
+        mode(thermal_mode(i,c)),physics(resolve_full_3d_physics(i,c)),
+        cell_centered(mode==Full3DThermalMode::temperature
+            && (i.geometry.grid.nz==1 || (!c.conservative && c.force_cell_centered))),
+        legacy_single_sco2(!i.solve_b && i.a.fluid==Fluid::sco2) {
         const auto physical=shape(i.geometry.grid);
         for(std::size_t s=0;s<2;++s) if(s==0||i.solve_b) {
             auto& trace=result.flow[s].bootstrap_trace;trace.available=true;
@@ -667,14 +674,15 @@ void Runtime::heat_transfer(std::size_t s,bool warm) {
     auto source_range=nu_range(s,"nu","main","real-cell(x,y,z)-hv-speed",{g.nx,g.ny,g.nz});
     auto pr_range=source_range; pr_range.view="nu_pr"; pr_range.bounds=model_coefficients::co2_nu_pr_range;
     auto& observation=result.nu_observations[s];
-    if(uses_co2_eos(a.fluid) && warm) {
+    const bool local=physics[s].local_heat_transfer(warm);
+    if(local) {
         observation={};observation.available=true;observation.cells=hv[s].size();observation.pressure=a.inlet_pressure;
         observation.raw_min=observation.re_min=observation.pr_min=observation.temperature_min=std::numeric_limits<double>::infinity();
         observation.raw_max=observation.re_max=observation.pr_max=observation.temperature_max=-std::numeric_limits<double>::infinity();
     }
     for(std::size_t p=0;p<hv[s].size();++p) {
         auto property=inlet[s];
-        if(uses_co2_eos(a.fluid) && warm) property=props.transport(a.fluid,temperature[s][p],a.inlet_pressure);
+        if(local) property=props.transport(physics[s].transport_fluid,temperature[s][p],a.inlet_pressure);
         const double speed=std::abs(std::sqrt(velocity[0][p]*velocity[0][p]+velocity[1][p]*velocity[1][p]
                                            +velocity[2][p]*velocity[2][p]))+1e-12;
         const double re=property.rho*speed*geo.hydraulic_diameter[p]/property.mu;
@@ -706,11 +714,9 @@ void Runtime::heat_transfer(std::size_t s,bool warm) {
 
 Full3DThermalEvidence Runtime::prepare(bool warm,std::size_t outer) {
     Full3DThermalEvidence e;const auto& geo=input.geometry;const auto& g=geo.grid;
-    e.mode=thermal_mode(input,control);
-    const bool true_h=e.mode==Full3DThermalMode::true_h,model_h=e.mode==Full3DThermalMode::model_h;
-    const bool cc=e.mode==Full3DThermalMode::temperature
-        &&(g.nz==1||(!control.conservative&&control.force_cell_centered));
-    const bool legacy_single_sco2=!input.solve_b && input.a.fluid==Fluid::sco2;
+    e.mode=mode;
+    const bool true_h=physics[0].eos_energy(),model_h=mode==Full3DThermalMode::model_h;
+    const bool cc=cell_centered;
     if(cc && legacy_single_sco2)
         e.temperature_algorithm="legacy_frozen_cp_single_a_cc_v1";
     if(!true_h && warm)temperature_ranges("main","real-cell(x,y,z)-warm");
@@ -729,10 +735,10 @@ Full3DThermalEvidence Runtime::prepare(bool warm,std::size_t outer) {
         }
         const auto& a=side(s);const auto& flow=result.flow[s];e.face_velocity[s]=flow.face_velocity_real;
         const auto sample_index=static_cast<std::int64_t>(outer);
-        const char* provider=uses_co2_eos(a.fluid)?"HEOS":"model_resource";
+        const char* provider=physics[s].transport_provider();
         record_property_samples(e.property_sampling,s,sample_index,"thermal_hv",provider,
-            uses_co2_eos(a.fluid)&&warm?"previous_thermal_or_seed":"inlet","inlet",
-            uses_co2_eos(a.fluid)&&warm?"local_evaluation":"scalar_evaluation",{"density","viscosity","conductivity","Pr"});
+            physics[s].local_heat_transfer(warm)?"previous_thermal_or_seed":"inlet","inlet",
+            physics[s].local_heat_transfer(warm)?"local_evaluation":"scalar_evaluation",{"density","viscosity","conductivity","Pr"});
         record_property_samples(e.property_sampling,s,sample_index,true_h?"thermal_warmup":"thermal",
             "outer_property_state",outer?"previous_thermal_return":"inlet","inlet","copy",{"conductivity"});
         if(control.variable_rho_cp && a.fluid==Fluid::air)
@@ -742,7 +748,7 @@ Full3DThermalEvidence Runtime::prepare(bool warm,std::size_t outer) {
         else if(!model_h && (!cc || legacy_single_sco2 || true_h))
             record_property_samples(e.property_sampling,s,sample_index,true_h?"thermal_warmup":"thermal",
                 "outer_property_state",outer?"previous_thermal_return":"inlet","inlet","copy",{"rho_cp"});
-        if(model_h || (cc && !legacy_single_sco2 && !true_h))
+        if(physics[s].energy==EnergyRelation::integral_cp_T)
             record_property_samples(e.property_sampling,s,sample_index,"thermal","model_resource",
                 "current_thermal_iterate",nullptr,"integral_cp_T",{"energy_relation"});
         else if(!true_h)
@@ -775,7 +781,7 @@ Full3DThermalEvidence Runtime::prepare(bool warm,std::size_t outer) {
 
 Full3DOuterRecord Runtime::solve_thermal(std::size_t outer,Full3DThermalEvidence& e) {
     const auto& geo=input.geometry;const auto& g=geo.grid;
-    const bool true_h=e.mode==Full3DThermalMode::true_h,model_h=e.mode==Full3DThermalMode::model_h;
+    const bool true_h=physics[0].eos_energy(),model_h=mode==Full3DThermalMode::model_h;
     const bool startup=model_h && (input.a.fluid==Fluid::water || input.b.fluid==Fluid::water) && outer==0;
     std::array<TemperatureBoundary,2> bc;
     for(std::size_t s=0;s<2;++s) bc[s]={active(s)?side(s).direction:3,side(s).inlet_temperature,{},
@@ -818,7 +824,6 @@ Full3DOuterRecord Runtime::solve_thermal(std::size_t outer,Full3DThermalEvidence
                 if(std::any_of(input.sources.begin(),input.sources.end(),[](auto source){
                     return source.size && std::any_of(source.data,source.data+source.size,[](double x){return x!=0.;});}))
                     throw std::invalid_argument("nonzero 3D MMS sources require staggered velocities");
-                const bool legacy_single_sco2=!input.solve_b && input.a.fluid==Fluid::sco2;
                 if(true_h || legacy_single_sco2) {
                     // Retain the G4 CC rows for true-h warm-up and single-A
                     // sCO2, with frozen outer properties and no h(T) ledger.
@@ -1218,6 +1223,30 @@ void Runtime::finish() {
 }
 
 }  // namespace
+
+std::array<SidePhysics,2> resolve_full_3d_physics(const Full3DInput& input,const Full3DControl& control) {
+    const auto mode=thermal_mode(input,control);
+    const bool cc=mode==Full3DThermalMode::temperature
+        && (input.geometry.grid.nz==1 || (!control.conservative && control.force_cell_centered));
+    const bool single_sco2=!input.solve_b && input.a.fluid==Fluid::sco2;
+    const auto relation=mode==Full3DThermalMode::true_h?EnergyRelation::eos_h_TP:
+        (mode==Full3DThermalMode::model_h || (cc && !single_sco2))?
+            EnergyRelation::integral_cp_T:EnergyRelation::capacity_temperature;
+    std::array<SidePhysics,2> selected;
+    for(std::size_t side=0;side<2;++side) {
+        const auto fluid=side?input.b.fluid:input.a.fluid;
+        if(side && !input.solve_b) {
+            selected[side]={fluid,EnergyRelation::prescribed_temperature,
+                ConductivitySource::prescribed,HeatTransferSampling::prescribed};
+            continue;
+        }
+        selected[side]={fluid,relation,
+            relation==EnergyRelation::eos_h_TP?ConductivitySource::local_eos:ConductivitySource::outer_transport,
+            uses_co2_eos(fluid)?HeatTransferSampling::inlet_then_thermal_local_at_inlet_pressure:
+                HeatTransferSampling::inlet};
+    }
+    return selected;
+}
 
 struct Full3DRun::Impl {
     Full3DInput input;

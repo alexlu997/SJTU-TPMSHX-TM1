@@ -90,6 +90,14 @@ Current bindings require the added query and report an explicit error for an old
 Saved results retain both records. Historical results retain their original metadata.
 Final applicability and physical quality remain separate decisions.
 
+The native full drivers resolve each side's physics before iteration.
+`SidePhysics` keeps the transport fluid, energy relation, conductivity source and heat-transfer sampling rule.
+The 2D owner passes these choices to its main and refined thermal calls.
+The 3D owner keeps them for the run and derives them again from matched inputs on restore.
+Current input validation, phase guards and sampled-state records stay at their existing owners.
+The selected rules retain the differences between dimensions, EOS warm-up, prescribed B and research routes.
+This migration keeps the current route-dependent choices. Independent per-fluid defaults require separate qualification.
+
 Full C++ 2D EOS runs also accept the optional thermal controls in `SolverConfig`.
 The additive `full_2d_v4` entry passes the iteration and sweep budgets, relaxation,
 normalized h-update tolerance, Kelvin update tolerance and both energy gates.
