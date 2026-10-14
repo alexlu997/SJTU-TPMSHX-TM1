@@ -149,10 +149,13 @@ save_result(run_case(load_checkpoint_case(saved), control, resume_state=saved.na
 
 @pytest.mark.parametrize('route', ['temperature', 'model_h', 'true_h', 'temperature_sou'])
 def test_full_2d_checkpoint_continues_after_process_exit(driver, tmp_path, route):
-    prepared = case(route)
     if route == 'model_h':
-        prepared = replace(prepared, parameters={**prepared.parameters,
-            'model_h_max_iterations': 17, 'model_h_temperature_tol_K': 1e-5, 'model_h_q_relative_tol': 1e-8})
+        config = configuration(mode='model_h', outer=3)
+        config = replace(config, solver=replace(config.solver, model_h_max_iterations=17,
+            model_h_temperature_tol_K=1e-5, model_h_q_relative_tol=1e-8, simple_velocity_relaxation=.35))
+        prepared = prepare_case(config, case_id='full2d-checkpoint-model_h-controls')
+    else:
+        prepared = case(route)
     case_path = save_case(prepared, tmp_path/'case.h5')
     saved_path, result_path = tmp_path/'checkpoint.h5', tmp_path/'result.h5'
     arguments = [str(case_path), str(saved_path), str(result_path), str(driver.path), driver.table_directory.decode()]
@@ -162,11 +165,17 @@ def test_full_2d_checkpoint_continues_after_process_exit(driver, tmp_path, route
     assert not result_path.exists()
     saved = load_solver_checkpoint(saved_path)
     assert saved.native_state[COUNT][0] == 1
+    if route == 'model_h':
+        assert saved.native_state['control.model_h_iterations.max_iterations'][0] == 17
+        assert saved.native_state['control.flow.alpha_velocity'][0] == .35
     finished = subprocess.run([sys.executable, '-c', CHILD, 'resume', *arguments],
                               cwd=ROOT, capture_output=True, text=True, timeout=120)
     assert finished.returncode == 0, finished.stderr
     actual, expected = load_result(result_path), run_case(prepared, control(driver))
     compare_result(actual, expected)
+    if route == 'model_h':
+        assert actual.metadata['simple_velocity_relaxation'] == .35
+        assert all(row['settings']['max_iterations'] == 17 for row in actual.metadata['model_h_iterations']['records'])
     actual_metrics, expected_metrics = evaluate(actual), evaluate(expected)
     for key, metric in expected_metrics.metrics.items():
         assert actual_metrics.metrics[key].status == metric.status
