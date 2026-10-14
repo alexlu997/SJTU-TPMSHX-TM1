@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 
 from sjtu_tpmshx.domain.cancellation import CancelledError
+from sjtu_tpmshx.domain.compute_config import validate_simple_velocity_relaxation
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.run_environment import run_environment
 from sjtu_tpmshx.models.envelope import ChokedFlowError
@@ -406,6 +407,7 @@ class NativeFull2DDriver:
                        main=_thermal(result.main, actual.last, entry_version),
                        fine=_thermal(result.fine, actual.last, entry_version) if result.have_fine else None)
             out['property_sampling'] = copy_sampling(self.query_sampling, result)
+            out['simple_velocity_relaxation'] = config.alpha_velocity
             out['model_h_iterations'] = _copy_iteration_records(self.query_model_h, result)
             for name in ('density', 'viscosity', 'rho_cp'):
                 out[name] = [_copy(x, shape) for x in getattr(result, name)]
@@ -561,7 +563,10 @@ def _pack(cfg, prepared, table_directory, library):
         tolerance = 1. if 'water' in fluids else .5
         config.thermal_q_tolerance = min(tolerance*2e-3, 1e-3)
         config.enthalpy_update_tolerance = tolerance/100.
-    config.alpha_velocity, config.alpha_pressure, config.alpha_density = .7, .3, .3
+    relaxation = solver.simple_velocity_relaxation
+    validate_simple_velocity_relaxation(relaxation)
+    config.alpha_velocity = .7 if relaxation is None else relaxation
+    config.alpha_pressure, config.alpha_density = .3, .3
     config.gas_constant, config.cf_anisotropy = 287.05, 0.
     config.massflux_inlet, config.close_outlet_on_exit = 1, 1
     config.envelope_mode, config.table_directory = cfg.get('envelope_mode', 'raise').encode(), table_directory
