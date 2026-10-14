@@ -73,3 +73,22 @@ def test_public_preparation_keeps_metadata_and_warning_ownership(monkeypatch, en
         assert current_warnings() is parent
         assert list(warning_messages(parent)) == ['parent notice']
     assert current_warnings() is enclosing
+
+
+@pytest.mark.parametrize('mode', ['cfd_smooth', 'experimental'])
+def test_preparation_selects_calibration_limits_only_for_the_active_resource(mode):
+    from sjtu_tpmshx.domain.range_policy import assess_range
+    from sjtu_tpmshx.domain.compute_config import ComputeConfig, FluidConfig, SolverConfig, ExtrapPolicy
+    from sjtu_tpmshx.preprocess.api import prepare_case
+    config = ComputeConfig(
+        fluid_A=FluidConfig(type='air', u_mps=8.1, T_in_K=350., P_in_Pa=2e5),
+        fluid_B=FluidConfig(type='water', u_mps=.05, T_in_K=300., P_in_Pa=2e6),
+        solver=SolverConfig(Nx=4, Ny=4), df_mode=mode, extrap=ExtrapPolicy(allow=True))
+    case = prepare_case(config, case_id='selected-range-' + mode)
+    rows = [row for row in case.metadata['applicability_inputs']
+            if row['source'] == ('df-experimental', 'water', 'Gyroid')]
+    if mode == 'experimental':
+        assert rows and all(row['bounds'][0] == .10 for row in rows)
+        assert all(assess_range(row)['within_limit'] is False for row in rows)
+    else:
+        assert rows == []
