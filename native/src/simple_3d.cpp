@@ -43,7 +43,7 @@ bool overlap(ArrayView<const double> a,ArrayView<const double> b) {
     const auto x=reinterpret_cast<std::uintptr_t>(a.data),y=reinterpret_cast<std::uintptr_t>(b.data);
     return a.size&&b.size&&(x<=y ? y-x<a.size*sizeof(double) : x-y<b.size*sizeof(double));
 }
-void validate(const GridView& g,const Simple3DMaterialView& m,const Simple3DBoundaryView& b,Simple3DStateView s) {
+void validate(const GridView& g,const Simple3DMaterialView& m,const Simple3DBoundaryView& b,Simple3DStateView s,bool initial=true) {
     validate_grid(g);const auto n=g.nx*g.ny*g.nz;
     extent(m.epsilon,n,"epsilon");extent(m.viscosity,n,"viscosity");extent(m.effective_viscosity,n,"effective_viscosity");
     extent(m.permeability,n,"permeability");extent(m.forchheimer,n,"forchheimer");extent(m.temperature,n,"temperature");
@@ -55,7 +55,7 @@ void validate(const GridView& g,const Simple3DMaterialView& m,const Simple3DBoun
     positive(m.epsilon,"epsilon");fraction(m.epsilon,"epsilon");positive(m.viscosity,"viscosity");
     positive(m.effective_viscosity,"effective_viscosity");positive(m.permeability,"permeability");positive(m.forchheimer,"forchheimer",true);
     fraction(b.outlet_u_fraction,"outlet_u_fraction");fraction(b.outlet_w_fraction,"outlet_w_fraction");
-    if (!finite(s.inlet_velocity)) throw std::invalid_argument("nonfinite SIMPLE inlet velocity");
+    if (initial && !finite(s.inlet_velocity)) throw std::invalid_argument("nonfinite SIMPLE inlet velocity");
     const ArrayView<const double> outputs[]={read(s.u),read(s.v),read(s.w),read(s.pressure),read(s.pressure_correction),
         read(s.d_u),read(s.d_v),read(s.d_w),read(s.density),read(s.inlet_velocity)};
     const ArrayView<const double> inputs[]={g.dx,g.dy,g.dz,m.epsilon,m.viscosity,m.effective_viscosity,m.permeability,
@@ -374,6 +374,19 @@ bool diagnostics_finite(const Simple3DResult& r) {
     return std::isfinite(r.momentum.maximum)&&std::isfinite(r.mass.local_residual)
         &&std::isfinite(r.mass.global_residual)&&std::isfinite(r.mass.backflow_fraction);
 }
+void validate_solve(const GridView& g,const Simple3DMaterialView& m,
+    const Simple3DBoundaryView& b,Simple3DStateView s,const Simple3DControl& control,bool initial=true) {
+    validate(g,m,b,s,initial);validate_order(control.second_order_upwind,control.ordering);
+    if (!control.max_iterations||!control.inner_sweeps||!control.pressure_rebuild_every)
+        throw std::invalid_argument("SIMPLE iteration and pressure rebuild budgets must be positive");
+    for (double alpha:{control.alpha_velocity,control.alpha_pressure,control.alpha_density})
+        if (!std::isfinite(alpha)||alpha<=0.||alpha>1.) throw std::invalid_argument("invalid SIMPLE relaxation");
+    if (!std::isfinite(control.pressure_reference_absolute)||control.pressure_reference_absolute<=0.
+        ||!std::isfinite(control.gas_constant)||control.gas_constant<=0.
+        ||!std::isfinite(control.pressure_diagonal_drift)||control.pressure_diagonal_drift<0.)
+        throw std::invalid_argument("invalid SIMPLE pressure/density controls");
+}
+
 }
 
 void simple_3d_predictor(const GridView& g,ArrayView<const unsigned char> open,const Simple3DMaterialView& m,
@@ -390,6 +403,26 @@ SimpleMomentumResidual simple_3d_momentum_residual(const GridView& g,const Simpl
 }
 
 struct Simple3DSolver::Impl {
+    struct Active {
+        Simple3DMaterialView material;
+        Simple3DBoundaryView boundary;
+        Simple3DStateView state;
+        Simple3DControl control;
+        SimpleF2Monitor monitor;
+        Simple3DResult result;
+        Active(const Simple3DMaterialView& m,const Simple3DBoundaryView& b,
+            Simple3DStateView s,const Simple3DControl& c)
+            :material(m),boundary(b),state(s),control(c),monitor(velocities(s),c.convergence,10) {}
+        Active(const Simple3DMaterialView& m,const Simple3DBoundaryView& b,
+            Simple3DStateView s,const Simple3DControl& c,const Simple3DRunState& saved)
+            :material(m),boundary(b),state(s),control(c),monitor(saved.convergence,c.convergence),result(saved.result) {}
+    };
+    std::unique_ptr<Active> active;
+    SimplePhase phase=SimplePhase::idle;
+    bool boundary=true,taken=false;
+    bool initialize();
+    bool step();
+    Simple3DOwnerState owner_state() const;
     std::vector<double> dx,dy,dz,old_rho_eps,fresh_rho_eps,target;
     std::vector<unsigned char> outlet,all_cells;
     GridView grid;SimplePressureAssembly assembly;PressureCandidate pressure;SimpleHistory history;
@@ -423,14 +456,19 @@ struct Simple3DSolver::Impl {
 Simple3DSolver::Simple3DSolver(const GridView& g,ArrayView<const unsigned char> open) {
     validate_grid(g);validate_open(g,open);impl_=std::make_unique<Impl>(g,open);
 }
+Simple3DOwnerState Simple3DSolver::Impl::owner_state() const {
+    return {{dx,dy,dz},outlet,pressure.snapshot(),history,target,pressure_clip_hits,charged_iterations};
+}
 Simple3DOwnerState Simple3DSolver::snapshot() const {
-    const auto& p=*impl_;
-    return {{p.dx,p.dy,p.dz},p.outlet,p.pressure.snapshot(),p.history,p.target,
-            p.pressure_clip_hits,p.charged_iterations};
+    if(impl_->phase==SimplePhase::active || !impl_->boundary)
+        throw std::logic_error("use an active SIMPLE snapshot during a solve");
+    return impl_->owner_state();
 }
 
 void Simple3DSolver::restore(const Simple3DOwnerState& state) {
     const auto& p=*impl_;
+    if(p.phase==SimplePhase::active || !p.boundary)
+        throw std::logic_error("cannot replace an active SIMPLE call");
     if (state.widths[0]!=p.dx || state.widths[1]!=p.dy || state.widths[2]!=p.dz || state.outlet!=p.outlet
         || (!state.massflux_target.empty() && state.massflux_target.size()!=p.grid.nx*p.grid.nz)
         || state.history.legacy.size()!=state.history.local_mass.size()
@@ -461,6 +499,8 @@ Simple3DSolver::~Simple3DSolver()=default;
 const SimpleHistory& Simple3DSolver::history() const { return impl_->history; }
 const std::vector<double>& Simple3DSolver::massflux_target() const { return impl_->target; }
 void Simple3DSolver::capture_massflux_target(ArrayView<const double> target) {
+    if(impl_->phase==SimplePhase::active || !impl_->boundary)
+        throw std::logic_error("cannot change an active SIMPLE inlet target");
     if (!impl_->target.empty() || !impl_->history.legacy.empty())
         throw std::invalid_argument("SIMPLE inlet target was already captured or solved");
     if (!target.data || target.size!=impl_->grid.nx*impl_->grid.nz)
@@ -471,7 +511,10 @@ void Simple3DSolver::capture_massflux_target(ArrayView<const double> target) {
 }
 bool Simple3DSolver::refresh_after_seed(const Simple3DMaterialView& m,const Simple3DBoundaryView& b,
     Simple3DStateView s,const Simple3DControl& control) {
-    auto& impl=*impl_;const auto& g=impl.grid;validate(g,m,b,s);
+    auto& impl=*impl_;
+    if(impl.phase==SimplePhase::active || !impl.boundary)
+        throw std::logic_error("cannot refresh an active SIMPLE seed");
+    const auto& g=impl.grid;validate(g,m,b,s);
     if (!std::isfinite(control.alpha_density) || control.alpha_density<=0. || control.alpha_density>1.
         || !std::isfinite(control.pressure_reference_absolute) || control.pressure_reference_absolute<=0.
         || !std::isfinite(control.gas_constant) || control.gas_constant<=0.)
@@ -485,28 +528,27 @@ bool Simple3DSolver::refresh_after_seed(const Simple3DMaterialView& m,const Simp
     apply_simple_y_boundary(3,g,boundary,mutable_velocities(s),read(s.density),m.epsilon);
     return state_finite(m,s);
 }
-Simple3DResult Simple3DSolver::solve(const Simple3DMaterialView& m,const Simple3DBoundaryView& b,
-    Simple3DStateView s,const Simple3DControl& control) {
-    auto& impl=*impl_;impl.charged_iterations=0;
-    const auto& g=impl.grid;validate(g,m,b,s);validate_order(control.second_order_upwind,control.ordering);
-    if (!control.max_iterations||!control.inner_sweeps||!control.pressure_rebuild_every)
-        throw std::invalid_argument("SIMPLE iteration and pressure rebuild budgets must be positive");
-    for (double alpha:{control.alpha_velocity,control.alpha_pressure,control.alpha_density})
-        if (!std::isfinite(alpha)||alpha<=0.||alpha>1.) throw std::invalid_argument("invalid SIMPLE relaxation");
-    if (!std::isfinite(control.pressure_reference_absolute)||control.pressure_reference_absolute<=0.
-        ||!std::isfinite(control.gas_constant)||control.gas_constant<=0.
-        ||!std::isfinite(control.pressure_diagonal_drift)||control.pressure_diagonal_drift<0.)
-        throw std::invalid_argument("invalid SIMPLE pressure/density controls");
-    SimpleF2Monitor monitor(velocities(s),control.convergence,10);Simple3DResult result;
+bool Simple3DSolver::Impl::initialize() {
+    auto& impl=*this;const auto& g=grid;auto& call=*active;
+    const auto& m=call.material;auto s=call.state;
+    const auto& control=call.control;auto& result=call.result;
     result.pressure_clip_hits=impl.pressure_clip_hits;
-    if (!state_finite(m,s)) { nonfinite_result(result);return result; }
+    if (!state_finite(m,s)) { nonfinite_result(result);return true; }
     positive(read(s.density),"density");positive(m.temperature,"temperature");
-    if (control.cancel&&control.cancel(control.context)) { result.stop=SimpleStop::cancelled;return result; }
+    if (control.cancel&&control.cancel(control.context)) { result.stop=SimpleStop::cancelled;return true; }
     if (control.ideal_gas&&control.massflux_inlet&&impl.target.empty()) {
         impl.target.resize(g.nx*g.nz);
         for (std::size_t i=0;i<g.nx;++i) for (std::size_t k=0;k<g.nz;++k)
             impl.target[i*g.nz+k]=s.inlet_velocity[i*g.nz+k]*s.density[i*g.ny*g.nz+k];
     }
+    return false;
+}
+
+bool Simple3DSolver::Impl::step() {
+    auto& impl=*this;const auto& g=grid;auto& call=*active;
+    const auto& m=call.material;const auto& b=call.boundary;auto s=call.state;
+    const auto& control=call.control;auto& result=call.result;
+    auto& monitor=call.monitor;
     Kernel kernel(g,m,b,s,control.second_order_upwind);
     const SimpleBoundaryView boundary{read(s.inlet_velocity),{},impl.opening()};
     const auto audit=[&](bool final) {
@@ -524,53 +566,160 @@ Simple3DResult Simple3DSolver::solve(const Simple3DMaterialView& m,const Simple3
         result.converged=result.stop==SimpleStop::tol;
         if (result.stop==SimpleStop::post_closure) ++result.post_closure_rejections;
     };
-    for (std::size_t it=1;it<=control.max_iterations;++it) {
-        if (control.cancel&&control.cancel(control.context)) { result.stop=SimpleStop::cancelled;result.converged=false;return result; }
-        result.iterations=it;impl.charged_iterations=it;impl.rho_eps(impl.old_rho_eps,m,s);
-        try { kernel.predict(impl.opening(),control.alpha_velocity,control.inner_sweeps,control.ordering); }
-        catch (const std::domain_error&) { nonfinite_result(result);return result; }
-        if (!state_finite(m,s)) { nonfinite_result(result);return result; }
-        const PressureSystem* system;
-        try { system=&impl.assembly.assemble(g,velocities(s),corrections(s),{impl.old_rho_eps.data(),impl.old_rho_eps.size()}); }
-        catch (const std::domain_error&) { nonfinite_result(result);return result; }
-        PressureControl linear;linear.dimension=3;
-        linear.relative_tolerance=control.adaptive_pressure_tolerance
-            ?std::clamp(.05*(impl.history.legacy.empty()?1.:impl.history.legacy.back()),1e-7,1e-3):1e-5;
-        linear.force_rebuild=it%control.pressure_rebuild_every==0;
-        linear.diagonal_drift_threshold=control.pressure_diagonal_drift;
-        result.linear=impl.pressure.solve(*system,linear);
-        if (!result.linear.success) { result.stop=SimpleStop::pressure_failure;return result; }
-        std::copy(result.linear.x.begin(),result.linear.x.end(),s.pressure_correction.data);result.linear.x.clear();
-        try { correct_simple_pressure(3,g,boundary,s.pressure,read(s.pressure_correction),mutable_velocities(s),
-            corrections(s),read(s.density),m.epsilon,control.alpha_pressure); }
-        catch (const std::domain_error&) { nonfinite_result(result);return result; }
-        if (control.ideal_gas) {
-            if (!state_finite(m,s)) { nonfinite_result(result);return result; }
-            impl.density(m,s,control);
-        }
-        result.pressure_clip_hits=impl.pressure_clip_hits;
-        if (!state_finite(m,s)) { nonfinite_result(result);return result; }
-        const auto legacy=simple_legacy_mass_residual(3,g,velocities(s),{impl.old_rho_eps.data(),impl.old_rho_eps.size()});
-        result.legacy_residual=legacy.residual;result.legacy_reference=legacy.reference;
-        impl.history.legacy.push_back(result.legacy_residual);
-        if (control.progress&&(it==1||it%50==0)) control.progress(control.context,it,result.legacy_residual);
-        const double delta=monitor.velocity_delta(velocities(s));
-        const bool eval=monitor.should_evaluate_momentum(it,delta)||control.track_momentum;
-        if (eval) { result.momentum=kernel.residual();if (control.track_momentum) impl.history.momentum.push_back({it,result.momentum}); }
-        result.mass=audit(false);impl.history.local_mass.push_back(result.mass.local_residual);impl.history.global_mass.push_back(result.mass.global_residual);
-        if (!std::isfinite(result.legacy_residual)||!std::isfinite(delta)||!std::isfinite(result.mass.local_residual)
-            ||!std::isfinite(result.mass.global_residual)||!std::isfinite(result.mass.backflow_fraction)) { nonfinite_result(result);return result; }
-        if (eval) {
-            const auto reason=monitor.submit(it,result.momentum.maximum,result.mass,delta);
-            if (reason==SimpleStop::nonfinite) { nonfinite_result(result);return result; }
-            if (reason!=SimpleStop::ongoing) {
-                finish(reason);
-                if (result.stop!=SimpleStop::post_closure||it==control.max_iterations) return result;
-                monitor.reset_confirmation();
-            }
+    const auto it=result.iterations+1;
+    if (control.cancel&&control.cancel(control.context)) { result.stop=SimpleStop::cancelled;result.converged=false;return true; }
+    result.iterations=it;impl.charged_iterations=it;impl.rho_eps(impl.old_rho_eps,m,s);
+    try { kernel.predict(impl.opening(),control.alpha_velocity,control.inner_sweeps,control.ordering); }
+    catch (const std::domain_error&) { nonfinite_result(result);return true; }
+    if (!state_finite(m,s)) { nonfinite_result(result);return true; }
+    const PressureSystem* system;
+    try { system=&impl.assembly.assemble(g,velocities(s),corrections(s),{impl.old_rho_eps.data(),impl.old_rho_eps.size()}); }
+    catch (const std::domain_error&) { nonfinite_result(result);return true; }
+    PressureControl linear;linear.dimension=3;
+    linear.relative_tolerance=control.adaptive_pressure_tolerance
+        ?std::clamp(.05*(impl.history.legacy.empty()?1.:impl.history.legacy.back()),1e-7,1e-3):1e-5;
+    linear.force_rebuild=it%control.pressure_rebuild_every==0;
+    linear.diagonal_drift_threshold=control.pressure_diagonal_drift;
+    result.linear=impl.pressure.solve(*system,linear);
+    if (!result.linear.success) { result.stop=SimpleStop::pressure_failure;return true; }
+    std::copy(result.linear.x.begin(),result.linear.x.end(),s.pressure_correction.data);result.linear.x.clear();
+    try { correct_simple_pressure(3,g,boundary,s.pressure,read(s.pressure_correction),mutable_velocities(s),
+        corrections(s),read(s.density),m.epsilon,control.alpha_pressure); }
+    catch (const std::domain_error&) { nonfinite_result(result);return true; }
+    if (control.ideal_gas) {
+        if (!state_finite(m,s)) { nonfinite_result(result);return true; }
+        impl.density(m,s,control);
+    }
+    result.pressure_clip_hits=impl.pressure_clip_hits;
+    if (!state_finite(m,s)) { nonfinite_result(result);return true; }
+    const auto legacy=simple_legacy_mass_residual(3,g,velocities(s),{impl.old_rho_eps.data(),impl.old_rho_eps.size()});
+    result.legacy_residual=legacy.residual;result.legacy_reference=legacy.reference;
+    impl.history.legacy.push_back(result.legacy_residual);
+    if (control.progress&&(it==1||it%50==0)) control.progress(control.context,it,result.legacy_residual);
+    const double delta=monitor.velocity_delta(velocities(s));
+    const bool eval=monitor.should_evaluate_momentum(it,delta)||control.track_momentum;
+    if (eval) { result.momentum=kernel.residual();if (control.track_momentum) impl.history.momentum.push_back({it,result.momentum}); }
+    result.mass=audit(false);impl.history.local_mass.push_back(result.mass.local_residual);impl.history.global_mass.push_back(result.mass.global_residual);
+    if (!std::isfinite(result.legacy_residual)||!std::isfinite(delta)||!std::isfinite(result.mass.local_residual)
+        ||!std::isfinite(result.mass.global_residual)||!std::isfinite(result.mass.backflow_fraction)) { nonfinite_result(result);return true; }
+    if (eval) {
+        const auto reason=monitor.submit(it,result.momentum.maximum,result.mass,delta);
+        if (reason==SimpleStop::nonfinite) { nonfinite_result(result);return true; }
+        if (reason!=SimpleStop::ongoing) {
+            finish(reason);
+            if (result.stop!=SimpleStop::post_closure||it==control.max_iterations) return true;
+            monitor.reset_confirmation();
         }
     }
-    finish(SimpleStop::max_iterations);return result;
+    if(it<control.max_iterations)return false;
+    finish(SimpleStop::max_iterations);return true;
+}
+
+SimplePhase Simple3DSolver::start(const Simple3DMaterialView& m,const Simple3DBoundaryView& b,
+    Simple3DStateView s,const Simple3DControl& control) {
+    auto& impl=*impl_;
+    if(impl.phase==SimplePhase::active || !impl.boundary)
+        throw std::logic_error("SIMPLE call is already active");
+    impl.boundary=false;impl.phase=SimplePhase::failed;impl.taken=false;
+    try {
+        impl.charged_iterations=0;
+        validate_solve(impl.grid,m,b,s,control);
+        impl.active=std::make_unique<Impl::Active>(m,b,s,control);
+        impl.phase=SimplePhase::active;
+        const bool done=impl.initialize();
+        impl.phase=!done?SimplePhase::active:(impl.active->result.stop==SimpleStop::cancelled?SimplePhase::cancelled:SimplePhase::completed);
+        impl.boundary=true;return impl.phase;
+    } catch(...) { impl.phase=SimplePhase::failed;impl.boundary=true;throw; }
+}
+
+SimplePhase Simple3DSolver::advance() {
+    auto& impl=*impl_;
+    if(!impl.boundary)throw std::logic_error("SIMPLE step is already advancing");
+    if(impl.phase==SimplePhase::failed)throw std::logic_error("failed SIMPLE call cannot advance");
+    if(impl.phase!=SimplePhase::active)return impl.phase;
+    impl.boundary=false;
+    try {
+        if(impl.step())impl.phase=impl.active->result.stop==SimpleStop::cancelled?SimplePhase::cancelled:SimplePhase::completed;
+        impl.boundary=true;return impl.phase;
+    } catch(...) { impl.phase=SimplePhase::failed;impl.boundary=true;throw; }
+}
+SimplePhase Simple3DSolver::phase() const { return impl_->phase; }
+Simple3DResult Simple3DSolver::take_result() {
+    auto& impl=*impl_;
+    if(impl.taken || !impl.boundary || (impl.phase!=SimplePhase::completed && impl.phase!=SimplePhase::cancelled))
+        throw std::logic_error("SIMPLE result is not available");
+    impl.taken=true;return std::move(impl.active->result);
+}
+
+Simple3DRunState Simple3DSolver::snapshot_active() const {
+    const auto& impl=*impl_;
+    if(impl.phase!=SimplePhase::active || !impl.boundary)
+        throw std::logic_error("SIMPLE has no active save boundary");
+    const auto s=impl.active->state;
+    const ArrayView<double> fields[]{s.u,s.v,s.w,s.pressure,s.pressure_correction,s.d_u,s.d_v,s.d_w,s.density,s.inlet_velocity};
+    Simple3DRunState saved;
+    saved.owner=impl.owner_state();saved.convergence=impl.active->monitor.snapshot();saved.result=impl.active->result;
+    for(std::size_t i=0;i<10;++i)saved.fields[i].assign(fields[i].data,fields[i].data+fields[i].size);
+    return saved;
+}
+void Simple3DSolver::restore_active(const Simple3DMaterialView& m,const Simple3DBoundaryView& b,
+    Simple3DStateView s,const Simple3DControl& control,const Simple3DRunState& saved) {
+    const auto& impl=*impl_;
+    if(impl.phase==SimplePhase::active || !impl.boundary)
+        throw std::logic_error("cannot replace an active SIMPLE call");
+    validate_solve(impl.grid,m,b,s,control,false);positive(m.temperature,"temperature");
+    const ArrayView<double> fields[]{s.u,s.v,s.w,s.pressure,s.pressure_correction,s.d_u,s.d_v,s.d_w,s.density,s.inlet_velocity};
+    const auto& r=saved.result;
+    if(r.converged || r.iterations>=control.max_iterations || !r.linear.x.empty()
+        || r.pressure_clip_hits!=saved.owner.pressure_clip_hits
+        || saved.owner.history.legacy.size()<r.iterations
+        || saved.convergence.minimum_iterations!=10
+        || saved.convergence.window_start_iteration>r.iterations
+        || saved.convergence.streak>=control.convergence.confirmations)
+        throw std::invalid_argument("invalid saved SIMPLE iteration position");
+    const bool rejected=r.stop==SimpleStop::post_closure;
+    if((r.stop!=SimpleStop::ongoing && !rejected) || r.post_closure_measured!=rejected
+        || r.post_closure_certified || (r.post_closure_rejections!=0)!=rejected
+        || saved.owner.charged_iterations!=r.iterations || !std::isfinite(r.legacy_reference) || r.legacy_reference<=0.)
+        throw std::invalid_argument("invalid saved SIMPLE 3D closeout state");
+    for(std::size_t i=0;i<10;++i) {
+        const auto& values=saved.fields[i];
+        if(values.size()!=fields[i].size)throw std::invalid_argument("saved SIMPLE field extent differs");
+        // Initial correction arrays are unused until the first complete step.
+        const bool initialized=r.iterations || i<=3 || i>=8;
+        if(initialized)for(double value:values)
+            if(!std::isfinite(value))throw std::invalid_argument("nonfinite saved SIMPLE field");
+    }
+    positive({saved.fields[8].data(),saved.fields[8].size()},"saved density");
+    const std::size_t sizes[]{s.u.size,s.v.size,s.w.size};
+    for(std::size_t i=0;i<3;++i)
+        if(saved.convergence.previous[i].size()!=sizes[i])
+            throw std::invalid_argument("saved SIMPLE F2 extent differs");
+    if(r.iterations) {
+        for(double value:{r.legacy_residual,r.mass.local_residual,r.mass.global_residual,r.mass.backflow_fraction})
+            if(!std::isfinite(value) || value<0.)throw std::invalid_argument("invalid saved SIMPLE residual");
+        if(!std::isfinite(r.mass.mass_in) || !std::isfinite(r.mass.mass_out) || !r.linear.success)
+            throw std::invalid_argument("invalid saved SIMPLE step evidence");
+    }
+    if(!std::isnan(r.momentum.maximum) && (!std::isfinite(r.momentum.maximum) || r.momentum.maximum<0.))
+        throw std::invalid_argument("invalid saved SIMPLE momentum");
+    for(const auto* values:{&r.momentum.numerator,&r.momentum.denominator,&r.momentum.component})
+        for(double value:*values)
+            if(!std::isfinite(value) || value<0.)throw std::invalid_argument("invalid saved SIMPLE momentum component");
+    Simple3DSolver restored(impl.grid,impl.opening());
+    restored.restore(saved.owner);
+    restored.impl_->active=std::make_unique<Impl::Active>(m,b,s,control,saved);
+    restored.impl_->phase=SimplePhase::active;
+    for(std::size_t i=0;i<10;++i)
+        std::copy(saved.fields[i].begin(),saved.fields[i].end(),fields[i].data);
+    impl_=std::move(restored.impl_);
+}
+
+Simple3DResult Simple3DSolver::solve(const Simple3DMaterialView& m,const Simple3DBoundaryView& b,
+    Simple3DStateView s,const Simple3DControl& control) {
+    start(m,b,s,control);
+    while(phase()==SimplePhase::active)advance();
+    return take_result();
 }
 std::size_t Simple3DSolver::charged_iterations() const {return impl_->charged_iterations;}
 }  // namespace tpmshx
