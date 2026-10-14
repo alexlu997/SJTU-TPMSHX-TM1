@@ -1,6 +1,7 @@
 #include "tpmshx/temperature_staggered.hpp"
 #include "tpmshx/superlu_solve.h"
 #include "temperature_faces.hpp"
+#include "temperature_run_state.hpp"
 #include <Eigen/Dense>
 #include <amgcl/amg.hpp>
 #include <amgcl/backend/builtin.hpp>
@@ -12,6 +13,7 @@
 #include <cstdint>
 #include <limits>
 #include <numeric>
+#include <optional>
 #include <stdexcept>
 #include <string>
 
@@ -365,6 +367,44 @@ StaggeredFluidResidual residual(const Mesh& mesh,const Side& side,
     result.cell_ratio=result.maximum*static_cast<double>(mesh.n)/scale;
     return result;
 }
+void validate_temperature(const Mesh& mesh,const StaggeredTemperatureFluid& a,
+    const StaggeredTemperatureFluid& b,ArrayView<const double> ks,TemperatureStateView t,
+    const TemperatureControl& control,ArrayView<const double> prescribed_b,
+    ArrayView<const double> source_s,bool restoring) {
+    const auto& grid=mesh.g;
+    coefficient(ks,mesh.n);
+    if (grid.nz<=1) throw std::invalid_argument("staggered 3D requires nz>1");
+    if (!control.chunk_iterations || !std::isfinite(control.q_relative_tolerance) || control.q_relative_tolerance<=0)
+        throw std::invalid_argument("invalid staggered chunk or tolerance");
+    if (!control.second_order_b) throw std::invalid_argument("staggered 3D always uses second order B");
+    for (double alpha:{control.alpha_a,control.alpha_solid,control.alpha_b})
+        if (!std::isfinite(alpha) || alpha<=0 || alpha>1) throw std::invalid_argument("invalid staggered relaxation");
+    const std::array<ArrayView<double>,3> output{t.a,t.b,t.solid};
+    for (auto out:output) check(out,mesh.n,control.warm_start&&!restoring);
+    for (auto input:{prescribed_b,source_s}) if (input.size) check(input,mesh.n);
+    for (std::size_t i=0;i<3;++i) {
+        for (std::size_t j=0;j<i;++j) disjoint(view(output[i]),view(output[j]));
+        for (auto input:{grid.dx,grid.dy,grid.dz,ks,prescribed_b,source_s}) disjoint(view(output[i]),input);
+    }
+    for (const auto* side:{&a,&b}) {
+        coefficient(side->conductivity,mesh.n); coefficient(side->hv,mesh.n);
+        coefficient(side->epsilon,mesh.n); coefficient(side->rho_cp,mesh.n,true);
+        for (std::size_t axis=0;axis<3;++axis) check(side->velocity[axis],mesh.face_size(axis));
+        if (side->source.size) check(side->source,mesh.n);
+        const auto& bc=side->boundary;
+        if (bc.direction<0 || bc.direction>5 || !std::isfinite(bc.inlet_temperature))
+            throw std::invalid_argument("invalid staggered inlet direction or temperature");
+        const auto patch_size=mesh.n/mesh.counts[static_cast<std::size_t>(bc.direction)/2];
+        for (auto input:{bc.profile,bc.opening,bc.capacity_flux}) if (input.size) check(input,patch_size);
+        for (std::size_t p=0;p<bc.opening.size;++p)
+            if (bc.opening[p]<0 || bc.opening[p]>1) throw std::invalid_argument("staggered opening outside [0,1]");
+        for (auto out:output) {
+            for (auto input:{side->conductivity,side->hv,side->epsilon,side->rho_cp,side->source,bc.profile,bc.opening,bc.capacity_flux})
+                disjoint(view(out),input);
+            for (auto velocity:side->velocity) disjoint(view(out),velocity);
+        }
+    }
+}
 }  // namespace
 
 struct StaggeredTemperatureDriver::Impl {
@@ -379,6 +419,161 @@ struct StaggeredTemperatureDriver::Impl {
         auto hierarchy=std::make_unique<AMG>(std::tie(mesh.n,candidate->rows,candidate->columns,candidate->values),params);
         shape=mesh.counts; lap=std::move(candidate); amg=std::move(hierarchy);
     }
+    MacProjectionResult project(const GridView&,ArrayView<const double>,ArrayView<const double>,
+        const std::array<ArrayView<const double>,3>&);
+    struct Active;
+    std::unique_ptr<Active> active;
+};
+
+struct StaggeredTemperatureDriver::Impl::Active {
+    GridView grid;
+    StaggeredTemperatureFluid a,b;
+    ArrayView<const double> ks,prescribed_b,source_s;
+    TemperatureStateView t;
+    TemperatureControl control;
+    bool conservative,rb,true_h_warm_up,sou_a=false,sou_b=false,boundary=true,taken=false;
+    PhysicalHeatLedger* physical_audit;
+    Mesh mesh;
+    detail::EnergyMesh energy_mesh;
+    std::optional<Side> side_a_,side_b_;
+    std::array<Vector,3> previous;
+    double old_q=std::numeric_limits<double>::quiet_NaN();
+    TemperaturePhase phase=TemperaturePhase::active;
+    StaggeredTemperatureResult result{};
+
+    Active(Impl& owner,const GridView& input_grid,const StaggeredTemperatureFluid& input_a,
+        const StaggeredTemperatureFluid& input_b,ArrayView<const double> input_ks,
+        TemperatureStateView fields,const TemperatureControl& input_control,bool conservative_,bool rb_,
+        ArrayView<const double> prescribed,ArrayView<const double> source,bool warm_up,
+        PhysicalHeatLedger* audit,const StaggeredTemperatureRunState* saved)
+        :grid(input_grid),a(input_a),b(input_b),ks(input_ks),prescribed_b(prescribed),source_s(source),
+         t(fields),control(input_control),conservative(conservative_),rb(rb_),true_h_warm_up(warm_up),
+         physical_audit(audit),mesh(grid),energy_mesh(grid) {
+        validate_temperature(mesh,a,b,ks,t,control,prescribed_b,source_s,saved!=nullptr);
+        result.iteration={TemperatureStop::budget_exhausted,0,0,std::numeric_limits<double>::quiet_NaN()};
+        std::array<Faces,2> velocities;
+        if(saved) {
+            detail::validate_temperature_state(saved->iteration,control,mesh.n,prescribed_b);
+            for(auto out:{t.a,t.b,t.solid}) {
+                for(const auto& field:saved->iteration.temperature) disjoint(view(out),view(field));
+                for(const auto& side:saved->velocity)
+                    for(const auto& face:side) disjoint(view(out),view(face));
+            }
+            for(std::size_t s=0;s<2;++s) {
+                for(std::size_t axis=0;axis<3;++axis) check(view(saved->velocity[s][axis]),mesh.face_size(axis));
+                const auto& info=saved->projection[s];
+                if(!std::isfinite(info.rhs_mean) || !std::isfinite(info.residual_relative)
+                    || info.residual_relative<0. || info.cg_iterations>500
+                    || (info.skipped && (info.used_bordered_lu || info.cg_iterations || info.residual_relative!=0.))
+                    || (!conservative && (info.skipped || info.used_bordered_lu || info.cg_iterations
+                        || info.rhs_mean!=0. || info.residual_relative!=0.)))
+                    throw std::invalid_argument("invalid saved MAC projection evidence");
+            }
+            velocities=saved->velocity;result.projection=saved->projection;
+            result.iteration=saved->iteration.result;
+            old_q=result.iteration.q_b;
+        } else {
+            if(!control.warm_start) for(std::size_t p=0;p<mesh.n;++p) {
+                t.a[p]=a.boundary.inlet_temperature;t.b[p]=b.boundary.inlet_temperature;
+                t.solid[p]=.5*(a.boundary.inlet_temperature+b.boundary.inlet_temperature);
+            }
+            if(prescribed_b.size) std::copy_n(prescribed_b.data,mesh.n,t.b.data);
+            for(std::size_t s=0;s<2;++s) {
+                const auto& f=s==0?a:b;
+                if(conservative) {
+                    auto projection=owner.project(grid,f.epsilon,f.rho_cp,f.velocity);
+                    result.projection[s]=projection.info;velocities[s]=std::move(projection.velocity);
+                } else for(std::size_t axis=0;axis<3;++axis)
+                    velocities[s][axis].assign(f.velocity[axis].data,f.velocity[axis].data+f.velocity[axis].size);
+            }
+        }
+        side_a_.emplace(mesh,a,std::move(velocities[0]));side_b_.emplace(mesh,b,std::move(velocities[1]));
+        sou_a=conservative&&detail::temperature_second_order_active(energy_mesh,side_a_->energy().faces.capacity);
+        sou_b=conservative&&!prescribed_b.size&&detail::temperature_second_order_active(energy_mesh,side_b_->energy().faces.capacity);
+        const std::array<ArrayView<double>,3> output{t.a,t.b,t.solid};
+        for(std::size_t s=0;s<3;++s) {
+            if(saved) std::copy_n(saved->iteration.temperature[s].data(),mesh.n,output[s].data);
+            previous[s].assign(output[s].data,output[s].data+mesh.n);
+        }
+        if(!control.max_iterations) finish();
+    }
+    void finish() {
+        auto& side_a=*side_a_;auto& side_b=*side_b_;
+        if(conservative) {
+            side_a.reconstruct(energy_mesh,view(t.a));side_b.reconstruct(energy_mesh,view(t.b));
+            auto ledger=energy_physical_audit(grid,side_a.energy(),side_b.energy(),ks,t,source_s,prescribed_b);
+            if(physical_audit) *physical_audit=ledger;
+            result.residual[0]=residual(mesh,side_a,view(t.a),view(t.solid),std::move(ledger.residual[0]));
+            if(!prescribed_b.size)
+                result.residual[1]=residual(mesh,side_b,view(t.b),view(t.solid),std::move(ledger.residual[1]));
+        }
+        phase=TemperaturePhase::completed;
+    }
+    bool cancelled() const { return control.cancel && control.cancel(control.context); }
+    void advance() {
+        if(phase==TemperaturePhase::failed) throw std::logic_error("failed staggered temperature run cannot advance");
+        if(phase!=TemperaturePhase::active) return;
+        if(!boundary) throw std::logic_error("staggered temperature run is already advancing");
+        boundary=false;
+        try {
+            if(cancelled()) {
+                result.iteration.stop=TemperatureStop::cancelled;phase=TemperaturePhase::cancelled;return;
+            }
+            auto& side_a=*side_a_;auto& side_b=*side_b_;
+            const std::array<ArrayView<double>,3> output{t.a,t.b,t.solid};
+            const auto count=std::min(control.chunk_iterations,control.max_iterations-result.iteration.iterations);
+            result.iteration.residual=sweeps(mesh,side_a,side_b,ks,source_s,t,control,conservative,rb,prescribed_b.size>0,
+                sou_a,sou_b,count,true_h_warm_up);
+            result.iteration.iterations+=count;
+            if(control.progress) control.progress(control.context,result.iteration.iterations,control.max_iterations);
+            if(cancelled()) {
+                result.iteration.stop=TemperatureStop::cancelled;
+                result.iteration.q_b=std::numeric_limits<double>::quiet_NaN();
+                phase=TemperaturePhase::cancelled;return;
+            }
+            double q=0,change=0;
+            for(std::size_t p=0;p<mesh.n;++p) {
+                q+=b.hv[p]*(t.solid[p]-t.b[p])*mesh.volume(mesh.point(p));
+                for(std::size_t s=0;s<3;++s) change=std::max(change,std::abs(output[s][p]-previous[s][p]));
+            }
+            if(!std::isfinite(q)) throw std::domain_error("nonfinite staggered duty");
+            result.iteration.q_b=q;
+            if(std::isfinite(old_q) && std::abs(q-old_q)/std::max({std::abs(q),std::abs(old_q),1.0})<control.q_relative_tolerance && change<.01) {
+                bool equations_ok=true;
+                if(conservative) {
+                    side_a.reconstruct(energy_mesh,view(t.a));side_b.reconstruct(energy_mesh,view(t.b));
+                    const auto ledger=energy_physical_audit(grid,side_a.energy(),side_b.energy(),ks,t,source_s,prescribed_b);
+                    double qa=0.;
+                    for(std::size_t p=0;p<mesh.n;++p)
+                        qa+=a.hv[p]*(t.a[p]-t.solid[p])*mesh.volume(mesh.point(p));
+                    const double scale=std::max({std::abs(qa),std::abs(q),1.});
+                    equations_ok=!ledger.boundary_complete||energy_balance_error(ledger)/scale<=1e-7;
+                }
+                if(equations_ok) { result.iteration.stop=TemperatureStop::converged;finish();return; }
+            }
+            old_q=q;
+            for(std::size_t s=0;s<3;++s) std::copy_n(output[s].data,mesh.n,previous[s].data());
+            if(result.iteration.iterations==control.max_iterations) finish();
+            boundary=true;
+        } catch(...) { phase=TemperaturePhase::failed;throw; }
+    }
+    StaggeredTemperatureRunState snapshot() const {
+        if(phase!=TemperaturePhase::active || !boundary)
+            throw std::logic_error("staggered temperature run has no active save boundary");
+        StaggeredTemperatureRunState saved{};
+        saved.iteration.result=result.iteration;saved.projection=result.projection;
+        const std::array<ArrayView<double>,3> fields{t.a,t.b,t.solid};
+        for(std::size_t p=0;p<fields.size();++p)
+            saved.iteration.temperature[p].assign(fields[p].data,fields[p].data+fields[p].size);
+        saved.velocity={side_a_->velocity,side_b_->velocity};
+        return saved;
+    }
+    StaggeredTemperatureResult take_result() {
+        if(taken || (phase!=TemperaturePhase::completed && phase!=TemperaturePhase::cancelled))
+            throw std::logic_error("staggered temperature result is not available");
+        taken=true;side_a_.reset();side_b_.reset();previous={};
+        return std::move(result);
+    }
 };
 StaggeredTemperatureDriver::StaggeredTemperatureDriver():impl_(std::make_unique<Impl>()) {}
 StaggeredTemperatureDriver::~StaggeredTemperatureDriver()=default;
@@ -387,7 +582,7 @@ Vector solve_mac_neumann_bordered(const GridView& grid,ArrayView<const double> d
     const Mesh mesh(grid); check(divergence,mesh.n); return bordered(Laplacian(mesh),divergence);
 }
 
-MacProjectionResult StaggeredTemperatureDriver::project_capacity_faces(const GridView& grid,
+MacProjectionResult StaggeredTemperatureDriver::Impl::project(const GridView& grid,
     ArrayView<const double> epsilon,ArrayView<const double> rho_cp,
     const std::array<ArrayView<const double>,3>& velocity) {
     const Mesh mesh(grid); coefficient(epsilon,mesh.n); coefficient(rho_cp,mesh.n,true);
@@ -413,7 +608,7 @@ MacProjectionResult StaggeredTemperatureDriver::project_capacity_faces(const Gri
     result.potential.assign(mesh.n,0);
     result.info.rhs_mean=std::accumulate(rhs.begin(),rhs.end(),0.0)/static_cast<double>(mesh.n);
     if (maximum<=1e-9*scale) { result.info.skipped=true; return result; }
-    impl_->prepare(mesh);
+    prepare(mesh);
     Vector b=rhs; for (double& v:b) v-=result.info.rhs_mean;
     Vector r=b,z(mesh.n),p(mesh.n),q(mesh.n); double old_rho=0;
     const double norm=std::sqrt(dot(b,b)),tolerance=1e-10*norm;
@@ -422,10 +617,10 @@ MacProjectionResult StaggeredTemperatureDriver::project_capacity_faces(const Gri
     // small-RHS shortcut: the original absolute tolerance is exactly zero.
     for (std::size_t iteration=0;iteration<500 && !converged;++iteration) {
         if (std::sqrt(dot(r,r))<tolerance) { converged=true; break; }
-        impl_->amg->apply(r,z); const double rho=dot(r,z);
+        amg->apply(r,z); const double rho=dot(r,z);
         if (iteration==0) p=z;
         else { const double beta=rho/old_rho; for (std::size_t j=0;j<mesh.n;++j) p[j]=z[j]+beta*p[j]; }
-        impl_->lap->multiply(p,q); const double alpha=rho/dot(p,q);
+        lap->multiply(p,q); const double alpha=rho/dot(p,q);
         if (!std::isfinite(alpha)) break;
         for (std::size_t j=0;j<mesh.n;++j) { result.potential[j]+=alpha*p[j]; r[j]-=alpha*q[j]; }
         old_rho=rho; result.info.cg_iterations=iteration+1;
@@ -433,11 +628,11 @@ MacProjectionResult StaggeredTemperatureDriver::project_capacity_faces(const Gri
     // SciPy reports info=maxiter if the 500th update crosses the tolerance;
     // its convergence check happens at the next loop head, never after it.
     if (!converged) {
-        result.info.used_bordered_lu=true; result.potential=bordered(*impl_->lap,view(rhs));
+        result.info.used_bordered_lu=true; result.potential=bordered(*lap,view(rhs));
     }
     const double mean=std::accumulate(result.potential.begin(),result.potential.end(),0.0)/static_cast<double>(mesh.n);
     for (double& v:result.potential) v-=mean;
-    impl_->lap->multiply(result.potential,q);
+    lap->multiply(result.potential,q);
     for (std::size_t j=0;j<mesh.n;++j) q[j]-=b[j];
     result.info.residual_relative=norm>0 ? std::sqrt(dot(q,q))/norm : std::sqrt(dot(q,q));
     for (std::size_t axis=0;axis<3;++axis) {
@@ -453,105 +648,52 @@ MacProjectionResult StaggeredTemperatureDriver::project_capacity_faces(const Gri
     return result;
 }
 
+MacProjectionResult StaggeredTemperatureDriver::project_capacity_faces(const GridView& grid,
+    ArrayView<const double> epsilon,ArrayView<const double> rho_cp,
+    const std::array<ArrayView<const double>,3>& velocity) {
+    if(phase()==TemperaturePhase::active)
+        throw std::logic_error("staggered temperature run is active");
+    return impl_->project(grid,epsilon,rho_cp,velocity);
+}
+
+void StaggeredTemperatureDriver::start(const GridView& grid,const StaggeredTemperatureFluid& a,
+    const StaggeredTemperatureFluid& b,ArrayView<const double> ks,TemperatureStateView state,
+    const TemperatureControl& control,bool conservative,bool rb,ArrayView<const double> prescribed,
+    ArrayView<const double> source,bool warm_up,PhysicalHeatLedger* audit) {
+    if(phase()==TemperaturePhase::active) throw std::logic_error("staggered temperature run is active");
+    impl_->active=std::make_unique<Impl::Active>(*impl_,grid,a,b,ks,state,control,conservative,rb,
+        prescribed,source,warm_up,audit,nullptr);
+}
+void StaggeredTemperatureDriver::restore_active(const GridView& grid,const StaggeredTemperatureFluid& a,
+    const StaggeredTemperatureFluid& b,ArrayView<const double> ks,TemperatureStateView state,
+    const TemperatureControl& control,bool conservative,bool rb,const StaggeredTemperatureRunState& saved,
+    ArrayView<const double> prescribed,ArrayView<const double> source,bool warm_up,PhysicalHeatLedger* audit) {
+    if(phase()==TemperaturePhase::active) throw std::logic_error("staggered temperature run is active");
+    impl_->active=std::make_unique<Impl::Active>(*impl_,grid,a,b,ks,state,control,conservative,rb,
+        prescribed,source,warm_up,audit,&saved);
+}
+TemperaturePhase StaggeredTemperatureDriver::advance() {
+    if(!impl_->active) throw std::logic_error("staggered temperature run has not started");
+    impl_->active->advance();return phase();
+}
+TemperaturePhase StaggeredTemperatureDriver::phase() const {
+    return impl_->active?impl_->active->phase:TemperaturePhase::idle;
+}
+StaggeredTemperatureRunState StaggeredTemperatureDriver::snapshot_active() const {
+    if(!impl_->active) throw std::logic_error("staggered temperature run has not started");
+    return impl_->active->snapshot();
+}
+StaggeredTemperatureResult StaggeredTemperatureDriver::take_result() {
+    if(!impl_->active) throw std::logic_error("staggered temperature run has not started");
+    return impl_->active->take_result();
+}
 StaggeredTemperatureResult StaggeredTemperatureDriver::solve(const GridView& grid,
     const StaggeredTemperatureFluid& a,const StaggeredTemperatureFluid& b,ArrayView<const double> ks,
-    TemperatureStateView t,const TemperatureControl& control,bool conservative,bool rb,
-    ArrayView<const double> prescribed_b,ArrayView<const double> source_s,bool true_h_warm_up,
-    PhysicalHeatLedger* physical_audit) {
-    const Mesh mesh(grid); coefficient(ks,mesh.n);
-    if (grid.nz<=1) throw std::invalid_argument("staggered 3D requires nz>1");
-    if (!control.chunk_iterations || !std::isfinite(control.q_relative_tolerance) || control.q_relative_tolerance<=0)
-        throw std::invalid_argument("invalid staggered chunk or tolerance");
-    if (!control.second_order_b) throw std::invalid_argument("staggered 3D always uses second order B");
-    for (double alpha:{control.alpha_a,control.alpha_solid,control.alpha_b})
-        if (!std::isfinite(alpha) || alpha<=0 || alpha>1) throw std::invalid_argument("invalid staggered relaxation");
-    const std::array<ArrayView<double>,3> output{t.a,t.b,t.solid};
-    for (auto out:output) check(out,mesh.n,control.warm_start);
-    for (auto input:{prescribed_b,source_s}) if (input.size) check(input,mesh.n);
-    for (std::size_t i=0;i<3;++i) {
-        for (std::size_t j=0;j<i;++j) disjoint(view(output[i]),view(output[j]));
-        for (auto input:{grid.dx,grid.dy,grid.dz,ks,prescribed_b,source_s}) disjoint(view(output[i]),input);
-    }
-    for (const auto* side:{&a,&b}) {
-        coefficient(side->conductivity,mesh.n); coefficient(side->hv,mesh.n);
-        coefficient(side->epsilon,mesh.n); coefficient(side->rho_cp,mesh.n,true);
-        for (std::size_t axis=0;axis<3;++axis) check(side->velocity[axis],mesh.face_size(axis));
-        if (side->source.size) check(side->source,mesh.n);
-        const auto& bc=side->boundary;
-        if (bc.direction<0 || bc.direction>5 || !std::isfinite(bc.inlet_temperature))
-            throw std::invalid_argument("invalid staggered inlet direction or temperature");
-        const auto patch_size=mesh.n/mesh.counts[static_cast<std::size_t>(bc.direction)/2];
-        for (auto input:{bc.profile,bc.opening,bc.capacity_flux}) if (input.size) check(input,patch_size);
-        for (std::size_t p=0;p<bc.opening.size;++p)
-            if (bc.opening[p]<0 || bc.opening[p]>1) throw std::invalid_argument("staggered opening outside [0,1]");
-        for (auto out:output) {
-            for (auto input:{side->conductivity,side->hv,side->epsilon,side->rho_cp,side->source,bc.profile,bc.opening,bc.capacity_flux})
-                disjoint(view(out),input);
-            for (auto velocity:side->velocity) disjoint(view(out),velocity);
-        }
-    }
-    if (!control.warm_start) for (std::size_t p=0;p<mesh.n;++p) {
-        t.a[p]=a.boundary.inlet_temperature; t.b[p]=b.boundary.inlet_temperature;
-        t.solid[p]=.5*(a.boundary.inlet_temperature+b.boundary.inlet_temperature);
-    }
-    if (prescribed_b.size) std::copy(prescribed_b.data,prescribed_b.data+mesh.n,t.b.data);
-    StaggeredTemperatureResult result{};
-    result.iteration={TemperatureStop::budget_exhausted,0,0,std::numeric_limits<double>::quiet_NaN()};
-    std::array<Faces,2> velocities;
-    for (std::size_t s=0;s<2;++s) {
-        const auto& f=s==0 ? a : b;
-        if (conservative) {
-            auto projection=project_capacity_faces(grid,f.epsilon,f.rho_cp,f.velocity);
-            result.projection[s]=projection.info; velocities[s]=std::move(projection.velocity);
-        } else for (std::size_t axis=0;axis<3;++axis)
-            velocities[s][axis].assign(f.velocity[axis].data,f.velocity[axis].data+f.velocity[axis].size);
-    }
-    Side side_a(mesh,a,std::move(velocities[0])),side_b(mesh,b,std::move(velocities[1]));
-    const detail::EnergyMesh energy_mesh(grid);
-    const bool sou_a=conservative&&detail::temperature_second_order_active(energy_mesh,side_a.energy().faces.capacity);
-    const bool sou_b=conservative&&!prescribed_b.size&&detail::temperature_second_order_active(energy_mesh,side_b.energy().faces.capacity);
-    std::array<Vector,3> previous;
-    for (std::size_t s=0;s<3;++s) previous[s].assign(output[s].data,output[s].data+mesh.n);
-    double old_q=std::numeric_limits<double>::quiet_NaN();
-    const auto cancel=[&]() { return control.cancel && control.cancel(control.context); };
-    while (result.iteration.iterations<control.max_iterations) {
-        if (cancel()) { result.iteration.stop=TemperatureStop::cancelled; return result; }
-        const auto count=std::min(control.chunk_iterations,control.max_iterations-result.iteration.iterations);
-        result.iteration.residual=sweeps(mesh,side_a,side_b,ks,source_s,t,control,conservative,rb,prescribed_b.size>0,
-            sou_a,sou_b,count,true_h_warm_up);
-        result.iteration.iterations+=count;
-        if (control.progress) control.progress(control.context,result.iteration.iterations,control.max_iterations);
-        if (cancel()) { result.iteration.stop=TemperatureStop::cancelled; result.iteration.q_b=std::numeric_limits<double>::quiet_NaN(); return result; }
-        double q=0,change=0;
-        for (std::size_t p=0;p<mesh.n;++p) {
-            q+=b.hv[p]*(t.solid[p]-t.b[p])*mesh.volume(mesh.point(p));
-            for (std::size_t s=0;s<3;++s) change=std::max(change,std::abs(output[s][p]-previous[s][p]));
-        }
-        if (!std::isfinite(q)) throw std::domain_error("nonfinite staggered duty");
-        result.iteration.q_b=q;
-        if (std::isfinite(old_q) && std::abs(q-old_q)/std::max({std::abs(q),std::abs(old_q),1.0})<control.q_relative_tolerance && change<.01) {
-            bool equations_ok=true;
-            if(conservative) {
-                side_a.reconstruct(energy_mesh,view(t.a)); side_b.reconstruct(energy_mesh,view(t.b));
-                const auto ledger=energy_physical_audit(grid,side_a.energy(),side_b.energy(),ks,t,source_s,prescribed_b);
-                double qa=0.;
-                for(std::size_t p=0;p<mesh.n;++p)
-                    qa+=a.hv[p]*(t.a[p]-t.solid[p])*mesh.volume(mesh.point(p));
-                const double scale=std::max({std::abs(qa),std::abs(q),1.});
-                equations_ok=!ledger.boundary_complete||energy_balance_error(ledger)/scale<=1e-7;
-            }
-            if(equations_ok) { result.iteration.stop=TemperatureStop::converged; break; }
-        }
-        old_q=q; for (std::size_t s=0;s<3;++s) std::copy(output[s].data,output[s].data+mesh.n,previous[s].begin());
-    }
-    if (conservative) {
-        side_a.reconstruct(energy_mesh,view(t.a)); side_b.reconstruct(energy_mesh,view(t.b));
-        auto ledger=energy_physical_audit(grid,side_a.energy(),side_b.energy(),ks,t,source_s,prescribed_b);
-        if (physical_audit) *physical_audit=ledger;
-        result.residual[0]=residual(mesh,side_a,view(t.a),view(t.solid),std::move(ledger.residual[0]));
-        if (!prescribed_b.size)
-            result.residual[1]=residual(mesh,side_b,view(t.b),view(t.solid),std::move(ledger.residual[1]));
-    }
-    return result;
+    TemperatureStateView state,const TemperatureControl& control,bool conservative,bool rb,
+    ArrayView<const double> prescribed,ArrayView<const double> source,bool warm_up,
+    PhysicalHeatLedger* audit) {
+    start(grid,a,b,ks,state,control,conservative,rb,prescribed,source,warm_up,audit);
+    while(phase()==TemperaturePhase::active) advance();
+    return take_result();
 }
 }  // namespace tpmshx

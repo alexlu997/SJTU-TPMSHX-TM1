@@ -37,6 +37,11 @@ struct StaggeredTemperatureResult {
     std::array<MacProjectionInfo,2> projection;
     std::array<StaggeredFluidResidual,2> residual;
 };
+struct StaggeredTemperatureRunState {
+    TemperatureRunState iteration;
+    std::array<std::array<std::vector<double>,3>,2> velocity;
+    std::array<MacProjectionInfo,2> projection;
+};
 
 // Original mean-zero Neumann fallback [[L,1],[1^T,0]] [phi,mu]=[D,0].
 // L is the unweighted connectivity Laplacian. No cell is pinned. This is
@@ -73,6 +78,24 @@ public:
         const GridView& grid, ArrayView<const double> epsilon,
         ArrayView<const double> rho_cp,
         const std::array<ArrayView<const double>,3>& velocity);
+    // Advance at complete original chunks. Restore requires the same inputs
+    // and controls. Saved projected faces avoid a second MAC projection.
+    void start(const GridView&, const StaggeredTemperatureFluid&,
+        const StaggeredTemperatureFluid&, ArrayView<const double> k_ss,
+        TemperatureStateView, const TemperatureControl&, bool conservative,
+        bool red_black, ArrayView<const double> prescribed_b={},
+        ArrayView<const double> source_solid={}, bool true_h_warm_up=false,
+        PhysicalHeatLedger* physical_audit=nullptr);
+    void restore_active(const GridView&, const StaggeredTemperatureFluid&,
+        const StaggeredTemperatureFluid&, ArrayView<const double> k_ss,
+        TemperatureStateView, const TemperatureControl&, bool conservative,
+        bool red_black, const StaggeredTemperatureRunState&,
+        ArrayView<const double> prescribed_b={}, ArrayView<const double> source_solid={},
+        bool true_h_warm_up=false, PhysicalHeatLedger* physical_audit=nullptr);
+    TemperaturePhase advance();
+    TemperaturePhase phase() const;
+    StaggeredTemperatureRunState snapshot_active() const;
+    StaggeredTemperatureResult take_result();
     StaggeredTemperatureResult solve(
         const GridView& grid, const StaggeredTemperatureFluid& a,
         const StaggeredTemperatureFluid& b, ArrayView<const double> k_ss,

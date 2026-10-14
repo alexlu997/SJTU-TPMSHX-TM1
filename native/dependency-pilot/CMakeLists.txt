@@ -156,6 +156,8 @@ target_compile_definitions(temperature_staggered_test PRIVATE TPMSHX_THERMAL_BUI
 target_link_libraries(temperature_staggered_test PRIVATE tpmshx_temperature_staggered)
 add_executable(temperature_staggered_smoke "${TPMSHX_ROOT}/native/tests/temperature_staggered_smoke.cpp")
 target_link_libraries(temperature_staggered_smoke PRIVATE tpmshx_temperature_staggered)
+add_executable(temperature_run_smoke "${TPMSHX_ROOT}/native/tests/temperature_run_smoke.cpp")
+target_link_libraries(temperature_run_smoke PRIVATE tpmshx_quick_design tpmshx_temperature_staggered)
 add_library(tpmshx_temperature_c STATIC "${TPMSHX_ROOT}/native/src/temperature_driver_c_api.cpp")
 target_link_libraries(tpmshx_temperature_c PUBLIC tpmshx_quick_design tpmshx_temperature_staggered)
 add_library(tpmshx_temperature_shared SHARED "${TPMSHX_ROOT}/native/src/temperature_driver_c_api.cpp")
@@ -373,7 +375,7 @@ foreach(target IN ITEMS tpmshx_energy tpmshx_models tpmshx_quick_design temperat
         tpmshx_model_h_2d model_h_2d_test model_h_2d_smoke
         tpmshx_model_h_3d model_h_3d_test model_h_3d_smoke model_h_chunk_smoke model_h_run_smoke
         tpmshx_model_h_c tpmshx_model_h_shared model_h_c_static model_h_c_shared
-        tpmshx_temperature_staggered temperature_staggered_test temperature_staggered_smoke
+        tpmshx_temperature_staggered temperature_staggered_test temperature_staggered_smoke temperature_run_smoke
         tpmshx_temperature_c tpmshx_temperature_shared temperature_c_static temperature_c_shared
         tpmshx_pressure_reference
         tpmshx_outer_anderson tpmshx_full_3d full_3d_test full_thermal_test full_3d_c_static full_3d_c_shared

@@ -358,6 +358,23 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   this owner; the two separate stack-only iteration loops are retired.
   Physical checks, final audits, iteration budgets and cancellation points stay
   unchanged. This component interface does not provide file or application recovery.
+- `TemperatureRun` owns fixed-capacity cell-centered temperature state.
+  `StaggeredTemperatureDriver` also retains an active temperature call.
+  Each advance completes one original thermal chunk. The existing one-shot
+  entries use these owners. Snapshots own the three temperature fields and
+  the last result. Staggered snapshots also retain the actual projected face
+  velocities and MAC evidence. Restore does not repeat that projection.
+  The previous fields and heat value are rebuilt at the saved chunk boundary.
+  Inputs and controls must be unchanged. Invalid saved state is rejected before
+  caller arrays are written. Cancelled or failed calls have no save boundary.
+  Callbacks cannot save or re-enter a partial chunk. The existing sweeps,
+  prescribed B, sources, stopping gates, budgets and cancellation points remain.
+  The cell-centered zero-budget call returns no heat audit. The conservative
+  staggered zero-budget call retains its projection and final audit.
+  Staggered result transfer releases the active face and field buffers; only
+  its original pressure hierarchy cache remains. The replaced stack-only
+  control loops are retired. Full-controller archives and application recovery
+  still require separate integration.
 - The C++ fixed-flow `solve_enthalpy` also has explicit `temperature_fou`
   and `temperature_sou` candidates. Both solve conservative enthalpy transport
   with temperature as the nonlinear unknown, guarded HEOS PT state updates,

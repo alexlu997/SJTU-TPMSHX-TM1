@@ -2,6 +2,8 @@
 
 #include "tpmshx/finite_volume.hpp"
 #include <array>
+#include <memory>
+#include <vector>
 
 namespace tpmshx {
 
@@ -42,6 +44,39 @@ struct TemperatureResult {
     double residual;  // last block's maximum accepted temperature change, K
     double q_b;       // interface integral: W/m in 2D, W in 3D;
                       // NaN if cancelled or no chunk was audited
+};
+
+enum class TemperaturePhase { idle, active, completed, cancelled, failed };
+struct TemperatureRunState {
+    std::array<std::vector<double>,3> temperature;
+    TemperatureResult result;
+};
+
+// Each advance completes one original thermal chunk. Caller arrays stay live
+// and must not change between calls. Restore requires the same input and
+// controls. Snapshots own their arrays and contain only active boundaries.
+class TemperatureRun {
+public:
+    TemperatureRun(TemperatureScheme, const GridView&,
+        const TemperatureFluidView&, const TemperatureFluidView&,
+        ArrayView<const double> k_ss, TemperatureStateView, const TemperatureControl&,
+        ArrayView<const double> prescribed_b={}, bool red_black=false,
+        PhysicalHeatLedger* audit=nullptr);
+    TemperatureRun(TemperatureScheme, const GridView&,
+        const TemperatureFluidView&, const TemperatureFluidView&,
+        ArrayView<const double> k_ss, TemperatureStateView, const TemperatureControl&,
+        const TemperatureRunState&, ArrayView<const double> prescribed_b={},
+        bool red_black=false, PhysicalHeatLedger* audit=nullptr);
+    ~TemperatureRun();
+    TemperatureRun(const TemperatureRun&)=delete;
+    TemperatureRun& operator=(const TemperatureRun&)=delete;
+    TemperaturePhase advance();
+    TemperaturePhase phase() const;
+    TemperatureRunState snapshot() const;
+    TemperatureResult take_result();
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 };
 
 // Complete fixed-coefficient thermal iteration. Owns cold/prescribed starts,

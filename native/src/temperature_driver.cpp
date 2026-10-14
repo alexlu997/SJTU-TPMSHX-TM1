@@ -1,12 +1,14 @@
 #include "tpmshx/temperature_driver.hpp"
 #include "temperature_faces.hpp"
 #include "temperature_active_line.hpp"
+#include "temperature_run_state.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <vector>
 
@@ -326,13 +328,11 @@ double duty(const Mesh& mesh, const TemperatureFluidView& b, TemperatureStateVie
     return q;
 }
 
-}  // namespace
-
-TemperatureResult solve_temperature(TemperatureScheme scheme, const GridView& grid,
+void validate_temperature(TemperatureScheme scheme, const GridView& grid,
     const TemperatureFluidView& a, const TemperatureFluidView& b,
     ArrayView<const double> k_ss, TemperatureStateView state,
-    const TemperatureControl& control, ArrayView<const double> prescribed_b, bool red_black,
-    PhysicalHeatLedger* returned_audit) {
+    const TemperatureControl& control, ArrayView<const double> prescribed_b,
+    bool red_black, bool restoring) {
     if (scheme != TemperatureScheme::cell_centered_2d && scheme != TemperatureScheme::cell_centered_3d)
         throw std::invalid_argument("unsupported temperature scheme");
     const bool two_d = scheme == TemperatureScheme::cell_centered_2d;
@@ -353,7 +353,7 @@ TemperatureResult solve_temperature(TemperatureScheme scheme, const GridView& gr
         || (!two_d && !control.second_order_b))
         throw std::invalid_argument("unsupported temperature phase policy");
     const std::array<ArrayView<double>,3> outputs{state.a,state.b,state.solid};
-    for (auto out : outputs) check_array(out,cells,control.warm_start);
+    for (auto out : outputs) check_array(out,cells,control.warm_start&&!restoring);
     if (prescribed_b.size) check_array(prescribed_b,cells);
     for (std::size_t i = 0; i < outputs.size(); ++i) {
         for (std::size_t j = 0; j < i; ++j) disjoint(outputs[i],outputs[j]);
@@ -389,81 +389,171 @@ TemperatureResult solve_temperature(TemperatureScheme scheme, const GridView& gr
             for (auto input : {f->conductivity,f->hv,f->epsilon,f->rho_cp,f->u,f->v,f->w,
                                bc.profile,bc.opening,bc.capacity_flux}) disjoint(out,input);
     }
-    if (!control.warm_start) {
-        std::fill_n(state.a.data,cells,a.boundary.inlet_temperature);
-        std::fill_n(state.b.data,cells,b.boundary.inlet_temperature);
-        std::fill_n(state.solid.data,cells,.5*(a.boundary.inlet_temperature+b.boundary.inlet_temperature));
-    }
-    if (prescribed_b.size) std::copy_n(prescribed_b.data,cells,state.b.data);
-    const double unit_depth=1.;
-    GridView normalized=grid;
-    if(two_d) normalized.dz={&unit_depth,1};
-    const Mesh mesh(normalized);
-    TemperatureEnergyPhase phase_a(mesh,a),phase_b(mesh,b);
-    const bool eligible=!red_black&&(detail::temperature_second_order_active(mesh,phase_a.energy.faces.capacity)
-        ||(control.second_order_b&&!prescribed_b.size&&detail::temperature_second_order_active(mesh,phase_b.energy.faces.capacity)))
-        &&complete_inflow(mesh,phase_a.energy)&&(prescribed_b.size||complete_inflow(mesh,phase_b.energy));
-    detail::ActiveLineWork line_work(eligible ? *std::max_element(mesh.count.begin(),mesh.count.end()):1U);
-    const auto audit_state=[&]() {
-        detail::temperature_face_offsets(mesh,phase_a.energy.faces.capacity,
-            {state.a.data,cells},phase_a.writable_offsets());
-        if(control.second_order_b&&!prescribed_b.size)
-            detail::temperature_face_offsets(mesh,phase_b.energy.faces.capacity,
-                {state.b.data,cells},phase_b.writable_offsets());
-        return energy_physical_audit(normalized,phase_a.energy,phase_b.energy,k_ss,state,{},prescribed_b);
-    };
-    std::array<std::vector<double>,3> previous;
-    for (std::size_t phase = 0; phase < outputs.size(); ++phase)
-        previous[phase].assign(outputs[phase].data,outputs[phase].data+cells);
+}
+
+}  // namespace
+
+struct TemperatureRun::Impl {
+    double unit_depth=1.;
+    GridView grid;
+    TemperatureFluidView a,b;
+    ArrayView<const double> k_ss,prescribed_b;
+    TemperatureStateView state;
+    TemperatureControl control;
+    bool red_black,eligible=false,boundary=true,taken=false;
+    PhysicalHeatLedger* returned_audit;
+    TemperaturePhase phase=TemperaturePhase::active;
     TemperatureResult result{TemperatureStop::budget_exhausted,0,0.,
                              std::numeric_limits<double>::quiet_NaN()};
-    bool have_previous_q = false;
-    double previous_q = 0.0;
-    while (result.iterations < control.max_iterations) {
-        if (control.cancel && control.cancel(control.context)) {
-            result.stop = TemperatureStop::cancelled;
-            result.q_b = std::numeric_limits<double>::quiet_NaN();
-            return result;
+    std::optional<Mesh> mesh_;
+    std::optional<TemperatureEnergyPhase> phase_a_,phase_b_;
+    std::optional<detail::ActiveLineWork> line_work;
+    std::array<std::vector<double>,3> previous;
+    bool have_previous_q=false;
+    double previous_q=0.;
+
+    Impl(TemperatureScheme scheme,const GridView& input_grid,
+        const TemperatureFluidView& input_a,const TemperatureFluidView& input_b,
+        ArrayView<const double> input_ks,TemperatureStateView fields,
+        const TemperatureControl& input_control,ArrayView<const double> prescribed,
+        bool rb,PhysicalHeatLedger* audit,const TemperatureRunState* saved)
+        :grid(input_grid),a(input_a),b(input_b),k_ss(input_ks),prescribed_b(prescribed),
+         state(fields),control(input_control),red_black(rb),returned_audit(audit) {
+        validate_temperature(scheme,grid,a,b,k_ss,state,control,prescribed_b,red_black,saved!=nullptr);
+        const auto cells=state.a.size;
+        if(saved) {
+            detail::validate_temperature_state(*saved,control,cells,prescribed_b);
+            for(auto out:{state.a,state.b,state.solid})
+                for(const auto& field:saved->temperature)
+                    disjoint(out,ArrayView<const double>{field.data(),field.size()});
         }
-        const auto n = std::min(control.chunk_iterations,control.max_iterations-result.iterations);
-        result.residual = chunk(mesh,phase_a,phase_b,k_ss,state,control,prescribed_b.size != 0,n,red_black,eligible,prescribed_b,line_work);
-        result.iterations += n;
-        if (control.progress) control.progress(control.context,result.iterations,control.max_iterations);
-        if (control.cancel && control.cancel(control.context)) {
-            result.stop = TemperatureStop::cancelled;
-            result.q_b = std::numeric_limits<double>::quiet_NaN();
-            return result;
-        }
-        result.q_b = duty(mesh,b,state);
-        double delta = 0.0;
-        for (std::size_t phase = 0; phase < outputs.size(); ++phase)
-            for (std::size_t p = 0; p < cells; ++p)
-                delta = std::max(delta,std::abs(outputs[phase][p]-previous[phase][p]));
-        const double scale = std::max({std::abs(result.q_b),std::abs(previous_q),1.0});
-        if (have_previous_q && std::abs(result.q_b-previous_q)/scale < control.q_relative_tolerance
-            && delta < .01) {
-            // Audit a fresh reconstruction at the returned state, never the
-            // offsets frozen at the beginning of the last Picard block.
-            auto audit=audit_state();
-            double qa=0.;
-            for(std::size_t p=0;p<cells;++p)
-                qa+=a.hv[p]*(state.a[p]-state.solid[p])*mesh.volume(mesh.coord(p));
-            const double denominator=std::max({std::abs(qa),std::abs(result.q_b),1.});
-            const bool direct=a.capacity_faces[0].size||b.capacity_faces[0].size;
-            if((!direct&&!audit.boundary_complete)
-                ||(audit.boundary_complete&&energy_balance_error(audit)/denominator<=1e-7)) {
-                result.stop = TemperatureStop::converged;
-                if(returned_audit) *returned_audit=std::move(audit);
-                return result;
+        else {
+            if(!control.warm_start) {
+                std::fill_n(state.a.data,cells,a.boundary.inlet_temperature);
+                std::fill_n(state.b.data,cells,b.boundary.inlet_temperature);
+                std::fill_n(state.solid.data,cells,.5*(a.boundary.inlet_temperature+b.boundary.inlet_temperature));
             }
+            if(prescribed_b.size) std::copy_n(prescribed_b.data,cells,state.b.data);
         }
-        previous_q = result.q_b;
-        have_previous_q = true;
-        for (std::size_t phase = 0; phase < outputs.size(); ++phase)
-            std::copy_n(outputs[phase].data,cells,previous[phase].data());
+        if(scheme==TemperatureScheme::cell_centered_2d) grid.dz={&unit_depth,1};
+        mesh_.emplace(grid);
+        auto& mesh=*mesh_;
+        phase_a_.emplace(mesh,a);phase_b_.emplace(mesh,b);
+        auto& phase_a=*phase_a_;auto& phase_b=*phase_b_;
+        eligible=!red_black&&(detail::temperature_second_order_active(mesh,phase_a.energy.faces.capacity)
+            ||(control.second_order_b&&!prescribed_b.size&&detail::temperature_second_order_active(mesh,phase_b.energy.faces.capacity)))
+            &&complete_inflow(mesh,phase_a.energy)&&(prescribed_b.size||complete_inflow(mesh,phase_b.energy));
+        line_work.emplace(eligible?*std::max_element(mesh.count.begin(),mesh.count.end()):1U);
+        const std::array<ArrayView<double>,3> outputs{state.a,state.b,state.solid};
+        if(saved) {
+            result=saved->result;
+            have_previous_q=result.iterations>0;
+            previous_q=have_previous_q?result.q_b:0.;
+            for(std::size_t p=0;p<outputs.size();++p)
+                std::copy_n(saved->temperature[p].data(),cells,outputs[p].data);
+        }
+        for(std::size_t p=0;p<outputs.size();++p)
+            previous[p].assign(outputs[p].data,outputs[p].data+cells);
+        if(!control.max_iterations) phase=TemperaturePhase::completed;
     }
-    if(returned_audit&&result.iterations>0) *returned_audit=audit_state();
-    return result;
+    PhysicalHeatLedger audit_state() {
+        auto& mesh=*mesh_;auto& phase_a=*phase_a_;auto& phase_b=*phase_b_;
+        refresh_offsets(mesh,phase_a,phase_b,state,control.second_order_b,prescribed_b);
+        return energy_physical_audit(grid,phase_a.energy,phase_b.energy,k_ss,state,{},prescribed_b);
+    }
+    bool cancel() {
+        if(!control.cancel || !control.cancel(control.context)) return false;
+        result.stop=TemperatureStop::cancelled;
+        result.q_b=std::numeric_limits<double>::quiet_NaN();
+        phase=TemperaturePhase::cancelled;
+        return true;
+    }
+    void advance() {
+        if(phase==TemperaturePhase::failed) throw std::logic_error("failed temperature run cannot advance");
+        if(phase!=TemperaturePhase::active) return;
+        if(!boundary) throw std::logic_error("temperature run is already advancing");
+        boundary=false;
+        try {
+            if(cancel()) return;
+            auto& mesh=*mesh_;auto& phase_a=*phase_a_;auto& phase_b=*phase_b_;
+            const auto cells=state.a.size;
+            const std::array<ArrayView<double>,3> outputs{state.a,state.b,state.solid};
+            const auto n=std::min(control.chunk_iterations,control.max_iterations-result.iterations);
+            result.residual=chunk(mesh,phase_a,phase_b,k_ss,state,control,prescribed_b.size!=0,n,red_black,eligible,prescribed_b,*line_work);
+            result.iterations+=n;
+            if(control.progress) control.progress(control.context,result.iterations,control.max_iterations);
+            if(cancel()) return;
+            result.q_b=duty(mesh,b,state);
+            double delta=0.;
+            for(std::size_t p=0;p<outputs.size();++p)
+                for(std::size_t cell=0;cell<cells;++cell)
+                    delta=std::max(delta,std::abs(outputs[p][cell]-previous[p][cell]));
+            const double scale=std::max({std::abs(result.q_b),std::abs(previous_q),1.0});
+            if(have_previous_q && std::abs(result.q_b-previous_q)/scale<control.q_relative_tolerance
+                && delta<.01) {
+                auto audit=audit_state();
+                double qa=0.;
+                for(std::size_t p=0;p<cells;++p)
+                    qa+=a.hv[p]*(state.a[p]-state.solid[p])*mesh.volume(mesh.coord(p));
+                const double denominator=std::max({std::abs(qa),std::abs(result.q_b),1.});
+                const bool direct=a.capacity_faces[0].size||b.capacity_faces[0].size;
+                if((!direct&&!audit.boundary_complete)
+                    ||(audit.boundary_complete&&energy_balance_error(audit)/denominator<=1e-7)) {
+                    result.stop=TemperatureStop::converged;
+                    if(returned_audit) *returned_audit=std::move(audit);
+                    phase=TemperaturePhase::completed;
+                    return;
+                }
+            }
+            previous_q=result.q_b;have_previous_q=true;
+            for(std::size_t p=0;p<outputs.size();++p)
+                std::copy_n(outputs[p].data,cells,previous[p].data());
+            if(result.iterations==control.max_iterations) {
+                if(returned_audit) *returned_audit=audit_state();
+                phase=TemperaturePhase::completed;
+            }
+            boundary=true;
+        } catch(...) { phase=TemperaturePhase::failed;throw; }
+    }
+    TemperatureRunState snapshot() const {
+        if(phase!=TemperaturePhase::active || !boundary)
+            throw std::logic_error("temperature run has no active save boundary");
+        TemperatureRunState saved{};saved.result=result;
+        const std::array<ArrayView<double>,3> fields{state.a,state.b,state.solid};
+        for(std::size_t p=0;p<fields.size();++p)
+            saved.temperature[p].assign(fields[p].data,fields[p].data+fields[p].size);
+        return saved;
+    }
+    TemperatureResult take_result() {
+        if(taken || (phase!=TemperaturePhase::completed && phase!=TemperaturePhase::cancelled))
+            throw std::logic_error("temperature result is not available");
+        taken=true;return result;
+    }
+};
+
+TemperatureRun::TemperatureRun(TemperatureScheme scheme,const GridView& grid,
+    const TemperatureFluidView& a,const TemperatureFluidView& b,ArrayView<const double> ks,
+    TemperatureStateView state,const TemperatureControl& control,ArrayView<const double> prescribed,
+    bool rb,PhysicalHeatLedger* audit)
+    :impl_(std::make_unique<Impl>(scheme,grid,a,b,ks,state,control,prescribed,rb,audit,nullptr)) {}
+TemperatureRun::TemperatureRun(TemperatureScheme scheme,const GridView& grid,
+    const TemperatureFluidView& a,const TemperatureFluidView& b,ArrayView<const double> ks,
+    TemperatureStateView state,const TemperatureControl& control,const TemperatureRunState& saved,
+    ArrayView<const double> prescribed,bool rb,PhysicalHeatLedger* audit)
+    :impl_(std::make_unique<Impl>(scheme,grid,a,b,ks,state,control,prescribed,rb,audit,&saved)) {}
+TemperatureRun::~TemperatureRun()=default;
+TemperaturePhase TemperatureRun::advance() { impl_->advance();return impl_->phase; }
+TemperaturePhase TemperatureRun::phase() const { return impl_->phase; }
+TemperatureRunState TemperatureRun::snapshot() const { return impl_->snapshot(); }
+TemperatureResult TemperatureRun::take_result() { return impl_->take_result(); }
+
+TemperatureResult solve_temperature(TemperatureScheme scheme,const GridView& grid,
+    const TemperatureFluidView& a,const TemperatureFluidView& b,ArrayView<const double> ks,
+    TemperatureStateView state,const TemperatureControl& control,ArrayView<const double> prescribed,
+    bool rb,PhysicalHeatLedger* audit) {
+    TemperatureRun run(scheme,grid,a,b,ks,state,control,prescribed,rb,audit);
+    while(run.phase()==TemperaturePhase::active) run.advance();
+    return run.take_result();
 }
 
 }  // namespace tpmshx
