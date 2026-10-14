@@ -1,5 +1,6 @@
 // Test-only bridge for the typed prepared-data full 3D driver.
 #include "tpmshx/full_3d.hpp"
+#include "tpmshx/full_3d_state.hpp"
 #include "tpmshx/thermal_c_api.h"
 #include <algorithm>
 #include <cstdio>
@@ -68,7 +69,26 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_full_3d_run(
         auto handle=std::make_unique<Handle>();handle->cancel_at=flags[39];
         handle->cancel_before_thermal=flags[46]!=0;c.outer_iteration=outer_iteration;
         c.cancel=cancelled;c.progress=progress;c.context=handle.get();
-        handle->result=solve_full_3d(input,c);*output=handle.release();
+        if(flags[47]) {
+            auto run=std::make_unique<Full3DRun>(input,c);
+            run->advance();
+            for(std::size_t step=1;step<flags[47];++step)run->advance();
+            const auto record=export_full_3d_state(input,c,run->snapshot());run.reset();
+            auto state=import_full_3d_state(input,c,record);
+            if(flags[48]==1)state.temperature[0].pop_back();
+            if(flags[48]==2)state.phase=Full3DPhase::failed;
+            if(flags[48]==3)state.simple[0].reset();
+            if(flags[48]==4)state.result.outer.front().outer_index+=1;
+            run=std::make_unique<Full3DRun>(input,c,state);
+            // The restored owner must not borrow mutable snapshot storage.
+            state.temperature[0][0]=-1.;state.result.property_sampling.front().stage="changed";
+            while(run->phase()!=Full3DPhase::completed && run->phase()!=Full3DPhase::cancelled)run->advance();
+            handle->result=run->take_result();
+            bool rejected=false;
+            try {run->take_result();}catch(const std::logic_error&) {rejected=true;}
+            if(!rejected)throw std::runtime_error("full 3D result was released twice");
+        } else handle->result=solve_full_3d(input,c);
+        *output=handle.release();
         if(error_size)error[0]='\0';return 0;
     } catch(const std::invalid_argument& e) {
         if(error_size)std::snprintf(error,error_size,"%s",e.what());return 1;

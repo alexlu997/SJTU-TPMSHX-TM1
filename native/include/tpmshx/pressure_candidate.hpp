@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -40,6 +41,12 @@ struct PressureResult {
     double build_seconds = 0., solve_seconds = 0.;
 };
 
+struct PressureState {
+    // Retain the hierarchy's construction matrix, which can precede the current matrix.
+    std::optional<PressureSystem> construction;
+    std::size_t rebuild_count = 0;
+};
+
 // One instance owns one SIMPLE stream's cached AMG hierarchy. Every Krylov
 // matvec uses the CURRENT matrix, including when the preconditioner is reused.
 // The locked PyAMG 5.3 algorithm uses RS splitting, modified classical
@@ -56,6 +63,8 @@ public:
     PressureCandidate(const PressureCandidate&) = delete;
     PressureCandidate& operator=(const PressureCandidate&) = delete;
     PressureResult solve(const PressureSystem&, const PressureControl& = {});
+    PressureState snapshot() const;
+    void restore(const PressureState&);
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

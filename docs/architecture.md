@@ -119,6 +119,9 @@ Each record identifies its outer index, attempt, main or refined stage, call cap
 It also records the chunk size and both tolerances, including rejected startup trials.
 The result and execution record retain these owned settings through file storage.
 Historical files keep their original metadata.
+The 3D continuation owner also receives these controls through its additive v2 create and restore entries.
+Typed checkpoints retain the overrides and actual call records.
+Restore rejects changed controls before numerical work.
 
 ## Result qualification by route
 
@@ -1143,6 +1146,39 @@ The three temperature/display pairs, two report/display pressure pairs and
 true-h thermal mass-face aliases share immutable buffers with separate array
 headers. Thermal pressure and final flow pressure remain separate states.
 GUI consumers still receive their required writable copies.
+
+### Native 3D continuation
+
+`Full3DRun` advances initialization, one complete outer step, or final result capture.
+The existing one-shot entry calls this same controller.
+A snapshot is available after initialization and after each complete outer step.
+It keeps the actual fields, counters, pressure history, Anderson history,
+and the original matrix used to construct each retained pressure hierarchy.
+Restore reconstructs that hierarchy from its saved matrix.
+It preserves the last thermal evidence separately from later flow updates.
+It does not reset budgets or repeat initialization.
+
+`full_3d_run_c_api.h` exposes owned run and snapshot handles.
+The C entry copies prepared arrays and the callback table.
+The caller keeps callback functions and their context alive until run release.
+Snapshot fields own their numeric arrays and UTF-8 strings.
+Restore requires the same format, native build, platform, prepared input, and numerical controls.
+Each native build receives a new identity. Host paths and callback addresses are excluded.
+A cancelled or failed run cannot publish a new snapshot.
+The result is transferred once; its views remain valid until result release.
+
+The native Python backend accepts `checkpoint` and `resume_state` keyword arguments.
+`checkpoint` receives detached typed fields at each available boundary.
+`SolverCheckpoint` stores those fields with the absolute prepared-case path and model references.
+The functions in `io/solver_checkpoint_io.py` use the existing typed HDF5 record writer.
+The writer closes a temporary file before atomic replacement.
+A failed write or process interruption before replacement preserves the previous checkpoint.
+This contract does not claim recovery from power loss.
+
+This stage covers native 3D outer boundaries.
+It does not yet expose inner-iteration, 2D, GUI, or CLI continuation.
+The longest complete step sets the current possible loss of computation.
+Saving frequency and full recovery acceptance remain separate tasks.
 
 ### Cooperative cancellation
 

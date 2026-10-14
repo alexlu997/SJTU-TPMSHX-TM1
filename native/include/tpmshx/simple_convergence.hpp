@@ -29,12 +29,20 @@ struct SimpleHistory {
     std::vector<SimpleMomentumRecord> momentum;
 };
 
+struct SimpleF2State {
+    std::size_t minimum_iterations=0, streak=0, window_start_iteration=0;
+    double momentum_at_window_start=std::numeric_limits<double>::quiet_NaN();
+    std::array<std::vector<double>,3> previous;
+};
+
 // Shared F2 scheduling/confirmation/stall logic. A new monitor starts on each
 // solve call; the owning solver separately retains history across warm calls.
 class SimpleF2Monitor {
 public:
     SimpleF2Monitor(SimpleFacesView<const double> velocity,
                     const SimpleF2Control& control, std::size_t minimum_iterations);
+    SimpleF2Monitor(const SimpleF2State&, const SimpleF2Control&);
+    SimpleF2State snapshot() const;
     double velocity_delta(SimpleFacesView<const double> velocity);
     bool should_evaluate_momentum(std::size_t iteration, double velocity_delta) const;
     SimpleStop submit(std::size_t iteration, double momentum, const SimpleMassAudit& mass,

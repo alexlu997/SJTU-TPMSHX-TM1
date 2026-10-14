@@ -47,7 +47,8 @@ class NativeFull3D:
         self.library.test_full_3d_field.restype = dp
         self.library.test_full_3d_destroy.argtypes = [ctypes.c_void_p]
 
-    def run(self, cfg, prepared, *, cancel_at=0, bad_size=None, cancel_before_thermal=False):
+    def run(self, cfg, prepared, *, cancel_at=0, bad_size=None, cancel_before_thermal=False,
+            resume_cut=None, invalid_resume=0):
         shape = (prepared["Nx"], prepared["Ny"], prepared["Nz"])
         design, thermal = prepared["design"], cfg["thermal_geometry"]
         spatial = bool(cfg.get("zone_grid_cells") or cfg.get("continuous_field"))
@@ -61,8 +62,10 @@ class NativeFull3D:
         arrays += [np.asarray(cfg.get("mms_S_"+side+"_field", np.empty(0))) for side in ("A", "B", "s")]
         arrays = [np.ascontiguousarray(a, dtype=np.float64) for a in arrays]
         assert len(arrays) == 19
-        f = np.zeros(47, dtype=np.uintp)
+        f = np.zeros(49, dtype=np.uintp)
         f[46] = cancel_before_thermal
+        f[47] = 0 if resume_cut is None else resume_cut + 1
+        f[48] = invalid_resume
         v = np.zeros(57, dtype=np.float64)
         f[0] = ("Diamond", "Gyroid").index(cfg["tpms_type"])
         f[1:3] = [("air", "water", "sco2").index(cfg["fluid_type_"+s]) for s in "AB"]
@@ -467,3 +470,25 @@ def test_coarse_bootstrap_preserves_physical_ports_and_fine_gate(native, same_th
     cfg["max_iter_simple"] = 100
     p["max_outer"] = 1
     assert_equivalent(native.run(cfg, p), reference(cfg, p, thermal=same_thermal))
+
+
+@pytest.mark.parametrize("pair", ["air-air", "water-air", "sco2-water"])
+@pytest.mark.parametrize("cut", [0, 1, 2, 3])
+def test_outer_boundary_resume_keeps_complete_trajectory(native, pair, cut):
+    cfg, p = prepared(pair, counts=(3, 4, 2), outer_anderson=True)
+    p["max_outer"] = 3
+    continuous = native.run(cfg, p)
+    resumed = native.run(cfg, p, resume_cut=cut)
+    assert resumed["code"] == continuous["code"] == 0, (resumed, continuous)
+    for key in continuous:
+        if isinstance(key, int):
+            np.testing.assert_array_equal(resumed[key], continuous[key], err_msg=str(key))
+
+
+@pytest.mark.parametrize("corruption", [1, 2, 3, 4])
+def test_outer_boundary_resume_rejects_invalid_state(native, corruption):
+    cfg, p = prepared(counts=(3, 4, 2))
+    p["max_outer"] = 3
+    result = native.run(cfg, p, resume_cut=1, invalid_resume=corruption)
+    assert result["code"] == 1
+    assert "continuation" in result["error"]

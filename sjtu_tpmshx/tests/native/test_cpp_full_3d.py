@@ -738,3 +738,344 @@ def test_integral_temperature_delegate_receives_model_h_controls(native_path, nz
                and row['settings']['chunk_iterations'] == (500 if nz == 1 else 250)
                and row['settings']['temperature_update_tolerance_K'] == 1e-5
                and row['settings']['q_relative_tolerance'] == 1e-8 for row in calls)
+
+
+class _PauseCheckpoint(Exception):
+    pass
+
+
+def _exact_resume_values(actual, expected, path=''):
+    if isinstance(expected, Mapping):
+        assert actual.keys() == expected.keys(), path
+        for key, value in expected.items():
+            if key not in ('build_seconds', 'solve_seconds'):
+                _exact_resume_values(actual[key], value, path+'/'+str(key))
+    elif isinstance(expected, (tuple, list)):
+        assert len(actual) == len(expected), path
+        for index, value in enumerate(expected):
+            _exact_resume_values(actual[index], value, path+'/'+str(index))
+    elif isinstance(expected, (np.ndarray, float, np.floating)):
+        np.testing.assert_array_equal(actual, expected, err_msg=path)
+    else:
+        assert actual == expected, path
+
+
+@pytest.mark.parametrize('pair', ['air-air', 'water-air', 'sco2-water'])
+@pytest.mark.parametrize('cut', [0, 1, 3])
+def test_native_checkpoint_hdf5_round_trip(native_path, tmp_path, pair, cut):
+    from sjtu_tpmshx.domain.solver_checkpoint import SolverCheckpoint
+    from sjtu_tpmshx.io.case_io import save_case
+    from sjtu_tpmshx.io.solver_checkpoint_io import (
+        save_solver_checkpoint, load_solver_checkpoint, load_checkpoint_case)
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import run_case
+    prepared_case = case(pair, cap=3)
+    case_path = save_case(prepared_case, tmp_path/'case.h5')
+    saved_path = tmp_path/'checkpoint.h5'
+    expected = run_case(prepared_case, control(native_path))
+    def save_at_boundary(state):
+        if int(state['state.result.outer.size'][0]) == cut:
+            saved = SolverCheckpoint(str(case_path), prepared_case.case_id, prepared_case.model_refs, state)
+            save_solver_checkpoint(saved, saved_path)
+            state['state.temperature.0'][0] = -1.
+            assert saved.native_state['state.temperature.0'][0] > 0.
+            raise _PauseCheckpoint
+    with pytest.raises(_PauseCheckpoint):
+        run_case(prepared_case, control(native_path), checkpoint=save_at_boundary)
+    saved = load_solver_checkpoint(saved_path)
+    actual = run_case(load_checkpoint_case(saved), control(native_path), resume_state=saved.native_state)
+    for key in ('grid', 'fields', 'boundary_fluxes', 'pressure_evidence', 'run_status', 'field_metadata'):
+        _exact_resume_values(getattr(actual, key), getattr(expected, key), key)
+    assert actual.metadata['continuation']['completed_outer_steps'] == cut
+    _exact_resume_values({k: v for k, v in actual.metadata.items() if k != 'continuation'}, expected.metadata)
+
+
+@pytest.mark.parametrize('damage', ['build', 'format', 'input', 'control', 'type', 'size', 'unknown', 'missing',
+                                     'thermal', 'geometry', 'phase', 'nonfinite',
+                                     'premature_finish', 'different_exit', 'thermal_mode', 'anderson_control'])
+def test_native_checkpoint_rejects_damaged_fields(native_path, damage):
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
+    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
+    cfg, p = build_execution_inputs(case(cap=3))
+    if damage == 'anderson_control':
+        cfg['outer_anderson'] = True
+    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
+    saved = {}
+    def pause(state):
+        if int(state['state.result.outer.size'][0]) == (0 if damage == 'premature_finish' else 1):
+            saved.update(state)
+            raise _PauseCheckpoint
+    with pytest.raises(_PauseCheckpoint):
+        driver.run_prepared(cfg, p, checkpoint=pause)
+    if damage == 'build':
+        saved['build'] = 'another-build'
+    elif damage == 'format':
+        saved['format'][0] = 2
+    elif damage == 'input':
+        saved['input.a.inlet_velocity'][0] *= 1.01
+    elif damage == 'control':
+        saved['control.max_outer'][0] += 1
+    elif damage == 'type':
+        saved['state.temperature.0'] = saved['state.temperature.0'].astype(np.float32)
+    elif damage == 'size':
+        saved['state.temperature.0'] = saved['state.temperature.0'][:-1].copy()
+    elif damage == 'unknown':
+        saved['unknown'] = np.zeros(1)
+    elif damage == 'thermal':
+        saved['state.result.thermal.temperature.0'] = np.empty(0)
+    elif damage == 'geometry':
+        saved['state.result.flow.0.epsilon'][0] *= .99
+    elif damage == 'phase':
+        saved['state.phase'][0] = 0
+    elif damage == 'premature_finish':
+        saved['state.phase'][0] = 2
+        saved['state.result.outer_ok'][0] = 1
+    elif damage == 'different_exit':
+        saved['state.result.stop'][0] = 2
+    elif damage == 'anderson_control':
+        saved['state.anderson.0.value.trust'][0] *= 2
+    elif damage == 'thermal_mode':
+        saved['state.result.thermal.mode'][0] = 2
+    elif damage == 'nonfinite':
+        saved['state.temperature.0'][0] = np.nan
+    else:
+        del saved['state.temperature.0']
+    with pytest.raises((ValueError, TypeError), match='state|continuation'):
+        driver.run_prepared(cfg, p, resume_state=saved)
+
+
+_CHECKPOINT_CHILD = r'''
+import os
+from pathlib import Path
+import sys
+from sjtu_tpmshx.domain.module_ports import RunControl
+from sjtu_tpmshx.domain.solver_checkpoint import SolverCheckpoint
+from sjtu_tpmshx.io.case_io import load_case
+from sjtu_tpmshx.io.result_io import save_result
+from sjtu_tpmshx.io.solver_checkpoint_io import (
+    load_solver_checkpoint, save_solver_checkpoint, load_checkpoint_case)
+from sjtu_tpmshx.solvers.backends.cpp.full_3d import run_case
+mode, case_path, saved_path, result_path, library, tables = sys.argv[1:]
+control = RunControl(backend='cpp', native_library=library, native_table_directory=tables)
+if mode == 'interrupt':
+    case = load_case(case_path)
+    def stop(state):
+        if int(state['state.result.outer.size'][0]) == 1:
+            save_solver_checkpoint(SolverCheckpoint(case_path, case.case_id, case.model_refs, state), saved_path)
+            os._exit(23)
+    run_case(case, control, checkpoint=stop)
+    raise RuntimeError('checkpoint boundary was not reached')
+saved = load_solver_checkpoint(saved_path)
+result = run_case(load_checkpoint_case(saved), control, resume_state=saved.native_state)
+save_result(result, result_path)
+'''
+
+
+@pytest.mark.parametrize('pair,overrides', [('air-air', {}), ('sco2-water', {}),
+    ('water-air', dict(model_h_max_iterations=17, model_h_temperature_tol_K=1e-5, model_h_q_relative_tol=1e-8))])
+def test_native_checkpoint_continues_after_process_exit(native_path, tmp_path, pair, overrides):
+    from sjtu_tpmshx.io.case_io import save_case
+    from sjtu_tpmshx.io.result_io import load_result
+    from sjtu_tpmshx.io.solver_checkpoint_io import load_solver_checkpoint
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import run_case
+    prepared_case = case(pair, cap=3)
+    prepared_case = replace(prepared_case, parameters={**prepared_case.parameters, **overrides})
+    case_path = save_case(prepared_case, tmp_path/'case.h5')
+    saved_path, result_path = tmp_path/'checkpoint.h5', tmp_path/'result.h5'
+    arguments = [str(case_path), str(saved_path), str(result_path), str(native_path),
+                 control(native_path).native_table_directory]
+    stopped = subprocess.run([sys.executable, '-c', _CHECKPOINT_CHILD, 'interrupt', *arguments],
+                             cwd=ROOT, capture_output=True, text=True, timeout=120)
+    assert stopped.returncode == 23, stopped.stderr
+    assert not result_path.exists()
+    saved = load_solver_checkpoint(saved_path)
+    assert saved.native_state['state.result.outer.size'][0] == 1
+    finished = subprocess.run([sys.executable, '-c', _CHECKPOINT_CHILD, 'resume', *arguments],
+                              cwd=ROOT, capture_output=True, text=True, timeout=120)
+    assert finished.returncode == 0, finished.stderr
+    actual = load_result(result_path)
+    expected = run_case(prepared_case, control(native_path))
+    for key in ('grid', 'fields', 'boundary_fluxes', 'pressure_evidence', 'run_status', 'field_metadata'):
+        _exact_resume_values(getattr(actual, key), getattr(expected, key), key)
+    _exact_resume_values({k: v for k, v in actual.metadata.items() if k != 'continuation'}, expected.metadata)
+    actual_metrics, expected_metrics = evaluate(actual), evaluate(expected)
+    for key, metric in expected_metrics.metrics.items():
+        assert actual_metrics.metrics[key].status == metric.status
+        _exact_resume_values(actual_metrics.metrics[key].value, metric.value, key)
+
+
+def test_checkpoint_write_failure_keeps_previous_file(native_path, tmp_path, monkeypatch):
+    from sjtu_tpmshx.domain.solver_checkpoint import SolverCheckpoint
+    from sjtu_tpmshx.io import hdf5_data
+    from sjtu_tpmshx.io.solver_checkpoint_io import save_solver_checkpoint, load_solver_checkpoint
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import run_case
+    prepared_case = case(cap=3)
+    saved_path = tmp_path/'checkpoint.h5'
+    states = []
+    def pause(state):
+        states.append(SolverCheckpoint(str(tmp_path/'case.h5'), prepared_case.case_id, prepared_case.model_refs, state))
+        raise _PauseCheckpoint
+    with pytest.raises(_PauseCheckpoint):
+        run_case(prepared_case, control(native_path), checkpoint=pause)
+    original = states[0]
+    save_solver_checkpoint(original, saved_path)
+    def failed_replace(*_):
+        raise OSError('injected checkpoint publication failure')
+    monkeypatch.setattr(hdf5_data.os, 'replace', failed_replace)
+    with pytest.raises(OSError, match='publication failure'):
+        save_solver_checkpoint(original, saved_path)
+    restored = load_solver_checkpoint(saved_path)
+    _exact_resume_values(restored.native_state, original.native_state)
+    assert list(tmp_path.glob('*.tmp')) == []
+
+
+def test_checkpoint_process_kill_before_publish_keeps_previous_file(native_path, tmp_path):
+    import time
+    from sjtu_tpmshx.io.case_io import save_case
+    from sjtu_tpmshx.io.solver_checkpoint_io import load_solver_checkpoint
+    prepared_case = case(cap=3)
+    case_path = save_case(prepared_case, tmp_path/'case.h5')
+    saved_path = tmp_path/'checkpoint.h5'
+    arguments = [str(case_path), str(saved_path), str(tmp_path/'result.h5'), str(native_path),
+                 control(native_path).native_table_directory]
+    stopped = subprocess.run([sys.executable, '-c', _CHECKPOINT_CHILD, 'interrupt', *arguments],
+                             cwd=ROOT, capture_output=True, text=True, timeout=120)
+    assert stopped.returncode == 23, stopped.stderr
+    previous = load_solver_checkpoint(saved_path)
+    ready = tmp_path/'before-publish'
+    child = r'''
+from pathlib import Path
+import sys
+import time
+from sjtu_tpmshx.io import hdf5_data
+from sjtu_tpmshx.io.solver_checkpoint_io import load_solver_checkpoint, save_solver_checkpoint
+path, ready = map(Path, sys.argv[1:])
+previous = load_solver_checkpoint(path)
+def before_publish(*_):
+    ready.write_text('temporary HDF5 file is closed')
+    time.sleep(30)
+    raise RuntimeError('parent did not interrupt publication')
+hdf5_data.os.replace = before_publish
+save_solver_checkpoint(previous, path)
+'''
+    process = subprocess.Popen([sys.executable, '-c', child, str(saved_path), str(ready)],
+                               cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        deadline = time.monotonic() + 15
+        while not ready.exists() and process.poll() is None and time.monotonic() < deadline:
+            time.sleep(.02)
+        assert ready.exists(), 'child did not reach the checkpoint publication boundary'
+        process.kill()
+        process.communicate(timeout=10)
+        assert process.returncode != 0
+        _exact_resume_values(load_solver_checkpoint(saved_path).native_state, previous.native_state)
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.communicate(timeout=10)
+
+
+@pytest.mark.parametrize('route', ['temperature_fou', 'temperature_sou',
+                                  'single_cc', 'single_staggered', 'single_sco2_cc',
+                                  'conservative_staggered', 'nz1_cc'])
+@pytest.mark.parametrize('cut', [0, 1, 'final'])
+def test_checkpoint_covers_energy_routes(native_path, route, cut):
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
+    from sjtu_tpmshx.tests.native.test_full_3d import prepared
+    pair = 'sco2-water' if route.startswith('temperature') or route == 'single_sco2_cc' else 'air-air'
+    cfg, p = prepared(pair, counts=(4, 4, 1) if route == 'nz1_cc' else None,
+                      directions=(0, 3) if route == 'nz1_cc' else None)
+    p['max_outer'] = 3
+    if route.startswith('single'):
+        cfg.update(fluid_B_cfg=None, conservative_ltne=False, force_cc_ltne=route.endswith('_cc'))
+    elif route in ('conservative_staggered', 'nz1_cc'):
+        cfg.update(variable_rho_cp=False, conservative_ltne=route == 'conservative_staggered',
+                   force_cc_ltne=route == 'nz1_cc')
+    else:
+        cfg['enthalpy_algorithm'] = route
+    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
+    expected = driver.run_prepared(cfg, p)
+    if cut == 'final':
+        cut = len(expected['outer'])
+    saved = {}
+    def pause(state):
+        if int(state['state.result.outer.size'][0]) == cut:
+            saved.update(state)
+            raise _PauseCheckpoint
+    with pytest.raises(_PauseCheckpoint):
+        driver.run_prepared(cfg, p, checkpoint=pause)
+    actual = driver.run_prepared(cfg, p, resume_state=saved)
+    assert actual.pop('continuation')['completed_outer_steps'] == cut
+    _exact_resume_values(actual, expected)
+
+
+def test_checkpoint_cancel_keeps_last_complete_boundary(native_path):
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import run_case
+    prepared_case = case(cap=3)
+    saved = []
+    cancel = False
+    def checkpoint(state):
+        nonlocal cancel
+        saved.append(state)
+        cancel = int(state['state.result.outer.size'][0]) == 1
+    with pytest.raises(CancelledError):
+        run_case(prepared_case, control(native_path, cancel_check=lambda: cancel), checkpoint=checkpoint)
+    assert [int(s['state.result.outer.size'][0]) for s in saved] == [0, 1]
+    actual = run_case(prepared_case, control(native_path), resume_state=saved[-1])
+    expected = run_case(prepared_case, control(native_path))
+    _exact_resume_values(actual.fields, expected.fields)
+    _exact_resume_values(actual.run_status, expected.run_status)
+
+
+def test_checkpoint_callback_error_keeps_original_exception(native_path):
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import run_case
+    original = OSError('checkpoint storage is unavailable')
+    def failed_write(_):
+        raise original
+    with pytest.raises(OSError) as caught:
+        run_case(case(cap=3), control(native_path), checkpoint=failed_write)
+    assert caught.value is original
+
+
+def test_full_checkpoint_keeps_active_pressure_hierarchies(native_path):
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
+    from sjtu_tpmshx.tests.native.test_full_3d import prepared
+    cfg, p = prepared('air-air', counts=(14, 14, 14), max_iter_simple=3, outer_anderson=True)
+    p.update(max_outer=2, ltne_max_iter=10)
+    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
+    expected = driver.run_prepared(cfg, p)
+    saved = {}
+    def pause(state):
+        if int(state['state.result.outer.size'][0]) == 1:
+            saved.update(state)
+            raise _PauseCheckpoint
+    with pytest.raises(_PauseCheckpoint):
+        driver.run_prepared(cfg, p, checkpoint=pause)
+    for side in (0, 1):
+        assert saved[f'state.simple.{side}.value.pressure.construction.present'][0] == 1
+    actual = driver.run_prepared(cfg, p, resume_state=saved)
+    actual.pop('continuation')
+    _exact_resume_values(actual, expected)
+
+
+@pytest.mark.parametrize('name,value', [('model_h_max_iterations', 18),
+    ('model_h_temperature_tol_K', 1e-4), ('model_h_q_relative_tol', 1e-7)])
+def test_checkpoint_rejects_changed_model_h_controls_before_flow(native_path, name, value):
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
+    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
+    cfg, p = build_execution_inputs(case('water-air', cap=3))
+    cfg.update(model_h_max_iterations=17, model_h_temperature_tol_K=1e-5, model_h_q_relative_tol=1e-8)
+    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
+    saved = {}
+    def pause(state):
+        if int(state['state.result.outer.size'][0]) == 1:
+            saved.update(state)
+            raise _PauseCheckpoint
+    with pytest.raises(_PauseCheckpoint):
+        driver.run_prepared(cfg, p, checkpoint=pause)
+    assert saved['control.model_h_iterations.max_iterations'][0] == 17
+    assert saved['state.result.outer.0.model_h_iterations.0.total_iteration_budget'][0] == 17
+    cfg[name] = value
+    progress = []
+    with pytest.raises(ValueError, match='model_h_iterations'):
+        driver.run_prepared(cfg, p, control(native_path, residual=lambda *args: progress.append(args)), resume_state=saved)
+    assert not progress

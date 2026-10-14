@@ -1,5 +1,7 @@
 /* Standalone C11 caller: independent full 3D execution and owned audit views. */
 #include "tpmshx/full_3d_c_api.h"
+#include "tpmshx/full_3d_run_c_api.h"
+#include <stdlib.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -112,6 +114,45 @@ int main(void) {
         if(sampling.records[i].side>1 || !sampling.records[i].stage || !sampling.records[i].quantity)return 35;
     if(tpmshx_full_3d_get_property_sampling_v1(NULL,&sampling)!=1
        || tpmshx_full_3d_get_property_sampling_v1(&r,NULL)!=1)return 35;
+    /* Retain native state after the original run owner is released. */
+    void* run=NULL;uint32_t phase=99;tpmshx_run_state_v1 saved={0};
+    if(tpmshx_full_3d_run_create_v1(&in,&c,NULL,NULL,&run,error,sizeof error) || !run)return 101;
+    if(tpmshx_full_3d_run_snapshot_v1(run,&saved,error,sizeof error)!=4 || saved.owner)return 102;
+    eps[0]=.55;
+    if(tpmshx_full_3d_run_advance_v1(run,&phase,error,sizeof error) || phase!=TPMSHX_FULL3D_OUTER_BOUNDARY)return 103;
+    eps[0]=.6;
+    if(tpmshx_full_3d_run_snapshot_v1(run,&saved,error,sizeof error) || !saved.owner || !saved.count)return 104;
+    tpmshx_full_3d_run_release_v1(&run);tpmshx_full_3d_run_release_v1(&run);
+    if(run || tpmshx_full_3d_run_phase_v1(run,&phase)!=1)return 105;
+    tpmshx_run_state_field_v1* damaged=malloc(saved.count*sizeof(*damaged));
+    if(!damaged)return 106;
+    memcpy(damaged,saved.fields,saved.count*sizeof(*damaged));
+    size_t build=0;while(build<saved.count && strcmp(damaged[build].name,"build"))++build;
+    if(build==saved.count)return 107;
+    damaged[build].data="bad";damaged[build].count=3;
+    if(tpmshx_full_3d_run_restore_v1(&in,&c,NULL,NULL,damaged,saved.count,&run,error,sizeof error)!=1 || run)return 108;
+    free(damaged);
+    eps[0]=.55;
+    if(tpmshx_full_3d_run_restore_v1(&in,&c,NULL,NULL,saved.fields,saved.count,&run,error,sizeof error)!=1 || run)return 109;
+    eps[0]=.6;
+    if(tpmshx_full_3d_run_restore_v1(&in,&c,NULL,NULL,saved.fields,saved.count,&run,error,sizeof error) || !run)return 110;
+    tpmshx_run_state_release_v1(&saved);tpmshx_run_state_release_v1(&saved);
+    if(saved.owner || saved.fields || saved.count)return 111;
+    do {
+        if(tpmshx_full_3d_run_advance_v1(run,&phase,error,sizeof error))return 112;
+    } while(phase!=TPMSHX_FULL3D_COMPLETED);
+    tpmshx_full3d_result_v1 resumed={0};
+    if(tpmshx_full_3d_run_take_result_v1(run,&resumed,error,sizeof error))return 113;
+    tpmshx_full_3d_run_release_v1(&run);
+    if(resumed.stop!=r.stop || resumed.converged!=r.converged || resumed.outer_count!=r.outer_count)return 114;
+    for(size_t f=0;f<3;++f) {
+        if(resumed.temperature[f].size!=r.temperature[f].size)return 115;
+        for(size_t i=0;i<r.temperature[f].size;++i)
+            if(resumed.temperature[f].data[i]!=r.temperature[f].data[i])return 116;
+    }
+    for(size_t side=0;side<2;++side)
+        if(resumed.flow[side].last.iterations!=r.flow[side].last.iterations || resumed.duty[side]!=r.duty[side])return 117;
+    tpmshx_full_3d_release_v1(&resumed);
     /* Input changes cannot mutate owned result views. */
     eps[0]=.55;if(r.flow[0].epsilon.data[0]!=.6)return 5;eps[0]=.6;
     tpmshx_full_3d_release_v1(&r);tpmshx_full_3d_release_v1(&r);if(r.owner)return 6;
@@ -146,6 +187,26 @@ int main(void) {
         if(row->max_iterations!=17 || row->chunk_iterations!=250 || row->refined
            || row->temperature_tolerance!=1e-5 || row->q_relative_tolerance!=1e-8)return 82;
     }
+    if(tpmshx_full_3d_run_create_v2(&in,&c,NULL,&model_options,NULL,&run,error,sizeof error))return 88;
+    if(tpmshx_full_3d_run_advance_v1(run,&phase,error,sizeof error)
+       || tpmshx_full_3d_run_advance_v1(run,&phase,error,sizeof error)
+       || tpmshx_full_3d_run_snapshot_v1(run,&saved,error,sizeof error))return 89;
+    tpmshx_full_3d_run_release_v1(&run);
+    if(tpmshx_full_3d_run_restore_v2(&in,&c,NULL,&model_options,NULL,saved.fields,saved.count,&run,error,sizeof error))return 90;
+    tpmshx_run_state_release_v1(&saved);
+    while(phase!=TPMSHX_FULL3D_COMPLETED)
+        if(tpmshx_full_3d_run_advance_v1(run,&phase,error,sizeof error))return 91;
+    tpmshx_full3d_result_v1 continued={0};tpmshx_model_h_iteration_records_v1 continued_calls={0};
+    if(tpmshx_full_3d_run_take_result_v1(run,&continued,error,sizeof error)
+       || tpmshx_full_3d_get_model_h_iterations_v1(&continued,&continued_calls)
+       || continued_calls.count!=model_records.count)return 92;
+    for(size_t i=0;i<continued_calls.count;++i)
+        if(continued_calls.records[i].max_iterations!=17 || continued_calls.records[i].total_iteration_budget!=17
+           || continued_calls.records[i].temperature_tolerance!=1e-5
+           || continued_calls.records[i].q_relative_tolerance!=1e-8)return 93;
+    for(size_t field=0;field<3;++field)
+        if(memcmp(continued.temperature[field].data,r.temperature[field].data,8*sizeof(double)))return 94;
+    tpmshx_full_3d_release_v1(&continued);tpmshx_full_3d_run_release_v1(&run);
     model_options.temperature_tolerance=99.;
     if(model_records.records[0].temperature_tolerance!=1e-5)return 83;
     tpmshx_full_3d_release_v1(&r);model_records.count=123;

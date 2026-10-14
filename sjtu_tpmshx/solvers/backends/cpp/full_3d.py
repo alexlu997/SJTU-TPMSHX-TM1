@@ -257,10 +257,11 @@ class NativeFull3DDriver:
             traces[label] = trace
         return traces
 
-    def run_prepared(self, cfg, p, control=RunControl()):
-        return self._run_prepared(cfg, p, control)
+    def run_prepared(self, cfg, p, control=RunControl(), *, resume_state=None, checkpoint=None):
+        return self._run_prepared(cfg, p, control, resume_state=resume_state, checkpoint=checkpoint)
 
-    def _run_prepared(self, cfg, p, control=RunControl(), *, application_only=False):
+    def _run_prepared(self, cfg, p, control=RunControl(), *, application_only=False,
+                      resume_state=None, checkpoint=None):
         control.check_cancelled()
         energy = _energy_options(cfg.get('enthalpy_algorithm', 'legacy_h_fou'),
                                  cfg.get('enthalpy_temperature_tol_K', 1e-8))
@@ -407,7 +408,24 @@ class NativeFull3DDriver:
         callbacks = _Callbacks(cancelled, progress, outer, None)
         result, error = _Result(), ct.create_string_buffer(2048)
         try:
-            if energy_call:
+            if resume_state is not None or checkpoint is not None:
+                from .full_3d_run import NativeFull3DRun
+                true_h = data.solve_b and any(side.fluid in (2, 3) for side in data.sides)
+                options = energy if strict_options else (_EnergyOptionsV2(
+                    energy.algorithm, energy.temperature_update_tolerance,
+                    defaults.coupled_energy_tolerance, defaults.equation_energy_tolerance, require_h)
+                    if true_h else None)
+                with NativeFull3DRun(self.library, data, c, options, callbacks,
+                                     model_h=model_h_options, state=resume_state) as run:
+                    while run.phase not in (3, 4):
+                        phase = run.advance()
+                        if callback_errors:
+                            raise callback_errors[0]
+                        if checkpoint is not None and phase in (1, 2):
+                            checkpoint(run.snapshot())
+                    result = run.take_result()
+                code = 0
+            elif energy_call:
                 options = model_h_options if model_h_options is not None else energy
                 code = energy_call(ct.byref(data), ct.byref(c), ct.byref(options), ct.byref(callbacks), ct.byref(result), error, len(error))
             else:
@@ -443,6 +461,10 @@ class NativeFull3DDriver:
                     _energy_result_info(row['true_h_info'], extra.outer[index],
                         temperature_tol=actual.outer[index].temperature_update_tolerance, abi=entry_version, version_query=version_query)
                 detached['mode'] = 'conservative_energy'
+            if resume_state is not None:
+                detached['continuation'] = dict(format='full_3d_continuation_v1', build=resume_state['build'],
+                    completed_outer_steps=int(resume_state['state.result.outer.size'][0]),
+                    saved_phase=int(resume_state['state.phase'][0]))
             detached['property_sampling'] = copy_sampling(self.query_sampling, result)
             detached['model_h_iterations'] = _copy_iteration_records(self.query_model_h, result)
             budgets = {row['outer_index']: row['settings']['total_iteration_budget']
@@ -622,7 +644,7 @@ def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=Fa
     return result
 
 
-def run_case(case, control=RunControl()):
+def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None):
     from .full_3d_capture import capture_result
     from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
     if control.backend != 'cpp':
@@ -632,6 +654,6 @@ def run_case(case, control=RunControl()):
     control.check_cancelled()
     cfg,p=build_execution_inputs(case, copy_design=False)
     driver=NativeFull3DDriver(control.native_library, table_directory=getattr(control,'native_table_directory',None))
-    r=driver._run_prepared(cfg,p,control,application_only=True)
+    r=driver._run_prepared(cfg,p,control,application_only=True, resume_state=resume_state, checkpoint=checkpoint)
     control.check_cancelled()
     return capture_result(case, cfg, p, r, driver.abi)
