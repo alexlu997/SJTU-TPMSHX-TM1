@@ -18,6 +18,12 @@ struct NuObservation {
     double temperature_min=0.,temperature_max=0.,pressure=0.;
 };
 
+struct RangeSample {
+    bool have_finite=false;
+    double minimum=0.,maximum=0.;
+    std::size_t minimum_index=0,maximum_index=0,low=0,high=0,size=0,nonfinite=0;
+};
+
 // One original warning source/shape/context. Counts describe one worst
 // snapshot; extrema span snapshots. No full field or per-iteration history.
 struct RangeObservation {
@@ -28,6 +34,7 @@ struct RangeObservation {
     bool have_finite=false;
     double minimum=0.,maximum=0.;
     std::size_t minimum_index=0,maximum_index=0,low=0,high=0,size=0,nonfinite=0;
+    RangeSample last{}; // The last complete source call, before aggregation.
 };
 
 inline void observe_range_value(RangeObservation& record,double value,std::size_t index) {
@@ -41,6 +48,8 @@ inline void observe_range_value(RangeObservation& record,double value,std::size_
 
 inline void merge_range_observation(std::vector<RangeObservation>& ledger,RangeObservation sample) {
     if (!sample.size) return;
+    sample.last={sample.have_finite,sample.minimum,sample.maximum,sample.minimum_index,
+        sample.maximum_index,sample.low,sample.high,sample.size,sample.nonfinite};
     for (auto& old:ledger) {
         if (old.view!=sample.view || old.model!=sample.model || old.topology!=sample.topology ||
             old.side!=sample.side || old.stage!=sample.stage || old.layout!=sample.layout || old.shape!=sample.shape) continue;
@@ -59,6 +68,7 @@ inline void merge_range_observation(std::vector<RangeObservation>& ledger,RangeO
             old.low=sample.low; old.high=sample.high; old.size=sample.size;
         }
         old.nonfinite=std::max(old.nonfinite,sample.nonfinite);
+        old.last=sample.last;
         return;
     }
     ledger.push_back(std::move(sample));

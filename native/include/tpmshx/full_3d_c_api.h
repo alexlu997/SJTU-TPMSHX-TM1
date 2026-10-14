@@ -246,6 +246,10 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_bootstrap_trace_v1
  * arrays borrow the owner until full_3d_release_v1. Nz=1 uses physical W. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_model_enthalpy_evidence_v1(
     const tpmshx_full3d_result_v1*,tpmshx_model_enthalpy_evidence_v1*);
+/* No solver or EOS call. Invalid owners return 1 and preserve output.
+ * Cancellation returns an empty view. Copy before the result owner is released. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_last_closure_ranges_v1(
+    const tpmshx_full3d_result_v1*,tpmshx_range_observations_view_v1*);
 /* No solver, EOS or allocation. Invalid/null/released owners return 1 and
  * preserve output. Cancellation or missing evidence returns available=0.
  * Views remain valid only while the full result owner is alive. */

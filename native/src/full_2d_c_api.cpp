@@ -25,7 +25,7 @@ struct Owner {
     std::vector<tpmshx_energy_result_v1> energy_outer;
     tpmshx_energy_effective_settings_v1 energy_settings{};
     std::vector<tpmshx_energy_effective_settings_v1> energy_outer_settings;
-    std::vector<tpmshx_range_observation_v1> ranges;
+    std::vector<tpmshx_range_observation_v1> ranges,last_ranges;
     std::vector<tpmshx_property_sample_v1> property_sampling;
 };
 void flag(uint32_t value) {
@@ -146,7 +146,10 @@ void fill(tpmshx_full_2d_result_v2& o,Owner& owner,const Full2DProblem& p) {
     o.outer_history=owner.outer.data(); o.outer_history_count=owner.outer.size();
     o.q_total=r.q_total; o.q_solid=r.q_solid; o.energy_imbalance=r.energy_imbalance;
     for (std::size_t side=0;side<2;++side) o.nu_observations[side]=nu_observation_view(r.nu_observations[side]);
-    for (const auto& record:r.range_observations) owner.ranges.push_back(range_observation_view(record));
+    for (const auto& record:r.range_observations) {
+        owner.ranges.push_back(range_observation_view(record));
+        owner.last_ranges.push_back(last_range_observation_view(record));
+    }
     o.range_observations=owner.ranges.data(); o.range_observation_count=owner.ranges.size();
 }
 int solve(
@@ -280,6 +283,15 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_model_enthalpy_evidence_v1
         }
     }
     *evidence=out;return 0;
+}
+
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_last_closure_ranges_v1(
+    const tpmshx_full_2d_result_v2* result,tpmshx_range_observations_view_v1* ranges) {
+    if(!result || !result->owner || !ranges) return 1;
+    const auto& owner=*static_cast<const Owner*>(result->owner);
+    *ranges={owner.result.cancelled?nullptr:owner.last_ranges.data(),
+             owner.result.cancelled?0:owner.last_ranges.size()};
+    return 0;
 }
 
 extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_physical_heat_ledger_v1(

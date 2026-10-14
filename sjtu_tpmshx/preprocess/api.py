@@ -5,7 +5,7 @@ from math import isfinite
 
 from sjtu_tpmshx.domain.case_data import CaseData
 from sjtu_tpmshx.domain.compute_config import ComputeConfig
-from sjtu_tpmshx.domain.run_warnings import warning_scope, warning_messages
+from sjtu_tpmshx.domain.run_warnings import warning_scope, warning_messages, range_observations
 from sjtu_tpmshx.domain.provenance import source_context
 
 
@@ -13,6 +13,8 @@ def _prepare_with_metadata(prepare, *args, **kwargs) -> CaseData:
     provenance = source_context()
     with warning_scope({}) as records:
         case = prepare(*args, **kwargs)
+        from .range_evidence import record_geometry_ranges
+        record_geometry_ranges(case)
     warnings = tuple(dict.fromkeys((*case.metadata.get('warnings', ()),
                                     *warning_messages(records))))
     inlets = {side: case.config_snapshot.get('fluid_' + side, {}) for side in 'AB'}
@@ -21,7 +23,7 @@ def _prepare_with_metadata(prepare, *args, **kwargs) -> CaseData:
             side: {name: fluid[name] for name in ('u_mps', 'mass_flow_kg_s')}
             for side, fluid in inlets.items()}})
     return replace(case, metadata={**case.metadata, 'provenance': provenance,
-                                   'warnings': warnings})
+                                   'warnings': warnings, 'applicability_inputs': range_observations(records)})
 
 
 def prepare_case(config: ComputeConfig, *, case_id: str) -> CaseData:

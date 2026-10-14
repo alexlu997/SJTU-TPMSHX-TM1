@@ -26,7 +26,7 @@ from .enthalpy import _Result as _EnthalpyResult
 from .enthalpy import (_EnergyOptions, _EnergyResult, _energy_options,
                        _energy_algorithm_query, _energy_result_info, _energy_native_state,
                        _FullEnergyEffectiveSettings, _full_enthalpy_defaults, _full_enthalpy_info)
-from .closure_evidence import NuObservation, RangeObservation, copy_nu_observation, copy_range_observations, replay_range_observations
+from .closure_evidence import NuObservation, RangeObservation, copy_nu_observation, copy_range_observations, replay_range_observations, last_range_query, copy_last_ranges
 
 
 class _Array(ct.Structure):
@@ -228,6 +228,7 @@ class NativeFull3DDriver:
             raise ValueError('native full 3D library lacks executed settings; rebuild the library') from exc
         self.query_settings.argtypes = [ct.POINTER(_Result), ct.POINTER(_FullEnergyEffectiveSettings)]
         self.query_settings.restype = ct.c_int
+        self.query_last_ranges = last_range_query(self.library, 3, _Result)
         self.query_heat_ledger = heat_ledger_query(self.library, 3, _Result)
         self.query_sampling = sampling_query(self.library, 3, _Result)
         try:
@@ -464,6 +465,7 @@ class NativeFull3DDriver:
                 detached['native_metadata'] = dict(abi=self.abi, algorithm=algorithm, red_black=red_black)
                 if 'temperature_transport' in detached:
                     detached['native_metadata']['transport'] = detached['temperature_transport']
+            detached['last_closure_ranges'] = copy_last_ranges(self.query_last_ranges, result)
             if 'temperature_evidence' not in detached:
                 ledger = HeatLedger()
                 if self.query_heat_ledger(ct.byref(result), ct.byref(ledger)):

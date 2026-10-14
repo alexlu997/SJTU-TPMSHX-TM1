@@ -3,7 +3,7 @@ import ctypes as ct
 
 import numpy as np
 
-from sjtu_tpmshx.domain.run_warnings import RangeRecord, current_warnings, merge_warnings, warning_messages
+from sjtu_tpmshx.domain.run_warnings import RangeRecord, current_warnings, merge_warnings, warning_messages, range_observations
 from sjtu_tpmshx.models.nu_correlations import NU_LAM_FLOOR
 
 
@@ -74,3 +74,26 @@ def replay_range_observations(rows):
     records = range_records(rows)
     merge_warnings(current_warnings(), [records])
     return list(warning_messages(records))
+
+
+class RangeObservationsView(ct.Structure):
+    _fields_ = [('data', ct.POINTER(RangeObservation)), ('size', ct.c_size_t)]
+
+
+def last_range_query(library, dimension, result_type):
+    try:
+        query = getattr(library, f'tpmshx_full_{dimension}d_get_last_closure_ranges_v1')
+    except AttributeError as exc:
+        raise ValueError('native library lacks last closure ranges; rebuild the library') from exc
+    query.argtypes = [ct.POINTER(result_type), ct.POINTER(RangeObservationsView)]
+    query.restype = ct.c_int
+    return query
+
+
+def copy_last_ranges(query, result):
+    view = RangeObservationsView()
+    if query(ct.byref(result), ct.byref(view)):
+        raise RuntimeError('native last closure range query failed')
+    if view.size and not view.data:
+        raise RuntimeError('native last closure ranges have no storage')
+    return range_observations(range_records(copy_range_observations(view.data, view.size)))
