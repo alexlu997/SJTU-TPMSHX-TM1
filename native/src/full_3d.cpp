@@ -1304,6 +1304,13 @@ void validate_continuation(const Full3DInput& input,const Full3DControl& control
         const bool active=side==0||input.solve_b;
         if(state.simple[side].has_value()!=active || state.anderson[side].has_value()!=(active&&control.outer_anderson))
             throw std::invalid_argument("invalid full 3D continuation owner");
+        if(state.anderson[side]) {
+            const auto& saved=*state.anderson[side];
+            if(saved.trust!=control.anderson_trust || saved.patience!=static_cast<int>(control.anderson_patience)
+               || !saved.accelerator.history_limit || saved.accelerator.history_limit-1!=control.anderson_history
+               || saved.accelerator.condition_limit!=AndersonState{}.condition_limit)
+                throw std::invalid_argument("full 3D continuation Anderson controls differ from input");
+        }
         if(!active)continue;
         const auto& flow=state.result.flow[side];const auto& a=side?input.b:input.a;
         const std::array<ArrayView<const double>,3> widths{g.dx,g.dy,g.dz};

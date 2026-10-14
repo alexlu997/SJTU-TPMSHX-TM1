@@ -740,11 +740,13 @@ def test_native_checkpoint_hdf5_round_trip(native_path, tmp_path, pair, cut):
 
 @pytest.mark.parametrize('damage', ['build', 'format', 'input', 'control', 'type', 'size', 'unknown', 'missing',
                                      'thermal', 'geometry', 'phase', 'nonfinite',
-                                     'premature_finish', 'different_exit', 'thermal_mode'])
+                                     'premature_finish', 'different_exit', 'thermal_mode', 'anderson_control'])
 def test_native_checkpoint_rejects_damaged_fields(native_path, damage):
     from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
     from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
     cfg, p = build_execution_inputs(case(cap=3))
+    if damage == 'anderson_control':
+        cfg['outer_anderson'] = True
     driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
     saved = {}
     def pause(state):
@@ -778,6 +780,8 @@ def test_native_checkpoint_rejects_damaged_fields(native_path, damage):
         saved['state.result.outer_ok'][0] = 1
     elif damage == 'different_exit':
         saved['state.result.stop'][0] = 2
+    elif damage == 'anderson_control':
+        saved['state.anderson.0.value.trust'][0] *= 2
     elif damage == 'thermal_mode':
         saved['state.result.thermal.mode'][0] = 2
     elif damage == 'nonfinite':
@@ -918,16 +922,20 @@ save_solver_checkpoint(previous, path)
 
 
 @pytest.mark.parametrize('route', ['temperature_fou', 'temperature_sou',
-                                  'single_cc', 'single_staggered', 'single_sco2_cc'])
+                                  'single_cc', 'single_staggered', 'single_sco2_cc',
+                                  'conservative_staggered', 'nz1_cc'])
 @pytest.mark.parametrize('cut', [0, 1, 'final'])
 def test_checkpoint_covers_energy_routes(native_path, route, cut):
     from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
     from sjtu_tpmshx.tests.native.test_full_3d import prepared
     pair = 'sco2-water' if route.startswith('temperature') or route == 'single_sco2_cc' else 'air-air'
-    cfg, p = prepared(pair)
+    cfg, p = prepared(pair, counts=(4, 4, 1) if route == 'nz1_cc' else None)
     p['max_outer'] = 3
     if route.startswith('single'):
         cfg.update(fluid_B_cfg=None, conservative_ltne=False, force_cc_ltne=route.endswith('_cc'))
+    elif route in ('conservative_staggered', 'nz1_cc'):
+        cfg.update(variable_rho_cp=False, conservative_ltne=route == 'conservative_staggered',
+                   force_cc_ltne=route == 'nz1_cc')
     else:
         cfg['enthalpy_algorithm'] = route
     driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
