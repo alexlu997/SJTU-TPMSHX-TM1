@@ -141,6 +141,7 @@ def _parse_geometry_inputs_3d_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
         # R3 (2026-07-07): production solver knobs (None = run_stack's
         # dim-specific autos; see SolverConfig docstring).
         max_iter_simple=compute_cfg.solver.max_iter_simple,
+        simple_velocity_relaxation=compute_cfg.solver.simple_velocity_relaxation,
         max_outer_ltne=compute_cfg.solver.max_outer_ltne,
         outer_tol_K=compute_cfg.solver.outer_tol_K,
         enthalpy_algorithm=compute_cfg.solver.enthalpy_algorithm,

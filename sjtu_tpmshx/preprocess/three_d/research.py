@@ -11,7 +11,7 @@ import numpy as np
 
 from sjtu_tpmshx.domain.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, Sco2NuConfig,
-    ZoneInputConfig, reject_retired_boundary_options,
+    ZoneInputConfig, reject_retired_boundary_options, validate_simple_velocity_relaxation,
 )
 from sjtu_tpmshx.domain.run_environment import capture_environment, require_f2_mode
 from sjtu_tpmshx.domain.validator import validate_pipe_config
@@ -25,7 +25,7 @@ _INPUTS = frozenset('''
     fluid_A_cfg fluid_B_cfg wall_refine_3d port_wall_refine zone_grid_cells
     continuous_field delta_levelset df_mode sco2_nu envelope_mode extrap_reasons
     sweep_profile max_outer_ltne max_iter_simple max_cells_3d outer_tol_K
-    convergence_mode mom_tol mass_local_tol mass_global_tol
+    convergence_mode mom_tol mass_local_tol mass_global_tol simple_velocity_relaxation
     use_adaptive_amg_tol use_anderson use_coarse_bootstrap coarse_bootstrap_max_iter
     track_momentum_residual p_in_shooting variable_rho_cp conservative_ltne
     strict_mass_balance force_cc_ltne outer_anderson outer_anderson_m
@@ -73,6 +73,7 @@ def prepare_research_case(inputs, *, case_id):
     if cfg.get('sweep_profile') not in (None, 'fast_sweep', 'full_validate'):
         raise ValueError('unsupported research sweep_profile')
     require_f2_mode(cfg.get('convergence_mode'))
+    validate_simple_velocity_relaxation(cfg.get('simple_velocity_relaxation'))
     for side in ('A', 'B'):
         port = cfg['fluid_' + side + '_cfg']
         if side == 'A' and port is None:

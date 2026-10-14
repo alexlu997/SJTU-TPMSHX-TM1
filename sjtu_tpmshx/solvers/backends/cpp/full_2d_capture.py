@@ -220,4 +220,5 @@ def capture_result(case, cfg, prepared, native):
                              backend_version=f"full_2d_v{native.get('entry_version', 2)}")
     if 'native_metadata' in native:
         result = replace(result, metadata=dict(result.metadata, native=native['native_metadata']))
-    return replace(result, metadata=dict(result.metadata, _last_closure_ranges=native['last_closure_ranges']))
+    return replace(result, metadata=dict(result.metadata, _last_closure_ranges=native['last_closure_ranges'],
+        simple_velocity_relaxation=native['simple_velocity_relaxation']))

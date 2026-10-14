@@ -107,6 +107,13 @@ def validate_enthalpy_algorithm(algorithm, temperature_tolerance):
         raise ValueError('enthalpy_temperature_tol_K must be finite and positive')
 
 
+def validate_simple_velocity_relaxation(value):
+    """Validate the optional native SIMPLE velocity relaxation."""
+    if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))
+                              or not isfinite(value) or not 0. < value <= 1.):
+        raise ValueError('simple_velocity_relaxation must be in (0, 1]')
+
+
 def reject_retired_boundary_options(config):
     """Reject removed B-participation experiments before physical preparation."""
     retired = sorted(key for key in config
@@ -191,6 +198,7 @@ class SolverConfig:
     max_outer_ltne: Optional[int] = None
     outer_tol_K: Optional[float] = None
     max_iter_simple: Optional[int] = None
+    simple_velocity_relaxation: Optional[float] = None
     Nx: int = 30
     Ny: int = 60
     Nz: int = 1
@@ -560,6 +568,7 @@ class ComputeConfig:
         validate_enthalpy_algorithm(self.solver.enthalpy_algorithm,
                                    self.solver.enthalpy_temperature_tol_K)
 
+        validate_simple_velocity_relaxation(self.solver.simple_velocity_relaxation)
         for name in ('ltne_enthalpy_outer', 'ltne_enthalpy_nsweep'):
             value = getattr(self.solver, name)
             if value is None:

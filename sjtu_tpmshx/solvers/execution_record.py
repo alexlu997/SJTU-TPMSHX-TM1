@@ -55,7 +55,9 @@ def full_execution_record(case, result):
                               algorithm=algorithm, algorithm_version=settings.get('energy_algorithm_version'),
                               face_reconstruction=settings.get('enthalpy_face_reconstruction'),
                               temperature_transport=metadata.get('temperature_transport'),
-                              effective_settings=settings, native=native),
+                              effective_settings=settings, native=native,
+                              **({'simple_velocity_relaxation': metadata['simple_velocity_relaxation']}
+                                 if 'simple_velocity_relaxation' in metadata else {})),
                 evidence=dict(thermal_state=result.field_metadata['Ta']['state'],
                               mass_state=result.boundary_fluxes['state'],
                               pressure_report_states={label: None if value is None else

@@ -14,9 +14,15 @@ def run_case(case: CaseData, control: RunControl = RunControl()) -> FieldResult:
         raise ValueError(f'prepared research case does not support backend={control.backend}')
     dimension = case.grid.get('dimension')
     mode = case.metadata.get('mode', 'full')
-    from sjtu_tpmshx.domain.compute_config import validate_enthalpy_algorithm
+    from sjtu_tpmshx.domain.compute_config import (
+        validate_enthalpy_algorithm, validate_simple_velocity_relaxation,
+    )
     settings = (case.parameters.get('run_settings', {}).get('solver', {})
                 if dimension == 2 else case.parameters)
+    relaxation = settings.get('simple_velocity_relaxation')
+    validate_simple_velocity_relaxation(relaxation)
+    if relaxation is not None and (control.backend != 'cpp' or mode != 'full'):
+        raise ValueError('simple_velocity_relaxation requires full compute with backend=cpp')
     algorithm = settings.get('enthalpy_algorithm', 'legacy_h_fou')
     validate_enthalpy_algorithm(algorithm, settings.get('enthalpy_temperature_tol_K', 1e-8))
     if algorithm != 'legacy_h_fou' and (control.backend != 'cpp' or mode != 'full'):

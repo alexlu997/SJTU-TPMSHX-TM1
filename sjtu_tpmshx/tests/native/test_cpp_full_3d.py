@@ -1002,3 +1002,43 @@ def test_full_checkpoint_keeps_active_pressure_hierarchies(native_path):
     actual = driver.run_prepared(cfg, p, resume_state=saved)
     actual.pop('continuation')
     _exact_resume_values(actual, expected)
+
+
+@pytest.mark.parametrize('relaxation', [None, .35])
+def test_prepared_velocity_relaxation_is_executed_and_saved(native_path, tmp_path, relaxation):
+    from sjtu_tpmshx.domain.portable_data import mutable_data
+    from sjtu_tpmshx.io.result_io import load_result, save_result
+    prepared = case(cap=2)
+    parameters = mutable_data(prepared.parameters)
+    parameters['simple_velocity_relaxation'] = relaxation
+    snapshot = mutable_data(prepared.config_snapshot)
+    snapshot['solver']['simple_velocity_relaxation'] = .9
+    prepared = replace(prepared, parameters=parameters, config_snapshot=snapshot)
+    actual = cpp_run(prepared, control(native_path))
+    expected = .5 if relaxation is None else relaxation
+    assert actual.metadata['simple_velocity_relaxation'] == expected
+    assert actual.metadata['execution_record']['numerics']['simple_velocity_relaxation'] == expected
+    path = tmp_path / 'result.h5'
+    save_result(actual, path)
+    assert load_result(path).metadata['execution_record'] == actual.metadata['execution_record']
+
+
+def test_checkpoint_rejects_changed_velocity_relaxation(native_path):
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
+    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
+    cfg, p = build_execution_inputs(case(cap=3))
+    cfg['simple_velocity_relaxation'] = .35
+    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
+    saved = {}
+    def pause(state):
+        if int(state['state.result.outer.size'][0]) == 1:
+            saved.update(state)
+            raise _PauseCheckpoint
+    with pytest.raises(_PauseCheckpoint):
+        driver.run_prepared(cfg, p, checkpoint=pause)
+    cfg['simple_velocity_relaxation'] = .4
+    entered = []
+    with pytest.raises(ValueError, match='state|continuation'):
+        driver.run_prepared(cfg, p, control(native_path, outer_iteration=lambda *args: entered.append(args)),
+                            resume_state=saved)
+    assert not entered
