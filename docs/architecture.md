@@ -335,6 +335,17 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   The required native CI suite passes on macOS arm64/Python 3.13 and Windows
   x64/Python 3.12 and 3.13. Visible desktop delivery and full performance
   qualification stay separate gates.
+- `EnthalpyRun` owns the existing H-FOU, T-FOU and T-SOU Picard iteration state.
+  Each advance completes one original iteration, including its SOU proposal.
+  An active snapshot owns five solution fields, enthalpy bounds, table bounds,
+  transport values, clip totals, HEOS finishing state and Anderson history.
+  Restore requires the same inputs and controls. It validates saved state before
+  it writes caller arrays. EOS evaluators and temporary arrays are built again.
+  Failed or cancelled runs cannot export an active snapshot. Callbacks cannot
+  save or re-enter an unfinished step. The existing `solve_enthalpy` entry uses
+  this owner; the two separate stack-only iteration loops are retired.
+  Physical checks, final audits, iteration budgets and cancellation points stay
+  unchanged. This component interface does not provide file or application recovery.
 - The C++ fixed-flow `solve_enthalpy` also has explicit `temperature_fou`
   and `temperature_sou` candidates. Both solve conservative enthalpy transport
   with temperature as the nonlinear unknown, guarded HEOS PT state updates,

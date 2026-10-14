@@ -7,6 +7,7 @@
 #include <array>
 #include <cmath>
 #include <iostream>
+#include <filesystem>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -126,10 +127,172 @@ template<class Error,class Call> void rejects(Call call,const char* message) {
     try { call(); } catch (const Error&) { return; }
     throw std::runtime_error(message);
 }
+
+bool same_value(double a,double b) { return a==b || (std::isnan(a) && std::isnan(b)); }
+void require_same_result(const EnthalpyResult& a,const EnthalpyResult& b) {
+    require(a.stop==b.stop && a.iterations==b.iterations && a.algorithm==b.algorithm
+        && a.inlet_enthalpy==b.inlet_enthalpy && a.last_clips.a==b.last_clips.a
+        && a.last_clips.b==b.last_clips.b && a.total_clips.a==b.total_clips.a
+        && a.total_clips.b==b.total_clips.b && a.used_bicubic==b.used_bicubic
+        && a.heos_polish==b.heos_polish && a.temperature_update==b.temperature_update
+        && a.picard_relaxation==b.picard_relaxation && a.final_audit.has_value()==b.final_audit.has_value(),
+        "energy continuation changed result state");
+    require(same_value(a.residual,b.residual) && same_value(a.q_a,b.q_a)
+        && same_value(a.q_b,b.q_b) && same_value(a.energy_imbalance,b.energy_imbalance),
+        "energy continuation changed result values");
+    if(a.final_audit) {
+        const auto values=[](const EnergyAudit& v) {
+            return std::array<double,11>{v.q_a,v.q_b,v.net,v.solid_abs_sum,v.denominator,v.coupled_ratio,
+                v.fluid_abs_sum[0],v.fluid_abs_sum[1],v.fluid_cell_max[0],v.fluid_cell_max[1],v.equation_ratio};
+        };
+        const auto x=values(*a.final_audit),y=values(*b.final_audit);
+        for(std::size_t i=0;i<x.size();++i)require(same_value(x[i],y[i]),"energy continuation changed final audit");
+        require(a.final_audit->fluid_equations_computed==b.final_audit->fluid_equations_computed,
+            "energy continuation changed equation audit state");
+    }
+}
+
+void energy_run_checks() {
+    const auto tables=std::filesystem::absolute(".cache/native-energy-run-tables").string();
+    const std::array<std::array<Fluid,2>,4> pairs{{{Fluid::air,Fluid::water},{Fluid::water,Fluid::air},
+        {Fluid::sco2,Fluid::water},{Fluid::co2,Fluid::air}}};
+    for(const auto& pair:pairs)for(std::size_t axis:{0U,2U})for(bool warm:{false,true})
+    for(auto algorithm:{EnthalpyAlgorithm::legacy_h_fou,EnthalpyAlgorithm::temperature_fou,EnthalpyAlgorithm::temperature_sou}) {
+        Case base(axis,1,pair[0],pair[1]);
+        for(std::size_t side=0;side<2;++side)
+            std::fill(base.t[side].begin(),base.t[side].end(),warm?base.inlet_t[side]:std::numeric_limits<double>::quiet_NaN());
+        std::fill(base.solid.begin(),base.solid.end(),.5*(base.inlet_t[0]+base.inlet_t[1]));
+        auto c=controls(algorithm==EnthalpyAlgorithm::temperature_sou);c.algorithm=algorithm;
+        c.max_iterations=13;c.table_directory=tables;
+        if(algorithm==EnthalpyAlgorithm::legacy_h_fou)c.update_tolerance=1e-3;
+        Case expected=base;PhysicalHeatLedger expected_ledger;
+        Cancellation baseline{0,1000000};c.cancel=cancel;c.context=&baseline;
+        const auto reference=solve_enthalpy(expected.grid(),expected.side(0),expected.side(1),
+            view(expected.solid_k),expected.state(warm),c,&expected_ledger);
+        for(std::size_t cut:{0U,1U,2U,7U,12U}) {
+            Case actual=base;Cancellation observed{0,1000000};c.context=&observed;PhysicalHeatLedger ledger;
+            auto owner=std::make_unique<EnthalpyRun>(actual.grid(),actual.side(0),actual.side(1),
+                view(actual.solid_k),actual.state(warm),c,&ledger);
+            for(std::size_t i=0;i<cut && owner->phase()==EnthalpyPhase::active;++i)owner->advance();
+            if(owner->phase()==EnthalpyPhase::active) {
+                auto saved=owner->snapshot();saved.fields[0][0]+=1.;
+                require(saved.fields[0]!=owner->snapshot().fields[0],"energy snapshot aliases live fields");
+                saved=owner->snapshot();owner.reset();
+                std::fill(actual.solid.begin(),actual.solid.end(),-1.);
+                owner=std::make_unique<EnthalpyRun>(actual.grid(),actual.side(0),actual.side(1),
+                    view(actual.solid_k),actual.state(warm),c,saved,&ledger);
+                saved.fields[0][0]+=1.;
+                require(saved.fields[0]!=owner->snapshot().fields[0],"energy restore borrows its snapshot");
+            }
+            while(owner->phase()==EnthalpyPhase::active)owner->advance();
+            require(same_fields(actual,expected),"energy continuation changed fields");
+            require(observed.calls==baseline.calls,"energy continuation changed cancellation calls");
+            require(ledger.residual==expected_ledger.residual && ledger.advective_out==expected_ledger.advective_out,
+                "energy continuation changed physical ledger");
+            require_same_result(owner->take_result(),reference);
+            rejects<std::logic_error>([&]{owner->snapshot();},"completed energy run exported state");
+            rejects<std::logic_error>([&]{owner->take_result();},"energy result was transferred twice");
+            owner->advance();
+        }
+    }
+    for(int gates:{0,1,2,3}) {
+        Case expected(0,1,Fluid::air,Fluid::water),actual=expected;
+        auto c=controls(false);c.algorithm=EnthalpyAlgorithm::legacy_h_fou;c.max_iterations=500;
+        c.update_tolerance=1.;
+        c.coupled_energy_tolerance=(gates&1)?std::optional<double>(1e-7):std::nullopt;
+        c.equation_energy_tolerance=(gates&2)?std::optional<double>(1e-7):std::nullopt;
+        const auto reference=solve_enthalpy(expected.grid(),expected.side(0),expected.side(1),view(expected.solid_k),expected.state(),c);
+        auto owner=std::make_unique<EnthalpyRun>(actual.grid(),actual.side(0),actual.side(1),view(actual.solid_k),actual.state(),c);
+        bool polish_seen=false;
+        while(owner->phase()==EnthalpyPhase::active) {
+            owner->advance();
+            if(owner->phase()==EnthalpyPhase::active) {
+                const auto saved=owner->snapshot();polish_seen=polish_seen || saved.result.heos_polish;
+                owner.reset();owner=std::make_unique<EnthalpyRun>(actual.grid(),actual.side(0),actual.side(1),view(actual.solid_k),actual.state(),c,saved);
+            }
+        }
+        require(gates!=3 || polish_seen,"energy continuation omitted the HEOS finishing state");
+        require(same_fields(actual,expected),"HEOS continuation changed fields");require_same_result(owner->take_result(),reference);
+    }
+    Case sample(0,1,Fluid::air,Fluid::water);auto c=controls(true);c.max_iterations=30;
+    auto run=std::make_unique<EnthalpyRun>(sample.grid(),sample.side(0),sample.side(1),view(sample.solid_k),sample.state(),c);
+    run->advance();run->advance();const auto saved=run->snapshot();
+    for(int damage=0;damage<17;++damage) {
+        auto state=saved;
+        switch(damage) {
+        case 0:state.fields[0].pop_back();break;
+        case 1:state.fields[2][0]=std::numeric_limits<double>::infinity();break;
+        case 2:state.result.iterations=c.max_iterations;break;
+        case 3:state.result.algorithm=EnthalpyAlgorithm::legacy_h_fou;break;
+        case 4:state.result.stop=EnthalpyStop::converged;break;
+        case 5:state.sides[0].transport[0][0]=0.;break;
+        case 6:state.next_temperatures=true;break;
+        case 7:state.sides[0].table_lower.push_back(0.);break;
+        case 8:state.acceleration.r[0][0]=std::numeric_limits<double>::infinity();break;
+        case 9:state.result.used_bicubic[0]=true;break;
+        case 10:state.result.temperature_update.reset();break;
+        case 11:state.result.final_audit.reset();break;
+        case 12:state.result.final_audit->equation_ratio=std::numeric_limits<double>::quiet_NaN();break;
+        case 13:state.result.final_audit->denominator=0.;break;
+        case 14:state.result.final_audit->fluid_equations_computed=false;break;
+        case 15:state.result.energy_imbalance=-1.;break;
+        case 16:state.result.final_audit->solid_abs_sum=-1.;break;
+        }
+        Case destination=sample;const auto before=destination;
+        rejects<std::invalid_argument>([&]{EnthalpyRun invalid(destination.grid(),destination.side(0),destination.side(1),
+            view(destination.solid_k),destination.state(),c,state);},"damaged energy state was accepted");
+        require(same_fields(destination,before),"invalid energy state changed destination fields");
+    }
+    for(auto algorithm:{EnthalpyAlgorithm::legacy_h_fou,EnthalpyAlgorithm::temperature_fou,EnthalpyAlgorithm::temperature_sou})
+    for(int stop_at:{1,4,9,17}) {
+        Case expected(0,1,Fluid::air,Fluid::water),actual=expected;
+        auto options=controls(algorithm==EnthalpyAlgorithm::temperature_sou);options.algorithm=algorithm;
+        Cancellation baseline{0,stop_at},observed{0,stop_at};options.cancel=cancel;options.context=&baseline;
+        const auto reference=solve_enthalpy(expected.grid(),expected.side(0),expected.side(1),view(expected.solid_k),expected.state(),options);
+        options.context=&observed;auto owner=std::make_unique<EnthalpyRun>(actual.grid(),actual.side(0),actual.side(1),view(actual.solid_k),actual.state(),options);
+        while(owner->phase()==EnthalpyPhase::active) {
+            owner->advance();
+            if(owner->phase()==EnthalpyPhase::active) {
+                const auto state=owner->snapshot();owner.reset();
+                owner=std::make_unique<EnthalpyRun>(actual.grid(),actual.side(0),actual.side(1),view(actual.solid_k),actual.state(),options,state);
+            }
+        }
+        require(owner->phase()==EnthalpyPhase::cancelled && same_fields(actual,expected)
+            && observed.calls==baseline.calls,"energy resume changed cancellation timing");
+        require_same_result(owner->take_result(),reference);
+        rejects<std::logic_error>([&]{owner->snapshot();},"cancelled energy run exported state");
+    }
+    Case observed(0,1,Fluid::air,Fluid::water);auto observing=controls(true);observing.max_iterations=3;
+    struct Observer { EnthalpyRun* run=nullptr;std::size_t calls=0; } observer;
+    observing.context=&observer;
+    observing.cancel=[](void* context) {
+        auto& current=*static_cast<Observer*>(context);
+        if(current.run) {
+            ++current.calls;
+            rejects<std::logic_error>([&]{current.run->snapshot();},"callback exported an unfinished energy step");
+            rejects<std::logic_error>([&]{current.run->advance();},"callback advanced an unfinished energy step");
+        }
+        return false;
+    };
+    EnthalpyRun observed_run(observed.grid(),observed.side(0),observed.side(1),view(observed.solid_k),observed.state(),observing);
+    observer.run=&observed_run;
+    while(observed_run.phase()==EnthalpyPhase::active)observed_run.advance();
+    require(observer.calls>=6,"energy callback omitted the active boundary check");
+    Case failed(0,1,Fluid::air,Fluid::water);auto failing=controls(true);Cancellation failure{0,2};failing.context=&failure;
+    failing.cancel=[](void* context) { if(++static_cast<Cancellation*>(context)->calls==2)throw std::runtime_error("failed callback");return false; };
+    EnthalpyRun broken(failed.grid(),failed.side(0),failed.side(1),view(failed.solid_k),failed.state(),failing);
+    rejects<std::runtime_error>([&]{broken.advance();},"callback failure was hidden");
+    require(broken.phase()==EnthalpyPhase::failed,"failed energy run remained active");
+    rejects<std::logic_error>([&]{broken.snapshot();},"failed energy run exported state");
+    rejects<std::logic_error>([&]{broken.advance();},"failed energy run advanced again");
+    std::cout<<"energy run continuation, HEOS finishing, ownership and invalid boundaries passed\n";
+}
+
 }  // namespace
 
 int main() {
     try {
+        energy_run_checks();
         std::size_t solved=0;
         double max_eos_error=0.,max_boundary_error=0.,max_warm_difference=0.;
         const std::array<std::array<Fluid,2>,4> pairs{{{Fluid::air,Fluid::air},
