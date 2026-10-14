@@ -1,6 +1,7 @@
 #pragma once
 
 #include "tpmshx/property_sampling.hpp"
+#include "tpmshx/side_physics.hpp"
 
 #include "tpmshx/enthalpy_driver.hpp"
 #include "tpmshx/closure_evidence.hpp"
@@ -231,5 +232,8 @@ private:
 // partial result. Exceptions invalidate partial output. Independent calls own
 // separate flow solvers, property evaluators and MAC hierarchies.
 Full3DResult solve_full_3d(const Full3DInput& input, const Full3DControl& control);
+
+// Resolve existing physical choices. This does not select new fluid defaults.
+std::array<SidePhysics,2> resolve_full_3d_physics(const Full3DInput& input,const Full3DControl& control);
 
 }  // namespace tpmshx

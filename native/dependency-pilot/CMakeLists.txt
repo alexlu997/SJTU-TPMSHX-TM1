@@ -49,9 +49,8 @@ target_compile_definitions(tpmshx_amgcl INTERFACE AMGCL_NO_BOOST)
 add_library(tpmshx_energy STATIC "${TPMSHX_ROOT}/native/src/conservative_energy.cpp"
     "${TPMSHX_ROOT}/native/src/enthalpy_sweeps.cpp")
 target_include_directories(tpmshx_energy PUBLIC "${TPMSHX_ROOT}/native/include")
-# Current translation units that emit the shared EnergyPhase defect row.
-# Keep their contraction policy identical so weak-symbol selection cannot
-# change the arithmetic. This list includes the direct row smoke consumer.
+# Sources that emit common finite-volume rows use one contraction policy.
+# Weak-symbol selection must not change the arithmetic.
 if(MSVC)
     set(TPMSHX_ENERGY_ROW_FP_OPTION /fp:strict)
 else()
@@ -59,6 +58,7 @@ else()
 endif()
 set_property(SOURCE
     "${TPMSHX_ROOT}/native/src/conservative_energy.cpp"
+    "${TPMSHX_ROOT}/native/src/enthalpy_sweeps.cpp"
     "${TPMSHX_ROOT}/native/src/temperature_driver.cpp"
     "${TPMSHX_ROOT}/native/src/temperature_staggered.cpp"
     "${TPMSHX_ROOT}/native/src/model_h_2d.cpp"
@@ -217,6 +217,8 @@ target_link_libraries(refinement_2d_test PRIVATE tpmshx_refinement_2d)
 add_library(tpmshx_full_2d STATIC "${TPMSHX_ROOT}/native/src/full_2d.cpp")
 target_link_libraries(tpmshx_full_2d PUBLIC tpmshx_simple
     tpmshx_model_h_2d tpmshx_enthalpy tpmshx_pressure_reference tpmshx_models tpmshx_refinement_2d)
+add_executable(side_physics_smoke "${TPMSHX_ROOT}/native/tests/side_physics_smoke.cpp")
+target_link_libraries(side_physics_smoke PRIVATE tpmshx_full_2d tpmshx_full_3d)
 add_library(full_2d_test SHARED "${TPMSHX_ROOT}/sjtu_tpmshx/tests/native/full_2d_bridge.cpp")
 target_compile_definitions(full_2d_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
 target_link_libraries(full_2d_test PRIVATE tpmshx_full_2d)
@@ -374,7 +376,7 @@ foreach(target IN ITEMS tpmshx_energy tpmshx_models tpmshx_quick_design temperat
         tpmshx_pressure_reference
         tpmshx_outer_anderson tpmshx_full_3d full_3d_test full_thermal_test full_3d_c_static full_3d_c_shared
         tpmshx_refinement_2d refinement_2d_test
-        tpmshx_full_2d full_2d_test
+        tpmshx_full_2d full_2d_test side_physics_smoke
         tpmshx_full_2d_c tpmshx_full_2d_shared full_2d_c_static full_2d_c_shared
         tpmshx_pressure tpmshx_simple
         simple_2d_smoke simple_2d_test simple_3d_test simple_3d_smoke

@@ -303,7 +303,7 @@ def verify(cache: Path, host: str) -> None:
                    "model_h_chunk_smoke", "model_h_run_smoke",
                    "model_h_c_static", "model_h_c_shared", "temperature_c_static", "temperature_c_shared",
                    "temperature_staggered_smoke", "full_2d_c_static", "full_2d_c_shared",
-                   "full_3d_c_static", "full_3d_c_shared"):
+                   "full_3d_c_static", "full_3d_c_shared", "side_physics_smoke"):
         run([build_dir / f"{caller}{suffix}"], log)
     for storage in ("csc", "csr"):
         for case in ("allocations", "aborts", "singular", "concurrent"):

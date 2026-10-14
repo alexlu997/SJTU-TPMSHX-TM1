@@ -57,6 +57,13 @@ This is the current architectural and physical contract for the repository.
 Historical audits and reports explain how the project reached this state, but
 they do not override the running code or this document.
 
+The H-FOU and temperature updates share the fluid and solid row assembly in `energy_fv_rows.hpp`.
+The H row transports actual enthalpy and uses the frozen h-to-T tangent for conduction and exchange.
+It retains the enthalpy bounds, clip counts and serial A, B, solid sweep order.
+The caller retains input checks, EOS state updates, iteration budgets and stopping gates.
+H boundary duties and audits retain their existing signed physical powers.
+No extra temperature or face arrays are needed for this assembly.
+
 The 2D and 3D model-h drivers share one accelerated chunk owner.
 It retains 25 sweeps per block, two proposal probes, and separate Anderson history for each chunk.
 A complete selection boundary can export the consumed budget and an independent history copy.
@@ -104,6 +111,14 @@ The native query borrows views from the result owner; Python copies these views 
 Current bindings require the added query and report an explicit error for an older native library.
 Saved results retain both records. Historical results retain their original metadata.
 Final applicability and physical quality remain separate decisions.
+
+The native full drivers resolve each side's physics before iteration.
+`SidePhysics` keeps the transport fluid, energy relation, conductivity source and heat-transfer sampling rule.
+The 2D owner passes these choices to its main and refined thermal calls.
+The 3D owner keeps them for the run and derives them again from matched inputs on restore.
+Current input validation, phase guards and sampled-state records stay at their existing owners.
+The selected rules retain the differences between dimensions, EOS warm-up, prescribed B and research routes.
+This migration keeps the current route-dependent choices. Independent per-fluid defaults require separate qualification.
 
 Full C++ 2D EOS runs also accept the optional thermal controls in `SolverConfig`.
 The additive `full_2d_v4` entry passes the iteration and sweep budgets, relaxation,
