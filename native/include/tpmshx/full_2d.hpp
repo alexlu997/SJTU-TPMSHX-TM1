@@ -1,5 +1,7 @@
 #pragma once
 
+#include "tpmshx/property_sampling.hpp"
+
 #include "tpmshx/enthalpy_driver.hpp"
 #include "tpmshx/model_h_2d.hpp"
 #include "tpmshx/pressure_reference.hpp"
@@ -78,9 +80,11 @@ struct Full2DFlow {
     std::vector<PressureIteration> pressure_iterations;
     // Completed raw physical-axis evidence, before any later property update.
     std::vector<double> uc,vc,absolute_pressure,mass_x,mass_y;
+    std::vector<PropertySample> property_sampling;
 };
 
 struct Full2DThermalState {
+    std::vector<PropertySample> property_sampling;
     std::array<std::vector<double>,3> temperature;
     std::array<std::vector<double>,2> hv,conductivity,pressure,rho_cp;
     std::array<std::vector<double>,2> mass_x,mass_y;
@@ -126,6 +130,7 @@ struct Full2DResult {
     // Thermal inputs above always remain from the actual last thermal call.
     std::array<std::vector<double>,2> density,viscosity,rho_cp;
     std::optional<Full2DRefinedState> refined;
+    std::vector<PropertySample> property_sampling;
     bool converged=false,simple_ok=false,thermal_ok=false,envelope_ok=false;
     bool pair_balance_ok=false,model_balance_ok=false;
     std::array<double,2> pressure_drop{},outlet_temperature{},inlet_mass{},duty{};

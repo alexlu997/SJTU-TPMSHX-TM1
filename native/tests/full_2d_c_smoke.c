@@ -5,6 +5,7 @@
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 static int cancelled(void* context) { (void)context; return 1; }
 static void expect_invalid_port(const size_t* shape,const double* const* arrays,const size_t* sizes,
@@ -104,6 +105,16 @@ int main(void) {
     /* Equal inlet/initial temperatures are the independent zero-duty solution
        on both main and refined grids, without an EOS or Python oracle. */
     assert(result.converged && result.have_fine && result.fine_extrapolated);
+    tpmshx_property_sampling_v1 sampling={0};
+    assert(tpmshx_full_2d_get_property_sampling_v1(&result,&sampling)==0 && sampling.count>0);
+    int found_refined=0;
+    for(size_t i=0;i<sampling.count;++i) {
+        assert(sampling.records[i].side<2 && sampling.records[i].stage && sampling.records[i].quantity);
+        if(strcmp(sampling.records[i].stage,"refined_thermal")==0) found_refined=1;
+    }
+    assert(found_refined);
+    assert(tpmshx_full_2d_get_property_sampling_v1(&result,NULL)==1);
+    assert(tpmshx_full_2d_get_property_sampling_v1(NULL,&sampling)==1);
     assert(tpmshx_full_2d_get_energy_effective_settings_v1(&result,&settings)==0);
     assert(!settings.resolved.available && !settings.last.available && settings.outer_count==result.outer_history_count);
     for(size_t i=0;i<settings.outer_count;++i) assert(!settings.outer[i].available);
@@ -117,6 +128,8 @@ int main(void) {
     const double saved=result.main.dx.data[0]; widths[0]=.123;
     assert(result.main.dx.data[0]==saved); widths[0]=saved;
     tpmshx_full_2d_release_v2(&result); assert(result.owner==NULL);
+    sampling.count=123;
+    assert(tpmshx_full_2d_get_property_sampling_v1(&result,&sampling)==1 && sampling.count==123);
     tpmshx_full_2d_release_v2(&result);
     /* A complete nonzero heat-exchange solve must also finish independently
        of Python, including the refined final certificate. */
@@ -157,6 +170,7 @@ int main(void) {
     }
     assert(tpmshx_solve_full_2d_v2(shape,arrays,sizes,&config,&cb,&result,error,sizeof(error))==0);
     assert(result.cancelled && !result.converged);
+    assert(tpmshx_full_2d_get_property_sampling_v1(&result,&sampling)==0 && sampling.count==0);
     assert(tpmshx_full_2d_get_energy_effective_settings_v1(&result,&settings)==0);
     assert(!settings.resolved.available && !settings.last.available && !settings.outer_count);
     tpmshx_full_2d_release_v2(&result);

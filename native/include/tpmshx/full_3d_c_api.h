@@ -1,5 +1,6 @@
 #ifndef TPMSHX_FULL_3D_C_API_H
 #define TPMSHX_FULL_3D_C_API_H
+#include "tpmshx/property_sampling_c_api.h"
 #include "tpmshx/simple_3d_c_api.h"
 #include "tpmshx/model_h_c_api.h"
 #include "tpmshx/enthalpy_driver_c_api.h"
@@ -244,6 +245,11 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_bootstrap_trace_v1
  * arrays borrow the owner until full_3d_release_v1. Nz=1 uses physical W. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_model_enthalpy_evidence_v1(
     const tpmshx_full3d_result_v1*,tpmshx_model_enthalpy_evidence_v1*);
+/* Borrow recorded sampler choices from the live result owner. No numerical work.
+ * Cancelled results return an empty view. Invalid or released arguments return 1
+ * and preserve output. Copy the strings before the result owner is released. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_property_sampling_v1(
+    const tpmshx_full3d_result_v1*,tpmshx_property_sampling_v1*);
 #ifdef __cplusplus
 }
 #endif

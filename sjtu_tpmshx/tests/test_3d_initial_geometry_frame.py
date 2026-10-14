@@ -133,7 +133,7 @@ def test_initial_geometry_and_returned_faces_share_physical_frame(monkeypatch, d
         _use_outer_and=False, h_vA_field=zero, h_vB_field=zero,
         rho_cp_fA=np.full(shape, problem.rho_A * problem.cp_A),
         rho_cp_fB=np.full(shape, problem.rho_B * problem.cp_B),
-        native_evidence=None)
+        native_evidence=None, property_sampling=[])
     outer.native_evidence = dict(
         Ta=outer.Ta, Tb=outer.Tb, Ts=outer.Ts, h_vA=zero, h_vB=zero, K_ss=problem.K_ss,
         P_thermal_A=None, P_thermal_B=None, mass_A=None, mass_B=None,
