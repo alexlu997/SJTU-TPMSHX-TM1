@@ -584,6 +584,12 @@ Pressure correction uses the actual predictor diagonal. For active SOU limiters,
 two-sweep oscillation on stretched grids. It likewise cancels at the fixed
 point without changing the requested relaxation or F2 tolerances.
 
+Full C++ 2D/3D accepts optional `SolverConfig.simple_velocity_relaxation` in `(0, 1]`.
+Unset values retain 0.7 in 2D and 0.5 in 3D. This setting does not change F2 gates.
+Prepared cases retain the explicit value. Python and Quick Design reject this override.
+The full execution record keeps the velocity relaxation passed to the completed native call.
+The 3D continuation owner rejects a changed value on restore.
+
 `tol_simple`, SIMPLE's `solve(tol=...)` argument and `TPMSHX_SIMPLE_TOL` are
 retired: they did not set F2 tolerances. Previous configuration-file import discards
 `solver.tol_simple` and `optimizer.tol_simple` with an explicit notice. New

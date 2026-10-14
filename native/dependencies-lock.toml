@@ -67,7 +67,8 @@ algorithm-boundary = "Staggered-temperature MAC candidate only: RS direct interp
 
 [sources.eigen]
 version = "5.0.1"
-repository = "https://gitlab.com/libeigen/eigen.git"
+# The Google mirror serves the same fixed upstream commit.
+repository = "https://eigen.googlesource.com/mirror"
 commit = "bc3b39870ecb690a623a3f49149a358b95c5781d"
 directory = "Eigen-5.0.1"
 cpm-name = "Eigen"
