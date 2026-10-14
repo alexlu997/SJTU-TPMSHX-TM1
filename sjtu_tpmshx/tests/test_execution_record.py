@@ -1,5 +1,7 @@
 """Energy identity stays distinct from transport resources and user inputs."""
 from dataclasses import replace
+import subprocess
+import sys
 
 import numpy as np
 import pytest
@@ -80,18 +82,32 @@ def test_temperature_ledger_distinguishes_integral_energy_and_prescribed_side():
     assert record['sides']['B']['solved'] is False
     assert record['sides']['B']['energy']['property_provider'] is None
     case, result = evidence('legacy_temperature')
-    assert full_execution_record(case, result)['sides']['A']['energy']['relation'] == 'capacity_temperature'
+    old = full_execution_record(case, result)
+    assert old['sides']['A']['energy']['relation'] == 'capacity_temperature'
+    assert 'property_sampling' not in old and 'input_resolution' not in old
 
 
 def test_record_is_immutable_and_survives_file_handoff(tmp_path):
     case, result = evidence('true_h', settings={'energy_algorithm': 'legacy_h_fou'})
+    sampling = [dict(side='B', outer_index=4, stage='thermal_hv', quantity='conductivity',
+                     provider='model_resource', temperature='inlet', pressure='inlet', operation='scalar_evaluation')]
+    resolution = dict(version='prepared_input_v1', source='CaseData.parameters', active_sides=('A', 'B'))
+    result = replace(result, metadata={**result.metadata, 'property_sampling': sampling, 'input_resolution': resolution})
     record = full_execution_record(case, result)
     result = replace(result, metadata={**result.metadata, 'execution_record': record})
+    sampling[0]['temperature'] = 'later edit'
+    assert result.metadata['execution_record']['property_sampling']['records'][0]['temperature'] == 'inlet'
     record['sides']['B']['energy']['relation'] = 'later edit'
     path = tmp_path / 'result.h5'
     save_result(result, path)
     loaded = load_result(path)
     assert loaded.metadata['execution_record'] == result.metadata['execution_record']
+    subprocess.run([sys.executable, '-c',
+        "import sys; from sjtu_tpmshx.io.result_io import load_result; "
+        "r=load_result(sys.argv[1]).metadata['execution_record']; "
+        "assert r['input_resolution']['source']=='CaseData.parameters'; "
+        "assert r['property_sampling']['records'][0]['temperature']=='inlet'; "
+        "assert not any(x in sys.modules for x in ('CoolProp','numba','PySide6'))", str(path)], check=True)
     assert loaded.metadata['execution_record']['sides']['B']['energy']['relation'] == 'eos_h_TP'
     with pytest.raises(TypeError):
         loaded.metadata['execution_record']['sides']['B']['energy']['relation'] = 'edit'

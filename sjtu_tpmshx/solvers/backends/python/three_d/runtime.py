@@ -465,6 +465,7 @@ class _OuterState:
     rho_cp_fA: np.ndarray  # J/(m3 K)
     rho_cp_fB: np.ndarray
     native_evidence: dict[str, object] | None  # detached last thermal state, before post
+    property_sampling: list[dict[str, object]]
 
 
 @dataclass
@@ -1889,8 +1890,21 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
         h_vB_field=np.zeros((Nx, Ny, Nz), dtype=np.float64) if sB is None else None,
         rho_cp_fA=np.full((Nx, Ny, Nz), rho_A * cp_A, dtype=np.float64),
         rho_cp_fB=np.full((Nx, Ny, Nz), rho_B_ltne * cp_B, dtype=np.float64),
-        native_evidence=None,
+        native_evidence=None, property_sampling=[],
     )
+
+    from sjtu_tpmshx.solvers.execution_record import record_property_samples as sample
+    thermal_sampling = []
+    flow_sampling = {'A': [], 'B': []}
+    for label, fluid, solver in (('A', fluid_type_A, sA), ('B', fluid_type_B, sB)):
+        source = 'HEOS' if fluid in ('co2', 'sco2') else 'model_resource'
+        sample(state.property_sampling, label, -1, 'initialize', source, 'inlet', 'inlet',
+               'scalar_evaluation', 'density', 'viscosity', 'conductivity', 'rho_cp', 'dispersion')
+        if solver is not None:
+            sample(flow_sampling[label], label, -1, 'flow', 'ideal_gas' if fluid == 'air' else source,
+                   'inlet', 'current_SIMPLE_absolute' if fluid == 'air' else 'inlet',
+                   'local_evaluation' if fluid == 'air' else 'scalar_evaluation', 'density')
+            sample(flow_sampling[label], label, -1, 'flow', source, 'inlet', 'inlet', 'scalar_evaluation', 'viscosity')
 
     # Warm-start delta tracker (shared with the 2D driver). A2 (2026-07-06):
     # gate on ALL THREE temperature fields — the old ('Ta',)-only criterion
@@ -1966,7 +1980,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
             Ta=state.Ta, Tb=state.Tb, Ts=state.Ts, h_vA=state.h_vA_field, h_vB=state.h_vB_field,
             K_ss=K_ss, outer_index=int(outer), mode=mode,
             true_h=info.get('_native_state') if mode == 'true_h' else None,
-            model_h=info.get('_native_model_h'),
+            model_h=info.get('_native_model_h'), physical_ledger=info.pop('physical_ledger', None),
             mass_A=mass_A, mass_B=mass_B,
             P_thermal_A=pressure_A, P_thermal_B=pressure_B,
             face_velocity_A=faces_A, face_velocity_B=faces_B,
@@ -1976,12 +1990,18 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
     def _refresh_heat_transfer(outer, velocity_A):
         """Refresh each side's h_v and physical inlet masks in real axes."""
         ucA, vcA, wcA = velocity_A
+        thermal_sampling.clear()
         # Rebuild from the latest full vector: turning flow is not stagnation
         # merely because its component normal to the inlet becomes small.
         speed_A = local_speed(ucA, vcA, wcA)
         # D3: sCO2 uses the LOCAL temperature field (lagged Ta) for h_v props;
         # iter-0 Ta is None → scalar T_inA (frozen, = old behaviour).
         _T_hvA = state.Ta if (fluid_type_A in ('sco2', 'co2') and state.Ta is not None) else T_inA
+        local_A = fluid_type_A in ('sco2', 'co2') and state.Ta is not None
+        sample(thermal_sampling, 'A', outer, 'thermal_hv',
+               'HEOS' if fluid_type_A in ('sco2', 'co2') else 'model_resource',
+               'previous_thermal_or_seed' if local_A else 'inlet', 'inlet',
+               'local_evaluation' if local_A else 'scalar_evaluation', 'density', 'viscosity', 'conductivity', 'Pr')
         with range_context(side='A', stage='main', layout='real-cell(x,y,z)-hv-speed'):
             state.h_vA_field = _build_hv_local_3d(
                 L_mm_field, speed_A, _T_hvA, P_inA, fluid_type_A,
@@ -2007,6 +2027,11 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
         if sB is not None:
             speed_B = local_speed(ucB, vcB, wcB)
             _T_hvB = state.Tb if (fluid_type_B in ('sco2', 'co2') and state.Tb is not None) else T_inB
+            local_B = fluid_type_B in ('sco2', 'co2') and state.Tb is not None
+            sample(thermal_sampling, 'B', outer, 'thermal_hv',
+                   'HEOS' if fluid_type_B in ('sco2', 'co2') else 'model_resource',
+                   'previous_thermal_or_seed' if local_B else 'inlet', 'inlet',
+                   'local_evaluation' if local_B else 'scalar_evaluation', 'density', 'viscosity', 'conductivity', 'Pr')
             with range_context(side='B', stage='main', layout='real-cell(x,y,z)-hv-speed'):
                 state.h_vB_field = _build_hv_local_3d(
                     L_mm_field, speed_B, _T_hvB, P_inB, fluid_type_B,
@@ -2114,6 +2139,28 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
                 _coefB = eps_fB_arr * state.rho_cp_fB
                 _balance_stream_outflow([ufB, vfB, wfB], axis_map_B, _coefB, dx, dy, dz)
 
+        for label, fluid, solver, temperature in (
+                ('A', fluid_type_A, sA, state.Ta), ('B', fluid_type_B, sB, state.Tb)):
+            if solver is None:
+                continue
+            stage = 'thermal_warmup' if _enth_gate else 'thermal'
+            sample(thermal_sampling, label, outer, stage, 'outer_property_state',
+                   'previous_thermal_return' if outer else 'inlet', 'inlet', 'copy', 'conductivity')
+            if _var_rhocp and fluid == 'air':
+                sample(thermal_sampling, label, outer, stage, 'model_resource',
+                       'previous_thermal_or_seed' if temperature is not None else 'inlet', 'inlet',
+                       'current_SIMPLE_density_times_cp', 'rho_cp')
+            elif not _model_h_gate:
+                sample(thermal_sampling, label, outer, stage, 'outer_property_state',
+                       'previous_thermal_return' if outer else 'inlet', 'inlet', 'copy', 'rho_cp')
+            sample(thermal_sampling, label, outer, 'thermal', 'HEOS' if _enth_gate else 'model_resource',
+                   'current_thermal_iterate' if _enth_gate or _model_h_gate else 'previous_thermal_return' if outer else 'inlet',
+                   'last_thermal_input_absolute' if _enth_gate else None,
+                   'local_evaluation' if _enth_gate else 'integral_cp_T' if _model_h_gate else 'frozen_capacity_temperature',
+                   'energy_relation')
+            if _enth_gate:
+                sample(thermal_sampling, label, outer, 'thermal', 'HEOS', 'current_thermal_iterate',
+                       'last_thermal_input_absolute', 'local_evaluation', 'conductivity')
         return _ThermalInputs3D(
             velocity_A=(ucA, vcA, wcA),
             faces_A=(ufA, vfA, wfA), faces_B=(ufB, vfB, wfB),
@@ -2401,6 +2448,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
             sA.update_T_field(Ta_sA)
             P_abs = sA.P_ref_abs + sA.P
             if _mA.compressible:
+                sampled_pressure_A = 'current_SIMPLE_absolute'
                 rho_new = P_abs / (R_AIR * Ta_sA)            # ideal gas
                 mu_new_A = air_viscosity(Ta_sA)
             elif (fluid_type_A == 'sco2'
@@ -2411,13 +2459,26 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
                 # the full compressible continuity (∂ρ/∂P in the pressure correction,
                 # Karki-Patankar ψ) is NOT implemented, so high-dP convergence is
                 # unverified by this property switch.
+                sampled_pressure_A = 'previous_SIMPLE_absolute'
                 rho_new = sco2_props.sco2_prop("D", Ta_sA, P_abs)
                 mu_new_A = sco2_props.sco2_prop("V", Ta_sA, P_abs)
             else:
                 # Incompressible registry path. Water ignores P; default sCO2
                 # evaluates ρ(T,P_in) and μ(T,P_in) with pressure frozen.
+                sampled_pressure_A = 'inlet'
                 rho_new = _mA.rho(Ta_sA, P_inA)
                 mu_new_A = _mA.mu(Ta_sA, P_inA)
+        flow_sampling['A'].clear()
+        source = 'HEOS' if fluid_type_A in ('sco2', 'co2') else 'model_resource'
+        mixing = ('Anderson' if state._and_A is not None else 'relax_0.6') if outer else 'local_evaluation'
+        sample(flow_sampling['A'], 'A', outer, 'flow_post', 'ideal_gas' if _mA.compressible else source,
+               'current_thermal_return', sampled_pressure_A,
+               'local_evaluation' if _mA.compressible else mixing,
+               'density')
+        sample(flow_sampling['A'], 'A', outer, 'flow_post', source, 'current_thermal_return',
+               'inlet' if _mA.compressible else sampled_pressure_A,
+               'Anderson' if outer and state._and_A is not None else 'relax_0.6' if outer and not _mA.compressible else 'local_evaluation',
+               'viscosity')
         if outer > 0:
             # Damped-Picard property update — the outer coupling's relaxation.
             # `_and_A` (opt-in, cfg['outer_anderson'], default OFF) replaces the
@@ -2451,6 +2512,8 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
             else:
                 with range_context(side='A', stage='property-refresh', layout='mean'):
                     mu_avg = float(air_viscosity(T_avg))
+                    sample(flow_sampling['A'], 'A', outer, 'pressure_seed', 'model_resource',
+                           'volume_mean_current_thermal_return', None, 'scalar_evaluation', 'viscosity')
                 C_avg = (mu_avg * G_A / max(K_pred, 1e-16)
                          + cF_pred * G_A * G_A)
                 P_out_sq_new = (P_inA ** 2
@@ -2464,6 +2527,8 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
                                           where='3D mean viscosity refresh A')
             with range_context(side='A', stage='property-refresh', layout='mean'):
                 mu_avg = float(_mA.mu(T_avg, P_inA))
+                sample(flow_sampling['A'], 'A', outer, 'pressure_seed', source,
+                       'volume_mean_current_thermal_return', 'inlet', 'scalar_evaluation', 'viscosity')
             C_avg = mu_avg * G_A / max(K_pred, 1e-16) + cF_pred * G_A * G_A
             _sco2_compress = (
                 fluid_type_A == 'sco2'
@@ -2509,7 +2574,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
                       f"iters={_sa_it}  conv={_sa_conv}  "
                       f"(cap={_simple_max_iter(cfg, 600)})")
 
-    def _refresh_thermal_properties():
+    def _refresh_thermal_properties(outer):
         """Refresh conductivity/capacity between the A and B SIMPLE solves."""
         # Refresh fluid-property fields using the *local* T field, keeping
         # the spatial structure built by the zoned-geometry pass up-front
@@ -2543,6 +2608,14 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
                 _rhoA_fld = (air_density(state.Ta, P_inA) if _mA.compressible
                              else _mA.rho(state.Ta, P_inA))
                 state.rho_cp_fA[:] = _rhoA_fld * _cpA_fld
+        sample(state.property_sampling, 'A', outer, 'property_post',
+               'HEOS' if fluid_type_A in ('sco2', 'co2') else 'model_resource',
+               'current_thermal_return', 'inlet', 'side_porosity_times_k_plus_inlet_dispersion', 'conductivity')
+        if not (_var_rhocp and fluid_type_A == 'air' and _mA.compressible):
+            sample(state.property_sampling, 'A', outer, 'property_post',
+                   'HEOS' if fluid_type_A in ('sco2', 'co2') else 'model_resource',
+                   'current_thermal_return', 'inlet',
+                   'current_SIMPLE_density_times_cp' if _var_rhocp and sA is not None else 'local_rho_times_cp', 'rho_cp')
         # h_v rebuilt at top of next outer iter using LOCAL Re (#B fix).
 
         if state.Tb is not None:
@@ -2562,6 +2635,15 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
                 elif not (_var_rhocp and fluid_type_B == 'air' and _mB.compressible
                           and sB is not None):
                     state.rho_cp_fB[:] = _mB.rho(state.Tb, P_inB) * _mB.cp(state.Tb, P_inB)
+            sample(state.property_sampling, 'B', outer, 'property_post',
+                   'HEOS' if fluid_type_B in ('sco2', 'co2') else 'model_resource',
+                   'current_thermal_return', 'inlet', 'side_porosity_times_k_plus_inlet_dispersion', 'conductivity')
+            if not (_var_rhocp and fluid_type_B == 'air' and _mB.compressible and sB is not None):
+                sample(state.property_sampling, 'B', outer, 'property_post',
+                       'HEOS' if fluid_type_B in ('sco2', 'co2') else 'model_resource',
+                       'current_thermal_return', 'inlet',
+                       'current_SIMPLE_density_times_cp' if _mB.compressible and _var_rhocp and sB is not None else 'local_rho_times_cp',
+                       'rho_cp')
             # h_vB rebuilt at top of next outer iter using LOCAL Re (#B fix).
 
     def _refresh_flow_B(outer, _pressure_B):
@@ -2578,6 +2660,16 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
             else:
                 rho_new_B = _mB.rho(Tb_sB, P_inB)   # water ignores P; sco2 (T,P_in)
             mu_new_B = _mB.mu(Tb_sB, P_inB)          # air/water ignore P; sco2 needs P
+        flow_sampling['B'].clear()
+        source = 'HEOS' if fluid_type_B in ('sco2', 'co2') else 'model_resource'
+        mixing = ('Anderson' if state._and_B is not None else 'relax_0.6') if outer else 'local_evaluation'
+        sample(flow_sampling['B'], 'B', outer, 'flow_post', 'ideal_gas' if _mB.compressible else source,
+               'current_thermal_return', 'current_SIMPLE_absolute' if _mB.compressible else 'inlet',
+               'local_evaluation' if _mB.compressible else mixing,
+               'density')
+        sample(flow_sampling['B'], 'B', outer, 'flow_post', source, 'current_thermal_return', 'inlet',
+               'Anderson' if outer and state._and_B is not None else 'relax_0.6' if outer and not _mB.compressible else 'local_evaluation',
+               'viscosity')
         if outer > 0:
             # Mirror of the fluid-A property update above (see comment
             # there). Separate Anderson instance per side: A's blend is
@@ -2611,6 +2703,8 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
             else:
                 with range_context(side='B', stage='property-refresh', layout='mean'):
                     mu_avg_B = float(_mB.mu(Tb_avg))
+                    sample(flow_sampling['B'], 'B', outer, 'pressure_seed', 'model_resource',
+                           'volume_mean_current_thermal_return', None, 'scalar_evaluation', 'viscosity')
                 # Use the B-side permeability / Forchheimer coeff (audit
                 # 2026-06-28): the outer-loop reseed previously used fluid
                 # A's K_pred / cF_pred, inconsistent with the initial B
@@ -2662,7 +2756,7 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
         pressure_B = inlet_pressure_state(sB, P_inB)
         _check_property_water('3D property refresh')
         _refresh_flow_A(outer, pressure_A)
-        _refresh_thermal_properties()
+        _refresh_thermal_properties(outer)
         if sB is not None and state.Tb is not None:
             _refresh_flow_B(outer, pressure_B)
 
@@ -2695,4 +2789,5 @@ def _run_outer_coupling_3d(prob: _Problem3D, hv: _HvMachinery, *,
     if not (sB is not None and any(f in ('sco2', 'co2') for f in (fluid_type_A, fluid_type_B))):
         _record_temperature_state('final', 'real-cell(x,y,z)')
 
+    state.property_sampling = thermal_sampling + flow_sampling['A'] + flow_sampling['B'] + state.property_sampling
     return state

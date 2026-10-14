@@ -74,7 +74,21 @@ Thermal and final-flow state labels remain separate after an outer post-update.
 This record describes the completed execution; it is not a new quality certificate.
 Rejected runs and Quick Design keep their existing contracts.
 Saved records retain this metadata. Reading a historical result does not add it.
-Prepared input resolution and complete property sampling records remain later work.
+The prepared builders also return `input_resolution`, with version `prepared_input_v1`.
+This record identifies validated resources, physical grid sizes, active sides, directions and cell-length units.
+Its input source is `CaseData.parameters`; an edited GUI draft does not change it.
+
+The numerical owners record property sampling under `property_sampling`, with version `full_sampling_v1`.
+Each entry identifies the side, outer index, stage, quantity, provider, temperature source, pressure source and operation.
+The last thermal and flow operations remain separate from initialization and property updates.
+Entries distinguish inlet values, local values, volume averages, relaxation and transfer to a refined thermal grid.
+The 3D true-h record includes its temperature warm-up and its EOS energy solve.
+An inactive B side has no flow or heat-transfer sampling operation.
+The record preserves the different 2D and 3D sampling rules and the retained Python energy relations.
+The native query borrows views from the result owner; Python copies these views before release.
+Current bindings require the added query and report an explicit error for an older native library.
+Saved results retain both records. Historical results retain their original metadata.
+Final applicability and physical quality remain separate decisions.
 
 ## Result qualification by route
 
@@ -133,6 +147,33 @@ converged. Final certificate data are reused without another numerical solve.
 Manufactured-source tests keep their stopping rule because their external
 sources do not obey the source-free LTNE exchange balance. See [capabilities](capabilities.en.md), [model applicability](model-resources.en.md)
 and [data provenance](data-catalog.en.md) for the separate physical scope.
+
+## Physical balance evidence
+
+Full results retain available physical heat audits under `boundary_fluxes.energy`.
+The record version is `physical_heat_ledger_v1`. The existing
+`boundary_fluxes.temperature` record provides the same arrays for its declared transport.
+These records retain signed outward advection and diffusion, source integrals,
+phase residuals, solved-phase flags and prescribed-B reservoir power.
+Residuals use physical RHS minus diagonal times state.
+Units are W/m for 2D and W for 3D. The last thermal state stays separate from later flow updates.
+The refined 2D thermal audit stays under `boundary_fluxes.fine`.
+
+`postprocess.api.evaluate_physical_balance` reads this evidence without solver or EOS calls.
+It returns mass inflow, outflow and divergence, phase residual norms, signed external power,
+and the difference between summed residuals and external power.
+Its diagnostic power scale is the maximum absolute phase net boundary power,
+phase source integral, prescribed reservoir power and one native power unit.
+The output retains this scale and its definition. It does not replace any existing route's acceptance denominator or tolerance.
+An available audit does not establish convergence, applicability or design acceptance.
+
+Native queries borrow arrays from the existing full-result owner.
+The bindings copy these arrays before release. Missing or released owners return an error.
+Cancelled results and routes without a complete captured audit report unavailable evidence.
+True-h retains a ledger only when the existing final audit computed all phase equations.
+The kept Python model-h and true-h paths copy their existing audit results.
+Python capacity-temperature paths without a full face audit remain unavailable.
+Historical files keep missing evidence as missing; the reader does not create a zero balance.
 
 ## Runtime flow
 

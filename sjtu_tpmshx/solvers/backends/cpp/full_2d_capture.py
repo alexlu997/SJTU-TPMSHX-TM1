@@ -40,7 +40,8 @@ def _fine_evidence(fine, balance):
     if fine is None:
         return {}
     evidence = dict(zip(('Ta', 'Tb', 'Ts'), fine['temperature']))
-    evidence.update(dx=fine['dx'], dy=fine['dy'], eps=fine['epsilon'], model_h_balance=balance)
+    evidence.update(dx=fine['dx'], dy=fine['dy'], eps=fine['epsilon'], model_h_balance=balance,
+                    energy=fine.get('physical_ledger'))
     for side, label in enumerate('AB'):
         for prefix, key in (('uc', 'uc'), ('vc', 'vc'), ('rho_cp_', 'rho_cp'),
                             ('inlet_', 'inlet_profile'), ('outlet_', 'outlet_profile')):
@@ -148,6 +149,7 @@ def capture_result(case, cfg, prepared, native):
                 f"mass_local={result['mass']['local_residual']}, "
                 f"mass_global={result['mass']['global_residual']})")
     evidence['pressure'] = pressure_evidence
+    evidence['physical_ledger'] = main.get('physical_ledger')
     if fine is not None and not native['fine_extrapolated']:
         source = '主网格值' if np.any(np.isfinite(native['duty'])) else ('不可用值' if mode == 'model_h' or 'temperature_evidence' in main else '1D 最后兜底值')
         warnings.append(
@@ -213,6 +215,7 @@ def capture_result(case, cfg, prepared, native):
         props=dict(rho_A=r_a['rho'], rho_B=r_b['rho'], mu_A=r_a['mu'], mu_B=r_b['mu']),
         zones=_zone_statistics_2d(cfg['z_axis'], cfg['zone_config'], cfg['za'], cfg['L'], cfg['H'],
             prepared['energy_dx'], prepared['energy_dy'], *main['temperature']))
+    evidence.update(input_resolution=cfg['_input_resolution'], property_sampling=native['property_sampling'])
     result = _capture_result(case, display_fields, evidence, application, diagnostics, backend_id='cpp',
                              backend_version=f"full_2d_v{native.get('entry_version', 2)}")
     if 'native_metadata' in native:

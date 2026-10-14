@@ -246,19 +246,24 @@ void validate(const Full3DInput& in,const Full3DControl& c) {
         throw std::invalid_argument("coarse bootstrap requires a positive iteration cap");
 }
 
-void check_energy_ports(const GridView& g,const Full3DSide& side,const Faces& mass) {
+const char* energy_port_error(const GridView& g,const Full3DSide& side,const Faces& mass) {
     const auto counts=shape(g);
+    const char* error=nullptr;
     for(int axis=0;axis<3;++axis) for(bool high:{false,true})
         boundary(g,axis,high,[&](std::size_t,std::size_t p,std::size_t f,double) {
-            if(mass[axis][f]==0.) return;
-            if(axis!=side.direction/2)
-                throw std::invalid_argument("candidate energy mass crosses a non-port boundary");
+            if(error || mass[axis][f]==0.) return;
+            if(axis!=side.direction/2) {
+                error="candidate energy mass crosses a non-port boundary";return;
+            }
             const std::array<std::size_t,3> coord{p/(g.ny*g.nz),(p/g.nz)%g.ny,p%g.nz};
             const auto q=coord[side.solver_axes[0]]*counts[side.solver_axes[2]]+coord[side.solver_axes[2]];
             const bool inlet=high==static_cast<bool>(side.direction%2);
             if((inlet?side.inlet_opening:side.outlet_opening)[q]==0.)
-                throw std::invalid_argument("candidate energy mass crosses a closed port face");
+                error="candidate energy mass crosses a closed port face";
+            if(!inlet && (high?mass[axis][f]:-mass[axis][f])<0.)
+                error="candidate energy has exterior inflow without a defined inlet state";
         });
+    return error;
 }
 
 Simple3DMaterialView material(const Full3DFlowState& s) {
@@ -441,10 +446,10 @@ struct Runtime {
     void solve_flow(std::size_t s,std::size_t cap,const std::string& stage);
     void check_water(const std::array<Values,3>& t,const std::array<Values,2>& pressure);
     void heat_transfer(std::size_t s,bool warm);
-    Full3DThermalEvidence prepare(bool warm);
+    Full3DThermalEvidence prepare(bool warm,std::size_t outer);
     Full3DOuterRecord solve_thermal(std::size_t outer,Full3DThermalEvidence& evidence);
     void refresh_flow(std::size_t s,std::size_t outer,const std::optional<PressurePortState>& pressure);
-    void refresh_thermal_properties();
+    void refresh_thermal_properties(std::size_t outer);
     void post(std::size_t outer);
     void finish();
     void property_ranges(std::size_t s,const char* source,const char* stage,const char* layout,
@@ -589,6 +594,17 @@ void Runtime::initialize() {
         if(active(s)) initialize_side(s);
         if(control.outer_anderson && active(s)) anderson[s]=std::make_unique<OuterAnderson>(
             static_cast<int>(control.anderson_history),control.anderson_trust,static_cast<int>(control.anderson_patience));
+        record_property_samples(result.property_sampling,s,-1,"initialize",
+            uses_co2_eos(a.fluid)?"HEOS":"model_resource","inlet","inlet","scalar_evaluation",
+            {"density","viscosity","conductivity","rho_cp","dispersion"});
+        if(active(s)) {
+            record_property_samples(result.flow[s].property_sampling,s,-1,"flow",
+                a.fluid==Fluid::air?"ideal_gas":uses_co2_eos(a.fluid)?"HEOS":"model_resource","inlet",
+                a.fluid==Fluid::air?"current_SIMPLE_absolute":"inlet",
+                a.fluid==Fluid::air?"local_evaluation":"scalar_evaluation",{"density"});
+            record_property_samples(result.flow[s].property_sampling,s,-1,"flow",
+                uses_co2_eos(a.fluid)?"HEOS":"model_resource","inlet","inlet","scalar_evaluation",{"viscosity"});
+        }
         conductivity[s].resize(n);rho_cp[s].assign(n,inlet[s].rho*inlet[s].cp);hv[s].assign(n,0.);
         dispersion[s]=a.dispersion>0.?a.dispersion*inlet[s].rho*inlet[s].cp*std::abs(a.inlet_velocity)*input.geometry.reference_hydraulic_diameter:0.;
         for(std::size_t p=0;p<n;++p) conductivity[s][p]=epsilon(s)[p]*inlet[s].k+dispersion[s];
@@ -671,7 +687,7 @@ void Runtime::heat_transfer(std::size_t s,bool warm) {
     if(a.fluid==Fluid::co2)merge_range_observation(result.range_observations,std::move(pr_range));
 }
 
-Full3DThermalEvidence Runtime::prepare(bool warm) {
+Full3DThermalEvidence Runtime::prepare(bool warm,std::size_t outer) {
     Full3DThermalEvidence e;const auto& geo=input.geometry;const auto& g=geo.grid;
     const bool true_h=input.solve_b && (uses_co2_eos(input.a.fluid) || uses_co2_eos(input.b.fluid));
     const bool model_h=g.nz>1 && control.variable_rho_cp && input.solve_b && control.conservative && !geo.asymmetric
@@ -698,6 +714,26 @@ Full3DThermalEvidence Runtime::prepare(bool warm) {
             continue;
         }
         const auto& a=side(s);const auto& flow=result.flow[s];e.face_velocity[s]=flow.face_velocity_real;
+        const auto sample_index=static_cast<std::int64_t>(outer);
+        const char* provider=uses_co2_eos(a.fluid)?"HEOS":"model_resource";
+        record_property_samples(e.property_sampling,s,sample_index,"thermal_hv",provider,
+            uses_co2_eos(a.fluid)&&warm?"previous_thermal_or_seed":"inlet","inlet",
+            uses_co2_eos(a.fluid)&&warm?"local_evaluation":"scalar_evaluation",{"density","viscosity","conductivity","Pr"});
+        record_property_samples(e.property_sampling,s,sample_index,true_h?"thermal_warmup":"thermal",
+            "outer_property_state",outer?"previous_thermal_return":"inlet","inlet","copy",{"conductivity"});
+        if(control.variable_rho_cp && a.fluid==Fluid::air)
+            record_property_samples(e.property_sampling,s,sample_index,true_h?"thermal_warmup":"thermal",
+                "model_resource",warm?"previous_thermal_or_seed":"inlet","inlet",
+                "current_SIMPLE_density_times_cp",{"rho_cp"});
+        else if(!model_h && (!cc || legacy_single_sco2 || true_h))
+            record_property_samples(e.property_sampling,s,sample_index,true_h?"thermal_warmup":"thermal",
+                "outer_property_state",outer?"previous_thermal_return":"inlet","inlet","copy",{"rho_cp"});
+        if(model_h || (cc && !legacy_single_sco2 && !true_h))
+            record_property_samples(e.property_sampling,s,sample_index,"thermal","model_resource",
+                "current_thermal_iterate",nullptr,"integral_cp_T",{"energy_relation"});
+        else if(!true_h)
+            record_property_samples(e.property_sampling,s,sample_index,"thermal","outer_property_state",
+                outer?"previous_thermal_return":"inlet",nullptr,"frozen_capacity_temperature",{"energy_relation"});
         if(model_h||cc) e.mass[s]=mass_faces(g,e.face_velocity[s],epsilon(s),flow.density_real);
         e.inlet_capacity[s]=inlet_capacity(g,a.direction,e.face_velocity[s],epsilon(s),flow.density_real,inlet[s].cp);
         if(control.variable_rho_cp && a.fluid==Fluid::air)
@@ -744,8 +780,9 @@ Full3DOuterRecord Runtime::solve_thermal(std::size_t outer,Full3DThermalEvidence
             e.model_h=solve_model_h_3d(g,
                 {input.a.fluid,view(conductivity[0]),view(hv[0]),view(e.mass[0][0]),view(e.mass[0][1]),view(e.mass[0][2]),ba,input.sources[0]},
                 {input.b.fluid,view(conductivity[1]),view(hv[1]),view(e.mass[1][0]),view(e.mass[1][1]),view(e.mass[1][2]),bb,input.sources[1]},
-                geo.solid_conductivity,input.sources[2],state,mc);
+                geo.solid_conductivity,input.sources[2],state,mc,{},&e.physical_audit.emplace());
             const auto& r=*e.model_h;
+            if (!r.physical_audit_available) e.physical_audit.reset();
             if(r.stop==TemperatureStop::cancelled) throw Cancelled{};
             record.thermal_converged=r.stop==TemperatureStop::converged;record.thermal_iterations=r.iterations;record.thermal_residual=r.residual;
         } else {
@@ -757,7 +794,8 @@ Full3DOuterRecord Runtime::solve_thermal(std::size_t outer,Full3DThermalEvidence
                     {view(conductivity[0]),view(hv[0]),epsilon(0),view(rho_cp[0]),views(e.face_velocity[0]),bc[0],input.sources[0]},
                     {view(conductivity[1]),view(hv[1]),epsilon(1),view(rho_cp[1]),views(e.face_velocity[1]),bc[1],input.sources[1]},
                     geo.solid_conductivity,state,tc,control.conservative,control.red_black_energy,
-                    input.solve_b?ArrayView<const double>{}:view(initial[1]),input.sources[2],true_h);
+                    input.solve_b?ArrayView<const double>{}:view(initial[1]),input.sources[2],true_h,
+                    control.conservative && !true_h ? &e.physical_audit.emplace() : nullptr);
                 r=e.staggered->iteration;
             } else {
                 if(std::any_of(input.sources.begin(),input.sources.end(),[](auto source){
@@ -830,7 +868,7 @@ Full3DOuterRecord Runtime::solve_thermal(std::size_t outer,Full3DThermalEvidence
                         audit_available=solved.physical_audit_available;
                         e.temperature_algorithm="model_h_tface_sou_sou_strict_v3";
                     }
-                    if(audit_available) e.temperature_audit=std::move(audit);
+                    if(audit_available) e.physical_audit=std::move(audit);
                 }
             }
             if(r.stop==TemperatureStop::cancelled) throw Cancelled{};
@@ -861,15 +899,23 @@ Full3DOuterRecord Runtime::solve_thermal(std::size_t outer,Full3DThermalEvidence
             const auto projected=thermal.project_capacity_faces(g,epsilon(s),view(result.flow[s].density_real),views(faces));
             e.mass[s]=mass_faces(g,projected.velocity,epsilon(s),result.flow[s].density_real);
             if(control.enthalpy.algorithm!=EnthalpyAlgorithm::legacy_h_fou)
-                check_energy_ports(g,side(s),e.mass[s]);
+                if(const auto* error=energy_port_error(g,side(s),e.mass[s]))
+                    throw std::invalid_argument(error);
             e.enthalpy[s].resize(temperature[s].size());
         }
         auto c=control.enthalpy;c.cancel=control.cancel;c.context=control.context;
+        for(std::size_t s=0;s<2;++s)
+            record_property_samples(e.property_sampling,s,static_cast<std::int64_t>(outer),"thermal","HEOS",
+                "current_thermal_iterate","last_thermal_input_absolute","local_evaluation",{"energy_relation","conductivity"});
         e.true_h=solve_enthalpy(g,
             {input.a.fluid,input.a.inlet_temperature,input.a.inlet_pressure,view(e.pressure[0]),epsilon(0),view(hv[0]),view(e.mass[0][0]),view(e.mass[0][1]),view(e.mass[0][2]),input.a.direction},
             {input.b.fluid,input.b.inlet_temperature,input.b.inlet_pressure,view(e.pressure[1]),epsilon(1),view(hv[1]),view(e.mass[1][0]),view(e.mass[1][1]),view(e.mass[1][2]),input.b.direction},
-            geo.solid_conductivity,{writable(e.enthalpy[0]),writable(e.enthalpy[1]),writable(temperature[0]),writable(temperature[1]),writable(temperature[2]),true,true,true},c);
+            geo.solid_conductivity,{writable(e.enthalpy[0]),writable(e.enthalpy[1]),writable(temperature[0]),writable(temperature[1]),writable(temperature[2]),true,true,true},c,&e.physical_audit.emplace());
         const auto& r=*e.true_h;if(r.stop==EnthalpyStop::cancelled) throw Cancelled{};
+        if (!r.final_audit || !r.final_audit->fluid_equations_computed) e.physical_audit.reset();
+        if(e.physical_audit) for(std::size_t s=0;s<2;++s)
+            e.physical_audit->boundary_complete=e.physical_audit->boundary_complete
+                && !energy_port_error(g,side(s),e.mass[s]);
         record.thermal_converged=r.stop==EnthalpyStop::converged;record.thermal_iterations=r.iterations;record.thermal_residual=r.residual;
         check_water(temperature,e.pressure);
         for(const auto& t:temperature) if(!finite(t)) throw std::domain_error("nonfinite full 3D true-h return");
@@ -905,6 +951,15 @@ void Runtime::refresh_flow(std::size_t s,std::size_t outer,const std::optional<P
     const auto& a=side(s);auto& flow=result.flow[s];const auto& g=input.geometry.grid;
     const bool air=a.fluid==Fluid::air;
     const bool local_sco2=s==0 && a.fluid==Fluid::sco2 && control.sco2_local_pressure_a;
+    flow.property_sampling.clear();
+    const auto sample_index=static_cast<std::int64_t>(outer);
+    const char* provider=uses_co2_eos(a.fluid)?"HEOS":"model_resource";
+    record_property_samples(flow.property_sampling,s,sample_index,"flow_post",air?"ideal_gas":provider,
+        "current_thermal_return",air?"current_SIMPLE_absolute":local_sco2?"previous_SIMPLE_absolute":"inlet",
+        air?"local_evaluation":outer?(anderson[s]?"Anderson":"relax_0.6"):"local_evaluation",{"density"});
+    record_property_samples(flow.property_sampling,s,sample_index,"flow_post",provider,
+        "current_thermal_return",local_sco2?"previous_SIMPLE_absolute":"inlet",
+        outer&&anderson[s]?"Anderson":outer&&!air?"relax_0.6":"local_evaluation",{"viscosity"});
     auto next_temperature=to_solver(g,a,view(temperature[s]));
     const auto local_grid=grid(flow);
     property_ranges(s,"property","property-refresh","solver-cell(cross1,stream,cross2)",
@@ -944,6 +999,8 @@ void Runtime::refresh_flow(std::size_t s,std::size_t outer,const std::optional<P
             const double mean=cell_average(g,temperature[s]);
             property_ranges(s,"property","property-refresh","mean",{},{&mean,1},2);
             const double mu=props.transport(a.fluid,mean,a.inlet_pressure).mu;
+            record_property_samples(flow.property_sampling,s,sample_index,"pressure_seed",provider,
+                "volume_mean_current_thermal_return","inlet","scalar_evaluation",{"viscosity"});
             const double drag=mu*mass_flux[s]/std::max(drag_k[s],1e-16)+drag_cf[s]*mass_flux[s]*mass_flux[s];
             flow.pressure_reference=pressure_initial_reference(predict_outlet_p_sq(a.inlet_pressure,mean,drag,sum(sg.dy)),
                                                                a.inlet_pressure,flow.pressure_iterations);
@@ -953,6 +1010,8 @@ void Runtime::refresh_flow(std::size_t s,std::size_t outer,const std::optional<P
         property_ranges(s,"property","property-refresh","mean",{},{&mean,1},2);
         if(a.fluid==Fluid::water) props.check_water(mean,a.inlet_pressure);
         const double mu=props.transport(a.fluid,mean,a.inlet_pressure).mu;
+        record_property_samples(flow.property_sampling,s,sample_index,"pressure_seed",provider,
+                "volume_mean_current_thermal_return","inlet","scalar_evaluation",{"viscosity"});
         const double drag=mu*mass_flux[s]/std::max(drag_k[s],1e-16)+drag_cf[s]*mass_flux[s]*mass_flux[s];
         if(local_sco2) {
             const double rho=std::max(cell_average(sg,flow.density),1e-9);
@@ -975,10 +1034,17 @@ void Runtime::refresh_flow(std::size_t s,std::size_t outer,const std::optional<P
     solve_flow(s,control.warm_simple_iterations,"outer"+std::to_string(outer));
 }
 
-void Runtime::refresh_thermal_properties() {
+void Runtime::refresh_thermal_properties(std::size_t outer) {
     const auto& g=input.geometry.grid;
     for(std::size_t s=0;s<2;++s) {
         const auto& a=side(s);
+        record_property_samples(result.property_sampling,s,static_cast<std::int64_t>(outer),"property_post",
+            uses_co2_eos(a.fluid)?"HEOS":"model_resource","current_thermal_return","inlet",
+            "side_porosity_times_k_plus_inlet_dispersion",{"conductivity"});
+        if(!(control.variable_rho_cp && a.fluid==Fluid::air && active(s)))
+            record_property_samples(result.property_sampling,s,static_cast<std::int64_t>(outer),"property_post",
+                uses_co2_eos(a.fluid)?"HEOS":"model_resource","current_thermal_return","inlet",
+                s==0&&control.variable_rho_cp?"current_SIMPLE_density_times_cp":"local_rho_times_cp",{"rho_cp"});
         unsigned mask=4;
         if(s==0 || !(control.variable_rho_cp && a.fluid==Fluid::air && active(s)))mask|=8;
         if((s==0 && !control.variable_rho_cp) || (s==1 && !(control.variable_rho_cp && a.fluid==Fluid::air && active(s))))mask|=1;
@@ -1004,7 +1070,7 @@ void Runtime::post(std::size_t outer) {
     const std::array<Values,2> absolute{result.flow[0].pressure_real,result.flow[1].pressure_real};
     check_water(temperature,absolute);
     refresh_flow(0,outer,pressure[0]);
-    refresh_thermal_properties();
+    refresh_thermal_properties(outer);
     if(input.solve_b) refresh_flow(1,outer,pressure[1]);
 }
 
@@ -1077,7 +1143,7 @@ void Runtime::finish() {
             property_ranges(s,"property_state","final","outlet-cell-face(real-transverse-axes)",
                 {sg.nx,sg.nz},view(outlet),15);
         }
-        if(candidate || result.thermal.temperature_audit) {
+        if(candidate || (result.thermal.temperature_algorithm && result.thermal.physical_audit)) {
             const auto& evidence=result.thermal;
             const int axis=a.direction/2;const bool reverse=a.direction%2;
             double thermal_in=0.,thermal_out=0.,thermal_temperature=0.;
@@ -1091,11 +1157,11 @@ void Runtime::finish() {
             result.inlet_mass[s]=thermal_in;
             result.outlet_temperature[s]=thermal_out>0.?thermal_temperature/thermal_out
                 :std::numeric_limits<double>::quiet_NaN();
-            if(evidence.temperature_audit) {
+            if(evidence.temperature_algorithm && evidence.physical_audit) {
                 double q=0.;
-                for(const auto& plane:evidence.temperature_audit->advective_out[s])
+                for(const auto& plane:evidence.physical_audit->advective_out[s])
                     for(double value:plane) q-=value;
-                result.duty[s]=evidence.temperature_audit->boundary_complete?std::abs(q)
+                result.duty[s]=evidence.physical_audit->boundary_complete?std::abs(q)
                     :std::numeric_limits<double>::quiet_NaN();
             } else result.duty[s]=std::abs(s==0?evidence.true_h->q_a:evidence.true_h->q_b);
         } else if(true_h_pair) {
@@ -1143,7 +1209,7 @@ Full3DResult solve_full_3d(const Full3DInput& input,const Full3DControl& control
             cancel(control);
             if(control.outer_iteration)control.outer_iteration(control.context,outer+1,control.max_outer);
             if(control.progress) control.progress(control.context,10.+80.*static_cast<double>(outer)/control.max_outer);
-            auto evidence=runtime.prepare(outer>0 || control.initial_solid_temperature.has_value());
+            auto evidence=runtime.prepare(outer>0 || control.initial_solid_temperature.has_value(),outer);
             auto record=runtime.solve_thermal(outer,evidence);
             // Detach the completed thermal state before either post update.
             runtime.result.thermal=std::move(evidence);

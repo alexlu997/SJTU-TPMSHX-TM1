@@ -1,10 +1,12 @@
 #ifndef TPMSHX_FULL_2D_C_API_H
 #define TPMSHX_FULL_2D_C_API_H
+#include "tpmshx/property_sampling_c_api.h"
 #include "tpmshx/simple_2d_c_api.h"
 #include "tpmshx/model_h_c_api.h"
 #include "tpmshx/enthalpy_driver_c_api.h"
 #include "tpmshx/closure_evidence_c_api.h"
 #include "tpmshx/temperature_evidence_c_api.h"
+#include "tpmshx/physical_ledger_c_api.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -187,6 +189,16 @@ typedef struct {
  * thermal evidence in W/m. Release views with the full_2d_release_v2 owner. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_model_enthalpy_evidence_v1(
     const tpmshx_full_2d_result_v2*,tpmshx_full_2d_model_enthalpy_evidence_v1*);
+/* No solver, EOS or allocation. Invalid/null/released owners return 1 and
+ * preserve output. Cancellation or missing evidence returns available=0.
+ * Views remain valid only while the full result owner is alive. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_physical_heat_ledger_v1(
+    const tpmshx_full_2d_result_v2*,tpmshx_full_2d_physical_heat_ledger_v1*);
+/* Borrow recorded sampler choices from the live result owner. No numerical work.
+ * Cancelled results return an empty view. Invalid or released arguments return 1
+ * and preserve output. Copy the strings before the result owner is released. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_property_sampling_v1(
+    const tpmshx_full_2d_result_v2*,tpmshx_property_sampling_v1*);
 #ifdef __cplusplus
 }
 #endif

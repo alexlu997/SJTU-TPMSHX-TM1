@@ -20,7 +20,7 @@ from sjtu_tpmshx.domain.compute_config import (
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.io.case_io import save_case, load_case
 from sjtu_tpmshx.io.result_io import save_result, load_result
-from sjtu_tpmshx.postprocess.api import evaluate
+from sjtu_tpmshx.postprocess.api import evaluate, evaluate_physical_balance
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.solvers.backends.cpp.full_2d import NativeFull2DDriver
@@ -158,6 +158,10 @@ def test_saved_case_result_new_process_replay(driver, capped, tmp_path):
     case_path, result_path = tmp_path / 'case.h5', tmp_path / 'result.h5'
     save_case(case, case_path)
     save_result(result, result_path)
+    audit = evaluate_physical_balance(result)['energy']
+    assert audit['status'] == 'available' and audit['units'] == 'W/m'
+    assert abs(audit['telescoping_error']) < 2e-7
+    assert evaluate_physical_balance(load_result(result_path))['energy'] == audit
     assert load_case(case_path).parameters['run_settings']['solver']['enthalpy_algorithm'] == \
         cfg['compute_cfg'].solver.enthalpy_algorithm
     assert evaluate(load_result(result_path)).metrics == evaluate(result).metrics
@@ -165,7 +169,7 @@ def test_saved_case_result_new_process_replay(driver, capped, tmp_path):
 import sys
 from sjtu_tpmshx.io.case_io import load_case
 from sjtu_tpmshx.io.result_io import load_result
-from sjtu_tpmshx.postprocess.api import evaluate
+from sjtu_tpmshx.postprocess.api import evaluate, evaluate_physical_balance
 from sjtu_tpmshx.workflows.cli import main
 old = load_result(sys.argv[2])
 assert main(['solve',sys.argv[1],sys.argv[3],'--backend','cpp','--native-library',sys.argv[4],

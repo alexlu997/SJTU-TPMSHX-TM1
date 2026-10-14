@@ -200,7 +200,7 @@ def _compute_Q_richardson(
         T_inA, T_inB, P_inA_val, P_inB_val, eps, za, coeffs,
         _pA, _pB, cfgA, cfgB, u_A, u_B, warnings_list,
         h_vA_coarse, h_vB_coarse, split_A=0.5, cancel_check=None,
-        model_inputs=None, model_balance=None, evidence=None):
+        model_inputs=None, model_balance=None, evidence=None, property_sampling=None, outer_index=-1):
     """Heat duty Q via Richardson extrapolation on the enthalpy balance.
 
     Re-solves the coupled energy field on a 2x-refined grid, applies
@@ -347,6 +347,27 @@ def _compute_Q_richardson(
         inlet_flux_B2 = (_refined_inlet(
             simpB, dir_B, _pB.cp(T_inB, P_inB_val), 1. - split_A)
             if model_inputs is None else None)
+    if property_sampling is not None:
+        from sjtu_tpmshx.solvers.execution_record import record_property_samples as sample
+        for side, props, capacity in (('A', _pA, rho_cp_A), ('B', _pB, rho_cp_B)):
+            if props.name == 'water':
+                sample(property_sampling, side, outer_index, 'refined_water_guard', 'coarse_thermal_input',
+                       None, None, 'interpolate', 'pressure')
+            if np.ndim(capacity) == 0:
+                sample(property_sampling, side, outer_index, 'refined_thermal', 'model_resource',
+                       'inlet', 'inlet', 'scalar_evaluation', 'rho_cp')
+            sample(property_sampling, side, outer_index, 'refined_thermal', 'coarse_thermal_input',
+                   None, None, 'interpolate', 'hv', 'rho_cp')
+            sample(property_sampling, side, outer_index, 'refined_thermal',
+                   'coarse_thermal_input' if model_inputs is not None else 'prepared_property_state',
+                   'inlet', 'inlet', 'interpolate' if model_inputs is not None or za is not None and 'eps_arr' in za else 'broadcast',
+                   'conductivity')
+            if model_inputs is None:
+                sample(property_sampling, side, outer_index, 'refined_inlet_transport', 'model_resource',
+                       'inlet', 'inlet', 'scalar_evaluation', 'cp')
+            sample(property_sampling, side, outer_index, 'refined_thermal', 'model_resource',
+                   'current_thermal_iterate' if model_inputs is not None else 'coarse_thermal_property_state', None,
+                   'integral_cp_T' if model_inputs is not None else 'frozen_capacity_temperature', 'energy_relation')
     Ta2, Tb2, Ts2, refined_info = solve_full_domain(
         L, H, Nx2, Ny2, T_inA, T_inB,
         K_ffA2_use, K_ffB2_use, K_ss2, h_vA2, h_vB2,
@@ -373,7 +394,8 @@ def _compute_Q_richardson(
                         ucA=ucA2, vcA=vcA2, ucB=ucB2, vcB=vcB2,
                         rho_cp_A=rcp_A2, rho_cp_B=rcp_B2, eps=eps2,
                         inlet_A=mA_in2, outlet_A=mA_out2, inlet_B=mB_in2, outlet_B=mB_out2,
-                        model_h_balance=refined_info.get('model_h_balance'))
+                        model_h_balance=refined_info.get('model_h_balance'),
+                        energy=refined_info.pop('physical_ledger', None))
     richardson_info = dict(refined_info, extrapolated=False)
     refined_ok = bool(refined_info['converged'] and all(
         np.all(np.isfinite(field)) for field in (Ta2, Tb2, Ts2)))
@@ -779,6 +801,15 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
         state.rho_cp_A = _pA.rho(T_inA, P_inA_val) * _pA.cp(T_inA, P_inA_val)
     with range_context(side='B', stage='inlet', layout='scalar'):
         state.rho_cp_B = _pB.rho(T_inB, P_inB_val) * _pB.cp(T_inB, P_inB_val)
+    from sjtu_tpmshx.solvers.execution_record import record_property_samples as sample
+    property_sampling = []
+    flow_sampling, thermal_sampling = [], []
+    for side, provider in (('A', _pA), ('B', _pB)):
+        source = 'HEOS' if provider.name in ('sco2', 'co2') else 'model_resource'
+        sample(property_sampling, side, -1, 'initialize', source, 'inlet', 'inlet',
+               'scalar_evaluation', 'density', 'rho_cp')
+        sample(property_sampling, side, -1, 'initialize', 'prepared_property_state',
+               'inlet', 'inlet', 'copy', 'viscosity')
     native_evidence = {}
     fine_evidence = {}
 
@@ -811,6 +842,16 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
         """Rebuild both flows and join both workers before propagating errors."""
         # Step 1: SIMPLE velocity with current rho field. Pass Ta/Tb after
         # first outer iter so SIMPLE _update_density uses local T (not stale T_in).
+        flow_sampling.clear()
+        for side, provider in (('A', _pA), ('B', _pB)):
+            air = provider.name == 'air'
+            lagged = 'previous_thermal_return' if _coup_it else 'inlet'
+            sample(flow_sampling, side, _coup_it, 'flow', 'ideal_gas' if air else 'outer_property_state',
+                   lagged, 'current_SIMPLE_absolute' if air else 'previous_thermal_absolute' if _coup_it else 'inlet',
+                   'local_evaluation' if air else 'copy_density', 'density')
+            sample(flow_sampling, side, _coup_it, 'flow', 'model_resource' if air else 'outer_property_state',
+                   lagged, 'inlet' if air or not _coup_it else 'previous_thermal_absolute',
+                   'local_evaluation' if air else 'copy_viscosity', 'viscosity')
         _Ta_for_simpA = state.Ta if _coup_it > 0 else None
         _Tb_for_simpB = state.Tb if _coup_it > 0 else None
         # 2026-05-09 (option B) — incompressible fluids run SIMPLE with
@@ -945,6 +986,26 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
         L_field_2d = None
         if zone_config is not None and za is not None:
             L_field_2d = za['L_field']
+        thermal_sampling.clear()
+        for side, provider in (('A', _pA), ('B', _pB)):
+            eos = provider.name in ('sco2', 'co2')
+            source = 'HEOS' if eos else 'model_resource'
+            lagged = 'previous_thermal_return' if _coup_it else 'inlet'
+            if _enthalpy_mode:
+                sample(thermal_sampling, side, _coup_it, 'thermal_hv', source, lagged, 'inlet',
+                       'local_evaluation' if eos else 'volume_mean_after_evaluation', 'density', 'viscosity')
+                sample(thermal_sampling, side, _coup_it, 'thermal_hv', source, lagged, 'inlet',
+                       'local_evaluation' if eos else 'evaluation_at_volume_mean_temperature', 'conductivity', 'Pr')
+            else:
+                sample(thermal_sampling, side, _coup_it, 'thermal_hv', 'outer_property_state', lagged,
+                       'previous_thermal_absolute' if _coup_it else 'inlet', 'volume_mean', 'density', 'viscosity')
+                sample(thermal_sampling, side, _coup_it, 'thermal_hv', source, 'inlet', 'inlet',
+                       'scalar_evaluation', 'conductivity', 'Pr')
+                sample(thermal_sampling, side, _coup_it, 'thermal', 'prepared_property_state', 'inlet', 'inlet',
+                       'copy_with_side_porosity_ratio' if _asym_2d else 'copy', 'conductivity')
+            if _asym_2d:
+                sample(thermal_sampling, side, _coup_it, 'thermal_hv_ratio', source, 'inlet', 'inlet',
+                       'scalar_evaluation', 'density', 'viscosity', 'Pr')
         if _enthalpy_mode:
             _g_hv = cfg['thermal_geometry']['uniform' if L_field_2d is None else 'fields']
             _Ta_hv = (state.Ta if state.Ta is not None
@@ -1038,6 +1099,16 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
 
     def _solve_thermal(_coup_it, inputs, P_abs_A, P_abs_B, simple_temperatures):
         """Keep true-h and model-h/temperature route qualifications unchanged."""
+        for side in ('A', 'B'):
+            sample(thermal_sampling, side, _coup_it, 'thermal', 'HEOS' if _enthalpy_mode else 'model_resource',
+                   'current_thermal_iterate' if _enthalpy_mode or _model_h_mode else 'previous_thermal_return' if _coup_it else 'inlet',
+                   'last_thermal_input_absolute' if _enthalpy_mode else None,
+                   'local_evaluation' if _enthalpy_mode else 'integral_cp_T' if _model_h_mode else 'frozen_capacity_temperature',
+                   'energy_relation')
+        if _enthalpy_mode:
+            for side in ('A', 'B'):
+                sample(thermal_sampling, side, _coup_it, 'thermal', 'HEOS', 'current_thermal_iterate',
+                       'last_thermal_input_absolute', 'local_evaluation', 'conductivity')
         h_vA_local, h_vB_local = inputs.h_vA, inputs.h_vB
         _Kffa_use, _Kffb_use, _Kss_src = inputs.K_ffA, inputs.K_ffB, inputs.K_ss
         _eps_src, _epsA_use, _epsB_use = inputs.eps, inputs.eps_A, inputs.eps_B
@@ -1220,12 +1291,20 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
         _solve_thermal(_coup_it, inputs, P_abs_A, P_abs_B, simple_temperatures)
         _validate_thermal_return(P_abs_A, P_abs_B, simple_temperatures)
         new_properties = _refresh_thermal_properties(P_abs_A, P_abs_B)
+        for side, provider in (('A', _pA), ('B', _pB)):
+            sample(property_sampling, side, _coup_it, 'property_refresh',
+                   'HEOS' if provider.name in ('sco2', 'co2') else 'model_resource',
+                   'current_thermal_return', 'last_thermal_input_absolute', 'local_evaluation',
+                   'density', 'rho_cp', 'viscosity')
         outer_ok = _check_outer_convergence(_coup_it, new_properties)
         return outer_ok and bool(state.e_info.get('converged', False)), new_properties
 
     def _post_2d(_coup_it, _carry):
         (rho_A_field_new, rho_B_field_new,
          rho_cp_A_new, rho_cp_B_new) = _carry
+        for side in ('A', 'B'):
+            sample(property_sampling, side, _coup_it, 'property_post', 'outer_property_state',
+                   'current_thermal_return', 'last_thermal_input_absolute', 'outer_relaxation', 'density', 'rho_cp')
         # Rebind; Richardson retains the capacities from the last thermal call.
         state.rho_A_field = _ALPHA_COUP * rho_A_field_new + (1 - _ALPHA_COUP) * state.rho_A_field
         state.rho_B_field = _ALPHA_COUP * rho_B_field_new + (1 - _ALPHA_COUP) * state.rho_B_field
@@ -1347,7 +1426,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
             h_vA_coarse=hv_A_energy, h_vB_coarse=hv_B_energy,
             split_A=_split_A_2d,
             cancel_check=cancel_check, model_inputs=state.last_model_inputs, model_balance=model_balance,
-            evidence=fine_evidence)
+            evidence=fine_evidence, property_sampling=property_sampling, outer_index=_last_coup)
 
     # ΔP: always from SIMPLE converged P fields (dP_A, dP_B set above at line 580-581
     # via inlet/outlet-weighted SIMPLE pressure averages). Previously this block
@@ -1359,6 +1438,7 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
         Ta=Ta_raw, Tb=Tb_raw, Ts=Ts_raw,
         P_report_A=np.array(P_fA, copy=True), P_report_B=np.array(P_fB, copy=True),
         fine=fine_evidence, true_h=state.e_info.get('_native_state'),
+        physical_ledger=state.e_info.pop('physical_ledger', None),
         model_h_balance=model_balance, mode=('true_h' if _enthalpy_mode else
                                             'model_h' if _model_h_mode else 'temperature'),
         split_A=float(_split_A_2d), rho_cp_A=None if _enthalpy_mode else rcp_A_energy,
@@ -1526,4 +1606,5 @@ def _run_solvers(cfg, fields, control: RunControl = RunControl()) -> tuple[dict,
         coeffs=coeffs,
         props=dict(rho_A=rA['rho'], rho_B=rB['rho'], mu_A=rA['mu'], mu_B=rB['mu']),
         zones=zones)
+    native_evidence['property_sampling'] = thermal_sampling + flow_sampling + property_sampling
     return display_fields, native_evidence, application, diagnostics

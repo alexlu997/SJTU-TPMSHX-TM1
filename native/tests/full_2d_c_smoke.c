@@ -5,6 +5,7 @@
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 static int cancelled(void* context) { (void)context; return 1; }
 static void expect_invalid_port(const size_t* shape,const double* const* arrays,const size_t* sizes,
@@ -68,6 +69,7 @@ int main(void) {
     tpmshx_full_2d_result_v2 result={0}; char error[1024];
     const tpmshx_energy_options_v1 energy={TPMSHX_ENERGY_LEGACY_H_FOU,1e-8};
     tpmshx_full_2d_energy_evidence_v1 evidence={0};
+    tpmshx_full_2d_physical_heat_ledger_v1 heat={0};
     tpmshx_full_2d_energy_effective_settings_v1 settings={0};
     assert(tpmshx_full_2d_abi_version()==2);
     /* ABI 2 requires the original prepared Nu ratio, without reconstructing
@@ -104,6 +106,17 @@ int main(void) {
     /* Equal inlet/initial temperatures are the independent zero-duty solution
        on both main and refined grids, without an EOS or Python oracle. */
     assert(result.converged && result.have_fine && result.fine_extrapolated);
+    assert(tpmshx_full_2d_get_physical_heat_ledger_v1(&result,&heat)==0);
+    tpmshx_property_sampling_v1 sampling={0};
+    assert(tpmshx_full_2d_get_property_sampling_v1(&result,&sampling)==0 && sampling.count>0);
+    int found_refined=0;
+    for(size_t i=0;i<sampling.count;++i) {
+        assert(sampling.records[i].side<2 && sampling.records[i].stage && sampling.records[i].quantity);
+        if(strcmp(sampling.records[i].stage,"refined_thermal")==0) found_refined=1;
+    }
+    assert(found_refined);
+    assert(tpmshx_full_2d_get_property_sampling_v1(&result,NULL)==1);
+    assert(tpmshx_full_2d_get_property_sampling_v1(NULL,&sampling)==1);
     assert(tpmshx_full_2d_get_energy_effective_settings_v1(&result,&settings)==0);
     assert(!settings.resolved.available && !settings.last.available && settings.outer_count==result.outer_history_count);
     for(size_t i=0;i<settings.outer_count;++i) assert(!settings.outer[i].available);
@@ -117,6 +130,8 @@ int main(void) {
     const double saved=result.main.dx.data[0]; widths[0]=.123;
     assert(result.main.dx.data[0]==saved); widths[0]=saved;
     tpmshx_full_2d_release_v2(&result); assert(result.owner==NULL);
+    sampling.count=123;
+    assert(tpmshx_full_2d_get_property_sampling_v1(&result,&sampling)==1 && sampling.count==123);
     tpmshx_full_2d_release_v2(&result);
     /* A complete nonzero heat-exchange solve must also finish independently
        of Python, including the refined final certificate. */
@@ -124,6 +139,7 @@ int main(void) {
     status=tpmshx_solve_full_2d_v3(shape,arrays,sizes,&config,&energy,NULL,&result,error,sizeof(error));
     if(status) {fprintf(stderr,"%s\n",error);return 1;}
     assert(result.converged && result.have_fine && result.fine_extrapolated);
+    assert(tpmshx_full_2d_get_physical_heat_ledger_v1(&result,&heat)==0);
     assert(isfinite(result.q_total) && result.q_total>0.);
     for(size_t stage=0;stage<2;++stage) {
         const tpmshx_full_2d_thermal_v2* t=stage?&result.fine:&result.main;
@@ -132,6 +148,23 @@ int main(void) {
             assert(isfinite(value) && value>=300.-1e-9 && value<=350.+1e-9);
         }
         assert(t->model_h.plane.passed);
+        const tpmshx_physical_heat_ledger_v1* ledger=stage?&heat.fine:&heat.main;
+        assert(ledger->available && ledger->physical_dimension==2 && ledger->boundary_complete);
+        double residual=0.,external=ledger->prescribed_b_power;
+        for(size_t phase=0;phase<3;++phase) {
+            assert(ledger->solved[phase] && ledger->residual[phase].size==t->temperature[phase].size);
+            external+=ledger->source_integral[phase];
+            for(size_t i=0;i<ledger->residual[phase].size;++i) residual+=ledger->residual[phase].data[i];
+            for(size_t face=0;face<6;++face) {
+                const size_t expected=face<2?t->dy.size:face<4?t->dx.size:t->dx.size*t->dy.size;
+                assert(ledger->advective_out[phase][face].size==expected);
+                assert(ledger->diffusive_out[phase][face].size==expected);
+                for(size_t i=0;i<expected;++i)
+                    external-=ledger->advective_out[phase][face].data[i]+ledger->diffusive_out[phase][face].data[i];
+            }
+        }
+        assert(fabs(residual-external)<1e-7);
+
     }
     /* The additive entry preserves legacy results and exposes no candidate
        arrays; its query borrows the same owner released by the ABI 2 call. */
@@ -143,6 +176,8 @@ int main(void) {
     for(size_t i=0;i<evidence.outer_count;++i)
         assert(evidence.outer[i].algorithm==TPMSHX_ENERGY_LEGACY_H_FOU && !evidence.outer[i].has_temperature_update);
     tpmshx_full_2d_release_v2(&result);
+    heat.main.available=123;
+    assert(tpmshx_full_2d_get_physical_heat_ledger_v1(&result,&heat)==1 && heat.main.available==123);
     evidence.main.available=123;
     assert(tpmshx_full_2d_get_energy_evidence_v1(&result,&evidence)==1 && evidence.main.available==123);
     tpmshx_full_2d_callbacks_v2 cb={cancelled,NULL,NULL,NULL};
@@ -157,6 +192,9 @@ int main(void) {
     }
     assert(tpmshx_solve_full_2d_v2(shape,arrays,sizes,&config,&cb,&result,error,sizeof(error))==0);
     assert(result.cancelled && !result.converged);
+    assert(tpmshx_full_2d_get_physical_heat_ledger_v1(&result,&heat)==0);
+    assert(!heat.main.available && !heat.fine.available);
+    assert(tpmshx_full_2d_get_property_sampling_v1(&result,&sampling)==0 && sampling.count==0);
     assert(tpmshx_full_2d_get_energy_effective_settings_v1(&result,&settings)==0);
     assert(!settings.resolved.available && !settings.last.available && !settings.outer_count);
     tpmshx_full_2d_release_v2(&result);
@@ -170,6 +208,9 @@ int main(void) {
         assert(tpmshx_full_2d_get_energy_effective_settings_v1(&result,&settings)==0);
         assert(settings.resolved.available && settings.last.available && settings.outer_count==result.outer_history_count);
         assert(settings.last.algorithm==algorithm && settings.last.max_iterations==2);
+        assert(tpmshx_full_2d_get_physical_heat_ledger_v1(&result,&heat)==0);
+        assert(heat.main.available && !heat.fine.available && heat.main.physical_dimension==2);
+        assert(heat.main.residual[0].size==result.main.temperature[0].size);
         assert(settings.last.update_tolerance==.013 && settings.last.temperature_update_tolerance==2e-8);
         assert(settings.last.sweeps==(algorithm?5u:3u) && settings.last.omega==(algorithm==2?.2:.6));
         for(size_t i=0;i<settings.outer_count;++i) {

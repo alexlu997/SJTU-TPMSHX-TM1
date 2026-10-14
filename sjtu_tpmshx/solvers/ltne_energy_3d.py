@@ -506,7 +506,8 @@ def _model_h_balance(temperatures, Ts, masses, coefficients, directions, inlets,
                   mass_source='completed SIMPLE raw faces before capacity balance/MAC',
                   thermal_state='last returned temperatures; nonlinear model h and temperature SOU',
                   sides={}, _native_faces={})
-    residuals = []
+    from .physical_ledger import FACE_NAMES, boundary_zeros, heat_ledger
+    residuals, diffusion = [], []
     exchange_fields = []
     for side, T, mass, coeff, direction, Tin, mask, K, hv, eps, source in zip(
             ('A', 'B'), temperatures, masses, coefficients, directions, inlets,
@@ -536,6 +537,9 @@ def _model_h_balance(temperatures, Ts, masses, coefficients, directions, inlets,
                     unknown_inflow_count=int(unknown.sum()),
                     inlet_reverse_outward_mass_kg_s=float(outward_mass[patch & ~inflow].sum()))
         result['_native_faces'][side] = native_faces
+        diff = boundary_zeros(T.shape)
+        diff[FACE_NAMES[direction]] = -inlet_diffusion
+        diffusion.append(diff)
         complete = all(f['unknown_inflow_count'] == 0 for f in faces.values())
         convective_inward = -sum(f['outward_model_h_W'] for f in faces.values())
         diffusion_inward = float(inlet_diffusion.sum())
@@ -565,6 +569,10 @@ def _model_h_balance(temperatures, Ts, masses, coefficients, directions, inlets,
     explicit = float(((sources[0]+sources[1]+solid_source)*volume).sum())
     complete = all(s['physical_boundary_complete'] for s in result['sides'].values())
     result.update(
+        _physical_ledger=heat_ledger(
+            (-residuals[0], -residuals[1], -rsolid),
+            tuple(result['_native_faces'][side] for side in ('A', 'B')), diffusion,
+            tuple(float((source*volume).sum()) for source in (*sources, solid_source)), complete),
         physical_boundary_complete=complete,
         numerical_external_inward_W=external,
         physical_external_inward_W=external if complete else None,
@@ -1034,6 +1042,7 @@ def solve_full_domain_3d(L, H, D, Nx, Ny, Nz,
         info.update(model_info if model_info is not None else model_h_info())
         info['energy_finishing_checks'] = energy_checks
         info['_native_model_h'] = info['model_h_balance'].pop('_native_faces')
+        info['physical_ledger'] = info['model_h_balance'].pop('_physical_ledger')
     if return_info:
         return Ta, Tb, Ts, info
     return Ta, Tb, Ts

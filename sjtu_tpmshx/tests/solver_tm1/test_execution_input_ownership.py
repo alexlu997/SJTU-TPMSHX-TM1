@@ -19,6 +19,12 @@ def test_native_design_is_readonly_while_public_builder_detaches(dimension):
     execution = execution_2d if dimension == 2 else execution_3d
     copied = execution.build_execution_inputs(case)
     borrowed = execution.build_execution_inputs(case, copy_design=False)
+    resolution = copied[0]['_input_resolution']
+    assert resolution == borrowed[0]['_input_resolution']
+    assert resolution['grid_shape'] == tuple(len(case.grid['d' + axis]) for axis in 'xyz'[:dimension])
+    assert resolution['fluids'] == {side: case.model_refs[case.metadata['model_roles']['fluid_' + side]].parameters['fluid'] for side in 'AB'}
+    changed_draft = replace(case, config_snapshot={'unrelated_gui_draft': True})
+    assert execution.build_execution_inputs(changed_draft)[0]['_input_resolution'] == resolution
     copies = copied[0]['za'] if dimension == 2 else copied[1]['design']
     views = borrowed[0]['za'] if dimension == 2 else borrowed[1]['design']
     for key, source in case.design_fields.items():
