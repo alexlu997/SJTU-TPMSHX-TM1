@@ -273,12 +273,12 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_model_enthalpy_evidence_v1
     const auto& r=static_cast<const Owner*>(result->owner)->result;
     tpmshx_full_2d_model_enthalpy_evidence_v1 out{};
     if(!r.cancelled) {
-        if(r.thermal.temperature_audit)
-            out.main=model_enthalpy_c_view(*r.thermal.temperature_audit,
+        if(r.thermal.temperature_algorithm && r.thermal.physical_audit)
+            out.main=model_enthalpy_c_view(*r.thermal.physical_audit,
                 r.thermal.temperature_cp_coefficients,r.thermal.temperature_algorithm,2);
-        if(r.refined && r.refined->thermal.temperature_audit) {
+        if(r.refined && r.refined->thermal.temperature_algorithm && r.refined->thermal.physical_audit) {
             const auto& f=r.refined->thermal;
-            out.fine=model_enthalpy_c_view(*f.temperature_audit,
+            out.fine=model_enthalpy_c_view(*f.physical_audit,
                 f.temperature_cp_coefficients,f.temperature_algorithm,2);
         }
     }
@@ -292,6 +292,19 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_last_closure_ranges_v1(
     *ranges={owner.result.cancelled?nullptr:owner.last_ranges.data(),
              owner.result.cancelled?0:owner.last_ranges.size()};
     return 0;
+}
+
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_physical_heat_ledger_v1(
+    const tpmshx_full_2d_result_v2* result,tpmshx_full_2d_physical_heat_ledger_v1* evidence) {
+    if(!result || !result->owner || !evidence)return 1;
+    const auto& r=static_cast<const Owner*>(result->owner)->result;
+    tpmshx_full_2d_physical_heat_ledger_v1 out{};
+    if(!r.cancelled) {
+        if(r.thermal.physical_audit) out.main=physical_ledger_c_view(*r.thermal.physical_audit,2);
+        if(r.refined && r.refined->thermal.physical_audit)
+            out.fine=physical_ledger_c_view(*r.refined->thermal.physical_audit,2);
+    }
+    *evidence=out;return 0;
 }
 
 extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_property_sampling_v1(

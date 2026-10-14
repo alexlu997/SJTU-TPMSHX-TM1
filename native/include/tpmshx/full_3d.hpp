@@ -148,7 +148,7 @@ struct Full3DThermalEvidence {
     // Same-state existing model h(T) and physical W ledger, including Nz=1.
     std::array<std::array<double,5>,2> temperature_cp_coefficients{};
     const char* temperature_algorithm=nullptr;
-    std::optional<PhysicalHeatLedger> temperature_audit;
+    std::optional<PhysicalHeatLedger> physical_audit;
 };
 
 struct Full3DOuterRecord {

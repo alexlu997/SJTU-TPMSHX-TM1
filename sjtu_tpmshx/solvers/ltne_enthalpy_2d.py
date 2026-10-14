@@ -46,4 +46,8 @@ def solve_enthalpy_2d(
         equation_energy_tol=0.001,
     )
     Ta, Tb, Ts, info = result
+    if 'physical_ledger' in info:
+        ledger = info['physical_ledger']
+        ledger.update(physical_dimension=2, power_units='W/m')
+        ledger['residual'] = {side: field[..., 0] for side, field in ledger['residual'].items()}
     return Ta[..., 0], Tb[..., 0], Ts[..., 0], info

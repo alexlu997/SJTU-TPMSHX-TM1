@@ -16,7 +16,7 @@ from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.domain.run_warnings import RangeRecord, warning_scope
 from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.postprocess.api import evaluate
+from sjtu_tpmshx.postprocess.api import evaluate, evaluate_physical_balance
 from sjtu_tpmshx.solvers.backends.python.three_d.execution import run_case as python_run
 from sjtu_tpmshx.solvers.api import run_case as cpp_run
 from sjtu_tpmshx.tests.native.test_native_execution import _config
@@ -189,6 +189,9 @@ def test_public_case_fields_native_ledgers_and_postprocess(native_path,pair):
     assert actual.metadata['execution_record']['property_sampling']['version'] == 'full_sampling_v1'
     for result in (actual,expected):
         _physical_gates(result)
+        audit = evaluate_physical_balance(result)['energy']
+        assert audit['status'] == 'available'
+        assert abs(audit['telescoping_error']) < 1e-6
     for key in ('fields','field_metadata','boundary_fluxes','pressure_evidence','run_status'):
         compare(getattr(actual,key),getattr(expected,key),key,engineering=True)
     for key in ('model_metadata','application','reporting_reference','df_metadata'):
@@ -398,6 +401,12 @@ def test_prepared_spatial_and_asymmetric_geometry(native_path,design_mode):
         cfg=replace(cfg,geometry=replace(cfg.geometry,delta_levelset=.05))
     prepared=prepare_case(cfg,case_id='native-'+design_mode)
     a=cpp_run(prepared,control(native_path));e=python_run(prepared)
+    if design_mode == 'asymmetric':
+        audit = evaluate_physical_balance(a)['energy']
+        assert audit['status'] == 'available' and abs(audit['telescoping_error']) < 1e-6
+        assert evaluate_physical_balance(e)['energy']['status'] == 'unavailable'
+        # The Python capacity-temperature path has no full energy audit.
+        a = replace(a, boundary_fluxes=dict(a.boundary_fluxes, energy=None))
     for key in ('fields','boundary_fluxes','pressure_evidence','run_status'):
         compare(getattr(a,key),getattr(e,key),design_mode+'/'+key)
     for key in ('Q','Q_A','Q_B','dP_A','dP_B','energy_imbalance_rel'):
@@ -473,7 +482,7 @@ def test_public_saved_case_cli_replay_and_postprocess_without_python_kernels(
 import sys
 from sjtu_tpmshx.io.result_io import load_result
 from sjtu_tpmshx.io.metrics_io import load_metrics
-from sjtu_tpmshx.postprocess.api import evaluate
+from sjtu_tpmshx.postprocess.api import evaluate, evaluate_physical_balance
 from sjtu_tpmshx.workflows.cli import main
 converged = sys.argv[5] == 'True'
 status = main(['solve', sys.argv[1], sys.argv[2], '--backend', 'cpp',

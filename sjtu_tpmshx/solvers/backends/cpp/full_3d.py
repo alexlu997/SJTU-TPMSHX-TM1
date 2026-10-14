@@ -18,6 +18,7 @@ from sjtu_tpmshx.models.fluid_props import WaterStateError
 from sjtu_tpmshx.models.field_coordinates_3d import _port_rectangles
 from .simple_3d import _Config as _SimpleConfig, _Result as _SimpleResult, _STOPS, _count
 from ._simple_abi import _F2
+from .physical_ledger import HeatLedger, heat_ledger_query, copy_heat_ledger
 from .model_h import _Result as _ModelResult, _volume_info, _model_h_algorithm
 from .temperature import _temperature_algorithm
 from .temperature_evidence import TemperatureEvidence, copy_temperature_evidence
@@ -228,6 +229,7 @@ class NativeFull3DDriver:
         self.query_settings.argtypes = [ct.POINTER(_Result), ct.POINTER(_FullEnergyEffectiveSettings)]
         self.query_settings.restype = ct.c_int
         self.query_last_ranges = last_range_query(self.library, 3, _Result)
+        self.query_heat_ledger = heat_ledger_query(self.library, 3, _Result)
         self.query_sampling = sampling_query(self.library, 3, _Result)
         try:
             self.query_bootstrap = self.library.tpmshx_full_3d_get_bootstrap_trace_v1
@@ -464,6 +466,11 @@ class NativeFull3DDriver:
                 if 'temperature_transport' in detached:
                     detached['native_metadata']['transport'] = detached['temperature_transport']
             detached['last_closure_ranges'] = copy_last_ranges(self.query_last_ranges, result)
+            if 'temperature_evidence' not in detached:
+                ledger = HeatLedger()
+                if self.query_heat_ledger(ct.byref(result), ct.byref(ledger)):
+                    raise RuntimeError('native full 3D heat ledger query failed')
+                detached['physical_ledger'] = copy_heat_ledger(ledger, shape, 3)
             from sjtu_tpmshx.models.co2_correlations import NU_MULTIPLIER
             for label in 'AB':
                 if cfg['fluid_type_'+label] == 'co2' and detached['nu_observations'][label]:

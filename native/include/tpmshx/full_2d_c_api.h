@@ -6,6 +6,7 @@
 #include "tpmshx/enthalpy_driver_c_api.h"
 #include "tpmshx/closure_evidence_c_api.h"
 #include "tpmshx/temperature_evidence_c_api.h"
+#include "tpmshx/physical_ledger_c_api.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -192,6 +193,11 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_model_enthalpy_evi
  * Cancellation returns an empty view. Copy before the result owner is released. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_last_closure_ranges_v1(
     const tpmshx_full_2d_result_v2*,tpmshx_range_observations_view_v1*);
+/* No solver, EOS or allocation. Invalid/null/released owners return 1 and
+ * preserve output. Cancellation or missing evidence returns available=0.
+ * Views remain valid only while the full result owner is alive. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_physical_heat_ledger_v1(
+    const tpmshx_full_2d_result_v2*,tpmshx_full_2d_physical_heat_ledger_v1*);
 /* Borrow recorded sampler choices from the live result owner. No numerical work.
  * Cancelled results return an empty view. Invalid or released arguments return 1
  * and preserve output. Copy the strings before the result owner is released. */
