@@ -1213,6 +1213,9 @@ void Runtime::finish() {
             result.inlet_mass[s]=std::numeric_limits<double>::quiet_NaN();continue;
         }
         const auto& a=side(s);auto& f=result.flow[s];const auto sg=grid(f);
+        // Kept capacity routes report EOS duty separately from their thermal update.
+        const auto reporting_energy=mode==Full3DThermalMode::true_h
+            ?physics[s].energy:EnergyRelation::eos_h_TP;
         if(anderson[s]) result.anderson[s]=anderson[s]->stats();
         for(std::size_t p=0;p<temperature[s].size();++p) {
             if(a.fluid==Fluid::water) props.check_water(temperature[s][p],f.pressure_real[p]);
@@ -1237,7 +1240,7 @@ void Runtime::finish() {
             if(true_h_pair && !candidate) {
                 const double pressure=f.pressure_reference+f.pressure[out];
                 eos.validate(a.fluid,local_temperature[out],pressure,"3D final outlet enthalpy");
-                const double h=eos.bracket_enthalpy(a.fluid,local_temperature[out],pressure,physics[s].energy);
+                const double h=eos.bracket_enthalpy(a.fluid,local_temperature[out],pressure,reporting_energy);
                 weighted_h+=h*weight;plain_h+=h;
             }
         }
@@ -1274,7 +1277,7 @@ void Runtime::finish() {
             } else result.duty[s]=std::abs(s==0?evidence.true_h->q_a:evidence.true_h->q_b);
         } else if(true_h_pair) {
             eos.validate(a.fluid,a.inlet_temperature,a.inlet_pressure,"3D final inlet enthalpy");
-            const double hin=eos.bracket_enthalpy(a.fluid,a.inlet_temperature,a.inlet_pressure,physics[s].energy);
+            const double hin=eos.bracket_enthalpy(a.fluid,a.inlet_temperature,a.inlet_pressure,reporting_energy);
             const double hout=mass_out<1e-30?plain_h/(sg.nx*sg.nz):weighted_h/mass_out;
             result.duty[s]=std::abs(mass_in*(hin-hout));
         } else result.duty[s]=std::abs(mass_in*inlet[s].cp*(a.inlet_temperature-result.outlet_temperature[s]));
