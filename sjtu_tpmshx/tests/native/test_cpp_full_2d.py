@@ -91,7 +91,13 @@ def test_prepared_packing_and_public_abi_exact_typed_return(driver, native, mode
         records = [result['main']['true_h'], *(row['energy_info'] for row in result['outer_history'])]
         for record in records:
             assert {key: record['effective_settings'][key] for key in expected} == expected
-    for flow, expected in zip(result['flow'], reference['flow']):
+    for side, flow, expected in zip('AB', result['flow'], reference['flow']):
+        method = result['simple_flow'][side]
+        assert method['algorithm'] == ('simple_2d_fixed_density_anderson_v1'
+            if expected['result']['fixed_density_acceleration'] else 'simple_2d_v1')
+        assert method['iterations'] == expected['result']['iterations']
+        assert method['proposal_steps'] == expected['result']['acceleration_attempts']
+        assert method['accepted_proposals'] == expected['result']['acceleration_accepted']
         for name in ('dx', 'dy', 'u', 'v', 'pressure', 'pressure_correction', 'density', 'uc', 'vc',
                      'absolute_pressure', 'mass_x', 'mass_y', 'reference_pressure', 'taper_flux_scale'):
             arrays_equal(flow[name], expected[name])

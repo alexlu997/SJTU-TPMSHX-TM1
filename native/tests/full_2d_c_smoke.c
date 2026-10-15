@@ -194,6 +194,16 @@ int main(void) {
     arrays[14]=arrays[16]=opening; config.sides[0].inlet_lo=0.; config.sides[0].uniform_inlet=1;
     int status=tpmshx_solve_full_2d_v2(shape,arrays,sizes,&config,NULL,&result,error,sizeof(error));
     if(status) {fprintf(stderr,"%s\n",error);return 1;}
+    tpmshx_full_2d_flow_method_v1 methods[2]={{0},{0}};
+    methods[0].iterations=123;
+    assert(tpmshx_full_2d_get_flow_methods_v1(NULL,methods)==1 && methods[0].iterations==123);
+    assert(tpmshx_full_2d_get_flow_methods_v1(&result,NULL)==1);
+    assert(tpmshx_full_2d_get_flow_methods_v1(&result,methods)==0);
+    for(size_t side=0;side<2;++side) {
+        assert(strcmp(methods[side].algorithm,"simple_2d_fixed_density_anderson_v1")==0);
+        assert(methods[side].iterations==result.flow[side].result.iterations);
+        assert(methods[side].accepted_proposals<=methods[side].proposal_steps);
+    }
     /* Equal inlet/initial temperatures are the independent zero-duty solution
        on both main and refined grids, without an EOS or Python oracle. */
     assert(result.converged && result.have_fine && result.fine_extrapolated);

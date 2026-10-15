@@ -48,6 +48,10 @@ template<class Result> void result(const Result& a,const Result& b) {
         && a.post_closure_certified==b.post_closure_certified && a.iterations==b.iterations
         && a.pressure_clip_hits==b.pressure_clip_hits && same(a.legacy_residual,b.legacy_residual),
         "SIMPLE stop, budget or clip evidence changed");
+    if constexpr(std::is_same_v<Result,Simple2DResult>)
+        require(a.fixed_density_acceleration==b.fixed_density_acceleration
+            && a.acceleration_attempts==b.acceleration_attempts && a.acceleration_accepted==b.acceleration_accepted,
+            "SIMPLE acceleration evidence changed");
     if constexpr(std::is_same_v<Result,Simple3DResult>)
         require(a.post_closure_rejections==b.post_closure_rejections && a.legacy_reference==b.legacy_reference,
             "SIMPLE closure rejection state changed");
@@ -112,7 +116,9 @@ template<int dimension> struct Fixture {
         c.alpha_pressure=dimension==2?.3:.2;c.alpha_density=.3;c.pressure_reference_absolute=101325.;c.gas_constant=287.05;
         c.ideal_gas=ideal;c.convergence={1e-4,1e-6,1e-6,.01,1e-4,1e-3,2,5,60};
         c.cancel=cancel;c.progress=progress;c.context=&callbacks;
-        if constexpr(dimension==2)c.close_outlet_on_exit=option==0;
+        if constexpr(dimension==2) {
+            c.close_outlet_on_exit=option!=1;c.accelerate_fixed_density=option==2;
+        }
         else { c.pressure_rebuild_every=7;c.pressure_diagonal_drift=.05;c.track_momentum=option!=1;
             c.ordering=option==1?Simple3DOrdering::red_black:Simple3DOrdering::natural;c.second_order_upwind=option==2; }
         return c;
@@ -128,7 +134,7 @@ template<int d> void fields(const Fixture<d>& a,const Fixture<d>& b) {
 
 template<int d> void continuation() {
     std::size_t cuts=0;bool confirmation_seen=false;
-    for(bool ideal:{false,true})for(bool warm:{false,true})for(int option=0;option<(d==2?2:3);++option) {
+    for(bool ideal:{false,true})for(bool warm:{false,true})for(int option=0;option<3;++option) {
         Fixture<d> seed(ideal,option);auto seeded=seed.owner();
         if(warm)seeded->solve(seed.material(),seed.boundary(),seed.state(),seed.control(600));
         const auto saved_owner=seeded->snapshot();
@@ -157,6 +163,75 @@ template<int d> void continuation() {
     }
     require(confirmation_seen,"SIMPLE continuation did not cover an active F2 confirmation");
     std::cout<<d<<"D exact SIMPLE continuation cuts="<<cuts<<'\n';
+}
+void acceleration() {
+    bool accepted=false,rejected=false;
+    for(bool strict:{false,true})for(std::size_t budget:{1U,2U,3U,12U,45U}) {
+        Fixture<2> sample(false,2);auto run=sample.owner();auto options=sample.control(budget);
+        if(strict)options.convergence.local_mass_tolerance=1e-30;
+        const auto answer=run->solve(sample.material(),sample.boundary(),sample.state(),options);
+        require(answer.fixed_density_acceleration && answer.iterations<=budget,
+            "SIMPLE acceleration exceeded its budget");
+        require(answer.acceleration_accepted<=answer.acceleration_attempts
+            && run->history().legacy.size()+answer.acceleration_attempts==answer.iterations,
+            "SIMPLE proposal accounting differs from its history");
+        accepted=accepted || answer.acceleration_accepted>0;
+        rejected=rejected || answer.acceleration_attempts>answer.acceleration_accepted;
+        if(strict)require(!answer.acceleration_accepted,"SIMPLE accepted a failed mass gate");
+    }
+    require(accepted && rejected,"SIMPLE test omitted accepted or rejected proposals");
+    for(std::size_t interval:{2U,5U,10U}) {
+        Fixture<2> sample(false,2);auto run=sample.owner();auto options=sample.control(45);
+        options.convergence.momentum_interval=interval;
+        options.convergence.velocity_check_tolerance=0.;options.convergence.momentum_tolerance=1e-30;
+        run->solve(sample.material(),sample.boundary(),sample.state(),options);
+        const auto& history=run->history().momentum;
+        require(!history.empty(),"SIMPLE proposals skipped scheduled momentum checks");
+        require(history.front().iteration<=20+interval,"SIMPLE first momentum check was delayed");
+        for(std::size_t index=1;index<history.size();++index)
+            require(history[index].iteration-history[index-1].iteration<=interval+1,
+                "SIMPLE proposals skipped a momentum interval");
+    }
+    Fixture<2> sample(false,2);auto run=sample.owner();auto options=sample.control();
+    run->start(sample.material(),sample.boundary(),sample.state(),options);
+    for(int step=0;step<4;++step)require(run->advance()==SimplePhase::active,"SIMPLE fixture ended too soon");
+    const auto saved=run->snapshot_active();
+    require(saved.acceleration.x.size()>1 && saved.result.acceleration_attempts,
+        "SIMPLE snapshot omitted acceleration history");
+    for(int damage=0;damage<8;++damage) {
+        auto broken=saved;
+        switch(damage) {
+        case 0:broken.acceleration.x.front().pop_back();break;
+        case 1:broken.acceleration.r.front()[0]=std::numeric_limits<double>::quiet_NaN();break;
+        case 2:broken.acceleration.history_limit=5;break;
+        case 3:broken.pressure_scale=0.;break;
+        case 4:broken.result.fixed_density_acceleration=false;break;
+        case 5:broken.result.acceleration_attempts=broken.result.iterations;break;
+        case 6:broken.result.acceleration_accepted=broken.result.acceleration_attempts+1;break;
+        case 7:broken.acceleration.x.clear();broken.acceleration.r.clear();break;
+        }
+        Fixture<2> target(false,2),unchanged(false,2);auto destination=target.owner();
+        rejects<std::invalid_argument>([&]{destination->restore_active(target.material(),target.boundary(),
+            target.state(),target.control(),broken);});
+        fields(target,unchanged);
+    }
+    for(std::size_t stop_at:{1U,3U,7U,12U}) {
+        Fixture<2> expected(false,2),actual(false,2);expected.callbacks.stop_at=actual.callbacks.stop_at=stop_at;
+        auto baseline=expected.owner(),resumed=actual.owner();
+        const auto answer=baseline->solve(expected.material(),expected.boundary(),expected.state(),expected.control());
+        resumed->start(actual.material(),actual.boundary(),actual.state(),actual.control());
+        while(resumed->phase()==SimplePhase::active) {
+            resumed->advance();
+            if(resumed->phase()==SimplePhase::active) {
+                const auto state=resumed->snapshot_active();resumed=actual.owner();
+                resumed->restore_active(actual.material(),actual.boundary(),actual.state(),actual.control(),state);
+            }
+        }
+        require(resumed->phase()==SimplePhase::cancelled,"accelerated SIMPLE did not cancel");
+        result(resumed->take_result(),answer);fields(actual,expected);history(resumed->history(),baseline->history());
+        require(actual.callbacks.calls==expected.callbacks.calls,"accelerated SIMPLE cancellation position changed");
+    }
+    std::cout<<"SIMPLE acceleration acceptance, rejection, budgets and cancellation passed\n";
 }
 void hierarchy() {
     Fixture<3> expected(true,0,true);auto baseline=expected.owner();auto c=expected.control(5);c.pressure_rebuild_every=3;
@@ -241,7 +316,7 @@ template<int d> void boundaries() {
 }
 }
 int main() {
-    try { continuation<2>();continuation<3>();hierarchy();boundaries<2>();boundaries<3>();
+    try { continuation<2>();continuation<3>();acceleration();hierarchy();boundaries<2>();boundaries<3>();
         std::cout<<"SIMPLE state ownership, F2, pressure cadence, cancellation and invalid boundaries passed\n";return 0; }
     catch(const std::exception& e) { std::cerr<<e.what()<<'\n';return 1; }
 }

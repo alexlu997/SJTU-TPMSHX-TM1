@@ -131,3 +131,15 @@ def test_model_h_last_main_settings_keep_refined_and_startup_records_separate():
     assert record['numerics']['effective_settings']['max_iterations'] == 125
     assert len(record['numerics']['model_h_iterations']['records']) == 3
     assert record['sides']['B']['energy']['relation'] == 'integral_cp_T'
+
+
+def test_executed_flow_methods_survive_result_files(tmp_path):
+    case, result = evidence('true_h')
+    flow = {'A': dict(algorithm='simple_2d_fixed_density_anderson_v1', iterations=109,
+                      proposal_steps=44, accepted_proposals=37)}
+    result = replace(result, metadata=dict(result.metadata, simple_flow=flow))
+    path = tmp_path/'flow-result.h5'
+    save_result(result, path)
+    restored = load_result(path)
+    assert full_execution_record(case, restored)['numerics']['simple_flow'] == flow
+    assert 'simple_flow' not in full_execution_record(*evidence('true_h'))['numerics']

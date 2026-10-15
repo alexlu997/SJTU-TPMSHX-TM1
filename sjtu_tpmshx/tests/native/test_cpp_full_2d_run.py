@@ -314,7 +314,8 @@ def test_inner_flow_keeps_two_workers_and_original_callback_positions(driver):
 
 
 @pytest.mark.parametrize('damage', ['flow_budget', 'flow_monitor', 'flow_previous', 'flow_field',
-    'flow_shared_field', 'flow_geometry', 'flow_owner', 'thermal_owner', 'thermal_field',
+    'flow_shared_field', 'flow_geometry', 'flow_owner', 'flow_acceleration',
+    'flow_acceleration_extent', 'flow_acceleration_budget', 'thermal_owner', 'thermal_field',
     'thermal_shared_field', 'thermal_budget', 'thermal_settings', 'thermal_input', 'fine_grid', 'fine_port'])
 def test_inner_checkpoint_rejects_damaged_iteration(driver, damage):
     cfg, prepared = build_execution_inputs(inner_case('model_h'))
@@ -331,7 +332,13 @@ def test_inner_checkpoint_rejects_damaged_iteration(driver, damage):
         driver.run_prepared(cfg, prepared, checkpoint=pause)
     flow = 'state.flow.value.0.'
     thermal = 'state.thermal.value.model_h.value.'
-    if damage == 'flow_budget':
+    if damage == 'flow_acceleration':
+        saved['state.flow.value.1.iteration.value.pressure_scale'][0] = 0.
+    elif damage == 'flow_acceleration_extent':
+        saved['state.flow.value.1.iteration.value.acceleration.x.0'] = np.empty(0)
+    elif damage == 'flow_acceleration_budget':
+        saved['state.flow.value.1.iteration.value.result.acceleration_attempts'][0] = 100
+    elif damage == 'flow_budget':
         saved[flow+'iteration.value.result.iterations'][0] = 40
     elif damage == 'flow_monitor':
         saved[flow+'iteration.value.convergence.streak'][0] = 100
@@ -402,7 +409,7 @@ if mode == 'interrupt':
         if state['state.phase'][0] != int(target):
             return
         position = state['state.flow.value.0.iteration.value.result.iterations'][0] if target == '6' else inner_position(state)
-        if position > 0:
+        if position >= (7 if target == '6' else 1):
             saved = SolverCheckpoint(case_path, case.case_id, case.model_refs, state, 'full_2d_continuation_v1')
             save_solver_checkpoint(saved, saved_path)
             os._exit(23)
@@ -413,7 +420,7 @@ save_result(run_case(load_checkpoint_case(saved), control, resume_state=saved.na
 """
 
 
-@pytest.mark.parametrize('phase,route', [(6, 'model_h'), (7, 'temperature'), (7, 'model_h'),
+@pytest.mark.parametrize('phase,route', [(6, 'model_h'), (6, 'true_h'), (7, 'temperature'), (7, 'model_h'),
     (7, 'true_h'), (7, 'temperature_fou'), (7, 'temperature_sou'), (8, 'temperature'), (8, 'model_h')])
 def test_inner_checkpoint_continues_after_process_exit(driver, tmp_path, phase, route):
     prepared = inner_case(route)
@@ -427,6 +434,10 @@ def test_inner_checkpoint_continues_after_process_exit(driver, tmp_path, phase, 
     saved = load_solver_checkpoint(saved_path)
     assert saved.native_state['state.phase'][0] == phase
     assert saved.native_state['format'][0] == 2
+    if phase == 6:
+        prefix = 'state.flow.value.1.iteration.value.'
+        assert saved.native_state[prefix+'acceleration.x.size'][0] >= 2
+        assert saved.native_state[prefix+'result.acceleration_attempts'][0] > 0
     finished = subprocess.run([sys.executable, '-c', INNER_CHILD, 'resume', *arguments],
                               cwd=ROOT, capture_output=True, text=True, timeout=120)
     assert finished.returncode == 0, finished.stderr

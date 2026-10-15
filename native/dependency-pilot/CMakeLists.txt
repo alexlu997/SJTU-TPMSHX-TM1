@@ -324,6 +324,12 @@ add_library(tpmshx_simple STATIC "${TPMSHX_ROOT}/native/src/simple_pressure.cpp"
     "${TPMSHX_ROOT}/native/src/simple_convergence.cpp" "${TPMSHX_ROOT}/native/src/simple_2d.cpp"
     "${TPMSHX_ROOT}/native/src/simple_3d.cpp")
 target_link_libraries(tpmshx_simple PUBLIC tpmshx_pressure)
+target_include_directories(tpmshx_simple PRIVATE "${TPMSHX_MODEL_INCLUDE_DIR}")
+target_include_directories(tpmshx_simple SYSTEM PRIVATE "${TPMSHX_NATIVE_DEPS_ROOT}/src/Eigen-5.0.1")
+target_compile_definitions(tpmshx_simple PRIVATE EIGEN_MPL2_ONLY)
+if(APPLE)
+    target_link_libraries(tpmshx_simple PUBLIC "-framework Accelerate")
+endif()
 # Python's 2D SIMPLE kernels use strict (non-fastmath) arithmetic. Preserve
 # separate multiply/add rounding near the SOU branch's flat-stencil boundary.
 if(MSVC)

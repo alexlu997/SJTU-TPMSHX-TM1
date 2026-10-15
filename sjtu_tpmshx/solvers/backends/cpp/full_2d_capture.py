@@ -223,5 +223,5 @@ def capture_result(case, cfg, prepared, native):
     if 'native_metadata' in native:
         result = replace(result, metadata=dict(result.metadata, native=native['native_metadata']))
     return replace(result, metadata=dict(result.metadata, _last_closure_ranges=native['last_closure_ranges'],
-        simple_velocity_relaxation=native['simple_velocity_relaxation'],
+        simple_velocity_relaxation=native['simple_velocity_relaxation'], simple_flow=native['simple_flow'],
         model_h_iterations=native['model_h_iterations']))

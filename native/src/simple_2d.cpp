@@ -1,4 +1,5 @@
 #include "tpmshx/simple_2d.hpp"
+#include "model_h_common.hpp"
 #include "tpmshx/simple_momentum.hpp"
 
 #include <algorithm>
@@ -306,12 +307,15 @@ struct Simple2DSolver::Impl {
         Simple2DControl control;
         SimpleF2Monitor monitor;
         Simple2DResult result;
+        model_h_common::Anderson accelerator;
+        double pressure_scale=1.;
         Active(const Simple2DMaterialView& m,const Simple2DBoundaryView& b,
             Simple2DStateView s,const Simple2DControl& c)
             :material(m),boundary(b),state(s),control(c),monitor(velocities(s),c.convergence,20) {}
         Active(const Simple2DMaterialView& m,const Simple2DBoundaryView& b,
             Simple2DStateView s,const Simple2DControl& c,const Simple2DRunState& saved)
-            :material(m),boundary(b),state(s),control(c),monitor(saved.convergence,c.convergence),result(saved.result) {}
+            :material(m),boundary(b),state(s),control(c),monitor(saved.convergence,c.convergence),result(saved.result),
+             pressure_scale(saved.pressure_scale) { accelerator.restore(saved.acceleration); }
     };
     std::unique_ptr<Active> active;
     SimplePhase phase=SimplePhase::idle;
@@ -395,6 +399,7 @@ bool Simple2DSolver::Impl::initialize() {
     const auto& m=call.material;const auto& b=call.boundary;auto s=call.state;
     const auto& control=call.control;auto& result=call.result;
     result.pressure_clip_hits = impl.pressure_clip_hits;
+    result.fixed_density_acceleration=control.accelerate_fixed_density && !control.ideal_gas;
     if (!state_finite(m,s)) { nonfinite_result(result); return true; }
     positive(read(s.density),"density"); positive(m.temperature,"temperature");
     if (control.massflux_inlet && (control.ideal_gas || b.inlet_density_reference) && !impl.target) {
@@ -425,37 +430,110 @@ bool Simple2DSolver::Impl::step() {
         impl.rho_eps(impl.fresh_rho_eps,m,s);
         return simple_mass_audit(2,g,velocities(s),{impl.fresh_rho_eps.data(),impl.fresh_rho_eps.size()},impl.excluded());
     };
-    const auto it=result.iterations+1;
+    const auto ordinary_iteration=result.iterations+1;
+    auto it=ordinary_iteration;
     if (control.cancel && control.cancel(control.context)) { result.stop = SimpleStop::cancelled; return true; }
     result.iterations = it;
-    impl.rho_eps(impl.old_rho_eps,m,s);
-    try { kernel.predict(impl.opening(),control.alpha_velocity,control.inner_sweeps); }
-    catch (const std::domain_error&) { nonfinite_result(result); return true; }
-    if (!state_finite(m,s) || !finite(s.d_u) || !finite(s.d_v)) { nonfinite_result(result); return true; }
-    const auto& system = impl.assembly.assemble(g,velocities(s),corrections(s),{impl.old_rho_eps.data(),impl.old_rho_eps.size()});
-    PressureControl linear_control; linear_control.dimension = 2;
-    result.linear = impl.pressure.solve(system,linear_control);
-    if (!result.linear.success) { result.stop = SimpleStop::pressure_failure; return true; }
-    std::copy(result.linear.x.begin(),result.linear.x.end(),s.pressure_correction.data);
-    result.linear.x.clear();
-    try {
-        correct_simple_pressure(2,g,velocity_boundary,s.pressure,read(s.pressure_correction),mutable_velocities(s),
-            corrections(s),read(s.density),m.epsilon,control.alpha_pressure);
-    } catch (const std::domain_error&) { nonfinite_result(result); return true; }
-    if (control.ideal_gas) {
-        if (!state_finite(m,s)) { nonfinite_result(result); return true; }
-        for (std::size_t k = 0; k < s.pressure.size; ++k) {
-            double absolute = s.pressure[k]+control.pressure_reference_absolute;
-            const bool clipped = absolute < 1e3 || absolute > 10e6;
-            absolute = std::clamp(absolute,1e3,10e6);
-            if (clipped) { ++impl.pressure_clip_hits; s.pressure[k] = absolute-control.pressure_reference_absolute; }
-            const double new_density = absolute/(m.temperature[k]*control.gas_constant);
-            s.density[k] = control.alpha_density*new_density+(1.-control.alpha_density)*s.density[k];
+    const auto iterate = [&] {
+        impl.rho_eps(impl.old_rho_eps,m,s);
+        try { kernel.predict(impl.opening(),control.alpha_velocity,control.inner_sweeps); }
+        catch (const std::domain_error&) { nonfinite_result(result); return false; }
+        if (!state_finite(m,s) || !finite(s.d_u) || !finite(s.d_v)) { nonfinite_result(result); return false; }
+        const auto& system = impl.assembly.assemble(g,velocities(s),corrections(s),{impl.old_rho_eps.data(),impl.old_rho_eps.size()});
+        PressureControl linear_control; linear_control.dimension = 2;
+        result.linear = impl.pressure.solve(system,linear_control);
+        if (!result.linear.success) { result.stop = SimpleStop::pressure_failure; return false; }
+        std::copy(result.linear.x.begin(),result.linear.x.end(),s.pressure_correction.data);
+        result.linear.x.clear();
+        try {
+            correct_simple_pressure(2,g,velocity_boundary,s.pressure,read(s.pressure_correction),mutable_velocities(s),
+                corrections(s),read(s.density),m.epsilon,control.alpha_pressure);
+        } catch (const std::domain_error&) { nonfinite_result(result); return false; }
+        if (control.ideal_gas) {
+            if (!state_finite(m,s)) { nonfinite_result(result); return false; }
+            for (std::size_t k = 0; k < s.pressure.size; ++k) {
+                double absolute = s.pressure[k]+control.pressure_reference_absolute;
+                const bool clipped = absolute < 1e3 || absolute > 10e6;
+                absolute = std::clamp(absolute,1e3,10e6);
+                if (clipped) { ++impl.pressure_clip_hits; s.pressure[k] = absolute-control.pressure_reference_absolute; }
+                const double new_density = absolute/(m.temperature[k]*control.gas_constant);
+                s.density[k] = control.alpha_density*new_density+(1.-control.alpha_density)*s.density[k];
+            }
+            impl.inlet(s,control.massflux_inlet);
         }
-        impl.inlet(s,control.massflux_inlet);
+        result.pressure_clip_hits = impl.pressure_clip_hits;
+        if (!state_finite(m,s)) { nonfinite_result(result); return false; }
+        return true;
+    };
+    const ArrayView<double> mixed[]{s.u,s.v,s.pressure};
+    const double velocity_scale=std::max(std::abs(b.reference_inlet_velocity),1e-12);
+    const auto pack = [&] {
+        Eigen::VectorXd values(static_cast<Eigen::Index>(s.u.size+s.v.size+s.pressure.size));
+        std::size_t offset=0;
+        for(std::size_t field=0;field<3;++field) {
+            const double scale=field==2?call.pressure_scale:velocity_scale;
+            for(std::size_t k=0;k<mixed[field].size;++k)
+                values[static_cast<Eigen::Index>(offset++)]=mixed[field][k]/scale;
+        }
+        return values;
+    };
+    Eigen::VectorXd previous;
+    if(result.fixed_density_acceleration)previous=pack();
+    if(!iterate())return true;
+    if(result.fixed_density_acceleration) {
+        if(it==1) {
+            for(std::size_t k=0;k<s.pressure.size;++k)
+                call.pressure_scale=std::max(call.pressure_scale,std::abs(s.pressure[k]));
+            previous.tail(static_cast<Eigen::Index>(s.pressure.size))/=call.pressure_scale;
+        }
+        const auto image=pack();
+        call.accelerator.push(std::move(previous),image);
+        Eigen::VectorXd candidate;
+        if(it<control.max_iterations && call.accelerator.candidate(image,candidate)) {
+            if(control.cancel && control.cancel(control.context)) {
+                result.stop=SimpleStop::cancelled;return true;
+            }
+            const double ordinary_momentum=kernel.residual().maximum;
+            const auto saved_result=result;
+            const auto saved_pressure=impl.pressure.snapshot();
+            const auto saved_old_rho=impl.old_rho_eps,saved_fresh_rho=impl.fresh_rho_eps;
+            const auto saved_target=impl.target;
+            const auto saved_clips=impl.pressure_clip_hits;
+            const ArrayView<double> fields[]{s.u,s.v,s.pressure,s.pressure_correction,
+                s.d_u,s.d_v,s.density,s.inlet_velocity};
+            std::array<std::vector<double>,8> saved;
+            for(std::size_t field=0;field<8;++field)
+                saved[field].assign(fields[field].data,fields[field].data+fields[field].size);
+            std::size_t offset=0;
+            for(std::size_t field=0;field<3;++field) {
+                const double scale=field==2?call.pressure_scale:velocity_scale;
+                for(std::size_t k=0;k<mixed[field].size;++k)
+                    mixed[field][k]=candidate[static_cast<Eigen::Index>(offset++)]*scale;
+            }
+            ++it;
+            bool accepted=iterate();
+            if(accepted) {
+                const double trial_momentum=kernel.residual().maximum;
+                const auto trial_mass=mass_audit();
+                accepted=std::isfinite(trial_momentum) && trial_momentum<=ordinary_momentum
+                    && trial_mass.local_residual<control.convergence.local_mass_tolerance
+                    && trial_mass.global_residual<control.convergence.global_mass_tolerance
+                    && trial_mass.backflow_fraction<=control.convergence.backflow_maximum
+                    && trial_mass.backflow_fraction==0.;
+            }
+            if(!accepted) {
+                for(std::size_t field=0;field<8;++field)
+                    std::copy(saved[field].begin(),saved[field].end(),fields[field].data);
+                impl.pressure.restore(saved_pressure);
+                impl.old_rho_eps=saved_old_rho;impl.fresh_rho_eps=saved_fresh_rho;
+                impl.target=saved_target;impl.pressure_clip_hits=saved_clips;
+                result=saved_result;
+            }
+            result.iterations=it;
+            result.acceleration_attempts=saved_result.acceleration_attempts+1;
+            result.acceleration_accepted=saved_result.acceleration_accepted+static_cast<std::size_t>(accepted);
+        }
     }
-    result.pressure_clip_hits = impl.pressure_clip_hits;
-    if (!state_finite(m,s)) { nonfinite_result(result); return true; }
     result.legacy_residual = simple_legacy_mass_residual(2,g,velocities(s),
         {impl.old_rho_eps.data(),impl.old_rho_eps.size()}).residual;
     impl.history.legacy.push_back(result.legacy_residual);
@@ -467,7 +545,9 @@ bool Simple2DSolver::Impl::step() {
     if (!std::isfinite(result.legacy_residual) || !std::isfinite(delta)
         || !std::isfinite(result.mass.local_residual) || !std::isfinite(result.mass.global_residual)
         || !std::isfinite(result.mass.backflow_fraction)) { nonfinite_result(result); return true; }
-    if (monitor.should_evaluate_momentum(it,delta)) {
+    // A proposal can cross a scheduled momentum check.
+    if (monitor.should_evaluate_momentum(it,delta)
+        || (it!=ordinary_iteration && monitor.should_evaluate_momentum(ordinary_iteration,delta))) {
         result.momentum = kernel.residual();
         impl.history.momentum.push_back({it,result.momentum});
         const auto reason = monitor.submit(it,result.momentum.maximum,result.mass,delta);
@@ -539,6 +619,7 @@ Simple2DRunState Simple2DSolver::snapshot_active() const {
     const ArrayView<double> fields[]{s.u,s.v,s.pressure,s.pressure_correction,s.d_u,s.d_v,s.density,s.inlet_velocity};
     Simple2DRunState saved;
     saved.owner=impl.owner_state();saved.convergence=impl.active->monitor.snapshot();saved.result=impl.active->result;
+    saved.acceleration=impl.active->accelerator.snapshot();saved.pressure_scale=impl.active->pressure_scale;
     for(std::size_t i=0;i<8;++i)saved.fields[i].assign(fields[i].data,fields[i].data+fields[i].size);
     return saved;
 }
@@ -552,11 +633,23 @@ void Simple2DSolver::restore_active(const Simple2DMaterialView& m,const Simple2D
     const auto& r=saved.result;
     if(r.converged || r.iterations>=control.max_iterations || !r.linear.x.empty()
         || r.pressure_clip_hits!=saved.owner.pressure_clip_hits
-        || saved.owner.history.legacy.size()<r.iterations
+        || r.acceleration_accepted>r.acceleration_attempts
+        || r.acceleration_attempts>r.iterations/2
+        || saved.owner.history.legacy.size()<r.iterations-r.acceleration_attempts
         || saved.convergence.minimum_iterations!=20
         || saved.convergence.window_start_iteration>r.iterations
         || saved.convergence.streak>=control.convergence.confirmations)
         throw std::invalid_argument("invalid saved SIMPLE iteration position");
+    const bool accelerated=control.accelerate_fixed_density && !control.ideal_gas;
+    const auto samples=accelerated?std::min<std::size_t>(r.iterations-r.acceleration_attempts,6):0;
+    if(r.fixed_density_acceleration!=accelerated || (!accelerated && r.acceleration_attempts)
+        || !std::isfinite(saved.pressure_scale) || saved.pressure_scale<1.
+        || ((!accelerated || !r.iterations) && saved.pressure_scale!=1.)
+        || saved.acceleration.history_limit!=6 || saved.acceleration.condition_limit!=1e10
+        || saved.acceleration.x.size()!=samples)
+        throw std::invalid_argument("invalid saved SIMPLE acceleration state");
+    if(samples && saved.acceleration.x.front().size()!=s.u.size+s.v.size+s.pressure.size)
+        throw std::invalid_argument("saved SIMPLE acceleration extent differs");
     if(r.stop!=SimpleStop::ongoing || r.post_closure_measured || r.post_closure_certified)
         throw std::invalid_argument("saved SIMPLE 2D call has a final certificate");
     for(std::size_t i=0;i<8;++i) {

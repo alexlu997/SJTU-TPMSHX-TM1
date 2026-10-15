@@ -17,7 +17,7 @@ from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.backends.cpp.full_2d import NativeFull2DDriver
 from sjtu_tpmshx.solvers.backends.cpp.full_2d_capture import capture_result
 from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
-from sjtu_tpmshx.solvers.backends.python.two_d.execution import run_case as python_run
+from sjtu_tpmshx.solvers.backends.capture_2d import capture_result as python_capture
 from sjtu_tpmshx.tests.native import full_thermal_reference
 from sjtu_tpmshx.tests.native.test_full_2d import ROOT, configuration, capture_python
 
@@ -178,7 +178,8 @@ def test_capped_partial_fields_last_inputs_and_recomputed_metrics(driver, mode):
     case = prepare_case(configuration(directions=(1, 2), outer=2, partial=True, mode=mode),
                         case_id='capture-partial-' + mode)
     with warning_scope({}) as expected_records:
-        expected = python_run(case)
+        reference = capture_python(case, full=True, native_flow=True)
+        expected = python_capture(case, *reference['capture_inputs'])
     with warning_scope({}) as actual_records:
         actual, raw = captured(driver, case)
     compare_range_records(actual_records, expected_records)
@@ -195,7 +196,7 @@ def test_capped_partial_fields_last_inputs_and_recomputed_metrics(driver, mode):
         post = [r for r in samples if r['stage'] == 'property_post']
         assert max(r['outer_index'] for r in post) == result.run_status['outer_index']
         assert any(r['stage'] == 'refined_thermal' for r in samples) == (mode == 'model_h')
-        assert result.metadata['input_resolution']['source'] == 'CaseData.parameters'
+    assert actual.metadata['input_resolution']['source'] == 'CaseData.parameters'
     assert actual.run_status['final_flow_after_last_thermal']
     assert not actual.run_status['converged']
     assert not np.array_equal(actual.fields['Ta'], actual.fields['Ta_display'])
@@ -205,12 +206,11 @@ def test_capped_partial_fields_last_inputs_and_recomputed_metrics(driver, mode):
 
 def test_capped_temperature_capture_uses_current_full_cc_enthalpy(driver, same_thermal):
     """The native fullCC route and the retained Python cp*T route differ."""
-    from sjtu_tpmshx.solvers.backends.capture_2d import capture_result as python_capture
 
     case = prepare_case(configuration(directions=(1, 2), outer=2, mode='temperature'),
                         case_id='capture-partial-temperature')
     with warning_scope({}) as expected_records:
-        reference = capture_python(case, full=True, thermal=same_thermal)
+        reference = capture_python(case, full=True, thermal=same_thermal, native_flow=True)
         expected = python_capture(case, *reference['capture_inputs'])
     with warning_scope({}) as actual_records:
         actual, raw = captured(driver, case)
@@ -255,7 +255,8 @@ def test_range_ledger_keeps_scalar_warm_sources_and_worst_snapshot_counts(driver
     config = replace(config, fluid_A=replace(config.fluid_A, T_in_K=1150.))
     case = prepare_case(config, case_id=f'range-hot-air-{outer}-{warm}')
     with warning_scope({}) as expected_records:
-        python_run(case)
+        reference = capture_python(case, full=True, native_flow=True)
+        python_capture(case, *reference['capture_inputs'])
     with warning_scope({}) as actual_records:
         actual, _ = captured(driver, case)
     compare_range_records(actual_records, expected_records)
@@ -276,7 +277,8 @@ def test_true_h_air_property_sources_and_selected_sco2_nu_are_recorded(driver, f
         config = replace(config, sco2_nu=sco2_effective_nu_config())
     case = prepare_case(config, case_id='range-true-h-' + topology)
     with warning_scope({}) as expected_records:
-        expected = python_run(case)
+        reference = capture_python(case, full=True, native_flow=True)
+        expected = python_capture(case, *reference['capture_inputs'])
     with warning_scope({}) as actual_records:
         actual, _ = captured(driver, case)
     compare_range_records(actual_records, expected_records)
@@ -292,7 +294,8 @@ def test_continuous_geometry_range_sources_keep_actual_cell_shapes(driver):
         'L_bounds': [4., 8.], 't_bounds': [.3, .6]}))
     case = prepare_case(config, case_id='range-continuous')
     with warning_scope({}) as expected_records:
-        python_run(case)
+        reference = capture_python(case, full=True, native_flow=True)
+        python_capture(case, *reference['capture_inputs'])
     with warning_scope({}) as actual_records:
         actual, _ = captured(driver, case)
     compare_range_records(actual_records, expected_records)
@@ -325,7 +328,8 @@ def test_partial_optimization_cases_preserve_fine_water_balance(
             'symmetric_y': False, 'spline_order': 1,
             'L_bounds': [4., 8.], 't_bounds': [.3, .6]}))
     case = prepare_case(config, case_id=f'partial-optimization-{design}-{air_velocity}')
-    expected = python_run(case)
+    reference = capture_python(case, full=True, native_flow=True)
+    expected = python_capture(case, *reference['capture_inputs'])
     actual, _ = captured(driver, case)
     compare_portable(actual, expected)
     assert actual.run_status['converged'] == (design != 'capped')
@@ -334,10 +338,9 @@ def test_partial_optimization_cases_preserve_fine_water_balance(
 
 def test_golden_air_prepared_case_retains_accepted_refinement(driver, same_thermal):
     from sjtu_tpmshx.solvers.api import run_case
-    from sjtu_tpmshx.solvers.backends.capture_2d import capture_result as python_capture
     case = prepare_case(ComputeConfig.from_json(str(ROOT / 'examples/three_module/air_2d.json')),
                         case_id='capture-golden-air2d')
-    reference = capture_python(case, full=True, thermal=same_thermal)
+    reference = capture_python(case, full=True, thermal=same_thermal, native_flow=True)
     diagnostics = reference['capture_inputs'][-1]
     component_metadata = diagnostics['richardson_info'].pop('native_metadata')
     expected = python_capture(case, *reference['capture_inputs'])
