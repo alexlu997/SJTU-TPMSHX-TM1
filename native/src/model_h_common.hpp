@@ -55,17 +55,8 @@ inline void disjoint(ArrayView<const double> a, ArrayView<const double> b) {
         || (ap<bp+b.size*sizeof(double) && bp<ap+a.size*sizeof(double)))
         throw std::invalid_argument("model-h input/output arrays overlap");
 }
-inline const std::array<double,5>& coefficients(Fluid fluid) {
-    if (fluid==Fluid::air) return model_coefficients::model_h_air;
-    if (fluid==Fluid::water) return model_coefficients::model_h_water;
-    throw std::invalid_argument("model-h requires air or water");
-}
 inline double optional(ArrayView<const double> x, std::size_t p, double fallback) {
     return x.size ? x[p] : fallback;
-}
-inline double enthalpy(double t, const std::array<double,5>& cp) {
-    const double x=t-cp[3], x0=cp[4]-cp[3];
-    return cp[0]*(x-x0)+0.5*cp[1]*(x*x-x0*x0)+cp[2]/3.0*(x*x*x-x0*x0*x0);
 }
 inline double increment(double tm, double t, double tp, double dm, double dp, double offset) {
     const double a=(t-tm)/dm, b=(tp-t)/dp;

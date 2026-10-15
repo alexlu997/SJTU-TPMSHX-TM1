@@ -338,6 +338,13 @@ int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_energy_evidence_v1(
     out.outer=o.energy_outer.data();out.outer_count=o.energy_outer.size();
     *evidence=out;return 0;
 }
+int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_energy_update_scale_v1(
+    const tpmshx_full3d_result_v1* result,tpmshx_energy_update_scale_v1* scale) {
+    if(!result || !result->owner || !scale)return 1;
+    const auto& r=static_cast<const Owner*>(result->owner)->result;
+    *scale=energy_update_scale_c_view(r.stop==Full3DStop::cancelled?nullptr:(r.thermal.true_h?&*r.thermal.true_h:nullptr));
+    return 0;
+}
 int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_energy_effective_settings_v1(
     const tpmshx_full3d_result_v1* result,tpmshx_full3d_energy_effective_settings_v1* settings) {
     if(!result || !result->owner || !settings)return 1;

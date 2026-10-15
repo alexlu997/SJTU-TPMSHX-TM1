@@ -73,6 +73,11 @@ int main(void) {
         fprintf(stderr,"temperature envelope mismatch f=%zu p=%zu value=%.17g\n",f,p,r.temperature[f].data[p]);return 3;
     }
     if(!(r.duty[0]>0.) || r.flow[0].last.stop!=TPMSHX_SIMPLE_TOL || !r.model_h.volume.boundary_complete)return 4;
+    tpmshx_energy_update_scale_v1 update_scale={0};
+    if(tpmshx_full_3d_get_energy_update_scale_v1(&r,&update_scale) || update_scale.available)return 39;
+    update_scale.available=123;
+    if(tpmshx_full_3d_get_energy_update_scale_v1(NULL,&update_scale)!=1 || update_scale.available!=123
+       || tpmshx_full_3d_get_energy_update_scale_v1(&r,NULL)!=1)return 40;
     tpmshx_full3d_bootstrap_trace_v1 trace={0};
     if(tpmshx_full_3d_get_bootstrap_trace_v1(&r,0,&trace) || !trace.available || trace.selected
        || strcmp(trace.policy,"explicit_off") || strcmp(trace.decision,"disabled")
@@ -345,6 +350,10 @@ int main(void) {
            || evidence.energy.temperature_update>strict.temperature_update_tolerance)return 30;
         if(tpmshx_full_3d_get_physical_heat_ledger_v1(&r,&heat) || !heat.available
            || heat.physical_dimension!=3 || heat.residual[0].size!=8)return 38;
+        if(tpmshx_full_3d_get_energy_update_scale_v1(&r,&update_scale)
+           || !update_scale.available || !update_scale.reference_independent)return 41;
+        for(size_t side=0;side<2;++side)
+            if(!isfinite(update_scale.scale[side]) || update_scale.scale[side]<1.)return 42;
         strict.equation_energy_tolerance=2e-4;
         if(tpmshx_full_3d_get_energy_effective_settings_v1(&r,&settings)
            || settings.resolved.equation_energy_tolerance!=1e-5

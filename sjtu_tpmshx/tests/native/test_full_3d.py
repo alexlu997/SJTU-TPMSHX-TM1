@@ -6,9 +6,11 @@ Native exit reasons and original physical gates remain separate assertions.
 The capped refined case checks each actual count and returned-state audit
 independently; it is not a converged engineering-accuracy result.
 """
+from contextlib import nullcontext
 import copy
 import ctypes
 import inspect
+from functools import wraps
 from dataclasses import replace
 import os
 from pathlib import Path
@@ -196,6 +198,7 @@ def reference(cfg, p, thermal=None):
         solver._full_native_last_iterations = value[1]
         return value
     original_energy = runtime.solve_full_domain_3d
+    @wraps(original_energy)
     def energy(*args, **kwargs):
         if thermal is None:
             return original_energy(*args, **kwargs)
@@ -205,8 +208,12 @@ def reference(cfg, p, thermal=None):
     with patch.object(runtime.SIMPLESolver3D, "solve", observed), \
          patch.object(runtime, "solve_full_domain_3d", energy):
         prob = runtime.build_problem(copy.deepcopy(cfg), copy.deepcopy(p))
-        outer = runtime._run_outer_coupling_3d(prob, runtime._build_hv_machinery(prob), capture_native=True)
-    metrics = runtime._extract_3d_metrics(prob, outer)
+        from sjtu_tpmshx.tests.native.full_thermal_reference import selected_energy_reference
+        selected = thermal is not None and prob.sB is not None and any(
+            fluid in ('co2', 'sco2') for fluid in (prob.fluid_type_A, prob.fluid_type_B))
+        with selected_energy_reference() if selected else nullcontext():
+            outer = runtime._run_outer_coupling_3d(prob, runtime._build_hv_machinery(prob), capture_native=True)
+            metrics = runtime._extract_3d_metrics(prob, outer)
     if thermal is not None:
         metrics = thermal.volume_reporting(prob, outer, metrics)
     diagnostics = runtime._assemble_3d_diagnostics(prob, outer, metrics)

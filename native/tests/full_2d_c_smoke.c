@@ -233,6 +233,11 @@ int main(void) {
     check_run_state(shape,arrays,sizes,&config,widths,&result);
     const double saved=result.main.dx.data[0]; widths[0]=.123;
     assert(result.main.dx.data[0]==saved); widths[0]=saved;
+    tpmshx_energy_update_scale_v1 update_scale={0};
+    assert(tpmshx_full_2d_get_energy_update_scale_v1(&result,&update_scale)==0 && !update_scale.available);
+    update_scale.available=123;
+    assert(tpmshx_full_2d_get_energy_update_scale_v1(NULL,&update_scale)==1 && update_scale.available==123);
+    assert(tpmshx_full_2d_get_energy_update_scale_v1(&result,NULL)==1);
     tpmshx_full_2d_release_v2(&result); assert(result.owner==NULL);
     assert(tpmshx_full_2d_get_last_closure_ranges_v1(&result,&ranges)==1 && ranges.size==123);
     sampling.count=123;
@@ -365,6 +370,10 @@ int main(void) {
         if(status) {fprintf(stderr,"%s\n",error);return 1;}
         assert(tpmshx_full_2d_get_energy_effective_settings_v1(&result,&settings)==0);
         assert(settings.last.available && settings.last.algorithm==algorithm);
+        assert(tpmshx_full_2d_get_energy_update_scale_v1(&result,&update_scale)==0);
+        assert(update_scale.available && update_scale.reference_independent);
+        for(size_t side=0;side<2;++side)
+            assert(isfinite(update_scale.scale[side]) && update_scale.scale[side]>=1.);
         assert(settings.last.max_iterations==17 && settings.last.sweeps==4 && settings.last.omega==.55);
         assert(settings.last.update_tolerance==2e-8 && settings.last.temperature_update_tolerance==3e-8);
         assert(settings.last.coupled_energy_tolerance==4e-7 && settings.last.equation_energy_tolerance==5e-7);

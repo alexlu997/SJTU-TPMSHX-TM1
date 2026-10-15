@@ -735,11 +735,11 @@ void Runtime::heat_transfer(std::size_t s,bool warm) {
 Full3DThermalEvidence Runtime::prepare(bool warm,std::size_t outer) {
     Full3DThermalEvidence e;const auto& geo=input.geometry;const auto& g=geo.grid;
     e.mode=mode;
-    const bool true_h=physics[0].eos_energy(),model_h=mode==Full3DThermalMode::model_h;
+    const bool true_h=mode==Full3DThermalMode::true_h,model_h=mode==Full3DThermalMode::model_h;
     const bool cc=cell_centered;
     if(cc && legacy_single_sco2)
         e.temperature_algorithm="legacy_frozen_cp_single_a_cc_v1";
-    if(!true_h && warm)temperature_ranges("main","real-cell(x,y,z)-warm");
+    if(warm)temperature_ranges("main","real-cell(x,y,z)-warm");
     for(std::size_t s=0;s<2;++s) if(active(s)) e.pressure[s]=result.flow[s].pressure_real;
     if(!true_h) check_water(temperature,e.pressure);
     for(const auto& t:temperature) if(!finite(t)) throw std::domain_error("nonfinite full 3D thermal warm start");
@@ -808,13 +808,13 @@ void Runtime::begin_thermal(std::size_t outer) {
         ?control.model_h_iterations.max_iterations:control.thermal_iterations;
     const bool startup=mode==Full3DThermalMode::model_h
         && (input.a.fluid==Fluid::water || input.b.fluid==Fluid::water) && outer==0;
-    run.budget=physics[0].eos_energy()?2:(startup?std::min<std::size_t>(run.remaining,250):run.remaining);
+    run.budget=mode==Full3DThermalMode::true_h?2:(startup?std::min<std::size_t>(run.remaining,250):run.remaining);
     start_thermal();
 }
 
 void Runtime::start_thermal(const Full3DThermalRunState* saved) {
     auto& run=*pending;auto& e=run.evidence;const auto& g=input.geometry.grid;
-    const auto& geo=input.geometry;const bool true_h=physics[0].eos_energy();
+    const auto& geo=input.geometry;const bool true_h=mode==Full3DThermalMode::true_h;
     if(saved && saved->enthalpy) {start_enthalpy(&*saved->enthalpy);return;}
     const auto total=control.model_h_iterations.max_iterations
         ?control.model_h_iterations.max_iterations:control.thermal_iterations;
@@ -931,13 +931,26 @@ void Runtime::start_enthalpy(const EnthalpyRunState* saved) {
                 if(const auto* error=energy_port_error(g,side(s),e.mass[s]))throw std::invalid_argument(error);
             e.enthalpy[s].resize(temperature[s].size());
         }
-        for(std::size_t s=0;s<2;++s)
-            record_property_samples(e.property_sampling,s,static_cast<std::int64_t>(run.record.outer_index),"thermal","HEOS",
-                "current_thermal_iterate","last_thermal_input_absolute","local_evaluation",{"energy_relation","conductivity"});
+        for(std::size_t s=0;s<2;++s) {
+            record_property_samples(e.property_sampling,s,static_cast<std::int64_t>(run.record.outer_index),"thermal",
+                physics[s].eos_energy()?"HEOS":"model_resource","current_thermal_iterate",
+                physics[s].eos_energy()?"last_thermal_input_absolute":nullptr,
+                physics[s].eos_energy()?"local_evaluation":"integral_cp_T",{"energy_relation"});
+            if(physics[s].conductivity==ConductivitySource::local_eos)
+                record_property_samples(e.property_sampling,s,static_cast<std::int64_t>(run.record.outer_index),"thermal","HEOS",
+                    "current_thermal_iterate","last_thermal_input_absolute","local_evaluation",{"conductivity"});
+            else record_property_samples(e.property_sampling,s,static_cast<std::int64_t>(run.record.outer_index),"thermal",
+                "outer_property_state",run.record.outer_index?"previous_thermal_return":"inlet","inlet","copy",{"conductivity"});
+        }
     }
     auto c=control.enthalpy;c.cancel=control.cancel;c.context=control.context;
-    const EnthalpySideView a{input.a.fluid,input.a.inlet_temperature,input.a.inlet_pressure,view(e.pressure[0]),epsilon(0),view(hv[0]),view(e.mass[0][0]),view(e.mass[0][1]),view(e.mass[0][2]),input.a.direction};
-    const EnthalpySideView b{input.b.fluid,input.b.inlet_temperature,input.b.inlet_pressure,view(e.pressure[1]),epsilon(1),view(hv[1]),view(e.mass[1][0]),view(e.mass[1][1]),view(e.mass[1][2]),input.b.direction};
+    c.reference_independent_update=true;
+    const EnthalpySideView a{input.a.fluid,input.a.inlet_temperature,input.a.inlet_pressure,view(e.pressure[0]),epsilon(0),view(hv[0]),view(e.mass[0][0]),view(e.mass[0][1]),view(e.mass[0][2]),input.a.direction,
+        physics[0].energy,physics[0].conductivity,
+        physics[0].conductivity==ConductivitySource::local_eos?ArrayView<const double>{}:view(e.conductivity[0])};
+    const EnthalpySideView b{input.b.fluid,input.b.inlet_temperature,input.b.inlet_pressure,view(e.pressure[1]),epsilon(1),view(hv[1]),view(e.mass[1][0]),view(e.mass[1][1]),view(e.mass[1][2]),input.b.direction,
+        physics[1].energy,physics[1].conductivity,
+        physics[1].conductivity==ConductivitySource::local_eos?ArrayView<const double>{}:view(e.conductivity[1])};
     const EnthalpyStateView fields{writable(e.enthalpy[0]),writable(e.enthalpy[1]),writable(temperature[0]),writable(temperature[1]),writable(temperature[2]),true,true,true};
     auto* audit=&e.physical_audit.emplace();
     if(saved) {
@@ -949,7 +962,7 @@ void Runtime::start_enthalpy(const EnthalpyRunState* saved) {
 
 bool Runtime::advance_thermal() {
     auto& run=*pending;auto& e=run.evidence;auto& record=run.record;const auto& g=input.geometry.grid;
-    const bool true_h=physics[0].eos_energy();
+    const bool true_h=mode==Full3DThermalMode::true_h;
     if(enthalpy) {
         if(enthalpy->phase()==EnthalpyPhase::active && enthalpy->advance()==EnthalpyPhase::active)return false;
         e.true_h=enthalpy->take_result();enthalpy.reset();
@@ -960,11 +973,14 @@ bool Runtime::advance_thermal() {
         record.thermal_converged=r.stop==EnthalpyStop::converged;record.thermal_iterations=r.iterations;record.thermal_residual=r.residual;
         check_water(temperature,e.pressure);
         for(const auto& t:temperature)if(!finite(t))throw std::domain_error("nonfinite full 3D true-h return");
+        temperature_ranges("main","real-cell(x,y,z)-return");
         if(r.algorithm!=EnthalpyAlgorithm::legacy_h_fou) {
             for(std::size_t s=0;s<2;++s) {
                 auto& actual=e.actual_conductivity[s];actual.resize(temperature[s].size());
                 for(std::size_t p=0;p<actual.size();++p)
-                    actual[p]=epsilon(s)[p]*eos.conductivity(side(s).fluid,temperature[s][p],e.pressure[s][p]);
+                    actual[p]=physics[s].conductivity==ConductivitySource::local_eos
+                        ?epsilon(s)[p]*eos.conductivity(side(s).fluid,temperature[s][p],e.pressure[s][p])
+                        :e.conductivity[s][p];
                 e.enthalpy_boundary_power[s]=enthalpy_boundary_power(g,view(e.enthalpy[s]),views(e.mass[s]),
                     r.inlet_enthalpy[s],r.algorithm==EnthalpyAlgorithm::temperature_sou);
             }
@@ -1023,7 +1039,7 @@ bool Runtime::advance_thermal() {
             ?control.model_h_iterations.max_iterations:control.thermal_iterations;
         record.startup_total_iterations=total-run.remaining;
     }
-    if(!true_h)temperature_ranges("main","real-cell(x,y,z)-return");
+    temperature_ranges("main","real-cell(x,y,z)-return");
     if(true_h) {start_enthalpy();return false;}
     finish_thermal();return true;
 }
@@ -1170,7 +1186,8 @@ void Runtime::finish() {
     const bool true_h_pair=uses_co2_eos(input.a.fluid) || uses_co2_eos(input.b.fluid);
     const bool candidate=result.thermal.true_h
         && result.thermal.true_h->algorithm!=EnthalpyAlgorithm::legacy_h_fou;
-    if(!true_h_pair)temperature_ranges("final","real-cell(x,y,z)");
+    if(!true_h_pair || mode==Full3DThermalMode::true_h)
+        temperature_ranges("final","real-cell(x,y,z)");
     result.finite_fields=std::all_of(temperature.begin(),temperature.end(),finite);
     result.simple_ok=true;result.envelope_ok=true;
     const auto n=shape(g);
@@ -1220,7 +1237,7 @@ void Runtime::finish() {
             if(true_h_pair && !candidate) {
                 const double pressure=f.pressure_reference+f.pressure[out];
                 eos.validate(a.fluid,local_temperature[out],pressure,"3D final outlet enthalpy");
-                const double h=eos.bracket_enthalpy(a.fluid,local_temperature[out],pressure);
+                const double h=eos.bracket_enthalpy(a.fluid,local_temperature[out],pressure,physics[s].energy);
                 weighted_h+=h*weight;plain_h+=h;
             }
         }
@@ -1257,7 +1274,7 @@ void Runtime::finish() {
             } else result.duty[s]=std::abs(s==0?evidence.true_h->q_a:evidence.true_h->q_b);
         } else if(true_h_pair) {
             eos.validate(a.fluid,a.inlet_temperature,a.inlet_pressure,"3D final inlet enthalpy");
-            const double hin=eos.bracket_enthalpy(a.fluid,a.inlet_temperature,a.inlet_pressure);
+            const double hin=eos.bracket_enthalpy(a.fluid,a.inlet_temperature,a.inlet_pressure,physics[s].energy);
             const double hout=mass_out<1e-30?plain_h/(sg.nx*sg.nz):weighted_h/mass_out;
             result.duty[s]=std::abs(mass_in*(hin-hout));
         } else result.duty[s]=std::abs(mass_in*inlet[s].cp*(a.inlet_temperature-result.outlet_temperature[s]));
@@ -1307,8 +1324,10 @@ std::array<SidePhysics,2> resolve_full_3d_physics(const Full3DInput& input,const
                 ConductivitySource::prescribed,HeatTransferSampling::prescribed};
             continue;
         }
-        selected[side]={fluid,relation,
-            relation==EnergyRelation::eos_h_TP?ConductivitySource::local_eos:ConductivitySource::outer_transport,
+        const auto energy=relation==EnergyRelation::eos_h_TP && !uses_co2_eos(fluid)
+            ?EnergyRelation::integral_cp_T:relation;
+        selected[side]={fluid,energy,
+            energy==EnergyRelation::eos_h_TP?ConductivitySource::local_eos:ConductivitySource::outer_transport,
             uses_co2_eos(fluid)?HeatTransferSampling::inlet_then_thermal_local_at_inlet_pressure:
                 HeatTransferSampling::inlet};
     }

@@ -128,3 +128,33 @@ def test_model_h_last_main_settings_keep_refined_and_startup_records_separate():
     assert record['numerics']['effective_settings']['max_iterations'] == 125
     assert len(record['numerics']['model_h_iterations']['records']) == 3
     assert record['sides']['B']['energy']['relation'] == 'integral_cp_T'
+
+
+@pytest.mark.parametrize('mode,update', [('true_h', 'T(h)'), ('conservative_energy', 'h(T)')])
+def test_mixed_native_models_use_each_executed_energy_sample(mode, update, tmp_path):
+    case, result = evidence(mode, settings={'nonlinear_state_update': 'HEOS_PT'})
+    sampling = [dict(side=label, outer_index=4, stage='thermal', quantity='energy_relation',
+                     provider=provider, temperature='current_thermal_iterate', pressure=None,
+                     operation=operation) for label, provider, operation in (
+        ('A', 'HEOS', 'local_evaluation'), ('B', 'model_resource', 'integral_cp_T'))]
+    # A refined call does not change the main solve's physical relation.
+    sampling.append({**sampling[1], 'stage': 'refined_thermal', 'provider': 'HEOS',
+                     'operation': 'local_evaluation'})
+    normalization = dict(definition='inlet_cp_times_temperature_difference_v1', unit='J/kg',
+                         sides={'A': 20000., 'B': 42000.}, source='native_completed_thermal_call')
+    result = replace(result, metadata={**result.metadata, 'property_sampling': sampling,
+                                      'enthalpy_update_normalization': normalization})
+    record = full_execution_record(case, result)
+    water = record['sides']['B']
+    assert water['energy']['relation'] == 'integral_cp_T'
+    assert water['energy']['property_provider'] == 'model_resource'
+    assert water['energy']['model_ref'] == 1
+    assert 'pressure_field' not in water['energy']
+    assert water['property_evaluation'] == {'state_update': update}
+    assert record['sides']['A']['energy']['relation'] == 'eos_h_TP'
+    assert record['sides']['A']['energy']['pressure_field'] == 'P_thermal_A'
+    assert record['numerics']['enthalpy_update_normalization'] == normalization
+    result = replace(result, metadata={**result.metadata, 'execution_record': record})
+    path = tmp_path / 'mixed-models.h5'
+    save_result(result, path)
+    assert load_result(path).metadata['execution_record'] == result.metadata['execution_record']

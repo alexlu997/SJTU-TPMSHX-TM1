@@ -59,6 +59,10 @@ typedef struct {
     double omega,update_tolerance,temperature_update_tolerance;
     double coupled_energy_tolerance,equation_energy_tolerance;
 } tpmshx_energy_effective_settings_v1;
+typedef struct {
+    uint32_t available,reference_independent;
+    double scale[2]; /* J/kg; max(cp_in*abs(T_in_A-T_in_B), 1) for full runs */
+} tpmshx_energy_update_scale_v1;
 /* Read full-driver defaults without numerical work. available is zero.
  * dimension is 2 or 3; has_water is 0 or 1. Invalid arguments return 1
  * and leave output unchanged. Explicit caller controls still take priority. */

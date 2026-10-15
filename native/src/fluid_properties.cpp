@@ -131,6 +131,12 @@ void PropertyEvaluator::check_co2(double temperature, double pressure) {
     detail::check_co2_pt(co2_,temperature,pressure);
 }
 
+const std::array<double,5>& model_h_coefficients(Fluid fluid) {
+    if(fluid==Fluid::air)return data::model_h_air;
+    if(fluid==Fluid::water)return data::model_h_water;
+    throw std::invalid_argument("model enthalpy requires air or water");
+}
+
 double nusselt_floor(Fluid fluid) {
     return data::nu_laminar_floor * (fluid == Fluid::co2 ? data::co2_nu_multiplier : 1.);
 }
@@ -148,11 +154,10 @@ FluidProperties PropertyEvaluator::transport(Fluid fluid, double temperature, do
             const auto& s = data::air_sutherland;
             const auto& k = data::air_conductivity;
             const auto& cp = data::model_h_air;
-            const double dt = temperature - cp[3];
             result.rho = pressure * data::air_molar_mass / (data::gas_constant * temperature);
             result.mu = s[1] * std::pow(temperature / s[0], 1.5) * (s[0] + s[2]) / (temperature + s[2]);
             result.k = k[0] * std::pow(temperature / k[1], k[2]);
-            result.cp = cp[0] + cp[1] * dt + cp[2] * (dt * dt);
+            result.cp = model_heat_capacity(temperature,cp);
             break;
         }
         case Fluid::water: {

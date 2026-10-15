@@ -6,6 +6,7 @@ physical convergence verdicts are produced by the C++ call.
 """
 import ctypes as ct
 from .property_sampling import sampling_query, copy_sampling
+from .enthalpy import _update_scale_query, _copy_update_scale
 import os
 from pathlib import Path
 
@@ -227,6 +228,7 @@ class NativeFull3DDriver:
         self.query_last_ranges = last_range_query(self.library, 3, _Result)
         self.query_heat_ledger = heat_ledger_query(self.library, 3, _Result)
         self.query_sampling = sampling_query(self.library, 3, _Result)
+        self.query_update_scale = _update_scale_query(self.library, 3, _Result)
         self.query_model_h = _iteration_query(self.library, 3, _Result)
         try:
             self.query_bootstrap = self.library.tpmshx_full_3d_get_bootstrap_trace_v1
@@ -459,17 +461,18 @@ class NativeFull3DDriver:
                 if detached['true_h'] is None or extra.outer_count != len(detached['outer']):
                     raise RuntimeError('native full 3D energy evidence does not match the thermal history')
                 _energy_result_info(detached['true_h'], extra.energy,
-                    temperature_tol=actual.last.temperature_update_tolerance, abi=entry_version, version_query=version_query)
+                    temperature_tol=actual.last.temperature_update_tolerance, abi=entry_version, version_query=version_query, state_update='per_side_energy_relation')
                 _energy_native_state(detached['true_h'], extra, shape, 'W')
                 for index, row in enumerate(detached['outer']):
                     _energy_result_info(row['true_h_info'], extra.outer[index],
-                        temperature_tol=actual.outer[index].temperature_update_tolerance, abi=entry_version, version_query=version_query)
+                        temperature_tol=actual.outer[index].temperature_update_tolerance, abi=entry_version, version_query=version_query, state_update='per_side_energy_relation')
                 detached['mode'] = 'conservative_energy'
             if resume_state is not None:
                 detached['continuation'] = dict(format='full_3d_continuation_v1', build=resume_state['build'],
                     completed_outer_steps=int(resume_state['state.result.outer.size'][0]),
                     saved_phase=int(resume_state['state.phase'][0]))
             detached['property_sampling'] = copy_sampling(self.query_sampling, result)
+            detached['enthalpy_update_normalization'] = _copy_update_scale(self.query_update_scale, result)
             detached['simple_velocity_relaxation'] = c.simple.alpha_velocity
             detached['model_h_iterations'] = _copy_iteration_records(self.query_model_h, result)
             budgets = {row['outer_index']: row['settings']['total_iteration_budget']

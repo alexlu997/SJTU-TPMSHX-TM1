@@ -1,7 +1,7 @@
 """Complete conservative energy coupling and the portable 2D face ledger.
 
 These are same-state evidence checks, not parity against a different algorithm.
-Frozen gates: EOS h rtol=2e-12/atol=2e-7 J/kg; K rtol=2e-12/atol=2e-12;
+Frozen gates: model/EOS h rtol=2e-12/atol=2e-7 J/kg; K rtol=2e-12/atol=2e-12;
 native/portable signed Q rtol=2e-10/atol=2e-7 W/m. Native acceptance is unchanged.
 """
 from dataclasses import replace
@@ -78,6 +78,7 @@ def capped(driver, request):
 
 def test_actual_thermal_state_and_signed_ledger(capped):
     import CoolProp.CoolProp as CP
+    from sjtu_tpmshx.tests.native.full_thermal_reference import model_enthalpy
     case, cfg, _, raw, result = capped
     info, thermal = raw['main']['true_h'], raw['main']
     assert raw['entry_version'] == 3 and raw['fine'] is None
@@ -122,12 +123,17 @@ def test_actual_thermal_state_and_signed_ledger(capped):
     for side, label, fluid in ((0, 'A', 'Water'), (1, 'B', 'CO2')):
         temperature = thermal['temperature'][side]
         pressure = thermal['pressure'][side]
-        h = CP.PropsSI('Hmass', 'T', temperature.ravel(), 'P', pressure.ravel(), 'HEOS::' + fluid)
-        k = CP.PropsSI('conductivity', 'T', temperature.ravel(), 'P', pressure.ravel(), 'HEOS::' + fluid)
+        if fluid == 'Water':
+            h = model_enthalpy(temperature.ravel(), 'water')
+            k = thermal['conductivity'][side].ravel()
+            np.testing.assert_allclose(state['h_in_' + label], model_enthalpy(cfg['T_in' + label], 'water'), rtol=2e-12, atol=2e-7)
+        else:
+            h = CP.PropsSI('Hmass', 'T', temperature.ravel(), 'P', pressure.ravel(), 'HEOS::' + fluid)
+            k = CP.PropsSI('conductivity', 'T', temperature.ravel(), 'P', pressure.ravel(), 'HEOS::' + fluid)
+            split = cfg['thermal_geometry']['split_A'] if side == 0 else 1 - cfg['thermal_geometry']['split_A']
+            k *= cfg['eps'] * split
         np.testing.assert_allclose(state['h_' + label].ravel(), h, rtol=2e-12, atol=2e-7)
-        split = cfg['thermal_geometry']['split_A'] if side == 0 else 1 - cfg['thermal_geometry']['split_A']
-        np.testing.assert_allclose(state['actual_conductivity_' + label].ravel(),
-                                   k * cfg['eps'] * split, rtol=2e-12, atol=2e-12)
+        np.testing.assert_allclose(state['actual_conductivity_' + label].ravel(), k, rtol=2e-12, atol=2e-12)
         powers = state['boundary_power'][label]
         assert not np.any(powers['z-']) and not np.any(powers['z+'])
         signed = -sum(np.sum(powers[face]) for face in ('x-', 'x+', 'y-', 'y+', 'z-', 'z+'))

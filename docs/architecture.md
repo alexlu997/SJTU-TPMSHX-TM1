@@ -20,11 +20,14 @@ External faces keep their prescribed boundary treatment. Axes with fewer
 than three cells stay first order. Product model-h and the nonconservative
 research stencil keep their separate reconstruction contracts.
 
-Engineering backend parity requires one prepared case and independent convergence
-and energy gates. Relative differences in duty, pressure drop and mass flow must
+Engineering backend parity requires one prepared case, the same physical models,
+and independent convergence and energy gates. Relative differences in duty, pressure drop and mass flow must
 be at most 0.1%. Absolute differences in outlet and full-field temperatures must
 be at most 0.01 K. `test_backend_engineering_parity.py` covers eight fluid pairings
-in 2D and 3D. Complete iterative comparisons use these limits, with 0.01% relative
+in 2D and 3D. Mixed native runs use the selected per-fluid energy models.
+Their differences from the retained Python HEOS models are recorded separately.
+Independent formula checks and physical gates apply to these runs.
+Complete comparisons with the same models use these limits, with 0.01% relative
 tolerance for intermediate fields and explicit absolute tolerances for
 near-zero residual ratios.
 
@@ -120,7 +123,20 @@ The 2D owner passes these choices to its main and refined thermal calls.
 The 3D owner keeps them for the run and derives them again from matched inputs on restore.
 Current input validation, phase guards and sampled-state records stay at their existing owners.
 The selected rules retain the differences between dimensions, EOS warm-up, prescribed B and research routes.
-This migration keeps the current route-dependent choices. Independent per-fluid defaults require separate qualification.
+Two-fluid full runs that use the conservative EOS driver now select energy by fluid.
+Air and water use their existing integral h(T); CO2 and sCO2 use HEOS h(T,P).
+The air/water conductivity comes from prepared fields in 2D and the outer transport state in 3D.
+CO2 and sCO2 keep local HEOS conductivity. Heat-transfer sampling keeps its existing rules.
+The Python numerical backend and direct component C entries keep their existing models.
+Pure water/water capacity, prescribed-side and research routes retain their separate contracts.
+
+Each full conservative run normalizes the h update separately for each fluid.
+Its scale is inlet cp times the absolute inlet temperature difference, with a 1 J/kg minimum.
+This scale does not depend on the fluids' enthalpy origins.
+The additive full-driver `get_energy_update_scale_v1` queries return the actual scales.
+Existing C structure layouts stay unchanged. Python bindings require the matching native library.
+The execution record stores `enthalpy_update_normalization`; checkpoints retain its values and definition.
+Historical saved results retain their original models, normalization and metrics.
 
 Full C++ 2D EOS runs also accept the optional thermal controls in `SolverConfig`.
 The additive `full_2d_v4` entry passes the iteration and sweep budgets, relaxation,

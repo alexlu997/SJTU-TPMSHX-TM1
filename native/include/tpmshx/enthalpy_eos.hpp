@@ -1,6 +1,6 @@
 #pragma once
 
-#include "tpmshx/fluid_properties.hpp"
+#include "tpmshx/side_physics.hpp"
 
 #include <array>
 #include <memory>
@@ -16,9 +16,8 @@ struct EnthalpyPTState {
     double enthalpy, cp, conductivity;
 };
 
-// Real-fluid HEOS used only by the existing true-h equation. In particular,
-// true-h Air/Water h, cp and k are EOS quantities; QD/model-h keep their
-// separate empirical PropertyEvaluator route. One evaluator belongs to a run.
+// One evaluator belongs to each run. Direct callers retain HEOS by default.
+// An integral relation uses the existing air/water model and phase guards.
 class EnthalpyEOS {
 public:
     EnthalpyEOS();
@@ -28,17 +27,22 @@ public:
 
     void validate(Fluid fluid, double temperature, double pressure,
                   const std::string& where);
-    EnthalpyProperties evaluate(Fluid fluid, double temperature, double pressure);
+    EnthalpyProperties evaluate(Fluid fluid, double temperature, double pressure,
+                                EnergyRelation energy=EnergyRelation::eos_h_TP);
     // Actual single-phase PT state, including the project water/CO2 guards.
     // Unlike mathematical bracket evaluation, this can certify a T update.
     EnthalpyPTState evaluate_state(Fluid fluid, double temperature, double pressure,
-                                  const std::string& where);
-    double conductivity(Fluid fluid, double temperature, double pressure);
+                                  const std::string& where,
+                                  EnergyRelation energy=EnergyRelation::eos_h_TP);
+    double conductivity(Fluid fluid, double temperature, double pressure,
+                        EnergyRelation energy=EnergyRelation::eos_h_TP);
     double temperature(Fluid fluid, double enthalpy, double pressure,
-                       bool use_bicubic, const std::string& where);
+                       bool use_bicubic, const std::string& where,
+                       EnergyRelation energy=EnergyRelation::eos_h_TP);
     // Mathematical scalar bracket evaluation, intentionally outside the
     // actual-state project guard. Caller validates physical inlet/warm states.
-    double bracket_enthalpy(Fluid fluid, double temperature, double pressure);
+    double bracket_enthalpy(Fluid fluid, double temperature, double pressure,
+                            EnergyRelation energy=EnergyRelation::eos_h_TP);
     // Called after the first cancellation check. The native library accepts
     // one absolute table path for its lifetime; it cannot be changed per run.
     void enable_bicubic(const std::string& absolute_table_directory);
@@ -46,6 +50,7 @@ public:
 private:
     CoolProp::AbstractState& heos(Fluid fluid);
     CoolProp::AbstractState& transport_state(Fluid fluid, double temperature, double pressure);
+    PropertyEvaluator models_;
     std::array<std::unique_ptr<CoolProp::AbstractState>,4> heos_;
     std::unique_ptr<CoolProp::AbstractState> bicubic_;
 };

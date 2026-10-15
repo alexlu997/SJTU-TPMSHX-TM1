@@ -17,8 +17,9 @@ std::array<SidePhysics,2> resolve_full_2d_physics(const Full2DProblem& p) {
     std::array<SidePhysics,2> selected;
     for(std::size_t side=0;side<2;++side) {
         const auto fluid=p.sides[side].fluid;
-        selected[side]={fluid,eos?EnergyRelation::eos_h_TP:EnergyRelation::integral_cp_T,
-            eos?ConductivitySource::local_eos:ConductivitySource::prepared,
+        const bool real_fluid=uses_co2_eos(fluid);
+        selected[side]={fluid,real_fluid?EnergyRelation::eos_h_TP:EnergyRelation::integral_cp_T,
+            real_fluid?ConductivitySource::local_eos:ConductivitySource::prepared,
             !eos?HeatTransferSampling::outer_mean_inlet_reference:
                 uses_co2_eos(fluid)?HeatTransferSampling::thermal_local_at_inlet_pressure:
                     HeatTransferSampling::thermal_mean_at_inlet_pressure};
@@ -482,13 +483,13 @@ void prepare_thermal(const Full2DProblem& p,const std::array<SidePhysics,2>& phy
         t.rho_cp[side]=r.rho_cp[side];
         if (p.thermal_mode==Full2DThermalMode::temperature) {
             t.inlet_capacity[side]=capacity_at_inlet(g,s.direction,t,side,inlet[side].cp);
-            t.temperature_cp_coefficients[side]=model_h_common::coefficients(s.fluid);
+            t.temperature_cp_coefficients[side]=model_h_coefficients(s.fluid);
         }
         double mean_rho=average(view(r.density[side]),g);
         double mean_mu=r.iterations?average(view(r.viscosity[side]),g):s.initial_viscosity;
         const char* provider=selected.transport_provider();
         const char* lagged=r.iterations?"previous_thermal_return":"inlet";
-        if (selected.eos_energy()) {
+        if (selected.heat_transfer!=HeatTransferSampling::outer_mean_inlet_reference) {
             record_property_samples(t.property_sampling,side,outer,"thermal_hv",provider,lagged,"inlet",
                 selected.local_heat_transfer()?"local_evaluation":"volume_mean_after_evaluation",{"density","viscosity"});
             record_property_samples(t.property_sampling,side,outer,"thermal_hv",provider,lagged,"inlet",
@@ -521,7 +522,7 @@ void prepare_thermal(const Full2DProblem& p,const std::array<SidePhysics,2>& phy
                 {g.nx,g.ny},view(t.temperature[side]),{"density","viscosity"});
             temperature_ranges(r.range_observations,s.fluid,side,"property","main-hv","real-cell(x,y)",
                 {},{&reference_temperature,1},{"conductivity"});
-        } else if (!selected.eos_energy()) {
+        } else if (selected.heat_transfer==HeatTransferSampling::outer_mean_inlet_reference) {
             temperature_ranges(r.range_observations,s.fluid,side,"property","main-hv","scalar",{},
                 {&s.inlet_temperature,1},{"conductivity"});
         }
@@ -594,6 +595,7 @@ void prepare_thermal(const Full2DProblem& p,const std::array<SidePhysics,2>& phy
 
 struct ThermalRun {
     const Full2DProblem& p;
+    const std::array<SidePhysics,2> physics;
     Full2DThermalState& t;
     std::array<Vector,2> epsilon;
     Vector z;
@@ -602,7 +604,7 @@ struct ThermalRun {
     std::unique_ptr<EnthalpyRun> enthalpy;
     ThermalRun(const Full2DProblem& problem,const std::array<SidePhysics,2>& physics,
                const Full2DControl& c,Full2DThermalState& thermal,std::size_t outer,const char* stage,
-               const Full2DThermalRunState* saved=nullptr):p(problem),t(thermal) {
+               const Full2DThermalRunState* saved=nullptr):p(problem),physics(physics),t(thermal) {
         const auto& g=p.grid;const std::size_t n=g.nx*g.ny;
         const auto budget=c.model_h_iterations.max_iterations?c.model_h_iterations.max_iterations:c.thermal_iterations;
         if(!saved) {
@@ -612,13 +614,13 @@ struct ThermalRun {
                     physics[side].eos_energy()?"HEOS":"model_resource","current_thermal_iterate",
                     physics[side].eos_energy()?"last_thermal_input_absolute":nullptr,
                     physics[side].eos_energy()?"local_evaluation":"integral_cp_T",{"energy_relation"});
-            if(physics[0].conductivity==ConductivitySource::local_eos)
-                for(std::size_t side=0;side<2;++side)
+            for(std::size_t side=0;side<2;++side)
+                if(physics[side].conductivity==ConductivitySource::local_eos)
                     record_property_samples(t.property_sampling,side,static_cast<std::int64_t>(outer),stage,
                         "HEOS","current_thermal_iterate","last_thermal_input_absolute","local_evaluation",{"conductivity"});
         }
         const TemperatureStateView fields{writable(t.temperature[0]),writable(t.temperature[1]),writable(t.temperature[2])};
-        if(physics[0].eos_energy()) {
+        if(p.thermal_mode==Full2DThermalMode::true_h) {
             if(saved && (!saved->enthalpy || saved->model_h || t.model_h_iterations))
                 throw std::invalid_argument("full 2D continuation requires its EOS energy owner");
             z.assign(n*2,0.);
@@ -631,11 +633,14 @@ struct ThermalRun {
             }
             const auto fluid=[&](std::size_t side) {
                 return EnthalpySideView{p.sides[side].fluid,p.sides[side].inlet_temperature,p.sides[side].inlet_pressure,
-                    view(t.pressure[side]),view(epsilon[side]),view(t.hv[side]),view(t.mass_x[side]),view(t.mass_y[side]),view(z),p.sides[side].direction};
+                    view(t.pressure[side]),view(epsilon[side]),view(t.hv[side]),view(t.mass_x[side]),view(t.mass_y[side]),view(z),p.sides[side].direction,
+                    physics[side].energy,physics[side].conductivity,
+                    physics[side].conductivity==ConductivitySource::local_eos?ArrayView<const double>{}:view(t.conductivity[side])};
             };
             if(!saved) {t.h_a.resize(n);t.h_b.resize(n);}
             const EnthalpyStateView fields_h{writable(t.h_a),writable(t.h_b),fields.a,fields.b,fields.solid,true,true,true};
             auto control=c.enthalpy;control.cancel=c.cancel;control.context=c.context;
+            control.reference_independent_update=true;
             if(saved) {
                 auto state=*saved->enthalpy;
                 for(const auto& field:state.fields)if(!field.empty())
@@ -699,7 +704,9 @@ struct ThermalRun {
                 for(std::size_t side=0;side<2;++side) {
                     auto& actual=t.actual_conductivity[side];actual.resize(g.nx*g.ny);
                     for(std::size_t k=0;k<actual.size();++k)
-                        actual[k]=epsilon[side][k]*eos.conductivity(p.sides[side].fluid,t.temperature[side][k],t.pressure[side][k]);
+                        actual[k]=physics[side].conductivity==ConductivitySource::local_eos
+                            ?epsilon[side][k]*eos.conductivity(p.sides[side].fluid,t.temperature[side][k],t.pressure[side][k])
+                            :t.conductivity[side][k];
                     t.enthalpy_boundary_power[side]=enthalpy_boundary_power(g,view(side==0?t.h_a:t.h_b),
                         {view(t.mass_x[side]),view(t.mass_y[side]),view(z)},solved.inlet_enthalpy[side],
                         solved.algorithm==EnthalpyAlgorithm::temperature_sou);
@@ -791,7 +798,7 @@ void Runtime::finish_flow() {
                 {f.dx.size(),f.dy.size()},view(f.temperature),{"viscosity"});
     }
     prepare_thermal(p,physics,result,properties,inlet);
-    if (p.thermal_mode!=Full2DThermalMode::true_h && (outer || p.initial_solid_temperature))
+    if (outer || p.initial_solid_temperature)
         for (std::size_t side=0;side<2;++side)
             temperature_state(result.range_observations,p.sides[side].fluid,side,"main-warm",g,
                               view(result.thermal.temperature[side]));
@@ -802,8 +809,8 @@ void Runtime::finish_thermal() {
     thermal.reset();
     const auto& g=p.grid;const std::size_t n=g.nx*g.ny,outer=result.iterations;
     if (thermal_cancelled(result.thermal)) { result.cancelled=true; return; }
-    if (p.thermal_mode!=Full2DThermalMode::true_h)
-        for (std::size_t side=0;side<2;++side)
+    for (std::size_t side=0;side<2;++side)
+        if(!physics[side].eos_energy())
             temperature_state(result.range_observations,p.sides[side].fluid,side,"main-return",g,
                               view(result.thermal.temperature[side]));
     for (std::size_t side=0;side<2;++side)
@@ -867,7 +874,7 @@ void Runtime::finish_coarse() {
     if (cancelled(c)) { result.cancelled=true; return; }
     for (std::size_t side=0;side<2;++side) {
         const auto& s=p.sides[side]; const auto& f=result.flow[side];
-        if (p.thermal_mode!=Full2DThermalMode::true_h)
+        if (!physics[side].eos_energy())
             temperature_state(result.range_observations,s.fluid,side,"final",g,view(result.thermal.temperature[side]));
         actual_water(properties,s.fluid,view(result.thermal.temperature[side]),view(f.absolute_pressure),"2D final state",side);
         result.envelope[side]={true,{}};
@@ -956,7 +963,7 @@ void Runtime::begin_refinement() {
         if(p.thermal_mode==Full2DThermalMode::temperature) {
             const auto coarse=s.direction<2?g.dy:g.dx;
             fine.thermal.inlet_capacity[side]=refine_inlet_capacity(coarse,cross,view(r.thermal.inlet_capacity[side]));
-            fine.thermal.temperature_cp_coefficients[side]=model_h_common::coefficients(s.fluid);
+            fine.thermal.temperature_cp_coefficients[side]=model_h_coefficients(s.fluid);
         }
     }
     fine.thermal.temperature[2]=interpolate(view(r.thermal.temperature[2]));

@@ -1,5 +1,6 @@
 """Portable native 2D fields, diagnostics and metric evidence remain usable."""
 from collections.abc import Mapping
+from contextlib import nullcontext
 from dataclasses import replace
 import os
 from pathlib import Path
@@ -88,7 +89,7 @@ def captured(driver, case):
         return capture_result(case, cfg, prepared, raw), raw
 
 
-def compare_portable(actual, expected, *, full_cc=False):
+def compare_portable(actual, expected, *, full_cc=False, selected_energy=False):
     assert actual.backend_id == 'cpp'
     for result in (actual, expected):
         balance = evaluate_physical_balance(result)
@@ -114,7 +115,11 @@ def compare_portable(actual, expected, *, full_cc=False):
         for key in ('native', 'temperature', 'mass_A', 'mass_B', 'mass_unit'):
             fine.pop(key)
         fluxes['fine'] = fine
-    compare(fluxes, expected.boundary_fluxes, 'boundary_fluxes')
+    expected_fluxes = dict(expected.boundary_fluxes)
+    if selected_energy:
+        assert evaluate_physical_balance(actual)['energy']['status'] == 'available'
+        fluxes.pop('energy');expected_fluxes.pop('energy')
+    compare(fluxes, expected_fluxes, 'boundary_fluxes')
     for key in ('model_metadata', 'application', 'reporting_reference', 'df_metadata'):
         compare(actual.metadata[key], expected.metadata[key], key)
     actual_metrics, expected_metrics = evaluate(actual).metrics, evaluate(expected).metrics
@@ -160,12 +165,13 @@ def compare_range_records(actual, expected):
 def test_capped_partial_fields_last_inputs_and_recomputed_metrics(driver, mode):
     case = prepare_case(configuration(directions=(1, 2), outer=2, partial=True, mode=mode),
                         case_id='capture-partial-' + mode)
-    with warning_scope({}) as expected_records:
+    with warning_scope({}) as expected_records, (full_thermal_reference.selected_energy_reference(case)
+                                                if mode == 'true_h' else nullcontext()):
         expected = python_run(case)
     with warning_scope({}) as actual_records:
         actual, raw = captured(driver, case)
     compare_range_records(actual_records, expected_records)
-    compare_portable(actual, expected)
+    compare_portable(actual, expected, selected_energy=mode == 'true_h')
     for result in (actual, expected):
         samples = result.metadata['property_sampling']
         for label in 'AB':
@@ -184,6 +190,12 @@ def test_capped_partial_fields_last_inputs_and_recomputed_metrics(driver, mode):
     assert not np.array_equal(actual.fields['Ta'], actual.fields['Ta_display'])
     np.testing.assert_array_equal(actual.metadata['rho_cp_A'], None if mode == 'true_h' else raw['main']['rho_cp'][0])
     assert actual.metadata['diagnostics']['native_full_2d']['range_observations']
+    assert actual.metadata['enthalpy_update_normalization'] == raw['enthalpy_update_normalization']
+    if mode == 'true_h':
+        from sjtu_tpmshx.solvers.execution_record import full_execution_record
+        scale = full_execution_record(case, actual)['numerics']['enthalpy_update_normalization']
+        assert scale['definition'] == 'inlet_cp_times_temperature_difference_v1'
+        assert scale['unit'] == 'J/kg' and all(value >= 1 for value in scale['sides'].values())
 
 
 def test_capped_temperature_capture_uses_current_full_cc_enthalpy(driver, same_thermal):
@@ -258,7 +270,7 @@ def test_true_h_air_property_sources_and_selected_sco2_nu_are_recorded(driver, f
         from sjtu_tpmshx.models.nu_correlations import sco2_effective_nu_config
         config = replace(config, sco2_nu=sco2_effective_nu_config())
     case = prepare_case(config, case_id='range-true-h-' + topology)
-    with warning_scope({}) as expected_records:
+    with warning_scope({}) as expected_records, full_thermal_reference.selected_energy_reference(case):
         expected = python_run(case)
     with warning_scope({}) as actual_records:
         actual, _ = captured(driver, case)

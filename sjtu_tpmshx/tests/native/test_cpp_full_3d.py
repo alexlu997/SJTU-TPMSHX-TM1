@@ -1,5 +1,6 @@
 """Public prepared-case handoff to the independent full native 3D driver."""
 from collections.abc import Mapping
+from contextlib import nullcontext
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 import os
@@ -173,7 +174,11 @@ def test_old_full3d_library_missing_trace_has_explicit_capability_error(native_p
 @pytest.mark.parametrize('pair',['air-air','air-water','water-air','air-sco2','sco2-water'])
 def test_public_case_fields_native_ledgers_and_postprocess(native_path,pair):
     from sjtu_tpmshx.tests.native.test_backend_engineering_parity import _physical_gates
-    prepared=case(pair);expected=python_run(prepared)
+    prepared=case(pair)
+    mixed = any(fluid in ('co2','sco2') for fluid in pair.split('-'))
+    from sjtu_tpmshx.tests.native.full_thermal_reference import selected_energy_reference
+    with selected_energy_reference() if mixed else nullcontext():
+        expected=python_run(prepared)
     # A Python numerical entry cannot supply any part of the native answer.
     with patch('sjtu_tpmshx.solvers.backends.python.three_d.runtime.build_problem',side_effect=AssertionError('Python numerical driver called')):
         actual=cpp_run(prepared,control(native_path))
@@ -190,10 +195,15 @@ def test_public_case_fields_native_ledgers_and_postprocess(native_path,pair):
     for result in (actual,expected):
         _physical_gates(result)
         audit = evaluate_physical_balance(result)['energy']
-        assert audit['status'] == 'available'
-        assert abs(audit['telescoping_error']) < 1e-6
+        if result is actual or not mixed:
+            assert audit['status'] == 'available'
+            assert abs(audit['telescoping_error']) < 1e-6
     for key in ('fields','field_metadata','boundary_fluxes','pressure_evidence','run_status'):
-        compare(getattr(actual,key),getattr(expected,key),key,engineering=True)
+        a,e=getattr(actual,key),getattr(expected,key)
+        if key=='boundary_fluxes' and mixed:
+            a,e=dict(a),dict(e)
+            a.pop('energy');e.pop('energy')
+        compare(a,e,key,engineering=True)
     for key in ('model_metadata','application','reporting_reference','df_metadata'):
         compare(actual.metadata[key],expected.metadata[key],key,engineering=key in ('application','reporting_reference'))
     for key in ('Q','Q_A','Q_B','dP_A','dP_B','T_out_A','T_out_B','mass_flow_A','mass_flow_B','energy_imbalance_rel'):
@@ -236,7 +246,10 @@ def test_public_legacy_strict_v3_reports_executed_final_and_outer_settings(nativ
 
 
 def test_capped_public_keeps_distinct_pressure_states(native_path):
-    prepared=case('air-sco2',2);a=cpp_run(prepared,control(native_path));e=python_run(prepared)
+    from sjtu_tpmshx.tests.native.full_thermal_reference import selected_energy_reference
+    prepared=case('air-sco2',2);a=cpp_run(prepared,control(native_path))
+    with selected_energy_reference():
+        e=python_run(prepared)
     assert not a.run_status['converged']
     assert a.metadata['diagnostics']['true_h_balance']['post_after_last_thermal']
     assert np.max(np.abs(a.fields['P_report_A']-a.fields['P_thermal_A']))>1e-5
@@ -374,7 +387,10 @@ def test_native_call_borrows_case_arrays_and_recovers(native_path, monkeypatch, 
 def test_opt_in_audit_exports_final_capped_state_and_nu_observations(native_path,pair):
     prepared=case(pair,2)
     prepared=replace(prepared,parameters=dict(prepared.parameters,_emit_audit=True))
-    a=cpp_run(prepared,control(native_path));e=python_run(prepared)
+    from sjtu_tpmshx.tests.native.full_thermal_reference import selected_energy_reference
+    a=cpp_run(prepared,control(native_path))
+    with selected_energy_reference() if 'sco2' in pair else nullcontext():
+        e=python_run(prepared)
     compare(a.metadata['application'],e.metadata['application'],'application',engineering=True)
     expected=e.metadata['diagnostics'];actual=a.metadata['diagnostics']
     for key in expected:
@@ -428,7 +444,9 @@ def test_runtime_range_evidence_preserves_original_sources_and_denominators(nati
         return run_warnings.record_range(source,values,*args,**kwargs)
     monkeypatch.setattr(tpms_props,'record_range',observe)
     monkeypatch.setattr(nu_correlations,'record_range',observe)
-    with warning_scope(expected):python_run(prepared)
+    from sjtu_tpmshx.tests.native.full_thermal_reference import selected_energy_reference
+    with warning_scope(expected), selected_energy_reference() if 'sco2' in pair else nullcontext():
+        python_run(prepared)
     with warning_scope(actual):result=adapter_run(prepared,control(native_path))
     last={(*row['source'],tuple(row['shape']),(row['side'],row['stage'],row['layout'])): row
           for row in result.metadata['_last_closure_ranges']}

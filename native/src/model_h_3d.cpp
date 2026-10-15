@@ -37,7 +37,7 @@ struct Side {
     std::array<ArrayView<const double>,3> mass;
     Faces capacity,deferred;
     Side(const Mesh&, const ModelHFluid3D& fluid,bool order,bool solved,bool strict)
-        :f(fluid),cp(solved ? &coefficients(f.fluid) : nullptr),second_order(order),strict_boundary(strict),
+        :f(fluid),cp(solved ? &model_h_coefficients(f.fluid) : nullptr),second_order(order),strict_boundary(strict),
         mass{f.mass_x,f.mass_y,f.mass_z},
         capacity{Vector(f.mass_x.size),Vector(f.mass_y.size),Vector(f.mass_z.size)},
         deferred{Vector(f.mass_x.size),Vector(f.mass_y.size),Vector(f.mass_z.size)} {}
@@ -94,8 +94,8 @@ void faces(const Mesh& mesh, Side& side, ArrayView<const double> temperature) {
                 const double x=t-coefficients[3],cp=std::fma(std::fma(x,coefficients[2],coefficients[1]),x,coefficients[0]);
                 side.capacity[axis][p]=mass*cp;
                 if constexpr (physical)
-                    side.deferred[axis][p]=mass*enthalpy(t+inc,coefficients);
-                else side.deferred[axis][p]=mass*std::fma(-cp,t,enthalpy(t+inc,coefficients));
+                    side.deferred[axis][p]=mass*model_enthalpy(t+inc,coefficients);
+                else side.deferred[axis][p]=mass*std::fma(-cp,t,model_enthalpy(t+inc,coefficients));
             }
     }
 }
@@ -271,7 +271,7 @@ void validate(const GridView& g, const ModelHFluid3D& a, const ModelHFluid3D& b,
         throw std::invalid_argument("3D model-h supports symmetric AA/AW/WA");
     for (const auto* f:{&a,&b}) {
         const bool solved=f==&a || !prescribed_b.size;
-        if (solved) coefficients(f->fluid);
+        if (solved) model_h_coefficients(f->fluid);
         coefficient(f->conductivity,n); coefficient(f->hv,n);
         check(f->mass_x,extents[0],solved); check(f->mass_y,extents[1],solved); check(f->mass_z,extents[2],solved);
         if (f->source.size) check(f->source,n);

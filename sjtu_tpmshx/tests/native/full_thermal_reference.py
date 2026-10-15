@@ -5,7 +5,10 @@ Nu/D-F, pressure shooting, SIMPLE, outer Anderson and outer stopping continue
 through the original Python production orchestration. No thermal iterator is
 implemented here. Historical no-fixture reference callers remain unchanged.
 """
+from contextlib import contextmanager
 import ctypes as ct
+import inspect
+from unittest.mock import patch
 from dataclasses import replace
 import os
 from pathlib import Path
@@ -18,6 +21,7 @@ from sjtu_tpmshx.solvers import ltne_energy, ltne_energy_3d
 from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.solvers.backends.cpp.model_h import NativeModelHDriver, _Callbacks, _Cancel, _Progress
 from sjtu_tpmshx.solvers.backends.cpp.temperature import NativeTemperatureDriver
+from sjtu_tpmshx.solvers.backends.cpp.enthalpy import NativeEnthalpyDriver
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -34,6 +38,110 @@ def library(name, environment):
             pytest.fail(message)
         pytest.skip(message)
     return path.resolve()
+
+
+def model_enthalpy(temperature, fluid):
+    """Integrate the existing polynomial with NumPy for independent evidence checks."""
+    from sjtu_tpmshx.models.tpms_props import model_h_coefficients
+    a, b, c, origin, reference = model_h_coefficients(fluid)
+    integral = np.polynomial.Polynomial((a, b, c)).integ()
+    return integral(np.asarray(temperature) - origin) - integral(reference - origin)
+
+
+def assert_selected_enthalpy(result):
+    """Check returned mixed enthalpy with the independent polynomial integral."""
+    record = result.metadata['execution_record']
+    native = result.boundary_fluxes['true_h']
+    scale = record['numerics']['enthalpy_update_normalization']
+    assert scale['definition'] == 'inlet_cp_times_temperature_difference_v1'
+    assert scale['unit'] == 'J/kg'
+    from CoolProp.CoolProp import PropsSI
+    for side in 'AB':
+        model = record['sides'][side]
+        fluid = model['fluid']
+        temperature = result.fields['Ta' if side == 'A' else 'Tb']
+        h = native['h_' + side]
+        assert np.isfinite(h).all() and scale['sides'][side] >= 1.
+        if fluid in ('air', 'water'):
+            assert model['energy']['relation'] == 'integral_cp_T'
+            expected = model_enthalpy(temperature, fluid)
+        else:
+            assert model['energy']['relation'] == 'eos_h_TP'
+            pressure = result.fields['P_thermal_' + side]
+            expected = np.array([PropsSI('H', 'T', t, 'P', p, 'CO2')
+                                 for t, p in zip(temperature.flat, pressure.flat)]).reshape(temperature.shape)
+        if temperature.ndim == 2:
+            expected = expected[..., None]
+        np.testing.assert_allclose(h, expected, rtol=1e-10, atol=1e-6)
+
+
+@contextmanager
+def selected_energy_reference(case=None):
+    """Keep the Python outer and use the current per-side thermal component."""
+    from sjtu_tpmshx.solvers import ltne_enthalpy_3d as energy
+    from sjtu_tpmshx.solvers.backends.python.three_d import runtime
+    driver = NativeEnthalpyDriver(library('tpmshx_enthalpy_shared', 'TPMSHX_ENTHALPY_LIBRARY'),
+                                 table_directory=ROOT/'.cache/native-deps/tables')
+    bridge = ct.CDLL(str(library('full_thermal_test', 'TPMSHX_FULL_THERMAL_TEST_LIBRARY')))
+    dp = ct.POINTER(ct.c_double)
+    call = bridge.test_full_thermal_selected
+    call.argtypes, call.restype = [*driver.call.argtypes, dp, dp], ct.c_int
+    current, observed = [None], {}
+    dimension = 2 if case is not None and case.grid['dimension'] == 2 else 3
+    if case is not None and case.grid['dimension'] == 2:
+        from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
+        cfg, _ = build_execution_inputs(case)
+        fraction = cfg['thermal_geometry']['split_A']
+        current[0] = tuple(np.asarray(cfg['za']['K_ff'+side+'_arr'] if cfg['za'] is not None
+                                     else cfg['static_properties'][side]['K_ff']) * factor
+                           for side, factor in zip('AB', (2*fraction, 2*(1-fraction))))
+    original_warmup = runtime.solve_full_domain_3d
+    def warmup(*args, **kwargs):
+        bound = inspect.signature(original_warmup).bind(*args, **kwargs)
+        bound.apply_defaults()
+        current[0] = tuple(np.array(bound.arguments['K_ff'+side], copy=True) for side in 'AB')
+        result = original_warmup(*args, **kwargs)
+        observed['warmup'] = (tuple(bound.arguments.get(key+'_init') for key in ('Ta','Tb')),
+                              tuple(np.array(x, copy=True) for x in result[:2]))
+        return result
+    def ranges(c, temperatures, stage, layout):
+        from sjtu_tpmshx.domain.run_warnings import range_context
+        from sjtu_tpmshx.models.tpms_props import record_temperature_ranges
+        for side, temperature in zip('AB', temperatures):
+            if temperature is not None:
+                with range_context(side=side, stage=stage, layout=layout):
+                    record_temperature_ranges(c['fluid_'+side],
+                                              temperature[..., 0] if dimension == 2 else temperature)
+    def selected(*args, **kwargs):
+        shape = tuple(args[:3]) if args else tuple(kwargs[key] for key in ('Nx','Ny','Nz'))
+        assert current[0] is not None
+        fields = [np.ascontiguousarray(np.broadcast_to(value[..., None] if np.ndim(value)==2 else value, shape),
+                                      dtype=np.float64) for value in current[0]]
+        driver.call = lambda *packed: call(*packed, *(value.ctypes.data_as(dp) for value in fields))
+        c = inspect.signature(driver).bind(*args, **kwargs)
+        c.apply_defaults();c=c.arguments
+        if dimension == 3:
+            for values, layout in zip(observed.pop('warmup'),
+                                      ('real-cell(x,y,z)-warm', 'real-cell(x,y,z)-return')):
+                ranges(c, values, 'main', layout)
+        else:
+            ranges(c, (c['Ta_init'],c['Tb_init']), 'main-warm', 'real-cell(x,y)')
+        result = driver(*args, **kwargs)
+        ranges(c, result[:2], 'main-return' if dimension == 2 else 'main',
+               'real-cell(x,y)' if dimension == 2 else 'real-cell(x,y,z)-return')
+        observed['last'] = (c, result[:2])
+        return result
+    h_scalar, prop_field = energy._h_scalar, energy._prop_field
+    def scalar(t, p, fluid):
+        return float(model_enthalpy(t, fluid)) if fluid in ('air','water') else h_scalar(t, p, fluid)
+    def field(name, t, p, fluid):
+        return model_enthalpy(t, fluid) if name == 'H' and fluid in ('air','water') else prop_field(name,t,p,fluid)
+    with patch.object(runtime, 'solve_full_domain_3d', warmup), \
+         patch.object(energy, 'solve_ltne_enthalpy_3d_pipeline', selected), \
+         patch.object(energy, '_h_scalar', scalar), patch.object(energy, '_prop_field', field):
+        yield
+        if 'last' in observed:
+            ranges(*observed['last'], 'final', 'real-cell(x,y)' if dimension == 2 else 'real-cell(x,y,z)')
 
 
 class SameMapThermal:

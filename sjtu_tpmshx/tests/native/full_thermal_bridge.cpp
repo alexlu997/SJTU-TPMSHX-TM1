@@ -1,6 +1,7 @@
 // Qualification only: strict fullCC uses the existing typed model-h drivers.
 // This bridge adds no production ABI and performs no iteration or field repair.
 #include "tpmshx/model_h_2d.hpp"
+#include "enthalpy_c_views.hpp"
 #include "tpmshx/model_h_3d.hpp"
 #include "tpmshx/model_h_c_api.h"
 #include "tpmshx/conservative_energy.hpp"
@@ -76,6 +77,49 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_full_thermal_strict(
         return 0;
     } catch(const std::exception& e) {
         if(error_size) std::snprintf(error,error_size,"%s",e.what());
+        return 1;
+    }
+}
+
+// Test the original Python outer with the selected native thermal component.
+extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_full_thermal_selected(
+    const std::size_t* shape,double* const* arrays,const std::size_t* sizes,
+    const tpmshx_enthalpy_config_v1* config,const tpmshx_enthalpy_callbacks_v1* callbacks,
+    tpmshx_enthalpy_result_v1* result,char* error,std::size_t error_size,
+    const double* conductivity_a,const double* conductivity_b) {
+    using namespace tpmshx;
+    try {
+        const auto v=[&](std::size_t i) {return ArrayView<const double>{arrays[i],sizes[i]};};
+        const auto out=[&](std::size_t i) {return ArrayView<double>{arrays[i],sizes[i]};};
+        const GridView grid{shape[0],shape[1],shape[2],v(0),v(1),v(2)};
+        const auto side=[&](std::size_t s) {
+            const auto offset=4+6*s;
+            const auto fluid=static_cast<Fluid>(config->sides[s].fluid);
+            const bool eos=uses_co2_eos(fluid);
+            return EnthalpySideView{fluid,config->sides[s].inlet_temperature,config->sides[s].inlet_pressure,
+                v(offset),v(offset+1),v(offset+2),v(offset+3),v(offset+4),v(offset+5),-1,
+                eos?EnergyRelation::eos_h_TP:EnergyRelation::integral_cp_T,
+                eos?ConductivitySource::local_eos:ConductivitySource::outer_transport,
+                eos?ArrayView<const double>{}:ArrayView<const double>{s?conductivity_b:conductivity_a,sizes[offset]}};
+        };
+        EnthalpyControl control{config->max_iterations,config->sweeps,config->omega,
+            config->update_tolerance,{},{},config->table_directory?config->table_directory:""};
+        control.reference_independent_update=true;
+        if(config->coupled_gate)control.coupled_energy_tolerance=config->coupled_tolerance;
+        if(config->equation_gate)control.equation_energy_tolerance=config->equation_tolerance;
+        control.context=const_cast<tpmshx_enthalpy_callbacks_v1*>(callbacks);
+        control.cancel=[](void* context) {
+            const auto* cb=static_cast<const tpmshx_enthalpy_callbacks_v1*>(context);
+            return cb && cb->cancel && cb->cancel(cb->context)!=0;
+        };
+        const auto native=solve_enthalpy(grid,side(0),side(1),v(3),
+            {out(16),out(17),out(18),out(19),out(20),config->warm_a!=0,
+             config->warm_b!=0,config->warm_solid!=0},control);
+        *result=enthalpy_c_view(native);
+        if(error_size)error[0]='\0';
+        return 0;
+    } catch(const std::exception& e) {
+        if(error_size)std::snprintf(error,error_size,"%s",e.what());
         return 1;
     }
 }

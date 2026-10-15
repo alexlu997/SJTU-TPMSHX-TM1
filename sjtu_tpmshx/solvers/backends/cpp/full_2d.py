@@ -1,6 +1,7 @@
 """Prepared rectangular 2D binding; the complete numerical loop is native."""
 import ctypes as ct
 from .property_sampling import sampling_query, copy_sampling
+from .enthalpy import _update_scale_query, _copy_update_scale
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -259,6 +260,7 @@ class NativeFull2DDriver:
         self.query_last_ranges = last_range_query(self.library, 2, _Result)
         self.query_heat_ledger = heat_ledger_query(self.library, 2, _Result)
         self.query_sampling = sampling_query(self.library, 2, _Result)
+        self.query_update_scale = _update_scale_query(self.library, 2, _Result)
         self.query_model_h = _iteration_query(self.library, 2, _Result)
 
     def run_prepared(self, cfg, prepared, control=RunControl(), *, resume_state=None, checkpoint=None, checkpoint_due=None):
@@ -408,6 +410,7 @@ class NativeFull2DDriver:
                        main=_thermal(result.main, actual.last, entry_version),
                        fine=_thermal(result.fine, actual.last, entry_version) if result.have_fine else None)
             out['property_sampling'] = copy_sampling(self.query_sampling, result)
+            out['enthalpy_update_normalization'] = _copy_update_scale(self.query_update_scale, result)
             out['simple_velocity_relaxation'] = config.alpha_velocity
             out['model_h_iterations'] = _copy_iteration_records(self.query_model_h, result)
             for name in ('density', 'viscosity', 'rho_cp'):
@@ -447,7 +450,7 @@ class NativeFull2DDriver:
                     raise RuntimeError('native full 2D energy evidence does not match the thermal history')
                 info = out['main']['true_h']
                 _energy_result_info(info, extra.main.energy,
-                    temperature_tol=actual.last.temperature_update_tolerance, abi=entry_version, version_query=version_query)
+                    temperature_tol=actual.last.temperature_update_tolerance, abi=entry_version, version_query=version_query, state_update='per_side_energy_relation')
                 _energy_native_state(info, extra.main, (*shape, 1), 'W/m')
                 out['main']['mode'] = 'conservative_energy'
                 if out['fine'] is not None:

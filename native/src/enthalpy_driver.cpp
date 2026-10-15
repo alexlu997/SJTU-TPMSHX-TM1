@@ -59,8 +59,20 @@ struct Side {
         if (use_table) for (std::size_t p = 0; p < h.size; ++p)
             if (!(h[p] > table_lower[p] && h[p] < table_upper[p])) { use_table = false; break; }
         for (std::size_t p = 0; p < h.size; ++p)
-            t[p] = eos.temperature(input.fluid,h[p],input.pressure[p],use_table,location(grid,p,where));
+            t[p] = eos.temperature(input.fluid,h[p],input.pressure[p],use_table,location(grid,p,where),input.energy);
         table_used = table_used || use_table;
+    }
+
+    double conductivity(EnthalpyEOS& eos, std::size_t p, double evaluated) const {
+        if(input.conductivity_source!=ConductivitySource::local_eos)
+            return input.effective_conductivity[p];
+        const double value=input.energy==EnergyRelation::eos_h_TP ? evaluated
+            : eos.conductivity(input.fluid,t[p],input.pressure[p]);
+        return input.epsilon[p]*value;
+    }
+    void transport(EnthalpyEOS& eos, std::size_t p, const EnthalpyProperties& properties) {
+        cp[p]=properties.cp;k[p]=conductivity(eos,p,properties.conductivity);
+        dh[p]=k[p]/properties.cp;
     }
 
     FluidView frozen() const {
@@ -145,7 +157,7 @@ struct EnthalpyRun::Impl {
          equations(control.equation_energy_tolerance.has_value()) {
         validate(true);prepare_sides();
         if(temperature)initialize_temperature();else initialize_legacy();
-        if(phase==EnthalpyPhase::active)prepare_scratch();
+        if(phase==EnthalpyPhase::active) {initialize_update_scale();prepare_scratch();}
     }
     Impl(const GridView& input_grid,const EnthalpySideView& input_a,const EnthalpySideView& input_b,
         ArrayView<const double> solid_k,EnthalpyStateView fields,const EnthalpyControl& options,
@@ -237,8 +249,35 @@ struct EnthalpyRun::Impl {
         check(state.a,n,false); check(state.b,n,false); check(state.solid,n,false);
     }
     void prepare_sides() {
+        for(const auto* side:{&a,&b}) {
+            if(side->energy!=EnergyRelation::eos_h_TP && side->energy!=EnergyRelation::integral_cp_T)
+                throw std::invalid_argument("invalid conservative energy relation");
+            if(side->energy==EnergyRelation::integral_cp_T)model_h_coefficients(side->fluid);
+            if(side->conductivity_source==ConductivitySource::prepared
+                || side->conductivity_source==ConductivitySource::outer_transport)
+                coefficient(side->effective_conductivity,n,false);
+            else if(side->conductivity_source!=ConductivitySource::local_eos
+                || side->effective_conductivity.size)
+                throw std::invalid_argument("invalid conservative conductivity source");
+        }
         side_a.emplace(a,state.h_a,state.a,n,temperature);
         side_b.emplace(b,state.h_b,state.b,n,temperature);
+    }
+    void initialize_update_scale() {
+        result.reference_independent_update=control.reference_independent_update;
+        if(!control.reference_independent_update) {
+            result.enthalpy_update_scale.fill(std::max(std::abs(side_a->hin-side_b->hin),1.));
+            return;
+        }
+        const double difference=std::abs(a.inlet_temperature-b.inlet_temperature);
+        const EnthalpySideView* sides[]{&a,&b};
+        for(std::size_t side=0;side<2;++side) {
+            const auto& input=*sides[side];
+            const auto properties=eos.evaluate(input.fluid,input.inlet_temperature,input.inlet_pressure,input.energy);
+            result.enthalpy_update_scale[side]=std::max(properties.cp*difference,1.);
+            if(!std::isfinite(result.enthalpy_update_scale[side]))
+                throw std::domain_error("nonfinite enthalpy update scale");
+        }
     }
     void prepare_scratch() {
         ra.resize(check_energy?n:0);rb.resize(check_energy?n:0);rs.resize(check_energy?n:0);
@@ -257,14 +296,13 @@ struct EnthalpyRun::Impl {
             auto& side = *sides[s];
             const auto& f = side.input;
             const std::string name = s == 0 ? "A" : "B";
-            side.hin = eos.evaluate_state(f.fluid,f.inlet_temperature,f.inlet_pressure,"T energy inlet "+name).enthalpy;
+            side.hin = eos.evaluate_state(f.fluid,f.inlet_temperature,f.inlet_pressure,"T energy inlet "+name,f.energy).enthalpy;
             for (std::size_t p = 0; p < n; ++p) {
                 const double initial_temperature = warm[s] ? side.t[p] : f.inlet_temperature;
                 const auto actual = eos.evaluate_state(f.fluid,initial_temperature,f.pressure[p],
-                    location(grid,p,"T energy initial state "+name));
-                side.t[p] = initial_temperature; side.h[p] = actual.enthalpy; side.cp[p] = actual.cp;
-                side.k[p] = f.epsilon[p]*actual.conductivity;
-                side.dh[p] = side.k[p]/actual.cp;
+                    location(grid,p,"T energy initial state "+name),f.energy);
+                side.t[p] = initial_temperature; side.h[p] = actual.enthalpy;
+                side.transport(eos,p,{actual.cp,actual.conductivity});
             }
         }
         result.inlet_enthalpy = {sa.hin,sb.hin};
@@ -281,9 +319,9 @@ struct EnthalpyRun::Impl {
         for (std::size_t s = 0; s < sides.size(); ++s) {
             auto& side = *sides[s];
             const auto& f = side.input;
-            side.hin = eos.bracket_enthalpy(f.fluid,f.inlet_temperature,f.inlet_pressure);
-            side.lower = eos.bracket_enthalpy(f.fluid,std::max(tlo,floors[static_cast<std::size_t>(f.fluid)]),f.inlet_pressure);
-            side.upper = eos.bracket_enthalpy(f.fluid,thi,f.inlet_pressure);
+            side.hin = eos.bracket_enthalpy(f.fluid,f.inlet_temperature,f.inlet_pressure,f.energy);
+            side.lower = eos.bracket_enthalpy(f.fluid,std::max(tlo,floors[static_cast<std::size_t>(f.fluid)]),f.inlet_pressure,f.energy);
+            side.upper = eos.bracket_enthalpy(f.fluid,thi,f.inlet_pressure,f.energy);
         }
         // As in the Python driver, actual water/sCO2 warm states precede generic
         // finite-temperature checks and all field enthalpy conversions.
@@ -302,7 +340,7 @@ struct EnthalpyRun::Impl {
             auto& side = *sides[s];
             const auto& f = side.input;
             for (std::size_t p = 0; p < n; ++p) {
-                side.h[p] = warm[s] ? eos.bracket_enthalpy(f.fluid,side.t[p],f.pressure[p]) : side.hin;
+                side.h[p] = warm[s] ? eos.bracket_enthalpy(f.fluid,side.t[p],f.pressure[p],f.energy) : side.hin;
                 side.lower = std::min({side.lower,side.hin,side.h[p]});
                 side.upper = std::max({side.upper,side.hin,side.h[p]});
             }
@@ -378,21 +416,19 @@ struct EnthalpyRun::Impl {
                             }
                             const auto where=location(grid,p,s==0 ? "AA candidate A" : "AA candidate B");
                             EnthalpyPTState actual{};
-                            try { actual=aa_eos.evaluate_state(side.input.fluid,side.t[p],side.input.pressure[p],where); }
+                            try { actual=aa_eos.evaluate_state(side.input.fluid,side.t[p],side.input.pressure[p],where,side.input.energy); }
                             catch (const std::invalid_argument&) { valid=false; }
                             catch (const std::domain_error&) { valid=false; }
                             catch (const CoolProp::CoolPropBaseError&) { valid=false; }
                             if (!valid) break;
-                            side.h[p]=actual.enthalpy; side.cp[p]=actual.cp;
-                            side.k[p]=side.input.epsilon[p]*actual.conductivity; side.dh[p]=side.k[p]/actual.cp;
+                            side.h[p]=actual.enthalpy;side.transport(aa_eos,p,{actual.cp,actual.conductivity});
                             trial_dT=std::max(trial_dT,std::abs(side.t[p]-sides[s]->temperature_star[p]));
-                            trial_dh=std::max(trial_dh,std::abs(side.h[p]-sides[s]->star[p]));
+                            trial_dh=std::max(trial_dh,std::abs(side.h[p]-sides[s]->star[p])/result.enthalpy_update_scale[s]);
                             if (!std::isfinite(side.k[p]) || !std::isfinite(side.dh[p])) valid=false;
                         }
                     }
                     for (std::size_t p=0;p<n;++p)
                         trial_dT=std::max(trial_dT,std::abs(candidate[2*n+p]-old_solid[p]));
-                    trial_dh/=std::max(std::abs(sa.hin-sb.hin),1.);
                     if (!std::isfinite(trial_dT) || !std::isfinite(trial_dh)) valid=false;
                     EnergyAudit trial_audit{};
                     if (valid) {
@@ -430,18 +466,17 @@ struct EnthalpyRun::Impl {
             auto& side = *sides[s];
             for (std::size_t p = 0; p < n; ++p) {
                 const auto actual = eos.evaluate_state(side.input.fluid,side.t[p],side.input.pressure[p],
-                    location(grid,p,s == 0 ? "T energy actual state A" : "T energy actual state B"));
+                    location(grid,p,s == 0 ? "T energy actual state A" : "T energy actual state B"),side.input.energy);
                 temperature_update = std::max(temperature_update,std::abs(side.t[p]-side.temperature_star[p]));
-                side.h[p] = actual.enthalpy; side.cp[p] = actual.cp;
-                side.k[p] = side.input.epsilon[p]*actual.conductivity;
-                side.dh[p] = side.k[p]/actual.cp;
-                enthalpy_update = std::max(enthalpy_update,std::abs(side.h[p]-side.star[p]));
+                side.h[p] = actual.enthalpy;
+                side.transport(eos,p,{actual.cp,actual.conductivity});
+                enthalpy_update = std::max(enthalpy_update,std::abs(side.h[p]-side.star[p])/result.enthalpy_update_scale[s]);
             }
         }
         for (std::size_t p = 0; p < n; ++p)
             temperature_update = std::max(temperature_update,std::abs(state.solid[p]-old_solid[p]));
         result.temperature_update = temperature_update;
-        result.residual = enthalpy_update/std::max(std::abs(sa.hin-sb.hin),1.);
+        result.residual = enthalpy_update;
         if (!std::isfinite(temperature_update) || !std::isfinite(result.residual))
             throw std::domain_error("nonfinite actual T energy update");
         result.final_audit = sou
@@ -491,9 +526,8 @@ struct EnthalpyRun::Impl {
         }
         next_temperatures = false;
         for (auto* side : sides) for (std::size_t p = 0; p < n; ++p) {
-            const auto props = eos.evaluate(side->input.fluid,side->t[p],side->input.pressure[p]);
-            side->cp[p] = props.cp;
-            side->dh[p] = side->input.epsilon[p]*props.conductivity/std::max(props.cp,1e-30);
+            const auto props = eos.evaluate(side->input.fluid,side->t[p],side->input.pressure[p],side->input.energy);
+            side->transport(eos,p,props);
             side->star[p] = side->h[p];
         }
         result.last_clips = enthalpy_sweeps(grid,sa.frozen(),sb.frozen(),k_ss,
@@ -503,9 +537,9 @@ struct EnthalpyRun::Impl {
         result.iterations = iteration+1;
         if (control.cancel && control.cancel(control.context)) { phase=EnthalpyPhase::cancelled;return; }
         double update = 0.;
-        for (const auto* side : sides) for (std::size_t p = 0; p < n; ++p)
-            update = std::max(update,std::abs(side->h[p]-side->star[p]));
-        result.residual = update/std::max(std::abs(sa.hin-sb.hin),1.);
+        for (std::size_t s=0;s<2;++s) for (std::size_t p = 0; p < n; ++p)
+            update = std::max(update,std::abs(sides[s]->h[p]-sides[s]->star[p])/result.enthalpy_update_scale[s]);
+        result.residual = update;
         result.q_a = boundary_enthalpy_duty(grid,view(sa.h),a.mass_x,a.mass_y,a.mass_z,sa.hin);
         result.q_b = boundary_enthalpy_duty(grid,view(sb.h),b.mass_x,b.mass_y,b.mass_z,sb.hin);
         result.energy_imbalance = std::abs(result.q_a+result.q_b)
@@ -518,8 +552,8 @@ struct EnthalpyRun::Impl {
             sa.invert(eos,grid,false,"enthalpy final EOS return A");
             sb.invert(eos,grid,false,"enthalpy final EOS return B");
             if (equations) for (auto* side : sides) for (std::size_t p = 0; p < n; ++p)
-                side->k[p] = side->input.epsilon[p]
-                    *eos.conductivity(side->input.fluid,side->t[p],side->input.pressure[p]);
+                side->k[p] = side->conductivity(eos,p,side->input.conductivity_source==ConductivitySource::local_eos
+                    ? eos.conductivity(side->input.fluid,side->t[p],side->input.pressure[p],side->input.energy) : 0.);
             result.final_audit = thermal_energy_audit(grid,sa.energy(equations),sb.energy(equations),
                 view(state.solid),k_ss,output(ra),output(rb),output(rs),equations);
             if (control.coupled_energy_tolerance)
@@ -569,7 +603,8 @@ struct EnthalpyRun::Impl {
                 || (i==2?state.warm_a:state.warm_b);
             check(view(saved.fields[i]),n,initialized);
         }
-        if(r.algorithm!=control.algorithm || r.stop!=EnthalpyStop::cancelled
+        if(r.algorithm!=control.algorithm || r.reference_independent_update!=control.reference_independent_update
+            || r.stop!=EnthalpyStop::cancelled
             || r.iterations>=control.max_iterations || r.last_clips.a>r.total_clips.a || r.last_clips.b>r.total_clips.b
             || !std::isfinite(r.residual) || r.residual<0.
             || r.picard_relaxation!=(sou?.6:1.) || (temperature && (r.heos_polish || saved.next_temperatures))
@@ -601,7 +636,8 @@ struct EnthalpyRun::Impl {
         }
         for(std::size_t s=0;s<2;++s) {
             const auto& side=saved.sides[s];const auto& input=s==0?a:b;
-            if(!std::isfinite(r.inlet_enthalpy[s]) || !std::isfinite(side.lower) || !std::isfinite(side.upper)
+            if(!std::isfinite(r.enthalpy_update_scale[s]) || r.enthalpy_update_scale[s]<1.
+                || !std::isfinite(r.inlet_enthalpy[s]) || !std::isfinite(side.lower) || !std::isfinite(side.upper)
                 || side.lower>side.upper || (temperature && r.used_bicubic[s]))
                 throw std::invalid_argument("invalid saved energy side state");
             if(temperature) {
