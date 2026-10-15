@@ -126,7 +126,10 @@ The selected rules retain the differences between dimensions, EOS warm-up, presc
 Two-fluid full runs that use the conservative EOS driver now select energy by fluid.
 Air and water use their existing integral h(T); CO2 and sCO2 use HEOS h(T,P).
 The air/water conductivity comes from prepared fields in 2D and the outer transport state in 3D.
-CO2 and sCO2 keep local HEOS conductivity. Heat-transfer sampling keeps its existing rules.
+CO2 and sCO2 keep local HEOS conductivity.
+In 2D, air/water heat transfer uses the outer mean density and viscosity, with inlet conductivity and Pr.
+CO2 and sCO2 use local properties at the lagged temperature and inlet pressure.
+These choices no longer depend on the other fluid. The 3D sampling rules stay unchanged.
 The Python numerical backend and direct component C entries keep their existing models.
 Pure water/water capacity, prescribed-side and research routes retain their separate contracts.
 

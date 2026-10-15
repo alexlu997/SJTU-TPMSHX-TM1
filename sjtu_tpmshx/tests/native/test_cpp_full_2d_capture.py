@@ -197,7 +197,7 @@ def test_capped_partial_fields_last_inputs_and_recomputed_metrics(driver, mode):
             hv = [r for r in samples if r['side'] == label and r['stage'] == 'thermal_hv' and r['quantity'] == 'conductivity']
             assert len(hv) == 1 and hv[0]['outer_index'] == result.run_status['outer_index']
             assert hv[0]['pressure'] == 'inlet'
-            operation = ('local_evaluation' if fluid == 'sco2' else 'evaluation_at_volume_mean_temperature') if mode == 'true_h' else 'scalar_evaluation'
+            operation = 'local_evaluation' if fluid in ('co2', 'sco2') else 'scalar_evaluation'
             assert hv[0]['operation'] == operation
         post = [r for r in samples if r['stage'] == 'property_post']
         assert max(r['outer_index'] for r in post) == result.run_status['outer_index']

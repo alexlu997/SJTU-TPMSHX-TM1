@@ -7,7 +7,7 @@ namespace tpmshx {
 enum class EnergyRelation { integral_cp_T, eos_h_TP, capacity_temperature, prescribed_temperature };
 enum class ConductivitySource { prepared, outer_transport, local_eos, prescribed };
 enum class HeatTransferSampling {
-    inlet, outer_mean_inlet_reference, thermal_mean_at_inlet_pressure,
+    inlet, outer_mean_inlet_reference,
     thermal_local_at_inlet_pressure, inlet_then_thermal_local_at_inlet_pressure, prescribed
 };
 

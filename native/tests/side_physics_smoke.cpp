@@ -74,7 +74,7 @@ int main() {
             require(selected.conductivity==(uses_co2_eos(fluid)?ConductivitySource::local_eos:ConductivitySource::prepared));
             require(selected.local_heat_transfer()==uses_co2_eos(fluid));
             if(!uses_co2_eos(fluid))
-                require(selected.heat_transfer==HeatTransferSampling::thermal_mean_at_inlet_pressure);
+                require(selected.heat_transfer==HeatTransferSampling::outer_mean_inlet_reference);
         }
         if(!uses_co2_eos(a) && !uses_co2_eos(b))
             for(auto mode:{Full2DThermalMode::model_h,Full2DThermalMode::temperature}) {

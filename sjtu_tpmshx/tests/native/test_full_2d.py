@@ -117,6 +117,7 @@ def capture_python(case, *, pressure_shooting=True, full=False, thermal=None, na
         live_state['state'] = state
         previous = None
 
+        @wraps(step)
         def observed_step(index):
             nonlocal previous
             result = step(index)

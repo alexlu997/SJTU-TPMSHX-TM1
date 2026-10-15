@@ -6,7 +6,7 @@ The explicit fixed-density flow helper selects the current native SIMPLE compone
 Independent backend tests keep the original Python SIMPLE algorithm. No thermal iterator is
 implemented here. Historical no-fixture reference callers remain unchanged.
 """
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import ctypes as ct
 import inspect
 from unittest.mock import patch
@@ -112,6 +112,54 @@ def assert_selected_enthalpy(result):
 
 
 @contextmanager
+def selected_2d_heat_transfer_reference():
+    """Select each fluid's existing Python heat-transfer rule for the reference."""
+    from sjtu_tpmshx.domain.run_warnings import range_context
+    from sjtu_tpmshx.solvers.backends.python.two_d import coupling
+    original_outer = coupling.run_outer_coupling
+
+    def outer(**arguments):
+        step = inspect.unwrap(arguments['step'])
+        prepare = inspect.getclosurevars(step).nonlocals['_prepare_thermal_inputs']
+        inputs = inspect.getclosurevars(prepare).nonlocals
+        cells = dict(zip(prepare.__code__.co_freevars, prepare.__closure__))
+        cell = cells['_enthalpy_side_hv']
+        original_hv = cell.cell_contents
+
+        def selected(provider, temperature, pressure, speed, geometry, observation):
+            if provider.name in ('co2', 'sco2'):
+                return original_hv(provider, temperature, pressure, speed, geometry, observation)
+            side = 'A' if provider is inputs['_pA'] else 'B'
+            state = inputs['state']
+            rho = coupling.cell_average(getattr(state, 'rho_'+side+'_field'), inputs['energy_dx'], inputs['energy_dy'])
+            mu = coupling.cell_average(getattr(state, 'mu_'+side), inputs['energy_dx'], inputs['energy_dy'])
+            inlet = inputs['T_in'+side]
+            with range_context(layout='scalar'):
+                conductivity = float(provider.k(inlet, pressure))
+            for sample in inputs['thermal_sampling']:
+                if sample['side'] == side and sample['stage'] == 'thermal_hv':
+                    if sample['quantity'] in ('density', 'viscosity'):
+                        sample.update(provider='outer_property_state', operation='volume_mean',
+                                      pressure='previous_thermal_absolute' if sample['outer_index'] else 'inlet')
+                    else:
+                        sample.update(temperature='inlet', operation='scalar_evaluation')
+            lengths = (inputs['za']['L_field']
+                       if inputs['zone_config'] is not None and inputs['za'] is not None else None)
+            return inputs['_build_hv_local_2d'](rho, mu, conductivity, speed, lengths,
+                                               side_props=provider, side_T_for_Pr=inlet, side_P=pressure)
+
+        # Reuse the two original closure functions without changing production code.
+        cell.cell_contents = selected
+        try:
+            return original_outer(**arguments)
+        finally:
+            cell.cell_contents = original_hv
+
+    with patch.object(coupling, 'run_outer_coupling', outer):
+        yield
+
+
+@contextmanager
 def selected_energy_reference(case=None):
     """Keep the Python outer and use the current per-side thermal component."""
     from sjtu_tpmshx.solvers import ltne_enthalpy_3d as energy
@@ -174,7 +222,8 @@ def selected_energy_reference(case=None):
         return model_enthalpy(t, fluid) if name == 'H' and fluid in ('air','water') else prop_field(name,t,p,fluid)
     with patch.object(runtime, 'solve_full_domain_3d', warmup), \
          patch.object(energy, 'solve_ltne_enthalpy_3d_pipeline', selected), \
-         patch.object(energy, '_h_scalar', scalar), patch.object(energy, '_prop_field', field):
+         patch.object(energy, '_h_scalar', scalar), patch.object(energy, '_prop_field', field), \
+         (selected_2d_heat_transfer_reference() if dimension == 2 else nullcontext()):
         yield
         if 'last' in observed:
             ranges(*observed['last'], 'final', 'real-cell(x,y)' if dimension == 2 else 'real-cell(x,y,z)')

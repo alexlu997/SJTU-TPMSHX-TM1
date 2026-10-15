@@ -13,16 +13,14 @@
 
 namespace tpmshx {
 std::array<SidePhysics,2> resolve_full_2d_physics(const Full2DProblem& p) {
-    const bool eos=p.thermal_mode==Full2DThermalMode::true_h;
     std::array<SidePhysics,2> selected;
     for(std::size_t side=0;side<2;++side) {
         const auto fluid=p.sides[side].fluid;
         const bool real_fluid=uses_co2_eos(fluid);
         selected[side]={fluid,real_fluid?EnergyRelation::eos_h_TP:EnergyRelation::integral_cp_T,
             real_fluid?ConductivitySource::local_eos:ConductivitySource::prepared,
-            !eos?HeatTransferSampling::outer_mean_inlet_reference:
-                uses_co2_eos(fluid)?HeatTransferSampling::thermal_local_at_inlet_pressure:
-                    HeatTransferSampling::thermal_mean_at_inlet_pressure};
+            real_fluid?HeatTransferSampling::thermal_local_at_inlet_pressure:
+                HeatTransferSampling::outer_mean_inlet_reference};
     }
     return selected;
 }
@@ -485,15 +483,13 @@ void prepare_thermal(const Full2DProblem& p,const std::array<SidePhysics,2>& phy
             t.inlet_capacity[side]=capacity_at_inlet(g,s.direction,t,side,inlet[side].cp);
             t.temperature_cp_coefficients[side]=model_h_coefficients(s.fluid);
         }
-        double mean_rho=average(view(r.density[side]),g);
-        double mean_mu=r.iterations?average(view(r.viscosity[side]),g):s.initial_viscosity;
+        const double mean_rho=average(view(r.density[side]),g);
+        const double mean_mu=r.iterations?average(view(r.viscosity[side]),g):s.initial_viscosity;
         const char* provider=selected.transport_provider();
         const char* lagged=r.iterations?"previous_thermal_return":"inlet";
-        if (selected.heat_transfer!=HeatTransferSampling::outer_mean_inlet_reference) {
+        if (selected.local_heat_transfer()) {
             record_property_samples(t.property_sampling,side,outer,"thermal_hv",provider,lagged,"inlet",
-                selected.local_heat_transfer()?"local_evaluation":"volume_mean_after_evaluation",{"density","viscosity"});
-            record_property_samples(t.property_sampling,side,outer,"thermal_hv",provider,lagged,"inlet",
-                selected.local_heat_transfer()?"local_evaluation":"evaluation_at_volume_mean_temperature",{"conductivity","Pr"});
+                "local_evaluation",{"density","viscosity","conductivity","Pr"});
         } else {
             record_property_samples(t.property_sampling,side,outer,"thermal_hv","outer_property_state",lagged,
                 r.iterations?"previous_thermal_absolute":"inlet","volume_mean",{"density","viscosity"});
@@ -506,23 +502,8 @@ void prepare_thermal(const Full2DProblem& p,const std::array<SidePhysics,2>& phy
         if (p.asymmetric)
             record_property_samples(t.property_sampling,side,outer,"thermal_hv_ratio",provider,"inlet","inlet",
                 "scalar_evaluation",{"density","viscosity","Pr"});
-        auto reference=inlet[side];
-        double reference_temperature=s.inlet_temperature;
-        if (selected.heat_transfer==HeatTransferSampling::thermal_mean_at_inlet_pressure) {
-            Vector rho(n),mu(n),pin(n,s.inlet_pressure);
-            actual_water(properties,s.fluid,view(t.temperature[side]),view(pin),"2D h_v property refresh",side);
-            for (std::size_t k=0;k<n;++k) {
-                const auto prop=properties.transport(selected.transport_fluid,t.temperature[side][k],s.inlet_pressure);
-                rho[k]=prop.rho; mu[k]=prop.mu;
-            }
-            mean_rho=average(view(rho),g); mean_mu=average(view(mu),g);
-            reference_temperature=average(view(t.temperature[side]),g);
-            reference=properties.transport(selected.transport_fluid,reference_temperature,s.inlet_pressure);
-            temperature_ranges(r.range_observations,s.fluid,side,"property","main-hv","real-cell(x,y)",
-                {g.nx,g.ny},view(t.temperature[side]),{"density","viscosity"});
-            temperature_ranges(r.range_observations,s.fluid,side,"property","main-hv","real-cell(x,y)",
-                {},{&reference_temperature,1},{"conductivity"});
-        } else if (selected.heat_transfer==HeatTransferSampling::outer_mean_inlet_reference) {
+        const auto& reference=inlet[side];
+        if (!selected.local_heat_transfer()) {
             temperature_ranges(r.range_observations,s.fluid,side,"property","main-hv","scalar",{},
                 {&s.inlet_temperature,1},{"conductivity"});
         }
