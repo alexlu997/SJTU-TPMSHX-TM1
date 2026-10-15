@@ -56,9 +56,11 @@ def run_case(case: CaseData, control: RunControl = RunControl(), *,
         elif mode != 'full':
             raise ValueError(f'unsupported solver mode: {mode}')
         elif dimension == 2:
-            from .backends.cpp.full_2d import run_case as run
+            from .backends.cpp.full_2d import run_case as run_full
+            run = run_full
         elif dimension == 3:
-            from .backends.cpp.full_3d import run_case as run
+            from .backends.cpp.full_3d import run_case as run_full
+            run = run_full
         else:
             raise ValueError(f'unsupported physical dimension: {dimension}')
     elif mode == 'quick_design':
@@ -74,7 +76,7 @@ def run_case(case: CaseData, control: RunControl = RunControl(), *,
     provenance = dict(preparation=case.metadata.get('provenance', {'status':'not_recorded'}),
                       execution=source_context())
     with warning_scope({}) as records:
-        result = (run(case, control, resume_state=resume_state, checkpoint=checkpoint,
+        result = (run_full(case, control, resume_state=resume_state, checkpoint=checkpoint,
                       checkpoint_due=checkpoint_due) if continuation else run(case, control))
     diagnostics = dict(result.metadata.get('diagnostics', {}))
     diagnostics['warnings_list'] = tuple(dict.fromkeys((
