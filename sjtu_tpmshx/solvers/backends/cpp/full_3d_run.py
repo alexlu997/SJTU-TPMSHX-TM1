@@ -10,6 +10,7 @@ from .run_state import NativeRun
 class NativeFull3DRun(NativeRun):
     api_prefix = 'tpmshx_full_3d_run'
     creation_version = 2
+    advance_name = 'advance_step'
     result_type = _Result
 
     def __init__(self, library, data, controls, energy, callbacks, *, model_h=None, state=None):

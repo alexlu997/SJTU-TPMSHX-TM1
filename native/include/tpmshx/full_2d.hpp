@@ -143,14 +143,31 @@ struct Full2DResult {
     std::vector<RangeObservation> range_observations;
 };
 
-enum class Full2DPhase { created, outer_boundary, ready_to_finish, completed, cancelled, failed };
+enum class Full2DPhase {
+    created, outer_boundary, ready_to_finish, completed, cancelled, failed,
+    flow_boundary, thermal_boundary, refinement_boundary
+};
 
-// Independent state after initialization or a complete outer step.
+struct Full2DFlowRunState {
+    Full2DFlow flow;
+    // The physical fields stay in flow. Only active history is stored here.
+    std::optional<Simple2DRunState> iteration;
+};
+
+struct Full2DThermalRunState {
+    // Solution fields stay in the main or refined thermal state.
+    std::optional<ModelHRunState2D> model_h;
+    std::optional<EnthalpyRunState> enthalpy;
+};
+
+// Independent state at a complete numerical step or outer boundary.
 struct Full2DRunState {
     Full2DPhase phase=Full2DPhase::outer_boundary;
     Full2DResult result;
     std::array<FluidProperties,2> inlet{};
     std::array<std::vector<double>,3> previous;
+    std::optional<std::array<Full2DFlowRunState,2>> flow;
+    std::optional<Full2DThermalRunState> thermal;
 };
 
 // Prepared arrays remain immutable and live until run release.
@@ -163,10 +180,13 @@ public:
     Full2DRun& operator=(const Full2DRun&)=delete;
     // Advance initialization, one joined outer step, or refinement and capture.
     Full2DPhase advance();
+    // Advance one joined SIMPLE step, thermal block, or controller transition.
+    Full2DPhase advance_step();
     Full2DPhase phase() const;
     Full2DRunState snapshot() const;
     Full2DResult take_result();
 private:
+    Full2DPhase advance_impl(bool complete_flow);
     struct Impl;
     std::unique_ptr<Impl> impl_;
     friend Full2DResult solve_full_2d_coarse(const Full2DProblem&,const Full2DControl&);

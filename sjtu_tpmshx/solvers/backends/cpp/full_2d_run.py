@@ -9,6 +9,7 @@ from .run_state import NativeRun
 
 
 class NativeFull2DRun(NativeRun):
+    advance_name = 'advance_step'
     api_prefix = 'tpmshx_full_2d_run'
     creation_version = 1
     result_type = _Result

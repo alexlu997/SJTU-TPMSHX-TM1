@@ -6,6 +6,17 @@
 #include <stdio.h>
 #include <string.h>
 static int cancelled(void* context) {(void)context;return 1;}
+typedef struct {void** run;unsigned checked;int failed;} reentry_probe;
+static int probe_active(void* context) {
+    reentry_probe* probe=context;
+    if(!probe->checked++) {
+        char error[128];uint32_t phase=99;tpmshx_run_state_v1 snapshot={0};
+        if(tpmshx_full_3d_run_snapshot_v1(*probe->run,&snapshot,error,sizeof error)!=4 || snapshot.owner
+           || tpmshx_full_3d_run_advance_step_v1(*probe->run,&phase,error,sizeof error)!=4
+           || phase!=99)probe->failed=1;
+    }
+    return 0;
+}
 static tpmshx_full3d_array_v1 view(const double* p,size_t n) {
     tpmshx_full3d_array_v1 v={p,n};return v;
 }
@@ -152,6 +163,30 @@ int main(void) {
     }
     for(size_t side=0;side<2;++side)
         if(resumed.flow[side].last.iterations!=r.flow[side].last.iterations || resumed.duty[side]!=r.duty[side])return 117;
+    tpmshx_full_3d_release_v1(&resumed);
+    /* Resume actual inner work through both static and shared C callers. */
+    unsigned boundaries[11]={0};
+    reentry_probe probe={&run,0,0};
+    const tpmshx_full3d_callbacks_v1 active_callbacks={probe_active,NULL,NULL,&probe};
+    if(tpmshx_full_3d_run_create_v1(&in,&c,NULL,&active_callbacks,&run,error,sizeof error))return 118;
+    do {
+        if(tpmshx_full_3d_run_advance_step_v1(run,&phase,error,sizeof error))return 119;
+        if(phase>=TPMSHX_FULL3D_INITIAL_A && phase<=TPMSHX_FULL3D_POST_B && ++boundaries[phase]==2) {
+            if(tpmshx_full_3d_run_snapshot_v1(run,&saved,error,sizeof error))return 120;
+            tpmshx_full_3d_run_release_v1(&run);
+            if(tpmshx_full_3d_run_restore_v1(&in,&c,NULL,&active_callbacks,saved.fields,saved.count,&run,error,sizeof error))return 121;
+            tpmshx_run_state_release_v1(&saved);
+        }
+    } while(phase!=TPMSHX_FULL3D_COMPLETED);
+    if(!probe.checked || probe.failed)return 126;
+    for(size_t step=TPMSHX_FULL3D_INITIAL_A;step<=TPMSHX_FULL3D_POST_B;++step)
+        if(boundaries[step]<2)return 122;
+    if(tpmshx_full_3d_run_take_result_v1(run,&resumed,error,sizeof error))return 123;
+    tpmshx_full_3d_run_release_v1(&run);
+    for(size_t field=0;field<3;++field)for(size_t i=0;i<r.temperature[field].size;++i)
+        if(resumed.temperature[field].data[i]!=r.temperature[field].data[i])return 124;
+    for(size_t side=0;side<2;++side)
+        if(resumed.flow[side].last.iterations!=r.flow[side].last.iterations || resumed.duty[side]!=r.duty[side])return 125;
     tpmshx_full_3d_release_v1(&resumed);
     /* Input changes cannot mutate owned result views. */
     eps[0]=.55;if(r.flow[0].epsilon.data[0]!=.6)return 5;eps[0]=.6;

@@ -384,7 +384,7 @@ class NativeFull2DDriver:
                         phase = run.advance()
                         if errors:
                             raise errors[0]
-                        if checkpoint is not None and phase in (1, 2):
+                        if checkpoint is not None and phase in (1, 2, 6, 7, 8):
                             checkpoint(run.snapshot())
                     result = run.take_result()
                 status = 0

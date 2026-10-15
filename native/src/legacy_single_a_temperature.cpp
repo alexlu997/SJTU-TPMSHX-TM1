@@ -1,4 +1,5 @@
 #include "legacy_single_a_temperature.hpp"
+#include "temperature_run_state.hpp"
 
 #include <algorithm>
 #include <array>
@@ -273,7 +274,8 @@ double duty(const Mesh& mesh, const TemperatureFluidView& b, TemperatureStateVie
 
 }  // namespace
 
-TemperatureResult solve_legacy_single_a_temperature(TemperatureScheme scheme, const GridView& grid,
+namespace {
+void validate_run(TemperatureScheme scheme, const GridView& grid,
     const TemperatureFluidView& a, const TemperatureFluidView& b,
     ArrayView<const double> k_ss, TemperatureStateView state,
     const TemperatureControl& control, ArrayView<const double> prescribed_b, bool red_black) {
@@ -323,25 +325,58 @@ TemperatureResult solve_legacy_single_a_temperature(TemperatureScheme scheme, co
             for (auto input : {f->conductivity,f->hv,f->epsilon,f->rho_cp,f->u,f->v,f->w,
                                bc.profile,bc.opening,bc.capacity_flux}) disjoint(out,input);
     }
-    if (!control.warm_start) {
-        std::fill_n(state.a.data,cells,a.boundary.inlet_temperature);
-        std::fill_n(state.b.data,cells,b.boundary.inlet_temperature);
-        std::fill_n(state.solid.data,cells,.5*(a.boundary.inlet_temperature+b.boundary.inlet_temperature));
-    }
-    if (prescribed_b.size) std::copy_n(prescribed_b.data,cells,state.b.data);
-    const Mesh mesh(grid,two_d);
+}
+} // namespace
+
+struct LegacyTemperatureRun::Impl {
+    GridView grid;
+    TemperatureFluidView a,b;
+    ArrayView<const double> k_ss,prescribed_b;
+    TemperatureStateView state;
+    TemperatureControl control;
+    bool red_black;
+    Mesh mesh;
+    std::array<ArrayView<double>,3> outputs;
     std::array<std::vector<double>,3> previous;
-    for (std::size_t phase = 0; phase < outputs.size(); ++phase)
-        previous[phase].assign(outputs[phase].data,outputs[phase].data+cells);
     TemperatureResult result{TemperatureStop::budget_exhausted,0,0.,
-                             std::numeric_limits<double>::quiet_NaN()};
-    bool have_previous_q = false;
-    double previous_q = 0.0;
-    while (result.iterations < control.max_iterations) {
+        std::numeric_limits<double>::quiet_NaN()};
+    bool have_previous_q=false,boundary=true,taken=false;
+    double previous_q=0.;
+    TemperaturePhase phase=TemperaturePhase::active;
+    Impl(TemperatureScheme scheme,const GridView& g,const TemperatureFluidView& fa,
+        const TemperatureFluidView& fb,ArrayView<const double> ks,TemperatureStateView t,
+        const TemperatureControl& c,ArrayView<const double> prescribed,bool rb,
+        const TemperatureRunState* saved)
+        :grid(g),a(fa),b(fb),k_ss(ks),prescribed_b(prescribed),state(t),control(c),
+         red_black(rb),mesh(grid,scheme==TemperatureScheme::cell_centered_2d),outputs{t.a,t.b,t.solid} {
+        validate_run(scheme,grid,a,b,k_ss,state,control,prescribed_b,red_black);
+        const auto cells=grid.nx*grid.ny*grid.nz;
+        if(saved) {
+            detail::validate_temperature_state(*saved,control,cells,prescribed_b);
+            for(auto out:outputs)for(const auto& field:saved->temperature)
+                disjoint(out,ArrayView<const double>{field.data(),field.size()});
+            for(std::size_t field=0;field<3;++field)
+                std::copy(saved->temperature[field].begin(),saved->temperature[field].end(),outputs[field].data);
+            previous=saved->temperature;result=saved->result;
+            have_previous_q=result.iterations!=0;previous_q=have_previous_q?result.q_b:0.;
+        } else {
+            if (!control.warm_start) {
+                std::fill_n(state.a.data,cells,a.boundary.inlet_temperature);
+                std::fill_n(state.b.data,cells,b.boundary.inlet_temperature);
+                std::fill_n(state.solid.data,cells,.5*(a.boundary.inlet_temperature+b.boundary.inlet_temperature));
+            }
+            if (prescribed_b.size) std::copy_n(prescribed_b.data,cells,state.b.data);
+            for (std::size_t field = 0; field < outputs.size(); ++field)
+                previous[field].assign(outputs[field].data,outputs[field].data+cells);
+            if(!control.max_iterations)phase=TemperaturePhase::completed;
+        }
+    }
+    void step() {
+        const auto cells=grid.nx*grid.ny*grid.nz;
         if (control.cancel && control.cancel(control.context)) {
             result.stop = TemperatureStop::cancelled;
             result.q_b = std::numeric_limits<double>::quiet_NaN();
-            return result;
+            phase=TemperaturePhase::cancelled;return;
         }
         const auto n = std::min(control.chunk_iterations,control.max_iterations-result.iterations);
         result.residual = chunk(mesh,a,b,k_ss,state,control,prescribed_b.size != 0,n,red_black);
@@ -350,25 +385,62 @@ TemperatureResult solve_legacy_single_a_temperature(TemperatureScheme scheme, co
         if (control.cancel && control.cancel(control.context)) {
             result.stop = TemperatureStop::cancelled;
             result.q_b = std::numeric_limits<double>::quiet_NaN();
-            return result;
+            phase=TemperaturePhase::cancelled;return;
         }
         result.q_b = duty(mesh,b,state);
         double delta = 0.0;
-        for (std::size_t phase = 0; phase < outputs.size(); ++phase)
+        for (std::size_t field = 0; field < outputs.size(); ++field)
             for (std::size_t p = 0; p < cells; ++p)
-                delta = std::max(delta,std::abs(outputs[phase][p]-previous[phase][p]));
+                delta = std::max(delta,std::abs(outputs[field][p]-previous[field][p]));
         const double scale = std::max({std::abs(result.q_b),std::abs(previous_q),1.0});
         if (have_previous_q && std::abs(result.q_b-previous_q)/scale < control.q_relative_tolerance
             && delta < .01) {
             result.stop = TemperatureStop::converged;
-            return result;
+            phase=TemperaturePhase::completed;return;
         }
         previous_q = result.q_b;
         have_previous_q = true;
-        for (std::size_t phase = 0; phase < outputs.size(); ++phase)
-            std::copy_n(outputs[phase].data,cells,previous[phase].data());
+        for (std::size_t field = 0; field < outputs.size(); ++field)
+            std::copy_n(outputs[field].data,cells,previous[field].data());
+
+        if(result.iterations==control.max_iterations)phase=TemperaturePhase::completed;
     }
-    return result;
+};
+LegacyTemperatureRun::LegacyTemperatureRun(TemperatureScheme scheme,const GridView& grid,
+    const TemperatureFluidView& a,const TemperatureFluidView& b,ArrayView<const double> ks,
+    TemperatureStateView state,const TemperatureControl& control,ArrayView<const double> prescribed,bool rb)
+    :impl_(std::make_unique<Impl>(scheme,grid,a,b,ks,state,control,prescribed,rb,nullptr)) {}
+LegacyTemperatureRun::LegacyTemperatureRun(TemperatureScheme scheme,const GridView& grid,
+    const TemperatureFluidView& a,const TemperatureFluidView& b,ArrayView<const double> ks,
+    TemperatureStateView state,const TemperatureControl& control,const TemperatureRunState& saved,
+    ArrayView<const double> prescribed,bool rb)
+    :impl_(std::make_unique<Impl>(scheme,grid,a,b,ks,state,control,prescribed,rb,&saved)) {}
+LegacyTemperatureRun::~LegacyTemperatureRun()=default;
+TemperaturePhase LegacyTemperatureRun::phase() const {return impl_->phase;}
+TemperaturePhase LegacyTemperatureRun::advance() {
+    auto& run=*impl_;
+    if(!run.boundary || run.phase==TemperaturePhase::failed)
+        throw std::logic_error("unfinished legacy temperature step cannot advance");
+    if(run.phase!=TemperaturePhase::active)return run.phase;
+    run.boundary=false;
+    try {run.step();run.boundary=true;}
+    catch(...) {run.phase=TemperaturePhase::failed;throw;}
+    return run.phase;
+}
+TemperatureRunState LegacyTemperatureRun::snapshot() const {
+    const auto& run=*impl_;
+    if(!run.boundary || run.phase!=TemperaturePhase::active)
+        throw std::logic_error("legacy temperature snapshot requires an active boundary");
+    TemperatureRunState saved;saved.result=run.result;
+    for(std::size_t field=0;field<3;++field)
+        saved.temperature[field].assign(run.outputs[field].data,run.outputs[field].data+run.outputs[field].size);
+    return saved;
+}
+TemperatureResult LegacyTemperatureRun::take_result() {
+    auto& run=*impl_;
+    if(!run.boundary || (run.phase!=TemperaturePhase::completed && run.phase!=TemperaturePhase::cancelled) || run.taken)
+        throw std::logic_error("legacy temperature result is not available");
+    run.taken=true;return run.result;
 }
 
 }  // namespace tpmshx

@@ -21,6 +21,7 @@ _DTYPES = (np.dtype('float64'), np.dtype('uint64'), np.dtype('int64'), np.dtype(
 class NativeRun:
     """Advance one native boundary at a time. Close each run after use."""
 
+    advance_name = 'advance'
     error_types = {1: ValueError, 2: WaterStateError, 3: FloatingPointError}
 
     def __init__(self, library, common, args, callbacks, state):
@@ -40,7 +41,8 @@ class NativeRun:
         try:
             for name, arguments in signatures.items():
                 version = self.creation_version if name in ('create', 'restore') else 1
-                function = getattr(library, f'{self.api_prefix}_{name}_v{version}')
+                entry = self.advance_name if name == 'advance' else name
+                function = getattr(library, f'{self.api_prefix}_{entry}_v{version}')
                 function.argtypes = arguments
                 function.restype = None if name == 'release' else ct.c_int
                 setattr(self, '_'+name, function)

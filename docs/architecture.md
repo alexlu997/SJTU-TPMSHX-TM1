@@ -77,7 +77,7 @@ An accelerated advance completes one block and any proposal probes. A nonacceler
 Callbacks keep their original sequence. A callback cannot save or advance an unfinished step.
 Cancelled, failed and completed runs cannot publish a new thermal snapshot.
 The caller receives the final physical ledger through the original output argument.
-Full-controller inner-state serialization and application continuation remain separate integration work.
+The full 3D controller archives this state. Full 2D inner-state integration and application recovery remain separate tasks.
 
 ## Completed execution records
 
@@ -345,8 +345,8 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   Initial correction arrays keep their original unused-value rules.
   Warm-call snapshots stay separate from active-call snapshots. Callbacks cannot
   save or re-enter an unfinished step. Physical equations, ordering, cancellation
-  points and final boundary certificates stay unchanged. These component interfaces
-  still require integration with full-controller archives and application recovery.
+  points and final boundary certificates stay unchanged. The full 3D controller
+  archives this state. Full 2D inner-state integration and application recovery remain separate tasks.
 - `EnthalpyRun` owns the existing H-FOU, T-FOU and T-SOU Picard iteration state.
   Each advance completes one original iteration, including its SOU proposal.
   An active snapshot owns five solution fields, enthalpy bounds, table bounds,
@@ -373,8 +373,8 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   staggered zero-budget call retains its projection and final audit.
   Staggered result transfer releases the active face and field buffers; only
   its original pressure hierarchy cache remains. The replaced stack-only
-  control loops are retired. Full-controller archives and application recovery
-  still require separate integration.
+  control loops are retired. The full 3D controller archives the active staggered state.
+  Full 2D inner-state integration and application recovery remain separate tasks.
 - The C++ fixed-flow `solve_enthalpy` also has explicit `temperature_fou`
   and `temperature_sou` candidates. Both solve conservative enthalpy transport
   with temperature as the nonlinear unknown, guarded HEOS PT state updates,
@@ -1227,26 +1227,47 @@ GUI consumers still receive their required writable copies.
 
 ### Native 2D and 3D continuation
 
-`Full3DRun` advances initialization, one complete outer step, or final result capture.
-The existing one-shot entry calls this same controller.
-A snapshot is available after initialization and after each complete outer step.
-It keeps the actual fields, counters, pressure history, Anderson history,
-and the original matrix used to construct each retained pressure hierarchy.
-Restore reconstructs that hierarchy from its saved matrix.
-It preserves the last thermal evidence separately from later flow updates.
-It does not reset budgets or repeat initialization.
+`Full3DRun.advance_step` completes one SIMPLE step, thermal block, or controller transition.
+The existing one-shot entry uses these same steps.
+The original `advance` operation still returns at a complete initialization or outer boundary.
+Both operations use one numerical implementation.
+Snapshots also cover initial and post-update SIMPLE calls on either side.
+They retain F2 confirmation, stall history, pressure construction state, and the current iteration result.
+Restore rebuilds each pressure hierarchy from its original construction matrix.
+Coarse bootstrap stays atomic before the first fine SIMPLE boundary.
 
-`Full2DRun` uses the same boundary contract for the existing 2D outer sequence.
-Its final advance completes refinement and result capture.
-The snapshot keeps the completed outer history, pressure records, last thermal
-evidence, property observations, and fields used by the next step.
-The one-shot 2D entries use this controller.
+Thermal snapshots cover model-h selections, original temperature chunks, and complete EOS Picard iterations.
+They retain active Anderson history, HEOS finishing state, and actual projected face velocities.
+The planar integral delegate keeps its physical depth conversion.
+The private single-A sCO2 and true-h CC warm-up owner retains its original temperature rows.
+Its former stack loop and unused private one-shot entry are removed.
+Water startup retries retain the initial fields, rejected attempts, remaining budget, and actual call settings.
+Restore does not repeat a completed retry or reset its charged iterations.
+Active component records reuse the controller solution arrays. Restore uses those arrays to rebuild component views.
+The controller preserves A flow, thermal property refresh, then B flow.
+Completed thermal evidence stays separate from later flow updates, including the final capped post update.
+Snapshots and re-entry are rejected while a step is unfinished.
+
+`Full2DRun.advance_step` completes a paired SIMPLE step, thermal selection, or controller transition.
+Two side workers stay active through each flow call.
+The operation returns after both current steps complete.
+The existing `advance` and one-shot entries drain the same flow owners concurrently, without a barrier after each SIMPLE step.
+Snapshots retain each side's active pressure and F2 state, including a side that has already finished.
+The previous completed flow stays separate until both new flow calls finish.
+Pressure shooting keeps the reference chosen for the current outer call.
+Main thermal snapshots retain model-h selection history or the complete EOS iteration state.
+Refinement snapshots own the actual fine grid, interpolated inputs, prolonged mass faces, and active thermal state.
+Restore rebuilds views and immutable inputs. It does not repeat interpolation, property observations, or charged iterations.
+The original capped property update, refinement budgets, and result capture remain in the controller.
+The former stack-only flow, main thermal, and refinement loops are removed.
 Both dimensions use the shared typed archive in `full_run_state.cpp`.
 
 `full_2d_run_c_api.h` and `full_3d_run_c_api.h` expose owned run and snapshot handles.
 The C entry copies prepared arrays and the callback table.
 The caller keeps callback functions and their context alive until run release.
 Snapshot fields own their numeric arrays and UTF-8 strings.
+The additive `advance_step_v1` entries expose inner boundaries in both dimensions.
+Native state format 2 records these states.
 Restore requires the same format, native build, platform, prepared input, and numerical controls.
 Each native build receives a new identity. Host paths and callback addresses are excluded.
 A cancelled or failed run cannot publish a new snapshot.
@@ -1261,9 +1282,9 @@ The writer closes a temporary file before atomic replacement.
 A failed write or process interruption before replacement preserves the previous checkpoint.
 This contract does not claim recovery from power loss.
 
-This stage covers native 2D and 3D outer boundaries.
-It does not yet expose inner-iteration, refinement-iteration, GUI, or CLI continuation.
-The longest complete step sets the current possible loss of computation.
+This stage covers native 2D and 3D inner and outer boundaries, including 2D thermal refinement.
+GUI/CLI recovery remains separate integration work.
+The longest complete step or bootstrap sets the current possible loss of computation.
 Saving frequency and full recovery acceptance remain separate tasks.
 
 ### Cooperative cancellation

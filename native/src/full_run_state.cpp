@@ -226,6 +226,38 @@ template<class Archive,class Value> void walk(Archive& archive,Value& value,Full
     FIELD(phase) FIELD(result) FIELD(inlet) FIELD(drag_k) FIELD(drag_cf)
     FIELD(mass_flux) FIELD(dispersion) FIELD(hv_ratio) FIELD(conductivity) FIELD(rho_cp)
     FIELD(hv) FIELD(temperature) FIELD(previous) FIELD(simple) FIELD(anderson)
+    FIELD(flow_convergence) FIELD(flow_iteration) FIELD(thermal)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,SimpleF2State*) {
+    FIELD(minimum_iterations) FIELD(streak) FIELD(window_start_iteration) FIELD(momentum_at_window_start) FIELD(previous)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,ModelHChunkState*) {
+    FIELD(count) FIELD(completed) FIELD(acceleration)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,ModelHIterationState*) {
+    FIELD(temperature) FIELD(previous) FIELD(previous_q) FIELD(have_q) FIELD(chunk)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,ModelHRunState2D*) {
+    FIELD(iteration) FIELD(result)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,ModelHRunState3D*) {
+    FIELD(iteration) FIELD(result) FIELD(carry)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,TemperatureRunState*) {
+    FIELD(temperature) FIELD(result)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,StaggeredTemperatureRunState*) {
+    FIELD(iteration) FIELD(velocity) FIELD(projection)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,EnthalpySideState*) {
+    FIELD(lower) FIELD(upper) FIELD(transport) FIELD(table_lower) FIELD(table_upper)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,EnthalpyRunState*) {
+    FIELD(fields) FIELD(sides) FIELD(result) FIELD(acceleration) FIELD(next_temperatures)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,Full3DThermalRunState*) {
+    FIELD(evidence) FIELD(record) FIELD(initial) FIELD(budget) FIELD(remaining)
+    FIELD(model_h_2d) FIELD(model_h_3d) FIELD(staggered) FIELD(legacy) FIELD(enthalpy)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,Full2DSide*) {
     FIELD(fluid) FIELD(direction) FIELD(inlet_temperature) FIELD(inlet_pressure) FIELD(inlet_velocity)
@@ -311,7 +343,19 @@ template<class Archive,class Value> void walk(Archive& archive,Value& value,Full
     FIELD(energy_imbalance) FIELD(nu_observations) FIELD(range_observations)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,Full2DRunState*) {
-    FIELD(phase) FIELD(result) FIELD(inlet) FIELD(previous)
+    FIELD(phase) FIELD(result) FIELD(inlet) FIELD(previous) FIELD(flow) FIELD(thermal)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,Simple2DOwnerState*) {
+    FIELD(widths) FIELD(depth) FIELD(outlet) FIELD(pressure) FIELD(history) FIELD(massflux_target) FIELD(pressure_clip_hits)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,Simple2DRunState*) {
+    FIELD(owner) FIELD(fields) FIELD(convergence) FIELD(result)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,Full2DFlowRunState*) {
+    FIELD(flow) FIELD(iteration)
+}
+template<class Archive,class Value> void walk(Archive& archive,Value& value,Full2DThermalRunState*) {
+    FIELD(model_h) FIELD(enthalpy)
 }
 #undef FIELD
 
@@ -355,8 +399,8 @@ struct Writer {
     template<class T> void put(ArrayView<const T> value) {numbers(value.data,value.size);}
 };
 
-int enum_max(Full2DPhase) {return static_cast<int>(Full2DPhase::failed);}
-int enum_max(Full3DPhase) {return static_cast<int>(Full3DPhase::failed);}
+int enum_max(Full2DPhase) {return static_cast<int>(Full2DPhase::refinement_boundary);}
+int enum_max(Full3DPhase) {return static_cast<int>(Full3DPhase::post_flow_b);}
 int enum_max(Full3DStop) {return static_cast<int>(Full3DStop::cancelled);}
 int enum_max(Full3DThermalMode) {return static_cast<int>(Full3DThermalMode::true_h);}
 int enum_max(SimpleStop) {return static_cast<int>(SimpleStop::post_closure);}
@@ -433,7 +477,7 @@ struct Reader {
 
 template<class Input,class Control> RunStateRecord identity(const Input& input,const Control& control) {
     RunStateRecord fields;Writer writer{fields,""};
-    writer("format",std::uint64_t{1});writer("build",std::string(TPMSHX_STATE_BUILD_ID));
+    writer("format",std::uint64_t{2});writer("build",std::string(TPMSHX_STATE_BUILD_ID));
     writer("platform",std::string(TPMSHX_STATE_PLATFORM));writer("input",input);writer("control",control);
     return fields;
 }
