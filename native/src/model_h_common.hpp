@@ -27,7 +27,7 @@ inline std::size_t acceleration_block(const ModelHControl3D& control) {
     return control.strict_energy_balance?5:25;
 }
 inline std::size_t acceleration_history(const ModelHControl3D& control) {
-    return control.strict_energy_balance?12:6;
+    return control.strict_energy_balance?16:6;
 }
 template<class Control> ModelHIterationSettings apply_iteration_tolerances(
         Control& control,const ModelHIterationOverrides& options,std::size_t total_budget=0) {

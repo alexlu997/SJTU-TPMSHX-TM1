@@ -58,7 +58,7 @@ struct Fixture {
 }
 
 int main() {
-    for(const auto policy:{std::array<std::size_t,2>{25,6},std::array<std::size_t,2>{5,12}})
+    for(const auto policy:{std::array<std::size_t,2>{25,6},std::array<std::size_t,2>{5,16}})
     for(bool reject:{false,true}) for(std::size_t budget:{0U,1U,4U,5U,6U,7U,24U,25U,26U,27U,50U,51U,52U,77U,130U}) {
         Fixture expected;expected.reject=reject;
         AcceleratedChunk continuous(budget,policy[0],policy[1]);

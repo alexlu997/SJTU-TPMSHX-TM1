@@ -67,7 +67,7 @@ The public coupled-only audit keeps unavailable fluid residuals as NaN and does 
 No extra temperature or face arrays are needed for this assembly.
 
 The 2D and 3D model-h drivers share one accelerated chunk owner.
-Strict 3D calls use five sweeps per block and twelve Anderson samples.
+Strict 3D calls use five sweeps per block and sixteen Anderson samples.
 Other calls retain 25 sweeps per block and six samples.
 Both policies charge two proposal probes and keep separate history for each chunk.
 The strict policy meets the original energy gate in the tested graded-grid case.

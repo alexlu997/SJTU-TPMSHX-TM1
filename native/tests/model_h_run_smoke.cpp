@@ -142,7 +142,7 @@ template<int dimension> void continuation() {
                 if(state.iteration.chunk) {
                     const auto& chunk=*state.iteration.chunk;
                     require(chunk.sweep_block==(dimension==3 && strict?5U:25U)
-                        && chunk.acceleration.history_limit==(dimension==3 && strict?12U:6U),
+                        && chunk.acceleration.history_limit==(dimension==3 && strict?16U:6U),
                         "thermal owner used the wrong acceleration policy");
                 }
                 state.iteration.temperature[0][0]+=1.;

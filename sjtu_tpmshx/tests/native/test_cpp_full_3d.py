@@ -1451,9 +1451,9 @@ def test_co2_table_state_continues_after_process_exit(native_path, tmp_path, dim
 
 
 @pytest.mark.parametrize('policy,code,error', [
-    ((1, 5, 12), 0, None), ((0, 25, 6), 0, None),
-    ((2, 5, 12), 0, 'invalid'), ((1, 0, 12), 0, 'invalid'),
-    ((1, 5, 1), 0, 'invalid'), ((1, 5, 12), 1, 'query failed')])
+    ((1, 5, 16), 0, None), ((0, 25, 6), 0, None),
+    ((2, 5, 16), 0, 'invalid'), ((1, 0, 16), 0, 'invalid'),
+    ((1, 5, 1), 0, 'invalid'), ((1, 5, 16), 1, 'query failed')])
 def test_native_acceleration_records_validate_returned_values(policy, code, error):
     import ctypes as ct
     from sjtu_tpmshx.solvers.backends.cpp.full_3d import _Result
