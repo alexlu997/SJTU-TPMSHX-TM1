@@ -1273,8 +1273,9 @@ Each native build receives a new identity. Host paths and callback addresses are
 A cancelled or failed run cannot publish a new snapshot.
 The result is transferred once; its views remain valid until result release.
 
-The native Python backend accepts `checkpoint` and `resume_state` keyword arguments.
-`checkpoint` receives detached typed fields at each available boundary.
+The public solver entry and native Python backend accept `checkpoint`, `checkpoint_due`, and `resume_state` keyword arguments.
+`checkpoint` receives detached typed fields at an available boundary.
+An optional `checkpoint_due` predicate prevents state export when no save is due.
 `SolverCheckpoint` stores those fields with the absolute prepared-case path and model references.
 Use `full_2d_continuation_v1` for 2D state; 3D retains `full_3d_continuation_v1`.
 The functions in `io/solver_checkpoint_io.py` use the existing typed HDF5 record writer.
@@ -1282,10 +1283,28 @@ The writer closes a temporary file before atomic replacement.
 A failed write or process interruption before replacement preserves the previous checkpoint.
 This contract does not claim recovery from power loss.
 
+`workflows.recovery` uses the existing `workflows.compute` stages for start and resume.
+Each run owns a new directory with prepared input, a retained native library, checkpoint, and status.
+Each run retains its own library file. The process reuses a previously retained file only when its bytes match the selected library.
+This avoids repeated native initialization and retained property tables. A changed or moved runtime uses the new retained file.
+The run record identifies the file used for execution. Completed results and metrics are written only after postprocessing.
+Resume reads the saved `CaseData`; it does not repeat preparation or change the source run.
+The complete directory can move. Its local input replaces the previous absolute case path during loading.
+Native restore still verifies the prepared input, controls, format, platform, and build.
+The caller selects a native library explicitly. The workflow does not load a saved library implicitly.
+
+`PausedRun` reports a saved checkpoint separately from cancellation, failure, and completed results.
+CLI saved runs convert Ctrl+C into a pause request and return code 3 after saving.
+The Qt orchestrator has a separate pause signal and retains the previous accepted result.
+GUI resume preserves saved input provenance without changing the current draft.
+A CLI-origin run has no GUI preset and cannot replace the draft through recent-run loading.
+
 This stage covers native 2D and 3D inner and outer boundaries, including 2D thermal refinement.
-GUI/CLI recovery remains separate integration work.
-The longest complete step or bootstrap sets the current possible loss of computation.
-Saving frequency and full recovery acceptance remain separate tasks.
+The CLI interval is explicit. New GUI full C++ runs request a save every 60 seconds.
+They capture input provenance on the GUI thread and use a new directory under the existing user data directory.
+GUI resume uses the recorded interval. A failed start clears the pending directory and provenance.
+The longest complete step or bootstrap limits when saving can occur.
+Saving frequency and full timing, memory, and desktop acceptance remain separate checks.
 
 ### Cooperative cancellation
 
