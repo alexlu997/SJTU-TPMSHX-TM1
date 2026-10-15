@@ -213,7 +213,7 @@ def _thermal(t, actual, abi):
             h_in_A=h.inlet_enthalpy[0], h_in_B=h.inlet_enthalpy[1], mass_flux_A=mass3[0], mass_flux_B=mass3[1])
         sides = [side for side, used in zip(('A', 'B'), h.used_bicubic) if used]
         if sides:
-            state['sco2_enthalpy_eos'] = dict(algorithm='bicubic_iteration_heos_polish_v2',
+            state['enthalpy_eos'] = dict(algorithm='bicubic_iteration_heos_polish_v2',
                 iteration_backend='BICUBIC&HEOS', final_backend='HEOS', transport_backend='HEOS',
                 coolprop_version=h.coolprop_version.decode(), sides=sides, heos_polish=bool(h.heos_polish))
     return out

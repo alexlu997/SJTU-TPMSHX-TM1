@@ -611,7 +611,7 @@ def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=Fa
             mass_flux_A=result['mass'][0],mass_flux_B=result['mass'][1])
         used=[s for s,flag in zip('AB',r.true_h.used_bicubic) if flag]
         if used:
-            true_h['_native_state']['sco2_enthalpy_eos']=dict(algorithm='bicubic_iteration_heos_polish_v2',
+            true_h['_native_state']['enthalpy_eos']=dict(algorithm='bicubic_iteration_heos_polish_v2',
                 iteration_backend='BICUBIC&HEOS',final_backend='HEOS',transport_backend='HEOS',
                 coolprop_version=r.true_h.coolprop_version.decode(),sides=used,heos_polish=bool(r.true_h.heos_polish))
     result['staggered'] = []

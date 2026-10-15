@@ -23,6 +23,15 @@ from sjtu_tpmshx.solvers.backends.cpp.temperature import NativeTemperatureDriver
 ROOT = Path(__file__).resolve().parents[3]
 
 
+def native_table_metadata(record):
+    # The Python reference keeps its original table-record name.
+    if 'sco2_enthalpy_eos' not in record:
+        return record
+    assert 'enthalpy_eos' not in record
+    return {('enthalpy_eos' if key == 'sco2_enthalpy_eos' else key): value
+            for key, value in record.items()}
+
+
 def library(name, environment):
     host = 'windows-x64' if os.name == 'nt' else 'macos-arm64'
     suffix = '.dll' if os.name == 'nt' else '.dylib' if sys.platform == 'darwin' else '.so'

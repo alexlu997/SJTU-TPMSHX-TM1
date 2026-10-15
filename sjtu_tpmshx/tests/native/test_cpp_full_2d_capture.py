@@ -39,6 +39,8 @@ def driver():
 
 def compare(actual, expected, path=''):
     if isinstance(expected, Mapping):
+        actual = full_thermal_reference.native_table_metadata(actual)
+        expected = full_thermal_reference.native_table_metadata(expected)
         assert actual.keys() == expected.keys(), path
         for key, value in expected.items():
             compare(actual[key], value, path + '/' + str(key))
@@ -76,6 +78,21 @@ def test_power_comparison_uses_units_at_root_and_nested_paths():
         compare(False, True, 'Q_richardson_warn')
     with pytest.raises(AssertionError):
         compare(np.array([100001]), np.array([100000]), 'counts')
+
+
+@pytest.mark.parametrize('dimension', [2, 3])
+def test_table_record_comparison_keeps_values_and_original_names(dimension):
+    from sjtu_tpmshx.tests.native import test_cpp_full_3d
+    compare_records = compare if dimension == 2 else test_cpp_full_3d.compare
+    record = dict(sides=('B',), final_backend='HEOS', heos_polish=False)
+    old, new = {'sco2_enthalpy_eos': record}, {'enthalpy_eos': record}
+    compare_records(new, old, 'model_metadata')
+    compare_records({'true_h': new}, {'true_h': old}, 'boundary_fluxes')
+    assert set(old) == {'sco2_enthalpy_eos'} and set(new) == {'enthalpy_eos'}
+    with pytest.raises(AssertionError):
+        compare_records({'enthalpy_eos': dict(record, final_backend='BICUBIC')}, old)
+    with pytest.raises(AssertionError):
+        compare_records(dict(new, sco2_enthalpy_eos=record), old)
 
 
 def captured(driver, case):
