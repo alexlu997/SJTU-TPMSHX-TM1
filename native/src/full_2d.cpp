@@ -565,7 +565,7 @@ void prepare_thermal(const Full2DProblem& p,const std::array<SidePhysics,2>& phy
         }
         merge_range_observation(r.range_observations,std::move(raw_re));
         if (s.fluid!=Fluid::air) temperature_ranges(r.range_observations,s.fluid,side,"property","main-hv","real-cell(x,y)",
-            {},{&reference_temperature,1},{"viscosity","conductivity","cp"});
+            {},{&s.inlet_temperature,1},{"viscosity","conductivity","cp"});
         merge_range_observation(r.range_observations,std::move(source_re));
         if (s.fluid==Fluid::co2) merge_range_observation(r.range_observations,std::move(pr_range));
         if (p.thermal_mode==Full2DThermalMode::temperature)
