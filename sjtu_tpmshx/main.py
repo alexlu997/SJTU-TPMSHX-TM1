@@ -112,6 +112,8 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
                              sender=self.compute)
         self.signals.connect(self.compute.cancelled, self._on_orch_cancelled,
                              sender=self.compute)
+        self.signals.connect(self.compute.paused, self._on_orch_paused,
+                             sender=self.compute)
 
         # Persist user sessions separately from current renderable results.
         self.sm = SessionManager(parent=self)

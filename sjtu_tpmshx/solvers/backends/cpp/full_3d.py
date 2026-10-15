@@ -258,11 +258,11 @@ class NativeFull3DDriver:
             traces[label] = trace
         return traces
 
-    def run_prepared(self, cfg, p, control=RunControl(), *, resume_state=None, checkpoint=None):
-        return self._run_prepared(cfg, p, control, resume_state=resume_state, checkpoint=checkpoint)
+    def run_prepared(self, cfg, p, control=RunControl(), *, resume_state=None, checkpoint=None, checkpoint_due=None):
+        return self._run_prepared(cfg, p, control, resume_state=resume_state, checkpoint=checkpoint, checkpoint_due=checkpoint_due)
 
     def _run_prepared(self, cfg, p, control=RunControl(), *, application_only=False,
-                      resume_state=None, checkpoint=None):
+                      resume_state=None, checkpoint=None, checkpoint_due=None):
         control.check_cancelled()
         energy = _energy_options(cfg.get('enthalpy_algorithm', 'legacy_h_fou'),
                                  cfg.get('enthalpy_temperature_tol_K', 1e-8))
@@ -424,7 +424,8 @@ class NativeFull3DDriver:
                         phase = run.advance()
                         if callback_errors:
                             raise callback_errors[0]
-                        if checkpoint is not None and phase in (1, 2, 6, 7, 8, 9, 10):
+                        if (checkpoint is not None and phase in (1, 2, 6, 7, 8, 9, 10)
+                                and (checkpoint_due is None or checkpoint_due())):
                             checkpoint(run.snapshot())
                     result = run.take_result()
                 code = 0
@@ -648,7 +649,7 @@ def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=Fa
     return result
 
 
-def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None):
+def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None, checkpoint_due=None):
     from .full_3d_capture import capture_result
     from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
     if control.backend != 'cpp':
@@ -658,6 +659,6 @@ def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None):
     control.check_cancelled()
     cfg,p=build_execution_inputs(case, copy_design=False)
     driver=NativeFull3DDriver(control.native_library, table_directory=getattr(control,'native_table_directory',None))
-    r=driver._run_prepared(cfg,p,control,application_only=True, resume_state=resume_state, checkpoint=checkpoint)
+    r=driver._run_prepared(cfg,p,control,application_only=True, resume_state=resume_state, checkpoint=checkpoint, checkpoint_due=checkpoint_due)
     control.check_cancelled()
     return capture_result(case, cfg, p, r, driver.abi)

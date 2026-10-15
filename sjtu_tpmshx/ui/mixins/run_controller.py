@@ -29,8 +29,10 @@ from time import perf_counter
 from copy import deepcopy
 from functools import partial
 from dataclasses import replace
+from pathlib import Path
+from uuid import uuid4
 
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 from sjtu_tpmshx.ui.fmt import duration as _fmt_dur
 from sjtu_tpmshx.ui.icons import icon
@@ -38,11 +40,14 @@ from sjtu_tpmshx.ui.ui_constants import HIGH_VELOCITY_NOTICE_MS, TOAST_MS_MED, T
 from sjtu_tpmshx.domain.module_ports import RunControl
 
 
-def _run_compute(config, cancel_token, progress_cb, *, ui_hooks, control=RunControl()):
-    from sjtu_tpmshx.controllers.module_adapter import compute_result
+def _run_compute(config, cancel_token, progress_cb, *, ui_hooks, control=RunControl(),
+                 run_directory=None, checkpoint_interval_s=None, resume_checkpoint=None,
+                 gui_provenance=None):
+    from sjtu_tpmshx.controllers.module_adapter import compute_result, to_compute_result
+    original_cancel = control.cancel_check
 
     def cancelled():
-        return cancel_token.cancelled or (control.cancel_check is not None and control.cancel_check())
+        return cancel_token.cancelled or (original_cancel is not None and original_cancel())
 
     def with_ui_hook(name, callback):
         hook = ui_hooks.get(name)
@@ -55,10 +60,24 @@ def _run_compute(config, cancel_token, progress_cb, *, ui_hooks, control=RunCont
             callback(*args)
         return report
 
-    return compute_result(config, progress_cb=progress_cb, control=replace(
+    control = replace(
         control, cancel_check=cancelled,
         iteration=with_ui_hook('iter_label_cb', control.iteration),
-        outer_iteration=with_ui_hook('iter_cb', control.outer_iteration)))
+        outer_iteration=with_ui_hook('iter_cb', control.outer_iteration))
+    if run_directory is None:
+        return compute_result(config, progress_cb=progress_cb, control=control)
+    from sjtu_tpmshx.workflows.recovery import compute_run, resume_run
+    kwargs = dict(control=control, progress_cb=progress_cb,
+                  checkpoint_interval_s=checkpoint_interval_s,
+                  pause_check=cancel_token.pause_requested)
+    if resume_checkpoint is None:
+        _, result, performance = compute_run(config, run_directory,
+                                             gui_provenance=gui_provenance, **kwargs)
+    else:
+        _, result, performance = resume_run(resume_checkpoint, run_directory, **kwargs)
+    display = to_compute_result(result, performance)
+    control.check_cancelled()
+    return display
 
 
 class RunControllerMixin:
@@ -110,13 +129,13 @@ class RunControllerMixin:
             QMessageBox.warning(self, "Invalid Input", str(e))
             return
 
-        worker = partial(_run_compute,
-                         control=getattr(self, 'run_control', RunControl()), ui_hooks={
+        worker = self._new_compute_worker('2d', {
             'iter_label_cb': self.compute.iteration.emit,
         })
 
         self._compute_error = None
         if not self.compute.start('2d', worker, cfg=compute_cfg):
+            self._pending_run_provenance = self._active_run_directory = None
             # Should be unreachable due to is_running() guard above; defensive.
             QMessageBox.information(
                 self, "Compute Busy",
@@ -241,13 +260,13 @@ class RunControllerMixin:
         from PySide6.QtCore import QTimer
 
         emit_iteration = self.compute.iteration.emit
-        worker = partial(_run_compute,
-                         control=getattr(self, 'run_control', RunControl()), ui_hooks={
+        worker = self._new_compute_worker('3d', {
             'iter_cb': lambda k, n: emit_iteration(f"outer {k}/{n}"),
         })
 
         self._compute_error = None
         if not self.compute.start('3d', worker, cfg=compute_cfg):
+            self._pending_run_provenance = self._active_run_directory = None
             QMessageBox.information(
                 self, "Compute Busy",
                 "3D compute orchestrator rejected start — already running.")
@@ -293,19 +312,34 @@ class RunControllerMixin:
         wd.start(500)
         return
 
+    def _capture_run_provenance(self, mode):
+        preset = deepcopy(self._capture_current_preset('Run inputs'))
+        axes = ('x', 'y', 'z') if mode == '3d' else ('x', 'y')
+        return dict(preset=preset,
+            preset_source=getattr(self, '_active_preset_name', '') or '—', mode=mode,
+            input_grid=[preset['line_edits'].get(f'le_N{axis}', '?') for axis in axes])
+
+    def _new_compute_worker(self, mode, ui_hooks):
+        control = getattr(self, 'run_control', RunControl())
+        options = dict(control=control, ui_hooks=ui_hooks)
+        if control.backend == 'cpp':
+            provenance = self._capture_run_provenance(mode)
+            directory = self.sm.base_dir / 'runs' / ('run-' + uuid4().hex)
+            self._pending_run_provenance = provenance
+            self._active_run_directory = directory
+            options.update(run_directory=directory, checkpoint_interval_s=60.,
+                           gui_provenance=provenance)
+        return partial(_run_compute, **options)
+
     def _on_orch_started(self, mode):
         """Compute kicked off. Lock UI + start progress widgets."""
         # started is emitted synchronously on the GUI thread, only after
         # start accepts the run and before dispatch or UI event processing.
-        preset = deepcopy(self._capture_current_preset('Run inputs'))
-        axes = ('x', 'y', 'z') if mode == '3d' else ('x', 'y')
-        self._run_provenance = {
-            'preset': preset,
-            'preset_source': getattr(self, '_active_preset_name', '') or '—',
-            'mode': mode,
-            'input_grid': [preset['line_edits'].get(f'le_N{axis}', '?')
-                           for axis in axes],
-        }
+        provenance = getattr(self, '_pending_run_provenance', None)
+        self._pending_run_provenance = None
+        if provenance is None:
+            provenance = self._capture_run_provenance(mode)
+        self._run_provenance = provenance
         # Backwards-compat: tests / external code still read _compute_running.
         # We mirror it from the orchestrator's authoritative flag.
         self._compute_running = True
@@ -343,6 +377,7 @@ class RunControllerMixin:
         if card is not None:
             card.title.setText("正在显示结果")
             card.cancel_button.setEnabled(False)
+            card.pause_button.setEnabled(False)
         success = False
         published = False
         display_started = perf_counter()
@@ -356,9 +391,10 @@ class RunControllerMixin:
                 result.metadata['run_provenance'] = deepcopy(provenance)
             self.write_result(result)
             published = True
-            for side, inlet in result.metadata.get('inlet_inputs', {}).items():
-                if inlet['mass_flow_kg_s'] is not None:
-                    getattr(self, 'le_u' + side).setText(format(inlet['u_mps'], '.17g'))
+            if provenance is None or not provenance.get('resumed_from'):
+                for side, inlet in result.metadata.get('inlet_inputs', {}).items():
+                    if inlet['mass_flow_kg_s'] is not None:
+                        getattr(self, 'le_u' + side).setText(format(inlet['u_mps'], '.17g'))
             success = self._render_compute_result()
         except Exception as exc:
             import traceback
@@ -574,7 +610,11 @@ class RunControllerMixin:
         self.progress.setValue(10)
         card = getattr(self, '_run_status_card', None)
         if card is not None:
-            card.start(self.compute.current_mode())
+            directory = getattr(self, '_active_run_directory', None)
+            card.start(self.compute.current_mode(), recoverable=directory is not None)
+            if directory is not None:
+                card.note.setText(f'在完整计算步结束后自动保存。保存目录：{directory}')
+        self._compute_paused = None
         # Cooperative cancel: clear the flag at compute start, then repurpose
         # the Compute button as a Cancel button. The worker polls
         # `_compute_cancel` at outer-iteration boundaries (the only safe
@@ -646,10 +686,19 @@ class RunControllerMixin:
                     message += ' 三维视图不可用；计算结果仍可导出。'
             elif getattr(self, '_compute_error', None):
                 state, message = 'error', str(self._compute_error)
+            elif getattr(self, '_compute_paused', None):
+                state = 'paused'
+                message = f'可从载入菜单继续本次计算：{self._compute_paused}'
             elif getattr(self, '_compute_cancel', False):
                 state, message = 'cancelled', '求解器已响应取消请求。'
             else:
                 state, message = 'error', '计算结束，但结果显示未完成。请查看诊断与日志。'
+            directory = getattr(self, '_active_run_directory', None)
+            checkpoint = Path(directory) / 'checkpoint.h5' if directory is not None else None
+            if checkpoint is not None and checkpoint.is_file():
+                self._last_checkpoint_file = str(checkpoint)
+                if not success and state != 'paused':
+                    message += f' 可从载入菜单继续已保存的状态：{checkpoint}'
             if not success and self.cache.has_any_results():
                 message += ' 已保留最近完成的计算结果，摘要与导出仍对应该结果。'
             card.finish(state, elapsed,
@@ -701,6 +750,64 @@ class RunControllerMixin:
                 pass
         else:
             self.progress.hide()
+        self._active_run_directory = None
+
+    def _resume_saved_run(self, checkpoint_file=None):
+        """Resume saved physical inputs while the current GUI draft stays separate."""
+        from sjtu_tpmshx.ui.background_tasks import has_active_tasks
+        from sjtu_tpmshx.domain.compute_config import ComputeConfig
+        from sjtu_tpmshx.domain.portable_data import mutable_data
+        from sjtu_tpmshx.workflows.recovery import read_run_checkpoint
+
+        if getattr(self, '_close_pending', False):
+            return
+        if has_active_tasks(self):
+            QMessageBox.information(self, '正在计算', '请等待当前任务结束，再继续已保存的计算。')
+            return
+        if checkpoint_file is None:
+            checkpoint_file, _ = QFileDialog.getOpenFileName(self, '继续已保存的计算',
+                str(getattr(self, '_last_checkpoint_file', self.sm.base_dir / 'runs')),
+                'Solver checkpoint (checkpoint.h5)')
+        if not checkpoint_file:
+            return
+        checkpoint_file = Path(checkpoint_file).resolve()
+        try:
+            _, case, record = read_run_checkpoint(checkpoint_file)
+            config = ComputeConfig.from_dict(mutable_data(case.config_snapshot))
+            saved_provenance = record.get('gui_provenance')
+            if saved_provenance is not None and not isinstance(saved_provenance, dict):
+                raise ValueError('saved GUI provenance must be a record')
+            if (saved_provenance and saved_provenance.get('preset') is not None
+                    and not isinstance(saved_provenance['preset'], dict)):
+                raise ValueError('saved GUI preset must be a record')
+            checkpoint_interval = record['checkpoint_interval_s']
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            QMessageBox.warning(self, '无法继续计算', str(error))
+            return
+        self.combo_solver_backend.setCurrentIndex(self.combo_solver_backend.findData('cpp'))
+        if self.run_control.backend != 'cpp':
+            return
+        mode = f"{case.grid['dimension']}d"
+        axes = ('Nx', 'Ny', 'Nz') if config.is_3d else ('Nx', 'Ny')
+        self._pending_run_provenance = dict(
+            preset=deepcopy(saved_provenance.get('preset')) if saved_provenance else None,
+            preset_source=(saved_provenance.get('preset_source', '') if saved_provenance
+                           else f'保存的工况：{case.case_id}'), mode=mode,
+            input_grid=[getattr(config.solver, axis) for axis in axes],
+            resumed_from=str(checkpoint_file))
+        directory = checkpoint_file.parent.parent / ('run-' + uuid4().hex)
+        self._active_run_directory = directory
+        self._compute_error = None
+        self._compute_t0 = _time.time()
+        worker = partial(_run_compute, control=self.run_control,
+            ui_hooks={'iter_label_cb': self.compute.iteration.emit,
+                      'iter_cb': lambda k, n: self.compute.iteration.emit(f'outer {k}/{n}')},
+            run_directory=directory, checkpoint_interval_s=checkpoint_interval,
+            resume_checkpoint=checkpoint_file)
+        if not self.compute.start(mode, worker, cfg=config):
+            self._pending_run_provenance = self._active_run_directory = None
+            return
+        self.statusBar().showMessage(f'正在继续已保存工况，结果目录：{directory}')
 
     def _on_cancel_compute(self):
         """User clicked the Compute button while a solve was running, so it
@@ -724,6 +831,28 @@ class RunControllerMixin:
         self.statusBar().showMessage(
             "Cancel requested — waiting for solver to finish current sweep…",
             6000)
+
+    def _on_pause_compute(self):
+        """Request a saved pause while the current run owns its output directory."""
+        if not self.compute.is_running() or getattr(self, '_active_run_directory', None) is None:
+            return
+        self.compute.pause()
+        self._run_status_card.request_pause()
+        self.statusBar().showMessage("正在等待完整迭代步，保存后暂停。")
+
+    def _on_orch_paused(self, checkpoint_file, log_text):
+        """Retain the accepted result and identify the saved numerical state."""
+        self._run_provenance = None
+        self._last_checkpoint_file = checkpoint_file
+        if getattr(self, '_close_pending', False):
+            return
+        self._compute_paused = checkpoint_file
+        self._last_solve_log = log_text
+        watchdog = getattr(self, '_compute_3d_watchdog', None)
+        if watchdog is not None:
+            watchdog.stop()
+        self._end_compute_ui(success=False)
+        self.statusBar().showMessage(f"已保存并暂停：{checkpoint_file}")
 
     def _active_compute_mode(self):
         """'2d' / '3d' depending on current UI selection. Used by
