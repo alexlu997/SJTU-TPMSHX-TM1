@@ -136,7 +136,7 @@ In 2D, air/water heat transfer uses the outer mean density and viscosity, with i
 CO2 and sCO2 use local properties at the lagged temperature and inlet pressure.
 These choices no longer depend on the other fluid. The 3D sampling rules stay unchanged.
 The Python numerical backend and direct component C entries keep their existing models.
-Pure water/water capacity, prescribed-side and research routes retain their separate contracts.
+Explicit fixed-capacity, prescribed-side and research routes retain their separate contracts.
 
 Each full conservative run normalizes the h update separately for each fluid.
 Its scale is inlet cp times the absolute inlet temperature difference, with a 1 J/kg minimum.
@@ -1009,7 +1009,11 @@ temperature-stability test are both required. Zero duty alone cannot certify
 a drifting temperature field.
 
 The true-enthalpy fluid diffusion term is Fourier conduction on temperature,
-linearized consistently in the enthalpy unknown on each shared internal face. A pressure-dependent enthalpy difference is not itself a temperature gradient. Both production adapters require fresh HEOS fluid and solid equation residuals. The largest per-phase sum of absolute cell residuals must be <=0.001 of
+linearized consistently in the enthalpy unknown on each shared internal face.
+A pressure-dependent enthalpy difference is not itself a temperature gradient.
+Both production adapters require fresh fluid and solid equation residuals.
+These residuals use each side's selected energy relation and conductivity.
+The largest per-phase sum of absolute cell residuals must be <=0.001 of
 `max(abs(Q_A), abs(Q_B), 1)` in native units. The boundary energy imbalance must
 meet the same limit.
 
@@ -1018,16 +1022,18 @@ clipped enthalpy updates cannot certify convergence. The true-h ledger records
 the effective settings, residual budgets, clip counts and exit reason.
 
 CoolProp 8 uses a 30-bit temperature bracket for some HEOS H/P inversions.
-Both true-h drivers apply one Newton correction with the same HEOS H(T,P)
-and cp to restore enthalpy consistency. Raw and corrected states retain the
+For EOS sides, both true-h drivers apply one Newton correction with HEOS H(T,P) and cp.
+This restores enthalpy consistency. Integral sides invert their existing h(T) polynomial.
+Raw and corrected states retain the
 original domain checks. BICUBIC iteration remains separate from exact HEOS
 finishing. Its table cache is versioned to prevent reuse of tables generated
 by an earlier EOS release. Fluid sweeps use the algebraically equivalent
 enthalpy defect so an isothermal state at a legal enthalpy bound does not
 acquire cancellation error from subtracting absolute temperatures.
 
-Each native true-h evaluator uses one HEOS state for PT checks and property reads.
-Water and CO2 guards update that state before its enthalpy, cp or conductivity is read.
+Each native EOS evaluator uses one HEOS state for PT checks and property reads.
+Water and CO2 guards update that state before its HEOS properties are read.
+Integral air/water energy properties come from the existing model resource.
 This removes a duplicate PT update within the same call.
 All phase, melting, pressure and corrected H/P checks remain at their existing locations.
 Air and sCO2 domain checks do not add HEOS updates.
