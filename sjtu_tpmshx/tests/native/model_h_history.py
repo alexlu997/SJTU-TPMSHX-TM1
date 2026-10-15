@@ -126,10 +126,9 @@ def compare_shadow(c, native, dimension):
 
 
 def n4_solved_case(factory, dimension):
-    """Frozen N4 solved/rb0 case: both dimensions observed reject then accept.
+    """Use the fixed N4 solved/rb0 input with strict 139/67 controls.
 
-    Reproduce N4 lifecycle() and its strict 139/67 controls, without loading
-    cache artifacts or adding a parameter search to the test population.
+    The input checks accepted and rejected proposals without a parameter search.
     """
     shape = (8, 3) if dimension == 2 else (8, 3, 3)
     c = factory(shape=shape, directions=(0, 1), sweeps=139, chunk=67)
