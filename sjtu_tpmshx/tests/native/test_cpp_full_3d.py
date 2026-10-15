@@ -1438,7 +1438,7 @@ def test_co2_table_state_continues_after_process_exit(native_path, tmp_path, dim
     actual, expected = load_result(result_path), run(prepared, control(native_path))
     planar.compare_result(actual, expected)
     table = actual.metadata['model_metadata']['enthalpy_eos']
-    assert table['sides'] == [side] and table['final_backend'] == 'HEOS'
+    assert table['sides'] == (side,) and table['final_backend'] == 'HEOS'
     actual_metrics, expected_metrics = evaluate(actual), evaluate(expected)
     for name, metric in expected_metrics.metrics.items():
         assert actual_metrics.metrics[name].status == metric.status
