@@ -301,31 +301,67 @@ void validate(const GridView& g, const ModelHFluid2D& a, const ModelHFluid2D& b,
 }
 }  // namespace
 
-ModelHResult2D solve_model_h_2d(const GridView& g, const ModelHFluid2D& a,
-                              const ModelHFluid2D& b, ArrayView<const double> ks,
-                              TemperatureStateView t, const ModelHControl2D& c,
-                              ArrayView<const double> prescribed_b,
-                              PhysicalHeatLedger* physical_audit) {
-    validate(g,a,b,ks,t,c,prescribed_b);
-    const bool solve_b=!prescribed_b.size;
+struct ModelHRun2D::Impl {
+    GridView g;
+    ModelHFluid2D a,b;
+    ArrayView<const double> ks;
+    TemperatureStateView t;
+    ModelHControl2D c;
+    ArrayView<const double> prescribed_b;
+    PhysicalHeatLedger* physical_audit;
+    bool solve_b,strict_boundary_complete=true,have_q=false,taken=false,boundary=true;
+    ModelHPhase phase=ModelHPhase::active;
     ModelHResult2D result{};
-    result.stop=TemperatureStop::budget_exhausted;
-    result.q_b=std::numeric_limits<double>::quiet_NaN();
-    const auto cancelled=[&] { return c.cancel && c.cancel(c.context); };
-    if (cancelled()) { result.stop=TemperatureStop::cancelled; return result; }
-    if (!c.warm_start) {
-        std::fill_n(t.a.data,t.a.size,a.boundary.inlet_temperature);
-        if (solve_b) std::fill_n(t.b.data,t.b.size,b.boundary.inlet_temperature);
-        std::fill_n(t.solid.data,t.solid.size,.5*(a.boundary.inlet_temperature+b.boundary.inlet_temperature));
+    std::optional<Mesh> mesh_;
+    std::optional<Side> side_a_,side_b_;
+    std::optional<AcceleratedChunk> chunk;
+    Eigen::VectorXd previous;
+    double previous_q=0.;
+    struct Cancelled {};
+    bool cancelled() const { return c.cancel && c.cancel(c.context); }
+
+    Impl(const GridView& input_grid,const ModelHFluid2D& input_a,const ModelHFluid2D& input_b,
+        ArrayView<const double> input_ks,TemperatureStateView fields,
+        const ModelHControl2D& input_control,ArrayView<const double> input_prescribed,
+        PhysicalHeatLedger* output)
+        :g(input_grid),a(input_a),b(input_b),ks(input_ks),t(fields),c(input_control),
+         prescribed_b(input_prescribed),physical_audit(output),solve_b(!prescribed_b.size) {
+        validate(g,a,b,ks,t,c,prescribed_b);
+        result.stop=TemperatureStop::budget_exhausted;
+        result.q_b=std::numeric_limits<double>::quiet_NaN();
+        if(cancelled()) { result.stop=TemperatureStop::cancelled;phase=ModelHPhase::cancelled;return; }
+        if (!c.warm_start) {
+            std::fill_n(t.a.data,t.a.size,a.boundary.inlet_temperature);
+            if (solve_b) std::fill_n(t.b.data,t.b.size,b.boundary.inlet_temperature);
+            std::fill_n(t.solid.data,t.solid.size,.5*(a.boundary.inlet_temperature+b.boundary.inlet_temperature));
+        }
+        if (!solve_b) std::copy_n(prescribed_b.data,prescribed_b.size,t.b.data);
+        result.last_a.assign(t.a.data,t.a.data+t.a.size); result.last_b.assign(t.b.data,t.b.data+t.b.size);
+        prepare();previous=pack(t,solve_b);
     }
-    if (!solve_b) std::copy_n(prescribed_b.data,prescribed_b.size,t.b.data);
-    result.last_a.assign(t.a.data,t.a.data+t.a.size); result.last_b.assign(t.b.data,t.b.data+t.b.size);
-    const Mesh mesh{g,g.nx*g.ny};
-    Side side_a(mesh,a,c.second_order_a,true,c.strict_energy_balance),
-         side_b(mesh,b,c.second_order_b,solve_b,c.strict_energy_balance);
-    auto previous=pack(t,solve_b);
-    bool strict_boundary_complete=true;
-    const auto strict_audit=[&] {
+    Impl(const GridView& input_grid,const ModelHFluid2D& input_a,const ModelHFluid2D& input_b,
+        ArrayView<const double> input_ks,TemperatureStateView fields,
+        const ModelHControl2D& input_control,ArrayView<const double> input_prescribed,
+        PhysicalHeatLedger* output,const ModelHRunState2D& saved)
+        :g(input_grid),a(input_a),b(input_b),ks(input_ks),t(fields),c(input_control),
+         prescribed_b(input_prescribed),physical_audit(output),solve_b(!prescribed_b.size) {
+        validate(g,a,b,ks,t,c,prescribed_b);
+        validate_iteration_state(saved.iteration,saved.result,c,t.a.size,prescribed_b);
+        check(view(saved.result.last_a),t.a.size);check(view(saved.result.last_b),t.b.size);
+        prepare();
+        result=saved.result;previous_q=saved.iteration.previous_q;have_q=saved.iteration.have_q;
+        previous=Eigen::Map<const Eigen::VectorXd>(saved.iteration.previous.data(),
+            static_cast<Eigen::Index>(saved.iteration.previous.size()));
+        if(saved.iteration.chunk)chunk.emplace(saved.iteration.chunk->count,saved.iteration.previous.size(),*saved.iteration.chunk);
+        restore_iteration(t,saved.iteration);
+    }
+    void prepare() {
+        mesh_.emplace(Mesh{g,g.nx*g.ny});
+        side_a_.emplace(*mesh_,a,c.second_order_a,true,c.strict_energy_balance);
+        side_b_.emplace(*mesh_,b,c.second_order_b,solve_b,c.strict_energy_balance);
+    }
+    bool strict_audit() {
+        const auto& mesh=*mesh_;auto& side_a=*side_a_;auto& side_b=*side_b_;
         // Reuse the deferred buffers for actual m*h, avoiding C*T+B
         // cancellation. Every subsequent numerical sweep rebuilds C/B first.
         faces<true>(mesh,side_a,view(t.a));
@@ -338,45 +374,55 @@ ModelHResult2D solve_model_h_2d(const GridView& g, const ModelHFluid2D& a,
             && result.energy_error_ratio<=1e-7;
         if (physical_audit) *physical_audit=std::move(ledger);
         return passed;
-    };
-    double previous_q=0;
-    bool have_q=false;
-    // The cancellation exception never escapes the public C++ driver.
-    struct Cancelled {};
-    const auto step=[&](std::size_t count) {
+    }
+    double step(std::size_t count) {
+        const auto& mesh=*mesh_;auto& side_a=*side_a_;auto& side_b=*side_b_;
         if (cancelled()) throw Cancelled{};
         const double change=sweeps(mesh,side_a,side_b,ks,t,result.last_a,result.last_b,count,c.red_black,solve_b);
         if (cancelled()) throw Cancelled{};
         return change;
-    };
-    try {
-        while (result.iterations<c.max_iterations) {
-            if (cancelled()) throw Cancelled{};
+    }
+    double trial(Eigen::VectorXd& picard,const Eigen::VectorXd& candidate) {
+        const double ordinary=step(1);
+        picard=pack(t,solve_b);
+        const auto saved_a=result.last_a,saved_b=result.last_b;
+        restore(t,candidate,solve_b);
+        const double proposed=step(1);
+        const bool accepted=std::isfinite(proposed) && proposed<=ordinary;
+        if(!accepted) {
+            restore(t,picard,solve_b);result.last_a=saved_a;result.last_b=saved_b;
+        }
+        return accepted?proposed:ordinary;
+    }
+    void finish() {
+        const auto& mesh=*mesh_;auto& side_a=*side_a_;auto& side_b=*side_b_;
+        if (c.strict_energy_balance) {
+            if (!result.physical_audit_available && result.iterations) strict_audit();
+        } else if (!result.audit_available) {
+            result.audit=audit(mesh,side_a,side_b,ks,t,result.last_a,result.last_b,physical_audit);
+            result.audit_available=true;
+        }
+        if (physical_audit && !c.strict_energy_balance)
+            result.physical_audit_available=result.audit_available;
+        phase=ModelHPhase::completed;
+    }
+    void advance() {
+        if(phase==ModelHPhase::failed)throw std::logic_error("failed model-h run cannot advance");
+        if(phase!=ModelHPhase::active)return;
+        if(!boundary)throw std::logic_error("model-h run is already advancing");
+        boundary=false;
+        try {
+            if(result.iterations==c.max_iterations) { finish();return; }
             const auto count=std::min(c.chunk_iterations,c.max_iterations-result.iterations);
-            if (c.accelerate) {
-                Anderson accelerator;
-                std::size_t done=0;
-                while (done<count) {
-                    auto before=pack(t,solve_b);
-                    const auto n=std::min<std::size_t>(25,count-done);
-                    result.residual=step(n); done+=n;
-                    auto picard=pack(t,solve_b);
-                    accelerator.push(std::move(before),picard);
-                    Eigen::VectorXd candidate;
-                    if (!accelerator.candidate(picard,candidate) || count-done<2) continue;
-                    const double picard_residual=step(1);
-                    picard=pack(t,solve_b);
-                    const auto saved_a=result.last_a, saved_b=result.last_b;
-                    restore(t,candidate,solve_b);
-                    const double candidate_residual=step(1); done+=2;
-                    if (std::isfinite(candidate_residual) && candidate_residual<=picard_residual)
-                        result.residual=candidate_residual;
-                    else {
-                        restore(t,picard,solve_b); result.last_a=saved_a; result.last_b=saved_b;
-                        result.residual=picard_residual;
-                    }
-                }
+            if(!chunk && cancelled())throw Cancelled{};
+            if(c.accelerate) {
+                if(!chunk)chunk.emplace(count);
+                chunk->advance(t,solve_b,[&](std::size_t n){return step(n);},
+                    [&](Eigen::VectorXd& x,const Eigen::VectorXd& candidate){return trial(x,candidate);},result.residual);
+                if(!chunk->complete()) { boundary=true;return; }
+                chunk.reset();
             } else result.residual=step(count);
+            const auto& mesh=*mesh_;auto& side_a=*side_a_;auto& side_b=*side_b_;
             result.audit_available=false;
             result.physical_audit_available=false;
             result.iterations+=count;
@@ -395,32 +441,58 @@ ModelHResult2D solve_model_h_2d(const GridView& g, const ModelHFluid2D& a,
                     const bool passed=strict_audit();
                     result.finishing_checks.push_back({result.iterations,passed,passed,result.energy_error_ratio});
                     if (passed) result.stop=TemperatureStop::converged;
-                    if (passed || !strict_boundary_complete) break;
+                    if (passed || !strict_boundary_complete) { finish();return; }
                 } else {
                     result.audit=audit(mesh,side_a,side_b,ks,t,result.last_a,result.last_b,physical_audit);
                     result.audit_available=true;
                     result.finishing_checks.push_back({result.iterations,result.audit.passed,result.audit.equations_ok});
                     if (result.audit.passed) result.stop=TemperatureStop::converged;
-                    if (result.audit.passed || !result.audit.boundary_complete) break;
+                    if (result.audit.passed || !result.audit.boundary_complete) { finish();return; }
                 }
             }
             previous_q=q; have_q=true; previous=current;
-        }
-    } catch (const Cancelled&) {
-        result.stop=TemperatureStop::cancelled;
-        result.audit_available=false; result.q_b=std::numeric_limits<double>::quiet_NaN();
-        result.physical_audit_available=false;
-        result.energy_error_ratio=std::numeric_limits<double>::quiet_NaN();
-        return result;
+            if(result.iterations==c.max_iterations)finish();
+            boundary=true;
+        } catch(const Cancelled&) {
+            result.stop=TemperatureStop::cancelled;
+            result.audit_available=false; result.q_b=std::numeric_limits<double>::quiet_NaN();
+            result.physical_audit_available=false;
+            result.energy_error_ratio=std::numeric_limits<double>::quiet_NaN();
+            phase=ModelHPhase::cancelled;
+        } catch(...) { phase=ModelHPhase::failed;throw; }
     }
-    if (c.strict_energy_balance) {
-        if (!result.physical_audit_available && result.iterations) strict_audit();
-    } else if (!result.audit_available) {
-        result.audit=audit(mesh,side_a,side_b,ks,t,result.last_a,result.last_b,physical_audit);
-        result.audit_available=true;
+    ModelHRunState2D snapshot() const {
+        if(phase!=ModelHPhase::active || !boundary)throw std::logic_error("model-h run has no active save boundary");
+        return {snapshot_iteration(t,previous,previous_q,have_q,chunk),result};
     }
-    if (physical_audit && !c.strict_energy_balance)
-        result.physical_audit_available=result.audit_available;
-    return result;
+    ModelHResult2D take_result() {
+        if(taken || (phase!=ModelHPhase::completed && phase!=ModelHPhase::cancelled))
+            throw std::logic_error("model-h result is not available");
+        taken=true;return std::move(result);
+    }
+};
+
+ModelHRun2D::ModelHRun2D(const GridView& g,const ModelHFluid2D& a,const ModelHFluid2D& b,
+        ArrayView<const double> ks,TemperatureStateView t,const ModelHControl2D& c,
+        ArrayView<const double> prescribed_b,PhysicalHeatLedger* physical_audit)
+    :impl_(std::make_unique<Impl>(g,a,b,ks,t,c,prescribed_b,physical_audit)) {}
+ModelHRun2D::ModelHRun2D(const GridView& g,const ModelHFluid2D& a,const ModelHFluid2D& b,
+        ArrayView<const double> ks,TemperatureStateView t,const ModelHControl2D& c,
+        const ModelHRunState2D& saved,ArrayView<const double> prescribed_b,PhysicalHeatLedger* physical_audit)
+    :impl_(std::make_unique<Impl>(g,a,b,ks,t,c,prescribed_b,physical_audit,saved)) {}
+ModelHRun2D::~ModelHRun2D()=default;
+ModelHPhase ModelHRun2D::advance() { impl_->advance();return impl_->phase; }
+ModelHPhase ModelHRun2D::phase() const { return impl_->phase; }
+ModelHRunState2D ModelHRun2D::snapshot() const { return impl_->snapshot(); }
+ModelHResult2D ModelHRun2D::take_result() { return impl_->take_result(); }
+
+ModelHResult2D solve_model_h_2d(const GridView& g, const ModelHFluid2D& a,
+                              const ModelHFluid2D& b, ArrayView<const double> ks,
+                              TemperatureStateView t, const ModelHControl2D& c,
+                              ArrayView<const double> prescribed_b,
+                              PhysicalHeatLedger* physical_audit) {
+    ModelHRun2D run(g,a,b,ks,t,c,prescribed_b,physical_audit);
+    while(run.phase()==ModelHPhase::active)run.advance();
+    return run.take_result();
 }
 }  // namespace tpmshx

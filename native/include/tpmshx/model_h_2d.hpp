@@ -1,10 +1,13 @@
 #pragma once
 
+#include "tpmshx/anderson_state.hpp"
 #include "tpmshx/fluid_properties.hpp"
 #include "tpmshx/temperature_driver.hpp"
 
 #include <array>
 #include <limits>
+#include <memory>
+#include <optional>
 #include <vector>
 
 namespace tpmshx {
@@ -80,6 +83,46 @@ struct ModelHResult2D {
     // Independent common ledger; never promotes fullCC to model-h eligibility.
     bool physical_audit_available = false;
     double energy_error_ratio = std::numeric_limits<double>::quiet_NaN();
+};
+
+enum class ModelHPhase { active, completed, cancelled, failed };
+
+struct ModelHIterationState {
+    std::array<std::vector<double>,3> temperature;
+    std::vector<double> previous;
+    double previous_q=0.;
+    bool have_q=false;
+    std::optional<ModelHChunkState> chunk;
+};
+
+struct ModelHRunState2D {
+    ModelHIterationState iteration;
+    ModelHResult2D result;
+};
+
+// Caller arrays remain live. The caller must not change them between calls.
+// Restore requires the same input and controls. Snapshots own their arrays.
+class ModelHRun2D {
+public:
+    ModelHRun2D(const GridView&, const ModelHFluid2D&, const ModelHFluid2D&,
+                 ArrayView<const double> k_ss,
+                 TemperatureStateView, const ModelHControl2D&,
+                 ArrayView<const double> prescribed_b={}, PhysicalHeatLedger* physical_audit=nullptr);
+    ModelHRun2D(const GridView&, const ModelHFluid2D&, const ModelHFluid2D&,
+                 ArrayView<const double> k_ss,
+                 TemperatureStateView, const ModelHControl2D&, const ModelHRunState2D&,
+                 ArrayView<const double> prescribed_b={}, PhysicalHeatLedger* physical_audit=nullptr);
+    ~ModelHRun2D();
+    ModelHRun2D(const ModelHRun2D&)=delete;
+    ModelHRun2D& operator=(const ModelHRun2D&)=delete;
+    // Advance one complete selection, or one nonaccelerated chunk.
+    ModelHPhase advance();
+    ModelHPhase phase() const;
+    ModelHRunState2D snapshot() const;
+    ModelHResult2D take_result();
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 };
 
 // Complete fixed-flow 2D model-h thermal driver, in W/m and kg/(s m).

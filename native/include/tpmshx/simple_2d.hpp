@@ -58,6 +58,24 @@ SimpleMomentumResidual simple_2d_momentum_residual(
     const GridView& grid, const Simple2DMaterialView& material,
     const Simple2DBoundaryView& boundary, Simple2DStateView state, double cf_anisotropy);
 
+struct Simple2DOwnerState {
+    std::array<std::vector<double>,2> widths;
+    double depth=1.;
+    std::vector<unsigned char> outlet;
+    PressureState pressure;
+    SimpleHistory history;
+    std::optional<double> massflux_target;
+    std::size_t pressure_clip_hits=0;
+};
+
+struct Simple2DRunState {
+    Simple2DOwnerState owner;
+    // Fields follow Simple2DStateView order and own their values.
+    std::array<std::vector<double>,8> fields;
+    SimpleF2State convergence;
+    Simple2DResult result;
+};
+
 // One prepared grid/port support per instance; constructor owns width/support
 // copies and the canonical PPE cache. State/coefficient arrays remain borrowed
 // during solve. No geometry, D-F surrogate, EOS backend, thermal solve, outer
@@ -76,6 +94,18 @@ public:
     Simple2DResult solve(const Simple2DMaterialView& material,
                         const Simple2DBoundaryView& boundary, Simple2DStateView state,
                         const Simple2DControl& control);
+    // Inputs stay fixed during this call. One advance completes one SIMPLE step.
+    SimplePhase start(const Simple2DMaterialView&,const Simple2DBoundaryView&,
+                      Simple2DStateView,const Simple2DControl&);
+    SimplePhase advance();
+    SimplePhase phase() const;
+    Simple2DResult take_result();
+    // Active snapshots own all fields and histories. Restore needs the same inputs.
+    Simple2DRunState snapshot_active() const;
+    void restore_active(const Simple2DMaterialView&,const Simple2DBoundaryView&,
+                        Simple2DStateView,const Simple2DControl&,const Simple2DRunState&);
+    Simple2DOwnerState snapshot() const;
+    void restore(const Simple2DOwnerState&);
     const SimpleHistory& history() const;
     std::optional<double> massflux_target() const;
 private:

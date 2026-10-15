@@ -72,6 +72,14 @@ struct Simple3DOwnerState {
     std::size_t pressure_clip_hits=0,charged_iterations=0;
 };
 
+struct Simple3DRunState {
+    Simple3DOwnerState owner;
+    // Fields follow Simple3DStateView order and own their values.
+    std::array<std::vector<double>,10> fields;
+    SimpleF2State convergence;
+    Simple3DResult result;
+};
+
 // One prepared solver +y grid / outlet support per instance. Widths and support
 // are copied; fields remain caller-owned. The caller supplies prepared fields
 // and any coarse seed. No geometry generation, bootstrap, external property backend, outer thermal
@@ -93,6 +101,16 @@ public:
     // Between completed solve calls. Fields stay with the run owner.
     Simple3DOwnerState snapshot() const;
     void restore(const Simple3DOwnerState&);
+    // Inputs stay fixed during this call. One advance completes one SIMPLE step.
+    SimplePhase start(const Simple3DMaterialView&,const Simple3DBoundaryView&,
+                      Simple3DStateView,const Simple3DControl&);
+    SimplePhase advance();
+    SimplePhase phase() const;
+    Simple3DResult take_result();
+    // Active snapshots own all fields and histories. Restore needs the same inputs.
+    Simple3DRunState snapshot_active() const;
+    void restore_active(const Simple3DMaterialView&,const Simple3DBoundaryView&,
+                        Simple3DStateView,const Simple3DControl&,const Simple3DRunState&);
     const SimpleHistory& history() const;
     // Iterations actually entered in the latest call, including a failing
     // iteration; zero for entry rejection/cancellation. Diagnostic only.

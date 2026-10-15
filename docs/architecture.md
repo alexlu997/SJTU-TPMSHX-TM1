@@ -64,6 +64,21 @@ The caller retains input checks, EOS state updates, iteration budgets and stoppi
 H boundary duties and audits retain their existing signed physical powers.
 No extra temperature or face arrays are needed for this assembly.
 
+The 2D and 3D model-h drivers share one accelerated chunk owner.
+It retains 25 sweeps per block, two proposal probes, and separate Anderson history for each chunk.
+A complete selection boundary can export the consumed budget and an independent history copy.
+A failed partial step cannot export or resume that chunk.
+`ModelHRun2D` and `ModelHRun3D` own the thermal iteration state.
+The existing one-shot entries use these same owners.
+Snapshots copy temperatures, stopping history, active chunk history, 2D linearization and 3D carry fields.
+Restore rebuilds derived face buffers and conductances with the same input and controls.
+It validates saved state before it writes destination temperatures.
+An accelerated advance completes one block and any proposal probes. A nonaccelerated advance keeps the original complete chunk.
+Callbacks keep their original sequence. A callback cannot save or advance an unfinished step.
+Cancelled, failed and completed runs cannot publish a new thermal snapshot.
+The caller receives the final physical ledger through the original output argument.
+Full-controller inner-state serialization and application continuation remain separate integration work.
+
 ## Completed execution records
 
 Public full solves add `metadata.execution_record` with version `full_execution_v1`.
@@ -320,6 +335,46 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   The required native CI suite passes on macOS arm64/Python 3.13 and Windows
   x64/Python 3.12 and 3.13. Visible desktop delivery and full performance
   qualification stay separate gates.
+- `Simple2DSolver` and `Simple3DSolver` retain each active flow call.
+  `start` begins the original call; `advance` completes one pressure, density,
+  boundary and F2 step. The existing one-shot entries use these operations.
+  Active snapshots own the fields, F2 confirmation and stall state, result,
+  histories, inlet target, clip count and pressure hierarchy construction state.
+  Restore preserves the original iteration budget, momentum schedule and pressure
+  rebuild cadence. It validates saved state before it writes caller fields.
+  Initial correction arrays keep their original unused-value rules.
+  Warm-call snapshots stay separate from active-call snapshots. Callbacks cannot
+  save or re-enter an unfinished step. Physical equations, ordering, cancellation
+  points and final boundary certificates stay unchanged. These component interfaces
+  still require integration with full-controller archives and application recovery.
+- `EnthalpyRun` owns the existing H-FOU, T-FOU and T-SOU Picard iteration state.
+  Each advance completes one original iteration, including its SOU proposal.
+  An active snapshot owns five solution fields, enthalpy bounds, table bounds,
+  transport values, clip totals, HEOS finishing state and Anderson history.
+  Restore requires the same inputs and controls. It validates saved state before
+  it writes caller arrays. EOS evaluators and temporary arrays are built again.
+  Failed or cancelled runs cannot export an active snapshot. Callbacks cannot
+  save or re-enter an unfinished step. The existing `solve_enthalpy` entry uses
+  this owner; the two separate stack-only iteration loops are retired.
+  Physical checks, final audits, iteration budgets and cancellation points stay
+  unchanged. This component interface does not provide file or application recovery.
+- `TemperatureRun` owns fixed-capacity cell-centered temperature state.
+  `StaggeredTemperatureDriver` also retains an active temperature call.
+  Each advance completes one original thermal chunk. The existing one-shot
+  entries use these owners. Snapshots own the three temperature fields and
+  the last result. Staggered snapshots also retain the actual projected face
+  velocities and MAC evidence. Restore does not repeat that projection.
+  The previous fields and heat value are rebuilt at the saved chunk boundary.
+  Inputs and controls must be unchanged. Invalid saved state is rejected before
+  caller arrays are written. Cancelled or failed calls have no save boundary.
+  Callbacks cannot save or re-enter a partial chunk. The existing sweeps,
+  prescribed B, sources, stopping gates, budgets and cancellation points remain.
+  The cell-centered zero-budget call returns no heat audit. The conservative
+  staggered zero-budget call retains its projection and final audit.
+  Staggered result transfer releases the active face and field buffers; only
+  its original pressure hierarchy cache remains. The replaced stack-only
+  control loops are retired. Full-controller archives and application recovery
+  still require separate integration.
 - The C++ fixed-flow `solve_enthalpy` also has explicit `temperature_fou`
   and `temperature_sou` candidates. Both solve conservative enthalpy transport
   with temperature as the nonlinear unknown, guarded HEOS PT state updates,

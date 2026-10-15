@@ -1,10 +1,12 @@
 #pragma once
 
+#include "tpmshx/anderson_state.hpp"
 #include "tpmshx/enthalpy_eos.hpp"
 #include "tpmshx/enthalpy_sweeps.hpp"
 #include "tpmshx/conservative_energy.hpp"
 
 #include <array>
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -74,6 +76,47 @@ struct EnthalpyResult {
     EnthalpyAlgorithm algorithm = EnthalpyAlgorithm::legacy_h_fou;
     std::optional<double> temperature_update;  // K; absent on the legacy route
     double picard_relaxation = 1.;  // Actual whole-block T increment multiplier
+};
+
+enum class EnthalpyPhase { active, completed, cancelled, failed };
+
+struct EnthalpySideState {
+    double lower=0.,upper=0.;
+    // cp, epsilon*k/cp and epsilon*k for T routes; empty for H.
+    std::array<std::vector<double>,3> transport;
+    std::vector<double> table_lower,table_upper;
+};
+
+struct EnthalpyRunState {
+    // h_a, h_b, T_a, T_b and T_solid. Cold H starts can have unset T.
+    std::array<std::vector<double>,5> fields;
+    std::array<EnthalpySideState,2> sides;
+    EnthalpyResult result;
+    AndersonState acceleration;
+    bool next_temperatures=false;
+};
+
+// Caller arrays remain live. The caller must not change them between calls.
+// Restore requires the same input and controls. Snapshots own their arrays.
+class EnthalpyRun {
+public:
+    EnthalpyRun(const GridView&,const EnthalpySideView&,const EnthalpySideView&,
+                ArrayView<const double> k_ss,EnthalpyStateView,const EnthalpyControl&,
+                PhysicalHeatLedger* physical_audit=nullptr);
+    EnthalpyRun(const GridView&,const EnthalpySideView&,const EnthalpySideView&,
+                ArrayView<const double> k_ss,EnthalpyStateView,const EnthalpyControl&,
+                const EnthalpyRunState&,PhysicalHeatLedger* physical_audit=nullptr);
+    ~EnthalpyRun();
+    EnthalpyRun(const EnthalpyRun&)=delete;
+    EnthalpyRun& operator=(const EnthalpyRun&)=delete;
+    // Complete one original Picard iteration, including any SOU proposal.
+    EnthalpyPhase advance();
+    EnthalpyPhase phase() const;
+    EnthalpyRunState snapshot() const;
+    EnthalpyResult take_result();
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 };
 
 // Full true-h Picard driver for 3D or a unit-depth nz=1 2D extrusion. Input
