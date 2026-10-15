@@ -159,6 +159,7 @@ void require_same_result(const EnthalpyResult& a,const EnthalpyResult& b) {
 }
 
 void mixed_model_checks() {
+    const auto tables=std::filesystem::absolute(".cache/native-energy-run-tables").string();
     for(auto model:{Fluid::air,Fluid::water}) {
     std::array<std::optional<Case>,3> baseline;
     std::array<EnthalpyResult,3> baseline_results{};
@@ -175,7 +176,7 @@ void mixed_model_checks() {
             std::swap(data.energy[0],data.energy[1]);std::swap(data.conductivity[0],data.conductivity[1]);
         }
         auto c=controls(algorithm==EnthalpyAlgorithm::temperature_sou);c.algorithm=algorithm;
-        c.reference_independent_update=true;c.update_tolerance=1e-10;
+        c.reference_independent_update=true;c.update_tolerance=1e-10;c.table_directory=tables;
         // The near-critical CO2 case needs a smaller T update.
         if(algorithm==EnthalpyAlgorithm::temperature_fou)c.omega=.2;
         Case resumed=data;PhysicalHeatLedger ledger;
@@ -193,6 +194,8 @@ void mixed_model_checks() {
             "mixed energy model did not pass its actual equations");
         EnthalpyEOS independent;
         for(std::size_t side=0;side<2;++side) {
+            require(result.used_bicubic[side]==(algorithm==EnthalpyAlgorithm::legacy_h_fou
+                    && uses_co2_eos(data.fluid[side])),"mixed result lost actual table use");
             const auto inlet=independent.evaluate_state(data.fluid[side],data.inlet_t[side],data.inlet_p[side],"mixed inlet",data.energy[side]);
             require(result.enthalpy_update_scale[side]==50.*inlet.cp,"mixed update scale depends on an enthalpy origin");
             for(std::size_t p=0;p<5;++p) {
