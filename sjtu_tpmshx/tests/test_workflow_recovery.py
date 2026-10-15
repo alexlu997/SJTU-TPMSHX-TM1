@@ -211,3 +211,40 @@ def test_bad_run_identity_cannot_start_a_new_attempt(tmp_path, stages, damage):
         recovery.resume_run(directory / 'checkpoint.h5', target,
                             control=stages[4], checkpoint_interval_s=30.)
     assert not target.exists()
+
+
+@pytest.mark.parametrize('resume', [False, True])
+def test_pre_cancelled_run_does_not_read_inputs_or_create_outputs(tmp_path, resume):
+    control = RunControl(backend='cpp', native_library=str(tmp_path / 'missing.dylib'),
+                         cancel_check=lambda: True)
+    target = tmp_path / 'cancelled'
+    call = recovery.resume_run if resume else recovery.compute_run
+    source = tmp_path / 'missing/checkpoint.h5' if resume else ComputeConfig()
+    with pytest.raises(CancelledError):
+        call(source, target, control=control, checkpoint_interval_s=30.)
+    assert not target.exists()
+
+
+@pytest.mark.parametrize('change', ['same', 'new_build', 'moved'])
+def test_repeated_runs_reuse_only_the_matching_available_runtime(tmp_path, stages, monkeypatch, change):
+    libraries = []
+    solve = recovery.run_case
+    def capture(case, control, **kwargs):
+        libraries.append(Path(control.native_library))
+        return solve(case, control, **kwargs)
+    monkeypatch.setattr(recovery, 'run_case', capture)
+    first = tmp_path / 'first'
+    start(stages, first)
+    first_runtime = first / 'runtime' / Path(stages[4].native_library).name
+    if change == 'new_build':
+        Path(stages[4].native_library).write_bytes(b'new non-executable test build')
+    elif change == 'moved':
+        first.rename(tmp_path / 'moved')
+    second = tmp_path / 'second'
+    start(stages, second)
+    second_runtime = second / 'runtime' / first_runtime.name
+    assert second_runtime.read_bytes() == Path(stages[4].native_library).read_bytes()
+    assert libraries == [first_runtime, first_runtime if change == 'same' else second_runtime]
+    record = json.loads((second / 'run.json').read_text())
+    assert record['execution_library'] == str(libraries[-1])
+    assert record['native_file'] == second_runtime.relative_to(second).as_posix()

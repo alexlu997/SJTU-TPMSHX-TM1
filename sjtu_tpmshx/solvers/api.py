@@ -20,11 +20,6 @@ def run_case(case: CaseData, control: RunControl = RunControl(), *,
         raise ValueError('solver continuation requires full compute with backend=cpp')
     if checkpoint_due is not None and checkpoint is None:
         raise ValueError('checkpoint_due requires a checkpoint callback')
-    continuation = resume_state is not None or checkpoint is not None or checkpoint_due is not None
-    if continuation and (control.backend != 'cpp' or mode != 'full'):
-        raise ValueError('solver continuation requires full compute with backend=cpp')
-    if checkpoint_due is not None and checkpoint is None:
-        raise ValueError('checkpoint_due requires a checkpoint callback')
     from sjtu_tpmshx.domain.compute_config import (
         validate_enthalpy_algorithm, validate_simple_velocity_relaxation,
     )

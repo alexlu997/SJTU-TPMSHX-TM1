@@ -27,6 +27,10 @@ from sjtu_tpmshx.solvers.api import run_case
 from .compute import compute
 
 
+# Reuse an identical retained library to keep native tables in one loaded image.
+_runtime_files = {}
+
+
 def read_run_checkpoint(path):
     """Read a project checkpoint and its local prepared input after relocation."""
     path = Path(path).resolve(strict=True)
@@ -48,6 +52,7 @@ def read_run_checkpoint(path):
 def compute_run(config, directory, *, checkpoint_interval_s, case_id=None,
                 control=RunControl(), progress_cb=None, pause_check=None, gui_provenance=None):
     """Start a native calculation in a new directory and save safe boundaries."""
+    control.check_cancelled()
     return _execute(config, directory, checkpoint_interval_s=checkpoint_interval_s,
         case_id=case_id or str(uuid4()), control=control, progress_cb=progress_cb,
         pause_check=pause_check, gui_provenance=gui_provenance)
@@ -56,6 +61,7 @@ def compute_run(config, directory, *, checkpoint_interval_s, case_id=None,
 def resume_run(checkpoint_file, directory, *, checkpoint_interval_s,
                control=RunControl(), progress_cb=None, pause_check=None):
     """Continue the saved input in a new directory; retain the source run."""
+    control.check_cancelled()
     saved, case, record = read_run_checkpoint(checkpoint_file)
     config = ComputeConfig.from_dict(mutable_data(case.config_snapshot))
     return _execute(config, directory, checkpoint_interval_s=checkpoint_interval_s,
@@ -126,9 +132,17 @@ def _execute(config, directory, *, checkpoint_interval_s, case_id, control, prog
         runtime.mkdir()
         retained = runtime / library.name
         shutil.copy2(library, retained)
-        if retained.read_bytes() != library.read_bytes():
+        retained_bytes = retained.read_bytes()
+        if retained_bytes != library.read_bytes():
             raise OSError('native library changed while the run retained its runtime')
-        runtime_control = replace(control, native_library=str(retained))
+        runtime_file = _runtime_files.get(library)
+        if (runtime_file is None or not runtime_file.is_file()
+                or runtime_file.read_bytes() != retained_bytes):
+            runtime_file = retained
+            _runtime_files[library] = runtime_file
+        del retained_bytes
+        record['execution_library'] = str(runtime_file)
+        runtime_control = replace(control, native_library=str(runtime_file))
         case, result, performance = compute(config, case_id=case_id, control=runtime_control,
             progress_cb=progress_cb, prepare=prepare, solve=solve)
         recovery = dict(directory=str(directory), checkpoint_file=str(checkpoint_file),

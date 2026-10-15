@@ -1285,7 +1285,9 @@ This contract does not claim recovery from power loss.
 
 `workflows.recovery` uses the existing `workflows.compute` stages for start and resume.
 Each run owns a new directory with prepared input, a retained native library, checkpoint, and status.
-The workflow executes the retained library and writes completed results and metrics only after postprocessing.
+Each run retains its own library file. The process reuses a previously retained file only when its bytes match the selected library.
+This avoids repeated native initialization and retained property tables. A changed or moved runtime uses the new retained file.
+The run record identifies the file used for execution. Completed results and metrics are written only after postprocessing.
 Resume reads the saved `CaseData`; it does not repeat preparation or change the source run.
 The complete directory can move. Its local input replaces the previous absolute case path during loading.
 Native restore still verifies the prepared input, controls, format, platform, and build.
