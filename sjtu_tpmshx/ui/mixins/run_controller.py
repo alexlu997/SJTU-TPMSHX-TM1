@@ -129,13 +129,13 @@ class RunControllerMixin:
             QMessageBox.warning(self, "Invalid Input", str(e))
             return
 
-        worker = partial(_run_compute,
-                         control=getattr(self, 'run_control', RunControl()), ui_hooks={
+        worker = self._new_compute_worker('2d', {
             'iter_label_cb': self.compute.iteration.emit,
         })
 
         self._compute_error = None
         if not self.compute.start('2d', worker, cfg=compute_cfg):
+            self._pending_run_provenance = self._active_run_directory = None
             # Should be unreachable due to is_running() guard above; defensive.
             QMessageBox.information(
                 self, "Compute Busy",
@@ -260,13 +260,13 @@ class RunControllerMixin:
         from PySide6.QtCore import QTimer
 
         emit_iteration = self.compute.iteration.emit
-        worker = partial(_run_compute,
-                         control=getattr(self, 'run_control', RunControl()), ui_hooks={
+        worker = self._new_compute_worker('3d', {
             'iter_cb': lambda k, n: emit_iteration(f"outer {k}/{n}"),
         })
 
         self._compute_error = None
         if not self.compute.start('3d', worker, cfg=compute_cfg):
+            self._pending_run_provenance = self._active_run_directory = None
             QMessageBox.information(
                 self, "Compute Busy",
                 "3D compute orchestrator rejected start — already running.")
@@ -312,6 +312,25 @@ class RunControllerMixin:
         wd.start(500)
         return
 
+    def _capture_run_provenance(self, mode):
+        preset = deepcopy(self._capture_current_preset('Run inputs'))
+        axes = ('x', 'y', 'z') if mode == '3d' else ('x', 'y')
+        return dict(preset=preset,
+            preset_source=getattr(self, '_active_preset_name', '') or '—', mode=mode,
+            input_grid=[preset['line_edits'].get(f'le_N{axis}', '?') for axis in axes])
+
+    def _new_compute_worker(self, mode, ui_hooks):
+        control = getattr(self, 'run_control', RunControl())
+        options = dict(control=control, ui_hooks=ui_hooks)
+        if control.backend == 'cpp':
+            provenance = self._capture_run_provenance(mode)
+            directory = self.sm.base_dir / 'runs' / ('run-' + uuid4().hex)
+            self._pending_run_provenance = provenance
+            self._active_run_directory = directory
+            options.update(run_directory=directory, checkpoint_interval_s=60.,
+                           gui_provenance=provenance)
+        return partial(_run_compute, **options)
+
     def _on_orch_started(self, mode):
         """Compute kicked off. Lock UI + start progress widgets."""
         # started is emitted synchronously on the GUI thread, only after
@@ -319,11 +338,7 @@ class RunControllerMixin:
         provenance = getattr(self, '_pending_run_provenance', None)
         self._pending_run_provenance = None
         if provenance is None:
-            preset = deepcopy(self._capture_current_preset('Run inputs'))
-            axes = ('x', 'y', 'z') if mode == '3d' else ('x', 'y')
-            provenance = dict(preset=preset,
-                preset_source=getattr(self, '_active_preset_name', '') or '—', mode=mode,
-                input_grid=[preset['line_edits'].get(f'le_N{axis}', '?') for axis in axes])
+            provenance = self._capture_run_provenance(mode)
         self._run_provenance = provenance
         # Backwards-compat: tests / external code still read _compute_running.
         # We mirror it from the orchestrator's authoritative flag.
@@ -595,8 +610,10 @@ class RunControllerMixin:
         self.progress.setValue(10)
         card = getattr(self, '_run_status_card', None)
         if card is not None:
-            card.start(self.compute.current_mode(),
-                       recoverable=getattr(self, '_active_run_directory', None) is not None)
+            directory = getattr(self, '_active_run_directory', None)
+            card.start(self.compute.current_mode(), recoverable=directory is not None)
+            if directory is not None:
+                card.note.setText(f'在完整计算步结束后自动保存。保存目录：{directory}')
         self._compute_paused = None
         # Cooperative cancel: clear the flag at compute start, then repurpose
         # the Compute button as a Cancel button. The worker polls
@@ -676,6 +693,12 @@ class RunControllerMixin:
                 state, message = 'cancelled', '求解器已响应取消请求。'
             else:
                 state, message = 'error', '计算结束，但结果显示未完成。请查看诊断与日志。'
+            directory = getattr(self, '_active_run_directory', None)
+            checkpoint = Path(directory) / 'checkpoint.h5' if directory is not None else None
+            if checkpoint is not None and checkpoint.is_file():
+                self._last_checkpoint_file = str(checkpoint)
+                if not success and state != 'paused':
+                    message += f' 可从载入菜单继续已保存的状态：{checkpoint}'
             if not success and self.cache.has_any_results():
                 message += ' 已保留最近完成的计算结果，摘要与导出仍对应该结果。'
             card.finish(state, elapsed,

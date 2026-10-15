@@ -1300,7 +1300,9 @@ GUI resume preserves saved input provenance without changing the current draft.
 A CLI-origin run has no GUI preset and cannot replace the draft through recent-run loading.
 
 This stage covers native 2D and 3D inner and outer boundaries, including 2D thermal refinement.
-The CLI interval is explicit. GUI resume uses the recorded interval; fresh GUI automatic saving remains pending.
+The CLI interval is explicit. New GUI full C++ runs request a save every 60 seconds.
+They capture input provenance on the GUI thread and use a new directory under the existing user data directory.
+GUI resume uses the recorded interval. A failed start clears the pending directory and provenance.
 The longest complete step or bootstrap limits when saving can occur.
 Saving frequency and full timing, memory, and desktop acceptance remain separate checks.
 
