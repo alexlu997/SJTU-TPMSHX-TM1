@@ -7,13 +7,19 @@ from sjtu_tpmshx.domain.run_warnings import warning_scope, warning_messages
 from sjtu_tpmshx.domain.provenance import source_context
 
 
-def run_case(case: CaseData, control: RunControl = RunControl()) -> FieldResult:
+def run_case(case: CaseData, control: RunControl = RunControl(), *,
+             resume_state=None, checkpoint=None, checkpoint_due=None) -> FieldResult:
     if control.backend not in ('python', 'cpp'):
         raise ValueError(f'unsupported backend: {control.backend}')
     if control.backend not in case.metadata.get('supported_backends', ('python', 'cpp')):
         raise ValueError(f'prepared research case does not support backend={control.backend}')
     dimension = case.grid.get('dimension')
     mode = case.metadata.get('mode', 'full')
+    continuation = resume_state is not None or checkpoint is not None or checkpoint_due is not None
+    if continuation and (control.backend != 'cpp' or mode != 'full'):
+        raise ValueError('solver continuation requires full compute with backend=cpp')
+    if checkpoint_due is not None and checkpoint is None:
+        raise ValueError('checkpoint_due requires a checkpoint callback')
     from sjtu_tpmshx.domain.compute_config import (
         validate_enthalpy_algorithm, validate_simple_velocity_relaxation,
     )
@@ -50,9 +56,11 @@ def run_case(case: CaseData, control: RunControl = RunControl()) -> FieldResult:
         elif mode != 'full':
             raise ValueError(f'unsupported solver mode: {mode}')
         elif dimension == 2:
-            from .backends.cpp.full_2d import run_case as run
+            from .backends.cpp.full_2d import run_case as run_full
+            run = run_full
         elif dimension == 3:
-            from .backends.cpp.full_3d import run_case as run
+            from .backends.cpp.full_3d import run_case as run_full
+            run = run_full
         else:
             raise ValueError(f'unsupported physical dimension: {dimension}')
     elif mode == 'quick_design':
@@ -68,7 +76,8 @@ def run_case(case: CaseData, control: RunControl = RunControl()) -> FieldResult:
     provenance = dict(preparation=case.metadata.get('provenance', {'status':'not_recorded'}),
                       execution=source_context())
     with warning_scope({}) as records:
-        result = run(case, control)
+        result = (run_full(case, control, resume_state=resume_state, checkpoint=checkpoint,
+                      checkpoint_due=checkpoint_due) if continuation else run(case, control))
     diagnostics = dict(result.metadata.get('diagnostics', {}))
     diagnostics['warnings_list'] = tuple(dict.fromkeys((
         *case.metadata.get('warnings', ()), *diagnostics.get('warnings_list', ()),

@@ -25,6 +25,7 @@ from typing import Callable, Optional
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Qt, Signal, Slot
 from sjtu_tpmshx.domain.cancellation import CancelledError as _CancelledError
+from sjtu_tpmshx.domain.paused_run import PausedRun
 from sjtu_tpmshx.logutil import capture_output
 
 
@@ -39,6 +40,7 @@ class CancelToken:
 
     def __init__(self):
         self._evt = threading.Event()
+        self._pause_evt = threading.Event()
 
     def is_set(self) -> bool:
         return self._evt.is_set()
@@ -51,6 +53,11 @@ class CancelToken:
     def cancel(self) -> None:
         self._evt.set()
 
+    def pause(self) -> None:
+        self._pause_evt.set()
+
+    def pause_requested(self) -> bool:
+        return self._pause_evt.is_set()
 
 
 # ---------------------------------------------------------------- runnable
@@ -161,6 +168,9 @@ class _ComputeRunnable(QRunnable):
             elapsed = time.perf_counter() - t0
             log_text = log_buf.getvalue()
             orch._worker_finished.emit(result, log_text, elapsed)
+        except PausedRun as paused:
+            orch._worker_paused.emit(paused.checkpoint_file, log_buf.getvalue(),
+                                     time.perf_counter() - t0)
         except _CancelledError:
             elapsed = time.perf_counter() - t0
             log_text = log_buf.getvalue()
@@ -193,6 +203,8 @@ class ComputeOrchestrator(QObject):
         Worker raised an exception. message = str(exc); log = captured stdout.
     cancelled(str log)
         Worker observed cancel_token and raised CancelledError.
+    paused(str checkpoint_file, str log)
+        Worker saved a checkpoint and raised PausedRun. No result is published.
 
     Usage
     -----
@@ -214,9 +226,11 @@ class ComputeOrchestrator(QObject):
     finished = Signal(object)
     error = Signal(str, str)
     cancelled = Signal(str)
+    paused = Signal(str, str)
     _worker_finished = Signal(object, str, float)
     _worker_error = Signal(str, str)
     _worker_cancelled = Signal(str, float)
+    _worker_paused = Signal(str, str, float)
 
     CancelledError = _CancelledError
 
@@ -234,6 +248,8 @@ class ComputeOrchestrator(QObject):
                                    Qt.ConnectionType.QueuedConnection)
         self._worker_cancelled.connect(self._on_worker_cancelled,
                                        Qt.ConnectionType.QueuedConnection)
+        self._worker_paused.connect(self._on_worker_paused,
+                                    Qt.ConnectionType.QueuedConnection)
         self._cancel_token: Optional[CancelToken] = None
         self._mode: Optional[str] = None
         self._is_running = False
@@ -310,6 +326,11 @@ class ComputeOrchestrator(QObject):
         """
         return not self._is_running and self._pool.waitForDone(0)
 
+    def pause(self) -> None:
+        """Request a saved pause at the next complete numerical boundary."""
+        if self._cancel_token is not None:
+            self._cancel_token.pause()
+
     # ---- terminal publication (queued onto the owning thread) -------------
 
     @Slot(object, str, float)
@@ -336,5 +357,14 @@ class ComputeOrchestrator(QObject):
         self._last_elapsed = elapsed
         try:
             self.cancelled.emit(log)
+        finally:
+            self._is_running = False
+
+    @Slot(str, str, float)
+    def _on_worker_paused(self, checkpoint_file: str, log: str, elapsed: float):
+        self._last_log = log
+        self._last_elapsed = elapsed
+        try:
+            self.paused.emit(checkpoint_file, log)
         finally:
             self._is_running = False

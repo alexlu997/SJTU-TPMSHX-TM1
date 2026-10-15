@@ -261,7 +261,7 @@ class NativeFull2DDriver:
         self.query_sampling = sampling_query(self.library, 2, _Result)
         self.query_model_h = _iteration_query(self.library, 2, _Result)
 
-    def run_prepared(self, cfg, prepared, control=RunControl(), *, resume_state=None, checkpoint=None):
+    def run_prepared(self, cfg, prepared, control=RunControl(), *, resume_state=None, checkpoint=None, checkpoint_due=None):
         control.check_cancelled()
         shape, arrays, config = _pack(cfg, prepared, self.table_directory, self.library)
         solver = cfg['compute_cfg'].solver
@@ -283,11 +283,11 @@ class NativeFull2DDriver:
         return self.solve(shape, arrays, config, control, energy_algorithm=solver.enthalpy_algorithm,
                           temperature_update_tolerance=solver.enthalpy_temperature_tol_K,
                           energy_control=energy_control, model_h_options=_iteration_options(vars(solver)),
-                          resume_state=resume_state, checkpoint=checkpoint)
+                          resume_state=resume_state, checkpoint=checkpoint, checkpoint_due=checkpoint_due)
 
     def solve(self, shape, arrays, config, control=RunControl(), *,
               energy_algorithm='legacy_h_fou', temperature_update_tolerance=1e-8, energy_control=None,
-              model_h_options=None, resume_state=None, checkpoint=None):
+              model_h_options=None, resume_state=None, checkpoint=None, checkpoint_due=None):
         """Synchronous C call; detach all views before releasing their sole owner."""
         if len(shape) != 2 or len(arrays) != 29:
             raise ValueError('full 2D requires two extents and 29 prepared arrays')
@@ -384,7 +384,8 @@ class NativeFull2DDriver:
                         phase = run.advance()
                         if errors:
                             raise errors[0]
-                        if checkpoint is not None and phase in (1, 2, 6, 7, 8):
+                        if (checkpoint is not None and phase in (1, 2, 6, 7, 8)
+                                and (checkpoint_due is None or checkpoint_due())):
                             checkpoint(run.snapshot())
                     result = run.take_result()
                 status = 0
@@ -573,7 +574,7 @@ def _pack(cfg, prepared, table_directory, library):
     return shape, arrays, config
 
 
-def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None):
+def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None, checkpoint_due=None):
     from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
     from .full_2d_capture import capture_result
     if control.backend != 'cpp' or control.native_library is None:
@@ -581,7 +582,7 @@ def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None):
     control.check_cancelled()
     cfg, prepared = build_execution_inputs(case, copy_design=False)
     driver = NativeFull2DDriver(control.native_library, table_directory=control.native_table_directory)
-    native = driver.run_prepared(cfg, prepared, control, resume_state=resume_state, checkpoint=checkpoint)
+    native = driver.run_prepared(cfg, prepared, control, resume_state=resume_state, checkpoint=checkpoint, checkpoint_due=checkpoint_due)
     control.check_cancelled()
     result = capture_result(case, cfg, prepared, native)
     control.report_progress(100)

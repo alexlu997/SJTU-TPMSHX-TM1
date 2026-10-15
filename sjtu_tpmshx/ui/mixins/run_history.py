@@ -87,7 +87,8 @@ class RunHistoryMixin:
 
         now = datetime.datetime.now()
         snap = deepcopy(provenance['preset'])
-        snap['name'] = f"Recent @ {now.strftime('%H:%M:%S')}"
+        if snap is not None:
+            snap['name'] = f"Recent @ {now.strftime('%H:%M:%S')}"
         entry = {
             "ts": now.isoformat(timespec="seconds"),
             "label": now.strftime("%H:%M:%S"),
@@ -174,6 +175,9 @@ class RunHistoryMixin:
                 label = (f"   #{i + 1}  {e['label']}   {status}   "
                          f"Q={e['Q']} {e.get('Q_unit', '?')} · ΔP(A)={e['dP_A']}")
                 act = menu.addAction(label)
+                if e.get('preset') is None:
+                    act.setEnabled(False)
+                    details += '\n没有 GUI 输入预设；可从保存的检查点继续计算。'
                 act.setToolTip(details)
                 act.triggered.connect(
                     lambda _checked=False, entry=e: self._load_recent_run(entry))
@@ -182,6 +186,8 @@ class RunHistoryMixin:
         menu.addSeparator()
         load_file = menu.addAction("加载配置文件…")
         load_file.triggered.connect(self.load_config)
+        resume = menu.addAction("继续已保存的计算…")
+        resume.triggered.connect(lambda: self._resume_saved_run())
         save_file = menu.addAction("保存配置文件…")
         save_file.triggered.connect(self.save_config)
         save = menu.addAction("保存当前为预设…")
@@ -204,6 +210,9 @@ class RunHistoryMixin:
     def _load_recent_run(self, entry):
         """Restore inputs from a recent-run snapshot. User hits Compute to
         re-run (same pattern as preset load)."""
+        if entry.get('preset') is None:
+            QMessageBox.information(self, '没有 GUI 输入预设', '此记录来自保存的工况，可从检查点继续计算。')
+            return
         try:
             self._apply_user_preset(entry.get("preset") or {},
                                     source_name=entry.get('preset_source') or '')

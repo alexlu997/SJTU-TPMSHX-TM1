@@ -14,8 +14,8 @@ def load_solver_checkpoint(path):
     return read_record(path, SolverCheckpoint, 'SolverCheckpoint')
 
 
-def load_checkpoint_case(checkpoint):
-    case = load_case(checkpoint.case_file)
+def load_checkpoint_case(checkpoint, *, case_file=None):
+    case = load_case(checkpoint.case_file if case_file is None else case_file)
     if case.case_id != checkpoint.case_id or case.model_refs != checkpoint.model_refs:
         raise ValueError('solver checkpoint and prepared-case identity differ')
     return case

@@ -330,6 +330,27 @@ Case YAML references accompanying HDF5. [Schemas](schemas/three_module_v1/README
 
 Cancellation and failure do not become completed results. Completed nonconverged results keep their original state. Finite metrics do not show numerical, energy, or experimental accuracy acceptance.
 
+Full C++ runs can save their iteration state in a new run directory:
+
+```bash
+"$PYTHON" -m sjtu_tpmshx.cli run examples/three_module/air_2d.json .cache/run-01 --case-id example --backend cpp --checkpoint-interval 60
+"$PYTHON" -m sjtu_tpmshx.cli resume .cache/run-01/checkpoint.h5 .cache/run-02 --checkpoint-interval 60
+```
+
+The CLI interval is explicit. Saving waits for the next complete solver step.
+With saving enabled, Ctrl+C requests a pause. The process returns code 3 after it saves the state.
+A pause does not produce completed results. Cancellation still returns code 130.
+The directory retains the prepared input, native library, checkpoint, and run status.
+Completed runs also contain `results.h5` and `metrics.json`.
+
+Resume reads the saved prepared input and writes to a new directory. It preserves the source run.
+Move the complete run directory together. Resume requires the same native build and platform.
+Use `--native-library` to select a retained library explicitly when the current build differs.
+The GUI load menu can continue a saved run with its recorded interval and input provenance.
+New GUI full C++ runs request a save every 60 seconds in `runs/` under the user data directory.
+The calculation details show the save location. Use Save and Pause, then continue from the load menu.
+Lost work can also include the current complete step and file write. The Python backend keeps its existing workflow.
+
 <a id="已接线能力与边界"></a>
 
 ## Connected capabilities and boundaries

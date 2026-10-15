@@ -481,6 +481,28 @@ def test_energy_audit_independent_one_cell_exchange(native_audit):
     assert metrics[5] < 1e-12 and metrics[10] < 1e-12
 
 
+def test_energy_audit_keeps_actual_h_independent_of_temperature(native_audit):
+    case = case_data((2, 1, 1))
+    case["widths"] = tuple(np.ones(n) for n in case["shape"])
+    case["state"][2].fill(320.)
+    case["kss"].fill(0.)
+    for fluid, h in zip((case["a"], case["b"]), case["state"]):
+        fluid["arrays"][0].fill(0.)
+        fluid["arrays"][4].fill(2.)
+        fluid["arrays"][5:] = list(uniform_face_mass_flux(case["shape"], .125, 0))
+        fluid["hin"] = 2.**40 + 16.
+        h.flat[:] = [2.**40, 2.**40 + 8.]
+    temperatures = [np.array(values).reshape(case["shape"])
+                    for values in ([310., 315.], [330., 325.])]
+    code, residuals, metrics = native_audit(case, temperatures)
+    assert code == 0
+    # Exact m*h adds [2, -1] W to each independently supplied exchange field.
+    np.testing.assert_array_equal(residuals[0].ravel(), [22., 9.])
+    np.testing.assert_array_equal(residuals[1].ravel(), [-18., -11.])
+    np.testing.assert_array_equal(residuals[2], 0.)
+    np.testing.assert_array_equal(metrics[:3], [1., 1., 2.])
+
+
 @pytest.mark.parametrize("invalid", ["nan", "negative_k", "length", "overflow"])
 def test_energy_audit_rejects_invalid_or_nonfinite_budget(native_audit, invalid):
     case = case_data((2, 1, 1))
