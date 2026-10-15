@@ -918,8 +918,7 @@ void Runtime::begin_refinement() {
     fine.thermal.solid_conductivity=geometry(view(r.thermal.solid_conductivity));
     for (std::size_t side=0;side<2;++side) {
         const auto& s=p.sides[side]; const auto cross=s.direction<2?fg.dy:fg.dx;
-        auto inlet=port_fractions_1d(cross,s.inlet_lo,s.inlet_hi,s.uniform_inlet);
-        fine.inlet_profile[side]=std::move(inlet.second);
+        fine.inlet_profile[side]=port_fractions_1d(cross,s.inlet_lo,s.inlet_hi,s.uniform_inlet).second;
         fine.outlet_profile[side]=port_fractions_1d(cross,s.outlet_lo,s.outlet_hi).second;
         fine.thermal.temperature[side]=interpolate(view(r.thermal.temperature[side]));
         temperature_state(r.range_observations,s.fluid,side,"richardson-warm",fg,view(fine.thermal.temperature[side]));
