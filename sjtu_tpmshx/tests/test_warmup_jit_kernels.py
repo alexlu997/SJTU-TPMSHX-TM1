@@ -37,6 +37,7 @@ def test_explicit_warmup_compiles_all_3d_ltne_routes():
         "assert M._gs_full_chunk_3d_stag.signatures;"
         "assert M._gs_full_chunk_3d_stag_rb.signatures"
     )
+    # Cold compilation can exceed 180 s on CI; stop before the 600 s test limit.
     result = subprocess.run([sys.executable, '-c', code], capture_output=True,
-                            text=True, cwd=ROOT, timeout=180)
+                            text=True, cwd=ROOT, timeout=540)
     assert result.returncode == 0, result.stderr[-2000:]
