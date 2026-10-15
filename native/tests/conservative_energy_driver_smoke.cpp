@@ -391,7 +391,8 @@ int main() {
                         && result.final_audit->coupled_ratio<=1e-7,"T energy gate was bypassed");
                 EnthalpyEOS independent;
                 for (std::size_t s=0;s<2;++s) for (std::size_t p=0;p<5;++p) {
-                    const double inverted=independent.temperature(data.fluid[s],data.h[s][p],data.pressure[s][p],false,"smoke HP reference");
+                    bool table_used=false;
+                    const double inverted=independent.temperature(data.fluid[s],data.h[s][p],data.pressure[s][p],table_used,"smoke HP reference");
                     max_eos_error=std::max(max_eos_error,std::abs(inverted-data.t[s][p]));
                 }
                 max_boundary_error=std::max({max_boundary_error,
@@ -731,10 +732,37 @@ int main() {
                         && std::abs(transport.conductivity-k)<=2e-10*k
                         && std::abs(eos.conductivity(fluid,temperature,pressure)-k)<=2e-10*k,
                         "transport properties retained another PT state");
-                const double inverse=eos.temperature(fluid,h,pressure,false,"HP reuse regression");
+                bool table_used=false;
+                const double inverse=eos.temperature(fluid,h,pressure,table_used,"HP reuse regression");
                 require(std::abs(inverse-temperature)<=2e-8,"guarded HP inverse differs from independent HEOS");
             }
         }
+        eos.enable_bicubic(std::filesystem::absolute(".cache/native-energy-run-tables").string());
+        require(!eos.bicubic_pressure(2e5) && eos.bicubic_pressure(2e6),
+                "CO2 table pressure domain differs from the locked table");
+        auto co2_reference=make_eos_state("HEOS","CO2");
+        for(const auto point:std::array<std::array<double,2>,4>{{{350.,2e6},{260.,5e6},{350.,8e6},{315.,5e6}}}) {
+            const double temperature=point[0],pressure=point[1];
+            co2_reference->update(CoolProp::PT_INPUTS,pressure,temperature);
+            const double h=co2_reference->hmass();
+            bool used=true;
+            const double candidate=eos.temperature(Fluid::co2,h,pressure,used,"CO2 table state");
+            require(used && std::isfinite(candidate),"valid CO2 inverse did not use its table");
+            require(std::abs(candidate-temperature)<=2e-8,"CO2 table correction differs from HEOS");
+            eos.validate(Fluid::co2,candidate,pressure,"CO2 table state");
+            used=false;
+            const double final=eos.temperature(Fluid::co2,h,pressure,used,"CO2 exact final state");
+            require(!used && std::abs(final-temperature)<=2e-8,"CO2 final inverse did not use HEOS");
+        }
+        co2_reference->update(CoolProp::PT_INPUTS,2e5,350.);
+        bool table_used=true;
+        const double outside=eos.temperature(Fluid::co2,co2_reference->hmass(),2e5,table_used,"CO2 outside table");
+        require(!table_used && std::abs(outside-350.)<=2e-8,"CO2 outside table did not keep exact HEOS");
+        co2_reference->update(CoolProp::PQ_INPUTS,3e6,.5);
+        rejects<CoolProp::CoolPropBaseError>([&] {
+            bool used=true;
+            eos.temperature(Fluid::co2,co2_reference->hmass(),3e6,used,"CO2 two-phase inverse");
+        },"CO2 table accepted a two-phase physical state");
         std::cout<<"conservative_energy_driver_smoke ok; cold/warm pairs="<<solved
                  <<"; max EOS T error="<<max_eos_error<<"; boundary W error="<<max_boundary_error
                  <<"; warm T error="<<max_warm_difference<<'\n';

@@ -338,7 +338,7 @@ class NativeEnthalpyDriver:
             h_in_B=result.inlet_enthalpy[1], mass_flux_A=faces_a, mass_flux_B=faces_b)
         table_sides = [side for side, used in zip(('A', 'B'), result.used_bicubic) if used]
         if table_sides:
-            info['_native_state']['sco2_enthalpy_eos'] = dict(
+            info['_native_state']['enthalpy_eos'] = dict(
                 algorithm='bicubic_iteration_heos_polish_v2', iteration_backend='BICUBIC&HEOS',
                 final_backend='HEOS', transport_backend='HEOS',
                 coolprop_version=result.coolprop_version.decode('utf-8'),

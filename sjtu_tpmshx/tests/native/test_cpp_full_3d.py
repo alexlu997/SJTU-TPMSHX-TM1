@@ -22,6 +22,7 @@ from sjtu_tpmshx.solvers.backends.python.three_d.execution import run_case as py
 from sjtu_tpmshx.solvers.api import run_case as cpp_run
 from sjtu_tpmshx.tests.native.test_native_execution import _config
 from sjtu_tpmshx.tests.native.test_full_3d import ROOT
+from sjtu_tpmshx.tests.native import full_thermal_reference
 
 
 @pytest.fixture(scope='module')
@@ -54,6 +55,8 @@ def control(path,**kwargs):
 
 def compare(actual,expected,path='', *, engineering=False):
     if isinstance(expected,Mapping):
+        actual=full_thermal_reference.native_table_metadata(actual)
+        expected=full_thermal_reference.native_table_metadata(expected)
         assert actual.keys()==expected.keys(),path
         for key,value in expected.items():compare(actual[key],value,path+'/'+str(key),engineering=engineering)
     elif isinstance(expected,(tuple,list)):
@@ -1417,3 +1420,47 @@ def test_inner_checkpoint_retains_heos_finishing(native_path):
     actual.pop('continuation')
     assert finishing and all(finishing)
     _exact_resume_values(actual, driver.run_prepared(cfg, p))
+
+
+@pytest.mark.parametrize('dimension', [2, 3])
+@pytest.mark.parametrize('side', ['A', 'B'])
+def test_co2_table_state_continues_after_process_exit(native_path, tmp_path, dimension, side):
+    from sjtu_tpmshx.io.case_io import save_case
+    from sjtu_tpmshx.io.result_io import load_result
+    from sjtu_tpmshx.io.solver_checkpoint_io import load_solver_checkpoint
+    from sjtu_tpmshx.solvers.backends.cpp import full_2d, full_3d
+    from sjtu_tpmshx.tests.native import test_cpp_full_2d_run as planar
+    from sjtu_tpmshx.tests.test_co2_model import co2_config
+
+    config = co2_config(1 if dimension == 2 else 2, side=side)
+    config = replace(config, solver=replace(config.solver, Nx=4, Ny=3,
+        max_outer_ltne=2, max_iter_simple=40, ltne_enthalpy_outer=12,
+        ltne_enthalpy_nsweep=3))
+    prepared = prepare_case(config, case_id='co2-table-resume')
+    case_path = save_case(prepared, tmp_path / 'case.h5')
+    saved_path, result_path = tmp_path / 'state.h5', tmp_path / 'result.h5'
+    arguments = [str(case_path), str(saved_path), str(result_path), str(native_path),
+                 control(native_path).native_table_directory]
+    if dimension == 2:
+        script, arguments = planar.INNER_CHILD, ['7', *arguments]
+        run = full_2d.run_case
+    else:
+        script, arguments = _INNER_CHECKPOINT_CHILD, [*arguments, 'enthalpy']
+        run = full_3d.run_case
+    stopped = subprocess.run([sys.executable, '-c', script, 'interrupt', *arguments],
+                             cwd=ROOT, capture_output=True, text=True, timeout=120)
+    assert stopped.returncode == 23, stopped.stderr
+    saved = load_solver_checkpoint(saved_path)
+    used = saved.native_state['state.thermal.value.enthalpy.value.result.used_bicubic']
+    assert used['AB'.index(side)]
+    finished = subprocess.run([sys.executable, '-c', script, 'resume', *arguments],
+                              cwd=ROOT, capture_output=True, text=True, timeout=120)
+    assert finished.returncode == 0, finished.stderr
+    actual, expected = load_result(result_path), run(prepared, control(native_path))
+    planar.compare_result(actual, expected)
+    table = actual.metadata['model_metadata']['enthalpy_eos']
+    assert table['sides'] == (side,) and table['final_backend'] == 'HEOS'
+    actual_metrics, expected_metrics = evaluate(actual), evaluate(expected)
+    for name, metric in expected_metrics.metrics.items():
+        assert actual_metrics.metrics[name].status == metric.status
+        _exact_resume_values(actual_metrics.metrics[name].value, metric.value, name)

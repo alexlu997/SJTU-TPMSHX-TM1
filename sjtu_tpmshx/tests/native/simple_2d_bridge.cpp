@@ -57,7 +57,7 @@ extern "C" TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_simple2d_destroy(v
 
 // Qualification bridge only. arrays[16]: eps,mu,mu_eff,K,cF,T,u,v,P,Pp,du,dv,rho,vin,in_frac,out_u_frac.
 // values[15]: inlet ref speed,taper,rho_ref(NaN=absent),alphau,p,rho,Pref,R,aniso,mom,local,global,bf,vd,stall.
-// counts[7]: maxiter,inner,confirm,mom_every,stall_window,flags(ideal/massflux/exitclose),cancel_after.
+// counts[7]: maxiter,inner,confirm,mom_every,stall_window,flags(ideal/massflux/exitclose/acceleration),cancel_after.
 extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_simple2d_call(
     void* pointer,int operation,double* const* arrays,const std::size_t* sizes,
     const double* values,const std::size_t* counts,double* out,char* error,std::size_t capacity) noexcept {
@@ -84,6 +84,7 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_simple2d_call(
             control.pressure_reference_absolute=values[6]; control.gas_constant=values[7]; control.cf_anisotropy=values[8];
             control.convergence={values[9],values[10],values[11],values[12],values[13],values[14],counts[2],counts[3],counts[4]};
             control.ideal_gas=(counts[5]&1)!=0; control.massflux_inlet=(counts[5]&2)!=0; control.close_outlet_on_exit=(counts[5]&4)!=0;
+            control.accelerate_fixed_density=(counts[5]&8)!=0;
             h.cancel_after=counts[6]; h.cancel_calls=0; h.progress.clear();
             control.cancel=cancel; control.progress=progress; control.context=&h;
             const auto r=h.solver->solve(m,b,s,control);

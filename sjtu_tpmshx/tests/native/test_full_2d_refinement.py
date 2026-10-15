@@ -1,6 +1,7 @@
 """Complete prepared 2D coarse -> Richardson -> final physical acceptance.
 
-The oracle executes the existing production outer and _compute_Q_richardson.
+The oracle uses Python outer orchestration and _compute_Q_richardson.
+Its explicit flow and thermal components use the current native algorithms.
 No synthetic thermal result, altered budget or weakened gate is substituted.
 Complete iterative fields use the approved comparisons in test_full_2d;
 powers/audits retain 2e-8/2e-7 W/m. Gates/charged counts are exact.
@@ -155,7 +156,7 @@ def compare_complete(actual, record):
 
 
 def run_pair(native, cfg, *, case_id, thermal=None):
-    reference = coarse.capture_python(prepare_case(cfg, case_id=case_id), full=True, thermal=thermal)
+    reference = coarse.capture_python(prepare_case(cfg, case_id=case_id), full=True, thermal=thermal, native_flow=True)
     request = coarse.inputs(reference) | {'full': True}
     before = [x.copy() for x in request['arrays']]
     code, error, actual = native(request)

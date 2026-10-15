@@ -58,9 +58,11 @@ struct Side {
         bool use_table = tables && !table_lower.empty();
         if (use_table) for (std::size_t p = 0; p < h.size; ++p)
             if (!(h[p] > table_lower[p] && h[p] < table_upper[p])) { use_table = false; break; }
-        for (std::size_t p = 0; p < h.size; ++p)
-            t[p] = eos.temperature(input.fluid,h[p],input.pressure[p],use_table,location(grid,p,where),input.energy);
-        table_used = table_used || use_table;
+        for (std::size_t p = 0; p < h.size; ++p) {
+            bool used = use_table;
+            t[p] = eos.temperature(input.fluid,h[p],input.pressure[p],used,location(grid,p,where),input.energy);
+            table_used = table_used || used;
+        }
     }
 
     double conductivity(EnthalpyEOS& eos, std::size_t p, double evaluated) const {
@@ -500,21 +502,25 @@ struct EnthalpyRun::Impl {
         retain_physical_audit(physical_audit,grid,sa,sb,ra,rb,rs,sou);
         phase=EnthalpyPhase::completed;
     }
+    bool tabulated_side(const EnthalpySideView& side) {
+        if (side.fluid == Fluid::sco2) return true;
+        if (side.fluid != Fluid::co2) return false;
+        const auto range = std::minmax_element(side.pressure.data,side.pressure.data+side.pressure.size);
+        return eos.bicubic_pressure(*range.first) && eos.bicubic_pressure(*range.second);
+    }
     void advance_legacy() {
         auto& sa=*side_a;auto& sb=*side_b;
         const std::array<Side*,2> sides{&sa,&sb};
         const auto iteration=result.iterations;
         if (control.cancel && control.cancel(control.context)) { phase=EnthalpyPhase::cancelled;return; }
-        if (iteration == 0 && (a.fluid == Fluid::sco2 || b.fluid == Fluid::sco2)) {
-            eos.enable_bicubic(control.table_directory);table_ready=true;
-            for (auto* side : sides) if (side->input.fluid == Fluid::sco2) {
-                side->table_lower.resize(n); side->table_upper.resize(n);
-                for (std::size_t p = 0; p < n; ++p) {
-                    side->table_lower[p] = eos.bracket_enthalpy(Fluid::sco2,
-                        model_coefficients::sco2_temperature_range[0],side->input.pressure[p]);
-                    side->table_upper[p] = eos.bracket_enthalpy(Fluid::sco2,
-                        model_coefficients::sco2_temperature_range[1],side->input.pressure[p]);
-                }
+        if (iteration == 0) for (auto* side : sides) if (tabulated_side(side->input)) {
+            if (!table_ready) { eos.enable_bicubic(control.table_directory);table_ready=true; }
+            side->table_lower.assign(n,side->lower); side->table_upper.assign(n,side->upper);
+            if (side->input.fluid == Fluid::sco2) for (std::size_t p = 0; p < n; ++p) {
+                side->table_lower[p] = eos.bracket_enthalpy(Fluid::sco2,
+                    model_coefficients::sco2_temperature_range[0],side->input.pressure[p]);
+                side->table_upper[p] = eos.bracket_enthalpy(Fluid::sco2,
+                    model_coefficients::sco2_temperature_range[1],side->input.pressure[p]);
             }
         }
         if(!table_ready && !result.heos_polish && (!sa.table_lower.empty() || !sb.table_lower.empty())) {
@@ -595,7 +601,7 @@ struct EnthalpyRun::Impl {
             boundary=true;
         } catch(...) { phase=EnthalpyPhase::failed;throw; }
     }
-    void validate_saved(const EnthalpyRunState& saved) const {
+    void validate_saved(const EnthalpyRunState& saved) {
         const auto& r=saved.result;
         for(std::size_t i=0;i<5;++i) {
             // A cold H start replaces T at the first inverse step.
@@ -645,7 +651,7 @@ struct EnthalpyRun::Impl {
                 coefficient(view(side.transport[1]),n,false);coefficient(view(side.transport[2]),n,false);
             } else for(const auto& field:side.transport)
                 if(!field.empty())throw std::invalid_argument("unexpected saved energy transport state");
-            const auto tables=!temperature && input.fluid==Fluid::sco2 && r.iterations!=0;
+            const auto tables=!temperature && r.iterations!=0 && tabulated_side(input);
             if(tables) {
                 check(view(side.table_lower),n);check(view(side.table_upper),n);
                 for(std::size_t p=0;p<n;++p)if(side.table_lower[p]>=side.table_upper[p])

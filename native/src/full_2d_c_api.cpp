@@ -482,3 +482,17 @@ void TPMSHX_THERMAL_CALL tpmshx_full_2d_run_release_v1(void** run) {
     if(run) {delete static_cast<RunOwner*>(*run);*run=nullptr;}
 }
 }
+
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_flow_methods_v1(
+    const tpmshx_full_2d_result_v2* result,tpmshx_full_2d_flow_method_v1 output[2]) {
+    if(!result || !result->owner || !output)return 1;
+    const auto& owner=*static_cast<const Owner*>(result->owner);
+    tpmshx_full_2d_flow_method_v1 methods[2]{};
+    if(!owner.result.cancelled)for(std::size_t side=0;side<2;++side) {
+        const auto& value=owner.result.flow[side].result;
+        if(value.iterations)methods[side]={value.fixed_density_acceleration
+            ? "simple_2d_fixed_density_anderson_v1":"simple_2d_v1",value.iterations,
+            value.acceleration_attempts,value.acceleration_accepted};
+    }
+    std::copy(std::begin(methods),std::end(methods),output);return 0;
+}

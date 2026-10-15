@@ -13,8 +13,9 @@ from sjtu_tpmshx.io.result_io import load_result, save_result
 from sjtu_tpmshx.solvers.execution_record import full_execution_record
 
 
-def evidence(mode, *, settings=None, temperature=None, table=None):
-    refs = (ModelRef('fluid', 'test-v1', {'fluid': 'sco2'}),
+def evidence(mode, *, settings=None, temperature=None, table=None,
+             table_key='sco2_enthalpy_eos', fluid='sco2'):
+    refs = (ModelRef('fluid', 'test-v1', {'fluid': fluid}),
             ModelRef('fluid', 'test-v1', {'fluid': 'water'}),
             ModelRef('geometry', 'test-v1'), ModelRef('darcy_forchheimer', 'test-v1'))
     grid = dict(dimension=2, length_unit='m', axis_order=('x', 'y'),
@@ -34,7 +35,7 @@ def evidence(mode, *, settings=None, temperature=None, table=None):
                          boundary_fluxes={'state': 'last thermal input', 'temperature': temperature},
                          metadata=dict(thermal_mode=mode,
                                        diagnostics={'true_h_balance': {'effective_settings': settings or {}}},
-                                       model_metadata={'sco2_enthalpy_eos': table or {}}))
+                                       model_metadata={table_key: table or {}}))
     return case, result
 
 
@@ -62,10 +63,12 @@ def test_temperature_unknown_can_reconstruct_enthalpy():
     assert 'iteration_inverse_backend' not in record['sides']['A']['property_evaluation']
 
 
-def test_table_evidence_applies_only_to_its_recorded_side():
+@pytest.mark.parametrize('table_key', ['enthalpy_eos', 'sco2_enthalpy_eos'])
+@pytest.mark.parametrize('fluid', ['co2', 'sco2'])
+def test_table_evidence_applies_only_to_its_recorded_side(table_key, fluid):
     table = dict(sides=('A',), iteration_backend='BICUBIC&HEOS', algorithm='recorded-table-v1',
                  heos_polish=False, coolprop_version='recorded-version')
-    case, result = evidence('true_h', table=table)
+    case, result = evidence('true_h', table=table, table_key=table_key, fluid=fluid)
     record = full_execution_record(case, result)
     assert record['sides']['A']['property_evaluation']['iteration_inverse_backend'] == 'BICUBIC&HEOS'
     assert record['sides']['A']['property_evaluation']['heos_polish'] is False
@@ -158,3 +161,15 @@ def test_mixed_native_models_use_each_executed_energy_sample(mode, update, tmp_p
     path = tmp_path / 'mixed-models.h5'
     save_result(result, path)
     assert load_result(path).metadata['execution_record'] == result.metadata['execution_record']
+
+
+def test_executed_flow_methods_survive_result_files(tmp_path):
+    case, result = evidence('true_h')
+    flow = {'A': dict(algorithm='simple_2d_fixed_density_anderson_v1', iterations=109,
+                      proposal_steps=44, accepted_proposals=37)}
+    result = replace(result, metadata=dict(result.metadata, simple_flow=flow))
+    path = tmp_path/'flow-result.h5'
+    save_result(result, path)
+    restored = load_result(path)
+    assert full_execution_record(case, restored)['numerics']['simple_flow'] == flow
+    assert 'simple_flow' not in full_execution_record(*evidence('true_h'))['numerics']

@@ -233,6 +233,15 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v5(
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_model_h_iterations_v1(
     const tpmshx_full_2d_result_v2*,tpmshx_model_h_iteration_records_v1*);
 
+typedef struct {
+    const char* algorithm;
+    size_t iterations,proposal_steps,accepted_proposals;
+} tpmshx_full_2d_flow_method_v1;
+/* Read both final flow calls. Cancellation returns two empty records.
+ * Invalid arguments preserve output. Copy strings before the owner is released. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_flow_methods_v1(
+    const tpmshx_full_2d_result_v2*,tpmshx_full_2d_flow_method_v1[2]);
+
 #ifdef __cplusplus
 }
 #endif

@@ -92,7 +92,7 @@ An EOS energy relation records the HEOS fluid and the actual thermal pressure fi
 Integral h(T), capacity temperature transport and prescribed temperatures remain distinct.
 The record copies returned algorithm identifiers, effective settings and state labels.
 A missing algorithm identifier stays null; requested settings do not establish execution.
-For sCO2, the initial inverse backend applies only to its listed sides.
+For CO2 and sCO2, the initial inverse backend applies only to its listed sides.
 The HEOS finishing flag remains explicit.
 The nonlinear unknown and face reconstruction remain separate fields.
 A temperature unknown can use enthalpy face reconstruction.
@@ -354,17 +354,17 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   x64/Python 3.12 and 3.13. Visible desktop delivery and full performance
   qualification stay separate gates.
 - `Simple2DSolver` and `Simple3DSolver` retain each active flow call.
-  `start` begins the original call; `advance` completes one pressure, density,
-  boundary and F2 step. The existing one-shot entries use these operations.
+  `start` begins the call. `advance` completes an ordinary step and any enabled 2D proposal before the F2 check.
+  The existing one-shot entries use these operations.
   Active snapshots own the fields, F2 confirmation and stall state, result,
   histories, inlet target, clip count and pressure hierarchy construction state.
   Restore preserves the original iteration budget, momentum schedule and pressure
   rebuild cadence. It validates saved state before it writes caller fields.
   Initial correction arrays keep their original unused-value rules.
   Warm-call snapshots stay separate from active-call snapshots. Callbacks cannot
-  save or re-enter an unfinished step. Physical equations, ordering, cancellation
-  points and final boundary certificates stay unchanged. The full 3D controller
-  archives this state. Full 2D inner-state integration and application recovery remain separate tasks.
+  save or re-enter an unfinished step. Cancellation is checked before each ordinary or proposal step.
+  Physical equations and final boundary certificates stay unchanged.
+  Both full controllers archive active flow state for application recovery.
 - `EnthalpyRun` owns the existing H-FOU, T-FOU and T-SOU Picard iteration state.
   Each advance completes one original iteration, including its SOU proposal.
   An active snapshot owns five solution fields, enthalpy bounds, table bounds,
@@ -642,8 +642,20 @@ use this same criterion. `convergence_mode=None` resolves to `f2`. Explicit
 `legacy` is rejected. A static field triggers a check and never certifies
 convergence alone.
 
-The mass-only/velocity exit and its inner SIMPLE Anderson
-implementation are retired. Thermal and outer-coupling Anderson stay active.
+The mass-only/velocity exit and its associated inner SIMPLE implementation are retired.
+Full native 2D calls use `simple_2d_fixed_density_anderson_v1` for fixed-density sides.
+The shared Anderson helper proposes normalized velocity and pressure fields.
+Each proposal completes a pressure correction and consumes one step from the original budget.
+Acceptance requires no larger momentum residual, both original mass gates, and zero outlet backflow.
+A rejected proposal restores the ordinary fields and pressure cache.
+The original F2 confirmation, stall checks, and final outlet certificate still apply.
+If a proposal crosses a scheduled momentum check, the selected fields receive that check.
+Each advance records one residual sample for the selected fields.
+Iteration counts include all proposal steps.
+The saved state includes Anderson history, pressure scale, and proposal counts.
+`metadata.simple_flow` and the execution record identify each final flow call and its actual proposal counts.
+Standalone component defaults and the Python reference keep ordinary SIMPLE.
+Thermal and outer-coupling Anderson remain active.
 
 The 3D return path closes outlet fluxes again after the last density update and
 remeasures all four gates on that returned state. Its local mass check includes
@@ -779,8 +791,10 @@ symmetric geometry resource. Shared preparation gives both streams that geometry
 Only CO2 sides receive fixed drag factors `K=K0/2.5`, `cF=2.5cF0` and the
 Nu factor 1.28, including the Nu floor. These apply once, independently of
 `df_mode`, and survive Case/FieldResult archives as model references and metadata.
-CO2 properties and inverse enthalpy use single-phase HEOS, without the sCO2
-BICUBIC iteration table. Both backends evaluate CO2/sCO2 local h_v with the
+CO2 keeps the HEOS physical relation and its single-phase checks.
+Native H iterations can use BICUBIC within the table pressure range.
+A Newton correction uses the checked HEOS state before the next iteration.
+The Python inverse and the final native inverse use HEOS. Both backends evaluate CO2/sCO2 local h_v with the
 lagged temperature and local L/D_h/A_0 fields. Air/water retain their existing
 property-sampling rules. Native coefficients come from the shared generator.
 The native fluid enum appends CO2 as value 3; existing values and POD layouts
@@ -1525,16 +1539,22 @@ Taper stays
     construction for numerical reference tests lives only in the test helpers. Each sCO2 side in 2D/3D uses the shared property-wrapper range
     **280–700 K, 7.9–16 MPa absolute**, at inlets and actual local states. The 2026-09-09 pressure-floor extension leaves the EOS backend and the
     independent Nu/D-F applicability and acceptance gates unchanged. It does
-    not show experimental accuracy in the added range. Production Picard iterations use CoolProp BICUBIC only for the sCO2 model's T(h,P). The separate CO2 model uses HEOS throughout.
+    not show experimental accuracy in the added range. Native H Picard iterations can use CoolProp BICUBIC for CO2 and sCO2 T(h,P).
+    The Python CO2 inverse keeps HEOS. T-FOU and T-SOU keep their HEOS PT updates.
+    A native CO2 side uses tables only when all local pressures are within the locked table range.
+    This range starts at the triple-point saturation pressure. Other CO2 sides keep HEOS without table initialization.
+    A rejected or two-phase CO2 table candidate uses the exact HEOS inverse and its physical checks.
+    A valid CO2 table candidate receives one Newton correction from its checked HEOS enthalpy and cp.
+    The corrected state passes the same physical checks. This reduces the error that requires extra HEOS finishing iterations.
 
 Final temperatures, coupled-energy checks, outlet inversion and all other
     properties stay HEOS. If an exact-EOS energy check fails, the remaining
     iterations finish on HEOS. Returning to the table can cycle between two
     different fixed points. Each thermal solve owns its mutable table state. HEOS enthalpy limits at local pressure keep domain-boundary checks on HEOS.
 
-Results record `sco2_enthalpy_eos` in model metadata when the table is used,
-    including the `bicubic_iteration_heos_polish_v2` algorithm and if
-    exact-EOS finishing was needed. This is an approximate iteration algorithm, not an experimental calibration.
+New C++ results record actual table use under `enthalpy_eos` in model metadata.
+    The record includes `bicubic_iteration_heos_polish_v2`, the used sides, and the HEOS finishing state.
+    Python and historical `sco2_enthalpy_eos` records remain readable with their original meaning. This is an approximate iteration algorithm, not an experimental calibration.
 
 The separate experimental `TPMSHX_SCO2_COMPRESSIBLE` switch enables
     local-pressure density/viscosity updates only on the 3D A side and changes

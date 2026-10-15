@@ -1,8 +1,9 @@
 """Same-map thermal components inside the original Python full outer tests.
 
 Only test callers explicitly passing this fixture use the adapter. Properties,
-Nu/D-F, pressure shooting, SIMPLE, outer Anderson and outer stopping continue
-through the original Python production orchestration. No thermal iterator is
+Nu/D-F, pressure shooting, outer Anderson and outer stopping use Python orchestration.
+The explicit fixed-density flow helper selects the current native SIMPLE component.
+Independent backend tests keep the original Python SIMPLE algorithm. No thermal iterator is
 implemented here. Historical no-fixture reference callers remain unchanged.
 """
 from contextlib import contextmanager
@@ -25,6 +26,41 @@ from sjtu_tpmshx.solvers.backends.cpp.enthalpy import NativeEnthalpyDriver
 
 
 ROOT = Path(__file__).resolve().parents[3]
+
+
+def native_table_metadata(record):
+    # The Python reference keeps its original table-record name.
+    if 'sco2_enthalpy_eos' not in record:
+        return record
+    assert 'enthalpy_eos' not in record
+    return {('enthalpy_eos' if key == 'sco2_enthalpy_eos' else key): value
+            for key, value in record.items()}
+
+
+def fixed_density_flow(solver, arguments):
+    """Use the selected native flow component inside the interface reference."""
+    from sjtu_tpmshx.tests.native import test_simple_2d as simple
+
+    assert solver.fluid_type != 'ideal_gas' and arguments['cancel_check'] is None
+    with simple.Native(simple.library.__wrapped__(), solver) as native:
+        result = native.call(solver, iterations=arguments['max_iter'], sweeps=arguments['n_inner'],
+                             alpha_u=arguments['alpha_u'], alpha_p=arguments['alpha_p'], accelerate=True)
+        for kind, name in enumerate(('residuals', 'mass_local_residuals', 'mass_global_residuals')):
+            setattr(solver, name, native.history(kind).tolist())
+        solver.mom_residuals = [dict(iter=int(row[0]), max=row[1], num=row[2:4].tolist(),
+            den=row[4:6].tolist(), u=row[6], v=row[7]) for row in native.history(3).reshape(-1, 8)]
+        if arguments['progress_cb'] is not None:
+            for iteration, residual in native.history(4).reshape(-1, 2):
+                arguments['progress_cb'](int(iteration), float(residual))
+    for index, name in ((5, 'final_res'), (6, 'final_res_mom'), (7, 'final_res_mass_local'),
+                        (8, 'final_res_mass_global'), (9, 'outlet_backflow_frac')):
+        setattr(solver, name, None if np.isnan(result[index]) else float(result[index]))
+    solver.exit_reason = simple.STOP[int(result[0])]
+    solver.f2_cert_post_rescale_ok = bool(result[4]) if result[3] else None
+    solver._p_clip_hits = int(result[12])
+    if np.isfinite(result[13]):
+        solver._massflux_target = float(result[13])
+    return bool(result[1]), int(result[2])
 
 
 def library(name, environment):

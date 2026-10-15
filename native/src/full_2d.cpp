@@ -362,7 +362,7 @@ struct FlowRun {
             writable(f.d_u),writable(f.d_v),writable(f.density),writable(f.inlet_velocity)};
         auto settings=control.flow;settings.pressure_reference_absolute=f.reference_pressure;
         settings.ideal_gas=s.fluid==Fluid::air;settings.cancel=flow_cancel;settings.progress=flow_progress;
-        settings.context=&callback;
+        settings.context=&callback;settings.accelerate_fixed_density=!settings.ideal_gas;
         if(saved) {
             auto state=*saved->iteration;
             for(const auto& field:state.fields)if(!field.empty())

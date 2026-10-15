@@ -109,7 +109,7 @@ class RunHistoryMixin:
             "metric_status": dict(result.metadata.get('metric_status', {})),
             "metric_reasons": dict(result.metadata.get('metric_reasons', {})),
             "model_metadata": {key: deepcopy(result.metadata[key])
-                               for key in ('darcy_forchheimer', 'sco2_nu', 'sco2_enthalpy_eos', 'co2')
+                               for key in ('darcy_forchheimer', 'sco2_nu', 'enthalpy_eos', 'sco2_enthalpy_eos', 'co2')
                                if key in result.metadata},
         }
         self._recent_runs.appendleft(entry)

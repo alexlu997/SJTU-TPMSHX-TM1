@@ -19,7 +19,8 @@ def full_execution_record(case, result):
             settings = main_calls[-1]['settings']
     native = metadata.get('native', {})
     algorithm = settings.get('energy_algorithm', native.get('algorithm'))
-    table = metadata.get('model_metadata', {}).get('sco2_enthalpy_eos', {})
+    models = metadata.get('model_metadata', {})
+    table = models.get('enthalpy_eos', models.get('sco2_enthalpy_eos', {}))
     roles = case.metadata['model_roles']
     energy_samples = {}
     for sample in metadata.get('property_sampling', ()):
@@ -86,6 +87,7 @@ def full_execution_record(case, result):
                                  if metadata.get('enthalpy_update_normalization') else {}),
                               **({'simple_velocity_relaxation': metadata['simple_velocity_relaxation']}
                                  if 'simple_velocity_relaxation' in metadata else {}),
+                              **({'simple_flow': metadata['simple_flow']} if 'simple_flow' in metadata else {}),
                               **({'model_h_iterations': model_h_iterations} if model_h_iterations else {})),
                 evidence=dict(thermal_state=result.field_metadata['Ta']['state'],
                               mass_state=result.boundary_fluxes['state'],

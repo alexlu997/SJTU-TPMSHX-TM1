@@ -278,7 +278,7 @@ template<class Archive,class Value> void walk(Archive& archive,Value& value,Full
 template<class Archive,class Value> void walk(Archive& archive,Value& value,Simple2DControl*) {
     FIELD(max_iterations) FIELD(inner_sweeps) FIELD(alpha_velocity) FIELD(alpha_pressure) FIELD(alpha_density)
     FIELD(pressure_reference_absolute) FIELD(gas_constant) FIELD(cf_anisotropy) FIELD(ideal_gas) FIELD(massflux_inlet)
-    FIELD(close_outlet_on_exit) FIELD(convergence)
+    FIELD(close_outlet_on_exit) FIELD(convergence) FIELD(accelerate_fixed_density)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,Full2DControl*) {
     FIELD(flow) FIELD(outer_iterations) FIELD(thermal_iterations) FIELD(thermal_chunk) FIELD(outer_temperature_tolerance)
@@ -288,6 +288,7 @@ template<class Archive,class Value> void walk(Archive& archive,Value& value,Full
 template<class Archive,class Value> void walk(Archive& archive,Value& value,Simple2DResult*) {
     FIELD(stop) FIELD(converged) FIELD(post_closure_measured) FIELD(post_closure_certified) FIELD(iterations)
     FIELD(pressure_clip_hits) FIELD(legacy_residual) FIELD(momentum) FIELD(mass) FIELD(linear)
+    FIELD(fixed_density_acceleration) FIELD(acceleration_attempts) FIELD(acceleration_accepted)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,Full2DFlow*) {
     FIELD(dx) FIELD(dy) FIELD(u) FIELD(v) FIELD(pressure)
@@ -351,7 +352,7 @@ template<class Archive,class Value> void walk(Archive& archive,Value& value,Simp
     FIELD(widths) FIELD(depth) FIELD(outlet) FIELD(pressure) FIELD(history) FIELD(massflux_target) FIELD(pressure_clip_hits)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,Simple2DRunState*) {
-    FIELD(owner) FIELD(fields) FIELD(convergence) FIELD(result)
+    FIELD(owner) FIELD(fields) FIELD(convergence) FIELD(result) FIELD(acceleration) FIELD(pressure_scale)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,Full2DFlowRunState*) {
     FIELD(flow) FIELD(iteration)

@@ -18,7 +18,7 @@ from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.backends.cpp.full_2d import NativeFull2DDriver
 from sjtu_tpmshx.solvers.backends.cpp.full_2d_capture import capture_result
 from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
-from sjtu_tpmshx.solvers.backends.python.two_d.execution import run_case as python_run
+from sjtu_tpmshx.solvers.backends.capture_2d import capture_result as python_capture
 from sjtu_tpmshx.tests.native import full_thermal_reference
 from sjtu_tpmshx.tests.native.test_full_2d import ROOT, configuration, capture_python
 
@@ -40,6 +40,8 @@ def driver():
 
 def compare(actual, expected, path=''):
     if isinstance(expected, Mapping):
+        actual = full_thermal_reference.native_table_metadata(actual)
+        expected = full_thermal_reference.native_table_metadata(expected)
         assert actual.keys() == expected.keys(), path
         for key, value in expected.items():
             compare(actual[key], value, path + '/' + str(key))
@@ -77,6 +79,21 @@ def test_power_comparison_uses_units_at_root_and_nested_paths():
         compare(False, True, 'Q_richardson_warn')
     with pytest.raises(AssertionError):
         compare(np.array([100001]), np.array([100000]), 'counts')
+
+
+@pytest.mark.parametrize('dimension', [2, 3])
+def test_table_record_comparison_keeps_values_and_original_names(dimension):
+    from sjtu_tpmshx.tests.native import test_cpp_full_3d
+    compare_records = compare if dimension == 2 else test_cpp_full_3d.compare
+    record = dict(sides=('B',), final_backend='HEOS', heos_polish=False)
+    old, new = {'sco2_enthalpy_eos': record}, {'enthalpy_eos': record}
+    compare_records(new, old, 'model_metadata')
+    compare_records({'true_h': new}, {'true_h': old}, 'boundary_fluxes')
+    assert set(old) == {'sco2_enthalpy_eos'} and set(new) == {'enthalpy_eos'}
+    with pytest.raises(AssertionError):
+        compare_records({'enthalpy_eos': dict(record, final_backend='BICUBIC')}, old)
+    with pytest.raises(AssertionError):
+        compare_records(dict(new, sco2_enthalpy_eos=record), old)
 
 
 def captured(driver, case):
@@ -167,7 +184,8 @@ def test_capped_partial_fields_last_inputs_and_recomputed_metrics(driver, mode):
                         case_id='capture-partial-' + mode)
     with warning_scope({}) as expected_records, (full_thermal_reference.selected_energy_reference(case)
                                                 if mode == 'true_h' else nullcontext()):
-        expected = python_run(case)
+        reference = capture_python(case, full=True, native_flow=True)
+        expected = python_capture(case, *reference['capture_inputs'])
     with warning_scope({}) as actual_records:
         actual, raw = captured(driver, case)
     compare_range_records(actual_records, expected_records)
@@ -184,7 +202,7 @@ def test_capped_partial_fields_last_inputs_and_recomputed_metrics(driver, mode):
         post = [r for r in samples if r['stage'] == 'property_post']
         assert max(r['outer_index'] for r in post) == result.run_status['outer_index']
         assert any(r['stage'] == 'refined_thermal' for r in samples) == (mode == 'model_h')
-        assert result.metadata['input_resolution']['source'] == 'CaseData.parameters'
+    assert actual.metadata['input_resolution']['source'] == 'CaseData.parameters'
     assert actual.run_status['final_flow_after_last_thermal']
     assert not actual.run_status['converged']
     assert not np.array_equal(actual.fields['Ta'], actual.fields['Ta_display'])
@@ -200,12 +218,11 @@ def test_capped_partial_fields_last_inputs_and_recomputed_metrics(driver, mode):
 
 def test_capped_temperature_capture_uses_current_full_cc_enthalpy(driver, same_thermal):
     """The native fullCC route and the retained Python cp*T route differ."""
-    from sjtu_tpmshx.solvers.backends.capture_2d import capture_result as python_capture
 
     case = prepare_case(configuration(directions=(1, 2), outer=2, mode='temperature'),
                         case_id='capture-partial-temperature')
     with warning_scope({}) as expected_records:
-        reference = capture_python(case, full=True, thermal=same_thermal)
+        reference = capture_python(case, full=True, thermal=same_thermal, native_flow=True)
         expected = python_capture(case, *reference['capture_inputs'])
     with warning_scope({}) as actual_records:
         actual, raw = captured(driver, case)
@@ -250,7 +267,8 @@ def test_range_ledger_keeps_scalar_warm_sources_and_worst_snapshot_counts(driver
     config = replace(config, fluid_A=replace(config.fluid_A, T_in_K=1150.))
     case = prepare_case(config, case_id=f'range-hot-air-{outer}-{warm}')
     with warning_scope({}) as expected_records:
-        python_run(case)
+        reference = capture_python(case, full=True, native_flow=True)
+        python_capture(case, *reference['capture_inputs'])
     with warning_scope({}) as actual_records:
         actual, _ = captured(driver, case)
     compare_range_records(actual_records, expected_records)
@@ -271,7 +289,8 @@ def test_true_h_air_property_sources_and_selected_sco2_nu_are_recorded(driver, f
         config = replace(config, sco2_nu=sco2_effective_nu_config())
     case = prepare_case(config, case_id='range-true-h-' + topology)
     with warning_scope({}) as expected_records, full_thermal_reference.selected_energy_reference(case):
-        expected = python_run(case)
+        reference = capture_python(case, full=True, native_flow=True)
+        expected = python_capture(case, *reference['capture_inputs'])
     with warning_scope({}) as actual_records:
         actual, _ = captured(driver, case)
     compare_range_records(actual_records, expected_records)
@@ -287,7 +306,8 @@ def test_continuous_geometry_range_sources_keep_actual_cell_shapes(driver):
         'L_bounds': [4., 8.], 't_bounds': [.3, .6]}))
     case = prepare_case(config, case_id='range-continuous')
     with warning_scope({}) as expected_records:
-        python_run(case)
+        reference = capture_python(case, full=True, native_flow=True)
+        python_capture(case, *reference['capture_inputs'])
     with warning_scope({}) as actual_records:
         actual, _ = captured(driver, case)
     compare_range_records(actual_records, expected_records)
@@ -320,7 +340,8 @@ def test_partial_optimization_cases_preserve_fine_water_balance(
             'symmetric_y': False, 'spline_order': 1,
             'L_bounds': [4., 8.], 't_bounds': [.3, .6]}))
     case = prepare_case(config, case_id=f'partial-optimization-{design}-{air_velocity}')
-    expected = python_run(case)
+    reference = capture_python(case, full=True, native_flow=True)
+    expected = python_capture(case, *reference['capture_inputs'])
     actual, _ = captured(driver, case)
     compare_portable(actual, expected)
     assert actual.run_status['converged'] == (design != 'capped')
@@ -329,10 +350,9 @@ def test_partial_optimization_cases_preserve_fine_water_balance(
 
 def test_golden_air_prepared_case_retains_accepted_refinement(driver, same_thermal):
     from sjtu_tpmshx.solvers.api import run_case
-    from sjtu_tpmshx.solvers.backends.capture_2d import capture_result as python_capture
     case = prepare_case(ComputeConfig.from_json(str(ROOT / 'examples/three_module/air_2d.json')),
                         case_id='capture-golden-air2d')
-    reference = capture_python(case, full=True, thermal=same_thermal)
+    reference = capture_python(case, full=True, thermal=same_thermal, native_flow=True)
     diagnostics = reference['capture_inputs'][-1]
     component_metadata = diagnostics['richardson_info'].pop('native_metadata')
     expected = python_capture(case, *reference['capture_inputs'])

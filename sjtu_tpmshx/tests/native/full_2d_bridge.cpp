@@ -77,6 +77,8 @@ void write(Json& j,const Simple2DResult& s) {
     j.object();j.field("stop",static_cast<int>(s.stop));j.field("converged",s.converged);
     j.field("post_closure_measured",s.post_closure_measured);j.field("post_closure_certified",s.post_closure_certified);
     j.field("iterations",s.iterations);j.field("pressure_clip_hits",s.pressure_clip_hits);
+    j.field("fixed_density_acceleration",s.fixed_density_acceleration);
+    j.field("acceleration_attempts",s.acceleration_attempts);j.field("acceleration_accepted",s.acceleration_accepted);
     j.field("legacy_residual",s.legacy_residual);j.key("momentum");write(j,s.momentum);
     j.key("mass");j.object();j.field("local_residual",s.mass.local_residual);j.field("mass_in",s.mass.mass_in);
     j.field("mass_out",s.mass.mass_out);j.field("global_residual",s.mass.global_residual);
