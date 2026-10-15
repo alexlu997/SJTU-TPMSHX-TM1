@@ -73,6 +73,20 @@ def _synthetic_results(dimension=3):
     return native, performance
 
 
+@pytest.mark.parametrize('dimension', [2, 3])
+def test_thread_resource_record_reaches_the_detached_gui_result(dimension):
+    native, performance = _synthetic_results(dimension)
+    resources = dict(cpu_thread_limit=8, requested_cpu_threads=None, policy='native_cpu_limit_v1')
+    native = replace(native, metadata={**native.metadata, 'runtime_resources': resources})
+    display = to_compute_result(native, performance)
+    assert display.metadata['runtime_resources'] == resources
+    window = _ResultWindow()
+    window.write_result(display)
+    display.metadata['runtime_resources']['cpu_thread_limit'] = 1
+    assert window.cache.get_result(f'{dimension}d').metadata['runtime_resources'] == resources
+    assert dict(native.metadata['runtime_resources']) == resources
+
+
 def test_synthetic_3d_mapping_preserves_full_geometry_and_display_pressure():
     native, performance = _synthetic_results()
     native_fields, grid = native.fields, native.grid

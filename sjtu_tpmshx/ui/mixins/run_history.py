@@ -105,6 +105,7 @@ class RunHistoryMixin:
             "actual_grid": list(provenance['actual_grid']),
             "converged": result.converged,
             "qualification": deepcopy(result.metadata.get("qualification", {})),
+            "runtime_resources": deepcopy(result.metadata.get("runtime_resources", {})),
             "source_result_id": result.metadata.get('source_result_id'),
             "metric_status": dict(result.metadata.get('metric_status', {})),
             "metric_reasons": dict(result.metadata.get('metric_reasons', {})),
