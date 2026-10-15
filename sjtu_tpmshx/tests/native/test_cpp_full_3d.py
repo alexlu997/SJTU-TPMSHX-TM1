@@ -158,18 +158,21 @@ def test_public_bootstrap_trace_roundtrip_and_old_diagnostics_remain_readable(na
     compare(restored.run_status, old.run_status)
 
 
-def test_old_full3d_library_missing_trace_has_explicit_capability_error(native_path, monkeypatch):
+@pytest.mark.parametrize('symbol,message', [
+    ('tpmshx_full_3d_get_bootstrap_trace_v1', 'lacks bootstrap trace v1; rebuild'),
+    ('tpmshx_full_3d_get_model_h_acceleration_v1', 'lacks model-h acceleration records; rebuild')])
+def test_old_full3d_library_missing_query_has_explicit_capability_error(native_path, monkeypatch, symbol, message):
     from sjtu_tpmshx.solvers.backends.cpp import full_3d
     library = full_3d.ct.CDLL(str(native_path))
 
     class OldAPI:
         def __getattr__(self, name):
-            if name == 'tpmshx_full_3d_get_bootstrap_trace_v1':
+            if name == symbol:
                 raise AttributeError(name)
             return getattr(library, name)
 
     monkeypatch.setattr(full_3d.ct, 'CDLL', lambda path: OldAPI())
-    with pytest.raises(ValueError, match='lacks bootstrap trace v1; rebuild'):
+    with pytest.raises(ValueError, match=message):
         full_3d.NativeFull3DDriver(native_path)
 
 
@@ -1219,7 +1222,8 @@ def test_inner_flow_checkpoint_keeps_complete_result(native_path, phase, iterati
 
 @pytest.mark.parametrize('damage', ['flow_budget', 'flow_monitor', 'flow_previous', 'flow_field',
                                     'thermal_budget', 'remaining_budget', 'owner', 'initial',
-                                    'shared_field', 'iteration', 'thermal_input', 'record_budget', 'initial_value'])
+                                    'shared_field', 'iteration', 'thermal_input', 'record_budget', 'initial_value',
+                                    'acceleration', 'acceleration_sweeps', 'acceleration_history', 'sweep_block'])
 def test_inner_checkpoint_rejects_damaged_iteration(native_path, damage):
     from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
     cfg, p = _inner_prepared('model_h_accelerated')
@@ -1255,6 +1259,11 @@ def test_inner_checkpoint_rejects_damaged_iteration(native_path, damage):
         saved['state.thermal.value.initial.0'][0] += 1.
     elif damage == 'record_budget':
         saved['state.thermal.value.record.model_h_iterations.0.max_iterations'][0] += 1
+    elif damage in ('acceleration', 'acceleration_sweeps', 'acceleration_history'):
+        field = 'accelerate' if damage == 'acceleration' else damage
+        saved['state.thermal.value.record.model_h_iterations.0.'+field][0] = 0
+    elif damage == 'sweep_block':
+        saved['state.thermal.value.model_h_3d.value.iteration.chunk.value.sweep_block'][0] = 5
     elif damage == 'shared_field':
         saved['state.thermal.value.model_h_3d.value.iteration.temperature.0'] = saved['state.temperature.0'].copy()
     elif damage == 'iteration':
