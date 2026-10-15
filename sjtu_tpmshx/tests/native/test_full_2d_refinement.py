@@ -208,9 +208,9 @@ def test_existing_air_2d_golden_complete_pair(native, same_thermal):
     assert actual['refined']['accepted'] and actual['refined']['extrapolated']
 
 
-def test_true_h_final_keeps_recorded_advective_duty_without_richardson(native):
+def test_true_h_final_keeps_recorded_advective_duty_without_richardson(native, same_thermal):
     cfg = coarse.configuration(directions=(0, 3), outer=2, mode='true_h')
-    actual, record = run_pair(native, cfg, case_id='native-full2d-true-h-final')
+    actual, record = run_pair(native, cfg, case_id='native-full2d-true-h-final', thermal=same_thermal)
     assert actual['refined'] is None and 'refinement_inputs' not in record
     power(actual['q_total'], abs(actual['duty'][0]))
     power(actual['q_solid'], abs(actual['duty'][1]))
