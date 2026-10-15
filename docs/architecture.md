@@ -763,6 +763,7 @@ Nu factor 1.28, including the Nu floor. These apply once, independently of
 `df_mode`, and survive Case/FieldResult archives as model references and metadata.
 CO2 keeps the HEOS physical relation and its single-phase checks.
 Native H iterations can use BICUBIC within the table pressure range.
+A Newton correction uses the checked HEOS state before the next iteration.
 The Python inverse and the final native inverse use HEOS. Both backends evaluate CO2/sCO2 local h_v with the
 lagged temperature and local L/D_h/A_0 fields. Air/water retain their existing
 property-sampling rules. Native coefficients come from the shared generator.
@@ -1494,6 +1495,8 @@ Taper stays
     A native CO2 side uses tables only when all local pressures are within the locked table range.
     This range starts at the triple-point saturation pressure. Other CO2 sides keep HEOS without table initialization.
     A rejected or two-phase CO2 table candidate uses the exact HEOS inverse and its physical checks.
+    A valid CO2 table candidate receives one Newton correction from its checked HEOS enthalpy and cp.
+    The corrected state passes the same physical checks. This reduces the error that requires extra HEOS finishing iterations.
 
 Final temperatures, coupled-energy checks, outlet inversion and all other
     properties stay HEOS. If an exact-EOS energy check fails, the remaining

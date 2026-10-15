@@ -661,13 +661,14 @@ int main() {
         require(!eos.bicubic_pressure(2e5) && eos.bicubic_pressure(2e6),
                 "CO2 table pressure domain differs from the locked table");
         auto co2_reference=make_eos_state("HEOS","CO2");
-        for(const auto point:std::array<std::array<double,2>,3>{{{350.,2e6},{260.,5e6},{350.,8e6}}}) {
+        for(const auto point:std::array<std::array<double,2>,4>{{{350.,2e6},{260.,5e6},{350.,8e6},{315.,5e6}}}) {
             const double temperature=point[0],pressure=point[1];
             co2_reference->update(CoolProp::PT_INPUTS,pressure,temperature);
             const double h=co2_reference->hmass();
             bool used=true;
             const double candidate=eos.temperature(Fluid::co2,h,pressure,used,"CO2 table state");
             require(used && std::isfinite(candidate),"valid CO2 inverse did not use its table");
+            require(std::abs(candidate-temperature)<=2e-8,"CO2 table correction differs from HEOS");
             eos.validate(Fluid::co2,candidate,pressure,"CO2 table state");
             used=false;
             const double final=eos.temperature(Fluid::co2,h,pressure,used,"CO2 exact final state");

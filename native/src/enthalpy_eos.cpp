@@ -138,6 +138,10 @@ double EnthalpyEOS::temperature(Fluid fluid, double enthalpy, double pressure,
                     throw std::invalid_argument("CO2 table candidate is two-phase");
                 result = bicubic_->T();
                 validate(fluid,result,pressure,where);
+                // Reuse the checked HEOS state to reduce table error before finishing.
+                auto& exact = heos(fluid);
+                result += (enthalpy-exact.hmass())/exact.cpmass();
+                validate(fluid,result,pressure,where);
                 return result;
             } catch (const CoolProp::CoolPropBaseError&) {
                 use_bicubic = false;
