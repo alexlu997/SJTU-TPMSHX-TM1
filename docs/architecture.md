@@ -70,7 +70,12 @@ The public coupled-only audit keeps unavailable fluid residuals as NaN and does 
 No extra temperature or face arrays are needed for this assembly.
 
 The 2D and 3D model-h drivers share one accelerated chunk owner.
-It retains 25 sweeps per block, two proposal probes, and separate Anderson history for each chunk.
+Strict 3D calls use five sweeps per block and sixteen Anderson samples.
+Other calls retain 25 sweeps per block and six samples.
+Both policies charge two proposal probes and keep separate history for each chunk.
+The strict policy meets the original energy gate in the tested graded-grid case.
+Full 3D results record whether acceleration was enabled, the block size, and the history limit.
+Snapshots retain the block size and complete history. Restore rejects a different policy.
 A complete selection boundary can export the consumed budget and an independent history copy.
 A failed partial step cannot export or resume that chunk.
 `ModelHRun2D` and `ModelHRun3D` own the thermal iteration state.

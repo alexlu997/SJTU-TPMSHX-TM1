@@ -50,6 +50,7 @@ template<class Archive,class Value> void walk(Archive& archive,Value& value,Mode
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,ModelHIterationSettings*) {
     FIELD(max_iterations) FIELD(chunk_iterations) FIELD(temperature_tolerance) FIELD(q_relative_tolerance) FIELD(total_iteration_budget)
+    FIELD(accelerate) FIELD(acceleration_sweeps) FIELD(acceleration_history)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,Full3DControl*) {
     FIELD(max_outer) FIELD(initial_simple_iterations) FIELD(warm_simple_iterations) FIELD(thermal_iterations) FIELD(outer_temperature_tolerance)
@@ -234,7 +235,7 @@ template<class Archive,class Value> void walk(Archive& archive,Value& value,Simp
     FIELD(minimum_iterations) FIELD(streak) FIELD(window_start_iteration) FIELD(momentum_at_window_start) FIELD(previous)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,ModelHChunkState*) {
-    FIELD(count) FIELD(completed) FIELD(acceleration)
+    FIELD(count) FIELD(completed) FIELD(acceleration) FIELD(sweep_block)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,ModelHIterationState*) {
     FIELD(temperature) FIELD(previous) FIELD(previous_q) FIELD(have_q) FIELD(chunk)

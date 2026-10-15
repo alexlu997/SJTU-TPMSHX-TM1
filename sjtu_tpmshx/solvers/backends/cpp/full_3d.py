@@ -24,7 +24,7 @@ from .physical_ledger import HeatLedger, heat_ledger_query, copy_heat_ledger
 from .model_h import _Result as _ModelResult, _volume_info, _model_h_algorithm
 from .temperature import _temperature_algorithm
 from .temperature_evidence import TemperatureEvidence, copy_temperature_evidence
-from .model_h import _IterationOptions, _iteration_options, _iteration_query, _copy_iteration_records
+from .model_h import _IterationOptions, _iteration_options, _iteration_query, _copy_iteration_records, _acceleration_query
 from .enthalpy import _Result as _EnthalpyResult
 from .enthalpy import (_EnergyOptions, _EnergyOptionsV2, _EnergyResult, _energy_options,
                        _energy_algorithm_query, _energy_result_info, _energy_native_state,
@@ -230,6 +230,7 @@ class NativeFull3DDriver:
         self.query_sampling = sampling_query(self.library, 3, _Result)
         self.query_update_scale = _update_scale_query(self.library, 3, _Result)
         self.query_model_h = _iteration_query(self.library, 3, _Result)
+        self.query_model_h_acceleration = _acceleration_query(self.library, _Result)
         try:
             self.query_bootstrap = self.library.tpmshx_full_3d_get_bootstrap_trace_v1
         except AttributeError as exc:
@@ -474,7 +475,8 @@ class NativeFull3DDriver:
             detached['property_sampling'] = copy_sampling(self.query_sampling, result)
             detached['enthalpy_update_normalization'] = _copy_update_scale(self.query_update_scale, result)
             detached['simple_velocity_relaxation'] = c.simple.alpha_velocity
-            detached['model_h_iterations'] = _copy_iteration_records(self.query_model_h, result)
+            detached['model_h_iterations'] = _copy_iteration_records(
+                self.query_model_h, result, self.query_model_h_acceleration)
             budgets = {row['outer_index']: row['settings']['total_iteration_budget']
                        for row in detached['model_h_iterations']['records']}
             for row in detached['outer']:

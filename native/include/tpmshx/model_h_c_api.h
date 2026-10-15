@@ -26,6 +26,10 @@ typedef struct {
     const tpmshx_model_h_iteration_record_v1* records;
     size_t count;
 } tpmshx_model_h_iteration_records_v1;
+typedef struct {
+    uint32_t enabled;
+    size_t sweeps_per_block,history_limit;
+} tpmshx_model_h_acceleration_v1;
 
 typedef struct { const double* data; size_t size; } tpmshx_model_h_array_v1;
 typedef struct {

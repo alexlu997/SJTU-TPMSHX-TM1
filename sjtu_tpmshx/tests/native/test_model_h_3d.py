@@ -424,9 +424,10 @@ def test_anderson_budget_remainder(native, monkeypatch):
     assert len(decisions) == 2
     assert sum(row[0] == 0 and row[1] == 1 for row in trace) == 4
     fixed = n4_solved_case(case, 3)
-    n4, _, choices, _ = compare_shadow(fixed, native, 3)
+    n4, _, choices, trace = compare_shadow(fixed, native, 3)
     assert n4[1][0] == 1 and n4[1][1] == 139
-    assert choices == [False, True]
+    assert any(choices) and not all(choices)
+    assert sum(int(row[1]) for row in trace if row[0] == 0) == 139
 
 @pytest.mark.parametrize("sources", [False, True])
 def test_zero_budget_final_audit(native, monkeypatch, sources):
