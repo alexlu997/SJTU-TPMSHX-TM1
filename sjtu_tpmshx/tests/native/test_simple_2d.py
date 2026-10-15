@@ -113,7 +113,7 @@ class Native:
         self.lib.tpmshx_simple2d_destroy(self.pointer)
 
     def call(self, solver, *, operation=2, iterations=600, sweeps=2, alpha_u=.7,
-             alpha_p=.3, cancel_after=0, arrays=None):
+             alpha_p=.3, cancel_after=0, arrays=None, accelerate=False):
         arrays = packed(solver) if arrays is None else arrays
         assert all(a.dtype == np.float64 and a.flags.c_contiguous for a in arrays)
         pointers = (DOUBLE * len(arrays))(*(a.ctypes.data_as(DOUBLE) for a in arrays))
@@ -126,7 +126,7 @@ class Native:
             monitor.vtol, monitor.stall_ratio], dtype=np.float64)
         flags = (int(solver.fluid_type == "ideal_gas")
                  + 2*int(getattr(solver, "massflux_inlet", True))
-                 + 4*int(getattr(solver, "enforce_outlet_mass_balance", True)))
+                 + 4*int(getattr(solver, "enforce_outlet_mass_balance", True)) + 8*int(accelerate))
         counts = np.array([iterations, sweeps, monitor.n_confirm, monitor.mom_every,
                            monitor.stall_window, flags, cancel_after], dtype=np.uintp)
         out = np.empty(25, dtype=np.float64)

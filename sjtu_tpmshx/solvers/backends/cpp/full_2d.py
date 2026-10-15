@@ -228,6 +228,11 @@ def _set_native_metadata(result, abi, algorithm, red_black):
     result['native_metadata'] = result['main']['native_metadata']
 
 
+class _FlowMethod(ct.Structure):
+    _fields_ = [('algorithm', ct.c_char_p), ('iterations', ct.c_size_t),
+                ('proposal_steps', ct.c_size_t), ('accepted_proposals', ct.c_size_t)]
+
+
 class NativeFull2DDriver:
     def __init__(self, library, *, table_directory=None):
         path = Path(library)
@@ -260,6 +265,9 @@ class NativeFull2DDriver:
         self.query_heat_ledger = heat_ledger_query(self.library, 2, _Result)
         self.query_sampling = sampling_query(self.library, 2, _Result)
         self.query_model_h = _iteration_query(self.library, 2, _Result)
+        self.query_flow_methods = self.library.tpmshx_full_2d_get_flow_methods_v1
+        self.query_flow_methods.argtypes = [ct.POINTER(_Result), ct.POINTER(_FlowMethod)]
+        self.query_flow_methods.restype = ct.c_int
 
     def run_prepared(self, cfg, prepared, control=RunControl(), *, resume_state=None, checkpoint=None, checkpoint_due=None):
         control.check_cancelled()
@@ -438,6 +446,12 @@ class NativeFull2DDriver:
                 out['continuation'] = dict(format='full_2d_continuation_v1', build=resume_state['build'],
                     completed_outer_steps=int(resume_state['state.result.outer_history.size'][0]),
                     saved_phase=int(resume_state['state.phase'][0]))
+            methods = (_FlowMethod*2)()
+            if self.query_flow_methods(ct.byref(result), methods):
+                raise RuntimeError('native full 2D flow method query failed')
+            out['simple_flow'] = {side: dict(algorithm=value.algorithm.decode() if value.algorithm else None,
+                iterations=value.iterations, proposal_steps=value.proposal_steps,
+                accepted_proposals=value.accepted_proposals) for side, value in zip('AB', methods)}
             out['entry_version'] = entry_version
             if energy_query:
                 extra = _EnergyEvidence()

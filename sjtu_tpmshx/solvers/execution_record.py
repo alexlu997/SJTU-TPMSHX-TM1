@@ -64,6 +64,7 @@ def full_execution_record(case, result):
                               effective_settings=settings, native=native,
                               **({'simple_velocity_relaxation': metadata['simple_velocity_relaxation']}
                                  if 'simple_velocity_relaxation' in metadata else {}),
+                              **({'simple_flow': metadata['simple_flow']} if 'simple_flow' in metadata else {}),
                               **({'model_h_iterations': model_h_iterations} if model_h_iterations else {})),
                 evidence=dict(thermal_state=result.field_metadata['Ta']['state'],
                               mass_state=result.boundary_fluxes['state'],

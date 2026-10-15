@@ -338,17 +338,17 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   x64/Python 3.12 and 3.13. Visible desktop delivery and full performance
   qualification stay separate gates.
 - `Simple2DSolver` and `Simple3DSolver` retain each active flow call.
-  `start` begins the original call; `advance` completes one pressure, density,
-  boundary and F2 step. The existing one-shot entries use these operations.
+  `start` begins the call. `advance` completes an ordinary step and any enabled 2D proposal before the F2 check.
+  The existing one-shot entries use these operations.
   Active snapshots own the fields, F2 confirmation and stall state, result,
   histories, inlet target, clip count and pressure hierarchy construction state.
   Restore preserves the original iteration budget, momentum schedule and pressure
   rebuild cadence. It validates saved state before it writes caller fields.
   Initial correction arrays keep their original unused-value rules.
   Warm-call snapshots stay separate from active-call snapshots. Callbacks cannot
-  save or re-enter an unfinished step. Physical equations, ordering, cancellation
-  points and final boundary certificates stay unchanged. The full 3D controller
-  archives this state. Full 2D inner-state integration and application recovery remain separate tasks.
+  save or re-enter an unfinished step. Cancellation is checked before each ordinary or proposal step.
+  Physical equations and final boundary certificates stay unchanged.
+  Both full controllers archive active flow state for application recovery.
 - `EnthalpyRun` owns the existing H-FOU, T-FOU and T-SOU Picard iteration state.
   Each advance completes one original iteration, including its SOU proposal.
   An active snapshot owns five solution fields, enthalpy bounds, table bounds,
@@ -626,8 +626,20 @@ use this same criterion. `convergence_mode=None` resolves to `f2`. Explicit
 `legacy` is rejected. A static field triggers a check and never certifies
 convergence alone.
 
-The mass-only/velocity exit and its inner SIMPLE Anderson
-implementation are retired. Thermal and outer-coupling Anderson stay active.
+The mass-only/velocity exit and its associated inner SIMPLE implementation are retired.
+Full native 2D calls use `simple_2d_fixed_density_anderson_v1` for fixed-density sides.
+The shared Anderson helper proposes normalized velocity and pressure fields.
+Each proposal completes a pressure correction and consumes one step from the original budget.
+Acceptance requires no larger momentum residual, both original mass gates, and zero outlet backflow.
+A rejected proposal restores the ordinary fields and pressure cache.
+The original F2 confirmation, stall checks, and final outlet certificate still apply.
+If a proposal crosses a scheduled momentum check, the selected fields receive that check.
+Each advance records one residual sample for the selected fields.
+Iteration counts include all proposal steps.
+The saved state includes Anderson history, pressure scale, and proposal counts.
+`metadata.simple_flow` and the execution record identify each final flow call and its actual proposal counts.
+Standalone component defaults and the Python reference keep ordinary SIMPLE.
+Thermal and outer-coupling Anderson remain active.
 
 The 3D return path closes outlet fluxes again after the last density update and
 remeasures all four gates on that returned state. Its local mass check includes
