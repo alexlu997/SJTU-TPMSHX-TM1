@@ -112,6 +112,7 @@ def _execute(config, directory, *, checkpoint_interval_s, case_id, control, prog
     def solve(case, solver_control):
         def checkpoint(state):
             nonlocal next_save
+            solver_control.check_cancelled()
             started = perf_counter()
             saved = SolverCheckpoint(str(directory / 'case.h5'), case.case_id, case.model_refs,
                 state, f"full_{case.grid['dimension']}d_continuation_v1")
@@ -121,6 +122,7 @@ def _execute(config, directory, *, checkpoint_interval_s, case_id, control, prog
                 checkpoint_build=state['build'], checkpoint_phase=int(state['state.phase'][0]))
             next_save = perf_counter() + checkpoint_interval_s
             publish_status('running')
+            solver_control.check_cancelled()
             if pause_check is not None and pause_check():
                 raise PausedRun(checkpoint_file)
         return run_case(case, solver_control, resume_state=saved_state,

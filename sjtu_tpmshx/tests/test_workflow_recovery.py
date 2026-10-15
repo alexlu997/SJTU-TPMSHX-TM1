@@ -248,3 +248,26 @@ def test_repeated_runs_reuse_only_the_matching_available_runtime(tmp_path, stage
     record = json.loads((second / 'run.json').read_text())
     assert record['execution_library'] == str(libraries[-1])
     assert record['native_file'] == second_runtime.relative_to(second).as_posix()
+
+
+@pytest.mark.parametrize('when', ['before_save', 'during_save'])
+def test_cancel_takes_precedence_over_a_pending_pause(tmp_path, stages, monkeypatch, when):
+    cancelled = [False]
+    writer = recovery.save_solver_checkpoint
+    def write(saved, path):
+        writer(saved, path)
+        cancelled[0] = True
+    def solve(case, control, *, checkpoint, checkpoint_due, resume_state):
+        cancelled[0] = when == 'before_save'
+        checkpoint(stages[5])
+    monkeypatch.setattr(recovery, 'save_solver_checkpoint', write)
+    monkeypatch.setattr(recovery, 'run_case', solve)
+    control = replace(stages[4], cancel_check=lambda: cancelled[0])
+    directory = tmp_path / 'cancelled'
+    with pytest.raises(CancelledError):
+        recovery.compute_run(stages[0], directory, control=control,
+                             checkpoint_interval_s=30., pause_check=lambda: True)
+    assert json.loads((directory / 'run.json').read_text())['state'] == 'cancelled'
+    assert (directory / 'checkpoint.h5').exists() == (when == 'during_save')
+    assert not (directory / 'results.h5').exists()
+    assert not (directory / 'metrics.json').exists()
