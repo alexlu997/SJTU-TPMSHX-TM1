@@ -219,6 +219,9 @@ int main(void) {
        || !model_records.count || model_records.count!=r.outer_count)return 81;
     for(size_t i=0;i<model_records.count;++i) {
         const tpmshx_model_h_iteration_record_v1* row=&model_records.records[i];
+        tpmshx_model_h_acceleration_v1 policy={0};
+        if(tpmshx_full_3d_get_model_h_acceleration_v1(&r,i,&policy)
+           || policy.enabled!=c.refined_port_energy || policy.sweeps_per_block!=25 || policy.history_limit!=6)return 97;
         if(row->max_iterations!=17 || row->chunk_iterations!=250 || row->refined
            || row->temperature_tolerance!=1e-5 || row->q_relative_tolerance!=1e-8)return 82;
     }
@@ -244,7 +247,11 @@ int main(void) {
     tpmshx_full_3d_release_v1(&continued);tpmshx_full_3d_run_release_v1(&run);
     model_options.temperature_tolerance=99.;
     if(model_records.records[0].temperature_tolerance!=1e-5)return 83;
+    tpmshx_model_h_acceleration_v1 invalid_policy={99,98,97};
+    if(tpmshx_full_3d_get_model_h_acceleration_v1(&r,model_records.count,&invalid_policy)!=1
+       || invalid_policy.enabled!=99 || invalid_policy.sweeps_per_block!=98 || invalid_policy.history_limit!=97)return 98;
     tpmshx_full_3d_release_v1(&r);model_records.count=123;
+    if(tpmshx_full_3d_get_model_h_acceleration_v1(&r,0,&invalid_policy)!=1 || invalid_policy.enabled!=99)return 99;
     if(tpmshx_full_3d_get_model_h_iterations_v1(&r,&model_records)!=1 || model_records.count!=123)return 84;
     model_options.temperature_tolerance=NAN;r.stop=99;
     if(tpmshx_solve_full_3d_v4(&in,&c,&model_options,&cb,&r,error,sizeof error)!=1 || r.stop!=99 || r.owner)return 85;

@@ -158,18 +158,21 @@ def test_public_bootstrap_trace_roundtrip_and_old_diagnostics_remain_readable(na
     compare(restored.run_status, old.run_status)
 
 
-def test_old_full3d_library_missing_trace_has_explicit_capability_error(native_path, monkeypatch):
+@pytest.mark.parametrize('symbol,message', [
+    ('tpmshx_full_3d_get_bootstrap_trace_v1', 'lacks bootstrap trace v1; rebuild'),
+    ('tpmshx_full_3d_get_model_h_acceleration_v1', 'lacks model-h acceleration records; rebuild')])
+def test_old_full3d_library_missing_query_has_explicit_capability_error(native_path, monkeypatch, symbol, message):
     from sjtu_tpmshx.solvers.backends.cpp import full_3d
     library = full_3d.ct.CDLL(str(native_path))
 
     class OldAPI:
         def __getattr__(self, name):
-            if name == 'tpmshx_full_3d_get_bootstrap_trace_v1':
+            if name == symbol:
                 raise AttributeError(name)
             return getattr(library, name)
 
     monkeypatch.setattr(full_3d.ct, 'CDLL', lambda path: OldAPI())
-    with pytest.raises(ValueError, match='lacks bootstrap trace v1; rebuild'):
+    with pytest.raises(ValueError, match=message):
         full_3d.NativeFull3DDriver(native_path)
 
 
@@ -708,6 +711,8 @@ def test_public_model_h_controls_retain_native_calls_and_startup_budget(native_p
     assert all(row['settings']['temperature_update_tolerance_K'] == 1e-5
                and row['settings']['q_relative_tolerance'] == 1e-8 for row in records)
     assert result.metadata['execution_record']['numerics']['effective_settings'] == records[-1]['settings']
+    assert all(row['settings']['acceleration'] == dict(enabled=False, sweeps_per_block=25, history_limit=6)
+               for row in records)
     assert not result.run_status['converged']
     for row in result.metadata['diagnostics']['_ltne_info']:
         if 'coupling_startup' in row:
@@ -1217,7 +1222,8 @@ def test_inner_flow_checkpoint_keeps_complete_result(native_path, phase, iterati
 
 @pytest.mark.parametrize('damage', ['flow_budget', 'flow_monitor', 'flow_previous', 'flow_field',
                                     'thermal_budget', 'remaining_budget', 'owner', 'initial',
-                                    'shared_field', 'iteration', 'thermal_input', 'record_budget', 'initial_value'])
+                                    'shared_field', 'iteration', 'thermal_input', 'record_budget', 'initial_value',
+                                    'acceleration', 'acceleration_sweeps', 'acceleration_history', 'sweep_block'])
 def test_inner_checkpoint_rejects_damaged_iteration(native_path, damage):
     from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
     cfg, p = _inner_prepared('model_h_accelerated')
@@ -1253,6 +1259,11 @@ def test_inner_checkpoint_rejects_damaged_iteration(native_path, damage):
         saved['state.thermal.value.initial.0'][0] += 1.
     elif damage == 'record_budget':
         saved['state.thermal.value.record.model_h_iterations.0.max_iterations'][0] += 1
+    elif damage in ('acceleration', 'acceleration_sweeps', 'acceleration_history'):
+        field = 'accelerate' if damage == 'acceleration' else damage
+        saved['state.thermal.value.record.model_h_iterations.0.'+field][0] = 0
+    elif damage == 'sweep_block':
+        saved['state.thermal.value.model_h_3d.value.iteration.chunk.value.sweep_block'][0] = 5
     elif damage == 'shared_field':
         saved['state.thermal.value.model_h_3d.value.iteration.temperature.0'] = saved['state.temperature.0'].copy()
     elif damage == 'iteration':
@@ -1446,3 +1457,32 @@ def test_co2_table_state_continues_after_process_exit(native_path, tmp_path, dim
     for name, metric in expected_metrics.metrics.items():
         assert actual_metrics.metrics[name].status == metric.status
         _exact_resume_values(actual_metrics.metrics[name].value, metric.value, name)
+
+
+@pytest.mark.parametrize('policy,code,error', [
+    ((1, 5, 16), 0, None), ((0, 25, 6), 0, None),
+    ((2, 5, 16), 0, 'invalid'), ((1, 0, 16), 0, 'invalid'),
+    ((1, 5, 1), 0, 'invalid'), ((1, 5, 16), 1, 'query failed')])
+def test_native_acceleration_records_validate_returned_values(policy, code, error):
+    import ctypes as ct
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import _Result
+    from sjtu_tpmshx.solvers.backends.cpp.model_h import (
+        _Acceleration, _IterationRecord, _IterationRecords, _copy_iteration_records)
+
+    rows = (_IterationRecord*1)(_IterationRecord(2, 3, 0, 17, 250, 1e-5, 1e-8, 17))
+    def iterations(result, output):
+        ct.cast(output, ct.POINTER(_IterationRecords))[0] = _IterationRecords(rows, 1)
+        return 0
+    def acceleration(result, index, output):
+        assert index == 0
+        ct.cast(output, ct.POINTER(_Acceleration))[0] = _Acceleration(*policy)
+        return code
+    result = _Result()
+    if error:
+        with pytest.raises(RuntimeError, match=error):
+            _copy_iteration_records(iterations, result, acceleration)
+    else:
+        record = _copy_iteration_records(iterations, result, acceleration)['records'][0]
+        assert record['outer_index'] == 2 and record['attempt'] == 3
+        assert record['settings']['acceleration'] == dict(enabled=bool(policy[0]),
+            sweeps_per_block=policy[1], history_limit=policy[2])

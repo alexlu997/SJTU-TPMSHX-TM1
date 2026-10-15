@@ -12,5 +12,6 @@ struct AndersonState {
 struct ModelHChunkState {
     std::size_t count=0,completed=0;
     AndersonState acceleration;
+    std::size_t sweep_block=25;
 };
 }  // namespace tpmshx

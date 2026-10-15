@@ -49,6 +49,8 @@ struct ModelHIterationSettings {
     std::size_t max_iterations,chunk_iterations;
     double temperature_tolerance,q_relative_tolerance;
     std::size_t total_iteration_budget;
+    bool accelerate=false;
+    std::size_t acceleration_sweeps=25,acceleration_history=6;
 };
 
 struct ModelHControl2D {

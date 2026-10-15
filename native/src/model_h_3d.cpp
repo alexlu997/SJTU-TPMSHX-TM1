@@ -355,7 +355,8 @@ struct ModelHRun3D::Impl {
         result=saved.result;previous_q=saved.iteration.previous_q;have_q=saved.iteration.have_q;
         previous=Eigen::Map<const Eigen::VectorXd>(saved.iteration.previous.data(),
             static_cast<Eigen::Index>(saved.iteration.previous.size()));
-        if(saved.iteration.chunk)chunk.emplace(saved.iteration.chunk->count,saved.iteration.previous.size(),*saved.iteration.chunk);
+        if(saved.iteration.chunk)chunk.emplace(saved.iteration.chunk->count,saved.iteration.previous.size(),
+            *saved.iteration.chunk,acceleration_block(control),acceleration_history(control));
         carry=saved.carry;
         restore_iteration(t,saved.iteration);
     }
@@ -435,7 +436,7 @@ struct ModelHRun3D::Impl {
             const auto count=std::min(control.chunk_iterations,control.max_iterations-result.iterations);
             if(!chunk && cancelled())throw Cancelled{};
             if(control.accelerate) {
-                if(!chunk)chunk.emplace(count);
+                if(!chunk)chunk.emplace(count,acceleration_block(control),acceleration_history(control));
                 chunk->advance(t,solve_b,[&](std::size_t n){return step(n);},
                     [&](Eigen::VectorXd& x,const Eigen::VectorXd& candidate){return trial(x,candidate);},result.residual);
                 if(!chunk->complete()) { boundary=true;return; }

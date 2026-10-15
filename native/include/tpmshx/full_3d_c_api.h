@@ -272,6 +272,9 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v4(
  * Invalid or released owners return 1 and preserve the output. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_model_h_iterations_v1(
     const tpmshx_full3d_result_v1*,tpmshx_model_h_iteration_records_v1*);
+/* The index follows get_model_h_iterations_v1. Invalid queries preserve output. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_model_h_acceleration_v1(
+    const tpmshx_full3d_result_v1*,size_t,tpmshx_model_h_acceleration_v1*);
 
 #ifdef __cplusplus
 }

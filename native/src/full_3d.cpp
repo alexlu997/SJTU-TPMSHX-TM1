@@ -1546,7 +1546,12 @@ void validate_continuation(const Full3DInput& input,const Full3DControl& control
                 ?control.model_h_iterations.temperature_tolerance:.01;
             const double q_tolerance=control.model_h_iterations.q_relative_tolerance
                 ?control.model_h_iterations.q_relative_tolerance:g.nz==1?2e-8:1e-4;
-            if(settings.max_iterations!=budget || settings.chunk_iterations!=chunk
+            ModelHControl3D acceleration{};
+            acceleration.strict_energy_balance=!model && g.nz>1;
+            if(settings.accelerate!=(model && control.refined_port_energy)
+               || settings.acceleration_sweeps!=model_h_common::acceleration_block(acceleration)
+               || settings.acceleration_history!=model_h_common::acceleration_history(acceleration)
+               || settings.max_iterations!=budget || settings.chunk_iterations!=chunk
                || settings.temperature_tolerance!=tolerance || settings.q_relative_tolerance!=q_tolerance
                || settings.total_iteration_budget!=total)
                 throw std::invalid_argument("full 3D continuation thermal settings differ from input");

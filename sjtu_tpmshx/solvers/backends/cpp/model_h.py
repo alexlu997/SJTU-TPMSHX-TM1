@@ -56,7 +56,21 @@ def _iteration_query(library, dimension, result_type):
     return query
 
 
-def _copy_iteration_records(query, result):
+class _Acceleration(ct.Structure):
+    _fields_ = [('enabled', ct.c_uint32), ('sweeps_per_block', ct.c_size_t), ('history_limit', ct.c_size_t)]
+
+
+def _acceleration_query(library, result_type):
+    try:
+        query = library.tpmshx_full_3d_get_model_h_acceleration_v1
+    except AttributeError as exc:
+        raise ValueError('native library lacks model-h acceleration records; rebuild the library') from exc
+    query.argtypes = [ct.POINTER(result_type), ct.c_size_t, ct.POINTER(_Acceleration)]
+    query.restype = ct.c_int
+    return query
+
+
+def _copy_iteration_records(query, result, acceleration_query=None):
     view = _IterationRecords()
     if query(ct.byref(result), ct.byref(view)):
         raise RuntimeError('native model-h iteration query failed')
@@ -76,6 +90,14 @@ def _copy_iteration_records(query, result):
                           temperature_update_tolerance_K=row.temperature_tolerance,
                           q_relative_tolerance=row.q_relative_tolerance,
                           total_iteration_budget=row.total_iteration_budget)))
+        if acceleration_query is not None:
+            policy = _Acceleration()
+            if acceleration_query(ct.byref(result), index, ct.byref(policy)):
+                raise RuntimeError('native model-h acceleration query failed')
+            if policy.enabled not in (0, 1) or not policy.sweeps_per_block or policy.history_limit < 2:
+                raise RuntimeError('invalid native model-h acceleration record')
+            records[-1]['settings']['acceleration'] = dict(enabled=bool(policy.enabled),
+                sweeps_per_block=policy.sweeps_per_block, history_limit=policy.history_limit)
     return dict(version='model_h_iterations_v1', records=records)
 
 
