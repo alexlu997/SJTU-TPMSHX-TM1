@@ -224,6 +224,13 @@ void mixed_model_checks() {
             view(resumed.solid_k),resumed.state(),c);
         for(std::size_t step=0;step<2;++step)require(owner->advance()==EnthalpyPhase::active,"mixed fixture finished before its save");
         const auto saved=owner->snapshot();owner.reset();
+        for(std::size_t side=0;side<2;++side) {
+            auto damaged=saved;damaged.result.enthalpy_update_scale[side]*=1000.;
+            Case destination=resumed;const auto before=destination;
+            rejects<std::invalid_argument>([&]{EnthalpyRun invalid(destination.grid(),destination.side(0),destination.side(1),
+                view(destination.solid_k),destination.state(),c,damaged);},"changed mixed update scale was accepted");
+            require(same_fields(destination,before),"invalid mixed update scale changed destination fields");
+        }
         owner=std::make_unique<EnthalpyRun>(resumed.grid(),resumed.side(0),resumed.side(1),view(resumed.solid_k),resumed.state(),c,saved);
         while(owner->phase()==EnthalpyPhase::active)owner->advance();
         require(same_fields(data,resumed),"mixed continuation changed physical fields");
@@ -297,7 +304,7 @@ void energy_run_checks() {
     Case sample(0,1,Fluid::air,Fluid::water);auto c=controls(true);c.max_iterations=30;
     auto run=std::make_unique<EnthalpyRun>(sample.grid(),sample.side(0),sample.side(1),view(sample.solid_k),sample.state(),c);
     run->advance();run->advance();const auto saved=run->snapshot();
-    for(int damage=0;damage<19;++damage) {
+    for(int damage=0;damage<20;++damage) {
         auto state=saved;
         switch(damage) {
         case 0:state.fields[0].pop_back();break;
@@ -319,6 +326,7 @@ void energy_run_checks() {
         case 16:state.result.final_audit->solid_abs_sum=-1.;break;
         case 17:state.result.enthalpy_update_scale[0]=0.;break;
         case 18:state.result.reference_independent_update=!c.reference_independent_update;break;
+        case 19:state.result.enthalpy_update_scale[0]*=1000.;break;
         }
         Case destination=sample;const auto before=destination;
         rejects<std::invalid_argument>([&]{EnthalpyRun invalid(destination.grid(),destination.side(0),destination.side(1),

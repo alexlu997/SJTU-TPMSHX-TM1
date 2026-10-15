@@ -265,21 +265,26 @@ struct EnthalpyRun::Impl {
         side_a.emplace(a,state.h_a,state.a,n,temperature);
         side_b.emplace(b,state.h_b,state.b,n,temperature);
     }
-    void initialize_update_scale() {
-        result.reference_independent_update=control.reference_independent_update;
+    std::array<double,2> update_scale(const std::array<double,2>& inlet_enthalpy) {
+        std::array<double,2> scale;
         if(!control.reference_independent_update) {
-            result.enthalpy_update_scale.fill(std::max(std::abs(side_a->hin-side_b->hin),1.));
-            return;
+            scale.fill(std::max(std::abs(inlet_enthalpy[0]-inlet_enthalpy[1]),1.));
+            return scale;
         }
         const double difference=std::abs(a.inlet_temperature-b.inlet_temperature);
         const EnthalpySideView* sides[]{&a,&b};
         for(std::size_t side=0;side<2;++side) {
             const auto& input=*sides[side];
             const auto properties=eos.evaluate(input.fluid,input.inlet_temperature,input.inlet_pressure,input.energy);
-            result.enthalpy_update_scale[side]=std::max(properties.cp*difference,1.);
-            if(!std::isfinite(result.enthalpy_update_scale[side]))
+            scale[side]=std::max(properties.cp*difference,1.);
+            if(!std::isfinite(scale[side]))
                 throw std::domain_error("nonfinite enthalpy update scale");
         }
+        return scale;
+    }
+    void initialize_update_scale() {
+        result.reference_independent_update=control.reference_independent_update;
+        result.enthalpy_update_scale=update_scale(result.inlet_enthalpy);
     }
     void prepare_scratch() {
         ra.resize(check_energy?n:0);rb.resize(check_energy?n:0);rs.resize(check_energy?n:0);
@@ -660,6 +665,8 @@ struct EnthalpyRun::Impl {
                 throw std::invalid_argument("unexpected saved energy table bounds");
             if(r.used_bicubic[s] && !tables)throw std::invalid_argument("invalid saved energy table use");
         }
+        if(r.enthalpy_update_scale!=update_scale(r.inlet_enthalpy))
+            throw std::invalid_argument("saved energy update scale differs from its inlet state");
         const auto& history=saved.acceleration;
         if(history.history_limit!=6 || history.condition_limit!=1e10
             || (!sou && !history.x.empty()) || (sou && (r.iterations==0)!=history.x.empty()))

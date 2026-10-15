@@ -188,13 +188,14 @@ typedef struct {
     const tpmshx_energy_effective_settings_v1* outer;
     size_t outer_count;
 } tpmshx_full_2d_energy_effective_settings_v1;
+/* Copy the scales from the completed thermal call. Cancellation and other
+ * thermal modes have available=0. Invalid arguments return 1 and preserve output. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_energy_update_scale_v1(
+    const tpmshx_full_2d_result_v2*,tpmshx_energy_update_scale_v1*);
 /* Read controls from the live result owner. Values do not imply convergence.
  * available requires a completed true-h call, including a budget-limited call.
  * Cancellation and other thermal modes have available=0. Outer entries match
  * result.outer_history. Invalid or released arguments return 1 and preserve output. */
-/* Returns the scales from the completed thermal call. The result owns the evidence. */
-TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_energy_update_scale_v1(
-    const tpmshx_full_2d_result_v2*,tpmshx_energy_update_scale_v1*);
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_energy_effective_settings_v1(
     const tpmshx_full_2d_result_v2*,tpmshx_full_2d_energy_effective_settings_v1*);
 typedef struct {
