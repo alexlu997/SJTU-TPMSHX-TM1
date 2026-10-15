@@ -61,7 +61,9 @@ The H-FOU and temperature updates share the fluid and solid row assembly in `ene
 The H row transports actual enthalpy and uses the frozen h-to-T tangent for conduction and exchange.
 It retains the enthalpy bounds, clip counts and serial A, B, solid sweep order.
 The caller retains input checks, EOS state updates, iteration budgets and stopping gates.
-H boundary duties and audits retain their existing signed physical powers.
+Actual-state H audits use the same physical fluid and solid rows.
+Their face powers use actual m*h directly, with the existing signed boundary duties.
+The public coupled-only audit keeps unavailable fluid residuals as NaN and does not read fluid conductivity.
 No extra temperature or face arrays are needed for this assembly.
 
 The 2D and 3D model-h drivers share one accelerated chunk owner.

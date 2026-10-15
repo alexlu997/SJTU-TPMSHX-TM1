@@ -24,7 +24,9 @@ struct EnergyMesh {
         return g.dx[c[0]]*g.dy[c[1]]*g.dz[c[2]];
     }
     double face_area(std::size_t axis,const std::array<std::size_t,3>& c) const {
-        return volume(c)/width[axis][c[axis]];
+        // Opposite cells must use the same physical face area.
+        const auto a=(axis+1)%3,b=(axis+2)%3;
+        return width[a][c[a]]*width[b][c[b]];
     }
     bool inside(const std::array<std::size_t,3>& c,std::size_t axis,int sign) const {
         return sign<0 ? c[axis]>0 : c[axis]+1<count[axis];
@@ -59,17 +61,30 @@ struct PointEnergyCoefficients {
 };
 static_assert(sizeof(PointEnergyCoefficients)==7*sizeof(double));
 struct LinearFace { double C,B; };
+// The public H audit uses one prescribed enthalpy for all inward faces.
+struct EnthalpyAuditPhase {
+    const FluidEnergyView& fluid;
+    TemperatureBoundary inlet{-1,0.};
+    ArrayView<const double> source_W_m3{};
+    bool inlet_conduction=false;
+};
 inline double optional(ArrayView<const double> a,std::size_t p,double fallback=0.) {
     return a.size ? a[p] : fallback;
 }
+inline double effective_K(const EnthalpyAuditPhase& f,std::size_t p) { return f.fluid.conductivity[p]; }
 inline double effective_K(const EnergyPhase& f,std::size_t p) { return f.K[p]; }
 inline double effective_K(const PhysicalEnergyPhase& f,std::size_t p) { return f.K[p]; }
 inline double effective_K(const FrozenEnergyPhase& f,std::size_t p) {
     return f.fluid.dh[p]*f.fluid.cp[p];
 }
+inline ArrayView<const double> exchange(const EnthalpyAuditPhase& f) { return f.fluid.hv; }
 inline ArrayView<const double> exchange(const EnergyPhase& f) { return f.hv; }
 inline ArrayView<const double> exchange(const PhysicalEnergyPhase& f) { return f.hv; }
 inline ArrayView<const double> exchange(const FrozenEnergyPhase& f) { return f.fluid.hv; }
+inline double transport(const EnthalpyAuditPhase& f,std::size_t axis,std::size_t face) {
+    const ArrayView<const double> mass[]{f.fluid.mass_x,f.fluid.mass_y,f.fluid.mass_z};
+    return mass[axis][face];
+}
 inline double transport(const EnergyPhase& f,std::size_t axis,std::size_t face) {
     return f.faces.capacity[axis][face];
 }
@@ -89,6 +104,14 @@ inline bool known_inlet(const EnergyMesh& m,const TemperatureBoundary& b,
 }
 inline double inlet_temperature(const TemperatureBoundary& b,std::size_t patch) {
     return optional(b.profile,patch,b.inlet_temperature);
+}
+inline LinearFace face_energy(const EnthalpyAuditPhase& f,const EnergyMesh& m,
+                              std::size_t p,std::size_t axis,int sign) {
+    const double mass=transport(f,axis,m.face(axis,p,sign));
+    double h=f.fluid.h[p];
+    if(sign*mass<0.) h=m.inside(m.coord(p),axis,sign)
+        ?f.fluid.h[m.neighbor(p,axis,sign)]:f.fluid.h_in;
+    return {0.,mass*h};
 }
 inline LinearFace face_energy(const EnergyPhase& f,const EnergyMesh& m,
                               std::size_t p,std::size_t axis,int sign) {
@@ -125,6 +148,7 @@ double inlet_conductance(const EnergyMesh& m,const Phase& f,std::size_t p,
         *optional(f.inlet.opening,m.patch(axis,c),1.)/m.width[axis][c[axis]];
 }
 
+inline bool second_order_inlet(const EnthalpyAuditPhase&) { return false; }
 inline bool second_order_inlet(const EnergyPhase& f) { return f.second_order_inlet_conduction; }
 inline bool second_order_inlet(const PhysicalEnergyPhase& f) { return f.second_order_inlet_conduction; }
 inline bool second_order_inlet(const FrozenEnergyPhase&) { return false; }
