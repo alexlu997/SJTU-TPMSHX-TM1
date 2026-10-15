@@ -164,8 +164,13 @@ with TemporaryDirectory() as temporary:
         window._open_quick_design()
         assert window._qd_dialog.run_control is control
         assert window.compute.backend == 'cpp'
-        assert not window.spin_cpu_cores.isEnabled()
+        assert window.spin_cpu_cores.isEnabled()
         assert window.spin_cpu_cores.text() == '自动'
+        window.spin_cpu_cores.setValue(1)
+        assert window.run_control.cpu_threads == 1
+        assert window._qd_dialog.run_control is window.run_control
+        window.spin_cpu_cores.setValue(0)
+        assert window.run_control.cpu_threads is None
         assert 'numba' not in sys.modules
         assert 'sjtu_tpmshx.solvers.threads' not in sys.modules
         window.deleteLater()
