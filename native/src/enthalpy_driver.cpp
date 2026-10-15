@@ -9,7 +9,8 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
-#include <sstream>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace tpmshx {
@@ -36,11 +37,9 @@ ArrayView<const double> view(const std::vector<double>& a) { return {a.data(),a.
 ArrayView<const double> view(ArrayView<double> a) { return {a.data,a.size}; }
 ArrayView<double> output(std::vector<double>& a) { return {a.data(),a.size()}; }
 
-std::string location(const GridView& grid, std::size_t p, const std::string& stage) {
-    std::ostringstream text;
-    text << stage << ": index=(" << p/(grid.ny*grid.nz) << ", " << (p/grid.nz)%grid.ny
-         << ", " << p%grid.nz << ")";
-    return text.str();
+std::string location(const GridView& grid, std::size_t p, std::string_view stage) {
+    return std::string(stage) + ": index=(" + std::to_string(p/(grid.ny*grid.nz)) + ", "
+        + std::to_string((p/grid.nz)%grid.ny) + ", " + std::to_string(p%grid.nz) + ")";
 }
 
 struct Side {
