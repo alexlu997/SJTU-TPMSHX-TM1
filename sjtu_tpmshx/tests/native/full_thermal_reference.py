@@ -211,6 +211,10 @@ def selected_energy_reference(case=None):
         else:
             ranges(c, (c['Ta_init'],c['Tb_init']), 'main-warm', 'real-cell(x,y)')
         result = driver(*args, **kwargs)
+        native = result[3]['_native_state']
+        if 'enthalpy_eos' in native:
+            # The kept Python capture reads this original key.
+            native['sco2_enthalpy_eos'] = native.pop('enthalpy_eos')
         ranges(c, result[:2], 'main-return' if dimension == 2 else 'main',
                'real-cell(x,y)' if dimension == 2 else 'real-cell(x,y,z)-return')
         observed['last'] = (c, result[:2])
