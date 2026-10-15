@@ -8,6 +8,11 @@ from scripts import build_native_dependencies as native
 
 
 OVERLOAD = "fatal: remote error: GitLab is currently unable to handle this request due to load (ID test)"
+RETRY_ERRORS = (
+    OVERLOAD,
+    "error: RPC failed; HTTP 503 curl 22 The requested URL returned error: 503",
+    "fatal: unable to access 'https://eigen.googlesource.com/mirror/': The requested URL returned error: 503",
+)
 
 
 @pytest.fixture
@@ -48,27 +53,29 @@ def source_fetch(tmp_path, monkeypatch):
     return cache, source, spec, state, delays
 
 
-def test_load_retry_preserves_logs_and_reuses_completed_source(source_fetch):
+@pytest.mark.parametrize("fetch_error", RETRY_ERRORS)
+def test_load_retry_preserves_logs_and_reuses_completed_source(source_fetch, fetch_error):
     cache, source, spec, state, delays = source_fetch
-    state["errors"] = [OVERLOAD, OVERLOAD]
+    state["errors"] = [fetch_error, fetch_error]
     native.fetch_eigen(cache)
     assert delays == [10, 20]
     assert state["fetches"] == [["git", "fetch", "--depth", "1", spec["repository"], spec["commit"]]] * 3
     log = (cache / "logs/fetch-eigen.log").read_text()
-    assert log.count(OVERLOAD) == 2 and log.count("exit=128") == 2
+    assert log.count(fetch_error) == 2 and log.count("exit=128") == 2
     assert (source / "Eigen/SparseLU").read_text() == "fixed header\n"
     native.fetch_eigen(cache)
     assert len(state["fetches"]) == 3
 
 
-def test_retry_limit_leaves_a_checkout_that_the_next_call_can_resume(source_fetch):
+@pytest.mark.parametrize("fetch_error", RETRY_ERRORS)
+def test_retry_limit_leaves_a_checkout_that_the_next_call_can_resume(source_fetch, fetch_error):
     cache, source, _, state, delays = source_fetch
-    state["errors"] = [OVERLOAD] * 5
-    with pytest.raises(RuntimeError, match="GitLab is currently unable"):
+    state["errors"] = [fetch_error] * 5
+    with pytest.raises(RuntimeError, match="GitLab is currently unable|The requested URL returned error: 503"):
         native.fetch_eigen(cache)
     assert delays == [10, 20, 40, 80]
     assert (source / ".git").is_dir() and not state["ready"]
-    assert (cache / "logs/fetch-eigen.log").read_text().count(OVERLOAD) == 5
+    assert (cache / "logs/fetch-eigen.log").read_text().count(fetch_error) == 5
     native.fetch_eigen(cache)
     assert len(state["fetches"]) == 6 and state["ready"]
     assert sum(command[1] == "init" for command in state["commands"]) == 1
