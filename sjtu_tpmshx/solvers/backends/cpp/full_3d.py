@@ -492,23 +492,28 @@ class NativeFull3DDriver:
                     red_black = bool(c.red_black_energy and scheme == 2)
                     if scheme == 2:
                         algorithm = _temperature_algorithm(self.library, scheme)
+                if detached['mode'] == 'model_h' or scheme != 2:
+                    query = self.library.tpmshx_full_3d_get_model_enthalpy_evidence_v1
+                    query.argtypes = [ct.POINTER(_Result), ct.POINTER(TemperatureEvidence)]
+                    query.restype = ct.c_int
+                    extra = TemperatureEvidence()
+                    if query(ct.byref(result), ct.byref(extra)):
+                        raise RuntimeError('native full 3D temperature evidence query failed')
+                    if detached['mode'] == 'model_h':
+                        if extra.available or extra.algorithm:
+                            if extra.available != 1 or extra.physical_dimension != 3 or not extra.algorithm:
+                                raise RuntimeError('native strict model-h identity or ledger is invalid')
+                            algorithm = extra.algorithm.decode('ascii')
+                    elif not data.solve_b and data.sides[0].fluid == 2:
+                        identity = 'legacy_frozen_cp_single_a_cc_v1'
+                        if (extra.available or extra.physical_dimension != 3
+                                or extra.algorithm != identity.encode('ascii')):
+                            raise RuntimeError('native single-A sCO2 temperature identity or absent ledger is invalid')
+                        detached['temperature_transport'] = identity
+                        algorithm = identity
                     else:
-                        query = self.library.tpmshx_full_3d_get_model_enthalpy_evidence_v1
-                        query.argtypes = [ct.POINTER(_Result), ct.POINTER(TemperatureEvidence)]
-                        query.restype = ct.c_int
-                        extra = TemperatureEvidence()
-                        if query(ct.byref(result), ct.byref(extra)):
-                            raise RuntimeError('native full 3D temperature evidence query failed')
-                        if not data.solve_b and data.sides[0].fluid == 2:
-                            identity = 'legacy_frozen_cp_single_a_cc_v1'
-                            if (extra.available or extra.physical_dimension != 3
-                                    or extra.algorithm != identity.encode('ascii')):
-                                raise RuntimeError('native single-A sCO2 temperature identity or absent ledger is invalid')
-                            detached['temperature_transport'] = identity
-                            algorithm = identity
-                        else:
-                            detached['temperature_evidence'] = copy_temperature_evidence(extra, shape, 3)
-                            algorithm = detached['temperature_evidence']['algorithm']
+                        detached['temperature_evidence'] = copy_temperature_evidence(extra, shape, 3)
+                        algorithm = detached['temperature_evidence']['algorithm']
                 detached['native_metadata'] = dict(abi=self.abi, algorithm=algorithm, red_black=red_black)
                 if 'temperature_transport' in detached:
                     detached['native_metadata']['transport'] = detached['temperature_transport']

@@ -969,7 +969,7 @@ Thermal routes are selected by their present qualification conditions:
 | Route | Shared implementation and kept differences |
 |---|---|
 | True enthalpy | Pairs containing CO2 or sCO2 use signed mass/enthalpy transport for uniform and continuous geometry. The 2D adapter calls the shared 3D enthalpy kernel. Full3D CC uses the kept G4 two-sweep warm-up before the selected enthalpy solve. Discrete-zone and offset constraints stay. |
-| Model enthalpy | Existing air/water h(T) transport. 2D includes water/water when unzoned and symmetric. 3D currently includes air/air, air/water and water/air with its Nz, variable-property, dual-flow, conservative and mask conditions. |
+| Model enthalpy | Existing air/water h(T) transport. 2D includes water/water when unzoned and symmetric. Native 3D includes every ordered air/water pair with Nz>1, variable properties, two solved sides and conservative transport. Water/water and asymmetric geometry use the strict boundary contract. |
 | Temperature | The native fullCC air/water candidate reuses strict integral-h(T) model-h drivers while keeping the requested temperature route. Python temperature, QD/standalone fixed-coefficient, staggered research and private single-A sCO2 routes keep their separately stated contracts. |
 
 Full3D true-h keeps its original two temperature sweeps before each enthalpy call.
@@ -1068,9 +1068,14 @@ scale, with a floor of one native power unit. This ratio must be at most 1e-7. F
 does not certify convergence.
 
 Prescribed B has reservoir power but no solved
-B residual. This strict path supports its existing fullCC asymmetric and 3D
-water/water consumers without extending the non-strict product model-h route
-or granting optimizer eligibility.
+B residual. Native 3D water/water and asymmetric air/water runs use this strict
+path under the model-h selection conditions above. They consume completed
+SIMPLE mass faces without the former capacity-flux projection.
+Their results record the strict face algorithm, common physical ledger and
+model-h reporting audit. The original non-strict model-h boundary rule stays
+active for symmetric air/air, air/water and water/air runs.
+Explicit fixed-capacity, prescribed-side and research consumers retain their
+separate contracts. Applicability and optimizer eligibility remain separate checks.
 
 Product model-h Richardson refinement has a 12000-sweep ceiling so the finer
 grid can meet its criteria. The fullCC temperature-role refinement keeps its

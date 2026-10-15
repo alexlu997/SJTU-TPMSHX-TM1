@@ -90,8 +90,7 @@ int main() {
         Full3DControl control;
         const bool co2=uses_co2_eos(a)||uses_co2_eos(b);
         const auto selected=resolve_full_3d_physics(spatial,control);
-        const auto ordinary=co2?EnergyRelation::eos_h_TP:
-            a==Fluid::water && b==Fluid::water?EnergyRelation::capacity_temperature:EnergyRelation::integral_cp_T;
+        const auto ordinary=co2?EnergyRelation::eos_h_TP:EnergyRelation::integral_cp_T;
         for(std::size_t side=0;side<2;++side) {
             const auto fluid=side?b:a;const auto& physics=selected[side];
             require(physics.energy==(co2 && !uses_co2_eos(fluid)?EnergyRelation::integral_cp_T:ordinary));
@@ -102,7 +101,7 @@ int main() {
         if(co2) continue;
         spatial.geometry.asymmetric=true;
         for(const auto& physics:resolve_full_3d_physics(spatial,control))
-            require(physics.energy==EnergyRelation::capacity_temperature);
+            require(physics.energy==EnergyRelation::integral_cp_T);
         control.conservative=false;
         for(const auto& physics:resolve_full_3d_physics(spatial,control))
             require(physics.energy==EnergyRelation::integral_cp_T);

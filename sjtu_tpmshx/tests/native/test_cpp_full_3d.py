@@ -422,17 +422,55 @@ def test_prepared_spatial_and_asymmetric_geometry(native_path,design_mode):
     else:
         cfg=replace(cfg,geometry=replace(cfg.geometry,delta_levelset=.05))
     prepared=prepare_case(cfg,case_id='native-'+design_mode)
-    a=cpp_run(prepared,control(native_path));e=python_run(prepared)
+    a=cpp_run(prepared,control(native_path))
     if design_mode == 'asymmetric':
+        from sjtu_tpmshx.tests.native.test_backend_engineering_parity import _physical_gates
+        _physical_gates(a)
         audit = evaluate_physical_balance(a)['energy']
         assert audit['status'] == 'available' and abs(audit['telescoping_error']) < 1e-6
-        assert evaluate_physical_balance(e)['energy']['status'] == 'unavailable'
-        # The Python capacity-temperature path has no full energy audit.
-        a = replace(a, boundary_fluxes=dict(a.boundary_fluxes, energy=None))
+        assert a.metadata['native']['algorithm'] == 'model_h_tface_sou_sou_strict_v3'
+        # The retained Python capacity model has a different energy equation.
+        return
+    e=python_run(prepared)
     for key in ('fields','boundary_fluxes','pressure_evidence','run_status'):
         compare(getattr(a,key),getattr(e,key),design_mode+'/'+key)
     for key in ('Q','Q_A','Q_B','dP_A','dP_B','energy_imbalance_rel'):
         compare(evaluate(a).metrics[key].value,evaluate(e).metrics[key].value,key)
+
+
+@pytest.mark.parametrize('pair,offset', [('water-water', 0.), ('air-air', .05),
+                                        ('water-air', .05), ('air-water', .05)])
+def test_two_sided_integral_defaults_keep_physics_and_saved_evidence(native_path, tmp_path, pair, offset):
+    from sjtu_tpmshx.io.result_io import load_result, save_result
+    from sjtu_tpmshx.tests.native.test_backend_engineering_parity import _physical_gates
+    cfg = _config(3, True)
+    fluids = [replace(getattr(cfg, 'fluid_'+side), type=fluid,
+                      u_mps=3. if fluid == 'air' else .2,
+                      T_in_K=(350. if fluid == 'water' else 500.) if side == 'A' else 300.,
+                      P_in_Pa=2e5 if fluid == 'air' else 2e6)
+              for side, fluid in zip('AB', pair.split('-'))]
+    cfg = replace(cfg, fluid_A=fluids[0], fluid_B=fluids[1],
+                  geometry=replace(cfg.geometry, delta_levelset=offset))
+    prepared = prepare_case(cfg, case_id='integral-'+pair)
+    actual = cpp_run(prepared, control(native_path))
+    _physical_gates(actual)
+    record = actual.metadata['execution_record']
+    assert record['numerics']['thermal_mode'] == 'model_h'
+    assert record['numerics']['algorithm'] == 'model_h_tface_sou_sou_strict_v3'
+    for side, fluid in zip('AB', pair.split('-')):
+        selected = record['sides'][side]
+        assert selected['fluid'] == fluid and selected['solved']
+        assert selected['energy']['relation'] == 'integral_cp_T'
+        assert selected['energy']['property_provider'] == 'model_resource'
+    for call in record['numerics']['model_h_iterations']['records']:
+        assert call['settings']['acceleration'] == dict(enabled=False, sweeps_per_block=5, history_limit=16)
+    ledger = actual.boundary_fluxes['energy']
+    assert ledger['physical_boundary_complete']
+    assert all(np.isfinite(value).all() for value in ledger['residual'].values())
+    save_result(actual, tmp_path/'result.h5')
+    restored = load_result(tmp_path/'result.h5')
+    for name in ('fields', 'field_metadata', 'boundary_fluxes', 'pressure_evidence', 'run_status', 'metadata'):
+        _exact_resume_values(getattr(restored, name), getattr(actual, name), name)
 
 
 @pytest.mark.parametrize('pair',['air-air','air-water','water-air','air-sco2','sco2-water'])
@@ -1152,12 +1190,13 @@ def test_checkpoint_rejects_changed_velocity_relaxation(native_path):
 def _inner_prepared(route):
     from sjtu_tpmshx.tests.native.test_full_3d import prepared
     eos = route in ('true_h', 'true_h_cc', 'temperature_fou', 'temperature_sou', 'single_sco2_cc')
-    cfg, p = prepared('sco2-water' if eos else 'air-air',
+    pair = 'sco2-water' if eos else 'water-water' if route == 'strict_water' else 'air-air'
+    cfg, p = prepared(pair,
                       counts=(3, 4, 1) if route == 'nz1_cc' else (3, 4, 2),
                       directions=(0, 3) if route == 'nz1_cc' else None,
                       max_iter_simple=40, outer_anderson=True)
     p.update(max_outer=2, ltne_max_iter=800)
-    if route == 'model_h_accelerated':
+    if route in ('model_h_accelerated', 'strict_water'):
         cfg['port_wall_refine'] = True
     elif route in ('temperature_cc', 'nz1_cc'):
         cfg.update(variable_rho_cp=False, conservative_ltne=False, force_cc_ltne=True)
@@ -1189,7 +1228,7 @@ def _inner_position(state):
 
 
 @pytest.mark.parametrize('route', [
-    'model_h', 'model_h_accelerated', 'temperature_cc', 'nz1_cc',
+    'model_h', 'model_h_accelerated', 'strict_water', 'temperature_cc', 'nz1_cc',
     'staggered', 'staggered_conservative', 'staggered_rb', 'single_cc',
     'single_sco2_cc', 'true_h', 'true_h_cc', 'temperature_fou', 'temperature_sou'])
 @pytest.mark.parametrize('after_update', [False, True])
@@ -1347,15 +1386,20 @@ save_result(result, result_path)
 
 @pytest.mark.parametrize('target,algorithm', [('6', 'legacy_h_fou'), ('7', 'legacy_h_fou'),
     ('9', 'legacy_h_fou'), ('10', 'legacy_h_fou'), ('model_h_3d', 'legacy_h_fou'),
+    ('strict_water', 'legacy_h_fou'),
     ('enthalpy', 'legacy_h_fou'), ('enthalpy', 'temperature_fou'), ('enthalpy', 'temperature_sou')])
 def test_inner_checkpoint_continues_after_process_exit(native_path, tmp_path, target, algorithm):
     from sjtu_tpmshx.io.case_io import save_case
     from sjtu_tpmshx.io.result_io import load_result
     from sjtu_tpmshx.io.solver_checkpoint_io import load_solver_checkpoint
     from sjtu_tpmshx.solvers.backends.cpp.full_3d import run_case
-    prepared_case = case('sco2-water' if target == 'enthalpy' else 'air-air', cap=2)
+    pair = 'sco2-water' if target == 'enthalpy' else 'water-water' if target == 'strict_water' else 'air-air'
+    prepared_case = case(pair, cap=2)
     parameters = dict(prepared_case.parameters, max_iter_simple=40, ltne_max_iter=800,
                       ltne_enthalpy_outer=12, ltne_enthalpy_nsweep=3, enthalpy_algorithm=algorithm)
+    if target == 'strict_water':
+        parameters['port_wall_refine'] = True
+        target = 'model_h_3d'
     prepared_case = replace(prepared_case, parameters=parameters)
     case_path = save_case(prepared_case, tmp_path/'case.h5')
     saved_path, result_path = tmp_path/'inner.h5', tmp_path/'result.h5'

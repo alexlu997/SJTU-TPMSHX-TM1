@@ -166,11 +166,14 @@ void anchor(const Full3DSide& side,Full3DFlowState& state) {
 struct Cancelled {};
 void cancel(const Full3DControl& c) { if(c.cancel && c.cancel(c.context)) throw Cancelled{}; }
 
+bool strict_model_h(const Full3DInput& in) {
+    return in.geometry.asymmetric || (in.a.fluid==Fluid::water && in.b.fluid==Fluid::water);
+}
+
 Full3DThermalMode thermal_mode(const Full3DInput& in,const Full3DControl& c) {
     if(in.solve_b && (uses_co2_eos(in.a.fluid) || uses_co2_eos(in.b.fluid)))return Full3DThermalMode::true_h;
-    if(in.geometry.grid.nz>1 && c.variable_rho_cp && in.solve_b && c.conservative && !in.geometry.asymmetric
-        && ((in.a.fluid==Fluid::air && (in.b.fluid==Fluid::air || in.b.fluid==Fluid::water))
-            || (in.a.fluid==Fluid::water && in.b.fluid==Fluid::air)))return Full3DThermalMode::model_h;
+    if(in.geometry.grid.nz>1 && c.variable_rho_cp && in.solve_b && c.conservative)
+        return Full3DThermalMode::model_h;
     return Full3DThermalMode::temperature;
 }
 
@@ -786,7 +789,7 @@ Full3DThermalEvidence Runtime::prepare(bool warm,std::size_t outer) {
                 warm?std::vector<std::size_t>{g.nx,g.ny,g.nz}:std::vector<std::size_t>{},
                 warm?view(temperature[s]):ArrayView<const double>{&a.inlet_temperature,1},8);
         e.rho_cp[s]=rho_cp[s];
-        if(cc) {
+        if(cc || model_h) {
             if(legacy_single_sco2) e.temperature_cp_coefficients[s].fill(std::numeric_limits<double>::quiet_NaN());
             else if(a.fluid==Fluid::air) e.temperature_cp_coefficients[s]=model_coefficients::model_h_air;
             else if(a.fluid==Fluid::water) e.temperature_cp_coefficients[s]=model_coefficients::model_h_water;
@@ -828,6 +831,7 @@ void Runtime::start_thermal(const Full3DThermalRunState* saved) {
         ModelHControl3D mc{run.budget,250,1e-4,control.thermal_relaxation,
             control.refined_port_energy?1.:control.thermal_relaxation,control.thermal_relaxation,
             true,control.refined_port_energy,control.red_black_energy,control.cancel,nullptr,control.context};
+        mc.strict_energy_balance=strict_model_h(input);
         const auto settings=model_h_common::apply_iteration_tolerances(mc,control.model_h_iterations,total);
         if(!saved)run.record.model_h_iterations.push_back(settings);
         const ModelHFluid3D a{input.a.fluid,view(conductivity[0]),view(hv[0]),view(e.mass[0][0]),view(e.mass[0][1]),view(e.mass[0][2]),ba,input.sources[0]};
@@ -993,8 +997,10 @@ bool Runtime::advance_thermal() {
         auto value=model_h_3d->take_result();model_h_3d.reset();
         solved={value.stop,value.iterations,value.residual,value.q_b};
         if(!value.physical_audit_available)e.physical_audit.reset();
-        if(mode==Full3DThermalMode::model_h)e.model_h=std::move(value);
-        else e.temperature_algorithm="model_h_tface_sou_sou_strict_v3";
+        if(mode==Full3DThermalMode::model_h) {
+            if(strict_model_h(input))e.temperature_algorithm="model_h_tface_sou_sou_strict_v3";
+            e.model_h=std::move(value);
+        } else e.temperature_algorithm="model_h_tface_sou_sou_strict_v3";
     } else if(model_h_2d) {
         if(model_h_2d->phase()==ModelHPhase::active && model_h_2d->advance()==ModelHPhase::active)return false;
         const auto value=model_h_2d->take_result();model_h_2d.reset();
@@ -1569,7 +1575,7 @@ void validate_continuation(const Full3DInput& input,const Full3DControl& control
             const double q_tolerance=control.model_h_iterations.q_relative_tolerance
                 ?control.model_h_iterations.q_relative_tolerance:g.nz==1?2e-8:1e-4;
             ModelHControl3D acceleration{};
-            acceleration.strict_energy_balance=!model && g.nz>1;
+            acceleration.strict_energy_balance=model?strict_model_h(input):g.nz>1;
             if(settings.accelerate!=(model && control.refined_port_energy)
                || settings.acceleration_sweeps!=model_h_common::acceleration_block(acceleration)
                || settings.acceleration_history!=model_h_common::acceleration_history(acceleration)

@@ -419,6 +419,10 @@ struct ModelHRun3D::Impl {
         const auto& mesh=*mesh_;auto& side_a=*side_a_;auto& side_b=*side_b_;
         if (control.strict_energy_balance) {
             if (!result.physical_audit_available && result.iterations) strict_audit();
+            if (solve_b) {
+                result.audit=audit(mesh,side_a,side_b,ks,source_s,t,nullptr);
+                result.audit_available=true;
+            }
         } else if (!result.audit_available) {
             result.audit=audit(mesh,side_a,side_b,ks,source_s,t,physical_audit); result.audit_available=true;
         }
