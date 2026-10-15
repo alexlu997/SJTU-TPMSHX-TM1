@@ -131,7 +131,7 @@ def expected_boundary_power(enthalpy, inlet_h, mass, widths, *, sou):
 def test_executed_algorithm_and_original_convergence_gates(completed):
     prepared, result = completed
     algorithm = prepared.parameters['enthalpy_algorithm']
-    assert result.backend_id == 'cpp' and result.backend_version == 'full_3d_v2'
+    assert result.backend_id == 'cpp' and result.backend_version == 'full_3d_v5'
     assert result.metadata['thermal_mode'] == 'conservative_energy'
     record = result.metadata['execution_record']
     assert record['numerics']['unknown'] == 'T'
@@ -145,7 +145,7 @@ def test_executed_algorithm_and_original_convergence_gates(completed):
     assert all(np.isfinite(value) and value >= 1. for value in normalization['sides'].values())
     assert result.run_status['converged'] is True
     diagnostics = result.metadata['diagnostics']
-    assert diagnostics['native_full_3d']['entry_version'] == 2
+    assert diagnostics['native_full_3d']['entry_version'] == 5
     convergence = diagnostics['convergence_detail']
     for key in ('simple_ok', 'ltne_ok', 'outer_converged', 'fields_finite', 'envelope_ok'):
         assert convergence[key] is True, key
@@ -164,7 +164,7 @@ def test_executed_algorithm_and_original_convergence_gates(completed):
         assert balance['energy_algorithm'] == settings['energy_algorithm'] == algorithm
         assert type(balance['energy_algorithm_version']) is int
         assert balance['energy_algorithm_version'] == settings['energy_algorithm_version'] == VERSIONS[algorithm]
-        assert settings['driver_abi'] == 2 and settings['nonlinear_state_update'] == 'per_side_energy_relation'
+        assert settings['driver_abi'] == 5 and settings['nonlinear_state_update'] == 'per_side_energy_relation'
         assert settings['coupled_energy_tol'] == settings['equation_energy_tol'] == .001
         assert settings['temperature_update_tol_K'] == 1e-8
         assert settings['enthalpy_face_reconstruction'] == ('FOU' if algorithm == ALGORITHMS[0] else 'h_minmod_outlet_v1')
@@ -304,7 +304,7 @@ assert case.parameters['enthalpy_temperature_tol_K'] == 1e-8
 assert main(['solve', sys.argv[1], sys.argv[3], '--backend', 'cpp',
     '--native-library', sys.argv[4], '--native-table-directory', sys.argv[5]]) == 0
 new = load_result(sys.argv[3])
-assert new.backend_id == 'cpp' and new.backend_version == 'full_3d_v2'
+assert new.backend_id == 'cpp' and new.backend_version == 'full_3d_v5'
 assert new.run_status['converged'] is True
 assert new.metadata['thermal_mode'] == 'conservative_energy'
 assert new.metadata['diagnostics']['true_h_balance'] == old.metadata['diagnostics']['true_h_balance']
@@ -362,7 +362,7 @@ def test_missing_candidate_native_capability_never_falls_back(native_path, monke
 
     class OldLibrary:
         def __getattr__(self, name):
-            if name == symbol:
+            if name in (symbol, 'tpmshx_solve_full_3d_v5'):
                 raise AttributeError(name)
             return getattr(library, name)
     monkeypatch.setattr(driver, 'library', OldLibrary())
@@ -392,7 +392,7 @@ def test_missing_version_query_blocks_candidate_before_solve_but_allows_legacy(n
 
     class OldLibrary:
         def __getattr__(self, name):
-            if name == 'tpmshx_energy_algorithm_version_v1':
+            if name in ('tpmshx_solve_full_3d_v5', 'tpmshx_energy_algorithm_version_v1'):
                 raise AttributeError(name)
             if name == 'tpmshx_solve_full_3d_v1':
                 return legacy
@@ -465,16 +465,17 @@ def test_cancel_returns_no_field_result_and_releases_owned_state(native_path, mo
 def test_interrupt_after_candidate_native_return_releases_owner(native_path, monkeypatch):
     driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
     library, release, released = driver.library, driver.release, []
-    call = library.tpmshx_solve_full_3d_v2
+    call = library.tpmshx_solve_full_3d_v5
 
     def interrupted(*args):
+        call.argtypes = interrupted.argtypes
         assert call(*args) == 0
-        assert args[4]._obj.owner
+        assert args[7]._obj.owner
         raise KeyboardInterrupt('candidate native-return')
 
     class InterruptedLibrary:
         def __getattr__(self, name):
-            return interrupted if name == 'tpmshx_solve_full_3d_v2' else getattr(library, name)
+            return interrupted if name == 'tpmshx_solve_full_3d_v5' else getattr(library, name)
 
     def tracked(pointer):
         assert pointer._obj.owner
@@ -519,7 +520,7 @@ def test_large_grid_packing_keeps_legacy_rb_and_candidate_serial(tmp_path, monke
     # Resolve/pack genuine prepared 32768-cell input, but never load a library
     # or solve a large grid merely to inspect the automatically selected flag.
     library = SimpleNamespace(tpmshx_full_3d_abi_version=lambda: 1,
-        tpmshx_solve_full_3d_v1=capture, tpmshx_solve_full_3d_v2=capture,
+        tpmshx_solve_full_3d_v1=capture, tpmshx_solve_full_3d_v2=capture, tpmshx_solve_full_3d_v5=capture,
         tpmshx_full_3d_release_v1=lambda *_: pytest.fail('packing allocated native ownership'),
         tpmshx_full_3d_get_bootstrap_trace_v1=lambda *_: None,
         tpmshx_full_3d_get_last_closure_ranges_v1=lambda *_: pytest.fail('packing requested result evidence'),

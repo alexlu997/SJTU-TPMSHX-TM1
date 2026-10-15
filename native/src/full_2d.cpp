@@ -400,11 +400,14 @@ struct FlowPair {
     std::mutex mutex;
     std::condition_variable work,joined;
     std::size_t generation=0,finished=0;
-    bool complete=false,shutdown=false;
+    bool complete=false,shutdown=false,serial=false;
     FlowPair(const Full2DProblem& p,const Full2DControl& c,const Full2DResult& r,
              const std::array<FluidProperties,2>& inlet,const std::array<Full2DFlowRunState,2>* saved=nullptr) {
         for(std::size_t side=0;side<2;++side)
             sides[side]=std::make_unique<FlowRun>(p,c,side,r,inlet[side],saved?&(*saved)[side]:nullptr);
+        if(!c.enthalpy.cpu_threads)throw std::invalid_argument("CPU thread count must be positive");
+        serial=c.enthalpy.cpu_threads==1;
+        if(serial)return;
         try {
             for(std::size_t side=0;side<2;++side)workers[side]=std::thread([this,side] {
                 std::size_t seen=0;
@@ -426,6 +429,10 @@ struct FlowPair {
         work.notify_all();for(auto& worker:workers)if(worker.joinable())worker.join();
     }
     void advance(bool drain) {
+        if(serial) {
+            for(auto& side:sides)side->advance(drain);
+            return;
+        }
         std::unique_lock<std::mutex> lock(mutex);
         finished=0;complete=drain;errors={};++generation;work.notify_all();
         joined.wait(lock,[&] {return finished==2;});

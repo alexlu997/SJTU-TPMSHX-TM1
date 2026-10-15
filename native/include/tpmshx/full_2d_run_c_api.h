@@ -47,6 +47,19 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_snapshot_v1(
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_take_result_v1(
     void* run,tpmshx_full_2d_result_v2*,char* error,size_t capacity);
 TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_full_2d_run_release_v1(void** run);
+/* Thread limits are host controls. Restore can use a different positive limit. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_create_v2(const size_t* shape,const double* const* arrays,const size_t* sizes,
+    const tpmshx_full_2d_config_v2* config,const tpmshx_energy_options_v1* energy,
+    const tpmshx_full_2d_energy_control_v4* explicit_energy,
+    const tpmshx_model_h_iteration_options_v1* model_h,
+    size_t cpu_threads,const tpmshx_full_2d_callbacks_v2* callbacks,void** run,char* error,size_t capacity);
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_restore_v2(const size_t* shape,const double* const* arrays,const size_t* sizes,
+    const tpmshx_full_2d_config_v2* config,const tpmshx_energy_options_v1* energy,
+    const tpmshx_full_2d_energy_control_v4* explicit_energy,
+    const tpmshx_model_h_iteration_options_v1* model_h,
+    size_t cpu_threads,const tpmshx_full_2d_callbacks_v2* callbacks,
+    const tpmshx_run_state_field_v1* fields,size_t count,void** run,char* error,size_t capacity);
+
 #ifdef __cplusplus
 }
 #endif

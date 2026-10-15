@@ -228,12 +228,15 @@ int solve(const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,
     const tpmshx_energy_options_v1* energy,
     const tpmshx_energy_options_v2* strict_energy,
     const tpmshx_model_h_iteration_options_v1* model_h,
-    const tpmshx_full3d_callbacks_v1* callbacks,tpmshx_full3d_result_v1* result,char* error,size_t capacity) {
+    const tpmshx_full3d_callbacks_v1* callbacks,tpmshx_full3d_result_v1* result,char* error,size_t capacity,size_t cpu_threads=1) {
     if(!error || !capacity)return 1;
     try {
         if(!in || !c || !result)throw std::invalid_argument("null full 3D API argument");
+        if((energy!=nullptr)+(strict_energy!=nullptr)+(model_h!=nullptr)>1)throw std::invalid_argument("conflicting full energy options");
         const auto data=prepared_input(in);
         auto control=controls(*c,callbacks);
+        if(!cpu_threads)throw std::invalid_argument("CPU thread count must be positive");
+        control.enthalpy.cpu_threads=cpu_threads;
         if(model_h)control.model_h_iterations=model_h_c_views::iteration_options(*model_h);
         if(energy)apply_energy_options(control.enthalpy,*energy);
         if(strict_energy) {
@@ -269,7 +272,7 @@ struct RunOwner {
     std::unique_ptr<Full3DRun> run;
     RunOwner(const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,
              const tpmshx_energy_options_v2* energy,const tpmshx_model_h_iteration_options_v1* model_h,
-             const tpmshx_full3d_callbacks_v1* cb)
+             const tpmshx_full3d_callbacks_v1* cb,size_t cpu_threads=1)
         :data(prepared_input(in)) {
         if(!c)throw std::invalid_argument("null full 3D run controls");
         if(cb)callbacks=*cb;
@@ -282,6 +285,8 @@ struct RunOwner {
                 throw std::invalid_argument("strict full 3D energy controls require the existing two-sided true-h route");
             apply_energy_options(control.enthalpy,*energy);
         }
+        if(!cpu_threads)throw std::invalid_argument("CPU thread count must be positive");
+        control.enthalpy.cpu_threads=cpu_threads;
         storage.reserve(19);
         auto copy=[&](ArrayView<const double>& field) {
             if(field.size && !field.data)throw std::invalid_argument("null full 3D input array");
@@ -439,9 +444,14 @@ int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_restore_v1(
 int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_create_v2(
     const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,const tpmshx_energy_options_v2* energy,
     const tpmshx_model_h_iteration_options_v1* model_h,const tpmshx_full3d_callbacks_v1* callbacks,void** run,char* error,size_t capacity) {
+    return tpmshx_full_3d_run_create_v3(in,c,energy,model_h,1,callbacks,run,error,capacity);
+}
+int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_create_v3(
+    const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,const tpmshx_energy_options_v2* energy,
+    const tpmshx_model_h_iteration_options_v1* model_h,size_t cpu_threads,const tpmshx_full3d_callbacks_v1* callbacks,void** run,char* error,size_t capacity) {
     return guarded_run([&] {
         if(!run || *run)throw std::invalid_argument("full 3D run output must be null");
-        auto owner=std::make_unique<RunOwner>(in,c,energy,model_h,callbacks);
+        auto owner=std::make_unique<RunOwner>(in,c,energy,model_h,callbacks,cpu_threads);
         owner->run=std::make_unique<Full3DRun>(owner->data,owner->control);*run=owner.release();
     },error,capacity);
 }
@@ -449,9 +459,15 @@ int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_restore_v2(
     const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,const tpmshx_energy_options_v2* energy,
     const tpmshx_model_h_iteration_options_v1* model_h,const tpmshx_full3d_callbacks_v1* callbacks,const tpmshx_run_state_field_v1* fields,size_t count,
     void** run,char* error,size_t capacity) {
+    return tpmshx_full_3d_run_restore_v3(in,c,energy,model_h,1,callbacks,fields,count,run,error,capacity);
+}
+int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_restore_v3(
+    const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,const tpmshx_energy_options_v2* energy,
+    const tpmshx_model_h_iteration_options_v1* model_h,size_t cpu_threads,const tpmshx_full3d_callbacks_v1* callbacks,const tpmshx_run_state_field_v1* fields,size_t count,
+    void** run,char* error,size_t capacity) {
     return guarded_run([&] {
         if(!run || *run)throw std::invalid_argument("full 3D run output must be null");
-        auto owner=std::make_unique<RunOwner>(in,c,energy,model_h,callbacks);
+        auto owner=std::make_unique<RunOwner>(in,c,energy,model_h,callbacks,cpu_threads);
         const auto state=import_full_3d_state(owner->data,owner->control,state_record(fields,count));
         owner->run=std::make_unique<Full3DRun>(owner->data,owner->control,state);*run=owner.release();
     },error,capacity);
@@ -493,4 +509,12 @@ int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_take_result_v1(
 void TPMSHX_THERMAL_CALL tpmshx_full_3d_run_release_v1(void** run) {
     if(run) {delete static_cast<RunOwner*>(*run);*run=nullptr;}
 }
+}
+
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v5(
+    const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* control,
+    const tpmshx_energy_options_v1* energy,const tpmshx_energy_options_v2* strict_energy,
+    const tpmshx_model_h_iteration_options_v1* model_h,size_t cpu_threads,
+    const tpmshx_full3d_callbacks_v1* callbacks,tpmshx_full3d_result_v1* result,char* error,size_t capacity) {
+    return solve(in,control,energy,strict_energy,model_h,callbacks,result,error,capacity,cpu_threads);
 }

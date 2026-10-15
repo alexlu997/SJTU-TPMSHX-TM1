@@ -51,7 +51,7 @@ def enumerate_select(cases, arrangement="cross", nodes=None, rho_s=RHO_S,
             # remain in this process; no queued candidates launch after that wave.
             worker_control = RunControl(
                 backend=control.backend, native_library=control.native_library,
-                native_table_directory=control.native_table_directory)
+                native_table_directory=control.native_table_directory, cpu_threads=control.cpu_threads)
             width = min(effective_n_jobs(n_jobs), len(combos))
             with Parallel(n_jobs=n_jobs, backend="loky") as parallel:
                 for start in range(0, len(combos), width):

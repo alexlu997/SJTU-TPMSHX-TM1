@@ -1,5 +1,6 @@
 """Numba thread-count control helper (`solvers/threads.py`)."""
 import numba
+import pytest
 import sjtu_tpmshx.solvers.threads as th
 
 
@@ -98,3 +99,37 @@ def test_advisory_silent_when_pinned_or_small(monkeypatch):
     with _Capture() as cap:
         th.warn_if_default_pool(1_000_000)
     assert not cap.records
+
+
+@pytest.mark.parametrize('limit', [None, 1])
+@pytest.mark.parametrize('fail', [False, True])
+def test_public_python_run_restores_the_calling_thread_mask(monkeypatch, limit, fail):
+    from sjtu_tpmshx.domain.field_result import FieldResult
+    from sjtu_tpmshx.domain.module_ports import RunControl
+    from sjtu_tpmshx.solvers.api import run_case
+    from sjtu_tpmshx.solvers.backends.python.two_d import execution
+    from sjtu_tpmshx.tests.io_tm1.test_case_io import sample_case
+
+    case = sample_case()
+    previous = th.get_solver_threads()
+    initial = th.set_solver_threads(min(2, th.max_threads()))
+    seen = []
+    def solve(*args):
+        seen.append(th.get_solver_threads())
+        if fail:
+            raise RuntimeError('controlled solver failure')
+        return FieldResult('thread-test', case.case_id, 'python', grid=case.grid,
+                           run_status={'execution': 'completed', 'converged': False})
+    monkeypatch.setattr(execution, 'run_case', solve)
+    monkeypatch.setattr('sjtu_tpmshx.solvers.execution_record.full_execution_record', lambda *args: {})
+    monkeypatch.setattr('sjtu_tpmshx.solvers.applicability_evidence.capture_applicability', lambda *args: {})
+    try:
+        if fail:
+            with pytest.raises(RuntimeError, match='controlled solver failure'):
+                run_case(case, RunControl(cpu_threads=limit))
+        else:
+            run_case(case, RunControl(cpu_threads=limit))
+        assert seen == [initial if limit is None else 1]
+        assert th.get_solver_threads() == initial
+    finally:
+        th.set_solver_threads(previous)

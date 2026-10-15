@@ -91,7 +91,7 @@ def _execute(config, directory, *, checkpoint_interval_s, case_id, control, prog
         checkpoint_interval_s=checkpoint_interval_s, checkpoint_count=0,
         checkpoint_seconds=0., checkpoint_build=None, resumed_from=resumed_from,
         native_source=str(library), native_file='runtime/' + library.name,
-        gui_provenance=gui_provenance)
+        gui_provenance=gui_provenance, requested_cpu_threads=control.cpu_threads)
 
     def publish_status(state, **changes):
         record.update(state=state, updated_utc=datetime.now(timezone.utc).isoformat(), **changes)

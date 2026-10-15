@@ -1,6 +1,7 @@
 from sjtu_tpmshx.design.cases import DesignCase
 from sjtu_tpmshx.design.select import enumerate_select
 from sjtu_tpmshx.design import select, sizing
+from sjtu_tpmshx.domain.module_ports import RunControl
 import pytest
 
 
@@ -26,6 +27,7 @@ def test_failed_selection_preserves_completed_candidates(monkeypatch, tmp_path, 
     failure = ValueError('candidate failed')
 
     def candidate(cases, topo, l, t, *args, **kwargs):
+        assert kwargs['control'].cpu_threads == 3
         (tmp_path / str(l)).write_text('started')
         if l == 6:
             raise failure
@@ -35,7 +37,7 @@ def test_failed_selection_preserves_completed_candidates(monkeypatch, tmp_path, 
     completed = []
     with pytest.raises(ValueError, match='candidate failed') as caught:
         enumerate_select([], nodes=dict(topo=['Diamond'], l=[4, 5, 6, 7, 8, 9], t=[.4]),
-                         n_jobs=n_jobs, completed=completed)
+                         n_jobs=n_jobs, completed=completed, control=RunControl(cpu_threads=3))
     assert [d.l for d in completed] == [4, 5]
     assert not any((tmp_path / str(l)).exists() for l in (8, 9))
     if n_jobs == 1:

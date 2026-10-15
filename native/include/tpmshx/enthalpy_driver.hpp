@@ -51,6 +51,7 @@ struct EnthalpyControl {
     bool require_enthalpy_update_on_temperature = false;
     // Full runs use a scale that does not depend on either enthalpy origin.
     bool reference_independent_update = false;
+    std::size_t cpu_threads = 1;
 };
 
 inline EnthalpyControl full_enthalpy_control(std::size_t dimension,
@@ -58,6 +59,7 @@ inline EnthalpyControl full_enthalpy_control(std::size_t dimension,
     EnthalpyControl control{dimension == 2 ? (has_water ? 12000u : 5000u) : 1500u,
         dimension == 2 ? 3u : 25u, .6, 1e-3, .001, .001, ""};
     control.algorithm = algorithm;
+    control.cpu_threads = dimension == 2 ? 2u : 1u;
     if (algorithm != EnthalpyAlgorithm::legacy_h_fou) {
         control.sweeps = 5;
         control.omega = algorithm == EnthalpyAlgorithm::temperature_sou ? .2 : .6;

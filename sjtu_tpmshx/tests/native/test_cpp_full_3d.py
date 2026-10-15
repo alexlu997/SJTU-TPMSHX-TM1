@@ -231,15 +231,15 @@ def test_public_legacy_strict_v3_reports_executed_final_and_outer_settings(nativ
     # new directory policy, or silent skip substitutes for legacy execution.
     actual = cpp_run(prepared, control(native_path))
     diagnostics = actual.metadata['diagnostics']
-    assert actual.backend_id == 'cpp' and actual.backend_version == 'full_3d_v3'
+    assert actual.backend_id == 'cpp' and actual.backend_version == 'full_3d_v5'
     assert actual.metadata['thermal_mode'] == 'true_h'
-    assert diagnostics['native_full_3d']['entry_version'] == 3
+    assert diagnostics['native_full_3d']['entry_version'] == 5
     history = diagnostics['_ltne_info']
     assert len(history) == 2
     expected = dict(update_tol=1e-6, coupled_energy_tol=1e-5, equation_energy_tol=1e-5,
         max_iterations=1000, sweeps=25, omega=.6, energy_algorithm='legacy_h_fou',
         require_enthalpy_update_on_temperature=False,
-        effective_settings_source='native_completed_thermal_call', driver_abi=3)
+        effective_settings_source='native_completed_thermal_call', driver_abi=5)
     for balance in [diagnostics['true_h_balance'], *(row['true_h_balance'] for row in history)]:
         settings = balance['effective_settings']
         assert {key: settings[key] for key in expected} == expected
@@ -285,15 +285,16 @@ def test_interrupt_after_native_return_releases_owner(native_path, monkeypatch):
     from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
     from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
     driver = NativeFull3DDriver(native_path, table_directory=ROOT/'.cache/native-deps/tables')
-    call, release, released = driver.call, driver.release, []
+    call, release, released = driver.library.tpmshx_solve_full_3d_v5, driver.release, []
     def interrupted(*args):
+        call.argtypes = interrupted.argtypes
         assert call(*args) == 0
         raise KeyboardInterrupt('native-return')
     def tracked(pointer):
         assert pointer._obj.owner
         release(pointer)
         released.append(pointer._obj.owner)
-    monkeypatch.setattr(driver, 'call', interrupted)
+    monkeypatch.setattr(driver.library, 'tpmshx_solve_full_3d_v5', interrupted)
     monkeypatch.setattr(driver, 'release', tracked)
     with pytest.raises(KeyboardInterrupt, match='native-return'):
         driver.run_prepared(*build_execution_inputs(case(cap=2)), control(native_path))
@@ -348,7 +349,8 @@ def test_native_call_borrows_case_arrays_and_recovers(native_path, monkeypatch, 
 
     def init(self, *args, **kwargs):
         original_init(self, *args, **kwargs)
-        original_call = self.call
+        symbol = 'tpmshx_solve_full_2d_v6' if dimension == 2 else 'tpmshx_solve_full_3d_v5'
+        original_call = getattr(self.library, symbol)
 
         def call(*args):
             if dimension == 2:
@@ -366,10 +368,10 @@ def test_native_call_borrows_case_arrays_and_recovers(native_path, monkeypatch, 
                 assert same_buffer == (source.dtype == np.float64)
                 np.testing.assert_array_equal(np.ctypeslib.as_array(pointer, shape=(source.size,)), source.ravel())
             entered.append(True)
+            original_call.argtypes = call.argtypes
             return original_call(*args)
 
-        call.argtypes = original_call.argtypes
-        self.call = call
+        setattr(self.library, symbol, call)
 
     monkeypatch.setattr(driver_type, '__init__', init)
 

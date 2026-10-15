@@ -75,9 +75,18 @@ def run_case(case: CaseData, control: RunControl = RunControl(), *,
         raise ValueError(f'unsupported physical dimension: {dimension}')
     provenance = dict(preparation=case.metadata.get('provenance', {'status':'not_recorded'}),
                       execution=source_context())
-    with warning_scope({}) as records:
-        result = (run_full(case, control, resume_state=resume_state, checkpoint=checkpoint,
-                      checkpoint_due=checkpoint_due) if continuation else run(case, control))
+    previous_threads = None
+    if control.backend == 'python' and control.cpu_threads is not None:
+        from .threads import get_solver_threads, set_solver_threads
+        previous_threads = get_solver_threads()
+        set_solver_threads(control.cpu_threads)
+    try:
+        with warning_scope({}) as records:
+            result = (run_full(case, control, resume_state=resume_state, checkpoint=checkpoint,
+                          checkpoint_due=checkpoint_due) if continuation else run(case, control))
+    finally:
+        if previous_threads is not None:
+            set_solver_threads(previous_threads)
     diagnostics = dict(result.metadata.get('diagnostics', {}))
     diagnostics['warnings_list'] = tuple(dict.fromkeys((
         *case.metadata.get('warnings', ()), *diagnostics.get('warnings_list', ()),

@@ -280,6 +280,13 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_model_h_iterations
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_model_h_acceleration_v1(
     const tpmshx_full3d_result_v1*,size_t,tpmshx_model_h_acceleration_v1*);
 
+/* Execute with a positive CPU thread limit. Numerical controls are unchanged. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_3d_v5(
+    const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* control,
+    const tpmshx_energy_options_v1* energy,const tpmshx_energy_options_v2* strict_energy,
+    const tpmshx_model_h_iteration_options_v1* model_h,size_t cpu_threads,
+    const tpmshx_full3d_callbacks_v1* callbacks,tpmshx_full3d_result_v1* result,char* error,size_t capacity);
+
 #ifdef __cplusplus
 }
 #endif
