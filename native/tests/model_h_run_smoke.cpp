@@ -132,13 +132,19 @@ template<int dimension> void continuation() {
     for(bool warm:{false,true})for(std::size_t budget:{0U,51U,130U,265U}) {
         Fixture<dimension> expected(accelerate,strict,red_black,warm,budget);
         const auto reference=expected.solve();
-        for(std::size_t cut=0;cut<8;++cut) {
+        for(std::size_t cut=0;cut<(dimension==3 && strict && accelerate?20U:8U);++cut) {
             Fixture<dimension> actual(accelerate,strict,red_black,warm,budget);
             auto owner=actual.start();
             rejects<std::logic_error>([&]{owner->take_result();});
             for(std::size_t i=0;i<cut && owner->phase()==ModelHPhase::active;++i)owner->advance();
             if(owner->phase()==ModelHPhase::active) {
                 auto state=owner->snapshot();
+                if(state.iteration.chunk) {
+                    const auto& chunk=*state.iteration.chunk;
+                    require(chunk.sweep_block==(dimension==3 && strict?5U:25U)
+                        && chunk.acceleration.history_limit==(dimension==3 && strict?12U:6U),
+                        "thermal owner used the wrong acceleration policy");
+                }
                 state.iteration.temperature[0][0]+=1.;
                 require(state.iteration.temperature!=owner->snapshot().iteration.temperature,"snapshot aliases live temperatures");
                 state=owner->snapshot();owner.reset();
@@ -179,7 +185,7 @@ template<int dimension> void invalid_states() {
     auto owner=fixture.start();owner->advance();
     const auto saved=owner->snapshot();
     require(saved.iteration.chunk.has_value(),"fixture missed an inner thermal boundary");
-    for(int damage=0;damage<12;++damage) {
+    for(int damage=0;damage<13;++damage) {
         auto state=saved;
         switch(damage) {
         case 0:state.iteration.temperature[0].pop_back();break;
@@ -197,6 +203,7 @@ template<int dimension> void invalid_states() {
             if constexpr(dimension==2)state.result.last_a.pop_back();
             else state.carry[2].pop_back();
             break;
+        case 12:state.iteration.chunk->sweep_block=5;break;
         }
         const auto original=fixture.temperature;
         rejects<std::invalid_argument>([&]{fixture.restore(state);});

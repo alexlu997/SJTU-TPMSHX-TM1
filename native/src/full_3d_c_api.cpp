@@ -406,6 +406,16 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_model_h_iterations_v1(
     const auto& owner=*static_cast<const Owner*>(result->owner);
     *records={owner.model_h_iterations.data(),owner.model_h_iterations.size()};return 0;
 }
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_model_h_acceleration_v1(
+    const tpmshx_full3d_result_v1* result,size_t index,tpmshx_model_h_acceleration_v1* policy) {
+    if(!result || !result->owner || !policy)return 1;
+    const auto& owner=*static_cast<const Owner*>(result->owner);
+    if(index>=owner.model_h_iterations.size())return 1;
+    const auto& call=owner.model_h_iterations[index];
+    const auto& settings=owner.result.outer[call.outer_index].model_h_iterations[call.attempt];
+    *policy={static_cast<uint32_t>(settings.accelerate),settings.acceleration_sweeps,settings.acceleration_history};
+    return 0;
+}
 
 extern "C" {
 int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_create_v1(

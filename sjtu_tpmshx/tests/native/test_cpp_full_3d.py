@@ -708,6 +708,8 @@ def test_public_model_h_controls_retain_native_calls_and_startup_budget(native_p
     assert all(row['settings']['temperature_update_tolerance_K'] == 1e-5
                and row['settings']['q_relative_tolerance'] == 1e-8 for row in records)
     assert result.metadata['execution_record']['numerics']['effective_settings'] == records[-1]['settings']
+    assert all(row['settings']['acceleration'] == dict(enabled=False, sweeps_per_block=25, history_limit=6)
+               for row in records)
     assert not result.run_status['converged']
     for row in result.metadata['diagnostics']['_ltne_info']:
         if 'coupling_startup' in row:
@@ -1446,3 +1448,32 @@ def test_co2_table_state_continues_after_process_exit(native_path, tmp_path, dim
     for name, metric in expected_metrics.metrics.items():
         assert actual_metrics.metrics[name].status == metric.status
         _exact_resume_values(actual_metrics.metrics[name].value, metric.value, name)
+
+
+@pytest.mark.parametrize('policy,code,error', [
+    ((1, 5, 12), 0, None), ((0, 25, 6), 0, None),
+    ((2, 5, 12), 0, 'invalid'), ((1, 0, 12), 0, 'invalid'),
+    ((1, 5, 1), 0, 'invalid'), ((1, 5, 12), 1, 'query failed')])
+def test_native_acceleration_records_validate_returned_values(policy, code, error):
+    import ctypes as ct
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import _Result
+    from sjtu_tpmshx.solvers.backends.cpp.model_h import (
+        _Acceleration, _IterationRecord, _IterationRecords, _copy_iteration_records)
+
+    rows = (_IterationRecord*1)(_IterationRecord(2, 3, 0, 17, 250, 1e-5, 1e-8, 17))
+    def iterations(result, output):
+        ct.cast(output, ct.POINTER(_IterationRecords))[0] = _IterationRecords(rows, 1)
+        return 0
+    def acceleration(result, index, output):
+        assert index == 0
+        ct.cast(output, ct.POINTER(_Acceleration))[0] = _Acceleration(*policy)
+        return code
+    result = _Result()
+    if error:
+        with pytest.raises(RuntimeError, match=error):
+            _copy_iteration_records(iterations, result, acceleration)
+    else:
+        record = _copy_iteration_records(iterations, result, acceleration)['records'][0]
+        assert record['outer_index'] == 2 and record['attempt'] == 3
+        assert record['settings']['acceleration'] == dict(enabled=bool(policy[0]),
+            sweeps_per_block=policy[1], history_limit=policy[2])

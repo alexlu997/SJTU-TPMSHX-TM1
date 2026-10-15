@@ -662,7 +662,9 @@ struct ThermalRun {
                 if(stored.max_iterations!=settings.max_iterations || stored.chunk_iterations!=settings.chunk_iterations
                     || stored.temperature_tolerance!=settings.temperature_tolerance
                     || stored.q_relative_tolerance!=settings.q_relative_tolerance
-                    || stored.total_iteration_budget!=settings.total_iteration_budget)
+                    || stored.total_iteration_budget!=settings.total_iteration_budget
+                    || stored.accelerate!=settings.accelerate || stored.acceleration_sweeps!=settings.acceleration_sweeps
+                    || stored.acceleration_history!=settings.acceleration_history)
                     throw std::invalid_argument("full 2D energy state differs from its iteration controls");
                 auto state=*saved->model_h;
                 for(const auto& field:state.iteration.temperature)if(!field.empty())
