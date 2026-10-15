@@ -19,7 +19,8 @@ def full_execution_record(case, result):
             settings = main_calls[-1]['settings']
     native = metadata.get('native', {})
     algorithm = settings.get('energy_algorithm', native.get('algorithm'))
-    table = metadata.get('model_metadata', {}).get('sco2_enthalpy_eos', {})
+    models = metadata.get('model_metadata', {})
+    table = models.get('enthalpy_eos', models.get('sco2_enthalpy_eos', {}))
     roles = case.metadata['model_roles']
     sides = {}
     for label, field in (('A', 'Ta'), ('B', 'Tb')):

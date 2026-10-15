@@ -118,14 +118,33 @@ void EnthalpyEOS::enable_bicubic(const std::string& absolute_table_directory) {
     if (!bicubic_) bicubic_ = make_eos_state("BICUBIC&HEOS","CO2");
 }
 
+bool EnthalpyEOS::bicubic_pressure(double pressure) {
+    auto& state = heos(Fluid::co2);
+    return pressure >= state.p_triple() && pressure <= state.pmax();
+}
+
 double EnthalpyEOS::temperature(Fluid fluid, double enthalpy, double pressure,
-                               bool use_bicubic, const std::string& where) {
+                               bool& use_bicubic, const std::string& where) {
     double result;
     try {
         if (!std::isfinite(enthalpy) || !std::isfinite(pressure) || pressure <= 0.)
             throw std::invalid_argument("true-h inverse requires finite h and positive Pa(abs)");
-        if (use_bicubic && (fluid != Fluid::sco2 || !bicubic_))
+        if (use_bicubic && (!uses_co2_eos(fluid) || !bicubic_))
             throw std::invalid_argument("true-h BICUBIC state was not configured for CO2");
+        if (use_bicubic && fluid == Fluid::co2) {
+            try {
+                bicubic_->update(CoolProp::HmassP_INPUTS,enthalpy,pressure);
+                if (bicubic_->phase() == CoolProp::iphase_twophase)
+                    throw std::invalid_argument("CO2 table candidate is two-phase");
+                result = bicubic_->T();
+                validate(fluid,result,pressure,where);
+                return result;
+            } catch (const CoolProp::CoolPropBaseError&) {
+                use_bicubic = false;
+            } catch (const std::invalid_argument&) {
+                use_bicubic = false;
+            }
+        }
         auto& state = use_bicubic ? *bicubic_ : heos(fluid);
         state.update(CoolProp::HmassP_INPUTS,enthalpy,pressure);
         result = state.T();

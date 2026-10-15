@@ -33,8 +33,9 @@ def capture_result(case, display_fields, native, application, diagnostics, *,
             parameters['boundary_openings'][side]['in_geom_frac'],
             parameters['boundary_openings'][side]['out_geom_frac']) for side in ('A', 'B')))
     model_metadata = dict(case.metadata['model_metadata'])
-    if native['true_h'] and 'sco2_enthalpy_eos' in native['true_h']:
-        model_metadata['sco2_enthalpy_eos'] = native['true_h']['sco2_enthalpy_eos']
+    for key in ('enthalpy_eos', 'sco2_enthalpy_eos'):
+        if native['true_h'] and key in native['true_h']:
+            model_metadata[key] = native['true_h'][key]
     return FieldResult(
         result_id=str(uuid4()), case_id=case.case_id,
         backend_id=backend_id, backend_version=backend_version, grid=case.grid,

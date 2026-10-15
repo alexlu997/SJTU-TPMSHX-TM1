@@ -34,14 +34,16 @@ public:
     EnthalpyPTState evaluate_state(Fluid fluid, double temperature, double pressure,
                                   const std::string& where);
     double conductivity(Fluid fluid, double temperature, double pressure);
+    // Report actual table use. An invalid CO2 table candidate uses exact HEOS.
     double temperature(Fluid fluid, double enthalpy, double pressure,
-                       bool use_bicubic, const std::string& where);
+                       bool& use_bicubic, const std::string& where);
     // Mathematical scalar bracket evaluation, intentionally outside the
     // actual-state project guard. Caller validates physical inlet/warm states.
     double bracket_enthalpy(Fluid fluid, double temperature, double pressure);
     // Called after the first cancellation check. The native library accepts
     // one absolute table path for its lifetime; it cannot be changed per run.
     void enable_bicubic(const std::string& absolute_table_directory);
+    bool bicubic_pressure(double pressure);
 
 private:
     CoolProp::AbstractState& heos(Fluid fluid);

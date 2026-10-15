@@ -140,8 +140,8 @@ def capture_result(case, cfg, p, r, abi):
     mass=freeze_value(r['mass'])
     true_h=None if r['true_h'] is None else dict(r['true_h']['_native_state'],
         mass_flux_A=mass[0], mass_flux_B=mass[1])
-    if true_h and 'sco2_enthalpy_eos' in true_h:
-        model_metadata['sco2_enthalpy_eos']=true_h['sco2_enthalpy_eos']
+    if true_h and 'enthalpy_eos' in true_h:
+        model_metadata['enthalpy_eos']=true_h['enthalpy_eos']
     emit_audit=bool(cfg.get('_emit_audit',False))
     if emit_audit:
         from sjtu_tpmshx.solvers.simple_solver_3d import _build_outlet_frac_taper
