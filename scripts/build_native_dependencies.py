@@ -162,10 +162,12 @@ def fetch_source(cache: Path, name: str) -> Path:
                 run(["git", "fetch", "--depth", "1", spec["repository"], spec["commit"]], log, cwd=source)
                 break
             except RuntimeError as error:
-                if attempt == 4 or "GitLab is currently unable to handle this request due to load" not in str(error):
+                busy = ("GitLab is currently unable to handle this request due to load" in str(error)
+                        or "The requested URL returned error: 503" in str(error))
+                if attempt == 4 or not busy:
                     raise
                 delay = 10 * 2**attempt
-                print(f"GitLab is busy; retry the fixed {name} fetch in {delay} seconds", flush=True)
+                print(f"Source server is busy; retry the fixed {name} fetch in {delay} seconds", flush=True)
                 time.sleep(delay)
         run(["git", "checkout", "--detach", spec["commit"]], log, cwd=source)
     actual = run(["git", "rev-parse", "HEAD"], log, cwd=source).strip()
