@@ -25,6 +25,7 @@ from PySide6.QtCore import QCoreApplication, QEventLoop, QRunnable
 
 from sjtu_tpmshx.controllers.compute_orchestrator import ComputeOrchestrator, CancelToken
 from sjtu_tpmshx.domain.cancellation import CancelledError
+from sjtu_tpmshx.domain.paused_run import PausedRun
 
 
 # ----------------------------------------------------------- helpers
@@ -102,7 +103,7 @@ def test_worker_exception_emits_error_signal():
     assert not orch.is_running()
 
 
-@pytest.mark.parametrize('outcome', ['finished', 'error', 'cancelled'])
+@pytest.mark.parametrize('outcome', ['finished', 'error', 'cancelled', 'paused'])
 def test_large_log_keeps_recent_diagnostics_in_every_terminal_state(monkeypatch, outcome):
     import io
     import sys
@@ -120,6 +121,8 @@ def test_large_log_keeps_recent_diagnostics_in_every_terminal_state(monkeypatch,
             raise ValueError('last-error-marker')
         if outcome == 'cancelled':
             raise orch.CancelledError()
+        if outcome == 'paused':
+            raise PausedRun('checkpoint.h5')
         return {'ok': True}
 
     assert orch.start('2d', worker, {})
@@ -179,6 +182,40 @@ def test_gui_output_does_not_enter_the_active_solver_log(monkeypatch):
 
 def test_cancellation_alias_is_shared_with_domain():
     assert ComputeOrchestrator.CancelledError is CancelledError
+
+
+def test_saved_pause_has_its_own_signal_and_keeps_publication_busy():
+    _make_app()
+    orch = ComputeOrchestrator(backend='cpp')
+    events = []
+    ready, release = threading.Event(), threading.Event()
+    orch.finished.connect(lambda result: events.append(('finished', result)))
+    orch.cancelled.connect(lambda log: events.append(('cancelled', log)))
+    orch.error.connect(lambda message, log: events.append(('error', message)))
+    orch.paused.connect(lambda path, log: events.append(('paused', path, log, orch.is_running())))
+
+    def worker(cfg, cancel, progress_cb):
+        ready.set()
+        assert release.wait(2)
+        assert cancel.pause_requested()
+        assert not cancel.cancelled and not cancel.is_set()
+        print('saved numerical state')
+        raise PausedRun('run/checkpoint.h5')
+
+    assert orch.start('2d', worker, {})
+    try:
+        assert ready.wait(2)
+        orch.pause()
+        assert orch.is_running()
+    finally:
+        release.set()
+        assert _wait_for(orch.is_idle)
+    assert len(events) == 1
+    assert events[0][:2] == ('paused', 'run/checkpoint.h5')
+    assert 'saved numerical state' in events[0][2]
+    assert events[0][3] is True
+    assert orch.last_result() is None
+    assert orch.last_elapsed() > 0
 
 
 @pytest.mark.parametrize('error_type', [CancelledError, InterruptedError, ValueError])

@@ -15,6 +15,7 @@ from .theme import RADIUS_CARD, get_theme
 
 class RunStatusCard(QFrame):
     cancel_requested = Signal()
+    pause_requested = Signal()
     log_requested = Signal()
 
     def __init__(self, parent=None):
@@ -47,6 +48,10 @@ class RunStatusCard(QFrame):
         self.log_button.clicked.connect(self.log_requested)
         self.log_button.hide()
         action_row.addWidget(self.log_button, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.pause_button = QPushButton("保存并暂停")
+        self.pause_button.clicked.connect(self.pause_requested)
+        self.pause_button.hide()
+        action_row.addWidget(self.pause_button, 0, Qt.AlignmentFlag.AlignVCenter)
         self.cancel_button = QPushButton("取消")
         self.cancel_button.clicked.connect(self.cancel_requested)
         self.cancel_button.hide()
@@ -102,7 +107,8 @@ class RunStatusCard(QFrame):
             f"QPushButton:disabled {{ color:{t['sub_fg']}; }}"
         )
         self._set_title_color(t)
-        for button, name in ((self.log_button, 'file-text'), (self.cancel_button, 'square'),
+        for button, name in ((self.log_button, 'file-text'), (self.pause_button, 'save'),
+                             (self.cancel_button, 'square'),
                              (self.toggle, 'chevron-up' if self.toggle.isChecked() else 'chevron-down')):
             button.setFixedHeight(32)
             button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
@@ -116,13 +122,15 @@ class RunStatusCard(QFrame):
                 t['accent_green'] if self.state == 'success' else t['fg']))
         self.title.setStyleSheet(f"color:{color}; font-weight:600;")
 
-    def start(self, mode):
+    def start(self, mode, *, recoverable=False):
         self.state = "running"
         self.title.setText(f"{mode.upper()} 计算中")
         self.set_elapsed(0)
         self.iteration.setText("等待求解器迭代信息")
         self.note.setText("完整日志在计算结束后提供。")
         self.log_button.hide()
+        self.pause_button.setEnabled(True)
+        self.pause_button.setVisible(recoverable)
         self.cancel_button.setEnabled(True)
         self.cancel_button.show()
         self._set_title_color()
@@ -138,15 +146,23 @@ class RunStatusCard(QFrame):
         self.state = "cancelling"
         self.title.setText("正在取消")
         self.cancel_button.setEnabled(False)
+        self.pause_button.setEnabled(False)
         self.note.setText("等待求解器完成当前计算步。")
+
+    def request_pause(self):
+        self.state = "pausing"
+        self.title.setText("正在保存并暂停")
+        self.pause_button.setEnabled(False)
+        self.note.setText("完成当前迭代步并保存后暂停。")
 
     def finish(self, state, elapsed, *, log_available=False, message=""):
         self.state = state
         self.title.setText({"success": "计算完成", "warning": "完成 · 有提示",
                             "unconverged": "完成 · 未收敛", "error": "计算未完成",
-                            "cancelled": "已取消"}[state])
+                            "cancelled": "已取消", "paused": "已保存 · 已暂停"}[state])
         self.set_elapsed(elapsed)
         self.cancel_button.hide()
+        self.pause_button.hide()
         self.log_button.setVisible(log_available)
         self.note.setText(message or ("收敛与守恒信息见诊断详情。" if state == 'success'
                                      else "本次计算已结束。"))

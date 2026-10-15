@@ -1,12 +1,12 @@
 """Qt-free command line entry: ``python -m sjtu_tpmshx.cli ...``.
 
-``prepare``, ``solve``, ``postprocess`` and ``run`` dispatch to the public
+``prepare``, ``solve``, ``postprocess``, ``run`` and ``resume`` dispatch to the public
 file-based workflow. A direct ComputeConfig JSON argument retains the summary
 interface, with ``--dry-run`` and ``--json`` options. GUI presets use a separate
 format and must be restored through the GUI.
 
 Calculation exit codes are 0 for a successful stage and 2 for failed
-convergence/required-result checks; public workflow cancellation returns 130.
+convergence/required-result checks. A saved pause returns 3; cancellation returns 130.
 Parsing and file errors exit nonzero. See README for each stage's contract.
 """
 from __future__ import annotations
@@ -31,12 +31,12 @@ def _json_values(value):
 
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    if argv and argv[0] in ('prepare', 'solve', 'postprocess', 'run'):
+    if argv and argv[0] in ('prepare', 'solve', 'postprocess', 'run', 'resume'):
         from sjtu_tpmshx.workflows.cli import main as module_main
         return module_main(argv)
     ap = argparse.ArgumentParser(
         prog='tpmshx-run',
-        usage='%(prog)s {prepare,solve,postprocess,run} ...\n'
+        usage='%(prog)s {prepare,solve,postprocess,run,resume} ...\n'
               '       %(prog)s config [--dry-run] [--json]',
         description='Headless SJTU-TPMSHX solve: ComputeConfig JSON in, '
                     'formal module files or a direct summary out. Qt is never imported.',
@@ -45,7 +45,8 @@ def main(argv=None) -> int:
                '  prepare       configuration -> case.yaml + case.h5\n'
                '  solve         case.yaml -> results.h5\n'
                '  postprocess   results.h5 -> metrics.json\n'
-               '  run           configuration -> all four files\n\n'
+               '  run           configuration -> all four files\n'
+               '  resume        checkpoint.h5 -> a new run directory\n\n'
                'From a source checkout:\n'
                '  python -m sjtu_tpmshx.cli run INPUT OUTPUT_DIR --case-id ID\n'
                'The direct config argument retains the summary interface;\n'

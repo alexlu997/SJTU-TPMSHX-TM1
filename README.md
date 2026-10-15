@@ -416,6 +416,23 @@ Case YAML 引用伴随 HDF5；result/VTK 导出和严格指标 JSON 的限制见
 取消与失败不伪装成完成结果；已完成但未收敛的
 结果保留原状态。指标有限不等于数值、能量或实验精度验收通过。
 
+C++ 完整计算可以将迭代状态保存在新的运行目录：
+
+```bash
+"$PYTHON" -m sjtu_tpmshx.cli run examples/three_module/air_2d.json .cache/run-01 --case-id example --backend cpp --checkpoint-interval 60
+"$PYTHON" -m sjtu_tpmshx.cli resume .cache/run-01/checkpoint.h5 .cache/run-02 --checkpoint-interval 60
+```
+
+保存间隔须显式指定，60 秒仅为示例；保存会等待下一个完整求解步骤结束。
+启用保存后，Ctrl+C 请求暂停，进程在保存状态后返回退出码 3。
+暂停不产生完成结果，取消仍返回退出码 130。
+运行目录保留准备态输入、原生库、检查点与运行状态；完成后另有 `results.h5` 和 `metrics.json`。
+
+续算读取已保存的准备态输入，写入新目录并保留原运行。移动时须一起移动整个运行目录。
+续算要求相同的原生构建和平台；当前构建不同时，可用 `--native-library` 显式选择保留的库。
+GUI 的载入菜单可以继续已保存的运行，沿用记录的保存间隔和输入来源。
+新发起的 GUI 计算尚未启用自动保存，保存间隔须先完成耗时与内存检查。
+
 ## 已接线能力与边界
 
 | 用途 | 公开入口 | 数量口径 |
