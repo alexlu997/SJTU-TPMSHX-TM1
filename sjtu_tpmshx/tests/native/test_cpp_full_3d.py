@@ -21,6 +21,7 @@ from sjtu_tpmshx.solvers.backends.python.three_d.execution import run_case as py
 from sjtu_tpmshx.solvers.api import run_case as cpp_run
 from sjtu_tpmshx.tests.native.test_native_execution import _config
 from sjtu_tpmshx.tests.native.test_full_3d import ROOT
+from sjtu_tpmshx.tests.native import full_thermal_reference
 
 
 @pytest.fixture(scope='module')
@@ -53,6 +54,8 @@ def control(path,**kwargs):
 
 def compare(actual,expected,path='', *, engineering=False):
     if isinstance(expected,Mapping):
+        actual=full_thermal_reference.native_table_metadata(actual)
+        expected=full_thermal_reference.native_table_metadata(expected)
         assert actual.keys()==expected.keys(),path
         for key,value in expected.items():compare(actual[key],value,path+'/'+str(key),engineering=engineering)
     elif isinstance(expected,(tuple,list)):
