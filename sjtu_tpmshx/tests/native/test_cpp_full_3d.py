@@ -53,15 +53,24 @@ def control(path,**kwargs):
     return RunControl(backend='cpp',native_library=str(path),native_table_directory=str(ROOT/'.cache/native-deps/tables'),**kwargs)
 
 
-def compare(actual,expected,path='', *, engineering=False):
+def assert_velocity_pair(actual, expected, inlet_speed, path):
+    actual, expected = np.asarray(actual), np.asarray(expected)
+    assert actual.shape == expected.shape, path
+    assert np.isfinite(actual).all() and np.isfinite(expected).all(), path
+    assert np.isfinite(inlet_speed) and inlet_speed > 0, path
+    np.testing.assert_allclose(actual, expected, rtol=0.,
+                               atol=1e-6 + 1e-5*inlet_speed, err_msg=path)
+
+
+def compare(actual,expected,path='', *, engineering=False, inlet_speeds=None):
     if isinstance(expected,Mapping):
         actual=full_thermal_reference.native_table_metadata(actual)
         expected=full_thermal_reference.native_table_metadata(expected)
         assert actual.keys()==expected.keys(),path
-        for key,value in expected.items():compare(actual[key],value,path+'/'+str(key),engineering=engineering)
+        for key,value in expected.items():compare(actual[key],value,path+'/'+str(key),engineering=engineering,inlet_speeds=inlet_speeds)
     elif isinstance(expected,(tuple,list)):
         assert len(actual)==len(expected),path
-        for i,value in enumerate(expected):compare(actual[i],value,path+'/'+str(i),engineering=engineering)
+        for i,value in enumerate(expected):compare(actual[i],value,path+'/'+str(i),engineering=engineering,inlet_speeds=inlet_speeds)
     elif isinstance(expected,(np.ndarray,float,np.floating)):
         if isinstance(expected,np.ndarray):
             assert np.shape(actual)==expected.shape,path
@@ -71,7 +80,11 @@ def compare(actual,expected,path='', *, engineering=False):
         rtol,atol=2e-7,1e-6
         if engineering:
             rtol=1e-4  # Intermediate fields: 0.01%, independently of physical gates.
-            key=path.rsplit('/',1)[-1]
+            key=path.rsplit('/',1)[-1].removesuffix('_display')
+            if key in ('ucA','vcA','wcA','vmag_A','ucB','vcB','wcB','vmag_B'):
+                assert inlet_speeds is not None, path
+                assert_velocity_pair(actual, expected, inlet_speeds[key[-1]], path)
+                return
             if key.startswith(('Ta','Tb','Ts','T_out')) or 'temperature' in path:
                 rtol,atol=0.,.01
             elif key in ('Q','Q_A','Q_B','dP_A','dP_B','mass_flow_A','mass_flow_B'):
@@ -81,6 +94,40 @@ def compare(actual,expected,path='', *, engineering=False):
         np.testing.assert_allclose(actual,expected,rtol=rtol,atol=atol,equal_nan=True,err_msg=path)
     else:
         assert actual==expected,path
+
+
+@pytest.mark.parametrize('name', ['ucA', 'vcA', 'wcA', 'vmag_A', 'ucB', 'vcB', 'wcB', 'vmag_B',
+                                  'ucA_display', 'vcA_display', 'ucB_display', 'vcB_display'])
+def test_velocity_comparison_uses_each_side_inlet_speed(name):
+    speeds = dict(A=.2, B=20.)
+    limit = 1e-6 + 1e-5*speeds[name.removesuffix('_display')[-1]]
+    expected = {name: np.zeros((2, 3))}
+    actual = {name: np.full((2, 3), limit)}
+    compare(actual, expected, 'fields', engineering=True, inlet_speeds=speeds)
+    actual[name][0, 0] = np.nextafter(limit, np.inf)
+    with pytest.raises(AssertionError):
+        compare(actual, expected, 'fields', engineering=True, inlet_speeds=speeds)
+    with pytest.raises(AssertionError):
+        compare(expected, expected, 'fields', engineering=True)
+    with pytest.raises(AssertionError):
+        compare({name: np.full((2, 3), limit)}, expected, 'fields')
+
+
+@pytest.mark.parametrize('value', [np.nan, np.inf, -np.inf])
+def test_velocity_comparison_rejects_nonfinite_fields(value):
+    with pytest.raises(AssertionError):
+        assert_velocity_pair([value], [value], 1., 'ucA')
+
+
+@pytest.mark.parametrize('speed', [0., -1., np.inf, np.nan])
+def test_velocity_comparison_rejects_invalid_inlet_speed(speed):
+    with pytest.raises(AssertionError):
+        assert_velocity_pair([0.], [0.], speed, 'ucA')
+
+
+def test_velocity_comparison_rejects_shape_broadcast():
+    with pytest.raises(AssertionError):
+        assert_velocity_pair(np.zeros((2, 1)), np.zeros((2, 3)), 1., 'ucA')
 
 
 def test_bootstrap_trace_records_recursive_caps_without_changing_legacy_summary(native_path):
@@ -209,7 +256,7 @@ def test_public_case_fields_native_ledgers_and_postprocess(native_path,pair):
         if key=='boundary_fluxes' and mixed:
             a,e=dict(a),dict(e)
             a.pop('energy');e.pop('energy')
-        compare(a,e,key,engineering=True)
+        compare(a,e,key,engineering=True,inlet_speeds={side: prepared.parameters['u_'+side] for side in 'AB'})
     for key in ('model_metadata','application','reporting_reference','df_metadata'):
         compare(actual.metadata[key],expected.metadata[key],key,engineering=key in ('application','reporting_reference'))
     for key in ('Q','Q_A','Q_B','dP_A','dP_B','T_out_A','T_out_B','mass_flow_A','mass_flow_B','energy_imbalance_rel'):
@@ -259,7 +306,8 @@ def test_capped_public_keeps_distinct_pressure_states(native_path):
     assert not a.run_status['converged']
     assert a.metadata['diagnostics']['true_h_balance']['post_after_last_thermal']
     assert np.max(np.abs(a.fields['P_report_A']-a.fields['P_thermal_A']))>1e-5
-    compare(a.fields,e.fields,'cap-fields',engineering=True)
+    compare(a.fields,e.fields,'cap-fields',engineering=True,
+            inlet_speeds={side: prepared.parameters['u_'+side] for side in 'AB'})
     for key in ('P_A_offset_Pa','P_B_offset_Pa','P_A_range_Pa','P_B_range_Pa'):
         compare(a.metadata['diagnostics']['true_h_balance'][key],e.metadata['diagnostics']['true_h_balance'][key],key)
 
@@ -403,7 +451,8 @@ def test_opt_in_audit_exports_final_capped_state_and_nu_observations(native_path
     expected=e.metadata['diagnostics'];actual=a.metadata['diagnostics']
     for key in expected:
         if key.startswith('_audit_') or key in ('sco2_nu_observations','envelope_reasons','envelope_warnings'):
-            compare(actual[key],expected[key],key,engineering=True)
+            compare(actual[key],expected[key],key,engineering=True,
+                    inlet_speeds={side: prepared.parameters['u_'+side] for side in 'AB'})
 
 
 @pytest.mark.parametrize('design_mode',['grid','continuous','continuous_xyz','asymmetric'])
