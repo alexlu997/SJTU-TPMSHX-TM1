@@ -63,7 +63,8 @@ def test_param_pages_have_no_horizontal_scroll(win):
 
 @pytest.mark.parametrize('field', ['temp', 'pres', 'vel'])
 @pytest.mark.parametrize('dpi', [100, 125])
-def test_equal_aspect_field_labels_fit_after_short_canvas_resize(win, field, dpi):
+@pytest.mark.parametrize('field_step', [1., .0001])
+def test_equal_aspect_field_labels_fit_after_short_canvas_resize(win, field, dpi, field_step):
     """The embedded field canvas must reserve real text space on every draw."""
     import numpy as np
     import warnings
@@ -74,7 +75,7 @@ def test_equal_aspect_field_labels_fit_after_short_canvas_resize(win, field, dpi
     canvas = getattr(win, 'canvas_' + field)
     figure = canvas.fig
     previous_dpi, previous_size = figure.dpi, figure.get_size_inches().copy()
-    values = np.arange(48.).reshape(8, 6) + 300.
+    values = np.arange(48.).reshape(8, 6) * field_step + 300.
     xc, yc = np.linspace(3.75, 56.25, 8), np.linspace(2.5, 27.5, 6)
     try:
         figure.set_dpi(dpi)
@@ -102,6 +103,11 @@ def test_equal_aspect_field_labels_fit_after_short_canvas_resize(win, field, dpi
                 if title.get_text():
                     assert title.get_window_extent(canvas.renderer).y1 <= figure.bbox.height
             assert axis.get_window_extent().height > 0
+            colorbar = figure.axes[-1]
+            low, high = colorbar.get_ylim()
+            for tick, label in zip(colorbar.get_yticks(), colorbar.get_yticklabels()):
+                if label.get_visible() and low <= tick <= high:
+                    assert label.get_window_extent(canvas.renderer).x1 <= figure.bbox.width
     finally:
         figure.clear()
         figure.set_dpi(previous_dpi)
