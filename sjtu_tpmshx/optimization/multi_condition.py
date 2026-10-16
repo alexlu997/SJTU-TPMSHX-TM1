@@ -71,9 +71,14 @@ def _check_baseline_case(reference, case, flow_a, flow_b):
         if parameters[key] != case.parameters[key]:
             raise ValueError(f'baseline and candidate differ in fixed input {key}')
     for key in ('max_iter_simple', 'max_outer_ltne', 'outer_tol_K', 'convergence_mode',
-                'mom_tol', 'mass_local_tol', 'mass_global_tol',
-                'enthalpy_algorithm', 'enthalpy_temperature_tol_K'):
-        if parameters.get(key) != case.parameters.get(key):
+                'mom_tol', 'mass_local_tol', 'mass_global_tol', 'T_s_init',
+                'simple_velocity_relaxation', 'enthalpy_algorithm', 'enthalpy_temperature_tol_K',
+                'model_h_max_iterations', 'model_h_temperature_tol_K', 'model_h_q_relative_tol',
+                'ltne_enthalpy_outer', 'ltne_enthalpy_nsweep', 'ltne_enthalpy_omega',
+                'ltne_enthalpy_tol', 'ltne_enthalpy_coupled_energy_tol',
+                'ltne_enthalpy_equation_energy_tol', 'require_enthalpy_update_on_temperature'):
+        default = False if key == 'require_enthalpy_update_on_temperature' else None
+        if parameters.get(key, default) != case.parameters.get(key, default):
             raise ValueError(f'baseline and candidate solver setting {key} differs')
     if reference.model_refs != case.model_refs:
         raise ValueError('baseline and candidate model resources differ')
