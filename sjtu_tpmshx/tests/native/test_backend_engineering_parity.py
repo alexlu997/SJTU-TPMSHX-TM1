@@ -63,9 +63,13 @@ def test_public_backends_meet_engineering_limits(native_path, dimension, pair, r
     names = pair.split('-')
     config = (co2_engineering_config(dimension, pair) if pair in CO2_PAIRS else
               replace(_config(dimension, True), fluid_A=fluid(names[0], 0), fluid_B=fluid(names[1], 1)))
+    if dimension == 2 and all(name in ('co2', 'sco2') for name in names):
+        # The velocity comparison needs tighter flow iteration than the defaults.
+        config = replace(config, solver=replace(config.solver, mom_tol=1e-6,
+            mass_local_tol=1e-8, mass_global_tol=1e-8))
     prepared = prepare_case(config, case_id=f'backend-parity-{dimension}d-{pair}')
     python, cpp = _run_pair(prepared, native_path)
-    _assert_engineering_pair(python, cpp, record_property)
+    _assert_engineering_pair(python, cpp, record_property, prepared.parameters)
     for result in (python, cpp):
         record = result.metadata['execution_record']
         assert record['backend'] == result.backend_id
@@ -86,7 +90,7 @@ def test_refined_true_h_partial_ports_meet_engineering_limits(native_path, recor
 
     prepared = candidate('legacy_h_fou', 'sco2-water', port_refined='partial')
     python, cpp = _run_pair(prepared, native_path)
-    _assert_engineering_pair(python, cpp, record_property)
+    _assert_engineering_pair(python, cpp, record_property, prepared.parameters)
 
 
 @pytest.mark.parametrize('dimension', [2, 3])
@@ -112,10 +116,10 @@ def test_continuous_real_fluid_public_backends(native_path, dimension, fluid, re
         assert result.metadata['design_mode'] == ('continuous' if dimension == 2 else 'continuous_xyz')
         for side in 'AB':
             assert abs(result.metadata['diagnostics']['mass_imbalance_rel_' + side]) <= 1e-6
-    _assert_engineering_pair(python, cpp, record_property)
+    _assert_engineering_pair(python, cpp, record_property, prepared.parameters)
 
 
-def _assert_engineering_pair(python, cpp, record_property):
+def _assert_engineering_pair(python, cpp, record_property, parameters):
     for result in (python, cpp):
         _physical_gates(result)
     same_models = all(python.metadata['execution_record']['sides'][side]['energy']['relation']
@@ -132,6 +136,17 @@ def _assert_engineering_pair(python, cpp, record_property):
         assert np.isfinite(delta), (key, delta)
         if same_models:
             assert delta <= .01, (key, delta)
+    velocity_max = 0.
+    for key, spec in cpp.field_metadata.items():
+        if spec['unit'] != 'm/s':
+            continue
+        assert python.field_metadata[key]['unit'] == 'm/s'
+        a, b = cpp.fields[key], python.fields[key]
+        assert a.shape == b.shape and np.isfinite(a).all() and np.isfinite(b).all(), key
+        velocity_max = max(velocity_max, float(np.max(np.abs(a-b))))
+        if same_models:
+            native_3d.assert_velocity_pair(a, b, parameters['u_'+key.removesuffix('_display')[-1]], key)
+    record_property('max_velocity_difference_m_s', velocity_max)
     cpp_metrics, python_metrics = evaluate(cpp).metrics, evaluate(python).metrics
     relative_max = outlet_max = 0.
     for key in ('Q', 'Q_A', 'Q_B', 'dP_A', 'dP_B', 'mass_flow_A', 'mass_flow_B', 'T_out_A', 'T_out_B'):
