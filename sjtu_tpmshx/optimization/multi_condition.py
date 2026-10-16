@@ -215,9 +215,10 @@ def _run_native_condition(index, case_file, directory, library, threads, checkpo
         _solve_condition(case, config, directory, control, update, checkpoint_file)
         changes.update(status='computed', reason=None)
     except CancelledError as error:
-        changes.update(status='cancelled', reason=str(error))
+        changes.update(status='cancelled', reason='\n'.join((str(error), *getattr(error, '__notes__', ()))))
     except Exception as error:
-        changes.update(status='failed', reason=f'{type(error).__name__}: {error}')
+        changes.update(status='failed', reason='\n'.join((f'{type(error).__name__}: {error}',
+                *getattr(error, '__notes__', ()))))
     return changes
 
 
@@ -639,11 +640,12 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
                     run_condition(index, (condition_id, config, flow_a, flow_b), row, directory)
                 except CancelledError as exc:
                     condition_error = exc
-                    row.update(status='cancelled', reason=str(exc))
+                    row.update(status='cancelled', reason='\n'.join((str(exc), *getattr(exc, '__notes__', ()))))
                     raise
                 except Exception as exc:
                     condition_error = exc
-                    row.update(status='failed', reason=f'{type(exc).__name__}: {exc}')
+                    row.update(status='failed', reason='\n'.join((f'{type(exc).__name__}: {exc}',
+                        *getattr(exc, '__notes__', ()))))
                 finally:
                     publish(condition_error)
                 condition_error = None

@@ -88,8 +88,7 @@ def test_gui_co2_mass_input_save_reopen_geometry_and_export(win, native_path, tm
             _wait_for(win.compute.is_idle, timeout=30)
 
 
-@pytest.mark.parametrize('dimension', [2, 3])
-def test_selected_backend_completes_batch_and_optimization(native_path, tmp_path, dimension):
+def _conditions(dimension):
     config = replace(_config(dimension, True),
         fluid_B=FluidConfig(type='water', u_mps=.3, T_in_K=300., P_in_Pa=2e6))
     config = replace(config, geometry=replace(config.geometry, Lz_m=.03))
@@ -104,11 +103,19 @@ def test_selected_backend_completes_batch_and_optimization(native_path, tmp_path
                  * getattr(cfg, 'fluid_' + side).u_mps for side in 'AB']
         conditions.append((f'condition-{index}', cfg, *flows))
 
+    return conditions
+
+
+@pytest.mark.parametrize('dimension', [2, 3])
+def test_selected_backend_completes_batch_and_optimization(native_path, tmp_path, dimension):
+    conditions = _conditions(dimension)
+
     results = {}
     for backend in ('python', 'cpp'):
-        control = RunControl() if backend == 'python' else native_3d.control(native_path)
+        control = RunControl() if backend == 'python' else replace(native_3d.control(native_path), cpu_threads=4)
+        workers = 1 if backend == 'python' else 2
         directory = tmp_path / backend
-        batch = evaluate_condition_batch(conditions, output_dir=directory / 'batch', control=control)
+        batch = evaluate_condition_batch(conditions, output_dir=directory / 'batch', control=control, workers=workers)
         assert batch['status'] == 'completed', batch['conditions']
         assert batch['backend'] == backend and len(batch['results']) == 2
         results[backend] = batch['results']
@@ -123,7 +130,7 @@ def test_selected_backend_completes_batch_and_optimization(native_path, tmp_path
                 np.testing.assert_array_equal(restored.fields[name], field.fields[name])
 
         search = run_multi_condition_optimization(conditions, output_dir=directory / 'search',
-            method='sobol', n_init=1, n_iter=1, seed=7, control=control,
+            method='sobol', n_init=1, n_iter=1, seed=7, control=control, workers=workers,
             field_spec={'L_bounds': [6.8, 7.2], 't_bounds': [.55, .6]})
         assert search['status'] == 'completed', search
         assert search['backend'] == backend
@@ -171,3 +178,67 @@ def test_converged_outside_range_batch_retains_diagnostics(native_path, tmp_path
     assert metrics.qualification['applicability']['passed'] is False
     assert metrics.qualification['design']['eligible'] is False
     assert evaluate(field).qualification == metrics.qualification
+
+
+
+def _wait_at_native_checkpoint(index, case_file, directory, library, threads, checkpoint_file=None):
+    from time import monotonic, sleep
+    from sjtu_tpmshx.optimization import multi_condition as batch
+    from sjtu_tpmshx.workflows import recovery
+
+    save = recovery.save_solver_checkpoint
+    def save_and_wait(*args):
+        save(*args)
+        batch._batch_events.put((index, 'iteration', ('checkpoint-ready',)))
+        deadline = monotonic()+30.
+        while not batch._batch_cancel.is_set():
+            if monotonic() > deadline:
+                raise TimeoutError('The parent did not cancel the native test worker.')
+            sleep(.01)
+    recovery.save_solver_checkpoint = save_and_wait
+    return batch._run_native_condition(index, case_file, directory, library, threads, checkpoint_file)
+
+
+@pytest.mark.parametrize('dimension', [2, 3])
+def test_native_condition_workers_resume_actual_states_after_relocation(
+        native_path, tmp_path, monkeypatch, dimension):
+    from sjtu_tpmshx.domain.cancellation import CancelledError
+    from sjtu_tpmshx.optimization import multi_condition as batch
+    from sjtu_tpmshx.tests.native.test_run_recovery import same_result
+
+    conditions = _conditions(dimension)
+    control = replace(native_3d.control(native_path), cpu_threads=2)
+    expected = batch.evaluate_condition_batch(conditions, output_dir=tmp_path / 'expected', control=control)
+    assert expected['status'] == 'completed', expected['conditions']
+    native_worker = batch._run_native_condition
+    monkeypatch.setattr(batch, '_run_native_condition', _wait_at_native_checkpoint)
+    cancelled = []
+    def iteration(message):
+        if message == 'checkpoint-ready':
+            cancelled.append(True)
+    source = tmp_path / 'interrupted'
+    with pytest.raises(CancelledError):
+        batch.evaluate_condition_batch(conditions, output_dir=source, workers=2,
+            control=replace(control, cpu_threads=4, iteration=iteration, cancel_check=lambda: bool(cancelled)))
+    record = json.loads((source / 'batch.json').read_text())
+    assert record['status'] == 'cancelled' and record['objectives'] is None
+    assert any(row.get('checkpoint_file') for row in record['conditions'])
+    moved = source.rename(tmp_path / 'moved')
+    before = {path.relative_to(moved): path.read_bytes() for path in moved.rglob('*')
+              if path.is_file() and path.suffix in ('.json', '.h5', '.yaml')}
+    monkeypatch.setattr(batch, '_run_native_condition', native_worker)
+    target = tmp_path / 'continued'
+    actual = batch.resume_condition_batch(moved / 'batch.json', output_dir=target,
+                                          workers=2, control=replace(control, cpu_threads=4))
+    assert actual['status'] == 'completed', actual['conditions']
+    assert any(row['recovery_mode'] == 'checkpoint' for row in actual['conditions'])
+    for row, previous, returned, reference in zip(actual['conditions'], record['conditions'],
+                                                  actual['results'], expected['results']):
+        assert row['case_id'] == previous['case_id'] == returned[1].case_id
+        assert row['cpu_threads'] == 2
+        assert row['condition_id'] == returned[0] == reference[0]
+        same_result(returned[1], reference[1], returned[2], reference[2])
+        same_result(load_result(target / row['result_file']), reference[1],
+                    load_metrics(target / row['metrics_file']), reference[2])
+    assert {path.relative_to(moved): path.read_bytes() for path in moved.rglob('*')
+            if path.is_file() and path.suffix in ('.json', '.h5', '.yaml')} == before

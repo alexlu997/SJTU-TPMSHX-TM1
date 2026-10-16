@@ -276,4 +276,5 @@ def test_native_batch_status_error_keeps_original_solver_failure(
     assert any('checkpoint write failed' in note for note in primary.__notes__)
     saved = json.loads((output / 'batch.json').read_text())
     assert 'original native failure' in saved['conditions'][0]['reason']
+    assert 'checkpoint write failed' in saved['conditions'][0]['reason']
     assert json.loads(run_file.read_text())['error']['message'] == 'original native failure'

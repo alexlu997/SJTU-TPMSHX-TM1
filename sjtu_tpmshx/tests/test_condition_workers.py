@@ -38,7 +38,9 @@ def _analytic_worker(index, case_file, directory, library, threads, checkpoint_f
         control.residual('A', 1, .01)
         control.report_progress(40)
         if label == 'bad':
-            raise ValueError('injected worker solve failure')
+            error = ValueError('injected worker solve failure')
+            error.add_note('retained worker diagnostic detail')
+            raise error
         if label == 'crash':
             os._exit(17)
         inputs = json.loads((Path(directory).parent / 'batch-input.json').read_text())
@@ -101,6 +103,7 @@ def test_process_batch_keeps_order_resources_and_parent_callbacks(tmp_path, monk
     if failed_member:
         assert result['objectives'] is None
         assert 'injected worker solve failure' in result['conditions'][1]['reason']
+        assert 'retained worker diagnostic detail' in result['conditions'][1]['reason']
     else:
         assert result['objectives'] == pytest.approx(dict(heat_gain_percent=0., pressure_ratio=1.))
 

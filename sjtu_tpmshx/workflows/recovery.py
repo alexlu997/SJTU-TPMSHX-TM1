@@ -181,7 +181,8 @@ def _execute(config, directory, *, checkpoint_interval_s, case_id, control, prog
         state = ('paused' if isinstance(error, PausedRun) else
                  'cancelled' if isinstance(error, CancelledError) else 'failed')
         try:
-            publish_status(state, error=dict(type=type(error).__name__, message=str(error)))
+            publish_status(state, error=dict(type=type(error).__name__, message=str(error),
+                                            notes=getattr(error, '__notes__', [])))
         except Exception as save_error:
             error.add_note(f'Could not record run status: {save_error}')
         raise

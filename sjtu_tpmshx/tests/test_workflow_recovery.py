@@ -325,4 +325,5 @@ def test_failed_field_save_keeps_original_postprocess_error(tmp_path, stages, mo
     assert any('field storage failed' in note for note in error.__notes__)
     record = json.loads((directory / 'run.json').read_text())
     assert record['state'] == 'failed' and 'failed_result_file' not in record
+    assert any('field storage failed' in note for note in record['error']['notes'])
     assert (directory / 'checkpoint.h5').is_file()
