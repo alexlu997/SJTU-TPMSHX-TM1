@@ -387,6 +387,44 @@ def test_same_id_baseline_requires_same_physical_inputs(tmp_path, monkeypatch, d
     assert row['result_file'] is None and row['metrics_file'] is None
 
 
+@pytest.mark.parametrize('setting, value', [
+    ('T_s_init_K', 335.), ('simple_velocity_relaxation', .35),
+    ('model_h_max_iterations', 80), ('model_h_temperature_tol_K', 1e-5),
+    ('model_h_q_relative_tol', 1e-4), ('ltne_enthalpy_outer', 80),
+    ('ltne_enthalpy_nsweep', 3), ('ltne_enthalpy_omega', .4),
+    ('ltne_enthalpy_tol', 1e-5), ('ltne_enthalpy_coupled_energy_tol', 1e-4),
+    ('ltne_enthalpy_equation_energy_tol', 1e-4),
+    ('require_enthalpy_update_on_temperature', True),
+])
+def test_baseline_requires_same_thermal_and_flow_controls(tmp_path, monkeypatch, setting, value):
+    conditions = _conditions(1)
+    name, config, flow_a, flow_b = conditions[0]
+    reference = replace(config, solver=replace(config.solver, **{setting: value}))
+    baseline = _baseline([(name, reference, flow_a, flow_b)])
+    _patch_solve(monkeypatch, lambda *args: pytest.fail('solve reached mismatched controls'))
+    directory = tmp_path / setting
+    result = batch.evaluate_condition_batch(conditions, output_dir=directory, baseline=baseline)
+    row = _manifest(directory)['conditions'][0]
+    key = 'T_s_init' if setting == 'T_s_init_K' else setting
+    assert result['status'] == row['status'] == 'failed' and result['objectives'] is None
+    assert row['stage'] == 'comparison' and f'solver setting {key} differs' in row['reason']
+    assert load_case(directory / row['case_file']).case_id == row['case_id']
+    assert row['result_file'] is None and row['metrics_file'] is None
+
+
+def test_baseline_accepts_an_explicit_false_thermal_update_flag(tmp_path, monkeypatch):
+    conditions = _conditions(1)
+    baseline = _baseline(conditions)
+    name, field, metrics = baseline[0]
+    metadata = mutable_data(field.metadata)
+    assert 'require_enthalpy_update_on_temperature' not in metadata['parameters']
+    metadata['parameters']['require_enthalpy_update_on_temperature'] = False
+    baseline[0] = name, replace(field, metadata=metadata), metrics
+    _patch_solve(monkeypatch, lambda case, control: _native(case))
+    result = batch.evaluate_condition_batch(conditions, output_dir=tmp_path / 'same', baseline=baseline)
+    assert result['status'] == 'completed' and result['objectives'] is not None
+
+
 @pytest.mark.parametrize('target, source_imbalance', [
     ('baseline', False), ('candidate', False), ('candidate', True),
 ])
