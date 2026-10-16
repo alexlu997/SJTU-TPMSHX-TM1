@@ -5,6 +5,7 @@ Extracted from main.py (Task B.2). Figures use the active theme tokens.
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
+from matplotlib.ticker import ScalarFormatter
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from .theme import FIELD_CMAP, get_theme
 
@@ -120,7 +121,8 @@ class MatplotlibCanvas(FigureCanvas):
             _Xp, _Yp, _Fp = pad_field_to_edges(x, y, field, _Lmm, _Hmm)
             cf = ax.contourf(_Xp, _Yp, _Fp, levels=256, cmap=FIELD_CMAP)
             ax.set_xlim(0, _Lmm); ax.set_ylim(0, _Hmm)
-            cb = self.fig.colorbar(cf, ax=ax, shrink=0.9, aspect=25, format="%.0f")
+            cb = self.fig.colorbar(cf, ax=ax, shrink=0.9, aspect=25,
+                                  format=ScalarFormatter(useOffset=False))
             style_field_axes(ax, cb, _t, main_title, subtitle)
 
         # Scalar pressure drop lives in the result footer.
