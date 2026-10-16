@@ -186,15 +186,28 @@ def _wait_at_native_checkpoint(index, case_file, directory, library, threads, ch
     from sjtu_tpmshx.optimization import multi_condition as batch
     from sjtu_tpmshx.workflows import recovery
 
-    save = recovery.save_solver_checkpoint
+    solve, save = recovery.run_case, recovery.save_solver_checkpoint
+    def solve_with_inner_checkpoints(*args, **kwargs):
+        kwargs['checkpoint_due'] = lambda: True
+        return solve(*args, **kwargs)
     def save_and_wait(*args):
         save(*args)
+        saved = args[0]
+        state = saved.native_state
+        if int(state['state.phase'][0]) != 6:
+            return
+        key = ('state.flow.value.0.iteration.value.result.iterations'
+               if saved.state_format == 'full_2d_continuation_v1'
+               else 'state.flow_iteration.value.iterations')
+        if int(state[key][0]) < 2:
+            return
         batch._batch_events.put((index, 'iteration', ('checkpoint-ready',)))
         deadline = monotonic()+30.
         while not batch._batch_cancel.is_set():
             if monotonic() > deadline:
                 raise TimeoutError('The parent did not cancel the native test worker.')
             sleep(.01)
+    recovery.run_case = solve_with_inner_checkpoints
     recovery.save_solver_checkpoint = save_and_wait
     return batch._run_native_condition(index, case_file, directory, library, threads, checkpoint_file)
 
@@ -205,9 +218,14 @@ def test_native_condition_workers_resume_actual_states_after_relocation(
     from sjtu_tpmshx.domain.cancellation import CancelledError
     from sjtu_tpmshx.optimization import multi_condition as batch
     from sjtu_tpmshx.tests.native.test_run_recovery import same_result
+    from sjtu_tpmshx.io.solver_checkpoint_io import load_solver_checkpoint
 
     conditions = _conditions(dimension)
-    control = replace(native_3d.control(native_path), cpu_threads=2)
+    parallel = replace(native_3d.control(native_path), cpu_threads=4)
+    if parallel.native_cpu_threads() < 2:
+        pytest.skip('Two available CPUs are required for the real worker test.')
+    threads = parallel.native_cpu_threads() // 2
+    control = replace(parallel, cpu_threads=threads)
     expected = batch.evaluate_condition_batch(conditions, output_dir=tmp_path / 'expected', control=control)
     assert expected['status'] == 'completed', expected['conditions']
     native_worker = batch._run_native_condition
@@ -219,23 +237,28 @@ def test_native_condition_workers_resume_actual_states_after_relocation(
     source = tmp_path / 'interrupted'
     with pytest.raises(CancelledError):
         batch.evaluate_condition_batch(conditions, output_dir=source, workers=2,
-            control=replace(control, cpu_threads=4, iteration=iteration, cancel_check=lambda: bool(cancelled)))
+            control=replace(parallel, iteration=iteration, cancel_check=lambda: bool(cancelled)))
     record = json.loads((source / 'batch.json').read_text())
     assert record['status'] == 'cancelled' and record['objectives'] is None
-    assert any(row.get('checkpoint_file') for row in record['conditions'])
+    checkpoints = [load_solver_checkpoint(source / row['checkpoint_file'])
+                   for row in record['conditions'] if row.get('checkpoint_file')]
+    key = ('state.flow.value.0.iteration.value.result.iterations' if dimension == 2
+           else 'state.flow_iteration.value.iterations')
+    assert any(int(saved.native_state['state.phase'][0]) == 6
+               and int(saved.native_state[key][0]) >= 2 for saved in checkpoints)
     moved = source.rename(tmp_path / 'moved')
     before = {path.relative_to(moved): path.read_bytes() for path in moved.rglob('*')
               if path.is_file() and path.suffix in ('.json', '.h5', '.yaml')}
     monkeypatch.setattr(batch, '_run_native_condition', native_worker)
     target = tmp_path / 'continued'
     actual = batch.resume_condition_batch(moved / 'batch.json', output_dir=target,
-                                          workers=2, control=replace(control, cpu_threads=4))
+                                          workers=2, control=parallel)
     assert actual['status'] == 'completed', actual['conditions']
     assert any(row['recovery_mode'] == 'checkpoint' for row in actual['conditions'])
     for row, previous, returned, reference in zip(actual['conditions'], record['conditions'],
                                                   actual['results'], expected['results']):
         assert row['case_id'] == previous['case_id'] == returned[1].case_id
-        assert row['cpu_threads'] == 2
+        assert row['cpu_threads'] == threads
         assert row['condition_id'] == returned[0] == reference[0]
         same_result(returned[1], reference[1], returned[2], reference[2])
         same_result(load_result(target / row['result_file']), reference[1],

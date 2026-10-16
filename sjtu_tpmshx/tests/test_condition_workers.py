@@ -44,7 +44,7 @@ def _analytic_worker(index, case_file, directory, library, threads, checkpoint_f
         if label == 'crash':
             os._exit(17)
         inputs = json.loads((Path(directory).parent / 'batch-input.json').read_text())
-        waits_for_cancel = label == 'stop' or (label == 'mid' and inputs[0]['condition_id'] == 'stop')
+        waits_for_cancel = label == 'stop' or (label == 'mid' and inputs[0]['condition_id'] in ('stop', 'crash'))
         if waits_for_cancel and resume_state is None:
             deadline = monotonic()+10.
             while monotonic() < deadline:
@@ -70,8 +70,11 @@ def _control(tmp_path, **kwargs):
     return RunControl(backend='cpp', native_library=str(library), cpu_threads=4, **kwargs)
 
 
+@pytest.mark.parametrize('available_cpus', [2, 3, 8])
 @pytest.mark.parametrize('failed_member', [False, True])
-def test_process_batch_keeps_order_resources_and_parent_callbacks(tmp_path, monkeypatch, failed_member):
+def test_process_batch_keeps_order_resources_and_parent_callbacks(
+        tmp_path, monkeypatch, failed_member, available_cpus):
+    monkeypatch.setattr(os, 'cpu_count', lambda: available_cpus)
     monkeypatch.setattr(batch, '_run_native_condition', _analytic_worker)
     conditions = _conditions()
     if failed_member:
@@ -86,7 +89,9 @@ def test_process_batch_keeps_order_resources_and_parent_callbacks(tmp_path, monk
     result = batch.evaluate_condition_batch(conditions, output_dir=root,
         baseline=baseline, control=control, workers=2)
     assert result['status'] == ('failed' if failed_member else 'completed')
-    assert result['workers'] == 2 and result['native_cpu_budget'] == 4
+    budget = min(4, available_cpus)
+    threads = budget // 2
+    assert result['workers'] == 2 and result['native_cpu_budget'] == budget
     assert [row['condition_id'] for row in result['conditions']] == [row[0] for row in conditions]
     expected = ['low', 'high'] if failed_member else ['low', 'mid', 'high']
     assert [row[0] for row in result['results']] == expected
@@ -94,12 +99,12 @@ def test_process_batch_keeps_order_resources_and_parent_callbacks(tmp_path, monk
     assert callbacks and all(pid == os.getpid() for pid, _ in callbacks)
     assert len({row['worker_pid'] for row in result['conditions']}) == 2
     for row in result['conditions']:
-        assert row['cpu_threads'] == 2 and row['worker_pid'] != os.getpid()
+        assert row['cpu_threads'] == threads and row['worker_pid'] != os.getpid()
         assert (root / row['checkpoint_file']).is_file()
         if row['status'] == 'completed':
             field = load_result(root / row['result_file'])
             assert field.metadata['test_worker_pid'] == row['worker_pid']
-            assert field.metadata['test_cpu_threads'] == 2
+            assert field.metadata['test_cpu_threads'] == threads
     if failed_member:
         assert result['objectives'] is None
         assert 'injected worker solve failure' in result['conditions'][1]['reason']
