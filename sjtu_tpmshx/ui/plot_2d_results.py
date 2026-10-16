@@ -12,6 +12,7 @@ Public entry points (consumed by ``ui.mixins.run_controller`` and ``main``):
 """
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.ticker import ScalarFormatter
 
 from .theme import FIELD_CMAP
 
@@ -141,7 +142,7 @@ def plot_temperature_3panel(window, r, _t):
         cf = ax.contourf(_Xp, _Yp, _Fp, **kw)
         ax.set_xlim(0, L * 1000.0); ax.set_ylim(0, H * 1000.0)
         cb = window.canvas_temp.fig.colorbar(cf, ax=ax, shrink=0.9,
-                                              aspect=25, format="%.0f")
+                                              aspect=25, format=ScalarFormatter(useOffset=False))
         _style_workbench_axes(ax, cb, _t, main_title, subtitle)
         if hasattr(window, '_zone_boundaries') and window._zone_boundaries:
             z_dir = getattr(window, '_zone_axis_dir', 'y')
@@ -224,7 +225,8 @@ def finalize_plots(window, field="temp"):
             Xp, Yp, Fp = pad_field_to_edges(x, y, values, L * 1000, H * 1000)
             cf = ax.contourf(Xp, Yp, Fp, levels=256, cmap=FIELD_CMAP)
             ax.set_xlim(0, L * 1000); ax.set_ylim(0, H * 1000)
-            cb = canvas.fig.colorbar(cf, ax=ax, shrink=.9, aspect=25, format='%.0f')
+            cb = canvas.fig.colorbar(cf, ax=ax, shrink=.9, aspect=25,
+                                    format=ScalarFormatter(useOffset=False))
             tag = ('A', 'B')[index]
             _style_workbench_axes(ax, cb, _t, rf'$P_{tag}$ [Pa]', f'Fluid {tag}')
             if not canvas.fig.get_constrained_layout():
@@ -274,7 +276,7 @@ def finalize_plots(window, field="temp"):
                              vmin=0.0, vmax=_vmax_v)
             ax.set_xlim(0, L * 1000.0); ax.set_ylim(0, H * 1000.0)
             cb = window.canvas_vel.fig.colorbar(cf, ax=ax, shrink=0.9,
-                                                 aspect=25, format="%.1f")
+                                                 aspect=25, format=ScalarFormatter(useOffset=False))
             _style_workbench_axes(ax, cb, _t, main_title, subtitle)
             cb.ax.yaxis.set_major_locator(plt.MaxNLocator(nbins=7))
             ax.grid(True, alpha=0.15, linewidth=0.5, color=_t['ax_text'])

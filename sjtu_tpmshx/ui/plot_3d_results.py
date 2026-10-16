@@ -5,7 +5,7 @@ without modifying solver output. Panel readiness is separate from data presence.
 """
 from __future__ import annotations
 import numpy as np
-from matplotlib.ticker import MaxNLocator
+from matplotlib.ticker import MaxNLocator, ScalarFormatter
 
 # Theme — resolved at call time via get_theme()
 from sjtu_tpmshx.ui.theme import get_theme as _get_theme
@@ -328,7 +328,8 @@ def _plot_3d_temperature(canvas, Ta_slice, Tb_slice, Ts_slice, xc, yc, z_info,
                 vmax = vmin + 1.
         cf = ax.contourf(X, Y, field, levels=256, cmap=FIELD_CMAP,
                           vmin=vmin, vmax=vmax)
-        cb = canvas.fig.colorbar(cf, ax=ax, shrink=0.85, aspect=18, format='%.1f')
+        cb = canvas.fig.colorbar(cf, ax=ax, shrink=0.85, aspect=18,
+                                format=ScalarFormatter(useOffset=False))
         cb.ax.tick_params(labelsize=11, colors=_T['ax_text'])
         cb.ax.yaxis.set_major_locator(MaxNLocator(nbins='auto'))
         _style_axis(ax, title=title)
@@ -380,7 +381,8 @@ def _plot_3d_pressure(canvas, P_slice_A, P_slice_B, xc, yc, dP_A, dP_B, z_info,
         # still well below the wasteful 512 (2026-05-20 perf note).
         cf = ax.contourf(X, Y, p / 1000.0, levels=256, cmap=FIELD_CMAP,
                           vmin=p_min_kpa, vmax=p_max_kpa)
-        cb = canvas.fig.colorbar(cf, ax=ax, shrink=0.9, aspect=25, format='%.1f')
+        cb = canvas.fig.colorbar(cf, ax=ax, shrink=0.9, aspect=25,
+                                format=ScalarFormatter(useOffset=False))
         cb.ax.tick_params(labelsize=11, colors=_T['ax_text'])
         cb.ax.yaxis.set_major_locator(MaxNLocator(nbins='auto'))
         title = f'$P_{tag}$ [kPa] — Fluid {tag}'
@@ -427,7 +429,8 @@ def _plot_3d_velocity_slice(canvas, uA, vA, wA, uB, vB, wB, xc, yc, z_info,
         u, v, w, tag = V_data[index]
         cf = ax.contourf(X, Y, vmag, levels=256, cmap=FIELD_CMAP,
                           vmin=0.0, vmax=vmax_v)
-        cb = canvas.fig.colorbar(cf, ax=ax, shrink=0.9, aspect=25, format='%.2f')
+        cb = canvas.fig.colorbar(cf, ax=ax, shrink=0.9, aspect=25,
+                                format=ScalarFormatter(useOffset=False))
         cb.ax.tick_params(labelsize=11, colors=_T['ax_text'])
         cb.ax.yaxis.set_major_locator(MaxNLocator(nbins='auto'))
         title = f'|v| (m/s) — Fluid {tag}'

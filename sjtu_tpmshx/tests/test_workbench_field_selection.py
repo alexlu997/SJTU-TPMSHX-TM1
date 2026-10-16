@@ -5,6 +5,7 @@ from sjtu_tpmshx.controllers.result_cache import ResultCache
 import numpy as np
 import pytest
 from matplotlib.figure import Figure
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 
 from sjtu_tpmshx.ui.coord_inspector import _resolve_fields
 from sjtu_tpmshx.ui.plot_2d_results import plot_temperature_3panel
@@ -14,6 +15,57 @@ from sjtu_tpmshx.ui.theme import FIELD_CMAP, get_theme
 
 def _canvas():
     return SimpleNamespace(fig=Figure(), draw=lambda: None, draw_idle=lambda: None)
+
+
+@pytest.mark.parametrize('dimension,field,phase', [
+    (2, 'temp', 0), (2, 'pres', 0), (2, 'pres', None), (2, 'vel', 0),
+    (3, 'temp', 0), (3, 'pres', 0), (3, 'vel', 0),
+])
+def test_narrow_field_colorbars_keep_distinct_absolute_labels(dimension, field, phase):
+    from sjtu_tpmshx.ui.matplotlib_canvas import MatplotlibCanvas
+    from sjtu_tpmshx.ui.plot_2d_results import finalize_plots
+    from sjtu_tpmshx.ui.plot_3d_results import (
+        _plot_3d_temperature, _plot_3d_pressure, _plot_3d_velocity_slice,
+    )
+
+    variation = np.linspace(0., 1., 12).reshape(4, 3)
+    temperature = 350. + .4 * variation
+    pressure = 120000. + .4 * variation
+    velocity = .3 + .0004 * variation
+    zeros = np.zeros_like(variation)
+    canvas = _canvas()
+    if dimension == 2:
+        fields = dict(Ta=temperature, Tb=temperature + .1, Ts=temperature + .2,
+                      P_fA=pressure, P_fB=pressure + .1,
+                      ucA=velocity, vcA=zeros, ucB=velocity, vcB=zeros,
+                      N_x=4, N_y=3, L=.04, H=.03, dir_A=0, dir_B=3)
+        window = SimpleNamespace(cache=ResultCache(), _field_phase=phase,
+            _DIR_MAP={0: 'x+', 3: 'y-'}, canvas_temp=canvas, canvas_pres=canvas,
+            canvas_vel=canvas, _update_tout=lambda _: None)
+        canvas.plot_pressure = lambda *args, **kwargs: MatplotlibCanvas.plot_pressure(canvas, *args, **kwargs)
+        window.cache.set_result('2d', SimpleNamespace(fields=fields, extrap_reasons=[]))
+        finalize_plots(window, field)
+    else:
+        x, y = np.linspace(5., 35., 4), np.linspace(5., 25., 3)
+        if field == 'temp':
+            _plot_3d_temperature(canvas, temperature, temperature + .1,
+                                 temperature + .2, x, y, '', phase=phase)
+        elif field == 'pres':
+            _plot_3d_pressure(canvas, pressure, pressure + .1, x, y, .4, .4, '', phase=phase)
+        else:
+            _plot_3d_velocity_slice(canvas, velocity, zeros, zeros,
+                                    velocity, zeros, zeros, x, y, '', phase=phase)
+    FigureCanvasAgg(canvas.fig).draw()
+    plot_axes = [axis for row in canvas.axes for axis in row]
+    colorbars = [axis for axis in canvas.fig.axes if axis not in plot_axes]
+    assert colorbars
+    for axis in colorbars:
+        low, high = axis.get_ylim()
+        labels = [label.get_text() for tick, label in zip(axis.get_yticks(), axis.get_yticklabels())
+                  if low <= tick <= high]
+        assert len(labels) >= 2
+        assert len(set(labels)) == len(labels)
+        assert axis.yaxis.get_offset_text().get_text() == ''
 
 
 def test_frozen_b_temperature_remains_selectable_in_real_phase_controls():
