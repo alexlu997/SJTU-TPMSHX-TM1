@@ -66,9 +66,11 @@ struct Case {
         return .005*(hin-hout);
     }
 };
+std::size_t cpu_threads=1;
 EnthalpyControl controls(bool sou) {
     EnthalpyControl c{1200,5,sou?.2:.6,2e-12,1e-7,1e-7,""};
     c.algorithm=sou?EnthalpyAlgorithm::temperature_sou:EnthalpyAlgorithm::temperature_fou;
+    c.cpu_threads=cpu_threads;
     return c;
 }
 
@@ -380,8 +382,11 @@ void energy_run_checks() {
 
 }  // namespace
 
-int main() {
+int main(int argc,char** argv) {
     try {
+        require(argc<=2,"expected one optional CPU thread count");
+        if(argc==2)cpu_threads=std::stoul(argv[1]);
+        require(cpu_threads>0,"CPU thread count must be positive");
         energy_run_checks();
         mixed_model_checks();
         std::size_t solved=0;
@@ -712,6 +717,10 @@ int main() {
         rejects<std::invalid_argument>([&] { solve_enthalpy(unknown.grid(),unknown.side(0),unknown.side(1),view(unknown.solid_k),unknown.state(),c); },
                                        "undefined exterior inflow was accepted");
         Case invalid(0,1,Fluid::air,Fluid::water);
+        c.cpu_threads=0;
+        rejects<std::invalid_argument>([&] { solve_enthalpy(invalid.grid(),invalid.side(0),invalid.side(1),view(invalid.solid_k),invalid.state(),c); },
+                                       "zero CPU thread count was accepted");
+        c.cpu_threads=cpu_threads;
         c.equation_energy_tolerance.reset();
         rejects<std::invalid_argument>([&] { solve_enthalpy(invalid.grid(),invalid.side(0),invalid.side(1),view(invalid.solid_k),invalid.state(),c); },
                                        "T energy accepted a missing actual equation gate");

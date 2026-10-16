@@ -211,3 +211,27 @@ def test_recoverable_cli_restores_sigint_after_failure(tmp_path, monkeypatch):
                   '--native-library', str(tmp_path / 'solver.so'), '--checkpoint-interval', '42'])
     assert caught.value is failure
     assert signal.getsignal(signal.SIGINT) == previous
+
+
+@pytest.mark.parametrize('backend', ['python', 'cpp'])
+def test_cli_thread_limit_stays_in_execution_control(backend):
+    parser = argparse.ArgumentParser()
+    add_run_control_arguments(parser)
+    control = run_control_from_args(parser.parse_args(['--backend', backend, '--cpu-threads', '3']))
+    assert control.cpu_threads == 3
+
+
+@pytest.mark.parametrize('count', [0, -1, True, 1.5, '2'])
+def test_thread_limit_requires_a_positive_integer(count):
+    with pytest.raises(ValueError, match='cpu_threads'):
+        RunControl(cpu_threads=count)
+
+
+def test_native_thread_limit_uses_available_cpus(monkeypatch):
+    from sjtu_tpmshx.domain import module_ports
+    monkeypatch.setattr(module_ports.os, 'cpu_count', lambda: 3)
+    assert RunControl().native_cpu_threads() == 3
+    assert RunControl(cpu_threads=1).native_cpu_threads() == 1
+    assert RunControl(cpu_threads=8).native_cpu_threads() == 3
+    monkeypatch.setattr(module_ports.os, 'cpu_count', lambda: None)
+    assert RunControl().native_cpu_threads() == 1

@@ -9,6 +9,8 @@ from sjtu_tpmshx.domain.provenance import SOURCE_ROOT
 def add_run_control_arguments(parser):
     """Add host execution options without changing the saved case/config."""
     parser.add_argument('--backend', choices=('python', 'cpp'), default='python')
+    parser.add_argument('--cpu-threads', type=int,
+                        help='CPU thread limit for this run; native default: at most 8')
     parser.add_argument('--native-library', type=Path,
                         help='native solver library on this host (cpp backend)')
     parser.add_argument('--native-table-directory', type=Path,
@@ -34,6 +36,6 @@ def run_control_from_args(args):
             if tables is None:
                 tables = SOURCE_ROOT / '.cache/native-deps/tables'
     return RunControl(
-        backend=args.backend,
+        backend=args.backend, cpu_threads=getattr(args, 'cpu_threads', None),
         native_library=str(library.expanduser().resolve()) if library is not None else None,
         native_table_directory=str(tables.expanduser().resolve()) if tables is not None else None)

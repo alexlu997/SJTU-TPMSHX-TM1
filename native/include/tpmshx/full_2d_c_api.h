@@ -243,6 +243,15 @@ typedef struct {
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_flow_methods_v1(
     const tpmshx_full_2d_result_v2*,tpmshx_full_2d_flow_method_v1[2]);
 
+/* Execute with a positive CPU thread limit. Numerical controls are unchanged. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v6(
+    const size_t* shape,const double* const* arrays,const size_t* sizes,
+    const tpmshx_full_2d_config_v2* config,const tpmshx_energy_options_v1* energy,
+    const tpmshx_full_2d_energy_control_v4* explicit_energy,
+    const tpmshx_model_h_iteration_options_v1* model_h,size_t cpu_threads,
+    const tpmshx_full_2d_callbacks_v2* callbacks,
+    tpmshx_full_2d_result_v2* result,char* error,size_t capacity);
+
 #ifdef __cplusplus
 }
 #endif

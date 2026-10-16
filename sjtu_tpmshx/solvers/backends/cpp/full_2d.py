@@ -304,34 +304,45 @@ class NativeFull2DDriver:
         energy = _energy_options(energy_algorithm, temperature_update_tolerance)
         if energy_control is not None:
             energy = energy_control.energy
+        thread_call = getattr(self.library, 'tpmshx_solve_full_2d_v6', None)
+        if thread_call is None and control.cpu_threads is not None:
+            raise ValueError('this retained native library has no CPU thread limit; leave cpu_threads unset')
         energy_call = energy_query = version_query = None
         entry_version = 2
         if model_h_options is not None:
             if energy_control is not None or energy.algorithm or config.thermal_mode == 2:
                 raise ValueError('model-h iteration controls require an integral h(T) route')
-            try:
-                energy_call = self.library.tpmshx_solve_full_2d_v5
-            except AttributeError as exc:
-                raise ValueError('native full 2D library lacks model-h controls v5; rebuild the library') from exc
-            energy_call.argtypes = [*self.call.argtypes[:4], ct.POINTER(_IterationOptions), *self.call.argtypes[4:]]
-            energy_call.restype = ct.c_int
+            if thread_call is None:
+                try:
+                    energy_call = self.library.tpmshx_solve_full_2d_v5
+                except AttributeError as exc:
+                    raise ValueError('native full 2D library lacks model-h controls v5; rebuild the library') from exc
+                energy_call.argtypes = [*self.call.argtypes[:4], ct.POINTER(_IterationOptions), *self.call.argtypes[4:]]
+                energy_call.restype = ct.c_int
             entry_version = 5
         elif energy_control is not None:
-            try:
-                energy_call = self.library.tpmshx_solve_full_2d_v4
-            except AttributeError as exc:
-                raise ValueError('native full 2D library lacks explicit energy controls v4') from exc
-            energy_call.argtypes = [*self.call.argtypes[:4], ct.POINTER(_EnergyControl), *self.call.argtypes[4:]]
-            energy_call.restype = ct.c_int
+            if thread_call is None:
+                try:
+                    energy_call = self.library.tpmshx_solve_full_2d_v4
+                except AttributeError as exc:
+                    raise ValueError('native full 2D library lacks explicit energy controls v4') from exc
+                energy_call.argtypes = [*self.call.argtypes[:4], ct.POINTER(_EnergyControl), *self.call.argtypes[4:]]
+                energy_call.restype = ct.c_int
             entry_version = 4
         elif energy.algorithm:
-            try:
-                energy_call = self.library.tpmshx_solve_full_2d_v3
-            except AttributeError as exc:
-                raise ValueError('native full 2D library lacks conservative energy v3') from exc
-            energy_call.argtypes = [*self.call.argtypes[:4], ct.POINTER(_EnergyOptions), *self.call.argtypes[4:]]
-            energy_call.restype = ct.c_int
+            if thread_call is None:
+                try:
+                    energy_call = self.library.tpmshx_solve_full_2d_v3
+                except AttributeError as exc:
+                    raise ValueError('native full 2D library lacks conservative energy v3') from exc
+                energy_call.argtypes = [*self.call.argtypes[:4], ct.POINTER(_EnergyOptions), *self.call.argtypes[4:]]
+                energy_call.restype = ct.c_int
             entry_version = 3
+        if thread_call is not None:
+            entry_version = 6
+            thread_call.argtypes = [*self.call.argtypes[:4], ct.POINTER(_EnergyOptions),
+                ct.POINTER(_EnergyControl), ct.POINTER(_IterationOptions), ct.c_size_t, *self.call.argtypes[4:]]
+            thread_call.restype = ct.c_int
         if energy.algorithm:
             try:
                 energy_query = self.library.tpmshx_full_2d_get_energy_evidence_v1
@@ -384,12 +395,12 @@ class NativeFull2DDriver:
         try:
             args = ((ct.c_size_t*2)(*shape), pointers, sizes, ct.byref(config))
             tail = (ct.byref(callbacks), ct.byref(result), error, len(error))
-            options = model_h_options if model_h_options is not None else energy_control if energy_control is not None else energy
+            basic_energy = energy if energy_control is None and model_h_options is None else None
             if resume_state is not None or checkpoint is not None:
                 from .full_2d_run import NativeFull2DRun
                 with NativeFull2DRun(self.library, *args[:3], config, callbacks,
-                        energy=energy if entry_version == 3 else None,
-                        energy_control=energy_control, model_h=model_h_options, state=resume_state) as run:
+                        energy=basic_energy, energy_control=energy_control, model_h=model_h_options,
+                        state=resume_state, cpu_threads=control.native_cpu_threads() if thread_call else None) as run:
                     while run.phase not in (3, 4):
                         phase = run.advance()
                         if errors:
@@ -399,8 +410,14 @@ class NativeFull2DDriver:
                             checkpoint(run.snapshot())
                     result = run.take_result()
                 status = 0
+            elif thread_call:
+                status = thread_call(*args, ct.byref(basic_energy) if basic_energy is not None else None,
+                    ct.byref(energy_control) if energy_control is not None else None,
+                    ct.byref(model_h_options) if model_h_options is not None else None,
+                    control.native_cpu_threads(), *tail)
             else:
-                status = (energy_call(*args, ct.byref(options), *tail) if energy_call else self.call(*args, *tail))
+                options = model_h_options if model_h_options is not None else energy_control if energy_control is not None else energy
+                status = energy_call(*args, ct.byref(options), *tail) if energy_call else self.call(*args, *tail)
             if errors:
                 raise errors[0]
             if status:
@@ -456,6 +473,9 @@ class NativeFull2DDriver:
                 iterations=value.iterations, proposal_steps=value.proposal_steps,
                 accepted_proposals=value.accepted_proposals) for side, value in zip('AB', methods)}
             out['entry_version'] = entry_version
+            if thread_call:
+                out['runtime_resources'] = dict(cpu_thread_limit=control.native_cpu_threads(),
+                    requested_cpu_threads=control.cpu_threads, policy='native_cpu_limit_v1')
             if energy_query:
                 extra = _EnergyEvidence()
                 if energy_query(ct.byref(result), ct.byref(extra)):

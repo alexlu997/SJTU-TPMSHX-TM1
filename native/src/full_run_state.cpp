@@ -40,6 +40,7 @@ template<class Archive,class Value> void walk(Archive& archive,Value& value,Simp
     FIELD(massflux_inlet) FIELD(second_order_upwind) FIELD(adaptive_pressure_tolerance) FIELD(track_momentum) FIELD(ordering)
     FIELD(convergence)
 }
+// Runtime thread counts do not change the numerical state identity.
 template<class Archive,class Value> void walk(Archive& archive,Value& value,EnthalpyControl*) {
     FIELD(max_iterations) FIELD(sweeps) FIELD(omega) FIELD(update_tolerance) FIELD(coupled_energy_tolerance)
     FIELD(equation_energy_tolerance) FIELD(algorithm) FIELD(temperature_update_tolerance) FIELD(require_enthalpy_update_on_temperature)

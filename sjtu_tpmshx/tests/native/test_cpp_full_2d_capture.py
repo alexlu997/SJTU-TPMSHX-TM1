@@ -114,7 +114,7 @@ def compare_portable(actual, expected, *, full_cc=False, selected_energy=False):
             audit = balance.get(name)
             if audit is not None and audit['status'] == 'available':
                 assert abs(audit['telescoping_error']) < 2e-7
-    assert actual.backend_version == 'full_2d_v2'
+    assert actual.backend_version == 'full_2d_v6'
     for key in ('fields', 'field_metadata', 'pressure_evidence', 'run_status'):
         compare(getattr(actual, key), getattr(expected, key), key)
     fluxes = dict(actual.boundary_fluxes)

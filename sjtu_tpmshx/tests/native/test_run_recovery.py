@@ -46,17 +46,18 @@ def same_result(actual, expected, actual_metrics, expected_metrics):
     '2d-temperature_fou', '2d-temperature_sou', '3d-air-air', '3d-water-air', '3d-sco2-water'])
 def test_native_saved_run_preserves_complete_public_evidence(native_path, tmp_path, route):
     config = configuration(route)
-    control = spatial.control(native_path)
+    control = replace(spatial.control(native_path), cpu_threads=3)
     case, expected, expected_metrics = compute(config, case_id=route, control=control)
     pause = threading.Event()
     paused = tmp_path / 'paused'
     with pytest.raises(PausedRun):
         compute_run(config, paused, checkpoint_interval_s=3600., case_id=case.case_id,
-                    control=replace(control, iteration=lambda _: pause.set()), pause_check=pause.is_set)
+                    control=replace(control, cpu_threads=1, iteration=lambda _: pause.set()), pause_check=pause.is_set)
     checkpoint = paused / 'checkpoint.h5'
     saved = load_solver_checkpoint(checkpoint)
     assert int(saved.native_state['state.phase'][0]) >= 6
-    assert json.loads((paused / 'run.json').read_text())['state'] == 'paused'
+    status = json.loads((paused / 'run.json').read_text())
+    assert status['state'] == 'paused' and status['requested_cpu_threads'] == 1
     assert not (paused / 'results.h5').exists()
     previous = {name: (paused / name).read_bytes() for name in ('case.h5', 'checkpoint.h5', 'run.json')}
     resumed = tmp_path / 'resumed'
@@ -65,7 +66,8 @@ def test_native_saved_run_preserves_complete_public_evidence(native_path, tmp_pa
     same_result(load_result(resumed / 'results.h5'), expected,
                 load_metrics(resumed / 'metrics.json'), expected_metrics)
     assert {name: (paused / name).read_bytes() for name in previous} == previous
-    assert json.loads((resumed / 'run.json').read_text())['state'] == 'completed'
+    status = json.loads((resumed / 'run.json').read_text())
+    assert status['state'] == 'completed' and status['requested_cpu_threads'] == 3
 
 
 @pytest.mark.parametrize('route', ['2d-model_h', '3d-air-air'])
@@ -73,7 +75,7 @@ def test_native_saved_run_preserves_complete_public_evidence(native_path, tmp_pa
 def test_cli_process_exit_and_relocated_resume_keep_public_result(
         native_path, tmp_path, route, interrupt, exit_code):
     config = configuration(route)
-    control = spatial.control(native_path)
+    control = replace(spatial.control(native_path), cpu_threads=3)
     _, expected, expected_metrics = compute(config, case_id=route, control=control)
     config_path, original = tmp_path / 'config.json', tmp_path / 'original'
     config.to_json(config_path)
@@ -96,7 +98,7 @@ raise SystemExit(status)
 '''
     args = ['run', str(config_path), str(original), '--case-id', route, '--backend', 'cpp',
             '--native-library', str(native_path), '--native-table-directory', control.native_table_directory,
-            '--checkpoint-interval', '3600']
+            '--checkpoint-interval', '3600', '--cpu-threads', '1']
     process = subprocess.run([sys.executable, '-c', script, *args], input=interrupt + '\n',
                              capture_output=True, text=True, timeout=120)
     assert process.returncode == exit_code, process.stdout + process.stderr
@@ -109,7 +111,7 @@ raise SystemExit(status)
     target = tmp_path / 'continued'
     args = ['resume', str(moved / 'checkpoint.h5'), str(target), '--checkpoint-interval', '3600',
             '--native-library', str(moved / record['native_file']),
-            '--native-table-directory', control.native_table_directory]
+            '--native-table-directory', control.native_table_directory, '--cpu-threads', '3']
     process = subprocess.run([sys.executable, '-m', 'sjtu_tpmshx.cli', *args],
                              capture_output=True, text=True, timeout=120)
     qualified = expected.run_status['converged'] and all(

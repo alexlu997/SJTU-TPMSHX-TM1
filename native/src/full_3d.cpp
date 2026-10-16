@@ -223,6 +223,7 @@ void validate(const Full3DInput& in,const Full3DControl& c) {
             && !uses_co2_eos(in.a.fluid) && (!in.solve_b || !uses_co2_eos(in.b.fluid)));
         if(!integral)throw std::invalid_argument("model-h iteration controls require an integral h(T) route");
     }
+    if(!c.enthalpy.cpu_threads)throw std::invalid_argument("CPU thread count must be positive");
     if(!c.max_outer || !c.initial_simple_iterations || !c.warm_simple_iterations || !c.thermal_iterations
        || !std::isfinite(c.outer_temperature_tolerance) || c.outer_temperature_tolerance<=0.
        || !std::isfinite(c.thermal_relaxation) || c.thermal_relaxation<=0. || c.thermal_relaxation>1.)

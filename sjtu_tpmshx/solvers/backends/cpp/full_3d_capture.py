@@ -174,6 +174,7 @@ def capture_result(case, cfg, p, r, abi):
             **({'temperature':r['temperature_evidence']} if 'temperature_evidence' in r else {})),
         pressure_evidence=pressure,run_status=dict(execution='completed',converged=r['converged'],outer_index=r['outer_index']),
         metadata=dict(**({'continuation':r['continuation']} if 'continuation' in r else {}),
+            **({'runtime_resources':r['runtime_resources']} if 'runtime_resources' in r else {}),
             _last_closure_ranges=r['last_closure_ranges'],dimension=3,quantity_basis='total',thermal_mode=r['mode'],parameters=case.parameters,design_fields=case.design_fields,
             **({'temperature_transport':temperature_transport} if temperature_transport is not None else {}),
             input_resolution=cfg['_input_resolution'], property_sampling=r['property_sampling'],

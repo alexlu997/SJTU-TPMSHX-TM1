@@ -276,6 +276,9 @@ class NativeFull3DDriver:
             raise ValueError('require_enthalpy_update_on_temperature must be boolean')
         strict_options = require_h or any(cfg.get(name) is not None for name in (
             'ltne_enthalpy_coupled_energy_tol', 'ltne_enthalpy_equation_energy_tol'))
+        thread_call = getattr(self.library, 'tpmshx_solve_full_3d_v5', None)
+        if thread_call is None and control.cpu_threads is not None:
+            raise ValueError('this retained native library has no CPU thread limit; leave cpu_threads unset')
         energy_call = energy_query = version_query = None
         entry_version = 1
         model_h_options = _iteration_options(cfg)
@@ -283,33 +286,41 @@ class NativeFull3DDriver:
             if energy.algorithm or strict_options or any(cfg.get(name) is not None for name in (
                     'ltne_enthalpy_outer', 'ltne_enthalpy_nsweep', 'ltne_enthalpy_omega', 'ltne_enthalpy_tol')):
                 raise ValueError('model-h iteration controls cannot be combined with EOS controls')
-            try:
-                energy_call = self.library.tpmshx_solve_full_3d_v4
-            except AttributeError as exc:
-                raise ValueError('native full 3D library lacks model-h controls v4; rebuild the library') from exc
-            energy_call.argtypes = [*self.call.argtypes[:2], ct.POINTER(_IterationOptions), *self.call.argtypes[2:]]
-            energy_call.restype = ct.c_int
+            if thread_call is None:
+                try:
+                    energy_call = self.library.tpmshx_solve_full_3d_v4
+                except AttributeError as exc:
+                    raise ValueError('native full 3D library lacks model-h controls v4; rebuild the library') from exc
+                energy_call.argtypes = [*self.call.argtypes[:2], ct.POINTER(_IterationOptions), *self.call.argtypes[2:]]
+                energy_call.restype = ct.c_int
             entry_version = 4
         elif strict_options:
             energy = _EnergyOptionsV2(energy.algorithm, energy.temperature_update_tolerance,
                 defaults.coupled_energy_tolerance if cfg.get('ltne_enthalpy_coupled_energy_tol') is None else cfg['ltne_enthalpy_coupled_energy_tol'],
                 defaults.equation_energy_tolerance if cfg.get('ltne_enthalpy_equation_energy_tol') is None else cfg['ltne_enthalpy_equation_energy_tol'],
                 require_h)
-            try:
-                energy_call = self.library.tpmshx_solve_full_3d_v3
-            except AttributeError as exc:
-                raise ValueError('native full 3D library lacks explicit energy controls v3') from exc
-            energy_call.argtypes = [*self.call.argtypes[:2], ct.POINTER(_EnergyOptionsV2), *self.call.argtypes[2:]]
-            energy_call.restype = ct.c_int
+            if thread_call is None:
+                try:
+                    energy_call = self.library.tpmshx_solve_full_3d_v3
+                except AttributeError as exc:
+                    raise ValueError('native full 3D library lacks explicit energy controls v3') from exc
+                energy_call.argtypes = [*self.call.argtypes[:2], ct.POINTER(_EnergyOptionsV2), *self.call.argtypes[2:]]
+                energy_call.restype = ct.c_int
             entry_version = 3
         elif energy.algorithm:
-            try:
-                energy_call = self.library.tpmshx_solve_full_3d_v2
-            except AttributeError as exc:
-                raise ValueError('native full 3D library lacks conservative energy v2') from exc
-            energy_call.argtypes = [*self.call.argtypes[:2], ct.POINTER(_EnergyOptions), *self.call.argtypes[2:]]
-            energy_call.restype = ct.c_int
+            if thread_call is None:
+                try:
+                    energy_call = self.library.tpmshx_solve_full_3d_v2
+                except AttributeError as exc:
+                    raise ValueError('native full 3D library lacks conservative energy v2') from exc
+                energy_call.argtypes = [*self.call.argtypes[:2], ct.POINTER(_EnergyOptions), *self.call.argtypes[2:]]
+                energy_call.restype = ct.c_int
             entry_version = 2
+        if thread_call is not None:
+            entry_version = 5
+            thread_call.argtypes = [*self.call.argtypes[:2], ct.POINTER(_EnergyOptions),
+                ct.POINTER(_EnergyOptionsV2), ct.POINTER(_IterationOptions), ct.c_size_t, *self.call.argtypes[2:]]
+            thread_call.restype = ct.c_int
         if energy.algorithm:
             version_query = _energy_algorithm_query(self.library)
             try:
@@ -422,7 +433,8 @@ class NativeFull3DDriver:
                     defaults.coupled_energy_tolerance, defaults.equation_energy_tolerance, require_h)
                     if true_h else None)
                 with NativeFull3DRun(self.library, data, c, options, callbacks,
-                                     model_h=model_h_options, state=resume_state) as run:
+                                     model_h=model_h_options, state=resume_state,
+                                     cpu_threads=control.native_cpu_threads() if thread_call else None) as run:
                     while run.phase not in (3, 4):
                         phase = run.advance()
                         if callback_errors:
@@ -432,6 +444,12 @@ class NativeFull3DDriver:
                             checkpoint(run.snapshot())
                     result = run.take_result()
                 code = 0
+            elif thread_call:
+                code = thread_call(ct.byref(data), ct.byref(c),
+                    ct.byref(energy) if not strict_options and model_h_options is None else None,
+                    ct.byref(energy) if strict_options else None,
+                    ct.byref(model_h_options) if model_h_options is not None else None,
+                    control.native_cpu_threads(), ct.byref(callbacks), ct.byref(result), error, len(error))
             elif energy_call:
                 options = model_h_options if model_h_options is not None else energy
                 code = energy_call(ct.byref(data), ct.byref(c), ct.byref(options), ct.byref(callbacks), ct.byref(result), error, len(error))
@@ -483,6 +501,9 @@ class NativeFull3DDriver:
                 if 'coupling_startup' in row:
                     row['coupling_startup']['iteration_budget'] = budgets[row['outer']]
             detached['entry_version'] = entry_version
+            if thread_call:
+                detached['runtime_resources'] = dict(cpu_thread_limit=control.native_cpu_threads(),
+                    requested_cpu_threads=control.cpu_threads, policy='native_cpu_limit_v1')
             if detached['mode'] in ('model_h', 'temperature'):
                 if detached['mode'] == 'model_h':
                     algorithm = _model_h_algorithm(self.library, 3)

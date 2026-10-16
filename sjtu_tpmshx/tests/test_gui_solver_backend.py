@@ -34,15 +34,16 @@ def test_selection_updates_consumers_without_changing_case_or_result(win, tmp_pa
         assert win._qd_dialog.run_control is win.run_control
         assert win.cache.get_result('2d') is accepted
         assert asdict(config_from_window(win)) == config
-        assert win.spin_cpu_cores.isEnabled() == (backend == 'python')
+        assert win.spin_cpu_cores.isEnabled()
         if backend == 'cpp':
-            assert win.spin_cpu_cores.text() == '自动'
+            assert win.spin_cpu_cores.value() == 0 and win.spin_cpu_cores.text() == '自动'
         else:
             assert win.spin_cpu_cores.value() == mask
             assert win.spin_cpu_cores.maximum() == solver_threads.max_threads()
     target = 1 if mask > 1 else solver_threads.max_threads()
     win.spin_cpu_cores.setValue(target)
     assert solver_threads.get_solver_threads() == target
+    assert win.run_control.cpu_threads == target
 
 
 def test_missing_explicit_library_keeps_previous_selection(win, tmp_path, monkeypatch):
@@ -87,6 +88,7 @@ def test_selected_backend_reaches_worker_and_stays_locked_through_cancel(
     win.run_control = replace(win.run_control, native_library=str(library))
     win._open_quick_design()  # An already-open dialog must follow the new choice.
     win.combo_solver_backend.setCurrentIndex(win.combo_solver_backend.findData('cpp'))
+    win.spin_cpu_cores.setValue(1)
     entered, release = threading.Event(), threading.Event()
     controls = []
 
@@ -121,6 +123,8 @@ def test_selected_backend_reaches_worker_and_stays_locked_through_cancel(
     try:
         assert entered.wait(5)
         assert controls[0].backend == 'cpp' and controls[0].native_library == str(library)
+        assert controls[0].cpu_threads == win._qd_dialog.run_control.cpu_threads == 1
+        assert not win.spin_cpu_cores.isEnabled()
         assert has_active_tasks(win) and not win.combo_solver_backend.isEnabled()
         cancel()
         win.combo_solver_backend.setCurrentIndex(win.combo_solver_backend.findData('python'))

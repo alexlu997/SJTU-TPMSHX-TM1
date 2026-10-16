@@ -7,6 +7,9 @@
 #include <CoolProp/Exceptions.h>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <future>
 #include <cmath>
 #include <limits>
 #include <sstream>
@@ -149,6 +152,44 @@ struct EnthalpyRun::Impl {
     std::vector<double> ra,rb,rs,old_solid,source_a,source_b;
     model_h_common::Anderson aa;
 
+    struct PropertyLane { EnthalpyEOS ordinary,trial; };
+    std::vector<std::unique_ptr<PropertyLane>> property_lanes;
+    template<class F> bool property_cells(bool trial,F&& cell) {
+        const auto lanes=std::min(control.cpu_threads,n);
+        std::vector<std::exception_ptr> errors(lanes);
+        std::atomic<bool> cancelled{false};
+        auto poll=[&] {
+            if(control.cancel && control.cancel(control.context)) cancelled.store(true);
+        };
+        property_lanes.resize(lanes-1);
+        for(std::size_t lane=1;lane<lanes;++lane)
+            if(!property_lanes[lane-1]) property_lanes[lane-1]=std::make_unique<PropertyLane>();
+        auto run=[&](std::size_t lane) {
+            try {
+                auto& local=lane ? (trial ? property_lanes[lane-1]->trial : property_lanes[lane-1]->ordinary)
+                                 : (trial ? aa_eos : eos);
+                for(std::size_t p=n*lane/lanes;p<n*(lane+1)/lanes;++p) {
+                    if(trial && lane==0 && p%256==0) poll();
+                    if(cancelled.load() || !cell(lane,p,local)) break;
+                }
+            } catch(...) { errors[lane]=std::current_exception(); }
+        };
+        std::vector<std::future<void>> futures;
+        futures.reserve(lanes-1);
+        for(std::size_t lane=1;lane<lanes;++lane)
+            futures.push_back(std::async(std::launch::async,run,lane));
+        run(0);
+        for(auto& future:futures) {
+            while(future.wait_for(std::chrono::milliseconds(10))!=std::future_status::ready) {
+                try { if(trial) poll(); }
+                catch(...) { if(!errors[0]) errors[0]=std::current_exception();cancelled.store(true); }
+            }
+            future.get();
+        }
+        for(const auto& error:errors) if(error) std::rethrow_exception(error);
+        return cancelled.load();
+    }
+
     Impl(const GridView& input_grid,const EnthalpySideView& input_a,const EnthalpySideView& input_b,
         ArrayView<const double> solid_k,EnthalpyStateView fields,const EnthalpyControl& options,
         PhysicalHeatLedger* output)
@@ -184,6 +225,7 @@ struct EnthalpyRun::Impl {
             std::copy(saved.fields[i].begin(),saved.fields[i].end(),fields_to_restore[i].data);
     }
     void validate(bool initial) {
+        if(!control.cpu_threads)throw std::invalid_argument("CPU thread count must be positive");
         switch(control.algorithm) {
         case EnthalpyAlgorithm::legacy_h_fou:validate_legacy();break;
         case EnthalpyAlgorithm::temperature_fou:
@@ -417,22 +459,28 @@ struct EnthalpyRun::Impl {
                     double trial_dT=0.,trial_dh=0.;
                     for (std::size_t s=0;s<2 && valid;++s) {
                         auto& side=*trial_sides[s];
-                        for (std::size_t p=0;p<n && valid;++p) {
-                            if (p%256==0 && control.cancel && control.cancel(control.context)) {
-                                trial_cancelled=true; valid=false; break;
-                            }
+                        const auto lanes=std::min(control.cpu_threads,n);
+                        std::vector<double> dt(lanes),dh(lanes);
+                        std::vector<unsigned char> lane_valid(lanes,1);
+                        trial_cancelled=property_cells(true,[&](std::size_t lane,std::size_t p,EnthalpyEOS& local) {
                             const auto where=location(grid,p,s==0 ? "AA candidate A" : "AA candidate B");
                             EnthalpyPTState actual{};
-                            try { actual=aa_eos.evaluate_state(side.input.fluid,side.t[p],side.input.pressure[p],where,side.input.energy); }
-                            catch (const std::invalid_argument&) { valid=false; }
-                            catch (const std::domain_error&) { valid=false; }
-                            catch (const CoolProp::CoolPropBaseError&) { valid=false; }
-                            if (!valid) break;
-                            side.h[p]=actual.enthalpy;side.transport(aa_eos,p,{actual.cp,actual.conductivity});
-                            trial_dT=std::max(trial_dT,std::abs(side.t[p]-sides[s]->temperature_star[p]));
-                            trial_dh=std::max(trial_dh,std::abs(side.h[p]-sides[s]->star[p])/result.enthalpy_update_scale[s]);
-                            if (!std::isfinite(side.k[p]) || !std::isfinite(side.dh[p])) valid=false;
+                            try { actual=local.evaluate_state(side.input.fluid,side.t[p],side.input.pressure[p],where,side.input.energy); }
+                            catch (const std::invalid_argument&) { lane_valid[lane]=false; }
+                            catch (const std::domain_error&) { lane_valid[lane]=false; }
+                            catch (const CoolProp::CoolPropBaseError&) { lane_valid[lane]=false; }
+                            if(!lane_valid[lane]) return false;
+                            side.h[p]=actual.enthalpy;side.transport(local,p,{actual.cp,actual.conductivity});
+                            dt[lane]=std::max(dt[lane],std::abs(side.t[p]-sides[s]->temperature_star[p]));
+                            dh[lane]=std::max(dh[lane],std::abs(side.h[p]-sides[s]->star[p])/result.enthalpy_update_scale[s]);
+                            lane_valid[lane]=std::isfinite(side.k[p]) && std::isfinite(side.dh[p]);
+                            return lane_valid[lane]!=0;
+                        });
+                        for(std::size_t lane=0;lane<lanes;++lane) {
+                            trial_dT=std::max(trial_dT,dt[lane]);trial_dh=std::max(trial_dh,dh[lane]);
+                            valid=valid && lane_valid[lane];
                         }
+                        valid=valid && !trial_cancelled;
                     }
                     for (std::size_t p=0;p<n;++p)
                         trial_dT=std::max(trial_dT,std::abs(candidate[2*n+p]-old_solid[p]));
@@ -471,13 +519,20 @@ struct EnthalpyRun::Impl {
         double temperature_update = 0., enthalpy_update = 0.;
         for (std::size_t s = 0; s < sides.size(); ++s) {
             auto& side = *sides[s];
-            for (std::size_t p = 0; p < n; ++p) {
-                const auto actual = eos.evaluate_state(side.input.fluid,side.t[p],side.input.pressure[p],
+            const auto lanes=std::min(control.cpu_threads,n);
+            std::vector<double> dt(lanes),dh(lanes);
+            property_cells(false,[&](std::size_t lane,std::size_t p,EnthalpyEOS& local) {
+                const auto actual = local.evaluate_state(side.input.fluid,side.t[p],side.input.pressure[p],
                     location(grid,p,s == 0 ? "T energy actual state A" : "T energy actual state B"),side.input.energy);
-                temperature_update = std::max(temperature_update,std::abs(side.t[p]-side.temperature_star[p]));
+                dt[lane] = std::max(dt[lane],std::abs(side.t[p]-side.temperature_star[p]));
                 side.h[p] = actual.enthalpy;
-                side.transport(eos,p,{actual.cp,actual.conductivity});
-                enthalpy_update = std::max(enthalpy_update,std::abs(side.h[p]-side.star[p])/result.enthalpy_update_scale[s]);
+                side.transport(local,p,{actual.cp,actual.conductivity});
+                dh[lane] = std::max(dh[lane],std::abs(side.h[p]-side.star[p])/result.enthalpy_update_scale[s]);
+                return true;
+            });
+            for(std::size_t lane=0;lane<lanes;++lane) {
+                temperature_update=std::max(temperature_update,dt[lane]);
+                enthalpy_update=std::max(enthalpy_update,dh[lane]);
             }
         }
         for (std::size_t p = 0; p < n; ++p)

@@ -2,6 +2,7 @@
 from argparse import Namespace
 from dataclasses import replace
 from pathlib import Path
+import os
 
 from PySide6.QtCore import QSignalBlocker, QTimer
 from PySide6.QtWidgets import QMessageBox
@@ -25,14 +26,15 @@ def _configure_threads(window):
     spin = window.spin_cpu_cores
     with QSignalBlocker(spin):
         if window.run_control.backend == 'cpp':
-            spin.setRange(0, 0)
+            spin.setRange(0, os.cpu_count() or 1)
             spin.setSpecialValueText('自动')
-            tip = 'C++ 求解器采用固定并行策略，此控件不适用。'
+            spin.setValue(window.run_control.cpu_threads or 0)
+            tip = '设置下一次 C++ 计算的线程上限；自动最多用 8 个可用 CPU。物性计算和双侧流场计算共用此上限。'
         else:
             from sjtu_tpmshx.solvers.threads import max_threads, get_solver_threads
             spin.setSpecialValueText('')
             spin.setRange(1, max_threads())
-            spin.setValue(get_solver_threads())
+            spin.setValue(window.run_control.cpu_threads or get_solver_threads())
             tip = (f'设置下一次普通计算使用的 Numba 并行核线程数（1–{max_threads()}），'
                    '小网格可能使用串行核。\n它不限制整个应用的 CPU 占用，也不控制优化任务数量。')
     spin.setToolTip(tip)
@@ -44,7 +46,7 @@ def refresh_backend_availability(window):
         return
     busy = has_active_tasks(window) or getattr(window, '_opt_launching', False)
     window.combo_solver_backend.setEnabled(not busy)
-    window._cpu_card.setEnabled(not busy and window.run_control.backend == 'python')
+    window._cpu_card.setEnabled(not busy)
     if busy:
         # Terminal publication can precede the worker's actual return.
         window._backend_refresh_timer.start()
@@ -92,6 +94,10 @@ def bind_backend_controls(window):
     window.combo_solver_backend.currentIndexChanged.connect(lambda _: _select_backend(window))
 
     def set_threads(count):
+        window.run_control = replace(window.run_control, cpu_threads=count or None)
+        dialog = getattr(window, '_qd_dialog', None)
+        if dialog is not None:
+            dialog.run_control = window.run_control
         if window.run_control.backend == 'python':
             from sjtu_tpmshx.solvers.threads import set_solver_threads
             set_solver_threads(count)

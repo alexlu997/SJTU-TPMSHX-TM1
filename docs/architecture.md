@@ -1328,9 +1328,21 @@ Snapshot fields own their numeric arrays and UTF-8 strings.
 The additive `advance_step_v1` entries expose inner boundaries in both dimensions.
 Native state format 2 records these states.
 Restore requires the same format, native build, platform, prepared input, and numerical controls.
-Each native build receives a new identity. Host paths and callback addresses are excluded.
+Each native build receives a new identity. Host paths, callback addresses, and runtime thread limits are excluded.
 A cancelled or failed run cannot publish a new snapshot.
 The result is transferred once; its views remain valid until result release.
+
+`RunControl.cpu_threads` is an optional positive runtime limit. It is not a physical or numerical input.
+The native default is at most eight logical CPUs on the host. Explicit requests are capped by that availability.
+The temperature energy driver partitions independent cells and gives each worker separate ordinary and trial EOS objects.
+It caps the worker count by the cell count. Maxima are combined after all workers finish; sweeps and final audits keep their original order.
+The owner alone polls callbacks. Ordinary updates finish before a callback can observe them; trial callbacks see the retained ordinary state.
+All workers finish before an exception leaves the call. A one-thread budget also serializes the existing paired 2D flow calls.
+`runtime_resources` records the applied limit separately from numerical method evidence. Saved run status records the requested limit.
+Full 2D entry v6 and full 3D entry v5 accept the budget without changing result layouts.
+Owned 2D create/restore v2 and owned 3D create/restore v3 carry the same budget.
+The earlier entries and their binding branches remain for retained run libraries and direct C callers.
+They can be removed only after those consumers no longer require them. An old library rejects an explicit thread limit that it cannot apply.
 
 The public solver entry and native Python backend accept `checkpoint`, `checkpoint_due`, and `resume_state` keyword arguments.
 `checkpoint` receives detached typed fields at an available boundary.

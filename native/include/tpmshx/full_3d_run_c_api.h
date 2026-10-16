@@ -58,6 +58,15 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_snapshot_v1(
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_take_result_v1(
     void* run,tpmshx_full3d_result_v1* result,char* error,size_t capacity);
 TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_full_3d_run_release_v1(void** run);
+/* Thread limits are host controls. Restore can use a different positive limit. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_create_v3(
+    const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,const tpmshx_energy_options_v2* energy,
+    const tpmshx_model_h_iteration_options_v1* model_h,size_t cpu_threads,const tpmshx_full3d_callbacks_v1* callbacks,void** run,char* error,size_t capacity);
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_run_restore_v3(
+    const tpmshx_full3d_input_v1* in,const tpmshx_full3d_control_v1* c,const tpmshx_energy_options_v2* energy,
+    const tpmshx_model_h_iteration_options_v1* model_h,size_t cpu_threads,const tpmshx_full3d_callbacks_v1* callbacks,const tpmshx_run_state_field_v1* fields,size_t count,
+    void** run,char* error,size_t capacity);
+
 #ifdef __cplusplus
 }
 #endif
