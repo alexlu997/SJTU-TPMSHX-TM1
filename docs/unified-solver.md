@@ -178,10 +178,34 @@ Keep those historical results as explicitly identified diagnostic evidence.
 For example, the water HX calibration lower velocity bound of 0.10 m/s becomes 0.09 m/s under this rule.
 The former lower application bounds of approximately 0.014-0.016 m/s do not override this decision.
 
-N08-N11 set the common accuracy budget using fixed-model comparisons and at least three complete grids for the primary cases.
+N08-N11 use comparisons with fixed models and at least three complete grids for each primary case.
+These studies check the accepted budget below.
 Existing thermal-only Richardson refinement does not replace full flow-and-heat grid refinement.
 Keep discretization, iteration, interpolation and experiment errors separate.
 An experimental comparison keeps its fixed coefficients and data membership.
+
+The accepted engineering numerical targets are:
+
+| Quantity | Target |
+| --- | --- |
+| Heat duty Q | 0.1% |
+| Pressure drop on each side | 1% |
+| Outlet temperature on each side | 0.1 K |
+| Maximum solid temperature | 1 K |
+
+Use a qualified reference on a fine grid with the same physical models.
+Add the candidate difference, reference grid error estimate and reference iteration sensitivity for each quantity.
+Their sum must meet the target in common units.
+For relative targets, use the absolute reference value as the scale.
+A missing estimate stays unresolved. A grid estimate is not a proved error bound.
+
+Measure reference iteration sensitivity with tighter stopping tolerances.
+Use at most 10% of each corresponding comparison limit in section 8.
+This requirement applies to temperature, Q, pressure drop and total mass flow.
+Report local field differences from grid and iteration changes separately.
+The scalar targets do not give an absolute error bound for the complete field.
+They do not establish experimental accuracy or change physical applicability.
+Changes to scheduling or diagnostic text keep the existing exact result checks.
 
 For performance, first measure complete single-case time and stage costs.
 Reuse the existing state reuse and shared energy operations before adding another mechanism.
@@ -243,10 +267,20 @@ Add A/B swaps, nonuniform grids, partial ports, supported directions and valid d
 Mark Python-unsupported numerical candidates explicitly; compare them to a qualified same-physics reference.
 Do not calculate a backend speed ratio across different algorithms.
 
-For the initial structural baseline, keep the existing engineering comparison limits: 0.01 K for temperatures and 0.1% for Q, pressure and flow.
-These are backend comparison limits, not the final discretization-error or experiment-accuracy target.
+For optimizations and backend comparisons of the same discrete equations, keep these limits:
+
+| Quantity | Comparison limit |
+| --- | --- |
+| Temperature fields and outlets | 0.01 K |
+| Q, pressure drop and total mass flow | 0.1% |
+| Maximum velocity difference on each side | `1e-6 m/s + 1e-5 * u_in` |
+
+Use the saved inlet speed `u_in` of that side.
+Compare matched physical inputs, grids and stopping tolerances.
+Keep the existing checks for intermediate fields and physical balances.
 Require each backend's existing physical gates independently.
-N11 supplies later accuracy budgets from the reference studies.
+Reference iteration studies use tighter stopping tolerances.
+Apply section 5 to their scalar sensitivity and report the local field differences.
 
 Restore acceptance includes uninterrupted versus interrupted runs, new-process restore, multiple save points, exhausted budgets and invalid state rejection.
 Also test write failure, process interruption during publication, cancellation, original-error retention and unchanged accepted GUI results.
@@ -256,7 +290,8 @@ Do not require bitwise equality across different floating-point execution orders
 
 ## 9. Decisions that need evidence
 
-N11 recommends numerical and property-approximation error budgets before requesting an engineering tradeoff.
+N11 uses the accepted targets in section 5.
+A change to these targets or property approximation limits needs evidence and an engineering decision.
 N12/N29 recommend per-fluid physical defaults when the current definitions differ.
 R01/R04 recommend save intervals after measuring the longest step and snapshot cost.
 The original-range rule in section 5 resolves N06's conflict with the previous wider empirical application allowance.
