@@ -199,6 +199,10 @@ typedef struct {
     const tpmshx_energy_effective_settings_v1* outer;
     size_t outer_count;
 } tpmshx_full3d_energy_effective_settings_v1;
+/* Copy the scales from the completed thermal call. Cancellation and other
+ * thermal modes have available=0. Invalid arguments return 1 and preserve output. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_3d_get_energy_update_scale_v1(
+    const tpmshx_full3d_result_v1*,tpmshx_energy_update_scale_v1*);
 /* No numerical work. resolved contains the validated control adopted by the
  * full driver, including on cooperative cancellation. Its values alone do
  * not prove execution: available is true only after an actual completed

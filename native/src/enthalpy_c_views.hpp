@@ -41,6 +41,11 @@ inline tpmshx_energy_result_v1 energy_c_view(const EnthalpyResult& result) {
     return {static_cast<uint32_t>(result.algorithm), available ? 1u : 0u,
             available ? *result.temperature_update : 0., result.picard_relaxation};
 }
+inline tpmshx_energy_update_scale_v1 energy_update_scale_c_view(const EnthalpyResult* result) {
+    if(!result || result->stop==EnthalpyStop::cancelled)return {};
+    return {1u,result->reference_independent_update?1u:0u,
+        {result->enthalpy_update_scale[0],result->enthalpy_update_scale[1]}};
+}
 inline tpmshx_enthalpy_result_v1 enthalpy_c_view(const EnthalpyResult& native) {
 tpmshx_enthalpy_result_v1 output{};
 output.stop = static_cast<uint32_t>(native.stop);

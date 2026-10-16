@@ -20,13 +20,24 @@ External faces keep their prescribed boundary treatment. Axes with fewer
 than three cells stay first order. Product model-h and the nonconservative
 research stencil keep their separate reconstruction contracts.
 
-Engineering backend parity requires one prepared case and independent convergence
-and energy gates. Relative differences in duty, pressure drop and mass flow must
+Engineering backend parity requires one prepared case, the same physical models,
+and independent convergence and energy gates. Relative differences in duty, pressure drop and mass flow must
 be at most 0.1%. Absolute differences in outlet and full-field temperatures must
-be at most 0.01 K. `test_backend_engineering_parity.py` covers eight fluid pairings
-in 2D and 3D. Complete iterative comparisons use these limits, with 0.01% relative
-tolerance for intermediate fields and explicit absolute tolerances for
-near-zero residual ratios.
+be at most 0.01 K. `test_backend_engineering_parity.py` covers air, water, CO2 and sCO2 pairings
+in 2D and 3D. Mixed native runs use the selected per-fluid energy models.
+Their differences from the retained Python HEOS models are recorded separately.
+Independent formula checks and physical gates apply to these runs.
+For the same models, each velocity component and magnitude must differ by at most
+`1e-6 m/s + 1e-5 * u_inlet` in every cell. Use the saved prepared inlet speed
+for that side, including a resolved mass-flow input. This limit also applies
+near zero transverse velocity. Other intermediate fields keep 0.01% relative
+tolerance. Near-zero residual ratios keep their explicit absolute tolerances.
+
+The same-model 2D CO2/sCO2 comparisons use momentum tolerance `1e-6`
+and local/global mass tolerances `1e-8`. Both backends keep their original
+outer and thermal controls. Default-flow results can exceed the velocity
+comparison limit. Those results remain diagnostic; this test setting does not
+change product defaults or establish their iteration accuracy.
 
 Actual iteration and roundoff-clipping counts can
 differ across backends. Each count must respect its own run's budget, records
@@ -125,7 +136,23 @@ The 2D owner passes these choices to its main and refined thermal calls.
 The 3D owner keeps them for the run and derives them again from matched inputs on restore.
 Current input validation, phase guards and sampled-state records stay at their existing owners.
 The selected rules retain the differences between dimensions, EOS warm-up, prescribed B and research routes.
-This migration keeps the current route-dependent choices. Independent per-fluid defaults require separate qualification.
+Two-fluid full runs that use the conservative EOS driver now select energy by fluid.
+Air and water use their existing integral h(T); CO2 and sCO2 use HEOS h(T,P).
+The air/water conductivity comes from prepared fields in 2D and the outer transport state in 3D.
+CO2 and sCO2 keep local HEOS conductivity.
+In 2D, air/water heat transfer uses the outer mean density and viscosity, with inlet conductivity and Pr.
+CO2 and sCO2 use local properties at the lagged temperature and inlet pressure.
+These choices no longer depend on the other fluid. The 3D sampling rules stay unchanged.
+The Python numerical backend and direct component C entries keep their existing models.
+Explicit fixed-capacity, prescribed-side and research routes retain their separate contracts.
+
+Each full conservative run normalizes the h update separately for each fluid.
+Its scale is inlet cp times the absolute inlet temperature difference, with a 1 J/kg minimum.
+This scale does not depend on the fluids' enthalpy origins.
+The additive full-driver `get_energy_update_scale_v1` queries return the actual scales.
+Existing C structure layouts stay unchanged. Python bindings require the matching native library.
+The execution record stores `enthalpy_update_normalization`; checkpoints retain its values and definition.
+Historical saved results retain their original models, normalization and metrics.
 
 Full C++ 2D EOS runs also accept the optional thermal controls in `SolverConfig`.
 The additive `full_2d_v4` entry passes the iteration and sweep budgets, relaxation,
@@ -950,7 +977,7 @@ Thermal routes are selected by their present qualification conditions:
 | Route | Shared implementation and kept differences |
 |---|---|
 | True enthalpy | Pairs containing CO2 or sCO2 use signed mass/enthalpy transport for uniform and continuous geometry. The 2D adapter calls the shared 3D enthalpy kernel. Full3D CC uses the kept G4 two-sweep warm-up before the selected enthalpy solve. Discrete-zone and offset constraints stay. |
-| Model enthalpy | Existing air/water h(T) transport. 2D includes water/water when unzoned and symmetric. 3D currently includes air/air, air/water and water/air with its Nz, variable-property, dual-flow, conservative and mask conditions. |
+| Model enthalpy | Existing air/water h(T) transport. 2D includes water/water when unzoned and symmetric. Native 3D includes every ordered air/water pair with Nz>1, variable properties, two solved sides and conservative transport. Water/water and asymmetric geometry use the strict boundary contract. |
 | Temperature | The native fullCC air/water candidate reuses strict integral-h(T) model-h drivers while keeping the requested temperature route. Python temperature, QD/standalone fixed-coefficient, staggered research and private single-A sCO2 routes keep their separately stated contracts. |
 
 Full3D true-h keeps its original two temperature sweeps before each enthalpy call.
@@ -990,7 +1017,11 @@ temperature-stability test are both required. Zero duty alone cannot certify
 a drifting temperature field.
 
 The true-enthalpy fluid diffusion term is Fourier conduction on temperature,
-linearized consistently in the enthalpy unknown on each shared internal face. A pressure-dependent enthalpy difference is not itself a temperature gradient. Both production adapters require fresh HEOS fluid and solid equation residuals. The largest per-phase sum of absolute cell residuals must be <=0.001 of
+linearized consistently in the enthalpy unknown on each shared internal face.
+A pressure-dependent enthalpy difference is not itself a temperature gradient.
+Both production adapters require fresh fluid and solid equation residuals.
+These residuals use each side's selected energy relation and conductivity.
+The largest per-phase sum of absolute cell residuals must be <=0.001 of
 `max(abs(Q_A), abs(Q_B), 1)` in native units. The boundary energy imbalance must
 meet the same limit.
 
@@ -999,16 +1030,18 @@ clipped enthalpy updates cannot certify convergence. The true-h ledger records
 the effective settings, residual budgets, clip counts and exit reason.
 
 CoolProp 8 uses a 30-bit temperature bracket for some HEOS H/P inversions.
-Both true-h drivers apply one Newton correction with the same HEOS H(T,P)
-and cp to restore enthalpy consistency. Raw and corrected states retain the
+For EOS sides, both true-h drivers apply one Newton correction with HEOS H(T,P) and cp.
+This restores enthalpy consistency. Integral sides invert their existing h(T) polynomial.
+Raw and corrected states retain the
 original domain checks. BICUBIC iteration remains separate from exact HEOS
 finishing. Its table cache is versioned to prevent reuse of tables generated
 by an earlier EOS release. Fluid sweeps use the algebraically equivalent
 enthalpy defect so an isothermal state at a legal enthalpy bound does not
 acquire cancellation error from subtracting absolute temperatures.
 
-Each native true-h evaluator uses one HEOS state for PT checks and property reads.
-Water and CO2 guards update that state before its enthalpy, cp or conductivity is read.
+Each native EOS evaluator uses one HEOS state for PT checks and property reads.
+Water and CO2 guards update that state before its HEOS properties are read.
+Integral air/water energy properties come from the existing model resource.
 This removes a duplicate PT update within the same call.
 All phase, melting, pressure and corrected H/P checks remain at their existing locations.
 Air and sCO2 domain checks do not add HEOS updates.
@@ -1049,9 +1082,14 @@ scale, with a floor of one native power unit. This ratio must be at most 1e-7. F
 does not certify convergence.
 
 Prescribed B has reservoir power but no solved
-B residual. This strict path supports its existing fullCC asymmetric and 3D
-water/water consumers without extending the non-strict product model-h route
-or granting optimizer eligibility.
+B residual. Native 3D water/water and asymmetric air/water runs use this strict
+path under the model-h selection conditions above. They consume completed
+SIMPLE mass faces without the former capacity-flux projection.
+Their results record the strict face algorithm, common physical ledger and
+model-h reporting audit. The original non-strict model-h boundary rule stays
+active for symmetric air/air, air/water and water/air runs.
+Explicit fixed-capacity, prescribed-side and research consumers retain their
+separate contracts. Applicability and optimizer eligibility remain separate checks.
 
 Product model-h Richardson refinement has a 12000-sweep ceiling so the finer
 grid can meet its criteria. The fullCC temperature-role refinement keeps its

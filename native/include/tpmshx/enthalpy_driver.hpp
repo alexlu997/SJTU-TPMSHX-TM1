@@ -23,6 +23,9 @@ struct EnthalpySideView {
     // Other exterior faces must not supply undefined inflow. The legacy H
     // scalar-inflow contract ignores this field.
     int inlet_direction = -1;
+    EnergyRelation energy = EnergyRelation::eos_h_TP;
+    ConductivitySource conductivity_source = ConductivitySource::local_eos;
+    ArrayView<const double> effective_conductivity{};
 };
 
 struct EnthalpyStateView {
@@ -46,6 +49,8 @@ struct EnthalpyControl {
     // Opt-in additional dimensionless h-update gate on T algorithms. This
     // does not replace their K update gate or change the legacy H-FOU gate.
     bool require_enthalpy_update_on_temperature = false;
+    // Full runs use a scale that does not depend on either enthalpy origin.
+    bool reference_independent_update = false;
 };
 
 inline EnthalpyControl full_enthalpy_control(std::size_t dimension,
@@ -67,6 +72,8 @@ struct EnthalpyResult {
     std::size_t iterations;
     double residual, q_a, q_b, energy_imbalance;
     std::array<double,2> inlet_enthalpy;
+    std::array<double,2> enthalpy_update_scale;
+    bool reference_independent_update = false;
     ClipCounts last_clips, total_clips;
     // Present when either exact-EOS gate was requested. Full unrelaxed audit
     // remains evidence; only the requested gates affect convergence.
@@ -119,26 +126,20 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-// Full true-h Picard driver for 3D or a unit-depth nz=1 2D extrusion. Input
-// mass faces and local pressures are already prepared; no flow correction,
-// SIMPLE, h_v refresh or model-h transport is performed here. All EOS, frozen
-// property chunks, clipping, old convergence gates and requested exact-EOS
-// finishing gates are inside this call. Inlet h uses scalar inlet pressure;
-// cell EOS uses the supplied local pressure. A failed final exact-EOS audit
-// continues permanently with HEOS within the same original iteration budget.
-// The optional ledger retains a completed full equation audit. It stays
-// untouched on cancellation or when the equation audit was not requested.
-// Caller-owned arrays are borrowed and non-aliasing. An exception invalidates
-// partially updated output fields; cancelled output is not a completed solve.
-// The explicit T algorithms use guarded HEOS PT updates, unbounded T sweeps,
-// and actual-state energy gates. They do not create tables or clip enthalpy.
-// Their scalar-inlet/adiabatic boundary requires inlet_direction on both sides;
-// undeclared external inflow is rejected. Direct h-minmod SOU includes outlet
-// reconstruction and differs from model-h's T reconstruction/boundary closure.
-// Its coupled Picard increment is damped by 0.6 before actual PT validation;
-// row relaxation, the SOU fixed-point equation and all audit gates are unchanged.
-// SOU recipe 2 may select an actual-PT/audit-validated Anderson proposal over
-// that map; only a complete ordinary block may declare final convergence.
+// Shared conservative energy driver for 3D or a unit-depth 2D grid.
+// Each side selects its energy relation and conductivity source. Direct calls
+// use HEOS unless the caller supplies an integral air or water model.
+// The caller supplies mass faces, local pressures and heat exchange terms.
+// This driver does not update flow or refresh the heat exchange correlation.
+// Actual states retain each fluid's physical guards. Final equation audits
+// use the selected relation; an EOS table cannot replace the final HEOS audit.
+// T algorithms use actual-state updates without enthalpy bounds or tables.
+// They require an explicit inlet direction and reject undefined exterior inflow.
+// SOU reconstructs enthalpy at faces and uses a damped Picard update. An
+// accepted Anderson proposal still needs an ordinary block to confirm exit.
+// The optional ledger receives a completed full equation audit. Cancellation
+// does not produce a completed result. Caller arrays must remain live and
+// must not alias. An exception can leave these output arrays partly changed.
 EnthalpyResult solve_enthalpy(const GridView& grid, const EnthalpySideView& a,
                              const EnthalpySideView& b, ArrayView<const double> k_ss,
                              EnthalpyStateView state, const EnthalpyControl& control,

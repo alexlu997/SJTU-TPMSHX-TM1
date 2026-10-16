@@ -1,7 +1,7 @@
 """Full 3D conservative-temperature candidate: native evidence and replay.
 
-Only the existing two-sided sCO2 true-h scope is exercised. Independent HEOS
-PT checks and signed boundary m*h checks use rtol=2e-12; this comparison
+The two-sided sCO2 scope uses each fluid's selected energy model. Independent
+model/EOS checks and signed boundary m*h checks use rtol=2e-12; this comparison
 precision does not change the physical coupled/equation gates (0.001).
 """
 from collections.abc import Mapping
@@ -137,7 +137,12 @@ def test_executed_algorithm_and_original_convergence_gates(completed):
     assert record['numerics']['unknown'] == 'T'
     assert record['numerics']['algorithm'] == algorithm
     assert record['numerics']['face_reconstruction'] == ('FOU' if algorithm == ALGORITHMS[0] else 'h_minmod_outlet_v1')
-    assert all(side['energy']['relation'] == 'eos_h_TP' for side in record['sides'].values())
+    for side in record['sides'].values():
+        assert side['energy']['relation'] == ('eos_h_TP' if side['fluid'] in ('co2', 'sco2') else 'integral_cp_T')
+    normalization = record['numerics']['enthalpy_update_normalization']
+    assert normalization['definition'] == 'inlet_cp_times_temperature_difference_v1'
+    assert normalization['unit'] == 'J/kg'
+    assert all(np.isfinite(value) and value >= 1. for value in normalization['sides'].values())
     assert result.run_status['converged'] is True
     diagnostics = result.metadata['diagnostics']
     assert diagnostics['native_full_3d']['entry_version'] == 2
@@ -159,7 +164,7 @@ def test_executed_algorithm_and_original_convergence_gates(completed):
         assert balance['energy_algorithm'] == settings['energy_algorithm'] == algorithm
         assert type(balance['energy_algorithm_version']) is int
         assert balance['energy_algorithm_version'] == settings['energy_algorithm_version'] == VERSIONS[algorithm]
-        assert settings['driver_abi'] == 2 and settings['nonlinear_state_update'] == 'HEOS_PT'
+        assert settings['driver_abi'] == 2 and settings['nonlinear_state_update'] == 'per_side_energy_relation'
         assert settings['coupled_energy_tol'] == settings['equation_energy_tol'] == .001
         assert settings['temperature_update_tol_K'] == 1e-8
         assert settings['enthalpy_face_reconstruction'] == ('FOU' if algorithm == ALGORITHMS[0] else 'h_minmod_outlet_v1')
@@ -177,9 +182,10 @@ def test_executed_algorithm_and_original_convergence_gates(completed):
     assert diagnostics['true_h_balance']['converged'] is True
 
 
-def test_actual_heos_state_six_face_powers_and_postprocess(completed, monkeypatch):
+def test_actual_side_models_six_face_powers_and_postprocess(completed, monkeypatch):
     from CoolProp import AbstractState, PT_INPUTS
     from sjtu_tpmshx.postprocess import three_d
+    from sjtu_tpmshx.tests.native.full_thermal_reference import model_enthalpy
 
     prepared, result = completed
     native = result.boundary_fluxes['true_h']
@@ -200,16 +206,28 @@ def test_actual_heos_state_six_face_powers_and_postprocess(completed, monkeypatc
     differs_from_fou = False
     duties = {}
     for side, temperature in zip('AB', ('Ta', 'Tb')):
-        state = AbstractState('HEOS', {'air': 'Air', 'water': 'Water', 'sco2': 'CO2'}[prepared.parameters['fluid_type_' + side]])
-        state.update(PT_INPUTS, prepared.parameters['P_in' + side], prepared.parameters['T_in' + side])
-        assert native['h_in_' + side] == pytest.approx(state.hmass(), rel=2e-12, abs=1e-10)
-        h, k = np.empty(shape), np.empty(shape)
-        for index in np.ndindex(shape):
-            state.update(PT_INPUTS, result.fields['P_thermal_' + side][index], result.fields[temperature][index])
-            h[index], k[index] = state.hmass(), state.conductivity()
+        fluid = prepared.parameters['fluid_type_' + side]
+        if fluid in ('air', 'water'):
+            h = model_enthalpy(result.fields[temperature], fluid)
+            inlet_h = model_enthalpy(prepared.parameters['T_in' + side], fluid)
+            sampling = [row for row in result.metadata['property_sampling'] if row['side'] == side
+                        and row['stage'] == 'thermal' and row['quantity'] == 'conductivity']
+            assert sampling[-1]['provider'] == 'outer_property_state'
+            assert sampling[-1]['operation'] == 'copy'
+            assert np.all(np.isfinite(native['actual_conductivity_' + side]))
+            assert np.all(native['actual_conductivity_' + side] >= 0.)
+        else:
+            state = AbstractState('HEOS', 'CO2')
+            state.update(PT_INPUTS, prepared.parameters['P_in' + side], prepared.parameters['T_in' + side])
+            inlet_h = state.hmass()
+            h, k = np.empty(shape), np.empty(shape)
+            for index in np.ndindex(shape):
+                state.update(PT_INPUTS, result.fields['P_thermal_' + side][index], result.fields[temperature][index])
+                h[index], k[index] = state.hmass(), state.conductivity()
+            np.testing.assert_allclose(native['actual_conductivity_' + side],
+                prepared.design_fields['eps_' + side] * k, rtol=2e-12, atol=1e-14)
+        assert native['h_in_' + side] == pytest.approx(inlet_h, rel=2e-12, abs=1e-10)
         np.testing.assert_allclose(native['h_' + side], h, rtol=2e-12, atol=1e-10)
-        np.testing.assert_allclose(native['actual_conductivity_' + side],
-            prepared.design_fields['eps_' + side] * k, rtol=2e-12, atol=1e-14)
         mass = native['mass_flux_' + side]
         assert_preserved(mass, result.boundary_fluxes['mass_' + side])
         expected = expected_boundary_power(h, native['h_in_' + side], mass, widths,
@@ -511,6 +529,7 @@ def test_large_grid_packing_keeps_legacy_rb_and_candidate_serial(tmp_path, monke
         tpmshx_full_3d_get_model_h_acceleration_v1=lambda *_: pytest.fail('packing requested result evidence'),
         tpmshx_full_3d_get_energy_evidence_v1=lambda *_: None,
         tpmshx_full_3d_get_energy_effective_settings_v1=lambda *_: None,
+        tpmshx_full_3d_get_energy_update_scale_v1=lambda *_: pytest.fail('packing requested result evidence'),
         tpmshx_full_enthalpy_defaults_v1=defaults,
         tpmshx_energy_algorithm_version_v1=lambda algorithm: {1: 1, 2: 2}.get(algorithm, 0))
     monkeypatch.setattr(full_3d.ct, 'CDLL', lambda _: library)
@@ -520,3 +539,16 @@ def test_large_grid_packing_keeps_legacy_rb_and_candidate_serial(tmp_path, monke
     with pytest.raises(EntryCaptured):
         driver.run_prepared(*build_execution_inputs(prepared))
     assert len(seen) == 1
+
+
+@pytest.mark.parametrize('algorithm', ALGORITHMS)
+def test_mixed_conductivity_copies_the_last_outer_transport(native_path, algorithm):
+    prepared = candidate(algorithm, cap=2)
+    cfg, data = build_execution_inputs(prepared)
+    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
+    raw = driver.run_prepared(cfg, data, control(native_path))
+    state = raw['true_h']['_native_state']
+    for side, label in enumerate('AB'):
+        if cfg['fluid_type_' + label] in ('air', 'water'):
+            np.testing.assert_array_equal(state['actual_conductivity_' + label], raw['conductivity'][side])
+    assert raw['enthalpy_update_normalization']['definition'] == 'inlet_cp_times_temperature_difference_v1'

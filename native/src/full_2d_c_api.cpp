@@ -339,6 +339,13 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_energy_evidence_v1(
     *evidence=out;return 0;
 }
 
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_energy_update_scale_v1(
+    const tpmshx_full_2d_result_v2* result,tpmshx_energy_update_scale_v1* scale) {
+    if(!result || !result->owner || !scale)return 1;
+    const auto& r=static_cast<const Owner*>(result->owner)->result;
+    *scale=energy_update_scale_c_view(r.cancelled?nullptr:std::get_if<EnthalpyResult>(&r.thermal.result));
+    return 0;
+}
 extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_energy_effective_settings_v1(
     const tpmshx_full_2d_result_v2* result,tpmshx_full_2d_energy_effective_settings_v1* settings) {
     if(!result || !result->owner || !settings)return 1;

@@ -1,7 +1,7 @@
-"""User acceptance: 0.1% duties/pressure/flow and 0.01 K temperatures.
+"""Same-model acceptance: 0.1% metrics and 0.01 K temperatures.
 
-Both public backends consume one prepared case and must independently satisfy
-their physical gates. These checks supplement the existing tighter regressions.
+Both backends must pass their own physical gates. Mixed native runs use the
+selected per-fluid models; their differences from old HEOS runs are recorded.
 """
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -63,9 +63,13 @@ def test_public_backends_meet_engineering_limits(native_path, dimension, pair, r
     names = pair.split('-')
     config = (co2_engineering_config(dimension, pair) if pair in CO2_PAIRS else
               replace(_config(dimension, True), fluid_A=fluid(names[0], 0), fluid_B=fluid(names[1], 1)))
+    if dimension == 2 and all(name in ('co2', 'sco2') for name in names):
+        # The velocity comparison needs tighter flow iteration than the defaults.
+        config = replace(config, solver=replace(config.solver, mom_tol=1e-6,
+            mass_local_tol=1e-8, mass_global_tol=1e-8))
     prepared = prepare_case(config, case_id=f'backend-parity-{dimension}d-{pair}')
     python, cpp = _run_pair(prepared, native_path)
-    _assert_engineering_pair(python, cpp, record_property)
+    _assert_engineering_pair(python, cpp, record_property, prepared.parameters)
     for result in (python, cpp):
         record = result.metadata['execution_record']
         assert record['backend'] == result.backend_id
@@ -76,7 +80,8 @@ def test_public_backends_meet_engineering_limits(native_path, dimension, pair, r
             assert actual['fluid'] == fluid and actual['solved']
             ref = prepared.model_refs[actual['flow_and_exchange_model_ref']]
             assert ref.parameters['fluid'] == fluid
-            relation = 'eos_h_TP' if result.metadata['thermal_mode'] == 'true_h' else 'integral_cp_T'
+            relation = ('eos_h_TP' if result.metadata['thermal_mode'] == 'true_h'
+                        and (result.backend_id == 'python' or fluid in ('co2', 'sco2')) else 'integral_cp_T')
             assert actual['energy']['relation'] == relation
 
 
@@ -85,7 +90,7 @@ def test_refined_true_h_partial_ports_meet_engineering_limits(native_path, recor
 
     prepared = candidate('legacy_h_fou', 'sco2-water', port_refined='partial')
     python, cpp = _run_pair(prepared, native_path)
-    _assert_engineering_pair(python, cpp, record_property)
+    _assert_engineering_pair(python, cpp, record_property, prepared.parameters)
 
 
 @pytest.mark.parametrize('dimension', [2, 3])
@@ -111,18 +116,37 @@ def test_continuous_real_fluid_public_backends(native_path, dimension, fluid, re
         assert result.metadata['design_mode'] == ('continuous' if dimension == 2 else 'continuous_xyz')
         for side in 'AB':
             assert abs(result.metadata['diagnostics']['mass_imbalance_rel_' + side]) <= 1e-6
-    _assert_engineering_pair(python, cpp, record_property)
+    _assert_engineering_pair(python, cpp, record_property, prepared.parameters)
 
 
-def _assert_engineering_pair(python, cpp, record_property):
+def _assert_engineering_pair(python, cpp, record_property, parameters):
     for result in (python, cpp):
         _physical_gates(result)
+    same_models = all(python.metadata['execution_record']['sides'][side]['energy']['relation']
+                      == cpp.metadata['execution_record']['sides'][side]['energy']['relation'] for side in 'AB')
+    if not same_models:
+        from sjtu_tpmshx.tests.native.full_thermal_reference import assert_selected_enthalpy
+        assert_selected_enthalpy(cpp)
+    record_property('same_energy_models', same_models)
     temperature_max = 0.
     for key in ('Ta', 'Tb', 'Ts'):
         assert cpp.fields[key].shape == python.fields[key].shape
         delta = float(np.max(np.abs(cpp.fields[key] - python.fields[key])))
         temperature_max = max(temperature_max, delta)
-        assert np.isfinite(delta) and delta <= .01, (key, delta)
+        assert np.isfinite(delta), (key, delta)
+        if same_models:
+            assert delta <= .01, (key, delta)
+    velocity_max = 0.
+    for key, spec in cpp.field_metadata.items():
+        if spec['unit'] != 'm/s':
+            continue
+        assert python.field_metadata[key]['unit'] == 'm/s'
+        a, b = cpp.fields[key], python.fields[key]
+        assert a.shape == b.shape and np.isfinite(a).all() and np.isfinite(b).all(), key
+        velocity_max = max(velocity_max, float(np.max(np.abs(a-b))))
+        if same_models:
+            native_3d.assert_velocity_pair(a, b, parameters['u_'+key.removesuffix('_display')[-1]], key)
+    record_property('max_velocity_difference_m_s', velocity_max)
     cpp_metrics, python_metrics = evaluate(cpp).metrics, evaluate(python).metrics
     relative_max = outlet_max = 0.
     for key in ('Q', 'Q_A', 'Q_B', 'dP_A', 'dP_B', 'mass_flow_A', 'mass_flow_B', 'T_out_A', 'T_out_B'):
@@ -132,11 +156,13 @@ def _assert_engineering_pair(python, cpp, record_property):
         delta = abs(a.value-b.value)
         if key.startswith('T_out'):
             outlet_max = max(outlet_max, delta)
-            assert delta <= .01, (key, delta)
+            if same_models:
+                assert delta <= .01, (key, delta)
         else:
             scale = max(abs(a.value), abs(b.value))
             relative_max = max(relative_max, delta/scale if scale else 0.)
-            assert delta <= .001 * scale, (key, a.value, b.value)
+            if same_models:
+                assert delta <= .001 * scale, (key, a.value, b.value)
     record_property('max_temperature_difference_K', temperature_max)
     record_property('max_outlet_difference_K', outlet_max)
     record_property('max_metric_relative_difference', relative_max)

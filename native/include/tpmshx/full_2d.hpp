@@ -93,7 +93,7 @@ struct Full2DThermalState {
     std::array<std::vector<double>,2> mass_x,mass_y;
     std::array<std::vector<double>,2> inlet_capacity;
     std::vector<double> solid_conductivity,h_a,h_b;
-    // Candidate-only actual EOS conductivity; prepared conductivity stays above.
+    // Actual conductivity from the selected side model for T algorithms.
     std::array<std::vector<double>,2> actual_conductivity;
     // Outward m*h_face, x-/x+/y-/y+/z-/z+; unit-depth W/m, zero z planes.
     std::array<std::array<std::vector<double>,6>,2> enthalpy_boundary_power;

@@ -43,6 +43,7 @@ template<class Archive,class Value> void walk(Archive& archive,Value& value,Simp
 template<class Archive,class Value> void walk(Archive& archive,Value& value,EnthalpyControl*) {
     FIELD(max_iterations) FIELD(sweeps) FIELD(omega) FIELD(update_tolerance) FIELD(coupled_energy_tolerance)
     FIELD(equation_energy_tolerance) FIELD(algorithm) FIELD(temperature_update_tolerance) FIELD(require_enthalpy_update_on_temperature)
+    FIELD(reference_independent_update)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,ModelHIterationOverrides*) {
     FIELD(max_iterations) FIELD(temperature_tolerance) FIELD(q_relative_tolerance)
@@ -169,6 +170,7 @@ template<class Archive,class Value> void walk(Archive& archive,Value& value,Enth
     FIELD(stop) FIELD(iterations) FIELD(residual) FIELD(q_a) FIELD(q_b)
     FIELD(energy_imbalance) FIELD(inlet_enthalpy) FIELD(last_clips) FIELD(total_clips) FIELD(final_audit)
     FIELD(used_bicubic) FIELD(heos_polish) FIELD(algorithm) FIELD(temperature_update) FIELD(picard_relaxation)
+    FIELD(enthalpy_update_scale) FIELD(reference_independent_update)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,TemperatureResult*) {
     FIELD(stop) FIELD(iterations) FIELD(residual) FIELD(q_b)

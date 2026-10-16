@@ -6,6 +6,7 @@ physical convergence verdicts are produced by the C++ call.
 """
 import ctypes as ct
 from .property_sampling import sampling_query, copy_sampling
+from .enthalpy import _update_scale_query, _copy_update_scale
 import os
 from pathlib import Path
 
@@ -227,6 +228,7 @@ class NativeFull3DDriver:
         self.query_last_ranges = last_range_query(self.library, 3, _Result)
         self.query_heat_ledger = heat_ledger_query(self.library, 3, _Result)
         self.query_sampling = sampling_query(self.library, 3, _Result)
+        self.query_update_scale = _update_scale_query(self.library, 3, _Result)
         self.query_model_h = _iteration_query(self.library, 3, _Result)
         self.query_model_h_acceleration = _acceleration_query(self.library, _Result)
         try:
@@ -460,17 +462,18 @@ class NativeFull3DDriver:
                 if detached['true_h'] is None or extra.outer_count != len(detached['outer']):
                     raise RuntimeError('native full 3D energy evidence does not match the thermal history')
                 _energy_result_info(detached['true_h'], extra.energy,
-                    temperature_tol=actual.last.temperature_update_tolerance, abi=entry_version, version_query=version_query)
+                    temperature_tol=actual.last.temperature_update_tolerance, abi=entry_version, version_query=version_query, state_update='per_side_energy_relation')
                 _energy_native_state(detached['true_h'], extra, shape, 'W')
                 for index, row in enumerate(detached['outer']):
                     _energy_result_info(row['true_h_info'], extra.outer[index],
-                        temperature_tol=actual.outer[index].temperature_update_tolerance, abi=entry_version, version_query=version_query)
+                        temperature_tol=actual.outer[index].temperature_update_tolerance, abi=entry_version, version_query=version_query, state_update='per_side_energy_relation')
                 detached['mode'] = 'conservative_energy'
             if resume_state is not None:
                 detached['continuation'] = dict(format='full_3d_continuation_v1', build=resume_state['build'],
                     completed_outer_steps=int(resume_state['state.result.outer.size'][0]),
                     saved_phase=int(resume_state['state.phase'][0]))
             detached['property_sampling'] = copy_sampling(self.query_sampling, result)
+            detached['enthalpy_update_normalization'] = _copy_update_scale(self.query_update_scale, result)
             detached['simple_velocity_relaxation'] = c.simple.alpha_velocity
             detached['model_h_iterations'] = _copy_iteration_records(
                 self.query_model_h, result, self.query_model_h_acceleration)
@@ -489,23 +492,28 @@ class NativeFull3DDriver:
                     red_black = bool(c.red_black_energy and scheme == 2)
                     if scheme == 2:
                         algorithm = _temperature_algorithm(self.library, scheme)
+                if detached['mode'] == 'model_h' or scheme != 2:
+                    query = self.library.tpmshx_full_3d_get_model_enthalpy_evidence_v1
+                    query.argtypes = [ct.POINTER(_Result), ct.POINTER(TemperatureEvidence)]
+                    query.restype = ct.c_int
+                    extra = TemperatureEvidence()
+                    if query(ct.byref(result), ct.byref(extra)):
+                        raise RuntimeError('native full 3D temperature evidence query failed')
+                    if detached['mode'] == 'model_h':
+                        if extra.available or extra.algorithm:
+                            if extra.available != 1 or extra.physical_dimension != 3 or not extra.algorithm:
+                                raise RuntimeError('native strict model-h identity or ledger is invalid')
+                            algorithm = extra.algorithm.decode('ascii')
+                    elif not data.solve_b and data.sides[0].fluid == 2:
+                        identity = 'legacy_frozen_cp_single_a_cc_v1'
+                        if (extra.available or extra.physical_dimension != 3
+                                or extra.algorithm != identity.encode('ascii')):
+                            raise RuntimeError('native single-A sCO2 temperature identity or absent ledger is invalid')
+                        detached['temperature_transport'] = identity
+                        algorithm = identity
                     else:
-                        query = self.library.tpmshx_full_3d_get_model_enthalpy_evidence_v1
-                        query.argtypes = [ct.POINTER(_Result), ct.POINTER(TemperatureEvidence)]
-                        query.restype = ct.c_int
-                        extra = TemperatureEvidence()
-                        if query(ct.byref(result), ct.byref(extra)):
-                            raise RuntimeError('native full 3D temperature evidence query failed')
-                        if not data.solve_b and data.sides[0].fluid == 2:
-                            identity = 'legacy_frozen_cp_single_a_cc_v1'
-                            if (extra.available or extra.physical_dimension != 3
-                                    or extra.algorithm != identity.encode('ascii')):
-                                raise RuntimeError('native single-A sCO2 temperature identity or absent ledger is invalid')
-                            detached['temperature_transport'] = identity
-                            algorithm = identity
-                        else:
-                            detached['temperature_evidence'] = copy_temperature_evidence(extra, shape, 3)
-                            algorithm = detached['temperature_evidence']['algorithm']
+                        detached['temperature_evidence'] = copy_temperature_evidence(extra, shape, 3)
+                        algorithm = detached['temperature_evidence']['algorithm']
                 detached['native_metadata'] = dict(abi=self.abi, algorithm=algorithm, red_black=red_black)
                 if 'temperature_transport' in detached:
                     detached['native_metadata']['transport'] = detached['temperature_transport']

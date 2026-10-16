@@ -12,6 +12,7 @@ Power comparisons retain their tighter 2e-8/2e-7 W/m tolerance. Stop,
 iterations and original physical gates are unchanged.
 """
 from copy import copy, deepcopy
+from contextlib import nullcontext
 import ctypes as ct
 from functools import wraps
 import inspect
@@ -116,6 +117,7 @@ def capture_python(case, *, pressure_shooting=True, full=False, thermal=None, na
         live_state['state'] = state
         previous = None
 
+        @wraps(step)
         def observed_step(index):
             nonlocal previous
             result = step(index)
@@ -199,7 +201,9 @@ def capture_python(case, *, pressure_shooting=True, full=False, thermal=None, na
     rt = runtime.build_runtime(cfg, prepared)
     with patch.object(coupling, 'run_outer_coupling', outer), patch.object(coupling, 'solve_full_domain', energy), \
          patch.object(coupling, '_compute_Q_richardson', refinement), patch.object(coupling, 'gate_solution', gate), \
-         patch.object(simple_solver.SIMPLESolver, 'solve', flow), patch.object(ltne_enthalpy_2d, 'solve_enthalpy_2d', enthalpy):
+         patch.object(simple_solver.SIMPLESolver, 'solve', flow), patch.object(ltne_enthalpy_2d, 'solve_enthalpy_2d', enthalpy), \
+         (full_thermal_reference.selected_energy_reference(case)
+          if thermal is not None and any(cfg['fluid_'+side] in ('co2','sco2') for side in 'AB') else nullcontext()):
         try:
             record['capture_inputs'] = coupling._run_solvers(cfg, rt, RunControl())
             if 'legacy_temperature_duties' in record:
@@ -475,7 +479,7 @@ def test_prepared_directions_and_solid_warm_start(native, same_thermal, directio
 @pytest.mark.parametrize('mode', ['temperature', 'true_h'])
 def test_prepared_other_thermal_routes(native, same_thermal, mode):
     case = prepare_case(configuration(mode=mode, outer=2), case_id='native-full2d-'+mode)
-    reference = capture_python(case, native_flow=True, thermal=None if mode == 'true_h' else same_thermal)
+    reference = capture_python(case, native_flow=True, thermal=same_thermal)
     code, error, actual = native(inputs(reference))
     assert code == 0, error
     compare_coarse(actual, reference)
