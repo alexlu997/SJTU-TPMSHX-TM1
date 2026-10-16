@@ -19,8 +19,15 @@ def full_execution_record(case, result):
             settings = main_calls[-1]['settings']
     native = metadata.get('native', {})
     algorithm = settings.get('energy_algorithm', native.get('algorithm'))
-    table = metadata.get('model_metadata', {}).get('sco2_enthalpy_eos', {})
+    models = metadata.get('model_metadata', {})
+    table = models.get('enthalpy_eos', models.get('sco2_enthalpy_eos', {}))
     roles = case.metadata['model_roles']
+    energy_samples = {}
+    for sample in metadata.get('property_sampling', ()):
+        if sample['quantity'] == 'energy_relation' and sample['stage'] == 'thermal':
+            label = sample['side']
+            if label not in energy_samples or sample['outer_index'] >= energy_samples[label]['outer_index']:
+                energy_samples[label] = sample
     sides = {}
     for label, field in (('A', 'Ta'), ('B', 'Tb')):
         index = roles['fluid_' + label]
@@ -28,18 +35,33 @@ def full_execution_record(case, result):
         flow_solved = result.pressure_evidence.get(label) is not None
         solved = temperature.get('solved', {}).get(label, flow_solved)
         relation = ('eos_h_TP' if eos else 'integral_cp_T' if integral else 'capacity_temperature')
+        if solved and label in energy_samples:
+            sample = energy_samples[label]
+            if sample['provider'] == 'HEOS' and sample['operation'] == 'local_evaluation':
+                relation = 'eos_h_TP'
+            elif sample['operation'] == 'integral_cp_T':
+                relation = 'integral_cp_T'
+            elif sample['operation'] == 'frozen_capacity_temperature':
+                relation = 'capacity_temperature'
+            else:
+                raise ValueError(f'unsupported executed energy sampling: {sample}')
+        side_eos = relation == 'eos_h_TP'
         energy = dict(relation=relation if solved else 'prescribed_temperature',
-                      property_provider=('HEOS' if eos else 'model_resource') if solved else None,
-                      model_ref=index if solved and not eos else None, temperature_field=field)
-        if eos:
+                      property_provider=('HEOS' if side_eos else 'model_resource') if solved else None,
+                      model_ref=index if solved and not side_eos else None, temperature_field=field)
+        if side_eos and solved:
             pressure_field = 'P_thermal_' + label
             energy.update(fluid={'air': 'Air', 'water': 'Water', 'co2': 'CO2', 'sco2': 'CO2'}[fluid],
                           pressure_field=pressure_field,
                           pressure_state=result.field_metadata[pressure_field]['state'])
-        evaluation = dict(state_update=(settings.get('nonlinear_state_update',
-                                                     'T(h,P)' if eos else 'model_relation')
-                                        if solved else None))
-        if eos:
+        if side_eos:
+            state_update = 'HEOS_PT' if mode == 'conservative_energy' else 'T(h,P)'
+        elif relation == 'integral_cp_T':
+            state_update = 'T(h)' if mode == 'true_h' else 'h(T)'
+        else:
+            state_update = 'model_relation'
+        evaluation = dict(state_update=state_update if solved else None)
+        if side_eos and solved:
             evaluation['final_property_backend'] = 'HEOS'
             if mode == 'true_h':
                 evaluation['iteration_inverse_backend'] = 'HEOS'
@@ -61,8 +83,11 @@ def full_execution_record(case, result):
                               face_reconstruction=settings.get('enthalpy_face_reconstruction'),
                               temperature_transport=metadata.get('temperature_transport'),
                               effective_settings=settings, native=native,
+                              **({'enthalpy_update_normalization': metadata['enthalpy_update_normalization']}
+                                 if metadata.get('enthalpy_update_normalization') else {}),
                               **({'simple_velocity_relaxation': metadata['simple_velocity_relaxation']}
                                  if 'simple_velocity_relaxation' in metadata else {}),
+                              **({'simple_flow': metadata['simple_flow']} if 'simple_flow' in metadata else {}),
                               **({'model_h_iterations': model_h_iterations} if model_h_iterations else {})),
                 evidence=dict(thermal_state=result.field_metadata['Ta']['state'],
                               mass_state=result.boundary_fluxes['state'],

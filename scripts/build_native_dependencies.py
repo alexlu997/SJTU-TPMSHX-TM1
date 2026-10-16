@@ -307,6 +307,7 @@ def verify(cache: Path, host: str) -> None:
                    "temperature_staggered_smoke", "temperature_run_smoke", "full_2d_c_static", "full_2d_c_shared",
                    "full_3d_c_static", "full_3d_c_shared", "side_physics_smoke"):
         run([build_dir / f"{caller}{suffix}"], log)
+    run([build_dir / f"conservative_energy_driver_smoke{suffix}", "8"], log)
     for storage in ("csc", "csr"):
         for case in ("allocations", "aborts", "singular", "concurrent"):
             run([build_dir / f"superlu_error_smoke{suffix}", "--case", case, "--format", storage], log)

@@ -1,7 +1,7 @@
 """Complete conservative energy coupling and the portable 2D face ledger.
 
 These are same-state evidence checks, not parity against a different algorithm.
-Frozen gates: EOS h rtol=2e-12/atol=2e-7 J/kg; K rtol=2e-12/atol=2e-12;
+Frozen gates: model/EOS h rtol=2e-12/atol=2e-7 J/kg; K rtol=2e-12/atol=2e-12;
 native/portable signed Q rtol=2e-10/atol=2e-7 W/m. Native acceptance is unchanged.
 """
 from dataclasses import replace
@@ -78,10 +78,11 @@ def capped(driver, request):
 
 def test_actual_thermal_state_and_signed_ledger(capped):
     import CoolProp.CoolProp as CP
+    from sjtu_tpmshx.tests.native.full_thermal_reference import model_enthalpy
     case, cfg, _, raw, result = capped
     info, thermal = raw['main']['true_h'], raw['main']
-    assert raw['entry_version'] == 3 and raw['fine'] is None
-    assert result.backend_version == 'full_2d_v3'
+    assert raw['entry_version'] == 6 and raw['fine'] is None
+    assert result.backend_version == 'full_2d_v6'
     assert not raw['converged'] and raw['post_after_last_thermal']
     assert result.metadata['thermal_mode'] == 'conservative_energy'
     assert info['energy_algorithm'] == info['effective_settings']['energy_algorithm'] == \
@@ -122,12 +123,17 @@ def test_actual_thermal_state_and_signed_ledger(capped):
     for side, label, fluid in ((0, 'A', 'Water'), (1, 'B', 'CO2')):
         temperature = thermal['temperature'][side]
         pressure = thermal['pressure'][side]
-        h = CP.PropsSI('Hmass', 'T', temperature.ravel(), 'P', pressure.ravel(), 'HEOS::' + fluid)
-        k = CP.PropsSI('conductivity', 'T', temperature.ravel(), 'P', pressure.ravel(), 'HEOS::' + fluid)
+        if fluid == 'Water':
+            h = model_enthalpy(temperature.ravel(), 'water')
+            k = thermal['conductivity'][side].ravel()
+            np.testing.assert_allclose(state['h_in_' + label], model_enthalpy(cfg['T_in' + label], 'water'), rtol=2e-12, atol=2e-7)
+        else:
+            h = CP.PropsSI('Hmass', 'T', temperature.ravel(), 'P', pressure.ravel(), 'HEOS::' + fluid)
+            k = CP.PropsSI('conductivity', 'T', temperature.ravel(), 'P', pressure.ravel(), 'HEOS::' + fluid)
+            split = cfg['thermal_geometry']['split_A'] if side == 0 else 1 - cfg['thermal_geometry']['split_A']
+            k *= cfg['eps'] * split
         np.testing.assert_allclose(state['h_' + label].ravel(), h, rtol=2e-12, atol=2e-7)
-        split = cfg['thermal_geometry']['split_A'] if side == 0 else 1 - cfg['thermal_geometry']['split_A']
-        np.testing.assert_allclose(state['actual_conductivity_' + label].ravel(),
-                                   k * cfg['eps'] * split, rtol=2e-12, atol=2e-12)
+        np.testing.assert_allclose(state['actual_conductivity_' + label].ravel(), k, rtol=2e-12, atol=2e-12)
         powers = state['boundary_power'][label]
         assert not np.any(powers['z-']) and not np.any(powers['z+'])
         signed = -sum(np.sum(powers[face]) for face in ('x-', 'x+', 'y-', 'y+', 'z-', 'z+'))
@@ -211,7 +217,7 @@ def test_old_library_candidate_capability_fails_before_flow(driver, monkeypatch,
     original = driver.library
     class OldAPI:
         def __getattr__(self, name):
-            if name == missing:
+            if name in (missing, 'tpmshx_solve_full_2d_v6'):
                 raise AttributeError(name)
             return getattr(original, name)
     case = prepare_case(configuration('temperature_fou'), case_id='energy2d-old-library')
@@ -237,7 +243,7 @@ def test_missing_version_query_blocks_candidate_before_solve_but_allows_legacy(d
 
     class OldLibrary:
         def __getattr__(self, name):
-            if name == 'tpmshx_energy_algorithm_version_v1':
+            if name in ('tpmshx_solve_full_2d_v6', 'tpmshx_energy_algorithm_version_v1'):
                 raise AttributeError(name)
             if name == 'tpmshx_solve_full_2d_v2':
                 return legacy
@@ -344,7 +350,7 @@ def test_explicit_controls_reach_complete_thermal_calls_and_saved_replay(driver,
     restored = load_case(tmp_path / 'case.h5')
     result = run_case(restored, RunControl(backend='cpp', native_library=str(driver.path),
                                          native_table_directory=str(ROOT / '.cache/native-deps/tables')))
-    assert result.backend_version == 'full_2d_v4'
+    assert result.backend_version == 'full_2d_v6'
     detail = result.metadata['diagnostics']['convergence_detail']
     assert detail['ltne_ok'] and not detail['outer_converged']
     info = result.metadata['diagnostics']['true_h_balance']
@@ -358,7 +364,7 @@ def test_explicit_controls_reach_complete_thermal_calls_and_saved_replay(driver,
     for actual in (info['effective_settings'], *(row['effective_settings'] for row in
             result.metadata['diagnostics']['native_full_2d']['energy_history'])):
         assert {key: actual[key] for key in expected} == expected
-        assert actual['driver_abi'] == 4 and actual['energy_algorithm'] == algorithm
+        assert actual['driver_abi'] == 6 and actual['energy_algorithm'] == algorithm
     save_result(result, tmp_path / 'result.h5')
     saved = load_result(tmp_path / 'result.h5')
     assert saved.metadata['execution_record'] == result.metadata['execution_record']
@@ -375,7 +381,7 @@ def test_one_explicit_control_preserves_other_route_defaults(driver, algorithm):
     expected = dict(max_iterations=12000, sweeps=3 if algorithm == 'legacy_h_fou' else 5,
         omega=.2 if algorithm == 'temperature_sou' else .6, update_tol=.001,
         coupled_energy_tol=1e-7, equation_energy_tol=.001,
-        require_enthalpy_update_on_temperature=False, driver_abi=4)
+        require_enthalpy_update_on_temperature=False, driver_abi=6)
     actual = raw['main']['true_h']['effective_settings']
     assert {key: actual[key] for key in expected} == expected
     assert actual['energy_algorithm'] == algorithm
@@ -393,7 +399,7 @@ def test_explicit_thermal_controls_reject_unavailable_routes_before_flow(driver,
     original = driver.library
     class OldLibrary:
         def __getattr__(self, name):
-            if name == 'tpmshx_solve_full_2d_v4':
+            if name in ('tpmshx_solve_full_2d_v4', 'tpmshx_solve_full_2d_v6'):
                 raise AttributeError(name)
             return getattr(original, name)
     monkeypatch.setattr(driver, 'library', OldLibrary())

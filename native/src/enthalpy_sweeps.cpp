@@ -57,8 +57,6 @@ void check_fluid(const FluidView& f, const GridView& g, std::size_t cells) {
         throw std::invalid_argument("invalid enthalpy boundary or bounds");
 }
 
-using detail::diffusion_conductance;
-
 std::uint64_t fluid_sweep(const GridView& g, const FluidView& f,
                           ArrayView<double> h, ArrayView<double> ts, double omega) {
     std::uint64_t clips = 0;
@@ -135,34 +133,8 @@ void check_energy_fluid(const FluidEnergyView& f, const GridView& g, std::size_t
     if (!std::isfinite(f.h_in)) throw std::invalid_argument("nonfinite inlet enthalpy");
 }
 
-// Each internal Fourier face is shared by two cells, with opposite signs.
-void conduction_source(const GridView& g, ArrayView<const double> t,
-                       ArrayView<const double> conductivity, ArrayView<double> r) {
-    const std::size_t stride[] = {g.ny * g.nz, g.nz, 1};
-    const std::size_t extent[] = {g.nx, g.ny, g.nz};
-    const ArrayView<const double> width[] = {g.dx, g.dy, g.dz};
-    for (std::size_t i = 0; i < g.nx; ++i)
-        for (std::size_t j = 0; j < g.ny; ++j)
-            for (std::size_t k = 0; k < g.nz; ++k) {
-                const auto p = (i * g.ny + j) * g.nz + k;
-                const std::size_t coord[] = {i, j, k};
-                const double volume = g.dx[i] * g.dy[j] * g.dz[k];
-                for (std::size_t axis = 0; axis < 3; ++axis) {
-                    const auto c = coord[axis];
-                    if (c + 1 == extent[axis]) continue;
-                    const auto q = p + stride[axis];
-                    const double flux = diffusion_conductance(conductivity[p], conductivity[q],
-                        0.5 * width[axis][c], 0.5 * width[axis][c+1])
-                        * (volume / width[axis][c]) * (t[q] - t[p]);
-                    r[p] += flux;
-                    r[q] -= flux;
-                }
-            }
-}
-
-double enthalpy_transport(const GridView& g, ArrayView<const double> h,
-                          const ArrayView<const double> (&mass)[3], double h_in,
-                          ArrayView<double> r) {
+double inward_boundary_power(const GridView& g, ArrayView<const double> h,
+                             const ArrayView<const double> (&mass)[3], double h_in) {
     double q_in = 0.;
     const std::size_t stride[] = {g.ny * g.nz, g.nz, 1};
     const std::size_t extent[] = {g.nx, g.ny, g.nz};
@@ -173,7 +145,7 @@ double enthalpy_transport(const GridView& g, ArrayView<const double> h,
                 for (std::size_t k = 0; k < nz; ++k) {
                     const std::size_t coord[] = {i, j, k};
                     const auto c = coord[axis];
-                    if (!r.size && c > 0 && c < extent[axis]) continue;
+                    if (c > 0 && c < extent[axis]) continue;
                     const auto high = (i * g.ny + j) * g.nz + k;
                     const auto low = c > 0 ? high - stride[axis] : 0;
                     const double flow = mass[axis][(i * ny + j) * nz + k];
@@ -181,27 +153,14 @@ double enthalpy_transport(const GridView& g, ArrayView<const double> h,
                         ? (c > 0 ? h[low] : h_in)
                         : (c < extent[axis] ? h[high] : h_in);
                     const double flux = flow * upstream;
-                    if (c > 0) { if (r.size) r[low] -= flux; }
-                    else q_in += flux;
-                    if (c < extent[axis]) { if (r.size) r[high] += flux; }
+                    if (c == 0) q_in += flux;
                     else q_in -= flux;
                 }
     }
+    if (!std::isfinite(q_in)) throw std::domain_error("nonfinite boundary enthalpy duty");
     return q_in;
 }
 
-double fluid_residual(const GridView& g, const FluidEnergyView& f,
-                      ArrayView<const double> ts, ArrayView<double> r) {
-    for (std::size_t i = 0; i < g.nx; ++i)
-        for (std::size_t j = 0; j < g.ny; ++j)
-            for (std::size_t k = 0; k < g.nz; ++k) {
-                const auto p = (i * g.ny + j) * g.nz + k;
-                r[p] = f.hv[p] * (ts[p] - f.temperature[p]) * g.dx[i] * g.dy[j] * g.dz[k];
-            }
-    conduction_source(g, f.temperature, f.conductivity, r);
-    const ArrayView<const double> mass[] = {f.mass_x,f.mass_y,f.mass_z};
-    return enthalpy_transport(g,f.h,mass,f.h_in,r);
-}
 }  // namespace
 
 double boundary_enthalpy_duty(const GridView& grid, ArrayView<const double> h,
@@ -215,9 +174,7 @@ double boundary_enthalpy_duty(const GridView& grid, ArrayView<const double> h,
     check_array(mass_z,product(product(grid.nx,grid.ny),grid.nz+1));
     if (!std::isfinite(h_in)) throw std::invalid_argument("nonfinite inlet enthalpy");
     const ArrayView<const double> mass[] = {mass_x,mass_y,mass_z};
-    const double result = enthalpy_transport(grid,h,mass,h_in,{});
-    if (!std::isfinite(result)) throw std::domain_error("nonfinite boundary enthalpy duty");
-    return result;
+    return inward_boundary_power(grid,h,mass,h_in);
 }
 
 EnergyAudit thermal_energy_audit(const GridView& grid, const FluidEnergyView& a,
@@ -235,12 +192,21 @@ EnergyAudit thermal_energy_audit(const GridView& grid, const FluidEnergyView& a,
             throw std::invalid_argument("residual array length does not match grid");
     EnergyAudit result{};
     result.fluid_equations_computed = fluid_equations;
-    if (fluid_equations) {
-        result.q_a = fluid_residual(grid, a, ts, ra);
-        result.q_b = fluid_residual(grid, b, ts, rb);
-    } else {
-        result.q_a = boundary_enthalpy_duty(grid,a.h,a.mass_x,a.mass_y,a.mass_z,a.h_in);
-        result.q_b = boundary_enthalpy_duty(grid,b.h,b.mass_x,b.mass_y,b.mass_z,b.h_in);
+    const detail::EnergyMesh mesh(grid);
+    const FluidEnergyView* fluids[]{&a,&b};
+    const ArrayView<double> residuals[]{ra,rb};
+    double* duties[]{&result.q_a,&result.q_b};
+    for(std::size_t side=0;side<2;++side) {
+        const auto& fluid=*fluids[side];
+        const ArrayView<const double> mass[]{fluid.mass_x,fluid.mass_y,fluid.mass_z};
+        *duties[side]=inward_boundary_power(grid,fluid.h,mass,fluid.h_in);
+        if(fluid_equations) {
+            const detail::EnthalpyAuditPhase phase{fluid};
+            for(std::size_t p=0;p<cells;++p)
+                residuals[side][p]=detail::fluid_energy_defect_row(mesh,phase,fluid.temperature,ts,p).rhs;
+        }
+    }
+    if (!fluid_equations) {
         const auto nan = std::numeric_limits<double>::quiet_NaN();
         std::fill_n(ra.data,cells,nan);
         std::fill_n(rb.data,cells,nan);
@@ -248,15 +214,8 @@ EnergyAudit thermal_energy_audit(const GridView& grid, const FluidEnergyView& a,
         std::fill_n(result.fluid_cell_max,2,nan);
         result.equation_ratio = nan;
     }
-    for (std::size_t i = 0; i < grid.nx; ++i)
-        for (std::size_t j = 0; j < grid.ny; ++j)
-            for (std::size_t k = 0; k < grid.nz; ++k) {
-                const auto p = (i * grid.ny + j) * grid.nz + k;
-                rs[p] = (a.hv[p] * (a.temperature[p] - ts[p])
-                       + b.hv[p] * (b.temperature[p] - ts[p]))
-                       * grid.dx[i] * grid.dy[j] * grid.dz[k];
-            }
-    conduction_source(grid, ts, k_ss, rs);
+    for(std::size_t p=0;p<cells;++p)
+        rs[p]=detail::solid_energy_defect_row(mesh,k_ss,a.hv,b.hv,a.temperature,b.temperature,ts,{},p).rhs;
     for (std::size_t p = 0; p < cells; ++p) {
         if (!std::isfinite(rs[p]) || (fluid_equations
             && (!std::isfinite(ra[p]) || !std::isfinite(rb[p]))))

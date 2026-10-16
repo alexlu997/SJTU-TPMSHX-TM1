@@ -1155,6 +1155,7 @@ def _build_canvas_content(window, vlay, t):
     from .run_status import RunStatusCard
     window._run_status_card = RunStatusCard()
     window._run_status_card.cancel_requested.connect(window._on_cancel_compute)
+    window._run_status_card.pause_requested.connect(window._on_pause_compute)
     window._run_status_card.log_requested.connect(window._show_solve_log)
     _body.addWidget(window._run_status_card)
     _body.addWidget(_build_result_sidebar(window, _t, t), 0)

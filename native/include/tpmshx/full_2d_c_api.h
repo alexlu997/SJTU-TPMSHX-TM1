@@ -188,6 +188,10 @@ typedef struct {
     const tpmshx_energy_effective_settings_v1* outer;
     size_t outer_count;
 } tpmshx_full_2d_energy_effective_settings_v1;
+/* Copy the scales from the completed thermal call. Cancellation and other
+ * thermal modes have available=0. Invalid arguments return 1 and preserve output. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_energy_update_scale_v1(
+    const tpmshx_full_2d_result_v2*,tpmshx_energy_update_scale_v1*);
 /* Read controls from the live result owner. Values do not imply convergence.
  * available requires a completed true-h call, including a budget-limited call.
  * Cancellation and other thermal modes have available=0. Outer entries match
@@ -229,6 +233,24 @@ TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v5(
  * Invalid or released owners return 1 and preserve the output. */
 TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_model_h_iterations_v1(
     const tpmshx_full_2d_result_v2*,tpmshx_model_h_iteration_records_v1*);
+
+typedef struct {
+    const char* algorithm;
+    size_t iterations,proposal_steps,accepted_proposals;
+} tpmshx_full_2d_flow_method_v1;
+/* Read both final flow calls. Cancellation returns two empty records.
+ * Invalid arguments preserve output. Copy strings before the owner is released. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_flow_methods_v1(
+    const tpmshx_full_2d_result_v2*,tpmshx_full_2d_flow_method_v1[2]);
+
+/* Execute with a positive CPU thread limit. Numerical controls are unchanged. */
+TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v6(
+    const size_t* shape,const double* const* arrays,const size_t* sizes,
+    const tpmshx_full_2d_config_v2* config,const tpmshx_energy_options_v1* energy,
+    const tpmshx_full_2d_energy_control_v4* explicit_energy,
+    const tpmshx_model_h_iteration_options_v1* model_h,size_t cpu_threads,
+    const tpmshx_full_2d_callbacks_v2* callbacks,
+    tpmshx_full_2d_result_v2* result,char* error,size_t capacity);
 
 #ifdef __cplusplus
 }

@@ -9,6 +9,7 @@
 #include <iostream>
 #include <filesystem>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -26,6 +27,8 @@ struct Case {
     std::array<Values,3> width{Values(1,.1),Values(1,.1),Values(1,.1)};
     Values epsilon=Values(5,.3),hv=Values(5,1e5),solid_k=Values(5,4.);
     std::array<Fluid,2> fluid;
+    std::array<EnergyRelation,2> energy{EnergyRelation::eos_h_TP,EnergyRelation::eos_h_TP};
+    std::array<Values,2> conductivity;
     std::array<double,2> inlet_t,inlet_p;
     std::array<int,2> direction;
     std::array<Values,2> pressure,h{Values(5),Values(5)},t{Values(5),Values(5)};
@@ -48,7 +51,9 @@ struct Case {
     GridView grid() const { return {shape[0],shape[1],shape[2],view(width[0]),view(width[1]),view(width[2])}; }
     EnthalpySideView side(std::size_t s) const {
         return {fluid[s],inlet_t[s],inlet_p[s],view(pressure[s]),view(epsilon),view(hv),
-            view(mass[s][0]),view(mass[s][1]),view(mass[s][2]),direction[s]};
+            view(mass[s][0]),view(mass[s][1]),view(mass[s][2]),direction[s],energy[s],
+            conductivity[s].empty()?ConductivitySource::local_eos:ConductivitySource::prepared,
+            view(conductivity[s])};
     }
     EnthalpyStateView state(bool warm=false) {
         return {output(h[0]),output(h[1]),output(t[0]),output(t[1]),output(solid),warm,warm,warm};
@@ -61,9 +66,11 @@ struct Case {
         return .005*(hin-hout);
     }
 };
+std::size_t cpu_threads=1;
 EnthalpyControl controls(bool sou) {
     EnthalpyControl c{1200,5,sou?.2:.6,2e-12,1e-7,1e-7,""};
     c.algorithm=sou?EnthalpyAlgorithm::temperature_sou:EnthalpyAlgorithm::temperature_fou;
+    c.cpu_threads=cpu_threads;
     return c;
 }
 
@@ -131,7 +138,8 @@ template<class Error,class Call> void rejects(Call call,const char* message) {
 bool same_value(double a,double b) { return a==b || (std::isnan(a) && std::isnan(b)); }
 void require_same_result(const EnthalpyResult& a,const EnthalpyResult& b) {
     require(a.stop==b.stop && a.iterations==b.iterations && a.algorithm==b.algorithm
-        && a.inlet_enthalpy==b.inlet_enthalpy && a.last_clips.a==b.last_clips.a
+        && a.inlet_enthalpy==b.inlet_enthalpy && a.enthalpy_update_scale==b.enthalpy_update_scale
+        && a.reference_independent_update==b.reference_independent_update && a.last_clips.a==b.last_clips.a
         && a.last_clips.b==b.last_clips.b && a.total_clips.a==b.total_clips.a
         && a.total_clips.b==b.total_clips.b && a.used_bicubic==b.used_bicubic
         && a.heos_polish==b.heos_polish && a.temperature_update==b.temperature_update
@@ -149,6 +157,87 @@ void require_same_result(const EnthalpyResult& a,const EnthalpyResult& b) {
         for(std::size_t i=0;i<x.size();++i)require(same_value(x[i],y[i]),"energy continuation changed final audit");
         require(a.final_audit->fluid_equations_computed==b.final_audit->fluid_equations_computed,
             "energy continuation changed equation audit state");
+    }
+}
+
+void mixed_model_checks() {
+    const auto tables=std::filesystem::absolute(".cache/native-energy-run-tables").string();
+    for(auto model:{Fluid::air,Fluid::water}) {
+    std::array<std::optional<Case>,3> baseline;
+    std::array<EnthalpyResult,3> baseline_results{};
+    for(bool swap:{false,true})for(auto algorithm:{EnthalpyAlgorithm::legacy_h_fou,EnthalpyAlgorithm::temperature_fou,EnthalpyAlgorithm::temperature_sou}) {
+        Case data(0,1,model,Fluid::co2);
+        data.inlet_t={350.,300.};data.inlet_p={2e6,8e6};
+        for(std::size_t side=0;side<2;++side)std::fill(data.pressure[side].begin(),data.pressure[side].end(),data.inlet_p[side]);
+        data.energy[0]=EnergyRelation::integral_cp_T;
+        PropertyEvaluator properties;data.conductivity[0].assign(5,.3*properties.transport(model,350.,2e6).k);
+        if(swap) {
+            std::swap(data.fluid[0],data.fluid[1]);std::swap(data.inlet_t[0],data.inlet_t[1]);
+            std::swap(data.inlet_p[0],data.inlet_p[1]);std::swap(data.direction[0],data.direction[1]);
+            std::swap(data.pressure[0],data.pressure[1]);std::swap(data.mass[0],data.mass[1]);
+            std::swap(data.energy[0],data.energy[1]);std::swap(data.conductivity[0],data.conductivity[1]);
+        }
+        auto c=controls(algorithm==EnthalpyAlgorithm::temperature_sou);c.algorithm=algorithm;
+        c.reference_independent_update=true;c.update_tolerance=1e-10;c.table_directory=tables;
+        // The near-critical CO2 case needs a smaller T update.
+        if(algorithm==EnthalpyAlgorithm::temperature_fou)c.omega=.2;
+        Case resumed=data;PhysicalHeatLedger ledger;
+        const auto result=solve_enthalpy(data.grid(),data.side(0),data.side(1),view(data.solid_k),data.state(),c,&ledger);
+        if(result.stop!=EnthalpyStop::converged || !result.final_audit
+            || result.final_audit->equation_ratio>*c.equation_energy_tolerance)
+            std::cerr<<"mixed model="<<static_cast<int>(model)<<" swap="<<swap
+                <<" algorithm="<<static_cast<int>(algorithm)<<" stop="<<static_cast<int>(result.stop)
+                <<" iterations="<<result.iterations<<" update="<<result.residual
+                <<" equation="<<(result.final_audit?result.final_audit->equation_ratio:-1.)
+                <<" coupled="<<(result.final_audit?result.final_audit->coupled_ratio:-1.)
+                <<" clips="<<result.total_clips.a<<","<<result.total_clips.b<<"\n";
+        require(result.stop==EnthalpyStop::converged && result.final_audit
+            && result.final_audit->equation_ratio<=*c.equation_energy_tolerance,
+            "mixed energy model did not pass its actual equations");
+        EnthalpyEOS independent;
+        for(std::size_t side=0;side<2;++side) {
+            require(result.used_bicubic[side]==(algorithm==EnthalpyAlgorithm::legacy_h_fou
+                    && uses_co2_eos(data.fluid[side])),"mixed result lost actual table use");
+            const auto inlet=independent.evaluate_state(data.fluid[side],data.inlet_t[side],data.inlet_p[side],"mixed inlet",data.energy[side]);
+            require(result.enthalpy_update_scale[side]==50.*inlet.cp,"mixed update scale depends on an enthalpy origin");
+            for(std::size_t p=0;p<5;++p) {
+                const auto actual=independent.evaluate_state(data.fluid[side],data.t[side][p],data.pressure[side][p],"mixed final",data.energy[side]);
+                require(std::abs(actual.enthalpy-data.h[side][p])<1e-7,"mixed model h and T differ");
+            }
+        }
+        const auto method=static_cast<std::size_t>(algorithm);
+        if(!swap) {baseline[method]=data;baseline_results[method]=result;}
+        else {
+            const auto& reference=*baseline[method];const auto& prior=baseline_results[method];
+            require(std::abs(result.q_a-prior.q_b)<1e-6 && std::abs(result.q_b-prior.q_a)<1e-6,
+                "A/B swap changed the mixed-model boundary power");
+            require(result.enthalpy_update_scale[0]==prior.enthalpy_update_scale[1]
+                && result.enthalpy_update_scale[1]==prior.enthalpy_update_scale[0],
+                "A/B swap changed a fluid's update scale");
+            for(std::size_t p=0;p<5;++p) {
+                require(std::abs(data.t[0][p]-reference.t[1][p])<1e-6
+                    && std::abs(data.t[1][p]-reference.t[0][p])<1e-6
+                    && std::abs(data.solid[p]-reference.solid[p])<1e-6,
+                    "A/B swap changed the mixed-model temperature field");
+            }
+        }
+        const auto direct=result;
+        auto owner=std::make_unique<EnthalpyRun>(resumed.grid(),resumed.side(0),resumed.side(1),
+            view(resumed.solid_k),resumed.state(),c);
+        for(std::size_t step=0;step<2;++step)require(owner->advance()==EnthalpyPhase::active,"mixed fixture finished before its save");
+        const auto saved=owner->snapshot();owner.reset();
+        for(std::size_t side=0;side<2;++side) {
+            auto damaged=saved;damaged.result.enthalpy_update_scale[side]*=1000.;
+            Case destination=resumed;const auto before=destination;
+            rejects<std::invalid_argument>([&]{EnthalpyRun invalid(destination.grid(),destination.side(0),destination.side(1),
+                view(destination.solid_k),destination.state(),c,damaged);},"changed mixed update scale was accepted");
+            require(same_fields(destination,before),"invalid mixed update scale changed destination fields");
+        }
+        owner=std::make_unique<EnthalpyRun>(resumed.grid(),resumed.side(0),resumed.side(1),view(resumed.solid_k),resumed.state(),c,saved);
+        while(owner->phase()==EnthalpyPhase::active)owner->advance();
+        require(same_fields(data,resumed),"mixed continuation changed physical fields");
+        require_same_result(owner->take_result(),direct);
+    }
     }
 }
 
@@ -217,7 +306,7 @@ void energy_run_checks() {
     Case sample(0,1,Fluid::air,Fluid::water);auto c=controls(true);c.max_iterations=30;
     auto run=std::make_unique<EnthalpyRun>(sample.grid(),sample.side(0),sample.side(1),view(sample.solid_k),sample.state(),c);
     run->advance();run->advance();const auto saved=run->snapshot();
-    for(int damage=0;damage<17;++damage) {
+    for(int damage=0;damage<20;++damage) {
         auto state=saved;
         switch(damage) {
         case 0:state.fields[0].pop_back();break;
@@ -237,6 +326,9 @@ void energy_run_checks() {
         case 14:state.result.final_audit->fluid_equations_computed=false;break;
         case 15:state.result.energy_imbalance=-1.;break;
         case 16:state.result.final_audit->solid_abs_sum=-1.;break;
+        case 17:state.result.enthalpy_update_scale[0]=0.;break;
+        case 18:state.result.reference_independent_update=!c.reference_independent_update;break;
+        case 19:state.result.enthalpy_update_scale[0]*=1000.;break;
         }
         Case destination=sample;const auto before=destination;
         rejects<std::invalid_argument>([&]{EnthalpyRun invalid(destination.grid(),destination.side(0),destination.side(1),
@@ -290,9 +382,13 @@ void energy_run_checks() {
 
 }  // namespace
 
-int main() {
+int main(int argc,char** argv) {
     try {
+        require(argc<=2,"expected one optional CPU thread count");
+        if(argc==2)cpu_threads=std::stoul(argv[1]);
+        require(cpu_threads>0,"CPU thread count must be positive");
         energy_run_checks();
+        mixed_model_checks();
         std::size_t solved=0;
         double max_eos_error=0.,max_boundary_error=0.,max_warm_difference=0.;
         const std::array<std::array<Fluid,2>,4> pairs{{{Fluid::air,Fluid::air},
@@ -311,7 +407,8 @@ int main() {
                         && result.final_audit->coupled_ratio<=1e-7,"T energy gate was bypassed");
                 EnthalpyEOS independent;
                 for (std::size_t s=0;s<2;++s) for (std::size_t p=0;p<5;++p) {
-                    const double inverted=independent.temperature(data.fluid[s],data.h[s][p],data.pressure[s][p],false,"smoke HP reference");
+                    bool table_used=false;
+                    const double inverted=independent.temperature(data.fluid[s],data.h[s][p],data.pressure[s][p],table_used,"smoke HP reference");
                     max_eos_error=std::max(max_eos_error,std::abs(inverted-data.t[s][p]));
                 }
                 max_boundary_error=std::max({max_boundary_error,
@@ -620,6 +717,10 @@ int main() {
         rejects<std::invalid_argument>([&] { solve_enthalpy(unknown.grid(),unknown.side(0),unknown.side(1),view(unknown.solid_k),unknown.state(),c); },
                                        "undefined exterior inflow was accepted");
         Case invalid(0,1,Fluid::air,Fluid::water);
+        c.cpu_threads=0;
+        rejects<std::invalid_argument>([&] { solve_enthalpy(invalid.grid(),invalid.side(0),invalid.side(1),view(invalid.solid_k),invalid.state(),c); },
+                                       "zero CPU thread count was accepted");
+        c.cpu_threads=cpu_threads;
         c.equation_energy_tolerance.reset();
         rejects<std::invalid_argument>([&] { solve_enthalpy(invalid.grid(),invalid.side(0),invalid.side(1),view(invalid.solid_k),invalid.state(),c); },
                                        "T energy accepted a missing actual equation gate");
@@ -651,10 +752,37 @@ int main() {
                         && std::abs(transport.conductivity-k)<=2e-10*k
                         && std::abs(eos.conductivity(fluid,temperature,pressure)-k)<=2e-10*k,
                         "transport properties retained another PT state");
-                const double inverse=eos.temperature(fluid,h,pressure,false,"HP reuse regression");
+                bool table_used=false;
+                const double inverse=eos.temperature(fluid,h,pressure,table_used,"HP reuse regression");
                 require(std::abs(inverse-temperature)<=2e-8,"guarded HP inverse differs from independent HEOS");
             }
         }
+        eos.enable_bicubic(std::filesystem::absolute(".cache/native-energy-run-tables").string());
+        require(!eos.bicubic_pressure(2e5) && eos.bicubic_pressure(2e6),
+                "CO2 table pressure domain differs from the locked table");
+        auto co2_reference=make_eos_state("HEOS","CO2");
+        for(const auto point:std::array<std::array<double,2>,4>{{{350.,2e6},{260.,5e6},{350.,8e6},{315.,5e6}}}) {
+            const double temperature=point[0],pressure=point[1];
+            co2_reference->update(CoolProp::PT_INPUTS,pressure,temperature);
+            const double h=co2_reference->hmass();
+            bool used=true;
+            const double candidate=eos.temperature(Fluid::co2,h,pressure,used,"CO2 table state");
+            require(used && std::isfinite(candidate),"valid CO2 inverse did not use its table");
+            require(std::abs(candidate-temperature)<=2e-8,"CO2 table correction differs from HEOS");
+            eos.validate(Fluid::co2,candidate,pressure,"CO2 table state");
+            used=false;
+            const double final=eos.temperature(Fluid::co2,h,pressure,used,"CO2 exact final state");
+            require(!used && std::abs(final-temperature)<=2e-8,"CO2 final inverse did not use HEOS");
+        }
+        co2_reference->update(CoolProp::PT_INPUTS,2e5,350.);
+        bool table_used=true;
+        const double outside=eos.temperature(Fluid::co2,co2_reference->hmass(),2e5,table_used,"CO2 outside table");
+        require(!table_used && std::abs(outside-350.)<=2e-8,"CO2 outside table did not keep exact HEOS");
+        co2_reference->update(CoolProp::PQ_INPUTS,3e6,.5);
+        rejects<CoolProp::CoolPropBaseError>([&] {
+            bool used=true;
+            eos.temperature(Fluid::co2,co2_reference->hmass(),3e6,used,"CO2 two-phase inverse");
+        },"CO2 table accepted a two-phase physical state");
         std::cout<<"conservative_energy_driver_smoke ok; cold/warm pairs="<<solved
                  <<"; max EOS T error="<<max_eos_error<<"; boundary W error="<<max_boundary_error
                  <<"; warm T error="<<max_warm_difference<<'\n';

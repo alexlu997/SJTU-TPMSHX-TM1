@@ -34,7 +34,7 @@ struct Side {
     bool second_order, strict_boundary;
     Faces capacity, deferred;
     Side(const Mesh&, const ModelHFluid2D& fluid, bool order, bool solved, bool strict)
-        : f(fluid), cp(solved ? &coefficients(f.fluid) : nullptr), second_order(order), strict_boundary(strict),
+        : f(fluid), cp(solved ? &model_h_coefficients(f.fluid) : nullptr), second_order(order), strict_boundary(strict),
           capacity{Vector(f.mass_x.size),Vector(f.mass_y.size)},
           deferred{Vector(f.mass_x.size),Vector(f.mass_y.size)} {}
     EnergyPhase energy(const Mesh& mesh) const {
@@ -91,8 +91,8 @@ void faces(const Mesh& mesh, Side& side, ArrayView<const double> t) {
             const double x=temperature-coefficients[3], cp=coefficients[0]+coefficients[1]*x+coefficients[2]*x*x;
             side.capacity[axis][p]=mass*cp;
             if constexpr (physical)
-                side.deferred[axis][p]=mass*enthalpy(temperature+inc,coefficients);
-            else side.deferred[axis][p]=mass*(enthalpy(temperature+inc,coefficients)-cp*temperature);
+                side.deferred[axis][p]=mass*model_enthalpy(temperature+inc,coefficients);
+            else side.deferred[axis][p]=mass*(model_enthalpy(temperature+inc,coefficients)-cp*temperature);
         }
     }
 }
@@ -278,7 +278,7 @@ void validate(const GridView& g, const ModelHFluid2D& a, const ModelHFluid2D& b,
     }
     for (const auto* f:{&a,&b}) {
         const bool solved=f==&a || !prescribed_b.size;
-        if (solved) coefficients(f->fluid);
+        if (solved) model_h_coefficients(f->fluid);
         coefficient(f->conductivity,n); coefficient(f->hv,n);
         check(f->mass_x,(g.nx+1)*g.ny,solved); check(f->mass_y,g.nx*(g.ny+1),solved);
         const auto& bc=f->boundary;

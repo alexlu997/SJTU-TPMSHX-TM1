@@ -59,6 +59,10 @@ typedef struct {
     double omega,update_tolerance,temperature_update_tolerance;
     double coupled_energy_tolerance,equation_energy_tolerance;
 } tpmshx_energy_effective_settings_v1;
+typedef struct {
+    uint32_t available,reference_independent;
+    double scale[2]; /* J/kg; max(cp_in*abs(T_in_A-T_in_B), 1) for full runs */
+} tpmshx_energy_update_scale_v1;
 /* Read full-driver defaults without numerical work. available is zero.
  * dimension is 2 or 3; has_water is 0 or 1. Invalid arguments return 1
  * and leave output unchanged. Explicit caller controls still take priority. */
@@ -119,10 +123,12 @@ TPMSHX_THERMAL_API uint32_t TPMSHX_THERMAL_CALL tpmshx_enthalpy_driver_abi_versi
  * brackets retain legal inlet/warm states and do not replace phase guards.
  *
  * Gate/warm flags must be 0 or 1. Enabled gate tolerances must be positive.
- * CO2 requires an absolute UTF-8 table_directory (NUL terminated). The native
- * library fixes that path on first BICUBIC use; repeated same-path calls are
- * allowed, conflicting paths fail. Cancellation precedes BICUBIC creation.
- * An air/water-only call does not use table_directory and may pass NULL.
+ * CO2 calls within the table pressure range and sCO2 calls require an absolute
+ * UTF-8 table_directory (NUL terminated). The native library fixes that path
+ * on first BICUBIC use. Repeated same-path calls are allowed; conflicting paths
+ * fail. Cancellation precedes BICUBIC creation. CO2 outside the table pressure
+ * range keeps HEOS. An air/water-only call does not use table_directory and
+ * may pass NULL.
  *
  * The caller owns all storage through return. Array storage must not overlap
  * mutable arrays, config, callbacks, result or error. Fixed array storage may

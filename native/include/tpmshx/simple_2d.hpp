@@ -1,6 +1,7 @@
 #pragma once
 
 #include "tpmshx/simple_convergence.hpp"
+#include "tpmshx/anderson_state.hpp"
 
 #include <memory>
 #include <optional>
@@ -34,12 +35,15 @@ struct Simple2DControl {
     bool (*cancel)(void*) = nullptr;
     void (*progress)(void*, std::size_t, double) = nullptr;  // iteration, old-rho legacy residual
     void* context = nullptr;
+    bool accelerate_fixed_density = false;
 };
 
 struct Simple2DResult {
     SimpleStop stop = SimpleStop::ongoing;
     bool converged = false, post_closure_measured = false, post_closure_certified = false;
     std::size_t iterations = 0, pressure_clip_hits = 0;
+    bool fixed_density_acceleration = false;
+    std::size_t acceleration_attempts = 0, acceleration_accepted = 0;
     double legacy_residual = std::numeric_limits<double>::quiet_NaN();
     SimpleMomentumResidual momentum;
     SimpleMassAudit mass{std::numeric_limits<double>::quiet_NaN(), 0., 0.,
@@ -74,6 +78,8 @@ struct Simple2DRunState {
     std::array<std::vector<double>,8> fields;
     SimpleF2State convergence;
     Simple2DResult result;
+    AndersonState acceleration;
+    double pressure_scale = 1.;
 };
 
 // One prepared grid/port support per instance; constructor owns width/support
@@ -94,7 +100,7 @@ public:
     Simple2DResult solve(const Simple2DMaterialView& material,
                         const Simple2DBoundaryView& boundary, Simple2DStateView state,
                         const Simple2DControl& control);
-    // Inputs stay fixed during this call. One advance completes one SIMPLE step.
+    // One advance completes a SIMPLE step and an optional pressure-corrected proposal.
     SimplePhase start(const Simple2DMaterialView&,const Simple2DBoundaryView&,
                       Simple2DStateView,const Simple2DControl&);
     SimplePhase advance();

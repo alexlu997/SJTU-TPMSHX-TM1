@@ -20,11 +20,14 @@ External faces keep their prescribed boundary treatment. Axes with fewer
 than three cells stay first order. Product model-h and the nonconservative
 research stencil keep their separate reconstruction contracts.
 
-Engineering backend parity requires one prepared case and independent convergence
-and energy gates. Relative differences in duty, pressure drop and mass flow must
+Engineering backend parity requires one prepared case, the same physical models,
+and independent convergence and energy gates. Relative differences in duty, pressure drop and mass flow must
 be at most 0.1%. Absolute differences in outlet and full-field temperatures must
 be at most 0.01 K. `test_backend_engineering_parity.py` covers eight fluid pairings
-in 2D and 3D. Complete iterative comparisons use these limits, with 0.01% relative
+in 2D and 3D. Mixed native runs use the selected per-fluid energy models.
+Their differences from the retained Python HEOS models are recorded separately.
+Independent formula checks and physical gates apply to these runs.
+Complete comparisons with the same models use these limits, with 0.01% relative
 tolerance for intermediate fields and explicit absolute tolerances for
 near-zero residual ratios.
 
@@ -61,11 +64,18 @@ The H-FOU and temperature updates share the fluid and solid row assembly in `ene
 The H row transports actual enthalpy and uses the frozen h-to-T tangent for conduction and exchange.
 It retains the enthalpy bounds, clip counts and serial A, B, solid sweep order.
 The caller retains input checks, EOS state updates, iteration budgets and stopping gates.
-H boundary duties and audits retain their existing signed physical powers.
+Actual-state H audits use the same physical fluid and solid rows.
+Their face powers use actual m*h directly, with the existing signed boundary duties.
+The public coupled-only audit keeps unavailable fluid residuals as NaN and does not read fluid conductivity.
 No extra temperature or face arrays are needed for this assembly.
 
 The 2D and 3D model-h drivers share one accelerated chunk owner.
-It retains 25 sweeps per block, two proposal probes, and separate Anderson history for each chunk.
+Strict 3D calls use five sweeps per block and sixteen Anderson samples.
+Other calls retain 25 sweeps per block and six samples.
+Both policies charge two proposal probes and keep separate history for each chunk.
+The strict policy meets the original energy gate in the tested graded-grid case.
+Full 3D results record whether acceleration was enabled, the block size, and the history limit.
+Snapshots retain the block size and complete history. Restore rejects a different policy.
 A complete selection boundary can export the consumed budget and an independent history copy.
 A failed partial step cannot export or resume that chunk.
 `ModelHRun2D` and `ModelHRun3D` own the thermal iteration state.
@@ -87,7 +97,7 @@ An EOS energy relation records the HEOS fluid and the actual thermal pressure fi
 Integral h(T), capacity temperature transport and prescribed temperatures remain distinct.
 The record copies returned algorithm identifiers, effective settings and state labels.
 A missing algorithm identifier stays null; requested settings do not establish execution.
-For sCO2, the initial inverse backend applies only to its listed sides.
+For CO2 and sCO2, the initial inverse backend applies only to its listed sides.
 The HEOS finishing flag remains explicit.
 The nonlinear unknown and face reconstruction remain separate fields.
 A temperature unknown can use enthalpy face reconstruction.
@@ -118,7 +128,23 @@ The 2D owner passes these choices to its main and refined thermal calls.
 The 3D owner keeps them for the run and derives them again from matched inputs on restore.
 Current input validation, phase guards and sampled-state records stay at their existing owners.
 The selected rules retain the differences between dimensions, EOS warm-up, prescribed B and research routes.
-This migration keeps the current route-dependent choices. Independent per-fluid defaults require separate qualification.
+Two-fluid full runs that use the conservative EOS driver now select energy by fluid.
+Air and water use their existing integral h(T); CO2 and sCO2 use HEOS h(T,P).
+The air/water conductivity comes from prepared fields in 2D and the outer transport state in 3D.
+CO2 and sCO2 keep local HEOS conductivity.
+In 2D, air/water heat transfer uses the outer mean density and viscosity, with inlet conductivity and Pr.
+CO2 and sCO2 use local properties at the lagged temperature and inlet pressure.
+These choices no longer depend on the other fluid. The 3D sampling rules stay unchanged.
+The Python numerical backend and direct component C entries keep their existing models.
+Explicit fixed-capacity, prescribed-side and research routes retain their separate contracts.
+
+Each full conservative run normalizes the h update separately for each fluid.
+Its scale is inlet cp times the absolute inlet temperature difference, with a 1 J/kg minimum.
+This scale does not depend on the fluids' enthalpy origins.
+The additive full-driver `get_energy_update_scale_v1` queries return the actual scales.
+Existing C structure layouts stay unchanged. Python bindings require the matching native library.
+The execution record stores `enthalpy_update_normalization`; checkpoints retain its values and definition.
+Historical saved results retain their original models, normalization and metrics.
 
 Full C++ 2D EOS runs also accept the optional thermal controls in `SolverConfig`.
 The additive `full_2d_v4` entry passes the iteration and sweep budgets, relaxation,
@@ -336,17 +362,17 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   x64/Python 3.12 and 3.13. Visible desktop delivery and full performance
   qualification stay separate gates.
 - `Simple2DSolver` and `Simple3DSolver` retain each active flow call.
-  `start` begins the original call; `advance` completes one pressure, density,
-  boundary and F2 step. The existing one-shot entries use these operations.
+  `start` begins the call. `advance` completes an ordinary step and any enabled 2D proposal before the F2 check.
+  The existing one-shot entries use these operations.
   Active snapshots own the fields, F2 confirmation and stall state, result,
   histories, inlet target, clip count and pressure hierarchy construction state.
   Restore preserves the original iteration budget, momentum schedule and pressure
   rebuild cadence. It validates saved state before it writes caller fields.
   Initial correction arrays keep their original unused-value rules.
   Warm-call snapshots stay separate from active-call snapshots. Callbacks cannot
-  save or re-enter an unfinished step. Physical equations, ordering, cancellation
-  points and final boundary certificates stay unchanged. The full 3D controller
-  archives this state. Full 2D inner-state integration and application recovery remain separate tasks.
+  save or re-enter an unfinished step. Cancellation is checked before each ordinary or proposal step.
+  Physical equations and final boundary certificates stay unchanged.
+  Both full controllers archive active flow state for application recovery.
 - `EnthalpyRun` owns the existing H-FOU, T-FOU and T-SOU Picard iteration state.
   Each advance completes one original iteration, including its SOU proposal.
   An active snapshot owns five solution fields, enthalpy bounds, table bounds,
@@ -624,8 +650,20 @@ use this same criterion. `convergence_mode=None` resolves to `f2`. Explicit
 `legacy` is rejected. A static field triggers a check and never certifies
 convergence alone.
 
-The mass-only/velocity exit and its inner SIMPLE Anderson
-implementation are retired. Thermal and outer-coupling Anderson stay active.
+The mass-only/velocity exit and its associated inner SIMPLE implementation are retired.
+Full native 2D calls use `simple_2d_fixed_density_anderson_v1` for fixed-density sides.
+The shared Anderson helper proposes normalized velocity and pressure fields.
+Each proposal completes a pressure correction and consumes one step from the original budget.
+Acceptance requires no larger momentum residual, both original mass gates, and zero outlet backflow.
+A rejected proposal restores the ordinary fields and pressure cache.
+The original F2 confirmation, stall checks, and final outlet certificate still apply.
+If a proposal crosses a scheduled momentum check, the selected fields receive that check.
+Each advance records one residual sample for the selected fields.
+Iteration counts include all proposal steps.
+The saved state includes Anderson history, pressure scale, and proposal counts.
+`metadata.simple_flow` and the execution record identify each final flow call and its actual proposal counts.
+Standalone component defaults and the Python reference keep ordinary SIMPLE.
+Thermal and outer-coupling Anderson remain active.
 
 The 3D return path closes outlet fluxes again after the last density update and
 remeasures all four gates on that returned state. Its local mass check includes
@@ -761,8 +799,10 @@ symmetric geometry resource. Shared preparation gives both streams that geometry
 Only CO2 sides receive fixed drag factors `K=K0/2.5`, `cF=2.5cF0` and the
 Nu factor 1.28, including the Nu floor. These apply once, independently of
 `df_mode`, and survive Case/FieldResult archives as model references and metadata.
-CO2 properties and inverse enthalpy use single-phase HEOS, without the sCO2
-BICUBIC iteration table. Both backends evaluate CO2/sCO2 local h_v with the
+CO2 keeps the HEOS physical relation and its single-phase checks.
+Native H iterations can use BICUBIC within the table pressure range.
+A Newton correction uses the checked HEOS state before the next iteration.
+The Python inverse and the final native inverse use HEOS. Both backends evaluate CO2/sCO2 local h_v with the
 lagged temperature and local L/D_h/A_0 fields. Air/water retain their existing
 property-sampling rules. Native coefficients come from the shared generator.
 The native fluid enum appends CO2 as value 3; existing values and POD layouts
@@ -929,7 +969,7 @@ Thermal routes are selected by their present qualification conditions:
 | Route | Shared implementation and kept differences |
 |---|---|
 | True enthalpy | Pairs containing CO2 or sCO2 use signed mass/enthalpy transport for uniform and continuous geometry. The 2D adapter calls the shared 3D enthalpy kernel. Full3D CC uses the kept G4 two-sweep warm-up before the selected enthalpy solve. Discrete-zone and offset constraints stay. |
-| Model enthalpy | Existing air/water h(T) transport. 2D includes water/water when unzoned and symmetric. 3D currently includes air/air, air/water and water/air with its Nz, variable-property, dual-flow, conservative and mask conditions. |
+| Model enthalpy | Existing air/water h(T) transport. 2D includes water/water when unzoned and symmetric. Native 3D includes every ordered air/water pair with Nz>1, variable properties, two solved sides and conservative transport. Water/water and asymmetric geometry use the strict boundary contract. |
 | Temperature | The native fullCC air/water candidate reuses strict integral-h(T) model-h drivers while keeping the requested temperature route. Python temperature, QD/standalone fixed-coefficient, staggered research and private single-A sCO2 routes keep their separately stated contracts. |
 
 Full3D true-h keeps its original two temperature sweeps before each enthalpy call.
@@ -969,7 +1009,11 @@ temperature-stability test are both required. Zero duty alone cannot certify
 a drifting temperature field.
 
 The true-enthalpy fluid diffusion term is Fourier conduction on temperature,
-linearized consistently in the enthalpy unknown on each shared internal face. A pressure-dependent enthalpy difference is not itself a temperature gradient. Both production adapters require fresh HEOS fluid and solid equation residuals. The largest per-phase sum of absolute cell residuals must be <=0.001 of
+linearized consistently in the enthalpy unknown on each shared internal face.
+A pressure-dependent enthalpy difference is not itself a temperature gradient.
+Both production adapters require fresh fluid and solid equation residuals.
+These residuals use each side's selected energy relation and conductivity.
+The largest per-phase sum of absolute cell residuals must be <=0.001 of
 `max(abs(Q_A), abs(Q_B), 1)` in native units. The boundary energy imbalance must
 meet the same limit.
 
@@ -978,16 +1022,18 @@ clipped enthalpy updates cannot certify convergence. The true-h ledger records
 the effective settings, residual budgets, clip counts and exit reason.
 
 CoolProp 8 uses a 30-bit temperature bracket for some HEOS H/P inversions.
-Both true-h drivers apply one Newton correction with the same HEOS H(T,P)
-and cp to restore enthalpy consistency. Raw and corrected states retain the
+For EOS sides, both true-h drivers apply one Newton correction with HEOS H(T,P) and cp.
+This restores enthalpy consistency. Integral sides invert their existing h(T) polynomial.
+Raw and corrected states retain the
 original domain checks. BICUBIC iteration remains separate from exact HEOS
 finishing. Its table cache is versioned to prevent reuse of tables generated
 by an earlier EOS release. Fluid sweeps use the algebraically equivalent
 enthalpy defect so an isothermal state at a legal enthalpy bound does not
 acquire cancellation error from subtracting absolute temperatures.
 
-Each native true-h evaluator uses one HEOS state for PT checks and property reads.
-Water and CO2 guards update that state before its enthalpy, cp or conductivity is read.
+Each native EOS evaluator uses one HEOS state for PT checks and property reads.
+Water and CO2 guards update that state before its HEOS properties are read.
+Integral air/water energy properties come from the existing model resource.
 This removes a duplicate PT update within the same call.
 All phase, melting, pressure and corrected H/P checks remain at their existing locations.
 Air and sCO2 domain checks do not add HEOS updates.
@@ -1028,9 +1074,14 @@ scale, with a floor of one native power unit. This ratio must be at most 1e-7. F
 does not certify convergence.
 
 Prescribed B has reservoir power but no solved
-B residual. This strict path supports its existing fullCC asymmetric and 3D
-water/water consumers without extending the non-strict product model-h route
-or granting optimizer eligibility.
+B residual. Native 3D water/water and asymmetric air/water runs use this strict
+path under the model-h selection conditions above. They consume completed
+SIMPLE mass faces without the former capacity-flux projection.
+Their results record the strict face algorithm, common physical ledger and
+model-h reporting audit. The original non-strict model-h boundary rule stays
+active for symmetric air/air, air/water and water/air runs.
+Explicit fixed-capacity, prescribed-side and research consumers retain their
+separate contracts. Applicability and optimizer eligibility remain separate checks.
 
 Product model-h Richardson refinement has a 12000-sweep ceiling so the finer
 grid can meet its criteria. The fullCC temperature-role refinement keeps its
@@ -1269,12 +1320,25 @@ Snapshot fields own their numeric arrays and UTF-8 strings.
 The additive `advance_step_v1` entries expose inner boundaries in both dimensions.
 Native state format 2 records these states.
 Restore requires the same format, native build, platform, prepared input, and numerical controls.
-Each native build receives a new identity. Host paths and callback addresses are excluded.
+Each native build receives a new identity. Host paths, callback addresses, and runtime thread limits are excluded.
 A cancelled or failed run cannot publish a new snapshot.
 The result is transferred once; its views remain valid until result release.
 
-The native Python backend accepts `checkpoint` and `resume_state` keyword arguments.
-`checkpoint` receives detached typed fields at each available boundary.
+`RunControl.cpu_threads` is an optional positive runtime limit. It is not a physical or numerical input.
+The native default is at most eight logical CPUs on the host. Explicit requests are capped by that availability.
+The temperature energy driver partitions independent cells and gives each worker separate ordinary and trial EOS objects.
+It caps the worker count by the cell count. Maxima are combined after all workers finish; sweeps and final audits keep their original order.
+The owner alone polls callbacks. Ordinary updates finish before a callback can observe them; trial callbacks see the retained ordinary state.
+All workers finish before an exception leaves the call. A one-thread budget also serializes the existing paired 2D flow calls.
+`runtime_resources` records the applied limit separately from numerical method evidence. Saved run status records the requested limit.
+Full 2D entry v6 and full 3D entry v5 accept the budget without changing result layouts.
+Owned 2D create/restore v2 and owned 3D create/restore v3 carry the same budget.
+The earlier entries and their binding branches remain for retained run libraries and direct C callers.
+They can be removed only after those consumers no longer require them. An old library rejects an explicit thread limit that it cannot apply.
+
+The public solver entry and native Python backend accept `checkpoint`, `checkpoint_due`, and `resume_state` keyword arguments.
+`checkpoint` receives detached typed fields at an available boundary.
+An optional `checkpoint_due` predicate prevents state export when no save is due.
 `SolverCheckpoint` stores those fields with the absolute prepared-case path and model references.
 Use `full_2d_continuation_v1` for 2D state; 3D retains `full_3d_continuation_v1`.
 The functions in `io/solver_checkpoint_io.py` use the existing typed HDF5 record writer.
@@ -1282,10 +1346,28 @@ The writer closes a temporary file before atomic replacement.
 A failed write or process interruption before replacement preserves the previous checkpoint.
 This contract does not claim recovery from power loss.
 
+`workflows.recovery` uses the existing `workflows.compute` stages for start and resume.
+Each run owns a new directory with prepared input, a retained native library, checkpoint, and status.
+Each run retains its own library file. The process reuses a previously retained file only when its bytes match the selected library.
+This avoids repeated native initialization and retained property tables. A changed or moved runtime uses the new retained file.
+The run record identifies the file used for execution. Completed results and metrics are written only after postprocessing.
+Resume reads the saved `CaseData`; it does not repeat preparation or change the source run.
+The complete directory can move. Its local input replaces the previous absolute case path during loading.
+Native restore still verifies the prepared input, controls, format, platform, and build.
+The caller selects a native library explicitly. The workflow does not load a saved library implicitly.
+
+`PausedRun` reports a saved checkpoint separately from cancellation, failure, and completed results.
+CLI saved runs convert Ctrl+C into a pause request and return code 3 after saving.
+The Qt orchestrator has a separate pause signal and retains the previous accepted result.
+GUI resume preserves saved input provenance without changing the current draft.
+A CLI-origin run has no GUI preset and cannot replace the draft through recent-run loading.
+
 This stage covers native 2D and 3D inner and outer boundaries, including 2D thermal refinement.
-GUI/CLI recovery remains separate integration work.
-The longest complete step or bootstrap sets the current possible loss of computation.
-Saving frequency and full recovery acceptance remain separate tasks.
+The CLI interval is explicit. New GUI full C++ runs request a save every 60 seconds.
+They capture input provenance on the GUI thread and use a new directory under the existing user data directory.
+GUI resume uses the recorded interval. A failed start clears the pending directory and provenance.
+The longest complete step or bootstrap limits when saving can occur.
+Saving frequency and full timing, memory, and desktop acceptance remain separate checks.
 
 ### Cooperative cancellation
 
@@ -1488,16 +1570,22 @@ Taper stays
     construction for numerical reference tests lives only in the test helpers. Each sCO2 side in 2D/3D uses the shared property-wrapper range
     **280–700 K, 7.9–16 MPa absolute**, at inlets and actual local states. The 2026-09-09 pressure-floor extension leaves the EOS backend and the
     independent Nu/D-F applicability and acceptance gates unchanged. It does
-    not show experimental accuracy in the added range. Production Picard iterations use CoolProp BICUBIC only for the sCO2 model's T(h,P). The separate CO2 model uses HEOS throughout.
+    not show experimental accuracy in the added range. Native H Picard iterations can use CoolProp BICUBIC for CO2 and sCO2 T(h,P).
+    The Python CO2 inverse keeps HEOS. T-FOU and T-SOU keep their HEOS PT updates.
+    A native CO2 side uses tables only when all local pressures are within the locked table range.
+    This range starts at the triple-point saturation pressure. Other CO2 sides keep HEOS without table initialization.
+    A rejected or two-phase CO2 table candidate uses the exact HEOS inverse and its physical checks.
+    A valid CO2 table candidate receives one Newton correction from its checked HEOS enthalpy and cp.
+    The corrected state passes the same physical checks. This reduces the error that requires extra HEOS finishing iterations.
 
 Final temperatures, coupled-energy checks, outlet inversion and all other
     properties stay HEOS. If an exact-EOS energy check fails, the remaining
     iterations finish on HEOS. Returning to the table can cycle between two
     different fixed points. Each thermal solve owns its mutable table state. HEOS enthalpy limits at local pressure keep domain-boundary checks on HEOS.
 
-Results record `sco2_enthalpy_eos` in model metadata when the table is used,
-    including the `bicubic_iteration_heos_polish_v2` algorithm and if
-    exact-EOS finishing was needed. This is an approximate iteration algorithm, not an experimental calibration.
+New C++ results record actual table use under `enthalpy_eos` in model metadata.
+    The record includes `bicubic_iteration_heos_polish_v2`, the used sides, and the HEOS finishing state.
+    Python and historical `sco2_enthalpy_eos` records remain readable with their original meaning. This is an approximate iteration algorithm, not an experimental calibration.
 
 The separate experimental `TPMSHX_SCO2_COMPRESSIBLE` switch enables
     local-pressure density/viscosity updates only on the 3D A side and changes

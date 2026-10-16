@@ -62,6 +62,37 @@ class _EnergyResult(ct.Structure):
                 ('temperature_update', ct.c_double), ('picard_relaxation', ct.c_double)]
 
 
+class _EnergyUpdateScale(ct.Structure):
+    _fields_ = [('available', ct.c_uint32), ('reference_independent', ct.c_uint32),
+                ('scale', ct.c_double * 2)]
+
+
+def _update_scale_query(library, dimension, result_type):
+    try:
+        query = getattr(library, f'tpmshx_full_{dimension}d_get_energy_update_scale_v1')
+    except AttributeError as error:
+        raise ValueError('native library lacks energy update scales; rebuild the library') from error
+    query.argtypes = [ct.POINTER(result_type), ct.POINTER(_EnergyUpdateScale)]
+    query.restype = ct.c_int
+    return query
+
+
+def _copy_update_scale(query, result):
+    scale = _EnergyUpdateScale()
+    if query(ct.byref(result), ct.byref(scale)):
+        raise RuntimeError('native energy update scale query failed')
+    if scale.available == 0:
+        return None
+    if scale.available != 1 or scale.reference_independent not in (0, 1):
+        raise RuntimeError('native energy update scale has invalid flags')
+    if any(not np.isfinite(value) or value < 1 for value in scale.scale):
+        raise RuntimeError('native energy update scale must be finite and at least 1 J/kg')
+    return dict(definition=('inlet_cp_times_temperature_difference_v1'
+                            if scale.reference_independent else 'inlet_enthalpy_difference_v1'),
+                unit='J/kg', sides=dict(zip('AB', scale.scale)),
+                source='native_completed_thermal_call')
+
+
 class _EnergyEffectiveSettings(ct.Structure):
     _fields_ = [(name, ct.c_uint32) for name in (
         'available', 'algorithm', 'require_enthalpy_update_on_temperature')]
@@ -127,7 +158,7 @@ def _energy_algorithm_query(library):
     return query
 
 
-def _energy_result_info(info, result, *, temperature_tol, abi, version_query):
+def _energy_result_info(info, result, *, temperature_tol, abi, version_query, state_update='HEOS_PT'):
     """Decode executed native identity, independently of the requested option."""
     if result.algorithm not in range(len(_ENERGY_NAMES)):
         raise RuntimeError('native energy returned an unknown algorithm')
@@ -146,7 +177,7 @@ def _energy_result_info(info, result, *, temperature_tol, abi, version_query):
     info['effective_settings'].update(energy_algorithm=name, energy_algorithm_version=version,
         temperature_update_tol_K=float(temperature_tol), driver_abi=abi,
         picard_relaxation=result.picard_relaxation,
-        nonlinear_state_update='HEOS_PT',
+        nonlinear_state_update=state_update,
         enthalpy_face_reconstruction='FOU' if result.algorithm == 1 else 'h_minmod_outlet_v1',
         solid_omega=info['effective_settings']['omega'] if result.algorithm == 1 else 1.)
     return info
@@ -307,7 +338,7 @@ class NativeEnthalpyDriver:
             h_in_B=result.inlet_enthalpy[1], mass_flux_A=faces_a, mass_flux_B=faces_b)
         table_sides = [side for side, used in zip(('A', 'B'), result.used_bicubic) if used]
         if table_sides:
-            info['_native_state']['sco2_enthalpy_eos'] = dict(
+            info['_native_state']['enthalpy_eos'] = dict(
                 algorithm='bicubic_iteration_heos_polish_v2', iteration_backend='BICUBIC&HEOS',
                 final_backend='HEOS', transport_backend='HEOS',
                 coolprop_version=result.coolprop_version.decode('utf-8'),

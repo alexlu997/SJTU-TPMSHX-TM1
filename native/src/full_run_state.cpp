@@ -40,15 +40,18 @@ template<class Archive,class Value> void walk(Archive& archive,Value& value,Simp
     FIELD(massflux_inlet) FIELD(second_order_upwind) FIELD(adaptive_pressure_tolerance) FIELD(track_momentum) FIELD(ordering)
     FIELD(convergence)
 }
+// Runtime thread counts do not change the numerical state identity.
 template<class Archive,class Value> void walk(Archive& archive,Value& value,EnthalpyControl*) {
     FIELD(max_iterations) FIELD(sweeps) FIELD(omega) FIELD(update_tolerance) FIELD(coupled_energy_tolerance)
     FIELD(equation_energy_tolerance) FIELD(algorithm) FIELD(temperature_update_tolerance) FIELD(require_enthalpy_update_on_temperature)
+    FIELD(reference_independent_update)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,ModelHIterationOverrides*) {
     FIELD(max_iterations) FIELD(temperature_tolerance) FIELD(q_relative_tolerance)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,ModelHIterationSettings*) {
     FIELD(max_iterations) FIELD(chunk_iterations) FIELD(temperature_tolerance) FIELD(q_relative_tolerance) FIELD(total_iteration_budget)
+    FIELD(accelerate) FIELD(acceleration_sweeps) FIELD(acceleration_history)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,Full3DControl*) {
     FIELD(max_outer) FIELD(initial_simple_iterations) FIELD(warm_simple_iterations) FIELD(thermal_iterations) FIELD(outer_temperature_tolerance)
@@ -168,6 +171,7 @@ template<class Archive,class Value> void walk(Archive& archive,Value& value,Enth
     FIELD(stop) FIELD(iterations) FIELD(residual) FIELD(q_a) FIELD(q_b)
     FIELD(energy_imbalance) FIELD(inlet_enthalpy) FIELD(last_clips) FIELD(total_clips) FIELD(final_audit)
     FIELD(used_bicubic) FIELD(heos_polish) FIELD(algorithm) FIELD(temperature_update) FIELD(picard_relaxation)
+    FIELD(enthalpy_update_scale) FIELD(reference_independent_update)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,TemperatureResult*) {
     FIELD(stop) FIELD(iterations) FIELD(residual) FIELD(q_b)
@@ -232,7 +236,7 @@ template<class Archive,class Value> void walk(Archive& archive,Value& value,Simp
     FIELD(minimum_iterations) FIELD(streak) FIELD(window_start_iteration) FIELD(momentum_at_window_start) FIELD(previous)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,ModelHChunkState*) {
-    FIELD(count) FIELD(completed) FIELD(acceleration)
+    FIELD(count) FIELD(completed) FIELD(acceleration) FIELD(sweep_block)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,ModelHIterationState*) {
     FIELD(temperature) FIELD(previous) FIELD(previous_q) FIELD(have_q) FIELD(chunk)
@@ -276,7 +280,7 @@ template<class Archive,class Value> void walk(Archive& archive,Value& value,Full
 template<class Archive,class Value> void walk(Archive& archive,Value& value,Simple2DControl*) {
     FIELD(max_iterations) FIELD(inner_sweeps) FIELD(alpha_velocity) FIELD(alpha_pressure) FIELD(alpha_density)
     FIELD(pressure_reference_absolute) FIELD(gas_constant) FIELD(cf_anisotropy) FIELD(ideal_gas) FIELD(massflux_inlet)
-    FIELD(close_outlet_on_exit) FIELD(convergence)
+    FIELD(close_outlet_on_exit) FIELD(convergence) FIELD(accelerate_fixed_density)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,Full2DControl*) {
     FIELD(flow) FIELD(outer_iterations) FIELD(thermal_iterations) FIELD(thermal_chunk) FIELD(outer_temperature_tolerance)
@@ -286,6 +290,7 @@ template<class Archive,class Value> void walk(Archive& archive,Value& value,Full
 template<class Archive,class Value> void walk(Archive& archive,Value& value,Simple2DResult*) {
     FIELD(stop) FIELD(converged) FIELD(post_closure_measured) FIELD(post_closure_certified) FIELD(iterations)
     FIELD(pressure_clip_hits) FIELD(legacy_residual) FIELD(momentum) FIELD(mass) FIELD(linear)
+    FIELD(fixed_density_acceleration) FIELD(acceleration_attempts) FIELD(acceleration_accepted)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,Full2DFlow*) {
     FIELD(dx) FIELD(dy) FIELD(u) FIELD(v) FIELD(pressure)
@@ -349,7 +354,7 @@ template<class Archive,class Value> void walk(Archive& archive,Value& value,Simp
     FIELD(widths) FIELD(depth) FIELD(outlet) FIELD(pressure) FIELD(history) FIELD(massflux_target) FIELD(pressure_clip_hits)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,Simple2DRunState*) {
-    FIELD(owner) FIELD(fields) FIELD(convergence) FIELD(result)
+    FIELD(owner) FIELD(fields) FIELD(convergence) FIELD(result) FIELD(acceleration) FIELD(pressure_scale)
 }
 template<class Archive,class Value> void walk(Archive& archive,Value& value,Full2DFlowRunState*) {
     FIELD(flow) FIELD(iteration)

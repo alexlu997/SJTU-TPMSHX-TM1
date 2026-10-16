@@ -399,7 +399,8 @@ def test_footer_and_history_follow_each_successful_result(run_window, monkeypatc
 
 
 @pytest.mark.parametrize('dim', [0, 1])
-def test_nu_run_snapshot_history_and_export(run_window, monkeypatch, tmp_path, dim):
+@pytest.mark.parametrize('eos_key', ['enthalpy_eos', 'sco2_enthalpy_eos'])
+def test_nu_run_snapshot_history_and_export(run_window, monkeypatch, tmp_path, dim, eos_key):
     import csv, json
     from dataclasses import asdict, replace
     from PySide6.QtWidgets import QFileDialog
@@ -411,12 +412,13 @@ def test_nu_run_snapshot_history_and_export(run_window, monkeypatch, tmp_path, d
     win.combo_dim.setCurrentIndex(dim)
     release = threading.Event()
     eos = {'algorithm': 'bicubic_iteration_heos_final_v1', 'sides': ['A', 'B']}
+    resources = dict(cpu_thread_limit=8, requested_cpu_threads=8, policy='native_cpu_limit_v1')
     def run(config, *, control, progress_cb):
         assert config.sco2_nu == SYNTHETIC
         assert release.wait(10)
         return ComputeResult(Q_W=100., diagnostics={'mode': '3d' if dim else '2d'},
             metadata={'sco2_nu': sco2_nu_metadata(config.sco2_nu),
-                      'sco2_enthalpy_eos': eos,
+                      eos_key: eos, 'runtime_resources': resources,
                       'darcy_forchheimer': {'mode': config.df_mode}})
     monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', run)
     try:
@@ -428,18 +430,22 @@ def test_nu_run_snapshot_history_and_export(run_window, monkeypatch, tmp_path, d
     _wait_for(win.compute.is_idle)
     expected = sco2_nu_metadata(SYNTHETIC)
     assert win._recent_runs[0]['model_metadata']['sco2_nu'] == expected
-    assert win._recent_runs[0]['model_metadata']['sco2_enthalpy_eos'] == eos
+    assert win._recent_runs[0]['model_metadata'][eos_key] == eos
+    assert win._recent_runs[0]['runtime_resources'] == resources
     timeline = json.loads((win.sm.base_dir / '.session_timeline.jsonl').read_text().splitlines()[-1])
     assert timeline['model_metadata']['sco2_nu'] == expected
-    assert timeline['model_metadata']['sco2_enthalpy_eos'] == eos
+    assert timeline['model_metadata'][eos_key] == eos
+    assert timeline['runtime_resources'] == resources
     output = tmp_path / 'result.csv'
     monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(output), ''))
     win._export_results()
     with output.open() as stream:
         rows = dict(csv.reader(stream))
     assert json.loads(rows['metadata'])['sco2_nu'] == expected
-    assert json.loads(rows['metadata'])['sco2_enthalpy_eos'] == eos
+    assert json.loads(rows['metadata'])[eos_key] == eos
+    assert json.loads(rows['metadata'])['runtime_resources'] == resources
     if dim:
         with np.load(tmp_path / 'result_fields.npz', allow_pickle=False) as saved:
             assert json.loads(saved['metadata'].item())['sco2_nu'] == expected
-            assert json.loads(saved['metadata'].item())['sco2_enthalpy_eos'] == eos
+            assert json.loads(saved['metadata'].item())['runtime_resources'] == resources
+            assert json.loads(saved['metadata'].item())[eos_key] == eos

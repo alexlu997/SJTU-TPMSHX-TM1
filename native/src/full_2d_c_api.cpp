@@ -247,11 +247,14 @@ int solve(const size_t* shape,const double* const* arrays,const size_t* sizes,
     const tpmshx_full_2d_energy_control_v4* explicit_energy,
     const tpmshx_model_h_iteration_options_v1* model_h,
     const tpmshx_full_2d_callbacks_v2* callbacks,
-    tpmshx_full_2d_result_v2* result,char* error,size_t error_capacity) {
+    tpmshx_full_2d_result_v2* result,char* error,size_t error_capacity,size_t cpu_threads=2) {
     return guarded_run([&] {
         if(!result)throw std::invalid_argument("null full2D argument");
         Full2DProblem p{};Full2DControl control{};
+        if((energy!=nullptr)+(explicit_energy!=nullptr)+(model_h!=nullptr)>1)throw std::invalid_argument("conflicting full energy options");
         prepare(shape,arrays,sizes,config,energy,explicit_energy,model_h,callbacks,p,control);
+        if(!cpu_threads)throw std::invalid_argument("CPU thread count must be positive");
+        control.enthalpy.cpu_threads=cpu_threads;
         *result=publish_result(solve_full_2d(p,control),p,control);
     },error,error_capacity);
 }
@@ -266,10 +269,14 @@ struct RunOwner {
     const tpmshx_full_2d_config_v2* config,const tpmshx_energy_options_v1* energy,
     const tpmshx_full_2d_energy_control_v4* explicit_energy,
     const tpmshx_model_h_iteration_options_v1* model_h,
-    const tpmshx_full_2d_callbacks_v2* callbacks) {
+    const tpmshx_full_2d_callbacks_v2* callbacks,size_t cpu_threads=2) {
+        if((energy!=nullptr)+(explicit_energy!=nullptr)+(model_h!=nullptr)>1)
+            throw std::invalid_argument("conflicting full energy options");
         if(callbacks)this->callbacks=*callbacks;
         prepare(shape,arrays,sizes,config,energy,explicit_energy,model_h,
             callbacks?&this->callbacks:nullptr,data,control);
+        if(!cpu_threads)throw std::invalid_argument("CPU thread count must be positive");
+        control.enthalpy.cpu_threads=cpu_threads;
         storage.reserve(29);
         const auto copy=[&](ArrayView<const double>& field) {
             if(field.size && !field.data)throw std::invalid_argument("null full 2D input array");
@@ -339,6 +346,13 @@ extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_energy_evidence_v1(
     *evidence=out;return 0;
 }
 
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_energy_update_scale_v1(
+    const tpmshx_full_2d_result_v2* result,tpmshx_energy_update_scale_v1* scale) {
+    if(!result || !result->owner || !scale)return 1;
+    const auto& r=static_cast<const Owner*>(result->owner)->result;
+    *scale=energy_update_scale_c_view(r.cancelled?nullptr:std::get_if<EnthalpyResult>(&r.thermal.result));
+    return 0;
+}
 extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_energy_effective_settings_v1(
     const tpmshx_full_2d_result_v2* result,tpmshx_full_2d_energy_effective_settings_v1* settings) {
     if(!result || !result->owner || !settings)return 1;
@@ -416,9 +430,16 @@ int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_create_v1(const size_t* shape,const d
     const tpmshx_full_2d_energy_control_v4* explicit_energy,
     const tpmshx_model_h_iteration_options_v1* model_h,
     const tpmshx_full_2d_callbacks_v2* callbacks,void** run,char* error,size_t capacity) {
+    return tpmshx_full_2d_run_create_v2(shape,arrays,sizes,config,energy,explicit_energy,model_h,2,callbacks,run,error,capacity);
+}
+int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_create_v2(const size_t* shape,const double* const* arrays,const size_t* sizes,
+    const tpmshx_full_2d_config_v2* config,const tpmshx_energy_options_v1* energy,
+    const tpmshx_full_2d_energy_control_v4* explicit_energy,
+    const tpmshx_model_h_iteration_options_v1* model_h,
+    size_t cpu_threads,const tpmshx_full_2d_callbacks_v2* callbacks,void** run,char* error,size_t capacity) {
     return guarded_run([&] {
         if(!run || *run)throw std::invalid_argument("invalid full 2D run output");
-        auto owner=std::make_unique<RunOwner>(shape,arrays,sizes,config,energy,explicit_energy,model_h,callbacks);
+        auto owner=std::make_unique<RunOwner>(shape,arrays,sizes,config,energy,explicit_energy,model_h,callbacks,cpu_threads);
         owner->run=std::make_unique<Full2DRun>(owner->data,owner->control);
         *run=owner.release();
     },error,capacity);
@@ -429,9 +450,17 @@ int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_restore_v1(const size_t* shape,const 
     const tpmshx_model_h_iteration_options_v1* model_h,
     const tpmshx_full_2d_callbacks_v2* callbacks,
     const tpmshx_run_state_field_v1* fields,size_t count,void** run,char* error,size_t capacity) {
+    return tpmshx_full_2d_run_restore_v2(shape,arrays,sizes,config,energy,explicit_energy,model_h,2,callbacks,fields,count,run,error,capacity);
+}
+int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_restore_v2(const size_t* shape,const double* const* arrays,const size_t* sizes,
+    const tpmshx_full_2d_config_v2* config,const tpmshx_energy_options_v1* energy,
+    const tpmshx_full_2d_energy_control_v4* explicit_energy,
+    const tpmshx_model_h_iteration_options_v1* model_h,
+    size_t cpu_threads,const tpmshx_full_2d_callbacks_v2* callbacks,
+    const tpmshx_run_state_field_v1* fields,size_t count,void** run,char* error,size_t capacity) {
     return guarded_run([&] {
         if(!run || *run)throw std::invalid_argument("invalid full 2D run output");
-        auto owner=std::make_unique<RunOwner>(shape,arrays,sizes,config,energy,explicit_energy,model_h,callbacks);
+        auto owner=std::make_unique<RunOwner>(shape,arrays,sizes,config,energy,explicit_energy,model_h,callbacks,cpu_threads);
         const auto state=import_full_2d_state(owner->data,owner->control,state_record(fields,count));
         owner->run=std::make_unique<Full2DRun>(owner->data,owner->control,state);
         *run=owner.release();
@@ -474,4 +503,28 @@ int TPMSHX_THERMAL_CALL tpmshx_full_2d_run_take_result_v1(
 void TPMSHX_THERMAL_CALL tpmshx_full_2d_run_release_v1(void** run) {
     if(run) {delete static_cast<RunOwner*>(*run);*run=nullptr;}
 }
+}
+
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_full_2d_get_flow_methods_v1(
+    const tpmshx_full_2d_result_v2* result,tpmshx_full_2d_flow_method_v1 output[2]) {
+    if(!result || !result->owner || !output)return 1;
+    const auto& owner=*static_cast<const Owner*>(result->owner);
+    tpmshx_full_2d_flow_method_v1 methods[2]{};
+    if(!owner.result.cancelled)for(std::size_t side=0;side<2;++side) {
+        const auto& value=owner.result.flow[side].result;
+        if(value.iterations)methods[side]={value.fixed_density_acceleration
+            ? "simple_2d_fixed_density_anderson_v1":"simple_2d_v1",value.iterations,
+            value.acceleration_attempts,value.acceleration_accepted};
+    }
+    std::copy(std::begin(methods),std::end(methods),output);return 0;
+}
+
+extern "C" int TPMSHX_THERMAL_CALL tpmshx_solve_full_2d_v6(
+    const size_t* shape,const double* const* arrays,const size_t* sizes,
+    const tpmshx_full_2d_config_v2* config,const tpmshx_energy_options_v1* energy,
+    const tpmshx_full_2d_energy_control_v4* explicit_energy,
+    const tpmshx_model_h_iteration_options_v1* model_h,size_t cpu_threads,
+    const tpmshx_full_2d_callbacks_v2* callbacks,
+    tpmshx_full_2d_result_v2* result,char* error,size_t capacity) {
+    return solve(shape,arrays,sizes,config,energy,explicit_energy,model_h,callbacks,result,error,capacity,cpu_threads);
 }

@@ -207,7 +207,8 @@ else()
 endif()
 add_library(full_thermal_test SHARED "${TPMSHX_ROOT}/sjtu_tpmshx/tests/native/full_thermal_bridge.cpp")
 target_compile_definitions(full_thermal_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
-target_link_libraries(full_thermal_test PRIVATE tpmshx_model_h_2d tpmshx_model_h_3d)
+target_link_libraries(full_thermal_test PRIVATE tpmshx_model_h_2d tpmshx_model_h_3d tpmshx_enthalpy)
+target_include_directories(full_thermal_test PRIVATE "${TPMSHX_ROOT}/native/src")
 
 add_library(full_3d_test SHARED "${TPMSHX_ROOT}/sjtu_tpmshx/tests/native/full_3d_bridge.cpp")
 target_compile_definitions(full_3d_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
@@ -324,6 +325,12 @@ add_library(tpmshx_simple STATIC "${TPMSHX_ROOT}/native/src/simple_pressure.cpp"
     "${TPMSHX_ROOT}/native/src/simple_convergence.cpp" "${TPMSHX_ROOT}/native/src/simple_2d.cpp"
     "${TPMSHX_ROOT}/native/src/simple_3d.cpp")
 target_link_libraries(tpmshx_simple PUBLIC tpmshx_pressure)
+target_include_directories(tpmshx_simple PRIVATE "${TPMSHX_MODEL_INCLUDE_DIR}")
+target_include_directories(tpmshx_simple SYSTEM PRIVATE "${TPMSHX_NATIVE_DEPS_ROOT}/src/Eigen-5.0.1")
+target_compile_definitions(tpmshx_simple PRIVATE EIGEN_MPL2_ONLY)
+if(APPLE)
+    target_link_libraries(tpmshx_simple PUBLIC "-framework Accelerate")
+endif()
 # Python's 2D SIMPLE kernels use strict (non-fastmath) arithmetic. Preserve
 # separate multiply/add rounding near the SOU branch's flat-stencil boundary.
 if(MSVC)

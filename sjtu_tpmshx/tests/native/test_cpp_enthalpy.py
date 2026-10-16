@@ -43,7 +43,7 @@ def driver(driver_library):
 def qualification_record(result):
     a, b, solid, info = result
     state = info['_native_state']
-    eos = state.get('sco2_enthalpy_eos', {})
+    eos = state.get('enthalpy_eos', {})
     coupled, eq = info.get('coupled_energy_balance'), info.get('equation_energy_balance')
     statuses = ({'converged': 0, 'enthalpy_limited': 1, 'iteration_limit': 2}[info['exit_reason']],
         info['iterations'], 0, *info['enthalpy_clip_counts']['last'], *info['enthalpy_clip_counts']['total'],
@@ -68,7 +68,7 @@ def test_public_driver_has_same_complete_solve_and_evidence(driver, pair, shape,
     settings = actual[3]['effective_settings']
     assert settings['thermal_driver'] == settings['sweep_kernel'] == settings['energy_audit'] == 'cpp'
     assert settings['driver_abi'] == 1
-    eos = actual[3]['_native_state'].get('sco2_enthalpy_eos')
+    eos = actual[3]['_native_state'].get('enthalpy_eos')
     if eos:
         assert eos['coolprop_version'] == '8.0.0'
 
@@ -287,3 +287,35 @@ def test_pure_c_static_and_shared_callers(driver_library):
         result = subprocess.run([str(path)], env=environment, capture_output=True, text=True, timeout=30)
         assert result.returncode == 0, result.stdout+result.stderr
         assert 'enthalpy C ABI ok' in result.stdout and 'CoolProp=8.0.0' in result.stdout
+
+
+@pytest.mark.parametrize('pair', [('co2', 'air'), ('water', 'co2'), ('co2', 'co2'), ('co2', 'sco2')])
+@pytest.mark.parametrize('shape', [(4, 3, 1), (4, 3, 2)])
+def test_co2_table_keeps_final_heos_state_and_energy_gates(driver, pair, shape):
+    case = case_data(pair, shape)
+    for label, fluid in zip('AB', pair):
+        if fluid == 'co2':
+            case['P_' + label] = 5e6
+            case['pressure_' + label + '_field'][:] = 5e6
+    actual = driver(**case)
+    info, state = actual[3], actual[3]['_native_state']
+    table = state['enthalpy_eos']
+    assert table['sides'] == [label for label, fluid in zip('AB', pair) if fluid in ('co2', 'sco2')]
+    assert table['final_backend'] == 'HEOS'
+    assert info['exit_reason'] == 'converged'
+    assert info['coupled_energy_balance']['ratio'] <= case['coupled_energy_tol']
+    assert info['equation_energy_balance']['ratio'] <= case['equation_energy_tol']
+    for label, temperature, fluid in zip('AB', actual[:2], pair):
+        name = 'CO2' if fluid in ('co2', 'sco2') else 'Water' if fluid == 'water' else 'Air'
+        h = CP.PropsSI('Hmass', 'T', temperature.ravel(), 'P',
+                      case['pressure_' + label + '_field'].ravel(), name).reshape(shape)
+        np.testing.assert_allclose(state['h_' + label], h, rtol=2e-10, atol=2e-5)
+
+
+def test_low_pressure_co2_keeps_heos_without_table_use(driver):
+    case = case_data(('co2', 'air'), shape=(3, 2, 1))
+    actual = driver(**case)
+    assert 'enthalpy_eos' not in actual[3]['_native_state']
+    expected = python.solve_ltne_enthalpy_3d_pipeline(**case)
+    for returned, reference in zip(actual[:3], expected[:3]):
+        np.testing.assert_allclose(returned, reference, rtol=2e-10, atol=2e-8)

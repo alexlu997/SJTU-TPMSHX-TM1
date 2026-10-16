@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <memory>
 #include <stdexcept>
 
@@ -18,6 +19,15 @@ void configure_eos_tables_once(const char* absolute_directory);
 enum class Fluid { air, water, sco2, co2 };
 constexpr bool uses_co2_eos(Fluid fluid) {
     return fluid == Fluid::sco2 || fluid == Fluid::co2;
+}
+const std::array<double,5>& model_h_coefficients(Fluid fluid);
+inline double model_enthalpy(double t,const std::array<double,5>& cp) {
+    const double x=t-cp[3],x0=cp[4]-cp[3];
+    return cp[0]*(x-x0)+0.5*cp[1]*(x*x-x0*x0)+cp[2]/3.0*(x*x*x-x0*x0*x0);
+}
+inline double model_heat_capacity(double t,const std::array<double,5>& cp) {
+    const double x=t-cp[3];
+    return cp[0]+cp[1]*x+cp[2]*(x*x);
 }
 double nusselt_floor(Fluid fluid);
 enum class Topology { diamond, gyroid };

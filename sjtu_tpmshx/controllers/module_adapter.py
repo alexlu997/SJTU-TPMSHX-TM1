@@ -90,7 +90,7 @@ def to_compute_result(result, performance):
     props.update(eps_A=geometry['epsilon'], D_h_m=geometry['D_h'], A_0_m2=geometry['A_0'])
     diagnostics['mode'] = f'{dimension}d'
     metadata = mutable_data(result.metadata['model_metadata'])
-    for key in ('timings_s', 'execution_record'):
+    for key in ('timings_s', 'execution_record', 'recovery', 'runtime_resources'):
         if key in result.metadata:
             metadata[key] = mutable_data(result.metadata[key])
     if 'inlet_inputs' in parameters:

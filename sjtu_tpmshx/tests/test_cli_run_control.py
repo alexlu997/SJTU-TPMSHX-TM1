@@ -145,3 +145,93 @@ def test_numerical_control_flags_are_limited_to_execution_stages(stage, tmp_path
         cli.main(arguments)
     assert caught.value.code == 2
     assert not (tmp_path / 'output').exists()
+
+
+@pytest.mark.parametrize('stage', ['run', 'resume'])
+@pytest.mark.parametrize('outcome,code', [('complete', 0), ('unconverged', 2), ('paused', 3)])
+def test_recoverable_cli_uses_saved_run_and_restores_sigint(stage, outcome, code,
+                                                         tmp_path, monkeypatch, capsys):
+    import signal
+    from types import SimpleNamespace
+    from sjtu_tpmshx import cli as entry
+    from sjtu_tpmshx.domain.compute_config import ComputeConfig
+    from sjtu_tpmshx.domain.paused_run import PausedRun
+    from sjtu_tpmshx.workflows import recovery
+
+    source = tmp_path / ('config.json' if stage == 'run' else 'checkpoint.h5')
+    if stage == 'run':
+        ComputeConfig().to_json(source)
+    output, library = tmp_path / 'new-run', tmp_path / 'solver.so'
+    previous = signal.getsignal(signal.SIGINT)
+    calls = []
+
+    def execute(value, directory, **kwargs):
+        calls.append(value)
+        assert directory == output
+        assert kwargs['control'] == RunControl(backend='cpp', native_library=str(library))
+        assert kwargs['checkpoint_interval_s'] == 42.
+        assert not kwargs['pause_check']()
+        if outcome == 'paused':
+            signal.getsignal(signal.SIGINT)(signal.SIGINT, None)
+            assert kwargs['pause_check']()
+            raise PausedRun(output / 'checkpoint.h5')
+        result = SimpleNamespace(run_status={'converged': outcome == 'complete'})
+        performance = SimpleNamespace(qualification={'design': {'status': 'unverified'}},
+            metrics={name: SimpleNamespace(status='available')
+                     for name in ('Q', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B')})
+        return None, result, performance
+
+    monkeypatch.setattr(recovery, 'compute_run' if stage == 'run' else 'resume_run', execute)
+    arguments = [stage, str(source), str(output), '--native-library', str(library),
+                 '--checkpoint-interval', '42']
+    if stage == 'run':
+        arguments += ['--case-id', 'recoverable-cli', '--backend', 'cpp']
+    assert entry.main(arguments) == code
+    assert signal.getsignal(signal.SIGINT) == previous
+    assert len(calls) == 1
+    if stage == 'resume':
+        assert calls == [source]
+    text = capsys.readouterr().out
+    assert ('paused = ' in text) == (outcome == 'paused')
+    assert ('design = ' in text) == (outcome != 'paused')
+
+
+def test_recoverable_cli_restores_sigint_after_failure(tmp_path, monkeypatch):
+    import signal
+    from sjtu_tpmshx.workflows import recovery
+    previous = signal.getsignal(signal.SIGINT)
+    failure = OSError('saved state could not be read')
+
+    def fail(*args, **kwargs):
+        raise failure
+
+    monkeypatch.setattr(recovery, 'resume_run', fail)
+    with pytest.raises(OSError) as caught:
+        cli.main(['resume', str(tmp_path / 'checkpoint.h5'), str(tmp_path / 'new'),
+                  '--native-library', str(tmp_path / 'solver.so'), '--checkpoint-interval', '42'])
+    assert caught.value is failure
+    assert signal.getsignal(signal.SIGINT) == previous
+
+
+@pytest.mark.parametrize('backend', ['python', 'cpp'])
+def test_cli_thread_limit_stays_in_execution_control(backend):
+    parser = argparse.ArgumentParser()
+    add_run_control_arguments(parser)
+    control = run_control_from_args(parser.parse_args(['--backend', backend, '--cpu-threads', '3']))
+    assert control.cpu_threads == 3
+
+
+@pytest.mark.parametrize('count', [0, -1, True, 1.5, '2'])
+def test_thread_limit_requires_a_positive_integer(count):
+    with pytest.raises(ValueError, match='cpu_threads'):
+        RunControl(cpu_threads=count)
+
+
+def test_native_thread_limit_uses_available_cpus(monkeypatch):
+    from sjtu_tpmshx.domain import module_ports
+    monkeypatch.setattr(module_ports.os, 'cpu_count', lambda: 3)
+    assert RunControl().native_cpu_threads() == 3
+    assert RunControl(cpu_threads=1).native_cpu_threads() == 1
+    assert RunControl(cpu_threads=8).native_cpu_threads() == 3
+    monkeypatch.setattr(module_ports.os, 'cpu_count', lambda: None)
+    assert RunControl().native_cpu_threads() == 1

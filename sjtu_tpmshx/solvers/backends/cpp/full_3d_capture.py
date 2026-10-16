@@ -140,8 +140,8 @@ def capture_result(case, cfg, p, r, abi):
     mass=freeze_value(r['mass'])
     true_h=None if r['true_h'] is None else dict(r['true_h']['_native_state'],
         mass_flux_A=mass[0], mass_flux_B=mass[1])
-    if true_h and 'sco2_enthalpy_eos' in true_h:
-        model_metadata['sco2_enthalpy_eos']=true_h['sco2_enthalpy_eos']
+    if true_h and 'enthalpy_eos' in true_h:
+        model_metadata['enthalpy_eos']=true_h['enthalpy_eos']
     emit_audit=bool(cfg.get('_emit_audit',False))
     if emit_audit:
         from sjtu_tpmshx.solvers.simple_solver_3d import _build_outlet_frac_taper
@@ -174,9 +174,11 @@ def capture_result(case, cfg, p, r, abi):
             **({'temperature':r['temperature_evidence']} if 'temperature_evidence' in r else {})),
         pressure_evidence=pressure,run_status=dict(execution='completed',converged=r['converged'],outer_index=r['outer_index']),
         metadata=dict(**({'continuation':r['continuation']} if 'continuation' in r else {}),
+            **({'runtime_resources':r['runtime_resources']} if 'runtime_resources' in r else {}),
             _last_closure_ranges=r['last_closure_ranges'],dimension=3,quantity_basis='total',thermal_mode=r['mode'],parameters=case.parameters,design_fields=case.design_fields,
             **({'temperature_transport':temperature_transport} if temperature_transport is not None else {}),
             input_resolution=cfg['_input_resolution'], property_sampling=r['property_sampling'],
+            enthalpy_update_normalization=r['enthalpy_update_normalization'],
             simple_velocity_relaxation=r['simple_velocity_relaxation'],
             model_h_iterations=r['model_h_iterations'],
             design_mode=case.metadata['design_mode'],model_metadata=model_metadata,notices=case.metadata['notices'],

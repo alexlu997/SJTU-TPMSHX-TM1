@@ -6,6 +6,7 @@ physical convergence verdicts are produced by the C++ call.
 """
 import ctypes as ct
 from .property_sampling import sampling_query, copy_sampling
+from .enthalpy import _update_scale_query, _copy_update_scale
 import os
 from pathlib import Path
 
@@ -23,7 +24,7 @@ from .physical_ledger import HeatLedger, heat_ledger_query, copy_heat_ledger
 from .model_h import _Result as _ModelResult, _volume_info, _model_h_algorithm
 from .temperature import _temperature_algorithm
 from .temperature_evidence import TemperatureEvidence, copy_temperature_evidence
-from .model_h import _IterationOptions, _iteration_options, _iteration_query, _copy_iteration_records
+from .model_h import _IterationOptions, _iteration_options, _iteration_query, _copy_iteration_records, _acceleration_query
 from .enthalpy import _Result as _EnthalpyResult
 from .enthalpy import (_EnergyOptions, _EnergyOptionsV2, _EnergyResult, _energy_options,
                        _energy_algorithm_query, _energy_result_info, _energy_native_state,
@@ -227,7 +228,9 @@ class NativeFull3DDriver:
         self.query_last_ranges = last_range_query(self.library, 3, _Result)
         self.query_heat_ledger = heat_ledger_query(self.library, 3, _Result)
         self.query_sampling = sampling_query(self.library, 3, _Result)
+        self.query_update_scale = _update_scale_query(self.library, 3, _Result)
         self.query_model_h = _iteration_query(self.library, 3, _Result)
+        self.query_model_h_acceleration = _acceleration_query(self.library, _Result)
         try:
             self.query_bootstrap = self.library.tpmshx_full_3d_get_bootstrap_trace_v1
         except AttributeError as exc:
@@ -258,11 +261,11 @@ class NativeFull3DDriver:
             traces[label] = trace
         return traces
 
-    def run_prepared(self, cfg, p, control=RunControl(), *, resume_state=None, checkpoint=None):
-        return self._run_prepared(cfg, p, control, resume_state=resume_state, checkpoint=checkpoint)
+    def run_prepared(self, cfg, p, control=RunControl(), *, resume_state=None, checkpoint=None, checkpoint_due=None):
+        return self._run_prepared(cfg, p, control, resume_state=resume_state, checkpoint=checkpoint, checkpoint_due=checkpoint_due)
 
     def _run_prepared(self, cfg, p, control=RunControl(), *, application_only=False,
-                      resume_state=None, checkpoint=None):
+                      resume_state=None, checkpoint=None, checkpoint_due=None):
         control.check_cancelled()
         energy = _energy_options(cfg.get('enthalpy_algorithm', 'legacy_h_fou'),
                                  cfg.get('enthalpy_temperature_tol_K', 1e-8))
@@ -273,6 +276,9 @@ class NativeFull3DDriver:
             raise ValueError('require_enthalpy_update_on_temperature must be boolean')
         strict_options = require_h or any(cfg.get(name) is not None for name in (
             'ltne_enthalpy_coupled_energy_tol', 'ltne_enthalpy_equation_energy_tol'))
+        thread_call = getattr(self.library, 'tpmshx_solve_full_3d_v5', None)
+        if thread_call is None and control.cpu_threads is not None:
+            raise ValueError('this retained native library has no CPU thread limit; leave cpu_threads unset')
         energy_call = energy_query = version_query = None
         entry_version = 1
         model_h_options = _iteration_options(cfg)
@@ -280,33 +286,41 @@ class NativeFull3DDriver:
             if energy.algorithm or strict_options or any(cfg.get(name) is not None for name in (
                     'ltne_enthalpy_outer', 'ltne_enthalpy_nsweep', 'ltne_enthalpy_omega', 'ltne_enthalpy_tol')):
                 raise ValueError('model-h iteration controls cannot be combined with EOS controls')
-            try:
-                energy_call = self.library.tpmshx_solve_full_3d_v4
-            except AttributeError as exc:
-                raise ValueError('native full 3D library lacks model-h controls v4; rebuild the library') from exc
-            energy_call.argtypes = [*self.call.argtypes[:2], ct.POINTER(_IterationOptions), *self.call.argtypes[2:]]
-            energy_call.restype = ct.c_int
+            if thread_call is None:
+                try:
+                    energy_call = self.library.tpmshx_solve_full_3d_v4
+                except AttributeError as exc:
+                    raise ValueError('native full 3D library lacks model-h controls v4; rebuild the library') from exc
+                energy_call.argtypes = [*self.call.argtypes[:2], ct.POINTER(_IterationOptions), *self.call.argtypes[2:]]
+                energy_call.restype = ct.c_int
             entry_version = 4
         elif strict_options:
             energy = _EnergyOptionsV2(energy.algorithm, energy.temperature_update_tolerance,
                 defaults.coupled_energy_tolerance if cfg.get('ltne_enthalpy_coupled_energy_tol') is None else cfg['ltne_enthalpy_coupled_energy_tol'],
                 defaults.equation_energy_tolerance if cfg.get('ltne_enthalpy_equation_energy_tol') is None else cfg['ltne_enthalpy_equation_energy_tol'],
                 require_h)
-            try:
-                energy_call = self.library.tpmshx_solve_full_3d_v3
-            except AttributeError as exc:
-                raise ValueError('native full 3D library lacks explicit energy controls v3') from exc
-            energy_call.argtypes = [*self.call.argtypes[:2], ct.POINTER(_EnergyOptionsV2), *self.call.argtypes[2:]]
-            energy_call.restype = ct.c_int
+            if thread_call is None:
+                try:
+                    energy_call = self.library.tpmshx_solve_full_3d_v3
+                except AttributeError as exc:
+                    raise ValueError('native full 3D library lacks explicit energy controls v3') from exc
+                energy_call.argtypes = [*self.call.argtypes[:2], ct.POINTER(_EnergyOptionsV2), *self.call.argtypes[2:]]
+                energy_call.restype = ct.c_int
             entry_version = 3
         elif energy.algorithm:
-            try:
-                energy_call = self.library.tpmshx_solve_full_3d_v2
-            except AttributeError as exc:
-                raise ValueError('native full 3D library lacks conservative energy v2') from exc
-            energy_call.argtypes = [*self.call.argtypes[:2], ct.POINTER(_EnergyOptions), *self.call.argtypes[2:]]
-            energy_call.restype = ct.c_int
+            if thread_call is None:
+                try:
+                    energy_call = self.library.tpmshx_solve_full_3d_v2
+                except AttributeError as exc:
+                    raise ValueError('native full 3D library lacks conservative energy v2') from exc
+                energy_call.argtypes = [*self.call.argtypes[:2], ct.POINTER(_EnergyOptions), *self.call.argtypes[2:]]
+                energy_call.restype = ct.c_int
             entry_version = 2
+        if thread_call is not None:
+            entry_version = 5
+            thread_call.argtypes = [*self.call.argtypes[:2], ct.POINTER(_EnergyOptions),
+                ct.POINTER(_EnergyOptionsV2), ct.POINTER(_IterationOptions), ct.c_size_t, *self.call.argtypes[2:]]
+            thread_call.restype = ct.c_int
         if energy.algorithm:
             version_query = _energy_algorithm_query(self.library)
             try:
@@ -419,15 +433,23 @@ class NativeFull3DDriver:
                     defaults.coupled_energy_tolerance, defaults.equation_energy_tolerance, require_h)
                     if true_h else None)
                 with NativeFull3DRun(self.library, data, c, options, callbacks,
-                                     model_h=model_h_options, state=resume_state) as run:
+                                     model_h=model_h_options, state=resume_state,
+                                     cpu_threads=control.native_cpu_threads() if thread_call else None) as run:
                     while run.phase not in (3, 4):
                         phase = run.advance()
                         if callback_errors:
                             raise callback_errors[0]
-                        if checkpoint is not None and phase in (1, 2, 6, 7, 8, 9, 10):
+                        if (checkpoint is not None and phase in (1, 2, 6, 7, 8, 9, 10)
+                                and (checkpoint_due is None or checkpoint_due())):
                             checkpoint(run.snapshot())
                     result = run.take_result()
                 code = 0
+            elif thread_call:
+                code = thread_call(ct.byref(data), ct.byref(c),
+                    ct.byref(energy) if not strict_options and model_h_options is None else None,
+                    ct.byref(energy) if strict_options else None,
+                    ct.byref(model_h_options) if model_h_options is not None else None,
+                    control.native_cpu_threads(), ct.byref(callbacks), ct.byref(result), error, len(error))
             elif energy_call:
                 options = model_h_options if model_h_options is not None else energy
                 code = energy_call(ct.byref(data), ct.byref(c), ct.byref(options), ct.byref(callbacks), ct.byref(result), error, len(error))
@@ -458,25 +480,30 @@ class NativeFull3DDriver:
                 if detached['true_h'] is None or extra.outer_count != len(detached['outer']):
                     raise RuntimeError('native full 3D energy evidence does not match the thermal history')
                 _energy_result_info(detached['true_h'], extra.energy,
-                    temperature_tol=actual.last.temperature_update_tolerance, abi=entry_version, version_query=version_query)
+                    temperature_tol=actual.last.temperature_update_tolerance, abi=entry_version, version_query=version_query, state_update='per_side_energy_relation')
                 _energy_native_state(detached['true_h'], extra, shape, 'W')
                 for index, row in enumerate(detached['outer']):
                     _energy_result_info(row['true_h_info'], extra.outer[index],
-                        temperature_tol=actual.outer[index].temperature_update_tolerance, abi=entry_version, version_query=version_query)
+                        temperature_tol=actual.outer[index].temperature_update_tolerance, abi=entry_version, version_query=version_query, state_update='per_side_energy_relation')
                 detached['mode'] = 'conservative_energy'
             if resume_state is not None:
                 detached['continuation'] = dict(format='full_3d_continuation_v1', build=resume_state['build'],
                     completed_outer_steps=int(resume_state['state.result.outer.size'][0]),
                     saved_phase=int(resume_state['state.phase'][0]))
             detached['property_sampling'] = copy_sampling(self.query_sampling, result)
+            detached['enthalpy_update_normalization'] = _copy_update_scale(self.query_update_scale, result)
             detached['simple_velocity_relaxation'] = c.simple.alpha_velocity
-            detached['model_h_iterations'] = _copy_iteration_records(self.query_model_h, result)
+            detached['model_h_iterations'] = _copy_iteration_records(
+                self.query_model_h, result, self.query_model_h_acceleration)
             budgets = {row['outer_index']: row['settings']['total_iteration_budget']
                        for row in detached['model_h_iterations']['records']}
             for row in detached['outer']:
                 if 'coupling_startup' in row:
                     row['coupling_startup']['iteration_budget'] = budgets[row['outer']]
             detached['entry_version'] = entry_version
+            if thread_call:
+                detached['runtime_resources'] = dict(cpu_thread_limit=control.native_cpu_threads(),
+                    requested_cpu_threads=control.cpu_threads, policy='native_cpu_limit_v1')
             if detached['mode'] in ('model_h', 'temperature'):
                 if detached['mode'] == 'model_h':
                     algorithm = _model_h_algorithm(self.library, 3)
@@ -486,23 +513,28 @@ class NativeFull3DDriver:
                     red_black = bool(c.red_black_energy and scheme == 2)
                     if scheme == 2:
                         algorithm = _temperature_algorithm(self.library, scheme)
+                if detached['mode'] == 'model_h' or scheme != 2:
+                    query = self.library.tpmshx_full_3d_get_model_enthalpy_evidence_v1
+                    query.argtypes = [ct.POINTER(_Result), ct.POINTER(TemperatureEvidence)]
+                    query.restype = ct.c_int
+                    extra = TemperatureEvidence()
+                    if query(ct.byref(result), ct.byref(extra)):
+                        raise RuntimeError('native full 3D temperature evidence query failed')
+                    if detached['mode'] == 'model_h':
+                        if extra.available or extra.algorithm:
+                            if extra.available != 1 or extra.physical_dimension != 3 or not extra.algorithm:
+                                raise RuntimeError('native strict model-h identity or ledger is invalid')
+                            algorithm = extra.algorithm.decode('ascii')
+                    elif not data.solve_b and data.sides[0].fluid == 2:
+                        identity = 'legacy_frozen_cp_single_a_cc_v1'
+                        if (extra.available or extra.physical_dimension != 3
+                                or extra.algorithm != identity.encode('ascii')):
+                            raise RuntimeError('native single-A sCO2 temperature identity or absent ledger is invalid')
+                        detached['temperature_transport'] = identity
+                        algorithm = identity
                     else:
-                        query = self.library.tpmshx_full_3d_get_model_enthalpy_evidence_v1
-                        query.argtypes = [ct.POINTER(_Result), ct.POINTER(TemperatureEvidence)]
-                        query.restype = ct.c_int
-                        extra = TemperatureEvidence()
-                        if query(ct.byref(result), ct.byref(extra)):
-                            raise RuntimeError('native full 3D temperature evidence query failed')
-                        if not data.solve_b and data.sides[0].fluid == 2:
-                            identity = 'legacy_frozen_cp_single_a_cc_v1'
-                            if (extra.available or extra.physical_dimension != 3
-                                    or extra.algorithm != identity.encode('ascii')):
-                                raise RuntimeError('native single-A sCO2 temperature identity or absent ledger is invalid')
-                            detached['temperature_transport'] = identity
-                            algorithm = identity
-                        else:
-                            detached['temperature_evidence'] = copy_temperature_evidence(extra, shape, 3)
-                            algorithm = detached['temperature_evidence']['algorithm']
+                        detached['temperature_evidence'] = copy_temperature_evidence(extra, shape, 3)
+                        algorithm = detached['temperature_evidence']['algorithm']
                 detached['native_metadata'] = dict(abi=self.abi, algorithm=algorithm, red_black=red_black)
                 if 'temperature_transport' in detached:
                     detached['native_metadata']['transport'] = detached['temperature_transport']
@@ -610,7 +642,7 @@ def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=Fa
             mass_flux_A=result['mass'][0],mass_flux_B=result['mass'][1])
         used=[s for s,flag in zip('AB',r.true_h.used_bicubic) if flag]
         if used:
-            true_h['_native_state']['sco2_enthalpy_eos']=dict(algorithm='bicubic_iteration_heos_polish_v2',
+            true_h['_native_state']['enthalpy_eos']=dict(algorithm='bicubic_iteration_heos_polish_v2',
                 iteration_backend='BICUBIC&HEOS',final_backend='HEOS',transport_backend='HEOS',
                 coolprop_version=r.true_h.coolprop_version.decode(),sides=used,heos_polish=bool(r.true_h.heos_polish))
     result['staggered'] = []
@@ -648,7 +680,7 @@ def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit=Fa
     return result
 
 
-def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None):
+def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None, checkpoint_due=None):
     from .full_3d_capture import capture_result
     from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
     if control.backend != 'cpp':
@@ -658,6 +690,6 @@ def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None):
     control.check_cancelled()
     cfg,p=build_execution_inputs(case, copy_design=False)
     driver=NativeFull3DDriver(control.native_library, table_directory=getattr(control,'native_table_directory',None))
-    r=driver._run_prepared(cfg,p,control,application_only=True, resume_state=resume_state, checkpoint=checkpoint)
+    r=driver._run_prepared(cfg,p,control,application_only=True, resume_state=resume_state, checkpoint=checkpoint, checkpoint_due=checkpoint_due)
     control.check_cancelled()
     return capture_result(case, cfg, p, r, driver.abi)

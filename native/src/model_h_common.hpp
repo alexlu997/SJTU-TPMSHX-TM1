@@ -1,7 +1,7 @@
 #pragma once
 // Shared by the actual 2D and 3D model-h thermal drivers.
 #include "tpmshx/anderson_state.hpp"
-#include "tpmshx/model_h_2d.hpp"
+#include "tpmshx/model_h_3d.hpp"
 #include "tpmshx/temperature_driver.hpp"
 #include "tpmshx/model_coefficients.hpp"
 #include <Eigen/Dense>
@@ -21,12 +21,21 @@ inline void validate_iteration_overrides(const ModelHIterationOverrides& options
     for(double value:{options.temperature_tolerance,options.q_relative_tolerance})
         if(!std::isfinite(value) || value<0.)throw std::invalid_argument("invalid model-h iteration override");
 }
+inline std::size_t acceleration_block(const ModelHControl2D&) { return 25; }
+inline std::size_t acceleration_history(const ModelHControl2D&) { return 6; }
+inline std::size_t acceleration_block(const ModelHControl3D& control) {
+    return control.strict_energy_balance?5:25;
+}
+inline std::size_t acceleration_history(const ModelHControl3D& control) {
+    return control.strict_energy_balance?16:6;
+}
 template<class Control> ModelHIterationSettings apply_iteration_tolerances(
         Control& control,const ModelHIterationOverrides& options,std::size_t total_budget=0) {
     if(options.temperature_tolerance)control.temperature_tolerance=options.temperature_tolerance;
     if(options.q_relative_tolerance)control.q_relative_tolerance=options.q_relative_tolerance;
     return {control.max_iterations,control.chunk_iterations,control.temperature_tolerance,control.q_relative_tolerance,
-            total_budget?total_budget:control.max_iterations};
+            total_budget?total_budget:control.max_iterations,control.accelerate,
+            acceleration_block(control),acceleration_history(control)};
 }
 template <typename T> ArrayView<const double> view(const T& x) { return {x.data(), x.size()}; }
 inline ArrayView<const double> view(ArrayView<double> x) { return {x.data, x.size}; }
@@ -55,17 +64,8 @@ inline void disjoint(ArrayView<const double> a, ArrayView<const double> b) {
         || (ap<bp+b.size*sizeof(double) && bp<ap+a.size*sizeof(double)))
         throw std::invalid_argument("model-h input/output arrays overlap");
 }
-inline const std::array<double,5>& coefficients(Fluid fluid) {
-    if (fluid==Fluid::air) return model_coefficients::model_h_air;
-    if (fluid==Fluid::water) return model_coefficients::model_h_water;
-    throw std::invalid_argument("model-h requires air or water");
-}
 inline double optional(ArrayView<const double> x, std::size_t p, double fallback) {
     return x.size ? x[p] : fallback;
-}
-inline double enthalpy(double t, const std::array<double,5>& cp) {
-    const double x=t-cp[3], x0=cp[4]-cp[3];
-    return cp[0]*(x-x0)+0.5*cp[1]*(x*x-x0*x0)+cp[2]/3.0*(x*x*x-x0*x0*x0);
 }
 inline double increment(double tm, double t, double tp, double dm, double dp, double offset) {
     const double a=(t-tm)/dm, b=(tp-t)/dp;
@@ -111,8 +111,8 @@ inline double energy_scale(const GridView& g, ArrayView<const double> hv_a,
     return std::max({std::abs(qa),std::abs(qb),1.});
 }
 
-// Existing Type-II Anderson policy: model-h defaults to six (x,r) samples,
-// five differences. Outer property coupling supplies its original m+1 limit.
+// Type-II Anderson uses the caller's sample limit.
+// Outer property coupling keeps its original m+1 limit.
 // macOS follows the locked NumPy LAPACK calls; the existing Eigen path on
 // other platforms still requires native full-case qualification.
 struct Anderson {
@@ -175,14 +175,20 @@ struct Anderson {
 };
 
 class AcceleratedChunk {
-    std::size_t count_,done_=0;
+    std::size_t count_,done_=0,sweep_block_;
     Anderson accelerator_;
     bool boundary_=true;
 public:
-    explicit AcceleratedChunk(std::size_t count):count_(count) {}
-    AcceleratedChunk(std::size_t count,std::size_t fields,const ModelHChunkState& state)
-        :count_(count),done_(state.completed) {
-        if(state.count!=count || done_>count || state.acceleration.history_limit!=6
+    explicit AcceleratedChunk(std::size_t count,std::size_t block=25,std::size_t history=6)
+        :count_(count),sweep_block_(block),accelerator_(history) {
+        if(!block || history<2)throw std::invalid_argument("invalid model-h acceleration policy");
+    }
+    AcceleratedChunk(std::size_t count,std::size_t fields,const ModelHChunkState& state,
+                     std::size_t block=25,std::size_t history=6)
+        :AcceleratedChunk(count,block,history) {
+        done_=state.completed;
+        if(state.count!=count || done_>count || state.sweep_block!=block
+            || state.acceleration.history_limit!=history
             || state.acceleration.condition_limit!=1e10
             || ((done_==0)!=state.acceleration.x.empty()))
             throw std::invalid_argument("invalid saved model-h chunk");
@@ -193,7 +199,7 @@ public:
     bool complete() const { return done_==count_; }
     ModelHChunkState snapshot() const {
         if(!boundary_)throw std::logic_error("model-h chunk has no complete save boundary");
-        return {count_,done_,accelerator_.snapshot()};
+        return {count_,done_,accelerator_.snapshot(),sweep_block_};
     }
     template<class Step,class Trial>
     void advance(TemperatureStateView fields,bool solve_b,Step&& step,Trial&& trial,double& residual) {
@@ -201,7 +207,7 @@ public:
         if(complete())return;
         boundary_=false;
         auto before=pack(fields,solve_b);
-        const auto count=std::min<std::size_t>(25,count_-done_);
+        const auto count=std::min(sweep_block_,count_-done_);
         residual=step(count);done_+=count;
         auto picard=pack(fields,solve_b);
         accelerator_.push(std::move(before),picard);
@@ -253,7 +259,8 @@ void validate_iteration_state(const ModelHIterationState& state,const Result& re
         const auto count=std::min(control.chunk_iterations,control.max_iterations-result.iterations);
         if(!control.accelerate || !state.chunk->completed || state.chunk->completed>=count)
             throw std::invalid_argument("invalid saved model-h active chunk");
-        AcceleratedChunk validated(count,state.previous.size(),*state.chunk);
+        AcceleratedChunk validated(count,state.previous.size(),*state.chunk,
+            acceleration_block(control),acceleration_history(control));
     }
 }
 

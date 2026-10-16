@@ -110,8 +110,8 @@ private:
 // Borrowed inputs remain immutable through callbacks. State must not alias.
 // Exceptions invalidate partial state; cancelled returns have no final audit.
 // FullCC strict mode and prescribed B follow the 2D control/ledger contract.
-// Strict fullCC additionally supports its existing water-water consumer;
-// the original non-strict model-h entry still rejects water-water.
+// Strict calls also support full-compute water-water and asymmetric consumers.
+// The non-strict entry still rejects water-water.
 // A prescribed B is never part of the iteration/Anderson vector or equation
 // certificate; its exchange with the solid is external reservoir power.
 ModelHResult3D solve_model_h_3d(const GridView& grid, const ModelHFluid3D& a,

@@ -155,7 +155,7 @@ In the left rail, Solver → Solver → Compute Backend selects Python or C++ wi
 
 Source GUI and CLI share the default lookup. macOS uses `native/lib/macos-arm64/libtpmshx_solver_shared.dylib`; Windows uses `native/lib/windows-x64/tpmshx_solver_shared.dll`. The default table directory is `.cache/native-deps/tables`. With the matching library published there, use `--backend cpp`. Explicit library and table paths take priority. Direct solver API calls still pass host paths in `RunControl`.
 
-A missing library keeps the current selection and shows the reason. Python thread settings follow backend selection. C++ keeps its existing fixed parallel strategy. Selection is a window runtime setting. It is not saved in case files and does not change existing results.
+A missing library keeps the current selection and shows the reason. Compute Threads is available for both backends. The C++ Auto setting uses at most eight logical CPUs on the host. Selection is a window runtime setting. It is not saved in case files and does not change existing results.
 
 The 2026-10-05 candidate evidence keeps these limits. Ceff43 passed 19/43 and timed out on 24/43. The fixed population failed overall. fixed230 execution and indexing completed 230/230 in 93 minutes 18.5 seconds. Independent saved-state checks passed 229/230.
 
@@ -228,7 +228,16 @@ For ordinary computation, set threads under Solver → Compute Resources. Grid s
 
 It no longer offers historical inlet smoothing, six-wall refinement, or a local-density switch. Local density also affects transport-route selection for limited air/water cases. It is not a general sCO₂ variable-property switch. Loading GUI configurations with different previous settings reports the update. Subsequent saves use current settings. Allowing inlet Nu extrapolation changes only inlet-Re rejection/warning behavior.
 
-It does not relax property or geometry limits. Ordinary computation passes the thread count to its worker's Numba parallel kernels. Small grids can use serial kernels. Optimization has an independent parallel strategy. This value is not an application-wide CPU limit.
+It does not relax property or geometry limits. The next calculation receives the thread setting.
+Python controls Numba kernels and restores the previous thread mask after return or failure.
+C++ limits its pointwise property workers and paired 2D flow calls. A limit of one selects serial execution.
+Small grids can use fewer threads. This setting does not limit the application, external math libraries, or the number of optimization tasks.
+The CLI accepts `--cpu-threads N`. The API accepts `RunControl(cpu_threads=N)`. Both require a positive integer.
+Without a setting, Python keeps its current mask. A new C++ library uses at most eight logical CPUs on the host.
+The thread count is not part of `CaseData`. It does not change physical models, iteration budgets, or stop conditions.
+Resume can use a different thread count with the same native build.
+Libraries retained by old runs keep their existing entries. Omit the thread setting if that library lacks a thread limit.
+Select Auto in the GUI. An explicit limit is never silently ignored.
 
 Fluid cards emphasize inlet conditions. Autofill expands the property preview. Collapsing it keeps values. sCO₂ heat-transfer options follow fluid selection. A selected experimental mode stays visible for review or switching. Use Current Effective Coefficients explicitly loads `sco2-effective-nu-20260920-v1`.
 
@@ -329,6 +338,27 @@ In PowerShell, use the same arguments with `& $tm1Python` instead of `"$PYTHON"`
 Case YAML references accompanying HDF5. [Schemas](schemas/three_module_v1/README.md) define result/VTK export and strict metric JSON limits. CLI outputs must be separate from current inputs and accompanying Case HDF5. Overlapping paths fail before stage execution. Separate existing outputs can still be updated.
 
 Cancellation and failure do not become completed results. Completed nonconverged results keep their original state. Finite metrics do not show numerical, energy, or experimental accuracy acceptance.
+
+Full C++ runs can save their iteration state in a new run directory:
+
+```bash
+"$PYTHON" -m sjtu_tpmshx.cli run examples/three_module/air_2d.json .cache/run-01 --case-id example --backend cpp --checkpoint-interval 60
+"$PYTHON" -m sjtu_tpmshx.cli resume .cache/run-01/checkpoint.h5 .cache/run-02 --checkpoint-interval 60
+```
+
+The CLI interval is explicit. Saving waits for the next complete solver step.
+With saving enabled, Ctrl+C requests a pause. The process returns code 3 after it saves the state.
+A pause does not produce completed results. Cancellation still returns code 130.
+The directory retains the prepared input, native library, checkpoint, and run status.
+Completed runs also contain `results.h5` and `metrics.json`.
+
+Resume reads the saved prepared input and writes to a new directory. It preserves the source run.
+Move the complete run directory together. Resume requires the same native build and platform.
+Use `--native-library` to select a retained library explicitly when the current build differs.
+The GUI load menu can continue a saved run with its recorded interval and input provenance.
+New GUI full C++ runs request a save every 60 seconds in `runs/` under the user data directory.
+The calculation details show the save location. Use Save and Pause, then continue from the load menu.
+Lost work can also include the current complete step and file write. The Python backend keeps its existing workflow.
 
 <a id="已接线能力与边界"></a>
 

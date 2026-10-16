@@ -87,11 +87,17 @@ def test_prepared_packing_and_public_abi_exact_typed_return(driver, native, mode
     if mode == 'true_h':
         expected = dict(max_iterations=12000, sweeps=3, omega=.6, update_tol=.001,
             coupled_energy_tol=.001, equation_energy_tol=.001, energy_algorithm='legacy_h_fou',
-            effective_settings_source='native_completed_thermal_call', driver_abi=2)
+            effective_settings_source='native_completed_thermal_call', driver_abi=6)
         records = [result['main']['true_h'], *(row['energy_info'] for row in result['outer_history'])]
         for record in records:
             assert {key: record['effective_settings'][key] for key in expected} == expected
-    for flow, expected in zip(result['flow'], reference['flow']):
+    for side, flow, expected in zip('AB', result['flow'], reference['flow']):
+        method = result['simple_flow'][side]
+        assert method['algorithm'] == ('simple_2d_fixed_density_anderson_v1'
+            if expected['result']['fixed_density_acceleration'] else 'simple_2d_v1')
+        assert method['iterations'] == expected['result']['iterations']
+        assert method['proposal_steps'] == expected['result']['acceleration_attempts']
+        assert method['accepted_proposals'] == expected['result']['acceleration_accepted']
         for name in ('dx', 'dy', 'u', 'v', 'pressure', 'pressure_correction', 'density', 'uc', 'vc',
                      'absolute_pressure', 'mass_x', 'mass_y', 'reference_pressure', 'taper_flux_scale'):
             arrays_equal(flow[name], expected[name])
@@ -151,15 +157,16 @@ def test_callback_exception_and_recovery(driver, prepared_zero_duty, kind):
 
 
 def test_interrupt_after_native_return_releases_owner(driver, prepared_zero_duty, monkeypatch):
-    call, release, released = driver.call, driver.release, []
+    call, release, released = driver.library.tpmshx_solve_full_2d_v6, driver.release, []
     def interrupted(*args):
+        call.argtypes = interrupted.argtypes
         assert call(*args) == 0
         raise KeyboardInterrupt('native-return')
     def tracked(pointer):
         assert pointer._obj.owner
         release(pointer)
         released.append(pointer._obj.owner)
-    monkeypatch.setattr(driver, 'call', interrupted)
+    monkeypatch.setattr(driver.library, 'tpmshx_solve_full_2d_v6', interrupted)
     monkeypatch.setattr(driver, 'release', tracked)
     with pytest.raises(KeyboardInterrupt, match='native-return'):
         driver.run_prepared(*prepared_zero_duty)
@@ -200,7 +207,7 @@ def test_prepared_opening_mismatch_rejected_before_native_call(driver, prepared_
     cfg['boundary_openings']['A'][name] = np.asarray(cfg['boundary_openings']['A'][name])*.9
     def unexpected(*args):
         pytest.fail('inconsistent prepared opening reached native call')
-    monkeypatch.setattr(driver, 'call', unexpected)
+    monkeypatch.setattr(driver.library, 'tpmshx_solve_full_2d_v6', unexpected)
     with pytest.raises(ValueError, match='disagrees with its grid and port geometry'):
         driver.run_prepared(cfg, prepared)
 
