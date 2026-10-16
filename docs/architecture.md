@@ -862,16 +862,41 @@ uptake (`-Q_B`) and both relative pressure drops with paired baseline conditions
 It requires complete converged results. Heat and pressure stay separate
 objectives. Each condition has equal weight, with 50/50 pressure-side weights. These helpers do not qualify a closure or start an optimization run.
 
-`evaluate_condition_batch` supports air-A/water-B and two-fluid pairs with
-CO2 or sCO2. All conditions keep the same ordered fluid pair. It runs conditions
-serially into a new directory. Each member keeps its input, prepared Case,
-native result and metrics as soon as that stage succeeds. `batch.json` and
-`optimization.json` record the requested `backend` even on failure or cancellation;
-host library and table paths stay outside these records. `batch.json` keeps
-all requested members, failure stages and reasons, unrun members after
-cancellation, and the baseline metric values/definitions and source IDs. Cancellation propagates. Ordinary condition failures continue without fabricated
-penalties. If saving a failure/cancellation checkpoint also fails, the original exception
-propagates with the saving error attached as a note.
+`evaluate_condition_batch` supports air-A/water-B and pairs with CO2 or sCO2.
+All conditions keep the same ordered fluid pair and design. Each batch uses
+a new directory and records all requested members in `batch.json`.
+The `workers=None` default selects at most four native processes.
+Automatic allocation keeps at least two CPU slots per process when the total limit permits.
+The condition count also limits the number of processes. `workers=1` selects serial execution.
+An explicit positive count remains subject to the condition and total CPU limits.
+The total native CPU limit is split between the active workers.
+New batches, recovery and optimization use the same allocation rule.
+Python conditions use one worker. Each native worker has its own EOS tables.
+Progress and other host callbacks run in the parent process.
+Returned results keep the input order, even when workers finish out of order.
+
+Native members use `workflows.recovery.compute_prepared_run` with their saved
+fixed-flow input. They do not repeat case preparation. Each member requests
+an iteration checkpoint every 60 seconds, at an available safe boundary.
+The batch keeps its original inputs, selected native library and baseline files.
+After postprocess, `results.h5` and `metrics.json` are published together.
+If a later stage fails, `failed-result.h5` keeps completed solver fields when no result pair was published.
+The failure record keeps the original exception.
+
+`resume_condition_batch` reads a native batch into a new output directory.
+It checks and copies completed members without solving them again.
+It continues unfinished members from their latest valid native checkpoint.
+A member with no checkpoint starts from its saved prepared input, when available.
+The record distinguishes this restart from checkpoint continuation.
+Input, baseline, qualification and native build checks still apply.
+The caller must select an explicit native library. The source batch stays intact.
+
+Both `batch.json` and `optimization.json` record the requested backend.
+The batch keeps failure stages, reasons, unrun members and baseline metric identities.
+Ordinary condition failures allow later members to run. No penalty value replaces a failed result.
+Cancellation stops new submissions, stops active workers and propagates `CancelledError`.
+A worker process exit stops the batch; completed files and checkpoints remain available.
+If a status write also fails, the original exception keeps the storage error as a note.
 
 Existing files stay the
 last successfully written evidence, not a completed final archive. A saving error without an active exception stays an error. The desktop exposes
@@ -1359,6 +1384,9 @@ Each run owns a new directory with prepared input, a retained native library, ch
 Each run retains its own library file. The process reuses a previously retained file only when its bytes match the selected library.
 This avoids repeated native initialization and retained property tables. A changed or moved runtime uses the new retained file.
 The run record identifies the file used for execution. Completed results and metrics are written only after postprocessing.
+`compute_prepared_run` uses supplied `CaseData` without repeating preparation.
+If a later stage fails, `failed-result.h5` keeps completed solver fields when no result pair was published.
+The original exception stays active if saving those fields or recording status also fails.
 Resume reads the saved `CaseData`; it does not repeat preparation or change the source run.
 The complete directory can move. Its local input replaces the previous absolute case path during loading.
 Native restore still verifies the prepared input, controls, format, platform, and build.

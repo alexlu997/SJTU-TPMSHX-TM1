@@ -20,7 +20,7 @@ from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.io.text_file import write_text
 from sjtu_tpmshx.logutil import get_logger
 from sjtu_tpmshx.models.continuous_field import decision_bounds, decision_dim
-from sjtu_tpmshx.optimization.multi_condition import _evaluate_condition_batch
+from sjtu_tpmshx.optimization.multi_condition import _condition_worker_count, _evaluate_condition_batch
 from sjtu_tpmshx.domain.portable_data import mutable_data
 
 
@@ -94,7 +94,7 @@ def _propose_bo(X, Y, lower, upper, ref_point, *, method, q_batch, seed):
 
 def run_multi_condition_optimization(
     conditions, *, output_dir, method='qlognehvi', n_init=16, n_iter=8,
-    q_batch=1, seed=0, field_spec=None, control=RunControl(),
+    q_batch=1, seed=0, field_spec=None, control=RunControl(), workers=None,
 ) -> dict:
     """Optimize one complete XY/XYZ design across fixed operating conditions.
 
@@ -127,6 +127,7 @@ def run_multi_condition_optimization(
     inputs = deepcopy(tuple(conditions))
     if not inputs:
         raise ValueError('conditions must not be empty')
+    workers = _condition_worker_count(workers, len(inputs), control)
     ids = [row[0] for row in inputs]
     if any(not isinstance(item, str) or not item for item in ids) or len(set(ids)) != len(ids):
         raise ValueError('conditions require unique nonempty IDs')
@@ -181,7 +182,7 @@ def run_multi_condition_optimization(
     root.mkdir(parents=True, exist_ok=False)
     history = []
     record = dict(method=method, backend=control.backend, seed=seed, dimension=dimension, field_spec=spec,
-        software_versions=versions, n_init=n_init, n_iter=n_iter, q_batch=q_batch,
+        software_versions=versions, n_init=n_init, n_iter=n_iter, q_batch=q_batch, workers=workers,
         design_budget=budget, baseline_batches=1, status='running', stage='baseline', reason=None,
         objective_directions={'heat_gain_percent': 'maximize', 'pressure_ratio': 'minimize'},
         model_objectives=['heat_gain_percent', '-pressure_ratio'], ref_point=None,
@@ -230,7 +231,7 @@ def run_multi_condition_optimization(
                                      config={**spec, 'x_decision': row['x_decision']})
             candidates = [(name, replace(cfg, zones=zones), a, b) for name, cfg, a, b in inputs]
             result = _evaluate_condition_batch(candidates, output_dir=root / row['directory'],
-                baseline=baseline['summaries'], control=batch_control(row['index']+1))
+                baseline=baseline['summaries'], control=batch_control(row['index']+1), workers=workers)
             if result['status'] != 'completed':
                 row.update(status='failed', reason=result.get('reason') or 'condition batch failed')
                 return
@@ -258,7 +259,7 @@ def run_multi_condition_optimization(
         record['baseline']['status'] = 'running'
         publish()
         uniform = [(name, replace(cfg, zones=ZoneInputConfig()), a, b) for name, cfg, a, b in inputs]
-        baseline = _evaluate_condition_batch(uniform, output_dir=root / 'baseline', control=batch_control(0))
+        baseline = _evaluate_condition_batch(uniform, output_dir=root / 'baseline', control=batch_control(0), workers=workers)
         record['baseline'].update(status=baseline['status'], reason=baseline.get('reason'))
         if baseline['status'] != 'completed':
             record.update(status='failed', reason='Uniform baseline batch failed')

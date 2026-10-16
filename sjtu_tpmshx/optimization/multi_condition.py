@@ -96,12 +96,150 @@ def _check_baseline_case(reference, case, flow_a, flow_b):
             raise ValueError(f'baseline and candidate prescribed mass flow {side} differs')
 
 
+
+def _validate_condition_field(field, case, config):
+    if field.case_id != case.case_id:
+        raise ValueError('returned result does not belong to the prepared case')
+    metadata = _full_result_metadata(field)
+    dimension = case.grid['dimension']
+    expected_thermal = ('true_h' if {'co2', 'sco2'}.intersection(
+        (config.fluid_A.type, config.fluid_B.type)) else 'model_h')
+    if expected_thermal == 'true_h' and config.solver.enthalpy_algorithm != 'legacy_h_fou':
+        expected_thermal = 'conservative_energy'
+    if metadata['thermal_mode'] != expected_thermal:
+        raise ValueError('returned thermal mode disagrees with the configured fluids')
+    result_mode = (metadata['parameters']['df_mode'] if dimension == 3
+                   else metadata['parameters']['run_settings']['df_mode'])
+    if (field.model_refs != case.model_refs or metadata['dimension'] != dimension
+            or result_mode != config.df_mode
+            or metadata['design_mode'] != case.metadata['design_mode']):
+        raise ValueError('returned result changes prepared model or design mode')
+    for name, values in case.design_fields.items():
+        if not np.array_equal(metadata['design_fields'][name], values):
+            raise ValueError(f'returned result changes prepared design field {name}')
+
+
+def _condition_output_paths(directory):
+    run = directory / 'run'
+    paths = {}
+    for key, name in (('run_file', 'run.json'), ('checkpoint_file', 'checkpoint.h5'),
+                      ('result_file', 'failed-result.h5'), ('result_file', 'results.h5'),
+                      ('metrics_file', 'metrics.json')):
+        if (run / name).is_file():
+            paths[key] = f'{directory.name}/run/{name}'
+    return paths
+
+
+def _solve_condition(case, config, directory, control, update, checkpoint_file=None):
+    from sjtu_tpmshx.io.result_io import save_result
+    from sjtu_tpmshx.io.metrics_io import save_metrics
+    from sjtu_tpmshx.solvers.api import run_case
+    from sjtu_tpmshx.postprocess.api import evaluate
+
+    def evaluate_field(field):
+        update(stage='validate_result')
+        _validate_condition_field(field, case, config)
+        control.check_cancelled()
+        update(stage='postprocess')
+        return evaluate(field)
+
+    update(stage='solve')
+    if control.backend == 'cpp':
+        from sjtu_tpmshx.workflows.recovery import compute_prepared_run, resume_run
+        primary_error = None
+        try:
+            if checkpoint_file is None:
+                _, field, performance = compute_prepared_run(case, directory / 'run',
+                    checkpoint_interval_s=60., control=control, evaluate=evaluate_field)
+            else:
+                _, field, performance = resume_run(checkpoint_file, directory / 'run',
+                    checkpoint_interval_s=60., control=control, evaluate=evaluate_field)
+        except BaseException as error:
+            primary_error = error
+            raise
+        finally:
+            try:
+                update(**_condition_output_paths(directory))
+            except Exception as save_error:
+                if primary_error is None:
+                    raise
+                primary_error.add_note(f'Could not record native output paths: {save_error}')
+                _log.exception('Could not record native condition outputs')
+        return field, performance
+    field = run_case(case, control)
+    update(stage='save_result')
+    save_result(field, directory / 'result.h5')
+    update(result_file=f'{directory.name}/result.h5')
+    performance = evaluate_field(field)
+    update(stage='save_metrics')
+    save_metrics(performance, directory / 'metrics.json')
+    update(metrics_file=f'{directory.name}/metrics.json')
+    return field, performance
+
+
+
+_batch_cancel = None
+_batch_events = None
+
+
+def _init_condition_worker(cancel, events):
+    global _batch_cancel, _batch_events
+    _batch_cancel, _batch_events = cancel, events
+    # Final state returns through the future; queued progress must not delay exit.
+    events.cancel_join_thread()
+
+
+def _run_native_condition(index, case_file, directory, library, threads, checkpoint_file=None):
+    import os
+    from sjtu_tpmshx.io.case_io import load_case
+    from sjtu_tpmshx.domain.portable_data import mutable_data
+
+    directory = Path(directory)
+    changes = dict(worker_pid=os.getpid(), cpu_threads=threads)
+    def update(**values):
+        changes.update(values)
+        _batch_events.put((index, 'update', values))
+    def callback(name):
+        return lambda *args: _batch_events.put((index, name, args))
+    tables = directory.parent / 'workers' / str(os.getpid()) / 'tables'
+    tables.mkdir(parents=True, exist_ok=True)
+    control = RunControl(backend='cpp', native_library=library,
+        native_table_directory=str(tables), cpu_threads=threads,
+        cancel_check=_batch_cancel.is_set, progress=callback('progress'),
+        iteration=callback('iteration'), outer_iteration=callback('outer_iteration'),
+        residual=callback('residual'))
+    try:
+        control.check_cancelled()
+        case = load_case(case_file)
+        config = ComputeConfig.from_dict(mutable_data(case.config_snapshot))
+        _solve_condition(case, config, directory, control, update, checkpoint_file)
+        changes.update(status='computed', reason=None)
+    except CancelledError as error:
+        changes.update(status='cancelled', reason='\n'.join((str(error), *getattr(error, '__notes__', ()))))
+    except Exception as error:
+        changes.update(status='failed', reason='\n'.join((f'{type(error).__name__}: {error}',
+                *getattr(error, '__notes__', ()))))
+    return changes
+
+
+def _condition_worker_count(workers, count, control):
+    """Resolve one CPU allocation for batches and optimization."""
+    budget = control.native_cpu_threads()
+    if workers is None:
+        workers = min(4, max(1, budget // 2)) if control.backend == 'cpp' else 1
+    if type(workers) is not int or workers < 1:
+        raise ValueError('workers must be a positive integer or None')
+    if workers > 1 and control.backend != 'cpp':
+        raise ValueError('parallel condition runs require backend=cpp')
+    return min(workers, count, budget)
+
+
 def evaluate_condition_batch(
     conditions: Sequence[ConditionInput], *, output_dir: str | Path,
     baseline: Sequence[ConditionResult] | None = None,
-    control: RunControl = RunControl(),
+    control: RunControl = RunControl(), workers: int | None = None,
 ) -> dict:
-    """Run one supported design's conditions serially, without penalties.
+    """Run one design's fixed conditions and keep each member's evidence.
 
     Each input is ``(condition_id, config, mass_flow_A_kg_s, mass_flow_B_kg_s)``.
     Use the same design and fixed condition list for every comparison. The
@@ -115,27 +253,77 @@ def evaluate_condition_batch(
     Ordinary condition failures do not discard later conditions; cancellation
     persists the current record and propagates ``CancelledError``. Only a fully
     completed batch with a supplied baseline can produce aggregate objectives.
-    The return value adds in-memory ``results`` to the JSON record.
+    Native runs save checkpoints at safe boundaries with a 60-second interval.
+    ``workers=None`` selects up to four native processes within the CPU limit.
+    Automatic allocation keeps at least two CPU slots per worker when available.
+    Set ``workers=1`` for serial execution. Python always uses one worker.
+    Callbacks run in the parent. The return value adds
+    in-memory ``results`` to the JSON record in the requested order.
     """
     return _evaluate_condition_batch(conditions, output_dir=output_dir, baseline=baseline,
-                                     control=control, collect_fields=True)
+                                     control=control, collect_fields=True, workers=workers)
+
+
+def resume_condition_batch(batch_file, *, output_dir, control=RunControl(backend='cpp'), workers=None):
+    """Keep completed members and continue saved native states in a new batch."""
+    from sjtu_tpmshx.io.result_io import load_result
+    from sjtu_tpmshx.io.metrics_io import load_metrics
+
+    path = Path(batch_file).resolve(strict=True)
+    record = json.loads(path.read_text(encoding='utf-8'))
+    if record.get('format') != 'condition_batch_v1' or record.get('backend') != 'cpp':
+        raise ValueError('batch recovery requires a saved native condition batch')
+    if control.backend != 'cpp':
+        raise ValueError('batch recovery requires backend=cpp')
+    inputs = json.loads((path.parent / 'batch-input.json').read_text(encoding='utf-8'))
+    conditions = [(row['condition_id'], ComputeConfig.from_dict(row['config']),
+                   row['mass_flow_A_kg_s'], row['mass_flow_B_kg_s']) for row in inputs]
+    if [row[0] for row in conditions] != [row['condition_id'] for row in record['conditions']]:
+        raise ValueError('saved batch input and condition membership differ')
+    if control.native_library is None:
+        raise ValueError('batch recovery requires an explicit native library')
+    baseline = None
+    if record.get('baseline_files') is not None:
+        baseline = [(row['condition_id'], load_result(path.parent / row['result_file']),
+                     load_metrics(path.parent / row['metrics_file'])) for row in record['baseline_files']]
+    return _evaluate_condition_batch(conditions, output_dir=output_dir, baseline=baseline,
+        control=control, collect_fields=True, workers=workers, resume_from=(path.parent, record))
+
+
+def _check_saved_condition(case, config, flow_a, flow_b, case_id):
+    from sjtu_tpmshx.domain.portable_data import mutable_data
+
+    if case.case_id != case_id:
+        raise ValueError('saved condition and prepared-case identity differ')
+    resolved = mutable_data(case.config_snapshot)
+    requested = config.to_dict()
+    for side, target in (('A', flow_a), ('B', flow_b)):
+        fluid = 'fluid_'+side
+        requested[fluid]['u_mps'] = resolved[fluid]['u_mps']
+        requested[fluid]['mass_flow_kg_s'] = None
+        actual = case.parameters['u_'+side] * total_inlet_mass_capacity(
+            case.design_fields, case.parameters, case.grid, side)
+        if not np.isclose(actual, target, rtol=1e-12, atol=0.):
+            raise ValueError(f'saved condition mass flow {side} differs')
+    if requested != resolved:
+        raise ValueError('saved condition configuration differs from its prepared input')
 
 
 def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
-                              control=RunControl(), collect_fields=False):
+                              control=RunControl(), collect_fields=False, workers=None, resume_from=None):
     """Share batch validation; optimizer summaries keep paths and scalar metrics."""
-    from sjtu_tpmshx.io.case_io import save_case
+    from sjtu_tpmshx.io.case_io import load_case, save_case
     from sjtu_tpmshx.io.result_io import load_result, save_result
-    from sjtu_tpmshx.io.metrics_io import save_metrics
+    from sjtu_tpmshx.io.metrics_io import load_metrics, save_metrics
+    import shutil
     from sjtu_tpmshx.io.text_file import write_text
-    from sjtu_tpmshx.solvers.api import run_case
-    from sjtu_tpmshx.postprocess.api import evaluate
 
     inputs = tuple(conditions)
     ids = tuple(row[0] for row in inputs)
     if (not ids or any(not isinstance(item, str) or not item for item in ids)
             or len(set(ids)) != len(ids)):
         raise ValueError('conditions require unique, nonempty condition IDs')
+    worker_count = _condition_worker_count(workers, len(inputs), control)
     for condition_id, config, flow_a, flow_b in inputs:
         if not isinstance(config, ComputeConfig):
             raise TypeError(f'condition {condition_id}: config must be ComputeConfig')
@@ -171,17 +359,25 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
             metrics={key: asdict(performance.metrics[key]) for key in _METRICS})
             for name, performance in reference.items()}
 
-    root = Path(output_dir)
+    root = Path(output_dir).resolve()
     root.mkdir(parents=True, exist_ok=False)
     batch_id = str(uuid4())
     history = [dict(condition_id=condition_id, directory=f'condition_{index:03d}',
                     case_id=f'{batch_id}:{condition_id}', status='not_run', stage=None,
                     reason=None, case_file=None, result_file=None, metrics_file=None, qualification=None,
+                    recovery_mode='new',
                     baseline=reference_metrics.get(condition_id),
                     mass_flow_A_kg_s=flow_a, mass_flow_B_kg_s=flow_b)
                for index, (condition_id, _, flow_a, flow_b) in enumerate(inputs, 1)]
-    record = dict(batch_id=batch_id, backend=control.backend, status='running', reason=None,
-                  conditions=history, objectives=None)
+    if resume_from is not None:
+        source_root, source_record = resume_from
+        for row, previous in zip(history, source_record['conditions']):
+            row['case_id'] = previous['case_id']
+    worker_threads = max(1, control.native_cpu_threads() // worker_count)
+    record = dict(format='condition_batch_v1', batch_id=batch_id, backend=control.backend, status='running', reason=None,
+                  conditions=history, objectives=None, workers=worker_count,
+                  native_cpu_budget=control.native_cpu_threads() if control.backend == 'cpp' else None,
+                  resumed_from=str(resume_from[0]) if resume_from is not None else None)
     results = []
     summaries = {}
     design = {}
@@ -197,18 +393,7 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
             _log.exception('Could not save condition batch checkpoint')
             raise primary_error
 
-    def run_condition(index, condition, row, directory):
-        condition_id, config, flow_a, flow_b = condition
-        directory.mkdir()
-        write_text(directory / 'input.json', json.dumps(config.to_dict(),
-            ensure_ascii=False, allow_nan=False, indent=2) + '\n')
-        row['stage'] = 'prepare'
-        case = prepare_fixed_mass_flow_case(config, mass_flow_A_kg_s=flow_a,
-            mass_flow_B_kg_s=flow_b, case_id=row['case_id'])
-        row['stage'] = 'save_case'
-        save_case(case, directory / 'case.yaml')
-        row['case_file'] = f"{row['directory']}/case.yaml"
-        publish()
+    def check_baseline(condition_id, case, flow_a, flow_b, row):
         if baseline is not None:
             row['stage'] = 'comparison'
             if collect_fields:
@@ -221,42 +406,52 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
                                    (condition_id,), 'baseline')
                 _check_baseline_case(baseline_field, case, flow_a, flow_b)
                 del baseline_field
+
+    def prepare_condition(condition, row, directory):
+        condition_id, config, flow_a, flow_b = condition
+        directory.mkdir()
+        write_text(directory / 'input.json', json.dumps(config.to_dict(),
+            ensure_ascii=False, allow_nan=False, indent=2) + '\n')
+        row['stage'] = 'prepare'
+        case = None
+        if resume_from is not None:
+            previous = next(item for item in source_record['conditions'] if item['condition_id'] == condition_id)
+            checkpoint = source_root / previous['directory'] / 'run' / 'checkpoint.h5'
+            if checkpoint.is_file():
+                from sjtu_tpmshx.workflows.recovery import read_run_checkpoint
+                _, case, _ = read_run_checkpoint(checkpoint)
+                row['resume_checkpoint'] = str(checkpoint)
+                row['recovery_mode'] = 'checkpoint'
+            elif previous['case_file'] is not None:
+                case = load_case(source_root / previous['case_file'])
+                row['recovery_mode'] = 'prepared_restart'
+            if case is not None:
+                _check_saved_condition(case, config, flow_a, flow_b, row['case_id'])
+        if case is None:
+            case = prepare_fixed_mass_flow_case(config, mass_flow_A_kg_s=flow_a,
+                mass_flow_B_kg_s=flow_b, case_id=row['case_id'])
+        row['stage'] = 'save_case'
+        save_case(case, directory / 'case.yaml')
+        row['case_file'] = f"{row['directory']}/case.yaml"
+        publish()
+        check_baseline(condition_id, case, flow_a, flow_b, row)
+        return case
+
+    def run_condition(index, condition, row, directory):
+        condition_id, config, _, _ = condition
+        case = prepare_condition(condition, row, directory)
         control.check_cancelled()
-        row['stage'] = 'solve'
         progress = (None if control.progress is None else
                     lambda percent, i=index: control.report_progress(
                         int(100 * (i + percent / 100) / len(inputs))))
-        field = run_case(case, replace(control, progress=progress))
-        row['stage'] = 'save_result'
-        save_result(field, directory / 'result.h5')
-        row['result_file'] = f"{row['directory']}/result.h5"
-        publish()
-        if field.case_id != case.case_id:
-            raise ValueError('returned result does not belong to the prepared case')
-        metadata = _full_result_metadata(field)
-        dimension = case.grid['dimension']
-        expected_thermal = ('true_h' if {'co2', 'sco2'}.intersection(
-            (config.fluid_A.type, config.fluid_B.type)) else 'model_h')
-        if expected_thermal == 'true_h' and config.solver.enthalpy_algorithm != 'legacy_h_fou':
-            expected_thermal = 'conservative_energy'
-        if metadata['thermal_mode'] != expected_thermal:
-            raise ValueError('returned thermal mode disagrees with the configured fluids')
-        result_mode = (metadata['parameters']['df_mode'] if dimension == 3
-                       else metadata['parameters']['run_settings']['df_mode'])
-        if (field.model_refs != case.model_refs or metadata['dimension'] != dimension
-                or result_mode != config.df_mode
-                or metadata['design_mode'] != case.metadata['design_mode']):
-            raise ValueError('returned result changes prepared model or design mode')
-        for name, values in case.design_fields.items():
-            if not np.array_equal(metadata['design_fields'][name], values):
-                raise ValueError(f'returned result changes prepared design field {name}')
-        control.check_cancelled()
-        row['stage'] = 'postprocess'
-        performance = evaluate(field)
-        row['stage'] = 'save_metrics'
-        save_metrics(performance, directory / 'metrics.json')
-        row['metrics_file'] = f"{row['directory']}/metrics.json"
-        publish()
+        def update(**changes):
+            row.update(changes)
+            publish()
+        field, performance = _solve_condition(case, config, directory,
+                                               replace(control, progress=progress), update, row.get('resume_checkpoint'))
+        finish_condition(condition_id, case, row, field, performance)
+
+    def finish_condition(condition_id, case, row, field, performance):
         result = (condition_id, field, performance)
         if collect_fields:
             results.append(result)
@@ -266,32 +461,205 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
         design.update(_condition_metrics([result], (condition_id,), 'candidate'))
         if not collect_fields:
             summaries[condition_id] = dict(case_id=case.case_id, result_id=field.result_id,
-                result_file=directory / 'result.h5', performance=performance,
+                result_file=root / row['result_file'], performance=performance,
                 config_snapshot=case.config_snapshot)
         row.update(status='completed', reason=None)
+
+    def run_parallel():
+        from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+        from concurrent.futures.process import BrokenProcessPool
+        from multiprocessing import get_context
+        from queue import Empty
+        from sjtu_tpmshx.io.case_io import load_case
+        from sjtu_tpmshx.io.metrics_io import load_metrics
+
+        def finish_saved(index, row):
+            case = load_case(root / row['case_file'])
+            field = load_result(root / row['result_file'])
+            performance = load_metrics(root / row['metrics_file'])
+            finish_condition(inputs[index][0], case, row, field, performance)
+
+        context = get_context('spawn')
+        cancel, events = context.Event(), context.Queue()
+        pool = ProcessPoolExecutor(max_workers=worker_count, mp_context=context,
+            initializer=_init_condition_worker, initargs=(cancel, events))
+        pending, next_index = {}, 0
+        progress = [0] * len(inputs)
+        error = None
+        try:
+            while pending or (next_index < len(inputs) and error is None):
+                if error is None:
+                    try:
+                        control.check_cancelled()
+                    except BaseException as caught:
+                        error = caught
+                        cancel.set()
+                while error is None and len(pending) < worker_count and next_index < len(inputs):
+                    index = next_index
+                    next_index += 1
+                    row = history[index]
+                    if row['status'] == 'completed':
+                        progress[index] = 100
+                        continue
+                    row.update(status='running', stage='input')
+                    publish()
+                    try:
+                        case = prepare_condition(inputs[index], row, root / row['directory'])
+                        del case
+                        control.check_cancelled()
+                        future = pool.submit(_run_native_condition, index,
+                            str(root / row['case_file']), str(root / row['directory']),
+                            control.native_library, worker_threads, row.get('resume_checkpoint'))
+                        pending[future] = index
+                    except CancelledError as caught:
+                        row.update(status='cancelled', reason=str(caught))
+                        error = caught
+                        cancel.set()
+                    except Exception as caught:
+                        row.update(status='failed', reason=f'{type(caught).__name__}: {caught}')
+                        progress[index] = 100
+                        if isinstance(caught, BrokenProcessPool):
+                            error = caught
+                            cancel.set()
+                    publish()
+                if not pending:
+                    continue
+                done, _ = wait(pending, timeout=.1, return_when=FIRST_COMPLETED)
+                changed = False
+                while True:
+                    try:
+                        index, name, values = events.get_nowait()
+                    except Empty:
+                        break
+                    if name == 'update':
+                        history[index].update(values)
+                        changed = True
+                    elif error is None:
+                        try:
+                            if name == 'progress':
+                                progress[index] = max(progress[index], values[0])
+                                control.report_progress(int(sum(progress) / len(inputs)))
+                            else:
+                                callback = getattr(control, name)
+                                if callback is not None:
+                                    callback(*values)
+                        except BaseException as caught:
+                            error = caught
+                            cancel.set()
+                if changed:
+                    publish()
+                for future in done:
+                    index = pending.pop(future)
+                    row = history[index]
+                    try:
+                        row.update(future.result())
+                        if row['status'] == 'computed':
+                            finish_saved(index, row)
+                        elif row['status'] == 'cancelled' and error is None:
+                            error = CancelledError(row['reason'])
+                            cancel.set()
+                    except Exception as caught:
+                        row.update(status='failed', reason=f'{type(caught).__name__}: {caught}',
+                                   **_condition_output_paths(root / row['directory']))
+                        if isinstance(caught, BrokenProcessPool):
+                            error = caught if error is None else error
+                            cancel.set()
+                    progress[index] = 100
+                    publish()
+                if error is None:
+                    try:
+                        control.report_progress(int(sum(progress) / len(inputs)))
+                    except BaseException as caught:
+                        error = caught
+                        cancel.set()
+            if error is not None:
+                raise error
+        finally:
+            cancel.set()
+            pool.shutdown(wait=True, cancel_futures=True)
+            events.close()
+            events.join_thread()
 
     publish()
     primary_error = None
     try:
-        for index, ((condition_id, config, flow_a, flow_b), row) in enumerate(zip(inputs, history)):
-            control.check_cancelled()
-            directory = root / row['directory']
-            row.update(status='running', stage='input')
-            publish()
-            condition_error = None
-            try:
-                run_condition(index, (condition_id, config, flow_a, flow_b), row, directory)
-            except CancelledError as exc:
-                condition_error = exc
-                row.update(status='cancelled', reason=str(exc))
-                raise
-            except Exception as exc:
-                condition_error = exc
-                row.update(status='failed', reason=f'{type(exc).__name__}: {exc}')
-            finally:
-                publish(condition_error)
-            condition_error = None
-            control.report_progress(int(100 * (index + 1) / len(inputs)))
+        write_text(root / 'batch-input.json', json.dumps([dict(condition_id=name, config=config.to_dict(),
+            mass_flow_A_kg_s=a, mass_flow_B_kg_s=b) for name, config, a, b in inputs],
+            ensure_ascii=False, allow_nan=False, indent=2)+'\n')
+        record['baseline_files'] = None
+        if baseline is not None and control.backend == 'cpp':
+            record['baseline_files'] = []
+            (root / 'references').mkdir()
+            for index, name in enumerate(ids):
+                field = references[name] if collect_fields else load_result(baseline[name]['result_file'])
+                files = dict(condition_id=name, result_file=f'references/{index:03d}.h5',
+                             metrics_file=f'references/{index:03d}.json')
+                save_result(field, root / files['result_file'])
+                save_metrics(reference[name], root / files['metrics_file'])
+                record['baseline_files'].append(files)
+                del field
+        control.check_cancelled()
+        if control.backend == 'cpp':
+            if control.native_library is None or not Path(control.native_library).is_absolute():
+                raise ValueError('native batches require an absolute native library path')
+            library = Path(control.native_library).resolve(strict=True)
+            (root / 'runtime').mkdir()
+            retained = root / 'runtime' / library.name
+            shutil.copy2(library, retained)
+            if retained.read_bytes() != library.read_bytes():
+                raise OSError('native library changed while the batch retained its runtime')
+            record['native_file'] = 'runtime/'+library.name
+        publish()
+        if resume_from is not None:
+            for condition, row, previous in zip(inputs, history, source_record['conditions']):
+                if previous['status'] != 'completed':
+                    continue
+                name, config, a, b = condition
+                row['stage'] = 'reuse'
+                try:
+                    case = load_case(source_root / previous['case_file'])
+                    _check_saved_condition(case, config, a, b, row['case_id'])
+                    field = load_result(source_root / previous['result_file'])
+                    performance = load_metrics(source_root / previous['metrics_file'])
+                    _validate_condition_field(field, case, config)
+                    check_baseline(name, case, a, b, row)
+                    _condition_metrics([(name, field, performance)], (name,), 'saved')
+                    shutil.copytree(source_root / previous['directory'], root / row['directory'])
+                    row.update({key: previous[key] for key in ('case_file', 'result_file', 'metrics_file')})
+                    row.update(_condition_output_paths(root / row['directory']))
+                    row['reused_from'] = str(source_root / previous['directory'])
+                    row['recovery_mode'] = 'completed_copy'
+                    finish_condition(name, case, row, field, performance)
+                    del case, field, performance
+                except Exception as error:
+                    row.update(status='failed', reason=f'{type(error).__name__}: {error}')
+                    raise
+                publish()
+        if worker_count > 1:
+            run_parallel()
+        else:
+            for index, ((condition_id, config, flow_a, flow_b), row) in enumerate(zip(inputs, history)):
+                control.check_cancelled()
+                if row['status'] == 'completed':
+                    continue
+                directory = root / row['directory']
+                row.update(status='running', stage='input')
+                publish()
+                condition_error = None
+                try:
+                    run_condition(index, (condition_id, config, flow_a, flow_b), row, directory)
+                except CancelledError as exc:
+                    condition_error = exc
+                    row.update(status='cancelled', reason='\n'.join((str(exc), *getattr(exc, '__notes__', ()))))
+                    raise
+                except Exception as exc:
+                    condition_error = exc
+                    row.update(status='failed', reason='\n'.join((f'{type(exc).__name__}: {exc}',
+                        *getattr(exc, '__notes__', ()))))
+                finally:
+                    publish(condition_error)
+                condition_error = None
+                control.report_progress(int(100 * (index + 1) / len(inputs)))
         control.check_cancelled()
         if any(row['status'] != 'completed' for row in history):
             record.update(status='failed', reason='One or more conditions failed; no aggregate objectives')
@@ -317,6 +685,9 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
         raise
     finally:
         publish(primary_error)
+    if collect_fields:
+        order = {name: index for index, name in enumerate(ids)}
+        results.sort(key=lambda item: order[item[0]])
     return {**record, **({'results': results} if collect_fields else {'summaries': summaries})}
 
 

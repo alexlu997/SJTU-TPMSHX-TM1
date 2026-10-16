@@ -243,3 +243,38 @@ def test_member_start_checkpoint_failure_finalizes_only_active_member(
         assert saved['objectives'] is None
         assert all((output / rows[0][key]).is_file()
                    for key in ('case_file', 'result_file', 'metrics_file'))
+
+
+@pytest.mark.parametrize('error_type', [RuntimeError, CancelledError])
+def test_native_batch_status_error_keeps_original_solver_failure(
+        tmp_path, monkeypatch, prepared_native_case, error_type):
+    from sjtu_tpmshx.domain.module_ports import RunControl
+    from sjtu_tpmshx.workflows import recovery
+
+    primary = error_type('original native failure')
+    _batch_solver(monkeypatch, prepared_native_case, primary)
+    def solve(case, control, **kwargs):
+        raise primary
+    monkeypatch.setattr(recovery, 'run_case', solve)
+    output = tmp_path / 'native-batch'
+    run_file = output / 'condition_001/run/run.json'
+    def when(record, index):
+        return (record['conditions'][0]['status'] == 'running' and run_file.is_file()
+                and json.loads(run_file.read_text())['state'] in ('failed', 'cancelled'))
+    _, attempts = _checkpoint_fault(monkeypatch, text_file, 'batch.json', when)
+    library = tmp_path / 'fixture-library'
+    library.write_bytes(b'non-executable fixture')
+    control = RunControl(backend='cpp', native_library=str(library))
+    if error_type is CancelledError:
+        with pytest.raises(CancelledError) as caught:
+            batch.evaluate_condition_batch(_conditions(1), output_dir=output, control=control)
+        assert caught.value is primary
+    else:
+        result = batch.evaluate_condition_batch(_conditions(1), output_dir=output, control=control)
+        assert result['status'] == 'failed' and result['objectives'] is None
+    assert any(failed for _, failed in attempts)
+    assert any('checkpoint write failed' in note for note in primary.__notes__)
+    saved = json.loads((output / 'batch.json').read_text())
+    assert 'original native failure' in saved['conditions'][0]['reason']
+    assert 'checkpoint write failed' in saved['conditions'][0]['reason']
+    assert json.loads(run_file.read_text())['error']['message'] == 'original native failure'

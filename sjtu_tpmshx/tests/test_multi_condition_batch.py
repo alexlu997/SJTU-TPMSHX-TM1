@@ -132,6 +132,8 @@ def _manifest(directory):
 
 def _patch_solve(monkeypatch, solve):
     monkeypatch.setattr(execution, 'run_case', solve)
+    monkeypatch.setattr('sjtu_tpmshx.workflows.recovery.run_case',
+                        lambda case, control, **kwargs: solve(case, control))
 
 
 @pytest.mark.parametrize('fluid', ['co2', 'sco2'])
@@ -176,8 +178,11 @@ def test_success_keeps_independent_case_native_and_metric_files(tmp_path, monkey
 
     _patch_solve(monkeypatch, solve)
     directory = tmp_path / 'success'
+    library = tmp_path / 'test-library.dylib'
+    library.write_bytes(b'non-executable test data')
     result = batch.evaluate_condition_batch(conditions, output_dir=directory,
-        baseline=baseline, control=RunControl(backend=backend, progress=progress.append))
+        baseline=baseline, control=RunControl(backend=backend, progress=progress.append,
+                                             native_library=str(library) if backend == 'cpp' else None), workers=1)
     manifest = _manifest(directory)
     assert result['status'] == manifest['status'] == 'completed'
     assert result['backend'] == manifest['backend'] == backend
@@ -196,7 +201,9 @@ def test_success_keeps_independent_case_native_and_metric_files(tmp_path, monkey
         saved_input = json.loads((subdir / 'input.json').read_text())
         assert isinstance(saved_input, dict)
         assert 'optimizer' not in saved_input
-        for name, filename in (('case_file', 'case.yaml'), ('result_file', 'result.h5'), ('metrics_file', 'metrics.json')):
+        result_name = 'run/results.h5' if backend == 'cpp' else 'result.h5'
+        metrics_name = 'run/metrics.json' if backend == 'cpp' else 'metrics.json'
+        for name, filename in (('case_file', 'case.yaml'), ('result_file', result_name), ('metrics_file', metrics_name)):
             assert not Path(row[name]).is_absolute()
             assert directory / row[name] == subdir / filename
         assert (subdir / 'case.h5').is_file()
@@ -223,7 +230,8 @@ def test_success_keeps_independent_case_native_and_metric_files(tmp_path, monkey
         np.testing.assert_array_equal(native.fields['Ta'], memory[1].fields['Ta'])
 
 
-def test_solve_exception_keeps_failed_member_and_continues(tmp_path, monkeypatch):
+@pytest.mark.parametrize('backend', ['python', 'cpp'])
+def test_solve_exception_keeps_failed_member_and_continues(tmp_path, monkeypatch, backend):
     conditions, calls = _conditions(), []
     baseline = _baseline(conditions)
 
@@ -235,10 +243,13 @@ def test_solve_exception_keeps_failed_member_and_continues(tmp_path, monkeypatch
 
     _patch_solve(monkeypatch, solve)
     directory = tmp_path / 'solve-failure'
-    result = batch.evaluate_condition_batch(conditions, output_dir=directory, baseline=baseline)
+    library = tmp_path / 'test-library.dylib'
+    library.write_bytes(b'non-executable test data')
+    result = batch.evaluate_condition_batch(conditions, output_dir=directory, baseline=baseline,
+        control=RunControl(backend=backend, native_library=str(library) if backend == 'cpp' else None), workers=1)
     assert len(calls) == 3
     assert result['status'] == 'failed' and result['objectives'] is None
-    assert result['backend'] == _manifest(directory)['backend'] == 'python'
+    assert result['backend'] == _manifest(directory)['backend'] == backend
     rows = _manifest(directory)['conditions']
     assert [row['status'] for row in rows] == ['completed', 'failed', 'completed']
     assert 'injected flow failure' in rows[1]['reason']
@@ -283,7 +294,8 @@ def test_unusable_condition_retains_native_metrics_and_has_no_fitness(tmp_path, 
     assert rows[1]['reason']
 
 
-def test_postprocess_exception_still_archives_native_result(tmp_path, monkeypatch):
+@pytest.mark.parametrize('backend', ['python', 'cpp'])
+def test_postprocess_exception_still_archives_native_result(tmp_path, monkeypatch, backend):
     conditions = _conditions(2)
     baseline = _baseline(conditions)
     original = postprocess.evaluate
@@ -298,7 +310,10 @@ def test_postprocess_exception_still_archives_native_result(tmp_path, monkeypatc
     _patch_solve(monkeypatch, lambda case, control: _native(case))
     monkeypatch.setattr(postprocess, 'evaluate', evaluate)
     directory = tmp_path / 'postprocess-failure'
-    result = batch.evaluate_condition_batch(conditions, output_dir=directory, baseline=baseline)
+    library = tmp_path / 'test-library.dylib'
+    library.write_bytes(b'non-executable test data')
+    result = batch.evaluate_condition_batch(conditions, output_dir=directory, baseline=baseline,
+        control=RunControl(backend=backend, native_library=str(library) if backend == 'cpp' else None), workers=1)
     assert result['objectives'] is None and result['status'] == 'failed'
     rows = _manifest(directory)['conditions']
     assert [row['status'] for row in rows] == ['failed', 'completed']
@@ -464,9 +479,11 @@ def test_cancellation_preserves_full_membership_and_is_reraised(tmp_path, monkey
 
     _patch_solve(monkeypatch, solve)
     directory = tmp_path / 'cancelled'
+    library = tmp_path / 'test-library.dylib'
+    library.write_bytes(b'non-executable test data')
     with pytest.raises(CancelledError):
         entry(conditions, output_dir=directory,
-            control=RunControl(backend='cpp', cancel_check=lambda: cancelled[0]))
+            control=RunControl(backend='cpp', native_library=str(library), cancel_check=lambda: cancelled[0]), workers=1)
     manifest = _manifest(directory)
     assert manifest['backend'] == 'cpp'
     assert manifest['status'] == 'cancelled' and manifest['objectives'] is None
