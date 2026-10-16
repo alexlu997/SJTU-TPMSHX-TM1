@@ -155,7 +155,7 @@ def test_equal_design_budgets_initial_data_and_full_field_handoff(tmp_path, monk
         progress = []
         directory = tmp_path / method
         result = search.run_multi_condition_optimization(originals, output_dir=directory,
-            method=method, n_init=3, n_iter=2, q_batch=2, seed=17,
+            method=method, n_init=3, n_iter=2, q_batch=2, seed=17, workers=1,
             control=RunControl(backend=backend, progress=progress.append))
         assert result == _manifest(directory)
         assert result['backend'] == backend
@@ -234,7 +234,7 @@ def test_cancel_retains_finished_and_current_native_evidence(tmp_path, monkeypat
     directory = tmp_path / 'search'
     with pytest.raises(CancelledError):
         search.run_multi_condition_optimization(_conditions(), output_dir=directory, method='sobol',
-            n_init=3, n_iter=2, control=RunControl(backend='cpp', cancel_check=lambda: pre_cancelled))
+            n_init=3, n_iter=2, workers=1, control=RunControl(backend='cpp', cancel_check=lambda: pre_cancelled))
     result = _manifest(directory)
     assert result['backend'] == 'cpp'
     assert result['status'] == 'cancelled'
@@ -389,9 +389,21 @@ def test_search_reuses_baseline_case_configs_and_releases_fields(tmp_path, monke
 
 
 
-def test_native_search_forwards_one_worker_policy_to_every_batch(tmp_path, monkeypatch):
-    calls = _fake_batches(monkeypatch, backend='cpp', workers=2)
+@pytest.mark.parametrize('workers,expected', [(None, 2), (1, 1), (2, 2)])
+def test_native_search_forwards_selected_allocation_to_every_batch(tmp_path, monkeypatch, workers, expected):
+    import os
+    monkeypatch.setattr(os, 'cpu_count', lambda: 8)
+    calls = _fake_batches(monkeypatch, backend='cpp', workers=expected)
     result = search.run_multi_condition_optimization(_conditions(), output_dir=tmp_path/'parallel',
-        method='sobol', n_init=2, n_iter=0, workers=2, control=RunControl(backend='cpp', cpu_threads=4))
-    assert result['status'] == 'completed' and result['workers'] == 2
+        method='sobol', n_init=2, n_iter=0, workers=workers, control=RunControl(backend='cpp', cpu_threads=4))
+    assert result['status'] == 'completed' and result['workers'] == expected
     assert len(calls) == 3
+
+
+@pytest.mark.parametrize('workers', [0, -1, True, 1.5])
+def test_invalid_worker_count_stops_before_search_files(tmp_path, workers):
+    target = tmp_path / 'invalid'
+    with pytest.raises(ValueError, match='workers'):
+        search.run_multi_condition_optimization(_conditions(), output_dir=target,
+            method='sobol', workers=workers)
+    assert not target.exists()

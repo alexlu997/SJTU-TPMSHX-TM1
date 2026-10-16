@@ -29,7 +29,7 @@ def _configure_threads(window):
             spin.setRange(0, os.cpu_count() or 1)
             spin.setSpecialValueText('自动')
             spin.setValue(window.run_control.cpu_threads or 0)
-            tip = '设置下一次 C++ 计算的线程上限；自动最多用 8 个可用 CPU。物性计算和双侧流场计算共用此上限。'
+            tip = '设置下一次 C++ 计算的总线程上限；自动最多用 8 个可用 CPU。多工况优化会在此预算内分配工作进程。'
         else:
             from sjtu_tpmshx.solvers.threads import max_threads, get_solver_threads
             spin.setSpecialValueText('')

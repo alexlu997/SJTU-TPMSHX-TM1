@@ -292,3 +292,55 @@ def test_pre_cancelled_batch_keeps_inputs_without_loading_missing_library(tmp_pa
     resumed = batch.resume_condition_batch(source / 'batch.json', output_dir=tmp_path / 'resumed', control=_control(tmp_path))
     assert resumed['status'] == 'completed'
     assert resumed['objectives'] == pytest.approx(dict(heat_gain_percent=0., pressure_ratio=1.))
+
+
+@pytest.mark.parametrize('backend,available,limit,members,workers,expected', [
+    ('cpp', 8, None, 5, None, 4),
+    ('cpp', 8, 4, 5, None, 2),
+    ('cpp', 3, None, 5, None, 1),
+    ('cpp', 1, None, 5, None, 1),
+    ('cpp', 8, None, 1, None, 1),
+    ('cpp', 8, 4, 5, 4, 4),
+    ('cpp', 8, 1, 5, 4, 1),
+    ('cpp', 8, 8, 5, 1, 1),
+    ('python', 8, None, 5, None, 1),
+])
+def test_default_worker_count_is_saved_before_cancellation(
+        tmp_path, monkeypatch, backend, available, limit, members, workers, expected):
+    monkeypatch.setattr(os, 'cpu_count', lambda: available)
+    template = _conditions(1)[0]
+    conditions = [(f'condition-{index}', *template[1:]) for index in range(members)]
+    control = RunControl(backend=backend, cpu_threads=limit, cancel_check=lambda: True)
+    root = tmp_path / 'cancelled'
+    with pytest.raises(CancelledError):
+        batch.evaluate_condition_batch(conditions, output_dir=root, control=control, workers=workers)
+    record = json.loads((root / 'batch.json').read_text())
+    assert record['workers'] == expected
+    assert record['native_cpu_budget'] == (min(limit or 8, available) if backend == 'cpp' else None)
+    assert record['status'] == 'cancelled'
+    assert len(record['conditions']) == members
+    assert all(row['status'] == 'not_run' for row in record['conditions'])
+
+
+def test_default_process_batch_and_recovery_keep_complete_outputs(tmp_path, monkeypatch):
+    monkeypatch.setattr(os, 'cpu_count', lambda: 8)
+    monkeypatch.setattr(batch, '_run_native_condition', _analytic_worker)
+    conditions = _conditions()
+    conditions.append(('extra', *conditions[-1][1:]))
+    control = replace(_control(tmp_path), cpu_threads=8)
+    source = tmp_path / 'automatic'
+    report = batch.evaluate_condition_batch(conditions, output_dir=source,
+        baseline=_baseline(conditions), control=control)
+    assert report['status'] == 'completed' and report['workers'] == 4
+    assert report['native_cpu_budget'] == 8
+    assert [name for name, _, _ in report['results']] == [row[0] for row in conditions]
+    for row, (_, field, _) in zip(report['conditions'], report['results']):
+        assert row['worker_pid'] != os.getpid() and row['cpu_threads'] == 2
+        assert field.metadata['test_cpu_threads'] == 2
+        assert (source / row['result_file']).is_file()
+        assert (source / row['checkpoint_file']).is_file()
+    resumed = batch.resume_condition_batch(source / 'batch.json',
+        output_dir=tmp_path / 'recovered', control=replace(control, cpu_threads=4))
+    assert resumed['status'] == 'completed' and resumed['workers'] == 2
+    assert resumed['objectives'] == report['objectives']
+    assert all(row['recovery_mode'] == 'completed_copy' for row in resumed['conditions'])

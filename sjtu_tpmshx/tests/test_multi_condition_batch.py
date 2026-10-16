@@ -182,7 +182,7 @@ def test_success_keeps_independent_case_native_and_metric_files(tmp_path, monkey
     library.write_bytes(b'non-executable test data')
     result = batch.evaluate_condition_batch(conditions, output_dir=directory,
         baseline=baseline, control=RunControl(backend=backend, progress=progress.append,
-                                             native_library=str(library) if backend == 'cpp' else None))
+                                             native_library=str(library) if backend == 'cpp' else None), workers=1)
     manifest = _manifest(directory)
     assert result['status'] == manifest['status'] == 'completed'
     assert result['backend'] == manifest['backend'] == backend
@@ -246,7 +246,7 @@ def test_solve_exception_keeps_failed_member_and_continues(tmp_path, monkeypatch
     library = tmp_path / 'test-library.dylib'
     library.write_bytes(b'non-executable test data')
     result = batch.evaluate_condition_batch(conditions, output_dir=directory, baseline=baseline,
-        control=RunControl(backend=backend, native_library=str(library) if backend == 'cpp' else None))
+        control=RunControl(backend=backend, native_library=str(library) if backend == 'cpp' else None), workers=1)
     assert len(calls) == 3
     assert result['status'] == 'failed' and result['objectives'] is None
     assert result['backend'] == _manifest(directory)['backend'] == backend
@@ -313,7 +313,7 @@ def test_postprocess_exception_still_archives_native_result(tmp_path, monkeypatc
     library = tmp_path / 'test-library.dylib'
     library.write_bytes(b'non-executable test data')
     result = batch.evaluate_condition_batch(conditions, output_dir=directory, baseline=baseline,
-        control=RunControl(backend=backend, native_library=str(library) if backend == 'cpp' else None))
+        control=RunControl(backend=backend, native_library=str(library) if backend == 'cpp' else None), workers=1)
     assert result['objectives'] is None and result['status'] == 'failed'
     rows = _manifest(directory)['conditions']
     assert [row['status'] for row in rows] == ['failed', 'completed']
@@ -483,7 +483,7 @@ def test_cancellation_preserves_full_membership_and_is_reraised(tmp_path, monkey
     library.write_bytes(b'non-executable test data')
     with pytest.raises(CancelledError):
         entry(conditions, output_dir=directory,
-            control=RunControl(backend='cpp', native_library=str(library), cancel_check=lambda: cancelled[0]))
+            control=RunControl(backend='cpp', native_library=str(library), cancel_check=lambda: cancelled[0]), workers=1)
     manifest = _manifest(directory)
     assert manifest['backend'] == 'cpp'
     assert manifest['status'] == 'cancelled' and manifest['objectives'] is None

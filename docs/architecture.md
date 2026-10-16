@@ -865,8 +865,12 @@ objectives. Each condition has equal weight, with 50/50 pressure-side weights. T
 `evaluate_condition_batch` supports air-A/water-B and pairs with CO2 or sCO2.
 All conditions keep the same ordered fluid pair and design. Each batch uses
 a new directory and records all requested members in `batch.json`.
-The `workers` argument selects native processes; its default is one.
+The `workers=None` default selects at most four native processes.
+Automatic allocation keeps at least two CPU slots per process when the total limit permits.
+The condition count also limits the number of processes. `workers=1` selects serial execution.
+An explicit positive count remains subject to the condition and total CPU limits.
 The total native CPU limit is split between the active workers.
+New batches, recovery and optimization use the same allocation rule.
 Python conditions use one worker. Each native worker has its own EOS tables.
 Progress and other host callbacks run in the parent process.
 Returned results keep the input order, even when workers finish out of order.

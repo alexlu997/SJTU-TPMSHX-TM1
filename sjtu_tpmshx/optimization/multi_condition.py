@@ -222,10 +222,22 @@ def _run_native_condition(index, case_file, directory, library, threads, checkpo
     return changes
 
 
+def _condition_worker_count(workers, count, control):
+    """Resolve one CPU allocation for batches and optimization."""
+    budget = control.native_cpu_threads()
+    if workers is None:
+        workers = min(4, max(1, budget // 2)) if control.backend == 'cpp' else 1
+    if type(workers) is not int or workers < 1:
+        raise ValueError('workers must be a positive integer or None')
+    if workers > 1 and control.backend != 'cpp':
+        raise ValueError('parallel condition runs require backend=cpp')
+    return min(workers, count, budget)
+
+
 def evaluate_condition_batch(
     conditions: Sequence[ConditionInput], *, output_dir: str | Path,
     baseline: Sequence[ConditionResult] | None = None,
-    control: RunControl = RunControl(), workers: int = 1,
+    control: RunControl = RunControl(), workers: int | None = None,
 ) -> dict:
     """Run one design's fixed conditions and keep each member's evidence.
 
@@ -242,15 +254,17 @@ def evaluate_condition_batch(
     persists the current record and propagates ``CancelledError``. Only a fully
     completed batch with a supplied baseline can produce aggregate objectives.
     Native runs save checkpoints at safe boundaries with a 60-second interval.
-    ``workers`` selects native processes within the total CPU limit. Callbacks
-    run in the parent. Python conditions use one worker. The return value adds
+    ``workers=None`` selects up to four native processes within the CPU limit.
+    Automatic allocation keeps at least two CPU slots per worker when available.
+    Set ``workers=1`` for serial execution. Python always uses one worker.
+    Callbacks run in the parent. The return value adds
     in-memory ``results`` to the JSON record in the requested order.
     """
     return _evaluate_condition_batch(conditions, output_dir=output_dir, baseline=baseline,
                                      control=control, collect_fields=True, workers=workers)
 
 
-def resume_condition_batch(batch_file, *, output_dir, control=RunControl(backend='cpp'), workers=1):
+def resume_condition_batch(batch_file, *, output_dir, control=RunControl(backend='cpp'), workers=None):
     """Keep completed members and continue saved native states in a new batch."""
     from sjtu_tpmshx.io.result_io import load_result
     from sjtu_tpmshx.io.metrics_io import load_metrics
@@ -296,7 +310,7 @@ def _check_saved_condition(case, config, flow_a, flow_b, case_id):
 
 
 def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
-                              control=RunControl(), collect_fields=False, workers=1, resume_from=None):
+                              control=RunControl(), collect_fields=False, workers=None, resume_from=None):
     """Share batch validation; optimizer summaries keep paths and scalar metrics."""
     from sjtu_tpmshx.io.case_io import load_case, save_case
     from sjtu_tpmshx.io.result_io import load_result, save_result
@@ -304,15 +318,12 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
     import shutil
     from sjtu_tpmshx.io.text_file import write_text
 
-    if type(workers) is not int or workers < 1:
-        raise ValueError('workers must be a positive integer')
-    if workers > 1 and control.backend != 'cpp':
-        raise ValueError('parallel condition runs require backend=cpp')
     inputs = tuple(conditions)
     ids = tuple(row[0] for row in inputs)
     if (not ids or any(not isinstance(item, str) or not item for item in ids)
             or len(set(ids)) != len(ids)):
         raise ValueError('conditions require unique, nonempty condition IDs')
+    worker_count = _condition_worker_count(workers, len(inputs), control)
     for condition_id, config, flow_a, flow_b in inputs:
         if not isinstance(config, ComputeConfig):
             raise TypeError(f'condition {condition_id}: config must be ComputeConfig')
@@ -362,7 +373,6 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
         source_root, source_record = resume_from
         for row, previous in zip(history, source_record['conditions']):
             row['case_id'] = previous['case_id']
-    worker_count = min(workers, len(inputs), control.native_cpu_threads())
     worker_threads = max(1, control.native_cpu_threads() // worker_count)
     record = dict(format='condition_batch_v1', batch_id=batch_id, backend=control.backend, status='running', reason=None,
                   conditions=history, objectives=None, workers=worker_count,

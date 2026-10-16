@@ -20,7 +20,7 @@ from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.io.text_file import write_text
 from sjtu_tpmshx.logutil import get_logger
 from sjtu_tpmshx.models.continuous_field import decision_bounds, decision_dim
-from sjtu_tpmshx.optimization.multi_condition import _evaluate_condition_batch
+from sjtu_tpmshx.optimization.multi_condition import _condition_worker_count, _evaluate_condition_batch
 from sjtu_tpmshx.domain.portable_data import mutable_data
 
 
@@ -94,7 +94,7 @@ def _propose_bo(X, Y, lower, upper, ref_point, *, method, q_batch, seed):
 
 def run_multi_condition_optimization(
     conditions, *, output_dir, method='qlognehvi', n_init=16, n_iter=8,
-    q_batch=1, seed=0, field_spec=None, control=RunControl(), workers=1,
+    q_batch=1, seed=0, field_spec=None, control=RunControl(), workers=None,
 ) -> dict:
     """Optimize one complete XY/XYZ design across fixed operating conditions.
 
@@ -121,14 +121,13 @@ def run_multi_condition_optimization(
     if method not in ('qlognehvi', 'qlognparego', 'sobol'):
         raise ValueError('method must be qlognehvi, qlognparego or sobol')
     for name, value, minimum in (('n_init', n_init, 1), ('n_iter', n_iter, 0),
-                                 ('q_batch', q_batch, 1), ('seed', seed, 0), ('workers', workers, 1)):
+                                 ('q_batch', q_batch, 1), ('seed', seed, 0)):
         if type(value) is not int or value < minimum:
             raise ValueError(f'{name} must be an integer >= {minimum}')
-    if workers > 1 and control.backend != 'cpp':
-        raise ValueError('parallel condition runs require backend=cpp')
     inputs = deepcopy(tuple(conditions))
     if not inputs:
         raise ValueError('conditions must not be empty')
+    workers = _condition_worker_count(workers, len(inputs), control)
     ids = [row[0] for row in inputs]
     if any(not isinstance(item, str) or not item for item in ids) or len(set(ids)) != len(ids):
         raise ValueError('conditions require unique nonempty IDs')
