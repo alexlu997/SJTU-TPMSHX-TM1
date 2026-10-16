@@ -23,13 +23,21 @@ research stencil keep their separate reconstruction contracts.
 Engineering backend parity requires one prepared case, the same physical models,
 and independent convergence and energy gates. Relative differences in duty, pressure drop and mass flow must
 be at most 0.1%. Absolute differences in outlet and full-field temperatures must
-be at most 0.01 K. `test_backend_engineering_parity.py` covers eight fluid pairings
+be at most 0.01 K. `test_backend_engineering_parity.py` covers air, water, CO2 and sCO2 pairings
 in 2D and 3D. Mixed native runs use the selected per-fluid energy models.
 Their differences from the retained Python HEOS models are recorded separately.
 Independent formula checks and physical gates apply to these runs.
-Complete comparisons with the same models use these limits, with 0.01% relative
-tolerance for intermediate fields and explicit absolute tolerances for
-near-zero residual ratios.
+For the same models, each velocity component and magnitude must differ by at most
+`1e-6 m/s + 1e-5 * u_inlet` in every cell. Use the saved prepared inlet speed
+for that side, including a resolved mass-flow input. This limit also applies
+near zero transverse velocity. Other intermediate fields keep 0.01% relative
+tolerance. Near-zero residual ratios keep their explicit absolute tolerances.
+
+The same-model 2D CO2/sCO2 comparisons use momentum tolerance `1e-6`
+and local/global mass tolerances `1e-8`. Both backends keep their original
+outer and thermal controls. Default-flow results can exceed the velocity
+comparison limit. Those results remain diagnostic; this test setting does not
+change product defaults or establish their iteration accuracy.
 
 Actual iteration and roundoff-clipping counts can
 differ across backends. Each count must respect its own run's budget, records
