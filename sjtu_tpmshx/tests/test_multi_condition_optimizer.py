@@ -50,11 +50,12 @@ def test_search_and_archive_preserve_low_and_mixed_control_counts(tmp_path, monk
 
 
 def _fake_batches(monkeypatch, *, fail_indices=(), baseline_failure=False, cancel_index=None,
-                  backend='python'):
+                  backend='python', workers=1):
     calls, baseline_token = [], {}
+    expected_workers = workers
 
-    def evaluate(conditions, *, output_dir, baseline=None, control=RunControl()):
-        assert control.backend == backend
+    def evaluate(conditions, *, output_dir, baseline=None, control=RunControl(), workers=1):
+        assert control.backend == backend and workers == expected_workers
         directory = Path(output_dir)
         directory.mkdir()
         index = len(calls)-1  # First call is the extra uniform baseline.
@@ -385,3 +386,12 @@ def test_search_reuses_baseline_case_configs_and_releases_fields(tmp_path, monke
     for index, condition in enumerate(result['conditions'], 1):
         case = load_case(output / 'baseline' / f'condition_{index:03d}' / 'case.yaml')
         assert condition['config'] == mutable_data(case.config_snapshot)
+
+
+
+def test_native_search_forwards_one_worker_policy_to_every_batch(tmp_path, monkeypatch):
+    calls = _fake_batches(monkeypatch, backend='cpp', workers=2)
+    result = search.run_multi_condition_optimization(_conditions(), output_dir=tmp_path/'parallel',
+        method='sobol', n_init=2, n_iter=0, workers=2, control=RunControl(backend='cpp', cpu_threads=4))
+    assert result['status'] == 'completed' and result['workers'] == 2
+    assert len(calls) == 3

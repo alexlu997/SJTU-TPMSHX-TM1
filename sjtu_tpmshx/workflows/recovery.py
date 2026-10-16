@@ -58,8 +58,18 @@ def compute_run(config, directory, *, checkpoint_interval_s, case_id=None,
         pause_check=pause_check, gui_provenance=gui_provenance)
 
 
+def compute_prepared_run(case, directory, *, checkpoint_interval_s,
+                         control=RunControl(), progress_cb=None, evaluate=None):
+    """Save and solve the supplied prepared input without preparing it again."""
+    control.check_cancelled()
+    config = ComputeConfig.from_dict(mutable_data(case.config_snapshot))
+    return _execute(config, directory, checkpoint_interval_s=checkpoint_interval_s,
+        case_id=case.case_id, control=control, progress_cb=progress_cb,
+        pause_check=None, gui_provenance=None, saved_case=case, evaluate=evaluate)
+
+
 def resume_run(checkpoint_file, directory, *, checkpoint_interval_s,
-               control=RunControl(), progress_cb=None, pause_check=None):
+               control=RunControl(), progress_cb=None, pause_check=None, evaluate=None):
     """Continue the saved input in a new directory; retain the source run."""
     control.check_cancelled()
     saved, case, record = read_run_checkpoint(checkpoint_file)
@@ -68,11 +78,11 @@ def resume_run(checkpoint_file, directory, *, checkpoint_interval_s,
         case_id=case.case_id, control=control, progress_cb=progress_cb,
         pause_check=pause_check, gui_provenance=record.get('gui_provenance'),
         saved_case=case, saved_state=saved.native_state,
-        resumed_from=str(Path(checkpoint_file).resolve()))
+        resumed_from=str(Path(checkpoint_file).resolve()), evaluate=evaluate)
 
 
 def _execute(config, directory, *, checkpoint_interval_s, case_id, control, progress_cb,
-             pause_check, gui_provenance, saved_case=None, saved_state=None, resumed_from=None):
+             pause_check, gui_provenance, saved_case=None, saved_state=None, resumed_from=None, evaluate=None):
     if (isinstance(checkpoint_interval_s, bool) or not math.isfinite(checkpoint_interval_s)
             or checkpoint_interval_s <= 0.):
         raise ValueError('checkpoint interval must be finite and positive')
@@ -98,6 +108,7 @@ def _execute(config, directory, *, checkpoint_interval_s, case_id, control, prog
         write_text(directory / 'run.json', json.dumps(record, ensure_ascii=False, allow_nan=False, indent=2) + '\n')
 
     next_save = 0.
+    completed_result = None
 
     def prepare(config, *, case_id):
         case = saved_case if saved_case is not None else prepare_case(config, case_id=case_id)
@@ -110,6 +121,7 @@ def _execute(config, directory, *, checkpoint_interval_s, case_id, control, prog
         return (pause_check is not None and pause_check()) or perf_counter() >= next_save
 
     def solve(case, solver_control):
+        nonlocal completed_result
         def checkpoint(state):
             nonlocal next_save
             solver_control.check_cancelled()
@@ -125,8 +137,9 @@ def _execute(config, directory, *, checkpoint_interval_s, case_id, control, prog
             solver_control.check_cancelled()
             if pause_check is not None and pause_check():
                 raise PausedRun(checkpoint_file)
-        return run_case(case, solver_control, resume_state=saved_state,
-                        checkpoint=checkpoint, checkpoint_due=due)
+        completed_result = run_case(case, solver_control, resume_state=saved_state,
+                                    checkpoint=checkpoint, checkpoint_due=due)
+        return completed_result
 
     try:
         publish_status('running')
@@ -146,7 +159,7 @@ def _execute(config, directory, *, checkpoint_interval_s, case_id, control, prog
         record['execution_library'] = str(runtime_file)
         runtime_control = replace(control, native_library=str(runtime_file))
         case, result, performance = compute(config, case_id=case_id, control=runtime_control,
-            progress_cb=progress_cb, prepare=prepare, solve=solve)
+            progress_cb=progress_cb, prepare=prepare, solve=solve, evaluate=evaluate)
         recovery = dict(directory=str(directory), checkpoint_file=str(checkpoint_file),
             native_library=str(retained), resumed_from=resumed_from,
             checkpoint_interval_s=checkpoint_interval_s,
@@ -159,6 +172,12 @@ def _execute(config, directory, *, checkpoint_interval_s, case_id, control, prog
                        converged=bool(result.run_status['converged']))
         return case, result, performance
     except BaseException as error:
+        if completed_result is not None and not (directory / 'results.h5').exists():
+            try:
+                save_result(completed_result, directory / 'failed-result.h5')
+                record['failed_result_file'] = 'failed-result.h5'
+            except Exception as save_error:
+                error.add_note(f'Could not save the completed solver fields: {save_error}')
         state = ('paused' if isinstance(error, PausedRun) else
                  'cancelled' if isinstance(error, CancelledError) else 'failed')
         try:

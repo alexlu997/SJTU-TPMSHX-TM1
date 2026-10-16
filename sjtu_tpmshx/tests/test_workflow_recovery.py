@@ -271,3 +271,58 @@ def test_cancel_takes_precedence_over_a_pending_pause(tmp_path, stages, monkeypa
     assert (directory / 'checkpoint.h5').exists() == (when == 'during_save')
     assert not (directory / 'results.h5').exists()
     assert not (directory / 'metrics.json').exists()
+
+
+
+def test_prepared_run_uses_exact_supplied_case(tmp_path, stages, monkeypatch):
+    case = replace(stages[1], parameters={**stages[1].parameters, 'u_A': 2.75})
+    monkeypatch.setattr(recovery, 'prepare_case', lambda *a, **k: pytest.fail('prepared input rebuilt'))
+    solve = recovery.run_case
+    def check(prepared, control, **kwargs):
+        assert prepared is case
+        return solve(prepared, control, **kwargs)
+    monkeypatch.setattr(recovery, 'run_case', check)
+    directory = tmp_path / 'prepared'
+    actual, result, metrics = recovery.compute_prepared_run(case, directory,
+        checkpoint_interval_s=30., control=stages[4])
+    assert actual is case
+    assert load_case(directory / 'case.h5').parameters['u_A'] == 2.75
+    assert metrics.source_result_id == result.result_id
+
+
+@pytest.mark.parametrize('cancelled', [False, True])
+def test_completed_fields_survive_postprocess_failure_or_cancellation(tmp_path, stages, monkeypatch, cancelled):
+    error = CancelledError('cancel after solve') if cancelled else ValueError('postprocess failed')
+    def evaluate(result):
+        assert result is stages[2]
+        raise error
+    directory = tmp_path / 'failed'
+    with pytest.raises(type(error)) as caught:
+        recovery.compute_prepared_run(stages[1], directory, checkpoint_interval_s=30.,
+                                      control=stages[4], evaluate=evaluate)
+    assert caught.value is error
+    record = json.loads((directory / 'run.json').read_text())
+    assert record['state'] == ('cancelled' if cancelled else 'failed')
+    saved = load_result(directory / record['failed_result_file'])
+    np.testing.assert_array_equal(saved.fields['Ta'], stages[2].fields['Ta'])
+    assert saved.result_id == stages[2].result_id
+    assert (directory / 'checkpoint.h5').is_file()
+    assert not (directory / 'results.h5').exists() and not (directory / 'metrics.json').exists()
+
+
+def test_failed_field_save_keeps_original_postprocess_error(tmp_path, stages, monkeypatch):
+    error = ValueError('original postprocess error')
+    def evaluate(result):
+        raise error
+    def save(result, path):
+        raise OSError('field storage failed')
+    monkeypatch.setattr(recovery, 'save_result', save)
+    directory = tmp_path / 'failed-save'
+    with pytest.raises(ValueError) as caught:
+        recovery.compute_prepared_run(stages[1], directory, checkpoint_interval_s=30.,
+                                      control=stages[4], evaluate=evaluate)
+    assert caught.value is error
+    assert any('field storage failed' in note for note in error.__notes__)
+    record = json.loads((directory / 'run.json').read_text())
+    assert record['state'] == 'failed' and 'failed_result_file' not in record
+    assert (directory / 'checkpoint.h5').is_file()
