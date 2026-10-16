@@ -576,16 +576,6 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
         write_text(root / 'batch-input.json', json.dumps([dict(condition_id=name, config=config.to_dict(),
             mass_flow_A_kg_s=a, mass_flow_B_kg_s=b) for name, config, a, b in inputs],
             ensure_ascii=False, allow_nan=False, indent=2)+'\n')
-        if control.backend == 'cpp':
-            if control.native_library is None or not Path(control.native_library).is_absolute():
-                raise ValueError('native batches require an absolute native library path')
-            library = Path(control.native_library).resolve(strict=True)
-            (root / 'runtime').mkdir()
-            retained = root / 'runtime' / library.name
-            shutil.copy2(library, retained)
-            if retained.read_bytes() != library.read_bytes():
-                raise OSError('native library changed while the batch retained its runtime')
-            record['native_file'] = 'runtime/'+library.name
         record['baseline_files'] = None
         if baseline is not None and control.backend == 'cpp':
             record['baseline_files'] = []
@@ -598,8 +588,18 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
                 save_metrics(reference[name], root / files['metrics_file'])
                 record['baseline_files'].append(files)
                 del field
-        publish()
         control.check_cancelled()
+        if control.backend == 'cpp':
+            if control.native_library is None or not Path(control.native_library).is_absolute():
+                raise ValueError('native batches require an absolute native library path')
+            library = Path(control.native_library).resolve(strict=True)
+            (root / 'runtime').mkdir()
+            retained = root / 'runtime' / library.name
+            shutil.copy2(library, retained)
+            if retained.read_bytes() != library.read_bytes():
+                raise OSError('native library changed while the batch retained its runtime')
+            record['native_file'] = 'runtime/'+library.name
+        publish()
         if resume_from is not None:
             for condition, row, previous in zip(inputs, history, source_record['conditions']):
                 if previous['status'] != 'completed':

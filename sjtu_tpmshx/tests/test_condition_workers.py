@@ -268,3 +268,22 @@ def test_process_batch_resolves_relative_output_paths(tmp_path, monkeypatch):
     assert report['status'] == 'completed'
     assert all((tmp_path / 'relative-output' / row['result_file']).is_file()
                for row in report['conditions'])
+
+
+
+def test_pre_cancelled_batch_keeps_inputs_without_loading_missing_library(tmp_path, monkeypatch):
+    from sjtu_tpmshx.workflows import recovery
+
+    conditions = _conditions(1)
+    source = tmp_path / 'pre-cancelled'
+    control = RunControl(backend='cpp', native_library=str(tmp_path / 'missing-library'), cancel_check=lambda: True)
+    with pytest.raises(CancelledError):
+        batch.evaluate_condition_batch(conditions, output_dir=source, baseline=_baseline(conditions), control=control)
+    record = json.loads((source / 'batch.json').read_text())
+    assert record['status'] == 'cancelled' and record['conditions'][0]['status'] == 'not_run'
+    assert (source / 'batch-input.json').is_file()
+    assert record['baseline_files'] and 'native_file' not in record
+    monkeypatch.setattr(recovery, 'run_case', lambda case, control, **kw: _native(case))
+    resumed = batch.resume_condition_batch(source / 'batch.json', output_dir=tmp_path / 'resumed', control=_control(tmp_path))
+    assert resumed['status'] == 'completed'
+    assert resumed['objectives'] == pytest.approx(dict(heat_gain_percent=0., pressure_ratio=1.))
