@@ -574,13 +574,13 @@ Windows 使用 `_ci_windows_shard0.txt` 至 `_ci_windows_shard5.txt`。
 Python 数值对照迁移为独立公式／离散账本、制造解、组件重放及固定历史参考；
 不保留已退役迭代器作为第二套求解实现。
 
-每个平台/Python 组合调用 [原生工作流](.github/workflows/native.yml)，
-先构建一次原生库并运行独立 C/C++ 调用。该构建完成后立即提交本组合的分片，无需等待其他平台构建。
-该组合的原生、快测和集成分片从 `native-build-<平台>-py<版本>` artifact 复用同一次构建。
-归档保留可执行权限，包含运行库、调用程序和许可声明。CoolProp 静态库使用精确缓存键，
-绑定平台、架构、Python、托管编译环境版本、原生依赖锁和构建脚本；
-项目 C++ 与模型系数每次重新构建，缓存命中仍须通过独立调用检查。
-构建日志单独保存在 `native-build-logs-<平台>-py<版本>`。
+每个平台调用 [原生工作流](.github/workflows/native.yml)，用 Python 3.13 构建一次原生库并运行独立 C/C++ 调用程序。
+原生库不链接 Python 运行时。macOS 使用 Python 3.13 测试；Windows 保留 Python 3.12 和 3.13 两套测试。
+分片在本平台构建完成后启动，不等待其他平台。原生、快测和集成分片共同使用本轮工作流及源码产生的
+`native-build-<平台>` artifact。归档保留可执行权限，包含运行库、调用程序和许可声明。
+CoolProp 精确缓存键绑定平台、架构、Python 3.13、托管工具链镜像版本、原生依赖锁和构建脚本。
+项目 C++ 和模型系数每轮重新构建；缓存命中仍须完成独立调用验证。
+构建日志单独保存在 `native-build-logs-<平台>`。
 每片上传 `native-dependencies-<平台>-py<版本>-shard-<编号>`，macOS 编号为 0–3，Windows 为 0–6，
 包含 JUnit 和 `native-manifest`。以上 artifact 均保留 7 天。
 原生日志保留最慢 20 项和 skip 原因。
