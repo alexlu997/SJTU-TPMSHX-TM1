@@ -64,18 +64,16 @@ jobs:
         with:
           pattern: test-reports-${{ matrix.os }}-py${{ matrix.python }}-fast-*
           path: .cache/ci-shards
-      - name: Require both complete and disjoint fast shards
-        run: >-
-          python scripts/check_ci_shards.py
-          .cache/ci-shards/test-reports-${{ matrix.os }}-py${{ matrix.python }}-fast-0/fast-manifest
-          .cache/ci-shards/test-reports-${{ matrix.os }}-py${{ matrix.python }}-fast-1/fast-manifest
       - uses: actions/download-artifact@v8
         with:
           pattern: native-dependencies-${{ matrix.os }}-py${{ matrix.python }}-shard-*
           path: .cache/ci-shards
-      - name: Require complete and disjoint native shards
+      - name: Require complete and disjoint application and native coverage
         run: >-
-          python scripts/check_ci_shards.py --serial
+          python scripts/check_ci_shards.py
+          .cache/ci-shards/test-reports-${{ matrix.os }}-py${{ matrix.python }}-fast-0/fast-manifest
+          .cache/ci-shards/test-reports-${{ matrix.os }}-py${{ matrix.python }}-fast-1/fast-manifest
+          --covered-by
           .cache/ci-shards/native-dependencies-${{ matrix.os }}-py${{ matrix.python }}-shard-*/native-manifest
 
   bo-tests:

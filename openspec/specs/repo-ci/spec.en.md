@@ -10,9 +10,9 @@ Define repository CI gates, installation, and exclusions for GitHub Actions and 
 ### Requirement: Headless CI gate on push/PR
 The repository MUST give `.github/workflows/ci.yml` for main pushes and pull requests. Its platforms are macOS/Python 3.13 and Windows/Python 3.12 and 3.13. Installation MUST use the common exact lock referenced by `requirements.txt`. With `PYTHONHASHSEED=0`, it runs `pytest sjtu_tpmshx/tests/ -m "not slow and not heavy" --ignore=sjtu_tpmshx/tests/integration_tm1 -n 2 --dist loadscope`. The existing `ci_shard` plugin splits fast tests into two independent jobs. A third job runs all `tests/integration_tm1/` tests without marker filtering. This job checks real module handoff and numerical behavior. Qt MUST use offscreen mode. The fast gate MUST disable the 3D panel. CI MUST NOT depend on ignored local data assets.
 
-Fast jobs MUST use two workers, one BLAS/OMP/MKL/NumExpr thread, and at most two Numba threads. The independent integration job MUST use at most one Numba thread. Each job MUST report its 30 slowest tests and skip reasons. JUnit XML MUST record individual statuses and durations. Test report artifacts stay available for 7 days.
+Fast jobs MUST use two workers and one BLAS/OMP/MKL/NumExpr thread. Each job MUST report its 30 slowest tests and skip reasons. JUnit XML MUST record individual statuses and durations. Test report artifacts stay available for 7 days.
 
-Uploads cover reports, collection/shard lists, and resource records under `.cache/ci/`. They exclude native solver results and local data. Each platform summary MUST validate that both fast shards are complete and disjoint. It MUST require successful test shards, integration, BO, and native dependency qualification jobs.
+Uploads cover reports, collection/shard lists, and resource records under `.cache/ci/`. They exclude native solver results and local data. The shared `sjtu_tpmshx/tests/native/_ci_suite.txt` list MUST select native qualification modules. Application shards MUST transfer those modules and keep the original full collection. New modules outside the list MUST enter application tests. Each platform summary MUST check complete, disjoint native shards. It MUST then check that application and native coverage is complete and has no overlap. It MUST require successful test shards, integration, BO, and native dependency qualification jobs.
 
 Platform fast tests, real integration, and minimal postprocessing gates stay required. The four required checks are macOS 3.13, Windows 3.12, Windows 3.13, and minimal-postprocess. Speed improvements MUST NOT change numerical assertions or tolerances. Base and BO jobs MUST use the same platform/Python matrix. Both Windows versions use requirements/bo-windows.txt.
 
@@ -20,9 +20,14 @@ Platform fast tests, real integration, and minimal postprocessing gates stay req
 - **WHEN** test sets from both fast shards and the integration job are combined
 - **THEN** existing cases stay covered. Fast shards do not repeat the integration directory. New tests are recorded separately.
 
+#### Scenario: Native tests run once per platform
+- **WHEN** application shards transfer modules from the shared list to native shards
+- **THEN** native shards must pass and cover their full collection. Combined coverage has no duplicates or gaps. Missing or failed manifests prevent a pass.
+- **AND** tests for concurrent threads, process recovery, and result ownership stay in native shards with unchanged assertions
+
 #### Scenario: Native dependencies are independently qualified
 - **WHEN** native dependency jobs run on macOS/Python 3.13 or Windows/Python 3.12 and 3.13
-- **THEN** jobs fetch pinned source and CMake from `native/dependencies-lock.toml`. They build offline and execute independent EOS/pressure, Quick Design, true-h, model-h, and SIMPLE callers. Complete drivers and public C interfaces are compared with the same-version Python reference. `TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1` makes missing executables or libraries failures. Skips cannot substitute for acceptance.
+- **THEN** jobs fetch pinned source and CMake from `native/dependencies-lock.toml`. They build offline and execute independent EOS/pressure, Quick Design, true-h, model-h, and SIMPLE callers. Independent formulas, discrete balances, manufactured solutions, component replay, and fixed historical references check complete drivers and public C interfaces. `TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1` and `TPMSHX_REQUIRE_CPP_TESTS=1` make missing compilers, executables, or libraries failures. Skips cannot substitute for acceptance.
 - **AND** only the independent native job builds dependencies. Ordinary fast shards do not rebuild them. Uploads include build logs and qualification XML. They exclude source archives, property tables, and local experimental data.
 
 #### Scenario: CI green on a clean main
@@ -66,7 +71,7 @@ The `[tool.mypy].files` setting in `pyproject.toml` MUST explicitly list public 
 - **THEN** all three calls report argument type errors. Actual code in the list must still have zero errors.
 
 ### Requirement: Parallel local gate
-The complete local gate MUST support `pytest sjtu_tpmshx/tests/ -q -n auto --dist loadscope`. Before Python starts, set `PYTHONHASHSEED=0`, `NUMBA_NUM_THREADS=2`, and single-threaded BLAS/OMP. Local documentation defaults to `--dist loadscope`. Worker count can be fixed to suit resources. Existing 128-core server scripts keep worksteal. The [root README](../../../README.en.md#环境与检查) defines the interpreter, environment checks, and full command. The common dependency lock includes pytest-xdist.
+The complete local gate MUST support `pytest sjtu_tpmshx/tests/ -q -n auto --dist loadscope`. Before Python starts, set `PYTHONHASHSEED=0` and single-threaded BLAS/OMP. Local documentation defaults to `--dist loadscope`. Worker count can be fixed to suit resources. Existing 128-core server scripts keep worksteal. The [root README](../../../README.en.md#环境与检查) defines the interpreter, environment checks, and full command. The common dependency lock includes pytest-xdist.
 
 #### Scenario: Parallel full suite green
 - **WHEN** `pytest sjtu_tpmshx/tests/ -q -n auto --dist loadscope` runs with `PYTHONHASHSEED=0`

@@ -8,20 +8,25 @@
 ### Requirement: Headless CI gate on push/PR
 仓库 SHALL 提供 GitHub Actions workflow（`.github/workflows/ci.yml`），在 push 到 main 与 PR 时分别使用 macOS/Python 3.13 和 Windows/Python 3.12、3.13，从 `requirements.txt` 引用的共同精确锁安装，并在 `PYTHONHASHSEED=0` 下运行 `pytest sjtu_tpmshx/tests/ -m "not slow and not heavy" --ignore=sjtu_tpmshx/tests/integration_tm1 -n 2 --dist loadscope`。快测通过现有 `ci_shard` 插件分为两个独立作业；真实模块交接与数值检查在第三个独立作业中完整运行 `tests/integration_tm1/`，不加 marker 过滤。Qt SHALL 使用 offscreen 模式，3D 面板 SHALL 在该快速门中禁用。CI SHALL NOT 依赖 gitignored 的本地数据资产。
 
-快测 SHALL 固定两个 worker，BLAS/OMP/MKL/NumExpr 单线程、Numba 上限为 2；
-独立集成作业的 Numba 上限为 1。各作业 SHALL 输出最慢 30 项与 skip 原因，并保存
+快测 SHALL 固定两个 worker，BLAS/OMP/MKL/NumExpr 单线程。各作业 SHALL 输出最慢 30 项与 skip 原因，并保存
 逐项状态及耗时的 JUnit XML，测试报告 artifact 保留 7 天。上传范围为
 `.cache/ci/` 的测试报告、收集/分片清单及资源记录，不包含原生求解结果或本地数据。
-平台汇总门 SHALL 验证两个快测分片完整且互斥，并要求测试分片、集成、BO 及原生依赖资格作业成功。
+原生资格模块 SHALL 由 `sjtu_tpmshx/tests/native/_ci_suite.txt` 共同清单选择，应用快测 SHALL 移交相同模块并保留原完整收集集合。清单外的新模块 SHALL 自动进入应用快测。
+平台汇总门 SHALL 验证原生分片完整且互斥，再验证应用与原生两组覆盖原完整集合且没有重复，并要求测试分片、集成、BO 及原生依赖资格作业成功。
 平台快测、真实集成和最小后处理门均保留；macOS 3.13、Windows 3.12、Windows 3.13 和 minimal-postprocess 四项检查均为必需门，数值断言/容差不因提速改变。基础与 BO 作业 SHALL 使用相同的平台/Python 版本矩阵；两个 Windows 版本共用 requirements/bo-windows.txt。
 
 #### Scenario: Integration is executed once per platform
 - **WHEN** 合并两个快测分片和独立集成作业的测试集合
 - **THEN** 既有用例仍被覆盖，集成目录不在快测中重复执行；新增测试单独记录
 
+#### Scenario: Native tests run once per platform
+- **WHEN** 应用快测将共同清单中的模块移交原生分片
+- **THEN** 原生分片必须成功且完整，合并后没有重复或漏测；缺失或失败的 manifest 阻止通过
+- **AND** 线程并发、进程恢复和结果所有权测试保留在原生组，断言不变
+
 #### Scenario: Native dependencies are independently qualified
 - **WHEN** macOS/Python 3.13 或 Windows/Python 3.12、3.13 的原生依赖作业运行
-- **THEN** 作业按 `native/dependencies-lock.toml` 获取固定源码与 CMake，离线构建并真实执行独立 EOS/压力、Quick Design、true-h、model-h 与 SIMPLE caller，随后用相同版本 Python 参考实现比较完整驱动和公开 C 接口；`TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1` 将缺少可执行程序或动态库视为失败，不允许以 skip 充当验收
+- **THEN** 作业按 `native/dependencies-lock.toml` 获取固定源码与 CMake，离线构建并真实执行独立 EOS/压力、Quick Design、true-h、model-h 与 SIMPLE caller，随后用独立公式、离散账本、制造解、组件重放和固定历史参考验证完整驱动和公开 C 接口；`TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1` 与 `TPMSHX_REQUIRE_CPP_TESTS=1` 将缺少编译器、可执行程序或动态库视为失败，不允许以 skip 充当验收
 - **AND** 构建只在独立原生作业发生，普通快测分片不重复构建依赖；上传构建日志和资格测试 XML，不上传源码、物性表或本地实验数据
 
 #### Scenario: CI green on a clean main
@@ -69,7 +74,7 @@ SHALL 对 envelope、前处理 API、求解 API 和后处理 metrics 启用无�
 - **THEN** 三处调用均报告参数类型错误；清单中的实际代码仍须零错误
 
 ### Requirement: Parallel local gate
-本地全量门 SHALL 支持 pytest-xdist 并行：`pytest sjtu_tpmshx/tests/ -q -n auto --dist loadscope`，且在启动 Python 前设置 `PYTHONHASHSEED=0`、`NUMBA_NUM_THREADS=2` 和 BLAS/OMP 单线程。`--dist loadscope` 为本机文档默认，worker 数可按资源改为固定值；128 核服务器保留脚本中的 worksteal 策略。解释器、环境检查和完整命令集中在[根 README](../../../README.md#环境与检查)。pytest-xdist 位于共同依赖锁中。
+本地全量门 SHALL 支持 pytest-xdist 并行：`pytest sjtu_tpmshx/tests/ -q -n auto --dist loadscope`，且在启动 Python 前设置 `PYTHONHASHSEED=0` 和 BLAS/OMP 单线程。`--dist loadscope` 为本机文档默认，worker 数可按资源改为固定值；128 核服务器保留脚本中的 worksteal 策略。解释器、环境检查和完整命令集中在[根 README](../../../README.md#环境与检查)。pytest-xdist 位于共同依赖锁中。
 
 #### Scenario: Parallel full suite green
 - **WHEN** 在 `PYTHONHASHSEED=0` 下运行 `pytest sjtu_tpmshx/tests/ -q -n auto --dist loadscope`

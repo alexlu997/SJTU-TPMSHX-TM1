@@ -31,12 +31,16 @@ def read_manifest(directory, shard, *, serial=False):
     return records[0]
 
 
-def check(shards, baseline=None, *, serial=False):
+def check(shards, baseline=None, *, serial=False, covered_by=()):
     if len(shards) < 2:
         raise ValueError('at least two shards are required')
     records = [read_manifest(path, index, serial=serial) for index, path in enumerate(shards)]
     full0 = records[0][0]
     selected_all = set()
+    if covered_by:
+        check(covered_by, serial=True)
+        native_full, _ = read_manifest(covered_by[0], 0, serial=True)
+        selected_all.update(set(native_full).intersection(full0))
     counts = []
     for full, selected in records:
         if full != full0:
@@ -58,14 +62,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('shards', type=Path, nargs='+')
     parser.add_argument('--baseline', type=Path)
+    parser.add_argument('--covered-by', type=Path, nargs='+', default=(),
+                        help='Serial native shards that cover excluded application tests.')
     parser.add_argument('--serial', action='store_true',
                         help='Require one serial pytest manifest per shard.')
     args = parser.parse_args()
     try:
-        total, counts = check(args.shards, args.baseline, serial=args.serial)
+        total, counts = check(args.shards, args.baseline, serial=args.serial, covered_by=args.covered_by)
     except (OSError, ValueError, TypeError, KeyError) as exc:
         parser.exit(1, f'CI shard manifest check failed: {exc}\n')
-    print(f'CI shards verified: {total} nodes = {" + ".join(map(str, counts))}; collection manifests agree')
+    print(f'CI shards verified: {total} nodes covered; shard counts {counts}; collection manifests agree')
 
 
 if __name__ == '__main__':
