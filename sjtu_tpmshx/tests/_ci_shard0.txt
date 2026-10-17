@@ -9,6 +9,7 @@ sjtu_tpmshx/tests/design/test_forward.py
 sjtu_tpmshx/tests/design/test_numeric_input_contracts.py
 sjtu_tpmshx/tests/design/test_report.py
 sjtu_tpmshx/tests/design/test_sizing_inner.py
+sjtu_tpmshx/tests/design/test_sizing_outer.py
 sjtu_tpmshx/tests/design/test_wall_thickness_nodes.py
 sjtu_tpmshx/tests/io_tm1/test_case_io.py
 sjtu_tpmshx/tests/io_tm1/test_file_set.py

@@ -140,7 +140,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON(inputs.os == 'macos-14' && '[0,1,2]' || '[0,1,2,3,4,5,6]') }}
+        shard: ${{ fromJSON(inputs.os == 'macos-14' && '[0,1,2,3]' || '[0,1,2,3,4,5,6]') }}
     runs-on: ${{ inputs.os }}
     timeout-minutes: 90
     env:
