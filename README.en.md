@@ -413,7 +413,7 @@ export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
 export QT_QPA_PLATFORM=offscreen PYTHONHASHSEED=0
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 "$PYTHON" -m mypy --config-file pyproject.toml
-"$PYTHON" -m pytest sjtu_tpmshx/tests -q -ra -m "not slow and not heavy" --ignore=sjtu_tpmshx/tests/integration_tm1 -n 2 --dist loadscope --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/fast.xml
+"$PYTHON" -m pytest sjtu_tpmshx/tests -q -ra -m "not slow and not heavy" --ignore=sjtu_tpmshx/tests/integration_tm1 -n 2 --dist worksteal --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/fast.xml
 "$PYTHON" -m pytest sjtu_tpmshx/tests/integration_tm1 -q -ra --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/integration.xml
 # Complete local acceptance: no -m filter. Replace auto with a fixed worker count for available resources.
 "$PYTHON" -m pytest sjtu_tpmshx/tests -q -n auto --dist loadscope --timeout=600 --timeout-method=thread
@@ -421,7 +421,7 @@ export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_TH
 
 PowerShell uses the same pytest arguments. Set the listed environment variables and call `& $tm1Python`. Provide a matching native library before tests.
 
-CI fast tests split complete modules between two runners, each with two workers. Each worker has single-threaded BLAS/OMP. Complete integration runs concurrently on a third runner.
+CI fast tests split complete modules between two runners. Each runner uses two workers with `worksteal` to balance remaining tests. Each worker has single-threaded BLAS/OMP. Complete integration runs concurrently on a third runner.
 
 Existing test helpers stay. `run_tests_fast.ps1` is development feedback only. Its `not heavy` subset differs from fast CI. The two PowerShell scripts validate the base lock by default. With an existing Windows BO environment, use `./scripts/run_tests_server.ps1 -LockFile requirements/bo-windows.txt`.
 
@@ -429,7 +429,17 @@ The same parameter is accepted by `run_tests_fast.ps1`. Tests start only after t
 
 GitHub workflows use checkout v7, setup-python v7, upload-artifact v7, and download-artifact v8 for shard gates. Action runtimes do not change solver Python environments. The `minimal-postprocess` job in `ci` validates real files from a complete environment in a separate minimal environment. Base and separate BO jobs cover macOS/Python 3.13 and Windows/Python 3.12 and 3.13. BO jobs install platform-specific locks, validate environments, and explicitly import Torch/BoTorch/GPyTorch.
 
-They run multi-condition optimizer tests, including both real Log acquisition functions. Base jobs keep the lock without BO and test missing-optional-dependency behavior. BO uploads only JUnit reports for 7 days, without solve data or environments.
+They run multi-condition optimizer tests, including both real Log acquisition functions. Base jobs keep the lock without BO and test missing-optional-dependency behavior. BO uploads JUnit reports and full collection manifests for 7 days, without solve data or environments.
+
+PRs select checks through an [explicit path list](scripts/ci_scope.py):
+
+- `docs`: Only root README files, AGENTS, and Markdown files under `docs/`. Check local links, anchors, and concrete project module commands.
+- `application`: Only listed display and layout modules, icons, and their tests, with optional documents. Keep both platforms' builds, application, integration, BO, and real-file postprocessing checks.
+- `full`: Solver, model, public interface, dependency, workflow, and all unlisted paths. Run the full matrix.
+
+Main and manual runs always use `full`. Renames check both old and new paths. Unknown or empty change lists use the full matrix.
+The full matrix has 37 jobs. Lighter PR tiers do not provide full-CI timing or numerical research acceptance.
+Physical changes still require their extended numerical studies. Normal CI does not replace that evidence.
 
 The `[tool.mypy].files` setting in `pyproject.toml` explicitly lists 19 files. Coverage includes configuration, controllers, CLI, the common workflow, current envelope implementation, three-module contracts/APIs, and the postprocessing metric entry. Deleted forwarding modules are excluded. `pyproject.toml` validates unannotated bodies in four boundary implementation modules. This does not show strict typing across each solver.
 
@@ -449,7 +459,7 @@ The summary gate first checks complete, disjoint, successful native shards. It t
 
 Pass native shards in numeric order. Without `--ci-covered-modules`, local users can still check both complete fast shards separately.
 
-Native qualification uses four serial shards on macOS and seven for each Windows/Python combination. Measured case durations from the full matrix set the groups. Windows conservative energy tests use one fixture parameter per group. Convergence, property, energy ledger and real replay checks for each parameter stay in one shard. Other modules keep their shared fixtures. Independent engineering-pair tests can use complete node IDs.
+Native qualification uses four shards on macOS and seven for each Windows/Python combination. Each shard uses two workers with `loadscope`, which keeps each module or class in one worker. Measured case durations from the full matrix set the groups. Windows conservative energy tests use one fixture parameter per group. Convergence, property, energy ledger and real replay checks for each parameter stay in one shard. Other modules keep their shared fixtures. Independent engineering-pair tests can use complete node IDs.
 
 Group lists are in `sjtu_tpmshx/tests/native/`. macOS uses `_ci_macos_shard0.txt` through `_ci_macos_shard2.txt`. Windows uses `_ci_windows_shard0.txt` through `_ci_windows_shard5.txt`. Pass each list through `--ci-shard-modules=<list-path>` in numeric order. Unlisted cases enter the final automatic shard: 3 on macOS or 6 on Windows. All three platform/Python combinations remain supported. Native engineering cases keep per-side physical models, convergence and energy limits.
 
@@ -461,11 +471,19 @@ Each platform calls the [native workflow](.github/workflows/native.yml). It buil
 
 Build logs use `native-build-logs-<platform>`. Each shard uploads `native-dependencies-<platform>-py<version>-shard-<number>` with JUnit and `native-manifest`. Shard numbers are 0–3 on macOS and 0–6 on Windows. These artifacts are retained for 7 days.
 
-Pass all shard manifests in numeric order to the same set checker with `--serial`. It verifies complete and disjoint selection. Native logs keep the 20 slowest tests and skip reasons.
+Pass all shard manifests in numeric order to the same set checker. It verifies complete and disjoint selection and requires both `gw0` and `gw1` records per shard. Use `--serial` only for local serial tests with `controller` records. Native logs keep the 20 slowest tests and skip reasons.
 
 Fast/integration logs keep the 30 slowest tests and skip reasons. Each shard publishes JUnit and collection manifests as `test-reports-<platform>-py<version>-<fast-0|fast-1|integration>` for 7 days. Manifests include each pytest process's separate peak RSS. Process peaks cannot be summed as concurrent total peak. Statistics exclude ordinary child processes.
 
-The three original `tests (<platform>, <version>)` required checks wait for all platforms' test shards, BO jobs, and native qualification shards. They require each job to succeed and all shard-set checks to pass. Failed, canceled, skipped, or missing shards cannot pass the gate. `minimal-postprocess` stays separately required. Compare fast, integration, and full-job speed separately with same-platform baselines.
+The three original `tests (<platform>, <version>)` required checks verify the expected job names and results for the selected tier.
+The `docs` tier permits only the specified runtime jobs to be skipped. Document checks must pass.
+Other tiers require successful builds, application, integration, BO, and postprocessing checks.
+The `full` tier requires complete native coverage. The `application` tier permits only exact paths in the native module list to be omitted.
+Each platform/Python summary also requires its BO and integration reports, successful collection records, and complete test counts.
+BO permits no skipped tests. Integration permits recorded individual skips, but a report with every test skipped must fail.
+Unexpected failures, cancellations, skips, missing reports, or coverage gaps cannot pass.
+The `minimal-postprocess` check stays separately required. In the `docs` tier, it only checks the expected job results.
+Compare fast, integration, and full-job speed separately with same-platform baselines.
 
 Local timing does not promise CI speedups. Acceptance skips keep specific reasons. Skipped capabilities are not passed. Minimal-postprocess CI uses separate `requirements/postprocess.txt`. It consumes real 2D/3D files from another complete environment. The macOS integration job uploads two public-example results and their metrics as `real-file-handoff` for the Linux minimal environment. These files stay available for seven days. They contain no private data.
 
