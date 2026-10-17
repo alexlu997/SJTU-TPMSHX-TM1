@@ -439,9 +439,11 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: real-file-handoff
+          # Pytest's current links duplicate the producer files.
           path: |
             .cache/real-file-handoff/**/handoff/results.h5
             .cache/real-file-handoff/**/handoff/metrics.json
+            !.cache/real-file-handoff/**/*current/**
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
