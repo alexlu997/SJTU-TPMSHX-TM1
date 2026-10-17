@@ -449,9 +449,9 @@ The summary gate first checks complete, disjoint, successful native shards. It t
 
 Pass native shards in numeric order. Without `--ci-covered-modules`, local users can still check both complete fast shards separately.
 
-Native qualification uses three serial shards on macOS and seven for each Windows/Python combination. Measured case durations from the full matrix set the groups. Windows conservative energy tests use one fixture parameter per group. Convergence, property, energy ledger and real replay checks for each parameter stay in one shard. Other modules keep their shared fixtures. Independent engineering-pair tests can use complete node IDs.
+Native qualification uses four serial shards on macOS and seven for each Windows/Python combination. Measured case durations from the full matrix set the groups. Windows conservative energy tests use one fixture parameter per group. Convergence, property, energy ledger and real replay checks for each parameter stay in one shard. Other modules keep their shared fixtures. Independent engineering-pair tests can use complete node IDs.
 
-Group lists are in `sjtu_tpmshx/tests/native/`. macOS uses `_ci_macos_shard0.txt` and `_ci_macos_shard1.txt`. Windows uses `_ci_windows_shard0.txt` through `_ci_windows_shard5.txt`. Pass each list through `--ci-shard-modules=<list-path>` in numeric order. Unlisted cases enter the final automatic shard: 2 on macOS or 6 on Windows. All three platform/Python combinations remain supported. Native engineering cases keep per-side physical models, convergence and energy limits.
+Group lists are in `sjtu_tpmshx/tests/native/`. macOS uses `_ci_macos_shard0.txt` through `_ci_macos_shard2.txt`. Windows uses `_ci_windows_shard0.txt` through `_ci_windows_shard5.txt`. Pass each list through `--ci-shard-modules=<list-path>` in numeric order. Unlisted cases enter the final automatic shard: 3 on macOS or 6 on Windows. All three platform/Python combinations remain supported. Native engineering cases keep per-side physical models, convergence and energy limits.
 
 Native jobs set both `TPMSHX_REQUIRE_CPP_TESTS=1` and `TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1`. Missing compilers or native libraries must fail. Existing tests for concurrent threads, process recovery, and result ownership still run in native shards.
 
@@ -459,7 +459,7 @@ Independent formulas, discrete energy balances, manufactured solutions, componen
 
 Each platform/Python combination calls the [native workflow](.github/workflows/native.yml). It builds native libraries once and runs independent C/C++ callers. Its shards can start when that build completes. They do not wait for other platforms to build. Native, fast and integration shards reuse the same `native-build-<platform>-py<version>` artifact. The archive preserves executable permissions and includes runtime libraries, callers, and license notices. An exact CoolProp static-library cache key binds the platform, architecture, Python, hosted toolchain image version, native dependency lock, and build script. Project C++ and model coefficients rebuild on every run. Cache hits still require independent caller checks.
 
-Build logs use `native-build-logs-<platform>-py<version>`. Each shard uploads `native-dependencies-<platform>-py<version>-shard-<number>` with JUnit and `native-manifest`. Shard numbers are 0–2 on macOS and 0–6 on Windows. These artifacts are retained for 7 days.
+Build logs use `native-build-logs-<platform>-py<version>`. Each shard uploads `native-dependencies-<platform>-py<version>-shard-<number>` with JUnit and `native-manifest`. Shard numbers are 0–3 on macOS and 0–6 on Windows. These artifacts are retained for 7 days.
 
 Pass all shard manifests in numeric order to the same set checker with `--serial`. It verifies complete and disjoint selection. Native logs keep the 20 slowest tests and skip reasons.
 
