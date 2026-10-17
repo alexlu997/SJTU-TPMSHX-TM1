@@ -39,13 +39,13 @@ def suite(tmp_path_factory):
     return root
 
 
-def run_pytest(root, *options, workers=2):
+def run_pytest(root, *options, workers=2, distribution='loadscope'):
     env = dict(os.environ, PYTEST_DISABLE_PLUGIN_AUTOLOAD='1',
                PYTHONPATH=os.pathsep.join([str(root), str(_ROOT), os.environ.get('PYTHONPATH', '')]))
     return subprocess.run(
         [sys.executable, '-m', 'pytest', '-p', 'xdist.plugin', '-p', 'ci_shard',
          '-c', str(root / 'pyproject.toml'),
-         '-n', str(workers), '--dist=loadscope', '-q', '-m', 'not heavy and not slow',
+         '-n', str(workers), '--dist', distribution, '-q', '-m', 'not heavy and not slow',
          '-k', 'keep or heavy or slow', *options], cwd=root, env=env,
         text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=45)
 
@@ -218,11 +218,11 @@ def partitioned_manifests(suite, tmp_path_factory):
     native = [root / f'native{i}' for i in range(2)]
     for shard in range(2):
         result = run_pytest(root, f'--ci-shard={shard}', '--ci-manifest', str(app[shard]),
-                            f'--ci-covered-modules={modules}')
+                            f'--ci-covered-modules={modules}', distribution='worksteal')
         assert result.returncode == 0, result.stdout
         result = run_pytest(root, '@' + str(modules), f'--ci-shard={shard}',
                             '--ci-manifest', str(native[shard]),
-                            f'--ci-shard-modules={group}', workers=0)
+                            f'--ci-shard-modules={group}')
         assert result.returncode == 0, result.stdout
     return app, native
 
@@ -249,7 +249,7 @@ def test_cross_group_gate_rejects_missing_or_duplicate_coverage(partitioned_mani
     for source, target in zip(original_app + original_native, app + native):
         shutil.copytree(source, target)
     if damage == 'missing_native':
-        (native[0] / 'controller.json').unlink()
+        (native[0] / 'gw1.json').unlink()
     else:
         paths = list((app[0] if damage.startswith('app') else native[0]).glob('*.json'))
         for path in paths:
@@ -263,3 +263,67 @@ def test_cross_group_gate_rejects_missing_or_duplicate_coverage(partitioned_mani
                 record['selected_nodeids'].append(node)
             path.write_text(json.dumps(record), encoding='utf-8')
     assert run_checker(*app, covered_by=native).returncode != 0
+
+
+def test_application_tier_allows_only_the_listed_native_modules(partitioned_manifests):
+    from scripts.check_ci_shards import check
+
+    app, native = partitioned_manifests
+    assert check(app, omitted_modules={'test_native.py'}) == (7, [2, 3])
+    for modules in ({'test_native.py::test_keep_native[1]'}, {'test_other.py'},
+                    {'test_native.py', 'test_new_native.py'}):
+        with pytest.raises(ValueError):
+            check(app, omitted_modules=modules)
+    with pytest.raises(ValueError):
+        check(app, covered_by=native, omitted_modules={'test_native.py'})
+
+
+@pytest.fixture(scope='module')
+def serial_report(suite, tmp_path_factory):
+    directory = tmp_path_factory.mktemp('ci-report')
+    result = run_pytest(suite, '--ci-manifest', str(directory / 'bo-manifest'),
+                        f'--junitxml={directory / "bo.xml"}', workers=0)
+    assert result.returncode == 0, result.stdout
+    return directory
+
+
+def test_report_requires_real_successful_execution(serial_report):
+    from scripts.check_ci_shards import check_report
+
+    assert check_report(serial_report, 'bo') == (4, 0)
+
+
+@pytest.mark.parametrize('damage', ['missing_platform', 'missing_report', 'failed_manifest',
+                                   'missing_case', 'failed_case', 'skipped_case', 'all_skipped'])
+def test_report_rejects_missing_failed_or_skipped_execution(serial_report, tmp_path, damage):
+    from xml.etree import ElementTree
+    from scripts.check_ci_shards import check_report
+
+    directory = tmp_path / 'report'
+    if damage != 'missing_platform':
+        shutil.copytree(serial_report, directory)
+    if damage == 'missing_report':
+        (directory / 'bo.xml').unlink()
+    elif damage == 'failed_manifest':
+        path = directory / 'bo-manifest' / 'controller.json'
+        record = json.loads(path.read_text())
+        record['exitstatus'] = 1
+        path.write_text(json.dumps(record), encoding='utf-8')
+    elif damage not in ('missing_platform', 'missing_report'):
+        path = directory / 'bo.xml'
+        tree = ElementTree.parse(path)
+        group = next(tree.iter('testsuite'))
+        cases = list(group.iter('testcase'))
+        if damage == 'missing_case':
+            group.remove(cases[0])
+        else:
+            for case in cases if damage == 'all_skipped' else cases[:1]:
+                ElementTree.SubElement(case, 'failure' if damage == 'failed_case' else 'skipped')
+        tree.write(path)
+    with pytest.raises((OSError, ValueError)):
+        check_report(directory, 'bo')
+    if damage == 'skipped_case':
+        assert check_report(directory, 'bo', allow_skips=True) == (4, 1)
+    else:
+        with pytest.raises((OSError, ValueError)):
+            check_report(directory, 'bo', allow_skips=True)

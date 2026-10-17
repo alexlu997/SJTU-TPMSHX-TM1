@@ -505,7 +505,7 @@ export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
 export QT_QPA_PLATFORM=offscreen PYTHONHASHSEED=0
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 "$PYTHON" -m mypy --config-file pyproject.toml
-"$PYTHON" -m pytest sjtu_tpmshx/tests -q -ra -m "not slow and not heavy" --ignore=sjtu_tpmshx/tests/integration_tm1 -n 2 --dist loadscope --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/fast.xml
+"$PYTHON" -m pytest sjtu_tpmshx/tests -q -ra -m "not slow and not heavy" --ignore=sjtu_tpmshx/tests/integration_tm1 -n 2 --dist worksteal --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/fast.xml
 "$PYTHON" -m pytest sjtu_tpmshx/tests/integration_tm1 -q -ra --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/integration.xml
 # 完整本地验收：没有 -m 过滤；按本机 CPU/内存可将 auto 换为固定 worker 数。
 "$PYTHON" -m pytest sjtu_tpmshx/tests -q -n auto --dist loadscope --timeout=600 --timeout-method=thread
@@ -513,7 +513,7 @@ export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_TH
 
 PowerShell 使用同样的 pytest 参数，以 `$env:变量名=值` 设置上述环境变量，
 并以 `& $tm1Python` 调用解释器。测试前必须提供匹配的原生库。
-CI 快测按完整模块分到两个独立 runner，每片固定两个 worker，
+CI 快测按完整模块分到两个独立 runner，每片固定两个 worker，使用 `worksteal` 平衡剩余测试。
 每个 worker 的 BLAS/OMP 单线程；完整 integration 使用第三个 runner 并行执行。
 现有测试辅助脚本继续保留；`run_tests_fast.ps1` 只提供开发反馈，
 其 `not heavy` 子集与 CI 快测不同。两份 PowerShell 脚本默认严格检查基础锁。
@@ -529,7 +529,17 @@ GitHub workflow 使用 checkout v7、setup-python v7、upload-artifact v7，
 3.12、3.13；BO 作业分别安装对应平台的 BO 锁，严格检查环境后
 显式导入 Torch / BoTorch / GPyTorch，并运行多工况优化器测试（含两种真实 Log
 采集函数）。基础作业仍使用不含 BO 的锁，覆盖可选依赖缺失时的行为。
-BO 作业只上传 JUnit 测试报告，保留 7 天，不上传求解数据或虚拟环境。
+BO 作业上传 JUnit 与完整收集 manifest，保留 7 天，不上传求解数据或虚拟环境。
+
+PR 按 [明确的路径清单](scripts/ci_scope.py) 选择检查层级：
+
+- `docs`：仅根目录 README、AGENTS 和 `docs/` 下的 Markdown。检查本地链接、锚点和具体项目模块命令。
+- `application`：仅指定界面显示、布局模块、图标及对应测试，可包含文档。保留两平台构建、应用、集成、BO 与真实文件后处理检查。
+- `full`：求解器、模型、公共接口、依赖、工作流和所有未列出的路径。运行完整矩阵。
+
+main 和手动触发始终使用 `full`。重命名同时检查旧、新路径；未知或空的变更集合使用完整矩阵。
+完整矩阵有 37 个作业。较轻 PR 层级不能作为完整 CI 耗时或数值研究验收。
+物理变更仍须完成其要求的扩展数值研究；常规 CI 不替代该证据。
 
 `pyproject.toml` 的 `[tool.mypy].files` 显式列出 19 个类型检查文件：覆盖配置、控制器、CLI、统一工作流、当前
 envelope 实现、三模块数据契约与公共 API、后处理指标入口；已删除的转发模块不再列入。
@@ -559,7 +569,8 @@ envelope 实现、三模块数据契约与公共 API、后处理指标入口；�
 
 原生分片必须按编号顺序传入。若本地不使用 `--ci-covered-modules`，仍可单独核对两个完整快测分片。
 
-原生资格检查在 macOS 分为四片，在每个 Windows/Python 组合分为七片，每片串行执行。
+原生资格检查在 macOS 分为四片，在每个 Windows/Python 组合分为七片。
+每片使用两个 worker 和 `loadscope`，将同一模块或类保留在同一 worker。
 分组依据完整矩阵的实测用例耗时。Windows 的保守能量测试按独立 fixture 参数分组，
 同组的收敛、物性、能量账本和真实回放检查保持在同片。其他模块保留共享 fixture；
 独立工程用例可按完整 node ID 分组。
@@ -567,7 +578,8 @@ envelope 实现、三模块数据契约与公共 API、后处理指标入口；�
 Windows 使用 `_ci_windows_shard0.txt` 至 `_ci_windows_shard5.txt`。
 按编号顺序将每份清单通过 `--ci-shard-modules=<清单路径>` 重复传入。
 未列出的用例自动进入最后一片，即 macOS 分片 3 或 Windows 分片 6。
-同一集合校验器加 `--serial`，按编号传入全部 manifest，核对其完整且互斥。
+按编号向同一集合校验器传入全部 manifest，核对其完整且互斥；每片必须有 `gw0`、`gw1` 两份记录。
+`--serial` 仅用于本地串行测试的 `controller` 记录。
 三个平台/Python 组合保持不变。原生工程用例保留逐侧物理模型、收敛及能量门槛。
 原生组同时设置 `TPMSHX_REQUIRE_CPP_TESTS=1` 和 `TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1`；
 缺少编译器或原生库必须失败。原有线程并发、进程恢复和结果所有权测试仍在原生组执行。
@@ -589,9 +601,13 @@ CoolProp 精确缓存键绑定平台、架构、Python 3.13、托管工具链镜
 `test-reports-<平台>-py<版本>-<fast-0|fast-1|integration>` artifact，保留 7 天。
 manifest 附带各 pytest 进程的独立 RSS 峰值；
 进程峰值不能相加当作同期总峰值，统计不覆盖普通子进程。
-三个原名 `tests (<平台>, <版本>)` 必需检查共同等待全部平台的测试片、BO 和原生资格片，
-只接受全部成功及分片集合校验通过；失败、取消、跳过或缺失分片不能放行。
-`minimal-postprocess` 继续作为独立必需检查。
+三个原名 `tests (<平台>, <版本>)` 必需检查核对所选层级的预期作业名称及结果。
+`docs` 只允许明确跳过运行时作业；文档检查必须成功。其他层级要求构建、应用、集成、BO 和后处理成功。
+`full` 必须通过完整原生覆盖；`application` 只允许省略原生模块清单中的精确路径，其他遗漏均失败。
+各平台/Python 汇总还要求对应 BO 和集成报告、成功收集记录及完整测试计数。
+BO 不允许跳过测试；集成允许已记录的单项跳过，但全跳过必须失败。
+未预期的失败、取消、跳过、缺失报告或覆盖缺口均不能放行。
+`minimal-postprocess` 继续作为独立必需检查；在 `docs` 层级只核对预期作业结果。
 比较速度时区分快测、集成和整个 job，并使用相同平台的基准，不据本地耗时承诺 CI 提速。
 完整验收的 skip 须保留具体原因，不能当作被跳过能力已经通过。最小后处理 CI 使用独立的
 `requirements/postprocess.txt` 环境，并消费另一完整环境生成的真实 2D/3D
