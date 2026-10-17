@@ -421,7 +421,7 @@ export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_TH
 
 PowerShell uses the same pytest arguments. Set the listed environment variables and call `& $tm1Python`. Provide a matching native library before tests.
 
-CI fast tests split complete modules between two runners. Each runner uses two workers with `worksteal` to balance remaining tests. Each worker has single-threaded BLAS/OMP. Complete integration runs concurrently on a third runner.
+CI fast tests split complete modules between two runners. Each runner uses two workers with `worksteal` to balance remaining tests. Each worker has single-threaded BLAS/OMP. After both `fast-1` workers finish, the same job runs complete integration in a separate serial pytest process. Integration keeps separate manifests and JUnit reports. It still runs after fast test failure, unless the workflow was cancelled. Each platform/Python combination uses its existing environment. This removes three jobs and their repeated installations.
 
 Existing test helpers stay. `run_tests_fast.ps1` is development feedback only. Its `not heavy` subset differs from fast CI. The two PowerShell scripts validate the base lock by default. With an existing Windows BO environment, use `./scripts/run_tests_server.ps1 -LockFile requirements/bo-windows.txt`.
 
@@ -438,7 +438,7 @@ PRs select checks through an [explicit path list](scripts/ci_scope.py):
 - `full`: Solver, model, public interface, dependency, workflow, and all unlisted paths. Run the full matrix.
 
 Main and manual runs always use `full`. Renames check both old and new paths. Unknown or empty change lists use the full matrix.
-The full matrix has 37 jobs. Lighter PR tiers do not provide full-CI timing or numerical research acceptance.
+The full matrix has 29 jobs. Lighter PR tiers do not provide full-CI timing or numerical research acceptance.
 Physical changes still require their extended numerical studies. Normal CI does not replace that evidence.
 
 The `[tool.mypy].files` setting in `pyproject.toml` explicitly lists 19 files. Coverage includes configuration, controllers, CLI, the common workflow, current envelope implementation, three-module contracts/APIs, and the postprocessing metric entry. Deleted forwarding modules are excluded. `pyproject.toml` validates unannotated bodies in four boundary implementation modules. This does not show strict typing across each solver.
@@ -467,13 +467,13 @@ Native jobs set both `TPMSHX_REQUIRE_CPP_TESTS=1` and `TPMSHX_REQUIRE_NATIVE_DEP
 
 Independent formulas, discrete energy balances, manufactured solutions, component replay and fixed historical references replace Python solver comparisons. Retired iterators are not retained as a second solver.
 
-Each platform calls the [native workflow](.github/workflows/native.yml). It builds native libraries once with Python 3.13 and runs independent C/C++ callers. The native libraries do not link to a Python runtime. macOS tests use Python 3.13. Windows tests use both Python 3.12 and 3.13. Shards start after their platform build and do not wait for other platforms. Native, fast and integration shards reuse the same `native-build-<platform>` artifact from the current workflow run and source. The archive preserves executable permissions and includes runtime libraries, callers, and license notices. An exact CoolProp cache key binds platform, architecture, Python 3.13, toolchain image, native dependency lock and build script. Project C++ and model coefficients rebuild on every run. Cache hits still require independent caller checks.
+Each platform calls the [native workflow](.github/workflows/native.yml). It builds native libraries once with Python 3.13 and runs independent C/C++ callers. The native libraries do not link to a Python runtime. macOS tests use Python 3.13. Windows tests use both Python 3.12 and 3.13. Shards start after their platform build and do not wait for other platforms. Native, fast and integration tests use the same `native-build-<platform>` artifact from the current workflow run and source. The archive preserves executable permissions and includes runtime libraries, callers, and license notices. An exact CoolProp cache key binds platform, architecture, Python 3.13, toolchain image, native dependency lock and build script. Project C++ and model coefficients rebuild on every run. Cache hits still require independent caller checks.
 
 Build logs use `native-build-logs-<platform>`. Each shard uploads `native-dependencies-<platform>-py<version>-shard-<number>` with JUnit and `native-manifest`. Shard numbers are 0–2 on macOS and 0–4 on Windows. These artifacts are retained for 7 days.
 
 Pass all shard manifests in numeric order to the same set checker. It verifies complete and disjoint selection and requires both `gw0` and `gw1` records per shard. Use `--serial` only for local serial tests with `controller` records. Native logs keep the 20 slowest tests and skip reasons.
 
-Fast/integration logs keep the 30 slowest tests and skip reasons. Each shard publishes JUnit and collection manifests as `test-reports-<platform>-py<version>-<fast-0|fast-1|integration>` for 7 days. Manifests include each pytest process's separate peak RSS. Process peaks cannot be summed as concurrent total peak. Statistics exclude ordinary child processes.
+Fast/integration logs keep the 30 slowest tests and skip reasons. Each group publishes separate JUnit and collection manifests as `test-reports-<platform>-py<version>-<fast-0|fast-1|integration>` for 7 days. Manifests include each pytest process's separate peak RSS. Process peaks cannot be summed as concurrent total peak. Statistics exclude ordinary child processes.
 
 The three original `tests (<platform>, <version>)` required checks verify the expected job names and results for the selected tier.
 The `docs` tier permits only the specified runtime jobs to be skipped. Document checks must pass.
@@ -485,7 +485,7 @@ Unexpected failures, cancellations, skips, missing reports, or coverage gaps can
 The `minimal-postprocess` check stays separately required. In the `docs` tier, it only checks the expected job results.
 Compare fast, integration, and full-job speed separately with same-platform baselines.
 
-Local timing does not promise CI speedups. Acceptance skips keep specific reasons. Skipped capabilities are not passed. Minimal-postprocess CI uses separate `requirements/postprocess.txt`. It consumes real 2D/3D files from another complete environment. The macOS integration job uploads two public-example results and their metrics as `real-file-handoff` for the Linux minimal environment. These files stay available for seven days. They contain no private data.
+Local timing does not promise CI speedups. Acceptance skips keep specific reasons. Skipped capabilities are not passed. Minimal-postprocess CI uses separate `requirements/postprocess.txt`. It consumes real 2D/3D files from another complete environment. The macOS integration step uploads two public-example results and their metrics as `real-file-handoff` for the Linux minimal environment. These files stay available for seven days. They contain no private data.
 
 Configuration alone does not show a CI pass.
 
