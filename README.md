@@ -519,7 +519,11 @@ CI 快测按完整模块分到两个独立 runner，每片固定两个 worker，
 三个平台/Python 组合分别复用各自环境，减少三个作业及其重复安装。
 CI 在独立 Qt 进程中渲染真实 3D 体场，检查字段切换、PNG 解码、缩放图像、应用导出及关闭。
 macOS 使用 Cocoa；Windows 使用固定版本的 Mesa OpenGL 软件渲染。
-快测 artifact 保留 PNG 和渲染报告；实体 Windows 显示器的桌面验收仍单独记录。
+macOS arm64 托管机若检测到 `Apple Software Renderer`，该像素检查明确跳过。
+[PyVistaQt 记录了此环境的渲染限制](https://github.com/pyvista/pyvistaqt/blob/v0.13.1/pyvistaqt/rwi.py)。
+实体 Mac 的完整像素检查仍是图形依赖变更的本地验收项。
+快测 artifact 保留 OpenGL 信息、进程日志，以及成功生成的 PNG 和渲染报告。
+实体 Windows 显示器的桌面验收仍单独记录。
 
 现有测试辅助脚本继续保留；`run_tests_fast.ps1` 只提供开发反馈，
 其 `not heavy` 子集与 CI 快测不同。两份 PowerShell 脚本默认严格检查基础锁。

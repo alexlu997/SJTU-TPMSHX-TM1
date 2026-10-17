@@ -41,6 +41,11 @@ def _render_panel(destination):
                    'render_window': panel.plotter.ren_win.GetClassName(),
                    'capabilities': panel.plotter.ren_win.ReportCapabilities()}
         (output / 'context.json').write_text(json.dumps(context, indent=2) + '\n')
+        if (sys.platform == 'darwin' and os.uname().machine == 'arm64'
+                and 'Apple Software Renderer' in context['capabilities']):
+            # PyVistaQt documents corrupt pixels on this virtual renderer.
+            print('Unsupported Apple software OpenGL on macOS arm64', flush=True)
+            return 77
         loop = QEventLoop()
         QTimer.singleShot(250, loop.quit)
         loop.exec()
@@ -109,7 +114,9 @@ def test_actual_volume_scaled_screenshot_and_application_export():
             [sys.executable, '-c',
              'import faulthandler, sys; faulthandler.dump_traceback_later(60); '
              'from sjtu_tpmshx.tests.test_real_3d_render import _render_panel; '
-             '_render_panel(sys.argv[1])', str(output)],
+             'sys.exit(_render_panel(sys.argv[1]))', str(output)],
             env=environment, stdout=log, stderr=subprocess.STDOUT, timeout=120,
         )
+    if result.returncode == 77:
+        pytest.skip('Apple software OpenGL on macOS arm64 cannot support this pixel check')
     assert result.returncode == 0, (result.returncode, (output / 'process.log').read_text())
