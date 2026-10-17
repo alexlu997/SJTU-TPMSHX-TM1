@@ -368,5 +368,5 @@ int main(void) {
         strict.equation_energy_tolerance=1e-5;
         tpmshx_full_3d_release_v1(&r);
     }
-    puts("{\"status\":\"passed\",\"abi\":1,\"full3d_owned\":true,\"energy_entry_query\":true,\"strict_energy_v3\":true,\"cancel\":true,\"error_untouched\":true}");return 0;
+    puts("{\"status\":\"passed\",\"abi\":2,\"full3d_owned\":true,\"energy_entry_query\":true,\"strict_energy_v3\":true,\"cancel\":true,\"error_untouched\":true}");return 0;
 }
