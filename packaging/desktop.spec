@@ -22,26 +22,23 @@ data += [(str(root / 'examples' / 'three_module' / name), 'examples')
          for name in ('air_2d.json', 'air_3d.json')]
 data += [(str(root / 'LICENSE'), 'licenses')]
 
-# Native inclusion is an explicit build input, never a build/download action.
-# Leaving it unset preserves the existing Python desktop distribution.
-binaries = []
+# Packaging requires the prebuilt library for the target platform.
 native_input = os.environ.get('TPMSHX_NATIVE_SOLVER_LIBRARY')
-if native_input is not None:
-    if not native_input.strip():
-        raise ValueError('TPMSHX_NATIVE_SOLVER_LIBRARY must name a prebuilt solver library')
-    library = Path(native_input).expanduser().resolve(strict=True)
-    expected_name = {
-        'darwin': 'libtpmshx_solver_shared.dylib',
-        'win32': 'tpmshx_solver_shared.dll',
-    }[sys.platform]
-    if not library.is_file() or library.name != expected_name:
-        raise ValueError(f'Expected the prebuilt {expected_name} for this desktop target: {library}')
-    binaries.append((str(library), 'native'))
-    data += [
-        (str(root / 'native' / 'THIRD_PARTY_NOTICES.md'), 'licenses/native'),
-        (str(root / 'native' / 'dependencies-lock.toml'), 'licenses/native'),
-        (str(root / 'native' / 'licenses'), 'licenses/native/licenses'),
-    ]
+if not native_input or not native_input.strip():
+    raise ValueError('TPMSHX_NATIVE_SOLVER_LIBRARY must name a prebuilt solver library')
+library = Path(native_input).expanduser().resolve(strict=True)
+expected_name = {
+    'darwin': 'libtpmshx_solver_shared.dylib',
+    'win32': 'tpmshx_solver_shared.dll',
+}[sys.platform]
+if not library.is_file() or library.name != expected_name:
+    raise ValueError(f'Expected the prebuilt {expected_name} for this desktop target: {library}')
+binaries = [(str(library), 'native')]
+data += [
+    (str(root / 'native' / 'THIRD_PARTY_NOTICES.md'), 'licenses/native'),
+    (str(root / 'native' / 'dependencies-lock.toml'), 'licenses/native'),
+    (str(root / 'native' / 'licenses'), 'licenses/native/licenses'),
+]
 
 a = Analysis(
     [str(root / 'packaging' / 'desktop_entry.py')],
@@ -53,9 +50,6 @@ a = Analysis(
     # savefig selects vector backends dynamically; static discovery misses
     # the SVG/PDF formats exposed by the desktop export dialog.
     hooksconfig={'matplotlib': {'backends': ['Agg', 'QtAgg', 'svg', 'pdf']}},
-    # Load from real files: PYZ code keeps relative co_filename values that
-    # Numba's cache locator cannot resolve outside the source directory.
-    module_collection_mode={'sjtu_tpmshx': 'py'},
 )
 pyz = PYZ(a.pure)
 exe = EXE(

@@ -1,5 +1,6 @@
 """Spawned condition workers keep callbacks, archives and failures separate."""
 from dataclasses import replace
+from functools import partial
 import json
 import os
 from pathlib import Path
@@ -15,7 +16,7 @@ from sjtu_tpmshx.optimization import multi_condition as batch
 from sjtu_tpmshx.tests.test_multi_condition_batch import _baseline, _conditions, _native
 
 
-def _analytic_worker(index, case_file, directory, library, threads, checkpoint_file=None):
+def _analytic_worker(index, case_file, directory, library, threads, checkpoint_file=None, *, crash_delay_s=0.):
     from sjtu_tpmshx.workflows import recovery
 
     def solve(case, control, *, checkpoint, checkpoint_due, resume_state):
@@ -42,12 +43,14 @@ def _analytic_worker(index, case_file, directory, library, threads, checkpoint_f
             error.add_note('retained worker diagnostic detail')
             raise error
         if label == 'crash':
+            sleep(crash_delay_s)
             os._exit(17)
         inputs = json.loads((Path(directory).parent / 'batch-input.json').read_text())
         waits_for_cancel = label == 'stop' or (label == 'mid' and inputs[0]['condition_id'] in ('stop', 'crash'))
         if waits_for_cancel and resume_state is None:
             deadline = monotonic()+10.
-            while monotonic() < deadline:
+            # Keep the peer active until the crash breaks the pool.
+            while inputs[0]['condition_id'] == 'crash' or monotonic() < deadline:
                 control.check_cancelled()
                 sleep(.01)
             raise TimeoutError('The parent did not cancel the test worker.')
@@ -141,11 +144,6 @@ def test_invalid_worker_count_creates_no_archive(tmp_path, workers):
     assert not root.exists()
 
 
-def test_python_parallel_request_is_explicitly_rejected(tmp_path):
-    root = tmp_path / 'python'
-    with pytest.raises(ValueError, match='backend=cpp'):
-        batch.evaluate_condition_batch(_conditions(2), output_dir=root, workers=2)
-    assert not root.exists()
 
 
 
@@ -191,9 +189,10 @@ def test_completed_batch_replay_retains_objectives_without_workers(tmp_path, mon
     assert [item[1].result_id for item in result['results']] == [item[1].result_id for item in original['results']]
 
 
-def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, monkeypatch):
+@pytest.mark.parametrize('crash_delay_s', [0., 10.5])
+def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, monkeypatch, crash_delay_s):
     from concurrent.futures.process import BrokenProcessPool
-    monkeypatch.setattr(batch, '_run_native_condition', _analytic_worker)
+    monkeypatch.setattr(batch, '_run_native_condition', partial(_analytic_worker, crash_delay_s=crash_delay_s))
     conditions = _conditions()
     conditions[0] = ('crash', *conditions[0][1:])
     root = tmp_path / 'worker-exit'
@@ -204,6 +203,7 @@ def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, monkeypatch):
     assert record['conditions'][2]['status'] == 'not_run'
     assert all(row['status'] not in ('running', 'computed') for row in record['conditions'])
     assert (root / 'condition_001/run/checkpoint.h5').is_file()
+    assert not (root / 'condition_003').exists()
 
 
 def test_parent_callback_error_is_retained_after_workers_stop(tmp_path, monkeypatch):
@@ -303,7 +303,6 @@ def test_pre_cancelled_batch_keeps_inputs_without_loading_missing_library(tmp_pa
     ('cpp', 8, 4, 5, 4, 4),
     ('cpp', 8, 1, 5, 4, 1),
     ('cpp', 8, 8, 5, 1, 1),
-    ('python', 8, None, 5, None, 1),
 ])
 def test_default_worker_count_is_saved_before_cancellation(
         tmp_path, monkeypatch, backend, available, limit, members, workers, expected):
@@ -316,7 +315,7 @@ def test_default_worker_count_is_saved_before_cancellation(
         batch.evaluate_condition_batch(conditions, output_dir=root, control=control, workers=workers)
     record = json.loads((root / 'batch.json').read_text())
     assert record['workers'] == expected
-    assert record['native_cpu_budget'] == (min(limit or 8, available) if backend == 'cpp' else None)
+    assert record['native_cpu_budget'] == min(limit or 8, available)
     assert record['status'] == 'cancelled'
     assert len(record['conditions']) == members
     assert all(row['status'] == 'not_run' for row in record['conditions'])

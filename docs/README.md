@@ -11,7 +11,7 @@
 | 内容 | 入口 |
 | --- | --- |
 | 模块职责、调用关系和物理约束 | [architecture.zh-CN.md](architecture.zh-CN.md) |
-| 完整 Python/C++ 后端、原生 ABI 与构建 | [C++ 接入说明](cpp-migration.zh-CN.md) |
+| C++ 数值后端、原生 ABI 与构建 | [C++ 接入说明](cpp-migration.zh-CN.md) |
 | 已授权的稳态单相求解器设计与任务节点 | [统一求解器设计](unified-solver.zh-CN.md) |
 | macOS/Windows 项目文件夹运行与可选打包 | [桌面运行说明](desktop.md) |
 | CaseData、FieldResult、指标与文件交接 | [三模块数据契约](../schemas/three_module_v1/README.zh-CN.md) |
@@ -75,7 +75,7 @@ STE 合规认证。
 
 | 英文技术名词 | 中文 | 本项目含义 |
 | --- | --- | --- |
-| solver backend | 求解后端 | 通过 RunControl 选择的 Python 或 C++ 数值实现 |
+| solver backend | 求解后端 | 通过 RunControl 使用的数值实现；0.2 使用 C++ |
 | prepared case | 准备态工况 | 前处理生成的 CaseData，包含实际网格及固定物理输入 |
 | native evidence | 原生证据 | 求解时记录的场、通量、压力与状态 |
 | ABI | 二进制接口 | C 结构布局、符号、版本及内存所有权约定 |

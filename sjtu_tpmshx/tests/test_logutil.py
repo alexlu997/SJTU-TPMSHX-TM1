@@ -99,33 +99,6 @@ def test_invalid_level_env_falls_back_to_info(monkeypatch):
         logging.getLogger('tpmshx').setLevel(logging.INFO)
 
 
-def test_parallel_simple_workers_keep_their_parent_output_scope():
-    import sys
-    from sjtu_tpmshx.logutil import capture_output
-    from sjtu_tpmshx.solvers.backends.python.three_d.runtime import _run_two_simple
-
-    original = sys.stdout, sys.stderr
-    out, err = io.StringIO(), io.StringIO()
-
-    class Solver:
-        Nx = Ny = Nz = 2
-
-        def __init__(self, side):
-            self.side = side
-
-        def solve(self, **kwargs):
-            print(f'worker-{self.side}')
-            print(f'diagnostic-{self.side}', file=sys.stderr)
-            get_logger('tests.parallel').info(f'logged-{self.side}')
-            return True, 1
-
-    with capture_output(out, err):
-        assert _run_two_simple(Solver('A'), Solver('B')) == [(True, 1), (True, 1)]
-    for side in ('A', 'B'):
-        assert f'worker-{side}' in out.getvalue()
-        assert f'logged-{side}' in out.getvalue()
-        assert f'diagnostic-{side}' in err.getvalue()
-    assert (sys.stdout, sys.stderr) == original
 
 
 def test_overlapping_capture_scopes_restore_streams_after_out_of_order_exit():

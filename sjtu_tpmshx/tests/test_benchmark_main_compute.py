@@ -16,8 +16,7 @@ from sjtu_tpmshx.tests.io_tm1.test_case_io import sample_case
 
 @pytest.mark.parametrize('failure', [None, 'save_result', 'load_result'])
 @pytest.mark.parametrize('eligible', [True, False, None])
-@pytest.mark.parametrize('backend', ['python', 'cpp'])
-def test_sample_uses_common_verdict_and_keeps_file_failures(tmp_path, monkeypatch, failure, backend, eligible):
+def test_sample_uses_common_verdict_and_keeps_file_failures(tmp_path, monkeypatch, failure, eligible):
     from sjtu_tpmshx.preprocess import api as preparation
     from sjtu_tpmshx.solvers import api as solving
     from sjtu_tpmshx.postprocess import api as evaluation
@@ -26,10 +25,10 @@ def test_sample_uses_common_verdict_and_keeps_file_failures(tmp_path, monkeypatc
 
     monkeypatch.setattr(preparation, 'prepare_case',
                         lambda cfg, case_id: replace(sample_case(), case_id=case_id))
-    control = RunControl(backend=backend, native_library='/host/solver' if backend == 'cpp' else None)
+    control = RunControl(native_library='/host/solver')
     def run(case, actual_control):
         assert actual_control is control
-        return FieldResult('synthetic-result', case.case_id, backend, grid=case.grid,
+        return FieldResult('synthetic-result', case.case_id, 'cpp', grid=case.grid,
                            run_status={'execution': 'completed', 'converged': True})
     monkeypatch.setattr(solving, 'run_case', run)
     metrics = {key: MetricValue(1., MetricSpec(key, unit)) for key, unit in (
@@ -43,10 +42,6 @@ def test_sample_uses_common_verdict_and_keeps_file_failures(tmp_path, monkeypatc
         Q_W=1., dP_A_Pa=1., dP_B_Pa=1., T_out_A_K=1., T_out_B_K=1.,
         diagnostics={'envelope_valid': True}, residuals={}, warnings=[]))
     monkeypatch.setattr(benchmark, 'sample_rss', lambda samples: nullcontext())
-    def observe(dimension, calls):
-        assert backend == 'python'
-        return nullcontext()
-    monkeypatch.setattr(benchmark, 'observe_solver', observe)
     def fail(*args):
         raise OSError(f'{failure} denied')
     if failure is not None:
@@ -62,4 +57,4 @@ def test_sample_uses_common_verdict_and_keeps_file_failures(tmp_path, monkeypatc
     assert 'optimizer' not in saved['config']
     assert saved['qualified_for_performance'] is (failure is None and eligible is True)
     assert saved['qualification']['design']['eligible'] is eligible
-    assert saved['backend'] == backend
+    assert saved['backend'] == 'cpp'

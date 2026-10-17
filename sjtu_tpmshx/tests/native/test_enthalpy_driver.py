@@ -1,10 +1,4 @@
-"""Complete true-h C++ driver against unchanged Python Picard/EOS reference.
-
-Frozen before the first run: fields T rtol=2e-10/atol=2e-8 K and
-h rtol=2e-10/atol=2e-5 J/kg; scalar certificates rtol=2e-8/atol=2e-8.
-Exit, backend use and gate presence must match. Actual iteration and clipping
-counts are checked against each run's budget and stop, not floating-point history.
-"""
+"""Native true-h state, EOS, independent energy equations, and stop budgets."""
 import ctypes
 import os
 from pathlib import Path
@@ -16,9 +10,7 @@ import CoolProp.CoolProp as CP
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.domain.cancellation import CancelledError
-from sjtu_tpmshx.models.fluid_props import WaterStateError
-from sjtu_tpmshx.solvers.ltne_enthalpy_3d import solve_ltne_enthalpy_3d_pipeline
+from sjtu_tpmshx.tests.native.enthalpy_fv_audit import energy
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -123,58 +115,81 @@ def case_data(pair=("air", "water"), shape=(4, 3, 2), directions=(0, 1), warm=Fa
     return result
 
 
-def assert_same(case, native):
-    assert native["code"] == 0, native["error"]
-    expected = solve_ltne_enthalpy_3d_pipeline(**case)
-    info, status, metric = expected[3], native["status"], native["metrics"]
-    for actual, reference in zip(native["fields"], expected[:3]):
-        np.testing.assert_allclose(actual, reference, rtol=2e-10, atol=2e-8)
-    for actual, key in zip(native["h"], ("h_A", "h_B")):
-        np.testing.assert_allclose(actual, info["_native_state"][key], rtol=2e-10, atol=2e-5)
-    assert status[0] == {"converged": 0, "enthalpy_limited": 1, "iteration_limit": 2}[info["exit_reason"]]
-    max_clips = case["Nx"] * case["Ny"] * case["Nz"] * case["n_sweep"]
-    for iterations, last, total in (
-            (status[1], status[3:5], status[5:7]),
-            (info["iterations"], info["enthalpy_clip_counts"]["last"], info["enthalpy_clip_counts"]["total"])):
-        assert 0 < iterations <= case["n_outer"]
-        assert (sum(last) > 0) == (info["exit_reason"] == "enthalpy_limited")
-        if info["exit_reason"] != "converged":
-            assert iterations == case["n_outer"]
-        for last_side, total_side in zip(last, total):
-            assert 0 <= last_side <= max_clips
-            assert last_side <= total_side <= max_clips * iterations
-    meta = info["_native_state"].get("sco2_enthalpy_eos", {})
-    assert status[7:9] == tuple(int(side in meta.get("sides", ())) for side in "AB")
-    assert status[9] == int(meta.get("heos_polish", False)) if meta else status[9] in (0, 1)
-    np.testing.assert_allclose(metric[:6], [info["residual"], info["Q_A"], info["Q_B"],
-        info["energy_imbalance_rel"], info["_native_state"]["h_in_A"], info["_native_state"]["h_in_B"]],
-        rtol=2e-8, atol=2e-8)
-    assert bool(status[10]) == ("coupled_energy_balance" in info)
-    assert bool(status[11]) == ("equation_energy_balance" in info)
+def assert_audited(case, native):
+    assert native['code'] == 0, native['error']
+    status, metric = native['status'], native['metrics']
+    widths = tuple(case[key] for key in ('dx', 'dy', 'dz'))
+    conductivity, inlet = [], []
+    for side, temperature, enthalpy, used in zip('AB', native['fields'], native['h'], status[7:9]):
+        fluid = case['fluid_'+side]
+        name = {'air':'Air', 'water':'Water', 'co2':'CO2', 'sco2':'CO2'}[fluid]
+        pressure = case['pressure_'+side+'_field']
+        expected = CP.PropsSI('H', 'T', temperature.ravel(), 'P', pressure.ravel(), name).reshape(temperature.shape)
+        np.testing.assert_allclose(enthalpy, expected, rtol=2e-10, atol=2e-5)
+        k = CP.PropsSI('L', 'T', temperature.ravel(), 'P', pressure.ravel(), name).reshape(temperature.shape)
+        conductivity.append(case['eps_'+side+'_field']*k)
+        inlet.append(CP.PropsSI('H', 'T', case['T_in'+side], 'P', case['P_'+side], name))
+        assert used in (0, 1)
+        assert not used or fluid in ('co2', 'sco2')
+    for temperature in native['fields']:
+        assert np.all(np.isfinite(temperature) & (temperature > 0.))
+    residuals, measured = energy(widths, native['h'], native['fields'][:2], native['fields'][2],
+        conductivity, [case['h_v'+side+'_field'] for side in 'AB'], case['K_ss'],
+        [case['mass_flux_'+side] for side in 'AB'], inlet)
+    assert sum(r.sum() for r in residuals) == pytest.approx(measured[2], rel=2e-8, abs=2e-8)
+    np.testing.assert_allclose(metric[1:3], measured[:2], rtol=2e-8, atol=2e-8)
+    np.testing.assert_allclose(metric[4:6], inlet, rtol=2e-10, atol=2e-5)
+    imbalance = abs(measured[2])/max(*(abs(q) for q in measured[:2]),1e-30)
+    assert metric[3] == pytest.approx(imbalance, rel=2e-8, abs=2e-8)
+    assert np.isfinite(metric[0]) and metric[0] >= 0.
+    coupled, equation = (case[key] for key in ('coupled_energy_tol','equation_energy_tol'))
+    assert bool(status[10]) == (coupled is not None or equation is not None)
+    assert bool(status[11]) == (equation is not None)
     if status[10]:
-        c = info["coupled_energy_balance"]
-        np.testing.assert_allclose(metric[6:12], [info["Q_A"], info["Q_B"], c["net"],
-            c["solid_abs_sum"], c["denominator"], c["ratio"]], rtol=2e-8, atol=2e-8)
+        np.testing.assert_allclose(metric[6:12], measured[:6], rtol=2e-8, atol=2e-8)
     if status[11]:
-        e = info["equation_energy_balance"]
-        np.testing.assert_allclose(metric[12:17], [*e["fluid_abs_sum"], *e["fluid_cell_max"], e["ratio"]],
-                                   rtol=2e-8, atol=2e-8)
+        np.testing.assert_allclose(metric[12:17], measured[6:], rtol=2e-8, atol=2e-8)
     elif status[10]:
         assert np.isnan(metric[12:17]).all()
-    return info
+    assert status[0] in (0,1,2) and status[9] in (0,1)
+    iterations = status[1]
+    assert 0 < iterations <= case['n_outer']
+    max_clips = case['Nx']*case['Ny']*case['Nz']*case['n_sweep']
+    for last,total in zip(status[3:5], status[5:7]):
+        assert 0 <= last <= max_clips and last <= total <= max_clips*iterations
+    converged = (metric[0] < case['tol'] and metric[3] < .05 and not any(status[3:5])
+        and (coupled is None or measured[5] <= coupled)
+        and (equation is None or measured[10] <= equation))
+    assert (status[0] == 0) == converged
+    if not converged:
+        assert iterations == case['n_outer']
+        assert (status[0] == 1) == bool(sum(status[3:5]))
+    if case['n_sweep'] == 0:
+        for index, side in enumerate('AB'):
+            warm = case.get('T'+side.lower()+'_init')
+            name = {'air':'Air', 'water':'Water', 'co2':'CO2', 'sco2':'CO2'}[case['fluid_'+side]]
+            expected = inlet[index] if warm is None else CP.PropsSI('H', 'T', warm.ravel(),
+                'P', case['pressure_'+side+'_field'].ravel(), name).reshape(warm.shape)
+            np.testing.assert_allclose(native['h'][index],expected,rtol=2e-10,atol=2e-5)
+        solid = case.get('Ts_init')
+        if solid is None:
+            solid = .5*(case['T_inA']+case['T_inB'])
+        np.testing.assert_array_equal(native['fields'][2], np.broadcast_to(solid,native['fields'][2].shape))
+    return dict(exit_reason=('converged','enthalpy_limited','iteration_limit')[status[0]],
+        iterations=iterations, enthalpy_clip_counts=dict(last=list(status[3:5]),total=list(status[5:7])))
 
 
 @pytest.mark.parametrize("pair", [("air", "water"), ("water", "air"), ("sco2", "sco2"), ("sco2", "water")])
 @pytest.mark.parametrize("shape,warm", [((4, 3, 1), False), ((4, 3, 2), True)])
 def test_complete_picard_eos_and_exact_energy(enthalpy_native, pair, shape, warm):
     case = case_data(pair, shape, warm=warm)
-    assert_same(case, enthalpy_native(case))
+    assert_audited(case, enthalpy_native(case))
 
 
 @pytest.mark.parametrize("direction", range(6))
 def test_all_signed_face_directions(enthalpy_native, direction):
     case = case_data(directions=(direction, direction ^ 1), shape=(3, 2, 2))
-    assert_same(case, enthalpy_native(case))
+    assert_audited(case, enthalpy_native(case))
 
 
 @pytest.mark.parametrize("gates", [(None, None), (1e-3, None), (None, 1e-3)])
@@ -182,7 +197,7 @@ def test_all_signed_face_directions(enthalpy_native, direction):
 def test_optional_gates_and_original_budget(enthalpy_native, gates, budget):
     case = case_data(("sco2", "water"), shape=(3, 2, 1))
     case.update(coupled_energy_tol=gates[0], equation_energy_tol=gates[1], n_outer=budget)
-    assert_same(case, enthalpy_native(case))
+    assert_audited(case, enthalpy_native(case))
 
 
 def test_sub274_liquid_warm_enthalpy_is_not_clipped(enthalpy_native):
@@ -192,7 +207,7 @@ def test_sub274_liquid_warm_enthalpy_is_not_clipped(enthalpy_native):
                 Ta_init=np.full((2, 1, 1), 300.), Tb_init=np.full((2, 1, 1), 273.2),
                 Ts_init=np.full((2, 1, 1), 286.6))
     native = enthalpy_native(case)
-    info = assert_same(case, native)
+    info = assert_audited(case, native)
     assert info["enthalpy_clip_counts"]["total"] == [0, 0]
     assert native["status"][5:7] == (0, 0)
 
@@ -205,7 +220,7 @@ def test_equal_temperature_roundoff_clipping_is_preserved(enthalpy_native):
                 pressure_A_field=np.full((2, 1, 1), 1e5), pressure_B_field=np.full((2, 1, 1), 1e5),
                 Ta_init=np.full((2, 1, 1), 273.2), Tb_init=np.full((2, 1, 1), 273.2),
                 Ts_init=np.full((2, 1, 1), 273.2))
-    info = assert_same(case, enthalpy_native(case))
+    info = assert_audited(case, enthalpy_native(case))
     assert info["exit_reason"] == "enthalpy_limited"
     assert sum(info["enthalpy_clip_counts"]["total"]) > 0
 
@@ -214,7 +229,7 @@ def test_equal_temperature_roundoff_clipping_is_preserved(enthalpy_native):
 def test_independent_partial_warm_fields(enthalpy_native, key):
     case = case_data(shape=(3, 2, 1))
     case[key] = np.full((3, 2, 1), {"Ta_init": 375., "Tb_init": 302., "Ts_init": 335.}[key])
-    assert_same(case, enthalpy_native(case))
+    assert_audited(case, enthalpy_native(case))
 
 
 def test_limit_clipping_preserves_native_exit(enthalpy_native):
@@ -222,7 +237,7 @@ def test_limit_clipping_preserves_native_exit(enthalpy_native):
     case.update(Ts_init=np.full((2, 1, 1), 5000.), n_outer=1, n_sweep=1, omega=1.,
                 h_vA_field=np.full((2, 1, 1), 1e9), h_vB_field=np.full((2, 1, 1), 1e9))
     result = enthalpy_native(case)
-    info = assert_same(case, result)
+    info = assert_audited(case, result)
     assert info["exit_reason"] == "enthalpy_limited"
     assert sum(info["enthalpy_clip_counts"]["last"]) > 0
 
@@ -230,7 +245,7 @@ def test_limit_clipping_preserves_native_exit(enthalpy_native):
 def test_zero_sweep_budget_keeps_initial_fields(enthalpy_native):
     case = case_data(shape=(2, 1, 1))
     case.update(n_sweep=0, n_outer=2)
-    info = assert_same(case, enthalpy_native(case))
+    info = assert_audited(case, enthalpy_native(case))
     assert info["iterations"] == 2 and info["exit_reason"] == "iteration_limit"
 
 
@@ -241,7 +256,7 @@ def test_mixed_inlet_outlet_patches_and_closed_faces(enthalpy_native):
         fx[:, 0, :] = 0.
         fx[:, 2, :] *= -1.
         assert not fy.any() and not fz.any()
-    assert_same(case, enthalpy_native(case))
+    assert_audited(case, enthalpy_native(case))
 
 
 @pytest.mark.parametrize("bad_size", range(21))
@@ -258,13 +273,6 @@ def test_cancellation_at_chunk_boundaries(enthalpy_native, cancel_at):
     assert result["code"] == 0 and result["status"][0] == 3
     assert result["status"][1] == cancel_at//2
     assert result["status"][2] == cancel_at
-    calls = 0
-    def cancel():
-        nonlocal calls
-        calls += 1
-        return calls == cancel_at
-    with pytest.raises(CancelledError):
-        solve_ltne_enthalpy_3d_pipeline(**case, cancel_check=cancel)
 
 
 def test_first_cancellation_precedes_tabular_initialization(enthalpy_native):
@@ -288,8 +296,6 @@ def test_water_guard_keeps_stage_and_index(enthalpy_native, stage):
     assert "P_abs=" in native["error"]
     if stage != "inlet":
         assert "index=(" in native["error"]
-    with pytest.raises(WaterStateError):
-        solve_ltne_enthalpy_3d_pipeline(**case)
 
 
 def test_coupled_only_never_reads_absent_conductivity(enthalpy_native):
@@ -328,7 +334,7 @@ import json
 import sys
 from concurrent.futures import ThreadPoolExecutor
 import CoolProp.CoolProp as CP
-from sjtu_tpmshx.tests.native.test_enthalpy_driver import load_native, case_data, assert_same
+from sjtu_tpmshx.tests.native.test_enthalpy_driver import load_native, case_data, assert_audited
 native = load_native(sys.argv[1])
 case = case_data(("sco2", "water"), shape=(3, 2, 1))
 before = CP.get_config_as_json_string()
@@ -336,7 +342,7 @@ with ThreadPoolExecutor(max_workers=2) as pool:
     results = list(pool.map(native, [case, case]))
 assert CP.get_config_as_json_string() == before
 for result in results:
-    assert_same(case, result)
+    assert_audited(case, result)
 assert results[0]["status"] == results[1]["status"]
 print(json.dumps({"concurrent_runs": 2, "iterations": results[0]["status"][1], "python_config_unchanged": True}))
 '''

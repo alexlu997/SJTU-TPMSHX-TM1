@@ -15,7 +15,7 @@ Use the [first run instructions](../README.en.md#first-run) to run the applicati
 | Subject | Entry |
 | --- | --- |
 | Module responsibilities, data flow and physical constraints | [Architecture](architecture.md) |
-| Complete Python/C++ backends, native ABI and builds | [C++ integration](cpp-migration.md) |
+| C++ numerical backend, native ABI and builds | [C++ integration](cpp-migration.md) |
 | Authorized steady single-phase solver design and task nodes | [Unified solver design](unified-solver.md) |
 | macOS/Windows project folders and optional packaging | [Desktop operation](desktop.en.md) |
 | CaseData, FieldResult, metrics and file transport | [Public data contract](../schemas/three_module_v1/README.md) |
@@ -89,7 +89,7 @@ Sentence-length checks support semantic and technical review. They are not indep
 
 | English term | Chinese term | Meaning in TM1 |
 | --- | --- | --- |
-| solver backend | 求解后端 | The Python or C++ numerical implementation selected through RunControl. |
+| solver backend | 求解后端 | The numerical implementation used through RunControl. Version 0.2 uses C++. |
 | prepared case | 准备态工况 | CaseData from preprocessing, with the actual grid and fixed physical inputs. |
 | native evidence | 原生证据 | Fields, fluxes, pressure and status recorded during execution. |
 | ABI | 二进制接口 | C structure layout, symbols, versions and memory ownership. |

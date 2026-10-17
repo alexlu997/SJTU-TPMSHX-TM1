@@ -1,21 +1,9 @@
-"""Order-of-accuracy test for the boundary pressure-drop functional.
-
-`SIMPLESolver3D.extract_dP_weighted` differences the first/last CELL-CENTRE
-pressures, which sit ~h/2 from the physical inlet/outlet faces — an O(h) offset
-that caps the dP functional at ~1st order even on a 2nd-order field.
-`extract_dP_face_extrap` extrapolates P to the faces (1.5·P0 − 0.5·P1), removing
-that term → ~2nd order.
-
-This is a *functional* order test: feed an analytic, smooth pressure field
-sampled at cell centres on refining grids, and measure how fast each extractor's
-dP converges to the exact face-to-face Δp. No solver run — isolates the
-discretisation order of the reduction itself.
-"""
+"""The shared pressure face reduction keeps its original spatial order gates."""
 import numpy as np
 import pytest
 from types import SimpleNamespace
 
-from sjtu_tpmshx.solvers.simple_solver_3d import SIMPLESolver3D
+from sjtu_tpmshx.result_math import pressure_face_values
 
 LY = 0.042  # streamwise length (m), Shanghai-ish
 
@@ -47,22 +35,19 @@ def test_nonuniform_affine_pressure_reaches_physical_faces(widths):
     s.dy = np.array(widths) * LY
     yc = np.cumsum(s.dy) - .5 * s.dy
     s.P = (1234. - 700. * yc / LY)[None, :, None]
-    assert SIMPLESolver3D.extract_dP_face_extrap(s) == pytest.approx(700., abs=1e-10)
+    assert float((pressure_face_values(s.P, s.dy)[0] - pressure_face_values(s.P, s.dy)[1]).item()) == pytest.approx(700., abs=1e-10)
 
 
 def test_uniform_face_extrap_preserves_exact_result():
     s = _make_state(8)
     expected = float((1.5 * s.P[:, 0, :] - .5 * s.P[:, 1, :]).item()
                      - (1.5 * s.P[:, -1, :] - .5 * s.P[:, -2, :]).item())
-    assert SIMPLESolver3D.extract_dP_face_extrap(s) == expected
+    assert float((pressure_face_values(s.P, s.dy)[0] - pressure_face_values(s.P, s.dy)[1]).item()) == expected
 
 
-def test_single_cell_and_empty_opening():
+def test_single_cell_pressure_has_zero_drop():
     s = _make_state(1)
-    assert SIMPLESolver3D.extract_dP_face_extrap(s) == SIMPLESolver3D.extract_dP_weighted(s)
-    s = _make_state(2)
-    s.outlet_frac = np.zeros((1, 1))
-    assert SIMPLESolver3D.extract_dP_face_extrap(s) == 0.
+    assert float((pressure_face_values(s.P, s.dy)[0] - pressure_face_values(s.P, s.dy)[1]).item()) == float((s.P[:, 0] - s.P[:, -1]).item())
 
 
 def _orders():
@@ -71,8 +56,8 @@ def _orders():
     e_cell, e_face = [], []
     for Ny in Nys:
         s = _make_state(Ny)
-        e_cell.append(abs(SIMPLESolver3D.extract_dP_weighted(s) - exact))
-        e_face.append(abs(SIMPLESolver3D.extract_dP_face_extrap(s) - exact))
+        e_cell.append(abs(float((s.P[:, 0] - s.P[:, -1]).item()) - exact))
+        e_face.append(abs(float((pressure_face_values(s.P, s.dy)[0] - pressure_face_values(s.P, s.dy)[1]).item()) - exact))
     h = 1.0 / np.array(Nys, dtype=float)
     p_cell = np.polyfit(np.log(h), np.log(e_cell), 1)[0]
     p_face = np.polyfit(np.log(h), np.log(e_face), 1)[0]

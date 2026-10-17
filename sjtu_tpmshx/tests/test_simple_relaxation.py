@@ -44,5 +44,7 @@ def test_unsupported_route_rejects_relaxation_before_dispatch(dimension, backend
     settings = dict(simple_velocity_relaxation=.35)
     case = SimpleNamespace(grid={'dimension': dimension}, metadata={'mode': mode},
         parameters={'run_settings': {'solver': settings}} if dimension == 2 else settings)
-    with pytest.raises(ValueError, match='simple_velocity_relaxation requires full compute with backend=cpp'):
+    message = ('Python numerical backend has been retired' if backend == 'python' else
+               'simple_velocity_relaxation requires full compute with backend=cpp')
+    with pytest.raises(ValueError, match=message):
         run_case(case, RunControl(backend=backend))

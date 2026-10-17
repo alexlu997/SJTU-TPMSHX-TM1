@@ -1,14 +1,12 @@
 """Real production runs, including cached initial and iterative Nu calls."""
 from contextlib import nullcontext
 from dataclasses import replace
-import inspect
 
 import numpy as np
 import pytest
 
 import importlib
 from sjtu_tpmshx.controllers.module_adapter import compute_result
-from sjtu_tpmshx.models import nu_correlations as nu
 from sjtu_tpmshx.models.tpms_calc import compute
 from sjtu_tpmshx.tests.test_pipeline_2d_smoke import _shanghai_like_cfg
 from sjtu_tpmshx.tests.test_pipeline_3d_e2e import _small_air_cfg
@@ -28,23 +26,25 @@ def test_real_pipeline_warning_ownership_and_numerical_transparency(monkeypatch,
                 fluid.u_mps, fluid.T_in_K, fluid.P_in_Pa, geometry.k_s_W_mK,
                 fluid.type)
     # No cache_clear: standalone warm-up must not consume a run's notices.
-    original = nu._warn_extrap
-    rounds = []
+    owner = importlib.import_module('sjtu_tpmshx.solvers.backends.cpp.' +
+        ('full_2d_capture' if dimension == '2d' else 'full_3d'))
+    original = owner.replay_range_observations
+    observations = []
 
-    def observe(*args):
-        frame = inspect.currentframe().f_back
-        while frame is not None:
-            if frame.f_code.co_name in ('_step_2d', '_outer_step_3d'):
-                rounds.append(frame.f_code.co_name)
-                break
-            frame = frame.f_back
-        return original(*args)
+    def observe(rows):
+        observations.extend(rows)
+        return original(rows)
 
-    monkeypatch.setattr(nu, '_warn_extrap', observe)
+    monkeypatch.setattr(owner, 'replay_range_observations', observe)
     result = compute_result(cfg)
     assert result.converged, result.diagnostics['convergence_detail']
     assert result.diagnostics['convergence_detail']['outer_iters'] > 1
-    assert len(rounds) > 2  # actual first and later energy-coupling Nu calls
+    local = [row for row in observations if row['view'] == 'nu' and
+             row['model'] == 'air' and row['stage'] in ('main-hv', 'main')]
+    assert local
+    # Native aggregation keeps the worst fraction from one cell snapshot.
+    assert all(row['size'] == np.prod(row['shape']) for row in local)
+    assert any(row['low'] or row['high'] for row in local)
     assert any('[Nu extrap]' in message for message in result.warnings)
     assert result.extrap_reasons == []  # both cases remain inside the D-F grid
     win.write_result(result)
@@ -58,6 +58,7 @@ def test_real_pipeline_warning_ownership_and_numerical_transparency(monkeypatch,
     # Suppress only collection in the comparator; every numerical call remains.
     with monkeypatch.context() as patch:
         patch.setattr(importlib.import_module('sjtu_tpmshx.workflows.compute'), 'warning_scope', lambda records: nullcontext(records))
+        patch.setattr(owner, 'replay_range_observations', lambda rows: [])
         without_capture = compute_result(cfg)
     for other in (repeated, without_capture):
         assert other.converged, other.diagnostics['convergence_detail']

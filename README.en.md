@@ -6,10 +6,10 @@ TM1 separates TPMS heat-exchanger preprocessing, solving, and postprocessing int
 
 **Main source is under [sjtu_tpmshx/](sjtu_tpmshx/).** It contains all three modules. Other root directories hold documentation, examples, auxiliary tools, and verification records.
 
-Python/Numba and C++ are both maintained backends. Python stays the default. Both support existing full 2D/3D computation and Quick Design. Shared prepared-data and result interfaces connect them to GUI, CLI, and optimization. Maintenance in this round covers macOS arm64 and Windows x64. Linux server deployment is deferred.
+Version 0.2 uses C++ for numerical execution. Python keeps the GUI, CLI, preparation, postprocessing, optimization and Quick Design interfaces. Full 2D/3D computation and Quick Design use the same prepared-data and result contracts. Maintenance in this round covers macOS arm64 and Windows x64. Linux server deployment is deferred.
 
 [v0.1.0](https://github.com/alexlu997/SJTU-TPMSHX-TM1/releases/tag/v0.1.0) is the first GitHub source release. It keeps both Python and C++ backends.
-The release archives contain both solvers. Build the native library for your platform before you use the C++ backend. See the instructions below.
+The 0.1 archives contain both solvers. Version 0.2 removes Python numerical iterators, their research entries and outer property Anderson. Fixed property relaxation, thermal acceleration and flow acceleration keep their existing rules. The C++ energy algorithms `legacy_h_fou`, `temperature_fou` and `temperature_sou` remain available. Build a native library that matches the source before you run 0.2.
 
 M-A merge acceptance for the rectangular 2D/3D three-module mainline is recorded. M-B extensions stay separately tracked. Historical B40 failures and physical applicability limits stay. See [capabilities and open work](docs/capabilities.en.md) for current conclusions. The [fixed history index](docs/history/README.en.md) keeps original plans, handoff records, and node evidence.
 
@@ -70,7 +70,7 @@ $tm1Python = Get-Content .venv-path -TotalCount 1
 
 These commands call the environment interpreter directly. No activation script or PowerShell execution-policy change is required. This is [supported venv usage](https://docs.python.org/3.13/library/venv.html#how-venvs-work). `.venv-path` stores a local absolute path and is not shared through Git. Read it again in each new terminal.
 
-For a dependency upgrade, create and prewarm a separate environment. Keep the old environment and its source revision. The current locks keep NumPy 2.4.4, Numba 0.64 and llvmlite 0.46 to avoid the measured warm-solve slowdown. SciPy 1.18, pandas 3, CoolProp 8 and Qt 6.12 stay on the newer versions. BO and desktop packaging use their own complete locks. Do not install the new lock into a shared environment used by another worktree. After changing `.venv-path`, pass the lock check and `pip check` before computation or tests.
+For a dependency upgrade, create and prewarm a separate environment. Keep the old environment and its source revision. The 0.2 base lock removes Numba, llvmlite and PyAMG. It retains dependencies for preparation, postprocessing, optimization and the GUI. Native pressure code keeps its ported algorithms and license notices. It does not load Python PyAMG. BO and desktop packaging use their own complete locks. Do not install the new lock into a shared environment used by another worktree. After changing `.venv-path`, pass the lock check and `pip check` before computation or tests.
 
 CO₂ interpolation tables are separated by CoolProp version. Python defaults to `XDG_CACHE_HOME/coolprop/CoolProp-8.0.0`. An explicit `COOLPROP_ALTERNATIVE_TABLES_DIRECTORY` or C++ table path supplies the cache root; the solver adds `CoolProp-8.0.0`. Previous tables stay in place. First use of a new version generates its tables locally.
 
@@ -78,14 +78,15 @@ CO₂ interpolation tables are separated by CoolProp version. Python defaults to
 
 ### Run small examples
 
-The repository includes [air_2d.json](examples/three_module/air_2d.json) and [air_3d.json](examples/three_module/air_3d.json). They use bundled model resources without private `data/` or `.git`. The first solve includes Numba compilation and can take several minutes.
+The repository includes [air_2d.json](examples/three_module/air_2d.json) and [air_3d.json](examples/three_module/air_3d.json). They use bundled model resources without private `data/` or `.git`. First build the native library with the macOS C++ toolchain or a Windows x64 MSVC developer terminal. Record build and initial property-table times separately from solve time.
 
 On macOS:
 
 ```bash
 PYTHON="$(head -n 1 .venv-path)"
 export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
-export NUMBA_CACHE_DIR="$PWD/.cache/numba"
+"$PYTHON" scripts/build_native_dependencies.py fetch
+"$PYTHON" scripts/build_native_dependencies.py publish
 "$PYTHON" -m sjtu_tpmshx.cli run examples/three_module/air_2d.json .cache/first-run-2d --case-id first-run-2d
 "$PYTHON" -m sjtu_tpmshx.cli run examples/three_module/air_3d.json .cache/first-run-3d --case-id first-run-3d
 "$PYTHON" -m sjtu_tpmshx.main
@@ -97,7 +98,8 @@ On Windows:
 $tm1Python = Get-Content .venv-path -TotalCount 1
 $env:MPLCONFIGDIR = Join-Path $PWD '.cache/matplotlib'
 $env:XDG_CACHE_HOME = Join-Path $PWD '.cache/xdg'
-$env:NUMBA_CACHE_DIR = Join-Path $PWD '.cache/numba'
+& $tm1Python scripts/build_native_dependencies.py fetch
+& $tm1Python scripts/build_native_dependencies.py publish
 & $tm1Python -m sjtu_tpmshx.cli run examples/three_module/air_2d.json .cache/first-run-2d --case-id first-run-2d
 & $tm1Python -m sjtu_tpmshx.cli run examples/three_module/air_3d.json .cache/first-run-3d --case-id first-run-3d
 & $tm1Python -m sjtu_tpmshx.main
@@ -140,9 +142,9 @@ Double-click root `launch-macos.command`, or run:
 ./launch-macos.command
 ```
 
-The launcher enters its own project directory and writes caches under `.cache/`. It explicitly loads `native/lib/macos-arm64/libtpmshx_solver_shared.dylib` with `--backend cpp` and passes `.cache/native-deps/tables`. The library, tables, and host `.venv-path` are local delivery resources, not automatically supplied by Git. A missing interpreter or library produces an explicit error. The launcher installs no dependencies, compiles no library, and does not switch to Python.
+The launcher enters its own project directory and writes caches under `.cache/`. It explicitly loads `native/lib/macos-arm64/libtpmshx_solver_shared.dylib` with `--backend cpp` and passes `.cache/native-deps/tables`. The library, tables, and host `.venv-path` are local delivery resources, not automatically supplied by Git. A missing interpreter or library produces an explicit error. The launcher does not install dependencies or compile the library.
 
-Existing legacy CO₂ BICUBIC routes use four tables in the current version's directory and generate missing tables locally. The new conservative temperature algorithm does not use them. Public APIs, CLI, and direct module calls still default to Python.
+Existing legacy CO₂ BICUBIC routes use four tables in the current version's directory and generate missing tables locally. The new conservative temperature algorithm does not use them. Public APIs, CLI and direct module calls default to C++.
 
 With the current locked native dependencies present and the relevant native regressions passed, explicitly publish the launcher library:
 
@@ -152,13 +154,13 @@ With the current locked native dependencies present and the relevant native regr
 
 The command builds current source offline, runs independent C/C++ callers and error checks, then replaces the host library. Missing dependencies or failed verification stop publication. Before replacing different library contents, it saves the old library and record under `previous/` in the same directory. Republishing identical contents keeps that backup. `build.json` records the source commit, uncommitted changes, build configuration and paths.
 
-`native/lib/` is an ignored local delivery directory. To roll back, stop programs using the library, then copy the library and `build.json` from `previous/` to the parent directory. Restore the matching source, Python environment and property version as well. Publication checks do not replace numerical regressions or desktop acceptance. Daily startup performs no build, installation or download. To open the same interface with Python, run `"$PYTHON" -m sjtu_tpmshx.main --backend python`.
+`native/lib/` is an ignored local delivery directory. To roll back, stop programs using the library, then copy the library and `build.json` from `previous/` to the parent directory. Restore the matching source, Python environment and property version as well. Publication checks do not replace numerical regressions or desktop acceptance. Daily startup performs no build, installation or download.
 
-In the left rail, Solver → Solver → Compute Backend selects Python or C++ without restarting. Startup arguments determine the initial selection. Switching affects the next ordinary computation, Quick Design, and optimization. It is locked during work and cancellation cleanup. C++ uses the startup library or the matching local macOS or Windows delivery library.
+The GUI uses C++ for ordinary computation, Quick Design and optimization. It has no backend selector. It uses the specified library or the matching library in the local macOS or Windows delivery folder.
 
-Source GUI and CLI share the default lookup. macOS uses `native/lib/macos-arm64/libtpmshx_solver_shared.dylib`; Windows uses `native/lib/windows-x64/tpmshx_solver_shared.dll`. The default table directory is `.cache/native-deps/tables`. With the matching library published there, use `--backend cpp`. Explicit library and table paths take priority. Direct solver API calls still pass host paths in `RunControl`.
+Source GUI and CLI share the default lookup. macOS uses `native/lib/macos-arm64/libtpmshx_solver_shared.dylib`; Windows uses `native/lib/windows-x64/tpmshx_solver_shared.dll`. The default table directory is `.cache/native-deps/tables`. With a matching library in these locations, no backend argument is needed. Explicit library and table paths take priority. API callers can override host paths in `RunControl`.
 
-A missing library keeps the current selection and shows the reason. Compute Threads is available for both backends. The C++ Auto setting uses at most eight logical CPUs on the host. Selection is a window runtime setting. It is not saved in case files and does not change existing results.
+A missing library produces an explicit error. Compute Threads controls the native run. Auto uses at most eight logical CPUs on the host. Selection is a window runtime setting. It is not saved in case files and does not change existing results.
 
 The 2026-10-05 candidate evidence keeps these limits. Ceff43 passed 19/43 and timed out on 24/43. The fixed population failed overall. fixed230 execution and indexing completed 230/230 in 93 minutes 18.5 seconds. Independent saved-state checks passed 229/230.
 
@@ -221,7 +223,7 @@ After computation, the visible field is drawn first. Other plots are generated a
 
 Original fields, static quality, and shared color scales stay. Ordinary solve notices stay in the status card and Diagnostics Details, without synchronous dialogs blocking results.
 
-Diagnostics Details reports preparation, solve, postprocessing, and display times. Successful total time includes background work and result display. Compare terminal and GUI speed with matched configuration, threads, and cache state. Separate first compilation from later runs. Startup commands above place caches under `.cache/numba`. Keep that directory to reuse compiled kernels.
+Diagnostics Details reports preparation, solve, postprocessing, and display times. Successful total time includes background work and result display. Compare terminal and GUI speed with matched configuration, threads, and cache state. Separate native builds and property-table initialization from later runs. Daily execution does not compile the solver.
 
 More selects dark/light themes, effective after restart, and K/°C. The interface uses system sans-serif fonts: macOS system Latin/PingFang, Windows Segoe UI/Microsoft YaHei, and available Linux Noto Sans/system fallbacks. Body text and inputs use regular weight. Headings and primary actions use emphasis. Charts and exports keep Times New Roman for Latin text/numbers and Microsoft YaHei for Chinese. macOS can register matching installed Office fonts in the current process without copying or distributing them.
 
@@ -232,11 +234,10 @@ For ordinary computation, set threads under Solver → Compute Resources. Grid s
 It no longer offers historical inlet smoothing, six-wall refinement, or a local-density switch. Local density also affects transport-route selection for limited air/water cases. It is not a general sCO₂ variable-property switch. Loading GUI configurations with different previous settings reports the update. Subsequent saves use current settings. Allowing inlet Nu extrapolation changes only inlet-Re rejection/warning behavior.
 
 It does not relax property or geometry limits. The next calculation receives the thread setting.
-Python controls Numba kernels and restores the previous thread mask after return or failure.
 C++ limits its pointwise property workers and paired 2D flow calls. A limit of one selects serial execution.
 Small grids can use fewer threads. This setting does not limit the application, external math libraries, or the number of optimization tasks.
 The CLI accepts `--cpu-threads N`. The API accepts `RunControl(cpu_threads=N)`. Both require a positive integer.
-Without a setting, Python keeps its current mask. A new C++ library uses at most eight logical CPUs on the host.
+Without a setting, C++ uses at most eight logical CPUs on the host.
 The thread count is not part of `CaseData`. It does not change physical models, iteration budgets, or stop conditions.
 Resume can use a different thread count with the same native build.
 Libraries retained by old runs keep their existing entries. Omit the thread setting if that library lacks a thread limit.
@@ -361,7 +362,7 @@ Use `--native-library` to select a retained library explicitly when the current 
 The GUI load menu can continue a saved run with its recorded interval and input provenance.
 New GUI full C++ runs request a save every 60 seconds in `runs/` under the user data directory.
 The calculation details show the save location. Use Save and Pause, then continue from the load menu.
-Lost work can also include the current complete step and file write. The Python backend keeps its existing workflow.
+Lost work can also include the current complete step and file write.
 
 <a id="已接线能力与边界"></a>
 
@@ -387,9 +388,9 @@ Previous rectangular files still load. [Fixed history](docs/history/retired-tool
 
 `models/`, `df_surrogate/`, and related layers give shared technical support, not a fourth business module. Previous pipeline/application entries call public modules in one direction. See [architecture](docs/architecture.md).
 
-Python/Numba is the default. macOS arm64 and Windows x64 libraries support Quick Design and full 2D/3D through explicit `RunControl(backend='cpp', native_library=...)` or CLI `--backend cpp`. See [C++ migration](docs/cpp-migration.md) for paths, builds, and limits. Required native build, independent-call, and numerical-comparison CI passed on macOS/Python 3.13 and Windows/Python 3.12 and 3.13. Visible desktop delivery and complete performance acceptance stay separate.
+C++ is the only numerical backend. Quick Design and full 2D/3D use the matching local macOS arm64 or Windows x64 library. `RunControl(native_library=...)` or CLI `--native-library` can override its location. See [C++ migration](docs/cpp-migration.md) for paths, builds, and limits. Required native build, independent-call, and numerical-comparison CI passed on macOS/Python 3.13 and Windows/Python 3.12 and 3.13. Visible desktop delivery and complete performance acceptance stay separate.
 
-Full 2D uses ABI 2. Distribute matching libraries, headers, and adapters. The former Python outer-loop/C++ sweep hybrid is retired. Select a complete Python or C++ backend. OpenFOAM, REFPROP, extended h/f/PEC definitions, and adjoints stay under M-B and original scope limits. Directories or interfaces do not show implementation.
+Full 2D uses ABI 2. Distribute matching libraries, headers, and adapters. The former Python outer-loop/C++ sweep hybrid is retired. Python numerical and research-only entries are retired. Saved results remain readable; ordinary cases use current `ComputeConfig` preparation. OpenFOAM, REFPROP, extended h/f/PEC definitions, and adjoints stay under M-B and original scope limits. Directories or interfaces do not show implementation.
 
 <a id="环境与检查"></a>
 
@@ -411,23 +412,22 @@ PYTHON="$(head -n 1 .venv-path)"
 export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
 export QT_QPA_PLATFORM=offscreen PYTHONHASHSEED=0
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
-export NUMBA_NUM_THREADS=2
 "$PYTHON" -m mypy --config-file pyproject.toml
 "$PYTHON" -m pytest sjtu_tpmshx/tests -q -ra -m "not slow and not heavy" --ignore=sjtu_tpmshx/tests/integration_tm1 -n 2 --dist loadscope --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/fast.xml
-NUMBA_NUM_THREADS=1 "$PYTHON" -m pytest sjtu_tpmshx/tests/integration_tm1 -q -ra --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/integration.xml
+"$PYTHON" -m pytest sjtu_tpmshx/tests/integration_tm1 -q -ra --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/integration.xml
 # Complete local acceptance: no -m filter. Replace auto with a fixed worker count for available resources.
 "$PYTHON" -m pytest sjtu_tpmshx/tests -q -n auto --dist loadscope --timeout=600 --timeout-method=thread
 ```
 
-PowerShell uses the same pytest arguments. Set variables with forms such as `$env:NUMBA_NUM_THREADS='2'`. Then call `& $tm1Python`. Numba needs a limit of at least 2 because enthalpy transport tests explicitly use two threads. Independent integration uses 1. Restore 2 before the full suite.
+PowerShell uses the same pytest arguments. Set the listed environment variables and call `& $tm1Python`. Provide a matching native library before tests.
 
-CI fast tests split complete modules between two runners, each with two workers. Each worker has single-threaded BLAS/OMP and at most two Numba threads. Complete integration runs concurrently on a third runner.
+CI fast tests split complete modules between two runners, each with two workers. Each worker has single-threaded BLAS/OMP. Complete integration runs concurrently on a third runner.
 
 Existing test helpers stay. `run_tests_fast.ps1` is development feedback only. Its `not heavy` subset differs from fast CI. The two PowerShell scripts validate the base lock by default. With an existing Windows BO environment, use `./scripts/run_tests_server.ps1 -LockFile requirements/bo-windows.txt`.
 
 The same parameter is accepted by `run_tests_fast.ps1`. Tests start only after the selected lock and `pip check` pass. Scripts install nothing. A server lock does not permit unlisted packages.
 
-GitHub workflows use checkout v7, setup-python v7, upload-artifact v7, and download-artifact v8 for shard gates. Action runtimes do not change solver Python environments. `three-module` independently validates real file handoff from a complete environment to minimal postprocessing. Base and separate BO jobs cover macOS/Python 3.13 and Windows/Python 3.12 and 3.13. BO jobs install platform-specific locks, validate environments, and explicitly import Torch/BoTorch/GPyTorch.
+GitHub workflows use checkout v7, setup-python v7, upload-artifact v7, and download-artifact v8 for shard gates. Action runtimes do not change solver Python environments. The `minimal-postprocess` job in `ci` validates real files from a complete environment in a separate minimal environment. Base and separate BO jobs cover macOS/Python 3.13 and Windows/Python 3.12 and 3.13. BO jobs install platform-specific locks, validate environments, and explicitly import Torch/BoTorch/GPyTorch.
 
 They run multi-condition optimizer tests, including both real Log acquisition functions. Base jobs keep the lock without BO and test missing-optional-dependency behavior. BO uploads only JUnit reports for 7 days, without solve data or environments.
 
@@ -439,23 +439,23 @@ The first pytest command excludes slow/heavy and `integration_tm1`. The second r
 
 For shard 1, use `--ci-shard=1` with its own manifest directory. `sjtu_tpmshx/tests/_ci_shard0.txt` lists complete modules for shard 0. Remaining modules enter shard 1. Sharding occurs after existing heavy markers and pytest filters, without changing selection or assertions. Run `"$PYTHON" scripts/check_ci_shards.py .cache/ci/fast-0 .cache/ci/fast-1` to validate worker-set agreement and complete, disjoint shards.
 
-Native qualification uses three serial shards on macOS and seven for each Windows/Python combination. Measured case durations from the full matrix set the groups. Windows conservative energy tests use one fixture parameter per group. Convergence, property, energy ledger and real replay checks for each parameter stay in one shard. Other modules keep their shared fixtures. Independent engineering-pair tests can use complete node IDs. The macOS group keeps the 3D flow modules together to share JIT compilation.
+Native qualification uses three serial shards on macOS and seven for each Windows/Python combination. Measured case durations from the full matrix set the groups. Windows conservative energy tests use one fixture parameter per group. Convergence, property, energy ledger and real replay checks for each parameter stay in one shard. Other modules keep their shared fixtures. Independent engineering-pair tests can use complete node IDs.
 
-Group lists are in `sjtu_tpmshx/tests/native/`. macOS uses `_ci_macos_shard0.txt` and `_ci_macos_shard1.txt`. Windows uses `_ci_windows_shard0.txt` through `_ci_windows_shard5.txt`. Pass each list through `--ci-shard-modules=<list-path>` in numeric order. Unlisted cases enter the final automatic shard: 2 on macOS or 6 on Windows. All numerical cases, precision and convergence assertions, and three platform/Python combinations stay unchanged.
+Group lists are in `sjtu_tpmshx/tests/native/`. macOS uses `_ci_macos_shard0.txt` and `_ci_macos_shard1.txt`. Windows uses `_ci_windows_shard0.txt` through `_ci_windows_shard5.txt`. Pass each list through `--ci-shard-modules=<list-path>` in numeric order. Unlisted cases enter the final automatic shard: 2 on macOS or 6 on Windows. All three platform/Python combinations remain supported. Native engineering cases keep per-side physical models, convergence and energy limits.
 
-Each engineering pair runs its two independent backends concurrently from the same immutable prepared case. Python stays on the caller thread to keep its Numba thread setting. The original conservation, convergence, and difference checks run after both results return.
+Independent formulas, discrete energy balances, manufactured solutions, component replay and fixed historical references replace Python solver comparisons. Retired iterators are not retained as a second solver.
 
-Each platform/Python combination calls the [native workflow](.github/workflows/native.yml). It builds native libraries once and runs independent C/C++ callers. Its shards can start when that build completes. They do not wait for other platforms to build. All its shards reuse the same workflow's `native-build-<platform>-py<version>` artifact. The archive preserves executable permissions and includes runtime libraries, callers, and license notices. An exact CoolProp static-library cache key binds the platform, architecture, Python, hosted toolchain image version, native dependency lock, and build script. Project C++ and model coefficients rebuild on every run. Cache hits still require independent caller checks.
+Each platform/Python combination calls the [native workflow](.github/workflows/native.yml). It builds native libraries once and runs independent C/C++ callers. Its shards can start when that build completes. They do not wait for other platforms to build. Native, fast and integration shards reuse the same `native-build-<platform>-py<version>` artifact. The archive preserves executable permissions and includes runtime libraries, callers, and license notices. An exact CoolProp static-library cache key binds the platform, architecture, Python, hosted toolchain image version, native dependency lock, and build script. Project C++ and model coefficients rebuild on every run. Cache hits still require independent caller checks.
 
 Build logs use `native-build-logs-<platform>-py<version>`. Each shard uploads `native-dependencies-<platform>-py<version>-shard-<number>` with JUnit and `native-manifest`. Shard numbers are 0–2 on macOS and 0–6 on Windows. These artifacts are retained for 7 days.
 
 Pass all shard manifests in numeric order to the same set checker with `--serial`. It verifies complete and disjoint selection. Native logs keep the 20 slowest tests and skip reasons.
 
-Fast/integration logs keep the 30 slowest tests and skip reasons. Each shard publishes JUnit and collection manifests as `test-reports-<platform>-py<version>-<fast-0|fast-1|integration>` for 7 days. Manifests include each pytest process's separate peak RSS and cache counts for loaded Numba dispatchers. Process peaks cannot be summed as concurrent total peak. Statistics exclude ordinary child processes and destroyed dispatchers.
+Fast/integration logs keep the 30 slowest tests and skip reasons. Each shard publishes JUnit and collection manifests as `test-reports-<platform>-py<version>-<fast-0|fast-1|integration>` for 7 days. Manifests include each pytest process's separate peak RSS. Process peaks cannot be summed as concurrent total peak. Statistics exclude ordinary child processes.
 
 The three original `tests (<platform>, <version>)` required checks wait for all platforms' test shards, BO jobs, and native qualification shards. They require each job to succeed and all shard-set checks to pass. Failed, canceled, skipped, or missing shards cannot pass the gate. `minimal-postprocess` stays separately required. Compare fast, integration, and full-job speed separately with same-platform baselines.
 
-Local timing does not promise CI speedups. Acceptance skips keep specific reasons. Skipped capabilities are not passed. Minimal-postprocess CI uses separate `requirements/postprocess.txt`. It consumes real 2D/3D files from another complete environment. Files stay local to CI jobs without result-artifact uploads.
+Local timing does not promise CI speedups. Acceptance skips keep specific reasons. Skipped capabilities are not passed. Minimal-postprocess CI uses separate `requirements/postprocess.txt`. It consumes real 2D/3D files from another complete environment. The macOS integration job uploads two public-example results and their metrics as `real-file-handoff` for the Linux minimal environment. These files stay available for seven days. They contain no private data.
 
 Configuration alone does not show a CI pass.
 

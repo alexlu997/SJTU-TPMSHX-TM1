@@ -1,10 +1,8 @@
 """Portable native 2D fields, diagnostics and metric evidence remain usable."""
 from collections.abc import Mapping
-from contextlib import nullcontext
 from dataclasses import replace
 import os
 from pathlib import Path
-from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -18,11 +16,8 @@ from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.backends.cpp.full_2d import NativeFull2DDriver
 from sjtu_tpmshx.solvers.backends.cpp.full_2d_capture import capture_result
 from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
-from sjtu_tpmshx.solvers.backends.capture_2d import capture_result as python_capture
-from sjtu_tpmshx.tests.native import full_thermal_reference
-from sjtu_tpmshx.tests.native.test_full_2d import ROOT, configuration, capture_python
+from sjtu_tpmshx.tests.native.test_full_2d import ROOT, configuration
 
-same_thermal = full_thermal_reference.same_thermal
 
 
 @pytest.fixture(scope='module')
@@ -40,8 +35,6 @@ def driver():
 
 def compare(actual, expected, path=''):
     if isinstance(expected, Mapping):
-        actual = full_thermal_reference.native_table_metadata(actual)
-        expected = full_thermal_reference.native_table_metadata(expected)
         assert actual.keys() == expected.keys(), path
         for key, value in expected.items():
             compare(actual[key], value, path + '/' + str(key))
@@ -81,116 +74,99 @@ def test_power_comparison_uses_units_at_root_and_nested_paths():
         compare(np.array([100001]), np.array([100000]), 'counts')
 
 
-@pytest.mark.parametrize('dimension', [2, 3])
-def test_table_record_comparison_keeps_values_and_original_names(dimension):
-    from sjtu_tpmshx.tests.native import test_cpp_full_3d
-    compare_records = compare if dimension == 2 else test_cpp_full_3d.compare
-    record = dict(sides=('B',), final_backend='HEOS', heos_polish=False)
-    old, new = {'sco2_enthalpy_eos': record}, {'enthalpy_eos': record}
-    compare_records(new, old, 'model_metadata')
-    compare_records({'true_h': new}, {'true_h': old}, 'boundary_fluxes')
-    assert set(old) == {'sco2_enthalpy_eos'} and set(new) == {'enthalpy_eos'}
-    with pytest.raises(AssertionError):
-        compare_records({'enthalpy_eos': dict(record, final_backend='BICUBIC')}, old)
-    with pytest.raises(AssertionError):
-        compare_records(dict(new, sco2_enthalpy_eos=record), old)
-
-
 def captured(driver, case):
     cfg, prepared = build_execution_inputs(case)
-    with patch('sjtu_tpmshx.solvers.backends.python.two_d.runtime.build_runtime',
-               side_effect=AssertionError('Python SIMPLE construction called')), \
-         patch('sjtu_tpmshx.solvers.backends.python.two_d.coupling._run_solvers',
-               side_effect=AssertionError('Python outer driver called')):
-        raw = driver.run_prepared(cfg, prepared, RunControl(backend='cpp'))
-        return capture_result(case, cfg, prepared, raw), raw
+    raw = driver.run_prepared(cfg, prepared, RunControl())
+    return capture_result(case, cfg, prepared, raw), raw
 
 
-def compare_portable(actual, expected, *, full_cc=False, selected_energy=False):
-    assert actual.backend_id == 'cpp'
-    for result in (actual, expected):
-        balance = evaluate_physical_balance(result)
-        for name in ('energy', 'fine_energy'):
-            audit = balance.get(name)
-            if audit is not None and audit['status'] == 'available':
-                assert abs(audit['telescoping_error']) < 2e-7
-    assert actual.backend_version == 'full_2d_v6'
-    for key in ('fields', 'field_metadata', 'pressure_evidence', 'run_status'):
-        compare(getattr(actual, key), getattr(expected, key), key)
-    fluxes = dict(actual.boundary_fluxes)
-    if actual.metadata['thermal_mode'] == 'model_h':
-        assert expected.metadata['thermal_mode'] == 'model_h'
-        fine = dict(fluxes['fine'])
-        assert fine.pop('native') == dict(
-            abi=2, algorithm='shared_fv_model_h_2d_defect_v1', red_black=False)
-        fluxes['fine'] = fine
-    if full_cc:
-        # Additional fullCC powers are checked against the component ledger by
-        # the caller; the retained Python capture has no such evidence.
-        fluxes.pop('temperature')
-        fine = dict(fluxes['fine'])
-        for key in ('native', 'temperature', 'mass_A', 'mass_B', 'mass_unit'):
-            fine.pop(key)
-        fluxes['fine'] = fine
-    expected_fluxes = dict(expected.boundary_fluxes)
-    if selected_energy:
-        assert evaluate_physical_balance(actual)['energy']['status'] == 'available'
-        fluxes.pop('energy');expected_fluxes.pop('energy')
-    compare(fluxes, expected_fluxes, 'boundary_fluxes')
-    for key in ('model_metadata', 'application', 'reporting_reference', 'df_metadata'):
-        compare(actual.metadata[key], expected.metadata[key], key)
-    actual_metrics, expected_metrics = evaluate(actual).metrics, evaluate(expected).metrics
-    for key in ('Q', 'Q_A', 'Q_B', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B', 'mass_flow_A', 'mass_flow_B', 'energy_imbalance_rel'):
-        if full_cc and key in ('Q', 'Q_A', 'Q_B', 'energy_imbalance_rel'):
-            continue  # Checked from the fullCC ledger, not the legacy cp*T duty.
-        a, e = actual_metrics[key], expected_metrics[key]
-        assert a.status == e.status, (key, a, e)
-        compare(a.value, e.value, key)
-    a, e = actual.metadata['diagnostics'], expected.metadata['diagnostics']
-    compare(a['convergence_detail'], e['convergence_detail'], 'convergence_detail')
-    fine_info = dict(e['richardson_info']) if e['richardson_info'] is not None else None
-    if full_cc:
-        fine_info.pop('_full_reference')
-    compare(a['richardson_info'], fine_info, 'richardson_info')
-    compare(a['model_h_balance'], e['model_h_balance'], 'model_h_balance')
-    compare(a['sco2_nu_observations'], e['sco2_nu_observations'], 'sco2_nu_observations')
-    for key in ('Q_A', 'Q_B', 'Q_net', 'Q_solid_richardson', 'Q_richardson_warn', 'energy_imbalance_rel',
-                'envelope_valid', 'envelope_reasons', 'p_clip_hits'):
-        compare(a[key], e[key], key)
+def check_portable(actual, raw, case):
+    assert actual.backend_id == 'cpp' and actual.backend_version == 'full_2d_v6'
+    assert actual.case_id == case.case_id
+    compare(actual.grid, case.grid, 'grid')
+    compare(actual.metadata['parameters'], case.parameters, 'parameters')
+    compare(actual.metadata['design_fields'], case.design_fields, 'design_fields')
+    assert actual.run_status['execution'] == 'completed'
+    for key, source in (('converged', 'converged'), ('envelope_valid', 'envelope_ok'),
+                        ('final_flow_after_last_thermal', 'post_after_last_thermal')):
+        assert actual.run_status[key] == raw[source]
+    assert actual.run_status['outer_index'] == raw['iterations']-1
+    for key, temperature in zip(('Ta','Tb','Ts'), raw['main']['temperature']):
+        np.testing.assert_array_equal(actual.fields[key], temperature)
+        assert actual.field_metadata[key]['state'] == 'raw last main thermal return'
+    for i,side in enumerate('AB'):
+        for target, source in (('P_thermal_', 'pressure'), ('h_v', 'hv')):
+            np.testing.assert_array_equal(actual.fields[target+side], raw['main'][source][i])
+        for target, source in (('P_report_', 'absolute_pressure'), ('uc', 'uc'), ('vc', 'vc')):
+            np.testing.assert_array_equal(actual.fields[target+side], raw['flow'][i][source])
+        for got, expected in zip(actual.boundary_fluxes['mass_'+side],
+                                 (raw['main']['mass_x'][i], raw['main']['mass_y'][i])):
+            np.testing.assert_array_equal(got, expected)
+    balance = evaluate_physical_balance(actual)
+    for name in ('energy','fine_energy'):
+        item = balance.get(name)
+        if item is not None and item['status'] == 'available':
+            assert abs(item['telescoping_error']) < 2e-7
+    from sjtu_tpmshx.result_math import pressure_face_values
+    pressure_drop = []
+    for side, flow in zip('AB', raw['flow']):
+        inlet, outlet = pressure_face_values(flow['pressure'],flow['dy'])
+        opening = case.parameters['boundary_openings'][side]
+        pressure_drop.append(np.average(inlet,weights=flow['dx']*opening['in_geom_frac'])
+            - np.average(outlet,weights=flow['dx']*opening['out_geom_frac']))
+    metrics = evaluate(actual).metrics
+    expected = dict(Q=abs(raw['duty'][0]), Q_A=raw['duty'][0], Q_B=raw['duty'][1],
+        dP_A=pressure_drop[0], dP_B=pressure_drop[1],
+        T_out_A=raw['outlet_temperature'][0], T_out_B=raw['outlet_temperature'][1],
+        mass_flow_A=raw['inlet_mass'][0], mass_flow_B=raw['inlet_mass'][1],
+        energy_imbalance_rel=abs(sum(raw['duty'])) / max(*(abs(q) for q in raw['duty']), 1e-30))
+    for key,value in expected.items():
+        assert metrics[key].status == ('available' if np.isfinite(value) else 'unavailable')
+        if np.isfinite(value):
+            compare(metrics[key].value, value, key)
+    if raw['fine'] is not None:
+        fine = actual.boundary_fluxes['fine']
+        for key, value in zip(('Ta','Tb','Ts'),raw['fine']['temperature']):
+            np.testing.assert_array_equal(fine[key],value)
+        info = actual.metadata['diagnostics']['richardson_info']
+        assert info['converged'] == (raw['fine']['stop']==0)
+        assert info['iterations'] == raw['fine']['iterations']
+        assert info['extrapolated'] == raw['fine_extrapolated']
 
 
-def compare_range_records(actual, expected):
-    assert actual.keys() == expected.keys()
-    for key, e in expected.items():
-        a = actual[key]
-        if not isinstance(e, RangeRecord):
-            assert a == e, key
-            continue
-        for name in ('label', 'quantity', 'unit', 'bounds', 'low', 'high', 'size', 'nonfinite'):
-            assert getattr(a, name) == getattr(e, name), (key, name, a, e)
-        for name in ('minimum', 'maximum'):
-            v, w = getattr(a, name), getattr(e, name)
-            if w is None:
-                assert v is None
-            else:
-                assert v[1] == w[1], (key, name, v, w)
-                np.testing.assert_allclose(v[0], w[0], rtol=2e-9 if e.quantity == 'T' else 2e-8,
-                    atol=2e-7 if e.quantity == 'T' else 2e-10, err_msg=str((key, name)))
+def check_range_records(records, rows):
+    groups = {}
+    for row in rows:
+        source = (row['view'], row['model'], row['topology']) if row['view'].startswith('nu') else (row['view'], row['model'])
+        key = (*source, tuple(row['shape']), (row['side'], row['stage'], row['layout']))
+        groups.setdefault(key, []).append(row)
+        assert row['size'] == int(np.prod(row['shape']))
+        for bound in ('minimum','maximum'):
+            if row[bound] is not None:
+                assert len(row[bound][1]) == len(row['shape'])
+                assert all(0 <= index < size for index,size in zip(row[bound][1],row['shape']))
+    for key, snapshots in groups.items():
+        record = records[key]
+        assert isinstance(record, RangeRecord)
+        worst = max(snapshots,key=lambda row: row['low']+row['high'])
+        for field in ('bounds','size','low','high'):
+            assert getattr(record,field) == worst[field]
+        assert record.nonfinite == max(row['nonfinite'] for row in snapshots)
+        for field,select in (('minimum',min),('maximum',max)):
+            candidates = [row[field] for row in snapshots if row[field] is not None]
+            expected = select(candidates,key=lambda value:value[0]) if candidates else None
+            compare(getattr(record,field),expected,field)
 
 
 @pytest.mark.parametrize('mode', ['model_h', 'true_h'])
 def test_capped_partial_fields_last_inputs_and_recomputed_metrics(driver, mode):
     case = prepare_case(configuration(directions=(1, 2), outer=2, partial=True, mode=mode),
                         case_id='capture-partial-' + mode)
-    with warning_scope({}) as expected_records, (full_thermal_reference.selected_energy_reference(case)
-                                                if mode == 'true_h' else nullcontext()):
-        reference = capture_python(case, full=True, native_flow=True)
-        expected = python_capture(case, *reference['capture_inputs'])
     with warning_scope({}) as actual_records:
         actual, raw = captured(driver, case)
-    compare_range_records(actual_records, expected_records)
-    compare_portable(actual, expected, selected_energy=mode == 'true_h')
-    for result in (actual, expected):
+    check_range_records(actual_records, raw['range_observations'])
+    check_portable(actual, raw, case)
+    for result in (actual,):
         samples = result.metadata['property_sampling']
         for label in 'AB':
             fluid = case.model_refs[case.metadata['model_roles']['fluid_' + label]].parameters['fluid']
@@ -216,43 +192,46 @@ def test_capped_partial_fields_last_inputs_and_recomputed_metrics(driver, mode):
         assert scale['unit'] == 'J/kg' and all(value >= 1 for value in scale['sides'].values())
 
 
-def test_capped_temperature_capture_uses_current_full_cc_enthalpy(driver, same_thermal):
-    """The native fullCC route and the retained Python cp*T route differ."""
+def test_capped_temperature_capture_uses_current_full_cc_enthalpy(driver):
+    """Check exported fullCC powers from the signed boundary ledger."""
 
     case = prepare_case(configuration(directions=(1, 2), outer=2, mode='temperature'),
                         case_id='capture-partial-temperature')
-    with warning_scope({}) as expected_records:
-        reference = capture_python(case, full=True, thermal=same_thermal, native_flow=True)
-        expected = python_capture(case, *reference['capture_inputs'])
     with warning_scope({}) as actual_records:
         actual, raw = captured(driver, case)
-    compare_range_records(actual_records, expected_records)
-    compare_portable(actual, expected, full_cc=True)
+    check_range_records(actual_records, raw['range_observations'])
+    check_portable(actual, raw, case)
     assert actual.run_status['final_flow_after_last_thermal'] and not actual.run_status['converged']
     assert not np.array_equal(actual.fields['Ta'], actual.fields['Ta_display'])
     np.testing.assert_array_equal(actual.metadata['rho_cp_A'], raw['main']['rho_cp'][0])
-    for stage, calls in (('main', 'coarse_thermal_calls'), ('fine', 'thermal_calls')):
-        info = reference[calls][-1][1]
+    for stage in ('main', 'fine'):
         evidence = actual.boundary_fluxes if stage == 'main' else actual.boundary_fluxes['fine']
         ledger = evidence['temperature']
         assert ledger['definition'] == 'model_enthalpy_temperature_v1'
         assert ledger['physical_dimension'] == 2 and ledger['power_units'] == 'W/m'
-        assert ledger['physical_boundary_complete'] == info['_full_reference']['boundary_complete']
-        assert raw[stage]['iterations'] == info['iterations'] and raw[stage]['stop'] == 0
+        assert ledger['physical_boundary_complete'] and raw[stage]['stop'] == 0
         for phase in ('A', 'B', 'solid'):
             compare(ledger['residual'][phase], raw[stage]['temperature_evidence']['residual'][phase])
             for kind in ('advective_out', 'diffusive_out'):
                 compare(ledger[kind][phase], raw[stage]['temperature_evidence'][kind][phase])
         powers = [-sum(np.sum(face) for face in ledger['advective_out'][side].values()) for side in 'AB']
-        compare(powers, info['_full_reference']['advective_inward'], stage + '/Q')
-        assert info['_full_reference']['energy_error_ratio'] <= 1e-7
+        compare(powers, raw['duty'] if stage == 'main' else raw['fine_duty'], stage + '/Q')
+        thermal = raw[stage]
+        area = thermal['dx'][:,None] * thermal['dy'][None,:]
+        temperatures = thermal['temperature']
+        scale = max(1., *(abs(np.sum(thermal['hv'][i]*(temperatures[i]-temperatures[2])*area)) for i in range(2)))
+        boundary = sum(np.sum(face) for kind in ('advective_out','diffusive_out')
+                       for phase in ('A','B','solid') for face in ledger[kind][phase].values())
+        error = max(abs(boundary-sum(ledger['source_integral'].values())-ledger['prescribed_b_power']),
+                    *(np.abs(value).sum() for value in ledger['residual'].values()))
+        assert error / scale <= 1e-7
     fine = actual.boundary_fluxes['fine']
     assert fine['native'] == dict(abi=2, algorithm='model_h_tface_sou_fou_strict_v3', red_black=False)
     assert fine['mass_unit'] == 'kg/(s m)'
-    for side, mass in zip('AB', reference['refinement_mass_faces']):
-        compare(fine['mass_' + side], mass)
+    for index, side in enumerate('AB'):
+        compare(fine['mass_' + side], (raw['fine']['mass_x'][index], raw['fine']['mass_y'][index]))
     metrics = evaluate(actual).metrics
-    powers = reference['coarse_thermal_calls'][-1][1]['_full_reference']['advective_inward']
+    powers = raw['duty']
     for side, power in zip('AB', powers):
         assert metrics['Q_' + side].status == 'available'
         compare(metrics['Q_' + side].value, power, 'Q_' + side)
@@ -266,12 +245,9 @@ def test_range_ledger_keeps_scalar_warm_sources_and_worst_snapshot_counts(driver
     config = configuration(directions=(2, 1), outer=outer, warm=warm, mode='model_h')
     config = replace(config, fluid_A=replace(config.fluid_A, T_in_K=1150.))
     case = prepare_case(config, case_id=f'range-hot-air-{outer}-{warm}')
-    with warning_scope({}) as expected_records:
-        reference = capture_python(case, full=True, native_flow=True)
-        python_capture(case, *reference['capture_inputs'])
     with warning_scope({}) as actual_records:
-        actual, _ = captured(driver, case)
-    compare_range_records(actual_records, expected_records)
+        actual, raw = captured(driver, case)
+    check_range_records(actual_records, raw['range_observations'])
     assert any(isinstance(value, RangeRecord) and value.high for value in actual_records.values())
     assert any('worst single snapshot:' in message for message in actual.metadata['diagnostics']['warnings_list'])
 
@@ -288,14 +264,11 @@ def test_true_h_air_property_sources_and_selected_sco2_nu_are_recorded(driver, f
         from sjtu_tpmshx.models.nu_correlations import sco2_effective_nu_config
         config = replace(config, sco2_nu=sco2_effective_nu_config())
     case = prepare_case(config, case_id='range-true-h-' + topology)
-    with warning_scope({}) as expected_records, full_thermal_reference.selected_energy_reference(case):
-        reference = capture_python(case, full=True, native_flow=True)
-        expected = python_capture(case, *reference['capture_inputs'])
     with warning_scope({}) as actual_records:
-        actual, _ = captured(driver, case)
-    compare_range_records(actual_records, expected_records)
+        actual, raw = captured(driver, case)
+    check_range_records(actual_records, raw['range_observations'])
     compare(actual.metadata['diagnostics']['sco2_nu_observations'],
-            expected.metadata['diagnostics']['sco2_nu_observations'], 'sco2_nu_observations')
+            raw['sco2_nu_observations'], 'sco2_nu_observations')
 
 
 def test_continuous_geometry_range_sources_keep_actual_cell_shapes(driver):
@@ -305,13 +278,11 @@ def test_continuous_geometry_range_sources_keep_actual_cell_shapes(driver):
         'n_ctrl_x': 2, 'n_ctrl_y': 2, 'symmetric_y': False, 'spline_order': 1,
         'L_bounds': [4., 8.], 't_bounds': [.3, .6]}))
     case = prepare_case(config, case_id='range-continuous')
-    with warning_scope({}) as expected_records:
-        reference = capture_python(case, full=True, native_flow=True)
-        python_capture(case, *reference['capture_inputs'])
     with warning_scope({}) as actual_records:
-        actual, _ = captured(driver, case)
-    compare_range_records(actual_records, expected_records)
+        actual, raw = captured(driver, case)
+    check_range_records(actual_records, raw['range_observations'])
     assert np.ptp(actual.metadata['design_fields']['eps_arr']) > 0
+    assert any(tuple(row['shape']) == actual.fields['Ta'].shape for row in raw['range_observations'])
 
 
 @pytest.mark.parametrize('design,air_velocity,water_velocity,outer', [
@@ -340,35 +311,22 @@ def test_partial_optimization_cases_preserve_fine_water_balance(
             'symmetric_y': False, 'spline_order': 1,
             'L_bounds': [4., 8.], 't_bounds': [.3, .6]}))
     case = prepare_case(config, case_id=f'partial-optimization-{design}-{air_velocity}')
-    reference = capture_python(case, full=True, native_flow=True)
-    expected = python_capture(case, *reference['capture_inputs'])
-    actual, _ = captured(driver, case)
-    compare_portable(actual, expected)
+    actual, raw = captured(driver, case)
+    check_portable(actual, raw, case)
     assert actual.run_status['converged'] == (design != 'capped')
     assert actual.metadata['diagnostics']['model_h_balance']['fine']['B']['physical_boundary_complete']
 
 
-def test_golden_air_prepared_case_retains_accepted_refinement(driver, same_thermal):
+def test_golden_air_prepared_case_retains_accepted_refinement(driver):
     from sjtu_tpmshx.solvers.api import run_case
     case = prepare_case(ComputeConfig.from_json(str(ROOT / 'examples/three_module/air_2d.json')),
                         case_id='capture-golden-air2d')
-    reference = capture_python(case, full=True, thermal=same_thermal, native_flow=True)
-    diagnostics = reference['capture_inputs'][-1]
-    component_metadata = diagnostics['richardson_info'].pop('native_metadata')
-    expected = python_capture(case, *reference['capture_inputs'])
-    with patch('sjtu_tpmshx.solvers.backends.python.two_d.runtime.build_runtime',
-               side_effect=AssertionError('Python SIMPLE construction called')):
-        actual = run_case(case, RunControl(backend='cpp', native_library=str(driver.path),
-                                          native_table_directory=os.fsdecode(driver.table_directory)))
-    assert component_metadata == dict(abi=1, algorithm='shared_fv_model_h_2d_defect_v1', red_black=False)
-    # The component oracle does not export this new full-result audit.
+    actual = run_case(case, RunControl(native_library=str(driver.path),
+                                      native_table_directory=os.fsdecode(driver.table_directory)))
     balance = evaluate_physical_balance(actual)
     for name in ('energy', 'fine_energy'):
         assert balance[name]['status'] == 'available'
         assert abs(balance[name]['telescoping_error']) < 2e-7
-    flux = dict(actual.boundary_fluxes, energy=None,
-                fine=dict(actual.boundary_fluxes['fine'], energy=None))
-    compare_portable(replace(actual, boundary_fluxes=flux), expected)
     assert actual.run_status['converged']
     assert actual.metadata['diagnostics']['richardson_info']['extrapolated']
 

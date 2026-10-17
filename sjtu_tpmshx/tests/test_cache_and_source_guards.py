@@ -76,12 +76,6 @@ def test_compute_cache_hits_use_current_chi_s(monkeypatch):
         tpms_calc.compute.cache_clear()
 
 
-def test_laplacian_amg_cache_reset_hook():
-    from sjtu_tpmshx.solvers.ltne_energy_3d import (_LAPLACIAN_AMG_CACHE,
-                                        clear_laplacian_amg_cache)
-    _LAPLACIAN_AMG_CACHE[(2, 2, 2)] = {'probe': True}
-    clear_laplacian_amg_cache()
-    assert _LAPLACIAN_AMG_CACHE == {}
 
 
 # ── W7a: geometry LUT cache honours kwargs ──────────────────────────

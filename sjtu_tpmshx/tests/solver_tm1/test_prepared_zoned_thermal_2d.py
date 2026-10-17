@@ -142,9 +142,7 @@ def test_zoned_si_handoff_feeds_local_thermal_kernel(monkeypatch, tmp_path):
     from sjtu_tpmshx.io.case_io import save_case, load_case
     from sjtu_tpmshx.models import tpms_props, fluid_props
     from sjtu_tpmshx.models.nu_correlations import NU_LAM_FLOOR
-    from sjtu_tpmshx.solvers import simple_solver
-    from sjtu_tpmshx.solvers.backends.python.two_d import coupling
-    from sjtu_tpmshx.solvers.backends.python.two_d.runtime import build_runtime
+    from sjtu_tpmshx.tests.native.prepared_snapshot import native_prepared_state
     case = prepare_case(_config(), case_id='zoned-handoff')
     save_case(case, tmp_path / 'case.yaml')
     loaded = replace(load_case(tmp_path / 'case.yaml'), config_snapshot={})
@@ -153,27 +151,20 @@ def test_zoned_si_handoff_feeds_local_thermal_kernel(monkeypatch, tmp_path):
     def forbidden(*args, **kwargs):
         raise AssertionError('execution recomputed fixed geometry')
     monkeypatch.setattr(tpms_props, 'geometry', forbidden)
-    monkeypatch.setattr(simple_solver.SIMPLESolver, 'solve', lambda *a, **k: (True, 1))
-    captured = {}
-    class AtThermalKernel(Exception):
-        pass
-    def capture(*args, **kwargs):
-        captured['args'] = args
-        raise AtThermalKernel
-    monkeypatch.setattr(coupling, 'solve_full_domain', capture)
-    with pytest.raises(AtThermalKernel):
-        coupling._run_solvers(cfg, build_runtime(cfg, grid))
-    args = captured['args']
+    _, _, state = native_prepared_state(loaded)
+    shape = case.design_fields['eps_arr'].shape
     model = fluid_props.get('air')
     geometry = case.parameters['thermal_geometry']['fields']
-    for side, temp, pressure, hv_index, velocity_index in (
-            ('A', 450., 2e5, 9, 14), ('B', 300., 1.2e5, 10, 16)):
-        speed = np.hypot(args[velocity_index], args[velocity_index + 1])
+    for index, (side, temp, pressure) in enumerate((
+            ('A', 450., 2e5), ('B', 300., 1.2e5))):
+        speed = np.hypot(*(state[f'state.result.flow.{index}.{axis}'].reshape(shape)
+                           for axis in ('uc', 'vc')))
         Re = float(model.rho(temp, pressure)) * (speed + 1e-12) * geometry['D_h'] / float(model.mu(temp, pressure))
         Nu = np.maximum(model.nu('Gyroid', np.maximum(Re, 1.), geometry['epsilon'] / 2.,
                                   cfg['za']['L_field'], geometry['D_h'] * 1e3, None), NU_LAM_FLOOR)
         expected = geometry['A_0'] * Nu * float(model.k(temp, pressure)) / geometry['D_h']
-        np.testing.assert_allclose(args[hv_index], expected, rtol=1e-12)
+        np.testing.assert_allclose(state[f'state.result.thermal.hv.{index}'].reshape(shape),
+                                   expected, rtol=1e-12)
 
 
 @pytest.mark.parametrize('missing', ['L_field_m', 't_field_m', 'thermal_geometry'])

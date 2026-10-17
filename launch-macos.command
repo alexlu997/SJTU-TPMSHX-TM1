@@ -19,7 +19,6 @@ fi
 
 export MPLCONFIGDIR="$PWD/.cache/matplotlib"
 export XDG_CACHE_HOME="$PWD/.cache/xdg"
-export NUMBA_CACHE_DIR="$PWD/.cache/numba"
 mkdir -p -- "$MPLCONFIGDIR" "$XDG_CACHE_HOME" "$NUMBA_CACHE_DIR"
 exec "$tm1_python" -m sjtu_tpmshx.main --backend cpp \
     --native-library "$tm1_library" \

@@ -1,18 +1,9 @@
-"""Pytest gate — MMS Phase B4: conservative HO kernel is 2nd-order.
+"""Check frozen MMS references from the retired Python research drivers.
 
-Checks recorded evidence that the strict-conservation kernel branch
-(cfg['conservative_ltne']=True, face-shared SOU + telescoping a_P) kept
-2nd-order accuracy. Current-code order is checked by the new-run CLI gates,
-not by rereading this historical table. Reads the persisted CSV from
-``validation/cases/mms_phase_b4_order.py`` (the h-refinement sweep is not re-run in
-CI; new comparisons use ``python -m sjtu_tpmshx.validation.cases.mms_phase_b4_order``
-and write separately under .cache/validation/mms_phase_b4-*/).
-
-Hard gates (B-plan B4 §3):
-    p_obs (L2_A) >= 1.8
-    p_obs (L2_B) >= 1.8
-    p_obs (L2_s) >= 1.8
-    R^2 >= 0.99      # clean log-log fit
+The recorded CSV values and their original gates remain unchanged.
+Version 0.1 retains the producers in Git history. Current C++ MMS
+coverage is in tests/native/test_temperature_mms.py.
+These historical tests do not execute a current numerical solver.
 """
 from __future__ import annotations
 

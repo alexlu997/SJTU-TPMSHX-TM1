@@ -2,71 +2,46 @@
 
 [中文](architecture.zh-CN.md) | [English](architecture.md)
 
-The integrated native full-compute CC candidate uses the existing
-air/water integral h(T) model through the strict model-h drivers. This replaces
-the earlier variable-cp m*cp*T adapter. That candidate's failures stay in the
-historical record. Earlier numerical and resource qualifications stay tied
-to their recorded builds. The final shared-row compilation policy requires
-affected numerical/resource checks and application acceptance. Fixed-coefficient
-Quick Design/standalone temperature, the kept
-true-h CC warm-up and single-A sCO2 paths, and staggered research routes have
-separate contracts.
+Version 0.2 uses C++ as the only numerical backend. Python keeps the GUI,
+CLI, preparation, model resources, optimization, result mapping and postprocessing.
+The public `ComputeConfig` flow supports full 2D/3D and Quick Design.
+Python numerical iterators, Numba/PyAMG dependencies and Python-only research
+entries are retired. Saved research cases cannot execute; saved results remain readable.
+The energy choices `legacy_h_fou`, `temperature_fou` and `temperature_sou` remain.
+Outer property Anderson is retired. Fixed property relaxation, thermal Anderson
+and qualified flow acceleration keep their existing rules.
 
-Conservative staggered temperature transport uses the same end-cell SOU
-reconstruction in Python and C++.
-Internal faces next to a domain end use the two available one-sided slopes.
-Minmod limits these slopes in physical distances.
-External faces keep their prescribed boundary treatment. Axes with fewer
-than three cells stay first order. Product model-h and the nonconservative
-research stencil keep their separate reconstruction contracts.
+The native full-compute CC route uses the existing air/water integral h(T)
+model through strict model-h drivers. Earlier variable-cp m*cp*T failures
+remain in the historical record. Fixed-coefficient Quick Design, standalone
+temperature, true-h warm-up and private C++ component routes retain their
+separate contracts. Removing a Python entry does not expand these contracts.
+Conservative staggered temperature retains its physical-distance minmod
+reconstruction and original boundary treatment. Axes with fewer than three
+cells stay first order.
 
-Engineering backend parity requires one prepared case, the same physical models,
-and independent convergence and energy gates. Relative differences in duty, pressure drop and mass flow must
-be at most 0.1%. Absolute differences in outlet and full-field temperatures must
-be at most 0.01 K. `test_backend_engineering_parity.py` covers air, water, CO2 and sCO2 pairings
-in 2D and 3D. Mixed native runs use the selected per-fluid energy models.
-Their differences from the retained Python HEOS models are recorded separately.
-Independent formula checks and physical gates apply to these runs.
-For the same models, each velocity component and magnitude must differ by at most
-`1e-6 m/s + 1e-5 * u_inlet` in every cell. Use the saved prepared inlet speed
-for that side, including a resolved mass-flow input. This limit also applies
-near zero transverse velocity. Other intermediate fields keep 0.01% relative
-tolerance. Near-zero residual ratios keep their explicit absolute tolerances.
+`tests/native/test_native_engineering_acceptance.py` covers ordered air,
+water, CO2 and sCO2 pairs in 2D and 3D. It checks selected physical models,
+convergence, finite fields, mass and energy with the existing limits.
+Independent formulas, discrete balances, manufactured solutions, component
+replay and stored historical references replace Python solver comparisons.
+No retired numerical iterator supplies the current reference result.
 
-The same-model 2D CO2/sCO2 comparisons use momentum tolerance `1e-6`
-and local/global mass tolerances `1e-8`. Both backends keep their original
-outer and thermal controls. Default-flow results can exceed the velocity
-comparison limit. Those results remain diagnostic; this test setting does not
-change product defaults or establish their iteration accuracy.
+Version 0.1 preserves the former two-backend implementation and comparison
+criteria in [its architecture document](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/v0.1.0/docs/architecture.md).
+Those criteria included 0.1% duty/pressure/mass, 0.01 K temperature and
+`1e-6 m/s + 1e-5 * u_inlet` velocity differences for matched models.
+Those comparisons are historical evidence, not current two-backend execution.
 
-Actual iteration and roundoff-clipping counts can
-differ across backends. Each count must respect its own run's budget, records
-and stopping reason. Shapes, states, sources and physical gates stay separate
-assertions. A different extremum location must still identify an
-extremum in the original observed field. Save/replay, independent formula and
-assembly checks keep their tighter tolerances. These comparisons do not
-qualify unsupported metrics or untested physical conditions.
-
-SIMPLE momentum residuals near convergence are audited against each run's own
-returned field after outlet closure and the original F2 gate. Their histories
-keep the actual raw numerator, denominator and normalized residual. A capped
-2D solve keeps its last pre-closure observation without a new certificate. Complete 2D SIMPLE mass-history comparisons use a dimensionless absolute floor
-of 1e-8. This is 1% of the default 1e-6 F2 mass gate.
-
-Final mass and F2 checks keep their original limits. Progress samples must equal that run's own recorded residuals.
-
-A capped outer run stays nonconverged. Its returned thermal state is validated with its actual last inputs and original energy gates. It is not accepted as
-a converged engineering-accuracy result.
-
-Full-driver capture and component ABI tests use the current thermal component
-to validate that algorithm's fields, iteration counts and residual records.
-They do not require the kept Python thermal iterator to follow the same
-trajectory. Public backend engineering tests still run both complete backends
-independently. The fullCC capture compares its integral-h(T) boundary powers with the component ledger, separately from the kept Python cp*T report.
-
-This is the current architectural and physical contract for the repository.
-Historical audits and reports explain how the project reached this state, but
-they do not override the running code or this document.
+SIMPLE residuals are audited against each run's returned field and F2 gates.
+Progress samples must match its recorded residuals. Iterations and clipping
+must respect the actual budget and stop reason. A capped outer run remains
+nonconverged. Its last thermal state can pass its own physical checks without
+qualifying the complete result for engineering use.
+Full-driver and component tests check fields, iterations, boundary powers
+and residual records against the selected native thermal algorithm.
+Numerical qualification, desktop acceptance and experimental accuracy remain
+separate results. Historical failures retain their original status.
 
 The H-FOU and temperature updates share the fluid and solid row assembly in `energy_fv_rows.hpp`.
 The H row transports actual enthalpy and uses the frozen h-to-T tangent for conduction and exchange.
@@ -124,7 +99,7 @@ The last thermal and flow operations remain separate from initialization and pro
 Entries distinguish inlet values, local values, volume averages, relaxation and transfer to a refined thermal grid.
 The 3D true-h record includes its temperature warm-up and its EOS energy solve.
 An inactive B side has no flow or heat-transfer sampling operation.
-The record preserves the different 2D and 3D sampling rules and the retained Python energy relations.
+The record preserves the different 2D and 3D sampling rules and each recorded energy relation.
 The native query borrows views from the result owner; Python copies these views before release.
 Current bindings require the added query and report an explicit error for an older native library.
 Saved results retain both records. Historical results retain their original metadata.
@@ -143,7 +118,7 @@ CO2 and sCO2 keep local HEOS conductivity.
 In 2D, air/water heat transfer uses the outer mean density and viscosity, with inlet conductivity and Pr.
 CO2 and sCO2 use local properties at the lagged temperature and inlet pressure.
 These choices no longer depend on the other fluid. The 3D sampling rules stay unchanged.
-The Python numerical backend and direct component C entries keep their existing models.
+Direct component C entries keep their existing models.
 Explicit fixed-capacity, prescribed-side and research routes retain their separate contracts.
 
 Each full conservative run normalizes the h update separately for each fluid.
@@ -158,7 +133,7 @@ Full C++ 2D EOS runs also accept the optional thermal controls in `SolverConfig`
 The additive `full_2d_v4` entry passes the iteration and sweep budgets, relaxation,
 normalized h-update tolerance, Kelvin update tolerance and both energy gates.
 The optional h-update check on a temperature solve remains a separate gate.
-Unset controls retain native route defaults. Integral model-h and Python 2D
+Unset controls retain native route defaults. Integral model-h routes
 reject these EOS-only overrides before flow execution. Existing v2/v3 C callers
 keep their original layouts and defaults. Saved effective settings identify the
 controls used by each completed thermal call.
@@ -172,8 +147,7 @@ Unset controls keep each route's defaults, including the 0.01 K field-change gat
 Chunk sizes, phase checks and physical energy gates stay unchanged.
 Explicit controls apply to both 2D main and refined thermal calls.
 They also apply to 3D model-h, integral full CC and the integral `Nz=1` delegate.
-Python, Quick Design and other thermal routes reject these controls before flow execution.
-The Python numerical backend retains its existing controls.
+Quick Design and other thermal routes reject these controls before flow execution.
 
 The additive `full_2d_v5` and `full_3d_v4` C entries use the existing engines.
 Their option fields use zero for an unset override; public Python values use `None`.
@@ -268,15 +242,13 @@ Native queries borrow arrays from the existing full-result owner.
 The bindings copy these arrays before release. Missing or released owners return an error.
 Cancelled results and routes without a complete captured audit report unavailable evidence.
 True-h retains a ledger only when the existing final audit computed all phase equations.
-The kept Python model-h and true-h paths copy their existing audit results.
-Python capacity-temperature paths without a full face audit remain unavailable.
 Historical files keep missing evidence as missing; the reader does not create a zero balance.
 
 ## Captured parameter limits
 
 Prepared cases store original model bounds and inlet samples in
 `applicability_inputs`. Completed full solves store `applicability_evidence_v1`.
-Python and C++ keep the last actual source call for each side, stage, layout
+Preparation and native execution keep the last actual source call for each side, stage, layout
 and array shape. The existing warning record keeps extrema from all calls.
 The additive C queries borrow the existing result owner. The bindings copy
 their values before release and require a current library.
@@ -336,21 +308,8 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   runtime control ports. It is Qt-free.
 - `preprocess/` owns physical grid/boundary preparation, fixed geometry and
   coefficients, model/resource selection and portable execution inputs.
-- `solvers/backends/python/` owns prepared numerical execution, current-state
-  property evaluation and native result capture. SIMPLE/LTNE kernels stay
-  under `solvers/`. It does not import preprocessing or formal postprocessing. Importing the public solver API does not initialize Numba. Its thread
-  environment is applied one time when Python numerical kernels or explicit
-  thread controls are loaded.
-
-  Later runs keep the caller/worker mask. The 2D loop reads prepared properties directly, reports through `RunControl`,
-  and returns application coefficients and zone statistics with its native
-  result.
-
-  It has no window-shaped runtime adapter or attribute-write hooks. The mixed Python-outer/C++-sweep route is retired. Python runs use the
-  original Numba kernel. Saved explicit mixed-kernel requests fail before
-  SIMPLE. Complete native execution is selected separately with `RunControl`.
 - `solvers/backends/cpp/` exposes the independent prepared Quick Design and
-  full 2D/3D drivers through an explicit `RunControl(backend='cpp', native_library=...)`. The host library path is not serialized in CaseData. Shared QD validation and
+  full 2D/3D drivers through `RunControl`, which defaults to C++. The host library path is not serialized in CaseData. Shared QD validation and
   result mapping belong to `solvers/backends/quick_design.py`. Numerical property
   passes, liquid-state guards and thermal iteration belong to the C++ driver. Its returned scalar pass evidence is expanded into the same fields and warning
   records for postprocessing.
@@ -366,7 +325,7 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   The binding maps native evidence into the same `FieldResult`. It does not call Python numerical
   kernels. Full 3D ABI 2 removes outer property Anderson controls and state; fixed property relaxation and thermal Anderson remain.
   Full 2D ABI 2 keeps the original prepared Nu geometry ratio rather
-  than reconstructing it after a unit conversion. Python stays the default.
+  than reconstructing it after a unit conversion. C++ is the only numerical backend.
   The required native CI suite passes on macOS arm64/Python 3.13 and Windows
   x64/Python 3.12 and 3.13. Visible desktop delivery and full performance
   qualification stay separate gates.
@@ -430,8 +389,7 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   and `enthalpy_temperature_tol_K` select the algorithm and update gate.
   Full 3D candidates accept prepared `port_wall_refine` grids with full or
   partial openings. They retain the actual cell widths and port face masses.
-  Incompatible routes fail before flow execution. Python numerical methods
-  and production fluid applicability are unchanged.
+  Incompatible routes fail before flow execution. Production fluid applicability stays unchanged.
 
 Additive full2D v3/full3D v2 entry points reuse the previous result layouts
   and owner release functions. Read-only queries expose the executed algorithm,
@@ -515,31 +473,14 @@ Temperature is not scaled. FullCC nonzero sources stay
   VTK export is a postprocessing
   view of recorded data, not a new numerical state.
 - `configs/` owns packaged case configuration.
-- Research and conservation tools use `preprocess.api.prepare_research_case`
-  to create `CaseData`, then `solvers.api.run_case` to return `FieldResult`.
-  This checked 3D input contract retains prescribed porosity, an explicit
-  inactive B phase, finite manufactured sources, and research iteration
-  budgets. It shares the ordinary preparation and numerical implementation.
-  The saved `research_3d_v1` snapshot records the original inputs; prepared
-  fields record the effective grid, budgets, model resources and environment.
-  Research cases currently support Python only. An unsupported backend fails
-  explicitly. Ordinary `ComputeConfig` keeps its dual-fluid and budget rules.
-
-  `RunControl` supplies cancellation, progress, text and outer-iteration
-  callbacks. Runtime callbacks in input dictionaries are rejected. Optional
-  `_emit_audit` evidence records report coupling fields and masks with units,
-  axes and state labels. It also detaches both fluid conductivities at the last
-  thermal input, so entropy evaluation does not use later property updates. It keeps final SIMPLE flow separate from the last
-  thermal input. Inactive B has no B-side metric or two-fluid balance
-  certificate. YAML/HDF5 use the existing case/result I/O. MMS tests that
-  prescribe an independent discrete operator continue to call that operator.
-
-  The old `pipelines.run_stack_3d` entry and dictionary template are retired.
-  Preparation and helpers come from their owning modules. The retired
-  `stages_2d`, `stages_3d`, `_stage_common`, `solvers.envelope` and
-  `solvers.roughness` facades remain absent. There are no import-time aliases
-  or backend function injection. Formal pressure reductions use recorded
-  physical port faces in postprocessing.
+- Public conservation tools prepare a `ComputeConfig` with `preprocess.api.prepare_case`
+  and execute it with `solvers.api.run_case`. The Python-only `prepare_research_case`
+  entry and `research_three_d_v1` execution are retired. Native component tests retain
+  manufactured sources and boundary checks without a second public research interface.
+  `RunControl` supplies progress, cancellation and other host callbacks.
+  Prepared dictionaries cannot contain runtime callbacks. Saved results preserve
+  recorded units, axes and the distinction between final flow and last thermal state.
+  Retired pipeline facades and mixed-kernel entries remain absent.
 - `workflows/compute.py` owns configuration validation and the common prepare, solve and evaluate sequence.
   It checks cancellation between stages and after postprocessing. It records stage times and warnings in the returned `FieldResult` metadata.
   The result identity and immutable array storage stay unchanged. The workflow returns `CaseData`, `FieldResult` and `PerformanceResult`.
@@ -547,9 +488,9 @@ Temperature is not scaled. FullCC nonzero sources stay
   `controllers/module_adapter.compute_result` calls this workflow and the sole application result mapper, `to_compute_result`.
   The GUI, direct-summary CLI and validation tools use this entry. The file CLI uses the same workflow and portable results.
   The previous 2D/3D mappings stay only as frozen test references for real native-result comparisons.
-- `solvers/backends/prepared_2d.py` and `prepared_3d.py` validate execution inputs for both backends.
-  Python receives writable design copies. C++ can borrow immutable design arrays through the same checks.
-  `solvers/backends/capture_2d.py` captures portable 2D evidence for both backends. Numerical drivers remain in their backend directories.
+- `solvers/backends/prepared_2d.py` and `prepared_3d.py` validate execution inputs for native execution.
+  Callers can request writable design copies; the binding borrows immutable arrays through the same checks.
+  `solvers/backends/capture_2d.py` captures portable native 2D evidence. Numerical drivers remain in C++.
 - `ui/` owns PySide6 and PyVista presentation only. `ResultCache` owns one published `ComputeResult` for the accepted dimension.
   Both dimensions publish separate scalar, metadata, diagnostic and warning containers while sharing field arrays.
   The footer, history, diagnostic text, plots and exports read this result. Display timing is added to its metadata after publication.
@@ -568,8 +509,8 @@ They also include display pressures `P_fA/P_fB` (Pa), `L_mm/t_mm` (mm),
   keeps publication fonts for Matplotlib/VTK, without bundling font files or
   importing Qt into lower layers.
 
-Ordinary GUI computations capture the
-  launch thread's Numba mask and apply/restore it in the reused Qt worker. Optimization keeps its independent process/thread resource policy.
+GUI computations pass the selected native thread limit through `RunControl`.
+  Optimization keeps its separate process/thread resource policy.
 
   Desktop inputs use uniform velocity over each inlet opening, local-density
   thermal transport enabled, and no additional six-wall refinement. Port/wall
@@ -611,9 +552,8 @@ under `native/lib/macos-arm64/`, and the project table directory to this same
 GUI entry point. Python keeps UI, prepared-input assembly, optimization
 orchestration and result processing.
 
-The explicit native selection leaves
-public defaults and research-only Python routes unchanged. Previous numerical
-implementations stay until their individual replacement gates pass.
+All public execution uses C++. Python numerical and research-only entries are retired.
+A missing native library fails explicitly before numerical execution.
 
 M-A review, CI and merged-main acceptance for the rectangular 2D/3D module
 flow are kept in [fixed history](history/README.en.md). Current M-B extensions
@@ -644,20 +584,22 @@ Historical experimental cases and their original results are indexed in
 [retired tools](history/retired-tools.md). Rerunning their geometry under the
 current model produces a new comparison, not a reproduction of that experiment.
 
-Historical water-Nu comparisons and the previous full-face 2D enthalpy reference now
-live in `tests/water_nu_reference.py` and `tests/enthalpy_2d_reference.py`.
-Production keeps the direct water CFD closure and shared 3D enthalpy adapter.
+Historical water-Nu comparisons remain in `tests/water_nu_reference.py`.
+The independent one-dimensional enthalpy reference remains in
+`tests/enthalpy_1d_reference.py` for its focused regression tests.
+The former full 2D/3D Python enthalpy iterators are retired.
+Native audits and component replay cover their retained physical contracts.
+Production keeps the direct water CFD closure and native enthalpy driver.
 The unused `postprocess.report` and `postprocess.visualization` helpers are
 retired. Public evaluation, recorded-field plots and exports stay supported.
 
 ### Shared solver implementation
 
-All supported fluids use `SIMPLESolver` in 2D and `SIMPLESolver3D` in 3D. `solvers/_solve_common.py` owns F2 configuration and the common convergence
-monitor: momentum, fresh-density local/global mass and outlet backflow must
-pass consecutive checks. Full compute and raw solver calls
-use this same criterion. `convergence_mode=None` resolves to `f2`. Explicit
-`legacy` is rejected. A static field triggers a check and never certifies
-convergence alone.
+All supported fluids use the native `Simple2DSolver` or `Simple3DSolver`.
+The native F2 monitor requires consecutive momentum, fresh-density local/global
+mass and outlet-backflow checks. Full and component calls use this criterion.
+`convergence_mode=None` resolves to `f2`; explicit `legacy` is rejected.
+A static field triggers a check and cannot alone establish convergence.
 
 The mass-only/velocity exit and its associated inner SIMPLE implementation are retired.
 Full native 2D calls use `simple_2d_fixed_density_anderson_v1` for fixed-density sides.
@@ -671,8 +613,8 @@ Each advance records one residual sample for the selected fields.
 Iteration counts include all proposal steps.
 The saved state includes Anderson history, pressure scale, and proposal counts.
 `metadata.simple_flow` and the execution record identify each final flow call and its actual proposal counts.
-Standalone component defaults and the Python reference keep ordinary SIMPLE.
-Thermal and outer-coupling Anderson remain active.
+Standalone component defaults keep ordinary SIMPLE.
+Thermal Anderson remains active; outer property Anderson is retired.
 
 The 3D return path closes outlet fluxes again after the last density update and
 remeasures all four gates on that returned state. Its local mass check includes
@@ -696,7 +638,7 @@ point without changing the requested relaxation or F2 tolerances.
 
 Full C++ 2D/3D accepts optional `SolverConfig.simple_velocity_relaxation` in `(0, 1]`.
 Unset values retain 0.7 in 2D and 0.5 in 3D. This setting does not change F2 gates.
-Prepared cases retain the explicit value. Python and Quick Design reject this override.
+Prepared cases retain the explicit value. Quick Design rejects this override.
 The full execution record keeps the velocity relaxation passed to the completed native call.
 The 3D continuation owner rejects a changed value on restore.
 
@@ -718,7 +660,7 @@ child cap. These are per-level limits, not a shared 200-step bootstrap budget.
 The half-grid minimum of four cells per axis, warm-start skip and fine pressure
 boundary restoration are unchanged.
 
-Both full backends save `diagnostics.coarse_bootstrap_trace` by side. It records
+Native full 3D saves `diagnostics.coarse_bootstrap_trace` by side. It records
 the effective policy, threshold, first/recursive caps, attempted coarse shapes,
 depth and each layer's actual stop, charged iterations and seed application. `solve_started` means at least one iteration of that layer was entered.
 `actual_levels` counts those layers and `started_cap_sum` sums only their caps. `total_charged_iterations` sums entered iterations, including a failing one. A skipped layer, or a parent cancelled while a child runs, can keep its
@@ -727,24 +669,11 @@ configured cap with zero charge.
 These records never control or extend a solve. The historical bootstrap summary still describes the first coarse level. Previous result files stay readable. Rerunning an explicit legacy configuration
 requires selecting F2 and accepting the independently measured result.
 
-The staggered Python energy projection's `_LAPLACIAN_AMG_CACHE` belongs to the
-Python backend process, keyed by grid shape. It keeps the graph operator and
-AMG hierarchy rather than case fields or a case RHS. PyAMG can lazily construct its coarse
-pseudoinverse on first use. Its formal consumers leave production
-with the corresponding Python capability when that capability is retired. Kept research/MMS consumers keep an explicit process/reset lifecycle:
-production does not call the reset hook, and research resets must wait until
-active consumers finish.
-
-Clearing the cache does not prove that the allocator
-has returned pages to the OS. This ownership does not introduce an LRU policy
-or rebuild the hierarchy for each case.
-
-Both backends consume `models/fluid_props.FluidModel`. The registry imports
+Preparation and model references use `models/fluid_props.FluidModel`. The registry imports
 air/water primitives from `tpms_props` and Nu functions from `nu_correlations`
 directly. `tpms_calc` keeps its public re-exports without a return dependency
 from the registry. Correlations, property sources and validity checks stay in
-their owning model modules. Shared outer
-iteration and temperature-delta tracking live in `coupling_skeleton.py`.
+their owning model modules. Native full controllers own outer iteration and temperature-delta tracking.
 
 Both
 full-compute drivers track Ta, Tb and Ts, with the existing extra 2D density
@@ -811,7 +740,7 @@ Nu factor 1.28, including the Nu floor. These apply once, independently of
 CO2 keeps the HEOS physical relation and its single-phase checks.
 Native H iterations can use BICUBIC within the table pressure range.
 A Newton correction uses the checked HEOS state before the next iteration.
-The Python inverse and the final native inverse use HEOS. Both backends evaluate CO2/sCO2 local h_v with the
+Model reference inverses and the final native inverse use HEOS. Native execution evaluates CO2/sCO2 local h_v with the
 lagged temperature and local L/D_h/A_0 fields. Air/water retain their existing
 property-sampling rules. Native coefficients come from the shared generator.
 The native fluid enum appends CO2 as value 3; existing values and POD layouts
@@ -872,7 +801,7 @@ The condition count also limits the number of processes. `workers=1` selects ser
 An explicit positive count remains subject to the condition and total CPU limits.
 The total native CPU limit is split between the active workers.
 New batches, recovery and optimization use the same allocation rule.
-Python conditions use one worker. Each native worker has its own EOS tables.
+Each native worker has its own EOS tables.
 Progress and other host callbacks run in the parent process.
 Returned results keep the input order, even when workers finish out of order.
 
@@ -924,7 +853,7 @@ certificate from `postprocess.conservation.compute_phase2a`. Each fluid's
 global/cellmax residual and the LTNE source imbalance must stay below 1%.
 The source ratio uses `max(abs(Q_sA), abs(Q_sB), 1 W)`, the existing
 strict-energy zero-duty scale. Thus the absolute source residual must stay
-below 0.01 W near zero duty. Python and C++ use the same rule.
+below 0.01 W near zero duty. The native result uses this rule.
 The physical boundary ledger must be complete. Native 3D finishing and the
 conservation audit use the same pure certificate function in `result_math`.
 The public postprocessing entry accepts `FieldResult` only and extracts its
@@ -955,10 +884,10 @@ Final candidates need all-condition and grid verification with
 objectives recomputed on those results. The nTop CSV API exports XY or XYZ
 coordinates and full control provenance with round-trip float precision.
 
-The 3D outer loop owns one live `_OuterState`, returned after iteration without
-a second synchronized state copy. It first prepares local heat transfer and
-transport inputs. It runs temperature/model-h or the true-h warm start and solve. It then detaches native thermal evidence, records diagnostics and does convergence checks. The nonconverged post step refreshes A flow, thermal properties, then B flow.
-A and B keep their distinct temperature/property update order.
+The native full 3D controller owns the active outer state. It prepares local
+heat-transfer and transport inputs, runs the selected thermal route, captures
+its evidence and checks convergence. A nonconverged step refreshes A flow,
+thermal properties and B flow in that order.
 
 Model-h mass
 faces are captured before temperature-face balancing. True-h separately
@@ -972,24 +901,11 @@ marks iteration entry and is not elapsed-time progress or proof of convergence.
 The application pipeline reserves separate progress intervals for preparation
 and publication, then reports completion after the required stages return.
 
-The 3D initial A/B SIMPLE dispatch uses one level of parallelism. If either
-side reaches the existing parallel-sweep grid threshold, A and B run in order
-on the caller thread and keep their parallel sweeps. Otherwise the two sides
-run on separate threads with serial sweeps. This shared rule applies to all
-supported fluid pairs and avoids concurrent launches into Numba workqueue.
-Outer property-refresh solves already run in side order. Thread counts and
-numerical convergence gates stay independent of this scheduling decision.
-
-Opt-in momentum SOU uses serial sweeps: its distance-two stencil reads cells
-of the same red-black color, so the live-field parallel sweep is unsafe. FOU keeps the existing parallel threshold. Thermal SOU scheduling is separate.
-
-The 2D loop keeps one live `_OuterState2D`. Its flow step rebuilds both SIMPLE
-objects and joins both workers before propagating failures. It then prepares
-thermal inputs, solves the selected energy route, validates the return,
-refreshes properties, and does convergence checks. Fatal-flow classification uses
-the temperatures consumed by that iteration's SIMPLE calls. The post step
-rebinds the four density/capacity fields. Richardson keeps the inputs of the
-last main thermal call even when that final post runs.
+The native full 2D controller completes both flow calls before it propagates
+failures. It prepares thermal inputs, solves the selected energy route,
+validates the return, refreshes properties and checks convergence.
+Richardson retains the inputs of the last main thermal call, including when
+a final property update follows it.
 
 Per-call thermal inputs
 borrow arrays, while display smoothing stays separate from raw evidence. Nonfinite thermal returns fail before property refresh or result capture. The unreachable NaN-to-inlet replacement and its `energy_nan_hit` state and
@@ -1004,7 +920,7 @@ Thermal routes are selected by their present qualification conditions:
 |---|---|
 | True enthalpy | Pairs containing CO2 or sCO2 use signed mass/enthalpy transport for uniform and continuous geometry. The 2D adapter calls the shared 3D enthalpy kernel. Full3D CC uses the kept G4 two-sweep warm-up before the selected enthalpy solve. Discrete-zone and offset constraints stay. |
 | Model enthalpy | Existing air/water h(T) transport. 2D includes water/water when unzoned and symmetric. Native 3D includes every ordered air/water pair with Nz>1, variable properties, two solved sides and conservative transport. Water/water and asymmetric geometry use the strict boundary contract. |
-| Temperature | The native fullCC air/water candidate reuses strict integral-h(T) model-h drivers while keeping the requested temperature route. Python temperature, QD/standalone fixed-coefficient, staggered research and private single-A sCO2 routes keep their separately stated contracts. |
+| Temperature | The native fullCC air/water candidate reuses strict integral-h(T) model-h drivers while keeping the requested temperature route. QD/standalone fixed-coefficient, staggered research and private single-A sCO2 routes keep their separately stated contracts. |
 
 Full3D true-h keeps its original two temperature sweeps before each enthalpy call.
 The staggered warm-up uses caller relaxation and live serial SOU corrections.
@@ -1181,7 +1097,7 @@ area. Both dimensions share the same reduction. Air inlet-pressure correction al
 The outlet-cell
 anchor is iterated until the inlet open-area mean meets the specified absolute
 pressure within `1e-4` relative error. Both dimensions share pressure initialization and a bounded
-P-squared update in `solvers/_solve_common.py`. A positive 1D estimate above
+P-squared update in `native/src/pressure_reference.cpp`. A positive 1D estimate above
 the existing pressure floor is used as the initial outlet-cell anchor. An unusable isothermal estimate starts at the
 specified inlet pressure. Downward
 updates consume at most half the remaining squared-pressure distance to the
@@ -1370,7 +1286,7 @@ Owned 2D create/restore v2 and owned 3D create/restore v3 carry the same budget.
 The earlier entries and their binding branches remain for retained run libraries and direct C callers.
 They can be removed only after those consumers no longer require them. An old library rejects an explicit thread limit that it cannot apply.
 
-The public solver entry and native Python backend accept `checkpoint`, `checkpoint_due`, and `resume_state` keyword arguments.
+The public solver entry and native Python binding accept `checkpoint`, `checkpoint_due`, and `resume_state` keyword arguments.
 `checkpoint` receives detached typed fields at an available boundary.
 An optional `checkpoint_due` predicate prevents state export when no save is due.
 `SolverCheckpoint` stores those fields with the absolute prepared-case path and model references.
@@ -1408,7 +1324,7 @@ Saving frequency and full timing, memory, and desktop acceptance remain separate
 
 ### Cooperative cancellation
 
-Full Python and C++ entry points do cancellation checks before they prepare execution inputs or load a native library. Host-selection validation still applies.
+Full native entry points do cancellation checks before they prepare execution inputs or load a native library. Host-selection validation still applies.
 A valid pre-cancelled request raises `CancelledError`, including when the selected
 absolute library path does not exist. An uncancelled missing-library request
 keeps its original error.
@@ -1608,7 +1524,7 @@ Taper stays
     **280–700 K, 7.9–16 MPa absolute**, at inlets and actual local states. The 2026-09-09 pressure-floor extension leaves the EOS backend and the
     independent Nu/D-F applicability and acceptance gates unchanged. It does
     not show experimental accuracy in the added range. Native H Picard iterations can use CoolProp BICUBIC for CO2 and sCO2 T(h,P).
-    The Python CO2 inverse keeps HEOS. T-FOU and T-SOU keep their HEOS PT updates.
+    The retained CO2 model reference uses HEOS. T-FOU and T-SOU keep their HEOS PT updates.
     A native CO2 side uses tables only when all local pressures are within the locked table range.
     This range starts at the triple-point saturation pressure. Other CO2 sides keep HEOS without table initialization.
     A rejected or two-phase CO2 table candidate uses the exact HEOS inverse and its physical checks.
@@ -1622,7 +1538,7 @@ Final temperatures, coupled-energy checks, outlet inversion and all other
 
 New C++ results record actual table use under `enthalpy_eos` in model metadata.
     The record includes `bicubic_iteration_heos_polish_v2`, the used sides, and the HEOS finishing state.
-    Python and historical `sco2_enthalpy_eos` records remain readable with their original meaning. This is an approximate iteration algorithm, not an experimental calibration.
+    Historical Python and `sco2_enthalpy_eos` records remain readable with their original meaning. This is an approximate iteration algorithm, not an experimental calibration.
 
 The separate experimental `TPMSHX_SCO2_COMPRESSIBLE` switch enables
     local-pressure density/viscosity updates only on the 3D A side and changes

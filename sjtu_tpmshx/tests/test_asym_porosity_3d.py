@@ -4,12 +4,15 @@ Guards the δ=0 bit-identity contract (zero regression) and the δ>0 asymmetric
 path end-to-end, plus the κ correction layer. Mirrors the risk list in the
 implementation plan (kernel dual-ε consistency, balance-coef match, κ=1 ULP).
 """
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
 from sjtu_tpmshx.models.asym_split import _asym_split_A, _eps_sides_for_run
-from sjtu_tpmshx.tests.cases_3d import run_research
-from sjtu_tpmshx.tests.cases_3d import air_air_cfg as _air_air_cfg
+from sjtu_tpmshx.preprocess.api import prepare_case
+from sjtu_tpmshx.solvers.api import run_case
+from sjtu_tpmshx.tests.cases_3d import air_air_config
 from sjtu_tpmshx.df_surrogate import kappa_asym
 
 
@@ -63,38 +66,46 @@ def test_kappa_table_applies_and_clears():
 # ── end-to-end 3D stack ──────────────────────────────────────────────────────
 
 def test_delta0_explicit_matches_baseline_bit_identical():
-    """delta_levelset=0.0 in cfg == no key at all → identical headline scalars."""
-    r0 = run_research(_air_air_cfg()).metadata['diagnostics']
-    rd = run_research(_air_air_cfg(delta_levelset=0.0)).metadata['diagnostics']
-    for k in ('Q', 'dP', 'dP_B', 'T_A_out', 'T_B_out'):
-        assert r0[k] == rd[k], f"{k}: {r0[k]} != {rd[k]}"
+    config = air_air_config()
+    baseline = run_case(prepare_case(config, case_id='asym-default')).metadata['diagnostics']
+    config.geometry.delta_levelset = 0.
+    explicit = run_case(prepare_case(config, case_id='asym-zero')).metadata['diagnostics']
+    for key in ('Q', 'dP', 'dP_B', 'T_A_out', 'T_B_out'):
+        assert baseline[key] == explicit[key]
 
 
-@pytest.mark.parametrize("conservative", [False, True])
+@pytest.mark.parametrize('conservative', [False, True])
 def test_asym_delta_runs_and_changes_result(conservative):
-    """δ>0 runs end-to-end (NotImplementedError gone) on cc + stag kernels,
-    produces finite output, and actually differs from symmetric."""
-    base = run_research(_air_air_cfg(conservative_ltne=conservative)).metadata['diagnostics']
-    asym = run_research(_air_air_cfg(delta_levelset=0.6,
-                                      conservative_ltne=conservative)).metadata['diagnostics']
-    assert np.isfinite(asym['Q']) and asym['Q'] > 0.0
-    assert np.isfinite(asym['dP']) and np.isfinite(asym['dP_B'])
-    # asymmetry must move at least one headline scalar
-    assert (asym['Q'] != base['Q']) or (asym['dP_B'] != base['dP_B'])
+    from sjtu_tpmshx.domain.module_ports import RunControl
+    from sjtu_tpmshx.domain.module_ports import resolve_control
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
+    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
+    control = resolve_control(RunControl())
+    driver = NativeFull3DDriver(control.native_library, table_directory=control.native_table_directory)
+    results = []
+    for delta in (0., .6):
+        config = air_air_config()
+        config.geometry.delta_levelset = delta
+        case = prepare_case(config, case_id='asymmetric-native')
+        cfg, prepared = build_execution_inputs(case)
+        cfg['conservative_ltne'] = conservative
+        results.append(driver.run_prepared(cfg, prepared, control))
+    base, asym = results
+    assert np.isfinite(asym['duty'][0]) and asym['duty'][0] > 0.
+    assert np.all(np.isfinite(asym['pressure_drop']))
+    assert asym['duty'][0] != base['duty'][0] or asym['pressure_drop'][1] != base['pressure_drop'][1]
 
 
 def test_asym_conservation_certificate_machine_zero():
-    """Risk #1/#2: dual-ε kernel + per-side balance coef stay STRICTLY
-    conservative at δ>0. The incompressible water-B strict-conservation
-    certificate must remain machine-zero (≪1) — an inconsistent per-side ε
-    switch (kernel vs balance-coef) would blow it up to O(0.01–1)."""
-    cfg = _air_air_cfg(delta_levelset=0.6, conservative_ltne=True,
-                       u_B=0.5, fluid_type_B='water',
-                       fluid_B_cfg=dict(dir=3, in_ctr=0.021, in_w=0.042,
-                                        out_ctr=0.021, out_w=0.042,
-                                        in_z_ctr=0.021, in_z_w=0.042,
-                                        out_z_ctr=0.021, out_z_w=0.042))
-    r = run_research(cfg).metadata['diagnostics']
-    assert np.isfinite(r['Q']) and r['Q'] > 0.0
-    assert r['eps_A_strict'] < 1e-9, f"A-side conservation broke: {r['eps_A_strict']}"
-    assert r['eps_B_strict'] < 1e-9, f"B-side conservation broke: {r['eps_B_strict']}"
+    config = air_air_config()
+    # Resolve the thermal state below this test's strict energy limit.
+    config.solver.model_h_temperature_tol_K = 1e-9
+    config.solver.model_h_q_relative_tol = 1e-10
+    config.geometry.delta_levelset = .6
+    config.fluid_B = replace(config.fluid_B, type='water', u_mps=.5)
+    config.bc_B = replace(config.bc_B, in_ctr=.021, out_ctr=.021)
+    result = run_case(prepare_case(config, case_id='asymmetric-conservation'))
+    r = result.metadata['diagnostics']
+    assert np.isfinite(r['Q']) and r['Q'] > 0.
+    assert r['eps_A_strict'] < 1e-9
+    assert r['eps_B_strict'] < 1e-9

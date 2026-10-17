@@ -73,18 +73,7 @@ def _parse_geometry_inputs_3d_cfg(compute_cfg: ComputeConfig) -> dict[str, Any]:
     fluid_A_cfg = bc_to_dict(compute_cfg.bc_A, L, H, side='A', with_z=True)
     fluid_B_cfg = bc_to_dict(compute_cfg.bc_B, L, H, side='B', with_z=True)
     if fluid_B_cfg is None:
-        # A degenerate B BC (the PartialBCConfig default in_w=out_w=0) reaching
-        # THIS ComputeConfig→3D boundary means "full-face cross-flow B", NOT a
-        # single-fluid run: via ComputeConfig fluid_B is always a configured 2nd
-        # fluid (validated below). bc_to_dict(side='B') returns None for that
-        # degenerate case and DROPS the direction; the backend's
-        # `if fB is not None` gate then skips the entire B SIMPLE build (the
-        # A-alone path), so the 2-fluid solve silently returns nan (air uncooled,
-        # T_out_B=nan, E_imbal=1.0). Rebuild a full-face dict via the side='A'
-        # fallback, which preserves bc_B.dir. The genuine single-fluid A-alone
-        # research preparation uses an explicit fluid_B_cfg=None and
-        # bypasses this boundary (e.g. audit_3d_conservation T5), so it — and
-        # bc_to_dict's documented side-B None asymmetry — are unaffected.
+        # A typed case always has two fluids. Zero port widths select a full face.
         fluid_B_cfg = bc_to_dict(compute_cfg.bc_B, L, H, side='A', with_z=True)
 
     # Both-side applicability checks are required; import and validation

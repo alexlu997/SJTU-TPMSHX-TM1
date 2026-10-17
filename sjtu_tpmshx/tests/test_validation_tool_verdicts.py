@@ -120,8 +120,8 @@ def test_tools_reject_reference_outputs_before_solve(monkeypatch, module, args):
 
 def test_t1_really_is_parallel_full_face():
     cfg = audit.make_T1(4)
-    assert cfg['fluid_A_cfg']['dir'] == cfg['fluid_B_cfg']['dir'] == 0
-    assert cfg['fluid_B_cfg']['in_w'] == cfg['H']
+    assert cfg.bc_A.dir == cfg.bc_B.dir == 0
+    assert cfg.bc_B.in_w == cfg.geometry.H_dom_m
 
 
 @pytest.mark.parametrize('direction', range(6))

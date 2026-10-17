@@ -10,7 +10,7 @@ from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.preprocess.two_d.preparation import prepare_case
 from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
-from sjtu_tpmshx.solvers.backends.python.two_d.execution import run_case
+from sjtu_tpmshx.solvers.api import run_case
 
 
 def test_effective_grid_and_design_are_consumed_without_preparation(monkeypatch):

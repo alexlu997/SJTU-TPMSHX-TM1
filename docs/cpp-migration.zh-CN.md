@@ -15,11 +15,11 @@ application -> preprocess.api -> CaseData -> solvers.api -> FieldResult
                                                            -> postprocess.api
 ```
 
-保留这些边界、既有 `domain` 契约和共享模型资源。Python 与 C++ 都是受支持的求解后端，无需全面重命名目录或拆分仓库。V0.3 的有效扩展是在求解模块内提供独立通过资格检查的 C++ 后端。它消费相同物理工况，并生成可由现有后处理使用的证据。
+0.2 保留这些模块边界，统一使用 C++ 数值后端。Python 保留应用接口、前处理、模型资源、优化和后处理。0.1 保留两套求解实现；0.2 撤销 Python 数值后端及其额外研究入口。共享 C++ sweep 和低层 C ABI 继续使用。`legacy_h_fou`、`temperature_fou`、`temperature_sou` 继续保留。外层物性 Anderson 已退役；固定物性松弛和热方程 Anderson 保留原规则。
 
-Python/Numba 仍是默认后端。显式 `backend='cpp'` 在 macOS arm64 和 Windows x64 支持完整准备态 Quick Design 及 full 2D/3D。必需的原生 CI 已在 macOS/Python 3.13 和 Windows/Python 3.12、3.13 通过。交付使用既有 Python/Qt 入口和项目文件夹中的预编译 C++ 库。源码 GUI 验收与整体应用性能仍是独立检查；打包 `.app` 不在本次交付范围内。
+完整二维／三维和 Quick Design 使用 macOS arm64 或 Windows x64 匹配库。公共 `RunControl` 和 CLI 默认使用 C++。库路径属于主机控制，不写入 `CaseData`；缺库时明确失败。交付保留 Python/Qt 入口和项目文件夹内预构建库。必需 CI、可见桌面、完整性能和实验精度保持独立验收。
 
-macOS 文件夹启动器显式选择随附候选库，不改变公共 Python 默认值，也不证明全部工况合格。原 `cpp_sweeps_v1` 接入已退役：该路线曾由 Python 控制外循环、C++ 只提供 sweep 分块。现在通过 `RunControl` 或 `--backend` 选择完整 Python 或 C++ 后端。共享 C++ sweep 实现及低层 C ABI 仍在使用，继续保留。
+当前数值检查采用独立公式、离散账本、制造解、原生组件重放及固定历史参考。原 Python/C++ 比较保留为[0.1 记录构建的证据](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/v0.1.0/docs/cpp-migration.zh-CN.md)，0.2 不保留 Python 求解器重跑这些对照。
 
 <a id="complete-quick-design-capability"></a>
 
@@ -58,7 +58,7 @@ full 2D 使用 **ABI 2**。第 29 个准备态数组保留原闭合输入中的�
   --native-library /absolute/path/to/libtpmshx_solver_shared.dylib
 ```
 
-绑定校验准备态输入，传递借用的输入视图，在释放前复制结果所有者持有的数组，并映射到既有 `FieldResult`。主机库和表目录不序列化到工况或结果。新进程 CLI 求解、保存回读和离线评估不加载 Numba 或 Python 数值驱动。数值资格检查以固定容差，与修正后的 Python 参考比较完整场、状态、预算、压力和能量证据。显式选择原生后端或 macOS 包运行成功，都不证明 Windows 验收，也不改变默认后端。
+绑定校验准备态输入，传递借用的输入视图，在释放前复制结果所有者持有的数组，并映射到既有 `FieldResult`。主机库和表目录不序列化到工况或结果。新进程 CLI 求解、保存回读和离线评估不加载 Numba 或 Python 数值驱动。当前资格检查通过独立审计和原生组件重放检查完整场、状态、预算、压力与能量。历史 Python 比较保留原容差和结论。macOS 运行成功不证明 Windows 验收。
 
 <a id="complete-full-3d-capability"></a>
 
@@ -70,13 +70,13 @@ full 2D 使用 **ABI 2**。第 29 个准备态数组保留原闭合输入中的�
 
 初始化诊断通过独立于完整结果的查询提供。`tpmshx_full_3d_get_bootstrap_trace_v1(result, side, trace)` 为 side 0/1 提供独立只读视图。字符串和层数组由结果所有者持有，仅在调用 `tpmshx_full_3d_release_v1` 前有效。查询不执行数值工作，也不分配内存。C 调用方必须使用 ABI 2 结果布局。当前 Python 绑定要求新查询符号；旧库缺少该能力时明确报错，不虚构轨迹或代用 Python 求解。
 
-轨迹记录显式启停、实际粗网格形状与深度、逐层上限、进入的迭代数和停止原因。它保留原递归 `count > 2000`、子层上限 200、最小轴长及停止规则。`started_cap_sum` 是实际进入迭代的各层上限之和，不是共享全局初始化预算。未开始即取消的父层贡献零迭代，且不计入该上限和。绑定在释放前复制轨迹，写入 Python full 3D 同样使用的 `diagnostics.coarse_bootstrap_trace`。不含此可选键的旧结果仍可读取。
+轨迹记录显式启停、实际粗网格形状与深度、逐层上限、进入的迭代数和停止原因。它保留原递归 `count > 2000`、子层上限 200、最小轴长及停止规则。`started_cap_sum` 是实际进入迭代的各层上限之和，不是共享全局初始化预算。未开始即取消的父层贡献零迭代，且不计入该上限和。绑定在释放前复制轨迹，写入 `diagnostics.coarse_bootstrap_trace`。不含此可选键的旧结果仍可读取。
 
 合作式取消结果仍持有部分诊断视图，C 调用方可在释放前查询。Python 绑定抛出 `CancelledError`，在 `coarse_bootstrap_trace` 附带独立副本，不发布部分 FieldResult。硬 C API 错误仍保持调用方结果不变，也不发布所有者，因此此时不能通过查询取得完整轨迹。原算法捕获的初始化局部失败仍被记录，不能声称种子已应用，也不能用配置上限替代实际计费工作。
 
 共享物理端口压力归约保留参考掩码数组顺序和连续成对求和，同时用于加权压力与开口面积。这也固定压力射击的入口锚点。改变求和顺序，即使初始压力只差舍入量，也可能改变后续 SIMPLE 停止迭代。完整场检查因此必须保留原迭代预算和比较容差。
 
-相同公共 `run_case` 和 CLI 命令可选择 full 3D CaseData。数值资格检查包含原 24³ 工况及完整场、压力和热证据，预算与比较门槛不变。该特定限预算工况在两个后端均为 `converged=False`；相符不等于收敛。full 3D model-h 热量仍为 W。原 temperature 路线缺少完整焓证据时，仍保留热量不可用边界。优化继续使用独立的 model-h 物理边界与能量检查。
+相同公共 `run_case` 和 CLI 命令可选择 full 3D CaseData。数值资格检查包含原 24³ 工况及完整场、压力和热证据，预算与比较门槛不变。该限预算工况的历史 Python／原生对照均为 `converged=False`；相符不等于收敛。full 3D model-h 热量仍为 W。原 temperature 路线缺少完整焓证据时，仍保留热量不可用边界。优化继续使用独立的 model-h 物理边界与能量检查。
 
 <a id="fixed-flow-conservative-temperature-candidates"></a>
 
@@ -100,7 +100,7 @@ SOU recipe 2 在该阻尼普通映射上使用六样本 Anderson 候选。选择
 
 ### 显式选择完整流动候选
 
-在 `prepare_case` 前，将 `solver.enthalpy_algorithm` 设为 `temperature_fou` 或 `temperature_sou`，并将 `solver.enthalpy_temperature_tol_K` 设为所需正 K 容差。随后使用 `backend='cpp'` 和匹配原生库执行已保存工况。默认值仍为 `legacy_h_fou` 和 1e-8 K。当前候选要求既有双流体 true-h 路线。在 Python、Quick Design 或不支持的热路线中选择时明确失败。该选择不扩大流体、沸腾、冷凝或 Nu/Darcy-Forchheimer 适用范围。GUI 尚未提供此算法选择。
+在 `prepare_case` 前，将 `solver.enthalpy_algorithm` 设为 `temperature_fou` 或 `temperature_sou`，并将 `solver.enthalpy_temperature_tol_K` 设为所需正 K 容差。随后使用 `backend='cpp'` 和匹配原生库执行已保存工况。默认值仍为 `legacy_h_fou` 和 1e-8 K。当前候选要求既有双流体 true-h 路线。在 Quick Design 或不支持的热路线中选择时明确失败。该选择不扩大流体、沸腾、冷凝或 Nu/Darcy-Forchheimer 适用范围。GUI 尚未提供此算法选择。
 
 完整三维候选也支持 `port_wall_refine` 生成的非均匀张量网格，覆盖完整和部分开口。计算使用实际单元宽度及端口面质量流量。model-h 的端口能量标志不改变此 true-h 路径。此支持不改变已保存算法、默认值或验收门。
 
@@ -113,7 +113,7 @@ SOU recipe 2 在该阻尼普通映射上使用六样本 Anderson 候选。选择
 二维 v4 控制块还包含 `tpmshx_energy_options_v2`。
 它覆盖 `config_v2` 中的两个热控制值，其他值保持原含义。
 现有实际执行设置查询记录每次热调用使用的控制参数。
-公共 Python 二维与积分 model-h 路径在流场执行前拒绝这些 EOS 专用设置。
+积分 model-h 路线在流场执行前拒绝这些 EOS 专用设置。
 
 Python 绑定在释放前复制查询视图。默认控制记录 `backend_version=full_2d_v3` 或 `full_3d_v2`。显式控制使用 `full_2d_v4` 或 `full_3d_v3`。候选结果采用可移植 `thermal_mode=conservative_energy`。`boundary_fluxes.true_h` 包含既有真实 h、入口 h、质量数组，以及算法／版本、六面 `boundary_power`、W/m 或 W 单位和完整性标志。各侧热负荷为 `-sum(boundary_power)`。
 
@@ -123,7 +123,7 @@ SOU 在出口面重构物理焓，因此旧 FOU 单元焓归约不能提供该�
 
 ## 首个实现单元
 
-`native/include/tpmshx/enthalpy_sweeps.hpp` 和 `native/src/enthalpy_sweeps.cpp` 实现 `solvers/ltne_enthalpy_3d.py` 的串行真实焓 LTNE Gauss–Seidel sweep：
+`native/include/tpmshx/enthalpy_sweeps.hpp` 和 `native/src/enthalpy_sweeps.cpp` 实现串行真实焓 LTNE Gauss–Seidel sweep；原 Python 实现保留在 0.1 历史中：
 
 - 依次更新流体 A、流体 B 和固体，保留原有递增 i/j/k 顺序。
 - 六面使用有符号质量流量；流入使用给定焓，流出使用单元焓，壁面为零流量；不推断均匀流动捷径。
@@ -190,7 +190,7 @@ fullCC 使用已接受的热状态 SIMPLE 质量面，不乘 cp，不从单元�
 
 N5 的十二个刻意限预算请求成功返回，并通过十四个已记录热阶段的算术审计，但产品请求收敛为 0/12，热阶段收敛为 2/14。独立正常预算总体通过三个完整稳态使用方：二维主／细网格、三维 Nz=1、三维 Nz>1；四个热阶段审计也全部通过。此前稳态候选的 2/3 结果及失败的二维主／细网格检查保留为历史。
 
-这些固定总体不证明实验精度或 N6 性能／内存验收。旧固定热容组件计时不是相同 h(T) 算子的完整驱动成本比较。新原生算法要求独立矩阵、解析、网格序列、真实状态平衡和生命周期资格。旧 Python 轨迹测试只保留为同算法历史证据，不能证明改变后的原生方法等价。原生成功退出、完整物理账本、收敛和实验精度是不同事实。Python 数值方法和默认后端仍分别管理。
+这些固定总体不证明实验精度或 N6 性能／内存验收。旧固定热容组件计时不是相同 h(T) 算子的完整驱动成本比较。新原生算法要求独立矩阵、解析、网格序列、真实状态平衡和生命周期资格。旧 Python 轨迹测试只保留为同算法历史证据，不能证明改变后的原生方法等价。原生成功退出、完整物理账本、收敛和实验精度是不同事实。原生默认值不扩大物理适用范围。
 
 <a id="build-and-run-the-qualification-checks"></a>
 
@@ -226,22 +226,19 @@ tm1_python="$(head -n 1 .venv-path)"
 "$tm1_python" -m pip check
 MPLCONFIGDIR="$PWD/.cache/matplotlib" \
 XDG_CACHE_HOME="$PWD/.cache/xdg" \
-NUMBA_CACHE_DIR="$PWD/.cache/numba" \
-TPMSHX_REQUIRE_CPP_TESTS=1 \
+TPMSHX_REQUIRE_CPP_TESTS=1 TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
 "$tm1_python" -m pytest -q sjtu_tpmshx/tests/native
 ```
 
-旧 `TPMSHX_TRUE_H_KERNEL=cpp_sweeps_v1` 不再启动混合求解。Python 在 SIMPLE 前拒绝该设置，包括已保存准备态 Case，不静默改变记录的算法。环境快照保留旧选择项只为明确拒绝。未设置或设为 `numba` 时使用不变的 Python 核。新 Case 不再捕获 `TPMSHX_THERMAL_LIBRARY`。改用完整原生后端的 `--backend cpp --native-library /absolute/path/to/libtpmshx_solver_shared.dylib`；主机库路径通过 `RunControl` 提供。
+所有显式 `TPMSHX_TRUE_H_KERNEL` 覆盖均已退役，包括 `numba` 和 `cpp_sweeps_v1`。已保存准备态请求在流动执行前被拒绝；删除覆盖后使用原生执行。环境快照保留该键仅为明确拒绝。新 Case 不再捕获 `TPMSHX_THERMAL_LIBRARY`，原生库选择属于 `RunControl`。旧结果可在不加载求解库时读取，历史 Python `sweep_kernel` 和 `energy_audit` 记录保留原含义。
 
-旧结果仍可在不加载数值核或旧混合库时读取和评估。Python true-h 证据继续记录 `sweep_kernel='numba'` 和 `energy_audit='python'`。必需标志使编译器缺失成为该资格命令的失败。普通 Python 测试在平台编译器缺失时可跳过，但跳过不代表原生验收。现有 macOS 3.13 和 Windows 3.12/3.13 快速 CI 路线要求原生资格。本地 macOS 通过不证明 Windows 编译、执行或分发验收。测试不安装编译器或 Python 依赖。
+必需标志使缺少编译器或依赖组件成为资格检查失败。可选本地组件测试可以跳过缺失组件，但跳过不代表原生验收。macOS 3.13 和 Windows 3.12/3.13 CI 要求原生资格；本机通过不证明 Windows 分发验收。测试不安装编译器或 Python 依赖。
 
-同算法比较前固定容差：焓 `rtol=2e-13`、`atol=2e-8 J/kg`，固体温度 `atol=2e-11 K`。这些容许相对 Numba fastmath 的双精度编译器／FMA 顺序差异，与 PDE 收敛和实验不确定度不同。裁剪次数必须完全一致。原生构建不启用 fast-math。
+原生焓 sweep 测试保留固定随机字段、有符号／零面流量、非均匀网格、六方向、单单元轴、零对角元、裁剪与修改前拒绝。独立检查覆盖等温压力相关焓、指数冷却、一阶网格收敛以及边界／源能量平衡。零变化参考保留 `atol=2e-8 J/kg` 和 `atol=2e-11 K`；裁剪次数不超过计费 sweep 预算。原生构建不启用 fast-math。这些检查验证数值算子，不证明 sCO2 实验预测或应用加速。
 
-检查覆盖固定随机种子的可变场、有符号／零面流量、非均匀网格、六流向、单单元轴、零对角元、裁剪，以及修改前拒绝。独立物理检查覆盖等温压力相关焓，以及常物性指数冷却解析解的一阶网格收敛和边界／源能量平衡。它验证 sweep 算法，不验证 sCO2 系统预测或加速。
+能量审计固定比较容差为 `rtol=2e-12`，逐单元 `atol=1e-9 W`，归约预算 `atol=1e-8 W`，无量纲比 `atol=1e-12`。二维使用相同来源单位归一化。独立 NumPy 审计算术检查真实残差场和预算；这些比较不改变生产验收门。性能检查须计入校验与绑定开销，并区分 EOS 初始化、原生构建、核执行和完整求解。历史 Numba 计时归属于 0.1 及对应算法路线。
 
-能量审计固定比较容差为 `rtol=2e-12`，逐单元 `atol=1e-9 W`，归约预算 `atol=1e-8 W`，无量纲比 `atol=1e-12`。二维使用相同来源单位归一化。这些比较算术实现，不改变生产验收门。性能资格必须计入输入校验和绑定开销，以相同预热状态比较 Numba sweep 和 NumPy 审计算子，并与 EOS、编译及端到端执行分开。核结果不能证明应用加速。
-
-公共执行测试以固定 `rtol=atol=1e-10` 比较二维／三维 sCO2／水和空气／sCO2 场、有符号边界通量、压力证据和指标，同时保留原 F2 与 true-h 物理门。还检查保存态 Case 选择、取消和真实原生错误退出。两个原生算子都不因存在而自动成为生产选择。
+公共执行测试保留物理场、有符号边界通量、压力、指标、文件交接、取消与真实原生错误检查。原生工程用例继续执行原 F2、收敛和能量门。
 
 <a id="isolated-eos-and-pressure-dependency-qualification"></a>
 
@@ -278,7 +275,7 @@ SuperLU 调用采用纯 C 错误边界和线程局部分配账本。分配失败
 
 SIMPLE 接口持有逐实例压力缓存，并保留原 F2、出口、热启动状态和原始质量证据。这些可独立调用驱动也支撑上述完整二维／三维外耦合后端。macOS SuperLU 构建使用锁定 SciPy 参考所用的系统 Accelerate BLAS，并为二维 SIMPLE 保留原 CSR／转置 LU 运算顺序。Windows 使用锁定可移植 CBLAS 源码，由必需原生 CI 执行。动量串行循环不表示 BLAS 单线程；线程策略和测得性能须分别记录。
 
-`native-dependencies` CI 在 macOS/Python 3.13 和 Windows/Python 3.12/3.13 构建并执行这些调用方与必需测试。可执行文件缺失会使必需作业失败。普通 Python 运行可以跳过未构建组件，但不能据此声明原生资格。两平台均有真实必需 CI 通过记录；证据仅覆盖其构建与工况。
+`native-dependencies` CI 在 macOS/Python 3.13 和 Windows/Python 3.12/3.13 构建并执行这些调用方与必需测试。可执行文件缺失会使必需作业失败。可选本地组件测试可以跳过未构建组件，但不能据此声明原生资格。两平台均有真实必需 CI 通过记录；证据仅覆盖其构建与工况。
 
 <a id="remaining-stages-and-acceptance-gates"></a>
 

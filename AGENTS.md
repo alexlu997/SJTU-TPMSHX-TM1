@@ -32,8 +32,8 @@ and rework through complete changes, clear decisions, and verified results.
   dependencies, or defensive wrappers unless the task requires them.
 - Do not add hash-, digest-, or checksum-based tests.
 - Keep validation that protects physical correctness, data integrity, or a
-  demonstrated failure mode. Keep the Python and C++ backends and support for
-  macOS arm64 and Windows x64.
+  demonstrated failure mode. Keep the C++ numerical backend, Python application interfaces, and support for
+  macOS arm64 and Windows x64. Python numerical execution was retired in 0.2.
 - Read the existing model documents if physical scope or applicability is unclear.
   If a required physical decision is still missing, give evidence, options, and a recommendation.
   State the decision needed from the user.

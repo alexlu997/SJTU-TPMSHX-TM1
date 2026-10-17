@@ -17,9 +17,8 @@
 #     (conservation_3d_energy, partial_bc_ghost_b, asym_porosity_3d) are
 #     unmarked, so the "fast" phase inherited the whole 40-min tail.
 #
-# The 2026-07 measurements above describe the historical suite. Current
-# enthalpy-transport tests explicitly exercise two Numba threads, so each
-# worker must allow two. Keep BLAS/OMP at one to avoid nested oversubscription.
+# The measurements above describe the historical Python suite.
+# Keep BLAS/OMP at one. Native tests require a matching prebuilt solver library.
 #
 # The venv MUST be built from python.org CPython 3.12 or 3.13, never
 # Anaconda — PySide6's abi3 forwarder crashes (0xc0000139) otherwise.
@@ -52,7 +51,6 @@ if ($venvHome -match 'Anaconda') {
 $env:PYTHONHASHSEED = "0"
 $env:OMP_NUM_THREADS = "1"; $env:OPENBLAS_NUM_THREADS = "1"
 $env:MKL_NUM_THREADS = "1"; $env:NUMEXPR_NUM_THREADS = "1"
-$env:NUMBA_NUM_THREADS = "2"
 # Headless server — Qt tests need the offscreen platform plugin.
 $env:QT_QPA_PLATFORM = "offscreen"
 $env:MPLCONFIGDIR = Join-Path $repo ".cache\matplotlib"

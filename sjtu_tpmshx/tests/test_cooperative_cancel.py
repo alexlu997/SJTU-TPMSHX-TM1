@@ -1,11 +1,9 @@
 """Cancellation after real work starts; no timing-dependent sleeps."""
-import threading
 
 import pytest
 
 from sjtu_tpmshx.controllers.compute_orchestrator import CancelToken
 from sjtu_tpmshx.domain.cancellation import CancelledError
-from sjtu_tpmshx.controllers.module_adapter import compute_result
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, SolverConfig,
@@ -27,189 +25,16 @@ def _cfg(nz=1, enthalpy=False):
     )
 
 
-def _no_finalize(monkeypatch):
-    monkeypatch.setattr('sjtu_tpmshx.postprocess.api.evaluate',
-                        lambda *a: pytest.fail('cancelled result was finalized'))
 
 
-@pytest.mark.parametrize('nz', [1, 3])
-def test_real_simple_cancel_joins_both_sides(monkeypatch, nz):
-    """Request only after momentum work; both real SIMPLE solves must exit."""
-    token = CancelToken()
-    if nz == 1:
-        from sjtu_tpmshx.solvers import simple_solver as module
-        cls = module.SIMPLESolver
-        kernel = '_correct_jit'
-    else:
-        from sjtu_tpmshx.solvers import simple_solver_3d as module
-        cls = module.SIMPLESolver3D
-        kernel = '_correct_jit_3d'
-    original_kernel = getattr(module, kernel)
-    worked = []
-
-    def request_after_work(*args, **kwargs):
-        result = original_kernel(*args, **kwargs)
-        worked.append(True)
-        token.cancel()
-        return result
-
-    monkeypatch.setattr(module, kernel, request_after_work)
-    threads, exited = [], []
-    original_solve = cls.solve
-
-    def solve(self, *args, **kwargs):
-        threads.append(threading.current_thread())
-        from sjtu_tpmshx.domain.run_warnings import current_warnings
-        from sjtu_tpmshx.models.nu_correlations import nu_water_topo
-        assert current_warnings() is not None
-        nu_water_topo('Gyroid', 1, 3)
-        try:
-            return original_solve(self, *args, **kwargs)
-        finally:
-            exited.append(True)
-
-    monkeypatch.setattr(cls, 'solve', solve)
-    config = _cfg(nz)
-    _no_finalize(monkeypatch)
-    with pytest.raises(CancelledError):
-        compute_result(config, control=RunControl(cancel_check=token.is_set))
-    assert worked and len(exited) == len(threads) == 2
-    assert all(not thread.is_alive() for thread in threads)
-    from sjtu_tpmshx.domain.run_warnings import current_warnings, warning_scope
-    from sjtu_tpmshx.models.nu_correlations import nu_water_topo
-    assert current_warnings() is None
-    with warning_scope({}) as records:
-        nu_water_topo('Gyroid', 1, 3)
-    assert records
 
 
-@pytest.mark.parametrize('kernel,next_kernel', [
-    ('_sweep_u_jit_df_3d', '_sweep_v_jit_df_3d'),
-    ('_sweep_v_jit_df_3d', '_sweep_w_jit_df_3d'),
-    ('_sweep_w_jit_df_3d', '_solve_pp_amg'),
-    ('_solve_pp_amg', '_correct_jit_3d'),
-    ('_correct_jit_3d', '_mass_res_jit_3d'),
-])
-def test_3d_cancel_during_kernel_skips_next_compile(monkeypatch, kernel, next_kernel):
-    from sjtu_tpmshx.solvers import simple_solver_3d as module
-    from sjtu_tpmshx.tests.test_simple_solver_3d import _uniform_darcy_config
-
-    solver = _uniform_darcy_config(Nx=4, Ny=4, Nz=3)
-    token = CancelToken()
-    original = getattr(module, kernel)
-
-    def request_after_work(*args, **kwargs):
-        result = original(*args, **kwargs)
-        token.cancel()
-        return result
-
-    monkeypatch.setattr(module, kernel, request_after_work)
-    monkeypatch.setattr(module, next_kernel,
-                        lambda *a, **k: pytest.fail('started another kernel after cancellation'))
-    with pytest.raises(CancelledError):
-        solver.solve(max_iter=2, cancel_check=token.is_set)
-    assert solver.exit_reason == 'cancelled'
-    assert solver._iterations_charged == 1
 
 
-@pytest.mark.parametrize('nz', [1, 3])
-@pytest.mark.parametrize('error_type', [ValueError, InterruptedError])
-@pytest.mark.parametrize('error_side', [0, 1])
-def test_real_error_wins_over_other_side_cancel(monkeypatch, nz, error_type, error_side):
-    token = CancelToken()
-    barrier = threading.Barrier(2, timeout=10)
-    threads = []
-    failure = error_type('real solver failure')
-
-    def side(idx):
-        threads.append(threading.current_thread())
-        barrier.wait()
-        token.cancel()
-        if idx == error_side:
-            raise failure
-        raise CancelledError('explicit checkpoint')
-
-    config = _cfg(nz)
-    _no_finalize(monkeypatch)
-    if nz == 1:
-        from sjtu_tpmshx.solvers.backends.python.two_d import runtime
-        original_build = runtime.build_runtime
-
-        def build(*args, **kwargs):
-            fields = original_build(*args, **kwargs)
-            fields['_run_simple'] = lambda *a, **k: side(0 if a[5] == 'Fluid A' else 1)
-            return fields
-
-        monkeypatch.setattr(runtime, 'build_runtime', build)
-    else:
-        from sjtu_tpmshx.solvers.backends.python.three_d import runtime as stages
-        original_pair = stages._run_two_simple
-
-        def pair(a, b, **kwargs):
-            a.solve = lambda **k: side(0)
-            b.solve = lambda **k: side(1)
-            return original_pair(a, b, **kwargs)
-
-        monkeypatch.setattr(stages, '_run_two_simple', pair)
-    with pytest.raises(error_type) as caught:
-        compute_result(config, control=RunControl(cancel_check=token.is_set))
-    assert caught.value is failure
-    assert len(threads) == 2 and all(not thread.is_alive() for thread in threads)
 
 
-@pytest.mark.parametrize('nz,enthalpy', [(1, False), (3, False), (1, True), (3, True)])
-def test_pipeline_energy_cancel_after_native_chunk(monkeypatch, nz, enthalpy):
-    token = CancelToken()
-    if enthalpy:
-        from sjtu_tpmshx.solvers import ltne_enthalpy_3d as energy
-        kernel = '_gs_enthalpy_sweeps_3d'
-    elif nz == 1:
-        from sjtu_tpmshx.solvers import ltne_energy as energy
-        kernel = '_gs_full_chunk'
-    else:
-        from sjtu_tpmshx.solvers import ltne_energy_3d as energy
-        kernel = '_gs_full_chunk_3d_stag'
-    original = getattr(energy, kernel)
-    worked = []
-
-    def chunk(*args, **kwargs):
-        result = original(*args, **kwargs)
-        worked.append(True)
-        token.cancel()
-        return result
-
-    monkeypatch.setattr(energy, kernel, chunk)
-    config = _cfg(nz, enthalpy)
-    _no_finalize(monkeypatch)
-    with pytest.raises(CancelledError):
-        compute_result(config, control=RunControl(cancel_check=token.is_set))
-    assert worked == [True]
 
 
-def test_richardson_cancel_after_refined_chunk(monkeypatch):
-    from sjtu_tpmshx.solvers.backends.python.two_d import coupling as solve_2d
-    from sjtu_tpmshx.solvers import ltne_energy
-    token = CancelToken()
-    original = solve_2d._compute_Q_richardson
-    original_chunk = ltne_energy._gs_full_chunk
-    refined = []
-
-    def chunk(*args, **kwargs):
-        result = original_chunk(*args, **kwargs)
-        refined.append(True)
-        token.cancel()
-        return result
-
-    def richardson(*args, **kwargs):
-        monkeypatch.setattr(ltne_energy, '_gs_full_chunk', chunk)
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(solve_2d, '_compute_Q_richardson', richardson)
-    config = _cfg()
-    _no_finalize(monkeypatch)
-    with pytest.raises(CancelledError):
-        compute_result(config, control=RunControl(cancel_check=token.is_set))
-    assert refined == [True]
 
 
 @pytest.mark.parametrize('error_type', [CancelledError, InterruptedError, ValueError])
@@ -230,21 +55,6 @@ def test_ui_adapter_only_classifies_explicit_cancellation(monkeypatch, error_typ
     assert caught.value is failure
 
 
-@pytest.mark.parametrize('nz', [1, 2])
-def test_ltne_cell_centered_and_nz1_delegate_cancel(nz):
-    from sjtu_tpmshx.solvers.ltne_energy_3d import solve_full_domain_3d
-    from sjtu_tpmshx.tests.test_ltne_energy_3d import _toy_case
-    token = CancelToken()
-    chunks = []
-
-    def progress(done, total):
-        chunks.append(done)
-        token.cancel()
-
-    with pytest.raises(CancelledError):
-        solve_full_domain_3d(**_toy_case(Nx=4, Ny=4, Nz=nz),
-                             progress_cb=progress, cancel_check=token.is_set)
-    assert len(chunks) == 1 and chunks[0] > 0
 
 
 def test_cancel_during_finalize_does_not_return_result(monkeypatch):

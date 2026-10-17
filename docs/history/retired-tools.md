@@ -180,13 +180,13 @@ A1/benchmark A 的旧输入原已缺失，历史代码不代表可在当前目�
 包内 `consistency-maintenance-20260913/` 目录保留 `baseline-legacy-override.log`
 与 `full-suite-corrected.log`；可从记录包读取原日志。
 
-现行覆盖继续保留：
+0.1 的原覆盖固定保留在发布提交中：
 
-- [test_3d_property_frame.py](../../sjtu_tpmshx/tests/test_3d_property_frame.py)：
+- [test_3d_property_frame.py](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/23ea2cca3f5fed75f4e1a2d073434cfe7e119287/sjtu_tpmshx/tests/test_3d_property_frame.py)：
   显式 ON/OFF 下的物性字段、流体与流向接线。
-- [test_3d_model_enthalpy_transport.py](../../sjtu_tpmshx/tests/test_3d_model_enthalpy_transport.py)：
+- [test_3d_model_enthalpy_transport.py](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/23ea2cca3f5fed75f4e1a2d073434cfe7e119287/sjtu_tpmshx/tests/test_3d_model_enthalpy_transport.py)：
   开关控制内核路径、平衡前质量通量，以及关闭路径的温度/焓报告约定。
-- [test_partial_bc_ghost_b.py](../../sjtu_tpmshx/tests/test_partial_bc_ghost_b.py)：
+- [test_partial_bc_ghost_b.py](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/23ea2cca3f5fed75f4e1a2d073434cfe7e119287/sjtu_tpmshx/tests/test_partial_bc_ghost_b.py)：
   默认与显式开启时的有效度上限、固体及两侧能量平衡、出口速度和场边界检查。
 
 ## 旧规范与状态原稿归档（2026-09-13）

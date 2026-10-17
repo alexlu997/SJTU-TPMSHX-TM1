@@ -1,24 +1,9 @@
-"""Historical CSV integrity for MMS Phase A.4 — former cell-pinned inlet.
+"""Check frozen MMS references from the retired Python research drivers.
 
-Locks in V&V Standard Tier Phase A.4 results: per-region order analysis
-(inlet Dirichlet / outlet Neumann / lateral wall / interior). The
-expensive 3-grid {16, 20, 30} sweep is **not** re-run here; this test
-reads the persisted CSVs and asserts the same hard gates as the
-historical script's console output. Current production puts Tin on the physical
-face and solves the neighboring cell; its strict boundary-response check is in
-test_mms_physical_face_boundary.py. Do not apply this historical cell-pin
-definition to new runs or replace these recorded numbers with current output.
-
-Hard gates (per script):
-    inlet machine-eps:   L2 (g=30) < 1e-12   for own-phase Dirichlet BC
-    outlet order:        p_obs >= 0.8        (one-sided 1st-order stencil)
-    lateral L2_s order:  p_obs >= 1.5        (cosine BC, adiabatic-compat)
-    interior all phases: p_obs >= 1.8 AND L2 < 1.0%
-
-Generate a separate new comparison run via:
-    python -m sjtu_tpmshx.validation.cases.mms_phase_a4_boundary
-Outputs go to .cache/validation/mms_phase_a4-*/; the recorded CSVs and gates
-remain unchanged.
+The recorded CSV values and their original gates remain unchanged.
+Version 0.1 retains the producers in Git history. Current C++ MMS
+coverage is in tests/native/test_temperature_mms.py.
+These historical tests do not execute a current numerical solver.
 """
 from __future__ import annotations
 

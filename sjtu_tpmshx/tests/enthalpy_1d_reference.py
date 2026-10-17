@@ -17,7 +17,7 @@ under grid refinement when cp varies strongly (sCO2 pseudocritical spike). That
 ∫T·dcp explains the historical ~41% A/B imbalance on the 703 recuperator.
 
 The current production enthalpy path is implemented in
-sjtu_tpmshx/solvers/ltne_enthalpy_3d.py. This PoC retains the independent
+native/src/enthalpy_driver.cpp. This PoC retains the independent
 1D formulation comparison; production 3D regression has its own tests.
 
 Run as a script for the tuning sweep; the pytest test asserts the key gates.

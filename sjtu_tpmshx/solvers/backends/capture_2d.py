@@ -6,7 +6,7 @@ from sjtu_tpmshx.domain.field_result import FieldResult
 
 
 def capture_result(case, display_fields, native, application, diagnostics, *,
-                   backend_id='python', backend_version='two_d_v1'):
+                   backend_id='cpp', backend_version='full_2d_v1'):
     fields = {key: native[key] for key in (
         'Ta', 'Tb', 'Ts', 'P_thermal_A', 'P_thermal_B', 'P_report_A', 'P_report_B',
         'h_vA', 'h_vB', 'K_ss')}
@@ -91,7 +91,7 @@ def _zone_statistics_2d(z_axis, zone_config, za, L, H,
     zones['stats'] = compute_zone_statistics(
         Ta, Tb, Ts, za['zone_id'], definitions,
         cell_area=energy_dx[:, None] * energy_dy[None, :])
-    log = get_logger('sjtu_tpmshx.solvers.backends.python.two_d.coupling')
+    log = get_logger(__name__)
     log.info("\n[ZONE STATISTICS]")
     log.info(format_zone_report(zones['stats']))
     return zones

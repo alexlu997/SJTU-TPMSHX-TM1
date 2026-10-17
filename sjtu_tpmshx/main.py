@@ -99,7 +99,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         set_default_factory(FieldFactory(self.theme))
 
         # Phase 1: solver lifecycle (refactor-p1-done).
-        self.compute = ComputeOrchestrator(self, backend=control.backend)
+        self.compute = ComputeOrchestrator(self)
         self.signals.connect(self.compute.started, self._on_orch_started,
                              sender=self.compute)
         self.signals.connect(self.compute.progress, self._on_orch_progress,

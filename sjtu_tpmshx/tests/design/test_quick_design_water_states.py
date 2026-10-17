@@ -44,76 +44,15 @@ def test_public_preparation_rejects_nonliquid_water_before_drag(monkeypatch, sid
         prepare_quick_design(case, 'Diamond', 7., .5, .084, .05, case_id='invalid-water')
 
 
-@pytest.mark.parametrize('cold_outlet', [350., 500.])
-def test_mean_pass_checks_representative_water_state(monkeypatch, cold_outlet):
-    preparation = importlib.import_module('sjtu_tpmshx.preprocess.app_modes.quick_design')
-    model = importlib.import_module('sjtu_tpmshx.models.quick_design')
-    execution = importlib.import_module('sjtu_tpmshx.solvers.backends.python.quick_design.execution')
-    monkeypatch.setattr(preparation, 'tpms_geometry', lambda *a, **kw: {
-        'epsilon': .6, 'epsilon_A': .3, 'A_0': 1000., 'D_h': .002})
-    monkeypatch.setattr(model, '_dp_one', lambda *a, **kw: 100.)
-    calls = []
-    def thermal(*args, **kwargs):
-        if calls and cold_outlet == 500.:
-            pytest.fail('unsupported representative water state reached the second solve')
-        calls.append(args)
-        shape = tuple(args[3:6])
-        return (*(np.full(shape, value) for value in (550., cold_outlet, 450.)),
-                {'converged': True})
-    monkeypatch.setattr(execution, 'solve_full_domain_3d', thermal)
-    prepared = prepare_quick_design(_case(), 'Diamond', 7., .5, .084, .05,
-                                    case_id='mean-water', prop_model='mean')
-    if cold_outlet == 500.:
-        # The full first-pass field fails before mean-property evaluation.
-        with pytest.raises(fluid_props.QuickDesignWaterFieldError,
-                           match='T=500 K, P_abs=200000 Pa'):
-            run_case(prepared)
-        assert len(calls) == 1
-    else:
-        result = run_case(prepared)
-        assert len(calls) == len(result.run_status['passes']) == 2
-        assert result.run_status['converged'] is True
-
-
-@pytest.mark.parametrize('side', ['hot', 'cold'])
-@pytest.mark.parametrize('prop_model,bad_pass', [('const', 1), ('mean', 1), ('mean', 2)])
-def test_local_water_hotspot_fails_before_reuse_or_return(monkeypatch, side, prop_model, bad_pass):
-    preparation = importlib.import_module('sjtu_tpmshx.preprocess.app_modes.quick_design')
-    model = importlib.import_module('sjtu_tpmshx.models.quick_design')
-    execution = importlib.import_module('sjtu_tpmshx.solvers.backends.python.quick_design.execution')
-    monkeypatch.setattr(preparation, 'tpms_geometry', lambda *a, **kw: {
-        'epsilon': .6, 'epsilon_A': .3, 'A_0': 1000., 'D_h': .002})
-    monkeypatch.setattr(model, '_dp_one', lambda *a, **kw: 100.)
-    case = (_case() if side == 'cold' else
-            replace(_case(), hot_fluid='water', T_in_h=360., P_in_h=200000.,
-                    cold_fluid='air', T_in_c=300.))
-    calls = []
-    def thermal(*args, **kwargs):
-        calls.append(args)
-        shape = tuple(args[3:6])
-        fields = tuple(np.full(shape, value) for value in (340., 330., 335.))
-        if len(calls) == bad_pass:
-            fields[0 if side == 'hot' else 1][0, 0, 0] = 500.
-        return (*fields, {'converged': True})
-    monkeypatch.setattr(execution, 'solve_full_domain_3d', thermal)
-    prepared = prepare_quick_design(case, 'Diamond', 7., .5, .084, .05,
-                                    case_id='local-hotspot', prop_model=prop_model)
-    with pytest.raises(fluid_props.QuickDesignWaterFieldError,
-                       match=r'thermal return .*index=\(0, 0, 0\), T=500 K'):
-        run_case(prepared)
-    assert len(calls) == bad_pass
-
-
 @pytest.mark.parametrize('side', ['hot', 'cold'])
 def test_invalid_external_water_field_never_reaches_thermal(monkeypatch, side):
     preparation = importlib.import_module('sjtu_tpmshx.preprocess.app_modes.quick_design')
     model = importlib.import_module('sjtu_tpmshx.models.quick_design')
-    execution = importlib.import_module('sjtu_tpmshx.solvers.backends.python.quick_design.execution')
+    from sjtu_tpmshx.domain.module_ports import RunControl
+    progress = []
     monkeypatch.setattr(preparation, 'tpms_geometry', lambda *a, **kw: {
         'epsilon': .6, 'epsilon_A': .3, 'A_0': 1000., 'D_h': .002})
     monkeypatch.setattr(model, '_dp_one', lambda *a, **kw: 100.)
-    monkeypatch.setattr(execution, 'solve_full_domain_3d',
-                        lambda *a, **kw: pytest.fail('invalid water warm start reached thermal solve'))
     case = (_case() if side == 'cold' else
             replace(_case(), hot_fluid='water', T_in_h=360., P_in_h=200000.,
                     cold_fluid='air', T_in_c=300.))
@@ -123,23 +62,24 @@ def test_invalid_external_water_field_never_reaches_thermal(monkeypatch, side):
     seed[0 if side == 'hot' else 1][0, 0, 0] = 500.
     prepared = replace(prepared, parameters={**prepared.parameters, 'initial_fields': seed})
     with pytest.raises(fluid_props.QuickDesignWaterFieldError, match='design external warm start'):
-        run_case(prepared)
+        run_case(prepared, RunControl(progress=progress.append))
+    assert progress == []
 
 
 def test_persisted_input_water_failure_is_not_a_candidate_field_failure(monkeypatch):
     preparation = importlib.import_module('sjtu_tpmshx.preprocess.app_modes.quick_design')
     model = importlib.import_module('sjtu_tpmshx.models.quick_design')
-    execution = importlib.import_module('sjtu_tpmshx.solvers.backends.python.quick_design.execution')
+    from sjtu_tpmshx.domain.module_ports import RunControl
+    progress = []
     monkeypatch.setattr(preparation, 'tpms_geometry', lambda *a, **kw: {
         'epsilon': .6, 'epsilon_A': .3, 'A_0': 1000., 'D_h': .002})
     monkeypatch.setattr(model, '_dp_one', lambda *a, **kw: 100.)
-    monkeypatch.setattr(execution, 'solve_full_domain_3d',
-                        lambda *a, **kw: pytest.fail('invalid inlet reached thermal solve'))
     prepared = prepare_quick_design(_case(), 'Diamond', 7., .5, .084, .05, case_id='persisted-water')
     op = {**prepared.parameters['operating_point'], 'P_in_c': 10000., 'T_in_c': 350.}
     prepared = replace(prepared, parameters={**prepared.parameters, 'operating_point': op})
     with pytest.raises(fluid_props.WaterStateError, match='design inlet B') as caught:
-        run_case(prepared)
+        run_case(prepared, RunControl(progress=progress.append))
+    assert progress == []
     assert type(caught.value) is fluid_props.WaterStateError
 
 

@@ -8,7 +8,7 @@ the requested operating point.
 The 1D Forchheimer estimate describes straight, isothermal flow. Its failure
 is not proof that a turning, non-isothermal coupled flow has no solution.
 ``predict_outlet_p_sq`` retains that limited estimate; full 2D/3D startup
-and bounded pressure updates live in ``solvers._solve_common``.
+and bounded pressure updates live in the native pressure driver.
 The final-field floor, nonfinite and Mach gates below remain unchanged.
 """
 from __future__ import annotations

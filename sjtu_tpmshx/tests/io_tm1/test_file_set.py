@@ -92,9 +92,10 @@ def test_workflow_last_write_failure_keeps_previous_run_identities(tmp_path, mon
     from sjtu_tpmshx.io.result_io import load_result
     from sjtu_tpmshx.workflows.cli import main
     original = metrics_io.save_metrics
+    library = (tmp_path / 'synthetic-library').resolve()
 
     def compute(config, case_id, *, control):
-        assert control == RunControl()
+        assert control == RunControl(native_library=str(library))
         case = replace(sample_case(), case_id=case_id)
         result = FieldResult(case_id + '-result', case_id, 'synthetic', grid=case.grid,
                              run_status={'execution': 'completed', 'converged': True})
@@ -106,7 +107,7 @@ def test_workflow_last_write_failure_keeps_previous_run_identities(tmp_path, mon
     monkeypatch.setattr(import_module('sjtu_tpmshx.workflows.compute'), 'compute', compute)
     monkeypatch.setattr(yaml_config, 'load_config', lambda path: None)
     output = tmp_path / 'run'
-    args = ['run', 'unused.yaml', str(output), '--case-id']
+    args = ['run', 'unused.yaml', str(output), '--native-library', str(library), '--case-id']
     assert main(args + ['old']) == 0
     def fail(*args):
         raise OSError('metrics write failed')

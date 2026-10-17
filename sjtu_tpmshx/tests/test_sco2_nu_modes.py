@@ -112,7 +112,6 @@ def test_metadata_and_source_notice_are_independent_of_df():
 def test_real_pipeline_heat_builders_share_selected_parameters():
     from sjtu_tpmshx.domain.compute_config import FluidConfig, GeometryConfig
     from sjtu_tpmshx.preprocess.api import prepare_case
-    from sjtu_tpmshx.solvers.backends.python.three_d.runtime import _build_hv_machinery
     from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg
     cfg = ComputeConfig(fluid_A=FluidConfig(type='sco2', u_mps=1., T_in_K=400., P_in_Pa=10e6),
                         fluid_B=FluidConfig(type='sco2', u_mps=1., T_in_K=350., P_in_Pa=10e6),
@@ -125,37 +124,20 @@ def test_real_pipeline_heat_builders_share_selected_parameters():
             .8 * original[side]['A_0'] * original[side]['H_sf'])
     cfg.solver.Nz = 2
     assert _parse_inputs_3d_cfg(cfg)['sco2_nu'] is SYNTHETIC
-    # Actual production h_v builders, with a prepared geometric/problem seam;
-    # no momentum or thermal PDE is run in this functional check.
-    from sjtu_tpmshx.preprocess.thermal_geometry import prepare_thermal_geometry
-    from types import SimpleNamespace
-    problem = SimpleNamespace(D_h=.003, L_mm_field=None, Lcell=7., Nx=2, Ny=3, Nz=2,
-        P_inA=10e6, P_inB=10e6, T_inA=400., T_inB=350., eps=.7,
-        fluid_type_A='sco2', fluid_type_B='sco2', mu_A=1e-5, mu_B=1e-5,
-        rho_A=100., rho_B=200., sB=True, t_field_3d=None, t_wall=.6,
-        tpms_type='Diamond', u_A=1., k_s=16., cfg={'sco2_nu': Sco2NuConfig(),
-        'thermal_geometry': prepare_thermal_geometry('Diamond', 7., .6, 16.),
-        'roughness_resolved': dict(mode='norris_1a', eps_m=100e-6)})
-    cfd = _build_hv_machinery(problem)
-    problem.cfg={**problem.cfg, 'sco2_nu': SYNTHETIC}
-    exp = _build_hv_machinery(problem)
-    for temperature in (350., 400., np.full((2,3,2),350.), np.full((2,3,2),400.)):
-        args=(None,np.ones((2,3,2)),temperature,10e6,'sco2')
-        assert np.allclose(exp._build_hv_local_3d(*args), .8*cfd._build_hv_local_3d(*args), rtol=1e-14)
 
 
 def test_cli_preserves_selected_model_and_reports_it(tmp_path, monkeypatch, capsys):
     import json
     from sjtu_tpmshx.cli import main
     from sjtu_tpmshx.domain.compute_result import ComputeResult
-    from sjtu_tpmshx.domain.module_ports import RunControl
+    from sjtu_tpmshx.domain.module_ports import RunControl, resolve_control
     import sjtu_tpmshx.controllers.module_adapter as adapter
     path=tmp_path/'synthetic-config.json'
     ComputeConfig(sco2_nu=SYNTHETIC).to_json(path)
     expected=nu.sco2_nu_metadata(SYNTHETIC)
     def dispatch(cfg, *, control):
         assert cfg.sco2_nu == SYNTHETIC
-        assert control == RunControl()
+        assert control == resolve_control(RunControl())
         return ComputeResult(converged=True, metadata={'sco2_nu':expected})
     monkeypatch.setattr(adapter,'compute_result',dispatch)
     assert main([str(path),'--json']) == 0

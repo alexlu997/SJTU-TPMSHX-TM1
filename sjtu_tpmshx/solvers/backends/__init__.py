@@ -1,1 +1,1 @@
-"""Python numerical backend implementation."""
+"""Prepared input validation and native numerical bindings."""

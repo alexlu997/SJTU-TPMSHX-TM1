@@ -36,7 +36,7 @@ def test_prepared_axis_permutation_must_match_declared_physical_axes(side, entry
     from sjtu_tpmshx.domain.portable_data import mutable_data
     from sjtu_tpmshx.io.case_io import save_case, load_case
     from sjtu_tpmshx.solvers.api import run_case
-    from sjtu_tpmshx.solvers.backends.python.three_d import runtime
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
     from sjtu_tpmshx.tests.solver_tm1.test_prepared_continuous_field import _config
 
     config = _config(volume=True)
@@ -51,7 +51,7 @@ def test_prepared_axis_permutation_must_match_declared_physical_axes(side, entry
     axes[side]['solver_to_real_perm'] = axes['B' if side == 'A' else 'A']['solver_to_real_perm']
     save_case(replace(case, parameters=parameters), tmp_path / 'case.h5')
     restored = load_case(tmp_path / 'case.h5')
-    monkeypatch.setattr(runtime, 'build_problem',
+    monkeypatch.setattr(NativeFull3DDriver, '__init__',
                         lambda *a, **k: pytest.fail('conflicting axes reached runtime'))
     with pytest.raises(ValueError, match=f'fluid {side} axis permutation'):
         (run_case if entry == 'public' else build_execution_inputs)(restored)

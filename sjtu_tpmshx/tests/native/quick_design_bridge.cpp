@@ -11,6 +11,8 @@ struct Callbacks {
     std::size_t cancel_calls = 0, progress_calls = 0, last_progress = 0;
     double* a;
     double* b;
+    double* s;
+    double inject_value;
 };
 bool cancelled(void* pointer) {
     auto& cb = *static_cast<Callbacks*>(pointer);
@@ -22,7 +24,7 @@ void progress(void* pointer, unsigned percent) {
     ++cb.progress_calls;
     cb.last_progress = percent;
     if (cb.inject_side && percent >= cb.inject_percent)
-        (cb.inject_side == 1 ? cb.a : cb.b)[0] = 500.;
+        (cb.inject_side == 1 ? cb.a : cb.inject_side == 2 ? cb.b : cb.s)[0] = cb.inject_value;
 }
 }
 
@@ -38,7 +40,7 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_quick_design_driver(
                                        view(3),view(4),view(5)};
     const QuickDesignSide a{static_cast<Fluid>(config[3]),values[6],values[7],values[8],values[9]};
     const QuickDesignSide b{static_cast<Fluid>(config[4]),values[10],values[11],values[12],values[13]};
-    Callbacks callbacks{config[8],config[9],config[10],0,0,0,arrays[6],arrays[7]};
+    Callbacks callbacks{config[8],config[9],config[10],0,0,0,arrays[6],arrays[7],arrays[8],values[16]};
     const QuickDesignControl control{config[5],config[6],values[14],values[15],config[7] != 0,
                                     cancelled,progress,&callbacks};
     const auto fail = [&](int code, const std::exception& exception) {

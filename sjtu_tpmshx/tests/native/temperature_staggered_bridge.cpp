@@ -1,4 +1,5 @@
 #include "tpmshx/temperature_staggered.hpp"
+#include "legacy_single_a_temperature.hpp"
 #include "tpmshx/thermal_c_api.h"
 #include <algorithm>
 #include <cstdio>
@@ -25,7 +26,7 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_temperature_staggered
             config[2]!=0,true,cancel,progress,&cb};
         StaggeredTemperatureDriver solver;
         const auto result=solver.solve(grid,side(9,0),side(20,1),v(6),{out(3),out(4),out(5)},control,
-            config[3]!=0,config[4]!=0,v(8),v(7));
+            config[3]!=0,config[4]!=0,v(8),v(7),config[8]!=0);
         const std::size_t state[]{static_cast<std::size_t>(result.iteration.stop),result.iteration.iterations,
             cb.calls,cb.progress,cb.last,result.residual[0].available,result.residual[1].available};
         std::copy(std::begin(state),std::end(state),status);
@@ -78,5 +79,32 @@ extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_mac_projection(
         if (error_size) error[0]='\0'; return 0;
     } catch (const std::exception& e) {
         if (error_size) std::snprintf(error,error_size,"%s",e.what()); return 1;
+    }
+}
+
+// Isolate the retained two-sweep CC warm-up from the full outer loop.
+extern "C" TPMSHX_THERMAL_API int TPMSHX_THERMAL_CALL test_legacy_warmup(
+    const std::size_t* shape,double** arrays,const std::size_t* sizes,const std::size_t* config,
+    const double* values,std::size_t* status,double* metrics,char* error,std::size_t error_size) {
+    using namespace tpmshx;
+    try {
+        const auto v=[&](std::size_t i) {return ArrayView<const double>{arrays[i],sizes[i]};};
+        const auto out=[&](std::size_t i) {return ArrayView<double>{arrays[i],sizes[i]};};
+        const GridView grid{shape[0],shape[1],shape[2],v(0),v(1),v(2)};
+        const auto side=[&](std::size_t i,std::size_t s) {
+            return TemperatureFluidView{v(i),v(i+1),v(i+2),v(i+3),v(i+4),v(i+5),v(i+6),
+                {static_cast<int>(config[5+s]),values[s],v(i+7),v(i+8),v(i+9)}};
+        };
+        const TemperatureControl control{config[0],config[1],values[2],values[3],values[4],values[5],
+            config[2]!=0,true};
+        LegacyTemperatureRun run(TemperatureScheme::cell_centered_3d,grid,side(9,0),side(20,1),v(6),
+            {out(3),out(4),out(5)},control,v(8));
+        while(run.phase()!=TemperaturePhase::completed)run.advance();
+        const auto result=run.take_result();
+        status[0]=static_cast<std::size_t>(result.stop);status[1]=result.iterations;
+        metrics[0]=result.residual;metrics[1]=result.q_b;
+        if(error_size)error[0]='\0';return 0;
+    } catch(const std::exception& e) {
+        if(error_size)std::snprintf(error,error_size,"%s",e.what());return 1;
     }
 }

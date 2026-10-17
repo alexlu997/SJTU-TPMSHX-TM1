@@ -21,7 +21,7 @@ import pytest
 from scripts.generate_native_model_coefficients import header
 from sjtu_tpmshx.models import envelope
 from sjtu_tpmshx.models.grid import _port_fractions_1d, _port_overlap_1d
-from sjtu_tpmshx.solvers import _solve_common as original
+from sjtu_tpmshx.tests.native import pressure_audit as original
 
 D = ct.POINTER(ct.c_double)
 C = ct.POINTER(ct.c_char)

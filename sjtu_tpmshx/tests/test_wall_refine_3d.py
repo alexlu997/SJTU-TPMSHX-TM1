@@ -8,40 +8,29 @@ checks, not pinned values, so the test is valid both before and after the
 N4 kernel fix; the refined-vs-uniform agreement bands are the guard.
 """
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
 
-def _full_face_cfg(**overrides):
-    """Small full-face air-air cross-flow (Shanghai-like), both dirs open."""
-    cfg = dict(
-        L=0.182, H=0.042, Lz=0.042,
-        Nx=8, Ny=6, Nz=6,
-        u_A=10.0, u_B=20.0, T_inA=422.0, T_inB=322.0,
-        P_inA=192362.0, P_inB=101325.0,
-        tpms_type='Gyroid', Lcell=7.0, t_wall=0.6, k_s=16.0, eps=0.85,
-        fluid_A_cfg=dict(dir=0, in_ctr=0.021, in_w=0.042,
-                         out_ctr=0.021, out_w=0.042,
-                         in_z_ctr=0.021, in_z_w=0.042,
-                         out_z_ctr=0.021, out_z_w=0.042),
-        fluid_B_cfg=dict(dir=3, in_ctr=0.091, in_w=0.182,
-                         out_ctr=0.091, out_w=0.182,
-                         in_z_ctr=0.021, in_z_w=0.042,
-                         out_z_ctr=0.021, out_z_w=0.042),
-        fluid_type_A='air', fluid_type_B='air',
-        wall_refine_3d=True,
-    )
-    cfg.update(overrides)
-    return cfg
+def _full_face_config(wall_refine=True):
+    from sjtu_tpmshx.tests.cases_3d import air_air_config
+    config = air_air_config()
+    return replace(config,
+        solver=replace(config.solver, Nx=8, Ny=6, Nz=6),
+        bc_B=replace(config.bc_B, in_ctr=.091, in_w=.182, out_ctr=.091, out_w=.182),
+        flags=replace(config.flags, wall_refine_3d=wall_refine))
 
 
 @pytest.mark.slow
 def test_wall_refine_3d_solves_and_matches_uniform():
     """Refined-grid solve is finite, conservative, and agrees with the
     uniform-grid solution of the same physical case."""
-    from sjtu_tpmshx.tests.cases_3d import run_research
+    from sjtu_tpmshx.preprocess.api import prepare_case
+    from sjtu_tpmshx.solvers.api import run_case
 
-    r = run_research(_full_face_cfg()).metadata['diagnostics']
+    r = run_case(prepare_case(_full_face_config(), case_id='wall-refined')).metadata['diagnostics']
     for key in ('T_A_out', 'T_B_out', 'dP_A',
                 'Q_enthalpy_A', 'Q_enthalpy_B'):
         assert np.isfinite(r[key]), f"{key} not finite on refined grid"
@@ -57,7 +46,7 @@ def test_wall_refine_3d_solves_and_matches_uniform():
     # Same case on the uniform grid — refinement must not move the answer
     # far (E1 measured ~0.6% dP shift at Shanghai scale; bands are generous
     # because this grid is much coarser).
-    ru = run_research(_full_face_cfg(wall_refine_3d=False)).metadata['diagnostics']
+    ru = run_case(prepare_case(_full_face_config(False), case_id='wall-uniform')).metadata['diagnostics']
     dP_u, dP_r = ru['dP_A'], r['dP_A']
     assert abs(dP_r - dP_u) / dP_u < 0.15, \
         f"refined dP {dP_r:.0f} vs uniform {dP_u:.0f} (>15%)"

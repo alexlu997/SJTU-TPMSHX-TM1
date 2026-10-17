@@ -12,7 +12,30 @@ import numpy as np
 import pytest
 from scipy.interpolate import RegularGridInterpolator
 from sjtu_tpmshx.models.grid import split_cells, _aligned_grid, _port_fractions_1d
-from sjtu_tpmshx.solvers.simple_solver import _prolong_mass_faces_2d
+
+
+
+def _prolong_mass_faces_2d(mass, dx, dy, fine_dx, fine_dy):
+    """Integrate the coarse CV's linear-normal, constant-transverse flux.
+
+    Works on nonnested partitions. Fine divergence is the overlap integral
+    of coarse divergence; this transfers the flow and does not solve momentum.
+    """
+    edges = [np.r_[0., np.cumsum(w)] for w in (dx, dy, fine_dx, fine_dy)]
+    x, y, xf, yf = edges
+    if not (np.isclose(x[-1], xf[-1], rtol=1e-12, atol=1e-15)
+            and np.isclose(y[-1], yf[-1], rtol=1e-12, atol=1e-15)):
+        raise ValueError('mass prolongation requires the same physical domain')
+    # These are the same physical boundary, despite cumsum roundoff.
+    xf[-1], yf[-1] = x[-1], y[-1]
+    overlap_x = np.maximum(0., np.minimum(xf[1:, None], x[None, 1:])
+                            - np.maximum(xf[:-1, None], x[None, :-1]))
+    overlap_y = np.maximum(0., np.minimum(yf[1:, None], y[None, 1:])
+                            - np.maximum(yf[:-1, None], y[None, :-1]))
+    jx = np.column_stack([np.interp(xf, x, mass[0][:, j]) for j in range(len(dy))])
+    jy = np.vstack([np.interp(yf, y, mass[1][i]) for i in range(len(dx))])
+    return (np.ascontiguousarray((jx / np.asarray(dy)[None, :]) @ overlap_y.T),
+            np.ascontiguousarray(overlap_x @ (jy / np.asarray(dx)[:, None])))
 
 
 @pytest.fixture(scope="module")

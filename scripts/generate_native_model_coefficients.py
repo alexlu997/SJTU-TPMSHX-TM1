@@ -13,9 +13,11 @@ from sjtu_tpmshx.models import nu_correlations as nu, roughness
 from sjtu_tpmshx.models import co2_correlations, sco2_props, tpms_props as props
 from sjtu_tpmshx.models.design_fluids import DESIGN_NU_REFERENCE_STATES
 from sjtu_tpmshx.models.envelope import GAMMA_AIR, PRESSURE_FLOOR_PA, R_AIR_DEFAULT
-from sjtu_tpmshx.solvers._solve_common import INLET_PRESSURE_REL_TOL
-from sjtu_tpmshx.solvers._kernels_2d import MODEL_H_RELAXATION
-from sjtu_tpmshx.solvers.ltne_enthalpy_3d import _ENTHALPY_BRACKET_MARGIN_K, _FL_TLO
+# These fixed numerical controls belong to the native solver build.
+INLET_PRESSURE_REL_TOL = 1e-4
+MODEL_H_RELAXATION = 0.2
+_ENTHALPY_BRACKET_MARGIN_K = 60.0
+_FL_TLO = {'sco2': 230.0, 'co2': 216.592000001, 'water': 274.0, 'air': 200.0}
 
 
 def array(name, values):

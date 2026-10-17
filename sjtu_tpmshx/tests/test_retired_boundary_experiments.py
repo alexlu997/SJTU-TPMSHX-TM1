@@ -4,9 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from sjtu_tpmshx.domain.compute_config import ComputeConfig
-from sjtu_tpmshx.tests.cases_3d import prepared_problem
 from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
-from sjtu_tpmshx.solvers.backends.python.three_d import runtime
 
 
 @pytest.mark.parametrize('key,value', [
@@ -26,11 +24,8 @@ from sjtu_tpmshx.solvers.backends.python.three_d import runtime
     ('outer_anderson_trust', 5.),
     ('outer_anderson_patience', 3),
 ])
-@pytest.mark.parametrize('entry', ['canonical', 'raw', 'prepared', 'runtime', 'native'])
+@pytest.mark.parametrize('entry', ['canonical', 'prepared', 'native'])
 def test_retired_control_rejected_before_numerical_work(monkeypatch, key, value, entry):
-    def unexpected_solve(*args, **kwargs):
-        pytest.fail('retired research control reached the numerical solver')
-    monkeypatch.setattr(runtime.SIMPLESolver3D, 'solve', unexpected_solve)
     # Incomplete physical inputs deliberately prove the retired-key check
     # happens before preparation or a solver can consume any other setting.
     data = {key: value}
@@ -39,13 +34,9 @@ def test_retired_control_rejected_before_numerical_work(monkeypatch, key, value,
     with pytest.raises(ValueError, match=rf'{message}:.*{key}'):
         if entry == 'canonical':
             ComputeConfig.from_dict(data)
-        elif entry == 'raw':
-            prepared_problem(data)
         elif entry == 'prepared':
             build_execution_inputs(SimpleNamespace(
                 grid={'dimension': 3, 'length_unit': 'm'}, parameters=data))
-        elif entry == 'runtime':
-            runtime.build_problem(data, {})
         else:
             from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
             driver = NativeFull3DDriver.__new__(NativeFull3DDriver)
@@ -61,30 +52,10 @@ def test_nested_canonical_research_option_explains_retirement(section, key, valu
         ComputeConfig.from_dict({section: {key: value}})
 
 
-@pytest.mark.parametrize('key', ['chi_B_field', 'chi_B_kernel_threshold'])
-def test_removed_temperature_kwarg_is_rejected_at_call_boundary(key):
-    from sjtu_tpmshx.solvers.ltne_energy_3d import solve_full_domain_3d
-    with pytest.raises(TypeError, match=rf'unexpected keyword argument.*{key}'):
-        solve_full_domain_3d(**{key: 0.})
 
 
-def test_removed_temperature_positionals_cannot_become_mms_sources():
-    from sjtu_tpmshx.solvers.ltne_energy_3d import solve_full_domain_3d
-    # The old 52nd/53rd positional slots were chi_B_field/threshold.
-    # Reject at binding, before these values can be mistaken for MMS sources.
-    with pytest.raises(TypeError, match='positional arguments'):
-        solve_full_domain_3d(*([None] * 51), object(), 0.)
 
 
-@pytest.mark.parametrize('name,preceding_args', [
-    ('_face_flux_weights', 4),
-    ('_mass_weighted_T_out', 4),
-    ('_mass_weighted_h_out', 6),
-])
-def test_removed_chi_face_positional_cannot_become_porosity(name, preceding_args):
-    from sjtu_tpmshx.solvers.backends.python.three_d import flux
-    with pytest.raises(TypeError, match='positional arguments'):
-        getattr(flux, name)(*([None] * preceding_args), object())
 
 
 def test_retired_audit_case_does_not_silently_run_empty_matrix(monkeypatch, tmp_path):

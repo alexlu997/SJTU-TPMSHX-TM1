@@ -1,15 +1,10 @@
-"""Native QD properties/orchestration against the same current thermal map.
+"""Native QD property passes, component replay, and independent FV powers.
 
-Fixed before comparison: 2D fields rtol=2e-12 / atol=2e-10 K;
-3D fields rtol=2e-11 / atol=2e-9 K. Pass properties/Re/u/hv/K use
-rtol=2e-10, atol=0; status, pass count and iteration budgets are exact.
-The explicit test fixture supplies current C++ thermal iteration to the
-Python orchestration reference; independent FV powers check each returned
-pass. Historical Python thermal helpers remain the default for other callers.
+Fields retain rtol2e-12/atol2e-10 K in 2D and rtol2e-11/atol2e-9 K in 3D.
+Properties retain rtol2e-10. Pass counts, warm starts, and budgets stay exact.
 """
 import ctypes
 from dataclasses import replace
-import importlib
 import os
 from pathlib import Path
 import platform
@@ -19,8 +14,6 @@ import sys
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.domain.module_ports import RunControl
-from sjtu_tpmshx.models.fluid_props import QuickDesignWaterFieldError, WaterStateError
 from sjtu_tpmshx.preprocess.api import prepare_quick_design
 from sjtu_tpmshx.tests.design.test_forward import _case
 
@@ -50,7 +43,7 @@ def quick_design_native():
                    size_p, double_p, ctypes.POINTER(ctypes.c_char), ctypes.c_size_t]
     fn.restype = ctypes.c_int
 
-    def run(case, *, cancel_at=0, inject_side=0, inject_percent=0, bad_size=None,
+    def run(case, *, cancel_at=0, inject_side=0, inject_percent=0, inject_value=500., bad_size=None,
             enum_override=None):
         p, fields = case.parameters, case.design_fields
         op, controls = p["operating_point"], p["controls"]
@@ -81,7 +74,7 @@ def quick_design_native():
         for suffix, side in (("h", "A"), ("c", "B")):
             values.extend([op["T_in_"+suffix], op["P_in_"+suffix], op["mdot_"+suffix],
                            p["inlet_pressure_fractions"][side]])
-        values += [qtol, controls["alpha"]]
+        values += [qtol, controls["alpha"], inject_value]
         status, metrics = (ctypes.c_size_t * 11)(), (ctypes.c_double * 48)()
         error = ctypes.create_string_buffer(1024)
         code = fn((ctypes.c_size_t * 3)(*shape), pointers, sizes,
@@ -106,197 +99,138 @@ def prepared(arrangement="cross", mode="const", pair="air_water", topology="Diam
                                 height=.06)
 
 
-@pytest.fixture(scope="module")
-def same_qd_thermal(quick_design_native):
-    """Keep Python QD properties/orchestration; use the current thermal map."""
+@pytest.fixture(scope='module')
+def temperature_driver(quick_design_native):
     from sjtu_tpmshx.solvers.backends.cpp.temperature import NativeTemperatureDriver
-    from sjtu_tpmshx.tests.native.temperature_fv_oracle import physical
-
-    name = "tpmshx_temperature_shared.dll" if os.name == "nt" else (
-        "libtpmshx_temperature_shared.dylib" if sys.platform == "darwin" else "libtpmshx_temperature_shared.so")
-    path = Path(os.environ.get("TPMSHX_TEMPERATURE_LIBRARY", str(quick_design_native.build / name))).resolve()
-    driver = NativeTemperatureDriver(path)
-
-    def run(*args, **kwargs):
-        shape = tuple(args[3:6])
-        plane = shape[2] == 1
-        dimension = 2 if plane else 3
-
-        def field(value):
-            value = np.asarray(value)
-            return value[..., 0] if plane and value.ndim == 3 else value
-
-        initial = None if kwargs["Ta_init"] is None else tuple(
-            field(kwargs[key]) for key in ("Ta_init", "Tb_init", "Ts_init"))
-        entry = dict(shape=shape, max_iterations=kwargs["max_iter"],
-                     chunk_iterations=kwargs["conv_chunk"] or (500 if plane else 250),
-                     warm=initial is not None, returned=False)
-        run.calls.append(entry)
-        *state, info = driver(
-            scheme="cell_centered_2d" if plane else "cell_centered_3d",
-            widths=tuple(kwargs["d" + axis + "_arr"] for axis in "xyz"[:dimension]),
-            conductivity=tuple(field(value) for value in args[8:11]),
-            exchange=tuple(field(value) for value in args[11:13]),
-            epsilon=(field(args[15] / 2),) * 2, rho_cp=args[13:15],
-            velocity=tuple(tuple(field(value) for value in args[start:start+dimension])
-                           for start in (16, 19)),
-            directions=(kwargs["dir_A"], kwargs["dir_B"]), inlets=args[6:8],
-            initial=initial, max_iterations=kwargs["max_iter"],
-            chunk_iterations=kwargs["conv_chunk"], q_relative_tolerance=kwargs["q_rel_tol"],
-            tol=kwargs["tol"], alpha=(.7, 1., 1.) if plane else (kwargs["alpha_T"],) * 3,
-            second_order_b=not plane, cancel_check=kwargs.get("cancel_check"),
-            progress=kwargs.get("progress_cb"))
-        entry.update(returned=True, iterations=info["iterations"], converged=info["converged"])
-        state = [value[..., None] if plane else value for value in state]
-        fluids = []
-        for side, start in enumerate((16, 19)):
-            fluids.append([np.full(shape, value) for value in
-                           (args[8+side], args[11+side], args[15]/2, args[13+side])]
-                          + list(args[start:start+3]) + [np.empty(0) for _ in range(3)])
-        audit = physical(dict(shape=shape, state=state,
-            widths=tuple(kwargs["d" + axis + "_arr"] for axis in "xyz"),
-            a=fluids[0], b=fluids[1], ks=args[10], prescribed=np.empty(0),
-            directions=(kwargs["dir_A"], kwargs["dir_B"]), tin=args[6:8], sou_b=not plane))
-        evidence = info.pop("_native_temperature")
-        assert evidence["duty_units"] == ("W/m" if plane else "W")
-        assert evidence["Q_B"] == pytest.approx(audit["qb"], rel=2e-12 if plane else 2e-11, abs=1e-8)
-        assert audit["boundary_complete"] and all(np.isfinite(value).all() for value in state)
-        boundary = float(np.sum(audit["powers"]))
-        assert abs(float(np.sum(audit["residual"])) + boundary) <= 2e-8
-        count, chunk = info["iterations"], entry["chunk_iterations"]
-        assert 0 < count <= kwargs["max_iter"]
-        assert count == kwargs["max_iter"] or count % chunk == 0
-        if info["converged"]:
-            assert (count + chunk - 1) // chunk >= 2
-            assert max(np.abs(audit["residual"]).reshape(3, -1).sum(axis=1).max(),
-                       abs(boundary)) / audit["denominator"] <= 1e-7
-        else:
-            assert count == kwargs["max_iter"]
-        info["delegated_to_2d"] = plane
-        return *state, info
-
-    run.calls, run.native_entries = [], []
-    native_call = driver.call
-
-    def traced_call(*args):
-        entry = dict(returned=False)
-        run.native_entries.append(entry)
-        code = native_call(*args)
-        entry.update(returned=True, code=int(code))
-        return code
-
-    driver.call = traced_call
+    name = 'tpmshx_temperature_shared.dll' if os.name == 'nt' else 'libtpmshx_temperature_shared.dylib'
+    driver = NativeTemperatureDriver(quick_design_native.build/name)
     try:
-        yield run
+        yield driver
     finally:
         driver.close()
-def python_run(case, monkeypatch, *, inject_side=0, inject_pass=0, thermal=None, public=False):
-    execution = importlib.import_module("sjtu_tpmshx.solvers.backends.python.quick_design.execution")
-    model = importlib.import_module("sjtu_tpmshx.models.quick_design")
-    hvol = model._hvol
-    thermal = thermal or execution.solve_full_domain_3d
-    evaluations, results, progress = [], [], []
-
-    def capture_hvol(*args, **kwargs):
-        values = hvol(*args, **kwargs)
-        evaluations.append((args[9], *values))  # T evaluation, hv, Re, u, props
-        return values
-
-    def capture_thermal(*args, **kwargs):
-        result = thermal(*args, **kwargs)
-        if inject_side and len(results)+1 == inject_pass:
-            result[inject_side-1][0, 0, 0] = 500.
-        results.append(result)
-        return result
-
-    with monkeypatch.context() as patch:
-        patch.setattr(model, "_hvol", capture_hvol)
-        patch.setattr(execution, "solve_full_domain_3d", capture_thermal)
-        from sjtu_tpmshx.solvers.api import run_case
-        result = (run_case if public else execution.run_case)(case, RunControl(progress=progress.append))
-    return result, evaluations, results, progress
 
 
-def assert_equivalent(case, native, monkeypatch, thermal=None):
-    expected, evaluations, passes, progress = python_run(case, monkeypatch, thermal=thermal)
+def check_prepared(case, native, temperature):
+    from sjtu_tpmshx.models.design_fluids import fluid_props, fluid_nu
+    from sjtu_tpmshx.tests.native.temperature_fv_oracle import physical
     actual = native(case)
-    assert actual["code"] == 0, actual["error"]
-    status, metrics = actual["status"], actual["metrics"]
-    assert status[1] == len(passes) == (2 if case.parameters["prop_model"] == "mean" else 1)
-    assert status[0] == (0 if expected.run_status["converged"] else 1)
-    assert status[4] == 100 and progress[-1] == 100
-    plane = len(case.grid["dz"]) == 1
+    assert actual['code'] == 0, actual['error']
+    status, metrics = actual['status'], actual['metrics']
+    p, fixed = case.parameters, case.design_fields
+    op, controls = p['operating_point'], p['controls']
+    shape = tuple(len(case.grid['d'+axis]) for axis in 'xyz')
+    plane, cross = shape[2] == 1, p['arrangement'] == 'cross'
+    widths = tuple(case.grid['d'+axis] for axis in 'xyz')
+    tin = [op['T_in_'+suffix] for suffix in ('h', 'c')]
+    evaluation = list(tin)
+    seed = p['initial_fields']
+    chunk = controls['chunk'] or (500 if plane else 250)
     rtol, atol = (2e-12, 2e-10) if plane else (2e-11, 2e-9)
-    for field, name in zip(actual["fields"], ("Ta", "Tb", "Ts")):
-        np.testing.assert_allclose(field, expected.fields[name], rtol=rtol, atol=atol)
-    for index, result in enumerate(passes):
-        info = result[3]
-        assert status[5+index*2] == (0 if info["converged"] else 1)
-        assert status[6+index*2] == info["iterations"]
-        assert metrics[40+index*2] == pytest.approx(info["residual"], rel=rtol, abs=atol)
-        for side in range(2):
-            temperature, hv, reynolds, speed, props = evaluations[index*2+side]
-            conductivity = case.design_fields["eps_A"].flat[0]*props.k
-            target = [temperature, props.rho, props.mu, props.k, props.cp, props.Pr,
-                      reynolds, speed, hv, conductivity]
-            np.testing.assert_allclose(metrics[index*20+side*10:index*20+side*10+10],
-                                       target, rtol=2e-10, atol=0.)
-    for index, side in enumerate(("A", "B")):
-        pressure = expected.pressure_evidence[side]
-        assert metrics[44+index*2] == pressure["inlet_absolute_Pa"]
-        assert metrics[45+index*2] == pressure["outlet_absolute_Pa"]
-        assert bool(status[9+index]) == pressure["choked"]
-    return actual, expected
+    field = lambda value: np.array(np.broadcast_to(value,shape), dtype=np.float64, order='C')
+    planar = lambda value: value[...,0] if plane else value
+    count = 2 if p['prop_model'] == 'mean' else 1
+    assert status[1] == count and status[4] == 100
+    for index in range(count):
+        fluids, properties = [], []
+        for side, suffix in enumerate(('h', 'c')):
+            fluid = op['hot_fluid' if side == 0 else 'cold_fluid']
+            props = fluid_props(fluid, evaluation[side], op['P_in_'+suffix])
+            epsilon = fixed['eps_A'].flat[0]
+            speed = op['mdot_'+suffix]/(props.rho*epsilon*(p['Lx'] if side == 1 and cross else p['s'])*p['height'])
+            reynolds = props.rho*abs(speed)*p['D_h']/props.mu
+            nu = fluid_nu(fluid,p['topology'],reynolds,epsilon,p['L_cell_m']*1000.,p['D_h']*1000.)
+            hv = p['A_0']*nu*props.k/p['D_h']
+            target = [evaluation[side],props.rho,props.mu,props.k,props.cp,props.Pr,reynolds,speed,hv,epsilon*props.k]
+            np.testing.assert_allclose(metrics[index*20+side*10:index*20+side*10+10],target,rtol=2e-10,atol=0.)
+            velocity = (speed,0.,0.) if side == 0 else (0.,speed,0.) if cross else (-speed,0.,0.)
+            fluids.append([field(x) for x in (epsilon*props.k,hv,epsilon,props.rho*props.cp,*velocity)]
+                          +[np.empty(0) for _ in range(3)])
+            properties.append(props)
+        *state, info = temperature(scheme='cell_centered_2d' if plane else 'cell_centered_3d',
+            widths=widths[:2] if plane else widths,
+            conductivity=tuple(planar(f[0]) for f in fluids)+(planar(fixed['K_ss']),),
+            exchange=tuple(planar(f[1]) for f in fluids), epsilon=tuple(planar(f[2]) for f in fluids),
+            rho_cp=tuple(planar(f[3]) for f in fluids),
+            velocity=tuple(tuple(planar(f[i]) for i in range(4,6 if plane else 7)) for f in fluids),
+            directions=(0,2 if cross else 1),inlets=tin,
+            initial=None if seed is None else tuple(planar(x) for x in seed),
+            max_iterations=controls['maxit'],chunk_iterations=controls['chunk'],q_relative_tolerance=controls['qtol'],
+            tol=p['tol'],alpha=(.7,1.,1.) if plane else (controls['alpha'],)*3,second_order_b=not plane)
+        seed = [x[...,None] if plane else x for x in state]
+        assert status[5+index*2] == (0 if info['converged'] else 1)
+        assert status[6+index*2] == info['iterations']
+        assert metrics[40+index*2] == pytest.approx(info['residual'],rel=rtol,abs=atol)
+        assert 0 < info['iterations'] <= controls['maxit']
+        assert info['iterations'] == controls['maxit'] or info['iterations'] % chunk == 0
+        audit = physical(dict(shape=shape,state=seed,widths=widths,a=fluids[0],b=fluids[1],
+            ks=fixed['K_ss'],prescribed=np.empty(0),directions=(0,2 if cross else 1),tin=tin,sou_b=not plane))
+        assert audit['boundary_complete'] and all(np.isfinite(x).all() for x in seed)
+        boundary = float(np.sum(audit['powers']))
+        assert abs(float(np.sum(audit['residual']))+boundary) <= 2e-8
+        assert metrics[41+index*2] == pytest.approx(audit['qb'],rel=rtol,abs=1e-8)
+        if info['converged']:
+            assert (info['iterations']+chunk-1)//chunk >= 2
+            assert max(np.abs(audit['residual']).reshape(3,-1).sum(axis=1).max(),abs(boundary))/audit['denominator'] <= 1e-7
+        else:
+            assert info['iterations'] == controls['maxit']
+        evaluation = [.5*(tin[0]+seed[0][-1].mean()),
+                      .5*(tin[1]+(seed[1][:,-1] if cross else seed[1][0]).mean())]
+    for value, expected in zip(actual['fields'], seed):
+        np.testing.assert_allclose(value,expected,rtol=rtol,atol=atol)
+    assert status[0] == status[5+2*(count-1)]
+    for side,suffix in enumerate(('h','c')):
+        fraction = p['inlet_pressure_fractions']['AB'[side]]
+        assert metrics[44+2*side] == op['P_in_'+suffix]
+        assert metrics[45+2*side] == op['P_in_'+suffix]*(1.-fraction)
+        assert bool(status[9+side]) == (fraction >= 1.)
+    return actual
 
 
 @pytest.mark.parametrize("arrangement", ["cross", "counter"])
 @pytest.mark.parametrize("mode", ["const", "mean"])
 @pytest.mark.parametrize("pair,topology", [("air_water", "Diamond"), ("water_air", "Gyroid"),
                                            ("sco2_sco2", "Diamond")])
-def test_actual_prepared_geometry_full_property_passes(quick_design_native, same_qd_thermal, monkeypatch, arrangement, mode, pair, topology):
-    assert_equivalent(prepared(arrangement, mode, pair, topology), quick_design_native, monkeypatch, same_qd_thermal)
+def test_actual_prepared_geometry_full_property_passes(quick_design_native, temperature_driver, arrangement, mode, pair, topology):
+    check_prepared(prepared(arrangement, mode, pair, topology), quick_design_native, temperature_driver)
 
 
 @pytest.mark.parametrize("arrangement", ["cross", "counter"])
-def test_external_warm_fields_and_budget_exhaustion(quick_design_native, same_qd_thermal, monkeypatch, arrangement):
+def test_external_warm_fields_and_budget_exhaustion(quick_design_native, temperature_driver, arrangement):
     case = prepared(arrangement, "mean")
     p = case.parameters
     shape = tuple(len(case.grid["d"+axis]) for axis in "xyz")
     seed = tuple(np.full(shape, t) for t in (345., 320., 332.))
     case = replace(case, parameters={**p, "initial_fields": seed,
                                     "controls": {**p["controls"], "maxit": 7, "chunk": 5}})
-    actual, _ = assert_equivalent(case, quick_design_native, monkeypatch, same_qd_thermal)
+    actual = check_prepared(case, quick_design_native, temperature_driver)
     assert actual["status"][0] == 1
     assert actual["status"][6] == actual["status"][8] == 7
 
 
 @pytest.mark.parametrize("mode", ["const", "mean"])
-def test_prepared_inlet_pressure_fractions_are_never_recalculated(quick_design_native, same_qd_thermal, monkeypatch, mode):
+def test_prepared_inlet_pressure_fractions_are_never_recalculated(quick_design_native, temperature_driver, mode):
     case = prepared("cross", mode)
     case = replace(case, parameters={**case.parameters, "inlet_pressure_fractions": {"A": 1.2, "B": .03125}})
-    actual, _ = assert_equivalent(case, quick_design_native, monkeypatch, same_qd_thermal)
+    actual = check_prepared(case, quick_design_native, temperature_driver)
     assert actual["status"][9:11] == (1, 0)
 
 
 @pytest.mark.parametrize("where", ["inlet", "warm"])
 @pytest.mark.parametrize("side", ["A", "B"])
-def test_input_water_and_external_field_errors_remain_distinct(quick_design_native, monkeypatch, where, side):
+def test_input_water_and_external_field_errors_remain_distinct(quick_design_native, where, side):
     case = prepared(pair="water_air" if side == "A" else "air_water")
     p = case.parameters
     if where == "inlet":
         suffix = "h" if side == "A" else "c"
         op = {**p["operating_point"], "T_in_"+suffix: 350., "P_in_"+suffix: 10000.}
         case = replace(case, parameters={**p, "operating_point": op})
-        error_type, code, match = WaterStateError, 1, "design inlet " + side
+        code, match = 1, "design inlet " + side
     else:
         shape = tuple(len(case.grid["d"+axis]) for axis in "xyz")
         seed = tuple(np.full(shape, t) for t in (340., 330., 335.))
         seed[0 if side == "A" else 1][0, 0, 0] = 500.
         case = replace(case, parameters={**p, "initial_fields": seed})
-        error_type, code, match = QuickDesignWaterFieldError, 2, "design external warm start " + side
-    with pytest.raises(error_type, match=match) as expected:
-        python_run(case, monkeypatch)
-    assert type(expected.value) is error_type
+        code, match = 2, "design external warm start " + side
     actual = quick_design_native(case)
     assert actual["code"] == code and match in actual["error"]
     assert actual["status"][3] == 0
@@ -304,24 +238,37 @@ def test_input_water_and_external_field_errors_remain_distinct(quick_design_nati
 
 @pytest.mark.parametrize("side", [1, 2])
 @pytest.mark.parametrize("mode,bad_pass", [("const", 1), ("mean", 1), ("mean", 2)])
-def test_each_full_water_field_is_checked_before_reuse_or_return(quick_design_native, monkeypatch, side, mode, bad_pass):
+def test_each_full_water_field_is_checked_before_reuse_or_return(quick_design_native, side, mode, bad_pass):
     case = prepared(mode=mode, pair="water_air" if side == 1 else "air_water")
     case = replace(case, parameters={**case.parameters,
         "controls": {**case.parameters["controls"], "maxit": 1, "chunk": 1}})
     stage = "design-inlet-pass" if bad_pass == 1 else "design-mean-pass"
-    with pytest.raises(QuickDesignWaterFieldError, match=stage+" thermal return"):
-        python_run(case, monkeypatch, inject_side=side, inject_pass=bad_pass)
     actual = quick_design_native(case, inject_side=side,
         inject_percent=(100 if mode == "const" or bad_pass == 2 else 50))
     assert actual["code"] == 2 and stage+" thermal return" in actual["error"]
     assert "index=(0, 0, 0), T=500 K" in actual["error"]
 
 
-def test_real_water_hotspot_retains_native_field_failure(quick_design_native, monkeypatch):
+@pytest.mark.parametrize('mode,bad_pass,side,value', [
+    ('const', 1, 1, np.nan), ('mean', 1, 3, np.inf), ('mean', 2, 2, np.nan),
+])
+def test_nonfinite_thermal_return_stops_before_reuse(quick_design_native, mode, bad_pass, side, value):
+    case = prepared(mode=mode)
+    case = replace(case, parameters={**case.parameters,
+        'controls': {**case.parameters['controls'], 'maxit': 1, 'chunk': 1}})
+    percent = 100 if mode == 'const' or bad_pass == 2 else 50
+    actual = quick_design_native(case, inject_side=side, inject_percent=percent, inject_value=value)
+    if mode == 'const':
+        assert actual['code'] == 3 and 'design thermal return' in actual['error']
+        assert 'non-finite' in actual['error']
+    else:
+        assert actual['code'] == 4 and actual['error'] == 'nonfinite temperature duty'
+    assert actual['status'][3] == bad_pass and actual['status'][4] == percent
+
+
+def test_real_water_hotspot_retains_native_field_failure(quick_design_native):
     case = prepare_quick_design(_case(), "Diamond", 7., .5, .084, .05,
                                 case_id="native-qd-real-hotspot", prop_model="mean")
-    with pytest.raises(QuickDesignWaterFieldError, match="design-inlet-pass thermal return B"):
-        python_run(case, monkeypatch)
     actual = quick_design_native(case)
     assert actual["code"] == 2 and "design-inlet-pass thermal return B" in actual["error"]
 

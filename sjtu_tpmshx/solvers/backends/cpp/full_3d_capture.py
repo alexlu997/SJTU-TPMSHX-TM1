@@ -143,7 +143,6 @@ def capture_result(case, cfg, p, r, abi):
         model_metadata['enthalpy_eos']=true_h['enthalpy_eos']
     emit_audit=bool(cfg.get('_emit_audit',False))
     if emit_audit:
-        from sjtu_tpmshx.solvers.simple_solver_3d import _build_outlet_frac_taper
         for s,label in enumerate('AB'):
             f=r['flow'][s];bc=cfg['fluid_'+label+'_cfg'];axes=p['axes'][label]
             outlet_coeff=None if f is None else f['outlet_opening']
@@ -187,3 +186,23 @@ def capture_result(case, cfg, p, r, abi):
             **({'native':r['native_metadata']} if 'native_metadata' in r else {}),
             diagnostics=diagnostics,df_metadata=df_metadata,model_roles=case.metadata['model_roles'],
             reporting_reference={key:diagnostics[key] for key in ('Q','dP_A','dP_B','T_out_A','T_out_B')}))
+
+
+def _build_outlet_frac_taper(Nx, Nz, n_taper=8, min_frac=0.2):
+    """Build the numerical outlet taper near the x and z walls."""
+    arr = np.ones((Nx, Nz), dtype=np.float64)
+    for i in range(min(n_taper, Nx // 2)):
+        d = i + 1
+        taper = 1.0 - 0.8 * np.exp(-1.0 * d)
+        if taper < min_frac:
+            taper = min_frac
+        arr[i, :] = np.minimum(arr[i, :], taper)
+        arr[Nx - 1 - i, :] = np.minimum(arr[Nx - 1 - i, :], taper)
+    for k in range(min(n_taper, Nz // 2)):
+        d = k + 1
+        taper = 1.0 - 0.8 * np.exp(-1.0 * d)
+        if taper < min_frac:
+            taper = min_frac
+        arr[:, k] = np.minimum(arr[:, k], taper)
+        arr[:, Nz - 1 - k] = np.minimum(arr[:, Nz - 1 - k], taper)
+    return arr

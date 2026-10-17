@@ -1,6 +1,6 @@
 """Static import-graph audit for the sjtu_tpmshx package (P1.1, 2026-07-19).
 
-AST-based — no module is actually imported, so Qt/numba side effects can't
+AST-based — no module is actually imported, so GUI side effects cannot
 bite. Recognises current package-qualified and relative imports, plus historical
 top-level imports when auditing old source. That recognition does not make old
 ``from solvers.x import y`` paths supported runtime entry points.

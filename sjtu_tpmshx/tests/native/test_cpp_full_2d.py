@@ -67,7 +67,7 @@ def check_thermal(public, reference):
                                            ('temperature', (1, 2)), ('true_h', (0, 3))])
 def test_prepared_packing_and_public_abi_exact_typed_return(driver, native, mode, directions):
     case = prepare_case(typed.configuration(mode=mode, directions=directions, outer=2), case_id='full2d-public')
-    record = typed.capture_python(case, full=True)
+    record = typed.prepared_record(case)
     request = typed.inputs(record)
     request['full'] = True
     status, error, reference = native(request)

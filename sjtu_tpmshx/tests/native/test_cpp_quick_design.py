@@ -21,11 +21,10 @@ from sjtu_tpmshx.models.fluid_props import WaterStateError, QuickDesignWaterFiel
 from sjtu_tpmshx.postprocess.api import evaluate
 from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.tests.native import test_quick_design_driver as qd
-from sjtu_tpmshx.tests.native.test_quick_design_driver import prepared, python_run
+from sjtu_tpmshx.tests.native.test_quick_design_driver import prepared
 
 ROOT = Path(__file__).resolve().parents[3]
 quick_design_native = qd.quick_design_native
-same_qd_thermal = qd.same_qd_thermal
 
 
 @pytest.fixture(scope='module')
@@ -46,69 +45,101 @@ def native_control():
     return RunControl(backend='cpp', native_library=str(path))
 
 
-def compare_results(actual, expected, plane):
+def compare_results(actual, raw, case):
+    assert raw['code'] == 0, raw['error']
+    plane = len(case.grid['dz']) == 1
     rtol, atol = (2e-12, 2e-10) if plane else (2e-11, 2e-9)
-    assert actual.backend_id == 'cpp' and expected.backend_id == 'python'
-    assert actual.fields.keys() == expected.fields.keys()
-    for key in actual.fields:
-        np.testing.assert_allclose(actual.fields[key], expected.fields[key], rtol=rtol, atol=atol)
-    assert actual.field_metadata == expected.field_metadata
-    assert actual.pressure_evidence == expected.pressure_evidence
-    assert actual.run_status['converged'] == expected.run_status['converged']
+    assert actual.backend_id == 'cpp'
+    status, values = raw['status'], raw['metrics']
+    p, op = case.parameters, case.parameters['operating_point']
+    count = 2 if p['prop_model'] == 'mean' else 1
+    assert status[1] == count
+    assert actual.run_status['converged'] == (status[0] == 0)
     assert actual.run_status['physical_validation'] == 'not_established'
-    assert len(actual.run_status['passes']) == len(expected.run_status['passes'])
-    for a, b in zip(actual.run_status['passes'], expected.run_status['passes']):
-        assert a.keys() == b.keys()
-        assert a['iterations'] == b['iterations'] and a['converged'] == b['converged']
-        assert a['delegated_to_2d'] == b['delegated_to_2d']
-        assert a['residual'] == pytest.approx(b['residual'], rel=rtol, abs=atol)
-    for side in ('A', 'B'):
-        assert actual.boundary_fluxes[side].keys() == expected.boundary_fluxes[side].keys()
-        for name, value in actual.boundary_fluxes[side].items():
-            assert value == pytest.approx(expected.boundary_fluxes[side][name], rel=2e-10)
-    for name, metric in evaluate(actual).metrics.items():
-        target = evaluate(expected).metrics[name]
-        assert metric.status == target.status and metric.spec == target.spec
-        if metric.value is not None:
-            assert metric.value == pytest.approx(target.value, rel=2e-10, abs=2e-8)
+    assert len(actual.run_status['passes']) == count
+    for index, item in enumerate(actual.run_status['passes']):
+        assert item['iterations'] == status[6+index*2]
+        assert item['converged'] == (status[5+index*2] == 0)
+        assert item['delegated_to_2d'] == plane
+        assert item['residual'] == pytest.approx(values[40+index*2],rel=rtol,abs=atol)
+    for key,field in zip(('Ta','Tb','Ts'), raw['fields']):
+        np.testing.assert_allclose(actual.fields[key],field,rtol=rtol,atol=atol)
+        assert actual.field_metadata[key]['unit'] == 'K'
+    expected = {}
+    for side,(name,suffix) in enumerate(zip('AB',('h','c'))):
+        props = values[20*(count-1)+10*side:20*(count-1)+10*side+10]
+        speed, hv, conductivity = props[7:10]
+        velocity = (speed,0.,0.) if side == 0 else (0.,speed,0.) if p['arrangement']=='cross' else (-speed,0.,0.)
+        for key,value in zip(('uc','vc','wc'),velocity):
+            np.testing.assert_allclose(actual.fields[key+name],value,rtol=2e-10,atol=0.)
+            assert actual.field_metadata[key+name]['unit'] == 'm/s'
+        for key,value in (('h_v',hv),('K_ff',conductivity)):
+            np.testing.assert_allclose(actual.fields[key+name],value,rtol=2e-10,atol=0.)
+        for key,value in zip(('rho','mu','k','cp','Pr'),props[1:6]):
+            assert actual.metadata['properties'][name][key] == pytest.approx(value,rel=2e-10)
+        assert dict(actual.pressure_evidence[name]) == dict(inlet_absolute_Pa=values[44+side*2],
+            outlet_absolute_Pa=values[45+side*2],choked=bool(status[9+side]),model='inlet_state_analytic_df')
+        boundary = dict(mass_flow_kg_s=op['mdot_'+suffix],inlet_temperature_K=op['T_in_'+suffix],
+                        cp_J_kgK=props[4],velocity_m_s=speed,density_kg_m3=props[1])
+        assert actual.boundary_fluxes[name].keys() == boundary.keys()
+        for key,value in boundary.items():
+            assert actual.boundary_fluxes[name][key] == pytest.approx(value,rel=2e-10)
+        outlet = (raw['fields'][0][-1].mean() if side == 0 else
+                  (raw['fields'][1][:,-1] if p['arrangement']=='cross' else raw['fields'][1][0]).mean())
+        expected['T_out_'+name] = outlet
+        expected['Q' if side == 0 else 'Q_cold'] = op['mdot_'+suffix]*props[4]*(op['T_in_'+suffix]-outlet)*(1 if side == 0 else -1)
+        expected['dP_'+name] = values[44+side*2]-values[45+side*2]
+        expected['Re_'+name] = props[6]
+        expected['mass_flow_'+name] = op['mdot_'+suffix]
+    for key in ('K_ss','eps'):
+        np.testing.assert_array_equal(actual.fields[key],case.design_fields[key])
+    expected['energy_imbalance_rel'] = abs(expected['Q']-expected['Q_cold'])/max(abs(expected['Q']),abs(expected['Q_cold']),1e-30)
+    metrics = evaluate(actual).metrics
+    for key,value in expected.items():
+        assert metrics[key].status == 'available', key
+        assert metrics[key].value == pytest.approx(value,rel=2e-10,abs=2e-8)
 
 
 @pytest.mark.parametrize('arrangement', ['cross', 'counter'])
 @pytest.mark.parametrize('mode', ['const', 'mean'])
 @pytest.mark.parametrize('pair,topology', [('air_water', 'Diamond'), ('water_air', 'Gyroid'),
                                          ('sco2_sco2', 'Diamond')])
-def test_public_fields_metrics_and_pass_contract(native_control, same_qd_thermal, monkeypatch, arrangement, mode, pair, topology):
+def test_public_fields_metrics_and_pass_contract(native_control, quick_design_native, arrangement, mode, pair, topology):
     case = prepared(arrangement, mode, pair, topology)
-    expected = python_run(case, monkeypatch, thermal=same_qd_thermal, public=True)[0]
+    raw = quick_design_native(case)
     actual = run_case(case, native_control)
-    compare_results(actual, expected, arrangement == 'cross')
+    compare_results(actual, raw, case)
 
 
-def test_warnings_use_native_pass_evidence_without_python_numerics(native_control, same_qd_thermal, monkeypatch):
-    from sjtu_tpmshx.models import quick_design, design_fluids, fluid_props
+def test_warnings_use_native_pass_evidence_without_python_numerics(native_control, quick_design_native, monkeypatch):
+    from sjtu_tpmshx.models import design_fluids, fluid_props
+    from sjtu_tpmshx.solvers.backends.cpp import quick_design
     case = prepared('counter', 'mean', 'water_air')
     p = case.parameters
-    # Prepared dP remains frozen; these changed states specifically exercise
-    # existing property/Re warnings on both actual property passes.
     case = replace(case, parameters={**p, 'operating_point': {
-        **p['operating_point'], 'T_in_h': 380., 'P_in_h': 3e6, 'mdot_c': .001}})
-    expected = python_run(case, monkeypatch, thermal=same_qd_thermal, public=True)[0]
-
+        **p['operating_point'], 'T_in_h':380., 'P_in_h':3e6, 'mdot_c':.001}})
+    raw = quick_design_native(case)
     def forbidden(*args, **kwargs):
-        pytest.fail('native execution called a Python property or thermal implementation')
-
-    monkeypatch.setattr(quick_design, '_hvol', forbidden)
+        pytest.fail('native execution called a Python property implementation')
     monkeypatch.setattr(design_fluids, 'fluid_props', forbidden)
     monkeypatch.setattr(fluid_props, 'check_water_state', forbidden)
-    monkeypatch.setattr('sjtu_tpmshx.solvers.backends.python.quick_design.execution.solve_full_domain_3d', forbidden)
+    samples = []
+    original = quick_design.record_native_design_ranges
+    def observe(fluid, topology, temperature, reynolds):
+        samples.append((fluid, topology, temperature, reynolds))
+        return original(fluid, topology, temperature, reynolds)
+    monkeypatch.setattr(quick_design, 'record_native_design_ranges', observe)
     actual = run_case(case, native_control)
-    # Native roundoff can alter the printed last digit of extrema. Source,
-    # side, stage, layout, label and original range must match exactly.
-    signature = lambda result: [message.split('finite extrema')[0]
-        for message in result.metadata['diagnostics']['warnings_list']]
-    assert signature(actual) == signature(expected)
-    assert any('water_cp' in message for message in signature(actual))
-    compare_results(actual, expected, False)
+    assert len(samples) == 4
+    for index,(fluid,topology,temperature,reynolds) in enumerate(samples):
+        offset = (index//2)*20+(index%2)*10
+        assert fluid == ('water' if index%2 == 0 else 'air') and topology == p['topology']
+        np.testing.assert_allclose([temperature,reynolds],raw['metrics'][[offset,offset+6]],rtol=2e-10)
+    warnings = actual.metadata['diagnostics']['warnings_list']
+    assert any('water_cp' in message for message in warnings)
+    assert any('design-inlet-pass' in message for message in warnings)
+    assert any('design-mean-pass' in message for message in warnings)
+    compare_results(actual, raw, case)
 
 
 @pytest.mark.parametrize('failure', ['cancel', 'callback_error', 'water_input', 'water_field'])
@@ -157,7 +188,7 @@ def test_budget_exhaustion_is_saved_as_unconverged(native_control, tmp_path):
     assert restored.metadata['native']['solver_abi'] == 1
 
 
-def test_two_runs_cancel_only_one(native_control, same_qd_thermal, monkeypatch):
+def test_two_runs_cancel_only_one(native_control, quick_design_native):
     first, second = prepared('cross', 'mean'), prepared('counter', 'mean', 'sco2_sco2')
     progressed = []
     cancelled_control = replace(native_control, progress=progressed.append,
@@ -168,7 +199,7 @@ def test_two_runs_cancel_only_one(native_control, same_qd_thermal, monkeypatch):
         with pytest.raises(CancelledError):
             cancelled.result()
         result = completed.result()
-    compare_results(result, python_run(second, monkeypatch, thermal=same_qd_thermal, public=True)[0], False)
+    compare_results(result, quick_design_native(second), second)
 
 
 @pytest.mark.parametrize('invalid', ['missing', 'relative', 'wrong_abi', 'unknown_mode', 'unknown_3d_mode', 'dimension'])
@@ -181,7 +212,7 @@ def test_library_and_capability_errors_are_explicit(native_control, tmp_path, mo
         exception, match = FileNotFoundError, 'missing'
     elif invalid == 'relative':
         control = replace(control, native_library='relative.dll')
-        exception, match = ValueError, 'absolute'
+        exception, match = FileNotFoundError, 'relative.dll'
     elif invalid == 'wrong_abi':
         monkeypatch.setattr(quick_design.ct, 'CDLL', lambda path: SimpleNamespace(tpmshx_solver_abi_version=lambda: 99))
         exception, match = ValueError, 'ABI: 99'
@@ -402,8 +433,7 @@ def test_real_qt_worker_native_sizing_and_terminal_signals(native_control, tmp_p
         'case,hot_fluid,T_in_h_K,P_in_h_kPa,mdot_h,cold_fluid,T_in_c_K,P_in_c_kPa,'
         'mdot_c,Q_kW,dPlim_h,dPlim_c\n'
         '1,air,688.23,1088.7,0.2855,water,320,200,0.5,0.03,0.00002,0.05\n')
-    # Keep a fresh import boundary: the numerical comparison tests above load
-    # Python kernels, while the real Qt worker must not import those kernels.
+    # Check the real worker in a fresh process to audit its imports.
     code = '''
 import json
 import math
@@ -416,6 +446,7 @@ from PySide6.QtCore import QObject, Slot
 from PySide6.QtWidgets import QApplication
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.solvers import api
+from sjtu_tpmshx.preprocess.app_modes import quick_design as preparation
 from sjtu_tpmshx.ui.quick_design_panel import _make_worker_class
 
 app = QApplication(['native-qd-worker', '-platform', 'offscreen'])
@@ -484,7 +515,10 @@ def traced_run(case, control):
     assert result.backend_id == 'cpp'
     return result
 
-with patch.object(api, 'run_case', traced_run):
+# A small grid keeps real worker completion below the test deadline.
+with (patch.object(preparation, 'NX', 8),
+      patch.dict(preparation._ARR, cross={**preparation._ARR['cross'], 'ny': 6}),
+      patch.object(api, 'run_case', traced_run)):
     worker.start()
     deadline = time.monotonic() + 50
     while not receiver.finished_count and time.monotonic() < deadline:
@@ -509,7 +543,7 @@ elif termination in ('host_cancel', 'qt_cancel'):
     assert result['termination_reason'] == 'cancelled' and result['partial']
     assert result['all'] == [] and result['best'] is None
 else:
-    assert not receiver.errors and receiver.cancel_count == 0
+    assert not receiver.errors and receiver.cancel_count == 0, (receiver.errors, receiver.cancel_count)
     result, = receiver.results
     assert result['termination_reason'] == 'completed' and not result['partial']
     assert len(result['all']) == 1 and result['all'] == result['feasible']

@@ -223,24 +223,14 @@ def test_compute_result_has_converged_default_true():
 
 # ── 3D cell cap (script path, no UI dialog) ───────────────────────────
 
-def testrun_research_cell_cap(monkeypatch):
-    from sjtu_tpmshx.tests.cases_3d import demo_fixture_cfg as build_cfg
-    from sjtu_tpmshx.tests.cases_3d import run_research
-    monkeypatch.setenv('TPMSHX_MAX_CELLS_3D', '1000')
-    cfg = build_cfg(Nx=20, Ny=20, Nz=5)          # 2000 cells > 1000 cap
-    with pytest.raises(ValueError, match='cell cap'):
-        run_research(cfg)
-
-
-def testrun_research_cell_cap_cfg_override(monkeypatch):
-    from sjtu_tpmshx.tests.cases_3d import demo_fixture_cfg as build_cfg
-    from sjtu_tpmshx.tests.cases_3d import run_research
-    monkeypatch.setenv('TPMSHX_MAX_CELLS_3D', '10')
-    cfg = build_cfg(Nx=20, Ny=20, Nz=5, max_cells_3d=100)
-    # cfg override wins over env; 2000 > 100 still raises (proves the
-    # cfg path is honoured without running a full solve)
-    with pytest.raises(ValueError, match='cell cap'):
-        run_research(cfg)
+@pytest.mark.parametrize('cap', [10, 1000])
+def test_public_preparation_cell_cap(monkeypatch, cap):
+    from sjtu_tpmshx.runs.demos.demo_3d_air_air import build_cfg
+    from sjtu_tpmshx.preprocess.api import prepare_case
+    monkeypatch.setenv('TPMSHX_MAX_CELLS_3D', str(cap))
+    config = build_cfg(Nx=20, Ny=20, Nz=5)
+    with pytest.raises(ValueError, match=f'{cap}-cell cap'):
+        prepare_case(config, case_id='cell-cap')
 
 
 # ── corrupt-session quarantine ────────────────────────────────────────

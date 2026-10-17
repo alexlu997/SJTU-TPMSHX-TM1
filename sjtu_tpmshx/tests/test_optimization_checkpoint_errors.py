@@ -9,8 +9,8 @@ from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.io import text_file
 from sjtu_tpmshx.optimization import multi_condition as batch
 from sjtu_tpmshx.optimization import multi_condition_optimizer as search
-from sjtu_tpmshx.solvers import api as execution
-from sjtu_tpmshx.tests.test_multi_condition_batch import _conditions, _native
+from sjtu_tpmshx.tests.test_multi_condition_batch import _conditions, _native, _patch_solve
+from sjtu_tpmshx.tests.test_multi_condition_batch import native_control as native_control
 from sjtu_tpmshx.tests.test_multi_condition_optimizer import _conditions as search_conditions
 
 
@@ -110,7 +110,7 @@ def _batch_solver(monkeypatch, prepared, primary=None):
             raise primary
         return _native(case)
     monkeypatch.setattr(batch, 'prepare_fixed_mass_flow_case', prepare)
-    monkeypatch.setattr(execution, 'run_case', solve)
+    _patch_solve(monkeypatch, solve)
     return calls
 
 
@@ -119,7 +119,7 @@ def _batch_solver(monkeypatch, prepared, primary=None):
 ])
 @pytest.mark.parametrize('entry', [batch.evaluate_condition_batch, batch._evaluate_condition_batch])
 def test_batch_checkpoint_failure_keeps_primary_exception(
-        tmp_path, monkeypatch, prepared_native_case, error_type, save_stage, entry):
+        tmp_path, monkeypatch, prepared_native_case, error_type, save_stage, entry, native_control):
     primary = error_type('original failure')
     calls = _batch_solver(monkeypatch, prepared_native_case, primary)
     def when(record, index):
@@ -128,7 +128,7 @@ def test_batch_checkpoint_failure_keeps_primary_exception(
     _, attempts = _checkpoint_fault(monkeypatch, text_file, 'batch.json', when)
     output = tmp_path / 'batch'
     with pytest.raises(error_type) as caught:
-        entry(_conditions(2), output_dir=output)
+        entry(_conditions(2), output_dir=output, workers=1, control=native_control)
     assert caught.value is primary
     assert any('checkpoint write failed' in note for note in primary.__notes__)
     assert calls == ['prepare', 'solve']
@@ -144,7 +144,7 @@ def test_batch_checkpoint_failure_keeps_primary_exception(
 @pytest.mark.parametrize('kind', ['search', 'batch'])
 @pytest.mark.parametrize('save_stage', ['first', 'middle', 'final'])
 def test_checkpoint_io_without_active_error_is_not_suppressed(
-        tmp_path, monkeypatch, prepared_native_case, kind, save_stage):
+        tmp_path, monkeypatch, prepared_native_case, kind, save_stage, native_control):
     calls = (_search_batches(monkeypatch) if kind == 'search'
              else _batch_solver(monkeypatch, prepared_native_case))
     filename = 'optimization.json' if kind == 'search' else 'batch.json'
@@ -163,7 +163,7 @@ def test_checkpoint_io_without_active_error_is_not_suppressed(
         if kind == 'search':
             return search.run_multi_condition_optimization(search_conditions()[:1],
                 output_dir=output, method='sobol', n_init=1, n_iter=0)
-        return batch.evaluate_condition_batch(_conditions(1), output_dir=output)
+        return batch.evaluate_condition_batch(_conditions(1), output_dir=output, workers=1, control=native_control)
     if kind == 'batch' and save_stage == 'middle':
         # A handled condition failure with a successful error checkpoint still
         # follows the existing batch contract rather than becoming fail-fast.
@@ -184,20 +184,20 @@ def test_checkpoint_io_without_active_error_is_not_suppressed(
 
 
 def test_final_io_does_not_resurrect_an_already_handled_condition_error(
-        tmp_path, monkeypatch, prepared_native_case):
+        tmp_path, monkeypatch, prepared_native_case, native_control):
     primary = RuntimeError('handled condition failure')
     _batch_solver(monkeypatch, prepared_native_case, primary)
     error, attempts = _checkpoint_fault(monkeypatch, text_file, 'batch.json',
                                          lambda record, index: record['status'] == 'failed')
     with pytest.raises(OSError) as caught:
-        batch.evaluate_condition_batch(_conditions(1), output_dir=tmp_path/'batch')
+        batch.evaluate_condition_batch(_conditions(1), output_dir=tmp_path/'batch', workers=1, control=native_control)
     assert caught.value is error
     assert attempts[-2][0]['conditions'][0]['reason'] == 'RuntimeError: handled condition failure'
 
 
 @pytest.mark.parametrize('kind', ['search', 'batch'])
 def test_member_start_checkpoint_failure_finalizes_only_active_member(
-        tmp_path, monkeypatch, prepared_native_case, kind):
+        tmp_path, monkeypatch, prepared_native_case, kind, native_control):
     calls = (_search_batches(monkeypatch) if kind == 'search'
              else _batch_solver(monkeypatch, prepared_native_case))
     filename = 'optimization.json' if kind == 'search' else 'batch.json'
@@ -215,7 +215,7 @@ def test_member_start_checkpoint_failure_finalizes_only_active_member(
             search.run_multi_condition_optimization(search_conditions()[:1],
                 output_dir=output, method='sobol', n_init=3, n_iter=0)
         else:
-            batch.evaluate_condition_batch(_conditions(3), output_dir=output)
+            batch.evaluate_condition_batch(_conditions(3), output_dir=output, workers=1, control=native_control)
     assert caught.value is error
     saved = json.loads((output / filename).read_text())
     failed_writes = [record for record, failed in attempts if failed]

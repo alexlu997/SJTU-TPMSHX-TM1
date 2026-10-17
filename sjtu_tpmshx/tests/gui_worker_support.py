@@ -65,7 +65,20 @@ def _configure(win, monkeypatch, mode):
 def _stub_stages(monkeypatch, mode, prepare):
     """Keep the real workflow and display mapping; replace numerical stages."""
     from sjtu_tpmshx.tests.test_module_result_mapping import _synthetic_results
+    from sjtu_tpmshx.workflows.compute import compute
     native, performance = _synthetic_results(2 if mode == '2d' else 3)
+    monkeypatch.setattr('sjtu_tpmshx.workflows.recovery.compute_run',
+                        lambda config, directory, *, control, progress_cb, **kwargs:
+                        compute(config, control=control, progress_cb=progress_cb))
     monkeypatch.setattr('sjtu_tpmshx.preprocess.api.prepare_case', prepare)
     monkeypatch.setattr('sjtu_tpmshx.solvers.api.run_case', lambda *a: native)
     monkeypatch.setattr('sjtu_tpmshx.postprocess.api.evaluate', lambda *a: performance)
+
+
+def _stub_compute_result(monkeypatch, execute):
+    """Return a display fixture through the current saved-run boundary."""
+    def run(config, directory, *, control, progress_cb, **kwargs):
+        return None, execute(config, control=control, progress_cb=progress_cb), None
+    monkeypatch.setattr('sjtu_tpmshx.workflows.recovery.compute_run', run)
+    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.to_compute_result',
+                        lambda display, performance: display)

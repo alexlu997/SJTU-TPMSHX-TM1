@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.tests.gui_workbench_support import _result
+from sjtu_tpmshx.tests.gui_worker_support import _stub_compute_result
 from sjtu_tpmshx.tests.gui_worker_support import (
     _configure, _wait_for, win as win,
 )
@@ -39,7 +40,7 @@ def _publish(win, monkeypatch, mode, marker):
     result.T_out_A_K, result.T_out_B_K = 350. + marker, 300. + marker
     result.fields['Ta'] += marker
     result.metadata['snapshot_marker'] = marker
-    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', lambda config, **kwargs: result)
+    _stub_compute_result(monkeypatch, lambda config, **kwargs: result)
     win.run_calculation()
     _wait_for(win.compute.is_idle)
     return result
@@ -96,7 +97,7 @@ def test_failed_attempt_retains_one_complete_accepted_snapshot(
         control.check_cancelled()
         raise AssertionError('the cancelled run must not publish')
 
-    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', unfinished)
+    _stub_compute_result(monkeypatch, unfinished)
     win._active_preset_name = 'failed-draft'
     try:
         win.run_calculation()
@@ -170,7 +171,7 @@ def test_export_keeps_clicked_snapshot_while_dialog_delivers_new_result(
         entered.set()
         assert release.wait(10)
         return newer
-    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', finish_later)
+    _stub_compute_result(monkeypatch, finish_later)
     win.run_calculation()
     _wait_for(entered.is_set)
     path = tmp_path / 'clicked.csv'
@@ -205,7 +206,7 @@ def test_named_preset_source_reaches_accepted_result_and_export(snapshot_window,
     win._load_user_preset(preset)
     result = _result('2d')
     result.metadata['snapshot_marker'] = 444
-    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', lambda config, **kwargs: result)
+    _stub_compute_result(monkeypatch, lambda config, **kwargs: result)
     win.run_calculation()
     _wait_for(win.compute.is_idle)
     assert result.metadata['run_provenance']['preset_source'] == 'custom user design'

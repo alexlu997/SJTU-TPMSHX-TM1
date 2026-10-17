@@ -260,14 +260,8 @@ def test_current_condition_flow_uses_prepared_fractional_pore_area(window, dimen
     rows = panel._condition_inputs(cfg, None)
     case = prepare_case(cfg, case_id='independent-inlet-check')
     if not dimension:
-        from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
-        from sjtu_tpmshx.solvers.backends.python.two_d.runtime import build_runtime
-        from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
-        # Inspect the real constructor's imposed inlet; this GUI handoff test
-        # does not need a numerical solve.
-        monkeypatch.setattr(SIMPLESolver, 'solve', lambda *args, **kwargs: (True, 0))
-        parameters, grid = build_execution_inputs(case)
-        run = build_runtime(parameters, grid)['_run_simple']
+        from sjtu_tpmshx.tests.native.prepared_snapshot import native_prepared_state
+        parameters, _, state = native_prepared_state(case, phase=6)
     for side, flow in zip('AB', rows[0][2:]):
         if dimension:
             prepared = case.parameters['prepared']
@@ -278,13 +272,13 @@ def test_current_condition_flow_uses_prepared_fractional_pore_area(window, dimen
             pore_area = np.sum(eps * prepared['openings'][side]['inlet'] * area)
             rho = prepared['properties'][side]['rho']
         else:
-            fluid = getattr(cfg, 'fluid_' + side)
-            props = parameters['static_properties'][side]
-            solver = run(parameters['cfg' + side], props['rho'], props['mu'],
-                         fluid.T_in_K, fluid.u_mps, side,
-                         P_in_abs=fluid.P_in_Pa, fluid_type='incompressible')[2]
-            actual = np.sum(solver.rho_field[:, 0] * solver.eps_field[:, 0] / 2.
-                            * solver.v[:, 0] * solver.dx_arr) * cfg.geometry.Lz_m
+            prefix = f'state.flow.value.{"AB".index(side)}.flow.'
+            shape = (len(state[prefix+'dx']), len(state[prefix+'dy']))
+            density = state[prefix+'density'].reshape(shape)
+            epsilon = state[prefix+'epsilon'].reshape(shape)
+            velocity = state[prefix+'v'].reshape(shape[0], shape[1]+1)
+            actual = np.sum(density[:, 0]*epsilon[:, 0]/2.*velocity[:, 0]
+                            *state[prefix+'dx'])*cfg.geometry.Lz_m
             assert flow == pytest.approx(actual, rel=1e-14)
         if dimension:
             assert flow == pytest.approx(rho*pore_area*getattr(cfg, 'fluid_'+side).u_mps, rel=1e-14)

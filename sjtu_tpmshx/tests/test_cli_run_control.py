@@ -12,7 +12,7 @@ from sjtu_tpmshx.workflows import cli
 def test_default_and_relative_native_cli_paths(tmp_path, monkeypatch):
     parser = argparse.ArgumentParser()
     add_run_control_arguments(parser)
-    assert run_control_from_args(parser.parse_args([])) == RunControl()
+    assert run_control_from_args(parser.parse_args([])).backend == "cpp"
     monkeypatch.chdir(tmp_path)
     args = parser.parse_args(['--backend', 'cpp', '--native-library', 'solver.so',
                               '--native-table-directory', 'tables'])
@@ -30,7 +30,7 @@ def test_frozen_cli_uses_only_explicit_or_bundled_library(tmp_path, monkeypatch,
     monkeypatch.setattr(sys, 'platform', platform)
     parser = argparse.ArgumentParser()
     add_run_control_arguments(parser)
-    assert run_control_from_args(parser.parse_args([])) == RunControl()
+    assert run_control_from_args(parser.parse_args([])).backend == "cpp"
     assert run_control_from_args(parser.parse_args(['--backend', 'cpp'])) == RunControl(
         backend='cpp', native_library=str(tmp_path / 'native' / name))
     explicit = tmp_path / 'selected' / name
@@ -39,14 +39,14 @@ def test_frozen_cli_uses_only_explicit_or_bundled_library(tmp_path, monkeypatch,
     assert actual.native_library == str(explicit)
 
 
-@pytest.mark.parametrize('option', ['--native-library', '--native-table-directory'])
-@pytest.mark.parametrize('explicit_python', [False, True])
-def test_native_paths_require_explicit_cpp_backend(option, explicit_python):
+def test_retired_python_backend_is_rejected():
     parser = argparse.ArgumentParser()
     add_run_control_arguments(parser)
-    arguments = [option, 'native-path'] + (['--backend', 'python'] if explicit_python else [])
-    with pytest.raises(ValueError, match='require --backend cpp'):
-        run_control_from_args(parser.parse_args(arguments))
+    with pytest.raises(SystemExit) as caught:
+        parser.parse_args(['--backend', 'python'])
+    assert caught.value.code == 2
+    with pytest.raises(ValueError, match='Python numerical backend has been retired'):
+        RunControl(backend='python')
 
 
 @pytest.mark.parametrize('platform,relative', [
@@ -55,10 +55,10 @@ def test_native_paths_require_explicit_cpp_backend(option, explicit_python):
 ])
 def test_source_cli_resolves_local_delivery_and_preserves_explicit_paths(
         tmp_path, monkeypatch, platform, relative):
-    from sjtu_tpmshx.io import cli_options
-    monkeypatch.setattr(cli_options, 'SOURCE_ROOT', tmp_path)
-    monkeypatch.setattr(cli_options.sys, 'platform', platform)
-    monkeypatch.setattr(cli_options.sys, 'frozen', False, raising=False)
+    from sjtu_tpmshx.domain import module_ports
+    monkeypatch.setattr(module_ports, 'SOURCE_ROOT', tmp_path)
+    monkeypatch.setattr(module_ports.sys, 'platform', platform)
+    monkeypatch.setattr(module_ports.sys, 'frozen', False, raising=False)
     parser = argparse.ArgumentParser()
     add_run_control_arguments(parser)
     assert run_control_from_args(parser.parse_args(['--backend', 'cpp'])) == RunControl(
@@ -76,12 +76,12 @@ def test_source_cli_resolves_local_delivery_and_preserves_explicit_paths(
 
 
 def test_other_source_platform_requires_explicit_library(tmp_path, monkeypatch):
-    from sjtu_tpmshx.io import cli_options
-    monkeypatch.setattr(cli_options.sys, 'platform', 'linux')
-    monkeypatch.setattr(cli_options.sys, 'frozen', False, raising=False)
+    from sjtu_tpmshx.domain import module_ports
+    monkeypatch.setattr(module_ports.sys, 'platform', 'linux')
+    monkeypatch.setattr(module_ports.sys, 'frozen', False, raising=False)
     parser = argparse.ArgumentParser()
     add_run_control_arguments(parser)
-    with pytest.raises(ValueError, match='use --native-library'):
+    with pytest.raises(ValueError, match='set native_library'):
         run_control_from_args(parser.parse_args(['--backend', 'cpp']))
     library = tmp_path / 'solver.so'
     assert run_control_from_args(parser.parse_args([
@@ -90,7 +90,7 @@ def test_other_source_platform_requires_explicit_library(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize('stage', ['solve', 'run'])
-@pytest.mark.parametrize('backend', ['python', 'cpp'])
+@pytest.mark.parametrize('backend', ['cpp'])
 def test_workflow_control_reaches_execution_and_cancellation_keeps_output(
         stage, backend, tmp_path, monkeypatch):
     from sjtu_tpmshx.domain.compute_config import ComputeConfig
@@ -213,7 +213,7 @@ def test_recoverable_cli_restores_sigint_after_failure(tmp_path, monkeypatch):
     assert signal.getsignal(signal.SIGINT) == previous
 
 
-@pytest.mark.parametrize('backend', ['python', 'cpp'])
+@pytest.mark.parametrize('backend', ['cpp'])
 def test_cli_thread_limit_stays_in_execution_control(backend):
     parser = argparse.ArgumentParser()
     add_run_control_arguments(parser)

@@ -1,7 +1,7 @@
 """Production controls remain effective; retired settings round-trip in archives."""
 from sjtu_tpmshx.controllers.module_adapter import compute_result
 import json
-from dataclasses import asdict
+from dataclasses import asdict, replace
 import warnings as _warnings
 
 import numpy as np
@@ -118,13 +118,13 @@ def test_2d_max_outer_knob_turns():
 @pytest.mark.slow
 def test_3d_knobs_turn():
     """max_outer_ltne must cap the 3D outer loop."""
-    from sjtu_tpmshx.tests.cases_3d import run_research
-    from test_partial_bc_ghost_b import _partial_bc_air_air_cfg
-    base = _partial_bc_air_air_cfg(Nx=8, Ny=6, Nz=6)
-    r_def = run_research(dict(base)).metadata['diagnostics']
-    r_knob = run_research(dict(base, max_outer_ltne=1)).metadata['diagnostics']
-    outer_def = len(r_def['convergence_detail']['outer_dT'])
-    outer_knob = len(r_knob['convergence_detail']['outer_dT'])
-    assert outer_knob == 1, \
-        f"max_outer_ltne=1 did not cap the outer loop (got {outer_knob})"
-    assert outer_def > 1
+    from sjtu_tpmshx.tests.cases_3d import air_air_config
+    from sjtu_tpmshx.preprocess.api import prepare_case
+    from sjtu_tpmshx.solvers.api import run_case
+    base = air_air_config()
+    base.solver = replace(base.solver, Nx=8, Ny=6, Nz=6)
+    r_def = run_case(prepare_case(base, case_id='outer-default')).metadata['diagnostics']
+    base.solver.max_outer_ltne = 2
+    r_knob = run_case(prepare_case(base, case_id='outer-cap')).metadata['diagnostics']
+    assert len(r_knob['convergence_detail']['outer_dT']) == 2
+    assert len(r_def['convergence_detail']['outer_dT']) > 2

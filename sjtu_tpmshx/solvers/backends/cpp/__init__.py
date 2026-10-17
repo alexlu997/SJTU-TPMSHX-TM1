@@ -1,1 +1,1 @@
-"""Explicit native solver capabilities; unsupported modes never fall back."""
+"""Native solver capabilities; unsupported modes never fall back."""

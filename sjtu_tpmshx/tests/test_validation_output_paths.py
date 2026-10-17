@@ -2,7 +2,6 @@
 import importlib
 import sys
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -10,24 +9,9 @@ from sjtu_tpmshx.validation.harness import _provenance as provenance
 
 
 DRIVERS = [
-    ('mms_phase_a3_h_refine', ['--cases', '1d', '--grids', '4,8,30'],
-     ['mms_phase_a3_h_refine.csv', 'mms_phase_a3_orders.csv', 'mms_phase_a3_report.md']),
-    ('mms_phase_a4_boundary', ['--grids', '4,8,30'],
-     ['mms_phase_a4_boundary.csv', 'mms_phase_a4_orders.csv']),
-    ('mms_phase_b4_order', [], ['mms_phase_b4_raw.csv', 'mms_phase_b4_orders.csv']),
     ('phase_c_gci', [], ['phase_c_gci.csv', 'phase_c_gci_summary.csv',
                         'phase_c_f2_tol_sweep.csv']),
 ]
-
-
-def _fake_mms(case, *, Nx, Ny, Nz, **kwargs):
-    error = 1 / Nx**2
-    exact = np.ones((Nx, Ny, Nz))
-    result = dict(outer_iters=1, last_chg=error, converged=True)
-    for phase, field in [('A', 'Ta'), ('B', 'Tb'), ('s', 'Ts')]:
-        result.update({f'L2_{phase}': error, f'Linf_{phase}': error,
-                       f'{field}_num': exact + error, f'{field}_exact': exact})
-    return result
 
 
 @pytest.mark.parametrize('name,args,filenames', DRIVERS)
@@ -35,22 +19,15 @@ def test_default_driver_runs_write_separately(monkeypatch, tmp_path, name, args,
     module = importlib.import_module(f'sjtu_tpmshx.validation.cases.{name}')
     monkeypatch.setattr(provenance, 'REPO_ROOT', tmp_path / 'package')
     references = {p: p.read_bytes() for p in provenance.REFERENCE_DIR.glob('*.csv')}
-    if name == 'phase_c_gci':
-        monkeypatch.setattr(module, 'run_c1', lambda cid, **kw:
-                            ([{'case': cid, 'Q_enth_A': 1.0}],
-                             {'GCI_g20_pct': 6.0, 'all_grids_converged': True}))
-        monkeypatch.setattr(module, 'run_c3_tol', lambda *a, **kw:
-                            [{'Q_enth_A': 1.0, 'converged': True}] * 3)
-    else:
-        monkeypatch.setattr(module, 'run_mms', _fake_mms)
-        if name == 'mms_phase_a4_boundary':
-            monkeypatch.setattr(module, '_inlet_face_response_errors',
-                                lambda *a: dict(A=0., B=0.))
+    monkeypatch.setattr(module, 'run_c1', lambda cid, **kw:
+                        ([{'case': cid, 'Q_enth_A': 1.0}],
+                         {'GCI_g20_pct': 6.0, 'all_grids_converged': True}))
+    monkeypatch.setattr(module, 'run_c3_tol', lambda *a, **kw:
+                        [{'Q_enth_A': 1.0, 'converged': True}] * 3)
     monkeypatch.setattr(sys, 'argv', [name, *args])
     for _ in range(2):
         result = module.main()
-        if name == 'phase_c_gci':
-            assert result == 1  # output changes must not hide the existing 5% gate
+        assert result == 1  # The existing 5% GCI gate still applies.
     run_dirs = list((tmp_path / '.cache' / 'validation').iterdir())
     assert len(run_dirs) == 2
     for run_dir in run_dirs:
@@ -60,15 +37,7 @@ def test_default_driver_runs_write_separately(monkeypatch, tmp_path, name, args,
     assert all(path.read_bytes() == content for path, content in references.items())
 
 
-@pytest.mark.parametrize('name,option,reference', [
-    ('mms_phase_a3_h_refine', '--out_csv', 'mms_phase_a3_h_refine.csv'),
-    ('mms_phase_a3_h_refine', '--orders_csv', 'mms_phase_a3_orders.csv'),
-    ('mms_phase_a3_h_refine', '--report', 'mms_phase_a3_orders.csv'),
-    ('mms_phase_a4_boundary', '--out_csv', 'mms_phase_a4_boundary.csv'),
-    ('mms_phase_a4_boundary', '--orders_csv', 'mms_phase_a4_orders.csv'),
-    ('mms_phase_b4_order', '--out_csv', 'mms_phase_b4_orders.csv'),
-    ('phase_c_gci', '--out-dir', ''),
-])
+@pytest.mark.parametrize('name,option,reference', [('phase_c_gci', '--out-dir', '')])
 def test_explicit_reference_destination_rejected_before_solve(
         monkeypatch, capsys, name, option, reference):
     module = importlib.import_module(f'sjtu_tpmshx.validation.cases.{name}')
@@ -76,7 +45,7 @@ def test_explicit_reference_destination_rejected_before_solve(
     def forbidden(*args, **kwargs):
         pytest.fail('Solver called before rejecting reference output')
 
-    monkeypatch.setattr(module, 'run_c1' if name == 'phase_c_gci' else 'run_mms', forbidden)
+    monkeypatch.setattr(module, 'run_c1', forbidden)
     path = provenance.REFERENCE_DIR / reference
     monkeypatch.setattr(sys, 'argv', [name, option, str(path)])
     with pytest.raises(SystemExit) as exc:
@@ -95,71 +64,10 @@ def test_shared_writer_rejects_reference_symlink(tmp_path):
     assert reference.read_bytes() == content
 
 
-@pytest.mark.parametrize('name,options', [
-    ('mms_phase_a3_h_refine', ['--out_csv', 'raw.csv', '--orders_csv', 'raw.csv']),
-    ('mms_phase_a4_boundary', ['--out_csv', 'raw.csv', '--orders_csv', 'raw.csv']),
-    ('mms_phase_b4_order', ['--out_csv', 'mms_phase_b4_raw.csv']),
-    ('mms_phase_a3_h_refine', ['--out_csv', 'raw.csv', '--report', 'raw.csv.meta.json']),
-    ('mms_phase_a4_boundary', ['--out_csv', 'raw.csv', '--orders_csv', 'raw.csv.meta.json']),
-    ('mms_phase_b4_order', ['--out_csv', 'mms_phase_b4_raw.csv.meta.json']),
-    ('mms_phase_a3_h_refine', ['--plot', '--report', 'mms_phase_a3_loglog.png']),
-])
-def test_mms_output_collisions_rejected_before_solve(monkeypatch, tmp_path, capsys, name, options):
-    module = importlib.import_module(f'sjtu_tpmshx.validation.cases.{name}')
-    original = {}
-    args = []
-    for option in options:
-        if option.startswith('--'):
-            args.append(option)
-        else:
-            path = tmp_path / option
-            path.write_bytes(b'previous evidence')
-            original[path] = path.read_bytes()
-            args.append(str(path))
-    monkeypatch.setattr(module, 'run_mms', lambda *a, **kw: pytest.fail('solver ran before path check'))
-    monkeypatch.setattr(sys, 'argv', [name, '--out-dir', str(tmp_path), *args])
-    with pytest.raises(SystemExit) as caught:
-        module.main()
-    assert caught.value.code == 2
-    assert 'output paths overlap' in capsys.readouterr().err
-    assert all(path.read_bytes() == content for path, content in original.items())
 
 
-def test_mms_output_alias_rejected_before_solve(monkeypatch, tmp_path, capsys):
-    from sjtu_tpmshx.validation.cases import mms_phase_a3_h_refine as module
-
-    raw, alias = tmp_path / 'raw.csv', tmp_path / 'alias.csv'
-    raw.write_bytes(b'previous evidence')
-    try:
-        alias.symlink_to(raw)
-    except OSError:
-        pytest.skip('symlinks unavailable')
-    monkeypatch.setattr(module, 'run_mms', lambda *a, **kw: pytest.fail('solver ran before path check'))
-    monkeypatch.setattr(sys, 'argv', ['a3', '--out-dir', str(tmp_path),
-                                   '--out_csv', str(raw), '--orders_csv', str(alias)])
-    with pytest.raises(SystemExit) as caught:
-        module.main()
-    assert caught.value.code == 2
-    assert 'output paths overlap' in capsys.readouterr().err
-    assert raw.read_bytes() == b'previous evidence'
 
 
-def test_b4_orders_publish_current_inline_provenance_and_remove_old_sidecar(monkeypatch, tmp_path):
-    from sjtu_tpmshx.validation.cases import mms_phase_b4_order as module
-
-    output = tmp_path / 'orders.csv'
-    companion = output.with_suffix('.csv.meta.json')
-    companion.write_text('{"rows": 999, "commit": "old"}')
-    monkeypatch.setattr(module, 'run_mms', _fake_mms)
-    monkeypatch.setattr(sys, 'argv', ['b4', '--out-dir', str(tmp_path), '--out_csv', str(output)])
-    assert module.main() == 0
-    assert not companion.exists()
-    frame, metadata = provenance.read_csv_with_provenance(output)
-    assert list(frame.columns) == ['case', 'metric', 'p_obs', 'R2', 'val_gfine']
-    assert len(frame) == 3 and set(frame.metric) == {'L2_A', 'L2_B', 'L2_s'}
-    assert metadata['script'].endswith('mms_phase_b4_order.py')
-    assert metadata['commit'] != 'old'
-    assert f'# grids={module.GRIDS}' in output.read_text(encoding='utf-8')
 
 
 def test_gci_rejects_retired_case_before_starting_any_case(monkeypatch, capsys):

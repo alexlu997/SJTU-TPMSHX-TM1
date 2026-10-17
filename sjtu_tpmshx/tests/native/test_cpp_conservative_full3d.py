@@ -11,7 +11,6 @@ from pathlib import Path
 import subprocess
 import sys
 from types import SimpleNamespace
-from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -110,10 +109,7 @@ def assert_preserved(actual, expected):
 def completed(request, native_path):
     algorithm, pair, port_refined = request.param
     prepared = candidate(algorithm, pair, port_refined=port_refined)
-    # The public C++ entry must not obtain any numerical answer from Python.
-    with patch('sjtu_tpmshx.solvers.backends.python.three_d.runtime.build_problem',
-               side_effect=AssertionError('Python numerical driver called')):
-        result = run_case(prepared, control(native_path))
+    result = run_case(prepared, control(native_path))
     return prepared, result
 
 
@@ -449,7 +445,9 @@ def test_unsupported_native_physical_scope_fails_explicitly(native_path, option,
 def test_candidate_requires_public_full_cpp_route(native_path, backend, mode):
     prepared = candidate(ALGORITHMS[0])
     prepared = replace(prepared, metadata=dict(prepared.metadata, mode=mode))
-    with pytest.raises(ValueError, match='requires full compute with backend=cpp'):
+    message = ('Python numerical backend has been retired' if backend == 'python'
+               else 'requires full compute with backend=cpp')
+    with pytest.raises(ValueError, match=message):
         run_case(prepared, replace(control(native_path), backend=backend))
 
 

@@ -15,6 +15,7 @@ from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.controllers.module_adapter import compute_result
 from sjtu_tpmshx.domain.compute_config import ComputeConfig
 from sjtu_tpmshx.domain.compute_result import ComputeResult
+from sjtu_tpmshx.tests.gui_worker_support import _stub_compute_result
 from sjtu_tpmshx.tests.gui_worker_support import _configure, _wait_for, win as win
 
 
@@ -141,7 +142,7 @@ def test_real_window_config_preserves_explicit_pipeline_mode(win, monkeypatch, d
         calls.append((mode, config.solver.Nz))
         return ComputeResult(Q_W=123, diagnostics={'mode': mode})
 
-    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', run)
+    _stub_compute_result(monkeypatch, run)
     monkeypatch.setattr(win, '_render_compute_result', lambda: True)
     for dim in dimensions:
         win.combo_dim.setCurrentIndex(dim)
@@ -228,8 +229,8 @@ def test_real_zoned_pipeline_error_never_publishes(win, monkeypatch, dim):
     win.compute.finished.connect(published.append)
     win.compute.error.connect(lambda *args: errors.append(args))
     monkeypatch.setattr(win, 'write_result', writes.append)
-    monkeypatch.setattr('sjtu_tpmshx.solvers.api.run_case',
-                        lambda *args: pytest.fail('invalid zones reached solver'))
+    monkeypatch.setattr('sjtu_tpmshx.workflows.recovery.run_case',
+                        lambda *args, **kwargs: pytest.fail('invalid zones reached solver'))
     monkeypatch.setattr('sjtu_tpmshx.postprocess.api.evaluate',
                         lambda *args: pytest.fail('invalid zones reached postprocessing'))
     win.run_calculation()
@@ -283,7 +284,7 @@ def test_worker_publishes_payload_on_gui_thread_without_reentry(win, monkeypatch
         worker_seen.append((threading.get_ident(), config, config.solver.Nz))
         return result
 
-    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', run)
+    _stub_compute_result(monkeypatch, run)
     original_write = win.write_result
     original_cache = win.cache.set_result
 
@@ -348,7 +349,7 @@ def test_display_timing_reaches_result_and_export_cache(win, monkeypatch, mode):
     result = ComputeResult(
         Q_W=123.5, diagnostics={'mode': mode}, warnings=['retained warning'],
         metadata={'timings_s': {'prepare': 1.0, 'solve': 2.0, 'postprocess': 3.0}})
-    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result',
+    _stub_compute_result(monkeypatch,
                         lambda config, **kwargs: result)
     original_write = win.write_result
     original_end = win._end_compute_ui
@@ -413,7 +414,7 @@ def test_terminal_paths_restore_ui(win, monkeypatch, mode, outcome):
     def bad_render():
         raise RuntimeError('render failed')
 
-    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', run)
+    _stub_compute_result(monkeypatch, run)
     if outcome == 'cancel':
         win.compute.started.connect(lambda _mode: win._on_cancel_compute())
     if outcome == 'render_error':
@@ -581,7 +582,7 @@ def test_workspace_switch_waits_for_worker_publication_and_exit(win, monkeypatch
         saves.append(True)
         return original_save()
 
-    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', run)
+    _stub_compute_result(monkeypatch, run)
     monkeypatch.setattr(_ComputeRunnable, 'run', held_run)
     monkeypatch.setattr(win, '_render_compute_result', lambda: True)
     monkeypatch.setattr(win, '_save_session', save)
@@ -640,7 +641,7 @@ def test_close_cancels_live_pipeline_without_destroying_its_callbacks(win, monke
             control.outer_iteration(2, 2)
         control.check_cancelled()
 
-    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', run)
+    _stub_compute_result(monkeypatch, run)
     win.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
     try:
         win.run_calculation()

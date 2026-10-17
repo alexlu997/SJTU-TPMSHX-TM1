@@ -13,6 +13,7 @@ from sjtu_tpmshx.io.case_io import load_case, save_case
 from sjtu_tpmshx.models.tpms_props import geometry
 from sjtu_tpmshx.df_surrogate.predict import predict_K_cF
 from sjtu_tpmshx.preprocess.api import prepare_case
+from sjtu_tpmshx.tests.native.prepared_snapshot import native_prepared_state
 
 
 def _spec(volume=False):
@@ -37,7 +38,7 @@ def _config(volume=False):
         bc_A=PartialBCConfig(dir=0),
         bc_B=PartialBCConfig(dir=3, in_ctr=.044, in_w=.019,
                             out_ctr=.016, out_w=.019),
-        solver=SolverConfig(Nx=8, Ny=6, Nz=3),
+        solver=SolverConfig(Nx=8, Ny=6, Nz=3, max_outer_ltne=2, max_iter_simple=10),
         extrap=ExtrapPolicy(allow=True),
         zones=ZoneInputConfig(enabled=True, axis='continuous', config=_spec(volume)))
 
@@ -105,8 +106,6 @@ def test_nonuniform_3d_preparation_samples_exact_polynomial_and_replays_case(tmp
 @pytest.mark.parametrize('tpms', ['Gyroid', 'Diamond'])
 @pytest.mark.parametrize('volume', [False, True])
 def test_uniform_controls_match_uniform_prepared_geometry(tpms, monkeypatch, volume):
-    from sjtu_tpmshx.solvers.backends.python.three_d import runtime
-    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
     cfg = _config(volume)
     cfg.geometry.tpms = tpms
     count = 27 if volume else 9
@@ -118,15 +117,10 @@ def test_uniform_controls_match_uniform_prepared_geometry(tpms, monkeypatch, vol
     for name in ('epsilon', 'A_0', 'D_h'):
         np.testing.assert_allclose(continuous.parameters['thermal_geometry']['fields'][name],
                                    uniform.parameters['thermal_geometry']['uniform'][name], rtol=2e-14)
-    monkeypatch.setattr(runtime, '_run_two_simple', lambda *a, **k: None)
     coefficients = []
     for case in (uniform, continuous):
-        inputs, prepared = build_execution_inputs(case)
-        prob = runtime.build_problem(inputs, prepared)
-        hv = runtime._build_hv_machinery(prob)
-        speed = np.linspace(0., 8., prob.Nx * prob.Ny * prob.Nz).reshape(prob.Nx, prob.Ny, prob.Nz)
-        coefficients.append([hv._build_hv_local_3d(prob.L_mm_field, speed,
-            fluid.T_in_K, fluid.P_in_Pa, fluid.type) for fluid in (cfg.fluid_A, cfg.fluid_B)])
+        _, _, state = native_prepared_state(case)
+        coefficients.append([state[f'state.hv.{side}'] for side in (0, 1)])
     for uniform_h, continuous_h in zip(*coefficients):
         np.testing.assert_array_equal(uniform_h, continuous_h)
 
@@ -134,35 +128,28 @@ def test_uniform_controls_match_uniform_prepared_geometry(tpms, monkeypatch, vol
 @pytest.mark.parametrize('tpms', ['Gyroid', 'Diamond'])
 @pytest.mark.parametrize('volume', [False, True])
 def test_nonuniform_local_hv_matches_independent_cell_formula(tpms, monkeypatch, volume):
-    from sjtu_tpmshx.domain.run_warnings import range_context, warning_scope
     from sjtu_tpmshx.models.fluid_props import get
     from sjtu_tpmshx.models.nu_correlations import (
         NU_COEFFS, NU_LAM_FLOOR, NU_ROUGHNESS_FACTOR, Pr_AIR, WATER_NU_COEFFS,
     )
-    from sjtu_tpmshx.solvers.backends.python.three_d import runtime
-    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
 
     cfg = _config(volume)
     cfg.geometry.tpms = tpms
     case = prepare_case(cfg, case_id='nonuniform-local-hv')
-    monkeypatch.setattr(runtime, '_run_two_simple', lambda *a, **k: None)
-    with warning_scope({}):
-        prob = runtime.build_problem(*build_execution_inputs(case))
-        hv = runtime._build_hv_machinery(prob)
-    shape = (prob.Nx, prob.Ny, prob.Nz)
+    _, _, state = native_prepared_state(case)
+    shape = case.design_fields['eps_arr'].shape
     dx, dy, dz = (case.grid['d' + axis] for axis in 'xyz')
     x = (np.cumsum(dx) - dx/2) / cfg.geometry.L_dom_m
     y = (np.cumsum(dy) - dy/2) / cfg.geometry.H_dom_m
     z = (np.cumsum(dz) - dz/2) / cfg.geometry.Lz_m if volume else np.zeros(len(dz))
-    for side, fluid in (('A', cfg.fluid_A), ('B', cfg.fluid_B)):
+    for side, fluid in enumerate((cfg.fluid_A, cfg.fluid_B)):
         model = get(fluid.type)
         rho = float(model.rho(fluid.T_in_K, fluid.P_in_Pa))
         mu = float(model.mu(fluid.T_in_K, fluid.P_in_Pa))
         k_f = float(model.k(fluid.T_in_K, fluid.P_in_Pa))
-        Pr = Pr_AIR if side == 'A' else float(model.cp(fluid.T_in_K, fluid.P_in_Pa)) * mu / k_f
-        speed = np.geomspace(1e-6, 15. if side == 'A' else .3, np.prod(shape)).reshape(shape)
-        speed[::2] *= -1.
-        speed.flat[0] = 0.
+        Pr = Pr_AIR if side == 0 else float(model.cp(fluid.T_in_K, fluid.P_in_Pa)) * mu / k_f
+        speed = np.sqrt(sum(state[f'state.result.flow.{side}.velocity_real.{axis}']**2
+                            for axis in range(3))).reshape(shape)
         expected, raw_re, raw_nu = (np.empty(shape) for _ in range(3))
         for i, j, k in np.ndindex(shape):
             # Independent scalar geometry and published formula: neither
@@ -172,28 +159,27 @@ def test_nonuniform_local_hv_matches_independent_cell_formula(tpms, monkeypatch,
             g = geometry(tpms, length, wall, cfg.geometry.k_s_W_mK)
             reynolds = rho * (abs(float(speed[i, j, k])) + 1e-12) * g['D_h'] / mu
             re_eff = max(reynolds, 1.)
-            coeff = NU_COEFFS[tpms] if side == 'A' else WATER_NU_COEFFS[tpms]
+            coeff = NU_COEFFS[tpms] if side == 0 else WATER_NU_COEFFS[tpms]
             nu = coeff['c'] * re_eff**coeff['a'] * Pr**(1/3)
-            if side == 'A':
+            if side == 0:
                 nu *= NU_ROUGHNESS_FACTOR * (g['D_h'] * 1e3 / length)**coeff['d']
             expected[i, j, k] = g['A_0'] * max(nu, NU_LAM_FLOOR) * k_f / g['D_h']
             raw_re[i, j, k], raw_nu[i, j, k] = reynolds, nu
-        assert raw_re.min() < 1. < raw_re.max()
-        assert 0 < np.count_nonzero(raw_nu < NU_LAM_FLOOR) < raw_nu.size
-        context = (side, 'local-hv-test', 'real-cell(x,y,z)')
-        with warning_scope({}) as records, range_context(
-                side=context[0], stage=context[1], layout=context[2]):
-            actual = hv._build_hv_local_3d(
-                prob.L_mm_field, speed, fluid.T_in_K, fluid.P_in_Pa, fluid.type)
-        np.testing.assert_allclose(actual, expected, rtol=2e-14, atol=0.)
-        raw = records[('nu_raw', fluid.type, tpms, shape, context)]
-        source = records[('nu', fluid.type, tpms, shape, context)]
-        assert raw.size == source.size == np.prod(shape)
-        assert raw.minimum[0] == pytest.approx(raw_re.min(), rel=2e-14)
-        assert raw.maximum[0] == pytest.approx(raw_re.max(), rel=2e-14)
-        assert raw.low == np.count_nonzero(raw_re < raw.bounds[0])
-        assert raw.high == np.count_nonzero(raw_re > raw.bounds[1])
-        assert source.minimum[0] == 1.
+        np.testing.assert_allclose(state[f'state.hv.{side}'].reshape(shape), expected,
+                                   rtol=2e-14, atol=0.)
+        records = {}
+        for index in range(int(state['state.result.range_observations.size'][0])):
+            prefix = f'state.result.range_observations.{index}.'
+            if (state[prefix+'side'][0] == side and state[prefix+'stage'] == 'main'
+                    and state[prefix+'layout'] == 'real-cell(x,y,z)-hv-speed'):
+                records[state[prefix+'view']] = prefix
+        raw, source = records['nu_raw'], records['nu']
+        assert state[raw+'size'][0] == state[source+'size'][0] == np.prod(shape)
+        assert state[raw+'minimum'][0] == pytest.approx(raw_re.min(), rel=2e-14)
+        assert state[raw+'maximum'][0] == pytest.approx(raw_re.max(), rel=2e-14)
+        assert state[raw+'low'][0] == np.count_nonzero(raw_re < state[raw+'bounds'][0])
+        assert state[raw+'high'][0] == np.count_nonzero(raw_re > state[raw+'bounds'][1])
+        assert state[source+'minimum'][0] == pytest.approx(max(1., raw_re.min()), rel=2e-14)
 
 
 @pytest.mark.parametrize('change', [
@@ -280,8 +266,6 @@ def test_real_fluid_continuous_geometry_replays_without_model_substitution(tmp_p
 @pytest.mark.parametrize('volume', [False, True])
 def test_continuous_experimental_factors_reach_both_local_solver_fields(
         monkeypatch, tmp_path, constant, direction, volume):
-    from sjtu_tpmshx.solvers.backends.python.three_d import runtime
-    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
     cfg = _config(volume)
     cfg.geometry = GeometryConfig(tpms='Gyroid', L_dom_m=.182, H_dom_m=.042,
                                   Lz_m=.042, L_cell_mm=7., t_wall_mm=.6)
@@ -297,21 +281,21 @@ def test_continuous_experimental_factors_reach_both_local_solver_fields(
     if volume and not constant:
         for values in case.design_fields.values():
             assert np.any(values[:, :, 0] != values[:, :, -1])
-    monkeypatch.setattr(runtime, '_run_two_simple', lambda *args, **kwargs: None)
-    problem = runtime.build_problem(*build_execution_inputs(case))
-    for side, solver, direction, factor in (
-            ('A', problem.sA, cfg.bc_A.dir, 2.649010286988306),
-            ('B', problem.sB, cfg.bc_B.dir, 4.198913430360186)):
+    parameters, _, state = native_prepared_state(case)
+    for index, (side, direction, factor) in enumerate((
+            ('A', cfg.bc_A.dir, 2.649010286988306),
+            ('B', cfg.bc_B.dir, 4.198913430360186))):
         order = ((1, 0, 2), (0, 1, 2), (0, 2, 1))[direction // 2]
-        for name, actual, scale in (('K_m2', solver.K_arr, 1.),
-                                    ('cF_per_m', solver.cF_arr, factor)):
+        for name, field, scale in (('K_m2', 'permeability', 1.),
+                                   ('cF_per_m', 'forchheimer', factor)):
             expected = case.design_fields[name].transpose(order)
             if direction % 2:
                 expected = expected[:, ::-1, :]
+            actual = state[f'state.result.flow.{index}.{field}'].reshape(expected.shape)
             np.testing.assert_array_equal(actual, expected * scale)
             if not constant:
-                assert np.ptp(actual) > 0  # Full gradient survives the correction.
-        info = solver._df_metadata
+                assert np.ptp(actual) > 0
+        info = parameters['df_application'][side]
         assert info['scale_F'] == factor
         assert info['geometry_application'] == 'continuous-field-extrapolation'
         assert info['reference_geometry_mm'] == {'L': 7., 't': .6}

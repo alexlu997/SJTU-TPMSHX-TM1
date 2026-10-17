@@ -13,8 +13,8 @@ Local measurements and the task ledger stay in ignored `.cache/`.
 - Keep independent physical implementations for each fluid side.
 - Improve complete single-case time before increasing batch concurrency.
 - Continue a long case from saved iteration state in a new process.
-- Keep Python as the existing numerical reference and development backend.
-- Keep macOS arm64, Windows x64, and the current public backend selection.
+- Preserve the Python numerical reference in 0.1 history; retire numerical execution in 0.2 while retaining application interfaces.
+- Keep macOS arm64 and Windows x64; public execution defaults to C++ in 0.2.
 - Keep inputs, runs, checkpoints, and results associated with their project.
 - Keep current GUI input and result flows where their behavior remains valid.
 
@@ -232,7 +232,7 @@ Choose defaults from qualified complete results, not property-call microbenchmar
 | Model-h and true-h loops | Full solves and direct numerical tests | Shared core has equivalent recorded physics and required distinct schemes; move tests before deleting exclusive loops. |
 | Temperature kernels | Quick Design, standalone calls, true-h warm-up, single-A and research consumers | Migrate each actual consumer with its physical meaning and acceptance. Keep required operations while those consumers remain. |
 | SIMPLE 2D/3D kernels | Complete flow solves and standalone contracts | Keep dimension-specific operations. Only replace duplicated control after both consumers pass. |
-| Python backend | Reference, existing GUI/CLI and tests | Keep as a supported backend. No retirement is planned. |
+| Python numerical backend | Version 0.1 reference; GUI/CLI retain Python interfaces | Retire under the 0.2 scope. Migrate required checks to C++ and independent audits. |
 | Historical file readers | Saved cases, results, sessions, exports and optimization records | Keep valid reads and definition versions; report incompatible reruns explicitly. |
 | Build and binding lists | Native C/C++ callers, ctypes layouts and platform packages | Update symbols, ownership, versions and packaged artifacts in the same change as the interface. |
 
@@ -270,7 +270,7 @@ An input that passes preparation still needs numerical and applicability checks.
 Use CO2-air, sCO2-water, water-air and water-CO2 as the primary paired families in 2D and 3D.
 Keep air-air model-h controls and the existing 30x10x10 partial-port true-h and temperature-SOU cases.
 Add A/B swaps, nonuniform grids, partial ports, supported directions and valid domain-boundary cases at the relevant nodes.
-Mark Python-unsupported numerical candidates explicitly; compare them to a qualified same-physics reference.
+Identify each numerical candidate explicitly and compare it to a qualified reference for the same physics.
 Do not calculate a backend speed ratio across different algorithms.
 
 For optimizations and backend comparisons of the same discrete equations, keep these limits:

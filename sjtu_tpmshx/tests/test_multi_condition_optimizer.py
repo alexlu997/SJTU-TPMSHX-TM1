@@ -12,6 +12,7 @@ from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.domain.compute_config import ComputeConfig, FluidConfig, GeometryConfig, SolverConfig
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.optimization import multi_condition_optimizer as search
+from sjtu_tpmshx.tests.test_multi_condition_batch import native_control as native_control
 
 
 def _conditions(dimension=2):
@@ -31,7 +32,7 @@ def test_unsupported_control_count_is_rejected_before_allocating_bounds(tmp_path
     with pytest.raises(ValueError, match='21201 variables'):
         search.run_multi_condition_optimization(_conditions(3), output_dir=tmp_path / 'unused',
             method='sobol', n_init=1, n_iter=0,
-            field_spec=dict(n_ctrl_x=99, n_ctrl_y=99, n_ctrl_z=99))
+            field_spec=dict(n_ctrl_x=99, n_ctrl_y=99, n_ctrl_z=99), workers=1)
     assert not (tmp_path / 'unused').exists()
 
 
@@ -40,7 +41,7 @@ def test_search_and_archive_preserve_low_and_mixed_control_counts(tmp_path, monk
     calls = _fake_batches(monkeypatch)
     spec = {f'n_ctrl_{axis}': count for axis, count in zip('xyz', shape)}
     result = search.run_multi_condition_optimization(_conditions(len(shape)),
-        output_dir=tmp_path / 'study', method='sobol', n_init=2, n_iter=0, field_spec=spec)
+        output_dir=tmp_path / 'study', method='sobol', n_init=2, n_iter=0, field_spec=spec, workers=1)
     count = 2 * int(np.prod(shape))
     assert result['status'] == 'completed'
     assert all(len(row['x_decision']) == count for row in result['history'])
@@ -50,7 +51,7 @@ def test_search_and_archive_preserve_low_and_mixed_control_counts(tmp_path, monk
 
 
 def _fake_batches(monkeypatch, *, fail_indices=(), baseline_failure=False, cancel_index=None,
-                  backend='python', workers=1):
+                  backend='cpp', workers=1):
     calls, baseline_token = [], {}
     expected_workers = workers
 
@@ -107,7 +108,7 @@ def test_prescribed_flow_replaces_stale_speed_before_validation_and_archive(tmp_
         stale.validate()
     calls = _fake_batches(monkeypatch)
     result = search.run_multi_condition_optimization([('fixed-flow', stale, *targets)],
-        output_dir=tmp_path / 'study', method='sobol', n_init=1, n_iter=0)
+        output_dir=tmp_path / 'study', method='sobol', n_init=1, n_iter=0, workers=1)
     archived = result['conditions'][0]
     restored = ComputeConfig.from_dict(archived['config'])
     assert [restored.fluid_A.u_mps, restored.fluid_B.u_mps] == pytest.approx([10., .1])
@@ -119,14 +120,14 @@ def test_prescribed_flow_replaces_stale_speed_before_validation_and_archive(tmp_
     assert asdict(stale) == before
 
 
-def test_invalid_resolved_speed_keeps_failed_baseline_evidence(tmp_path, monkeypatch):
+def test_invalid_resolved_speed_keeps_failed_baseline_evidence(tmp_path, monkeypatch, native_control):
     from sjtu_tpmshx.solvers import api
     monkeypatch.setattr(api, 'run_case', lambda *a, **k: pytest.fail('invalid flow reached solve'))
     cfg = replace(_conditions()[0][1], df_mode='experimental',
                   solver=SolverConfig(Nx=6, Ny=5))
     output = tmp_path / 'study'
     result = search.run_multi_condition_optimization([('too-low', cfg, 1e-8, .03)],
-        output_dir=output, method='sobol', n_init=1, n_iter=0)
+        output_dir=output, method='sobol', n_init=1, n_iter=0, workers=1, control=native_control)
     assert result == _manifest(output)
     assert result['status'] == result['baseline']['status'] == 'failed'
     assert result['n_evaluated'] == 0
@@ -137,13 +138,12 @@ def test_invalid_resolved_speed_keeps_failed_baseline_evidence(tmp_path, monkeyp
 
 
 @pytest.mark.parametrize('dimension', [2, 3])
-@pytest.mark.parametrize('backend', ['python', 'cpp'])
-def test_equal_design_budgets_initial_data_and_full_field_handoff(tmp_path, monkeypatch, dimension, backend):
+def test_equal_design_budgets_initial_data_and_full_field_handoff(tmp_path, monkeypatch, dimension):
     originals = _conditions(dimension)
     snapshots = [asdict(row[1]) for row in originals]
     reports = []
     for method in ('sobol', 'qlognehvi', 'qlognparego'):
-        calls = _fake_batches(monkeypatch, fail_indices=(1,), backend=backend)
+        calls = _fake_batches(monkeypatch, fail_indices=(1,), backend='cpp')
         proposals = []
 
         def propose(X, Y, lower, upper, reference, **kwargs):
@@ -156,9 +156,9 @@ def test_equal_design_budgets_initial_data_and_full_field_handoff(tmp_path, monk
         directory = tmp_path / method
         result = search.run_multi_condition_optimization(originals, output_dir=directory,
             method=method, n_init=3, n_iter=2, q_batch=2, seed=17, workers=1,
-            control=RunControl(backend=backend, progress=progress.append))
+            control=RunControl(backend='cpp', progress=progress.append))
         assert result == _manifest(directory)
-        assert result['backend'] == backend
+        assert result['backend'] == 'cpp'
         assert all('optimizer' not in row['config'] for row in result['conditions'])
         assert result['status'] == 'completed'
         assert result['design_budget'] == result['n_evaluated'] == 7
@@ -198,7 +198,7 @@ def test_insufficient_valid_initial_data_stops_without_fallback(tmp_path, monkey
     monkeypatch.setattr(search, '_bo_versions', lambda: {})
     monkeypatch.setattr(search, '_propose_bo', lambda *a, **k: pytest.fail('unfit BO reached'))
     result = search.run_multi_condition_optimization(_conditions(), output_dir=tmp_path / 'search',
-        n_init=3, n_iter=2)
+        n_init=3, n_iter=2, workers=1)
     assert result['status'] == 'failed' and 'two distinct usable' in result['reason']
     assert len(calls) == 4 and result['n_usable'] == 1 and not result['proposals']
 
@@ -210,7 +210,7 @@ def test_zero_iterations_accepts_one_usable_initial_design(tmp_path, monkeypatch
     monkeypatch.setattr(search, '_propose_bo', lambda *a, **k: pytest.fail('zero-iteration BO reached'))
     directory = tmp_path / method
     result = search.run_multi_condition_optimization(_conditions(), output_dir=directory,
-        method=method, n_init=1, n_iter=0)
+        method=method, n_init=1, n_iter=0, workers=1)
     assert result == _manifest(directory)
     assert result['status'] == 'completed' and result['stage'] == 'finished'
     assert result['n_evaluated'] == result['n_usable'] == 1
@@ -221,9 +221,9 @@ def test_zero_iterations_accepts_one_usable_initial_design(tmp_path, monkeypatch
 def test_failed_uniform_reference_stops_before_candidates(tmp_path, monkeypatch):
     calls = _fake_batches(monkeypatch, baseline_failure=True)
     result = search.run_multi_condition_optimization(_conditions(), output_dir=tmp_path / 'search',
-        method='sobol', n_init=2, n_iter=1)
+        method='sobol', n_init=2, n_iter=1, workers=1)
     assert len(calls) == 1 and result['status'] == 'failed'
-    assert result['backend'] == _manifest(tmp_path / 'search')['backend'] == 'python'
+    assert result['backend'] == _manifest(tmp_path / 'search')['backend'] == 'cpp'
     assert result['history'] == result['pareto_indices'] == []
     assert result['baseline']['reason'] == 'bad reference'
 
@@ -258,7 +258,7 @@ def test_proposal_failure_is_logged_and_reraised_without_random_fallback(tmp_pat
     monkeypatch.setattr(search, '_propose_bo', fail)
     directory = tmp_path / 'search'
     with pytest.raises(RuntimeError, match='GP fit failed'):
-        search.run_multi_condition_optimization(_conditions(), output_dir=directory, n_init=2, n_iter=1)
+        search.run_multi_condition_optimization(_conditions(), output_dir=directory, n_init=2, n_iter=1, workers=1)
     record = _manifest(directory)
     assert len(calls) == 3 and len(record['history']) == 2
     assert record['stage'] == 'proposal' and record['status'] == 'failed'
@@ -274,7 +274,7 @@ def test_missing_bo_environment_does_not_spend_physical_evaluations(tmp_path, mo
     monkeypatch.setattr(search, '_bo_versions', absent)
     directory = tmp_path / 'search'
     with pytest.raises(ModuleNotFoundError, match='botorch'):
-        search.run_multi_condition_optimization(_conditions(), output_dir=directory)
+        search.run_multi_condition_optimization(_conditions(), output_dir=directory, workers=1)
     assert not calls and not directory.exists()
 
 
@@ -282,11 +282,11 @@ def test_sobol_single_design_and_existing_directory_contract(tmp_path, monkeypat
     calls = _fake_batches(monkeypatch)
     directory = tmp_path / 'search'
     result = search.run_multi_condition_optimization(_conditions(), output_dir=directory,
-        method='sobol', n_init=1, n_iter=0)
+        method='sobol', n_init=1, n_iter=0, workers=1)
     before = (directory / 'optimization.json').read_text()
     assert result['n_evaluated'] == 1 and result['pareto_indices'] == [0]
     with pytest.raises(FileExistsError):
-        search.run_multi_condition_optimization(_conditions(), output_dir=directory, method='sobol')
+        search.run_multi_condition_optimization(_conditions(), output_dir=directory, method='sobol', workers=1)
     assert (directory / 'optimization.json').read_text() == before and len(calls) == 2
 
 
@@ -303,7 +303,7 @@ def test_real_log_acquisition_selects_then_evaluates_complete_design(tmp_path, m
     pytest.importorskip('botorch', reason='requires the separately authorized locked BO environment')
     calls = _fake_batches(monkeypatch)
     result = search.run_multi_condition_optimization(_conditions(), output_dir=tmp_path / method,
-        method=method, n_init=4, n_iter=1, q_batch=1, seed=4)
+        method=method, n_init=4, n_iter=1, q_batch=1, seed=4, workers=1)
     assert result['status'] == 'completed' and result['n_evaluated'] == 5 and len(calls) == 6
     chosen = result['history'][-1]['x_decision']
     assert result['proposals'][0]['x_decisions'] == [chosen]
@@ -358,14 +358,13 @@ def test_pareto_max_duplicate_rows_at_least_one_kept():
     assert mask.sum() >= 1
 
 
-def test_search_reuses_baseline_case_configs_and_releases_fields(tmp_path, monkeypatch):
+def test_search_reuses_baseline_case_configs_and_releases_fields(tmp_path, monkeypatch, native_control):
     import weakref
     from unittest.mock import patch
     from sjtu_tpmshx.domain.portable_data import mutable_data
     from sjtu_tpmshx.io.case_io import load_case
     from sjtu_tpmshx.preprocess.three_d import preparation
-    from sjtu_tpmshx.solvers import api as execution
-    from sjtu_tpmshx.tests.test_multi_condition_batch import _conditions, _native
+    from sjtu_tpmshx.tests.test_multi_condition_batch import _conditions, _native, _patch_solve
 
     references = []
 
@@ -375,11 +374,11 @@ def test_search_reuses_baseline_case_configs_and_releases_fields(tmp_path, monke
         references.append(weakref.ref(field))
         return field
 
-    monkeypatch.setattr(execution, 'run_case', solve)
+    _patch_solve(monkeypatch, solve)
     output = tmp_path / 'study'
     with patch.object(preparation, '_prepare_geometry_data', wraps=preparation._prepare_geometry_data) as geometry:
         result = search.run_multi_condition_optimization(_conditions(2), output_dir=output,
-                                                         method='sobol', n_init=2, n_iter=0)
+                                                         method='sobol', n_init=2, n_iter=0, workers=1, control=native_control)
     assert result['status'] == 'completed' and result['n_usable'] == 2
     assert len(references) == geometry.call_count == 6
     assert all(ref() is None for ref in references)
