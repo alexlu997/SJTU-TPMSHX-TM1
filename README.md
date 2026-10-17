@@ -515,6 +515,10 @@ PowerShell 使用同样的 pytest 参数，以 `$env:变量名=值` 设置上述
 并以 `& $tm1Python` 调用解释器。测试前必须提供匹配的原生库。
 CI 快测按完整模块分到两个独立 runner，每片固定两个 worker，使用 `worksteal` 平衡剩余测试。
 每个 worker 的 BLAS/OMP 单线程；完整 integration 使用第三个 runner 并行执行。
+CI 在独立 Qt 进程中渲染真实 3D 体场，检查字段切换、PNG 解码、缩放图像、应用导出及关闭。
+macOS 使用 Cocoa；Windows 使用固定版本的 Mesa OpenGL 软件渲染。
+快测 artifact 保留 PNG 和渲染报告；实体 Windows 显示器的桌面验收仍单独记录。
+
 现有测试辅助脚本继续保留；`run_tests_fast.ps1` 只提供开发反馈，
 其 `not heavy` 子集与 CI 快测不同。两份 PowerShell 脚本默认严格检查基础锁。
 已有 Windows BO 环境时，显式使用

@@ -423,6 +423,8 @@ PowerShell uses the same pytest arguments. Set the listed environment variables 
 
 CI fast tests split complete modules between two runners. Each runner uses two workers with `worksteal` to balance remaining tests. Each worker has single-threaded BLAS/OMP. Complete integration runs concurrently on a third runner.
 
+CI renders a real 3D volume in a separate Qt process. It checks field changes, PNG decoding, scaled images, application export, and closure. macOS uses Cocoa. Windows uses a fixed Mesa OpenGL software renderer. The fast-test artifacts include PNG files and a render report. Physical Windows display acceptance remains separate.
+
 Existing test helpers stay. `run_tests_fast.ps1` is development feedback only. Its `not heavy` subset differs from fast CI. The two PowerShell scripts validate the base lock by default. With an existing Windows BO environment, use `./scripts/run_tests_server.ps1 -LockFile requirements/bo-windows.txt`.
 
 The same parameter is accepted by `run_tests_fast.ps1`. Tests start only after the selected lock and `pip check` pass. Scripts install nothing. A server lock does not permit unlisted packages.
