@@ -153,6 +153,9 @@ jobs:
       MKL_NUM_THREADS: "1"
       NUMEXPR_NUM_THREADS: "1"
       TPMSHX_REQUIRE_NATIVE_DEPS_TESTS: "1"
+      TPMSHX_REQUIRE_CPP_TESTS: "1"
+      QT_QPA_PLATFORM: offscreen
+      TPMSHX_DISABLE_3D_PANEL: "1"
     steps:
       - uses: actions/checkout@v7
       - name: Activate MSVC for native qualification
@@ -245,45 +248,7 @@ jobs:
             shard_options+=("--ci-shard-modules=$group")
           done
           "$CI_PYTHON" -m pytest -q -ra \
-          sjtu_tpmshx/tests/native/test_native_eos.py \
-          sjtu_tpmshx/tests/native/test_native_pressure.py \
-          sjtu_tpmshx/tests/native/test_fluid_properties.py \
-          sjtu_tpmshx/tests/native/test_quick_design_driver.py \
-          sjtu_tpmshx/tests/native/test_cpp_quick_design.py \
-          sjtu_tpmshx/tests/native/test_superlu_error_boundary.py \
-          sjtu_tpmshx/tests/native/test_enthalpy_driver.py \
-          sjtu_tpmshx/tests/native/test_cpp_enthalpy.py \
-          sjtu_tpmshx/tests/native/test_model_h_2d.py \
-          sjtu_tpmshx/tests/native/test_model_h_3d.py \
-          sjtu_tpmshx/tests/native/test_cpp_model_h.py \
-          sjtu_tpmshx/tests/native/test_temperature_driver.py \
-          sjtu_tpmshx/tests/native/test_temperature_mms.py \
-          sjtu_tpmshx/tests/native/test_temperature_staggered.py \
-          sjtu_tpmshx/tests/native/test_cpp_temperature.py \
-          sjtu_tpmshx/tests/native/test_native_thermal_identity.py \
-          sjtu_tpmshx/tests/native/test_temperature_evidence.py \
-          sjtu_tpmshx/tests/native/test_full_2d_stage_identity.py \
-          sjtu_tpmshx/tests/native/test_pressure_reference.py \
-          sjtu_tpmshx/tests/native/test_anderson_candidate.py \
-          sjtu_tpmshx/tests/native/test_simple_pressure.py \
-          sjtu_tpmshx/tests/native/test_simple_2d.py \
-          sjtu_tpmshx/tests/native/test_simple_2d_c_api.py \
-          sjtu_tpmshx/tests/native/test_simple_3d.py \
-          sjtu_tpmshx/tests/native/test_simple_3d_api.py \
-          sjtu_tpmshx/tests/native/test_refinement_2d.py \
-          sjtu_tpmshx/tests/native/test_full_2d.py \
-          sjtu_tpmshx/tests/native/test_full_2d_refinement.py \
-          sjtu_tpmshx/tests/native/test_cpp_full_2d.py \
-          sjtu_tpmshx/tests/native/test_cpp_full_2d_run.py \
-          sjtu_tpmshx/tests/native/test_run_recovery.py \
-          sjtu_tpmshx/tests/native/test_cpp_full_2d_capture.py \
-          sjtu_tpmshx/tests/native/test_full_3d.py \
-          sjtu_tpmshx/tests/native/test_full_3d_refined_stages.py \
-          sjtu_tpmshx/tests/native/test_cpp_full_3d.py \
-          sjtu_tpmshx/tests/native/test_native_engineering_acceptance.py \
-          sjtu_tpmshx/tests/native/test_backend_condition_consumers.py \
-          sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py \
-          sjtu_tpmshx/tests/native/test_cpp_conservative_full3d.py \
+          @sjtu_tpmshx/tests/native/_ci_suite.txt \
           -p sjtu_tpmshx.tests.ci_shard --ci-shard=${{ matrix.shard }} \
           "${shard_options[@]}" \
           --ci-manifest=.cache/ci/native-manifest \
@@ -422,6 +387,7 @@ jobs:
           -m "not slow and not heavy" --ignore=sjtu_tpmshx/tests/integration_tm1
           -n 2 --dist loadscope --max-worker-restart=0
           -p sjtu_tpmshx.tests.ci_shard --ci-manifest=.cache/ci/fast-manifest
+          --ci-covered-modules=sjtu_tpmshx/tests/native/_ci_suite.txt
           --ci-shard=${{ matrix.part == 'fast-0' && '0' || '1' }}
           --timeout=600 --timeout-method=thread
           --durations=30 --junitxml=.cache/ci/fast.xml

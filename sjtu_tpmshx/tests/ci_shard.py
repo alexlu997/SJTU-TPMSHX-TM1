@@ -13,6 +13,8 @@ def pytest_addoption(parser):
                     help='Run a listed group or the final automatic complement.')
     group.addoption('--ci-shard-modules', type=Path, action='append',
                     help='Repeat in shard order; each file lists modules or exact test node IDs.')
+    group.addoption('--ci-covered-modules', type=Path,
+                    help='Modules covered by separate required native shards.')
     group.addoption('--ci-manifest', help='Directory for per-worker collection JSON.')
 
 
@@ -21,8 +23,8 @@ def pytest_configure(config):
     groups = config.getoption('ci_shard_modules') or [Path(__file__).with_name('_ci_shard0.txt')]
     if shard is not None and not 0 <= shard <= len(groups):
         raise pytest.UsageError(f'--ci-shard must be between 0 and {len(groups)}')
-    if shard is not None and not config.getoption('ci_manifest'):
-        raise pytest.UsageError('--ci-shard requires --ci-manifest')
+    if (shard is not None or config.getoption('ci_covered_modules')) and not config.getoption('ci_manifest'):
+        raise pytest.UsageError('--ci-shard and --ci-covered-modules require --ci-manifest')
 
 
 @pytest.hookimpl(wrapper=True, tryfirst=True)
@@ -33,6 +35,16 @@ def pytest_collection_modifyitems(config, items):
         return
     shard = config.getoption('ci_shard')
     full = [item.nodeid for item in items]
+    covered_path = config.getoption('ci_covered_modules')
+    if covered_path is not None:
+        covered = set(covered_path.read_text(encoding='utf-8').splitlines())
+        kept, removed = [], []
+        for item in items:
+            module = item.path.relative_to(config.rootpath).as_posix()
+            (removed if module in covered else kept).append(item)
+        items[:] = kept
+        if removed:
+            config.hook.pytest_deselected(items=removed)
     if shard is not None:
         paths = config.getoption('ci_shard_modules') or [Path(__file__).with_name('_ci_shard0.txt')]
         groups = [{line.strip() for line in path.read_text(encoding='utf-8').splitlines()

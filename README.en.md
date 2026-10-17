@@ -435,13 +435,25 @@ The `[tool.mypy].files` setting in `pyproject.toml` explicitly lists 19 files. C
 
 Fast `test_type_gate.py` runs the same list. It validates the rejection of incorrect inputs by all three public APIs and both workflow entries. The standalone mypy command is for local checks. CI does not add a duplicate step.
 
-The first pytest command excludes slow/heavy and `integration_tm1`. The second runs that complete integration directory one time. Neither replaces the third, complete local gate. Local commands run the unsharded subsets. To reproduce a fast shard, append `-p sjtu_tpmshx.tests.ci_shard --ci-shard=0 --ci-manifest=.cache/ci/fast-0`.
+The first pytest command excludes slow/heavy and `integration_tm1`. The second runs that complete integration directory one time. Neither replaces the third, complete local gate. Local commands run the unsharded subsets.
 
-For shard 1, use `--ci-shard=1` with its own manifest directory. `sjtu_tpmshx/tests/_ci_shard0.txt` lists complete modules for shard 0. Remaining modules enter shard 1. Sharding occurs after existing heavy markers and pytest filters, without changing selection or assertions. Run `"$PYTHON" scripts/check_ci_shards.py .cache/ci/fast-0 .cache/ci/fast-1` to validate worker-set agreement and complete, disjoint shards.
+CI runs native qualification tests only in native shards. The shared module list is `sjtu_tpmshx/tests/native/_ci_suite.txt`. Native pytest reads it with `@<list-path>`. Application shards first record the full collection, then transfer these modules with `--ci-covered-modules=<list-path>`. New modules outside this list stay in application tests. The native directory is not excluded as a whole.
+
+To reproduce an application shard, append `-p sjtu_tpmshx.tests.ci_shard --ci-shard=0 --ci-manifest=.cache/ci/fast-0 --ci-covered-modules=sjtu_tpmshx/tests/native/_ci_suite.txt`. For shard 1, use `--ci-shard=1` with its own manifest directory. `sjtu_tpmshx/tests/_ci_shard0.txt` lists modules for shard 0. Remaining application modules enter shard 1. Transfer and sharding occur after existing heavy markers and pytest filters. All native assertions stay unchanged.
+
+The summary gate first checks complete, disjoint, successful native shards. It then combines application and native coverage against the original full fast collection. Duplicate or missing tests, missing workers, and failed records prevent a pass. Download all manifests for the same platform/Python combination, then run:
+
+```bash
+"$PYTHON" scripts/check_ci_shards.py .cache/ci/fast-0 .cache/ci/fast-1 --covered-by .cache/ci/native-*/native-manifest
+```
+
+Pass native shards in numeric order. Without `--ci-covered-modules`, local users can still check both complete fast shards separately.
 
 Native qualification uses three serial shards on macOS and seven for each Windows/Python combination. Measured case durations from the full matrix set the groups. Windows conservative energy tests use one fixture parameter per group. Convergence, property, energy ledger and real replay checks for each parameter stay in one shard. Other modules keep their shared fixtures. Independent engineering-pair tests can use complete node IDs.
 
 Group lists are in `sjtu_tpmshx/tests/native/`. macOS uses `_ci_macos_shard0.txt` and `_ci_macos_shard1.txt`. Windows uses `_ci_windows_shard0.txt` through `_ci_windows_shard5.txt`. Pass each list through `--ci-shard-modules=<list-path>` in numeric order. Unlisted cases enter the final automatic shard: 2 on macOS or 6 on Windows. All three platform/Python combinations remain supported. Native engineering cases keep per-side physical models, convergence and energy limits.
+
+Native jobs set both `TPMSHX_REQUIRE_CPP_TESTS=1` and `TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1`. Missing compilers or native libraries must fail. Existing tests for concurrent threads, process recovery, and result ownership still run in native shards.
 
 Independent formulas, discrete energy balances, manufactured solutions, component replay and fixed historical references replace Python solver comparisons. Retired iterators are not retained as a second solver.
 

@@ -50,12 +50,14 @@ def run_pytest(root, *options, workers=2):
         text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=45)
 
 
-def run_checker(*shards, baseline=None, serial=False):
+def run_checker(*shards, baseline=None, serial=False, covered_by=()):
     args = [sys.executable, '-S', str(_CHECKER), *map(str, shards)]
     if baseline is not None:
         args += ['--baseline', str(baseline)]
     if serial:
         args += ['--serial']
+    if covered_by:
+        args += ['--covered-by', *map(str, covered_by)]
     return subprocess.run(args, text=True, stdout=subprocess.PIPE,
                           stderr=subprocess.STDOUT, timeout=10)
 
@@ -197,3 +199,67 @@ def test_real_pytest_failure_cannot_pass_manifest_gate(suite, manifests, tmp_pat
     result = run_pytest(isolated, *args)
     assert result.returncode != 0, result.stdout
     assert run_checker(output, manifests['one']).returncode != 0
+
+
+@pytest.fixture(scope='module')
+def partitioned_manifests(suite, tmp_path_factory):
+    root = tmp_path_factory.mktemp('ci-partition') / 'suite'
+    shutil.copytree(suite, root)
+    (root / 'test_native.py').write_text(
+        'import pytest\n@pytest.mark.parametrize("value", [1, 2])\n'
+        'def test_keep_native(value): assert value > 0\n', encoding='utf-8')
+    (root / 'test_new_native.py').write_text(
+        'def test_keep_unlisted_native(): pass\n', encoding='utf-8')
+    modules = root / 'native-suite.txt'
+    modules.write_text('test_native.py\n', encoding='utf-8')
+    group = root / 'native-shard0.txt'
+    group.write_text('test_native.py::test_keep_native[1]\n', encoding='utf-8')
+    app = [root / f'app{i}' for i in range(2)]
+    native = [root / f'native{i}' for i in range(2)]
+    for shard in range(2):
+        result = run_pytest(root, f'--ci-shard={shard}', '--ci-manifest', str(app[shard]),
+                            f'--ci-covered-modules={modules}')
+        assert result.returncode == 0, result.stdout
+        result = run_pytest(root, '@' + str(modules), f'--ci-shard={shard}',
+                            '--ci-manifest', str(native[shard]),
+                            f'--ci-shard-modules={group}', workers=0)
+        assert result.returncode == 0, result.stdout
+    return app, native
+
+
+def test_native_partition_keeps_full_collection_and_unlisted_tests(partitioned_manifests):
+    app, native = partitioned_manifests
+    records = [json.loads((path / 'gw0.json').read_text()) for path in app]
+    assert all(len(record['full_nodeids']) == 7 for record in records)
+    selected = {node for record in records for node in record['selected_nodeids']}
+    assert len(selected) == 5
+    assert 'test_new_native.py::test_keep_unlisted_native' in selected
+    assert not any(node.startswith('test_native.py::') for node in selected)
+    result = run_checker(*app, covered_by=native)
+    assert result.returncode == 0, result.stdout
+    assert run_checker(*app).returncode != 0
+
+
+@pytest.mark.parametrize('damage', ['missing_native', 'native_failure', 'native_gap',
+                                   'native_overlap', 'app_overlap', 'app_gap'])
+def test_cross_group_gate_rejects_missing_or_duplicate_coverage(partitioned_manifests, tmp_path, damage):
+    original_app, original_native = partitioned_manifests
+    app = [tmp_path / f'app{i}' for i in range(2)]
+    native = [tmp_path / f'native{i}' for i in range(2)]
+    for source, target in zip(original_app + original_native, app + native):
+        shutil.copytree(source, target)
+    if damage == 'missing_native':
+        (native[0] / 'controller.json').unlink()
+    else:
+        paths = list((app[0] if damage.startswith('app') else native[0]).glob('*.json'))
+        for path in paths:
+            record = json.loads(path.read_text())
+            if damage == 'native_failure':
+                record['exitstatus'] = 1
+            elif damage.endswith('gap'):
+                record['selected_nodeids'].pop()
+            else:
+                node = 'test_native.py::test_keep_native[2]'
+                record['selected_nodeids'].append(node)
+            path.write_text(json.dumps(record), encoding='utf-8')
+    assert run_checker(*app, covered_by=native).returncode != 0

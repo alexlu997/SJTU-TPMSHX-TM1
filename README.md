@@ -539,13 +539,25 @@ envelope 实现、三模块数据契约与公共 API、后处理指标入口；�
 
 第一条 pytest 排除了 slow/heavy 和 `integration_tm1`，第二条单独完整执行该集成目录，
 避免重复执行其中的快测成员；两者不能代替第三条完整本地验收。
-本地上述命令仍执行未分片的完整子集。复现某片时，在第一条 pytest 命令追加
-`-p sjtu_tpmshx.tests.ci_shard --ci-shard=0 --ci-manifest=.cache/ci/fast-0`，
+本地上述命令仍执行未分片的完整子集。CI 中的原生资格测试只在原生组执行，
+共同模块清单为 `sjtu_tpmshx/tests/native/_ci_suite.txt`。原生 pytest 使用 `@<清单路径>` 读取它。
+应用快测仍记录原完整收集集合，再通过 `--ci-covered-modules=<清单路径>` 移交这些模块。
+清单外的新模块自动保留在应用快测中，不会按目录整体排除。
+复现应用分片时，在第一条 pytest 命令追加
+`-p sjtu_tpmshx.tests.ci_shard --ci-shard=0 --ci-manifest=.cache/ci/fast-0
+--ci-covered-modules=sjtu_tpmshx/tests/native/_ci_suite.txt`。
 另一片改为 `--ci-shard=1` 并使用独立 manifest 目录。
-分片 0 的完整模块列在 `sjtu_tpmshx/tests/_ci_shard0.txt`，其余模块自动进入分片 1；
-分片在原 heavy 标记及 pytest 过滤之后执行，不改变测试选择或断言。
-`"$PYTHON" scripts/check_ci_shards.py .cache/ci/fast-0 .cache/ci/fast-1`
-核对两个 worker 的集合一致、两片互斥且完整覆盖原子集。
+分片 0 的模块列在 `sjtu_tpmshx/tests/_ci_shard0.txt`，其余应用模块自动进入分片 1。
+移交和分片在原 heavy 标记及 pytest 过滤之后执行，所有原生断言保持不变。
+
+汇总门先验证原生分片完整、互斥且成功，再与应用分片合并核对原完整快测集合。
+跨组重复、漏测、缺失 worker 或失败记录均阻止通过。下载相同平台/Python 的全部 manifest 后运行：
+
+```bash
+"$PYTHON" scripts/check_ci_shards.py .cache/ci/fast-0 .cache/ci/fast-1 --covered-by .cache/ci/native-*/native-manifest
+```
+
+原生分片必须按编号顺序传入。若本地不使用 `--ci-covered-modules`，仍可单独核对两个完整快测分片。
 
 原生资格检查在 macOS 分为三片，在每个 Windows/Python 组合分为七片，每片串行执行。
 分组依据完整矩阵的实测用例耗时。Windows 的保守能量测试按独立 fixture 参数分组，
@@ -557,6 +569,8 @@ Windows 使用 `_ci_windows_shard0.txt` 至 `_ci_windows_shard5.txt`。
 未列出的用例自动进入最后一片，即 macOS 分片 2 或 Windows 分片 6。
 同一集合校验器加 `--serial`，按编号传入全部 manifest，核对其完整且互斥。
 三个平台/Python 组合保持不变。原生工程用例保留逐侧物理模型、收敛及能量门槛。
+原生组同时设置 `TPMSHX_REQUIRE_CPP_TESTS=1` 和 `TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1`；
+缺少编译器或原生库必须失败。原有线程并发、进程恢复和结果所有权测试仍在原生组执行。
 Python 数值对照迁移为独立公式／离散账本、制造解、组件重放及固定历史参考；
 不保留已退役迭代器作为第二套求解实现。
 
