@@ -50,7 +50,7 @@ def test_tpms_props_is_a_leaf():
 def test_public_preparation_imports_without_controllers():
     """Scripted orchestration and input preparation stay below controllers."""
     _probe(
-        "import sys; import sjtu_tpmshx.preprocess.three_d.research; import sjtu_tpmshx.solvers.api; "
+        "import sys; import sjtu_tpmshx.preprocess.api; import sjtu_tpmshx.solvers.api; "
         "import sjtu_tpmshx.preprocess.two_d.preparation; "
         "import sjtu_tpmshx.preprocess.three_d.preparation; "
         "bad = [m for m in sys.modules if m == 'controllers' "
@@ -61,20 +61,18 @@ def test_public_preparation_imports_without_controllers():
 
 def test_public_preparation_does_not_modify_backend_namespace():
     _probe(
-        "from sjtu_tpmshx.solvers.backends.python.three_d import runtime; "
+        "from sjtu_tpmshx.solvers.backends.cpp import full_3d as runtime; "
         "before = dict(vars(runtime)); "
-        "import sjtu_tpmshx.preprocess.three_d.research; import sjtu_tpmshx.solvers.api; "
+        "import sjtu_tpmshx.preprocess.api; import sjtu_tpmshx.solvers.api; "
         "assert vars(runtime).keys() == before.keys(); "
         "assert all(vars(runtime)[key] is value for key, value in before.items())"
     )
 
 
-def test_public_modules_prepare_without_numba_then_real_execution_initializes_once():
+def test_public_modules_prepare_and_execute_without_python_numerics():
     _probe('''
 import os
 import sys
-os.environ['NUMBA_NUM_THREADS'] = '2'
-os.environ['TPMSHX_NUM_THREADS'] = '1'
 from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.preprocess.api import prepare_quick_design
 from sjtu_tpmshx.postprocess.api import evaluate
@@ -85,22 +83,18 @@ assert 'sjtu_tpmshx.solvers.threads' not in sys.modules
 condition = DesignCase(1, 'air', 688.23, 1088700., .2855,
                        'water', 320., 200000., .5, 30000., .075, .05)
 prepared = prepare_quick_design(condition, 'Diamond', 7., .5, .084, .025,
-                                case_id='lazy-python-backend')
+                                case_id='default-native-backend')
 assert 'numba' not in sys.modules
 result = run_case(prepared)
-import numba
-assert numba.get_num_threads() == 1
+assert result.backend_id == 'cpp'
+assert 'numba' not in sys.modules
 assert result.run_status['converged']
 assert evaluate(result).metrics['Q'].value > 0.
 
-# Explicit runtime control must survive later imports and repeated execution.
-from sjtu_tpmshx.solvers.threads import set_solver_threads
-set_solver_threads(2)
-from sjtu_tpmshx.solvers import simple_solver, simple_solver_3d, ltne_enthalpy_3d
-assert numba.get_num_threads() == 2
 second = run_case(prepared)
 assert second.run_status['converged']
-assert numba.get_num_threads() == 2
+assert 'numba' not in sys.modules
+assert not any(name.startswith('sjtu_tpmshx.solvers.backends.python') for name in sys.modules)
 ''')
 
 
@@ -112,7 +106,7 @@ from PySide6.QtCore import QCoreApplication
 from sjtu_tpmshx.controllers.compute_orchestrator import ComputeOrchestrator
 from sjtu_tpmshx.domain.cancellation import CancelledError
 app = QCoreApplication([])
-orch = ComputeOrchestrator(backend='cpp')
+orch = ComputeOrchestrator()
 events = []
 orch.finished.connect(lambda result: events.append(('finished', result)))
 orch.error.connect(lambda message, log: events.append(('error', message)))
@@ -163,7 +157,7 @@ with TemporaryDirectory() as temporary:
         window = Main_Menu(control=control)
         window._open_quick_design()
         assert window._qd_dialog.run_control is control
-        assert window.compute.backend == 'cpp'
+        assert window.run_control.backend == 'cpp'
         assert window.spin_cpu_cores.isEnabled()
         assert window.spin_cpu_cores.text() == '自动'
         window.spin_cpu_cores.setValue(1)

@@ -1,4 +1,4 @@
-"""Validate prepared 3D inputs for both numerical backends."""
+"""Validate prepared 3D inputs for native execution."""
 import numpy as np
 
 from sjtu_tpmshx.domain.compute_config import Sco2NuConfig, reject_retired_research_options

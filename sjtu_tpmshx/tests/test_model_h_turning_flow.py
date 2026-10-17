@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.solvers import ltne_energy as e2, ltne_energy_3d as e3
+from sjtu_tpmshx.tests.native.test_cpp_model_h import driver as driver
 
 
 def _case(dimension, swap):
@@ -22,7 +22,7 @@ def _case(dimension, swap):
     psi = .8 * ((1 - eta) * outlet[:, None] + eta * inlet[:, None])
     ma = (np.diff(psi, axis=1), -np.diff(psi, axis=0))
     mb = (np.full((nx + 1, ny), 4 * .04 / ny), np.zeros((nx, ny + 1)))
-    frac = np.diff(inlet) * .04 / dx
+    frac = np.clip(np.diff(inlet) * .04 / dx, 0., 1.)
     shape = (nx, ny)
     if dimension == 3:
         ma = tuple(f[:, :, None] * dz for f in ma) + (np.zeros((nx, ny, nz + 1)),)
@@ -36,34 +36,20 @@ def _case(dimension, swap):
     b = (300., .23, 8e5, 4.18e6, 0, np.ones(shape[1:]), mb, 'water')
     if swap:
         a, b = b, a
-    zero = np.zeros(shape)
-    kwargs = dict(L=.18, H=.04, Nx=nx, Ny=ny, K_ss=2., epsilon=.75,
-                  dx_arr=dx, dy_arr=dy, ucA=zero, vcA=zero, ucB=zero, vcB=zero,
-                  max_iter=5000, q_rel_tol=1e-10, return_info=True, accelerate=True,
-                  model_fluids=(a[-1], b[-1]))
-    for side, values in zip(('A', 'B'), (a, b)):
-        for prefix, value in zip(('T_in', 'K_ff', 'h_v', 'rho_cp_f', 'dir_', 'inlet_mask_'), values):
-            kwargs[prefix + side] = value
-        kwargs[('mass_flux_' if dimension == 2 else 'model_mass_') + side] = values[-2]
-        if dimension == 3:
-            for axis, face in zip('uvw', values[-2]):
-                kwargs[axis + 'f' + side] = np.zeros_like(face)
-    if dimension == 3:
-        kwargs.update(D=.04, Nz=nz, dz_arr=dz, wcA=zero, wcB=zero, conservative_ltne=True)
-    return kwargs
+    return dict(widths=(dx, dy, dz)[:dimension],
+        conductivity=tuple(np.full(shape, value) for value in (a[1], b[1], 2.)),
+        exchange=(np.full(shape, a[2]), np.full(shape, b[2])),
+        mass_faces=(a[-2], b[-2]), directions=(a[4], b[4]),
+        inlets=(a[0], b[0]), openings=(a[5], b[5]), fluids=(a[-1], b[-1]),
+        max_iterations=5000, q_relative_tolerance=1e-10, accelerate=True)
 
 
 @pytest.mark.parametrize('dimension', [2, 3])
 @pytest.mark.parametrize('red_black', [False, True])
-def test_turning_flow_converges_and_labels_preserve_the_solution(monkeypatch, dimension, red_black):
-    energy = e2 if dimension == 2 else e3
-    suffix = '_2D' if dimension == 2 else ''
-    monkeypatch.setattr(energy, '_RB_ENERGY' + suffix, red_black)
-    monkeypatch.setattr(energy, '_RB_ENERGY' + suffix + '_GATE', 0)
-    solve = e2.solve_full_domain if dimension == 2 else e3.solve_full_domain_3d
+def test_turning_flow_converges_and_labels_preserve_the_solution(driver, dimension, red_black):
     results = []
     for swap in (False, True):
-        ta, tb, ts, info = solve(**_case(dimension, swap))
+        ta, tb, ts, info = driver(**_case(dimension, swap), red_black=red_black)
         assert info['converged'], info
         assert info['residual'] < 1e-7
         results.append((tb, ta, ts) if swap else (ta, tb, ts))

@@ -121,9 +121,9 @@ def test_partial_report_error_does_not_hide_computation_error(monkeypatch, tmp_p
 
 
 @pytest.mark.parametrize('mode', ['fixed', 'auto', 'refine'])
-@pytest.mark.parametrize('backend', ['python', 'cpp'])
+@pytest.mark.parametrize('explicit_backend', [False, True])
 def test_cli_control_reaches_fixed_enumeration_and_refinement(
-        mode, backend, monkeypatch, tmp_path):
+        mode, explicit_backend, monkeypatch, tmp_path):
     from sjtu_tpmshx.design import cli, optimize, sizing
     from sjtu_tpmshx.domain.module_ports import RunControl
 
@@ -148,17 +148,18 @@ def test_cli_control_reaches_fixed_enumeration_and_refinement(
     monkeypatch.setattr(cli, 'enumerate_select', enumeration)
     monkeypatch.setattr(optimize, 'warm_start_joint', refinement)
     library, tables = tmp_path / 'solver.so', tmp_path / 'tables'
-    arguments = ['--xlsx', str(source), '--out', str(output), '--backend', backend]
-    if backend == 'cpp':
-        arguments += ['--native-library', str(library), '--native-table-directory', str(tables)]
+    arguments = ['--xlsx', str(source), '--out', str(output),
+                 '--native-library', str(library), '--native-table-directory', str(tables)]
+    if explicit_backend:
+        arguments += ['--backend', 'cpp']
     if mode == 'fixed':
         arguments += ['--mode', 'fixed', '--cell', 'Diamond,8,0.4']
     elif mode == 'refine':
         arguments += ['--refine']
     assert cli.run(arguments) == 0
-    expected = RunControl(backend=backend,
-        native_library=str(library) if backend == 'cpp' else None,
-        native_table_directory=str(tables) if backend == 'cpp' else None)
+    expected = RunControl(
+        native_library=str(library),
+        native_table_directory=str(tables))
     assert calls == [(stage, expected) for stage in
                      (['auto', 'refine'] if mode == 'refine' else [mode])]
     assert all(control is calls[0][1] for _, control in calls)

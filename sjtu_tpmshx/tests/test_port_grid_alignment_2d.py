@@ -7,7 +7,7 @@ import pytest
 
 
 from sjtu_tpmshx.domain.compute_config import ComputeConfig, PartialBCConfig
-from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver, _aligned_grid
+from sjtu_tpmshx.models.grid import _aligned_grid
 
 
 @pytest.mark.parametrize('staggered', [False, True])
@@ -91,13 +91,6 @@ def test_port_wall_grid_rejects_insufficient_total_count():
                              (dict(dir=0, in_ctr=.021, in_w=.042, out_ctr=.021, out_w=.042),))
 
 
-def _backend_fields(config):
-    """Reach the actual runtime closure using the prepared public grid."""
-    from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
-    from sjtu_tpmshx.solvers.backends.python.two_d.runtime import build_runtime
-    case = prepare_case(config, case_id='test-case')
-    parsed, prepared = build_execution_inputs(case)
-    return parsed, build_runtime(parsed, prepared)
 
 
 def _case(directions):
@@ -140,53 +133,6 @@ def test_aligned_grid_rejects_too_few_cells_for_segments():
         _aligned_grid(17, 1.0, edges)
 
 
-def test_counter_port_endpoints_do_not_create_unknown_fine_inflow():
-    from sjtu_tpmshx.solvers.simple_solver import _prolong_mass_faces_2d
-    from sjtu_tpmshx.solvers.ltne_energy import _model_h_balance
-    from sjtu_tpmshx.solvers.simple_solver import _port_fractions_1d
-
-    # Original counter member: preserve the actual centre/width arithmetic.
-    ports = ((0.0126, 0.01092, 0.02835, 0.01302),
-             (0.0189, 0.01344, 0.01218, 0.015120000000000001))
-    breaks = sorted({ctr + sign * width / 2 for port in ports
-                     for ctr, width in (port[:2], port[2:]) for sign in (-1, 1)})
-    lo, hi = ports[1][0] - ports[1][1]/2, ports[1][0] + ports[1][1]/2
-    coarse, fine = (_aligned_grid(n, 0.042, breaks) for n in (40, 80))
-    for widths, n in ((coarse, 40), (fine, 80)):
-        assert len(widths) == n and np.all(widths > 0)
-        edges = np.r_[0., np.cumsum(widths)]
-        assert all(edge in edges for edge in (*breaks, 0.042))
-    raw, profile = _port_fractions_1d(coarse, lo, hi)
-    raw_fine, _ = _port_fractions_1d(fine, lo, hi)
-    assert raw[10] == 0 and np.all(raw_fine[22:24] == 0)
-    assert np.dot(raw, coarse) == pytest.approx(hi-lo, rel=1e-14)
-    assert np.dot(raw_fine, fine) == pytest.approx(hi-lo, rel=1e-14)
-
-    dx = np.array([0.091, 0.091])
-    mass = (np.tile(-profile*coarse, (3, 1)), np.zeros((2, 41)))
-    refined = _prolong_mass_faces_2d(mass, dx, coarse, dx, fine)
-    assert np.all(refined[0][-1, raw_fine == 0] == 0)
-    np.testing.assert_allclose(refined[0].sum(axis=1), mass[0].sum(axis=1),
-                               rtol=1e-14, atol=0)
-    np.testing.assert_allclose(
-        np.diff(refined[0], axis=0) + np.diff(refined[1], axis=1), 0., atol=1e-15)
-
-    # A real negative flow on a closed face must still fail, even this small.
-    temperature = np.full((2, 80), 310.)
-    zero = np.zeros_like(temperature)
-    no_flow = tuple(np.zeros_like(face) for face in refined)
-    for injected in (0., -4.4917681889235814e-18):
-        refined[0][-1, 22] = injected
-        balance = _model_h_balance(
-            temperature, temperature, temperature, zero, zero, zero, zero, zero,
-            dx, fine, no_flow, refined, (1000., 0., 0., 0., 300.),
-            (1000., 0., 0., 0., 300.), 1, 1,
-            np.full(80, 310.), np.full(80, 310.), raw_fine, raw_fine, False,
-            temperature, temperature)
-        assert balance['B']['unknown_inflow_faces'] == int(injected < 0)
-        assert balance['physical_boundary_complete'] == (injected == 0)
-        if injected < 0:
-            assert not balance['passed']
 
 
 @pytest.mark.parametrize('directions', [(0, 2), (2, 0), (1, 3), (3, 1),
@@ -210,10 +156,10 @@ def test_ports_align_on_physical_axis(directions):
 
 def test_default_direction_partial_grid_is_unchanged():
     cfg = _case((0, 2))
-    _, fields = _backend_fields(cfg)
-    np.testing.assert_array_equal(fields['energy_dx'],
+    case = prepare_case(cfg, case_id='default-partial-grid')
+    np.testing.assert_array_equal(case.grid['dx'],
                                   _aligned_grid(40, 0.182, _edges(cfg.bc_B)))
-    np.testing.assert_array_equal(fields['energy_dy'],
+    np.testing.assert_array_equal(case.grid['dy'],
                                   _aligned_grid(40, 0.042, _edges(cfg.bc_A)))
 
 
@@ -245,112 +191,12 @@ def test_near_wall_break_filter_is_preserved(inset):
         assert set(case.grid[f'{axis}_breaks']) == expected
 
 
-def _expected_profile(widths, lo, hi):
-    edges = np.r_[0.0, np.cumsum(widths)]
-    raw = np.clip((np.minimum(edges[1:], hi) - np.maximum(edges[:-1], lo))
-                  / widths, 0, 1)
-    profile = raw.copy()
-    walls = np.flatnonzero(raw < 0.01)
-    for i in np.flatnonzero(raw > 0.99):
-        if walls.size:
-            distance = np.min(np.abs(walls - i))
-            if distance <= 4:
-                profile[i] = 1 - 0.8 * np.exp(-distance)
-    return profile
 
 
-@pytest.mark.parametrize('directions', [(0, 1), (2, 3), (1, 3), (3, 1)])
-def test_simple_profiles_follow_final_shared_coordinates(monkeypatch, directions):
-    # Real constructor and pipeline wiring; stop precisely before iteration.
-    class BeforeIteration(Exception):
-        pass
-
-    captured = []
-
-    def capture(solver, **kwargs):
-        captured.append(solver)
-        raise BeforeIteration
-
-    monkeypatch.setattr(SIMPLESolver, 'solve', capture)
-    cfg = _case(directions)
-    parsed, fields = _backend_fields(cfg)
-    x = np.cumsum(fields['energy_dx']) - fields['energy_dx'] / 2
-    y = np.cumsum(fields['energy_dy']) - fields['energy_dy'] / 2
-    rho = 1000. + 10. * x[:, None] + y[None, :]
-    mu = .001 + .0001 * x[:, None] + .0002 * y[None, :]
-    temperature = 300. + 100. * x[:, None] + 200. * y[None, :]
-    for side in ('A', 'B'):
-        bc = getattr(cfg, f'bc_{side}')
-        with pytest.raises(BeforeIteration):
-            fields['_run_simple'](parsed[f'cfg{side}'], rho, mu,
-                                  300.0, 0.2, side, fluid_type='incompressible',
-                                  T_field_real=temperature)
-        solver = captured[-1]
-        widths = fields['energy_dy' if bc.dir in (0, 1) else 'energy_dx']
-        np.testing.assert_array_equal(solver.dx_arr, widths)
-        stream = fields['energy_dx' if bc.dir in (0, 1) else 'energy_dy']
-        if directions in ((1, 3), (3, 1)):
-            assert not np.array_equal(stream, stream[::-1])
-        negative = bc.dir in (1, 3)
-        np.testing.assert_array_equal(solver.dy_arr, stream[::-1] if negative else stream)
-        for physical, actual in ((rho, solver.rho_field), (mu, solver.mu_field),
-                                 (temperature, solver.T_field)):
-            expected = physical.T if bc.dir in (0, 1) else physical
-            np.testing.assert_array_equal(actual, expected[:, ::-1] if negative else expected)
-        assert len(solver.inlet_frac) == len(widths) == 40
-        lo, hi, out_lo, out_hi = _edges(bc)
-        inlet = _expected_profile(widths, lo, hi)
-        outlet = _expected_profile(widths, out_lo, out_hi)
-        np.testing.assert_allclose(solver.inlet_frac, inlet, atol=1e-13, rtol=0)
-        np.testing.assert_allclose(solver.outlet_frac, outlet, atol=1e-13, rtol=0)
-        np.testing.assert_array_equal(solver.inlet_mask, inlet > 0.01)
-        np.testing.assert_array_equal(solver.outlet_mask, outlet > 0.01)
-        np.testing.assert_allclose(solver.v[:, 0], solver.v_inlet_field * inlet,
-                                   atol=1e-13, rtol=0)
-        assert np.sum(solver.v_inlet_field * solver.inlet_frac * widths) == (
-            pytest.approx(0.2 * bc.in_w, rel=1e-12))
 
 
-def test_refreshed_taper_sets_first_massflux_target():
-    solver = SIMPLESolver(
-        0.182, 0.042, 40, 20, 'Gyroid', 7.0, 0.6, 0.85, 1e-3,
-        1000.0, 0.001, 300.0, 0.03, 0.08, 0.2,
-        outlet_lo=0.10, outlet_hi=0.15, fluid_type='incompressible',
-        rho_inlet_ref=1000.0, wall_refine=False)
-    original = solver.dx_arr.copy()
-    solver.dx_arr = _aligned_grid(40, 0.182, [0.03, 0.05, 0.08, 0.10, 0.12, 0.15])
-    assert len(original) == len(solver.dx_arr)
-    assert not np.array_equal(original, solver.dx_arr)
-    for _ in range(2):
-        solver._refresh_ports(0.03, 0.08, 0.10, 0.15)
-        assert np.sum(solver.v_inlet_field * solver.inlet_frac * solver.dx_arr) == (
-            pytest.approx(0.2 * 0.05, rel=1e-12))
-    scale = solver._inlet_taper_flux_scale
-    assert not hasattr(solver, '_massflux_target')
-    solver.solve(max_iter=2, verbose=False)
-    assert solver._massflux_target == pytest.approx(0.2 * 1000.0 * scale, rel=1e-12)
 
 
-@pytest.mark.parametrize('direction', [1, 3])
-def test_negative_pressure_and_staggered_faces_return_to_physical_cells(direction):
-    from types import SimpleNamespace
-    from sjtu_tpmshx.solvers.backends.python.two_d.coupling import (
-        _simple_scalar_to_real_2d, _simple_staggered_to_real_2d,
-    )
-
-    pressure = np.arange(12., dtype=float).reshape(4, 3)
-    ux = np.arange(15., dtype=float).reshape(5, 3) + 1.
-    uy = np.arange(16., dtype=float).reshape(4, 4) + 20.
-    if direction == 1:
-        solver = SimpleNamespace(P=pressure[::-1, :].T,
-                                 u=uy[::-1, :].T, v=-ux[::-1, :].T)
-    else:
-        solver = SimpleNamespace(P=pressure[:, ::-1],
-                                 u=ux[:, ::-1], v=-uy[:, ::-1])
-    np.testing.assert_array_equal(_simple_scalar_to_real_2d(solver.P, direction), pressure)
-    actual_x, actual_y = _simple_staggered_to_real_2d(solver, direction)
-    np.testing.assert_array_equal(actual_x, ux)
-    np.testing.assert_array_equal(actual_y, uy)
 
 
 @pytest.mark.slow

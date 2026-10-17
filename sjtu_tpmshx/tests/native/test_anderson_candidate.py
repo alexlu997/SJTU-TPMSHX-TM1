@@ -11,7 +11,6 @@ import numpy as np
 import pytest
 
 from scripts.generate_native_model_coefficients import header
-from sjtu_tpmshx.solvers.anderson_acceleration import AndersonSIMPLE
 
 D = ct.POINTER(ct.c_double)
 S = ct.c_size_t
@@ -55,18 +54,22 @@ def native(tmp_path_factory):
     return ct.CDLL(str(output))
 
 
+@pytest.mark.parametrize('columns', [1, 2, 3, 4, 5, 6])
 @pytest.mark.parametrize('scale', [1., 1e-7, 1e-12])
-def test_original_candidate_svd_lstsq_and_condition_gate(native, scale):
+def test_original_candidate_svd_lstsq_and_condition_gate(native, scale, columns):
     rng = np.random.default_rng(321)
-    x = np.ascontiguousarray(300.+rng.normal(size=(417, 6)))
+    x = np.ascontiguousarray(300.+rng.normal(size=(417, columns)))
     r = rng.normal(size=x.shape)
     r[:, 1:] = r[:, :1] + scale*(r[:, 1:]-r[:, :1])
     r = np.ascontiguousarray(r)
     g = np.ascontiguousarray(x[:, -1]+r[:, -1])
-    original = AndersonSIMPLE()
-    original._X.extend(x[:, j].copy() for j in range(6))
-    original._R.extend(r[:, j].copy() for j in range(6))
-    expected, expected_applied = original.candidate(g)
+    dx, dr = np.diff(x, axis=1), np.diff(r, axis=1)
+    singular = np.linalg.svd(dr, compute_uv=False)
+    expected_applied = bool(singular.size and singular[0] > 0. and singular[0]/max(singular[-1], 1e-30) <= 1e10)
+    expected = g
+    if expected_applied:
+        weights = np.linalg.lstsq(dr, r[:, -1], rcond=None)[0]
+        expected = g - (dx+dr) @ weights
     call = native.test_anderson_candidate
     call.argtypes = [S, S, D, D, D, ct.c_double, D, ct.POINTER(ct.c_int), C, S]
     call.restype = ct.c_int

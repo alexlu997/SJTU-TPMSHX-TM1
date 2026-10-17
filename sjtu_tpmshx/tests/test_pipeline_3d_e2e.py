@@ -121,7 +121,7 @@ def test_pipeline3d_mixed_sco2_z_and_x_ports(fluid_A, u_A, P_A, fluid_B, P_B):
         extrap=ExtrapPolicy(allow=True),
     )
     result = compute_result(cfg)
-    eos = result.metadata['sco2_enthalpy_eos']
+    eos = result.metadata['enthalpy_eos']
     assert list(eos['sides']) == (['A'] if fluid_A == 'sco2' else ['B'])
     assert eos['final_backend'] == 'HEOS'
     assert result.Q_W > 0

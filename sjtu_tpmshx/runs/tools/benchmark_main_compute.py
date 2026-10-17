@@ -6,10 +6,9 @@ Case/Result files retain settings, physical evidence and nonfinite diagnostics.
 Run from the source root with the project's configured interpreter.
 """
 from collections.abc import Mapping
-from contextlib import ExitStack, contextmanager, nullcontext, redirect_stderr, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from dataclasses import asdict
 import argparse
-import functools
 import json
 import math
 import os
@@ -19,7 +18,6 @@ import sys
 import threading
 from time import perf_counter
 import traceback
-from unittest.mock import patch
 from uuid import uuid4
 
 from sjtu_tpmshx.domain.module_ports import RunControl
@@ -45,83 +43,6 @@ def write_json(path, value):
     write_text(path, json.dumps(json_data(value), ensure_ascii=False, allow_nan=False, indent=2) + '\n')
 
 
-@contextmanager
-def observe_solver(dimension, calls):
-    """Boundary clocks only, not a statistical profiler or an alternate solve.
-
-    Call spans are inclusive and may overlap. Never add SIMPLE A/B durations
-    to obtain elapsed time. The unmodified solver remains the only executor.
-    """
-    sides = {}
-    labels = threading.local()
-    if dimension == 3:
-        from sjtu_tpmshx.solvers.simple_solver_3d import SIMPLESolver3D as cls
-        from sjtu_tpmshx.solvers.backends.python.three_d import result_capture as capture, runtime
-    else:
-        from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver as cls
-        from sjtu_tpmshx.solvers.backends import capture_2d as capture
-        from sjtu_tpmshx.solvers.backends.python.two_d import runtime
-
-    def clocked(original, label, simple=False):
-        @functools.wraps(original)
-        def call(*args, **kwargs):
-            start = perf_counter()
-            record = dict(name=label, start_s=start, thread=threading.current_thread().name)
-            record['controls'] = {key: kwargs[key] for key in
-                                  ('max_iter', 'tol', 'tol_T', 'extra_tol', 'track', 'max_outer', 'max_inner')
-                                  if key in kwargs}
-            if label == 'outer_criterion':
-                record['controls'].update(tol_T=args[0].tol_T, track=args[0].track)
-            if simple:
-                solver = args[0]
-                record.update(side=sides.get(id(solver), getattr(labels, 'side', None)), max_iter=kwargs.get('max_iter'),
-                              settings={key: getattr(solver, key, None)
-                              for key in ('convergence_mode', 'mom_tol', 'mass_local_tol', 'mass_global_tol')})
-            try:
-                result = original(*args, **kwargs)
-                if simple:
-                    record['return'] = result
-                return result
-            finally:
-                record['elapsed_s'] = perf_counter() - start
-                calls.append(record)
-        return call
-
-    with ExitStack() as stack:
-        from sjtu_tpmshx.solvers.coupling_skeleton import OuterConvergence
-        stack.enter_context(patch.object(OuterConvergence, 'check', clocked(OuterConvergence.check, 'outer_criterion')))
-        stack.enter_context(patch.object(cls, 'solve', clocked(cls.solve, 'SIMPLE', True)))
-        stack.enter_context(patch.object(capture, 'capture_result', clocked(capture.capture_result, 'native_capture')))
-        if dimension == 3:
-            from sjtu_tpmshx.solvers import ltne_enthalpy_3d as enthalpy
-            stack.enter_context(patch.object(runtime, 'run_outer_coupling', clocked(runtime.run_outer_coupling, 'outer_loop')))
-            stack.enter_context(patch.object(runtime, 'solve_full_domain_3d', clocked(runtime.solve_full_domain_3d, 'LTNE')))
-            stack.enter_context(patch.object(enthalpy, 'solve_ltne_enthalpy_3d_pipeline', clocked(enthalpy.solve_ltne_enthalpy_3d_pipeline, 'enthalpy')))
-            pair = runtime._run_two_simple
-            def paired(a, b, **kwargs):
-                sides.update({id(a): 'A', id(b): 'B'})
-                return pair(a, b, **kwargs)
-            stack.enter_context(patch.object(runtime, '_run_two_simple', paired))
-        else:
-            from sjtu_tpmshx.solvers.backends.python.two_d import coupling
-            from sjtu_tpmshx.solvers import ltne_enthalpy_2d as enthalpy
-            stack.enter_context(patch.object(coupling, 'run_outer_coupling', clocked(coupling.run_outer_coupling, 'outer_loop')))
-            stack.enter_context(patch.object(coupling, 'solve_full_domain', clocked(coupling.solve_full_domain, 'LTNE')))
-            stack.enter_context(patch.object(enthalpy, 'solve_enthalpy_2d', clocked(enthalpy.solve_enthalpy_2d, 'enthalpy')))
-            build = runtime.build_runtime
-            def build_runtime(*args, **kwargs):
-                fields = build(*args, **kwargs)
-                original = fields['_run_simple']
-                def solve_side(*args, **kwargs):
-                    labels.side = str(args[5])
-                    try:
-                        return clocked(original, labels.side)(*args, **kwargs)
-                    finally:
-                        del labels.side
-                fields['_run_simple'] = solve_side
-                return fields
-            stack.enter_context(patch.object(runtime, 'build_runtime', build_runtime))
-        yield
 
 
 @contextmanager
@@ -197,10 +118,7 @@ def run_one(job, output, *, sample_kind, control=RunControl()):
                        model_refs=[dict(name=ref.name, version=ref.version,
                                         parameters=ref.parameters, applicability=ref.applicability)
                                    for ref in case.model_refs])
-            observer = (observe_solver(case.grid['dimension'], row['calls'])
-                        if control.backend == 'python' else nullcontext())
-            with observer:
-                native = timed('solve_inclusive', run_case, case, control)
+            native = timed('solve_inclusive', run_case, case, control)
             performance = timed('evaluate', evaluate, native)
             display = timed('application_map', to_compute_result, native, performance)
             row.update(execution=native.run_status['execution'], run_status=native.run_status,

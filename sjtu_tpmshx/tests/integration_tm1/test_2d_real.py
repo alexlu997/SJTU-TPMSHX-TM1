@@ -9,19 +9,16 @@ from sjtu_tpmshx.domain.compute_config import (
 )
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.preprocess.two_d.preparation import prepare_case
-from sjtu_tpmshx.solvers.backends.python.two_d.execution import run_case
+from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.postprocess.metrics import evaluate
 
-# 2026-10-02: per-stream epsilon*k and certified model-h finishing, with the
-# existing Anderson sweeps. Original budgets and comparison tolerances remain.
-# Prior references remain in docs/history/README.md.
-# Backend Richardson/centre-pressure and public native/face-pressure metrics
-# have separate references; all comparison tolerances remain unchanged.
-AIR_BASELINE_METRICS = [31152.0469411321, 1631.088176096137, 1212.5730880422088,
-                        303.2761483302114, 334.7899628549054]
-AIR_NATIVE_Q = 31131.515711397526
-AIR_PUBLIC_METRICS = [AIR_NATIVE_Q, 1626.028297634257, 1188.8113859451987,
-                      303.2761483302114, 334.7899628549054]
+# Frozen C++ v0.1 results, before Python retirement. Source: 23ea2cca.
+# The original relative and absolute comparison tolerances remain unchanged.
+AIR_BASELINE_METRICS = [31151.737386660214, 1631.0883215560673, 1212.573126277978,
+                        303.276155996738, 334.79002576392344]
+AIR_NATIVE_Q = 31131.514924465693
+AIR_PUBLIC_METRICS = [AIR_NATIVE_Q, 1626.0284419863456, 1188.8114298952132,
+                      303.2761559967381, 334.79002576392344]
 
 
 def baseline_config():
@@ -89,8 +86,8 @@ def _assert_postprocessing(result):
     # Physical inlet-face pressure anchoring; the deliberately short fixed
     # outer budget still reports nonconvergence. Tolerances are unchanged.
     # CoolProp 8 HEOS-polished references; independent extra HP refinement agrees.
-    ('sco2', .3, 12e6, 'water', 2e6, 45624.58630011295),
-    ('air', 3., 2e5, 'sco2', 12e6, 4416.181525308646),
+    ('sco2', .3, 12e6, 'water', 2e6, 45693.194591911335),
+    ('air', 3., 2e5, 'sco2', 12e6, 4588.467655644805),
 ])
 def test_mixed_partial_native_and_postprocessing(fluid_A,u_A,P_A,fluid_B,P_B,expected_Q):
     from sjtu_tpmshx.domain.compute_config import ExtrapPolicy
@@ -109,7 +106,7 @@ def test_mixed_partial_native_and_postprocessing(fluid_A,u_A,P_A,fluid_B,P_B,exp
     assert result.run_status['converged'] is False
     assert result.run_status['final_flow_after_last_thermal'] is True
     assert not np.array_equal(result.fields['Ta'], result.fields['Ta_display'])
-    eos = result.metadata['model_metadata']['sco2_enthalpy_eos']
+    eos = result.metadata['model_metadata']['enthalpy_eos']
     assert list(eos['sides']) == (['A'] if fluid_A == 'sco2' else ['B'])
     assert eos['final_backend'] == 'HEOS'
     _assert_postprocessing(result)

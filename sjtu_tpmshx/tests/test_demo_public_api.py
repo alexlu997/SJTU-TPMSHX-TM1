@@ -19,7 +19,7 @@ def result():
     fields.update(vmag_A=values + 1., vmag_B=values + 2.,
                   P_fA_display=100000. + 200. * values,
                   P_fB_display=90000. + 100. * values)
-    return FieldResult('demo-result', 'demo-case', 'python', fields=fields,
+    return FieldResult('demo-result', 'demo-case', 'cpp', fields=fields,
         grid=dict(dx=np.array([.01, .02]), dy=np.array([.015, .025]),
                   dz=np.array([.01, .02])),
         run_status=dict(execution='completed', converged=True),
@@ -115,7 +115,7 @@ def test_entries_use_public_api_and_preserve_failed_acceptance(module_name, resu
         events.append('prepare')
         return prepared
     def run(case, control):
-        assert case is prepared and control.backend == 'python'
+        assert case is prepared and control.backend == 'cpp'
         events.append('run')
         return result
     def evaluate(field):

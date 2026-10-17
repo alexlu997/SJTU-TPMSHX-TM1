@@ -52,15 +52,6 @@ def main() -> None:
     if not np.allclose(linalg.solve(matrix, rhs), expected):
         raise RuntimeError("SciPy linear algebra smoke failed")
 
-    from numba import njit
-
-    @njit
-    def increment(values):
-        return values + 1.0
-
-    if not np.array_equal(increment(np.array([1.0, 2.0])), [2.0, 3.0]):
-        raise RuntimeError("Numba JIT smoke failed")
-
     from CoolProp.CoolProp import PropsSI
 
     if PropsSI("D", "T", 300.0, "P", 101325.0, "Air") <= 0.0:

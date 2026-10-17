@@ -8,7 +8,7 @@
 公开计算入口与正式 Case/Result 文件交接仍见 README；这些工具不替代主线验收。
 
 `demo_3d_air_air`、`demo_3d_cube_air_air`、`demo_3d_cube_volume` 和
-`runs.tools.render_3d_styles` 使用 `prepare_case → run_case → evaluate`，固定 Python 后端。
+`runs.tools.render_3d_styles` 使用 `prepare_case → run_case → evaluate`，使用 C++ 后端。
 它们保留原始长方体/立方体工况及显示场，输出目录仍为 `.cache/demos/` 下各自的目录。
 摘要将公共指标与旧后端诊断分别列出：`Q=|Q_A|`，`Q_A/Q_B` 是带符号的原生边界热损失，
 吸热为负；出口温度使用原生热状态的流出质量加权，压降使用最终 SIMPLE 压力的物理端口面。
@@ -54,15 +54,14 @@ Phase 3 核算热模型的熵产（W/K），不含压力／黏性贡献。它使
 不把数值对流耗散加进物理产熵。边界／物理产熵一致性的 5% 门限保持不变，
 近零归一化下限为 `1 W / 最低入口温度`（W/K）。网格分辨率不足仍会失败。
 使用 `python -m sjtu_tpmshx.validation.cases.audit_3d_conservation --grid 40`
-复核当前 T1–T6；显式粗网格结果保留其原失败状态。允许的出口温度交叉只列为观察项，
+复核当前 T1–T4/T6；显式粗网格结果保留其原失败状态。允许的出口温度交叉只列为观察项，
 不会再显示为失败门。
 
 上海独立lumped双Nu比较仍以crossflow为主、counterflow为敏感性对照。
 `python -m sjtu_tpmshx.validation.cases.validate_shanghai_lumped_dual_nu`
 默认将CSV及来源元数据写入新的`.cache/validation/shanghai-lumped-dual-nu-*`，
 也可用`--out-dir`指定目录，不再覆盖`data/shanghai_lumped_dual_nu.csv`。
-`benchmark_sou_3d`的压降使用当前`pressure_face_v1`物理面外推定义，
-旧单元中心压降输出只保留其历史口径。
+`benchmark_sou_3d` 已随 Python 专用研究入口退役；历史压降记录保留原定义。
 
 `asym_pyfluent_runner` 是未完成的压降研究模板。网格单位、周期配对、流体单元区
 赋材和初始化仍需按实际网格及 Fluent 版本配置。它在固定迭代数后读取压力，
@@ -249,28 +248,17 @@ python -m sjtu_tpmshx.runs.cfd_asym.asym_ntop_expressions_html
 已结束的 703/704/624 工程、M1/M2 固定试验及旧性能复现脚本见
 [退役工具索引](history/retired-tools.md)，不再列为当前目录的重跑入口。
 
-## 三维研究工况的准备与重放
+## 三维验证工况的准备与重放
 
-粗糙度 smoke、T1–T6 审计和 GCI 已使用同一公开求解入口。
-`prepare_research_case` 保留研究指定的孔隙率，并用显式
-`fluid_B_cfg=None` 表示仅求解 A。长度为 m、温度 K、压力 Pa、速度 m/s，
-但 `Lcell` 与 `t_wall` 为 mm。未知输入和运行时回调会被拒绝；回调通过
-`RunControl` 传递。保存的原始输入快照和准备态字段保留请求／实际网格、
-模型资源、环境与预算。研究工况当前仅支持 Python，普通配置仍支持 Python/C++。
-
-`fast_sweep` 将各网格轴限制为最多 15，默认 3 次外循环；`full_validate`
-保留网格，默认 12 次外循环和 50,000 次热迭代。`max_outer_ltne` 可覆盖外循环
-预算。单次外循环允许作为数值试验，但结果仍为未收敛。`_emit_audit` 按需增加
-报告态掩膜与耦合场；字段元数据区分最终 SIMPLE 流动与最后一次热求解。
-未参与求解的 B 侧指标保持不支持。GCI 保留 `Q_enthalpy_A`、实际网格比、
-5% GCI 门和 1% 容差敏感性门；上面的守恒门不变。独立 MMS 离散算子研究保留
-给定速度和源项。
-
-从仓库根目录使用已检查的 `.venv-path` 解释器和上述工作树内缓存运行：
+双流体守恒审计和 GCI 使用公共 `ComputeConfig → prepare_case → run_case` 流程及 C++ 后端。
+Python 专用 `prepare_research_case`、指定孔隙率／单 A 侧研究和旧 MMS 执行入口已撤销；历史结果继续可读。
+原生组件测试保留制造解及离散守恒检查。GCI 保留 `Q_enthalpy_A`、实际网格比、5% GCI 和 1% 容差敏感性门。
+运行时回调通过 `RunControl` 传递，保存态区分最终 SIMPLE 流动和最后热状态。
+从仓库根目录使用已检查的 `.venv-path` 解释器及上述缓存运行：
 
 ```python
 from pathlib import Path
-from sjtu_tpmshx.preprocess.api import prepare_research_case
+from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.io.case_io import save_case, load_case
 from sjtu_tpmshx.io.result_io import save_result
@@ -278,8 +266,7 @@ from sjtu_tpmshx.validation.cases.audit_3d_conservation import make_T2
 
 output = Path('.cache/research-t2')
 output.mkdir(parents=True, exist_ok=True)
-inputs = dict(make_T2(20), _emit_audit=True)
-case = prepare_research_case(inputs, case_id='T2-20')
+case = prepare_case(make_T2(20), case_id='T2-20')
 save_case(case, output / 'case.yaml')
 result = run_case(load_case(output / 'case.yaml'))
 save_result(result, output / 'results.h5')

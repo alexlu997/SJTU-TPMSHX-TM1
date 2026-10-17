@@ -1,26 +1,10 @@
-"""Prepared-case full2D coarse driver against the original production outer.
-
-The Python oracle performs real prepare_case -> build_execution_inputs ->
-_run_solvers. Its original outer/property/SIMPLE execute with qualified same-map thermal components; the
-selected fixed-density flow component is shared for interface checks. Independent
-backend tests retain Python SIMPLE. State is copied when the real outer loop returns and Richardson is stopped
-at its entry. This qualifies coarse coupling, not completed 2D Richardson.
-
-Complete iterative results use the approved 0.01 K temperature and 0.01%
-intermediate-field comparisons, with existing unit-specific absolute floors.
-Power comparisons retain their tighter 2e-8/2e-7 W/m tolerance. Stop,
-iterations and original physical gates are unchanged.
-"""
-from copy import copy, deepcopy
-from contextlib import nullcontext
+"""Prepared 2D inputs and independent returned-state physical audits."""
 import ctypes as ct
-from functools import wraps
-import inspect
 import json
 import os
 from pathlib import Path
 import sys
-from unittest.mock import patch
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -28,24 +12,26 @@ import pytest
 from sjtu_tpmshx.domain.compute_config import (
     ComputeConfig, ExtrapPolicy, FluidConfig, GeometryConfig, PartialBCConfig, SolverConfig, ZoneInputConfig,
 )
-from sjtu_tpmshx.domain.module_ports import RunControl
-from sjtu_tpmshx.models.grid import _port_overlap_1d
+from sjtu_tpmshx.models.grid import _port_overlap_1d, _port_fractions_1d
+from sjtu_tpmshx.models.tpms_props import model_h_coefficients
 from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers import ltne_energy, simple_solver
-from sjtu_tpmshx.solvers._solve_common import inlet_pressure_state
-from sjtu_tpmshx.solvers.backends.python.two_d import coupling, runtime
+from sjtu_tpmshx.result_math import pressure_face_values
 from sjtu_tpmshx.solvers.backends import prepared_2d as execution
-from sjtu_tpmshx.tests.native.test_simple_2d_c_api import arguments as simple_arguments
-from sjtu_tpmshx.tests.native import full_thermal_reference
+from sjtu_tpmshx.tests.native.pressure_audit import inlet_pressure_state
+from sjtu_tpmshx.tests.native.simple_inputs import f2_settings
+from sjtu_tpmshx.tests.native.simple_audit import mass_balance, raw_faces
+from sjtu_tpmshx.tests.native.test_simple_2d import audit_momentum
+from sjtu_tpmshx.tests.native.model_h_audit_2d import _model_h_balance
 
 ROOT = Path(__file__).resolve().parents[3]
-same_thermal = full_thermal_reference.same_thermal
 D = ct.POINTER(ct.c_double)
 S = ct.c_size_t
 
 
-class CoarseCaptured(Exception):
-    """Stop before any Richardson work, after original final envelope gates."""
+def prepared_record(case, *, pressure_shooting=True):
+    cfg, prepared = execution.build_execution_inputs(case)
+    cfg['p_in_shooting'] = pressure_shooting
+    return dict(cfg=cfg, prepared=prepared)
 
 
 def configuration(*, directions=(0, 3), outer=4, partial=True, warm=False,
@@ -72,159 +58,8 @@ def configuration(*, directions=(0, 3), outer=4, partial=True, warm=False,
         extrap=ExtrapPolicy(allow=True))
 
 
-def capture_python(case, *, pressure_shooting=True, full=False, thermal=None, native_flow=False):
-    """Observe the Python outer with explicitly selected component references."""
-    cfg, prepared = execution.build_execution_inputs(case)
-    cfg['p_in_shooting'] = pressure_shooting
-    record = dict(cfg=cfg, prepared=prepared, thermal_calls=[], simple_calls=[], outer_history=[], envelope={})
-    original_outer, original_energy, original_simple = coupling.run_outer_coupling, coupling.solve_full_domain, simple_solver.SIMPLESolver.solve
-
-    @wraps(original_simple)
-    def flow(solver, *args, **kwargs):
-        bound = inspect.signature(original_simple).bind(solver, *args, **kwargs)
-        bound.apply_defaults()
-        result = (full_thermal_reference.fixed_density_flow(solver, bound.arguments)
-                  if native_flow and solver.fluid_type != 'ideal_gas' else original_simple(solver, *args, **kwargs))
-        record['simple_calls'].append((deepcopy(solver), result, bound.arguments))
-        return result
-
-    live_state = {}
-
-    @wraps(original_energy)
-    def energy(*args, **kwargs):
-        bound = inspect.signature(original_energy).bind(*args, **kwargs)
-        bound.apply_defaults()
-        values = deepcopy(bound.arguments)
-        thermal_state = live_state['state']
-        if thermal is not None and 'refinement_inputs' in record and values['model_fluids'] is None:
-            # The fine strict solve uses the last coarse thermal mass faces,
-            # conservatively prolonged; final post properties are not a source.
-            thermal_state = copy(thermal_state)
-            coarse = record['refinement_inputs']
-            for side in 'AB':
-                mass = coupling._prolong_mass_faces_2d(
-                    getattr(record['state'], 'mass_flux_'+side), coarse['energy_dx'], coarse['energy_dy'],
-                    values['dx_arr'], values['dy_arr'])
-                setattr(thermal_state, 'mass_flux_'+side, mass)
-            record['refinement_mass_faces'] = (thermal_state.mass_flux_A, thermal_state.mass_flux_B)
-        result = (original_energy(*args, **kwargs) if thermal is None else
-                  thermal.plane(values, thermal_state, cfg))
-        record['thermal_calls'].append((values, deepcopy(result[3])))
-        return result
-
-    def outer(*, max_iter, step, post):
-        state = inspect.getclosurevars(post).nonlocals['state']
-        live_state['state'] = state
-        previous = None
-
-        @wraps(step)
-        def observed_step(index):
-            nonlocal previous
-            result = step(index)
-            fields = [state.Ta, state.Tb, state.Ts]
-            deltas = ([np.inf] * 3 if previous is None else
-                      [float(np.max(np.abs(x-p))) for x, p in zip(fields, previous)])
-            previous = [x.copy() for x in fields]
-            record['outer_history'].append(dict(iteration=index, thermal_iterations=state.e_info['iterations'],
-                thermal_converged=state.e_info['converged'], outer_converged=result[0],
-                relative_density_change=[state.drho_A, state.drho_B], temperature_change=deltas))
-            return result
-
-        result = original_outer(max_iter=max_iter, step=observed_step, post=post)
-        record.update(state=deepcopy(state), outer_return=result,
-                      coarse_thermal_calls=list(record['thermal_calls']))
-        return result
-
-    original_gate = coupling.gate_solution
-
-    @wraps(original_gate)
-    def gate(*args, **kwargs):
-        result = original_gate(*args, **kwargs)
-        record['envelope'][kwargs['dims']] = result
-        return result
-
-    original_refinement = coupling._compute_Q_richardson
-
-    def refinement(*args, **kwargs):
-        if not full:
-            raise CoarseCaptured
-        evidence = kwargs.setdefault('evidence', {})
-        bound = inspect.signature(original_refinement).bind(*args, **kwargs)
-        bound.apply_defaults()
-        record['refinement_inputs'] = deepcopy(bound.arguments)
-        if thermal is not None and bound.arguments['model_inputs'] is None:
-            original_duty = coupling._enthalpy_balance_2d
-            record['legacy_temperature_duties'] = []
-
-            def duty(temperature, *duty_args, **duty_kwargs):
-                legacy = original_duty(temperature, *duty_args, **duty_kwargs)
-                for stage, fields, info in (
-                        ('main', (bound.arguments['Ta'], bound.arguments['Tb']),
-                         record['coarse_thermal_calls'][-1][1]),
-                        ('fine', (evidence['Ta'], evidence['Tb']), record['thermal_calls'][-1][1])):
-                    for side, field in enumerate(fields):
-                        if temperature is field:
-                            ledger = info['_full_reference']
-                            value = (ledger['advective_inward'][side] if ledger['boundary_complete']
-                                     else float('nan'))
-                            record['legacy_temperature_duties'].append(dict(
-                                stage=stage, side=side, legacy_cp_duty=legacy, model_h_duty=value))
-                            return value
-                raise AssertionError('Richardson duty did not use an observed thermal return')
-
-            # Preserve the original Richardson algebra, acceptance and fallback
-            # checks; only its explicitly changed fullCC duty definition differs.
-            with patch.object(coupling, '_enthalpy_balance_2d', duty):
-                result = original_refinement(*args, **kwargs)
-            expected = [('main', 0), ('main', 1)]
-            if record['thermal_calls'][-1][1]['converged']:
-                expected += [('fine', 0), ('fine', 1)]
-            assert [(r['stage'], r['side']) for r in record['legacy_temperature_duties']] == expected
-        else:
-            result = original_refinement(*args, **kwargs)
-        record['refinement_result'] = deepcopy(result)
-        record['refinement_evidence'] = deepcopy(evidence)
-        return result
-
-    from sjtu_tpmshx.solvers import ltne_enthalpy_2d
-    original_h = ltne_enthalpy_2d.solve_enthalpy_2d
-
-    @wraps(original_h)
-    def enthalpy(*args, **kwargs):
-        bound = inspect.signature(original_h).bind(*args, **kwargs)
-        bound.apply_defaults()
-        values = deepcopy(bound.arguments)
-        result = original_h(*args, **kwargs)
-        record['thermal_calls'].append((values, deepcopy(result[3])))
-        return result
-
-    rt = runtime.build_runtime(cfg, prepared)
-    with patch.object(coupling, 'run_outer_coupling', outer), patch.object(coupling, 'solve_full_domain', energy), \
-         patch.object(coupling, '_compute_Q_richardson', refinement), patch.object(coupling, 'gate_solution', gate), \
-         patch.object(simple_solver.SIMPLESolver, 'solve', flow), patch.object(ltne_enthalpy_2d, 'solve_enthalpy_2d', enthalpy), \
-         (full_thermal_reference.selected_energy_reference(case)
-          if thermal is not None and any(cfg['fluid_'+side] in ('co2','sco2') for side in 'AB') else nullcontext()):
-        try:
-            record['capture_inputs'] = coupling._run_solvers(cfg, rt, RunControl())
-            if 'legacy_temperature_duties' in record:
-                # FullCC reports all inward mass on the detached main thermal
-                # boundary. Tout already uses these same mass faces in Python.
-                diagnostics = record['capture_inputs'][-1]
-                record['legacy_temperature_inlet_mass'] = {
-                    side: diagnostics['mass_flow_'+side+'_kg_s_per_m'] for side in 'AB'}
-                for side in 'AB':
-                    mx, my = getattr(record['state'], 'mass_flux_'+side)
-                    diagnostics['mass_flow_'+side+'_kg_s_per_m'] = float(
-                        np.maximum(mx[0], 0.).sum() + np.maximum(-mx[-1], 0.).sum()
-                        + np.maximum(my[:, 0], 0.).sum() + np.maximum(-my[:, -1], 0.).sum())
-        except CoarseCaptured:
-            record['refinement_stopped'] = True
-    assert 'state' in record and len(record['coarse_thermal_calls']) == len(record['outer_history'])
-    return record
-
-
 def inputs(record):
-    cfg, prepared, state = record['cfg'], record['prepared'], record['state']
+    cfg, prepared = record['cfg'], record['prepared']
     shape = (len(prepared['energy_dx']), len(prepared['energy_dy']))
 
     def cell(value):
@@ -259,23 +94,22 @@ def inputs(record):
         scalars.extend([cfg['T_in'+side], physical.P_in_Pa, cfg['u_'+side], properties[side]['mu'],
             flow['seed_K_m2'], flow['seed_cF_per_m'], port['in_ctr']-port['in_w']/2, port['in_ctr']+port['in_w']/2,
             port['out_ctr']-port['out_w']/2, port['out_ctr']+port['out_w']/2, *side_geometry])
-    simple = simple_arguments(state.simpA)['settings']
-    f2 = simple['f2']
-    thermal = record['thermal_calls'][0][0]
+    solver = cfg['compute_cfg'].solver
+    monitor = f2_settings(SimpleNamespace(**{key: value for key, value in vars(solver).items() if value is not None}))
     has_water = 'water' in (cfg['fluid_A'], cfg['fluid_B'])
     thermal_tolerance = .1 if mode == 'true_h' else 1. if has_water else .5
     flags = [int(cfg['tpms_type'] == 'Gyroid'), ('temperature', 'model_h', 'true_h').index(mode),
         ('air', 'water', 'sco2').index(cfg['fluid_A']), ('air', 'water', 'sco2').index(cfg['fluid_B']),
         cfg['dir_A'], cfg['dir_B'], int(cfg['compute_cfg'].geometry.delta_levelset != 0), int(cfg.get('T_s_init') is not None),
         int(cfg['cfgA'].get('uniform_inlet_2d', False)), int(cfg['cfgB'].get('uniform_inlet_2d', False)),
-        int(cfg['p_in_shooting']), int(ltne_energy._RB_ENERGY_2D and np.prod(shape) > ltne_energy._RB_ENERGY_2D_GATE),
-        int(getattr(state.simpA, 'massflux_inlet', True)), 1, cfg['compute_cfg'].solver.max_iter_simple or 10000,
-        2, cfg['compute_cfg'].solver.max_outer_ltne or 10, thermal['max_iter'],
-        (thermal.get('conv_chunk') or 500) if mode != 'true_h' else 3,
-        f2['confirmations'], f2['momentum_interval'], f2['stall_window'], 0, int(z is not None)]
-    scalars.extend([.7, .3, state.simpA.alpha_rho, state.simpA.R_gas, state.simpA.cf_aniso,
-        f2['momentum_tolerance'], f2['local_mass_tolerance'], f2['global_mass_tolerance'], f2['backflow_maximum'],
-        f2['velocity_check_tolerance'], f2['stall_ratio'], cfg['compute_cfg'].solver.outer_tol_K or 1., .01, .7,
+        int(cfg['p_in_shooting']), 0,
+        1, 1, cfg['compute_cfg'].solver.max_iter_simple or 10000,
+        2, cfg['compute_cfg'].solver.max_outer_ltne or 10, 12000 if has_water else 5000,
+        500 if mode != 'true_h' else 3,
+        monitor.n_confirm, monitor.mom_every, monitor.stall_window, 0, int(z is not None)]
+    scalars.extend([.7, .3, .3, 287.05, 0.,
+        monitor.mom_tol, monitor.mass_local_tol, monitor.mass_global_tol, monitor.backflow_max,
+        monitor.vtol, monitor.stall_ratio, cfg['compute_cfg'].solver.outer_tol_K or 1., .01, .7,
         min(thermal_tolerance * 2e-3, 1e-3), max(thermal_tolerance, 1e-8) / 100.])
     arrays.append(cell(geometry['D_h']*1000. / (cfg['Lcell'] if z is None else z['L_field'])))
     assert len(arrays) == 29 and len(flags) == 24 and len(scalars) == 49
@@ -332,166 +166,160 @@ def compare_array(actual, expected, kind='other'):
     np.testing.assert_allclose(np.asarray(actual).reshape(expected.shape), expected, rtol=rtol, atol=atol, equal_nan=True)
 
 
-def compare_coarse(actual, record):
-    state, cfg = record['state'], record['cfg']
+def physical_field(field, direction):
+    value = np.asarray(field).T if direction < 2 else np.asarray(field)
+    return np.flip(value, axis=direction//2) if direction % 2 else value
+
+
+def audit_thermal(thermal, record, dx, dy, *, full=False, outer=True):
+    cfg = record['cfg']
+    shape = (len(dx), len(dy))
+    cell = lambda value: np.asarray(value).reshape(shape)
+    result = thermal['result']
+    temperatures = [cell(value) for value in thermal['temperature']]
+    assert all(np.isfinite(value).all() and (value > 0).all() for value in temperatures)
+    assert result['iterations'] > 0 and np.isfinite(result['residual'])
+    if result['mode'] != 'model_h':
+        return
+    directions = [cfg['dir_'+side] for side in 'AB']
+    inlet = [np.full(shape[1-direction//2], cfg['T_in'+side]) for side, direction in zip('AB', directions)]
+    openings = []
+    for side,direction in zip('AB',directions):
+        port = cfg['cfg'+side]
+        openings.append(_port_fractions_1d((dx,dy)[1-direction//2],
+            port['in_ctr']-port['in_w']/2,port['in_ctr']+port['in_w']/2)[0])
+    masses = [tuple(np.asarray(thermal[key][i]).reshape(tuple(n+int(a==axis) for a,n in enumerate(shape)))
+                    for axis,key in enumerate(('mass_x', 'mass_y'))) for i in range(2)]
+    balance = _model_h_balance(*temperatures, *[cell(x) for x in thermal['conductivity']],
+        cell(thermal['solid_conductivity']), *[cell(x) for x in thermal['hv']], dx, dy, *masses,
+        *[model_h_coefficients(cfg['fluid_'+side]) for side in 'AB'], *directions, *inlet, *openings,
+        True, cell(result['last_a']), cell(result['last_b']))
+    if full:
+        balance['passed'] = balance['passed'] and outer
+    from sjtu_tpmshx.tests.native.test_full_2d_refinement import compare_audit
+    compare_audit(result['audit'], balance)
+    q_b = np.sum(cell(thermal['hv'][1])*(temperatures[2]-temperatures[1])*dx[:,None]*dy[None,:])
+    compare_array(result['q_b'], q_b, 'power')
+    checks = result['finishing_checks']
+    assert checks and checks[-1]['iterations'] <= result['iterations']
+    assert all(b['iterations'] > a['iterations'] for a,b in zip(checks, checks[1:]))
+    if result['stop'] == 0:
+        assert checks[-1]['passed'] and checks[-1]['equations_ok']
+
+
+def audit_coarse(actual, record, *, full=False):
+    cfg, prepared = record['cfg'], record['prepared']
     assert not actual['cancelled']
-    assert actual['outer_converged'] == record['outer_return'][1]
-    assert actual['iterations'] == record['outer_return'][0] + 1
-    assert actual['post_after_last_thermal'] == (not record['outer_return'][1])
-    assert len(actual['outer_history']) == len(record['outer_history'])
-    for got, expected in zip(actual['outer_history'], record['outer_history']):
-        for key in ('iteration', 'thermal_iterations', 'thermal_converged', 'outer_converged'):
-            assert got[key] == expected[key], (key, got, expected)
-        compare_array(got['relative_density_change'], expected['relative_density_change'])
-        compare_array(got['temperature_change'], expected['temperature_change'], 'temperature')
-    thermal = actual['thermal']
-    for got, name in zip(thermal['temperature'], ('Ta', 'Tb', 'Ts')):
-        compare_array(got, getattr(state, name), 'temperature')
-    for index, side in enumerate(('A', 'B')):
-        solver, flow = getattr(state, 'simp'+side), actual['flow'][index]
-        for key, name in (('dx', 'dx_arr'), ('dy', 'dy_arr'), ('u', 'u'), ('v', 'v'), ('pressure', 'P'),
-            ('pressure_correction', 'Pp'), ('d_u', 'd_u'), ('d_v', 'd_v'), ('density', 'rho_field'),
-            ('inlet_velocity', 'v_inlet_field'), ('viscosity', 'mu_field'), ('effective_viscosity', '_mu_eff_field'),
-            ('temperature', 'T_field'), ('epsilon', 'eps_field')):
-            kind = 'pressure' if key.startswith('pressure') else 'temperature' if key == 'temperature' else 'state'
-            compare_array(flow[key], getattr(solver, name), kind)
-        compare_array(flow['reference_pressure'], solver.P_ref_abs, 'pressure')
-        compare_array(flow['taper_flux_scale'], solver._inlet_taper_flux_scale)
-        compare_array(flow['massflux_target'], solver._massflux_target)
-        for key in ('uc', 'vc'):
-            compare_array(flow[key], getattr(state, key+side), 'state')
+    assert actual['post_after_last_thermal'] == (not actual['outer_converged'])
+    history = actual['outer_history']
+    assert len(history) == actual['iterations'] <= (cfg['compute_cfg'].solver.max_outer_ltne or 10)
+    assert [row['iteration'] for row in history] == list(range(actual['iterations']))
+    assert history[-1]['outer_converged'] == actual['outer_converged']
+    assert not any(row['outer_converged'] for row in history[:-1])
+    if actual['outer_converged']:
+        assert history[-1]['thermal_converged']
+        assert max(history[-1]['relative_density_change']) < .01
+        assert max(history[-1]['temperature_change']) < (cfg['compute_cfg'].solver.outer_tol_K or 1.)
+    for index, side in enumerate('AB'):
+        flow, seed = actual['flow'][index], cfg['flow_inputs'][side]
+        dx, dy = [np.asarray(flow[key]) for key in ('dx','dy')]
+        shape = (len(dx), len(dy))
+        view = SimpleNamespace(dx_arr=dx, dy_arr=dy, Nx=shape[0], Ny=shape[1],
+            outlet_geom_frac=cfg['boundary_openings'][side]['out_geom_frac'],
+            inlet_geom_frac=cfg['boundary_openings'][side]['in_geom_frac'],
+            P_ref_abs=flow['reference_pressure'], cf_aniso=0.,
+            fluid_type='ideal_gas' if cfg['fluid_'+side] == 'air' else 'incompressible',
+            _K_field2d=seed.get('K_field_m2'), _cF_field2d=seed.get('cF_field_per_m'),
+            _K_arr=np.asarray(seed['K_m2']), _cF_arr=np.asarray(seed['cF_per_m']))
+        for source, target in (('density','rho_field'), ('epsilon','eps_field'), ('viscosity','mu_field'),
+                               ('effective_viscosity','_mu_eff_field'), ('pressure','P')):
+            setattr(view, target, np.asarray(flow[source]).reshape(shape))
+        view.u = np.asarray(flow['u']).reshape(shape[0]+1,shape[1])
+        view.v = np.asarray(flow['v']).reshape(shape[0],shape[1]+1)
+        port = cfg['cfg'+side]
+        view.outlet_u_frac = _port_overlap_1d(dx, port['out_ctr']-port['out_w']/2,
+                                             port['out_ctr']+port['out_w']/2, staggered=True)
+        result = flow['result']
+        if result['post_closure_measured']:
+            mass, count, _ = mass_balance(view, exclude_outlet=True)
+            np.testing.assert_allclose([result['mass'][key] for key in ('local_residual','global_residual',
+                'backflow_fraction','mass_in','mass_out')], mass, rtol=2e-12, atol=2e-12)
+            assert result['mass']['counted_cells'] == count
+            _, momentum = audit_momentum(view)
+            np.testing.assert_allclose(result['momentum']['maximum'], momentum, rtol=2e-12, atol=2e-12)
+        if result['converged']:
+            assert result['stop'] == 1 and result['post_closure_certified']
+            assert result['mass']['local_residual'] < 1e-6 and result['mass']['global_residual'] < 1e-6
+            assert result['mass']['backflow_fraction'] <= .01 and result['momentum']['maximum'] < 1e-4
+        assert len(flow['history']['legacy']) >= result['iterations'] - result['acceleration_attempts']
+        assert np.isfinite(flow['history']['legacy']).all()
         direction = cfg['dir_'+side]
-        pressure = coupling._simple_pressure_abs_2d(solver, direction, getattr(cfg['compute_cfg'], 'fluid_'+side).P_in_Pa)
-        compare_array(flow['absolute_pressure'], pressure, 'pressure')
-        compare_array(thermal['pressure'][index], pressure, 'pressure')
-        for key, expected in zip(('mass_x', 'mass_y'), getattr(state, 'mass_flux_'+side)):
-            compare_array(flow[key], expected)
-            compare_array(thermal[key][index], expected)
-        pressure_state = inlet_pressure_state(solver, getattr(cfg['compute_cfg'], 'fluid_'+side).P_in_Pa)
-        if pressure_state is None:
-            assert flow['pressure_state'] is None and flow['pressure_iterations'] == []
+        pin = getattr(cfg['compute_cfg'], 'fluid_'+side).P_in_Pa
+        pressure = physical_field(view.P, direction)
+        if view.fluid_type == 'ideal_gas':
+            pressure = pressure + view.P_ref_abs
         else:
-            for key, value in pressure_state.items():
+            inlet, _ = pressure_face_values(view.P, dy)
+            pressure = pin + pressure - np.average(inlet, weights=dx*view.inlet_geom_frac)
+        compare_array(flow['absolute_pressure'], pressure, 'pressure')
+        state = inlet_pressure_state(view, pin)
+        if state is None:
+            assert flow['pressure_state'] is None
+        else:
+            for key, value in state.items():
                 if key == 'iterations':
-                    assert len(flow['pressure_iterations']) == len(value)
-                    for got, expected in zip(flow['pressure_iterations'], value):
-                        assert got.keys() == expected.keys()
-                        for name, scalar in expected.items():
-                            if isinstance(scalar, str):
-                                assert got[name] == scalar
-                            else:
-                                compare_array(got[name], scalar, 'pressure')
-                elif isinstance(value, (str, bool)):
+                    continue
+                if isinstance(value, (bool,str)):
                     assert flow['pressure_state'][key] == value
                 else:
                     compare_array(flow['pressure_state'][key], value, 'pressure')
-        expected_result = next(returned for s, returned, _ in reversed(record['simple_calls'])
-                               if s.P.shape == solver.P.shape and np.array_equal(s.P, solver.P))
-        result = flow['result']
-        assert (result['converged'], result['iterations']) == expected_result
-        assert result['stop'] == {'tol': 1, 'stall': 2, 'max_iter': 3, 'nonfinite': 4}[solver.exit_reason]
-        assert result['post_closure_measured'] == (solver.f2_cert_post_rescale_ok is not None)
-        assert result['post_closure_certified'] == bool(solver.f2_cert_post_rescale_ok)
-        assert result['pressure_clip_hits'] == getattr(solver, '_p_clip_hits', 0)
-        for got, expected in ((result['legacy_residual'], solver.final_res),
-            (result['momentum']['maximum'], solver.final_res_mom), (result['mass']['local_residual'], solver.final_res_mass_local),
-            (result['mass']['global_residual'], solver.final_res_mass_global), (result['mass']['backflow_fraction'], solver.outlet_backflow_frac)):
-            compare_array(got, expected)
-        for key, name in (('legacy', 'residuals'), ('local_mass', 'mass_local_residuals'), ('global_mass', 'mass_global_residuals')):
-            compare_array(flow['history'][key], getattr(solver, name))
-        assert len(flow['history']['momentum']) == len(solver.mom_residuals)
-        for got, expected in zip(flow['history']['momentum'], solver.mom_residuals):
-            assert got['iteration'] == expected['iter']
-            compare_array(got['residual']['maximum'], expected['max'])
-            compare_array(got['residual']['numerator'][:2], expected['num'])
-            compare_array(got['residual']['denominator'][:2], expected['den'])
-            compare_array(got['residual']['component'][:2], [expected['u'], expected['v']])
-        for key, name in (('density', 'rho_'+side+'_field'), ('viscosity', 'mu_'+side), ('rho_cp', 'rho_cp_'+side)):
-            compare_array(actual[key][index], np.broadcast_to(getattr(state, name), state.Ta.shape), 'state')
-        expected_envelope = record['envelope'].get('2D-'+side, (True, []))
-        assert actual['envelope'][index] == dict(valid=expected_envelope[0], reasons=expected_envelope[1])
-    result = thermal['result']
-    assert (result['stop'] == 0) == state.e_info['converged']
-    assert result['iterations'] == state.e_info['iterations']
-    compare_array(result['residual'], state.e_info['residual'], 'temperature')
-    last_inputs = record['coarse_thermal_calls'][-1][0]
-    for index, side in enumerate(('A', 'B')):
-        compare_array(thermal['hv'][index], last_inputs['h_v'+side])
-        if 'rho_cp_f'+side in last_inputs:
-            compare_array(thermal['rho_cp'][index], np.broadcast_to(last_inputs['rho_cp_f'+side], state.Ta.shape), 'state')
-            compare_array(thermal['conductivity'][index], np.broadcast_to(last_inputs['K_ff'+side], state.Ta.shape))
-    compare_array(thermal['solid_conductivity'], np.broadcast_to(last_inputs.get('K_ss', last_inputs.get('k_s')), state.Ta.shape))
-    if result['mode'] == 'model_h':
-        expected = state.e_info['model_h_balance']
-        audit = result['audit']
-        assert result['audit_available']
-        for key, name in {'boundary_complete': 'physical_boundary_complete', 'finite': 'finite', 'energy_ok': 'energy_ok',
-            'solid_ok': 'solid_ok', 'equations_ok': 'equations_ok', 'passed': 'passed'}.items():
-            assert audit[key] == expected[name]
-        assert result['finishing_checks'] == state.e_info['energy_finishing_checks']
-        for key, name in {'solid_sum': 'solid_residual_sum_W_per_m', 'solid_max': 'solid_residual_max_abs_W_per_m',
-            'solid_cell_ratio': 'solid_residual_cellmax_rel', 'residual_sum': 'residual_sum_W_per_m',
-            'telescoping_error': 'telescoping_error_W_per_m', 'net_boundary_in': 'net_boundary_in_W_per_m',
-            'denominator': 'D2_W_per_m', 'energy_imbalance': 'energy_imbalance_rel', 'solid_imbalance': 'solid_imbalance_rel'}.items():
-            compare_array(audit[key], expected[name], 'power' if name.endswith('_W_per_m') else 'other')
-        for got, side in zip(audit['sides'], ('A', 'B')):
-            target = expected[side]
-            assert got['unknown_inflow_faces'] == target['unknown_inflow_faces']
-            for key, name in {'q_advective': 'Q_advective_W_per_m', 'inlet_conduction': 'inlet_conduction_W_per_m',
-                'exchange': 'exchange_W_per_m', 'residual_sum': 'residual_sum_W_per_m', 'residual_max': 'residual_max_abs_W_per_m',
-                'linearized_sum': 'linearized_residual_sum_W_per_m', 'linearized_max': 'linearized_residual_max_abs_W_per_m',
-                'defect_sum': 'linearization_defect_sum_W_per_m', 'defect_max': 'linearization_defect_max_abs_W_per_m',
-                'mass_net': 'mass_net_out_kg_s_per_m', 'mass_local_max': 'mass_local_max_abs_kg_s_per_m',
-                'mass_in': 'mass_in_kg_s_per_m', 'mass_out': 'mass_out_kg_s_per_m',
-                'normalization': 'strict_normalization_W_per_m', 'cell_ratio': 'residual_cellmax_rel',
-                'inlet_conduction_faces': 'inlet_conduction_faces_W_per_m', 'cp_coefficients': 'cp_coefficients'}.items():
-                try:
-                    compare_array(got[key], target[name], 'power' if name.endswith('_W_per_m') else 'other')
-                except AssertionError as error:
-                    raise AssertionError(f'Model-h audit side {side}: {name}') from error
-            for key, name in {'boundary_mass_out': 'boundary_mass_out_kg_s_per_m',
-                              'boundary_h_out': 'boundary_h_out_W_per_m', 'h_faces': 'h_faces_W_per_m'}.items():
-                for face, expected_face in zip(got[key], target[name]):
-                    compare_array(face, expected_face, 'power' if name.endswith('_W_per_m') else 'other')
-        q_b = np.sum(last_inputs['h_vB'] * (state.Ts-state.Tb) * record['prepared']['energy_dx'][:, None]
-                     * record['prepared']['energy_dy'][None, :])
-        compare_array(result['q_b'], q_b, 'power')
+        split = cfg['thermal_geometry']['split_A']
+        faces = [face * (split if side == 'A' else 1-split) for face in raw_faces(view)]
+        if direction < 2:
+            faces = [faces[1].T, faces[0].T]
+        if direction % 2:
+            faces[direction//2] = -faces[direction//2]
+            faces = [np.flip(face, axis=direction//2) for face in faces]
+        for key, value in zip(('mass_x','mass_y'), faces):
+            compare_array(flow[key], value)
+    audit_thermal(actual['thermal'], record, prepared['energy_dx'], prepared['energy_dy'],
+                  full=full, outer=actual['outer_converged'])
 
 
 @pytest.mark.parametrize('outer', [2, 4])
-def test_prepared_air_water_model_h_coarse(native, same_thermal, outer):
+def test_prepared_air_water_model_h_coarse(native, outer):
     case = prepare_case(configuration(outer=outer), case_id=f'native-full2d-coarse-{outer}')
-    reference = capture_python(case, native_flow=True, thermal=same_thermal)
+    reference = prepared_record(case)
     code, error, actual = native(inputs(reference))
     assert code == 0, error
-    compare_coarse(actual, reference)
+    audit_coarse(actual, reference)
 
 
 @pytest.mark.parametrize('directions,warm', [((1, 2), False), ((2, 1), False), ((3, 0), True)])
-def test_prepared_directions_and_solid_warm_start(native, same_thermal, directions, warm):
+def test_prepared_directions_and_solid_warm_start(native, directions, warm):
     case = prepare_case(configuration(directions=directions, warm=warm), case_id='native-full2d-directed')
-    reference = capture_python(case, native_flow=True, thermal=same_thermal)
+    reference = prepared_record(case)
     code, error, actual = native(inputs(reference))
     assert code == 0, error
-    compare_coarse(actual, reference)
+    audit_coarse(actual, reference)
 
 
 @pytest.mark.parametrize('mode', ['temperature', 'true_h'])
-def test_prepared_other_thermal_routes(native, same_thermal, mode):
+def test_prepared_other_thermal_routes(native, mode):
     case = prepare_case(configuration(mode=mode, outer=2), case_id='native-full2d-'+mode)
-    reference = capture_python(case, native_flow=True, thermal=same_thermal)
+    reference = prepared_record(case)
     code, error, actual = native(inputs(reference))
     assert code == 0, error
-    compare_coarse(actual, reference)
+    audit_coarse(actual, reference)
 
 
 @pytest.mark.parametrize('shooting', [False, True])
-def test_prepared_pressure_shooting_with_capped_simple(native, same_thermal, shooting):
+def test_prepared_pressure_shooting_with_capped_simple(native, shooting):
     case = prepare_case(configuration(outer=2, simple_max=10), case_id='native-full2d-capped-flow')
-    reference = capture_python(case, native_flow=True, pressure_shooting=shooting, thermal=same_thermal)
+    reference = prepared_record(case, pressure_shooting=shooting)
     code, error, actual = native(inputs(reference))
     assert code == 0, error
-    compare_coarse(actual, reference)
+    audit_coarse(actual, reference)
     assert not all(flow['result']['converged'] for flow in actual['flow'])
 
 
@@ -499,7 +327,7 @@ def test_prepared_pressure_shooting_with_capped_simple(native, same_thermal, sho
     (False, False, (0, 3)), (True, False, (0, 3)),
     (True, True, (0, 3)), (True, True, (1, 2)),
 ])
-def test_prepared_completed_coarse_and_continuous_fields(native, same_thermal, partial, continuous, directions):
+def test_prepared_completed_coarse_and_continuous_fields(native, partial, continuous, directions):
     cfg = configuration(partial=partial, directions=directions, outer=10)
     if continuous:
         cfg.zones = ZoneInputConfig(enabled=True, axis='continuous', config={
@@ -507,7 +335,7 @@ def test_prepared_completed_coarse_and_continuous_fields(native, same_thermal, p
             'n_ctrl_x': 2, 'n_ctrl_y': 2, 'symmetric_y': False,
             'spline_order': 1, 'L_bounds': [4., 8.], 't_bounds': [.3, .6]})
     case = prepare_case(cfg, case_id='native-full2d-completed')
-    reference = capture_python(case, native_flow=True, thermal=same_thermal)
+    reference = prepared_record(case)
     request = inputs(reference)
     if continuous:
         assert np.ptp(request['arrays'][6]) > 0
@@ -515,6 +343,6 @@ def test_prepared_completed_coarse_and_continuous_fields(native, same_thermal, p
         assert all(request['arrays'][index].size == np.prod(request['shape']) for index in (12, 13, 21, 22))
     code, error, actual = native(request)
     assert code == 0, error
-    compare_coarse(actual, reference)
+    audit_coarse(actual, reference)
     assert actual['outer_converged']
     assert all(flow['result']['converged'] for flow in actual['flow'])

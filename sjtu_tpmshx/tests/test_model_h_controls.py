@@ -58,7 +58,9 @@ def test_unsupported_backend_is_rejected_before_dispatch(dimension, backend, mod
     settings = dict(STRICT)
     case = SimpleNamespace(grid={'dimension': dimension}, metadata={'mode': mode},
                            parameters={'run_settings': {'solver': settings}} if dimension == 2 else settings)
-    with pytest.raises(ValueError, match='model-h controls require full compute with backend=cpp'):
+    message = ('Python numerical backend has been retired' if backend == 'python' else
+               'model-h controls require full compute with backend=cpp')
+    with pytest.raises(ValueError, match=message):
         run_case(case, RunControl(backend=backend))
 
 

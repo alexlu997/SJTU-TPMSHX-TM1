@@ -11,7 +11,6 @@ from copy import deepcopy
 import ctypes
 import os
 from pathlib import Path
-import platform
 import shlex
 import shutil
 import subprocess
@@ -22,9 +21,6 @@ import pytest
 from scipy import sparse
 from scipy.sparse.linalg import spsolve
 
-from sjtu_tpmshx.solvers import _kernels_simple_2d as k2
-from sjtu_tpmshx.solvers import _kernels_simple_3d as k3
-from sjtu_tpmshx.solvers.simple_solver_3d import _build_pp_sparsity_3d
 from sjtu_tpmshx.tests.native.test_native_pressure import (
     pressure_executable as pressure_executable,
     request, run_requests,
@@ -40,7 +36,6 @@ SIZE_P = ctypes.POINTER(ctypes.c_size_t)
 BYTE_P = ctypes.POINTER(ctypes.c_ubyte)
 INT_P = ctypes.POINTER(ctypes.c_int)
 CHAR_P = ctypes.POINTER(ctypes.c_char)
-MACOS_ARM64 = sys.platform == 'darwin' and platform.machine() == 'arm64'
 
 
 class NativePressurePrimitives:
@@ -100,7 +95,7 @@ class NativePressurePrimitives:
 
     def primitive(self, case, operation, *, excluded=None, alpha=.3):
         if excluded is None:
-            excluded = python_pattern(case)['cell_kind'].astype(np.uint8)
+            excluded = reference_pattern(case)['cell_kind'].astype(np.uint8)
         excluded = np.ascontiguousarray(excluded, dtype=np.uint8)
         metrics = np.full(8, np.nan)
         error = ctypes.create_string_buffer(512)
@@ -169,78 +164,104 @@ def case_data(dimension, shape, *, weak=False, partial=True, seed=581031):
     return case
 
 
-def python_pattern(case):
-    nx, ny, nz = case['shape']
-    if case['dimension'] == 2:
-        return k2._build_pp_sparsity_pattern(nx, ny, case['outlet_fraction'][:, 0])
-    return _build_pp_sparsity_3d(nx, ny, nz, case['outlet'].astype(bool))
+def reference_pattern(case):
+    pins = np.zeros(case['shape'], dtype=np.uint8)
+    pins[:, -1, :] = case['outlet']
+    return dict(cell_kind=pins.ravel())
 
 
-def python_assembly(case):
-    nx, ny, nz = case['shape']
-    p = python_pattern(case)
-    values, rhs = np.zeros(p['nnz']), np.zeros(nx * ny * nz)
+def reference_assembly(case):
+    shape, dimensions = case['shape'], case['dimension']
+    density, widths = case['rho_eps'], (case['dx'], case['dy'], case['dz'])
+    pins = reference_pattern(case)['cell_kind']
+    rows, columns, values = [], [], []
+    rhs = np.zeros(np.prod(shape))
+    for cell in np.ndindex(shape):
+        row = np.ravel_multi_index(cell, shape)
+        if pins[row]:
+            rows.append(row); columns.append(row); values.append(1.)
+            continue
+        coefficients, neighbors = [], []
+        net = 0.
+        for axis, name in enumerate('uvw'[:dimensions]):
+            area = np.prod([widths[a][cell[a]] for a in range(3) if a != axis])
+            flux = []
+            for sign in (1, -1):
+                neighbor = list(cell)
+                neighbor[axis] += sign
+                internal = 0 <= neighbor[axis] < shape[axis]
+                rho = .5*(density[cell]+density[tuple(neighbor)]) if internal else density[cell]
+                face = list(cell)
+                face[axis] += int(sign == 1)
+                flux.append(rho*case[name][tuple(face)])
+                if internal:
+                    coefficients.append(rho*case['d'+name][tuple(face)]*area)
+                    neighbors.append(np.ravel_multi_index(tuple(neighbor), shape))
+            net += (flux[0]-flux[1])*area
+        diagonal = sum(coefficients)
+        degenerate = diagonal < 1e-30
+        rows.extend([row]*(len(neighbors)+1))
+        columns.extend([row, *neighbors])
+        values.extend([1. if degenerate else diagonal,
+                       *[0. if degenerate else -c for c in coefficients]])
+        rhs[row] = 0. if degenerate else -net
+    matrix = sparse.csr_matrix((values, (rows, columns)), shape=(len(rhs), len(rhs)))
+    return matrix, rhs, pins
+
+
+def reference_correct(case, alpha=.3):
+    pins = reference_pattern(case)['cell_kind'].reshape(case['shape']).astype(bool)
+    case['p'][~pins] += alpha*case['pp'][~pins]
+    for axis, name in enumerate('uvw'[:case['dimension']]):
+        faces, low, high = ([slice(None)]*3 for _ in range(3))
+        faces[axis], low[axis], high[axis] = slice(1, -1), slice(None, -1), slice(1, None)
+        case[name][tuple(faces)] += case['d'+name][tuple(faces)]*(
+            case['pp'][tuple(low)] - case['pp'][tuple(high)])
+        if axis != 1:
+            edge = [slice(None)]*3
+            edge[axis] = [0, -1]
+            case[name][tuple(edge)] = 0.
+    reference_boundary(case, inlet=True)
+
+
+def reference_boundary(case, *, inlet):
+    if inlet:
+        case['v'][:, 0, :] = case['inlet_velocity'] * (
+            case['inlet_fraction'] if case['dimension'] == 2 else 1.)
+    faces = reference_face_flux(case)
+    net = np.diff(faces[0], axis=0)[:, -1, :] - faces[1][:, -2, :]
+    if case['dimension'] == 3:
+        net += np.diff(faces[2], axis=2)[:, -1, :]
+    area = case['dx'][:, None] * case['dz'][None, :]
+    case['v'][:, -1, :] = np.where(case['outlet'], -net/(case['rho_eps'][:, -1, :]*area), 0.)
+
+
+def reference_diagnostics(case, excluded):
+    faces = reference_face_flux(case)
+    net, through = np.zeros(case['shape']), np.zeros(case['shape'])
+    for axis, flux in enumerate(faces[:case['dimension']]):
+        low, high = [slice(None)]*3, [slice(None)]*3
+        low[axis], high[axis] = slice(None, -1), slice(1, None)
+        net += flux[tuple(high)] - flux[tuple(low)]
+        through += np.abs(flux[tuple(high)]) + np.abs(flux[tuple(low)])
+    counted = (through > 0.) & (excluded.reshape(case['shape']) == 0)
+    local = np.max(np.abs(net[counted])/through[counted]) if counted.any() else 0.
+    mi, mo = faces[1][:, 0, :].sum(), faces[1][:, -1, :].sum()
+    absolute_out = np.abs(faces[1][:, -1, :]).sum()
+    bf = np.maximum(-faces[1][:, -1, :], 0.).sum()/absolute_out if absolute_out else 0.
+    inlet = np.abs(faces[1][:, 0, :]).sum()
     if case['dimension'] == 2:
-        k2._assemble_pp_data_jit(values, rhs, case['u'][:, :, 0], case['v'][:, :, 0],
-            case['du'][:, :, 0], case['dv'][:, :, 0], nx, ny, case['dx'], case['dy'],
-            case['rho_eps'][:, :, 0], p['cell_base'], p['cell_kind'])
+        reference = 1.
+        planes = faces[1][:, 1:, :].sum(axis=(0, 2))
+        legacy = np.max(np.abs(planes-inlet))/inlet if inlet >= 1e-30 else 0.
     else:
-        k3._assemble_pp_3d(values, rhs, case['u'], case['v'], case['w'],
-            case['du'], case['dv'], case['dw'], nx, ny, nz, case['dx'], case['dy'], case['dz'],
-            case['rho_eps'], p['cell_base'], p['cell_kind'])
-    matrix = sparse.csr_matrix((values, p['indices'], p['indptr']), shape=(len(rhs), len(rhs)))
-    matrix.sum_duplicates(); matrix.sort_indices()
-    return matrix, rhs, p['cell_kind']
-
-
-def python_correct(case, alpha=.3):
-    nx, ny, nz = case['shape']
-    if case['dimension'] == 2:
-        k2._correct_jit(case['u'][:, :, 0], case['v'][:, :, 0], case['p'][:, :, 0], case['pp'][:, :, 0],
-            case['du'][:, :, 0], case['dv'][:, :, 0], case['inlet_fraction'][:, 0],
-            case['inlet_velocity'][:, 0], case['outlet_fraction'][:, 0],
-            nx, ny, case['dx'], case['dy'], alpha, case['rho'][:, :, 0], case['eps'][:, :, 0])
-    else:
-        k3._correct_jit_3d(case['u'], case['v'], case['w'], case['p'], case['pp'],
-            case['du'], case['dv'], case['dw'], case['inlet_velocity'], nx, ny, nz, alpha,
-            case['rho'], case['eps'], case['outlet'].astype(bool), case['dx'], case['dy'], case['dz'])
-
-
-def python_boundary(case, *, inlet):
-    nx, ny, nz = case['shape']
-    if case['dimension'] == 2:
-        if inlet:
-            case['v'][:, 0, 0] = case['inlet_velocity'][:, 0] * case['inlet_fraction'][:, 0]
-        k2._close_outlet_mass(case['u'][:, :, 0], case['v'][:, :, 0], case['outlet_fraction'][:, 0],
-            nx, ny, case['dx'], case['dy'], case['rho'][:, :, 0], case['eps'][:, :, 0])
-    else:
-        original_inlet = case['v'][:, 0, :].copy()
-        inlet_values = case['inlet_velocity'] if inlet else original_inlet
-        k3._v_bc_3d(case['u'], case['v'], case['w'], inlet_values, case['rho'], case['eps'],
-            case['outlet'].astype(bool), nx, ny, nz, case['dx'], case['dy'], case['dz'])
-
-
-def python_diagnostics(case, excluded):
-    nx, ny, nz = case['shape']
-    if case['dimension'] == 2:
-        u, v, er = (case[name][:, :, 0] for name in ('u', 'v', 'rho_eps'))
-        local, count = k2._mass_res_solved_jit_2d(u, v, nx, ny, case['dx'], case['dy'], er, excluded)
-        mi, mo, bf = k2._mass_global_jit_2d(v, nx, ny, case['dx'], er)
-        legacy, reference = k2._mass_res_jit(v, nx, ny, case['dx'], er), 1.
-    else:
-        u, v, w, er = (case[name] for name in ('u', 'v', 'w', 'rho_eps'))
-        local, count = k3._mass_res_solved_jit_3d(u, v, w, nx, ny, nz,
-            case['dx'], case['dy'], case['dz'], er, excluded)
-        mi, mo, bf = k3._mass_global_jit_3d(v, nx, ny, nz, case['dx'], case['dz'], er)
-        inlet = np.sum(er[:, 0, :] * np.abs(v[:, 0, :]) * case['dx'][:, None] * case['dz'][None, :])
         reference = float(inlet) if inlet > 1e-12 else 1.
-        legacy = k3._mass_res_jit_3d(u, v, w, nx, ny, nz,
-            case['dx'], case['dy'], case['dz'], er) / reference
-    global_mass = abs(mo - mi) / abs(mi) if abs(mi) > 1e-14 else 0.
-    return np.array([local, count, mi, mo, global_mass, bf, legacy, reference])
+        legacy = np.max(np.abs(net))/reference
+    global_mass = abs(mo-mi)/abs(mi) if abs(mi) > 1e-14 else 0.
+    return np.array([local, counted.sum(), mi, mo, global_mass, bf, legacy, reference])
 
 
-def python_face_flux(case):
+def reference_face_flux(case):
     # Independent array arithmetic with arithmetic face rho_eps and SI area.
     er, shape = case['rho_eps'], case['shape']
     output = []
@@ -264,18 +285,13 @@ def python_face_flux(case):
 def check_assembly(native, case, handle):
     code, error, result = native.assemble(case, handle)
     assert code == 0, (code, error)
-    expected = python_assembly(case)
+    expected = reference_assembly(case)
     matrix, rhs, pins = result
     np.testing.assert_array_equal(matrix.indptr, expected[0].indptr)
     np.testing.assert_array_equal(matrix.indices, expected[0].indices)
     np.testing.assert_array_equal(pins, expected[2])
     np.testing.assert_allclose(matrix.data, expected[0].data, rtol=RTOL, atol=2e-18)
     np.testing.assert_allclose(rhs, expected[1], rtol=RTOL, atol=2e-18)
-    if case['dimension'] == 3 and MACOS_ARM64:
-        # Preserve the locked reference JIT's fused arithmetic: roundoff in a
-        # pressure solve can alter later fixed-budget coupled exit decisions.
-        np.testing.assert_array_equal(matrix.data, expected[0].data)
-        np.testing.assert_array_equal(rhs, expected[1])
     return result
 
 
@@ -322,16 +338,13 @@ def test_correction_preserves_pins_sidewalls_partial_ports_and_weak_crossflow(
         native_simple_pressure, dimension, shape, weak):
     case = case_data(dimension, shape, weak=weak)
     expected = deepcopy(case)
-    python_correct(expected)
+    reference_correct(expected)
     code, error, _ = native_simple_pressure.primitive(case, 1)
     assert code == 0, (code, error)
     np.testing.assert_allclose(case['p'], expected['p'], rtol=RTOL, atol=2e-11)
     for name in ('u', 'v', 'w'):
         np.testing.assert_allclose(case[name], expected[name], rtol=RTOL, atol=1e-12)
-    if dimension == 3 and MACOS_ARM64:
-        for name in ('p', 'u', 'v', 'w'):
-            np.testing.assert_array_equal(case[name], expected[name])
-    pins = python_pattern(case)['cell_kind'].astype(bool).reshape(shape)
+    pins = reference_pattern(case)['cell_kind'].astype(bool).reshape(shape)
     original = case_data(dimension, shape, weak=weak)
     np.testing.assert_array_equal(case['p'][pins], original['p'][pins])
     assert np.all(case['u'][[0, -1], :, :] == 0.)
@@ -344,13 +357,11 @@ def test_correction_preserves_pins_sidewalls_partial_ports_and_weak_crossflow(
 def test_local_outlet_close_is_distinct_from_inlet_assignment(native_simple_pressure, dimension, shape, inlet):
     case = case_data(dimension, shape)
     expected = deepcopy(case)
-    python_boundary(expected, inlet=inlet)
+    reference_boundary(expected, inlet=inlet)
     original_inlet = case['v'][:, 0, :].copy()
     code, error, _ = native_simple_pressure.primitive(case, 3 if inlet else 2)
     assert code == 0, (code, error)
     np.testing.assert_allclose(case['v'], expected['v'], rtol=RTOL, atol=1e-12)
-    if dimension == 3 and MACOS_ARM64:
-        np.testing.assert_array_equal(case['v'], expected['v'])
     if not inlet:
         np.testing.assert_array_equal(case['v'][:, 0, :], original_inlet)
     # Count only open outlet CVs: their full physical continuity closes locally.
@@ -370,21 +381,14 @@ def test_raw_flux_local_global_backflow_and_legacy_definitions(native_simple_pre
             case[name].fill(0.)
     elif state == 'backflow':
         case['v'][0, -1, :] = -2.
-    for excluded in (python_pattern(case)['cell_kind'], np.zeros(np.prod(shape), np.uint8)):
-        reference = python_diagnostics(case, excluded)
+    for excluded in (reference_pattern(case)['cell_kind'], np.zeros(np.prod(shape), np.uint8)):
+        reference = reference_diagnostics(case, excluded)
         code, error, metrics = native_simple_pressure.primitive(case, 4, excluded=excluded)
         assert code == 0, (code, error)
         np.testing.assert_allclose(metrics, reference, rtol=RTOL, atol=3e-13)
         assert metrics[1] == reference[1]
-        for name, expected in zip(('mass_u', 'mass_v', 'mass_w'), python_face_flux(case)):
+        for name, expected in zip(('mass_u', 'mass_v', 'mass_w'), reference_face_flux(case)):
             np.testing.assert_allclose(case[name], expected, rtol=RTOL, atol=2e-18)
-        if dimension == 3 and MACOS_ARM64:
-            from sjtu_tpmshx.solvers.ltne_enthalpy_3d import face_mass_fluxes
-
-            thermal_faces = face_mass_fluxes(case['u'], case['v'], case['w'],
-                case['rho'], case['eps'], case['dx'], case['dy'], case['dz'])
-            for name, expected in zip(('mass_u', 'mass_v', 'mass_w'), thermal_faces):
-                np.testing.assert_array_equal(case[name], expected)
         if state == 'backflow':
             assert metrics[5] > 0.
         elif state == 'zero':
@@ -436,7 +440,7 @@ def test_native_assembled_equations_solve_then_correct_with_existing_candidate(
     assert np.max(np.abs(pp[pins.astype(bool)])) <= 1e-10
     case['pp'][...] = pp.reshape(shape)
     expected = deepcopy(case)
-    python_correct(expected)
+    reference_correct(expected)
     code, error, _ = native_simple_pressure.primitive(case, 1)
     assert code == 0, (code, error)
     np.testing.assert_allclose(case['p'], expected['p'], rtol=RTOL, atol=2e-11)

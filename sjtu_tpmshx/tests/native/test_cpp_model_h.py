@@ -139,7 +139,7 @@ def test_no_python_numerical_callbacks_and_owned_results(driver, monkeypatch, di
     c = oracle.case()
     def forbidden(*args, **kwargs):
         raise AssertionError('native driver called Python numerical implementation')
-    for name in ('solve_full_domain' if dimension == 2 else 'solve_full_domain_3d', '_model_h_balance', '_model_h_faces'):
+    for name in ('_model_h_balance', '_model_h_faces'):
         monkeypatch.setattr(oracle.energy, name, forbidden)
     result = driver(**arguments(c))
     snapshot = copy.deepcopy(result)

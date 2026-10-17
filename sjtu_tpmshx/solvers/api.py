@@ -9,14 +9,14 @@ from sjtu_tpmshx.domain.provenance import source_context
 
 def run_case(case: CaseData, control: RunControl = RunControl(), *,
              resume_state=None, checkpoint=None, checkpoint_due=None) -> FieldResult:
-    if control.backend not in ('python', 'cpp'):
-        raise ValueError(f'unsupported backend: {control.backend}')
-    if control.backend not in case.metadata.get('supported_backends', ('python', 'cpp')):
-        raise ValueError(f'prepared research case does not support backend={control.backend}')
+    if case.metadata.get('preprocessor') == 'research_three_d_v1':
+        raise ValueError('Python research cases have been retired; prepare a ComputeConfig case')
+    if control.backend not in case.metadata.get('supported_backends', ('cpp',)):
+        raise ValueError(f'prepared case does not support backend={control.backend}')
     dimension = case.grid.get('dimension')
     mode = case.metadata.get('mode', 'full')
     continuation = resume_state is not None or checkpoint is not None or checkpoint_due is not None
-    if continuation and (control.backend != 'cpp' or mode != 'full'):
+    if continuation and mode != 'full':
         raise ValueError('solver continuation requires full compute with backend=cpp')
     if checkpoint_due is not None and checkpoint is None:
         raise ValueError('checkpoint_due requires a checkpoint callback')
@@ -27,11 +27,11 @@ def run_case(case: CaseData, control: RunControl = RunControl(), *,
                 if dimension == 2 else case.parameters)
     relaxation = settings.get('simple_velocity_relaxation')
     validate_simple_velocity_relaxation(relaxation)
-    if relaxation is not None and (control.backend != 'cpp' or mode != 'full'):
+    if relaxation is not None and mode != 'full':
         raise ValueError('simple_velocity_relaxation requires full compute with backend=cpp')
     algorithm = settings.get('enthalpy_algorithm', 'legacy_h_fou')
     validate_enthalpy_algorithm(algorithm, settings.get('enthalpy_temperature_tol_K', 1e-8))
-    if algorithm != 'legacy_h_fou' and (control.backend != 'cpp' or mode != 'full'):
+    if algorithm != 'legacy_h_fou' and mode != 'full':
         raise ValueError('conservative temperature energy currently requires full compute with backend=cpp')
     explicit_energy_gates = any(settings.get(name) is not None for name in (
         'ltne_enthalpy_coupled_energy_tol', 'ltne_enthalpy_equation_energy_tol'))
@@ -41,52 +41,34 @@ def run_case(case: CaseData, control: RunControl = RunControl(), *,
     explicit_2d_thermal = dimension == 2 and any(settings.get(name) is not None for name in (
         'ltne_enthalpy_outer', 'ltne_enthalpy_nsweep', 'ltne_enthalpy_omega', 'ltne_enthalpy_tol'))
     if (explicit_energy_gates or require_h or explicit_2d_thermal) and (
-            control.backend != 'cpp' or mode != 'full'):
+            mode != 'full'):
         raise ValueError('explicit energy controls require full compute with backend=cpp')
     if any(settings.get(name) is not None for name in (
             'model_h_max_iterations', 'model_h_temperature_tol_K', 'model_h_q_relative_tol')) and (
-                control.backend != 'cpp' or mode != 'full'):
+                mode != 'full'):
         raise ValueError('explicit model-h controls require full compute with backend=cpp')
-    if control.backend == 'python' or mode != 'full':
-        from sjtu_tpmshx.domain.run_environment import require_python_kernel
-        require_python_kernel(case.parameters)
-    if control.backend == 'cpp':
-        if mode == 'quick_design':
-            from .backends.cpp.quick_design import run_case as run
-        elif mode != 'full':
-            raise ValueError(f'unsupported solver mode: {mode}')
-        elif dimension == 2:
-            from .backends.cpp.full_2d import run_case as run_full
-            run = run_full
-        elif dimension == 3:
-            from .backends.cpp.full_3d import run_case as run_full
-            run = run_full
-        else:
-            raise ValueError(f'unsupported physical dimension: {dimension}')
-    elif mode == 'quick_design':
-        from .backends.python.quick_design.execution import run_case as run
+    from sjtu_tpmshx.domain.run_environment import reject_retired_kernel
+    from sjtu_tpmshx.domain.module_ports import resolve_control
+    reject_retired_kernel(case.parameters)
+    control = resolve_control(control)
+    if mode == 'quick_design':
+        from .backends.cpp.quick_design import run_case as run_quick_design
     elif mode != 'full':
         raise ValueError(f'unsupported solver mode: {mode}')
     elif dimension == 2:
-        from .backends.python.two_d.execution import run_case as run
+        from .backends.cpp.full_2d import run_case as run
     elif dimension == 3:
-        from .backends.python.three_d.execution import run_case as run
+        from .backends.cpp.full_3d import run_case as run
     else:
         raise ValueError(f'unsupported physical dimension: {dimension}')
     provenance = dict(preparation=case.metadata.get('provenance', {'status':'not_recorded'}),
                       execution=source_context())
-    previous_threads = None
-    if control.backend == 'python' and control.cpu_threads is not None:
-        from .threads import get_solver_threads, set_solver_threads
-        previous_threads = get_solver_threads()
-        set_solver_threads(control.cpu_threads)
-    try:
-        with warning_scope({}) as records:
-            result = (run_full(case, control, resume_state=resume_state, checkpoint=checkpoint,
+    with warning_scope({}) as records:
+        if mode == 'quick_design':
+            result = run_quick_design(case, control)
+        else:
+            result = (run(case, control, resume_state=resume_state, checkpoint=checkpoint,
                           checkpoint_due=checkpoint_due) if continuation else run(case, control))
-    finally:
-        if previous_threads is not None:
-            set_solver_threads(previous_threads)
     diagnostics = dict(result.metadata.get('diagnostics', {}))
     diagnostics['warnings_list'] = tuple(dict.fromkeys((
         *case.metadata.get('warnings', ()), *diagnostics.get('warnings_list', ()),

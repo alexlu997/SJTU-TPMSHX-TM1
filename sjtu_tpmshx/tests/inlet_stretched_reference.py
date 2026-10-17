@@ -11,10 +11,7 @@ def build_inlet_stretched_1d(L, N, first_cell, end='lo'):
     Purpose: resolve a steep inlet thermal-entry without a globally fine grid.
     This is the OPT-IN streamwise counterpart of :func:`build_wall_refined_1d`
     (which refines the two CROSS-STREAM walls). It is NOT wired into the default
-    solver path — ``_aligned_grid`` (uniform) remains the default. The per-cell
-    ``dx_arr`` kernels (``ltne_energy._gs_full_chunk``, ``simple_solver``'s
-    momentum sweep) already consume a non-uniform 1-D array, so a graded
-    ``dx_arr`` from here plugs in with no kernel change.
+    solver path. Tests use the resulting cell widths as grid inputs.
 
     Parameters
     ----------

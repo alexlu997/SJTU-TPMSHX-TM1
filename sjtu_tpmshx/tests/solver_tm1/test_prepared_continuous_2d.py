@@ -11,6 +11,7 @@ from sjtu_tpmshx.domain.compute_config import (
 from sjtu_tpmshx.domain.portable_data import mutable_data
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
+from sjtu_tpmshx.tests.native.prepared_snapshot import native_prepared_state
 
 
 def _config(*, uniform=False, df_mode='cfd_smooth'):
@@ -35,8 +36,6 @@ def _config(*, uniform=False, df_mode='cfd_smooth'):
 def test_physical_cells_feed_full_local_drag_for_every_direction(monkeypatch, directions):
     from sjtu_tpmshx.models.tpms_props import geometry
     from sjtu_tpmshx.df_surrogate.predict import predict_K_cF_vec
-    from sjtu_tpmshx.solvers import simple_solver
-    from sjtu_tpmshx.solvers.backends.python.two_d.runtime import build_runtime
     config = _config(df_mode='experimental')
     config = replace(config,
         bc_A=replace(config.bc_A, dir=directions[0], in_ctr=.021, out_ctr=.021, in_w=.017, out_w=.017),
@@ -53,10 +52,9 @@ def test_physical_cells_feed_full_local_drag_for_every_direction(monkeypatch, di
                      for cell, wall in zip(lrow, trow)] for lrow, trow in zip(L, t)])
     np.testing.assert_array_equal(case.design_fields['eps_arr'], eps)
     local_K, local_cF = predict_K_cF_vec('Gyroid', L, t, eps / 2.)
-    cfg, grid = build_execution_inputs(case)
-    monkeypatch.setattr(simple_solver.SIMPLESolver, 'solve', lambda *a, **k: (True, 1))
-    run = build_runtime(cfg, grid)['_run_simple']
-    for side, direction, factor in zip(('A', 'B'), directions, (2.649010286988306, 4.198913430360186)):
+    cfg, grid, state = native_prepared_state(case)
+    for index, (side, direction, factor) in enumerate(zip(
+            ('A', 'B'), directions, (2.649010286988306, 4.198913430360186))):
         expected_K, expected_cF = ((v.T if direction < 2 else v) for v in (local_K, local_cF * factor))
         expected_eps = eps.T if direction < 2 else eps
         if direction in (1, 3):
@@ -66,14 +64,14 @@ def test_physical_cells_feed_full_local_drag_for_every_direction(monkeypatch, di
         np.testing.assert_allclose(flow['cF_field_per_m'], expected_cF, rtol=1e-12)
         assert flow['metadata']['geometry_application'] == 'continuous-field-extrapolation'
         prop = case.parameters['static_properties'][side]
-        fluid = getattr(config, 'fluid_' + side)
-        solver = run(cfg['cfg' + side], prop['rho'], prop['mu'], fluid.T_in_K, fluid.u_mps,
-                     side, P_in_abs=fluid.P_in_Pa,
-                     fluid_type='ideal_gas' if side == 'A' else 'incompressible')[2]
-        np.testing.assert_array_equal(solver._K_field2d, flow['K_field_m2'])
-        np.testing.assert_array_equal(solver._cF_field2d, flow['cF_field_per_m'])
-        np.testing.assert_array_equal(solver.eps_field, expected_eps)
-        np.testing.assert_allclose(solver._mu_eff_field, prop['mu'] / expected_eps)
+        shape = expected_eps.shape
+        np.testing.assert_array_equal(state[f'input.sides.{index}.permeability'].reshape(shape),
+                                      flow['K_field_m2'])
+        np.testing.assert_array_equal(state[f'input.sides.{index}.forchheimer'].reshape(shape),
+                                      flow['cF_field_per_m'])
+        np.testing.assert_array_equal(state[f'state.result.flow.{index}.epsilon'].reshape(shape), expected_eps)
+        np.testing.assert_allclose(state[f'state.result.flow.{index}.effective_viscosity'].reshape(shape),
+                                   prop['mu']/expected_eps)
 
 
 @pytest.mark.parametrize('df_mode', ['cfd_smooth', 'experimental'])
@@ -100,10 +98,7 @@ def test_constant_controls_match_uniform_geometry_and_mesh(df_mode):
 def test_case_replay_and_local_water_thermal_inputs(monkeypatch, tmp_path):
     from sjtu_tpmshx.io.case_io import save_case, load_case
     from sjtu_tpmshx.models import tpms_props, fluid_props
-    from sjtu_tpmshx.models.local_heat_transfer import local_nusselt
-    from sjtu_tpmshx.solvers import simple_solver
-    from sjtu_tpmshx.solvers.backends.python.two_d import coupling
-    from sjtu_tpmshx.solvers.backends.python.two_d.runtime import build_runtime
+    from sjtu_tpmshx.models.nu_correlations import NU_LAM_FLOOR
     case = prepare_case(_config(), case_id='continuous-replay')
     save_case(case, tmp_path / 'case.yaml')
     restored = load_case(tmp_path / 'case.yaml')
@@ -112,35 +107,32 @@ def test_case_replay_and_local_water_thermal_inputs(monkeypatch, tmp_path):
     assert restored.metadata['quantity_basis'] == 'per_unit_depth'
     for name, values in case.design_fields.items():
         np.testing.assert_array_equal(restored.design_fields[name], values)
-    cfg, grid = build_execution_inputs(replace(restored, config_snapshot={}))
     monkeypatch.setattr(tpms_props, 'geometry', lambda *a, **k: pytest.fail('runtime rebuilt geometry'))
-    monkeypatch.setattr(simple_solver.SIMPLESolver, 'solve', lambda *a, **k: (True, 1))
-    class ReachedThermal(Exception):
-        pass
-    captured = {}
-    def capture(*args, **kwargs):
-        captured.update(args=args, kwargs=kwargs)
-        raise ReachedThermal
-    monkeypatch.setattr(coupling, 'solve_full_domain', capture)
-    with pytest.raises(ReachedThermal):
-        coupling._run_solvers(cfg, build_runtime(cfg, grid))
-    args, kwargs = captured['args'], captured['kwargs']
-    assert kwargs['model_fluids'] == ('air', 'water')
-    assert kwargs['mass_flux_A'] is not None and kwargs['mass_flux_B'] is not None
+    cfg, grid, state = native_prepared_state(replace(restored, config_snapshot={}))
+    assert state['input.sides.0.fluid'][0] == 0
+    assert state['input.sides.1.fluid'][0] == 1
+    for side in (0, 1):
+        assert state[f'state.result.thermal.mass_x.{side}'].size
+        assert state[f'state.result.thermal.mass_y.{side}'].size
     geom = case.parameters['thermal_geometry']['fields']
-    for side, temp, pressure, hv_index, velocity_index in (
-            ('A', 380., 160000., 9, 14), ('B', 300., 200000., 10, 16)):
+    shape = case.design_fields['eps_arr'].shape
+    for index, (side, temp, pressure) in enumerate((
+            ('A', 380., 160000.), ('B', 300., 200000.))):
         model = fluid_props.get('air' if side == 'A' else 'water')
         mu, k, cp = (float(getattr(model, name)(temp, pressure)) for name in ('mu', 'k', 'cp'))
-        speed = np.hypot(args[velocity_index], args[velocity_index + 1])
+        speed = np.hypot(*(state[f'state.result.flow.{index}.{axis}'].reshape(shape)
+                           for axis in ('uc', 'vc')))
         Re = float(model.rho(temp, pressure)) * (speed + 1e-12) * geom['D_h'] / mu
-        Nu = local_nusselt(model, 'Gyroid', Re, geom['epsilon'] / 2.,
-                          cfg['za']['L_field'], geom['D_h'] * 1e3,
-                          mu * cp / k if side == 'B' else None)
-        np.testing.assert_allclose(args[hv_index], geom['A_0'] * Nu * k / geom['D_h'], rtol=1e-12)
-        np.testing.assert_array_equal(args[6 if side == 'A' else 7], case.design_fields['K_ff' + side + '_arr'])
-    np.testing.assert_array_equal(args[8], case.design_fields['K_ss_arr'])
-    np.testing.assert_array_equal(args[13], case.design_fields['eps_arr'])
+        Nu = np.maximum(model.nu('Gyroid', np.maximum(Re, 1.), geom['epsilon']/2.,
+                        cfg['za']['L_field'], geom['D_h']*1e3,
+                        mu*cp/k if side == 'B' else None), NU_LAM_FLOOR)
+        np.testing.assert_allclose(state[f'state.result.thermal.hv.{index}'].reshape(shape),
+                                   geom['A_0']*Nu*k/geom['D_h'], rtol=1e-12)
+        np.testing.assert_array_equal(state[f'state.result.thermal.conductivity.{index}'].reshape(shape),
+                                      case.design_fields['K_ff'+side+'_arr'])
+    np.testing.assert_array_equal(state['state.result.thermal.solid_conductivity'].reshape(shape),
+                                  case.design_fields['K_ss_arr'])
+    np.testing.assert_array_equal(state['input.total_porosity'].reshape(shape), case.design_fields['eps_arr'])
 
 
 def test_continuous_replay_requires_full_local_drag():

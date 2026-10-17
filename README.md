@@ -10,12 +10,15 @@ TM1 将 TPMS 换热器的前处理、求解和后处理拆为独立维护的模�
 **主体源码在 [sjtu_tpmshx/](sjtu_tpmshx/)**，前处理、求解和后处理都在这个包内。
 其他根目录分别存放文档、示例、辅助工具和验证记录。
 
-Python/Numba 与 C++ 都作为正式后端维护，默认使用 Python。两者支持现有的
-完整 2D/3D 计算和快速设计，通过相同的准备态与结果接口连接 GUI、CLI 和优化。
+0.2 仅使用 C++ 数值后端，保留 Python/Qt 界面、CLI、前后处理、优化和快速设计。
+完整 2D/3D 计算及快速设计仍通过相同的准备态和结果接口运行。
 本轮维护平台为 macOS arm64 与 Windows x64；Linux 服务器部署暂不开展。
 
 [v0.1.0](https://github.com/alexlu997/SJTU-TPMSHX-TM1/releases/tag/v0.1.0) 是首个 GitHub 源码发布版本，保留 Python 与 C++ 双后端。
-发布包包含两套求解器源码；C++ 运行需要按本文说明构建本机原生库。
+0.1 发布包保留两套求解器源码。0.2 删除 Python 数值迭代器及其专用研究入口，
+并删除外层物性 Anderson；固定物性松弛、热方程与流动加速保持原有规则。
+`legacy_h_fou`、`temperature_fou` 和 `temperature_sou` 是保留的 C++ 能量算法，
+不属于本次退役范围。运行 0.2 前须构建与源码匹配的本机原生库。
 
 矩形 2D/3D 三模块主线的 M-A 合并验收已记录；M-B 扩展能力继续单独追踪。
 历史 B40 失败与物理适用范围仍须保留。当前结论见
@@ -83,8 +86,8 @@ $tm1Python = Get-Content .venv-path -TotalCount 1
 `.venv-path` 保存本机绝对路径，不随 Git 共享；新终端中重新读取该文件即可。
 
 升级到当前依赖锁时，请创建独立的新环境并预热，保留原环境及其源码版本。
-当前锁保留 NumPy 2.4.4、Numba 0.64、llvmlite 0.46，以避免已测得的热运行性能回退；
-SciPy 1.18、pandas 3、CoolProp 8 和 Qt 6.12 继续使用新版。
+0.2 的基础锁删除 Numba、llvmlite 和 PyAMG，保留前后处理、优化及界面所需依赖。
+原生压力求解仍使用其已移植的算法及许可声明，不加载 Python PyAMG。
 BO 与桌面打包继续使用各自的完整锁。不要向其他工作树正在使用的共享环境安装新锁。
 切换 `.venv-path` 后，先通过锁检查和 `pip check`，再运行计算或测试。
 CO₂ 插值表按 CoolProp 版本隔离。Python 默认写入 `XDG_CACHE_HOME/coolprop/CoolProp-8.0.0`；
@@ -95,14 +98,16 @@ CO₂ 插值表按 CoolProp 版本隔离。Python 默认写入 `XDG_CACHE_HOME/c
 
 仓库自带 [air_2d.json](examples/three_module/air_2d.json) 和
 [air_3d.json](examples/three_module/air_3d.json)，使用随源码提供的模型资源，
-不需要私有 `data/` 或 `.git`。首次求解包含 Numba 编译，可能需要数分钟。
+不需要私有 `data/` 或 `.git`。首次运行前先构建本机 C++ 库：使用 macOS C++
+工具链，或 Windows x64 的 MSVC 开发者终端。构建和物性表首次生成的耗时与求解耗时分开。
 
 macOS：
 
 ```bash
 PYTHON="$(head -n 1 .venv-path)"
 export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
-export NUMBA_CACHE_DIR="$PWD/.cache/numba"
+"$PYTHON" scripts/build_native_dependencies.py fetch
+"$PYTHON" scripts/build_native_dependencies.py publish
 "$PYTHON" -m sjtu_tpmshx.cli run examples/three_module/air_2d.json .cache/first-run-2d --case-id first-run-2d
 "$PYTHON" -m sjtu_tpmshx.cli run examples/three_module/air_3d.json .cache/first-run-3d --case-id first-run-3d
 "$PYTHON" -m sjtu_tpmshx.main
@@ -114,7 +119,8 @@ Windows：
 $tm1Python = Get-Content .venv-path -TotalCount 1
 $env:MPLCONFIGDIR = Join-Path $PWD '.cache/matplotlib'
 $env:XDG_CACHE_HOME = Join-Path $PWD '.cache/xdg'
-$env:NUMBA_CACHE_DIR = Join-Path $PWD '.cache/numba'
+& $tm1Python scripts/build_native_dependencies.py fetch
+& $tm1Python scripts/build_native_dependencies.py publish
 & $tm1Python -m sjtu_tpmshx.cli run examples/three_module/air_2d.json .cache/first-run-2d --case-id first-run-2d
 & $tm1Python -m sjtu_tpmshx.cli run examples/three_module/air_3d.json .cache/first-run-3d --case-id first-run-3d
 & $tm1Python -m sjtu_tpmshx.main
@@ -162,7 +168,7 @@ BoTorch 首次构造多目标 Log 采集函数时会尝试编译其可选 C++ �
 编译还需要本机 C++ 工具链；无法编译时 BoTorch 会报告并使用其 Python 实现。
 两种执行方式的性能证据需分别记录，首次编译不能计入暖态求解耗时。
 
-### macOS 项目文件夹中的 C++ 候选库
+### macOS 项目文件夹中的 C++ 库
 
 本次交付保留 Python/Qt 主程序和源码，在项目内放置匹配的预编译 C++ 库，
 不制作 `.app`。随附库面向本机 macOS 27 / arm64；其他系统、机器和旧版
@@ -178,9 +184,9 @@ macOS 尚未验收。继续复用 `.venv-path` 指定的现有锁定环境，环
 显式加载 `native/lib/macos-arm64/libtpmshx_solver_shared.dylib`，并传入
 `.cache/native-deps/tables`。库、表和本机 `.venv-path` 属于本地交付资源，
 不随 Git 源码自动提供。缺少解释器或库会直接报告原因；启动器不安装依赖、
-编译库或切换到 Python。需要 CO₂ BICUBIC 表的既有 legacy 路线使用当前版本目录中的四表，
+或编译库。需要 CO₂ BICUBIC 表的既有 legacy 路线使用当前版本目录中的四表，
 缺少时由该版本在本机生成；
-新的保守温度算法不使用这些表。公共 API、CLI 和直接模块调用仍默认使用 Python。
+保守温度算法不使用这些表。公共 API、CLI 和直接模块调用默认使用 C++。
 
 已有当前锁定原生依赖且相关原生回归通过时，可显式发布启动器使用的库：
 
@@ -194,20 +200,16 @@ macOS 尚未验收。继续复用 `.venv-path` 指定的现有锁定环境，环
 `native/lib/` 是 Git 忽略的本地交付目录。停止使用该库的程序后，可从 `previous/`
 复制库和 `build.json` 回原目录；同时恢复对应源码、Python 环境和物性版本。
 发布检查不替代数值回归或桌面验收。日常启动不执行构建、安装或下载。
-以 Python 数值后端打开同一界面可运行
-`"$PYTHON" -m sjtu_tpmshx.main --backend python`。
-在界面左侧“求解 → 求解器 → 计算后端”可直接选择 Python 或 C++，无需重启。
-初始选择由启动参数决定；切换作用于下一次普通计算、快速设计和优化。
-任务运行及取消收尾期间禁止切换。C++ 使用启动时指定的库，或本机 macOS／Windows
-交付目录中的匹配库；库缺失会保留原选择并提示原因。“计算线程数”对两个后端均可用，
-C++ 的“自动”最多使用 本机的 8 个逻辑 CPU。此选择属于当前窗口的运行设置，
+GUI 不再提供后端切换；普通计算、快速设计和优化统一使用 C++。
+启动时可指定库，或使用本机 macOS／Windows 交付目录中的匹配库；缺库时明确报错。
+“计算线程数”的“自动”最多使用本机的 8 个逻辑 CPU。此选择属于当前窗口的运行设置，
 不写入工况文件，也不改变已经生成的结果。
 
 源码 GUI 和 CLI 共用默认查找：macOS 使用
 `native/lib/macos-arm64/libtpmshx_solver_shared.dylib`，Windows 使用
 `native/lib/windows-x64/tpmshx_solver_shared.dll`；默认表目录为
-`.cache/native-deps/tables`。匹配的库已发布到这些位置时，只需 `--backend cpp`。
-显式库／表路径优先；直接调用求解 API 时仍在 `RunControl` 中传入主机路径。
+`.cache/native-deps/tables`。匹配库已发布到这些位置时无需指定后端。
+显式库／表路径优先；API 可通过 `RunControl` 覆盖主机路径。
 
 2026-10-05 的候选验收保留以下边界：Ceff43 为 19/43 通过、24/43 超时，
 固定总体未通过；fixed230 执行和索引为 230/230，用时 93 分 18.5 秒，
@@ -283,8 +285,7 @@ Windows x64 和不使用本地 macOS 启动器的用户，按
 “诊断详情”，不再通过同步弹窗阻塞结果显示。
 “诊断详情”列出准备、求解、后处理和显示耗时；成功计算的总耗时为后台流程加
 结果显示时间。比较终端与 GUI 速度时，应使用相同配置、线程数和缓存状态，
-并区分首次编译与后续计算。以上启动命令将缓存固定在 `.cache/numba`；日常
-运行保留该目录可复用编译结果。
+并区分原生构建、物性表初始化和后续计算。日常运行不重新编译求解器。
 
 “更多”中可切换深色／浅色主题（重启生效）和 K／°C。界面使用系统无衬线字体：
 macOS 为系统西文字体与苹方，Windows 为 Segoe UI 与微软雅黑，Linux 使用可用的
@@ -299,11 +300,10 @@ GUI 统一采用开口内均匀入口、开启局部密度热输运，不再提�
 加密及局部密度开关。局部密度也参与限定空气/水工况的输运路径选择，并非 sCO₂
 变物性的总开关。载入使用不同历史设置的 GUI 配置时会提示更新，随后保存当前设置。
 允许入口 Nu 超范围仍只改变入口 Re 预检的拒绝/告警策略，不放宽物性或几何适用范围。
-“计算线程数”随下一次计算传递。Python 控制 Numba 并行核并在返回或失败后恢复原线程掩码；
-C++ 控制逐点物性工作线程和二维双侧流场计算，设为 1 时串行执行。
+“计算线程数”随下一次计算传递，控制 C++ 逐点物性工作线程和二维双侧流场计算，设为 1 时串行执行。
 小网格可使用更少线程；此值不限制整个应用或外部数学库的 CPU 占用，也不控制优化任务数量。
 CLI 使用 `--cpu-threads N`，API 使用 `RunControl(cpu_threads=N)`；两者均要求正整数。
-未指定时，Python 保持现有掩码，新 C++ 库最多使用 本机的 8 个逻辑 CPU。
+未指定时，C++ 库最多使用本机的 8 个逻辑 CPU。
 线程数不写入 `CaseData`，也不改变物理模型、迭代预算或停止条件。
 同一原生构建的续算可更换线程数。旧续算目录保留的库继续使用原入口；
 若旧库不支持线程预算，则须省略该参数，GUI 中选“自动”。显式预算不会被静默忽略。
@@ -442,7 +442,7 @@ CLI 保存间隔须显式指定；保存会等待下一个完整求解步骤结�
 GUI 的载入菜单可以继续已保存的运行，沿用记录的保存间隔和输入来源。
 新发起的 GUI C++ 完整计算每 60 秒请求保存，运行目录位于用户数据目录的 `runs/` 下。
 计算详情显示保存位置；可用“保存并暂停”结束当前任务，再从载入菜单继续。
-实际重算量还可能包含当前完整计算步和写盘时间。Python 后端保持原有计算流程。
+实际重算量还可能包含当前完整计算步和写盘时间。
 
 ## 已接线能力与边界
 
@@ -476,14 +476,15 @@ Pareto CSV 仍可导出几何；旧筛选模式不能再执行或重新计算指
 `models/`、`df_surrogate/` 等是共享技术支撑，不是第四个业务模块。旧 Pipeline/应用
 入口单向调用公开模块。具体边界见[架构说明](docs/architecture.zh-CN.md)。
 
-默认后端为 Python/Numba。macOS arm64 和 Windows x64 原生库可通过显式
-`RunControl(backend='cpp', native_library=...)` 或 CLI `--backend cpp`
-执行 Quick Design 和完整二维／三维求解；库路径、构建及能力边界见
+唯一数值后端为 C++。默认查找 macOS arm64 或 Windows x64 本机库，
+也可用 `RunControl(native_library=...)` 或 CLI `--native-library` 指定路径。
+Quick Design 和完整二维／三维求解的构建及能力边界见
 [C++ 迁移说明](docs/cpp-migration.zh-CN.md)。原生构建、独立调用及数值对照已通过
 macOS/Python 3.13 与 Windows/Python 3.12、3.13 的必需 CI；
 可见桌面交付与完整性能验收仍各自保留。
 完整二维接口为 ABI 2，必须同步分发库、头文件和适配器。
-原 Python 外循环加 C++ sweep 内核的混合入口已退役；当前选择完整 Python 或 C++ 后端。
+Python 数值后端、混合 sweep 入口及 Python 专用研究入口均已退役。
+旧结果仍可读取；旧研究 Case 不再执行，普通工况须通过当前 `ComputeConfig` 准备。
 OpenFOAM、REFPROP 等提供器、扩展 h/f/PEC 定义与伴随能力继续按
 M-B/原文限定追踪，不能据目录或接口声明为已实现。
 
@@ -503,19 +504,17 @@ PYTHON="$(head -n 1 .venv-path)"
 export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
 export QT_QPA_PLATFORM=offscreen PYTHONHASHSEED=0
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
-export NUMBA_NUM_THREADS=2
 "$PYTHON" -m mypy --config-file pyproject.toml
 "$PYTHON" -m pytest sjtu_tpmshx/tests -q -ra -m "not slow and not heavy" --ignore=sjtu_tpmshx/tests/integration_tm1 -n 2 --dist loadscope --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/fast.xml
-NUMBA_NUM_THREADS=1 "$PYTHON" -m pytest sjtu_tpmshx/tests/integration_tm1 -q -ra --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/integration.xml
+"$PYTHON" -m pytest sjtu_tpmshx/tests/integration_tm1 -q -ra --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/integration.xml
 # 完整本地验收：没有 -m 过滤；按本机 CPU/内存可将 auto 换为固定 worker 数。
 "$PYTHON" -m pytest sjtu_tpmshx/tests -q -n auto --dist loadscope --timeout=600 --timeout-method=thread
 ```
 
-PowerShell 使用同样的 pytest 参数，并以 `$env:NUMBA_NUM_THREADS='2'` 等设置
-上述环境变量，以 `& $tm1Python` 调用解释器。Numba 上限至少为 2，因为焓输运测试
-显式运行双线程检查；独立集成步骤使用 1，运行全量前恢复为 2。
+PowerShell 使用同样的 pytest 参数，以 `$env:变量名=值` 设置上述环境变量，
+并以 `& $tm1Python` 调用解释器。测试前必须提供匹配的原生库。
 CI 快测按完整模块分到两个独立 runner，每片固定两个 worker，
-每个 worker 的 BLAS/OMP 单线程、Numba 上限为 2；完整 integration 使用第三个 runner 并行执行。
+每个 worker 的 BLAS/OMP 单线程；完整 integration 使用第三个 runner 并行执行。
 现有测试辅助脚本继续保留；`run_tests_fast.ps1` 只提供开发反馈，
 其 `not heavy` 子集与 CI 快测不同。两份 PowerShell 脚本默认严格检查基础锁。
 已有 Windows BO 环境时，显式使用
@@ -525,7 +524,7 @@ CI 快测按完整模块分到两个独立 runner，每片固定两个 worker，
 
 GitHub workflow 使用 checkout v7、setup-python v7、upload-artifact v7，
 分片门使用 download-artifact v8。这些 Action 的运行时不改变求解器的 Python 环境；
-`three-module` 继续单独验证完整环境到最小后处理环境的真实文件交接。
+`ci` 内的 `minimal-postprocess` 验证完整环境到最小后处理环境的真实文件交接。
 `ci` 的基础和独立 BO 作业均覆盖 macOS / Python 3.13，以及 Windows / Python
 3.12、3.13；BO 作业分别安装对应平台的 BO 锁，严格检查环境后
 显式导入 Torch / BoTorch / GPyTorch，并运行多工况优化器测试（含两种真实 Log
@@ -551,20 +550,19 @@ envelope 实现、三模块数据契约与公共 API、后处理指标入口；�
 原生资格检查在 macOS 分为三片，在每个 Windows/Python 组合分为七片，每片串行执行。
 分组依据完整矩阵的实测用例耗时。Windows 的保守能量测试按独立 fixture 参数分组，
 同组的收敛、物性、能量账本和真实回放检查保持在同片。其他模块保留共享 fixture；
-独立工程配对用例可按完整 node ID 分组。
-macOS 的 3D 流动模块放在同片以复用 JIT 编译。
+独立工程用例可按完整 node ID 分组。
 分组清单位于 `sjtu_tpmshx/tests/native/`：macOS 使用 `_ci_macos_shard0.txt` 和 `_ci_macos_shard1.txt`，
 Windows 使用 `_ci_windows_shard0.txt` 至 `_ci_windows_shard5.txt`。
 按编号顺序将每份清单通过 `--ci-shard-modules=<清单路径>` 重复传入。
 未列出的用例自动进入最后一片，即 macOS 分片 2 或 Windows 分片 6。
 同一集合校验器加 `--serial`，按编号传入全部 manifest，核对其完整且互斥。
-全部数值用例、精度和收敛断言以及三个平台/Python 组合保持不变。
-工程配对用例内部同时运行两个独立后端，复用同一个不可变准备态；Python 留在调用线程，
-保持其 Numba 线程设置。两个结果都返回后再执行原有守恒、收敛及差异检查。
+三个平台/Python 组合保持不变。原生工程用例保留逐侧物理模型、收敛及能量门槛。
+Python 数值对照迁移为独立公式／离散账本、制造解、组件重放及固定历史参考；
+不保留已退役迭代器作为第二套求解实现。
 
 每个平台/Python 组合调用 [原生工作流](.github/workflows/native.yml)，
 先构建一次原生库并运行独立 C/C++ 调用。该构建完成后立即提交本组合的分片，无需等待其他平台构建。
-该组合的全部分片从同一工作流的 `native-build-<平台>-py<版本>` artifact 复用该构建。
+该组合的原生、快测和集成分片从 `native-build-<平台>-py<版本>` artifact 复用同一次构建。
 归档保留可执行权限，包含运行库、调用程序和许可声明。CoolProp 静态库使用精确缓存键，
 绑定平台、架构、Python、托管编译环境版本、原生依赖锁和构建脚本；
 项目 C++ 与模型系数每次重新构建，缓存命中仍须通过独立调用检查。
@@ -575,15 +573,16 @@ Windows 使用 `_ci_windows_shard0.txt` 至 `_ci_windows_shard5.txt`。
 
 快测和集成日志保留最慢 30 项和 skip 原因。每片将 JUnit 与 collection manifest 保存为
 `test-reports-<平台>-py<版本>-<fast-0|fast-1|integration>` artifact，保留 7 天。
-manifest 附带各 pytest 进程的独立 RSS 峰值与已加载 Numba dispatcher 的缓存计数；
-进程峰值不能相加当作同期总峰值，统计不覆盖普通子进程或已经销毁的 dispatcher。
+manifest 附带各 pytest 进程的独立 RSS 峰值；
+进程峰值不能相加当作同期总峰值，统计不覆盖普通子进程。
 三个原名 `tests (<平台>, <版本>)` 必需检查共同等待全部平台的测试片、BO 和原生资格片，
 只接受全部成功及分片集合校验通过；失败、取消、跳过或缺失分片不能放行。
 `minimal-postprocess` 继续作为独立必需检查。
 比较速度时区分快测、集成和整个 job，并使用相同平台的基准，不据本地耗时承诺 CI 提速。
 完整验收的 skip 须保留具体原因，不能当作被跳过能力已经通过。最小后处理 CI 使用独立的
 `requirements/postprocess.txt` 环境，并消费另一完整环境生成的真实 2D/3D
-结果文件；文件留在 CI 作业本地，不上传结果 artifact。配置不等于实际 CI 通过。
+结果文件。macOS 集成作业将公开算例的两个结果及指标通过 `real-file-handoff`
+传给 Linux 最小环境，保留 7 天。该交接不包含私有数据。配置不等于实际 CI 通过。
 
 ## 协作与合并
 

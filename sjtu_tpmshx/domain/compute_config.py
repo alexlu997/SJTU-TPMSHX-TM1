@@ -41,14 +41,12 @@ follow the read timing stated below.
   ``ui/builders_canvas.py``.
 - ``TPMSHX_EAGER_3D_SLICES`` (0) — precompute 3D slices;
   ``ui/plot_3d_results.py``.
-- ``TPMSHX_PARALLEL_THRESHOLD`` (200000) — red-black prange cell gate;
-  ``solvers/simple_solver_3d.py`` (module-level, fixed at import).
+- ``TPMSHX_PARALLEL_THRESHOLD`` (200000) — native parallel-sweep cell gate;
+  ``solvers/backends/cpp/full_3d.py`` reads it for each native call.
 - ``TPMSHX_PHASE_A/C`` (1/0) — adaptive AMG / coarse bootstrap.
   Captured by ``preprocess/three_d/preparation.py`` (cfg keys win).
   Phase B / inner SIMPLE Anderson is retired; explicit enablement raises.
 - ``TPMSHX_PREINIT_3D`` (0) — prewarm 3D panel at startup; ``main.py``.
-- ``TPMSHX_PROFILE_3D`` (0) — per-outer wall-clock profiler;
-  ``solvers/backends/python/three_d/runtime.py`` (``_prof_3d_enabled``).
 - ``TPMSHX_ROUGH_MODE`` (baseline; UI path defaults norris_1a) +
   ``TPMSHX_ROUGH_EPS_UM`` (100) — roughness model; single helper
   ``models.roughness.resolve_mode_from_env``.
@@ -62,14 +60,9 @@ follow the read timing stated below.
 - ``TPMSHX_ASYM_KAPPA`` (0) — research-only asym per-side κ correction
   after ``ingest_cfd_kappa``; production 2D/3D compute paths do not apply it.
   Read in ``df_surrogate/kappa_asym.py``.
-- ``TPMSHX_NUM_THREADS`` (unset → numba default) — headless/script numba
-  thread count; ``solvers/threads.py`` (GUI spinbox is primary). Unset on a
-  many-core box + grid ≥ TPMSHX_PARALLEL_THRESHOLD → one-shot advisory log
-  recommends ``recommend_solver_threads()`` (≈ min(64, physical cores);
-  bandwidth-bound kernels; P3.2 — advisory only, pool never auto-changed).
 - ``TPMSHX_SCO2_COMPRESSIBLE`` (0, experimental) — A-side sCO2 local-pressure
-  density/viscosity update and pressure-seed envelope check in the 3D Python
-  runtime. B is unchanged; this is not full compressible continuity. Its
+  density/viscosity update and pressure-seed envelope check in native 3D
+  execution. B is unchanged; this is not full compressible continuity. Its
   pressure anchor differs from true-h and is not covered by the ideal-gas
   inlet-pressure correction; an ON/OFF change is not accuracy evidence.
 - ``TPMSHX_MAX_CELLS_3D`` (2000000) — hard 3D cell cap;
@@ -213,8 +206,7 @@ class SolverConfig:
     mom_tol: Optional[float] = None
     mass_local_tol: Optional[float] = None
     mass_global_tol: Optional[float] = None
-    # Persisted numerical selection; C++ candidates require a qualified true-h
-    # full-flow route. The Python numerical implementation remains unchanged.
+    # These energy candidates require a qualified full-flow true-h route.
     enthalpy_algorithm: Literal['legacy_h_fou', 'temperature_fou', 'temperature_sou'] = 'legacy_h_fou'
     enthalpy_temperature_tol_K: float = 1e-8
     # Optional integral h(T) controls; None keeps the actual route defaults.
@@ -747,22 +739,14 @@ class ComputeConfig:
                     f"ComputeConfig.solver.max_iter_simple={mi} — must be >= 1")
         if self.solver.max_outer_ltne is not None:
             mo = self.solver.max_outer_ltne
-            # < 2 CANNOT converge: OuterConvergence needs a previous field to
-            # diff against, so the first outer iteration is never 'converged'
-            # by construction — the loop always exits on the cap and the run
-            # can only ever report converged=False. Fail loud here (the typed
-            # production boundary) rather than silently ship a result that
-            # claims nothing. prepare_research_case accepts an explicit
-            # one-pass experiment and preserves its unconverged verdict.
+            # Outer convergence requires two temperature states.
             if mo < 2:
                 raise ValueError(
                     f"ComputeConfig.solver.max_outer_ltne={mo} — must be >= 2. "
                     "A single outer pass can never satisfy the coupling "
                     "criterion (it needs a previous iterate to compare "
                     "against), so the run could only ever report "
-                    "converged=False. For a deliberate single-pass screening "
-                    "sweep, use preprocess.api.prepare_research_case then "
-                    "solvers.api.run_case and inspect the result run_status.")
+                    "converged=False.")
 
         # V2 production D-F closure is a water+sCO2 CFD table with bilinear
         # interpolation in geometry only. Extrapolation is not supported.

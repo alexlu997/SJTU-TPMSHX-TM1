@@ -1,6 +1,5 @@
 """Public prepared-case handoff to the independent full native 3D driver."""
 from collections.abc import Mapping
-from contextlib import nullcontext
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 import os
@@ -15,14 +14,13 @@ import pytest
 from sjtu_tpmshx.domain.compute_config import FluidConfig, ZoneInputConfig
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.cancellation import CancelledError
-from sjtu_tpmshx.domain.run_warnings import RangeRecord, warning_scope
+from sjtu_tpmshx.domain.run_warnings import warning_scope
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.postprocess.api import evaluate, evaluate_physical_balance
-from sjtu_tpmshx.solvers.backends.python.three_d.execution import run_case as python_run
 from sjtu_tpmshx.solvers.api import run_case as cpp_run
 from sjtu_tpmshx.tests.native.test_native_execution import _config
 from sjtu_tpmshx.tests.native.test_full_3d import ROOT
-from sjtu_tpmshx.tests.native import full_thermal_reference
+from sjtu_tpmshx.tests.native.full_result_audit import physical_gates
 
 
 @pytest.fixture(scope='module')
@@ -53,24 +51,13 @@ def control(path,**kwargs):
     return RunControl(backend='cpp',native_library=str(path),native_table_directory=str(ROOT/'.cache/native-deps/tables'),**kwargs)
 
 
-def assert_velocity_pair(actual, expected, inlet_speed, path):
-    actual, expected = np.asarray(actual), np.asarray(expected)
-    assert actual.shape == expected.shape, path
-    assert np.isfinite(actual).all() and np.isfinite(expected).all(), path
-    assert np.isfinite(inlet_speed) and inlet_speed > 0, path
-    np.testing.assert_allclose(actual, expected, rtol=0.,
-                               atol=1e-6 + 1e-5*inlet_speed, err_msg=path)
-
-
-def compare(actual,expected,path='', *, engineering=False, inlet_speeds=None):
+def compare(actual,expected,path=''):
     if isinstance(expected,Mapping):
-        actual=full_thermal_reference.native_table_metadata(actual)
-        expected=full_thermal_reference.native_table_metadata(expected)
         assert actual.keys()==expected.keys(),path
-        for key,value in expected.items():compare(actual[key],value,path+'/'+str(key),engineering=engineering,inlet_speeds=inlet_speeds)
+        for key,value in expected.items():compare(actual[key],value,path+'/'+str(key))
     elif isinstance(expected,(tuple,list)):
         assert len(actual)==len(expected),path
-        for i,value in enumerate(expected):compare(actual[i],value,path+'/'+str(i),engineering=engineering,inlet_speeds=inlet_speeds)
+        for i,value in enumerate(expected):compare(actual[i],value,path+'/'+str(i))
     elif isinstance(expected,(np.ndarray,float,np.floating)):
         if isinstance(expected,np.ndarray):
             assert np.shape(actual)==expected.shape,path
@@ -78,71 +65,21 @@ def compare(actual,expected,path='', *, engineering=False, inlet_speeds=None):
                 np.testing.assert_array_equal(actual,expected,err_msg=path)
                 return
         rtol,atol=2e-7,1e-6
-        if engineering:
-            rtol=1e-4  # Intermediate fields: 0.01%, independently of physical gates.
-            key=path.rsplit('/',1)[-1].removesuffix('_display')
-            if key in ('ucA','vcA','wcA','vmag_A','ucB','vcB','wcB','vmag_B'):
-                assert inlet_speeds is not None, path
-                assert_velocity_pair(actual, expected, inlet_speeds[key[-1]], path)
-                return
-            if key.startswith(('Ta','Tb','Ts','T_out')) or 'temperature' in path:
-                rtol,atol=0.,.01
-            elif key in ('Q','Q_A','Q_B','dP_A','dP_B','mass_flow_A','mass_flow_B'):
-                rtol,atol=.001,0.
-            elif key=='energy_imbalance_rel':
-                rtol,atol=0.,1e-5  # Compare near-zero ratios in absolute units.
         np.testing.assert_allclose(actual,expected,rtol=rtol,atol=atol,equal_nan=True,err_msg=path)
     else:
         assert actual==expected,path
 
 
-@pytest.mark.parametrize('name', ['ucA', 'vcA', 'wcA', 'vmag_A', 'ucB', 'vcB', 'wcB', 'vmag_B',
-                                  'ucA_display', 'vcA_display', 'ucB_display', 'vcB_display'])
-def test_velocity_comparison_uses_each_side_inlet_speed(name):
-    speeds = dict(A=.2, B=20.)
-    limit = 1e-6 + 1e-5*speeds[name.removesuffix('_display')[-1]]
-    expected = {name: np.zeros((2, 3))}
-    actual = {name: np.full((2, 3), limit)}
-    compare(actual, expected, 'fields', engineering=True, inlet_speeds=speeds)
-    actual[name][0, 0] = np.nextafter(limit, np.inf)
-    with pytest.raises(AssertionError):
-        compare(actual, expected, 'fields', engineering=True, inlet_speeds=speeds)
-    with pytest.raises(AssertionError):
-        compare(expected, expected, 'fields', engineering=True)
-    with pytest.raises(AssertionError):
-        compare({name: np.full((2, 3), limit)}, expected, 'fields')
-
-
-@pytest.mark.parametrize('value', [np.nan, np.inf, -np.inf])
-def test_velocity_comparison_rejects_nonfinite_fields(value):
-    with pytest.raises(AssertionError):
-        assert_velocity_pair([value], [value], 1., 'ucA')
-
-
-@pytest.mark.parametrize('speed', [0., -1., np.inf, np.nan])
-def test_velocity_comparison_rejects_invalid_inlet_speed(speed):
-    with pytest.raises(AssertionError):
-        assert_velocity_pair([0.], [0.], speed, 'ucA')
-
-
-def test_velocity_comparison_rejects_shape_broadcast():
-    with pytest.raises(AssertionError):
-        assert_velocity_pair(np.zeros((2, 1)), np.zeros((2, 3)), 1., 'ucA')
-
-
 def test_bootstrap_trace_records_recursive_caps_without_changing_legacy_summary(native_path):
     from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
-    from sjtu_tpmshx.solvers.backends.python.three_d import runtime
     from sjtu_tpmshx.tests.native.test_full_3d import prepared
     cfg, p = prepared('air-air', counts=(26, 26, 26), use_coarse_bootstrap=True,
                       coarse_bootstrap_max_iter=3, max_iter_simple=1)
     p['max_outer'] = p['ltne_max_iter'] = 1
-    expected = runtime.build_problem(cfg, p)
     driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
     actual = driver.run_prepared(cfg, p)
-    for side, solver, flow in zip('AB', (expected.sA, expected.sB), actual['flow']):
+    for side, flow in zip('AB', actual['flow']):
         trace = actual['bootstrap_trace'][side]
-        compare(trace, solver._coarse_bootstrap_trace, side)
         assert [row['depth'] for row in trace['levels']] == [1, 2]
         assert [row['coarse_shape'] for row in trace['levels']] == [(13, 13, 13), (6, 6, 6)]
         assert [row['iteration_cap'] for row in trace['levels']] == [3, 200]
@@ -184,10 +121,8 @@ def test_public_bootstrap_trace_roundtrip_and_old_diagnostics_remain_readable(na
     prepared = case('air-air', 2)
     prepared = replace(prepared, parameters=dict(prepared.parameters, use_coarse_bootstrap=enabled,
                                                  coarse_bootstrap_max_iter=7))
-    expected = python_run(prepared)
     actual = cpp_run(prepared, control(native_path))
     trace = actual.metadata['diagnostics']['coarse_bootstrap_trace']
-    compare(trace, expected.metadata['diagnostics']['coarse_bootstrap_trace'])
     for value in trace.values():
         assert value['decision'] == ('coarse-too-small' if enabled else 'disabled')
         assert value['actual_levels'] == value['started_cap_sum'] == value['total_charged_iterations'] == 0
@@ -224,47 +159,90 @@ def test_old_full3d_library_missing_query_has_explicit_capability_error(native_p
         full_3d.NativeFull3DDriver(native_path)
 
 
+def run_observed(prepared, native_path):
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
+    original, records = NativeFull3DDriver._run_prepared, []
+    def observed(self, *args, **kwargs):
+        raw = original(self, *args, **kwargs)
+        records.append(raw)
+        return raw
+    with patch.object(NativeFull3DDriver, '_run_prepared', observed):
+        actual = cpp_run(prepared, control(native_path))
+    raw, = records
+    return actual, raw
+
+
+def check_portable(actual, raw, prepared):
+    assert actual.backend_id == 'cpp' and actual.case_id == prepared.case_id
+    compare(actual.grid, prepared.grid, 'grid')
+    compare(actual.metadata['parameters'], prepared.parameters, 'parameters')
+    compare(actual.metadata['design_fields'], prepared.design_fields, 'design')
+    assert actual.run_status == dict(execution='completed', converged=raw['converged'], outer_index=raw['outer_index'])
+    for name, value in zip(('Ta', 'Tb', 'Ts'), raw['temperature']):
+        np.testing.assert_array_equal(actual.fields[name], value)
+        assert actual.field_metadata[name]['unit'] == 'K'
+    from sjtu_tpmshx.result_math import pressure_face_values
+    drops = []
+    for side, name in enumerate('AB'):
+        flow = raw['flow'][side]
+        np.testing.assert_array_equal(actual.fields['P_thermal_'+name], raw['thermal_pressure'][side])
+        np.testing.assert_array_equal(actual.fields['P_report_'+name], flow['pressure_real'])
+        np.testing.assert_array_equal(actual.fields['h_v'+name], raw['hv'][side])
+        for key, value in zip(('uc', 'vc', 'wc'), flow['velocity_real']):
+            np.testing.assert_array_equal(actual.fields[key+name], value)
+            assert actual.field_metadata[key+name]['unit'] == 'm/s'
+        for kind in ('mass', 'face_velocity'):
+            compare(actual.boundary_fluxes[kind+'_'+name], raw[kind][side], kind)
+        inlet, outlet = pressure_face_values(flow['pressure'], flow['widths'][1])
+        area = flow['widths'][0][:,None]*flow['widths'][2][None,:]
+        drops.append(np.average(inlet, weights=area*flow['inlet_opening'])
+            - np.average(outlet, weights=area*flow['outlet_opening']))
+        detail = actual.metadata['diagnostics']['convergence_detail']['simple_'+name]
+        for key in ('final_res_mom', 'final_res_mass_local', 'final_res_mass_global', 'outlet_backflow_frac'):
+            assert detail[key] == flow['last'][key]
+    from sjtu_tpmshx.tests.native.enthalpy_fv_audit import advection
+    duties, masses, outlets = [], [], []
+    for index, side in enumerate('AB'):
+        if raw['mode'] == 'model_h':
+            ledger = raw['model_h']['_native_model_h'][side]
+            compare(actual.boundary_fluxes['model_h'][side], ledger, 'heat faces')
+            duties.append(-sum(float(np.sum(face)) for face in ledger.values()))
+        else:
+            state = raw['true_h']['_native_state']
+            duties.append(advection(state['h_'+side], state['h_in_'+side], raw['mass'][index])[1])
+        mass = raw['mass'][index]
+        masses.append(sum(float(np.maximum(-sign*np.take(face,end,axis=axis),0.).sum())
+            for axis,face in enumerate(mass) for end,sign in ((0,-1),(-1,1))))
+        direction = prepared.parameters['fluid_'+side+'_cfg']['dir']
+        axis, end, sign = direction//2, (-1 if direction%2==0 else 0), (1 if direction%2==0 else -1)
+        weights = np.maximum(sign*np.take(mass[axis],end,axis=axis),0.)
+        outlets.append(np.average(np.take(raw['temperature'][index],end,axis=axis),weights=weights))
+    metrics = evaluate(actual).metrics
+    expected = dict(Q=abs(duties[0]), Q_A=duties[0], Q_B=duties[1],
+        dP_A=drops[0], dP_B=drops[1], T_out_A=outlets[0], T_out_B=outlets[1],
+        mass_flow_A=masses[0], mass_flow_B=masses[1],
+        energy_imbalance_rel=abs(sum(duties))/max(*(abs(x) for x in duties),1e-30))
+    for key,value in expected.items():
+        assert metrics[key].status == 'available', key
+        compare(metrics[key].value, value, key)
+    audit = evaluate_physical_balance(actual)['energy']
+    assert audit['status'] == 'available' and abs(audit['telescoping_error']) < 1e-6
+
+
 @pytest.mark.parametrize('pair',['air-air','air-water','water-air','air-sco2','sco2-water'])
-def test_public_case_fields_native_ledgers_and_postprocess(native_path,pair):
-    from sjtu_tpmshx.tests.native.test_backend_engineering_parity import _physical_gates
-    prepared=case(pair)
-    mixed = any(fluid in ('co2','sco2') for fluid in pair.split('-'))
-    from sjtu_tpmshx.tests.native.full_thermal_reference import selected_energy_reference
-    with selected_energy_reference() if mixed else nullcontext():
-        expected=python_run(prepared)
-    # A Python numerical entry cannot supply any part of the native answer.
-    with patch('sjtu_tpmshx.solvers.backends.python.three_d.runtime.build_problem',side_effect=AssertionError('Python numerical driver called')):
-        actual=cpp_run(prepared,control(native_path))
-    assert actual.backend_id=='cpp'
-    for result in (actual,expected):
-        samples = result.metadata['property_sampling']
-        for label, fluid in zip('AB', pair.split('-')):
-            hv = [r for r in samples if r['side'] == label and r['stage'] == 'thermal_hv' and r['quantity'] == 'conductivity']
-            assert len(hv) == 1 and hv[0]['outer_index'] == result.run_status['outer_index']
-            assert hv[0]['pressure'] == 'inlet'
-            assert hv[0]['temperature'] == ('previous_thermal_or_seed' if fluid == 'sco2' else 'inlet')
-        assert result.metadata['input_resolution']['source'] == 'CaseData.parameters'
+def test_public_case_fields_native_ledgers_and_postprocess(native_path, pair):
+    prepared = case(pair)
+    actual, raw = run_observed(prepared, native_path)
+    check_portable(actual, raw, prepared)
+    physical_gates(actual)
+    samples = actual.metadata['property_sampling']
+    for label, fluid in zip('AB', pair.split('-')):
+        hv = [r for r in samples if r['side'] == label and r['stage'] == 'thermal_hv' and r['quantity'] == 'conductivity']
+        assert len(hv) == 1 and hv[0]['outer_index'] == actual.run_status['outer_index']
+        assert hv[0]['pressure'] == 'inlet'
+        assert hv[0]['temperature'] == ('previous_thermal_or_seed' if fluid == 'sco2' else 'inlet')
+    assert actual.metadata['input_resolution']['source'] == 'CaseData.parameters'
     assert actual.metadata['execution_record']['property_sampling']['version'] == 'full_sampling_v1'
-    for result in (actual,expected):
-        _physical_gates(result)
-        audit = evaluate_physical_balance(result)['energy']
-        if result is actual or not mixed:
-            assert audit['status'] == 'available'
-            assert abs(audit['telescoping_error']) < 1e-6
-    for key in ('fields','field_metadata','boundary_fluxes','pressure_evidence','run_status'):
-        a,e=getattr(actual,key),getattr(expected,key)
-        if key=='boundary_fluxes' and mixed:
-            a,e=dict(a),dict(e)
-            a.pop('energy');e.pop('energy')
-        compare(a,e,key,engineering=True,inlet_speeds={side: prepared.parameters['u_'+side] for side in 'AB'})
-    for key in ('model_metadata','application','reporting_reference','df_metadata'):
-        compare(actual.metadata[key],expected.metadata[key],key,engineering=key in ('application','reporting_reference'))
-    for key in ('Q','Q_A','Q_B','dP_A','dP_B','T_out_A','T_out_B','mass_flow_A','mass_flow_B','energy_imbalance_rel'):
-        a,e=evaluate(actual).metrics[key],evaluate(expected).metrics[key]
-        assert a.status==e.status
-        compare(a.value,e.value,key,engineering=True)
-    for key in ('simple_ok','ltne_ok','outer_converged','fields_finite','envelope_ok','simple_exit_A','simple_exit_B'):
-        compare(actual.metadata['diagnostics']['convergence_detail'][key],expected.metadata['diagnostics']['convergence_detail'][key],key)
 
 
 def test_public_legacy_strict_v3_reports_executed_final_and_outer_settings(native_path):
@@ -299,17 +277,16 @@ def test_public_legacy_strict_v3_reports_executed_final_and_outer_settings(nativ
 
 
 def test_capped_public_keeps_distinct_pressure_states(native_path):
-    from sjtu_tpmshx.tests.native.full_thermal_reference import selected_energy_reference
-    prepared=case('air-sco2',2);a=cpp_run(prepared,control(native_path))
-    with selected_energy_reference():
-        e=python_run(prepared)
-    assert not a.run_status['converged']
-    assert a.metadata['diagnostics']['true_h_balance']['post_after_last_thermal']
-    assert np.max(np.abs(a.fields['P_report_A']-a.fields['P_thermal_A']))>1e-5
-    compare(a.fields,e.fields,'cap-fields',engineering=True,
-            inlet_speeds={side: prepared.parameters['u_'+side] for side in 'AB'})
-    for key in ('P_A_offset_Pa','P_B_offset_Pa','P_A_range_Pa','P_B_range_Pa'):
-        compare(a.metadata['diagnostics']['true_h_balance'][key],e.metadata['diagnostics']['true_h_balance'][key],key)
+    prepared = case('air-sco2', 2)
+    actual, raw = run_observed(prepared, native_path)
+    check_portable(actual, raw, prepared)
+    assert not actual.run_status['converged']
+    balance = actual.metadata['diagnostics']['true_h_balance']
+    assert balance['post_after_last_thermal']
+    assert np.max(np.abs(actual.fields['P_report_A']-actual.fields['P_thermal_A'])) > 1e-5
+    for side, name in enumerate('AB'):
+        assert balance['P_'+name+'_offset_Pa'] == raw['outer'][-1]['pressure_reference'][side]
+        compare(balance['P_'+name+'_range_Pa'], raw['outer'][-1]['pressure_range'][side])
 
 
 def test_pre_cancelled_case_skips_preparation_and_library_load(tmp_path):
@@ -440,19 +417,25 @@ def test_native_call_borrows_case_arrays_and_recovers(native_path, monkeypatch, 
 
 
 @pytest.mark.parametrize('pair',['air-air','air-sco2','sco2-water'])
-def test_opt_in_audit_exports_final_capped_state_and_nu_observations(native_path,pair):
-    prepared=case(pair,2)
-    prepared=replace(prepared,parameters=dict(prepared.parameters,_emit_audit=True))
-    from sjtu_tpmshx.tests.native.full_thermal_reference import selected_energy_reference
-    a=cpp_run(prepared,control(native_path))
-    with selected_energy_reference() if 'sco2' in pair else nullcontext():
-        e=python_run(prepared)
-    compare(a.metadata['application'],e.metadata['application'],'application',engineering=True)
-    expected=e.metadata['diagnostics'];actual=a.metadata['diagnostics']
-    for key in expected:
-        if key.startswith('_audit_') or key in ('sco2_nu_observations','envelope_reasons','envelope_warnings'):
-            compare(actual[key],expected[key],key,engineering=True,
-                    inlet_speeds={side: prepared.parameters['u_'+side] for side in 'AB'})
+def test_opt_in_audit_exports_final_capped_state_and_nu_observations(native_path, pair):
+    prepared = case(pair, 2)
+    prepared = replace(prepared, parameters=dict(prepared.parameters, _emit_audit=True))
+    actual, raw = run_observed(prepared, native_path)
+    check_portable(actual, raw, prepared)
+    diagnostics = actual.metadata['diagnostics']
+    compare(diagnostics['sco2_nu_observations'], raw['nu_observations'])
+    compare(diagnostics['envelope_reasons'], raw['envelope_reasons'])
+    for side, name in enumerate('AB'):
+        face = diagnostics['_audit_s'+name+'_face']
+        for target, source in (('u','u'), ('v','v'), ('w','w'), ('rho','density'), ('eps','epsilon'),
+                               ('inlet_frac','inlet_opening'), ('outlet_frac','outlet_opening')):
+            np.testing.assert_array_equal(face[target], raw['flow'][side][source])
+        for axis, width in zip('xyz', raw['flow'][side]['widths']):
+            np.testing.assert_array_equal(face['d'+axis], width)
+        assert diagnostics['_audit_m_dot_'+name+'_simple'] == raw['inlet_mass'][side]
+        assert diagnostics['_audit_cp_'+name] == raw['inlet_cp'][side]
+    assert diagnostics['_audit_m_dot_B_phys_in'] == raw['physical_mass_in'][1]
+    assert diagnostics['_audit_m_dot_B_phys_out'] == raw['physical_mass_out'][1]
 
 
 @pytest.mark.parametrize('design_mode',['grid','continuous','continuous_xyz','asymmetric'])
@@ -473,27 +456,17 @@ def test_prepared_spatial_and_asymmetric_geometry(native_path,design_mode):
     else:
         cfg=replace(cfg,geometry=replace(cfg.geometry,delta_levelset=.05))
     prepared=prepare_case(cfg,case_id='native-'+design_mode)
-    a=cpp_run(prepared,control(native_path))
+    actual, raw = run_observed(prepared, native_path)
+    check_portable(actual, raw, prepared)
+    physical_gates(actual)
     if design_mode == 'asymmetric':
-        from sjtu_tpmshx.tests.native.test_backend_engineering_parity import _physical_gates
-        _physical_gates(a)
-        audit = evaluate_physical_balance(a)['energy']
-        assert audit['status'] == 'available' and abs(audit['telescoping_error']) < 1e-6
-        assert a.metadata['native']['algorithm'] == 'model_h_tface_sou_sou_strict_v3'
-        # The retained Python capacity model has a different energy equation.
-        return
-    e=python_run(prepared)
-    for key in ('fields','boundary_fluxes','pressure_evidence','run_status'):
-        compare(getattr(a,key),getattr(e,key),design_mode+'/'+key)
-    for key in ('Q','Q_A','Q_B','dP_A','dP_B','energy_imbalance_rel'):
-        compare(evaluate(a).metrics[key].value,evaluate(e).metrics[key].value,key)
+        assert actual.metadata['native']['algorithm'] == 'model_h_tface_sou_sou_strict_v3'
 
 
 @pytest.mark.parametrize('pair,offset', [('water-water', 0.), ('air-air', .05),
                                         ('water-air', .05), ('air-water', .05)])
 def test_two_sided_integral_defaults_keep_physics_and_saved_evidence(native_path, tmp_path, pair, offset):
     from sjtu_tpmshx.io.result_io import load_result, save_result
-    from sjtu_tpmshx.tests.native.test_backend_engineering_parity import _physical_gates
     cfg = _config(3, True)
     fluids = [replace(getattr(cfg, 'fluid_'+side), type=fluid,
                       u_mps=3. if fluid == 'air' else .2,
@@ -504,7 +477,7 @@ def test_two_sided_integral_defaults_keep_physics_and_saved_evidence(native_path
                   geometry=replace(cfg.geometry, delta_levelset=offset))
     prepared = prepare_case(cfg, case_id='integral-'+pair)
     actual = cpp_run(prepared, control(native_path))
-    _physical_gates(actual)
+    physical_gates(actual)
     record = actual.metadata['execution_record']
     assert record['numerics']['thermal_mode'] == 'model_h'
     assert record['numerics']['algorithm'] == 'model_h_tface_sou_sou_strict_v3'
@@ -525,60 +498,26 @@ def test_two_sided_integral_defaults_keep_physics_and_saved_evidence(native_path
 
 
 @pytest.mark.parametrize('pair',['air-air','air-water','water-air','air-sco2','sco2-water'])
-def test_runtime_range_evidence_preserves_original_sources_and_denominators(native_path,pair,monkeypatch):
-    # The public entry owns its warning scope; inspect the adapter's raw range
-    # records here, while the remaining integration cases use the public entry.
-    from sjtu_tpmshx.solvers.backends.cpp.full_3d import run_case as adapter_run
-    from sjtu_tpmshx.domain import run_warnings
-    from sjtu_tpmshx.models import tpms_props, nu_correlations
-    prepared=case(pair,2);expected={};actual={};snapshots={}
-    def observe(source,values,*args,**kwargs):
-        array=np.asarray(values)
-        key=(*source,array.shape,run_warnings._range_context.get())
-        snapshots.setdefault(key,[]).append(array.copy())
-        return run_warnings.record_range(source,values,*args,**kwargs)
-    monkeypatch.setattr(tpms_props,'record_range',observe)
-    monkeypatch.setattr(nu_correlations,'record_range',observe)
-    from sjtu_tpmshx.tests.native.full_thermal_reference import selected_energy_reference
-    with warning_scope(expected), selected_energy_reference() if 'sco2' in pair else nullcontext():
-        python_run(prepared)
-    with warning_scope(actual):result=adapter_run(prepared,control(native_path))
-    last={(*row['source'],tuple(row['shape']),(row['side'],row['stage'],row['layout'])): row
-          for row in result.metadata['_last_closure_ranges']}
-    assert last.keys()=={key for key,value in expected.items() if isinstance(value,RangeRecord)}
-    assert actual.keys()==expected.keys()
-    for key,value in expected.items():
-        if isinstance(value,RangeRecord):
-            a=dict(vars(actual[key]));e=dict(vars(value))
-            assert a.pop('last') is None
-            sample=e.pop('last')
-            for name in ('low','high','size','nonfinite'):
-                assert last[key][name]==sample[name]
-            for name in ('minimum','maximum'):
-                got,want=last[key][name],sample[name]
-                if want is None:
-                    assert got is None
-                else:
-                    rtol,atol=(0.,.01) if value.quantity=='T' else (1e-4,1e-6)
-                    assert np.isclose(got[0],want[0],rtol=rtol,atol=atol)
-                    assert np.isclose(snapshots[key][-1][got[1]],want[0],rtol=rtol,atol=atol)
-            for name in ('minimum','maximum'):
-                got,want=a.pop(name),e.pop(name)
-                if want is None:
-                    assert got is None
-                    continue
-                label='temperature' if value.quantity=='T' else 'range'
-                compare(got[0],want[0],label,engineering=True)
-                if got[1]!=want[1]:
-                    # Symmetric cells can exchange argmin/argmax after roundoff.
-                    # The reported location must still carry the same extremum
-                    # in an observed source snapshot, not merely be in bounds.
-                    rtol,atol=(0.,.01) if value.quantity=='T' else (1e-4,1e-6)
-                    assert any(np.isclose(row[got[1]],want[0],rtol=rtol,atol=atol)
-                               for row in snapshots[key])
-            compare(a,e,str(key))
-        else:
-            assert actual[key]==value
+def test_runtime_range_evidence_preserves_original_sources_and_denominators(native_path, pair):
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver, run_case as adapter_run
+    from sjtu_tpmshx.tests.native.test_cpp_full_2d_capture import check_range_records
+    records, captured = {}, []
+    original = NativeFull3DDriver._run_prepared
+    def observed(self, *args, **kwargs):
+        raw = original(self, *args, **kwargs)
+        captured.append(raw)
+        return raw
+    with warning_scope(records), patch.object(NativeFull3DDriver, '_run_prepared', observed):
+        result = adapter_run(case(pair, 2), control(native_path))
+    raw, = captured
+    check_range_records(records, raw['range_observations'])
+    compare(result.metadata['_last_closure_ranges'], raw['last_closure_ranges'])
+    for row in raw['last_closure_ranges']:
+        assert row['size'] == int(np.prod(row['shape']))
+        for kind in ('minimum', 'maximum'):
+            if row[kind] is not None:
+                assert len(row[kind][1]) == len(row['shape'])
+                assert all(0 <= index < size for index,size in zip(row[kind][1],row['shape']))
 
 
 @pytest.mark.parametrize('converged', [False, True])
@@ -627,11 +566,8 @@ assert not [name for name in sys.modules if name.startswith(forbidden)]
 @pytest.mark.parametrize('relative', [False, True])
 def test_public_full3d_missing_library_never_falls_back(tmp_path, relative):
     selected = control('missing.dll' if relative else tmp_path/'missing.dll')
-    error, message = (ValueError, 'absolute') if relative else (FileNotFoundError, 'missing')
-    with patch('sjtu_tpmshx.solvers.backends.python.three_d.runtime.build_problem',
-               side_effect=AssertionError('Python numerical driver called')):
-        with pytest.raises(error, match=message):
-            cpp_run(case(), selected)
+    with pytest.raises(FileNotFoundError, match='missing'):
+        cpp_run(case(), selected)
 
 
 @pytest.mark.parametrize('pair,route,audit', [
@@ -744,8 +680,8 @@ def test_public_applicability_keeps_original_inlet_and_last_local_sources(native
         config = co2_config(1 if dimension == 2 else 3)
         prepared = prepare_case(replace(config, solver=replace(config.solver, max_outer_ltne=2)), case_id='co2-ranges')
     summaries = []
-    for backend in ('python', 'cpp'):
-        result = run_case(prepared, control(native_path) if backend == 'cpp' else RunControl())
+    for backend in ('cpp',):
+        result = run_case(prepared, control(native_path))
         summary = evaluate_applicability(result)
         assert summary['missing'] == []
         assert summary['status'] in ('within_limits', 'outside_limits')
@@ -759,46 +695,43 @@ def test_public_applicability_keeps_original_inlet_and_last_local_sources(native
         path = save_result(result, tmp_path / (backend + '.h5'))
         assert mutable_data(evaluate_applicability(load_result(path))) == mutable_data(summary)
         summaries.append(summary)
-    assert summaries[0]['within_limits'] == summaries[1]['within_limits']
-    assert {row['source'][1] for row in summaries[1]['checks']['inlet']
+    assert {row['source'][1] for row in summaries[0]['checks']['inlet']
             if row['source'][0] == 'geometry'} == {'L_field_m', 't_field_m'}
 
 
 @pytest.mark.parametrize('seeded', [False, True])
 def test_first_thermal_sampling_distinguishes_inlet_and_seed(native_path, seeded):
-    from sjtu_tpmshx.preprocess.api import prepare_research_case
-    from sjtu_tpmshx.tests.test_convergence_truth_table import _cheap_3d
-    cfg = _cheap_3d(max_outer_ltne=1, fluid_type_A='sco2', fluid_type_B='water',
-                   u_A=.2, u_B=.2, T_inA=500., T_inB=300., P_inA=12e6, P_inB=2e6,
-                   T_s_init=350. if seeded else None)
-    prepared = prepare_research_case(cfg, case_id='first-sampling')
     from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
     from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
+    prepared = case('sco2-water', 2)
+    prepared = replace(prepared, parameters=dict(prepared.parameters, T_s_init=350. if seeded else None))
     cfg, data = build_execution_inputs(prepared)
+    data['max_outer'] = 1
     driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
     native = driver.run_prepared(cfg, data, control(native_path))
-    reference = python_run(prepared)
-    for rows in (native['property_sampling'], reference.metadata['property_sampling']):
-        sample = next(row for row in rows if row['side'] == 'A' and row['stage'] == 'thermal_hv'
-                      and row['quantity'] == 'conductivity')
-        assert sample['outer_index'] == 0
-        assert sample['temperature'] == ('previous_thermal_or_seed' if seeded else 'inlet')
-        assert sample['operation'] == ('local_evaluation' if seeded else 'scalar_evaluation')
-        assert any(row['stage'] == 'thermal_warmup' for row in rows)
-        post = [row for row in rows if row['stage'] == 'flow_post']
-        assert post and all(row['temperature'] == 'current_thermal_return' for row in post)
+    rows = native['property_sampling']
+    sample = next(row for row in rows if row['side'] == 'A' and row['stage'] == 'thermal_hv'
+                  and row['quantity'] == 'conductivity')
+    assert sample['outer_index'] == 0
+    assert sample['temperature'] == ('previous_thermal_or_seed' if seeded else 'inlet')
+    assert sample['operation'] == ('local_evaluation' if seeded else 'scalar_evaluation')
+    assert any(row['stage'] == 'thermal_warmup' for row in rows)
+    post = [row for row in rows if row['stage'] == 'flow_post']
+    assert post and all(row['temperature'] == 'current_thermal_return' for row in post)
 
 
-def test_inactive_python_side_has_no_flow_or_exchange_sampling():
-    from sjtu_tpmshx.preprocess.api import prepare_research_case
-    from sjtu_tpmshx.tests.test_convergence_truth_table import _cheap_3d
-    cfg = _cheap_3d(max_outer_ltne=1)
-    cfg.update(fluid_B_cfg=None, sweep_profile=None)
-    result = python_run(prepare_research_case(cfg, case_id='inactive-sampling'))
-    assert result.metadata['input_resolution']['active_sides'] == ('A',)
-    energy = next(row for row in result.metadata['property_sampling'] if row['quantity'] == 'energy_relation')
+def test_inactive_native_side_has_no_flow_or_exchange_sampling(native_path):
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
+    from sjtu_tpmshx.tests.native.test_full_3d import prepared
+    cfg, p = prepared('air-air')
+    cfg['fluid_B_cfg'] = None
+    p['max_outer'] = 1
+    driver = NativeFull3DDriver(native_path, table_directory=control(native_path).native_table_directory)
+    result = driver.run_prepared(cfg, p)
+    assert result['flow'][1] is None
+    energy = next(row for row in result['property_sampling'] if row['quantity'] == 'energy_relation')
     assert energy['temperature'] == 'inlet' and energy['operation'] == 'frozen_capacity_temperature'
-    assert not [row for row in result.metadata['property_sampling']
+    assert not [row for row in result['property_sampling']
                 if row['side'] == 'B' and row['stage'] in ('thermal_hv', 'flow', 'flow_post')]
 
 

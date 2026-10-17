@@ -91,21 +91,23 @@ def test_cli_refined_best_and_both_export_sheets(monkeypatch, tmp_path, capsys, 
 def test_forward_labels_without_extra_property_or_thermal_calls(
         monkeypatch, model, passes, diagnostic_state):
     import importlib
-    import numpy as np
     f = importlib.import_module('sjtu_tpmshx.design.forward')
-    model_source = importlib.import_module('sjtu_tpmshx.models.quick_design')
-    preparation = importlib.import_module('sjtu_tpmshx.preprocess.app_modes.quick_design')
-    execution = importlib.import_module('sjtu_tpmshx.solvers.backends.python.quick_design.execution')
+    execution = importlib.import_module('sjtu_tpmshx.solvers.backends.cpp.quick_design')
     postprocess = importlib.import_module('sjtu_tpmshx.postprocess.api')
+    model_source = importlib.import_module('sjtu_tpmshx.models.quick_design')
     from sjtu_tpmshx.models import design_fluids as fluids
+    from sjtu_tpmshx.models import tpms_props
     from sjtu_tpmshx.domain.run_warnings import record_range, warning_messages
     calls, solves, diagnostics = [], [], []
-    evaluate = postprocess.evaluate
+    evaluate, native_run = postprocess.evaluate, execution.run_case
+    record_native = execution.record_native_design_ranges
+    properties, temperatures = fluids.fluid_props, tpms_props.record_temperature_ranges
+
     def evaluated(*args, **kwargs):
         performance = evaluate(*args, **kwargs)
         metrics = dict(performance.metrics)
         metric = metrics['energy_imbalance_rel']
-        assert metric.value == .5 and metric.status == 'available'
+        assert metric.value is not None and metric.status == 'available'
         if diagnostic_state == 'unsupported':
             metrics['energy_imbalance_rel'] = replace(
                 metric, value=None, status='unsupported', reason='diagnostic unavailable')
@@ -113,40 +115,48 @@ def test_forward_labels_without_extra_property_or_thermal_calls(
             del metrics['energy_imbalance_rel']
         diagnostics.append(metrics.get('energy_imbalance_rel'))
         return replace(performance, metrics=metrics)
-    def props(fluid, T, P):
-        calls.append((fluid, T, P))
-        record_range(('property', fluid), T, (0., 1.), label=fluid, quantity='T', unit='K')
-        return fluids.Props(10., 1e-5, .1, 1000., .1)
-    def thermal(*args, **kwargs):
-        solves.append((args, kwargs))
-        shape = (args[3], args[4], args[5])
-        return (*tuple(np.full(shape, t) for t in (400., 350., 375.)), {'converged': True})
-    monkeypatch.setattr(model_source, 'fluid_props', props)
+
+    def props(*args):
+        calls.append(args)
+        record_range(('property', args[0]), args[1], (0., 1.),
+                     label=args[0], quantity='T', unit='K')
+        return properties(*args)
+
+    def ranges(fluid, temperature, *args, **kwargs):
+        temperatures(fluid, temperature, *args, **kwargs)
+        record_range(('property', fluid), temperature, (0., 1.),
+                     label=fluid, quantity='T', unit='K')
+
+    def evidence(*args):
+        before = len(calls)
+        record_native(*args)
+        assert len(calls) == before
+
+    def solve(case, control):
+        result = native_run(case, control)
+        solves.append(result)
+        return result
+
     monkeypatch.setattr(fluids, 'fluid_props', props)
-    monkeypatch.setattr(preparation, 'tpms_geometry', lambda *a, **kw: dict(
-        epsilon=.5, epsilon_A=.25, A_0=100., D_h=.001))
-    monkeypatch.setattr(execution, 'solve_full_domain_3d', thermal)
-    monkeypatch.setattr(model_source, '_dp_one', lambda *a, **kw: 100.)
+    monkeypatch.setattr(model_source, 'fluid_props', props)
+    monkeypatch.setattr(fluids, 'record_temperature_ranges', ranges)
+    monkeypatch.setattr(tpms_props, 'record_temperature_ranges', ranges)
+    monkeypatch.setattr(execution, 'record_native_design_ranges', evidence)
+    monkeypatch.setattr(execution, 'run_case', solve)
     monkeypatch.setattr(postprocess, 'evaluate', evaluated)
-    # Keep the warning/count fixture's 500 K inlet liquid under the actual
-    # backend water-state check; its transport-property values remain stubbed.
-    c = replace(_case(), hot_fluid='water', cold_fluid='sco2', P_in_h=3e6)
+    c = replace(_case(), hot_fluid='water', cold_fluid='sco2',
+                T_in_h=500., T_in_c=350., P_in_h=3e6, P_in_c=9e6,
+                mdot_h=.2, mdot_c=.2)
     with warning_scope({}) as records:
-        result = f.forward(c, 'Diamond', 7., .5, .1, .1, prop_model=model)
-    expected = [('water', 500., 3e6), ('sco2', 300., 2e5),
-                ('water', 500., 3e6), ('water', 320., 2e5),
-                ('sco2', 300., 2e5), ('sco2', 480., 9e6)]
-    if passes == 2:
-        expected += [('water', 450., 3e6), ('water', 320., 2e5),
-                     ('sco2', 325., 2e5), ('sco2', 480., 9e6)]
-    assert calls == expected and len(solves) == passes
-    assert result.Q_hot == 10000. and result.Q_cold == 5000.
+        result = f.forward(c, 'Diamond', 7., .5, .1, .025, prop_model=model)
+    assert len(solves) == 1 and len(calls) == 2
+    assert len(solves[0].run_status['passes']) == passes
+    assert result.Q_hot > 0. and result.Q_cold > 0.
     assert len(diagnostics) == 1 and result.energy_imbalance is diagnostics[0]
     messages = '\n'.join(warning_messages(records))
     for side in ('A', 'B'):
-        assert f'side={side}, stage=design-inlet-pass' in messages
-        assert f'side={side}, stage=design-dp-inlet' in messages
-        assert f'side={side}, stage=design-nu-representative-pr' in messages
+        for stage in ('design-inlet-pass', 'design-dp-inlet', 'design-nu-representative-pr'):
+            assert f'side={side}, stage={stage}' in messages
         if passes == 2:
             assert f'side={side}, stage=design-mean-pass' in messages
     assert '480 K' in messages and '9 MPa' in messages

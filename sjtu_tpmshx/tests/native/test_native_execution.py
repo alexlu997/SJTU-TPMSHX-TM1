@@ -1,14 +1,8 @@
-"""Python true-h runs retain physical evidence, handoff and cancellation.
-
-Full-chain comparison is fixed at rtol=atol=1e-10 (the existing assert_slots
-contract), separately from native operator and physical convergence tolerances.
-"""
+"""Native runs retain physical evidence, saved-case handoff, and cancellation."""
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.controllers.compute_orchestrator import CancelToken
 from sjtu_tpmshx.controllers.module_adapter import compute_result
-from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.domain.compute_config import (
     ComputeConfig, ExtrapPolicy, FluidConfig, GeometryConfig, PartialBCConfig, SolverConfig,
@@ -41,108 +35,67 @@ def _config(dimension, air_sco2=False):
         extrap=ExtrapPolicy(allow=True))
 
 
+@pytest.fixture(scope='module')
+def native_path():
+    from sjtu_tpmshx.tests.native.test_cpp_full_3d import native_path as fixture
+    return fixture.__wrapped__()
+
+
 @pytest.mark.parametrize('dimension', [2, 3])
 @pytest.mark.parametrize('air_sco2', [False, True], ids=['sco2-water', 'air-sco2'])
-def test_python_case_handoff_and_physical_evidence(monkeypatch, tmp_path,
-                                                  dimension, air_sco2):
-    from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
-    from sjtu_tpmshx.solvers.simple_solver_3d import SIMPLESolver3D
-
-    solver = SIMPLESolver if dimension == 2 else SIMPLESolver3D
-    original, flows = solver.solve, []
-
-    def solve(self, *args, **kwargs):
-        result = original(self, *args, **kwargs)
-        flows.append((self.final_res_mom, self.final_res_mass_local,
-                      self.final_res_mass_global, self.outlet_backflow_frac))
-        return result
-
-    monkeypatch.setattr(solver, 'solve', solve)
+def test_native_case_handoff_and_physical_evidence(monkeypatch, tmp_path, native_path, dimension, air_sco2):
+    from sjtu_tpmshx.tests.native.test_cpp_full_3d import control
+    from sjtu_tpmshx.tests.native.full_result_audit import physical_gates
     cfg = _config(dimension, air_sco2)
-    monkeypatch.setenv('TPMSHX_TRUE_H_KERNEL', 'numba')
-    reference_case = prepare_case(cfg, case_id='numba-reference')
-    monkeypatch.delenv('TPMSHX_TRUE_H_KERNEL')
-    case = prepare_case(cfg, case_id='python-replay')
+    case = prepare_case(cfg, case_id='native-replay')
     assert 'TPMSHX_THERMAL_LIBRARY' not in case.parameters['_environment']
-    save_case(case, tmp_path / 'case.h5')
-    # A prepared Python case ignores retired overrides on its receiving host.
+    save_case(case, tmp_path/'case.h5')
+    reference = run_case(case, control(native_path))
+    # A saved environment owns the execution; receiving-host overrides do not.
     monkeypatch.setenv('TPMSHX_TRUE_H_KERNEL', 'invalid-receiver-override')
     monkeypatch.setenv('TPMSHX_THERMAL_LIBRARY', '/missing-receiver-library')
-    reference = run_case(reference_case)
-    result = run_case(load_case(tmp_path / 'case.h5'))
-    assert result.backend_id == reference.backend_id == 'python'
-    assert result.run_status['converged'] and reference.run_status['converged']
+    result = run_case(load_case(tmp_path/'case.h5'), control(native_path))
+    assert result.backend_id == reference.backend_id == 'cpp'
     for name in ('fields', 'boundary_fluxes', 'pressure_evidence', 'run_status'):
         assert_slots(getattr(result, name), getattr(reference, name))
     assert_slots(result.metadata['model_metadata'], reference.metadata['model_metadata'])
-    assert flows
-    for momentum, local_mass, global_mass, backflow in flows:
-        assert momentum < 1e-4 and local_mass < 1e-6 and global_mass < 1e-6
-        assert backflow <= .01
     for current in (reference, result):
-        balance = current.metadata['diagnostics']['true_h_balance']
-        assert balance['converged']
-        assert max(balance['enthalpy_clip_counts']['total']) == 0
-        assert balance['coupled_energy_balance']['ratio'] <= .001
-        assert balance['equation_energy_balance']['ratio'] <= .001
+        physical_gates(current)
     settings = result.metadata['diagnostics']['true_h_balance']['effective_settings']
-    assert settings['sweep_kernel'] == 'numba' and settings['energy_audit'] == 'python'
-    assert 'thermal_library' not in settings and 'thermal_abi' not in settings
+    assert 'numba' not in str(settings) and 'python' not in str(settings)
     actual_metrics, expected_metrics = evaluate(result).metrics, evaluate(reference).metrics
     for name in ('Q', 'Q_A', 'Q_B', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B',
                  'mass_flow_A', 'mass_flow_B', 'energy_imbalance_rel'):
         assert actual_metrics[name].status == expected_metrics[name].status == 'available'
-        np.testing.assert_allclose(actual_metrics[name].value, expected_metrics[name].value,
-                                   rtol=1e-10, atol=1e-10)
+        np.testing.assert_allclose(actual_metrics[name].value, expected_metrics[name].value, rtol=1e-10, atol=1e-10)
 
 
 @pytest.mark.parametrize('dimension', [2, 3])
-@pytest.mark.parametrize('failure', ['cancel_before', 'cancel', 'nonfinite'])
-def test_python_chunk_failure_never_finalizes(monkeypatch, dimension, failure):
-    from sjtu_tpmshx.solvers import ltne_enthalpy_3d
-    monkeypatch.delenv('TPMSHX_TRUE_H_KERNEL', raising=False)
-    token, called = CancelToken(), []
-    original = ltne_enthalpy_3d._gs_enthalpy_sweeps_3d
-
-    def chunk(*args, **kwargs):
-        called.append(True)
-        value = original(*args, **kwargs)
-        if failure == 'nonfinite':
-            args[0].flat[0] = np.nan
-        else:
-            token.cancel()
-        return value
-
-    monkeypatch.setattr(ltne_enthalpy_3d, '_gs_enthalpy_sweeps_3d', chunk)
-    if failure == 'cancel_before':
-        token.cancel()
+@pytest.mark.parametrize('before', [False, True])
+def test_native_cancellation_never_finalizes(monkeypatch, native_path, dimension, before):
+    from sjtu_tpmshx.tests.native.test_cpp_full_3d import control
+    calls = []
+    def cancelled():
+        calls.append(True)
+        return len(calls) >= (1 if before else 100)
     monkeypatch.setattr('sjtu_tpmshx.postprocess.api.evaluate',
-                        lambda *args: pytest.fail('failed Python result was finalized'))
-    with pytest.raises(FloatingPointError if failure == 'nonfinite' else CancelledError,
-                       match='Non-finite coupled energy state' if failure == 'nonfinite' else 'cancel'):
-        compute_result(_config(dimension), control=RunControl(cancel_check=token.is_set))
-    assert called == ([] if failure == 'cancel_before' else [True])
+                        lambda *args: pytest.fail('cancelled result was finalized'))
+    with pytest.raises(CancelledError, match='cancel'):
+        compute_result(_config(dimension), control=control(native_path, cancel_check=cancelled))
+    assert len(calls) == 1 if before else len(calls) >= 100
 
 
 @pytest.mark.parametrize('dimension', [2, 3])
-@pytest.mark.parametrize('selection', ['cpp_sweeps_v1', 'unknown_kernel', 'model_h'])
-def test_retired_mixed_requests_fail_before_simple(monkeypatch, tmp_path, dimension, selection):
-    from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
-    from sjtu_tpmshx.solvers.simple_solver_3d import SIMPLESolver3D
-
+@pytest.mark.parametrize('selection', ['cpp_sweeps_v1', 'unknown_kernel', 'numba'])
+def test_retired_kernel_requests_fail_before_library_load(monkeypatch, tmp_path, dimension, selection):
+    from sjtu_tpmshx.solvers.backends.cpp import full_2d, full_3d
     def forbidden(*args, **kwargs):
-        pytest.fail('retired mixed request reached SIMPLE')
-
-    monkeypatch.setattr(SIMPLESolver, 'solve', forbidden)
-    monkeypatch.setattr(SIMPLESolver3D, 'solve', forbidden)
-    monkeypatch.setenv('TPMSHX_TRUE_H_KERNEL',
-                       'unknown' if selection == 'unknown_kernel' else 'cpp_sweeps_v1')
-    monkeypatch.delenv('TPMSHX_THERMAL_LIBRARY', raising=False)
-    cfg = _config(dimension, air_sco2=True)
-    if selection == 'model_h':
-        cfg.fluid_B = FluidConfig(type='air', u_mps=2., T_in_K=300., P_in_Pa=1e5)
-    case = prepare_case(cfg, case_id='retired-mixed')
-    path = save_case(case, tmp_path / 'retired-case.h5')
-    monkeypatch.setenv('TPMSHX_TRUE_H_KERNEL', 'numba')
-    with pytest.raises(ValueError, match=r'mixed Python/C\+\+ sweep route has been retired'):
+        pytest.fail('retired kernel request reached native loading')
+    monkeypatch.setattr(full_2d.ct, 'CDLL', forbidden)
+    monkeypatch.setattr(full_3d.ct, 'CDLL', forbidden)
+    monkeypatch.setenv('TPMSHX_TRUE_H_KERNEL', selection)
+    case = prepare_case(_config(dimension, air_sco2=True), case_id='retired-kernel')
+    path = save_case(case, tmp_path/'retired-case.h5')
+    monkeypatch.delenv('TPMSHX_TRUE_H_KERNEL')
+    with pytest.raises(ValueError, match='TPMSHX_TRUE_H_KERNEL has been retired'):
         run_case(load_case(path))

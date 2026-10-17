@@ -154,26 +154,6 @@ def test_lumped_outputs_are_separate_attributable_and_do_not_touch_data(monkeypa
     assert stopped.value.code == 2
 
 
-def test_sou_benchmark_reports_physical_face_pressure(monkeypatch):
-    from sjtu_tpmshx.runs import benchmark_sou_3d as benchmark
-    from sjtu_tpmshx.solvers.simple_solver_3d import SIMPLESolver3D
-
-    widths = np.array([.1, .2, .4, .3])
-    centres = np.cumsum(widths) - .5 * widths
-    state = SimpleNamespace(P=(1234. - 700. * centres)[None, :, None],
-                            inlet_frac=np.ones((1, 1)), outlet_frac=np.ones((1, 1)),
-                            dx=np.ones(1), dy=widths, dz=np.ones(1),
-                            solve=lambda **kw: (True, 3))
-    class Solver:
-        extract_dP_face_extrap = staticmethod(SIMPLESolver3D.extract_dP_face_extrap)
-
-        def __new__(cls, **kwargs):
-            return state
-
-    monkeypatch.setattr(benchmark, 'SIMPLESolver3D', Solver)
-    conv, iterations, _, pressure = benchmark.run(1, 4, 1, True)
-    assert conv and iterations == 3
-    assert pressure == pytest.approx(700.)
 
 
 @pytest.mark.parametrize('active_b', [False, True])

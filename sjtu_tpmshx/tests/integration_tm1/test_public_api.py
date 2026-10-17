@@ -43,24 +43,24 @@ def legacy_2d_result(case, display_fields, diagnostics):
     return raw
 
 
-def legacy_3d_result(prob, outer, metrics, diagnostics):
-    """Recreate the retired 3D input for the frozen application-mapping oracle."""
-    raw = dict(
-        Ta=outer.Ta, Tb=outer.Tb, Ts=outer.Ts, vmag=metrics.vmag,
-        P_kPa=metrics.P_real / 1000.,
-        L_mm=(prob.L_mm_field.copy() if prob.L_mm_field is not None
-              else np.full((prob.Nx, prob.Ny, prob.Nz), prob.Lcell)),
-        P_Pa=metrics.P_real, P_Pa_B=metrics.P_real_B,
-        uc_real=metrics.uc_real, vc_real=metrics.vc_real, wc_real=metrics.wc_real,
-        uc_real_B=prob.ucB, vc_real_B=prob.vcB, wc_real_B=prob.wcB,
-        vmag_B=metrics.vmag_B, dx=prob.dx, dy=prob.dy, dz=prob.dz,
-        h_vA_field=outer.h_vA_field, h_vB_field=outer.h_vB_field)
-    raw.update(diagnostics)
-    if prob.cfg.get('_emit_audit', False):
-        raw.update(_audit_K_ffA=prob.K_ffA, _audit_K_ffB=outer.K_ffB,
-                   _audit_K_ss=prob.K_ss, _audit_rho_cp_fA=outer.rho_cp_fA,
-                   _audit_rho_cp_fB=outer.rho_cp_fB)
-    return raw
+def native_3d_mapping_input(case, cfg, prepared, raw, diagnostics):
+    """Read the detached C++ fields for the application-mapping oracle."""
+    a, b = raw['flow']
+    values = dict(zip(('Ta', 'Tb', 'Ts'), raw['temperature']))
+    values.update(vmag=a['speed_real'], vmag_B=b['speed_real'],
+        P_kPa=a['pressure_real']/1000., P_Pa=a['pressure_real'], P_Pa_B=b['pressure_real'],
+        L_mm=case.design_fields['L_field_m']*1000.,
+        dx=case.grid['dx'], dy=case.grid['dy'], dz=case.grid['dz'],
+        h_vA_field=raw['hv'][0], h_vB_field=raw['hv'][1])
+    for suffix, flow in (('', a), ('_B', b)):
+        values.update({axis+'_real'+suffix: field
+                       for axis, field in zip(('uc', 'vc', 'wc'), flow['velocity_real'])})
+    values.update(diagnostics)
+    if cfg.get('_emit_audit', False):
+        values.update(_audit_K_ffA=raw['final_conductivity'][0],
+            _audit_K_ffB=raw['final_conductivity'][1], _audit_K_ss=prepared['design']['K_ss'],
+            _audit_rho_cp_fA=raw['final_rho_cp'][0], _audit_rho_cp_fB=raw['final_rho_cp'][1])
+    return values
 
 
 @pytest.mark.slow
@@ -69,11 +69,11 @@ def test_real_application_mapping_and_offline_readback(monkeypatch, tmp_path, di
     config = baseline_config() if dimension == 2 else _small_air_cfg()
     expected = []
     if dimension == 2:
-        from sjtu_tpmshx.solvers.backends import capture_2d as result_capture
+        from sjtu_tpmshx.solvers.backends.cpp import full_2d_capture as result_capture
         from sjtu_tpmshx.tests.integration_tm1.legacy_result_mapping import _finalize_cfg
-        capture = result_capture.capture_result
-        def checked_capture(case, display_fields, native, application, diagnostics):
-            result = capture(case, display_fields, native, application, diagnostics)
+        capture = result_capture._capture_result
+        def checked_capture(case, display_fields, native, application, diagnostics, **kwargs):
+            result = capture(case, display_fields, native, application, diagnostics, **kwargs)
             legacy = legacy_2d_result(case, display_fields, diagnostics)
             for group in ('coeffs', 'props'):
                 legacy.update({'_shim_' + name: value
@@ -87,16 +87,16 @@ def test_real_application_mapping_and_offline_readback(monkeypatch, tmp_path, di
             expected.append(lambda: _finalize_cfg(legacy, parsed))
             return result
     else:
-        from sjtu_tpmshx.solvers.backends.python.three_d import result_capture
+        from sjtu_tpmshx.solvers.backends.cpp import full_3d_capture as result_capture
         from sjtu_tpmshx.tests.integration_tm1.legacy_result_mapping import _finalize_3d_cfg
         capture = result_capture.capture_result
-        def checked_capture(case, problem, outer, metrics, diagnostics):
-            result = capture(case, problem, outer, metrics, diagnostics)
-            raw = legacy_3d_result(problem, outer, metrics, diagnostics)
+        def checked_capture(case, cfg, prepared, native, abi):
+            result = capture(case, cfg, prepared, native, abi)
+            raw = native_3d_mapping_input(case, cfg, prepared, native, result.metadata['diagnostics'])
             expected.append(lambda: _finalize_3d_cfg(dict(raw), dict(
                 compute_cfg=config, extrap_reasons=case.parameters['extrap_reasons'])))
             return result
-    monkeypatch.setattr(result_capture, 'capture_result', checked_capture)
+    monkeypatch.setattr(result_capture, '_capture_result' if dimension == 2 else 'capture_result', checked_capture)
     case = prepare_case(config, case_id=f'application-{dimension}d')
     # The prepared boundary owns fixed geometry, including the air bulk
     # closure. Temperature-dependent fluid/Nu evaluation remains permitted.

@@ -14,7 +14,7 @@ from sjtu_tpmshx.domain.run_environment import run_environment
 from sjtu_tpmshx.models.envelope import ChokedFlowError
 from sjtu_tpmshx.models.fluid_props import WaterStateError
 from sjtu_tpmshx.models.grid import _port_overlap_1d, _port_fractions_1d
-from sjtu_tpmshx.solvers._solve_common import configure_convergence, F2Monitor
+from sjtu_tpmshx.domain.run_environment import require_f2_mode
 from ._simple_abi import _F2
 from .physical_ledger import HeatLedger2D, heat_ledger_query, copy_heat_ledger
 from .simple_2d import _Result as _SimpleResult, _result_dict
@@ -522,6 +522,22 @@ class NativeFull2DDriver:
                 self.release(ct.byref(result))
 
 
+
+def configure_convergence(solver, cfg, solver_config=None):
+    """Apply captured environment > typed settings > cfg > shared defaults."""
+    def knob(name, default):
+        value = getattr(solver_config, name, None)
+        if value is None:
+            value = cfg.get(name)
+        return default if value is None else value
+
+    solver.convergence_mode = require_f2_mode(run_environment(
+        cfg, 'TPMSHX_CONV_MODE', knob('convergence_mode', 'f2')))
+    solver.mom_tol = float(knob('mom_tol', 1e-4))
+    solver.mass_local_tol = float(knob('mass_local_tol', 1e-6))
+    solver.mass_global_tol = float(knob('mass_global_tol', 1e-6))
+
+
 def _pack(cfg, prepared, table_directory, library):
     """Pack already validated CaseData without constructing Python solvers."""
     shape = (len(prepared['energy_dx']), len(prepared['energy_dy']))
@@ -582,9 +598,8 @@ def _pack(cfg, prepared, table_directory, library):
     solver = cfg['compute_cfg'].solver
     settings = SimpleNamespace()
     configure_convergence(settings, cfg, solver)
-    monitor = F2Monitor(settings, (), 20)
-    config.f2 = _F2(monitor.mom_tol, monitor.mass_local_tol, monitor.mass_global_tol, monitor.backflow_max,
-        monitor.vtol, monitor.stall_ratio, monitor.n_confirm, monitor.mom_every, monitor.stall_window)
+    config.f2 = _F2(settings.mom_tol, settings.mass_local_tol, settings.mass_global_tol,
+                     .01, 1e-4, 1e-3, 2, 5, 60)
     config.simple_iterations, config.simple_sweeps = solver.max_iter_simple or 10000, 2
     config.outer_iterations = solver.max_outer_ltne or 10
     config.outer_temperature_tolerance = solver.outer_tol_K or 1.

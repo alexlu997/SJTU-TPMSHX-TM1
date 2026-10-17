@@ -1,23 +1,8 @@
-"""Historical sCO2 duty contrast and current local-property regressions.
-
-The 2026-06-28 audit identified these historical defects:
-
-  D1  2D coupled duty used ṁ·cp(T_in)·ΔT instead of the true enthalpy
-      ṁ·(⟨h_in⟩ − ⟨h_out⟩); −40 %…+224 % off near the pseudocritical line.
-      The scalar-pressure correction below is a test-only historical reference;
-      current 2D/3D true-h duty uses recorded face mass flow and enthalpy.
-  D2  3D duty evaluated h(⟨T⟩_out) instead of the mass-weighted mean
-      enthalpy ⟨h(T)⟩_out — a Jensen error largest exactly at the cp spike.
-  D3  3D volumetric h_v froze k/μ/ρ/Pr at the scalar inlet T while the
-      neighbouring K_ff/ρcp already used the local Ta field — inconsistent,
-      h_v biased many-fold for sCO2 wherever local T departs from inlet.
-
-See vault reports/engineering/audit/2026-06-28-* (D1/D2/D3 detail).
-"""
+"""Shared temperature-duty and local-property regressions from the sCO2 audit."""
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.models import sco2_props, fluid_props
+from sjtu_tpmshx.models import sco2_props
 
 pytestmark = pytest.mark.skipif(
     not sco2_props._HAVE_COOLPROP, reason="CoolProp required for sCO2 tests")
@@ -26,44 +11,11 @@ _P = 8.0e6  # Pa — CO2 pseudocritical T ≈ 307.7 K at this pressure
 
 
 # ── D1 : 2D true-enthalpy coupled duty ──────────────────────────────────────
-def test_d1_historical_scalar_pressure_duty_differs_from_inlet_cp():
-    """The retained historical h(T) reference differs materially from inlet cp."""
-    from sjtu_tpmshx.solvers.backends.python.two_d.coupling import _enthalpy_balance_2d
-    from sjtu_tpmshx.tests.enthalpy_2d_reference import scalar_pressure_duty
-    m = fluid_props.get('sco2')
-
-    Nx, Ny = 4, 3
-    T_in, T_out = 360.0, 310.0          # cooling, straddles the spike
-    Ta = np.empty((Nx, Ny))
-    Ta[0, :] = T_in                     # dir_code 0 → inlet plane i=0
-    Ta[1:-1, :] = 0.5 * (T_in + T_out)
-    Ta[-1, :] = T_out                   # outlet plane i=-1
-    uc = np.full((Nx, Ny), 2.0)
-    vc = np.zeros((Nx, Ny))
-    dx = np.ones(Nx)
-    dy = np.ones(Ny)
-    rho_cp_in = sco2_props.sco2_prop('D', T_in, _P) * sco2_props.sco2_prop('C', T_in, _P)
-    rho_cp = np.full((Nx, Ny), rho_cp_in)
-
-    # Temperature-formulation approximation, not the current sCO2 duty route.
-    Q_cp = _enthalpy_balance_2d(Ta, uc, vc, rho_cp, 0, dx, dy)
-    # Historical scalar-pressure reference.
-    Q_h = scalar_pressure_duty(
-        Ta, uc, vc, 0, dx, dy,
-        enthalpy_fn=m.enthalpy, rho_fn=m.rho, P_ref=_P)
-
-    # reference ṁ·Δh (uniform inlet/outlet faces → ⟨h⟩ = h(T_face))
-    m_dot = sco2_props.sco2_prop('D', T_in, _P) * 2.0 * dy.sum()
-    Q_ref = m_dot * (sco2_props.sco2_prop('H', T_in, _P)
-                     - sco2_props.sco2_prop('H', T_out, _P))
-    assert Q_h == pytest.approx(Q_ref, rel=1e-9)
-    # the inlet-cp approximation is wrong by tens of percent
-    assert abs(Q_cp - Q_h) / abs(Q_h) > 0.30
 
 
 def test_d1_temperature_duty_retains_capacity_weighting():
     """Temperature-formulation duty retains its independent capacity weighting."""
-    from sjtu_tpmshx.solvers.backends.python.two_d.coupling import _enthalpy_balance_2d
+    from sjtu_tpmshx.result_math import _enthalpy_balance_2d
     rng = np.random.default_rng(0)
     Ta = 300.0 + rng.random((5, 4)) * 50.0
     uc = rng.random((5, 4)) + 0.1
@@ -81,34 +33,8 @@ def test_d1_temperature_duty_retains_capacity_weighting():
 
 
 # ── D2 : 3D mass-weighted mean OUTLET enthalpy ⟨h(T)⟩, not h(⟨T⟩) ────────────
-def _fake_outlet_solver(Nx, Nz):
-    from types import SimpleNamespace
-    v = np.zeros((Nx, 1, Nz))
-    v[:, -1, :] = 1.0                       # uniform outlet-plane velocity
-    rho = np.ones((Nx, 1, Nz))
-    return SimpleNamespace(v=v, rho_field=rho, dx=np.ones(Nx), dz=np.ones(Nz))
 
 
-def test_d2_mass_weighted_outlet_enthalpy_not_h_of_mean():
-    from sjtu_tpmshx.solvers.backends.python.three_d.flux import _mass_weighted_h_out, _mass_weighted_T_out
-    Nx, Nz = 2, 2
-    T_face = np.array([[300.0, 315.0], [305.0, 312.0]])   # straddles the spike
-    solver = _fake_outlet_solver(Nx, Nz)
-    eps_f = 0.5
-
-    h_avg = _mass_weighted_h_out(T_face, _P, lambda T, P: sco2_props.sco2_prop("H", T, P),
-                                 solver, eps_f)
-    T_avg = _mass_weighted_T_out(T_face, solver, eps_f)
-
-    # equal weights → ⟨h(T)⟩ = mean of per-cell enthalpy
-    h_mean_ref = float(np.mean(sco2_props.sco2_prop('H', T_face, _P)))
-    assert h_avg == pytest.approx(h_mean_ref, rel=1e-9)
-
-    # Jensen: ⟨h(T)⟩ ≠ h(⟨T⟩) — non-trivial relative to the face enthalpy span
-    h_of_mean = float(sco2_props.sco2_prop('H', T_avg, _P))
-    span = abs(sco2_props.sco2_prop('H', 300.0, _P)
-               - sco2_props.sco2_prop('H', 315.0, _P))
-    assert abs(h_avg - h_of_mean) / span > 0.02
 
 
 # ── D3 : 3D h_v with LOCAL-temperature transport props (sCO2) ────────────────

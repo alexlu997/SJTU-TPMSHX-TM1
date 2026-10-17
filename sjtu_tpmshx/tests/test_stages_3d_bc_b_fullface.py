@@ -1,21 +1,4 @@
-"""Regression: a degenerate (default) bc_B at the ComputeConfig→3D boundary
-must become a FULL-FACE ``fluid_B_cfg``, not ``None``.
-
-Bug (2026-06-24): ``PartialBCConfig`` defaults to ``in_w=out_w=0``;
-``bc_to_dict(side='B')`` maps that to ``None``; the 3D backend's
-``if fB is not None`` gate then SKIPS the entire B SIMPLE build (the
-single-fluid A-alone path), so a 2-fluid 3D ``ComputeConfig`` that left the B
-widths at default silently returned nan (air uncooled, ``T_out_B=nan``,
-``E_imbal=1.0``).
-
-Via ``ComputeConfig`` fluid_B is always a configured second fluid (validated in
-``_parse_inputs_3d_cfg``), so a None B BC at THIS boundary means "full-face
-cross-flow", not single-fluid. The genuine single-fluid path
-(``validation/cases/audit_3d_conservation.py`` T5) uses ``prepare_research_case``
-with an explicit ``fluid_B_cfg=None`` and bypasses this boundary, so it — and
-``bc_to_dict``'s documented side-B None asymmetry (``tests/test_bc_to_dict.py``)
-— are unaffected by the fix.
-"""
+"""Default B ports must prepare a full second-fluid face in every direction."""
 from __future__ import annotations
 
 import pytest

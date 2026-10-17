@@ -349,7 +349,7 @@ def main():
     import time
     t0 = time.time()
     case = prepare_case(cfg, case_id='render-3d-styles')
-    res = run_case(case, RunControl(backend='python'))
+    res = run_case(case, RunControl())
     print(f"Solver: {time.time()-t0:.1f}s")
     passed = print_metrics(res, evaluate(res), cfg)
     grid = make_grid(res)

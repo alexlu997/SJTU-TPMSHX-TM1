@@ -2,11 +2,10 @@
 
 Original cases, controls and short budgets remain intact. Shared-map numerical
 truth is independent face-power arithmetic plus the existing analytic tests;
-old Python trajectories remain available as explicitly historical helpers.
+The retired Python implementation remains in Git history.
 """
 
 import ctypes
-import importlib
 import os
 from pathlib import Path
 import shlex
@@ -17,7 +16,6 @@ import sys
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.solvers import ltne_energy, ltne_energy_3d
 from sjtu_tpmshx.tests.native.temperature_fv_oracle import physical
 
 
@@ -122,37 +120,6 @@ def temperature_case(shape=(5, 4, 1), directions=(0, 2), *, sweeps=19, chunk=5):
                 alpha=(.7, 1., 1.) if shape[2] == 1 else (.3, .5, .6))
 
 
-def python_temperature(case):
-    shape = case["shape"]
-    aa, bb = case["a"], case["b"]
-    kwargs = dict(max_iter=case["maxit"], conv_chunk=case["chunk"], q_rel_tol=case["qtol"],
-                  return_info=True, dir_A=case["directions"][0], dir_B=case["directions"][1])
-    for side, fields in (("A", aa), ("B", bb)):
-        for key, index in (("T_in" + side + "_profile", 7),
-                           ("inlet_mask_" + side, 8), ("inlet_flux_" + side, 9)):
-            kwargs[key] = fields[index] if fields[index].size else None
-    if case["warm"]:
-        kwargs.update(zip(("Ta_init", "Tb_init", "Ts_init"), case["state"]))
-    if case["prescribed"].size:
-        kwargs["Tb_prescribed"] = case["prescribed"]
-    common = (*case["tin"], aa[0], bb[0], case["ks"], aa[1], bb[1],
-              aa[3], bb[3], aa[2] + bb[2])
-    kwargs.update(eps_A=aa[2], eps_B=bb[2], dx_arr=case["widths"][0], dy_arr=case["widths"][1])
-    if shape[2] == 1:
-        def squeeze(x):
-            return x[..., 0] if isinstance(x, np.ndarray) and x.ndim > 1 and x.shape[-1] == 1 else x
-        common = tuple(squeeze(x) for x in common)
-        kwargs = {k: squeeze(v) for k, v in kwargs.items()}
-        result = ltne_energy.solve_full_domain(
-            *[w.sum() for w in case["widths"][:2]], *shape[:2], *common,
-            *(squeeze(x) for x in (aa[4], aa[5], bb[4], bb[5])),
-            use_sou_B=case["sou_b"], **kwargs)
-        return (*[x[..., None] for x in result[:3]], result[3])
-    return ltne_energy_3d.solve_full_domain_3d(
-        *[w.sum() for w in case["widths"]], *shape, *common,
-        *aa[4:7], *bb[4:7], dz_arr=case["widths"][2],
-        alpha_T_fA=case["alpha"][0], alpha_T_s=case["alpha"][1], alpha_T_fB=case["alpha"][2],
-        **kwargs)
 
 
 def assert_returned_physics(case, status, metrics):
@@ -246,25 +213,21 @@ def accepted_five_sweeps(temperature_native):
 @pytest.mark.parametrize("sou_b", [False, True])
 @pytest.mark.parametrize("sweeps", [1, 19])
 @pytest.mark.parametrize("rb", [False, True])
-def test_2d_variable_fields_nonuniform_grid_and_partial_inlets(temperature_native, monkeypatch, directions, sou_b, sweeps, rb):
+def test_2d_variable_fields_nonuniform_grid_and_partial_inlets(temperature_native, directions, sou_b, sweeps, rb):
     case = temperature_case(directions=directions, sweeps=sweeps)
     case["sou_b"] = sou_b
     case["rb"] = rb
-    monkeypatch.setattr(ltne_energy, "_RB_ENERGY_2D", rb)
-    monkeypatch.setattr(ltne_energy, "_RB_ENERGY_2D_GATE", 0)
     assert_equivalent(case, temperature_native)
 
 
 @pytest.mark.parametrize("shape", [(1, 1, 1), (1, 4, 1), (4, 1, 1), (5, 4, 1)])
 @pytest.mark.parametrize("warm", [False, True])
 @pytest.mark.parametrize("frozen", [False, True])
-def test_2d_rb_thin_axes_cold_warm_and_frozen_b(temperature_native, monkeypatch, shape, warm, frozen):
+def test_2d_rb_thin_axes_cold_warm_and_frozen_b(temperature_native, shape, warm, frozen):
     case = temperature_case(shape, (3, 1), sweeps=23)
     case.update(rb=True, warm=warm, sou_b=True)
     if frozen:
         case["prescribed"] = np.linspace(301, 329, np.prod(shape)).reshape(shape)
-    monkeypatch.setattr(ltne_energy, "_RB_ENERGY_2D", True)
-    monkeypatch.setattr(ltne_energy, "_RB_ENERGY_2D_GATE", 0)
     assert_equivalent(case, temperature_native)
     if frozen: np.testing.assert_array_equal(case["state"][1], case["prescribed"])
 
@@ -378,61 +341,38 @@ def test_zero_equation_is_arithmetic_failure_not_false_convergence(temperature_n
 
 
 @pytest.mark.parametrize("arrangement", ["cross", "counter"])
-def test_actual_quick_design_const_and_mean_prepared_passes(temperature_native, monkeypatch, arrangement):
+def test_actual_quick_design_const_and_mean_prepared_passes(arrangement):
+    from sjtu_tpmshx.models.design_fluids import fluid_props
     from sjtu_tpmshx.preprocess.api import prepare_quick_design
     from sjtu_tpmshx.solvers.api import run_case
     from sjtu_tpmshx.tests.design.test_forward import _case
-    execution = importlib.import_module("sjtu_tpmshx.solvers.backends.python.quick_design.execution")
-    captured = []
-
-    def capture(*args, **kwargs):
-        # Capture the real prepared frozen thermal problem at each property
-        # pass. Geometry, correlations and water checks remain production Python.
-        shape = tuple(args[3:6])
-        aa = [np.full(shape, args[8]), np.full(shape, args[11]), np.full(shape, args[15] / 2),
-              np.full(shape, args[13]), *[x.copy() for x in args[16:19]],
-              np.empty(0), np.empty(0), np.empty(0)]
-        bb = [np.full(shape, args[9]), np.full(shape, args[12]), np.full(shape, args[15] / 2),
-              np.full(shape, args[14]), *[x.copy() for x in args[19:22]],
-              np.empty(0), np.empty(0), np.empty(0)]
-        plane = shape[2] == 1
-        warm = kwargs["Ta_init"] is not None
-        state = ([kwargs[k].copy() for k in ("Ta_init", "Tb_init", "Ts_init")] if warm
-                 else [np.zeros(shape) for _ in range(3)])
-        case = dict(shape=shape, widths=tuple(kwargs["d" + axis + "_arr"].copy() for axis in "xyz"),
-                    a=aa, b=bb, state=state, ks=np.array(args[10], copy=True), prescribed=np.empty(0),
-                    directions=(kwargs["dir_A"], kwargs["dir_B"]), tin=tuple(args[6:8]),
-                    maxit=kwargs["max_iter"], chunk=kwargs["conv_chunk"] or (500 if plane else 250),
-                    qtol=kwargs["q_rel_tol"] or (min(kwargs["tol"]*2e-3, 1e-3) if plane
-                                                else max(kwargs["tol"]*10, 1e-4)),
-                    warm=warm, sou_b=not plane,
-                    alpha=(.7, 1., 1.) if plane else (kwargs["alpha_T"],)*3)
-        seed = tuple(field.copy() for field in state)
-        code, status, metrics, error = temperature_native(case)
-        assert code == 0, error
-        assert_returned_physics(case, status, metrics)
-        info = dict(converged=status[0] == 0, iterations=status[1], residual=float(metrics[0]))
-        returned = tuple(field.copy() for field in case["state"])
-        captured.append(dict(case=case, input_seed=seed, returned=returned, info=info))
-        return (*case["state"], info)
-
-    monkeypatch.setattr(execution, "solve_full_domain_3d", capture)
-    prepared = prepare_quick_design(_case(), "Diamond", 7., .5, .084,
-                                    .025 if arrangement == "cross" else .05,
-                                    arrangement, prop_model="mean", case_id="native-frozen-" + arrangement)
-    result = run_case(prepared)
-    assert result.run_status["converged"] and len(captured) == 2
-    assert captured[0]["case"]["warm"] is False
-    assert captured[1]["case"]["warm"] is True
-    for seed, previous in zip(captured[1]["input_seed"], captured[0]["returned"]):
-        np.testing.assert_array_equal(seed, previous)
-        assert seed.tobytes() == previous.tobytes()
-    for item in captured:
-        assert item["info"]["converged"]
-        for side in ("a", "b"):
-            for index in (0, 1, 2, 3):
-                field = item["case"][side][index]
-                np.testing.assert_array_equal(field, np.full(field.shape, field.flat[0]))
+    operating = _case()
+    results = {}
+    for mode in ('const', 'mean'):
+        prepared = prepare_quick_design(operating, 'Diamond', 7., .5, .084,
+            .025 if arrangement == 'cross' else .05, arrangement, prop_model=mode,
+            case_id='native-frozen-' + arrangement + '-' + mode)
+        result = run_case(prepared)
+        results[mode] = result
+        assert result.backend_id == 'cpp' and result.run_status['converged']
+        assert len(result.run_status['passes']) == (1 if mode == 'const' else 2)
+        assert all(p['converged'] for p in result.run_status['passes'])
+        for name in ('h_vA', 'h_vB', 'K_ffA', 'K_ffB'):
+            field = result.fields[name]
+            np.testing.assert_array_equal(field, np.full(field.shape, field.flat[0]))
+        for side, field, direction, fluid, tin, pin in (
+            ('A', 'Ta', 0, operating.hot_fluid, operating.T_in_h, operating.P_in_h),
+            ('B', 'Tb', 2 if arrangement == 'cross' else 1,
+             operating.cold_fluid, operating.T_in_c, operating.P_in_c)):
+            temperature = tin
+            if mode == 'mean':
+                outlet = np.take(results['const'].fields[field], -1 if direction % 2 == 0 else 0,
+                                 axis=direction // 2).mean()
+                temperature = .5 * (tin + outlet)
+            expected = fluid_props(fluid, temperature, pin)
+            for name in ('rho', 'mu', 'k', 'cp', 'Pr'):
+                assert result.metadata['properties'][side][name] == pytest.approx(
+                    getattr(expected, name), rel=2e-12, abs=2e-12)
 
 
 def analytic_temperature_case(plane, kind, n):

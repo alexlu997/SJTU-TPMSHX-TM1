@@ -1,11 +1,4 @@
-"""Native 2D model-h contracts and independent returned-state equations.
-
-Tolerances fixed before running: unaccelerated T rtol 2e-12 / atol 2e-10 K;
-Anderson T rtol 2e-10 / atol 2e-8 K remain on the explicitly retained legacy
-same-map contracts. Actual-state audits keep rtol 2e-10 / atol 2e-8 W/m.
-Fixed budgets, explicit exit tests and original physical gate predicates stay.
-No new acceptance threshold replaces the production equation/energy gates.
-"""
+"""Native model-h equations, state ownership, budgets and physical gates."""
 from concurrent.futures import ThreadPoolExecutor
 import copy
 import ctypes
@@ -16,7 +9,7 @@ import sys
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.solvers import ltne_energy as energy
+from sjtu_tpmshx.tests.native import model_h_audit_2d as energy
 from sjtu_tpmshx.models.tpms_props import model_h_coefficients
 from sjtu_tpmshx.tests.native.model_h_history import (
     compare_shadow, driver_function, heat_in_driver_order, n4_solved_case,
@@ -120,30 +113,10 @@ def case(shape=(5, 4), directions=(0, 2), fluids=(0, 1), sweeps=19, chunk=5):
                 warm=True, accelerate=False, rb=False)
 
 
-def python(case, monkeypatch):
-    monkeypatch.setattr(energy, "_RB_ENERGY_2D", case["rb"])
-    monkeypatch.setattr(energy, "_RB_ENERGY_2D_GATE", 0)
-    a, b = case["a"], case["b"]
-    zero = np.zeros(case["shape"])
-    one = np.ones(case["shape"])
-    kwargs = dict(max_iter=case["maxit"], conv_chunk=case["chunk"], q_rel_tol=case["qtol"],
-                  return_info=True, model_fluids=tuple(("air", "water")[f] for f in case["fluids"]),
-                  mass_flux_A=tuple(a[2:4]), mass_flux_B=tuple(b[2:4]),
-                  T_inA_profile=a[4] if a[4].size else None,
-                  T_inB_profile=b[4] if b[4].size else None,
-                  inlet_mask_A=a[5] if a[5].size else None, inlet_mask_B=b[5] if b[5].size else None,
-                  dx_arr=case["widths"][0], dy_arr=case["widths"][1], accelerate=case["accelerate"])
-    if case["warm"]:
-        kwargs.update(zip(("Ta_init", "Tb_init", "Ts_init"), case["state"]))
-    return energy.solve_full_domain(
-        *[w.sum() for w in case["widths"][:2]], *case["shape"], *case["tin"],
-        a[0], b[0], case["ks"], a[1], b[1], one, one, one, zero, zero, zero, zero,
-        *case["directions"], **kwargs)
 
 
-def legacy_equivalent(c, native, monkeypatch):
-    expected = python(c, monkeypatch)
-    return assert_equivalent(c, native(c), expected)
+
+
 
 
 def assert_equivalent(c, actual, expected):
@@ -311,10 +284,9 @@ def assert_finishing_history(c, actual, history):
         assert metrics[1] == pytest.approx(heat_in_driver_order(c, history[-1][1]), rel=2e-10, abs=2e-8)
 
 
-def equivalent(c, native, monkeypatch):
-    # With zero sweeps the original same-state comparison is still valid.
-    if c["maxit"] == 0:
-        return legacy_equivalent(c, native, monkeypatch)
+
+
+def equivalent(c, native):
     history = []
     actual = native(c, history=history)
     result = assert_actual_state(c, actual)
@@ -324,14 +296,14 @@ def equivalent(c, native, monkeypatch):
 
 @pytest.mark.parametrize("directions", [(0, 2), (1, 3), (2, 1), (3, 0), (0, 1), (2, 3)])
 @pytest.mark.parametrize("rb", [False, True])
-def test_directed_nonuniform_sou_and_final_audit(native, monkeypatch, directions, rb):
+def test_directed_nonuniform_sou_and_final_audit(native, directions, rb):
     c = case(directions=directions)
     c["rb"] = rb
-    equivalent(c, native, monkeypatch)
+    equivalent(c, native)
 
 
 @pytest.mark.parametrize("directions", [(0, 3), (1, 2)])
-def test_strict_model_h_sweep_operation_order(native, monkeypatch, directions):
+def test_strict_model_h_sweep_operation_order(native, directions):
     # Preserve the original case/budget as an actual-state qualification.
     c = case(shape=(8, 6), directions=directions, sweeps=25, chunk=25)
     assert_actual_state(c, native(c))
@@ -394,12 +366,12 @@ def test_strict_model_h_sweep_operation_order(native, monkeypatch, directions):
 
 @pytest.mark.parametrize("fluids", [(0, 0), (0, 1), (1, 0), (1, 1)])
 @pytest.mark.parametrize("shape", [(1, 1), (1, 5), (5, 1)])
-def test_thin_grids_cold_start(native, monkeypatch, fluids, shape):
+def test_thin_grids_cold_start(native, fluids, shape):
     c = case(shape=shape, fluids=fluids, sweeps=7, chunk=3)
     c["warm"] = False
     for key in ("a", "b"):
         c[key][4] = c[key][5] = np.empty(0)
-    equivalent(c, native, monkeypatch)
+    equivalent(c, native)
 
 
 def straight_case(*, sweeps=6000, accelerate=False, rb=False):
@@ -417,15 +389,15 @@ def straight_case(*, sweeps=6000, accelerate=False, rb=False):
 
 @pytest.mark.parametrize("accelerate", [False, True])
 @pytest.mark.parametrize("rb", [False, True])
-def test_same_budget_and_physical_acceptance(native, monkeypatch, accelerate, rb):
+def test_same_budget_and_physical_acceptance(native, accelerate, rb):
     c = straight_case(accelerate=accelerate, rb=rb)
-    status, _, _ = equivalent(c, native, monkeypatch)
+    status, _, _ = equivalent(c, native)
     assert status[0] == 0
     assert status[13] == 1
     assert status[1] < c["maxit"]
 
 
-def test_anderson_short_budget_restores_snapshot(native, monkeypatch):
+def test_anderson_short_budget_restores_snapshot(native):
     c = straight_case(sweeps=139, accelerate=True)
     c["chunk"] = 67
     actual, history, decisions, trace = compare_shadow(c, native, 2)
@@ -441,26 +413,26 @@ def test_anderson_short_budget_restores_snapshot(native, monkeypatch):
     assert n4[1][0] == 1 and n4[1][1] == 139
     assert choices == [False, True]
 
-def test_zero_budget_real_audit(native, monkeypatch):
+def test_zero_budget_real_audit(native):
     c = case(sweeps=0)
     state = copy.deepcopy(c["state"])
-    status, _, _ = equivalent(c, native, monkeypatch)
+    status, _, _ = equivalent(c, native)
     assert status[0] == 1 and status[1] == 0
     for before, after in zip(state, c["state"]):
         np.testing.assert_array_equal(before, after)
 
 
-def test_missing_inflow_stops_for_flow_update(native, monkeypatch):
+def test_missing_inflow_stops_for_flow_update(native):
     c = straight_case(sweeps=6000, accelerate=True)
     # Both inlet and outlet are mathematically prescribed incoming faces.
     # Only the designated inlet has known physical temperature data.
     c["a"][2][-1] = -.0001
-    status, _, _ = equivalent(c, native, monkeypatch)
+    status, _, _ = equivalent(c, native)
     assert status[0] == 1 and status[6] > 0 and status[8] == 0
 
 
 @pytest.mark.parametrize("sweeps,accepted", [(12000, False), (40000, True)])
-def test_stable_heat_cannot_bypass_local_equation_gate(native, monkeypatch, sweeps, accepted):
+def test_stable_heat_cannot_bypass_local_equation_gate(native, sweeps, accepted):
     # Existing demonstrated stiff failure; same inputs and thresholds as the
     # Python regression, including the original unaccelerated finishing path.
     c = case(shape=(30, 2), directions=(0, 1), fluids=(0, 0), sweeps=sweeps, chunk=500)
@@ -475,7 +447,7 @@ def test_stable_heat_cannot_bypass_local_equation_gate(native, monkeypatch, swee
         c[key][3][:] = 0
         c[key][4] = c[key][5] = np.empty(0)
     c["ks"][:] = 5
-    status, _, output = equivalent(c, native, monkeypatch)
+    status, _, output = equivalent(c, native)
     # accepted labels the historical point-map result, not the new map's
     # convergence time. Both original budgets and the actual equation gate stay.
     assert status[1] <= sweeps
@@ -486,7 +458,7 @@ def test_stable_heat_cannot_bypass_local_equation_gate(native, monkeypatch, swee
 
 
 @pytest.mark.parametrize("refine", [1, 2])
-def test_cancelling_cell_residuals_are_not_an_energy_certificate(native, monkeypatch, refine):
+def test_cancelling_cell_residuals_are_not_an_energy_certificate(native, refine):
     dx = np.repeat([.25, .75], refine) / refine
     dy = np.repeat([.4, .6], refine) / refine
     shape = (len(dx), len(dy))
@@ -501,7 +473,7 @@ def test_cancelling_cell_residuals_are_not_an_energy_certificate(native, monkeyp
         c[key][1][:] = 1
         c[key][2][:] = c[key][3][:] = 0
         c[key][4] = c[key][5] = np.empty(0)
-    status, metrics, _ = equivalent(c, native, monkeypatch)
+    status, metrics, _ = equivalent(c, native)
     assert status[10:14] == (1, 1, 0, 0)
     assert metrics[16] == pytest.approx(.6, abs=1e-12)
     assert metrics[31] == pytest.approx(.6, abs=1e-12)

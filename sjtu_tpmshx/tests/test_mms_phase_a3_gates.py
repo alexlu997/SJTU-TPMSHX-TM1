@@ -1,25 +1,9 @@
-"""Pytest gate-check for MMS Phase A.3 — 5-grid h-refinement order.
+"""Check frozen MMS references from the retired Python research drivers.
 
-Checks the recorded V&V Standard Tier Phase A.3 evidence against its
-original thresholds. It does not recompute the current discretisation;
-the CLI applies these gates to each new sweep separately.
-
-The expensive 5-grid sweep itself (~5 hr wall on a laptop) is **not**
-re-run here. This test reads the persisted CSV produced by
-``validation/cases/mms_phase_a3_h_refine.py`` and asserts the same hard gates
-that the script's own console output checks.
-
-Hard gates (per plan #4 §3.5 V&V scope):
-    p_obs (L2_A) >= 1.5
-    p_obs (L2_B) >= 1.5
-    p_obs (L2_s) >= 1.8       # pure diffusion expects 2nd-order
-    L2 (grid 30) < 1.0%       # absolute error floor
-    R^2 >= 0.999               # log-log fit must be clean
-
-To obtain a separate new run for comparison:
-    python -m sjtu_tpmshx.validation.cases.mms_phase_a3_h_refine
-Outputs go to .cache/validation/mms_phase_a3-*/. This test continues to read
-the recorded reference; do not replace it or loosen gates to conceal failures.
+The recorded CSV values and their original gates remain unchanged.
+Version 0.1 retains the producers in Git history. Current C++ MMS
+coverage is in tests/native/test_temperature_mms.py.
+These historical tests do not execute a current numerical solver.
 """
 from __future__ import annotations
 

@@ -130,6 +130,13 @@ def _manifest(directory):
     return json.loads((directory / 'batch.json').read_text(encoding='utf-8'))
 
 
+@pytest.fixture
+def native_control(tmp_path):
+    library = tmp_path / 'analytic-library'
+    library.write_bytes(b'non-executable test data')
+    return RunControl(native_library=str(library), cpu_threads=1)
+
+
 def _patch_solve(monkeypatch, solve):
     monkeypatch.setattr(execution, 'run_case', solve)
     monkeypatch.setattr('sjtu_tpmshx.workflows.recovery.run_case',
@@ -137,7 +144,7 @@ def _patch_solve(monkeypatch, solve):
 
 
 @pytest.mark.parametrize('fluid', ['co2', 'sco2'])
-def test_real_fluid_batch_reaches_the_original_solver_and_keeps_failure(tmp_path, monkeypatch, fluid):
+def test_real_fluid_batch_reaches_the_original_solver_and_keeps_failure(tmp_path, monkeypatch, fluid, native_control):
     from sjtu_tpmshx.tests.test_co2_model import co2_config
     from sjtu_tpmshx.preprocess.api import prepare_inlet_mass_capacities
     config = co2_config(3)
@@ -148,29 +155,28 @@ def test_real_fluid_batch_reaches_the_original_solver_and_keeps_failure(tmp_path
         assert case.config_snapshot['fluid_A']['type'] == fluid
         raise RuntimeError('recorded true-h solver failure')
     _patch_solve(monkeypatch, solve)
-    report = batch.evaluate_condition_batch([('real', config, *targets)], output_dir=tmp_path/'batch')
+    report = batch.evaluate_condition_batch([('real', config, *targets)], output_dir=tmp_path/'batch', workers=1, control=native_control)
     row = report['conditions'][0]
     assert report['status'] == row['status'] == 'failed' and report['objectives'] is None
     assert row['stage'] == 'solve' and 'recorded true-h solver failure' in row['reason']
 
 
-def test_batch_requires_the_same_fluid_pair_at_every_condition(tmp_path):
+def test_batch_requires_the_same_fluid_pair_at_every_condition(tmp_path, native_control):
     conditions = _conditions(2)
     name, config, a, b = conditions[1]
     conditions[1] = (name, replace(config, fluid_A=replace(config.fluid_A, type='co2')), a, b)
     with pytest.raises(ValueError, match='must be fixed'):
-        batch.evaluate_condition_batch(conditions, output_dir=tmp_path/'batch')
+        batch.evaluate_condition_batch(conditions, output_dir=tmp_path/'batch', workers=1, control=native_control)
     assert not (tmp_path/'batch').exists()
 
 
-@pytest.mark.parametrize('backend', ['python', 'cpp'])
-def test_success_keeps_independent_case_native_and_metric_files(tmp_path, monkeypatch, backend):
+def test_success_keeps_independent_case_native_and_metric_files(tmp_path, monkeypatch):
     conditions = _conditions(2)
     baseline = _baseline(conditions)
     prepared, progress = [], []
 
     def solve(case, control):
-        assert control.backend == backend
+        assert control.backend == 'cpp'
         prepared.append(case)
         for percent in (0, 40, 100):
             control.report_progress(percent)
@@ -181,11 +187,11 @@ def test_success_keeps_independent_case_native_and_metric_files(tmp_path, monkey
     library = tmp_path / 'test-library.dylib'
     library.write_bytes(b'non-executable test data')
     result = batch.evaluate_condition_batch(conditions, output_dir=directory,
-        baseline=baseline, control=RunControl(backend=backend, progress=progress.append,
-                                             native_library=str(library) if backend == 'cpp' else None), workers=1)
+        baseline=baseline, control=RunControl( progress=progress.append,
+                                             native_library=str(library)), workers=1)
     manifest = _manifest(directory)
     assert result['status'] == manifest['status'] == 'completed'
-    assert result['backend'] == manifest['backend'] == backend
+    assert result['backend'] == manifest['backend'] == 'cpp'
     assert result['batch_id'] == manifest['batch_id']
     assert result['objectives'] == manifest['objectives'] == pytest.approx(
         {'heat_gain_percent': 10., 'pressure_ratio': 1.})
@@ -201,8 +207,8 @@ def test_success_keeps_independent_case_native_and_metric_files(tmp_path, monkey
         saved_input = json.loads((subdir / 'input.json').read_text())
         assert isinstance(saved_input, dict)
         assert 'optimizer' not in saved_input
-        result_name = 'run/results.h5' if backend == 'cpp' else 'result.h5'
-        metrics_name = 'run/metrics.json' if backend == 'cpp' else 'metrics.json'
+        result_name = 'run/results.h5'
+        metrics_name = 'run/metrics.json'
         for name, filename in (('case_file', 'case.yaml'), ('result_file', result_name), ('metrics_file', metrics_name)):
             assert not Path(row[name]).is_absolute()
             assert directory / row[name] == subdir / filename
@@ -230,8 +236,7 @@ def test_success_keeps_independent_case_native_and_metric_files(tmp_path, monkey
         np.testing.assert_array_equal(native.fields['Ta'], memory[1].fields['Ta'])
 
 
-@pytest.mark.parametrize('backend', ['python', 'cpp'])
-def test_solve_exception_keeps_failed_member_and_continues(tmp_path, monkeypatch, backend):
+def test_solve_exception_keeps_failed_member_and_continues(tmp_path, monkeypatch):
     conditions, calls = _conditions(), []
     baseline = _baseline(conditions)
 
@@ -246,10 +251,10 @@ def test_solve_exception_keeps_failed_member_and_continues(tmp_path, monkeypatch
     library = tmp_path / 'test-library.dylib'
     library.write_bytes(b'non-executable test data')
     result = batch.evaluate_condition_batch(conditions, output_dir=directory, baseline=baseline,
-        control=RunControl(backend=backend, native_library=str(library) if backend == 'cpp' else None), workers=1)
+        control=RunControl( native_library=str(library)), workers=1)
     assert len(calls) == 3
     assert result['status'] == 'failed' and result['objectives'] is None
-    assert result['backend'] == _manifest(directory)['backend'] == backend
+    assert result['backend'] == _manifest(directory)['backend'] == 'cpp'
     rows = _manifest(directory)['conditions']
     assert [row['status'] for row in rows] == ['completed', 'failed', 'completed']
     assert 'injected flow failure' in rows[1]['reason']
@@ -259,7 +264,7 @@ def test_solve_exception_keeps_failed_member_and_continues(tmp_path, monkeypatch
 
 
 @pytest.mark.parametrize('damage', ['unconverged', 'missing_Q_B', 'missing_dP_B'])
-def test_unusable_condition_retains_native_metrics_and_has_no_fitness(tmp_path, monkeypatch, damage):
+def test_unusable_condition_retains_native_metrics_and_has_no_fitness(tmp_path, monkeypatch, damage, native_control):
     conditions = _conditions(2)
     baseline = _baseline(conditions)
     calls = []
@@ -279,7 +284,7 @@ def test_unusable_condition_retains_native_metrics_and_has_no_fitness(tmp_path, 
 
     _patch_solve(monkeypatch, solve)
     directory = tmp_path / damage
-    result = batch.evaluate_condition_batch(conditions, output_dir=directory, baseline=baseline)
+    result = batch.evaluate_condition_batch(conditions, output_dir=directory, baseline=baseline, workers=1, control=native_control)
     assert result['status'] == 'failed' and result['objectives'] is None
     rows = _manifest(directory)['conditions']
     assert [row['status'] for row in rows] == ['completed', 'failed']
@@ -294,8 +299,7 @@ def test_unusable_condition_retains_native_metrics_and_has_no_fitness(tmp_path, 
     assert rows[1]['reason']
 
 
-@pytest.mark.parametrize('backend', ['python', 'cpp'])
-def test_postprocess_exception_still_archives_native_result(tmp_path, monkeypatch, backend):
+def test_postprocess_exception_still_archives_native_result(tmp_path, monkeypatch):
     conditions = _conditions(2)
     baseline = _baseline(conditions)
     original = postprocess.evaluate
@@ -313,7 +317,7 @@ def test_postprocess_exception_still_archives_native_result(tmp_path, monkeypatc
     library = tmp_path / 'test-library.dylib'
     library.write_bytes(b'non-executable test data')
     result = batch.evaluate_condition_batch(conditions, output_dir=directory, baseline=baseline,
-        control=RunControl(backend=backend, native_library=str(library) if backend == 'cpp' else None), workers=1)
+        control=RunControl( native_library=str(library)), workers=1)
     assert result['objectives'] is None and result['status'] == 'failed'
     rows = _manifest(directory)['conditions']
     assert [row['status'] for row in rows] == ['failed', 'completed']
@@ -328,7 +332,7 @@ def test_postprocess_exception_still_archives_native_result(tmp_path, monkeypatc
     ('design_field', 'changes prepared design field L_field_m'),
     ('case_id', 'does not belong to the prepared case'),
 ])
-def test_returned_evidence_must_match_full_prepared_case(tmp_path, monkeypatch, damage, reason):
+def test_returned_evidence_must_match_full_prepared_case(tmp_path, monkeypatch, damage, reason, native_control):
     conditions = _conditions(1)
     baseline = _baseline(conditions)
 
@@ -347,7 +351,7 @@ def test_returned_evidence_must_match_full_prepared_case(tmp_path, monkeypatch, 
 
     _patch_solve(monkeypatch, solve)
     directory = tmp_path / damage
-    result = batch.evaluate_condition_batch(conditions, output_dir=directory, baseline=baseline)
+    result = batch.evaluate_condition_batch(conditions, output_dir=directory, baseline=baseline, workers=1, control=native_control)
     row = _manifest(directory)['conditions'][0]
     assert result['status'] == row['status'] == 'failed'
     assert result['objectives'] is None and result['results'] == []
@@ -363,7 +367,7 @@ def test_returned_evidence_must_match_full_prepared_case(tmp_path, monkeypatch, 
     ('mass_flow', 'prescribed mass flow A differs'),
     ('environment', 'fixed input _environment'),
 ])
-def test_same_id_baseline_requires_same_physical_inputs(tmp_path, monkeypatch, damage, reason):
+def test_same_id_baseline_requires_same_physical_inputs(tmp_path, monkeypatch, damage, reason, native_control):
     conditions = _conditions(1)
     condition_id, config, flow_a, flow_b = conditions[0]
     if damage == 'temperature':
@@ -379,7 +383,7 @@ def test_same_id_baseline_requires_same_physical_inputs(tmp_path, monkeypatch, d
 
     _patch_solve(monkeypatch, lambda *args: pytest.fail('solve reached mismatched baseline'))
     directory = tmp_path / damage
-    result = batch.evaluate_condition_batch(conditions, output_dir=directory, baseline=baseline)
+    result = batch.evaluate_condition_batch(conditions, output_dir=directory, baseline=baseline, workers=1, control=native_control)
     row = _manifest(directory)['conditions'][0]
     assert result['status'] == row['status'] == 'failed' and result['objectives'] is None
     assert row['stage'] == 'comparison' and reason in row['reason']
@@ -396,14 +400,14 @@ def test_same_id_baseline_requires_same_physical_inputs(tmp_path, monkeypatch, d
     ('ltne_enthalpy_equation_energy_tol', 1e-4),
     ('require_enthalpy_update_on_temperature', True),
 ])
-def test_baseline_requires_same_thermal_and_flow_controls(tmp_path, monkeypatch, setting, value):
+def test_baseline_requires_same_thermal_and_flow_controls(tmp_path, monkeypatch, setting, value, native_control):
     conditions = _conditions(1)
     name, config, flow_a, flow_b = conditions[0]
     reference = replace(config, solver=replace(config.solver, **{setting: value}))
     baseline = _baseline([(name, reference, flow_a, flow_b)])
     _patch_solve(monkeypatch, lambda *args: pytest.fail('solve reached mismatched controls'))
     directory = tmp_path / setting
-    result = batch.evaluate_condition_batch(conditions, output_dir=directory, baseline=baseline)
+    result = batch.evaluate_condition_batch(conditions, output_dir=directory, baseline=baseline, workers=1, control=native_control)
     row = _manifest(directory)['conditions'][0]
     key = 'T_s_init' if setting == 'T_s_init_K' else setting
     assert result['status'] == row['status'] == 'failed' and result['objectives'] is None
@@ -412,7 +416,7 @@ def test_baseline_requires_same_thermal_and_flow_controls(tmp_path, monkeypatch,
     assert row['result_file'] is None and row['metrics_file'] is None
 
 
-def test_baseline_accepts_an_explicit_false_thermal_update_flag(tmp_path, monkeypatch):
+def test_baseline_accepts_an_explicit_false_thermal_update_flag(tmp_path, monkeypatch, native_control):
     conditions = _conditions(1)
     baseline = _baseline(conditions)
     name, field, metrics = baseline[0]
@@ -421,14 +425,14 @@ def test_baseline_accepts_an_explicit_false_thermal_update_flag(tmp_path, monkey
     metadata['parameters']['require_enthalpy_update_on_temperature'] = False
     baseline[0] = name, replace(field, metadata=metadata), metrics
     _patch_solve(monkeypatch, lambda case, control: _native(case))
-    result = batch.evaluate_condition_batch(conditions, output_dir=tmp_path / 'same', baseline=baseline)
+    result = batch.evaluate_condition_batch(conditions, output_dir=tmp_path / 'same', baseline=baseline, workers=1, control=native_control)
     assert result['status'] == 'completed' and result['objectives'] is not None
 
 
 @pytest.mark.parametrize('target, source_imbalance', [
     ('baseline', False), ('candidate', False), ('candidate', True),
 ])
-def test_energy_certificate_failure_cannot_produce_objectives(tmp_path, monkeypatch, target, source_imbalance):
+def test_energy_certificate_failure_cannot_produce_objectives(tmp_path, monkeypatch, target, source_imbalance, native_control):
     conditions = _conditions(1)
     baseline = _baseline(conditions)
 
@@ -447,7 +451,7 @@ def test_energy_certificate_failure_cannot_produce_objectives(tmp_path, monkeypa
     else:
         _patch_solve(monkeypatch, lambda case, control: failed_certificate(_native(case)))
     directory = tmp_path / 'energy-failure'
-    result = batch.evaluate_condition_batch(conditions, output_dir=directory, baseline=baseline)
+    result = batch.evaluate_condition_batch(conditions, output_dir=directory, baseline=baseline, workers=1, control=native_control)
     row = _manifest(directory)['conditions'][0]
     assert result['status'] == row['status'] == 'failed' and result['objectives'] is None
     assert 'qualification failed: physical' in row['reason']
@@ -498,20 +502,20 @@ def test_cancellation_preserves_full_membership_and_is_reraised(tmp_path, monkey
         assert not rows[1].get('result_file') and not rows[2].get('case_file')
 
 
-def test_existing_directory_is_never_overwritten(tmp_path, monkeypatch):
+def test_existing_directory_is_never_overwritten(tmp_path, monkeypatch, native_control):
     directory = tmp_path / 'already-exists'
     directory.mkdir()
     sentinel = directory / 'batch.json'
     sentinel.write_text('prior batch evidence', encoding='utf-8')
     _patch_solve(monkeypatch, lambda *args: pytest.fail('solve reached existing output'))
     with pytest.raises((FileExistsError, ValueError)):
-        batch.evaluate_condition_batch(_conditions(1), output_dir=directory)
+        batch.evaluate_condition_batch(_conditions(1), output_dir=directory, workers=1, control=native_control)
     assert sentinel.read_text() == 'prior batch evidence'
     assert list(directory.iterdir()) == [sentinel]
 
 
 @pytest.mark.parametrize('damage', ['empty', 'duplicate', 'empty_id', 'bad_config', 'bad_tuple', 'nan_flow', 'zero_flow'])
-def test_all_member_structure_is_checked_before_output_creation(tmp_path, monkeypatch, damage):
+def test_all_member_structure_is_checked_before_output_creation(tmp_path, monkeypatch, damage, native_control):
     conditions = _conditions(2)
     condition_id, config, mdot_a, mdot_b = conditions[1]
     if damage == 'empty':
@@ -529,12 +533,12 @@ def test_all_member_structure_is_checked_before_output_creation(tmp_path, monkey
     _patch_solve(monkeypatch, lambda *args: pytest.fail('solve reached invalid member list'))
     directory = tmp_path / 'invalid'
     with pytest.raises((ValueError, TypeError)):
-        batch.evaluate_condition_batch(conditions, output_dir=directory)
+        batch.evaluate_condition_batch(conditions, output_dir=directory, workers=1, control=native_control)
     assert not directory.exists()
 
 
 @pytest.mark.parametrize('failure', [None, 'convergence', 'energy', 'save'])
-def test_compact_batches_release_fields_before_next_solve(tmp_path, monkeypatch, failure):
+def test_compact_batches_release_fields_before_next_solve(tmp_path, monkeypatch, failure, native_control):
     import weakref
     from sjtu_tpmshx.io import result_io
 
@@ -570,12 +574,13 @@ def test_compact_batches_release_fields_before_next_solve(tmp_path, monkeypatch,
     _patch_solve(monkeypatch, solve)
     monkeypatch.setattr(result_io, 'load_result', tracked_load)
     monkeypatch.setattr(result_io, 'save_result', tracked_save)
-    baseline = batch._evaluate_condition_batch(uniform, output_dir=tmp_path / 'baseline')
+    monkeypatch.setattr('sjtu_tpmshx.workflows.recovery.save_result', tracked_save)
+    baseline = batch._evaluate_condition_batch(uniform, output_dir=tmp_path / 'baseline', workers=1, control=native_control)
     assert baseline['status'] == 'completed'
     assert all(ref() is None for ref in references)
     assert set(baseline['summaries']) == {'low', 'mid', 'high'}
     result = batch._evaluate_condition_batch(conditions, output_dir=tmp_path / 'candidate',
-                                             baseline=baseline['summaries'])
+                                             baseline=baseline['summaries'], workers=1, control=native_control)
     assert call_count == 6
     assert all(ref() is None for ref in references + reads)
     assert result['status'] == ('completed' if failure is None else 'failed')
@@ -593,11 +598,11 @@ def test_compact_batches_release_fields_before_next_solve(tmp_path, monkeypatch,
 
 
 @pytest.mark.parametrize('damage', ['missing', 'corrupt', 'identity'])
-def test_compact_baseline_archive_failures_are_comparison_failures(tmp_path, monkeypatch, damage):
+def test_compact_baseline_archive_failures_cannot_produce_objectives(tmp_path, monkeypatch, damage, native_control):
     conditions = _conditions(2)
     uniform = [(name, replace(cfg, zones=ZoneInputConfig()), a, b) for name, cfg, a, b in conditions]
     _patch_solve(monkeypatch, lambda case, control: _native(case))
-    baseline = batch._evaluate_condition_batch(uniform, output_dir=tmp_path / 'baseline')
+    baseline = batch._evaluate_condition_batch(uniform, output_dir=tmp_path / 'baseline', workers=1, control=native_control)
     path = baseline['summaries']['low']['result_file']
     if damage == 'missing':
         path.unlink()
@@ -606,8 +611,17 @@ def test_compact_baseline_archive_failures_are_comparison_failures(tmp_path, mon
     else:
         from sjtu_tpmshx.io.result_io import save_result
         save_result(replace(load_result(path), result_id='different-result'), path)
+    if damage in ('missing', 'corrupt'):
+        with pytest.raises(OSError):
+            batch._evaluate_condition_batch(conditions, output_dir=tmp_path / 'candidate',
+                baseline=baseline['summaries'], workers=1, control=native_control)
+        saved = _manifest(tmp_path / 'candidate')
+        assert saved['status'] == 'failed' and saved['objectives'] is None
+        assert all(row['status'] == 'not_run' for row in saved['conditions'])
+        assert all(row['result_file'] is None for row in saved['conditions'])
+        return
     result = batch._evaluate_condition_batch(conditions, output_dir=tmp_path / 'candidate',
-                                             baseline=baseline['summaries'])
+                                             baseline=baseline['summaries'], workers=1, control=native_control)
     assert result['status'] == 'failed' and result['objectives'] is None
     assert result['conditions'][0]['stage'] == 'comparison'
     assert result['conditions'][0]['status'] == 'failed'
@@ -615,7 +629,7 @@ def test_compact_baseline_archive_failures_are_comparison_failures(tmp_path, mon
 
 
 @pytest.mark.parametrize('target', ['baseline', 'candidate'])
-def test_original_range_limit_excludes_otherwise_qualified_results(tmp_path, monkeypatch, target):
+def test_original_range_limit_excludes_otherwise_qualified_results(tmp_path, monkeypatch, target, native_control):
     conditions = _conditions(1)
     baseline = _baseline(conditions)
     def outside(field):
@@ -629,7 +643,7 @@ def test_original_range_limit_excludes_otherwise_qualified_results(tmp_path, mon
     else:
         _patch_solve(monkeypatch, lambda case, control: outside(_native(case)))
     directory = tmp_path / 'ranges'
-    result = batch.evaluate_condition_batch(conditions, output_dir=directory, baseline=baseline)
+    result = batch.evaluate_condition_batch(conditions, output_dir=directory, baseline=baseline, workers=1, control=native_control)
     row, = result['conditions']
     assert row['status'] == result['status'] == 'failed' and result['objectives'] is None
     assert 'qualification failed: applicability' in row['reason']

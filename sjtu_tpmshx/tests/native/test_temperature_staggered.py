@@ -5,7 +5,7 @@ changed in G5; their truth is the independently qualified exact/analytic cases
 and current returned-state powers, not historical Python iteration paths.
 Zero-state T/update tolerance remains rtol2e-10/atol2e-8 K; equation powers
 rtol2e-8/atol2e-8 W; MAC faces rtol2e-9/atol2e-11 m/s and L2 <=1.01e-10.
-The Python thermal helper remains available as the historical reference.
+The retired Python implementation remains in Git history.
 """
 from concurrent.futures import ThreadPoolExecutor
 import copy
@@ -16,9 +16,8 @@ import sys
 
 import numpy as np
 import pytest
-from scipy.sparse import bmat
+from scipy.sparse import bmat, coo_matrix
 from scipy.sparse.linalg import spsolve
-from sjtu_tpmshx.solvers import ltne_energy_3d as energy
 
 
 @pytest.fixture(scope="module")
@@ -55,10 +54,12 @@ def native():
         if alias:
             pointers[6] = pointers[3]
         dimensions = (ctypes.c_size_t*3)(*c["shape"])
-        config = (ctypes.c_size_t*8)(c["maxit"], c["chunk"], c["warm"], c["conservative"], c["rb"], *c["directions"], cancel_at)
+        config = (ctypes.c_size_t*9)(c["maxit"], c["chunk"], c["warm"], c["conservative"], c["rb"], *c["directions"], cancel_at, c.get("true_h_warmup", False))
         values = (ctypes.c_double*6)(*c["tin"], c["qtol"], *c["alpha"])
         status, metrics, error = (ctypes.c_size_t*13)(), (ctypes.c_double*16)(), ctypes.create_string_buffer(512)
-        code = function(dimensions, pointers, sizes, config, values, status, metrics, error, len(error))
+        selected = lib.test_legacy_warmup if c.get("legacy", False) else function
+        selected.argtypes, selected.restype = function.argtypes, function.restype
+        code = selected(dimensions, pointers, sizes, config, values, status, metrics, error, len(error))
         return code, tuple(status), np.array(metrics), outputs, error.value.decode()
 
     def project(c, direct=None):
@@ -98,27 +99,38 @@ def case(shape=(4, 3, 3), directions=(0, 2), sweeps=17, chunk=5):
                 warm=True, conservative=True, rb=False, alpha=(.7, .7, .7), qtol=1e-4)
 
 
-def python(c, monkeypatch):
-    monkeypatch.setattr(energy, "_RB_ENERGY", c["rb"])
-    monkeypatch.setattr(energy, "_RB_ENERGY_GATE", 0)
-    a, b = c["a"], c["b"]
-    zero = np.zeros(c["shape"])
-    kwargs = dict(max_iter=c["maxit"], conv_chunk=c["chunk"], q_rel_tol=c["qtol"], return_info=True,
-                  conservative_ltne=c["conservative"], eps_A=a[2], eps_B=b[2],
-                  ufA=a[4], vfA=a[5], wfA=a[6], ufB=b[4], vfB=b[5], wfB=b[6],
-                  dx_arr=c["widths"][0], dy_arr=c["widths"][1], dz_arr=c["widths"][2],
-                  T_inA_profile=a[7] if a[7].size else None, T_inB_profile=b[7] if b[7].size else None,
-                  inlet_mask_A=a[8] if a[8].size else None, inlet_mask_B=b[8] if b[8].size else None,
-                  inlet_flux_A=a[9] if a[9].size else None, inlet_flux_B=b[9] if b[9].size else None,
-                  mms_S_A_field=a[10] if a[10].size else None, mms_S_B_field=b[10] if b[10].size else None,
-                  mms_S_s_field=c["source_s"] if c["source_s"].size else None,
-                  Tb_prescribed=c["prescribed"] if c["prescribed"].size else None,
-                  alpha_T_fA=c["alpha"][0], alpha_T_s=c["alpha"][1], alpha_T_fB=c["alpha"][2])
-    if c["warm"]:
-        kwargs.update(zip(("Ta_init", "Tb_init", "Ts_init"), c["state"]))
-    return energy.solve_full_domain_3d(*[x.sum() for x in c["widths"]], *c["shape"], *c["tin"],
-        a[0], b[0], c["ks"], a[1], b[1], a[3], b[3], a[2]+b[2], zero, zero, zero, zero, zero, zero,
-        *c["directions"], **kwargs)
+def neumann_laplacian(shape):
+    """Build the unweighted cell graph from its incidence matrix."""
+    cells = np.arange(np.prod(shape)).reshape(shape)
+    left, right = [], []
+    for axis in range(3):
+        low, high = [slice(None)]*3, [slice(None)]*3
+        low[axis], high[axis] = slice(None, -1), slice(1, None)
+        left.extend(cells[tuple(low)].ravel())
+        right.extend(cells[tuple(high)].ravel())
+    rows = np.arange(len(left))
+    incidence = coo_matrix((np.r_[np.ones(len(left)), -np.ones(len(right))],
+        (np.r_[rows, rows], np.r_[left, right])), shape=(len(left), cells.size)).tocsr()
+    return (incidence.T @ incidence).tocsr()
+
+
+def reference_projection(uf, vf, wf, epsilon, rho_cp, dx, dy, dz):
+    """Solve the small test graph with a mean-zero constraint."""
+    velocities = (uf, vf, wf)
+    c = dict(shape=epsilon.shape, widths=(dx, dy, dz), a=[None, None, epsilon, rho_cp])
+    flux = fluxes(c, velocities)
+    capacity = fluxes(c, [np.ones_like(x) for x in velocities])
+    rhs = divergence(flux)
+    graph = neumann_laplacian(epsilon.shape)
+    one = np.ones((rhs.size, 1))
+    potential = spsolve(bmat([[graph, one], [one.T, None]], format='csr'),
+                        np.r_[rhs.ravel(), 0.])[:-1].reshape(epsilon.shape)
+    result = [v.copy() for v in velocities]
+    for axis in range(3):
+        interior = [slice(None)]*3
+        interior[axis] = slice(1, -1)
+        result[axis][tuple(interior)] += np.diff(potential, axis=axis)/(capacity[axis][tuple(interior)]+1e-30)
+    return result
 
 
 def independent_conservative_face_balance(c, side, projected):
@@ -193,9 +205,7 @@ def independent_conservative_face_balance(c, side, projected):
     return residual, exchange
 
 
-def equivalent(c, native, monkeypatch):
-    # At zero iterations the original state/control parity remains applicable.
-    expected = python(c, monkeypatch) if c["maxit"] == 0 else None
+def equivalent(c, native):
     borrowed = [*c["widths"], *c["a"], *c["b"], c["ks"], c["source_s"], c["prescribed"]]
     before = [value.copy() for value in borrowed]
     initial = [value.copy() for value in c["state"]]
@@ -213,14 +223,10 @@ def equivalent(c, native, monkeypatch):
     else:
         assert chunks >= 2
     assert np.isfinite(metrics[0]) and metrics[0] >= 0.
-    if expected is not None:
-        info = expected[3]
-        assert status[0] == (0 if info["converged"] else 1)
-        assert status[1] == info["iterations"] == 0
-        for actual, target, seed in zip(c["state"], expected[:3], initial):
-            np.testing.assert_allclose(actual, target, rtol=2e-10, atol=2e-8)
+    if c['maxit'] == 0:
+        assert status[0] == 1 and status[1] == 0 and metrics[0] == 0.
+        for actual, seed in zip(c['state'], initial):
             np.testing.assert_array_equal(actual, seed)
-        assert metrics[0] == pytest.approx(info["residual"], rel=2e-10, abs=2e-8)
     assert status[5:7] == (c["conservative"], c["conservative"] and not c["prescribed"].size)
     if c["prescribed"].size:
         np.testing.assert_array_equal(c["state"][1], c["prescribed"])
@@ -229,10 +235,7 @@ def equivalent(c, native, monkeypatch):
             assert np.isnan(output[side]).all()
             continue
         f = c[key]
-        # The original independent MAC strict-parity tests below are unchanged.
-        # Apply its reference projection to the original input, then audit only
-        # the actual native returned temperatures with the new face equation.
-        projected = energy._project_faces_div_free(*f[4:7], f[2], f[3], *c["widths"])
+        projected = reference_projection(*f[4:7], f[2], f[3], *c["widths"])
         residual, exchange = independent_conservative_face_balance(c, side, projected)
         scale = max(abs(np.sum(exchange)), 1.)
         ratios = [abs(np.sum(residual)) / scale, np.max(np.abs(residual)) * residual.size / scale]
@@ -272,11 +275,11 @@ def independent_solid_balance(c):
 @pytest.mark.parametrize("directions", [(0, 2), (1, 3), (2, 4), (3, 5), (4, 1), (5, 0)])
 @pytest.mark.parametrize("rb", [False, True])
 @pytest.mark.parametrize("conservative", [False, True])
-def test_six_directions_nonuniform_partial(native, monkeypatch, directions, rb, conservative):
+def test_six_directions_nonuniform_partial(native, directions, rb, conservative):
     c = case(directions=directions)
     c.update(rb=rb, conservative=conservative)
     original = [x.copy() for key in ("a", "b") for x in c[key]]
-    status, _, _ = equivalent(c, native, monkeypatch)
+    status, _, _ = equivalent(c, native)
     assert status[:2] == (1, c["maxit"])
     for actual, before in zip([x for key in ("a", "b") for x in c[key]], original):
         np.testing.assert_array_equal(actual, before)
@@ -284,7 +287,7 @@ def test_six_directions_nonuniform_partial(native, monkeypatch, directions, rb, 
 
 @pytest.mark.parametrize("shape", [(1, 1, 3), (1, 4, 2), (4, 1, 2)])
 @pytest.mark.parametrize("conservative", [False, True])
-def test_thin_grids_cold_start(native, monkeypatch, shape, conservative):
+def test_thin_grids_cold_start(native, shape, conservative):
     c = case(shape=shape)
     c.update(warm=False, conservative=conservative)
     for state in c["state"]:
@@ -292,14 +295,14 @@ def test_thin_grids_cold_start(native, monkeypatch, shape, conservative):
     for key in ("a", "b"):
         c[key][7] = np.empty(0)
         c[key][8] = np.empty(0)
-    status, _, _ = equivalent(c, native, monkeypatch)
+    status, _, _ = equivalent(c, native)
     assert status[:2] == (1, c["maxit"])
 
 
 @pytest.mark.parametrize("rb", [False, True])
 @pytest.mark.parametrize("conservative", [False, True])
 @pytest.mark.parametrize("freeze", [False, True])
-def test_prescribed_b_mms_and_capacity(native, monkeypatch, rb, conservative, freeze):
+def test_prescribed_b_mms_and_capacity(native, rb, conservative, freeze):
     c = case(sweeps=43, chunk=9)
     c.update(rb=rb, conservative=conservative)
     rng = np.random.default_rng(790)
@@ -309,22 +312,22 @@ def test_prescribed_b_mms_and_capacity(native, monkeypatch, rb, conservative, fr
     for key in ("a", "b"):
         c[key][9] = rng.uniform(-.0003, .001, c[key][8].shape)
         c[key][10] = rng.normal(0, 2000, c["shape"])
-    status, _, _ = equivalent(c, native, monkeypatch)
+    status, _, _ = equivalent(c, native)
     assert status[:2] == (1, c["maxit"])
     if freeze:
         np.testing.assert_array_equal(c["state"][1], c["prescribed"])
 
 
 @pytest.mark.parametrize("rb", [False, True])
-def test_thermal_multilevel_mac(native, monkeypatch, rb):
+def test_thermal_multilevel_mac(native, rb):
     c = case(shape=(9, 8, 5), sweeps=11, chunk=4)
     c["rb"] = rb
-    status, _, _ = equivalent(c, native, monkeypatch)
+    status, _, _ = equivalent(c, native)
     assert status[:2] == (1, c["maxit"])
 
 
 @pytest.mark.parametrize("rb", [False, True])
-def test_complete_solve(native, monkeypatch, rb):
+def test_complete_solve(native, rb):
     c = case(sweeps=5000, chunk=100)
     c.update(rb=rb, warm=False)
     for key, direction in zip(("a", "b"), c["directions"]):
@@ -333,7 +336,7 @@ def test_complete_solve(native, monkeypatch, rb):
         for axis, velocity in enumerate(c[key][4:7]):
             velocity[:] = .1 if axis == direction//2 else 0
         c[key][8][:] = 1
-    status, metrics, output = equivalent(c, native, monkeypatch)
+    status, metrics, output = equivalent(c, native)
     assert status[0] == 0
     # These two original complete cases have known full inlets, no inward
     # unknown boundary, no source and no prescribed reservoir. Their accepted
@@ -347,10 +350,10 @@ def test_complete_solve(native, monkeypatch, rb):
 
 
 @pytest.mark.parametrize("conservative", [False, True])
-def test_zero_budget_final_evidence(native, monkeypatch, conservative):
+def test_zero_budget_final_evidence(native, conservative):
     c = case(sweeps=0)
     c["conservative"] = conservative
-    equivalent(c, native, monkeypatch)
+    equivalent(c, native)
 
 
 @pytest.mark.parametrize("cancel_at", [1, 2, 4])
@@ -411,7 +414,7 @@ def test_projection_neumann_mean_and_boundary(native, shape):
     a = c["a"]
     original = [x.copy() for x in a[4:7]]
     output, status, metrics = native.project(c)
-    expected = energy._project_faces_div_free(*original, a[2], a[3], *c["widths"])
+    expected = reference_projection(*original, a[2], a[3], *c["widths"])
     assert status[0] == 0
     assert status[1] == 0
     assert metrics[1] <= 1.01e-10
@@ -454,7 +457,7 @@ def test_original_bordered_fallback_operator(native, shape):
     c = case(shape=shape)
     rhs = divergence(fluxes(c, c["a"][4:7]))
     out, _, _ = native.project(c, direct=rhs)
-    lap = energy._laplacian_amg_cache(*shape)["L"]
+    lap = neumann_laplacian(shape)
     e = np.ones((rhs.size, 1))
     expected = spsolve(bmat([[lap, e], [e.T, None]], format="csr"), np.r_[rhs.ravel(), 0])[:-1]
     expected -= expected.mean()

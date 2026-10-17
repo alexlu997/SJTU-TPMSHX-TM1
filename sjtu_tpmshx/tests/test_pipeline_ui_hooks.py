@@ -27,17 +27,6 @@ def test_cancelled_run_skips_preparation(monkeypatch, source):
         _run_compute(ComputeConfig(), token, lambda p: None, ui_hooks={}, control=host)
 
 
-def test_backend_reports_iter_label_and_progress(monkeypatch):
-    from sjtu_tpmshx.solvers.backends.python.two_d import coupling
-    from sjtu_tpmshx.tests.test_2d_warning_callers import _prepare, _stop, ThermalBoundary
-    prepared, fields = _prepare(monkeypatch, legacy=True)
-    monkeypatch.setattr(coupling, 'solve_full_domain', _stop)
-    labels, pcts = [], []
-    with pytest.raises(ThermalBoundary):
-        coupling._run_solvers(prepared._parsed, fields, RunControl(
-            progress=pcts.append, iteration=labels.append))
-    assert labels == ['iter 1/10']
-    assert pcts == [10, 12]
 
 
 @pytest.mark.parametrize('nz', [1, 3])

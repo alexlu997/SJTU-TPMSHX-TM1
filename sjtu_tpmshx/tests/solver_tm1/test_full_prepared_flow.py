@@ -1,48 +1,43 @@
-"""Full-mode SIMPLE consumes frozen drag, even under receiver overrides."""
+"""Native SIMPLE consumes frozen drag, even under receiver overrides."""
 from dataclasses import replace
 import numpy as np
 import pytest
+from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.backends.prepared_2d import build_execution_inputs
-from sjtu_tpmshx.solvers.backends.python.two_d.runtime import build_runtime
+from sjtu_tpmshx.domain.module_ports import resolve_control
+from sjtu_tpmshx.solvers.backends.cpp.full_2d import NativeFull2DDriver, _pack
 from sjtu_tpmshx.tests.integration_tm1.test_2d_real import baseline_config
 
 
 def test_full_prepared_flow_consumes_drag_without_prediction(monkeypatch):
-    from sjtu_tpmshx.solvers import simple_solver
     from sjtu_tpmshx.df_surrogate import predict
-    from sjtu_tpmshx.models import df_projection
-    case = prepare_case(baseline_config(), case_id='prepared-flow')
+    from sjtu_tpmshx.models import df_projection, grid as grids
+    config = baseline_config()
+    config.solver = replace(config.solver, max_outer_ltne=2, max_iter_simple=500)
+    case = prepare_case(config, case_id='prepared-flow')
     cfg, grid = build_execution_inputs(case)
     def forbidden(*args, **kwargs):
         raise AssertionError('execution rebuilt fixed drag or grid')
-    for module, names in ((simple_solver, ('_aligned_grid','predict_K_cF')),
-                          (predict, ('predict_K_cF','predict_K_cF_vec')),
+    for module, names in ((grids, ('_aligned_grid',)),
+                          (predict, ('predict_K_cF', 'predict_K_cF_vec')),
                           (df_projection, ('project_fields_to_streamwise_K_cF',))):
         for name in names:
             monkeypatch.setattr(module, name, forbidden)
-    def solved(solver, **kwargs):
-        kwargs['progress_cb'](3, .01)
-        return True, 1
-    monkeypatch.setattr(simple_solver.SIMPLESolver, 'solve', solved)
     monkeypatch.setenv('TPMSHX_DF_METHOD', 'rbf')
     residuals = []
-    run = build_runtime(cfg, grid, residual_cb=lambda *args: residuals.append(args))['_run_simple']
-    for side in ('A', 'B'):
-        solver = run(cfg['cfg'+side],1.2,1.8e-5,400.,5.,side)[2]
-        np.testing.assert_array_equal(solver._K_arr, case.parameters['flow_inputs'][side]['K_m2'])
-        np.testing.assert_array_equal(solver.dy_arr, case.parameters['flow_inputs'][side]['dy'])
-    assert residuals == [('A', 3, .01), ('B', 3, .01)]
+    control = resolve_control(RunControl(residual=lambda *row: residuals.append(row)))
+    driver = NativeFull2DDriver(control.native_library)
+    _, arrays, _ = _pack(cfg, grid, None, driver.library)
+    for index, side in enumerate('AB'):
+        np.testing.assert_array_equal(arrays[10+9*index], case.parameters['flow_inputs'][side]['K_m2'])
+        np.testing.assert_array_equal(arrays[11+9*index], case.parameters['flow_inputs'][side]['cF_per_m'])
+    raw = driver.run_prepared(cfg, grid, control)
+    for side, flow in zip('AB', raw['flow']):
+        np.testing.assert_array_equal(flow['dy'], case.parameters['flow_inputs'][side]['dy'])
+    assert {side for side, _, _ in residuals} == {'A', 'B'}
+    assert all(np.isfinite(value) for _, _, value in residuals)
     flow = {**case.parameters['flow_inputs']['A'], 'dy': np.ones(2)}
-    bad = replace(case, parameters={**case.parameters, 'flow_inputs': {**case.parameters['flow_inputs'], 'A':flow}})
+    bad = replace(case, parameters={**case.parameters, 'flow_inputs': {**case.parameters['flow_inputs'], 'A': flow}})
     with pytest.raises(ValueError, match='grid disagrees'):
         build_execution_inputs(bad)
-
-
-@pytest.mark.parametrize('unknown', ['closure', 'uniform_intlet', 'zone_config'])
-def test_simple_rejects_retired_or_misspelled_keywords(unknown):
-    from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
-    with pytest.raises(TypeError, match=f"unexpected keyword argument '{unknown}'"):
-        SIMPLESolver(.01, .02, 4, 4, 'Gyroid', 7., .4, .7, .001,
-                     1.2, 1.8e-5, 300., 0., .01, 1., wall_refine=False,
-                     **{unknown: True})

@@ -13,26 +13,27 @@ application -> preprocess.api -> CaseData -> solvers.api -> FieldResult
                                                            -> postprocess.api
 ```
 
-Keep those boundaries, the existing `domain` contracts and shared model resources.
-Python and C++ stay supported solver backends. There is no need to rename each directory or divide
-the project into repositories. V0.3's useful extension is an independently
-qualified C++ backend inside the solver module. It consumes the same physical
-case and produces evidence usable by the existing postprocessor.
+Version 0.2 retains these boundaries and uses C++ as the only numerical backend.
+Python keeps application interfaces, preparation, model resources, optimization
+and postprocessing. Version 0.1 preserves both solver implementations.
+The Python numerical backend and its extra research entries are retired in 0.2.
+The shared C++ sweeps and their low-level C ABI remain in use.
+`legacy_h_fou`, `temperature_fou` and `temperature_sou` remain supported energy choices.
+Outer property Anderson is retired; fixed property relaxation and thermal
+Anderson retain their existing rules.
 
-Python/Numba stays the default. The explicit `backend='cpp'` supports
-complete prepared Quick Design and full 2D/3D execution on macOS arm64 and
-Windows x64. The required native CI suite passes on macOS/Python 3.13 and
-Windows/Python 3.12 and 3.13. Delivery uses the
-existing Python/Qt entry point and a precompiled C++ library in the project
-folder. Source GUI acceptance and whole-application performance stay separate
-gates. A packaged `.app` is outside this delivery scope.
+Full 2D/3D and Quick Design use the matching library on macOS arm64 or Windows x64.
+Public `RunControl` and CLI calls default to C++. The library path is a host
+control and is not stored in `CaseData`. Missing libraries fail explicitly.
+Delivery keeps the existing Python/Qt entry and a prebuilt library in the
+project folder. Required CI, visible desktop acceptance, complete performance
+and experimental accuracy remain separate gates.
 
-The macOS folder
-launcher explicitly selects the supplied candidate library. It does not change
-the public Python default or show qualification for each case. The earlier `cpp_sweeps_v1` connection, where Python owned the outer solve
-and C++ supplied only sweep chunks, is retired. Select the complete
-Python or C++ backend through `RunControl` or `--backend`. The shared C++
-sweep implementation and its low-level C ABI stay in use and are kept.
+Current numerical checks use independent formulas, discrete balances,
+manufactured solutions, native component replay and fixed historical references.
+Former Python/C++ comparisons remain evidence of their recorded builds in
+[version 0.1](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/v0.1.0/docs/cpp-migration.md).
+They are not rerun with a retained Python solver in 0.2.
 
 ## Complete Quick Design capability
 
@@ -107,11 +108,10 @@ The binding performs prepared-input validation, passes borrowed input views,
 copies result-owned arrays before release and maps native evidence into the
 existing `FieldResult`. Host library/table directories are not serialized in
 cases or results. Fresh-process CLI solve, save/reload and offline evaluation
-load no Numba or Python numerical driver. Numerical qualification compares
-full fields, statuses, budgets, pressure and energy evidence against the
-corrected Python reference with fixed tolerances. Neither this opt-in nor a
-successful macOS package run shows Windows acceptance or changes the
-default backend.
+load no Numba or Python numerical driver. Current qualification checks full
+fields, statuses, budgets, pressure and energy through independent audits and
+native component replay. Historical Python comparisons keep their original
+limits and verdicts. A macOS run does not establish Windows acceptance.
 
 ## Complete full 3D capability
 
@@ -144,8 +144,7 @@ recursive `count > 2000`, child cap 200, minimum-axis and stopping rules.
 `started_cap_sum` is the sum of caps for layers that entered an iteration,
 not a shared global bootstrap limit. An unstarted cancelled parent contributes
 zero iterations and no cap to that sum. The binding copies the trace before
-release into the same `diagnostics.coarse_bootstrap_trace` used by Python full
-3D. Saved results without this optional key stay readable.
+release into `diagnostics.coarse_bootstrap_trace`. Saved results without this optional key stay readable.
 
 The existing cooperative-cancellation result still owns its partial diagnostic
 views, so a C caller can query them before release. The Python binding raises
@@ -164,9 +163,9 @@ when the initial pressure difference is only roundoff. Full-field checks must
 therefore keep the original iteration budgets and comparison tolerances.
 
 The same public `run_case` and CLI commands select it for a full 3D CaseData. Numerical qualification includes the original 24³ case and full field/pressure/
-thermal evidence, with unchanged budgets and comparison gates. That particular
-capped case returns `converged=False` in both backends. Agreement does not
-convert it into a converged solution. Full 3D model-h heat stays W.
+thermal evidence, with unchanged budgets and comparison gates. The historical
+Python/native comparison of that capped case returned `converged=False`.
+Agreement did not establish convergence. Full 3D model-h heat stays W.
 
 The legacy
 temperature route keeps its existing unavailable-heat boundary when complete
@@ -239,7 +238,7 @@ Set `solver.enthalpy_algorithm` to `temperature_fou` or `temperature_sou`
 before `prepare_case`. Set `solver.enthalpy_temperature_tol_K` to the required
 positive K tolerance before preparation. Then run the saved case with
 `backend='cpp'` and the matching native library. The defaults stay `legacy_h_fou` and 1e-8 K. The current candidates require the existing two-fluid true-h routes. Selecting
-them with Python, Quick Design or an unsupported thermal route fails explicitly.
+them with Quick Design or an unsupported thermal route fails explicitly.
 
 Full 3D candidates also support `port_wall_refine` on the prepared nonuniform
 tensor grid, for full and partial openings. They use the actual cell widths and
@@ -273,7 +272,7 @@ They accept the same persisted EOS iteration, sweep, relaxation and convergence 
 The 2D v4 control block also contains `tpmshx_energy_options_v2`.
 It replaces the two thermal-control values in `config_v2`; other values retain their meaning.
 The existing effective-settings query records the controls used by each thermal call.
-The public Python 2D and integral model-h routes reject these EOS overrides before flow execution.
+Integral model-h routes reject these EOS overrides before flow execution.
 
 The Python binding copies query views before release and records
 `backend_version=full_2d_v3` or `full_3d_v2` for the default controls.
@@ -293,7 +292,7 @@ true-h unit-depth convention and do not produce Richardson evidence.
 
 `native/include/tpmshx/enthalpy_sweeps.hpp` and
 `native/src/enthalpy_sweeps.cpp` implement the serial true-enthalpy LTNE
-Gauss–Seidel sweeps from `solvers/ltne_enthalpy_3d.py`:
+Gauss–Seidel sweeps. Their original Python implementation is preserved in version 0.1:
 
 - Fluid A, fluid B, then solid. The sweeps keep the original increasing i/j/k order.
 - Signed mass flow on all six faces, inward prescribed enthalpy, outward
@@ -338,8 +337,8 @@ convergence. Those driver-owned checks stay mandatory. Invalid inputs are
 rejected before residual output writes. Arithmetic overflow raises an error and
 invalidates all output buffers. State/coefficient arrays stay read-only.
 
-Qualification compares actual residual fields and budgets to the Python
-operators, not just the final ratio. Independent checks include six signed flow
+Qualification compares actual residual fields and budgets to independent
+NumPy audit arithmetic, including the final ratio. Independent checks include six signed flow
 directions, a one-cell 20 W exchange, internal-face cancellation, and isothermal
 pressure-dependent enthalpy. They also include a deliberately unbalanced local
 temperature field. Its global/coupled budget is zero, but its equation residual
@@ -487,8 +486,7 @@ New native algorithms require independent matrix, analytic, grid-sequence,
 actual-state balance and lifecycle qualification. Previous-Python trajectory tests
 stay historical same-algorithm evidence and cannot show parity with a
 changed native method. A native successful exit, complete physical ledger,
-convergence and experimental accuracy are distinct facts. Python numerical
-methods and the default backend stay separately controlled.
+convergence and experimental accuracy are distinct facts. The native default does not expand physical applicability.
 
 ## Build and run the qualification checks
 
@@ -540,54 +538,44 @@ tm1_python="$(head -n 1 .venv-path)"
 "$tm1_python" -m pip check
 MPLCONFIGDIR="$PWD/.cache/matplotlib" \
 XDG_CACHE_HOME="$PWD/.cache/xdg" \
-NUMBA_CACHE_DIR="$PWD/.cache/numba" \
-TPMSHX_REQUIRE_CPP_TESTS=1 \
+TPMSHX_REQUIRE_CPP_TESTS=1 TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1 \
 "$tm1_python" -m pytest -q sjtu_tpmshx/tests/native
 ```
 
-The previous `TPMSHX_TRUE_H_KERNEL=cpp_sweeps_v1` setting no longer starts a
-mixed solve. Python execution rejects that setting, including saved prepared
-cases, before SIMPLE rather than silently changing the recorded algorithm. The previous selector is kept in environment snapshots only for this rejection.
-Unset or `numba` values use the unchanged Python kernel. New cases no longer
-capture `TPMSHX_THERMAL_LIBRARY`. Use the complete native backend's
-`--backend cpp --native-library /absolute/path/to/libtpmshx_solver_shared.dylib`
-instead.
-
-Its host-local library path is supplied through `RunControl`. Previously saved results stay readable and evaluable without a numerical
-kernel or the former hybrid library. Python true-h evidence continues to
-record `sweep_kernel='numba'` and `energy_audit='python'`.
+Every explicit `TPMSHX_TRUE_H_KERNEL` override is retired, including `numba`
+and `cpp_sweeps_v1`. Saved prepared requests fail before flow execution.
+Remove the override to use native execution. The key remains in environment
+snapshots only for this explicit rejection. New cases do not capture
+`TPMSHX_THERMAL_LIBRARY`; native library selection belongs to `RunControl`.
+Saved results remain readable without loading a solver library. Historical
+Python `sweep_kernel` and `energy_audit` records retain their original meaning.
 
 The required flag makes a missing compiler fail this qualification command.
-General Python-only testing skips these tests when its platform compiler is
+Optional local component tests can skip when the platform compiler is
 absent. That skip is not native acceptance. Native qualification is required
 in the existing macOS 3.13 and Windows 3.12/3.13 fast CI lanes. A local macOS
 pass does not show Windows compilation, execution or distribution
 acceptance. No compiler or Python dependency is installed by these tests.
 
-Before comparison, the same-algorithm tolerances are fixed to `rtol=2e-13`,
-`atol=2e-8 J/kg` for enthalpy and `atol=2e-11 K` for solid temperature. These
-allow double-precision compiler/FMA ordering differences from Numba fastmath.
-They are distinct from PDE convergence and experimental uncertainty. Clip
-counts must match exactly. The native build does not enable fast-math.
-
-Checks cover fixed-seed variable fields, signed/zero face flows, nonuniform
-grids, all six flow directions, single-cell axes, zero diagonal, clipping and
-rejection before mutation. Independent physical checks cover isothermal
-pressure-dependent enthalpy and a constant-property exponential cooling
-solution with first-order grid convergence and boundary/source energy balance.
-This qualifies the sweep algorithm, not sCO2 system prediction or speedup.
+Native enthalpy sweep tests retain fixed-seed variable fields, signed and zero
+face flows, nonuniform grids, six directions, single-cell axes, zero diagonal,
+clipping and rejection before mutation. Independent physical checks cover
+isothermal pressure-dependent enthalpy and exponential cooling, including
+first-order grid convergence and boundary/source energy balance.
+Zero-change references retain `atol=2e-8 J/kg` and `atol=2e-11 K`.
+Clipping counts stay within the charged sweep budget. Native builds do not
+enable fast-math. These checks qualify numerical operators, not experimental
+sCO2 prediction or application speed.
 
 For the energy audit, the fixed comparison tolerances are `rtol=2e-12`,
 `atol=1e-9 W` per cell, `atol=1e-8 W` for reduced budgets, and `atol=1e-12`
-for dimensionless ratios. The same source unit normalization applies in 2D. These compare arithmetic implementations. They do not change production gates. Performance qualification must include input checks/binding overhead and compare
-equally warmed Numba sweeps and NumPy audit operators, separately from EOS,
-compilation and end-to-end execution. A kernel result cannot prove application
-speedup.
+for dimensionless ratios. The same source unit normalization applies in 2D. These compare arithmetic implementations. They do not change production gates. Performance qualification includes input checks and binding overhead. Separate
+EOS initialization, native builds, kernel execution and complete solve time.
+Historical Numba timings remain tied to version 0.1 and their matched routes.
 
-The public execution tests compare 2D/3D sCO2/water and air/sCO2
-fields, signed boundary fluxes, pressure evidence and metrics with fixed
-`rtol=atol=1e-10`. F2 and true-h physical gates stay unchanged. They also
-exercise saved-case selection, cancellation and actual native error exits. Neither native operator is automatically selected by production.
+Public execution tests retain physical-field, signed boundary-flux, pressure,
+metric, file-handoff, cancellation and actual native-error checks. Native
+engineering cases keep the original F2, convergence and energy gates.
 
 ## Isolated EOS and pressure dependency qualification
 
@@ -679,7 +667,7 @@ Thread policy and measured performance must be recorded separately.
 
 The `native-dependencies` CI matrix builds and runs these callers and required
 tests on macOS/Python 3.13 and Windows/Python 3.12/3.13. A missing executable
-fails the required job. Ordinary Python-only runs can skip an unbuilt pilot.
+fails the required job. Optional local component runs can skip an unbuilt pilot.
 That skip does not show native qualification. Both platforms have actual
 required native CI passes. The evidence is bounded to those builds and cases.
 

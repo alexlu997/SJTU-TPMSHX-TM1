@@ -4,7 +4,7 @@ import sys
 
 
 def collect_process_metrics():
-    """Return this pytest process's lifetime peak and loaded dispatcher counters."""
+    """Return this pytest process's lifetime peak memory."""
     if sys.platform == 'win32':
         import ctypes
         from ctypes import wintypes
@@ -38,16 +38,5 @@ def collect_process_metrics():
         if sys.platform != 'darwin':
             peak *= 1024  # Linux ru_maxrss is KiB; macOS is already bytes.
         source = 'resource.getrusage(RUSAGE_SELF).ru_maxrss'
-    dispatcher_type = getattr(sys.modules.get('numba.core.registry'), 'CPUDispatcher', None)
-    dispatchers = {}
-    if dispatcher_type is not None:
-        for name, module in tuple(sys.modules.items()):
-            if module is not None and name.startswith('sjtu_tpmshx.'):
-                for value in tuple(vars(module).values()):
-                    if isinstance(value, dispatcher_type):
-                        dispatchers[id(value)] = value
     return dict(pid=os.getpid(), peak_rss_bytes=peak, peak_rss_source=source,
-                peak_rss_scope='self process lifetime peak; excludes children; not additive across processes',
-                numba_dispatchers=len(dispatchers),
-                numba_cache_hits=sum(sum(d.stats.cache_hits.values()) for d in dispatchers.values()),
-                numba_cache_misses=sum(sum(d.stats.cache_misses.values()) for d in dispatchers.values()))
+                peak_rss_scope='self process lifetime peak; excludes children; not additive across processes')

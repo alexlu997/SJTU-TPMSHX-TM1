@@ -322,13 +322,12 @@ class RunControllerMixin:
     def _new_compute_worker(self, mode, ui_hooks):
         control = getattr(self, 'run_control', RunControl())
         options = dict(control=control, ui_hooks=ui_hooks)
-        if control.backend == 'cpp':
-            provenance = self._capture_run_provenance(mode)
-            directory = self.sm.base_dir / 'runs' / ('run-' + uuid4().hex)
-            self._pending_run_provenance = provenance
-            self._active_run_directory = directory
-            options.update(run_directory=directory, checkpoint_interval_s=60.,
-                           gui_provenance=provenance)
+        provenance = self._capture_run_provenance(mode)
+        directory = self.sm.base_dir / 'runs' / ('run-' + uuid4().hex)
+        self._pending_run_provenance = provenance
+        self._active_run_directory = directory
+        options.update(run_directory=directory, checkpoint_interval_s=60.,
+                       gui_provenance=provenance)
         return partial(_run_compute, **options)
 
     def _on_orch_started(self, mode):
@@ -783,9 +782,6 @@ class RunControllerMixin:
             checkpoint_interval = record['checkpoint_interval_s']
         except (OSError, ValueError, KeyError, TypeError) as error:
             QMessageBox.warning(self, '无法继续计算', str(error))
-            return
-        self.combo_solver_backend.setCurrentIndex(self.combo_solver_backend.findData('cpp'))
-        if self.run_control.backend != 'cpp':
             return
         mode = f"{case.grid['dimension']}d"
         axes = ('Nx', 'Ny', 'Nz') if config.is_3d else ('Nx', 'Ny')

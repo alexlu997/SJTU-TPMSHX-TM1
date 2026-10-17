@@ -205,8 +205,8 @@ assert not any(name.startswith(('numba','sjtu_tpmshx.solvers.ltne_',
 def test_candidate_requires_supported_route_and_backend(driver):
     config = configuration('temperature_sou')
     case = prepare_case(config, case_id='energy2d-backend')
-    with pytest.raises(ValueError, match='requires full compute with backend=cpp'):
-        run_case(case)
+    with pytest.raises(ValueError, match='Python numerical backend has been retired'):
+        run_case(case, RunControl(backend='python'))
     other = replace(config, fluid_B=replace(config.fluid_B, type='water'))
     with pytest.raises(ValueError, match='requires the existing true-h route'):
         driver.run_prepared(*build_execution_inputs(prepare_case(other, case_id='energy2d-route')))
@@ -391,8 +391,8 @@ def test_explicit_thermal_controls_reject_unavailable_routes_before_flow(driver,
     config = configuration('legacy_h_fou')
     config.solver = replace(config.solver, ltne_enthalpy_nsweep=4)
     case = prepare_case(config, case_id='explicit-energy2d-backend')
-    with pytest.raises(ValueError, match='explicit energy controls require full compute with backend=cpp'):
-        run_case(case)
+    with pytest.raises(ValueError, match='Python numerical backend has been retired'):
+        run_case(case, RunControl(backend='python'))
     other = replace(config, fluid_B=replace(config.fluid_B, type='water'))
     with pytest.raises(ValueError, match='existing true-h route'):
         driver.run_prepared(*build_execution_inputs(prepare_case(other, case_id='explicit-energy2d-model-h')))

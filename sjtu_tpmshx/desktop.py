@@ -8,19 +8,18 @@ import sys
 
 
 def configure_cache():
-    """Keep writable JIT and plotting caches outside the application bundle."""
+    """Keep plotting and library caches outside the application bundle."""
     from PySide6.QtCore import QStandardPaths
     root = Path(QStandardPaths.writableLocation(
         QStandardPaths.StandardLocation.GenericCacheLocation)) / 'SJTU-TPMSHX-TM1'
-    for name, directory in (('NUMBA_CACHE_DIR', 'numba'),
-                            ('MPLCONFIGDIR', 'matplotlib'),
+    for name, directory in (('MPLCONFIGDIR', 'matplotlib'),
                             ('XDG_CACHE_HOME', 'libraries')):
         path = Path(os.environ.setdefault(name, str(root / directory)))
         path.mkdir(parents=True, exist_ok=True)
 
 
 def main(argv=None):
-    # PyInstaller's override handles spawned workers before importing Qt/Numba.
+    # PyInstaller's override handles spawned workers before importing Qt.
     multiprocessing.freeze_support()
     configure_cache()
     args = list(sys.argv[1:] if argv is None else argv)

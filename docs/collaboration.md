@@ -33,7 +33,7 @@ including retirement and required validation, without approval at each step.
    [environment checks](../AGENTS.md#3-work-setup-and-environment) before environment-dependent work.
    Reuse passing results only as those rules permit.
 5. Import project source from the current worktree. Keep Matplotlib, XDG,
-   Numba, and native table caches in that worktree's ignored `.cache/`.
+   and native table caches in that worktree's ignored `.cache/`.
    Record the actual native library and its source/build identity separately.
    Do a check for references to a worktree scheduled for removal.
 
@@ -80,7 +80,7 @@ Use the task's existing handoff record; keep detailed local evidence in ignored 
    Check actual use. A filename or a search with no hits is not sufficient evidence.
 2. Verify the replacement against the behavior that current consumers need.
    Keep physical, data, platform, and compatibility requirements.
-   Supported Python and C++ backends remain current product capabilities.
+   C++ numerical execution and Python application interfaces remain current product capabilities.
 3. In the same PR, move consumers and regression coverage to the replacement.
    Remove the replaced implementation and files used only by it.
    Update entry points, build lists, configuration, exports, and documentation together.

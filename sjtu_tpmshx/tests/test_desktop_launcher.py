@@ -8,13 +8,12 @@ from sjtu_tpmshx import desktop
 
 def test_caches_respect_explicit_paths(tmp_path, monkeypatch):
     monkeypatch.setattr(QStandardPaths, 'writableLocation', lambda *_: str(tmp_path))
-    for name in ('NUMBA_CACHE_DIR', 'MPLCONFIGDIR', 'XDG_CACHE_HOME'):
+    for name in ('MPLCONFIGDIR', 'XDG_CACHE_HOME'):
         monkeypatch.delenv(name, raising=False)
-    explicit = tmp_path / 'chosen-numba'
-    monkeypatch.setenv('NUMBA_CACHE_DIR', str(explicit))
+    explicit = tmp_path / 'chosen-matplotlib'
+    monkeypatch.setenv('MPLCONFIGDIR', str(explicit))
     desktop.configure_cache()
     assert explicit.is_dir()
-    assert (tmp_path / 'SJTU-TPMSHX-TM1' / 'matplotlib').is_dir()
     assert (tmp_path / 'SJTU-TPMSHX-TM1' / 'libraries').is_dir()
 
 

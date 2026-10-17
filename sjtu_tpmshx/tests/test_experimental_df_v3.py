@@ -433,14 +433,11 @@ def test_matching_hx_air_and_water_pair_use_separate_frozen_scales():
 @pytest.mark.parametrize('dim', [2, 3])
 @pytest.mark.parametrize('fluid_A', ['water', 'sco2'])
 @pytest.mark.parametrize('tpms', ['Diamond', 'Gyroid'])
-def test_application_coefficients_precede_real_seed_and_solver_setup(monkeypatch, dim, fluid_A, tpms):
-    from sjtu_tpmshx.preprocess.two_d.preparation import _parse_inputs_cfg, _prepare_grid
-    from sjtu_tpmshx.preprocess.three_d.preparation import _parse_inputs_3d_cfg, _prepare_problem_data
-    from sjtu_tpmshx.solvers.backends.python.two_d.runtime import build_runtime
-    from sjtu_tpmshx.solvers.backends.python.three_d import runtime as run_stack_3d_stages
+def test_application_coefficients_precede_real_seed_and_solver_setup(dim, fluid_A, tpms):
+    from sjtu_tpmshx.preprocess.api import prepare_case
+    from sjtu_tpmshx.tests.native.prepared_snapshot import native_prepared_state
     from sjtu_tpmshx.models import fluid_props
-    from sjtu_tpmshx.solvers.simple_solver import SIMPLESolver
-    from sjtu_tpmshx.domain.run_warnings import range_context, warning_scope, warning_messages
+    from sjtu_tpmshx.domain.run_warnings import warning_scope, warning_messages
 
     cfg = ComputeConfig(
         fluid_A=FluidConfig(type=fluid_A, u_mps=.02 if fluid_A == 'water' else .45,
@@ -456,59 +453,39 @@ def test_application_coefficients_precede_real_seed_and_solver_setup(monkeypatch
                             out_ctr=.091, out_w=.091),
         df_mode='experimental')
     if fluid_A == 'water':
-        # The approved low-Re research use is explicit and keeps its Nu notice.
+        # This case explicitly permits the low-Re closure range.
         cfg.extrap.allow = True
     cfg.validate()
-    solvers = []
     with warning_scope({}) as warnings:
-        if dim == 2:
-            parsed = _parse_inputs_cfg(cfg)
-            fields = build_runtime(parsed, _prepare_grid(parsed))
+        case = prepare_case(cfg, case_id='df-before-native-seed')
+        parsed, prepared, state = native_prepared_state(case, phase=6)
 
-            def solve(s, **kwargs):
-                # Distinct interior values expose any post-solve attenuation.
-                s.u[1:-1] = .3
-                s.v[:] = .7
-                return True, 1
-
-            monkeypatch.setattr(SIMPLESolver, 'solve', solve)
-            for side, fc in (('A', cfg.fluid_A), ('B', cfg.fluid_B)):
-                model = fluid_props.get(fc.type)
-                with range_context(side=side, stage='df-application'):
-                    uc, vc, s = fields['_run_simple'](
-                        parsed['cfg' + side], model.rho(fc.T_in_K, fc.P_in_Pa),
-                        model.mu(fc.T_in_K, fc.P_in_Pa), fc.T_in_K, fc.u_mps, side,
-                        P_in_abs=fc.P_in_Pa, fluid_type=fluid_props.flow_model(fc.type))
-                solvers.append(s)
-                np.testing.assert_allclose(abs(vc), .7)
-                np.testing.assert_allclose(uc, .5 * (s.u[:-1] + s.u[1:]))
-        else:
-            monkeypatch.setattr(run_stack_3d_stages, '_run_two_simple', lambda *a, **kw: None)
-            parsed = _parse_inputs_3d_cfg(cfg)
-            prepared = _prepare_problem_data(parsed)
-            problem = run_stack_3d_stages.build_problem(prepared['cfg'], prepared)
-            solvers = [problem.sA, problem.sB]
-
-    for s, fc in zip(solvers, (cfg.fluid_A, cfg.fluid_B)):
-        meta = s._df_metadata
+    for index, (side, fc) in enumerate(zip('AB', (cfg.fluid_A, cfg.fluid_B))):
+        meta = (parsed['flow_inputs'][side]['metadata'] if dim == 2
+                else parsed['df_application'][side])
         base_K, base_cF = _base(tpms, 7., .6)
-        _, sf, _, _ = correction_scale(tpms, fc.type, 7., .6, fc.u_mps)
-        np.testing.assert_allclose(s._K_arr if dim == 2 else s.K_arr, base_K, rtol=1e-13)
-        np.testing.assert_allclose(s._cF_arr if dim == 2 else s.cF_arr, base_cF * sf, rtol=1e-13)
+        _, scale, _, _ = correction_scale(tpms, fc.type, 7., .6, fc.u_mps)
+        if dim == 2:
+            permeability = state[f'input.sides.{index}.row_permeability']
+            forchheimer = state[f'input.sides.{index}.row_forchheimer']
+            pressure = state[f'state.flow.value.{index}.flow.reference_pressure'][0]
+        else:
+            permeability = state[f'state.result.flow.{index}.permeability']
+            forchheimer = state[f'state.result.flow.{index}.forchheimer']
+            pressure = state[f'state.result.flow.{index}.pressure_reference'][0]
+        np.testing.assert_allclose(permeability, base_K, rtol=1e-13)
+        np.testing.assert_allclose(forchheimer, base_cF*scale, rtol=1e-13)
         assert meta['extrapolated']
         assert meta['calibration_velocity_window_mps']['min'] > fc.u_mps
         if fc.type == 'air':
             model = fluid_props.get('air')
-            # Keep each pipeline's existing inlet-density convention.
-            rho_seed = (fc.P_in_Pa / (287.05 * fc.T_in_K) if dim == 2
-                        else model.rho(fc.T_in_K, fc.P_in_Pa))
-            G = rho_seed * fc.u_mps
-            C = model.mu(fc.T_in_K, fc.P_in_Pa) * G / base_K + base_cF * float(sf) * G**2
-            expected = np.sqrt(fc.P_in_Pa**2 - 2. * 287.05 * fc.T_in_K * C * .042)
-            assert s.P_ref_abs == pytest.approx(expected, rel=1e-13)
-    messages = list(warning_messages(warnings))
-    if fluid_A == 'water':
-        assert any('water Nu window' in message for message in messages)
-        assert parsed['extrap_reasons'] == []  # Nu notices keep their own route.
+            rho = (fc.P_in_Pa/(287.05*fc.T_in_K) if dim == 2
+                   else model.rho(fc.T_in_K, fc.P_in_Pa))
+            mass = rho*fc.u_mps
+            drag = model.mu(fc.T_in_K, fc.P_in_Pa)*mass/base_K + base_cF*float(scale)*mass**2
+            expected = np.sqrt(fc.P_in_Pa**2 - 2.*287.05*fc.T_in_K*drag*.042)
+            assert pressure == pytest.approx(expected, rel=1e-13)
+    assert parsed['extrap_reasons'] == []
+    messages = [*case.metadata['warnings'], *warning_messages(warnings)]
     for side in ('A', 'B'):
         assert any('[D-F extrap]' in msg and f'side={side}' in msg for msg in messages)

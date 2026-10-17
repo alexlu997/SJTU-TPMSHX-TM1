@@ -3,7 +3,7 @@
 Uses prepared CaseData and run_case, without Qt or GUI acceptance checks, and
 compares Q + dP across {baseline, norris_1a, bhatti_shah_1b}.
 Also exercises fluid_type_B='water' path (Shanghai-style) to verify
-roughness skipped on water side. The fast_sweep profile bounds the smoke
+roughness skipped on water side. Three outer iterations bound the smoke
 workload; these comparisons do not certify solver convergence.
 """
 from __future__ import annotations
@@ -12,9 +12,9 @@ import math
 
 warnings.filterwarnings('ignore')
 
-from sjtu_tpmshx.preprocess.api import prepare_research_case
+from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
-from sjtu_tpmshx.models.tpms_calc import geometry as tpms_geometry
+from sjtu_tpmshx.domain.compute_config import ComputeConfig, FluidConfig, GeometryConfig, PartialBCConfig, SolverConfig, ExtrapPolicy
 
 
 def build_cfg(tpms='Gyroid', Lcell=7.0, t_wall=0.6, k_s=16.0,
@@ -23,18 +23,15 @@ def build_cfg(tpms='Gyroid', Lcell=7.0, t_wall=0.6, k_s=16.0,
                u_A=12.0, T_inA=422.0, P_inA=101325.0,
                u_B=8.0, T_inB=302.0, P_inB=101325.0,
                fluid_type_A='air', fluid_type_B='air'):
-    geometry = tpms_geometry(tpms, Lcell, t_wall, k_s)
-    return dict(
-        tpms_type=tpms, Lcell=Lcell, t_wall=t_wall, k_s=k_s,
-        L=L, H=H, Lz=Lz, Nx=Nx, Ny=Ny, Nz=Nz, eps=geometry['epsilon'],
-        u_A=u_A, T_inA=T_inA, P_inA=P_inA,
-        u_B=u_B, T_inB=T_inB, P_inB=P_inB,
-        T_s_init=None, wall_refine_3d=False, zone_grid_cells=None,
-        fluid_type_A=fluid_type_A, fluid_type_B=fluid_type_B,
-        fluid_A_cfg=dict(dir=0, in_ctr=H/2, in_w=H, out_ctr=H/2, out_w=H),
-        fluid_B_cfg=dict(dir=3, in_ctr=L/2, in_w=0.042,
-                         out_ctr=L/2, out_w=0.042),
-        sweep_profile='fast_sweep', use_adaptive_amg_tol=True)
+    return ComputeConfig(
+        geometry=GeometryConfig(tpms=tpms,L_cell_mm=Lcell,t_wall_mm=t_wall,k_s_W_mK=k_s,
+            L_dom_m=L,H_dom_m=H,Lz_m=Lz),
+        fluid_A=FluidConfig(type=fluid_type_A,u_mps=u_A,T_in_K=T_inA,P_in_Pa=P_inA),
+        fluid_B=FluidConfig(type=fluid_type_B,u_mps=u_B,T_in_K=T_inB,P_in_Pa=P_inB),
+        solver=SolverConfig(Nx=min(Nx,15),Ny=min(Ny,15),Nz=min(Nz,15),max_outer_ltne=3),
+        bc_A=PartialBCConfig(dir=0,in_ctr=H/2,in_w=H,out_ctr=H/2,out_w=H),
+        bc_B=PartialBCConfig(dir=3,in_ctr=L/2,in_w=.042,out_ctr=L/2,out_w=.042),
+        extrap=ExtrapPolicy(allow=True))
 
 
 
@@ -45,9 +42,9 @@ def run_with_mode(label, mode, eps_um=100, **kw):
     os.environ['TPMSHX_ROUGH_EPS_UM'] = str(eps_um)
     cfg = build_cfg(**kw)
     print(f"\n=== {label}  mode={mode} eps={eps_um}μm "
-          f"fluid_B={cfg['fluid_type_B']} ===", flush=True)
+          f"fluid_B={cfg.fluid_B.type} ===", flush=True)
     try:
-        res = run_case(prepare_research_case(cfg, case_id=label))
+        res = run_case(prepare_case(cfg, case_id=label))
     except Exception as e:
         print(f"  CRASH: {type(e).__name__}: {e}", flush=True)
         return None
@@ -114,7 +111,7 @@ def main():
         else:
             failed = True
             print("  [WARN] unexpected drift between norris_1a and baseline", flush=True)
-    print('Smoke comparisons only; fast_sweep does not certify solver convergence.')
+    print('Smoke comparisons only; a three-iteration cap does not certify solver convergence.')
     return 1 if failed else 0
 
 

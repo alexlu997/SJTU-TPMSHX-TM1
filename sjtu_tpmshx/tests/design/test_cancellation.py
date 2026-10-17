@@ -2,7 +2,6 @@
 from types import SimpleNamespace
 import importlib
 
-import numpy as np
 import pytest
 
 from sjtu_tpmshx.design import sizing, select
@@ -27,32 +26,27 @@ def test_sizing_stops_between_forward_solves(monkeypatch):
 @pytest.mark.parametrize('stage', ['search', 'final'])
 def test_sizing_cancels_inside_forward(monkeypatch, stage):
     execution = importlib.import_module(
-        'sjtu_tpmshx.solvers.backends.python.quick_design.execution')
+        'sjtu_tpmshx.solvers.backends.cpp.quick_design')
     calls = []
     requested = False
     cancellation_index = None
     cancellation = CancelledError('cancelled inside the active thermal solve')
     control = RunControl(cancel_check=lambda: requested)
 
-    def thermal(*args, **kwargs):
+    original = execution.run_case
+
+    def thermal(case, actual_control):
         nonlocal requested, cancellation_index
-        # Search carries its actual warm start through every solve; final
-        # verification is the next cold start after the first search solve.
-        final = bool(calls) and kwargs['Ta_init'] is None
+        final = bool(calls) and case.parameters['initial_fields'] is None
         if (stage == 'search' and not calls) or (stage == 'final' and final):
             requested = True
             cancellation_index = len(calls)
-        callback = kwargs['cancel_check']
-        calls.append(callback)
-        if callback is not None and callback():
+        calls.append(actual_control.cancel_check)
+        if actual_control.cancel_check():
             raise cancellation
-        shape = (args[3], args[4], args[5])
-        return (*(np.full(shape, t) for t in (400., 350., 375.)),
-                {'converged': True})
+        return original(case, actual_control)
 
-    # Keep sizing, geometry, pressure/properties, prepare, public run_case and
-    # its backend real; replace only the expensive thermal kernel boundary.
-    monkeypatch.setattr(execution, 'solve_full_domain_3d', thermal)
+    monkeypatch.setattr(execution, 'run_case', thermal)
     case = DesignCase(1, 'air', 600., 4e5, .01, 'air', 300., 4e5, .01,
                       None, .08, .08, dT=100.)
     result = caught = None

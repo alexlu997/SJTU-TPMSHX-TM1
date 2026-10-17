@@ -9,9 +9,9 @@ so the convection telescopes the true enthalpy flux ṁ·h.
 
 This 1D PoC proves the enthalpy form conserves (A/B imbalance < 1%) on a
 variable-cp CO2 counterflow case where the legacy cp·T form does not.
-The production enthalpy implementation is now in solvers/ltne_enthalpy_3d.py;
-test_ltne_enthalpy_3d.py checks its 3D behavior separately. This test retains
-the PoC formulation comparison and does not replace those production checks.
+The production enthalpy driver is in native/src/enthalpy_driver.cpp.
+The native enthalpy and full-domain tests check that implementation.
+This test retains the independent 1D formulation comparison.
 """
 import pytest
 

@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QApplication, QBoxLayout
 from sjtu_tpmshx.domain.cancellation import CancelledError
 from sjtu_tpmshx.domain.compute_result import ComputeResult
 from sjtu_tpmshx.tests.gui_worker_support import (
-    _configure, _wait_for, win as win,
+    _configure, _stub_compute_result, _wait_for, win as win,
 )
 from sjtu_tpmshx.ui.responsive import ResponsiveRow
 from sjtu_tpmshx.ui.run_status import RunStatusCard
@@ -42,7 +42,7 @@ def test_worker_lifecycle_keeps_cancel_logs_and_verdict(win, monkeypatch, tmp_pa
         return ComputeResult(Q_W=42, converged=outcome != 'unconverged',
                              warnings=['domain notice'] if outcome == 'warning' else [])
 
-    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', run)
+    _stub_compute_result(monkeypatch, run)
     try:
         win.run_calculation()
         _wait_for(callbacks_sent.is_set)
@@ -78,7 +78,7 @@ def test_worker_lifecycle_keeps_cancel_logs_and_verdict(win, monkeypatch, tmp_pa
 
 def test_plot_publication_failure_is_not_a_success_card(win, monkeypatch, tmp_path):
     _configure(win, monkeypatch, '2d')
-    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', lambda config, **kwargs: ComputeResult(Q_W=42))
+    _stub_compute_result(monkeypatch, lambda config, **kwargs: ComputeResult(Q_W=42))
 
     def broken_plot():
         raise RuntimeError('controlled rendering failure')
@@ -133,7 +133,7 @@ def test_card_expansion_narrow_width_and_restart_clear_previous_run():
 
 def test_3d_missing_view_reports_warning_without_discarding_result(win, monkeypatch, tmp_path):
     _configure(win, monkeypatch, '3d')
-    monkeypatch.setattr('sjtu_tpmshx.controllers.module_adapter.compute_result', lambda config, **kwargs: ComputeResult(
+    _stub_compute_result(monkeypatch, lambda config, **kwargs: ComputeResult(
         Q_W=42, diagnostics={'mode': '3d'}))
     win.run_calculation()
     _wait_for(win.compute.is_idle)

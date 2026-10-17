@@ -1,6 +1,4 @@
 """Select captured inlet and final closure states for the range policy."""
-from sjtu_tpmshx.domain.run_warnings import range_observations
-
 
 _INLET_STAGES = {'inlet', 'inlet-preflight', 'prepared-df', 'df-application',
                  'asym-ratio', 'main-inlet', 'richardson-inlet', 'fallback-inlet'}
@@ -10,8 +8,7 @@ _FINAL_STAGES = {'main', 'main-hv', 'property-refresh', 'final', 'main-duty',
 
 def capture_applicability(case, result, records):
     """Keep last source calls distinct from aggregate iteration warnings."""
-    rows = (result.metadata.get('_last_closure_ranges', ()) if result.backend_id == 'cpp'
-            else range_observations(records, last=True))
+    rows = result.metadata.get('_last_closure_ranges', ())
     inlet = list(case.metadata.get('applicability_inputs', ()))
     inlet.extend(row for row in rows if row['stage'] in _INLET_STAGES)
     inlet = [dict(row, constraint='hard_bounds') if row['source'][0] == 'geometry' else row

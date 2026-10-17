@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.models.zone_config import Zone, ZoneConfig
-from sjtu_tpmshx.solvers.backends.python.two_d.coupling import _zone_statistics_2d
+from sjtu_tpmshx.solvers.backends.capture_2d import _zone_statistics_2d
 
 
 @pytest.mark.parametrize('axis', [None, 'x', 'y', 'grid'])

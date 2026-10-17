@@ -1,17 +1,4 @@
-"""B1 1.1 — fluid_props registry migration equivalence guards.
-
-The 2026-06-12 migration replaced per-site ``if fluid == 'water'``
-property ladders with registry dispatch. These tests pin:
-
-  1. registry primitives == the direct tpms_calc functions they wrap
-     (exact float equality — the migration must be value-preserving);
-  2. flow_model() mapping (SIMPLE fluid_type strings);
-  3. embeds_roughness flags (roughness double-count guard, see the
-     _apply_roughness_* helpers in solvers/backends/python/three_d/flux.py);
-  4. nu_water_topo == the retired design/fluids.py inline formula;
-  5. models.design_fluids thin-adapter outputs == registry primitives.
-"""
-import numpy as np
+"""Registry properties, fluid types and roughness ownership remain unchanged."""
 import pytest
 
 from sjtu_tpmshx.models import fluid_props, tpms_calc
@@ -58,12 +45,6 @@ def test_embeds_roughness_flags():
     assert fluid_props.get('water').embeds_roughness is True   # experiment-trained D-F closure; skip air roughness modes
 
 
-def test_roughness_skip_uses_flag():
-    """_apply_roughness_* must no-op for roughness-embedding fluids even
-    under a non-baseline mode (the old string check, now via registry)."""
-    from sjtu_tpmshx.solvers.backends.python.three_d.flux import _apply_roughness_h_v
-    hv = np.full((4, 4), 1e6)
-    assert _apply_roughness_h_v(hv, 'water', 998.0, 1e-3, 0.5, 0.003) is hv
 
 
 @pytest.mark.parametrize('topo', ('Diamond', 'Gyroid'))

@@ -1,16 +1,10 @@
-"""Prepared-data 3D outer driver with same-map thermal reference components.
+"""Native full 3D states, independent equations, and continuation checks.
 
-Reference tolerances frozen before execution: temperature rtol1e-8/atol1e-6 K;
-flow/pressure rtol2e-7, velocity/density atol1e-7, pressure atol1e-5 Pa.
-Native exit reasons and original physical gates remain separate assertions.
-The capped refined case checks each actual count and returned-state audit
-independently; it is not a converged engineering-accuracy result.
+Flow mapping retains rtol2e-7 and the original absolute field tolerances.
+Independent residuals use the component audit tolerances. Refined thermal
+completion retains the 20000-iteration budget and all six physical gates.
 """
-from contextlib import nullcontext
-import copy
 import ctypes
-import inspect
-from functools import wraps
 from dataclasses import replace
 import os
 from pathlib import Path
@@ -25,13 +19,17 @@ from sjtu_tpmshx.domain.run_environment import run_environment
 from sjtu_tpmshx.models.field_coordinates_3d import _port_rectangles
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
-from sjtu_tpmshx.solvers.backends.python.three_d import runtime
+from types import SimpleNamespace
 from sjtu_tpmshx.tests.native.test_native_execution import _config
-from sjtu_tpmshx.tests.native import full_thermal_reference
+from sjtu_tpmshx.tests.native.simple_audit import mass_balance
+from sjtu_tpmshx.tests.native.test_simple_3d import audit_momentum
+from sjtu_tpmshx.tests.native import test_temperature_staggered as warmup_component
+from sjtu_tpmshx.models.field_coordinates_3d import _solver_velocity_to_real, _solver_staggered_to_real
 
+
+native_warmup = warmup_component.native
 
 ROOT = Path(__file__).resolve().parents[3]
-same_thermal = full_thermal_reference.same_thermal
 FLOW_FIELDS = ("dx", "dy", "dz", "eps_field", "K_arr", "cF_arr", "T_field", "mu_field",
                "_mu_eff_field", "rho_field", "u", "v", "w", "P", "Pp", "d_u", "d_v", "d_w",
                "v_inlet_field", "inlet_frac", "outlet_frac", "outlet_u_frac", "outlet_w_frac",
@@ -190,99 +188,133 @@ def prepared(pair="air-air", *, directions=None, counts=None, mesh=None, **contr
     return c, p
 
 
-def reference(cfg, p, thermal=None):
-    original = runtime.SIMPLESolver3D.solve
-    def observed(solver, *args, **kwargs):
-        value = original(solver, *args, **kwargs)
-        solver._full_native_last_iterations = value[1]
-        return value
-    original_energy = runtime.solve_full_domain_3d
-    @wraps(original_energy)
-    def energy(*args, **kwargs):
-        if thermal is None:
-            return original_energy(*args, **kwargs)
-        bound = inspect.signature(original_energy).bind(*args, **kwargs)
-        bound.apply_defaults()
-        return thermal.volume(bound.arguments, prob)
-    with patch.object(runtime.SIMPLESolver3D, "solve", observed), \
-         patch.object(runtime, "solve_full_domain_3d", energy):
-        prob = runtime.build_problem(copy.deepcopy(cfg), copy.deepcopy(p))
-        from sjtu_tpmshx.tests.native.full_thermal_reference import selected_energy_reference
-        selected = thermal is not None and prob.sB is not None and any(
-            fluid in ('co2', 'sco2') for fluid in (prob.fluid_type_A, prob.fluid_type_B))
-        with selected_energy_reference() if selected else nullcontext():
-            outer = runtime._run_outer_coupling_3d(prob, runtime._build_hv_machinery(prob), capture_native=True)
-            metrics = runtime._extract_3d_metrics(prob, outer)
-    if thermal is not None:
-        metrics = thermal.volume_reporting(prob, outer, metrics)
-    diagnostics = runtime._assemble_3d_diagnostics(prob, outer, metrics)
-    return prob, outer, metrics, diagnostics
+def flow_state(actual, side):
+    base = 100 + 40*side
+    widths = [actual[base+i] for i in range(3)]
+    shape = tuple(len(x) for x in widths)
+    fields = dict(zip(("Nx", "Ny", "Nz"), shape))
+    for code, key in enumerate(FLOW_FIELDS):
+        if code < 3:
+            dims = (shape[code],)
+        elif code in (10, 11, 12, 15, 16, 17):
+            axis = (code-10) % 5
+            dims = tuple(n + int(i == axis) for i, n in enumerate(shape))
+        elif code in (18, 19, 20, 23):
+            dims = (shape[0], shape[2])
+        elif code == 21:
+            dims = (shape[0]+1, shape[2])
+        elif code == 22:
+            dims = (shape[0], shape[2]+1)
+        else:
+            dims = shape
+        fields[key] = actual[base+code].reshape(dims)
+    return SimpleNamespace(**fields)
 
 
-def assert_equivalent(actual, expected):
-    assert actual["code"] == 0, actual["error"]
-    prob, outer, metrics, diagnostics = expected
+def audit_flow(actual, cfg, p):
     stats = actual[202]
-    assert bool(stats[1]) == bool(diagnostics["solver_converged"])
-    assert bool(stats[4]) == bool(outer._outer_converged)
-    assert actual[200].shape[0] == len(prob._ltne_info)
-    np.testing.assert_array_equal(actual[200][:, 1], [x["iters"] for x in prob._ltne_info])
-    np.testing.assert_array_equal(actual[200][:, 3], [x["converged"] for x in prob._ltne_info])
-    np.testing.assert_allclose(actual[200][:, 5:8], [[x[k] for k in ("Ta", "Tb", "Ts")] for x in outer._outer_dT_hist],
-                               rtol=1e-7, atol=2e-6)
-    for code, key in enumerate(("Ta", "Tb", "Ts", "P_thermal_A", "P_thermal_B", "h_vA", "h_vB", "rho_cp_A", "rho_cp_B")):
-        if outer.native_evidence[key] is None:
-            assert actual[code].size == 0
+    real_shape = tuple(p['N'+axis] for axis in 'xyz')
+    for side, name in enumerate('AB'):
+        if cfg['fluid_'+name+'_cfg'] is None:
+            assert not actual[100+40*side].size
             continue
-        np.testing.assert_allclose(actual[code], np.asarray(outer.native_evidence[key]).ravel(),
-            rtol=1e-8 if code<3 else 2e-7, atol=1e-6 if code<3 else (1e-5 if code<5 else 1e-7), err_msg=key)
-    for side, solver in enumerate((prob.sA, prob.sB)):
-        if solver is None:
-            continue
-        for code, key in enumerate(FLOW_FIELDS):
-            want = getattr(solver, key)
-            np.testing.assert_allclose(actual[100+40*side+code], np.asarray(want).ravel(), rtol=2e-7,
-                atol=1e-5 if key in ("P", "Pp") else 1e-7, err_msg=f"{side}:{key}")
-        start = 24+10*side
-        assert bool(stats[start+2]) == (solver.exit_reason == "tol")
-        assert stats[start+1] == {"tol": 1, "stall": 2, "max_iter": 3, "nonfinite": 4,
-                                 "cancelled": 5, "pressure_failure": 6, "post_closure": 7}[solver.exit_reason]
-        assert stats[start+3] == solver._full_native_last_iterations
-        assert len(actual[132+40*side]) == len(solver.residuals)
-        np.testing.assert_allclose(stats[start+4:start+8],
-            [solver.final_res_mom, solver.final_res_mass_local, solver.final_res_mass_global, solver.outlet_backflow_frac],
-            rtol=3e-5, atol=1e-10)
-    metric_values = [metrics.dP, metrics.dP_B, metrics.T_A_out, metrics.T_B_out,
-                     metrics.m_dot_A_simple, metrics.m_dot_B_simple, metrics.Q_enthalpy_A, metrics.Q_enthalpy_B]
-    np.testing.assert_allclose(stats[12:20], [np.nan if value is None else value for value in metric_values], rtol=2e-7, atol=1e-5)
-    for side in range(2):
-        for key, start in (("mass_", 11), ("face_velocity_", 17)):
-            expected_faces = outer.native_evidence[key+"AB"[side]]
-            if expected_faces is None:
-                assert all(actual[start+3*side+axis].size == 0 for axis in range(3))
-            else:
-                for axis in range(3):
-                    np.testing.assert_allclose(actual[start+3*side+axis], expected_faces[axis].ravel(), rtol=2e-7, atol=1e-10)
+        flow = flow_state(actual, side)
+        flow.use_sou_momentum = cfg.get('_native_sou', False)
+        base, start = 100+40*side, 24+10*side
+        _, momentum = audit_momentum(flow)
+        mass, _, _ = mass_balance(flow)
+        np.testing.assert_allclose(stats[start+4:start+8], [momentum, *mass[:3]], rtol=3e-12, atol=2e-13)
+        assert bool(stats[start+2]) == (stats[start+1] == 1 and bool(stats[start+9]))
+        if stats[start+2]:
+            assert momentum < (cfg.get('mom_tol') or 1e-4)
+            assert mass[0] < (cfg.get('mass_local_tol') or 1e-6)
+            assert mass[1] < (cfg.get('mass_global_tol') or 1e-6)
+            assert mass[2] <= .01
+        for code in range(32, 35):
+            assert np.isfinite(actual[base+code]).all() and (actual[base+code] >= 0.).all()
+        assert len(actual[base+32]) >= stats[start+3]
+        axes = p['axes'][name]
+        for code, field in ((24, stats[start]+flow.P), (25, flow.rho_field)):
+            field = field.transpose(axes['solver_to_real_perm'])
+            if axes['is_reverse']:
+                field = np.flip(field, axis=axes['stream_real_axis'])
+            np.testing.assert_allclose(actual[base+code], field.ravel(), rtol=2e-7, atol=1e-5 if code == 24 else 1e-7)
+        for offset, fields in ((26, _solver_velocity_to_real(flow, axes, real_shape)),
+                               (29, _solver_staggered_to_real(flow, axes, real_shape))):
+            for axis, field in enumerate(fields):
+                np.testing.assert_allclose(actual[base+offset+axis], field.ravel(), rtol=2e-7, atol=1e-10)
+        assert np.isfinite(actual[base+24]).all() and (actual[base+24] > 0.).all()
+
+
+def thermal_case(actual, cfg, p):
+    shape = tuple(p['N'+axis] for axis in 'xyz')
+    field = lambda value: np.array(np.broadcast_to(value, shape), dtype=np.float64, order='C')
+    case = dict(shape=shape, widths=[p['d'+axis] for axis in 'xyz'],
+        state=[actual[i].reshape(shape).copy() for i in range(3)],
+        ks=field(p['design']['K_ss']), source_s=np.empty(0),
+        tin=tuple(cfg['T_in'+s] for s in 'AB'),
+        directions=tuple(cfg['fluid_'+s+'_cfg']['dir'] for s in 'AB'),
+        fluids=tuple(('air', 'water', 'sco2').index(cfg['fluid_type_'+s]) for s in 'AB'))
+    for side, name in enumerate('AB'):
+        masses = [actual[11+3*side+axis].reshape(tuple(n+int(i == axis) for i,n in enumerate(shape))) for axis in range(3)]
+        case[name.lower()] = [actual[9+side].reshape(shape), actual[5+side].reshape(shape),
+            *masses, np.empty(0), np.array(p['openings'][name]['inlet'], dtype=np.float64, order='C'), np.empty(0)]
+    return case
+
+
+def audit_full(actual, cfg, p):
+    assert actual['code'] == 0, actual['error']
+    stats, history = actual[202], actual[200]
+    assert stats[5]
+    for side, name in enumerate('AB'):
+        if cfg['fluid_'+name+'_cfg'] is not None:
+            assert np.isfinite(stats[12+side:24:2]).all()
+    assert bool(stats[1]) == bool(np.all(stats[2:7]))
+    assert 0 < len(history) <= (p['max_outer'] if p['max_outer'] is not None else 12)
+    np.testing.assert_array_equal(history[:, 0], np.arange(len(history)))
+    assert np.all(history[:, 1] > 0) and np.all(history[:, 5:8] >= 0.)
+    assert stats[9] == history[-1, 0]
+    assert bool(stats[3]) == bool(history[-1, 3])
+    assert bool(stats[4]) == bool(history[-1, 4])
+    for i in range(3):
+        assert actual[i].size == p['Nx']*p['Ny']*p['Nz']
+        assert np.isfinite(actual[i]).all() and (actual[i] > 0.).all()
+    for i in range(5, 11):
+        assert np.isfinite(actual[i]).all() and (actual[i] >= 0.).all()
+    audit_flow(actual, cfg, p)
+    if stats[8] == 1:
+        from sjtu_tpmshx.tests.native import test_model_h_3d as model_h
+        info = model_h.returned_model_info(thermal_case(actual, cfg, p))
+        gates = model_h.compute_phase2a(dict(info, _audit_fB=True))['gates']
+        assert abs(info['model_h_balance']['telescoping_error_W']) < 2e-8
+        if stats[3]:
+            assert all(passed for _, passed in gates), gates
+        checks = actual[203]
+        if len(checks):
+            assert checks[-1, 0] == history[-1, 1]
+            np.testing.assert_array_equal(checks[-1, 1:], [passed for _, passed in gates])
+        else:
+            assert not stats[3]
 
 
 @pytest.mark.parametrize("pair", ["air-air", "air-water", "water-air", "air-sco2", "sco2-water"])
-def test_full_prepared_outer(native, same_thermal, pair):
+def test_full_prepared_outer(native, pair):
     cfg, p = prepared(pair)
     actual = native.run(cfg, p)
-    assert_equivalent(actual, reference(cfg, p, thermal=same_thermal))
+    audit_full(actual, cfg, p)
 
 
 @pytest.mark.parametrize("conservative,force_cc", [(False, True), (False, False), (True, True)])
-def test_temperature_routes(native, same_thermal, conservative, force_cc):
+def test_temperature_routes(native, conservative, force_cc):
     cfg, p = prepared("air-air", conservative_ltne=conservative, force_cc_ltne=force_cc, variable_rho_cp=False)
-    assert_equivalent(native.run(cfg, p), reference(cfg, p, thermal=same_thermal))
+    audit_full(native.run(cfg, p), cfg, p)
 
 
-def test_cap_retains_thermal_and_later_flow(native, same_thermal):
+def test_cap_retains_thermal_and_later_flow(native):
     cfg, p = prepared("air-sco2")
     p["max_outer"] = 1
     actual = native.run(cfg, p)
-    assert_equivalent(actual, reference(cfg, p, thermal=same_thermal))
+    audit_full(actual, cfg, p)
     assert actual[202][7] == 1 and actual[202][1] == 0
     assert np.max(np.abs(actual[3]-actual[124])) > 1e-5
 
@@ -302,180 +334,137 @@ def test_invalid_prepared_extent_before_execution(native):
 
 
 @pytest.mark.parametrize("direction", range(6))
-def test_every_physical_direction(native, same_thermal, direction):
+def test_every_physical_direction(native, direction):
     cfg, p = prepared(directions=(direction, (direction+3)%6))
     p["max_outer"] = 2
-    assert_equivalent(native.run(cfg, p), reference(cfg, p, thermal=same_thermal))
+    audit_full(native.run(cfg, p), cfg, p)
 
 
 @pytest.mark.parametrize("pair", ["air-air", "air-sco2"])
-def test_nz_one_delegates_original_2d_temperature(native, same_thermal, pair):
+def test_nz_one_delegates_original_2d_temperature(native, pair):
     cfg, p = prepared(pair, directions=(0, 3), counts=(4, 4, 1))
-    assert_equivalent(native.run(cfg, p), reference(cfg, p, thermal=same_thermal))
+    audit_full(native.run(cfg, p), cfg, p)
 
 
-def test_true_h_cell_centered_3d_retains_g4_warmup(native, same_thermal):
-    from sjtu_tpmshx.solvers import ltne_energy_3d
+def check_warmup(actual, cfg, p, native_warmup, *, legacy=False):
+    assert actual['code'] == 0, actual['error']
+    assert actual[202][8] == 2 and not actual[202][1]
+    assert actual[200].shape[0] == 1 and actual[200][0, 1] == 1
+    shape = tuple(p['N'+axis] for axis in 'xyz')
+    field = lambda value: np.array(np.broadcast_to(value, shape), dtype=np.float64, order='C')
+    tin = tuple(cfg['T_in'+s] for s in 'AB')
+    c = dict(shape=shape, widths=[p['d'+axis] for axis in 'xyz'],
+        state=[field(tin[0]), field(tin[1]), field(cfg.get('T_s_init') or .5*sum(tin))],
+        ks=field(p['design']['K_ss']), source_s=np.empty(0), prescribed=np.empty(0),
+        tin=tin, directions=tuple(cfg['fluid_'+s+'_cfg']['dir'] for s in 'AB'),
+        maxit=2, chunk=250, warm=True, conservative=cfg.get('conservative_ltne', True),
+        rb=cfg.get('_native_rb_energy', False), alpha=(.7, .7, .7), qtol=1e-4,
+        true_h_warmup=True, legacy=legacy)
+    for side, name in enumerate('AB'):
+        velocity = [actual[17+3*side+axis].reshape(tuple(n+int(i == axis) for i,n in enumerate(shape)))
+                    for axis in range(3)]
+        if legacy:
+            velocity = [.5*(np.take(v, np.arange(shape[axis]), axis=axis)
+                + np.take(v, np.arange(1, shape[axis]+1), axis=axis)) for axis,v in enumerate(velocity)]
+        face_shape = tuple(n for i,n in enumerate(shape) if i != c['directions'][side]//2)
+        c[name.lower()] = [actual[9+side].reshape(shape), actual[5+side].reshape(shape),
+            field(p['design']['eps_'+name]), actual[7+side].reshape(shape),
+            *velocity, np.empty(0), np.asarray(p['openings'][name]['inlet']),
+            actual[25+side].reshape(face_shape), np.empty(0)]
+    result = native_warmup(c)
+    assert result[0] == 0, result[-1]
+    assert result[1][1] == 2
+    for side in range(3):
+        np.testing.assert_allclose(actual[side], c['state'][side].ravel(), rtol=1e-10, atol=1e-7)
 
-    cfg, p = prepared("air-sco2", counts=(4, 4, 4),
-                      conservative_ltne=False, force_cc_ltne=True)
+
+def test_true_h_cell_centered_3d_retains_g4_warmup(native, native_warmup):
+    cfg, p = prepared('air-sco2', counts=(4, 4, 4), conservative_ltne=False,
+        force_cc_ltne=True, ltne_enthalpy_outer=1, ltne_enthalpy_nsweep=0)
+    p['max_outer'] = 1
     actual = native.run(cfg, p)
-    assert actual["code"] == 0, actual["error"]
-    assert actual[202][8] == 2  # Full3DThermalMode::true_h
-    with patch.object(ltne_energy_3d, "solve_full_domain_3d",
-                      wraps=ltne_energy_3d.solve_full_domain_3d) as retained:
-        expected = reference(cfg, p, thermal=same_thermal)
-    assert retained.call_count == len(expected[0]._ltne_info) > 0
-    assert all(call.kwargs["Nz"] > 1 and call.kwargs["ufA"] is None
-               and call.kwargs["max_iter"] == 2 for call in retained.call_args_list)
-    assert_equivalent(actual, expected)
+    check_warmup(actual, cfg, p, native_warmup, legacy=True)
 
 
 @pytest.mark.parametrize("pair", ["air-air", "air-water"])
-def test_outer_property_order(native, same_thermal, pair):
+def test_outer_property_order(native, pair):
     cfg, p = prepared(pair)
-    assert_equivalent(native.run(cfg, p), reference(cfg, p, thermal=same_thermal))
+    audit_full(native.run(cfg, p), cfg, p)
 
 
-def test_sco2_a_local_pressure_property_switch(native, same_thermal):
+def test_sco2_a_local_pressure_property_switch(native):
     cfg, p = prepared("sco2-water")
     cfg["_environment"]["TPMSHX_SCO2_COMPRESSIBLE"] = "1"
-    assert_equivalent(native.run(cfg, p), reference(cfg, p, thermal=same_thermal))
+    audit_full(native.run(cfg, p), cfg, p)
 
 
-def test_no_b_solver_prescribed_temperature(native, same_thermal):
+def test_no_b_solver_prescribed_temperature(native):
     cfg, p = prepared("air-air")
     cfg["fluid_B_cfg"] = None
-    assert_equivalent(native.run(cfg, p), reference(cfg, p, thermal=same_thermal))
+    audit_full(native.run(cfg, p), cfg, p)
 
 
-def test_refined_real_grid_and_existing_energy_acceleration(native, same_thermal, record_property):
-    from sjtu_tpmshx.tests.native import test_model_h_3d as model_h
-
-    cfg, p = prepared("air-air", counts=(8, 8, 8), mesh="wall_refine_3d", port_wall_refine=True)
-    p["max_outer"] = 2
-    shape = tuple(p["N"+axis] for axis in "xyz")
-    assert shape == (24, 24, 24) and p["ltne_max_iter"] == 20000
-    last_inputs = {}
-    original = same_thermal.volume
-
-    def capture(inputs, problem):
-        last_inputs.clear()
-        last_inputs.update(copy.deepcopy(inputs))
-        return original(inputs, problem)
-
+def test_refined_real_grid_and_existing_energy_acceleration(native, record_property):
+    cfg, p = prepared('air-air', counts=(8, 8, 8), mesh='wall_refine_3d', port_wall_refine=True)
+    p['max_outer'] = 2
+    assert tuple(p['N'+axis] for axis in 'xyz') == (24, 24, 24)
+    assert p['ltne_max_iter'] == 20000
     actual = native.run(cfg, p)
-    with patch.object(same_thermal, "volume", side_effect=capture):
-        prob, outer, _, diagnostics = reference(cfg, p, thermal=same_thermal)
-    assert actual["code"] == 0, actual["error"]
+    audit_full(actual, cfg, p)
     stats, history, checks = actual[202], actual[200], actual[203]
-    assert stats[0] == 1 and not stats[1] and not stats[4]  # iteration_limit
+    assert stats[0] == 1 and not stats[1] and not stats[4]
     assert stats[2] == stats[3] == stats[5] == stats[7] == 1
-    assert stats[9] == outer.native_evidence["outer_index"] == 1
-    assert not diagnostics["solver_converged"] and not outer._outer_converged
-    assert history.shape == (2, 16) and len(prob._ltne_info) == 2
-    np.testing.assert_array_equal(history[:, 0], [0, 1])
+    assert stats[9] == 1 and history.shape == (2, 16)
     np.testing.assert_array_equal(history[:, 3], [True, True])
-    assert np.all((history[:, 1] > 0) & (history[:, 1] <= p["ltne_max_iter"]))
+    assert np.all((history[:, 1] > 0) & (history[:, 1] <= p['ltne_max_iter']))
     assert np.all(history[:, 1] % 250 == 0)
-    assert len(checks) > 0 and checks[-1, 0] == history[-1, 1]
     assert np.all(np.diff(checks[:, 0]) > 0) and np.all(checks[:, 0] % 250 == 0)
     assert np.all((checks[:, 0] > 0) & (checks[:, 0] <= history[-1, 1]))
     assert np.all((checks[:, 1:] == 0) | (checks[:, 1:] == 1))
     np.testing.assert_array_equal(checks[-1, 1:], np.ones(6))
-    for index, row in enumerate(prob._ltne_info):
-        assert row["outer"] == index and row["converged"]
-        assert 0 < row["iters"] <= p["ltne_max_iter"]
-        assert row["iters"] == row["model_h_balance"]["iterations"]
-        assert row["iters"] == row["energy_finishing_checks"][-1]["iterations"]
-        assert all(passed for _, passed in row["energy_finishing_checks"][-1]["gates"])
-    for side, solver in enumerate((prob.sA, prob.sB)):
-        start = 24 + 10*side
-        assert stats[start+2] and solver.exit_reason == "tol"
-        assert 0 < stats[start+3] <= 600 and 0 < solver._full_native_last_iterations <= 600
-        assert np.all(stats[start+4:start+8] <= [1e-4, 1e-6, 1e-6, .01])
-        assert np.all(np.isfinite(stats[start+4:start+8]))
+    for side in range(2):
+        start = 24+10*side
+        assert stats[start+2] and 0 < stats[start+3] <= 600
         assert not np.array_equal(actual[3+side], actual[124+40*side])
-
-    # This capped outer is not an engineering-accuracy result. Independently
-    # audit each returned thermal state with its own last inputs and original gates.
-    options, _, _ = same_thermal._prepared(last_inputs, 3)
-    assert last_inputs["accelerate"] and last_inputs["model_fluids"] == ("air", "air")
-    assert all(last_inputs[key] is None for key in ("mms_S_A_field", "mms_S_B_field", "mms_S_s_field"))
-    for backend in ("native", "reference"):
-        state = [actual[i].reshape(shape) if backend == "native" else outer.native_evidence[key]
-                 for i, key in enumerate(("Ta", "Tb", "Ts"))]
-        assert all(t.shape == shape and np.isfinite(t).all() for t in state)
-        audit_case = dict(shape=shape, state=state, widths=options["widths"],
-            tin=options["inlets"], directions=options["directions"], fluids=(0, 0),
-            ks=options["conductivity"][2], source_s=np.empty(0))
-        for index, side in enumerate("AB"):
-            mass = last_inputs["model_mass_"+side]
-            conductivity, exchange = options["conductivity"][index], options["exchange"][index]
-            if backend == "native":
-                conductivity, exchange = actual[9+index].reshape(shape), actual[5+index].reshape(shape)
-                mass = [actual[11+3*index+axis].reshape(face.shape) for axis, face in enumerate(mass)]
-            boundary = [np.empty(0) if options[key][index] is None else options[key][index]
-                        for key in ("profiles", "openings")]
-            audit_case[side.lower()] = [conductivity, exchange, *mass, *boundary, np.empty(0)]
-        info = model_h.returned_model_info(audit_case)
-        gates = model_h.compute_phase2a(dict(info, _audit_fB=True))["gates"]
-        assert all(passed for _, passed in gates), (backend, gates)
-    record_property("native_thermal_iterations", history[:, 1].tolist())
-    record_property("reference_thermal_iterations", [row["iters"] for row in prob._ltne_info])
-    record_property("capped_max_temperature_difference_K", max(
-        float(np.max(np.abs(actual[i].reshape(shape)-outer.native_evidence[key])))
-        for i, key in enumerate(("Ta", "Tb", "Ts"))))
+    record_property('native_thermal_iterations', history[:, 1].tolist())
 
 
 @pytest.mark.parametrize("directions", [(4, 1), (5, 0)])
 @pytest.mark.parametrize("red_black", [False, True])
 @pytest.mark.parametrize("conservative", [True, False], ids=["conservative", "advective"])
-def test_true_h_warm_up_keeps_original_two_sweeps(native, monkeypatch, directions, red_black, conservative):
-    from sjtu_tpmshx.solvers import ltne_energy_3d
-
-    cfg, p = prepared("sco2-water", directions=directions, counts=(8, 6, 7),
-                      ltne_enthalpy_outer=1, ltne_enthalpy_nsweep=0,
-                      _native_rb_energy=red_black, conservative_ltne=conservative,
-                      force_cc_ltne=False)
-    p["max_outer"] = 1
-    monkeypatch.setattr(ltne_energy_3d, "_RB_ENERGY", red_black)
-    monkeypatch.setattr(ltne_energy_3d, "_RB_ENERGY_GATE", 0)
+def test_true_h_warm_up_keeps_original_two_sweeps(native, native_warmup, directions, red_black, conservative):
+    cfg, p = prepared('sco2-water', directions=directions, counts=(8, 6, 7),
+        ltne_enthalpy_outer=1, ltne_enthalpy_nsweep=0,
+        _native_rb_energy=red_black, conservative_ltne=conservative, force_cc_ltne=False)
+    p['max_outer'] = 1
     actual = native.run(cfg, p)
-    _, outer, _, diagnostics = reference(cfg, p)
-    assert actual["code"] == 0, actual["error"]
-    assert not actual[202][1] and not diagnostics["solver_converged"]
-    assert actual[200].shape[0] == 1 and actual[200][0, 1] == 1
-    # Zero enthalpy sweeps expose the temperature warm-up without a new entry.
-    for index, key in enumerate(("Ta", "Tb", "Ts")):
-        np.testing.assert_allclose(actual[index], outer.native_evidence[key].ravel(),
-                                   rtol=1e-10, atol=1e-7, err_msg=key)
+    check_warmup(actual, cfg, p, native_warmup)
 
 
-def test_graded_direct_grid_and_existing_energy_acceleration(native, same_thermal):
+def test_graded_direct_grid_and_existing_energy_acceleration(native):
     cfg, p = prepared("air-air", counts=(8, 8, 8), mesh="graded", port_wall_refine=True)
     p["max_outer"] = 2
-    assert_equivalent(native.run(cfg, p), reference(cfg, p, thermal=same_thermal))
+    audit_full(native.run(cfg, p), cfg, p)
 
 
 @pytest.mark.parametrize("mode", ["baseline", "norris_1a", "bhatti_shah_1b"])
-def test_original_air_roughness_mode(native, same_thermal, mode):
+def test_original_air_roughness_mode(native, mode):
     cfg, p = prepared("air-air")
     cfg["roughness_resolved"]["mode"] = mode
-    assert_equivalent(native.run(cfg, p), reference(cfg, p, thermal=same_thermal))
+    audit_full(native.run(cfg, p), cfg, p)
 
 
-def test_dispersion_and_user_solid_seed(native, same_thermal):
+def test_dispersion_and_user_solid_seed(native):
     cfg, p = prepared("air-water", disp_C_A=.1, disp_C_B=.06, T_s_init=335.)
-    assert_equivalent(native.run(cfg, p), reference(cfg, p, thermal=same_thermal))
+    audit_full(native.run(cfg, p), cfg, p)
 
 
 @pytest.mark.parametrize("counts,mesh", [((4, 4, 4), None), ((8, 8, 8), None), ((9, 8, 11), "graded"), ((9, 8, 11), "wall_refine_3d")])
-def test_coarse_bootstrap_preserves_physical_ports_and_fine_gate(native, same_thermal, counts, mesh):
+def test_coarse_bootstrap_preserves_physical_ports_and_fine_gate(native, counts, mesh):
     cfg, p = prepared("air-air", counts=counts, mesh=mesh, use_coarse_bootstrap=True, coarse_bootstrap_max_iter=30)
     cfg["max_iter_simple"] = 100
     p["max_outer"] = 1
-    assert_equivalent(native.run(cfg, p), reference(cfg, p, thermal=same_thermal))
+    audit_full(native.run(cfg, p), cfg, p)
 
 
 @pytest.mark.parametrize("pair", ["air-air", "water-air", "sco2-water"])

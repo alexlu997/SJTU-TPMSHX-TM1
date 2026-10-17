@@ -60,7 +60,6 @@ def co2_engineering_config(dimension, pair):
 
 @pytest.mark.parametrize('temperature,pressure', [(280., 3e6), (300., 5e6), (300., 9e6), (340., 8e6)])
 def test_co2_properties_and_true_enthalpy_roundtrip(temperature, pressure):
-    from sjtu_tpmshx.solvers.ltne_enthalpy_3d import _prop_field, _T_of_h_field
     t = np.array([[temperature, temperature+1.]])
     p = np.array([[pressure], [pressure+1000.]])
     for key, values in zip(('D', 'V', 'L', 'C', 'H'), co2_prop(('D', 'V', 'L', 'C', 'H'), t, p)):
@@ -69,8 +68,9 @@ def test_co2_properties_and_true_enthalpy_roundtrip(temperature, pressure):
         assert np.allclose(values, expected, rtol=2e-13)
         assert co2_prop(key, temperature, pressure) == pytest.approx(expected[0, 0], rel=2e-13)
     broadcast_t, broadcast_p = np.broadcast_arrays(t, p)
-    h = _prop_field('H', broadcast_t, broadcast_p, 'co2')
-    assert np.max(np.abs(_T_of_h_field(h, broadcast_p, 'co2')-broadcast_t)) < 1e-7
+    h = co2_prop('H', broadcast_t, broadcast_p)
+    restored = CP.PropsSI('T', 'H', h.ravel(), 'P', broadcast_p.ravel(), 'HEOS::CO2').reshape(h.shape)
+    assert np.max(np.abs(restored-broadcast_t)) < 1e-7
 
 
 @pytest.mark.parametrize('temperature,pressure', [
@@ -81,13 +81,6 @@ def test_co2_properties_and_true_enthalpy_roundtrip(temperature, pressure):
 def test_invalid_co2_states_are_rejected(temperature, pressure):
     with pytest.raises(ValueError):
         co2_prop('D', temperature, pressure)
-
-
-def test_two_phase_inverse_does_not_become_a_valid_temperature():
-    from sjtu_tpmshx.solvers.ltne_enthalpy_3d import _T_of_h_field
-    h = CP.PropsSI('H', 'P', 3e6, 'Q', .5, 'CO2')
-    with pytest.raises(ValueError, match='single-phase'):
-        _T_of_h_field(np.array([h]), 3e6, 'co2')
 
 
 @pytest.mark.parametrize('nz', [1, 3])

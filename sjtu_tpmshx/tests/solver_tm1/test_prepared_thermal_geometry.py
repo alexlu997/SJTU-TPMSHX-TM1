@@ -4,13 +4,16 @@ import numpy as np
 import pytest
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
-from sjtu_tpmshx.solvers.backends.python.three_d import runtime, flux
+from sjtu_tpmshx.domain.module_ports import RunControl
+from sjtu_tpmshx.domain.module_ports import resolve_control
+from sjtu_tpmshx.solvers.backends.cpp.full_3d import NativeFull3DDriver
 from sjtu_tpmshx.tests.test_pipeline_3d_e2e import _small_air_cfg
 
 
 @pytest.mark.parametrize('mode', ['asymmetric', 'experimental'])
 def test_prepared_geometry_and_roughness_are_consumed(monkeypatch, mode):
     cfg = _small_air_cfg()
+    cfg.solver = replace(cfg.solver, max_outer_ltne=2, max_iter_simple=500)
     cfg = replace(cfg, geometry=replace(cfg.geometry, delta_levelset=.05 if mode == 'asymmetric' else 0.),
                   df_mode='experimental' if mode == 'experimental' else 'cfd_smooth')
     if mode == 'experimental':
@@ -26,28 +29,22 @@ def test_prepared_geometry_and_roughness_are_consumed(monkeypatch, mode):
     from sjtu_tpmshx.models import tpms_props, tpms_geometry
     monkeypatch.setattr(tpms_props, 'geometry', forbidden)
     monkeypatch.setattr(tpms_geometry, '_phi_grid', forbidden)
-    monkeypatch.setattr(flux, '_resolve_ui_roughness', forbidden)
     from sjtu_tpmshx.df_surrogate import experimental_correction
     monkeypatch.setattr(experimental_correction, 'correction_scale', forbidden)
-    monkeypatch.setattr(runtime, '_run_two_simple', lambda *a, **k: None)
-    problem = runtime.build_problem(parameters, prepared)
-    hv = runtime._build_hv_machinery(problem)
-    local_hv = hv._build_hv_local_3d(
-        None, np.full((problem.Nx, problem.Ny, problem.Nz), problem.u_A),
-        problem.T_inA, problem.P_inA, problem.fluid_type_A)
-    assert np.all(np.isfinite(local_hv))
-    if mode == 'asymmetric':
-        assert hv._hv_ratio_A != 1.
-        expected_split = case.parameters['thermal_geometry']['split_A']
-        assert runtime._prepared_eps_overrides(parameters, problem.eps) == (
-            problem.eps * expected_split, problem.eps * (1. - expected_split))
-    else:
-        assert runtime._prepared_eps_overrides(parameters, problem.eps) == (None, None)
-    # Physical K fields remain effective inputs after freezing calibration.
-    changed = replace(case, design_fields={**case.design_fields, 'K_m2': case.design_fields['K_m2'] * 2.})
-    changed_cfg, changed_prepared = build_execution_inputs(changed)
-    changed_problem = runtime.build_problem(changed_cfg, changed_prepared)
-    np.testing.assert_array_equal(changed_problem.sA.K_arr, problem.sA.K_arr * 2.)
+    control = resolve_control(RunControl())
+    driver = NativeFull3DDriver(control.native_library)
+    raw = driver.run_prepared(parameters, prepared)
+    assert all(np.all(np.isfinite(field)) for field in raw['hv'])
+    for side, flow in zip('AB', raw['flow']):
+        axes = prepared['axes'][side]
+        epsilon = flow['epsilon'].transpose(axes['solver_to_real_perm'])
+        if axes['is_reverse']:
+            epsilon = np.flip(epsilon, axis=axes['stream_real_axis'])
+        np.testing.assert_array_equal(epsilon, case.design_fields['eps_arr'])
+    changed = replace(case, design_fields={**case.design_fields, 'K_m2': case.design_fields['K_m2']*2.})
+    changed_raw = driver.run_prepared(*build_execution_inputs(changed))
+    for before, after in zip(raw['flow'], changed_raw['flow']):
+        np.testing.assert_array_equal(after['permeability'], before['permeability']*2.)
     bad_geometry = {**case.parameters['thermal_geometry'], 'split_A': 1.1}
     bad = replace(case, parameters={**case.parameters, 'thermal_geometry':bad_geometry})
     with pytest.raises(ValueError, match='side split'):
@@ -66,14 +63,11 @@ def test_archived_bulk_hv_loads_but_does_not_set_local_heat_transfer(tmp_path, m
     archived = replace(case, parameters={**case.parameters, 'thermal_geometry': geometry})
     save_case(archived, tmp_path / 'case.h5')
     loaded = load_case(tmp_path / 'case.h5')
-    monkeypatch.setattr(runtime, '_run_two_simple', lambda *a, **k: None)
+    driver = NativeFull3DDriver(resolve_control(RunControl()).native_library)
     fields = []
     for prepared_case in (case, loaded):
-        parameters, prepared = build_execution_inputs(prepared_case)
-        problem = runtime.build_problem(parameters, prepared)
-        hv = runtime._build_hv_machinery(problem)
-        fields.append(hv._build_hv_local_3d(
-            None, np.full(shape, problem.u_A), problem.T_inA, problem.P_inA, 'air'))
+        raw = driver.run_prepared(*build_execution_inputs(prepared_case))
+        fields.append(raw['hv'][0])
     np.testing.assert_array_equal(fields[0], fields[1])
     assert np.any(fields[1] != 123.)
     invalid = {**geometry, 'air_bulk_hv': {'A': np.full(shape, np.nan)}}
@@ -90,29 +84,26 @@ def test_prepared_openings_match_actual_solver_geometry_before_solving(side, end
     from sjtu_tpmshx.solvers.api import run_case
 
     config = _small_air_cfg()
-    config.solver = replace(config.solver, Nx=4, Ny=4, Nz=4)
+    config.solver = replace(config.solver, Nx=4, Ny=4, Nz=4, max_outer_ltne=2, max_iter_simple=500)
     full = prepare_case(config, case_id='full-opening')
     port = getattr(config, 'bc_' + side)
     width = 'in_w' if end == 'inlet' else 'out_w'
     partial = prepare_case(replace(config, **{'bc_' + side: replace(
         port, **{width: getattr(port, width) / 2.})}), case_id='partial-opening')
-    monkeypatch.setattr(runtime, '_run_two_simple', lambda *a, **k: None)
-    monkeypatch.setattr(runtime.SIMPLESolver3D, 'solve',
-                        lambda *a, **k: pytest.fail('construction control ran a PDE'))
-    # Both coherent full and partial cases remain supported, without replacing
-    # the supplied masks. The constructor supplies independent geometry evidence.
+    driver = NativeFull3DDriver(resolve_control(RunControl()).native_library)
     for case in (full, partial):
-        problem = runtime.build_problem(*build_execution_inputs(case))
-        for name, solver in (('A', problem.sA), ('B', problem.sB)):
+        raw = driver.run_prepared(*build_execution_inputs(case))
+        for name, flow in zip('AB', raw['flow']):
             for boundary in ('inlet', 'outlet'):
                 np.testing.assert_allclose(
                     case.parameters['prepared']['openings'][name][boundary],
-                    getattr(solver, boundary + '_frac'), rtol=1e-12, atol=1e-15)
+                    flow[boundary+'_opening'], rtol=1e-12, atol=1e-15)
     parameters = mutable_data(full.parameters)
     parameters['prepared']['openings'][side][end] = partial.parameters['prepared']['openings'][side][end]
     save_case(replace(full, parameters=parameters), tmp_path / 'case.h5')
     restored = load_case(tmp_path / 'case.h5')
-    monkeypatch.setattr(runtime, '_run_two_simple',
+    from sjtu_tpmshx.solvers.backends.cpp.full_3d_run import NativeFull3DRun
+    monkeypatch.setattr(NativeFull3DRun, 'advance',
                         lambda *a, **k: pytest.fail('conflicting opening reached a PDE'))
-    with pytest.raises(ValueError, match=f'fluid {side} {end} opening'):
+    with pytest.raises(ValueError, match='prepared full 3D openings disagree with rectangles'):
         run_case(restored)

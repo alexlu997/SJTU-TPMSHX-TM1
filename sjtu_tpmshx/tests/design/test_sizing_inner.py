@@ -127,45 +127,39 @@ def test_pressure_search_finds_real_df_narrow_interval(height):
 
 
 def _controlled_forward(monkeypatch, mode):
-    """Real forward/brentq, with controlled thermal responses, not PDE solves."""
-    module = importlib.import_module('sjtu_tpmshx.models.quick_design')
+    """Keep preparation, forward and brentq; control the backend response."""
+    from sjtu_tpmshx.models.design_fluids import Props
+    from sjtu_tpmshx.solvers.backends.quick_design import field_result
+    execution = importlib.import_module('sjtu_tpmshx.solvers.backends.cpp.quick_design')
     preparation = importlib.import_module('sjtu_tpmshx.preprocess.app_modes.quick_design')
-    execution = importlib.import_module('sjtu_tpmshx.solvers.backends.python.quick_design.execution')
     monkeypatch.setattr(preparation, 'tpms_geometry', lambda *a, **k: {
         'epsilon': .6, 'epsilon_A': .3, 'A_0': 1000., 'D_h': .002})
     events = []
     property_error = ValueError('injected actual forward property failure')
-    original_props = module.fluid_props
-    property_calls = 0
 
-    def props(*args):
-        nonlocal property_calls
-        property_calls += 1
-        # Each complete const forward uses two _hvol and two dP properties.
-        # Call 9 is the first property in real brentq's first callback.
-        if mode == 'property' and property_calls == 9:
+    def thermal(case, control):
+        if mode == 'property' and len(events) == 2:
             raise property_error
-        return original_props(*args)
-
-    def thermal(*args, **kwargs):
-        length = args[0]
+        p = case.parameters
+        length = p['Lx']
         hot = 520. if mode == 'drift' and len(events) in (2, 3) else 600. - 400. * length
-        shape = (args[3], args[4], args[5])
+        shape = tuple(len(case.grid['d' + axis]) for axis in 'xyz')
         fields = tuple(np.full(shape, t) for t in (hot, 350., 450.))
-        seed = tuple(kwargs[k] for k in ('Ta_init', 'Tb_init', 'Ts_init'))
+        seed = p['initial_fields']
         if events:
             for actual, previous in zip(seed, events[-1][2]):
                 np.testing.assert_array_equal(actual, previous)
                 assert not np.shares_memory(actual, previous)
         else:
-            assert seed == (None, None, None)
-        events.append((length, kwargs['tol'], fields))
+            assert seed is None
+        events.append((length, p['tol'], fields))
         if mode == 'thermal' and len(events) == 3:
-            fields[2][0, 0, 0] = np.nan
-        return (*fields, {'converged': True})
+            raise ValueError('design thermal return contains a non-finite field')
+        props = Props(10., 1e-5, .1, 1000., .1)
+        return field_result(case, dict(zip(('Ta', 'Tb', 'Ts'), fields)),
+                            props, props, 1., 1., [{'converged': True}], backend_id='cpp')
 
-    monkeypatch.setattr(module, 'fluid_props', props)
-    monkeypatch.setattr(execution, 'solve_full_domain_3d', thermal)
+    monkeypatch.setattr(execution, 'run_case', thermal)
     case = DesignCase(1, 'air', 600., 4e5, .05, 'air', 300., 4e5, .05,
                       None, .08, .08, dT=100.)
     return case, events, property_error

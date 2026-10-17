@@ -19,7 +19,7 @@ from sjtu_tpmshx.postprocess.api import evaluate
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.tests.integration_tm1.test_2d_real import baseline_config
-from sjtu_tpmshx.tests.integration_tm1.test_public_api import assert_slots, legacy_2d_result, legacy_3d_result
+from sjtu_tpmshx.tests.integration_tm1.test_public_api import assert_slots, legacy_2d_result, native_3d_mapping_input
 
 
 class _ResultWindow(RunResultsMixin):
@@ -125,7 +125,7 @@ _DIAGNOSTICS_2D = frozenset('''
     mass_flow_A_kg_s_per_m mass_flow_B_kg_s_per_m mass_imbalance_rel_A
     mass_imbalance_rel_B model_h_balance p_clip_hits residuals_A residuals_B
     richardson_info sco2_nu_observations solver_converged true_h_balance
-    ucA_disp ucB_disp vcA_disp vcB_disp warnings_list
+    ucA_disp ucB_disp vcA_disp vcB_disp warnings_list native_full_2d
 '''.split())
 _DIAGNOSTICS_3D = frozenset('''
     AB_interior Lx Ly Lz P_in_realized_A P_in_realized_B
@@ -138,7 +138,7 @@ _DIAGNOSTICS_3D = frozenset('''
     envelope_valid envelope_warnings eps_A_strict eps_A_strict_cellmax
     eps_B_strict eps_B_strict_cellmax mass_flow_A_kg_s mass_flow_B_kg_s
     mass_imbalance_rel_A mass_imbalance_rel_B model_h_balance p_clip_hits
-    sco2_nu_observations solver_converged true_h_balance u_A
+    sco2_nu_observations solver_converged true_h_balance u_A native_full_3d
 '''.split())
 _AUDIT_DIAGNOSTICS_3D = frozenset('''
     _audit_P_inA _audit_P_inB _audit_T_inA _audit_T_inB _audit_cp_A _audit_cp_B
@@ -202,7 +202,7 @@ def _assert_3d_diagnostics(diagnostics, *, frozen_B=False, audit=False):
     for side in ('A',) if frozen_B else ('A', 'B'):
         assert trace[side]['policy'] == 'explicit_off'
         assert trace[side]['decision'] == 'disabled'
-        assert trace[side]['levels'] == []
+        assert tuple(trace[side]['levels']) == ()
         assert trace[side]['actual_levels'] == 0
         assert trace[side]['started_cap_sum'] == 0
         assert trace[side]['total_charged_iterations'] == 0
@@ -275,12 +275,14 @@ def native_result(request):
             solver=SolverConfig(Nx=8, Ny=10, Nz=1, max_outer_ltne=2, max_iter_simple=500),
             bc_A=PartialBCConfig(dir=0, in_ctr=.015, in_w=.014, out_ctr=.015, out_w=.014))
     module = importlib.import_module(
-        'sjtu_tpmshx.solvers.backends.capture_2d' if dimension == 2 else
-        'sjtu_tpmshx.solvers.backends.python.three_d.result_capture')
+        'sjtu_tpmshx.solvers.backends.cpp.full_2d_capture' if dimension == 2 else
+        'sjtu_tpmshx.solvers.backends.cpp.full_3d_capture')
     captured = []
-    capture = module.capture_result
-    def record(*args):
-        diagnostics = args[-1]
+    capture_name = '_capture_result' if dimension == 2 else 'capture_result'
+    capture = getattr(module, capture_name)
+    def record(*args, **kwargs):
+        result = capture(*args, **kwargs)
+        diagnostics = args[-1] if dimension == 2 else result.metadata['diagnostics']
         if dimension == 2:
             raw = legacy_2d_result(args[0], args[1], diagnostics)
             display_keys = {'Ta_display', 'Tb_display', 'Ts_display', 'P_fA_display', 'P_fB_display',
@@ -312,15 +314,14 @@ def native_result(request):
                     assert {'physical_boundary_complete', 'Q_advective_W_per_m',
                             'h_faces_W_per_m', 'mass_faces_kg_s_per_m'} <= balance[side].keys()
         else:
-            raw = legacy_3d_result(*args[1:])
+            raw = native_3d_mapping_input(*args[:-1], diagnostics)
             _assert_3d_diagnostics(diagnostics)
         captured.append(raw)
-        result = capture(*args)
         assert result.metadata['diagnostics'].keys() == diagnostics.keys()
         assert_slots(result.metadata['diagnostics'], diagnostics)
         return result
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(module, 'capture_result', record)
+        patch.setattr(module, capture_name, record)
         case = prepare_case(config, case_id=f'mapping-{dimension}d')
         fields = run_case(case)
     if request.param == '2-partial':
@@ -329,57 +330,37 @@ def native_result(request):
     return fields, captured[0]
 
 
-@pytest.mark.parametrize('frozen_B', [False, True])
 @pytest.mark.parametrize('audit', [False, True])
-def test_research_3d_producer_preserves_optional_diagnostics(monkeypatch, frozen_B, audit):
-    from sjtu_tpmshx.solvers.backends.python.three_d import result_capture
-    from sjtu_tpmshx.tests.cases_3d import run_research
-    from sjtu_tpmshx.tests.test_convergence_truth_table import _cheap_3d
+def test_native_3d_producer_preserves_optional_diagnostics(monkeypatch, audit):
+    from sjtu_tpmshx.solvers.backends.cpp import full_3d_capture as result_capture
 
-    cfg = _cheap_3d(max_outer_ltne=1, _emit_audit=audit)
-    # Exercise ordinary reporting; compact sweep CSV expects a solved B outlet.
-    cfg['sweep_profile'] = None
-    if frozen_B:
-        cfg['fluid_B_cfg'] = None
-    capture = result_capture.capture_result
-    observed = []
-    thermal_conductivity = []
+    config = _small_air_air_cfg()
+    config.solver = replace(config.solver, max_outer_ltne=2, max_iter_simple=500)
+    case = prepare_case(config, case_id='mapping-audit')
+    case = replace(case, parameters={**case.parameters, '_emit_audit': audit})
+    capture, observed = result_capture.capture_result, []
 
-    def record(case, prob, outer, metrics, diagnostics):
-        result = capture(case, prob, outer, metrics, diagnostics)
-        _assert_3d_diagnostics(diagnostics, frozen_B=frozen_B, audit=audit)
-        observed.append(diagnostics)
-        samples = result.metadata['property_sampling']
-        assert any(row['side'] == 'B' and row['stage'] == 'thermal_hv' for row in samples) == (not frozen_B)
-        assert result.metadata['input_resolution']['active_sides'] == (('A',) if frozen_B else ('A', 'B'))
-        if frozen_B:
-            assert metrics.P_real_B is metrics.vmag_B is None
-            assert diagnostics['P_Pa_B'] is diagnostics['vmag_B'] is None
-        if audit:
-            thermal_conductivity.append({key: np.array(outer.native_evidence[key], copy=True)
-                                         for key in ('K_ffA', 'K_ffB')})
-            assert '_audit_sA_face' in diagnostics
-            assert '_audit_K_ffA' not in diagnostics
-            assert not np.shares_memory(result.metadata['application']['coeffs']['K_ffA'], prob.K_ffA)
-            assert not np.shares_memory(diagnostics['_audit_sA_face']['u'], prob.sA.u)
-            if frozen_B:
-                assert diagnostics['_audit_sB_face'] is None
-                assert diagnostics['_audit_in_mask_B'] is None
-        else:
-            assert not any(key.startswith('_audit_') for key in diagnostics)
-            assert result.metadata['application']['coeffs']['K_ffA'] is None
+    def record(case, cfg, prepared, raw, abi):
+        result = capture(case, cfg, prepared, raw, abi)
+        diagnostics = result.metadata['diagnostics']
+        _assert_3d_diagnostics(diagnostics, audit=audit)
+        assert result.metadata['input_resolution']['active_sides'] == ('A', 'B')
+        for side, flow in zip('AB', raw['flow']):
+            if audit:
+                snapshot = diagnostics['_audit_s'+side+'_face']
+                np.testing.assert_array_equal(snapshot['u'], flow['u'])
+                assert not np.shares_memory(snapshot['u'], flow['u'])
+                assert '_audit_K_ff'+side not in diagnostics
+            else:
+                assert not any(key.startswith('_audit_') for key in diagnostics)
+        observed.append(result)
         return result
 
     monkeypatch.setattr(result_capture, 'capture_result', record)
-    result = run_research(cfg)
-    for key in ('K_ffA', 'K_ffB'):
-        assert (key in result.fields) is audit
-        if audit:
-            np.testing.assert_array_equal(result.fields[key], thermal_conductivity[0][key])
-            assert result.field_metadata[key]['state'] == 'last thermal input'
+    result = run_case(case)
     assert len(observed) == 1
-    for key, value in observed[0].items():
-        assert_slots(result.metadata['diagnostics'][key], value)
+    assert_slots(result.metadata['diagnostics'], observed[0].metadata['diagnostics'])
+
 
 
 def test_application_fields_and_scalars_match_native_solve(native_result):

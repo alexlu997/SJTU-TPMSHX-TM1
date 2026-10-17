@@ -1,11 +1,6 @@
-"""Same-algorithm native qualification through the production C sweep API.
+"""Native enthalpy sweeps retain analytic solutions and independent energy audits."""
 
-Tolerances are fixed before port comparison, allowing LLVM fastmath roundoff:
-rtol=2e-13; atol=2e-8 J/kg for h and 2e-11 K for Ts. Clips must match exactly.
-They are not solver convergence tolerances or experimental accuracy claims.
-"""
-
-from sjtu_tpmshx.tests.enthalpy_3d_reference import uniform_face_mass_flux
+from sjtu_tpmshx.tests.native.enthalpy_fv_audit import uniform_face_mass_flux, energy
 import ctypes
 import os
 from pathlib import Path
@@ -17,7 +12,7 @@ import sys
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.solvers import ltne_enthalpy_3d as reference
+from CoolProp.CoolProp import PropsSI
 
 
 @pytest.fixture(scope="module")
@@ -114,30 +109,23 @@ def case_data(shape=(4, 3, 2)):
                 kss=rng.uniform(0., 10., shape))
 
 
-def python_sweeps(case, sweeps=5, omega=0.6):
-    a, b = case["a"], case["b"]
-    aa, bb = a["arrays"], b["arrays"]
-    state = [x.copy() for x in case["state"]]
-    clips = np.full(2, 99, dtype=np.int64)
-    reference._gs_enthalpy_sweeps_3d(
-        *state, aa[0], bb[0], aa[1], bb[1], aa[2], bb[2], aa[3], bb[3],
-        *aa[5:], *bb[5:], aa[4], bb[4], case["kss"], *case["widths"],
-        a["hin"], b["hin"], sweeps, omega, *a["bounds"], *b["bounds"], clips,
-    )
-    return state, clips
-
-
 @pytest.mark.parametrize("shape", [(4, 3, 2), (5, 2, 1), (1, 3, 4), (2, 1, 3), (1, 1, 1)])
 @pytest.mark.parametrize("sweeps", [0, 1, 7])
-def test_same_signed_flow_and_fourier_updates(native, shape, sweeps):
+def test_signed_flow_updates_preserve_inputs_and_bounds(native, shape, sweeps):
     case = case_data(shape)
-    expected, expected_clips = python_sweeps(case, sweeps)
+    initial = [x.copy() for x in case["state"]]
     frozen = [x.copy() for f in (case["a"], case["b"]) for x in f["arrays"]]
     code, clips, error = native(case, sweeps)
     assert code == 0 and not error
-    np.testing.assert_array_equal(clips, expected_clips)
-    for actual, target, atol in zip(case["state"], expected, (2e-8, 2e-8, 2e-11)):
-        np.testing.assert_allclose(actual, target, rtol=2e-13, atol=atol)
+    assert all(0 <= count <= sweeps*np.prod(shape) for count in clips)
+    for actual in case["state"]:
+        assert np.isfinite(actual).all()
+    for state, fluid in zip(case['state'], (case['a'], case['b'])):
+        assert np.all((state >= fluid['bounds'][0]) & (state <= fluid['bounds'][1]))
+    if sweeps == 0:
+        assert clips == (0, 0)
+        for actual, target in zip(case['state'], initial):
+            np.testing.assert_array_equal(actual, target)
     for actual, target in zip([x for f in (case["a"], case["b"]) for x in f["arrays"]], frozen):
         np.testing.assert_array_equal(actual, target)
 
@@ -184,8 +172,8 @@ def test_isothermal_pressure_gradient_has_no_false_conduction(native, native_aud
     case = case_data((2, 1, 1))
     temperature = np.full(case["shape"], 400.)
     pressure = np.array([9e6, 8.99e6]).reshape(case["shape"])
-    initial = reference._prop_field("H", temperature, pressure, "sco2")
-    cp, conductivity = reference._prop_field(("C", "L"), temperature, pressure, "sco2")
+    initial = PropsSI("H", "T", temperature.ravel(), "P", pressure.ravel(), "CO2").reshape(case["shape"])
+    cp, conductivity = [PropsSI(key, "T", temperature.ravel(), "P", pressure.ravel(), "CO2").reshape(case["shape"]) for key in ("C", "L")]
     assert abs(initial[0, 0, 0] - initial[1, 0, 0]) > 50.
     for fluid, h in zip((case["a"], case["b"]), case["state"]):
         fluid["arrays"][:5] = [.337265 * conductivity / cp, cp.copy(), temperature.copy(),
@@ -207,17 +195,25 @@ def test_isothermal_pressure_gradient_has_no_false_conduction(native, native_aud
     np.testing.assert_allclose(metrics[[0, 1, 2, 3, 5, 6, 7, 8, 9, 10]], 0., rtol=0., atol=1e-9)
 
 
-def test_clip_counts_match_actual_updates(native):
-    case = case_data()
-    for fluid in (case["a"], case["b"]):
-        fluid["bounds"] = (290000., 310000.)
-    expected, expected_clips = python_sweeps(case)
-    code, clips, error = native(case)
-    assert code == 0 and all(x > 0 for x in clips) and not error
-    np.testing.assert_array_equal(clips, expected_clips)
-    for h, target in zip(case["state"][:2], expected[:2]):
-        np.testing.assert_allclose(h, target, rtol=2e-13, atol=2e-8)
-        assert np.all((h >= 290000.) & (h <= 310000.))
+@pytest.mark.parametrize('solid,expected', [(100., 290000.), (500., 310000.)])
+def test_clip_counts_match_actual_updates(native, solid, expected):
+    case = case_data((1, 1, 1))
+    case['state'][2].fill(solid)
+    for fluid, h in zip((case['a'], case['b']), case['state']):
+        fields = fluid['arrays']
+        fields[0].fill(0.)
+        fields[1].fill(1000.)
+        fields[2].fill(300.)
+        fields[3].fill(300000.)
+        fields[4].fill(1.)
+        for flow in fields[5:]:
+            flow.fill(0.)
+        fluid['bounds'] = (290000., 310000.)
+        h.fill(300000.)
+    code, clips, error = native(case, sweeps=1, omega=1.)
+    assert code == 0 and clips == (1, 1) and not error
+    for h in case['state'][:2]:
+        np.testing.assert_allclose(h, expected, rtol=0., atol=2e-8)
 
 
 def test_zero_diagonal_preserves_state(native):
@@ -379,36 +375,22 @@ def native_audit(native_library):
     return run
 
 
-def python_audit(case, temperature=None, conductivity=None):
-    fluids = (case["a"], case["b"])
-    fields = [f["arrays"] for f in fluids]
-    ts = case["state"][2]
+def independent_audit(case, temperature=None, conductivity=None):
+    fluids = (case['a'], case['b'])
+    fields = [f['arrays'] for f in fluids]
     if temperature is None:
-        temperature = [f[2] + (h - f[3]) / f[1]
-                       for f, h in zip(fields, case["state"][:2])]
+        temperature = [f[2] + (h-f[3])/f[1] for f,h in zip(fields,case['state'])]
     if conductivity is None:
-        conductivity = [f[0] * f[1] for f in fields]
-    residuals = [reference._fluid_energy_residual(h, t, ts, f["arrays"][4], k,
-                  f["arrays"][5:], f["hin"], *case["widths"])
-                 for h, t, k, f in zip(case["state"][:2], temperature, conductivity, fluids)]
-    q = [reference._boundary_enthalpy_duty(h, f["hin"], f["arrays"][5:])
-         for h, f in zip(case["state"][:2], fluids)]
-    coupled = reference._coupled_energy_balance(*temperature, ts, fields[0][4], fields[1][4],
-                                               case["kss"], *case["widths"], *q)
-    volume = np.prod(np.meshgrid(*case["widths"], indexing="ij"), axis=0)
-    solid = ((fields[0][4] * (temperature[0] - ts) + fields[1][4] * (temperature[1] - ts))
-             * volume + reference._conduction_source(ts, case["kss"], *case["widths"]))
-    fluid_abs = [np.abs(r).sum() for r in residuals]
-    metrics = [*q, coupled["net"], coupled["solid_abs_sum"], coupled["denominator"],
-               coupled["ratio"], *fluid_abs, *(np.abs(r).max() for r in residuals),
-               max(*fluid_abs, coupled["solid_abs_sum"], abs(coupled["net"])) / coupled["denominator"]]
-    return [*residuals, solid], np.array(metrics)
+        conductivity = [f[0]*f[1] for f in fields]
+    return energy(case['widths'], case['state'][:2], temperature, case['state'][2],
+        conductivity, [f[4] for f in fields], case['kss'], [f[5:] for f in fields],
+        [f['hin'] for f in fluids])
 
 
 @pytest.mark.parametrize("shape", [(4, 3, 2), (5, 2, 1), (1, 3, 4), (2, 1, 3), (1, 1, 1)])
 def test_energy_audit_matches_actual_state_and_conserves(native_audit, shape):
     case = case_data(shape)
-    expected, metrics = python_audit(case)
+    expected, metrics = independent_audit(case)
     frozen = [x.copy() for x in case["state"]]
     code, actual, measured = native_audit(case)
     assert code == 0

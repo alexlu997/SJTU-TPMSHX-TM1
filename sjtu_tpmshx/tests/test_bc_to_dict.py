@@ -92,8 +92,6 @@ def test_independent_cross2_window_reaches_prepared_physical_area(monkeypatch, d
     import numpy as np
     from sjtu_tpmshx.preprocess.api import prepare_case
     from sjtu_tpmshx.tests.test_pipeline_3d_e2e import _small_air_cfg
-    from sjtu_tpmshx.solvers.backends.prepared_3d import build_execution_inputs
-    from sjtu_tpmshx.solvers.backends.python.three_d import runtime
 
     cfg = _small_air_cfg()
     cross1 = cfg.geometry.H_dom_m if direction < 2 else cfg.geometry.L_dom_m
@@ -112,15 +110,6 @@ def test_independent_cross2_window_reaches_prepared_physical_area(monkeypatch, d
         opening_area = np.sum(prepared['openings'][side][name] * areas)
         expected = width * cross2 * (.2 if prefix == partial_port else 1.)
         assert opening_area == pytest.approx(expected, rel=1e-12)
-    # Runtime must carry the same physical rectangles into SIMPLE, including
-    # the full-depth end whose second-axis pair was omitted.
-    monkeypatch.setattr(runtime, '_run_two_simple', lambda *a, **k: None)
-    parameters, data = build_execution_inputs(case)
-    problem = runtime.build_problem(parameters, data)
-    solver = getattr(problem, 's' + side)
-    for name, prefix in (('inlet_frac', 'in'), ('outlet_frac', 'out')):
-        expected = width * cross2 * (.2 if prefix == partial_port else 1.)
-        assert np.sum(getattr(solver, name) * areas) == pytest.approx(expected, rel=1e-12)
 
 
 @pytest.mark.parametrize('side', ['A', 'B'])

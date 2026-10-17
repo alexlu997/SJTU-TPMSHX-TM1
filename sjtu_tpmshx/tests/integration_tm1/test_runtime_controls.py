@@ -11,17 +11,17 @@ from sjtu_tpmshx.tests.test_pipeline_3d_e2e import _small_air_cfg
 
 @pytest.mark.slow
 def test_public_three_d_iteration_and_cancellation(monkeypatch, tmp_path):
-    from sjtu_tpmshx.solvers.backends.python.three_d import result_capture
+    from sjtu_tpmshx.solvers.backends.cpp import full_3d_capture as result_capture
     from sjtu_tpmshx.io.result_io import load_result, save_result
     capture = result_capture.capture_result
-    def checked_capture(case, problem, outer, metrics, diagnostics):
+    def checked_capture(case, cfg, prepared, raw, abi):
         assert not {'_capture_native', '_native_evidence', '_cancel_check',
-                    '_progress_cb', '_iter_cb'}.intersection(problem.cfg)
-        result = capture(case, problem, outer, metrics, diagnostics)
-        for name, value in (('P_fA_display', metrics.P_real), ('P_fB_display', metrics.P_real_B),
-                            ('ucA', metrics.uc_real), ('vcA', metrics.vc_real), ('wcA', metrics.wc_real),
-                            ('ucB', problem.ucB), ('vcB', problem.vcB), ('wcB', problem.wcB)):
-            np.testing.assert_array_equal(result.fields[name], value)
+                    '_progress_cb', '_iter_cb'}.intersection(cfg)
+        result = capture(case, cfg, prepared, raw, abi)
+        for side, flow in zip('AB', raw['flow']):
+            np.testing.assert_array_equal(result.fields['P_f'+side+'_display'], flow['pressure_real'])
+            for axis, value in zip(('uc', 'vc', 'wc'), flow['velocity_real']):
+                np.testing.assert_array_equal(result.fields[axis+side], value)
         return result
     monkeypatch.setattr(result_capture, 'capture_result', checked_capture)
     config = _small_air_cfg()
@@ -48,14 +48,13 @@ def test_public_three_d_iteration_and_cancellation(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize('callback', ['iteration', 'outer_iteration', 'progress'])
-def test_three_d_callback_failure_stops_before_thermal(monkeypatch, callback):
-    from sjtu_tpmshx.solvers.backends.python.three_d import runtime
+def test_three_d_callback_failure_stops_before_result_capture(monkeypatch, callback):
+    from sjtu_tpmshx.solvers.backends.cpp import full_3d_capture
     failure = RuntimeError('callback failure')
     def fail(*args):
         raise failure
-    monkeypatch.setattr(runtime.SIMPLESolver3D, 'solve', lambda *a, **k: (True, 0))
-    monkeypatch.setattr(runtime, 'solve_full_domain_3d',
-                        lambda *a, **k: pytest.fail('thermal solve after callback failure'))
+    monkeypatch.setattr(full_3d_capture, 'capture_result',
+                        lambda *a, **k: pytest.fail('result capture after callback failure'))
     with pytest.raises(RuntimeError) as caught:
         run_case(prepare_case(_small_air_cfg(), case_id='callback-failure'),
                  RunControl(**{callback: fail}))
@@ -66,13 +65,13 @@ def test_three_d_callback_failure_stops_before_thermal(monkeypatch, callback):
 def test_two_d_residual_failure_preserves_original_exception(monkeypatch, error):
     """The full public solve propagates failures from the real SIMPLE callback."""
     from dataclasses import replace
-    from sjtu_tpmshx.solvers.backends.python.two_d import coupling
+    from sjtu_tpmshx.solvers.backends.cpp import full_2d_capture
     from sjtu_tpmshx.tests.test_pipeline_2d_smoke import _shanghai_like_cfg
 
     def forbidden(*args, **kwargs):
-        pytest.fail('thermal solve reached after residual callback failure')
+        pytest.fail('result capture after residual callback failure')
 
-    monkeypatch.setattr(coupling, 'solve_full_domain', forbidden)
+    monkeypatch.setattr(full_2d_capture, 'capture_result', forbidden)
     config = _shanghai_like_cfg()
     config = replace(config, solver=replace(config.solver, Nx=4, Ny=4,
                                             max_iter_simple=1))

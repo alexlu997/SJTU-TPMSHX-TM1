@@ -131,9 +131,6 @@ def _condition_output_paths(directory):
 
 
 def _solve_condition(case, config, directory, control, update, checkpoint_file=None):
-    from sjtu_tpmshx.io.result_io import save_result
-    from sjtu_tpmshx.io.metrics_io import save_metrics
-    from sjtu_tpmshx.solvers.api import run_case
     from sjtu_tpmshx.postprocess.api import evaluate
 
     def evaluate_field(field):
@@ -144,38 +141,29 @@ def _solve_condition(case, config, directory, control, update, checkpoint_file=N
         return evaluate(field)
 
     update(stage='solve')
-    if control.backend == 'cpp':
-        from sjtu_tpmshx.workflows.recovery import compute_prepared_run, resume_run
-        primary_error = None
+    from sjtu_tpmshx.workflows.recovery import compute_prepared_run, resume_run
+    primary_error = None
+    try:
+        if checkpoint_file is None:
+            _, field, performance = compute_prepared_run(case, directory / 'run',
+                checkpoint_interval_s=60., control=control, evaluate=evaluate_field)
+        else:
+            _, field, performance = resume_run(checkpoint_file, directory / 'run',
+                checkpoint_interval_s=60., control=control, evaluate=evaluate_field)
+    except BaseException as error:
+        primary_error = error
+        raise
+    finally:
         try:
-            if checkpoint_file is None:
-                _, field, performance = compute_prepared_run(case, directory / 'run',
-                    checkpoint_interval_s=60., control=control, evaluate=evaluate_field)
-            else:
-                _, field, performance = resume_run(checkpoint_file, directory / 'run',
-                    checkpoint_interval_s=60., control=control, evaluate=evaluate_field)
-        except BaseException as error:
-            primary_error = error
-            raise
-        finally:
-            try:
-                update(**_condition_output_paths(directory))
-            except Exception as save_error:
-                if primary_error is None:
-                    raise
-                primary_error.add_note(f'Could not record native output paths: {save_error}')
-                _log.exception('Could not record native condition outputs')
-        return field, performance
-    field = run_case(case, control)
-    update(stage='save_result')
-    save_result(field, directory / 'result.h5')
-    update(result_file=f'{directory.name}/result.h5')
-    performance = evaluate_field(field)
-    update(stage='save_metrics')
-    save_metrics(performance, directory / 'metrics.json')
-    update(metrics_file=f'{directory.name}/metrics.json')
+            update(**_condition_output_paths(directory))
+        except Exception as save_error:
+            if primary_error is None:
+                raise
+            primary_error.add_note(f'Could not record native output paths: {save_error}')
+            _log.exception('Could not record native condition outputs')
+        # Drop the traceback cycle before the next batch member.
+        primary_error = None
     return field, performance
-
 
 
 _batch_cancel = None
@@ -226,11 +214,9 @@ def _condition_worker_count(workers, count, control):
     """Resolve one CPU allocation for batches and optimization."""
     budget = control.native_cpu_threads()
     if workers is None:
-        workers = min(4, max(1, budget // 2)) if control.backend == 'cpp' else 1
+        workers = min(4, max(1, budget // 2))
     if type(workers) is not int or workers < 1:
         raise ValueError('workers must be a positive integer or None')
-    if workers > 1 and control.backend != 'cpp':
-        raise ValueError('parallel condition runs require backend=cpp')
     return min(workers, count, budget)
 
 
@@ -273,15 +259,11 @@ def resume_condition_batch(batch_file, *, output_dir, control=RunControl(backend
     record = json.loads(path.read_text(encoding='utf-8'))
     if record.get('format') != 'condition_batch_v1' or record.get('backend') != 'cpp':
         raise ValueError('batch recovery requires a saved native condition batch')
-    if control.backend != 'cpp':
-        raise ValueError('batch recovery requires backend=cpp')
     inputs = json.loads((path.parent / 'batch-input.json').read_text(encoding='utf-8'))
     conditions = [(row['condition_id'], ComputeConfig.from_dict(row['config']),
                    row['mass_flow_A_kg_s'], row['mass_flow_B_kg_s']) for row in inputs]
     if [row[0] for row in conditions] != [row['condition_id'] for row in record['conditions']]:
         raise ValueError('saved batch input and condition membership differ')
-    if control.native_library is None:
-        raise ValueError('batch recovery requires an explicit native library')
     baseline = None
     if record.get('baseline_files') is not None:
         baseline = [(row['condition_id'], load_result(path.parent / row['result_file']),
@@ -317,6 +299,9 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
     from sjtu_tpmshx.io.metrics_io import load_metrics, save_metrics
     import shutil
     from sjtu_tpmshx.io.text_file import write_text
+
+    from sjtu_tpmshx.domain.module_ports import resolve_control
+    control = resolve_control(control)
 
     inputs = tuple(conditions)
     ids = tuple(row[0] for row in inputs)
@@ -376,7 +361,7 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
     worker_threads = max(1, control.native_cpu_threads() // worker_count)
     record = dict(format='condition_batch_v1', batch_id=batch_id, backend=control.backend, status='running', reason=None,
                   conditions=history, objectives=None, workers=worker_count,
-                  native_cpu_budget=control.native_cpu_threads() if control.backend == 'cpp' else None,
+                  native_cpu_budget=control.native_cpu_threads(),
                   resumed_from=str(resume_from[0]) if resume_from is not None else None)
     results = []
     summaries = {}
@@ -587,7 +572,7 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
             mass_flow_A_kg_s=a, mass_flow_B_kg_s=b) for name, config, a, b in inputs],
             ensure_ascii=False, allow_nan=False, indent=2)+'\n')
         record['baseline_files'] = None
-        if baseline is not None and control.backend == 'cpp':
+        if baseline is not None:
             record['baseline_files'] = []
             (root / 'references').mkdir()
             for index, name in enumerate(ids):
@@ -599,16 +584,15 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
                 record['baseline_files'].append(files)
                 del field
         control.check_cancelled()
-        if control.backend == 'cpp':
-            if control.native_library is None or not Path(control.native_library).is_absolute():
-                raise ValueError('native batches require an absolute native library path')
-            library = Path(control.native_library).resolve(strict=True)
-            (root / 'runtime').mkdir()
-            retained = root / 'runtime' / library.name
-            shutil.copy2(library, retained)
-            if retained.read_bytes() != library.read_bytes():
-                raise OSError('native library changed while the batch retained its runtime')
-            record['native_file'] = 'runtime/'+library.name
+        if control.native_library is None or not Path(control.native_library).is_absolute():
+            raise ValueError('native batches require an absolute native library path')
+        library = Path(control.native_library).resolve(strict=True)
+        (root / 'runtime').mkdir()
+        retained = root / 'runtime' / library.name
+        shutil.copy2(library, retained)
+        if retained.read_bytes() != library.read_bytes():
+            raise OSError('native library changed while the batch retained its runtime')
+        record['native_file'] = 'runtime/'+library.name
         publish()
         if resume_from is not None:
             for condition, row, previous in zip(inputs, history, source_record['conditions']):

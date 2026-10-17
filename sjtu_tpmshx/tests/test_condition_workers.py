@@ -141,11 +141,6 @@ def test_invalid_worker_count_creates_no_archive(tmp_path, workers):
     assert not root.exists()
 
 
-def test_python_parallel_request_is_explicitly_rejected(tmp_path):
-    root = tmp_path / 'python'
-    with pytest.raises(ValueError, match='backend=cpp'):
-        batch.evaluate_condition_batch(_conditions(2), output_dir=root, workers=2)
-    assert not root.exists()
 
 
 
@@ -303,7 +298,6 @@ def test_pre_cancelled_batch_keeps_inputs_without_loading_missing_library(tmp_pa
     ('cpp', 8, 4, 5, 4, 4),
     ('cpp', 8, 1, 5, 4, 1),
     ('cpp', 8, 8, 5, 1, 1),
-    ('python', 8, None, 5, None, 1),
 ])
 def test_default_worker_count_is_saved_before_cancellation(
         tmp_path, monkeypatch, backend, available, limit, members, workers, expected):
@@ -316,7 +310,7 @@ def test_default_worker_count_is_saved_before_cancellation(
         batch.evaluate_condition_batch(conditions, output_dir=root, control=control, workers=workers)
     record = json.loads((root / 'batch.json').read_text())
     assert record['workers'] == expected
-    assert record['native_cpu_budget'] == (min(limit or 8, available) if backend == 'cpp' else None)
+    assert record['native_cpu_budget'] == min(limit or 8, available)
     assert record['status'] == 'cancelled'
     assert len(record['conditions']) == members
     assert all(row['status'] == 'not_run' for row in record['conditions'])

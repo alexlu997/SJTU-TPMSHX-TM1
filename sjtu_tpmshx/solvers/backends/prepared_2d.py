@@ -1,4 +1,4 @@
-"""Validate prepared 2D inputs for both numerical backends."""
+"""Validate prepared 2D inputs for native execution."""
 
 import numpy as np
 

@@ -1,4 +1,4 @@
-"""3D LTNE conservation audit of the current model on synthetic T1–T6 cases.
+"""3D LTNE conservation audit of the current model on dual-fluid T1–T4 and T6 cases.
 
 Checks the existing strict discrete certificate and retains the other audit
 diagnostics. Historical reports keep their original conservation definitions.
@@ -29,7 +29,6 @@ Test cases (synthetic, no Shanghai data):
   T2 — full-face cross-flow (A=+x, B=-y)               [current production]
   T3 — partial-B aligned (B_frac=0.5, in/out at same x)
   T4 — partial-B Shanghai-like (B_frac=0.20, offset patches)
-  T5 — B-isolated null (B_frac=0)
   T6 — A=B equi-temperature (T_inA == T_inB)
 
 Use --out to choose the report path; historical reports are separate evidence.
@@ -46,7 +45,11 @@ except Exception:
     pass
 warnings.filterwarnings('ignore')
 
-from sjtu_tpmshx.preprocess.api import prepare_research_case
+from dataclasses import replace
+from sjtu_tpmshx.preprocess.api import prepare_case
+from sjtu_tpmshx.domain.compute_config import (
+    ComputeConfig, ExtrapPolicy, FluidConfig, GeometryConfig, PartialBCConfig, SolverConfig,
+)
 from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.postprocess.conservation import compute_phase2a
 from sjtu_tpmshx.validation.harness._provenance import output_directory, output_path
@@ -58,126 +61,44 @@ from sjtu_tpmshx.validation.harness._provenance import output_directory, output_
 
 L_DOM, H_DOM, LZ = 0.182, 0.042, 0.042
 
-def _base_cfg(grid: int = 20):
-    return dict(
-        L=L_DOM, H=H_DOM, Lz=LZ,
-        Nx=grid, Ny=grid, Nz=grid,
-        tpms_type='Gyroid', Lcell=7.0, t_wall=0.6, k_s=16.0, eps=0.85,
-        fluid_type_A='air', fluid_type_B='air',
-        wall_refine_3d=False,
-    )
+def make_T1(grid):
+    return ComputeConfig(
+        extrap=ExtrapPolicy(allow=True),
+        geometry=GeometryConfig(tpms='Gyroid',L_cell_mm=7.,t_wall_mm=.6,k_s_W_mK=16.,
+            L_dom_m=L_DOM,H_dom_m=H_DOM,Lz_m=LZ),
+        solver=SolverConfig(Nx=grid,Ny=grid,Nz=grid),
+        fluid_A=FluidConfig(type='air',u_mps=2.,T_in_K=422.,P_in_Pa=102325.),
+        fluid_B=FluidConfig(type='air',u_mps=4.,T_in_K=322.,P_in_Pa=101325.),
+        bc_A=PartialBCConfig(dir=0,in_ctr=H_DOM/2,in_w=H_DOM,out_ctr=H_DOM/2,out_w=H_DOM,
+            in_z_ctr=LZ/2,in_z_w=LZ,out_z_ctr=LZ/2,out_z_w=LZ),
+        bc_B=PartialBCConfig(dir=0,in_ctr=H_DOM/2,in_w=H_DOM,out_ctr=H_DOM/2,out_w=H_DOM,
+            in_z_ctr=LZ/2,in_z_w=LZ,out_z_ctr=LZ/2,out_z_w=LZ))
 
 
-def make_T1(grid):  # full-face parallel A,B both +x
-    cfg = _base_cfg(grid)
-    cfg.update(
-        u_A=2.0, u_B=4.0, T_inA=422.0, T_inB=322.0,
-        P_inA=102325.0, P_inB=101325.0,
-        fluid_A_cfg=dict(dir=0, in_ctr=H_DOM/2, in_w=H_DOM,
-                          out_ctr=H_DOM/2, out_w=H_DOM,
-                          in_z_ctr=LZ/2, in_z_w=LZ,
-                          out_z_ctr=LZ/2, out_z_w=LZ),
-        fluid_B_cfg=dict(dir=0, in_ctr=H_DOM/2, in_w=H_DOM,
-                          out_ctr=H_DOM/2, out_w=H_DOM,
-                          in_z_ctr=LZ/2, in_z_w=LZ,
-                          out_z_ctr=LZ/2, out_z_w=LZ),
-        _case_label='T1_full_parallel',
-    )
-    return cfg
+def make_T2(grid):
+    config=make_T1(grid)
+    return replace(config,
+        fluid_A=replace(config.fluid_A,u_mps=5.,P_in_Pa=101325.),
+        fluid_B=replace(config.fluid_B,u_mps=5.,T_in_K=300.),
+        bc_B=replace(config.bc_B,dir=3,in_ctr=L_DOM/2,in_w=L_DOM,out_ctr=L_DOM/2,out_w=L_DOM))
 
 
-def make_T2(grid):  # full-face cross-flow Shanghai NORM
-    cfg = _base_cfg(grid)
-    cfg.update(
-        u_A=5.0, u_B=5.0, T_inA=422.0, T_inB=300.0,
-        P_inA=1.01325e5, P_inB=1.01325e5,
-        fluid_A_cfg=dict(dir=0, in_ctr=H_DOM/2, in_w=H_DOM,
-                          out_ctr=H_DOM/2, out_w=H_DOM,
-                          in_z_ctr=LZ/2, in_z_w=LZ,
-                          out_z_ctr=LZ/2, out_z_w=LZ),
-        fluid_B_cfg=dict(dir=3, in_ctr=L_DOM/2, in_w=L_DOM,
-                          out_ctr=L_DOM/2, out_w=L_DOM,
-                          in_z_ctr=LZ/2, in_z_w=LZ,
-                          out_z_ctr=LZ/2, out_z_w=LZ),
-        _case_label='T2_full_cross',
-    )
-    return cfg
+def make_T3(grid):
+    config=make_T1(grid)
+    return replace(config,bc_B=replace(config.bc_B,dir=3,in_ctr=L_DOM/2,in_w=.09,out_ctr=L_DOM/2,out_w=.09))
 
 
-def make_T3(grid):  # partial-B aligned (in/out same cross-stream position)
-    cfg = _base_cfg(grid)
-    cfg.update(
-        u_A=2.0, u_B=4.0, T_inA=422.0, T_inB=322.0,
-        P_inA=102325.0, P_inB=101325.0,
-        fluid_A_cfg=dict(dir=0, in_ctr=0.021, in_w=0.042,
-                          out_ctr=0.021, out_w=0.042,
-                          in_z_ctr=0.021, in_z_w=0.042,
-                          out_z_ctr=0.021, out_z_w=0.042),
-        # B aligned: in_ctr = out_ctr
-        fluid_B_cfg=dict(dir=3, in_ctr=L_DOM/2, in_w=0.090,
-                          out_ctr=L_DOM/2, out_w=0.090,
-                          in_z_ctr=0.021, in_z_w=0.042,
-                          out_z_ctr=0.021, out_z_w=0.042),
-        _case_label='T3_partial_aligned',
-    )
-    return cfg
+def make_T4(grid):
+    config=make_T3(grid)
+    return replace(config,bc_B=replace(config.bc_B,in_ctr=.154,in_w=.042,out_ctr=.028,out_w=.042))
 
 
-def make_T4(grid):  # partial-B Shanghai-like offset
-    cfg = _base_cfg(grid)
-    cfg.update(
-        u_A=2.0, u_B=4.0, T_inA=422.0, T_inB=322.0,
-        P_inA=102325.0, P_inB=101325.0,
-        fluid_A_cfg=dict(dir=0, in_ctr=0.021, in_w=0.042,
-                          out_ctr=0.021, out_w=0.042,
-                          in_z_ctr=0.021, in_z_w=0.042,
-                          out_z_ctr=0.021, out_z_w=0.042),
-        fluid_B_cfg=dict(dir=3, in_ctr=0.154, in_w=0.042,
-                          out_ctr=0.028, out_w=0.042,
-                          in_z_ctr=0.021, in_z_w=0.042,
-                          out_z_ctr=0.021, out_z_w=0.042),
-        _case_label='T4_partial_offset_shanghai',
-    )
-    return cfg
+def make_T6(grid):
+    config=make_T2(grid)
+    return replace(config,fluid_A=replace(config.fluid_A,T_in_K=350.),fluid_B=replace(config.fluid_B,T_in_K=350.))
 
 
-def make_T5(grid):  # B isolated (no fluid B)
-    cfg = _base_cfg(grid)
-    cfg.update(
-        u_A=2.0, T_inA=422.0, T_inB=322.0,
-        P_inA=102325.0, P_inB=101325.0,
-        fluid_A_cfg=dict(dir=0, in_ctr=H_DOM/2, in_w=H_DOM,
-                          out_ctr=H_DOM/2, out_w=H_DOM,
-                          in_z_ctr=LZ/2, in_z_w=LZ,
-                          out_z_ctr=LZ/2, out_z_w=LZ),
-        fluid_B_cfg=None,   # B disabled
-        _case_label='T5_B_isolated',
-    )
-    return cfg
-
-
-def make_T6(grid):  # A == B equi-temperature
-    cfg = _base_cfg(grid)
-    cfg.update(
-        u_A=5.0, u_B=5.0, T_inA=350.0, T_inB=350.0,
-        P_inA=1.01325e5, P_inB=1.01325e5,
-        fluid_A_cfg=dict(dir=0, in_ctr=H_DOM/2, in_w=H_DOM,
-                          out_ctr=H_DOM/2, out_w=H_DOM,
-                          in_z_ctr=LZ/2, in_z_w=LZ,
-                          out_z_ctr=LZ/2, out_z_w=LZ),
-        fluid_B_cfg=dict(dir=3, in_ctr=L_DOM/2, in_w=L_DOM,
-                          out_ctr=L_DOM/2, out_w=L_DOM,
-                          in_z_ctr=LZ/2, in_z_w=LZ,
-                          out_z_ctr=LZ/2, out_z_w=LZ),
-        _case_label='T6_equi_temperature',
-    )
-    return cfg
-
-
-CASES = {
-    'T1': make_T1, 'T2': make_T2, 'T3': make_T3,
-    'T4': make_T4, 'T5': make_T5, 'T6': make_T6,
-}
+CASES = {'T1':make_T1,'T2':make_T2,'T3':make_T3,'T4':make_T4,'T6':make_T6}
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -915,7 +836,7 @@ def write_report(out_path, sections, header_meta):
     lines.append('## Scope\n')
     lines.append('- Phase 2a current full-CV strict certificate + Phase 2c per-cell mass-imbalance audit (H3).')
     lines.append('- Read-only. No solver / closure / momentum changes.')
-    lines.append('- Test matrix: T1 full-face parallel, T2 full-face cross, T3 partial-aligned, T4 partial-offset (Shanghai-like), T5 B-isolated, T6 equi-temperature.\n')
+    lines.append('- Test matrix: T1 full-face parallel, T2 full-face cross, T3 partial-aligned, T4 partial-offset (Shanghai-like), T6 equi-temperature.\n')
     for sec in sections:
         lines.append(sec)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -929,8 +850,8 @@ def write_report(out_path, sections, header_meta):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--grid', type=int, default=20)
-    ap.add_argument('--cases', type=str, default='T1,T2,T3,T4,T5,T6',
-                    help='Comma-separated test case IDs (subset of T1..T6).')
+    ap.add_argument('--cases', type=str, default='T1,T2,T3,T4,T6',
+                    help='Comma-separated test case IDs (T1, T2, T3, T4 or T6).')
     ap.add_argument('--out', type=str, default=None)
     ap.add_argument('--phase6_grid_convergence', action='store_true',
                     help='Phase 6 multi-grid sweep: runs each case at '
@@ -948,8 +869,8 @@ def main():
     selected = [c.strip() for c in args.cases.split(',') if c.strip()]
     unsupported = sorted(set(selected) - CASES.keys())
     if unsupported or not selected:
-        ap.error(f'unsupported cases {unsupported}; use T1..T6. '
-                 'H2/H6/H8 B-participation experiments are retired.')
+        ap.error(f'unsupported cases {unsupported}; use T1, T2, T3, T4 or T6. '
+                 'T5 and H2/H6/H8 research experiments are retired.')
 
     # ── Phase 6: grid convergence sweep ──
     if args.phase6_grid_convergence:
@@ -962,11 +883,11 @@ def main():
             row = {'case': cid}
             for g in grids:
                 cfg = CASES[cid](g)
-                cfg['_emit_audit'] = True   # Retain final SIMPLE evidence for the offline audit
                 t0 = time.time()
                 Q_enth = eps_strict = float('nan')
                 try:
-                    res = run_case(prepare_research_case(cfg, case_id=cfg['_case_label']))
+                    case = prepare_case(cfg, case_id=cid)
+                    res = run_case(replace(case, parameters=dict(case.parameters, _emit_audit=True)))
                     failed = failed or not res.run_status['converged']
                     Q_enth = float(res.metadata['diagnostics'].get('Q_enthalpy_B', float('nan')))
                     certificate = compute_phase2a(res)
@@ -1011,10 +932,10 @@ def main():
     for cid in selected:
         print(f'\n══════ Phase 2 case: {cid} ══════')
         cfg = CASES[cid](args.grid)
-        cfg['_emit_audit'] = True   # Retain final SIMPLE evidence for the offline audit
         t0 = time.time()
         try:
-            res = run_case(prepare_research_case(cfg, case_id=cfg['_case_label']))
+            case = prepare_case(cfg, case_id=cid)
+            res = run_case(replace(case, parameters=dict(case.parameters, _emit_audit=True)))
         except Exception as exc:
             failed = True
             sections.append(f'\n## Case: {cid}\n\n**FAIL**: {type(exc).__name__}: {exc}')

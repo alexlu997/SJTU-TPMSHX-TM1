@@ -37,7 +37,8 @@ except Exception:
     pass
 warnings.filterwarnings('ignore')
 
-from sjtu_tpmshx.preprocess.api import prepare_research_case
+from dataclasses import replace
+from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.validation.harness._provenance import (
     write_csv_with_provenance, output_directory, output_path,
@@ -122,7 +123,7 @@ def run_c1(case_id, grids=(12, 16, 20, 30), out_csv=None):
         cfg = CASES_C[case_id](g)
         t0 = time.time()
         try:
-            res = run_case(prepare_research_case(cfg, case_id=cfg['_case_label']))
+            res = run_case(prepare_case(cfg, case_id=case_id))
             diag = res.metadata['diagnostics']
             dt = time.time() - t0
             Q_enth_A = float(diag.get('Q_enthalpy_A', float('nan')))
@@ -196,12 +197,11 @@ def run_c3_tol(case_id='T2', grid=20, tols=(1e-3, 1e-5, 1e-7)):
     rows = []
     for tol in tols:
         with _patched_env('TPMSHX_CONV_MODE', 'f2'):
-            cfg = dict(CASES_C[case_id](grid))
-            cfg['convergence_mode'] = 'f2'
-            cfg['mom_tol'] = tol
+            cfg = CASES_C[case_id](grid)
+            cfg = replace(cfg, solver=replace(cfg.solver, convergence_mode='f2', mom_tol=tol))
             t0 = time.time()
             try:
-                res = run_case(prepare_research_case(cfg, case_id=cfg['_case_label']))
+                res = run_case(prepare_case(cfg, case_id=case_id))
                 diag = res.metadata['diagnostics']
             except Exception as exc:
                 rows.append(dict(case=case_id, grid=grid, tol=tol, Q_enth_A=float('nan'),

@@ -5,7 +5,7 @@
 [中文](desktop.md) | [English](desktop.en.md)
 
 日常交付使用普通项目文件夹，保留 Python/Qt、源码、模型资源和匹配的原生库。
-Python 与 C++ 都是受维护后端。macOS arm64 与 Windows x64 使用同一界面；
+0.2 统一使用 C++ 数值后端。macOS arm64 与 Windows x64 使用同一界面；
 不需要制作 `.app` 才能运行。下文保留既有冻结打包方式，供明确需要时使用。
 
 <a id="source-folder"></a>
@@ -31,11 +31,10 @@ macOS arm64：
 ```sh
 tm1_python="$(sed -n '1p' .venv-path)"
 export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
-export NUMBA_CACHE_DIR="$PWD/.cache/numba"
-"$tm1_python" -m sjtu_tpmshx.main --backend python
+"$tm1_python" -m sjtu_tpmshx.main
 ```
 
-需要使用 C++ 时，关闭该窗口，再以匹配的原生库启动：
+也可显式指定默认目录之外的原生库：
 
 ```sh
 "$tm1_python" -m sjtu_tpmshx.main --backend cpp \
@@ -49,11 +48,10 @@ Windows x64（PowerShell）：
 $tm1Python = Get-Content .venv-path -TotalCount 1
 $env:MPLCONFIGDIR = Join-Path $PWD '.cache/matplotlib'
 $env:XDG_CACHE_HOME = Join-Path $PWD '.cache/xdg'
-$env:NUMBA_CACHE_DIR = Join-Path $PWD '.cache/numba'
-& $tm1Python -m sjtu_tpmshx.main --backend python
+& $tm1Python -m sjtu_tpmshx.main
 ```
 
-需要使用 C++ 时，关闭该窗口，再以既有构建产物启动：
+也可显式指定既有构建产物：
 
 ```powershell
 $tm1Library = Join-Path $PWD '.cache/native-deps/build/pilot-windows-x64/tpmshx_solver_shared.dll'
@@ -67,12 +65,11 @@ $tm1Tables = Join-Path $PWD '.cache/native-deps/tables'
 CLI 的 `run` 和 `solve` 子命令接受同样的三个后端参数。
 源码运行不以 `TPMSHX_NATIVE_SOLVER_LIBRARY` 代替显式启动参数。
 
-窗口中的“计算后端”作用于下一次普通计算、快速设计和优化。
-运行及取消收尾时禁止切换；切换不修改已发布结果的后端来源或保存的工况。
+GUI 的普通计算、快速设计和优化统一使用 C++，保留计算线程设置。
 源码 GUI 和 CLI 共用本机默认库：macOS 为
 `native/lib/macos-arm64/libtpmshx_solver_shared.dylib`，Windows 为
 `native/lib/windows-x64/tpmshx_solver_shared.dll`。使用默认库时，表目录默认为
-`.cache/native-deps/tables`；显式参数优先。匹配库就位后只需选择后端。
+`.cache/native-deps/tables`；显式参数优先。匹配库就位后无需后端参数。
 CLI、独立 C 调用和 CI 通过不代替两平台可见桌面验收。
 
 ## 可选冻结打包
@@ -85,11 +82,10 @@ DF 表和 SVG 图标打包；不包含原始实验数据、研究输出、测试
 冻结桌面包的快速设计采用单进程串行候选搜索，避免子进程重复启动 GUI；
 源码运行保留现有并行路径。界面会显示实际执行方式。
 
-同一个 spec 可显式加入预构建的统一原生库：macOS 使用
+同一个 spec 必须包含预构建的统一原生库：macOS 使用
 `libtpmshx_solver_shared.dylib`，Windows 使用 `tpmshx_solver_shared.dll`。
 库放在包内 `native/`，相应第三方说明、原生依赖锁和完整许可证放在
-`licenses/native/`。打包阶段不下载依赖、不调用 C/C++ 编译器，也不改变
-Python 默认后端；原生库必须先用既有原生构建流程生成并完成对应数值资格检查。
+`licenses/native/`。打包阶段不下载依赖或调用 C/C++ 编译器；原生库必须先用既有原生构建流程生成并完成对应数值资格检查。
 
 三维代码按 `vtkmodules` 定向导入；打包排除会加载全部 VTK 可选模块的旧
 `vtk` 聚合入口，保留 PyVista、体渲染、拾取、透明度和导出所需的实际依赖。
@@ -138,8 +134,7 @@ python -m pip check
 python -m PyInstaller --noconfirm --clean --distpath .cache/desktop-build/dist --workpath .cache/desktop-build/work packaging/desktop.spec
 ```
 
-上述命令在未设置 `TPMSHX_NATIVE_SOLVER_LIBRARY` 时保持既有 Python 包。
-构建原生候选包时，先把该变量设为本目标平台已构建库的绝对路径，例如：
+构建前必须将 `TPMSHX_NATIVE_SOLVER_LIBRARY` 设为目标平台已构建库的绝对路径；未设置时构建失败。例如：
 
 ```sh
 export TPMSHX_NATIVE_SOLVER_LIBRARY="/absolute/path/libtpmshx_solver_shared.dylib"
@@ -155,18 +150,15 @@ $env:TPMSHX_NATIVE_SOLVER_LIBRARY = 'C:\absolute\path\tpmshx_solver_shared.dll'
 会使构建失败；不会悄悄省略原生库。只收集该预构建动态库及其实际运行依赖，
 不把 `.cache/native-deps` 的编译器、源码树、构建目录或物性表缓存装入程序包。
 
-示例中的 `python` 均替换为构建指针记录的绝对解释器。Numba 需要真实的源文件
-定位 JIT 缓存，spec 为应用模块采用纯 Python 源文件收集和加载，避免归档内的
-相对代码路径使独立目录启动时找不到缓存定位文件。启动器在导入计算模块前
-将 JIT 和 Matplotlib 缓存指向系统用户缓存目录，并执行
-`multiprocessing.freeze_support()`；参见
+示例中的 `python` 均替换为构建指针记录的绝对解释器。启动器在导入计算模块前
+设置 Matplotlib 与通用用户缓存目录，并执行 `multiprocessing.freeze_support()`；参见
 [PyInstaller 多进程说明](https://pyinstaller.org/en/stable/common-issues-and-pitfalls.html#multi-processing)。
 几何查表缓存也遵从 `XDG_CACHE_HOME`，首次生成和再次使用均不写入程序目录；
 构建只收集白名单中的模型资源和图标，不携带开发机的会话或缓存。
 
-## 选择原生候选后端
+## 选择原生库
 
-启动原生候选包时必须显式传入 `--backend cpp`。未传 `--native-library`
+冻结程序默认使用 C++。未传 `--native-library`
 时，冻结程序从自己的包内 `native/` 定位上述平台库名；显式路径始终优先。
 源码运行仍要求主机提供库路径，不会自动搜寻开发缓存、编译库或改用其他后端。
 这些选项仅构造本次调用的 `RunControl`，不进入保存的 `CaseData` 或物理配置。
@@ -181,7 +173,7 @@ $env:TPMSHX_NATIVE_SOLVER_LIBRARY = 'C:\absolute\path\tpmshx_solver_shared.dll'
 同一可执行文件的 `--cli run ...` / `--cli solve ...` 接受相同三个主机选项。
 `--native-table-directory` 指定程序包外可写的绝对路径；sCO2 的 BICUBIC
 物性表使用它，不能指向只读安装目录。原生库在一个进程内固定这一个表目录。
-双击启动而不传后端参数时仍使用 Python 后端。
+双击启动时使用包内 C++ 库。
 
 ## 文件与状态
 

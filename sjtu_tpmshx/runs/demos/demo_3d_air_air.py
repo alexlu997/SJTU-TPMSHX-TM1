@@ -287,7 +287,7 @@ def main():
     import time
     t0 = time.time()
     case = prepare_case(cfg, case_id='demo-3d-air-air')
-    res = run_case(case, RunControl(backend='python'))
+    res = run_case(case, RunControl())
     elapsed = time.time() - t0
     print(f"Solver wall-clock: {elapsed:.1f} s")
     print()

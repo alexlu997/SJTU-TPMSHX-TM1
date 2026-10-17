@@ -70,5 +70,10 @@ def test_real_parallel_cases_and_cancelled_peer():
         for field in fields(cases[index]):
             assert_slots(getattr(cases[index], field.name), snapshots[index][field.name])
         for name, value in result.fields.items():
-            if isinstance(value, np.ndarray):
-                assert not np.shares_memory(value, expected.fields[name])
+            if isinstance(value, np.ndarray) and np.shares_memory(value, expected.fields[name]):
+                # Fixed design inputs can share immutable buffers between runs.
+                assert any(isinstance(source, np.ndarray) and np.shares_memory(value, source)
+                           for source in cases[index].design_fields.values()), name
+                assert not value.flags.writeable and not expected.fields[name].flags.writeable
+                with pytest.raises(ValueError):
+                    value.setflags(write=True)

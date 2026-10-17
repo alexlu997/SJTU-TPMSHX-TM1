@@ -86,8 +86,8 @@ def _execute(config, directory, *, checkpoint_interval_s, case_id, control, prog
     if (isinstance(checkpoint_interval_s, bool) or not math.isfinite(checkpoint_interval_s)
             or checkpoint_interval_s <= 0.):
         raise ValueError('checkpoint interval must be finite and positive')
-    if control.backend != 'cpp' or control.native_library is None:
-        raise ValueError('saved runs require backend=cpp and an explicit native_library')
+    from sjtu_tpmshx.domain.module_ports import resolve_control
+    control = resolve_control(control)
     library = Path(control.native_library)
     if not library.is_absolute():
         raise ValueError('saved runs require an absolute native library path')

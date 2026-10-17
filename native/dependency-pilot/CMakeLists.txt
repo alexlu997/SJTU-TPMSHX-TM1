@@ -153,7 +153,8 @@ add_library(tpmshx_temperature_staggered STATIC "${TPMSHX_ROOT}/native/src/tempe
 target_link_libraries(tpmshx_temperature_staggered PUBLIC tpmshx_models tpmshx_energy SuperLU::LU AMGCL::AMGCL)
 add_library(temperature_staggered_test SHARED "${TPMSHX_ROOT}/sjtu_tpmshx/tests/native/temperature_staggered_bridge.cpp")
 target_compile_definitions(temperature_staggered_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
-target_link_libraries(temperature_staggered_test PRIVATE tpmshx_temperature_staggered)
+target_link_libraries(temperature_staggered_test PRIVATE tpmshx_temperature_staggered tpmshx_quick_design)
+target_include_directories(temperature_staggered_test PRIVATE "${TPMSHX_ROOT}/native/src")
 add_executable(temperature_staggered_smoke "${TPMSHX_ROOT}/native/tests/temperature_staggered_smoke.cpp")
 target_link_libraries(temperature_staggered_smoke PRIVATE tpmshx_temperature_staggered)
 add_executable(temperature_run_smoke "${TPMSHX_ROOT}/native/tests/temperature_run_smoke.cpp")
@@ -198,10 +199,6 @@ if(MSVC)
 else()
     target_compile_options(tpmshx_full_3d PRIVATE -ffp-contract=off)
 endif()
-add_library(full_thermal_test SHARED "${TPMSHX_ROOT}/sjtu_tpmshx/tests/native/full_thermal_bridge.cpp")
-target_compile_definitions(full_thermal_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
-target_link_libraries(full_thermal_test PRIVATE tpmshx_model_h_2d tpmshx_model_h_3d tpmshx_enthalpy)
-target_include_directories(full_thermal_test PRIVATE "${TPMSHX_ROOT}/native/src")
 
 add_library(full_3d_test SHARED "${TPMSHX_ROOT}/sjtu_tpmshx/tests/native/full_3d_bridge.cpp")
 target_compile_definitions(full_3d_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
@@ -382,7 +379,7 @@ foreach(target IN ITEMS tpmshx_run_state tpmshx_energy tpmshx_models tpmshx_quic
         tpmshx_temperature_staggered temperature_staggered_test temperature_staggered_smoke temperature_run_smoke
         tpmshx_temperature_c tpmshx_temperature_shared temperature_c_static temperature_c_shared
         tpmshx_pressure_reference
-        tpmshx_full_3d full_3d_test full_thermal_test full_3d_c_static full_3d_c_shared
+        tpmshx_full_3d full_3d_test full_3d_c_static full_3d_c_shared
         tpmshx_refinement_2d refinement_2d_test
         tpmshx_full_2d full_2d_test side_physics_smoke
         tpmshx_full_2d_c tpmshx_full_2d_shared full_2d_c_static full_2d_c_shared

@@ -113,17 +113,6 @@ def build_domain_sections(window, lay):
         "固体密度：用于优化设计的质量计算，并随工况保存。"
         "当前稳态 LTNE 固体能量方程没有储热项，不直接使用该密度。")
 
-    g_backend, sec_backend = default_factory().section(lay, "求解器", _T_NEUTRAL, _F_NEUTRAL)
-    window._ia_sections['solver_backend'] = sec_backend
-    window.combo_solver_backend = QComboBox()
-    window.combo_solver_backend.addItem('Python', 'python')
-    window.combo_solver_backend.addItem('C++', 'cpp')
-    window.combo_solver_backend.setStyleSheet(_COMBO)
-    window.combo_solver_backend.setAccessibleName('求解器')
-    window.combo_solver_backend.setToolTip(
-        '用于下一次计算、快速设计和优化；任务运行时不可切换。')
-    default_factory().add_row(g_backend, 0, '计算后端', right_align_combo(window.combo_solver_backend))
-
     # ── Grid Settings (rect mode) ──
     g4, sec_solver_rect = default_factory().section(lay, "  网格设置", _T_NEUTRAL, _F_NEUTRAL)
     window._ia_sections['grid_rect'] = sec_solver_rect
@@ -177,9 +166,7 @@ def build_domain_sections(window, lay):
     window.chk_allow_extrap.setStyleSheet(_chk_box_qss)
     g_policy.addWidget(window.chk_allow_extrap, 0, 0, 1, 2)
 
-    # The ordinary compute orchestrator captures this thread-local Numba
-    # mask at launch and applies it in the worker. Optimization has its own
-    # resource policy; headless runs use TPMSHX_NUM_THREADS.
+    # RunControl keeps the CPU budget for compute and optimization launches.
     from PySide6.QtWidgets import QSpinBox, QHBoxLayout
     g_cpu, sec_cpu = default_factory().section(lay, "计算资源", _T_NEUTRAL, _F_NEUTRAL)
     window._ia_sections['compute_resources'] = sec_cpu
@@ -237,8 +224,8 @@ def build_domain_sections(window, lay):
     # Hide the heading too when this 3D-only control is unavailable.
     window._3d_only_widgets.append(sec_cpu)
 
-    from .solver_backend import bind_backend_controls
-    bind_backend_controls(window)
+    from .compute_resources import bind_resource_controls
+    bind_resource_controls(window)
 
     # Hide 3D-only inputs by default (2D mode)
     _on_dim_changed(window)

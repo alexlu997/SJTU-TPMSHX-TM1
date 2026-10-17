@@ -1,5 +1,4 @@
-"""Public SIMPLE C ABI/binding qualification with the unchanged Python oracle."""
-import copy
+"""Public SIMPLE C ABI, physical fields, histories, and callback checks."""
 from concurrent.futures import ThreadPoolExecutor
 import os
 from pathlib import Path
@@ -10,7 +9,7 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.domain.cancellation import CancelledError
-from sjtu_tpmshx.solvers._solve_common import F2Monitor
+from sjtu_tpmshx.tests.native.simple_inputs import f2_settings
 from sjtu_tpmshx.solvers.backends.cpp.simple_2d import NativeSimple2D
 from sjtu_tpmshx.tests.native import test_simple_2d as oracle
 
@@ -34,7 +33,7 @@ def arguments(solver):
              'temperature', 'u', 'v', 'pressure', 'pressure_correction', 'd_u', 'd_v',
              'density', 'inlet_velocity', 'inlet_fraction', 'outlet_u_fraction')
     fields = dict(zip(names, oracle.packed(solver)))
-    monitor = F2Monitor(solver, (solver.u, solver.v), 20)
+    monitor = f2_settings(solver)
     settings = dict(max_iterations=600, inner_sweeps=2, alpha_velocity=.7, alpha_pressure=.3,
         alpha_density=solver.alpha_rho, pressure_reference_absolute=solver.P_ref_abs,
         gas_constant=solver.R_gas, cf_anisotropy=solver.cf_aniso,
@@ -53,21 +52,20 @@ def create(path, solver):
                           outlet_open=solver.outlet_geom_frac > 0)
 
 
-def compare(result, handle, actual, expected, reference):
-    assert (result['converged'], result['iterations']) == reference
-    assert result['exit_reason'] == expected.exit_reason
-    assert result['post_closure_certified'] == bool(expected.f2_cert_post_rescale_ok)
-    assert result['post_closure_measured'] == (expected.f2_cert_post_rescale_ok is not None)
+def check_result(result, handle, actual):
+    assert result['converged'] and result['exit_reason'] == 'tol'
+    assert result['post_closure_certified'] and result['post_closure_measured']
     assert result['native_abi'] == 1
-    np.testing.assert_allclose([result['legacy_residual'],
-        result['mass']['local_residual'], result['mass']['global_residual']],
-        [expected.final_res, expected.final_res_mass_local, expected.final_res_mass_global],
-        rtol=1e-4, atol=2e-11)
-    oracle.compare_momentum(actual, expected, result['momentum']['maximum'], handle.history(3),
-                            measured=result['post_closure_measured'], converged=result['converged'])
-    for kind, name in enumerate(('residuals', 'mass_local_residuals', 'mass_global_residuals')):
-        np.testing.assert_allclose(handle.history(kind), getattr(expected, name),
-                                   rtol=1e-4, atol=oracle.MASS_HISTORY_ATOL, err_msg=name)
+    oracle.assert_momentum(actual, result['momentum']['maximum'], handle.history(3),
+                           measured=True, converged=True)
+    mass, _, _ = oracle.mass_balance(actual, exclude_outlet=True)
+    np.testing.assert_allclose([result['mass'][k] for k in
+        ('local_residual', 'global_residual', 'backflow_fraction')], mass[:3], rtol=2e-12, atol=2e-12)
+    assert result['mass']['local_residual'] < 1e-6
+    assert result['mass']['global_residual'] < 1e-6
+    assert result['mass']['backflow_fraction'] <= .01
+    for kind in (0, 1, 2):
+        assert np.isfinite(handle.history(kind)).all() and (handle.history(kind) >= 0.).all()
     assert result['pressure']['success']
     assert result['pressure']['relative_residual'] <= 1e-10
     assert result['pressure']['pin_maximum'] <= 1e-10
@@ -76,37 +74,37 @@ def compare(result, handle, actual, expected, reference):
 @pytest.mark.parametrize('fluid', ['incompressible', 'ideal_gas'])
 @pytest.mark.parametrize('variable', [False, True])
 def test_public_prepared_fields_f2_and_progress(public_library, fluid, variable):
-    expected = oracle.make_solver(fluid=fluid, partial=True, variable=variable, stretched=variable)
-    actual = copy.deepcopy(expected)
-    reference_progress, progress = [], []
-    reference = expected.solve(max_iter=600, verbose=False,
-                               progress_cb=lambda i, r: reference_progress.append((i, r)))
+    actual = oracle.make_solver(fluid=fluid, partial=True, variable=variable, stretched=variable)
+    progress = []
     with create(public_library, actual) as handle:
         result = handle.solve(**arguments(actual), progress_cb=lambda i, r: progress.append((i, r)))
-        oracle.compare_fields(actual, expected)
-        compare(result, handle, actual, expected, reference)
-        np.testing.assert_array_equal(np.asarray(progress)[:, 0], np.asarray(reference_progress)[:, 0])
-        for samples, residuals in ((np.asarray(progress), handle.history(0)),
-                                   (np.asarray(reference_progress), np.asarray(expected.residuals))):
-            np.testing.assert_array_equal(samples[:, 1], residuals[samples[:, 0].astype(int)-1])
+        check_result(result, handle, actual)
+        expected_iterations = [1, *range(20, result['iterations']+1, 20)]
+        samples = np.asarray(progress)
+        np.testing.assert_array_equal(samples[:, 0], expected_iterations)
+        np.testing.assert_array_equal(samples[:, 1], handle.history(0)[samples[:, 0].astype(int)-1])
+        assert len(handle.history(0)) == result['iterations']
 
 
 def test_public_warm_reuse_target_history_and_grid_copy(public_library):
-    expected = oracle.make_solver(fluid='ideal_gas', partial=True)
-    actual = copy.deepcopy(expected)
+    actual = oracle.make_solver(fluid='ideal_gas', partial=True)
     dx, dy, outlet = actual.dx_arr.copy(), actual.dy_arr.copy(), actual.outlet_geom_frac > 0
     with NativeSimple2D(public_library, dx=dx, dy=dy, outlet_open=outlet) as handle:
         dx[:] = 100.; dy[:] = 200.; outlet[:] = False
+        target = None
         for warm in range(2):
             if warm:
-                for solver in (actual, expected):
-                    solver.rho_field *= np.linspace(.97, 1.03, solver.Ny)[None, :]
-                    solver.update_T_field(np.ascontiguousarray(solver.T_field+2.))
-            reference = expected.solve(max_iter=600, verbose=False)
+                actual.rho_field *= np.linspace(.97, 1.03, actual.Ny)[None, :]
+                actual.T_field += 2.
+            history = handle.history(0).copy()
             result = handle.solve(**arguments(actual))
-            oracle.compare_fields(actual, expected)
-            compare(result, handle, actual, expected, reference)
-            assert result['massflux_target'] == expected._massflux_target
+            check_result(result, handle, actual)
+            assert len(handle.history(0)) == len(history) + result['iterations']
+            np.testing.assert_array_equal(handle.history(0)[:len(history)], history)
+            if target is None:
+                target = result['massflux_target']
+            else:
+                assert result['massflux_target'] == target
     handle.close()
     with pytest.raises(ValueError, match='closed'):
         handle.history(0)
