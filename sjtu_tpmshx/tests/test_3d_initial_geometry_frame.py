@@ -124,13 +124,12 @@ def test_initial_geometry_and_returned_faces_share_physical_frame(monkeypatch, d
     outer = runtime._OuterState(
         K_ffB=zero, Ta=np.full(shape, problem.T_inA),
         Tb=np.full(shape, problem.T_inB), Ts=np.full(shape, 350.),
-        _and_A=None, _and_B=None,
         _assemble_real_velocity=lambda: (zero, zero, zero),
         _eps_A_strict=None, _eps_A_strict_cellmax=None,
         _eps_B_strict=None, _eps_B_strict_cellmax=None,
         _ltne_mask_A=None, _ltne_mask_B=None,
         _outer_converged=False, _outer_dT_hist=[], _outer_last_iter=0,
-        _use_outer_and=False, h_vA_field=zero, h_vB_field=zero,
+        h_vA_field=zero, h_vB_field=zero,
         rho_cp_fA=np.full(shape, problem.rho_A * problem.cp_A),
         rho_cp_fB=np.full(shape, problem.rho_B * problem.cp_B),
         native_evidence=None, property_sampling=[])
