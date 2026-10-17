@@ -320,8 +320,8 @@ a converged or physical result.
 
 ## Second implemented slice: actual-state energy audit
 
-The same library now exposes `thermal_energy_audit`, reproducing the production
-true-h energy operators from `ltne_enthalpy_3d.py` and `result_math.py`:
+The same library exposes `thermal_energy_audit` in
+`native/src/enthalpy_sweeps.cpp`. It audits actual-state energy as follows:
 
 - Actual-state A/B cell residuals: Fourier conduction + solid exchange − signed
   upwind enthalpy divergence. The caller supplies actual EOS temperatures and
