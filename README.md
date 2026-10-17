@@ -569,15 +569,15 @@ envelope 实现、三模块数据契约与公共 API、后处理指标入口；�
 
 原生分片必须按编号顺序传入。若本地不使用 `--ci-covered-modules`，仍可单独核对两个完整快测分片。
 
-原生资格检查在 macOS 分为四片，在每个 Windows/Python 组合分为七片。
+原生资格检查在 macOS 分为三片，在每个 Windows/Python 组合分为四片。
 每片使用两个 worker 和 `loadscope`，将同一模块或类保留在同一 worker。
-分组依据完整矩阵的实测用例耗时。Windows 的保守能量测试按独立 fixture 参数分组，
+分组依据完整矩阵的实测用例耗时。保守能量测试按共享 fixture 参数分组，
 同组的收敛、物性、能量账本和真实回放检查保持在同片。其他模块保留共享 fixture；
 独立工程用例可按完整 node ID 分组。
-分组清单位于 `sjtu_tpmshx/tests/native/`：macOS 使用 `_ci_macos_shard0.txt` 至 `_ci_macos_shard2.txt`，
-Windows 使用 `_ci_windows_shard0.txt` 至 `_ci_windows_shard5.txt`。
+分组清单位于 `sjtu_tpmshx/tests/native/`：macOS 使用 `_ci_macos_shard0.txt` 至 `_ci_macos_shard1.txt`，
+Windows 使用 `_ci_windows_shard0.txt` 至 `_ci_windows_shard2.txt`。
 按编号顺序将每份清单通过 `--ci-shard-modules=<清单路径>` 重复传入。
-未列出的用例自动进入最后一片，即 macOS 分片 3 或 Windows 分片 6。
+未列出的用例自动进入最后一片，即 macOS 分片 2 或 Windows 分片 3。
 按编号向同一集合校验器传入全部 manifest，核对其完整且互斥；每片必须有 `gw0`、`gw1` 两份记录。
 `--serial` 仅用于本地串行测试的 `controller` 记录。
 三个平台/Python 组合保持不变。原生工程用例保留逐侧物理模型、收敛及能量门槛。
@@ -593,7 +593,7 @@ Python 数值对照迁移为独立公式／离散账本、制造解、组件重�
 CoolProp 精确缓存键绑定平台、架构、Python 3.13、托管工具链镜像版本、原生依赖锁和构建脚本。
 项目 C++ 和模型系数每轮重新构建；缓存命中仍须完成独立调用验证。
 构建日志单独保存在 `native-build-logs-<平台>`。
-每片上传 `native-dependencies-<平台>-py<版本>-shard-<编号>`，macOS 编号为 0–3，Windows 为 0–6，
+每片上传 `native-dependencies-<平台>-py<版本>-shard-<编号>`，macOS 编号为 0–2，Windows 为 0–3，
 包含 JUnit 和 `native-manifest`。以上 artifact 均保留 7 天。
 原生日志保留最慢 20 项和 skip 原因。
 
