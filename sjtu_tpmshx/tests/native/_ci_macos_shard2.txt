@@ -1,0 +1,20 @@
+# macOS native group 2; balance uses complete CI run timings.
+# Keep shared fixture parameters together. The final shard is automatic.
+sjtu_tpmshx/tests/native/test_cpp_conservative_full2d.py
+sjtu_tpmshx/tests/native/test_cpp_model_h.py
+sjtu_tpmshx/tests/native/test_enthalpy_driver.py
+sjtu_tpmshx/tests/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[air-co2-2]
+sjtu_tpmshx/tests/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[co2-co2-2]
+sjtu_tpmshx/tests/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[co2-co2-3]
+sjtu_tpmshx/tests/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[co2-sco2-2]
+sjtu_tpmshx/tests/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[sco2-air-2]
+sjtu_tpmshx/tests/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[sco2-sco2-2]
+sjtu_tpmshx/tests/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[sco2-water-2]
+sjtu_tpmshx/tests/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[water-air-2]
+sjtu_tpmshx/tests/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[water-air-3]
+sjtu_tpmshx/tests/native/test_native_engineering_acceptance.py::test_public_native_cases_keep_physical_gates[water-co2-2]
+sjtu_tpmshx/tests/native/test_run_recovery.py
+sjtu_tpmshx/tests/native/test_simple_3d_api.py
+sjtu_tpmshx/tests/native/test_superlu_error_boundary.py
+sjtu_tpmshx/tests/native/test_temperature_driver.py
+sjtu_tpmshx/tests/native/test_temperature_mms.py
