@@ -22,17 +22,21 @@ def _render_panel(destination):
     from sjtu_tpmshx.ui.panel_vis_3d import ThreeDVisPanel
 
     assert app.platformName() == platform
+    print('Qt application ready', flush=True)
     output = Path(destination)
     output.mkdir(parents=True, exist_ok=True)
     report = {'qt_platform': platform, 'pyvista': pv.__version__, 'images': {}}
     panel = ThreeDVisPanel()
+    print('3D panel ready', flush=True)
     try:
         panel.resize(960, 720)
         panel.show()
+        print('3D panel shown', flush=True)
         x, y, z = np.indices((8, 6, 4), dtype=float)
         panel.set_fields(Ta=300 + x + 2*y + 3*z, Ts=340 - 2*x + y - z,
                          dx=np.full(8, .001), dy=np.full(6, .001), dz=np.full(4, .001))
         assert panel._volume_actor is not None
+        print('Volume ready', flush=True)
         loop = QEventLoop()
         QTimer.singleShot(250, loop.quit)
         loop.exec()
@@ -41,6 +45,7 @@ def _render_panel(destination):
         background = np.asarray(panel.plotter.renderer.GetBackground()) * 255
         width, height = panel.plotter.window_size
         for scale in (1, 2):
+            print(f'Screenshot scale {scale}', flush=True)
             path = output / f'volume-{scale}.png'
             pixels = panel.plotter.screenshot(str(path), return_img=True, scale=scale)
             assert pixels.shape == (height*scale, width*scale, 3)
@@ -74,6 +79,7 @@ def _render_panel(destination):
             np.testing.assert_array_equal(np.asarray(decoded), changed)
         report['application_export_pixels_match'] = True
     finally:
+        print('Close 3D panel', flush=True)
         panel.cleanup()
         assert panel._cleaned_up and panel.plotter._closed
         panel.cleanup()
@@ -94,7 +100,8 @@ def test_actual_volume_scaled_screenshot_and_application_export():
         environment['QT_OPENGL'] = 'desktop'
     result = subprocess.run(
         [sys.executable, '-c',
-         'import sys; from sjtu_tpmshx.tests.test_real_3d_render import _render_panel; '
+         'import faulthandler, sys; faulthandler.dump_traceback_later(60); '
+         'from sjtu_tpmshx.tests.test_real_3d_render import _render_panel; '
          '_render_panel(sys.argv[1])', str(Path('.cache/ci/fast/render').resolve())],
         env=environment,
         capture_output=True, text=True, timeout=120,
