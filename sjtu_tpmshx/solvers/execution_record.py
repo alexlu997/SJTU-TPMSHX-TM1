@@ -108,11 +108,3 @@ def resolved_input_record(case, providers, shape, directions):
                                       version=case.model_refs[index].version)
                            for role, index in roles.items()},
                 fluids={side: providers['fluid_' + side].name for side in ('A', 'B')})
-
-
-def record_property_samples(records, side, outer_index, stage, provider,
-                            temperature, pressure, operation, *quantities):
-    """Describe a sampling operation at its numerical owner."""
-    records.extend(dict(side=side, outer_index=outer_index, stage=stage, quantity=quantity,
-                        provider=provider, temperature=temperature, pressure=pressure,
-                        operation=operation) for quantity in quantities)

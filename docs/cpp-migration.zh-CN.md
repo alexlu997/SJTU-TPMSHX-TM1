@@ -139,7 +139,7 @@ SOU 在出口面重构物理焓，因此旧 FOU 单元焓归约不能提供该�
 
 ## 第二个实现单元：真实状态能量审计
 
-同一库提供 `thermal_energy_audit`，复现 `ltne_enthalpy_3d.py` 和 `result_math.py` 中的生产 true-h 能量算子：
+同一库在 `native/src/enthalpy_sweeps.cpp` 中提供 `thermal_energy_audit`，执行真实状态能量审计：
 
 - 真实状态 A/B 单元残差为 Fourier 导热＋固体交换－有符号迎风焓散度。调用方提供真实 EOS 温度和有效流体导热率，不使用 sweep 的冻结线性化状态。
 - 计算绝热固体单元残差和六面有符号边界焓热负荷。入口／回流面使用给定入口焓，流出使用单元焓。

@@ -120,18 +120,10 @@ def _build_grid_3d(wall_refine: bool, L: float, H: float, Lz: float,
                    Nx_u: int, Ny_u: int, Nz_u: int,
                    ) -> tuple[np.ndarray, np.ndarray, np.ndarray,
                               int, int, int]:
-    """Build 3D cell-spacing arrays + grid counts (extracted from _run_3d_stack,
-    2026-06-09 F1). Uniform user spacing, or 6-wall boundary-layer refinement
-    when ``wall_refine`` (expands user N by ~+2·n_refine per axis; first cell
-    0.02 mm, growth 1.8). Returns ``(dx, dy, dz, Nx, Ny, Nz)``.
+    """Build physical cell widths for native flow and energy solvers.
 
-    2026-06-09 E1: the refined non-uniform spacing now reaches BOTH stages —
-    the LTNE energy solve AND the SIMPLE momentum/pressure solve (via
-    SIMPLESolver3D's dx_arr/dy_arr/dz_arr). Previously SIMPLE silently ran on
-    a uniform grid under wall_refine. (The E1-era "kernels were already
-    non-uniform-aware" claim was wrong for the momentum DIFFUSION terms —
-    corrected 2026-07-07, N4: conductances now use actual neighbour-node
-    distances; guarded by test_wall_refine_3d.py.)
+    Wall refinement uses a 0.02 mm first cell and a growth factor of 1.8.
+    Return ``(dx, dy, dz, Nx, Ny, Nz)``.
     """
     if wall_refine:
         from sjtu_tpmshx.models.grid import build_master_refined_grid_3d
@@ -149,16 +141,3 @@ def _build_grid_3d(wall_refine: bool, L: float, H: float, Lz: float,
     dz = np.full(Nz_u, Lz / Nz_u, dtype=np.float64)
     Nx, Ny, Nz = Nx_u, Ny_u, Nz_u
     return dx, dy, dz, Nx, Ny, Nz
-
-
-def _solver_spacings(dx: np.ndarray, dy: np.ndarray, dz: np.ndarray,
-                     perm: tuple[int, int, int],
-                     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Map real-coords cell-spacing arrays onto a SIMPLE solver's axis order.
-
-    The solver↔real mapping is ``real = solver.transpose(perm)`` (perm =
-    solver_to_real_perm), so solver axis ``s`` spans real axis ``perm.index(s)``.
-    Returns ``(sdx, sdy, sdz)`` in solver-axis order. Used to feed the refined
-    non-uniform grid into SIMPLESolver3D under wall_refine (E1, 2026-06-09)."""
-    real = (dx, dy, dz)
-    return (real[perm.index(0)], real[perm.index(1)], real[perm.index(2)])

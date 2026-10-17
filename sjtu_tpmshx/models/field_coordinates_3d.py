@@ -36,10 +36,6 @@ def _face_slice(field, dir_code, which):
     return field[tuple(sl)]
 
 
-def _real_outlet_slice(T_field, dir_code):
-    return _face_slice(T_field, dir_code, 'outlet')
-
-
 def _port_rectangles(fluid_cfg, cross2_length):
     """Keep the original physical edges; reversing flow never swaps ports."""
     result = {}

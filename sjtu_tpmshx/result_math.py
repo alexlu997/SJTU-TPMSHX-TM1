@@ -127,12 +127,6 @@ def _enthalpy_balance_2d(T_field, uc, vc, rho_cp_field, dir_code,
     return m_dot_cp * (T_in_avg - T_out_avg)
 
 
-def _pipe_weighted(P_row, w):
-    """Open-fraction-weighted boundary-row mean for legacy field consumers."""
-    s = float(w.sum())
-    return float((P_row * w).sum() / s) if s > 1e-12 else float(P_row.mean())
-
-
 def _outlet_temperature_2d(temperature, mass_flux, direction, outlet_fraction):
     """Raw outlet-cell T weighted by positive outward mass, in K.
 
