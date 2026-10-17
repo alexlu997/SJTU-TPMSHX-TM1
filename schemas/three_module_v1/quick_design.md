@@ -3,8 +3,9 @@
 [中文](quick_design.zh-CN.md) | [English](quick_design.md)
 
 Mode: `metadata.mode=quick_design`, composite model
-`plug_ltne_analytic_dp_v1`. Both Python and C++ support capability `quick_design_v1`.
-`FieldResult.backend_id` records the selected backend as `python` or `cpp`.
+`plug_ltne_analytic_dp_v1`. Version 0.2 executes capability `quick_design_v1` with C++ only.
+New results record `FieldResult.backend_id=cpp`. Historical results retain their original
+`python` or `cpp` identifier and remain readable.
 This is the existing prescribed-velocity LTNE sizing approximation with analytical
 inlet-state D-F pressure loss. It does not run SIMPLE. The original sCO2
 representative-Pr caveat stays part of the emitted source warnings.

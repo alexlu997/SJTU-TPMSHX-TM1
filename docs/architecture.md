@@ -72,7 +72,8 @@ An accelerated advance completes one block and any proposal probes. A nonacceler
 Callbacks keep their original sequence. A callback cannot save or advance an unfinished step.
 Cancelled, failed and completed runs cannot publish a new thermal snapshot.
 The caller receives the final physical ledger through the original output argument.
-The full 3D controller archives this state. Full 2D inner-state integration and application recovery remain separate tasks.
+Both full controllers archive their active model-h state.
+See [native continuation](#native-3d-continuation) for full-controller and application recovery.
 
 ## Completed execution records
 
@@ -370,7 +371,7 @@ applications -> preprocess.api -> CaseData -> solvers.api -> FieldResult
   Staggered result transfer releases the active face and field buffers; only
   its original pressure hierarchy cache remains. The replaced stack-only
   control loops are retired. The full 3D controller archives the active staggered state.
-  Full 2D inner-state integration and application recovery remain separate tasks.
+  See [native continuation](#native-3d-continuation) for full-controller and application recovery.
 - The C++ fixed-flow `solve_enthalpy` also has explicit `temperature_fou`
   and `temperature_sou` candidates. Both solve conservative enthalpy transport
   with temperature as the nonlinear unknown, guarded HEOS PT state updates,
@@ -701,7 +702,7 @@ Execution consumes those fields. Both fluid sides keep complete local K/cF array
 coordinates.
 
 This also applies to existing 3D grid zones: side A no longer
-averages transverse drag and side B no longer replaces it with uniform drag. Recomputing an previous nonuniform grid-zone case can therefore change its results. Saved historical results are not rewritten. The 3D constructor also accepts row arrays and broadcasts them
+averages transverse drag and side B no longer replaces it with uniform drag. Recomputing a previous nonuniform grid-zone case can therefore change its results. Saved historical results are not rewritten. The 3D constructor also accepts row arrays and broadcasts them
 along its first axis. Its existing momentum sampling stays: adjacent-x
 averages at u faces, downstream-cell samples at v/w faces.
 
@@ -1066,8 +1067,8 @@ does not return a fabricated completed archive.
 
 Each full-compute backend explicitly produces its display/flow fields and
 final diagnostics, passing diagnostics directly to native result capture.
-Capture does not infer diagnostic ownership from value types. Both 2D backends
-pass display/flow fields, native evidence, application data and diagnostics
+Capture does not infer diagnostic ownership from value types. The native 2D binding
+passes display/flow fields, native evidence, application data and diagnostics
 separately to shared capture. The flattened intermediate dictionary and optional
 native-capture switch are retired. Native evidence is always recorded, and
 absent display-velocity copies retain their existing diagnostic placeholders.
@@ -1342,11 +1343,11 @@ The GUI adapter binds workflow controls and keeps the original exception.
 2D polls each SIMPLE iteration and at the existing LTNE chunk boundaries,
 including the Richardson refined solve. 3D polls each SIMPLE iteration and
 between its momentum sweeps, pressure solve, and correction. A request during
-one of these calls stops before starting the next kernel, including cold compilation. Its LTNE
+one of these calls stops before starting the next kernel. Its LTNE
 chunk boundaries remain unchanged. The shared true-enthalpy driver
 polls each property/sweep iteration. Each active operation must finish before its next checkpoint. These operations
-include native linear solves, JIT compilation, LTNE chunks (2D defaults to 500
-sweeps), and enthalpy property/sweep iterations.
+include native linear solves, LTNE chunks, and enthalpy property/sweep iterations.
+Chunk sizes depend on the selected route and controls.
 
 There is no forced thread
 termination or fixed wall-time cancellation guarantee. Cancelled runs do not publish results.
@@ -1572,7 +1573,7 @@ These anchors are not guaranteed equal. The ideal-gas inlet-pressure
     Outlet zero-gradient applies at the external face. Explicit CC callers
     with SIMPLE supply actual inlet capacity transport. They keep the CC interior scheme. Prescribed B stays an external thermal reservoir.
 12. **Experiment-correction applicability.** The air core-specimen branch uses
-    L=6..8 mm, t=0.3..0.5 mm interpolation. T=0.6 uses the separate HX campaign. sCO2 uses only D/G-7-6 hot-side `ok_dp` evidence, keeps K=K0, and is
+    L=6..8 mm, t=0.3..0.5 mm interpolation. t=0.6 mm uses the separate HX campaign. sCO2 uses only D/G-7-6 hot-side `ok_dp` evidence, keeps K=K0, and is
     HX-effective: uniform symmetric core, no zones, delta, other L/t, or
     independent cold-side fit. Its measured inlet-velocity windows are
     0.5827..2.5396 m/s (Diamond) and 0.6120..2.4705 m/s (Gyroid). These use

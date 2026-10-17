@@ -8,7 +8,24 @@ Define repository CI gates, installation, and exclusions for GitHub Actions and 
 ## Requirements
 
 ### Requirement: Headless CI gate on push/PR
-The repository MUST give `.github/workflows/ci.yml` for main pushes and pull requests. Its platforms are macOS/Python 3.13 and Windows/Python 3.12 and 3.13. Installation MUST use the common exact lock referenced by `requirements.txt`. With `PYTHONHASHSEED=0`, it runs `pytest sjtu_tpmshx/tests/ -m "not slow and not heavy" --ignore=sjtu_tpmshx/tests/integration_tm1 -n 2 --dist loadscope`. The existing `ci_shard` plugin splits fast tests into two independent jobs. A third job runs all `tests/integration_tm1/` tests without marker filtering. This job checks real module handoff and numerical behavior. Qt MUST use offscreen mode. The fast gate MUST disable the 3D panel. CI MUST NOT depend on ignored local data assets.
+The repository MUST provide `.github/workflows/ci.yml` for main pushes and pull requests.
+Its platforms are macOS/Python 3.13 and Windows/Python 3.12 and 3.13.
+Installation MUST use the common exact lock referenced by `requirements.txt`.
+`scripts/ci_scope.py` selects the required tier from the complete change:
+
+| Tier | Permitted change | Required work |
+| --- | --- | --- |
+| docs | Only the declared documentation paths | Document links, project commands, and all four summary gates with explicit skipped-job expectations |
+| application | Only declared display files, icons, and documentation | Platform application tests, real module integration, BO, minimal postprocessing, and the matching native build |
+| full | Other or mixed changes; all main pushes and manual runs | All application work plus complete native dependency qualification on the supported platform/Python matrix |
+
+With `PYTHONHASHSEED=0`, fast tests use `-m "not slow and not heavy"`, exclude `integration_tm1`, and run with `-n 2 --dist worksteal`.
+The existing `ci_shard` plugin splits them into two independent jobs.
+The `fast-1` job then runs all `tests/integration_tm1/` tests in a separate pytest process, without marker filtering.
+It MUST retain separate fast and integration reports. A fast-test failure MUST NOT suppress integration unless the job is cancelled.
+Routine Qt tests use offscreen mode with the 3D panel disabled.
+Actual rendering uses a separate native Qt process; its platform requirements and evidence limits are documented in the root README.
+CI MUST NOT depend on ignored local data assets.
 
 Fast jobs MUST use two workers and one BLAS/OMP/MKL/NumExpr thread. Each job MUST report its 30 slowest tests and skip reasons. JUnit XML MUST record individual statuses and durations. Test report artifacts stay available for 7 days.
 
@@ -17,7 +34,7 @@ Uploads cover reports, collection/shard lists, and resource records under `.cach
 Platform fast tests, real integration, and minimal postprocessing gates stay required. The four required checks are macOS 3.13, Windows 3.12, Windows 3.13, and minimal-postprocess. Speed improvements MUST NOT change numerical assertions or tolerances. Base and BO jobs MUST use the same platform/Python matrix. Both Windows versions use requirements/bo-windows.txt.
 
 #### Scenario: Integration is executed once per platform
-- **WHEN** test sets from both fast shards and the integration job are combined
+- **WHEN** test sets from both fast shards and the separate integration process are combined
 - **THEN** existing cases stay covered. Fast shards do not repeat the integration directory. New tests are recorded separately.
 
 #### Scenario: Native tests run once per platform
@@ -27,7 +44,9 @@ Platform fast tests, real integration, and minimal postprocessing gates stay req
 
 #### Scenario: Native dependencies are independently qualified
 - **WHEN** native dependency jobs run on macOS/Python 3.13 or Windows/Python 3.12 and 3.13
-- **THEN** jobs fetch pinned source and CMake from `native/dependencies-lock.toml`. They build offline and execute independent EOS/pressure, Quick Design, true-h, model-h, and SIMPLE callers. Independent formulas, discrete balances, manufactured solutions, component replay, and fixed historical references check complete drivers and public C interfaces. `TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1` and `TPMSHX_REQUIRE_CPP_TESTS=1` make missing compilers, executables, or libraries failures. Skips cannot substitute for acceptance.
+- **THEN** one build job per platform fetches pinned source and CMake from `native/dependencies-lock.toml` and builds offline.
+  Qualification jobs use its matching native artifacts and execute independent EOS/pressure, Quick Design, true-h, model-h, and SIMPLE callers.
+  The Windows Python 3.12 and 3.13 jobs independently qualify the same platform build. Independent formulas, discrete balances, manufactured solutions, component replay, and fixed historical references check complete drivers and public C interfaces. `TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1` and `TPMSHX_REQUIRE_CPP_TESTS=1` make missing compilers, executables, or libraries failures. Skips cannot substitute for acceptance.
 - **AND** only the independent native job builds dependencies. Ordinary fast shards do not rebuild them. Uploads include build logs and qualification XML. They exclude source archives, property tables, and local experimental data.
 
 #### Scenario: CI green on a clean main

@@ -42,7 +42,7 @@ directory = "superlu-7.0.1"
 license = "BSD-3-Clause for compiled LU sources; MC64 is excluded"
 license-url = "https://raw.githubusercontent.com/xiaoyeli/superlu/83a3c82b9e44c966ca2bc26991ffdb2bf63e1e2b/License.txt"
 source-list = "native/dependency-pilot/superlu-lu-only.cmake"
-build-options = ["double-real LU only", "32-bit int_t", "macOS: system Accelerate NEWLAPACK LP64, USE_VENDOR_BLAS=1", "Windows: portable internal double CBLAS pending native qualification", "static PIC", "COLAMD", "no METIS", "no Fortran", "no examples/tests", "no MC64/ILU factorization paths", "SCIPY_FIX=1 for selected double-LU corrections"]
+build-options = ["double-real LU only", "32-bit int_t", "macOS: system Accelerate NEWLAPACK LP64, USE_VENDOR_BLAS=1", "Windows: portable internal double CBLAS", "static PIC", "COLAMD", "no METIS", "no Fortran", "no examples/tests", "no MC64/ILU factorization paths", "SCIPY_FIX=1 for selected double-LU corrections"]
 scipy-version = "1.18.1"
 scipy-commit = "e4e854eaa8f18d807cd3496028e257e36caa93cc"
 scipy-patch-url = "https://raw.githubusercontent.com/scipy/scipy/e4e854eaa8f18d807cd3496028e257e36caa93cc/scipy/sparse/linalg/_dsolve/SuperLU/scipychanges.patch"
