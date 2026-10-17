@@ -19,13 +19,15 @@ Previous `Q_enthalpy_A/B`, volume-source, and interior-region diagnostics keep t
 They are not aliases for public metrics. An unconverged run or an unavailable required metric returns 2,
 even if diagnostic plots are written. Rendering failure returns a nonzero code.
 
-MMS A3/A4/B4 and GCI create a separate `.cache/validation/<tool>-<run-ID>/` by default. It contains CSV files, reports, and metadata. `--out-dir` selects another directory. A3 also supports `--out_csv`, `--orders_csv`, and `--report`. A4 supports the first two. B4 supports `--out_csv`.
+GCI creates a separate `.cache/validation/<tool>-<run-ID>/` by default. It contains CSV files, reports, and metadata. `--out-dir` selects another directory.
+
+The former Python MMS A3/A4/B4 commands are retired in 0.2. Their [original entry points](https://github.com/alexlu997/SJTU-TPMSHX-TM1/tree/v0.1.0/sjtu_tpmshx/validation/cases) and frozen CSV records retain their historical meaning. Current manufactured-field, refinement, and inlet checks are in [native MMS tests](../sjtu_tpmshx/tests/native/test_temperature_mms.py).
 
 Explicit relative file paths resolve from the current working directory. Reference CSV files, orders, and historical metadata under `sjtu_tpmshx/validation/` stay. Before solving, tools reject writes there, including symlinks that point there. Other explicit output directories can be reused. Use the default separate directory to keep each run.
 
-`validate_sco2_exp_q --csv` also validates reference-directory protection for CSV and `.meta.json` before solving. The shared provenance CSV writer and this entry stage CSV/metadata in the target directory. They replace the group only after all writes succeed. Write or replacement exceptions keep the previous group. This does not cover power failure or concurrent writers to one target. With explicit `sidecar=False`, the shared writer also removes an previous sidecar to prevent stale metadata on reload.
+`validate_sco2_exp_q --csv` also validates reference-directory protection for CSV and `.meta.json` before solving. The shared provenance CSV writer and this entry stage CSV/metadata in the target directory. They replace the group only after all writes succeed. Write or replacement exceptions keep the previous group. This does not cover power failure or concurrent writers to one target. With explicit `sidecar=False`, the shared writer also removes a previous sidecar to prevent stale metadata on reload.
 
-A4 applies inlet temperature at the physical face. Adjacent cell temperatures stay unknowns. Inlet-layer L2/Linf stay discretization diagnostics. The strict inlet gate compares the first corner-cell response from one real kernel sweep against an independent finite-volume balance. Its normalized error is `abs(T_kernel-T_FV)/abs(T_FV) < 1e-12`.
+The native MMS inlet check applies temperature at the physical face. Adjacent cell temperatures stay unknowns. Inlet-layer L2/Linf stay discretization diagnostics. The strict inlet gate compares the first corner-cell response from one real kernel sweep against an independent finite-volume balance. Its normalized error is `abs(T_kernel-T_FV)/abs(T_FV) < 1e-12`.
 
 This does not mean each inlet-cell error is zero. Existing convergence, finiteness, and regional order gates stay. The previous fixed CSV criterion pinned cell temperatures. It supports historical comparisons, not current physical-face boundary evidence.
 
@@ -112,7 +114,7 @@ Shanghai production validation uses one constructor for port/wall meshes. Grid c
 
 Explicit 3D `--nx/--ny/--nz` keep a selected grid. `--port-wall-refine` enables port/wall refinement. Former `--wall-refine` uses a different six-wall refinement. They cannot be enabled together. The actual grid always comes from this result's prepared grid.
 
-See [architecture](architecture.md) for common F2 and physical boundaries. History keeps previous architecture regressions and experimental errors. Invalid `tol_simple` and the optimizer launcher's previous `--tol` are retired. Importing previous cases explicitly reports that this field is ignored. Actual F2 momentum and mass convergence thresholds stay. MMS energy-solver `--tol` is a separate valid parameter and is not retired.
+See [architecture](architecture.md) for common F2 and physical boundaries. History keeps previous architecture regressions and experimental errors. Invalid `tol_simple` and the optimizer launcher's previous `--tol` are retired. Importing previous cases explicitly reports that this field is ignored. Actual F2 momentum and mass convergence thresholds stay. The former MMS command keeps its thermal `--tol` in the historical interface. Current native MMS tests set thermal controls directly.
 
 Both complete Shanghai dimensions use approved April 1 local water ports. The upper inlet spans `x=133–175 mm`. The lower outlet spans `x=7–49 mm`. Both cross the `42 mm` depth. Velocity uses experimental total mass flow, current model side pore area, and inlet density. Both dimensions use current production paths.
 
@@ -137,7 +139,7 @@ Run these commands at the repository root with the interpreter that passed envir
 ```bash
 PYTHON="$(head -n 1 .venv-path)"
 export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
-export NUMBA_NUM_THREADS=2 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
+export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 "$PYTHON" -m examples.three_module.external_design examples/three_module/design_case.json .cache/examples/design
 "$PYTHON" -m examples.three_module.parameter_scan .cache/examples/scan
 "$PYTHON" -m examples.three_module.design_field_call .cache/examples/field

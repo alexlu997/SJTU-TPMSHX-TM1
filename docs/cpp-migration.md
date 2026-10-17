@@ -209,7 +209,7 @@ First/final blocks and small ordinary temperature updates
 use a complete ordinary PT/audit block, and only that block can converge. `picard_relaxation=0.6` describes the ordinary map, not each Anderson increment. The same loaded library's `tpmshx_energy_algorithm_version_v1` query reports
 FOU recipe 1 or SOU recipe 2 from the actual returned algorithm. Python records
 this identity in main/outer evidence, effective settings and boundary capture.
-An previous library without the query fails before conservative flow execution. Saved SOU recipe 1 and recipe 2 boundary evidence stay readable, with no EOS
+A previous library without the query fails before conservative flow execution. Saved SOU recipe 1 and recipe 2 boundary evidence stay readable, with no EOS
 replay or version inference.
 
 Recipe versions are independent of the C ABI.
@@ -274,9 +274,9 @@ It replaces the two thermal-control values in `config_v2`; other values retain t
 The existing effective-settings query records the controls used by each thermal call.
 Integral model-h routes reject these EOS overrides before flow execution.
 
-The Python binding copies query views before release and records
-`backend_version=full_2d_v3` or `full_3d_v2` for the default controls.
-Explicit controls use `full_2d_v4` or `full_3d_v3`. Candidate results have portable
+The Python binding copies query views before release and records the entry used in `backend_version`.
+Current libraries use `full_2d_v6` or `full_3d_v5`, which include the CPU thread limit.
+Retained libraries can use the earlier energy or iteration-control entries when the requested controls are supported. Candidate results have portable
 `thermal_mode=conservative_energy`. `boundary_fluxes.true_h` contains the
 existing actual h/inlet-h/mass arrays and the algorithm/version, six-face
 `boundary_power`, its W/m or W units and a completeness flag. Heat is
@@ -674,6 +674,11 @@ required native CI passes. The evidence is bounded to those builds and cases.
 <a id="remaining-stages-and-acceptance-gates"></a>
 
 ## Migration stages and remaining acceptance gates
+
+The table records the original migration stages and their acceptance requirements.
+Version 0.2 has retired Python numerical execution and uses C++ for all public solve routes.
+Historical comparisons keep their original results. Current execution and recovery are described in [architecture](architecture.md).
+Platform CI, visible desktop acceptance, performance, and experimental accuracy remain separate checks.
 
 | Stage | Implementation boundary | Required evidence before advancing |
 | --- | --- | --- |

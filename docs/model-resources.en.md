@@ -67,7 +67,7 @@ config_dict["sco2_nu"] = asdict(sco2_effective_nu_config())
 config = ComputeConfig.from_dict(config_dict)
 ```
 
-The generic `cfd_smooth` default stays unchanged. Saved configurations and prepared Cases keep their actual model parameters. Loading an previous file does not apply current values or multiply historical alpha by current Ceff again. Parameter JSON records only Nu model selection and provenance. It is not a complete case and does not change grids or solver tolerances.
+The generic `cfd_smooth` default stays unchanged. Saved configurations and prepared Cases keep their actual model parameters. Loading a previous file does not apply current values or multiply historical alpha by current Ceff again. Parameter JSON records only Nu model selection and provenance. It is not a complete case and does not change grids or solver tolerances.
 
 <a id="标定来源与目标"></a>
 
@@ -91,7 +91,9 @@ Earlier amplitude selection does not show independence from this dataset. This i
 
 ### Existing validation and remaining error
 
-These are complete paired results with the same source, 104×24×12 grid, and strict numerical settings. Each side keeps its own experimental Q denominator. MAPE is mean absolute relative error. Hot and cold errors are not combined. The previous-parameter comparison was recalculated for this pairing. It does not replace the original 83-case history.
+The following table records the 2026-09-20 H-FOU comparison.
+The complete paired results use the same source, 104×24×12 grid, and strict numerical settings.
+Later SOU results use a different numerical method and remain separate evidence. Each side keeps its own experimental Q denominator. MAPE is mean absolute relative error. Hot and cold errors are not combined. The previous-parameter comparison was recalculated for this pairing. It does not replace the original 83-case history.
 
 | Group | Count | Hot Q MAPE, previous→current (%) | Cold Q MAPE, previous→current (%) |
 | --- | ---: | ---: | ---: |
@@ -156,8 +158,9 @@ The geometry is a uniform, symmetric Gyroid 7/0.6 mm, 182×42×42 mm exchanger, 
 | --- | --- |
 | Original one-dimensional calibration | 8.026110584256458–22.441995588974073 |
 | Formal inlet-density/pore-area convention for calibration extrapolation notices | 8.027855328062564–22.446874107951544 |
-| Approved computable range | 3.912822900405603–24.546710397710296 |
+| Historical approved computation range | 3.912822900405603–24.546710397710296 |
 
 Coefficient selection follows the air side. Existing nine ordered air/water/sCO₂ pairings still depend on per-side physical checks for computability. Experimental accuracy is shown only for reviewed air–water cases. Air–air and air–sCO₂ do not inherit equal accuracy. Runs outside the calibration window but inside the permitted computational range continue with an extrapolation notice.
+Permission to run does not establish qualification. The current original-range rule still applies to inlet and local samples.
 
 The correction is applied one time across pressure initialization, SIMPLE, and prepared Case resources. Previous Case replay uses saved model parameters without applying the new table again. No extra common multiplier from earlier research is adopted. This documentation work changes no coefficients, ranges, or numerical thresholds for other topologies or fluids.

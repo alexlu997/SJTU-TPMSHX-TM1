@@ -15,9 +15,13 @@
 旧 `Q_enthalpy_A/B`、体积热源与内部区域诊断保留原值，不作为公共指标的别名。
 未收敛或所需指标不可用时仍可生成诊断图，但进程返回 2；渲染失败返回非零。
 
-MMS A3/A4/B4 和 GCI 每次默认创建独立的 `.cache/validation/<工具>-<运行ID>/`，
-保存本次 CSV、报告与元数据；可用 `--out-dir` 指定输出目录。A3 另支持
-`--out_csv`、`--orders_csv`、`--report`，A4 支持前两项，B4 支持 `--out_csv`；
+GCI 每次默认创建独立的 `.cache/validation/<工具>-<运行ID>/`，
+保存本次 CSV、报告与元数据；可用 `--out-dir` 指定输出目录。
+
+原 Python MMS A3/A4/B4 命令已在 0.2 退役。[原入口](https://github.com/alexlu997/SJTU-TPMSHX-TM1/tree/v0.1.0/sjtu_tpmshx/validation/cases)
+和冻结 CSV 保留历史含义；当前制造场、网格细化和入口检查见
+[原生 MMS 测试](../sjtu_tpmshx/tests/native/test_temperature_mms.py)。
+
 显式相对文件路径按当前工作目录解析。`sjtu_tpmshx/validation/` 内的参考 CSV、
 阶数与历史元数据保留，工具在求解前拒绝向该目录写入，也拒绝指向它的符号链接。
 显式指定的其他输出目录可以复用；需要保留每次结果时使用默认独立目录。
@@ -26,7 +30,7 @@ MMS A3/A4/B4 和 GCI 每次默认创建独立的 `.cache/validation/<工具>-<�
 写入或替换抛出异常时保留上一组结果。此保护不覆盖断电或多个进程同时写入同一目标。
 共享写入器显式设置 `sidecar=False` 时也会移除旧 sidecar，避免回读到上次运行的元数据。
 
-A4 当前把入口温度施加在物理面，入口相邻单元温度继续作为待求未知量。
+原生 MMS 入口检查把温度施加在物理面，入口相邻单元温度继续作为待求未知量。
 入口层 L2/Linf 保留作离散误差诊断；严格入口门槛使用真实内核一次 sweep 的
 首角单元响应与独立有限体积余额比较，归一化误差
 `abs(T_kernel-T_FV)/abs(T_FV) < 1e-12`，并不代表所有入口单元误差均为零。
@@ -132,8 +136,8 @@ python -m sjtu_tpmshx.runs.smokes.smoke_ui_screenshots --output .cache/ui-smoke-
 实际网格始终来自本次结果的准备网格。
 当前共同 F2 和物理边界见[架构说明](architecture.zh-CN.md)；旧架构回归和实验误差见历史索引。
 无效的 `tol_simple` 和优化启动器旧 `--tol` 已退役；旧工况文件导入时明确提示
-忽略该字段，实际 F2 动量和质量收敛门槛继续保留。MMS 的能量求解 `--tol`
-是独立的有效参数，不在此次退役范围内。
+忽略该字段，实际 F2 动量和质量收敛门槛继续保留。原 MMS 命令的热求解 `--tol` 保留在历史接口中；
+当前原生 MMS 测试直接设置热求解控制。
 两维完整上海验证共用 4 月 1 日批次已确认的局部水口：上侧入口
 `x=133–175 mm`，下侧出口 `x=7–49 mm`，贯穿 `42 mm` 深度。
 速度按实验总质量流量、当前模型单侧孔隙面积和入口密度换算。
@@ -160,7 +164,7 @@ python -m sjtu_tpmshx.runs.smokes.smoke_ui_screenshots --output .cache/ui-smoke-
 ```bash
 PYTHON="$(head -n 1 .venv-path)"
 export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
-export NUMBA_NUM_THREADS=2 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
+export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 "$PYTHON" -m examples.three_module.external_design examples/three_module/design_case.json .cache/examples/design
 "$PYTHON" -m examples.three_module.parameter_scan .cache/examples/scan
 "$PYTHON" -m examples.three_module.design_field_call .cache/examples/field

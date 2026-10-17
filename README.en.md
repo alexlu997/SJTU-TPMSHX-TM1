@@ -166,7 +166,9 @@ The 2026-10-05 candidate evidence keeps these limits. Ceff43 passed 19/43 and ti
 
 The first row was not evaluated because of an audit-tool error and was not retried. These checks do not show complete native configuration, iteration-history, F2, or experimental accuracy qualification.
 
-Source GUI evidence covers 2D/3D display and export. Visible checks for cancellation, recomputation, menu save/reload, restart restoration, and outer iteration counts still await an unlocked Mac. Full application acceptance is not claimed. Merged PR #136 baseline `298761d2` passed macOS/Windows native CI. See the [CI record](https://github.com/alexlu997/SJTU-TPMSHX-TM1/actions/runs/37713153292). Earlier numerical failures stay attached to their original versions.
+At that historical check, source GUI evidence covered 2D/3D display and export.
+Further visible checks awaited an unlocked Mac. They included cancellation, recomputation, menu save/reload, restart restoration, and outer iteration counts.
+This paragraph records the 2026-10-05 status, not the desktop acceptance state of a later version. Merged PR #136 baseline `298761d2` passed macOS/Windows native CI. See the [CI record](https://github.com/alexlu997/SJTU-TPMSHX-TM1/actions/runs/37713153292). Earlier numerical failures stay attached to their original versions.
 
 Engineering comparison, strict local regression, experimental accuracy, complete performance, and visible desktop acceptance keep separate thresholds. Folder startup and limited regression passes do not show full native qualification.
 
@@ -189,9 +191,8 @@ Windows x64 users and macOS users without the local launcher should follow [proj
    independently prescribe each condition's total flows.
 2. Select Start Compute at the rail bottom, or press Ctrl+R. The status card below the canvas shows elapsed time. Expand Details for actual solver iterations and notices. Its separate Cancel control stays available when the rail is collapsed.
 
-Cancellation waits for the current computation step. 3D coarse-grid initialization also responds. Solver import no longer precompiles all paths. Each required kernel compiles on first use. Cancellation during compilation still waits for the step to return.
-
-The compilation thread is not forcibly stopped. The card does not predict remaining time.
+Cancellation waits for the current native computation step. 3D coarse-grid initialization also responds.
+There is no forced thread termination or fixed cancellation delay. The card does not predict remaining time.
 
    The main window shows neither live residual curves nor empty placeholders. Solvers still execute and record convergence/conservation checks. Terminal states distinguish completion, notices, nonconvergence, failure, and cancellation. Captured complete logs become available through Computation Log afterward. Nonconvergence or an unavailable 3D view is not styled as normal success.
 3. Open Field Results after computation. Select temperature, velocity, or pressure and fluid A/B. Temperature also supports the solid. Move the z-slice slider for 3D fields.
@@ -272,7 +273,7 @@ Quick Design screens dimensions against fluid conditions, heat duty, and pressur
 
 Result tables place volume near the front for comparison. Selection/refinement errors stop immediately and keep completed candidates. Parallel execution keeps only complete preceding batches. GUI and Excel distinguish failure from cancellation. Best labels apply only to the completed set.
 
-If candidates exist, Quick Design CLI saves a partial report to `--out`, then raises the original error and exits nonzero. Failure of the first candidate does not overwrite an previous report.
+If candidates exist, Quick Design CLI saves a partial report to `--out`, then raises the original error and exits nonzero. Failure of the first candidate does not overwrite a previous report.
 
 Optimization supports air A / water B and two-fluid pairs with a CO₂ or sCO₂ side. It searches continuous fields in the active dimension: L(x,y)/t(x,y) for 2D and L(x,y,z)/t(x,y,z) for 3D. Objectives compare B-side heat-uptake improvement and equally weighted two-side relative pressure drop. The heat metric stays `-Q_B`; the baseline must be positive. All conditions keep the same A/B fluid models. Pareto designs keep complete controls. Methods are Sobol, qLogNEHVI, and qLogNParEGO. BO requires its separate locked environment.
 

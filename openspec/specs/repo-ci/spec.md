@@ -6,7 +6,22 @@
 仓库 CI 门（GitHub Actions，headless pytest 子集）及其安装/排除约定。来自 openspec archive `2026-07-02-cleanup-ci`（架构扫描批次 D+F）。
 ## Requirements
 ### Requirement: Headless CI gate on push/PR
-仓库 SHALL 提供 GitHub Actions workflow（`.github/workflows/ci.yml`），在 push 到 main 与 PR 时分别使用 macOS/Python 3.13 和 Windows/Python 3.12、3.13，从 `requirements.txt` 引用的共同精确锁安装，并在 `PYTHONHASHSEED=0` 下运行 `pytest sjtu_tpmshx/tests/ -m "not slow and not heavy" --ignore=sjtu_tpmshx/tests/integration_tm1 -n 2 --dist loadscope`。快测通过现有 `ci_shard` 插件分为两个独立作业；真实模块交接与数值检查在第三个独立作业中完整运行 `tests/integration_tm1/`，不加 marker 过滤。Qt SHALL 使用 offscreen 模式，3D 面板 SHALL 在该快速门中禁用。CI SHALL NOT 依赖 gitignored 的本地数据资产。
+仓库 SHALL 提供 `.github/workflows/ci.yml`，在 main push 与 PR 时运行。
+平台为 macOS/Python 3.13 和 Windows/Python 3.12、3.13，从 `requirements.txt` 引用的共同精确锁安装。
+`scripts/ci_scope.py` 按完整变更选择必需层级：
+
+| 层级 | 允许的变更 | 必需工作 |
+| --- | --- | --- |
+| docs | 仅限声明的文档路径 | 文档链接、项目命令及四项汇总门；明确核对允许跳过的作业 |
+| application | 仅限声明的显示文件、图标和文档 | 平台应用测试、真实模块集成、BO、最小后处理及匹配的原生构建 |
+| full | 其他或混合变更；所有 main push 和手动运行 | 全部应用检查，加支持的平台/Python 矩阵中的完整原生依赖资格检查 |
+
+在 `PYTHONHASHSEED=0` 下，快测使用 `-m "not slow and not heavy"`，排除 `integration_tm1`，并采用 `-n 2 --dist worksteal`。
+现有 `ci_shard` 插件将快测分为两个独立作业。
+`fast-1` 作业随后在独立 pytest 进程中完整运行 `tests/integration_tm1/`，不加 marker 过滤。
+快测和集成 SHALL 保留各自报告；除非作业已取消，快测失败不得阻止集成执行。
+常规 Qt 测试使用 offscreen 并禁用 3D 面板；实际渲染使用独立的原生 Qt 进程，其平台要求和证据边界见根 README。
+CI SHALL NOT 依赖忽略的本地数据资产。
 
 快测 SHALL 固定两个 worker，BLAS/OMP/MKL/NumExpr 单线程。各作业 SHALL 输出最慢 30 项与 skip 原因，并保存
 逐项状态及耗时的 JUnit XML，测试报告 artifact 保留 7 天。上传范围为
@@ -16,7 +31,7 @@
 平台快测、真实集成和最小后处理门均保留；macOS 3.13、Windows 3.12、Windows 3.13 和 minimal-postprocess 四项检查均为必需门，数值断言/容差不因提速改变。基础与 BO 作业 SHALL 使用相同的平台/Python 版本矩阵；两个 Windows 版本共用 requirements/bo-windows.txt。
 
 #### Scenario: Integration is executed once per platform
-- **WHEN** 合并两个快测分片和独立集成作业的测试集合
+- **WHEN** 合并两个快测分片和独立集成进程的测试集合
 - **THEN** 既有用例仍被覆盖，集成目录不在快测中重复执行；新增测试单独记录
 
 #### Scenario: Native tests run once per platform
@@ -26,7 +41,7 @@
 
 #### Scenario: Native dependencies are independently qualified
 - **WHEN** macOS/Python 3.13 或 Windows/Python 3.12、3.13 的原生依赖作业运行
-- **THEN** 作业按 `native/dependencies-lock.toml` 获取固定源码与 CMake，离线构建并真实执行独立 EOS/压力、Quick Design、true-h、model-h 与 SIMPLE caller，随后用独立公式、离散账本、制造解、组件重放和固定历史参考验证完整驱动和公开 C 接口；`TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1` 与 `TPMSHX_REQUIRE_CPP_TESTS=1` 将缺少编译器、可执行程序或动态库视为失败，不允许以 skip 充当验收
+- **THEN** 每个平台由一个构建作业按 `native/dependencies-lock.toml` 获取固定源码与 CMake，并离线构建。资格作业消费其匹配原生产物，真实执行独立 EOS/压力、Quick Design、true-h、model-h 与 SIMPLE caller；Windows Python 3.12 和 3.13 分别验证同一平台构建。随后用独立公式、离散账本、制造解、组件重放和固定历史参考验证完整驱动和公开 C 接口；`TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1` 与 `TPMSHX_REQUIRE_CPP_TESTS=1` 将缺少编译器、可执行程序或动态库视为失败，不允许以 skip 充当验收
 - **AND** 构建只在独立原生作业发生，普通快测分片不重复构建依赖；上传构建日志和资格测试 XML，不上传源码、物性表或本地实验数据
 
 #### Scenario: CI green on a clean main

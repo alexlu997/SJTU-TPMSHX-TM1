@@ -55,7 +55,7 @@ H30 的未定定义只阻塞相应扩展指标；不能临时选择一种平均 
 | 节点 | 状态 | 交付与验收条件 |
 | --- | --- | --- |
 | H30 | planned | 明确 h/Re/Nu/f/PEC 的定义、面积、温差、摩擦因子约定与比较基准，并有可用输入和指标证据 |
-| X10 | implemented，平台交付待验收 | 独立消费公开契约的 C++ full 2D/3D、Quick Design 已实现；保留 macOS/Windows 可见桌面交付、默认切换与消费者退役要求 |
+| X10 | implemented，平台交付待验收 | 独立消费公开契约的 C++ full 2D/3D、Quick Design 已实现；0.2 已完成 C++ 默认切换和 Python 数值消费者退役；macOS/Windows 可见桌面交付仍需对应版本的验收证据 |
 | X11 | macOS/Windows 原生 CI 数值对照通过，整体验收未关闭 | 保留同门槛完整字段/状态/物理证据对照；补齐可见桌面应用与必要性能证据后再关闭 |
 | X20 | planned | 确定 OpenFOAM 发行版、模型与数据映射规格 |
 | X21 | planned | 实现真实 OpenFOAM 求解适配 |

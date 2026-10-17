@@ -8,7 +8,7 @@ The GUI, CLI, and multi-condition optimizer share `prepare_case → run_case →
 
 The three-module Python mainline, M-A, is complete. The extension scope, M-B, stays incomplete. The original task graph contained 45 nodes: 37 complete, 7 planned, and 1 blocked by dependencies. These counts are a historical snapshot. The table includes later additions.
 
-A local kernel integration does not complete an full extension node or change its acceptance conditions. The [fixed history index](history/README.en.md#2026-09-18-历史材料整理) keeps requirements, node states, reviews, and failure evidence. See [architecture](architecture.md) for current responsibilities and [schemas](../schemas/three_module_v1/README.md) for public file contracts.
+A local kernel integration does not complete a full extension node or change its acceptance conditions. The [fixed history index](history/README.en.md#2026-09-18-历史材料整理) keeps requirements, node states, reviews, and failure evidence. See [architecture](architecture.md) for current responsibilities and [schemas](../schemas/three_module_v1/README.md) for public file contracts.
 
 | V0.1 requirement | Currently inspectable scope | Undelivered or awaiting acceptance |
 | --- | --- | --- |
@@ -52,7 +52,7 @@ Unresolved H30 definitions block only their corresponding extended metrics. Do n
 | Node | State | Delivery and acceptance conditions |
 | --- | --- | --- |
 | H30 | planned | Define h/Re/Nu/f/PEC, area, temperature difference, friction-factor convention, reference basis, available inputs, and metric evidence. |
-| X10 | implemented. Platform delivery awaits acceptance | C++ full 2D/3D and Quick Design independently consume public contracts. Visible desktop delivery, default selection changes, and consumer retirement stay required. |
+| X10 | implemented. Platform delivery awaits acceptance | C++ full 2D/3D and Quick Design independently consume public contracts. Version 0.2 completed C++ default selection and Python numerical consumer retirement. Visible desktop delivery still needs evidence for the delivered version. |
 | X11 | macOS/Windows native numerical CI comparison passed. Overall acceptance open | Keep complete field/state/physical comparisons at unchanged thresholds. Add visible desktop and required performance evidence before closure. |
 | X20 | planned | Select an OpenFOAM distribution and define model/data mappings. |
 | X21 | planned | Implement a real OpenFOAM solver adapter. |

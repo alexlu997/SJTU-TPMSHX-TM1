@@ -232,7 +232,7 @@ Choose defaults from qualified complete results, not property-call microbenchmar
 | Model-h and true-h loops | Full solves and direct numerical tests | Shared core has equivalent recorded physics and required distinct schemes; move tests before deleting exclusive loops. |
 | Temperature kernels | Quick Design, standalone calls, true-h warm-up, single-A and research consumers | Migrate each actual consumer with its physical meaning and acceptance. Keep required operations while those consumers remain. |
 | SIMPLE 2D/3D kernels | Complete flow solves and standalone contracts | Keep dimension-specific operations. Only replace duplicated control after both consumers pass. |
-| Python numerical backend | Version 0.1 reference; GUI/CLI retain Python interfaces | Retire under the 0.2 scope. Migrate required checks to C++ and independent audits. |
+| Python numerical backend | Version 0.1 reference; GUI/CLI retain Python interfaces | Retired in 0.2. Required checks use C++ and independent audits. |
 | Historical file readers | Saved cases, results, sessions, exports and optimization records | Keep valid reads and definition versions; report incompatible reruns explicitly. |
 | Build and binding lists | Native C/C++ callers, ctypes layouts and platform packages | Update symbols, ownership, versions and packaged artifacts in the same change as the interface. |
 
@@ -271,6 +271,7 @@ Use CO2-air, sCO2-water, water-air and water-CO2 as the primary paired families 
 Keep air-air model-h controls and the existing 30x10x10 partial-port true-h and temperature-SOU cases.
 Add A/B swaps, nonuniform grids, partial ports, supported directions and valid domain-boundary cases at the relevant nodes.
 Identify each numerical candidate explicitly and compare it to a qualified reference for the same physics.
+Version 0.2 executes C++ only. Python backend comparisons remain historical evidence.
 Do not calculate a backend speed ratio across different algorithms.
 
 For optimizations and backend comparisons of the same discrete equations, keep these limits:
@@ -284,7 +285,7 @@ For optimizations and backend comparisons of the same discrete equations, keep t
 Use the saved inlet speed `u_in` of that side.
 Compare matched physical inputs, grids and stopping tolerances.
 Keep the existing checks for intermediate fields and physical balances.
-Require each backend's existing physical gates independently.
+Require each compared result to pass its existing physical gates independently.
 Reference iteration studies use tighter stopping tolerances.
 Apply section 5 to their scalar sensitivity and report the local field differences.
 
@@ -295,6 +296,10 @@ Measure save/reload time and checkpoint memory/disk cost.
 Do not require bitwise equality across different floating-point execution orders; use the accepted numerical criteria and record the differences.
 
 ## 9. Decisions that need evidence
+
+Version 0.2 retains `legacy_h_fou` as the default and keeps explicit `temperature_fou` and `temperature_sou` selection.
+Current mesh and reference evidence does not support one replacement default for all physical routes.
+Convergence and physical-balance passes do not replace accuracy checks against a qualified reference.
 
 N11 uses the accepted targets in section 5.
 A change to these targets or property approximation limits needs evidence and an engineering decision.

@@ -4,7 +4,7 @@
 
 [中文](quick_design.zh-CN.md) | [English](quick_design.md)
 
-模式为 `metadata.mode=quick_design`，复合模型为 `plug_ltne_analytic_dp_v1`。Python 和 C++ 都支持 `quick_design_v1` 能力。`FieldResult.backend_id` 将所选后端记录为 `python` 或 `cpp`。这是既有的给定速度 LTNE 尺寸设计近似，采用入口状态的解析 D-F 压损，不运行 SIMPLE。原有 sCO2 代表 Pr 限制仍包含在输出来源警告中。
+模式为 `metadata.mode=quick_design`，复合模型为 `plug_ltne_analytic_dp_v1`。0.2 仅使用 C++ 执行 `quick_design_v1` 能力。新结果记录 `FieldResult.backend_id=cpp`；历史结果保留原有 `python` 或 `cpp` 标识，并继续可读。这是既有的给定速度 LTNE 尺寸设计近似，采用入口状态的解析 D-F 压损，不运行 SIMPLE。原有 sCO2 代表 Pr 限制仍包含在输出来源警告中。
 
 <a id="prepared-input"></a>
 

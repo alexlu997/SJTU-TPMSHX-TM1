@@ -8,6 +8,8 @@
 
 ## 用途
 规定二维非对称孔隙率的分配和输运约束。当前共享几何入口为 `models/asym_split.py`。流体和偏移的适用范围仍受 `docs/architecture.md` 约束。
+0.2 通过 `prepare_case → run_case → evaluate` 调用原生完整二维驱动。准备态保存总孔隙率和几何分配比例，原生驱动据此生成两侧孔隙率。
+[0.1 规范](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/v0.1.0/openspec/specs/asymmetric-porosity-2d/spec.zh-CN.md)保留已退役 Python 入口和核的原始要求。
 
 <a id="requirements"></a>
 
@@ -16,13 +18,13 @@
 <a id="requirement-2d-ltne-kernel-accepts-distinct-per-side-void-fractions"></a>
 
 ### 要求：二维 LTNE 核接受不同的两侧孔隙率
-二维 LTNE 求解器 `solve_full_domain` 必须接受不同的两侧单通道孔隙率 ε_A 和 ε_B。两个 Gauss-Seidel 核都必须接收这两个值：字典序 `_gs_full_chunk` 和红黑序 `_gs_full_chunk_rb`。各流体的对流输运必须使用其自身通道孔隙率加权。当 ε_A ≠ ε_B 时，不得抛出 `NotImplementedError`。
+在所选物理路线支持非对称的前提下，原生二维热驱动必须使用不同的两侧单通道孔隙率 ε_A 和 ε_B。各流体的对流输运必须使用其自身通道孔隙率加权。已退役的 Python 核名称不再表示当前入口。
 
 <a id="scenario-asymmetric-split-solves-without-error"></a>
 
 #### 场景：接受非对称分配
-- **当** 调用 `solve_full_domain`，且 ε_A ≠ ε_B；每个单元均满足 ε_A + ε_B = ε，绝对容差为 1e-9
-- **则** 接受该分配，两个核都使用各侧不同的孔隙率；原有收敛和失败报告仍然适用
+- **当** 受支持的二维准备态满足 ε_A ≠ ε_B，且每个单元均满足 ε_A + ε_B = ε，绝对容差为 1e-9
+- **则** `run_case` 使用各侧不同的孔隙率；原有收敛和失败报告仍然适用
 
 <a id="scenario-per-side-weighting-is-applied-in-the-kernel"></a>
 
@@ -32,14 +34,14 @@
 
 <a id="scenario-over-allocation-and-under-allocation-are-rejected"></a>
 
-#### 场景：拒绝过量或不足的分配
-- **当** 任一单元的 abs(ε_A + ε_B − ε) 超过 1e-9，或仅提供一侧孔隙率
-- **则** `solve_full_domain` 抛出 `ValueError`；不得因重复减半而损失一半输运能力
+#### 场景：拒绝无效准备态分配
+- **当** 准备态分配比例非有限、超出 0 < split_A < 1，或声明为对称时不等于 0.5
+- **则** 原生执行抛出 `ValueError`；两侧孔隙率必须由同一总 ε 和分配比例生成，不得再次减半
 
 <a id="requirement-symmetric-input-is-bit-identical-to-the-legacy-path"></a>
 
-### 要求：对称输入与原有路径逐位一致
-对称情况满足 ε_A = ε_B = ε/2，即偏移 δ=0。此时，输出场必须与原有单一 `eps_f_arr` 路径逐位一致。二维对称路径等值检查和 Shanghai 回归检查继续生效。
+### 要求：对称输入保留现有回归门槛
+对称情况满足 ε_A = ε_B = ε/2，即偏移 δ=0；原生分配比例必须为 0.5。现有原生对称和 Shanghai 回归检查保留其数值门槛。与 Python 单一 `eps_f_arr` 路径逐位比较的原始要求保留在 0.1 历史规范中。
 
 <a id="scenario-zero-offset-preserves-symmetric-path-parity"></a>
 
@@ -61,19 +63,19 @@
 <a id="requirement-2d-pipeline-derives-per-side-porosity-from-the-offset-δ"></a>
 
 ### 要求：二维流水线根据偏移 δ 计算两侧孔隙率
-二维前处理必须根据等值面偏移 δ（`cfg['delta_levelset']`）计算 ε_A 和 ε_B。其几何分配比例必须与三维前处理相同。运行时将准备好的孔隙率传给 `solve_full_domain`。当 δ=0 时，核内必须对完整 ε 使用默认对称分配；上游不得预先减半。
+二维前处理必须根据等值面偏移 δ（`ComputeConfig.geometry.delta_levelset`）计算分配比例，并与三维前处理使用相同的几何分配比例。原生完整二维驱动接收准备好的总 ε 和分配比例；δ=0 时，各侧只能对总 ε 减半一次。
 
 <a id="scenario-nonzero-offset-drives-an-asymmetric-run"></a>
 
 #### 场景：非零偏移驱动非对称计算
-- **当** `cfg['delta_levelset'] ≠ 0`
+- **当** `ComputeConfig.geometry.delta_levelset ≠ 0`
 - **则** 流水线计算 (ε_A, ε_B) = (ε·split_A, ε·(1−split_A))，二维计算全程使用两侧非对称孔隙率
 
 <a id="scenario-zero-offset-uses-the-symmetric-path"></a>
 
 #### 场景：零偏移采用对称路径
-- **当** `cfg['delta_levelset'] = 0`
-- **则** 不提供两侧覆盖值；核内仅计算一次 ε/2，并将同一数组用于两侧
+- **当** `ComputeConfig.geometry.delta_levelset = 0`
+- **则** 准备态分配比例为 0.5，原生执行对各侧使用 ε/2，不再乘一次 0.5
 
 <a id="requirement-2d-duty-extraction-weights-mass-flux-by-per-side-void"></a>
 

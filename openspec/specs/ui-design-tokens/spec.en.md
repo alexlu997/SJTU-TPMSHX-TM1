@@ -40,7 +40,7 @@ Navigation and a few floating elements MUST use shared gradients and thin border
 
 #### Scenario: Transient feedback
 - **WHEN** a completion notice appears or a result highlight is triggered again
-- **THEN** displacement and opacity change together. The hold phase stays still. Temporary effects are released afterward. An previous animation cannot clear a new effect.
+- **THEN** displacement and opacity change together. The hold phase stays still. Temporary effects are released afterward. A previous animation cannot clear a new effect.
 
 #### Scenario: Form transitions
 - **WHEN** the parameter page changes, the rail expands, or computation details expand
@@ -52,7 +52,7 @@ Navigation and a few floating elements MUST use shared gradients and thin border
 - **WHEN** a visible window animates parameters, notices, highlights, or preset 3D views
 - **THEN** an independent 8 ms precise timer uses actual elapsed time. Late frames do not create a backlog. Cancellation or destruction stops the driver. Static notice holds suspend frequent wakeups. Timer intervals do not show the displayed frame rate.
 - **AND** high-refresh acceptance records window scale, display refresh rate, drawing intervals, and first-response latency. Timer callbacks and offscreen tests do not replace displayed frame-rate evidence.
-- **AND** 3D mouse rotation and preset transitions use VTK's native interaction budget. They adaptively reduce volume sampling detail during motion. After motion, they restore the original static budget and redraw. Computation fields and complete result exports stay unchanged. Mouse dragging cancels an previous preset transition. Hidden or closed views do not request more rendering.
+- **AND** 3D mouse rotation and preset transitions use VTK's native interaction budget. They adaptively reduce volume sampling detail during motion. After motion, they restore the original static budget and redraw. Computation fields and complete result exports stay unchanged. Mouse dragging cancels a previous preset transition. Hidden or closed views do not request more rendering.
 
 ### Requirement: Workbench parameter rail and canvas focus
 The workbench MUST place parameters on the left and the canvas on the right. Computation status and result summary MUST appear below the canvas. The parameter rail allows width adjustment. Its title control or `Ctrl+\` collapses it to an icon rail with Geometry, Boundary, and Solver entries. Expansion MUST reuse the original widgets. It keeps values, active group, scroll position, and the previous expanded width. Focus and `F` MUST affect the current canvas. They temporarily hide parameters and the result summary. Exit restores the previous expansion states. Rail collapse and focus mode MUST keep the computation status card's Cancel control.

@@ -115,7 +115,7 @@ SOU recipe 2 在该阻尼普通映射上使用六样本 Anderson 候选。选择
 现有实际执行设置查询记录每次热调用使用的控制参数。
 积分 model-h 路线在流场执行前拒绝这些 EOS 专用设置。
 
-Python 绑定在释放前复制查询视图。默认控制记录 `backend_version=full_2d_v3` 或 `full_3d_v2`。显式控制使用 `full_2d_v4` 或 `full_3d_v3`。候选结果采用可移植 `thermal_mode=conservative_energy`。`boundary_fluxes.true_h` 包含既有真实 h、入口 h、质量数组，以及算法／版本、六面 `boundary_power`、W/m 或 W 单位和完整性标志。各侧热负荷为 `-sum(boundary_power)`。
+Python 绑定在释放前复制查询视图，并在 `backend_version` 中记录实际调用的入口。当前运行库使用含 CPU 线程限制的 `full_2d_v6` 或 `full_3d_v5`。保留的旧运行库在支持所请求控制量时，可以使用较早的能量或迭代控制入口。候选结果采用可移植 `thermal_mode=conservative_energy`。`boundary_fluxes.true_h` 包含既有真实 h、入口 h、质量数组，以及算法／版本、六面 `boundary_power`、W/m 或 W 单位和完整性标志。各侧热负荷为 `-sum(boundary_power)`。
 
 SOU 在出口面重构物理焓，因此旧 FOU 单元焓归约不能提供该热量。面证据缺失或无效时指标不可用，不进行替代重构。最终流动更新后的压力和速度，与已接受或限预算的最后热状态保持区分。二维候选保留 true-h 单位深度约定，不生成 Richardson 证据。
 
@@ -282,6 +282,10 @@ SIMPLE 接口持有逐实例压力缓存，并保留原 F2、出口、热启动�
 <a id="migration-stages-and-remaining-acceptance-gates"></a>
 
 ## 迁移阶段与剩余验收门
+
+下表记录原迁移阶段及其验收要求。0.2 已退役 Python 数值执行，所有公开求解路线使用 C++。
+历史对照保留原结果；当前执行与恢复能力见[架构说明](architecture.zh-CN.md)。
+平台 CI、可见桌面、性能和实验精度仍分别验收。
 
 | 阶段 | 实现边界 | 继续推进所需证据 |
 | --- | --- | --- |

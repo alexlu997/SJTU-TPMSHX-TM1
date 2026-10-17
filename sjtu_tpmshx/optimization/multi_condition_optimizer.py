@@ -57,7 +57,7 @@ def _bo_versions():
 def _propose_bo(X, Y, lower, upper, ref_point, *, method, q_batch, seed):
     """Fit independent standardized outputs, then optimize a log acquisition.
 
-    BoTorch 0.17.2 APIs; inputs are normalized with fixed design bounds and
+    BoTorch 0.18.1 APIs; inputs are normalized with fixed design bounds and
     posterior outputs retain the original (G, -C) units. Fit/selection errors
     propagate: an unfitted GP or another search method is never substituted.
     """
