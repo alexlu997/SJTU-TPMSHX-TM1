@@ -4,7 +4,9 @@
 
 Version 0.2 uses C++ as the only numerical backend. Python keeps the GUI,
 CLI, preparation, model resources, optimization, result mapping and postprocessing.
-The public `ComputeConfig` flow supports full 2D/3D and Quick Design.
+The public `ComputeConfig` flow supports full 2D/3D.
+Quick Design uses `prepare_quick_design` with its own operating-point input.
+It then calls the same `run_case` and `evaluate` APIs.
 Python numerical iterators, Numba/PyAMG dependencies and Python-only research
 entries are retired. Saved research cases cannot execute; saved results remain readable.
 The energy choices `legacy_h_fou`, `temperature_fou` and `temperature_sou` remain.
