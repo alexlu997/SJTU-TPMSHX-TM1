@@ -514,7 +514,9 @@ export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_TH
 PowerShell 使用同样的 pytest 参数，以 `$env:变量名=值` 设置上述环境变量，
 并以 `& $tm1Python` 调用解释器。测试前必须提供匹配的原生库。
 CI 快测按完整模块分到两个独立 runner，每片固定两个 worker，使用 `worksteal` 平衡剩余测试。
-每个 worker 的 BLAS/OMP 单线程；完整 integration 使用第三个 runner 并行执行。
+每个 worker 的 BLAS/OMP 单线程。`fast-1` 的两个 worker 结束后，同一作业串行执行完整 integration。
+集成测试使用独立 pytest 进程、manifest 和 JUnit 报告；快测失败后仍执行，取消工作流时停止。
+三个平台/Python 组合分别复用各自环境，减少三个作业及其重复安装。
 现有测试辅助脚本继续保留；`run_tests_fast.ps1` 只提供开发反馈，
 其 `not heavy` 子集与 CI 快测不同。两份 PowerShell 脚本默认严格检查基础锁。
 已有 Windows BO 环境时，显式使用
@@ -538,7 +540,7 @@ PR 按 [明确的路径清单](scripts/ci_scope.py) 选择检查层级：
 - `full`：求解器、模型、公共接口、依赖、工作流和所有未列出的路径。运行完整矩阵。
 
 main 和手动触发始终使用 `full`。重命名同时检查旧、新路径；未知或空的变更集合使用完整矩阵。
-完整矩阵有 37 个作业。较轻 PR 层级不能作为完整 CI 耗时或数值研究验收。
+完整矩阵有 29 个作业。较轻 PR 层级不能作为完整 CI 耗时或数值研究验收。
 物理变更仍须完成其要求的扩展数值研究；常规 CI 不替代该证据。
 
 `pyproject.toml` 的 `[tool.mypy].files` 显式列出 19 个类型检查文件：覆盖配置、控制器、CLI、统一工作流、当前
@@ -588,7 +590,7 @@ Python 数值对照迁移为独立公式／离散账本、制造解、组件重�
 
 每个平台调用 [原生工作流](.github/workflows/native.yml)，用 Python 3.13 构建一次原生库并运行独立 C/C++ 调用程序。
 原生库不链接 Python 运行时。macOS 使用 Python 3.13 测试；Windows 保留 Python 3.12 和 3.13 两套测试。
-分片在本平台构建完成后启动，不等待其他平台。原生、快测和集成分片共同使用本轮工作流及源码产生的
+分片在本平台构建完成后启动，不等待其他平台。原生、快测和集成测试共同使用本轮工作流及源码产生的
 `native-build-<平台>` artifact。归档保留可执行权限，包含运行库、调用程序和许可声明。
 CoolProp 精确缓存键绑定平台、架构、Python 3.13、托管工具链镜像版本、原生依赖锁和构建脚本。
 项目 C++ 和模型系数每轮重新构建；缓存命中仍须完成独立调用验证。
@@ -597,7 +599,7 @@ CoolProp 精确缓存键绑定平台、架构、Python 3.13、托管工具链镜
 包含 JUnit 和 `native-manifest`。以上 artifact 均保留 7 天。
 原生日志保留最慢 20 项和 skip 原因。
 
-快测和集成日志保留最慢 30 项和 skip 原因。每片将 JUnit 与 collection manifest 保存为
+快测和集成日志保留最慢 30 项和 skip 原因。各测试组将 JUnit 与 collection manifest 分别保存为
 `test-reports-<平台>-py<版本>-<fast-0|fast-1|integration>` artifact，保留 7 天。
 manifest 附带各 pytest 进程的独立 RSS 峰值；
 进程峰值不能相加当作同期总峰值，统计不覆盖普通子进程。
@@ -611,7 +613,7 @@ BO 不允许跳过测试；集成允许已记录的单项跳过，但全跳过�
 比较速度时区分快测、集成和整个 job，并使用相同平台的基准，不据本地耗时承诺 CI 提速。
 完整验收的 skip 须保留具体原因，不能当作被跳过能力已经通过。最小后处理 CI 使用独立的
 `requirements/postprocess.txt` 环境，并消费另一完整环境生成的真实 2D/3D
-结果文件。macOS 集成作业将公开算例的两个结果及指标通过 `real-file-handoff`
+结果文件。macOS 集成步骤将公开算例的两个结果及指标通过 `real-file-handoff`
 传给 Linux 最小环境，保留 7 天。该交接不包含私有数据。配置不等于实际 CI 通过。
 
 ## 协作与合并
