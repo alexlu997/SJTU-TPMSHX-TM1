@@ -13,7 +13,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tier: ${{ steps.scope.outputs.tier }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Check document links and project commands
+        run: python scripts/check_docs.py
+      - name: Select required checks
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          tier=$(python scripts/ci_scope.py select --event "$EVENT_NAME" --base "$BASE_SHA" --head "$HEAD_SHA")
+          echo "tier=$tier" >> "$GITHUB_OUTPUT"
+
   native:
+    needs: scope
+    if: needs.scope.outputs.tier != 'docs'
     name: native (${{ matrix.os }})
     strategy:
       fail-fast: false
@@ -22,11 +45,12 @@ jobs:
     uses: ./.github/workflows/native.yml
     with:
       os: ${{ matrix.os }}
+      tier: ${{ needs.scope.outputs.tier }}
 
   tests:
-    # Keep the existing required check names; BO is now enforced by these gates.
+    # Keep the required check names for every CI tier.
     name: tests (${{ matrix.os }}, ${{ matrix.python }})
-    needs: [bo-tests, native, minimal-postprocess]
+    needs: [scope, bo-tests, native, minimal-postprocess]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -41,35 +65,49 @@ jobs:
           - os: windows-2022
             python: "3.13"
     steps:
-      - name: Require application, native, BO and offline checks to succeed
+      - uses: actions/checkout@v7
+      - name: Require the expected jobs for this tier
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
-        run: |
-          python - <<'PY'
-          import json, os
-          failed = {name: job['result'] for name, job in json.loads(os.environ['NEEDS_JSON']).items()
-                    if job['result'] != 'success'}
-          if failed:
-              raise SystemExit(f'Required test jobs did not succeed: {failed}')
-          PY
-      - uses: actions/checkout@v7
+        run: python scripts/ci_scope.py gate --tier '${{ needs.scope.outputs.tier }}' --stage summary
       - uses: actions/download-artifact@v8
+        if: needs.scope.outputs.tier != 'docs'
         with:
           pattern: test-reports-${{ matrix.os }}-py${{ matrix.python }}-fast-*
           path: .cache/ci-shards
       - uses: actions/download-artifact@v8
+        if: needs.scope.outputs.tier == 'full'
         with:
           pattern: native-dependencies-${{ matrix.os }}-py${{ matrix.python }}-shard-*
           path: .cache/ci-shards
-      - name: Require complete and disjoint application and native coverage
-        run: >-
-          python scripts/check_ci_shards.py
-          .cache/ci-shards/test-reports-${{ matrix.os }}-py${{ matrix.python }}-fast-0/fast-manifest
-          .cache/ci-shards/test-reports-${{ matrix.os }}-py${{ matrix.python }}-fast-1/fast-manifest
-          --covered-by
-          .cache/ci-shards/native-dependencies-${{ matrix.os }}-py${{ matrix.python }}-shard-*/native-manifest
+      - uses: actions/download-artifact@v8
+        if: needs.scope.outputs.tier != 'docs'
+        with:
+          name: bo-test-reports-${{ matrix.os }}-py${{ matrix.python }}
+          path: .cache/ci-shards/bo
+      - uses: actions/download-artifact@v8
+        if: needs.scope.outputs.tier != 'docs'
+        with:
+          name: test-reports-${{ matrix.os }}-py${{ matrix.python }}-integration
+          path: .cache/ci-shards/integration
+      - name: Require complete coverage and platform reports
+        if: needs.scope.outputs.tier != 'docs'
+        env:
+          CI_TIER: ${{ needs.scope.outputs.tier }}
+        run: |
+          if [[ "$CI_TIER" == full ]]; then
+            coverage=(--covered-by .cache/ci-shards/native-dependencies-${{ matrix.os }}-py${{ matrix.python }}-shard-*/native-manifest)
+          else
+            coverage=(--omit-modules sjtu_tpmshx/tests/native/_ci_suite.txt)
+          fi
+          python scripts/check_ci_shards.py \
+            .cache/ci-shards/test-reports-${{ matrix.os }}-py${{ matrix.python }}-fast-0/fast-manifest \
+            .cache/ci-shards/test-reports-${{ matrix.os }}-py${{ matrix.python }}-fast-1/fast-manifest \
+            "${coverage[@]}" --bo-report .cache/ci-shards/bo --integration-report .cache/ci-shards/integration
 
   bo-tests:
+    needs: scope
+    if: needs.scope.outputs.tier != 'docs'
     strategy:
       fail-fast: false
       matrix:
@@ -138,6 +176,7 @@ jobs:
         shell: bash
         run: >-
           "$CI_PYTHON" -m pytest sjtu_tpmshx/tests/test_multi_condition_optimizer.py -q -ra
+          -p sjtu_tpmshx.tests.ci_shard --ci-manifest=.cache/ci/bo-manifest
           --timeout=600 --timeout-method=thread
           --durations=10 --junitxml=.cache/ci/bo.xml
       - name: Save BO test outcomes and timings
@@ -145,12 +184,13 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: bo-test-reports-${{ matrix.os }}-py${{ matrix.python }}
-          path: .cache/ci/bo.xml
+          path: .cache/ci/
           include-hidden-files: true
           retention-days: 7
 
   minimal-postprocess:
-    needs: native
+    needs: [scope, native]
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -161,25 +201,36 @@ jobs:
       TM1_REAL_HANDOFF_DIR: .cache/real-file-handoff
     steps:
       - uses: actions/checkout@v7
+      - name: Require the expected native result
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: python scripts/ci_scope.py gate --tier '${{ needs.scope.outputs.tier }}' --stage minimal
       - uses: actions/setup-python@v7
+        if: needs.scope.outputs.tier != 'docs'
         with:
           python-version: '3.13'
       - uses: actions/download-artifact@v8
+        if: needs.scope.outputs.tier != 'docs'
         with:
           name: real-file-handoff
           path: .cache/real-file-handoff
       - name: Create isolated minimal environment
+        if: needs.scope.outputs.tier != 'docs'
         run: |
           python -m venv "$RUNNER_TEMP/tm1-postprocess"
           echo "CI_PYTHON=$RUNNER_TEMP/tm1-postprocess/bin/python" >> "$GITHUB_ENV"
       - name: Install exact minimal dependencies
+        if: needs.scope.outputs.tier != 'docs'
         run: '"$CI_PYTHON" -m pip install -r requirements/postprocess.txt'
       - name: Check minimal environment
+        if: needs.scope.outputs.tier != 'docs'
         run: |
           "$CI_PYTHON" -m sjtu_tpmshx.runs.tools.check_locked_environment requirements/postprocess.txt
           "$CI_PYTHON" -m pip check
           "$CI_PYTHON" -m sjtu_tpmshx.runs.tools.check_three_module_environment
       - name: Run file and offline metric checks from source
+        if: needs.scope.outputs.tier != 'docs'
         run: '"$CI_PYTHON" -m pytest sjtu_tpmshx/tests/io_tm1 sjtu_tpmshx/tests/postprocess_tm1 -q'
       - name: Evaluate real 2D and 3D files in the minimal environment
+        if: needs.scope.outputs.tier != 'docs'
         run: '"$CI_PYTHON" -m pytest sjtu_tpmshx/tests/integration_tm1/test_minimal_install.py -q'
