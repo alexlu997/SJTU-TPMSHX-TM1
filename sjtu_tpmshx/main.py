@@ -323,23 +323,26 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             5000)
 
     def _schedule_3d_preinit(self):
-        """Pre-initialise PyVistaQt panel 500 ms after window.show() so the
-        first click on '3D View' tab is responsive. Runs on main thread but
-        deferred → UI is already visible, user sees brief status blip."""
+        """Prepare optional 3D imports before creating the panel on the GUI thread."""
         from PySide6.QtCore import QTimer
+        from sjtu_tpmshx.ui.background_tasks import prepare_3d
+
         def _preinit():
-            if getattr(self, 'canvas_3d', None) is not None:
+            if self.canvas_3d is not None or getattr(self, '_close_pending', False):
                 return
             self.statusBar().showMessage("Preparing 3D viewer…")
-            QApplication.processEvents()
-            try:
-                self._lazy_init_3d_panel()
-            except Exception as e:
-                self.statusBar().showMessage(
-                    f"3D viewer init deferred (will retry on first click): {e}",
-                    5000)
-                return
-            self.statusBar().showMessage("3D viewer ready.", TOAST_MS_BRIEF)
+            def ready():
+                try:
+                    self._lazy_init_3d_panel()
+                    if not getattr(self, '_close_pending', False) and self._vis3d_import_error:
+                        self.statusBar().showMessage(
+                            f"3D viewer unavailable: {self._vis3d_import_error}", 5000)
+                except Exception as exc:
+                    self.statusBar().showMessage(
+                        f"3D viewer init deferred (will retry on first click): {exc}", 5000)
+
+            prepare_3d(self, ready)
+
         QTimer.singleShot(500, self, _preinit)
 
     def _schedule_tpms_geometry_prewarm(self):
@@ -768,7 +771,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
                     event.ignore()
                     return
         # Keep every task owner alive until terminal delivery and worker exit.
-        # A JIT sweep/candidate batch may exceed any fixed timeout.
+        # Native computation or view imports can exceed a fixed timeout.
         opt_worker = getattr(self, '_opt_worker', None)
         qd_dialog = getattr(self, '_qd_dialog', None)
         qd_worker = getattr(qd_dialog, '_qd_worker', None)
@@ -782,7 +785,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             if qd_worker is not None:
                 qd_dialog.close()
             self.setEnabled(False)
-            self.statusBar().showMessage("正在关闭 — 等待计算、优化和快速设计安全结束…")
+            self.statusBar().showMessage("正在关闭 — 等待当前任务安全结束…")
             if not hasattr(self, '_close_retry_timer'):
                 from PySide6.QtCore import QTimer
                 self._close_retry_timer = QTimer(self)
@@ -1251,17 +1254,9 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
     _MAX_RECENT_RUNS = 5
 
     def _lazy_init_3d_panel(self):
-        """Create PyVistaQt panel on first 3D tab click. ~1-2 s hit amortised.
-
-        2026-05-20 UI sweep: added reentrance + already-init guards.
-        Previously a rapid double-click on the 3D tab (or a tab switch
-        while ``ThreeDVisPanel()`` was mid-construction) could spawn a
-        second ``ThreeDVisPanel`` whose ``replaceWidget`` call no-op'd
-        (placeholder already cleared by the first call), leaving the
-        first real panel orphaned in the layout while ``self.canvas_3d``
-        pointed at the second instance — a leaked VTK GL context plus a
-        layout-stale widget.
-        """
+        """Create the prepared 3D panel on the GUI thread."""
+        if getattr(self, '_close_pending', False):
+            return
         if getattr(self, '_vis3d_import_error', None):
             return      # Offscreen / disabled — leave placeholder
         if getattr(self, 'canvas_3d', None) is not None:

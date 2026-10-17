@@ -377,9 +377,22 @@ class RunControllerMixin:
             card.title.setText("正在显示结果")
             card.cancel_button.setEnabled(False)
             card.pause_button.setEnabled(False)
+        display_started = perf_counter()
+        if self.compute.current_mode() == '3d':
+            from sjtu_tpmshx.ui.background_tasks import prepare_3d
+            prepare_3d(self, lambda: self._present_compute_result(result, display_started))
+        else:
+            self._present_compute_result(result, display_started)
+
+    def _present_compute_result(self, result, display_started):
+        """Publish and render after any required 3D imports finish."""
+        if getattr(self, '_close_pending', False):
+            self._run_provenance = None
+            return
+        if not getattr(self, '_compute_running', False):
+            return
         success = False
         published = False
-        display_started = perf_counter()
         try:
             provenance = getattr(self, '_run_provenance', None)
             if provenance is not None:
@@ -658,8 +671,8 @@ class RunControllerMixin:
         """Restore Compute button and either fade out progress (success) or
         hide immediately (failure). Successful presentation records history.
 
-        Called after terminal publication; stops the UI tickers and restores
-        the Compute action. The orchestrator stays busy until its slots return.
+        Stop the UI tickers and restore Compute after result display finishes.
+        The task-lifetime gate also waits for any import worker to finish.
         """
         if success:
             result = self.cache.get_result()

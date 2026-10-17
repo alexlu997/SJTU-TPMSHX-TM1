@@ -672,6 +672,8 @@ def test_volume_tab_is_lazy_reuses_panel_and_keeps_failed_updates_unavailable(wi
     assert not created
     try:
         window._opt_result_tabs.setCurrentIndex(2)
+        from sjtu_tpmshx.tests.gui_worker_support import _wait_for
+        _wait_for(lambda: not window._opt_3d_loading)
         assert len(created) == 1 and window._opt_3d_ready
         renderer = created[0]
         assert set(renderer.set_fields.call_args.kwargs) == {
