@@ -446,6 +446,7 @@ from PySide6.QtCore import QObject, Slot
 from PySide6.QtWidgets import QApplication
 from sjtu_tpmshx.domain.module_ports import RunControl
 from sjtu_tpmshx.solvers import api
+from sjtu_tpmshx.preprocess.app_modes import quick_design as preparation
 from sjtu_tpmshx.ui.quick_design_panel import _make_worker_class
 
 app = QApplication(['native-qd-worker', '-platform', 'offscreen'])
@@ -514,7 +515,10 @@ def traced_run(case, control):
     assert result.backend_id == 'cpp'
     return result
 
-with patch.object(api, 'run_case', traced_run):
+# A small grid keeps real worker completion below the test deadline.
+with (patch.object(preparation, 'NX', 8),
+      patch.dict(preparation._ARR, cross={**preparation._ARR['cross'], 'ny': 6}),
+      patch.object(api, 'run_case', traced_run)):
     worker.start()
     deadline = time.monotonic() + 50
     while not receiver.finished_count and time.monotonic() < deadline:
@@ -539,7 +543,7 @@ elif termination in ('host_cancel', 'qt_cancel'):
     assert result['termination_reason'] == 'cancelled' and result['partial']
     assert result['all'] == [] and result['best'] is None
 else:
-    assert not receiver.errors and receiver.cancel_count == 0
+    assert not receiver.errors and receiver.cancel_count == 0, (receiver.errors, receiver.cancel_count)
     result, = receiver.results
     assert result['termination_reason'] == 'completed' and not result['partial']
     assert len(result['all']) == 1 and result['all'] == result['feasible']
